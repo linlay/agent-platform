@@ -4,6 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linlay.springaiagw.service.DeltaStreamService;
 import com.linlay.springaiagw.service.LlmService;
 import com.linlay.springaiagw.tool.ToolRegistry;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
@@ -12,6 +15,8 @@ import java.util.Map;
 
 @Component
 public class AgentRegistry {
+
+    private static final Logger log = LoggerFactory.getLogger(AgentRegistry.class);
 
     private final AgentDefinitionLoader definitionLoader;
     private final LlmService llmService;
@@ -34,12 +39,10 @@ public class AgentRegistry {
         this.deltaStreamService = deltaStreamService;
         this.toolRegistry = toolRegistry;
         this.objectMapper = objectMapper;
-        reloadAgents();
+        refreshAgents();
     }
 
     public Agent get(String id) {
-        reloadAgents();
-
         Map<String, Agent> snapshot = agents;
         Agent agent = snapshot.get(id);
         if (agent == null) {
@@ -49,19 +52,24 @@ public class AgentRegistry {
     }
 
     public List<String> listIds() {
-        reloadAgents();
         return agents.keySet().stream().sorted().toList();
     }
 
-    private void reloadAgents() {
+    @Scheduled(fixedDelayString = "${agent.catalog.refresh-interval-ms:10000}")
+    public void refreshAgents() {
         synchronized (reloadLock) {
-            List<AgentDefinition> definitions = definitionLoader.loadAll();
-            Map<String, Agent> updated = new LinkedHashMap<>();
-            for (AgentDefinition definition : definitions) {
-                Agent agent = new DefinitionDrivenAgent(definition, llmService, deltaStreamService, toolRegistry, objectMapper);
-                updated.put(agent.id(), agent);
+            try {
+                List<AgentDefinition> definitions = definitionLoader.loadAll();
+                Map<String, Agent> updated = new LinkedHashMap<>();
+                for (AgentDefinition definition : definitions) {
+                    Agent agent = new DefinitionDrivenAgent(definition, llmService, deltaStreamService, toolRegistry, objectMapper);
+                    updated.put(agent.id(), agent);
+                }
+                this.agents = Map.copyOf(updated);
+                log.debug("Refreshed agents cache, size={}", updated.size());
+            } catch (Exception ex) {
+                log.warn("Failed to refresh agents cache, keep previous snapshot", ex);
             }
-            this.agents = Map.copyOf(updated);
         }
     }
 }

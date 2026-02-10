@@ -8,7 +8,6 @@ COPY libs ./libs
 RUN mvn -B -q -DskipTests dependency:go-offline
 
 COPY src ./src
-COPY agents ./agents
 RUN mvn -B -DskipTests clean package
 
 FROM eclipse-temurin:21-jre-jammy AS running
@@ -17,10 +16,9 @@ WORKDIR /opt/app
 
 ENV JAVA_OPTS="-server -Xms256m -XX:MaxRAMPercentage=60" \
     JAVA_AGENT="" \
-    SPRING_CONFIG_ADDITIONAL_LOCATION="optional:file:/opt/application-local.yml"
+    SPRING_CONFIG_ADDITIONAL_LOCATION="optional:file:/opt/application.yml"
 
 COPY --from=building /workspace/target/springai-agw-0.0.1-SNAPSHOT.jar ./app.jar
-COPY agents ./agents
 
 EXPOSE 8080
 

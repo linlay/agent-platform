@@ -6,6 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class AgentCatalogProperties {
 
     private String externalDir = "agents";
+    private long refreshIntervalMs = 10_000L;
 
     public String getExternalDir() {
         return externalDir;
@@ -13,5 +14,13 @@ public class AgentCatalogProperties {
 
     public void setExternalDir(String externalDir) {
         this.externalDir = externalDir;
+    }
+
+    public long getRefreshIntervalMs() {
+        return refreshIntervalMs;
+    }
+
+    public void setRefreshIntervalMs(long refreshIntervalMs) {
+        this.refreshIntervalMs = refreshIntervalMs;
     }
 }

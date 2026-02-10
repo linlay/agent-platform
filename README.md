@@ -17,8 +17,7 @@
 ├── agents/
 ├── pom.xml
 ├── settings.xml
-├── Dockerfile
-└── docker-compose.yml
+└── Dockerfile
 ```
 
 ## SDK jar 放置方式
@@ -40,21 +39,34 @@ mvn spring-boot:run
 
 默认端口 `8080`。
 
-## Docker Compose 部署
+## Docker Compose 部署（外部目录）
 
-1. 准备环境变量（至少设置 `OPENAI_API_KEY`）：
+请在仓库外（例如 `/opt/1panel/docker/compose/agw-springai-agent`）维护 `docker-compose.yml`，示例：
 
-```bash
-export OPENAI_API_KEY=your_key
+```yaml
+services:
+  springboot:
+    build: ./agw-springai-agent
+    container_name: agw-springai-agent
+    ports:
+      - 9904:8080
+    environment:
+      AGENT_EXTERNAL_DIR: /opt/agents
+      AGENT_REFRESH_INTERVAL_MS: 10000
+      SPRING_CONFIG_ADDITIONAL_LOCATION: optional:file:/opt/application.yml
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    volumes:
+      - ./application.yml:/opt/application.yml:ro
+      - ./agents:/opt/agents:ro
 ```
 
-2. 启动：
+启动：
 
 ```bash
 docker compose up -d --build
 ```
 
-3. 查看日志：
+查看日志：
 
 ```bash
 docker compose logs -f
@@ -68,5 +80,5 @@ docker compose logs -f
 ## agents 目录
 
 - `agents/*.json` 文件名（不含 `.json`）即 `agentId`
-- 请求时会扫描目录并动态生效
-- 可通过 `AGENT_EXTERNAL_DIR` 指定其他目录
+- 服务启动时会先加载一次，之后每 10 秒刷新一次缓存（默认值）
+- 可通过 `AGENT_EXTERNAL_DIR` 指定目录，通过 `AGENT_REFRESH_INTERVAL_MS` 调整刷新间隔

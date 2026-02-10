@@ -9,13 +9,15 @@ spring:
       - optional:file:./application-local.yml
       - optional:file:./config/application-local.yml
       - optional:file:/opt/application-local.yml
+      - optional:file:/opt/application.yml
   ai:
     openai:
       api-key: ${OPENAI_API_KEY:dummy-openai-key}
 
 agent:
   catalog:
-    external-dir: ${AGENT_EXTERNAL_DIR:agents}
+    external-dir: ${AGENT_EXTERNAL_DIR:/opt/agents}
+    refresh-interval-ms: ${AGENT_REFRESH_INTERVAL_MS:10000}
 
 logging:
   level:

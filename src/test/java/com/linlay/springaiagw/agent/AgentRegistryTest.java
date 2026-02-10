@@ -25,7 +25,7 @@ class AgentRegistryTest {
     Path tempDir;
 
     @Test
-    void shouldReloadExternalAgentOnEachLookup() throws IOException {
+    void shouldUseCachedAgentsUntilRefresh() throws IOException {
         AgentCatalogProperties properties = new AgentCatalogProperties();
         properties.setExternalDir(tempDir.toString());
 
@@ -56,11 +56,18 @@ class AgentRegistryTest {
                 }
                 """);
 
+        assertThatThrownBy(() -> registry.get("demoExternal"))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        registry.refreshAgents();
         Agent loaded = registry.get("demoExternal");
         assertThat(loaded.id()).isEqualTo("demoExternal");
         assertThat(registry.listIds()).contains("demoExternal");
 
         Files.delete(dynamicFile);
+        assertThat(registry.listIds()).contains("demoExternal");
+
+        registry.refreshAgents();
         assertThatThrownBy(() -> registry.get("demoExternal"))
                 .isInstanceOf(IllegalArgumentException.class);
     }
