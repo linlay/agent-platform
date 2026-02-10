@@ -3,6 +3,8 @@ package com.linlay.springaiagw.agent;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.linlay.springaiagw.model.ProviderType;
 
+import java.util.List;
+
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class AgentConfigFile {
 
@@ -12,6 +14,7 @@ public class AgentConfigFile {
     private String systemPrompt;
     private Boolean deepThink;
     private AgentMode mode;
+    private List<String> tools;
 
     public String getDescription() {
         return description;
@@ -59,5 +62,13 @@ public class AgentConfigFile {
 
     public void setMode(AgentMode mode) {
         this.mode = mode;
+    }
+
+    public List<String> getTools() {
+        return tools;
+    }
+
+    public void setTools(List<String> tools) {
+        this.tools = tools;
     }
 }

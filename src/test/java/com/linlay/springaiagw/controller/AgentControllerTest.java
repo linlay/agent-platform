@@ -75,6 +75,9 @@ class AgentControllerTest {
                         String userPrompt,
                         String stage
                 ) {
+                    if (stage != null && stage.startsWith("agent-react-step-")) {
+                        return Mono.just("{\"thinking\":\"信息已足够，直接生成最终回答\",\"action\":null,\"done\":true}");
+                    }
                     return completeText(providerType, model, systemPrompt, userPrompt);
                 }
             };
@@ -84,7 +87,7 @@ class AgentControllerTest {
     @Test
     void weatherUseCaseShouldContainThinkingAndDoneEvent() {
         FluxExchangeResult<String> result = webTestClient.post()
-                .uri("/api/agent/demoOps")
+                .uri("/api/agent/demoPlanExecute")
                 .contentType(MediaType.APPLICATION_JSON)
                 .accept(MediaType.TEXT_EVENT_STREAM)
                 .bodyValue(Map.of(
@@ -108,9 +111,33 @@ class AgentControllerTest {
     }
 
     @Test
+    void reactModeShouldStreamFinalAnswerChunks() {
+        FluxExchangeResult<String> result = webTestClient.post()
+                .uri("/api/agent/demoReAct")
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.TEXT_EVENT_STREAM)
+                .bodyValue(Map.of("message", "写一首200字的散文"))
+                .exchange()
+                .expectStatus().isOk()
+                .returnResult(String.class);
+
+        List<String> chunks = result.getResponseBody()
+                .take(1200)
+                .collectList()
+                .block(Duration.ofSeconds(8));
+
+        assertThat(chunks).isNotNull();
+        String joined = String.join("", chunks);
+        assertThat(joined).contains("\"content\":\"这是\"");
+        assertThat(joined).contains("\"content\":\"测试\"");
+        assertThat(joined).contains("\"content\":\"输出\"");
+        assertThat(joined).doesNotContain("\"content\":\"这是测试输出\"");
+    }
+
+    @Test
     void agwWeatherUseCaseShouldContainAgwStandardEvents() {
         FluxExchangeResult<String> result = webTestClient.post()
-                .uri("/api/agw-agent/demoOps")
+                .uri("/api/agw-agent/demoPlanExecute")
                 .contentType(MediaType.APPLICATION_JSON)
                 .accept(MediaType.TEXT_EVENT_STREAM)
                 .bodyValue(Map.of(

@@ -42,7 +42,7 @@ mvn spring-boot:run
 ## 接口测试用例
 
 ```bash
-curl -N -X POST "http://localhost:8080/api/agw-agent/demoThink" \
+curl -N -X POST "http://localhost:8080/api/agw-agent/demoPlanExecute" \
   -H "Content-Type: application/json" \
   -d '{"message":"给我一个微服务网关的落地方案，100字内"}'
 ```
@@ -67,7 +67,8 @@ curl -N -X POST "http://localhost:8080/api/agw-agent/demoThink" \
   "providerType": "BAILIAN",
   "model": "qwen3-max",
   "systemPrompt": "你是算命大师",
-  "deepThink": false
+  "mode": "PLAIN",
+  "tools": []
 }
 ```
 
@@ -82,9 +83,15 @@ curl -N -X POST "http://localhost:8080/api/agw-agent/demoThink" \
 你是算命大师
 请先问出生日期
 """,
-  "deepThink": false
+  "mode": "RE_ACT",
+  "tools": ["bash", "mock_city_datetime"]
 }
 ```
+
+`mode` 支持：
+- `PLAIN`
+- `RE_ACT`（兼容旧值 `THINKING_AND_CONTENT`）
+- `PLAN_EXECUTE`（兼容旧值 `THINKING_AND_CONTENT_WITH_DUAL_TOOL_CALLS`）
 
 ## Bash 工具目录授权
 

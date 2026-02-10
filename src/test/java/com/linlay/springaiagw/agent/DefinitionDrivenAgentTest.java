@@ -24,15 +24,15 @@ class DefinitionDrivenAgentTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
-    void deepThinkingFlowShouldStreamPlannerThinkingBeforeToolCalls() {
+    void planExecuteFlowShouldStreamPlannerThinkingBeforeToolCalls() {
         AgentDefinition definition = new AgentDefinition(
-                "demoThink",
+                "demoPlanExecute",
                 "demo",
                 ProviderType.BAILIAN,
                 "qwen3-max",
                 "你是测试助手",
-                true,
-                AgentMode.THINKING_AND_CONTENT
+                AgentMode.PLAN_EXECUTE,
+                List.of("bash")
         );
 
         LlmService llmService = new LlmService(null, null) {

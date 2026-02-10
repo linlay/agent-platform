@@ -41,7 +41,7 @@ class AgentRegistryTest {
 
         AgentRegistry registry = new AgentRegistry(loader, llmService, deltaStreamService, toolRegistry, new ObjectMapper());
 
-        assertThat(registry.listIds()).contains("demoPlain", "demoThink", "demoOps");
+        assertThat(registry.listIds()).contains("demoPlain", "demoReAct", "demoPlanExecute");
         assertThatThrownBy(() -> registry.get("demoExternal"))
                 .isInstanceOf(IllegalArgumentException.class);
 
@@ -52,7 +52,8 @@ class AgentRegistryTest {
                   "providerType": "BAILIAN",
                   "model": "qwen3-max",
                   "systemPrompt": "你是动态智能体",
-                  "deepThink": true
+                  "mode": "RE_ACT",
+                  "tools": ["bash"]
                 }
                 """);
 

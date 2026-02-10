@@ -25,7 +25,8 @@ class AgentDefinitionLoaderTest {
                   "providerType":"BAILIAN",
                   "model":"qwen3-max",
                   "systemPrompt":"你是运维助手",
-                  "mode":"THINKING_AND_CONTENT_WITH_DUAL_TOOL_CALLS"
+                  "mode":"PLAN_EXECUTE",
+                  "tools":["bash","mock_ops_runbook"]
                 }
                 """);
 
@@ -38,8 +39,8 @@ class AgentDefinitionLoaderTest {
                 .collect(Collectors.toMap(AgentDefinition::id, definition -> definition));
 
         assertThat(byId).containsKey("ops_daily");
-        assertThat(byId.get("ops_daily").mode()).isEqualTo(AgentMode.THINKING_AND_CONTENT_WITH_DUAL_TOOL_CALLS);
-        assertThat(byId.get("ops_daily").deepThink()).isTrue();
+        assertThat(byId.get("ops_daily").mode()).isEqualTo(AgentMode.PLAN_EXECUTE);
+        assertThat(byId.get("ops_daily").tools()).containsExactly("bash", "mock_ops_runbook");
         assertThat(byId.get("ops_daily").systemPrompt()).isEqualTo("你是运维助手");
     }
 
@@ -67,6 +68,6 @@ class AgentDefinitionLoaderTest {
 
         assertThat(byId).containsKey("fortune_teller");
         assertThat(byId.get("fortune_teller").systemPrompt()).isEqualTo("你是算命大师\n请先问出生日期");
-        assertThat(byId.get("fortune_teller").deepThink()).isFalse();
+        assertThat(byId.get("fortune_teller").mode()).isEqualTo(AgentMode.PLAIN);
     }
 }
