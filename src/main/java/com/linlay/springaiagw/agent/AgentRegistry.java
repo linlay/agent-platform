@@ -1,6 +1,7 @@
 package com.linlay.springaiagw.agent;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.linlay.springaiagw.memory.ChatWindowMemoryStore;
 import com.linlay.springaiagw.service.DeltaStreamService;
 import com.linlay.springaiagw.service.LlmService;
 import com.linlay.springaiagw.tool.ToolRegistry;
@@ -24,6 +25,7 @@ public class AgentRegistry {
     private final DeltaStreamService deltaStreamService;
     private final ToolRegistry toolRegistry;
     private final ObjectMapper objectMapper;
+    private final ChatWindowMemoryStore chatWindowMemoryStore;
 
     private final Object reloadLock = new Object();
     private volatile Map<String, Agent> agents = Map.of();
@@ -33,13 +35,15 @@ public class AgentRegistry {
             LlmService llmService,
             DeltaStreamService deltaStreamService,
             ToolRegistry toolRegistry,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            ChatWindowMemoryStore chatWindowMemoryStore
     ) {
         this.definitionLoader = definitionLoader;
         this.llmService = llmService;
         this.deltaStreamService = deltaStreamService;
         this.toolRegistry = toolRegistry;
         this.objectMapper = objectMapper;
+        this.chatWindowMemoryStore = chatWindowMemoryStore;
         refreshAgents();
     }
 
@@ -77,7 +81,14 @@ public class AgentRegistry {
                 List<AgentDefinition> definitions = definitionLoader.loadAll();
                 Map<String, Agent> updated = new LinkedHashMap<>();
                 for (AgentDefinition definition : definitions) {
-                    Agent agent = new DefinitionDrivenAgent(definition, llmService, deltaStreamService, toolRegistry, objectMapper);
+                    Agent agent = new DefinitionDrivenAgent(
+                            definition,
+                            llmService,
+                            deltaStreamService,
+                            toolRegistry,
+                            objectMapper,
+                            chatWindowMemoryStore
+                    );
                     updated.put(agent.id(), agent);
                 }
                 this.agents = Map.copyOf(updated);

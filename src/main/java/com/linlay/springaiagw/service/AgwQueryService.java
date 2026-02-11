@@ -55,7 +55,8 @@ public class AgwQueryService {
                 asStringParam(request.params(), "date"),
                 chatId,
                 chatName,
-                requestId
+                requestId,
+                runId
         );
         return new QuerySession(agent, context, agentRequest);
     }

@@ -9,6 +9,7 @@ public record AgentRequest(
         String date,
         String chatId,
         String chatName,
-        String requestId
+        String requestId,
+        String runId
 ) {
 }

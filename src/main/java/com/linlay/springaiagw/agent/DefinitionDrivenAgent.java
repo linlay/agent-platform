@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.linlay.springaiagw.memory.ChatWindowMemoryStore;
 import com.linlay.springaiagw.model.AgentDelta;
 import com.linlay.springaiagw.model.AgentRequest;
 import com.linlay.springaiagw.model.ProviderType;
@@ -13,8 +14,10 @@ import com.linlay.springaiagw.service.DeltaStreamService;
 import com.linlay.springaiagw.service.LlmService;
 import com.linlay.springaiagw.tool.BaseTool;
 import com.linlay.springaiagw.tool.ToolRegistry;
+import org.springframework.ai.chat.messages.Message;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
 
 import java.util.ArrayList;
@@ -23,6 +26,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
 
 public class DefinitionDrivenAgent implements Agent {
 
@@ -38,6 +43,7 @@ public class DefinitionDrivenAgent implements Agent {
     private final DeltaStreamService deltaStreamService;
     private final ToolRegistry toolRegistry;
     private final ObjectMapper objectMapper;
+    private final ChatWindowMemoryStore chatWindowMemoryStore;
     private final Map<String, BaseTool> enabledToolsByName;
 
     public DefinitionDrivenAgent(
@@ -47,11 +53,23 @@ public class DefinitionDrivenAgent implements Agent {
             ToolRegistry toolRegistry,
             ObjectMapper objectMapper
     ) {
+        this(definition, llmService, deltaStreamService, toolRegistry, objectMapper, null);
+    }
+
+    public DefinitionDrivenAgent(
+            AgentDefinition definition,
+            LlmService llmService,
+            DeltaStreamService deltaStreamService,
+            ToolRegistry toolRegistry,
+            ObjectMapper objectMapper,
+            ChatWindowMemoryStore chatWindowMemoryStore
+    ) {
         this.definition = definition;
         this.llmService = llmService;
         this.deltaStreamService = deltaStreamService;
         this.toolRegistry = toolRegistry;
         this.objectMapper = objectMapper;
+        this.chatWindowMemoryStore = chatWindowMemoryStore;
         this.enabledToolsByName = resolveEnabledTools(definition.tools());
     }
 
@@ -102,18 +120,26 @@ public class DefinitionDrivenAgent implements Agent {
                 normalize(request.message(), "")
         );
 
-        return switch (definition.mode()) {
-            case PLAIN -> plainContent(request);
-            case RE_ACT -> reactFlow(request);
-            case PLAN_EXECUTE -> planExecuteFlow(request);
+        List<Message> historyMessages = loadHistoryMessages(request.chatId());
+        TurnTrace trace = new TurnTrace();
+
+        Flux<AgentDelta> flow = switch (definition.mode()) {
+            case PLAIN -> plainContent(request, historyMessages);
+            case RE_ACT -> reactFlow(request, historyMessages);
+            case PLAN_EXECUTE -> planExecuteFlow(request, historyMessages);
         };
+
+        return flow
+                .doOnNext(trace::capture)
+                .doOnComplete(() -> persistTurn(request, trace));
     }
 
-    private Flux<AgentDelta> plainContent(AgentRequest request) {
+    private Flux<AgentDelta> plainContent(AgentRequest request, List<Message> historyMessages) {
         Flux<String> contentTextFlux = llmService.streamContent(
                         providerType(),
                         model(),
                         systemPrompt(),
+                        historyMessages,
                         request.message(),
                         "agent-plain-content"
                 )
@@ -124,7 +150,7 @@ public class DefinitionDrivenAgent implements Agent {
                 .concatWith(Flux.just(AgentDelta.finish("stop")));
     }
 
-    private Flux<AgentDelta> planExecuteFlow(AgentRequest request) {
+    private Flux<AgentDelta> planExecuteFlow(AgentRequest request, List<Message> historyMessages) {
         String plannerPrompt = buildPlannerPrompt(request);
         log.info("[agent:{}] plan-execute planner prompt:\n{}", id(), plannerPrompt);
         StringBuilder rawPlanBuffer = new StringBuilder();
@@ -134,6 +160,7 @@ public class DefinitionDrivenAgent implements Agent {
                         providerType(),
                         model(),
                         plannerSystemPrompt(),
+                        historyMessages,
                         plannerPrompt,
                         "agent-plan-execute-planner"
                 )
@@ -170,6 +197,7 @@ public class DefinitionDrivenAgent implements Agent {
                                             providerType(),
                                             model(),
                                             systemPrompt(),
+                                            historyMessages,
                                             finalPrompt,
                                             "agent-plan-execute-final"
                                     )
@@ -190,6 +218,7 @@ public class DefinitionDrivenAgent implements Agent {
                                         providerType(),
                                         model(),
                                         systemPrompt(),
+                                        historyMessages,
                                         request.message(),
                                         "agent-plan-execute-fallback"
                                 )
@@ -200,10 +229,10 @@ public class DefinitionDrivenAgent implements Agent {
                 ));
     }
 
-    private Flux<AgentDelta> reactFlow(AgentRequest request) {
+    private Flux<AgentDelta> reactFlow(AgentRequest request, List<Message> historyMessages) {
         return Flux.concat(
                         Flux.just(AgentDelta.thinking("进入 RE-ACT 模式，正在逐步决策...\n")),
-                        Flux.defer(() -> reactLoop(request, new ArrayList<>(), 1))
+                        Flux.defer(() -> reactLoop(request, historyMessages, new ArrayList<>(), 1))
                 )
                 .onErrorResume(ex -> Flux.concat(
                         Flux.defer(() -> {
@@ -215,6 +244,7 @@ public class DefinitionDrivenAgent implements Agent {
                                         providerType(),
                                         model(),
                                         systemPrompt(),
+                                        historyMessages,
                                         request.message(),
                                         "agent-react-fallback"
                                 )
@@ -225,9 +255,14 @@ public class DefinitionDrivenAgent implements Agent {
                 ));
     }
 
-    private Flux<AgentDelta> reactLoop(AgentRequest request, List<Map<String, Object>> toolRecords, int step) {
+    private Flux<AgentDelta> reactLoop(
+            AgentRequest request,
+            List<Message> historyMessages,
+            List<Map<String, Object>> toolRecords,
+            int step
+    ) {
         if (step > MAX_REACT_STEPS) {
-            return finalizeReactAnswer(request, toolRecords, "达到 RE-ACT 最大轮次，转为总结输出。", "agent-react-final-max");
+            return finalizeReactAnswer(request, historyMessages, toolRecords, "达到 RE-ACT 最大轮次，转为总结输出。", "agent-react-final-max");
         }
 
         String reactPrompt = buildReactPrompt(request, toolRecords, step);
@@ -241,6 +276,7 @@ public class DefinitionDrivenAgent implements Agent {
                         providerType(),
                         model(),
                         reactSystemPrompt(),
+                        historyMessages,
                         reactPrompt,
                         stage
                 )
@@ -272,6 +308,7 @@ public class DefinitionDrivenAgent implements Agent {
                                 summaryThinkingFlux,
                                 finalizeReactAnswer(
                                         request,
+                                        historyMessages,
                                         toolRecords,
                                         "决策完成，正在流式生成最终回答。",
                                         "agent-react-final-step-" + step
@@ -282,7 +319,13 @@ public class DefinitionDrivenAgent implements Agent {
                     if (decision.action() == null) {
                         return Flux.concat(
                                 summaryThinkingFlux,
-                                finalizeReactAnswer(request, toolRecords, "未获得可执行 action，转为总结输出。", "agent-react-final-empty")
+                                finalizeReactAnswer(
+                                        request,
+                                        historyMessages,
+                                        toolRecords,
+                                        "未获得可执行 action，转为总结输出。",
+                                        "agent-react-final-empty"
+                                )
                         );
                     }
 
@@ -292,7 +335,7 @@ public class DefinitionDrivenAgent implements Agent {
                     return Flux.concat(
                             summaryThinkingFlux,
                             Flux.fromIterable(execution.deltas()),
-                            reactLoop(request, toolRecords, step + 1)
+                            reactLoop(request, historyMessages, toolRecords, step + 1)
                     );
                 })
         );
@@ -300,6 +343,7 @@ public class DefinitionDrivenAgent implements Agent {
 
     private Flux<AgentDelta> finalizeReactAnswer(
             AgentRequest request,
+            List<Message> historyMessages,
             List<Map<String, Object>> toolRecords,
             String thinkingNote,
             String stage
@@ -312,6 +356,7 @@ public class DefinitionDrivenAgent implements Agent {
                         providerType(),
                         model(),
                         systemPrompt(),
+                        historyMessages,
                         prompt,
                         stage
                 )
@@ -798,8 +843,129 @@ public class DefinitionDrivenAgent implements Agent {
         return normalize(input, "tool").replaceAll("[^a-zA-Z0-9_]", "_").toLowerCase(Locale.ROOT);
     }
 
+    private List<Message> loadHistoryMessages(String chatId) {
+        if (chatWindowMemoryStore == null || !StringUtils.hasText(chatId)) {
+            return List.of();
+        }
+        try {
+            return chatWindowMemoryStore.loadHistoryMessages(chatId);
+        } catch (Exception ex) {
+            log.warn("[agent:{}] failed to load chat history chatId={}", id(), chatId, ex);
+            return List.of();
+        }
+    }
+
+    private void persistTurn(AgentRequest request, TurnTrace trace) {
+        if (chatWindowMemoryStore == null || !StringUtils.hasText(request.chatId())) {
+            return;
+        }
+        try {
+            List<ChatWindowMemoryStore.RunMessage> runMessages = new ArrayList<>();
+            if (StringUtils.hasText(request.message())) {
+                runMessages.add(ChatWindowMemoryStore.RunMessage.user(request.message()));
+            }
+            runMessages.addAll(trace.runMessages());
+            if (runMessages.isEmpty()) {
+                return;
+            }
+            chatWindowMemoryStore.appendRun(
+                    request.chatId(),
+                    resolveRunId(request),
+                    runMessages
+            );
+        } catch (Exception ex) {
+            log.warn("[agent:{}] failed to persist chat turn chatId={}", id(), request.chatId(), ex);
+        }
+    }
+
+    private String resolveRunId(AgentRequest request) {
+        if (StringUtils.hasText(request.runId())) {
+            return request.runId().trim();
+        }
+        return UUID.randomUUID().toString();
+    }
+
     private String normalize(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private final class TurnTrace {
+        private final StringBuilder pendingAssistant = new StringBuilder();
+        private final List<ChatWindowMemoryStore.RunMessage> orderedMessages = new ArrayList<>();
+        private final Map<String, ToolTrace> toolByCallId = new LinkedHashMap<>();
+
+        private void capture(AgentDelta delta) {
+            if (delta == null) {
+                return;
+            }
+
+            if (StringUtils.hasText(delta.content())) {
+                pendingAssistant.append(delta.content());
+            }
+
+            if (delta.toolCalls() != null) {
+                flushAssistantContent();
+                for (SseChunk.ToolCall toolCall : delta.toolCalls()) {
+                    if (toolCall == null || !StringUtils.hasText(toolCall.id())) {
+                        continue;
+                    }
+                    ToolTrace trace = toolByCallId.computeIfAbsent(toolCall.id(), ToolTrace::new);
+                    if (toolCall.function() != null) {
+                        if (StringUtils.hasText(toolCall.function().name())) {
+                            trace.toolName = toolCall.function().name();
+                        }
+                        if (StringUtils.hasText(toolCall.function().arguments())) {
+                            trace.arguments = toolCall.function().arguments();
+                        }
+                    }
+                    orderedMessages.add(ChatWindowMemoryStore.RunMessage.assistantToolCall(
+                            trace.toolName,
+                            trace.toolCallId,
+                            trace.arguments
+                    ));
+                }
+            }
+
+            if (delta.toolResults() != null) {
+                flushAssistantContent();
+                for (AgentDelta.ToolResult toolResult : delta.toolResults()) {
+                    if (toolResult == null || !StringUtils.hasText(toolResult.toolId())) {
+                        continue;
+                    }
+                    ToolTrace trace = toolByCallId.computeIfAbsent(toolResult.toolId(), ToolTrace::new);
+                    String result = StringUtils.hasText(toolResult.result()) ? toolResult.result() : "null";
+                    orderedMessages.add(ChatWindowMemoryStore.RunMessage.toolResult(
+                            trace.toolName,
+                            trace.toolCallId,
+                            trace.arguments,
+                            result
+                    ));
+                }
+            }
+        }
+
+        private List<ChatWindowMemoryStore.RunMessage> runMessages() {
+            flushAssistantContent();
+            return List.copyOf(orderedMessages);
+        }
+
+        private void flushAssistantContent() {
+            if (!StringUtils.hasText(pendingAssistant)) {
+                return;
+            }
+            orderedMessages.add(ChatWindowMemoryStore.RunMessage.assistantContent(pendingAssistant.toString()));
+            pendingAssistant.setLength(0);
+        }
+    }
+
+    private static final class ToolTrace {
+        private final String toolCallId;
+        private String toolName;
+        private String arguments;
+
+        private ToolTrace(String toolCallId) {
+            this.toolCallId = Objects.requireNonNull(toolCallId);
+        }
     }
 
     private record PlannerDecision(

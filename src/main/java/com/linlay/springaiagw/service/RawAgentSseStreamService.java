@@ -9,6 +9,7 @@ import com.linlay.springaiagw.model.AgentRequest;
 import com.linlay.springaiagw.model.SseChunk;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
 
 import java.time.Instant;
@@ -28,11 +29,12 @@ public class RawAgentSseStreamService {
 
     public Flux<ServerSentEvent<String>> stream(String agentId, AgentRequest request) {
         Agent agent = agentRegistry.get(agentId);
+        AgentRequest normalizedRequest = normalizeRequest(request);
 
         String streamId = "chatcmpl-" + UUID.randomUUID().toString().replace("-", "");
         String model = agent.model();
 
-        Flux<ServerSentEvent<String>> body = agent.stream(request)
+        Flux<ServerSentEvent<String>> body = agent.stream(normalizedRequest)
                 .map(delta -> toSse(streamId, model, delta));
 
         ServerSentEvent<String> done = ServerSentEvent.<String>builder()
@@ -41,6 +43,24 @@ public class RawAgentSseStreamService {
                 .build();
 
         return body.concatWithValues(done);
+    }
+
+    private AgentRequest normalizeRequest(AgentRequest request) {
+        String runId = StringUtils.hasText(request.runId())
+                ? request.runId().trim()
+                : UUID.randomUUID().toString();
+        String requestId = StringUtils.hasText(request.requestId())
+                ? request.requestId().trim()
+                : runId;
+        return new AgentRequest(
+                request.message(),
+                request.city(),
+                request.date(),
+                request.chatId(),
+                request.chatName(),
+                requestId,
+                runId
+        );
     }
 
     private ServerSentEvent<String> toSse(String streamId, String model, AgentDelta delta) {

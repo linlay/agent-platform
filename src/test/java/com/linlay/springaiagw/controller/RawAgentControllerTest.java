@@ -30,7 +30,8 @@ import org.springframework.context.annotation.Import;
                 "agent.providers.bailian.model=test-bailian-model",
                 "agent.providers.siliconflow.base-url=https://example.com/v1",
                 "agent.providers.siliconflow.api-key=test-siliconflow-key",
-                "agent.providers.siliconflow.model=test-siliconflow-model"
+                "agent.providers.siliconflow.model=test-siliconflow-model",
+                "memory.chat.dir=${java.io.tmpdir}/springai-agw-test-chats-${random.uuid}"
         }
 )
 @AutoConfigureWebTestClient

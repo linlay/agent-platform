@@ -23,6 +23,12 @@ agent:
       working-directory: ${AGENT_BASH_WORKING_DIRECTORY:${user.dir}}
       allowed-paths: ${AGENT_BASH_ALLOWED_PATHS:}
 
+memory:
+  chat:
+    dir: ${MEMORY_CHAT_DIR:./chats}
+    k: ${MEMORY_CHAT_K:20}
+    charset: ${MEMORY_CHAT_CHARSET:UTF-8}
+
 logging:
   level:
     root: INFO

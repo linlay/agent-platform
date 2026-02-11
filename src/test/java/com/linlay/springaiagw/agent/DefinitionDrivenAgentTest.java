@@ -104,7 +104,7 @@ class DefinitionDrivenAgentTest {
                 objectMapper
         );
 
-        List<AgentDelta> deltas = agent.stream(new AgentRequest("看看当前目录有哪些文件", null, null, null, null, null))
+        List<AgentDelta> deltas = agent.stream(new AgentRequest("看看当前目录有哪些文件", null, null, null, null, null, null))
                 .collectList()
                 .block(Duration.ofSeconds(3));
 
@@ -216,7 +216,7 @@ class DefinitionDrivenAgentTest {
                 objectMapper
         );
 
-        List<AgentDelta> deltas = agent.stream(new AgentRequest("使用最简单的df和free看看服务器的资源情况", null, null, null, null, null))
+        List<AgentDelta> deltas = agent.stream(new AgentRequest("使用最简单的df和free看看服务器的资源情况", null, null, null, null, null, null))
                 .collectList()
                 .block(Duration.ofSeconds(3));
 

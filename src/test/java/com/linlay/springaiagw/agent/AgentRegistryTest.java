@@ -1,6 +1,8 @@
 package com.linlay.springaiagw.agent;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.linlay.springaiagw.memory.ChatWindowMemoryProperties;
+import com.linlay.springaiagw.memory.ChatWindowMemoryStore;
 import com.linlay.springaiagw.service.DeltaStreamService;
 import com.linlay.springaiagw.service.LlmService;
 import com.linlay.springaiagw.tool.BashTool;
@@ -38,8 +40,18 @@ class AgentRegistryTest {
                 new MockOpsRunbookTool(),
                 new BashTool()
         ));
+        ChatWindowMemoryProperties memoryProperties = new ChatWindowMemoryProperties();
+        memoryProperties.setDir(tempDir.resolve("chats").toString());
+        ChatWindowMemoryStore memoryStore = new ChatWindowMemoryStore(new ObjectMapper(), memoryProperties);
 
-        AgentRegistry registry = new AgentRegistry(loader, llmService, deltaStreamService, toolRegistry, new ObjectMapper());
+        AgentRegistry registry = new AgentRegistry(
+                loader,
+                llmService,
+                deltaStreamService,
+                toolRegistry,
+                new ObjectMapper(),
+                memoryStore
+        );
 
         assertThat(registry.listIds()).contains("demoPlain", "demoReAct", "demoPlanExecute");
         assertThatThrownBy(() -> registry.get("demoExternal"))
