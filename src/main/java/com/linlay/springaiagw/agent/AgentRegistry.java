@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Comparator;
 
 @Component
 public class AgentRegistry {
@@ -53,6 +54,20 @@ public class AgentRegistry {
 
     public List<String> listIds() {
         return agents.keySet().stream().sorted().toList();
+    }
+
+    public List<Agent> list() {
+        return agents.values().stream()
+                .sorted(Comparator.comparing(Agent::id))
+                .toList();
+    }
+
+    public Agent defaultAgent() {
+        List<Agent> current = list();
+        if (current.isEmpty()) {
+            throw new IllegalArgumentException("No agents available");
+        }
+        return current.getFirst();
     }
 
     @Scheduled(fixedDelayString = "${agent.catalog.refresh-interval-ms:10000}")

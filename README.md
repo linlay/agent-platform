@@ -4,8 +4,12 @@
 
 ## 提供接口
 
-- `POST /api/agent/{agentId}`: OpenAI chunk SSE
-- `POST /api/agw-agent/{agentId}`: AGW 标准 SSE
+- `GET /api/agents`: 智能体列表
+- `GET /api/agent?agentKey=...`: 智能体详情
+- `POST /api/query`: 提问接口（默认返回 AGW 标准 SSE；`requestId` 可省略，缺省时等于 `runId`）
+- `POST /api/submit`: Human-in-the-loop 提交接口
+- `POST /api/agw-agent/{agentId}`: 兼容旧路径，返回 AGW 标准 SSE
+- `POST /api/agent/{agentId}`: 兼容旧路径，返回 OpenAI chunk SSE
 
 ## 目录约定
 

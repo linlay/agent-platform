@@ -1,7 +1,7 @@
 package com.linlay.springaiagw.controller;
 
 import com.linlay.springaiagw.model.AgentRequest;
-import com.linlay.springaiagw.service.AgwSseStreamService;
+import com.linlay.springaiagw.service.RawAgentSseStreamService;
 import jakarta.validation.Valid;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
@@ -13,13 +13,13 @@ import org.springframework.web.bind.annotation.RestController;
 import reactor.core.publisher.Flux;
 
 @RestController
-@RequestMapping("/api/agw-agent")
-public class AgwAgentController {
+@RequestMapping("/raw-api")
+public class RawAgentController {
 
-    private final AgwSseStreamService agwSseStreamService;
+    private final RawAgentSseStreamService rawAgentSseStreamService;
 
-    public AgwAgentController(AgwSseStreamService agwSseStreamService) {
-        this.agwSseStreamService = agwSseStreamService;
+    public RawAgentController(RawAgentSseStreamService rawAgentSseStreamService) {
+        this.rawAgentSseStreamService = rawAgentSseStreamService;
     }
 
     @PostMapping(value = "/{agentId}", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -27,6 +27,6 @@ public class AgwAgentController {
             @PathVariable String agentId,
             @Valid @RequestBody AgentRequest request
     ) {
-        return agwSseStreamService.stream(agentId, request);
+        return rawAgentSseStreamService.stream(agentId, request);
     }
 }

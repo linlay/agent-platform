@@ -61,6 +61,11 @@ public class DefinitionDrivenAgent implements Agent {
     }
 
     @Override
+    public String description() {
+        return definition.description();
+    }
+
+    @Override
     public ProviderType providerType() {
         return definition.providerType();
     }
@@ -73,6 +78,16 @@ public class DefinitionDrivenAgent implements Agent {
     @Override
     public String systemPrompt() {
         return definition.systemPrompt();
+    }
+
+    @Override
+    public AgentMode mode() {
+        return definition.mode();
+    }
+
+    @Override
+    public List<String> tools() {
+        return definition.tools();
     }
 
     @Override

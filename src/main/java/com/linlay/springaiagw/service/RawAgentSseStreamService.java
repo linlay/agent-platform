@@ -16,12 +16,12 @@ import java.util.List;
 import java.util.UUID;
 
 @Service
-public class OpenAiSseStreamService {
+public class RawAgentSseStreamService {
 
     private final AgentRegistry agentRegistry;
     private final ObjectMapper objectMapper;
 
-    public OpenAiSseStreamService(AgentRegistry agentRegistry, ObjectMapper objectMapper) {
+    public RawAgentSseStreamService(AgentRegistry agentRegistry, ObjectMapper objectMapper) {
         this.agentRegistry = agentRegistry;
         this.objectMapper = objectMapper;
     }
