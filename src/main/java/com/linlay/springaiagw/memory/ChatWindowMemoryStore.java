@@ -87,7 +87,7 @@ public class ChatWindowMemoryStore {
                     nullable(message.name()),
                     nullable(message.toolCallId()),
                     parseJsonOrTextOrNull(message.toolArgs()),
-                    parseJsonOrTextOrNull(message.toolResult())
+                    nullable(message.toolResult())
             ));
         }
         if (storedMessages.isEmpty()) {
@@ -158,6 +158,7 @@ public class ChatWindowMemoryStore {
             if (node == null || !node.isObject()) {
                 return null;
             }
+            normalizeStoredMessages((ObjectNode) node);
             RunRecord run = objectMapper.treeToValue(node, RunRecord.class);
             if (run == null) {
                 return null;
@@ -178,7 +179,12 @@ public class ChatWindowMemoryStore {
 
     private RunRecord parseLegacyState(String content, String chatId) {
         try {
-            LegacyChatState legacy = objectMapper.readValue(content, LegacyChatState.class);
+            JsonNode node = objectMapper.readTree(content);
+            if (node == null || !node.isObject()) {
+                return null;
+            }
+            normalizeStoredMessages((ObjectNode) node);
+            LegacyChatState legacy = objectMapper.treeToValue(node, LegacyChatState.class);
             if (legacy == null || legacy.messages == null || legacy.messages.isEmpty()) {
                 return null;
             }
@@ -280,13 +286,30 @@ public class ChatWindowMemoryStore {
         }
         String responseData = StringUtils.hasText(message.content)
                 ? message.content
-                : stringifyNode(message.toolResult);
+                : defaultString(message.toolResult);
         ToolResponseMessage.ToolResponse toolResponse = new ToolResponseMessage.ToolResponse(
                 message.toolCallId,
                 message.name,
                 responseData
         );
         return new ToolResponseMessage(List.of(toolResponse));
+    }
+
+    private void normalizeStoredMessages(ObjectNode root) {
+        JsonNode messages = root.path("messages");
+        if (!messages.isArray()) {
+            return;
+        }
+        for (JsonNode message : messages) {
+            if (!(message instanceof ObjectNode messageNode)) {
+                continue;
+            }
+            JsonNode toolResult = messageNode.get("toolResult");
+            if (toolResult == null || toolResult.isNull()) {
+                continue;
+            }
+            messageNode.put("toolResult", stringifyNode(toolResult));
+        }
     }
 
     private JsonNode parseJsonOrTextOrNull(String raw) {
@@ -413,7 +436,7 @@ public class ChatWindowMemoryStore {
         public String name;
         public String toolCallId;
         public JsonNode toolArgs;
-        public JsonNode toolResult;
+        public String toolResult;
 
         public StoredMessage() {
         }
@@ -425,7 +448,7 @@ public class ChatWindowMemoryStore {
                 String name,
                 String toolCallId,
                 JsonNode toolArgs,
-                JsonNode toolResult
+                String toolResult
         ) {
             this.role = role;
             this.content = content;

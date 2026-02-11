@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.http.server.reactive.ServerHttpResponse;
 import reactor.core.publisher.Flux;
 
 import java.util.List;
@@ -60,7 +61,9 @@ public class AgwController {
     }
 
     @PostMapping(value = "/query", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<ServerSentEvent<String>> query(@Valid @RequestBody AgwQueryRequest request) {
+    public Flux<ServerSentEvent<String>> query(@Valid @RequestBody AgwQueryRequest request, ServerHttpResponse response) {
+        response.getHeaders().set("X-Accel-Buffering", "no");
+        response.getHeaders().set("Cache-Control", "no-cache");
         QuerySession session = agwQueryService.prepare(request);
         return agwQueryService.stream(session);
     }

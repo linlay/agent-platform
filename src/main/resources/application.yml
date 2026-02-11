@@ -16,7 +16,7 @@ spring:
 
 agent:
   catalog:
-    external-dir: ${AGENT_EXTERNAL_DIR:/opt/agents}
+    external-dir: ${AGENT_EXTERNAL_DIR:agents}
     refresh-interval-ms: ${AGENT_REFRESH_INTERVAL_MS:10000}
   tools:
     bash:

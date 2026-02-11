@@ -60,8 +60,8 @@ class ChatWindowMemoryStoreTest {
 
         JsonNode toolResult = root.path("messages").get(2);
         assertThat(toolResult.path("role").asText()).isEqualTo("tool");
-        assertThat(toolResult.path("toolResult").path("ok").asBoolean()).isTrue();
-        assertThat(toolResult.path("toolResult").path("command").asText()).isEqualTo("ls");
+        assertThat(toolResult.path("toolResult").isTextual()).isTrue();
+        assertThat(toolResult.path("toolResult").asText()).isEqualTo("{\"ok\":true,\"command\":\"ls\"}");
 
         List<Message> historyMessages = store.loadHistoryMessages(chatId);
         assertThat(historyMessages).hasSize(4);

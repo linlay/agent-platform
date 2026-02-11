@@ -19,21 +19,41 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
+import java.time.Duration;
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class DefinitionDrivenAgent implements Agent {
 
     private static final Logger log = LoggerFactory.getLogger(DefinitionDrivenAgent.class);
     private static final int MAX_TOOL_CALLS = 6;
     private static final int MAX_REACT_STEPS = 6;
+    private static final int TOOL_ARGS_CHUNK_SIZE = 8;
+    private static final Duration TOOL_ARGS_DELTA_INTERVAL = Duration.ofMillis(25);
+    private static final Duration TOOL_RESULT_DELTA_GAP = Duration.ofMillis(30);
+    private static final Duration TOOL_EVENT_DELTA_INTERVAL = Duration.ofMillis(10);
+    private static final Pattern ARG_TEMPLATE_PATTERN = Pattern.compile("^\\{\\{\\s*([a-zA-Z0-9_]+)\\.([a-zA-Z0-9_]+)([+-]\\d+d)?\\s*}}$");
+    private static final Set<String> DATE_KEYWORDS_TODAY = Set.of("today", "今天");
+    private static final Set<String> DATE_KEYWORDS_TOMORROW = Set.of("tomorrow", "明天");
+    private static final Set<String> DATE_KEYWORDS_YESTERDAY = Set.of("yesterday", "昨天");
+    private static final Set<String> DATE_KEYWORDS_DAY_AFTER_TOMORROW = Set.of("day_after_tomorrow", "day after tomorrow", "后天");
+    private static final Set<String> DATE_KEYWORDS_DAY_BEFORE_YESTERDAY = Set.of("day_before_yesterday", "day before yesterday", "前天");
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
     };
 
@@ -187,23 +207,24 @@ public class DefinitionDrivenAgent implements Agent {
                                     ? Flux.just(AgentDelta.thinking(buildThinkingText(decision)))
                                     : Flux.empty();
 
-                            ToolExecution toolExecution = executePlannedTools(decision);
-                            Flux<AgentDelta> toolFlux = Flux.fromIterable(toolExecution.deltas());
-                            log.info("[agent:{}] plan-execute tool execution records: {}", id(), toJson(toolExecution.records()));
-
-                            String finalPrompt = buildPlanExecuteFinalPrompt(request, decision, toolExecution.records());
-                            log.info("[agent:{}] plan-execute final prompt:\n{}", id(), finalPrompt);
-                            Flux<AgentDelta> contentFlux = llmService.streamContent(
-                                            providerType(),
-                                            model(),
-                                            systemPrompt(),
-                                            historyMessages,
-                                            finalPrompt,
-                                            "agent-plan-execute-final"
-                                    )
-                                    .switchIfEmpty(Flux.just("未获取到模型输出，请检查 provider/model/sysPrompt 配置。"))
-                                    .onErrorResume(ex -> Flux.just("模型调用失败，请稍后重试。"))
-                                    .map(AgentDelta::content);
+                            List<Map<String, Object>> toolRecords = new ArrayList<>();
+                            Flux<AgentDelta> toolFlux = executePlanSteps(decision, toolRecords);
+                            Flux<AgentDelta> contentFlux = Flux.defer(() -> {
+                                log.debug("[agent:{}] plan-execute tool execution records: {}", id(), toJson(toolRecords));
+                                String finalPrompt = buildPlanExecuteFinalPrompt(request, decision, toolRecords);
+                                log.info("[agent:{}] plan-execute final prompt:\n{}", id(), finalPrompt);
+                                return llmService.streamContent(
+                                                providerType(),
+                                                model(),
+                                                systemPrompt(),
+                                                historyMessages,
+                                                finalPrompt,
+                                                "agent-plan-execute-final"
+                                        )
+                                        .switchIfEmpty(Flux.just("未获取到模型输出，请检查 provider/model/sysPrompt 配置。"))
+                                        .onErrorResume(ex -> Flux.just("模型调用失败，请稍后重试。"))
+                                        .map(AgentDelta::content);
+                            });
 
                             return Flux.concat(summaryThinkingFlux, toolFlux, contentFlux, Flux.just(AgentDelta.finish("stop")));
                         })
@@ -329,13 +350,12 @@ public class DefinitionDrivenAgent implements Agent {
                         );
                     }
 
-                    ToolExecution execution = executeSingleTool(decision.action(), step);
-                    toolRecords.addAll(execution.records());
+                    String callId = "call_" + sanitize(decision.action().name()) + "_step_" + step;
 
                     return Flux.concat(
                             summaryThinkingFlux,
-                            Flux.fromIterable(execution.deltas()),
-                            reactLoop(request, historyMessages, toolRecords, step + 1)
+                            executeTool(decision.action(), callId, toolRecords),
+                            Flux.defer(() -> reactLoop(request, historyMessages, toolRecords, step + 1))
                     );
                 })
         );
@@ -469,20 +489,137 @@ public class DefinitionDrivenAgent implements Agent {
         }
 
         String thinking = normalize(root.path("thinking").asText(), "正在分解问题并判断是否需要工具调用。");
-        List<String> planSteps = readTextArray(root.path("plan"));
+        JsonNode planNode = root.path("plan");
+        boolean hasEmbeddedToolCall = planContainsEmbeddedToolCall(planNode);
+        List<PlannedToolCall> legacyToolCalls = hasEmbeddedToolCall
+                ? List.of()
+                : readLegacyToolCalls(root.path("toolCalls"));
+        List<PlannedStep> plannedSteps = readPlannedSteps(planNode, legacyToolCalls);
 
-        List<PlannedToolCall> toolCalls = new ArrayList<>();
-        JsonNode toolCallsNode = root.path("toolCalls");
-        if (toolCallsNode.isArray()) {
-            for (JsonNode callNode : toolCallsNode) {
-                PlannedToolCall call = readPlannedToolCall(callNode);
-                if (call != null) {
-                    toolCalls.add(call);
-                }
+        if (plannedSteps.isEmpty() && !legacyToolCalls.isEmpty()) {
+            for (int i = 0; i < legacyToolCalls.size(); i++) {
+                PlannedToolCall toolCall = legacyToolCalls.get(i);
+                plannedSteps.add(new PlannedStep(defaultPlanStepText(i + 1, toolCall), toolCall));
             }
         }
 
-        return new PlannerDecision(thinking, planSteps, toolCalls);
+        return new PlannerDecision(thinking, plannedSteps);
+    }
+
+    private boolean planContainsEmbeddedToolCall(JsonNode planNode) {
+        if (!planNode.isArray()) {
+            return false;
+        }
+        for (JsonNode stepNode : planNode) {
+            if (stepNode != null && stepNode.isObject() && stepNode.path("toolCall").isObject()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private List<PlannedToolCall> readLegacyToolCalls(JsonNode toolCallsNode) {
+        if (!toolCallsNode.isArray()) {
+            return List.of();
+        }
+        List<PlannedToolCall> toolCalls = new ArrayList<>();
+        for (JsonNode callNode : toolCallsNode) {
+            PlannedToolCall call = readPlannedToolCall(callNode);
+            if (call != null) {
+                toolCalls.add(call);
+            }
+        }
+        return toolCalls;
+    }
+
+    private List<PlannedStep> readPlannedSteps(JsonNode planNode, List<PlannedToolCall> legacyToolCalls) {
+        if (!planNode.isArray()) {
+            return List.of();
+        }
+
+        List<PlannedStep> plannedSteps = new ArrayList<>();
+        int legacyToolIndex = 0;
+
+        for (JsonNode stepNode : planNode) {
+            PlannedToolCall fallbackTool = legacyToolIndex < legacyToolCalls.size()
+                    ? legacyToolCalls.get(legacyToolIndex)
+                    : null;
+            PlannedStep step = readPlannedStep(stepNode, fallbackTool, plannedSteps.size() + 1);
+            if (step == null) {
+                continue;
+            }
+            plannedSteps.add(step);
+            if (step.toolCall() != null && fallbackTool != null && step.toolCall() == fallbackTool) {
+                legacyToolIndex++;
+            }
+        }
+
+        while (legacyToolIndex < legacyToolCalls.size()) {
+            PlannedToolCall toolCall = legacyToolCalls.get(legacyToolIndex++);
+            plannedSteps.add(new PlannedStep(defaultPlanStepText(plannedSteps.size() + 1, toolCall), toolCall));
+        }
+
+        return plannedSteps;
+    }
+
+    private PlannedStep readPlannedStep(JsonNode stepNode, PlannedToolCall fallbackToolCall, int stepIndex) {
+        if (stepNode == null || stepNode.isNull()) {
+            return null;
+        }
+
+        if (stepNode.isTextual()) {
+            String stepText = normalize(stepNode.asText(), "");
+            if (stepText.isBlank() && fallbackToolCall == null) {
+                return null;
+            }
+            String normalizedStepText = stepText.isBlank()
+                    ? defaultPlanStepText(stepIndex, fallbackToolCall)
+                    : stepText;
+            return new PlannedStep(normalizedStepText, fallbackToolCall);
+        }
+
+        if (!stepNode.isObject()) {
+            String stepText = normalize(stepNode.asText(), "");
+            if (stepText.isBlank() && fallbackToolCall == null) {
+                return null;
+            }
+            String normalizedStepText = stepText.isBlank()
+                    ? defaultPlanStepText(stepIndex, fallbackToolCall)
+                    : stepText;
+            return new PlannedStep(normalizedStepText, fallbackToolCall);
+        }
+
+        String stepText = normalize(stepNode.path("step").asText(), "");
+        if (stepText.isBlank()) {
+            stepText = normalize(stepNode.path("description").asText(), "");
+        }
+        if (stepText.isBlank()) {
+            stepText = normalize(stepNode.path("text").asText(), "");
+        }
+
+        PlannedToolCall stepToolCall = null;
+        JsonNode stepToolCallNode = stepNode.path("toolCall");
+        if (stepToolCallNode.isObject()) {
+            stepToolCall = readPlannedToolCall(stepToolCallNode);
+        }
+        if (stepToolCall == null) {
+            stepToolCall = fallbackToolCall;
+        }
+
+        if (stepText.isBlank() && stepToolCall == null) {
+            return null;
+        }
+        String normalizedStepText = stepText.isBlank()
+                ? defaultPlanStepText(stepIndex, stepToolCall)
+                : stepText;
+        return new PlannedStep(normalizedStepText, stepToolCall);
+    }
+
+    private String defaultPlanStepText(int stepIndex, PlannedToolCall toolCall) {
+        if (toolCall != null) {
+            return "执行工具 " + toolCall.name();
+        }
+        return "执行步骤" + stepIndex;
     }
 
     private PlannerDecision fallbackPlannerDecision(String rawPlan) {
@@ -493,8 +630,11 @@ public class DefinitionDrivenAgent implements Agent {
 
         return new PlannerDecision(
                 thinking,
-                List.of("确认用户目标与输入约束", "判断是否需要工具辅助", "输出结论与下一步建议"),
-                List.of()
+                List.of(
+                        new PlannedStep("确认用户目标与输入约束", null),
+                        new PlannedStep("判断是否需要工具辅助", null),
+                        new PlannedStep("输出结论与下一步建议", null)
+                )
         );
     }
 
@@ -547,47 +687,352 @@ public class DefinitionDrivenAgent implements Agent {
         return new PlannedToolCall(toolName, arguments);
     }
 
-    private ToolExecution executePlannedTools(PlannerDecision decision) {
-        List<AgentDelta> deltas = new ArrayList<>();
-        List<Map<String, Object>> records = new ArrayList<>();
+    private Flux<AgentDelta> executePlanSteps(PlannerDecision decision, List<Map<String, Object>> records) {
+        if (decision.steps().isEmpty()) {
+            return Flux.empty();
+        }
+        AtomicInteger toolCounter = new AtomicInteger(0);
+        int totalSteps = decision.steps().size();
+        return Flux.range(0, totalSteps)
+                .concatMap(i -> {
+                    PlannedStep step = decision.steps().get(i);
+                    int stepIndex = i + 1;
+                    log.info("[agent:{}] plan-execute run step {}/{}: {}", id(), stepIndex, totalSteps, normalize(step.step(), "执行步骤" + stepIndex));
+                    Flux<AgentDelta> stepThinkingFlux = Flux.just(AgentDelta.thinking(
+                            "执行步骤 " + stepIndex + "/" + totalSteps + "："
+                                    + normalize(step.step(), "执行步骤" + stepIndex)
+                    ));
+                    if (step.toolCall() == null) {
+                        return stepThinkingFlux;
+                    }
+                    List<PlannedToolCall> expandedToolCalls = expandToolCallsForStep(step);
+                    Flux<AgentDelta> expandedFlux = Flux.fromIterable(expandedToolCalls)
+                            .concatMap(toolCall -> {
+                                int toolSeq = toolCounter.incrementAndGet();
+                                if (toolSeq > MAX_TOOL_CALLS) {
+                                    return Flux.just(AgentDelta.thinking("工具调用数量超过上限，已跳过该步骤的工具执行。"));
+                                }
+                                String callId = "call_" + sanitize(toolCall.name()) + "_" + toolSeq;
+                                return executeTool(toolCall, callId, records);
+                            }, 1);
 
-        int index = 1;
-        for (PlannedToolCall plannedCall : decision.toolCalls()) {
-            if (index > MAX_TOOL_CALLS) {
-                break;
-            }
-            ToolExecution execution = executeTool(plannedCall, "call_" + sanitize(plannedCall.name()) + "_" + index);
-            deltas.addAll(execution.deltas());
-            records.addAll(execution.records());
-            index++;
+                    return Flux.concat(stepThinkingFlux, expandedFlux);
+                }, 1);
+    }
+
+    private List<PlannedToolCall> expandToolCallsForStep(PlannedStep step) {
+        if (step == null || step.toolCall() == null) {
+            return List.of();
+        }
+        PlannedToolCall toolCall = step.toolCall();
+        if (!"bash".equals(normalizeToolName(toolCall.name()))) {
+            return List.of(toolCall);
+        }
+        if (toolCall.arguments() == null) {
+            return List.of(toolCall);
         }
 
-        return new ToolExecution(deltas, records);
+        Object rawCommand = toolCall.arguments().get("command");
+        if (!(rawCommand instanceof String commandText)) {
+            return List.of(toolCall);
+        }
+
+        List<String> splitCommands = splitBashCommands(commandText);
+        if (splitCommands.size() <= 1) {
+            return List.of(toolCall);
+        }
+
+        log.info("[agent:{}] split bash composite command in step '{}' to {} commands: {}", id(), normalize(step.step(), "unknown-step"), splitCommands.size(), splitCommands);
+
+        List<PlannedToolCall> expanded = new ArrayList<>();
+        for (String splitCommand : splitCommands) {
+            Map<String, Object> splitArgs = new LinkedHashMap<>(toolCall.arguments());
+            splitArgs.put("command", splitCommand);
+            expanded.add(new PlannedToolCall(toolCall.name(), splitArgs));
+        }
+        return expanded;
     }
 
-    private ToolExecution executeSingleTool(PlannedToolCall plannedCall, int step) {
-        return executeTool(plannedCall, "call_" + sanitize(plannedCall.name()) + "_step_" + step);
+    private List<String> splitBashCommands(String commandText) {
+        if (commandText == null || commandText.isBlank()) {
+            return List.of();
+        }
+        String[] parts = commandText.split("\\s*(?:&&|\\|\\||;|\\|)\\s*");
+        List<String> commands = new ArrayList<>();
+        for (String part : parts) {
+            String normalized = normalize(part, "").trim();
+            if (!normalized.isBlank()) {
+                commands.add(normalized);
+            }
+        }
+        return commands;
     }
 
-    private ToolExecution executeTool(PlannedToolCall plannedCall, String callId) {
+    private Flux<AgentDelta> executeTool(PlannedToolCall plannedCall, String callId, List<Map<String, Object>> records) {
         Map<String, Object> args = new LinkedHashMap<>();
         if (plannedCall.arguments() != null) {
             args.putAll(plannedCall.arguments());
         }
+        Map<String, Object> resolvedArgs = resolveToolArguments(plannedCall.name(), args, records);
 
-        List<AgentDelta> deltas = new ArrayList<>();
-        deltas.add(AgentDelta.toolCalls(List.of(toolCall(callId, plannedCall.name(), toJson(args)))));
+        if (!resolvedArgs.equals(args)) {
+            log.info("[agent:{}] resolved tool args callId={}, tool={}, planned={}, resolved={}", id(), callId, plannedCall.name(), toJson(args), toJson(resolvedArgs));
+        }
 
-        JsonNode result = safeInvoke(plannedCall.name(), args);
-        deltas.add(AgentDelta.toolResult(callId, result));
+        String argumentsJson = toJson(resolvedArgs);
+        Flux<AgentDelta> toolArgsFlux = toToolArgsDeltas(callId, plannedCall.name(), argumentsJson);
+        Mono<AgentDelta> toolResultDelta = Mono.delay(TOOL_RESULT_DELTA_GAP).then(Mono.fromCallable(() -> {
+                    JsonNode result = safeInvoke(plannedCall.name(), resolvedArgs);
+                    Map<String, Object> record = toolRecord(callId, plannedCall.name(), resolvedArgs, result);
+                    records.add(record);
+                    log.info("[agent:{}] tool finished callId={}, tool={}, record={}", id(), callId, plannedCall.name(), toJson(record));
+                    return AgentDelta.toolResult(callId, result);
+                })
+                .subscribeOn(Schedulers.boundedElastic()));
 
+        return Flux.concat(toolArgsFlux, toolResultDelta)
+                .delayElements(TOOL_EVENT_DELTA_INTERVAL);
+    }
+
+    private Map<String, Object> resolveToolArguments(String toolName, Map<String, Object> plannedArgs, List<Map<String, Object>> records) {
+        Map<String, Object> resolved = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : plannedArgs.entrySet()) {
+            Object value = resolveArgumentValue(entry.getKey(), entry.getValue(), resolved, records);
+            resolved.put(entry.getKey(), value);
+        }
+        if (resolved.isEmpty()) {
+            return resolved;
+        }
+
+        if ("mock_city_weather".equals(normalizeToolName(toolName))) {
+            Object rawDate = resolved.get("date");
+            if (rawDate instanceof String dateText) {
+                String normalizedDate = resolveRelativeDate(dateText, String.valueOf(resolved.getOrDefault("city", "")), records);
+                resolved.put("date", normalizedDate);
+            }
+        }
+        return resolved;
+    }
+
+    private Object resolveArgumentValue(
+            String key,
+            Object rawValue,
+            Map<String, Object> partialResolvedArgs,
+            List<Map<String, Object>> records
+    ) {
+        if (rawValue instanceof String text) {
+            String trimmed = text.trim();
+            Object templateResolved = resolveTemplateValue(trimmed, records);
+            if (templateResolved != null) {
+                return templateResolved;
+            }
+            if ("date".equalsIgnoreCase(normalize(key, ""))) {
+                String city = String.valueOf(partialResolvedArgs.getOrDefault("city", ""));
+                return resolveRelativeDate(trimmed, city, records);
+            }
+            return rawValue;
+        }
+
+        if (rawValue instanceof Map<?, ?> rawMap) {
+            Map<String, Object> resolvedMap = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> entry : rawMap.entrySet()) {
+                String childKey = String.valueOf(entry.getKey());
+                Object childValue = resolveArgumentValue(childKey, entry.getValue(), resolvedMap, records);
+                resolvedMap.put(childKey, childValue);
+            }
+            return resolvedMap;
+        }
+
+        if (rawValue instanceof List<?> rawList) {
+            List<Object> resolvedList = new ArrayList<>();
+            for (Object item : rawList) {
+                resolvedList.add(resolveArgumentValue(key, item, partialResolvedArgs, records));
+            }
+            return resolvedList;
+        }
+
+        return rawValue;
+    }
+
+    private Object resolveTemplateValue(String value, List<Map<String, Object>> records) {
+        Matcher matcher = ARG_TEMPLATE_PATTERN.matcher(value);
+        if (!matcher.matches()) {
+            return null;
+        }
+
+        String toolName = normalizeToolName(matcher.group(1));
+        String fieldName = matcher.group(2);
+        String dayOffsetText = matcher.group(3);
+        Integer dayOffset = parseDayOffset(dayOffsetText);
+
+        JsonNode fieldNode = latestToolResultField(records, toolName, fieldName);
+        if (fieldNode == null || fieldNode.isNull()) {
+            return null;
+        }
+        if (dayOffset != null) {
+            if (!fieldNode.isTextual()) {
+                return null;
+            }
+            LocalDate parsed = parseLocalDate(fieldNode.asText());
+            if (parsed == null) {
+                return null;
+            }
+            return parsed.plusDays(dayOffset).toString();
+        }
+        return objectMapper.convertValue(fieldNode, Object.class);
+    }
+
+    private Integer parseDayOffset(String dayOffsetText) {
+        if (dayOffsetText == null || dayOffsetText.isBlank()) {
+            return null;
+        }
+        String normalized = dayOffsetText.trim().toLowerCase(Locale.ROOT);
+        if (!normalized.endsWith("d")) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(normalized.substring(0, normalized.length() - 1));
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private JsonNode latestToolResultField(List<Map<String, Object>> records, String toolName, String fieldName) {
+        if (records == null || records.isEmpty()) {
+            return null;
+        }
+        for (int i = records.size() - 1; i >= 0; i--) {
+            Map<String, Object> record = records.get(i);
+            String recordToolName = normalizeToolName(String.valueOf(record.getOrDefault("toolName", "")));
+            if (!toolName.equals(recordToolName)) {
+                continue;
+            }
+            Object result = record.get("result");
+            if (!(result instanceof JsonNode resultNode) || !resultNode.isObject()) {
+                continue;
+            }
+            JsonNode field = resultNode.path(fieldName);
+            if (!field.isMissingNode()) {
+                return field;
+            }
+        }
+        return null;
+    }
+
+    private String resolveRelativeDate(String value, String city, List<Map<String, Object>> records) {
+        Integer dayOffset = relativeDayOffset(value);
+        if (dayOffset == null) {
+            return value;
+        }
+        LocalDate baseDate = latestCityDate(records, city);
+        if (baseDate == null) {
+            return value;
+        }
+        return baseDate.plusDays(dayOffset).toString();
+    }
+
+    private Integer relativeDayOffset(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String trimmed = value.trim();
+        String lower = trimmed.toLowerCase(Locale.ROOT);
+        if (DATE_KEYWORDS_TODAY.contains(lower) || DATE_KEYWORDS_TODAY.contains(trimmed)) {
+            return 0;
+        }
+        if (DATE_KEYWORDS_TOMORROW.contains(lower) || DATE_KEYWORDS_TOMORROW.contains(trimmed)) {
+            return 1;
+        }
+        if (DATE_KEYWORDS_YESTERDAY.contains(lower) || DATE_KEYWORDS_YESTERDAY.contains(trimmed)) {
+            return -1;
+        }
+        if (DATE_KEYWORDS_DAY_AFTER_TOMORROW.contains(lower) || DATE_KEYWORDS_DAY_AFTER_TOMORROW.contains(trimmed)) {
+            return 2;
+        }
+        if (DATE_KEYWORDS_DAY_BEFORE_YESTERDAY.contains(lower) || DATE_KEYWORDS_DAY_BEFORE_YESTERDAY.contains(trimmed)) {
+            return -2;
+        }
+        return null;
+    }
+
+    private LocalDate latestCityDate(List<Map<String, Object>> records, String city) {
+        if (records == null || records.isEmpty()) {
+            return null;
+        }
+        String normalizedTargetCity = normalizeCity(city);
+        for (int i = records.size() - 1; i >= 0; i--) {
+            Map<String, Object> record = records.get(i);
+            String toolName = normalizeToolName(String.valueOf(record.getOrDefault("toolName", "")));
+            if (!"city_datetime".equals(toolName)) {
+                continue;
+            }
+            Object result = record.get("result");
+            if (!(result instanceof JsonNode resultNode) || !resultNode.isObject()) {
+                continue;
+            }
+            if (!normalizedTargetCity.isBlank()) {
+                String recordCity = normalizeCity(resultNode.path("city").asText(""));
+                if (!recordCity.isBlank() && !recordCity.equals(normalizedTargetCity)) {
+                    continue;
+                }
+            }
+            LocalDate parsed = parseLocalDate(resultNode.path("date").asText(""));
+            if (parsed != null) {
+                return parsed;
+            }
+        }
+        return null;
+    }
+
+    private LocalDate parseLocalDate(String text) {
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        try {
+            return LocalDate.parse(text.trim());
+        } catch (DateTimeParseException ex) {
+            return null;
+        }
+    }
+
+    private String normalizeCity(String city) {
+        if (city == null) {
+            return "";
+        }
+        String normalized = city.trim().toLowerCase(Locale.ROOT).replace(" ", "");
+        Set<String> aliases = new HashSet<>(Set.of("shanghai", "shanghaishi", "上海", "上海市"));
+        if (aliases.contains(normalized)) {
+            return "shanghai";
+        }
+        return normalized;
+    }
+
+    private Map<String, Object> toolRecord(String callId, String toolName, Map<String, Object> args, JsonNode result) {
         Map<String, Object> record = new LinkedHashMap<>();
         record.put("callId", callId);
-        record.put("toolName", plannedCall.name());
+        record.put("toolName", toolName);
         record.put("arguments", args);
         record.put("result", result);
+        return record;
+    }
 
-        return new ToolExecution(deltas, List.of(record));
+    private Flux<AgentDelta> toToolArgsDeltas(String callId, String toolName, String argumentsJson) {
+        String normalized = normalize(argumentsJson, "{}");
+        List<AgentDelta> chunks = new ArrayList<>();
+        for (int start = 0; start < normalized.length(); start += TOOL_ARGS_CHUNK_SIZE) {
+            int end = Math.min(start + TOOL_ARGS_CHUNK_SIZE, normalized.length());
+            String delta = normalized.substring(start, end);
+            chunks.add(AgentDelta.toolCalls(List.of(toolCall(callId, toolName, delta))));
+        }
+
+        if (chunks.isEmpty()) {
+            chunks.add(AgentDelta.toolCalls(List.of(toolCall(callId, toolName, "{}"))));
+        }
+        if (chunks.size() == 1) {
+            return Flux.just(chunks.getFirst());
+        }
+        return Flux.just(chunks.getFirst())
+                .concatWith(Flux.fromIterable(chunks.subList(1, chunks.size())).delayElements(TOOL_ARGS_DELTA_INTERVAL));
     }
 
     private JsonNode safeInvoke(String toolName, Map<String, Object> args) {
@@ -614,18 +1059,15 @@ public class DefinitionDrivenAgent implements Agent {
         StringBuilder builder = new StringBuilder();
         builder.append(normalize(decision.thinking(), "正在拆解问题并生成执行路径。"));
 
-        if (!decision.plan().isEmpty()) {
+        if (!decision.steps().isEmpty()) {
             builder.append("\n计划：");
             int i = 1;
-            for (String step : decision.plan()) {
-                builder.append("\n").append(i++).append(". ").append(step);
+            for (PlannedStep step : decision.steps()) {
+                builder.append("\n").append(i++).append(". ").append(normalize(step.step(), "执行步骤"));
+                if (step.toolCall() != null) {
+                    builder.append(" (tool: ").append(step.toolCall().name()).append(")");
+                }
             }
-        }
-
-        if (!decision.toolCalls().isEmpty()) {
-            builder.append("\n计划工具调用：");
-            List<String> names = decision.toolCalls().stream().map(PlannedToolCall::name).toList();
-            builder.append(String.join(", ", names));
         }
 
         return builder.toString();
@@ -643,16 +1085,23 @@ public class DefinitionDrivenAgent implements Agent {
                 请只输出 JSON（不要代码块、不要额外解释），格式：
                 {
                   "thinking": "你的关键思考",
-                  "plan": ["步骤1", "步骤2"],
-                  "toolCalls": [{"name": "tool_name", "arguments": {"k": "v"}}]
+                  "plan": [
+                    {"step": "步骤1", "toolCall": {"name": "tool_name", "arguments": {"k": "v"}}},
+                    {"step": "步骤2", "toolCall": null}
+                  ]
                 }
 
                 约束：
                 1) thinking 用中文，一句话。
-                2) plan 输出 1-4 条可执行步骤。
-                3) toolCalls 只在必要时填写，最多 %d 个；name 必须来自工具列表。
+                2) plan 输出 1-%d 条有序步骤，每一步都必须包含 step 字段。
+                3) toolCall 必须绑定在 plan 的每个步骤内；每步最多一个 toolCall，没有则写 null。
                 %s
-                5) arguments 必须显式给出且符合工具定义，不要依赖任何隐式参数补齐。
+                5) toolCall.name 必须来自工具列表。
+                6) arguments 必须显式给出且符合工具定义，不要依赖任何隐式参数补齐。
+                7) plan 会严格按顺序逐步执行，不要生成独立于步骤的工具调用列表。
+                8) 当后续工具参数依赖前序工具结果时，必须使用模板参数，例如 "date":"{{city_datetime.date+1d}}"。
+                9) 不要直接使用 today/tomorrow/昨天/明天 作为最终日期参数，应改为具体日期或模板表达式。
+                10) bash.command 必须是单条命令，不要使用 &&、||、; 或管道拼接多条命令。
                 """.formatted(
                 request.message(),
                 enabledToolsPrompt(),
@@ -707,7 +1156,12 @@ public class DefinitionDrivenAgent implements Agent {
             List<Map<String, Object>> toolRecords
     ) {
         String toolResultJson = toJson(toolRecords);
-        String planText = decision.plan().isEmpty() ? "[]" : String.join(" | ", decision.plan());
+        String planText = decision.steps().isEmpty()
+                ? "[]"
+                : decision.steps().stream()
+                .map(step -> normalize(step.step(), "执行步骤"))
+                .reduce((left, right) -> left + " | " + right)
+                .orElse("[]");
 
         return """
                 用户问题：%s
@@ -970,8 +1424,13 @@ public class DefinitionDrivenAgent implements Agent {
 
     private record PlannerDecision(
             String thinking,
-            List<String> plan,
-            List<PlannedToolCall> toolCalls
+            List<PlannedStep> steps
+    ) {
+    }
+
+    private record PlannedStep(
+            String step,
+            PlannedToolCall toolCall
     ) {
     }
 
@@ -988,9 +1447,4 @@ public class DefinitionDrivenAgent implements Agent {
     ) {
     }
 
-    private record ToolExecution(
-            List<AgentDelta> deltas,
-            List<Map<String, Object>> records
-    ) {
-    }
 }

@@ -6,9 +6,11 @@ import com.linlay.springaiagw.memory.ChatWindowMemoryStore;
 import com.linlay.springaiagw.service.DeltaStreamService;
 import com.linlay.springaiagw.service.LlmService;
 import com.linlay.springaiagw.tool.BashTool;
-import com.linlay.springaiagw.tool.MockCityDateTimeTool;
+import com.linlay.springaiagw.tool.CityDateTimeTool;
 import com.linlay.springaiagw.tool.MockCityWeatherTool;
 import com.linlay.springaiagw.tool.MockOpsRunbookTool;
+import com.linlay.springaiagw.tool.MockSensitiveDataDetectorTool;
+import com.linlay.springaiagw.tool.AgentFileCreateTool;
 import com.linlay.springaiagw.tool.ToolRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -35,10 +37,12 @@ class AgentRegistryTest {
         LlmService llmService = new LlmService(null, null);
         DeltaStreamService deltaStreamService = new DeltaStreamService();
         ToolRegistry toolRegistry = new ToolRegistry(List.of(
-                new MockCityDateTimeTool(),
+                new CityDateTimeTool(),
                 new MockCityWeatherTool(),
                 new MockOpsRunbookTool(),
-                new BashTool()
+                new MockSensitiveDataDetectorTool(),
+                new BashTool(),
+                new AgentFileCreateTool(tempDir.resolve("agents"))
         ));
         ChatWindowMemoryProperties memoryProperties = new ChatWindowMemoryProperties();
         memoryProperties.setDir(tempDir.resolve("chats").toString());
@@ -53,7 +57,7 @@ class AgentRegistryTest {
                 memoryStore
         );
 
-        assertThat(registry.listIds()).contains("demoPlain", "demoReAct", "demoPlanExecute");
+        assertThat(registry.listIds()).contains("demoPlain", "demoReAct", "demoPlanExecute", "agentCreator");
         assertThatThrownBy(() -> registry.get("demoExternal"))
                 .isInstanceOf(IllegalArgumentException.class);
 

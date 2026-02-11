@@ -45,6 +45,21 @@ class AgentDefinitionLoaderTest {
     }
 
     @Test
+    void shouldIncludeBuiltInAgentCreator() {
+        AgentCatalogProperties properties = new AgentCatalogProperties();
+        properties.setExternalDir(tempDir.toString());
+
+        AgentDefinitionLoader loader = new AgentDefinitionLoader(new ObjectMapper(), properties);
+
+        Map<String, AgentDefinition> byId = loader.loadAll().stream()
+                .collect(Collectors.toMap(AgentDefinition::id, definition -> definition));
+
+        assertThat(byId).containsKey("agentCreator");
+        assertThat(byId.get("agentCreator").mode()).isEqualTo(AgentMode.PLAN_EXECUTE);
+        assertThat(byId.get("agentCreator").tools()).containsExactly("agent_file_create");
+    }
+
+    @Test
     void shouldLoadExternalAgentWithTripleQuotedSystemPrompt() throws IOException {
         Path file = tempDir.resolve("fortune_teller.json");
         Files.writeString(file, "{\n"

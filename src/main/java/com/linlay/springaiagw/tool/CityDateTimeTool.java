@@ -4,40 +4,30 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.stereotype.Component;
 
-import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Random;
 
 @Component
-public class MockCityDateTimeTool extends AbstractDeterministicTool {
+public class CityDateTimeTool extends AbstractDeterministicTool {
 
     @Override
     public String name() {
-        return "mock_city_datetime";
+        return "city_datetime";
     }
 
     @Override
     public String description() {
-        return "[MOCK] 根据 city 查询当前日期和时间（伪造数据）";
+        return "根据 city 查询当前日期和时间（实时系统时钟）";
     }
 
     @Override
     public JsonNode invoke(Map<String, Object> args) {
         String city = String.valueOf(args.getOrDefault("city", "Shanghai"));
         ZoneId zoneId = zoneIdOf(city);
-
-        Random random = randomByArgs(args);
-        int dayOffset = random.nextInt(20);
-        int minuteOffset = random.nextInt(24 * 60);
-
-        ZonedDateTime dateTime = LocalDateTime.of(2026, 1, 1, 0, 0)
-                .atZone(zoneId)
-                .plusDays(dayOffset)
-                .plusMinutes(minuteOffset);
+        ZonedDateTime dateTime = ZonedDateTime.now(zoneId);
 
         ObjectNode root = OBJECT_MAPPER.createObjectNode();
         root.put("tool", name());
@@ -46,7 +36,7 @@ public class MockCityDateTimeTool extends AbstractDeterministicTool {
         root.put("date", dateTime.toLocalDate().toString());
         root.put("time", dateTime.toLocalTime().format(DateTimeFormatter.ofPattern("HH:mm:ss")));
         root.put("iso", dateTime.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
-        root.put("mockTag", "idempotent-random-json");
+        root.put("source", "system-clock");
         return root;
     }
 

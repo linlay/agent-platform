@@ -105,7 +105,7 @@ curl -N -X POST "http://localhost:8080/api/query" \
 请先问出生日期
 """,
   "mode": "RE_ACT",
-  "tools": ["bash", "mock_city_datetime"]
+  "tools": ["bash", "city_datetime"]
 }
 ```
 
@@ -113,6 +113,27 @@ curl -N -X POST "http://localhost:8080/api/query" \
 - `PLAIN`
 - `RE_ACT`（兼容旧值 `THINKING_AND_CONTENT`）
 - `PLAN_EXECUTE`（兼容旧值 `THINKING_AND_CONTENT_WITH_DUAL_TOOL_CALLS`）
+
+## 内置 agentCreator 智能体
+
+- 内置 `agentCreator` 智能体，模式为 `PLAN_EXECUTE`
+- 内置真实工具 `agent_file_create`，用于创建/更新 `agents/{agentId}.json`
+- 建议在请求中提供：`agentId`、`description`、`systemPrompt`、`providerType`、`model`、`deepThink`
+- 工具会校验 `agentId`（仅允许 `A-Za-z0-9_-`，最长 64）
+- `providerType` 不做白名单校验；未提供时默认 `BAILIAN`
+- 生成格式：
+
+```json
+{
+  "description": "算命大师",
+  "providerType": "BAILIAN",
+  "model": "qwen3-max",
+  "systemPrompt": "你是算命大师",
+  "deepThink": false
+}
+```
+
+- `systemPrompt` 为多行时会写成 `"""` 形式
 
 ## Bash 工具目录授权
 

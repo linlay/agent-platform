@@ -9,20 +9,29 @@ import com.linlay.springaiagw.model.agw.AgwQueryRequest;
 import com.linlay.springaiagw.model.AgentDelta.ToolResult;
 import com.linlay.springaiagw.model.AgentRequest;
 import com.linlay.springaiagw.model.SseChunk;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 public class AgwQueryService {
 
     private static final String AUTO_AGENT = "auto";
     private static final String DEFAULT_AGENT = "default";
+    private static final Duration TOOL_EVENT_STREAM_GAP = Duration.ofMillis(25);
+    private static final Pattern EVENT_TYPE_PATTERN = Pattern.compile("\"type\":\"([^\"]+)\"");
+    private static final Logger log = LoggerFactory.getLogger(AgwQueryService.class);
 
     private final AgentRegistry agentRegistry;
     private final AgwSseStreamer agwSseStreamer;
@@ -63,7 +72,36 @@ public class AgwQueryService {
 
     public Flux<ServerSentEvent<String>> stream(QuerySession session) {
         Flux<AgwDelta> deltas = session.agent().stream(session.agentRequest()).map(this::toAgwDelta);
-        return agwSseStreamer.stream(session.context(), deltas);
+        return agwSseStreamer.stream(session.context(), deltas)
+                .concatMap(event -> {
+                    String eventType = extractEventType(event.data());
+                    if (!isToolEvent(eventType)) {
+                        return Mono.just(event);
+                    }
+                    return Mono.just(event)
+                            .delayElement(TOOL_EVENT_STREAM_GAP)
+                            .doOnNext(ignored -> log.debug(
+                                    "stream tool event type={}, requestId={}, runId={}",
+                                    eventType,
+                                    session.context().requestId(),
+                                    session.context().runId()
+                            ));
+                }, 1);
+    }
+
+    private String extractEventType(String eventData) {
+        if (!StringUtils.hasText(eventData)) {
+            return null;
+        }
+        Matcher matcher = EVENT_TYPE_PATTERN.matcher(eventData);
+        if (!matcher.find()) {
+            return null;
+        }
+        return matcher.group(1);
+    }
+
+    private boolean isToolEvent(String eventType) {
+        return eventType != null && eventType.startsWith("tool.");
     }
 
     private Agent resolveAgent(String agentKey) {

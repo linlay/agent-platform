@@ -64,7 +64,7 @@ public class AgentDefinitionLoader {
                         "qwen3-max",
                         "你是 RE-ACT 助手。先判断是否需要工具，再逐步执行并输出结论。",
                         AgentMode.RE_ACT,
-                        List.of("mock_city_datetime", "mock_city_weather", "bash")
+                        List.of("city_datetime", "mock_city_weather", "mock_sensitive_data_detector", "bash")
                 ),
                 new AgentDefinition(
                         "demoPlanExecute",
@@ -73,7 +73,17 @@ public class AgentDefinitionLoader {
                         "qwen3-max",
                         "你是高级规划助手。请先生成计划，再调用工具执行，最后总结输出。",
                         AgentMode.PLAN_EXECUTE,
-                        List.of("mock_ops_runbook", "mock_city_datetime", "mock_city_weather", "bash")
+                        List.of("mock_ops_runbook", "city_datetime", "mock_city_weather", "mock_sensitive_data_detector", "bash")
+                ),
+                new AgentDefinition(
+                        "agentCreator",
+                        "内置智能体：根据需求创建 agents 目录下的智能体配置",
+                        ProviderType.BAILIAN,
+                        "qwen3-max",
+                        "你是 Agent 创建助手。目标是把用户需求转成智能体配置，并调用工具创建到 agents 目录。"
+                                + "请先规划，再执行工具；缺失字段用最小合理默认值，并在最终回答中说明。",
+                        AgentMode.PLAN_EXECUTE,
+                        List.of("agent_file_create")
                 )
         );
     }

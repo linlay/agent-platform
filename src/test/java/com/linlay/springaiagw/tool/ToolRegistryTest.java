@@ -7,15 +7,18 @@ import org.junit.jupiter.api.io.TempDir;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 
 class ToolRegistryTest {
 
-    private final MockCityDateTimeTool cityDateTimeTool = new MockCityDateTimeTool();
+    private final CityDateTimeTool cityDateTimeTool = new CityDateTimeTool();
     private final MockCityWeatherTool cityWeatherTool = new MockCityWeatherTool();
+    private final MockSensitiveDataDetectorTool sensitiveDataDetectorTool = new MockSensitiveDataDetectorTool();
     private final BashTool bashTool = new BashTool();
 
     @Test
@@ -29,13 +32,17 @@ class ToolRegistryTest {
     }
 
     @Test
-    void sameArgsShouldReturnSameDateTimeJson() {
+    void cityDateTimeShouldReturnRealtimeTimeWithTimezone() {
         Map<String, Object> args = Map.of("city", "Shanghai");
 
-        JsonNode first = cityDateTimeTool.invoke(args);
-        JsonNode second = cityDateTimeTool.invoke(args);
+        JsonNode result = cityDateTimeTool.invoke(args);
 
-        assertThat(first).isEqualTo(second);
+        assertThat(result.path("tool").asText()).isEqualTo("city_datetime");
+        assertThat(result.path("timezone").asText()).isEqualTo("Asia/Shanghai");
+        assertThat(result.path("source").asText()).isEqualTo("system-clock");
+        assertThat(result.path("date").asText()).isNotBlank();
+        assertThat(result.path("time").asText()).isNotBlank();
+        assertThatCode(() -> ZonedDateTime.parse(result.path("iso").asText())).doesNotThrowAnyException();
     }
 
     @Test
@@ -91,5 +98,83 @@ class ToolRegistryTest {
 
         assertThat(result.path("ok").asBoolean()).isTrue();
         assertThat(result.path("stdout").asText()).contains("secret");
+    }
+
+    @Test
+    void agentFileCreateToolShouldWriteAgentJson(@TempDir Path tempDir) throws IOException {
+        Path agentsDir = tempDir.resolve("agents");
+        AgentFileCreateTool tool = new AgentFileCreateTool(agentsDir);
+
+        JsonNode result = tool.invoke(Map.of(
+                "agentId", "qa_bot",
+                "description", "QA 助手",
+                "providerType", "openai",
+                "model", "gpt-3.5-turbo",
+                "systemPrompt", "你是 QA 助手\n请先问清问题",
+                "mode", "chat"
+        ));
+
+        assertThat(result.path("ok").asBoolean()).isTrue();
+        assertThat(result.path("created").asBoolean()).isTrue();
+        assertThat(result.path("agentId").asText()).isEqualTo("qa_bot");
+
+        Path file = agentsDir.resolve("qa_bot.json");
+        assertThat(Files.exists(file)).isTrue();
+        String content = Files.readString(file);
+        assertThat(content).contains("\"description\": \"QA 助手\"");
+        assertThat(content).contains("\"providerType\": \"OPENAI\"");
+        assertThat(content).contains("\"model\": \"gpt-3.5-turbo\"");
+        assertThat(content).contains("\"systemPrompt\": \"\"\"");
+        assertThat(content).contains("\"deepThink\": false");
+        assertThat(content).doesNotContain("\"mode\":");
+        assertThat(content).doesNotContain("\"tools\":");
+    }
+
+    @Test
+    void agentFileCreateToolShouldRejectInvalidAgentId(@TempDir Path tempDir) {
+        AgentFileCreateTool tool = new AgentFileCreateTool(tempDir.resolve("agents"));
+
+        JsonNode result = tool.invoke(Map.of("agentId", "../escape"));
+
+        assertThat(result.path("ok").asBoolean()).isFalse();
+        assertThat(result.path("error").asText()).contains("Invalid agentId");
+    }
+
+    @Test
+    void agentFileCreateToolShouldDefaultProviderToBailian(@TempDir Path tempDir) throws IOException {
+        Path agentsDir = tempDir.resolve("agents");
+        AgentFileCreateTool tool = new AgentFileCreateTool(agentsDir);
+
+        JsonNode result = tool.invoke(Map.of(
+                "agentId", "fortune_bot",
+                "description", "算命大师",
+                "systemPrompt", "你是算命大师"
+        ));
+
+        assertThat(result.path("ok").asBoolean()).isTrue();
+        String content = Files.readString(agentsDir.resolve("fortune_bot.json"));
+        assertThat(content).contains("\"providerType\": \"BAILIAN\"");
+        assertThat(content).contains("\"deepThink\": false");
+    }
+
+    @Test
+    void sensitiveDataDetectorShouldReturnPositiveForLongSensitiveText() {
+        String longText = "这是一大段业务文本，用于模拟超长入参。".repeat(120)
+                + "联系人邮箱是 test.user@example.com ，请尽快处理。";
+
+        JsonNode result = sensitiveDataDetectorTool.invoke(Map.of("text", longText));
+
+        assertThat(result.path("tool").asText()).isEqualTo("mock_sensitive_data_detector");
+        assertThat(result.path("hasSensitiveData").asBoolean()).isTrue();
+        assertThat(result.path("result").asText()).isEqualTo("有敏感数据");
+        assertThat(result.path("description").asText()).contains("检测到疑似");
+    }
+
+    @Test
+    void sensitiveDataDetectorShouldReturnNegativeForSafeText() {
+        JsonNode result = sensitiveDataDetectorTool.invoke(Map.of("text", "今天上海天气晴朗，适合散步。"));
+
+        assertThat(result.path("hasSensitiveData").asBoolean()).isFalse();
+        assertThat(result.path("result").asText()).isEqualTo("没有敏感数据");
     }
 }
