@@ -114,6 +114,11 @@ curl -N -X POST "http://localhost:8080/api/query" \
 - `RE_ACT`（兼容旧值 `THINKING_AND_CONTENT`）
 - `PLAN_EXECUTE`（兼容旧值 `THINKING_AND_CONTENT_WITH_DUAL_TOOL_CALLS`）
 
+当 `tools` 非空时，服务会按 OpenAI 兼容的原生 Function Calling 协议请求模型：
+- 请求体包含 `tools[]`
+- 流式消费 `delta.tool_calls`
+- 不再依赖正文中的 `toolCall/toolCalls` JSON 字段（仍保留向后兼容解析）
+
 ## 内置 agentCreator 智能体
 
 - 内置 `agentCreator` 智能体，模式为 `PLAN_EXECUTE`

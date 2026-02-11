@@ -44,8 +44,6 @@ public class DefinitionDrivenAgent implements Agent {
     private static final Logger log = LoggerFactory.getLogger(DefinitionDrivenAgent.class);
     private static final int MAX_TOOL_CALLS = 6;
     private static final int MAX_REACT_STEPS = 6;
-    private static final int TOOL_ARGS_CHUNK_SIZE = 8;
-    private static final Duration TOOL_ARGS_DELTA_INTERVAL = Duration.ofMillis(25);
     private static final Duration TOOL_RESULT_DELTA_GAP = Duration.ofMillis(30);
     private static final Duration TOOL_EVENT_DELTA_INTERVAL = Duration.ofMillis(10);
     private static final Pattern ARG_TEMPLATE_PATTERN = Pattern.compile("^\\{\\{\\s*([a-zA-Z0-9_]+)\\.([a-zA-Z0-9_]+)([+-]\\d+d)?\\s*}}$");
@@ -192,23 +190,36 @@ public class DefinitionDrivenAgent implements Agent {
 
         StringBuilder rawDecisionBuffer = new StringBuilder();
         StringBuilder emittedThinking = new StringBuilder();
+        Map<String, NativeToolCall> nativeToolCalls = new LinkedHashMap<>();
+        AtomicInteger nativeToolSeq = new AtomicInteger(0);
 
-        Flux<AgentDelta> decisionThinkingFlux = llmService.streamContent(
+        Flux<AgentDelta> decisionThinkingFlux = llmService.streamDeltas(
                         providerType(),
                         model(),
                         plainDecisionSystemPrompt(),
                         historyMessages,
                         decisionPrompt,
+                        enabledFunctionTools(),
                         "agent-plain-decision"
                 )
                 .handle((chunk, sink) -> {
-                    if (chunk == null || chunk.isEmpty()) {
+                    if (chunk == null) {
                         return;
                     }
-                    rawDecisionBuffer.append(chunk);
-                    String delta = extractNewThinkingDelta(rawDecisionBuffer, emittedThinking);
-                    if (!delta.isEmpty()) {
-                        sink.next(AgentDelta.thinking(delta));
+                    if (StringUtils.hasText(chunk.content())) {
+                        rawDecisionBuffer.append(chunk.content());
+                    }
+                    List<SseChunk.ToolCall> streamedToolCalls = captureNativeToolCalls(
+                            chunk.toolCalls(),
+                            nativeToolCalls,
+                            nativeToolSeq
+                    );
+                    if (!streamedToolCalls.isEmpty()) {
+                        sink.next(AgentDelta.toolCalls(streamedToolCalls));
+                    }
+                    String thinkingDelta = extractNewThinkingDelta(rawDecisionBuffer, emittedThinking);
+                    if (!thinkingDelta.isEmpty()) {
+                        sink.next(AgentDelta.thinking(thinkingDelta));
                     }
                 });
 
@@ -216,9 +227,19 @@ public class DefinitionDrivenAgent implements Agent {
                 decisionThinkingFlux,
                 Flux.defer(() -> {
                     String raw = rawDecisionBuffer.toString();
-                    PlainDecision decision = parsePlainDecision(raw);
+                    List<PlannedToolCall> nativeCalls = toPlannedToolCalls(nativeToolCalls);
+                    PlainDecision decision = nativeCalls.isEmpty()
+                            ? parsePlainDecision(raw)
+                            : new PlainDecision("", nativeCalls.getFirst(), true);
                     log.info("[agent:{}] plain raw decision:\n{}", id(), raw);
                     log.info("[agent:{}] plain parsed decision={}", id(), toJson(decision));
+
+                    if (nativeCalls.isEmpty() && !raw.isBlank() && readJsonObject(raw) == null) {
+                        return Flux.concat(
+                                Flux.just(AgentDelta.content(raw)),
+                                Flux.just(AgentDelta.finish("stop"))
+                        );
+                    }
 
                     Flux<AgentDelta> summaryThinkingFlux = emittedThinking.isEmpty() && !decision.thinking().isBlank()
                             ? Flux.just(AgentDelta.thinking(decision.thinking()))
@@ -236,7 +257,9 @@ public class DefinitionDrivenAgent implements Agent {
                     Flux<AgentDelta> toolFlux = Flux.empty();
                     String finalStage = "agent-plain-final-no-tool";
                     if (decision.toolCall() != null) {
-                        String callId = "call_" + sanitize(decision.toolCall().name()) + "_plain_1";
+                        String callId = StringUtils.hasText(decision.toolCall().callId())
+                                ? decision.toolCall().callId()
+                                : "call_" + sanitize(decision.toolCall().name()) + "_plain_1";
                         toolFlux = executeTool(decision.toolCall(), callId, toolRecords);
                         finalStage = "agent-plain-final-with-tool";
                     }
@@ -268,23 +291,36 @@ public class DefinitionDrivenAgent implements Agent {
         log.info("[agent:{}] plan-execute planner prompt:\n{}", id(), plannerPrompt);
         StringBuilder rawPlanBuffer = new StringBuilder();
         StringBuilder emittedThinking = new StringBuilder();
+        Map<String, NativeToolCall> nativeToolCalls = new LinkedHashMap<>();
+        AtomicInteger nativeToolSeq = new AtomicInteger(0);
 
-        Flux<AgentDelta> plannerThinkingFlux = llmService.streamContent(
+        Flux<AgentDelta> plannerThinkingFlux = llmService.streamDeltas(
                         providerType(),
                         model(),
                         plannerSystemPrompt(),
                         historyMessages,
                         plannerPrompt,
+                        enabledFunctionTools(),
                         "agent-plan-execute-planner"
                 )
                 .handle((chunk, sink) -> {
-                    if (chunk == null || chunk.isEmpty()) {
+                    if (chunk == null) {
                         return;
                     }
-                    rawPlanBuffer.append(chunk);
-                    String delta = extractNewThinkingDelta(rawPlanBuffer, emittedThinking);
-                    if (!delta.isEmpty()) {
-                        sink.next(AgentDelta.thinking(delta));
+                    if (StringUtils.hasText(chunk.content())) {
+                        rawPlanBuffer.append(chunk.content());
+                    }
+                    List<SseChunk.ToolCall> streamedToolCalls = captureNativeToolCalls(
+                            chunk.toolCalls(),
+                            nativeToolCalls,
+                            nativeToolSeq
+                    );
+                    if (!streamedToolCalls.isEmpty()) {
+                        sink.next(AgentDelta.toolCalls(streamedToolCalls));
+                    }
+                    String thinkingDelta = extractNewThinkingDelta(rawPlanBuffer, emittedThinking);
+                    if (!thinkingDelta.isEmpty()) {
+                        sink.next(AgentDelta.thinking(thinkingDelta));
                     }
                 });
 
@@ -292,9 +328,20 @@ public class DefinitionDrivenAgent implements Agent {
                         Flux.just(AgentDelta.thinking("正在生成执行计划...\n")),
                         plannerThinkingFlux,
                         Flux.defer(() -> {
-                            PlannerDecision decision = parsePlannerDecision(rawPlanBuffer.toString());
+                            String raw = rawPlanBuffer.toString();
+                            List<PlannedToolCall> nativeCalls = toPlannedToolCalls(nativeToolCalls);
+                            PlannerDecision decision = nativeCalls.isEmpty()
+                                    ? parsePlannerDecision(raw)
+                                    : plannerDecisionFromNativeCalls(nativeCalls);
                             log.info("[agent:{}] plan-execute planner raw response:\n{}", id(), rawPlanBuffer);
                             log.info("[agent:{}] plan-execute planner decision: {}", id(), toJson(decision));
+
+                            if (nativeCalls.isEmpty() && !raw.isBlank() && readJsonObject(raw) == null && decision.steps().isEmpty()) {
+                                return Flux.concat(
+                                        Flux.just(AgentDelta.content(raw)),
+                                        Flux.just(AgentDelta.finish("stop"))
+                                );
+                            }
 
                             Flux<AgentDelta> summaryThinkingFlux = emittedThinking.isEmpty()
                                     ? Flux.just(AgentDelta.thinking(buildThinkingText(decision)))
@@ -385,23 +432,36 @@ public class DefinitionDrivenAgent implements Agent {
         String stage = "agent-react-step-" + step;
         StringBuilder rawDecisionBuffer = new StringBuilder();
         StringBuilder emittedThinking = new StringBuilder();
+        Map<String, NativeToolCall> nativeToolCalls = new LinkedHashMap<>();
+        AtomicInteger nativeToolSeq = new AtomicInteger(0);
 
-        Flux<AgentDelta> stepThinkingFlux = llmService.streamContent(
+        Flux<AgentDelta> stepThinkingFlux = llmService.streamDeltas(
                         providerType(),
                         model(),
                         reactSystemPrompt(),
                         historyMessages,
                         reactPrompt,
+                        enabledFunctionTools(),
                         stage
                 )
                 .handle((chunk, sink) -> {
-                    if (chunk == null || chunk.isEmpty()) {
+                    if (chunk == null) {
                         return;
                     }
-                    rawDecisionBuffer.append(chunk);
-                    String delta = extractNewThinkingDelta(rawDecisionBuffer, emittedThinking);
-                    if (!delta.isEmpty()) {
-                        sink.next(AgentDelta.thinking(delta));
+                    if (StringUtils.hasText(chunk.content())) {
+                        rawDecisionBuffer.append(chunk.content());
+                    }
+                    List<SseChunk.ToolCall> streamedToolCalls = captureNativeToolCalls(
+                            chunk.toolCalls(),
+                            nativeToolCalls,
+                            nativeToolSeq
+                    );
+                    if (!streamedToolCalls.isEmpty()) {
+                        sink.next(AgentDelta.toolCalls(streamedToolCalls));
+                    }
+                    String thinkingDelta = extractNewThinkingDelta(rawDecisionBuffer, emittedThinking);
+                    if (!thinkingDelta.isEmpty()) {
+                        sink.next(AgentDelta.thinking(thinkingDelta));
                     }
                 });
 
@@ -409,9 +469,19 @@ public class DefinitionDrivenAgent implements Agent {
                 stepThinkingFlux,
                 Flux.defer(() -> {
                     String raw = rawDecisionBuffer.toString();
-                    ReactDecision decision = parseReactDecision(raw);
+                    List<PlannedToolCall> nativeCalls = toPlannedToolCalls(nativeToolCalls);
+                    ReactDecision decision = nativeCalls.isEmpty()
+                            ? parseReactDecision(raw)
+                            : new ReactDecision("", nativeCalls.getFirst(), false);
                     log.info("[agent:{}] react step={} raw decision:\n{}", id(), step, raw);
                     log.info("[agent:{}] react step={} parsed decision={}", id(), step, toJson(decision));
+
+                    if (nativeCalls.isEmpty() && !raw.isBlank() && readJsonObject(raw) == null) {
+                        return Flux.concat(
+                                Flux.just(AgentDelta.content(raw)),
+                                Flux.just(AgentDelta.finish("stop"))
+                        );
+                    }
 
                     Flux<AgentDelta> summaryThinkingFlux = emittedThinking.isEmpty() && !decision.thinking().isBlank()
                             ? Flux.just(AgentDelta.thinking(decision.thinking()))
@@ -443,7 +513,9 @@ public class DefinitionDrivenAgent implements Agent {
                         );
                     }
 
-                    String callId = "call_" + sanitize(decision.action().name()) + "_step_" + step;
+                    String callId = StringUtils.hasText(decision.action().callId())
+                            ? decision.action().callId()
+                            : "call_" + sanitize(decision.action().name()) + "_step_" + step;
 
                     return Flux.concat(
                             summaryThinkingFlux,
@@ -817,7 +889,132 @@ public class DefinitionDrivenAgent implements Agent {
             }
         }
 
-        return new PlannedToolCall(toolName, arguments);
+        String callId = normalize(callNode.path("id").asText(), "");
+        if (callId.isBlank()) {
+            callId = normalize(callNode.path("toolCallId").asText(), "");
+        }
+        return new PlannedToolCall(toolName, arguments, callId.isBlank() ? null : callId);
+    }
+
+    private List<LlmService.LlmFunctionTool> enabledFunctionTools() {
+        if (enabledToolsByName.isEmpty()) {
+            return List.of();
+        }
+        return enabledToolsByName.values().stream()
+                .sorted(Comparator.comparing(BaseTool::name))
+                .map(tool -> new LlmService.LlmFunctionTool(
+                        normalizeToolName(tool.name()),
+                        normalize(tool.description(), ""),
+                        tool.parametersSchema(),
+                        false
+                ))
+                .toList();
+    }
+
+    private List<SseChunk.ToolCall> captureNativeToolCalls(
+            List<SseChunk.ToolCall> chunkToolCalls,
+            Map<String, NativeToolCall> collector,
+            AtomicInteger seq
+    ) {
+        if (chunkToolCalls == null || chunkToolCalls.isEmpty()) {
+            return List.of();
+        }
+        List<SseChunk.ToolCall> streamed = new ArrayList<>();
+        for (SseChunk.ToolCall toolCall : chunkToolCalls) {
+            if (toolCall == null) {
+                continue;
+            }
+            String toolId = normalize(toolCall.id(), "");
+            if (toolId.isBlank()) {
+                toolId = latestCollectorToolId(collector);
+            }
+            if (toolId.isBlank()) {
+                toolId = "call_native_" + seq.incrementAndGet();
+            }
+            NativeToolCall nativeCall = collector.computeIfAbsent(toolId, NativeToolCall::new);
+            if (toolCall.function() == null) {
+                continue;
+            }
+            if (StringUtils.hasText(toolCall.function().name())) {
+                nativeCall.toolName = toolCall.function().name();
+            }
+            if (StringUtils.hasText(toolCall.function().arguments())) {
+                nativeCall.arguments.append(toolCall.function().arguments());
+            }
+
+            String normalizedType = normalize(toolCall.type(), "function");
+            String emittedName = StringUtils.hasText(toolCall.function().name())
+                    ? toolCall.function().name()
+                    : nativeCall.toolName;
+            String emittedArgs = toolCall.function().arguments();
+            // Only forward real argument deltas from model. Never emit synthetic "{}" chunks.
+            if (!StringUtils.hasText(emittedArgs)) {
+                continue;
+            }
+            streamed.add(new SseChunk.ToolCall(
+                    toolId,
+                    normalizedType,
+                    new SseChunk.Function(emittedName, emittedArgs)
+            ));
+        }
+        return streamed;
+    }
+
+    private String latestCollectorToolId(Map<String, NativeToolCall> collector) {
+        if (collector == null || collector.isEmpty()) {
+            return "";
+        }
+        String latest = "";
+        for (String id : collector.keySet()) {
+            latest = id;
+        }
+        return latest;
+    }
+
+    private List<PlannedToolCall> toPlannedToolCalls(Map<String, NativeToolCall> collector) {
+        if (collector == null || collector.isEmpty()) {
+            return List.of();
+        }
+        List<PlannedToolCall> calls = new ArrayList<>();
+        for (NativeToolCall nativeCall : collector.values()) {
+            String toolName = normalizeToolName(nativeCall.toolName);
+            if (toolName.isBlank()) {
+                continue;
+            }
+            Map<String, Object> arguments = parseToolArguments(nativeCall.arguments.toString());
+            calls.add(new PlannedToolCall(toolName, arguments, nativeCall.toolId));
+        }
+        return calls;
+    }
+
+    private Map<String, Object> parseToolArguments(String rawArguments) {
+        if (!StringUtils.hasText(rawArguments)) {
+            return new LinkedHashMap<>();
+        }
+        String normalized = rawArguments.trim();
+        try {
+            JsonNode node = objectMapper.readTree(normalized);
+            if (!node.isObject()) {
+                return new LinkedHashMap<>();
+            }
+            Map<String, Object> converted = objectMapper.convertValue(node, MAP_TYPE);
+            return converted == null ? new LinkedHashMap<>() : new LinkedHashMap<>(converted);
+        } catch (Exception ex) {
+            log.warn("[agent:{}] cannot parse tool arguments as JSON, fallback to empty object: {}", id(), normalized);
+            return new LinkedHashMap<>();
+        }
+    }
+
+    private PlannerDecision plannerDecisionFromNativeCalls(List<PlannedToolCall> nativeCalls) {
+        if (nativeCalls == null || nativeCalls.isEmpty()) {
+            return fallbackPlannerDecision("");
+        }
+        List<PlannedStep> steps = new ArrayList<>();
+        for (int i = 0; i < nativeCalls.size(); i++) {
+            PlannedToolCall toolCall = nativeCalls.get(i);
+            steps.add(new PlannedStep(defaultPlanStepText(i + 1, toolCall), toolCall));
+        }
+        return new PlannerDecision("模型通过原生 function calling 返回了工具调用，按顺序执行。", steps);
     }
 
     private Flux<AgentDelta> executePlanSteps(PlannerDecision decision, List<Map<String, Object>> records) {
@@ -845,7 +1042,9 @@ public class DefinitionDrivenAgent implements Agent {
                                 if (toolSeq > MAX_TOOL_CALLS) {
                                     return Flux.just(AgentDelta.thinking("工具调用数量超过上限，已跳过该步骤的工具执行。"));
                                 }
-                                String callId = "call_" + sanitize(toolCall.name()) + "_" + toolSeq;
+                                String callId = StringUtils.hasText(toolCall.callId())
+                                        ? toolCall.callId()
+                                        : "call_" + sanitize(toolCall.name()) + "_" + toolSeq;
                                 return executeTool(toolCall, callId, records);
                             }, 1);
 
@@ -881,7 +1080,7 @@ public class DefinitionDrivenAgent implements Agent {
         for (String splitCommand : splitCommands) {
             Map<String, Object> splitArgs = new LinkedHashMap<>(toolCall.arguments());
             splitArgs.put("command", splitCommand);
-            expanded.add(new PlannedToolCall(toolCall.name(), splitArgs));
+            expanded.add(new PlannedToolCall(toolCall.name(), splitArgs, null));
         }
         return expanded;
     }
@@ -912,8 +1111,6 @@ public class DefinitionDrivenAgent implements Agent {
             log.info("[agent:{}] resolved tool args callId={}, tool={}, planned={}, resolved={}", id(), callId, plannedCall.name(), toJson(args), toJson(resolvedArgs));
         }
 
-        String argumentsJson = toJson(resolvedArgs);
-        Flux<AgentDelta> toolArgsFlux = toToolArgsDeltas(callId, plannedCall.name(), argumentsJson);
         Mono<AgentDelta> toolResultDelta = Mono.delay(TOOL_RESULT_DELTA_GAP).then(Mono.fromCallable(() -> {
                     JsonNode result = safeInvoke(plannedCall.name(), resolvedArgs);
                     Map<String, Object> record = toolRecord(callId, plannedCall.name(), resolvedArgs, result);
@@ -923,7 +1120,7 @@ public class DefinitionDrivenAgent implements Agent {
                 })
                 .subscribeOn(Schedulers.boundedElastic()));
 
-        return Flux.concat(toolArgsFlux, toolResultDelta)
+        return toolResultDelta.flux()
                 .delayElements(TOOL_EVENT_DELTA_INTERVAL);
     }
 
@@ -1149,25 +1346,6 @@ public class DefinitionDrivenAgent implements Agent {
         return record;
     }
 
-    private Flux<AgentDelta> toToolArgsDeltas(String callId, String toolName, String argumentsJson) {
-        String normalized = normalize(argumentsJson, "{}");
-        List<AgentDelta> chunks = new ArrayList<>();
-        for (int start = 0; start < normalized.length(); start += TOOL_ARGS_CHUNK_SIZE) {
-            int end = Math.min(start + TOOL_ARGS_CHUNK_SIZE, normalized.length());
-            String delta = normalized.substring(start, end);
-            chunks.add(AgentDelta.toolCalls(List.of(toolCall(callId, toolName, delta))));
-        }
-
-        if (chunks.isEmpty()) {
-            chunks.add(AgentDelta.toolCalls(List.of(toolCall(callId, toolName, "{}"))));
-        }
-        if (chunks.size() == 1) {
-            return Flux.just(chunks.getFirst());
-        }
-        return Flux.just(chunks.getFirst())
-                .concatWith(Flux.fromIterable(chunks.subList(1, chunks.size())).delayElements(TOOL_ARGS_DELTA_INTERVAL));
-    }
-
     private JsonNode safeInvoke(String toolName, Map<String, Object> args) {
         String normalizedName = normalizeToolName(toolName);
         try {
@@ -1207,39 +1385,20 @@ public class DefinitionDrivenAgent implements Agent {
     }
 
     private String buildPlannerPrompt(AgentRequest request) {
-        String bashHint = enabledToolsByName.containsKey("bash")
-                ? "4) 需要查看本地文件、目录、磁盘或系统状态时，优先使用 bash。"
-                : "4) 如需工具调用，必须从工具列表中选择。";
         return """
                 用户问题：%s
                 可用工具：
                 %s
 
-                请只输出 JSON（不要代码块、不要额外解释），格式：
-                {
-                  "thinking": "你的关键思考",
-                  "plan": [
-                    {"step": "步骤1", "toolCall": {"name": "tool_name", "arguments": {"k": "v"}}},
-                    {"step": "步骤2", "toolCall": null}
-                  ]
-                }
-
-                约束：
-                1) thinking 用中文，一句话。
-                2) plan 输出 1-%d 条有序步骤，每一步都必须包含 step 字段。
-                3) toolCall 必须绑定在 plan 的每个步骤内；每步最多一个 toolCall，没有则写 null。
-                %s
-                5) toolCall.name 必须来自工具列表。
-                6) arguments 必须显式给出且符合工具定义，不要依赖任何隐式参数补齐。
-                7) plan 会严格按顺序逐步执行，不要生成独立于步骤的工具调用列表。
-                8) 当后续工具参数依赖前序工具结果时，必须使用模板参数，例如 "date":"{{city_datetime.date+1d}}"。
-                9) 不要直接使用 today/tomorrow/昨天/明天 作为最终日期参数，应改为具体日期或模板表达式。
-                10) bash.command 必须是单条命令，不要使用 &&、||、; 或管道拼接多条命令。
+                请按 OpenAI 原生 Function Calling 协议工作：
+                1) 需要工具时，直接发起 tool_calls，不要在正文输出 toolCall/toolCalls JSON。
+                2) 不需要工具时，直接输出简洁结论文本。
+                3) 工具参数必须严格匹配工具 schema，避免缺省或隐式参数。
+                4) 若参数依赖时间，不要传 today/tomorrow/昨天/明天，优先传具体日期（YYYY-MM-DD）或先调用时间工具再传日期。
+                5) bash.command 必须是单条命令，不允许 &&、||、;、管道。
                 """.formatted(
                 request.message(),
-                enabledToolsPrompt(),
-                MAX_TOOL_CALLS,
-                bashHint
+                enabledToolsPrompt()
         );
     }
 
@@ -1251,19 +1410,11 @@ public class DefinitionDrivenAgent implements Agent {
                 可用工具：
                 %s
 
-                请只输出 JSON（不要代码块、不要额外解释），格式：
-                {
-                  "thinking": "你的关键思考",
-                  "action": {"name": "tool_name", "arguments": {"k": "v"}} 或 null,
-                  "done": true 或 false
-                }
-
-                约束：
-                1) thinking 用中文，一句话。
-                2) 需要继续查证时：done=false，填写 action。
-                3) 已可直接回答时：done=true，action 设为 null。
-                4) action.name 必须来自工具列表，arguments 必须显式给出。
-                5) 每轮最多调用一个工具。
+                请按 OpenAI 原生 Function Calling 协议工作：
+                1) 需要继续查证时，直接发起 tool_calls，不要在正文输出 action/toolCall JSON。
+                2) 已可直接回答时，不再调用工具，直接输出最终结论文本。
+                3) 每轮最多一个工具调用。
+                4) 参数必须严格符合工具 schema。
                 """.formatted(
                 request.message(),
                 step,
@@ -1279,18 +1430,11 @@ public class DefinitionDrivenAgent implements Agent {
                 可用工具：
                 %s
 
-                请先判断是否需要工具。只输出 JSON（不要代码块、不要额外解释），格式：
-                {
-                  "thinking": "你的关键思考",
-                  "toolCall": {"name": "tool_name", "arguments": {"k": "v"}} 或 null
-                }
-
-                约束：
-                1) thinking 用中文，一句话。
-                2) toolCall 最多一个，不要输出 toolCalls 数组。
-                3) 若无需工具，toolCall 必须为 null。
-                4) 若需要工具，只能从工具列表中选择一个。
-                5) arguments 必须显式给出且符合工具定义，不要依赖隐式参数补齐。
+                请按 OpenAI 原生 Function Calling 协议工作：
+                1) 需要工具时，直接发起 tool_calls，不要在正文输出 toolCall/toolCalls JSON。
+                2) 此模式最多允许一个工具调用。
+                3) 不需要工具时，直接输出最终回答文本。
+                4) 参数必须严格符合工具 schema。
                 """.formatted(
                 request.message(),
                 enabledToolsPrompt()
@@ -1647,8 +1791,19 @@ public class DefinitionDrivenAgent implements Agent {
 
     private record PlannedToolCall(
             String name,
-            Map<String, Object> arguments
+            Map<String, Object> arguments,
+            String callId
     ) {
+    }
+
+    private static final class NativeToolCall {
+        private final String toolId;
+        private String toolName;
+        private final StringBuilder arguments = new StringBuilder();
+
+        private NativeToolCall(String toolId) {
+            this.toolId = Objects.requireNonNull(toolId);
+        }
     }
 
 }

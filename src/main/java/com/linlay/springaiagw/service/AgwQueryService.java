@@ -33,7 +33,6 @@ public class AgwQueryService {
 
     private static final String AUTO_AGENT = "auto";
     private static final String DEFAULT_AGENT = "default";
-    private static final Duration TOOL_EVENT_STREAM_GAP = Duration.ofMillis(25);
     private static final String TOOL_RESULT_EVENT = "tool.result";
     private static final Pattern EVENT_TYPE_PATTERN = Pattern.compile("\"type\":\"([^\"]+)\"");
     private static final Logger log = LoggerFactory.getLogger(AgwQueryService.class);
@@ -98,20 +97,18 @@ public class AgwQueryService {
         Flux<AgwDelta> deltas = session.agent().stream(session.agentRequest()).map(this::toAgwDelta);
         return agwSseStreamer.stream(session.context(), deltas)
                 .map(this::normalizeToolResultPayload)
-                .concatMap(event -> {
+                .doOnNext(event -> {
                     String eventType = extractEventType(event.data());
                     if (!isToolEvent(eventType)) {
-                        return Mono.just(event);
+                        return;
                     }
-                    return Mono.just(event)
-                            .delayElement(TOOL_EVENT_STREAM_GAP)
-                            .doOnNext(ignored -> log.debug(
-                                    "stream tool event type={}, requestId={}, runId={}",
-                                    eventType,
-                                    session.context().requestId(),
-                                    session.context().runId()
-                            ));
-                }, 1)
+                    log.debug(
+                            "stream tool event type={}, requestId={}, runId={}",
+                            eventType,
+                            session.context().requestId(),
+                            session.context().runId()
+                    );
+                })
                 .doOnNext(event -> chatRecordStore.appendEvent(session.context().chatId(), event.data()));
     }
 

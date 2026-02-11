@@ -10,5 +10,13 @@ public interface BaseTool {
 
     String description();
 
+    default Map<String, Object> parametersSchema() {
+        return Map.of(
+                "type", "object",
+                "properties", Map.of(),
+                "additionalProperties", true
+        );
+    }
+
     JsonNode invoke(Map<String, Object> args);
 }

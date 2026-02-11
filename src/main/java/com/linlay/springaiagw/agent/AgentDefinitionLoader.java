@@ -55,7 +55,7 @@ public class AgentDefinitionLoader {
                         // "deepseek-ai/DeepSeek-V3.2",
                         ProviderType.BAILIAN,
                         "qwen3-max",
-                        "你是简洁的助理，优先给出可执行结论，控制在 120 字以内。",
+                        "你是简洁的助理。严格使用原生 Function Calling：需要工具时发起 tool_calls；不需要工具时直接给可执行结论（120 字以内）。",
                         AgentMode.PLAIN,
                         List.of("mock_sensitive_data_detector", "city_datetime", "mock_city_weather")
                 ),
@@ -64,7 +64,7 @@ public class AgentDefinitionLoader {
                         "默认示例：RE-ACT 模式按需调用工具",
                         ProviderType.BAILIAN,
                         "qwen3-max",
-                        "你是 RE-ACT 助手。先判断是否需要工具，再逐步执行并输出结论。",
+                        "你是 RE-ACT 助手。严格使用原生 Function Calling：每轮最多一个 tool_call；需要工具就调用，不需要工具就直接输出最终结论。",
                         AgentMode.RE_ACT,
                         List.of("city_datetime", "mock_city_weather", "mock_sensitive_data_detector", "bash")
                 ),
@@ -73,7 +73,7 @@ public class AgentDefinitionLoader {
                         "默认示例：PLAN-EXECUTE 模式先规划后执行工具",
                         ProviderType.BAILIAN,
                         "qwen3-max",
-                        "你是高级规划助手。请先生成计划，再调用工具执行，最后总结输出。",
+                        "你是高级规划助手。严格使用原生 Function Calling：需要工具时用 tool_calls 顺序执行，不在正文输出工具调用 JSON，最后给简洁总结。",
                         AgentMode.PLAN_EXECUTE,
                         List.of("mock_ops_runbook", "city_datetime", "mock_city_weather", "mock_sensitive_data_detector", "bash")
                 ),
@@ -83,7 +83,7 @@ public class AgentDefinitionLoader {
                         ProviderType.BAILIAN,
                         "qwen3-max",
                         "你是 Agent 创建助手。目标是把用户需求转成智能体配置，并调用工具创建到 agents 目录。"
-                                + "请先规划，再执行工具；缺失字段用最小合理默认值，并在最终回答中说明。",
+                                + "严格使用原生 Function Calling，不在正文输出工具调用 JSON；缺失字段用最小合理默认值，并在最终回答中说明。",
                         AgentMode.PLAN_EXECUTE,
                         List.of("agent_file_create")
                 )

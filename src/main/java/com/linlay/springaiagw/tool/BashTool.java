@@ -69,6 +69,21 @@ public class BashTool extends AbstractDeterministicTool {
     }
 
     @Override
+    public Map<String, Object> parametersSchema() {
+        return Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "command", Map.of(
+                                "type", "string",
+                                "description", "单条白名单命令，例如 ls、pwd、df -h。禁止管道与多命令拼接。"
+                        )
+                ),
+                "required", List.of("command"),
+                "additionalProperties", false
+        );
+    }
+
+    @Override
     public JsonNode invoke(Map<String, Object> args) {
         String rawCommand = String.valueOf(args.getOrDefault("command", "")).trim();
 

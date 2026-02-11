@@ -24,6 +24,20 @@ public class CityDateTimeTool extends AbstractDeterministicTool {
     }
 
     @Override
+    public Map<String, Object> parametersSchema() {
+        return Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "city", Map.of(
+                                "type", "string",
+                                "description", "城市名称，例如 Shanghai、北京、东京"
+                        )
+                ),
+                "additionalProperties", false
+        );
+    }
+
+    @Override
     public JsonNode invoke(Map<String, Object> args) {
         String city = String.valueOf(args.getOrDefault("city", "Shanghai"));
         ZoneId zoneId = zoneIdOf(city);

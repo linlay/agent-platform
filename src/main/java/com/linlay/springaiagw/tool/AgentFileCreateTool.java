@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -42,6 +43,28 @@ public class AgentFileCreateTool extends AbstractDeterministicTool {
     @Override
     public String description() {
         return "创建或更新 agents 目录下的智能体配置文件。参数: agentId,description,providerType,model,systemPrompt,deepThink";
+    }
+
+    @Override
+    public Map<String, Object> parametersSchema() {
+        return Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "agentId", Map.of("type", "string", "description", "目标 agentId"),
+                        "description", Map.of("type", "string"),
+                        "providerType", Map.of("type", "string"),
+                        "model", Map.of("type", "string"),
+                        "systemPrompt", Map.of("type", "string"),
+                        "deepThink", Map.of("type", "boolean"),
+                        "mode", Map.of("type", "string"),
+                        "config", Map.of(
+                                "type", "object",
+                                "description", "可选，支持把 agent 配置放在 config 对象中"
+                        )
+                ),
+                "required", List.of("agentId"),
+                "additionalProperties", false
+        );
     }
 
     @Override
