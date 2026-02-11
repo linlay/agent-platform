@@ -244,6 +244,118 @@ class DefinitionDrivenAgentTest {
     }
 
     @Test
+    void plainFlowShouldSelectOnlyOneToolFromCandidates() {
+        AgentDefinition definition = new AgentDefinition(
+                "demoPlain",
+                "demo",
+                ProviderType.BAILIAN,
+                "qwen3-max",
+                "你是测试助手",
+                AgentMode.PLAIN,
+                List.of("tool_a", "tool_b")
+        );
+
+        LlmService llmService = new LlmService(null, null) {
+            @Override
+            public Flux<String> streamContent(
+                    ProviderType providerType,
+                    String model,
+                    String systemPrompt,
+                    String userPrompt,
+                    String stage
+            ) {
+                if ("agent-plain-decision".equals(stage)) {
+                    return Flux.just("{\"thinking\":\"需要先执行一个工具\",\"toolCall\":{\"name\":\"tool_b\",\"arguments\":{\"keyword\":\"alice\"}}}");
+                }
+                if ("agent-plain-final-with-tool".equals(stage)) {
+                    return Flux.just("结论：已执行 tool_b。");
+                }
+                return Flux.empty();
+            }
+
+            @Override
+            public Flux<String> streamContent(ProviderType providerType, String model, String systemPrompt, String userPrompt) {
+                return streamContent(providerType, model, systemPrompt, userPrompt, "default");
+            }
+
+            @Override
+            public Mono<String> completeText(ProviderType providerType, String model, String systemPrompt, String userPrompt) {
+                return Mono.just("");
+            }
+
+            @Override
+            public Mono<String> completeText(
+                    ProviderType providerType,
+                    String model,
+                    String systemPrompt,
+                    String userPrompt,
+                    String stage
+            ) {
+                return Mono.just("");
+            }
+        };
+
+        AtomicInteger toolAInvokeCount = new AtomicInteger();
+        BaseTool toolA = new BaseTool() {
+            @Override
+            public String name() {
+                return "tool_a";
+            }
+
+            @Override
+            public String description() {
+                return "tool a";
+            }
+
+            @Override
+            public JsonNode invoke(Map<String, Object> args) {
+                toolAInvokeCount.incrementAndGet();
+                return objectMapper.valueToTree(Map.of("tool", "tool_a", "ok", true));
+            }
+        };
+
+        AtomicInteger toolBInvokeCount = new AtomicInteger();
+        BaseTool toolB = new BaseTool() {
+            @Override
+            public String name() {
+                return "tool_b";
+            }
+
+            @Override
+            public String description() {
+                return "tool b";
+            }
+
+            @Override
+            public JsonNode invoke(Map<String, Object> args) {
+                toolBInvokeCount.incrementAndGet();
+                return objectMapper.valueToTree(Map.of("tool", "tool_b", "ok", true));
+            }
+        };
+
+        DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
+                definition,
+                llmService,
+                new DeltaStreamService(),
+                new ToolRegistry(List.of(toolA, toolB)),
+                objectMapper
+        );
+
+        List<AgentDelta> deltas = agent.stream(new AgentRequest("从多个工具里选择一个执行", null, null, null, null, null, null))
+                .collectList()
+                .block(Duration.ofSeconds(4));
+
+        assertThat(deltas).isNotNull();
+        assertThat(toolAInvokeCount.get()).isEqualTo(0);
+        assertThat(toolBInvokeCount.get()).isEqualTo(1);
+        assertThat(indexOfToolCallById(deltas, "call_tool_b_plain_1")).isGreaterThanOrEqualTo(0);
+        assertThat(indexOfToolCallById(deltas, "call_tool_a_plain_1")).isLessThan(0);
+        assertThat(indexOfToolResultById(deltas, "call_tool_b_plain_1")).isGreaterThan(indexOfToolCallById(deltas, "call_tool_b_plain_1"));
+        assertThat(deltas.stream().map(AgentDelta::content).toList()).contains("结论：已执行 tool_b。");
+        assertThat(deltas.get(deltas.size() - 1).finishReason()).isEqualTo("stop");
+    }
+
+    @Test
     void planExecuteFlowShouldEmitToolCallBeforeSlowToolResult() {
         AgentDefinition definition = new AgentDefinition(
                 "demoPlanExecute",

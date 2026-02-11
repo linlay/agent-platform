@@ -155,19 +155,112 @@ public class DefinitionDrivenAgent implements Agent {
     }
 
     private Flux<AgentDelta> plainContent(AgentRequest request, List<Message> historyMessages) {
+        if (enabledToolsByName.isEmpty()) {
+            return plainDirectContent(request, historyMessages, "agent-plain-content")
+                    .concatWith(Flux.just(AgentDelta.finish("stop")));
+        }
+
+        return plainSingleToolFlow(request, historyMessages)
+                .onErrorResume(ex -> Flux.concat(
+                        Flux.defer(() -> {
+                            log.error("[agent:{}] plain single-tool flow failed, fallback to plain content", id(), ex);
+                            return Flux.empty();
+                        }),
+                        Flux.just(AgentDelta.thinking("PLAIN 单工具流程失败，降级为直接回答。")),
+                        plainDirectContent(request, historyMessages, "agent-plain-content-fallback"),
+                        Flux.just(AgentDelta.finish("stop"))
+                ));
+    }
+
+    private Flux<AgentDelta> plainDirectContent(AgentRequest request, List<Message> historyMessages, String stage) {
         Flux<String> contentTextFlux = llmService.streamContent(
                         providerType(),
                         model(),
                         systemPrompt(),
                         historyMessages,
                         request.message(),
-                        "agent-plain-content"
+                        stage
                 )
                 .switchIfEmpty(Flux.just("未获取到模型输出，请检查 provider/model/sysPrompt 配置。"))
                 .onErrorResume(ex -> Flux.just("模型调用失败，请稍后重试。"));
-        return contentTextFlux
-                .map(AgentDelta::content)
-                .concatWith(Flux.just(AgentDelta.finish("stop")));
+        return contentTextFlux.map(AgentDelta::content);
+    }
+
+    private Flux<AgentDelta> plainSingleToolFlow(AgentRequest request, List<Message> historyMessages) {
+        String decisionPrompt = buildPlainDecisionPrompt(request);
+        log.info("[agent:{}] plain decision prompt:\n{}", id(), decisionPrompt);
+
+        StringBuilder rawDecisionBuffer = new StringBuilder();
+        StringBuilder emittedThinking = new StringBuilder();
+
+        Flux<AgentDelta> decisionThinkingFlux = llmService.streamContent(
+                        providerType(),
+                        model(),
+                        plainDecisionSystemPrompt(),
+                        historyMessages,
+                        decisionPrompt,
+                        "agent-plain-decision"
+                )
+                .handle((chunk, sink) -> {
+                    if (chunk == null || chunk.isEmpty()) {
+                        return;
+                    }
+                    rawDecisionBuffer.append(chunk);
+                    String delta = extractNewThinkingDelta(rawDecisionBuffer, emittedThinking);
+                    if (!delta.isEmpty()) {
+                        sink.next(AgentDelta.thinking(delta));
+                    }
+                });
+
+        return Flux.concat(
+                decisionThinkingFlux,
+                Flux.defer(() -> {
+                    String raw = rawDecisionBuffer.toString();
+                    PlainDecision decision = parsePlainDecision(raw);
+                    log.info("[agent:{}] plain raw decision:\n{}", id(), raw);
+                    log.info("[agent:{}] plain parsed decision={}", id(), toJson(decision));
+
+                    Flux<AgentDelta> summaryThinkingFlux = emittedThinking.isEmpty() && !decision.thinking().isBlank()
+                            ? Flux.just(AgentDelta.thinking(decision.thinking()))
+                            : Flux.empty();
+
+                    if (!decision.valid()) {
+                        return Flux.concat(
+                                summaryThinkingFlux,
+                                plainDirectContent(request, historyMessages, "agent-plain-content-json-fallback"),
+                                Flux.just(AgentDelta.finish("stop"))
+                        );
+                    }
+
+                    List<Map<String, Object>> toolRecords = new ArrayList<>();
+                    Flux<AgentDelta> toolFlux = Flux.empty();
+                    String finalStage = "agent-plain-final-no-tool";
+                    if (decision.toolCall() != null) {
+                        String callId = "call_" + sanitize(decision.toolCall().name()) + "_plain_1";
+                        toolFlux = executeTool(decision.toolCall(), callId, toolRecords);
+                        finalStage = "agent-plain-final-with-tool";
+                    }
+
+                    String stage = finalStage;
+                    Flux<AgentDelta> contentFlux = Flux.defer(() -> {
+                        String finalPrompt = buildPlainFinalPrompt(request, toolRecords);
+                        log.info("[agent:{}] plain final prompt:\n{}", id(), finalPrompt);
+                        return llmService.streamContent(
+                                        providerType(),
+                                        model(),
+                                        systemPrompt(),
+                                        historyMessages,
+                                        finalPrompt,
+                                        stage
+                                )
+                                .switchIfEmpty(Flux.just("未获取到模型输出，请检查 provider/model/sysPrompt 配置。"))
+                                .onErrorResume(ex -> Flux.just("模型调用失败，请稍后重试。"))
+                                .map(AgentDelta::content);
+                    });
+
+                    return Flux.concat(summaryThinkingFlux, toolFlux, contentFlux, Flux.just(AgentDelta.finish("stop")));
+                })
+        );
     }
 
     private Flux<AgentDelta> planExecuteFlow(AgentRequest request, List<Message> historyMessages) {
@@ -669,6 +762,46 @@ public class DefinitionDrivenAgent implements Agent {
         return new ReactDecision(thinking, action, done);
     }
 
+    private PlainDecision parsePlainDecision(String rawDecision) {
+        JsonNode root = readJsonObject(rawDecision);
+        if (root == null || !root.isObject()) {
+            return new PlainDecision(
+                    "PLAIN 决策输出无法解析为 JSON，转为直接回答。",
+                    null,
+                    false
+            );
+        }
+
+        String thinking = normalize(root.path("thinking").asText(), "");
+        PlannedToolCall toolCall = null;
+
+        JsonNode toolCallNode = root.path("toolCall");
+        if (toolCallNode.isObject()) {
+            toolCall = readPlannedToolCall(toolCallNode);
+        }
+
+        if (toolCall == null) {
+            JsonNode actionNode = root.path("action");
+            if (actionNode.isObject()) {
+                toolCall = readPlannedToolCall(actionNode);
+            }
+        }
+
+        if (toolCall == null) {
+            JsonNode toolCallsNode = root.path("toolCalls");
+            if (toolCallsNode.isArray()) {
+                for (JsonNode callNode : toolCallsNode) {
+                    toolCall = readPlannedToolCall(callNode);
+                    if (toolCall != null) {
+                        break;
+                    }
+                }
+            }
+        }
+
+        return new PlainDecision(thinking, toolCall, true);
+    }
+
     private PlannedToolCall readPlannedToolCall(JsonNode callNode) {
         String toolName = normalizeToolName(callNode.path("name").asText());
         if (toolName.isBlank()) {
@@ -1140,6 +1273,30 @@ public class DefinitionDrivenAgent implements Agent {
         );
     }
 
+    private String buildPlainDecisionPrompt(AgentRequest request) {
+        return """
+                用户问题：%s
+                可用工具：
+                %s
+
+                请先判断是否需要工具。只输出 JSON（不要代码块、不要额外解释），格式：
+                {
+                  "thinking": "你的关键思考",
+                  "toolCall": {"name": "tool_name", "arguments": {"k": "v"}} 或 null
+                }
+
+                约束：
+                1) thinking 用中文，一句话。
+                2) toolCall 最多一个，不要输出 toolCalls 数组。
+                3) 若无需工具，toolCall 必须为 null。
+                4) 若需要工具，只能从工具列表中选择一个。
+                5) arguments 必须显式给出且符合工具定义，不要依赖隐式参数补齐。
+                """.formatted(
+                request.message(),
+                enabledToolsPrompt()
+        );
+    }
+
     private String plannerSystemPrompt() {
         return normalize(systemPrompt(), "你是通用助理")
                 + "\n你当前处于任务编排阶段：先深度思考，再给出计划，并按需声明工具调用。";
@@ -1148,6 +1305,11 @@ public class DefinitionDrivenAgent implements Agent {
     private String reactSystemPrompt() {
         return normalize(systemPrompt(), "你是通用助理")
                 + "\n你当前处于 RE-ACT 阶段：每轮只做一个动作决策（继续调用工具或直接给最终回答）。";
+    }
+
+    private String plainDecisionSystemPrompt() {
+        return normalize(systemPrompt(), "你是通用助理")
+                + "\n你当前处于 PLAIN 单工具决策阶段：先判断是否需要工具；若需要，只能调用一个工具。";
     }
 
     private String buildPlanExecuteFinalPrompt(
@@ -1192,6 +1354,21 @@ public class DefinitionDrivenAgent implements Agent {
                 2) 若有工具结果，引用关键结果再总结。
                 3) 必要时给简短行动建议。
                 4) 保持简洁、可执行。
+                """.formatted(
+                request.message(),
+                toJson(toolRecords)
+        );
+    }
+
+    private String buildPlainFinalPrompt(AgentRequest request, List<Map<String, Object>> toolRecords) {
+        return """
+                用户问题：%s
+                工具执行结果(JSON)：%s
+
+                请输出最终回答：
+                1) 先给结论。
+                2) 若有工具结果，引用关键结果再总结。
+                3) 保持简洁、可执行。
                 """.formatted(
                 request.message(),
                 toJson(toolRecords)
@@ -1458,6 +1635,13 @@ public class DefinitionDrivenAgent implements Agent {
             String thinking,
             PlannedToolCall action,
             boolean done
+    ) {
+    }
+
+    private record PlainDecision(
+            String thinking,
+            PlannedToolCall toolCall,
+            boolean valid
     ) {
     }
 

@@ -22,7 +22,9 @@ WORKDIR /opt/app
 
 ENV JAVA_OPTS="-server -Xms256m -XX:MaxRAMPercentage=60" \
     JAVA_AGENT="" \
-    SPRING_CONFIG_ADDITIONAL_LOCATION="optional:file:/opt/application.yml"
+    SPRING_CONFIG_ADDITIONAL_LOCATION="optional:file:/opt/application.yml" \
+    AGENT_EXTERNAL_DIR="/opt/agents" \
+    MEMORY_CHAT_DIR="/opt/chats"
 
 COPY --from=building /workspace/target/springai-agw-0.0.1-SNAPSHOT.jar /opt/app.jar
 

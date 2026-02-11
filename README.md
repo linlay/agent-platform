@@ -110,7 +110,7 @@ curl -N -X POST "http://localhost:8080/api/query" \
 ```
 
 `mode` 支持：
-- `PLAIN`
+- `PLAIN`（默认直答；当配置了 tools 时，会先决策是否调用工具，最多调用 1 次）
 - `RE_ACT`（兼容旧值 `THINKING_AND_CONTENT`）
 - `PLAN_EXECUTE`（兼容旧值 `THINKING_AND_CONTENT_WITH_DUAL_TOOL_CALLS`）
 

@@ -3,7 +3,9 @@ package com.linlay.springaiagw.tool;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.linlay.springaiagw.agent.AgentCatalogProperties;
 import com.linlay.springaiagw.agent.AgentMode;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -23,8 +25,9 @@ public class AgentFileCreateTool extends AbstractDeterministicTool {
     private static final String DEFAULT_SYSTEM_PROMPT = "你是通用助理，回答要清晰和可执行。";
     private final Path agentsDir;
 
-    public AgentFileCreateTool() {
-        this(Path.of(System.getProperty("user.dir", ".")).toAbsolutePath().normalize().resolve("agents"));
+    @Autowired
+    public AgentFileCreateTool(AgentCatalogProperties properties) {
+        this(Path.of(properties.getExternalDir()));
     }
 
     public AgentFileCreateTool(Path agentsDir) {

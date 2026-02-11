@@ -50,12 +50,14 @@ public class AgentDefinitionLoader {
         return List.of(
                 new AgentDefinition(
                         "demoPlain",
-                        "默认示例：直接正文回答",
-                        ProviderType.SILICONFLOW,
-                        "deepseek-ai/DeepSeek-V3.2",
+                        "默认示例：PLAIN 模式按需单次调用工具",
+                        // ProviderType.SILICONFLOW,
+                        // "deepseek-ai/DeepSeek-V3.2",
+                        ProviderType.BAILIAN,
+                        "qwen3-max",
                         "你是简洁的助理，优先给出可执行结论，控制在 120 字以内。",
                         AgentMode.PLAIN,
-                        List.of("mock_sensitive_data_detector")
+                        List.of("mock_sensitive_data_detector", "city_datetime", "mock_city_weather")
                 ),
                 new AgentDefinition(
                         "demoReAct",
