@@ -158,3 +158,16 @@ agent:
 AGENT_BASH_WORKING_DIRECTORY=/opt/app
 AGENT_BASH_ALLOWED_PATHS=/opt,/data
 ```
+
+
+```bash
+curl -N -X POST "http://localhost:8080/api/query" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"规划上海机房明天搬迁的实施计划","agentKey":"demoReAct"}'
+```
+
+```bash
+curl -N -X POST "http://localhost:8080/api/query" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"规划上海机房明天搬迁的实施计划","agentKey":"demoPlanExecute"}'
+```

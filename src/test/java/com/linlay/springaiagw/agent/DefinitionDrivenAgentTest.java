@@ -572,7 +572,7 @@ class DefinitionDrivenAgentTest {
 
         assertThat(firstToolResult).isGreaterThanOrEqualTo(0);
         assertThat(secondToolCall).isGreaterThan(firstToolResult);
-        assertThat(firstToolCallChunks).isGreaterThan(1);
+        assertThat(firstToolCallChunks).isEqualTo(1);
     }
 
     @Test
@@ -906,7 +906,7 @@ class DefinitionDrivenAgentTest {
         assertThat(toolAResult).isGreaterThan(toolAEnd);
         assertThat(toolBStart).isGreaterThan(toolAResult);
         assertThat(toolBResult).isGreaterThan(toolBStart);
-        assertThat(countToolArgsEvents(events, "call_tool_a_1")).isGreaterThan(1);
+        assertThat(countToolArgsEvents(events, "call_tool_a_1")).isEqualTo(1);
     }
 
     @Test

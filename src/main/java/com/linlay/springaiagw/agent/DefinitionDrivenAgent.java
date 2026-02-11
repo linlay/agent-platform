@@ -22,7 +22,6 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
-import java.time.Duration;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
@@ -44,9 +43,6 @@ public class DefinitionDrivenAgent implements Agent {
     private static final Logger log = LoggerFactory.getLogger(DefinitionDrivenAgent.class);
     private static final int MAX_TOOL_CALLS = 6;
     private static final int MAX_REACT_STEPS = 6;
-    private static final int TOOL_CALL_ARG_CHUNK_SIZE = 48;
-    private static final Duration TOOL_RESULT_DELTA_GAP = Duration.ofMillis(30);
-    private static final Duration TOOL_EVENT_DELTA_INTERVAL = Duration.ofMillis(10);
     private static final Pattern ARG_TEMPLATE_PATTERN = Pattern.compile("^\\{\\{\\s*([a-zA-Z0-9_]+)\\.([a-zA-Z0-9_]+)([+-]\\d+d)?\\s*}}$");
     private static final Set<String> DATE_KEYWORDS_TODAY = Set.of("today", "今天");
     private static final Set<String> DATE_KEYWORDS_TOMORROW = Set.of("tomorrow", "明天");
@@ -261,7 +257,7 @@ public class DefinitionDrivenAgent implements Agent {
                         String callId = StringUtils.hasText(decision.toolCall().callId())
                                 ? decision.toolCall().callId()
                                 : "call_" + sanitize(decision.toolCall().name()) + "_plain_1";
-                        toolFlux = executeTool(decision.toolCall(), callId, toolRecords);
+                        toolFlux = executeTool(decision.toolCall(), callId, toolRecords, !nativeCalls.isEmpty());
                         finalStage = "agent-plain-final-with-tool";
                     }
 
@@ -519,7 +515,7 @@ public class DefinitionDrivenAgent implements Agent {
 
                     return Flux.concat(
                             summaryThinkingFlux,
-                            executeTool(decision.action(), callId, toolRecords),
+                            executeTool(decision.action(), callId, toolRecords, !nativeCalls.isEmpty()),
                             Flux.defer(() -> reactLoop(request, historyMessages, toolRecords, step + 1))
                     );
                 })
@@ -1107,7 +1103,7 @@ public class DefinitionDrivenAgent implements Agent {
                                 String callId = StringUtils.hasText(toolCall.callId())
                                         ? toolCall.callId()
                                         : "call_" + sanitize(toolCall.name()) + "_" + toolSeq;
-                                return executeTool(toolCall, callId, records);
+                                return executeTool(toolCall, callId, records, false);
                             }, 1);
 
                     return Flux.concat(stepThinkingFlux, expandedFlux);
@@ -1162,7 +1158,11 @@ public class DefinitionDrivenAgent implements Agent {
         return commands;
     }
 
-    private Flux<AgentDelta> executeTool(PlannedToolCall plannedCall, String callId, List<Map<String, Object>> records) {
+    private Flux<AgentDelta> executeTool(
+            PlannedToolCall plannedCall, String callId,
+            List<Map<String, Object>> records,
+            boolean skipToolCallEmission
+    ) {
         Map<String, Object> args = new LinkedHashMap<>();
         if (plannedCall.arguments() != null) {
             args.putAll(plannedCall.arguments());
@@ -1173,39 +1173,28 @@ public class DefinitionDrivenAgent implements Agent {
             log.info("[agent:{}] resolved tool args callId={}, tool={}, planned={}, resolved={}", id(), callId, plannedCall.name(), toJson(args), toJson(resolvedArgs));
         }
 
-        String argsJson = toJson(resolvedArgs);
-        Flux<AgentDelta> toolCallFlux = Flux.fromIterable(splitToolCallArgumentChunks(argsJson))
-                .map(chunk -> AgentDelta.toolCalls(List.of(toolCall(callId, plannedCall.name(), chunk))))
-                .delayElements(TOOL_EVENT_DELTA_INTERVAL);
+        Flux<AgentDelta> toolCallFlux;
+        if (skipToolCallEmission) {
+            // Native FC path: tool_calls already streamed during LLM phase, skip duplicate emission
+            toolCallFlux = Flux.empty();
+        } else {
+            // Non-native path (JSON parse fallback): emit full arguments in a single event, no fake chunking
+            String argsJson = toJson(resolvedArgs);
+            toolCallFlux = Flux.just(
+                    AgentDelta.toolCalls(List.of(toolCall(callId, plannedCall.name(), argsJson)))
+            );
+        }
 
-        Mono<AgentDelta> toolResultDelta = Mono.delay(TOOL_RESULT_DELTA_GAP).then(Mono.fromCallable(() -> {
+        Mono<AgentDelta> toolResultDelta = Mono.fromCallable(() -> {
                     JsonNode result = safeInvoke(plannedCall.name(), resolvedArgs);
                     Map<String, Object> record = toolRecord(callId, plannedCall.name(), resolvedArgs, result);
                     records.add(record);
                     log.info("[agent:{}] tool finished callId={}, tool={}, record={}", id(), callId, plannedCall.name(), toJson(record));
                     return AgentDelta.toolResult(callId, result);
                 })
-                .subscribeOn(Schedulers.boundedElastic()));
+                .subscribeOn(Schedulers.boundedElastic());
 
-        return Flux.concat(toolCallFlux, toolResultDelta.flux())
-                .delayElements(TOOL_EVENT_DELTA_INTERVAL);
-    }
-
-    private List<String> splitToolCallArgumentChunks(String argumentsJson) {
-        String normalized = normalize(argumentsJson, "");
-        if (normalized.isBlank()) {
-            return List.of("{}");
-        }
-        if (normalized.length() <= TOOL_CALL_ARG_CHUNK_SIZE) {
-            return List.of(normalized);
-        }
-
-        List<String> chunks = new ArrayList<>();
-        for (int start = 0; start < normalized.length(); start += TOOL_CALL_ARG_CHUNK_SIZE) {
-            int end = Math.min(start + TOOL_CALL_ARG_CHUNK_SIZE, normalized.length());
-            chunks.add(normalized.substring(start, end));
-        }
-        return chunks;
+        return Flux.concat(toolCallFlux, toolResultDelta.flux());
     }
 
     private Map<String, Object> resolveToolArguments(String toolName, Map<String, Object> plannedArgs, List<Map<String, Object>> records) {
