@@ -233,26 +233,43 @@ public class DefinitionDrivenAgent implements Agent {
         String reactPrompt = buildReactPrompt(request, toolRecords, step);
         log.info("[agent:{}] react step={} prompt:\n{}", id(), step, reactPrompt);
 
-        return llmService.completeText(
+        String stage = "agent-react-step-" + step;
+        StringBuilder rawDecisionBuffer = new StringBuilder();
+        StringBuilder emittedThinking = new StringBuilder();
+
+        Flux<AgentDelta> stepThinkingFlux = llmService.streamContent(
                         providerType(),
                         model(),
                         reactSystemPrompt(),
                         reactPrompt,
-                        "agent-react-step-" + step
+                        stage
                 )
-                .flatMapMany(raw -> {
+                .handle((chunk, sink) -> {
+                    if (chunk == null || chunk.isEmpty()) {
+                        return;
+                    }
+                    rawDecisionBuffer.append(chunk);
+                    String delta = extractNewThinkingDelta(rawDecisionBuffer, emittedThinking);
+                    if (!delta.isEmpty()) {
+                        sink.next(AgentDelta.thinking(delta));
+                    }
+                });
+
+        return Flux.concat(
+                stepThinkingFlux,
+                Flux.defer(() -> {
+                    String raw = rawDecisionBuffer.toString();
                     ReactDecision decision = parseReactDecision(raw);
                     log.info("[agent:{}] react step={} raw decision:\n{}", id(), step, raw);
                     log.info("[agent:{}] react step={} parsed decision={}", id(), step, toJson(decision));
 
-                    List<AgentDelta> stepDeltas = new ArrayList<>();
-                    if (!decision.thinking().isBlank()) {
-                        stepDeltas.add(AgentDelta.thinking(decision.thinking()));
-                    }
+                    Flux<AgentDelta> summaryThinkingFlux = emittedThinking.isEmpty() && !decision.thinking().isBlank()
+                            ? Flux.just(AgentDelta.thinking(decision.thinking()))
+                            : Flux.empty();
 
                     if (decision.done()) {
                         return Flux.concat(
-                                Flux.fromIterable(stepDeltas),
+                                summaryThinkingFlux,
                                 finalizeReactAnswer(
                                         request,
                                         toolRecords,
@@ -264,7 +281,7 @@ public class DefinitionDrivenAgent implements Agent {
 
                     if (decision.action() == null) {
                         return Flux.concat(
-                                Flux.fromIterable(stepDeltas),
+                                summaryThinkingFlux,
                                 finalizeReactAnswer(request, toolRecords, "未获得可执行 action，转为总结输出。", "agent-react-final-empty")
                         );
                     }
@@ -273,11 +290,12 @@ public class DefinitionDrivenAgent implements Agent {
                     toolRecords.addAll(execution.records());
 
                     return Flux.concat(
-                            Flux.fromIterable(stepDeltas),
+                            summaryThinkingFlux,
                             Flux.fromIterable(execution.deltas()),
                             reactLoop(request, toolRecords, step + 1)
                     );
-                });
+                })
+        );
     }
 
     private Flux<AgentDelta> finalizeReactAnswer(
