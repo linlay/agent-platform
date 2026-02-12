@@ -1,5 +1,6 @@
 package com.linlay.springaiagw.controller;
 
+import com.aiagent.agw.sdk.service.SseFlushWriter;
 import com.linlay.springaiagw.agent.Agent;
 import com.linlay.springaiagw.agent.AgentRegistry;
 import com.linlay.springaiagw.model.agw.AgwAgentResponse;
@@ -13,7 +14,6 @@ import com.linlay.springaiagw.model.agw.ApiResponse;
 import com.linlay.springaiagw.service.AgwQueryService;
 import com.linlay.springaiagw.service.AgwQueryService.QuerySession;
 import com.linlay.springaiagw.service.ChatRecordStore;
-import com.linlay.springaiagw.service.SseFlushWriter;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

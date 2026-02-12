@@ -10,9 +10,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.linlay.springaiagw.agent.Agent;
 import com.linlay.springaiagw.agent.AgentRegistry;
 import com.linlay.springaiagw.model.agw.AgwQueryRequest;
-import com.linlay.springaiagw.model.AgentDelta.ToolResult;
 import com.linlay.springaiagw.model.AgentRequest;
-import com.linlay.springaiagw.model.SseChunk;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.codec.ServerSentEvent;
@@ -20,7 +18,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
 
-import java.util.List;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -88,7 +85,7 @@ public class AgwQueryService {
     }
 
     public Flux<ServerSentEvent<String>> stream(QuerySession session) {
-        Flux<AgwDelta> deltas = session.agent().stream(session.agentRequest()).map(this::toAgwDelta);
+        Flux<AgwDelta> deltas = session.agent().stream(session.agentRequest());
         return agwSseStreamer.stream(session.context(), deltas)
                 .map(this::normalizeToolResultPayload)
                 .doOnNext(event -> {
@@ -206,33 +203,6 @@ public class AgwQueryService {
         } catch (IllegalArgumentException ex) {
             throw new IllegalArgumentException(fieldName + " must be a valid UUID");
         }
-    }
-
-    private AgwDelta toAgwDelta(com.linlay.springaiagw.model.AgentDelta delta) {
-        List<AgwDelta.ToolCall> toolCalls = delta.toolCalls() == null ? null : delta.toolCalls().stream()
-                .map(this::toToolCall)
-                .toList();
-        List<AgwDelta.ToolResult> toolResults = delta.toolResults() == null ? null : delta.toolResults().stream()
-                .map(this::toToolResult)
-                .toList();
-
-        return new AgwDelta(
-                delta.content(),
-                delta.thinking(),
-                toolCalls,
-                toolResults,
-                delta.finishReason()
-        );
-    }
-
-    private AgwDelta.ToolCall toToolCall(SseChunk.ToolCall toolCall) {
-        String toolName = toolCall.function() == null ? null : toolCall.function().name();
-        String arguments = toolCall.function() == null ? null : toolCall.function().arguments();
-        return new AgwDelta.ToolCall(toolCall.id(), toolCall.type(), toolName, arguments);
-    }
-
-    private AgwDelta.ToolResult toToolResult(ToolResult toolResult) {
-        return new AgwDelta.ToolResult(toolResult.toolId(), toolResult.result());
     }
 
     public record QuerySession(

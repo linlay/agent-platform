@@ -1,11 +1,12 @@
 package com.linlay.springaiagw.service;
 
+import com.aiagent.agw.sdk.model.LlmDelta;
+import com.aiagent.agw.sdk.model.ToolCallDelta;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linlay.springaiagw.config.AgentProviderProperties;
 import com.linlay.springaiagw.config.ChatClientRegistry;
 import com.linlay.springaiagw.config.LlmInteractionLogProperties;
 import com.linlay.springaiagw.model.ProviderType;
-import com.linlay.springaiagw.model.SseChunk;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -43,13 +44,6 @@ public class LlmService {
             String description,
             Map<String, Object> parameters,
             Boolean strict
-    ) {
-    }
-
-    public record LlmStreamDelta(
-            String content,
-            List<SseChunk.ToolCall> toolCalls,
-            String finishReason
     ) {
     }
 
@@ -176,7 +170,7 @@ public class LlmService {
         return streamContentInternal(providerKey, model, systemPrompt, historyMessages, userPrompt, stage);
     }
 
-    public Flux<LlmStreamDelta> streamDeltas(
+    public Flux<LlmDelta> streamDeltas(
             String providerKey,
             String model,
             String systemPrompt,
@@ -186,7 +180,7 @@ public class LlmService {
         return streamDeltas(providerKey, model, systemPrompt, List.of(), userPrompt, List.of(), stage);
     }
 
-    public Flux<LlmStreamDelta> streamDeltas(
+    public Flux<LlmDelta> streamDeltas(
             String providerKey,
             String model,
             String systemPrompt,
@@ -198,7 +192,7 @@ public class LlmService {
         return streamDeltas(providerKey, model, systemPrompt, historyMessages, userPrompt, tools, stage, false);
     }
 
-    public Flux<LlmStreamDelta> streamDeltas(
+    public Flux<LlmDelta> streamDeltas(
             String providerKey,
             String model,
             String systemPrompt,
@@ -216,7 +210,7 @@ public class LlmService {
     }
 
     @Deprecated
-    public Flux<LlmStreamDelta> streamDeltas(
+    public Flux<LlmDelta> streamDeltas(
             ProviderType providerType,
             String model,
             String systemPrompt,
@@ -227,7 +221,7 @@ public class LlmService {
     }
 
     @Deprecated
-    public Flux<LlmStreamDelta> streamDeltas(
+    public Flux<LlmDelta> streamDeltas(
             ProviderType providerType,
             String model,
             String systemPrompt,
@@ -240,7 +234,7 @@ public class LlmService {
     }
 
     @Deprecated
-    public Flux<LlmStreamDelta> streamDeltas(
+    public Flux<LlmDelta> streamDeltas(
             ProviderType providerType,
             String model,
             String systemPrompt,
@@ -255,7 +249,7 @@ public class LlmService {
         if (chatClient == null) {
             // Compatibility bridge for tests/legacy callers overriding ProviderType streamContent.
             return streamContent(providerType, model, systemPrompt, userPrompt, stage)
-                    .map(content -> new LlmStreamDelta(content, null, null));
+                    .map(content -> new LlmDelta(content, null, null));
         }
         return streamDeltasInternal(providerKey, model, systemPrompt, historyMessages, userPrompt, tools, stage, parallelToolCalls);
     }
@@ -376,7 +370,7 @@ public class LlmService {
         });
     }
 
-    private Flux<LlmStreamDelta> streamDeltasInternal(
+    private Flux<LlmDelta> streamDeltasInternal(
             String providerKey,
             String model,
             String systemPrompt,
@@ -402,10 +396,10 @@ public class LlmService {
 
             if (chatClient == null) {
                 return streamContentInternal(providerKey, model, systemPrompt, historyMessages, userPrompt, stage)
-                        .map(content -> new LlmStreamDelta(content, null, null));
+                        .map(content -> new LlmDelta(content, null, null));
             }
 
-            Flux<LlmStreamDelta> deltaFlux;
+            Flux<LlmDelta> deltaFlux;
             if (hasTools) {
                 AtomicBoolean rawDeltaEmitted = new AtomicBoolean(false);
                 deltaFlux = rawSseClient.streamDeltasRawSse(
@@ -516,7 +510,7 @@ public class LlmService {
                 .onErrorReturn("");
     }
 
-    private Flux<LlmStreamDelta> streamDeltasByChatClient(
+    private Flux<LlmDelta> streamDeltasByChatClient(
             ChatClient chatClient,
             String model,
             String systemPrompt,
@@ -576,25 +570,26 @@ public class LlmService {
         return new OpenAiApi.FunctionTool(function);
     }
 
-    private LlmStreamDelta toStreamDelta(ChatResponse response) {
+    private LlmDelta toStreamDelta(ChatResponse response) {
         if (response == null || response.getResult() == null || response.getResult().getOutput() == null) {
-            return new LlmStreamDelta(null, null, null);
+            return new LlmDelta(null, null, null);
         }
 
         AssistantMessage output = response.getResult().getOutput();
         String content = output.getText();
-        List<SseChunk.ToolCall> toolCalls = output.getToolCalls() == null ? List.of()
+        List<ToolCallDelta> toolCalls = output.getToolCalls() == null ? List.of()
                 : output.getToolCalls().stream()
-                .map(call -> new SseChunk.ToolCall(
+                .map(call -> new ToolCallDelta(
                         call.id(),
                         call.type(),
-                        new SseChunk.Function(call.name(), call.arguments())
+                        call.name(),
+                        call.arguments()
                 ))
                 .toList();
         String finishReason = response.getResult().getMetadata() == null
                 ? null
                 : response.getResult().getMetadata().getFinishReason();
-        return new LlmStreamDelta(content, toolCalls.isEmpty() ? null : toolCalls, finishReason);
+        return new LlmDelta(content, toolCalls.isEmpty() ? null : toolCalls, finishReason);
     }
 
     private ProviderType toProviderType(String providerKey) {

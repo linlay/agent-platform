@@ -2,13 +2,13 @@ package com.linlay.springaiagw.agent;
 
 import com.aiagent.agw.sdk.model.AgwDelta;
 import com.aiagent.agw.sdk.model.AgwEvent;
+import com.aiagent.agw.sdk.model.LlmDelta;
+import com.aiagent.agw.sdk.model.ToolCallDelta;
 import com.aiagent.agw.sdk.service.AgwEventAssembler;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.linlay.springaiagw.model.AgentDelta;
 import com.linlay.springaiagw.model.AgentRequest;
 import com.linlay.springaiagw.model.ProviderType;
-import com.linlay.springaiagw.model.SseChunk;
 import com.linlay.springaiagw.service.DeltaStreamService;
 import com.linlay.springaiagw.service.LlmService;
 import com.linlay.springaiagw.tool.BaseTool;
@@ -129,7 +129,7 @@ class DefinitionDrivenAgentTest {
                 objectMapper
         );
 
-        List<AgentDelta> deltas = agent.stream(new AgentRequest("使用最简单的df和free看看服务器的资源情况", null, null, null))
+        List<AgwDelta> deltas = agent.stream(new AgentRequest("使用最简单的df和free看看服务器的资源情况", null, null, null))
                 .collectList()
                 .block(Duration.ofSeconds(3));
 
@@ -145,7 +145,7 @@ class DefinitionDrivenAgentTest {
         assertThat(firstToolCallIndex).isGreaterThan(step1ThinkingIndex);
         assertThat(step2ThinkingIndex).isGreaterThan(firstToolCallIndex);
         assertThat(secondToolCallIndex).isGreaterThan(step2ThinkingIndex);
-        assertThat(deltas.stream().map(AgentDelta::content).toList()).contains("结论：资源情况已获取。");
+        assertThat(deltas.stream().map(AgwDelta::content).toList()).contains("结论：资源情况已获取。");
         assertThat(deltas.get(deltas.size() - 1).finishReason()).isEqualTo("stop");
     }
 
@@ -249,7 +249,7 @@ class DefinitionDrivenAgentTest {
                 objectMapper
         );
 
-        List<AgentDelta> deltas = agent.stream(new AgentRequest("从多个工具里选择一个执行", null, null, null))
+        List<AgwDelta> deltas = agent.stream(new AgentRequest("从多个工具里选择一个执行", null, null, null))
                 .collectList()
                 .block(Duration.ofSeconds(4));
 
@@ -259,7 +259,7 @@ class DefinitionDrivenAgentTest {
         assertThat(indexOfToolCallById(deltas, "call_tool_b_plain_1")).isGreaterThanOrEqualTo(0);
         assertThat(indexOfToolCallById(deltas, "call_tool_a_plain_1")).isLessThan(0);
         assertThat(indexOfToolResultById(deltas, "call_tool_b_plain_1")).isGreaterThan(indexOfToolCallById(deltas, "call_tool_b_plain_1"));
-        assertThat(deltas.stream().map(AgentDelta::content).toList()).contains("结论：已执行 tool_b。");
+        assertThat(deltas.stream().map(AgwDelta::content).toList()).contains("结论：已执行 tool_b。");
         assertThat(deltas.get(deltas.size() - 1).finishReason()).isEqualTo("stop");
     }
 
@@ -279,7 +279,7 @@ class DefinitionDrivenAgentTest {
 
         LlmService llmService = new LlmService(null, null) {
             @Override
-            public Flux<LlmStreamDelta> streamDeltas(
+            public Flux<LlmDelta> streamDeltas(
                     ProviderType providerType,
                     String model,
                     String systemPrompt,
@@ -291,22 +291,22 @@ class DefinitionDrivenAgentTest {
             ) {
                 if ("agent-plan-execute-step-1".equals(stage)) {
                     return Flux.just(
-                            new LlmStreamDelta(
+                            new LlmDelta(
                                     null,
-                                    List.of(new SseChunk.ToolCall(
+                                    List.of(new ToolCallDelta(
                                             "call_bash_1",
                                             "function",
-                                            new SseChunk.Function("bash", "{\"command\":\"ls\"}")
+                                            "bash", "{\"command\":\"ls\"}"
                                     )),
                                     null
                             ),
-                            new LlmStreamDelta(null, null, "tool_calls")
+                            new LlmDelta(null, null, "tool_calls")
                     );
                 }
                 if ("agent-plan-execute-step-2".equals(stage)) {
                     return Flux.just(
-                            new LlmStreamDelta("当前目录包含 Dockerfile、src、pom.xml", null, null),
-                            new LlmStreamDelta(null, null, "stop")
+                            new LlmDelta("当前目录包含 Dockerfile、src、pom.xml", null, null),
+                            new LlmDelta(null, null, "stop")
                     );
                 }
                 return Flux.empty();
@@ -361,14 +361,14 @@ class DefinitionDrivenAgentTest {
                 objectMapper
         );
 
-        List<AgentDelta> deltas = agent.stream(new AgentRequest("看看当前目录有哪些文件", null, null, null))
+        List<AgwDelta> deltas = agent.stream(new AgentRequest("看看当前目录有哪些文件", null, null, null))
                 .collectList()
                 .block(Duration.ofSeconds(6));
 
         assertThat(deltas).isNotNull();
         assertThat(deltas).isNotEmpty();
 
-        assertThat(deltas.stream().map(AgentDelta::thinking).toList())
+        assertThat(deltas.stream().map(AgwDelta::thinking).toList())
                 .contains("进入 PLAN-EXECUTE 模式，正在逐步决策...\n");
         assertThat(indexOfToolResultById(deltas, "call_bash_1")).isGreaterThanOrEqualTo(0);
         assertThat(deltas.get(deltas.size() - 1).finishReason()).isEqualTo("stop");
@@ -389,7 +389,7 @@ class DefinitionDrivenAgentTest {
         AtomicReference<Boolean> step1ParallelToolCalls = new AtomicReference<>();
         LlmService llmService = new LlmService(null, null) {
             @Override
-            public Flux<LlmStreamDelta> streamDeltas(
+            public Flux<LlmDelta> streamDeltas(
                     ProviderType providerType,
                     String model,
                     String systemPrompt,
@@ -402,34 +402,34 @@ class DefinitionDrivenAgentTest {
                 if ("agent-plan-execute-step-1".equals(stage)) {
                     step1ParallelToolCalls.set(parallelToolCalls);
                     return Flux.just(
-                            new LlmStreamDelta(
+                            new LlmDelta(
                                     null,
-                                    List.of(new SseChunk.ToolCall(
+                                    List.of(new ToolCallDelta(
                                             "call_city_datetime",
                                             "function",
-                                            new SseChunk.Function("city_datetime", "{\"city\":\"上海\"}")
+                                            "city_datetime", "{\"city\":\"上海\"}"
                                     )),
                                     null
                             ),
-                            new LlmStreamDelta(null, null, "tool_calls")
+                            new LlmDelta(null, null, "tool_calls")
                     );
                 }
                 if ("agent-plan-execute-step-2".equals(stage)) {
                     return Flux.just(
-                            new LlmStreamDelta(
+                            new LlmDelta(
                                     null,
-                                    List.of(new SseChunk.ToolCall(
+                                    List.of(new ToolCallDelta(
                                             "call_city_weather",
                                             "function",
-                                            new SseChunk.Function("mock_city_weather", "{\"city\":\"上海\",\"date\":\"tomorrow\"}")
+                                            "mock_city_weather", "{\"city\":\"上海\",\"date\":\"tomorrow\"}"
                                     )),
                                     null
                             ),
-                            new LlmStreamDelta(null, null, "tool_calls")
+                            new LlmDelta(null, null, "tool_calls")
                     );
                 }
                 if ("agent-plan-execute-step-3".equals(stage)) {
-                    return Flux.just(new LlmStreamDelta(null, null, "stop"));
+                    return Flux.just(new LlmDelta(null, null, "stop"));
                 }
                 return Flux.empty();
             }
@@ -506,7 +506,7 @@ class DefinitionDrivenAgentTest {
                 objectMapper
         );
 
-        List<AgentDelta> deltas = agent.stream(new AgentRequest("查上海明天天气", null, null, null))
+        List<AgwDelta> deltas = agent.stream(new AgentRequest("查上海明天天气", null, null, null))
                 .collectList()
                 .block(Duration.ofSeconds(6));
 
@@ -534,7 +534,7 @@ class DefinitionDrivenAgentTest {
 
         LlmService llmService = new LlmService(null, null) {
             @Override
-            public Flux<LlmStreamDelta> streamDeltas(
+            public Flux<LlmDelta> streamDeltas(
                     ProviderType providerType,
                     String model,
                     String systemPrompt,
@@ -546,29 +546,29 @@ class DefinitionDrivenAgentTest {
             ) {
                 if ("agent-plan-execute-step-1".equals(stage)) {
                     return Flux.just(
-                            new LlmStreamDelta(
+                            new LlmDelta(
                                     null,
-                                    List.of(new SseChunk.ToolCall(
+                                    List.of(new ToolCallDelta(
                                             "call_tool_a",
                                             "function",
-                                            new SseChunk.Function("tool_a", "{\"text\":\"hello\"}")
+                                            "tool_a", "{\"text\":\"hello\"}"
                                     )),
                                     null
                             ),
-                            new LlmStreamDelta(
+                            new LlmDelta(
                                     null,
-                                    List.of(new SseChunk.ToolCall(
+                                    List.of(new ToolCallDelta(
                                             "call_tool_b",
                                             "function",
-                                            new SseChunk.Function("tool_b", "{\"ok\":true}")
+                                            "tool_b", "{\"ok\":true}"
                                     )),
                                     null
                             ),
-                            new LlmStreamDelta(null, null, "tool_calls")
+                            new LlmDelta(null, null, "tool_calls")
                     );
                 }
                 if ("agent-plan-execute-step-2".equals(stage)) {
-                    return Flux.just(new LlmStreamDelta(null, null, "stop"));
+                    return Flux.just(new LlmDelta(null, null, "stop"));
                 }
                 return Flux.empty();
             }
@@ -636,7 +636,7 @@ class DefinitionDrivenAgentTest {
                 objectMapper
         );
 
-        List<AgentDelta> deltas = agent.stream(new AgentRequest("同时调用两个工具", null, null, null))
+        List<AgwDelta> deltas = agent.stream(new AgentRequest("同时调用两个工具", null, null, null))
                 .collectList()
                 .block(Duration.ofSeconds(6));
 
@@ -662,7 +662,7 @@ class DefinitionDrivenAgentTest {
 
         LlmService llmService = new LlmService(null, null) {
             @Override
-            public Flux<LlmStreamDelta> streamDeltas(
+            public Flux<LlmDelta> streamDeltas(
                     ProviderType providerType,
                     String model,
                     String systemPrompt,
@@ -674,29 +674,29 @@ class DefinitionDrivenAgentTest {
             ) {
                 if ("agent-plan-execute-step-1".equals(stage)) {
                     return Flux.just(
-                            new LlmStreamDelta(
+                            new LlmDelta(
                                     null,
-                                    List.of(new SseChunk.ToolCall(
+                                    List.of(new ToolCallDelta(
                                             "call_tool_a",
                                             "function",
-                                            new SseChunk.Function("tool_a", "{\"text\":\"a\"}")
+                                            "tool_a", "{\"text\":\"a\"}"
                                     )),
                                     null
                             ),
-                            new LlmStreamDelta(
+                            new LlmDelta(
                                     null,
-                                    List.of(new SseChunk.ToolCall(
+                                    List.of(new ToolCallDelta(
                                             "call_tool_b",
                                             "function",
-                                            new SseChunk.Function("tool_b", "{\"text\":\"b\"}")
+                                            "tool_b", "{\"text\":\"b\"}"
                                     )),
                                     null
                             ),
-                            new LlmStreamDelta(null, null, "tool_calls")
+                            new LlmDelta(null, null, "tool_calls")
                     );
                 }
                 if ("agent-plan-execute-step-2".equals(stage)) {
-                    return Flux.just(new LlmStreamDelta(null, null, "stop"));
+                    return Flux.just(new LlmDelta(null, null, "stop"));
                 }
                 return Flux.empty();
             }
@@ -792,7 +792,7 @@ class DefinitionDrivenAgentTest {
                 objectMapper
         );
 
-        List<AgentDelta> deltas = agent.stream(new AgentRequest("顺序执行两个工具", null, null, null))
+        List<AgwDelta> deltas = agent.stream(new AgentRequest("顺序执行两个工具", null, null, null))
                 .collectList()
                 .block(Duration.ofSeconds(6));
 
@@ -815,7 +815,7 @@ class DefinitionDrivenAgentTest {
 
         LlmService llmService = new LlmService(null, null) {
             @Override
-            public Flux<LlmStreamDelta> streamDeltas(
+            public Flux<LlmDelta> streamDeltas(
                     ProviderType providerType,
                     String model,
                     String systemPrompt,
@@ -827,20 +827,20 @@ class DefinitionDrivenAgentTest {
             ) {
                 if ("agent-plan-execute-step-1".equals(stage)) {
                     return Flux.just(
-                            new LlmStreamDelta(
+                            new LlmDelta(
                                     null,
-                                    List.of(new SseChunk.ToolCall(
+                                    List.of(new ToolCallDelta(
                                             "call_bash_1",
                                             "function",
-                                            new SseChunk.Function("bash", "{\"command\":\"df -h && free -h\"}")
+                                            "bash", "{\"command\":\"df -h && free -h\"}"
                                     )),
                                     null
                             ),
-                            new LlmStreamDelta(null, null, "tool_calls")
+                            new LlmDelta(null, null, "tool_calls")
                     );
                 }
                 if ("agent-plan-execute-step-2".equals(stage)) {
-                    return Flux.just(new LlmStreamDelta(null, null, "stop"));
+                    return Flux.just(new LlmDelta(null, null, "stop"));
                 }
                 return Flux.empty();
             }
@@ -893,7 +893,7 @@ class DefinitionDrivenAgentTest {
                 objectMapper
         );
 
-        List<AgentDelta> deltas = agent.stream(new AgentRequest("检查系统资源", null, null, null))
+        List<AgwDelta> deltas = agent.stream(new AgentRequest("检查系统资源", null, null, null))
                 .collectList()
                 .block(Duration.ofSeconds(6));
 
@@ -915,7 +915,7 @@ class DefinitionDrivenAgentTest {
 
         LlmService llmService = new LlmService(null, null) {
             @Override
-            public Flux<LlmStreamDelta> streamDeltas(
+            public Flux<LlmDelta> streamDeltas(
                     ProviderType providerType,
                     String model,
                     String systemPrompt,
@@ -927,29 +927,29 @@ class DefinitionDrivenAgentTest {
             ) {
                 if ("agent-plan-execute-step-1".equals(stage)) {
                     return Flux.just(
-                            new LlmStreamDelta(
+                            new LlmDelta(
                                     null,
-                                    List.of(new SseChunk.ToolCall(
+                                    List.of(new ToolCallDelta(
                                             "call_tool_a_1",
                                             "function",
-                                            new SseChunk.Function("tool_a", "{\"text\":\"abcdefghijklmnopqrstuvwxyz0123456789\"}")
+                                            "tool_a", "{\"text\":\"abcdefghijklmnopqrstuvwxyz0123456789\"}"
                                     )),
                                     null
                             ),
-                            new LlmStreamDelta(
+                            new LlmDelta(
                                     null,
-                                    List.of(new SseChunk.ToolCall(
+                                    List.of(new ToolCallDelta(
                                             "call_tool_b_2",
                                             "function",
-                                            new SseChunk.Function("tool_b", "{\"ok\":true}")
+                                            "tool_b", "{\"ok\":true}"
                                     )),
                                     null
                             ),
-                            new LlmStreamDelta(null, null, "tool_calls")
+                            new LlmDelta(null, null, "tool_calls")
                     );
                 }
                 if ("agent-plan-execute-step-2".equals(stage)) {
-                    return Flux.just(new LlmStreamDelta(null, null, "stop"));
+                    return Flux.just(new LlmDelta(null, null, "stop"));
                 }
                 return Flux.empty();
             }
@@ -1017,7 +1017,7 @@ class DefinitionDrivenAgentTest {
                 objectMapper
         );
 
-        List<AgentDelta> deltas = agent.stream(new AgentRequest("顺序执行两个工具", null, null, null))
+        List<AgwDelta> deltas = agent.stream(new AgentRequest("顺序执行两个工具", null, null, null))
                 .collectList()
                 .block(Duration.ofSeconds(6));
         assertThat(deltas).isNotNull();
@@ -1025,7 +1025,7 @@ class DefinitionDrivenAgentTest {
         AgwEventAssembler.EventStreamState state = new AgwEventAssembler()
                 .begin("顺序执行两个工具", "chat_1", "chat_1", "req_1", "run_1");
         List<AgwEvent> events = new ArrayList<>(state.bootstrapEvents());
-        for (AgentDelta delta : deltas) {
+        for (AgwDelta delta : deltas) {
             events.addAll(state.consume(toAgwDelta(delta)));
         }
 
@@ -1062,7 +1062,7 @@ class DefinitionDrivenAgentTest {
 
         LlmService llmService = new LlmService(null, null) {
             @Override
-            public Flux<LlmStreamDelta> streamDeltas(
+            public Flux<LlmDelta> streamDeltas(
                     ProviderType providerType,
                     String model,
                     String systemPrompt,
@@ -1074,19 +1074,19 @@ class DefinitionDrivenAgentTest {
             ) {
                 if ("agent-plan-execute-step-1".equals(stage)) {
                     return Flux.just(
-                            new LlmStreamDelta(
+                            new LlmDelta(
                                     null,
-                                    List.of(new SseChunk.ToolCall(
+                                    List.of(new ToolCallDelta(
                                             "call_bash_1",
                                             "function",
-                                            new SseChunk.Function("bash", "{\"command\":\"ls\"}")
+                                            "bash", "{\"command\":\"ls\"}"
                                     )),
                                     null
                             ),
-                            new LlmStreamDelta(null, null, "tool_calls")
+                            new LlmDelta(null, null, "tool_calls")
                     );
                 }
-                return Flux.just(new LlmStreamDelta(null, null, "stop"));
+                return Flux.just(new LlmDelta(null, null, "stop"));
             }
 
             @Override
@@ -1143,7 +1143,7 @@ class DefinitionDrivenAgentTest {
                 objectMapper
         );
 
-        AgentDelta firstToolCallDelta = agent.stream(new AgentRequest("执行一次 ls", null, null, null))
+        AgwDelta firstToolCallDelta = agent.stream(new AgentRequest("执行一次 ls", null, null, null))
                 .filter(delta -> delta.toolCalls() != null && !delta.toolCalls().isEmpty())
                 .blockFirst(Duration.ofMillis(250));
 
@@ -1164,7 +1164,7 @@ class DefinitionDrivenAgentTest {
 
         LlmService llmService = new LlmService(null, null) {
             @Override
-            public Flux<LlmStreamDelta> streamDeltas(
+            public Flux<LlmDelta> streamDeltas(
                     ProviderType providerType,
                     String model,
                     String systemPrompt,
@@ -1176,29 +1176,29 @@ class DefinitionDrivenAgentTest {
             ) {
                 if ("agent-plan-execute-step-1".equals(stage)) {
                     return Flux.just(
-                            new LlmStreamDelta(
+                            new LlmDelta(
                                     null,
-                                    List.of(new SseChunk.ToolCall(
+                                    List.of(new ToolCallDelta(
                                             "call_city_datetime",
                                             "function",
-                                            new SseChunk.Function("city_datetime", "{\"city\":\"上海\"}")
+                                            "city_datetime", "{\"city\":\"上海\"}"
                                     )),
                                     null
                             ),
-                            new LlmStreamDelta(
+                            new LlmDelta(
                                     null,
-                                    List.of(new SseChunk.ToolCall(
+                                    List.of(new ToolCallDelta(
                                             "call_city_weather",
                                             "function",
-                                            new SseChunk.Function("mock_city_weather", "{\"city\":\"上海\",\"date\":\"{{city_datetime.date+1d}}\"}")
+                                            "mock_city_weather", "{\"city\":\"上海\",\"date\":\"{{city_datetime.date+1d}}\"}"
                                     )),
                                     null
                             ),
-                            new LlmStreamDelta(null, null, "tool_calls")
+                            new LlmDelta(null, null, "tool_calls")
                     );
                 }
                 if ("agent-plan-execute-step-2".equals(stage)) {
-                    return Flux.just(new LlmStreamDelta(null, null, "stop"));
+                    return Flux.just(new LlmDelta(null, null, "stop"));
                 }
                 return Flux.empty();
             }
@@ -1272,7 +1272,7 @@ class DefinitionDrivenAgentTest {
                 objectMapper
         );
 
-        List<AgentDelta> deltas = agent.stream(new AgentRequest("查上海明天天气", null, null, null))
+        List<AgwDelta> deltas = agent.stream(new AgentRequest("查上海明天天气", null, null, null))
                 .collectList()
                 .block(Duration.ofSeconds(6));
 
@@ -1283,7 +1283,7 @@ class DefinitionDrivenAgentTest {
 
     // ======================== Helper Methods ========================
 
-    private int indexOfThinkingContaining(List<AgentDelta> deltas, String text) {
+    private int indexOfThinkingContaining(List<AgwDelta> deltas, String text) {
         for (int i = 0; i < deltas.size(); i++) {
             String thinking = deltas.get(i).thinking();
             if (thinking != null && thinking.contains(text)) {
@@ -1293,11 +1293,11 @@ class DefinitionDrivenAgentTest {
         return -1;
     }
 
-    private int indexOfToolCall(List<AgentDelta> deltas) {
+    private int indexOfToolCall(List<AgwDelta> deltas) {
         return indexOfToolCall(deltas, 1);
     }
 
-    private int indexOfToolCall(List<AgentDelta> deltas, int occurrence) {
+    private int indexOfToolCall(List<AgwDelta> deltas, int occurrence) {
         int count = 0;
         for (int i = 0; i < deltas.size(); i++) {
             if (deltas.get(i).toolCalls() != null && !deltas.get(i).toolCalls().isEmpty()) {
@@ -1310,9 +1310,9 @@ class DefinitionDrivenAgentTest {
         return -1;
     }
 
-    private int indexOfToolCallById(List<AgentDelta> deltas, String toolId) {
+    private int indexOfToolCallById(List<AgwDelta> deltas, String toolId) {
         for (int i = 0; i < deltas.size(); i++) {
-            List<com.linlay.springaiagw.model.SseChunk.ToolCall> toolCalls = deltas.get(i).toolCalls();
+            List<ToolCallDelta> toolCalls = deltas.get(i).toolCalls();
             if (toolCalls == null || toolCalls.isEmpty()) {
                 continue;
             }
@@ -1324,9 +1324,9 @@ class DefinitionDrivenAgentTest {
         return -1;
     }
 
-    private int indexOfToolResultById(List<AgentDelta> deltas, String toolId) {
+    private int indexOfToolResultById(List<AgwDelta> deltas, String toolId) {
         for (int i = 0; i < deltas.size(); i++) {
-            List<AgentDelta.ToolResult> toolResults = deltas.get(i).toolResults();
+            List<AgwDelta.ToolResult> toolResults = deltas.get(i).toolResults();
             if (toolResults == null || toolResults.isEmpty()) {
                 continue;
             }
@@ -1338,26 +1338,15 @@ class DefinitionDrivenAgentTest {
         return -1;
     }
 
-    private long countToolCallById(List<AgentDelta> deltas, String toolId) {
+    private long countToolCallById(List<AgwDelta> deltas, String toolId) {
         return deltas.stream()
                 .filter(delta -> delta.toolCalls() != null && !delta.toolCalls().isEmpty())
                 .filter(delta -> delta.toolCalls().stream().anyMatch(call -> toolId.equals(call.id())))
                 .count();
     }
 
-    private AgwDelta toAgwDelta(AgentDelta delta) {
-        List<AgwDelta.ToolCall> toolCalls = delta.toolCalls() == null ? null : delta.toolCalls().stream()
-                .map(call -> new AgwDelta.ToolCall(
-                        call.id(),
-                        call.type(),
-                        call.function() == null ? null : call.function().name(),
-                        call.function() == null ? null : call.function().arguments()
-                ))
-                .toList();
-        List<AgwDelta.ToolResult> toolResults = delta.toolResults() == null ? null : delta.toolResults().stream()
-                .map(result -> new AgwDelta.ToolResult(result.toolId(), result.result()))
-                .toList();
-        return new AgwDelta(delta.content(), delta.thinking(), toolCalls, toolResults, delta.finishReason());
+    private AgwDelta toAgwDelta(AgwDelta delta) {
+        return delta;
     }
 
     private int indexOfToolEvent(List<AgwEvent> events, String type, String toolId) {
