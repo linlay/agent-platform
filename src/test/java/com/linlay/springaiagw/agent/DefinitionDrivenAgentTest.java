@@ -1,7 +1,8 @@
 package com.linlay.springaiagw.agent;
 
-import com.aiagent.agw.sdk.model.AgwDelta;
 import com.aiagent.agw.sdk.model.AgwEvent;
+import com.aiagent.agw.sdk.model.AgwInput;
+import com.aiagent.agw.sdk.model.AgwRequest;
 import com.aiagent.agw.sdk.model.LlmDelta;
 import com.aiagent.agw.sdk.model.ToolCallDelta;
 import com.aiagent.agw.sdk.service.AgwEventAssembler;
@@ -9,6 +10,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linlay.springaiagw.model.AgentRequest;
 import com.linlay.springaiagw.model.ProviderType;
+import com.linlay.springaiagw.model.agw.AgentDelta;
+import com.linlay.springaiagw.service.AgentDeltaToAgwInputMapper;
 import com.linlay.springaiagw.service.DeltaStreamService;
 import com.linlay.springaiagw.service.LlmService;
 import com.linlay.springaiagw.tool.BaseTool;
@@ -129,7 +132,7 @@ class DefinitionDrivenAgentTest {
                 objectMapper
         );
 
-        List<AgwDelta> deltas = agent.stream(new AgentRequest("使用最简单的df和free看看服务器的资源情况", null, null, null))
+        List<AgentDelta> deltas = agent.stream(new AgentRequest("使用最简单的df和free看看服务器的资源情况", null, null, null))
                 .collectList()
                 .block(Duration.ofSeconds(3));
 
@@ -145,7 +148,7 @@ class DefinitionDrivenAgentTest {
         assertThat(firstToolCallIndex).isGreaterThan(step1ThinkingIndex);
         assertThat(step2ThinkingIndex).isGreaterThan(firstToolCallIndex);
         assertThat(secondToolCallIndex).isGreaterThan(step2ThinkingIndex);
-        assertThat(deltas.stream().map(AgwDelta::content).toList()).contains("结论：资源情况已获取。");
+        assertThat(deltas.stream().map(AgentDelta::content).toList()).contains("结论：资源情况已获取。");
         assertThat(deltas.get(deltas.size() - 1).finishReason()).isEqualTo("stop");
     }
 
@@ -249,7 +252,7 @@ class DefinitionDrivenAgentTest {
                 objectMapper
         );
 
-        List<AgwDelta> deltas = agent.stream(new AgentRequest("从多个工具里选择一个执行", null, null, null))
+        List<AgentDelta> deltas = agent.stream(new AgentRequest("从多个工具里选择一个执行", null, null, null))
                 .collectList()
                 .block(Duration.ofSeconds(4));
 
@@ -259,7 +262,7 @@ class DefinitionDrivenAgentTest {
         assertThat(indexOfToolCallById(deltas, "call_tool_b_plain_1")).isGreaterThanOrEqualTo(0);
         assertThat(indexOfToolCallById(deltas, "call_tool_a_plain_1")).isLessThan(0);
         assertThat(indexOfToolResultById(deltas, "call_tool_b_plain_1")).isGreaterThan(indexOfToolCallById(deltas, "call_tool_b_plain_1"));
-        assertThat(deltas.stream().map(AgwDelta::content).toList()).contains("结论：已执行 tool_b。");
+        assertThat(deltas.stream().map(AgentDelta::content).toList()).contains("结论：已执行 tool_b。");
         assertThat(deltas.get(deltas.size() - 1).finishReason()).isEqualTo("stop");
     }
 
@@ -361,14 +364,14 @@ class DefinitionDrivenAgentTest {
                 objectMapper
         );
 
-        List<AgwDelta> deltas = agent.stream(new AgentRequest("看看当前目录有哪些文件", null, null, null))
+        List<AgentDelta> deltas = agent.stream(new AgentRequest("看看当前目录有哪些文件", null, null, null))
                 .collectList()
                 .block(Duration.ofSeconds(6));
 
         assertThat(deltas).isNotNull();
         assertThat(deltas).isNotEmpty();
 
-        assertThat(deltas.stream().map(AgwDelta::thinking).toList())
+        assertThat(deltas.stream().map(AgentDelta::thinking).toList())
                 .contains("进入 PLAN-EXECUTE 模式，正在逐步决策...\n");
         assertThat(indexOfToolResultById(deltas, "call_bash_1")).isGreaterThanOrEqualTo(0);
         assertThat(deltas.get(deltas.size() - 1).finishReason()).isEqualTo("stop");
@@ -506,7 +509,7 @@ class DefinitionDrivenAgentTest {
                 objectMapper
         );
 
-        List<AgwDelta> deltas = agent.stream(new AgentRequest("查上海明天天气", null, null, null))
+        List<AgentDelta> deltas = agent.stream(new AgentRequest("查上海明天天气", null, null, null))
                 .collectList()
                 .block(Duration.ofSeconds(6));
 
@@ -636,7 +639,7 @@ class DefinitionDrivenAgentTest {
                 objectMapper
         );
 
-        List<AgwDelta> deltas = agent.stream(new AgentRequest("同时调用两个工具", null, null, null))
+        List<AgentDelta> deltas = agent.stream(new AgentRequest("同时调用两个工具", null, null, null))
                 .collectList()
                 .block(Duration.ofSeconds(6));
 
@@ -792,7 +795,7 @@ class DefinitionDrivenAgentTest {
                 objectMapper
         );
 
-        List<AgwDelta> deltas = agent.stream(new AgentRequest("顺序执行两个工具", null, null, null))
+        List<AgentDelta> deltas = agent.stream(new AgentRequest("顺序执行两个工具", null, null, null))
                 .collectList()
                 .block(Duration.ofSeconds(6));
 
@@ -893,7 +896,7 @@ class DefinitionDrivenAgentTest {
                 objectMapper
         );
 
-        List<AgwDelta> deltas = agent.stream(new AgentRequest("检查系统资源", null, null, null))
+        List<AgentDelta> deltas = agent.stream(new AgentRequest("检查系统资源", null, null, null))
                 .collectList()
                 .block(Duration.ofSeconds(6));
 
@@ -1017,16 +1020,21 @@ class DefinitionDrivenAgentTest {
                 objectMapper
         );
 
-        List<AgwDelta> deltas = agent.stream(new AgentRequest("顺序执行两个工具", null, null, null))
+        List<AgentDelta> deltas = agent.stream(new AgentRequest("顺序执行两个工具", null, null, null))
                 .collectList()
                 .block(Duration.ofSeconds(6));
         assertThat(deltas).isNotNull();
 
         AgwEventAssembler.EventStreamState state = new AgwEventAssembler()
-                .begin("顺序执行两个工具", "chat_1", "chat_1", "req_1", "run_1");
+                .begin(new AgwRequest.Query(
+                        "req_1", "chat_1", "user", "顺序执行两个工具", null, null, null, null, true, "chat_1", "run_1"
+                ));
+        AgentDeltaToAgwInputMapper mapper = new AgentDeltaToAgwInputMapper("run_1");
         List<AgwEvent> events = new ArrayList<>(state.bootstrapEvents());
-        for (AgwDelta delta : deltas) {
-            events.addAll(state.consume(toAgwDelta(delta)));
+        for (AgentDelta delta : deltas) {
+            for (AgwInput input : mapper.mapOrEmpty(delta)) {
+                events.addAll(state.consume(input));
+            }
         }
 
         int toolAStart = indexOfToolEvent(events, "tool.start", "call_tool_a_1");
@@ -1143,7 +1151,7 @@ class DefinitionDrivenAgentTest {
                 objectMapper
         );
 
-        AgwDelta firstToolCallDelta = agent.stream(new AgentRequest("执行一次 ls", null, null, null))
+        AgentDelta firstToolCallDelta = agent.stream(new AgentRequest("执行一次 ls", null, null, null))
                 .filter(delta -> delta.toolCalls() != null && !delta.toolCalls().isEmpty())
                 .blockFirst(Duration.ofMillis(250));
 
@@ -1272,7 +1280,7 @@ class DefinitionDrivenAgentTest {
                 objectMapper
         );
 
-        List<AgwDelta> deltas = agent.stream(new AgentRequest("查上海明天天气", null, null, null))
+        List<AgentDelta> deltas = agent.stream(new AgentRequest("查上海明天天气", null, null, null))
                 .collectList()
                 .block(Duration.ofSeconds(6));
 
@@ -1283,7 +1291,7 @@ class DefinitionDrivenAgentTest {
 
     // ======================== Helper Methods ========================
 
-    private int indexOfThinkingContaining(List<AgwDelta> deltas, String text) {
+    private int indexOfThinkingContaining(List<AgentDelta> deltas, String text) {
         for (int i = 0; i < deltas.size(); i++) {
             String thinking = deltas.get(i).thinking();
             if (thinking != null && thinking.contains(text)) {
@@ -1293,11 +1301,11 @@ class DefinitionDrivenAgentTest {
         return -1;
     }
 
-    private int indexOfToolCall(List<AgwDelta> deltas) {
+    private int indexOfToolCall(List<AgentDelta> deltas) {
         return indexOfToolCall(deltas, 1);
     }
 
-    private int indexOfToolCall(List<AgwDelta> deltas, int occurrence) {
+    private int indexOfToolCall(List<AgentDelta> deltas, int occurrence) {
         int count = 0;
         for (int i = 0; i < deltas.size(); i++) {
             if (deltas.get(i).toolCalls() != null && !deltas.get(i).toolCalls().isEmpty()) {
@@ -1310,7 +1318,7 @@ class DefinitionDrivenAgentTest {
         return -1;
     }
 
-    private int indexOfToolCallById(List<AgwDelta> deltas, String toolId) {
+    private int indexOfToolCallById(List<AgentDelta> deltas, String toolId) {
         for (int i = 0; i < deltas.size(); i++) {
             List<ToolCallDelta> toolCalls = deltas.get(i).toolCalls();
             if (toolCalls == null || toolCalls.isEmpty()) {
@@ -1324,9 +1332,9 @@ class DefinitionDrivenAgentTest {
         return -1;
     }
 
-    private int indexOfToolResultById(List<AgwDelta> deltas, String toolId) {
+    private int indexOfToolResultById(List<AgentDelta> deltas, String toolId) {
         for (int i = 0; i < deltas.size(); i++) {
-            List<AgwDelta.ToolResult> toolResults = deltas.get(i).toolResults();
+            List<AgentDelta.ToolResult> toolResults = deltas.get(i).toolResults();
             if (toolResults == null || toolResults.isEmpty()) {
                 continue;
             }
@@ -1338,15 +1346,11 @@ class DefinitionDrivenAgentTest {
         return -1;
     }
 
-    private long countToolCallById(List<AgwDelta> deltas, String toolId) {
+    private long countToolCallById(List<AgentDelta> deltas, String toolId) {
         return deltas.stream()
                 .filter(delta -> delta.toolCalls() != null && !delta.toolCalls().isEmpty())
                 .filter(delta -> delta.toolCalls().stream().anyMatch(call -> toolId.equals(call.id())))
                 .count();
-    }
-
-    private AgwDelta toAgwDelta(AgwDelta delta) {
-        return delta;
     }
 
     private int indexOfToolEvent(List<AgwEvent> events, String type, String toolId) {

@@ -49,7 +49,17 @@ class ChatRecordStoreTest {
         assertThat(detail.messages()).isNull();
         assertThat(detail.events()).isNotNull();
         assertThat(detail.events()).extracting(item -> item.get("type"))
-                .contains("query.message", "run.start", "message.snapshot", "run.complete");
+                .contains(
+                        "request.query",
+                        "chat.start",
+                        "run.start",
+                        "task.start",
+                        "content.snapshot",
+                        "task.complete",
+                        "run.complete",
+                        "chat.update"
+                );
+        assertThat(detail.events().getFirst()).containsKey("seq");
         assertThat(detail.references()).isNull();
     }
 
@@ -81,26 +91,27 @@ class ChatRecordStoreTest {
         assertThat(detail.messages().getFirst().get("role")).isEqualTo("user");
         assertThat(detail.events()).isNotNull();
         assertThat(detail.events()).extracting(item -> item.get("type"))
-                .contains("query.message", "chat.start", "run.start", "message.snapshot", "tool.snapshot", "run.complete");
+                .contains("request.query", "chat.start", "run.start", "task.start", "content.snapshot", "tool.snapshot", "run.complete", "chat.update");
 
-        Map<String, Object> messageSnapshot = findFirstEvent(detail.events(), "message.snapshot");
-        assertThat(messageSnapshot).containsKeys("type", "messageId", "text", "timestamp", "contentId");
-        assertThat(messageSnapshot.get("text")).isEqualTo("先执行 ls");
-        assertThat(messageSnapshot).doesNotContainKey("reasoningId");
+        Map<String, Object> contentSnapshot = findFirstEvent(detail.events(), "content.snapshot");
+        assertThat(contentSnapshot).containsKeys("type", "contentId", "text", "timestamp", "taskId", "seq");
+        assertThat(contentSnapshot.get("text")).isEqualTo("先执行 ls");
+        assertThat(contentSnapshot).doesNotContainKey("reasoningId");
 
         Map<String, Object> toolSnapshot = findFirstEvent(detail.events(), "tool.snapshot");
         assertThat(toolSnapshot).containsKeys(
                 "toolId",
                 "toolName",
-                "contentId",
+                "taskId",
                 "toolType",
                 "toolApi",
                 "toolParams",
                 "description",
                 "arguments",
-                "timestamp"
+                "timestamp",
+                "seq"
         );
-        assertThat(toolSnapshot.get("toolId")).isEqualTo(runId + "_2");
+        assertThat(toolSnapshot.get("toolId")).isEqualTo("tool_call_1");
         assertThat(toolSnapshot).doesNotContainKey("result");
     }
 

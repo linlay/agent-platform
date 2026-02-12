@@ -136,7 +136,7 @@ class AgwControllerTest {
 
         assertThat(chunks).isNotNull();
         String joined = String.join("", chunks);
-        assertThat(joined).contains("\"type\":\"query.message\"");
+        assertThat(joined).contains("\"type\":\"request.query\"");
         assertThat(joined).contains("\"type\":\"run.start\"");
         assertThat(joined).contains("\"type\":\"run.complete\"");
 
@@ -170,7 +170,7 @@ class AgwControllerTest {
 
         assertThat(chunks).isNotNull();
         String joined = String.join("", chunks);
-        assertThat(joined).contains("\"type\":\"query.message\"");
+        assertThat(joined).contains("\"type\":\"request.query\"");
         assertThat(joined).contains("\"type\":\"run.start\"");
         assertThat(joined).contains("\"type\":\"run.complete\"");
         assertThat(joined).contains("\"chatId\":\"" + chatId + "\"");
@@ -270,9 +270,9 @@ class AgwControllerTest {
                 .jsonPath("$.data.chatId").isEqualTo(chatId)
                 .jsonPath("$.data.chatName").isEqualTo("0123456789")
                 .jsonPath("$.data.messages").doesNotExist()
-                .jsonPath("$.data.events[?(@.type=='query.message')]").exists()
+                .jsonPath("$.data.events[?(@.type=='request.query')]").exists()
                 .jsonPath("$.data.events[?(@.type=='run.start')]").exists()
-                .jsonPath("$.data.events[?(@.type=='message.snapshot')]").exists()
+                .jsonPath("$.data.events[?(@.type=='content.snapshot')]").exists()
                 .jsonPath("$.data.events[?(@.type=='run.complete')]").exists();
 
         webTestClient.get()
@@ -285,7 +285,7 @@ class AgwControllerTest {
                 .expectStatus().isOk()
                 .expectBody()
                 .jsonPath("$.data.messages[0].role").isEqualTo("user")
-                .jsonPath("$.data.events[?(@.type=='query.message')]").exists();
+                .jsonPath("$.data.events[?(@.type=='request.query')]").exists();
     }
 
     @Test

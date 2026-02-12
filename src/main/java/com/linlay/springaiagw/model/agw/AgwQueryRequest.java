@@ -14,7 +14,8 @@ public record AgwQueryRequest(
         String message,
         List<Reference> references,
         Map<String, Object> params,
-        Scene scene
+        Scene scene,
+        Boolean stream
 ) {
     public record Scene(
             String url,

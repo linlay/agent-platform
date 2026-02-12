@@ -253,6 +253,7 @@ public class ChatRecordStore {
         }
 
         List<Map<String, Object>> events = new ArrayList<>();
+        long seq = 1L;
         for (RunSnapshot run : runs) {
             if (run.messages == null || run.messages.isEmpty()) {
                 continue;
@@ -260,41 +261,54 @@ public class ChatRecordStore {
 
             long runStartTs = resolveRunStartTimestamp(run);
             long runEndTs = resolveRunEndTimestamp(run, runStartTs);
+            long timestampCursor = runStartTs;
             String firstUserMessage = firstUserText(run.messages);
-            String contentId = run.runId + "_0";
-            int eventIndex = 1;
+            String taskId = run.runId + "_task_1";
+            int contentIndex = 0;
+            int toolIndex = 0;
             Set<String> emittedToolCallIds = new HashSet<>();
 
-            Map<String, Object> query = event("query.message", runStartTs);
+            Map<String, Object> query = event("request.query", timestampCursor, seq++);
             query.put("requestId", run.runId);
             query.put("chatId", chatId);
+            query.put("role", "user");
             query.put("message", firstUserMessage);
             events.add(query);
 
-            Map<String, Object> chatStart = event("chat.start", runStartTs + 1);
+            timestampCursor = timestampCursor + 1;
+            Map<String, Object> chatStart = event("chat.start", timestampCursor, seq++);
             chatStart.put("chatId", chatId);
             if (StringUtils.hasText(chatName)) {
                 chatStart.put("chatName", chatName);
             }
             events.add(chatStart);
 
-            Map<String, Object> runStart = event("run.start", runStartTs + 2);
+            timestampCursor = timestampCursor + 1;
+            Map<String, Object> runStart = event("run.start", timestampCursor, seq++);
             runStart.put("runId", run.runId);
             runStart.put("chatId", chatId);
             events.add(runStart);
 
+            timestampCursor = timestampCursor + 1;
+            Map<String, Object> taskStart = event("task.start", timestampCursor, seq++);
+            taskStart.put("taskId", taskId);
+            taskStart.put("runId", run.runId);
+            taskStart.put("taskName", "default");
+            events.add(taskStart);
+
             for (ChatWindowMemoryStore.StoredMessage message : run.messages) {
                 if (isAssistantTextMessage(message)) {
-                    Map<String, Object> messageSnapshot = event("message.snapshot", resolveMessageTimestamp(message, runStartTs));
-                    messageSnapshot.put("messageId", run.runId + "_" + eventIndex++);
-                    messageSnapshot.put("contentId", contentId);
-                    messageSnapshot.put("role", "assistant");
-                    messageSnapshot.put("text", message.content);
-                    events.add(messageSnapshot);
+                    timestampCursor = normalizeEventTimestamp(resolveMessageTimestamp(message, timestampCursor), timestampCursor);
+                    Map<String, Object> contentSnapshot = event("content.snapshot", timestampCursor, seq++);
+                    contentSnapshot.put("contentId", run.runId + "_content_" + contentIndex++);
+                    contentSnapshot.put("text", message.content);
+                    contentSnapshot.put("taskId", taskId);
+                    events.add(contentSnapshot);
                 }
 
                 if (isAssistantToolCallMessage(message)) {
-                    Map<String, Object> toolSnapshot = toToolSnapshot(run.runId, contentId, eventIndex++, message, runStartTs);
+                    timestampCursor = normalizeEventTimestamp(resolveMessageTimestamp(message, timestampCursor), timestampCursor);
+                    Map<String, Object> toolSnapshot = toToolSnapshot(run.runId, taskId, toolIndex++, message, timestampCursor, seq++);
                     events.add(toolSnapshot);
                     if (StringUtils.hasText(message.toolCallId)) {
                         emittedToolCallIds.add(message.toolCallId.trim());
@@ -303,7 +317,8 @@ public class ChatRecordStore {
                 }
 
                 if (isToolMessage(message) && shouldEmitToolSnapshot(message, emittedToolCallIds)) {
-                    Map<String, Object> toolSnapshot = toToolSnapshot(run.runId, contentId, eventIndex++, message, runStartTs);
+                    timestampCursor = normalizeEventTimestamp(resolveMessageTimestamp(message, timestampCursor), timestampCursor);
+                    Map<String, Object> toolSnapshot = toToolSnapshot(run.runId, taskId, toolIndex++, message, timestampCursor, seq++);
                     events.add(toolSnapshot);
                     if (StringUtils.hasText(message.toolCallId)) {
                         emittedToolCallIds.add(message.toolCallId.trim());
@@ -311,24 +326,43 @@ public class ChatRecordStore {
                 }
             }
 
-            Map<String, Object> runComplete = event("run.complete", runEndTs + 1);
+            timestampCursor = normalizeEventTimestamp(runEndTs + 1, timestampCursor);
+            Map<String, Object> taskComplete = event("task.complete", timestampCursor, seq++);
+            taskComplete.put("taskId", taskId);
+            events.add(taskComplete);
+
+            timestampCursor = timestampCursor + 1;
+            Map<String, Object> runComplete = event("run.complete", timestampCursor, seq++);
             runComplete.put("runId", run.runId);
+            runComplete.put("finishReason", "end_turn");
             events.add(runComplete);
+
+            timestampCursor = timestampCursor + 1;
+            Map<String, Object> chatUpdate = event("chat.update", timestampCursor, seq++);
+            chatUpdate.put("chatId", chatId);
+            if (StringUtils.hasText(chatName)) {
+                chatUpdate.put("chatName", chatName);
+            }
+            events.add(chatUpdate);
         }
         return List.copyOf(events);
     }
 
     private Map<String, Object> toToolSnapshot(
             String runId,
-            String contentId,
-            int eventIndex,
+            String taskId,
+            int toolIndex,
             ChatWindowMemoryStore.StoredMessage message,
-            long fallbackTimestamp
+            long timestamp,
+            long seq
     ) {
-        Map<String, Object> snapshot = event("tool.snapshot", resolveMessageTimestamp(message, fallbackTimestamp));
-        snapshot.put("toolId", runId + "_" + eventIndex);
+        Map<String, Object> snapshot = event("tool.snapshot", timestamp, seq);
+        String toolId = StringUtils.hasText(message.toolCallId)
+                ? message.toolCallId.trim()
+                : runId + "_tool_" + toolIndex;
+        snapshot.put("toolId", toolId);
         snapshot.put("toolName", StringUtils.hasText(message.name) ? message.name.trim() : "unknown_tool");
-        snapshot.put("contentId", contentId);
+        snapshot.put("taskId", taskId);
         snapshot.put("toolType", null);
         snapshot.put("toolApi", null);
         snapshot.put("toolParams", toToolParams(message.toolArgs));
@@ -436,6 +470,13 @@ public class ChatRecordStore {
         return fallback;
     }
 
+    private long normalizeEventTimestamp(long candidate, long previous) {
+        if (candidate <= 0) {
+            return previous + 1;
+        }
+        return Math.max(candidate, previous + 1);
+    }
+
     private long sortByUpdatedAt(RunSnapshot run) {
         if (run == null || run.updatedAt <= 0) {
             return Long.MAX_VALUE;
@@ -443,8 +484,9 @@ public class ChatRecordStore {
         return run.updatedAt;
     }
 
-    private Map<String, Object> event(String type, long timestamp) {
+    private Map<String, Object> event(String type, long timestamp, long seq) {
         Map<String, Object> data = new LinkedHashMap<>();
+        data.put("seq", seq);
         data.put("type", type);
         data.put("timestamp", timestamp);
         return data;

@@ -1,6 +1,6 @@
 package com.linlay.springaiagw.agent;
 
-import com.aiagent.agw.sdk.model.AgwDelta;
+import com.linlay.springaiagw.model.agw.AgentDelta;
 import com.linlay.springaiagw.model.AgentRequest;
 import reactor.core.publisher.Flux;
 
@@ -28,5 +28,5 @@ public interface Agent {
         return List.of();
     }
 
-    Flux<AgwDelta> stream(AgentRequest request);
+    Flux<AgentDelta> stream(AgentRequest request);
 }

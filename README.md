@@ -32,6 +32,7 @@
   - 会话详情：`data` 直接是 `chat`
 - `GET /api/chat` 默认始终返回 `events`；仅当 `includeRawMessages=true` 时才返回 `messages`。
 - `includeEvents` 参数已废弃，传入将返回 `400`。
+- 事件协议仅支持 AGW Event Model v2，不兼容旧命名（如 `query.message`、`message.start|delta|end`、`message.snapshot`）。
 
 `GET /api/chats` 示例（新增 `updatedAt`）：
 
@@ -59,17 +60,19 @@
   "chatName": "元素碳的简介，100",
   "events": [
     {
-      "type": "query.message",
+      "seq": 1,
+      "type": "request.query",
       "requestId": "8ad0081d-191b-4990-9432-664ea0c38c3e",
       "chatId": "8cdb2094-9dbf-47d1-a17f-bc989a236a5c",
+      "role": "user",
       "message": "元素碳的简介，100字",
       "timestamp": 1770863186548
     },
     {
-      "type": "message.snapshot",
-      "messageId": "8ad0081d-191b-4990-9432-664ea0c38c3e_1",
-      "contentId": "8ad0081d-191b-4990-9432-664ea0c38c3e_0",
-      "role": "assistant",
+      "seq": 5,
+      "type": "content.snapshot",
+      "contentId": "8ad0081d-191b-4990-9432-664ea0c38c3e_content_0",
+      "taskId": "8ad0081d-191b-4990-9432-664ea0c38c3e_task_1",
       "text": "碳是一种非金属元素...",
       "timestamp": 1770863186549
     }

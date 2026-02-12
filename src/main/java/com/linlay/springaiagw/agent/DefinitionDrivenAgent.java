@@ -2,8 +2,8 @@ package com.linlay.springaiagw.agent;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linlay.springaiagw.memory.ChatWindowMemoryStore;
-import com.aiagent.agw.sdk.model.AgwDelta;
 import com.linlay.springaiagw.model.AgentRequest;
+import com.linlay.springaiagw.model.agw.AgentDelta;
 import com.aiagent.agw.sdk.model.ToolCallDelta;
 import com.linlay.springaiagw.service.DeltaStreamService;
 import com.linlay.springaiagw.service.LlmService;
@@ -114,7 +114,7 @@ public class DefinitionDrivenAgent implements Agent {
     }
 
     @Override
-    public Flux<AgwDelta> stream(AgentRequest request) {
+    public Flux<AgentDelta> stream(AgentRequest request) {
         log.info(
                 "[agent:{}] stream start provider={}, model={}, mode={}, tools={}, message={}",
                 id(),
@@ -128,7 +128,7 @@ public class DefinitionDrivenAgent implements Agent {
         List<Message> historyMessages = loadHistoryMessages(request.chatId());
         TurnTrace trace = new TurnTrace();
 
-        Flux<AgwDelta> flow = switch (definition.mode()) {
+        Flux<AgentDelta> flow = switch (definition.mode()) {
             case PLAIN -> plainContent(request, historyMessages);
             case RE_ACT -> reactFlow(request, historyMessages);
             case PLAN_EXECUTE -> planExecuteFlow(request, historyMessages);
@@ -139,10 +139,10 @@ public class DefinitionDrivenAgent implements Agent {
                 .doOnComplete(() -> persistTurn(request, trace));
     }
 
-    private Flux<AgwDelta> plainContent(AgentRequest request, List<Message> historyMessages) {
+    private Flux<AgentDelta> plainContent(AgentRequest request, List<Message> historyMessages) {
         if (enabledToolsByName.isEmpty()) {
             return plainDirectContent(request, historyMessages, "agent-plain-content")
-                    .concatWith(Flux.just(AgwDelta.finish("stop")));
+                    .concatWith(Flux.just(AgentDelta.finish("stop")));
         }
 
         return plainSingleToolFlow(request, historyMessages)
@@ -151,13 +151,13 @@ public class DefinitionDrivenAgent implements Agent {
                             log.error("[agent:{}] plain single-tool flow failed, fallback to plain content", id(), ex);
                             return Flux.empty();
                         }),
-                        Flux.just(AgwDelta.thinking("PLAIN 单工具流程失败，降级为直接回答。")),
+                        Flux.just(AgentDelta.thinking("PLAIN 单工具流程失败，降级为直接回答。")),
                         plainDirectContent(request, historyMessages, "agent-plain-content-fallback"),
-                        Flux.just(AgwDelta.finish("stop"))
+                        Flux.just(AgentDelta.finish("stop"))
                 ));
     }
 
-    private Flux<AgwDelta> plainDirectContent(AgentRequest request, List<Message> historyMessages, String stage) {
+    private Flux<AgentDelta> plainDirectContent(AgentRequest request, List<Message> historyMessages, String stage) {
         Flux<String> contentTextFlux = llmService.streamContentRawSse(
                         providerKey(),
                         model(),
@@ -175,10 +175,10 @@ public class DefinitionDrivenAgent implements Agent {
                 })
                 .switchIfEmpty(Flux.just("未获取到模型输出，请检查 provider/model/sysPrompt 配置。"))
                 .onErrorResume(ex -> Flux.just("模型调用失败，请稍后重试。"));
-        return contentTextFlux.map(AgwDelta::content);
+        return contentTextFlux.map(AgentDelta::content);
     }
 
-    private Flux<AgwDelta> plainSingleToolFlow(AgentRequest request, List<Message> historyMessages) {
+    private Flux<AgentDelta> plainSingleToolFlow(AgentRequest request, List<Message> historyMessages) {
         String decisionPrompt = promptBuilder.buildPlainDecisionPrompt(request);
         log.info("[agent:{}] plain decision prompt:\n{}", id(), decisionPrompt);
 
@@ -190,7 +190,7 @@ public class DefinitionDrivenAgent implements Agent {
         boolean[] plainTextDetected = {false};
         List<String> earlyBuffer = new ArrayList<>();
 
-        Flux<AgwDelta> decisionThinkingFlux = llmService.streamDeltas(
+        Flux<AgentDelta> decisionThinkingFlux = llmService.streamDeltas(
                         providerKey(),
                         model(),
                         promptBuilder.plainDecisionSystemPrompt(),
@@ -218,23 +218,23 @@ public class DefinitionDrivenAgent implements Agent {
 
                     // Content already streamed during handle phase for plain-text responses
                     if (nativeCalls.isEmpty() && !raw.isBlank() && decisionParser.readJsonObject(raw) == null) {
-                        return Flux.just(AgwDelta.finish("stop"));
+                        return Flux.just(AgentDelta.finish("stop"));
                     }
 
-                    Flux<AgwDelta> summaryThinkingFlux = emittedThinking.isEmpty() && !decision.thinking().isBlank()
-                            ? Flux.just(AgwDelta.thinking(decision.thinking()))
+                    Flux<AgentDelta> summaryThinkingFlux = emittedThinking.isEmpty() && !decision.thinking().isBlank()
+                            ? Flux.just(AgentDelta.thinking(decision.thinking()))
                             : Flux.empty();
 
                     if (!decision.valid()) {
                         return Flux.concat(
                                 summaryThinkingFlux,
                                 plainDirectContent(request, historyMessages, "agent-plain-content-json-fallback"),
-                                Flux.just(AgwDelta.finish("stop"))
+                                Flux.just(AgentDelta.finish("stop"))
                         );
                     }
 
                     List<Map<String, Object>> toolRecords = new ArrayList<>();
-                    Flux<AgwDelta> toolFlux = Flux.empty();
+                    Flux<AgentDelta> toolFlux = Flux.empty();
                     String finalStage = "agent-plain-final-no-tool";
                     if (decision.toolCall() != null) {
                         String callId = StringUtils.hasText(decision.toolCall().callId())
@@ -245,7 +245,7 @@ public class DefinitionDrivenAgent implements Agent {
                     }
 
                     String stage = finalStage;
-                    Flux<AgwDelta> contentFlux = Flux.defer(() -> {
+                    Flux<AgentDelta> contentFlux = Flux.defer(() -> {
                         String finalPrompt = promptBuilder.buildPlainFinalPrompt(request, toolRecords);
                         log.info("[agent:{}] plain final prompt:\n{}", id(), finalPrompt);
                         return llmService.streamContent(
@@ -258,17 +258,17 @@ public class DefinitionDrivenAgent implements Agent {
                                 )
                                 .switchIfEmpty(Flux.just("未获取到模型输出，请检查 provider/model/sysPrompt 配置。"))
                                 .onErrorResume(ex -> Flux.just("模型调用失败，请稍后重试。"))
-                                .map(AgwDelta::content);
+                                .map(AgentDelta::content);
                     });
 
-                    return Flux.concat(summaryThinkingFlux, toolFlux, contentFlux, Flux.just(AgwDelta.finish("stop")));
+                    return Flux.concat(summaryThinkingFlux, toolFlux, contentFlux, Flux.just(AgentDelta.finish("stop")));
                 })
         );
     }
 
-    private Flux<AgwDelta> planExecuteFlow(AgentRequest request, List<Message> historyMessages) {
+    private Flux<AgentDelta> planExecuteFlow(AgentRequest request, List<Message> historyMessages) {
         return Flux.concat(
-                        Flux.just(AgwDelta.thinking("进入 PLAN-EXECUTE 模式，正在逐步决策...\n")),
+                        Flux.just(AgentDelta.thinking("进入 PLAN-EXECUTE 模式，正在逐步决策...\n")),
                         Flux.defer(() -> planExecuteLoop(request, historyMessages, new ArrayList<>(), 1))
                 )
                 .onErrorResume(ex -> Flux.concat(
@@ -276,7 +276,7 @@ public class DefinitionDrivenAgent implements Agent {
                             log.error("[agent:{}] plan-execute flow failed, fallback to plain content", id(), ex);
                             return Flux.empty();
                         }),
-                        Flux.just(AgwDelta.thinking("计划执行流程失败，降级为直接回答。")),
+                        Flux.just(AgentDelta.thinking("计划执行流程失败，降级为直接回答。")),
                         llmService.streamContent(
                                         providerKey(),
                                         model(),
@@ -287,12 +287,12 @@ public class DefinitionDrivenAgent implements Agent {
                                 )
                                 .switchIfEmpty(Flux.just("未获取到模型输出，请稍后重试。"))
                                 .onErrorResume(inner -> Flux.just("模型调用失败，请稍后重试。"))
-                                .map(AgwDelta::content),
-                        Flux.just(AgwDelta.finish("stop"))
+                                .map(AgentDelta::content),
+                        Flux.just(AgentDelta.finish("stop"))
                 ));
     }
 
-    private Flux<AgwDelta> planExecuteLoop(
+    private Flux<AgentDelta> planExecuteLoop(
             AgentRequest request,
             List<Message> historyMessages,
             List<Map<String, Object>> toolRecords,
@@ -314,7 +314,7 @@ public class DefinitionDrivenAgent implements Agent {
         boolean[] plainTextDetected = {false};
         List<String> earlyBuffer = new ArrayList<>();
 
-        Flux<AgwDelta> stepThinkingFlux = llmService.streamDeltas(
+        Flux<AgentDelta> stepThinkingFlux = llmService.streamDeltas(
                         providerKey(),
                         model(),
                         promptBuilder.planExecuteLoopSystemPrompt(),
@@ -340,7 +340,7 @@ public class DefinitionDrivenAgent implements Agent {
 
                     // Content already streamed during handle phase for plain-text responses
                     if (nativeCalls.isEmpty() && !raw.isBlank() && decisionParser.readJsonObject(raw) == null) {
-                        return Flux.just(AgwDelta.finish("stop"));
+                        return Flux.just(AgentDelta.finish("stop"));
                     }
 
                     // If no tool_calls → done, generate final answer
@@ -356,11 +356,11 @@ public class DefinitionDrivenAgent implements Agent {
 
                     // Execute all tool_calls from this round sequentially
                     AtomicInteger toolCounter = new AtomicInteger(0);
-                    Flux<AgwDelta> toolFlux = Flux.fromIterable(nativeCalls)
+                    Flux<AgentDelta> toolFlux = Flux.fromIterable(nativeCalls)
                             .concatMap(toolCall -> {
                                 int toolSeq = toolCounter.incrementAndGet();
                                 if (toolSeq > MAX_TOOL_CALLS) {
-                                    return Flux.just(AgwDelta.thinking("工具调用数量超过上限，已跳过。"));
+                                    return Flux.just(AgentDelta.thinking("工具调用数量超过上限，已跳过。"));
                                 }
                                 String callId = StringUtils.hasText(toolCall.callId())
                                         ? toolCall.callId()
@@ -386,7 +386,7 @@ public class DefinitionDrivenAgent implements Agent {
         );
     }
 
-    private Flux<AgwDelta> finalizePlanExecuteAnswer(
+    private Flux<AgentDelta> finalizePlanExecuteAnswer(
             AgentRequest request,
             List<Message> historyMessages,
             List<Map<String, Object>> toolRecords,
@@ -395,10 +395,10 @@ public class DefinitionDrivenAgent implements Agent {
     ) {
         String prompt = promptBuilder.buildPlanExecuteLoopFinalPrompt(request, toolRecords);
         log.info("[agent:{}] plan-execute final prompt:\n{}", id(), prompt);
-        Flux<AgwDelta> noteFlux = thinkingNote == null || thinkingNote.isBlank()
+        Flux<AgentDelta> noteFlux = thinkingNote == null || thinkingNote.isBlank()
                 ? Flux.empty()
-                : Flux.just(AgwDelta.thinking(thinkingNote));
-        Flux<AgwDelta> contentFlux = llmService.streamContentRawSse(
+                : Flux.just(AgentDelta.thinking(thinkingNote));
+        Flux<AgentDelta> contentFlux = llmService.streamContentRawSse(
                         providerKey(),
                         model(),
                         systemPrompt(),
@@ -419,14 +419,14 @@ public class DefinitionDrivenAgent implements Agent {
                 })
                 .switchIfEmpty(Flux.just("未获取到模型输出，请检查 provider/model/sysPrompt 配置。"))
                 .onErrorResume(ex -> Flux.just("模型调用失败，请稍后重试。"))
-                .map(AgwDelta::content);
+                .map(AgentDelta::content);
 
-        return Flux.concat(noteFlux, contentFlux, Flux.just(AgwDelta.finish("stop")));
+        return Flux.concat(noteFlux, contentFlux, Flux.just(AgentDelta.finish("stop")));
     }
 
-    private Flux<AgwDelta> reactFlow(AgentRequest request, List<Message> historyMessages) {
+    private Flux<AgentDelta> reactFlow(AgentRequest request, List<Message> historyMessages) {
         return Flux.concat(
-                        Flux.just(AgwDelta.thinking("进入 RE-ACT 模式，正在逐步决策...\n")),
+                        Flux.just(AgentDelta.thinking("进入 RE-ACT 模式，正在逐步决策...\n")),
                         Flux.defer(() -> reactLoop(request, historyMessages, new ArrayList<>(), 1))
                 )
                 .onErrorResume(ex -> Flux.concat(
@@ -434,7 +434,7 @@ public class DefinitionDrivenAgent implements Agent {
                             log.error("[agent:{}] react flow failed, fallback to plain content", id(), ex);
                             return Flux.empty();
                         }),
-                        Flux.just(AgwDelta.thinking("RE-ACT 流程失败，降级为直接回答。")),
+                        Flux.just(AgentDelta.thinking("RE-ACT 流程失败，降级为直接回答。")),
                         llmService.streamContent(
                                         providerKey(),
                                         model(),
@@ -445,12 +445,12 @@ public class DefinitionDrivenAgent implements Agent {
                                 )
                                 .switchIfEmpty(Flux.just("未获取到模型输出，请稍后重试。"))
                                 .onErrorResume(inner -> Flux.just("模型调用失败，请稍后重试。"))
-                                .map(AgwDelta::content),
-                        Flux.just(AgwDelta.finish("stop"))
+                                .map(AgentDelta::content),
+                        Flux.just(AgentDelta.finish("stop"))
                 ));
     }
 
-    private Flux<AgwDelta> reactLoop(
+    private Flux<AgentDelta> reactLoop(
             AgentRequest request,
             List<Message> historyMessages,
             List<Map<String, Object>> toolRecords,
@@ -472,7 +472,7 @@ public class DefinitionDrivenAgent implements Agent {
         boolean[] plainTextDetected = {false};
         List<String> earlyBuffer = new ArrayList<>();
 
-        Flux<AgwDelta> stepThinkingFlux = llmService.streamDeltas(
+        Flux<AgentDelta> stepThinkingFlux = llmService.streamDeltas(
                         providerKey(),
                         model(),
                         promptBuilder.reactSystemPrompt(),
@@ -500,11 +500,11 @@ public class DefinitionDrivenAgent implements Agent {
 
                     // Content already streamed during handle phase for plain-text responses
                     if (nativeCalls.isEmpty() && !raw.isBlank() && decisionParser.readJsonObject(raw) == null) {
-                        return Flux.just(AgwDelta.finish("stop"));
+                        return Flux.just(AgentDelta.finish("stop"));
                     }
 
-                    Flux<AgwDelta> summaryThinkingFlux = emittedThinking.isEmpty() && !decision.thinking().isBlank()
-                            ? Flux.just(AgwDelta.thinking(decision.thinking()))
+                    Flux<AgentDelta> summaryThinkingFlux = emittedThinking.isEmpty() && !decision.thinking().isBlank()
+                            ? Flux.just(AgentDelta.thinking(decision.thinking()))
                             : Flux.empty();
 
                     if (decision.done()) {
@@ -546,7 +546,7 @@ public class DefinitionDrivenAgent implements Agent {
         );
     }
 
-    private Flux<AgwDelta> finalizeReactAnswer(
+    private Flux<AgentDelta> finalizeReactAnswer(
             AgentRequest request,
             List<Message> historyMessages,
             List<Map<String, Object>> toolRecords,
@@ -554,10 +554,10 @@ public class DefinitionDrivenAgent implements Agent {
             String stage
     ) {
         String prompt = promptBuilder.buildReactFinalPrompt(request, toolRecords);
-        Flux<AgwDelta> noteFlux = thinkingNote == null || thinkingNote.isBlank()
+        Flux<AgentDelta> noteFlux = thinkingNote == null || thinkingNote.isBlank()
                 ? Flux.empty()
-                : Flux.just(AgwDelta.thinking(thinkingNote));
-        Flux<AgwDelta> contentFlux = llmService.streamContentRawSse(
+                : Flux.just(AgentDelta.thinking(thinkingNote));
+        Flux<AgentDelta> contentFlux = llmService.streamContentRawSse(
                         providerKey(),
                         model(),
                         systemPrompt(),
@@ -578,9 +578,9 @@ public class DefinitionDrivenAgent implements Agent {
                 })
                 .switchIfEmpty(Flux.just("未获取到模型输出，请检查 provider/model/sysPrompt 配置。"))
                 .onErrorResume(ex -> Flux.just("模型调用失败，请稍后重试。"))
-                .map(AgwDelta::content);
+                .map(AgentDelta::content);
 
-        return Flux.concat(noteFlux, contentFlux, Flux.just(AgwDelta.finish("stop")));
+        return Flux.concat(noteFlux, contentFlux, Flux.just(AgentDelta.finish("stop")));
     }
 
     private Map<String, BaseTool> resolveEnabledTools(List<String> configuredTools) {
@@ -665,7 +665,7 @@ public class DefinitionDrivenAgent implements Agent {
         private final List<ChatWindowMemoryStore.RunMessage> orderedMessages = new ArrayList<>();
         private final Map<String, ToolTrace> toolByCallId = new LinkedHashMap<>();
 
-        private void capture(AgwDelta delta) {
+        private void capture(AgentDelta delta) {
             if (delta == null) {
                 return;
             }
@@ -692,7 +692,7 @@ public class DefinitionDrivenAgent implements Agent {
 
             if (delta.toolResults() != null) {
                 flushAssistantContent();
-                for (AgwDelta.ToolResult toolResult : delta.toolResults()) {
+                for (AgentDelta.ToolResult toolResult : delta.toolResults()) {
                     if (toolResult == null || !StringUtils.hasText(toolResult.toolId())) {
                         continue;
                     }

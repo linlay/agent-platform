@@ -1,7 +1,7 @@
 package com.linlay.springaiagw.service;
 
-import com.aiagent.agw.sdk.model.AgwDelta;
-import com.aiagent.agw.sdk.model.AgwRequestContext;
+import com.aiagent.agw.sdk.model.AgwInput;
+import com.aiagent.agw.sdk.model.AgwRequest;
 import com.aiagent.agw.sdk.service.AgwSseStreamer;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -11,6 +11,7 @@ import com.linlay.springaiagw.agent.Agent;
 import com.linlay.springaiagw.agent.AgentRegistry;
 import com.linlay.springaiagw.model.agw.AgwQueryRequest;
 import com.linlay.springaiagw.model.AgentRequest;
+import com.linlay.springaiagw.model.agw.AgentDelta;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.codec.ServerSentEvent;
@@ -18,6 +19,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
 
+import java.util.List;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -55,14 +57,20 @@ public class AgwQueryService {
         String requestId = StringUtils.hasText(request.requestId())
                 ? request.requestId().trim()
                 : runId;
+        String role = StringUtils.hasText(request.role()) ? request.role().trim() : "user";
         ChatRecordStore.ChatSummary summary = chatRecordStore.ensureChat(chatId, agent.id(), request.message());
         String chatName = summary.chatName();
-
-        AgwRequestContext context = new AgwRequestContext(
-                request.message(),
-                chatId,
-                chatName,
+        AgwRequest.Query agwRequest = new AgwRequest.Query(
                 requestId,
+                chatId,
+                role,
+                request.message(),
+                request.agentKey(),
+                request.references() == null ? null : request.references().stream().map(value -> (Object) value).toList(),
+                request.params(),
+                serializeScene(request.scene()),
+                request.stream(),
+                chatName,
                 runId
         );
 
@@ -81,12 +89,13 @@ public class AgwQueryService {
                 request.references(),
                 request.scene()
         );
-        return new QuerySession(agent, context, agentRequest);
+        return new QuerySession(agent, agwRequest, agentRequest);
     }
 
     public Flux<ServerSentEvent<String>> stream(QuerySession session) {
-        Flux<AgwDelta> deltas = session.agent().stream(session.agentRequest());
-        return agwSseStreamer.stream(session.context(), deltas)
+        Flux<AgentDelta> deltas = session.agent().stream(session.agentRequest());
+        Flux<AgwInput> inputs = new AgentDeltaToAgwInputMapper(session.request().runId()).map(deltas);
+        return agwSseStreamer.stream(session.request(), inputs)
                 .map(this::normalizeToolResultPayload)
                 .doOnNext(event -> {
                     String eventType = extractEventType(event.data());
@@ -96,11 +105,11 @@ public class AgwQueryService {
                     log.debug(
                             "stream tool event type={}, requestId={}, runId={}",
                             eventType,
-                            session.context().requestId(),
-                            session.context().runId()
+                            session.request().requestId(),
+                            session.request().runId()
                     );
                 })
-                .doOnNext(event -> chatRecordStore.appendEvent(session.context().chatId(), event.data()));
+                .doOnNext(event -> chatRecordStore.appendEvent(session.request().chatId(), event.data()));
     }
 
     private ServerSentEvent<String> normalizeToolResultPayload(ServerSentEvent<String> event) {
@@ -205,9 +214,20 @@ public class AgwQueryService {
         }
     }
 
+    private String serializeScene(AgwQueryRequest.Scene scene) {
+        if (scene == null) {
+            return null;
+        }
+        try {
+            return objectMapper.writeValueAsString(scene);
+        } catch (JsonProcessingException ex) {
+            return scene.toString();
+        }
+    }
+
     public record QuerySession(
             Agent agent,
-            AgwRequestContext context,
+            AgwRequest.Query request,
             AgentRequest agentRequest
     ) {
     }

@@ -1,6 +1,6 @@
 package com.linlay.springaiagw.service;
 
-import com.aiagent.agw.sdk.model.AgwDelta;
+import com.linlay.springaiagw.model.agw.AgentDelta;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
@@ -9,12 +9,12 @@ import java.time.Duration;
 @Service
 public class DeltaStreamService {
 
-    public Flux<AgwDelta> toThinkingDeltas(String fullThinking) {
-        return splitToChars(fullThinking).map(AgwDelta::thinking);
+    public Flux<AgentDelta> toThinkingDeltas(String fullThinking) {
+        return splitToChars(fullThinking).map(AgentDelta::thinking);
     }
 
-    public Flux<AgwDelta> toContentDeltas(String fullContent) {
-        return splitToChars(fullContent).map(AgwDelta::content);
+    public Flux<AgentDelta> toContentDeltas(String fullContent) {
+        return splitToChars(fullContent).map(AgentDelta::content);
     }
 
     private Flux<String> splitToChars(String text) {
