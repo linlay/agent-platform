@@ -248,18 +248,17 @@ class AgwControllerTest {
                 .uri("/api/chats")
                 .exchange()
                 .expectStatus().isOk()
-                .expectBody(String.class)
-                .value(body -> {
-                    assertThat(body).contains("\"chatId\":\"" + chatId + "\"");
-                    assertThat(body).contains("\"chatName\":\"0123456789\"");
-                    assertThat(body).contains("\"firstAgentKey\":\"demoPlanExecute\"");
-                });
+                .expectBody()
+                .jsonPath("$.data[0].chatId").isEqualTo(chatId)
+                .jsonPath("$.data[0].chatName").isEqualTo("0123456789")
+                .jsonPath("$.data[0].firstAgentKey").isEqualTo("demoPlanExecute")
+                .jsonPath("$.data[0].createdAt").isNumber()
+                .jsonPath("$.data[0].updatedAt").isNumber();
 
         webTestClient.get()
                 .uri(uriBuilder -> uriBuilder
                         .path("/api/chat")
                         .queryParam("chatId", chatId)
-                        .queryParam("includeEvents", true)
                         .build())
                 .exchange()
                 .expectStatus().isOk()
@@ -268,13 +267,23 @@ class AgwControllerTest {
                 .jsonPath("$.msg").isEqualTo("success")
                 .jsonPath("$.data.chatId").isEqualTo(chatId)
                 .jsonPath("$.data.chatName").isEqualTo("0123456789")
-                .jsonPath("$.data.firstAgentKey").doesNotExist()
-                .jsonPath("$.data.createdAt").doesNotExist()
-                .jsonPath("$.data.messages[0].role").isEqualTo("user")
+                .jsonPath("$.data.messages").doesNotExist()
                 .jsonPath("$.data.events[?(@.type=='query.message')]").exists()
                 .jsonPath("$.data.events[?(@.type=='run.start')]").exists()
                 .jsonPath("$.data.events[?(@.type=='message.snapshot')]").exists()
                 .jsonPath("$.data.events[?(@.type=='run.complete')]").exists();
+
+        webTestClient.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/api/chat")
+                        .queryParam("chatId", chatId)
+                        .queryParam("includeRawMessages", true)
+                        .build())
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.data.messages[0].role").isEqualTo("user")
+                .jsonPath("$.data.events[?(@.type=='query.message')]").exists();
     }
 
     @Test
@@ -286,6 +295,20 @@ class AgwControllerTest {
                         .build())
                 .exchange()
                 .expectStatus().isBadRequest();
+    }
+
+    @Test
+    void chatShouldRejectDeprecatedIncludeEventsParam() {
+        webTestClient.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/api/chat")
+                        .queryParam("chatId", "123e4567-e89b-12d3-a456-426614174000")
+                        .queryParam("includeEvents", true)
+                        .build())
+                .exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.msg").value(message -> assertThat(String.valueOf(message)).contains("includeEvents is deprecated"));
     }
 
     @Test

@@ -7,7 +7,8 @@
 - `GET /api/agents`: 智能体列表
 - `GET /api/agent?agentKey=...`: 智能体详情
 - `GET /api/chats`: 会话列表
-- `GET /api/chat?chatId=...&includeEvents=true|false`: 会话详情（历史消息 + 可选快照事件）
+- `GET /api/chat?chatId=...`: 会话详情（默认返回快照事件流）
+- `GET /api/chat?chatId=...&includeRawMessages=true`: 会话详情（附带原始 messages）
 - `POST /api/query`: 提问接口（默认返回 AGW 标准 SSE；`requestId` 可省略，缺省时等于 `runId`）
 - `POST /api/submit`: Human-in-the-loop 提交接口
 
@@ -29,6 +30,26 @@
   - 智能体列表：`data` 直接是 `agents[]`
   - 智能体详情：`data` 直接是 `agent`
   - 会话详情：`data` 直接是 `chat`
+- `GET /api/chat` 默认始终返回 `events`；仅当 `includeRawMessages=true` 时才返回 `messages`。
+- `includeEvents` 参数已废弃，传入将返回 `400`。
+
+`GET /api/chats` 示例（新增 `updatedAt`）：
+
+```json
+{
+  "code": 0,
+  "msg": "success",
+  "data": [
+    {
+      "chatId": "d0e5b9ab-af21-4e3b-8e1a-a977dc6d5656",
+      "chatName": "元素碳的简介，100",
+      "firstAgentKey": "demoPlain",
+      "createdAt": 1770866044047,
+      "updatedAt": 1770866412459
+    }
+  ]
+}
+```
 
 `GET /api/chat` 的 `data` 结构如下：
 
@@ -36,14 +57,6 @@
 {
   "chatId": "8cdb2094-9dbf-47d1-a17f-bc989a236a5c",
   "chatName": "元素碳的简介，100",
-  "messages": [
-    {
-      "role": "user",
-      "content": "元素碳的简介，100字",
-      "ts": 1770863186548,
-      "runId": "8ad0081d-191b-4990-9432-664ea0c38c3e"
-    }
-  ],
   "events": [
     {
       "type": "query.message",
@@ -63,6 +76,19 @@
   ],
   "references": []
 }
+```
+
+当 `includeRawMessages=true` 时，会额外返回：
+
+```json
+"messages": [
+  {
+    "role": "user",
+    "content": "元素碳的简介，100字",
+    "ts": 1770863186548,
+    "runId": "8ad0081d-191b-4990-9432-664ea0c38c3e"
+  }
+]
 ```
 
 ## 目录约定
@@ -98,6 +124,30 @@ mvn spring-boot:run
 默认端口 `8080`。
 
 ## 接口测试用例
+
+### 会话接口测试
+
+```bash
+curl -N -X GET "http://localhost:8080/api/chats" \
+  -H "Content-Type: application/json"
+```
+
+```bash
+curl -N -X GET "http://localhost:8080/api/chat?chatId=d0e5b9ab-af21-4e3b-8e1a-a977dc6d5656" \
+  -H "Content-Type: application/json"
+```
+
+```bash
+curl -N -X GET "http://localhost:8080/api/chat?chatId=d0e5b9ab-af21-4e3b-8e1a-a977dc6d5656&includeRawMessages=true" \
+  -H "Content-Type: application/json"
+```
+
+```bash
+curl -N -X GET "http://localhost:8080/api/chat?chatId=d0e5b9ab-af21-4e3b-8e1a-a977dc6d5656&includeEvents=true" \
+  -H "Content-Type: application/json"
+```
+
+### Query 回归测试
 
 ```bash
 curl -N -X POST "http://localhost:8080/api/query" \
@@ -198,14 +248,9 @@ AGENT_BASH_ALLOWED_PATHS=/opt,/data
 ```
 
 ```bash
-curl -N -X GET "http://localhost:8080/api/chat?chatId=d0e5b9ab-af21-4e3b-8e1a-a977dc6d5656&includeEvents=true" \
-  -H "Content-Type: application/json"
-```
-
-```bash
 curl -N -X POST "http://localhost:8080/api/query" \
   -H "Content-Type: application/json" \
-  -d '{"message":"元素碳的简介，50字","agentKey":"demoPlain"}'
+  -d '{"message":"元素碳的简介，200字","agentKey":"demoPlain"}'
 curl -N -X POST "http://localhost:8080/api/query" \
   -H "Content-Type: application/json" \
   -d '{"chatId":"","message":"下一个元素的简介","agentKey":"demoPlain"}'

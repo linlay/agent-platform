@@ -82,9 +82,13 @@ public class AgwController {
     @GetMapping("/chat")
     public ApiResponse<AgwChatDetailResponse> chat(
             @RequestParam String chatId,
-            @RequestParam(defaultValue = "false") boolean includeEvents
+            @RequestParam(defaultValue = "false") boolean includeRawMessages,
+            @RequestParam(required = false) Boolean includeEvents
     ) {
-        return ApiResponse.success(chatRecordStore.loadChat(chatId, includeEvents));
+        if (includeEvents != null) {
+            throw new IllegalArgumentException("includeEvents is deprecated; use includeRawMessages=true to include messages");
+        }
+        return ApiResponse.success(chatRecordStore.loadChat(chatId, includeRawMessages));
     }
 
     @PostMapping(value = "/query", produces = MediaType.TEXT_EVENT_STREAM_VALUE)

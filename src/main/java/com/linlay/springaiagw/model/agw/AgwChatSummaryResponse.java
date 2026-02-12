@@ -4,6 +4,7 @@ public record AgwChatSummaryResponse(
         String chatId,
         String chatName,
         String firstAgentKey,
-        long createdAt
+        long createdAt,
+        long updatedAt
 ) {
 }

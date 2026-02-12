@@ -48,21 +48,33 @@ public class ChatRecordStore {
     public ChatSummary ensureChat(String chatId, String agentKey, String firstMessage) {
         requireValidChatId(chatId);
         synchronized (lock) {
-            List<ChatIndexRecord> records = readIndexRecords();
-            for (ChatIndexRecord record : records) {
-                if (chatId.equals(record.chatId)) {
-                    return toChatSummary(record);
-                }
+            LinkedHashMap<String, ChatIndexRecord> recordsByChatId = new LinkedHashMap<>();
+            for (ChatIndexRecord record : readIndexRecords()) {
+                recordsByChatId.put(record.chatId, record);
             }
-
             long now = System.currentTimeMillis();
-            ChatIndexRecord record = new ChatIndexRecord();
-            record.chatId = chatId;
-            record.chatName = deriveChatName(firstMessage);
-            record.firstAgentKey = nullable(agentKey);
-            record.createdAt = now;
-
-            appendJsonLine(resolveIndexPath(), objectMapper.valueToTree(record));
+            ChatIndexRecord record = recordsByChatId.get(chatId);
+            if (record == null) {
+                record = new ChatIndexRecord();
+                record.chatId = chatId;
+                record.chatName = deriveChatName(firstMessage);
+                record.firstAgentKey = nullable(agentKey);
+                record.createdAt = now;
+                record.updatedAt = now;
+                recordsByChatId.put(chatId, record);
+            } else {
+                if (!StringUtils.hasText(record.chatName)) {
+                    record.chatName = deriveChatName(firstMessage);
+                }
+                if (!StringUtils.hasText(record.firstAgentKey)) {
+                    record.firstAgentKey = nullable(agentKey);
+                }
+                if (record.createdAt <= 0) {
+                    record.createdAt = now;
+                }
+                record.updatedAt = now;
+            }
+            writeIndexRecords(List.copyOf(recordsByChatId.values()));
             return toChatSummary(record);
         }
     }
@@ -86,18 +98,19 @@ public class ChatRecordStore {
     public List<AgwChatSummaryResponse> listChats() {
         synchronized (lock) {
             return readIndexRecords().stream()
-                    .sorted((left, right) -> Long.compare(right.createdAt, left.createdAt))
+                    .sorted((left, right) -> Long.compare(resolveUpdatedAt(right), resolveUpdatedAt(left)))
                     .map(record -> new AgwChatSummaryResponse(
                             record.chatId,
                             record.chatName,
                             record.firstAgentKey,
-                            record.createdAt
+                            record.createdAt,
+                            resolveUpdatedAt(record)
                     ))
                     .toList();
         }
     }
 
-    public AgwChatDetailResponse loadChat(String chatId, boolean includeEvents) {
+    public AgwChatDetailResponse loadChat(String chatId, boolean includeRawMessages) {
         requireValidChatId(chatId);
         Path historyPath = resolveHistoryPath(chatId);
         synchronized (lock) {
@@ -111,15 +124,18 @@ public class ChatRecordStore {
 
             ChatSummary summary = indexRecord
                     .map(this::toChatSummary)
-                    .orElseGet(() -> new ChatSummary(chatId, chatId, null, resolveCreatedAt(historyPath)));
+                    .orElseGet(() -> {
+                        long createdAt = resolveCreatedAt(historyPath);
+                        return new ChatSummary(chatId, chatId, null, createdAt, createdAt);
+                    });
 
             ParsedChatContent content = readChatContent(
                     historyPath,
                     summary.chatId,
-                    summary.chatName,
-                    includeEvents
+                    summary.chatName
             );
-            List<Map<String, Object>> events = includeEvents ? List.copyOf(content.events) : null;
+            List<Map<String, Object>> events = List.copyOf(content.events);
+            List<Map<String, Object>> messages = includeRawMessages ? List.copyOf(content.messages) : null;
             List<AgwQueryRequest.Reference> references = content.references.isEmpty()
                     ? null
                     : List.copyOf(content.references.values());
@@ -127,7 +143,7 @@ public class ChatRecordStore {
             return new AgwChatDetailResponse(
                     summary.chatId,
                     summary.chatName,
-                    List.copyOf(content.messages),
+                    messages,
                     events,
                     references
             );
@@ -137,8 +153,7 @@ public class ChatRecordStore {
     private ParsedChatContent readChatContent(
             Path historyPath,
             String chatId,
-            String chatName,
-            boolean includeEvents
+            String chatName
     ) {
         ParsedChatContent content = new ParsedChatContent();
         readHistoryLines(historyPath, content);
@@ -155,9 +170,7 @@ public class ChatRecordStore {
                 }
             }
         }
-        if (includeEvents) {
-            content.events.addAll(buildSnapshotEvents(chatId, chatName, content.runs));
-        }
+        content.events.addAll(buildSnapshotEvents(chatId, chatName, content.runs));
         return content;
     }
 
@@ -497,12 +510,51 @@ public class ChatRecordStore {
                 if (!StringUtils.hasText(record.chatName)) {
                     record.chatName = record.chatId;
                 }
+                if (record.createdAt <= 0 && record.updatedAt > 0) {
+                    record.createdAt = record.updatedAt;
+                }
+                if (record.updatedAt <= 0) {
+                    record.updatedAt = record.createdAt;
+                }
                 records.add(record);
             }
             return List.copyOf(records);
         } catch (Exception ex) {
             log.warn("Cannot read chat index file={}, fallback to empty", path, ex);
             return List.of();
+        }
+    }
+
+    private void writeIndexRecords(List<ChatIndexRecord> records) {
+        Path path = resolveIndexPath();
+        try {
+            Files.createDirectories(path.getParent());
+            StringBuilder content = new StringBuilder();
+            for (ChatIndexRecord record : records) {
+                if (record == null || !isValidChatId(record.chatId)) {
+                    continue;
+                }
+                if (!StringUtils.hasText(record.chatName)) {
+                    record.chatName = record.chatId;
+                }
+                if (record.createdAt <= 0) {
+                    record.createdAt = System.currentTimeMillis();
+                }
+                if (record.updatedAt <= 0) {
+                    record.updatedAt = record.createdAt;
+                }
+                content.append(objectMapper.writeValueAsString(record)).append(System.lineSeparator());
+            }
+            Files.writeString(
+                    path,
+                    content.toString(),
+                    resolveCharset(),
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING,
+                    StandardOpenOption.WRITE
+            );
+        } catch (IOException ex) {
+            throw new IllegalStateException("Cannot rewrite chat index file=" + path, ex);
         }
     }
 
@@ -596,12 +648,22 @@ public class ChatRecordStore {
     }
 
     private ChatSummary toChatSummary(ChatIndexRecord record) {
+        long createdAt = record.createdAt > 0 ? record.createdAt : record.updatedAt;
+        long updatedAt = record.updatedAt > 0 ? record.updatedAt : createdAt;
         return new ChatSummary(
                 record.chatId,
                 StringUtils.hasText(record.chatName) ? record.chatName : record.chatId,
                 nullable(record.firstAgentKey),
-                record.createdAt
+                createdAt,
+                updatedAt
         );
+    }
+
+    private long resolveUpdatedAt(ChatIndexRecord record) {
+        if (record == null) {
+            return 0L;
+        }
+        return record.updatedAt > 0 ? record.updatedAt : record.createdAt;
     }
 
     private String nullable(String value) {
@@ -626,7 +688,8 @@ public class ChatRecordStore {
             String chatId,
             String chatName,
             String firstAgentKey,
-            long createdAt
+            long createdAt,
+            long updatedAt
     ) {
     }
 
@@ -650,5 +713,6 @@ public class ChatRecordStore {
         public String chatName;
         public String firstAgentKey;
         public long createdAt;
+        public long updatedAt;
     }
 }
