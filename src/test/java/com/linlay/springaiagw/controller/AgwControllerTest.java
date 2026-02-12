@@ -268,10 +268,12 @@ class AgwControllerTest {
                 .jsonPath("$.msg").isEqualTo("success")
                 .jsonPath("$.data.chatId").isEqualTo(chatId)
                 .jsonPath("$.data.chatName").isEqualTo("0123456789")
+                .jsonPath("$.data.firstAgentKey").doesNotExist()
+                .jsonPath("$.data.createdAt").doesNotExist()
                 .jsonPath("$.data.messages[0].role").isEqualTo("user")
-                .jsonPath("$.data.references[0].id").isEqualTo("ref_001")
                 .jsonPath("$.data.events[?(@.type=='query.message')]").exists()
                 .jsonPath("$.data.events[?(@.type=='run.start')]").exists()
+                .jsonPath("$.data.events[?(@.type=='message.snapshot')]").exists()
                 .jsonPath("$.data.events[?(@.type=='run.complete')]").exists();
     }
 

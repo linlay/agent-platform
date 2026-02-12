@@ -9,8 +9,6 @@ import java.util.Map;
 public record AgwChatDetailResponse(
         String chatId,
         String chatName,
-        String firstAgentKey,
-        long createdAt,
         List<Map<String, Object>> messages,
         List<Map<String, Object>> events,
         List<AgwQueryRequest.Reference> references
