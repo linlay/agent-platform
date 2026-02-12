@@ -97,3 +97,48 @@ Client POST /api/query → AgwController → AgwQueryService.prepare()/stream()
 ```
 
 兼容旧模式名：`THINKING_AND_CONTENT` → `RE_ACT`，`THINKING_AND_CONTENT_WITH_DUAL_TOOL_CALLS` → `PLAN_EXECUTE`
+
+## 开发硬性要求（MUST）
+
+以下规则是本项目开发的强制约束，任何代码修改都必须严格遵守，不可违反。
+
+### 1. Agent 模式行为规范
+
+**ReAct 模式（RE_ACT）**
+- 最多循环 6 次。每一轮：思考 → 调用工具 → 观察结果，直到能给出最终答案。
+- 每轮最多调用 1 个工具。
+
+**Plain 模式（PLAIN）**
+- 直接调用工具（0 或 1 个），给出答案。不进行多轮迭代。
+
+**PlanExecute 模式（PLAN_EXECUTE）**
+- 先让 LLM 生成一个执行计划（步骤列表）。
+- 然后严格按照计划顺序，一步步执行。每一步可调用 0 或 1 个工具。
+- 下一步可以引用上一步的工具结果（链式引用）。
+- 必须按顺序执行，不可跳步、乱序。
+
+### 2. 严格真流式输出（CRITICAL）
+
+**所有输出必须是真正的流式（streaming），绝对禁止以下行为：**
+- ❌ 等 LLM 完整返回后再拆分发送（假流式）
+- ❌ 将多个 delta 合并/整合后再切分输出
+- ❌ 缓存完整响应后再逐块发送
+
+**必须做到：**
+- ✅ LLM 返回一个 delta，立刻向客户端推送一个 SSE 事件
+- ✅ thinking 部分：LLM 每返回一个 thinking token 就立刻流式输出
+- ✅ 正文部分：LLM 每返回一个 content token 就立刻流式输出
+- ✅ 工具调用部分：LLM 返回 tool_calls delta 时立刻流式输出，细分为以下事件：
+  - `tool.start` — 工具调用开始（含工具名）
+  - `tool.args`（多次）— 工具参数的流式增量片段
+  - `tool.end` — 工具调用 delta 结束
+  - `tool.result` — 工具执行结果
+
+**原则：大模型一旦返回任何内容（包括 tool_calls），必须立刻、马上流式输出给客户端，零缓冲。**
+
+### 3. LLM 调用日志（MUST）
+
+所有大模型调用的完整日志必须打印到控制台，用于排查问题：
+- 每一个 SSE delta（包括 thinking delta、content delta、tool_calls delta）都要打印日志
+- 工具调用的所有 delta 都要打印日志（tool name、arguments 片段、finish_reason 等）
+- 日志级别使用 `debug` 或 `info`，确保开发环境下默认可见

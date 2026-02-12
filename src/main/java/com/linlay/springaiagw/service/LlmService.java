@@ -117,6 +117,7 @@ public class LlmService {
                     .doOnNext(chunk -> {
                         if (chunk != null) {
                             responseBuffer.append(chunk);
+                            log.debug("[{}][{}][delta] content: {}", traceId, stage, chunk);
                         }
                     })
                     .doOnComplete(() -> log.info(
@@ -181,6 +182,7 @@ public class LlmService {
                     .doOnNext(chunk -> {
                         if (chunk != null) {
                             responseBuffer.append(chunk);
+                            log.debug("[{}][{}][delta] content: {}", traceId, stage, chunk);
                         }
                     })
                     .doOnComplete(() -> log.info(
@@ -294,7 +296,7 @@ public class LlmService {
                             && ((delta.content() != null && !delta.content().isEmpty())
                             || (delta.toolCalls() != null && !delta.toolCalls().isEmpty())
                             || (delta.finishReason() != null && !delta.finishReason().isBlank())))
-                    .doOnNext(delta -> appendDeltaLog(responseBuffer, delta))
+                    .doOnNext(delta -> appendDeltaLog(responseBuffer, delta, traceId, stage))
                     .doOnComplete(() -> log.info(
                             "[{}][{}] LLM delta stream response finished in {} ms:\n{}",
                             traceId,
@@ -355,7 +357,10 @@ public class LlmService {
                             sink.next(delta.content());
                         }
                     })
-                    .doOnNext(chunk -> responseBuffer.append(chunk))
+                    .doOnNext(chunk -> {
+                        responseBuffer.append(chunk);
+                        log.debug("[{}][{}][delta] content: {}", traceId, stage, chunk);
+                    })
                     .doOnComplete(() -> log.info(
                             "[{}][{}] LLM raw SSE content stream finished in {} ms:\n{}",
                             traceId,
@@ -780,12 +785,13 @@ public class LlmService {
         return new LlmStreamDelta(content, toolCalls.isEmpty() ? null : toolCalls, finishReason);
     }
 
-    private void appendDeltaLog(StringBuilder buffer, LlmStreamDelta delta) {
+    private void appendDeltaLog(StringBuilder buffer, LlmStreamDelta delta, String traceId, String stage) {
         if (delta == null) {
             return;
         }
         if (delta.content() != null && !delta.content().isEmpty()) {
             buffer.append(delta.content());
+            log.debug("[{}][{}][delta] content: {}", traceId, stage, delta.content());
         }
         if (delta.toolCalls() != null && !delta.toolCalls().isEmpty()) {
             for (SseChunk.ToolCall call : delta.toolCalls()) {
@@ -795,10 +801,13 @@ public class LlmService {
                 buffer.append("\n[tool_call] id=").append(call.id())
                         .append(", name=").append(call.function().name())
                         .append(", args=").append(call.function().arguments());
+                log.debug("[{}][{}][delta] tool_call id={}, name={}, args={}", traceId, stage,
+                        call.id(), call.function().name(), call.function().arguments());
             }
         }
         if (delta.finishReason() != null && !delta.finishReason().isBlank()) {
             buffer.append("\n[finish_reason] ").append(delta.finishReason());
+            log.debug("[{}][{}][delta] finish_reason={}", traceId, stage, delta.finishReason());
         }
     }
 

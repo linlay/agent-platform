@@ -196,7 +196,9 @@ public class DefinitionDrivenAgent implements Agent {
         StringBuilder emittedThinking = new StringBuilder();
         Map<String, NativeToolCall> nativeToolCalls = new LinkedHashMap<>();
         AtomicInteger nativeToolSeq = new AtomicInteger(0);
-        List<String> contentTokens = new ArrayList<>();
+        boolean[] formatDecided = {false};
+        boolean[] plainTextDetected = {false};
+        List<String> earlyBuffer = new ArrayList<>();
 
         Flux<AgentDelta> decisionThinkingFlux = llmService.streamDeltas(
                         providerType(),
@@ -207,27 +209,11 @@ public class DefinitionDrivenAgent implements Agent {
                         enabledFunctionTools(),
                         "agent-plain-decision"
                 )
-                .handle((chunk, sink) -> {
-                    if (chunk == null) {
-                        return;
-                    }
-                    if (StringUtils.hasText(chunk.content())) {
-                        rawDecisionBuffer.append(chunk.content());
-                        contentTokens.add(chunk.content());
-                    }
-                    List<SseChunk.ToolCall> streamedToolCalls = captureNativeToolCalls(
-                            chunk.toolCalls(),
-                            nativeToolCalls,
-                            nativeToolSeq
-                    );
-                    if (!streamedToolCalls.isEmpty()) {
-                        sink.next(AgentDelta.toolCalls(streamedToolCalls));
-                    }
-                    String thinkingDelta = extractNewThinkingDelta(rawDecisionBuffer, emittedThinking);
-                    if (!thinkingDelta.isEmpty()) {
-                        sink.next(AgentDelta.thinking(thinkingDelta));
-                    }
-                });
+                .handle((chunk, sink) -> handleDecisionChunk(
+                        chunk, sink, rawDecisionBuffer, emittedThinking,
+                        nativeToolCalls, nativeToolSeq,
+                        formatDecided, plainTextDetected, earlyBuffer
+                ));
 
         return Flux.concat(
                 decisionThinkingFlux,
@@ -240,11 +226,9 @@ public class DefinitionDrivenAgent implements Agent {
                     log.info("[agent:{}] plain raw decision:\n{}", id(), raw);
                     log.info("[agent:{}] plain parsed decision={}", id(), toJson(decision));
 
+                    // Content already streamed during handle phase for plain-text responses
                     if (nativeCalls.isEmpty() && !raw.isBlank() && readJsonObject(raw) == null) {
-                        return Flux.concat(
-                                Flux.fromIterable(contentTokens).map(AgentDelta::content),
-                                Flux.just(AgentDelta.finish("stop"))
-                        );
+                        return Flux.just(AgentDelta.finish("stop"));
                     }
 
                     Flux<AgentDelta> summaryThinkingFlux = emittedThinking.isEmpty() && !decision.thinking().isBlank()
@@ -336,7 +320,9 @@ public class DefinitionDrivenAgent implements Agent {
         StringBuilder emittedThinking = new StringBuilder();
         Map<String, NativeToolCall> nativeToolCalls = new LinkedHashMap<>();
         AtomicInteger nativeToolSeq = new AtomicInteger(0);
-        List<String> contentTokens = new ArrayList<>();
+        boolean[] formatDecided = {false};
+        boolean[] plainTextDetected = {false};
+        List<String> earlyBuffer = new ArrayList<>();
 
         Flux<AgentDelta> stepThinkingFlux = llmService.streamDeltas(
                         providerType(),
@@ -348,27 +334,11 @@ public class DefinitionDrivenAgent implements Agent {
                         stage,
                         true
                 )
-                .handle((chunk, sink) -> {
-                    if (chunk == null) {
-                        return;
-                    }
-                    if (StringUtils.hasText(chunk.content())) {
-                        rawBuffer.append(chunk.content());
-                        contentTokens.add(chunk.content());
-                    }
-                    List<SseChunk.ToolCall> streamedToolCalls = captureNativeToolCalls(
-                            chunk.toolCalls(),
-                            nativeToolCalls,
-                            nativeToolSeq
-                    );
-                    if (!streamedToolCalls.isEmpty()) {
-                        sink.next(AgentDelta.toolCalls(streamedToolCalls));
-                    }
-                    String thinkingDelta = extractNewThinkingDelta(rawBuffer, emittedThinking);
-                    if (!thinkingDelta.isEmpty()) {
-                        sink.next(AgentDelta.thinking(thinkingDelta));
-                    }
-                });
+                .handle((chunk, sink) -> handleDecisionChunk(
+                        chunk, sink, rawBuffer, emittedThinking,
+                        nativeToolCalls, nativeToolSeq,
+                        formatDecided, plainTextDetected, earlyBuffer
+                ));
 
         return Flux.concat(
                 stepThinkingFlux,
@@ -378,12 +348,9 @@ public class DefinitionDrivenAgent implements Agent {
                     log.info("[agent:{}] plan-execute step={} raw decision:\n{}", id(), step, raw);
                     log.info("[agent:{}] plan-execute step={} native tool_calls count={}", id(), step, nativeCalls.size());
 
-                    // If LLM returned plain text (no tool_calls, not JSON) → emit as content directly
+                    // Content already streamed during handle phase for plain-text responses
                     if (nativeCalls.isEmpty() && !raw.isBlank() && readJsonObject(raw) == null) {
-                        return Flux.concat(
-                                Flux.fromIterable(contentTokens).map(AgentDelta::content),
-                                Flux.just(AgentDelta.finish("stop"))
-                        );
+                        return Flux.just(AgentDelta.finish("stop"));
                     }
 
                     // If no tool_calls → done, generate final answer
@@ -511,7 +478,9 @@ public class DefinitionDrivenAgent implements Agent {
         StringBuilder emittedThinking = new StringBuilder();
         Map<String, NativeToolCall> nativeToolCalls = new LinkedHashMap<>();
         AtomicInteger nativeToolSeq = new AtomicInteger(0);
-        List<String> contentTokens = new ArrayList<>();
+        boolean[] formatDecided = {false};
+        boolean[] plainTextDetected = {false};
+        List<String> earlyBuffer = new ArrayList<>();
 
         Flux<AgentDelta> stepThinkingFlux = llmService.streamDeltas(
                         providerType(),
@@ -522,27 +491,11 @@ public class DefinitionDrivenAgent implements Agent {
                         enabledFunctionTools(),
                         stage
                 )
-                .handle((chunk, sink) -> {
-                    if (chunk == null) {
-                        return;
-                    }
-                    if (StringUtils.hasText(chunk.content())) {
-                        rawDecisionBuffer.append(chunk.content());
-                        contentTokens.add(chunk.content());
-                    }
-                    List<SseChunk.ToolCall> streamedToolCalls = captureNativeToolCalls(
-                            chunk.toolCalls(),
-                            nativeToolCalls,
-                            nativeToolSeq
-                    );
-                    if (!streamedToolCalls.isEmpty()) {
-                        sink.next(AgentDelta.toolCalls(streamedToolCalls));
-                    }
-                    String thinkingDelta = extractNewThinkingDelta(rawDecisionBuffer, emittedThinking);
-                    if (!thinkingDelta.isEmpty()) {
-                        sink.next(AgentDelta.thinking(thinkingDelta));
-                    }
-                });
+                .handle((chunk, sink) -> handleDecisionChunk(
+                        chunk, sink, rawDecisionBuffer, emittedThinking,
+                        nativeToolCalls, nativeToolSeq,
+                        formatDecided, plainTextDetected, earlyBuffer
+                ));
 
         return Flux.concat(
                 stepThinkingFlux,
@@ -555,11 +508,9 @@ public class DefinitionDrivenAgent implements Agent {
                     log.info("[agent:{}] react step={} raw decision:\n{}", id(), step, raw);
                     log.info("[agent:{}] react step={} parsed decision={}", id(), step, toJson(decision));
 
+                    // Content already streamed during handle phase for plain-text responses
                     if (nativeCalls.isEmpty() && !raw.isBlank() && readJsonObject(raw) == null) {
-                        return Flux.concat(
-                                Flux.fromIterable(contentTokens).map(AgentDelta::content),
-                                Flux.just(AgentDelta.finish("stop"))
-                        );
+                        return Flux.just(AgentDelta.finish("stop"));
                     }
 
                     Flux<AgentDelta> summaryThinkingFlux = emittedThinking.isEmpty() && !decision.thinking().isBlank()
@@ -640,6 +591,57 @@ public class DefinitionDrivenAgent implements Agent {
                 .map(AgentDelta::content);
 
         return Flux.concat(noteFlux, contentFlux, Flux.just(AgentDelta.finish("stop")));
+    }
+
+    private void handleDecisionChunk(
+            LlmService.LlmStreamDelta chunk,
+            reactor.core.publisher.SynchronousSink<AgentDelta> sink,
+            StringBuilder rawBuffer,
+            StringBuilder emittedThinking,
+            Map<String, NativeToolCall> nativeToolCalls,
+            AtomicInteger nativeToolSeq,
+            boolean[] formatDecided,
+            boolean[] plainTextDetected,
+            List<String> earlyBuffer
+    ) {
+        if (chunk == null) {
+            return;
+        }
+        if (StringUtils.hasText(chunk.content())) {
+            rawBuffer.append(chunk.content());
+
+            if (!formatDecided[0]) {
+                earlyBuffer.add(chunk.content());
+                String trimmed = rawBuffer.toString().trim();
+                if (!trimmed.isEmpty()) {
+                    formatDecided[0] = true;
+                    if (trimmed.charAt(0) != '{' && trimmed.charAt(0) != '`') {
+                        plainTextDetected[0] = true;
+                        for (String buffered : earlyBuffer) {
+                            sink.next(AgentDelta.content(buffered));
+                        }
+                        earlyBuffer.clear();
+                    }
+                }
+            } else if (plainTextDetected[0]) {
+                sink.next(AgentDelta.content(chunk.content()));
+            }
+        }
+        List<SseChunk.ToolCall> streamedToolCalls = captureNativeToolCalls(
+                chunk.toolCalls(),
+                nativeToolCalls,
+                nativeToolSeq
+        );
+        if (!streamedToolCalls.isEmpty()) {
+            sink.next(AgentDelta.toolCalls(streamedToolCalls));
+        }
+        // Thinking extraction only applies to JSON decision format
+        if (!plainTextDetected[0]) {
+            String thinkingDelta = extractNewThinkingDelta(rawBuffer, emittedThinking);
+            if (!thinkingDelta.isEmpty()) {
+                sink.next(AgentDelta.thinking(thinkingDelta));
+            }
+        }
     }
 
     private String extractNewThinkingDelta(StringBuilder rawPlanBuffer, StringBuilder emittedThinking) {
