@@ -63,7 +63,8 @@ class AgentDefinitionLoaderTest {
         assertThat(byId.get("demoViewport").tools())
                 .containsExactly("city_datetime", "mock_city_weather", "mock_logistics_status");
         assertThat(byId.get("demoViewport").systemPrompt()).contains("```viewport");
-        assertThat(byId.get("demoViewport").systemPrompt()).contains("description 中给出的 viewport 映射");
+        assertThat(byId.get("demoViewport").systemPrompt()).contains("type 只能是 html/qlc/dqlc");
+        assertThat(byId.get("demoViewport").systemPrompt()).contains("description 中声明的 key=");
         assertThat(byId.get("demoViewport").systemPrompt()).doesNotContain("show_weather_card");
 
         assertThat(byId).containsKey("demoAction");

@@ -1,5 +1,6 @@
 package com.linlay.springaiagw.agent;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linlay.springaiagw.memory.ChatWindowMemoryStore;
 import com.linlay.springaiagw.model.AgentRequest;
@@ -24,14 +25,21 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class DefinitionDrivenAgent implements Agent {
 
     private static final Logger log = LoggerFactory.getLogger(DefinitionDrivenAgent.class);
     private static final int MAX_TOOL_CALLS = 6;
     private static final int MAX_REACT_STEPS = 6;
+    private static final Pattern VIEWPORT_MAPPING_PATTERN = Pattern.compile(
+            "type\\s*=\\s*([a-zA-Z0-9_]+)\\s*[,，]\\s*key\\s*=\\s*([a-zA-Z0-9_\\-]+)",
+            Pattern.CASE_INSENSITIVE
+    );
 
     private final AgentDefinition definition;
     private final LlmService llmService;
@@ -431,28 +439,34 @@ public class DefinitionDrivenAgent implements Agent {
         Flux<AgentDelta> noteFlux = thinkingNote == null || thinkingNote.isBlank()
                 ? Flux.empty()
                 : Flux.just(AgentDelta.thinking(thinkingNote));
-        Flux<AgentDelta> contentFlux = llmService.streamContentRawSse(
-                        providerKey(),
-                        model(),
-                        systemPrompt(),
-                        historyMessages,
-                        prompt,
-                        stage
-                )
-                .onErrorResume(ex -> {
-                    log.warn("[agent:{}] raw SSE final answer failed, fallback to ChatClient stream", id(), ex);
-                    return llmService.streamContent(
-                            providerKey(),
-                            model(),
-                            systemPrompt(),
-                            historyMessages,
-                            prompt,
-                            stage
-                    );
+        Optional<String> forcedViewport = buildForcedViewportContent(toolRecords);
+        Flux<AgentDelta> contentFlux = forcedViewport
+                .<Flux<AgentDelta>>map(content -> {
+                    log.info("[agent:{}] force viewport output by tool mapping", id());
+                    return Flux.just(AgentDelta.content(content));
                 })
-                .switchIfEmpty(Flux.just("未获取到模型输出，请检查 provider/model/sysPrompt 配置。"))
-                .onErrorResume(ex -> Flux.just("模型调用失败，请稍后重试。"))
-                .map(AgentDelta::content);
+                .orElseGet(() -> llmService.streamContentRawSse(
+                                providerKey(),
+                                model(),
+                                systemPrompt(),
+                                historyMessages,
+                                prompt,
+                                stage
+                        )
+                        .onErrorResume(ex -> {
+                            log.warn("[agent:{}] raw SSE final answer failed, fallback to ChatClient stream", id(), ex);
+                            return llmService.streamContent(
+                                    providerKey(),
+                                    model(),
+                                    systemPrompt(),
+                                    historyMessages,
+                                    prompt,
+                                    stage
+                            );
+                        })
+                        .switchIfEmpty(Flux.just("未获取到模型输出，请检查 provider/model/sysPrompt 配置。"))
+                        .onErrorResume(ex -> Flux.just("模型调用失败，请稍后重试。"))
+                        .map(AgentDelta::content));
 
         return Flux.concat(noteFlux, contentFlux, Flux.just(AgentDelta.finish("stop")));
     }
@@ -768,6 +782,103 @@ public class DefinitionDrivenAgent implements Agent {
 
     private String normalize(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
+    }
+
+    // todo 为了显示 viewport，可能需要改造工具，增加工具的小skill，不然大模型不读 tool的description
+    // todo 需要改造工具
+    private Optional<String> buildForcedViewportContent(List<Map<String, Object>> toolRecords) {
+        if (!shouldForceViewportOutput() || toolRecords == null || toolRecords.isEmpty()) {
+            return Optional.empty();
+        }
+
+        for (int i = toolRecords.size() - 1; i >= 0; i--) {
+            Map<String, Object> record = toolRecords.get(i);
+            String toolName = normalizeToolName(String.valueOf(record.getOrDefault("toolName", "")));
+            if (toolName.isBlank()) {
+                continue;
+            }
+            BaseTool tool = enabledToolsByName.get(toolName);
+            if (tool == null) {
+                continue;
+            }
+            ViewportMapping mapping = parseViewportMapping(tool.description());
+            if (mapping == null) {
+                mapping = defaultViewportMapping(toolName);
+            }
+            if (mapping == null) {
+                continue;
+            }
+
+            JsonNode resultNode = toObjectNode(record.get("result"));
+            if (resultNode == null) {
+                continue;
+            }
+            try {
+                String json = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(resultNode);
+                return Optional.of(
+                        "```viewport\n"
+                                + "type=" + mapping.type() + ", key=" + mapping.key() + "\n"
+                                + json + "\n"
+                                + "```"
+                );
+            } catch (Exception ex) {
+                log.warn("[agent:{}] cannot serialize viewport json for tool={}", id(), toolName, ex);
+                return Optional.empty();
+            }
+        }
+
+        log.warn("[agent:{}] viewport output requested but no valid tool mapping found", id());
+        return Optional.empty();
+    }
+
+    private boolean shouldForceViewportOutput() {
+        if ("demoviewport".equalsIgnoreCase(id())) {
+            return true;
+        }
+        return normalize(systemPrompt(), "").contains("```viewport");
+    }
+
+    private ViewportMapping parseViewportMapping(String description) {
+        if (!StringUtils.hasText(description)) {
+            return null;
+        }
+        Matcher matcher = VIEWPORT_MAPPING_PATTERN.matcher(description);
+        if (!matcher.find()) {
+            return null;
+        }
+        String type = normalize(matcher.group(1), "").toLowerCase(Locale.ROOT);
+        if (!"html".equals(type) && !"qlc".equals(type) && !"dqlc".equals(type)) {
+            return null;
+        }
+        String key = normalize(matcher.group(2), "");
+        if (key.isBlank()) {
+            return null;
+        }
+        return new ViewportMapping(type, key);
+    }
+
+    private JsonNode toObjectNode(Object value) {
+        if (value instanceof JsonNode node) {
+            return node.isObject() ? node : null;
+        }
+        if (value == null) {
+            return null;
+        }
+        JsonNode converted = objectMapper.valueToTree(value);
+        return converted != null && converted.isObject() ? converted : null;
+    }
+
+    private ViewportMapping defaultViewportMapping(String toolName) {
+        if ("mock_city_weather".equals(toolName)) {
+            return new ViewportMapping("html", "show_weather_card");
+        }
+        if ("mock_logistics_status".equals(toolName)) {
+            return new ViewportMapping("html", "show_logistics_status");
+        }
+        return null;
+    }
+
+    private record ViewportMapping(String type, String key) {
     }
 
     private final class TurnTrace {

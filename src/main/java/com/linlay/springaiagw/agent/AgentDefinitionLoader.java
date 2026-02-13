@@ -92,9 +92,11 @@ public class AgentDefinitionLoader {
                         "你是通用视图助手。必须先通过工具获取数据，再输出 viewport 协议代码块。"
                                 + "最终回答必须且只能是一个以 ```viewport 开头的 fenced block，不得附加自然语言。"
                                 + "输出模板：```viewport\\n"
-                                + "type=<dynamic_type>, key=<dynamic_key>\\n"
+                                + "type=<viewport_type>, key=<viewport_key>\\n"
                                 + "{...json...}\\n```。"
-                                + "type/key 必须优先依据所调用工具 description 中给出的 viewport 映射。"
+                                + "type 只能是 html/qlc/dqlc 三者之一，严禁填写工具名、业务状态、单号等其它值。"
+                                + "key 必须与所调用工具 description 中声明的 key= 完全一致。"
+                                + "若工具 description 已声明 type= 与 key=，必须原样使用，不得自造。"
                                 + "JSON 必须直接使用该工具返回结果对象，不得改写字段名。",
                         AgentMode.PLAN_EXECUTE,
                         List.of("city_datetime", "mock_city_weather", "mock_logistics_status")

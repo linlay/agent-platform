@@ -378,6 +378,271 @@ class DefinitionDrivenAgentTest {
     }
 
     @Test
+    void demoViewportShouldForceViewportBlockByToolDescription() {
+        AgentDefinition definition = new AgentDefinition(
+                "demoViewport",
+                "demo",
+                ProviderType.BAILIAN,
+                "qwen3-max",
+                "你是测试助手，输出 viewport",
+                AgentMode.PLAN_EXECUTE,
+                List.of("mock_city_weather")
+        );
+
+        AtomicInteger finalContentCallCount = new AtomicInteger(0);
+        LlmService llmService = new LlmService(null, null) {
+            @Override
+            public Flux<LlmDelta> streamDeltas(
+                    ProviderType providerType,
+                    String model,
+                    String systemPrompt,
+                    List<Message> historyMessages,
+                    String userPrompt,
+                    List<LlmFunctionTool> tools,
+                    String stage,
+                    boolean parallelToolCalls
+            ) {
+                if ("agent-plan-execute-step-1".equals(stage)) {
+                    return Flux.just(
+                            new LlmDelta(
+                                    null,
+                                    List.of(new ToolCallDelta(
+                                            "call_city_weather",
+                                            "function",
+                                            "mock_city_weather", "{\"city\":\"Shanghai\",\"date\":\"2026-02-13\"}"
+                                    )),
+                                    null
+                            ),
+                            new LlmDelta(null, null, "tool_calls")
+                    );
+                }
+                if ("agent-plan-execute-step-2".equals(stage)) {
+                    return Flux.just(new LlmDelta(null, null, "stop"));
+                }
+                return Flux.empty();
+            }
+
+            @Override
+            public Flux<String> streamContentRawSse(
+                    String providerKey,
+                    String model,
+                    String systemPrompt,
+                    List<Message> historyMessages,
+                    String userPrompt,
+                    String stage
+            ) {
+                finalContentCallCount.incrementAndGet();
+                return Flux.just("```viewport\ntype=qlc, key=weather_card\n{\"city\":\"broken\"}\n```");
+            }
+
+            @Override
+            public Flux<String> streamContent(
+                    ProviderType providerType,
+                    String model,
+                    String systemPrompt,
+                    String userPrompt,
+                    String stage
+            ) {
+                return Flux.just("fallback");
+            }
+
+            @Override
+            public Flux<String> streamContent(ProviderType providerType, String model, String systemPrompt, String userPrompt) {
+                return Flux.just("fallback");
+            }
+
+            @Override
+            public Mono<String> completeText(ProviderType providerType, String model, String systemPrompt, String userPrompt) {
+                return Mono.just("");
+            }
+
+            @Override
+            public Mono<String> completeText(ProviderType providerType, String model, String systemPrompt, String userPrompt, String stage) {
+                return Mono.just("");
+            }
+        };
+
+        BaseTool cityWeatherTool = new BaseTool() {
+            @Override
+            public String name() {
+                return "mock_city_weather";
+            }
+
+            @Override
+            public String description() {
+                return "[MOCK] 天气。viewport: type=html, key=show_weather_card";
+            }
+
+            @Override
+            public JsonNode invoke(Map<String, Object> args) {
+                return objectMapper.valueToTree(Map.of(
+                        "tool", "mock_city_weather",
+                        "city", args.getOrDefault("city", "Shanghai"),
+                        "date", args.getOrDefault("date", "2026-02-13"),
+                        "temperatureC", 22,
+                        "humidity", 61,
+                        "windLevel", 3,
+                        "condition", "Partly Cloudy",
+                        "mockTag", "idempotent-random-json"
+                ));
+            }
+        };
+
+        DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
+                definition,
+                llmService,
+                new DeltaStreamService(),
+                new ToolRegistry(List.of(cityWeatherTool)),
+                objectMapper
+        );
+
+        List<AgentDelta> deltas = agent.stream(new AgentRequest("查天气并展示卡片", null, null, null))
+                .collectList()
+                .block(Duration.ofSeconds(6));
+
+        assertThat(deltas).isNotNull();
+        String content = deltas.stream()
+                .map(AgentDelta::content)
+                .filter(text -> text != null && !text.isBlank())
+                .reduce("", String::concat);
+        assertThat(content).contains("```viewport");
+        assertThat(content).contains("type=html, key=show_weather_card");
+        assertThat(content).contains("\"city\" : \"Shanghai\"");
+        assertThat(content).doesNotContain("type=qlc, key=weather_card");
+        assertThat(finalContentCallCount.get()).isEqualTo(0);
+    }
+
+    @Test
+    void demoViewportShouldUseDefaultViewportMappingWhenDescriptionMissing() {
+        AgentDefinition definition = new AgentDefinition(
+                "demoViewport",
+                "demo",
+                ProviderType.BAILIAN,
+                "qwen3-max",
+                "你是测试助手，输出 viewport",
+                AgentMode.PLAN_EXECUTE,
+                List.of("mock_city_weather")
+        );
+
+        LlmService llmService = new LlmService(null, null) {
+            @Override
+            public Flux<LlmDelta> streamDeltas(
+                    ProviderType providerType,
+                    String model,
+                    String systemPrompt,
+                    List<Message> historyMessages,
+                    String userPrompt,
+                    List<LlmFunctionTool> tools,
+                    String stage,
+                    boolean parallelToolCalls
+            ) {
+                if ("agent-plan-execute-step-1".equals(stage)) {
+                    return Flux.just(
+                            new LlmDelta(
+                                    null,
+                                    List.of(new ToolCallDelta(
+                                            "call_city_weather",
+                                            "function",
+                                            "mock_city_weather", "{\"city\":\"Shanghai\",\"date\":\"2026-02-13\"}"
+                                    )),
+                                    null
+                            ),
+                            new LlmDelta(null, null, "tool_calls")
+                    );
+                }
+                if ("agent-plan-execute-step-2".equals(stage)) {
+                    return Flux.just(new LlmDelta(null, null, "stop"));
+                }
+                return Flux.empty();
+            }
+
+            @Override
+            public Flux<String> streamContentRawSse(
+                    String providerKey,
+                    String model,
+                    String systemPrompt,
+                    List<Message> historyMessages,
+                    String userPrompt,
+                    String stage
+            ) {
+                return Flux.just("bad-output");
+            }
+
+            @Override
+            public Flux<String> streamContent(
+                    ProviderType providerType,
+                    String model,
+                    String systemPrompt,
+                    String userPrompt,
+                    String stage
+            ) {
+                return Flux.just("fallback");
+            }
+
+            @Override
+            public Flux<String> streamContent(ProviderType providerType, String model, String systemPrompt, String userPrompt) {
+                return Flux.just("fallback");
+            }
+
+            @Override
+            public Mono<String> completeText(ProviderType providerType, String model, String systemPrompt, String userPrompt) {
+                return Mono.just("");
+            }
+
+            @Override
+            public Mono<String> completeText(ProviderType providerType, String model, String systemPrompt, String userPrompt, String stage) {
+                return Mono.just("");
+            }
+        };
+
+        BaseTool cityWeatherTool = new BaseTool() {
+            @Override
+            public String name() {
+                return "mock_city_weather";
+            }
+
+            @Override
+            public String description() {
+                return "";
+            }
+
+            @Override
+            public JsonNode invoke(Map<String, Object> args) {
+                return objectMapper.valueToTree(Map.of(
+                        "tool", "mock_city_weather",
+                        "city", "Shanghai",
+                        "date", "2026-02-13",
+                        "temperatureC", 22,
+                        "humidity", 61,
+                        "windLevel", 3,
+                        "condition", "Partly Cloudy",
+                        "mockTag", "idempotent-random-json"
+                ));
+            }
+        };
+
+        DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
+                definition,
+                llmService,
+                new DeltaStreamService(),
+                new ToolRegistry(List.of(cityWeatherTool)),
+                objectMapper
+        );
+
+        List<AgentDelta> deltas = agent.stream(new AgentRequest("查天气并展示卡片", null, null, null))
+                .collectList()
+                .block(Duration.ofSeconds(6));
+
+        assertThat(deltas).isNotNull();
+        String content = deltas.stream()
+                .map(AgentDelta::content)
+                .filter(text -> text != null && !text.isBlank())
+                .reduce("", String::concat);
+
+        assertThat(content).contains("type=html, key=show_weather_card");
+    }
+
+    @Test
     void planExecuteLoopShouldExecuteMultiRoundTools() {
         AgentDefinition definition = new AgentDefinition(
                 "demoPlanExecute",
