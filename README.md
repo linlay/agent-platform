@@ -212,6 +212,13 @@ curl -N -X POST "http://localhost:8080/api/query" \
 - 流式消费 `delta.tool_calls`
 - 不再依赖正文中的 `toolCall/toolCalls` JSON 字段（仍保留向后兼容解析）
 
+### 真流式约束（CRITICAL）
+
+- `/api/query` 全链路严格真流式：上游 LLM 每到一个 delta，立即下发对应 AGW 事件，禁止先 `collect/reduce/block` 再输出。
+- 禁止将多个 delta 合并后再切片发送；输出粒度以“上游 delta 语义块”为准。
+- 工具调用必须保持事件顺序：`tool.start` -> `tool.args`（可多次）-> `tool.end` -> `tool.result`。
+- `VerifyPolicy.SECOND_PASS_FIX` 场景下，首轮候选答案仅内部使用；对外只流式下发二次校验生成的 chunk。
+
 ## viewports / tools 目录
 
 - 运行目录默认值：

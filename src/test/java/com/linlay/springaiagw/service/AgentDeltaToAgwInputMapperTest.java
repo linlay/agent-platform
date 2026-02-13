@@ -65,6 +65,37 @@ class AgentDeltaToAgwInputMapperTest {
         assertThat(countToolEvent(events, "tool.end", "tool_1")).isEqualTo(1);
     }
 
+    @Test
+    void shouldPreserveToolArgsChunkOrderWithoutMerging() {
+        AgentDeltaToAgwInputMapper mapper = new AgentDeltaToAgwInputMapper("run_1");
+        List<AgwEvent> events = assembleEvents(mapper, List.of(
+                AgentDelta.toolCalls(List.of(new ToolCallDelta(
+                        "tool_chunk_1",
+                        "function",
+                        "bash",
+                        "{\"command\":\"ec"
+                ))),
+                AgentDelta.toolCalls(List.of(new ToolCallDelta(
+                        "tool_chunk_1",
+                        "function",
+                        null,
+                        "ho hi\"}"
+                ))),
+                AgentDelta.toolResult("tool_chunk_1", "{\"ok\":true}")
+        ));
+
+        List<AgwEvent> toolArgsEvents = events.stream()
+                .filter(event -> "tool.args".equals(event.type()))
+                .filter(event -> "tool_chunk_1".equals(String.valueOf(event.payload().get("toolId"))))
+                .toList();
+
+        assertThat(toolArgsEvents).hasSize(2);
+        assertThat(String.valueOf(toolArgsEvents.get(0).payload().get("delta"))).isEqualTo("{\"command\":\"ec");
+        assertThat(String.valueOf(toolArgsEvents.get(1).payload().get("delta"))).isEqualTo("ho hi\"}");
+        assertThat(Integer.parseInt(String.valueOf(toolArgsEvents.get(0).payload().get("chunkIndex")))).isEqualTo(0);
+        assertThat(Integer.parseInt(String.valueOf(toolArgsEvents.get(1).payload().get("chunkIndex")))).isEqualTo(1);
+    }
+
     private List<AgwEvent> assembleEvents(AgentDeltaToAgwInputMapper mapper, List<AgentDelta> deltas) {
         AgwEventAssembler.EventStreamState state = new AgwEventAssembler()
                 .begin(new AgwRequest.Query(

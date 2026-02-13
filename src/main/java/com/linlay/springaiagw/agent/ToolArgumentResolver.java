@@ -12,7 +12,7 @@ import java.util.regex.Pattern;
 /**
  * 解析和替换工具参数中的模板引用（如 {{tool_name.field+Nd}}）和相对日期关键词。
  */
-class ToolArgumentResolver {
+public class ToolArgumentResolver {
 
     private static final Pattern ARG_TEMPLATE_PATTERN =
             Pattern.compile("^\\{\\{\\s*([a-zA-Z0-9_]+)\\.([a-zA-Z0-9_]+)([+-]\\d+d)?\\s*}}$");
@@ -26,11 +26,11 @@ class ToolArgumentResolver {
 
     private final ObjectMapper objectMapper;
 
-    ToolArgumentResolver(ObjectMapper objectMapper) {
+    public ToolArgumentResolver(ObjectMapper objectMapper) {
         this.objectMapper = objectMapper;
     }
 
-    Map<String, Object> resolveToolArguments(
+    public Map<String, Object> resolveToolArguments(
             String toolName,
             Map<String, Object> plannedArgs,
             List<Map<String, Object>> records

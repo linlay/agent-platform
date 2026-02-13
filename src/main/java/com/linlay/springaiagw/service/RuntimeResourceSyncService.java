@@ -37,6 +37,7 @@ public class RuntimeResourceSyncService {
 
     @PostConstruct
     public void syncRuntimeDirectories() {
+        syncResourceDirectory("agents", runtimeRootDir.resolve("agents").toAbsolutePath().normalize());
         syncResourceDirectory("viewports", runtimeRootDir.resolve("viewports").toAbsolutePath().normalize());
         syncResourceDirectory("tools", runtimeRootDir.resolve("tools").toAbsolutePath().normalize());
     }

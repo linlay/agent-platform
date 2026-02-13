@@ -128,7 +128,7 @@ class AgwControllerTest {
                 .jsonPath("$.msg").isEqualTo("success")
                 .jsonPath("$.data.key").isEqualTo("demoPlanExecute")
                 .jsonPath("$.data.meta.providerType").isEqualTo("BAILIAN")
-                .jsonPath("$.data.instructions").isEqualTo("你是高级规划助手。严格使用原生 Function Calling：需要工具时用 tool_calls 顺序执行，不在正文输出工具调用 JSON，最后给简洁总结。");
+                .jsonPath("$.data.instructions").isEqualTo("你是高级执行助手。基于步骤上下文执行工具并产出步骤结果。");
     }
 
     @Test
@@ -161,6 +161,34 @@ class AgwControllerTest {
         assertThat(requestId).isNotBlank();
         assertThat(runId).isNotBlank();
         assertThat(requestId).isEqualTo(runId);
+    }
+
+    @Test
+    void queryShouldEmitContentDeltaPerUpstreamChunkForPlainAgent() {
+        FluxExchangeResult<String> result = webTestClient.post()
+                .uri("/api/query")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(Map.of(
+                        "agentKey", "demoPlain",
+                        "message", "流式测试"
+                ))
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM)
+                .returnResult(String.class);
+
+        List<String> chunks = result.getResponseBody()
+                .take(800)
+                .collectList()
+                .block(Duration.ofSeconds(8));
+
+        assertThat(chunks).isNotNull();
+        String joined = String.join("", chunks);
+        assertThat(countOccurrences(joined, "\"type\":\"content.delta\"")).isEqualTo(3);
+        int lastContentIndex = joined.lastIndexOf("\"type\":\"content.delta\"");
+        int runCompleteIndex = joined.lastIndexOf("\"type\":\"run.complete\"");
+        assertThat(lastContentIndex).isGreaterThanOrEqualTo(0);
+        assertThat(runCompleteIndex).isGreaterThan(lastContentIndex);
     }
 
     @Test

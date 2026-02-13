@@ -166,8 +166,10 @@ POST /api/query → AgwController → AgwQueryService → DefinitionDrivenAgent.
 - LLM 返回一个 delta，立刻推送一个 SSE 事件（零缓冲）
 - thinking/content token 逐个流式输出
 - tool_calls delta 立刻输出，细分事件：`tool.start` → `tool.args`（多次）→ `tool.end` → `tool.result`
+- **1 个上游 delta 只允许 1 次下游发射（同语义块）**，禁止跨 delta 合并后再发
+- `VerifyPolicy.SECOND_PASS_FIX` 必须真流式：首轮候选答案仅内部使用，二次校验输出按 chunk 实时下发
 
-**实现机制：** `handleDecisionChunk` 中首字符检测——纯文本直接 `sink.next()` 逐 token 推送；JSON 决策格式走积累 + thinking 提取。三种模式共用此方法。
+**实现机制：** `AgentOrchestrator.runStream` 统一流式编排；模型轮次使用 `callModelTurnStreaming` 逐 delta 透传；结构化输出使用 `StreamingJsonFieldExtractor` 增量提取 `finalText/reasoningSummary`；二次校验通过 `VerifyService.streamSecondPass` 逐 chunk 输出。
 
 ### 3. LLM 调用日志（MUST）
 

@@ -3,6 +3,9 @@ package com.linlay.springaiagw.service;
 import com.aiagent.agw.sdk.model.LlmDelta;
 import com.aiagent.agw.sdk.model.ToolCallDelta;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.linlay.springaiagw.agent.runtime.policy.ComputePolicy;
+import com.linlay.springaiagw.agent.runtime.policy.OutputShape;
+import com.linlay.springaiagw.agent.runtime.policy.ToolChoice;
 import com.linlay.springaiagw.config.AgentProviderProperties;
 import com.linlay.springaiagw.config.ChatClientRegistry;
 import com.linlay.springaiagw.config.LlmInteractionLogProperties;
@@ -96,6 +99,15 @@ public class LlmService {
 
     public Flux<String> streamContent(String providerKey, String model, String userPrompt) {
         return streamContent(providerKey, model, null, userPrompt, "default");
+    }
+
+    public Flux<String> streamContent(LlmCallSpec spec) {
+        if (spec == null) {
+            return Flux.error(new IllegalArgumentException("spec must not be null"));
+        }
+        return streamDeltas(spec)
+                .mapNotNull(LlmDelta::content)
+                .filter(StringUtils::hasText);
     }
 
     public Flux<String> streamContent(String providerKey, String model, String systemPrompt, String userPrompt) {
@@ -192,6 +204,27 @@ public class LlmService {
         return streamDeltas(providerKey, model, systemPrompt, historyMessages, userPrompt, tools, stage, false);
     }
 
+    public Flux<LlmDelta> streamDeltas(LlmCallSpec spec) {
+        if (spec == null) {
+            return Flux.error(new IllegalArgumentException("spec must not be null"));
+        }
+        return streamDeltas(
+                spec.providerKey(),
+                spec.model(),
+                spec.systemPrompt(),
+                spec.messages(),
+                spec.userPrompt(),
+                spec.tools(),
+                spec.stage(),
+                spec.parallelToolCalls(),
+                spec.toolChoice(),
+                spec.outputShape(),
+                spec.jsonSchema(),
+                spec.compute(),
+                spec.maxTokens()
+        );
+    }
+
     public Flux<LlmDelta> streamDeltas(
             String providerKey,
             String model,
@@ -202,11 +235,45 @@ public class LlmService {
             String stage,
             boolean parallelToolCalls
     ) {
+        return streamDeltas(
+                providerKey,
+                model,
+                systemPrompt,
+                historyMessages,
+                userPrompt,
+                tools,
+                stage,
+                parallelToolCalls,
+                ToolChoice.AUTO,
+                OutputShape.TEXT_ONLY,
+                null,
+                ComputePolicy.MEDIUM,
+                null
+        );
+    }
+
+    public Flux<LlmDelta> streamDeltas(
+            String providerKey,
+            String model,
+            String systemPrompt,
+            List<Message> historyMessages,
+            String userPrompt,
+            List<LlmFunctionTool> tools,
+            String stage,
+            boolean parallelToolCalls,
+            ToolChoice toolChoice,
+            OutputShape outputShape,
+            String jsonSchema,
+            ComputePolicy computePolicy,
+            Integer maxTokens
+    ) {
         ProviderType providerType = toProviderType(providerKey);
         if (providerType != null) {
-            return streamDeltas(providerType, model, systemPrompt, historyMessages, userPrompt, tools, stage, parallelToolCalls);
+            return streamDeltas(providerType, model, systemPrompt, historyMessages, userPrompt, tools, stage,
+                    parallelToolCalls, toolChoice, outputShape, jsonSchema, computePolicy, maxTokens);
         }
-        return streamDeltasInternal(providerKey, model, systemPrompt, historyMessages, userPrompt, tools, stage, parallelToolCalls);
+        return streamDeltasInternal(providerKey, model, systemPrompt, historyMessages, userPrompt, tools, stage,
+                parallelToolCalls, toolChoice, outputShape, jsonSchema, computePolicy, maxTokens);
     }
 
     @Deprecated
@@ -244,6 +311,39 @@ public class LlmService {
             String stage,
             boolean parallelToolCalls
     ) {
+        return streamDeltas(
+                providerType,
+                model,
+                systemPrompt,
+                historyMessages,
+                userPrompt,
+                tools,
+                stage,
+                parallelToolCalls,
+                ToolChoice.AUTO,
+                OutputShape.TEXT_ONLY,
+                null,
+                ComputePolicy.MEDIUM,
+                null
+        );
+    }
+
+    @Deprecated
+    public Flux<LlmDelta> streamDeltas(
+            ProviderType providerType,
+            String model,
+            String systemPrompt,
+            List<Message> historyMessages,
+            String userPrompt,
+            List<LlmFunctionTool> tools,
+            String stage,
+            boolean parallelToolCalls,
+            ToolChoice toolChoice,
+            OutputShape outputShape,
+            String jsonSchema,
+            ComputePolicy computePolicy,
+            Integer maxTokens
+    ) {
         String providerKey = resolveProviderKey(providerType);
         ChatClient chatClient = resolveChatClient(providerKey);
         if (chatClient == null) {
@@ -251,7 +351,8 @@ public class LlmService {
             return streamContent(providerType, model, systemPrompt, userPrompt, stage)
                     .map(content -> new LlmDelta(content, null, null));
         }
-        return streamDeltasInternal(providerKey, model, systemPrompt, historyMessages, userPrompt, tools, stage, parallelToolCalls);
+        return streamDeltasInternal(providerKey, model, systemPrompt, historyMessages, userPrompt, tools, stage,
+                parallelToolCalls, toolChoice, outputShape, jsonSchema, computePolicy, maxTokens);
     }
 
     public Flux<String> streamContentRawSse(
@@ -378,7 +479,12 @@ public class LlmService {
             String userPrompt,
             List<LlmFunctionTool> tools,
             String stage,
-            boolean parallelToolCalls
+            boolean parallelToolCalls,
+            ToolChoice toolChoice,
+            OutputShape outputShape,
+            String jsonSchema,
+            ComputePolicy computePolicy,
+            Integer maxTokens
     ) {
         return Flux.defer(() -> {
             String traceId = callLogger.generateTraceId();
@@ -386,6 +492,7 @@ public class LlmService {
             StringBuilder responseBuffer = new StringBuilder();
             ChatClient chatClient = resolveChatClient(providerKey);
             boolean hasTools = tools != null && !tools.isEmpty();
+            boolean preferRawSse = requiresRawSse(outputShape, jsonSchema, computePolicy);
 
             callLogger.info(log, "[{}][{}] LLM delta stream request start provider={}, model={}, tools={}",
                     traceId, stage, providerKey, model, hasTools ? tools.size() : 0);
@@ -400,7 +507,7 @@ public class LlmService {
             }
 
             Flux<LlmDelta> deltaFlux;
-            if (hasTools) {
+            if (hasTools || preferRawSse) {
                 AtomicBoolean rawDeltaEmitted = new AtomicBoolean(false);
                 deltaFlux = rawSseClient.streamDeltasRawSse(
                                 providerKey,
@@ -410,6 +517,11 @@ public class LlmService {
                                 userPrompt,
                                 tools,
                                 parallelToolCalls,
+                                toolChoice,
+                                outputShape,
+                                jsonSchema,
+                                computePolicy,
+                                maxTokens,
                                 traceId,
                                 stage
                         )
@@ -425,10 +537,30 @@ public class LlmService {
                                 return Flux.error(ex);
                             }
                             log.warn("[{}][{}] raw delta stream failed, fallback to ChatClient stream", traceId, stage, ex);
-                            return streamDeltasByChatClient(chatClient, model, systemPrompt, historyMessages, userPrompt, tools, parallelToolCalls);
+                            return streamDeltasByChatClient(
+                                    chatClient,
+                                    model,
+                                    systemPrompt,
+                                    historyMessages,
+                                    userPrompt,
+                                    tools,
+                                    parallelToolCalls,
+                                    toolChoice,
+                                    maxTokens
+                            );
                         });
             } else {
-                deltaFlux = streamDeltasByChatClient(chatClient, model, systemPrompt, historyMessages, userPrompt, tools, false);
+                deltaFlux = streamDeltasByChatClient(
+                        chatClient,
+                        model,
+                        systemPrompt,
+                        historyMessages,
+                        userPrompt,
+                        tools,
+                        false,
+                        toolChoice,
+                        maxTokens
+                );
             }
 
             return deltaFlux
@@ -517,9 +649,11 @@ public class LlmService {
             List<Message> historyMessages,
             String userPrompt,
             List<LlmFunctionTool> tools,
-            boolean parallelToolCalls
+            boolean parallelToolCalls,
+            ToolChoice toolChoice,
+            Integer maxTokens
     ) {
-        OpenAiChatOptions options = buildStreamOptions(model, tools, parallelToolCalls);
+        OpenAiChatOptions options = buildStreamOptions(model, tools, parallelToolCalls, toolChoice, maxTokens);
         ChatClient.ChatClientRequestSpec prompt = chatClient.prompt().options(options);
         if (StringUtils.hasText(systemPrompt)) {
             prompt = prompt.system(systemPrompt);
@@ -536,23 +670,53 @@ public class LlmService {
                 .map(this::toStreamDelta);
     }
 
-    private OpenAiChatOptions buildStreamOptions(String model, List<LlmFunctionTool> tools, boolean parallelToolCalls) {
+    private OpenAiChatOptions buildStreamOptions(
+            String model,
+            List<LlmFunctionTool> tools,
+            boolean parallelToolCalls,
+            ToolChoice toolChoice,
+            Integer maxTokens
+    ) {
         OpenAiChatOptions.Builder builder = OpenAiChatOptions.builder()
                 .model(model)
                 // We consume native tool_calls ourselves. Disable Spring AI internal execution.
                 .internalToolExecutionEnabled(false);
-        if (tools != null && !tools.isEmpty()) {
+        if (maxTokens != null && maxTokens > 0) {
+            builder.maxTokens(maxTokens);
+        }
+        if (tools != null && !tools.isEmpty() && toolChoice != ToolChoice.NONE) {
             List<OpenAiApi.FunctionTool> functionTools = tools.stream()
                     .filter(tool -> tool != null && StringUtils.hasText(tool.name()))
                     .map(this::toOpenAiFunctionTool)
                     .toList();
             if (!functionTools.isEmpty()) {
                 builder.tools(functionTools);
-                builder.toolChoice("auto");
+                builder.toolChoice(toToolChoiceValue(toolChoice));
                 builder.parallelToolCalls(parallelToolCalls);
             }
         }
         return builder.build();
+    }
+
+    private boolean requiresRawSse(OutputShape outputShape, String jsonSchema, ComputePolicy computePolicy) {
+        if (outputShape != null && outputShape != OutputShape.TEXT_ONLY) {
+            return true;
+        }
+        if (StringUtils.hasText(jsonSchema)) {
+            return true;
+        }
+        return computePolicy != null && computePolicy != ComputePolicy.MEDIUM;
+    }
+
+    private String toToolChoiceValue(ToolChoice toolChoice) {
+        if (toolChoice == null) {
+            return "auto";
+        }
+        return switch (toolChoice) {
+            case NONE -> "none";
+            case REQUIRED -> "required";
+            case AUTO -> "auto";
+        };
     }
 
     private OpenAiApi.FunctionTool toOpenAiFunctionTool(LlmFunctionTool tool) {

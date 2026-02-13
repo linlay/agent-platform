@@ -3,6 +3,9 @@ package com.linlay.springaiagw.service;
 import com.aiagent.agw.sdk.adapter.openai.OpenAiSseDeltaParser;
 import com.aiagent.agw.sdk.model.LlmDelta;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.linlay.springaiagw.agent.runtime.policy.ComputePolicy;
+import com.linlay.springaiagw.agent.runtime.policy.OutputShape;
+import com.linlay.springaiagw.agent.runtime.policy.ToolChoice;
 import com.linlay.springaiagw.config.AgentProviderProperties;
 import com.linlay.springaiagw.model.ProviderProtocol;
 import org.slf4j.Logger;
@@ -52,13 +55,30 @@ class RawSseClient {
             String userPrompt,
             List<LlmService.LlmFunctionTool> tools,
             boolean parallelToolCalls,
+            ToolChoice toolChoice,
+            OutputShape outputShape,
+            String jsonSchema,
+            ComputePolicy computePolicy,
+            Integer maxTokens,
             String traceId,
             String stage
     ) {
         return Flux.defer(() -> {
             AgentProviderProperties.ProviderConfig config = resolveProviderConfig(providerKey);
             WebClient webClient = buildRawWebClient(config);
-            Map<String, Object> request = buildRawStreamRequest(model, systemPrompt, historyMessages, userPrompt, tools, parallelToolCalls);
+            Map<String, Object> request = buildRawStreamRequest(
+                    model,
+                    systemPrompt,
+                    historyMessages,
+                    userPrompt,
+                    tools,
+                    parallelToolCalls,
+                    toolChoice,
+                    outputShape,
+                    jsonSchema,
+                    computePolicy,
+                    maxTokens
+            );
 
             callLogger.info(log, "[{}][{}] LLM raw SSE delta stream request start provider={}, model={}, tools={}",
                     traceId, stage, providerKey, model, tools == null ? 0 : tools.size());
@@ -108,7 +128,19 @@ class RawSseClient {
 
             AgentProviderProperties.ProviderConfig config = resolveProviderConfig(providerKey);
             WebClient webClient = buildRawWebClient(config);
-            Map<String, Object> request = buildRawStreamRequest(model, systemPrompt, historyMessages, userPrompt, List.of(), false);
+            Map<String, Object> request = buildRawStreamRequest(
+                    model,
+                    systemPrompt,
+                    historyMessages,
+                    userPrompt,
+                    List.of(),
+                    false,
+                    ToolChoice.NONE,
+                    OutputShape.TEXT_ONLY,
+                    null,
+                    ComputePolicy.MEDIUM,
+                    null
+            );
             callLogger.info(log, "[{}][{}] LLM raw SSE content request body:\n{}", traceId, stage, safeJson(request));
 
             return webClient.post()
@@ -194,20 +226,79 @@ class RawSseClient {
             List<Message> historyMessages,
             String userPrompt,
             List<LlmService.LlmFunctionTool> tools,
-            boolean parallelToolCalls
+            boolean parallelToolCalls,
+            ToolChoice toolChoice,
+            OutputShape outputShape,
+            String jsonSchema,
+            ComputePolicy computePolicy,
+            Integer maxTokens
     ) {
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("model", model);
         request.put("stream", true);
         request.put("messages", buildRawMessages(systemPrompt, historyMessages, userPrompt));
 
+        if (maxTokens != null && maxTokens > 0) {
+            request.put("max_tokens", maxTokens);
+        }
+
+        if (computePolicy != null) {
+            request.put("reasoning", Map.of("effort", toReasoningEffort(computePolicy)));
+        }
+
+        if (outputShape == OutputShape.JSON_SCHEMA && jsonSchema != null && !jsonSchema.isBlank()) {
+            request.put("response_format", buildJsonSchemaFormat(jsonSchema));
+        }
+
         List<Map<String, Object>> rawTools = buildRawTools(tools);
-        if (!rawTools.isEmpty()) {
+        if (!rawTools.isEmpty() && toolChoice != ToolChoice.NONE) {
             request.put("tools", rawTools);
-            request.put("tool_choice", "auto");
+            request.put("tool_choice", toToolChoiceValue(toolChoice));
             request.put("parallel_tool_calls", parallelToolCalls);
         }
         return request;
+    }
+
+    private Map<String, Object> buildJsonSchemaFormat(String schema) {
+        try {
+            Object schemaNode = objectMapper.readValue(schema, Object.class);
+            return Map.of(
+                    "type", "json_schema",
+                    "json_schema", Map.of(
+                            "name", "response_schema",
+                            "schema", schemaNode,
+                            "strict", true
+                    )
+            );
+        } catch (Exception ignored) {
+            return Map.of(
+                    "type", "json_schema",
+                    "json_schema", Map.of(
+                            "name", "response_schema",
+                            "schema", Map.of("type", "object"),
+                            "strict", false
+                    )
+            );
+        }
+    }
+
+    private String toReasoningEffort(ComputePolicy computePolicy) {
+        return switch (computePolicy) {
+            case LOW -> "low";
+            case HIGH -> "high";
+            case MEDIUM -> "medium";
+        };
+    }
+
+    private String toToolChoiceValue(ToolChoice toolChoice) {
+        if (toolChoice == null) {
+            return "auto";
+        }
+        return switch (toolChoice) {
+            case NONE -> "none";
+            case REQUIRED -> "required";
+            case AUTO -> "auto";
+        };
     }
 
     private List<Map<String, Object>> buildRawMessages(

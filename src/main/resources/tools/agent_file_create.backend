@@ -3,7 +3,7 @@
     {
       "type": "function",
       "name": "agent_file_create",
-      "description": "创建或更新 agents 目录下的智能体配置文件。参数: agentId,description,providerType,model,systemPrompt,deepThink",
+      "description": "创建或更新 agents 目录下的智能体配置文件（仅支持 Agent JSON v2）。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -14,24 +14,84 @@
           "description": {
             "type": "string"
           },
+          "providerKey": {
+            "type": "string"
+          },
           "providerType": {
             "type": "string"
           },
           "model": {
             "type": "string"
           },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "PLAIN",
+              "THINKING",
+              "PLAIN_TOOLING",
+              "THINKING_TOOLING",
+              "REACT",
+              "PLAN_EXECUTE"
+            ]
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "systemPrompt": {
+            "type": "string",
+            "description": "PLAIN/THINKING/PLAIN_TOOLING/THINKING_TOOLING/REACT 的快捷系统提示"
+          },
+          "planSystemPrompt": {
             "type": "string"
           },
-          "deepThink": {
+          "executeSystemPrompt": {
+            "type": "string"
+          },
+          "summarySystemPrompt": {
+            "type": "string"
+          },
+          "exposeReasoningToUser": {
             "type": "boolean"
           },
-          "mode": {
+          "maxSteps": {
+            "type": "integer"
+          },
+          "compute": {
             "type": "string"
+          },
+          "output": {
+            "type": "string"
+          },
+          "toolPolicy": {
+            "type": "string"
+          },
+          "verify": {
+            "type": "string"
+          },
+          "budget": {
+            "type": "object",
+            "properties": {
+              "maxModelCalls": {
+                "type": "integer"
+              },
+              "maxToolCalls": {
+                "type": "integer"
+              },
+              "maxSteps": {
+                "type": "integer"
+              },
+              "timeoutMs": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": false
           },
           "config": {
             "type": "object",
-            "description": "可选，支持把 agent 配置放在 config 对象中"
+            "description": "可选，支持把 agent 配置字段放在 config 对象中"
           }
         },
         "required": [

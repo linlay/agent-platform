@@ -1,6 +1,10 @@
 package com.linlay.springaiagw.agent;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.linlay.springaiagw.agent.runtime.AgentRuntimeMode;
+import com.linlay.springaiagw.agent.runtime.ModePresetMapper;
+import com.linlay.springaiagw.agent.runtime.policy.RunSpec;
 import com.linlay.springaiagw.config.ChatClientRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -12,10 +16,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -24,8 +26,8 @@ import java.util.stream.Stream;
 public class AgentDefinitionLoader {
 
     private static final Logger log = LoggerFactory.getLogger(AgentDefinitionLoader.class);
-    private static final Pattern SYSTEM_PROMPT_MULTILINE_PATTERN =
-            Pattern.compile("(\"systemPrompt\"\\s*:\\s*)\"\"\"([\\s\\S]*?)\"\"\"");
+    private static final Pattern MULTILINE_PROMPT_PATTERN =
+            Pattern.compile("(\"[a-zA-Z0-9_]*systemPrompt\"\\s*:\\s*)\"\"\"([\\s\\S]*?)\"\"\"", Pattern.CASE_INSENSITIVE);
 
     private final ObjectMapper objectMapper;
     private final AgentCatalogProperties properties;
@@ -44,87 +46,7 @@ public class AgentDefinitionLoader {
     }
 
     public List<AgentDefinition> loadAll() {
-        Map<String, AgentDefinition> definitions = new LinkedHashMap<>();
-        builtInAgents().forEach(agent -> definitions.put(agent.id(), agent));
-        loadExternalAgents().forEach(agent -> {
-            AgentDefinition old = definitions.put(agent.id(), agent);
-            if (old != null) {
-                log.info("External agent '{}' overrides existing definition", agent.id());
-            }
-        });
-        return List.copyOf(definitions.values());
-    }
-
-    private List<AgentDefinition> builtInAgents() {
-        return List.of(
-                new AgentDefinition(
-                        "demoPlain",
-                        "默认示例：PLAIN 模式按需单次调用工具",
-                        "bailian",
-                        "qwen3-max",
-                        "你是简洁的助理。严格使用原生 Function Calling：需要工具时发起 tool_calls；不需要工具时直接给可执行结论（120 字以内）。",
-                        AgentMode.PLAIN,
-                        List.of("mock_sensitive_data_detector", "city_datetime", "mock_city_weather")
-                ),
-                new AgentDefinition(
-                        "demoReAct",
-                        "默认示例：RE-ACT 模式按需调用工具",
-                        "bailian",
-                        "qwen3-max",
-                        "你是 RE-ACT 助手。严格使用原生 Function Calling：每轮最多一个 tool_call；需要工具就调用，不需要工具就直接输出最终结论。",
-                        AgentMode.RE_ACT,
-                        List.of("city_datetime", "mock_city_weather", "mock_sensitive_data_detector", "bash")
-                ),
-                new AgentDefinition(
-                        "demoPlanExecute",
-                        "默认示例：PLAN-EXECUTE 模式先规划后执行工具",
-                        "bailian",
-                        "qwen3-max",
-                        "你是高级规划助手。严格使用原生 Function Calling：需要工具时用 tool_calls 顺序执行，不在正文输出工具调用 JSON，最后给简洁总结。",
-                        AgentMode.PLAN_EXECUTE,
-                        List.of("mock_ops_runbook", "city_datetime", "mock_city_weather", "mock_sensitive_data_detector", "bash")
-                ),
-                new AgentDefinition(
-                        "demoViewport",
-                        "内置示例：通用 viewport 协议输出智能体",
-                        "bailian",
-                        "qwen3-max",
-                        "你是通用视图助手。必须先通过工具获取数据，再输出 viewport 协议代码块。"
-                                + "最终回答必须且只能是一个以 ```viewport 开头的 fenced block，不得附加自然语言。"
-                                + "输出模板：```viewport\\n"
-                                + "type=<viewport_type>, key=<viewport_key>\\n"
-                                + "{...json...}\\n```。"
-                                + "type 只能是 html/qlc/dqlc 三者之一，严禁填写工具名、业务状态、单号等其它值。"
-                                + "key 必须与所调用工具 description 中声明的 key= 完全一致。"
-                                + "若工具 description 已声明 type= 与 key=，必须原样使用，不得自造。"
-                                + "JSON 必须直接使用该工具返回结果对象，不得改写字段名。",
-                        AgentMode.PLAN_EXECUTE,
-                        List.of("city_datetime", "mock_city_weather", "mock_logistics_status")
-                ),
-                new AgentDefinition(
-                        "demoAction",
-                        "内置示例：UI 动作智能体（主题/烟花/模态框）",
-                        "bailian",
-                        "qwen3-max",
-                        "你是 UI 动作助手。根据用户意图调用对应动作："
-                                + "主题切换调用 switch_theme（theme 仅允许 light 或 dark）；"
-                                + "播放烟花调用 launch_fireworks（可选 durationMs）；"
-                                + "弹出模态框调用 show_modal（必须提供 title 和 content，可选 closeText）。"
-                                + "工具执行后输出一句简短确认。",
-                        AgentMode.PLAIN,
-                        List.of("switch_theme", "launch_fireworks", "show_modal")
-                ),
-                new AgentDefinition(
-                        "agentCreator",
-                        "内置智能体：根据需求创建 agents 目录下的智能体配置",
-                        "bailian",
-                        "qwen3-max",
-                        "你是 Agent 创建助手。目标是把用户需求转成智能体配置，并调用工具创建到 agents 目录。"
-                                + "严格使用原生 Function Calling，不在正文输出工具调用 JSON；缺失字段用最小合理默认值，并在最终回答中说明。",
-                        AgentMode.PLAN_EXECUTE,
-                        List.of("agent_file_create")
-                )
-        );
+        return loadExternalAgents();
     }
 
     private List<AgentDefinition> loadExternalAgents() {
@@ -162,37 +84,123 @@ public class AgentDefinitionLoader {
         }
 
         try {
-            AgentConfigFile config = readAgentConfig(file);
+            String raw = Files.readString(file);
+            String normalizedJson = normalizeMultilinePrompts(raw);
+            JsonNode root = objectMapper.readTree(normalizedJson);
+            if (isLegacyConfig(root)) {
+                log.warn("Skip legacy agent config {}. Only Agent JSON v2 is supported.", file);
+                return java.util.Optional.empty();
+            }
+
+            AgentConfigFile config = objectMapper.treeToValue(root, AgentConfigFile.class);
+            AgentRuntimeMode mode = config.getMode();
+            if (mode == null) {
+                log.warn("Skip agent without mode in {}", file);
+                return java.util.Optional.empty();
+            }
+
             String providerKey = resolveProviderKey(config);
-            AgentMode mode = resolveMode(config.getMode(), config.getDeepThink());
             String model = normalize(config.getModel(), resolveDefaultModel(providerKey));
-            String systemPrompt = normalize(config.getSystemPrompt(), "你是通用助理，回答要清晰和可执行。");
             String description = normalize(config.getDescription(), "external agent from " + fileName);
             List<String> tools = normalizeToolNames(config.getTools());
+            RunSpec runSpec = ModePresetMapper.toRunSpec(mode, config);
+            AgentPromptSet promptSet = resolvePromptSet(mode, config, file);
+            if (promptSet == null) {
+                return java.util.Optional.empty();
+            }
 
             return java.util.Optional.of(new AgentDefinition(
                     agentId,
                     description,
                     providerKey,
                     model,
-                    systemPrompt,
                     mode,
+                    runSpec,
+                    promptSet,
                     tools
             ));
-        } catch (IOException ex) {
+        } catch (Exception ex) {
             log.warn("Skip invalid external agent file: {}", file, ex);
             return java.util.Optional.empty();
         }
     }
 
-    private AgentConfigFile readAgentConfig(Path file) throws IOException {
-        String raw = Files.readString(file);
-        String normalized = normalizeMultilineSystemPrompt(raw);
-        return objectMapper.readValue(normalized, AgentConfigFile.class);
+    private AgentPromptSet resolvePromptSet(AgentRuntimeMode mode, AgentConfigFile config, Path file) {
+        return switch (mode) {
+            case PLAIN -> {
+                String prompt = normalize(config.getPlain() == null ? null : config.getPlain().getSystemPrompt(), "");
+                if (prompt.isBlank()) {
+                    log.warn("Skip agent {}: plain.systemPrompt is required", file);
+                    yield null;
+                }
+                yield new AgentPromptSet(prompt, null, null, null);
+            }
+            case THINKING -> {
+                String prompt = normalize(config.getThinking() == null ? null : config.getThinking().getSystemPrompt(), "");
+                if (prompt.isBlank()) {
+                    log.warn("Skip agent {}: thinking.systemPrompt is required", file);
+                    yield null;
+                }
+                yield new AgentPromptSet(prompt, null, null, null);
+            }
+            case PLAIN_TOOLING -> {
+                String prompt = normalize(config.getPlainTooling() == null ? null : config.getPlainTooling().getSystemPrompt(), "");
+                if (prompt.isBlank()) {
+                    log.warn("Skip agent {}: plainTooling.systemPrompt is required", file);
+                    yield null;
+                }
+                yield new AgentPromptSet(prompt, null, null, null);
+            }
+            case THINKING_TOOLING -> {
+                String prompt = normalize(config.getThinkingTooling() == null ? null : config.getThinkingTooling().getSystemPrompt(), "");
+                if (prompt.isBlank()) {
+                    log.warn("Skip agent {}: thinkingTooling.systemPrompt is required", file);
+                    yield null;
+                }
+                yield new AgentPromptSet(prompt, null, null, null);
+            }
+            case REACT -> {
+                String prompt = normalize(config.getReact() == null ? null : config.getReact().getSystemPrompt(), "");
+                if (prompt.isBlank()) {
+                    log.warn("Skip agent {}: react.systemPrompt is required", file);
+                    yield null;
+                }
+                yield new AgentPromptSet(prompt, null, null, null);
+            }
+            case PLAN_EXECUTE -> {
+                String planPrompt = normalize(config.getPlanExecute() == null ? null : config.getPlanExecute().getPlanSystemPrompt(), "");
+                String executePrompt = normalize(config.getPlanExecute() == null ? null : config.getPlanExecute().getExecuteSystemPrompt(), "");
+                String summaryPrompt = normalize(config.getPlanExecute() == null ? null : config.getPlanExecute().getSummarySystemPrompt(), "");
+                if (planPrompt.isBlank() || executePrompt.isBlank()) {
+                    log.warn("Skip agent {}: planExecute.planSystemPrompt and planExecute.executeSystemPrompt are required", file);
+                    yield null;
+                }
+                yield new AgentPromptSet(executePrompt, planPrompt, executePrompt, summaryPrompt.isBlank() ? null : summaryPrompt);
+            }
+        };
     }
 
-    private String normalizeMultilineSystemPrompt(String rawJson) throws IOException {
-        Matcher matcher = SYSTEM_PROMPT_MULTILINE_PATTERN.matcher(rawJson);
+    private boolean isLegacyConfig(JsonNode root) {
+        if (root == null || !root.isObject()) {
+            return true;
+        }
+        return root.has("deepThink") || root.has("systemPrompt") || root.has("mode") && root.path("mode").isTextual()
+                && isLegacyMode(root.path("mode").asText());
+    }
+
+    private boolean isLegacyMode(String mode) {
+        if (mode == null || mode.isBlank()) {
+            return false;
+        }
+        String normalized = mode.trim().replace('-', '_').toUpperCase(Locale.ROOT);
+        return "RE_ACT".equals(normalized)
+                || "PLAIN_CONTENT".equals(normalized)
+                || "THINKING_AND_CONTENT".equals(normalized)
+                || "THINKING_AND_CONTENT_WITH_DUAL_TOOL_CALLS".equals(normalized);
+    }
+
+    private String normalizeMultilinePrompts(String rawJson) throws IOException {
+        Matcher matcher = MULTILINE_PROMPT_PATTERN.matcher(rawJson);
         if (!matcher.find()) {
             return rawJson;
         }
@@ -243,16 +251,6 @@ public class AgentDefinitionLoader {
             return "deepseek-ai/DeepSeek-V3.2";
         }
         return "qwen3-max";
-    }
-
-    private AgentMode resolveMode(AgentMode mode, Boolean deepThink) {
-        if (mode != null) {
-            return mode;
-        }
-        if (deepThink == null) {
-            return AgentMode.PLAIN;
-        }
-        return deepThink ? AgentMode.PLAN_EXECUTE : AgentMode.PLAIN;
     }
 
     private List<String> normalizeToolNames(List<String> rawTools) {

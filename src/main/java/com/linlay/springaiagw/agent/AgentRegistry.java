@@ -5,6 +5,7 @@ import com.linlay.springaiagw.memory.ChatWindowMemoryStore;
 import com.linlay.springaiagw.service.DeltaStreamService;
 import com.linlay.springaiagw.service.FrontendSubmitCoordinator;
 import com.linlay.springaiagw.service.LlmService;
+import com.linlay.springaiagw.service.RuntimeResourceSyncService;
 import com.linlay.springaiagw.tool.ToolRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,6 +30,8 @@ public class AgentRegistry {
     private final ObjectMapper objectMapper;
     private final ChatWindowMemoryStore chatWindowMemoryStore;
     private final FrontendSubmitCoordinator frontendSubmitCoordinator;
+    @SuppressWarnings("unused")
+    private final RuntimeResourceSyncService runtimeResourceSyncService;
 
     private final Object reloadLock = new Object();
     private volatile Map<String, Agent> agents = Map.of();
@@ -44,7 +47,6 @@ public class AgentRegistry {
         this(definitionLoader, llmService, deltaStreamService, toolRegistry, objectMapper, chatWindowMemoryStore, null);
     }
 
-    @Autowired
     public AgentRegistry(
             AgentDefinitionLoader definitionLoader,
             LlmService llmService,
@@ -54,6 +56,21 @@ public class AgentRegistry {
             ChatWindowMemoryStore chatWindowMemoryStore,
             FrontendSubmitCoordinator frontendSubmitCoordinator
     ) {
+        this(definitionLoader, llmService, deltaStreamService, toolRegistry, objectMapper, chatWindowMemoryStore,
+                frontendSubmitCoordinator, null);
+    }
+
+    @Autowired
+    public AgentRegistry(
+            AgentDefinitionLoader definitionLoader,
+            LlmService llmService,
+            DeltaStreamService deltaStreamService,
+            ToolRegistry toolRegistry,
+            ObjectMapper objectMapper,
+            ChatWindowMemoryStore chatWindowMemoryStore,
+            FrontendSubmitCoordinator frontendSubmitCoordinator,
+            RuntimeResourceSyncService runtimeResourceSyncService
+    ) {
         this.definitionLoader = definitionLoader;
         this.llmService = llmService;
         this.deltaStreamService = deltaStreamService;
@@ -61,6 +78,7 @@ public class AgentRegistry {
         this.objectMapper = objectMapper;
         this.chatWindowMemoryStore = chatWindowMemoryStore;
         this.frontendSubmitCoordinator = frontendSubmitCoordinator;
+        this.runtimeResourceSyncService = runtimeResourceSyncService;
         refreshAgents();
     }
 

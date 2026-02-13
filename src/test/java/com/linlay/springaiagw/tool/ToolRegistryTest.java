@@ -19,6 +19,7 @@ import static org.assertj.core.api.Assertions.assertThatCode;
 
 class ToolRegistryTest {
 
+    private final ObjectMapper objectMapper = new ObjectMapper();
     private final CityDateTimeTool cityDateTimeTool = new CityDateTimeTool();
     private final MockCityWeatherTool cityWeatherTool = new MockCityWeatherTool();
     private final MockLogisticsStatusTool logisticsStatusTool = new MockLogisticsStatusTool();
@@ -187,7 +188,7 @@ class ToolRegistryTest {
                 "providerType", "openai",
                 "model", "gpt-3.5-turbo",
                 "systemPrompt", "你是 QA 助手\n请先问清问题",
-                "mode", "chat"
+                "mode", "PLAIN_TOOLING"
         ));
 
         assertThat(result.path("ok").asBoolean()).isTrue();
@@ -196,14 +197,13 @@ class ToolRegistryTest {
 
         Path file = agentsDir.resolve("qa_bot.json");
         assertThat(Files.exists(file)).isTrue();
-        String content = Files.readString(file);
-        assertThat(content).contains("\"description\": \"QA 助手\"");
-        assertThat(content).contains("\"providerType\": \"OPENAI\"");
-        assertThat(content).contains("\"model\": \"gpt-3.5-turbo\"");
-        assertThat(content).contains("\"systemPrompt\": \"\"\"");
-        assertThat(content).contains("\"deepThink\": false");
-        assertThat(content).doesNotContain("\"mode\":");
-        assertThat(content).doesNotContain("\"tools\":");
+        JsonNode content = objectMapper.readTree(Files.readString(file));
+        assertThat(content.path("description").asText()).isEqualTo("QA 助手");
+        assertThat(content.path("providerKey").asText()).isEqualTo("openai");
+        assertThat(content.path("model").asText()).isEqualTo("gpt-3.5-turbo");
+        assertThat(content.path("mode").asText()).isEqualTo("PLAIN_TOOLING");
+        assertThat(content.path("plainTooling").path("systemPrompt").asText()).isEqualTo("你是 QA 助手\n请先问清问题");
+        assertThat(content.has("tools")).isFalse();
     }
 
     @Test
@@ -224,13 +224,14 @@ class ToolRegistryTest {
         JsonNode result = tool.invoke(Map.of(
                 "agentId", "fortune_bot",
                 "description", "算命大师",
-                "systemPrompt", "你是算命大师"
+                "systemPrompt", "你是算命大师",
+                "mode", "PLAIN"
         ));
 
         assertThat(result.path("ok").asBoolean()).isTrue();
-        String content = Files.readString(agentsDir.resolve("fortune_bot.json"));
-        assertThat(content).contains("\"providerType\": \"BAILIAN\"");
-        assertThat(content).contains("\"deepThink\": false");
+        JsonNode content = objectMapper.readTree(Files.readString(agentsDir.resolve("fortune_bot.json")));
+        assertThat(content.path("providerKey").asText()).isEqualTo("bailian");
+        assertThat(content.path("mode").asText()).isEqualTo("PLAIN");
     }
 
     @Test

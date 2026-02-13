@@ -1,38 +1,32 @@
 package com.linlay.springaiagw.agent;
 
-import com.linlay.springaiagw.model.ProviderType;
+import com.linlay.springaiagw.agent.runtime.AgentRuntimeMode;
+import com.linlay.springaiagw.agent.runtime.policy.RunSpec;
 
 import java.util.List;
-import java.util.Locale;
 
 public record AgentDefinition(
         String id,
         String description,
         String providerKey,
         String model,
-        String systemPrompt,
-        AgentMode mode,
+        AgentRuntimeMode mode,
+        RunSpec runSpec,
+        AgentPromptSet promptSet,
         List<String> tools
 ) {
+    public AgentDefinition {
+        if (tools == null) {
+            tools = List.of();
+        } else {
+            tools = List.copyOf(tools);
+        }
+        if (promptSet == null) {
+            promptSet = new AgentPromptSet("", null, null, null);
+        }
+    }
 
-    @Deprecated
-    public AgentDefinition(
-            String id,
-            String description,
-            ProviderType providerType,
-            String model,
-            String systemPrompt,
-            AgentMode mode,
-            List<String> tools
-    ) {
-        this(
-                id,
-                description,
-                providerType == null ? "bailian" : providerType.name().toLowerCase(Locale.ROOT),
-                model,
-                systemPrompt,
-                mode,
-                tools
-        );
+    public String systemPrompt() {
+        return promptSet.primarySystemPrompt();
     }
 }

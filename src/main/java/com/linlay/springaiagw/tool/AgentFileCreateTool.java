@@ -1,10 +1,10 @@
 package com.linlay.springaiagw.tool;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.linlay.springaiagw.agent.AgentCatalogProperties;
-import com.linlay.springaiagw.agent.AgentMode;
+import com.linlay.springaiagw.agent.runtime.AgentRuntimeMode;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -22,7 +23,9 @@ public class AgentFileCreateTool extends AbstractDeterministicTool {
     private static final Pattern AGENT_ID_PATTERN = Pattern.compile("^[A-Za-z0-9_-]{1,64}$");
     private static final String DEFAULT_DESCRIPTION = "由 agentCreator 创建的智能体";
     private static final String DEFAULT_MODEL = "qwen3-max";
-    private static final String DEFAULT_SYSTEM_PROMPT = "你是通用助理，回答要清晰和可执行。";
+    private static final String DEFAULT_PROVIDER_KEY = "bailian";
+    private static final String DEFAULT_PROMPT = "你是通用助理，回答要清晰和可执行。";
+
     private final Path agentsDir;
 
     @Autowired
@@ -45,11 +48,7 @@ public class AgentFileCreateTool extends AbstractDeterministicTool {
         result.put("tool", name());
         result.put("agentsDir", agentsDir.toString());
 
-        Map<String, Object> mergedArgs = new LinkedHashMap<>();
-        if (args != null) {
-            mergedArgs.putAll(args);
-        }
-        mergeConfigField(mergedArgs);
+        Map<String, Object> mergedArgs = mergeArgs(args);
 
         String agentId = readString(mergedArgs, "agentId", "id", "name");
         if (agentId == null || agentId.isBlank()) {
@@ -60,19 +59,42 @@ public class AgentFileCreateTool extends AbstractDeterministicTool {
             return failure(result, "Invalid agentId. Use [A-Za-z0-9_-], max 64 chars.");
         }
 
+        AgentRuntimeMode mode;
+        try {
+            mode = AgentRuntimeMode.fromJson(readString(mergedArgs, "mode"));
+        } catch (Exception ex) {
+            return failure(result, "Invalid mode. Use one of PLAIN/THINKING/PLAIN_TOOLING/THINKING_TOOLING/REACT/PLAN_EXECUTE");
+        }
+        if (mode == null) {
+            mode = AgentRuntimeMode.PLAIN;
+        }
+
         String description = normalizeText(readString(mergedArgs, "description"), DEFAULT_DESCRIPTION);
+        String providerKey = normalizeProviderKey(readString(mergedArgs, "providerKey", "providerType"));
         String model = normalizeText(readString(mergedArgs, "model"), DEFAULT_MODEL);
-        String systemPrompt = normalizeText(readString(mergedArgs, "systemPrompt", "prompt"), DEFAULT_SYSTEM_PROMPT);
 
-        String providerType = normalizeProviderType(readString(mergedArgs, "providerType"));
-        boolean deepThink = parseDeepThink(mergedArgs);
+        ObjectNode root = OBJECT_MAPPER.createObjectNode();
+        root.put("description", description);
+        root.put("providerKey", providerKey);
+        root.put("model", model);
+        root.put("mode", mode.name());
 
-        ObjectNode config = OBJECT_MAPPER.createObjectNode();
-        config.put("description", description);
-        config.put("providerType", providerType);
-        config.put("model", model);
-        config.put("systemPrompt", systemPrompt);
-        config.put("deepThink", deepThink);
+        ArrayNode toolsNode = normalizeTools(mergedArgs.get("tools"));
+        if (!toolsNode.isEmpty()) {
+            root.set("tools", toolsNode);
+        }
+
+        putOptionalEnum(root, "compute", readString(mergedArgs, "compute"));
+        putOptionalEnum(root, "output", readString(mergedArgs, "output"));
+        putOptionalEnum(root, "toolPolicy", readString(mergedArgs, "toolPolicy"));
+        putOptionalEnum(root, "verify", readString(mergedArgs, "verify"));
+        putOptionalBudget(root, mergedArgs.get("budget"));
+
+        ObjectNode modeConfig = buildModeConfig(mode, mergedArgs);
+        if (modeConfig == null) {
+            return failure(result, "Missing required mode prompt fields");
+        }
+        root.set(modeConfig.fieldNames().next(), modeConfig.elements().next());
 
         Path file = agentsDir.resolve(normalizedAgentId + ".json").normalize();
         if (!file.startsWith(agentsDir)) {
@@ -82,64 +104,174 @@ public class AgentFileCreateTool extends AbstractDeterministicTool {
         try {
             Files.createDirectories(agentsDir);
             boolean existed = Files.exists(file);
-            Files.writeString(file, toAgentConfigFileContent(description, providerType, model, systemPrompt, deepThink));
+            Files.writeString(file, OBJECT_MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(root) + "\n");
 
             result.put("ok", true);
             result.put("created", !existed);
             result.put("updated", existed);
             result.put("agentId", normalizedAgentId);
             result.put("file", file.toString());
-            result.set("config", config);
+            result.set("config", root);
             return result;
         } catch (IOException ex) {
             return failure(result, "Write failed: " + ex.getMessage());
         }
     }
 
-    private void mergeConfigField(Map<String, Object> mergedArgs) {
-        Object configObject = mergedArgs.get("config");
+    private Map<String, Object> mergeArgs(Map<String, Object> args) {
+        Map<String, Object> merged = new LinkedHashMap<>();
+        if (args != null) {
+            merged.putAll(args);
+        }
+        Object configObject = merged.get("config");
         if (configObject instanceof Map<?, ?> configMap) {
             for (Map.Entry<?, ?> entry : configMap.entrySet()) {
                 if (entry.getKey() instanceof String key) {
-                    mergedArgs.putIfAbsent(key, entry.getValue());
+                    merged.putIfAbsent(key, entry.getValue());
                 }
             }
         }
+        return merged;
     }
 
-    private String normalizeProviderType(String raw) {
+    private ObjectNode buildModeConfig(AgentRuntimeMode mode, Map<String, Object> args) {
+        return switch (mode) {
+            case PLAIN -> singlePromptConfig("plain", "systemPrompt", readString(args, "systemPrompt", "plainSystemPrompt"), null);
+            case THINKING -> singlePromptConfig(
+                    "thinking",
+                    "systemPrompt",
+                    readString(args, "systemPrompt", "thinkingSystemPrompt"),
+                    parseBooleanNode(args.get("exposeReasoningToUser"))
+            );
+            case PLAIN_TOOLING -> singlePromptConfig("plainTooling", "systemPrompt", readString(args, "systemPrompt", "plainToolingSystemPrompt"), null);
+            case THINKING_TOOLING -> singlePromptConfig(
+                    "thinkingTooling",
+                    "systemPrompt",
+                    readString(args, "systemPrompt", "thinkingToolingSystemPrompt"),
+                    parseBooleanNode(args.get("exposeReasoningToUser"))
+            );
+            case REACT -> reactConfig(readString(args, "systemPrompt", "reactSystemPrompt"), args.get("maxSteps"));
+            case PLAN_EXECUTE -> planExecuteConfig(
+                    readString(args, "planSystemPrompt"),
+                    readString(args, "executeSystemPrompt"),
+                    readString(args, "summarySystemPrompt")
+            );
+        };
+    }
+
+    private ObjectNode singlePromptConfig(String fieldName, String promptField, String prompt, Boolean exposeReasoningToUser) {
+        String normalizedPrompt = normalizeText(prompt, DEFAULT_PROMPT);
+        if (normalizedPrompt.isBlank()) {
+            return null;
+        }
+        ObjectNode wrapper = OBJECT_MAPPER.createObjectNode();
+        ObjectNode node = OBJECT_MAPPER.createObjectNode();
+        node.put(promptField, normalizedPrompt);
+        if (exposeReasoningToUser != null) {
+            node.put("exposeReasoningToUser", exposeReasoningToUser);
+        }
+        wrapper.set(fieldName, node);
+        return wrapper;
+    }
+
+    private ObjectNode reactConfig(String prompt, Object maxSteps) {
+        String normalizedPrompt = normalizeText(prompt, DEFAULT_PROMPT);
+        if (normalizedPrompt.isBlank()) {
+            return null;
+        }
+        ObjectNode wrapper = OBJECT_MAPPER.createObjectNode();
+        ObjectNode node = OBJECT_MAPPER.createObjectNode();
+        node.put("systemPrompt", normalizedPrompt);
+        if (maxSteps instanceof Number number && number.intValue() > 0) {
+            node.put("maxSteps", number.intValue());
+        }
+        wrapper.set("react", node);
+        return wrapper;
+    }
+
+    private ObjectNode planExecuteConfig(String planPrompt, String executePrompt, String summaryPrompt) {
+        String normalizedPlan = normalizeText(planPrompt, "");
+        String normalizedExecute = normalizeText(executePrompt, "");
+        if (normalizedPlan.isBlank() || normalizedExecute.isBlank()) {
+            return null;
+        }
+        ObjectNode wrapper = OBJECT_MAPPER.createObjectNode();
+        ObjectNode node = OBJECT_MAPPER.createObjectNode();
+        node.put("planSystemPrompt", normalizedPlan);
+        node.put("executeSystemPrompt", normalizedExecute);
+        String normalizedSummary = normalizeText(summaryPrompt, "");
+        if (!normalizedSummary.isBlank()) {
+            node.put("summarySystemPrompt", normalizedSummary);
+        }
+        wrapper.set("planExecute", node);
+        return wrapper;
+    }
+
+    private Boolean parseBooleanNode(Object value) {
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        if (value instanceof String text && !text.isBlank()) {
+            return Boolean.parseBoolean(text.trim());
+        }
+        return null;
+    }
+
+    private ArrayNode normalizeTools(Object rawTools) {
+        ArrayNode arrayNode = OBJECT_MAPPER.createArrayNode();
+        if (!(rawTools instanceof List<?> list)) {
+            return arrayNode;
+        }
+        for (Object item : list) {
+            if (item == null) {
+                continue;
+            }
+            String tool = item.toString().trim().toLowerCase(Locale.ROOT);
+            if (!tool.isBlank()) {
+                arrayNode.add(tool);
+            }
+        }
+        return arrayNode;
+    }
+
+    private void putOptionalEnum(ObjectNode root, String fieldName, String value) {
+        if (value == null || value.isBlank()) {
+            return;
+        }
+        root.put(fieldName, value.trim().toUpperCase(Locale.ROOT));
+    }
+
+    private void putOptionalBudget(ObjectNode root, Object budgetValue) {
+        if (!(budgetValue instanceof Map<?, ?> map)) {
+            return;
+        }
+        ObjectNode budget = OBJECT_MAPPER.createObjectNode();
+        putIntIfPositive(budget, "maxModelCalls", map.get("maxModelCalls"));
+        putIntIfPositive(budget, "maxToolCalls", map.get("maxToolCalls"));
+        putIntIfPositive(budget, "maxSteps", map.get("maxSteps"));
+        putLongIfPositive(budget, "timeoutMs", map.get("timeoutMs"));
+        if (!budget.isEmpty()) {
+            root.set("budget", budget);
+        }
+    }
+
+    private void putIntIfPositive(ObjectNode node, String field, Object value) {
+        if (value instanceof Number number && number.intValue() > 0) {
+            node.put(field, number.intValue());
+        }
+    }
+
+    private void putLongIfPositive(ObjectNode node, String field, Object value) {
+        if (value instanceof Number number && number.longValue() > 0) {
+            node.put(field, number.longValue());
+        }
+    }
+
+    private String normalizeProviderKey(String raw) {
         if (raw == null || raw.isBlank()) {
-            return "BAILIAN";
+            return DEFAULT_PROVIDER_KEY;
         }
-        return raw.trim().toUpperCase(Locale.ROOT);
-    }
-
-    private boolean parseDeepThink(Map<String, Object> args) {
-        Object deepThinkRaw = args.get("deepThink");
-        if (deepThinkRaw != null) {
-            if (deepThinkRaw instanceof Boolean value) {
-                return value;
-            }
-            String text = deepThinkRaw.toString().trim();
-            if ("true".equalsIgnoreCase(text)) {
-                return true;
-            }
-            if ("false".equalsIgnoreCase(text)) {
-                return false;
-            }
-        }
-
-        String rawMode = readString(args, "mode");
-        if (rawMode == null || rawMode.isBlank()) {
-            return false;
-        }
-
-        try {
-            AgentMode mode = AgentMode.fromJson(rawMode);
-            return mode == AgentMode.PLAN_EXECUTE;
-        } catch (Exception ex) {
-            return false;
-        }
+        return raw.trim().toLowerCase(Locale.ROOT);
     }
 
     private String readString(Map<String, Object> args, String... keys) {
@@ -157,36 +289,6 @@ public class AgentFileCreateTool extends AbstractDeterministicTool {
             return fallback;
         }
         return value.trim();
-    }
-
-    private String toAgentConfigFileContent(
-            String description,
-            String providerType,
-            String model,
-            String systemPrompt,
-            boolean deepThink
-    ) throws JsonProcessingException {
-        StringBuilder builder = new StringBuilder();
-        builder.append("{\n");
-        builder.append("  \"description\": ").append(jsonString(description)).append(",\n");
-        builder.append("  \"providerType\": ").append(jsonString(providerType)).append(",\n");
-        builder.append("  \"model\": ").append(jsonString(model)).append(",\n");
-        builder.append("  \"systemPrompt\": ").append(systemPromptValue(systemPrompt)).append(",\n");
-        builder.append("  \"deepThink\": ").append(deepThink).append("\n");
-        builder.append("}\n");
-        return builder.toString();
-    }
-
-    private String systemPromptValue(String systemPrompt) throws JsonProcessingException {
-        String normalized = systemPrompt == null ? "" : systemPrompt.replace("\r\n", "\n");
-        if (normalized.contains("\n") && !normalized.contains("\"\"\"")) {
-            return "\"\"\"\n" + normalized + "\n\"\"\"";
-        }
-        return jsonString(normalized);
-    }
-
-    private String jsonString(String text) throws JsonProcessingException {
-        return OBJECT_MAPPER.writeValueAsString(text);
     }
 
     private JsonNode failure(ObjectNode root, String error) {
