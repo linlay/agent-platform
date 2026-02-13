@@ -378,7 +378,7 @@ class DefinitionDrivenAgentTest {
     }
 
     @Test
-    void demoViewportShouldForceViewportBlockByToolDescription() {
+    void demoViewportShouldNotForceViewportBlockAndShouldIncludeToolPromptInSystemPrompt() {
         AgentDefinition definition = new AgentDefinition(
                 "demoViewport",
                 "demo",
@@ -390,6 +390,7 @@ class DefinitionDrivenAgentTest {
         );
 
         AtomicInteger finalContentCallCount = new AtomicInteger(0);
+        AtomicReference<String> capturedFinalSystemPrompt = new AtomicReference<>();
         LlmService llmService = new LlmService(null, null) {
             @Override
             public Flux<LlmDelta> streamDeltas(
@@ -402,6 +403,9 @@ class DefinitionDrivenAgentTest {
                     String stage,
                     boolean parallelToolCalls
             ) {
+                if (systemPrompt != null && stage != null && stage.startsWith("agent-plan-execute-step-")) {
+                    capturedFinalSystemPrompt.compareAndSet(null, systemPrompt);
+                }
                 if ("agent-plan-execute-step-1".equals(stage)) {
                     return Flux.just(
                             new LlmDelta(
@@ -432,6 +436,7 @@ class DefinitionDrivenAgentTest {
                     String stage
             ) {
                 finalContentCallCount.incrementAndGet();
+                capturedFinalSystemPrompt.set(systemPrompt);
                 return Flux.just("```viewport\ntype=qlc, key=weather_card\n{\"city\":\"broken\"}\n```");
             }
 
@@ -474,6 +479,11 @@ class DefinitionDrivenAgentTest {
             }
 
             @Override
+            public String prompt() {
+                return "若需要 viewport 渲染，使用 type=html, key=show_weather_card。";
+            }
+
+            @Override
             public JsonNode invoke(Map<String, Object> args) {
                 return objectMapper.valueToTree(Map.of(
                         "tool", "mock_city_weather",
@@ -506,14 +516,14 @@ class DefinitionDrivenAgentTest {
                 .filter(text -> text != null && !text.isBlank())
                 .reduce("", String::concat);
         assertThat(content).contains("```viewport");
-        assertThat(content).contains("type=html, key=show_weather_card");
-        assertThat(content).contains("\"city\" : \"Shanghai\"");
-        assertThat(content).doesNotContain("type=qlc, key=weather_card");
-        assertThat(finalContentCallCount.get()).isEqualTo(0);
+        assertThat(content).contains("type=qlc, key=weather_card");
+        assertThat(content).doesNotContain("type=html, key=show_weather_card");
+        assertThat(finalContentCallCount.get()).isEqualTo(1);
+        assertThat(capturedFinalSystemPrompt.get()).contains("type=html, key=show_weather_card");
     }
 
     @Test
-    void demoViewportShouldUseDefaultViewportMappingWhenDescriptionMissing() {
+    void demoViewportShouldPassThroughModelOutputWhenDescriptionMissing() {
         AgentDefinition definition = new AgentDefinition(
                 "demoViewport",
                 "demo",
@@ -524,6 +534,7 @@ class DefinitionDrivenAgentTest {
                 List.of("mock_city_weather")
         );
 
+        AtomicReference<String> capturedFinalSystemPrompt = new AtomicReference<>();
         LlmService llmService = new LlmService(null, null) {
             @Override
             public Flux<LlmDelta> streamDeltas(
@@ -536,6 +547,9 @@ class DefinitionDrivenAgentTest {
                     String stage,
                     boolean parallelToolCalls
             ) {
+                if (systemPrompt != null && stage != null && stage.startsWith("agent-plan-execute-step-")) {
+                    capturedFinalSystemPrompt.compareAndSet(null, systemPrompt);
+                }
                 if ("agent-plan-execute-step-1".equals(stage)) {
                     return Flux.just(
                             new LlmDelta(
@@ -565,6 +579,7 @@ class DefinitionDrivenAgentTest {
                     String userPrompt,
                     String stage
             ) {
+                capturedFinalSystemPrompt.set(systemPrompt);
                 return Flux.just("bad-output");
             }
 
@@ -607,6 +622,11 @@ class DefinitionDrivenAgentTest {
             }
 
             @Override
+            public String prompt() {
+                return "若需要 viewport 渲染，使用 type=html, key=show_weather_card。";
+            }
+
+            @Override
             public JsonNode invoke(Map<String, Object> args) {
                 return objectMapper.valueToTree(Map.of(
                         "tool", "mock_city_weather",
@@ -639,7 +659,8 @@ class DefinitionDrivenAgentTest {
                 .filter(text -> text != null && !text.isBlank())
                 .reduce("", String::concat);
 
-        assertThat(content).contains("type=html, key=show_weather_card");
+        assertThat(content).contains("bad-output");
+        assertThat(capturedFinalSystemPrompt.get()).contains("type=html, key=show_weather_card");
     }
 
     @Test

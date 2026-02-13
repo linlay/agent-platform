@@ -140,6 +140,7 @@ public class CapabilityRegistryService {
 
             Map<String, Object> parameters = parseParameters(node.get("parameters"));
             String description = normalize(node.path("description").asText(""));
+            String prompt = normalize(node.path("prompt").asText(""));
             Boolean strict = node.has("strict") ? node.path("strict").asBoolean(false) : null;
             String toolApi = node.has("toolApi") && node.get("toolApi").isTextual()
                     ? node.get("toolApi").asText()
@@ -148,6 +149,7 @@ public class CapabilityRegistryService {
             CapabilityDescriptor descriptor = new CapabilityDescriptor(
                     name,
                     description,
+                    prompt,
                     parameters,
                     strict,
                     kind,

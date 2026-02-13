@@ -8,6 +8,7 @@ import com.linlay.springaiagw.tool.BaseTool;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * 构建各模式（PLAIN / RE_ACT / PLAN_EXECUTE）的 system prompt 和 user prompt。
@@ -79,18 +80,30 @@ class AgentPromptBuilder {
     }
 
     String planExecuteLoopSystemPrompt() {
-        return normalize(systemPrompt, "你是通用助理")
+        return runtimeSystemPrompt()
                 + "\n你当前处于 PLAN-EXECUTE 循环阶段：每轮可调用一个或多个工具（支持并行），执行完成后再决策下一步。";
     }
 
     String reactSystemPrompt() {
-        return normalize(systemPrompt, "你是通用助理")
+        return runtimeSystemPrompt()
                 + "\n你当前处于 RE-ACT 阶段：每轮只做一个动作决策（继续调用工具或直接给最终回答）。";
     }
 
     String plainDecisionSystemPrompt() {
-        return normalize(systemPrompt, "你是通用助理")
+        return runtimeSystemPrompt()
                 + "\n你当前处于 PLAIN 单工具决策阶段：先判断是否需要工具；若需要，只能调用一个工具。";
+    }
+
+    String runtimeSystemPrompt() {
+        String base = normalize(systemPrompt, "你是通用助理");
+        String toolPrompts = enabledToolPrompts();
+        if (toolPrompts.isBlank()) {
+            return base;
+        }
+        return base
+                + "\n\n工具附加提示（按需遵循）：\n"
+                + toolPrompts
+                + "\n仅当需要渲染 viewport 时遵循对应工具的 type/key 约束。";
     }
 
     String buildPlanExecuteLoopFinalPrompt(AgentRequest request, List<Map<String, Object>> toolRecords) {
@@ -140,6 +153,24 @@ class AgentPromptBuilder {
                 .map(tool -> "- " + tool.name() + "：" + tool.description())
                 .reduce((left, right) -> left + "\n" + right)
                 .orElse("- 无可用工具");
+    }
+
+    private String enabledToolPrompts() {
+        if (enabledToolsByName.isEmpty()) {
+            return "";
+        }
+        return enabledToolsByName.values().stream()
+                .sorted(Comparator.comparing(BaseTool::name))
+                .map(tool -> {
+                    String prompt = normalize(tool.prompt(), "");
+                    if (prompt.isBlank()) {
+                        return null;
+                    }
+                    return "- " + tool.name() + "：" + prompt;
+                })
+                .filter(Objects::nonNull)
+                .reduce((left, right) -> left + "\n" + right)
+                .orElse("");
     }
 
     String toJson(Object value) {

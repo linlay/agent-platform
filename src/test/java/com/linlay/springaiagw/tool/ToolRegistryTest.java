@@ -84,6 +84,7 @@ class ToolRegistryTest {
                       "type": "function",
                       "name": "city_datetime",
                       "description": "city datetime from backend",
+                      "prompt": "use city datetime prompt",
                       "parameters": {
                         "type": "object",
                         "properties": {
@@ -114,6 +115,7 @@ class ToolRegistryTest {
                 .orElseThrow();
 
         assertThat(cityTool.description()).isEqualTo("city datetime from backend");
+        assertThat(cityTool.prompt()).isEqualTo("use city datetime prompt");
         assertThat(cityTool.parametersSchema().get("required")).isEqualTo(List.of("city"));
         assertThat(toolRegistry.invoke("city_datetime", Map.of("city", "Shanghai")).path("tool").asText())
                 .isEqualTo("city_datetime");

@@ -1,7 +1,5 @@
 package com.linlay.springaiagw.service;
 
-import com.linlay.springaiagw.config.CapabilityCatalogProperties;
-import com.linlay.springaiagw.config.ViewportCatalogProperties;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,22 +20,25 @@ public class RuntimeResourceSyncService {
 
     private static final Logger log = LoggerFactory.getLogger(RuntimeResourceSyncService.class);
 
-    private final ViewportCatalogProperties viewportProperties;
-    private final CapabilityCatalogProperties capabilityProperties;
-    private final ResourcePatternResolver resourceResolver = new PathMatchingResourcePatternResolver();
+    private final ResourcePatternResolver resourceResolver;
+    private final Path runtimeRootDir;
 
-    public RuntimeResourceSyncService(
-            ViewportCatalogProperties viewportProperties,
-            CapabilityCatalogProperties capabilityProperties
-    ) {
-        this.viewportProperties = viewportProperties;
-        this.capabilityProperties = capabilityProperties;
+    public RuntimeResourceSyncService() {
+        this(
+                new PathMatchingResourcePatternResolver(),
+                Path.of(System.getProperty("user.dir", ".")).toAbsolutePath().normalize()
+        );
+    }
+
+    RuntimeResourceSyncService(ResourcePatternResolver resourceResolver, Path runtimeRootDir) {
+        this.resourceResolver = resourceResolver;
+        this.runtimeRootDir = runtimeRootDir;
     }
 
     @PostConstruct
     public void syncRuntimeDirectories() {
-        syncResourceDirectory("viewports", Path.of(viewportProperties.getExternalDir()).toAbsolutePath().normalize());
-        syncResourceDirectory("tools", Path.of(capabilityProperties.getToolsExternalDir()).toAbsolutePath().normalize());
+        syncResourceDirectory("viewports", runtimeRootDir.resolve("viewports").toAbsolutePath().normalize());
+        syncResourceDirectory("tools", runtimeRootDir.resolve("tools").toAbsolutePath().normalize());
     }
 
     private void syncResourceDirectory(String resourceDir, Path targetDir) {
@@ -69,9 +70,6 @@ public class RuntimeResourceSyncService {
             Path target = targetDir.resolve(relativePath).normalize();
             if (!target.startsWith(targetDir)) {
                 log.warn("Skip suspicious resource path {} -> {}", relativePath, target);
-                continue;
-            }
-            if (Files.exists(target)) {
                 continue;
             }
 

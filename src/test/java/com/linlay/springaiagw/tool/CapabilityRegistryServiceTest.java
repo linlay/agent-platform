@@ -23,7 +23,7 @@ class CapabilityRegistryServiceTest {
         Files.writeString(toolsDir.resolve("bash.backend"), """
                 {
                   "tools": [
-                    {"type":"function", "name":"bash", "description":"bash tool", "parameters":{"type":"object"}}
+                    {"type":"function", "name":"bash", "description":"bash tool", "prompt":"bash prompt", "parameters":{"type":"object"}}
                   ]
                 }
                 """);
@@ -61,6 +61,7 @@ class CapabilityRegistryServiceTest {
 
         assertThat(backend.kind()).isEqualTo(CapabilityKind.BACKEND);
         assertThat(backend.toolType()).isEqualTo("function");
+        assertThat(backend.prompt()).isEqualTo("bash prompt");
         assertThat(service.find("show_weather_card")).isEmpty();
 
         assertThat(action.kind()).isEqualTo(CapabilityKind.ACTION);

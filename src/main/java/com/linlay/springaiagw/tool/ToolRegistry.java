@@ -105,6 +105,7 @@ public class ToolRegistry {
         return Optional.of(new CapabilityDescriptor(
                 normalizedName,
                 nativeTool.description(),
+                nativeTool.prompt(),
                 nativeTool.parametersSchema(),
                 false,
                 CapabilityKind.BACKEND,
@@ -163,6 +164,11 @@ public class ToolRegistry {
         }
 
         @Override
+        public String prompt() {
+            return descriptor.prompt();
+        }
+
+        @Override
         public Map<String, Object> parametersSchema() {
             return descriptor.parameters();
         }
@@ -190,6 +196,14 @@ public class ToolRegistry {
         @Override
         public String description() {
             return descriptor.description();
+        }
+
+        @Override
+        public String prompt() {
+            if (descriptor.prompt() != null && !descriptor.prompt().isBlank()) {
+                return descriptor.prompt();
+            }
+            return delegate.prompt();
         }
 
         @Override

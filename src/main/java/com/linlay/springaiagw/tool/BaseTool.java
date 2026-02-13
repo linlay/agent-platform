@@ -12,6 +12,10 @@ public interface BaseTool {
         return "";
     }
 
+    default String prompt() {
+        return "";
+    }
+
     default Map<String, Object> parametersSchema() {
         return Map.of(
                 "type", "object",
