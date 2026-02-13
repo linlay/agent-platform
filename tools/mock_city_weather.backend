@@ -1,0 +1,27 @@
+{
+  "tools": [
+    {
+      "type": "function",
+      "name": "mock_city_weather",
+      "description": "[MOCK] 根据 city 和 date 查询天气（伪造数据）",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "city": {
+            "type": "string",
+            "description": "城市名称"
+          },
+          "date": {
+            "type": "string",
+            "description": "日期，建议 YYYY-MM-DD"
+          }
+        },
+        "required": [
+          "city",
+          "date"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ]
+}

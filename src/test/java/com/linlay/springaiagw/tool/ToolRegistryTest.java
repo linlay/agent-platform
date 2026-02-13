@@ -1,8 +1,11 @@
 package com.linlay.springaiagw.tool;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.linlay.springaiagw.config.CapabilityCatalogProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.beans.factory.support.StaticListableBeanFactory;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -43,6 +46,52 @@ class ToolRegistryTest {
         assertThat(result.path("date").asText()).isNotBlank();
         assertThat(result.path("time").asText()).isNotBlank();
         assertThatCode(() -> ZonedDateTime.parse(result.path("iso").asText())).doesNotThrowAnyException();
+    }
+
+    @Test
+    void backendCapabilityMetadataShouldOverrideNativeToolDefinition(@TempDir Path tempDir) throws IOException {
+        Path toolsDir = tempDir.resolve("tools");
+        Files.createDirectories(toolsDir);
+        Files.writeString(toolsDir.resolve("city_datetime.backend"), """
+                {
+                  "tools": [
+                    {
+                      "type": "function",
+                      "name": "city_datetime",
+                      "description": "city datetime from backend",
+                      "parameters": {
+                        "type": "object",
+                        "properties": {
+                          "city": {"type": "string"}
+                        },
+                        "required": ["city"],
+                        "additionalProperties": false
+                      }
+                    }
+                  ]
+                }
+                """);
+
+        CapabilityCatalogProperties properties = new CapabilityCatalogProperties();
+        properties.setToolsExternalDir(toolsDir.toString());
+        CapabilityRegistryService capabilityRegistryService = new CapabilityRegistryService(new ObjectMapper(), properties);
+
+        StaticListableBeanFactory beanFactory = new StaticListableBeanFactory();
+        beanFactory.addBean("capabilityRegistryService", capabilityRegistryService);
+        ToolRegistry toolRegistry = new ToolRegistry(
+                List.of(new CityDateTimeTool()),
+                beanFactory.getBeanProvider(CapabilityRegistryService.class)
+        );
+
+        BaseTool cityTool = toolRegistry.list().stream()
+                .filter(tool -> "city_datetime".equals(tool.name()))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(cityTool.description()).isEqualTo("city datetime from backend");
+        assertThat(cityTool.parametersSchema().get("required")).isEqualTo(List.of("city"));
+        assertThat(toolRegistry.invoke("city_datetime", Map.of("city", "Shanghai")).path("tool").asText())
+                .isEqualTo("city_datetime");
     }
 
     @Test

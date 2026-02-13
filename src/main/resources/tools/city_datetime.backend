@@ -1,0 +1,19 @@
+{
+  "tools": [
+    {
+      "type": "function",
+      "name": "city_datetime",
+      "description": "根据 city 查询当前日期和时间（实时系统时钟）",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "city": {
+            "type": "string",
+            "description": "城市名称，例如 Shanghai、北京、东京"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  ]
+}

@@ -16,11 +16,9 @@ class CapabilityRegistryServiceTest {
     Path tempDir;
 
     @Test
-    void shouldLoadBackendFrontendAndActionCapabilities() throws Exception {
+    void shouldLoadBackendAndActionCapabilitiesFromToolsDirectory() throws Exception {
         Path toolsDir = tempDir.resolve("tools");
-        Path actionsDir = tempDir.resolve("actions");
         Files.createDirectories(toolsDir);
-        Files.createDirectories(actionsDir);
 
         Files.writeString(toolsDir.resolve("bash.backend"), """
                 {
@@ -29,37 +27,25 @@ class CapabilityRegistryServiceTest {
                   ]
                 }
                 """);
-        Files.writeString(toolsDir.resolve("show_weather_card.html"), """
+        Files.writeString(toolsDir.resolve("switch_theme.action"), """
                 {
                   "tools": [
-                    {"type":"function", "name":"show_weather_card", "description":"show weather", "parameters":{"type":"object"}}
-                  ]
-                }
-                """);
-        Files.writeString(actionsDir.resolve("switch_theme.action"), """
-                {
-                  "tools": [
-                    {"type":"function", "name":"switch_frontend_theme", "description":"switch", "parameters":{"type":"object"}}
+                    {"type":"function", "name":"switch_theme", "description":"switch", "parameters":{"type":"object"}}
                   ]
                 }
                 """);
 
         CapabilityCatalogProperties properties = new CapabilityCatalogProperties();
         properties.setToolsExternalDir(toolsDir.toString());
-        properties.setActionsExternalDir(actionsDir.toString());
 
         CapabilityRegistryService service = new CapabilityRegistryService(new ObjectMapper(), properties);
 
         CapabilityDescriptor backend = service.find("bash").orElseThrow();
-        CapabilityDescriptor frontend = service.find("show_weather_card").orElseThrow();
-        CapabilityDescriptor action = service.find("switch_frontend_theme").orElseThrow();
+        CapabilityDescriptor action = service.find("switch_theme").orElseThrow();
 
         assertThat(backend.kind()).isEqualTo(CapabilityKind.BACKEND);
         assertThat(backend.toolType()).isEqualTo("function");
-
-        assertThat(frontend.kind()).isEqualTo(CapabilityKind.FRONTEND);
-        assertThat(frontend.toolType()).isEqualTo("html");
-        assertThat(frontend.viewportKey()).isEqualTo("show_weather_card");
+        assertThat(service.find("show_weather_card")).isEmpty();
 
         assertThat(action.kind()).isEqualTo(CapabilityKind.ACTION);
         assertThat(action.toolType()).isEqualTo("action");
@@ -68,9 +54,7 @@ class CapabilityRegistryServiceTest {
     @Test
     void shouldSkipConflictedCapabilityNames() throws Exception {
         Path toolsDir = tempDir.resolve("tools");
-        Path actionsDir = tempDir.resolve("actions");
         Files.createDirectories(toolsDir);
-        Files.createDirectories(actionsDir);
 
         Files.writeString(toolsDir.resolve("a.backend"), """
                 {
@@ -79,7 +63,7 @@ class CapabilityRegistryServiceTest {
                   ]
                 }
                 """);
-        Files.writeString(actionsDir.resolve("b.action"), """
+        Files.writeString(toolsDir.resolve("b.action"), """
                 {
                   "tools": [
                     {"type":"function", "name":"dup_name", "description":"b", "parameters":{"type":"object"}}
@@ -89,7 +73,6 @@ class CapabilityRegistryServiceTest {
 
         CapabilityCatalogProperties properties = new CapabilityCatalogProperties();
         properties.setToolsExternalDir(toolsDir.toString());
-        properties.setActionsExternalDir(actionsDir.toString());
 
         CapabilityRegistryService service = new CapabilityRegistryService(new ObjectMapper(), properties);
 

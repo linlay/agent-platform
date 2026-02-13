@@ -6,7 +6,6 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public class CapabilityCatalogProperties {
 
     private String toolsExternalDir = "tools";
-    private String actionsExternalDir = "actions";
     private long refreshIntervalMs = 30_000L;
 
     public String getToolsExternalDir() {
@@ -15,14 +14,6 @@ public class CapabilityCatalogProperties {
 
     public void setToolsExternalDir(String toolsExternalDir) {
         this.toolsExternalDir = toolsExternalDir;
-    }
-
-    public String getActionsExternalDir() {
-        return actionsExternalDir;
-    }
-
-    public void setActionsExternalDir(String actionsExternalDir) {
-        this.actionsExternalDir = actionsExternalDir;
     }
 
     public long getRefreshIntervalMs() {

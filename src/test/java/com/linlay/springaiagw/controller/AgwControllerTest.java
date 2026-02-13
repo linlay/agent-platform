@@ -41,8 +41,7 @@ import static org.assertj.core.api.Assertions.assertThat;
                 "agent.providers.siliconflow.model=test-siliconflow-model",
                 "memory.chat.dir=${java.io.tmpdir}/springai-agw-test-chats-${random.uuid}",
                 "agent.viewport.external-dir=${java.io.tmpdir}/springai-agw-test-viewports-${random.uuid}",
-                "agent.capability.tools-external-dir=${java.io.tmpdir}/springai-agw-test-tools-${random.uuid}",
-                "agent.capability.actions-external-dir=${java.io.tmpdir}/springai-agw-test-actions-${random.uuid}"
+                "agent.capability.tools-external-dir=${java.io.tmpdir}/springai-agw-test-tools-${random.uuid}"
         }
 )
 @AutoConfigureWebTestClient
@@ -113,7 +112,9 @@ class AgwControllerTest {
                 .jsonPath("$.msg").isEqualTo("success")
                 .jsonPath("$.data[0].key").exists()
                 .jsonPath("$.data[0].meta.providerType").doesNotExist()
-                .jsonPath("$.data[?(@.key=='demoPlanExecute')]").exists();
+                .jsonPath("$.data[?(@.key=='demoPlanExecute')]").exists()
+                .jsonPath("$.data[?(@.key=='demoViewport')]").exists()
+                .jsonPath("$.data[?(@.key=='demoAction')]").exists();
     }
 
     @Test

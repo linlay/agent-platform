@@ -19,33 +19,6 @@ public class MockOpsRunbookTool extends AbstractDeterministicTool {
     }
 
     @Override
-    public String description() {
-        return "[MOCK] 根据 message 生成巡检 runbook（伪造数据）";
-    }
-
-    @Override
-    public Map<String, Object> parametersSchema() {
-        return Map.of(
-                "type", "object",
-                "properties", Map.of(
-                        "message", Map.of(
-                                "type", "string",
-                                "description", "巡检需求或问题描述"
-                        ),
-                        "query", Map.of(
-                                "type", "string",
-                                "description", "message 的别名"
-                        ),
-                        "city", Map.of(
-                                "type", "string",
-                                "description", "城市名，可选"
-                        )
-                ),
-                "additionalProperties", false
-        );
-    }
-
-    @Override
     public JsonNode invoke(Map<String, Object> args) {
         String message = String.valueOf(args.getOrDefault("message", args.getOrDefault("query", "")));
         String city = String.valueOf(args.getOrDefault("city", "Shanghai"));

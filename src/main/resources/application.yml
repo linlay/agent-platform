@@ -23,7 +23,6 @@ agent:
     refresh-interval-ms: ${AGENT_VIEWPORT_REFRESH_INTERVAL_MS:30000}
   capability:
     tools-external-dir: ${AGENT_TOOLS_EXTERNAL_DIR:tools}
-    actions-external-dir: ${AGENT_ACTIONS_EXTERNAL_DIR:actions}
     refresh-interval-ms: ${AGENT_CAPABILITY_REFRESH_INTERVAL_MS:30000}
   llm:
     interaction-log:

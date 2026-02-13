@@ -105,7 +105,6 @@
 ├── agents/
 ├── viewports/
 ├── tools/
-├── actions/
 ├── pom.xml
 ├── settings.xml
 └── Dockerfile
@@ -213,21 +212,19 @@ curl -N -X POST "http://localhost:8080/api/query" \
 - 流式消费 `delta.tool_calls`
 - 不再依赖正文中的 `toolCall/toolCalls` JSON 字段（仍保留向后兼容解析）
 
-## viewports / tools / actions 目录
+## viewports / tools 目录
 
 - 运行目录默认值：
   - `viewports/`
   - `tools/`
-  - `actions/`
-- 启动时会尝试将 `src/main/resources/viewports|tools|actions` 下文件同步到运行目录（不覆盖同名文件）。
+- 启动时会尝试将 `src/main/resources/viewports|tools` 下文件同步到运行目录（不覆盖同名文件）。
 - `viewports` 支持后缀：`.html`、`.qlc`、`.dqlc`、`.json_schema`、`.custom`，默认每 30 秒刷新内存快照。
 - `tools`:
   - 后端工具文件：`*.backend`
   - 前端工具文件：`*.html` / `*.qlc` / `*.dqlc`
-  - 文件内容均为模型工具定义 JSON（`{"tools":[...]}`）
-- `actions`:
   - 动作文件：`*.action`
-  - 文件内容同样为模型工具定义 JSON（`{"tools":[...]}`）
+  - 文件内容均为模型工具定义 JSON（`{"tools":[...]}`）
+- `show_weather_card` 当前仅作为 viewport（`viewports/show_weather_card.html`），不是可调用 tool。
 - 工具名冲突策略：冲突项会被跳过，其它项继续生效。
 
 ### /api/viewport 约定
@@ -239,6 +236,21 @@ curl -N -X POST "http://localhost:8080/api/query" \
   - `qlc/dqlc/json_schema/custom`：`data` 直接是文件内 JSON 对象
 - `viewportKey` 不存在时返回 `404`。
 
+### viewport 输出协议示例
+
+```viewport
+type=html, key=show_weather_card
+{
+  "city": "Shanghai",
+  "date": "2026-02-13",
+  "temperatureC": 22,
+  "humidity": 61,
+  "windLevel": 3,
+  "condition": "Partly Cloudy",
+  "mockTag": "idempotent-random-json"
+}
+```
+
 ### 前端 tool 提交流程
 
 - 前端工具触发后会发送 `tool.start`（`toolType` 为 `html/qlc/dqlc`），并等待 `/api/submit`。
@@ -249,13 +261,14 @@ curl -N -X POST "http://localhost:8080/api/query" \
   - 若无 `params`，返回 `{}`。
 - 动作工具触发 `action.start` 后不等待提交，直接返回 `"OK"` 给模型。
 
-## 内置 agentCreator 智能体
+## 内置智能体
 
-- 内置 `agentCreator` 智能体，模式为 `PLAN_EXECUTE`
-- 内置真实工具 `agent_file_create`，用于创建/更新 `agents/{agentId}.json`
-- 建议在请求中提供：`agentId`、`description`、`systemPrompt`、`providerType`、`model`、`deepThink`
-- 工具会校验 `agentId`（仅允许 `A-Za-z0-9_-`，最长 64）
-- `providerType` 不做白名单校验；未提供时默认 `BAILIAN`
+- `demoViewport`（`PLAN_EXECUTE`）：调用 `city_datetime`、`mock_city_weather`，最终按 `viewport` 代码块协议输出天气卡片数据。
+- `demoAction`（`PLAIN`）：调用 `switch_theme` 执行主题切换（`theme` 仅支持 `light/dark`）。
+- `agentCreator`（`PLAN_EXECUTE`）：调用 `agent_file_create` 创建/更新 `agents/{agentId}.json`。
+- 使用 `agentCreator` 时建议提供：`agentId`、`description`、`systemPrompt`、`providerType`、`model`、`deepThink`。
+- `agent_file_create` 会校验 `agentId`（仅允许 `A-Za-z0-9_-`，最长 64）。
+- `providerType` 不做白名单校验；未提供时默认 `BAILIAN`。
 - 生成格式：
 
 ```json
@@ -296,7 +309,6 @@ AGENT_BASH_ALLOWED_PATHS=/opt,/data
 AGENT_VIEWPORT_EXTERNAL_DIR=/opt/viewports
 AGENT_VIEWPORT_REFRESH_INTERVAL_MS=30000
 AGENT_TOOLS_EXTERNAL_DIR=/opt/tools
-AGENT_ACTIONS_EXTERNAL_DIR=/opt/actions
 AGENT_CAPABILITY_REFRESH_INTERVAL_MS=30000
 AGENT_TOOLS_FRONTEND_SUBMIT_TIMEOUT_MS=300000
 ```
@@ -326,4 +338,16 @@ curl -N -X POST "http://localhost:8080/api/query" \
 curl -N -X POST "http://localhost:8080/api/query" \
   -H "Content-Type: application/json" \
   -d '{"message":"规划上海机房明天搬迁的实施计划，你要先列给我看计划，然后再一步步落实","agentKey":"demoPlanExecute"}'
+```
+
+```bash
+curl -N -X POST "http://localhost:8080/api/query" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"帮我查上海明天天气并展示卡片","agentKey":"demoViewport"}'
+```
+
+```bash
+curl -N -X POST "http://localhost:8080/api/query" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"切换到深色主题","agentKey":"demoAction"}'
 ```

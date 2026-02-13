@@ -66,7 +66,6 @@ public class CapabilityRegistryService {
             Set<String> conflicts = new HashSet<>();
 
             loadToolsDirectory(Path.of(properties.getToolsExternalDir()).toAbsolutePath().normalize(), loaded, conflicts);
-            loadActionsDirectory(Path.of(properties.getActionsExternalDir()).toAbsolutePath().normalize(), loaded, conflicts);
 
             byName = Map.copyOf(loaded);
             log.debug("Refreshed capability registry, size={}", loaded.size());
@@ -88,29 +87,16 @@ public class CapabilityRegistryService {
                 parseFile(file, CapabilityKind.BACKEND, "function", null, loaded, conflicts);
                 continue;
             }
+            if (lower.endsWith(ACTION_SUFFIX)) {
+                parseFile(file, CapabilityKind.ACTION, "action", null, loaded, conflicts);
+                continue;
+            }
             String frontendSuffix = resolveFrontendSuffix(lower);
             if (frontendSuffix == null) {
                 continue;
             }
             String viewportKey = fileName.substring(0, fileName.length() - frontendSuffix.length()).toLowerCase(Locale.ROOT);
             parseFile(file, CapabilityKind.FRONTEND, frontendSuffix.substring(1), viewportKey, loaded, conflicts);
-        }
-    }
-
-    private void loadActionsDirectory(Path dir, Map<String, CapabilityDescriptor> loaded, Set<String> conflicts) {
-        if (!Files.exists(dir)) {
-            return;
-        }
-        if (!Files.isDirectory(dir)) {
-            log.warn("Configured actions directory is not a directory: {}", dir);
-            return;
-        }
-        for (Path file : sortedFiles(dir)) {
-            String fileName = file.getFileName().toString().toLowerCase(Locale.ROOT);
-            if (!fileName.endsWith(ACTION_SUFFIX)) {
-                continue;
-            }
-            parseFile(file, CapabilityKind.ACTION, "action", null, loaded, conflicts);
         }
     }
 

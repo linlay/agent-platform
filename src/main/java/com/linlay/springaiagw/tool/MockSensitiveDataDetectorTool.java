@@ -33,30 +33,6 @@ public class MockSensitiveDataDetectorTool extends AbstractDeterministicTool {
     }
 
     @Override
-    public String description() {
-        return "[MOCK] 检测超长文本中是否包含敏感数据，返回有/没有和简短说明";
-    }
-
-    @Override
-    public Map<String, Object> parametersSchema() {
-        return Map.of(
-                "type", "object",
-                "properties", Map.of(
-                        "text", Map.of(
-                                "type", "string",
-                                "description", "待检测文本，推荐使用 text 字段"
-                        ),
-                        "content", Map.of("type", "string"),
-                        "message", Map.of("type", "string"),
-                        "query", Map.of("type", "string"),
-                        "document", Map.of("type", "string"),
-                        "input", Map.of("type", "string")
-                ),
-                "additionalProperties", false
-        );
-    }
-
-    @Override
     public JsonNode invoke(Map<String, Object> args) {
         String text = readText(args);
         ObjectNode root = OBJECT_MAPPER.createObjectNode();

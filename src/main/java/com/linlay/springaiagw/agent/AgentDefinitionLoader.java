@@ -85,6 +85,32 @@ public class AgentDefinitionLoader {
                         List.of("mock_ops_runbook", "city_datetime", "mock_city_weather", "mock_sensitive_data_detector", "bash")
                 ),
                 new AgentDefinition(
+                        "demoViewport",
+                        "内置示例：先查时间与天气，再输出 viewport 协议代码块",
+                        "bailian",
+                        "qwen3-max",
+                        "你是天气视图助手。必须先通过工具获取数据，再输出 viewport 协议代码块。"
+                                + "最终回答必须且只能是一个以 ```viewport 开头的 fenced block，不得附加自然语言。"
+                                + "输出模板：```viewport\\n"
+                                + "type=<dynamic_type>, key=<dynamic_key>\\n"
+                                + "{...json...}\\n```。"
+                                + "当无法判断 type/key 时，使用 type=html, key=show_weather_card。"
+                                + "JSON 必须是 mock_city_weather 的结果对象，包含 city,date,temperatureC,humidity,windLevel,condition,mockTag。",
+                        AgentMode.PLAN_EXECUTE,
+                        List.of("city_datetime", "mock_city_weather")
+                ),
+                new AgentDefinition(
+                        "demoAction",
+                        "内置示例：主题切换动作智能体",
+                        "bailian",
+                        "qwen3-max",
+                        "你是主题切换助手。用户提出主题切换需求时，必须调用 switch_theme。"
+                                + "theme 仅允许 light 或 dark。"
+                                + "工具执行后输出一句简短确认。",
+                        AgentMode.PLAIN,
+                        List.of("switch_theme")
+                ),
+                new AgentDefinition(
                         "agentCreator",
                         "内置智能体：根据需求创建 agents 目录下的智能体配置",
                         "bailian",

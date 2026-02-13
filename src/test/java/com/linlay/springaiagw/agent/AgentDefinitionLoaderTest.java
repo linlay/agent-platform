@@ -45,7 +45,7 @@ class AgentDefinitionLoaderTest {
     }
 
     @Test
-    void shouldIncludeBuiltInAgentCreator() {
+    void shouldIncludeBuiltInAgents() {
         AgentCatalogProperties properties = new AgentCatalogProperties();
         properties.setExternalDir(tempDir.toString());
 
@@ -57,6 +57,21 @@ class AgentDefinitionLoaderTest {
         assertThat(byId).containsKey("agentCreator");
         assertThat(byId.get("agentCreator").mode()).isEqualTo(AgentMode.PLAN_EXECUTE);
         assertThat(byId.get("agentCreator").tools()).containsExactly("agent_file_create");
+
+        assertThat(byId).containsKey("demoViewport");
+        assertThat(byId.get("demoViewport").mode()).isEqualTo(AgentMode.PLAN_EXECUTE);
+        assertThat(byId.get("demoViewport").tools()).containsExactly("city_datetime", "mock_city_weather");
+        assertThat(byId.get("demoViewport").systemPrompt()).contains("```viewport");
+        assertThat(byId.get("demoViewport").systemPrompt()).contains("type=html, key=show_weather_card");
+
+        assertThat(byId).containsKey("demoAction");
+        assertThat(byId.get("demoAction").mode()).isEqualTo(AgentMode.PLAIN);
+        assertThat(byId.get("demoAction").tools()).containsExactly("switch_theme");
+
+        assertThat(byId).containsKey("demoPlain");
+        assertThat(byId.get("demoPlain").tools()).doesNotContain("show_weather_card");
+        assertThat(byId).containsKey("demoReAct");
+        assertThat(byId.get("demoReAct").tools()).doesNotContain("show_weather_card");
     }
 
     @Test

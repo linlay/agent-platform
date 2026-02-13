@@ -1,0 +1,44 @@
+{
+  "tools": [
+    {
+      "type": "function",
+      "name": "agent_file_create",
+      "description": "创建或更新 agents 目录下的智能体配置文件。参数: agentId,description,providerType,model,systemPrompt,deepThink",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "agentId": {
+            "type": "string",
+            "description": "目标 agentId"
+          },
+          "description": {
+            "type": "string"
+          },
+          "providerType": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "systemPrompt": {
+            "type": "string"
+          },
+          "deepThink": {
+            "type": "boolean"
+          },
+          "mode": {
+            "type": "string"
+          },
+          "config": {
+            "type": "object",
+            "description": "可选，支持把 agent 配置放在 config 对象中"
+          }
+        },
+        "required": [
+          "agentId"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ]
+}

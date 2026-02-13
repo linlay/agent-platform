@@ -38,7 +38,6 @@ public class RuntimeResourceSyncService {
     public void syncRuntimeDirectories() {
         syncResourceDirectory("viewports", Path.of(viewportProperties.getExternalDir()).toAbsolutePath().normalize());
         syncResourceDirectory("tools", Path.of(capabilityProperties.getToolsExternalDir()).toAbsolutePath().normalize());
-        syncResourceDirectory("actions", Path.of(capabilityProperties.getActionsExternalDir()).toAbsolutePath().normalize());
     }
 
     private void syncResourceDirectory(String resourceDir, Path targetDir) {

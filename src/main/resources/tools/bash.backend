@@ -1,0 +1,22 @@
+{
+  "tools": [
+    {
+      "type": "function",
+      "name": "bash",
+      "description": "运行白名单 bash 命令（支持 ls/pwd/cat/head/tail/top/free/df，仅允许授权目录内路径）",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "单条白名单命令，例如 ls、pwd、df -h。禁止管道与多命令拼接。"
+          }
+        },
+        "required": [
+          "command"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ]
+}

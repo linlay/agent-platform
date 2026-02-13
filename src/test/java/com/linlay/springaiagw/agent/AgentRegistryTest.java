@@ -57,7 +57,14 @@ class AgentRegistryTest {
                 memoryStore
         );
 
-        assertThat(registry.listIds()).contains("demoPlain", "demoReAct", "demoPlanExecute", "agentCreator");
+        assertThat(registry.listIds()).contains(
+                "demoPlain",
+                "demoReAct",
+                "demoPlanExecute",
+                "demoViewport",
+                "demoAction",
+                "agentCreator"
+        );
         assertThatThrownBy(() -> registry.get("demoExternal"))
                 .isInstanceOf(IllegalArgumentException.class);
 

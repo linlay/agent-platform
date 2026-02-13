@@ -59,10 +59,12 @@ public class ToolRegistry {
         for (CapabilityDescriptor descriptor : capabilityRegistryService.list()) {
             String name = normalizeName(descriptor.name());
             if (descriptor.kind() == CapabilityKind.BACKEND) {
-                // 后端 descriptor 只声明元数据，真实执行能力仍来自 Java 内置工具。
-                if (!nativeToolsByName.containsKey(name) && missingBackendWarnings.add(name)) {
+                BaseTool nativeTool = nativeToolsByName.get(name);
+                if (nativeTool == null && missingBackendWarnings.add(name)) {
                     log.warn("Skip backend capability '{}' because no Java tool implementation is found", name);
+                    continue;
                 }
+                merged.put(name, new BackendMetadataTool(nativeTool, descriptor));
                 continue;
             }
             if (merged.containsKey(name)) {
@@ -168,6 +170,36 @@ public class ToolRegistry {
         @Override
         public JsonNode invoke(Map<String, Object> args) {
             throw new IllegalStateException("Virtual tool cannot be invoked directly: " + descriptor.name());
+        }
+    }
+
+    private static final class BackendMetadataTool implements BaseTool {
+        private final BaseTool delegate;
+        private final CapabilityDescriptor descriptor;
+
+        private BackendMetadataTool(BaseTool delegate, CapabilityDescriptor descriptor) {
+            this.delegate = delegate;
+            this.descriptor = descriptor;
+        }
+
+        @Override
+        public String name() {
+            return delegate.name();
+        }
+
+        @Override
+        public String description() {
+            return descriptor.description();
+        }
+
+        @Override
+        public Map<String, Object> parametersSchema() {
+            return descriptor.parameters();
+        }
+
+        @Override
+        public JsonNode invoke(Map<String, Object> args) {
+            return delegate.invoke(args);
         }
     }
 }

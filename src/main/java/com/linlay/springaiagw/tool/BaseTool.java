@@ -8,7 +8,9 @@ public interface BaseTool {
 
     String name();
 
-    String description();
+    default String description() {
+        return "";
+    }
 
     default Map<String, Object> parametersSchema() {
         return Map.of(

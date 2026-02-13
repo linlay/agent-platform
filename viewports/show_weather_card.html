@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Weather Card</title>
+  <style>
+    :root {
+      --bg: linear-gradient(145deg, #eef4ff, #f8fbff);
+      --card-bg: #ffffff;
+      --text-main: #1b2a44;
+      --text-sub: #5c6f8f;
+      --accent: #1e90ff;
+      --border: #dbe6ff;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 24px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .card {
+      width: min(520px, 100%);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: var(--card-bg);
+      box-shadow: 0 10px 30px rgba(30, 80, 180, 0.12);
+      padding: 18px;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 12px;
+    }
+
+    .city {
+      font-size: 24px;
+      font-weight: 700;
+    }
+
+    .date {
+      font-size: 13px;
+      color: var(--text-sub);
+    }
+
+    .condition {
+      font-size: 16px;
+      color: var(--accent);
+      margin-bottom: 16px;
+      font-weight: 600;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .item {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+      background: #f8fbff;
+    }
+
+    .label {
+      display: block;
+      font-size: 12px;
+      color: var(--text-sub);
+      margin-bottom: 6px;
+    }
+
+    .value {
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .footer {
+      margin-top: 14px;
+      font-size: 12px;
+      color: var(--text-sub);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .ask-btn {
+      border: 0;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 12px;
+      padding: 7px 10px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <section class="card">
+    <div class="header">
+      <div class="city" id="city">--</div>
+      <div class="date" id="date">--</div>
+    </div>
+
+    <div class="condition" id="condition">--</div>
+
+    <div class="grid">
+      <div class="item">
+        <span class="label">温度</span>
+        <span class="value" id="temp">--</span>
+      </div>
+      <div class="item">
+        <span class="label">湿度</span>
+        <span class="value" id="humidity">--</span>
+      </div>
+      <div class="item">
+        <span class="label">风力等级</span>
+        <span class="value" id="wind">--</span>
+      </div>
+      <div class="item">
+        <span class="label">Mock 标识</span>
+        <span class="value" id="mockTag">--</span>
+      </div>
+    </div>
+
+    <div class="footer">
+      <span>数据源: MockCityWeatherTool</span>
+      <button class="ask-btn" type="button" onclick="sendMessage('请继续给我未来三天的天气建议')">继续提问</button>
+    </div>
+  </section>
+
+  <script>
+    const fallback = {
+      city: 'Shanghai',
+      date: '2026-02-13',
+      temperatureC: 22,
+      humidity: 61,
+      windLevel: 3,
+      condition: 'Partly Cloudy',
+      mockTag: 'idempotent-random-json'
+    };
+
+    function normalizeData(raw) {
+      if (!raw || typeof raw !== 'object') {
+        return fallback;
+      }
+
+      let payload = raw;
+      if (payload.result && typeof payload.result === 'object') {
+        payload = payload.result;
+      }
+      if (payload.toolResult && typeof payload.toolResult === 'object') {
+        payload = payload.toolResult;
+      }
+
+      return {
+        city: payload.city ?? fallback.city,
+        date: payload.date ?? fallback.date,
+        temperatureC: payload.temperatureC ?? fallback.temperatureC,
+        humidity: payload.humidity ?? fallback.humidity,
+        windLevel: payload.windLevel ?? fallback.windLevel,
+        condition: payload.condition ?? fallback.condition,
+        mockTag: payload.mockTag ?? fallback.mockTag
+      };
+    }
+
+    function renderCard(data) {
+      const weather = normalizeData(data);
+      document.getElementById('city').textContent = weather.city;
+      document.getElementById('date').textContent = weather.date;
+      document.getElementById('condition').textContent = weather.condition;
+      document.getElementById('temp').textContent = `${weather.temperatureC}°C`;
+      document.getElementById('humidity').textContent = `${weather.humidity}%`;
+      document.getElementById('wind').textContent = `${weather.windLevel} 级`;
+      document.getElementById('mockTag').textContent = weather.mockTag;
+    }
+
+    // 重要！必须监听 message 事件，更改数据
+    window.addEventListener('message', (event) => {
+        renderCard(event.data);
+    });
+    // 重要！如果需要向父容器发送信息，必须存在这个函数，type 是固定的。
+    function sendMessage(message){
+        window.parent.postMessage(
+        {
+            type: 'agw_chat_message',
+            message
+        },
+        '*'
+        );
+    }
+
+    renderCard(fallback);
+  </script>
+</body>
+</html>

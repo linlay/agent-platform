@@ -26,7 +26,6 @@ ENV JAVA_OPTS="-server -Xms256m -XX:MaxRAMPercentage=60" \
     AGENT_EXTERNAL_DIR="/opt/agents" \
     AGENT_VIEWPORT_EXTERNAL_DIR="/opt/viewports" \
     AGENT_TOOLS_EXTERNAL_DIR="/opt/tools" \
-    AGENT_ACTIONS_EXTERNAL_DIR="/opt/actions" \
     MEMORY_CHAT_DIR="/opt/chats"
 
 COPY --from=building /workspace/target/springai-agw-0.0.1-SNAPSHOT.jar /opt/app.jar

@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.stereotype.Component;
 
-import java.util.List;
 import java.util.Map;
 import java.util.Random;
 
@@ -18,30 +17,6 @@ public class MockCityWeatherTool extends AbstractDeterministicTool {
     @Override
     public String name() {
         return "mock_city_weather";
-    }
-
-    @Override
-    public String description() {
-        return "[MOCK] 根据 city 和 date 查询天气（伪造数据）";
-    }
-
-    @Override
-    public Map<String, Object> parametersSchema() {
-        return Map.of(
-                "type", "object",
-                "properties", Map.of(
-                        "city", Map.of(
-                                "type", "string",
-                                "description", "城市名称"
-                        ),
-                        "date", Map.of(
-                                "type", "string",
-                                "description", "日期，建议 YYYY-MM-DD"
-                        )
-                ),
-                "required", List.of("city", "date"),
-                "additionalProperties", false
-        );
     }
 
     @Override

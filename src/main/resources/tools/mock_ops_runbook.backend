@@ -1,0 +1,27 @@
+{
+  "tools": [
+    {
+      "type": "function",
+      "name": "mock_ops_runbook",
+      "description": "[MOCK] 根据 message 生成巡检 runbook（伪造数据）",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "巡检需求或问题描述"
+          },
+          "query": {
+            "type": "string",
+            "description": "message 的别名"
+          },
+          "city": {
+            "type": "string",
+            "description": "城市名，可选"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  ]
+}
