@@ -9,8 +9,8 @@ import java.time.Duration;
 @Service
 public class DeltaStreamService {
 
-    public Flux<AgentDelta> toThinkingDeltas(String fullThinking) {
-        return splitToChars(fullThinking).map(AgentDelta::thinking);
+    public Flux<AgentDelta> toReasoningDeltas(String fullReasoning) {
+        return splitToChars(fullReasoning).map(AgentDelta::reasoning);
     }
 
     public Flux<AgentDelta> toContentDeltas(String fullContent) {

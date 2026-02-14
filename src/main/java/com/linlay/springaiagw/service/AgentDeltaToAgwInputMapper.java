@@ -56,8 +56,8 @@ public class AgentDeltaToAgwInputMapper {
 
         List<AgwInput> inputs = new ArrayList<>();
 
-        if (hasText(delta.thinking())) {
-            inputs.add(new AgwInput.ReasoningDelta(reasoningId, delta.thinking(), null));
+        if (hasText(delta.reasoning())) {
+            inputs.add(new AgwInput.ReasoningDelta(reasoningId, delta.reasoning(), null));
         }
 
         if (hasText(delta.content())) {

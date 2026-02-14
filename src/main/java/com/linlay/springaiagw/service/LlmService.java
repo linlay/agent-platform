@@ -221,6 +221,7 @@ public class LlmService {
                 spec.outputShape(),
                 spec.jsonSchema(),
                 spec.compute(),
+                spec.reasoningEnabled(),
                 spec.maxTokens()
         );
     }
@@ -248,6 +249,7 @@ public class LlmService {
                 OutputShape.TEXT_ONLY,
                 null,
                 ComputePolicy.MEDIUM,
+                false,
                 null
         );
     }
@@ -265,15 +267,16 @@ public class LlmService {
             OutputShape outputShape,
             String jsonSchema,
             ComputePolicy computePolicy,
+            boolean reasoningEnabled,
             Integer maxTokens
     ) {
         ProviderType providerType = toProviderType(providerKey);
         if (providerType != null) {
             return streamDeltas(providerType, model, systemPrompt, historyMessages, userPrompt, tools, stage,
-                    parallelToolCalls, toolChoice, outputShape, jsonSchema, computePolicy, maxTokens);
+                    parallelToolCalls, toolChoice, outputShape, jsonSchema, computePolicy, reasoningEnabled, maxTokens);
         }
         return streamDeltasInternal(providerKey, model, systemPrompt, historyMessages, userPrompt, tools, stage,
-                parallelToolCalls, toolChoice, outputShape, jsonSchema, computePolicy, maxTokens);
+                parallelToolCalls, toolChoice, outputShape, jsonSchema, computePolicy, reasoningEnabled, maxTokens);
     }
 
     @Deprecated
@@ -324,6 +327,7 @@ public class LlmService {
                 OutputShape.TEXT_ONLY,
                 null,
                 ComputePolicy.MEDIUM,
+                false,
                 null
         );
     }
@@ -342,6 +346,7 @@ public class LlmService {
             OutputShape outputShape,
             String jsonSchema,
             ComputePolicy computePolicy,
+            boolean reasoningEnabled,
             Integer maxTokens
     ) {
         String providerKey = resolveProviderKey(providerType);
@@ -352,7 +357,7 @@ public class LlmService {
                     .map(content -> new LlmDelta(content, null, null));
         }
         return streamDeltasInternal(providerKey, model, systemPrompt, historyMessages, userPrompt, tools, stage,
-                parallelToolCalls, toolChoice, outputShape, jsonSchema, computePolicy, maxTokens);
+                parallelToolCalls, toolChoice, outputShape, jsonSchema, computePolicy, reasoningEnabled, maxTokens);
     }
 
     public Flux<String> streamContentRawSse(
@@ -419,6 +424,21 @@ public class LlmService {
             StringBuilder responseBuffer = new StringBuilder();
 
             callLogger.info(log, "[{}][{}] LLM stream request start provider={}, model={}", traceId, stage, providerKey, model);
+            callLogger.info(log, "[{}][{}] LLM stream request body:\n{}", traceId, stage, safeJson(rawSseClient.buildRequestBody(
+                    providerKey,
+                    model,
+                    systemPrompt,
+                    historyMessages,
+                    userPrompt,
+                    List.of(),
+                    false,
+                    ToolChoice.NONE,
+                    OutputShape.TEXT_ONLY,
+                    null,
+                    ComputePolicy.MEDIUM,
+                    false,
+                    null
+            )));
             callLogger.info(log, "[{}][{}] LLM stream system prompt:\n{}", traceId, stage, callLogger.normalizePrompt(systemPrompt));
             callLogger.info(log, "[{}][{}] LLM stream history messages count={}", traceId, stage, historyMessages == null ? 0 : historyMessages.size());
             callLogger.logHistoryMessages(log, traceId, stage, historyMessages);
@@ -484,6 +504,7 @@ public class LlmService {
             OutputShape outputShape,
             String jsonSchema,
             ComputePolicy computePolicy,
+            boolean reasoningEnabled,
             Integer maxTokens
     ) {
         return Flux.defer(() -> {
@@ -492,10 +513,27 @@ public class LlmService {
             StringBuilder responseBuffer = new StringBuilder();
             ChatClient chatClient = resolveChatClient(providerKey);
             boolean hasTools = tools != null && !tools.isEmpty();
-            boolean preferRawSse = requiresRawSse(outputShape, jsonSchema, computePolicy);
+            boolean preferRawSse = requiresRawSse(outputShape, jsonSchema, computePolicy, reasoningEnabled);
+            Map<String, Object> requestBody = rawSseClient.buildRequestBody(
+                    providerKey,
+                    model,
+                    systemPrompt,
+                    historyMessages,
+                    userPrompt,
+                    tools,
+                    parallelToolCalls,
+                    toolChoice,
+                    outputShape,
+                    jsonSchema,
+                    computePolicy,
+                    reasoningEnabled,
+                    maxTokens
+            );
 
             callLogger.info(log, "[{}][{}] LLM delta stream request start provider={}, model={}, tools={}",
                     traceId, stage, providerKey, model, hasTools ? tools.size() : 0);
+            callLogger.info(log, "[{}][{}] LLM delta stream request body:\n{}",
+                    traceId, stage, safeJson(requestBody));
             callLogger.info(log, "[{}][{}] LLM delta stream system prompt:\n{}", traceId, stage, callLogger.normalizePrompt(systemPrompt));
             callLogger.info(log, "[{}][{}] LLM delta stream history messages count={}", traceId, stage, historyMessages == null ? 0 : historyMessages.size());
             callLogger.logHistoryMessages(log, traceId, stage, historyMessages);
@@ -521,6 +559,7 @@ public class LlmService {
                                 outputShape,
                                 jsonSchema,
                                 computePolicy,
+                                reasoningEnabled,
                                 maxTokens,
                                 traceId,
                                 stage
@@ -614,6 +653,21 @@ public class LlmService {
                     long startNanos = System.nanoTime();
 
                     callLogger.info(log, "[{}][{}] LLM call request start provider={}, model={}", traceId, stage, providerKey, model);
+                    callLogger.info(log, "[{}][{}] LLM call request body:\n{}", traceId, stage, safeJson(rawSseClient.buildRequestBody(
+                            providerKey,
+                            model,
+                            systemPrompt,
+                            List.of(),
+                            userPrompt,
+                            List.of(),
+                            false,
+                            ToolChoice.NONE,
+                            OutputShape.TEXT_ONLY,
+                            null,
+                            ComputePolicy.MEDIUM,
+                            false,
+                            null
+                    )));
                     callLogger.info(log, "[{}][{}] LLM call system prompt:\n{}", traceId, stage, callLogger.normalizePrompt(systemPrompt));
                     callLogger.info(log, "[{}][{}] LLM call user prompt:\n{}", traceId, stage, callLogger.normalizePrompt(userPrompt));
 
@@ -699,11 +753,14 @@ public class LlmService {
         return builder.build();
     }
 
-    private boolean requiresRawSse(OutputShape outputShape, String jsonSchema, ComputePolicy computePolicy) {
+    private boolean requiresRawSse(OutputShape outputShape, String jsonSchema, ComputePolicy computePolicy, boolean reasoningEnabled) {
         if (outputShape != null && outputShape != OutputShape.TEXT_ONLY) {
             return true;
         }
         if (StringUtils.hasText(jsonSchema)) {
+            return true;
+        }
+        if (reasoningEnabled) {
             return true;
         }
         return computePolicy != null && computePolicy != ComputePolicy.MEDIUM;
@@ -808,5 +865,13 @@ public class LlmService {
             clients.put("siliconflow", siliconflowChatClient);
         }
         return Map.copyOf(clients);
+    }
+
+    private String safeJson(Object value) {
+        try {
+            return callLogger.sanitizeText(new ObjectMapper().writeValueAsString(value));
+        } catch (Exception ex) {
+            return callLogger.sanitizeText(String.valueOf(value));
+        }
     }
 }

@@ -1,4 +1,7 @@
 {
+  "key": "demoModeReact",
+  "name": "示例-REACT",
+  "icon": "emoji:🤖",
   "description": "内置示例：REACT 模式按需多轮工具调用",
   "providerKey": "bailian",
   "model": "qwen3-max",
@@ -9,6 +12,10 @@
     "mock_sensitive_data_detector",
     "bash"
   ],
+  "reasoning": {
+    "enabled": true,
+    "effort": "MEDIUM"
+  },
   "react": {
     "systemPrompt": "你是 REACT 助手。按需调用工具，完成后输出最终答案。",
     "maxSteps": 6

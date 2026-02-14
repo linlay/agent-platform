@@ -47,6 +47,7 @@ public class VerifyService {
                                 OutputShape.TEXT_ONLY,
                                 null,
                                 ComputePolicy.MEDIUM,
+                                false,
                                 4096,
                                 stage,
                                 false

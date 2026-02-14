@@ -2,10 +2,11 @@ package com.linlay.springaiagw.agent;
 
 import com.aiagent.agw.sdk.model.ToolCallDelta;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.linlay.springaiagw.agent.runtime.AgentOrchestrator;
 import com.linlay.springaiagw.agent.runtime.AgentRuntimeMode;
+import com.linlay.springaiagw.agent.runtime.ExecutionContext;
 import com.linlay.springaiagw.agent.runtime.ToolExecutionService;
 import com.linlay.springaiagw.agent.runtime.VerifyService;
+import com.linlay.springaiagw.agent.mode.OrchestratorServices;
 import com.linlay.springaiagw.memory.ChatWindowMemoryStore;
 import com.linlay.springaiagw.model.AgentRequest;
 import com.linlay.springaiagw.model.stream.AgentDelta;
@@ -19,6 +20,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.FluxSink;
 import reactor.core.scheduler.Schedulers;
 
 import java.util.ArrayList;
@@ -37,7 +39,7 @@ public class DefinitionDrivenAgent implements Agent {
     private final ChatWindowMemoryStore chatWindowMemoryStore;
     private final ToolRegistry toolRegistry;
     private final Map<String, BaseTool> enabledToolsByName;
-    private final AgentOrchestrator orchestrator;
+    private final OrchestratorServices services;
 
     @SuppressWarnings("unused")
     private final DeltaStreamService deltaStreamService;
@@ -65,7 +67,7 @@ public class DefinitionDrivenAgent implements Agent {
                 frontendSubmitCoordinator
         );
         VerifyService verifyService = new VerifyService(llmService);
-        this.orchestrator = new AgentOrchestrator(llmService, toolExecutionService, verifyService, objectMapper);
+        this.services = new OrchestratorServices(llmService, toolExecutionService, verifyService, objectMapper);
     }
 
     @Override
@@ -76,6 +78,16 @@ public class DefinitionDrivenAgent implements Agent {
     @Override
     public String description() {
         return definition.description();
+    }
+
+    @Override
+    public String name() {
+        return definition.name() == null || definition.name().isBlank() ? definition.id() : definition.name();
+    }
+
+    @Override
+    public String icon() {
+        return definition.icon();
     }
 
     @Override
@@ -118,11 +130,29 @@ public class DefinitionDrivenAgent implements Agent {
         return Flux.defer(() -> {
                     List<Message> historyMessages = loadHistoryMessages(request.chatId());
                     TurnTrace trace = new TurnTrace();
-                    return orchestrator.runStream(definition, request, historyMessages, enabledToolsByName)
+                    ExecutionContext context = new ExecutionContext(definition, request, historyMessages);
+                    return Flux.<AgentDelta>create(sink -> runWithMode(context, sink), FluxSink.OverflowStrategy.BUFFER)
                             .doOnNext(trace::capture)
                             .doOnComplete(() -> persistTurn(request, trace));
                 })
                 .subscribeOn(Schedulers.boundedElastic());
+    }
+
+    private void runWithMode(ExecutionContext context, FluxSink<AgentDelta> sink) {
+        try {
+            definition.agentMode().run(context, enabledToolsByName, services, sink);
+            services.emit(sink, AgentDelta.finish("stop"));
+            if (!sink.isCancelled()) {
+                sink.complete();
+            }
+        } catch (Exception ex) {
+            log.warn("[agent:{}] orchestration failed", definition.id(), ex);
+            services.emit(sink, AgentDelta.content("模型调用失败，请稍后重试。"));
+            services.emit(sink, AgentDelta.finish("stop"));
+            if (!sink.isCancelled()) {
+                sink.complete();
+            }
+        }
     }
 
     private Map<String, BaseTool> resolveEnabledTools(List<String> configuredTools) {
@@ -287,11 +317,11 @@ public class DefinitionDrivenAgent implements Agent {
             }
             long now = System.currentTimeMillis();
 
-            if (StringUtils.hasText(delta.thinking())) {
+            if (StringUtils.hasText(delta.reasoning())) {
                 if (pendingReasoningStartedAt <= 0) {
                     pendingReasoningStartedAt = now;
                 }
-                pendingReasoning.append(delta.thinking());
+                pendingReasoning.append(delta.reasoning());
             }
 
             if (StringUtils.hasText(delta.content())) {

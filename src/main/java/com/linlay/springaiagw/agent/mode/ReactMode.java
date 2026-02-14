@@ -3,7 +3,13 @@ package com.linlay.springaiagw.agent.mode;
 import com.linlay.springaiagw.agent.AgentConfigFile;
 import com.linlay.springaiagw.agent.runtime.AgentRuntimeMode;
 import com.linlay.springaiagw.agent.runtime.ExecutionContext;
-import com.linlay.springaiagw.agent.runtime.policy.*;
+import com.linlay.springaiagw.agent.runtime.policy.Budget;
+import com.linlay.springaiagw.agent.runtime.policy.ControlStrategy;
+import com.linlay.springaiagw.agent.runtime.policy.OutputPolicy;
+import com.linlay.springaiagw.agent.runtime.policy.RunSpec;
+import com.linlay.springaiagw.agent.runtime.policy.ToolChoice;
+import com.linlay.springaiagw.agent.runtime.policy.ToolPolicy;
+import com.linlay.springaiagw.agent.runtime.policy.VerifyPolicy;
 import com.linlay.springaiagw.model.stream.AgentDelta;
 import com.linlay.springaiagw.tool.BaseTool;
 import org.springframework.ai.chat.messages.UserMessage;
@@ -13,11 +19,17 @@ import java.util.Map;
 
 public final class ReactMode extends AgentMode {
 
+    private final StageSettings stage;
     private final int maxSteps;
 
-    public ReactMode(String systemPrompt, int maxSteps) {
-        super(systemPrompt);
+    public ReactMode(StageSettings stage, int maxSteps) {
+        super(stage == null ? "" : stage.systemPrompt());
+        this.stage = stage;
         this.maxSteps = maxSteps > 0 ? maxSteps : 6;
+    }
+
+    public StageSettings stage() {
+        return stage;
     }
 
     public int maxSteps() {
@@ -31,17 +43,15 @@ public final class ReactMode extends AgentMode {
 
     @Override
     public RunSpec defaultRunSpec(AgentConfigFile config) {
-        Budget budget = PlainMode.chooseBudget(config);
+        Budget budget = config != null && config.getBudget() != null ? config.getBudget().toBudget() : Budget.DEFAULT;
         if (budget.maxSteps() < maxSteps) {
             budget = new Budget(budget.maxModelCalls(), budget.maxToolCalls(), maxSteps, budget.timeoutMs());
         }
         return new RunSpec(
                 ControlStrategy.REACT_LOOP,
-                OutputPolicy.PLAIN,
-                PlainMode.chooseToolPolicy(config, ToolPolicy.ALLOW),
-                PlainMode.chooseVerify(config, VerifyPolicy.NONE),
-                PlainMode.chooseCompute(config, ComputePolicy.MEDIUM),
-                false,
+                config != null && config.getOutput() != null ? config.getOutput() : OutputPolicy.PLAIN,
+                config != null && config.getToolPolicy() != null ? config.getToolPolicy() : ToolPolicy.ALLOW,
+                config != null && config.getVerify() != null ? config.getVerify() : VerifyPolicy.NONE,
                 budget
         );
     }
@@ -53,29 +63,31 @@ public final class ReactMode extends AgentMode {
             OrchestratorServices services,
             FluxSink<AgentDelta> sink
     ) {
+        Map<String, BaseTool> stageTools = services.selectTools(enabledToolsByName, stage.tools());
         int effectiveMaxSteps = context.budget().maxSteps();
         if (context.definition().runSpec().budget().maxSteps() > 0) {
             effectiveMaxSteps = context.definition().runSpec().budget().maxSteps();
         }
+        boolean emitReasoning = stage.reasoningEnabled();
 
         for (int step = 1; step <= effectiveMaxSteps; step++) {
             OrchestratorServices.ModelTurn turn = services.callModelTurnStreaming(
                     context,
-                    systemPrompt,
+                    stage,
                     context.conversationMessages(),
                     null,
-                    services.toolExecutionService().enabledFunctionTools(enabledToolsByName),
+                    services.toolExecutionService().enabledFunctionTools(stageTools),
                     services.requiresTool(context) ? ToolChoice.REQUIRED : ToolChoice.AUTO,
                     "agent-react-step-" + step,
                     false,
-                    false,
+                    emitReasoning,
                     true,
                     true,
                     sink
             );
 
             if (!turn.toolCalls().isEmpty()) {
-                services.executeToolsAndEmit(context, enabledToolsByName, turn.toolCalls(), sink);
+                services.executeToolsAndEmit(context, stageTools, turn.toolCalls(), sink);
                 continue;
             }
 
@@ -100,7 +112,7 @@ public final class ReactMode extends AgentMode {
         boolean secondPass = services.verifyService().requiresSecondPass(context.definition().runSpec().verify());
         String forced = services.forceFinalAnswer(
                 context,
-                systemPrompt,
+                stage,
                 context.conversationMessages(),
                 "agent-react-force-final",
                 !secondPass,

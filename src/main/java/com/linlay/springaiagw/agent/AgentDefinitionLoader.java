@@ -17,8 +17,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -56,11 +58,17 @@ public class AgentDefinitionLoader {
             return List.of();
         }
 
-        List<AgentDefinition> loaded = new ArrayList<>();
+        Map<String, AgentDefinition> loaded = new LinkedHashMap<>();
         try (Stream<Path> stream = Files.list(dir)) {
             stream.filter(path -> Files.isRegularFile(path) && path.getFileName().toString().endsWith(".json"))
                     .sorted(Comparator.comparing(path -> path.getFileName().toString()))
-                    .forEach(path -> tryLoadExternal(path).ifPresent(loaded::add));
+                    .forEach(path -> tryLoadExternal(path).ifPresent(definition -> {
+                        if (loaded.containsKey(definition.id())) {
+                            log.warn("Skip duplicated agent key '{}' from file {}", definition.id(), path);
+                            return;
+                        }
+                        loaded.put(definition.id(), definition);
+                    }));
         } catch (IOException ex) {
             log.warn("Cannot list external agents from {}", dir, ex);
         }
@@ -68,13 +76,13 @@ public class AgentDefinitionLoader {
         if (!loaded.isEmpty()) {
             log.debug("Loaded {} external agents from {}", loaded.size(), dir);
         }
-        return loaded;
+        return new ArrayList<>(loaded.values());
     }
 
     private java.util.Optional<AgentDefinition> tryLoadExternal(Path file) {
         String fileName = file.getFileName().toString();
-        String agentId = fileName.substring(0, fileName.length() - ".json".length()).trim();
-        if (agentId.isEmpty()) {
+        String fileBasedId = fileName.substring(0, fileName.length() - ".json".length()).trim();
+        if (fileBasedId.isEmpty()) {
             log.warn("Skip external agent with empty name: {}", file);
             return java.util.Optional.empty();
         }
@@ -97,14 +105,19 @@ public class AgentDefinitionLoader {
 
             String providerKey = resolveProviderKey(config);
             String model = normalize(config.getModel(), resolveDefaultModel(providerKey));
+            String key = normalize(config.getKey(), fileBasedId);
+            String name = normalize(config.getName(), key);
+            String icon = normalizeIcon(config.getIcon());
             String description = normalize(config.getDescription(), "external agent from " + fileName);
-            List<String> tools = normalizeToolNames(config.getTools());
+            List<String> tools = collectToolNames(config);
 
             AgentMode agentMode = AgentModeFactory.create(mode, config, file);
             RunSpec runSpec = agentMode.defaultRunSpec(config);
 
             return java.util.Optional.of(new AgentDefinition(
-                    agentId,
+                    key,
+                    name,
+                    icon,
                     description,
                     providerKey,
                     model,
@@ -192,5 +205,34 @@ public class AgentDefinitionLoader {
             tools.add(raw.trim().toLowerCase(Locale.ROOT));
         }
         return List.copyOf(tools);
+    }
+
+    private String normalizeIcon(String icon) {
+        if (icon == null || icon.isBlank()) {
+            return null;
+        }
+        return icon.trim();
+    }
+
+    private List<String> collectToolNames(AgentConfigFile config) {
+        List<String> merged = new ArrayList<>(normalizeToolNames(config.getTools()));
+        if (config.getPlain() != null) {
+            merged.addAll(normalizeToolNames(config.getPlain().getTools()));
+        }
+        if (config.getReact() != null) {
+            merged.addAll(normalizeToolNames(config.getReact().getTools()));
+        }
+        if (config.getPlanExecute() != null) {
+            if (config.getPlanExecute().getPlan() != null) {
+                merged.addAll(normalizeToolNames(config.getPlanExecute().getPlan().getTools()));
+            }
+            if (config.getPlanExecute().getExecute() != null) {
+                merged.addAll(normalizeToolNames(config.getPlanExecute().getExecute().getTools()));
+            }
+            if (config.getPlanExecute().getSummary() != null) {
+                merged.addAll(normalizeToolNames(config.getPlanExecute().getSummary().getTools()));
+            }
+        }
+        return merged.stream().distinct().toList();
     }
 }

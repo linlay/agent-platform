@@ -9,6 +9,8 @@ import java.util.List;
 
 public record AgentDefinition(
         String id,
+        String name,
+        String icon,
         String description,
         String providerKey,
         String model,
@@ -36,10 +38,10 @@ public record AgentDefinition(
     public AgentPromptSet promptSet() {
         if (agentMode instanceof PlanExecuteMode pe) {
             return new AgentPromptSet(
-                    pe.executeSystemPrompt(),
-                    pe.planSystemPrompt(),
-                    pe.executeSystemPrompt(),
-                    pe.summarySystemPrompt()
+                    pe.executeStage() == null ? null : pe.executeStage().systemPrompt(),
+                    pe.planStage() == null ? null : pe.planStage().systemPrompt(),
+                    pe.executeStage() == null ? null : pe.executeStage().systemPrompt(),
+                    pe.summaryStage() == null ? null : pe.summaryStage().systemPrompt()
             );
         }
         return new AgentPromptSet(agentMode.systemPrompt(), null, null, null);

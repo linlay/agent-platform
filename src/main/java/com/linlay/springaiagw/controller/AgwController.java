@@ -166,7 +166,7 @@ public class AgwController {
     private AgwAgentsResponse.AgentSummary toSummary(Agent agent) {
         return new AgwAgentsResponse.AgentSummary(
                 agent.id(),
-                agent.id(),
+                agent.name(),
                 agent.description(),
                 null,
                 buildSummaryMeta(agent)
@@ -176,7 +176,7 @@ public class AgwController {
     private AgwAgentResponse.AgentDetail toDetail(Agent agent) {
         return new AgwAgentResponse.AgentDetail(
                 agent.id(),
-                agent.id(),
+                agent.name(),
                 agent.description(),
                 agent.systemPrompt(),
                 null,
@@ -185,19 +185,21 @@ public class AgwController {
     }
 
     private Map<String, Object> buildSummaryMeta(Agent agent) {
-        return Map.of(
-                "model", agent.model(),
-                "mode", agent.mode().name(),
-                "tools", agent.tools()
-        );
+        Map<String, Object> meta = new java.util.LinkedHashMap<>();
+        meta.put("model", agent.model());
+        meta.put("mode", agent.mode().name());
+        meta.put("icon", agent.icon());
+        meta.put("tools", agent.tools());
+        return meta;
     }
 
     private Map<String, Object> buildDetailMeta(Agent agent) {
-        return Map.of(
-                "providerType", agent.providerKey().toUpperCase(Locale.ROOT),
-                "model", agent.model(),
-                "mode", agent.mode().name(),
-                "tools", agent.tools()
-        );
+        Map<String, Object> meta = new java.util.LinkedHashMap<>();
+        meta.put("providerType", agent.providerKey().toUpperCase(Locale.ROOT));
+        meta.put("model", agent.model());
+        meta.put("mode", agent.mode().name());
+        meta.put("icon", agent.icon());
+        meta.put("tools", agent.tools());
+        return meta;
     }
 }

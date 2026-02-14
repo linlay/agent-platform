@@ -1,4 +1,7 @@
 {
+  "key": "demoModePlanExecute",
+  "name": "示例-先规划后执行",
+  "icon": "emoji:📅",
   "description": "内置示例：PLAN_EXECUTE 模式先规划后执行",
   "providerKey": "bailian",
   "model": "qwen3-max",
@@ -10,9 +13,19 @@
     "mock_sensitive_data_detector",
     "bash"
   ],
+  "reasoning": {
+    "enabled": true,
+    "effort": "HIGH"
+  },
   "planExecute": {
-    "planSystemPrompt": "你是高级规划助手。先输出结构化计划 JSON。",
-    "executeSystemPrompt": "你是高级执行助手。基于步骤上下文执行工具并产出步骤结果。",
-    "summarySystemPrompt": "你是总结助手。综合所有步骤信息，输出最终结论。"
+    "plan": {
+      "systemPrompt": "你是高级规划助手。先输出结构化计划 JSON。"
+    },
+    "execute": {
+      "systemPrompt": "你是高级执行助手。基于步骤上下文执行工具并产出步骤结果。"
+    },
+    "summary": {
+      "systemPrompt": "你是总结助手。综合所有步骤信息，输出最终结论。"
+    }
   }
 }

@@ -1,4 +1,7 @@
 {
+  "key": "demoViewport",
+  "name": "示例-Viewport",
+  "icon": "emoji:🖼️",
   "description": "内置示例：通用 viewport 协议输出智能体",
   "providerKey": "bailian",
   "model": "qwen3-max",
@@ -8,9 +11,19 @@
     "mock_city_weather",
     "mock_logistics_status"
   ],
+  "reasoning": {
+    "enabled": true,
+    "effort": "MEDIUM"
+  },
   "planExecute": {
-    "planSystemPrompt": "你是视图规划助手。先给出数据采集与展示计划。",
-    "executeSystemPrompt": "你是视图执行助手。必须先通过工具获取数据，再输出 viewport 协议代码块。最终回答必须且只能是一个 ```viewport fenced block。",
-    "summarySystemPrompt": "你是视图总结助手。仅输出符合 viewport 协议的最终代码块，不附加自然语言。"
+    "plan": {
+      "systemPrompt": "你是视图规划助手。先给出数据采集与展示计划。"
+    },
+    "execute": {
+      "systemPrompt": "你是视图执行助手。必须先通过工具获取数据，再输出 viewport 协议代码块。最终回答必须且只能是一个 ```viewport fenced block。"
+    },
+    "summary": {
+      "systemPrompt": "你是视图总结助手。仅输出符合 viewport 协议的最终代码块，不附加自然语言。"
+    }
   }
 }

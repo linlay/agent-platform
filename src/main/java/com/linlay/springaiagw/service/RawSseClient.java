@@ -59,6 +59,7 @@ class RawSseClient {
             OutputShape outputShape,
             String jsonSchema,
             ComputePolicy computePolicy,
+            boolean reasoningEnabled,
             Integer maxTokens,
             String traceId,
             String stage
@@ -67,6 +68,7 @@ class RawSseClient {
             AgentProviderProperties.ProviderConfig config = resolveProviderConfig(providerKey);
             WebClient webClient = buildRawWebClient(config);
             Map<String, Object> request = buildRawStreamRequest(
+                    providerKey,
                     model,
                     systemPrompt,
                     historyMessages,
@@ -77,13 +79,12 @@ class RawSseClient {
                     outputShape,
                     jsonSchema,
                     computePolicy,
+                    reasoningEnabled,
                     maxTokens
             );
 
             callLogger.info(log, "[{}][{}] LLM raw SSE delta stream request start provider={}, model={}, tools={}",
                     traceId, stage, providerKey, model, tools == null ? 0 : tools.size());
-            callLogger.info(log, "[{}][{}] LLM raw SSE delta stream request body:\n{}",
-                    traceId, stage, safeJson(request));
 
             return webClient.post()
                     .uri(resolveRawCompletionsUri(config.getBaseUrl()))
@@ -129,6 +130,7 @@ class RawSseClient {
             AgentProviderProperties.ProviderConfig config = resolveProviderConfig(providerKey);
             WebClient webClient = buildRawWebClient(config);
             Map<String, Object> request = buildRawStreamRequest(
+                    providerKey,
                     model,
                     systemPrompt,
                     historyMessages,
@@ -139,10 +141,9 @@ class RawSseClient {
                     OutputShape.TEXT_ONLY,
                     null,
                     ComputePolicy.MEDIUM,
+                    false,
                     null
             );
-            callLogger.info(log, "[{}][{}] LLM raw SSE content request body:\n{}", traceId, stage, safeJson(request));
-
             return webClient.post()
                     .uri(resolveRawCompletionsUri(config.getBaseUrl()))
                     .accept(MediaType.TEXT_EVENT_STREAM)
@@ -220,7 +221,8 @@ class RawSseClient {
         return "/v1/chat/completions";
     }
 
-    private Map<String, Object> buildRawStreamRequest(
+    Map<String, Object> buildRequestBody(
+            String providerKey,
             String model,
             String systemPrompt,
             List<Message> historyMessages,
@@ -231,6 +233,39 @@ class RawSseClient {
             OutputShape outputShape,
             String jsonSchema,
             ComputePolicy computePolicy,
+            boolean reasoningEnabled,
+            Integer maxTokens
+    ) {
+        return buildRawStreamRequest(
+                providerKey,
+                model,
+                systemPrompt,
+                historyMessages,
+                userPrompt,
+                tools,
+                parallelToolCalls,
+                toolChoice,
+                outputShape,
+                jsonSchema,
+                computePolicy,
+                reasoningEnabled,
+                maxTokens
+        );
+    }
+
+    private Map<String, Object> buildRawStreamRequest(
+            String providerKey,
+            String model,
+            String systemPrompt,
+            List<Message> historyMessages,
+            String userPrompt,
+            List<LlmService.LlmFunctionTool> tools,
+            boolean parallelToolCalls,
+            ToolChoice toolChoice,
+            OutputShape outputShape,
+            String jsonSchema,
+            ComputePolicy computePolicy,
+            boolean reasoningEnabled,
             Integer maxTokens
     ) {
         Map<String, Object> request = new LinkedHashMap<>();
@@ -242,7 +277,11 @@ class RawSseClient {
             request.put("max_tokens", maxTokens);
         }
 
-        if (computePolicy != null) {
+        if (isBailianProvider(providerKey)) {
+            request.put("enable_thinking", reasoningEnabled);
+        }
+
+        if (reasoningEnabled) {
             request.put("reasoning", Map.of("effort", toReasoningEffort(computePolicy)));
         }
 
@@ -283,6 +322,9 @@ class RawSseClient {
     }
 
     private String toReasoningEffort(ComputePolicy computePolicy) {
+        if (computePolicy == null) {
+            return "medium";
+        }
         return switch (computePolicy) {
             case LOW -> "low";
             case HIGH -> "high";
@@ -421,6 +463,10 @@ class RawSseClient {
 
     private String normalizePrompt(String prompt) {
         return prompt == null ? "" : prompt;
+    }
+
+    private boolean isBailianProvider(String providerKey) {
+        return providerKey != null && "bailian".equalsIgnoreCase(providerKey.trim());
     }
 
     private String safeJson(Object value) {

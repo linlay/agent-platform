@@ -168,7 +168,7 @@ curl -N -X POST "http://localhost:8080/api/query" \
 
 ## agents 目录
 
-- `agents/*.json` 文件名（不含 `.json`）即 `agentId`
+- `agents/*.json` 以 `key` 作为 agentId；若缺失 `key`，回退为文件名（不含 `.json`）
 - 服务启动时会先加载一次，之后每 10 秒刷新一次缓存（默认值）
 - 可通过 `AGENT_EXTERNAL_DIR` 指定目录，通过 `AGENT_REFRESH_INTERVAL_MS` 调整刷新间隔
 - `systemPrompt` 同时支持标准 JSON 字符串和 `"""` 多行写法（仅 `systemPrompt`）
@@ -177,10 +177,14 @@ curl -N -X POST "http://localhost:8080/api/query" \
 
 ```json
 {
+  "key": "fortune_teller",
+  "name": "算命大师",
+  "icon": "emoji:🔮",
   "description": "算命大师",
   "providerKey": "bailian",
   "model": "qwen3-max",
-  "mode": "PLAIN",
+  "mode": "ONESHOT",
+  "reasoning": { "enabled": false },
   "plain": {
     "systemPrompt": "你是算命大师"
   }
@@ -207,10 +211,7 @@ curl -N -X POST "http://localhost:8080/api/query" \
 ```
 
 `mode` 支持：
-- `PLAIN`：默认直答（无需工具）
-- `THINKING`：先推理再回答（无工具）
-- `PLAIN_TOOLING`：单轮按需工具调用
-- `THINKING_TOOLING`：推理 + 单轮按需工具调用
+- `ONESHOT`：单轮直答，若配置工具可在同一轮完成“调用工具 + 最终答案”
 - `REACT`：多轮工具循环推理
 - `PLAN_EXECUTE`：先规划再逐步执行（支持每步 0~N 工具）
 
@@ -289,26 +290,30 @@ type=html, key=show_weather_card
 
 ## 内置智能体
 
-- `demoModePlain`（`PLAIN`）：单次直答。
-- `demoModeThinking`（`THINKING`）：先思考后作答。
-- `demoModePlainTooling`（`PLAIN_TOOLING`）：单轮按需调用工具。
-- `demoModeThinkingTooling`（`THINKING_TOOLING`）：思考并单轮按需调用工具。
+- `demoModePlain`（`ONESHOT`）：单次直答。
+- `demoModeThinking`（`ONESHOT`）：开启 reasoning 的单次作答。
+- `demoModePlainTooling`（`ONESHOT`）：单轮按需调用工具。
+- `demoModeThinkingTooling`（`ONESHOT`）：开启 reasoning 的单轮工具模式。
 - `demoModeReact`（`REACT`）：按需多轮工具调用。
 - `demoModePlanExecute`（`PLAN_EXECUTE`）：先规划后执行。
 - `demoViewport`（`PLAN_EXECUTE`）：调用 `city_datetime`、`mock_city_weather`，最终按 `viewport` 代码块协议输出天气卡片数据。
-- `demoAction`（`PLAIN_TOOLING`）：根据用户意图调用 `switch_theme` / `launch_fireworks` / `show_modal`。
+- `demoAction`（`ONESHOT`）：根据用户意图调用 `switch_theme` / `launch_fireworks` / `show_modal`。
 - `demoAgentCreator`（`PLAN_EXECUTE`）：调用 `agent_file_create` 创建/更新 `agents/{agentId}.json`。
-- 使用 `demoAgentCreator` 时建议提供：`agentId`、`description`、`model`、`mode`、`tools`、各 mode 的 prompt 字段。
-- `agent_file_create` 会校验 `agentId`（仅允许 `A-Za-z0-9_-`，最长 64）。
+- 使用 `demoAgentCreator` 时建议提供：`key`、`name`、`icon`、`description`、`model`、`mode`、`tools`、`reasoning` 与各 mode 的 prompt 字段。
+- `agent_file_create` 会校验 `key/agentId`（仅允许 `A-Za-z0-9_-`，最长 64）。
 - `providerKey/providerType` 不做白名单校验；未提供时默认 `bailian`。
 - 生成格式：
 
 ```json
 {
+  "key": "fortune_teller",
+  "name": "算命大师",
+  "icon": "emoji:🔮",
   "description": "算命大师",
   "providerKey": "bailian",
   "model": "qwen3-max",
-  "mode": "PLAIN",
+  "mode": "ONESHOT",
+  "reasoning": { "enabled": false },
   "plain": {
     "systemPrompt": "你是算命大师"
   }
@@ -365,7 +370,7 @@ curl -N -X POST "http://localhost:8080/api/query" \
 ```bash
 curl -N -X POST "http://localhost:8080/api/query" \
   -H "Content-Type: application/json" \
-  -d '{"message":"给我一个机房搬迁风险分析摘要","agentKey":"demoModeThinking"}'
+  -d '{"message":"给我一个机房搬迁风险分析摘要，300字左右","agentKey":"demoModeThinking"}'
 ```
 
 ```bash

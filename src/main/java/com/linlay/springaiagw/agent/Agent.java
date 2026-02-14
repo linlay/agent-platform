@@ -11,6 +11,14 @@ public interface Agent {
 
     String id();
 
+    default String name() {
+        return id();
+    }
+
+    default String icon() {
+        return null;
+    }
+
     default String description() {
         return id();
     }
@@ -22,7 +30,7 @@ public interface Agent {
     String systemPrompt();
 
     default AgentRuntimeMode mode() {
-        return AgentRuntimeMode.PLAIN;
+        return AgentRuntimeMode.ONESHOT;
     }
 
     default List<String> tools() {

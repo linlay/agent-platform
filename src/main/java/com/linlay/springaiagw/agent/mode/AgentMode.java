@@ -11,8 +11,7 @@ import reactor.core.publisher.FluxSink;
 import java.util.Map;
 
 public sealed abstract class AgentMode
-        permits PlainMode, ThinkingMode, PlainToolingMode,
-                ThinkingToolingMode, ReactMode, PlanExecuteMode {
+        permits OneshotMode, ReactMode, PlanExecuteMode {
 
     protected final String systemPrompt;
 

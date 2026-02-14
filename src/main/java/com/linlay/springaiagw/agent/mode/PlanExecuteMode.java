@@ -3,7 +3,13 @@ package com.linlay.springaiagw.agent.mode;
 import com.linlay.springaiagw.agent.AgentConfigFile;
 import com.linlay.springaiagw.agent.runtime.AgentRuntimeMode;
 import com.linlay.springaiagw.agent.runtime.ExecutionContext;
-import com.linlay.springaiagw.agent.runtime.policy.*;
+import com.linlay.springaiagw.agent.runtime.policy.Budget;
+import com.linlay.springaiagw.agent.runtime.policy.ControlStrategy;
+import com.linlay.springaiagw.agent.runtime.policy.OutputPolicy;
+import com.linlay.springaiagw.agent.runtime.policy.RunSpec;
+import com.linlay.springaiagw.agent.runtime.policy.ToolChoice;
+import com.linlay.springaiagw.agent.runtime.policy.ToolPolicy;
+import com.linlay.springaiagw.agent.runtime.policy.VerifyPolicy;
 import com.linlay.springaiagw.model.stream.AgentDelta;
 import com.linlay.springaiagw.tool.BaseTool;
 import org.springframework.ai.chat.messages.UserMessage;
@@ -14,36 +20,39 @@ import java.util.Map;
 
 public final class PlanExecuteMode extends AgentMode {
 
-    private final String planSystemPrompt;
-    private final String executeSystemPrompt;
-    private final String summarySystemPrompt;
+    private final StageSettings planStage;
+    private final StageSettings executeStage;
+    private final StageSettings summaryStage;
 
-    public PlanExecuteMode(String planSystemPrompt, String executeSystemPrompt, String summarySystemPrompt) {
-        super(executeSystemPrompt);
-        this.planSystemPrompt = planSystemPrompt;
-        this.executeSystemPrompt = executeSystemPrompt;
-        this.summarySystemPrompt = summarySystemPrompt;
+    public PlanExecuteMode(StageSettings planStage, StageSettings executeStage, StageSettings summaryStage) {
+        super(executeStage == null ? "" : executeStage.systemPrompt());
+        this.planStage = planStage;
+        this.executeStage = executeStage;
+        this.summaryStage = summaryStage;
     }
 
-    public String planSystemPrompt() {
-        return planSystemPrompt;
+    public StageSettings planStage() {
+        return planStage;
     }
 
-    public String executeSystemPrompt() {
-        return executeSystemPrompt;
+    public StageSettings executeStage() {
+        return executeStage;
     }
 
-    public String summarySystemPrompt() {
-        return summarySystemPrompt;
+    public StageSettings summaryStage() {
+        return summaryStage;
     }
 
     @Override
     public String primarySystemPrompt() {
-        if (executeSystemPrompt != null && !executeSystemPrompt.isBlank()) {
-            return executeSystemPrompt;
+        if (executeStage != null && executeStage.systemPrompt() != null && !executeStage.systemPrompt().isBlank()) {
+            return executeStage.systemPrompt();
         }
-        if (planSystemPrompt != null && !planSystemPrompt.isBlank()) {
-            return planSystemPrompt;
+        if (summaryStage != null && summaryStage.systemPrompt() != null && !summaryStage.systemPrompt().isBlank()) {
+            return summaryStage.systemPrompt();
+        }
+        if (planStage != null && planStage.systemPrompt() != null && !planStage.systemPrompt().isBlank()) {
+            return planStage.systemPrompt();
         }
         return "";
     }
@@ -57,12 +66,10 @@ public final class PlanExecuteMode extends AgentMode {
     public RunSpec defaultRunSpec(AgentConfigFile config) {
         return new RunSpec(
                 ControlStrategy.PLAN_EXECUTE,
-                OutputPolicy.PLAIN,
-                PlainMode.chooseToolPolicy(config, ToolPolicy.ALLOW),
-                PlainMode.chooseVerify(config, VerifyPolicy.SECOND_PASS_FIX),
-                PlainMode.chooseCompute(config, ComputePolicy.HIGH),
-                false,
-                PlainMode.chooseBudget(config)
+                config != null && config.getOutput() != null ? config.getOutput() : OutputPolicy.PLAIN,
+                config != null && config.getToolPolicy() != null ? config.getToolPolicy() : ToolPolicy.ALLOW,
+                config != null && config.getVerify() != null ? config.getVerify() : VerifyPolicy.SECOND_PASS_FIX,
+                config != null && config.getBudget() != null ? config.getBudget().toBudget() : Budget.DEFAULT
         );
     }
 
@@ -73,21 +80,19 @@ public final class PlanExecuteMode extends AgentMode {
             OrchestratorServices services,
             FluxSink<AgentDelta> sink
     ) {
-        String effectiveSummaryPrompt = summarySystemPrompt;
-        if (effectiveSummaryPrompt == null || effectiveSummaryPrompt.isBlank()) {
-            effectiveSummaryPrompt = executeSystemPrompt;
-        }
+        StageSettings summary = summaryStage == null ? executeStage : summaryStage;
+        Map<String, BaseTool> executeTools = services.selectTools(enabledToolsByName, executeStage.tools());
 
         OrchestratorServices.ModelTurn planTurn = services.callModelTurnStreaming(
                 context,
-                planSystemPrompt,
+                planStage,
                 context.planMessages(),
                 "请输出结构化计划（JSON），包含 steps 字段，每个 step 含 title、goal、successCriteria。",
                 List.of(),
                 ToolChoice.NONE,
                 "agent-plan-generate",
                 false,
-                false,
+                planStage.reasoningEnabled(),
                 true,
                 true,
                 sink
@@ -111,14 +116,14 @@ public final class PlanExecuteMode extends AgentMode {
 
             OrchestratorServices.ModelTurn stepTurn = services.callModelTurnStreaming(
                     context,
-                    executeSystemPrompt,
+                    executeStage,
                     context.executeMessages(),
                     null,
-                    services.toolExecutionService().enabledFunctionTools(enabledToolsByName),
+                    services.toolExecutionService().enabledFunctionTools(executeTools),
                     services.requiresTool(context) ? ToolChoice.REQUIRED : ToolChoice.AUTO,
                     "agent-plan-execute-step-" + stepNo,
                     true,
-                    false,
+                    executeStage.reasoningEnabled(),
                     true,
                     true,
                     sink
@@ -130,14 +135,14 @@ public final class PlanExecuteMode extends AgentMode {
                 ));
                 stepTurn = services.callModelTurnStreaming(
                         context,
-                        executeSystemPrompt,
+                        executeStage,
                         context.executeMessages(),
                         null,
-                        services.toolExecutionService().enabledFunctionTools(enabledToolsByName),
+                        services.toolExecutionService().enabledFunctionTools(executeTools),
                         ToolChoice.REQUIRED,
                         "agent-plan-execute-step-" + stepNo + "-repair",
                         true,
-                        false,
+                        executeStage.reasoningEnabled(),
                         true,
                         true,
                         sink
@@ -145,29 +150,29 @@ public final class PlanExecuteMode extends AgentMode {
             }
 
             if (!stepTurn.toolCalls().isEmpty()) {
-                services.executeToolsAndEmit(context, enabledToolsByName, stepTurn.toolCalls(), sink);
+                services.executeToolsAndEmit(context, executeTools, stepTurn.toolCalls(), sink);
 
                 OrchestratorServices.ModelTurn stepSummary = services.callModelTurnStreaming(
                         context,
-                        executeSystemPrompt,
+                        executeStage,
                         context.executeMessages(),
                         "请总结当前步骤执行结果。",
                         List.of(),
                         ToolChoice.NONE,
                         "agent-plan-step-summary-" + stepNo,
                         false,
-                        false,
+                        executeStage.reasoningEnabled(),
                         true,
                         true,
                         sink
                 );
-                String summary = services.normalize(stepSummary.finalText());
-                services.appendAssistantMessage(context.executeMessages(), summary);
-                if (!summary.isBlank()) {
+                String summaryText = services.normalize(stepSummary.finalText());
+                services.appendAssistantMessage(context.executeMessages(), summaryText);
+                if (!summaryText.isBlank()) {
                     context.toolRecords().add(Map.of(
                             "stepId", step.id(),
                             "stepTitle", step.title(),
-                            "summary", summary
+                            "summary", summaryText
                     ));
                 }
             } else if (!services.normalize(stepTurn.finalText()).isBlank()) {
@@ -183,7 +188,7 @@ public final class PlanExecuteMode extends AgentMode {
         context.executeMessages().add(new UserMessage("所有步骤已完成，请综合所有步骤的执行结果给出最终答案。"));
         boolean secondPass = services.verifyService().requiresSecondPass(context.definition().runSpec().verify());
 
-        String finalText = services.forceFinalAnswer(context, effectiveSummaryPrompt, context.executeMessages(), "agent-plan-final",
+        String finalText = services.forceFinalAnswer(context, summary, context.executeMessages(), "agent-plan-final",
                 !secondPass, sink);
         services.appendAssistantMessage(context.executeMessages(), finalText);
         services.emitFinalAnswer(context, context.executeMessages(), finalText, !secondPass, sink);

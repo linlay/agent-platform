@@ -5,8 +5,6 @@ public record RunSpec(
         OutputPolicy output,
         ToolPolicy toolPolicy,
         VerifyPolicy verify,
-        ComputePolicy compute,
-        boolean exposeReasoningToUser,
         Budget budget
 ) {
     public RunSpec {
@@ -21,9 +19,6 @@ public record RunSpec(
         }
         if (verify == null) {
             verify = VerifyPolicy.NONE;
-        }
-        if (compute == null) {
-            compute = ComputePolicy.MEDIUM;
         }
         if (budget == null) {
             budget = Budget.DEFAULT;

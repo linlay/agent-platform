@@ -1,15 +1,21 @@
 {
-  "description": "内置示例：THINKING_TOOLING 模式思考并调用工具",
+  "key": "demoModeThinkingTooling",
+  "name": "示例-推理+工具",
+  "icon": "emoji:⚙️",
+  "description": "内置示例：ONESHOT 模式推理并调用工具",
   "providerKey": "bailian",
   "model": "qwen3-max",
-  "mode": "THINKING_TOOLING",
+  "mode": "ONESHOT",
   "tools": [
     "city_datetime",
     "mock_city_weather",
     "mock_sensitive_data_detector"
   ],
-  "thinkingTooling": {
-    "systemPrompt": "你是推理与工具联合助手。先充分思考，再按需调用工具补齐信息后给出结论。",
-    "exposeReasoningToUser": false
+  "reasoning": {
+    "enabled": true,
+    "effort": "HIGH"
+  },
+  "plain": {
+    "systemPrompt": "你是推理与工具联合助手。先充分推理，再按需调用工具补齐信息后给出结论。"
   }
 }

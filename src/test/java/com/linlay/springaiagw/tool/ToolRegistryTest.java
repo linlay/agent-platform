@@ -195,7 +195,7 @@ class ToolRegistryTest {
                 "providerType", "openai",
                 "model", "gpt-3.5-turbo",
                 "systemPrompt", "你是 QA 助手\n请先问清问题",
-                "mode", "PLAIN_TOOLING"
+                "mode", "ONESHOT"
         ));
 
         assertThat(result.path("ok").asBoolean()).isTrue();
@@ -208,8 +208,8 @@ class ToolRegistryTest {
         assertThat(content.path("description").asText()).isEqualTo("QA 助手");
         assertThat(content.path("providerKey").asText()).isEqualTo("openai");
         assertThat(content.path("model").asText()).isEqualTo("gpt-3.5-turbo");
-        assertThat(content.path("mode").asText()).isEqualTo("PLAIN_TOOLING");
-        assertThat(content.path("plainTooling").path("systemPrompt").asText()).isEqualTo("你是 QA 助手\n请先问清问题");
+        assertThat(content.path("mode").asText()).isEqualTo("ONESHOT");
+        assertThat(content.path("plain").path("systemPrompt").asText()).isEqualTo("你是 QA 助手\n请先问清问题");
         assertThat(content.has("tools")).isFalse();
     }
 
@@ -232,13 +232,13 @@ class ToolRegistryTest {
                 "agentId", "fortune_bot",
                 "description", "算命大师",
                 "systemPrompt", "你是算命大师",
-                "mode", "PLAIN"
+                "mode", "ONESHOT"
         ));
 
         assertThat(result.path("ok").asBoolean()).isTrue();
         JsonNode content = objectMapper.readTree(Files.readString(agentsDir.resolve("fortune_bot.json")));
         assertThat(content.path("providerKey").asText()).isEqualTo("bailian");
-        assertThat(content.path("mode").asText()).isEqualTo("PLAIN");
+        assertThat(content.path("mode").asText()).isEqualTo("ONESHOT");
     }
 
     @Test

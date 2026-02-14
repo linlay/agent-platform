@@ -2,8 +2,12 @@ package com.linlay.springaiagw.agent.mode;
 
 import com.linlay.springaiagw.agent.AgentConfigFile;
 import com.linlay.springaiagw.agent.runtime.AgentRuntimeMode;
+import com.linlay.springaiagw.agent.runtime.policy.ComputePolicy;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 
 public final class AgentModeFactory {
 
@@ -12,60 +16,89 @@ public final class AgentModeFactory {
 
     public static AgentMode create(AgentRuntimeMode mode, AgentConfigFile config, Path file) {
         return switch (mode) {
-            case PLAIN -> {
-                String prompt = normalize(config.getPlain() == null ? null : config.getPlain().getSystemPrompt());
-                if (prompt.isBlank()) {
+            case ONESHOT -> {
+                StageSettings stage = stageSettings(config, config == null ? null : config.getPlain());
+                if (isBlank(stage.systemPrompt())) {
                     throw new IllegalArgumentException("plain.systemPrompt is required: " + file);
                 }
-                yield new PlainMode(prompt);
-            }
-            case THINKING -> {
-                String prompt = normalize(config.getThinking() == null ? null : config.getThinking().getSystemPrompt());
-                if (prompt.isBlank()) {
-                    throw new IllegalArgumentException("thinking.systemPrompt is required: " + file);
-                }
-                boolean expose = config.getThinking() != null
-                        && Boolean.TRUE.equals(config.getThinking().getExposeReasoningToUser());
-                yield new ThinkingMode(prompt, expose);
-            }
-            case PLAIN_TOOLING -> {
-                String prompt = normalize(config.getPlainTooling() == null ? null : config.getPlainTooling().getSystemPrompt());
-                if (prompt.isBlank()) {
-                    throw new IllegalArgumentException("plainTooling.systemPrompt is required: " + file);
-                }
-                yield new PlainToolingMode(prompt);
-            }
-            case THINKING_TOOLING -> {
-                String prompt = normalize(config.getThinkingTooling() == null ? null : config.getThinkingTooling().getSystemPrompt());
-                if (prompt.isBlank()) {
-                    throw new IllegalArgumentException("thinkingTooling.systemPrompt is required: " + file);
-                }
-                boolean expose = config.getThinkingTooling() != null
-                        && Boolean.TRUE.equals(config.getThinkingTooling().getExposeReasoningToUser());
-                yield new ThinkingToolingMode(prompt, expose);
+                yield new OneshotMode(stage);
             }
             case REACT -> {
-                String prompt = normalize(config.getReact() == null ? null : config.getReact().getSystemPrompt());
-                if (prompt.isBlank()) {
+                AgentConfigFile.ReactConfig react = config == null ? null : config.getReact();
+                StageSettings stage = stageSettings(config, react);
+                if (isBlank(stage.systemPrompt())) {
                     throw new IllegalArgumentException("react.systemPrompt is required: " + file);
                 }
-                int maxSteps = config.getReact() != null && config.getReact().getMaxSteps() != null
-                        ? config.getReact().getMaxSteps() : 6;
-                yield new ReactMode(prompt, maxSteps);
+                int maxSteps = react != null && react.getMaxSteps() != null ? react.getMaxSteps() : 6;
+                yield new ReactMode(stage, maxSteps);
             }
             case PLAN_EXECUTE -> {
-                String planPrompt = normalize(config.getPlanExecute() == null ? null : config.getPlanExecute().getPlanSystemPrompt());
-                String executePrompt = normalize(config.getPlanExecute() == null ? null : config.getPlanExecute().getExecuteSystemPrompt());
-                String summaryPrompt = normalize(config.getPlanExecute() == null ? null : config.getPlanExecute().getSummarySystemPrompt());
-                if (planPrompt.isBlank() || executePrompt.isBlank()) {
-                    throw new IllegalArgumentException("planExecute.planSystemPrompt and planExecute.executeSystemPrompt are required: " + file);
+                AgentConfigFile.PlanExecuteConfig pe = config == null ? null : config.getPlanExecute();
+                StageSettings planStage = stageSettings(config, pe == null ? null : pe.getPlan());
+                StageSettings executeStage = stageSettings(config, pe == null ? null : pe.getExecute());
+                StageSettings summaryStage = stageSettings(config, pe == null ? null : pe.getSummary());
+                if (isBlank(planStage.systemPrompt()) || isBlank(executeStage.systemPrompt())) {
+                    throw new IllegalArgumentException(
+                            "planExecute.plan.systemPrompt and planExecute.execute.systemPrompt are required: " + file);
                 }
-                yield new PlanExecuteMode(planPrompt, executePrompt, summaryPrompt.isBlank() ? null : summaryPrompt);
+                if (isBlank(summaryStage.systemPrompt())) {
+                    summaryStage = new StageSettings(
+                            executeStage.systemPrompt(),
+                            summaryStage.providerKey(),
+                            summaryStage.model(),
+                            summaryStage.tools(),
+                            summaryStage.reasoningEnabled(),
+                            summaryStage.reasoningEffort()
+                    );
+                }
+                yield new PlanExecuteMode(planStage, executeStage, summaryStage);
             }
         };
     }
 
+    private static StageSettings stageSettings(AgentConfigFile config, AgentConfigFile.StageConfig stage) {
+        AgentConfigFile.ReasoningConfig topReasoning = config == null ? null : config.getReasoning();
+        AgentConfigFile.ReasoningConfig stageReasoning = stage == null ? null : stage.getReasoning();
+
+        Boolean stageEnabled = stageReasoning == null ? null : stageReasoning.getEnabled();
+        boolean reasoningEnabled = stageEnabled != null
+                ? stageEnabled
+                : (topReasoning != null && Boolean.TRUE.equals(topReasoning.getEnabled()));
+        ComputePolicy reasoningEffort = stageReasoning != null && stageReasoning.getEffort() != null
+                ? stageReasoning.getEffort()
+                : (topReasoning != null && topReasoning.getEffort() != null ? topReasoning.getEffort() : ComputePolicy.MEDIUM);
+
+        List<String> tools = normalizeTools(stage != null && stage.getTools() != null ? stage.getTools() : config == null ? null : config.getTools());
+
+        return new StageSettings(
+                normalize(stage == null ? null : stage.getSystemPrompt()),
+                normalize(stage == null ? null : stage.getProviderKey()),
+                normalize(stage == null ? null : stage.getModel()),
+                tools,
+                reasoningEnabled,
+                reasoningEffort
+        );
+    }
+
+    private static List<String> normalizeTools(List<String> rawTools) {
+        if (rawTools == null || rawTools.isEmpty()) {
+            return List.of();
+        }
+        List<String> tools = new ArrayList<>();
+        for (String raw : rawTools) {
+            String normalized = normalize(raw);
+            if (!isBlank(normalized)) {
+                tools.add(normalized.toLowerCase(Locale.ROOT));
+            }
+        }
+        return List.copyOf(tools);
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
     private static String normalize(String value) {
-        return value == null || value.isBlank() ? "" : value;
+        return isBlank(value) ? null : value.trim();
     }
 }

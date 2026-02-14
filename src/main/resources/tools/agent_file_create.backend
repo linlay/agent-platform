@@ -11,6 +11,16 @@
             "type": "string",
             "description": "目标 agentId"
           },
+          "key": {
+            "type": "string",
+            "description": "目标 agent key（优先于 agentId）"
+          },
+          "name": {
+            "type": "string"
+          },
+          "icon": {
+            "type": "string"
+          },
           "description": {
             "type": "string"
           },
@@ -26,10 +36,7 @@
           "mode": {
             "type": "string",
             "enum": [
-              "PLAIN",
-              "THINKING",
-              "PLAIN_TOOLING",
-              "THINKING_TOOLING",
+              "ONESHOT",
               "REACT",
               "PLAN_EXECUTE"
             ]
@@ -42,7 +49,7 @@
           },
           "systemPrompt": {
             "type": "string",
-            "description": "PLAIN/THINKING/PLAIN_TOOLING/THINKING_TOOLING/REACT 的快捷系统提示"
+            "description": "ONESHOT/REACT 的快捷系统提示"
           },
           "planSystemPrompt": {
             "type": "string"
@@ -53,8 +60,12 @@
           "summarySystemPrompt": {
             "type": "string"
           },
-          "exposeReasoningToUser": {
+          "reasoningEnabled": {
             "type": "boolean"
+          },
+          "reasoningEffort": {
+            "type": "string",
+            "enum": ["LOW", "MEDIUM", "HIGH"]
           },
           "maxSteps": {
             "type": "integer"
@@ -95,7 +106,7 @@
           }
         },
         "required": [
-          "agentId"
+          "key"
         ],
         "additionalProperties": false
       }

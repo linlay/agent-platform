@@ -9,6 +9,7 @@ import com.linlay.springaiagw.agent.PlannedToolCall;
 import com.linlay.springaiagw.agent.runtime.ExecutionContext;
 import com.linlay.springaiagw.agent.runtime.ToolExecutionService;
 import com.linlay.springaiagw.agent.runtime.VerifyService;
+import com.linlay.springaiagw.agent.runtime.policy.ComputePolicy;
 import com.linlay.springaiagw.agent.runtime.policy.ToolChoice;
 import com.linlay.springaiagw.agent.runtime.policy.ToolPolicy;
 import com.linlay.springaiagw.agent.runtime.policy.VerifyPolicy;
@@ -27,6 +28,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 
 public class OrchestratorServices {
 
@@ -75,7 +77,7 @@ public class OrchestratorServices {
 
     public ModelTurn callModelTurnStreaming(
             ExecutionContext context,
-            String systemPrompt,
+            StageSettings stageSettings,
             List<Message> messages,
             String userPrompt,
             List<LlmService.LlmFunctionTool> tools,
@@ -87,6 +89,7 @@ public class OrchestratorServices {
             boolean emitToolCalls,
             FluxSink<AgentDelta> sink
     ) {
+        Objects.requireNonNull(stageSettings, "stageSettings must not be null");
         context.incrementModelCalls();
 
         StringBuilder reasoning = new StringBuilder();
@@ -96,16 +99,17 @@ public class OrchestratorServices {
         int seq = 0;
 
         for (LlmDelta delta : llmService.streamDeltas(new LlmCallSpec(
-                context.definition().providerKey(),
-                context.definition().model(),
-                systemPrompt,
+                resolveProvider(stageSettings, context),
+                resolveModel(stageSettings, context),
+                stageSettings.systemPrompt(),
                 messages,
                 userPrompt,
                 tools,
                 toolChoice,
                 null,
                 null,
-                context.definition().runSpec().compute(),
+                resolveEffort(stageSettings),
+                stageSettings.reasoningEnabled(),
                 4096,
                 stage,
                 parallelToolCalls
@@ -117,7 +121,7 @@ public class OrchestratorServices {
             if (StringUtils.hasText(delta.reasoning())) {
                 reasoning.append(delta.reasoning());
                 if (emitReasoning) {
-                    emit(sink, AgentDelta.thinking(delta.reasoning()));
+                    emit(sink, AgentDelta.reasoning(delta.reasoning()));
                 }
             }
 
@@ -244,7 +248,7 @@ public class OrchestratorServices {
 
     public String forceFinalAnswer(
             ExecutionContext context,
-            String systemPrompt,
+            StageSettings stageSettings,
             List<Message> messages,
             String stage,
             boolean emitContent,
@@ -252,7 +256,7 @@ public class OrchestratorServices {
     ) {
         ModelTurn turn = callModelTurnStreaming(
                 context,
-                systemPrompt,
+                stageSettings,
                 messages,
                 "请基于当前信息输出最终答案，不再调用工具。",
                 List.of(),
@@ -265,6 +269,27 @@ public class OrchestratorServices {
                 sink
         );
         return normalize(turn.finalText());
+    }
+
+    public Map<String, BaseTool> selectTools(Map<String, BaseTool> enabledToolsByName, List<String> configuredTools) {
+        if (enabledToolsByName == null || enabledToolsByName.isEmpty()) {
+            return Map.of();
+        }
+        if (configuredTools == null || configuredTools.isEmpty()) {
+            return enabledToolsByName;
+        }
+        Map<String, BaseTool> selected = new LinkedHashMap<>();
+        for (String raw : configuredTools) {
+            String name = normalize(raw).toLowerCase(Locale.ROOT);
+            if (!StringUtils.hasText(name)) {
+                continue;
+            }
+            BaseTool tool = enabledToolsByName.get(name);
+            if (tool != null) {
+                selected.put(name, tool);
+            }
+        }
+        return Map.copyOf(selected);
     }
 
     public void emit(FluxSink<AgentDelta> sink, AgentDelta delta) {
@@ -387,5 +412,25 @@ public class OrchestratorServices {
         private ToolAccumulator(String callId) {
             this.callId = callId;
         }
+    }
+
+    private String resolveProvider(StageSettings stageSettings, ExecutionContext context) {
+        String provider = normalize(stageSettings.providerKey());
+        if (StringUtils.hasText(provider)) {
+            return provider;
+        }
+        return context.definition().providerKey();
+    }
+
+    private String resolveModel(StageSettings stageSettings, ExecutionContext context) {
+        String model = normalize(stageSettings.model());
+        if (StringUtils.hasText(model)) {
+            return model;
+        }
+        return context.definition().model();
+    }
+
+    private ComputePolicy resolveEffort(StageSettings stageSettings) {
+        return stageSettings.reasoningEffort() == null ? ComputePolicy.MEDIUM : stageSettings.reasoningEffort();
     }
 }

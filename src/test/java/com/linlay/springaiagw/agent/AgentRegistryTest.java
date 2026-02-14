@@ -32,9 +32,10 @@ class AgentRegistryTest {
         Files.writeString(agentsDir.resolve("demo_one.json"), """
                 {
                   "description": "demo one",
+                  "key": "demo_one",
                   "providerKey": "bailian",
                   "model": "qwen3-max",
-                  "mode": "PLAIN",
+                  "mode": "ONESHOT",
                   "tools": ["bash"],
                   "plain": { "systemPrompt": "你是 demo one" }
                 }
@@ -72,6 +73,7 @@ class AgentRegistryTest {
         Files.writeString(agentsDir.resolve("demo_two.json"), """
                 {
                   "description": "demo two",
+                  "key": "demo_two",
                   "providerKey": "bailian",
                   "model": "qwen3-max",
                   "mode": "REACT",

@@ -53,7 +53,7 @@ class RuntimeResourceSyncServiceTest {
         String syncedViewport = Files.readString(weatherViewport);
         String syncedAgent = Files.readString(modePlainAgent);
 
-        assertThat(syncedAgent).contains("\"mode\"").contains("\"PLAIN\"");
+        assertThat(syncedAgent).contains("\"mode\"").contains("\"ONESHOT\"");
         assertThat(syncedTool).contains("\"name\": \"mock_city_weather\"");
         assertThat(syncedTool).contains("\"prompt\"");
         assertThat(syncedViewport).contains("<title>Weather Card</title>");

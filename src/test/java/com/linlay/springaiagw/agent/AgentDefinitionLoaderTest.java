@@ -20,57 +20,60 @@ class AgentDefinitionLoaderTest {
     Path tempDir;
 
     @Test
-    void shouldLoadExternalV2AgentByFileName() throws IOException {
-        Path file = tempDir.resolve("ops_daily.json");
-        Files.writeString(file, """
+    void shouldLoadExternalAgentWithKeyNameIcon() throws IOException {
+        Files.writeString(tempDir.resolve("ops_daily.json"), """
                 {
+                  "key": "ops_daily",
+                  "name": "运维日报助手",
+                  "icon": "emoji:📅",
                   "description": "运维助手",
                   "providerKey": "bailian",
                   "model": "qwen3-max",
                   "mode": "PLAN_EXECUTE",
                   "tools": ["bash"],
                   "planExecute": {
-                    "planSystemPrompt": "先规划",
-                    "executeSystemPrompt": "再执行",
-                    "summarySystemPrompt": "最后总结"
+                    "plan": { "systemPrompt": "先规划" },
+                    "execute": { "systemPrompt": "再执行" },
+                    "summary": { "systemPrompt": "最后总结" }
                   }
                 }
                 """);
 
         AgentCatalogProperties properties = new AgentCatalogProperties();
         properties.setExternalDir(tempDir.toString());
-
         AgentDefinitionLoader loader = new AgentDefinitionLoader(new ObjectMapper(), properties, null);
 
         Map<String, AgentDefinition> byId = loader.loadAll().stream()
                 .collect(Collectors.toMap(AgentDefinition::id, definition -> definition));
 
         assertThat(byId).containsKey("ops_daily");
-        assertThat(byId.get("ops_daily").mode()).isEqualTo(AgentRuntimeMode.PLAN_EXECUTE);
-        assertThat(byId.get("ops_daily").tools()).containsExactly("bash");
-        assertThat(byId.get("ops_daily").agentMode()).isInstanceOf(PlanExecuteMode.class);
-        PlanExecuteMode peMode = (PlanExecuteMode) byId.get("ops_daily").agentMode();
-        assertThat(peMode.planSystemPrompt()).isEqualTo("先规划");
-        assertThat(peMode.executeSystemPrompt()).isEqualTo("再执行");
-        assertThat(peMode.summarySystemPrompt()).isEqualTo("最后总结");
+        AgentDefinition definition = byId.get("ops_daily");
+        assertThat(definition.name()).isEqualTo("运维日报助手");
+        assertThat(definition.icon()).isEqualTo("emoji:📅");
+        assertThat(definition.mode()).isEqualTo(AgentRuntimeMode.PLAN_EXECUTE);
+        assertThat(definition.tools()).containsExactly("bash");
+        assertThat(definition.agentMode()).isInstanceOf(PlanExecuteMode.class);
+
+        PlanExecuteMode peMode = (PlanExecuteMode) definition.agentMode();
+        assertThat(peMode.planStage().systemPrompt()).isEqualTo("先规划");
+        assertThat(peMode.executeStage().systemPrompt()).isEqualTo("再执行");
+        assertThat(peMode.summaryStage().systemPrompt()).isEqualTo("最后总结");
     }
 
     @Test
     void shouldRejectLegacyAgentConfig() throws IOException {
-        Path file = tempDir.resolve("legacy.json");
-        Files.writeString(file, """
+        Files.writeString(tempDir.resolve("legacy.json"), """
                 {
                   "description":"legacy",
-                  "providerType":"BAILIAN",
+                  "providerKey":"bailian",
                   "model":"qwen3-max",
-                  "systemPrompt":"你是旧配置",
-                  "deepThink":false
+                  "mode":"PLAIN",
+                  "plain":{"systemPrompt":"旧模式"}
                 }
                 """);
 
         AgentCatalogProperties properties = new AgentCatalogProperties();
         properties.setExternalDir(tempDir.toString());
-
         AgentDefinitionLoader loader = new AgentDefinitionLoader(new ObjectMapper(), properties, null);
         Map<String, AgentDefinition> byId = loader.loadAll().stream()
                 .collect(Collectors.toMap(AgentDefinition::id, definition -> definition));
@@ -79,25 +82,23 @@ class AgentDefinitionLoaderTest {
     }
 
     @Test
-    void shouldLoadTripleQuotedPromptForNestedModeField() throws IOException {
-        Path file = tempDir.resolve("fortune_teller.json");
-        Files.writeString(file, "{" + "\n"
+    void shouldLoadTripleQuotedPromptForOneshot() throws IOException {
+        Files.writeString(tempDir.resolve("fortune_teller.json"), "{" + "\n"
+                + "  \"key\": \"fortune_teller\",\n"
                 + "  \"description\": \"算命大师\",\n"
                 + "  \"providerKey\": \"bailian\",\n"
                 + "  \"model\": \"qwen3-max\",\n"
-                + "  \"mode\": \"THINKING\",\n"
-                + "  \"thinking\": {\n"
+                + "  \"mode\": \"ONESHOT\",\n"
+                + "  \"plain\": {\n"
                 + "    \"systemPrompt\": \"\"\"\n"
                 + "你是算命大师\n"
                 + "请先问出生日期\n"
-                + "\"\"\",\n"
-                + "    \"exposeReasoningToUser\": true\n"
+                + "\"\"\"\n"
                 + "  }\n"
                 + "}\n");
 
         AgentCatalogProperties properties = new AgentCatalogProperties();
         properties.setExternalDir(tempDir.toString());
-
         AgentDefinitionLoader loader = new AgentDefinitionLoader(new ObjectMapper(), properties, null);
 
         Map<String, AgentDefinition> byId = loader.loadAll().stream()
@@ -105,57 +106,24 @@ class AgentDefinitionLoaderTest {
 
         assertThat(byId).containsKey("fortune_teller");
         assertThat(byId.get("fortune_teller").systemPrompt()).isEqualTo("你是算命大师\n请先问出生日期");
-        assertThat(byId.get("fortune_teller").mode()).isEqualTo(AgentRuntimeMode.THINKING);
+        assertThat(byId.get("fortune_teller").mode()).isEqualTo(AgentRuntimeMode.ONESHOT);
     }
 
     @Test
-    void shouldParseAllSixV2Modes() throws IOException {
-        Files.writeString(tempDir.resolve("m_plain.json"), """
+    void shouldParseAllThreeModes() throws IOException {
+        Files.writeString(tempDir.resolve("m_oneshot.json"), """
                 {
-                  "description": "plain",
+                  "key": "m_oneshot",
+                  "description": "oneshot",
                   "providerKey": "bailian",
                   "model": "qwen3-max",
-                  "mode": "PLAIN",
-                  "plain": { "systemPrompt": "plain prompt" }
-                }
-                """);
-        Files.writeString(tempDir.resolve("m_thinking.json"), """
-                {
-                  "description": "thinking",
-                  "providerKey": "bailian",
-                  "model": "qwen3-max",
-                  "mode": "THINKING",
-                  "thinking": {
-                    "systemPrompt": "thinking prompt",
-                    "exposeReasoningToUser": true
-                  }
-                }
-                """);
-        Files.writeString(tempDir.resolve("m_plain_tooling.json"), """
-                {
-                  "description": "plain tooling",
-                  "providerKey": "bailian",
-                  "model": "qwen3-max",
-                  "mode": "PLAIN_TOOLING",
-                  "tools": ["bash"],
-                  "plainTooling": { "systemPrompt": "plain tooling prompt" }
-                }
-                """);
-        Files.writeString(tempDir.resolve("m_thinking_tooling.json"), """
-                {
-                  "description": "thinking tooling",
-                  "providerKey": "bailian",
-                  "model": "qwen3-max",
-                  "mode": "THINKING_TOOLING",
-                  "tools": ["bash"],
-                  "thinkingTooling": {
-                    "systemPrompt": "thinking tooling prompt",
-                    "exposeReasoningToUser": false
-                  }
+                  "mode": "ONESHOT",
+                  "plain": { "systemPrompt": "oneshot prompt" }
                 }
                 """);
         Files.writeString(tempDir.resolve("m_react.json"), """
                 {
+                  "key": "m_react",
                   "description": "react",
                   "providerKey": "bailian",
                   "model": "qwen3-max",
@@ -168,35 +136,28 @@ class AgentDefinitionLoaderTest {
                 """);
         Files.writeString(tempDir.resolve("m_plan_execute.json"), """
                 {
+                  "key": "m_plan_execute",
                   "description": "plan execute",
                   "providerKey": "bailian",
                   "model": "qwen3-max",
                   "mode": "PLAN_EXECUTE",
                   "planExecute": {
-                    "planSystemPrompt": "plan prompt",
-                    "executeSystemPrompt": "execute prompt",
-                    "summarySystemPrompt": "summary prompt"
+                    "plan": { "systemPrompt": "plan prompt" },
+                    "execute": { "systemPrompt": "execute prompt" },
+                    "summary": { "systemPrompt": "summary prompt" }
                   }
                 }
                 """);
 
         AgentCatalogProperties properties = new AgentCatalogProperties();
         properties.setExternalDir(tempDir.toString());
-
         AgentDefinitionLoader loader = new AgentDefinitionLoader(new ObjectMapper(), properties, null);
         Map<String, AgentDefinition> byId = loader.loadAll().stream()
                 .collect(Collectors.toMap(AgentDefinition::id, definition -> definition));
 
-        assertThat(byId).hasSize(6);
-        assertThat(byId.get("m_plain").mode()).isEqualTo(AgentRuntimeMode.PLAIN);
-        assertThat(byId.get("m_thinking").mode()).isEqualTo(AgentRuntimeMode.THINKING);
-        assertThat(byId.get("m_plain_tooling").mode()).isEqualTo(AgentRuntimeMode.PLAIN_TOOLING);
-        assertThat(byId.get("m_thinking_tooling").mode()).isEqualTo(AgentRuntimeMode.THINKING_TOOLING);
+        assertThat(byId).hasSize(3);
+        assertThat(byId.get("m_oneshot").mode()).isEqualTo(AgentRuntimeMode.ONESHOT);
         assertThat(byId.get("m_react").mode()).isEqualTo(AgentRuntimeMode.REACT);
         assertThat(byId.get("m_plan_execute").mode()).isEqualTo(AgentRuntimeMode.PLAN_EXECUTE);
-        PlanExecuteMode peMode = (PlanExecuteMode) byId.get("m_plan_execute").agentMode();
-        assertThat(peMode.planSystemPrompt()).isEqualTo("plan prompt");
-        assertThat(peMode.executeSystemPrompt()).isEqualTo("execute prompt");
-        assertThat(peMode.summarySystemPrompt()).isEqualTo("summary prompt");
     }
 }

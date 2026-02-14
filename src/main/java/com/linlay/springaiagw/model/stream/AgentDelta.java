@@ -6,7 +6,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import java.util.List;
 
 public record AgentDelta(
-        String thinking,
+        String reasoning,
         String content,
         List<ToolCallDelta> toolCalls,
         List<ToolResult> toolResults,
@@ -26,7 +26,7 @@ public record AgentDelta(
         }
     }
 
-    public static AgentDelta thinking(String delta) {
+    public static AgentDelta reasoning(String delta) {
         return new AgentDelta(delta, null, List.of(), List.of(), null);
     }
 

@@ -1,14 +1,20 @@
 {
+  "key": "demoAction",
+  "name": "示例-UI动作",
+  "icon": "emoji:🎬",
   "description": "内置示例：UI 动作智能体（主题/烟花/模态框）",
   "providerKey": "bailian",
   "model": "qwen3-max",
-  "mode": "PLAIN_TOOLING",
+  "mode": "ONESHOT",
   "tools": [
     "switch_theme",
     "launch_fireworks",
     "show_modal"
   ],
-  "plainTooling": {
+  "reasoning": {
+    "enabled": false
+  },
+  "plain": {
     "systemPrompt": "你是 UI 动作助手。根据用户意图调用对应动作并输出一句简短确认。"
   }
 }

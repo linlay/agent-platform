@@ -13,6 +13,9 @@ import java.util.List;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class AgentConfigFile {
 
+    private String key;
+    private String name;
+    private String icon;
     private String description;
     private String providerKey;
     private String providerType;
@@ -20,18 +23,39 @@ public class AgentConfigFile {
     private AgentRuntimeMode mode;
     private List<String> tools;
 
-    private ComputePolicy compute;
+    private ReasoningConfig reasoning;
     private OutputPolicy output;
     private ToolPolicy toolPolicy;
     private VerifyPolicy verify;
     private BudgetConfig budget;
 
-    private PlainConfig plain;
-    private ThinkingConfig thinking;
-    private PlainToolingConfig plainTooling;
-    private ThinkingToolingConfig thinkingTooling;
+    private OneshotConfig plain;
     private ReactConfig react;
     private PlanExecuteConfig planExecute;
+
+    public String getKey() {
+        return key;
+    }
+
+    public void setKey(String key) {
+        this.key = key;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public String getIcon() {
+        return icon;
+    }
+
+    public void setIcon(String icon) {
+        this.icon = icon;
+    }
 
     public String getDescription() {
         return description;
@@ -81,12 +105,12 @@ public class AgentConfigFile {
         this.tools = tools;
     }
 
-    public ComputePolicy getCompute() {
-        return compute;
+    public ReasoningConfig getReasoning() {
+        return reasoning;
     }
 
-    public void setCompute(ComputePolicy compute) {
-        this.compute = compute;
+    public void setReasoning(ReasoningConfig reasoning) {
+        this.reasoning = reasoning;
     }
 
     public OutputPolicy getOutput() {
@@ -121,36 +145,12 @@ public class AgentConfigFile {
         this.budget = budget;
     }
 
-    public PlainConfig getPlain() {
+    public OneshotConfig getPlain() {
         return plain;
     }
 
-    public void setPlain(PlainConfig plain) {
+    public void setPlain(OneshotConfig plain) {
         this.plain = plain;
-    }
-
-    public ThinkingConfig getThinking() {
-        return thinking;
-    }
-
-    public void setThinking(ThinkingConfig thinking) {
-        this.thinking = thinking;
-    }
-
-    public PlainToolingConfig getPlainTooling() {
-        return plainTooling;
-    }
-
-    public void setPlainTooling(PlainToolingConfig plainTooling) {
-        this.plainTooling = plainTooling;
-    }
-
-    public ThinkingToolingConfig getThinkingTooling() {
-        return thinkingTooling;
-    }
-
-    public void setThinkingTooling(ThinkingToolingConfig thinkingTooling) {
-        this.thinkingTooling = thinkingTooling;
     }
 
     public ReactConfig getReact() {
@@ -219,57 +219,34 @@ public class AgentConfigFile {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public static class PlainConfig {
-        private String systemPrompt;
+    public static class ReasoningConfig {
+        private Boolean enabled;
+        private ComputePolicy effort;
 
-        public String getSystemPrompt() {
-            return systemPrompt;
+        public Boolean getEnabled() {
+            return enabled;
         }
 
-        public void setSystemPrompt(String systemPrompt) {
-            this.systemPrompt = systemPrompt;
-        }
-    }
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    public static class ThinkingConfig {
-        private String systemPrompt;
-        private Boolean exposeReasoningToUser;
-
-        public String getSystemPrompt() {
-            return systemPrompt;
+        public void setEnabled(Boolean enabled) {
+            this.enabled = enabled;
         }
 
-        public void setSystemPrompt(String systemPrompt) {
-            this.systemPrompt = systemPrompt;
+        public ComputePolicy getEffort() {
+            return effort;
         }
 
-        public Boolean getExposeReasoningToUser() {
-            return exposeReasoningToUser;
-        }
-
-        public void setExposeReasoningToUser(Boolean exposeReasoningToUser) {
-            this.exposeReasoningToUser = exposeReasoningToUser;
+        public void setEffort(ComputePolicy effort) {
+            this.effort = effort;
         }
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public static class PlainToolingConfig {
+    public static class StageConfig {
         private String systemPrompt;
-
-        public String getSystemPrompt() {
-            return systemPrompt;
-        }
-
-        public void setSystemPrompt(String systemPrompt) {
-            this.systemPrompt = systemPrompt;
-        }
-    }
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    public static class ThinkingToolingConfig {
-        private String systemPrompt;
-        private Boolean exposeReasoningToUser;
+        private String providerKey;
+        private String model;
+        private List<String> tools;
+        private ReasoningConfig reasoning;
 
         public String getSystemPrompt() {
             return systemPrompt;
@@ -279,27 +256,46 @@ public class AgentConfigFile {
             this.systemPrompt = systemPrompt;
         }
 
-        public Boolean getExposeReasoningToUser() {
-            return exposeReasoningToUser;
+        public String getProviderKey() {
+            return providerKey;
         }
 
-        public void setExposeReasoningToUser(Boolean exposeReasoningToUser) {
-            this.exposeReasoningToUser = exposeReasoningToUser;
+        public void setProviderKey(String providerKey) {
+            this.providerKey = providerKey;
+        }
+
+        public String getModel() {
+            return model;
+        }
+
+        public void setModel(String model) {
+            this.model = model;
+        }
+
+        public List<String> getTools() {
+            return tools;
+        }
+
+        public void setTools(List<String> tools) {
+            this.tools = tools;
+        }
+
+        public ReasoningConfig getReasoning() {
+            return reasoning;
+        }
+
+        public void setReasoning(ReasoningConfig reasoning) {
+            this.reasoning = reasoning;
         }
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public static class ReactConfig {
-        private String systemPrompt;
+    public static class OneshotConfig extends StageConfig {
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class ReactConfig extends StageConfig {
         private Integer maxSteps;
-
-        public String getSystemPrompt() {
-            return systemPrompt;
-        }
-
-        public void setSystemPrompt(String systemPrompt) {
-            this.systemPrompt = systemPrompt;
-        }
 
         public Integer getMaxSteps() {
             return maxSteps;
@@ -312,32 +308,32 @@ public class AgentConfigFile {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static class PlanExecuteConfig {
-        private String planSystemPrompt;
-        private String executeSystemPrompt;
-        private String summarySystemPrompt;
+        private StageConfig plan;
+        private StageConfig execute;
+        private StageConfig summary;
 
-        public String getPlanSystemPrompt() {
-            return planSystemPrompt;
+        public StageConfig getPlan() {
+            return plan;
         }
 
-        public void setPlanSystemPrompt(String planSystemPrompt) {
-            this.planSystemPrompt = planSystemPrompt;
+        public void setPlan(StageConfig plan) {
+            this.plan = plan;
         }
 
-        public String getExecuteSystemPrompt() {
-            return executeSystemPrompt;
+        public StageConfig getExecute() {
+            return execute;
         }
 
-        public void setExecuteSystemPrompt(String executeSystemPrompt) {
-            this.executeSystemPrompt = executeSystemPrompt;
+        public void setExecute(StageConfig execute) {
+            this.execute = execute;
         }
 
-        public String getSummarySystemPrompt() {
-            return summarySystemPrompt;
+        public StageConfig getSummary() {
+            return summary;
         }
 
-        public void setSummarySystemPrompt(String summarySystemPrompt) {
-            this.summarySystemPrompt = summarySystemPrompt;
+        public void setSummary(StageConfig summary) {
+            this.summary = summary;
         }
     }
 }

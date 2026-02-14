@@ -18,6 +18,7 @@ public record LlmCallSpec(
         OutputShape outputShape,
         String jsonSchema,
         ComputePolicy compute,
+        boolean reasoningEnabled,
         Integer maxTokens,
         String stage,
         boolean parallelToolCalls

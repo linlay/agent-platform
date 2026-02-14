@@ -31,7 +31,7 @@ POST /api/query → AgwController → AgwQueryService → DefinitionDrivenAgent.
 | 包 | 职责 |
 |---|------|
 | `agent` | Agent 接口、`DefinitionDrivenAgent` 主实现、`AgentRegistry`（WatchService 热刷新）、JSON 定义加载 |
-| `agent.runtime` | `AgentOrchestrator` 流式编排、`ToolExecutionService`、`VerifyService`、`ModePresetMapper` |
+| `agent.runtime` | `DefinitionDrivenAgent` + `AgentMode` + `OrchestratorServices` 流式编排、`ToolExecutionService`、`VerifyService` |
 | `agent.runtime.policy` | `RunSpec`、`ControlStrategy`、`Budget` 等策略定义 |
 | `model` | `AgentRequest`、`ProviderProtocol`、`ProviderType`、`ViewportType` |
 | `model.api` | REST 契约：`ApiResponse`、`AgwQueryRequest`、`AgwSubmitRequest`、`AgwChatDetailResponse` 等 |
@@ -135,11 +135,15 @@ POST /api/query → AgwController → AgwQueryService → DefinitionDrivenAgent.
 
 ```json
 {
+  "key": "agent_key",
+  "name": "agent_name",
+  "icon": "emoji:🤖",
   "description": "描述",
   "providerKey": "bailian",
   "model": "qwen3-max",
-  "mode": "PLAIN | THINKING | PLAIN_TOOLING | THINKING_TOOLING | REACT | PLAN_EXECUTE",
+  "mode": "ONESHOT | REACT | PLAN_EXECUTE",
   "tools": ["bash", "city_datetime"],
+  "reasoning": { "enabled": true, "effort": "MEDIUM" },
   "plain": {
     "systemPrompt": "系统提示词"
   }
@@ -147,50 +151,19 @@ POST /api/query → AgwController → AgwQueryService → DefinitionDrivenAgent.
 ```
 
 各模式对应配置块（至少需要一个）：
-- `PLAIN` -> `plain.systemPrompt`
-- `THINKING` -> `thinking.systemPrompt`
-- `PLAIN_TOOLING` -> `plainTooling.systemPrompt`
-- `THINKING_TOOLING` -> `thinkingTooling.systemPrompt`
+- `ONESHOT` -> `plain.systemPrompt`
 - `REACT` -> `react.systemPrompt`
-- `PLAN_EXECUTE` -> `planExecute.planSystemPrompt` + `planExecute.executeSystemPrompt`
+- `PLAN_EXECUTE` -> `planExecute.plan.systemPrompt` + `planExecute.execute.systemPrompt`
 
 ## 各模式 JSON 配置示例
 
-**PLAIN** — 无工具单轮直答：
+**ONESHOT** — 单轮直答；若配置工具可在单轮中调用工具并收敛最终答案：
 
 ```json
 {
-  "mode": "PLAIN",
+  "mode": "ONESHOT",
+  "reasoning": { "enabled": false },
   "plain": { "systemPrompt": "你是助手" }
-}
-```
-
-**THINKING** — 无工具单轮推理后输出结论：
-
-```json
-{
-  "mode": "THINKING",
-  "thinking": { "systemPrompt": "你是助手", "exposeReasoningToUser": true }
-}
-```
-
-**PLAIN_TOOLING** — 最多调用 1 轮工具后输出答案：
-
-```json
-{
-  "mode": "PLAIN_TOOLING",
-  "tools": ["bash", "city_datetime"],
-  "plainTooling": { "systemPrompt": "你是助手" }
-}
-```
-
-**THINKING_TOOLING** — 先推理，再最多调用 1 轮工具后输出答案：
-
-```json
-{
-  "mode": "THINKING_TOOLING",
-  "tools": ["bash"],
-  "thinkingTooling": { "systemPrompt": "你是助手", "exposeReasoningToUser": false }
 }
 ```
 
@@ -200,6 +173,7 @@ POST /api/query → AgwController → AgwQueryService → DefinitionDrivenAgent.
 {
   "mode": "REACT",
   "tools": ["bash", "city_datetime"],
+  "reasoning": { "enabled": true, "effort": "MEDIUM" },
   "react": { "systemPrompt": "你是助手", "maxSteps": 5 }
 }
 ```
@@ -210,10 +184,11 @@ POST /api/query → AgwController → AgwQueryService → DefinitionDrivenAgent.
 {
   "mode": "PLAN_EXECUTE",
   "tools": ["bash", "city_datetime"],
+  "reasoning": { "enabled": true, "effort": "HIGH" },
   "planExecute": {
-    "planSystemPrompt": "先规划",
-    "executeSystemPrompt": "再执行",
-    "summarySystemPrompt": "最后总结"
+    "plan": { "systemPrompt": "先规划" },
+    "execute": { "systemPrompt": "再执行" },
+    "summary": { "systemPrompt": "最后总结" }
   }
 }
 ```
@@ -253,8 +228,8 @@ Agent JSON 中可显式覆盖模式预设的策略值：
 
 ```json
 {
-  "mode": "PLAIN",
-  "compute": "HIGH",
+  "mode": "ONESHOT",
+  "reasoning": { "enabled": true, "effort": "HIGH" },
   "output": "REASONING_SUMMARY",
   "toolPolicy": "REQUIRE",
   "verify": "SECOND_PASS_FIX",
@@ -263,7 +238,7 @@ Agent JSON 中可显式覆盖模式预设的策略值：
 }
 ```
 
-可覆盖字段：`compute`（`LOW/MEDIUM/HIGH`）、`output`（`PLAIN/REASONING_SUMMARY`）、`toolPolicy`（`DISALLOW/ALLOW/REQUIRE`）、`verify`（`NONE/SECOND_PASS_FIX`）、`budget`。
+可覆盖字段：`reasoning.enabled`、`reasoning.effort`（`LOW/MEDIUM/HIGH`）、`output`（`PLAIN/REASONING_SUMMARY`）、`toolPolicy`（`DISALLOW/ALLOW/REQUIRE`）、`verify`（`NONE/SECOND_PASS_FIX`）、`budget`。
 
 ## 设计原则
 
@@ -275,13 +250,7 @@ Agent 行为应由 LLM 推理和工具调用驱动（通过 prompt 引导），J
 
 ### 1. Agent 模式行为规范
 
-**PLAIN** — 无工具单轮直答。
-
-**THINKING** — 无工具单轮推理后输出结论。
-
-**PLAIN_TOOLING** — 最多调用 1 轮工具后输出答案。
-
-**THINKING_TOOLING** — 先推理，再最多调用 1 轮工具后输出答案。
+**ONESHOT** — 单轮直答；若配置工具则允许单轮工具调用后输出最终答案。
 
 **REACT** — 最多 6 轮循环：思考 → 调 1 个工具 → 观察结果，直到给出最终答案。每轮最多 1 个工具。
 
@@ -296,17 +265,17 @@ Agent 行为应由 LLM 推理和工具调用驱动（通过 prompt 引导），J
 
 **必须做到：**
 - LLM 返回一个 delta，立刻推送一个 SSE 事件（零缓冲）
-- thinking/content token 逐个流式输出
+- reasoning/content token 逐个流式输出
 - tool_calls delta 立刻输出，细分事件：`tool.start` → `tool.args`（多次）→ `tool.end` → `tool.result`
 - **1 个上游 delta 只允许 1 次下游发射（同语义块）**，禁止跨 delta 合并后再发
 - `VerifyPolicy.SECOND_PASS_FIX` 必须真流式：首轮候选答案仅内部使用，二次校验输出按 chunk 实时下发
 
-**实现机制：** `AgentOrchestrator.runStream` 统一流式编排；模型轮次使用 `callModelTurnStreaming` 逐 delta 透传；结构化输出使用 `StreamingJsonFieldExtractor` 增量提取 `finalText/reasoningSummary`；二次校验通过 `VerifyService.streamSecondPass` 逐 chunk 输出。
+**实现机制：** `DefinitionDrivenAgent` 驱动 `AgentMode` 执行；模型轮次使用 `OrchestratorServices.callModelTurnStreaming` 逐 delta 透传；二次校验通过 `VerifyService.streamSecondPass` 逐 chunk 输出。
 
 ### 3. LLM 调用日志（MUST）
 
 所有大模型调用的完整日志必须打印到控制台：
-- 每个 SSE delta（thinking/content/tool_calls）逐条打印 `log.debug`
+- 每个 SSE delta（reasoning/content/tool_calls）逐条打印 `log.debug`
 - 工具调用 delta 打印 tool name、arguments 片段、finish_reason
 - `LlmService.appendDeltaLog` 带 traceId/stage 参数，`streamContent`/`streamContentRawSse` 均有逐 chunk debug 日志
 - 日志开关：`agent.llm.interaction-log.enabled`（默认 `true`）

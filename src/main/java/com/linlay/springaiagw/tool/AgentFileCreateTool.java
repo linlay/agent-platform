@@ -50,30 +50,37 @@ public class AgentFileCreateTool extends AbstractDeterministicTool {
 
         Map<String, Object> mergedArgs = mergeArgs(args);
 
-        String agentId = readString(mergedArgs, "agentId", "id", "name");
-        if (agentId == null || agentId.isBlank()) {
-            return failure(result, "Missing argument: agentId");
+        String key = readString(mergedArgs, "key", "agentId", "id", "name");
+        if (key == null || key.isBlank()) {
+            return failure(result, "Missing argument: key");
         }
-        String normalizedAgentId = agentId.trim();
-        if (!AGENT_ID_PATTERN.matcher(normalizedAgentId).matches()) {
-            return failure(result, "Invalid agentId. Use [A-Za-z0-9_-], max 64 chars.");
+        String normalizedKey = key.trim();
+        if (!AGENT_ID_PATTERN.matcher(normalizedKey).matches()) {
+            return failure(result, "Invalid agentId/key. Use [A-Za-z0-9_-], max 64 chars.");
         }
 
         AgentRuntimeMode mode;
         try {
             mode = AgentRuntimeMode.fromJson(readString(mergedArgs, "mode"));
         } catch (Exception ex) {
-            return failure(result, "Invalid mode. Use one of PLAIN/THINKING/PLAIN_TOOLING/THINKING_TOOLING/REACT/PLAN_EXECUTE");
+            return failure(result, "Invalid mode. Use one of ONESHOT/REACT/PLAN_EXECUTE");
         }
         if (mode == null) {
-            mode = AgentRuntimeMode.PLAIN;
+            mode = AgentRuntimeMode.ONESHOT;
         }
 
         String description = normalizeText(readString(mergedArgs, "description"), DEFAULT_DESCRIPTION);
         String providerKey = normalizeProviderKey(readString(mergedArgs, "providerKey", "providerType"));
         String model = normalizeText(readString(mergedArgs, "model"), DEFAULT_MODEL);
+        String name = normalizeText(readString(mergedArgs, "name"), normalizedKey);
+        String icon = normalizeText(readString(mergedArgs, "icon"), "");
 
         ObjectNode root = OBJECT_MAPPER.createObjectNode();
+        root.put("key", normalizedKey);
+        root.put("name", name);
+        if (!icon.isBlank()) {
+            root.put("icon", icon);
+        }
         root.put("description", description);
         root.put("providerKey", providerKey);
         root.put("model", model);
@@ -84,7 +91,11 @@ public class AgentFileCreateTool extends AbstractDeterministicTool {
             root.set("tools", toolsNode);
         }
 
-        putOptionalEnum(root, "compute", readString(mergedArgs, "compute"));
+        ObjectNode topReasoning = parseReasoning(mergedArgs);
+        if (topReasoning != null) {
+            root.set("reasoning", topReasoning);
+        }
+
         putOptionalEnum(root, "output", readString(mergedArgs, "output"));
         putOptionalEnum(root, "toolPolicy", readString(mergedArgs, "toolPolicy"));
         putOptionalEnum(root, "verify", readString(mergedArgs, "verify"));
@@ -94,9 +105,9 @@ public class AgentFileCreateTool extends AbstractDeterministicTool {
         if (modeConfig == null) {
             return failure(result, "Missing required mode prompt fields");
         }
-        root.set(modeConfig.fieldNames().next(), modeConfig.elements().next());
+        root.setAll(modeConfig);
 
-        Path file = agentsDir.resolve(normalizedAgentId + ".json").normalize();
+        Path file = agentsDir.resolve(normalizedKey + ".json").normalize();
         if (!file.startsWith(agentsDir)) {
             return failure(result, "Resolved path escapes agents directory");
         }
@@ -109,7 +120,7 @@ public class AgentFileCreateTool extends AbstractDeterministicTool {
             result.put("ok", true);
             result.put("created", !existed);
             result.put("updated", existed);
-            result.put("agentId", normalizedAgentId);
+            result.put("agentId", normalizedKey);
             result.put("file", file.toString());
             result.set("config", root);
             return result;
@@ -136,20 +147,7 @@ public class AgentFileCreateTool extends AbstractDeterministicTool {
 
     private ObjectNode buildModeConfig(AgentRuntimeMode mode, Map<String, Object> args) {
         return switch (mode) {
-            case PLAIN -> singlePromptConfig("plain", "systemPrompt", readString(args, "systemPrompt", "plainSystemPrompt"), null);
-            case THINKING -> singlePromptConfig(
-                    "thinking",
-                    "systemPrompt",
-                    readString(args, "systemPrompt", "thinkingSystemPrompt"),
-                    parseBooleanNode(args.get("exposeReasoningToUser"))
-            );
-            case PLAIN_TOOLING -> singlePromptConfig("plainTooling", "systemPrompt", readString(args, "systemPrompt", "plainToolingSystemPrompt"), null);
-            case THINKING_TOOLING -> singlePromptConfig(
-                    "thinkingTooling",
-                    "systemPrompt",
-                    readString(args, "systemPrompt", "thinkingToolingSystemPrompt"),
-                    parseBooleanNode(args.get("exposeReasoningToUser"))
-            );
+            case ONESHOT -> oneshotConfig(readString(args, "systemPrompt", "plainSystemPrompt"));
             case REACT -> reactConfig(readString(args, "systemPrompt", "reactSystemPrompt"), args.get("maxSteps"));
             case PLAN_EXECUTE -> planExecuteConfig(
                     readString(args, "planSystemPrompt"),
@@ -159,18 +157,15 @@ public class AgentFileCreateTool extends AbstractDeterministicTool {
         };
     }
 
-    private ObjectNode singlePromptConfig(String fieldName, String promptField, String prompt, Boolean exposeReasoningToUser) {
+    private ObjectNode oneshotConfig(String prompt) {
         String normalizedPrompt = normalizeText(prompt, DEFAULT_PROMPT);
         if (normalizedPrompt.isBlank()) {
             return null;
         }
         ObjectNode wrapper = OBJECT_MAPPER.createObjectNode();
         ObjectNode node = OBJECT_MAPPER.createObjectNode();
-        node.put(promptField, normalizedPrompt);
-        if (exposeReasoningToUser != null) {
-            node.put("exposeReasoningToUser", exposeReasoningToUser);
-        }
-        wrapper.set(fieldName, node);
+        node.put("systemPrompt", normalizedPrompt);
+        wrapper.set("plain", node);
         return wrapper;
     }
 
@@ -197,24 +192,41 @@ public class AgentFileCreateTool extends AbstractDeterministicTool {
         }
         ObjectNode wrapper = OBJECT_MAPPER.createObjectNode();
         ObjectNode node = OBJECT_MAPPER.createObjectNode();
-        node.put("planSystemPrompt", normalizedPlan);
-        node.put("executeSystemPrompt", normalizedExecute);
+        ObjectNode plan = OBJECT_MAPPER.createObjectNode();
+        plan.put("systemPrompt", normalizedPlan);
+        node.set("plan", plan);
+        ObjectNode execute = OBJECT_MAPPER.createObjectNode();
+        execute.put("systemPrompt", normalizedExecute);
+        node.set("execute", execute);
         String normalizedSummary = normalizeText(summaryPrompt, "");
         if (!normalizedSummary.isBlank()) {
-            node.put("summarySystemPrompt", normalizedSummary);
+            ObjectNode summary = OBJECT_MAPPER.createObjectNode();
+            summary.put("systemPrompt", normalizedSummary);
+            node.set("summary", summary);
         }
         wrapper.set("planExecute", node);
         return wrapper;
     }
 
-    private Boolean parseBooleanNode(Object value) {
-        if (value instanceof Boolean bool) {
-            return bool;
+    private ObjectNode parseReasoning(Map<String, Object> args) {
+        Object enabledRaw = args.get("reasoningEnabled");
+        Object effortRaw = args.get("reasoningEffort");
+        if (enabledRaw == null && effortRaw == null) {
+            return null;
         }
-        if (value instanceof String text && !text.isBlank()) {
-            return Boolean.parseBoolean(text.trim());
+        ObjectNode node = OBJECT_MAPPER.createObjectNode();
+        if (enabledRaw instanceof Boolean enabled) {
+            node.put("enabled", enabled);
+        } else if (enabledRaw instanceof String text && !text.isBlank()) {
+            node.put("enabled", Boolean.parseBoolean(text.trim()));
         }
-        return null;
+        if (effortRaw instanceof String effort && !effort.isBlank()) {
+            node.put("effort", effort.trim().toUpperCase(Locale.ROOT));
+        }
+        if (node.isEmpty()) {
+            return null;
+        }
+        return node;
     }
 
     private ArrayNode normalizeTools(Object rawTools) {
