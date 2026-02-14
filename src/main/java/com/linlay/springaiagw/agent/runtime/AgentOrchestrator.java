@@ -7,7 +7,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linlay.springaiagw.agent.AgentDefinition;
 import com.linlay.springaiagw.agent.PlannedToolCall;
-import com.linlay.springaiagw.agent.runtime.policy.OutputPolicy;
 import com.linlay.springaiagw.agent.runtime.policy.RunSpec;
 import com.linlay.springaiagw.agent.runtime.policy.ToolChoice;
 import com.linlay.springaiagw.agent.runtime.policy.ToolPolicy;
@@ -94,26 +93,10 @@ public class AgentOrchestrator {
             Map<String, BaseTool> enabledToolsByName,
             FluxSink<AgentDelta> sink
     ) {
-        if (context.definition().mode() == AgentRuntimeMode.THINKING) {
-            boolean secondPass = verifyService.requiresSecondPass(context.definition().runSpec().verify());
-            boolean exposeReasoning = context.definition().runSpec().output() == OutputPolicy.REASONING_SUMMARY
-                    && context.definition().runSpec().exposeReasoningToUser();
-            StructuredAnswer answer = streamStructuredAnswer(
-                    context,
-                    context.definition().promptSet().systemPrompt(),
-                    context.conversationMessages(),
-                    "请只输出 JSON：{\"finalText\":\"...\",\"reasoningSummary\":\"...\"}。不要输出额外文本。",
-                    "agent-thinking-oneshot",
-                    !secondPass && exposeReasoning,
-                    !secondPass,
-                    sink
-            );
-            emitFinalAnswer(context, context.conversationMessages(), answer.finalText(), answer.reasoningSummary(),
-                    !secondPass, !secondPass && exposeReasoning, sink);
-            return;
-        }
-
+        boolean isThinking = context.definition().mode() == AgentRuntimeMode.THINKING;
+        boolean emitReasoning = isThinking && context.definition().runSpec().exposeReasoningToUser();
         boolean secondPass = verifyService.requiresSecondPass(context.definition().runSpec().verify());
+
         ModelTurn turn = callModelTurnStreaming(
                 context,
                 context.definition().promptSet().systemPrompt(),
@@ -121,15 +104,16 @@ public class AgentOrchestrator {
                 null,
                 List.of(),
                 ToolChoice.NONE,
-                "agent-plain-oneshot",
+                isThinking ? "agent-thinking-oneshot" : "agent-plain-oneshot",
                 false,
+                emitReasoning,
                 !secondPass,
                 true,
                 sink
         );
         String finalText = normalize(turn.finalText());
         appendAssistantMessage(context.conversationMessages(), finalText);
-        emitFinalAnswer(context, context.conversationMessages(), finalText, null, !secondPass, false, sink);
+        emitFinalAnswer(context, context.conversationMessages(), finalText, !secondPass, sink);
     }
 
     private void runToolOneShot(
@@ -137,6 +121,9 @@ public class AgentOrchestrator {
             Map<String, BaseTool> enabledToolsByName,
             FluxSink<AgentDelta> sink
     ) {
+        boolean isThinkingTooling = context.definition().mode() == AgentRuntimeMode.THINKING_TOOLING;
+        boolean emitReasoning = isThinkingTooling && context.definition().runSpec().exposeReasoningToUser();
+
         ToolChoice toolChoice = requiresTool(context) ? ToolChoice.REQUIRED : ToolChoice.AUTO;
         ModelTurn firstTurn = callModelTurnStreaming(
                 context,
@@ -147,6 +134,7 @@ public class AgentOrchestrator {
                 toolChoice,
                 "agent-tooling-first",
                 false,
+                emitReasoning,
                 true,
                 true,
                 sink
@@ -165,6 +153,7 @@ public class AgentOrchestrator {
                     ToolChoice.REQUIRED,
                     "agent-tooling-first-repair",
                     false,
+                    emitReasoning,
                     true,
                     true,
                     sink
@@ -176,50 +165,13 @@ public class AgentOrchestrator {
                 log.warn("[agent:{}] ToolPolicy.REQUIRE violated in TOOL_ONESHOT: no tool call produced",
                         context.definition().id());
             }
-            if (context.definition().mode() == AgentRuntimeMode.THINKING_TOOLING) {
-                boolean secondPass = verifyService.requiresSecondPass(context.definition().runSpec().verify());
-                boolean exposeReasoning = context.definition().runSpec().output() == OutputPolicy.REASONING_SUMMARY
-                        && context.definition().runSpec().exposeReasoningToUser();
-                StructuredAnswer answer = streamStructuredAnswer(
-                        context,
-                        context.definition().promptSet().systemPrompt(),
-                        context.conversationMessages(),
-                        "请只输出 JSON：{\"finalText\":\"...\",\"reasoningSummary\":\"...\"}。不要输出额外文本。",
-                        "agent-thinking-tooling-no-tool",
-                        !secondPass && exposeReasoning,
-                        !secondPass,
-                        sink
-                );
-                emitFinalAnswer(context, context.conversationMessages(), answer.finalText(), answer.reasoningSummary(),
-                        !secondPass, !secondPass && exposeReasoning, sink);
-                return;
-            }
             String finalText = normalize(firstTurn.finalText());
             appendAssistantMessage(context.conversationMessages(), finalText);
-            emitFinalAnswer(context, context.conversationMessages(), finalText, null, true, false, sink);
+            emitFinalAnswer(context, context.conversationMessages(), finalText, true, sink);
             return;
         }
 
         executeToolsAndEmit(context, enabledToolsByName, firstTurn.toolCalls(), sink);
-
-        if (context.definition().mode() == AgentRuntimeMode.THINKING_TOOLING) {
-            boolean secondPass = verifyService.requiresSecondPass(context.definition().runSpec().verify());
-            boolean exposeReasoning = context.definition().runSpec().output() == OutputPolicy.REASONING_SUMMARY
-                    && context.definition().runSpec().exposeReasoningToUser();
-            StructuredAnswer answer = streamStructuredAnswer(
-                    context,
-                    context.definition().promptSet().systemPrompt(),
-                    context.conversationMessages(),
-                    "请只输出 JSON：{\"finalText\":\"...\",\"reasoningSummary\":\"...\"}。不要输出额外文本。",
-                    "agent-thinking-tooling-final",
-                    !secondPass && exposeReasoning,
-                    !secondPass,
-                    sink
-            );
-            emitFinalAnswer(context, context.conversationMessages(), answer.finalText(), answer.reasoningSummary(),
-                    !secondPass, !secondPass && exposeReasoning, sink);
-            return;
-        }
 
         boolean secondPass = verifyService.requiresSecondPass(context.definition().runSpec().verify());
         ModelTurn secondTurn = callModelTurnStreaming(
@@ -229,15 +181,16 @@ public class AgentOrchestrator {
                 "请基于已有信息输出最终答案，不再调用工具。",
                 List.of(),
                 ToolChoice.NONE,
-                "agent-tooling-final",
+                isThinkingTooling ? "agent-thinking-tooling-final" : "agent-tooling-final",
                 false,
+                emitReasoning,
                 !secondPass,
                 true,
                 sink
         );
         String finalText = normalize(secondTurn.finalText());
         appendAssistantMessage(context.conversationMessages(), finalText);
-        emitFinalAnswer(context, context.conversationMessages(), finalText, null, !secondPass, false, sink);
+        emitFinalAnswer(context, context.conversationMessages(), finalText, !secondPass, sink);
     }
 
     private void runReactLoop(
@@ -259,6 +212,7 @@ public class AgentOrchestrator {
                     toolExecutionService.enabledFunctionTools(enabledToolsByName),
                     requiresTool(context) ? ToolChoice.REQUIRED : ToolChoice.AUTO,
                     "agent-react-step-" + step,
+                    false,
                     false,
                     true,
                     true,
@@ -284,24 +238,7 @@ public class AgentOrchestrator {
             }
 
             appendAssistantMessage(context.conversationMessages(), finalText);
-            if (context.definition().runSpec().output() == OutputPolicy.REASONING_SUMMARY) {
-                boolean secondPass = verifyService.requiresSecondPass(context.definition().runSpec().verify());
-                boolean exposeReasoning = context.definition().runSpec().exposeReasoningToUser();
-                StructuredAnswer answer = streamStructuredAnswer(
-                        context,
-                        context.definition().promptSet().systemPrompt(),
-                        context.conversationMessages(),
-                        "请只输出 JSON：{\"finalText\":\"...\",\"reasoningSummary\":\"...\"}。不要输出额外文本。",
-                        "agent-react-summary",
-                        !secondPass && exposeReasoning,
-                        !secondPass,
-                        sink
-                );
-                emitFinalAnswer(context, context.conversationMessages(), answer.finalText(), answer.reasoningSummary(),
-                        !secondPass, !secondPass && exposeReasoning, sink);
-                return;
-            }
-            emitFinalAnswer(context, context.conversationMessages(), finalText, null, true, false, sink);
+            emitFinalAnswer(context, context.conversationMessages(), finalText, true, sink);
             return;
         }
 
@@ -315,7 +252,7 @@ public class AgentOrchestrator {
                 sink
         );
         appendAssistantMessage(context.conversationMessages(), forced);
-        emitFinalAnswer(context, context.conversationMessages(), forced, null, !secondPass, false, sink);
+        emitFinalAnswer(context, context.conversationMessages(), forced, !secondPass, sink);
     }
 
     private void runPlanExecute(
@@ -338,6 +275,7 @@ public class AgentOrchestrator {
                 List.of(),
                 ToolChoice.NONE,
                 "agent-plan-generate",
+                false,
                 false,
                 true,
                 true,
@@ -369,6 +307,7 @@ public class AgentOrchestrator {
                     requiresTool(context) ? ToolChoice.REQUIRED : ToolChoice.AUTO,
                     "agent-plan-execute-step-" + stepNo,
                     true,
+                    false,
                     true,
                     true,
                     sink
@@ -387,6 +326,7 @@ public class AgentOrchestrator {
                         ToolChoice.REQUIRED,
                         "agent-plan-execute-step-" + stepNo + "-repair",
                         true,
+                        false,
                         true,
                         true,
                         sink
@@ -404,6 +344,7 @@ public class AgentOrchestrator {
                         List.of(),
                         ToolChoice.NONE,
                         "agent-plan-step-summary-" + stepNo,
+                        false,
                         false,
                         true,
                         true,
@@ -431,48 +372,23 @@ public class AgentOrchestrator {
         context.executeMessages().add(new UserMessage("所有步骤已完成，请综合所有步骤的执行结果给出最终答案。"));
         boolean secondPass = verifyService.requiresSecondPass(context.definition().runSpec().verify());
 
-        if (context.definition().runSpec().output() == OutputPolicy.REASONING_SUMMARY) {
-            boolean exposeReasoning = context.definition().runSpec().exposeReasoningToUser();
-            StructuredAnswer answer = streamStructuredAnswer(
-                    context,
-                    summaryPrompt,
-                    context.executeMessages(),
-                    "请只输出 JSON：{\"finalText\":\"...\",\"reasoningSummary\":\"...\"}。不要输出额外文本。",
-                    "agent-plan-final-summary",
-                    !secondPass && exposeReasoning,
-                    !secondPass,
-                    sink
-            );
-            emitFinalAnswer(context, context.executeMessages(), answer.finalText(), answer.reasoningSummary(),
-                    !secondPass, !secondPass && exposeReasoning, sink);
-            return;
-        }
-
         String finalText = forceFinalAnswer(context, summaryPrompt, context.executeMessages(), "agent-plan-final",
                 !secondPass, sink);
         appendAssistantMessage(context.executeMessages(), finalText);
-        emitFinalAnswer(context, context.executeMessages(), finalText, null, !secondPass, false, sink);
+        emitFinalAnswer(context, context.executeMessages(), finalText, !secondPass, sink);
     }
 
     private void emitFinalAnswer(
             ExecutionContext context,
             List<Message> messages,
             String candidateFinalText,
-            String reasoningSummary,
             boolean contentAlreadyEmitted,
-            boolean reasoningAlreadyEmitted,
             FluxSink<AgentDelta> sink
     ) {
         VerifyPolicy verifyPolicy = context.definition().runSpec().verify();
         boolean secondPass = verifyService.requiresSecondPass(verifyPolicy);
 
         if (!secondPass) {
-            if (!reasoningAlreadyEmitted
-                    && context.definition().runSpec().output() == OutputPolicy.REASONING_SUMMARY
-                    && context.definition().runSpec().exposeReasoningToUser()
-                    && StringUtils.hasText(reasoningSummary)) {
-                emit(sink, AgentDelta.thinking(reasoningSummary));
-            }
             if (!contentAlreadyEmitted && StringUtils.hasText(candidateFinalText)) {
                 emit(sink, AgentDelta.content(candidateFinalText));
             }
@@ -504,64 +420,6 @@ public class AgentOrchestrator {
         }
     }
 
-    private StructuredAnswer streamStructuredAnswer(
-            ExecutionContext context,
-            String systemPrompt,
-            List<Message> messages,
-            String userPrompt,
-            String stage,
-            boolean emitReasoning,
-            boolean emitFinalText,
-            FluxSink<AgentDelta> sink
-    ) {
-        context.incrementModelCalls();
-        StreamingJsonFieldExtractor extractor = new StreamingJsonFieldExtractor();
-
-        for (String chunk : llmService.streamContent(new LlmCallSpec(
-                context.definition().providerKey(),
-                context.definition().model(),
-                systemPrompt,
-                messages,
-                userPrompt,
-                List.of(),
-                ToolChoice.NONE,
-                null,
-                null,
-                context.definition().runSpec().compute(),
-                4096,
-                stage,
-                false
-        )).toIterable()) {
-            if (!StringUtils.hasText(chunk)) {
-                continue;
-            }
-            StreamingJsonFieldExtractor.FieldDeltas fieldDeltas = extractor.append(chunk);
-            if (emitReasoning && StringUtils.hasText(fieldDeltas.reasoningDelta())) {
-                emit(sink, AgentDelta.thinking(fieldDeltas.reasoningDelta()));
-            }
-            if (emitFinalText && StringUtils.hasText(fieldDeltas.finalTextDelta())) {
-                emit(sink, AgentDelta.content(fieldDeltas.finalTextDelta()));
-            }
-        }
-
-        String raw = extractor.rawText();
-        String finalText = normalize(extractor.finalText());
-        String summary = normalize(extractor.reasoningSummary());
-        JsonNode root = readJson(raw);
-        if (root != null && root.isObject()) {
-            if (!StringUtils.hasText(finalText)) {
-                finalText = normalize(root.path("finalText").asText(""));
-            }
-            if (!StringUtils.hasText(summary)) {
-                summary = normalize(root.path("reasoningSummary").asText(""));
-            }
-        }
-        if (!StringUtils.hasText(finalText)) {
-            finalText = normalize(raw);
-        }
-        return new StructuredAnswer(finalText, summary);
-    }
-
     private String forceFinalAnswer(
             ExecutionContext context,
             String systemPrompt,
@@ -579,6 +437,7 @@ public class AgentOrchestrator {
                 ToolChoice.NONE,
                 stage,
                 false,
+                false,
                 emitContent,
                 true,
                 sink
@@ -595,12 +454,14 @@ public class AgentOrchestrator {
             ToolChoice toolChoice,
             String stage,
             boolean parallelToolCalls,
+            boolean emitReasoning,
             boolean emitContent,
             boolean emitToolCalls,
             FluxSink<AgentDelta> sink
     ) {
         context.incrementModelCalls();
 
+        StringBuilder reasoning = new StringBuilder();
         StringBuilder content = new StringBuilder();
         Map<String, ToolAccumulator> toolsById = new LinkedHashMap<>();
         ToolAccumulator latest = null;
@@ -623,6 +484,13 @@ public class AgentOrchestrator {
         )).toIterable()) {
             if (delta == null) {
                 continue;
+            }
+
+            if (StringUtils.hasText(delta.reasoning())) {
+                reasoning.append(delta.reasoning());
+                if (emitReasoning) {
+                    emit(sink, AgentDelta.thinking(delta.reasoning()));
+                }
             }
 
             if (StringUtils.hasText(delta.content())) {
@@ -680,7 +548,7 @@ public class AgentOrchestrator {
             plannedToolCalls.add(new PlannedToolCall(toolName, args, acc.callId));
         }
 
-        return new ModelTurn(content.toString(), plannedToolCalls);
+        return new ModelTurn(content.toString(), reasoning.toString(), plannedToolCalls);
     }
 
     private void executeToolsAndEmit(
@@ -820,13 +688,8 @@ public class AgentOrchestrator {
 
     private record ModelTurn(
             String finalText,
+            String reasoningText,
             List<PlannedToolCall> toolCalls
-    ) {
-    }
-
-    private record StructuredAnswer(
-            String finalText,
-            String reasoningSummary
     ) {
     }
 

@@ -2,8 +2,9 @@ package com.linlay.springaiagw.agent;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.linlay.springaiagw.agent.mode.AgentMode;
+import com.linlay.springaiagw.agent.mode.AgentModeFactory;
 import com.linlay.springaiagw.agent.runtime.AgentRuntimeMode;
-import com.linlay.springaiagw.agent.runtime.ModePresetMapper;
 import com.linlay.springaiagw.agent.runtime.policy.RunSpec;
 import com.linlay.springaiagw.config.ChatClientRegistry;
 import org.slf4j.Logger;
@@ -98,11 +99,9 @@ public class AgentDefinitionLoader {
             String model = normalize(config.getModel(), resolveDefaultModel(providerKey));
             String description = normalize(config.getDescription(), "external agent from " + fileName);
             List<String> tools = normalizeToolNames(config.getTools());
-            RunSpec runSpec = ModePresetMapper.toRunSpec(mode, config);
-            AgentPromptSet promptSet = resolvePromptSet(mode, config, file);
-            if (promptSet == null) {
-                return java.util.Optional.empty();
-            }
+
+            AgentMode agentMode = AgentModeFactory.create(mode, config, file);
+            RunSpec runSpec = agentMode.defaultRunSpec(config);
 
             return java.util.Optional.of(new AgentDefinition(
                     agentId,
@@ -111,68 +110,13 @@ public class AgentDefinitionLoader {
                     model,
                     mode,
                     runSpec,
-                    promptSet,
+                    agentMode,
                     tools
             ));
         } catch (Exception ex) {
             log.warn("Skip invalid external agent file: {}", file, ex);
             return java.util.Optional.empty();
         }
-    }
-
-    private AgentPromptSet resolvePromptSet(AgentRuntimeMode mode, AgentConfigFile config, Path file) {
-        return switch (mode) {
-            case PLAIN -> {
-                String prompt = normalize(config.getPlain() == null ? null : config.getPlain().getSystemPrompt(), "");
-                if (prompt.isBlank()) {
-                    log.warn("Skip agent {}: plain.systemPrompt is required", file);
-                    yield null;
-                }
-                yield new AgentPromptSet(prompt, null, null, null);
-            }
-            case THINKING -> {
-                String prompt = normalize(config.getThinking() == null ? null : config.getThinking().getSystemPrompt(), "");
-                if (prompt.isBlank()) {
-                    log.warn("Skip agent {}: thinking.systemPrompt is required", file);
-                    yield null;
-                }
-                yield new AgentPromptSet(prompt, null, null, null);
-            }
-            case PLAIN_TOOLING -> {
-                String prompt = normalize(config.getPlainTooling() == null ? null : config.getPlainTooling().getSystemPrompt(), "");
-                if (prompt.isBlank()) {
-                    log.warn("Skip agent {}: plainTooling.systemPrompt is required", file);
-                    yield null;
-                }
-                yield new AgentPromptSet(prompt, null, null, null);
-            }
-            case THINKING_TOOLING -> {
-                String prompt = normalize(config.getThinkingTooling() == null ? null : config.getThinkingTooling().getSystemPrompt(), "");
-                if (prompt.isBlank()) {
-                    log.warn("Skip agent {}: thinkingTooling.systemPrompt is required", file);
-                    yield null;
-                }
-                yield new AgentPromptSet(prompt, null, null, null);
-            }
-            case REACT -> {
-                String prompt = normalize(config.getReact() == null ? null : config.getReact().getSystemPrompt(), "");
-                if (prompt.isBlank()) {
-                    log.warn("Skip agent {}: react.systemPrompt is required", file);
-                    yield null;
-                }
-                yield new AgentPromptSet(prompt, null, null, null);
-            }
-            case PLAN_EXECUTE -> {
-                String planPrompt = normalize(config.getPlanExecute() == null ? null : config.getPlanExecute().getPlanSystemPrompt(), "");
-                String executePrompt = normalize(config.getPlanExecute() == null ? null : config.getPlanExecute().getExecuteSystemPrompt(), "");
-                String summaryPrompt = normalize(config.getPlanExecute() == null ? null : config.getPlanExecute().getSummarySystemPrompt(), "");
-                if (planPrompt.isBlank() || executePrompt.isBlank()) {
-                    log.warn("Skip agent {}: planExecute.planSystemPrompt and planExecute.executeSystemPrompt are required", file);
-                    yield null;
-                }
-                yield new AgentPromptSet(executePrompt, planPrompt, executePrompt, summaryPrompt.isBlank() ? null : summaryPrompt);
-            }
-        };
     }
 
     private boolean isLegacyConfig(JsonNode root) {

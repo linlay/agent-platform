@@ -4,6 +4,7 @@ import com.aiagent.agw.sdk.model.LlmDelta;
 import com.aiagent.agw.sdk.model.ToolCallDelta;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.linlay.springaiagw.agent.mode.*;
 import com.linlay.springaiagw.agent.runtime.AgentRuntimeMode;
 import com.linlay.springaiagw.agent.runtime.policy.Budget;
 import com.linlay.springaiagw.agent.runtime.policy.ComputePolicy;
@@ -25,7 +26,6 @@ import org.springframework.ai.chat.messages.ToolResponseMessage;
 import reactor.core.publisher.Flux;
 
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -53,7 +53,7 @@ class DefinitionDrivenAgentTest {
                         false,
                         Budget.DEFAULT
                 ),
-                new AgentPromptSet("你是测试助手", null, null, null),
+                new PlainToolingMode("你是测试助手"),
                 List.of("echo_tool")
         );
 
@@ -131,7 +131,7 @@ class DefinitionDrivenAgentTest {
                         false,
                         Budget.DEFAULT
                 ),
-                new AgentPromptSet("你是测试助手", null, null, null),
+                new PlainMode("你是测试助手"),
                 List.of()
         );
 
@@ -189,7 +189,7 @@ class DefinitionDrivenAgentTest {
                         false,
                         Budget.DEFAULT
                 ),
-                new AgentPromptSet("你是测试助手", null, null, null),
+                new PlainToolingMode("你是测试助手"),
                 List.of("echo_tool")
         );
 
@@ -258,7 +258,7 @@ class DefinitionDrivenAgentTest {
     }
 
     @Test
-    void thinkingShouldExposeReasoningSummaryWhenEnabled() {
+    void thinkingShouldExposeReasoningTokensWhenEnabled() {
         AgentDefinition definition = new AgentDefinition(
                 "demoThinking",
                 "demo",
@@ -267,24 +267,27 @@ class DefinitionDrivenAgentTest {
                 AgentRuntimeMode.THINKING,
                 new RunSpec(
                         ControlStrategy.ONESHOT,
-                        OutputPolicy.REASONING_SUMMARY,
+                        OutputPolicy.PLAIN,
                         ToolPolicy.DISALLOW,
                         VerifyPolicy.NONE,
-                        ComputePolicy.MEDIUM,
+                        ComputePolicy.HIGH,
                         true,
                         Budget.DEFAULT
                 ),
-                new AgentPromptSet("你是测试助手", null, null, null),
+                new ThinkingMode("你是测试助手", true),
                 List.of()
         );
 
         LlmService llmService = new StubLlmService() {
             @Override
-            protected Flux<String> contentByStage(String stage) {
+            protected Flux<LlmDelta> deltaByStage(String stage) {
                 if ("agent-thinking-oneshot".equals(stage)) {
-                    return Flux.just("{\"finalText\":\"答案正文\",\"reasoningSummary\":\"推理摘要\"}");
+                    return Flux.just(
+                            new LlmDelta("推理摘要", null, null, null),
+                            new LlmDelta(null, "答案正文", null, "stop")
+                    );
                 }
-                return Flux.just("答案正文");
+                return Flux.empty();
             }
         };
 
@@ -308,7 +311,7 @@ class DefinitionDrivenAgentTest {
     }
 
     @Test
-    void thinkingShouldStreamStructuredFieldDeltasIncrementally() {
+    void thinkingShouldStreamReasoningTokensIncrementally() {
         AgentDefinition definition = new AgentDefinition(
                 "demoThinkingChunk",
                 "demo",
@@ -317,25 +320,26 @@ class DefinitionDrivenAgentTest {
                 AgentRuntimeMode.THINKING,
                 new RunSpec(
                         ControlStrategy.ONESHOT,
-                        OutputPolicy.REASONING_SUMMARY,
+                        OutputPolicy.PLAIN,
                         ToolPolicy.DISALLOW,
                         VerifyPolicy.NONE,
-                        ComputePolicy.MEDIUM,
+                        ComputePolicy.HIGH,
                         true,
                         Budget.DEFAULT
                 ),
-                new AgentPromptSet("你是测试助手", null, null, null),
+                new ThinkingMode("你是测试助手", true),
                 List.of()
         );
 
         LlmService llmService = new StubLlmService() {
             @Override
-            protected Flux<String> contentByStage(String stage) {
+            protected Flux<LlmDelta> deltaByStage(String stage) {
                 if ("agent-thinking-oneshot".equals(stage)) {
                     return Flux.just(
-                            "{\"finalText\":\"答",
-                            "案正文\",\"reasoningSummary\":\"推",
-                            "理摘要\"}"
+                            new LlmDelta("推", null, null, null),
+                            new LlmDelta("理摘要", null, null, null),
+                            new LlmDelta(null, "答", null, null),
+                            new LlmDelta(null, "案正文", null, "stop")
                     );
                 }
                 return Flux.empty();
@@ -390,8 +394,7 @@ class DefinitionDrivenAgentTest {
                         false,
                         Budget.DEFAULT
                 ),
-                new AgentPromptSet(
-                        "执行系统提示",
+                new PlanExecuteMode(
                         "规划系统提示",
                         "执行系统提示",
                         "总结系统提示"
@@ -456,7 +459,7 @@ class DefinitionDrivenAgentTest {
                         false,
                         new Budget(10, 10, 4, 60_000)
                 ),
-                new AgentPromptSet("你是测试助手", null, null, null),
+                new ReactMode("你是测试助手", 6),
                 List.of("echo_tool")
         );
 
@@ -536,7 +539,7 @@ class DefinitionDrivenAgentTest {
                         false,
                         Budget.DEFAULT
                 ),
-                new AgentPromptSet("固定系统提示", null, null, null),
+                new PlainToolingMode("固定系统提示"),
                 List.of("echo_tool")
         );
 
@@ -626,7 +629,7 @@ class DefinitionDrivenAgentTest {
                         false,
                         Budget.DEFAULT
                 ),
-                new AgentPromptSet("固定 system prompt", null, null, null),
+                new PlainToolingMode("固定 system prompt"),
                 List.of("echo_tool")
         );
 
@@ -709,7 +712,7 @@ class DefinitionDrivenAgentTest {
                         false,
                         Budget.DEFAULT
                 ),
-                new AgentPromptSet("你是测试助手", null, null, null),
+                new PlainMode("你是测试助手"),
                 List.of()
         );
 

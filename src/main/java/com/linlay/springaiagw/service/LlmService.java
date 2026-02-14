@@ -565,7 +565,8 @@ public class LlmService {
 
             return deltaFlux
                     .filter(delta -> delta != null
-                            && ((StringUtils.hasText(delta.content()))
+                            && (StringUtils.hasText(delta.reasoning())
+                            || (StringUtils.hasText(delta.content()))
                             || (delta.toolCalls() != null && !delta.toolCalls().isEmpty())
                             || StringUtils.hasText(delta.finishReason())))
                     .doOnNext(delta -> callLogger.appendDeltaLog(responseBuffer, delta, traceId, stage))

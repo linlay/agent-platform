@@ -1,6 +1,7 @@
 package com.linlay.springaiagw.agent;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.linlay.springaiagw.agent.mode.PlanExecuteMode;
 import com.linlay.springaiagw.agent.runtime.AgentRuntimeMode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -47,9 +48,11 @@ class AgentDefinitionLoaderTest {
         assertThat(byId).containsKey("ops_daily");
         assertThat(byId.get("ops_daily").mode()).isEqualTo(AgentRuntimeMode.PLAN_EXECUTE);
         assertThat(byId.get("ops_daily").tools()).containsExactly("bash");
-        assertThat(byId.get("ops_daily").promptSet().planSystemPrompt()).isEqualTo("先规划");
-        assertThat(byId.get("ops_daily").promptSet().executeSystemPrompt()).isEqualTo("再执行");
-        assertThat(byId.get("ops_daily").promptSet().summarySystemPrompt()).isEqualTo("最后总结");
+        assertThat(byId.get("ops_daily").agentMode()).isInstanceOf(PlanExecuteMode.class);
+        PlanExecuteMode peMode = (PlanExecuteMode) byId.get("ops_daily").agentMode();
+        assertThat(peMode.planSystemPrompt()).isEqualTo("先规划");
+        assertThat(peMode.executeSystemPrompt()).isEqualTo("再执行");
+        assertThat(peMode.summarySystemPrompt()).isEqualTo("最后总结");
     }
 
     @Test
@@ -191,8 +194,9 @@ class AgentDefinitionLoaderTest {
         assertThat(byId.get("m_thinking_tooling").mode()).isEqualTo(AgentRuntimeMode.THINKING_TOOLING);
         assertThat(byId.get("m_react").mode()).isEqualTo(AgentRuntimeMode.REACT);
         assertThat(byId.get("m_plan_execute").mode()).isEqualTo(AgentRuntimeMode.PLAN_EXECUTE);
-        assertThat(byId.get("m_plan_execute").promptSet().planSystemPrompt()).isEqualTo("plan prompt");
-        assertThat(byId.get("m_plan_execute").promptSet().executeSystemPrompt()).isEqualTo("execute prompt");
-        assertThat(byId.get("m_plan_execute").promptSet().summarySystemPrompt()).isEqualTo("summary prompt");
+        PlanExecuteMode peMode = (PlanExecuteMode) byId.get("m_plan_execute").agentMode();
+        assertThat(peMode.planSystemPrompt()).isEqualTo("plan prompt");
+        assertThat(peMode.executeSystemPrompt()).isEqualTo("execute prompt");
+        assertThat(peMode.summarySystemPrompt()).isEqualTo("summary prompt");
     }
 }

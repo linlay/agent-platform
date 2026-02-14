@@ -102,6 +102,11 @@ class LlmCallLogger {
         if (!enabled || delta == null) {
             return;
         }
+        if (delta.reasoning() != null && !delta.reasoning().isEmpty()) {
+            String reasoning = sanitizeText(delta.reasoning());
+            buffer.append("[reasoning] ").append(reasoning);
+            log.debug("[{}][{}][delta] reasoning: {}", traceId, stage, reasoning);
+        }
         if (delta.content() != null && !delta.content().isEmpty()) {
             String content = sanitizeText(delta.content());
             buffer.append(content);
