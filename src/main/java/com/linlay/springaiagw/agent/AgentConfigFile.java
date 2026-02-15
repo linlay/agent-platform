@@ -314,6 +314,8 @@ public class AgentConfigFile {
         private ModelConfig modelConfig;
         private ToolConfig toolConfig;
         @JsonIgnore
+        private boolean deepThinkingProvided;
+        @JsonIgnore
         private boolean modelConfigProvided;
         @JsonIgnore
         private boolean toolConfigProvided;
@@ -332,8 +334,10 @@ public class AgentConfigFile {
             return deepThinking;
         }
 
+        @JsonSetter("deepThinking")
         public void setDeepThinking(boolean deepThinking) {
             this.deepThinking = deepThinking;
+            this.deepThinkingProvided = true;
         }
 
         public ModelConfig getModelConfig() {
@@ -367,6 +371,10 @@ public class AgentConfigFile {
 
         public boolean isToolConfigExplicitNull() {
             return toolConfigExplicitNull;
+        }
+
+        public boolean isDeepThinkingProvided() {
+            return deepThinkingProvided;
         }
     }
 

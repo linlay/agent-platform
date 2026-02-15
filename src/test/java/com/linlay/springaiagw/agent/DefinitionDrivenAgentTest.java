@@ -346,6 +346,9 @@ class DefinitionDrivenAgentTest {
         assertThat(stageTools.get("agent-plan-execute-step-1")).containsExactly("_plan_update_task_");
         assertThat(stageSpecs.get("agent-plan-generate").reasoningEnabled()).isFalse();
         assertThat(stageSpecs.get("agent-plan-generate").toolChoice()).isEqualTo(ToolChoice.REQUIRED);
+        assertThat(stageSpecs.get("agent-plan-generate").userPrompt()).isNull();
+        assertThat(stageSpecs.get("agent-plan-generate").messages().stream().map(message -> message.getText()).toList())
+                .containsExactly("测试 plan execute");
     }
 
     @Test
@@ -414,10 +417,17 @@ class DefinitionDrivenAgentTest {
         assertThat(stageSpecs.get("agent-plan-draft").tools()).isEmpty();
         assertThat(stageSpecs.get("agent-plan-draft").toolChoice()).isEqualTo(ToolChoice.NONE);
         assertThat(stageSpecs.get("agent-plan-draft").reasoningEnabled()).isTrue();
+        assertThat(stageSpecs.get("agent-plan-draft").userPrompt()).isNull();
+        assertThat(stageSpecs.get("agent-plan-draft").messages().stream().map(message -> message.getText()).toList())
+                .containsExactly("测试 plan 公开回合");
         assertThat(stageSpecs.get("agent-plan-generate").tools().stream().map(LlmService.LlmFunctionTool::name).toList())
                 .containsExactly("_plan_add_tasks_");
         assertThat(stageSpecs.get("agent-plan-generate").toolChoice()).isEqualTo(ToolChoice.REQUIRED);
         assertThat(stageSpecs.get("agent-plan-generate").reasoningEnabled()).isFalse();
+        assertThat(stageSpecs.get("agent-plan-generate").userPrompt()).isNull();
+        assertThat(stageSpecs.get("agent-plan-generate").messages().stream().map(message -> message.getText()).toList())
+                .contains("测试 plan 公开回合", "先分析约束并输出规划正文")
+                .noneMatch(text -> text.contains("本回合必须调用 _plan_add_tasks_"));
         assertThat(deltas.stream().flatMap(delta -> delta.toolCalls().stream()).map(ToolCallDelta::id))
                 .contains("call_plan_public");
         assertThat(deltas.stream().map(AgentDelta::content).filter(text -> text != null && !text.isBlank()))
@@ -504,9 +514,14 @@ class DefinitionDrivenAgentTest {
                 .block(Duration.ofSeconds(3));
 
         assertThat(prompts.stream().anyMatch(text -> text.contains("agent-plan-generate")
-                && text.contains("工具说明:")
-                && text.contains("_plan_add_tasks_: 创建计划任务（追加模式）")
+                && text.contains("execute阶段的可用工具说明（供规划任务使用）:")
+                && text.contains("_plan_update_task_: 更新计划中的任务状态")
                 && text.contains("prompt_tool: prompt helper"))).isTrue();
+        assertThat(prompts.stream().anyMatch(text -> text.contains("agent-plan-generate")
+                && text.contains("本回合仅可调用工具说明:")
+                && text.contains("_plan_add_tasks_: 创建计划任务（追加模式）"))).isTrue();
+        assertThat(prompts.stream().anyMatch(text -> text.contains("agent-plan-generate")
+                && text.contains("\n工具说明:\n"))).isFalse();
         assertThat(prompts.stream().anyMatch(text -> text.contains("agent-plan-generate")
                 && text.contains("工具调用后推荐指令:"))).isFalse();
         assertThat(prompts.stream().anyMatch(text -> text.contains("agent-plan-execute-step-1")
@@ -599,6 +614,7 @@ class DefinitionDrivenAgentTest {
         assertThat(logs).contains("\"plan\" : {");
         assertThat(logs).contains("\"execute\" : {");
         assertThat(logs).contains("\"summary\" : {");
+        assertThat(logs.split("\"deepThinking\"").length - 1).isEqualTo(1);
         assertThat(logs).contains("\"reasoningEffort\" : \"HIGH\"");
         assertThat(logs).contains("\"backend\" : [");
         assertThat(logs).contains("\"frontend\" : [");

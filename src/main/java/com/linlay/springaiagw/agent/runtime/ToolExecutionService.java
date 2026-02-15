@@ -124,18 +124,34 @@ public class ToolExecutionService {
             boolean includeAfterCallHints
     ) {
         String base = normalize(systemPrompt);
-        if (stageTools == null || stageTools.isEmpty()) {
-            return base;
+        List<String> sections = new ArrayList<>();
+        sections.add(backendToolDescriptionSection(stageTools, "工具说明:"));
+        if (includeAfterCallHints) {
+            sections.add(backendAfterCallHintSection(stageTools, "工具调用后推荐指令:"));
         }
-        List<BaseTool> backendTools = stageTools.values().stream()
-                .filter(tool -> tool != null && StringUtils.hasText(tool.name()))
-                .filter(tool -> isBackendTool(tool.name()))
-                .sorted(Comparator.comparing(tool -> normalizeToolName(tool.name())))
+        List<String> filteredSections = sections.stream()
+                .filter(StringUtils::hasText)
                 .toList();
-        if (backendTools.isEmpty()) {
+        if (filteredSections.isEmpty()) {
             return base;
         }
-        List<String> descriptionLines = backendTools.stream()
+        String appendix = String.join("\n\n", filteredSections);
+        if (!StringUtils.hasText(base)) {
+            return appendix;
+        }
+        return base + "\n\n" + appendix;
+    }
+
+    public String backendToolDescriptionSection(Map<String, BaseTool> stageTools, String sectionTitle) {
+        return formatToolSection(sectionTitle, backendDescriptionLines(stageTools));
+    }
+
+    public String backendAfterCallHintSection(Map<String, BaseTool> stageTools, String sectionTitle) {
+        return formatToolSection(sectionTitle, backendAfterCallHintLines(stageTools));
+    }
+
+    private List<String> backendDescriptionLines(Map<String, BaseTool> stageTools) {
+        return backendTools(stageTools).stream()
                 .map(tool -> {
                     String description = normalize(tool.description());
                     if (!StringUtils.hasText(description)) {
@@ -146,8 +162,10 @@ public class ToolExecutionService {
                 .filter(StringUtils::hasText)
                 .distinct()
                 .toList();
-        List<String> afterCallHintLines = includeAfterCallHints
-                ? backendTools.stream()
+    }
+
+    private List<String> backendAfterCallHintLines(Map<String, BaseTool> stageTools) {
+        return backendTools(stageTools).stream()
                 .map(tool -> {
                     String afterCallHint = normalize(tool.afterCallHint());
                     if (!StringUtils.hasText(afterCallHint)) {
@@ -157,23 +175,26 @@ public class ToolExecutionService {
                 })
                 .filter(StringUtils::hasText)
                 .distinct()
-                .toList()
-                : List.of();
-        if (descriptionLines.isEmpty() && afterCallHintLines.isEmpty()) {
-            return base;
+                .toList();
+    }
+
+    private List<BaseTool> backendTools(Map<String, BaseTool> stageTools) {
+        if (stageTools == null || stageTools.isEmpty()) {
+            return List.of();
         }
-        List<String> sections = new ArrayList<>();
-        if (!descriptionLines.isEmpty()) {
-            sections.add("工具说明:\n" + String.join("\n", descriptionLines));
+        return stageTools.values().stream()
+                .filter(tool -> tool != null && StringUtils.hasText(tool.name()))
+                .filter(tool -> isBackendTool(tool.name()))
+                .sorted(Comparator.comparing(tool -> normalizeToolName(tool.name())))
+                .toList();
+    }
+
+    private String formatToolSection(String sectionTitle, List<String> lines) {
+        if (lines == null || lines.isEmpty()) {
+            return "";
         }
-        if (!afterCallHintLines.isEmpty()) {
-            sections.add("工具调用后推荐指令:\n" + String.join("\n", afterCallHintLines));
-        }
-        String appendix = String.join("\n\n", sections);
-        if (!StringUtils.hasText(base)) {
-            return appendix;
-        }
-        return base + "\n\n" + appendix;
+        String title = StringUtils.hasText(sectionTitle) ? sectionTitle.trim() : "工具说明:";
+        return title + "\n" + String.join("\n", lines);
     }
 
     private JsonNode invokeByKind(

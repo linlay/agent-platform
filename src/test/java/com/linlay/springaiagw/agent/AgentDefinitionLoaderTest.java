@@ -326,4 +326,65 @@ class AgentDefinitionLoaderTest {
         assertThat(mode.executeStage().deepThinking()).isFalse();
         assertThat(mode.summaryStage().deepThinking()).isFalse();
     }
+
+    @Test
+    void shouldRejectPlanExecuteWhenExecuteDeepThinkingTrue() throws IOException {
+        writePlanExecuteWithDisallowedDeepThinking("execute_deep_true.json", "execute_deep_true", "execute", true);
+        assertThat(loadById()).doesNotContainKey("execute_deep_true");
+    }
+
+    @Test
+    void shouldRejectPlanExecuteWhenExecuteDeepThinkingFalse() throws IOException {
+        writePlanExecuteWithDisallowedDeepThinking("execute_deep_false.json", "execute_deep_false", "execute", false);
+        assertThat(loadById()).doesNotContainKey("execute_deep_false");
+    }
+
+    @Test
+    void shouldRejectPlanExecuteWhenSummaryDeepThinkingTrue() throws IOException {
+        writePlanExecuteWithDisallowedDeepThinking("summary_deep_true.json", "summary_deep_true", "summary", true);
+        assertThat(loadById()).doesNotContainKey("summary_deep_true");
+    }
+
+    @Test
+    void shouldRejectPlanExecuteWhenSummaryDeepThinkingFalse() throws IOException {
+        writePlanExecuteWithDisallowedDeepThinking("summary_deep_false.json", "summary_deep_false", "summary", false);
+        assertThat(loadById()).doesNotContainKey("summary_deep_false");
+    }
+
+    private Map<String, AgentDefinition> loadById() {
+        AgentCatalogProperties properties = new AgentCatalogProperties();
+        properties.setExternalDir(tempDir.toString());
+        AgentDefinitionLoader loader = new AgentDefinitionLoader(new ObjectMapper(), properties, null);
+        return loader.loadAll().stream()
+                .collect(Collectors.toMap(AgentDefinition::id, definition -> definition));
+    }
+
+    private void writePlanExecuteWithDisallowedDeepThinking(
+            String fileName,
+            String key,
+            String stage,
+            boolean deepThinking
+    ) throws IOException {
+        String deepThinkingValue = deepThinking ? "true" : "false";
+        Files.writeString(tempDir.resolve(fileName), """
+                {
+                  "key": "%s",
+                  "description": "invalid deepThinking stage config",
+                  "modelConfig": {
+                    "providerKey": "bailian",
+                    "model": "qwen3-max"
+                  },
+                  "mode": "PLAN_EXECUTE",
+                  "planExecute": {
+                    "plan": { "systemPrompt": "plan", "deepThinking": true },
+                    "execute": { "systemPrompt": "execute"%s },
+                    "summary": { "systemPrompt": "summary"%s }
+                  }
+                }
+                """.formatted(
+                key,
+                "execute".equals(stage) ? ", \"deepThinking\": " + deepThinkingValue : "",
+                "summary".equals(stage) ? ", \"deepThinking\": " + deepThinkingValue : ""
+        ));
+    }
 }

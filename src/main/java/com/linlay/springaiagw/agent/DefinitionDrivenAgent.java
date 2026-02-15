@@ -432,15 +432,19 @@ public class DefinitionDrivenAgent implements Agent {
             return stages;
         }
         if (modeImpl instanceof PlanExecuteMode planExecuteMode) {
-            stages.put("plan", singleStageSnapshot(planExecuteMode.planStage()));
-            stages.put("execute", singleStageSnapshot(planExecuteMode.executeStage()));
-            stages.put("summary", singleStageSnapshot(planExecuteMode.summaryStage()));
+            stages.put("plan", singleStageSnapshot(planExecuteMode.planStage(), true));
+            stages.put("execute", singleStageSnapshot(planExecuteMode.executeStage(), false));
+            stages.put("summary", singleStageSnapshot(planExecuteMode.summaryStage(), false));
             return stages;
         }
         return stages;
     }
 
     private Map<String, Object> singleStageSnapshot(StageSettings stage) {
+        return singleStageSnapshot(stage, true);
+    }
+
+    private Map<String, Object> singleStageSnapshot(StageSettings stage, boolean includeDeepThinking) {
         Map<String, Object> item = new LinkedHashMap<>();
         if (stage == null) {
             return item;
@@ -448,7 +452,9 @@ public class DefinitionDrivenAgent implements Agent {
         item.put("provider", normalize(stage.providerKey(), definition.providerKey()));
         item.put("model", normalize(stage.model(), definition.model()));
         item.put("systemPrompt", stage.systemPrompt());
-        item.put("deepThinking", stage.deepThinking());
+        if (includeDeepThinking) {
+            item.put("deepThinking", stage.deepThinking());
+        }
         item.put("reasoningEnabled", stage.reasoningEnabled());
         item.put("reasoningEffort", stage.reasoningEffort());
         item.put("tools", groupToolNames(stage.tools()));

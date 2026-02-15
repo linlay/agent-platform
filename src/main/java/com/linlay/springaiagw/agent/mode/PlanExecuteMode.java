@@ -17,6 +17,7 @@ import com.linlay.springaiagw.tool.BaseTool;
 import org.springframework.ai.chat.messages.UserMessage;
 import reactor.core.publisher.FluxSink;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -96,14 +97,18 @@ public final class PlanExecuteMode extends AgentMode {
         }
         Map<String, BaseTool> executeTools = services.selectTools(enabledToolsByName, executeStage.tools());
         Map<String, BaseTool> summaryTools = services.selectTools(enabledToolsByName, summary.tools());
+        String planSharedPrompt = buildPlanSharedPrompt(services, executeTools, planCallableTools);
 
         if (planStage.deepThinking()) {
             OrchestratorServices.ModelTurn draftTurn = services.callModelTurnStreaming(
                     context,
-                    withReasoning(planStage, true),
+                    withSystemPrompt(
+                            withReasoning(planStage, true),
+                            buildPlanDraftPrompt(planSharedPrompt)
+                    ),
                     context.planMessages(),
-                    "请先深度思考并给出任务规划正文，本回合不要调用工具。",
-                    planPromptTools,
+                    null,
+                    Map.of(),
                     List.of(),
                     ToolChoice.NONE,
                     "agent-plan-draft",
@@ -117,16 +122,15 @@ public final class PlanExecuteMode extends AgentMode {
             services.appendAssistantMessage(context.planMessages(), services.normalize(draftTurn.finalText()));
         }
 
-        String planGeneratePrompt = planStage.deepThinking()
-                ? "请基于上一轮规划正文，在本回合必须调用 _plan_add_tasks_ 创建计划任务。"
-                : "请直接规划2～4个任务，并在本回合必须调用 _plan_add_tasks_ 创建计划任务。";
-
         OrchestratorServices.ModelTurn planTurn = services.callModelTurnStreaming(
                 context,
-                withReasoning(planStage, false),
+                withSystemPrompt(
+                        withReasoning(planStage, false),
+                        buildPlanGeneratePrompt(planSharedPrompt, planStage.deepThinking())
+                ),
                 context.planMessages(),
-                planGeneratePrompt,
-                planPromptTools,
+                null,
+                Map.of(),
                 services.toolExecutionService().enabledFunctionTools(planCallableTools),
                 ToolChoice.REQUIRED,
                 "agent-plan-generate",
@@ -348,6 +352,84 @@ public final class PlanExecuteMode extends AgentMode {
         Map<String, BaseTool> selected = new LinkedHashMap<>();
         selected.put(PLAN_ADD_TASK_TOOL, addTaskTool);
         return Map.copyOf(selected);
+    }
+
+    private String buildPlanSharedPrompt(
+            OrchestratorServices services,
+            Map<String, BaseTool> executeTools,
+            Map<String, BaseTool> planCallableTools
+    ) {
+        List<String> sections = new ArrayList<>();
+        sections.add(services.toolExecutionService().backendToolDescriptionSection(
+                executeTools,
+                "execute阶段的可用工具说明（供规划任务使用）:"
+        ));
+        sections.add(services.toolExecutionService().backendToolDescriptionSection(
+                planCallableTools,
+                "本回合仅可调用工具说明:"
+        ));
+        return appendPromptSections(planStage.systemPrompt(), sections);
+    }
+
+    private String buildPlanDraftPrompt(String sharedPrompt) {
+        return appendPromptSections(
+                sharedPrompt,
+                List.of(
+                        String.join("\n",
+                                "规划回合要求:",
+                                "- 请先深度思考并给出任务规划正文。",
+                                "- 本回合不要调用工具。"
+                        )
+                )
+        );
+    }
+
+    private String buildPlanGeneratePrompt(String sharedPrompt, boolean basedOnDraft) {
+        String roundInstruction = basedOnDraft
+                ? "请基于上一轮规划正文，输出 2～4 个任务，并在本回合必须调用 _plan_add_tasks_ 创建计划任务。"
+                : "请直接规划 2～4 个任务，并在本回合必须调用 _plan_add_tasks_ 创建计划任务。";
+        return appendPromptSections(
+                sharedPrompt,
+                List.of(
+                        String.join("\n",
+                                "任务创建要求:",
+                                "- " + roundInstruction,
+                                "- taskId 应保持唯一且可读，description 需清晰可执行。"
+                        )
+                )
+        );
+    }
+
+    private String appendPromptSections(String base, List<String> sections) {
+        List<String> merged = new ArrayList<>();
+        String normalizedBase = normalize(base, "");
+        if (!normalizedBase.isBlank()) {
+            merged.add(normalizedBase);
+        }
+        if (sections != null) {
+            for (String section : sections) {
+                String normalized = normalize(section, "");
+                if (!normalized.isBlank()) {
+                    merged.add(normalized);
+                }
+            }
+        }
+        return String.join("\n\n", merged);
+    }
+
+    private StageSettings withSystemPrompt(StageSettings stage, String prompt) {
+        if (stage == null) {
+            return null;
+        }
+        return new StageSettings(
+                prompt,
+                stage.providerKey(),
+                stage.model(),
+                stage.tools(),
+                stage.reasoningEnabled(),
+                stage.reasoningEffort(),
+                stage.deepThinking()
+        );
     }
 
     private StageSettings withReasoning(StageSettings stage, boolean reasoningEnabled) {

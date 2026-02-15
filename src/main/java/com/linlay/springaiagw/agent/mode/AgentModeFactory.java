@@ -37,6 +37,8 @@ public final class AgentModeFactory {
             }
             case PLAN_EXECUTE -> {
                 AgentConfigFile.PlanExecuteConfig pe = config == null ? null : config.getPlanExecute();
+                validatePlanExecuteDeepThinking(pe == null ? null : pe.getExecute(), "planExecute.execute.deepThinking", file);
+                validatePlanExecuteDeepThinking(pe == null ? null : pe.getSummary(), "planExecute.summary.deepThinking", file);
                 StageSettings planStage = stageSettings(
                         config,
                         pe == null ? null : pe.getPlan(),
@@ -70,6 +72,16 @@ public final class AgentModeFactory {
                 yield new PlanExecuteMode(planStage, executeStage, summaryStage);
             }
         };
+    }
+
+    private static void validatePlanExecuteDeepThinking(
+            AgentConfigFile.StageConfig stage,
+            String fieldPath,
+            Path file
+    ) {
+        if (stage != null && stage.isDeepThinkingProvided()) {
+            throw new IllegalArgumentException(fieldPath + " is not allowed: " + file);
+        }
     }
 
     private static StageSettings stageSettings(
