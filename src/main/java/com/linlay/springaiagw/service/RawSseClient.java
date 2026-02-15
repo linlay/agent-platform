@@ -27,6 +27,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 原生 WebClient SSE 路径：直接构建 OpenAI 兼容 HTTP 请求，解析 SSE delta。
@@ -82,6 +83,9 @@ class RawSseClient {
                     reasoningEnabled,
                     maxTokens
             );
+            boolean planStageRawLogging = isPlanGenerateStage(stage);
+            AtomicInteger rawChunkIndex = new AtomicInteger(0);
+            long rawStartNanos = System.nanoTime();
 
             callLogger.info(log, "[{}][{}] LLM raw SSE delta stream request start provider={}, model={}, tools={}",
                     traceId, stage, providerKey, model, tools == null ? 0 : tools.size());
@@ -92,13 +96,27 @@ class RawSseClient {
                     .bodyValue(request)
                     .retrieve()
                     .bodyToFlux(String.class)
-                    .doOnNext(rawChunk -> callLogger.debug(
-                            log,
-                            "[{}][{}][raw-delta] {}",
-                            traceId,
-                            stage,
-                            callLogger.sanitizeText(rawChunk)
-                    ))
+                    .doOnNext(rawChunk -> {
+                        callLogger.debug(
+                                log,
+                                "[{}][{}][raw-delta] {}",
+                                traceId,
+                                stage,
+                                callLogger.sanitizeText(rawChunk)
+                        );
+                        if (planStageRawLogging) {
+                            int chunk = rawChunkIndex.getAndIncrement();
+                            long elapsedMs = elapsedMs(rawStartNanos);
+                            log.info(
+                                    "[{}][{}][raw-plan][chunkIndex={}][elapsedMs={}] {}",
+                                    traceId,
+                                    stage,
+                                    chunk,
+                                    elapsedMs,
+                                    rawChunk
+                            );
+                        }
+                    })
                     .handle((rawChunk, sink) -> {
                         LlmDelta delta = openAiSseDeltaParser.parseOrNull(rawChunk);
                         if (delta != null) {
@@ -479,5 +497,9 @@ class RawSseClient {
 
     private long elapsedMs(long startNanos) {
         return (System.nanoTime() - startNanos) / 1_000_000;
+    }
+
+    private boolean isPlanGenerateStage(String stage) {
+        return "agent-plan-generate".equals(stage);
     }
 }

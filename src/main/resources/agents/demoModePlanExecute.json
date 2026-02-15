@@ -11,20 +11,6 @@
       "effort": "LOW"
     }
   },
-  "toolConfig": {
-    "backends": [
-      "_plan_add_tasks_",
-      "_plan_get_tasks_",
-      "_plan_update_task_",
-      "mock_ops_runbook",
-      "city_datetime",
-      "mock_city_weather",
-      "mock_sensitive_data_detector",
-      "_bash_"
-    ],
-    "frontends": [],
-    "actions": []
-  },
   "mode": "PLAN_EXECUTE",
   "planExecute": {
     "plan": {
@@ -57,7 +43,6 @@
       },
       "toolConfig": {
         "backends": [
-          "_plan_get_tasks_",
           "_plan_update_task_",
           "mock_ops_runbook",
           "city_datetime",

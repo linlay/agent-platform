@@ -418,7 +418,7 @@ curl -N -X POST "http://localhost:8080/api/query" \
 ```bash
 curl -N -X POST "http://localhost:8080/api/query" \
   -H "Content-Type: application/json" \
-  -d '{"message":"规划上海机房明天搬迁的实施计划，帮我规划4个步骤","agentKey":"demoModePlanExecute"}'
+  -d '{"message":"规划上海机房明天搬迁的实施计划，帮我规划4个步骤，执行输出控制在100字","agentKey":"demoModePlanExecute"}'
 ```
 
 ```bash

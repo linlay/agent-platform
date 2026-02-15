@@ -1,5 +1,7 @@
 package com.linlay.springaiagw.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linlay.springaiagw.agent.AgentCatalogProperties;
 import com.linlay.springaiagw.config.CapabilityCatalogProperties;
 import com.linlay.springaiagw.config.ViewportCatalogProperties;
@@ -23,6 +25,9 @@ import java.util.Locale;
 public class RuntimeResourceSyncService {
 
     private static final Logger log = LoggerFactory.getLogger(RuntimeResourceSyncService.class);
+    private static final String LEGACY_BASH_FILE = "bash.backend";
+    private static final String CANONICAL_BASH_FILE = "_bash_.backend";
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final ResourcePatternResolver resourceResolver;
     private final Path agentsDir;
@@ -60,6 +65,7 @@ public class RuntimeResourceSyncService {
         syncResourceDirectory("agents", agentsDir);
         syncResourceDirectory("viewports", viewportsDir);
         syncResourceDirectory("tools", toolsDir);
+        cleanupLegacyToolAliases(toolsDir);
     }
 
     private void syncResourceDirectory(String resourceDir, Path targetDir) {
@@ -119,5 +125,51 @@ public class RuntimeResourceSyncService {
         } catch (IOException ex) {
             return null;
         }
+    }
+
+    private void cleanupLegacyToolAliases(Path targetToolsDir) {
+        if (targetToolsDir == null || !Files.isDirectory(targetToolsDir)) {
+            return;
+        }
+        Path canonicalBash = targetToolsDir.resolve(CANONICAL_BASH_FILE);
+        Path legacyBash = targetToolsDir.resolve(LEGACY_BASH_FILE);
+        if (!Files.exists(canonicalBash) || !Files.exists(legacyBash)) {
+            return;
+        }
+        if (!isLegacyBashAliasFile(legacyBash)) {
+            return;
+        }
+        try {
+            if (Files.deleteIfExists(legacyBash)) {
+                log.info("Removed legacy tool alias file: {}", legacyBash);
+            }
+        } catch (IOException ex) {
+            log.warn("Failed to remove legacy tool alias file: {}", legacyBash, ex);
+        }
+    }
+
+    private boolean isLegacyBashAliasFile(Path file) {
+        JsonNode root;
+        try {
+            root = OBJECT_MAPPER.readTree(Files.readString(file));
+        } catch (Exception ex) {
+            log.warn("Cannot parse legacy alias candidate file: {}", file, ex);
+            return false;
+        }
+        JsonNode tools = root.path("tools");
+        if (!tools.isArray() || tools.isEmpty()) {
+            return false;
+        }
+        for (JsonNode node : tools) {
+            if (!node.isObject()) {
+                continue;
+            }
+            String type = node.path("type").asText("");
+            String name = node.path("name").asText("");
+            if ("function".equals(type) && "_bash_".equals(name)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

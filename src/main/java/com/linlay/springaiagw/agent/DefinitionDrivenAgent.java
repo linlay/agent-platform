@@ -2,11 +2,18 @@ package com.linlay.springaiagw.agent;
 
 import com.aiagent.agw.sdk.model.ToolCallDelta;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.linlay.springaiagw.agent.mode.AgentMode;
+import com.linlay.springaiagw.agent.mode.OneshotMode;
+import com.linlay.springaiagw.agent.mode.PlanExecuteMode;
+import com.linlay.springaiagw.agent.mode.ReactMode;
+import com.linlay.springaiagw.agent.mode.StageSettings;
 import com.linlay.springaiagw.agent.runtime.AgentRuntimeMode;
 import com.linlay.springaiagw.agent.runtime.ExecutionContext;
 import com.linlay.springaiagw.agent.runtime.PlanExecutionStalledException;
 import com.linlay.springaiagw.agent.runtime.ToolExecutionService;
 import com.linlay.springaiagw.agent.runtime.VerifyService;
+import com.linlay.springaiagw.agent.runtime.policy.Budget;
+import com.linlay.springaiagw.agent.runtime.policy.RunSpec;
 import com.linlay.springaiagw.agent.mode.OrchestratorServices;
 import com.linlay.springaiagw.memory.ChatWindowMemoryStore;
 import com.linlay.springaiagw.model.AgentRequest;
@@ -15,6 +22,8 @@ import com.linlay.springaiagw.service.DeltaStreamService;
 import com.linlay.springaiagw.service.FrontendSubmitCoordinator;
 import com.linlay.springaiagw.service.LlmService;
 import com.linlay.springaiagw.tool.BaseTool;
+import com.linlay.springaiagw.tool.CapabilityDescriptor;
+import com.linlay.springaiagw.tool.CapabilityKind;
 import com.linlay.springaiagw.tool.ToolRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,6 +50,7 @@ public class DefinitionDrivenAgent implements Agent {
     private final ToolRegistry toolRegistry;
     private final Map<String, BaseTool> enabledToolsByName;
     private final OrchestratorServices services;
+    private final ObjectMapper objectMapper;
 
     @SuppressWarnings("unused")
     private final DeltaStreamService deltaStreamService;
@@ -58,6 +68,7 @@ public class DefinitionDrivenAgent implements Agent {
         this.deltaStreamService = deltaStreamService;
         this.toolRegistry = toolRegistry;
         this.chatWindowMemoryStore = chatWindowMemoryStore;
+        this.objectMapper = objectMapper;
         this.enabledToolsByName = resolveEnabledTools(definition.tools());
 
         ToolArgumentResolver argumentResolver = new ToolArgumentResolver(objectMapper);
@@ -127,6 +138,7 @@ public class DefinitionDrivenAgent implements Agent {
                 enabledToolsByName.keySet(),
                 normalize(request.message(), "")
         );
+        logRunSnapshot(request);
 
         return Flux.defer(() -> {
                     List<Message> historyMessages = loadHistoryMessages(request.chatId());
@@ -354,6 +366,162 @@ public class DefinitionDrivenAgent implements Agent {
             case "init", "in_progress", "completed", "failed", "canceled" -> normalized;
             default -> "init";
         };
+    }
+
+    private void logRunSnapshot(AgentRequest request) {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("request", requestSnapshot(request));
+        snapshot.put("agent", agentSnapshot());
+        snapshot.put("policy", policySnapshot());
+        snapshot.put("stages", stageSnapshot());
+        snapshot.put("tools", toolsSnapshot());
+        try {
+            String pretty = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(snapshot);
+            log.info("[agent:{}] run snapshot:\n{}", id(), pretty);
+        } catch (Exception ex) {
+            log.warn("[agent:{}] failed to serialize run snapshot", id(), ex);
+        }
+    }
+
+    private Map<String, Object> requestSnapshot(AgentRequest request) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("runId", request == null ? null : request.runId());
+        item.put("chatId", request == null ? null : request.chatId());
+        item.put("requestId", request == null ? null : request.requestId());
+        item.put("message", request == null ? null : request.message());
+        return item;
+    }
+
+    private Map<String, Object> agentSnapshot() {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("id", definition.id());
+        item.put("name", definition.name());
+        item.put("mode", definition.mode());
+        item.put("provider", definition.providerKey());
+        item.put("model", definition.model());
+        return item;
+    }
+
+    private Map<String, Object> policySnapshot() {
+        RunSpec runSpec = definition.runSpec();
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("control", runSpec.control());
+        item.put("output", runSpec.output());
+        item.put("toolPolicy", runSpec.toolPolicy());
+        item.put("verify", runSpec.verify());
+        Budget budget = runSpec.budget();
+        Map<String, Object> budgetMap = new LinkedHashMap<>();
+        budgetMap.put("maxModelCalls", budget.maxModelCalls());
+        budgetMap.put("maxToolCalls", budget.maxToolCalls());
+        budgetMap.put("maxSteps", budget.maxSteps());
+        budgetMap.put("timeoutMs", budget.timeoutMs());
+        item.put("budget", budgetMap);
+        return item;
+    }
+
+    private Map<String, Object> stageSnapshot() {
+        Map<String, Object> stages = new LinkedHashMap<>();
+        AgentMode modeImpl = definition.agentMode();
+        if (modeImpl instanceof OneshotMode oneshotMode) {
+            stages.put("oneshot", singleStageSnapshot(oneshotMode.stage()));
+            return stages;
+        }
+        if (modeImpl instanceof ReactMode reactMode) {
+            stages.put("react", singleStageSnapshot(reactMode.stage()));
+            return stages;
+        }
+        if (modeImpl instanceof PlanExecuteMode planExecuteMode) {
+            stages.put("plan", singleStageSnapshot(planExecuteMode.planStage()));
+            stages.put("execute", singleStageSnapshot(planExecuteMode.executeStage()));
+            stages.put("summary", singleStageSnapshot(planExecuteMode.summaryStage()));
+            return stages;
+        }
+        return stages;
+    }
+
+    private Map<String, Object> singleStageSnapshot(StageSettings stage) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        if (stage == null) {
+            return item;
+        }
+        item.put("provider", normalize(stage.providerKey(), definition.providerKey()));
+        item.put("model", normalize(stage.model(), definition.model()));
+        item.put("systemPrompt", stage.systemPrompt());
+        item.put("reasoningEnabled", stage.reasoningEnabled());
+        item.put("reasoningEffort", stage.reasoningEffort());
+        item.put("tools", groupToolNames(stage.tools()));
+        return item;
+    }
+
+    private Map<String, Object> toolsSnapshot() {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("enabled", groupToolNames(enabledToolsByName.keySet()));
+
+        Map<String, Object> stageTools = new LinkedHashMap<>();
+        AgentMode modeImpl = definition.agentMode();
+        if (modeImpl instanceof OneshotMode oneshotMode) {
+            stageTools.put("oneshot", groupToolNames(oneshotMode.stage().tools()));
+        } else if (modeImpl instanceof ReactMode reactMode) {
+            stageTools.put("react", groupToolNames(reactMode.stage().tools()));
+        } else if (modeImpl instanceof PlanExecuteMode planExecuteMode) {
+            stageTools.put("plan", groupToolNames(planExecuteMode.planStage().tools()));
+            stageTools.put("execute", groupToolNames(planExecuteMode.executeStage().tools()));
+            stageTools.put("summary", groupToolNames(planExecuteMode.summaryStage().tools()));
+        }
+        snapshot.put("stageTools", stageTools);
+        return snapshot;
+    }
+
+    private Map<String, Object> groupToolNames(Iterable<String> toolNames) {
+        List<String> backend = new ArrayList<>();
+        List<String> frontend = new ArrayList<>();
+        List<String> action = new ArrayList<>();
+
+        if (toolNames != null) {
+            for (String raw : toolNames) {
+                String name = normalizeToolName(raw);
+                if (!StringUtils.hasText(name)) {
+                    continue;
+                }
+                switch (resolveToolGroup(name)) {
+                    case "action" -> action.add(name);
+                    case "frontend" -> frontend.add(name);
+                    default -> backend.add(name);
+                }
+            }
+        }
+
+        backend = backend.stream().distinct().sorted().toList();
+        frontend = frontend.stream().distinct().sorted().toList();
+        action = action.stream().distinct().sorted().toList();
+
+        Map<String, Object> grouped = new LinkedHashMap<>();
+        grouped.put("backend", backend);
+        grouped.put("frontend", frontend);
+        grouped.put("action", action);
+        return grouped;
+    }
+
+    private String resolveToolGroup(String toolName) {
+        CapabilityDescriptor descriptor = toolRegistry.capability(toolName).orElse(null);
+        if (descriptor != null && descriptor.kind() != null) {
+            CapabilityKind kind = descriptor.kind();
+            if (kind == CapabilityKind.ACTION) {
+                return "action";
+            }
+            if (kind == CapabilityKind.FRONTEND) {
+                return "frontend";
+            }
+            return "backend";
+        }
+        String callType = normalize(toolRegistry.toolCallType(toolName), "function").toLowerCase(Locale.ROOT);
+        if ("action".equals(callType)) {
+            return "action";
+        }
+        if ("frontend".equals(callType)) {
+            return "frontend";
+        }
+        return "backend";
     }
 
     private final class TurnTrace {

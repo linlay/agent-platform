@@ -100,4 +100,38 @@ class RuntimeResourceSyncServiceTest {
         assertThat(legacyUserDir.resolve("viewports")).doesNotExist();
         assertThat(legacyUserDir.resolve("tools")).doesNotExist();
     }
+
+    @Test
+    void shouldRemoveLegacyBashAliasWhenCanonicalToolExists() throws Exception {
+        Path agentsDir = tempDir.resolve("agents");
+        Path toolsDir = tempDir.resolve("tools");
+        Path viewportsDir = tempDir.resolve("viewports");
+        Files.createDirectories(agentsDir);
+        Files.createDirectories(toolsDir);
+        Files.createDirectories(viewportsDir);
+
+        Path legacyBash = toolsDir.resolve("bash.backend");
+        Files.writeString(legacyBash, """
+                {
+                  "tools": [
+                    {
+                      "type": "function",
+                      "name": "_bash_",
+                      "description": "legacy alias"
+                    }
+                  ]
+                }
+                """);
+
+        RuntimeResourceSyncService service = new RuntimeResourceSyncService(
+                new PathMatchingResourcePatternResolver(),
+                agentsDir,
+                viewportsDir,
+                toolsDir
+        );
+        service.syncRuntimeDirectories();
+
+        assertThat(toolsDir.resolve("_bash_.backend")).exists();
+        assertThat(legacyBash).doesNotExist();
+    }
 }

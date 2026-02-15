@@ -27,6 +27,9 @@ import com.linlay.springaiagw.tool.PlanGetTool;
 import com.linlay.springaiagw.tool.PlanTaskUpdateTool;
 import com.linlay.springaiagw.tool.ToolRegistry;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import reactor.core.publisher.Flux;
 
 import java.time.Duration;
@@ -36,6 +39,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+@ExtendWith(OutputCaptureExtension.class)
 class DefinitionDrivenAgentTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -329,6 +333,92 @@ class DefinitionDrivenAgentTest {
         assertThat(captured.stream().anyMatch(item -> item.contains("agent-plan-generate::规划系统提示"))).isTrue();
         assertThat(captured.stream().anyMatch(item -> item.contains("agent-plan-execute-step-1::执行系统提示"))).isTrue();
         assertThat(captured.stream().anyMatch(item -> item.contains("agent-plan-final::总结系统提示"))).isTrue();
+    }
+
+    @Test
+    void shouldLogRunSnapshotWithPolicyStagesAndToolGroups(CapturedOutput output) {
+        AgentDefinition definition = definition(
+                "demoPlanSnapshot",
+                AgentRuntimeMode.PLAN_EXECUTE,
+                new RunSpec(
+                        ControlStrategy.PLAN_EXECUTE,
+                        OutputPolicy.REASONING_SUMMARY,
+                        ToolPolicy.ALLOW,
+                        VerifyPolicy.NONE,
+                        new Budget(20, 10, 6, 180_000)
+                ),
+                new PlanExecuteMode(
+                        new StageSettings("规划系统提示", "bailian", "qwen3-max", List.of("_plan_add_tasks_"), true, ComputePolicy.HIGH),
+                        new StageSettings("执行系统提示", null, null, List.of("_plan_update_task_"), false, ComputePolicy.MEDIUM),
+                        new StageSettings("总结系统提示", null, null, List.of("_plan_get_tasks_"), false, ComputePolicy.LOW)
+                ),
+                List.of("_plan_add_tasks_", "_plan_update_task_", "_plan_get_tasks_")
+        );
+
+        LlmService llmService = new StubLlmService() {
+            @Override
+            public Flux<LlmDelta> streamDeltas(LlmCallSpec spec) {
+                if ("agent-plan-generate".equals(spec.stage())) {
+                    return Flux.just(new LlmDelta(
+                            null,
+                            List.of(new ToolCallDelta("call_plan_1", "function", "_plan_add_tasks_",
+                                    "{\"tasks\":[{\"taskId\":\"t1\",\"description\":\"任务1\",\"status\":\"init\"}]}")),
+                            "tool_calls"
+                    ));
+                }
+                if ("agent-plan-execute-step-1".equals(spec.stage())) {
+                    return Flux.just(new LlmDelta(
+                            null,
+                            List.of(new ToolCallDelta("call_update_1", "function", "_plan_update_task_",
+                                    "{\"taskId\":\"t1\",\"status\":\"completed\"}")),
+                            "tool_calls"
+                    ));
+                }
+                if ("agent-plan-step-summary-1".equals(spec.stage())) {
+                    return Flux.just(new LlmDelta("步骤完成", null, "stop"));
+                }
+                return Flux.just(new LlmDelta("最终回答", null, "stop"));
+            }
+        };
+
+        DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
+                definition,
+                llmService,
+                new DeltaStreamService(),
+                new ToolRegistry(List.of(new PlanCreateTool(), new PlanGetTool(), new PlanTaskUpdateTool())),
+                objectMapper,
+                null,
+                null
+        );
+
+        agent.stream(new AgentRequest("测试快照", "chat_demo", "req_demo", "run_demo"))
+                .collectList()
+                .block(Duration.ofSeconds(3));
+
+        String logs = output.getOut();
+        assertThat(logs).contains("run snapshot");
+        assertThat(logs).contains("\"runId\" : \"run_demo\"");
+        assertThat(logs).contains("\"chatId\" : \"chat_demo\"");
+        assertThat(logs).contains("\"requestId\" : \"req_demo\"");
+        assertThat(logs).contains("\"message\" : \"测试快照\"");
+        assertThat(logs).contains("\"control\" : \"PLAN_EXECUTE\"");
+        assertThat(logs).contains("\"output\" : \"REASONING_SUMMARY\"");
+        assertThat(logs).contains("\"toolPolicy\" : \"ALLOW\"");
+        assertThat(logs).contains("\"verify\" : \"NONE\"");
+        assertThat(logs).contains("\"maxModelCalls\" : 20");
+        assertThat(logs).contains("\"maxToolCalls\" : 10");
+        assertThat(logs).contains("\"maxSteps\" : 6");
+        assertThat(logs).contains("\"timeoutMs\" : 180000");
+        assertThat(logs).contains("\"plan\" : {");
+        assertThat(logs).contains("\"execute\" : {");
+        assertThat(logs).contains("\"summary\" : {");
+        assertThat(logs).contains("\"reasoningEffort\" : \"HIGH\"");
+        assertThat(logs).contains("\"backend\" : [");
+        assertThat(logs).contains("\"frontend\" : [");
+        assertThat(logs).contains("\"action\" : [");
+        assertThat(logs).contains("\"_plan_add_tasks_\"");
+        assertThat(logs).contains("\"_plan_update_task_\"");
+        assertThat(logs).contains("\"_plan_get_tasks_\"");
     }
 
     @Test

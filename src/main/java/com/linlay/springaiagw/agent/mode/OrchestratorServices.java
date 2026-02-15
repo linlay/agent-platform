@@ -17,6 +17,8 @@ import com.linlay.springaiagw.model.stream.AgentDelta;
 import com.linlay.springaiagw.service.LlmCallSpec;
 import com.linlay.springaiagw.service.LlmService;
 import com.linlay.springaiagw.tool.BaseTool;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.ToolResponseMessage;
@@ -33,6 +35,7 @@ import java.util.regex.Pattern;
 
 public class OrchestratorServices {
 
+    private static final Logger log = LoggerFactory.getLogger(OrchestratorServices.class);
     private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
     };
     private static final Pattern STEP_PREFIX = Pattern.compile(
@@ -101,6 +104,7 @@ public class OrchestratorServices {
         Map<String, ToolAccumulator> toolsById = new LinkedHashMap<>();
         ToolAccumulator latest = null;
         int seq = 0;
+        int deltaSeq = 0;
         boolean toolCallObserved = false;
 
         for (LlmDelta delta : llmService.streamDeltas(new LlmCallSpec(
@@ -122,6 +126,7 @@ public class OrchestratorServices {
             if (delta == null) {
                 continue;
             }
+            deltaSeq++;
 
             boolean hasToolCalls = delta.toolCalls() != null && !delta.toolCalls().isEmpty();
             if (hasToolCalls) {
@@ -164,11 +169,23 @@ public class OrchestratorServices {
                         acc.arguments.append(call.arguments());
                     }
                     latest = acc;
+                    String emittedName = StringUtils.hasText(call.name()) ? call.name() : acc.toolName;
+                    String argumentsDelta = call.arguments();
+                    if (isPlanGenerateStage(stage) && StringUtils.hasText(argumentsDelta)) {
+                        log.info(
+                                "[plan-delta] runId={}, stage={}, deltaSeq={}, toolCallId={}, toolName={}, argumentsDelta={}",
+                                context.request().runId(),
+                                stage,
+                                deltaSeq,
+                                callId,
+                                emittedName,
+                                argumentsDelta
+                        );
+                    }
 
                     if (!emitToolCalls || !StringUtils.hasText(call.arguments())) {
                         continue;
                     }
-                    String emittedName = StringUtils.hasText(call.name()) ? call.name() : acc.toolName;
                     String emittedType = StringUtils.hasText(call.type())
                             ? call.type()
                             : (StringUtils.hasText(acc.toolType) ? acc.toolType : "function");
@@ -471,5 +488,9 @@ public class OrchestratorServices {
 
     private ComputePolicy resolveEffort(StageSettings stageSettings) {
         return stageSettings.reasoningEffort() == null ? ComputePolicy.MEDIUM : stageSettings.reasoningEffort();
+    }
+
+    private boolean isPlanGenerateStage(String stage) {
+        return "agent-plan-generate".equals(stage);
     }
 }
