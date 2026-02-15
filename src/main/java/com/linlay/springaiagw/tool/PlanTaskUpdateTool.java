@@ -12,7 +12,7 @@ public class PlanTaskUpdateTool extends AbstractDeterministicTool {
 
     @Override
     public String name() {
-        return "_plan_task_update_";
+        return "_plan_update_task_";
     }
 
     @Override

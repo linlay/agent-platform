@@ -73,7 +73,7 @@ public final class PlanExecuteMode extends AgentMode {
                 config != null && config.getOutput() != null ? config.getOutput() : OutputPolicy.PLAIN,
                 config != null && config.getToolPolicy() != null ? config.getToolPolicy() : ToolPolicy.ALLOW,
                 config != null && config.getVerify() != null ? config.getVerify() : VerifyPolicy.SECOND_PASS_FIX,
-                config != null && config.getBudget() != null ? config.getBudget().toBudget() : Budget.DEFAULT
+                config != null && config.getBudget() != null ? config.getBudget().toBudget() : Budget.HEAVY
         );
     }
 
@@ -92,7 +92,7 @@ public final class PlanExecuteMode extends AgentMode {
                 context,
                 planStage,
                 context.planMessages(),
-                "请先规划任务。优先调用 _plan_create_ 创建计划任务；如无法调用工具，请输出可解析的步骤列表。",
+                "请先规划任务。优先调用 _plan_add_tasks_ 添加计划任务；如无法调用工具，请输出可解析的步骤列表。",
                 services.toolExecutionService().enabledFunctionTools(planTools),
                 planTools.isEmpty() ? ToolChoice.NONE : ToolChoice.AUTO,
                 "agent-plan-generate",
@@ -128,9 +128,11 @@ public final class PlanExecuteMode extends AgentMode {
 
             stepNo++;
             context.executeMessages().add(new UserMessage(
-                    "当前执行任务 [" + stepNo + "/" + context.budget().maxSteps() + "]: " + normalize(step.taskId(), "unknown")
-                            + "\n描述: " + normalize(step.description(), "无描述")
-                            + "\n要求: 完成后必须调用 _plan_task_update_ 更新该 task 状态。"
+                    "这是任务列表：\n"
+                            + formatTaskList(beforeSnapshot.tasks())
+                            + "\n当前要执行的 taskId: " + normalize(step.taskId(), "unknown")
+                            + "\n当前任务描述: " + normalize(step.description(), "无描述")
+                            + "\n要求: 完成后必须调用 _plan_update_task_ 更新该 task 状态。"
             ));
 
             OrchestratorServices.ModelTurn stepTurn = services.callModelTurnStreaming(
@@ -222,7 +224,7 @@ public final class PlanExecuteMode extends AgentMode {
             if (stalledCount >= 2) {
                 throw new PlanExecutionStalledException(
                         "计划任务执行中断：任务 [" + normalize(step.taskId(), "unknown")
-                                + "] 连续 2 次无状态推进，请在任务完成后调用 _plan_task_update_ 更新状态。"
+                                + "] 连续 2 次无状态推进，请在任务完成后调用 _plan_update_task_ 更新状态。"
                 );
             }
         }
@@ -272,6 +274,33 @@ public final class PlanExecuteMode extends AgentMode {
             }
         }
         return null;
+    }
+
+    private String formatTaskList(List<AgentDelta.PlanTask> tasks) {
+        if (tasks == null || tasks.isEmpty()) {
+            return "- (空)";
+        }
+        StringBuilder builder = new StringBuilder();
+        boolean first = true;
+        for (AgentDelta.PlanTask task : tasks) {
+            if (task == null) {
+                continue;
+            }
+            if (!first) {
+                builder.append('\n');
+            }
+            first = false;
+            builder.append("- ")
+                    .append(normalize(task.taskId(), "unknown"))
+                    .append(" | ")
+                    .append(normalizeStatus(task.status()))
+                    .append(" | ")
+                    .append(normalize(task.description(), "无描述"));
+        }
+        if (builder.isEmpty()) {
+            return "- (空)";
+        }
+        return builder.toString();
     }
 
     private String statusOfTask(List<AgentDelta.PlanTask> tasks, String taskId) {

@@ -142,7 +142,7 @@ class AgwControllerTest {
                 .jsonPath("$.msg").isEqualTo("success")
                 .jsonPath("$.data.key").isEqualTo("demoModePlanExecute")
                 .jsonPath("$.data.meta.providerType").isEqualTo("BAILIAN")
-                .jsonPath("$.data.instructions").isEqualTo("你是高级执行助手。每次先调用 _plan_get_ 查看当前任务，完成当前任务后必须调用 _plan_task_update_ 更新状态，再继续下一个任务。");
+                .jsonPath("$.data.instructions").isEqualTo("你是高级执行助手。根据框架给出的任务列表与当前 taskId 执行任务；完成当前任务后必须调用 _plan_update_task_ 更新状态，再继续下一个任务。");
     }
 
     @Test

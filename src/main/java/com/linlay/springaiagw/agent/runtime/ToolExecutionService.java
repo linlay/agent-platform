@@ -3,7 +3,6 @@ package com.linlay.springaiagw.agent.runtime;
 import com.aiagent.agw.sdk.model.ToolCallDelta;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.linlay.springaiagw.agent.PlannedToolCall;
 import com.linlay.springaiagw.agent.ToolArgumentResolver;
@@ -126,7 +125,7 @@ public class ToolExecutionService {
             return errorResult(toolName, "Tool is not enabled for this agent: " + toolName);
         }
 
-        if ("_plan_get_".equals(toolName)) {
+        if ("_plan_get_tasks_".equals(toolName)) {
             return planGetResult(planSnapshot(context));
         }
 
@@ -192,29 +191,48 @@ public class ToolExecutionService {
     }
 
     private JsonNode planGetResult(PlanSnapshot snapshot) {
-        ObjectNode result = objectMapper.createObjectNode();
-        result.put("tool", "_plan_get_");
-        result.put("ok", true);
-        result.put("planId", snapshot.planId());
-        if (snapshot.chatId() == null) {
-            result.putNull("chatId");
-        } else {
-            result.put("chatId", snapshot.chatId());
-        }
+        return objectMapper.getNodeFactory().textNode(planSnapshotText(snapshot));
+    }
 
-        ArrayNode tasks = objectMapper.createArrayNode();
-        for (AgentDelta.PlanTask task : snapshot.tasks()) {
-            if (task == null) {
+    private String planSnapshotText(PlanSnapshot snapshot) {
+        StringBuilder text = new StringBuilder();
+        text.append("计划ID: ").append(normalize(snapshot.planId())).append('\n');
+        text.append("任务列表:");
+        if (snapshot.tasks().isEmpty()) {
+            text.append("\n- (空)");
+        } else {
+            for (AgentDelta.PlanTask task : snapshot.tasks()) {
+                if (task == null) {
+                    continue;
+                }
+                text.append("\n- ")
+                        .append(normalize(task.taskId()))
+                        .append(" | ")
+                        .append(normalizeStatus(task.status()))
+                        .append(" | ")
+                        .append(normalize(task.description()));
+            }
+        }
+        text.append('\n')
+                .append("当前应执行 taskId: ")
+                .append(firstUnfinishedTaskId(snapshot.tasks()));
+        return text.toString();
+    }
+
+    private String firstUnfinishedTaskId(List<AgentDelta.PlanTask> tasks) {
+        if (tasks == null || tasks.isEmpty()) {
+            return "none";
+        }
+        for (AgentDelta.PlanTask task : tasks) {
+            if (task == null || !StringUtils.hasText(task.taskId())) {
                 continue;
             }
-            ObjectNode item = objectMapper.createObjectNode();
-            item.put("taskId", normalize(task.taskId()));
-            item.put("description", normalize(task.description()));
-            item.put("status", normalizeStatus(task.status()));
-            tasks.add(item);
+            String status = normalizeStatus(task.status());
+            if (!"completed".equals(status) && !"canceled".equals(status)) {
+                return task.taskId().trim();
+            }
         }
-        result.set("tasks", tasks);
-        return result;
+        return "none";
     }
 
     private String normalizeToolName(String raw) {
@@ -239,7 +257,7 @@ public class ToolExecutionService {
             return null;
         }
         String normalizedName = toolName.trim().toLowerCase(Locale.ROOT);
-        if ("_plan_create_".equals(normalizedName)) {
+        if ("_plan_add_tasks_".equals(normalizedName)) {
             if (!isSuccessfulPlanToolResult(resultNode)) {
                 return null;
             }
@@ -250,7 +268,7 @@ public class ToolExecutionService {
             context.appendPlanTasks(created);
             return AgentDelta.planUpdate(context.planId(), context.request().chatId(), context.planTasks());
         }
-        if ("_plan_task_update_".equals(normalizedName)) {
+        if ("_plan_update_task_".equals(normalizedName)) {
             if (!isSuccessfulPlanToolResult(resultNode)) {
                 return null;
             }

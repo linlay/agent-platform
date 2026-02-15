@@ -277,11 +277,11 @@ class DefinitionDrivenAgentTest {
                 AgentRuntimeMode.PLAN_EXECUTE,
                 new RunSpec(ControlStrategy.PLAN_EXECUTE, OutputPolicy.PLAIN, ToolPolicy.ALLOW, VerifyPolicy.NONE, Budget.DEFAULT),
                 new PlanExecuteMode(
-                        new StageSettings("规划系统提示", null, null, List.of("_plan_create_"), false, ComputePolicy.MEDIUM),
-                        new StageSettings("执行系统提示", null, null, List.of("_plan_task_update_"), false, ComputePolicy.MEDIUM),
+                        new StageSettings("规划系统提示", null, null, List.of("_plan_add_tasks_"), false, ComputePolicy.MEDIUM),
+                        new StageSettings("执行系统提示", null, null, List.of("_plan_update_task_"), false, ComputePolicy.MEDIUM),
                         new StageSettings("总结系统提示", null, null, List.of(), false, ComputePolicy.MEDIUM)
                 ),
-                List.of("_plan_create_", "_plan_task_update_")
+                List.of("_plan_add_tasks_", "_plan_update_task_")
         );
 
         LlmService llmService = new StubLlmService() {
@@ -291,7 +291,7 @@ class DefinitionDrivenAgentTest {
                 if ("agent-plan-generate".equals(spec.stage())) {
                     return Flux.just(new LlmDelta(
                             null,
-                            List.of(new ToolCallDelta("call_plan_1", "function", "_plan_create_",
+                            List.of(new ToolCallDelta("call_plan_1", "function", "_plan_add_tasks_",
                                     "{\"tasks\":[{\"taskId\":\"s1\",\"description\":\"步骤1\",\"status\":\"init\"}]}")),
                             "tool_calls"
                     ));
@@ -299,7 +299,7 @@ class DefinitionDrivenAgentTest {
                 if ("agent-plan-execute-step-1".equals(spec.stage())) {
                     return Flux.just(new LlmDelta(
                             null,
-                            List.of(new ToolCallDelta("call_update_1", "function", "_plan_task_update_",
+                            List.of(new ToolCallDelta("call_update_1", "function", "_plan_update_task_",
                                     "{\"taskId\":\"s1\",\"status\":\"completed\"}")),
                             "tool_calls"
                     ));
@@ -334,18 +334,19 @@ class DefinitionDrivenAgentTest {
     @Test
     void planExecuteShouldFollowPlanTaskOrderAndExposePlanGetResult() {
         List<String> executeStages = new CopyOnWriteArrayList<>();
+        List<String> executeUserMessages = new CopyOnWriteArrayList<>();
 
         AgentDefinition definition = definition(
                 "demoPlanOrder",
                 AgentRuntimeMode.PLAN_EXECUTE,
                 new RunSpec(ControlStrategy.PLAN_EXECUTE, OutputPolicy.PLAIN, ToolPolicy.ALLOW, VerifyPolicy.NONE, Budget.DEFAULT),
                 new PlanExecuteMode(
-                        new StageSettings("规划系统提示", null, null, List.of("_plan_create_"), false, ComputePolicy.MEDIUM),
+                        new StageSettings("规划系统提示", null, null, List.of("_plan_add_tasks_"), false, ComputePolicy.MEDIUM),
                         new StageSettings("执行系统提示", null, null,
-                                List.of("_plan_get_", "_plan_task_update_"), false, ComputePolicy.MEDIUM),
+                                List.of("_plan_get_tasks_", "_plan_update_task_"), false, ComputePolicy.MEDIUM),
                         new StageSettings("总结系统提示", null, null, List.of(), false, ComputePolicy.MEDIUM)
                 ),
-                List.of("_plan_create_", "_plan_get_", "_plan_task_update_")
+                List.of("_plan_add_tasks_", "_plan_get_tasks_", "_plan_update_task_")
         );
 
         LlmService llmService = new StubLlmService() {
@@ -353,11 +354,14 @@ class DefinitionDrivenAgentTest {
             public Flux<LlmDelta> streamDeltas(LlmCallSpec spec) {
                 if (spec.stage().startsWith("agent-plan-execute-step-")) {
                     executeStages.add(spec.stage());
+                    if (spec.messages() != null && !spec.messages().isEmpty()) {
+                        executeUserMessages.add(spec.messages().get(spec.messages().size() - 1).getText());
+                    }
                 }
                 if ("agent-plan-generate".equals(spec.stage())) {
                     return Flux.just(new LlmDelta(
                             null,
-                            List.of(new ToolCallDelta("call_plan_1", "function", "_plan_create_",
+                            List.of(new ToolCallDelta("call_plan_1", "function", "_plan_add_tasks_",
                                     "{\"tasks\":[{\"taskId\":\"task1\",\"description\":\"任务1\",\"status\":\"init\"},"
                                             + "{\"taskId\":\"task2\",\"description\":\"任务2\",\"status\":\"init\"}]}")),
                             "tool_calls"
@@ -367,8 +371,8 @@ class DefinitionDrivenAgentTest {
                     return Flux.just(new LlmDelta(
                             null,
                             List.of(
-                                    new ToolCallDelta("call_plan_get_1", "function", "_plan_get_", "{}"),
-                                    new ToolCallDelta("call_update_1", "function", "_plan_task_update_",
+                                    new ToolCallDelta("call_plan_get_tasks_1", "function", "_plan_get_tasks_", "{}"),
+                                    new ToolCallDelta("call_update_1", "function", "_plan_update_task_",
                                             "{\"taskId\":\"task1\",\"status\":\"completed\"}")
                             ),
                             "tool_calls"
@@ -378,8 +382,8 @@ class DefinitionDrivenAgentTest {
                     return Flux.just(new LlmDelta(
                             null,
                             List.of(
-                                    new ToolCallDelta("call_plan_get_2", "function", "_plan_get_", "{}"),
-                                    new ToolCallDelta("call_update_2", "function", "_plan_task_update_",
+                                    new ToolCallDelta("call_plan_get_tasks_2", "function", "_plan_get_tasks_", "{}"),
+                                    new ToolCallDelta("call_update_2", "function", "_plan_update_task_",
                                             "{\"taskId\":\"task2\",\"status\":\"completed\"}")
                             ),
                             "tool_calls"
@@ -408,13 +412,98 @@ class DefinitionDrivenAgentTest {
 
         assertThat(deltas).isNotNull();
         assertThat(executeStages).containsExactly("agent-plan-execute-step-1", "agent-plan-execute-step-2");
+        assertThat(executeUserMessages).allMatch(text -> text.contains("这是任务列表："));
+        assertThat(executeUserMessages).allMatch(text -> text.contains("当前要执行的 taskId:"));
+        assertThat(executeUserMessages).noneMatch(text -> text.contains("当前执行任务 ["));
         assertThat(deltas.stream().flatMap(delta -> delta.toolResults().stream())
-                .filter(result -> "call_plan_get_1".equals(result.toolId()))
+                .filter(result -> "call_plan_get_tasks_1".equals(result.toolId()))
                 .map(AgentDelta.ToolResult::result)
                 .findFirst()
                 .orElse(""))
-                .contains("\"tasks\"")
-                .contains("\"task1\"");
+                .contains("计划ID:")
+                .contains("task1 | init | 任务1")
+                .contains("当前应执行 taskId: task1");
+    }
+
+    @Test
+    void planExecuteShouldSuppressReasoningAndContentAfterToolCallUntilResult() {
+        AgentDefinition definition = definition(
+                "demoPlanToolGate",
+                AgentRuntimeMode.PLAN_EXECUTE,
+                new RunSpec(ControlStrategy.PLAN_EXECUTE, OutputPolicy.PLAIN, ToolPolicy.ALLOW, VerifyPolicy.NONE, Budget.DEFAULT),
+                new PlanExecuteMode(
+                        new StageSettings("规划系统提示", null, null, List.of("_plan_add_tasks_"), false, ComputePolicy.MEDIUM),
+                        new StageSettings("执行系统提示", null, null,
+                                List.of("_plan_update_task_"), false, ComputePolicy.MEDIUM),
+                        new StageSettings("总结系统提示", null, null, List.of(), false, ComputePolicy.MEDIUM)
+                ),
+                List.of("_plan_add_tasks_", "_plan_update_task_")
+        );
+
+        LlmService llmService = new StubLlmService() {
+            @Override
+            public Flux<LlmDelta> streamDeltas(LlmCallSpec spec) {
+                if ("agent-plan-generate".equals(spec.stage())) {
+                    return Flux.just(new LlmDelta(
+                            null,
+                            List.of(new ToolCallDelta("call_plan_1", "function", "_plan_add_tasks_",
+                                    "{\"tasks\":[{\"taskId\":\"task1\",\"description\":\"任务1\",\"status\":\"init\"}]}")),
+                            "tool_calls"
+                    ));
+                }
+                if ("agent-plan-execute-step-1".equals(spec.stage())) {
+                    return Flux.just(
+                            new LlmDelta("工具前内容", null, null),
+                            new LlmDelta(
+                                    null,
+                                    List.of(new ToolCallDelta("call_update_1", "function", "_plan_update_task_",
+                                            "{\"taskId\":\"task1\"")),
+                                    null
+                            ),
+                            new LlmDelta(
+                                    null,
+                                    List.of(new ToolCallDelta("call_update_1", null, null,
+                                            ",\"status\":\"completed\"}")),
+                                    null
+                            ),
+                            new LlmDelta("工具后推理不应外发", null, null, null),
+                            new LlmDelta("工具后内容不应外发", null, "stop")
+                    );
+                }
+                if ("agent-plan-step-summary-1".equals(spec.stage())) {
+                    return Flux.just(new LlmDelta("步骤执行完成", null, "stop"));
+                }
+                return Flux.just(new LlmDelta("最终回答", null, "stop"));
+            }
+        };
+
+        DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
+                definition,
+                llmService,
+                new DeltaStreamService(),
+                new ToolRegistry(List.of(new PlanCreateTool(), new PlanTaskUpdateTool())),
+                objectMapper,
+                null,
+                null
+        );
+
+        List<AgentDelta> deltas = agent.stream(new AgentRequest("测试 tool gate", null, null, null))
+                .collectList()
+                .block(Duration.ofSeconds(3));
+
+        assertThat(deltas).isNotNull();
+        assertThat(deltas.stream()
+                .flatMap(delta -> delta.toolResults().stream())
+                .map(AgentDelta.ToolResult::toolId))
+                .contains("call_update_1");
+        assertThat(deltas.stream()
+                .map(AgentDelta::reasoning)
+                .filter(text -> text != null && !text.isBlank()))
+                .doesNotContain("工具后推理不应外发");
+        assertThat(deltas.stream()
+                .map(AgentDelta::content)
+                .filter(text -> text != null && !text.isBlank()))
+                .doesNotContain("工具后内容不应外发");
     }
 
     @Test
@@ -426,11 +515,11 @@ class DefinitionDrivenAgentTest {
                 AgentRuntimeMode.PLAN_EXECUTE,
                 new RunSpec(ControlStrategy.PLAN_EXECUTE, OutputPolicy.PLAIN, ToolPolicy.ALLOW, VerifyPolicy.NONE, Budget.DEFAULT),
                 new PlanExecuteMode(
-                        new StageSettings("规划系统提示", null, null, List.of("_plan_create_"), false, ComputePolicy.MEDIUM),
-                        new StageSettings("执行系统提示", null, null, List.of("_plan_task_update_"), false, ComputePolicy.MEDIUM),
+                        new StageSettings("规划系统提示", null, null, List.of("_plan_add_tasks_"), false, ComputePolicy.MEDIUM),
+                        new StageSettings("执行系统提示", null, null, List.of("_plan_update_task_"), false, ComputePolicy.MEDIUM),
                         new StageSettings("总结系统提示", null, null, List.of(), false, ComputePolicy.MEDIUM)
                 ),
-                List.of("_plan_create_", "_plan_task_update_")
+                List.of("_plan_add_tasks_", "_plan_update_task_")
         );
 
         LlmService llmService = new StubLlmService() {
@@ -440,7 +529,7 @@ class DefinitionDrivenAgentTest {
                 if ("agent-plan-generate".equals(spec.stage())) {
                     return Flux.just(new LlmDelta(
                             null,
-                            List.of(new ToolCallDelta("call_plan_1", "function", "_plan_create_",
+                            List.of(new ToolCallDelta("call_plan_1", "function", "_plan_add_tasks_",
                                     "{\"tasks\":[{\"taskId\":\"task1\",\"description\":\"任务1\",\"status\":\"init\"}]}")),
                             "tool_calls"
                     ));

@@ -13,8 +13,8 @@
   },
   "toolConfig": {
     "backends": [
-      "_plan_create_",
-      "_plan_task_update_",
+      "_plan_add_tasks_",
+      "_plan_update_task_",
       "city_datetime",
       "mock_city_weather",
       "mock_logistics_status"
@@ -28,7 +28,7 @@
       "systemPrompt": "你是视图规划助手。先给出数据采集与展示计划。",
       "toolConfig": {
         "backends": [
-          "_plan_create_"
+          "_plan_add_tasks_"
         ],
         "frontends": [],
         "actions": []
@@ -38,7 +38,7 @@
       "systemPrompt": "你是视图执行助手。必须先通过工具获取数据，再输出 viewport 协议代码块。最终回答必须且只能是一个 ```viewport fenced block。",
       "toolConfig": {
         "backends": [
-          "_plan_task_update_",
+          "_plan_update_task_",
           "city_datetime",
           "mock_city_weather",
           "mock_logistics_status"

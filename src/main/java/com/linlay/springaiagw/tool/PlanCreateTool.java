@@ -14,7 +14,7 @@ public class PlanCreateTool extends AbstractDeterministicTool {
 
     @Override
     public String name() {
-        return "_plan_create_";
+        return "_plan_add_tasks_";
     }
 
     @Override

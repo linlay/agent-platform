@@ -1,6 +1,5 @@
 package com.linlay.springaiagw.agent.runtime;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linlay.springaiagw.agent.AgentDefinition;
 import com.linlay.springaiagw.agent.PlannedToolCall;
@@ -34,7 +33,7 @@ class ToolExecutionServiceTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
-    void planGetShouldReturnCurrentPlanSnapshot() throws Exception {
+    void planGetShouldReturnCurrentPlanSnapshot() {
         PlanGetTool planGetTool = new PlanGetTool();
         ToolRegistry toolRegistry = new ToolRegistry(List.of(planGetTool));
         ToolExecutionService toolExecutionService = new ToolExecutionService(
@@ -63,7 +62,7 @@ class ToolExecutionServiceTest {
         }
 
         ToolExecutionService.ToolExecutionBatch batch = toolExecutionService.executeToolCalls(
-                List.of(new PlannedToolCall("_plan_get_", Map.of(), "call_plan_get_1")),
+                List.of(new PlannedToolCall("_plan_get_tasks_", Map.of(), "call_plan_get_tasks_1")),
                 Map.copyOf(enabledTools),
                 new ArrayList<>(),
                 "run_plan_1",
@@ -74,20 +73,16 @@ class ToolExecutionServiceTest {
         assertThat(batch.events()).hasSize(1);
         String result = batch.deltas().stream()
                 .flatMap(delta -> delta.toolResults().stream())
-                .filter(item -> "call_plan_get_1".equals(item.toolId()))
+                .filter(item -> "call_plan_get_tasks_1".equals(item.toolId()))
                 .map(AgentDelta.ToolResult::result)
                 .findFirst()
                 .orElseThrow();
 
-        JsonNode payload = objectMapper.readTree(result);
-        assertThat(payload.path("tool").asText()).isEqualTo("_plan_get_");
-        assertThat(payload.path("ok").asBoolean()).isTrue();
-        assertThat(payload.path("planId").asText()).isEqualTo("plan_chat_1");
-        assertThat(payload.path("chatId").asText()).isEqualTo("chat_plan_1");
-        assertThat(payload.path("tasks")).isNotNull();
-        assertThat(payload.path("tasks").size()).isEqualTo(2);
-        assertThat(payload.path("tasks").get(0).path("taskId").asText()).isEqualTo("task1");
-        assertThat(payload.path("tasks").get(0).path("status").asText()).isEqualTo("init");
+        assertThat(result)
+                .contains("计划ID: plan_chat_1")
+                .contains("task1 | init | 检查环境")
+                .contains("task2 | in_progress | 执行迁移")
+                .contains("当前应执行 taskId: task1");
     }
 
     private AgentDefinition definition() {
@@ -100,8 +95,8 @@ class ToolExecutionServiceTest {
                 "qwen3-max",
                 AgentRuntimeMode.ONESHOT,
                 new RunSpec(ControlStrategy.ONESHOT, OutputPolicy.PLAIN, ToolPolicy.ALLOW, VerifyPolicy.NONE, Budget.DEFAULT),
-                new OneshotMode(new StageSettings("sys", null, null, List.of("_plan_get_"), false, ComputePolicy.MEDIUM)),
-                List.of("_plan_get_")
+                new OneshotMode(new StageSettings("sys", null, null, List.of("_plan_get_tasks_"), false, ComputePolicy.MEDIUM)),
+                List.of("_plan_get_tasks_")
         );
     }
 }

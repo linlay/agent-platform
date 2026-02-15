@@ -2,7 +2,7 @@
   "tools": [
     {
       "type": "function",
-      "name": "_plan_create_",
+      "name": "_plan_add_tasks_",
       "description": "创建计划任务（追加模式），支持一次添加一个或多个任务。",
       "parameters": {
         "type": "object",

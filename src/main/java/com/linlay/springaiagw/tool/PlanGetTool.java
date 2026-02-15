@@ -11,12 +11,12 @@ public class PlanGetTool extends AbstractDeterministicTool {
 
     @Override
     public String name() {
-        return "_plan_get_";
+        return "_plan_get_tasks_";
     }
 
     @Override
     public String description() {
-        return "读取当前计划任务快照。";
+        return "读取当前计划任务快照，返回纯文本任务列表和当前应执行 taskId。";
     }
 
     @Override

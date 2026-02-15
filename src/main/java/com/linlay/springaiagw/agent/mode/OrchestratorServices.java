@@ -101,6 +101,7 @@ public class OrchestratorServices {
         Map<String, ToolAccumulator> toolsById = new LinkedHashMap<>();
         ToolAccumulator latest = null;
         int seq = 0;
+        boolean toolCallObserved = false;
 
         for (LlmDelta delta : llmService.streamDeltas(new LlmCallSpec(
                 resolveProvider(stageSettings, context),
@@ -122,22 +123,27 @@ public class OrchestratorServices {
                 continue;
             }
 
+            boolean hasToolCalls = delta.toolCalls() != null && !delta.toolCalls().isEmpty();
+            if (hasToolCalls) {
+                toolCallObserved = true;
+            }
+
             if (StringUtils.hasText(delta.reasoning())) {
                 reasoning.append(delta.reasoning());
-                if (emitReasoning) {
+                if (emitReasoning && !toolCallObserved) {
                     emit(sink, AgentDelta.reasoning(delta.reasoning()));
                 }
             }
 
             if (StringUtils.hasText(delta.content())) {
                 content.append(delta.content());
-                if (emitContent) {
+                if (emitContent && !toolCallObserved) {
                     emit(sink, AgentDelta.content(delta.content()));
                 }
             }
 
             List<ToolCallDelta> streamedCalls = new ArrayList<>();
-            if (delta.toolCalls() != null && !delta.toolCalls().isEmpty()) {
+            if (hasToolCalls) {
                 for (ToolCallDelta call : delta.toolCalls()) {
                     if (call == null) {
                         continue;

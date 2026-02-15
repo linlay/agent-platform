@@ -50,7 +50,7 @@ public final class OneshotMode extends AgentMode {
                 config != null && config.getOutput() != null ? config.getOutput() : OutputPolicy.PLAIN,
                 config != null && config.getToolPolicy() != null ? config.getToolPolicy() : defaultPolicy,
                 config != null && config.getVerify() != null ? config.getVerify() : VerifyPolicy.NONE,
-                config != null && config.getBudget() != null ? config.getBudget().toBudget() : Budget.DEFAULT
+                config != null && config.getBudget() != null ? config.getBudget().toBudget() : Budget.LIGHT
         );
     }
 

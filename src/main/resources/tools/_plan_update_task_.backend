@@ -2,7 +2,7 @@
   "tools": [
     {
       "type": "function",
-      "name": "_plan_task_update_",
+      "name": "_plan_update_task_",
       "description": "更新计划中的任务状态。",
       "parameters": {
         "type": "object",

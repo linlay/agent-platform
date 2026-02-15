@@ -13,8 +13,8 @@
   },
   "toolConfig": {
     "backends": [
-      "_plan_create_",
-      "_plan_task_update_",
+      "_plan_add_tasks_",
+      "_plan_update_task_",
       "agent_file_create"
     ],
     "frontends": [],
@@ -26,7 +26,7 @@
       "systemPrompt": "你是 Agent 创建规划助手。先规划需要填充的配置项。",
       "toolConfig": {
         "backends": [
-          "_plan_create_"
+          "_plan_add_tasks_"
         ],
         "frontends": [],
         "actions": []
@@ -37,7 +37,7 @@
       "toolConfig": {
         "backends": [
           "agent_file_create",
-          "_plan_task_update_"
+          "_plan_update_task_"
         ],
         "frontends": [],
         "actions": []

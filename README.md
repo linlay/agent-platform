@@ -232,7 +232,7 @@ curl -N -X POST "http://localhost:8080/api/query" \
 - 阶段继承规则：
   - 阶段缺失 `toolConfig`：继承顶层
   - 阶段显式 `toolConfig: null`：禁用该阶段全部工具
-  - `_plan_get_` 仅在阶段显式配置时对模型可见；框架内部调度始终可读取 plan 快照。
+  - `_plan_get_tasks_` 仅在阶段显式配置时对模型可见；框架内部调度始终可读取 plan 快照。
 
 当工具非空时，服务会按 OpenAI 兼容的原生 Function Calling 协议请求模型：
 - 请求体包含 `tools[]`
@@ -316,7 +316,7 @@ type=html, key=show_weather_card
 - `demoModePlainTooling`（`ONESHOT`）：单轮按需调用工具。
 - `demoModeThinkingTooling`（`ONESHOT`）：开启 reasoning 的单轮工具模式。
 - `demoModeReact`（`REACT`）：按需多轮工具调用。
-- `demoModePlanExecute`（`PLAN_EXECUTE`）：先规划后执行，execute 阶段显式使用 `_plan_get_` + `_plan_task_update_` 按 plan 推进。
+- `demoModePlanExecute`（`PLAN_EXECUTE`）：先规划后执行，execute 阶段由框架下发任务列表与当前 taskId，模型完成后调用 `_plan_update_task_` 推进 plan（可选调用 `_plan_get_tasks_` 查看快照）。
 - `demoViewport`（`PLAN_EXECUTE`）：调用 `city_datetime`、`mock_city_weather`，最终按 `viewport` 代码块协议输出天气卡片数据。
 - `demoAction`（`ONESHOT`）：根据用户意图调用 `switch_theme` / `launch_fireworks` / `show_modal`。
 - `demoAgentCreator`（`PLAN_EXECUTE`）：调用 `agent_file_create` 创建/更新 `agents/{agentId}.json`。
@@ -418,7 +418,7 @@ curl -N -X POST "http://localhost:8080/api/query" \
 ```bash
 curl -N -X POST "http://localhost:8080/api/query" \
   -H "Content-Type: application/json" \
-  -d '{"message":"规划上海机房明天搬迁的实施计划，你要先列给我看计划，然后再一步步落实","agentKey":"demoModePlanExecute"}'
+  -d '{"message":"规划上海机房明天搬迁的实施计划，帮我规划4个步骤","agentKey":"demoModePlanExecute"}'
 ```
 
 ```bash
