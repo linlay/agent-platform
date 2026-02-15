@@ -16,8 +16,10 @@
     "backends": [
       "city_datetime",
       "mock_city_weather",
+      "mock_logistics_status",
       "mock_sensitive_data_detector",
-      "_bash_"
+      "mock_todo_tasks",
+      "mock_transport_schedule"
     ],
     "frontends": [],
     "actions": []
