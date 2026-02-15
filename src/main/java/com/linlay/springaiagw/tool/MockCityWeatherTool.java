@@ -31,7 +31,7 @@ public class MockCityWeatherTool extends AbstractDeterministicTool {
         String condition = CONDITIONS[random.nextInt(CONDITIONS.length)];
 
         ObjectNode root = OBJECT_MAPPER.createObjectNode();
-        root.put("tool", name());
+        // root.put("tool", name()); // 不需要返回tool name
         root.put("city", city);
         root.put("date", date);
         root.put("temperatureC", tempC);

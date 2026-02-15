@@ -119,10 +119,26 @@ public class ToolExecutionService {
         if (stageTools == null || stageTools.isEmpty()) {
             return base;
         }
-        List<String> lines = stageTools.values().stream()
+        List<BaseTool> backendTools = stageTools.values().stream()
                 .filter(tool -> tool != null && StringUtils.hasText(tool.name()))
                 .filter(tool -> isBackendTool(tool.name()))
                 .sorted(Comparator.comparing(tool -> normalizeToolName(tool.name())))
+                .toList();
+        if (backendTools.isEmpty()) {
+            return base;
+        }
+        List<String> descriptionLines = backendTools.stream()
+                .map(tool -> {
+                    String description = normalize(tool.description());
+                    if (!StringUtils.hasText(description)) {
+                        return null;
+                    }
+                    return "- " + normalizeToolName(tool.name()) + ": " + description;
+                })
+                .filter(StringUtils::hasText)
+                .distinct()
+                .toList();
+        List<String> promptLines = backendTools.stream()
                 .map(tool -> {
                     String prompt = normalize(tool.prompt());
                     if (!StringUtils.hasText(prompt)) {
@@ -133,10 +149,17 @@ public class ToolExecutionService {
                 .filter(StringUtils::hasText)
                 .distinct()
                 .toList();
-        if (lines.isEmpty()) {
+        if (descriptionLines.isEmpty() && promptLines.isEmpty()) {
             return base;
         }
-        String appendix = "工具补充指令:\n" + String.join("\n", lines);
+        List<String> sections = new ArrayList<>();
+        if (!descriptionLines.isEmpty()) {
+            sections.add("工具说明:\n" + String.join("\n", descriptionLines));
+        }
+        if (!promptLines.isEmpty()) {
+            sections.add("工具补充指令:\n" + String.join("\n", promptLines));
+        }
+        String appendix = String.join("\n\n", sections);
         if (!StringUtils.hasText(base)) {
             return appendix;
         }

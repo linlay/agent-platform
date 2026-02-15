@@ -19,6 +19,11 @@ public class PlanCreateTool extends AbstractDeterministicTool {
     }
 
     @Override
+    public String description() {
+        return "创建计划任务（追加模式），支持一次添加一个或多个任务。成功返回多行文本：taskId | status | description。";
+    }
+
+    @Override
     public JsonNode invoke(Map<String, Object> args) {
         List<TaskItem> tasks = new ArrayList<>();
         Object rawTasks = args == null ? null : args.get("tasks");

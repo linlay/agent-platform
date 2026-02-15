@@ -22,7 +22,7 @@ public class PlanGetTool extends AbstractDeterministicTool {
     @Override
     public JsonNode invoke(Map<String, Object> args) {
         ObjectNode result = OBJECT_MAPPER.createObjectNode();
-        result.put("tool", name());
+        // result.put("tool", name()); // 不需要返回tool name
         result.put("ok", false);
         result.put("error", "Plan context is unavailable in direct invocation");
         return result;

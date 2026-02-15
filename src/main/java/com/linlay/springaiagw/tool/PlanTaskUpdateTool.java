@@ -15,6 +15,11 @@ public class PlanTaskUpdateTool extends AbstractDeterministicTool {
     }
 
     @Override
+    public String description() {
+        return "更新计划中的任务状态。status 仅支持 init/completed/failed/canceled；成功返回 OK，失败返回 失败: 原因。";
+    }
+
+    @Override
     public JsonNode invoke(Map<String, Object> args) {
         String taskId = readString(args, "taskId");
         if (taskId == null || taskId.isBlank()) {

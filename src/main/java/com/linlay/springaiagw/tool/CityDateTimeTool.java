@@ -25,7 +25,7 @@ public class CityDateTimeTool extends AbstractDeterministicTool {
         ZonedDateTime dateTime = ZonedDateTime.now(zoneId);
 
         ObjectNode root = OBJECT_MAPPER.createObjectNode();
-        root.put("tool", name());
+        // root.put("tool", name()); // 不需要返回tool name
         root.put("city", city);
         root.put("timezone", zoneId.getId());
         root.put("date", dateTime.toLocalDate().toString());

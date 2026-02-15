@@ -11,13 +11,16 @@ import java.util.Locale;
 
 public final class AgentModeFactory {
 
+    private static final String PLAN_ADD_TASK_TOOL = "_plan_add_tasks_";
+    private static final String PLAN_UPDATE_TASK_TOOL = "_plan_update_task_";
+
     private AgentModeFactory() {
     }
 
     public static AgentMode create(AgentRuntimeMode mode, AgentConfigFile config, Path file) {
         return switch (mode) {
             case ONESHOT -> {
-                StageSettings stage = stageSettings(config, config == null ? null : config.getPlain());
+                StageSettings stage = stageSettings(config, config == null ? null : config.getPlain(), List.of());
                 if (isBlank(stage.systemPrompt())) {
                     throw new IllegalArgumentException("plain.systemPrompt is required: " + file);
                 }
@@ -25,7 +28,7 @@ public final class AgentModeFactory {
             }
             case REACT -> {
                 AgentConfigFile.ReactConfig react = config == null ? null : config.getReact();
-                StageSettings stage = stageSettings(config, react);
+                StageSettings stage = stageSettings(config, react, List.of());
                 if (isBlank(stage.systemPrompt())) {
                     throw new IllegalArgumentException("react.systemPrompt is required: " + file);
                 }
@@ -34,9 +37,21 @@ public final class AgentModeFactory {
             }
             case PLAN_EXECUTE -> {
                 AgentConfigFile.PlanExecuteConfig pe = config == null ? null : config.getPlanExecute();
-                StageSettings planStage = stageSettings(config, pe == null ? null : pe.getPlan());
-                StageSettings executeStage = stageSettings(config, pe == null ? null : pe.getExecute());
-                StageSettings summaryStage = stageSettings(config, pe == null ? null : pe.getSummary());
+                StageSettings planStage = stageSettings(
+                        config,
+                        pe == null ? null : pe.getPlan(),
+                        List.of(PLAN_ADD_TASK_TOOL)
+                );
+                StageSettings executeStage = stageSettings(
+                        config,
+                        pe == null ? null : pe.getExecute(),
+                        List.of(PLAN_UPDATE_TASK_TOOL)
+                );
+                StageSettings summaryStage = stageSettings(
+                        config,
+                        pe == null ? null : pe.getSummary(),
+                        List.of()
+                );
                 if (isBlank(planStage.systemPrompt()) || isBlank(executeStage.systemPrompt())) {
                     throw new IllegalArgumentException(
                             "planExecute.plan.systemPrompt and planExecute.execute.systemPrompt are required: " + file);
@@ -56,14 +71,18 @@ public final class AgentModeFactory {
         };
     }
 
-    private static StageSettings stageSettings(AgentConfigFile config, AgentConfigFile.StageConfig stage) {
+    private static StageSettings stageSettings(
+            AgentConfigFile config,
+            AgentConfigFile.StageConfig stage,
+            List<String> requiredTools
+    ) {
         AgentConfigFile.ModelConfig resolvedModelConfig = resolveModelConfig(config, stage);
         AgentConfigFile.ReasoningConfig resolvedReasoning = resolvedModelConfig == null ? null : resolvedModelConfig.getReasoning();
         boolean reasoningEnabled = resolvedReasoning != null && Boolean.TRUE.equals(resolvedReasoning.getEnabled());
         ComputePolicy reasoningEffort = resolvedReasoning != null && resolvedReasoning.getEffort() != null
                 ? resolvedReasoning.getEffort()
                 : ComputePolicy.MEDIUM;
-        List<String> tools = resolveTools(config, stage);
+        List<String> tools = resolveTools(config, stage, requiredTools);
 
         return new StageSettings(
                 normalize(stage == null ? null : stage.getSystemPrompt()),
@@ -83,15 +102,23 @@ public final class AgentModeFactory {
         return stage.getModelConfig();
     }
 
-    private static List<String> resolveTools(AgentConfigFile config, AgentConfigFile.StageConfig stage) {
+    private static List<String> resolveTools(
+            AgentConfigFile config,
+            AgentConfigFile.StageConfig stage,
+            List<String> requiredTools
+    ) {
         AgentConfigFile.ToolConfig top = config == null ? null : config.getToolConfig();
+        List<String> resolved;
         if (stage == null || !stage.isToolConfigProvided()) {
-            return normalizeTools(top);
+            resolved = normalizeTools(top);
+            return mergeRequiredTools(resolved, requiredTools);
         }
         if (stage.isToolConfigExplicitNull()) {
-            return List.of();
+            resolved = List.of();
+            return mergeRequiredTools(resolved, requiredTools);
         }
-        return normalizeTools(stage.getToolConfig());
+        resolved = normalizeTools(stage.getToolConfig());
+        return mergeRequiredTools(resolved, requiredTools);
     }
 
     private static List<String> normalizeTools(AgentConfigFile.ToolConfig toolConfig) {
@@ -103,6 +130,15 @@ public final class AgentModeFactory {
         addTools(tools, toolConfig.getFrontends());
         addTools(tools, toolConfig.getActions());
         return tools.stream().distinct().toList();
+    }
+
+    private static List<String> mergeRequiredTools(List<String> tools, List<String> requiredTools) {
+        if (requiredTools == null || requiredTools.isEmpty()) {
+            return tools == null ? List.of() : List.copyOf(tools);
+        }
+        List<String> merged = new ArrayList<>(tools == null ? List.of() : tools);
+        addTools(merged, requiredTools);
+        return merged.stream().distinct().toList();
     }
 
     private static void addTools(List<String> tools, List<String> rawTools) {

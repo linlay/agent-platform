@@ -1,6 +1,7 @@
 package com.linlay.springaiagw.agent;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.linlay.springaiagw.agent.mode.OneshotMode;
 import com.linlay.springaiagw.agent.mode.PlanExecuteMode;
 import com.linlay.springaiagw.agent.runtime.AgentRuntimeMode;
 import org.junit.jupiter.api.Test;
@@ -57,7 +58,7 @@ class AgentDefinitionLoaderTest {
         assertThat(definition.name()).isEqualTo("运维日报助手");
         assertThat(definition.icon()).isEqualTo("emoji:📅");
         assertThat(definition.mode()).isEqualTo(AgentRuntimeMode.PLAN_EXECUTE);
-        assertThat(definition.tools()).containsExactly("_bash_");
+        assertThat(definition.tools()).containsExactlyInAnyOrder("_bash_", "_plan_add_tasks_", "_plan_update_task_");
         assertThat(definition.agentMode()).isInstanceOf(PlanExecuteMode.class);
 
         PlanExecuteMode peMode = (PlanExecuteMode) definition.agentMode();
@@ -180,7 +181,64 @@ class AgentDefinitionLoaderTest {
     }
 
     @Test
-    void shouldInheritStageModelAndRespectToolConfigNullDisable() throws IOException {
+    void shouldAllowMissingTopLevelModelConfigWhenStageModelExists() throws IOException {
+        Files.writeString(tempDir.resolve("inner_model_only.json"), """
+                {
+                  "key": "inner_model_only",
+                  "description": "inner model only",
+                  "toolConfig": null,
+                  "mode": "ONESHOT",
+                  "plain": {
+                    "systemPrompt": "inner model prompt",
+                    "modelConfig": {
+                      "providerKey": "siliconflow",
+                      "model": "deepseek-ai/DeepSeek-V3.2"
+                    }
+                  }
+                }
+                """);
+
+        AgentCatalogProperties properties = new AgentCatalogProperties();
+        properties.setExternalDir(tempDir.toString());
+        AgentDefinitionLoader loader = new AgentDefinitionLoader(new ObjectMapper(), properties, null);
+
+        AgentDefinition definition = loader.loadAll().stream()
+                .filter(item -> "inner_model_only".equals(item.id()))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(definition.providerKey()).isEqualTo("bailian");
+        assertThat(definition.model()).isEqualTo("qwen3-max");
+        assertThat(definition.mode()).isEqualTo(AgentRuntimeMode.ONESHOT);
+
+        OneshotMode mode = (OneshotMode) definition.agentMode();
+        assertThat(mode.stage().providerKey()).isEqualTo("siliconflow");
+        assertThat(mode.stage().model()).isEqualTo("deepseek-ai/DeepSeek-V3.2");
+    }
+
+    @Test
+    void shouldRejectAgentWithoutAnyModelConfig() throws IOException {
+        Files.writeString(tempDir.resolve("missing_model_config.json"), """
+                {
+                  "key": "missing_model_config",
+                  "description": "missing model config",
+                  "toolConfig": null,
+                  "mode": "ONESHOT",
+                  "plain": { "systemPrompt": "plain prompt" }
+                }
+                """);
+
+        AgentCatalogProperties properties = new AgentCatalogProperties();
+        properties.setExternalDir(tempDir.toString());
+        AgentDefinitionLoader loader = new AgentDefinitionLoader(new ObjectMapper(), properties, null);
+        Map<String, AgentDefinition> byId = loader.loadAll().stream()
+                .collect(Collectors.toMap(AgentDefinition::id, definition -> definition));
+
+        assertThat(byId).doesNotContainKey("missing_model_config");
+    }
+
+    @Test
+    void shouldInheritStageModelAndForcePlanExecuteRequiredTools() throws IOException {
         Files.writeString(tempDir.resolve("inherit_plan.json"), """
                 {
                   "key": "inherit_plan",
@@ -216,14 +274,15 @@ class AgentDefinitionLoaderTest {
 
         assertThat(mode.planStage().providerKey()).isEqualTo("bailian");
         assertThat(mode.planStage().model()).isEqualTo("qwen3-max");
-        assertThat(mode.planStage().tools()).containsExactlyInAnyOrder("_bash_", "city_datetime");
+        assertThat(mode.planStage().tools()).containsExactlyInAnyOrder("_bash_", "city_datetime", "_plan_add_tasks_");
 
         assertThat(mode.executeStage().providerKey()).isEqualTo("bailian");
         assertThat(mode.executeStage().model()).isEqualTo("qwen3-max");
-        assertThat(mode.executeStage().tools()).isEmpty();
+        assertThat(mode.executeStage().tools()).containsExactly("_plan_update_task_");
 
         assertThat(mode.summaryStage().providerKey()).isEqualTo("bailian");
         assertThat(mode.summaryStage().model()).isEqualTo("qwen3-max");
         assertThat(mode.summaryStage().tools()).containsExactlyInAnyOrder("_bash_", "city_datetime");
+        assertThat(definition.tools()).contains("_plan_add_tasks_", "_plan_update_task_");
     }
 }

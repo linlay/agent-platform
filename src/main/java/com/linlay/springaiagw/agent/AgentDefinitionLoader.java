@@ -29,6 +29,8 @@ import java.util.stream.Stream;
 public class AgentDefinitionLoader {
 
     private static final Logger log = LoggerFactory.getLogger(AgentDefinitionLoader.class);
+    private static final String PLAN_ADD_TASK_TOOL = "_plan_add_tasks_";
+    private static final String PLAN_UPDATE_TASK_TOOL = "_plan_update_task_";
     private static final Pattern MULTILINE_PROMPT_PATTERN =
             Pattern.compile("(\"[a-zA-Z0-9_]*systemPrompt\"\\s*:\\s*)\"\"\"([\\s\\S]*?)\"\"\"", Pattern.CASE_INSENSITIVE);
 
@@ -102,6 +104,10 @@ public class AgentDefinitionLoader {
                 log.warn("Skip agent without mode in {}", file);
                 return java.util.Optional.empty();
             }
+            if (!hasAnyModelConfig(config)) {
+                log.warn("Skip agent without modelConfig (top-level or stage-level) in {}", file);
+                return java.util.Optional.empty();
+            }
 
             String providerKey = resolveProviderKey(config);
             String model = resolveModel(config, providerKey);
@@ -143,9 +149,6 @@ public class AgentDefinitionLoader {
                 || root.has("model")
                 || root.has("reasoning")
                 || root.has("tools")) {
-            return true;
-        }
-        if (!root.has("modelConfig")) {
             return true;
         }
         return hasLegacyStageFields(root.path("plain"))
@@ -202,6 +205,31 @@ public class AgentDefinitionLoader {
 
     private String normalize(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private boolean hasAnyModelConfig(AgentConfigFile config) {
+        if (config == null) {
+            return false;
+        }
+        if (config.getModelConfig() != null) {
+            return true;
+        }
+        if (config.getPlain() != null && config.getPlain().getModelConfig() != null) {
+            return true;
+        }
+        if (config.getReact() != null && config.getReact().getModelConfig() != null) {
+            return true;
+        }
+        if (config.getPlanExecute() == null) {
+            return false;
+        }
+        return hasStageModelConfig(config.getPlanExecute().getPlan())
+                || hasStageModelConfig(config.getPlanExecute().getExecute())
+                || hasStageModelConfig(config.getPlanExecute().getSummary());
+    }
+
+    private boolean hasStageModelConfig(AgentConfigFile.StageConfig stageConfig) {
+        return stageConfig != null && stageConfig.getModelConfig() != null;
     }
 
     private String resolveProviderKey(AgentConfigFile config) {
@@ -270,6 +298,11 @@ public class AgentDefinitionLoader {
             if (config.getPlanExecute().getSummary() != null) {
                 merged.addAll(toolNames(config.getPlanExecute().getSummary().getToolConfig()));
             }
+        }
+        AgentRuntimeMode mode = config == null ? null : config.getMode();
+        if (mode == AgentRuntimeMode.PLAN_EXECUTE) {
+            merged.add(PLAN_ADD_TASK_TOOL);
+            merged.add(PLAN_UPDATE_TASK_TOOL);
         }
         return merged.stream().distinct().toList();
     }

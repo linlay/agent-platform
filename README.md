@@ -426,7 +426,7 @@ curl -N -X POST "http://localhost:8080/api/query" \
 ```bash
 curl -N -X POST "http://localhost:8080/api/query" \
   -H "Content-Type: application/json" \
-  -d '{"message":"帮我查上海明天天气并展示卡片","agentKey":"demoViewport"}'
+  -d '{"message":"查上海明天天气","agentKey":"demoViewport"}'
 ```
 
 ```bash

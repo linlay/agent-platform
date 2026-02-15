@@ -36,7 +36,7 @@ public class MockSensitiveDataDetectorTool extends AbstractDeterministicTool {
     public JsonNode invoke(Map<String, Object> args) {
         String text = readText(args);
         ObjectNode root = OBJECT_MAPPER.createObjectNode();
-        root.put("tool", name());
+        // root.put("tool", name()); // 不需要返回tool name
 
         if (text.isBlank()) {
             root.put("hasSensitiveData", false);

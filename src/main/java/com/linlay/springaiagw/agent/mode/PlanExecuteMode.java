@@ -17,11 +17,10 @@ import com.linlay.springaiagw.tool.BaseTool;
 import org.springframework.ai.chat.messages.UserMessage;
 import reactor.core.publisher.FluxSink;
 
-import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.UUID;
 
 public final class PlanExecuteMode extends AgentMode {
 
@@ -90,36 +89,22 @@ public final class PlanExecuteMode extends AgentMode {
             FluxSink<AgentDelta> sink
     ) {
         StageSettings summary = summaryStage == null ? executeStage : summaryStage;
-        Map<String, BaseTool> planTools = services.selectTools(enabledToolsByName, planStage.tools());
+        Map<String, BaseTool> planPromptTools = services.selectTools(enabledToolsByName, planStage.tools());
+        Map<String, BaseTool> planCallableTools = selectPlanCallableTools(planPromptTools);
+        if (!planCallableTools.containsKey(PLAN_ADD_TASK_TOOL)) {
+            throw new PlanExecutionStalledException("计划任务执行中断：缺少必需工具 _plan_add_tasks_，无法创建计划任务。");
+        }
         Map<String, BaseTool> executeTools = services.selectTools(enabledToolsByName, executeStage.tools());
         Map<String, BaseTool> summaryTools = services.selectTools(enabledToolsByName, summary.tools());
-
-        OrchestratorServices.ModelTurn planDraftTurn = services.callModelTurnStreaming(
-                context,
-                planStage,
-                context.planMessages(),
-                "请先进行深度思考并给出任务规划正文，不调用任何工具。",
-                planTools,
-                List.of(),
-                ToolChoice.NONE,
-                "agent-plan-draft",
-                false,
-                planStage.reasoningEnabled(),
-                true,
-                true,
-                sink
-        );
-        String planDraftText = services.normalize(planDraftTurn.finalText());
-        services.appendAssistantMessage(context.planMessages(), planDraftText);
 
         OrchestratorServices.ModelTurn planTurn = services.callModelTurnStreaming(
                 context,
                 planStage,
                 context.planMessages(),
-                "基于上一回合规划正文，必须调用 _plan_add_tasks_ 添加计划任务。输出前请先完成工具调用。",
-                planTools,
-                services.toolExecutionService().enabledFunctionTools(planTools),
-                planTools.isEmpty() ? ToolChoice.NONE : ToolChoice.REQUIRED,
+                "请先深度思考并给出任务规划正文，然后在本回合必须调用 _plan_add_tasks_ 创建计划任务。",
+                planPromptTools,
+                services.toolExecutionService().enabledFunctionTools(planCallableTools),
+                ToolChoice.REQUIRED,
                 "agent-plan-generate",
                 false,
                 planStage.reasoningEnabled(),
@@ -127,42 +112,17 @@ public final class PlanExecuteMode extends AgentMode {
                 true,
                 sink
         );
-        boolean hasAddTaskCall = containsPlanAddCall(planTurn.toolCalls());
-        if ((!hasAddTaskCall || planTurn.toolCalls().isEmpty()) && !planTools.isEmpty()) {
-            context.planMessages().add(new UserMessage("你必须调用 _plan_add_tasks_ 工具创建计划任务，请立即发起工具调用。"));
-            planTurn = services.callModelTurnStreaming(
-                    context,
-                    planStage,
-                    context.planMessages(),
-                    null,
-                    planTools,
-                    services.toolExecutionService().enabledFunctionTools(planTools),
-                    ToolChoice.REQUIRED,
-                    "agent-plan-generate-repair",
-                    false,
-                    planStage.reasoningEnabled(),
-                    true,
-                    true,
-                    sink
-            );
-            hasAddTaskCall = containsPlanAddCall(planTurn.toolCalls());
+        if (!containsPlanAddCall(planTurn.toolCalls())) {
+            throw new PlanExecutionStalledException("计划任务执行中断：规划阶段必须调用 _plan_add_tasks_ 创建计划任务。");
         }
 
         if (!planTurn.toolCalls().isEmpty()) {
-            services.executeToolsAndEmit(context, planTools, planTurn.toolCalls(), sink);
+            services.executeToolsAndEmit(context, planCallableTools, planTurn.toolCalls(), sink);
         }
         services.appendAssistantMessage(context.planMessages(), services.normalize(planTurn.finalText()));
 
         if (!context.hasPlan()) {
-            List<OrchestratorServices.PlanStep> fallbackSteps = services.parsePlanSteps(planDraftText);
-            if (fallbackSteps.isEmpty()) {
-                fallbackSteps = services.parsePlanSteps(planTurn.finalText());
-            }
-            if (fallbackSteps.isEmpty()) {
-                fallbackSteps = List.of(new OrchestratorServices.PlanStep(shortId(), "执行任务", context.request().message(), "输出可执行结果"));
-            }
-            context.initializePlan(context.planId(), toPlanTasks(fallbackSteps));
-            services.emit(sink, AgentDelta.planUpdate(context.planId(), context.request().chatId(), context.planTasks()));
+            throw new PlanExecutionStalledException("计划任务执行中断：_plan_add_tasks_ 未生成有效计划任务。");
         }
 
         int stepNo = 0;
@@ -352,6 +312,19 @@ public final class PlanExecuteMode extends AgentMode {
                 .anyMatch(name -> PLAN_ADD_TASK_TOOL.equals(name));
     }
 
+    private Map<String, BaseTool> selectPlanCallableTools(Map<String, BaseTool> planTools) {
+        if (planTools == null || planTools.isEmpty()) {
+            return Map.of();
+        }
+        BaseTool addTaskTool = planTools.get(PLAN_ADD_TASK_TOOL);
+        if (addTaskTool == null) {
+            return Map.of();
+        }
+        Map<String, BaseTool> selected = new LinkedHashMap<>();
+        selected.put(PLAN_ADD_TASK_TOOL, addTaskTool);
+        return Map.copyOf(selected);
+    }
+
     private void ensureTaskNotFailed(ExecutionContext context, AgentDelta.PlanTask step) {
         String status = statusOfTask(context.planTasks(), step.taskId());
         if ("failed".equals(status)) {
@@ -360,28 +333,6 @@ public final class PlanExecuteMode extends AgentMode {
                             + "] 已被标记为 failed，流程已中断。"
             );
         }
-    }
-
-    private List<AgentDelta.PlanTask> toPlanTasks(List<OrchestratorServices.PlanStep> steps) {
-        if (steps == null || steps.isEmpty()) {
-            return List.of();
-        }
-        List<AgentDelta.PlanTask> tasks = new ArrayList<>();
-        int index = 1;
-        for (OrchestratorServices.PlanStep step : steps) {
-            if (step == null || step.title() == null || step.title().isBlank()) {
-                continue;
-            }
-            String taskId = normalize(step.id(), shortId());
-            String description = normalize(step.title(), normalize(step.goal(), "执行任务"));
-            tasks.add(new AgentDelta.PlanTask(
-                    taskId,
-                    description,
-                    "init"
-            ));
-            index++;
-        }
-        return List.copyOf(tasks);
     }
 
     private AgentDelta.PlanTask firstUnfinishedTask(List<AgentDelta.PlanTask> tasks) {
@@ -456,9 +407,5 @@ public final class PlanExecuteMode extends AgentMode {
 
     private String normalize(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value.trim();
-    }
-
-    private String shortId() {
-        return UUID.randomUUID().toString().replace("-", "").substring(0, 8);
     }
 }
