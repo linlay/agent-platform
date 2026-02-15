@@ -33,10 +33,16 @@ class AgentRegistryTest {
                 {
                   "description": "demo one",
                   "key": "demo_one",
-                  "providerKey": "bailian",
-                  "model": "qwen3-max",
+                  "modelConfig": {
+                    "providerKey": "bailian",
+                    "model": "qwen3-max"
+                  },
+                  "toolConfig": {
+                    "backends": ["_bash_"],
+                    "frontends": [],
+                    "actions": []
+                  },
                   "mode": "ONESHOT",
-                  "tools": ["bash"],
                   "plain": { "systemPrompt": "你是 demo one" }
                 }
                 """);
@@ -74,10 +80,16 @@ class AgentRegistryTest {
                 {
                   "description": "demo two",
                   "key": "demo_two",
-                  "providerKey": "bailian",
-                  "model": "qwen3-max",
+                  "modelConfig": {
+                    "providerKey": "bailian",
+                    "model": "qwen3-max"
+                  },
+                  "toolConfig": {
+                    "backends": ["_bash_"],
+                    "frontends": [],
+                    "actions": []
+                  },
                   "mode": "REACT",
-                  "tools": ["bash"],
                   "react": { "systemPrompt": "你是 demo two" }
                 }
                 """);

@@ -57,41 +57,65 @@ public final class AgentModeFactory {
     }
 
     private static StageSettings stageSettings(AgentConfigFile config, AgentConfigFile.StageConfig stage) {
-        AgentConfigFile.ReasoningConfig topReasoning = config == null ? null : config.getReasoning();
-        AgentConfigFile.ReasoningConfig stageReasoning = stage == null ? null : stage.getReasoning();
-
-        Boolean stageEnabled = stageReasoning == null ? null : stageReasoning.getEnabled();
-        boolean reasoningEnabled = stageEnabled != null
-                ? stageEnabled
-                : (topReasoning != null && Boolean.TRUE.equals(topReasoning.getEnabled()));
-        ComputePolicy reasoningEffort = stageReasoning != null && stageReasoning.getEffort() != null
-                ? stageReasoning.getEffort()
-                : (topReasoning != null && topReasoning.getEffort() != null ? topReasoning.getEffort() : ComputePolicy.MEDIUM);
-
-        List<String> tools = normalizeTools(stage != null && stage.getTools() != null ? stage.getTools() : config == null ? null : config.getTools());
+        AgentConfigFile.ModelConfig resolvedModelConfig = resolveModelConfig(config, stage);
+        AgentConfigFile.ReasoningConfig resolvedReasoning = resolvedModelConfig == null ? null : resolvedModelConfig.getReasoning();
+        boolean reasoningEnabled = resolvedReasoning != null && Boolean.TRUE.equals(resolvedReasoning.getEnabled());
+        ComputePolicy reasoningEffort = resolvedReasoning != null && resolvedReasoning.getEffort() != null
+                ? resolvedReasoning.getEffort()
+                : ComputePolicy.MEDIUM;
+        List<String> tools = resolveTools(config, stage);
 
         return new StageSettings(
                 normalize(stage == null ? null : stage.getSystemPrompt()),
-                normalize(stage == null ? null : stage.getProviderKey()),
-                normalize(stage == null ? null : stage.getModel()),
+                normalize(resolvedModelConfig == null ? null : resolvedModelConfig.getProviderKey()),
+                normalize(resolvedModelConfig == null ? null : resolvedModelConfig.getModel()),
                 tools,
                 reasoningEnabled,
                 reasoningEffort
         );
     }
 
-    private static List<String> normalizeTools(List<String> rawTools) {
-        if (rawTools == null || rawTools.isEmpty()) {
+    private static AgentConfigFile.ModelConfig resolveModelConfig(AgentConfigFile config, AgentConfigFile.StageConfig stage) {
+        AgentConfigFile.ModelConfig top = config == null ? null : config.getModelConfig();
+        if (stage == null || !stage.isModelConfigProvided() || stage.getModelConfig() == null) {
+            return top;
+        }
+        return stage.getModelConfig();
+    }
+
+    private static List<String> resolveTools(AgentConfigFile config, AgentConfigFile.StageConfig stage) {
+        AgentConfigFile.ToolConfig top = config == null ? null : config.getToolConfig();
+        if (stage == null || !stage.isToolConfigProvided()) {
+            return normalizeTools(top);
+        }
+        if (stage.isToolConfigExplicitNull()) {
+            return List.of();
+        }
+        return normalizeTools(stage.getToolConfig());
+    }
+
+    private static List<String> normalizeTools(AgentConfigFile.ToolConfig toolConfig) {
+        if (toolConfig == null) {
             return List.of();
         }
         List<String> tools = new ArrayList<>();
+        addTools(tools, toolConfig.getBackends());
+        addTools(tools, toolConfig.getFrontends());
+        addTools(tools, toolConfig.getActions());
+        return tools.stream().distinct().toList();
+    }
+
+    private static void addTools(List<String> tools, List<String> rawTools) {
+        if (rawTools == null || rawTools.isEmpty()) {
+            return;
+        }
         for (String raw : rawTools) {
             String normalized = normalize(raw);
-            if (!isBlank(normalized)) {
-                tools.add(normalized.toLowerCase(Locale.ROOT));
+            if (isBlank(normalized)) {
+                continue;
             }
+            tools.add(normalized.toLowerCase(Locale.ROOT));
         }
-        return List.copyOf(tools);
     }
 
     private static boolean isBlank(String value) {

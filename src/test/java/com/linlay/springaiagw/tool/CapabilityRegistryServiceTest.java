@@ -111,6 +111,43 @@ class CapabilityRegistryServiceTest {
         assertThat(service.find("dup_name")).isEmpty();
     }
 
+    @Test
+    void shouldOnlyRecognizeFrontendSuffix() throws Exception {
+        Path toolsDir = tempDir.resolve("tools");
+        Files.createDirectories(toolsDir);
+
+        Files.writeString(toolsDir.resolve("show_form.frontend"), """
+                {
+                  "tools": [
+                    {"type":"function", "name":"show_form_frontend", "description":"frontend", "parameters":{"type":"object"}}
+                  ]
+                }
+                """);
+        Files.writeString(toolsDir.resolve("legacy_html.html"), """
+                {
+                  "tools": [
+                    {"type":"function", "name":"legacy_html_frontend", "description":"legacy html", "parameters":{"type":"object"}}
+                  ]
+                }
+                """);
+
+        CapabilityCatalogProperties properties = new CapabilityCatalogProperties();
+        properties.setToolsExternalDir(toolsDir.toString());
+
+        CapabilityRegistryService service = new CapabilityRegistryService(
+                new ObjectMapper(),
+                properties,
+                createRuntimeResourceSyncService(tempDir, toolsDir)
+        );
+
+        CapabilityDescriptor frontend = service.find("show_form_frontend").orElseThrow();
+        assertThat(frontend.kind()).isEqualTo(CapabilityKind.FRONTEND);
+        assertThat(frontend.toolType()).isEqualTo("frontend");
+        assertThat(frontend.viewportKey()).isEqualTo("show_form");
+
+        assertThat(service.find("legacy_html_frontend")).isEmpty();
+    }
+
     private RuntimeResourceSyncService createRuntimeResourceSyncService(Path root, Path toolsDir) {
         AgentCatalogProperties agentProperties = new AgentCatalogProperties();
         agentProperties.setExternalDir(root.resolve("agents").toString());

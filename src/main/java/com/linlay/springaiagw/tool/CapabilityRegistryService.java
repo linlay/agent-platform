@@ -32,7 +32,7 @@ public class CapabilityRegistryService {
     };
     private static final String BACKEND_SUFFIX = ".backend";
     private static final String ACTION_SUFFIX = ".action";
-    private static final Set<String> FRONTEND_SUFFIXES = Set.of(".html", ".qlc", ".dqlc");
+    private static final Set<String> FRONTEND_SUFFIXES = Set.of(".frontend");
 
     private final ObjectMapper objectMapper;
     private final CapabilityCatalogProperties properties;

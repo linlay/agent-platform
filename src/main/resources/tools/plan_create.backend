@@ -1,0 +1,59 @@
+{
+  "tools": [
+    {
+      "type": "function",
+      "name": "_plan_create_",
+      "description": "创建计划任务（追加模式），支持一次添加一个或多个任务。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "tasks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "taskId": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "init",
+                    "in_progress",
+                    "completed",
+                    "failed",
+                    "canceled"
+                  ]
+                }
+              },
+              "required": [
+                "description"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "taskId": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "init",
+              "in_progress",
+              "completed",
+              "failed",
+              "canceled"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  ]
+}

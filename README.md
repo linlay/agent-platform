@@ -181,10 +181,13 @@ curl -N -X POST "http://localhost:8080/api/query" \
   "name": "算命大师",
   "icon": "emoji:🔮",
   "description": "算命大师",
-  "providerKey": "bailian",
-  "model": "qwen3-max",
+  "modelConfig": {
+    "providerKey": "bailian",
+    "model": "qwen3-max",
+    "reasoning": { "enabled": false }
+  },
+  "toolConfig": null,
   "mode": "ONESHOT",
-  "reasoning": { "enabled": false },
   "plain": {
     "systemPrompt": "你是算命大师"
   }
@@ -196,10 +199,16 @@ curl -N -X POST "http://localhost:8080/api/query" \
 ```json
 {
   "description": "算命大师",
-  "providerKey": "bailian",
-  "model": "qwen3-max",
+  "modelConfig": {
+    "providerKey": "bailian",
+    "model": "qwen3-max"
+  },
+  "toolConfig": {
+    "backends": ["_bash_", "city_datetime"],
+    "frontends": [],
+    "actions": []
+  },
   "mode": "REACT",
-  "tools": ["bash", "city_datetime"],
   "react": {
     "systemPrompt": """
 你是算命大师
@@ -215,10 +224,19 @@ curl -N -X POST "http://localhost:8080/api/query" \
 - `REACT`：多轮工具循环推理
 - `PLAN_EXECUTE`：先规划再逐步执行（支持每步 0~N 工具）
 
-当 `tools` 非空时，服务会按 OpenAI 兼容的原生 Function Calling 协议请求模型：
+工具仅通过 `toolConfig` 配置：
+- 顶层：`toolConfig.backends/frontends/actions`
+- 阶段：`planExecute.plan|execute|summary.toolConfig`
+- 阶段继承规则：
+  - 阶段缺失 `toolConfig`：继承顶层
+  - 阶段显式 `toolConfig: null`：禁用该阶段全部工具
+
+当工具非空时，服务会按 OpenAI 兼容的原生 Function Calling 协议请求模型：
 - 请求体包含 `tools[]`
 - 流式消费 `delta.tool_calls`
 - 不再依赖正文中的 `toolCall/toolCalls` JSON 字段（仍保留向后兼容解析）
+
+Agent JSON 已仅支持新结构：`modelConfig/toolConfig`。旧字段 `providerKey/providerType/model/reasoning/tools` 不再兼容。
 
 ### 真流式约束（CRITICAL）
 
@@ -241,7 +259,7 @@ curl -N -X POST "http://localhost:8080/api/query" \
 - `viewports` 支持后缀：`.html`、`.qlc`、`.dqlc`、`.json_schema`、`.custom`，默认每 30 秒刷新内存快照。
 - `tools`:
   - 后端工具文件：`*.backend`
-  - 前端工具文件：`*.html` / `*.qlc` / `*.dqlc`
+  - 前端工具文件：`*.frontend`
   - 动作文件：`*.action`
   - 文件内容均为模型工具定义 JSON（`{"tools":[...]}`）
 - `show_weather_card` 当前仅作为 viewport（`viewports/show_weather_card.html`），不是可调用 tool。
@@ -273,7 +291,7 @@ type=html, key=show_weather_card
 
 ### 前端 tool 提交流程
 
-- 前端工具触发后会发送 `tool.start`（`toolType` 为 `html/qlc/dqlc`），并等待 `/api/submit`。
+- 前端工具触发后会发送 `tool.start`（`toolType` 为 `frontend`），并等待 `/api/submit`。
 - 默认等待超时 `5 分钟`（可配置）。
 - `POST /api/submit` 成功命中后会释放对应 `runId + toolId` 的等待。
 - 工具返回值提取规则：
@@ -299,7 +317,7 @@ type=html, key=show_weather_card
 - `demoViewport`（`PLAN_EXECUTE`）：调用 `city_datetime`、`mock_city_weather`，最终按 `viewport` 代码块协议输出天气卡片数据。
 - `demoAction`（`ONESHOT`）：根据用户意图调用 `switch_theme` / `launch_fireworks` / `show_modal`。
 - `demoAgentCreator`（`PLAN_EXECUTE`）：调用 `agent_file_create` 创建/更新 `agents/{agentId}.json`。
-- 使用 `demoAgentCreator` 时建议提供：`key`、`name`、`icon`、`description`、`model`、`mode`、`tools`、`reasoning` 与各 mode 的 prompt 字段。
+- 使用 `demoAgentCreator` 时建议提供：`key`、`name`、`icon`、`description`、`modelConfig`、`mode`、`toolConfig` 与各 mode 的 prompt 字段。
 - `agent_file_create` 会校验 `key/agentId`（仅允许 `A-Za-z0-9_-`，最长 64）。
 - `providerKey/providerType` 不做白名单校验；未提供时默认 `bailian`。
 - 生成格式：
@@ -310,10 +328,13 @@ type=html, key=show_weather_card
   "name": "算命大师",
   "icon": "emoji:🔮",
   "description": "算命大师",
-  "providerKey": "bailian",
-  "model": "qwen3-max",
+  "modelConfig": {
+    "providerKey": "bailian",
+    "model": "qwen3-max",
+    "reasoning": { "enabled": false }
+  },
+  "toolConfig": null,
   "mode": "ONESHOT",
-  "reasoning": { "enabled": false },
   "plain": {
     "systemPrompt": "你是算命大师"
   }
@@ -324,7 +345,7 @@ type=html, key=show_weather_card
 
 ## Bash 工具目录授权
 
-`bash` 工具默认仅允许访问工作目录（`user.dir`）。若需要让 Agent 在容器内读取 `/opt` 等目录，可配置：
+`_bash_` 工具默认仅允许访问工作目录（`user.dir`）。若需要让 Agent 在容器内读取 `/opt` 等目录，可配置：
 
 ```yaml
 agent:

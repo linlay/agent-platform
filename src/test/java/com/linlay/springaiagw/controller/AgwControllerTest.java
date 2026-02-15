@@ -1,5 +1,7 @@
 package com.linlay.springaiagw.controller;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.linlay.springaiagw.memory.ChatWindowMemoryProperties;
 import com.linlay.springaiagw.config.ViewportCatalogProperties;
 import com.linlay.springaiagw.model.ProviderType;
 import com.linlay.springaiagw.service.FrontendSubmitCoordinator;
@@ -22,7 +24,9 @@ import reactor.core.publisher.Mono;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.StandardOpenOption;
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -56,6 +60,10 @@ class AgwControllerTest {
     private ViewportCatalogProperties viewportCatalogProperties;
     @Autowired
     private ViewportRegistryService viewportRegistryService;
+    @Autowired
+    private ChatWindowMemoryProperties chatWindowMemoryProperties;
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @TestConfiguration
     static class TestLlmServiceConfig {
@@ -488,6 +496,159 @@ class AgwControllerTest {
         assertThat(json).doesNotContain("\"type\":\"chat.update\"");
     }
 
+    @Test
+    void chatApiShouldReturnStrictPlanUpdateFormat() throws Exception {
+        String chatId = "123e4567-e89b-12d3-a456-426614174088";
+        Path chatDir = Path.of(chatWindowMemoryProperties.getDir());
+        Files.createDirectories(chatDir);
+
+        writeJsonLine(chatDir.resolve("_chats.jsonl"), Map.of(
+                "chatId", chatId,
+                "chatName", "计划会话",
+                "firstAgentKey", "demoModePlanExecute",
+                "createdAt", 1707000600000L,
+                "updatedAt", 1707000600000L
+        ));
+
+        Map<String, Object> run = new LinkedHashMap<>();
+        run.put("chatId", chatId);
+        run.put("runId", "run_plan_001");
+        run.put("transactionId", "run_plan_001");
+        run.put("updatedAt", 1707000600000L);
+        run.put("query", Map.of(
+                "requestId", "req_plan_001",
+                "chatId", chatId,
+                "role", "user",
+                "message", "测试计划",
+                "stream", true
+        ));
+        run.put("messages", List.of(
+                Map.of(
+                        "role", "user",
+                        "content", List.of(Map.of("type", "text", "text", "测试计划")),
+                        "ts", 1707000600000L
+                ),
+                Map.of(
+                        "role", "assistant",
+                        "content", List.of(Map.of("type", "text", "text", "已创建计划")),
+                        "ts", 1707000600001L
+                )
+        ));
+        run.put("planSnapshot", Map.of(
+                "planId", "plan_chat_001",
+                "plan", List.of(
+                        Map.of("taskId", "task0", "description", "收集信息", "status", "init"),
+                        Map.of("taskId", "task1", "description", "执行任务", "status", "in_progress")
+                )
+        ));
+        writeJsonLine(chatDir.resolve(chatId + ".json"), run);
+
+        byte[] responseBody = webTestClient.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/api/chat")
+                        .queryParam("chatId", chatId)
+                        .build())
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .returnResult()
+                .getResponseBody();
+
+        assertThat(responseBody).isNotNull();
+        Map<String, Object> root = objectMapper.readValue(responseBody, Map.class);
+        Map<String, Object> data = (Map<String, Object>) root.get("data");
+        List<Map<String, Object>> events = (List<Map<String, Object>>) data.get("events");
+
+        Map<String, Object> planUpdate = events.stream()
+                .filter(event -> "plan.update".equals(event.get("type")))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(planUpdate).containsEntry("type", "plan.update");
+        assertThat(planUpdate).containsEntry("planId", "plan_chat_001");
+        assertThat(planUpdate).containsEntry("chatId", chatId);
+        assertThat(planUpdate).containsKey("plan");
+        assertThat(planUpdate).containsKey("timestamp");
+        assertThat(planUpdate).containsEntry("rawEvent", null);
+        assertThat(planUpdate).doesNotContainKey("seq");
+    }
+
+    @Test
+    void queryShouldEmitStrictPlanUpdateSseFormat() throws Exception {
+        String chatId = "123e4567-e89b-12d3-a456-426614174089";
+        Path chatDir = Path.of(chatWindowMemoryProperties.getDir());
+        Files.createDirectories(chatDir);
+
+        writeJsonLine(chatDir.resolve("_chats.jsonl"), Map.of(
+                "chatId", chatId,
+                "chatName", "计划会话",
+                "firstAgentKey", "demoModePlanExecute",
+                "createdAt", 1707000700000L,
+                "updatedAt", 1707000700000L
+        ));
+
+        Map<String, Object> run = new LinkedHashMap<>();
+        run.put("chatId", chatId);
+        run.put("runId", "run_plan_seed_001");
+        run.put("transactionId", "run_plan_seed_001");
+        run.put("updatedAt", 1707000700000L);
+        run.put("query", Map.of(
+                "requestId", "req_plan_seed_001",
+                "chatId", chatId,
+                "role", "user",
+                "message", "初始化计划",
+                "stream", true
+        ));
+        run.put("messages", List.of(
+                Map.of(
+                        "role", "user",
+                        "content", List.of(Map.of("type", "text", "text", "初始化计划")),
+                        "ts", 1707000700000L
+                ),
+                Map.of(
+                        "role", "assistant",
+                        "content", List.of(Map.of("type", "text", "text", "种子计划")),
+                        "ts", 1707000700001L
+                )
+        ));
+        run.put("planSnapshot", Map.of(
+                "planId", "plan_chat_seed_001",
+                "plan", List.of(
+                        Map.of("taskId", "task0", "description", "收集信息", "status", "init"),
+                        Map.of("taskId", "task1", "description", "执行任务", "status", "in_progress")
+                )
+        ));
+        writeJsonLine(chatDir.resolve(chatId + ".json"), run);
+
+        FluxExchangeResult<String> result = webTestClient.post()
+                .uri("/api/query")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(Map.of(
+                        "chatId", chatId,
+                        "agentKey", "demoModePlanExecute",
+                        "message", "第二轮"
+                ))
+                .exchange()
+                .expectStatus().isOk()
+                .expectHeader().contentTypeCompatibleWith(MediaType.TEXT_EVENT_STREAM)
+                .returnResult(String.class);
+
+        List<String> chunks = result.getResponseBody()
+                .take(1600)
+                .collectList()
+                .block(Duration.ofSeconds(8));
+
+        assertThat(chunks).isNotNull();
+        String joined = String.join("", chunks);
+        assertThat(joined).contains("\"type\":\"plan.update\"");
+        assertThat(joined).contains("\"rawEvent\":null");
+
+        String planPayload = extractTypedJsonObject(joined, "plan.update");
+        assertThat(planPayload).isNotBlank();
+        assertThat(planPayload).contains("\"type\":\"plan.update\"");
+        assertThat(planPayload).doesNotContain("\"seq\":");
+    }
+
     private String extractFirstValue(String text, String key) {
         Pattern pattern = Pattern.compile("\"" + key + "\":\"([^\"]+)\"");
         Matcher matcher = pattern.matcher(text);
@@ -508,5 +669,34 @@ class AgwControllerTest {
             count++;
             start = index + token.length();
         }
+    }
+
+    private String extractTypedJsonObject(String text, String type) {
+        String marker = "{\"type\":\"" + type + "\"";
+        int start = text.indexOf(marker);
+        if (start < 0) {
+            return "";
+        }
+        int depth = 0;
+        for (int i = start; i < text.length(); i++) {
+            char ch = text.charAt(i);
+            if (ch == '{') {
+                depth++;
+                continue;
+            }
+            if (ch == '}') {
+                depth--;
+                if (depth == 0) {
+                    return text.substring(start, i + 1);
+                }
+            }
+        }
+        return "";
+    }
+
+    private void writeJsonLine(Path path, Object value) throws Exception {
+        Files.createDirectories(path.getParent());
+        String line = objectMapper.writeValueAsString(value) + System.lineSeparator();
+        Files.writeString(path, line, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
     }
 }

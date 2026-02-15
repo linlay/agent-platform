@@ -129,8 +129,12 @@ public class DefinitionDrivenAgent implements Agent {
 
         return Flux.defer(() -> {
                     List<Message> historyMessages = loadHistoryMessages(request.chatId());
+                    ChatWindowMemoryStore.PlanSnapshot latestPlanSnapshot = loadLatestPlanSnapshot(request.chatId());
                     TurnTrace trace = new TurnTrace();
                     ExecutionContext context = new ExecutionContext(definition, request, historyMessages);
+                    if (latestPlanSnapshot != null) {
+                        context.initializePlan(latestPlanSnapshot.planId, toPlanTasks(latestPlanSnapshot.plan));
+                    }
                     return Flux.<AgentDelta>create(sink -> runWithMode(context, sink), FluxSink.OverflowStrategy.BUFFER)
                             .doOnNext(trace::capture)
                             .doOnComplete(() -> persistTurn(request, trace));
@@ -140,6 +144,9 @@ public class DefinitionDrivenAgent implements Agent {
 
     private void runWithMode(ExecutionContext context, FluxSink<AgentDelta> sink) {
         try {
+            if (context.hasPlan()) {
+                services.emit(sink, AgentDelta.planUpdate(context.planId(), context.request().chatId(), context.planTasks()));
+            }
             definition.agentMode().run(context, enabledToolsByName, services, sink);
             services.emit(sink, AgentDelta.finish("stop"));
             if (!sink.isCancelled()) {
@@ -198,6 +205,32 @@ public class DefinitionDrivenAgent implements Agent {
         }
     }
 
+    private ChatWindowMemoryStore.PlanSnapshot loadLatestPlanSnapshot(String chatId) {
+        if (chatWindowMemoryStore == null || !StringUtils.hasText(chatId)) {
+            return null;
+        }
+        try {
+            return chatWindowMemoryStore.loadLatestPlanSnapshot(chatId);
+        } catch (Exception ex) {
+            log.warn("[agent:{}] failed to load latest plan snapshot chatId={}", id(), chatId, ex);
+            return null;
+        }
+    }
+
+    private List<AgentDelta.PlanTask> toPlanTasks(List<ChatWindowMemoryStore.PlanTaskSnapshot> snapshotTasks) {
+        if (snapshotTasks == null || snapshotTasks.isEmpty()) {
+            return List.of();
+        }
+        List<AgentDelta.PlanTask> tasks = new ArrayList<>();
+        for (ChatWindowMemoryStore.PlanTaskSnapshot task : snapshotTasks) {
+            if (task == null || !StringUtils.hasText(task.taskId) || !StringUtils.hasText(task.description)) {
+                continue;
+            }
+            tasks.add(new AgentDelta.PlanTask(task.taskId.trim(), task.description.trim(), normalizeStatus(task.status)));
+        }
+        return List.copyOf(tasks);
+    }
+
     private void persistTurn(AgentRequest request, TurnTrace trace) {
         if (chatWindowMemoryStore == null || !StringUtils.hasText(request.chatId())) {
             return;
@@ -217,6 +250,7 @@ public class DefinitionDrivenAgent implements Agent {
                     runId,
                     request.query(),
                     buildSystemSnapshot(request),
+                    trace.planSnapshot(),
                     runMessages
             );
         } catch (Exception ex) {
@@ -303,6 +337,17 @@ public class DefinitionDrivenAgent implements Agent {
         return value == null || value.isBlank() ? fallback : value;
     }
 
+    private String normalizeStatus(String raw) {
+        if (!StringUtils.hasText(raw)) {
+            return "init";
+        }
+        String normalized = raw.trim().toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "init", "in_progress", "completed", "failed", "canceled" -> normalized;
+            default -> "init";
+        };
+    }
+
     private final class TurnTrace {
         private final StringBuilder pendingReasoning = new StringBuilder();
         private long pendingReasoningStartedAt;
@@ -310,6 +355,7 @@ public class DefinitionDrivenAgent implements Agent {
         private long pendingAssistantStartedAt;
         private final List<ChatWindowMemoryStore.RunMessage> orderedMessages = new ArrayList<>();
         private final Map<String, ToolTrace> toolByCallId = new LinkedHashMap<>();
+        private ChatWindowMemoryStore.PlanSnapshot latestPlanSnapshot;
 
         private void capture(AgentDelta delta) {
             if (delta == null) {
@@ -378,6 +424,10 @@ public class DefinitionDrivenAgent implements Agent {
                     ));
                 }
             }
+
+            if (delta.planUpdate() != null) {
+                latestPlanSnapshot = toPlanSnapshot(delta.planUpdate());
+            }
         }
 
         private List<ChatWindowMemoryStore.RunMessage> runMessages() {
@@ -389,6 +439,10 @@ public class DefinitionDrivenAgent implements Agent {
                     toolTrace.resultAt > 0 ? toolTrace.resultAt : now
             ));
             return List.copyOf(orderedMessages);
+        }
+
+        private ChatWindowMemoryStore.PlanSnapshot planSnapshot() {
+            return latestPlanSnapshot;
         }
 
         private void appendAssistantToolCallIfNeeded(ToolTrace trace, long ts) {
@@ -439,6 +493,30 @@ public class DefinitionDrivenAgent implements Agent {
             ));
             pendingAssistant.setLength(0);
             pendingAssistantStartedAt = 0L;
+        }
+
+        private ChatWindowMemoryStore.PlanSnapshot toPlanSnapshot(AgentDelta.PlanUpdate planUpdate) {
+            if (planUpdate == null || !StringUtils.hasText(planUpdate.planId()) || planUpdate.plan() == null || planUpdate.plan().isEmpty()) {
+                return null;
+            }
+            List<ChatWindowMemoryStore.PlanTaskSnapshot> tasks = new ArrayList<>();
+            for (AgentDelta.PlanTask task : planUpdate.plan()) {
+                if (task == null || !StringUtils.hasText(task.taskId()) || !StringUtils.hasText(task.description())) {
+                    continue;
+                }
+                ChatWindowMemoryStore.PlanTaskSnapshot item = new ChatWindowMemoryStore.PlanTaskSnapshot();
+                item.taskId = task.taskId().trim();
+                item.description = task.description().trim();
+                item.status = normalizeStatus(task.status());
+                tasks.add(item);
+            }
+            if (tasks.isEmpty()) {
+                return null;
+            }
+            ChatWindowMemoryStore.PlanSnapshot snapshot = new ChatWindowMemoryStore.PlanSnapshot();
+            snapshot.planId = planUpdate.planId().trim();
+            snapshot.plan = List.copyOf(tasks);
+            return snapshot;
         }
     }
 

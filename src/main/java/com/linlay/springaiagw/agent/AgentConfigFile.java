@@ -1,6 +1,9 @@
 package com.linlay.springaiagw.agent;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonSetter;
 import com.linlay.springaiagw.agent.runtime.AgentRuntimeMode;
 import com.linlay.springaiagw.agent.runtime.policy.Budget;
 import com.linlay.springaiagw.agent.runtime.policy.ComputePolicy;
@@ -17,13 +20,10 @@ public class AgentConfigFile {
     private String name;
     private String icon;
     private String description;
-    private String providerKey;
-    private String providerType;
-    private String model;
+    private ModelConfig modelConfig;
+    private ToolConfig toolConfig;
     private AgentRuntimeMode mode;
-    private List<String> tools;
 
-    private ReasoningConfig reasoning;
     private OutputPolicy output;
     private ToolPolicy toolPolicy;
     private VerifyPolicy verify;
@@ -65,28 +65,20 @@ public class AgentConfigFile {
         this.description = description;
     }
 
-    public String getProviderKey() {
-        return providerKey;
+    public ModelConfig getModelConfig() {
+        return modelConfig;
     }
 
-    public void setProviderKey(String providerKey) {
-        this.providerKey = providerKey;
+    public void setModelConfig(ModelConfig modelConfig) {
+        this.modelConfig = modelConfig;
     }
 
-    public String getProviderType() {
-        return providerType;
+    public ToolConfig getToolConfig() {
+        return toolConfig;
     }
 
-    public void setProviderType(String providerType) {
-        this.providerType = providerType;
-    }
-
-    public String getModel() {
-        return model;
-    }
-
-    public void setModel(String model) {
-        this.model = model;
+    public void setToolConfig(ToolConfig toolConfig) {
+        this.toolConfig = toolConfig;
     }
 
     public AgentRuntimeMode getMode() {
@@ -95,22 +87,6 @@ public class AgentConfigFile {
 
     public void setMode(AgentRuntimeMode mode) {
         this.mode = mode;
-    }
-
-    public List<String> getTools() {
-        return tools;
-    }
-
-    public void setTools(List<String> tools) {
-        this.tools = tools;
-    }
-
-    public ReasoningConfig getReasoning() {
-        return reasoning;
-    }
-
-    public void setReasoning(ReasoningConfig reasoning) {
-        this.reasoning = reasoning;
     }
 
     public OutputPolicy getOutput() {
@@ -241,20 +217,15 @@ public class AgentConfigFile {
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public static class StageConfig {
-        private String systemPrompt;
+    public static class ModelConfig {
         private String providerKey;
         private String model;
-        private List<String> tools;
         private ReasoningConfig reasoning;
-
-        public String getSystemPrompt() {
-            return systemPrompt;
-        }
-
-        public void setSystemPrompt(String systemPrompt) {
-            this.systemPrompt = systemPrompt;
-        }
+        private Double temperature;
+        @JsonProperty("top_p")
+        private Double topP;
+        @JsonProperty("max_tokens")
+        private Integer maxTokens;
 
         public String getProviderKey() {
             return providerKey;
@@ -272,20 +243,121 @@ public class AgentConfigFile {
             this.model = model;
         }
 
-        public List<String> getTools() {
-            return tools;
-        }
-
-        public void setTools(List<String> tools) {
-            this.tools = tools;
-        }
-
         public ReasoningConfig getReasoning() {
             return reasoning;
         }
 
         public void setReasoning(ReasoningConfig reasoning) {
             this.reasoning = reasoning;
+        }
+
+        public Double getTemperature() {
+            return temperature;
+        }
+
+        public void setTemperature(Double temperature) {
+            this.temperature = temperature;
+        }
+
+        public Double getTopP() {
+            return topP;
+        }
+
+        public void setTopP(Double topP) {
+            this.topP = topP;
+        }
+
+        public Integer getMaxTokens() {
+            return maxTokens;
+        }
+
+        public void setMaxTokens(Integer maxTokens) {
+            this.maxTokens = maxTokens;
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class ToolConfig {
+        private List<String> backends;
+        private List<String> frontends;
+        private List<String> actions;
+
+        public List<String> getBackends() {
+            return backends;
+        }
+
+        public void setBackends(List<String> backends) {
+            this.backends = backends;
+        }
+
+        public List<String> getFrontends() {
+            return frontends;
+        }
+
+        public void setFrontends(List<String> frontends) {
+            this.frontends = frontends;
+        }
+
+        public List<String> getActions() {
+            return actions;
+        }
+
+        public void setActions(List<String> actions) {
+            this.actions = actions;
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class StageConfig {
+        private String systemPrompt;
+        private ModelConfig modelConfig;
+        private ToolConfig toolConfig;
+        @JsonIgnore
+        private boolean modelConfigProvided;
+        @JsonIgnore
+        private boolean toolConfigProvided;
+        @JsonIgnore
+        private boolean toolConfigExplicitNull;
+
+        public String getSystemPrompt() {
+            return systemPrompt;
+        }
+
+        public void setSystemPrompt(String systemPrompt) {
+            this.systemPrompt = systemPrompt;
+        }
+
+        public ModelConfig getModelConfig() {
+            return modelConfig;
+        }
+
+        @JsonSetter("modelConfig")
+        public void setModelConfig(ModelConfig modelConfig) {
+            this.modelConfig = modelConfig;
+            this.modelConfigProvided = true;
+        }
+
+        public ToolConfig getToolConfig() {
+            return toolConfig;
+        }
+
+        @JsonSetter("toolConfig")
+        public void setToolConfig(ToolConfig toolConfig) {
+            this.toolConfig = toolConfig;
+            this.toolConfigProvided = true;
+            this.toolConfigExplicitNull = toolConfig == null;
+        }
+
+        public boolean isModelConfigProvided() {
+            return modelConfigProvided;
+        }
+
+        public boolean isToolConfigProvided() {
+            return toolConfigProvided;
+        }
+
+        public boolean isToolConfigExplicitNull() {
+            return toolConfigExplicitNull;
         }
     }
 

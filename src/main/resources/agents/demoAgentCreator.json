@@ -3,25 +3,49 @@
   "name": "示例-Agent创建",
   "icon": "emoji:🛠️",
   "description": "内置智能体：根据需求创建 agents 目录下的智能体配置",
-  "providerKey": "bailian",
-  "model": "qwen3-max",
-  "mode": "PLAN_EXECUTE",
-  "tools": [
-    "agent_file_create"
-  ],
-  "reasoning": {
-    "enabled": true,
-    "effort": "MEDIUM"
+  "modelConfig": {
+    "providerKey": "bailian",
+    "model": "qwen3-max",
+    "reasoning": {
+      "enabled": true,
+      "effort": "MEDIUM"
+    }
   },
+  "toolConfig": {
+    "backends": [
+      "_plan_create_",
+      "_plan_task_update_",
+      "agent_file_create"
+    ],
+    "frontends": [],
+    "actions": []
+  },
+  "mode": "PLAN_EXECUTE",
   "planExecute": {
     "plan": {
-      "systemPrompt": "你是 Agent 创建规划助手。先规划需要填充的配置项。"
+      "systemPrompt": "你是 Agent 创建规划助手。先规划需要填充的配置项。",
+      "toolConfig": {
+        "backends": [
+          "_plan_create_"
+        ],
+        "frontends": [],
+        "actions": []
+      }
     },
     "execute": {
-      "systemPrompt": "你是 Agent 创建执行助手。调用 agent_file_create 写入 agent JSON v2 配置。"
+      "systemPrompt": "你是 Agent 创建执行助手。调用 agent_file_create 写入 agent JSON v2 配置。",
+      "toolConfig": {
+        "backends": [
+          "agent_file_create",
+          "_plan_task_update_"
+        ],
+        "frontends": [],
+        "actions": []
+      }
     },
     "summary": {
-      "systemPrompt": "你是 Agent 创建总结助手。给出创建结果和关键配置说明。"
+      "systemPrompt": "你是 Agent 创建总结助手。给出创建结果和关键配置说明。",
+      "toolConfig": null
     }
   }
 }

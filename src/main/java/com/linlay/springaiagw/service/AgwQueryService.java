@@ -4,6 +4,8 @@ import com.aiagent.agw.sdk.model.AgwInput;
 import com.aiagent.agw.sdk.model.AgwRequest;
 import com.aiagent.agw.sdk.service.AgwEventAssembler;
 import com.aiagent.agw.sdk.service.AgwSseStreamer;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linlay.springaiagw.agent.Agent;
@@ -103,6 +105,7 @@ public class AgwQueryService {
         Flux<AgentDelta> deltas = session.agent().stream(session.agentRequest());
         Flux<AgwInput> inputs = new AgentDeltaToAgwInputMapper(session.request().runId(), toolRegistry).map(deltas);
         return agwSseStreamer.stream(session.request(), inputs)
+                .map(this::normalizePlanUpdateEvent)
                 .doOnNext(event -> {
                     String eventType = extractEventType(event.data());
                     if (!isToolEvent(eventType)) {
@@ -116,6 +119,57 @@ public class AgwQueryService {
                     );
                 })
                 .doOnNext(event -> chatRecordStore.appendEvent(session.request().chatId(), event.data()));
+    }
+
+    private ServerSentEvent<String> normalizePlanUpdateEvent(ServerSentEvent<String> event) {
+        if (event == null || !StringUtils.hasText(event.data())) {
+            return event;
+        }
+        JsonNode root;
+        try {
+            root = objectMapper.readTree(event.data());
+        } catch (Exception ignored) {
+            return event;
+        }
+        if (!"plan.update".equals(root.path("type").asText())) {
+            return event;
+        }
+        ObjectNode normalized = objectMapper.createObjectNode();
+        normalized.put("type", "plan.update");
+        putIfPresent(normalized, "planId", root.get("planId"));
+        putIfPresent(normalized, "chatId", root.get("chatId"));
+        putIfPresent(normalized, "plan", root.get("plan"));
+        putIfPresent(normalized, "timestamp", root.get("timestamp"));
+        normalized.putNull("rawEvent");
+        ServerSentEvent.Builder<String> builder = ServerSentEvent.builder(toJson(normalized));
+        if (StringUtils.hasText(event.event())) {
+            builder.event(event.event());
+        }
+        if (StringUtils.hasText(event.id())) {
+            builder.id(event.id());
+        }
+        if (StringUtils.hasText(event.comment())) {
+            builder.comment(event.comment());
+        }
+        if (event.retry() != null) {
+            builder.retry(event.retry());
+        }
+        return builder.build();
+    }
+
+    private void putIfPresent(ObjectNode target, String key, JsonNode value) {
+        if (target == null || key == null || value == null || value.isMissingNode()) {
+            return;
+        }
+        target.set(key, value);
+    }
+
+    private String toJson(ObjectNode node) {
+        try {
+            return objectMapper.writeValueAsString(node);
+        } catch (JsonProcessingException ex) {
+            return "{\"type\":\"plan.update\"}";
+        }
     }
 
     private Map<String, Object> mergeQueryParams(Map<String, Object> requestParams, boolean created) {

@@ -3,29 +3,57 @@
   "name": "示例-先规划后执行",
   "icon": "emoji:📅",
   "description": "内置示例：PLAN_EXECUTE 模式先规划后执行",
-  "providerKey": "bailian",
-  "model": "qwen3-max",
-  "mode": "PLAN_EXECUTE",
-  "tools": [
-    "mock_ops_runbook",
-    "city_datetime",
-    "mock_city_weather",
-    "mock_sensitive_data_detector",
-    "bash"
-  ],
-  "reasoning": {
-    "enabled": true,
-    "effort": "HIGH"
+  "modelConfig": {
+    "providerKey": "bailian",
+    "model": "qwen3-max",
+    "reasoning": {
+      "enabled": true,
+      "effort": "HIGH"
+    }
   },
+  "toolConfig": {
+    "backends": [
+      "_plan_create_",
+      "_plan_task_update_",
+      "mock_ops_runbook",
+      "city_datetime",
+      "mock_city_weather",
+      "mock_sensitive_data_detector",
+      "_bash_"
+    ],
+    "frontends": [],
+    "actions": []
+  },
+  "mode": "PLAN_EXECUTE",
   "planExecute": {
     "plan": {
-      "systemPrompt": "你是高级规划助手。先输出结构化计划 JSON。"
+      "systemPrompt": "你是高级规划助手。先输出结构化计划 JSON。",
+      "toolConfig": {
+        "backends": [
+          "_plan_create_"
+        ],
+        "frontends": [],
+        "actions": []
+      }
     },
     "execute": {
-      "systemPrompt": "你是高级执行助手。基于步骤上下文执行工具并产出步骤结果。"
+      "systemPrompt": "你是高级执行助手。基于步骤上下文执行工具并产出步骤结果。",
+      "toolConfig": {
+        "backends": [
+          "_plan_task_update_",
+          "mock_ops_runbook",
+          "city_datetime",
+          "mock_city_weather",
+          "mock_sensitive_data_detector",
+          "_bash_"
+        ],
+        "frontends": [],
+        "actions": []
+      }
     },
     "summary": {
-      "systemPrompt": "你是总结助手。综合所有步骤信息，输出最终结论。"
+      "systemPrompt": "你是总结助手。综合所有步骤信息，输出最终结论。",
+      "toolConfig": null
     }
   }
 }

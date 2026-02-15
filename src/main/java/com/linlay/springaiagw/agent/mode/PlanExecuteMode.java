@@ -81,6 +81,7 @@ public final class PlanExecuteMode extends AgentMode {
             FluxSink<AgentDelta> sink
     ) {
         StageSettings summary = summaryStage == null ? executeStage : summaryStage;
+        Map<String, BaseTool> planTools = services.selectTools(enabledToolsByName, planStage.tools());
         Map<String, BaseTool> executeTools = services.selectTools(enabledToolsByName, executeStage.tools());
 
         OrchestratorServices.ModelTurn planTurn = services.callModelTurnStreaming(
@@ -88,8 +89,8 @@ public final class PlanExecuteMode extends AgentMode {
                 planStage,
                 context.planMessages(),
                 "请输出结构化计划（JSON），包含 steps 字段，每个 step 含 title、goal、successCriteria。",
-                List.of(),
-                ToolChoice.NONE,
+                services.toolExecutionService().enabledFunctionTools(planTools),
+                planTools.isEmpty() ? ToolChoice.NONE : ToolChoice.AUTO,
                 "agent-plan-generate",
                 false,
                 planStage.reasoningEnabled(),
@@ -97,7 +98,13 @@ public final class PlanExecuteMode extends AgentMode {
                 true,
                 sink
         );
-        List<OrchestratorServices.PlanStep> steps = services.parsePlanSteps(planTurn.finalText());
+        if (!planTurn.toolCalls().isEmpty()) {
+            services.executeToolsAndEmit(context, planTools, planTurn.toolCalls(), sink);
+        }
+
+        List<OrchestratorServices.PlanStep> steps = context.hasPlan()
+                ? toStepsFromPlanTasks(context.planTasks())
+                : services.parsePlanSteps(planTurn.finalText());
         if (steps.isEmpty()) {
             steps = List.of(new OrchestratorServices.PlanStep("step-1", "执行任务", context.request().message(), "输出可执行结果"));
         }
@@ -192,5 +199,25 @@ public final class PlanExecuteMode extends AgentMode {
                 !secondPass, sink);
         services.appendAssistantMessage(context.executeMessages(), finalText);
         services.emitFinalAnswer(context, context.executeMessages(), finalText, !secondPass, sink);
+    }
+
+    private List<OrchestratorServices.PlanStep> toStepsFromPlanTasks(List<com.linlay.springaiagw.model.stream.AgentDelta.PlanTask> tasks) {
+        if (tasks == null || tasks.isEmpty()) {
+            return List.of();
+        }
+        List<OrchestratorServices.PlanStep> steps = new java.util.ArrayList<>();
+        for (com.linlay.springaiagw.model.stream.AgentDelta.PlanTask task : tasks) {
+            if (task == null || task.taskId() == null || task.taskId().isBlank() || task.description() == null || task.description().isBlank()) {
+                continue;
+            }
+            String title = task.description().trim();
+            steps.add(new OrchestratorServices.PlanStep(
+                    task.taskId().trim(),
+                    title,
+                    title,
+                    "完成任务: " + title
+            ));
+        }
+        return List.copyOf(steps);
     }
 }

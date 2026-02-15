@@ -60,7 +60,7 @@ public class BashTool extends AbstractDeterministicTool {
 
     @Override
     public String name() {
-        return "bash";
+        return "_bash_";
     }
 
     @Override

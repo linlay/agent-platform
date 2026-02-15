@@ -96,6 +96,31 @@ class AgentDeltaToAgwInputMapperTest {
         assertThat(Integer.parseInt(String.valueOf(toolArgsEvents.get(1).payload().get("chunkIndex")))).isEqualTo(1);
     }
 
+    @Test
+    void shouldMapPlanUpdateWithSinglePlanEventType() {
+        AgentDeltaToAgwInputMapper mapper = new AgentDeltaToAgwInputMapper("run_1");
+        List<AgwEvent> events = assembleEvents(mapper, List.of(
+                AgentDelta.planUpdate(
+                        "plan_demo_001",
+                        "chat_1",
+                        List.of(
+                                new AgentDelta.PlanTask("task0", "收集信息", "init"),
+                                new AgentDelta.PlanTask("task1", "执行任务", "in_progress")
+                        )
+                )
+        ));
+
+        List<AgwEvent> planEvents = events.stream()
+                .filter(event -> event.type() != null && event.type().startsWith("plan."))
+                .toList();
+
+        assertThat(planEvents).hasSize(1);
+        assertThat(planEvents.getFirst().type()).isEqualTo("plan.update");
+        assertThat(planEvents.getFirst().payload().get("planId")).isEqualTo("plan_demo_001");
+        assertThat(planEvents.getFirst().payload().get("chatId")).isEqualTo("chat_1");
+        assertThat(planEvents.getFirst().payload().get("plan")).isInstanceOf(List.class);
+    }
+
     private List<AgwEvent> assembleEvents(AgentDeltaToAgwInputMapper mapper, List<AgentDelta> deltas) {
         AgwEventAssembler.EventStreamState state = new AgwEventAssembler()
                 .begin(new AgwRequest.Query(

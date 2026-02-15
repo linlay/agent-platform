@@ -3,13 +3,16 @@
   "name": "示例-单次推理",
   "icon": "emoji:🧠",
   "description": "内置示例：ONESHOT 模式先推理后作答",
-  "providerKey": "bailian",
-  "model": "qwen3-max",
-  "mode": "ONESHOT",
-  "reasoning": {
-    "enabled": true,
-    "effort": "HIGH"
+  "modelConfig": {
+    "providerKey": "bailian",
+    "model": "qwen3-max",
+    "reasoning": {
+      "enabled": true,
+      "effort": "HIGH"
+    }
   },
+  "toolConfig": null,
+  "mode": "ONESHOT",
   "plain": {
     "systemPrompt": "你是深度分析助手。先充分推理，再给出清晰结论。"
   }

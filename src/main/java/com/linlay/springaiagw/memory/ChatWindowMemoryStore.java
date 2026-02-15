@@ -68,6 +68,7 @@ public class ChatWindowMemoryStore {
             String runId,
             Map<String, Object> query,
             SystemSnapshot systemSnapshot,
+            PlanSnapshot planSnapshot,
             List<RunMessage> runMessages
     ) {
         if (!isValidChatId(chatId) || runMessages == null || runMessages.isEmpty()) {
@@ -112,6 +113,7 @@ public class ChatWindowMemoryStore {
         run.updatedAt = now;
         run.query = normalizeQuery(query);
         run.messages = storedMessages;
+        run.planSnapshot = normalizePlanSnapshot(planSnapshot);
 
         SystemSnapshot normalizedSystem = normalizeSystemSnapshot(systemSnapshot);
         if (normalizedSystem != null) {
@@ -123,6 +125,24 @@ public class ChatWindowMemoryStore {
 
         appendRunLine(chatId, run);
         trimToWindow(chatId, normalizedWindowSize());
+    }
+
+    public PlanSnapshot loadLatestPlanSnapshot(String chatId) {
+        if (!isValidChatId(chatId)) {
+            return null;
+        }
+        List<RunRecord> runs = readAllRuns(chatId);
+        for (int i = runs.size() - 1; i >= 0; i--) {
+            RunRecord run = runs.get(i);
+            if (run == null || run.planSnapshot == null) {
+                continue;
+            }
+            PlanSnapshot normalized = normalizePlanSnapshot(run.planSnapshot);
+            if (normalized != null && normalized.plan != null && !normalized.plan.isEmpty()) {
+                return normalized;
+            }
+        }
+        return null;
     }
 
     private StoredMessage toUserStoredMessage(RunMessage message, long ts) {
@@ -478,6 +498,34 @@ public class ChatWindowMemoryStore {
         return normalized;
     }
 
+    private PlanSnapshot normalizePlanSnapshot(PlanSnapshot source) {
+        if (source == null) {
+            return null;
+        }
+        PlanSnapshot normalized = objectMapper.convertValue(source, PlanSnapshot.class);
+        if (normalized == null || !hasText(normalized.planId) || normalized.plan == null || normalized.plan.isEmpty()) {
+            return null;
+        }
+        List<PlanTaskSnapshot> plan = new ArrayList<>();
+        for (PlanTaskSnapshot task : normalized.plan) {
+            if (task == null || !hasText(task.taskId) || !hasText(task.description)) {
+                continue;
+            }
+            PlanTaskSnapshot item = new PlanTaskSnapshot();
+            item.taskId = task.taskId.trim();
+            item.description = task.description.trim();
+            item.status = normalizeStatus(task.status);
+            plan.add(item);
+        }
+        if (plan.isEmpty()) {
+            return null;
+        }
+        PlanSnapshot snapshot = new PlanSnapshot();
+        snapshot.planId = normalized.planId.trim();
+        snapshot.plan = List.copyOf(plan);
+        return snapshot;
+    }
+
     private List<SystemMessageSnapshot> normalizeSystemMessages(List<SystemMessageSnapshot> messages) {
         if (messages == null || messages.isEmpty()) {
             return null;
@@ -611,6 +659,17 @@ public class ChatWindowMemoryStore {
         return value == null ? "" : value;
     }
 
+    private String normalizeStatus(String raw) {
+        if (!hasText(raw)) {
+            return "init";
+        }
+        String normalized = raw.trim().toLowerCase();
+        return switch (normalized) {
+            case "init", "in_progress", "completed", "failed", "canceled" -> normalized;
+            default -> "init";
+        };
+    }
+
     private int normalizedWindowSize() {
         return Math.max(1, properties.getK());
     }
@@ -733,6 +792,7 @@ public class ChatWindowMemoryStore {
         public long updatedAt;
         public Map<String, Object> query = new LinkedHashMap<>();
         public SystemSnapshot system;
+        public PlanSnapshot planSnapshot;
         public List<StoredMessage> messages = new ArrayList<>();
     }
 
@@ -756,6 +816,19 @@ public class ChatWindowMemoryStore {
         public String name;
         public String description;
         public Map<String, Object> parameters;
+    }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class PlanSnapshot {
+        public String planId;
+        public List<PlanTaskSnapshot> plan;
+    }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class PlanTaskSnapshot {
+        public String taskId;
+        public String description;
+        public String status;
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)

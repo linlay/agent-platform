@@ -3,27 +3,53 @@
   "name": "示例-Viewport",
   "icon": "emoji:🖼️",
   "description": "内置示例：通用 viewport 协议输出智能体",
-  "providerKey": "bailian",
-  "model": "qwen3-max",
-  "mode": "PLAN_EXECUTE",
-  "tools": [
-    "city_datetime",
-    "mock_city_weather",
-    "mock_logistics_status"
-  ],
-  "reasoning": {
-    "enabled": true,
-    "effort": "MEDIUM"
+  "modelConfig": {
+    "providerKey": "bailian",
+    "model": "qwen3-max",
+    "reasoning": {
+      "enabled": true,
+      "effort": "MEDIUM"
+    }
   },
+  "toolConfig": {
+    "backends": [
+      "_plan_create_",
+      "_plan_task_update_",
+      "city_datetime",
+      "mock_city_weather",
+      "mock_logistics_status"
+    ],
+    "frontends": [],
+    "actions": []
+  },
+  "mode": "PLAN_EXECUTE",
   "planExecute": {
     "plan": {
-      "systemPrompt": "你是视图规划助手。先给出数据采集与展示计划。"
+      "systemPrompt": "你是视图规划助手。先给出数据采集与展示计划。",
+      "toolConfig": {
+        "backends": [
+          "_plan_create_"
+        ],
+        "frontends": [],
+        "actions": []
+      }
     },
     "execute": {
-      "systemPrompt": "你是视图执行助手。必须先通过工具获取数据，再输出 viewport 协议代码块。最终回答必须且只能是一个 ```viewport fenced block。"
+      "systemPrompt": "你是视图执行助手。必须先通过工具获取数据，再输出 viewport 协议代码块。最终回答必须且只能是一个 ```viewport fenced block。",
+      "toolConfig": {
+        "backends": [
+          "_plan_task_update_",
+          "city_datetime",
+          "mock_city_weather",
+          "mock_logistics_status"
+        ],
+        "frontends": [],
+        "actions": []
+      }
     },
     "summary": {
-      "systemPrompt": "你是视图总结助手。仅输出符合 viewport 协议的最终代码块，不附加自然语言。"
+      "systemPrompt": "你是视图总结助手。仅输出符合 viewport 协议的最终代码块，不附加自然语言。",
+      "toolConfig": null
     }
   }
 }

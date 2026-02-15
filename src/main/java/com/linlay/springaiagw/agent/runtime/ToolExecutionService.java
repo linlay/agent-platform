@@ -43,6 +43,7 @@ public class ToolExecutionService {
             Map<String, BaseTool> enabledToolsByName,
             List<Map<String, Object>> records,
             String runId,
+            ExecutionContext context,
             boolean emitToolCallDelta
     ) {
         if (calls == null || calls.isEmpty()) {
@@ -77,6 +78,11 @@ public class ToolExecutionService {
             deltas.add(AgentDelta.toolResult(callId, resultText));
             records.add(buildToolRecord(callId, toolName, toolType, resolvedArgs, resultNode));
             events.add(new ToolExecutionEvent(callId, toolName, toolType, argsJson, resultText));
+
+            AgentDelta planDelta = planUpdateDelta(context, toolName, resolvedArgs, resultNode);
+            if (planDelta != null) {
+                deltas.add(planDelta);
+            }
         }
 
         return new ToolExecutionBatch(List.copyOf(deltas), List.copyOf(events));
@@ -180,6 +186,128 @@ public class ToolExecutionService {
 
     private String shortId() {
         return UUID.randomUUID().toString().replace("-", "").substring(0, 8);
+    }
+
+    private AgentDelta planUpdateDelta(
+            ExecutionContext context,
+            String toolName,
+            Map<String, Object> args,
+            JsonNode resultNode
+    ) {
+        if (context == null || toolName == null || toolName.isBlank()) {
+            return null;
+        }
+        String normalizedName = toolName.trim().toLowerCase(Locale.ROOT);
+        if ("_plan_create_".equals(normalizedName)) {
+            if (!isSuccessfulPlanToolResult(resultNode)) {
+                return null;
+            }
+            List<AgentDelta.PlanTask> created = parsePlanTasks(args);
+            if (created.isEmpty()) {
+                return null;
+            }
+            context.appendPlanTasks(created);
+            return AgentDelta.planUpdate(context.planId(), context.request().chatId(), context.planTasks());
+        }
+        if ("_plan_task_update_".equals(normalizedName)) {
+            if (!isSuccessfulPlanToolResult(resultNode)) {
+                return null;
+            }
+            String taskId = asString(args, "taskId");
+            String status = asString(args, "status");
+            if (!StringUtils.hasText(taskId) || !StringUtils.hasText(status)) {
+                return null;
+            }
+            String description = asString(args, "description");
+            boolean updated = context.updatePlanTask(taskId, status, description);
+            if (!updated) {
+                return null;
+            }
+            return AgentDelta.planUpdate(context.planId(), context.request().chatId(), context.planTasks());
+        }
+        return null;
+    }
+
+    private List<AgentDelta.PlanTask> parsePlanTasks(Map<String, Object> args) {
+        if (args == null || args.isEmpty()) {
+            return List.of();
+        }
+        List<AgentDelta.PlanTask> tasks = new ArrayList<>();
+        Object rawTasks = args.get("tasks");
+        if (rawTasks instanceof List<?> list) {
+            for (Object item : list) {
+                if (!(item instanceof Map<?, ?> map)) {
+                    continue;
+                }
+                String taskId = readString(map, "taskId");
+                String description = readString(map, "description");
+                if (!StringUtils.hasText(description)) {
+                    continue;
+                }
+                tasks.add(new AgentDelta.PlanTask(
+                        taskId,
+                        description.trim(),
+                        normalizeStatus(readString(map, "status"))
+                ));
+            }
+        }
+        if (!tasks.isEmpty()) {
+            return List.copyOf(tasks);
+        }
+        String description = asString(args, "description");
+        if (!StringUtils.hasText(description)) {
+            return List.of();
+        }
+        return List.of(new AgentDelta.PlanTask(
+                asString(args, "taskId"),
+                description.trim(),
+                normalizeStatus(asString(args, "status"))
+        ));
+    }
+
+    private String readString(Map<?, ?> map, String key) {
+        if (map == null || key == null) {
+            return null;
+        }
+        Object value = map.get(key);
+        if (value == null) {
+            return null;
+        }
+        String text = value.toString();
+        return text == null || text.isBlank() ? null : text;
+    }
+
+    private String asString(Map<String, Object> args, String key) {
+        if (args == null || key == null) {
+            return null;
+        }
+        Object value = args.get(key);
+        if (value == null) {
+            return null;
+        }
+        String text = value.toString();
+        return text == null || text.isBlank() ? null : text;
+    }
+
+    private String normalizeStatus(String raw) {
+        if (!StringUtils.hasText(raw)) {
+            return "init";
+        }
+        String normalized = raw.trim().toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "init", "in_progress", "completed", "failed", "canceled" -> normalized;
+            default -> "init";
+        };
+    }
+
+    private boolean isSuccessfulPlanToolResult(JsonNode resultNode) {
+        if (resultNode == null || resultNode.isNull()) {
+            return false;
+        }
+        if (!resultNode.isObject() || !resultNode.has("ok")) {
+            return true;
+        }
+        return resultNode.path("ok").asBoolean(false);
     }
 
     private ObjectNode errorResult(String toolName, String message) {

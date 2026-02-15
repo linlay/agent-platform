@@ -215,6 +215,7 @@ public class ChatRecordStore {
                         runRecord.updatedAt,
                         runRecord.query == null ? Map.of() : new LinkedHashMap<>(runRecord.query),
                         runRecord.system,
+                        runRecord.planSnapshot,
                         messages,
                         lineIndex
                 ));
@@ -292,6 +293,12 @@ public class ChatRecordStore {
             runStartPayload.put("runId", run.runId);
             runStartPayload.put("chatId", chatId);
             events.add(event("run.start", timestampCursor, seq++, runStartPayload));
+
+            Map<String, Object> planUpdate = planUpdateEvent(run.planSnapshot, chatId, timestampCursor);
+            if (!planUpdate.isEmpty()) {
+                timestampCursor = normalizeEventTimestamp(((Number) planUpdate.get("timestamp")).longValue(), timestampCursor);
+                events.add(planUpdate);
+            }
 
             for (ChatWindowMemoryStore.StoredMessage message : run.messages) {
                 if (message == null || !StringUtils.hasText(message.role)) {
@@ -573,6 +580,54 @@ public class ChatRecordStore {
         return data;
     }
 
+    private Map<String, Object> planUpdateEvent(
+            ChatWindowMemoryStore.PlanSnapshot planSnapshot,
+            String chatId,
+            long previousTimestamp
+    ) {
+        if (planSnapshot == null
+                || !StringUtils.hasText(planSnapshot.planId)
+                || planSnapshot.plan == null
+                || planSnapshot.plan.isEmpty()) {
+            return Map.of();
+        }
+
+        List<Map<String, Object>> plan = new ArrayList<>();
+        for (ChatWindowMemoryStore.PlanTaskSnapshot task : planSnapshot.plan) {
+            if (task == null || !StringUtils.hasText(task.taskId) || !StringUtils.hasText(task.description)) {
+                continue;
+            }
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("taskId", task.taskId.trim());
+            item.put("description", task.description.trim());
+            item.put("status", normalizeStatus(task.status));
+            plan.add(item);
+        }
+        if (plan.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("type", "plan.update");
+        data.put("planId", planSnapshot.planId.trim());
+        data.put("chatId", StringUtils.hasText(chatId) ? chatId : null);
+        data.put("plan", plan);
+        data.put("rawEvent", null);
+        data.put("timestamp", normalizeEventTimestamp(previousTimestamp + 1, previousTimestamp));
+        return data;
+    }
+
+    private String normalizeStatus(String raw) {
+        if (!StringUtils.hasText(raw)) {
+            return "init";
+        }
+        String normalized = raw.trim().toLowerCase();
+        return switch (normalized) {
+            case "init", "in_progress", "completed", "failed", "canceled" -> normalized;
+            default -> "init";
+        };
+    }
+
     private Map<String, Object> toRawMessageMap(String runId, ChatWindowMemoryStore.StoredMessage message) {
         if (message == null || !StringUtils.hasText(message.role)) {
             return Map.of();
@@ -806,6 +861,7 @@ public class ChatRecordStore {
             long updatedAt,
             Map<String, Object> query,
             ChatWindowMemoryStore.SystemSnapshot system,
+            ChatWindowMemoryStore.PlanSnapshot planSnapshot,
             List<ChatWindowMemoryStore.StoredMessage> messages,
             int lineIndex
     ) {

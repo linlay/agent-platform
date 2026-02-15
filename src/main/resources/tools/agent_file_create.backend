@@ -3,7 +3,7 @@
     {
       "type": "function",
       "name": "agent_file_create",
-      "description": "创建或更新 agents 目录下的智能体配置文件（仅支持 Agent JSON v2）。",
+      "description": "创建或更新 agents 目录下的智能体配置文件（仅支持 Agent JSON v2，新结构 modelConfig/toolConfig）。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -24,15 +24,6 @@
           "description": {
             "type": "string"
           },
-          "providerKey": {
-            "type": "string"
-          },
-          "providerType": {
-            "type": "string"
-          },
-          "model": {
-            "type": "string"
-          },
           "mode": {
             "type": "string",
             "enum": [
@@ -41,11 +32,70 @@
               "PLAN_EXECUTE"
             ]
           },
-          "tools": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
+          "modelConfig": {
+            "type": "object",
+            "properties": {
+              "providerKey": {
+                "type": "string"
+              },
+              "model": {
+                "type": "string"
+              },
+              "reasoning": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "effort": {
+                    "type": "string",
+                    "enum": [
+                      "LOW",
+                      "MEDIUM",
+                      "HIGH"
+                    ]
+                  }
+                },
+                "additionalProperties": false
+              },
+              "temperature": {
+                "type": "number"
+              },
+              "top_p": {
+                "type": "number"
+              },
+              "max_tokens": {
+                "type": "integer"
+              }
+            },
+            "additionalProperties": false
+          },
+          "toolConfig": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "backends": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "frontends": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "actions": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": false
           },
           "systemPrompt": {
             "type": "string",
@@ -60,18 +110,8 @@
           "summarySystemPrompt": {
             "type": "string"
           },
-          "reasoningEnabled": {
-            "type": "boolean"
-          },
-          "reasoningEffort": {
-            "type": "string",
-            "enum": ["LOW", "MEDIUM", "HIGH"]
-          },
           "maxSteps": {
             "type": "integer"
-          },
-          "compute": {
-            "type": "string"
           },
           "output": {
             "type": "string"

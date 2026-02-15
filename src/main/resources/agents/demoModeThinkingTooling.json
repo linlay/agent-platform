@@ -3,18 +3,24 @@
   "name": "示例-推理+工具",
   "icon": "emoji:⚙️",
   "description": "内置示例：ONESHOT 模式推理并调用工具",
-  "providerKey": "bailian",
-  "model": "qwen3-max",
-  "mode": "ONESHOT",
-  "tools": [
-    "city_datetime",
-    "mock_city_weather",
-    "mock_sensitive_data_detector"
-  ],
-  "reasoning": {
-    "enabled": true,
-    "effort": "HIGH"
+  "modelConfig": {
+    "providerKey": "bailian",
+    "model": "qwen3-max",
+    "reasoning": {
+      "enabled": true,
+      "effort": "HIGH"
+    }
   },
+  "toolConfig": {
+    "backends": [
+      "city_datetime",
+      "mock_city_weather",
+      "mock_sensitive_data_detector"
+    ],
+    "frontends": [],
+    "actions": []
+  },
+  "mode": "ONESHOT",
   "plain": {
     "systemPrompt": "你是推理与工具联合助手。先充分推理，再按需调用工具补齐信息后给出结论。"
   }

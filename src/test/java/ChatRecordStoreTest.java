@@ -244,6 +244,48 @@ class ChatRecordStoreTest {
     }
 
     @Test
+    void loadChatShouldReplayPlanUpdateInStrictFormat() throws Exception {
+        String chatId = "123e4567-e89b-12d3-a456-426614174017";
+        Path chatDir = tempDir.resolve("chats");
+        writeIndex(chatDir, chatId, "计划会话", 1707000500000L, 1707000500000L);
+
+        Path historyPath = chatDir.resolve(chatId + ".json");
+        writeJsonLine(historyPath, runRecord(
+                chatId,
+                "run_006",
+                1707000500000L,
+                query("run_006", chatId, "第一轮", List.of()),
+                List.of(
+                        userMessage("第一轮", 1707000500000L),
+                        assistantContentMessage("已创建计划", 1707000500001L)
+                ),
+                Map.of(
+                        "planId", "plan_chat_001",
+                        "plan", List.of(
+                                Map.of("taskId", "task0", "description", "收集信息", "status", "init"),
+                                Map.of("taskId", "task1", "description", "执行任务", "status", "in_progress")
+                        )
+                )
+        ));
+
+        ChatRecordStore store = newStore();
+        AgwChatDetailResponse detail = store.loadChat(chatId, false);
+
+        Map<String, Object> planUpdate = detail.events().stream()
+                .filter(event -> "plan.update".equals(event.get("type")))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(planUpdate).containsEntry("type", "plan.update");
+        assertThat(planUpdate).containsEntry("planId", "plan_chat_001");
+        assertThat(planUpdate).containsEntry("chatId", chatId);
+        assertThat(planUpdate).containsKey("plan");
+        assertThat(planUpdate).containsKey("timestamp");
+        assertThat(planUpdate).containsEntry("rawEvent", null);
+        assertThat(planUpdate).doesNotContainKey("seq");
+    }
+
+    @Test
     void loadChatShouldRejectInvalidChatId() {
         ChatRecordStore store = newStore();
         assertThatThrownBy(() -> store.loadChat("not-a-uuid", false))
@@ -289,6 +331,17 @@ class ChatRecordStoreTest {
             Map<String, Object> query,
             List<Map<String, Object>> messages
     ) {
+        return runRecord(chatId, runId, updatedAt, query, messages, null);
+    }
+
+    private Map<String, Object> runRecord(
+            String chatId,
+            String runId,
+            long updatedAt,
+            Map<String, Object> query,
+            List<Map<String, Object>> messages,
+            Map<String, Object> planSnapshot
+    ) {
         Map<String, Object> record = new LinkedHashMap<>();
         record.put("chatId", chatId);
         record.put("runId", runId);
@@ -296,6 +349,9 @@ class ChatRecordStoreTest {
         record.put("updatedAt", updatedAt);
         record.put("query", query);
         record.put("messages", messages);
+        if (planSnapshot != null && !planSnapshot.isEmpty()) {
+            record.put("planSnapshot", planSnapshot);
+        }
         return record;
     }
 

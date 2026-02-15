@@ -128,6 +128,15 @@ public class AgentDeltaToAgwInputMapper {
             }
         }
 
+        if (delta.planUpdate() != null) {
+            AgentDelta.PlanUpdate planUpdate = delta.planUpdate();
+            inputs.add(new AgwInput.PlanUpdate(
+                    planUpdate.planId(),
+                    planUpdate.plan(),
+                    hasText(planUpdate.chatId()) ? planUpdate.chatId() : null
+            ));
+        }
+
         if (hasText(delta.finishReason())) {
             inputs.add(new AgwInput.RunComplete(delta.finishReason()));
         }

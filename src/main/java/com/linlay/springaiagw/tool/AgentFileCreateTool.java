@@ -70,8 +70,6 @@ public class AgentFileCreateTool extends AbstractDeterministicTool {
         }
 
         String description = normalizeText(readString(mergedArgs, "description"), DEFAULT_DESCRIPTION);
-        String providerKey = normalizeProviderKey(readString(mergedArgs, "providerKey", "providerType"));
-        String model = normalizeText(readString(mergedArgs, "model"), DEFAULT_MODEL);
         String name = normalizeText(readString(mergedArgs, "name"), normalizedKey);
         String icon = normalizeText(readString(mergedArgs, "icon"), "");
 
@@ -82,18 +80,14 @@ public class AgentFileCreateTool extends AbstractDeterministicTool {
             root.put("icon", icon);
         }
         root.put("description", description);
-        root.put("providerKey", providerKey);
-        root.put("model", model);
         root.put("mode", mode.name());
 
-        ArrayNode toolsNode = normalizeTools(mergedArgs.get("tools"));
-        if (!toolsNode.isEmpty()) {
-            root.set("tools", toolsNode);
-        }
+        ObjectNode modelConfig = buildModelConfig(mergedArgs);
+        root.set("modelConfig", modelConfig);
 
-        ObjectNode topReasoning = parseReasoning(mergedArgs);
-        if (topReasoning != null) {
-            root.set("reasoning", topReasoning);
+        ObjectNode toolConfig = buildToolConfig(mergedArgs);
+        if (toolConfig != null) {
+            root.set("toolConfig", toolConfig);
         }
 
         putOptionalEnum(root, "output", readString(mergedArgs, "output"));
@@ -229,10 +223,100 @@ public class AgentFileCreateTool extends AbstractDeterministicTool {
         return node;
     }
 
+    private ObjectNode buildModelConfig(Map<String, Object> args) {
+        if (args.get("modelConfig") instanceof Map<?, ?> raw) {
+            ObjectNode fromObject = modelConfigFromMap(raw);
+            if (fromObject != null) {
+                return fromObject;
+            }
+        }
+        ObjectNode modelConfig = OBJECT_MAPPER.createObjectNode();
+        String providerKey = normalizeProviderKey(readString(args, "providerKey", "providerType"));
+        String model = normalizeText(readString(args, "model"), DEFAULT_MODEL);
+        modelConfig.put("providerKey", providerKey);
+        modelConfig.put("model", model);
+        ObjectNode reasoning = parseReasoning(args);
+        if (reasoning != null) {
+            modelConfig.set("reasoning", reasoning);
+        }
+        putDecimal(modelConfig, "temperature", args.get("temperature"));
+        putDecimal(modelConfig, "top_p", args.get("top_p"));
+        putInt(modelConfig, "max_tokens", args.get("max_tokens"));
+        return modelConfig;
+    }
+
+    private ObjectNode modelConfigFromMap(Map<?, ?> raw) {
+        if (raw == null) {
+            return null;
+        }
+        ObjectNode modelConfig = OBJECT_MAPPER.createObjectNode();
+        String providerKey = raw.get("providerKey") == null ? null : raw.get("providerKey").toString();
+        String model = raw.get("model") == null ? null : raw.get("model").toString();
+        modelConfig.put("providerKey", normalizeProviderKey(providerKey));
+        modelConfig.put("model", normalizeText(model, DEFAULT_MODEL));
+
+        Object reasoningRaw = raw.get("reasoning");
+        if (reasoningRaw instanceof Map<?, ?> reasoningMap) {
+            ObjectNode reasoning = OBJECT_MAPPER.createObjectNode();
+            Object enabled = reasoningMap.get("enabled");
+            Object effort = reasoningMap.get("effort");
+            if (enabled instanceof Boolean value) {
+                reasoning.put("enabled", value);
+            } else if (enabled instanceof String text && !text.isBlank()) {
+                reasoning.put("enabled", Boolean.parseBoolean(text.trim()));
+            }
+            if (effort instanceof String text && !text.isBlank()) {
+                reasoning.put("effort", text.trim().toUpperCase(Locale.ROOT));
+            }
+            if (!reasoning.isEmpty()) {
+                modelConfig.set("reasoning", reasoning);
+            }
+        }
+
+        putDecimal(modelConfig, "temperature", raw.get("temperature"));
+        putDecimal(modelConfig, "top_p", raw.get("top_p"));
+        putInt(modelConfig, "max_tokens", raw.get("max_tokens"));
+        return modelConfig;
+    }
+
+    private ObjectNode buildToolConfig(Map<String, Object> args) {
+        ObjectNode fromConfig = buildToolConfigFromObject(args.get("toolConfig"));
+        if (fromConfig != null) {
+            return fromConfig;
+        }
+
+        ArrayNode backends = normalizeTools(args.get("tools"));
+        ArrayNode frontends = normalizeTools(args.get("frontends"));
+        ArrayNode actions = normalizeTools(args.get("actions"));
+
+        if (backends.isEmpty() && frontends.isEmpty() && actions.isEmpty()) {
+            return null;
+        }
+        ObjectNode toolConfig = OBJECT_MAPPER.createObjectNode();
+        toolConfig.set("backends", backends);
+        toolConfig.set("frontends", frontends);
+        toolConfig.set("actions", actions);
+        return toolConfig;
+    }
+
+    private ObjectNode buildToolConfigFromObject(Object raw) {
+        if (!(raw instanceof Map<?, ?> map)) {
+            return null;
+        }
+        ArrayNode backends = normalizeTools(map.get("backends"));
+        ArrayNode frontends = normalizeTools(map.get("frontends"));
+        ArrayNode actions = normalizeTools(map.get("actions"));
+        ObjectNode toolConfig = OBJECT_MAPPER.createObjectNode();
+        toolConfig.set("backends", backends);
+        toolConfig.set("frontends", frontends);
+        toolConfig.set("actions", actions);
+        return toolConfig;
+    }
+
     private ArrayNode normalizeTools(Object rawTools) {
-        ArrayNode arrayNode = OBJECT_MAPPER.createArrayNode();
+        ArrayNode array = OBJECT_MAPPER.createArrayNode();
         if (!(rawTools instanceof List<?> list)) {
-            return arrayNode;
+            return array;
         }
         for (Object item : list) {
             if (item == null) {
@@ -240,10 +324,10 @@ public class AgentFileCreateTool extends AbstractDeterministicTool {
             }
             String tool = item.toString().trim().toLowerCase(Locale.ROOT);
             if (!tool.isBlank()) {
-                arrayNode.add(tool);
+                array.add(tool);
             }
         }
-        return arrayNode;
+        return array;
     }
 
     private void putOptionalEnum(ObjectNode root, String fieldName, String value) {
@@ -276,6 +360,30 @@ public class AgentFileCreateTool extends AbstractDeterministicTool {
     private void putLongIfPositive(ObjectNode node, String field, Object value) {
         if (value instanceof Number number && number.longValue() > 0) {
             node.put(field, number.longValue());
+        }
+    }
+
+    private void putDecimal(ObjectNode node, String field, Object value) {
+        if (value instanceof Number number) {
+            node.put(field, number.doubleValue());
+        } else if (value instanceof String text && !text.isBlank()) {
+            try {
+                node.put(field, Double.parseDouble(text.trim()));
+            } catch (NumberFormatException ignored) {
+                // ignore invalid decimal
+            }
+        }
+    }
+
+    private void putInt(ObjectNode node, String field, Object value) {
+        if (value instanceof Number number) {
+            node.put(field, number.intValue());
+        } else if (value instanceof String text && !text.isBlank()) {
+            try {
+                node.put(field, Integer.parseInt(text.trim()));
+            } catch (NumberFormatException ignored) {
+                // ignore invalid int
+            }
         }
     }
 

@@ -1,0 +1,35 @@
+{
+  "tools": [
+    {
+      "type": "function",
+      "name": "_plan_task_update_",
+      "description": "更新计划中的任务状态。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "taskId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "init",
+              "in_progress",
+              "completed",
+              "failed",
+              "canceled"
+            ]
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "taskId",
+          "status"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ]
+}

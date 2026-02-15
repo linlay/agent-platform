@@ -139,7 +139,7 @@ class ToolRegistryTest {
     @Test
     void bashToolShouldRunAllowedLsCommand() {
         JsonNode result = bashTool.invoke(Map.of("command", "ls"));
-        assertThat(result.path("tool").asText()).isEqualTo("bash");
+        assertThat(result.path("tool").asText()).isEqualTo("_bash_");
         assertThat(result.path("exitCode").asInt()).isEqualTo(0);
     }
 
@@ -206,11 +206,11 @@ class ToolRegistryTest {
         assertThat(Files.exists(file)).isTrue();
         JsonNode content = objectMapper.readTree(Files.readString(file));
         assertThat(content.path("description").asText()).isEqualTo("QA 助手");
-        assertThat(content.path("providerKey").asText()).isEqualTo("openai");
-        assertThat(content.path("model").asText()).isEqualTo("gpt-3.5-turbo");
+        assertThat(content.path("modelConfig").path("providerKey").asText()).isEqualTo("openai");
+        assertThat(content.path("modelConfig").path("model").asText()).isEqualTo("gpt-3.5-turbo");
         assertThat(content.path("mode").asText()).isEqualTo("ONESHOT");
         assertThat(content.path("plain").path("systemPrompt").asText()).isEqualTo("你是 QA 助手\n请先问清问题");
-        assertThat(content.has("tools")).isFalse();
+        assertThat(content.has("toolConfig")).isFalse();
     }
 
     @Test
@@ -237,7 +237,7 @@ class ToolRegistryTest {
 
         assertThat(result.path("ok").asBoolean()).isTrue();
         JsonNode content = objectMapper.readTree(Files.readString(agentsDir.resolve("fortune_bot.json")));
-        assertThat(content.path("providerKey").asText()).isEqualTo("bailian");
+        assertThat(content.path("modelConfig").path("providerKey").asText()).isEqualTo("bailian");
         assertThat(content.path("mode").asText()).isEqualTo("ONESHOT");
     }
 

@@ -194,6 +194,7 @@ public class OrchestratorServices {
                 enabledToolsByName,
                 context.toolRecords(),
                 context.request().runId(),
+                context,
                 false
         );
         context.incrementToolCalls(batch.events().size());

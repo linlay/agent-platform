@@ -3,12 +3,15 @@
   "name": "示例-单次直答",
   "icon": "emoji:📝",
   "description": "内置示例：ONESHOT 模式单次直答",
-  "providerKey": "bailian",
-  "model": "qwen3-max",
-  "mode": "ONESHOT",
-  "reasoning": {
-    "enabled": false
+  "modelConfig": {
+    "providerKey": "bailian",
+    "model": "qwen3-max",
+    "reasoning": {
+      "enabled": false
+    }
   },
+  "toolConfig": null,
+  "mode": "ONESHOT",
   "plain": {
     "systemPrompt": "你是简洁的助理。给出清晰可执行结论。"
   }

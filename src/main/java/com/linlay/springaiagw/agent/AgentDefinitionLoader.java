@@ -104,7 +104,7 @@ public class AgentDefinitionLoader {
             }
 
             String providerKey = resolveProviderKey(config);
-            String model = normalize(config.getModel(), resolveDefaultModel(providerKey));
+            String model = resolveModel(config, providerKey);
             String key = normalize(config.getKey(), fileBasedId);
             String name = normalize(config.getName(), key);
             String icon = normalizeIcon(config.getIcon());
@@ -136,7 +136,41 @@ public class AgentDefinitionLoader {
         if (root == null || !root.isObject()) {
             return true;
         }
-        return root.has("deepThink") || root.has("systemPrompt");
+        if (root.has("deepThink")
+                || root.has("systemPrompt")
+                || root.has("providerKey")
+                || root.has("providerType")
+                || root.has("model")
+                || root.has("reasoning")
+                || root.has("tools")) {
+            return true;
+        }
+        if (!root.has("modelConfig")) {
+            return true;
+        }
+        return hasLegacyStageFields(root.path("plain"))
+                || hasLegacyStageFields(root.path("react"))
+                || hasLegacyPlanExecuteStageFields(root.path("planExecute"));
+    }
+
+    private boolean hasLegacyPlanExecuteStageFields(JsonNode node) {
+        if (node == null || !node.isObject()) {
+            return false;
+        }
+        return hasLegacyStageFields(node.path("plan"))
+                || hasLegacyStageFields(node.path("execute"))
+                || hasLegacyStageFields(node.path("summary"));
+    }
+
+    private boolean hasLegacyStageFields(JsonNode node) {
+        if (node == null || !node.isObject()) {
+            return false;
+        }
+        return node.has("providerKey")
+                || node.has("providerType")
+                || node.has("model")
+                || node.has("reasoning")
+                || node.has("tools");
     }
 
     private String normalizeMultilinePrompts(String rawJson) throws IOException {
@@ -171,13 +205,17 @@ public class AgentDefinitionLoader {
     }
 
     private String resolveProviderKey(AgentConfigFile config) {
-        if (config.getProviderKey() != null && !config.getProviderKey().isBlank()) {
-            return config.getProviderKey().trim().toLowerCase(Locale.ROOT);
-        }
-        if (config.getProviderType() != null && !config.getProviderType().isBlank()) {
-            return config.getProviderType().trim().toLowerCase(Locale.ROOT);
+        AgentConfigFile.ModelConfig modelConfig = config == null ? null : config.getModelConfig();
+        if (modelConfig != null && modelConfig.getProviderKey() != null && !modelConfig.getProviderKey().isBlank()) {
+            return modelConfig.getProviderKey().trim().toLowerCase(Locale.ROOT);
         }
         return "bailian";
+    }
+
+    private String resolveModel(AgentConfigFile config, String providerKey) {
+        AgentConfigFile.ModelConfig modelConfig = config == null ? null : config.getModelConfig();
+        String configured = modelConfig == null ? null : modelConfig.getModel();
+        return normalize(configured, resolveDefaultModel(providerKey));
     }
 
     private String resolveDefaultModel(String providerKey) {
@@ -215,24 +253,35 @@ public class AgentDefinitionLoader {
     }
 
     private List<String> collectToolNames(AgentConfigFile config) {
-        List<String> merged = new ArrayList<>(normalizeToolNames(config.getTools()));
+        List<String> merged = new ArrayList<>(toolNames(config == null ? null : config.getToolConfig()));
         if (config.getPlain() != null) {
-            merged.addAll(normalizeToolNames(config.getPlain().getTools()));
+            merged.addAll(toolNames(config.getPlain().getToolConfig()));
         }
         if (config.getReact() != null) {
-            merged.addAll(normalizeToolNames(config.getReact().getTools()));
+            merged.addAll(toolNames(config.getReact().getToolConfig()));
         }
         if (config.getPlanExecute() != null) {
             if (config.getPlanExecute().getPlan() != null) {
-                merged.addAll(normalizeToolNames(config.getPlanExecute().getPlan().getTools()));
+                merged.addAll(toolNames(config.getPlanExecute().getPlan().getToolConfig()));
             }
             if (config.getPlanExecute().getExecute() != null) {
-                merged.addAll(normalizeToolNames(config.getPlanExecute().getExecute().getTools()));
+                merged.addAll(toolNames(config.getPlanExecute().getExecute().getToolConfig()));
             }
             if (config.getPlanExecute().getSummary() != null) {
-                merged.addAll(normalizeToolNames(config.getPlanExecute().getSummary().getTools()));
+                merged.addAll(toolNames(config.getPlanExecute().getSummary().getToolConfig()));
             }
         }
         return merged.stream().distinct().toList();
+    }
+
+    private List<String> toolNames(AgentConfigFile.ToolConfig toolConfig) {
+        if (toolConfig == null) {
+            return List.of();
+        }
+        List<String> merged = new ArrayList<>();
+        merged.addAll(normalizeToolNames(toolConfig.getBackends()));
+        merged.addAll(normalizeToolNames(toolConfig.getFrontends()));
+        merged.addAll(normalizeToolNames(toolConfig.getActions()));
+        return merged;
     }
 }

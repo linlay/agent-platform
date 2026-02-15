@@ -122,7 +122,7 @@ public class ToolRegistry {
 
     public boolean isFrontend(String toolName) {
         String type = toolCallType(toolName).toLowerCase(Locale.ROOT);
-        return "html".equals(type) || "qlc".equals(type) || "dqlc".equals(type);
+        return "frontend".equals(type);
     }
 
     public String description(String toolName) {
