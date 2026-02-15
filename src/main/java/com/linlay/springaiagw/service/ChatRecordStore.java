@@ -623,7 +623,8 @@ public class ChatRecordStore {
         }
         String normalized = raw.trim().toLowerCase();
         return switch (normalized) {
-            case "init", "in_progress", "completed", "failed", "canceled" -> normalized;
+            case "in_progress" -> "init";
+            case "init", "completed", "failed", "canceled" -> normalized;
             default -> "init";
         };
     }

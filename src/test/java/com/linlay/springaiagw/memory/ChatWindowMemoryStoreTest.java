@@ -265,7 +265,7 @@ class ChatWindowMemoryStoreTest {
         assertThat(latest.planId).isEqualTo("plan_chat_001");
         assertThat(latest.plan).hasSize(2);
         assertThat(latest.plan.get(0).status).isEqualTo("completed");
-        assertThat(latest.plan.get(1).status).isEqualTo("in_progress");
+        assertThat(latest.plan.get(1).status).isEqualTo("init");
     }
 
     private Map<String, Object> query(String requestId, String chatId, String message) {

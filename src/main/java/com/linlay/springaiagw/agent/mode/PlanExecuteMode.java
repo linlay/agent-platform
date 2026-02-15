@@ -21,8 +21,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 
 public final class PlanExecuteMode extends AgentMode {
+
+    private static final String PLAN_ADD_TASK_TOOL = "_plan_add_tasks_";
+    private static final String PLAN_UPDATE_TASK_TOOL = "_plan_update_task_";
+    private static final int MAX_WORK_ROUNDS_PER_TASK = 6;
 
     private final StageSettings planStage;
     private final StageSettings executeStage;
@@ -87,14 +92,34 @@ public final class PlanExecuteMode extends AgentMode {
         StageSettings summary = summaryStage == null ? executeStage : summaryStage;
         Map<String, BaseTool> planTools = services.selectTools(enabledToolsByName, planStage.tools());
         Map<String, BaseTool> executeTools = services.selectTools(enabledToolsByName, executeStage.tools());
+        Map<String, BaseTool> summaryTools = services.selectTools(enabledToolsByName, summary.tools());
+
+        OrchestratorServices.ModelTurn planDraftTurn = services.callModelTurnStreaming(
+                context,
+                planStage,
+                context.planMessages(),
+                "请先进行深度思考并给出任务规划正文，不调用任何工具。",
+                planTools,
+                List.of(),
+                ToolChoice.NONE,
+                "agent-plan-draft",
+                false,
+                planStage.reasoningEnabled(),
+                true,
+                true,
+                sink
+        );
+        String planDraftText = services.normalize(planDraftTurn.finalText());
+        services.appendAssistantMessage(context.planMessages(), planDraftText);
 
         OrchestratorServices.ModelTurn planTurn = services.callModelTurnStreaming(
                 context,
                 planStage,
                 context.planMessages(),
-                "请先规划任务。优先调用 _plan_add_tasks_ 添加计划任务；如无法调用工具，请输出可解析的步骤列表。",
+                "基于上一回合规划正文，必须调用 _plan_add_tasks_ 添加计划任务。输出前请先完成工具调用。",
+                planTools,
                 services.toolExecutionService().enabledFunctionTools(planTools),
-                planTools.isEmpty() ? ToolChoice.NONE : ToolChoice.AUTO,
+                planTools.isEmpty() ? ToolChoice.NONE : ToolChoice.REQUIRED,
                 "agent-plan-generate",
                 false,
                 planStage.reasoningEnabled(),
@@ -102,22 +127,45 @@ public final class PlanExecuteMode extends AgentMode {
                 true,
                 sink
         );
+        boolean hasAddTaskCall = containsPlanAddCall(planTurn.toolCalls());
+        if ((!hasAddTaskCall || planTurn.toolCalls().isEmpty()) && !planTools.isEmpty()) {
+            context.planMessages().add(new UserMessage("你必须调用 _plan_add_tasks_ 工具创建计划任务，请立即发起工具调用。"));
+            planTurn = services.callModelTurnStreaming(
+                    context,
+                    planStage,
+                    context.planMessages(),
+                    null,
+                    planTools,
+                    services.toolExecutionService().enabledFunctionTools(planTools),
+                    ToolChoice.REQUIRED,
+                    "agent-plan-generate-repair",
+                    false,
+                    planStage.reasoningEnabled(),
+                    true,
+                    true,
+                    sink
+            );
+            hasAddTaskCall = containsPlanAddCall(planTurn.toolCalls());
+        }
+
         if (!planTurn.toolCalls().isEmpty()) {
             services.executeToolsAndEmit(context, planTools, planTurn.toolCalls(), sink);
         }
+        services.appendAssistantMessage(context.planMessages(), services.normalize(planTurn.finalText()));
 
         if (!context.hasPlan()) {
-            List<OrchestratorServices.PlanStep> fallbackSteps = services.parsePlanSteps(planTurn.finalText());
+            List<OrchestratorServices.PlanStep> fallbackSteps = services.parsePlanSteps(planDraftText);
             if (fallbackSteps.isEmpty()) {
-                fallbackSteps = List.of(new OrchestratorServices.PlanStep("step-1", "执行任务", context.request().message(), "输出可执行结果"));
+                fallbackSteps = services.parsePlanSteps(planTurn.finalText());
+            }
+            if (fallbackSteps.isEmpty()) {
+                fallbackSteps = List.of(new OrchestratorServices.PlanStep(shortId(), "执行任务", context.request().message(), "输出可执行结果"));
             }
             context.initializePlan(context.planId(), toPlanTasks(fallbackSteps));
             services.emit(sink, AgentDelta.planUpdate(context.planId(), context.request().chatId(), context.planTasks()));
         }
 
         int stepNo = 0;
-        int stalledCount = 0;
-        String stalledTaskId = null;
 
         while (stepNo < context.budget().maxSteps()) {
             ToolExecutionService.PlanSnapshot beforeSnapshot = services.toolExecutionService().planSnapshot(context);
@@ -132,110 +180,186 @@ public final class PlanExecuteMode extends AgentMode {
                             + formatTaskList(beforeSnapshot.tasks())
                             + "\n当前要执行的 taskId: " + normalize(step.taskId(), "unknown")
                             + "\n当前任务描述: " + normalize(step.description(), "无描述")
-                            + "\n要求: 完成后必须调用 _plan_update_task_ 更新该 task 状态。"
+                            + "\n执行规则:"
+                            + "\n1) 每个执行回合最多调用一个工具；"
+                            + "\n2) 你可按需调用任意可用工具做准备；"
+                            + "\n3) 结束该任务前必须调用 _plan_update_task_ 更新状态。"
             ));
+            boolean updated = runTaskWorkRounds(context, services, executeTools, stepNo, step, sink);
+            if (!updated) {
+                updated = runUpdateRound(context, services, executeTools, stepNo, step, false, sink);
+            }
+            if (!updated) {
+                updated = runUpdateRound(context, services, executeTools, stepNo, step, true, sink);
+            }
+            if (!updated) {
+                throw new PlanExecutionStalledException(
+                        "计划任务执行中断：任务 [" + normalize(step.taskId(), "unknown")
+                                + "] 更新任务状态失败 2 次，请调用 _plan_update_task_ 并提供有效状态。"
+                );
+            }
+            ensureTaskNotFailed(context, step);
+        }
 
+        context.executeMessages().add(new UserMessage("所有步骤已完成，请综合所有步骤的执行结果给出最终答案。"));
+        boolean secondPass = services.verifyService().requiresSecondPass(context.definition().runSpec().verify());
+
+        String finalText = services.forceFinalAnswer(context, summary, summaryTools, context.executeMessages(), "agent-plan-final",
+                !secondPass, sink);
+        services.appendAssistantMessage(context.executeMessages(), finalText);
+        services.emitFinalAnswer(context, context.executeMessages(), finalText, !secondPass, sink);
+    }
+
+    private boolean runTaskWorkRounds(
+            ExecutionContext context,
+            OrchestratorServices services,
+            Map<String, BaseTool> executeTools,
+            int stepNo,
+            AgentDelta.PlanTask step,
+            FluxSink<AgentDelta> sink
+    ) {
+        for (int round = 1; round <= MAX_WORK_ROUNDS_PER_TASK; round++) {
             OrchestratorServices.ModelTurn stepTurn = services.callModelTurnStreaming(
                     context,
                     executeStage,
                     context.executeMessages(),
                     null,
+                    executeTools,
                     services.toolExecutionService().enabledFunctionTools(executeTools),
                     services.requiresTool(context) ? ToolChoice.REQUIRED : ToolChoice.AUTO,
-                    "agent-plan-execute-step-" + stepNo,
-                    true,
+                    round == 1
+                            ? "agent-plan-execute-step-" + stepNo
+                            : "agent-plan-execute-step-" + stepNo + "-work-" + round,
+                    false,
                     executeStage.reasoningEnabled(),
                     true,
                     true,
                     sink
             );
 
-            if (stepTurn.toolCalls().isEmpty() && services.requiresTool(context)) {
-                context.executeMessages().add(new UserMessage(
-                        "你必须在该步骤中使用工具。请重新调用至少一个工具。"
-                ));
-                stepTurn = services.callModelTurnStreaming(
-                        context,
-                        executeStage,
-                        context.executeMessages(),
-                        null,
-                        services.toolExecutionService().enabledFunctionTools(executeTools),
-                        ToolChoice.REQUIRED,
-                        "agent-plan-execute-step-" + stepNo + "-repair",
-                        true,
-                        executeStage.reasoningEnabled(),
-                        true,
-                        true,
-                        sink
-                );
+            String finalText = services.normalize(stepTurn.finalText());
+            if (!finalText.isBlank()) {
+                services.appendAssistantMessage(context.executeMessages(), finalText);
             }
 
-            if (!stepTurn.toolCalls().isEmpty()) {
-                services.executeToolsAndEmit(context, executeTools, stepTurn.toolCalls(), sink);
-
-                OrchestratorServices.ModelTurn stepSummary = services.callModelTurnStreaming(
-                        context,
-                        executeStage,
-                        context.executeMessages(),
-                        "请总结当前步骤执行结果。",
-                        List.of(),
-                        ToolChoice.NONE,
-                        "agent-plan-step-summary-" + stepNo,
-                        false,
-                        executeStage.reasoningEnabled(),
-                        true,
-                        true,
-                        sink
-                );
-                String summaryText = services.normalize(stepSummary.finalText());
-                services.appendAssistantMessage(context.executeMessages(), summaryText);
-                if (!summaryText.isBlank()) {
-                    context.toolRecords().add(Map.of(
-                            "stepId", normalize(step.taskId(), "unknown"),
-                            "stepTitle", normalize(step.description(), "执行任务"),
-                            "summary", summaryText
-                    ));
+            if (stepTurn.toolCalls().isEmpty()) {
+                if (services.requiresTool(context)) {
+                    context.executeMessages().add(new UserMessage("该执行回合必须调用一个工具。"));
                 }
-            } else if (!services.normalize(stepTurn.finalText()).isBlank()) {
-                services.appendAssistantMessage(context.executeMessages(), services.normalize(stepTurn.finalText()));
-                context.toolRecords().add(Map.of(
-                        "stepId", normalize(step.taskId(), "unknown"),
-                        "stepTitle", normalize(step.description(), "执行任务"),
-                        "summary", services.normalize(stepTurn.finalText())
+                return false;
+            }
+
+            boolean multipleTools = stepTurn.toolCalls().size() > 1;
+            if (multipleTools) {
+                context.executeMessages().add(new UserMessage("每个执行回合最多一个工具调用，系统已仅执行第一个调用。"));
+            }
+            String beforeStatus = statusOfTask(context.planTasks(), step.taskId());
+            var first = stepTurn.toolCalls().getFirst();
+            services.executeToolsAndEmit(context, executeTools, List.of(first), sink);
+
+            if (isUpdateToolCall(first, step.taskId())) {
+                String afterStatus = statusOfTask(context.planTasks(), step.taskId());
+                if (afterStatus != null && !Objects.equals(beforeStatus, afterStatus)) {
+                    return true;
+                }
+                context.executeMessages().add(new UserMessage(
+                        "_plan_update_task_ 已调用但任务状态未变化，请继续执行并确保状态推进。"
                 ));
             }
+            if (multipleTools) {
+                return false;
+            }
+            context.executeMessages().add(new UserMessage("继续执行当前任务，结束前必须调用 _plan_update_task_ 更新状态。"));
+        }
+        return false;
+    }
 
-            ToolExecutionService.PlanSnapshot afterSnapshot = services.toolExecutionService().planSnapshot(context);
-            String beforeStatus = normalizeStatus(step.status());
-            String afterStatus = statusOfTask(afterSnapshot.tasks(), step.taskId());
-            boolean progressed = afterStatus == null || !Objects.equals(beforeStatus, afterStatus);
-            if (progressed) {
-                stalledTaskId = null;
-                stalledCount = 0;
-                continue;
-            }
+    private boolean runUpdateRound(
+            ExecutionContext context,
+            OrchestratorServices services,
+            Map<String, BaseTool> executeTools,
+            int stepNo,
+            AgentDelta.PlanTask step,
+            boolean repair,
+            FluxSink<AgentDelta> sink
+    ) {
+        String beforeStatus = statusOfTask(context.planTasks(), step.taskId());
+        context.executeMessages().add(new UserMessage(
+                "请立即调用 _plan_update_task_ 更新当前任务状态。"
+                        + "\n当前 taskId: " + normalize(step.taskId(), "unknown")
+                        + "\n合法状态: init/completed/failed/canceled"
+        ));
 
-            if (Objects.equals(stalledTaskId, step.taskId())) {
-                stalledCount++;
-            } else {
-                stalledTaskId = step.taskId();
-                stalledCount = 1;
-            }
-            if (stalledCount >= 2) {
-                throw new PlanExecutionStalledException(
-                        "计划任务执行中断：任务 [" + normalize(step.taskId(), "unknown")
-                                + "] 连续 2 次无状态推进，请在任务完成后调用 _plan_update_task_ 更新状态。"
-                );
-            }
+        OrchestratorServices.ModelTurn updateTurn = services.callModelTurnStreaming(
+                context,
+                executeStage,
+                context.executeMessages(),
+                null,
+                executeTools,
+                services.toolExecutionService().enabledFunctionTools(executeTools),
+                ToolChoice.REQUIRED,
+                repair
+                        ? "agent-plan-execute-step-" + stepNo + "-update-repair"
+                        : "agent-plan-execute-step-" + stepNo + "-update",
+                false,
+                executeStage.reasoningEnabled(),
+                true,
+                true,
+                sink
+        );
+
+        if (updateTurn.toolCalls().isEmpty()) {
+            return false;
+        }
+        if (updateTurn.toolCalls().size() > 1) {
+            context.executeMessages().add(new UserMessage("更新回合只允许一个工具调用，系统已仅执行第一个调用。"));
         }
 
-        context.executeMessages().add(new UserMessage("所有步骤已完成，请综合所有步骤的执行结果给出最终答案。"));
-        boolean secondPass = services.verifyService().requiresSecondPass(context.definition().runSpec().verify());
+        var first = updateTurn.toolCalls().getFirst();
+        services.executeToolsAndEmit(context, executeTools, List.of(first), sink);
+        if (!isUpdateToolCall(first, step.taskId())) {
+            return false;
+        }
 
-        String finalText = services.forceFinalAnswer(context, summary, context.executeMessages(), "agent-plan-final",
-                !secondPass, sink);
-        services.appendAssistantMessage(context.executeMessages(), finalText);
-        services.emitFinalAnswer(context, context.executeMessages(), finalText, !secondPass, sink);
+        String afterStatus = statusOfTask(context.planTasks(), step.taskId());
+        return afterStatus != null && !Objects.equals(beforeStatus, afterStatus);
+    }
+
+    private boolean isUpdateToolCall(com.linlay.springaiagw.agent.PlannedToolCall call, String taskId) {
+        if (call == null) {
+            return false;
+        }
+        if (!PLAN_UPDATE_TASK_TOOL.equals(normalize(call.name(), "").toLowerCase())) {
+            return false;
+        }
+        if (call.arguments() == null || call.arguments().isEmpty()) {
+            return false;
+        }
+        Object value = call.arguments().get("taskId");
+        if (value == null) {
+            return false;
+        }
+        return normalize(taskId, "").equals(normalize(value.toString(), ""));
+    }
+
+    private boolean containsPlanAddCall(List<com.linlay.springaiagw.agent.PlannedToolCall> calls) {
+        if (calls == null || calls.isEmpty()) {
+            return false;
+        }
+        return calls.stream()
+                .filter(Objects::nonNull)
+                .map(call -> normalize(call.name(), "").toLowerCase())
+                .anyMatch(name -> PLAN_ADD_TASK_TOOL.equals(name));
+    }
+
+    private void ensureTaskNotFailed(ExecutionContext context, AgentDelta.PlanTask step) {
+        String status = statusOfTask(context.planTasks(), step.taskId());
+        if ("failed".equals(status)) {
+            throw new PlanExecutionStalledException(
+                    "计划任务执行失败：任务 [" + normalize(step.taskId(), "unknown")
+                            + "] 已被标记为 failed，流程已中断。"
+            );
+        }
     }
 
     private List<AgentDelta.PlanTask> toPlanTasks(List<OrchestratorServices.PlanStep> steps) {
@@ -248,7 +372,7 @@ public final class PlanExecuteMode extends AgentMode {
             if (step == null || step.title() == null || step.title().isBlank()) {
                 continue;
             }
-            String taskId = normalize(step.id(), "task" + index);
+            String taskId = normalize(step.id(), shortId());
             String description = normalize(step.title(), normalize(step.goal(), "执行任务"));
             tasks.add(new AgentDelta.PlanTask(
                     taskId,
@@ -269,7 +393,7 @@ public final class PlanExecuteMode extends AgentMode {
                 continue;
             }
             String status = normalizeStatus(task.status());
-            if (!"completed".equals(status) && !"canceled".equals(status)) {
+            if (!"completed".equals(status) && !"canceled".equals(status) && !"failed".equals(status)) {
                 return task;
             }
         }
@@ -322,10 +446,19 @@ public final class PlanExecuteMode extends AgentMode {
         if (status == null || status.isBlank()) {
             return "init";
         }
-        return status.trim().toLowerCase();
+        String normalized = status.trim().toLowerCase();
+        return switch (normalized) {
+            case "in_progress" -> "init";
+            case "init", "completed", "failed", "canceled" -> normalized;
+            default -> "init";
+        };
     }
 
     private String normalize(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value.trim();
+    }
+
+    private String shortId() {
+        return UUID.randomUUID().toString().replace("-", "").substring(0, 8);
     }
 }

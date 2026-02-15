@@ -87,6 +87,7 @@ public class OrchestratorServices {
             StageSettings stageSettings,
             List<Message> messages,
             String userPrompt,
+            Map<String, BaseTool> stageTools,
             List<LlmService.LlmFunctionTool> tools,
             ToolChoice toolChoice,
             String stage,
@@ -98,6 +99,10 @@ public class OrchestratorServices {
     ) {
         Objects.requireNonNull(stageSettings, "stageSettings must not be null");
         context.incrementModelCalls();
+        String effectiveSystemPrompt = toolExecutionService.applyBackendPrompts(
+                stageSettings.systemPrompt(),
+                stageTools
+        );
 
         StringBuilder reasoning = new StringBuilder();
         StringBuilder content = new StringBuilder();
@@ -110,7 +115,7 @@ public class OrchestratorServices {
         for (LlmDelta delta : llmService.streamDeltas(new LlmCallSpec(
                 resolveProvider(stageSettings, context),
                 resolveModel(stageSettings, context),
-                stageSettings.systemPrompt(),
+                effectiveSystemPrompt,
                 messages,
                 userPrompt,
                 tools,
@@ -277,6 +282,7 @@ public class OrchestratorServices {
     public String forceFinalAnswer(
             ExecutionContext context,
             StageSettings stageSettings,
+            Map<String, BaseTool> stageTools,
             List<Message> messages,
             String stage,
             boolean emitContent,
@@ -287,6 +293,7 @@ public class OrchestratorServices {
                 stageSettings,
                 messages,
                 "请基于当前信息输出最终答案，不再调用工具。",
+                stageTools,
                 List.of(),
                 ToolChoice.NONE,
                 stage,

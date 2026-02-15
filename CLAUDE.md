@@ -178,7 +178,7 @@ POST /api/query → AgwController → AgwQueryService → DefinitionDrivenAgent.
 }
 ```
 
-**PLAN_EXECUTE** — LLM 逐步决策，每步可调用 0~N 个工具（支持并行 tool_calls）：
+**PLAN_EXECUTE** — 先规划后执行：plan 阶段双回合公开流式（draft + generate），execute 阶段按小 ReAct 串行单工具推进并在更新回合调用 `_plan_update_task_`：
 
 ```json
 {
@@ -254,7 +254,7 @@ Agent 行为应由 LLM 推理和工具调用驱动（通过 prompt 引导），J
 
 **REACT** — 最多 6 轮循环：思考 → 调 1 个工具 → 观察结果，直到给出最终答案。每轮最多 1 个工具。
 
-**PLAN_EXECUTE** — LLM 逐步决策，每步可调用 0~N 个工具（支持并行 tool_calls），按顺序执行，下一步可引用上一步的工具结果（链式引用）。
+**PLAN_EXECUTE** — plan 阶段为双回合公开流式：先产出规划正文（禁工具），再调用 `_plan_add_tasks_` 落盘；execute 阶段每轮最多 1 个工具，完成后在更新回合调用 `_plan_update_task_`（失败可修复 1 次）。
 
 ### 2. 严格真流式输出（CRITICAL）
 

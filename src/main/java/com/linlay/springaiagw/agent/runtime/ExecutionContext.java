@@ -12,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -153,11 +154,12 @@ public class ExecutionContext {
             }
             String taskId = StringUtils.hasText(task.taskId()) ? task.taskId().trim() : "";
             if (!StringUtils.hasText(taskId) || usedIds.contains(taskId)) {
-                while (usedIds.contains("task" + nextIndex)) {
-                    nextIndex++;
+                taskId = shortId();
+                while (usedIds.contains(taskId)) {
+                    taskId = shortId();
                 }
-                taskId = "task" + nextIndex++;
             }
+            nextIndex++;
             usedIds.add(taskId);
             planTasks.add(new AgentDelta.PlanTask(
                     taskId,
@@ -223,10 +225,15 @@ public class ExecutionContext {
         if (!StringUtils.hasText(raw)) {
             return "init";
         }
-        String normalized = raw.trim().toLowerCase();
+        String normalized = raw.trim().toLowerCase(Locale.ROOT);
         return switch (normalized) {
-            case "init", "in_progress", "completed", "failed", "canceled" -> normalized;
+            case "in_progress" -> "init";
+            case "init", "completed", "failed", "canceled" -> normalized;
             default -> "init";
         };
+    }
+
+    private String shortId() {
+        return UUID.randomUUID().toString().replace("-", "").substring(0, 8).toLowerCase(Locale.ROOT);
     }
 }

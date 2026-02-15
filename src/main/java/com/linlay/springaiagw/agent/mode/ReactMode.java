@@ -76,6 +76,7 @@ public final class ReactMode extends AgentMode {
                     stage,
                     context.conversationMessages(),
                     null,
+                    stageTools,
                     services.toolExecutionService().enabledFunctionTools(stageTools),
                     services.requiresTool(context) ? ToolChoice.REQUIRED : ToolChoice.AUTO,
                     "agent-react-step-" + step,
@@ -113,6 +114,7 @@ public final class ReactMode extends AgentMode {
         String forced = services.forceFinalAnswer(
                 context,
                 stage,
+                stageTools,
                 context.conversationMessages(),
                 "agent-react-force-final",
                 !secondPass,

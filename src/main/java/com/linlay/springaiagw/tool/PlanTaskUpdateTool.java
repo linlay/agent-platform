@@ -1,7 +1,6 @@
 package com.linlay.springaiagw.tool;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.stereotype.Component;
 
 import java.util.Locale;
@@ -17,23 +16,15 @@ public class PlanTaskUpdateTool extends AbstractDeterministicTool {
 
     @Override
     public JsonNode invoke(Map<String, Object> args) {
-        ObjectNode result = OBJECT_MAPPER.createObjectNode();
-        result.put("tool", name());
         String taskId = readString(args, "taskId");
-        String status = normalizeStatus(readString(args, "status"));
         if (taskId == null || taskId.isBlank()) {
-            result.put("ok", false);
-            result.put("error", "Missing taskId");
-            return result;
+            return OBJECT_MAPPER.getNodeFactory().textNode("失败: 缺少 taskId");
         }
-        result.put("ok", true);
-        result.put("taskId", taskId.trim());
-        result.put("status", status);
-        String description = readString(args, "description");
-        if (description != null && !description.isBlank()) {
-            result.put("description", description.trim());
+        String status = normalizeStatusStrict(readString(args, "status"));
+        if (status == null) {
+            return OBJECT_MAPPER.getNodeFactory().textNode("失败: 非法状态，仅支持 init/completed/failed/canceled");
         }
-        return result;
+        return OBJECT_MAPPER.getNodeFactory().textNode("OK");
     }
 
     private String readString(Map<String, Object> args, String key) {
@@ -48,14 +39,14 @@ public class PlanTaskUpdateTool extends AbstractDeterministicTool {
         return text == null || text.isBlank() ? null : text;
     }
 
-    private String normalizeStatus(String raw) {
+    private String normalizeStatusStrict(String raw) {
         if (raw == null || raw.isBlank()) {
             return "init";
         }
         String normalized = raw.trim().toLowerCase(Locale.ROOT);
         return switch (normalized) {
-            case "init", "in_progress", "completed", "failed", "canceled" -> normalized;
-            default -> "init";
+            case "init", "completed", "failed", "canceled" -> normalized;
+            default -> null;
         };
     }
 }

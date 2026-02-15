@@ -222,9 +222,11 @@ curl -N -X POST "http://localhost:8080/api/query" \
 `mode` 支持：
 - `ONESHOT`：单轮直答，若配置工具可在同一轮完成“调用工具 + 最终答案”
 - `REACT`：多轮工具循环推理
-- `PLAN_EXECUTE`：先规划再逐步执行（支持每步 0~N 工具）
-  - execute 阶段由框架按计划动态调度：每轮读取当前 plan，选择首个未完成任务（`status != completed && status != canceled`）。
-  - 同一任务连续 2 次执行后状态无变化会中断，避免死循环。
+- `PLAN_EXECUTE`：先规划再逐步执行
+  - plan 阶段固定 2 个公开子回合：`agent-plan-draft`（深度思考与规划正文，禁工具）+ `agent-plan-generate`（调用 `_plan_add_tasks_` 落盘计划）。
+  - execute 阶段为小 ReAct：每个工作回合最多执行 1 个工具（串行），随后进入更新回合调用 `_plan_update_task_` 推进状态，更新失败允许修复 1 次。
+  - `failed` 为中断状态：任务被更新为 `failed` 后立即停止执行。
+  - 任务状态集合：`init` / `completed` / `failed` / `canceled`（历史 `in_progress` 仅兼容读取并映射为 `init`）。
 
 工具仅通过 `toolConfig` 配置：
 - 顶层：`toolConfig.backends/frontends/actions`

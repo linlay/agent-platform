@@ -3,7 +3,7 @@
     {
       "type": "function",
       "name": "_plan_update_task_",
-      "description": "更新计划中的任务状态。",
+      "description": "更新计划中的任务状态。status 仅支持 init/completed/failed/canceled；成功返回 OK，失败返回 失败: 原因。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -14,7 +14,6 @@
             "type": "string",
             "enum": [
               "init",
-              "in_progress",
               "completed",
               "failed",
               "canceled"

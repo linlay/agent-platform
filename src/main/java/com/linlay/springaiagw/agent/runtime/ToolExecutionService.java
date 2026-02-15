@@ -9,10 +9,12 @@ import com.linlay.springaiagw.agent.ToolArgumentResolver;
 import com.linlay.springaiagw.model.stream.AgentDelta;
 import com.linlay.springaiagw.service.FrontendSubmitCoordinator;
 import com.linlay.springaiagw.tool.BaseTool;
+import com.linlay.springaiagw.tool.CapabilityKind;
 import com.linlay.springaiagw.tool.ToolRegistry;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -110,6 +112,35 @@ public class ToolExecutionService {
         String planId = context.planId();
         String chatId = context.request() == null ? null : context.request().chatId();
         return new PlanSnapshot(planId, chatId, context.planTasks());
+    }
+
+    public String applyBackendPrompts(String systemPrompt, Map<String, BaseTool> stageTools) {
+        String base = normalize(systemPrompt);
+        if (stageTools == null || stageTools.isEmpty()) {
+            return base;
+        }
+        List<String> lines = stageTools.values().stream()
+                .filter(tool -> tool != null && StringUtils.hasText(tool.name()))
+                .filter(tool -> isBackendTool(tool.name()))
+                .sorted(Comparator.comparing(tool -> normalizeToolName(tool.name())))
+                .map(tool -> {
+                    String prompt = normalize(tool.prompt());
+                    if (!StringUtils.hasText(prompt)) {
+                        return null;
+                    }
+                    return "- " + normalizeToolName(tool.name()) + ": " + prompt;
+                })
+                .filter(StringUtils::hasText)
+                .distinct()
+                .toList();
+        if (lines.isEmpty()) {
+            return base;
+        }
+        String appendix = "工具补充指令:\n" + String.join("\n", lines);
+        if (!StringUtils.hasText(base)) {
+            return appendix;
+        }
+        return base + "\n\n" + appendix;
     }
 
     private JsonNode invokeByKind(
@@ -228,7 +259,7 @@ public class ToolExecutionService {
                 continue;
             }
             String status = normalizeStatus(task.status());
-            if (!"completed".equals(status) && !"canceled".equals(status)) {
+            if (!"completed".equals(status) && !"canceled".equals(status) && !"failed".equals(status)) {
                 return task.taskId().trim();
             }
         }
@@ -258,10 +289,11 @@ public class ToolExecutionService {
         }
         String normalizedName = toolName.trim().toLowerCase(Locale.ROOT);
         if ("_plan_add_tasks_".equals(normalizedName)) {
-            if (!isSuccessfulPlanToolResult(resultNode)) {
+            String resultText = toResultText(resultNode);
+            if (isFailedPlanToolResult(resultText)) {
                 return null;
             }
-            List<AgentDelta.PlanTask> created = parsePlanTasks(args);
+            List<AgentDelta.PlanTask> created = parsePlanTasksFromResult(resultText);
             if (created.isEmpty()) {
                 return null;
             }
@@ -269,7 +301,8 @@ public class ToolExecutionService {
             return AgentDelta.planUpdate(context.planId(), context.request().chatId(), context.planTasks());
         }
         if ("_plan_update_task_".equals(normalizedName)) {
-            if (!isSuccessfulPlanToolResult(resultNode)) {
+            String resultText = toResultText(resultNode);
+            if (!isSuccessfulPlanUpdateResult(resultText, resultNode)) {
                 return null;
             }
             String taskId = asString(args, "taskId");
@@ -287,41 +320,30 @@ public class ToolExecutionService {
         return null;
     }
 
-    private List<AgentDelta.PlanTask> parsePlanTasks(Map<String, Object> args) {
-        if (args == null || args.isEmpty()) {
+    private List<AgentDelta.PlanTask> parsePlanTasksFromResult(String resultText) {
+        if (!StringUtils.hasText(resultText)) {
             return List.of();
         }
+        String normalized = resultText.replace("\r\n", "\n");
         List<AgentDelta.PlanTask> tasks = new ArrayList<>();
-        Object rawTasks = args.get("tasks");
-        if (rawTasks instanceof List<?> list) {
-            for (Object item : list) {
-                if (!(item instanceof Map<?, ?> map)) {
-                    continue;
-                }
-                String taskId = readString(map, "taskId");
-                String description = readString(map, "description");
-                if (!StringUtils.hasText(description)) {
-                    continue;
-                }
-                tasks.add(new AgentDelta.PlanTask(
-                        taskId,
-                        description.trim(),
-                        normalizeStatus(readString(map, "status"))
-                ));
+        for (String line : normalized.split("\n")) {
+            String trimmed = line == null ? "" : line.trim();
+            if (!StringUtils.hasText(trimmed)) {
+                continue;
             }
+            String[] parts = trimmed.split("\\|", 3);
+            if (parts.length != 3) {
+                continue;
+            }
+            String taskId = normalize(parts[0]);
+            String status = parseLineStatus(parts[1]);
+            String description = normalize(parts[2]);
+            if (!StringUtils.hasText(taskId) || !StringUtils.hasText(description) || !StringUtils.hasText(status)) {
+                continue;
+            }
+            tasks.add(new AgentDelta.PlanTask(taskId, description, status));
         }
-        if (!tasks.isEmpty()) {
-            return List.copyOf(tasks);
-        }
-        String description = asString(args, "description");
-        if (!StringUtils.hasText(description)) {
-            return List.of();
-        }
-        return List.of(new AgentDelta.PlanTask(
-                asString(args, "taskId"),
-                description.trim(),
-                normalizeStatus(asString(args, "status"))
-        ));
+        return tasks.isEmpty() ? List.of() : List.copyOf(tasks);
     }
 
     private String readString(Map<?, ?> map, String key) {
@@ -354,19 +376,47 @@ public class ToolExecutionService {
         }
         String normalized = raw.trim().toLowerCase(Locale.ROOT);
         return switch (normalized) {
-            case "init", "in_progress", "completed", "failed", "canceled" -> normalized;
+            case "in_progress" -> "init";
+            case "init", "completed", "failed", "canceled" -> normalized;
             default -> "init";
         };
     }
 
-    private boolean isSuccessfulPlanToolResult(JsonNode resultNode) {
+    private String parseLineStatus(String raw) {
+        if (!StringUtils.hasText(raw)) {
+            return "init";
+        }
+        String normalized = raw.trim().toLowerCase(Locale.ROOT);
+        return switch (normalized) {
+            case "init", "completed", "failed", "canceled" -> normalized;
+            default -> null;
+        };
+    }
+
+    private boolean isFailedPlanToolResult(String resultText) {
+        if (!StringUtils.hasText(resultText)) {
+            return true;
+        }
+        return normalize(resultText).startsWith("失败:");
+    }
+
+    private boolean isSuccessfulPlanUpdateResult(String resultText, JsonNode resultNode) {
+        if ("OK".equals(normalize(resultText))) {
+            return true;
+        }
         if (resultNode == null || resultNode.isNull()) {
             return false;
         }
-        if (!resultNode.isObject() || !resultNode.has("ok")) {
-            return true;
+        if (resultNode.isObject() && resultNode.has("ok")) {
+            return resultNode.path("ok").asBoolean(false);
         }
-        return resultNode.path("ok").asBoolean(false);
+        return false;
+    }
+
+    private boolean isBackendTool(String toolName) {
+        return toolRegistry.capability(toolName)
+                .map(descriptor -> descriptor.kind() == CapabilityKind.BACKEND)
+                .orElse(true);
     }
 
     private ObjectNode errorResult(String toolName, String message) {

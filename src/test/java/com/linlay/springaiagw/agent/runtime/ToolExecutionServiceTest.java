@@ -81,7 +81,7 @@ class ToolExecutionServiceTest {
         assertThat(result)
                 .contains("计划ID: plan_chat_1")
                 .contains("task1 | init | 检查环境")
-                .contains("task2 | in_progress | 执行迁移")
+                .contains("task2 | init | 执行迁移")
                 .contains("当前应执行 taskId: task1");
     }
 

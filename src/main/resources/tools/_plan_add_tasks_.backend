@@ -3,7 +3,7 @@
     {
       "type": "function",
       "name": "_plan_add_tasks_",
-      "description": "创建计划任务（追加模式），支持一次添加一个或多个任务。",
+      "description": "创建计划任务（追加模式），支持一次添加一个或多个任务。成功返回多行文本：taskId | status | description。",
       "parameters": {
         "type": "object",
         "properties": {
@@ -22,7 +22,6 @@
                   "type": "string",
                   "enum": [
                     "init",
-                    "in_progress",
                     "completed",
                     "failed",
                     "canceled"
@@ -45,7 +44,6 @@
             "type": "string",
             "enum": [
               "init",
-              "in_progress",
               "completed",
               "failed",
               "canceled"

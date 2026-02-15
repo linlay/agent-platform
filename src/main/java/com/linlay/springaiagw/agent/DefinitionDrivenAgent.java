@@ -363,7 +363,8 @@ public class DefinitionDrivenAgent implements Agent {
         }
         String normalized = raw.trim().toLowerCase(Locale.ROOT);
         return switch (normalized) {
-            case "init", "in_progress", "completed", "failed", "canceled" -> normalized;
+            case "in_progress" -> "init";
+            case "init", "completed", "failed", "canceled" -> normalized;
             default -> "init";
         };
     }

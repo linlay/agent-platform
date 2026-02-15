@@ -20,7 +20,7 @@
         "model": "qwen3-max",
         "reasoning": {
           "enabled": true,
-          "effort": "HIGH"
+          "effort": "MEDIUM"
         }
       },
       "toolConfig": {

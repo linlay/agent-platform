@@ -36,6 +36,8 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -43,6 +45,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 class DefinitionDrivenAgentTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private static final Pattern CURRENT_TASK_ID_PATTERN =
+            Pattern.compile("(?:当前要执行的 taskId|当前 taskId):\\s*([^\\n]+)");
 
     @Test
     void oneshotToolingShouldEmitToolCallResultAndFinalAnswer() {
@@ -292,6 +296,9 @@ class DefinitionDrivenAgentTest {
             @Override
             public Flux<LlmDelta> streamDeltas(LlmCallSpec spec) {
                 captured.add(spec.stage() + "::" + spec.systemPrompt());
+                if ("agent-plan-draft".equals(spec.stage())) {
+                    return Flux.just(new LlmDelta("先规划", null, "stop"));
+                }
                 if ("agent-plan-generate".equals(spec.stage())) {
                     return Flux.just(new LlmDelta(
                             null,
@@ -301,15 +308,13 @@ class DefinitionDrivenAgentTest {
                     ));
                 }
                 if ("agent-plan-execute-step-1".equals(spec.stage())) {
+                    String taskId = currentTaskId(spec);
                     return Flux.just(new LlmDelta(
                             null,
                             List.of(new ToolCallDelta("call_update_1", "function", "_plan_update_task_",
-                                    "{\"taskId\":\"s1\",\"status\":\"completed\"}")),
+                                    "{\"taskId\":\"" + taskId + "\",\"status\":\"completed\"}")),
                             "tool_calls"
                     ));
-                }
-                if ("agent-plan-step-summary-1".equals(spec.stage())) {
-                    return Flux.just(new LlmDelta("步骤执行完成", null, "stop"));
                 }
                 return Flux.just(new LlmDelta("最终回答", null, "stop"));
             }
@@ -330,9 +335,161 @@ class DefinitionDrivenAgentTest {
                 .block(Duration.ofSeconds(3));
 
         assertThat(deltas).isNotNull();
+        assertThat(captured.stream().anyMatch(item -> item.contains("agent-plan-draft::规划系统提示"))).isTrue();
         assertThat(captured.stream().anyMatch(item -> item.contains("agent-plan-generate::规划系统提示"))).isTrue();
         assertThat(captured.stream().anyMatch(item -> item.contains("agent-plan-execute-step-1::执行系统提示"))).isTrue();
         assertThat(captured.stream().anyMatch(item -> item.contains("agent-plan-final::总结系统提示"))).isTrue();
+    }
+
+    @Test
+    void planExecutePlanRoundsShouldExposeDraftContentAndPlanToolDelta() {
+        AgentDefinition definition = definition(
+                "demoPlanPublicTurns",
+                AgentRuntimeMode.PLAN_EXECUTE,
+                new RunSpec(ControlStrategy.PLAN_EXECUTE, OutputPolicy.PLAIN, ToolPolicy.ALLOW, VerifyPolicy.NONE, Budget.DEFAULT),
+                new PlanExecuteMode(
+                        new StageSettings("规划系统提示", null, null, List.of("_plan_add_tasks_"), true, ComputePolicy.MEDIUM),
+                        new StageSettings("执行系统提示", null, null, List.of("_plan_update_task_"), false, ComputePolicy.MEDIUM),
+                        new StageSettings("总结系统提示", null, null, List.of(), false, ComputePolicy.MEDIUM)
+                ),
+                List.of("_plan_add_tasks_", "_plan_update_task_")
+        );
+
+        LlmService llmService = new StubLlmService() {
+            @Override
+            public Flux<LlmDelta> streamDeltas(LlmCallSpec spec) {
+                if ("agent-plan-draft".equals(spec.stage())) {
+                    return Flux.just(new LlmDelta("公开计划草稿", null, "stop"));
+                }
+                if ("agent-plan-generate".equals(spec.stage())) {
+                    return Flux.just(new LlmDelta(
+                            null,
+                            List.of(new ToolCallDelta("call_plan_public", "function", "_plan_add_tasks_",
+                                    "{\"tasks\":[{\"taskId\":\"p1\",\"description\":\"任务A\",\"status\":\"init\"}]}")),
+                            "tool_calls"
+                    ));
+                }
+                if ("agent-plan-execute-step-1".equals(spec.stage())) {
+                    String taskId = currentTaskId(spec);
+                    return Flux.just(new LlmDelta(
+                            null,
+                            List.of(new ToolCallDelta("call_update_public", "function", "_plan_update_task_",
+                                    "{\"taskId\":\"" + taskId + "\",\"status\":\"completed\"}")),
+                            "tool_calls"
+                    ));
+                }
+                return Flux.just(new LlmDelta("完成", null, "stop"));
+            }
+        };
+
+        DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
+                definition,
+                llmService,
+                new DeltaStreamService(),
+                new ToolRegistry(List.of(new PlanCreateTool(), new PlanTaskUpdateTool())),
+                objectMapper,
+                null,
+                null
+        );
+
+        List<AgentDelta> deltas = agent.stream(new AgentRequest("测试 plan 公开回合", null, null, null))
+                .collectList()
+                .block(Duration.ofSeconds(3));
+
+        assertThat(deltas).isNotNull();
+        assertThat(deltas.stream().map(AgentDelta::content).filter(text -> text != null && !text.isBlank()))
+                .contains("公开计划草稿");
+        assertThat(deltas.stream().flatMap(delta -> delta.toolCalls().stream()).map(ToolCallDelta::id))
+                .contains("call_plan_public");
+    }
+
+    @Test
+    void shouldInjectBackendPromptIntoPlanExecuteStages() {
+        List<String> prompts = new CopyOnWriteArrayList<>();
+
+        BaseTool promptTool = new BaseTool() {
+            @Override
+            public String name() {
+                return "prompt_tool";
+            }
+
+            @Override
+            public String description() {
+                return "prompt helper";
+            }
+
+            @Override
+            public String prompt() {
+                return "请遵循 prompt_tool 的额外约束";
+            }
+
+            @Override
+            public JsonNode invoke(Map<String, Object> args) {
+                return objectMapper.valueToTree(Map.of("ok", true));
+            }
+        };
+
+        AgentDefinition definition = definition(
+                "demoPromptInject",
+                AgentRuntimeMode.PLAN_EXECUTE,
+                new RunSpec(ControlStrategy.PLAN_EXECUTE, OutputPolicy.PLAIN, ToolPolicy.ALLOW, VerifyPolicy.NONE, Budget.DEFAULT),
+                new PlanExecuteMode(
+                        new StageSettings("规划系统提示", null, null, List.of("_plan_add_tasks_", "prompt_tool"), false, ComputePolicy.MEDIUM),
+                        new StageSettings("执行系统提示", null, null, List.of("_plan_update_task_", "prompt_tool"), false, ComputePolicy.MEDIUM),
+                        new StageSettings("总结系统提示", null, null, List.of("prompt_tool"), false, ComputePolicy.MEDIUM)
+                ),
+                List.of("_plan_add_tasks_", "_plan_update_task_", "prompt_tool")
+        );
+
+        LlmService llmService = new StubLlmService() {
+            @Override
+            public Flux<LlmDelta> streamDeltas(LlmCallSpec spec) {
+                prompts.add(spec.stage() + "::" + spec.systemPrompt());
+                if ("agent-plan-draft".equals(spec.stage())) {
+                    return Flux.just(new LlmDelta("草稿", null, "stop"));
+                }
+                if ("agent-plan-generate".equals(spec.stage())) {
+                    return Flux.just(new LlmDelta(
+                            null,
+                            List.of(new ToolCallDelta("call_plan_prompt", "function", "_plan_add_tasks_",
+                                    "{\"tasks\":[{\"taskId\":\"pt1\",\"description\":\"任务1\",\"status\":\"init\"}]}")),
+                            "tool_calls"
+                    ));
+                }
+                if ("agent-plan-execute-step-1".equals(spec.stage())) {
+                    String taskId = currentTaskId(spec);
+                    return Flux.just(new LlmDelta(
+                            null,
+                            List.of(new ToolCallDelta("call_update_prompt", "function", "_plan_update_task_",
+                                    "{\"taskId\":\"" + taskId + "\",\"status\":\"completed\"}")),
+                            "tool_calls"
+                    ));
+                }
+                return Flux.just(new LlmDelta("最终", null, "stop"));
+            }
+        };
+
+        DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
+                definition,
+                llmService,
+                new DeltaStreamService(),
+                new ToolRegistry(List.of(new PlanCreateTool(), new PlanTaskUpdateTool(), promptTool)),
+                objectMapper,
+                null,
+                null
+        );
+
+        agent.stream(new AgentRequest("测试 prompt 注入", null, null, null))
+                .collectList()
+                .block(Duration.ofSeconds(3));
+
+        assertThat(prompts.stream().anyMatch(text -> text.contains("agent-plan-draft")
+                && text.contains("工具补充指令:")
+                && text.contains("prompt_tool: 请遵循 prompt_tool 的额外约束"))).isTrue();
+        assertThat(prompts.stream().anyMatch(text -> text.contains("agent-plan-execute-step-1")
+                && text.contains("prompt_tool: 请遵循 prompt_tool 的额外约束"))).isTrue();
+        assertThat(prompts.stream().anyMatch(text -> text.contains("agent-plan-final")
+                && text.contains("prompt_tool: 请遵循 prompt_tool 的额外约束"))).isTrue();
     }
 
     @Test
@@ -448,6 +605,9 @@ class DefinitionDrivenAgentTest {
                         executeUserMessages.add(spec.messages().get(spec.messages().size() - 1).getText());
                     }
                 }
+                if ("agent-plan-draft".equals(spec.stage())) {
+                    return Flux.just(new LlmDelta("计划草稿", null, "stop"));
+                }
                 if ("agent-plan-generate".equals(spec.stage())) {
                     return Flux.just(new LlmDelta(
                             null,
@@ -460,27 +620,34 @@ class DefinitionDrivenAgentTest {
                 if ("agent-plan-execute-step-1".equals(spec.stage())) {
                     return Flux.just(new LlmDelta(
                             null,
-                            List.of(
-                                    new ToolCallDelta("call_plan_get_tasks_1", "function", "_plan_get_tasks_", "{}"),
-                                    new ToolCallDelta("call_update_1", "function", "_plan_update_task_",
-                                            "{\"taskId\":\"task1\",\"status\":\"completed\"}")
-                            ),
+                            List.of(new ToolCallDelta("call_plan_get_tasks_1", "function", "_plan_get_tasks_", "{}")),
+                            "tool_calls"
+                    ));
+                }
+                if ("agent-plan-execute-step-1-update".equals(spec.stage())) {
+                    String taskId = currentTaskId(spec);
+                    return Flux.just(new LlmDelta(
+                            null,
+                            List.of(new ToolCallDelta("call_update_1", "function", "_plan_update_task_",
+                                    "{\"taskId\":\"" + taskId + "\",\"status\":\"completed\"}")),
                             "tool_calls"
                     ));
                 }
                 if ("agent-plan-execute-step-2".equals(spec.stage())) {
                     return Flux.just(new LlmDelta(
                             null,
-                            List.of(
-                                    new ToolCallDelta("call_plan_get_tasks_2", "function", "_plan_get_tasks_", "{}"),
-                                    new ToolCallDelta("call_update_2", "function", "_plan_update_task_",
-                                            "{\"taskId\":\"task2\",\"status\":\"completed\"}")
-                            ),
+                            List.of(new ToolCallDelta("call_plan_get_tasks_2", "function", "_plan_get_tasks_", "{}")),
                             "tool_calls"
                     ));
                 }
-                if (spec.stage().startsWith("agent-plan-step-summary-")) {
-                    return Flux.just(new LlmDelta("步骤执行完成", null, "stop"));
+                if ("agent-plan-execute-step-2-update".equals(spec.stage())) {
+                    String taskId = currentTaskId(spec);
+                    return Flux.just(new LlmDelta(
+                            null,
+                            List.of(new ToolCallDelta("call_update_2", "function", "_plan_update_task_",
+                                    "{\"taskId\":\"" + taskId + "\",\"status\":\"completed\"}")),
+                            "tool_calls"
+                    ));
                 }
                 return Flux.just(new LlmDelta("最终回答", null, "stop"));
             }
@@ -501,18 +668,22 @@ class DefinitionDrivenAgentTest {
                 .block(Duration.ofSeconds(3));
 
         assertThat(deltas).isNotNull();
-        assertThat(executeStages).containsExactly("agent-plan-execute-step-1", "agent-plan-execute-step-2");
-        assertThat(executeUserMessages).allMatch(text -> text.contains("这是任务列表："));
-        assertThat(executeUserMessages).allMatch(text -> text.contains("当前要执行的 taskId:"));
-        assertThat(executeUserMessages).noneMatch(text -> text.contains("当前执行任务 ["));
+        assertThat(executeStages).contains(
+                "agent-plan-execute-step-1",
+                "agent-plan-execute-step-1-update",
+                "agent-plan-execute-step-2",
+                "agent-plan-execute-step-2-update"
+        );
+        assertThat(executeUserMessages).anyMatch(text -> text.contains("这是任务列表："));
+        assertThat(executeUserMessages).anyMatch(text -> text.contains("当前要执行的 taskId:"));
         assertThat(deltas.stream().flatMap(delta -> delta.toolResults().stream())
                 .filter(result -> "call_plan_get_tasks_1".equals(result.toolId()))
                 .map(AgentDelta.ToolResult::result)
                 .findFirst()
                 .orElse(""))
                 .contains("计划ID:")
-                .contains("task1 | init | 任务1")
-                .contains("当前应执行 taskId: task1");
+                .contains("| init | 任务1")
+                .contains("当前应执行 taskId:");
     }
 
     @Test
@@ -616,6 +787,9 @@ class DefinitionDrivenAgentTest {
             @Override
             public Flux<LlmDelta> streamDeltas(LlmCallSpec spec) {
                 stages.add(spec.stage());
+                if ("agent-plan-draft".equals(spec.stage())) {
+                    return Flux.just(new LlmDelta("计划草稿", null, "stop"));
+                }
                 if ("agent-plan-generate".equals(spec.stage())) {
                     return Flux.just(new LlmDelta(
                             null,
@@ -624,7 +798,9 @@ class DefinitionDrivenAgentTest {
                             "tool_calls"
                     ));
                 }
-                if ("agent-plan-execute-step-1".equals(spec.stage()) || "agent-plan-execute-step-2".equals(spec.stage())) {
+                if ("agent-plan-execute-step-1".equals(spec.stage())
+                        || "agent-plan-execute-step-1-update".equals(spec.stage())
+                        || "agent-plan-execute-step-1-update-repair".equals(spec.stage())) {
                     return Flux.just(new LlmDelta("已执行但未更新状态", null, "stop"));
                 }
                 return Flux.just(new LlmDelta("不应到达这里", null, "stop"));
@@ -647,8 +823,8 @@ class DefinitionDrivenAgentTest {
 
         assertThat(deltas).isNotNull();
         assertThat(deltas.stream().map(AgentDelta::content).filter(text -> text != null && !text.isBlank()).toList())
-                .anyMatch(text -> text.contains("连续 2 次无状态推进"));
-        assertThat(stages).contains("agent-plan-execute-step-1", "agent-plan-execute-step-2");
+                .anyMatch(text -> text.contains("更新任务状态失败 2 次"));
+        assertThat(stages).contains("agent-plan-execute-step-1", "agent-plan-execute-step-1-update");
         assertThat(stages.stream().noneMatch(stage -> "agent-plan-final".equals(stage))).isTrue();
     }
 
@@ -721,6 +897,21 @@ class DefinitionDrivenAgentTest {
                 agentMode,
                 tools
         );
+    }
+
+    private String currentTaskId(LlmCallSpec spec) {
+        if (spec == null || spec.messages() == null || spec.messages().isEmpty()) {
+            return "unknown";
+        }
+        String text = spec.messages().get(spec.messages().size() - 1).getText();
+        if (text == null || text.isBlank()) {
+            return "unknown";
+        }
+        Matcher matcher = CURRENT_TASK_ID_PATTERN.matcher(text);
+        if (!matcher.find()) {
+            return "unknown";
+        }
+        return matcher.group(1).trim();
     }
 
     private abstract static class StubLlmService extends LlmService {
