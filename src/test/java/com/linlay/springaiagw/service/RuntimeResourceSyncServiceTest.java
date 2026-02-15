@@ -1,16 +1,17 @@
 package com.linlay.springaiagw.service;
 
-import com.linlay.springaiagw.agent.AgentCatalogProperties;
-import com.linlay.springaiagw.config.CapabilityCatalogProperties;
-import com.linlay.springaiagw.config.ViewportCatalogProperties;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
-import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
+import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-import static org.assertj.core.api.Assertions.assertThat;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
+
+import com.linlay.springaiagw.agent.AgentCatalogProperties;
+import com.linlay.springaiagw.config.CapabilityCatalogProperties;
+import com.linlay.springaiagw.config.ViewportCatalogProperties;
 
 class RuntimeResourceSyncServiceTest {
 
@@ -55,7 +56,7 @@ class RuntimeResourceSyncServiceTest {
 
         assertThat(syncedAgent).contains("\"mode\"").contains("\"ONESHOT\"");
         assertThat(syncedTool).contains("\"name\": \"mock_city_weather\"");
-        assertThat(syncedTool).contains("\"prompt\"");
+        assertThat(syncedTool).contains("\"afterCallHint\"");
         assertThat(syncedViewport).contains("<title>Weather Card</title>");
         assertThat(Files.readString(extraAgent)).isEqualTo("custom agent content");
         assertThat(Files.readString(extraTool)).isEqualTo("custom tool content");

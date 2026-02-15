@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Logistics Status</title>
+  <title>物流状态</title>
   <style>
     :root {
       --bg: linear-gradient(145deg, #f5f8ff, #f8fbff);
@@ -14,9 +14,7 @@
       --border: #d8e4ff;
     }
 
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
 
     body {
       margin: 0;
@@ -47,16 +45,8 @@
       gap: 12px;
     }
 
-    .tracking {
-      font-size: 22px;
-      font-weight: 700;
-      word-break: break-all;
-    }
-
-    .carrier {
-      font-size: 13px;
-      color: var(--text-sub);
-    }
+    .tracking { font-size: 22px; font-weight: 700; word-break: break-all; }
+    .carrier { font-size: 13px; color: var(--text-sub); }
 
     .status {
       display: inline-block;
@@ -82,18 +72,8 @@
       background: #f8fbff;
     }
 
-    .label {
-      font-size: 12px;
-      color: var(--text-sub);
-      margin-bottom: 6px;
-      display: block;
-    }
-
-    .value {
-      font-size: 16px;
-      font-weight: 700;
-      word-break: break-word;
-    }
+    .label { font-size: 12px; color: var(--text-sub); margin-bottom: 6px; display: block; }
+    .value { font-size: 16px; font-weight: 700; word-break: break-word; }
 
     .footer {
       margin-top: 14px;
@@ -127,50 +107,57 @@
 
     <div class="grid">
       <div class="item">
-        <span class="label">Current Node</span>
+        <span class="label">当前节点</span>
         <span class="value" id="currentNode">--</span>
       </div>
       <div class="item">
-        <span class="label">ETA Date</span>
+        <span class="label">预计送达</span>
         <span class="value" id="etaDate">--</span>
       </div>
       <div class="item">
-        <span class="label">Updated At</span>
+        <span class="label">最近更新时间</span>
         <span class="value" id="updatedAt">--</span>
       </div>
       <div class="item">
-        <span class="label">Mock Tag</span>
+        <span class="label">Mock 标识</span>
         <span class="value" id="mockTag">--</span>
       </div>
     </div>
 
     <div class="footer">
-      <span>Data source: MockLogisticsStatusTool</span>
-      <button class="ask-btn" type="button" onclick="sendMessage('Please show me another logistics sample')">Ask More</button>
+      <span>数据源：MockLogisticsStatusTool</span>
+      <button class="ask-btn" type="button" onclick="sendMessage('请再展示一个物流样例')">换一个样例</button>
     </div>
   </section>
 
   <script>
+    const statusMap = {
+      ORDER_CONFIRMED: '已下单',
+      IN_TRANSIT: '运输中',
+      OUT_FOR_DELIVERY: '派送中',
+      DELIVERED: '已签收'
+    };
+
     const fallback = {
-      trackingNo: "SF123456789CN",
-      carrier: "SF Express",
-      status: "IN_TRANSIT",
-      currentNode: "Arrived destination city",
-      etaDate: "2026-02-14",
-      updatedAt: "2026-02-13 10:36:00",
-      mockTag: "idempotent-random-json"
+      trackingNo: 'SF123456789CN',
+      carrier: 'SF Express',
+      status: 'IN_TRANSIT',
+      currentNode: '包裹已到达目的城市',
+      etaDate: '2026-02-14',
+      updatedAt: '2026-02-13 10:36:00',
+      mockTag: 'idempotent-random-json'
     };
 
     function normalizeData(raw) {
-      if (!raw || typeof raw !== "object") {
+      if (!raw || typeof raw !== 'object') {
         return fallback;
       }
 
       let payload = raw;
-      if (payload.result && typeof payload.result === "object") {
+      if (payload.result && typeof payload.result === 'object') {
         payload = payload.result;
       }
-      if (payload.toolResult && typeof payload.toolResult === "object") {
+      if (payload.toolResult && typeof payload.toolResult === 'object') {
         payload = payload.toolResult;
       }
 
@@ -187,26 +174,26 @@
 
     function renderCard(data) {
       const info = normalizeData(data);
-      document.getElementById("trackingNo").textContent = info.trackingNo;
-      document.getElementById("carrier").textContent = info.carrier;
-      document.getElementById("status").textContent = info.status;
-      document.getElementById("currentNode").textContent = info.currentNode;
-      document.getElementById("etaDate").textContent = info.etaDate;
-      document.getElementById("updatedAt").textContent = info.updatedAt;
-      document.getElementById("mockTag").textContent = info.mockTag;
+      document.getElementById('trackingNo').textContent = info.trackingNo;
+      document.getElementById('carrier').textContent = info.carrier;
+      document.getElementById('status').textContent = statusMap[info.status] || info.status;
+      document.getElementById('currentNode').textContent = info.currentNode;
+      document.getElementById('etaDate').textContent = info.etaDate;
+      document.getElementById('updatedAt').textContent = info.updatedAt;
+      document.getElementById('mockTag').textContent = info.mockTag;
     }
 
-    window.addEventListener("message", (event) => {
+    window.addEventListener('message', (event) => {
       renderCard(event.data);
     });
 
     function sendMessage(message) {
       window.parent.postMessage(
         {
-          type: "agw_chat_message",
+          type: 'agw_chat_message',
           message
         },
-        "*"
+        '*'
       );
     }
 

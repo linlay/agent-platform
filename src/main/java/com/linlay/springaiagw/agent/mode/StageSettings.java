@@ -10,8 +10,21 @@ public record StageSettings(
         String model,
         List<String> tools,
         boolean reasoningEnabled,
-        ComputePolicy reasoningEffort
+        ComputePolicy reasoningEffort,
+        boolean deepThinking
 ) {
+
+    public StageSettings(
+            String systemPrompt,
+            String providerKey,
+            String model,
+            List<String> tools,
+            boolean reasoningEnabled,
+            ComputePolicy reasoningEffort
+    ) {
+        this(systemPrompt, providerKey, model, tools, reasoningEnabled, reasoningEffort, false);
+    }
+
     public StageSettings {
         if (tools == null) {
             tools = List.of();

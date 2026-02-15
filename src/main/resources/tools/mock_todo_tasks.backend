@@ -1,0 +1,20 @@
+{
+  "tools": [
+    {
+      "type": "function",
+      "name": "mock_todo_tasks",
+      "description": "[MOCK] 生成待办任务列表（伪造数据）。",
+      "afterCallHint": "若需要 viewport 渲染，最终输出请使用 viewport 代码块并填写 type=html, key=show_todo_card；JSON 直接使用工具返回结果对象。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "type": "string",
+            "description": "任务归属人"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  ]
+}

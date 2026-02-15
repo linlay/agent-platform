@@ -5,7 +5,7 @@ import java.util.Map;
 public record CapabilityDescriptor(
         String name,
         String description,
-        String prompt,
+        String afterCallHint,
         Map<String, Object> parameters,
         Boolean strict,
         CapabilityKind kind,

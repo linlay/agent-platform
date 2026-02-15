@@ -1,6 +1,6 @@
 {
   "key": "demoModePlanExecute",
-  "name": "示例-先规划后执行",
+  "name": "示例-先深度思考规划后执行",
   "icon": "emoji:📅",
   "description": "内置示例：PLAN_EXECUTE 模式先规划后执行",
   "mode": "PLAN_EXECUTE",
@@ -17,6 +17,7 @@
   },
   "planExecute": {
     "plan": {
+      "deepThinking": true,
       "systemPrompt": """
         你是高级规划助手。
         根据用户的问题进行深度思考，然后规划出2～4个任务。
@@ -25,7 +26,8 @@
         "providerKey": "bailian",
         "model": "qwen3-max",
         "reasoning": {
-          "enabled": false
+          "enabled": true,
+          "effort": "LOW"
         }
       }
     },

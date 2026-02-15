@@ -1,14 +1,7 @@
 package com.linlay.springaiagw.tool;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.linlay.springaiagw.agent.AgentCatalogProperties;
-import com.linlay.springaiagw.config.CapabilityCatalogProperties;
-import com.linlay.springaiagw.config.ViewportCatalogProperties;
-import com.linlay.springaiagw.service.RuntimeResourceSyncService;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
-import org.springframework.beans.factory.support.StaticListableBeanFactory;
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -17,8 +10,16 @@ import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Map;
 
-import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.springframework.beans.factory.support.StaticListableBeanFactory;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.linlay.springaiagw.agent.AgentCatalogProperties;
+import com.linlay.springaiagw.config.CapabilityCatalogProperties;
+import com.linlay.springaiagw.config.ViewportCatalogProperties;
+import com.linlay.springaiagw.service.RuntimeResourceSyncService;
 
 class ToolRegistryTest {
 
@@ -26,6 +27,8 @@ class ToolRegistryTest {
     private final CityDateTimeTool cityDateTimeTool = new CityDateTimeTool();
     private final MockCityWeatherTool cityWeatherTool = new MockCityWeatherTool();
     private final MockLogisticsStatusTool logisticsStatusTool = new MockLogisticsStatusTool();
+    private final MockTransportScheduleTool transportScheduleTool = new MockTransportScheduleTool();
+    private final MockTodoTasksTool todoTasksTool = new MockTodoTasksTool();
     private final MockSensitiveDataDetectorTool sensitiveDataDetectorTool = new MockSensitiveDataDetectorTool();
     private final BashTool bashTool = new BashTool();
 
@@ -50,10 +53,19 @@ class ToolRegistryTest {
     }
 
     @Test
+    void sameArgsShouldReturnSameTransportScheduleJson() {
+        Map<String, Object> args = Map.of("type", "flight", "fromCity", "Shanghai", "toCity", "Beijing", "date", "2026-02-14");
+
+        JsonNode first = transportScheduleTool.invoke(args);
+        JsonNode second = transportScheduleTool.invoke(args);
+
+        assertThat(first).isEqualTo(second);
+    }
+
+    @Test
     void logisticsToolShouldReturnStructuredPayload() {
         JsonNode result = logisticsStatusTool.invoke(Map.of("trackingNo", "YT1234567890"));
 
-        assertThat(result.path("tool").asText()).isEqualTo("mock_logistics_status");
         assertThat(result.path("trackingNo").asText()).isEqualTo("YT1234567890");
         assertThat(result.path("carrier").asText()).isNotBlank();
         assertThat(result.path("status").asText()).isNotBlank();
@@ -64,12 +76,44 @@ class ToolRegistryTest {
     }
 
     @Test
+    void transportToolShouldReturnStructuredPayload() {
+        JsonNode result = transportScheduleTool.invoke(Map.of(
+                "type", "train",
+                "fromCity", "Shanghai",
+                "toCity", "Nanjing",
+                "date", "2026-02-15"
+        ));
+
+        assertThat(result.path("travelType").asText()).isEqualTo("高铁");
+        assertThat(result.path("fromCity").asText()).isEqualTo("上海");
+        assertThat(result.path("toCity").asText()).isEqualTo("南京");
+        assertThat(result.path("number").asText()).isNotBlank();
+        assertThat(result.path("departureTime").asText()).matches("\\d{2}:\\d{2}");
+        assertThat(result.path("arrivalTime").asText()).matches("\\d{2}:\\d{2}");
+        assertThat(result.path("status").asText()).isNotBlank();
+        assertThat(result.path("gateOrPlatform").asText()).isNotBlank();
+    }
+
+    @Test
+    void todoTasksToolShouldReturnTaskArray() {
+        JsonNode result = todoTasksTool.invoke(Map.of("owner", "张三"));
+
+        assertThat(result.path("owner").asText()).isEqualTo("张三");
+        assertThat(result.path("total").asInt()).isGreaterThanOrEqualTo(3);
+        assertThat(result.path("tasks").isArray()).isTrue();
+        assertThat(result.path("tasks")).isNotEmpty();
+        assertThat(result.path("tasks").get(0).path("title").asText()).isNotBlank();
+        assertThat(result.path("tasks").get(0).path("priority").asText()).isNotBlank();
+        assertThat(result.path("tasks").get(0).path("status").asText()).isNotBlank();
+        assertThat(result.path("tasks").get(0).path("dueDate").asText()).isNotBlank();
+    }
+
+    @Test
     void cityDateTimeShouldReturnRealtimeTimeWithTimezone() {
         Map<String, Object> args = Map.of("city", "Shanghai");
 
         JsonNode result = cityDateTimeTool.invoke(args);
 
-        assertThat(result.path("tool").asText()).isEqualTo("city_datetime");
         assertThat(result.path("timezone").asText()).isEqualTo("Asia/Shanghai");
         assertThat(result.path("source").asText()).isEqualTo("system-clock");
         assertThat(result.path("date").asText()).isNotBlank();
@@ -88,7 +132,7 @@ class ToolRegistryTest {
                       "type": "function",
                       "name": "city_datetime",
                       "description": "city datetime from backend",
-                      "prompt": "use city datetime prompt",
+                      "afterCallHint": "use city datetime prompt",
                       "parameters": {
                         "type": "object",
                         "properties": {
@@ -123,10 +167,10 @@ class ToolRegistryTest {
                 .orElseThrow();
 
         assertThat(cityTool.description()).isEqualTo("city datetime from backend");
-        assertThat(cityTool.prompt()).isEqualTo("use city datetime prompt");
+        assertThat(cityTool.afterCallHint()).isEqualTo("use city datetime prompt");
         assertThat(cityTool.parametersSchema().get("required")).isEqualTo(List.of("city"));
-        assertThat(toolRegistry.invoke("city_datetime", Map.of("city", "Shanghai")).path("tool").asText())
-                .isEqualTo("city_datetime");
+        assertThat(toolRegistry.invoke("city_datetime", Map.of("city", "Shanghai")).path("timezone").asText())
+                .isEqualTo("Asia/Shanghai");
     }
 
     @Test
@@ -248,7 +292,6 @@ class ToolRegistryTest {
 
         JsonNode result = sensitiveDataDetectorTool.invoke(Map.of("text", longText));
 
-        assertThat(result.path("tool").asText()).isEqualTo("mock_sensitive_data_detector");
         assertThat(result.path("hasSensitiveData").asBoolean()).isTrue();
         assertThat(result.path("result").asText()).isEqualTo("有敏感数据");
         assertThat(result.path("description").asText()).contains("检测到疑似");

@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>航班/高铁行程卡片</title>
+  <style>
+    :root {
+      --bg: linear-gradient(135deg, #eef6ff, #f9fbff);
+      --card-bg: #ffffff;
+      --text-main: #172b4d;
+      --text-sub: #60708f;
+      --accent: #0a66ff;
+      --border: #d9e6ff;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 22px;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text-main);
+      background: var(--bg);
+    }
+
+    .card {
+      width: min(600px, 100%);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: var(--card-bg);
+      padding: 18px;
+      box-shadow: 0 10px 26px rgba(18, 74, 170, 0.14);
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .title { font-size: 22px; font-weight: 700; }
+    .pill {
+      background: #eaf1ff;
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+      padding: 5px 10px;
+      border-radius: 999px;
+    }
+
+    .route {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .city { font-size: 20px; font-weight: 700; }
+    .center {
+      color: var(--text-sub);
+      font-size: 13px;
+      text-align: center;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .item {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #f8fbff;
+      padding: 10px;
+    }
+
+    .label { display: block; font-size: 12px; color: var(--text-sub); margin-bottom: 6px; }
+    .value { font-size: 16px; font-weight: 700; word-break: break-word; }
+
+    .footer {
+      margin-top: 12px;
+      font-size: 12px;
+      color: var(--text-sub);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .ask-btn {
+      border: 0;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 12px;
+      padding: 7px 10px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <section class="card">
+    <div class="header">
+      <div class="title" id="number">--</div>
+      <div class="pill" id="travelType">--</div>
+    </div>
+
+    <div class="route">
+      <div class="city" id="fromCity">--</div>
+      <div class="center">→<br/><span id="date">--</span></div>
+      <div class="city" style="text-align:right" id="toCity">--</div>
+    </div>
+
+    <div class="grid">
+      <div class="item">
+        <span class="label">出发时间</span>
+        <span class="value" id="departureTime">--</span>
+      </div>
+      <div class="item">
+        <span class="label">到达时间</span>
+        <span class="value" id="arrivalTime">--</span>
+      </div>
+      <div class="item">
+        <span class="label">状态</span>
+        <span class="value" id="status">--</span>
+      </div>
+      <div class="item">
+        <span class="label" id="gateLabel">登机口/站台</span>
+        <span class="value" id="gateOrPlatform">--</span>
+      </div>
+    </div>
+
+    <div class="footer">
+      <span id="mockTag">--</span>
+      <button class="ask-btn" type="button" onclick="sendMessage('请再展示一个航班或高铁样例')">换一个样例</button>
+    </div>
+  </section>
+
+  <script>
+    const fallback = {
+      travelType: '航班',
+      number: 'MU5137',
+      fromCity: '上海',
+      toCity: '北京',
+      date: '2026-02-14',
+      departureTime: '09:30',
+      arrivalTime: '11:45',
+      status: '值机中',
+      gateOrPlatform: 'T2-25',
+      mockTag: '幂等随机数据'
+    };
+
+    function normalizeData(raw) {
+      if (!raw || typeof raw !== 'object') {
+        return fallback;
+      }
+
+      let payload = raw;
+      if (payload.result && typeof payload.result === 'object') {
+        payload = payload.result;
+      }
+      if (payload.toolResult && typeof payload.toolResult === 'object') {
+        payload = payload.toolResult;
+      }
+
+      return {
+        travelType: payload.travelType ?? fallback.travelType,
+        number: payload.number ?? fallback.number,
+        fromCity: payload.fromCity ?? fallback.fromCity,
+        toCity: payload.toCity ?? fallback.toCity,
+        date: payload.date ?? fallback.date,
+        departureTime: payload.departureTime ?? fallback.departureTime,
+        arrivalTime: payload.arrivalTime ?? fallback.arrivalTime,
+        status: payload.status ?? fallback.status,
+        gateOrPlatform: payload.gateOrPlatform ?? fallback.gateOrPlatform,
+        mockTag: payload.mockTag ?? fallback.mockTag
+      };
+    }
+
+    function renderCard(data) {
+      const info = normalizeData(data);
+      document.getElementById('travelType').textContent = info.travelType;
+      document.getElementById('number').textContent = info.number;
+      document.getElementById('fromCity').textContent = info.fromCity;
+      document.getElementById('toCity').textContent = info.toCity;
+      document.getElementById('date').textContent = info.date;
+      document.getElementById('departureTime').textContent = info.departureTime;
+      document.getElementById('arrivalTime').textContent = info.arrivalTime;
+      document.getElementById('status').textContent = info.status;
+      document.getElementById('gateOrPlatform').textContent = info.gateOrPlatform;
+      document.getElementById('gateLabel').textContent = info.travelType === '高铁' ? '站台' : '登机口';
+      document.getElementById('mockTag').textContent = `Mock 标识：${info.mockTag}`;
+    }
+
+    window.addEventListener('message', (event) => {
+      renderCard(event.data);
+    });
+
+    function sendMessage(message) {
+      window.parent.postMessage(
+        {
+          type: 'agw_chat_message',
+          message
+        },
+        '*'
+      );
+    }
+
+    renderCard(fallback);
+  </script>
+</body>
+</html>

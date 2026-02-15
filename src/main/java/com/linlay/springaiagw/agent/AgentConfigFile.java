@@ -310,6 +310,7 @@ public class AgentConfigFile {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static class StageConfig {
         private String systemPrompt;
+        private boolean deepThinking;
         private ModelConfig modelConfig;
         private ToolConfig toolConfig;
         @JsonIgnore
@@ -325,6 +326,14 @@ public class AgentConfigFile {
 
         public void setSystemPrompt(String systemPrompt) {
             this.systemPrompt = systemPrompt;
+        }
+
+        public boolean isDeepThinking() {
+            return deepThinking;
+        }
+
+        public void setDeepThinking(boolean deepThinking) {
+            this.deepThinking = deepThinking;
         }
 
         public ModelConfig getModelConfig() {

@@ -12,7 +12,7 @@ public interface BaseTool {
         return "";
     }
 
-    default String prompt() {
+    default String afterCallHint() {
         return "";
     }
 

@@ -63,7 +63,8 @@ public final class AgentModeFactory {
                             summaryStage.model(),
                             summaryStage.tools(),
                             summaryStage.reasoningEnabled(),
-                            summaryStage.reasoningEffort()
+                            summaryStage.reasoningEffort(),
+                            summaryStage.deepThinking()
                     );
                 }
                 yield new PlanExecuteMode(planStage, executeStage, summaryStage);
@@ -90,7 +91,8 @@ public final class AgentModeFactory {
                 normalize(resolvedModelConfig == null ? null : resolvedModelConfig.getModel()),
                 tools,
                 reasoningEnabled,
-                reasoningEffort
+                reasoningEffort,
+                stage != null && stage.isDeepThinking()
         );
     }
 

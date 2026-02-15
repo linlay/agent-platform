@@ -63,6 +63,7 @@ class AgentDefinitionLoaderTest {
 
         PlanExecuteMode peMode = (PlanExecuteMode) definition.agentMode();
         assertThat(peMode.planStage().systemPrompt()).isEqualTo("先规划");
+        assertThat(peMode.planStage().deepThinking()).isFalse();
         assertThat(peMode.executeStage().systemPrompt()).isEqualTo("再执行");
         assertThat(peMode.summaryStage().systemPrompt()).isEqualTo("最后总结");
     }
@@ -274,6 +275,7 @@ class AgentDefinitionLoaderTest {
 
         assertThat(mode.planStage().providerKey()).isEqualTo("bailian");
         assertThat(mode.planStage().model()).isEqualTo("qwen3-max");
+        assertThat(mode.planStage().deepThinking()).isFalse();
         assertThat(mode.planStage().tools()).containsExactlyInAnyOrder("_bash_", "city_datetime", "_plan_add_tasks_");
 
         assertThat(mode.executeStage().providerKey()).isEqualTo("bailian");
@@ -284,5 +286,44 @@ class AgentDefinitionLoaderTest {
         assertThat(mode.summaryStage().model()).isEqualTo("qwen3-max");
         assertThat(mode.summaryStage().tools()).containsExactlyInAnyOrder("_bash_", "city_datetime");
         assertThat(definition.tools()).contains("_plan_add_tasks_", "_plan_update_task_");
+    }
+
+    @Test
+    void shouldParsePlanDeepThinkingFlag() throws IOException {
+        Files.writeString(tempDir.resolve("deep_thinking_plan.json"), """
+                {
+                  "key": "deep_thinking_plan",
+                  "description": "deep thinking test",
+                  "modelConfig": {
+                    "providerKey": "bailian",
+                    "model": "qwen3-max"
+                  },
+                  "toolConfig": {
+                    "backends": ["city_datetime"],
+                    "frontends": [],
+                    "actions": []
+                  },
+                  "mode": "PLAN_EXECUTE",
+                  "planExecute": {
+                    "plan": { "systemPrompt": "plan", "deepThinking": true },
+                    "execute": { "systemPrompt": "execute" },
+                    "summary": { "systemPrompt": "summary" }
+                  }
+                }
+                """);
+
+        AgentCatalogProperties properties = new AgentCatalogProperties();
+        properties.setExternalDir(tempDir.toString());
+        AgentDefinitionLoader loader = new AgentDefinitionLoader(new ObjectMapper(), properties, null);
+
+        AgentDefinition definition = loader.loadAll().stream()
+                .filter(item -> "deep_thinking_plan".equals(item.id()))
+                .findFirst()
+                .orElseThrow();
+        PlanExecuteMode mode = (PlanExecuteMode) definition.agentMode();
+
+        assertThat(mode.planStage().deepThinking()).isTrue();
+        assertThat(mode.executeStage().deepThinking()).isFalse();
+        assertThat(mode.summaryStage().deepThinking()).isFalse();
     }
 }

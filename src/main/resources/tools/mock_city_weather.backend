@@ -4,7 +4,7 @@
       "type": "function",
       "name": "mock_city_weather",
       "description": "[MOCK] 根据 city 和 date 查询天气（伪造数据）。",
-      "prompt": "若需要 viewport 渲染，最终输出请使用 viewport 代码块并填写 type=html, key=show_weather_card；JSON 直接使用工具返回结果对象。",
+      "afterCallHint": "若需要 viewport 渲染，最终输出请使用 viewport 代码块并填写 type=html, key=show_weather_card；JSON 直接使用工具返回结果对象。",
       "parameters": {
         "type": "object",
         "properties": {

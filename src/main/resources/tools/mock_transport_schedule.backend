@@ -1,0 +1,32 @@
+{
+  "tools": [
+    {
+      "type": "function",
+      "name": "mock_transport_schedule",
+      "description": "[MOCK] 根据出发地、目的地和日期生成航班或高铁行程（伪造数据）。",
+      "afterCallHint": "若需要 viewport 渲染，最终输出请使用 viewport 代码块并填写 type=html, key=show_transport_card；JSON 直接使用工具返回结果对象。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "交通类型，可选 flight/train 或 航班/高铁"
+          },
+          "fromCity": {
+            "type": "string",
+            "description": "出发城市"
+          },
+          "toCity": {
+            "type": "string",
+            "description": "目的地城市"
+          },
+          "date": {
+            "type": "string",
+            "description": "日期，建议 YYYY-MM-DD"
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  ]
+}

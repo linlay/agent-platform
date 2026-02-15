@@ -139,13 +139,28 @@ POST /api/query → AgwController → AgwQueryService → DefinitionDrivenAgent.
   "name": "agent_name",
   "icon": "emoji:🤖",
   "description": "描述",
-  "providerKey": "bailian",
-  "model": "qwen3-max",
+  "modelConfig": {
+    "providerKey": "bailian",
+    "model": "qwen3-max",
+    "reasoning": { "enabled": true, "effort": "MEDIUM" },
+    "temperature": 0.7,
+    "top_p": 0.95,
+    "max_tokens": 4096
+  },
+  "toolConfig": {
+    "backends": ["_bash_", "city_datetime"],
+    "frontends": ["show_weather_card"],
+    "actions": ["switch_theme"]
+  },
   "mode": "ONESHOT | REACT | PLAN_EXECUTE",
-  "tools": ["bash", "city_datetime"],
-  "reasoning": { "enabled": true, "effort": "MEDIUM" },
+  "output": "PLAIN | REASONING_SUMMARY",
+  "toolPolicy": "DISALLOW | ALLOW | REQUIRE",
+  "verify": "NONE | SECOND_PASS_FIX",
+  "budget": { "maxModelCalls": 20, "maxToolCalls": 10, "maxSteps": 6, "timeoutMs": 120000 },
   "plain": {
-    "systemPrompt": "系统提示词"
+    "systemPrompt": "系统提示词",
+    "modelConfig": { "providerKey": "bailian", "model": "qwen3-max" },
+    "toolConfig": null
   }
 }
 ```
@@ -155,6 +170,13 @@ POST /api/query → AgwController → AgwQueryService → DefinitionDrivenAgent.
 - `REACT` -> `react.systemPrompt`
 - `PLAN_EXECUTE` -> `planExecute.plan.systemPrompt` + `planExecute.execute.systemPrompt`
 
+规则：
+- `modelConfig` 支持外层默认 + stage 内层覆盖；内层优先。
+- 外层 `modelConfig` 可省略，但“外层或任一 stage”至少要有一处 `modelConfig`。
+- `toolConfig` 支持外层默认 + stage 覆盖；若 stage 显式 `toolConfig: null` 表示清空该 stage 普通工具集合。
+- PLAN_EXECUTE 强制工具不受 `toolConfig: null` 影响：plan 固定含 `_plan_add_tasks_`，execute 固定含 `_plan_update_task_`。
+- `planExecute.plan.deepThinking`（默认 `false`）控制规划阶段一回合/两回合行为。
+
 ## 各模式 JSON 配置示例
 
 **ONESHOT** — 单轮直答；若配置工具可在单轮中调用工具并收敛最终答案：
@@ -162,7 +184,11 @@ POST /api/query → AgwController → AgwQueryService → DefinitionDrivenAgent.
 ```json
 {
   "mode": "ONESHOT",
-  "reasoning": { "enabled": false },
+  "modelConfig": {
+    "providerKey": "bailian",
+    "model": "qwen3-max",
+    "reasoning": { "enabled": false }
+  },
   "plain": { "systemPrompt": "你是助手" }
 }
 ```
@@ -172,26 +198,48 @@ POST /api/query → AgwController → AgwQueryService → DefinitionDrivenAgent.
 ```json
 {
   "mode": "REACT",
-  "tools": ["bash", "city_datetime"],
-  "reasoning": { "enabled": true, "effort": "MEDIUM" },
+  "modelConfig": {
+    "providerKey": "bailian",
+    "model": "qwen3-max",
+    "reasoning": { "enabled": true, "effort": "MEDIUM" }
+  },
+  "toolConfig": {
+    "backends": ["_bash_", "city_datetime"],
+    "frontends": [],
+    "actions": []
+  },
   "react": { "systemPrompt": "你是助手", "maxSteps": 5 }
 }
 ```
 
-**PLAN_EXECUTE** — 先规划后执行：plan 阶段双回合公开流式（draft + generate），execute 阶段按小 ReAct 串行单工具推进并在更新回合调用 `_plan_update_task_`：
+**PLAN_EXECUTE** — 先规划后执行（plan 阶段按 `deepThinking` 选择一回合或两回合）：
 
 ```json
 {
   "mode": "PLAN_EXECUTE",
-  "tools": ["bash", "city_datetime"],
-  "reasoning": { "enabled": true, "effort": "HIGH" },
+  "modelConfig": {
+    "providerKey": "bailian",
+    "model": "qwen3-max",
+    "reasoning": { "enabled": true, "effort": "HIGH" }
+  },
+  "toolConfig": {
+    "backends": ["_bash_", "city_datetime", "mock_city_weather"],
+    "frontends": [],
+    "actions": []
+  },
   "planExecute": {
-    "plan": { "systemPrompt": "先规划" },
+    "plan": { "systemPrompt": "先规划", "deepThinking": true },
     "execute": { "systemPrompt": "再执行" },
     "summary": { "systemPrompt": "最后总结" }
   }
 }
 ```
+
+PLAN_EXECUTE 规划阶段行为：
+- `deepThinking=false`：单回合 `agent-plan-generate`，关闭 reasoning，`tool_choice=required`，必须调用 `_plan_add_tasks_`。
+- `deepThinking=true`：两回合公开流式。
+1. `agent-plan-draft`：开启 reasoning，`tool_choice=none`，只输出思考与规划正文。
+2. `agent-plan-generate`：关闭 reasoning，`tool_choice=required`，仅允许调用 `_plan_add_tasks_`。
 
 ## Tool 类型定义
 
@@ -199,7 +247,7 @@ POST /api/query → AgwController → AgwQueryService → DefinitionDrivenAgent.
 
 | 后缀 | CapabilityKind | 说明 |
 |------|----------------|------|
-| `.backend` | `BACKEND` | 后端工具，模型通过 Function Calling 调用。`description` 用于 OpenAI tool schema，`prompt` 用于注入 system prompt |
+| `.backend` | `BACKEND` | 后端工具，模型通过 Function Calling 调用。`description` 用于 OpenAI tool schema，`after_call_hint` 用于注入 system prompt 的“工具调用后推荐指令”章节 |
 | `.action` | `ACTION` | 动作工具，触发前端行为（如主题切换、烟花特效）。不等待 `/api/submit`，直接返回 `"OK"` |
 | `.html` / `.qlc` / `.dqlc` | `FRONTEND` | 前端工具，触发 UI 渲染并等待 `/api/submit` 提交 |
 
@@ -229,7 +277,11 @@ Agent JSON 中可显式覆盖模式预设的策略值：
 ```json
 {
   "mode": "ONESHOT",
-  "reasoning": { "enabled": true, "effort": "HIGH" },
+  "modelConfig": {
+    "providerKey": "bailian",
+    "model": "qwen3-max",
+    "reasoning": { "enabled": true, "effort": "HIGH" }
+  },
   "output": "REASONING_SUMMARY",
   "toolPolicy": "REQUIRE",
   "verify": "SECOND_PASS_FIX",
@@ -238,7 +290,7 @@ Agent JSON 中可显式覆盖模式预设的策略值：
 }
 ```
 
-可覆盖字段：`reasoning.enabled`、`reasoning.effort`（`LOW/MEDIUM/HIGH`）、`output`（`PLAIN/REASONING_SUMMARY`）、`toolPolicy`（`DISALLOW/ALLOW/REQUIRE`）、`verify`（`NONE/SECOND_PASS_FIX`）、`budget`。
+可覆盖字段：`modelConfig.reasoning.enabled`、`modelConfig.reasoning.effort`（`LOW/MEDIUM/HIGH`）、`output`（`PLAIN/REASONING_SUMMARY`）、`toolPolicy`（`DISALLOW/ALLOW/REQUIRE`）、`verify`（`NONE/SECOND_PASS_FIX`）、`budget`。
 
 ## 设计原则
 
@@ -254,7 +306,10 @@ Agent 行为应由 LLM 推理和工具调用驱动（通过 prompt 引导），J
 
 **REACT** — 最多 6 轮循环：思考 → 调 1 个工具 → 观察结果，直到给出最终答案。每轮最多 1 个工具。
 
-**PLAN_EXECUTE** — plan 阶段为双回合公开流式：先产出规划正文（禁工具），再调用 `_plan_add_tasks_` 落盘；execute 阶段每轮最多 1 个工具，完成后在更新回合调用 `_plan_update_task_`（失败可修复 1 次）。
+**PLAN_EXECUTE** — plan 阶段按 `planExecute.plan.deepThinking` 分支：
+- `false`：单回合 required（必须 `_plan_add_tasks_`，且关闭 reasoning）；
+- `true`：两回合（draft: no-tool + reasoning；generate: required `_plan_add_tasks_` + no reasoning）；
+execute 阶段每轮最多 1 个工具，完成后在更新回合调用 `_plan_update_task_`（失败可修复 1 次）。
 
 ### 2. 严格真流式输出（CRITICAL）
 

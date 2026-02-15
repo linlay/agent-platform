@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>待办任务卡片</title>
+  <style>
+    :root {
+      --bg: linear-gradient(135deg, #f2f7ff, #fbfdff);
+      --card-bg: #ffffff;
+      --text-main: #1a2a47;
+      --text-sub: #66789a;
+      --accent: #0c63ff;
+      --border: #dbe7ff;
+      --high: #c62828;
+      --mid: #ef6c00;
+      --low: #2e7d32;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 22px;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text-main);
+      background: var(--bg);
+    }
+
+    .card {
+      width: min(660px, 100%);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: var(--card-bg);
+      padding: 18px;
+      box-shadow: 0 10px 28px rgba(18, 73, 168, 0.13);
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 12px;
+      gap: 10px;
+    }
+
+    .owner { font-size: 20px; font-weight: 700; }
+    .meta { font-size: 13px; color: var(--text-sub); }
+
+    .list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .task {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #f9fbff;
+      padding: 10px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .title { font-size: 15px; font-weight: 700; }
+    .sub { margin-top: 4px; font-size: 12px; color: var(--text-sub); }
+
+    .badge {
+      font-size: 12px;
+      font-weight: 700;
+      border-radius: 999px;
+      padding: 4px 8px;
+      color: #fff;
+      text-align: center;
+      min-width: 60px;
+    }
+
+    .high { background: var(--high); }
+    .mid { background: var(--mid); }
+    .low { background: var(--low); }
+
+    .footer {
+      margin-top: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: var(--text-sub);
+      font-size: 12px;
+    }
+
+    .ask-btn {
+      border: 0;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 12px;
+      padding: 7px 10px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <section class="card">
+    <div class="header">
+      <div class="owner" id="owner">--</div>
+      <div class="meta" id="total">--</div>
+    </div>
+
+    <div class="list" id="taskList"></div>
+
+    <div class="footer">
+      <span id="mockTag">--</span>
+      <button class="ask-btn" type="button" onclick="sendMessage('请再生成一组待办任务样例')">换一组任务</button>
+    </div>
+  </section>
+
+  <script>
+    const fallback = {
+      owner: '当前用户',
+      total: 3,
+      mockTag: '幂等随机数据',
+      tasks: [
+        { id: 'TASK-101', title: '整理需求文档', priority: '高', status: '待处理', dueDate: '2026-02-14' },
+        { id: 'TASK-102', title: '回复客户邮件', priority: '中', status: '进行中', dueDate: '2026-02-15' },
+        { id: 'TASK-103', title: '代码评审', priority: '低', status: '已完成', dueDate: '2026-02-16' }
+      ]
+    };
+
+    function normalizeData(raw) {
+      if (!raw || typeof raw !== 'object') {
+        return fallback;
+      }
+
+      let payload = raw;
+      if (payload.result && typeof payload.result === 'object') {
+        payload = payload.result;
+      }
+      if (payload.toolResult && typeof payload.toolResult === 'object') {
+        payload = payload.toolResult;
+      }
+
+      return {
+        owner: payload.owner ?? fallback.owner,
+        total: payload.total ?? fallback.total,
+        tasks: Array.isArray(payload.tasks) ? payload.tasks : fallback.tasks,
+        mockTag: payload.mockTag ?? fallback.mockTag
+      };
+    }
+
+    function priorityClass(priority) {
+      if (priority === '高') return 'high';
+      if (priority === '中') return 'mid';
+      return 'low';
+    }
+
+    function renderCard(data) {
+      const info = normalizeData(data);
+      document.getElementById('owner').textContent = `${info.owner} 的待办任务`;
+      document.getElementById('total').textContent = `共 ${info.total} 项`;
+      document.getElementById('mockTag').textContent = `Mock 标识：${info.mockTag}`;
+
+      const list = document.getElementById('taskList');
+      list.innerHTML = '';
+
+      info.tasks.forEach((task) => {
+        const row = document.createElement('div');
+        row.className = 'task';
+        row.innerHTML = `
+          <div>
+            <div class="title">${task.title ?? '--'}</div>
+            <div class="sub">${task.id ?? '--'} | ${task.status ?? '--'} | 截止 ${task.dueDate ?? '--'}</div>
+          </div>
+          <span class="badge ${priorityClass(task.priority)}">${task.priority ?? '低'} 优先</span>
+        `;
+        list.appendChild(row);
+      });
+    }
+
+    window.addEventListener('message', (event) => {
+      renderCard(event.data);
+    });
+
+    function sendMessage(message) {
+      window.parent.postMessage(
+        {
+          type: 'agw_chat_message',
+          message
+        },
+        '*'
+      );
+    }
+
+    renderCard(fallback);
+  </script>
+</body>
+</html>

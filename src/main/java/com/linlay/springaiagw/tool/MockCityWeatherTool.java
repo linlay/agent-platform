@@ -11,7 +11,7 @@ import java.util.Random;
 public class MockCityWeatherTool extends AbstractDeterministicTool {
 
     private static final String[] CONDITIONS = {
-            "Sunny", "Cloudy", "Partly Cloudy", "Rain", "Thunderstorm", "Fog", "Snow"
+            "晴", "多云", "晴间多云", "小雨", "雷阵雨", "雾", "小雪"
     };
 
     @Override
@@ -21,7 +21,7 @@ public class MockCityWeatherTool extends AbstractDeterministicTool {
 
     @Override
     public JsonNode invoke(Map<String, Object> args) {
-        String city = String.valueOf(args.getOrDefault("city", "Shanghai"));
+        String city = CityNameTranslator.translate(String.valueOf(args.getOrDefault("city", "shanghai")));
         String date = String.valueOf(args.getOrDefault("date", "1970-01-01"));
 
         Random random = randomByArgs(args);
@@ -31,14 +31,13 @@ public class MockCityWeatherTool extends AbstractDeterministicTool {
         String condition = CONDITIONS[random.nextInt(CONDITIONS.length)];
 
         ObjectNode root = OBJECT_MAPPER.createObjectNode();
-        // root.put("tool", name()); // 不需要返回tool name
         root.put("city", city);
         root.put("date", date);
         root.put("temperatureC", tempC);
         root.put("humidity", humidity);
         root.put("windLevel", windLevel);
         root.put("condition", condition);
-        root.put("mockTag", "idempotent-random-json");
+        root.put("mockTag", "幂等随机数据");
         return root;
     }
 }

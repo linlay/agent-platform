@@ -115,6 +115,14 @@ public class ToolExecutionService {
     }
 
     public String applyBackendPrompts(String systemPrompt, Map<String, BaseTool> stageTools) {
+        return applyBackendPrompts(systemPrompt, stageTools, true);
+    }
+
+    public String applyBackendPrompts(
+            String systemPrompt,
+            Map<String, BaseTool> stageTools,
+            boolean includeAfterCallHints
+    ) {
         String base = normalize(systemPrompt);
         if (stageTools == null || stageTools.isEmpty()) {
             return base;
@@ -138,26 +146,28 @@ public class ToolExecutionService {
                 .filter(StringUtils::hasText)
                 .distinct()
                 .toList();
-        List<String> promptLines = backendTools.stream()
+        List<String> afterCallHintLines = includeAfterCallHints
+                ? backendTools.stream()
                 .map(tool -> {
-                    String prompt = normalize(tool.prompt());
-                    if (!StringUtils.hasText(prompt)) {
+                    String afterCallHint = normalize(tool.afterCallHint());
+                    if (!StringUtils.hasText(afterCallHint)) {
                         return null;
                     }
-                    return "- " + normalizeToolName(tool.name()) + ": " + prompt;
+                    return "- " + normalizeToolName(tool.name()) + ": " + afterCallHint;
                 })
                 .filter(StringUtils::hasText)
                 .distinct()
-                .toList();
-        if (descriptionLines.isEmpty() && promptLines.isEmpty()) {
+                .toList()
+                : List.of();
+        if (descriptionLines.isEmpty() && afterCallHintLines.isEmpty()) {
             return base;
         }
         List<String> sections = new ArrayList<>();
         if (!descriptionLines.isEmpty()) {
             sections.add("工具说明:\n" + String.join("\n", descriptionLines));
         }
-        if (!promptLines.isEmpty()) {
-            sections.add("工具补充指令:\n" + String.join("\n", promptLines));
+        if (!afterCallHintLines.isEmpty()) {
+            sections.add("工具调用后推荐指令:\n" + String.join("\n", afterCallHintLines));
         }
         String appendix = String.join("\n\n", sections);
         if (!StringUtils.hasText(base)) {

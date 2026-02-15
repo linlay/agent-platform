@@ -1,15 +1,5 @@
 package com.linlay.springaiagw.tool;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.linlay.springaiagw.config.CapabilityCatalogProperties;
-import com.linlay.springaiagw.service.RuntimeResourceSyncService;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Service;
-import org.springframework.util.StringUtils;
-
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -23,6 +13,17 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Stream;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
+
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.linlay.springaiagw.config.CapabilityCatalogProperties;
+import com.linlay.springaiagw.service.RuntimeResourceSyncService;
 
 @Service
 public class CapabilityRegistryService {
@@ -146,7 +147,7 @@ public class CapabilityRegistryService {
 
             Map<String, Object> parameters = parseParameters(node.get("parameters"));
             String description = normalize(node.path("description").asText(""));
-            String prompt = normalize(node.path("prompt").asText(""));
+            String afterCallHint = normalize(node.path("afterCallHint").asText(""));
             Boolean strict = node.has("strict") ? node.path("strict").asBoolean(false) : null;
             String toolApi = node.has("toolApi") && node.get("toolApi").isTextual()
                     ? node.get("toolApi").asText()
@@ -155,7 +156,7 @@ public class CapabilityRegistryService {
             CapabilityDescriptor descriptor = new CapabilityDescriptor(
                     name,
                     description,
-                    prompt,
+                    afterCallHint,
                     parameters,
                     strict,
                     kind,

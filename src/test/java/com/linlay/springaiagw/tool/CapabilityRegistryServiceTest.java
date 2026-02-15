@@ -1,17 +1,18 @@
 package com.linlay.springaiagw.tool;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linlay.springaiagw.agent.AgentCatalogProperties;
 import com.linlay.springaiagw.config.CapabilityCatalogProperties;
 import com.linlay.springaiagw.config.ViewportCatalogProperties;
 import com.linlay.springaiagw.service.RuntimeResourceSyncService;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
-
-import java.nio.file.Files;
-import java.nio.file.Path;
-
-import static org.assertj.core.api.Assertions.assertThat;
 
 class CapabilityRegistryServiceTest {
 
@@ -26,7 +27,7 @@ class CapabilityRegistryServiceTest {
         Files.writeString(toolsDir.resolve("bash.backend"), """
                 {
                   "tools": [
-                    {"type":"function", "name":"bash", "description":"bash tool", "prompt":"bash prompt", "parameters":{"type":"object"}}
+                    {"type":"function", "name":"bash", "description":"bash tool", "afterCallHint":"bash prompt", "parameters":{"type":"object"}}
                   ]
                 }
                 """);
@@ -68,7 +69,7 @@ class CapabilityRegistryServiceTest {
 
         assertThat(backend.kind()).isEqualTo(CapabilityKind.BACKEND);
         assertThat(backend.toolType()).isEqualTo("function");
-        assertThat(backend.prompt()).isEqualTo("bash prompt");
+        assertThat(backend.afterCallHint()).isEqualTo("bash prompt");
         assertThat(service.find("show_weather_card")).isEmpty();
 
         assertThat(action.kind()).isEqualTo(CapabilityKind.ACTION);

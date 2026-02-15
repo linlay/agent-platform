@@ -448,6 +448,7 @@ public class DefinitionDrivenAgent implements Agent {
         item.put("provider", normalize(stage.providerKey(), definition.providerKey()));
         item.put("model", normalize(stage.model(), definition.model()));
         item.put("systemPrompt", stage.systemPrompt());
+        item.put("deepThinking", stage.deepThinking());
         item.put("reasoningEnabled", stage.reasoningEnabled());
         item.put("reasoningEffort", stage.reasoningEffort());
         item.put("tools", groupToolNames(stage.tools()));

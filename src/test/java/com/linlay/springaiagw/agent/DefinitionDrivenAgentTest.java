@@ -14,6 +14,7 @@ import com.linlay.springaiagw.agent.runtime.policy.ComputePolicy;
 import com.linlay.springaiagw.agent.runtime.policy.ControlStrategy;
 import com.linlay.springaiagw.agent.runtime.policy.OutputPolicy;
 import com.linlay.springaiagw.agent.runtime.policy.RunSpec;
+import com.linlay.springaiagw.agent.runtime.policy.ToolChoice;
 import com.linlay.springaiagw.agent.runtime.policy.ToolPolicy;
 import com.linlay.springaiagw.agent.runtime.policy.VerifyPolicy;
 import com.linlay.springaiagw.model.AgentRequest;
@@ -281,6 +282,7 @@ class DefinitionDrivenAgentTest {
     void planExecuteShouldUseStageSystemPrompts() {
         List<String> captured = new CopyOnWriteArrayList<>();
         Map<String, List<String>> stageTools = new ConcurrentHashMap<>();
+        Map<String, LlmCallSpec> stageSpecs = new ConcurrentHashMap<>();
 
         AgentDefinition definition = definition(
                 "demoPlan",
@@ -299,6 +301,7 @@ class DefinitionDrivenAgentTest {
             public Flux<LlmDelta> streamDeltas(LlmCallSpec spec) {
                 captured.add(spec.stage() + "::" + spec.systemPrompt());
                 stageTools.put(spec.stage(), spec.tools().stream().map(LlmService.LlmFunctionTool::name).toList());
+                stageSpecs.put(spec.stage(), spec);
                 if ("agent-plan-generate".equals(spec.stage())) {
                     return Flux.just(new LlmDelta(
                             null,
@@ -341,18 +344,21 @@ class DefinitionDrivenAgentTest {
         assertThat(captured.stream().anyMatch(item -> item.contains("agent-plan-final::总结系统提示"))).isTrue();
         assertThat(stageTools.get("agent-plan-generate")).containsExactly("_plan_add_tasks_");
         assertThat(stageTools.get("agent-plan-execute-step-1")).containsExactly("_plan_update_task_");
+        assertThat(stageSpecs.get("agent-plan-generate").reasoningEnabled()).isFalse();
+        assertThat(stageSpecs.get("agent-plan-generate").toolChoice()).isEqualTo(ToolChoice.REQUIRED);
     }
 
     @Test
-    void planExecutePlanRoundShouldExposePlanToolDelta() {
+    void planExecuteDeepThinkingShouldUseDraftThenGenerate() {
         List<String> stages = new CopyOnWriteArrayList<>();
+        Map<String, LlmCallSpec> stageSpecs = new ConcurrentHashMap<>();
 
         AgentDefinition definition = definition(
                 "demoPlanPublicTurns",
                 AgentRuntimeMode.PLAN_EXECUTE,
                 new RunSpec(ControlStrategy.PLAN_EXECUTE, OutputPolicy.PLAIN, ToolPolicy.ALLOW, VerifyPolicy.NONE, Budget.DEFAULT),
                 new PlanExecuteMode(
-                        new StageSettings("规划系统提示", null, null, List.of("_plan_add_tasks_"), true, ComputePolicy.MEDIUM),
+                        new StageSettings("规划系统提示", null, null, List.of("_plan_add_tasks_"), true, ComputePolicy.MEDIUM, true),
                         new StageSettings("执行系统提示", null, null, List.of("_plan_update_task_"), false, ComputePolicy.MEDIUM),
                         new StageSettings("总结系统提示", null, null, List.of(), false, ComputePolicy.MEDIUM)
                 ),
@@ -363,6 +369,10 @@ class DefinitionDrivenAgentTest {
             @Override
             public Flux<LlmDelta> streamDeltas(LlmCallSpec spec) {
                 stages.add(spec.stage());
+                stageSpecs.put(spec.stage(), spec);
+                if ("agent-plan-draft".equals(spec.stage())) {
+                    return Flux.just(new LlmDelta("先分析约束并输出规划正文", null, "stop"));
+                }
                 if ("agent-plan-generate".equals(spec.stage())) {
                     return Flux.just(new LlmDelta(
                             null,
@@ -399,10 +409,19 @@ class DefinitionDrivenAgentTest {
                 .block(Duration.ofSeconds(3));
 
         assertThat(deltas).isNotNull();
+        assertThat(stages).contains("agent-plan-draft");
         assertThat(stages).contains("agent-plan-generate");
-        assertThat(stages).doesNotContain("agent-plan-draft");
+        assertThat(stageSpecs.get("agent-plan-draft").tools()).isEmpty();
+        assertThat(stageSpecs.get("agent-plan-draft").toolChoice()).isEqualTo(ToolChoice.NONE);
+        assertThat(stageSpecs.get("agent-plan-draft").reasoningEnabled()).isTrue();
+        assertThat(stageSpecs.get("agent-plan-generate").tools().stream().map(LlmService.LlmFunctionTool::name).toList())
+                .containsExactly("_plan_add_tasks_");
+        assertThat(stageSpecs.get("agent-plan-generate").toolChoice()).isEqualTo(ToolChoice.REQUIRED);
+        assertThat(stageSpecs.get("agent-plan-generate").reasoningEnabled()).isFalse();
         assertThat(deltas.stream().flatMap(delta -> delta.toolCalls().stream()).map(ToolCallDelta::id))
                 .contains("call_plan_public");
+        assertThat(deltas.stream().map(AgentDelta::content).filter(text -> text != null && !text.isBlank()))
+                .contains("先分析约束并输出规划正文");
     }
 
     @Test
@@ -422,7 +441,7 @@ class DefinitionDrivenAgentTest {
             }
 
             @Override
-            public String prompt() {
+            public String afterCallHint() {
                 return "请遵循 prompt_tool 的额外约束";
             }
 
@@ -489,14 +508,15 @@ class DefinitionDrivenAgentTest {
                 && text.contains("_plan_add_tasks_: 创建计划任务（追加模式）")
                 && text.contains("prompt_tool: prompt helper"))).isTrue();
         assertThat(prompts.stream().anyMatch(text -> text.contains("agent-plan-generate")
-                && text.contains("工具补充指令:")
-                && text.contains("prompt_tool: 请遵循 prompt_tool 的额外约束"))).isTrue();
+                && text.contains("工具调用后推荐指令:"))).isFalse();
         assertThat(prompts.stream().anyMatch(text -> text.contains("agent-plan-execute-step-1")
                 && text.contains("工具说明:")
                 && text.contains("_plan_update_task_: 更新计划中的任务状态"))).isTrue();
         assertThat(prompts.stream().anyMatch(text -> text.contains("agent-plan-execute-step-1")
+                && text.contains("工具调用后推荐指令:")
                 && text.contains("prompt_tool: 请遵循 prompt_tool 的额外约束"))).isTrue();
         assertThat(prompts.stream().anyMatch(text -> text.contains("agent-plan-final")
+                && text.contains("工具调用后推荐指令:")
                 && text.contains("prompt_tool: 请遵循 prompt_tool 的额外约束"))).isTrue();
         assertThat(stageTools.get("agent-plan-generate")).containsExactly("_plan_add_tasks_");
         assertThat(stageTools.get("agent-plan-execute-step-1")).contains("_plan_update_task_");

@@ -97,19 +97,44 @@ public final class PlanExecuteMode extends AgentMode {
         Map<String, BaseTool> executeTools = services.selectTools(enabledToolsByName, executeStage.tools());
         Map<String, BaseTool> summaryTools = services.selectTools(enabledToolsByName, summary.tools());
 
+        if (planStage.deepThinking()) {
+            OrchestratorServices.ModelTurn draftTurn = services.callModelTurnStreaming(
+                    context,
+                    withReasoning(planStage, true),
+                    context.planMessages(),
+                    "请先深度思考并给出任务规划正文，本回合不要调用工具。",
+                    planPromptTools,
+                    List.of(),
+                    ToolChoice.NONE,
+                    "agent-plan-draft",
+                    false,
+                    true,
+                    true,
+                    true,
+                    false,
+                    sink
+            );
+            services.appendAssistantMessage(context.planMessages(), services.normalize(draftTurn.finalText()));
+        }
+
+        String planGeneratePrompt = planStage.deepThinking()
+                ? "请基于上一轮规划正文，在本回合必须调用 _plan_add_tasks_ 创建计划任务。"
+                : "请直接规划2～4个任务，并在本回合必须调用 _plan_add_tasks_ 创建计划任务。";
+
         OrchestratorServices.ModelTurn planTurn = services.callModelTurnStreaming(
                 context,
-                planStage,
+                withReasoning(planStage, false),
                 context.planMessages(),
-                "请先深度思考并给出任务规划正文，然后在本回合必须调用 _plan_add_tasks_ 创建计划任务。",
+                planGeneratePrompt,
                 planPromptTools,
                 services.toolExecutionService().enabledFunctionTools(planCallableTools),
                 ToolChoice.REQUIRED,
                 "agent-plan-generate",
                 false,
-                planStage.reasoningEnabled(),
+                false,
                 true,
                 true,
+                false,
                 sink
         );
         if (!containsPlanAddCall(planTurn.toolCalls())) {
@@ -323,6 +348,21 @@ public final class PlanExecuteMode extends AgentMode {
         Map<String, BaseTool> selected = new LinkedHashMap<>();
         selected.put(PLAN_ADD_TASK_TOOL, addTaskTool);
         return Map.copyOf(selected);
+    }
+
+    private StageSettings withReasoning(StageSettings stage, boolean reasoningEnabled) {
+        if (stage == null) {
+            return null;
+        }
+        return new StageSettings(
+                stage.systemPrompt(),
+                stage.providerKey(),
+                stage.model(),
+                stage.tools(),
+                reasoningEnabled,
+                stage.reasoningEffort(),
+                stage.deepThinking()
+        );
     }
 
     private void ensureTaskNotFailed(ExecutionContext context, AgentDelta.PlanTask step) {

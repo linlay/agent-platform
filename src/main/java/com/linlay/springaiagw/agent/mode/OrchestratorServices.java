@@ -97,11 +97,46 @@ public class OrchestratorServices {
             boolean emitToolCalls,
             FluxSink<AgentDelta> sink
     ) {
+        return callModelTurnStreaming(
+                context,
+                stageSettings,
+                messages,
+                userPrompt,
+                stageTools,
+                tools,
+                toolChoice,
+                stage,
+                parallelToolCalls,
+                emitReasoning,
+                emitContent,
+                emitToolCalls,
+                true,
+                sink
+        );
+    }
+
+    public ModelTurn callModelTurnStreaming(
+            ExecutionContext context,
+            StageSettings stageSettings,
+            List<Message> messages,
+            String userPrompt,
+            Map<String, BaseTool> stageTools,
+            List<LlmService.LlmFunctionTool> tools,
+            ToolChoice toolChoice,
+            String stage,
+            boolean parallelToolCalls,
+            boolean emitReasoning,
+            boolean emitContent,
+            boolean emitToolCalls,
+            boolean includeAfterCallHints,
+            FluxSink<AgentDelta> sink
+    ) {
         Objects.requireNonNull(stageSettings, "stageSettings must not be null");
         context.incrementModelCalls();
         String effectiveSystemPrompt = toolExecutionService.applyBackendPrompts(
                 stageSettings.systemPrompt(),
-                stageTools
+                stageTools,
+                includeAfterCallHints
         );
 
         StringBuilder reasoning = new StringBuilder();
