@@ -133,8 +133,9 @@ public class OrchestratorServices {
     ) {
         Objects.requireNonNull(stageSettings, "stageSettings must not be null");
         context.incrementModelCalls();
+        String stageSystemPrompt = context.stageSystemPrompt(stageSettings.systemPrompt());
         String effectiveSystemPrompt = toolExecutionService.applyBackendPrompts(
-                stageSettings.systemPrompt(),
+                stageSystemPrompt,
                 stageTools,
                 includeAfterCallHints
         );
@@ -297,7 +298,7 @@ public class OrchestratorServices {
                 verifyPolicy,
                 context.definition().providerKey(),
                 context.definition().model(),
-                context.definition().agentMode().primarySystemPrompt(),
+                context.stageSystemPrompt(context.definition().agentMode().primarySystemPrompt()),
                 messages,
                 candidateFinalText,
                 "agent-verify"

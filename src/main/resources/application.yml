@@ -24,6 +24,10 @@ agent:
   capability:
     tools-external-dir: ${AGENT_TOOLS_EXTERNAL_DIR:tools}
     refresh-interval-ms: ${AGENT_CAPABILITY_REFRESH_INTERVAL_MS:30000}
+  skill:
+    external-dir: ${AGENT_SKILL_EXTERNAL_DIR:skills}
+    refresh-interval-ms: ${AGENT_SKILL_REFRESH_INTERVAL_MS:30000}
+    max-prompt-chars: ${AGENT_SKILL_MAX_PROMPT_CHARS:8000}
   llm:
     interaction-log:
       enabled: ${AGENT_LLM_INTERACTION_LOG_ENABLED:true}

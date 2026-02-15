@@ -103,6 +103,7 @@
 │   └── agw-springai-sdk-0.0.1-SNAPSHOT.jar
 ├── src/
 ├── agents/
+├── skills/
 ├── viewports/
 ├── tools/
 ├── pom.xml
@@ -241,7 +242,23 @@ curl -N -X POST "http://localhost:8080/api/query" \
 - 流式消费 `delta.tool_calls`
 - 不再依赖正文中的 `toolCall/toolCalls` JSON 字段（仍保留向后兼容解析）
 
-Agent JSON 已仅支持新结构：`modelConfig/toolConfig`。旧字段 `providerKey/providerType/model/reasoning/tools` 不再兼容。
+Agent JSON 已仅支持新结构：`modelConfig/toolConfig/skillConfig`。旧字段 `providerKey/providerType/model/reasoning/tools` 不再兼容。
+
+顶层 skills 配置支持两种写法（会合并去重）：
+
+```json
+{
+  "skillConfig": {
+    "skills": ["screenshot", "doc"]
+  }
+}
+```
+
+```json
+{
+  "skills": ["screenshot", "doc"]
+}
+```
 
 ### 真流式约束（CRITICAL）
 
@@ -250,16 +267,18 @@ Agent JSON 已仅支持新结构：`modelConfig/toolConfig`。旧字段 `provide
 - 工具调用必须保持事件顺序：`tool.start` -> `tool.args`（可多次）-> `tool.end` -> `tool.result`。
 - `VerifyPolicy.SECOND_PASS_FIX` 场景下，首轮候选答案仅内部使用；对外只流式下发二次校验生成的 chunk。
 
-## viewports / tools 目录
+## viewports / tools / skills 目录
 
 - 运行目录默认值：
   - agents: `agents/`
   - viewports: `viewports/`
   - tools: `tools/`
-- 启动时会将 `src/main/resources/agents|viewports|tools` 同步到外部目录：
+  - skills: `skills/`
+- 启动时会将 `src/main/resources/agents|viewports|tools|skills` 同步到外部目录：
   - `AGENT_EXTERNAL_DIR`
   - `AGENT_VIEWPORT_EXTERNAL_DIR`
   - `AGENT_TOOLS_EXTERNAL_DIR`
+  - `AGENT_SKILL_EXTERNAL_DIR`
 - 同名内置文件会覆盖；外部额外自定义文件会保留，不会被删除。
 - `viewports` 支持后缀：`.html`、`.qlc`、`.dqlc`、`.json_schema`、`.custom`，默认每 30 秒刷新内存快照。
 - `tools`:
@@ -267,6 +286,13 @@ Agent JSON 已仅支持新结构：`modelConfig/toolConfig`。旧字段 `provide
   - 前端工具文件：`*.frontend`
   - 动作文件：`*.action`
   - 文件内容均为模型工具定义 JSON（`{"tools":[...]}`）
+- `skills`:
+  - 目录结构：`skills/<skill-id>/SKILL.md`（强约束，目录式）
+  - 可选子目录：`scripts/`、`references/`、`assets/`
+  - `skill-id` 取目录名，`SKILL.md` frontmatter 的 `name/description` 作为元信息。
+  - 正例：`skills/math_basic/SKILL.md`
+  - 反例：`skills/SKILL.md`、`skills/math_basic.md`
+  - 启动同步策略与 agents 一致：同名内置覆盖外部同名文件；外部额外文件保留；不做删除清理。
 - `show_weather_card` 当前仅作为 viewport（`viewports/show_weather_card.html`），不是可调用 tool。
 - 工具名冲突策略：冲突项会被跳过，其它项继续生效。
 
@@ -311,6 +337,20 @@ type=html, key=show_weather_card
 - `launch_fireworks(durationMs?)`：播放烟花特效，`durationMs` 可选（毫秒）。
 - `show_modal(title, content, closeText?)`：弹出模态框，`title/content` 必填，`closeText` 可选。
 
+### 内置脚本执行工具
+
+- `_skill_script_run_(skill, script, args?, timeoutMs?)`：执行 `skills/<skill>/` 目录下脚本。
+- 仅支持 `.py` / `.sh`。
+- `script` 必须是 skill 内相对路径，不允许越权访问外部目录。
+- 破坏性变更：旧工具名 `skill_script_run` 已移除，agent 配置需改为 `_skill_script_run_`。
+
+### 内置 skills
+
+- `screenshot`：截图流程示例（含脚本 smoke test）。
+- `math_basic`：算术计算（`add/sub/mul/div/pow/mod`）。
+- `math_stats`：统计计算（`summary/count/sum/min/max/mean/median/mode/stdev`）。
+- `text_utils`：文本指标（字符/词数/行数，可选空白归一化）。
+
 ## 内置智能体
 
 - `demoModePlain`（`ONESHOT`）：单次直答。
@@ -322,6 +362,7 @@ type=html, key=show_weather_card
 - `demoViewport`（`PLAN_EXECUTE`）：调用 `city_datetime`、`mock_city_weather`，最终按 `viewport` 代码块协议输出天气卡片数据。
 - `demoAction`（`ONESHOT`）：根据用户意图调用 `switch_theme` / `launch_fireworks` / `show_modal`。
 - `demoAgentCreator`（`PLAN_EXECUTE`）：调用 `agent_file_create` 创建/更新 `agents/{agentId}.json`。
+- `demoModePlainSkillMath`（`ONESHOT`）：加载 `math_basic/math_stats/text_utils` skills，并调用 `_skill_script_run_` 完成确定性计算。
 - 使用 `demoAgentCreator` 时建议提供：`key`、`name`、`icon`、`description`、`modelConfig`、`mode`、`toolConfig` 与各 mode 的 prompt 字段。
 - `agent_file_create` 会校验 `key/agentId`（仅允许 `A-Za-z0-9_-`，最长 64）。
 - `providerKey/providerType` 不做白名单校验；未提供时默认 `bailian`。
@@ -375,6 +416,9 @@ AGENT_VIEWPORT_EXTERNAL_DIR=/opt/viewports
 AGENT_VIEWPORT_REFRESH_INTERVAL_MS=30000
 AGENT_TOOLS_EXTERNAL_DIR=/opt/tools
 AGENT_CAPABILITY_REFRESH_INTERVAL_MS=30000
+AGENT_SKILL_EXTERNAL_DIR=/opt/skills
+AGENT_SKILL_REFRESH_INTERVAL_MS=30000
+AGENT_SKILL_MAX_PROMPT_CHARS=8000
 AGENT_TOOLS_FRONTEND_SUBMIT_TIMEOUT_MS=300000
 ```
 
@@ -445,4 +489,10 @@ curl -N -X POST "http://localhost:8080/api/query" \
 curl -N -X POST "http://localhost:8080/api/query" \
   -H "Content-Type: application/json" \
   -d '{"message":"弹一个模态框，标题是系统通知，内容是发布成功，按钮写关闭","agentKey":"demoAction"}'
+```
+
+```bash
+curl -N -X POST "http://localhost:8080/api/query" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"请计算 (2+3)*4，并说明过程","agentKey":"demoModePlainSkillMath"}'
 ```

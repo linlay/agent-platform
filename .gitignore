@@ -23,6 +23,7 @@ logs/
 /chats/
 /tools/
 /viewports/
+/skills/
 /com/
 application-local.yml
 application-local.yaml
@@ -36,6 +37,8 @@ application-local.yaml
 !/src/main/resources/tools/**
 !/src/main/resources/viewports/
 !/src/main/resources/viewports/**
+!/src/main/resources/skills/
+!/src/main/resources/skills/**
 
 # Java
 hs_err_pid*

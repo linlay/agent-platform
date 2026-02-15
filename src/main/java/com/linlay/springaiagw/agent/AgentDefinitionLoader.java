@@ -116,6 +116,7 @@ public class AgentDefinitionLoader {
             String icon = normalizeIcon(config.getIcon());
             String description = normalize(config.getDescription(), "external agent from " + fileName);
             List<String> tools = collectToolNames(config);
+            List<String> skills = collectSkillNames(config);
 
             AgentMode agentMode = AgentModeFactory.create(mode, config, file);
             RunSpec runSpec = agentMode.defaultRunSpec(config);
@@ -130,7 +131,8 @@ public class AgentDefinitionLoader {
                     mode,
                     runSpec,
                     agentMode,
-                    tools
+                    tools,
+                    skills
             ));
         } catch (Exception ex) {
             log.warn("Skip invalid external agent file: {}", file, ex);
@@ -280,6 +282,20 @@ public class AgentDefinitionLoader {
         return icon.trim();
     }
 
+    private List<String> normalizeSkillNames(List<String> rawSkills) {
+        if (rawSkills == null || rawSkills.isEmpty()) {
+            return List.of();
+        }
+        List<String> skills = new ArrayList<>();
+        for (String raw : rawSkills) {
+            if (raw == null || raw.isBlank()) {
+                continue;
+            }
+            skills.add(raw.trim().toLowerCase(Locale.ROOT));
+        }
+        return List.copyOf(skills);
+    }
+
     private List<String> collectToolNames(AgentConfigFile config) {
         List<String> merged = new ArrayList<>(toolNames(config == null ? null : config.getToolConfig()));
         if (config.getPlain() != null) {
@@ -303,6 +319,18 @@ public class AgentDefinitionLoader {
         if (mode == AgentRuntimeMode.PLAN_EXECUTE) {
             merged.add(PLAN_ADD_TASK_TOOL);
             merged.add(PLAN_UPDATE_TASK_TOOL);
+        }
+        return merged.stream().distinct().toList();
+    }
+
+    private List<String> collectSkillNames(AgentConfigFile config) {
+        if (config == null) {
+            return List.of();
+        }
+        List<String> merged = new ArrayList<>();
+        merged.addAll(normalizeSkillNames(config.getSkills()));
+        if (config.getSkillConfig() != null) {
+            merged.addAll(normalizeSkillNames(config.getSkillConfig().getSkills()));
         }
         return merged.stream().distinct().toList();
     }

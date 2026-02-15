@@ -22,6 +22,8 @@ import com.linlay.springaiagw.model.stream.AgentDelta;
 import com.linlay.springaiagw.service.DeltaStreamService;
 import com.linlay.springaiagw.service.LlmCallSpec;
 import com.linlay.springaiagw.service.LlmService;
+import com.linlay.springaiagw.skill.SkillCatalogProperties;
+import com.linlay.springaiagw.skill.SkillRegistryService;
 import com.linlay.springaiagw.tool.BaseTool;
 import com.linlay.springaiagw.tool.PlanCreateTool;
 import com.linlay.springaiagw.tool.PlanGetTool;
@@ -33,11 +35,14 @@ import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import reactor.core.publisher.Flux;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -204,6 +209,70 @@ class DefinitionDrivenAgentTest {
         assertThat(deltas).isNotNull();
         assertThat(deltas.stream().map(AgentDelta::reasoning).toList()).contains("推理摘要");
         assertThat(deltas.stream().map(AgentDelta::content).toList()).contains("答案正文");
+    }
+
+    @Test
+    void shouldInjectSkillPromptIntoSystemPrompt() throws Exception {
+        Path skillsRoot = Files.createTempDirectory("skills-registry");
+        Path skillFile = skillsRoot.resolve("screenshot").resolve("SKILL.md");
+        Files.createDirectories(skillFile.getParent());
+        Files.writeString(skillFile, """
+                ---
+                name: "screenshot"
+                description: "capture screenshots"
+                ---
+                # Skill Prompt
+                always verify target window.
+                """);
+
+        SkillCatalogProperties skillProperties = new SkillCatalogProperties();
+        skillProperties.setExternalDir(skillsRoot.toString());
+        skillProperties.setMaxPromptChars(1000);
+        SkillRegistryService skillRegistryService = new SkillRegistryService(skillProperties, null);
+
+        AgentDefinition definition = new AgentDefinition(
+                "demoWithSkill",
+                "demoWithSkill",
+                null,
+                "demo with skill",
+                "bailian",
+                "qwen3-max",
+                AgentRuntimeMode.ONESHOT,
+                new RunSpec(ControlStrategy.ONESHOT, OutputPolicy.PLAIN, ToolPolicy.DISALLOW, VerifyPolicy.NONE, Budget.DEFAULT),
+                new OneshotMode(new StageSettings("你是测试助手", null, null, List.of(), false, ComputePolicy.MEDIUM)),
+                List.of(),
+                List.of("screenshot")
+        );
+
+        AtomicReference<LlmCallSpec> captured = new AtomicReference<>();
+        LlmService llmService = new LlmService(null, null) {
+            @Override
+            public Flux<LlmDelta> streamDeltas(LlmCallSpec spec) {
+                captured.set(spec);
+                return Flux.just(new LlmDelta("完成", null, "stop"));
+            }
+        };
+
+        DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
+                definition,
+                llmService,
+                new DeltaStreamService(),
+                new ToolRegistry(List.of()),
+                objectMapper,
+                null,
+                null,
+                skillRegistryService
+        );
+
+        List<AgentDelta> deltas = agent.stream(new AgentRequest("测试 skill 注入", null, null, null))
+                .collectList()
+                .block(Duration.ofSeconds(3));
+
+        assertThat(deltas).isNotNull();
+        assertThat(captured.get()).isNotNull();
+        assertThat(captured.get().systemPrompt()).contains("你是测试助手");
+        assertThat(captured.get().systemPrompt()).contains("skillId: screenshot");
+        assertThat(captured.get().systemPrompt()).contains("always verify target window.");
     }
 
     @Test
@@ -985,7 +1054,8 @@ class DefinitionDrivenAgentTest {
                 mode,
                 runSpec,
                 agentMode,
-                tools
+                tools,
+                List.of()
         );
     }
 

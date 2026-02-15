@@ -182,6 +182,103 @@ class AgentDefinitionLoaderTest {
     }
 
     @Test
+    void shouldLoadTopLevelSkillConfig() throws IOException {
+        Files.writeString(tempDir.resolve("skills_top_level.json"), """
+                {
+                  "key": "skills_top_level",
+                  "description": "skills top level",
+                  "modelConfig": {
+                    "providerKey": "bailian",
+                    "model": "qwen3-max"
+                  },
+                  "skillConfig": {
+                    "skills": ["screenshot", "Doc", "screenshot"]
+                  },
+                  "mode": "ONESHOT",
+                  "plain": { "systemPrompt": "test prompt" }
+                }
+                """);
+
+        AgentCatalogProperties properties = new AgentCatalogProperties();
+        properties.setExternalDir(tempDir.toString());
+        AgentDefinitionLoader loader = new AgentDefinitionLoader(new ObjectMapper(), properties, null);
+
+        AgentDefinition definition = loader.loadAll().stream()
+                .filter(item -> "skills_top_level".equals(item.id()))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(definition.skills()).containsExactly("screenshot", "doc");
+    }
+
+    @Test
+    void shouldMergeSkillsAliasAndSkillConfig() throws IOException {
+        Files.writeString(tempDir.resolve("skills_alias.json"), """
+                {
+                  "key": "skills_alias",
+                  "description": "skills alias",
+                  "modelConfig": {
+                    "providerKey": "bailian",
+                    "model": "qwen3-max"
+                  },
+                  "skills": ["pdf", "doc"],
+                  "skillConfig": {
+                    "skills": ["screenshot", "PDF"]
+                  },
+                  "mode": "ONESHOT",
+                  "plain": { "systemPrompt": "test prompt" }
+                }
+                """);
+
+        AgentCatalogProperties properties = new AgentCatalogProperties();
+        properties.setExternalDir(tempDir.toString());
+        AgentDefinitionLoader loader = new AgentDefinitionLoader(new ObjectMapper(), properties, null);
+
+        AgentDefinition definition = loader.loadAll().stream()
+                .filter(item -> "skills_alias".equals(item.id()))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(definition.skills()).containsExactly("pdf", "doc", "screenshot");
+    }
+
+    @Test
+    void shouldLoadSkillMathDemoWithSystemSkillToolName() throws IOException {
+        Files.writeString(tempDir.resolve("demo_mode_plain_skill_math.json"), """
+                {
+                  "key": "demoModePlainSkillMath",
+                  "description": "skill math demo",
+                  "modelConfig": {
+                    "providerKey": "bailian",
+                    "model": "qwen3-max"
+                  },
+                  "toolConfig": {
+                    "backends": ["_skill_script_run_"],
+                    "frontends": [],
+                    "actions": []
+                  },
+                  "skillConfig": {
+                    "skills": ["math_basic", "math_stats", "text_utils"]
+                  },
+                  "mode": "ONESHOT",
+                  "plain": { "systemPrompt": "test prompt" }
+                }
+                """);
+
+        AgentCatalogProperties properties = new AgentCatalogProperties();
+        properties.setExternalDir(tempDir.toString());
+        AgentDefinitionLoader loader = new AgentDefinitionLoader(new ObjectMapper(), properties, null);
+
+        AgentDefinition definition = loader.loadAll().stream()
+                .filter(item -> "demoModePlainSkillMath".equals(item.id()))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(definition.tools()).containsExactly("_skill_script_run_");
+        assertThat(definition.skills()).containsExactly("math_basic", "math_stats", "text_utils");
+    }
+
+    @Test
     void shouldAllowMissingTopLevelModelConfigWhenStageModelExists() throws IOException {
         Files.writeString(tempDir.resolve("inner_model_only.json"), """
                 {

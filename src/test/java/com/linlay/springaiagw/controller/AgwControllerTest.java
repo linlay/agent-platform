@@ -45,7 +45,8 @@ import static org.assertj.core.api.Assertions.assertThat;
                 "agent.providers.siliconflow.model=test-siliconflow-model",
                 "memory.chat.dir=${java.io.tmpdir}/springai-agw-test-chats-${random.uuid}",
                 "agent.viewport.external-dir=${java.io.tmpdir}/springai-agw-test-viewports-${random.uuid}",
-                "agent.capability.tools-external-dir=${java.io.tmpdir}/springai-agw-test-tools-${random.uuid}"
+                "agent.capability.tools-external-dir=${java.io.tmpdir}/springai-agw-test-tools-${random.uuid}",
+                "agent.skill.external-dir=${java.io.tmpdir}/springai-agw-test-skills-${random.uuid}"
         }
 )
 @AutoConfigureWebTestClient
@@ -120,6 +121,7 @@ class AgwControllerTest {
                 .jsonPath("$.msg").isEqualTo("success")
                 .jsonPath("$.data[0].key").exists()
                 .jsonPath("$.data[0].meta.providerType").doesNotExist()
+                .jsonPath("$.data[0].meta.skills").isArray()
                 .jsonPath("$.data[?(@.key=='demoModePlain')]").exists()
                 .jsonPath("$.data[?(@.key=='demoModeThinking')]").exists()
                 .jsonPath("$.data[?(@.key=='demoModePlainTooling')]").exists()
@@ -128,7 +130,8 @@ class AgwControllerTest {
                 .jsonPath("$.data[?(@.key=='demoModePlanExecute')]").exists()
                 .jsonPath("$.data[?(@.key=='demoViewport')]").exists()
                 .jsonPath("$.data[?(@.key=='demoAction')]").exists()
-                .jsonPath("$.data[?(@.key=='demoAgentCreator')]").exists();
+                .jsonPath("$.data[?(@.key=='demoAgentCreator')]").exists()
+                .jsonPath("$.data[?(@.key=='demoModePlainSkillMath')]").exists();
     }
 
     @Test
@@ -142,7 +145,23 @@ class AgwControllerTest {
                 .jsonPath("$.msg").isEqualTo("success")
                 .jsonPath("$.data.key").isEqualTo("demoModePlanExecute")
                 .jsonPath("$.data.meta.providerType").isEqualTo("BAILIAN")
+                .jsonPath("$.data.meta.skills").isArray()
                 .jsonPath("$.data.instructions").isEqualTo("你是高级执行助手。根据框架给出的任务列表与当前 taskId 执行任务；完成当前任务后必须调用 _plan_update_task_ 更新状态，再继续下一个任务。");
+    }
+
+    @Test
+    void agentShouldReturnSkillsForSkillMathDemo() {
+        webTestClient.get()
+                .uri(uriBuilder -> uriBuilder.path("/api/agent").queryParam("agentKey", "demoModePlainSkillMath").build())
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo(0)
+                .jsonPath("$.data.key").isEqualTo("demoModePlainSkillMath")
+                .jsonPath("$.data.meta.skills").isArray()
+                .jsonPath("$.data.meta.skills[?(@=='math_basic')]").exists()
+                .jsonPath("$.data.meta.skills[?(@=='math_stats')]").exists()
+                .jsonPath("$.data.meta.skills[?(@=='text_utils')]").exists();
     }
 
     @Test

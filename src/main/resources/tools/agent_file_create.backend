@@ -97,6 +97,27 @@
             },
             "additionalProperties": false
           },
+          "skillConfig": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "skills": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "skills": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "systemPrompt": {
             "type": "string",
             "description": "ONESHOT/REACT 的快捷系统提示"

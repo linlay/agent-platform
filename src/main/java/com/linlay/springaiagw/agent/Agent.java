@@ -37,5 +37,9 @@ public interface Agent {
         return List.of();
     }
 
+    default List<String> skills() {
+        return List.of();
+    }
+
     Flux<AgentDelta> stream(AgentRequest request);
 }

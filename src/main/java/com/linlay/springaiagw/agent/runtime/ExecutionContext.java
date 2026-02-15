@@ -23,6 +23,7 @@ public class ExecutionContext {
     private final AgentRequest request;
     private final Budget budget;
     private final long startedAtMs;
+    private final String skillPrompt;
 
     private final List<Message> conversationMessages;
     private final List<Message> planMessages;
@@ -35,10 +36,20 @@ public class ExecutionContext {
     private int toolCalls;
 
     public ExecutionContext(AgentDefinition definition, AgentRequest request, List<Message> historyMessages) {
+        this(definition, request, historyMessages, "");
+    }
+
+    public ExecutionContext(
+            AgentDefinition definition,
+            AgentRequest request,
+            List<Message> historyMessages,
+            String skillPrompt
+    ) {
         this.definition = definition;
         this.request = request;
         this.budget = definition.runSpec().budget();
         this.startedAtMs = System.currentTimeMillis();
+        this.skillPrompt = StringUtils.hasText(skillPrompt) ? skillPrompt.trim() : "";
 
         this.conversationMessages = new ArrayList<>();
         if (historyMessages != null) {
@@ -85,6 +96,24 @@ public class ExecutionContext {
 
     public List<Map<String, Object>> toolRecords() {
         return toolRecords;
+    }
+
+    public List<String> skills() {
+        return definition.skills();
+    }
+
+    public String skillPrompt() {
+        return skillPrompt;
+    }
+
+    public String stageSystemPrompt(String stageSystemPrompt) {
+        if (!StringUtils.hasText(skillPrompt)) {
+            return stageSystemPrompt == null ? "" : stageSystemPrompt;
+        }
+        if (!StringUtils.hasText(stageSystemPrompt)) {
+            return skillPrompt;
+        }
+        return stageSystemPrompt + "\n\n" + skillPrompt;
     }
 
     public String planId() {

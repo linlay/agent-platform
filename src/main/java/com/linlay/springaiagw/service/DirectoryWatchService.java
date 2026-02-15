@@ -4,6 +4,8 @@ import com.linlay.springaiagw.agent.AgentCatalogProperties;
 import com.linlay.springaiagw.agent.AgentRegistry;
 import com.linlay.springaiagw.config.CapabilityCatalogProperties;
 import com.linlay.springaiagw.config.ViewportCatalogProperties;
+import com.linlay.springaiagw.skill.SkillCatalogProperties;
+import com.linlay.springaiagw.skill.SkillRegistryService;
 import com.linlay.springaiagw.tool.CapabilityRegistryService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,6 +35,7 @@ public class DirectoryWatchService implements DisposableBean {
     private final AgentRegistry agentRegistry;
     private final ViewportRegistryService viewportRegistryService;
     private final CapabilityRegistryService capabilityRegistryService;
+    private final SkillRegistryService skillRegistryService;
     private final Map<Path, Runnable> watchedDirs;
 
     private volatile WatchService watchService;
@@ -43,13 +46,16 @@ public class DirectoryWatchService implements DisposableBean {
             AgentRegistry agentRegistry,
             ViewportRegistryService viewportRegistryService,
             CapabilityRegistryService capabilityRegistryService,
+            SkillRegistryService skillRegistryService,
             AgentCatalogProperties agentCatalogProperties,
             ViewportCatalogProperties viewportCatalogProperties,
-            CapabilityCatalogProperties capabilityCatalogProperties
+            CapabilityCatalogProperties capabilityCatalogProperties,
+            SkillCatalogProperties skillCatalogProperties
     ) {
         this.agentRegistry = agentRegistry;
         this.viewportRegistryService = viewportRegistryService;
         this.capabilityRegistryService = capabilityRegistryService;
+        this.skillRegistryService = skillRegistryService;
 
         this.watchedDirs = new LinkedHashMap<>();
         watchedDirs.put(
@@ -64,6 +70,10 @@ public class DirectoryWatchService implements DisposableBean {
                 Path.of(capabilityCatalogProperties.getToolsExternalDir()).toAbsolutePath().normalize(),
                 capabilityRegistryService::refreshCapabilities
         );
+        watchedDirs.put(
+                Path.of(skillCatalogProperties.getExternalDir()).toAbsolutePath().normalize(),
+                skillRegistryService::refreshSkills
+        );
 
         start();
     }
@@ -73,11 +83,13 @@ public class DirectoryWatchService implements DisposableBean {
             AgentRegistry agentRegistry,
             ViewportRegistryService viewportRegistryService,
             CapabilityRegistryService capabilityRegistryService,
+            SkillRegistryService skillRegistryService,
             Map<Path, Runnable> watchedDirs
     ) {
         this.agentRegistry = agentRegistry;
         this.viewportRegistryService = viewportRegistryService;
         this.capabilityRegistryService = capabilityRegistryService;
+        this.skillRegistryService = skillRegistryService;
         this.watchedDirs = watchedDirs;
         start();
     }

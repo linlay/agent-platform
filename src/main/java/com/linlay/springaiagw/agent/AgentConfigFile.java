@@ -22,6 +22,8 @@ public class AgentConfigFile {
     private String description;
     private ModelConfig modelConfig;
     private ToolConfig toolConfig;
+    private SkillConfig skillConfig;
+    private List<String> skills;
     private AgentRuntimeMode mode;
 
     private OutputPolicy output;
@@ -79,6 +81,22 @@ public class AgentConfigFile {
 
     public void setToolConfig(ToolConfig toolConfig) {
         this.toolConfig = toolConfig;
+    }
+
+    public SkillConfig getSkillConfig() {
+        return skillConfig;
+    }
+
+    public void setSkillConfig(SkillConfig skillConfig) {
+        this.skillConfig = skillConfig;
+    }
+
+    public List<String> getSkills() {
+        return skills;
+    }
+
+    public void setSkills(List<String> skills) {
+        this.skills = skills;
     }
 
     public AgentRuntimeMode getMode() {
@@ -304,6 +322,19 @@ public class AgentConfigFile {
 
         public void setActions(List<String> actions) {
             this.actions = actions;
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class SkillConfig {
+        private List<String> skills;
+
+        public List<String> getSkills() {
+            return skills;
+        }
+
+        public void setSkills(List<String> skills) {
+            this.skills = skills;
         }
     }
 

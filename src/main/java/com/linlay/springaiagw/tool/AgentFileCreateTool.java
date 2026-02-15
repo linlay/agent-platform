@@ -89,6 +89,10 @@ public class AgentFileCreateTool extends AbstractDeterministicTool {
         if (toolConfig != null) {
             root.set("toolConfig", toolConfig);
         }
+        ObjectNode skillConfig = buildSkillConfig(mergedArgs);
+        if (skillConfig != null) {
+            root.set("skillConfig", skillConfig);
+        }
 
         putOptionalEnum(root, "output", readString(mergedArgs, "output"));
         putOptionalEnum(root, "toolPolicy", readString(mergedArgs, "toolPolicy"));
@@ -297,6 +301,33 @@ public class AgentFileCreateTool extends AbstractDeterministicTool {
         toolConfig.set("frontends", frontends);
         toolConfig.set("actions", actions);
         return toolConfig;
+    }
+
+    private ObjectNode buildSkillConfig(Map<String, Object> args) {
+        ObjectNode fromConfig = buildSkillConfigFromObject(args.get("skillConfig"));
+        if (fromConfig != null) {
+            return fromConfig;
+        }
+        ArrayNode skills = normalizeTools(args.get("skills"));
+        if (skills.isEmpty()) {
+            return null;
+        }
+        ObjectNode skillConfig = OBJECT_MAPPER.createObjectNode();
+        skillConfig.set("skills", skills);
+        return skillConfig;
+    }
+
+    private ObjectNode buildSkillConfigFromObject(Object raw) {
+        if (!(raw instanceof Map<?, ?> map)) {
+            return null;
+        }
+        ArrayNode skills = normalizeTools(map.get("skills"));
+        if (skills.isEmpty()) {
+            return null;
+        }
+        ObjectNode skillConfig = OBJECT_MAPPER.createObjectNode();
+        skillConfig.set("skills", skills);
+        return skillConfig;
     }
 
     private ObjectNode buildToolConfigFromObject(Object raw) {

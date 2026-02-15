@@ -17,13 +17,19 @@ public record AgentDefinition(
         AgentRuntimeMode mode,
         RunSpec runSpec,
         AgentMode agentMode,
-        List<String> tools
+        List<String> tools,
+        List<String> skills
 ) {
     public AgentDefinition {
         if (tools == null) {
             tools = List.of();
         } else {
             tools = List.copyOf(tools);
+        }
+        if (skills == null) {
+            skills = List.of();
+        } else {
+            skills = List.copyOf(skills);
         }
     }
 

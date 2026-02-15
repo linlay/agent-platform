@@ -26,7 +26,7 @@ class DirectoryWatchServiceTest {
         Map<Path, Runnable> dirs = new LinkedHashMap<>();
         dirs.put(watchedDir, latch::countDown);
 
-        DirectoryWatchService service = new DirectoryWatchService(null, null, null, dirs);
+        DirectoryWatchService service = new DirectoryWatchService(null, null, null, null, dirs);
         try {
             Files.writeString(watchedDir.resolve("test.json"), "{}");
             boolean triggered = latch.await(10, TimeUnit.SECONDS);
@@ -41,7 +41,35 @@ class DirectoryWatchServiceTest {
         Map<Path, Runnable> dirs = new LinkedHashMap<>();
         dirs.put(tempDir.resolve("nonexistent"), () -> {});
 
-        DirectoryWatchService service = new DirectoryWatchService(null, null, null, dirs);
+        DirectoryWatchService service = new DirectoryWatchService(null, null, null, null, dirs);
+        service.destroy();
+    }
+
+    @Test
+    void shouldTriggerSkillRefreshCallbackOnFileChange() throws Exception {
+        Path skillsDir = tempDir.resolve("skills");
+        Files.createDirectories(skillsDir);
+
+        CountDownLatch latch = new CountDownLatch(1);
+        Map<Path, Runnable> dirs = new LinkedHashMap<>();
+        dirs.put(skillsDir, latch::countDown);
+
+        DirectoryWatchService service = new DirectoryWatchService(null, null, null, null, dirs);
+        try {
+            Files.writeString(skillsDir.resolve("demo.txt"), "ok");
+            boolean triggered = latch.await(10, TimeUnit.SECONDS);
+            assertThat(triggered).isTrue();
+        } finally {
+            service.destroy();
+        }
+    }
+
+    @Test
+    void shouldHandleMissingSkillsDirectoryGracefully() {
+        Map<Path, Runnable> dirs = new LinkedHashMap<>();
+        dirs.put(tempDir.resolve("missing-skills"), () -> {});
+
+        DirectoryWatchService service = new DirectoryWatchService(null, null, null, null, dirs);
         service.destroy();
     }
 }

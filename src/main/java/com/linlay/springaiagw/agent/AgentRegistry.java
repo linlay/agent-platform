@@ -6,6 +6,7 @@ import com.linlay.springaiagw.service.DeltaStreamService;
 import com.linlay.springaiagw.service.FrontendSubmitCoordinator;
 import com.linlay.springaiagw.service.LlmService;
 import com.linlay.springaiagw.service.RuntimeResourceSyncService;
+import com.linlay.springaiagw.skill.SkillRegistryService;
 import com.linlay.springaiagw.tool.ToolRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,6 +30,7 @@ public class AgentRegistry {
     private final ObjectMapper objectMapper;
     private final ChatWindowMemoryStore chatWindowMemoryStore;
     private final FrontendSubmitCoordinator frontendSubmitCoordinator;
+    private final SkillRegistryService skillRegistryService;
     @SuppressWarnings("unused")
     private final RuntimeResourceSyncService runtimeResourceSyncService;
 
@@ -44,7 +46,8 @@ public class AgentRegistry {
             ObjectMapper objectMapper,
             ChatWindowMemoryStore chatWindowMemoryStore,
             FrontendSubmitCoordinator frontendSubmitCoordinator,
-            RuntimeResourceSyncService runtimeResourceSyncService
+            RuntimeResourceSyncService runtimeResourceSyncService,
+            SkillRegistryService skillRegistryService
     ) {
         this.definitionLoader = definitionLoader;
         this.llmService = llmService;
@@ -54,7 +57,31 @@ public class AgentRegistry {
         this.chatWindowMemoryStore = chatWindowMemoryStore;
         this.frontendSubmitCoordinator = frontendSubmitCoordinator;
         this.runtimeResourceSyncService = runtimeResourceSyncService;
+        this.skillRegistryService = skillRegistryService;
         refreshAgents();
+    }
+
+    public AgentRegistry(
+            AgentDefinitionLoader definitionLoader,
+            LlmService llmService,
+            DeltaStreamService deltaStreamService,
+            ToolRegistry toolRegistry,
+            ObjectMapper objectMapper,
+            ChatWindowMemoryStore chatWindowMemoryStore,
+            FrontendSubmitCoordinator frontendSubmitCoordinator,
+            RuntimeResourceSyncService runtimeResourceSyncService
+    ) {
+        this(
+                definitionLoader,
+                llmService,
+                deltaStreamService,
+                toolRegistry,
+                objectMapper,
+                chatWindowMemoryStore,
+                frontendSubmitCoordinator,
+                runtimeResourceSyncService,
+                null
+        );
     }
 
     public Agent get(String id) {
@@ -97,7 +124,8 @@ public class AgentRegistry {
                             toolRegistry,
                             objectMapper,
                             chatWindowMemoryStore,
-                            frontendSubmitCoordinator
+                            frontendSubmitCoordinator,
+                            skillRegistryService
                     );
                     updated.put(agent.id(), agent);
                 }

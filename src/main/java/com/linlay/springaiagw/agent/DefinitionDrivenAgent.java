@@ -21,6 +21,8 @@ import com.linlay.springaiagw.model.stream.AgentDelta;
 import com.linlay.springaiagw.service.DeltaStreamService;
 import com.linlay.springaiagw.service.FrontendSubmitCoordinator;
 import com.linlay.springaiagw.service.LlmService;
+import com.linlay.springaiagw.skill.SkillDescriptor;
+import com.linlay.springaiagw.skill.SkillRegistryService;
 import com.linlay.springaiagw.tool.BaseTool;
 import com.linlay.springaiagw.tool.CapabilityDescriptor;
 import com.linlay.springaiagw.tool.CapabilityKind;
@@ -51,6 +53,7 @@ public class DefinitionDrivenAgent implements Agent {
     private final Map<String, BaseTool> enabledToolsByName;
     private final OrchestratorServices services;
     private final ObjectMapper objectMapper;
+    private final SkillRegistryService skillRegistryService;
 
     @SuppressWarnings("unused")
     private final DeltaStreamService deltaStreamService;
@@ -64,11 +67,34 @@ public class DefinitionDrivenAgent implements Agent {
             ChatWindowMemoryStore chatWindowMemoryStore,
             FrontendSubmitCoordinator frontendSubmitCoordinator
     ) {
+        this(
+                definition,
+                llmService,
+                deltaStreamService,
+                toolRegistry,
+                objectMapper,
+                chatWindowMemoryStore,
+                frontendSubmitCoordinator,
+                null
+        );
+    }
+
+    public DefinitionDrivenAgent(
+            AgentDefinition definition,
+            LlmService llmService,
+            DeltaStreamService deltaStreamService,
+            ToolRegistry toolRegistry,
+            ObjectMapper objectMapper,
+            ChatWindowMemoryStore chatWindowMemoryStore,
+            FrontendSubmitCoordinator frontendSubmitCoordinator,
+            SkillRegistryService skillRegistryService
+    ) {
         this.definition = definition;
         this.deltaStreamService = deltaStreamService;
         this.toolRegistry = toolRegistry;
         this.chatWindowMemoryStore = chatWindowMemoryStore;
         this.objectMapper = objectMapper;
+        this.skillRegistryService = skillRegistryService;
         this.enabledToolsByName = resolveEnabledTools(definition.tools());
 
         ToolArgumentResolver argumentResolver = new ToolArgumentResolver(objectMapper);
@@ -128,14 +154,20 @@ public class DefinitionDrivenAgent implements Agent {
     }
 
     @Override
+    public List<String> skills() {
+        return definition.skills();
+    }
+
+    @Override
     public Flux<AgentDelta> stream(AgentRequest request) {
         log.info(
-                "[agent:{}] stream start provider={}, model={}, mode={}, tools={}, message={}",
+                "[agent:{}] stream start provider={}, model={}, mode={}, tools={}, skills={}, message={}",
                 id(),
                 providerKey(),
                 model(),
                 mode(),
                 enabledToolsByName.keySet(),
+                definition.skills(),
                 normalize(request.message(), "")
         );
         logRunSnapshot(request);
@@ -144,7 +176,8 @@ public class DefinitionDrivenAgent implements Agent {
                     List<Message> historyMessages = loadHistoryMessages(request.chatId());
                     ChatWindowMemoryStore.PlanSnapshot latestPlanSnapshot = loadLatestPlanSnapshot(request.chatId());
                     TurnTrace trace = new TurnTrace();
-                    ExecutionContext context = new ExecutionContext(definition, request, historyMessages);
+                    String skillPrompt = resolveSkillPrompt();
+                    ExecutionContext context = new ExecutionContext(definition, request, historyMessages, skillPrompt);
                     if (latestPlanSnapshot != null) {
                         context.initializePlan(latestPlanSnapshot.planId, toPlanTasks(latestPlanSnapshot.plan));
                     }
@@ -211,6 +244,43 @@ public class DefinitionDrivenAgent implements Agent {
 
     private String sanitize(String input) {
         return normalize(input, "tool").replaceAll("[^a-zA-Z0-9_]", "_").toLowerCase(Locale.ROOT);
+    }
+
+    private String resolveSkillPrompt() {
+        if (skillRegistryService == null || definition.skills().isEmpty()) {
+            return "";
+        }
+        List<String> blocks = new ArrayList<>();
+        for (String configuredSkill : definition.skills()) {
+            String skillId = normalize(configuredSkill, "").trim().toLowerCase(Locale.ROOT);
+            if (!StringUtils.hasText(skillId)) {
+                continue;
+            }
+            SkillDescriptor descriptor = skillRegistryService.find(skillId).orElse(null);
+            if (descriptor == null) {
+                log.warn("[agent:{}] configured skill not found and will be ignored: {}", id(), skillId);
+                continue;
+            }
+            String prompt = normalize(descriptor.prompt(), "");
+            if (!StringUtils.hasText(prompt)) {
+                continue;
+            }
+            StringBuilder block = new StringBuilder();
+            block.append("skillId: ").append(descriptor.id());
+            if (StringUtils.hasText(descriptor.name())) {
+                block.append("\nname: ").append(descriptor.name());
+            }
+            if (StringUtils.hasText(descriptor.description())) {
+                block.append("\ndescription: ").append(descriptor.description());
+            }
+            block.append("\ninstructions:\n").append(prompt);
+            blocks.add(block.toString());
+        }
+        if (blocks.isEmpty()) {
+            return "";
+        }
+        return "可用 skills（按需使用，不要虚构不存在的 skill 或脚本）:\n\n"
+                + String.join("\n\n---\n\n", blocks);
     }
 
     private List<Message> loadHistoryMessages(String chatId) {
@@ -376,6 +446,7 @@ public class DefinitionDrivenAgent implements Agent {
         snapshot.put("policy", policySnapshot());
         snapshot.put("stages", stageSnapshot());
         snapshot.put("tools", toolsSnapshot());
+        snapshot.put("skills", skillsSnapshot());
         try {
             String pretty = objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(snapshot);
             log.info("[agent:{}] run snapshot:\n{}", id(), pretty);
@@ -400,6 +471,7 @@ public class DefinitionDrivenAgent implements Agent {
         item.put("mode", definition.mode());
         item.put("provider", definition.providerKey());
         item.put("model", definition.model());
+        item.put("skills", definition.skills());
         return item;
     }
 
@@ -477,6 +549,34 @@ public class DefinitionDrivenAgent implements Agent {
             stageTools.put("summary", groupToolNames(planExecuteMode.summaryStage().tools()));
         }
         snapshot.put("stageTools", stageTools);
+        return snapshot;
+    }
+
+    private Map<String, Object> skillsSnapshot() {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("configured", definition.skills());
+        if (skillRegistryService == null || definition.skills().isEmpty()) {
+            snapshot.put("resolved", List.of());
+            return snapshot;
+        }
+        List<Map<String, Object>> resolved = new ArrayList<>();
+        for (String configuredSkill : definition.skills()) {
+            String skillId = normalize(configuredSkill, "").trim().toLowerCase(Locale.ROOT);
+            if (!StringUtils.hasText(skillId)) {
+                continue;
+            }
+            SkillDescriptor descriptor = skillRegistryService.find(skillId).orElse(null);
+            if (descriptor == null) {
+                continue;
+            }
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("id", descriptor.id());
+            item.put("name", descriptor.name());
+            item.put("description", descriptor.description());
+            item.put("promptTruncated", descriptor.promptTruncated());
+            resolved.add(item);
+        }
+        snapshot.put("resolved", resolved);
         return snapshot;
     }
 

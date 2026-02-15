@@ -160,7 +160,8 @@ public class AgwController {
         String normalized = tag.toLowerCase();
         return agent.id().toLowerCase().contains(normalized)
                 || agent.description().toLowerCase().contains(normalized)
-                || agent.tools().stream().anyMatch(tool -> tool.toLowerCase().contains(normalized));
+                || agent.tools().stream().anyMatch(tool -> tool.toLowerCase().contains(normalized))
+                || agent.skills().stream().anyMatch(skill -> skill.toLowerCase().contains(normalized));
     }
 
     private AgwAgentsResponse.AgentSummary toSummary(Agent agent) {
@@ -190,6 +191,7 @@ public class AgwController {
         meta.put("mode", agent.mode().name());
         meta.put("icon", agent.icon());
         meta.put("tools", agent.tools());
+        meta.put("skills", agent.skills());
         return meta;
     }
 
@@ -200,6 +202,7 @@ public class AgwController {
         meta.put("mode", agent.mode().name());
         meta.put("icon", agent.icon());
         meta.put("tools", agent.tools());
+        meta.put("skills", agent.skills());
         return meta;
     }
 }
