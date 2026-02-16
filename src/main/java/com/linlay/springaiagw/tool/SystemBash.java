@@ -33,8 +33,8 @@ agent:
 @Component
 public class SystemBash extends AbstractDeterministicTool {
 
-    private static final Set<String> ALLOWED_COMMANDS = Set.of("ls", "pwd", "cat", "head", "tail", "top", "free", "df");
-    private static final Set<String> COMMANDS_WITH_PATH_ARGS = Set.of("ls", "cat", "head", "tail");
+    private static final Set<String> ALLOWED_COMMANDS = Set.of("ls", "pwd", "cat", "head", "tail", "top", "free", "df", "git");
+    private static final Set<String> COMMANDS_WITH_PATH_ARGS = Set.of("ls", "cat", "head", "tail", "git");
     private static final int MAX_OUTPUT_CHARS = 2000;
     private final Path workingDirectory;
     private final List<Path> allowedRoots;
