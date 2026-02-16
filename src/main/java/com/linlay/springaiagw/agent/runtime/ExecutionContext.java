@@ -2,7 +2,7 @@ package com.linlay.springaiagw.agent.runtime;
 
 import com.linlay.springaiagw.agent.AgentDefinition;
 import com.linlay.springaiagw.agent.PlannedToolCall;
-import com.linlay.springaiagw.agent.RuntimePromptTemplates;
+import com.linlay.springaiagw.agent.SkillAppend;
 import com.linlay.springaiagw.agent.runtime.policy.Budget;
 import com.linlay.springaiagw.model.AgentRequest;
 import com.linlay.springaiagw.model.stream.AgentDelta;
@@ -34,7 +34,7 @@ public class ExecutionContext {
     private final long startedAtMs;
     private final String skillCatalogPrompt;
     private final Map<String, SkillDescriptor> resolvedSkillsById;
-    private final RuntimePromptTemplates runtimePrompts;
+    private final SkillAppend skillAppend;
 
     private final List<Message> conversationMessages;
     private final List<Message> planMessages;
@@ -75,8 +75,8 @@ public class ExecutionContext {
                 skillCatalogPrompt,
                 resolvedSkillsById,
                 definition == null || definition.agentMode() == null
-                        ? RuntimePromptTemplates.defaults()
-                        : definition.agentMode().runtimePrompts()
+                        ? SkillAppend.DEFAULTS
+                        : definition.agentMode().skillAppend()
         );
     }
 
@@ -86,7 +86,7 @@ public class ExecutionContext {
             List<Message> historyMessages,
             String skillCatalogPrompt,
             Map<String, SkillDescriptor> resolvedSkillsById,
-            RuntimePromptTemplates runtimePrompts
+            SkillAppend skillAppend
     ) {
         this.definition = definition;
         this.request = request;
@@ -94,7 +94,7 @@ public class ExecutionContext {
         this.startedAtMs = System.currentTimeMillis();
         this.skillCatalogPrompt = StringUtils.hasText(skillCatalogPrompt) ? skillCatalogPrompt.trim() : "";
         this.resolvedSkillsById = normalizeResolvedSkills(resolvedSkillsById);
-        this.runtimePrompts = runtimePrompts == null ? RuntimePromptTemplates.defaults() : runtimePrompts;
+        this.skillAppend = skillAppend == null ? SkillAppend.DEFAULTS : skillAppend;
 
         this.conversationMessages = new ArrayList<>();
         if (historyMessages != null) {
@@ -216,7 +216,7 @@ public class ExecutionContext {
             return "";
         }
         // Deferred skill disclosure is merged into system prompt in the next model turn.
-        return runtimePrompts.skill().disclosureHeader() + "\n\n"
+        return skillAppend.disclosureHeader() + "\n\n"
                 + String.join("\n\n---\n\n", blocks);
     }
 
@@ -405,7 +405,7 @@ public class ExecutionContext {
         if (StringUtils.hasText(descriptor.description())) {
             block.append("\ndescription: ").append(descriptor.description());
         }
-        String label = normalizeLabel(runtimePrompts.skill().instructionsLabel(), "instructions");
+        String label = normalizeLabel(skillAppend.instructionsLabel(), "instructions");
         block.append("\n").append(label).append('\n').append(prompt);
         return block.toString();
     }

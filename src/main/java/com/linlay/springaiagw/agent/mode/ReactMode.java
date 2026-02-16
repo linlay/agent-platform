@@ -1,7 +1,8 @@
 package com.linlay.springaiagw.agent.mode;
 
 import com.linlay.springaiagw.agent.AgentConfigFile;
-import com.linlay.springaiagw.agent.RuntimePromptTemplates;
+import com.linlay.springaiagw.agent.SkillAppend;
+import com.linlay.springaiagw.agent.ToolAppend;
 import com.linlay.springaiagw.agent.runtime.AgentRuntimeMode;
 import com.linlay.springaiagw.agent.runtime.ExecutionContext;
 import com.linlay.springaiagw.agent.runtime.policy.Budget;
@@ -22,12 +23,8 @@ public final class ReactMode extends AgentMode {
     private final StageSettings stage;
     private final int maxSteps;
 
-    public ReactMode(StageSettings stage, int maxSteps) {
-        this(stage, maxSteps, RuntimePromptTemplates.defaults());
-    }
-
-    public ReactMode(StageSettings stage, int maxSteps, RuntimePromptTemplates runtimePrompts) {
-        super(stage == null ? "" : stage.systemPrompt(), runtimePrompts);
+    public ReactMode(StageSettings stage, int maxSteps, SkillAppend skillAppend, ToolAppend toolAppend) {
+        super(stage == null ? "" : stage.systemPrompt(), skillAppend, toolAppend);
         this.stage = stage;
         this.maxSteps = maxSteps > 0 ? maxSteps : 6;
     }

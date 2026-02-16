@@ -134,7 +134,7 @@ public class OrchestratorServices {
         String effectiveSystemPrompt = toolExecutionService.applyBackendPrompts(
                 mergedSystemPrompt,
                 stageTools,
-                context.definition().agentMode().runtimePrompts(),
+                context.definition().agentMode().toolAppend(),
                 includeAfterCallHints
         );
 

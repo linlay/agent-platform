@@ -1,7 +1,8 @@
 package com.linlay.springaiagw.agent.mode;
 
 import com.linlay.springaiagw.agent.AgentConfigFile;
-import com.linlay.springaiagw.agent.RuntimePromptTemplates;
+import com.linlay.springaiagw.agent.SkillAppend;
+import com.linlay.springaiagw.agent.ToolAppend;
 import com.linlay.springaiagw.agent.runtime.AgentRuntimeMode;
 import com.linlay.springaiagw.agent.runtime.ExecutionContext;
 import com.linlay.springaiagw.agent.runtime.PlanExecutionStalledException;
@@ -21,31 +22,57 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public final class PlanExecuteMode extends AgentMode {
 
     private static final String PLAN_ADD_TASK_TOOL = "_plan_add_tasks_";
     private static final String PLAN_UPDATE_TASK_TOOL = "_plan_update_task_";
     private static final int MAX_WORK_ROUNDS_PER_TASK = 6;
+    private static final Pattern PLACEHOLDER_PATTERN = Pattern.compile("\\{\\{\\s*([a-z0-9_]+)\\s*}}");
+
+    private static final String DEFAULT_TASK_EXECUTION_PROMPT_TEMPLATE = """
+            这是任务列表：
+            {{task_list}}
+            当前要执行的 taskId: {{task_id}}
+            当前任务描述: {{task_description}}
+            执行规则:
+            1) 每个执行回合最多调用一个工具；
+            2) 你可按需调用任意可用工具做准备；
+            3) 结束该任务前必须调用 _plan_update_task_ 更新状态。
+            """;
 
     private final StageSettings planStage;
     private final StageSettings executeStage;
     private final StageSettings summaryStage;
+    private final String taskExecutionPromptTemplate;
 
-    public PlanExecuteMode(StageSettings planStage, StageSettings executeStage, StageSettings summaryStage) {
-        this(planStage, executeStage, summaryStage, RuntimePromptTemplates.defaults());
+    public PlanExecuteMode(
+            StageSettings planStage,
+            StageSettings executeStage,
+            StageSettings summaryStage,
+            SkillAppend skillAppend,
+            ToolAppend toolAppend
+    ) {
+        this(planStage, executeStage, summaryStage, skillAppend, toolAppend, null);
     }
 
     public PlanExecuteMode(
             StageSettings planStage,
             StageSettings executeStage,
             StageSettings summaryStage,
-            RuntimePromptTemplates runtimePrompts
+            SkillAppend skillAppend,
+            ToolAppend toolAppend,
+            String taskExecutionPromptTemplate
     ) {
-        super(executeStage == null ? "" : executeStage.systemPrompt(), runtimePrompts);
+        super(executeStage == null ? "" : executeStage.systemPrompt(), skillAppend, toolAppend);
         this.planStage = planStage;
         this.executeStage = executeStage;
         this.summaryStage = summaryStage;
+        this.taskExecutionPromptTemplate = taskExecutionPromptTemplate != null && !taskExecutionPromptTemplate.isBlank()
+                ? taskExecutionPromptTemplate
+                : DEFAULT_TASK_EXECUTION_PROMPT_TEMPLATE;
     }
 
     public StageSettings planStage() {
@@ -97,7 +124,6 @@ public final class PlanExecuteMode extends AgentMode {
             FluxSink<AgentDelta> sink
     ) {
         StageSettings summary = summaryStage == null ? executeStage : summaryStage;
-        RuntimePromptTemplates.PlanExecute prompts = runtimePrompts().planExecute();
         Map<String, BaseTool> planPromptTools = services.selectTools(enabledToolsByName, planStage.tools());
         Map<String, BaseTool> planCallableTools = selectPlanCallableTools(planPromptTools);
         if (!planCallableTools.containsKey(PLAN_ADD_TASK_TOOL)) {
@@ -106,10 +132,15 @@ public final class PlanExecuteMode extends AgentMode {
         Map<String, BaseTool> executeTools = services.selectTools(enabledToolsByName, executeStage.tools());
         Map<String, BaseTool> summaryTools = services.selectTools(enabledToolsByName, summary.tools());
 
-        if (planStage.deepThinking()) {
+        StageSettings augmentedPlanStage = augmentPlanStageWithToolPrompts(
+                planStage, executeTools, planCallableTools, services
+        );
+
+        if (augmentedPlanStage.deepThinking()) {
+            services.emit(sink, AgentDelta.stageMarker("plan-draft"));
             OrchestratorServices.ModelTurn draftTurn = services.callModelTurnStreaming(
                     context,
-                    withReasoning(planStage, true),
+                    withReasoning(augmentedPlanStage, true),
                     context.planMessages(),
                     null,
                     planPromptTools,
@@ -126,9 +157,10 @@ public final class PlanExecuteMode extends AgentMode {
             services.appendAssistantMessage(context.planMessages(), services.normalize(draftTurn.finalText()));
         }
 
+        services.emit(sink, AgentDelta.stageMarker("plan-generate"));
         OrchestratorServices.ModelTurn planTurn = services.callModelTurnStreaming(
                 context,
-                withReasoning(planStage, false),
+                withReasoning(augmentedPlanStage, false),
                 context.planMessages(),
                 null,
                 planPromptTools,
@@ -165,8 +197,9 @@ public final class PlanExecuteMode extends AgentMode {
             }
 
             stepNo++;
-            String taskPrompt = runtimePrompts().render(
-                    prompts.taskExecutionPromptTemplate(),
+            services.emit(sink, AgentDelta.stageMarker("execute-task-" + stepNo));
+            String taskPrompt = renderTemplate(
+                    taskExecutionPromptTemplate,
                     Map.of(
                             "task_list", formatTaskList(beforeSnapshot.tasks()),
                             "task_id", normalize(step.taskId(), "unknown"),
@@ -191,6 +224,7 @@ public final class PlanExecuteMode extends AgentMode {
             ensureTaskNotFailed(context, step);
         }
 
+        services.emit(sink, AgentDelta.stageMarker("summary"));
         OrchestratorServices.ModelTurn finalTurn = services.callModelTurnStreaming(
                 context,
                 summary,
@@ -448,5 +482,61 @@ public final class PlanExecuteMode extends AgentMode {
 
     private String normalize(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value.trim();
+    }
+
+    private StageSettings augmentPlanStageWithToolPrompts(
+            StageSettings planStage,
+            Map<String, BaseTool> executeTools,
+            Map<String, BaseTool> planCallableTools,
+            OrchestratorServices services
+    ) {
+        StringBuilder extraPrompt = new StringBuilder();
+
+        String executeToolDesc = services.toolExecutionService()
+                .backendToolDescriptionSection(executeTools, "以下是执行阶段可用工具说明（当前是规划阶段，仅供参考，不允许调用）:");
+        if (executeToolDesc != null && !executeToolDesc.isBlank()) {
+            extraPrompt.append("\n\n").append(executeToolDesc);
+        }
+
+        String planToolDesc = services.toolExecutionService()
+                .backendToolDescriptionSection(planCallableTools, "当前规划阶段可调用工具（必须调用 _plan_add_tasks_ 创建计划）:");
+        if (planToolDesc != null && !planToolDesc.isBlank()) {
+            extraPrompt.append("\n\n").append(planToolDesc);
+        }
+
+        if (extraPrompt.isEmpty()) {
+            return planStage;
+        }
+
+        String augmentedPrompt = (planStage.systemPrompt() == null ? "" : planStage.systemPrompt()) + extraPrompt;
+        return new StageSettings(
+                augmentedPrompt,
+                planStage.providerKey(),
+                planStage.model(),
+                planStage.tools(),
+                planStage.reasoningEnabled(),
+                planStage.reasoningEffort(),
+                planStage.deepThinking()
+        );
+    }
+
+    static String renderTemplate(String template, Map<String, String> values) {
+        String source = template == null ? "" : template;
+        if (values == null || values.isEmpty()) {
+            return source;
+        }
+        Matcher matcher = PLACEHOLDER_PATTERN.matcher(source);
+        StringBuffer sb = new StringBuffer();
+        while (matcher.find()) {
+            String key = matcher.group(1);
+            if (!values.containsKey(key)) {
+                matcher.appendReplacement(sb, Matcher.quoteReplacement(matcher.group(0)));
+                continue;
+            }
+            String replacement = values.get(key);
+            matcher.appendReplacement(sb, Matcher.quoteReplacement(replacement == null ? "" : replacement));
+        }
+        matcher.appendTail(sb);
+        return sb.toString();
     }
 }

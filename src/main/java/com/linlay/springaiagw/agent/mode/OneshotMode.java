@@ -1,7 +1,8 @@
 package com.linlay.springaiagw.agent.mode;
 
 import com.linlay.springaiagw.agent.AgentConfigFile;
-import com.linlay.springaiagw.agent.RuntimePromptTemplates;
+import com.linlay.springaiagw.agent.SkillAppend;
+import com.linlay.springaiagw.agent.ToolAppend;
 import com.linlay.springaiagw.agent.runtime.AgentRuntimeMode;
 import com.linlay.springaiagw.agent.runtime.ExecutionContext;
 import com.linlay.springaiagw.agent.runtime.policy.Budget;
@@ -25,12 +26,8 @@ public final class OneshotMode extends AgentMode {
 
     private final StageSettings stage;
 
-    public OneshotMode(StageSettings stage) {
-        this(stage, RuntimePromptTemplates.defaults());
-    }
-
-    public OneshotMode(StageSettings stage, RuntimePromptTemplates runtimePrompts) {
-        super(stage == null ? "" : stage.systemPrompt(), runtimePrompts);
+    public OneshotMode(StageSettings stage, SkillAppend skillAppend, ToolAppend toolAppend) {
+        super(stage == null ? "" : stage.systemPrompt(), skillAppend, toolAppend);
         this.stage = stage;
     }
 

@@ -9,7 +9,6 @@ import com.linlay.springaiagw.agent.runtime.policy.ToolChoice;
 import com.linlay.springaiagw.config.AgentProviderProperties;
 import com.linlay.springaiagw.config.ChatClientRegistry;
 import com.linlay.springaiagw.config.LlmInteractionLogProperties;
-import com.linlay.springaiagw.model.ProviderType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -73,7 +72,6 @@ public class LlmService {
     /**
      * Backward-compatible constructor for tests that historically injected two ChatClient instances.
      */
-    @Deprecated
     public LlmService(ChatClient bailianChatClient, ChatClient siliconflowChatClient) {
         this(
                 null,
@@ -121,10 +119,6 @@ public class LlmService {
             String userPrompt,
             String stage
     ) {
-        ProviderType providerType = toProviderType(providerKey);
-        if (providerType != null) {
-            return streamContent(providerType, model, systemPrompt, userPrompt, stage);
-        }
         return streamContentInternal(providerKey, model, systemPrompt, List.of(), userPrompt, stage);
     }
 
@@ -136,49 +130,6 @@ public class LlmService {
             String userPrompt,
             String stage
     ) {
-        ProviderType providerType = toProviderType(providerKey);
-        if (providerType != null) {
-            return streamContent(providerType, model, systemPrompt, historyMessages, userPrompt, stage);
-        }
-        return streamContentInternal(providerKey, model, systemPrompt, historyMessages, userPrompt, stage);
-    }
-
-    @Deprecated
-    public Flux<String> streamContent(ProviderType providerType, String model, String userPrompt) {
-        return streamContent(providerType, model, null, userPrompt, "default");
-    }
-
-    @Deprecated
-    public Flux<String> streamContent(ProviderType providerType, String model, String systemPrompt, String userPrompt) {
-        return streamContent(providerType, model, systemPrompt, userPrompt, "default");
-    }
-
-    @Deprecated
-    public Flux<String> streamContent(
-            ProviderType providerType,
-            String model,
-            String systemPrompt,
-            String userPrompt,
-            String stage
-    ) {
-        return streamContentInternal(resolveProviderKey(providerType), model, systemPrompt, List.of(), userPrompt, stage);
-    }
-
-    @Deprecated
-    public Flux<String> streamContent(
-            ProviderType providerType,
-            String model,
-            String systemPrompt,
-            List<Message> historyMessages,
-            String userPrompt,
-            String stage
-    ) {
-        String providerKey = resolveProviderKey(providerType);
-        ChatClient chatClient = resolveChatClient(providerKey);
-        if (chatClient == null) {
-            // Compatibility bridge for tests/legacy callers overriding ProviderType streamContent.
-            return streamContent(providerType, model, systemPrompt, userPrompt, stage);
-        }
         return streamContentInternal(providerKey, model, systemPrompt, historyMessages, userPrompt, stage);
     }
 
@@ -270,92 +221,6 @@ public class LlmService {
             boolean reasoningEnabled,
             Integer maxTokens
     ) {
-        ProviderType providerType = toProviderType(providerKey);
-        if (providerType != null) {
-            return streamDeltas(providerType, model, systemPrompt, historyMessages, userPrompt, tools, stage,
-                    parallelToolCalls, toolChoice, outputShape, jsonSchema, computePolicy, reasoningEnabled, maxTokens);
-        }
-        return streamDeltasInternal(providerKey, model, systemPrompt, historyMessages, userPrompt, tools, stage,
-                parallelToolCalls, toolChoice, outputShape, jsonSchema, computePolicy, reasoningEnabled, maxTokens);
-    }
-
-    @Deprecated
-    public Flux<LlmDelta> streamDeltas(
-            ProviderType providerType,
-            String model,
-            String systemPrompt,
-            String userPrompt,
-            String stage
-    ) {
-        return streamDeltas(providerType, model, systemPrompt, List.of(), userPrompt, List.of(), stage, false);
-    }
-
-    @Deprecated
-    public Flux<LlmDelta> streamDeltas(
-            ProviderType providerType,
-            String model,
-            String systemPrompt,
-            List<Message> historyMessages,
-            String userPrompt,
-            List<LlmFunctionTool> tools,
-            String stage
-    ) {
-        return streamDeltas(providerType, model, systemPrompt, historyMessages, userPrompt, tools, stage, false);
-    }
-
-    @Deprecated
-    public Flux<LlmDelta> streamDeltas(
-            ProviderType providerType,
-            String model,
-            String systemPrompt,
-            List<Message> historyMessages,
-            String userPrompt,
-            List<LlmFunctionTool> tools,
-            String stage,
-            boolean parallelToolCalls
-    ) {
-        return streamDeltas(
-                providerType,
-                model,
-                systemPrompt,
-                historyMessages,
-                userPrompt,
-                tools,
-                stage,
-                parallelToolCalls,
-                ToolChoice.AUTO,
-                OutputShape.TEXT_ONLY,
-                null,
-                ComputePolicy.MEDIUM,
-                false,
-                null
-        );
-    }
-
-    @Deprecated
-    public Flux<LlmDelta> streamDeltas(
-            ProviderType providerType,
-            String model,
-            String systemPrompt,
-            List<Message> historyMessages,
-            String userPrompt,
-            List<LlmFunctionTool> tools,
-            String stage,
-            boolean parallelToolCalls,
-            ToolChoice toolChoice,
-            OutputShape outputShape,
-            String jsonSchema,
-            ComputePolicy computePolicy,
-            boolean reasoningEnabled,
-            Integer maxTokens
-    ) {
-        String providerKey = resolveProviderKey(providerType);
-        ChatClient chatClient = resolveChatClient(providerKey);
-        if (chatClient == null) {
-            // Compatibility bridge for tests/legacy callers overriding ProviderType streamContent.
-            return streamContent(providerType, model, systemPrompt, userPrompt, stage)
-                    .map(content -> new LlmDelta(content, null, null));
-        }
         return streamDeltasInternal(providerKey, model, systemPrompt, historyMessages, userPrompt, tools, stage,
                 parallelToolCalls, toolChoice, outputShape, jsonSchema, computePolicy, reasoningEnabled, maxTokens);
     }
@@ -382,27 +247,7 @@ public class LlmService {
             String userPrompt,
             String stage
     ) {
-        ProviderType providerType = toProviderType(providerKey);
-        if (providerType != null) {
-            return completeText(providerType, model, systemPrompt, userPrompt, stage);
-        }
         return completeTextInternal(providerKey, model, systemPrompt, userPrompt, stage);
-    }
-
-    @Deprecated
-    public Mono<String> completeText(ProviderType providerType, String model, String systemPrompt, String userPrompt) {
-        return completeText(providerType, model, systemPrompt, userPrompt, "default");
-    }
-
-    @Deprecated
-    public Mono<String> completeText(
-            ProviderType providerType,
-            String model,
-            String systemPrompt,
-            String userPrompt,
-            String stage
-    ) {
-        return completeTextInternal(resolveProviderKey(providerType), model, systemPrompt, userPrompt, stage);
     }
 
     private Flux<String> streamContentInternal(
@@ -540,7 +385,8 @@ public class LlmService {
             callLogger.info(log, "[{}][{}] LLM delta stream user prompt:\n{}", traceId, stage, callLogger.normalizePrompt(userPrompt));
 
             if (chatClient == null) {
-                return streamContentInternal(providerKey, model, systemPrompt, historyMessages, userPrompt, stage)
+                // Compatibility bridge for tests/legacy callers overriding streamContent.
+                return streamContent(providerKey, model, systemPrompt, userPrompt, stage)
                         .map(content -> new LlmDelta(content, null, null));
             }
 
@@ -814,24 +660,6 @@ public class LlmService {
         return new LlmDelta(content, toolCalls.isEmpty() ? null : toolCalls, finishReason);
     }
 
-    private ProviderType toProviderType(String providerKey) {
-        if (!StringUtils.hasText(providerKey)) {
-            return null;
-        }
-        try {
-            return ProviderType.valueOf(providerKey.trim().toUpperCase(Locale.ROOT));
-        } catch (IllegalArgumentException ignored) {
-            return null;
-        }
-    }
-
-    private String resolveProviderKey(ProviderType providerType) {
-        if (providerType == null) {
-            return "bailian";
-        }
-        return providerType.name().toLowerCase(Locale.ROOT);
-    }
-
     private ChatClient resolveChatClient(String providerKey) {
         if (chatClientRegistry != null) {
             ChatClient resolved = chatClientRegistry.getClient(providerKey);
@@ -849,11 +677,7 @@ public class LlmService {
         if (legacy != null) {
             return legacy;
         }
-        ProviderType providerType = toProviderType(normalized);
-        if (providerType == null) {
-            return legacyClients.get("bailian");
-        }
-        return legacyClients.get(providerType.name().toLowerCase(Locale.ROOT));
+        return legacyClients.get("bailian");
     }
 
     private static Map<String, ChatClient> legacyClientMap(ChatClient bailianChatClient, ChatClient siliconflowChatClient) {

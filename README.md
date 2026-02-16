@@ -483,7 +483,7 @@ curl -N -X POST "http://localhost:8080/api/query" \
 ```bash
 curl -N -X POST "http://localhost:8080/api/query" \
   -H "Content-Type: application/json" \
-  -d '{"message":"我周日要搬迁机房到上海，你先对当前服务器做一下检测，然后决定下搬迁条件","agentKey":"demoModeReact"}'
+  -d '{"message":"我周日要搬迁机房到上海，检查下服务器(mac)的硬盘和CPU，然后决定下搬迁条件","agentKey":"demoModeReact"}'
 ```
 
 ```bash

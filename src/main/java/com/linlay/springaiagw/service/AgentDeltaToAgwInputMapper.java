@@ -24,10 +24,13 @@ public class AgentDeltaToAgwInputMapper {
     private final Map<String, AtomicInteger> toolArgChunkCounters = new HashMap<>();
     private final Map<String, StringBuilder> toolArgsBuffer = new HashMap<>();
     private final Set<String> actionToolIds = new HashSet<>();
-    private final String reasoningId;
-    private final String contentId;
+    private final String runPrefix;
     private final ToolRegistry toolRegistry;
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    private int contentCounter = 1;
+    private String reasoningId;
+    private String contentId;
 
     public AgentDeltaToAgwInputMapper() {
         this(null, null);
@@ -38,9 +41,9 @@ public class AgentDeltaToAgwInputMapper {
     }
 
     public AgentDeltaToAgwInputMapper(String runId, ToolRegistry toolRegistry) {
-        String prefix = hasText(runId) ? runId : "run";
-        this.reasoningId = prefix + "_reasoning_1";
-        this.contentId = prefix + "_content_1";
+        this.runPrefix = hasText(runId) ? runId : "run";
+        this.reasoningId = runPrefix + "_reasoning_1";
+        this.contentId = runPrefix + "_content_1";
         this.toolRegistry = toolRegistry;
     }
 
@@ -51,6 +54,11 @@ public class AgentDeltaToAgwInputMapper {
 
     public List<AgwInput> mapOrEmpty(AgentDelta delta) {
         if (delta == null) {
+            return List.of();
+        }
+
+        if (hasText(delta.stageMarker())) {
+            advanceContentBlock();
             return List.of();
         }
 
@@ -142,6 +150,12 @@ public class AgentDeltaToAgwInputMapper {
         }
 
         return inputs;
+    }
+
+    private void advanceContentBlock() {
+        contentCounter++;
+        this.reasoningId = runPrefix + "_reasoning_" + contentCounter;
+        this.contentId = runPrefix + "_content_" + contentCounter;
     }
 
     private String resolveToolId(ToolCallDelta toolCall, int fallbackIndex) {

@@ -5,7 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.linlay.springaiagw.agent.PlannedToolCall;
-import com.linlay.springaiagw.agent.RuntimePromptTemplates;
+import com.linlay.springaiagw.agent.ToolAppend;
 import com.linlay.springaiagw.agent.ToolArgumentResolver;
 import com.linlay.springaiagw.model.stream.AgentDelta;
 import com.linlay.springaiagw.service.FrontendSubmitCoordinator;
@@ -116,7 +116,7 @@ public class ToolExecutionService {
     }
 
     public String applyBackendPrompts(String systemPrompt, Map<String, BaseTool> stageTools) {
-        return applyBackendPrompts(systemPrompt, stageTools, RuntimePromptTemplates.defaults(), true);
+        return applyBackendPrompts(systemPrompt, stageTools, ToolAppend.DEFAULTS, true);
     }
 
     public String applyBackendPrompts(
@@ -124,22 +124,22 @@ public class ToolExecutionService {
             Map<String, BaseTool> stageTools,
             boolean includeAfterCallHints
     ) {
-        return applyBackendPrompts(systemPrompt, stageTools, RuntimePromptTemplates.defaults(), includeAfterCallHints);
+        return applyBackendPrompts(systemPrompt, stageTools, ToolAppend.DEFAULTS, includeAfterCallHints);
     }
 
     public String applyBackendPrompts(
             String systemPrompt,
             Map<String, BaseTool> stageTools,
-            RuntimePromptTemplates runtimePrompts,
+            ToolAppend toolAppend,
             boolean includeAfterCallHints
     ) {
-        RuntimePromptTemplates templates = runtimePrompts == null ? RuntimePromptTemplates.defaults() : runtimePrompts;
+        ToolAppend effective = toolAppend == null ? ToolAppend.DEFAULTS : toolAppend;
         String base = normalize(systemPrompt);
         List<String> sections = new ArrayList<>();
         // Tool appendix is always merged into system prompt after stage/skill sections.
-        sections.add(backendToolDescriptionSection(stageTools, templates.toolAppendix().toolDescriptionTitle()));
+        sections.add(backendToolDescriptionSection(stageTools, effective.toolDescriptionTitle()));
         if (includeAfterCallHints) {
-            sections.add(backendAfterCallHintSection(stageTools, templates.toolAppendix().afterCallHintTitle()));
+            sections.add(backendAfterCallHintSection(stageTools, effective.afterCallHintTitle()));
         }
         List<String> filteredSections = sections.stream()
                 .filter(StringUtils::hasText)
@@ -207,7 +207,7 @@ public class ToolExecutionService {
         }
         String title = StringUtils.hasText(sectionTitle)
                 ? sectionTitle.trim()
-                : RuntimePromptTemplates.defaults().toolAppendix().toolDescriptionTitle();
+                : ToolAppend.DEFAULTS.toolDescriptionTitle();
         return title + "\n" + String.join("\n", lines);
     }
 

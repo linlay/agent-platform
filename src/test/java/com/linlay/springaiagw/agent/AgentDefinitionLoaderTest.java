@@ -482,14 +482,13 @@ class AgentDefinitionLoaderTest {
                 .filter(item -> "runtime_prompts".equals(item.id()))
                 .findFirst()
                 .orElseThrow();
-        RuntimePromptTemplates prompts = definition.agentMode().runtimePrompts();
-        RuntimePromptTemplates defaults = RuntimePromptTemplates.defaults();
+        SkillAppend skillAppend = definition.agentMode().skillAppend();
+        ToolAppend toolAppend = definition.agentMode().toolAppend();
 
-        assertThat(prompts.planExecute().taskExecutionPromptTemplate()).isEqualTo("TASK={{task_id}}|{{task_description}}");
-        assertThat(prompts.skill().catalogHeader()).isEqualTo("skills-header-override");
-        assertThat(prompts.skill().disclosureHeader()).isEqualTo(defaults.skill().disclosureHeader());
-        assertThat(prompts.toolAppendix().toolDescriptionTitle()).isEqualTo("tool-desc-title-override");
-        assertThat(prompts.toolAppendix().afterCallHintTitle()).isEqualTo(defaults.toolAppendix().afterCallHintTitle());
+        assertThat(skillAppend.catalogHeader()).isEqualTo("skills-header-override");
+        assertThat(skillAppend.disclosureHeader()).isEqualTo(SkillAppend.DEFAULTS.disclosureHeader());
+        assertThat(toolAppend.toolDescriptionTitle()).isEqualTo("tool-desc-title-override");
+        assertThat(toolAppend.afterCallHintTitle()).isEqualTo(ToolAppend.DEFAULTS.afterCallHintTitle());
     }
 
     @Test

@@ -2,7 +2,6 @@ package com.linlay.springaiagw.agent;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linlay.springaiagw.memory.ChatWindowMemoryStore;
-import com.linlay.springaiagw.service.DeltaStreamService;
 import com.linlay.springaiagw.service.FrontendSubmitCoordinator;
 import com.linlay.springaiagw.service.LlmService;
 import com.linlay.springaiagw.service.RuntimeResourceSyncService;
@@ -25,7 +24,6 @@ public class AgentRegistry {
 
     private final AgentDefinitionLoader definitionLoader;
     private final LlmService llmService;
-    private final DeltaStreamService deltaStreamService;
     private final ToolRegistry toolRegistry;
     private final ObjectMapper objectMapper;
     private final ChatWindowMemoryStore chatWindowMemoryStore;
@@ -41,7 +39,6 @@ public class AgentRegistry {
     public AgentRegistry(
             AgentDefinitionLoader definitionLoader,
             LlmService llmService,
-            DeltaStreamService deltaStreamService,
             ToolRegistry toolRegistry,
             ObjectMapper objectMapper,
             ChatWindowMemoryStore chatWindowMemoryStore,
@@ -51,7 +48,6 @@ public class AgentRegistry {
     ) {
         this.definitionLoader = definitionLoader;
         this.llmService = llmService;
-        this.deltaStreamService = deltaStreamService;
         this.toolRegistry = toolRegistry;
         this.objectMapper = objectMapper;
         this.chatWindowMemoryStore = chatWindowMemoryStore;
@@ -59,29 +55,6 @@ public class AgentRegistry {
         this.runtimeResourceSyncService = runtimeResourceSyncService;
         this.skillRegistryService = skillRegistryService;
         refreshAgents();
-    }
-
-    public AgentRegistry(
-            AgentDefinitionLoader definitionLoader,
-            LlmService llmService,
-            DeltaStreamService deltaStreamService,
-            ToolRegistry toolRegistry,
-            ObjectMapper objectMapper,
-            ChatWindowMemoryStore chatWindowMemoryStore,
-            FrontendSubmitCoordinator frontendSubmitCoordinator,
-            RuntimeResourceSyncService runtimeResourceSyncService
-    ) {
-        this(
-                definitionLoader,
-                llmService,
-                deltaStreamService,
-                toolRegistry,
-                objectMapper,
-                chatWindowMemoryStore,
-                frontendSubmitCoordinator,
-                runtimeResourceSyncService,
-                null
-        );
     }
 
     public Agent get(String id) {
@@ -120,7 +93,6 @@ public class AgentRegistry {
                     Agent agent = new DefinitionDrivenAgent(
                             definition,
                             llmService,
-                            deltaStreamService,
                             toolRegistry,
                             objectMapper,
                             chatWindowMemoryStore,

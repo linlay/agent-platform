@@ -3,7 +3,6 @@ package com.linlay.springaiagw.agent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linlay.springaiagw.memory.ChatWindowMemoryProperties;
 import com.linlay.springaiagw.memory.ChatWindowMemoryStore;
-import com.linlay.springaiagw.service.DeltaStreamService;
 import com.linlay.springaiagw.service.LlmService;
 import com.linlay.springaiagw.tool.AgentFileCreateTool;
 import com.linlay.springaiagw.tool.SystemBash;
@@ -52,7 +51,6 @@ class AgentRegistryTest {
 
         AgentDefinitionLoader loader = new AgentDefinitionLoader(new ObjectMapper(), properties, null);
         LlmService llmService = new LlmService(null, null);
-        DeltaStreamService deltaStreamService = new DeltaStreamService();
         ToolRegistry toolRegistry = new ToolRegistry(List.of(
                 new SystemBash(),
                 new AgentFileCreateTool(agentsDir)
@@ -64,10 +62,10 @@ class AgentRegistryTest {
         AgentRegistry registry = new AgentRegistry(
                 loader,
                 llmService,
-                deltaStreamService,
                 toolRegistry,
                 new ObjectMapper(),
                 memoryStore,
+                null,
                 null,
                 null
         );

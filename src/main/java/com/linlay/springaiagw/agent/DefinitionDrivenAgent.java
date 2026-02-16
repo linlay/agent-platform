@@ -17,7 +17,6 @@ import com.linlay.springaiagw.agent.mode.OrchestratorServices;
 import com.linlay.springaiagw.memory.ChatWindowMemoryStore;
 import com.linlay.springaiagw.model.AgentRequest;
 import com.linlay.springaiagw.model.stream.AgentDelta;
-import com.linlay.springaiagw.service.DeltaStreamService;
 import com.linlay.springaiagw.service.FrontendSubmitCoordinator;
 import com.linlay.springaiagw.service.LlmService;
 import com.linlay.springaiagw.skill.SkillDescriptor;
@@ -54,13 +53,9 @@ public class DefinitionDrivenAgent implements Agent {
     private final ObjectMapper objectMapper;
     private final SkillRegistryService skillRegistryService;
 
-    @SuppressWarnings("unused")
-    private final DeltaStreamService deltaStreamService;
-
     public DefinitionDrivenAgent(
             AgentDefinition definition,
             LlmService llmService,
-            DeltaStreamService deltaStreamService,
             ToolRegistry toolRegistry,
             ObjectMapper objectMapper,
             ChatWindowMemoryStore chatWindowMemoryStore,
@@ -69,7 +64,6 @@ public class DefinitionDrivenAgent implements Agent {
         this(
                 definition,
                 llmService,
-                deltaStreamService,
                 toolRegistry,
                 objectMapper,
                 chatWindowMemoryStore,
@@ -81,7 +75,6 @@ public class DefinitionDrivenAgent implements Agent {
     public DefinitionDrivenAgent(
             AgentDefinition definition,
             LlmService llmService,
-            DeltaStreamService deltaStreamService,
             ToolRegistry toolRegistry,
             ObjectMapper objectMapper,
             ChatWindowMemoryStore chatWindowMemoryStore,
@@ -89,7 +82,6 @@ public class DefinitionDrivenAgent implements Agent {
             SkillRegistryService skillRegistryService
     ) {
         this.definition = definition;
-        this.deltaStreamService = deltaStreamService;
         this.toolRegistry = toolRegistry;
         this.chatWindowMemoryStore = chatWindowMemoryStore;
         this.objectMapper = objectMapper;
@@ -280,7 +272,7 @@ public class DefinitionDrivenAgent implements Agent {
         if (catalogBlocks.isEmpty()) {
             return new SkillPromptBundle("", Map.copyOf(resolvedSkillsById));
         }
-        String catalogPrompt = definition.agentMode().runtimePrompts().skill().catalogHeader() + "\n\n"
+        String catalogPrompt = definition.agentMode().skillAppend().catalogHeader() + "\n\n"
                 + String.join("\n\n---\n\n", catalogBlocks);
         return new SkillPromptBundle(catalogPrompt, Map.copyOf(resolvedSkillsById));
     }

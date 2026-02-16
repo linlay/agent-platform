@@ -94,7 +94,7 @@ class ToolExecutionServiceTest {
                 "qwen3-max",
                 AgentRuntimeMode.ONESHOT,
                 new RunSpec(ControlStrategy.ONESHOT, OutputPolicy.PLAIN, ToolPolicy.ALLOW, Budget.DEFAULT),
-                new OneshotMode(new StageSettings("sys", null, null, List.of("_plan_get_tasks_"), false, ComputePolicy.MEDIUM)),
+                new OneshotMode(new StageSettings("sys", null, null, List.of("_plan_get_tasks_"), false, ComputePolicy.MEDIUM), null, null),
                 List.of("_plan_get_tasks_"),
                 List.of()
         );

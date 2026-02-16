@@ -20,7 +20,6 @@ import com.linlay.springaiagw.memory.ChatWindowMemoryProperties;
 import com.linlay.springaiagw.memory.ChatWindowMemoryStore;
 import com.linlay.springaiagw.model.AgentRequest;
 import com.linlay.springaiagw.model.stream.AgentDelta;
-import com.linlay.springaiagw.service.DeltaStreamService;
 import com.linlay.springaiagw.service.LlmCallSpec;
 import com.linlay.springaiagw.service.LlmService;
 import com.linlay.springaiagw.skill.SkillCatalogProperties;
@@ -63,7 +62,7 @@ class DefinitionDrivenAgentTest {
                 "demoOneshotTooling",
                 AgentRuntimeMode.ONESHOT,
                 new RunSpec(ControlStrategy.ONESHOT, OutputPolicy.PLAIN, ToolPolicy.ALLOW, Budget.DEFAULT),
-                new OneshotMode(new StageSettings("你是测试助手", null, null, List.of("echo_tool"), false, ComputePolicy.MEDIUM)),
+                new OneshotMode(new StageSettings("你是测试助手", null, null, List.of("echo_tool"), false, ComputePolicy.MEDIUM), null, null),
                 List.of("echo_tool")
         );
 
@@ -104,7 +103,6 @@ class DefinitionDrivenAgentTest {
         DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
                 definition,
                 llmService,
-                new DeltaStreamService(),
                 new ToolRegistry(List.of(echoTool)),
                 objectMapper,
                 null,
@@ -130,7 +128,7 @@ class DefinitionDrivenAgentTest {
                 "demoOneshot",
                 AgentRuntimeMode.ONESHOT,
                 new RunSpec(ControlStrategy.ONESHOT, OutputPolicy.PLAIN, ToolPolicy.DISALLOW, Budget.DEFAULT),
-                new OneshotMode(new StageSettings("你是测试助手", null, null, List.of(), false, ComputePolicy.MEDIUM)),
+                new OneshotMode(new StageSettings("你是测试助手", null, null, List.of(), false, ComputePolicy.MEDIUM), null, null),
                 List.of()
         );
 
@@ -151,7 +149,6 @@ class DefinitionDrivenAgentTest {
         DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
                 definition,
                 llmService,
-                new DeltaStreamService(),
                 new ToolRegistry(List.of()),
                 objectMapper,
                 null,
@@ -177,7 +174,7 @@ class DefinitionDrivenAgentTest {
                 "demoReasoning",
                 AgentRuntimeMode.ONESHOT,
                 new RunSpec(ControlStrategy.ONESHOT, OutputPolicy.PLAIN, ToolPolicy.DISALLOW, Budget.DEFAULT),
-                new OneshotMode(new StageSettings("你是测试助手", null, null, List.of(), true, ComputePolicy.HIGH)),
+                new OneshotMode(new StageSettings("你是测试助手", null, null, List.of(), true, ComputePolicy.HIGH), null, null),
                 List.of()
         );
 
@@ -197,7 +194,6 @@ class DefinitionDrivenAgentTest {
         DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
                 definition,
                 llmService,
-                new DeltaStreamService(),
                 new ToolRegistry(List.of()),
                 objectMapper,
                 null,
@@ -241,7 +237,7 @@ class DefinitionDrivenAgentTest {
                 "qwen3-max",
                 AgentRuntimeMode.ONESHOT,
                 new RunSpec(ControlStrategy.ONESHOT, OutputPolicy.PLAIN, ToolPolicy.DISALLOW, Budget.DEFAULT),
-                new OneshotMode(new StageSettings("你是测试助手", null, null, List.of(), false, ComputePolicy.MEDIUM)),
+                new OneshotMode(new StageSettings("你是测试助手", null, null, List.of(), false, ComputePolicy.MEDIUM), null, null),
                 List.of(),
                 List.of("screenshot")
         );
@@ -258,7 +254,6 @@ class DefinitionDrivenAgentTest {
         DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
                 definition,
                 llmService,
-                new DeltaStreamService(),
                 new ToolRegistry(List.of()),
                 objectMapper,
                 null,
@@ -294,7 +289,7 @@ class DefinitionDrivenAgentTest {
                 "qwen3-max",
                 AgentRuntimeMode.ONESHOT,
                 new RunSpec(ControlStrategy.ONESHOT, OutputPolicy.PLAIN, ToolPolicy.ALLOW, Budget.DEFAULT),
-                new OneshotMode(new StageSettings("你是测试助手", null, null, List.of("_skill_run_script_"), false, ComputePolicy.MEDIUM)),
+                new OneshotMode(new StageSettings("你是测试助手", null, null, List.of("_skill_run_script_"), false, ComputePolicy.MEDIUM), null, null),
                 List.of("_skill_run_script_"),
                 List.of("screenshot")
         );
@@ -325,7 +320,6 @@ class DefinitionDrivenAgentTest {
         DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
                 definition,
                 llmService,
-                new DeltaStreamService(),
                 new ToolRegistry(List.of(skillScriptRunTool())),
                 objectMapper,
                 null,
@@ -365,7 +359,7 @@ class DefinitionDrivenAgentTest {
                 "qwen3-max",
                 AgentRuntimeMode.REACT,
                 new RunSpec(ControlStrategy.REACT_LOOP, OutputPolicy.PLAIN, ToolPolicy.ALLOW, new Budget(10, 10, 4, 60_000)),
-                new ReactMode(new StageSettings("你是测试助手", null, null, List.of("_skill_run_script_"), false, ComputePolicy.MEDIUM), 4),
+                new ReactMode(new StageSettings("你是测试助手", null, null, List.of("_skill_run_script_"), false, ComputePolicy.MEDIUM), 4, null, null),
                 List.of("_skill_run_script_"),
                 List.of("screenshot")
         );
@@ -399,7 +393,6 @@ class DefinitionDrivenAgentTest {
         DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
                 definition,
                 llmService,
-                new DeltaStreamService(),
                 new ToolRegistry(List.of(skillScriptRunTool())),
                 objectMapper,
                 null,
@@ -436,7 +429,7 @@ class DefinitionDrivenAgentTest {
                 "qwen3-max",
                 AgentRuntimeMode.ONESHOT,
                 new RunSpec(ControlStrategy.ONESHOT, OutputPolicy.PLAIN, ToolPolicy.ALLOW, Budget.DEFAULT),
-                new OneshotMode(new StageSettings("你是测试助手", null, null, List.of("_skill_run_script_"), false, ComputePolicy.MEDIUM)),
+                new OneshotMode(new StageSettings("你是测试助手", null, null, List.of("_skill_run_script_"), false, ComputePolicy.MEDIUM), null, null),
                 List.of("_skill_run_script_"),
                 List.of("screenshot")
         );
@@ -467,7 +460,6 @@ class DefinitionDrivenAgentTest {
         DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
                 definition,
                 llmService,
-                new DeltaStreamService(),
                 new ToolRegistry(List.of(skillScriptRunTool())),
                 objectMapper,
                 null,
@@ -508,7 +500,7 @@ class DefinitionDrivenAgentTest {
                 "qwen3-max",
                 AgentRuntimeMode.ONESHOT,
                 new RunSpec(ControlStrategy.ONESHOT, OutputPolicy.PLAIN, ToolPolicy.ALLOW, Budget.DEFAULT),
-                new OneshotMode(new StageSettings("你是测试助手", null, null, List.of("_skill_run_script_"), false, ComputePolicy.MEDIUM)),
+                new OneshotMode(new StageSettings("你是测试助手", null, null, List.of("_skill_run_script_"), false, ComputePolicy.MEDIUM), null, null),
                 List.of("_skill_run_script_"),
                 List.of("screenshot")
         );
@@ -538,7 +530,6 @@ class DefinitionDrivenAgentTest {
         DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
                 definition,
                 llmService,
-                new DeltaStreamService(),
                 new ToolRegistry(List.of(skillScriptRunTool())),
                 objectMapper,
                 chatWindowMemoryStore,
@@ -565,7 +556,7 @@ class DefinitionDrivenAgentTest {
                 "demoReact",
                 AgentRuntimeMode.REACT,
                 new RunSpec(ControlStrategy.REACT_LOOP, OutputPolicy.PLAIN, ToolPolicy.ALLOW, new Budget(10, 10, 4, 60_000)),
-                new ReactMode(new StageSettings("你是测试助手", null, null, List.of("echo_tool"), true, ComputePolicy.MEDIUM), 6),
+                new ReactMode(new StageSettings("你是测试助手", null, null, List.of("echo_tool"), true, ComputePolicy.MEDIUM), 6, null, null),
                 List.of("echo_tool")
         );
 
@@ -612,7 +603,6 @@ class DefinitionDrivenAgentTest {
         DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
                 definition,
                 llmService,
-                new DeltaStreamService(),
                 new ToolRegistry(List.of(echoTool)),
                 objectMapper,
                 null,
@@ -638,7 +628,7 @@ class DefinitionDrivenAgentTest {
                 "demoReactRetryBlankFinal",
                 AgentRuntimeMode.REACT,
                 new RunSpec(ControlStrategy.REACT_LOOP, OutputPolicy.PLAIN, ToolPolicy.ALLOW, new Budget(10, 10, 2, 60_000)),
-                new ReactMode(new StageSettings("你是测试助手", null, null, List.of(), false, ComputePolicy.MEDIUM), 2),
+                new ReactMode(new StageSettings("你是测试助手", null, null, List.of(), false, ComputePolicy.MEDIUM), 2, null, null),
                 List.of()
         );
 
@@ -659,7 +649,6 @@ class DefinitionDrivenAgentTest {
         DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
                 definition,
                 llmService,
-                new DeltaStreamService(),
                 new ToolRegistry(List.of()),
                 objectMapper,
                 null,
@@ -689,7 +678,7 @@ class DefinitionDrivenAgentTest {
                 "demoReactForceFinalFallback",
                 AgentRuntimeMode.REACT,
                 new RunSpec(ControlStrategy.REACT_LOOP, OutputPolicy.PLAIN, ToolPolicy.ALLOW, new Budget(10, 10, 1, 60_000)),
-                new ReactMode(new StageSettings("你是测试助手", null, null, List.of("echo_tool"), false, ComputePolicy.MEDIUM), 1),
+                new ReactMode(new StageSettings("你是测试助手", null, null, List.of("echo_tool"), false, ComputePolicy.MEDIUM), 1, null, null),
                 List.of("echo_tool")
         );
 
@@ -730,7 +719,6 @@ class DefinitionDrivenAgentTest {
         DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
                 definition,
                 llmService,
-                new DeltaStreamService(),
                 new ToolRegistry(List.of(echoTool)),
                 objectMapper,
                 null,
@@ -766,7 +754,8 @@ class DefinitionDrivenAgentTest {
                 new PlanExecuteMode(
                         new StageSettings("规划系统提示", null, null, List.of("_plan_add_tasks_"), false, ComputePolicy.MEDIUM),
                         new StageSettings("执行系统提示", null, null, List.of("_plan_update_task_"), false, ComputePolicy.MEDIUM),
-                        new StageSettings("总结系统提示", null, null, List.of(), false, ComputePolicy.MEDIUM)
+                        new StageSettings("总结系统提示", null, null, List.of(), false, ComputePolicy.MEDIUM),
+                        null, null
                 ),
                 List.of("_plan_add_tasks_", "_plan_update_task_")
         );
@@ -801,7 +790,6 @@ class DefinitionDrivenAgentTest {
         DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
                 definition,
                 llmService,
-                new DeltaStreamService(),
                 new ToolRegistry(List.of(new SystemPlanAddTasks(), new SystemPlanUpdateTask())),
                 objectMapper,
                 null,
@@ -838,7 +826,8 @@ class DefinitionDrivenAgentTest {
                 new PlanExecuteMode(
                         new StageSettings("规划系统提示", null, null, List.of("_plan_add_tasks_"), true, ComputePolicy.MEDIUM, true),
                         new StageSettings("执行系统提示", null, null, List.of("_plan_update_task_"), false, ComputePolicy.MEDIUM),
-                        new StageSettings("总结系统提示", null, null, List.of(), false, ComputePolicy.MEDIUM)
+                        new StageSettings("总结系统提示", null, null, List.of(), false, ComputePolicy.MEDIUM),
+                        null, null
                 ),
                 List.of("_plan_add_tasks_", "_plan_update_task_")
         );
@@ -875,7 +864,6 @@ class DefinitionDrivenAgentTest {
         DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
                 definition,
                 llmService,
-                new DeltaStreamService(),
                 new ToolRegistry(List.of(new SystemPlanAddTasks(), new SystemPlanUpdateTask())),
                 objectMapper,
                 null,
@@ -943,7 +931,8 @@ class DefinitionDrivenAgentTest {
                 new PlanExecuteMode(
                         new StageSettings("规划系统提示", null, null, List.of("_plan_add_tasks_", "prompt_tool"), false, ComputePolicy.MEDIUM),
                         new StageSettings("执行系统提示", null, null, List.of("_plan_update_task_", "prompt_tool"), false, ComputePolicy.MEDIUM),
-                        new StageSettings("总结系统提示", null, null, List.of("prompt_tool"), false, ComputePolicy.MEDIUM)
+                        new StageSettings("总结系统提示", null, null, List.of("prompt_tool"), false, ComputePolicy.MEDIUM),
+                        null, null
                 ),
                 List.of("_plan_add_tasks_", "_plan_update_task_", "prompt_tool")
         );
@@ -977,7 +966,6 @@ class DefinitionDrivenAgentTest {
         DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
                 definition,
                 llmService,
-                new DeltaStreamService(),
                 new ToolRegistry(List.of(new SystemPlanAddTasks(), new SystemPlanUpdateTask(), promptTool)),
                 objectMapper,
                 null,
@@ -1021,7 +1009,8 @@ class DefinitionDrivenAgentTest {
                 new PlanExecuteMode(
                         new StageSettings("规划系统提示", "bailian", "qwen3-max", List.of("_plan_add_tasks_"), true, ComputePolicy.HIGH),
                         new StageSettings("执行系统提示", null, null, List.of("_plan_update_task_"), false, ComputePolicy.MEDIUM),
-                        new StageSettings("总结系统提示", null, null, List.of("_plan_get_tasks_"), false, ComputePolicy.LOW)
+                        new StageSettings("总结系统提示", null, null, List.of("_plan_get_tasks_"), false, ComputePolicy.LOW),
+                        null, null
                 ),
                 List.of("_plan_add_tasks_", "_plan_update_task_", "_plan_get_tasks_")
         );
@@ -1055,7 +1044,6 @@ class DefinitionDrivenAgentTest {
         DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
                 definition,
                 llmService,
-                new DeltaStreamService(),
                 new ToolRegistry(List.of(new SystemPlanAddTasks(), new SystemPlanGetTasks(), new SystemPlanUpdateTask())),
                 objectMapper,
                 null,
@@ -1105,7 +1093,8 @@ class DefinitionDrivenAgentTest {
                         new StageSettings("规划系统提示", null, null, List.of("_plan_add_tasks_"), false, ComputePolicy.MEDIUM),
                         new StageSettings("执行系统提示", null, null,
                                 List.of("_plan_get_tasks_", "_plan_update_task_"), false, ComputePolicy.MEDIUM),
-                        new StageSettings("总结系统提示", null, null, List.of(), false, ComputePolicy.MEDIUM)
+                        new StageSettings("总结系统提示", null, null, List.of(), false, ComputePolicy.MEDIUM),
+                        null, null
                 ),
                 List.of("_plan_add_tasks_", "_plan_get_tasks_", "_plan_update_task_")
         );
@@ -1167,7 +1156,6 @@ class DefinitionDrivenAgentTest {
         DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
                 definition,
                 llmService,
-                new DeltaStreamService(),
                 new ToolRegistry(List.of(new SystemPlanAddTasks(), new SystemPlanGetTasks(), new SystemPlanUpdateTask())),
                 objectMapper,
                 null,
@@ -1207,7 +1195,8 @@ class DefinitionDrivenAgentTest {
                         new StageSettings("规划系统提示", null, null, List.of("_plan_add_tasks_"), false, ComputePolicy.MEDIUM),
                         new StageSettings("执行系统提示", null, null,
                                 List.of("_plan_update_task_"), false, ComputePolicy.MEDIUM),
-                        new StageSettings("总结系统提示", null, null, List.of(), false, ComputePolicy.MEDIUM)
+                        new StageSettings("总结系统提示", null, null, List.of(), false, ComputePolicy.MEDIUM),
+                        null, null
                 ),
                 List.of("_plan_add_tasks_", "_plan_update_task_")
         );
@@ -1252,7 +1241,6 @@ class DefinitionDrivenAgentTest {
         DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
                 definition,
                 llmService,
-                new DeltaStreamService(),
                 new ToolRegistry(List.of(new SystemPlanAddTasks(), new SystemPlanUpdateTask())),
                 objectMapper,
                 null,
@@ -1289,7 +1277,8 @@ class DefinitionDrivenAgentTest {
                 new PlanExecuteMode(
                         new StageSettings("规划系统提示", null, null, List.of("_plan_add_tasks_"), false, ComputePolicy.MEDIUM),
                         new StageSettings("执行系统提示", null, null, List.of("_plan_update_task_"), false, ComputePolicy.MEDIUM),
-                        new StageSettings("总结系统提示", null, null, List.of(), false, ComputePolicy.MEDIUM)
+                        new StageSettings("总结系统提示", null, null, List.of(), false, ComputePolicy.MEDIUM),
+                        null, null
                 ),
                 List.of("_plan_add_tasks_", "_plan_update_task_")
         );
@@ -1308,7 +1297,6 @@ class DefinitionDrivenAgentTest {
         DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
                 definition,
                 llmService,
-                new DeltaStreamService(),
                 new ToolRegistry(List.of(new SystemPlanAddTasks(), new SystemPlanUpdateTask())),
                 objectMapper,
                 null,
@@ -1339,7 +1327,8 @@ class DefinitionDrivenAgentTest {
                 new PlanExecuteMode(
                         new StageSettings("规划系统提示", null, null, List.of("_plan_add_tasks_"), false, ComputePolicy.MEDIUM),
                         new StageSettings("执行系统提示", null, null, List.of("_plan_update_task_"), false, ComputePolicy.MEDIUM),
-                        new StageSettings("总结系统提示", null, null, List.of(), false, ComputePolicy.MEDIUM)
+                        new StageSettings("总结系统提示", null, null, List.of(), false, ComputePolicy.MEDIUM),
+                        null, null
                 ),
                 List.of("_plan_add_tasks_", "_plan_update_task_")
         );
@@ -1368,7 +1357,6 @@ class DefinitionDrivenAgentTest {
         DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
                 definition,
                 llmService,
-                new DeltaStreamService(),
                 new ToolRegistry(List.of(new SystemPlanAddTasks(), new SystemPlanUpdateTask())),
                 objectMapper,
                 null,
@@ -1394,7 +1382,8 @@ class DefinitionDrivenAgentTest {
                 AgentRuntimeMode.ONESHOT,
                 new RunSpec(ControlStrategy.ONESHOT, OutputPolicy.PLAIN, ToolPolicy.REQUIRE, Budget.DEFAULT),
                 new OneshotMode(
-                        new StageSettings("你是测试助手", null, null, List.of("echo_tool"), false, ComputePolicy.MEDIUM)
+                        new StageSettings("你是测试助手", null, null, List.of("echo_tool"), false, ComputePolicy.MEDIUM),
+                        null, null
                 ),
                 List.of("echo_tool")
         );
@@ -1443,7 +1432,6 @@ class DefinitionDrivenAgentTest {
         DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
                 definition,
                 llmService,
-                new DeltaStreamService(),
                 new ToolRegistry(List.of(echoTool)),
                 objectMapper,
                 null,
@@ -1474,7 +1462,7 @@ class DefinitionDrivenAgentTest {
                 new RunSpec(ControlStrategy.REACT_LOOP, OutputPolicy.PLAIN, ToolPolicy.REQUIRE, new Budget(20, 20, 2, 60_000)),
                 new ReactMode(
                         new StageSettings("你是测试助手", null, null, List.of("echo_tool"), false, ComputePolicy.MEDIUM),
-                        2
+                        2, null, null
                 ),
                 List.of("echo_tool")
         );
@@ -1523,7 +1511,6 @@ class DefinitionDrivenAgentTest {
         DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
                 definition,
                 llmService,
-                new DeltaStreamService(),
                 new ToolRegistry(List.of(echoTool)),
                 objectMapper,
                 null,
@@ -1543,15 +1530,11 @@ class DefinitionDrivenAgentTest {
 
     @Test
     void planExecuteShouldUseRuntimeTaskTemplateAndSkipVerifyStage() {
-        AgentConfigFile.RuntimePromptsConfig promptConfig = new AgentConfigFile.RuntimePromptsConfig();
-        AgentConfigFile.PlanExecutePromptConfig planPromptConfig = new AgentConfigFile.PlanExecutePromptConfig();
-        planPromptConfig.setTaskExecutionPromptTemplate("""
+        String taskExecutionPromptTemplate = """
                 RUNTIME_TASK_PROMPT
                 当前要执行的 taskId: {{task_id}}
                 当前任务描述: {{task_description}}
-                """);
-        promptConfig.setPlanExecute(planPromptConfig);
-        RuntimePromptTemplates runtimePrompts = RuntimePromptTemplates.fromConfig(promptConfig);
+                """;
 
         Map<String, LlmCallSpec> stageSpecs = new ConcurrentHashMap<>();
         AtomicReference<String> verifyStage = new AtomicReference<>();
@@ -1563,7 +1546,7 @@ class DefinitionDrivenAgentTest {
                         new StageSettings("规划系统提示", null, null, List.of("_plan_add_tasks_"), false, ComputePolicy.MEDIUM),
                         new StageSettings("执行系统提示", null, null, List.of("_plan_update_task_"), false, ComputePolicy.MEDIUM),
                         new StageSettings("总结系统提示", null, null, List.of(), false, ComputePolicy.MEDIUM),
-                        runtimePrompts
+                        null, null, taskExecutionPromptTemplate
                 ),
                 List.of("_plan_add_tasks_", "_plan_update_task_")
         );
@@ -1605,7 +1588,6 @@ class DefinitionDrivenAgentTest {
         DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
                 definition,
                 llmService,
-                new DeltaStreamService(),
                 new ToolRegistry(List.of(new SystemPlanAddTasks(), new SystemPlanUpdateTask())),
                 objectMapper,
                 null,
@@ -1629,7 +1611,7 @@ class DefinitionDrivenAgentTest {
                 "demoOneshotSinglePass",
                 AgentRuntimeMode.ONESHOT,
                 new RunSpec(ControlStrategy.ONESHOT, OutputPolicy.PLAIN, ToolPolicy.DISALLOW, Budget.DEFAULT),
-                new OneshotMode(new StageSettings("你是测试助手", null, null, List.of(), false, ComputePolicy.MEDIUM)),
+                new OneshotMode(new StageSettings("你是测试助手", null, null, List.of(), false, ComputePolicy.MEDIUM), null, null),
                 List.of()
         );
 
@@ -1653,7 +1635,6 @@ class DefinitionDrivenAgentTest {
         DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
                 definition,
                 llmService,
-                new DeltaStreamService(),
                 new ToolRegistry(List.of()),
                 objectMapper,
                 null,

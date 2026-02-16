@@ -1,9 +1,11 @@
 package com.linlay.springaiagw.agent.mode;
 
 import com.linlay.springaiagw.agent.AgentConfigFile;
-import com.linlay.springaiagw.agent.RuntimePromptTemplates;
+import com.linlay.springaiagw.agent.SkillAppend;
+import com.linlay.springaiagw.agent.ToolAppend;
 import com.linlay.springaiagw.agent.runtime.AgentRuntimeMode;
 import com.linlay.springaiagw.agent.runtime.policy.ComputePolicy;
+import org.springframework.util.StringUtils;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -19,16 +21,18 @@ public final class AgentModeFactory {
     }
 
     public static AgentMode create(AgentRuntimeMode mode, AgentConfigFile config, Path file) {
-        RuntimePromptTemplates runtimePrompts = RuntimePromptTemplates.fromConfig(
-                config == null ? null : config.getRuntimePrompts()
-        );
+        AgentConfigFile.RuntimePromptsConfig runtimePromptsConfig = config == null ? null : config.getRuntimePrompts();
+        SkillAppend skillAppend = buildSkillAppend(runtimePromptsConfig);
+        ToolAppend toolAppend = buildToolAppend(runtimePromptsConfig);
+        String taskExecutionPromptTemplate = buildTaskExecutionPromptTemplate(runtimePromptsConfig);
+
         return switch (mode) {
             case ONESHOT -> {
                 StageSettings stage = stageSettings(config, config == null ? null : config.getPlain(), List.of());
                 if (isBlank(stage.systemPrompt())) {
                     throw new IllegalArgumentException("plain.systemPrompt is required: " + file);
                 }
-                yield new OneshotMode(stage, runtimePrompts);
+                yield new OneshotMode(stage, skillAppend, toolAppend);
             }
             case REACT -> {
                 AgentConfigFile.ReactConfig react = config == null ? null : config.getReact();
@@ -37,7 +41,7 @@ public final class AgentModeFactory {
                     throw new IllegalArgumentException("react.systemPrompt is required: " + file);
                 }
                 int maxSteps = react != null && react.getMaxSteps() != null ? react.getMaxSteps() : 6;
-                yield new ReactMode(stage, maxSteps, runtimePrompts);
+                yield new ReactMode(stage, maxSteps, skillAppend, toolAppend);
             }
             case PLAN_EXECUTE -> {
                 AgentConfigFile.PlanExecuteConfig pe = config == null ? null : config.getPlanExecute();
@@ -73,9 +77,54 @@ public final class AgentModeFactory {
                             summaryStage.deepThinking()
                     );
                 }
-                yield new PlanExecuteMode(planStage, executeStage, summaryStage, runtimePrompts);
+                yield new PlanExecuteMode(planStage, executeStage, summaryStage, skillAppend, toolAppend, taskExecutionPromptTemplate);
             }
         };
+    }
+
+    private static SkillAppend buildSkillAppend(AgentConfigFile.RuntimePromptsConfig config) {
+        if (config == null) {
+            return SkillAppend.DEFAULTS;
+        }
+        AgentConfigFile.SkillPromptConfig skillConfig = config.getSkill();
+        if (skillConfig == null) {
+            return SkillAppend.DEFAULTS;
+        }
+        return new SkillAppend(
+                pick(skillConfig.getCatalogHeader(), SkillAppend.DEFAULTS.catalogHeader()),
+                pick(skillConfig.getDisclosureHeader(), SkillAppend.DEFAULTS.disclosureHeader()),
+                pick(skillConfig.getInstructionsLabel(), SkillAppend.DEFAULTS.instructionsLabel())
+        );
+    }
+
+    private static ToolAppend buildToolAppend(AgentConfigFile.RuntimePromptsConfig config) {
+        if (config == null) {
+            return ToolAppend.DEFAULTS;
+        }
+        AgentConfigFile.ToolAppendixPromptConfig toolAppendixConfig = config.getToolAppendix();
+        if (toolAppendixConfig == null) {
+            return ToolAppend.DEFAULTS;
+        }
+        return new ToolAppend(
+                pick(toolAppendixConfig.getToolDescriptionTitle(), ToolAppend.DEFAULTS.toolDescriptionTitle()),
+                pick(toolAppendixConfig.getAfterCallHintTitle(), ToolAppend.DEFAULTS.afterCallHintTitle())
+        );
+    }
+
+    private static String buildTaskExecutionPromptTemplate(AgentConfigFile.RuntimePromptsConfig config) {
+        if (config == null) {
+            return null;
+        }
+        AgentConfigFile.PlanExecutePromptConfig peConfig = config.getPlanExecute();
+        if (peConfig == null) {
+            return null;
+        }
+        String template = peConfig.getTaskExecutionPromptTemplate();
+        return StringUtils.hasText(template) ? template.trim() : null;
+    }
+
+    private static String pick(String configured, String fallback) {
+        return StringUtils.hasText(configured) ? configured.trim() : fallback;
     }
 
     private static void validatePlanExecuteDeepThinking(

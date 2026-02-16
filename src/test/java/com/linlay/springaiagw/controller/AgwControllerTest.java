@@ -3,7 +3,6 @@ package com.linlay.springaiagw.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linlay.springaiagw.memory.ChatWindowMemoryProperties;
 import com.linlay.springaiagw.config.ViewportCatalogProperties;
-import com.linlay.springaiagw.model.ProviderType;
 import com.linlay.springaiagw.service.FrontendSubmitCoordinator;
 import com.linlay.springaiagw.service.LlmService;
 import com.linlay.springaiagw.service.ViewportRegistryService;
@@ -73,29 +72,29 @@ class AgwControllerTest {
         LlmService llmService() {
             return new LlmService(null, null) {
                 @Override
-                public Flux<String> streamContent(ProviderType providerType, String model, String systemPrompt, String userPrompt) {
+                public Flux<String> streamContent(String providerKey, String model, String systemPrompt, String userPrompt) {
                     return Flux.just("这是", "测试", "输出");
                 }
 
                 @Override
                 public Flux<String> streamContent(
-                        ProviderType providerType,
+                        String providerKey,
                         String model,
                         String systemPrompt,
                         String userPrompt,
                         String stage
                 ) {
-                    return streamContent(providerType, model, systemPrompt, userPrompt);
+                    return streamContent(providerKey, model, systemPrompt, userPrompt);
                 }
 
                 @Override
-                public Mono<String> completeText(ProviderType providerType, String model, String systemPrompt, String userPrompt) {
+                public Mono<String> completeText(String providerKey, String model, String systemPrompt, String userPrompt) {
                     return Mono.just("{\"thinking\":\"先分析后回答\",\"plan\":[\"步骤1\"],\"toolCalls\":[]}");
                 }
 
                 @Override
                 public Mono<String> completeText(
-                        ProviderType providerType,
+                        String providerKey,
                         String model,
                         String systemPrompt,
                         String userPrompt,
@@ -104,7 +103,7 @@ class AgwControllerTest {
                     if (stage != null && stage.startsWith("agent-react-step-")) {
                         return Mono.just("{\"thinking\":\"信息已足够，直接生成最终回答\",\"action\":null,\"done\":true}");
                     }
-                    return completeText(providerType, model, systemPrompt, userPrompt);
+                    return completeText(providerKey, model, systemPrompt, userPrompt);
                 }
             };
         }
