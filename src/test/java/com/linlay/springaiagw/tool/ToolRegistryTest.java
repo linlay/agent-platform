@@ -291,6 +291,21 @@ class ToolRegistryTest {
     }
 
     @Test
+    void agentFileCreateToolShouldUseConfiguredDefaultSystemPrompt(@TempDir Path tempDir) throws IOException {
+        Path agentsDir = tempDir.resolve("agents");
+        AgentFileCreateTool tool = new AgentFileCreateTool(agentsDir, "这是配置的默认提示词");
+
+        JsonNode result = tool.invoke(Map.of(
+                "agentId", "default_prompt_bot",
+                "mode", "ONESHOT"
+        ));
+
+        assertThat(result.path("ok").asBoolean()).isTrue();
+        JsonNode content = objectMapper.readTree(Files.readString(agentsDir.resolve("default_prompt_bot.json")));
+        assertThat(content.path("plain").path("systemPrompt").asText()).isEqualTo("这是配置的默认提示词");
+    }
+
+    @Test
     void sensitiveDataDetectorShouldReturnPositiveForLongSensitiveText() {
         String longText = "这是一大段业务文本，用于模拟超长入参。".repeat(120)
                 + "联系人邮箱是 test.user@example.com ，请尽快处理。";

@@ -6,6 +6,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linlay.springaiagw.agent.PlannedToolCall;
+import com.linlay.springaiagw.agent.RuntimePromptTemplates;
 import com.linlay.springaiagw.agent.runtime.ExecutionContext;
 import com.linlay.springaiagw.agent.runtime.ToolExecutionService;
 import com.linlay.springaiagw.agent.runtime.VerifyService;
@@ -140,6 +141,7 @@ public class OrchestratorServices {
         String effectiveSystemPrompt = toolExecutionService.applyBackendPrompts(
                 stageSystemPrompt,
                 stageTools,
+                context.definition().agentMode().runtimePrompts(),
                 includeAfterCallHints
         );
 
@@ -282,6 +284,7 @@ public class OrchestratorServices {
             List<Message> messages,
             String candidateFinalText,
             boolean contentAlreadyEmitted,
+            String verificationStageSystemPrompt,
             FluxSink<AgentDelta> sink
     ) {
         VerifyPolicy verifyPolicy = context.definition().runSpec().verify();
@@ -298,14 +301,16 @@ public class OrchestratorServices {
             return;
         }
         StringBuilder verifyOutput = new StringBuilder();
+        String verifyBaseSystemPrompt = context.stageSystemPrompt(verificationStageSystemPrompt);
         for (String chunk : verifyService.streamSecondPass(
                 verifyPolicy,
                 context.definition().providerKey(),
                 context.definition().model(),
-                context.stageSystemPrompt(context.definition().agentMode().primarySystemPrompt()),
+                verifyBaseSystemPrompt,
                 messages,
                 candidateFinalText,
-                "agent-verify"
+                "agent-verify",
+                context.definition().agentMode().runtimePrompts()
         ).toIterable()) {
             if (!StringUtils.hasText(chunk)) {
                 continue;
@@ -328,14 +333,7 @@ public class OrchestratorServices {
             boolean emitContent,
             FluxSink<AgentDelta> sink
     ) {
-        String forcedPrompt = """
-                请基于当前信息直接输出最终答案，禁止再次调用工具。
-                禁止输出任何继续动作（例如“先检查/先查看资源/调用工具”）。
-                若信息不足，请按以下结构回答：
-                1) 已确认信息
-                2) 阻塞点
-                3) 最小下一步
-                """;
+        String forcedPrompt = context.definition().agentMode().runtimePrompts().finalAnswer().forceFinalUserPrompt();
         ModelTurn turn = callModelTurnStreaming(
                 context,
                 stageSettings,
@@ -523,12 +521,13 @@ public class OrchestratorServices {
     }
 
     private String buildBlockedFinalAnswer(ExecutionContext context) {
-        return "已确认信息:\n"
-                + summarizeLatestToolRecord(context)
-                + "\n\n阻塞点:\n"
-                + "当前回合已禁止继续调用工具，现有信息不足以完成目标。"
-                + "\n\n最小下一步:\n"
-                + "请在下一轮允许工具调用（如 _bash_、_skill_run_script_）后重试，我将继续执行并给出最终结果。";
+        RuntimePromptTemplates templates = context == null || context.definition() == null || context.definition().agentMode() == null
+                ? RuntimePromptTemplates.defaults()
+                : context.definition().agentMode().runtimePrompts();
+        return templates.render(
+                templates.finalAnswer().blockedAnswerTemplate(),
+                Map.of("confirmed_info", summarizeLatestToolRecord(context))
+        );
     }
 
     private String summarizeLatestToolRecord(ExecutionContext context) {

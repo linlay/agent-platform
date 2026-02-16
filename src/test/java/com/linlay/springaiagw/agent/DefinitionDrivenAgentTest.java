@@ -1394,6 +1394,254 @@ class DefinitionDrivenAgentTest {
     }
 
     @Test
+    void oneshotShouldUseRuntimePromptTemplatesForRepairAndFinalTurn() {
+        AgentConfigFile.RuntimePromptsConfig promptConfig = new AgentConfigFile.RuntimePromptsConfig();
+        AgentConfigFile.OneshotPromptConfig oneshotPromptConfig = new AgentConfigFile.OneshotPromptConfig();
+        oneshotPromptConfig.setRequireToolUserPrompt("ONESHOT_REQUIRE_TOOL_PROMPT");
+        oneshotPromptConfig.setFinalAnswerUserPrompt("ONESHOT_FINAL_USER_PROMPT");
+        promptConfig.setOneshot(oneshotPromptConfig);
+        RuntimePromptTemplates runtimePrompts = RuntimePromptTemplates.fromConfig(promptConfig);
+
+        Map<String, LlmCallSpec> stageSpecs = new ConcurrentHashMap<>();
+        AgentDefinition definition = definition(
+                "demoOneshotRuntimePrompts",
+                AgentRuntimeMode.ONESHOT,
+                new RunSpec(ControlStrategy.ONESHOT, OutputPolicy.PLAIN, ToolPolicy.REQUIRE, VerifyPolicy.NONE, Budget.DEFAULT),
+                new OneshotMode(
+                        new StageSettings("你是测试助手", null, null, List.of("echo_tool"), false, ComputePolicy.MEDIUM),
+                        runtimePrompts
+                ),
+                List.of("echo_tool")
+        );
+
+        LlmService llmService = new StubLlmService() {
+            @Override
+            public Flux<LlmDelta> streamDeltas(LlmCallSpec spec) {
+                stageSpecs.put(spec.stage(), spec);
+                if ("agent-oneshot-tool-first".equals(spec.stage())) {
+                    return Flux.just(new LlmDelta("先返回文本但不调工具", null, "stop"));
+                }
+                if ("agent-oneshot-tool-first-repair".equals(spec.stage())) {
+                    return Flux.just(new LlmDelta(
+                            null,
+                            List.of(new ToolCallDelta("call_echo_oneshot", "function", "echo_tool", "{\"text\":\"ok\"}")),
+                            "tool_calls"
+                    ));
+                }
+                if ("agent-oneshot-tool-final".equals(spec.stage())) {
+                    return Flux.just(new LlmDelta("最终回答", null, "stop"));
+                }
+                return Flux.empty();
+            }
+        };
+
+        BaseTool echoTool = new BaseTool() {
+            @Override
+            public String name() {
+                return "echo_tool";
+            }
+
+            @Override
+            public String description() {
+                return "echo";
+            }
+
+            @Override
+            public JsonNode invoke(Map<String, Object> args) {
+                return objectMapper.valueToTree(Map.of("ok", true));
+            }
+        };
+
+        DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
+                definition,
+                llmService,
+                new DeltaStreamService(),
+                new ToolRegistry(List.of(echoTool)),
+                objectMapper,
+                null,
+                null
+        );
+
+        agent.stream(new AgentRequest("测试 oneshot runtime prompts", null, null, null))
+                .collectList()
+                .block(Duration.ofSeconds(3));
+
+        LlmCallSpec repairSpec = stageSpecs.get("agent-oneshot-tool-first-repair");
+        LlmCallSpec finalSpec = stageSpecs.get("agent-oneshot-tool-final");
+        assertThat(repairSpec).isNotNull();
+        assertThat(repairSpec.messages().stream().map(message -> message.getText()))
+                .contains("ONESHOT_REQUIRE_TOOL_PROMPT");
+        assertThat(finalSpec).isNotNull();
+        assertThat(finalSpec.userPrompt()).isEqualTo("ONESHOT_FINAL_USER_PROMPT");
+    }
+
+    @Test
+    void reactShouldUseRuntimePromptTemplateForRepair() {
+        AgentConfigFile.RuntimePromptsConfig promptConfig = new AgentConfigFile.RuntimePromptsConfig();
+        AgentConfigFile.ReactPromptConfig reactPromptConfig = new AgentConfigFile.ReactPromptConfig();
+        reactPromptConfig.setRequireToolUserPrompt("REACT_REQUIRE_TOOL_PROMPT");
+        promptConfig.setReact(reactPromptConfig);
+        RuntimePromptTemplates runtimePrompts = RuntimePromptTemplates.fromConfig(promptConfig);
+
+        Map<String, LlmCallSpec> stageSpecs = new ConcurrentHashMap<>();
+        AgentDefinition definition = definition(
+                "demoReactRuntimePrompts",
+                AgentRuntimeMode.REACT,
+                new RunSpec(ControlStrategy.REACT_LOOP, OutputPolicy.PLAIN, ToolPolicy.REQUIRE, VerifyPolicy.NONE, Budget.DEFAULT),
+                new ReactMode(
+                        new StageSettings("你是测试助手", null, null, List.of("echo_tool"), false, ComputePolicy.MEDIUM),
+                        2,
+                        runtimePrompts
+                ),
+                List.of("echo_tool")
+        );
+
+        LlmService llmService = new StubLlmService() {
+            @Override
+            public Flux<LlmDelta> streamDeltas(LlmCallSpec spec) {
+                stageSpecs.put(spec.stage(), spec);
+                if ("agent-react-force-final".equals(spec.stage())) {
+                    return Flux.just(new LlmDelta("forced-final", null, "stop"));
+                }
+                if (spec.stage() != null && spec.stage().startsWith("agent-react-step-")) {
+                    return Flux.just(new LlmDelta("不调用工具", null, "stop"));
+                }
+                return Flux.empty();
+            }
+        };
+
+        BaseTool echoTool = new BaseTool() {
+            @Override
+            public String name() {
+                return "echo_tool";
+            }
+
+            @Override
+            public String description() {
+                return "echo";
+            }
+
+            @Override
+            public JsonNode invoke(Map<String, Object> args) {
+                return objectMapper.valueToTree(Map.of("ok", true));
+            }
+        };
+
+        DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
+                definition,
+                llmService,
+                new DeltaStreamService(),
+                new ToolRegistry(List.of(echoTool)),
+                objectMapper,
+                null,
+                null
+        );
+
+        agent.stream(new AgentRequest("测试 react runtime prompts", null, null, null))
+                .collectList()
+                .block(Duration.ofSeconds(3));
+
+        LlmCallSpec secondStep = stageSpecs.get("agent-react-step-2");
+        assertThat(secondStep).isNotNull();
+        assertThat(secondStep.messages().stream().map(message -> message.getText()))
+                .contains("REACT_REQUIRE_TOOL_PROMPT");
+    }
+
+    @Test
+    void planExecuteShouldUseRuntimeTemplatesAndVerifyAgainstSummaryPrompt() {
+        AgentConfigFile.RuntimePromptsConfig promptConfig = new AgentConfigFile.RuntimePromptsConfig();
+        AgentConfigFile.PlanExecutePromptConfig planPromptConfig = new AgentConfigFile.PlanExecutePromptConfig();
+        planPromptConfig.setTaskExecutionPromptTemplate("""
+                RUNTIME_TASK_PROMPT
+                当前要执行的 taskId: {{task_id}}
+                当前任务描述: {{task_description}}
+                """);
+        promptConfig.setPlanExecute(planPromptConfig);
+        AgentConfigFile.VerifyPromptConfig verifyPromptConfig = new AgentConfigFile.VerifyPromptConfig();
+        verifyPromptConfig.setSystemPrompt("VERIFY_SYSTEM_PROMPT");
+        verifyPromptConfig.setUserPromptTemplate("VERIFY_USER={{candidate_final_text}}");
+        promptConfig.setVerify(verifyPromptConfig);
+        RuntimePromptTemplates runtimePrompts = RuntimePromptTemplates.fromConfig(promptConfig);
+
+        Map<String, LlmCallSpec> stageSpecs = new ConcurrentHashMap<>();
+        AtomicReference<LlmCallSpec> verifySpec = new AtomicReference<>();
+        AgentDefinition definition = definition(
+                "demoPlanRuntimePrompts",
+                AgentRuntimeMode.PLAN_EXECUTE,
+                new RunSpec(ControlStrategy.PLAN_EXECUTE, OutputPolicy.PLAIN, ToolPolicy.ALLOW, VerifyPolicy.SECOND_PASS_FIX, Budget.DEFAULT),
+                new PlanExecuteMode(
+                        new StageSettings("规划系统提示", null, null, List.of("_plan_add_tasks_"), false, ComputePolicy.MEDIUM),
+                        new StageSettings("执行系统提示", null, null, List.of("_plan_update_task_"), false, ComputePolicy.MEDIUM),
+                        new StageSettings("总结系统提示", null, null, List.of(), false, ComputePolicy.MEDIUM),
+                        runtimePrompts
+                ),
+                List.of("_plan_add_tasks_", "_plan_update_task_")
+        );
+
+        LlmService llmService = new StubLlmService() {
+            @Override
+            public Flux<LlmDelta> streamDeltas(LlmCallSpec spec) {
+                stageSpecs.put(spec.stage(), spec);
+                if ("agent-plan-generate".equals(spec.stage())) {
+                    return Flux.just(new LlmDelta(
+                            null,
+                            List.of(new ToolCallDelta("call_plan_runtime", "function", "_plan_add_tasks_",
+                                    "{\"tasks\":[{\"taskId\":\"rt1\",\"description\":\"任务A\",\"status\":\"init\"}]}")),
+                            "tool_calls"
+                    ));
+                }
+                if ("agent-plan-execute-step-1".equals(spec.stage())) {
+                    String taskId = currentTaskId(spec);
+                    return Flux.just(new LlmDelta(
+                            null,
+                            List.of(new ToolCallDelta("call_update_runtime", "function", "_plan_update_task_",
+                                    "{\"taskId\":\"" + taskId + "\",\"status\":\"completed\"}")),
+                            "tool_calls"
+                    ));
+                }
+                if ("agent-plan-final".equals(spec.stage())) {
+                    return Flux.just(new LlmDelta("候选总结", null, "stop"));
+                }
+                return Flux.empty();
+            }
+
+            @Override
+            public Flux<String> streamContent(LlmCallSpec spec) {
+                if ("agent-verify".equals(spec.stage())) {
+                    verifySpec.set(spec);
+                    return Flux.just("修复后总结");
+                }
+                return Flux.empty();
+            }
+        };
+
+        DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
+                definition,
+                llmService,
+                new DeltaStreamService(),
+                new ToolRegistry(List.of(new SystemPlanAddTasks(), new SystemPlanUpdateTask())),
+                objectMapper,
+                null,
+                null
+        );
+
+        agent.stream(new AgentRequest("测试 plan runtime prompts", null, null, null))
+                .collectList()
+                .block(Duration.ofSeconds(3));
+
+        LlmCallSpec executeSpec = stageSpecs.get("agent-plan-execute-step-1");
+        assertThat(executeSpec).isNotNull();
+        assertThat(executeSpec.messages().stream().map(message -> message.getText()))
+                .anyMatch(text -> text != null && text.contains("RUNTIME_TASK_PROMPT") && text.contains("当前任务描述: 任务A"));
+
+        LlmCallSpec capturedVerifySpec = verifySpec.get();
+        assertThat(capturedVerifySpec).isNotNull();
+        assertThat(capturedVerifySpec.systemPrompt()).contains("总结系统提示").contains("VERIFY_SYSTEM_PROMPT");
+        assertThat(capturedVerifySpec.systemPrompt()).doesNotContain("执行系统提示");
+        assertThat(capturedVerifySpec.userPrompt()).isEqualTo("VERIFY_USER=候选总结");
+    }
+
+    @Test
     void secondPassFixShouldOnlyExposeVerifyStreamOutput() {
         AgentDefinition definition = definition(
                 "demoVerifySecondPass",

@@ -35,6 +35,8 @@ agent:
   tools:
     frontend:
       submit-timeout-ms: ${AGENT_TOOLS_FRONTEND_SUBMIT_TIMEOUT_MS:300000}
+    agent-file-create:
+      default-system-prompt: ${AGENT_TOOLS_AGENT_FILE_CREATE_DEFAULT_SYSTEM_PROMPT:你是通用助理，回答要清晰和可执行。}
     bash:
       working-directory: ${AGENT_BASH_WORKING_DIRECTORY:${user.dir}}
       allowed-paths: ${AGENT_BASH_ALLOWED_PATHS:}

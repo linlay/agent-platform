@@ -2,6 +2,7 @@ package com.linlay.springaiagw.agent.runtime;
 
 import com.linlay.springaiagw.agent.AgentDefinition;
 import com.linlay.springaiagw.agent.PlannedToolCall;
+import com.linlay.springaiagw.agent.RuntimePromptTemplates;
 import com.linlay.springaiagw.agent.runtime.policy.Budget;
 import com.linlay.springaiagw.model.AgentRequest;
 import com.linlay.springaiagw.model.stream.AgentDelta;
@@ -33,6 +34,7 @@ public class ExecutionContext {
     private final long startedAtMs;
     private final String skillCatalogPrompt;
     private final Map<String, SkillDescriptor> resolvedSkillsById;
+    private final RuntimePromptTemplates runtimePrompts;
 
     private final List<Message> conversationMessages;
     private final List<Message> planMessages;
@@ -66,12 +68,33 @@ public class ExecutionContext {
             String skillCatalogPrompt,
             Map<String, SkillDescriptor> resolvedSkillsById
     ) {
+        this(
+                definition,
+                request,
+                historyMessages,
+                skillCatalogPrompt,
+                resolvedSkillsById,
+                definition == null || definition.agentMode() == null
+                        ? RuntimePromptTemplates.defaults()
+                        : definition.agentMode().runtimePrompts()
+        );
+    }
+
+    public ExecutionContext(
+            AgentDefinition definition,
+            AgentRequest request,
+            List<Message> historyMessages,
+            String skillCatalogPrompt,
+            Map<String, SkillDescriptor> resolvedSkillsById,
+            RuntimePromptTemplates runtimePrompts
+    ) {
         this.definition = definition;
         this.request = request;
         this.budget = definition.runSpec().budget();
         this.startedAtMs = System.currentTimeMillis();
         this.skillCatalogPrompt = StringUtils.hasText(skillCatalogPrompt) ? skillCatalogPrompt.trim() : "";
         this.resolvedSkillsById = normalizeResolvedSkills(resolvedSkillsById);
+        this.runtimePrompts = runtimePrompts == null ? RuntimePromptTemplates.defaults() : runtimePrompts;
 
         this.conversationMessages = new ArrayList<>();
         if (historyMessages != null) {
@@ -191,7 +214,7 @@ public class ExecutionContext {
         if (blocks.isEmpty()) {
             return "";
         }
-        return "以下是你刚刚调用到的 skill 完整说明（仅本轮补充，不要忽略）:\n\n"
+        return runtimePrompts.skill().disclosureHeader() + "\n\n"
                 + String.join("\n\n---\n\n", blocks);
     }
 
@@ -380,8 +403,17 @@ public class ExecutionContext {
         if (StringUtils.hasText(descriptor.description())) {
             block.append("\ndescription: ").append(descriptor.description());
         }
-        block.append("\ninstructions:\n").append(prompt);
+        String label = normalizeLabel(runtimePrompts.skill().instructionsLabel(), "instructions");
+        block.append("\n").append(label).append('\n').append(prompt);
         return block.toString();
+    }
+
+    private String normalizeLabel(String raw, String fallback) {
+        String label = StringUtils.hasText(raw) ? raw.trim() : fallback;
+        if (!label.endsWith(":")) {
+            label = label + ":";
+        }
+        return label;
     }
 
     private String readSkillId(Map<String, Object> args) {

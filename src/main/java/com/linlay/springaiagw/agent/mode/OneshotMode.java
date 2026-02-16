@@ -1,6 +1,7 @@
 package com.linlay.springaiagw.agent.mode;
 
 import com.linlay.springaiagw.agent.AgentConfigFile;
+import com.linlay.springaiagw.agent.RuntimePromptTemplates;
 import com.linlay.springaiagw.agent.runtime.AgentRuntimeMode;
 import com.linlay.springaiagw.agent.runtime.ExecutionContext;
 import com.linlay.springaiagw.agent.runtime.policy.Budget;
@@ -27,7 +28,11 @@ public final class OneshotMode extends AgentMode {
     private final StageSettings stage;
 
     public OneshotMode(StageSettings stage) {
-        super(stage == null ? "" : stage.systemPrompt());
+        this(stage, RuntimePromptTemplates.defaults());
+    }
+
+    public OneshotMode(StageSettings stage, RuntimePromptTemplates runtimePrompts) {
+        super(stage == null ? "" : stage.systemPrompt(), runtimePrompts);
         this.stage = stage;
     }
 
@@ -87,7 +92,14 @@ public final class OneshotMode extends AgentMode {
             );
             String finalText = services.normalize(turn.finalText());
             services.appendAssistantMessage(context.conversationMessages(), finalText);
-            services.emitFinalAnswer(context, context.conversationMessages(), finalText, !secondPass, sink);
+            services.emitFinalAnswer(
+                    context,
+                    context.conversationMessages(),
+                    finalText,
+                    !secondPass,
+                    stageSettings.systemPrompt(),
+                    sink
+            );
             return;
         }
 
@@ -110,7 +122,7 @@ public final class OneshotMode extends AgentMode {
 
         if (firstTurn.toolCalls().isEmpty() && services.requiresTool(context)) {
             context.conversationMessages().add(new UserMessage(
-                    "你必须调用至少一个工具来完成任务。请重新选择工具并发起调用。"
+                    runtimePrompts().oneshot().requireToolUserPrompt()
             ));
             firstTurn = services.callModelTurnStreaming(
                     context,
@@ -136,7 +148,14 @@ public final class OneshotMode extends AgentMode {
             }
             String finalText = services.normalize(firstTurn.finalText());
             services.appendAssistantMessage(context.conversationMessages(), finalText);
-            services.emitFinalAnswer(context, context.conversationMessages(), finalText, true, sink);
+            services.emitFinalAnswer(
+                    context,
+                    context.conversationMessages(),
+                    finalText,
+                    true,
+                    stageSettings.systemPrompt(),
+                    sink
+            );
             return;
         }
 
@@ -147,7 +166,7 @@ public final class OneshotMode extends AgentMode {
                 context,
                 stageSettings,
                 context.conversationMessages(),
-                "请基于已有信息输出最终答案，不再调用工具。",
+                runtimePrompts().oneshot().finalAnswerUserPrompt(),
                 stageTools,
                 List.of(),
                 ToolChoice.NONE,
@@ -160,6 +179,13 @@ public final class OneshotMode extends AgentMode {
         );
         String finalText = services.normalize(secondTurn.finalText());
         services.appendAssistantMessage(context.conversationMessages(), finalText);
-        services.emitFinalAnswer(context, context.conversationMessages(), finalText, !secondPass, sink);
+        services.emitFinalAnswer(
+                context,
+                context.conversationMessages(),
+                finalText,
+                !secondPass,
+                stageSettings.systemPrompt(),
+                sink
+        );
     }
 }

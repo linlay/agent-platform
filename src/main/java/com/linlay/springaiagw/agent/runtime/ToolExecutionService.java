@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.linlay.springaiagw.agent.PlannedToolCall;
+import com.linlay.springaiagw.agent.RuntimePromptTemplates;
 import com.linlay.springaiagw.agent.ToolArgumentResolver;
 import com.linlay.springaiagw.model.stream.AgentDelta;
 import com.linlay.springaiagw.service.FrontendSubmitCoordinator;
@@ -115,7 +116,7 @@ public class ToolExecutionService {
     }
 
     public String applyBackendPrompts(String systemPrompt, Map<String, BaseTool> stageTools) {
-        return applyBackendPrompts(systemPrompt, stageTools, true);
+        return applyBackendPrompts(systemPrompt, stageTools, RuntimePromptTemplates.defaults(), true);
     }
 
     public String applyBackendPrompts(
@@ -123,11 +124,21 @@ public class ToolExecutionService {
             Map<String, BaseTool> stageTools,
             boolean includeAfterCallHints
     ) {
+        return applyBackendPrompts(systemPrompt, stageTools, RuntimePromptTemplates.defaults(), includeAfterCallHints);
+    }
+
+    public String applyBackendPrompts(
+            String systemPrompt,
+            Map<String, BaseTool> stageTools,
+            RuntimePromptTemplates runtimePrompts,
+            boolean includeAfterCallHints
+    ) {
+        RuntimePromptTemplates templates = runtimePrompts == null ? RuntimePromptTemplates.defaults() : runtimePrompts;
         String base = normalize(systemPrompt);
         List<String> sections = new ArrayList<>();
-        sections.add(backendToolDescriptionSection(stageTools, "工具说明:"));
+        sections.add(backendToolDescriptionSection(stageTools, templates.toolAppendix().toolDescriptionTitle()));
         if (includeAfterCallHints) {
-            sections.add(backendAfterCallHintSection(stageTools, "工具调用后推荐指令:"));
+            sections.add(backendAfterCallHintSection(stageTools, templates.toolAppendix().afterCallHintTitle()));
         }
         List<String> filteredSections = sections.stream()
                 .filter(StringUtils::hasText)
@@ -193,7 +204,9 @@ public class ToolExecutionService {
         if (lines == null || lines.isEmpty()) {
             return "";
         }
-        String title = StringUtils.hasText(sectionTitle) ? sectionTitle.trim() : "工具说明:";
+        String title = StringUtils.hasText(sectionTitle)
+                ? sectionTitle.trim()
+                : RuntimePromptTemplates.defaults().toolAppendix().toolDescriptionTitle();
         return title + "\n" + String.join("\n", lines);
     }
 

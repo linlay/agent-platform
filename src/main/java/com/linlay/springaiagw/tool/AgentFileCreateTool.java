@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.linlay.springaiagw.agent.AgentCatalogProperties;
 import com.linlay.springaiagw.agent.runtime.AgentRuntimeMode;
+import com.linlay.springaiagw.config.AgentFileCreateToolProperties;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -24,17 +25,27 @@ public class AgentFileCreateTool extends AbstractDeterministicTool {
     private static final String DEFAULT_DESCRIPTION = "由 demoAgentCreator 创建的智能体";
     private static final String DEFAULT_MODEL = "qwen3-max";
     private static final String DEFAULT_PROVIDER_KEY = "bailian";
-    private static final String DEFAULT_PROMPT = "你是通用助理，回答要清晰和可执行。";
 
     private final Path agentsDir;
+    private final String defaultSystemPrompt;
 
     @Autowired
-    public AgentFileCreateTool(AgentCatalogProperties properties) {
-        this(Path.of(properties.getExternalDir()));
+    public AgentFileCreateTool(AgentCatalogProperties properties, AgentFileCreateToolProperties toolProperties) {
+        this(
+                Path.of(properties.getExternalDir()),
+                toolProperties == null
+                        ? AgentFileCreateToolProperties.DEFAULT_SYSTEM_PROMPT
+                        : toolProperties.getDefaultSystemPrompt()
+        );
     }
 
     public AgentFileCreateTool(Path agentsDir) {
+        this(agentsDir, AgentFileCreateToolProperties.DEFAULT_SYSTEM_PROMPT);
+    }
+
+    public AgentFileCreateTool(Path agentsDir, String defaultSystemPrompt) {
         this.agentsDir = agentsDir.toAbsolutePath().normalize();
+        this.defaultSystemPrompt = normalizeText(defaultSystemPrompt, AgentFileCreateToolProperties.DEFAULT_SYSTEM_PROMPT);
     }
 
     @Override
@@ -156,7 +167,7 @@ public class AgentFileCreateTool extends AbstractDeterministicTool {
     }
 
     private ObjectNode oneshotConfig(String prompt) {
-        String normalizedPrompt = normalizeText(prompt, DEFAULT_PROMPT);
+        String normalizedPrompt = normalizeText(prompt, defaultSystemPrompt);
         if (normalizedPrompt.isBlank()) {
             return null;
         }
@@ -168,7 +179,7 @@ public class AgentFileCreateTool extends AbstractDeterministicTool {
     }
 
     private ObjectNode reactConfig(String prompt, Object maxSteps) {
-        String normalizedPrompt = normalizeText(prompt, DEFAULT_PROMPT);
+        String normalizedPrompt = normalizeText(prompt, defaultSystemPrompt);
         if (normalizedPrompt.isBlank()) {
             return null;
         }

@@ -1,5 +1,6 @@
 package com.linlay.springaiagw.agent.runtime;
 
+import com.linlay.springaiagw.agent.RuntimePromptTemplates;
 import com.linlay.springaiagw.agent.runtime.policy.ComputePolicy;
 import com.linlay.springaiagw.agent.runtime.policy.OutputShape;
 import com.linlay.springaiagw.agent.runtime.policy.ToolChoice;
@@ -10,6 +11,7 @@ import org.springframework.ai.chat.messages.Message;
 import reactor.core.publisher.Flux;
 
 import java.util.List;
+import java.util.Map;
 
 public class VerifyService {
 
@@ -30,18 +32,25 @@ public class VerifyService {
             String systemPrompt,
             List<Message> messages,
             String finalText,
-            String stage
+            String stage,
+            RuntimePromptTemplates runtimePrompts
     ) {
         if (!requiresSecondPass(policy)) {
             return Flux.empty();
         }
+        RuntimePromptTemplates templates = runtimePrompts == null ? RuntimePromptTemplates.defaults() : runtimePrompts;
+        String verifySystemPrompt = appendPrompts(systemPrompt, templates.verify().systemPrompt());
+        String verifyUserPrompt = templates.render(
+                templates.verify().userPromptTemplate(),
+                Map.of("candidate_final_text", finalText == null ? "" : finalText)
+        );
         return llmService.streamContent(
                         new LlmCallSpec(
                                 providerKey,
                                 model,
-                                systemPrompt,
+                                verifySystemPrompt,
                                 messages == null ? List.of() : messages,
-                                buildVerifyPrompt(finalText),
+                                verifyUserPrompt,
                                 List.of(),
                                 ToolChoice.NONE,
                                 OutputShape.TEXT_ONLY,
@@ -56,17 +65,15 @@ public class VerifyService {
                 .filter(chunk -> chunk != null && !chunk.isEmpty());
     }
 
-    private String buildVerifyPrompt(String finalText) {
-        return """
-                请仔细审查以下答案：
-                1. 答案是否自洽、逻辑是否连贯
-                2. 是否遗漏了用户问题中的关键约束或要求
-                3. 事实性陈述是否有明显错误
-                4. 如发现问题，请输出修复后的完整最终答案
-                5. 如答案无误，请原样输出
-
-                待审查答案：
-                %s
-                """.formatted(finalText == null ? "" : finalText);
+    private String appendPrompts(String base, String appendix) {
+        String normalizedBase = base == null ? "" : base.trim();
+        String normalizedAppendix = appendix == null ? "" : appendix.trim();
+        if (normalizedBase.isEmpty()) {
+            return normalizedAppendix;
+        }
+        if (normalizedAppendix.isEmpty()) {
+            return normalizedBase;
+        }
+        return normalizedBase + "\n\n" + normalizedAppendix;
     }
 }

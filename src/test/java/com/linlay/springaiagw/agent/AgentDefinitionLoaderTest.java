@@ -448,6 +448,110 @@ class AgentDefinitionLoaderTest {
         assertThat(loadById()).doesNotContainKey("summary_deep_false");
     }
 
+    @Test
+    void shouldParseRuntimePromptsAndFallbackToDefaults() throws IOException {
+        Files.writeString(tempDir.resolve("runtime_prompts.json"), """
+                {
+                  "key": "runtime_prompts",
+                  "description": "runtime prompts",
+                  "modelConfig": {
+                    "providerKey": "bailian",
+                    "model": "qwen3-max"
+                  },
+                  "mode": "ONESHOT",
+                  "plain": { "systemPrompt": "plain prompt" },
+                  "runtimePrompts": {
+                    "verify": {
+                      "systemPrompt": "verify-system-override",
+                      "userPromptTemplate": "candidate={{candidate_final_text}}"
+                    },
+                    "oneshot": {
+                      "requireToolUserPrompt": "oneshot-require-tool-override"
+                    },
+                    "planExecute": {
+                      "taskContinueUserPrompt": "plan-continue-override"
+                    },
+                    "skill": {
+                      "catalogHeader": "skills-header-override"
+                    },
+                    "toolAppendix": {
+                      "toolDescriptionTitle": "tool-desc-title-override"
+                    }
+                  }
+                }
+                """);
+
+        AgentCatalogProperties properties = new AgentCatalogProperties();
+        properties.setExternalDir(tempDir.toString());
+        AgentDefinitionLoader loader = new AgentDefinitionLoader(new ObjectMapper(), properties, null);
+
+        AgentDefinition definition = loader.loadAll().stream()
+                .filter(item -> "runtime_prompts".equals(item.id()))
+                .findFirst()
+                .orElseThrow();
+        RuntimePromptTemplates prompts = definition.agentMode().runtimePrompts();
+        RuntimePromptTemplates defaults = RuntimePromptTemplates.defaults();
+
+        assertThat(prompts.verify().systemPrompt()).isEqualTo("verify-system-override");
+        assertThat(prompts.render(prompts.verify().userPromptTemplate(), Map.of("candidate_final_text", "OK")))
+                .isEqualTo("candidate=OK");
+        assertThat(prompts.oneshot().requireToolUserPrompt()).isEqualTo("oneshot-require-tool-override");
+        assertThat(prompts.oneshot().finalAnswerUserPrompt()).isEqualTo(defaults.oneshot().finalAnswerUserPrompt());
+        assertThat(prompts.react().requireToolUserPrompt()).isEqualTo(defaults.react().requireToolUserPrompt());
+        assertThat(prompts.planExecute().taskContinueUserPrompt()).isEqualTo("plan-continue-override");
+        assertThat(prompts.planExecute().taskRequireToolUserPrompt()).isEqualTo(defaults.planExecute().taskRequireToolUserPrompt());
+        assertThat(prompts.skill().catalogHeader()).isEqualTo("skills-header-override");
+        assertThat(prompts.skill().disclosureHeader()).isEqualTo(defaults.skill().disclosureHeader());
+        assertThat(prompts.toolAppendix().toolDescriptionTitle()).isEqualTo("tool-desc-title-override");
+        assertThat(prompts.toolAppendix().afterCallHintTitle()).isEqualTo(defaults.toolAppendix().afterCallHintTitle());
+    }
+
+    @Test
+    void shouldLoadBothPlanExecuteVariantsWhenJsonFileAndUniqueKeys() throws IOException {
+        Files.writeString(tempDir.resolve("demoModePlanExecute.json"), """
+                {
+                  "key": "demoModePlanExecute",
+                  "description": "main demo",
+                  "modelConfig": {
+                    "providerKey": "bailian",
+                    "model": "qwen3-max"
+                  },
+                  "mode": "PLAN_EXECUTE",
+                  "planExecute": {
+                    "plan": { "systemPrompt": "plan" },
+                    "execute": { "systemPrompt": "execute" },
+                    "summary": { "systemPrompt": "summary" }
+                  }
+                }
+                """);
+        Files.writeString(tempDir.resolve("demoModePlanExecuteDeepThinking.json"), """
+                {
+                  "key": "demoModePlanExecuteDeepThinking",
+                  "description": "deep demo",
+                  "modelConfig": {
+                    "providerKey": "bailian",
+                    "model": "qwen3-max"
+                  },
+                  "mode": "PLAN_EXECUTE",
+                  "planExecute": {
+                    "plan": { "systemPrompt": "plan", "deepThinking": true },
+                    "execute": { "systemPrompt": "execute" },
+                    "summary": { "systemPrompt": "summary" }
+                  }
+                }
+                """);
+
+        AgentCatalogProperties properties = new AgentCatalogProperties();
+        properties.setExternalDir(tempDir.toString());
+        AgentDefinitionLoader loader = new AgentDefinitionLoader(new ObjectMapper(), properties, null);
+
+        Map<String, AgentDefinition> byId = loader.loadAll().stream()
+                .collect(Collectors.toMap(AgentDefinition::id, definition -> definition));
+        assertThat(byId).containsKeys("demoModePlanExecute", "demoModePlanExecuteDeepThinking");
+        assertThat(byId.get("demoModePlanExecute").mode()).isEqualTo(AgentRuntimeMode.PLAN_EXECUTE);
+        assertThat(byId.get("demoModePlanExecuteDeepThinking").mode()).isEqualTo(AgentRuntimeMode.PLAN_EXECUTE);
+    }
+
     private Map<String, AgentDefinition> loadById() {
         AgentCatalogProperties properties = new AgentCatalogProperties();
         properties.setExternalDir(tempDir.toString());

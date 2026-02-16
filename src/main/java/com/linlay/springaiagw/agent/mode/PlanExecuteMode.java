@@ -1,6 +1,7 @@
 package com.linlay.springaiagw.agent.mode;
 
 import com.linlay.springaiagw.agent.AgentConfigFile;
+import com.linlay.springaiagw.agent.RuntimePromptTemplates;
 import com.linlay.springaiagw.agent.runtime.AgentRuntimeMode;
 import com.linlay.springaiagw.agent.runtime.ExecutionContext;
 import com.linlay.springaiagw.agent.runtime.PlanExecutionStalledException;
@@ -34,7 +35,16 @@ public final class PlanExecuteMode extends AgentMode {
     private final StageSettings summaryStage;
 
     public PlanExecuteMode(StageSettings planStage, StageSettings executeStage, StageSettings summaryStage) {
-        super(executeStage == null ? "" : executeStage.systemPrompt());
+        this(planStage, executeStage, summaryStage, RuntimePromptTemplates.defaults());
+    }
+
+    public PlanExecuteMode(
+            StageSettings planStage,
+            StageSettings executeStage,
+            StageSettings summaryStage,
+            RuntimePromptTemplates runtimePrompts
+    ) {
+        super(executeStage == null ? "" : executeStage.systemPrompt(), runtimePrompts);
         this.planStage = planStage;
         this.executeStage = executeStage;
         this.summaryStage = summaryStage;
@@ -90,6 +100,7 @@ public final class PlanExecuteMode extends AgentMode {
             FluxSink<AgentDelta> sink
     ) {
         StageSettings summary = summaryStage == null ? executeStage : summaryStage;
+        RuntimePromptTemplates.PlanExecute prompts = runtimePrompts().planExecute();
         Map<String, BaseTool> planPromptTools = services.selectTools(enabledToolsByName, planStage.tools());
         Map<String, BaseTool> planCallableTools = selectPlanCallableTools(planPromptTools);
         if (!planCallableTools.containsKey(PLAN_ADD_TASK_TOOL)) {
@@ -164,22 +175,23 @@ public final class PlanExecuteMode extends AgentMode {
             }
 
             stepNo++;
+            String taskPrompt = runtimePrompts().render(
+                    prompts.taskExecutionPromptTemplate(),
+                    Map.of(
+                            "task_list", formatTaskList(beforeSnapshot.tasks()),
+                            "task_id", normalize(step.taskId(), "unknown"),
+                            "task_description", normalize(step.description(), "无描述")
+                    )
+            );
             context.executeMessages().add(new UserMessage(
-                    "这是任务列表：\n"
-                            + formatTaskList(beforeSnapshot.tasks())
-                            + "\n当前要执行的 taskId: " + normalize(step.taskId(), "unknown")
-                            + "\n当前任务描述: " + normalize(step.description(), "无描述")
-                            + "\n执行规则:"
-                            + "\n1) 每个执行回合最多调用一个工具；"
-                            + "\n2) 你可按需调用任意可用工具做准备；"
-                            + "\n3) 结束该任务前必须调用 _plan_update_task_ 更新状态。"
+                    taskPrompt
             ));
-            boolean updated = runTaskWorkRounds(context, services, executeTools, stepNo, step, sink);
+            boolean updated = runTaskWorkRounds(context, services, executeTools, stepNo, step, prompts, sink);
             if (!updated) {
-                updated = runUpdateRound(context, services, executeTools, stepNo, step, false, sink);
+                updated = runUpdateRound(context, services, executeTools, stepNo, step, prompts, false, sink);
             }
             if (!updated) {
-                updated = runUpdateRound(context, services, executeTools, stepNo, step, true, sink);
+                updated = runUpdateRound(context, services, executeTools, stepNo, step, prompts, true, sink);
             }
             if (!updated) {
                 throw new PlanExecutionStalledException(
@@ -190,13 +202,20 @@ public final class PlanExecuteMode extends AgentMode {
             ensureTaskNotFailed(context, step);
         }
 
-        context.executeMessages().add(new UserMessage("所有步骤已完成，请综合所有步骤的执行结果给出最终答案。"));
+        context.executeMessages().add(new UserMessage(prompts.allStepsCompletedUserPrompt()));
         boolean secondPass = services.verifyService().requiresSecondPass(context.definition().runSpec().verify());
 
         String finalText = services.forceFinalAnswer(context, summary, summaryTools, context.executeMessages(), "agent-plan-final",
                 !secondPass, sink);
         services.appendAssistantMessage(context.executeMessages(), finalText);
-        services.emitFinalAnswer(context, context.executeMessages(), finalText, !secondPass, sink);
+        services.emitFinalAnswer(
+                context,
+                context.executeMessages(),
+                finalText,
+                !secondPass,
+                summary.systemPrompt(),
+                sink
+        );
     }
 
     private boolean runTaskWorkRounds(
@@ -205,6 +224,7 @@ public final class PlanExecuteMode extends AgentMode {
             Map<String, BaseTool> executeTools,
             int stepNo,
             AgentDelta.PlanTask step,
+            RuntimePromptTemplates.PlanExecute prompts,
             FluxSink<AgentDelta> sink
     ) {
         for (int round = 1; round <= MAX_WORK_ROUNDS_PER_TASK; round++) {
@@ -233,14 +253,14 @@ public final class PlanExecuteMode extends AgentMode {
 
             if (stepTurn.toolCalls().isEmpty()) {
                 if (services.requiresTool(context)) {
-                    context.executeMessages().add(new UserMessage("该执行回合必须调用一个工具。"));
+                    context.executeMessages().add(new UserMessage(prompts.taskRequireToolUserPrompt()));
                 }
                 return false;
             }
 
             boolean multipleTools = stepTurn.toolCalls().size() > 1;
             if (multipleTools) {
-                context.executeMessages().add(new UserMessage("每个执行回合最多一个工具调用，系统已仅执行第一个调用。"));
+                context.executeMessages().add(new UserMessage(prompts.taskMultipleToolsUserPrompt()));
             }
             String beforeStatus = statusOfTask(context.planTasks(), step.taskId());
             var first = stepTurn.toolCalls().getFirst();
@@ -252,13 +272,13 @@ public final class PlanExecuteMode extends AgentMode {
                     return true;
                 }
                 context.executeMessages().add(new UserMessage(
-                        "_plan_update_task_ 已调用但任务状态未变化，请继续执行并确保状态推进。"
+                        prompts.taskUpdateNoProgressUserPrompt()
                 ));
             }
             if (multipleTools) {
                 return false;
             }
-            context.executeMessages().add(new UserMessage("继续执行当前任务，结束前必须调用 _plan_update_task_ 更新状态。"));
+            context.executeMessages().add(new UserMessage(prompts.taskContinueUserPrompt()));
         }
         return false;
     }
@@ -269,14 +289,17 @@ public final class PlanExecuteMode extends AgentMode {
             Map<String, BaseTool> executeTools,
             int stepNo,
             AgentDelta.PlanTask step,
+            RuntimePromptTemplates.PlanExecute prompts,
             boolean repair,
             FluxSink<AgentDelta> sink
     ) {
         String beforeStatus = statusOfTask(context.planTasks(), step.taskId());
+        String updatePrompt = runtimePrompts().render(
+                prompts.updateRoundPromptTemplate(),
+                Map.of("task_id", normalize(step.taskId(), "unknown"))
+        );
         context.executeMessages().add(new UserMessage(
-                "请立即调用 _plan_update_task_ 更新当前任务状态。"
-                        + "\n当前 taskId: " + normalize(step.taskId(), "unknown")
-                        + "\n合法状态: init/completed/failed/canceled"
+                updatePrompt
         ));
 
         OrchestratorServices.ModelTurn updateTurn = services.callModelTurnStreaming(
@@ -301,7 +324,7 @@ public final class PlanExecuteMode extends AgentMode {
             return false;
         }
         if (updateTurn.toolCalls().size() > 1) {
-            context.executeMessages().add(new UserMessage("更新回合只允许一个工具调用，系统已仅执行第一个调用。"));
+            context.executeMessages().add(new UserMessage(prompts.updateRoundMultipleToolsUserPrompt()));
         }
 
         var first = updateTurn.toolCalls().getFirst();
@@ -359,14 +382,15 @@ public final class PlanExecuteMode extends AgentMode {
             Map<String, BaseTool> executeTools,
             Map<String, BaseTool> planCallableTools
     ) {
+        RuntimePromptTemplates.PlanExecute prompts = runtimePrompts().planExecute();
         List<String> sections = new ArrayList<>();
         sections.add(services.toolExecutionService().backendToolDescriptionSection(
                 executeTools,
-                "execute阶段的可用工具说明（供规划任务使用）:"
+                prompts.executeToolsTitle()
         ));
         sections.add(services.toolExecutionService().backendToolDescriptionSection(
                 planCallableTools,
-                "本回合仅可调用工具说明:"
+                prompts.planCallableToolsTitle()
         ));
         return appendPromptSections(planStage.systemPrompt(), sections);
     }
@@ -374,29 +398,17 @@ public final class PlanExecuteMode extends AgentMode {
     private String buildPlanDraftPrompt(String sharedPrompt) {
         return appendPromptSections(
                 sharedPrompt,
-                List.of(
-                        String.join("\n",
-                                "规划回合要求:",
-                                "- 请先深度思考并给出任务规划正文。",
-                                "- 本回合不要调用工具。"
-                        )
-                )
+                List.of(runtimePrompts().planExecute().draftInstructionBlock())
         );
     }
 
     private String buildPlanGeneratePrompt(String sharedPrompt, boolean basedOnDraft) {
-        String roundInstruction = basedOnDraft
-                ? "请基于上一轮规划正文，输出 2～4 个任务，并在本回合必须调用 _plan_add_tasks_ 创建计划任务。"
-                : "请直接规划 2～4 个任务，并在本回合必须调用 _plan_add_tasks_ 创建计划任务。";
+        String instructionBlock = basedOnDraft
+                ? runtimePrompts().planExecute().generateInstructionBlockFromDraft()
+                : runtimePrompts().planExecute().generateInstructionBlockDirect();
         return appendPromptSections(
                 sharedPrompt,
-                List.of(
-                        String.join("\n",
-                                "任务创建要求:",
-                                "- " + roundInstruction,
-                                "- taskId 应保持唯一且可读，description 需清晰可执行。"
-                        )
-                )
+                List.of(instructionBlock)
         );
     }
 

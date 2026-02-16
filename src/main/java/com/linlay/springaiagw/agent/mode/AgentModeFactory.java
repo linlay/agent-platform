@@ -1,6 +1,7 @@
 package com.linlay.springaiagw.agent.mode;
 
 import com.linlay.springaiagw.agent.AgentConfigFile;
+import com.linlay.springaiagw.agent.RuntimePromptTemplates;
 import com.linlay.springaiagw.agent.runtime.AgentRuntimeMode;
 import com.linlay.springaiagw.agent.runtime.policy.ComputePolicy;
 
@@ -18,13 +19,16 @@ public final class AgentModeFactory {
     }
 
     public static AgentMode create(AgentRuntimeMode mode, AgentConfigFile config, Path file) {
+        RuntimePromptTemplates runtimePrompts = RuntimePromptTemplates.fromConfig(
+                config == null ? null : config.getRuntimePrompts()
+        );
         return switch (mode) {
             case ONESHOT -> {
                 StageSettings stage = stageSettings(config, config == null ? null : config.getPlain(), List.of());
                 if (isBlank(stage.systemPrompt())) {
                     throw new IllegalArgumentException("plain.systemPrompt is required: " + file);
                 }
-                yield new OneshotMode(stage);
+                yield new OneshotMode(stage, runtimePrompts);
             }
             case REACT -> {
                 AgentConfigFile.ReactConfig react = config == null ? null : config.getReact();
@@ -33,7 +37,7 @@ public final class AgentModeFactory {
                     throw new IllegalArgumentException("react.systemPrompt is required: " + file);
                 }
                 int maxSteps = react != null && react.getMaxSteps() != null ? react.getMaxSteps() : 6;
-                yield new ReactMode(stage, maxSteps);
+                yield new ReactMode(stage, maxSteps, runtimePrompts);
             }
             case PLAN_EXECUTE -> {
                 AgentConfigFile.PlanExecuteConfig pe = config == null ? null : config.getPlanExecute();
@@ -69,7 +73,7 @@ public final class AgentModeFactory {
                             summaryStage.deepThinking()
                     );
                 }
-                yield new PlanExecuteMode(planStage, executeStage, summaryStage);
+                yield new PlanExecuteMode(planStage, executeStage, summaryStage, runtimePrompts);
             }
         };
     }

@@ -34,6 +34,7 @@ public class AgentConfigFile {
     private OneshotConfig plain;
     private ReactConfig react;
     private PlanExecuteConfig planExecute;
+    private RuntimePromptsConfig runtimePrompts;
 
     public String getKey() {
         return key;
@@ -161,6 +162,14 @@ public class AgentConfigFile {
 
     public void setPlanExecute(PlanExecuteConfig planExecute) {
         this.planExecute = planExecute;
+    }
+
+    public RuntimePromptsConfig getRuntimePrompts() {
+        return runtimePrompts;
+    }
+
+    public void setRuntimePrompts(RuntimePromptsConfig runtimePrompts) {
+        this.runtimePrompts = runtimePrompts;
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -454,6 +463,326 @@ public class AgentConfigFile {
 
         public void setSummary(StageConfig summary) {
             this.summary = summary;
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class RuntimePromptsConfig {
+        private VerifyPromptConfig verify;
+        private FinalAnswerPromptConfig finalAnswer;
+        private OneshotPromptConfig oneshot;
+        private ReactPromptConfig react;
+        private PlanExecutePromptConfig planExecute;
+        private SkillPromptConfig skill;
+        private ToolAppendixPromptConfig toolAppendix;
+
+        public VerifyPromptConfig getVerify() {
+            return verify;
+        }
+
+        public void setVerify(VerifyPromptConfig verify) {
+            this.verify = verify;
+        }
+
+        public FinalAnswerPromptConfig getFinalAnswer() {
+            return finalAnswer;
+        }
+
+        public void setFinalAnswer(FinalAnswerPromptConfig finalAnswer) {
+            this.finalAnswer = finalAnswer;
+        }
+
+        public OneshotPromptConfig getOneshot() {
+            return oneshot;
+        }
+
+        public void setOneshot(OneshotPromptConfig oneshot) {
+            this.oneshot = oneshot;
+        }
+
+        public ReactPromptConfig getReact() {
+            return react;
+        }
+
+        public void setReact(ReactPromptConfig react) {
+            this.react = react;
+        }
+
+        public PlanExecutePromptConfig getPlanExecute() {
+            return planExecute;
+        }
+
+        public void setPlanExecute(PlanExecutePromptConfig planExecute) {
+            this.planExecute = planExecute;
+        }
+
+        public SkillPromptConfig getSkill() {
+            return skill;
+        }
+
+        public void setSkill(SkillPromptConfig skill) {
+            this.skill = skill;
+        }
+
+        public ToolAppendixPromptConfig getToolAppendix() {
+            return toolAppendix;
+        }
+
+        public void setToolAppendix(ToolAppendixPromptConfig toolAppendix) {
+            this.toolAppendix = toolAppendix;
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class VerifyPromptConfig {
+        private String systemPrompt;
+        private String userPromptTemplate;
+
+        public String getSystemPrompt() {
+            return systemPrompt;
+        }
+
+        public void setSystemPrompt(String systemPrompt) {
+            this.systemPrompt = systemPrompt;
+        }
+
+        public String getUserPromptTemplate() {
+            return userPromptTemplate;
+        }
+
+        public void setUserPromptTemplate(String userPromptTemplate) {
+            this.userPromptTemplate = userPromptTemplate;
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class FinalAnswerPromptConfig {
+        private String forceFinalUserPrompt;
+        private String blockedAnswerTemplate;
+
+        public String getForceFinalUserPrompt() {
+            return forceFinalUserPrompt;
+        }
+
+        public void setForceFinalUserPrompt(String forceFinalUserPrompt) {
+            this.forceFinalUserPrompt = forceFinalUserPrompt;
+        }
+
+        public String getBlockedAnswerTemplate() {
+            return blockedAnswerTemplate;
+        }
+
+        public void setBlockedAnswerTemplate(String blockedAnswerTemplate) {
+            this.blockedAnswerTemplate = blockedAnswerTemplate;
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class OneshotPromptConfig {
+        private String requireToolUserPrompt;
+        private String finalAnswerUserPrompt;
+
+        public String getRequireToolUserPrompt() {
+            return requireToolUserPrompt;
+        }
+
+        public void setRequireToolUserPrompt(String requireToolUserPrompt) {
+            this.requireToolUserPrompt = requireToolUserPrompt;
+        }
+
+        public String getFinalAnswerUserPrompt() {
+            return finalAnswerUserPrompt;
+        }
+
+        public void setFinalAnswerUserPrompt(String finalAnswerUserPrompt) {
+            this.finalAnswerUserPrompt = finalAnswerUserPrompt;
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class ReactPromptConfig {
+        private String requireToolUserPrompt;
+
+        public String getRequireToolUserPrompt() {
+            return requireToolUserPrompt;
+        }
+
+        public void setRequireToolUserPrompt(String requireToolUserPrompt) {
+            this.requireToolUserPrompt = requireToolUserPrompt;
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class PlanExecutePromptConfig {
+        private String executeToolsTitle;
+        private String planCallableToolsTitle;
+        private String draftInstructionBlock;
+        private String generateInstructionBlockFromDraft;
+        private String generateInstructionBlockDirect;
+        private String taskExecutionPromptTemplate;
+        private String taskRequireToolUserPrompt;
+        private String taskMultipleToolsUserPrompt;
+        private String taskUpdateNoProgressUserPrompt;
+        private String taskContinueUserPrompt;
+        private String updateRoundPromptTemplate;
+        private String updateRoundMultipleToolsUserPrompt;
+        private String allStepsCompletedUserPrompt;
+
+        public String getExecuteToolsTitle() {
+            return executeToolsTitle;
+        }
+
+        public void setExecuteToolsTitle(String executeToolsTitle) {
+            this.executeToolsTitle = executeToolsTitle;
+        }
+
+        public String getPlanCallableToolsTitle() {
+            return planCallableToolsTitle;
+        }
+
+        public void setPlanCallableToolsTitle(String planCallableToolsTitle) {
+            this.planCallableToolsTitle = planCallableToolsTitle;
+        }
+
+        public String getDraftInstructionBlock() {
+            return draftInstructionBlock;
+        }
+
+        public void setDraftInstructionBlock(String draftInstructionBlock) {
+            this.draftInstructionBlock = draftInstructionBlock;
+        }
+
+        public String getGenerateInstructionBlockFromDraft() {
+            return generateInstructionBlockFromDraft;
+        }
+
+        public void setGenerateInstructionBlockFromDraft(String generateInstructionBlockFromDraft) {
+            this.generateInstructionBlockFromDraft = generateInstructionBlockFromDraft;
+        }
+
+        public String getGenerateInstructionBlockDirect() {
+            return generateInstructionBlockDirect;
+        }
+
+        public void setGenerateInstructionBlockDirect(String generateInstructionBlockDirect) {
+            this.generateInstructionBlockDirect = generateInstructionBlockDirect;
+        }
+
+        public String getTaskExecutionPromptTemplate() {
+            return taskExecutionPromptTemplate;
+        }
+
+        public void setTaskExecutionPromptTemplate(String taskExecutionPromptTemplate) {
+            this.taskExecutionPromptTemplate = taskExecutionPromptTemplate;
+        }
+
+        public String getTaskRequireToolUserPrompt() {
+            return taskRequireToolUserPrompt;
+        }
+
+        public void setTaskRequireToolUserPrompt(String taskRequireToolUserPrompt) {
+            this.taskRequireToolUserPrompt = taskRequireToolUserPrompt;
+        }
+
+        public String getTaskMultipleToolsUserPrompt() {
+            return taskMultipleToolsUserPrompt;
+        }
+
+        public void setTaskMultipleToolsUserPrompt(String taskMultipleToolsUserPrompt) {
+            this.taskMultipleToolsUserPrompt = taskMultipleToolsUserPrompt;
+        }
+
+        public String getTaskUpdateNoProgressUserPrompt() {
+            return taskUpdateNoProgressUserPrompt;
+        }
+
+        public void setTaskUpdateNoProgressUserPrompt(String taskUpdateNoProgressUserPrompt) {
+            this.taskUpdateNoProgressUserPrompt = taskUpdateNoProgressUserPrompt;
+        }
+
+        public String getTaskContinueUserPrompt() {
+            return taskContinueUserPrompt;
+        }
+
+        public void setTaskContinueUserPrompt(String taskContinueUserPrompt) {
+            this.taskContinueUserPrompt = taskContinueUserPrompt;
+        }
+
+        public String getUpdateRoundPromptTemplate() {
+            return updateRoundPromptTemplate;
+        }
+
+        public void setUpdateRoundPromptTemplate(String updateRoundPromptTemplate) {
+            this.updateRoundPromptTemplate = updateRoundPromptTemplate;
+        }
+
+        public String getUpdateRoundMultipleToolsUserPrompt() {
+            return updateRoundMultipleToolsUserPrompt;
+        }
+
+        public void setUpdateRoundMultipleToolsUserPrompt(String updateRoundMultipleToolsUserPrompt) {
+            this.updateRoundMultipleToolsUserPrompt = updateRoundMultipleToolsUserPrompt;
+        }
+
+        public String getAllStepsCompletedUserPrompt() {
+            return allStepsCompletedUserPrompt;
+        }
+
+        public void setAllStepsCompletedUserPrompt(String allStepsCompletedUserPrompt) {
+            this.allStepsCompletedUserPrompt = allStepsCompletedUserPrompt;
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class SkillPromptConfig {
+        private String catalogHeader;
+        private String disclosureHeader;
+        private String instructionsLabel;
+
+        public String getCatalogHeader() {
+            return catalogHeader;
+        }
+
+        public void setCatalogHeader(String catalogHeader) {
+            this.catalogHeader = catalogHeader;
+        }
+
+        public String getDisclosureHeader() {
+            return disclosureHeader;
+        }
+
+        public void setDisclosureHeader(String disclosureHeader) {
+            this.disclosureHeader = disclosureHeader;
+        }
+
+        public String getInstructionsLabel() {
+            return instructionsLabel;
+        }
+
+        public void setInstructionsLabel(String instructionsLabel) {
+            this.instructionsLabel = instructionsLabel;
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class ToolAppendixPromptConfig {
+        private String toolDescriptionTitle;
+        private String afterCallHintTitle;
+
+        public String getToolDescriptionTitle() {
+            return toolDescriptionTitle;
+        }
+
+        public void setToolDescriptionTitle(String toolDescriptionTitle) {
+            this.toolDescriptionTitle = toolDescriptionTitle;
+        }
+
+        public String getAfterCallHintTitle() {
+            return afterCallHintTitle;
+        }
+
+        public void setAfterCallHintTitle(String afterCallHintTitle) {
+            this.afterCallHintTitle = afterCallHintTitle;
         }
     }
 }

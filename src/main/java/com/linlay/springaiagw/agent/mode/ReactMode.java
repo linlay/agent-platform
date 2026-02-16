@@ -1,6 +1,7 @@
 package com.linlay.springaiagw.agent.mode;
 
 import com.linlay.springaiagw.agent.AgentConfigFile;
+import com.linlay.springaiagw.agent.RuntimePromptTemplates;
 import com.linlay.springaiagw.agent.runtime.AgentRuntimeMode;
 import com.linlay.springaiagw.agent.runtime.ExecutionContext;
 import com.linlay.springaiagw.agent.runtime.policy.Budget;
@@ -23,7 +24,11 @@ public final class ReactMode extends AgentMode {
     private final int maxSteps;
 
     public ReactMode(StageSettings stage, int maxSteps) {
-        super(stage == null ? "" : stage.systemPrompt());
+        this(stage, maxSteps, RuntimePromptTemplates.defaults());
+    }
+
+    public ReactMode(StageSettings stage, int maxSteps, RuntimePromptTemplates runtimePrompts) {
+        super(stage == null ? "" : stage.systemPrompt(), runtimePrompts);
         this.stage = stage;
         this.maxSteps = maxSteps > 0 ? maxSteps : 6;
     }
@@ -94,7 +99,7 @@ public final class ReactMode extends AgentMode {
 
             if (services.requiresTool(context)) {
                 context.conversationMessages().add(new UserMessage(
-                        "你必须调用至少一个工具来继续。请直接发起工具调用。"
+                        runtimePrompts().react().requireToolUserPrompt()
                 ));
                 continue;
             }
@@ -105,7 +110,14 @@ public final class ReactMode extends AgentMode {
             }
 
             services.appendAssistantMessage(context.conversationMessages(), finalText);
-            services.emitFinalAnswer(context, context.conversationMessages(), finalText, true, sink);
+            services.emitFinalAnswer(
+                    context,
+                    context.conversationMessages(),
+                    finalText,
+                    true,
+                    stage.systemPrompt(),
+                    sink
+            );
             return;
         }
 
@@ -120,6 +132,13 @@ public final class ReactMode extends AgentMode {
                 sink
         );
         services.appendAssistantMessage(context.conversationMessages(), forced);
-        services.emitFinalAnswer(context, context.conversationMessages(), forced, !secondPass, sink);
+        services.emitFinalAnswer(
+                context,
+                context.conversationMessages(),
+                forced,
+                !secondPass,
+                stage.systemPrompt(),
+                sink
+        );
     }
 }

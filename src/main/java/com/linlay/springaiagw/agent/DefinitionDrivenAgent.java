@@ -282,7 +282,7 @@ public class DefinitionDrivenAgent implements Agent {
         if (catalogBlocks.isEmpty()) {
             return new SkillPromptBundle("", Map.copyOf(resolvedSkillsById));
         }
-        String catalogPrompt = "可用 skills（目录摘要，按需使用，不要虚构不存在的 skill 或脚本）:\n\n"
+        String catalogPrompt = definition.agentMode().runtimePrompts().skill().catalogHeader() + "\n\n"
                 + String.join("\n\n---\n\n", catalogBlocks);
         return new SkillPromptBundle(catalogPrompt, Map.copyOf(resolvedSkillsById));
     }
