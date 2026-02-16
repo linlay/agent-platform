@@ -17,7 +17,7 @@ description: "Use when the task requires deterministic text metrics and normaliz
 - `--normalize-space`: optional flag; collapse internal whitespace and trim boundaries
 
 ## Example
-- `_skill_script_run_` with:
+- `_skill_run_script_` with:
   - `skill`: `text_utils`
   - `script`: `scripts/text_metrics.py`
   - `args`: `["--text","hello   world","--normalize-space"]`

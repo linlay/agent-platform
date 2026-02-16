@@ -339,10 +339,11 @@ type=html, key=show_weather_card
 
 ### 内置脚本执行工具
 
-- `_skill_script_run_(skill, script, args?, timeoutMs?)`：执行 `skills/<skill>/` 目录下脚本。
-- 仅支持 `.py` / `.sh`。
-- `script` 必须是 skill 内相对路径，不允许越权访问外部目录。
-- 破坏性变更：旧工具名 `skill_script_run` 已移除，agent 配置需改为 `_skill_script_run_`。
+- `_skill_run_script_(skill, script?, pythonCode?, args?, timeoutMs?)`：执行 `skills/<skill>/` 目录下脚本，或执行临时 Python 脚本。
+- `script` 与 `pythonCode` 二选一，不能同时提供。
+- `script` 仅支持 skill 内相对路径，文件类型仅支持 `.py` / `.sh`，不允许越权访问外部目录。
+- `pythonCode` 会临时写入 `/tmp/agw-skill-inline/<skill>/inline_<uuid>.py`，执行后自动清理。
+- 破坏性变更：旧工具名 `skill_script_run` 已移除，agent 配置需改为 `_skill_run_script_`。
 
 ### 内置 skills
 
@@ -362,7 +363,7 @@ type=html, key=show_weather_card
 - `demoViewport`（`PLAN_EXECUTE`）：调用 `city_datetime`、`mock_city_weather`，最终按 `viewport` 代码块协议输出天气卡片数据。
 - `demoAction`（`ONESHOT`）：根据用户意图调用 `switch_theme` / `launch_fireworks` / `show_modal`。
 - `demoAgentCreator`（`PLAN_EXECUTE`）：调用 `agent_file_create` 创建/更新 `agents/{agentId}.json`。
-- `demoModePlainSkillMath`（`ONESHOT`）：加载 `math_basic/math_stats/text_utils` skills，并调用 `_skill_script_run_` 完成确定性计算。
+- `demoModePlainSkillMath`（`ONESHOT`）：加载 `math_basic/math_stats/text_utils` skills，并调用 `_skill_run_script_` 完成确定性计算。
 - 使用 `demoAgentCreator` 时建议提供：`key`、`name`、`icon`、`description`、`modelConfig`、`mode`、`toolConfig` 与各 mode 的 prompt 字段。
 - `agent_file_create` 会校验 `key/agentId`（仅允许 `A-Za-z0-9_-`，最长 64）。
 - `providerKey/providerType` 不做白名单校验；未提供时默认 `bailian`。
@@ -391,7 +392,7 @@ type=html, key=show_weather_card
 
 ## Bash 工具目录授权
 
-`_bash_` 工具默认仅允许访问工作目录（`user.dir`）。若需要让 Agent 在容器内读取 `/opt` 等目录，可配置：
+`_bash_` 工具默认仅允许访问工作目录（`user.dir`）。工具返回文本包含 `exitCode`、`"workingDirectory"`、`stdout`、`stderr`。若需要让 Agent 在容器内读取 `/opt` 等目录，可配置：
 
 ```yaml
 agent:

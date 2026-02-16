@@ -11,7 +11,7 @@ import java.util.Set;
 import java.util.UUID;
 
 @Component
-public class PlanCreateTool extends AbstractDeterministicTool {
+public class SystemPlanAddTasks extends AbstractDeterministicTool {
 
     @Override
     public String name() {

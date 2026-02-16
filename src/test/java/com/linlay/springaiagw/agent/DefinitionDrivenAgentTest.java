@@ -27,9 +27,9 @@ import com.linlay.springaiagw.service.LlmService;
 import com.linlay.springaiagw.skill.SkillCatalogProperties;
 import com.linlay.springaiagw.skill.SkillRegistryService;
 import com.linlay.springaiagw.tool.BaseTool;
-import com.linlay.springaiagw.tool.PlanCreateTool;
-import com.linlay.springaiagw.tool.PlanGetTool;
-import com.linlay.springaiagw.tool.PlanTaskUpdateTool;
+import com.linlay.springaiagw.tool.SystemPlanAddTasks;
+import com.linlay.springaiagw.tool.SystemPlanGetTasks;
+import com.linlay.springaiagw.tool.SystemPlanUpdateTask;
 import com.linlay.springaiagw.tool.ToolRegistry;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -295,8 +295,8 @@ class DefinitionDrivenAgentTest {
                 "qwen3-max",
                 AgentRuntimeMode.ONESHOT,
                 new RunSpec(ControlStrategy.ONESHOT, OutputPolicy.PLAIN, ToolPolicy.ALLOW, VerifyPolicy.NONE, Budget.DEFAULT),
-                new OneshotMode(new StageSettings("你是测试助手", null, null, List.of("_skill_script_run_"), false, ComputePolicy.MEDIUM)),
-                List.of("_skill_script_run_"),
+                new OneshotMode(new StageSettings("你是测试助手", null, null, List.of("_skill_run_script_"), false, ComputePolicy.MEDIUM)),
+                List.of("_skill_run_script_"),
                 List.of("screenshot")
         );
 
@@ -310,7 +310,7 @@ class DefinitionDrivenAgentTest {
                             List.of(new ToolCallDelta(
                                     "call_skill_1",
                                     "function",
-                                    "_skill_script_run_",
+                                    "_skill_run_script_",
                                     "{\"skill\":\"screenshot\",\"script\":\"scripts/demo_echo.py\"}"
                             )),
                             "tool_calls"
@@ -366,8 +366,8 @@ class DefinitionDrivenAgentTest {
                 "qwen3-max",
                 AgentRuntimeMode.REACT,
                 new RunSpec(ControlStrategy.REACT_LOOP, OutputPolicy.PLAIN, ToolPolicy.ALLOW, VerifyPolicy.NONE, new Budget(10, 10, 4, 60_000)),
-                new ReactMode(new StageSettings("你是测试助手", null, null, List.of("_skill_script_run_"), false, ComputePolicy.MEDIUM), 4),
-                List.of("_skill_script_run_"),
+                new ReactMode(new StageSettings("你是测试助手", null, null, List.of("_skill_run_script_"), false, ComputePolicy.MEDIUM), 4),
+                List.of("_skill_run_script_"),
                 List.of("screenshot")
         );
 
@@ -387,7 +387,7 @@ class DefinitionDrivenAgentTest {
                             List.of(new ToolCallDelta(
                                     "call_skill_" + step,
                                     "function",
-                                    "_skill_script_run_",
+                                    "_skill_run_script_",
                                     "{\"skill\":\"screenshot\",\"script\":\"scripts/demo_echo.py\"}"
                             )),
                             "tool_calls"
@@ -435,8 +435,8 @@ class DefinitionDrivenAgentTest {
                 "qwen3-max",
                 AgentRuntimeMode.ONESHOT,
                 new RunSpec(ControlStrategy.ONESHOT, OutputPolicy.PLAIN, ToolPolicy.ALLOW, VerifyPolicy.NONE, Budget.DEFAULT),
-                new OneshotMode(new StageSettings("你是测试助手", null, null, List.of("_skill_script_run_"), false, ComputePolicy.MEDIUM)),
-                List.of("_skill_script_run_"),
+                new OneshotMode(new StageSettings("你是测试助手", null, null, List.of("_skill_run_script_"), false, ComputePolicy.MEDIUM)),
+                List.of("_skill_run_script_"),
                 List.of("screenshot")
         );
 
@@ -450,7 +450,7 @@ class DefinitionDrivenAgentTest {
                             List.of(new ToolCallDelta(
                                     "call_skill_unknown",
                                     "function",
-                                    "_skill_script_run_",
+                                    "_skill_run_script_",
                                     "{\"skill\":\"unknown_skill\",\"script\":\"scripts/demo_echo.py\"}"
                             )),
                             "tool_calls"
@@ -507,8 +507,8 @@ class DefinitionDrivenAgentTest {
                 "qwen3-max",
                 AgentRuntimeMode.ONESHOT,
                 new RunSpec(ControlStrategy.ONESHOT, OutputPolicy.PLAIN, ToolPolicy.ALLOW, VerifyPolicy.NONE, Budget.DEFAULT),
-                new OneshotMode(new StageSettings("你是测试助手", null, null, List.of("_skill_script_run_"), false, ComputePolicy.MEDIUM)),
-                List.of("_skill_script_run_"),
+                new OneshotMode(new StageSettings("你是测试助手", null, null, List.of("_skill_run_script_"), false, ComputePolicy.MEDIUM)),
+                List.of("_skill_run_script_"),
                 List.of("screenshot")
         );
 
@@ -521,7 +521,7 @@ class DefinitionDrivenAgentTest {
                             List.of(new ToolCallDelta(
                                     "call_skill_memory",
                                     "function",
-                                    "_skill_script_run_",
+                                    "_skill_run_script_",
                                     "{\"skill\":\"screenshot\",\"script\":\"scripts/demo_echo.py\"}"
                             )),
                             "tool_calls"
@@ -631,6 +631,129 @@ class DefinitionDrivenAgentTest {
     }
 
     @Test
+    void reactShouldRetryBlankFinalWithoutInjectingRedundantUserMessage() {
+        Map<String, LlmCallSpec> stageSpecs = new ConcurrentHashMap<>();
+        AgentDefinition definition = definition(
+                "demoReactRetryBlankFinal",
+                AgentRuntimeMode.REACT,
+                new RunSpec(ControlStrategy.REACT_LOOP, OutputPolicy.PLAIN, ToolPolicy.ALLOW, VerifyPolicy.NONE, new Budget(10, 10, 2, 60_000)),
+                new ReactMode(new StageSettings("你是测试助手", null, null, List.of(), false, ComputePolicy.MEDIUM), 2),
+                List.of()
+        );
+
+        LlmService llmService = new StubLlmService() {
+            @Override
+            public Flux<LlmDelta> streamDeltas(LlmCallSpec spec) {
+                stageSpecs.put(spec.stage(), spec);
+                if ("agent-react-step-1".equals(spec.stage())) {
+                    return Flux.just(new LlmDelta("", null, "stop"));
+                }
+                if ("agent-react-step-2".equals(spec.stage())) {
+                    return Flux.just(new LlmDelta("react 空回复重试后最终结论", null, "stop"));
+                }
+                return Flux.empty();
+            }
+        };
+
+        DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
+                definition,
+                llmService,
+                new DeltaStreamService(),
+                new ToolRegistry(List.of()),
+                objectMapper,
+                null,
+                null
+        );
+
+        List<AgentDelta> deltas = agent.stream(new AgentRequest("测试 react 空回复重试", null, null, null))
+                .collectList()
+                .block(Duration.ofSeconds(3));
+
+        assertThat(deltas).isNotNull();
+        assertThat(stageSpecs.get("agent-react-step-1")).isNotNull();
+        assertThat(stageSpecs.get("agent-react-step-2")).isNotNull();
+        List<String> step2Messages = stageSpecs.get("agent-react-step-2")
+                .messages()
+                .stream()
+                .map(message -> message.getText() == null ? "" : message.getText())
+                .toList();
+        assertThat(step2Messages).containsExactly("测试 react 空回复重试");
+        assertThat(step2Messages).noneMatch(text -> text.contains("请基于已有信息给出最终答案，或调用工具获取更多信息。"));
+        assertThat(deltas.stream().map(AgentDelta::content).toList()).contains("react 空回复重试后最终结论");
+    }
+
+    @Test
+    void reactForceFinalShouldFallbackToBlockedConclusionWhenModelKeepsAskingForTool() {
+        AgentDefinition definition = definition(
+                "demoReactForceFinalFallback",
+                AgentRuntimeMode.REACT,
+                new RunSpec(ControlStrategy.REACT_LOOP, OutputPolicy.PLAIN, ToolPolicy.ALLOW, VerifyPolicy.NONE, new Budget(10, 10, 1, 60_000)),
+                new ReactMode(new StageSettings("你是测试助手", null, null, List.of("echo_tool"), false, ComputePolicy.MEDIUM), 1),
+                List.of("echo_tool")
+        );
+
+        LlmService llmService = new StubLlmService() {
+            @Override
+            protected Flux<LlmDelta> deltaByStage(String stage) {
+                if ("agent-react-step-1".equals(stage)) {
+                    return Flux.just(new LlmDelta(
+                            null,
+                            List.of(new ToolCallDelta("call_force_1", "function", "echo_tool", "{\"text\":\"ping\"}")),
+                            "tool_calls"
+                    ));
+                }
+                if ("agent-react-force-final".equals(stage)) {
+                    return Flux.just(new LlmDelta("我需要先检查系统中是否有可执行脚本。", null, "stop"));
+                }
+                return Flux.empty();
+            }
+        };
+
+        BaseTool echoTool = new BaseTool() {
+            @Override
+            public String name() {
+                return "echo_tool";
+            }
+
+            @Override
+            public String description() {
+                return "echo";
+            }
+
+            @Override
+            public JsonNode invoke(Map<String, Object> args) {
+                return objectMapper.valueToTree(Map.of("ok", true, "msg", "ready"));
+            }
+        };
+
+        DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
+                definition,
+                llmService,
+                new DeltaStreamService(),
+                new ToolRegistry(List.of(echoTool)),
+                objectMapper,
+                null,
+                null
+        );
+
+        List<AgentDelta> deltas = agent.stream(new AgentRequest("测试 react 强制终局回退", null, null, null))
+                .collectList()
+                .block(Duration.ofSeconds(3));
+
+        assertThat(deltas).isNotNull();
+        String mergedContent = deltas.stream()
+                .map(AgentDelta::content)
+                .filter(value -> value != null && !value.isBlank())
+                .reduce("", String::concat);
+        assertThat(mergedContent)
+                .contains("已确认信息")
+                .contains("阻塞点")
+                .contains("最小下一步")
+                .contains("echo_tool")
+                .doesNotContain("我需要先检查");
+    }
+
+    @Test
     void planExecuteShouldUseStageSystemPrompts() {
         List<String> captured = new CopyOnWriteArrayList<>();
         Map<String, List<String>> stageTools = new ConcurrentHashMap<>();
@@ -679,7 +802,7 @@ class DefinitionDrivenAgentTest {
                 definition,
                 llmService,
                 new DeltaStreamService(),
-                new ToolRegistry(List.of(new PlanCreateTool(), new PlanTaskUpdateTool())),
+                new ToolRegistry(List.of(new SystemPlanAddTasks(), new SystemPlanUpdateTask())),
                 objectMapper,
                 null,
                 null
@@ -753,7 +876,7 @@ class DefinitionDrivenAgentTest {
                 definition,
                 llmService,
                 new DeltaStreamService(),
-                new ToolRegistry(List.of(new PlanCreateTool(), new PlanTaskUpdateTool())),
+                new ToolRegistry(List.of(new SystemPlanAddTasks(), new SystemPlanUpdateTask())),
                 objectMapper,
                 null,
                 null
@@ -855,7 +978,7 @@ class DefinitionDrivenAgentTest {
                 definition,
                 llmService,
                 new DeltaStreamService(),
-                new ToolRegistry(List.of(new PlanCreateTool(), new PlanTaskUpdateTool(), promptTool)),
+                new ToolRegistry(List.of(new SystemPlanAddTasks(), new SystemPlanUpdateTask(), promptTool)),
                 objectMapper,
                 null,
                 null
@@ -939,7 +1062,7 @@ class DefinitionDrivenAgentTest {
                 definition,
                 llmService,
                 new DeltaStreamService(),
-                new ToolRegistry(List.of(new PlanCreateTool(), new PlanGetTool(), new PlanTaskUpdateTool())),
+                new ToolRegistry(List.of(new SystemPlanAddTasks(), new SystemPlanGetTasks(), new SystemPlanUpdateTask())),
                 objectMapper,
                 null,
                 null
@@ -1052,7 +1175,7 @@ class DefinitionDrivenAgentTest {
                 definition,
                 llmService,
                 new DeltaStreamService(),
-                new ToolRegistry(List.of(new PlanCreateTool(), new PlanGetTool(), new PlanTaskUpdateTool())),
+                new ToolRegistry(List.of(new SystemPlanAddTasks(), new SystemPlanGetTasks(), new SystemPlanUpdateTask())),
                 objectMapper,
                 null,
                 null
@@ -1137,7 +1260,7 @@ class DefinitionDrivenAgentTest {
                 definition,
                 llmService,
                 new DeltaStreamService(),
-                new ToolRegistry(List.of(new PlanCreateTool(), new PlanTaskUpdateTool())),
+                new ToolRegistry(List.of(new SystemPlanAddTasks(), new SystemPlanUpdateTask())),
                 objectMapper,
                 null,
                 null
@@ -1193,7 +1316,7 @@ class DefinitionDrivenAgentTest {
                 definition,
                 llmService,
                 new DeltaStreamService(),
-                new ToolRegistry(List.of(new PlanCreateTool(), new PlanTaskUpdateTool())),
+                new ToolRegistry(List.of(new SystemPlanAddTasks(), new SystemPlanUpdateTask())),
                 objectMapper,
                 null,
                 null
@@ -1253,7 +1376,7 @@ class DefinitionDrivenAgentTest {
                 definition,
                 llmService,
                 new DeltaStreamService(),
-                new ToolRegistry(List.of(new PlanCreateTool(), new PlanTaskUpdateTool())),
+                new ToolRegistry(List.of(new SystemPlanAddTasks(), new SystemPlanUpdateTask())),
                 objectMapper,
                 null,
                 null
@@ -1343,7 +1466,7 @@ class DefinitionDrivenAgentTest {
         return new BaseTool() {
             @Override
             public String name() {
-                return "_skill_script_run_";
+                return "_skill_run_script_";
             }
 
             @Override

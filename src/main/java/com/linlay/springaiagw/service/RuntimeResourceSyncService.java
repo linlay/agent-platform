@@ -29,7 +29,8 @@ public class RuntimeResourceSyncService {
     private static final String LEGACY_BASH_FILE = "bash.backend";
     private static final String CANONICAL_BASH_FILE = "_bash_.backend";
     private static final String LEGACY_SKILL_SCRIPT_RUN_FILE = "skill_script_run.backend";
-    private static final String CANONICAL_SKILL_SCRIPT_RUN_FILE = "_skill_script_run_.backend";
+    private static final String LEGACY_SKILL_SCRIPT_RUN_FILE_WITH_UNDERSCORES = "_skill_script_run_.backend";
+    private static final String CANONICAL_SKILL_RUN_SCRIPT_FILE = "_skill_run_script_.backend";
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final ResourcePatternResolver resourceResolver;
@@ -157,9 +158,15 @@ public class RuntimeResourceSyncService {
         cleanupLegacyToolAlias(targetToolsDir, CANONICAL_BASH_FILE, LEGACY_BASH_FILE, "_bash_");
         cleanupLegacyToolAlias(
                 targetToolsDir,
-                CANONICAL_SKILL_SCRIPT_RUN_FILE,
+                CANONICAL_SKILL_RUN_SCRIPT_FILE,
                 LEGACY_SKILL_SCRIPT_RUN_FILE,
                 "skill_script_run"
+        );
+        cleanupLegacyToolAlias(
+                targetToolsDir,
+                CANONICAL_SKILL_RUN_SCRIPT_FILE,
+                LEGACY_SKILL_SCRIPT_RUN_FILE_WITH_UNDERSCORES,
+                "_skill_script_run_"
         );
     }
 

@@ -32,7 +32,7 @@ class RuntimeResourceSyncServiceTest {
 
         Path modePlainAgent = agentsDir.resolve("demoModePlain.json");
         Path weatherTool = toolsDir.resolve("mock_city_weather.backend");
-        Path skillScriptTool = toolsDir.resolve("_skill_script_run_.backend");
+        Path skillScriptTool = toolsDir.resolve("_skill_run_script_.backend");
         Path weatherViewport = viewportsDir.resolve("show_weather_card.html");
         Path extraAgent = agentsDir.resolve("custom_agent.json");
         Path extraTool = toolsDir.resolve("custom.backend");
@@ -70,7 +70,7 @@ class RuntimeResourceSyncServiceTest {
         assertThat(syncedAgent).contains("\"mode\"").contains("\"ONESHOT\"");
         assertThat(syncedTool).contains("\"name\": \"mock_city_weather\"");
         assertThat(syncedTool).contains("\"afterCallHint\"");
-        assertThat(syncedSkillScriptTool).contains("\"name\": \"_skill_script_run_\"");
+        assertThat(syncedSkillScriptTool).contains("\"name\": \"_skill_run_script_\"");
         assertThat(syncedViewport).contains("<title>天气卡片</title>");
         assertThat(syncedSkill).contains("name: \"screenshot\"");
         assertThat(skillsDir.resolve("math_basic").resolve("SKILL.md")).exists();
@@ -196,7 +196,42 @@ class RuntimeResourceSyncServiceTest {
         );
         service.syncRuntimeDirectories();
 
-        assertThat(toolsDir.resolve("_skill_script_run_.backend")).exists();
+        assertThat(toolsDir.resolve("_skill_run_script_.backend")).exists();
+        assertThat(legacySkillScript).doesNotExist();
+    }
+
+    @Test
+    void shouldRemoveLegacyUnderscoredSkillScriptAliasWhenCanonicalToolExists() throws Exception {
+        Path agentsDir = tempDir.resolve("agents");
+        Path toolsDir = tempDir.resolve("tools");
+        Path viewportsDir = tempDir.resolve("viewports");
+        Files.createDirectories(agentsDir);
+        Files.createDirectories(toolsDir);
+        Files.createDirectories(viewportsDir);
+
+        Path legacySkillScript = toolsDir.resolve("_skill_script_run_.backend");
+        Files.writeString(legacySkillScript, """
+                {
+                  "tools": [
+                    {
+                      "type": "function",
+                      "name": "_skill_script_run_",
+                      "description": "legacy alias"
+                    }
+                  ]
+                }
+                """);
+
+        RuntimeResourceSyncService service = new RuntimeResourceSyncService(
+                new PathMatchingResourcePatternResolver(),
+                agentsDir,
+                viewportsDir,
+                toolsDir,
+                tempDir.resolve("skills")
+        );
+        service.syncRuntimeDirectories();
+
+        assertThat(toolsDir.resolve("_skill_run_script_.backend")).exists();
         assertThat(legacySkillScript).doesNotExist();
     }
 }

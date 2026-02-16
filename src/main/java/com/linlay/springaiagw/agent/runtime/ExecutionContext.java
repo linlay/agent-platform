@@ -25,7 +25,7 @@ import java.util.UUID;
 public class ExecutionContext {
 
     private static final Logger log = LoggerFactory.getLogger(ExecutionContext.class);
-    private static final String SKILL_SCRIPT_RUN_TOOL = "_skill_script_run_";
+    private static final String SKILL_SCRIPT_RUN_TOOL = "_skill_run_script_";
 
     private final AgentDefinition definition;
     private final AgentRequest request;
@@ -156,7 +156,7 @@ public class ExecutionContext {
             }
             if (!resolvedSkillsById.containsKey(skillId)) {
                 log.warn(
-                        "[agent:{}] tool _skill_script_run_ requested unknown skill and will be ignored: {}",
+                        "[agent:{}] tool _skill_run_script_ requested unknown skill and will be ignored: {}",
                         definition.id(),
                         skillId
                 );

@@ -101,7 +101,6 @@ public final class ReactMode extends AgentMode {
 
             String finalText = services.normalize(turn.finalText());
             if (finalText.isBlank()) {
-                context.conversationMessages().add(new UserMessage("请基于已有信息给出最终答案，或调用工具获取更多信息。"));
                 continue;
             }
 

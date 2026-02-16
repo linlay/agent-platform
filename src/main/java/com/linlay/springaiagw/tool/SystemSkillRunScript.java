@@ -16,29 +16,32 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 @Component
-public class SkillScriptRunTool extends AbstractDeterministicTool {
+public class SystemSkillRunScript extends AbstractDeterministicTool {
 
     private static final int DEFAULT_TIMEOUT_MS = 10_000;
     private static final int MAX_TIMEOUT_MS = 120_000;
     private static final int MAX_OUTPUT_CHARS = 8_000;
+    private static final int MAX_INLINE_PYTHON_CHARS = 64 * 1024;
+    private static final Path INLINE_SCRIPT_ROOT = Path.of("/tmp/agw-skill-inline");
 
     private final Path skillsRoot;
     private final String pythonCommand;
     private final String bashCommand;
 
     @Autowired
-    public SkillScriptRunTool(SkillCatalogProperties properties) {
+    public SystemSkillRunScript(SkillCatalogProperties properties) {
         this(Path.of(properties.getExternalDir()), "python3", "bash");
     }
 
-    SkillScriptRunTool(Path skillsRoot) {
+    SystemSkillRunScript(Path skillsRoot) {
         this(skillsRoot, "python3", "bash");
     }
 
-    SkillScriptRunTool(Path skillsRoot, String pythonCommand, String bashCommand) {
+    SystemSkillRunScript(Path skillsRoot, String pythonCommand, String bashCommand) {
         this.skillsRoot = skillsRoot.toAbsolutePath().normalize();
         this.pythonCommand = pythonCommand;
         this.bashCommand = bashCommand;
@@ -46,7 +49,7 @@ public class SkillScriptRunTool extends AbstractDeterministicTool {
 
     @Override
     public String name() {
-        return "_skill_script_run_";
+        return "_skill_run_script_";
     }
 
     @Override
@@ -60,8 +63,15 @@ public class SkillScriptRunTool extends AbstractDeterministicTool {
             return failure(result, "Missing argument: skill");
         }
         String script = readText(args, "script");
-        if (script == null) {
-            return failure(result, "Missing argument: script");
+        String pythonCode = readCode(args, "pythonCode");
+        if (script == null && pythonCode == null) {
+            return failure(result, "Missing argument: script or pythonCode");
+        }
+        if (script != null && pythonCode != null) {
+            return failure(result, "Arguments script and pythonCode are mutually exclusive.");
+        }
+        if (pythonCode != null && pythonCode.length() > MAX_INLINE_PYTHON_CHARS) {
+            return failure(result, "pythonCode too long. Maximum length is " + MAX_INLINE_PYTHON_CHARS + " characters.");
         }
 
         ParseArgsResult parsedArgs = parseScriptArgs(args == null ? null : args.get("args"));
@@ -78,74 +88,91 @@ public class SkillScriptRunTool extends AbstractDeterministicTool {
             return failure(result, "Skill directory not found: " + skill);
         }
 
-        Path scriptPath = resolveScriptPath(skillDir, script);
-        if (scriptPath == null) {
-            return failure(result, "Illegal script path: " + script);
-        }
-        if (!Files.isRegularFile(scriptPath)) {
-            return failure(result, "Script file not found: " + script);
-        }
-
-        List<String> command = buildCommand(scriptPath, parsedArgs.values);
-        if (command.isEmpty()) {
-            return failure(result, "Unsupported script type. Only .py and .sh are allowed.");
+        ExecutionTarget target;
+        if (script != null) {
+            Path scriptPath = resolveScriptPath(skillDir, script);
+            if (scriptPath == null) {
+                return failure(result, "Illegal script path: " + script);
+            }
+            if (!Files.isRegularFile(scriptPath)) {
+                return failure(result, "Script file not found: " + script);
+            }
+            List<String> command = buildCommand(scriptPath, parsedArgs.values);
+            if (command.isEmpty()) {
+                return failure(result, "Unsupported script type. Only .py and .sh are allowed.");
+            }
+            target = new ExecutionTarget("file", scriptPath, command, null, null);
+        } else {
+            InlineScript inlineScript;
+            try {
+                inlineScript = createInlineScript(skillDir, pythonCode);
+            } catch (IOException ex) {
+                return failure(result, "Failed to prepare inline python script: " + safeErrorMessage(ex, "Unknown error"));
+            }
+            List<String> command = buildInlinePythonCommand(inlineScript.path(), parsedArgs.values);
+            target = new ExecutionTarget("inline", inlineScript.path(), command, inlineScript.path(), inlineScript.directory());
         }
 
         result.put("skill", skill.toLowerCase(Locale.ROOT));
-        result.put("script", scriptPath.toString());
+        result.put("scriptSource", target.scriptSource());
+        result.put("script", target.scriptPath().toString());
         result.put("timeoutMs", timeoutMs);
-        result.put("command", String.join(" ", command));
+        result.put("command", String.join(" ", target.command()));
 
-        Process process;
         try {
-            process = new ProcessBuilder(command)
-                    .directory(skillDir.toFile())
-                    .start();
-        } catch (IOException ex) {
-            result.put("ok", false);
-            result.put("timedOut", false);
-            result.put("exitCode", -1);
-            result.put("stdout", "");
-            result.put("stderr", ex.getMessage() == null ? "Failed to start process" : ex.getMessage());
-            return result;
-        }
+            Process process;
+            try {
+                process = new ProcessBuilder(target.command())
+                        .directory(skillDir.toFile())
+                        .start();
+            } catch (IOException ex) {
+                result.put("ok", false);
+                result.put("timedOut", false);
+                result.put("exitCode", -1);
+                result.put("stdout", "");
+                result.put("stderr", safeErrorMessage(ex, "Failed to start process"));
+                return result;
+            }
 
-        StreamCollector stdoutCollector = new StreamCollector(process.getInputStream(), MAX_OUTPUT_CHARS);
-        StreamCollector stderrCollector = new StreamCollector(process.getErrorStream(), MAX_OUTPUT_CHARS);
-        Thread stdoutThread = new Thread(stdoutCollector, "skill-script-stdout");
-        Thread stderrThread = new Thread(stderrCollector, "skill-script-stderr");
-        stdoutThread.setDaemon(true);
-        stderrThread.setDaemon(true);
-        stdoutThread.start();
-        stderrThread.start();
+            StreamCollector stdoutCollector = new StreamCollector(process.getInputStream(), MAX_OUTPUT_CHARS);
+            StreamCollector stderrCollector = new StreamCollector(process.getErrorStream(), MAX_OUTPUT_CHARS);
+            Thread stdoutThread = new Thread(stdoutCollector, "skill-script-stdout");
+            Thread stderrThread = new Thread(stderrCollector, "skill-script-stderr");
+            stdoutThread.setDaemon(true);
+            stderrThread.setDaemon(true);
+            stdoutThread.start();
+            stderrThread.start();
 
-        boolean timedOut = false;
-        int exitCode = -1;
-        try {
-            boolean finished = process.waitFor(timeoutMs, TimeUnit.MILLISECONDS);
-            if (!finished) {
+            boolean timedOut = false;
+            int exitCode = -1;
+            try {
+                boolean finished = process.waitFor(timeoutMs, TimeUnit.MILLISECONDS);
+                if (!finished) {
+                    timedOut = true;
+                    process.destroyForcibly();
+                    process.waitFor(1, TimeUnit.SECONDS);
+                }
+                if (!timedOut) {
+                    exitCode = process.exitValue();
+                }
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
                 timedOut = true;
                 process.destroyForcibly();
-                process.waitFor(1, TimeUnit.SECONDS);
             }
-            if (!timedOut) {
-                exitCode = process.exitValue();
-            }
-        } catch (InterruptedException ex) {
-            Thread.currentThread().interrupt();
-            timedOut = true;
-            process.destroyForcibly();
+
+            joinQuietly(stdoutThread);
+            joinQuietly(stderrThread);
+
+            result.put("ok", !timedOut && exitCode == 0);
+            result.put("timedOut", timedOut);
+            result.put("exitCode", timedOut ? -1 : exitCode);
+            result.put("stdout", stdoutCollector.text());
+            result.put("stderr", stderrCollector.text());
+            return result;
+        } finally {
+            cleanupInlineScript(target.cleanupScriptPath(), target.cleanupScriptDir());
         }
-
-        joinQuietly(stdoutThread);
-        joinQuietly(stderrThread);
-
-        result.put("ok", !timedOut && exitCode == 0);
-        result.put("timedOut", timedOut);
-        result.put("exitCode", timedOut ? -1 : exitCode);
-        result.put("stdout", stdoutCollector.text());
-        result.put("stderr", stderrCollector.text());
-        return result;
     }
 
     private void joinQuietly(Thread thread) {
@@ -172,6 +199,38 @@ public class SkillScriptRunTool extends AbstractDeterministicTool {
             return null;
         }
         return resolved;
+    }
+
+    private InlineScript createInlineScript(Path skillDir, String pythonCode) throws IOException {
+        String skillTempDirName = safeTempSegment(skillDir.getFileName() == null ? "" : skillDir.getFileName().toString());
+        Path scriptDir = INLINE_SCRIPT_ROOT.resolve(skillTempDirName).normalize();
+        if (!scriptDir.startsWith(INLINE_SCRIPT_ROOT)) {
+            throw new IOException("Illegal inline script temp directory");
+        }
+        Files.createDirectories(scriptDir);
+        Path scriptPath = scriptDir.resolve("inline_" + UUID.randomUUID() + ".py").normalize();
+        if (!scriptPath.startsWith(scriptDir)) {
+            throw new IOException("Illegal inline script temp path");
+        }
+        Files.writeString(scriptPath, pythonCode, StandardCharsets.UTF_8);
+        return new InlineScript(scriptPath, scriptDir);
+    }
+
+    private String safeTempSegment(String text) {
+        if (text == null || text.isBlank()) {
+            return "unknown";
+        }
+        return text.replaceAll("[^a-zA-Z0-9._-]", "_");
+    }
+
+    private List<String> buildInlinePythonCommand(Path scriptPath, List<String> args) {
+        List<String> command = new ArrayList<>();
+        command.add(pythonCommand);
+        command.add(scriptPath.toString());
+        if (args != null && !args.isEmpty()) {
+            command.addAll(args);
+        }
+        return command;
     }
 
     private List<String> buildCommand(Path scriptPath, List<String> args) {
@@ -241,6 +300,46 @@ public class SkillScriptRunTool extends AbstractDeterministicTool {
         return text.isEmpty() ? null : text;
     }
 
+    private String readCode(Map<String, Object> args, String key) {
+        if (args == null || key == null) {
+            return null;
+        }
+        Object value = args.get(key);
+        if (value == null) {
+            return null;
+        }
+        String text = value.toString();
+        if (text.trim().isEmpty()) {
+            return null;
+        }
+        return text;
+    }
+
+    private String safeErrorMessage(Exception ex, String defaultMessage) {
+        if (ex == null || ex.getMessage() == null || ex.getMessage().isBlank()) {
+            return defaultMessage;
+        }
+        return ex.getMessage();
+    }
+
+    private void cleanupInlineScript(Path scriptPath, Path scriptDir) {
+        if (scriptPath == null) {
+            return;
+        }
+        try {
+            Files.deleteIfExists(scriptPath);
+        } catch (IOException ignored) {
+            // best effort cleanup
+        }
+        if (scriptDir != null) {
+            try {
+                Files.deleteIfExists(scriptDir);
+            } catch (IOException ignored) {
+                // best effort cleanup
+            }
+        }
+    }
+
     private JsonNode failure(ObjectNode result, String error) {
         result.put("ok", false);
         result.put("timedOut", false);
@@ -252,6 +351,18 @@ public class SkillScriptRunTool extends AbstractDeterministicTool {
     }
 
     private record ParseArgsResult(List<String> values, String error) {
+    }
+
+    private record InlineScript(Path path, Path directory) {
+    }
+
+    private record ExecutionTarget(
+            String scriptSource,
+            Path scriptPath,
+            List<String> command,
+            Path cleanupScriptPath,
+            Path cleanupScriptDir
+    ) {
     }
 
     private static final class StreamCollector implements Runnable {

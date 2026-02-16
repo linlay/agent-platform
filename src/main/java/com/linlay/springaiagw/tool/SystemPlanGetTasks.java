@@ -7,7 +7,7 @@ import org.springframework.stereotype.Component;
 import java.util.Map;
 
 @Component
-public class PlanGetTool extends AbstractDeterministicTool {
+public class SystemPlanGetTasks extends AbstractDeterministicTool {
 
     @Override
     public String name() {

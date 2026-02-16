@@ -1,0 +1,55 @@
+{
+  "tools": [
+    {
+      "type": "function",
+      "name": "_skill_run_script_",
+      "description": "执行 skills/<skill>/ 下的脚本文件，或执行临时 pythonCode。script 与 pythonCode 二选一；脚本文件仅支持 .py/.sh 且必须在目标 skill 目录内。",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "skill": {
+            "type": "string",
+            "description": "skill 目录名，例如 screenshot"
+          },
+          "script": {
+            "type": "string",
+            "description": "skill 内相对脚本路径，例如 scripts/take_screenshot.py。与 pythonCode 二选一。"
+          },
+          "pythonCode": {
+            "type": "string",
+            "description": "要临时执行的 Python 脚本内容。工具会写入 /tmp/agw-skill-inline/<skill>/inline_<uuid>.py 后执行并清理。与 script 二选一。"
+          },
+          "args": {
+            "type": "array",
+            "description": "脚本参数数组（按顺序传递）",
+            "items": {
+              "type": "string"
+            }
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "description": "超时时间（毫秒），默认 10000，最大 120000"
+          }
+        },
+        "required": [
+          "skill"
+        ],
+        "oneOf": [
+          {
+            "required": [
+              "skill",
+              "script"
+            ]
+          },
+          {
+            "required": [
+              "skill",
+              "pythonCode"
+            ]
+          }
+        ],
+        "additionalProperties": false
+      }
+    }
+  ]
+}

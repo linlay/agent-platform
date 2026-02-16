@@ -19,7 +19,7 @@ description: "Use when the task requires deterministic arithmetic operations via
 - `--precision`: optional integer, default `6`
 
 ## Example
-- `_skill_script_run_` with:
+- `_skill_run_script_` with:
   - `skill`: `math_basic`
   - `script`: `scripts/calc.py`
   - `args`: `["--op","mul","--a","2","--b","3"]`

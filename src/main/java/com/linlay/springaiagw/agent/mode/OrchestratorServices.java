@@ -41,6 +41,7 @@ public class OrchestratorServices {
     private static final Pattern STEP_PREFIX = Pattern.compile(
             "^(?:[-*•]|\\d+[.)]|步骤\\s*\\d+[:：.)]?|[一二三四五六七八九十]+[、.)])\\s*(.+)$"
     );
+    private static final Pattern TOOL_CALL_SNIPPET = Pattern.compile("_[a-z0-9_]+_\\s*\\(");
 
     private final LlmService llmService;
     private final ToolExecutionService toolExecutionService;
@@ -327,22 +328,40 @@ public class OrchestratorServices {
             boolean emitContent,
             FluxSink<AgentDelta> sink
     ) {
+        String forcedPrompt = """
+                请基于当前信息直接输出最终答案，禁止再次调用工具。
+                禁止输出任何继续动作（例如“先检查/先查看资源/调用工具”）。
+                若信息不足，请按以下结构回答：
+                1) 已确认信息
+                2) 阻塞点
+                3) 最小下一步
+                """;
         ModelTurn turn = callModelTurnStreaming(
                 context,
                 stageSettings,
                 messages,
-                "请基于当前信息输出最终答案，不再调用工具。",
+                forcedPrompt,
                 stageTools,
                 List.of(),
                 ToolChoice.NONE,
                 stage,
                 false,
                 false,
-                emitContent,
+                false,
                 true,
                 sink
         );
-        return normalize(turn.finalText());
+
+        String finalText = normalize(turn.finalText());
+        boolean isReactForceFinal = isReactForceFinalStage(stage);
+        String resolved = finalText;
+        if (isReactForceFinal && shouldFallbackToBlockedFinal(finalText)) {
+            resolved = buildBlockedFinalAnswer(context);
+        }
+        if (emitContent && StringUtils.hasText(resolved)) {
+            emit(sink, AgentDelta.content(resolved));
+        }
+        return resolved;
     }
 
     public Map<String, BaseTool> selectTools(Map<String, BaseTool> enabledToolsByName, List<String> configuredTools) {
@@ -476,6 +495,81 @@ public class OrchestratorServices {
         } catch (Exception ex) {
             return new LinkedHashMap<>();
         }
+    }
+
+    private boolean isReactForceFinalStage(String stage) {
+        String normalized = normalize(stage).toLowerCase(Locale.ROOT);
+        return normalized.contains("react-force-final");
+    }
+
+    private boolean shouldFallbackToBlockedFinal(String text) {
+        if (!StringUtils.hasText(text)) {
+            return true;
+        }
+        String normalized = normalize(text);
+        if (TOOL_CALL_SNIPPET.matcher(normalized).find()) {
+            return true;
+        }
+        String compact = normalized.replaceAll("\\s+", "");
+        return compact.startsWith("我需要先检查")
+                || compact.startsWith("让我先检查")
+                || compact.startsWith("先检查")
+                || compact.contains("先查看可用资源")
+                || compact.contains("我将先检查")
+                || compact.contains("先使用_bash_")
+                || compact.contains("先调用工具")
+                || compact.contains("继续调用工具")
+                || compact.contains("调用工具获取");
+    }
+
+    private String buildBlockedFinalAnswer(ExecutionContext context) {
+        return "已确认信息:\n"
+                + summarizeLatestToolRecord(context)
+                + "\n\n阻塞点:\n"
+                + "当前回合已禁止继续调用工具，现有信息不足以完成目标。"
+                + "\n\n最小下一步:\n"
+                + "请在下一轮允许工具调用（如 _bash_、_skill_run_script_）后重试，我将继续执行并给出最终结果。";
+    }
+
+    private String summarizeLatestToolRecord(ExecutionContext context) {
+        if (context == null || context.toolRecords().isEmpty()) {
+            return "- 暂无可用工具结果。";
+        }
+        Map<String, Object> latest = context.toolRecords().get(context.toolRecords().size() - 1);
+        String toolName = safeRecordText(latest, "toolName");
+        Object rawResult = latest == null ? null : latest.get("result");
+        String resultSummary = summarizeResult(rawResult);
+        String effectiveToolName = StringUtils.hasText(toolName) ? toolName : "unknown";
+        return "- 最近工具: " + effectiveToolName
+                + "\n- 结果摘要: " + resultSummary;
+    }
+
+    private String safeRecordText(Map<String, Object> record, String key) {
+        if (record == null || !StringUtils.hasText(key)) {
+            return "";
+        }
+        Object raw = record.get(key);
+        if (raw == null) {
+            return "";
+        }
+        return normalize(String.valueOf(raw));
+    }
+
+    private String summarizeResult(Object rawResult) {
+        if (rawResult == null) {
+            return "无";
+        }
+        String rawText;
+        if (rawResult instanceof JsonNode node) {
+            rawText = node.isTextual() ? node.asText() : node.toString();
+        } else {
+            rawText = String.valueOf(rawResult);
+        }
+        String oneLine = normalize(rawText).replaceAll("\\s+", " ");
+        if (oneLine.length() <= 240) {
+            return oneLine;
+        }
+        return oneLine.substring(0, 240) + "...";
     }
 
     private JsonNode readJson(String raw) {

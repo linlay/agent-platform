@@ -253,7 +253,7 @@ class AgentDefinitionLoaderTest {
                     "model": "qwen3-max"
                   },
                   "toolConfig": {
-                    "backends": ["_skill_script_run_"],
+                    "backends": ["_skill_run_script_"],
                     "frontends": [],
                     "actions": []
                   },
@@ -274,7 +274,7 @@ class AgentDefinitionLoaderTest {
                 .findFirst()
                 .orElseThrow();
 
-        assertThat(definition.tools()).containsExactly("_skill_script_run_");
+        assertThat(definition.tools()).containsExactly("_skill_run_script_");
         assertThat(definition.skills()).containsExactly("math_basic", "math_stats", "text_utils");
     }
 

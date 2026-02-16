@@ -17,7 +17,7 @@ import com.linlay.springaiagw.agent.runtime.policy.VerifyPolicy;
 import com.linlay.springaiagw.model.AgentRequest;
 import com.linlay.springaiagw.model.stream.AgentDelta;
 import com.linlay.springaiagw.tool.BaseTool;
-import com.linlay.springaiagw.tool.PlanGetTool;
+import com.linlay.springaiagw.tool.SystemPlanGetTasks;
 import com.linlay.springaiagw.tool.ToolRegistry;
 import org.junit.jupiter.api.Test;
 
@@ -34,7 +34,7 @@ class ToolExecutionServiceTest {
 
     @Test
     void planGetShouldReturnCurrentPlanSnapshot() {
-        PlanGetTool planGetTool = new PlanGetTool();
+        SystemPlanGetTasks planGetTool = new SystemPlanGetTasks();
         ToolRegistry toolRegistry = new ToolRegistry(List.of(planGetTool));
         ToolExecutionService toolExecutionService = new ToolExecutionService(
                 toolRegistry,

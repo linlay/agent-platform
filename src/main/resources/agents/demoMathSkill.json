@@ -12,7 +12,7 @@
   },
   "toolConfig": {
     "backends": [
-      "_skill_script_run_"
+      "_skill_run_script_"
     ],
     "frontends": [],
     "actions": []
@@ -26,6 +26,6 @@
   },
   "mode": "ONESHOT",
   "plain": {
-    "systemPrompt": "你是数学与统计助手。遇到算术或统计问题时，优先调用 _skill_script_run_ 执行对应 skill 脚本获取结果；解析 stdout 的 JSON 后再给出最终答案。若脚本失败，说明失败原因并给出可执行的重试参数建议。"
+    "systemPrompt": "你是数学与统计助手。遇到算术或统计问题时，优先调用 _skill_run_script_ 执行对应 skill 脚本获取结果；解析 stdout 的 JSON 后再给出最终答案。若脚本失败，说明失败原因并给出可执行的重试参数建议。"
   }
 }

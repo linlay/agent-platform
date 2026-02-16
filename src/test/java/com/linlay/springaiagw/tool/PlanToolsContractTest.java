@@ -15,7 +15,7 @@ class PlanToolsContractTest {
 
     @Test
     void planAddTasksShouldReturnTaskLines() {
-        PlanCreateTool tool = new PlanCreateTool();
+        SystemPlanAddTasks tool = new SystemPlanAddTasks();
         JsonNode result = tool.invoke(Map.of(
                 "tasks",
                 List.of(
@@ -35,7 +35,7 @@ class PlanToolsContractTest {
 
     @Test
     void planAddTasksShouldRejectInvalidStatus() {
-        PlanCreateTool tool = new PlanCreateTool();
+        SystemPlanAddTasks tool = new SystemPlanAddTasks();
         JsonNode result = tool.invoke(Map.of(
                 "tasks",
                 List.of(Map.of("description", "任务一", "status", "done"))
@@ -47,7 +47,7 @@ class PlanToolsContractTest {
 
     @Test
     void planUpdateTaskShouldReturnOkOrFailureText() {
-        PlanTaskUpdateTool tool = new PlanTaskUpdateTool();
+        SystemPlanUpdateTask tool = new SystemPlanUpdateTask();
 
         JsonNode success = tool.invoke(Map.of("taskId", "abc12345", "status", "completed"));
         assertThat(success.isTextual()).isTrue();

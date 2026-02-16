@@ -1,7 +1,6 @@
 package com.linlay.springaiagw.tool;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.linlay.springaiagw.config.BashToolProperties;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -32,7 +31,7 @@ agent:
 */
 
 @Component
-public class BashTool extends AbstractDeterministicTool {
+public class SystemBash extends AbstractDeterministicTool {
 
     private static final Set<String> ALLOWED_COMMANDS = Set.of("ls", "pwd", "cat", "head", "tail", "top", "free", "df");
     private static final Set<String> COMMANDS_WITH_PATH_ARGS = Set.of("ls", "cat", "head", "tail");
@@ -41,19 +40,19 @@ public class BashTool extends AbstractDeterministicTool {
     private final List<Path> allowedRoots;
 
     @Autowired
-    public BashTool(BashToolProperties properties) {
+    public SystemBash(BashToolProperties properties) {
         this(resolveWorkingDirectory(properties.getWorkingDirectory()), parseAllowedPaths(properties.getAllowedPaths()));
     }
 
-    public BashTool() {
+    public SystemBash() {
         this(resolveWorkingDirectory(""), List.of());
     }
 
-    BashTool(Path workingDirectory) {
+    SystemBash(Path workingDirectory) {
         this(workingDirectory, List.of());
     }
 
-    BashTool(Path workingDirectory, List<Path> additionalAllowedRoots) {
+    SystemBash(Path workingDirectory, List<Path> additionalAllowedRoots) {
         this.workingDirectory = workingDirectory.toAbsolutePath().normalize();
         this.allowedRoots = buildAllowedRoots(this.workingDirectory, additionalAllowedRoots);
     }
@@ -65,46 +64,35 @@ public class BashTool extends AbstractDeterministicTool {
 
     @Override
     public JsonNode invoke(Map<String, Object> args) {
-        String rawCommand = String.valueOf(args.getOrDefault("command", "")).trim();
-
-        ObjectNode root = OBJECT_MAPPER.createObjectNode();
-        root.put("tool", name());
-        root.put("command", rawCommand);
-        root.put("allowedCommands", String.join(",", ALLOWED_COMMANDS));
+        Map<String, Object> safeArgs = args == null ? Map.of() : args;
+        String rawCommand = String.valueOf(safeArgs.getOrDefault("command", "")).trim();
 
         if (rawCommand.isEmpty()) {
-            root.put("ok", false);
-            root.put("error", "Missing argument: command");
-            return root;
+            return textResult(-1, "", "Missing argument: command");
         }
 
         List<String> tokens = tokenize(rawCommand);
         if (tokens.isEmpty()) {
-            root.put("ok", false);
-            root.put("error", "Cannot parse command");
-            return root;
+            return textResult(-1, "", "Cannot parse command");
         }
 
         String baseCommand = tokens.get(0);
         if (!ALLOWED_COMMANDS.contains(baseCommand)) {
-            root.put("ok", false);
-            root.put("error", "Command not allowed: " + baseCommand);
-            return root;
+            return textResult(-1, "", "Command not allowed: " + baseCommand);
         }
 
-        if (!hasSafeArguments(tokens, root)) {
-            return root;
+        String argsError = unsafeArgumentError(tokens);
+        if (argsError != null) {
+            return textResult(-1, "", argsError);
         }
 
         List<String> expanded = expandPathGlobs(tokens);
-        if (!hasSafeArguments(expanded, root)) {
-            return root;
+        String expandedArgsError = unsafeArgumentError(expanded);
+        if (expandedArgsError != null) {
+            return textResult(-1, "", expandedArgsError);
         }
 
         List<String> normalized = normalize(expanded);
-        root.put("normalizedCommand", String.join(" ", normalized));
-        root.put("workingDirectory", workingDirectory.toString());
-        root.put("allowedRoots", allowedRoots.stream().map(Path::toString).toList().toString());
 
         try {
             Process process = new ProcessBuilder(normalized)
@@ -113,34 +101,19 @@ public class BashTool extends AbstractDeterministicTool {
             boolean finished = process.waitFor(5, TimeUnit.SECONDS);
             if (!finished) {
                 process.destroyForcibly();
-                root.put("ok", false);
-                root.put("timedOut", true);
-                root.put("exitCode", -1);
-                root.put("stdout", "");
-                root.put("stderr", "Command timed out");
-                return root;
+                return textResult(-1, "", "Command timed out");
             }
 
             int exitCode = process.exitValue();
             String stdout = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
             String stderr = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
-
-            root.put("ok", exitCode == 0);
-            root.put("timedOut", false);
-            root.put("exitCode", exitCode);
-            root.put("stdout", truncate(stdout));
-            root.put("stderr", truncate(stderr));
-            return root;
+            return textResult(exitCode, truncate(stdout), truncate(stderr));
         } catch (IOException | InterruptedException ex) {
             if (ex instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
             }
-            root.put("ok", false);
-            root.put("timedOut", false);
-            root.put("exitCode", -1);
-            root.put("stdout", "");
-            root.put("stderr", ex.getMessage());
-            return root;
+            String message = ex.getMessage() == null ? "Unknown error" : ex.getMessage();
+            return textResult(-1, "", message);
         }
     }
 
@@ -237,10 +210,10 @@ public class BashTool extends AbstractDeterministicTool {
         return token.contains("*") || token.contains("?") || token.contains("[");
     }
 
-    private boolean hasSafeArguments(List<String> tokens, ObjectNode root) {
+    private String unsafeArgumentError(List<String> tokens) {
         String baseCommand = tokens.get(0);
         if (!COMMANDS_WITH_PATH_ARGS.contains(baseCommand) || tokens.size() == 1) {
-            return true;
+            return null;
         }
 
         for (int i = 1; i < tokens.size(); i++) {
@@ -250,12 +223,10 @@ public class BashTool extends AbstractDeterministicTool {
             }
             Path resolved = resolvePath(token);
             if (!isAllowedPath(resolved)) {
-                root.put("ok", false);
-                root.put("error", "Path not allowed outside authorized directories: " + token);
-                return false;
+                return "Path not allowed outside authorized directories: " + token;
             }
         }
-        return true;
+        return null;
     }
 
     private Path resolvePath(String token) {
@@ -330,5 +301,15 @@ public class BashTool extends AbstractDeterministicTool {
             return text;
         }
         return text.substring(0, MAX_OUTPUT_CHARS) + "...(truncated)";
+    }
+
+    private JsonNode textResult(int exitCode, String stdout, String stderr) {
+        String safeStdout = stdout == null ? "" : stdout;
+        String safeStderr = stderr == null ? "" : stderr;
+        String text = "exitCode: " + exitCode
+                + "\n\"workingDirectory\": \"" + workingDirectory + "\""
+                + "\nstdout:\n" + safeStdout
+                + "\nstderr:\n" + safeStderr;
+        return OBJECT_MAPPER.getNodeFactory().textNode(text);
     }
 }

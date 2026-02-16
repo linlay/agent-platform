@@ -30,7 +30,7 @@ class ToolRegistryTest {
     private final MockTransportScheduleTool transportScheduleTool = new MockTransportScheduleTool();
     private final MockTodoTasksTool todoTasksTool = new MockTodoTasksTool();
     private final MockSensitiveDataDetectorTool sensitiveDataDetectorTool = new MockSensitiveDataDetectorTool();
-    private final BashTool bashTool = new BashTool();
+    private final SystemBash bashTool = new SystemBash();
 
     @Test
     void sameArgsShouldReturnSameWeatherJson() {
@@ -176,27 +176,30 @@ class ToolRegistryTest {
     @Test
     void bashToolShouldRejectUnlistedCommand() {
         JsonNode result = bashTool.invoke(Map.of("command", "cat /etc/passwd"));
-        assertThat(result.path("ok").asBoolean()).isFalse();
-        assertThat(result.path("error").asText()).contains("outside authorized directories");
+        assertThat(result.isTextual()).isTrue();
+        assertThat(result.asText()).contains("exitCode: -1");
+        assertThat(result.asText()).contains("Path not allowed outside authorized directories");
     }
 
     @Test
     void bashToolShouldRunAllowedLsCommand() {
         JsonNode result = bashTool.invoke(Map.of("command", "ls"));
-        assertThat(result.path("tool").asText()).isEqualTo("_bash_");
-        assertThat(result.path("exitCode").asInt()).isEqualTo(0);
+        assertThat(result.isTextual()).isTrue();
+        assertThat(result.asText()).contains("exitCode: 0");
+        assertThat(result.asText()).contains("\"workingDirectory\": \"");
     }
 
     @Test
     void bashToolShouldReadLocalFile(@TempDir Path tempDir) throws IOException {
         Path file = tempDir.resolve("demo.txt");
         Files.writeString(file, "hello");
-        BashTool localBashTool = new BashTool(tempDir);
+        SystemBash localBashTool = new SystemBash(tempDir);
 
         JsonNode result = localBashTool.invoke(Map.of("command", "cat demo.txt"));
 
-        assertThat(result.path("ok").asBoolean()).isTrue();
-        assertThat(result.path("stdout").asText()).contains("hello");
+        assertThat(result.isTextual()).isTrue();
+        assertThat(result.asText()).contains("exitCode: 0");
+        assertThat(result.asText()).contains("hello");
     }
 
     @Test
@@ -205,13 +208,14 @@ class ToolRegistryTest {
         Files.createDirectories(agentsDir);
         Files.writeString(agentsDir.resolve("a.json"), "{\"name\":\"a\"}\n");
         Files.writeString(agentsDir.resolve("b.json"), "{\"name\":\"b\"}\n");
-        BashTool localBashTool = new BashTool(tempDir);
+        SystemBash localBashTool = new SystemBash(tempDir);
 
         JsonNode result = localBashTool.invoke(Map.of("command", "cat agents/*"));
 
-        assertThat(result.path("ok").asBoolean()).isTrue();
-        assertThat(result.path("stdout").asText()).contains("\"name\":\"a\"");
-        assertThat(result.path("stdout").asText()).contains("\"name\":\"b\"");
+        assertThat(result.isTextual()).isTrue();
+        assertThat(result.asText()).contains("exitCode: 0");
+        assertThat(result.asText()).contains("\"name\":\"a\"");
+        assertThat(result.asText()).contains("\"name\":\"b\"");
     }
 
     @Test
@@ -221,11 +225,12 @@ class ToolRegistryTest {
         Path keyFile = externalDir.resolve("demo.key");
         Files.writeString(keyFile, "secret");
 
-        BashTool localBashTool = new BashTool(Path.of(System.getProperty("user.dir", ".")), List.of(externalDir));
+        SystemBash localBashTool = new SystemBash(Path.of(System.getProperty("user.dir", ".")), List.of(externalDir));
         JsonNode result = localBashTool.invoke(Map.of("command", "cat " + keyFile));
 
-        assertThat(result.path("ok").asBoolean()).isTrue();
-        assertThat(result.path("stdout").asText()).contains("secret");
+        assertThat(result.isTextual()).isTrue();
+        assertThat(result.asText()).contains("exitCode: 0");
+        assertThat(result.asText()).contains("secret");
     }
 
     @Test

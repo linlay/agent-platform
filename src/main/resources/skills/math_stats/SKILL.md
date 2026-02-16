@@ -18,7 +18,7 @@ description: "Use when the task requires deterministic statistics over a numeric
 - `--precision`: optional integer, default `6`
 
 ## Example
-- `_skill_script_run_` with:
+- `_skill_run_script_` with:
   - `skill`: `math_stats`
   - `script`: `scripts/stats.py`
   - `args`: `["--values","1,2,3,4","--metric","summary"]`
