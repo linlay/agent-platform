@@ -10,7 +10,6 @@ import com.linlay.springaiagw.agent.runtime.ExecutionContext;
 import com.linlay.springaiagw.agent.runtime.ToolExecutionService;
 import com.linlay.springaiagw.agent.runtime.policy.ComputePolicy;
 import com.linlay.springaiagw.agent.runtime.policy.ToolChoice;
-import com.linlay.springaiagw.agent.runtime.policy.ToolPolicy;
 import com.linlay.springaiagw.model.stream.AgentDelta;
 import com.linlay.springaiagw.service.LlmCallSpec;
 import com.linlay.springaiagw.service.LlmService;
@@ -154,7 +153,6 @@ public class OrchestratorServices {
                 userPrompt,
                 tools,
                 toolChoice,
-                null,
                 null,
                 resolveEffort(stageSettings),
                 stageSettings.reasoningEnabled(),
@@ -311,7 +309,19 @@ public class OrchestratorServices {
     }
 
     public boolean requiresTool(ExecutionContext context) {
-        return context.definition().runSpec().toolPolicy() == ToolPolicy.REQUIRE;
+        return context.definition().runSpec().toolChoice() == ToolChoice.REQUIRED;
+    }
+
+    public boolean allowsTool(ExecutionContext context) {
+        return context.definition().runSpec().toolChoice() != ToolChoice.NONE;
+    }
+
+    public int retryCount(ExecutionContext context, int fallback) {
+        if (context == null || context.budget() == null) {
+            return fallback;
+        }
+        int configured = context.budget().retryCount();
+        return configured > 0 ? configured : fallback;
     }
 
     public void appendAssistantMessage(List<Message> messages, String text) {

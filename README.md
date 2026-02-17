@@ -242,8 +242,12 @@ curl -N -X POST "http://localhost:8080/api/query" \
 - 流式消费 `delta.tool_calls`
 - 不再依赖正文中的 `toolCall/toolCalls` JSON 字段（仍保留向后兼容解析）
 
-Agent JSON 已仅支持新结构：`modelConfig/toolConfig/skillConfig`。旧字段 `providerKey/providerType/model/reasoning/tools` 不再兼容。
+Agent JSON 已仅支持新结构：`modelConfig/toolConfig/skillConfig`。旧字段 `providerKey/model/reasoning/tools` 不再兼容。
 同时已移除顶层 `verify` 字段；保留该字段会导致该 agent 配置被拒绝加载。
+运行策略字段仅保留：
+- `toolChoice`：`NONE` / `AUTO` / `REQUIRED`
+- `budget`：`maxModelCalls` / `maxToolCalls` / `timeoutMs` / `retryCount`
+- `react.maxSteps` 与 `planExecute.maxSteps` 负责步骤上限控制
 
 顶层 skills 配置支持两种写法（会合并去重）：
 
@@ -390,7 +394,7 @@ type=html, key=show_weather_card
 - `demoModePlainSkillMath`（`ONESHOT`）：加载 `math_basic/math_stats/text_utils` skills，并调用 `_skill_run_script_` 完成确定性计算。
 - 使用 `demoAgentCreator` 时建议提供：`key`、`name`、`icon`、`description`、`modelConfig`、`mode`、`toolConfig` 与各 mode 的 prompt 字段。
 - `agent_file_create` 会校验 `key/agentId`（仅允许 `A-Za-z0-9_-`，最长 64）。
-- `providerKey/providerType` 不做白名单校验；未提供时默认 `bailian`。
+- `providerKey` 不做白名单校验；未提供时默认 `bailian`。
 - 生成格式：
 
 ```json

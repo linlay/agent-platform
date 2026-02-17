@@ -6,11 +6,8 @@ import com.linlay.springaiagw.agent.ToolAppend;
 import com.linlay.springaiagw.agent.runtime.AgentRuntimeMode;
 import com.linlay.springaiagw.agent.runtime.ExecutionContext;
 import com.linlay.springaiagw.agent.runtime.policy.Budget;
-import com.linlay.springaiagw.agent.runtime.policy.ControlStrategy;
-import com.linlay.springaiagw.agent.runtime.policy.OutputPolicy;
 import com.linlay.springaiagw.agent.runtime.policy.RunSpec;
 import com.linlay.springaiagw.agent.runtime.policy.ToolChoice;
-import com.linlay.springaiagw.agent.runtime.policy.ToolPolicy;
 import com.linlay.springaiagw.model.stream.AgentDelta;
 import com.linlay.springaiagw.tool.BaseTool;
 import reactor.core.publisher.FluxSink;
@@ -45,13 +42,8 @@ public final class ReactMode extends AgentMode {
     @Override
     public RunSpec defaultRunSpec(AgentConfigFile config) {
         Budget budget = config != null && config.getBudget() != null ? config.getBudget().toBudget() : Budget.DEFAULT;
-        if (budget.maxSteps() < maxSteps) {
-            budget = new Budget(budget.maxModelCalls(), budget.maxToolCalls(), maxSteps, budget.timeoutMs());
-        }
         return new RunSpec(
-                ControlStrategy.REACT_LOOP,
-                config != null && config.getOutput() != null ? config.getOutput() : OutputPolicy.PLAIN,
-                config != null && config.getToolPolicy() != null ? config.getToolPolicy() : ToolPolicy.ALLOW,
+                config != null && config.getToolChoice() != null ? config.getToolChoice() : ToolChoice.AUTO,
                 budget
         );
     }
@@ -63,16 +55,15 @@ public final class ReactMode extends AgentMode {
             OrchestratorServices services,
             FluxSink<AgentDelta> sink
     ) {
-        Map<String, BaseTool> stageTools = services.selectTools(enabledToolsByName, stage.tools());
-        int effectiveMaxSteps = context.budget().maxSteps();
-        if (context.definition().runSpec().budget().maxSteps() > 0) {
-            effectiveMaxSteps = context.definition().runSpec().budget().maxSteps();
-        }
+        Map<String, BaseTool> configuredTools = services.selectTools(enabledToolsByName, stage.tools());
+        Map<String, BaseTool> stageTools = services.allowsTool(context) ? configuredTools : Map.of();
+        int effectiveMaxSteps = maxSteps;
+        int retries = services.retryCount(context, 1);
         boolean emitReasoning = stage.reasoningEnabled();
 
         for (int step = 1; step <= effectiveMaxSteps; step++) {
             OrchestratorServices.ModelTurn turn = null;
-            for (int retry = 0; retry <= 1; retry++) {
+            for (int retry = 0; retry <= retries; retry++) {
                 turn = services.callModelTurnStreaming(
                         context,
                         stage,
@@ -80,7 +71,7 @@ public final class ReactMode extends AgentMode {
                         null,
                         stageTools,
                         services.toolExecutionService().enabledFunctionTools(stageTools),
-                        services.requiresTool(context) ? ToolChoice.REQUIRED : ToolChoice.AUTO,
+                        context.definition().runSpec().toolChoice(),
                         retry == 0 ? "agent-react-step-" + step : "agent-react-step-" + step + "-retry-" + retry,
                         false,
                         emitReasoning,

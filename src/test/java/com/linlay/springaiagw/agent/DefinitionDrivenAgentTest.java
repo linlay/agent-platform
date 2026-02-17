@@ -11,11 +11,8 @@ import com.linlay.springaiagw.agent.mode.StageSettings;
 import com.linlay.springaiagw.agent.runtime.AgentRuntimeMode;
 import com.linlay.springaiagw.agent.runtime.policy.Budget;
 import com.linlay.springaiagw.agent.runtime.policy.ComputePolicy;
-import com.linlay.springaiagw.agent.runtime.policy.ControlStrategy;
-import com.linlay.springaiagw.agent.runtime.policy.OutputPolicy;
 import com.linlay.springaiagw.agent.runtime.policy.RunSpec;
 import com.linlay.springaiagw.agent.runtime.policy.ToolChoice;
-import com.linlay.springaiagw.agent.runtime.policy.ToolPolicy;
 import com.linlay.springaiagw.memory.ChatWindowMemoryProperties;
 import com.linlay.springaiagw.memory.ChatWindowMemoryStore;
 import com.linlay.springaiagw.model.AgentRequest;
@@ -61,7 +58,7 @@ class DefinitionDrivenAgentTest {
         AgentDefinition definition = definition(
                 "demoOneshotTooling",
                 AgentRuntimeMode.ONESHOT,
-                new RunSpec(ControlStrategy.ONESHOT, OutputPolicy.PLAIN, ToolPolicy.ALLOW, Budget.DEFAULT),
+                new RunSpec(ToolChoice.AUTO, Budget.DEFAULT),
                 new OneshotMode(new StageSettings("你是测试助手", null, null, List.of("echo_tool"), false, ComputePolicy.MEDIUM), null, null),
                 List.of("echo_tool")
         );
@@ -127,7 +124,7 @@ class DefinitionDrivenAgentTest {
         AgentDefinition definition = definition(
                 "demoOneshot",
                 AgentRuntimeMode.ONESHOT,
-                new RunSpec(ControlStrategy.ONESHOT, OutputPolicy.PLAIN, ToolPolicy.DISALLOW, Budget.DEFAULT),
+                new RunSpec(ToolChoice.NONE, Budget.DEFAULT),
                 new OneshotMode(new StageSettings("你是测试助手", null, null, List.of(), false, ComputePolicy.MEDIUM), null, null),
                 List.of()
         );
@@ -173,7 +170,7 @@ class DefinitionDrivenAgentTest {
         AgentDefinition definition = definition(
                 "demoReasoning",
                 AgentRuntimeMode.ONESHOT,
-                new RunSpec(ControlStrategy.ONESHOT, OutputPolicy.PLAIN, ToolPolicy.DISALLOW, Budget.DEFAULT),
+                new RunSpec(ToolChoice.NONE, Budget.DEFAULT),
                 new OneshotMode(new StageSettings("你是测试助手", null, null, List.of(), true, ComputePolicy.HIGH), null, null),
                 List.of()
         );
@@ -236,7 +233,7 @@ class DefinitionDrivenAgentTest {
                 "bailian",
                 "qwen3-max",
                 AgentRuntimeMode.ONESHOT,
-                new RunSpec(ControlStrategy.ONESHOT, OutputPolicy.PLAIN, ToolPolicy.DISALLOW, Budget.DEFAULT),
+                new RunSpec(ToolChoice.NONE, Budget.DEFAULT),
                 new OneshotMode(new StageSettings("你是测试助手", null, null, List.of(), false, ComputePolicy.MEDIUM), null, null),
                 List.of(),
                 List.of("screenshot")
@@ -288,7 +285,7 @@ class DefinitionDrivenAgentTest {
                 "bailian",
                 "qwen3-max",
                 AgentRuntimeMode.ONESHOT,
-                new RunSpec(ControlStrategy.ONESHOT, OutputPolicy.PLAIN, ToolPolicy.ALLOW, Budget.DEFAULT),
+                new RunSpec(ToolChoice.AUTO, Budget.DEFAULT),
                 new OneshotMode(new StageSettings("你是测试助手", null, null, List.of("_skill_run_script_"), false, ComputePolicy.MEDIUM), null, null),
                 List.of("_skill_run_script_"),
                 List.of("screenshot")
@@ -358,7 +355,7 @@ class DefinitionDrivenAgentTest {
                 "bailian",
                 "qwen3-max",
                 AgentRuntimeMode.REACT,
-                new RunSpec(ControlStrategy.REACT_LOOP, OutputPolicy.PLAIN, ToolPolicy.ALLOW, new Budget(10, 10, 4, 60_000)),
+                new RunSpec(ToolChoice.AUTO, new Budget(10, 10, 60_000, 0)),
                 new ReactMode(new StageSettings("你是测试助手", null, null, List.of("_skill_run_script_"), false, ComputePolicy.MEDIUM), 4, null, null),
                 List.of("_skill_run_script_"),
                 List.of("screenshot")
@@ -428,7 +425,7 @@ class DefinitionDrivenAgentTest {
                 "bailian",
                 "qwen3-max",
                 AgentRuntimeMode.ONESHOT,
-                new RunSpec(ControlStrategy.ONESHOT, OutputPolicy.PLAIN, ToolPolicy.ALLOW, Budget.DEFAULT),
+                new RunSpec(ToolChoice.AUTO, Budget.DEFAULT),
                 new OneshotMode(new StageSettings("你是测试助手", null, null, List.of("_skill_run_script_"), false, ComputePolicy.MEDIUM), null, null),
                 List.of("_skill_run_script_"),
                 List.of("screenshot")
@@ -499,7 +496,7 @@ class DefinitionDrivenAgentTest {
                 "bailian",
                 "qwen3-max",
                 AgentRuntimeMode.ONESHOT,
-                new RunSpec(ControlStrategy.ONESHOT, OutputPolicy.PLAIN, ToolPolicy.ALLOW, Budget.DEFAULT),
+                new RunSpec(ToolChoice.AUTO, Budget.DEFAULT),
                 new OneshotMode(new StageSettings("你是测试助手", null, null, List.of("_skill_run_script_"), false, ComputePolicy.MEDIUM), null, null),
                 List.of("_skill_run_script_"),
                 List.of("screenshot")
@@ -555,7 +552,7 @@ class DefinitionDrivenAgentTest {
         AgentDefinition definition = definition(
                 "demoReact",
                 AgentRuntimeMode.REACT,
-                new RunSpec(ControlStrategy.REACT_LOOP, OutputPolicy.PLAIN, ToolPolicy.ALLOW, new Budget(10, 10, 4, 60_000)),
+                new RunSpec(ToolChoice.AUTO, new Budget(10, 10, 60_000, 0)),
                 new ReactMode(new StageSettings("你是测试助手", null, null, List.of("echo_tool"), true, ComputePolicy.MEDIUM), 6, null, null),
                 List.of("echo_tool")
         );
@@ -627,7 +624,7 @@ class DefinitionDrivenAgentTest {
         AgentDefinition definition = definition(
                 "demoReactRetryBlankFinal",
                 AgentRuntimeMode.REACT,
-                new RunSpec(ControlStrategy.REACT_LOOP, OutputPolicy.PLAIN, ToolPolicy.ALLOW, new Budget(10, 10, 2, 60_000)),
+                new RunSpec(ToolChoice.AUTO, new Budget(10, 10, 60_000, 0)),
                 new ReactMode(new StageSettings("你是测试助手", null, null, List.of(), false, ComputePolicy.MEDIUM), 2, null, null),
                 List.of()
         );
@@ -677,7 +674,7 @@ class DefinitionDrivenAgentTest {
         AgentDefinition definition = definition(
                 "demoReactForceFinalFallback",
                 AgentRuntimeMode.REACT,
-                new RunSpec(ControlStrategy.REACT_LOOP, OutputPolicy.PLAIN, ToolPolicy.ALLOW, new Budget(10, 10, 1, 60_000)),
+                new RunSpec(ToolChoice.AUTO, new Budget(10, 10, 60_000, 0)),
                 new ReactMode(new StageSettings("你是测试助手", null, null, List.of("echo_tool"), false, ComputePolicy.MEDIUM), 1, null, null),
                 List.of("echo_tool")
         );
@@ -750,7 +747,7 @@ class DefinitionDrivenAgentTest {
         AgentDefinition definition = definition(
                 "demoPlan",
                 AgentRuntimeMode.PLAN_EXECUTE,
-                new RunSpec(ControlStrategy.PLAN_EXECUTE, OutputPolicy.PLAIN, ToolPolicy.ALLOW, Budget.DEFAULT),
+                new RunSpec(ToolChoice.AUTO, Budget.DEFAULT),
                 new PlanExecuteMode(
                         new StageSettings("规划系统提示", null, null, List.of("_plan_add_tasks_"), false, ComputePolicy.MEDIUM),
                         new StageSettings("执行系统提示", null, null, List.of("_plan_update_task_"), false, ComputePolicy.MEDIUM),
@@ -822,7 +819,7 @@ class DefinitionDrivenAgentTest {
         AgentDefinition definition = definition(
                 "demoPlanPublicTurns",
                 AgentRuntimeMode.PLAN_EXECUTE,
-                new RunSpec(ControlStrategy.PLAN_EXECUTE, OutputPolicy.PLAIN, ToolPolicy.ALLOW, Budget.DEFAULT),
+                new RunSpec(ToolChoice.AUTO, Budget.DEFAULT),
                 new PlanExecuteMode(
                         new StageSettings("规划系统提示", null, null, List.of("_plan_add_tasks_"), true, ComputePolicy.MEDIUM, true),
                         new StageSettings("执行系统提示", null, null, List.of("_plan_update_task_"), false, ComputePolicy.MEDIUM),
@@ -927,7 +924,7 @@ class DefinitionDrivenAgentTest {
         AgentDefinition definition = definition(
                 "demoPromptInject",
                 AgentRuntimeMode.PLAN_EXECUTE,
-                new RunSpec(ControlStrategy.PLAN_EXECUTE, OutputPolicy.PLAIN, ToolPolicy.ALLOW, Budget.DEFAULT),
+                new RunSpec(ToolChoice.AUTO, Budget.DEFAULT),
                 new PlanExecuteMode(
                         new StageSettings("规划系统提示", null, null, List.of("_plan_add_tasks_", "prompt_tool"), false, ComputePolicy.MEDIUM),
                         new StageSettings("执行系统提示", null, null, List.of("_plan_update_task_", "prompt_tool"), false, ComputePolicy.MEDIUM),
@@ -1001,10 +998,8 @@ class DefinitionDrivenAgentTest {
                 "demoPlanSnapshot",
                 AgentRuntimeMode.PLAN_EXECUTE,
                 new RunSpec(
-                        ControlStrategy.PLAN_EXECUTE,
-                        OutputPolicy.REASONING_SUMMARY,
-                        ToolPolicy.ALLOW,
-                        new Budget(20, 10, 6, 180_000)
+                        ToolChoice.AUTO,
+                        new Budget(20, 10, 180_000, 2)
                 ),
                 new PlanExecuteMode(
                         new StageSettings("规划系统提示", "bailian", "qwen3-max", List.of("_plan_add_tasks_"), true, ComputePolicy.HIGH),
@@ -1060,13 +1055,11 @@ class DefinitionDrivenAgentTest {
         assertThat(logs).contains("\"chatId\" : \"chat_demo\"");
         assertThat(logs).contains("\"requestId\" : \"req_demo\"");
         assertThat(logs).contains("\"message\" : \"测试快照\"");
-        assertThat(logs).contains("\"control\" : \"PLAN_EXECUTE\"");
-        assertThat(logs).contains("\"output\" : \"REASONING_SUMMARY\"");
-        assertThat(logs).contains("\"toolPolicy\" : \"ALLOW\"");
+        assertThat(logs).contains("\"toolChoice\" : \"AUTO\"");
         assertThat(logs).contains("\"maxModelCalls\" : 20");
         assertThat(logs).contains("\"maxToolCalls\" : 10");
-        assertThat(logs).contains("\"maxSteps\" : 6");
         assertThat(logs).contains("\"timeoutMs\" : 180000");
+        assertThat(logs).contains("\"retryCount\" : 2");
         assertThat(logs).contains("\"plan\" : {");
         assertThat(logs).contains("\"execute\" : {");
         assertThat(logs).contains("\"summary\" : {");
@@ -1088,7 +1081,7 @@ class DefinitionDrivenAgentTest {
         AgentDefinition definition = definition(
                 "demoPlanOrder",
                 AgentRuntimeMode.PLAN_EXECUTE,
-                new RunSpec(ControlStrategy.PLAN_EXECUTE, OutputPolicy.PLAIN, ToolPolicy.ALLOW, Budget.DEFAULT),
+                new RunSpec(ToolChoice.AUTO, Budget.DEFAULT),
                 new PlanExecuteMode(
                         new StageSettings("规划系统提示", null, null, List.of("_plan_add_tasks_"), false, ComputePolicy.MEDIUM),
                         new StageSettings("执行系统提示", null, null,
@@ -1190,7 +1183,7 @@ class DefinitionDrivenAgentTest {
         AgentDefinition definition = definition(
                 "demoPlanToolGate",
                 AgentRuntimeMode.PLAN_EXECUTE,
-                new RunSpec(ControlStrategy.PLAN_EXECUTE, OutputPolicy.PLAIN, ToolPolicy.ALLOW, Budget.DEFAULT),
+                new RunSpec(ToolChoice.AUTO, Budget.DEFAULT),
                 new PlanExecuteMode(
                         new StageSettings("规划系统提示", null, null, List.of("_plan_add_tasks_"), false, ComputePolicy.MEDIUM),
                         new StageSettings("执行系统提示", null, null,
@@ -1273,7 +1266,7 @@ class DefinitionDrivenAgentTest {
         AgentDefinition definition = definition(
                 "demoPlanMissingPlanAdd",
                 AgentRuntimeMode.PLAN_EXECUTE,
-                new RunSpec(ControlStrategy.PLAN_EXECUTE, OutputPolicy.PLAIN, ToolPolicy.ALLOW, Budget.DEFAULT),
+                new RunSpec(ToolChoice.AUTO, Budget.DEFAULT),
                 new PlanExecuteMode(
                         new StageSettings("规划系统提示", null, null, List.of("_plan_add_tasks_"), false, ComputePolicy.MEDIUM),
                         new StageSettings("执行系统提示", null, null, List.of("_plan_update_task_"), false, ComputePolicy.MEDIUM),
@@ -1323,7 +1316,7 @@ class DefinitionDrivenAgentTest {
         AgentDefinition definition = definition(
                 "demoPlanNoProgress",
                 AgentRuntimeMode.PLAN_EXECUTE,
-                new RunSpec(ControlStrategy.PLAN_EXECUTE, OutputPolicy.PLAIN, ToolPolicy.ALLOW, Budget.DEFAULT),
+                new RunSpec(ToolChoice.AUTO, Budget.DEFAULT),
                 new PlanExecuteMode(
                         new StageSettings("规划系统提示", null, null, List.of("_plan_add_tasks_"), false, ComputePolicy.MEDIUM),
                         new StageSettings("执行系统提示", null, null, List.of("_plan_update_task_"), false, ComputePolicy.MEDIUM),
@@ -1380,7 +1373,7 @@ class DefinitionDrivenAgentTest {
         AgentDefinition definition = definition(
                 "demoOneshotRequireRetry",
                 AgentRuntimeMode.ONESHOT,
-                new RunSpec(ControlStrategy.ONESHOT, OutputPolicy.PLAIN, ToolPolicy.REQUIRE, Budget.DEFAULT),
+                new RunSpec(ToolChoice.REQUIRED, Budget.DEFAULT),
                 new OneshotMode(
                         new StageSettings("你是测试助手", null, null, List.of("echo_tool"), false, ComputePolicy.MEDIUM),
                         null, null
@@ -1459,7 +1452,7 @@ class DefinitionDrivenAgentTest {
         AgentDefinition definition = definition(
                 "demoReactRequireRetry",
                 AgentRuntimeMode.REACT,
-                new RunSpec(ControlStrategy.REACT_LOOP, OutputPolicy.PLAIN, ToolPolicy.REQUIRE, new Budget(20, 20, 2, 60_000)),
+                new RunSpec(ToolChoice.REQUIRED, new Budget(20, 20, 60_000, 0)),
                 new ReactMode(
                         new StageSettings("你是测试助手", null, null, List.of("echo_tool"), false, ComputePolicy.MEDIUM),
                         2, null, null
@@ -1541,7 +1534,7 @@ class DefinitionDrivenAgentTest {
         AgentDefinition definition = definition(
                 "demoPlanRuntimePrompts",
                 AgentRuntimeMode.PLAN_EXECUTE,
-                new RunSpec(ControlStrategy.PLAN_EXECUTE, OutputPolicy.PLAIN, ToolPolicy.ALLOW, Budget.DEFAULT),
+                new RunSpec(ToolChoice.AUTO, Budget.DEFAULT),
                 new PlanExecuteMode(
                         new StageSettings("规划系统提示", null, null, List.of("_plan_add_tasks_"), false, ComputePolicy.MEDIUM),
                         new StageSettings("执行系统提示", null, null, List.of("_plan_update_task_"), false, ComputePolicy.MEDIUM),
@@ -1610,7 +1603,7 @@ class DefinitionDrivenAgentTest {
         AgentDefinition definition = definition(
                 "demoOneshotSinglePass",
                 AgentRuntimeMode.ONESHOT,
-                new RunSpec(ControlStrategy.ONESHOT, OutputPolicy.PLAIN, ToolPolicy.DISALLOW, Budget.DEFAULT),
+                new RunSpec(ToolChoice.NONE, Budget.DEFAULT),
                 new OneshotMode(new StageSettings("你是测试助手", null, null, List.of(), false, ComputePolicy.MEDIUM), null, null),
                 List.of()
         );

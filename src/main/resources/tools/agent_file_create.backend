@@ -134,13 +134,7 @@
           "maxSteps": {
             "type": "integer"
           },
-          "output": {
-            "type": "string"
-          },
-          "toolPolicy": {
-            "type": "string"
-          },
-          "verify": {
+          "toolChoice": {
             "type": "string"
           },
           "budget": {
@@ -152,10 +146,10 @@
               "maxToolCalls": {
                 "type": "integer"
               },
-              "maxSteps": {
+              "timeoutMs": {
                 "type": "integer"
               },
-              "timeoutMs": {
+              "retryCount": {
                 "type": "integer"
               }
             },

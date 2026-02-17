@@ -148,9 +148,6 @@ public class ViewportRegistryService {
         return switch (suffix.toLowerCase(Locale.ROOT)) {
             case ".html" -> ViewportType.HTML;
             case ".qlc" -> ViewportType.QLC;
-            case ".dqlc" -> ViewportType.DQLC;
-            case ".json_schema" -> ViewportType.JSON_SCHEMA;
-            case ".custom" -> ViewportType.CUSTOM;
             default -> null;
         };
     }

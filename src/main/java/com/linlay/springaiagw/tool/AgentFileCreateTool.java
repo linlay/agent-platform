@@ -105,9 +105,7 @@ public class AgentFileCreateTool extends AbstractDeterministicTool {
             root.set("skillConfig", skillConfig);
         }
 
-        putOptionalEnum(root, "output", readString(mergedArgs, "output"));
-        putOptionalEnum(root, "toolPolicy", readString(mergedArgs, "toolPolicy"));
-        putOptionalEnum(root, "verify", readString(mergedArgs, "verify"));
+        putOptionalEnum(root, "toolChoice", readString(mergedArgs, "toolChoice"));
         putOptionalBudget(root, mergedArgs.get("budget"));
 
         ObjectNode modeConfig = buildModeConfig(mode, mergedArgs);
@@ -161,7 +159,8 @@ public class AgentFileCreateTool extends AbstractDeterministicTool {
             case PLAN_EXECUTE -> planExecuteConfig(
                     readString(args, "planSystemPrompt"),
                     readString(args, "executeSystemPrompt"),
-                    readString(args, "summarySystemPrompt")
+                    readString(args, "summarySystemPrompt"),
+                    args.get("maxSteps")
             );
         };
     }
@@ -193,7 +192,7 @@ public class AgentFileCreateTool extends AbstractDeterministicTool {
         return wrapper;
     }
 
-    private ObjectNode planExecuteConfig(String planPrompt, String executePrompt, String summaryPrompt) {
+    private ObjectNode planExecuteConfig(String planPrompt, String executePrompt, String summaryPrompt, Object maxSteps) {
         String normalizedPlan = normalizeText(planPrompt, "");
         String normalizedExecute = normalizeText(executePrompt, "");
         if (normalizedPlan.isBlank() || normalizedExecute.isBlank()) {
@@ -212,6 +211,9 @@ public class AgentFileCreateTool extends AbstractDeterministicTool {
             ObjectNode summary = OBJECT_MAPPER.createObjectNode();
             summary.put("systemPrompt", normalizedSummary);
             node.set("summary", summary);
+        }
+        if (maxSteps instanceof Number number && number.intValue() > 0) {
+            node.put("maxSteps", number.intValue());
         }
         wrapper.set("planExecute", node);
         return wrapper;
@@ -246,7 +248,7 @@ public class AgentFileCreateTool extends AbstractDeterministicTool {
             }
         }
         ObjectNode modelConfig = OBJECT_MAPPER.createObjectNode();
-        String providerKey = normalizeProviderKey(readString(args, "providerKey", "providerType"));
+        String providerKey = normalizeProviderKey(readString(args, "providerKey"));
         String model = normalizeText(readString(args, "model"), DEFAULT_MODEL);
         modelConfig.put("providerKey", providerKey);
         modelConfig.put("model", model);
@@ -386,8 +388,8 @@ public class AgentFileCreateTool extends AbstractDeterministicTool {
         ObjectNode budget = OBJECT_MAPPER.createObjectNode();
         putIntIfPositive(budget, "maxModelCalls", map.get("maxModelCalls"));
         putIntIfPositive(budget, "maxToolCalls", map.get("maxToolCalls"));
-        putIntIfPositive(budget, "maxSteps", map.get("maxSteps"));
         putLongIfPositive(budget, "timeoutMs", map.get("timeoutMs"));
+        putIntIfPositive(budget, "retryCount", map.get("retryCount"));
         if (!budget.isEmpty()) {
             root.set("budget", budget);
         }

@@ -243,7 +243,7 @@ class ToolRegistryTest {
         JsonNode result = tool.invoke(Map.of(
                 "agentId", "qa_bot",
                 "description", "QA 助手",
-                "providerType", "openai",
+                "providerKey", "openai",
                 "model", "gpt-3.5-turbo",
                 "systemPrompt", "你是 QA 助手\n请先问清问题",
                 "mode", "ONESHOT"

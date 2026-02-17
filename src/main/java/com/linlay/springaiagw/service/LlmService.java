@@ -4,11 +4,11 @@ import com.aiagent.agw.sdk.model.LlmDelta;
 import com.aiagent.agw.sdk.model.ToolCallDelta;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linlay.springaiagw.agent.runtime.policy.ComputePolicy;
-import com.linlay.springaiagw.agent.runtime.policy.OutputShape;
 import com.linlay.springaiagw.agent.runtime.policy.ToolChoice;
 import com.linlay.springaiagw.config.AgentProviderProperties;
 import com.linlay.springaiagw.config.ChatClientRegistry;
 import com.linlay.springaiagw.config.LlmInteractionLogProperties;
+import com.linlay.springaiagw.model.ProviderProtocol;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -37,7 +37,9 @@ public class LlmService {
     private static final Logger log = LoggerFactory.getLogger(LlmService.class);
 
     private final ChatClientRegistry chatClientRegistry;
-    private final RawSseClient rawSseClient;
+    private final AgentProviderProperties providerProperties;
+    private final OpenAiCompatibleSseClient openAiCompatibleSseClient;
+    private final AnthropicSseClient anthropicSseClient;
     private final LlmCallLogger callLogger;
     private final Map<String, ChatClient> legacyClients;
 
@@ -90,8 +92,10 @@ public class LlmService {
             Map<String, ChatClient> legacyClients
     ) {
         this.chatClientRegistry = chatClientRegistry;
+        this.providerProperties = providerProperties == null ? new AgentProviderProperties() : providerProperties;
         this.callLogger = new LlmCallLogger(logProperties);
-        this.rawSseClient = new RawSseClient(providerProperties, objectMapper, this.callLogger);
+        this.openAiCompatibleSseClient = new OpenAiCompatibleSseClient(this.providerProperties, objectMapper, this.callLogger);
+        this.anthropicSseClient = new AnthropicSseClient();
         this.legacyClients = legacyClients == null ? Map.of() : Map.copyOf(legacyClients);
     }
 
@@ -169,7 +173,6 @@ public class LlmService {
                 spec.stage(),
                 spec.parallelToolCalls(),
                 spec.toolChoice(),
-                spec.outputShape(),
                 spec.jsonSchema(),
                 spec.compute(),
                 spec.reasoningEnabled(),
@@ -197,7 +200,6 @@ public class LlmService {
                 stage,
                 parallelToolCalls,
                 ToolChoice.AUTO,
-                OutputShape.TEXT_ONLY,
                 null,
                 ComputePolicy.MEDIUM,
                 false,
@@ -215,14 +217,13 @@ public class LlmService {
             String stage,
             boolean parallelToolCalls,
             ToolChoice toolChoice,
-            OutputShape outputShape,
             String jsonSchema,
             ComputePolicy computePolicy,
             boolean reasoningEnabled,
             Integer maxTokens
     ) {
         return streamDeltasInternal(providerKey, model, systemPrompt, historyMessages, userPrompt, tools, stage,
-                parallelToolCalls, toolChoice, outputShape, jsonSchema, computePolicy, reasoningEnabled, maxTokens);
+                parallelToolCalls, toolChoice, jsonSchema, computePolicy, reasoningEnabled, maxTokens);
     }
 
     public Flux<String> streamContentRawSse(
@@ -233,7 +234,11 @@ public class LlmService {
             String userPrompt,
             String stage
     ) {
-        return rawSseClient.streamContentRawSse(providerKey, model, systemPrompt, historyMessages, userPrompt, stage);
+        ProviderProtocol protocol = resolveProviderProtocol(providerKey);
+        if (protocol == ProviderProtocol.ANTHROPIC) {
+            return anthropicSseClient.streamContentRawSse(providerKey, model, systemPrompt, historyMessages, userPrompt, stage);
+        }
+        return openAiCompatibleSseClient.streamContentRawSse(providerKey, model, systemPrompt, historyMessages, userPrompt, stage);
     }
 
     public Mono<String> completeText(String providerKey, String model, String systemPrompt, String userPrompt) {
@@ -258,6 +263,10 @@ public class LlmService {
             String userPrompt,
             String stage
     ) {
+        ProviderProtocol protocol = resolveProviderProtocol(providerKey);
+        if (protocol == ProviderProtocol.ANTHROPIC) {
+            return anthropicSseClient.streamContentRawSse(providerKey, model, systemPrompt, historyMessages, userPrompt, stage);
+        }
         ChatClient chatClient = resolveChatClient(providerKey);
         if (chatClient == null) {
             return Flux.error(new IllegalStateException("No ChatClient registered for provider key: " + providerKey));
@@ -269,7 +278,7 @@ public class LlmService {
             StringBuilder responseBuffer = new StringBuilder();
 
             callLogger.info(log, "[{}][{}] LLM stream request start provider={}, model={}", traceId, stage, providerKey, model);
-            callLogger.info(log, "[{}][{}] LLM stream request body:\n{}", traceId, stage, safeJson(rawSseClient.buildRequestBody(
+            callLogger.info(log, "[{}][{}] LLM stream request body:\n{}", traceId, stage, safeJson(openAiCompatibleSseClient.buildRequestBody(
                     providerKey,
                     model,
                     systemPrompt,
@@ -278,7 +287,6 @@ public class LlmService {
                     List.of(),
                     false,
                     ToolChoice.NONE,
-                    OutputShape.TEXT_ONLY,
                     null,
                     ComputePolicy.MEDIUM,
                     false,
@@ -346,7 +354,6 @@ public class LlmService {
             String stage,
             boolean parallelToolCalls,
             ToolChoice toolChoice,
-            OutputShape outputShape,
             String jsonSchema,
             ComputePolicy computePolicy,
             boolean reasoningEnabled,
@@ -358,8 +365,9 @@ public class LlmService {
             StringBuilder responseBuffer = new StringBuilder();
             ChatClient chatClient = resolveChatClient(providerKey);
             boolean hasTools = tools != null && !tools.isEmpty();
-            boolean preferRawSse = requiresRawSse(outputShape, jsonSchema, computePolicy, reasoningEnabled);
-            Map<String, Object> requestBody = rawSseClient.buildRequestBody(
+            ProviderProtocol protocol = resolveProviderProtocol(providerKey);
+            boolean preferRawSse = requiresRawSse(jsonSchema, computePolicy, reasoningEnabled);
+            Map<String, Object> requestBody = openAiCompatibleSseClient.buildRequestBody(
                     providerKey,
                     model,
                     systemPrompt,
@@ -368,7 +376,6 @@ public class LlmService {
                     tools,
                     parallelToolCalls,
                     toolChoice,
-                    outputShape,
                     jsonSchema,
                     computePolicy,
                     reasoningEnabled,
@@ -391,9 +398,26 @@ public class LlmService {
             }
 
             Flux<LlmDelta> deltaFlux;
-            if (hasTools || preferRawSse) {
+            if (protocol == ProviderProtocol.ANTHROPIC) {
+                deltaFlux = anthropicSseClient.streamDeltasRawSse(
+                        providerKey,
+                        model,
+                        systemPrompt,
+                        historyMessages,
+                        userPrompt,
+                        tools,
+                        parallelToolCalls,
+                        toolChoice,
+                        jsonSchema,
+                        computePolicy,
+                        reasoningEnabled,
+                        maxTokens,
+                        traceId,
+                        stage
+                );
+            } else if (hasTools || preferRawSse) {
                 AtomicBoolean rawDeltaEmitted = new AtomicBoolean(false);
-                deltaFlux = rawSseClient.streamDeltasRawSse(
+                deltaFlux = openAiCompatibleSseClient.streamDeltasRawSse(
                                 providerKey,
                                 model,
                                 systemPrompt,
@@ -402,7 +426,6 @@ public class LlmService {
                                 tools,
                                 parallelToolCalls,
                                 toolChoice,
-                                outputShape,
                                 jsonSchema,
                                 computePolicy,
                                 reasoningEnabled,
@@ -490,6 +513,12 @@ public class LlmService {
             String userPrompt,
             String stage
     ) {
+        ProviderProtocol protocol = resolveProviderProtocol(providerKey);
+        if (protocol == ProviderProtocol.ANTHROPIC) {
+            return Mono.error(new UnsupportedOperationException(
+                    "Anthropic protocol is not implemented yet for provider: " + providerKey
+            ));
+        }
         return Mono.fromCallable(() -> {
                     ChatClient chatClient = resolveChatClient(providerKey);
                     if (chatClient == null) {
@@ -499,7 +528,7 @@ public class LlmService {
                     long startNanos = System.nanoTime();
 
                     callLogger.info(log, "[{}][{}] LLM call request start provider={}, model={}", traceId, stage, providerKey, model);
-                    callLogger.info(log, "[{}][{}] LLM call request body:\n{}", traceId, stage, safeJson(rawSseClient.buildRequestBody(
+                    callLogger.info(log, "[{}][{}] LLM call request body:\n{}", traceId, stage, safeJson(openAiCompatibleSseClient.buildRequestBody(
                             providerKey,
                             model,
                             systemPrompt,
@@ -508,7 +537,6 @@ public class LlmService {
                             List.of(),
                             false,
                             ToolChoice.NONE,
-                            OutputShape.TEXT_ONLY,
                             null,
                             ComputePolicy.MEDIUM,
                             false,
@@ -599,10 +627,7 @@ public class LlmService {
         return builder.build();
     }
 
-    private boolean requiresRawSse(OutputShape outputShape, String jsonSchema, ComputePolicy computePolicy, boolean reasoningEnabled) {
-        if (outputShape != null && outputShape != OutputShape.TEXT_ONLY) {
-            return true;
-        }
+    private boolean requiresRawSse(String jsonSchema, ComputePolicy computePolicy, boolean reasoningEnabled) {
         if (StringUtils.hasText(jsonSchema)) {
             return true;
         }
@@ -658,6 +683,17 @@ public class LlmService {
                 ? null
                 : response.getResult().getMetadata().getFinishReason();
         return new LlmDelta(content, toolCalls.isEmpty() ? null : toolCalls, finishReason);
+    }
+
+    private ProviderProtocol resolveProviderProtocol(String providerKey) {
+        if (providerProperties == null) {
+            return ProviderProtocol.OPENAI_COMPATIBLE;
+        }
+        AgentProviderProperties.ProviderConfig config = providerProperties.getProvider(providerKey);
+        if (config == null || config.getProtocol() == null) {
+            return ProviderProtocol.OPENAI_COMPATIBLE;
+        }
+        return config.getProtocol();
     }
 
     private ChatClient resolveChatClient(String providerKey) {

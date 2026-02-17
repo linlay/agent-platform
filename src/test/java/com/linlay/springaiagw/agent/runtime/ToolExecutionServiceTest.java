@@ -9,10 +9,8 @@ import com.linlay.springaiagw.agent.mode.StageSettings;
 import com.linlay.springaiagw.agent.runtime.AgentRuntimeMode;
 import com.linlay.springaiagw.agent.runtime.policy.Budget;
 import com.linlay.springaiagw.agent.runtime.policy.ComputePolicy;
-import com.linlay.springaiagw.agent.runtime.policy.ControlStrategy;
-import com.linlay.springaiagw.agent.runtime.policy.OutputPolicy;
 import com.linlay.springaiagw.agent.runtime.policy.RunSpec;
-import com.linlay.springaiagw.agent.runtime.policy.ToolPolicy;
+import com.linlay.springaiagw.agent.runtime.policy.ToolChoice;
 import com.linlay.springaiagw.model.AgentRequest;
 import com.linlay.springaiagw.model.stream.AgentDelta;
 import com.linlay.springaiagw.tool.BaseTool;
@@ -93,7 +91,7 @@ class ToolExecutionServiceTest {
                 "bailian",
                 "qwen3-max",
                 AgentRuntimeMode.ONESHOT,
-                new RunSpec(ControlStrategy.ONESHOT, OutputPolicy.PLAIN, ToolPolicy.ALLOW, Budget.DEFAULT),
+                new RunSpec(ToolChoice.AUTO, Budget.DEFAULT),
                 new OneshotMode(new StageSettings("sys", null, null, List.of("_plan_get_tasks_"), false, ComputePolicy.MEDIUM), null, null),
                 List.of("_plan_get_tasks_"),
                 List.of()

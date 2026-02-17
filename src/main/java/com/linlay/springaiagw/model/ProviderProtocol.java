@@ -1,5 +1,6 @@
 package com.linlay.springaiagw.model;
 
 public enum ProviderProtocol {
-    OPENAI_COMPATIBLE
+    OPENAI_COMPATIBLE,
+    ANTHROPIC
 }

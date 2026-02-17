@@ -1,5 +1,6 @@
 package com.linlay.springaiagw.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linlay.springaiagw.memory.ChatWindowMemoryProperties;
 import com.linlay.springaiagw.model.api.AgwChatDetailResponse;
@@ -199,7 +200,8 @@ class ChatRecordStoreTest {
 
         List<String> lines = Files.readAllLines(indexPath).stream().filter(line -> !line.isBlank()).toList();
         assertThat(lines).hasSize(1);
-        Map<String, Object> record = objectMapper.readValue(lines.getFirst(), Map.class);
+        Map<String, Object> record = objectMapper.readValue(lines.getFirst(), new TypeReference<>() {
+        });
         assertThat(record.get("chatId")).isEqualTo(chatId);
         assertThat(((Number) record.get("createdAt")).longValue()).isEqualTo(1000L);
         assertThat(((Number) record.get("updatedAt")).longValue()).isGreaterThanOrEqualTo(1000L);

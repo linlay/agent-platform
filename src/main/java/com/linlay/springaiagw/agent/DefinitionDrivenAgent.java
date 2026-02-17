@@ -9,7 +9,6 @@ import com.linlay.springaiagw.agent.mode.ReactMode;
 import com.linlay.springaiagw.agent.mode.StageSettings;
 import com.linlay.springaiagw.agent.runtime.AgentRuntimeMode;
 import com.linlay.springaiagw.agent.runtime.ExecutionContext;
-import com.linlay.springaiagw.agent.runtime.PlanExecutionStalledException;
 import com.linlay.springaiagw.agent.runtime.ToolExecutionService;
 import com.linlay.springaiagw.agent.runtime.policy.Budget;
 import com.linlay.springaiagw.agent.runtime.policy.RunSpec;
@@ -190,13 +189,6 @@ public class DefinitionDrivenAgent implements Agent {
                 services.emit(sink, AgentDelta.planUpdate(context.planId(), context.request().chatId(), context.planTasks()));
             }
             definition.agentMode().run(context, enabledToolsByName, services, sink);
-            services.emit(sink, AgentDelta.finish("stop"));
-            if (!sink.isCancelled()) {
-                sink.complete();
-            }
-        } catch (PlanExecutionStalledException ex) {
-            log.warn("[agent:{}] plan execution stalled", definition.id(), ex);
-            services.emit(sink, AgentDelta.content(ex.getMessage()));
             services.emit(sink, AgentDelta.finish("stop"));
             if (!sink.isCancelled()) {
                 sink.complete();
@@ -472,15 +464,13 @@ public class DefinitionDrivenAgent implements Agent {
     private Map<String, Object> policySnapshot() {
         RunSpec runSpec = definition.runSpec();
         Map<String, Object> item = new LinkedHashMap<>();
-        item.put("control", runSpec.control());
-        item.put("output", runSpec.output());
-        item.put("toolPolicy", runSpec.toolPolicy());
+        item.put("toolChoice", runSpec.toolChoice());
         Budget budget = runSpec.budget();
         Map<String, Object> budgetMap = new LinkedHashMap<>();
         budgetMap.put("maxModelCalls", budget.maxModelCalls());
         budgetMap.put("maxToolCalls", budget.maxToolCalls());
-        budgetMap.put("maxSteps", budget.maxSteps());
         budgetMap.put("timeoutMs", budget.timeoutMs());
+        budgetMap.put("retryCount", budget.retryCount());
         item.put("budget", budgetMap);
         return item;
     }

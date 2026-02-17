@@ -5,14 +5,10 @@ import com.linlay.springaiagw.agent.SkillAppend;
 import com.linlay.springaiagw.agent.ToolAppend;
 import com.linlay.springaiagw.agent.runtime.AgentRuntimeMode;
 import com.linlay.springaiagw.agent.runtime.ExecutionContext;
-import com.linlay.springaiagw.agent.runtime.PlanExecutionStalledException;
 import com.linlay.springaiagw.agent.runtime.ToolExecutionService;
 import com.linlay.springaiagw.agent.runtime.policy.Budget;
-import com.linlay.springaiagw.agent.runtime.policy.ControlStrategy;
-import com.linlay.springaiagw.agent.runtime.policy.OutputPolicy;
 import com.linlay.springaiagw.agent.runtime.policy.RunSpec;
 import com.linlay.springaiagw.agent.runtime.policy.ToolChoice;
-import com.linlay.springaiagw.agent.runtime.policy.ToolPolicy;
 import com.linlay.springaiagw.model.stream.AgentDelta;
 import com.linlay.springaiagw.tool.BaseTool;
 import org.springframework.ai.chat.messages.UserMessage;
@@ -30,7 +26,6 @@ public final class PlanExecuteMode extends AgentMode {
     private static final String PLAN_ADD_TASK_TOOL = "_plan_add_tasks_";
     private static final String PLAN_UPDATE_TASK_TOOL = "_plan_update_task_";
     private static final int MAX_WORK_ROUNDS_PER_TASK = 6;
-    private static final int MAX_FORCED_UPDATE_ATTEMPTS = 2;
     private static final Pattern PLACEHOLDER_PATTERN = Pattern.compile("\\{\\{\\s*([a-z0-9_]+)\\s*}}");
 
     private static final String DEFAULT_TASK_EXECUTION_PROMPT_TEMPLATE = """
@@ -48,6 +43,7 @@ public final class PlanExecuteMode extends AgentMode {
     private final StageSettings executeStage;
     private final StageSettings summaryStage;
     private final String taskExecutionPromptTemplate;
+    private final int maxSteps;
 
     public PlanExecuteMode(
             StageSettings planStage,
@@ -56,7 +52,7 @@ public final class PlanExecuteMode extends AgentMode {
             SkillAppend skillAppend,
             ToolAppend toolAppend
     ) {
-        this(planStage, executeStage, summaryStage, skillAppend, toolAppend, null);
+        this(planStage, executeStage, summaryStage, skillAppend, toolAppend, null, 15);
     }
 
     public PlanExecuteMode(
@@ -67,6 +63,18 @@ public final class PlanExecuteMode extends AgentMode {
             ToolAppend toolAppend,
             String taskExecutionPromptTemplate
     ) {
+        this(planStage, executeStage, summaryStage, skillAppend, toolAppend, taskExecutionPromptTemplate, 15);
+    }
+
+    public PlanExecuteMode(
+            StageSettings planStage,
+            StageSettings executeStage,
+            StageSettings summaryStage,
+            SkillAppend skillAppend,
+            ToolAppend toolAppend,
+            String taskExecutionPromptTemplate,
+            int maxSteps
+    ) {
         super(executeStage == null ? "" : executeStage.systemPrompt(), skillAppend, toolAppend);
         this.planStage = planStage;
         this.executeStage = executeStage;
@@ -74,6 +82,7 @@ public final class PlanExecuteMode extends AgentMode {
         this.taskExecutionPromptTemplate = taskExecutionPromptTemplate != null && !taskExecutionPromptTemplate.isBlank()
                 ? taskExecutionPromptTemplate
                 : DEFAULT_TASK_EXECUTION_PROMPT_TEMPLATE;
+        this.maxSteps = maxSteps > 0 ? maxSteps : 15;
     }
 
     public StageSettings planStage() {
@@ -86,6 +95,10 @@ public final class PlanExecuteMode extends AgentMode {
 
     public StageSettings summaryStage() {
         return summaryStage;
+    }
+
+    public int maxSteps() {
+        return maxSteps;
     }
 
     @Override
@@ -106,9 +119,7 @@ public final class PlanExecuteMode extends AgentMode {
     @Override
     public RunSpec defaultRunSpec(AgentConfigFile config) {
         return new RunSpec(
-                ControlStrategy.PLAN_EXECUTE,
-                config != null && config.getOutput() != null ? config.getOutput() : OutputPolicy.PLAIN,
-                config != null && config.getToolPolicy() != null ? config.getToolPolicy() : ToolPolicy.ALLOW,
+                config != null && config.getToolChoice() != null ? config.getToolChoice() : ToolChoice.AUTO,
                 config != null && config.getBudget() != null ? config.getBudget().toBudget() : Budget.HEAVY
         );
     }
@@ -120,118 +131,126 @@ public final class PlanExecuteMode extends AgentMode {
             OrchestratorServices services,
             FluxSink<AgentDelta> sink
     ) {
-        StageSettings summary = summaryStage == null ? executeStage : summaryStage;
-        Map<String, BaseTool> planPromptTools = services.selectTools(enabledToolsByName, planStage.tools());
-        Map<String, BaseTool> planCallableTools = selectPlanCallableTools(planPromptTools);
-        if (!planCallableTools.containsKey(PLAN_ADD_TASK_TOOL)) {
-            throw new PlanExecutionStalledException("计划任务执行中断：缺少必需工具 _plan_add_tasks_，无法创建计划任务。");
-        }
-        Map<String, BaseTool> executeTools = services.selectTools(enabledToolsByName, executeStage.tools());
-        Map<String, BaseTool> summaryTools = services.selectTools(enabledToolsByName, summary.tools());
+        try {
+            if (context.definition().runSpec().toolChoice() == ToolChoice.NONE) {
+                throw new PlanExecutionStalledException("计划任务执行中断：PLAN_EXECUTE 不支持 ToolChoice.NONE。");
+            }
 
-        StageSettings augmentedPlanStage = augmentPlanStageWithToolPrompts(
-                planStage, executeTools, planCallableTools, services
-        );
+            StageSettings summary = summaryStage == null ? executeStage : summaryStage;
+            Map<String, BaseTool> planPromptTools = services.selectTools(enabledToolsByName, planStage.tools());
+            Map<String, BaseTool> planCallableTools = selectPlanCallableTools(planPromptTools);
+            if (!planCallableTools.containsKey(PLAN_ADD_TASK_TOOL)) {
+                throw new PlanExecutionStalledException("计划任务执行中断：缺少必需工具 _plan_add_tasks_，无法创建计划任务。");
+            }
+            Map<String, BaseTool> executeTools = services.selectTools(enabledToolsByName, executeStage.tools());
+            Map<String, BaseTool> summaryTools = services.selectTools(enabledToolsByName, summary.tools());
 
-        if (augmentedPlanStage.deepThinking()) {
-            services.emit(sink, AgentDelta.stageMarker("plan-draft"));
-            OrchestratorServices.ModelTurn draftTurn = services.callModelTurnStreaming(
+            StageSettings augmentedPlanStage = augmentPlanStageWithToolPrompts(
+                    planStage, executeTools, planCallableTools, services
+            );
+
+            if (augmentedPlanStage.deepThinking()) {
+                services.emit(sink, AgentDelta.stageMarker("plan-draft"));
+                OrchestratorServices.ModelTurn draftTurn = services.callModelTurnStreaming(
+                        context,
+                        withReasoning(augmentedPlanStage, true),
+                        context.planMessages(),
+                        null,
+                        planPromptTools,
+                        List.of(),
+                        ToolChoice.NONE,
+                        "agent-plan-draft",
+                        false,
+                        true,
+                        true,
+                        true,
+                        false,
+                        sink
+                );
+                services.appendAssistantMessage(context.planMessages(), services.normalize(draftTurn.finalText()));
+            }
+
+            services.emit(sink, AgentDelta.stageMarker("plan-generate"));
+            OrchestratorServices.ModelTurn planTurn = services.callModelTurnStreaming(
                     context,
-                    withReasoning(augmentedPlanStage, true),
+                    withReasoning(augmentedPlanStage, false),
                     context.planMessages(),
                     null,
                     planPromptTools,
-                    List.of(),
-                    ToolChoice.NONE,
-                    "agent-plan-draft",
+                    services.toolExecutionService().enabledFunctionTools(planCallableTools),
+                    ToolChoice.REQUIRED,
+                    "agent-plan-generate",
                     false,
-                    true,
+                    false,
                     true,
                     true,
                     false,
                     sink
             );
-            services.appendAssistantMessage(context.planMessages(), services.normalize(draftTurn.finalText()));
-        }
-
-        services.emit(sink, AgentDelta.stageMarker("plan-generate"));
-        OrchestratorServices.ModelTurn planTurn = services.callModelTurnStreaming(
-                context,
-                withReasoning(augmentedPlanStage, false),
-                context.planMessages(),
-                null,
-                planPromptTools,
-                services.toolExecutionService().enabledFunctionTools(planCallableTools),
-                ToolChoice.REQUIRED,
-                "agent-plan-generate",
-                false,
-                false,
-                true,
-                true,
-                false,
-                sink
-        );
-        if (!containsPlanAddCall(planTurn.toolCalls())) {
-            throw new PlanExecutionStalledException("计划任务执行中断：规划阶段必须调用 _plan_add_tasks_ 创建计划任务。");
-        }
-
-        if (!planTurn.toolCalls().isEmpty()) {
-            services.executeToolsAndEmit(context, planCallableTools, planTurn.toolCalls(), sink);
-        }
-        services.appendAssistantMessage(context.planMessages(), services.normalize(planTurn.finalText()));
-
-        if (!context.hasPlan()) {
-            throw new PlanExecutionStalledException("计划任务执行中断：_plan_add_tasks_ 未生成有效计划任务。");
-        }
-
-        int stepNo = 0;
-
-        while (stepNo < context.budget().maxSteps()) {
-            ToolExecutionService.PlanSnapshot beforeSnapshot = services.toolExecutionService().planSnapshot(context);
-            AgentDelta.PlanTask step = firstUnfinishedTask(beforeSnapshot.tasks());
-            if (step == null) {
-                break;
+            if (!containsPlanAddCall(planTurn.toolCalls())) {
+                throw new PlanExecutionStalledException("计划任务执行中断：规划阶段必须调用 _plan_add_tasks_ 创建计划任务。");
             }
 
-            stepNo++;
-            services.emit(sink, AgentDelta.stageMarker("execute-task-" + stepNo));
-            String taskPrompt = renderTemplate(
-                    taskExecutionPromptTemplate,
-                    Map.of(
-                            "task_list", formatTaskList(beforeSnapshot.tasks()),
-                            "task_id", str(step.taskId(), "unknown"),
-                            "task_description", str(step.description(), "no description")
-                    )
+            if (!planTurn.toolCalls().isEmpty()) {
+                services.executeToolsAndEmit(context, planCallableTools, planTurn.toolCalls(), sink);
+            }
+            services.appendAssistantMessage(context.planMessages(), services.normalize(planTurn.finalText()));
+
+            if (!context.hasPlan()) {
+                throw new PlanExecutionStalledException("计划任务执行中断：_plan_add_tasks_ 未生成有效计划任务。");
+            }
+
+            int stepNo = 0;
+
+            while (stepNo < maxSteps) {
+                ToolExecutionService.PlanSnapshot beforeSnapshot = services.toolExecutionService().planSnapshot(context);
+                AgentDelta.PlanTask step = firstUnfinishedTask(beforeSnapshot.tasks());
+                if (step == null) {
+                    break;
+                }
+
+                stepNo++;
+                services.emit(sink, AgentDelta.stageMarker("execute-task-" + stepNo));
+                String taskPrompt = renderTemplate(
+                        taskExecutionPromptTemplate,
+                        Map.of(
+                                "task_list", formatTaskList(beforeSnapshot.tasks()),
+                                "task_id", str(step.taskId(), "unknown"),
+                                "task_description", str(step.description(), "no description")
+                        )
+                );
+                context.executeMessages().add(new UserMessage(taskPrompt));
+
+                executeTaskRounds(context, services, executeTools, stepNo, step, sink);
+                ensureTaskNotFailed(context, step);
+            }
+
+            services.emit(sink, AgentDelta.stageMarker("summary"));
+            OrchestratorServices.ModelTurn finalTurn = services.callModelTurnStreaming(
+                    context,
+                    summary,
+                    context.executeMessages(),
+                    null,
+                    summaryTools,
+                    List.of(),
+                    ToolChoice.NONE,
+                    "agent-plan-final",
+                    false,
+                    summary.reasoningEnabled(),
+                    true,
+                    true,
+                    sink
             );
-            context.executeMessages().add(new UserMessage(taskPrompt));
-
-            executeTaskRounds(context, services, executeTools, stepNo, step, sink);
-            ensureTaskNotFailed(context, step);
+            String finalText = services.normalize(finalTurn.finalText());
+            if (finalText.isBlank()) {
+                services.emit(sink, AgentDelta.content("执行中断：计划执行完成后未生成可用最终总结。"));
+                return;
+            }
+            services.appendAssistantMessage(context.executeMessages(), finalText);
+            services.emitFinalAnswer(finalText, true, sink);
+        } catch (PlanExecutionStalledException ex) {
+            services.emit(sink, AgentDelta.content(ex.getMessage()));
         }
-
-        services.emit(sink, AgentDelta.stageMarker("summary"));
-        OrchestratorServices.ModelTurn finalTurn = services.callModelTurnStreaming(
-                context,
-                summary,
-                context.executeMessages(),
-                null,
-                summaryTools,
-                List.of(),
-                ToolChoice.NONE,
-                "agent-plan-final",
-                false,
-                summary.reasoningEnabled(),
-                true,
-                true,
-                sink
-        );
-        String finalText = services.normalize(finalTurn.finalText());
-        if (finalText.isBlank()) {
-            services.emit(sink, AgentDelta.content("执行中断：计划执行完成后未生成可用最终总结。"));
-            return;
-        }
-        services.appendAssistantMessage(context.executeMessages(), finalText);
-        services.emitFinalAnswer(finalText, true, sink);
     }
 
     /**
@@ -255,7 +274,7 @@ public final class PlanExecuteMode extends AgentMode {
                     null,
                     executeTools,
                     services.toolExecutionService().enabledFunctionTools(executeTools),
-                    services.requiresTool(context) ? ToolChoice.REQUIRED : ToolChoice.AUTO,
+                    context.definition().runSpec().toolChoice(),
                     round == 1
                             ? "agent-plan-execute-step-" + stepNo
                             : "agent-plan-execute-step-" + stepNo + "-work-" + round,
@@ -288,7 +307,8 @@ public final class PlanExecuteMode extends AgentMode {
         }
 
         // Phase 2: forced update — require _plan_update_task_ call
-        for (int attempt = 1; attempt <= MAX_FORCED_UPDATE_ATTEMPTS; attempt++) {
+        int forcedUpdateAttempts = services.retryCount(context, 2);
+        for (int attempt = 1; attempt <= forcedUpdateAttempts; attempt++) {
             String beforeStatus = statusOfTask(context.planTasks(), step.taskId());
 
             OrchestratorServices.ModelTurn updateTurn = services.callModelTurnStreaming(

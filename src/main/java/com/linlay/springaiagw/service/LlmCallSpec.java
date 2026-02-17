@@ -1,7 +1,6 @@
 package com.linlay.springaiagw.service;
 
 import com.linlay.springaiagw.agent.runtime.policy.ComputePolicy;
-import com.linlay.springaiagw.agent.runtime.policy.OutputShape;
 import com.linlay.springaiagw.agent.runtime.policy.ToolChoice;
 import org.springframework.ai.chat.messages.Message;
 
@@ -15,7 +14,6 @@ public record LlmCallSpec(
         String userPrompt,
         List<LlmService.LlmFunctionTool> tools,
         ToolChoice toolChoice,
-        OutputShape outputShape,
         String jsonSchema,
         ComputePolicy compute,
         boolean reasoningEnabled,
@@ -36,9 +34,6 @@ public record LlmCallSpec(
         }
         if (toolChoice == null) {
             toolChoice = ToolChoice.AUTO;
-        }
-        if (outputShape == null) {
-            outputShape = OutputShape.TEXT_ONLY;
         }
         if (compute == null) {
             compute = ComputePolicy.MEDIUM;

@@ -196,42 +196,9 @@ class RuntimeResourceSyncServiceTest {
         );
         service.syncRuntimeDirectories();
 
-        assertThat(toolsDir.resolve("_skill_run_script_.backend")).exists();
-        assertThat(legacySkillScript).doesNotExist();
-    }
-
-    @Test
-    void shouldRemoveLegacyUnderscoredSkillScriptAliasWhenCanonicalToolExists() throws Exception {
-        Path agentsDir = tempDir.resolve("agents");
-        Path toolsDir = tempDir.resolve("tools");
-        Path viewportsDir = tempDir.resolve("viewports");
-        Files.createDirectories(agentsDir);
-        Files.createDirectories(toolsDir);
-        Files.createDirectories(viewportsDir);
-
-        Path legacySkillScript = toolsDir.resolve("_skill_run_script_.backend");
-        Files.writeString(legacySkillScript, """
-                {
-                  "tools": [
-                    {
-                      "type": "function",
-                      "name": "_skill_run_script_",
-                      "description": "legacy alias"
-                    }
-                  ]
-                }
-                """);
-
-        RuntimeResourceSyncService service = new RuntimeResourceSyncService(
-                new PathMatchingResourcePatternResolver(),
-                agentsDir,
-                viewportsDir,
-                toolsDir,
-                tempDir.resolve("skills")
-        );
-        service.syncRuntimeDirectories();
-
-        assertThat(toolsDir.resolve("_skill_run_script_.backend")).exists();
+        Path canonicalSkillScript = toolsDir.resolve("_skill_run_script_.backend");
+        assertThat(canonicalSkillScript).exists();
+        assertThat(Files.readString(canonicalSkillScript)).contains("\"name\": \"_skill_run_script_\"");
         assertThat(legacySkillScript).doesNotExist();
     }
 }

@@ -7,8 +7,7 @@ import com.fasterxml.jackson.annotation.JsonSetter;
 import com.linlay.springaiagw.agent.runtime.AgentRuntimeMode;
 import com.linlay.springaiagw.agent.runtime.policy.Budget;
 import com.linlay.springaiagw.agent.runtime.policy.ComputePolicy;
-import com.linlay.springaiagw.agent.runtime.policy.OutputPolicy;
-import com.linlay.springaiagw.agent.runtime.policy.ToolPolicy;
+import com.linlay.springaiagw.agent.runtime.policy.ToolChoice;
 
 import java.util.List;
 
@@ -25,8 +24,7 @@ public class AgentConfigFile {
     private List<String> skills;
     private AgentRuntimeMode mode;
 
-    private OutputPolicy output;
-    private ToolPolicy toolPolicy;
+    private ToolChoice toolChoice;
     private BudgetConfig budget;
 
     private OneshotConfig plain;
@@ -106,20 +104,12 @@ public class AgentConfigFile {
         this.mode = mode;
     }
 
-    public OutputPolicy getOutput() {
-        return output;
+    public ToolChoice getToolChoice() {
+        return toolChoice;
     }
 
-    public void setOutput(OutputPolicy output) {
-        this.output = output;
-    }
-
-    public ToolPolicy getToolPolicy() {
-        return toolPolicy;
-    }
-
-    public void setToolPolicy(ToolPolicy toolPolicy) {
-        this.toolPolicy = toolPolicy;
+    public void setToolChoice(ToolChoice toolChoice) {
+        this.toolChoice = toolChoice;
     }
 
     public BudgetConfig getBudget() {
@@ -166,8 +156,8 @@ public class AgentConfigFile {
     public static class BudgetConfig {
         private Integer maxModelCalls;
         private Integer maxToolCalls;
-        private Integer maxSteps;
         private Long timeoutMs;
+        private Integer retryCount;
 
         public Integer getMaxModelCalls() {
             return maxModelCalls;
@@ -185,14 +175,6 @@ public class AgentConfigFile {
             this.maxToolCalls = maxToolCalls;
         }
 
-        public Integer getMaxSteps() {
-            return maxSteps;
-        }
-
-        public void setMaxSteps(Integer maxSteps) {
-            this.maxSteps = maxSteps;
-        }
-
         public Long getTimeoutMs() {
             return timeoutMs;
         }
@@ -201,12 +183,20 @@ public class AgentConfigFile {
             this.timeoutMs = timeoutMs;
         }
 
+        public Integer getRetryCount() {
+            return retryCount;
+        }
+
+        public void setRetryCount(Integer retryCount) {
+            this.retryCount = retryCount;
+        }
+
         public Budget toBudget() {
             return new Budget(
                     maxModelCalls == null ? 0 : maxModelCalls,
                     maxToolCalls == null ? 0 : maxToolCalls,
-                    maxSteps == null ? 0 : maxSteps,
-                    timeoutMs == null ? 0L : timeoutMs
+                    timeoutMs == null ? 0L : timeoutMs,
+                    retryCount == null ? 0 : retryCount
             );
         }
     }
@@ -430,6 +420,7 @@ public class AgentConfigFile {
         private StageConfig plan;
         private StageConfig execute;
         private StageConfig summary;
+        private Integer maxSteps;
 
         public StageConfig getPlan() {
             return plan;
@@ -453,6 +444,14 @@ public class AgentConfigFile {
 
         public void setSummary(StageConfig summary) {
             this.summary = summary;
+        }
+
+        public Integer getMaxSteps() {
+            return maxSteps;
+        }
+
+        public void setMaxSteps(Integer maxSteps) {
+            this.maxSteps = maxSteps;
         }
     }
 

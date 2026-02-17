@@ -1,11 +1,8 @@
 package com.linlay.springaiagw.model;
 
 public enum ViewportType {
-    JSON_SCHEMA("json_schema"),
     HTML("html"),
-    QLC("qlc"),
-    DQLC("dqlc"),
-    CUSTOM("custom");
+    QLC("qlc");
 
     private final String value;
 

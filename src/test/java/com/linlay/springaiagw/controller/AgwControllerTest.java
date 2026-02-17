@@ -1,5 +1,6 @@
 package com.linlay.springaiagw.controller;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linlay.springaiagw.memory.ChatWindowMemoryProperties;
 import com.linlay.springaiagw.config.ViewportCatalogProperties;
@@ -130,7 +131,7 @@ class AgwControllerTest {
                 .jsonPath("$.data[?(@.key=='demoViewport')]").exists()
                 .jsonPath("$.data[?(@.key=='demoAction')]").exists()
                 .jsonPath("$.data[?(@.key=='demoAgentCreator')]").exists()
-                .jsonPath("$.data[?(@.key=='demoModePlainSkillMath')]").exists();
+                .jsonPath("$.data[?(@.key=='demoMathSkill')]").exists();
     }
 
     @Test
@@ -143,7 +144,7 @@ class AgwControllerTest {
                 .jsonPath("$.code").isEqualTo(0)
                 .jsonPath("$.msg").isEqualTo("success")
                 .jsonPath("$.data.key").isEqualTo("demoModePlanExecute")
-                .jsonPath("$.data.meta.providerType").isEqualTo("BAILIAN")
+                .jsonPath("$.data.meta.providerType").doesNotExist()
                 .jsonPath("$.data.meta.skills").isArray()
                 .jsonPath("$.data.instructions").value(value -> {
                     assertThat(value).isInstanceOf(String.class);
@@ -156,12 +157,12 @@ class AgwControllerTest {
     @Test
     void agentShouldReturnSkillsForSkillMathDemo() {
         webTestClient.get()
-                .uri(uriBuilder -> uriBuilder.path("/api/agent").queryParam("agentKey", "demoModePlainSkillMath").build())
+                .uri(uriBuilder -> uriBuilder.path("/api/agent").queryParam("agentKey", "demoMathSkill").build())
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
                 .jsonPath("$.code").isEqualTo(0)
-                .jsonPath("$.data.key").isEqualTo("demoModePlainSkillMath")
+                .jsonPath("$.data.key").isEqualTo("demoMathSkill")
                 .jsonPath("$.data.meta.skills").isArray()
                 .jsonPath("$.data.meta.skills[?(@=='math_basic')]").exists()
                 .jsonPath("$.data.meta.skills[?(@=='math_stats')]").exists()
@@ -578,9 +579,12 @@ class AgwControllerTest {
                 .getResponseBody();
 
         assertThat(responseBody).isNotNull();
-        Map<String, Object> root = objectMapper.readValue(responseBody, Map.class);
-        Map<String, Object> data = (Map<String, Object>) root.get("data");
-        List<Map<String, Object>> events = (List<Map<String, Object>>) data.get("events");
+        Map<String, Object> root = objectMapper.readValue(responseBody, new TypeReference<>() {
+        });
+        Map<String, Object> data = objectMapper.convertValue(root.get("data"), new TypeReference<>() {
+        });
+        List<Map<String, Object>> events = objectMapper.convertValue(data.get("events"), new TypeReference<>() {
+        });
 
         Map<String, Object> planUpdate = events.stream()
                 .filter(event -> "plan.update".equals(event.get("type")))

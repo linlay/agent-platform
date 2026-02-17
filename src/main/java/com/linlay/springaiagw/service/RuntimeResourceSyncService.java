@@ -31,7 +31,6 @@ public class RuntimeResourceSyncService {
     private static final String LEGACY_BASH_FILE = "bash.backend";
     private static final String CANONICAL_BASH_FILE = "_bash_.backend";
     private static final String LEGACY_SKILL_RUN_SCRIPT_FILE = "skill_script_run.backend";
-    private static final String LEGACY_SKILL_RUN_SCRIPT_FILE_WITH_UNDERSCORES = "_skill_run_script_.backend";
     private static final String CANONICAL_SKILL_RUN_SCRIPT_FILE = "_skill_run_script_.backend";
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
@@ -164,12 +163,6 @@ public class RuntimeResourceSyncService {
                 LEGACY_SKILL_RUN_SCRIPT_FILE,
                 "skill_script_run"
         );
-        cleanupLegacyToolAlias(
-                targetToolsDir,
-                CANONICAL_SKILL_RUN_SCRIPT_FILE,
-                LEGACY_SKILL_RUN_SCRIPT_FILE_WITH_UNDERSCORES,
-                "_skill_run_script_"
-        );
     }
 
     private void cleanupLegacyToolAlias(
@@ -178,6 +171,9 @@ public class RuntimeResourceSyncService {
             String legacyFile,
             String expectedToolName
     ) {
+        if (canonicalFile.equals(legacyFile)) {
+            return;
+        }
         Path canonical = targetToolsDir.resolve(canonicalFile);
         Path legacy = targetToolsDir.resolve(legacyFile);
         if (!Files.exists(canonical) || !Files.exists(legacy)) {

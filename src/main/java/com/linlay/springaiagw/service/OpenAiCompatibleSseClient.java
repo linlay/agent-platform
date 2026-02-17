@@ -4,7 +4,6 @@ import com.aiagent.agw.sdk.adapter.openai.OpenAiSseDeltaParser;
 import com.aiagent.agw.sdk.model.LlmDelta;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linlay.springaiagw.agent.runtime.policy.ComputePolicy;
-import com.linlay.springaiagw.agent.runtime.policy.OutputShape;
 import com.linlay.springaiagw.agent.runtime.policy.ToolChoice;
 import com.linlay.springaiagw.config.AgentProviderProperties;
 import com.linlay.springaiagw.model.ProviderProtocol;
@@ -30,18 +29,18 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * 原生 WebClient SSE 路径：直接构建 OpenAI 兼容 HTTP 请求，解析 SSE delta。
+ * 原生 WebClient SSE 路径：直接构建 OpenAI Compatible HTTP 请求，解析 SSE delta。
  */
-class RawSseClient {
+class OpenAiCompatibleSseClient {
 
-    private static final Logger log = LoggerFactory.getLogger(RawSseClient.class);
+    private static final Logger log = LoggerFactory.getLogger(OpenAiCompatibleSseClient.class);
 
     private final AgentProviderProperties providerProperties;
     private final ObjectMapper objectMapper;
     private final LlmCallLogger callLogger;
     private final OpenAiSseDeltaParser openAiSseDeltaParser;
 
-    RawSseClient(AgentProviderProperties providerProperties, ObjectMapper objectMapper, LlmCallLogger callLogger) {
+    OpenAiCompatibleSseClient(AgentProviderProperties providerProperties, ObjectMapper objectMapper, LlmCallLogger callLogger) {
         this.providerProperties = providerProperties;
         this.objectMapper = objectMapper;
         this.callLogger = callLogger;
@@ -57,7 +56,6 @@ class RawSseClient {
             List<LlmService.LlmFunctionTool> tools,
             boolean parallelToolCalls,
             ToolChoice toolChoice,
-            OutputShape outputShape,
             String jsonSchema,
             ComputePolicy computePolicy,
             boolean reasoningEnabled,
@@ -77,7 +75,6 @@ class RawSseClient {
                     tools,
                     parallelToolCalls,
                     toolChoice,
-                    outputShape,
                     jsonSchema,
                     computePolicy,
                     reasoningEnabled,
@@ -156,7 +153,6 @@ class RawSseClient {
                     List.of(),
                     false,
                     ToolChoice.NONE,
-                    OutputShape.TEXT_ONLY,
                     null,
                     ComputePolicy.MEDIUM,
                     false,
@@ -248,7 +244,6 @@ class RawSseClient {
             List<LlmService.LlmFunctionTool> tools,
             boolean parallelToolCalls,
             ToolChoice toolChoice,
-            OutputShape outputShape,
             String jsonSchema,
             ComputePolicy computePolicy,
             boolean reasoningEnabled,
@@ -263,7 +258,6 @@ class RawSseClient {
                 tools,
                 parallelToolCalls,
                 toolChoice,
-                outputShape,
                 jsonSchema,
                 computePolicy,
                 reasoningEnabled,
@@ -280,7 +274,6 @@ class RawSseClient {
             List<LlmService.LlmFunctionTool> tools,
             boolean parallelToolCalls,
             ToolChoice toolChoice,
-            OutputShape outputShape,
             String jsonSchema,
             ComputePolicy computePolicy,
             boolean reasoningEnabled,
@@ -303,7 +296,7 @@ class RawSseClient {
             request.put("reasoning", Map.of("effort", toReasoningEffort(computePolicy)));
         }
 
-        if (outputShape == OutputShape.JSON_SCHEMA && jsonSchema != null && !jsonSchema.isBlank()) {
+        if (jsonSchema != null && !jsonSchema.isBlank()) {
             request.put("response_format", buildJsonSchemaFormat(jsonSchema));
         }
 

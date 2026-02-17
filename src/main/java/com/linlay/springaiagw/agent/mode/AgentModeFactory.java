@@ -77,7 +77,18 @@ public final class AgentModeFactory {
                             summaryStage.deepThinking()
                     );
                 }
-                yield new PlanExecuteMode(planStage, executeStage, summaryStage, skillAppend, toolAppend, taskExecutionPromptTemplate);
+                int maxSteps = pe != null && pe.getMaxSteps() != null && pe.getMaxSteps() > 0
+                        ? pe.getMaxSteps()
+                        : 15;
+                yield new PlanExecuteMode(
+                        planStage,
+                        executeStage,
+                        summaryStage,
+                        skillAppend,
+                        toolAppend,
+                        taskExecutionPromptTemplate,
+                        maxSteps
+                );
             }
         };
     }

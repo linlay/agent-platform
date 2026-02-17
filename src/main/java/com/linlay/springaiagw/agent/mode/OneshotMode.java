@@ -6,11 +6,8 @@ import com.linlay.springaiagw.agent.ToolAppend;
 import com.linlay.springaiagw.agent.runtime.AgentRuntimeMode;
 import com.linlay.springaiagw.agent.runtime.ExecutionContext;
 import com.linlay.springaiagw.agent.runtime.policy.Budget;
-import com.linlay.springaiagw.agent.runtime.policy.ControlStrategy;
-import com.linlay.springaiagw.agent.runtime.policy.OutputPolicy;
 import com.linlay.springaiagw.agent.runtime.policy.RunSpec;
 import com.linlay.springaiagw.agent.runtime.policy.ToolChoice;
-import com.linlay.springaiagw.agent.runtime.policy.ToolPolicy;
 import com.linlay.springaiagw.model.stream.AgentDelta;
 import com.linlay.springaiagw.tool.BaseTool;
 import org.slf4j.Logger;
@@ -42,13 +39,11 @@ public final class OneshotMode extends AgentMode {
 
     @Override
     public RunSpec defaultRunSpec(AgentConfigFile config) {
-        ToolPolicy defaultPolicy = stage != null && stage.tools() != null && !stage.tools().isEmpty()
-                ? ToolPolicy.ALLOW
-                : ToolPolicy.DISALLOW;
+        ToolChoice defaultChoice = stage != null && stage.tools() != null && !stage.tools().isEmpty()
+                ? ToolChoice.AUTO
+                : ToolChoice.NONE;
         return new RunSpec(
-                ControlStrategy.ONESHOT,
-                config != null && config.getOutput() != null ? config.getOutput() : OutputPolicy.PLAIN,
-                config != null && config.getToolPolicy() != null ? config.getToolPolicy() : defaultPolicy,
+                config != null && config.getToolChoice() != null ? config.getToolChoice() : defaultChoice,
                 config != null && config.getBudget() != null ? config.getBudget().toBudget() : Budget.LIGHT
         );
     }
@@ -63,7 +58,8 @@ public final class OneshotMode extends AgentMode {
         StageSettings stageSettings = stage == null
                 ? new StageSettings(systemPrompt, null, null, List.of(), false, null)
                 : stage;
-        Map<String, BaseTool> stageTools = services.selectTools(enabledToolsByName, stageSettings.tools());
+        Map<String, BaseTool> configuredTools = services.selectTools(enabledToolsByName, stageSettings.tools());
+        Map<String, BaseTool> stageTools = services.allowsTool(context) ? configuredTools : Map.of();
         boolean hasTools = !stageTools.isEmpty();
         boolean emitReasoning = stageSettings.reasoningEnabled();
 
@@ -93,7 +89,8 @@ public final class OneshotMode extends AgentMode {
             return;
         }
 
-        ToolChoice toolChoice = services.requiresTool(context) ? ToolChoice.REQUIRED : ToolChoice.AUTO;
+        ToolChoice toolChoice = context.definition().runSpec().toolChoice();
+        int retries = services.retryCount(context, 2);
         OrchestratorServices.ModelTurn firstTurn = services.callModelTurnStreaming(
                 context,
                 stageSettings,
@@ -111,22 +108,10 @@ public final class OneshotMode extends AgentMode {
             );
 
         if (firstTurn.toolCalls().isEmpty() && services.requiresTool(context)) {
-            firstTurn = services.callModelTurnStreaming(
-                    context,
-                    stageSettings,
-                    context.conversationMessages(),
-                    null,
-                    stageTools,
-                    services.toolExecutionService().enabledFunctionTools(stageTools),
-                    ToolChoice.REQUIRED,
-                    "agent-oneshot-tool-first-repair",
-                    false,
-                    emitReasoning,
-                    true,
-                    true,
-                    sink
-            );
-            if (firstTurn.toolCalls().isEmpty()) {
+            for (int retry = 1; retry <= retries; retry++) {
+                String stageName = retry == 1
+                        ? "agent-oneshot-tool-first-repair"
+                        : "agent-oneshot-tool-first-repair-" + retry;
                 firstTurn = services.callModelTurnStreaming(
                         context,
                         stageSettings,
@@ -135,23 +120,26 @@ public final class OneshotMode extends AgentMode {
                         stageTools,
                         services.toolExecutionService().enabledFunctionTools(stageTools),
                         ToolChoice.REQUIRED,
-                        "agent-oneshot-tool-first-repair-2",
+                        stageName,
                         false,
                         emitReasoning,
                         true,
                         true,
                         sink
                 );
+                if (!firstTurn.toolCalls().isEmpty()) {
+                    break;
+                }
             }
         }
 
         if (firstTurn.toolCalls().isEmpty()) {
             if (services.requiresTool(context)) {
-                log.warn("[agent:{}] ToolPolicy.REQUIRE violated in ONESHOT: no tool call produced",
+                log.warn("[agent:{}] ToolChoice.REQUIRED violated in ONESHOT: no tool call produced",
                         context.definition().id());
                 services.emit(
                         sink,
-                        AgentDelta.content("执行中断：ToolPolicy.REQUIRE 要求调用工具，但模型连续 3 次未发起工具调用。")
+                        AgentDelta.content("执行中断：ToolChoice.REQUIRED 要求调用工具，但模型未发起工具调用。")
                 );
                 return;
             }

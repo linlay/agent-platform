@@ -35,7 +35,6 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 @RestController
@@ -197,7 +196,6 @@ public class AgwController {
 
     private Map<String, Object> buildDetailMeta(Agent agent) {
         Map<String, Object> meta = new java.util.LinkedHashMap<>();
-        meta.put("providerType", agent.providerKey().toUpperCase(Locale.ROOT));
         meta.put("model", agent.model());
         meta.put("mode", agent.mode().name());
         meta.put("icon", agent.icon());

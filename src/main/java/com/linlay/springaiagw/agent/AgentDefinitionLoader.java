@@ -151,7 +151,6 @@ public class AgentDefinitionLoader {
         if (root.has("deepThink")
                 || root.has("systemPrompt")
                 || root.has("providerKey")
-                || root.has("providerType")
                 || root.has("model")
                 || root.has("reasoning")
                 || root.has("tools")) {
@@ -176,7 +175,6 @@ public class AgentDefinitionLoader {
             return false;
         }
         return node.has("providerKey")
-                || node.has("providerType")
                 || node.has("model")
                 || node.has("reasoning")
                 || node.has("tools");
@@ -186,7 +184,11 @@ public class AgentDefinitionLoader {
         if (root == null || !root.isObject()) {
             return false;
         }
-        if (root.has("verify")) {
+        if (root.has("verify") || root.has("output") || root.has("toolPolicy")) {
+            return true;
+        }
+        JsonNode budget = root.path("budget");
+        if (budget.isObject() && budget.has("maxSteps")) {
             return true;
         }
         JsonNode runtimePrompts = root.path("runtimePrompts");

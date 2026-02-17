@@ -19,7 +19,6 @@ import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardWatchEventKinds;
-import java.nio.file.WatchEvent;
 import java.nio.file.WatchKey;
 import java.nio.file.WatchService;
 import java.util.LinkedHashMap;
@@ -32,10 +31,6 @@ public class DirectoryWatchService implements DisposableBean {
     private static final Logger log = LoggerFactory.getLogger(DirectoryWatchService.class);
     private static final long DEBOUNCE_MS = 500;
 
-    private final AgentRegistry agentRegistry;
-    private final ViewportRegistryService viewportRegistryService;
-    private final CapabilityRegistryService capabilityRegistryService;
-    private final SkillRegistryService skillRegistryService;
     private final Map<Path, Runnable> watchedDirs;
 
     private volatile WatchService watchService;
@@ -52,11 +47,6 @@ public class DirectoryWatchService implements DisposableBean {
             CapabilityCatalogProperties capabilityCatalogProperties,
             SkillCatalogProperties skillCatalogProperties
     ) {
-        this.agentRegistry = agentRegistry;
-        this.viewportRegistryService = viewportRegistryService;
-        this.capabilityRegistryService = capabilityRegistryService;
-        this.skillRegistryService = skillRegistryService;
-
         this.watchedDirs = new LinkedHashMap<>();
         watchedDirs.put(
                 Path.of(agentCatalogProperties.getExternalDir()).toAbsolutePath().normalize(),
@@ -86,10 +76,6 @@ public class DirectoryWatchService implements DisposableBean {
             SkillRegistryService skillRegistryService,
             Map<Path, Runnable> watchedDirs
     ) {
-        this.agentRegistry = agentRegistry;
-        this.viewportRegistryService = viewportRegistryService;
-        this.capabilityRegistryService = capabilityRegistryService;
-        this.skillRegistryService = skillRegistryService;
         this.watchedDirs = watchedDirs;
         start();
     }
@@ -143,10 +129,6 @@ public class DirectoryWatchService implements DisposableBean {
             }
             if (key == null) {
                 continue;
-            }
-
-            for (WatchEvent<?> event : key.pollEvents()) {
-                // drain events
             }
 
             boolean valid = key.reset();
