@@ -117,6 +117,8 @@ class ToolRegistryTest {
         assertThat(result.path("timezone").asText()).isEqualTo("Asia/Shanghai");
         assertThat(result.path("source").asText()).isEqualTo("system-clock");
         assertThat(result.path("date").asText()).isNotBlank();
+        assertThat(result.path("weekday").asText()).startsWith("星期");
+        assertThat(result.path("lunarDate").asText()).isNotBlank();
         assertThat(result.path("time").asText()).isNotBlank();
         assertThatCode(() -> ZonedDateTime.parse(result.path("iso").asText())).doesNotThrowAnyException();
     }
