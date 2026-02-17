@@ -11,7 +11,7 @@ import com.linlay.springaiagw.agent.runtime.policy.ComputePolicy;
 import com.linlay.springaiagw.agent.runtime.policy.RunSpec;
 import com.linlay.springaiagw.agent.runtime.policy.ToolChoice;
 import com.linlay.springaiagw.model.AgentRequest;
-import com.linlay.springaiagw.model.stream.AgentDelta;
+import com.linlay.springaiagw.model.AgentDelta;
 import com.linlay.springaiagw.tool.BaseTool;
 import com.linlay.springaiagw.tool.SystemPlanGetTasks;
 import com.linlay.springaiagw.tool.ToolRegistry;

@@ -5,7 +5,7 @@ import com.linlay.springaiagw.agent.PlannedToolCall;
 import com.linlay.springaiagw.agent.SkillAppend;
 import com.linlay.springaiagw.agent.runtime.policy.Budget;
 import com.linlay.springaiagw.model.AgentRequest;
-import com.linlay.springaiagw.model.stream.AgentDelta;
+import com.linlay.springaiagw.model.AgentDelta;
 import com.linlay.springaiagw.skill.SkillDescriptor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

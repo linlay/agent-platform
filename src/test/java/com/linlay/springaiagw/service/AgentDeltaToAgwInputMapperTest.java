@@ -5,7 +5,7 @@ import com.aiagent.agw.sdk.model.AgwInput;
 import com.aiagent.agw.sdk.model.AgwRequest;
 import com.aiagent.agw.sdk.model.ToolCallDelta;
 import com.aiagent.agw.sdk.service.AgwEventAssembler;
-import com.linlay.springaiagw.model.stream.AgentDelta;
+import com.linlay.springaiagw.model.AgentDelta;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -94,6 +94,70 @@ class AgentDeltaToAgwInputMapperTest {
         assertThat(String.valueOf(toolArgsEvents.get(1).payload().get("delta"))).isEqualTo("ho hi\"}");
         assertThat(Integer.parseInt(String.valueOf(toolArgsEvents.get(0).payload().get("chunkIndex")))).isEqualTo(0);
         assertThat(Integer.parseInt(String.valueOf(toolArgsEvents.get(1).payload().get("chunkIndex")))).isEqualTo(1);
+    }
+
+    @Test
+    void shouldAssignUniqueReasoningIdsAcrossBlocks() {
+        AgentDeltaToAgwInputMapper mapper = new AgentDeltaToAgwInputMapper("run_1");
+        List<AgwEvent> events = assembleEvents(mapper, List.of(
+                AgentDelta.reasoning("reasoning-1"),
+                AgentDelta.stageMarker("stage-1"),
+                AgentDelta.reasoning("reasoning-2")
+        ));
+
+        List<String> reasoningStartIds = payloadValues(events, "reasoning.start", "reasoningId");
+        assertThat(reasoningStartIds).containsExactly("run_1_reasoning_1", "run_1_reasoning_2");
+    }
+
+    @Test
+    void shouldAssignUniqueContentIdsAcrossMultipleSegments() {
+        AgentDeltaToAgwInputMapper mapper = new AgentDeltaToAgwInputMapper("run_1");
+        List<AgwEvent> events = assembleEvents(mapper, List.of(
+                AgentDelta.content("content-1"),
+                AgentDelta.toolCalls(List.of(new ToolCallDelta(
+                        "tool_1",
+                        "function",
+                        "bash",
+                        "{\"command\":\"pwd\"}"
+                ))),
+                AgentDelta.toolResult("tool_1", "{\"ok\":true}"),
+                AgentDelta.content("content-2")
+        ));
+
+        List<String> contentStartIds = payloadValues(events, "content.start", "contentId");
+        assertThat(contentStartIds).containsExactly("run_1_content_1", "run_1_content_2");
+    }
+
+    @Test
+    void shouldRotateReasoningIdAfterToolBoundary() {
+        AgentDeltaToAgwInputMapper mapper = new AgentDeltaToAgwInputMapper("run_1");
+        List<AgwEvent> events = assembleEvents(mapper, List.of(
+                AgentDelta.reasoning("before-tool"),
+                AgentDelta.toolCalls(List.of(new ToolCallDelta(
+                        "tool_1",
+                        "function",
+                        "bash",
+                        "{\"command\":\"ls\"}"
+                ))),
+                AgentDelta.toolResult("tool_1", "{\"ok\":true}"),
+                AgentDelta.reasoning("after-tool")
+        ));
+
+        List<String> reasoningStartIds = payloadValues(events, "reasoning.start", "reasoningId");
+        assertThat(reasoningStartIds).containsExactly("run_1_reasoning_1", "run_1_reasoning_2");
+    }
+
+    @Test
+    void shouldUseNewContentIdAfterStageMarker() {
+        AgentDeltaToAgwInputMapper mapper = new AgentDeltaToAgwInputMapper("run_1");
+        List<AgwEvent> events = assembleEvents(mapper, List.of(
+                AgentDelta.content("before-stage"),
+                AgentDelta.stageMarker("summary"),
+                AgentDelta.content("after-stage")
+        ));
+
+        List<String> contentStartIds = payloadValues(events, "content.start", "contentId");
+        assertThat(contentStartIds).containsExactly("run_1_content_1", "run_1_content_2");
     }
 
     @Test
@@ -186,5 +250,12 @@ class AgentDeltaToAgwInputMapperTest {
                 .filter(event -> type.equals(event.type()))
                 .filter(event -> toolId.equals(String.valueOf(event.payload().get("toolId"))))
                 .count();
+    }
+
+    private List<String> payloadValues(List<AgwEvent> events, String type, String payloadKey) {
+        return events.stream()
+                .filter(event -> type.equals(event.type()))
+                .map(event -> String.valueOf(event.payload().get(payloadKey)))
+                .toList();
     }
 }

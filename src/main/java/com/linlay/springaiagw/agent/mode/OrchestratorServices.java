@@ -10,7 +10,7 @@ import com.linlay.springaiagw.agent.runtime.ExecutionContext;
 import com.linlay.springaiagw.agent.runtime.ToolExecutionService;
 import com.linlay.springaiagw.agent.runtime.policy.ComputePolicy;
 import com.linlay.springaiagw.agent.runtime.policy.ToolChoice;
-import com.linlay.springaiagw.model.stream.AgentDelta;
+import com.linlay.springaiagw.model.AgentDelta;
 import com.linlay.springaiagw.service.LlmCallSpec;
 import com.linlay.springaiagw.service.LlmService;
 import com.linlay.springaiagw.tool.BaseTool;

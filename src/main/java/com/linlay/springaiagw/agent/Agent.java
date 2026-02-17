@@ -1,7 +1,7 @@
 package com.linlay.springaiagw.agent;
 
 import com.linlay.springaiagw.agent.runtime.AgentRuntimeMode;
-import com.linlay.springaiagw.model.stream.AgentDelta;
+import com.linlay.springaiagw.model.AgentDelta;
 import com.linlay.springaiagw.model.AgentRequest;
 import reactor.core.publisher.Flux;
 

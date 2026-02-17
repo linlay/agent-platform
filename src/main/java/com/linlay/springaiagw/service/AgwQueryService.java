@@ -12,7 +12,7 @@ import com.linlay.springaiagw.agent.Agent;
 import com.linlay.springaiagw.agent.AgentRegistry;
 import com.linlay.springaiagw.model.api.AgwQueryRequest;
 import com.linlay.springaiagw.model.AgentRequest;
-import com.linlay.springaiagw.model.stream.AgentDelta;
+import com.linlay.springaiagw.model.AgentDelta;
 import com.linlay.springaiagw.tool.ToolRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,6 +27,13 @@ import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * AGW 查询入口编排服务。
+ * <p>
+ * 负责把 API 请求组装为一次完整的运行上下文：选择 Agent、补齐 request/chat/run 标识、
+ * 构建 AGW Query 请求、并将 AgentDelta 流映射为 AGW SSE 事件流。
+ * 同时在流式发送过程中做事件规范化（如 plan.update）与会话持久化挂接。
+ */
 @Service
 public class AgwQueryService {
 

@@ -15,7 +15,7 @@ import com.linlay.springaiagw.agent.runtime.policy.RunSpec;
 import com.linlay.springaiagw.agent.mode.OrchestratorServices;
 import com.linlay.springaiagw.memory.ChatWindowMemoryStore;
 import com.linlay.springaiagw.model.AgentRequest;
-import com.linlay.springaiagw.model.stream.AgentDelta;
+import com.linlay.springaiagw.model.AgentDelta;
 import com.linlay.springaiagw.service.FrontendSubmitCoordinator;
 import com.linlay.springaiagw.service.LlmService;
 import com.linlay.springaiagw.skill.SkillDescriptor;

@@ -5,6 +5,12 @@ import org.springframework.http.HttpHeaders;
 import java.util.List;
 import java.util.regex.Pattern;
 
+/**
+ * LLM 交互日志脱敏工具。
+ * <p>
+ * 提供请求头与文本内容的敏感信息掩码能力，避免 Authorization、Token、API Key、
+ * Password 等字段在日志中明文输出。该类为纯静态工具类，无状态。
+ */
 public final class LlmLogSanitizer {
 
     private static final Pattern JSON_SECRET_VALUE_PATTERN = Pattern.compile(

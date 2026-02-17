@@ -27,6 +27,12 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+/**
+ * 会话记录读取与快照回放服务。
+ * <p>
+ * 负责维护聊天索引（会话列表元数据）、读取运行历史文件、并将持久化消息转换为
+ * 前端可消费的事件快照与原始消息列表。该类不参与实时 SSE 发送，仅处理存储侧视图重建。
+ */
 @Service
 public class ChatRecordStore {
 

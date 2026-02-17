@@ -6,7 +6,7 @@ import com.linlay.springaiagw.agent.ToolAppend;
 import com.linlay.springaiagw.agent.runtime.AgentRuntimeMode;
 import com.linlay.springaiagw.agent.runtime.ExecutionContext;
 import com.linlay.springaiagw.agent.runtime.policy.RunSpec;
-import com.linlay.springaiagw.model.stream.AgentDelta;
+import com.linlay.springaiagw.model.AgentDelta;
 import com.linlay.springaiagw.tool.BaseTool;
 import reactor.core.publisher.FluxSink;
 

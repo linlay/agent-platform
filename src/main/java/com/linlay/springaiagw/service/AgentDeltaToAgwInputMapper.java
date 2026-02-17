@@ -3,7 +3,7 @@ package com.linlay.springaiagw.service;
 import com.aiagent.agw.sdk.model.AgwInput;
 import com.aiagent.agw.sdk.model.ToolCallDelta;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.linlay.springaiagw.model.stream.AgentDelta;
+import com.linlay.springaiagw.model.AgentDelta;
 import com.linlay.springaiagw.tool.ToolRegistry;
 import reactor.core.publisher.Flux;
 
@@ -17,6 +17,14 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
+/**
+ * 将 Agent 内部流式增量（{@link AgentDelta}）转换为 AGW 输入事件序列。
+ * <p>
+ * 该类负责三类映射语义：
+ * 1) 文本块（reasoning/content）按块分配独立 ID，块结束后不可复用；
+ * 2) tool/action 增量参数与结果事件保持顺序并补齐必要元数据；
+ * 3) 计划更新、运行结束等控制事件透传为对应 AGW 事件。
+ */
 public class AgentDeltaToAgwInputMapper {
 
     private final AtomicLong idCounter = new AtomicLong(0);
@@ -28,9 +36,10 @@ public class AgentDeltaToAgwInputMapper {
     private final ToolRegistry toolRegistry;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    private int contentCounter = 1;
-    private String reasoningId;
-    private String contentId;
+    private int reasoningSeq = 0;
+    private int contentSeq = 0;
+    private String activeReasoningId;
+    private String activeContentId;
 
     public AgentDeltaToAgwInputMapper() {
         this(null, null);
@@ -42,8 +51,6 @@ public class AgentDeltaToAgwInputMapper {
 
     public AgentDeltaToAgwInputMapper(String runId, ToolRegistry toolRegistry) {
         this.runPrefix = hasText(runId) ? runId : "run";
-        this.reasoningId = runPrefix + "_reasoning_1";
-        this.contentId = runPrefix + "_content_1";
         this.toolRegistry = toolRegistry;
     }
 
@@ -58,18 +65,20 @@ public class AgentDeltaToAgwInputMapper {
         }
 
         if (hasText(delta.stageMarker())) {
-            advanceContentBlock();
+            closeTextBlocks();
             return List.of();
         }
 
         List<AgwInput> inputs = new ArrayList<>();
 
         if (hasText(delta.reasoning())) {
-            inputs.add(new AgwInput.ReasoningDelta(reasoningId, delta.reasoning(), null));
+            closeContentBlock();
+            inputs.add(new AgwInput.ReasoningDelta(openReasoningBlockIfNeeded(), delta.reasoning(), null));
         }
 
         if (hasText(delta.content())) {
-            inputs.add(new AgwInput.ContentDelta(contentId, delta.content(), null));
+            closeReasoningBlock();
+            inputs.add(new AgwInput.ContentDelta(openContentBlockIfNeeded(), delta.content(), null));
         }
 
         if (delta.toolCalls() != null && !delta.toolCalls().isEmpty()) {
@@ -149,13 +158,50 @@ public class AgentDeltaToAgwInputMapper {
             inputs.add(new AgwInput.RunComplete(delta.finishReason()));
         }
 
+        if (hasNonTextPayload(delta)) {
+            closeTextBlocks();
+        }
+
         return inputs;
     }
 
-    private void advanceContentBlock() {
-        contentCounter++;
-        this.reasoningId = runPrefix + "_reasoning_" + contentCounter;
-        this.contentId = runPrefix + "_content_" + contentCounter;
+    private boolean hasNonTextPayload(AgentDelta delta) {
+        if (delta == null) {
+            return false;
+        }
+        return (delta.toolCalls() != null && !delta.toolCalls().isEmpty())
+                || (delta.toolResults() != null && !delta.toolResults().isEmpty())
+                || delta.planUpdate() != null
+                || hasText(delta.finishReason());
+    }
+
+    private String openReasoningBlockIfNeeded() {
+        if (!hasText(activeReasoningId)) {
+            reasoningSeq++;
+            activeReasoningId = runPrefix + "_reasoning_" + reasoningSeq;
+        }
+        return activeReasoningId;
+    }
+
+    private String openContentBlockIfNeeded() {
+        if (!hasText(activeContentId)) {
+            contentSeq++;
+            activeContentId = runPrefix + "_content_" + contentSeq;
+        }
+        return activeContentId;
+    }
+
+    private void closeReasoningBlock() {
+        activeReasoningId = null;
+    }
+
+    private void closeContentBlock() {
+        activeContentId = null;
+    }
+
+    private void closeTextBlocks() {
+        closeReasoningBlock();
+        closeContentBlock();
     }
 
     private String resolveToolId(ToolCallDelta toolCall, int fallbackIndex) {
