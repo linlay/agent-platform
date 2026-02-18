@@ -22,6 +22,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -42,32 +43,68 @@ public class ChatWindowMemoryStore {
         this.properties = properties;
     }
 
+    // ========= Public API =========
+
     public List<Message> loadHistoryMessages(String chatId) {
         if (!isValidChatId(chatId)) {
             return List.of();
         }
 
-        List<RunRecord> runs = readRecentRuns(chatId, normalizedWindowSize());
-        List<Message> messages = new ArrayList<>();
-        for (RunRecord run : runs) {
-            if (run.messages == null) {
-                continue;
+        int windowSize = normalizedWindowSize();
+        List<ParsedLine> allLines = readAllParsedLines(chatId);
+
+        LinkedHashMap<String, List<ParsedStepLine>> stepsByRunId = new LinkedHashMap<>();
+        for (ParsedLine line : allLines) {
+            if (line instanceof ParsedStepLine step) {
+                stepsByRunId.computeIfAbsent(step.runId(), k -> new ArrayList<>()).add(step);
             }
-            for (StoredMessage stored : run.messages) {
-                Message converted = toSpringMessage(stored);
-                if (converted != null) {
-                    messages.add(converted);
+        }
+
+        List<String> runIds = new ArrayList<>(stepsByRunId.keySet());
+        int fromIndex = Math.max(0, runIds.size() - windowSize);
+        List<String> recentRunIds = runIds.subList(fromIndex, runIds.size());
+
+        List<Message> messages = new ArrayList<>();
+        for (String runId : recentRunIds) {
+            List<ParsedStepLine> steps = stepsByRunId.get(runId);
+            steps.sort(Comparator.comparingInt(ParsedStepLine::seq));
+            for (ParsedStepLine step : steps) {
+                if (step.messages() == null) {
+                    continue;
+                }
+                for (StoredMessage stored : step.messages()) {
+                    Message converted = toSpringMessage(stored);
+                    if (converted != null) {
+                        messages.add(converted);
+                    }
                 }
             }
         }
         return List.copyOf(messages);
     }
 
-    public void appendRun(
+    public void appendQueryLine(String chatId, String runId, Map<String, Object> query) {
+        if (!isValidChatId(chatId)) {
+            return;
+        }
+
+        long now = System.currentTimeMillis();
+        QueryLine line = new QueryLine();
+        line.chatId = chatId;
+        line.runId = normalizeRunId(runId);
+        line.updatedAt = now;
+        line.query = normalizeQuery(query);
+
+        appendLine(chatId, line);
+    }
+
+    public void appendStepLine(
             String chatId,
             String runId,
-            Map<String, Object> query,
-            SystemSnapshot systemSnapshot,
+            String stage,
+            int seq,
+            String taskId,
+            SystemSnapshot system,
             PlanSnapshot planSnapshot,
             List<RunMessage> runMessages
     ) {
@@ -76,23 +113,136 @@ public class ChatWindowMemoryStore {
         }
 
         long now = System.currentTimeMillis();
-        long tsCursor = now;
         String normalizedRunId = normalizeRunId(runId);
+        List<StoredMessage> storedMessages = convertRunMessages(normalizedRunId, runMessages);
+        if (storedMessages.isEmpty()) {
+            return;
+        }
 
+        StepLine line = new StepLine();
+        line.chatId = chatId;
+        line.runId = normalizedRunId;
+        line.stage = hasText(stage) ? stage.trim() : "oneshot";
+        line.seq = seq;
+        line.taskId = hasText(taskId) ? taskId.trim() : null;
+        line.updatedAt = now;
+        line.system = normalizeSystemSnapshot(system);
+        line.planSnapshot = normalizePlanSnapshot(planSnapshot);
+        line.messages = storedMessages;
+
+        appendLine(chatId, line);
+    }
+
+    public PlanSnapshot loadLatestPlanSnapshot(String chatId) {
+        if (!isValidChatId(chatId)) {
+            return null;
+        }
+        List<ParsedLine> lines = readAllParsedLines(chatId);
+        for (int i = lines.size() - 1; i >= 0; i--) {
+            if (lines.get(i) instanceof ParsedStepLine step && step.planSnapshot() != null) {
+                PlanSnapshot normalized = normalizePlanSnapshot(step.planSnapshot());
+                if (normalized != null && normalized.plan != null && !normalized.plan.isEmpty()) {
+                    return normalized;
+                }
+            }
+        }
+        return null;
+    }
+
+    public SystemSnapshot loadLatestSystemSnapshot(String chatId) {
+        if (!isValidChatId(chatId)) {
+            return null;
+        }
+        List<ParsedLine> lines = readAllParsedLines(chatId);
+        for (int i = lines.size() - 1; i >= 0; i--) {
+            if (lines.get(i) instanceof ParsedStepLine step && step.system() != null) {
+                return step.system();
+            }
+        }
+        return null;
+    }
+
+    public void trimToWindow(String chatId) {
+        int windowSize = normalizedWindowSize();
+        Path path = resolvePath(chatId);
+        if (!Files.exists(path)) {
+            return;
+        }
+
+        try {
+            List<String> rawLines = Files.readAllLines(path, resolveCharset()).stream()
+                    .filter(StringUtils::hasText)
+                    .toList();
+            if (rawLines.isEmpty()) {
+                return;
+            }
+
+            LinkedHashMap<String, List<Integer>> lineIndexesByRunId = new LinkedHashMap<>();
+            for (int i = 0; i < rawLines.size(); i++) {
+                String runId = extractRunId(rawLines.get(i));
+                if (runId != null) {
+                    lineIndexesByRunId.computeIfAbsent(runId, k -> new ArrayList<>()).add(i);
+                }
+            }
+
+            if (lineIndexesByRunId.size() <= windowSize) {
+                return;
+            }
+
+            List<String> runIds = new ArrayList<>(lineIndexesByRunId.keySet());
+            int keepFrom = runIds.size() - windowSize;
+            Set<Integer> dropIndexes = new HashSet<>();
+            for (int i = 0; i < keepFrom; i++) {
+                dropIndexes.addAll(lineIndexesByRunId.get(runIds.get(i)));
+            }
+
+            List<String> retained = new ArrayList<>(rawLines.size() - dropIndexes.size());
+            for (int i = 0; i < rawLines.size(); i++) {
+                if (!dropIndexes.contains(i)) {
+                    retained.add(rawLines.get(i));
+                }
+            }
+
+            String content = String.join(System.lineSeparator(), retained) + System.lineSeparator();
+            Files.writeString(
+                    path,
+                    content,
+                    resolveCharset(),
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING,
+                    StandardOpenOption.WRITE
+            );
+        } catch (IOException ex) {
+            throw new IllegalStateException("Cannot trim memory for chatId=" + chatId, ex);
+        }
+    }
+
+    public boolean isSameSystem(SystemSnapshot left, SystemSnapshot right) {
+        if (left == null || right == null) {
+            return false;
+        }
+        JsonNode leftNode = objectMapper.valueToTree(left);
+        JsonNode rightNode = objectMapper.valueToTree(right);
+        return leftNode.equals(rightNode);
+    }
+
+    // ========= RunMessage -> StoredMessage conversion =========
+
+    private List<StoredMessage> convertRunMessages(String runId, List<RunMessage> runMessages) {
         Map<String, ToolIdentity> toolIdentityByCallId = new LinkedHashMap<>();
         List<StoredMessage> storedMessages = new ArrayList<>();
         int reasoningIndex = 0;
         int contentIndex = 0;
+        long tsCursor = System.currentTimeMillis();
         for (RunMessage message : runMessages) {
             if (message == null || !StringUtils.hasText(message.kind())) {
                 continue;
             }
-
             long ts = message.ts() == null ? tsCursor++ : message.ts();
             StoredMessage converted = switch (message.kind().trim().toLowerCase()) {
                 case "user_content" -> toUserStoredMessage(message, ts);
-                case "assistant_reasoning" -> toAssistantReasoningMessage(normalizedRunId, message, ts, reasoningIndex++);
-                case "assistant_content" -> toAssistantContentMessage(normalizedRunId, message, ts, contentIndex++);
+                case "assistant_reasoning" -> toAssistantReasoningMessage(runId, message, ts, reasoningIndex++);
+                case "assistant_content" -> toAssistantContentMessage(runId, message, ts, contentIndex++);
                 case "assistant_tool_call" -> toAssistantToolCallMessage(message, ts, toolIdentityByCallId);
                 case "tool_result" -> toToolResultMessage(message, ts, toolIdentityByCallId);
                 default -> null;
@@ -101,48 +251,7 @@ public class ChatWindowMemoryStore {
                 storedMessages.add(converted);
             }
         }
-
-        if (storedMessages.isEmpty()) {
-            return;
-        }
-
-        RunRecord run = new RunRecord();
-        run.chatId = chatId;
-        run.runId = normalizedRunId;
-        run.transactionId = normalizedRunId;
-        run.updatedAt = now;
-        run.query = normalizeQuery(query);
-        run.messages = storedMessages;
-        run.planSnapshot = normalizePlanSnapshot(planSnapshot);
-
-        SystemSnapshot normalizedSystem = normalizeSystemSnapshot(systemSnapshot);
-        if (normalizedSystem != null) {
-            SystemSnapshot previousSystem = loadLatestSystemSnapshot(chatId);
-            if (previousSystem == null || !isSameSystem(previousSystem, normalizedSystem)) {
-                run.system = normalizedSystem;
-            }
-        }
-
-        appendRunLine(chatId, run);
-        trimToWindow(chatId, normalizedWindowSize());
-    }
-
-    public PlanSnapshot loadLatestPlanSnapshot(String chatId) {
-        if (!isValidChatId(chatId)) {
-            return null;
-        }
-        List<RunRecord> runs = readAllRuns(chatId);
-        for (int i = runs.size() - 1; i >= 0; i--) {
-            RunRecord run = runs.get(i);
-            if (run == null || run.planSnapshot == null) {
-                continue;
-            }
-            PlanSnapshot normalized = normalizePlanSnapshot(run.planSnapshot);
-            if (normalized != null && normalized.plan != null && !normalized.plan.isEmpty()) {
-                return normalized;
-            }
-        }
-        return null;
+        return storedMessages;
     }
 
     private StoredMessage toUserStoredMessage(RunMessage message, long ts) {
@@ -257,67 +366,121 @@ public class ChatWindowMemoryStore {
         return stored;
     }
 
-    private List<RunRecord> readRecentRuns(String chatId, int limit) {
-        List<RunRecord> allRuns = readAllRuns(chatId);
-        if (allRuns.size() <= limit) {
-            return allRuns;
-        }
-        return List.copyOf(allRuns.subList(allRuns.size() - limit, allRuns.size()));
-    }
+    // ========= Reading & Parsing =========
 
-    private List<RunRecord> readAllRuns(String chatId) {
+    private List<ParsedLine> readAllParsedLines(String chatId) {
         Path path = resolvePath(chatId);
         if (!Files.exists(path)) {
             return List.of();
         }
 
         try {
-            List<RunRecord> runs = new ArrayList<>();
-            List<String> lines = Files.readAllLines(path, resolveCharset());
-            int lineIndex = 0;
-            for (String line : lines) {
-                if (!StringUtils.hasText(line)) {
-                    lineIndex++;
+            List<ParsedLine> lines = new ArrayList<>();
+            for (String rawLine : Files.readAllLines(path, resolveCharset())) {
+                if (!StringUtils.hasText(rawLine)) {
                     continue;
                 }
-                RunRecord parsed = parseRunLine(line, chatId, lineIndex++);
+                ParsedLine parsed = parseParsedLine(rawLine);
                 if (parsed != null) {
-                    runs.add(parsed);
+                    lines.add(parsed);
                 }
             }
-            return List.copyOf(runs);
+            return List.copyOf(lines);
         } catch (Exception ex) {
             log.warn("Cannot read memory file for chatId={}, fallback to empty history", chatId, ex);
             return List.of();
         }
     }
 
-    private RunRecord parseRunLine(String line, String chatId, int index) {
+    private ParsedLine parseParsedLine(String rawLine) {
         try {
-            JsonNode node = objectMapper.readTree(line);
-            if (node == null || !node.isObject() || !node.path("messages").isArray()) {
+            JsonNode node = objectMapper.readTree(rawLine);
+            if (node == null || !node.isObject()) {
                 return null;
             }
-            RunRecord run = objectMapper.treeToValue(node, RunRecord.class);
-            if (run == null) {
-                return null;
-            }
-            run.chatId = hasText(run.chatId) ? run.chatId : chatId;
-            run.runId = hasText(run.runId) ? run.runId : "legacy-" + index;
-            run.transactionId = hasText(run.transactionId) ? run.transactionId : run.runId;
-            run.query = run.query == null ? new LinkedHashMap<>() : new LinkedHashMap<>(run.query);
-            run.messages = run.messages == null ? new ArrayList<>() : new ArrayList<>(run.messages);
-            return run;
+            String type = node.path("_type").asText("");
+            return switch (type) {
+                case "query" -> parseQueryLineNode(node);
+                case "step" -> parseStepLineNode(node);
+                default -> null;
+            };
         } catch (Exception ignored) {
             return null;
         }
     }
 
-    private void appendRunLine(String chatId, RunRecord run) {
+    private ParsedQueryLine parseQueryLineNode(JsonNode node) {
+        String chatId = node.path("chatId").asText(null);
+        String runId = node.path("runId").asText(null);
+        long updatedAt = node.path("updatedAt").asLong(0);
+        Map<String, Object> query;
+        if (node.has("query") && node.get("query").isObject()) {
+            query = objectMapper.convertValue(
+                    node.get("query"),
+                    objectMapper.getTypeFactory().constructMapType(LinkedHashMap.class, String.class, Object.class)
+            );
+        } else {
+            query = new LinkedHashMap<>();
+        }
+        return new ParsedQueryLine(chatId, runId, updatedAt, query);
+    }
+
+    private ParsedStepLine parseStepLineNode(JsonNode node) {
+        try {
+            String chatId = node.path("chatId").asText(null);
+            String runId = node.path("runId").asText(null);
+            String stage = node.path("_stage").asText(null);
+            int seq = node.path("_seq").asInt(0);
+            String taskId = node.has("taskId") && !node.get("taskId").isNull()
+                    ? node.path("taskId").asText(null)
+                    : null;
+            long updatedAt = node.path("updatedAt").asLong(0);
+
+            SystemSnapshot system = null;
+            if (node.has("system") && !node.get("system").isNull()) {
+                system = objectMapper.treeToValue(node.get("system"), SystemSnapshot.class);
+            }
+
+            PlanSnapshot planSnapshot = null;
+            if (node.has("planSnapshot") && !node.get("planSnapshot").isNull()) {
+                planSnapshot = objectMapper.treeToValue(node.get("planSnapshot"), PlanSnapshot.class);
+            }
+
+            List<StoredMessage> messages = new ArrayList<>();
+            if (node.has("messages") && node.get("messages").isArray()) {
+                for (JsonNode msgNode : node.get("messages")) {
+                    StoredMessage msg = objectMapper.treeToValue(msgNode, StoredMessage.class);
+                    if (msg != null) {
+                        messages.add(msg);
+                    }
+                }
+            }
+
+            return new ParsedStepLine(chatId, runId, stage, seq, taskId, updatedAt, system, planSnapshot, List.copyOf(messages));
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private String extractRunId(String rawLine) {
+        try {
+            JsonNode node = objectMapper.readTree(rawLine);
+            if (node != null && node.has("runId")) {
+                String runId = node.path("runId").asText(null);
+                return hasText(runId) ? runId : null;
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    // ========= Writing =========
+
+    private void appendLine(String chatId, Object line) {
         Path path = resolvePath(chatId);
         try {
             Files.createDirectories(path.getParent());
-            String jsonLine = objectMapper.writeValueAsString(run) + System.lineSeparator();
+            String jsonLine = objectMapper.writeValueAsString(line) + System.lineSeparator();
             Files.writeString(
                     path,
                     jsonLine,
@@ -327,56 +490,11 @@ public class ChatWindowMemoryStore {
                     StandardOpenOption.WRITE
             );
         } catch (IOException ex) {
-            throw new IllegalStateException("Cannot append run memory for chatId=" + chatId, ex);
+            throw new IllegalStateException("Cannot append memory line for chatId=" + chatId, ex);
         }
     }
 
-    private void trimToWindow(String chatId, int windowSize) {
-        Path path = resolvePath(chatId);
-        if (!Files.exists(path)) {
-            return;
-        }
-
-        try {
-            List<String> lines = Files.readAllLines(path, resolveCharset()).stream()
-                    .filter(StringUtils::hasText)
-                    .toList();
-            if (lines.isEmpty()) {
-                return;
-            }
-
-            List<Integer> runLineIndexes = new ArrayList<>();
-            for (int i = 0; i < lines.size(); i++) {
-                if (parseRunLine(lines.get(i), chatId, i) != null) {
-                    runLineIndexes.add(i);
-                }
-            }
-            if (runLineIndexes.size() <= windowSize) {
-                return;
-            }
-
-            int keepFrom = runLineIndexes.size() - windowSize;
-            Set<Integer> dropIndexes = new HashSet<>(runLineIndexes.subList(0, keepFrom));
-            List<String> retained = new ArrayList<>(lines.size() - dropIndexes.size());
-            for (int i = 0; i < lines.size(); i++) {
-                if (!dropIndexes.contains(i)) {
-                    retained.add(lines.get(i));
-                }
-            }
-
-            String content = String.join(System.lineSeparator(), retained) + System.lineSeparator();
-            Files.writeString(
-                    path,
-                    content,
-                    resolveCharset(),
-                    StandardOpenOption.CREATE,
-                    StandardOpenOption.TRUNCATE_EXISTING,
-                    StandardOpenOption.WRITE
-            );
-        } catch (IOException ex) {
-            throw new IllegalStateException("Cannot trim run memory for chatId=" + chatId, ex);
-        }
-    }
+    // ========= Spring Message Conversion =========
 
     private Message toSpringMessage(StoredMessage message) {
         if (message == null || !hasText(message.role)) {
@@ -471,6 +589,8 @@ public class ChatWindowMemoryStore {
         return List.of(part);
     }
 
+    // ========= Normalization Helpers =========
+
     private Map<String, Object> normalizeQuery(Map<String, Object> query) {
         if (query == null) {
             return new LinkedHashMap<>();
@@ -562,25 +682,7 @@ public class ChatWindowMemoryStore {
         return normalized.isEmpty() ? null : List.copyOf(normalized);
     }
 
-    private SystemSnapshot loadLatestSystemSnapshot(String chatId) {
-        List<RunRecord> runs = readAllRuns(chatId);
-        for (int i = runs.size() - 1; i >= 0; i--) {
-            RunRecord run = runs.get(i);
-            if (run != null && run.system != null) {
-                return run.system;
-            }
-        }
-        return null;
-    }
-
-    private boolean isSameSystem(SystemSnapshot left, SystemSnapshot right) {
-        if (left == null || right == null) {
-            return false;
-        }
-        JsonNode leftNode = objectMapper.valueToTree(left);
-        JsonNode rightNode = objectMapper.valueToTree(right);
-        return leftNode.equals(rightNode);
-    }
+    // ========= Tool Identity =========
 
     private ToolIdentity createToolIdentity(String toolCallId, String toolName, String toolType) {
         boolean action = "action".equalsIgnoreCase(normalizeType(toolType)) || isActionTool(toolName);
@@ -612,6 +714,8 @@ public class ChatWindowMemoryStore {
         }
         return false;
     }
+
+    // ========= Utility =========
 
     private String shortId(String prefix, String seed) {
         String shortPart;
@@ -708,6 +812,8 @@ public class ChatWindowMemoryStore {
         }
     }
 
+    // ========= Inner Types =========
+
     public record RunMessage(
             String role,
             String kind,
@@ -786,15 +892,55 @@ public class ChatWindowMemoryStore {
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    public static class RunRecord {
+    public static class QueryLine {
+        @JsonProperty("_type")
+        public String type = "query";
         public String chatId;
         public String runId;
-        public String transactionId;
         public long updatedAt;
         public Map<String, Object> query = new LinkedHashMap<>();
+    }
+
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class StepLine {
+        @JsonProperty("_type")
+        public String type = "step";
+        public String chatId;
+        public String runId;
+        @JsonProperty("_stage")
+        public String stage;
+        @JsonProperty("_seq")
+        public int seq;
+        public String taskId;
+        public long updatedAt;
         public SystemSnapshot system;
         public PlanSnapshot planSnapshot;
         public List<StoredMessage> messages = new ArrayList<>();
+    }
+
+    private sealed interface ParsedLine permits ParsedQueryLine, ParsedStepLine {
+        String runId();
+    }
+
+    private record ParsedQueryLine(
+            String chatId,
+            String runId,
+            long updatedAt,
+            Map<String, Object> query
+    ) implements ParsedLine {
+    }
+
+    private record ParsedStepLine(
+            String chatId,
+            String runId,
+            String stage,
+            int seq,
+            String taskId,
+            long updatedAt,
+            SystemSnapshot system,
+            PlanSnapshot planSnapshot,
+            List<StoredMessage> messages
+    ) implements ParsedLine {
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)

@@ -50,12 +50,16 @@ POST /api/query → AgwController → AgwQueryService → DefinitionDrivenAgent.
 - **响应格式** — 非 SSE 接口统一 `{"code": 0, "msg": "success", "data": {}}`
 - **会话详情格式** — `GET /api/chat` 的 `data` 字段固定为 `chatId/chatName/rawMessages/events/references`；`events` 必返，`rawMessages` 仅在 `includeRawMessages=true` 返回
 
-## Chat Memory V2（JSONL）
+## Chat Memory V3（JSONL）
 
-- 存储文件：`chats/{chatId}.json`，JSONL 格式，**每个 run 一行标准 JSON**。
-- 每行 run 顶层字段：`chatId`、`runId`、`transactionId`（同 `runId`）、`updatedAt`、`query`、`messages`，以及按需 `system`。
-- `query` 放顶层，保存完整 query 结构（`requestId/chatId/agentKey/role/message/references/params/scene/stream`）。
-- `system` 只在 chat 首次 run 写入；若后续 system 配置发生变化则再次写入；仅写可获取字段（当前为 `model/messages/tools/stream`）。
+- 存储文件：`chats/{chatId}.json`，JSONL 格式，**一行一个 step**，逐步增量写入。
+- 行类型通过 `_type` 字段区分：
+  - `"query"`：用户原始请求行。必带 `chatId`、`runId`、`updatedAt`、`query`。
+  - `"step"`：一个执行步骤行。必带 `chatId`、`runId`、`_stage`、`_seq`、`updatedAt`、`messages`；可选 `taskId`、`system`、`planSnapshot`。
+- `_stage` 标识步骤阶段：`"oneshot"` / `"react"` / `"plan"` / `"execute"` / `"summary"`。
+- `_seq` 全局递增序号，标识 run 内的步骤顺序。
+- `query` 保存完整 query 结构（`requestId/chatId/agentKey/role/message/references/params/scene/stream`）。
+- `system` 快照规则：每个 run 的第一个 step 写入；stage 切换且 system 变化时再写入；后续 step 如果 system 未变化则省略。
 - `messages` 采用 OpenAI 风格：
   - `role=user`：`content[]`（text parts）+ `ts`
   - `role=assistant`：三种快照形态之一：`content[]` / `reasoning_content[]` / `tool_calls[]`
@@ -63,6 +67,7 @@ POST /api/query → AgwController → AgwQueryService → DefinitionDrivenAgent.
 - assistant/tool 扩展字段支持：`_reasoningId`、`_contentId`、`_toolId`、`_actionId`、`_timing`、`_usage`。
 - action/tool 判定：通过 `memory.chat.action-tools` 白名单；命中写 `_actionId`，否则写 `_toolId`。
 - memory 回放约束：`reasoning_content` **不回传**给下一轮模型上下文。
+- 滑动窗口：k=20 单位仍然是 **run**；`trimToWindow` 按 `runId` 分组，保留最近 k 个 run 的所有行。
 
 ## SSE 事件契约（最新）
 

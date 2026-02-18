@@ -63,6 +63,8 @@ public final class OneshotMode extends AgentMode {
         boolean hasTools = !stageTools.isEmpty();
         boolean emitReasoning = stageSettings.reasoningEnabled();
 
+        services.emit(sink, AgentDelta.stageMarker("oneshot"));
+
         if (!hasTools) {
             OrchestratorServices.ModelTurn turn = services.callModelTurnStreaming(
                     context,

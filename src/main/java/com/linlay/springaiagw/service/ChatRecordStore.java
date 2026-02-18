@@ -189,7 +189,11 @@ public class ChatRecordStore {
         }
         try {
             List<String> lines = Files.readAllLines(historyPath, resolveCharset());
+            // Intermediate structures to group by runId
+            LinkedHashMap<String, Map<String, Object>> queryByRunId = new LinkedHashMap<>();
+            LinkedHashMap<String, List<StepEntry>> stepsByRunId = new LinkedHashMap<>();
             int lineIndex = 0;
+
             for (String line : lines) {
                 if (!StringUtils.hasText(line)) {
                     lineIndex++;
@@ -197,35 +201,104 @@ public class ChatRecordStore {
                 }
 
                 JsonNode node = parseLine(line);
-                if (node == null || !node.isObject() || !node.path("messages").isArray()) {
+                if (node == null || !node.isObject()) {
                     lineIndex++;
                     continue;
                 }
 
-                ChatWindowMemoryStore.RunRecord runRecord = toRunRecord(node, lineIndex);
-                if (runRecord == null) {
+                String type = node.path("_type").asText("");
+                String runId = node.path("runId").asText(null);
+                if (!StringUtils.hasText(runId)) {
                     lineIndex++;
                     continue;
                 }
 
-                if (runRecord.query != null) {
-                    collectReferencesFromQuery(runRecord.query, content);
+                if ("query".equals(type)) {
+                    Map<String, Object> query = new LinkedHashMap<>();
+                    if (node.has("query") && node.get("query").isObject()) {
+                        query = objectMapper.convertValue(
+                                node.get("query"),
+                                objectMapper.getTypeFactory().constructMapType(LinkedHashMap.class, String.class, Object.class)
+                        );
+                    }
+                    queryByRunId.put(runId, query);
+                    collectReferencesFromQuery(query, content);
+                    // Ensure run order
+                    stepsByRunId.computeIfAbsent(runId, k -> new ArrayList<>());
+                } else if ("step".equals(type)) {
+                    long updatedAt = node.path("updatedAt").asLong(0);
+                    String stage = node.path("_stage").asText(null);
+                    int seq = node.path("_seq").asInt(0);
+                    String taskId = node.has("taskId") && !node.get("taskId").isNull()
+                            ? node.path("taskId").asText(null)
+                            : null;
+
+                    ChatWindowMemoryStore.SystemSnapshot system = null;
+                    if (node.has("system") && !node.get("system").isNull()) {
+                        system = objectMapper.treeToValue(node.get("system"), ChatWindowMemoryStore.SystemSnapshot.class);
+                    }
+
+                    ChatWindowMemoryStore.PlanSnapshot planSnapshot = null;
+                    if (node.has("planSnapshot") && !node.get("planSnapshot").isNull()) {
+                        planSnapshot = objectMapper.treeToValue(node.get("planSnapshot"), ChatWindowMemoryStore.PlanSnapshot.class);
+                    }
+
+                    List<ChatWindowMemoryStore.StoredMessage> messages = new ArrayList<>();
+                    if (node.has("messages") && node.get("messages").isArray()) {
+                        for (JsonNode msgNode : node.get("messages")) {
+                            ChatWindowMemoryStore.StoredMessage msg = objectMapper.treeToValue(msgNode, ChatWindowMemoryStore.StoredMessage.class);
+                            if (msg != null) {
+                                messages.add(msg);
+                            }
+                        }
+                    }
+
+                    stepsByRunId.computeIfAbsent(runId, k -> new ArrayList<>())
+                            .add(new StepEntry(stage, seq, taskId, updatedAt, system, planSnapshot, messages, lineIndex));
                 }
-
-                List<ChatWindowMemoryStore.StoredMessage> messages = runRecord.messages == null
-                        ? List.of()
-                        : List.copyOf(runRecord.messages);
-
-                content.runs.add(new RunSnapshot(
-                        runRecord.runId,
-                        runRecord.updatedAt,
-                        runRecord.query == null ? Map.of() : new LinkedHashMap<>(runRecord.query),
-                        runRecord.system,
-                        runRecord.planSnapshot,
-                        messages,
-                        lineIndex
-                ));
                 lineIndex++;
+            }
+
+            // Build RunSnapshots from grouped data
+            int runIndex = 0;
+            for (Map.Entry<String, List<StepEntry>> entry : stepsByRunId.entrySet()) {
+                String runId = entry.getKey();
+                List<StepEntry> steps = entry.getValue();
+                if (steps.isEmpty()) {
+                    runIndex++;
+                    continue;
+                }
+
+                steps.sort(Comparator.comparingInt(s -> s.seq));
+
+                Map<String, Object> query = queryByRunId.getOrDefault(runId, Map.of());
+                long updatedAt = steps.stream().mapToLong(s -> s.updatedAt).max().orElse(0);
+
+                // Flatten all step messages
+                List<ChatWindowMemoryStore.StoredMessage> allMessages = new ArrayList<>();
+                ChatWindowMemoryStore.SystemSnapshot firstSystem = null;
+                ChatWindowMemoryStore.PlanSnapshot latestPlan = null;
+                for (StepEntry step : steps) {
+                    if (firstSystem == null && step.system != null) {
+                        firstSystem = step.system;
+                    }
+                    if (step.planSnapshot != null) {
+                        latestPlan = step.planSnapshot;
+                    }
+                    allMessages.addAll(step.messages);
+                }
+
+                int firstLineIndex = steps.getFirst().lineIndex;
+                content.runs.add(new RunSnapshot(
+                        runId,
+                        updatedAt,
+                        query,
+                        firstSystem,
+                        latestPlan,
+                        List.copyOf(allMessages),
+                        firstLineIndex
+                ));
+                runIndex++;
             }
         } catch (Exception ex) {
             log.warn("Cannot read chat history file={}, fallback to empty", historyPath, ex);
@@ -647,19 +720,16 @@ public class ChatRecordStore {
         return root;
     }
 
-    private ChatWindowMemoryStore.RunRecord toRunRecord(JsonNode node, int lineIndex) {
-        try {
-            ChatWindowMemoryStore.RunRecord run = objectMapper.treeToValue(node, ChatWindowMemoryStore.RunRecord.class);
-            if (run == null || run.messages == null) {
-                return null;
-            }
-            if (!StringUtils.hasText(run.runId)) {
-                run.runId = "legacy-" + lineIndex;
-            }
-            return run;
-        } catch (Exception ex) {
-            return null;
-        }
+    private record StepEntry(
+            String stage,
+            int seq,
+            String taskId,
+            long updatedAt,
+            ChatWindowMemoryStore.SystemSnapshot system,
+            ChatWindowMemoryStore.PlanSnapshot planSnapshot,
+            List<ChatWindowMemoryStore.StoredMessage> messages,
+            int lineIndex
+    ) {
     }
 
     private List<ChatIndexRecord> readIndexRecords() {

@@ -62,6 +62,7 @@ public final class ReactMode extends AgentMode {
         boolean emitReasoning = stage.reasoningEnabled();
 
         for (int step = 1; step <= effectiveMaxSteps; step++) {
+            services.emit(sink, AgentDelta.stageMarker("react-step-" + step));
             OrchestratorServices.ModelTurn turn = null;
             for (int retry = 0; retry <= retries; retry++) {
                 turn = services.callModelTurnStreaming(
@@ -110,6 +111,7 @@ public final class ReactMode extends AgentMode {
             return;
         }
 
+        services.emit(sink, AgentDelta.stageMarker("react-step-" + (effectiveMaxSteps + 1)));
         OrchestratorServices.ModelTurn finalTurn = services.callModelTurnStreaming(
                 context,
                 stage,

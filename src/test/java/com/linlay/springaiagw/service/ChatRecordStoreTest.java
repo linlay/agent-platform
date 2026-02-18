@@ -31,16 +31,13 @@ class ChatRecordStoreTest {
         writeIndex(chatDir, chatId, "测试会话", 1707000000000L, 1707000000000L);
 
         Path historyPath = chatDir.resolve(chatId + ".json");
-        writeJsonLine(historyPath, runRecord(
-                chatId,
-                "run_001",
+        writeJsonLine(historyPath, queryLine(chatId, "run_001", query("run_001", chatId, "你好", List.of())));
+        writeJsonLine(historyPath, stepLine(chatId, "run_001", "oneshot", 1, null,
                 1707000000000L,
-                query("run_001", chatId, "你好", List.of()),
                 List.of(
                         userMessage("你好", 1707000000000L),
                         assistantContentMessage("你好，我是助手", 1707000000001L)
-                )
-        ));
+                )));
 
         ChatRecordStore store = newStore();
         AgwChatDetailResponse detail = store.loadChat(chatId, false);
@@ -68,21 +65,22 @@ class ChatRecordStoreTest {
         writeIndex(chatDir, chatId, "快照会话", 1707000100000L, 1707000100000L);
 
         Path historyPath = chatDir.resolve(chatId + ".json");
-        writeJsonLine(historyPath, runRecord(
-                chatId,
-                "run_002",
+        writeJsonLine(historyPath, queryLine(chatId, "run_002", query("run_002", chatId, "帮我列目录", List.of())));
+        writeJsonLine(historyPath, stepLine(chatId, "run_002", "react", 1, null,
                 1707000100000L,
-                query("run_002", chatId, "帮我列目录", List.of()),
                 List.of(
                         userMessage("帮我列目录", 1707000100000L),
                         assistantReasoningMessage("先判断是否需要工具", 1707000100001L),
                         assistantToolCallMessage("bash", "call_tool_1", "{\"command\":\"ls\"}", 1707000100002L, "tool_short_1", null),
-                        toolMessage("bash", "call_tool_1", "{\"ok\":true}", 1707000100003L, "tool_short_1", null),
+                        toolMessage("bash", "call_tool_1", "{\"ok\":true}", 1707000100003L, "tool_short_1", null)
+                )));
+        writeJsonLine(historyPath, stepLine(chatId, "run_002", "react", 2, null,
+                1707000100004L,
+                List.of(
                         assistantToolCallMessage("switch_frontend_theme", "call_tool_2", "{\"theme\":\"dark\"}", 1707000100004L, null, "action_short_1"),
                         toolMessage("switch_frontend_theme", "call_tool_2", "OK", 1707000100005L, null, "action_short_1"),
                         assistantContentMessage("处理完成", 1707000100006L)
-                )
-        ));
+                )));
 
         ChatRecordStore store = newStore();
         AgwChatDetailResponse detail = store.loadChat(chatId, true);
@@ -120,19 +118,16 @@ class ChatRecordStoreTest {
         writeIndex(chatDir, chatId, "引用会话", 1707000200000L, 1707000200000L);
 
         Path historyPath = chatDir.resolve(chatId + ".json");
-        writeJsonLine(historyPath, runRecord(
-                chatId,
-                "run_003",
+        writeJsonLine(historyPath, queryLine(chatId, "run_003", query("run_003", chatId, "你好", List.of(
+                Map.of("id", "ref_001", "type", "url", "name", "A", "url", "https://example.com/a"),
+                Map.of("id", "ref_001", "type", "url", "name", "B", "url", "https://example.com/b")
+        ))));
+        writeJsonLine(historyPath, stepLine(chatId, "run_003", "oneshot", 1, null,
                 1707000200000L,
-                query("run_003", chatId, "你好", List.of(
-                        Map.of("id", "ref_001", "type", "url", "name", "A", "url", "https://example.com/a"),
-                        Map.of("id", "ref_001", "type", "url", "name", "B", "url", "https://example.com/b")
-                )),
                 List.of(
                         userMessage("你好", 1707000200000L),
                         assistantContentMessage("你好", 1707000200001L)
-                )
-        ));
+                )));
 
         ChatRecordStore store = newStore();
         AgwChatDetailResponse detail = store.loadChat(chatId, false);
@@ -213,26 +208,20 @@ class ChatRecordStoreTest {
         writeIndex(chatDir, chatId, "多轮会话", 1707000300000L, 1707000400000L);
 
         Path historyPath = chatDir.resolve(chatId + ".json");
-        writeJsonLine(historyPath, runRecord(
-                chatId,
-                "run_004",
+        writeJsonLine(historyPath, queryLine(chatId, "run_004", query("run_004", chatId, "第一轮", List.of())));
+        writeJsonLine(historyPath, stepLine(chatId, "run_004", "oneshot", 1, null,
                 1707000300000L,
-                query("run_004", chatId, "第一轮", List.of()),
                 List.of(
                         userMessage("第一轮", 1707000300000L),
                         assistantContentMessage("第一轮回答", 1707000300001L)
-                )
-        ));
-        writeJsonLine(historyPath, runRecord(
-                chatId,
-                "run_005",
+                )));
+        writeJsonLine(historyPath, queryLine(chatId, "run_005", query("run_005", chatId, "第二轮", List.of())));
+        writeJsonLine(historyPath, stepLine(chatId, "run_005", "oneshot", 1, null,
                 1707000400000L,
-                query("run_005", chatId, "第二轮", List.of()),
                 List.of(
                         userMessage("第二轮", 1707000400000L),
                         assistantContentMessage("第二轮回答", 1707000400001L)
-                )
-        ));
+                )));
 
         ChatRecordStore store = newStore();
         AgwChatDetailResponse detail = store.loadChat(chatId, false);
@@ -251,11 +240,9 @@ class ChatRecordStoreTest {
         writeIndex(chatDir, chatId, "计划会话", 1707000500000L, 1707000500000L);
 
         Path historyPath = chatDir.resolve(chatId + ".json");
-        writeJsonLine(historyPath, runRecord(
-                chatId,
-                "run_006",
+        writeJsonLine(historyPath, queryLine(chatId, "run_006", query("run_006", chatId, "第一轮", List.of())));
+        writeJsonLine(historyPath, stepLine(chatId, "run_006", "plan", 1, null,
                 1707000500000L,
-                query("run_006", chatId, "第一轮", List.of()),
                 List.of(
                         userMessage("第一轮", 1707000500000L),
                         assistantContentMessage("已创建计划", 1707000500001L)
@@ -266,8 +253,7 @@ class ChatRecordStoreTest {
                                 Map.of("taskId", "task0", "description", "收集信息", "status", "init"),
                                 Map.of("taskId", "task1", "description", "执行任务", "status", "in_progress")
                         )
-                )
-        ));
+                )));
 
         ChatRecordStore store = newStore();
         AgwChatDetailResponse detail = store.loadChat(chatId, false);
@@ -325,35 +311,53 @@ class ChatRecordStoreTest {
         Files.writeString(path, line, java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
     }
 
-    private Map<String, Object> runRecord(
-            String chatId,
-            String runId,
-            long updatedAt,
-            Map<String, Object> query,
-            List<Map<String, Object>> messages
-    ) {
-        return runRecord(chatId, runId, updatedAt, query, messages, null);
+    private Map<String, Object> queryLine(String chatId, String runId, Map<String, Object> query) {
+        Map<String, Object> line = new LinkedHashMap<>();
+        line.put("_type", "query");
+        line.put("chatId", chatId);
+        line.put("runId", runId);
+        line.put("updatedAt", System.currentTimeMillis());
+        line.put("query", query);
+        return line;
     }
 
-    private Map<String, Object> runRecord(
+    private Map<String, Object> stepLine(
             String chatId,
             String runId,
+            String stage,
+            int seq,
+            String taskId,
             long updatedAt,
-            Map<String, Object> query,
+            List<Map<String, Object>> messages
+    ) {
+        return stepLine(chatId, runId, stage, seq, taskId, updatedAt, messages, null);
+    }
+
+    private Map<String, Object> stepLine(
+            String chatId,
+            String runId,
+            String stage,
+            int seq,
+            String taskId,
+            long updatedAt,
             List<Map<String, Object>> messages,
             Map<String, Object> planSnapshot
     ) {
-        Map<String, Object> record = new LinkedHashMap<>();
-        record.put("chatId", chatId);
-        record.put("runId", runId);
-        record.put("transactionId", runId);
-        record.put("updatedAt", updatedAt);
-        record.put("query", query);
-        record.put("messages", messages);
-        if (planSnapshot != null && !planSnapshot.isEmpty()) {
-            record.put("planSnapshot", planSnapshot);
+        Map<String, Object> line = new LinkedHashMap<>();
+        line.put("_type", "step");
+        line.put("chatId", chatId);
+        line.put("runId", runId);
+        line.put("_stage", stage);
+        line.put("_seq", seq);
+        if (taskId != null) {
+            line.put("taskId", taskId);
         }
-        return record;
+        line.put("updatedAt", updatedAt);
+        line.put("messages", messages);
+        if (planSnapshot != null && !planSnapshot.isEmpty()) {
+            line.put("planSnapshot", planSnapshot);
+        }
+        return line;
     }
 
     private Map<String, Object> query(

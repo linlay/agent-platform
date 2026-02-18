@@ -164,7 +164,9 @@ public class DefinitionDrivenAgent implements Agent {
         return Flux.defer(() -> {
                     List<Message> historyMessages = loadHistoryMessages(request.chatId());
                     ChatWindowMemoryStore.PlanSnapshot latestPlanSnapshot = loadLatestPlanSnapshot(request.chatId());
-                    TurnTrace trace = new TurnTrace();
+                    ChatWindowMemoryStore.SystemSnapshot latestSystem = loadLatestSystemSnapshot(request.chatId());
+                    String runId = resolveRunId(request);
+                    TurnTrace trace = new TurnTrace(request, runId, latestSystem);
                     SkillPromptBundle skillPromptBundle = resolveSkillPrompts();
                     ExecutionContext context = new ExecutionContext(
                             definition,
@@ -178,7 +180,7 @@ public class DefinitionDrivenAgent implements Agent {
                     }
                     return Flux.<AgentDelta>create(sink -> runWithMode(context, sink), FluxSink.OverflowStrategy.BUFFER)
                             .doOnNext(trace::capture)
-                            .doOnComplete(() -> persistTurn(request, trace));
+                            .doOnComplete(() -> finalizeTrace(request, trace));
                 })
                 .subscribeOn(Schedulers.boundedElastic());
     }
@@ -293,6 +295,18 @@ public class DefinitionDrivenAgent implements Agent {
         }
     }
 
+    private ChatWindowMemoryStore.SystemSnapshot loadLatestSystemSnapshot(String chatId) {
+        if (chatWindowMemoryStore == null || !StringUtils.hasText(chatId)) {
+            return null;
+        }
+        try {
+            return chatWindowMemoryStore.loadLatestSystemSnapshot(chatId);
+        } catch (Exception ex) {
+            log.warn("[agent:{}] failed to load latest system snapshot chatId={}", id(), chatId, ex);
+            return null;
+        }
+    }
+
     private List<AgentDelta.PlanTask> toPlanTasks(List<ChatWindowMemoryStore.PlanTaskSnapshot> snapshotTasks) {
         if (snapshotTasks == null || snapshotTasks.isEmpty()) {
             return List.of();
@@ -307,30 +321,15 @@ public class DefinitionDrivenAgent implements Agent {
         return List.copyOf(tasks);
     }
 
-    private void persistTurn(AgentRequest request, TurnTrace trace) {
+    private void finalizeTrace(AgentRequest request, TurnTrace trace) {
         if (chatWindowMemoryStore == null || !StringUtils.hasText(request.chatId())) {
             return;
         }
         try {
-            List<ChatWindowMemoryStore.RunMessage> runMessages = new ArrayList<>();
-            if (StringUtils.hasText(request.message())) {
-                runMessages.add(ChatWindowMemoryStore.RunMessage.user(request.message(), System.currentTimeMillis()));
-            }
-            runMessages.addAll(trace.runMessages());
-            if (runMessages.isEmpty()) {
-                return;
-            }
-            String runId = resolveRunId(request);
-            chatWindowMemoryStore.appendRun(
-                    request.chatId(),
-                    runId,
-                    request.query(),
-                    buildSystemSnapshot(request),
-                    trace.planSnapshot(),
-                    runMessages
-            );
+            trace.finalFlush();
+            chatWindowMemoryStore.trimToWindow(request.chatId());
         } catch (Exception ex) {
-            log.warn("[agent:{}] failed to persist chat turn chatId={}", id(), request.chatId(), ex);
+            log.warn("[agent:{}] failed to finalize chat trace chatId={}", id(), request.chatId(), ex);
         }
     }
 
@@ -625,13 +624,19 @@ public class DefinitionDrivenAgent implements Agent {
     }
 
     private final class TurnTrace {
-        private final StringBuilder pendingReasoning = new StringBuilder();
-        private long pendingReasoningStartedAt;
-        private final StringBuilder pendingAssistant = new StringBuilder();
-        private long pendingAssistantStartedAt;
-        private final List<ChatWindowMemoryStore.RunMessage> orderedMessages = new ArrayList<>();
-        private final Map<String, ToolTrace> toolByCallId = new LinkedHashMap<>();
+        private final AgentRequest request;
+        private final String runId;
+        private ChatWindowMemoryStore.SystemSnapshot lastWrittenSystem;
+        private StepAccumulator currentStep;
+        private int seqCounter = 0;
+        private boolean queryLineWritten = false;
         private ChatWindowMemoryStore.PlanSnapshot latestPlanSnapshot;
+
+        private TurnTrace(AgentRequest request, String runId, ChatWindowMemoryStore.SystemSnapshot lastWrittenSystem) {
+            this.request = request;
+            this.runId = runId;
+            this.lastWrittenSystem = lastWrittenSystem;
+        }
 
         private void capture(AgentDelta delta) {
             if (delta == null) {
@@ -639,29 +644,49 @@ public class DefinitionDrivenAgent implements Agent {
             }
             long now = System.currentTimeMillis();
 
-            if (StringUtils.hasText(delta.reasoning())) {
-                if (pendingReasoningStartedAt <= 0) {
-                    pendingReasoningStartedAt = now;
+            if (delta.stageMarker() != null) {
+                String marker = delta.stageMarker().trim();
+                String newStage = parseStage(marker);
+                String newTaskId = parseTaskId(marker);
+
+                // plan-draft and plan-generate merge into one "plan" step
+                if ("plan".equals(newStage) && currentStep != null && "plan".equals(currentStep.stage)) {
+                    // continue same plan step, don't flush
+                    return;
                 }
-                pendingReasoning.append(delta.reasoning());
+
+                flushCurrentStep();
+                currentStep = new StepAccumulator(newStage, newTaskId);
+                return;
+            }
+
+            if (currentStep == null) {
+                currentStep = new StepAccumulator("oneshot", null);
+            }
+
+            if (StringUtils.hasText(delta.reasoning())) {
+                if (currentStep.pendingReasoningStartedAt <= 0) {
+                    currentStep.pendingReasoningStartedAt = now;
+                }
+                currentStep.pendingReasoning.append(delta.reasoning());
             }
 
             if (StringUtils.hasText(delta.content())) {
-                if (pendingAssistantStartedAt <= 0) {
-                    pendingAssistantStartedAt = now;
+                if (currentStep.pendingAssistantStartedAt <= 0) {
+                    currentStep.pendingAssistantStartedAt = now;
                 }
-                pendingAssistant.append(delta.content());
+                currentStep.pendingAssistant.append(delta.content());
             }
 
             if (delta.toolCalls() != null && !delta.toolCalls().isEmpty()) {
-                flushReasoning(now);
-                flushAssistantContent();
+                currentStep.flushReasoning(now);
+                currentStep.flushAssistantContent();
                 for (ToolCallDelta toolCall : delta.toolCalls()) {
                     if (toolCall == null) {
                         continue;
                     }
                     String toolCallId = StringUtils.hasText(toolCall.id()) ? toolCall.id() : generateToolCallId();
-                    ToolTrace trace = toolByCallId.computeIfAbsent(toolCallId, ToolTrace::new);
+                    ToolTrace trace = currentStep.toolByCallId.computeIfAbsent(toolCallId, ToolTrace::new);
                     if (trace.firstSeenAt <= 0) {
                         trace.firstSeenAt = now;
                     }
@@ -678,20 +703,20 @@ public class DefinitionDrivenAgent implements Agent {
             }
 
             if (delta.toolResults() != null && !delta.toolResults().isEmpty()) {
-                flushReasoning(now);
-                flushAssistantContent();
+                currentStep.flushReasoning(now);
+                currentStep.flushAssistantContent();
                 for (AgentDelta.ToolResult toolResult : delta.toolResults()) {
                     if (toolResult == null || !StringUtils.hasText(toolResult.toolId())) {
                         continue;
                     }
-                    ToolTrace trace = toolByCallId.computeIfAbsent(toolResult.toolId(), ToolTrace::new);
+                    ToolTrace trace = currentStep.toolByCallId.computeIfAbsent(toolResult.toolId(), ToolTrace::new);
                     if (trace.firstSeenAt <= 0) {
                         trace.firstSeenAt = now;
                     }
                     trace.resultAt = now;
-                    appendAssistantToolCallIfNeeded(trace, now);
+                    currentStep.appendAssistantToolCallIfNeeded(trace, now);
                     String result = StringUtils.hasText(toolResult.result()) ? toolResult.result() : "null";
-                    orderedMessages.add(ChatWindowMemoryStore.RunMessage.toolResult(
+                    currentStep.orderedMessages.add(ChatWindowMemoryStore.RunMessage.toolResult(
                             trace.toolName,
                             trace.toolCallId,
                             result,
@@ -703,72 +728,92 @@ public class DefinitionDrivenAgent implements Agent {
 
             if (delta.planUpdate() != null) {
                 latestPlanSnapshot = toPlanSnapshot(delta.planUpdate());
+                if (currentStep != null) {
+                    currentStep.planSnapshot = latestPlanSnapshot;
+                }
             }
         }
 
-        private List<ChatWindowMemoryStore.RunMessage> runMessages() {
-            long now = System.currentTimeMillis();
-            flushReasoning(now);
-            flushAssistantContent();
-            toolByCallId.values().forEach(toolTrace -> appendAssistantToolCallIfNeeded(
-                    toolTrace,
-                    toolTrace.resultAt > 0 ? toolTrace.resultAt : now
-            ));
-            return List.copyOf(orderedMessages);
+        private void finalFlush() {
+            flushCurrentStep();
         }
 
-        private ChatWindowMemoryStore.PlanSnapshot planSnapshot() {
-            return latestPlanSnapshot;
-        }
-
-        private void appendAssistantToolCallIfNeeded(ToolTrace trace, long ts) {
-            if (trace == null || trace.recorded) {
+        private void flushCurrentStep() {
+            if (currentStep == null || currentStep.isEmpty()) {
                 return;
             }
-            if (!StringUtils.hasText(trace.toolName)) {
+            if (chatWindowMemoryStore == null || !StringUtils.hasText(request.chatId())) {
+                currentStep = null;
                 return;
             }
-            orderedMessages.add(ChatWindowMemoryStore.RunMessage.assistantToolCall(
-                    trace.toolName,
-                    trace.toolCallId,
-                    trace.toolType,
-                    trace.arguments(),
-                    ts,
-                    durationOrNull(trace.firstSeenAt, trace.resultAt > 0 ? trace.resultAt : ts),
-                    usagePlaceholder()
-            ));
-            trace.recorded = true;
+
+            // Write query line on first flush
+            if (!queryLineWritten) {
+                chatWindowMemoryStore.appendQueryLine(request.chatId(), runId, request.query());
+                queryLineWritten = true;
+            }
+
+            seqCounter++;
+
+            // Build messages: prepend user message on first step
+            List<ChatWindowMemoryStore.RunMessage> stepMessages = new ArrayList<>();
+            if (seqCounter == 1 && StringUtils.hasText(request.message())) {
+                stepMessages.add(ChatWindowMemoryStore.RunMessage.user(request.message(), System.currentTimeMillis()));
+            }
+            stepMessages.addAll(currentStep.runMessages());
+            if (stepMessages.isEmpty()) {
+                currentStep = null;
+                return;
+            }
+
+            // Resolve system snapshot: write on first step or when changed
+            ChatWindowMemoryStore.SystemSnapshot stepSystem = null;
+            ChatWindowMemoryStore.SystemSnapshot currentSystem = buildSystemSnapshot(request);
+            if (seqCounter == 1) {
+                stepSystem = currentSystem;
+            } else if (currentSystem != null && (lastWrittenSystem == null
+                    || !chatWindowMemoryStore.isSameSystem(lastWrittenSystem, currentSystem))) {
+                stepSystem = currentSystem;
+            }
+
+            chatWindowMemoryStore.appendStepLine(
+                    request.chatId(),
+                    runId,
+                    currentStep.stage,
+                    seqCounter,
+                    currentStep.taskId,
+                    stepSystem,
+                    currentStep.planSnapshot,
+                    stepMessages
+            );
+
+            if (stepSystem != null) {
+                lastWrittenSystem = stepSystem;
+            }
+            currentStep = null;
         }
 
-        private void flushReasoning(long now) {
-            if (!StringUtils.hasText(pendingReasoning)) {
-                return;
+        private String parseStage(String marker) {
+            if (marker.startsWith("react-step-")) {
+                return "react";
             }
-            long startedAt = pendingReasoningStartedAt > 0 ? pendingReasoningStartedAt : now;
-            orderedMessages.add(ChatWindowMemoryStore.RunMessage.assistantReasoning(
-                    pendingReasoning.toString(),
-                    startedAt,
-                    durationOrNull(startedAt, now),
-                    usagePlaceholder()
-            ));
-            pendingReasoning.setLength(0);
-            pendingReasoningStartedAt = 0L;
+            if (marker.equals("plan-draft") || marker.equals("plan-generate")) {
+                return "plan";
+            }
+            if (marker.startsWith("execute-task-")) {
+                return "execute";
+            }
+            if (marker.equals("summary")) {
+                return "summary";
+            }
+            return marker;
         }
 
-        private void flushAssistantContent() {
-            if (!StringUtils.hasText(pendingAssistant)) {
-                return;
+        private String parseTaskId(String marker) {
+            if (marker.startsWith("execute-task-")) {
+                return null;
             }
-            long now = System.currentTimeMillis();
-            long startedAt = pendingAssistantStartedAt > 0 ? pendingAssistantStartedAt : now;
-            orderedMessages.add(ChatWindowMemoryStore.RunMessage.assistantContent(
-                    pendingAssistant.toString(),
-                    startedAt,
-                    durationOrNull(startedAt, now),
-                    usagePlaceholder()
-            ));
-            pendingAssistant.setLength(0);
-            pendingAssistantStartedAt = 0L;
+            return null;
         }
 
         private ChatWindowMemoryStore.PlanSnapshot toPlanSnapshot(AgentDelta.PlanUpdate planUpdate) {
@@ -793,6 +838,105 @@ public class DefinitionDrivenAgent implements Agent {
             snapshot.planId = planUpdate.planId().trim();
             snapshot.plan = List.copyOf(tasks);
             return snapshot;
+        }
+    }
+
+    private static final class StepAccumulator {
+        private final String stage;
+        private final String taskId;
+        private final StringBuilder pendingReasoning = new StringBuilder();
+        private long pendingReasoningStartedAt;
+        private final StringBuilder pendingAssistant = new StringBuilder();
+        private long pendingAssistantStartedAt;
+        private final List<ChatWindowMemoryStore.RunMessage> orderedMessages = new ArrayList<>();
+        private final Map<String, ToolTrace> toolByCallId = new LinkedHashMap<>();
+        private ChatWindowMemoryStore.PlanSnapshot planSnapshot;
+
+        private StepAccumulator(String stage, String taskId) {
+            this.stage = stage;
+            this.taskId = taskId;
+        }
+
+        private boolean isEmpty() {
+            return pendingReasoning.isEmpty()
+                    && pendingAssistant.isEmpty()
+                    && orderedMessages.isEmpty()
+                    && toolByCallId.isEmpty();
+        }
+
+        private List<ChatWindowMemoryStore.RunMessage> runMessages() {
+            long now = System.currentTimeMillis();
+            flushReasoning(now);
+            flushAssistantContent();
+            toolByCallId.values().forEach(toolTrace -> appendAssistantToolCallIfNeeded(
+                    toolTrace,
+                    toolTrace.resultAt > 0 ? toolTrace.resultAt : now
+            ));
+            return List.copyOf(orderedMessages);
+        }
+
+        private void appendAssistantToolCallIfNeeded(ToolTrace trace, long ts) {
+            if (trace == null || trace.recorded) {
+                return;
+            }
+            if (!StringUtils.hasText(trace.toolName)) {
+                return;
+            }
+            Map<String, Object> usage = new LinkedHashMap<>();
+            usage.put("input_tokens", null);
+            usage.put("output_tokens", null);
+            usage.put("total_tokens", null);
+            orderedMessages.add(ChatWindowMemoryStore.RunMessage.assistantToolCall(
+                    trace.toolName,
+                    trace.toolCallId,
+                    trace.toolType,
+                    trace.arguments(),
+                    ts,
+                    trace.firstSeenAt > 0 && (trace.resultAt > 0 ? trace.resultAt : ts) >= trace.firstSeenAt
+                            ? (trace.resultAt > 0 ? trace.resultAt : ts) - trace.firstSeenAt
+                            : null,
+                    usage
+            ));
+            trace.recorded = true;
+        }
+
+        private void flushReasoning(long now) {
+            if (!StringUtils.hasText(pendingReasoning)) {
+                return;
+            }
+            long startedAt = pendingReasoningStartedAt > 0 ? pendingReasoningStartedAt : now;
+            Map<String, Object> usage = new LinkedHashMap<>();
+            usage.put("input_tokens", null);
+            usage.put("output_tokens", null);
+            usage.put("total_tokens", null);
+            orderedMessages.add(ChatWindowMemoryStore.RunMessage.assistantReasoning(
+                    pendingReasoning.toString(),
+                    startedAt,
+                    startedAt > 0 && now >= startedAt ? now - startedAt : null,
+                    usage
+            ));
+            pendingReasoning.setLength(0);
+            pendingReasoningStartedAt = 0L;
+        }
+
+        private void flushAssistantContent() {
+            if (!StringUtils.hasText(pendingAssistant)) {
+                return;
+            }
+            long now = System.currentTimeMillis();
+            long startedAt = pendingAssistantStartedAt > 0 ? pendingAssistantStartedAt : now;
+            Map<String, Object> usage = new LinkedHashMap<>();
+            usage.put("input_tokens", null);
+            usage.put("output_tokens", null);
+            usage.put("total_tokens", null);
+            orderedMessages.add(ChatWindowMemoryStore.RunMessage.assistantContent(
+                    pendingAssistant.toString(),
+                    startedAt,
+                    startedAt > 0 && now >= startedAt ? now - startedAt : null,
+                    usage
+            ));
+            pendingAssistant.setLength(0);
+            pendingAssistantStartedAt = 0L;
         }
     }
 

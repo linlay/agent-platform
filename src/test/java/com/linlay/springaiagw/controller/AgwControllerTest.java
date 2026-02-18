@@ -558,19 +558,28 @@ class AgwControllerTest {
                 "updatedAt", 1707000600000L
         ));
 
-        Map<String, Object> run = new LinkedHashMap<>();
-        run.put("chatId", chatId);
-        run.put("runId", "run_plan_001");
-        run.put("transactionId", "run_plan_001");
-        run.put("updatedAt", 1707000600000L);
-        run.put("query", Map.of(
+        Map<String, Object> queryLine = new LinkedHashMap<>();
+        queryLine.put("_type", "query");
+        queryLine.put("chatId", chatId);
+        queryLine.put("runId", "run_plan_001");
+        queryLine.put("updatedAt", 1707000600000L);
+        queryLine.put("query", Map.of(
                 "requestId", "req_plan_001",
                 "chatId", chatId,
                 "role", "user",
                 "message", "测试计划",
                 "stream", true
         ));
-        run.put("messages", List.of(
+        writeJsonLine(chatDir.resolve(chatId + ".json"), queryLine);
+
+        Map<String, Object> stepLine = new LinkedHashMap<>();
+        stepLine.put("_type", "step");
+        stepLine.put("chatId", chatId);
+        stepLine.put("runId", "run_plan_001");
+        stepLine.put("_stage", "plan");
+        stepLine.put("_seq", 1);
+        stepLine.put("updatedAt", 1707000600000L);
+        stepLine.put("messages", List.of(
                 Map.of(
                         "role", "user",
                         "content", List.of(Map.of("type", "text", "text", "测试计划")),
@@ -582,14 +591,14 @@ class AgwControllerTest {
                         "ts", 1707000600001L
                 )
         ));
-        run.put("planSnapshot", Map.of(
+        stepLine.put("planSnapshot", Map.of(
                 "planId", "plan_chat_001",
                 "plan", List.of(
                         Map.of("taskId", "task0", "description", "收集信息", "status", "init"),
                         Map.of("taskId", "task1", "description", "执行任务", "status", "in_progress")
                 )
         ));
-        writeJsonLine(chatDir.resolve(chatId + ".json"), run);
+        writeJsonLine(chatDir.resolve(chatId + ".json"), stepLine);
 
         byte[] responseBody = webTestClient.get()
                 .uri(uriBuilder -> uriBuilder
@@ -638,19 +647,28 @@ class AgwControllerTest {
                 "updatedAt", 1707000700000L
         ));
 
-        Map<String, Object> run = new LinkedHashMap<>();
-        run.put("chatId", chatId);
-        run.put("runId", "run_plan_seed_001");
-        run.put("transactionId", "run_plan_seed_001");
-        run.put("updatedAt", 1707000700000L);
-        run.put("query", Map.of(
+        Map<String, Object> queryLine = new LinkedHashMap<>();
+        queryLine.put("_type", "query");
+        queryLine.put("chatId", chatId);
+        queryLine.put("runId", "run_plan_seed_001");
+        queryLine.put("updatedAt", 1707000700000L);
+        queryLine.put("query", Map.of(
                 "requestId", "req_plan_seed_001",
                 "chatId", chatId,
                 "role", "user",
                 "message", "初始化计划",
                 "stream", true
         ));
-        run.put("messages", List.of(
+        writeJsonLine(chatDir.resolve(chatId + ".json"), queryLine);
+
+        Map<String, Object> stepLine = new LinkedHashMap<>();
+        stepLine.put("_type", "step");
+        stepLine.put("chatId", chatId);
+        stepLine.put("runId", "run_plan_seed_001");
+        stepLine.put("_stage", "plan");
+        stepLine.put("_seq", 1);
+        stepLine.put("updatedAt", 1707000700000L);
+        stepLine.put("messages", List.of(
                 Map.of(
                         "role", "user",
                         "content", List.of(Map.of("type", "text", "text", "初始化计划")),
@@ -662,14 +680,14 @@ class AgwControllerTest {
                         "ts", 1707000700001L
                 )
         ));
-        run.put("planSnapshot", Map.of(
+        stepLine.put("planSnapshot", Map.of(
                 "planId", "plan_chat_seed_001",
                 "plan", List.of(
                         Map.of("taskId", "task0", "description", "收集信息", "status", "init"),
                         Map.of("taskId", "task1", "description", "执行任务", "status", "in_progress")
                 )
         ));
-        writeJsonLine(chatDir.resolve(chatId + ".json"), run);
+        writeJsonLine(chatDir.resolve(chatId + ".json"), stepLine);
 
         FluxExchangeResult<String> result = webTestClient.post()
                 .uri("/api/query")
