@@ -17,12 +17,14 @@ import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.ExchangeStrategies;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.netty.http.client.HttpClient;
+import reactor.netty.resources.ConnectionProvider;
 import reactor.netty.transport.logging.AdvancedByteBufFormat;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.function.Consumer;
 
 @Configuration
@@ -58,8 +60,19 @@ public class SpringAiConfiguration {
     }
 
     @Bean
-    public WebClient.Builder loggingWebClientBuilder(LlmInteractionLogProperties logProperties) {
-        HttpClient httpClient = HttpClient.create();
+    public ConnectionProvider llmConnectionProvider() {
+        return ConnectionProvider.builder("llm-pool")
+                .maxIdleTime(Duration.ofSeconds(30))
+                .maxLifeTime(Duration.ofMinutes(5))
+                .evictInBackground(Duration.ofSeconds(30))
+                .build();
+    }
+
+    @Bean
+    public WebClient.Builder loggingWebClientBuilder(
+            LlmInteractionLogProperties logProperties,
+            ConnectionProvider llmConnectionProvider) {
+        HttpClient httpClient = HttpClient.create(llmConnectionProvider);
         if (logProperties.isEnabled() && !logProperties.isMaskSensitive()) {
             httpClient = httpClient.wiretap(LLM_WIRETAP_LOGGER, LogLevel.DEBUG, AdvancedByteBufFormat.TEXTUAL);
         }

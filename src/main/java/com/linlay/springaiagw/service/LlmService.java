@@ -23,6 +23,7 @@ import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
+import reactor.netty.resources.ConnectionProvider;
 
 import java.time.Duration;
 import java.util.LinkedHashMap;
@@ -58,6 +59,7 @@ public class LlmService {
                 new AgentProviderProperties(),
                 new ObjectMapper(),
                 new LlmInteractionLogProperties(),
+                null,
                 Map.of()
         );
     }
@@ -67,9 +69,10 @@ public class LlmService {
             ChatClientRegistry chatClientRegistry,
             AgentProviderProperties providerProperties,
             ObjectMapper objectMapper,
-            LlmInteractionLogProperties logProperties
+            LlmInteractionLogProperties logProperties,
+            ConnectionProvider llmConnectionProvider
     ) {
-        this(chatClientRegistry, providerProperties, objectMapper, logProperties, Map.of());
+        this(chatClientRegistry, providerProperties, objectMapper, logProperties, llmConnectionProvider, Map.of());
     }
 
     /**
@@ -81,6 +84,7 @@ public class LlmService {
                 new AgentProviderProperties(),
                 new ObjectMapper(),
                 new LlmInteractionLogProperties(),
+                null,
                 legacyClientMap(bailianChatClient, siliconflowChatClient)
         );
     }
@@ -90,12 +94,13 @@ public class LlmService {
             AgentProviderProperties providerProperties,
             ObjectMapper objectMapper,
             LlmInteractionLogProperties logProperties,
+            ConnectionProvider connectionProvider,
             Map<String, ChatClient> legacyClients
     ) {
         this.chatClientRegistry = chatClientRegistry;
         this.providerProperties = providerProperties == null ? new AgentProviderProperties() : providerProperties;
         this.callLogger = new LlmCallLogger(logProperties);
-        this.openAiCompatibleSseClient = new OpenAiCompatibleSseClient(this.providerProperties, objectMapper, this.callLogger);
+        this.openAiCompatibleSseClient = new OpenAiCompatibleSseClient(this.providerProperties, objectMapper, this.callLogger, connectionProvider);
         this.anthropicSseClient = new AnthropicSseClient();
         this.legacyClients = legacyClients == null ? Map.of() : Map.copyOf(legacyClients);
     }

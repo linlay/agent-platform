@@ -16,16 +16,22 @@ import org.springframework.ai.chat.messages.ToolResponseMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
+import reactor.netty.http.client.HttpClient;
+import reactor.netty.resources.ConnectionProvider;
+import reactor.util.retry.Retry;
 
+import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -40,12 +46,15 @@ class OpenAiCompatibleSseClient {
     private final ObjectMapper objectMapper;
     private final LlmCallLogger callLogger;
     private final OpenAiSseDeltaParser openAiSseDeltaParser;
+    private final ConnectionProvider connectionProvider;
 
-    OpenAiCompatibleSseClient(AgentProviderProperties providerProperties, ObjectMapper objectMapper, LlmCallLogger callLogger) {
+    OpenAiCompatibleSseClient(AgentProviderProperties providerProperties, ObjectMapper objectMapper,
+                              LlmCallLogger callLogger, ConnectionProvider connectionProvider) {
         this.providerProperties = providerProperties;
         this.objectMapper = objectMapper;
         this.callLogger = callLogger;
         this.openAiSseDeltaParser = new OpenAiSseDeltaParser(objectMapper);
+        this.connectionProvider = connectionProvider;
     }
 
     Flux<LlmDelta> streamDeltasRawSse(
@@ -88,12 +97,17 @@ class OpenAiCompatibleSseClient {
             callLogger.info(log, "[{}][{}] LLM raw SSE delta stream request start provider={}, model={}, tools={}",
                     traceId, stage, providerKey, model, tools == null ? 0 : tools.size());
 
+            AtomicBoolean firstChunkReceived = new AtomicBoolean(false);
+
             return webClient.post()
                     .uri(resolveRawCompletionsUri(config.getBaseUrl()))
                     .accept(MediaType.TEXT_EVENT_STREAM)
                     .bodyValue(request)
                     .retrieve()
                     .bodyToFlux(String.class)
+                    .doOnNext(chunk -> firstChunkReceived.set(true))
+                    .retryWhen(Retry.max(1)
+                            .filter(ex -> !firstChunkReceived.get() && isConnectionError(ex)))
                     .doOnNext(rawChunk -> {
                         callLogger.debug(
                                 log,
@@ -159,12 +173,16 @@ class OpenAiCompatibleSseClient {
                     false,
                     null
             );
+            AtomicBoolean firstChunkReceived = new AtomicBoolean(false);
             return webClient.post()
                     .uri(resolveRawCompletionsUri(config.getBaseUrl()))
                     .accept(MediaType.TEXT_EVENT_STREAM)
                     .bodyValue(request)
                     .retrieve()
                     .bodyToFlux(String.class)
+                    .doOnNext(chunk -> firstChunkReceived.set(true))
+                    .retryWhen(Retry.max(1)
+                            .filter(ex -> !firstChunkReceived.get() && isConnectionError(ex)))
                     .<String>handle((rawChunk, sink) -> {
                         LlmDelta delta = openAiSseDeltaParser.parseOrNull(rawChunk);
                         if (delta != null && delta.content() != null && !delta.content().isEmpty()) {
@@ -221,7 +239,11 @@ class OpenAiCompatibleSseClient {
         if (config == null) {
             throw new IllegalStateException("Provider config not found");
         }
+        HttpClient httpClient = connectionProvider != null
+                ? HttpClient.create(connectionProvider)
+                : HttpClient.create();
         return WebClient.builder()
+                .clientConnector(new ReactorClientHttpConnector(httpClient))
                 .baseUrl(config.getBaseUrl())
                 .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + config.getApiKey())
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
@@ -495,5 +517,13 @@ class OpenAiCompatibleSseClient {
 
     private boolean isPlanGenerateStage(String stage) {
         return "agent-plan-generate".equals(stage);
+    }
+
+    private boolean isConnectionError(Throwable ex) {
+        if (ex instanceof IOException) {
+            return true;
+        }
+        Throwable cause = ex.getCause();
+        return cause instanceof IOException;
     }
 }
