@@ -174,14 +174,14 @@ public class OrchestratorServices {
             if (StringUtils.hasText(delta.reasoning())) {
                 reasoning.append(delta.reasoning());
                 if (emitReasoning && !toolCallObserved) {
-                    emit(sink, AgentDelta.reasoning(delta.reasoning()));
+                    emit(sink, AgentDelta.reasoning(delta.reasoning(), context.activeTaskId()));
                 }
             }
 
             if (StringUtils.hasText(delta.content())) {
                 content.append(delta.content());
                 if (emitContent && !toolCallObserved) {
-                    emit(sink, AgentDelta.content(delta.content()));
+                    emit(sink, AgentDelta.content(delta.content(), context.activeTaskId()));
                 }
             }
 
@@ -231,7 +231,7 @@ public class OrchestratorServices {
                 }
             }
             if (!streamedCalls.isEmpty()) {
-                emit(sink, AgentDelta.toolCalls(streamedCalls));
+                emit(sink, AgentDelta.toolCalls(streamedCalls, context.activeTaskId()));
             }
         }
 
@@ -261,7 +261,8 @@ public class OrchestratorServices {
                 context.toolRecords(),
                 context.request().runId(),
                 context,
-                false
+                false,
+                context.activeTaskId()
         );
         context.incrementToolCalls(batch.events().size());
         for (AgentDelta delta : batch.deltas()) {

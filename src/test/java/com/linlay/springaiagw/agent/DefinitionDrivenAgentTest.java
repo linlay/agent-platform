@@ -809,6 +809,25 @@ class DefinitionDrivenAgentTest {
         assertThat(stageSpecs.get("agent-plan-generate").userPrompt()).isNull();
         assertThat(stageSpecs.get("agent-plan-generate").messages().stream().map(message -> message.getText()).toList())
                 .containsExactly("测试 plan execute");
+        List<AgentDelta.TaskLifecycle> taskLifecycleEvents = deltas.stream()
+                .map(AgentDelta::taskLifecycle)
+                .filter(item -> item != null)
+                .toList();
+        assertThat(taskLifecycleEvents).extracting(AgentDelta.TaskLifecycle::kind).contains("start", "complete");
+        String startedTaskId = taskLifecycleEvents.stream()
+                .filter(item -> "start".equals(item.kind()))
+                .map(AgentDelta.TaskLifecycle::taskId)
+                .findFirst()
+                .orElse("");
+        assertThat(startedTaskId).isNotBlank();
+        assertThat(taskLifecycleEvents.stream()
+                .filter(item -> "complete".equals(item.kind()))
+                .map(AgentDelta.TaskLifecycle::taskId)
+                .toList()).contains(startedTaskId);
+        assertThat(deltas.stream()
+                .filter(delta -> delta.toolCalls() != null && !delta.toolCalls().isEmpty())
+                .map(AgentDelta::taskId)
+                .toList()).contains(startedTaskId);
     }
 
     @Test
@@ -1366,6 +1385,11 @@ class DefinitionDrivenAgentTest {
         assertThat(deltas).isNotNull();
         assertThat(deltas.stream().map(AgentDelta::content).filter(text -> text != null && !text.isBlank()).toList())
                 .anyMatch(text -> text.contains("更新任务状态失败 2 次"));
+        List<AgentDelta.TaskLifecycle> taskLifecycleEvents = deltas.stream()
+                .map(AgentDelta::taskLifecycle)
+                .filter(item -> item != null)
+                .toList();
+        assertThat(taskLifecycleEvents).extracting(AgentDelta.TaskLifecycle::kind).contains("start", "fail");
         assertThat(stages).contains("agent-plan-execute-step-1", "agent-plan-execute-step-1-update");
         assertThat(stages.stream().noneMatch(stage -> "agent-plan-final".equals(stage))).isTrue();
     }

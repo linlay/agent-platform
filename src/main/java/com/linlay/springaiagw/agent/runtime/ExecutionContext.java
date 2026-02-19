@@ -44,6 +44,7 @@ public class ExecutionContext {
     private final Set<String> pendingSkillIds = new LinkedHashSet<>();
     private final Set<String> disclosedSkillIds = new LinkedHashSet<>();
     private String planId;
+    private String activeTaskId;
 
     private int modelCalls;
     private int toolCalls;
@@ -121,6 +122,22 @@ public class ExecutionContext {
 
     public AgentRequest request() {
         return request;
+    }
+
+    public String activeTaskId() {
+        return activeTaskId;
+    }
+
+    public void activateTask(String taskId) {
+        if (!StringUtils.hasText(taskId)) {
+            this.activeTaskId = null;
+            return;
+        }
+        this.activeTaskId = taskId.trim();
+    }
+
+    public void clearActiveTask() {
+        this.activeTaskId = null;
     }
 
     public Budget budget() {

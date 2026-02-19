@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -185,6 +186,63 @@ class AgentDeltaToAgwInputMapperTest {
         assertThat(planEvents.getFirst().payload().get("plan")).isInstanceOf(List.class);
     }
 
+    @Test
+    void shouldMapTaskLifecycleAndBindTaskIdToLeafEvents() {
+        AgentDeltaToAgwInputMapper mapper = new AgentDeltaToAgwInputMapper("run_1");
+        List<AgwEvent> events = assembleEvents(mapper, List.of(
+                AgentDelta.planUpdate(
+                        "plan_1",
+                        "chat_1",
+                        List.of(new AgentDelta.PlanTask("task_1", "执行任务", "init"))
+                ),
+                AgentDelta.taskStart("task_1", "run_1", "task_1", "执行任务"),
+                AgentDelta.reasoning("先分析", "task_1"),
+                AgentDelta.content("再输出", "task_1"),
+                AgentDelta.toolCalls(List.of(new ToolCallDelta(
+                        "tool_1",
+                        "function",
+                        "bash",
+                        "{\"command\":\"pwd\"}"
+                )), "task_1"),
+                AgentDelta.toolResult("tool_1", "{\"ok\":true}"),
+                AgentDelta.taskComplete("task_1")
+        ));
+
+        int taskStart = indexOfEvent(events, "task.start", "taskId", "task_1");
+        int taskComplete = indexOfEvent(events, "task.complete", "taskId", "task_1");
+        int reasoningStart = indexOfEvent(events, "reasoning.start", "taskId", "task_1");
+        int contentStart = indexOfEvent(events, "content.start", "taskId", "task_1");
+        int toolStart = indexOfEvent(events, "tool.start", "taskId", "task_1");
+
+        assertThat(taskStart).isGreaterThanOrEqualTo(0);
+        assertThat(reasoningStart).isGreaterThan(taskStart);
+        assertThat(contentStart).isGreaterThan(taskStart);
+        assertThat(toolStart).isGreaterThan(taskStart);
+        assertThat(taskComplete).isGreaterThan(toolStart);
+    }
+
+    @Test
+    void shouldMapTaskFailEventWithErrorPayload() {
+        AgentDeltaToAgwInputMapper mapper = new AgentDeltaToAgwInputMapper("run_1");
+        List<AgwEvent> events = assembleEvents(mapper, List.of(
+                AgentDelta.planUpdate(
+                        "plan_1",
+                        "chat_1",
+                        List.of(new AgentDelta.PlanTask("task_1", "执行任务", "init"))
+                ),
+                AgentDelta.taskStart("task_1", "run_1", "task_1", "执行任务"),
+                AgentDelta.taskFail("task_1", Map.of("code", "task_execution_error", "message", "boom"))
+        ));
+
+        int failIndex = indexOfEvent(events, "task.fail", "taskId", "task_1");
+        assertThat(failIndex).isGreaterThanOrEqualTo(0);
+        AgwEvent failEvent = events.get(failIndex);
+        assertThat(failEvent.payload().get("error")).isInstanceOf(Map.class);
+        Map<?, ?> error = (Map<?, ?>) failEvent.payload().get("error");
+        assertThat(error.get("code")).isEqualTo("task_execution_error");
+        assertThat(error.get("message")).isEqualTo("boom");
+    }
+
     private List<AgwEvent> assembleEvents(AgentDeltaToAgwInputMapper mapper, List<AgentDelta> deltas) {
         AgwEventAssembler.EventStreamState state = new AgwEventAssembler()
                 .begin(new AgwRequest.Query(
@@ -257,5 +315,19 @@ class AgentDeltaToAgwInputMapperTest {
                 .filter(event -> type.equals(event.type()))
                 .map(event -> String.valueOf(event.payload().get(payloadKey)))
                 .toList();
+    }
+
+    private int indexOfEvent(List<AgwEvent> events, String type, String payloadKey, String payloadValue) {
+        for (int i = 0; i < events.size(); i++) {
+            AgwEvent event = events.get(i);
+            if (!type.equals(event.type())) {
+                continue;
+            }
+            Object value = event.payload().get(payloadKey);
+            if (payloadValue.equals(String.valueOf(value))) {
+                return i;
+            }
+        }
+        return -1;
     }
 }

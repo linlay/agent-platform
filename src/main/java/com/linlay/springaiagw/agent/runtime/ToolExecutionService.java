@@ -62,6 +62,18 @@ public class ToolExecutionService {
             ExecutionContext context,
             boolean emitToolCallDelta
     ) {
+        return executeToolCalls(calls, enabledToolsByName, records, runId, context, emitToolCallDelta, null);
+    }
+
+    public ToolExecutionBatch executeToolCalls(
+            List<PlannedToolCall> calls,
+            Map<String, BaseTool> enabledToolsByName,
+            List<Map<String, Object>> records,
+            String runId,
+            ExecutionContext context,
+            boolean emitToolCallDelta,
+            String taskId
+    ) {
         if (calls == null || calls.isEmpty()) {
             return new ToolExecutionBatch(List.of(), List.of());
         }
@@ -86,7 +98,7 @@ public class ToolExecutionService {
             String argsJson = toJson(resolvedArgs);
 
             if (emitToolCallDelta) {
-                deltas.add(AgentDelta.toolCalls(List.of(new ToolCallDelta(callId, toolType, toolName, argsJson))));
+                deltas.add(AgentDelta.toolCalls(List.of(new ToolCallDelta(callId, toolType, toolName, argsJson)), taskId));
             }
 
             JsonNode resultNode = invokeByKind(runId, callId, toolName, toolType, resolvedArgs, enabledToolsByName, context);

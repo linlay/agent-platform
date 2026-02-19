@@ -71,14 +71,18 @@ public class AgentDeltaToAgwInputMapper {
 
         List<AgwInput> inputs = new ArrayList<>();
 
+        if (delta.taskLifecycle() != null) {
+            appendTaskLifecycleInput(delta.taskLifecycle(), inputs);
+        }
+
         if (hasText(delta.reasoning())) {
             closeContentBlock();
-            inputs.add(new AgwInput.ReasoningDelta(openReasoningBlockIfNeeded(), delta.reasoning(), null));
+            inputs.add(new AgwInput.ReasoningDelta(openReasoningBlockIfNeeded(), delta.reasoning(), delta.taskId()));
         }
 
         if (hasText(delta.content())) {
             closeReasoningBlock();
-            inputs.add(new AgwInput.ContentDelta(openContentBlockIfNeeded(), delta.content(), null));
+            inputs.add(new AgwInput.ContentDelta(openContentBlockIfNeeded(), delta.content(), delta.taskId()));
         }
 
         if (delta.toolCalls() != null && !delta.toolCalls().isEmpty()) {
@@ -98,7 +102,7 @@ public class AgentDeltaToAgwInputMapper {
                     inputs.add(new AgwInput.ActionArgs(
                             toolId,
                             argsDelta,
-                            null,
+                            delta.taskId(),
                             toolName,
                             resolveDescription(toolName)
                     ));
@@ -111,7 +115,7 @@ public class AgentDeltaToAgwInputMapper {
                 inputs.add(new AgwInput.ToolArgs(
                         toolId,
                         argsDelta,
-                        null,
+                        delta.taskId(),
                         toolName,
                         normalizedType,
                         resolveToolApi(toolName),
@@ -169,10 +173,36 @@ public class AgentDeltaToAgwInputMapper {
         if (delta == null) {
             return false;
         }
-        return (delta.toolCalls() != null && !delta.toolCalls().isEmpty())
+        return delta.taskLifecycle() != null
+                || (delta.toolCalls() != null && !delta.toolCalls().isEmpty())
                 || (delta.toolResults() != null && !delta.toolResults().isEmpty())
                 || delta.planUpdate() != null
                 || hasText(delta.finishReason());
+    }
+
+    private void appendTaskLifecycleInput(AgentDelta.TaskLifecycle lifecycle, List<AgwInput> inputs) {
+        if (lifecycle == null || !hasText(lifecycle.kind()) || !hasText(lifecycle.taskId())) {
+            return;
+        }
+        String kind = lifecycle.kind().trim().toLowerCase();
+        switch (kind) {
+            case "start" -> {
+                if (hasText(lifecycle.runId())) {
+                    inputs.add(new AgwInput.TaskStart(
+                            lifecycle.taskId(),
+                            lifecycle.runId(),
+                            lifecycle.taskName(),
+                            lifecycle.description()
+                    ));
+                }
+            }
+            case "complete" -> inputs.add(new AgwInput.TaskComplete(lifecycle.taskId()));
+            case "cancel" -> inputs.add(new AgwInput.TaskCancel(lifecycle.taskId()));
+            case "fail" -> inputs.add(new AgwInput.TaskFail(lifecycle.taskId(), lifecycle.error()));
+            default -> {
+                // ignore unknown task lifecycle type
+            }
+        }
     }
 
     private String openReasoningBlockIfNeeded() {

@@ -15,6 +15,7 @@ import org.springframework.ai.chat.messages.UserMessage;
 import reactor.core.publisher.FluxSink;
 
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.StringJoiner;
@@ -210,19 +211,55 @@ public final class PlanExecuteMode extends AgentMode {
                 }
 
                 stepNo++;
-                services.emit(sink, AgentDelta.stageMarker("execute-task-" + stepNo));
-                String taskPrompt = renderTemplate(
-                        taskExecutionPromptTemplate,
-                        Map.of(
-                                "task_list", formatTaskList(beforeSnapshot.tasks()),
-                                "task_id", str(step.taskId(), "unknown"),
-                                "task_description", str(step.description(), "no description")
-                        )
-                );
-                context.executeMessages().add(new UserMessage(taskPrompt));
+                context.activateTask(step.taskId());
+                services.emit(sink, AgentDelta.taskStart(
+                        str(step.taskId(), "unknown"),
+                        str(context.request().runId(), "unknown"),
+                        str(step.taskId(), "unknown"),
+                        str(step.description(), "no description")
+                ));
 
-                executeTaskRounds(context, services, executeTools, stepNo, step, sink);
-                ensureTaskNotFailed(context, step);
+                boolean terminalEventEmitted = false;
+                try {
+                    services.emit(sink, AgentDelta.stageMarker("execute-task-" + stepNo));
+                    String taskPrompt = renderTemplate(
+                            taskExecutionPromptTemplate,
+                            Map.of(
+                                    "task_list", formatTaskList(beforeSnapshot.tasks()),
+                                    "task_id", str(step.taskId(), "unknown"),
+                                    "task_description", str(step.description(), "no description")
+                            )
+                    );
+                    context.executeMessages().add(new UserMessage(taskPrompt));
+
+                    executeTaskRounds(context, services, executeTools, stepNo, step, sink);
+
+                    String taskStatus = statusOfTask(context.planTasks(), step.taskId());
+                    terminalEventEmitted = emitTaskTerminalEvent(services, sink, step, taskStatus);
+                    if (!terminalEventEmitted) {
+                        throw new PlanExecutionStalledException(
+                                "计划任务执行中断：任务 [" + str(step.taskId(), "unknown")
+                                        + "] 未更新为 completed/canceled/failed。"
+                        );
+                    }
+                    if ("failed".equals(taskStatus)) {
+                        throw new PlanExecutionStalledException(
+                                "计划任务执行失败：任务 [" + str(step.taskId(), "unknown") + "] 已被标记为 failed，流程已中断。"
+                        );
+                    }
+                } catch (PlanExecutionStalledException ex) {
+                    if (!terminalEventEmitted) {
+                        emitTaskFail(services, sink, step, ex);
+                    }
+                    throw ex;
+                } catch (RuntimeException ex) {
+                    if (!terminalEventEmitted) {
+                        emitTaskFail(services, sink, step, ex);
+                    }
+                    throw ex;
+                } finally {
+                    context.clearActiveTask();
+                }
             }
 
             services.emit(sink, AgentDelta.stageMarker("summary"));
@@ -386,12 +423,43 @@ public final class PlanExecuteMode extends AgentMode {
         );
     }
 
-    private void ensureTaskNotFailed(ExecutionContext context, AgentDelta.PlanTask step) {
-        if ("failed".equals(statusOfTask(context.planTasks(), step.taskId()))) {
-            throw new PlanExecutionStalledException(
-                    "计划任务执行失败：任务 [" + str(step.taskId(), "unknown") + "] 已被标记为 failed，流程已中断。"
-            );
+    private boolean emitTaskTerminalEvent(
+            OrchestratorServices services,
+            FluxSink<AgentDelta> sink,
+            AgentDelta.PlanTask task,
+            String taskStatus
+    ) {
+        String status = normalizeStatus(taskStatus);
+        if ("completed".equals(status)) {
+            services.emit(sink, AgentDelta.taskComplete(task.taskId()));
+            return true;
         }
+        if ("canceled".equals(status)) {
+            services.emit(sink, AgentDelta.taskCancel(task.taskId()));
+            return true;
+        }
+        if ("failed".equals(status)) {
+            Map<String, Object> error = new LinkedHashMap<>();
+            error.put("code", "task_failed");
+            error.put("message", "Task status updated to failed");
+            services.emit(sink, AgentDelta.taskFail(task.taskId(), error));
+            return true;
+        }
+        return false;
+    }
+
+    private void emitTaskFail(
+            OrchestratorServices services,
+            FluxSink<AgentDelta> sink,
+            AgentDelta.PlanTask task,
+            Exception ex
+    ) {
+        Map<String, Object> error = new LinkedHashMap<>();
+        error.put("code", "task_execution_error");
+        error.put("message", ex == null || ex.getMessage() == null || ex.getMessage().isBlank()
+                ? "Task execution failed"
+                : ex.getMessage());
+        services.emit(sink, AgentDelta.taskFail(task.taskId(), error));
     }
 
     private AgentDelta.PlanTask firstUnfinishedTask(List<AgentDelta.PlanTask> tasks) {
