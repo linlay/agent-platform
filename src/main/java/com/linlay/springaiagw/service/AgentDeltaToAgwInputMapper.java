@@ -208,7 +208,7 @@ public class AgentDeltaToAgwInputMapper {
     private String openReasoningBlockIfNeeded() {
         if (!hasText(activeReasoningId)) {
             reasoningSeq++;
-            activeReasoningId = runPrefix + "_reasoning_" + reasoningSeq;
+            activeReasoningId = runPrefix + "_r_" + reasoningSeq;
         }
         return activeReasoningId;
     }
@@ -216,7 +216,7 @@ public class AgentDeltaToAgwInputMapper {
     private String openContentBlockIfNeeded() {
         if (!hasText(activeContentId)) {
             contentSeq++;
-            activeContentId = runPrefix + "_content_" + contentSeq;
+            activeContentId = runPrefix + "_c_" + contentSeq;
         }
         return activeContentId;
     }
@@ -245,7 +245,7 @@ public class AgentDeltaToAgwInputMapper {
             return indexedToolIds.get(toolCall.index());
         }
         int effectiveIndex = toolCall.index() != null ? toolCall.index() : fallbackIndex;
-        String generated = "tool_" + idCounter.incrementAndGet();
+        String generated = "t_" + idCounter.incrementAndGet();
         indexedToolIds.put(effectiveIndex, generated);
         return generated;
     }

@@ -305,6 +305,7 @@ class OpenAiCompatibleSseClient {
         Map<String, Object> request = new LinkedHashMap<>();
         request.put("model", model);
         request.put("stream", true);
+        request.put("stream_options", Map.of("include_usage", true));
         request.put("messages", buildRawMessages(systemPrompt, historyMessages, userPrompt));
 
         if (maxTokens != null && maxTokens > 0) {

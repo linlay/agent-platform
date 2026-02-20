@@ -238,9 +238,12 @@ public class ChatRecordStore {
                         system = objectMapper.treeToValue(node.get("system"), ChatWindowMemoryStore.SystemSnapshot.class);
                     }
 
-                    ChatWindowMemoryStore.PlanSnapshot planSnapshot = null;
-                    if (node.has("planSnapshot") && !node.get("planSnapshot").isNull()) {
-                        planSnapshot = objectMapper.treeToValue(node.get("planSnapshot"), ChatWindowMemoryStore.PlanSnapshot.class);
+                    ChatWindowMemoryStore.PlanSnapshot plan = null;
+                    JsonNode planNode = node.has("plan") && !node.get("plan").isNull()
+                            ? node.get("plan")
+                            : (node.has("planSnapshot") && !node.get("planSnapshot").isNull() ? node.get("planSnapshot") : null);
+                    if (planNode != null) {
+                        plan = objectMapper.treeToValue(planNode, ChatWindowMemoryStore.PlanSnapshot.class);
                     }
 
                     List<ChatWindowMemoryStore.StoredMessage> messages = new ArrayList<>();
@@ -254,7 +257,7 @@ public class ChatRecordStore {
                     }
 
                     stepsByRunId.computeIfAbsent(runId, k -> new ArrayList<>())
-                            .add(new StepEntry(stage, seq, taskId, updatedAt, system, planSnapshot, messages, lineIndex));
+                            .add(new StepEntry(stage, seq, taskId, updatedAt, system, plan, messages, lineIndex));
                 }
                 lineIndex++;
             }
@@ -282,8 +285,8 @@ public class ChatRecordStore {
                     if (firstSystem == null && step.system != null) {
                         firstSystem = step.system;
                     }
-                    if (step.planSnapshot != null) {
-                        latestPlan = step.planSnapshot;
+                    if (step.plan != null) {
+                        latestPlan = step.plan;
                     }
                     allMessages.addAll(step.messages);
                 }
@@ -373,7 +376,7 @@ public class ChatRecordStore {
             runStartPayload.put("chatId", chatId);
             events.add(event("run.start", timestampCursor, seq++, runStartPayload));
 
-            Map<String, Object> planUpdate = planUpdateEvent(run.planSnapshot, chatId, timestampCursor);
+            Map<String, Object> planUpdate = planUpdateEvent(run.plan, chatId, timestampCursor);
             if (!planUpdate.isEmpty()) {
                 timestampCursor = normalizeEventTimestamp(((Number) planUpdate.get("timestamp")).longValue(), timestampCursor);
                 events.add(planUpdate);
@@ -393,7 +396,7 @@ public class ChatRecordStore {
                             Map<String, Object> payload = new LinkedHashMap<>();
                             payload.put("reasoningId", StringUtils.hasText(message.reasoningId)
                                     ? message.reasoningId
-                                    : run.runId + "_reasoning_" + reasoningIndex++);
+                                    : run.runId + "_r_" + reasoningIndex++);
                             payload.put("text", text);
                             events.add(event("reasoning.snapshot", messageTs, seq++, payload));
                             timestampCursor = messageTs;
@@ -405,7 +408,7 @@ public class ChatRecordStore {
                             Map<String, Object> payload = new LinkedHashMap<>();
                             payload.put("contentId", StringUtils.hasText(message.contentId)
                                     ? message.contentId
-                                    : run.runId + "_content_" + contentIndex++);
+                                    : run.runId + "_c_" + contentIndex++);
                             payload.put("text", text);
                             events.add(event("content.snapshot", messageTs, seq++, payload));
                             timestampCursor = messageTs;
@@ -416,7 +419,7 @@ public class ChatRecordStore {
                             if (toolCall == null || toolCall.function == null || !StringUtils.hasText(toolCall.function.name)) {
                                 continue;
                             }
-                            IdBinding binding = resolveBindingForAssistantToolCall(run.runId, toolCall, toolIndex, actionIndex);
+                            IdBinding binding = resolveBindingForAssistantToolCall(run.runId, message, toolCall, toolIndex, actionIndex);
                             if (binding.action) {
                                 actionIndex++;
                             } else {
@@ -503,10 +506,19 @@ public class ChatRecordStore {
 
     private IdBinding resolveBindingForAssistantToolCall(
             String runId,
+            ChatWindowMemoryStore.StoredMessage message,
             ChatWindowMemoryStore.StoredToolCall toolCall,
             int toolIndex,
             int actionIndex
     ) {
+        // First check outer-level message fields (V3.1)
+        if (StringUtils.hasText(message.actionId)) {
+            return new IdBinding(message.actionId.trim(), true);
+        }
+        if (StringUtils.hasText(message.toolId)) {
+            return new IdBinding(message.toolId.trim(), false);
+        }
+        // Fallback to inner toolCall fields (V3 compat)
         boolean actionByType = StringUtils.hasText(toolCall.type)
                 && "action".equalsIgnoreCase(toolCall.type.trim());
         if (StringUtils.hasText(toolCall.actionId)) {
@@ -666,13 +678,13 @@ public class ChatRecordStore {
     ) {
         if (planSnapshot == null
                 || !StringUtils.hasText(planSnapshot.planId)
-                || planSnapshot.plan == null
-                || planSnapshot.plan.isEmpty()) {
+                || planSnapshot.tasks == null
+                || planSnapshot.tasks.isEmpty()) {
             return Map.of();
         }
 
         List<Map<String, Object>> plan = new ArrayList<>();
-        for (ChatWindowMemoryStore.PlanTaskSnapshot task : planSnapshot.plan) {
+        for (ChatWindowMemoryStore.PlanTaskSnapshot task : planSnapshot.tasks) {
             if (task == null || !StringUtils.hasText(task.taskId) || !StringUtils.hasText(task.description)) {
                 continue;
             }
@@ -726,7 +738,7 @@ public class ChatRecordStore {
             String taskId,
             long updatedAt,
             ChatWindowMemoryStore.SystemSnapshot system,
-            ChatWindowMemoryStore.PlanSnapshot planSnapshot,
+            ChatWindowMemoryStore.PlanSnapshot plan,
             List<ChatWindowMemoryStore.StoredMessage> messages,
             int lineIndex
     ) {
@@ -938,7 +950,7 @@ public class ChatRecordStore {
             long updatedAt,
             Map<String, Object> query,
             ChatWindowMemoryStore.SystemSnapshot system,
-            ChatWindowMemoryStore.PlanSnapshot planSnapshot,
+            ChatWindowMemoryStore.PlanSnapshot plan,
             List<ChatWindowMemoryStore.StoredMessage> messages,
             int lineIndex
     ) {

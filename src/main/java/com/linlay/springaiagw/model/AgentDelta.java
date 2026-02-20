@@ -16,7 +16,8 @@ public record AgentDelta(
         TaskLifecycle taskLifecycle,
         String taskId,
         String finishReason,
-        String stageMarker
+        String stageMarker,
+        Map<String, Object> usage
 ) {
 
     public AgentDelta {
@@ -37,7 +38,7 @@ public record AgentDelta(
     }
 
     public static AgentDelta reasoning(String delta, String taskId) {
-        return new AgentDelta(delta, null, List.of(), List.of(), null, null, normalizeTaskId(taskId), null, null);
+        return new AgentDelta(delta, null, List.of(), List.of(), null, null, normalizeTaskId(taskId), null, null, null);
     }
 
     public static AgentDelta content(String delta) {
@@ -45,7 +46,7 @@ public record AgentDelta(
     }
 
     public static AgentDelta content(String delta, String taskId) {
-        return new AgentDelta(null, delta, List.of(), List.of(), null, null, normalizeTaskId(taskId), null, null);
+        return new AgentDelta(null, delta, List.of(), List.of(), null, null, normalizeTaskId(taskId), null, null, null);
     }
 
     public static AgentDelta toolCalls(List<ToolCallDelta> toolCalls) {
@@ -53,7 +54,7 @@ public record AgentDelta(
     }
 
     public static AgentDelta toolCalls(List<ToolCallDelta> toolCalls, String taskId) {
-        return new AgentDelta(null, null, toolCalls, List.of(), null, null, normalizeTaskId(taskId), null, null);
+        return new AgentDelta(null, null, toolCalls, List.of(), null, null, normalizeTaskId(taskId), null, null, null);
     }
 
     public static AgentDelta toolResult(String toolId, JsonNode result) {
@@ -69,45 +70,49 @@ public record AgentDelta(
     }
 
     public static AgentDelta toolResult(String toolId, String result) {
-        return new AgentDelta(null, null, List.of(), List.of(new ToolResult(toolId, result)), null, null, null, null, null);
+        return new AgentDelta(null, null, List.of(), List.of(new ToolResult(toolId, result)), null, null, null, null, null, null);
     }
 
     public static AgentDelta planUpdate(String planId, String chatId, List<PlanTask> plan) {
-        return new AgentDelta(null, null, List.of(), List.of(), new PlanUpdate(planId, chatId, plan), null, null, null, null);
+        return new AgentDelta(null, null, List.of(), List.of(), new PlanUpdate(planId, chatId, plan), null, null, null, null, null);
     }
 
     public static AgentDelta taskStart(String taskId, String runId, String taskName, String description) {
         String normalizedTaskId = requireTaskId(taskId, "task.start");
         String normalizedRunId = requireRunId(runId);
         TaskLifecycle lifecycle = new TaskLifecycle("start", normalizedTaskId, normalizedRunId, normalizeText(taskName), normalizeText(description), null);
-        return new AgentDelta(null, null, List.of(), List.of(), null, lifecycle, normalizedTaskId, null, null);
+        return new AgentDelta(null, null, List.of(), List.of(), null, lifecycle, normalizedTaskId, null, null, null);
     }
 
     public static AgentDelta taskComplete(String taskId) {
         String normalizedTaskId = requireTaskId(taskId, "task.complete");
         TaskLifecycle lifecycle = new TaskLifecycle("complete", normalizedTaskId, null, null, null, null);
-        return new AgentDelta(null, null, List.of(), List.of(), null, lifecycle, normalizedTaskId, null, null);
+        return new AgentDelta(null, null, List.of(), List.of(), null, lifecycle, normalizedTaskId, null, null, null);
     }
 
     public static AgentDelta taskCancel(String taskId) {
         String normalizedTaskId = requireTaskId(taskId, "task.cancel");
         TaskLifecycle lifecycle = new TaskLifecycle("cancel", normalizedTaskId, null, null, null, null);
-        return new AgentDelta(null, null, List.of(), List.of(), null, lifecycle, normalizedTaskId, null, null);
+        return new AgentDelta(null, null, List.of(), List.of(), null, lifecycle, normalizedTaskId, null, null, null);
     }
 
     public static AgentDelta taskFail(String taskId, Map<String, Object> error) {
         String normalizedTaskId = requireTaskId(taskId, "task.fail");
         Map<String, Object> normalizedError = error == null ? Map.of("message", "Task failed") : Map.copyOf(error);
         TaskLifecycle lifecycle = new TaskLifecycle("fail", normalizedTaskId, null, null, null, normalizedError);
-        return new AgentDelta(null, null, List.of(), List.of(), null, lifecycle, normalizedTaskId, null, null);
+        return new AgentDelta(null, null, List.of(), List.of(), null, lifecycle, normalizedTaskId, null, null, null);
     }
 
     public static AgentDelta finish(String finishReason) {
-        return new AgentDelta(null, null, List.of(), List.of(), null, null, null, finishReason, null);
+        return new AgentDelta(null, null, List.of(), List.of(), null, null, null, finishReason, null, null);
     }
 
     public static AgentDelta stageMarker(String marker) {
-        return new AgentDelta(null, null, List.of(), List.of(), null, null, null, null, marker);
+        return new AgentDelta(null, null, List.of(), List.of(), null, null, null, null, marker, null);
+    }
+
+    public static AgentDelta usage(Map<String, Object> usage) {
+        return new AgentDelta(null, null, List.of(), List.of(), null, null, null, null, null, usage);
     }
 
     private static String normalizeTaskId(String taskId) {

@@ -7,8 +7,6 @@ spring:
   config:
     import:
       - optional:file:./application-local.yml
-      - optional:file:./config/application-local.yml
-      - optional:file:/opt/application-local.yml
       - optional:file:/opt/application.yml
   ai:
     openai:

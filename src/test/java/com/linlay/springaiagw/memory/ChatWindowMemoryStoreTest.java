@@ -94,17 +94,17 @@ class ChatWindowMemoryStoreTest {
         assertThat(assistantReasoning.path("role").asText()).isEqualTo("assistant");
         assertThat(assistantReasoning.has("reasoning_content")).isTrue();
         assertThat(assistantReasoning.has("content")).isFalse();
-        assertThat(assistantReasoning.path("_reasoningId").asText()).startsWith("reasoning_");
+        assertThat(assistantReasoning.path("_reasoningId").asText()).startsWith("r_");
 
         JsonNode assistantToolCall = stepLine.path("messages").get(2);
         assertThat(assistantToolCall.path("role").asText()).isEqualTo("assistant");
         assertThat(assistantToolCall.path("tool_calls")).hasSize(1);
-        assertThat(assistantToolCall.path("tool_calls").get(0).path("_actionId").asText()).startsWith("action_");
-        assertThat(assistantToolCall.path("tool_calls").get(0).has("_toolId")).isFalse();
+        assertThat(assistantToolCall.path("_actionId").asText()).startsWith("a_");
+        assertThat(assistantToolCall.has("_toolId")).isFalse();
 
         JsonNode toolResult = stepLine.path("messages").get(3);
         assertThat(toolResult.path("role").asText()).isEqualTo("tool");
-        assertThat(toolResult.path("_actionId").asText()).startsWith("action_");
+        assertThat(toolResult.path("_actionId").asText()).startsWith("a_");
 
         // Load history messages: reasoning excluded, others included
         List<Message> historyMessages = store.loadHistoryMessages(chatId);
@@ -258,8 +258,8 @@ class ChatWindowMemoryStoreTest {
         Path file = tempDir.resolve("chats").resolve(chatId + ".json");
         List<String> lines = Files.readAllLines(file).stream().filter(line -> !line.isBlank()).toList();
         assertThat(lines).hasSize(3); // 1 query + 2 steps
-        assertThat(lines.get(1)).contains("\"planSnapshot\":");
-        assertThat(lines.get(2)).contains("\"planSnapshot\":");
+        assertThat(lines.get(1)).contains("\"plan\":");
+        assertThat(lines.get(2)).contains("\"plan\":");
 
         // Check execute step has taskId
         JsonNode executeStep = objectMapper.readTree(lines.get(2));
@@ -270,9 +270,9 @@ class ChatWindowMemoryStoreTest {
         ChatWindowMemoryStore.PlanSnapshot latest = store.loadLatestPlanSnapshot(chatId);
         assertThat(latest).isNotNull();
         assertThat(latest.planId).isEqualTo("plan_chat_001");
-        assertThat(latest.plan).hasSize(2);
-        assertThat(latest.plan.get(0).status).isEqualTo("completed");
-        assertThat(latest.plan.get(1).status).isEqualTo("init"); // in_progress normalized to init
+        assertThat(latest.tasks).hasSize(2);
+        assertThat(latest.tasks.get(0).status).isEqualTo("completed");
+        assertThat(latest.tasks.get(1).status).isEqualTo("init"); // in_progress normalized to init
     }
 
     @Test
@@ -366,7 +366,7 @@ class ChatWindowMemoryStoreTest {
     ) {
         ChatWindowMemoryStore.PlanSnapshot snapshot = new ChatWindowMemoryStore.PlanSnapshot();
         snapshot.planId = planId;
-        snapshot.plan = tasks;
+        snapshot.tasks = tasks;
         return snapshot;
     }
 

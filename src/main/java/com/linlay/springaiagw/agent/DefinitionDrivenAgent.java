@@ -176,7 +176,7 @@ public class DefinitionDrivenAgent implements Agent {
                             skillPromptBundle.resolvedSkillsById()
                     );
                     if (latestPlanSnapshot != null) {
-                        context.initializePlan(latestPlanSnapshot.planId, toPlanTasks(latestPlanSnapshot.plan));
+                        context.initializePlan(latestPlanSnapshot.planId, toPlanTasks(latestPlanSnapshot.tasks));
                     }
                     return Flux.<AgentDelta>create(sink -> runWithMode(context, sink), FluxSink.OverflowStrategy.BUFFER)
                             .doOnNext(trace::capture)
@@ -387,14 +387,6 @@ public class DefinitionDrivenAgent implements Agent {
             return Boolean.parseBoolean(value.trim());
         }
         return true;
-    }
-
-    private Map<String, Object> usagePlaceholder() {
-        Map<String, Object> usage = new LinkedHashMap<>();
-        usage.put("input_tokens", null);
-        usage.put("output_tokens", null);
-        usage.put("total_tokens", null);
-        return usage;
     }
 
     private Long durationOrNull(long startTs, long endTs) {
@@ -630,7 +622,7 @@ public class DefinitionDrivenAgent implements Agent {
         private StepAccumulator currentStep;
         private int seqCounter = 0;
         private boolean queryLineWritten = false;
-        private ChatWindowMemoryStore.PlanSnapshot latestPlanSnapshot;
+        private ChatWindowMemoryStore.PlanSnapshot latestPlan;
 
         private TurnTrace(AgentRequest request, String runId, ChatWindowMemoryStore.SystemSnapshot lastWrittenSystem) {
             this.request = request;
@@ -665,6 +657,10 @@ public class DefinitionDrivenAgent implements Agent {
             }
 
             if (StringUtils.hasText(delta.reasoning())) {
+                if (currentStep.needNewMsgId) {
+                    currentStep.currentMsgId = StepAccumulator.generateMsgId();
+                    currentStep.needNewMsgId = false;
+                }
                 if (currentStep.pendingReasoningStartedAt <= 0) {
                     currentStep.pendingReasoningStartedAt = now;
                 }
@@ -672,6 +668,10 @@ public class DefinitionDrivenAgent implements Agent {
             }
 
             if (StringUtils.hasText(delta.content())) {
+                if (currentStep.needNewMsgId) {
+                    currentStep.currentMsgId = StepAccumulator.generateMsgId();
+                    currentStep.needNewMsgId = false;
+                }
                 if (currentStep.pendingAssistantStartedAt <= 0) {
                     currentStep.pendingAssistantStartedAt = now;
                 }
@@ -724,12 +724,19 @@ public class DefinitionDrivenAgent implements Agent {
                             durationOrNull(trace.firstSeenAt, now)
                     ));
                 }
+                currentStep.needNewMsgId = true;
             }
 
             if (delta.planUpdate() != null) {
-                latestPlanSnapshot = toPlanSnapshot(delta.planUpdate());
+                latestPlan = toPlanSnapshot(delta.planUpdate());
                 if (currentStep != null) {
-                    currentStep.planSnapshot = latestPlanSnapshot;
+                    currentStep.plan = latestPlan;
+                }
+            }
+
+            if (delta.usage() != null && !delta.usage().isEmpty()) {
+                if (currentStep != null) {
+                    currentStep.capturedUsage = delta.usage();
                 }
             }
         }
@@ -783,7 +790,7 @@ public class DefinitionDrivenAgent implements Agent {
                     seqCounter,
                     currentStep.taskId,
                     stepSystem,
-                    currentStep.planSnapshot,
+                    currentStep.plan,
                     stepMessages
             );
 
@@ -836,7 +843,7 @@ public class DefinitionDrivenAgent implements Agent {
             }
             ChatWindowMemoryStore.PlanSnapshot snapshot = new ChatWindowMemoryStore.PlanSnapshot();
             snapshot.planId = planUpdate.planId().trim();
-            snapshot.plan = List.copyOf(tasks);
+            snapshot.tasks = List.copyOf(tasks);
             return snapshot;
         }
     }
@@ -850,11 +857,19 @@ public class DefinitionDrivenAgent implements Agent {
         private long pendingAssistantStartedAt;
         private final List<ChatWindowMemoryStore.RunMessage> orderedMessages = new ArrayList<>();
         private final Map<String, ToolTrace> toolByCallId = new LinkedHashMap<>();
-        private ChatWindowMemoryStore.PlanSnapshot planSnapshot;
+        private ChatWindowMemoryStore.PlanSnapshot plan;
+        private Map<String, Object> capturedUsage;
+        private String currentMsgId;
+        private boolean needNewMsgId;
 
         private StepAccumulator(String stage, String taskId) {
             this.stage = stage;
             this.taskId = taskId;
+            this.currentMsgId = generateMsgId();
+        }
+
+        private static String generateMsgId() {
+            return "m_" + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
         }
 
         private boolean isEmpty() {
@@ -872,7 +887,38 @@ public class DefinitionDrivenAgent implements Agent {
                     toolTrace,
                     toolTrace.resultAt > 0 ? toolTrace.resultAt : now
             ));
+            // Only attach usage to the last assistant message
+            if (capturedUsage != null && !capturedUsage.isEmpty()) {
+                for (int i = orderedMessages.size() - 1; i >= 0; i--) {
+                    ChatWindowMemoryStore.RunMessage msg = orderedMessages.get(i);
+                    if ("assistant".equals(msg.role())) {
+                        orderedMessages.set(i, withUsage(msg, capturedUsage));
+                        break;
+                    }
+                }
+            }
             return List.copyOf(orderedMessages);
+        }
+
+        private static ChatWindowMemoryStore.RunMessage withUsage(
+                ChatWindowMemoryStore.RunMessage original,
+                Map<String, Object> usage
+        ) {
+            return new ChatWindowMemoryStore.RunMessage(
+                    original.role(),
+                    original.kind(),
+                    original.text(),
+                    original.name(),
+                    original.toolCallId(),
+                    original.toolCallType(),
+                    original.toolArgs(),
+                    original.reasoningId(),
+                    original.contentId(),
+                    original.msgId(),
+                    original.ts(),
+                    original.timing(),
+                    usage
+            );
         }
 
         private void appendAssistantToolCallIfNeeded(ToolTrace trace, long ts) {
@@ -882,20 +928,17 @@ public class DefinitionDrivenAgent implements Agent {
             if (!StringUtils.hasText(trace.toolName)) {
                 return;
             }
-            Map<String, Object> usage = new LinkedHashMap<>();
-            usage.put("input_tokens", null);
-            usage.put("output_tokens", null);
-            usage.put("total_tokens", null);
             orderedMessages.add(ChatWindowMemoryStore.RunMessage.assistantToolCall(
                     trace.toolName,
                     trace.toolCallId,
                     trace.toolType,
                     trace.arguments(),
+                    currentMsgId,
                     ts,
                     trace.firstSeenAt > 0 && (trace.resultAt > 0 ? trace.resultAt : ts) >= trace.firstSeenAt
                             ? (trace.resultAt > 0 ? trace.resultAt : ts) - trace.firstSeenAt
                             : null,
-                    usage
+                    null
             ));
             trace.recorded = true;
         }
@@ -905,15 +948,12 @@ public class DefinitionDrivenAgent implements Agent {
                 return;
             }
             long startedAt = pendingReasoningStartedAt > 0 ? pendingReasoningStartedAt : now;
-            Map<String, Object> usage = new LinkedHashMap<>();
-            usage.put("input_tokens", null);
-            usage.put("output_tokens", null);
-            usage.put("total_tokens", null);
             orderedMessages.add(ChatWindowMemoryStore.RunMessage.assistantReasoning(
                     pendingReasoning.toString(),
+                    currentMsgId,
                     startedAt,
                     startedAt > 0 && now >= startedAt ? now - startedAt : null,
-                    usage
+                    null
             ));
             pendingReasoning.setLength(0);
             pendingReasoningStartedAt = 0L;
@@ -925,15 +965,12 @@ public class DefinitionDrivenAgent implements Agent {
             }
             long now = System.currentTimeMillis();
             long startedAt = pendingAssistantStartedAt > 0 ? pendingAssistantStartedAt : now;
-            Map<String, Object> usage = new LinkedHashMap<>();
-            usage.put("input_tokens", null);
-            usage.put("output_tokens", null);
-            usage.put("total_tokens", null);
             orderedMessages.add(ChatWindowMemoryStore.RunMessage.assistantContent(
                     pendingAssistant.toString(),
+                    currentMsgId,
                     startedAt,
                     startedAt > 0 && now >= startedAt ? now - startedAt : null,
-                    usage
+                    null
             ));
             pendingAssistant.setLength(0);
             pendingAssistantStartedAt = 0L;

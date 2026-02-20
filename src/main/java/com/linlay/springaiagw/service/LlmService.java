@@ -486,7 +486,8 @@ public class LlmService {
                             && (StringUtils.hasText(delta.reasoning())
                             || (StringUtils.hasText(delta.content()))
                             || (delta.toolCalls() != null && !delta.toolCalls().isEmpty())
-                            || StringUtils.hasText(delta.finishReason())))
+                            || StringUtils.hasText(delta.finishReason())
+                            || (delta.usage() != null && !delta.usage().isEmpty())))
                     .doOnNext(delta -> callLogger.appendDeltaLog(responseBuffer, delta, traceId, stage))
                     .doOnComplete(() -> callLogger.info(
                             log,

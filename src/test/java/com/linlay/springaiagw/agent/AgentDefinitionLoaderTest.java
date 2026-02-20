@@ -121,6 +121,52 @@ class AgentDefinitionLoaderTest {
     }
 
     @Test
+    void shouldLoadPlanExecuteWithCommentsAndTripleQuotedPrompts() throws IOException {
+        Files.writeString(tempDir.resolve("demoModePlanExecute.json"), "{" + "\n"
+                + "  \"key\": \"demoModePlanExecute\",\n"
+                + "  \"description\": \"plan execute with comments\",\n"
+                + "  \"modelConfig\": {\n"
+                + "    \"providerKey\": \"bailian\",\n"
+                + "    \"model\": \"qwen3-max\"\n"
+                + "  },\n"
+                + "  \"mode\": \"PLAN_EXECUTE\",\n"
+                + "  \"planExecute\": {\n"
+                + "    \"plan\": {\n"
+                + "      // \"deepThinking\": true,\n"
+                + "      \"systemPrompt\": \"\"\"\n"
+                + "你是高级规划助手。\n"
+                + "先规划任务。\n"
+                + "\"\"\"\n"
+                + "    },\n"
+                + "    \"execute\": {\n"
+                + "      /* 执行阶段系统提示 */\n"
+                + "      \"systemPrompt\": \"\"\"\n"
+                + "你是执行助手。\n"
+                + "根据taskId执行任务。\n"
+                + "\"\"\"\n"
+                + "    },\n"
+                + "    \"summary\": {\n"
+                + "      \"systemPrompt\": \"总结\"\n"
+                + "    }\n"
+                + "  }\n"
+                + "}\n");
+
+        AgentCatalogProperties properties = new AgentCatalogProperties();
+        properties.setExternalDir(tempDir.toString());
+        AgentDefinitionLoader loader = new AgentDefinitionLoader(new ObjectMapper(), properties, null);
+
+        AgentDefinition definition = loader.loadAll().stream()
+                .filter(item -> "demoModePlanExecute".equals(item.id()))
+                .findFirst()
+                .orElseThrow();
+        PlanExecuteMode mode = (PlanExecuteMode) definition.agentMode();
+
+        assertThat(mode.planStage().systemPrompt()).isEqualTo("你是高级规划助手。\n先规划任务。");
+        assertThat(mode.executeStage().systemPrompt()).isEqualTo("你是执行助手。\n根据taskId执行任务。");
+        assertThat(mode.summaryStage().systemPrompt()).isEqualTo("总结");
+    }
+
+    @Test
     void shouldParseAllThreeModes() throws IOException {
         Files.writeString(tempDir.resolve("m_oneshot.json"), """
                 {

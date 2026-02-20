@@ -68,7 +68,8 @@ public class OrchestratorServices {
     public record ModelTurn(
             String finalText,
             String reasoningText,
-            List<PlannedToolCall> toolCalls
+            List<PlannedToolCall> toolCalls,
+            Map<String, Object> usage
     ) {
     }
 
@@ -144,6 +145,7 @@ public class OrchestratorServices {
         int seq = 0;
         int deltaSeq = 0;
         boolean toolCallObserved = false;
+        Map<String, Object> capturedUsage = null;
 
         for (LlmDelta delta : llmService.streamDeltas(new LlmCallSpec(
                 resolveProvider(stageSettings, context),
@@ -233,6 +235,11 @@ public class OrchestratorServices {
             if (!streamedCalls.isEmpty()) {
                 emit(sink, AgentDelta.toolCalls(streamedCalls, context.activeTaskId()));
             }
+
+            if (delta.usage() != null && !delta.usage().isEmpty()) {
+                capturedUsage = delta.usage();
+                emit(sink, AgentDelta.usage(capturedUsage));
+            }
         }
 
         List<PlannedToolCall> plannedToolCalls = new ArrayList<>();
@@ -245,7 +252,7 @@ public class OrchestratorServices {
             plannedToolCalls.add(new PlannedToolCall(toolName, args, acc.callId));
         }
 
-        return new ModelTurn(content.toString(), reasoning.toString(), plannedToolCalls);
+        return new ModelTurn(content.toString(), reasoning.toString(), plannedToolCalls, capturedUsage);
     }
 
     public void executeToolsAndEmit(

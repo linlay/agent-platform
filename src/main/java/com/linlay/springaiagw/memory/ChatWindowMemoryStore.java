@@ -1,5 +1,6 @@
 package com.linlay.springaiagw.memory;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -105,7 +106,7 @@ public class ChatWindowMemoryStore {
             int seq,
             String taskId,
             SystemSnapshot system,
-            PlanSnapshot planSnapshot,
+            PlanSnapshot plan,
             List<RunMessage> runMessages
     ) {
         if (!isValidChatId(chatId) || runMessages == null || runMessages.isEmpty()) {
@@ -127,7 +128,7 @@ public class ChatWindowMemoryStore {
         line.taskId = hasText(taskId) ? taskId.trim() : null;
         line.updatedAt = now;
         line.system = normalizeSystemSnapshot(system);
-        line.planSnapshot = normalizePlanSnapshot(planSnapshot);
+        line.plan = normalizePlanSnapshot(plan);
         line.messages = storedMessages;
 
         appendLine(chatId, line);
@@ -139,9 +140,9 @@ public class ChatWindowMemoryStore {
         }
         List<ParsedLine> lines = readAllParsedLines(chatId);
         for (int i = lines.size() - 1; i >= 0; i--) {
-            if (lines.get(i) instanceof ParsedStepLine step && step.planSnapshot() != null) {
-                PlanSnapshot normalized = normalizePlanSnapshot(step.planSnapshot());
-                if (normalized != null && normalized.plan != null && !normalized.plan.isEmpty()) {
+            if (lines.get(i) instanceof ParsedStepLine step && step.plan() != null) {
+                PlanSnapshot normalized = normalizePlanSnapshot(step.plan());
+                if (normalized != null && normalized.tasks != null && !normalized.tasks.isEmpty()) {
                     return normalized;
                 }
             }
@@ -275,9 +276,10 @@ public class ChatWindowMemoryStore {
         stored.ts = ts;
         stored.reasoningId = hasText(message.reasoningId())
                 ? message.reasoningId().trim()
-                : shortId("reasoning", runId + "_" + ts + "_" + index);
+                : shortId("r", runId + "_" + ts + "_" + index);
+        stored.msgId = hasText(message.msgId()) ? message.msgId().trim() : null;
         stored.timing = positiveOrNull(message.timing());
-        stored.usage = usageOrDefault(message.usage());
+        stored.usage = usageOrNull(message.usage());
         return stored;
     }
 
@@ -291,9 +293,10 @@ public class ChatWindowMemoryStore {
         stored.ts = ts;
         stored.contentId = hasText(message.contentId())
                 ? message.contentId().trim()
-                : shortId("content", runId + "_" + ts + "_" + index);
+                : shortId("c", runId + "_" + ts + "_" + index);
+        stored.msgId = hasText(message.msgId()) ? message.msgId().trim() : null;
         stored.timing = positiveOrNull(message.timing());
-        stored.usage = usageOrDefault(message.usage());
+        stored.usage = usageOrNull(message.usage());
         return stored;
     }
 
@@ -320,18 +323,19 @@ public class ChatWindowMemoryStore {
         function.name = toolName;
         function.arguments = message.toolArgs().trim();
         toolCall.function = function;
-        if (identity.action) {
-            toolCall.actionId = identity.id;
-        } else {
-            toolCall.toolId = identity.id;
-        }
 
         StoredMessage stored = new StoredMessage();
         stored.role = "assistant";
         stored.toolCalls = List.of(toolCall);
         stored.ts = ts;
+        stored.msgId = hasText(message.msgId()) ? message.msgId().trim() : null;
+        if (identity.action) {
+            stored.actionId = identity.id;
+        } else {
+            stored.toolId = identity.id;
+        }
         stored.timing = positiveOrNull(message.timing());
-        stored.usage = usageOrDefault(message.usage());
+        stored.usage = usageOrNull(message.usage());
         return stored;
     }
 
@@ -441,9 +445,12 @@ public class ChatWindowMemoryStore {
                 system = objectMapper.treeToValue(node.get("system"), SystemSnapshot.class);
             }
 
-            PlanSnapshot planSnapshot = null;
-            if (node.has("planSnapshot") && !node.get("planSnapshot").isNull()) {
-                planSnapshot = objectMapper.treeToValue(node.get("planSnapshot"), PlanSnapshot.class);
+            PlanSnapshot plan = null;
+            JsonNode planNode = node.has("plan") && !node.get("plan").isNull()
+                    ? node.get("plan")
+                    : (node.has("planSnapshot") && !node.get("planSnapshot").isNull() ? node.get("planSnapshot") : null);
+            if (planNode != null) {
+                plan = objectMapper.treeToValue(planNode, PlanSnapshot.class);
             }
 
             List<StoredMessage> messages = new ArrayList<>();
@@ -456,7 +463,7 @@ public class ChatWindowMemoryStore {
                 }
             }
 
-            return new ParsedStepLine(chatId, runId, stage, seq, taskId, updatedAt, system, planSnapshot, List.copyOf(messages));
+            return new ParsedStepLine(chatId, runId, stage, seq, taskId, updatedAt, system, plan, List.copyOf(messages));
         } catch (Exception ignored) {
             return null;
         }
@@ -623,11 +630,11 @@ public class ChatWindowMemoryStore {
             return null;
         }
         PlanSnapshot normalized = objectMapper.convertValue(source, PlanSnapshot.class);
-        if (normalized == null || !hasText(normalized.planId) || normalized.plan == null || normalized.plan.isEmpty()) {
+        if (normalized == null || !hasText(normalized.planId) || normalized.tasks == null || normalized.tasks.isEmpty()) {
             return null;
         }
-        List<PlanTaskSnapshot> plan = new ArrayList<>();
-        for (PlanTaskSnapshot task : normalized.plan) {
+        List<PlanTaskSnapshot> tasks = new ArrayList<>();
+        for (PlanTaskSnapshot task : normalized.tasks) {
             if (task == null || !hasText(task.taskId) || !hasText(task.description)) {
                 continue;
             }
@@ -635,14 +642,14 @@ public class ChatWindowMemoryStore {
             item.taskId = task.taskId.trim();
             item.description = task.description.trim();
             item.status = normalizeStatus(task.status);
-            plan.add(item);
+            tasks.add(item);
         }
-        if (plan.isEmpty()) {
+        if (tasks.isEmpty()) {
             return null;
         }
         PlanSnapshot snapshot = new PlanSnapshot();
         snapshot.planId = normalized.planId.trim();
-        snapshot.plan = List.copyOf(plan);
+        snapshot.tasks = List.copyOf(tasks);
         return snapshot;
     }
 
@@ -686,9 +693,18 @@ public class ChatWindowMemoryStore {
 
     private ToolIdentity createToolIdentity(String toolCallId, String toolName, String toolType) {
         boolean action = "action".equalsIgnoreCase(normalizeType(toolType)) || isActionTool(toolName);
-        String prefix = action ? "action" : "tool";
-        String id = shortId(prefix, toolCallId);
-        return new ToolIdentity(id, action);
+        if (action) {
+            String id = shortId("a", toolCallId);
+            return new ToolIdentity(id, true);
+        }
+        String normalizedType = normalizeType(toolType);
+        if ("frontend".equalsIgnoreCase(normalizedType)) {
+            String id = shortId("t", toolCallId);
+            return new ToolIdentity(id, false);
+        }
+        // backend: use the raw LLM tool_call_id directly
+        String id = hasText(toolCallId) ? toolCallId.trim() : shortId("t", toolCallId);
+        return new ToolIdentity(id, false);
     }
 
     private String normalizeType(String rawType) {
@@ -730,15 +746,11 @@ public class ChatWindowMemoryStore {
         return prefix + "_" + shortPart;
     }
 
-    private Map<String, Object> usageOrDefault(Map<String, Object> usage) {
+    private Map<String, Object> usageOrNull(Map<String, Object> usage) {
         if (usage != null && !usage.isEmpty()) {
             return usage;
         }
-        LinkedHashMap<String, Object> defaults = new LinkedHashMap<>();
-        defaults.put("input_tokens", null);
-        defaults.put("output_tokens", null);
-        defaults.put("total_tokens", null);
-        return defaults;
+        return null;
     }
 
     private Long positiveOrNull(Long value) {
@@ -824,33 +836,42 @@ public class ChatWindowMemoryStore {
             String toolArgs,
             String reasoningId,
             String contentId,
+            String msgId,
             Long ts,
             Long timing,
             Map<String, Object> usage
     ) {
 
         public static RunMessage user(String content) {
-            return new RunMessage("user", "user_content", content, null, null, null, null, null, null, null, null, null);
+            return new RunMessage("user", "user_content", content, null, null, null, null, null, null, null, null, null, null);
         }
 
         public static RunMessage user(String content, Long ts) {
-            return new RunMessage("user", "user_content", content, null, null, null, null, null, null, ts, null, null);
+            return new RunMessage("user", "user_content", content, null, null, null, null, null, null, null, ts, null, null);
         }
 
         public static RunMessage assistantReasoning(String content, Long ts, Long timing, Map<String, Object> usage) {
-            return new RunMessage("assistant", "assistant_reasoning", content, null, null, null, null, null, null, ts, timing, usage);
+            return new RunMessage("assistant", "assistant_reasoning", content, null, null, null, null, null, null, null, ts, timing, usage);
+        }
+
+        public static RunMessage assistantReasoning(String content, String msgId, Long ts, Long timing, Map<String, Object> usage) {
+            return new RunMessage("assistant", "assistant_reasoning", content, null, null, null, null, null, null, msgId, ts, timing, usage);
         }
 
         public static RunMessage assistantContent(String content) {
-            return new RunMessage("assistant", "assistant_content", content, null, null, null, null, null, null, null, null, null);
+            return new RunMessage("assistant", "assistant_content", content, null, null, null, null, null, null, null, null, null, null);
         }
 
         public static RunMessage assistantContent(String content, Long ts, Long timing, Map<String, Object> usage) {
-            return new RunMessage("assistant", "assistant_content", content, null, null, null, null, null, null, ts, timing, usage);
+            return new RunMessage("assistant", "assistant_content", content, null, null, null, null, null, null, null, ts, timing, usage);
+        }
+
+        public static RunMessage assistantContent(String content, String msgId, Long ts, Long timing, Map<String, Object> usage) {
+            return new RunMessage("assistant", "assistant_content", content, null, null, null, null, null, null, msgId, ts, timing, usage);
         }
 
         public static RunMessage assistantToolCall(String toolName, String toolCallId, String toolArgs) {
-            return assistantToolCall(toolName, toolCallId, "function", toolArgs, null, null, null);
+            return assistantToolCall(toolName, toolCallId, "function", toolArgs, null, null, null, null);
         }
 
         public static RunMessage assistantToolCall(
@@ -861,7 +882,7 @@ public class ChatWindowMemoryStore {
                 Long timing,
                 Map<String, Object> usage
         ) {
-            return assistantToolCall(toolName, toolCallId, "function", toolArgs, ts, timing, usage);
+            return assistantToolCall(toolName, toolCallId, "function", toolArgs, null, ts, timing, usage);
         }
 
         public static RunMessage assistantToolCall(
@@ -873,11 +894,24 @@ public class ChatWindowMemoryStore {
                 Long timing,
                 Map<String, Object> usage
         ) {
-            return new RunMessage("assistant", "assistant_tool_call", null, toolName, toolCallId, toolCallType, toolArgs, null, null, ts, timing, usage);
+            return new RunMessage("assistant", "assistant_tool_call", null, toolName, toolCallId, toolCallType, toolArgs, null, null, null, ts, timing, usage);
+        }
+
+        public static RunMessage assistantToolCall(
+                String toolName,
+                String toolCallId,
+                String toolCallType,
+                String toolArgs,
+                String msgId,
+                Long ts,
+                Long timing,
+                Map<String, Object> usage
+        ) {
+            return new RunMessage("assistant", "assistant_tool_call", null, toolName, toolCallId, toolCallType, toolArgs, null, null, msgId, ts, timing, usage);
         }
 
         public static RunMessage toolResult(String toolName, String toolCallId, String toolArgs, String toolResult) {
-            return new RunMessage("tool", "tool_result", toolResult, toolName, toolCallId, null, toolArgs, null, null, null, null, null);
+            return new RunMessage("tool", "tool_result", toolResult, toolName, toolCallId, null, toolArgs, null, null, null, null, null, null);
         }
 
         public static RunMessage toolResult(
@@ -887,7 +921,7 @@ public class ChatWindowMemoryStore {
                 Long ts,
                 Long timing
         ) {
-            return new RunMessage("tool", "tool_result", toolResult, toolName, toolCallId, null, null, null, null, ts, timing, null);
+            return new RunMessage("tool", "tool_result", toolResult, toolName, toolCallId, null, null, null, null, null, ts, timing, null);
         }
     }
 
@@ -914,7 +948,8 @@ public class ChatWindowMemoryStore {
         public String taskId;
         public long updatedAt;
         public SystemSnapshot system;
-        public PlanSnapshot planSnapshot;
+        @JsonProperty("plan")
+        public PlanSnapshot plan;
         public List<StoredMessage> messages = new ArrayList<>();
     }
 
@@ -938,7 +973,7 @@ public class ChatWindowMemoryStore {
             String taskId,
             long updatedAt,
             SystemSnapshot system,
-            PlanSnapshot planSnapshot,
+            PlanSnapshot plan,
             List<StoredMessage> messages
     ) implements ParsedLine {
     }
@@ -968,7 +1003,9 @@ public class ChatWindowMemoryStore {
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class PlanSnapshot {
         public String planId;
-        public List<PlanTaskSnapshot> plan;
+        @JsonProperty("tasks")
+        @JsonAlias("plan")
+        public List<PlanTaskSnapshot> tasks;
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -995,6 +1032,8 @@ public class ChatWindowMemoryStore {
         public String reasoningId;
         @JsonProperty("_contentId")
         public String contentId;
+        @JsonProperty("_msgId")
+        public String msgId;
         @JsonProperty("_toolId")
         public String toolId;
         @JsonProperty("_actionId")

@@ -17,6 +17,7 @@
   },
   "planExecute": {
     "plan": {
+      // "deepThinking": true, // 不启用deepThinking
       "systemPrompt": """
         你是高级规划助手。
         根据用户的问题进行深度思考，然后规划出2～4个任务。当前plan阶段必须调用_plan_add_tasks_工具。

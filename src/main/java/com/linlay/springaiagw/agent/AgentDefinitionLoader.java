@@ -1,5 +1,6 @@
 package com.linlay.springaiagw.agent;
 
+import com.fasterxml.jackson.core.json.JsonReadFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linlay.springaiagw.agent.mode.AgentMode;
@@ -92,7 +93,11 @@ public class AgentDefinitionLoader {
         try {
             String raw = Files.readString(file);
             String normalizedJson = normalizeMultilinePrompts(raw);
-            JsonNode root = objectMapper.readTree(normalizedJson);
+            JsonNode root = objectMapper
+                    .reader()
+                    .with(JsonReadFeature.ALLOW_JAVA_COMMENTS.mappedFeature())
+                    .with(JsonReadFeature.ALLOW_YAML_COMMENTS.mappedFeature())
+                    .readTree(normalizedJson);
             if (isLegacyConfig(root)) {
                 log.warn("Skip legacy agent config {}. Only Agent JSON v2 is supported.", file);
                 return java.util.Optional.empty();

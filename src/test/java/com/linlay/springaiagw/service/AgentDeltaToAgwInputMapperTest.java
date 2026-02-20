@@ -107,7 +107,7 @@ class AgentDeltaToAgwInputMapperTest {
         ));
 
         List<String> reasoningStartIds = payloadValues(events, "reasoning.start", "reasoningId");
-        assertThat(reasoningStartIds).containsExactly("run_1_reasoning_1", "run_1_reasoning_2");
+        assertThat(reasoningStartIds).containsExactly("run_1_r_1", "run_1_r_2");
     }
 
     @Test
@@ -126,7 +126,7 @@ class AgentDeltaToAgwInputMapperTest {
         ));
 
         List<String> contentStartIds = payloadValues(events, "content.start", "contentId");
-        assertThat(contentStartIds).containsExactly("run_1_content_1", "run_1_content_2");
+        assertThat(contentStartIds).containsExactly("run_1_c_1", "run_1_c_2");
     }
 
     @Test
@@ -145,7 +145,7 @@ class AgentDeltaToAgwInputMapperTest {
         ));
 
         List<String> reasoningStartIds = payloadValues(events, "reasoning.start", "reasoningId");
-        assertThat(reasoningStartIds).containsExactly("run_1_reasoning_1", "run_1_reasoning_2");
+        assertThat(reasoningStartIds).containsExactly("run_1_r_1", "run_1_r_2");
     }
 
     @Test
@@ -158,7 +158,7 @@ class AgentDeltaToAgwInputMapperTest {
         ));
 
         List<String> contentStartIds = payloadValues(events, "content.start", "contentId");
-        assertThat(contentStartIds).containsExactly("run_1_content_1", "run_1_content_2");
+        assertThat(contentStartIds).containsExactly("run_1_c_1", "run_1_c_2");
     }
 
     @Test
