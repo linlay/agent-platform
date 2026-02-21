@@ -2,6 +2,8 @@
 
 本仓库是可独立构建和部署的 Spring AI Agent 服务，已经改为直接引用仓库内的 SDK jar，不依赖本地 Maven 安装。
 
+> 详细架构设计、数据模型、API 契约和开发约束见 [CLAUDE.md](./CLAUDE.md)。
+
 ## 提供接口
 
 - `GET /api/agents`: 智能体列表
@@ -111,7 +113,9 @@
 └── Dockerfile
 ```
 
-## SDK jar 放置方式
+## 构建与运行
+
+### SDK jar 放置方式
 
 从旁边的 `agw-springai-sdk` 项目构建后，将 jar 放到本仓库 `libs/`：
 
@@ -121,7 +125,7 @@ cp ../agw-springai-sdk/target/agw-springai-sdk-0.0.1-SNAPSHOT.jar ./libs/
 
 `pom.xml` 已固定通过 `systemPath` 引用 `libs/agw-springai-sdk-0.0.1-SNAPSHOT.jar`，可以直接提交到 Git。
 
-## 本地运行
+### 本地运行
 
 ```bash
 mvn clean test
@@ -129,6 +133,11 @@ mvn spring-boot:run
 ```
 
 默认端口 `8080`。
+
+### settings.xml 说明
+
+- `settings.xml` 作为构建镜像时 Maven 配置，会被 `Dockerfile` 拷贝到 Maven 全局配置目录。
+- 当前配置使用 `central` 的阿里云镜像，加速依赖下载。
 
 ## 认证配置（JWT）
 
@@ -162,7 +171,226 @@ agent:
 - `jwks-uri` / `issuer` / `jwks-cache-seconds` 必须三者同时配置；只配部分会启动失败。
 - 当前仅支持 RSA 公钥（与 RS256 验签一致）。
 
-## 接口测试用例
+## Agent 配置快速上手
+
+> 完整 schema 规范、配置规则和已移除字段列表见 [CLAUDE.md #Agent JSON 定义](./CLAUDE.md#agent-json-定义)。
+
+- `agents/*.json` 以 `key` 作为 agentId；若缺失 `key`，回退为文件名（不含 `.json`）
+- 服务启动时会先加载一次，之后每 10 秒刷新一次缓存（默认值）
+- 可通过 `AGENT_EXTERNAL_DIR` 指定目录，通过 `AGENT_REFRESH_INTERVAL_MS` 调整刷新间隔
+- `systemPrompt` 同时支持标准 JSON 字符串和 `"""` 多行写法（仅 `systemPrompt`）
+
+### ONESHOT 示例
+
+单轮直答；若配置工具可在单轮中调用工具并收敛最终答案。
+
+```json
+{
+  "key": "fortune_teller",
+  "name": "算命大师",
+  "icon": "emoji:🔮",
+  "description": "算命大师",
+  "modelConfig": {
+    "providerKey": "bailian",
+    "model": "qwen3-max",
+    "reasoning": { "enabled": false }
+  },
+  "mode": "ONESHOT",
+  "plain": {
+    "systemPrompt": "你是算命大师"
+  }
+}
+```
+
+### REACT 示例
+
+最多 N 轮循环（默认 6）：思考 → 调 1 个工具 → 观察结果。
+
+```json
+{
+  "mode": "REACT",
+  "modelConfig": {
+    "providerKey": "bailian",
+    "model": "qwen3-max",
+    "reasoning": { "enabled": true, "effort": "MEDIUM" }
+  },
+  "toolConfig": {
+    "backends": ["_bash_", "city_datetime"],
+    "frontends": [],
+    "actions": []
+  },
+  "react": {
+    "systemPrompt": """
+你是算命大师
+请先问出生日期
+""",
+    "maxSteps": 6
+  }
+}
+```
+
+### PLAN_EXECUTE 示例
+
+先规划后执行（plan 阶段按 `deepThinking` 选择一回合或两回合）。
+
+```json
+{
+  "mode": "PLAN_EXECUTE",
+  "modelConfig": {
+    "providerKey": "bailian",
+    "model": "qwen3-max",
+    "reasoning": { "enabled": true, "effort": "HIGH" }
+  },
+  "toolConfig": {
+    "backends": ["_bash_", "city_datetime", "mock_city_weather"],
+    "frontends": [],
+    "actions": []
+  },
+  "planExecute": {
+    "plan": { "systemPrompt": "先规划", "deepThinking": true },
+    "execute": { "systemPrompt": "再执行" },
+    "summary": { "systemPrompt": "最后总结" }
+  }
+}
+```
+
+### Skills 配置示例
+
+```json
+{
+  "skills": ["math_basic", "text_utils"],
+  "toolConfig": {
+    "backends": ["_skill_run_script_"]
+  }
+}
+```
+
+## 工具 / 视图 / 技能目录
+
+> 工具系统设计规范（继承规则、提交协议、action 行为）见 [CLAUDE.md #Tool 系统](./CLAUDE.md#tool-系统)。
+> Skills 系统设计见 [CLAUDE.md #Skills 系统](./CLAUDE.md#skills-系统)。
+> Viewport 系统设计见 [CLAUDE.md #Viewport 系统](./CLAUDE.md#viewport-系统)。
+
+- 运行目录默认值：
+  - agents: `agents/`
+  - viewports: `viewports/`
+  - tools: `tools/`
+  - skills: `skills/`
+- 启动时会将 `src/main/resources/agents|viewports|tools|skills` 同步到外部目录：
+  - `AGENT_EXTERNAL_DIR`
+  - `AGENT_VIEWPORT_EXTERNAL_DIR`
+  - `AGENT_TOOLS_EXTERNAL_DIR`
+  - `AGENT_SKILL_EXTERNAL_DIR`
+- 同名内置文件会覆盖；外部额外自定义文件会保留，不会被删除。
+- `viewports` 支持后缀：`.html`、`.qlc`、`.dqlc`、`.json_schema`、`.custom`，默认每 30 秒刷新内存快照。
+- `tools`:
+  - 后端工具文件：`*.backend`
+  - 前端工具文件：`*.frontend`
+  - 动作文件：`*.action`
+  - 文件内容均为模型工具定义 JSON（`{"tools":[...]}`）
+- `skills`:
+  - 目录结构：`skills/<skill-id>/SKILL.md`（强约束，目录式）
+  - 可选子目录：`scripts/`、`references/`、`assets/`
+  - `skill-id` 取目录名，`SKILL.md` frontmatter 的 `name/description` 作为元信息。
+- `show_weather_card` 当前仅作为 viewport（`viewports/show_weather_card.html`），不是可调用 tool。
+
+### /api/viewport 约定
+
+- `GET /api/viewport?viewportKey=weather_card`
+- `chatId`、`runId` 为可选参数，不参与必填校验。
+- 返回：
+  - `html` 文件：`data = {"html":"<...>"}`
+  - `qlc/dqlc/json_schema/custom`：`data` 直接是文件内 JSON 对象
+- `viewportKey` 不存在时返回 `404`。
+
+### 前端 tool 提交流程
+
+- 当前端工具触发时，SSE `tool.start` / `tool.snapshot` 会包含 `toolType`、`toolKey`、`toolTimeout`。
+- 默认等待超时 5 分钟（可配置）。
+- `POST /api/submit` 请求体：`runId` + `toolId` + `params`。
+- 成功命中后会释放对应 `runId + toolId` 的等待；未命中返回 `accepted=false`。
+- 动作工具触发 `action.start` 后不等待提交，直接返回 `"OK"` 给模型。
+
+## 内置能力
+
+### 内置智能体
+
+- `demoModePlain`（`ONESHOT`）：单次直答。
+- `demoModeThinking`（`ONESHOT`）：开启 reasoning 的单次作答。
+- `demoModePlainTooling`（`ONESHOT`）：单轮按需调用工具。
+- `demoModeReact`（`REACT`）：按需多轮工具调用。
+- `demoModePlanExecute`（`PLAN_EXECUTE`）：先规划后执行。
+- `demoViewport`（`PLAN_EXECUTE`）：调用天气工具，输出 viewport 天气卡片。
+- `demoAction`（`ONESHOT`）：调用 `switch_theme` / `launch_fireworks` / `show_modal`。
+- `demoAgentCreator`（`PLAN_EXECUTE`）：调用 `agent_file_create` 创建/更新 agent。
+- `demoModePlainSkillMath`（`ONESHOT`）：加载 skills，调用 `_skill_run_script_` 完成确定性计算。
+- `demoConfirmDialog`（`REACT`）：确认对话框 human-in-the-loop 示例。
+
+### 内置 Action
+
+- `switch_theme(theme)`：主题切换，`theme` 仅支持 `light/dark`。
+- `launch_fireworks(durationMs?)`：播放烟花特效，`durationMs` 可选（毫秒）。
+- `show_modal(title, content, closeText?)`：弹出模态框，`title/content` 必填，`closeText` 可选。
+
+### 内置 Skills
+
+- `screenshot`：截图流程示例（含脚本 smoke test）。
+- `math_basic`：算术计算（add/sub/mul/div/pow/mod）。
+- `math_stats`：统计计算（summary/count/sum/min/max/mean/median/mode/stdev）。
+- `text_utils`：文本指标（字符/词数/行数，可选空白归一化）。
+- `slack-gif-creator`：GIF 动画创建。
+
+### 内置工具
+
+- `_skill_run_script_`：执行 skills 目录下脚本或临时 Python 脚本。
+- `_bash_`：Shell 命令执行，受 `allowed-paths` 白名单约束。
+- `city_datetime`：获取城市当前日期时间。
+- `mock_city_weather`：模拟城市天气数据。
+- `agent_file_create`：创建/更新 agent JSON 文件（校验 key 仅允许 `A-Za-z0-9_-`，最长 64）。
+
+## Bash 工具配置
+
+`_bash_` 工具默认仅允许访问工作目录（`user.dir`）。工具返回文本包含 `exitCode`、`"workingDirectory"`、`stdout`、`stderr`。若需要让 Agent 在容器内读取 `/opt` 等目录，可配置：
+
+```yaml
+agent:
+  tools:
+    bash:
+      working-directory: /opt/app
+      allowed-paths:
+        - /opt
+```
+
+也可使用环境变量：
+
+```bash
+AGENT_BASH_WORKING_DIRECTORY=/opt/app
+AGENT_BASH_ALLOWED_PATHS=/opt,/data
+```
+
+## 环境变量速查
+
+> 完整环境变量列表（含属性键、默认值和分类说明）见 [CLAUDE.md #Configuration](./CLAUDE.md#configuration)。
+
+常用运维变量：
+
+| 环境变量 | 默认值 | 说明 |
+|---------|-------|------|
+| `SERVER_PORT` | `8080` | HTTP 服务端口 |
+| `AGENT_EXTERNAL_DIR` | `agents` | Agent 定义目录 |
+| `AGENT_REFRESH_INTERVAL_MS` | `10000` | Agent 刷新间隔（ms） |
+| `AGENT_VIEWPORT_EXTERNAL_DIR` | `viewports` | Viewport 目录 |
+| `AGENT_TOOLS_EXTERNAL_DIR` | `tools` | 工具目录 |
+| `AGENT_SKILL_EXTERNAL_DIR` | `skills` | 技能目录 |
+| `AGENT_BASH_WORKING_DIRECTORY` | `${user.dir}` | Bash 工作目录 |
+| `AGENT_BASH_ALLOWED_PATHS` | （空） | Bash 允许路径 |
+| `AGENT_TOOLS_FRONTEND_SUBMIT_TIMEOUT_MS` | `300000` | 前端工具提交超时 |
+| `AGENT_AUTH_ENABLED` | `true` | JWT 认证开关 |
+| `MEMORY_CHAT_DIR` | `./chats` | 聊天记忆目录 |
+| `MEMORY_CHAT_K` | `20` | 滑动窗口大小 |
+| `AGENT_LLM_INTERACTION_LOG_ENABLED` | `true` | LLM 日志开关 |
+
+## curl 测试用例
 
 ### 会话接口测试
 
@@ -189,316 +417,6 @@ curl -N -X GET "$BASE_URL/api/chat?chatId=d0e5b9ab-af21-4e3b-8e1a-a977dc6d5656&i
 ### Query 回归测试
 
 ```bash
-curl -N -X POST "$BASE_URL/api/query" \
-  -H "Content-Type: application/json" \
-  -d '{"message":"给我一个微服务网关的落地方案，100字内","agentKey":"demoModePlanExecute"}'
-```
-
-## settings.xml 说明
-
-- `settings.xml` 作为构建镜像时 Maven 配置，会被 `Dockerfile` 拷贝到 Maven 全局配置目录。
-- 当前配置使用 `central` 的阿里云镜像，加速依赖下载。
-
-## agents 目录
-
-- `agents/*.json` 以 `key` 作为 agentId；若缺失 `key`，回退为文件名（不含 `.json`）
-- 服务启动时会先加载一次，之后每 10 秒刷新一次缓存（默认值）
-- 可通过 `AGENT_EXTERNAL_DIR` 指定目录，通过 `AGENT_REFRESH_INTERVAL_MS` 调整刷新间隔
-- `systemPrompt` 同时支持标准 JSON 字符串和 `"""` 多行写法（仅 `systemPrompt`）
-
-标准 JSON：
-
-```json
-{
-  "key": "fortune_teller",
-  "name": "算命大师",
-  "icon": "emoji:🔮",
-  "description": "算命大师",
-  "modelConfig": {
-    "providerKey": "bailian",
-    "model": "qwen3-max",
-    "reasoning": { "enabled": false }
-  },
-  "toolConfig": null,
-  "mode": "ONESHOT",
-  "plain": {
-    "systemPrompt": "你是算命大师"
-  }
-}
-```
-
-多行写法：
-
-```json
-{
-  "description": "算命大师",
-  "modelConfig": {
-    "providerKey": "bailian",
-    "model": "qwen3-max"
-  },
-  "toolConfig": {
-    "backends": ["_bash_", "city_datetime"],
-    "frontends": [],
-    "actions": []
-  },
-  "mode": "REACT",
-  "react": {
-    "systemPrompt": """
-你是算命大师
-请先问出生日期
-""",
-    "maxSteps": 6
-  }
-}
-```
-
-`mode` 支持：
-- `ONESHOT`：单轮直答，若配置工具可在同一轮完成“调用工具 + 最终答案”
-- `REACT`：多轮工具循环推理
-- `PLAN_EXECUTE`：先规划再逐步执行
-  - plan 阶段固定 2 个公开子回合：`agent-plan-draft`（深度思考与规划正文，禁工具）+ `agent-plan-generate`（调用 `_plan_add_tasks_` 落盘计划）。
-  - execute 阶段为小 ReAct：每个工作回合最多执行 1 个工具（串行），随后进入更新回合调用 `_plan_update_task_` 推进状态，更新失败允许修复 1 次。
-  - `failed` 为中断状态：任务被更新为 `failed` 后立即停止执行。
-  - 任务状态集合：`init` / `completed` / `failed` / `canceled`（历史 `in_progress` 仅兼容读取并映射为 `init`）。
-
-工具仅通过 `toolConfig` 配置：
-- 顶层：`toolConfig.backends/frontends/actions`
-- 阶段：`planExecute.plan|execute|summary.toolConfig`
-- 阶段继承规则：
-  - 阶段缺失 `toolConfig`：继承顶层
-  - 阶段显式 `toolConfig: null`：禁用该阶段全部工具
-  - `_plan_get_tasks_` 仅在阶段显式配置时对模型可见；框架内部调度始终可读取 plan 快照。
-
-当工具非空时，服务会按 OpenAI 兼容的原生 Function Calling 协议请求模型：
-- 请求体包含 `tools[]`
-- 流式消费 `delta.tool_calls`
-- 不再依赖正文中的 `toolCall/toolCalls` JSON 字段（仍保留向后兼容解析）
-
-Agent JSON 已仅支持新结构：`modelConfig/toolConfig/skillConfig`。旧字段 `providerKey/model/reasoning/tools` 不再兼容。
-同时已移除顶层 `verify` 字段；保留该字段会导致该 agent 配置被拒绝加载。
-运行策略字段仅保留：
-- `toolChoice`：`NONE` / `AUTO` / `REQUIRED`
-- `budget`（V2，不兼容旧字段）：
-  - `runTimeoutMs`
-  - `model.maxCalls` / `model.timeoutMs` / `model.retryCount`
-  - `tool.maxCalls` / `tool.timeoutMs` / `tool.retryCount`
-- `react.maxSteps` 与 `planExecute.maxSteps` 负责步骤上限控制
-
-`budget` 旧字段 `maxModelCalls/maxToolCalls/timeoutMs/retryCount` 已移除，配置中出现会直接拒绝加载该 agent。
-
-顶层 skills 配置支持两种写法（会合并去重）：
-
-```json
-{
-  "skillConfig": {
-    "skills": ["screenshot", "doc"]
-  }
-}
-```
-
-```json
-{
-  "skills": ["screenshot", "doc"]
-}
-```
-
-`runtimePrompts`（精简后）仅支持以下字段：
-
-```json
-{
-  "runtimePrompts": {
-    "planExecute": {
-      "taskExecutionPromptTemplate": "..."
-    },
-    "skill": {
-      "catalogHeader": "...",
-      "disclosureHeader": "...",
-      "instructionsLabel": "..."
-    },
-    "toolAppendix": {
-      "toolDescriptionTitle": "...",
-      "afterCallHintTitle": "..."
-    }
-  }
-}
-```
-
-以下字段已删除，出现即拒绝加载：`runtimePrompts.verify`、`runtimePrompts.finalAnswer`、`runtimePrompts.oneshot`、`runtimePrompts.react`，以及 `runtimePrompts.planExecute` 下除 `taskExecutionPromptTemplate` 之外的旧子字段。
-
-### 真流式约束（CRITICAL）
-
-- `/api/query` 全链路严格真流式：上游 LLM 每到一个 delta，立即下发对应 SDK 事件，禁止先 `collect/reduce/block` 再输出。
-- 禁止将多个 delta 合并后再切片发送；输出粒度以“上游 delta 语义块”为准。
-- 工具调用必须保持事件顺序：`tool.start` -> `tool.args`（可多次）-> `tool.end` -> `tool.result`。
-- 不再进行二次校验回合（无 `agent-verify`）；每次模型回合只输出一次真实流式内容，避免重复答案。
-
-## viewports / tools / skills 目录
-
-- 运行目录默认值：
-  - agents: `agents/`
-  - viewports: `viewports/`
-  - tools: `tools/`
-  - skills: `skills/`
-- 启动时会将 `src/main/resources/agents|viewports|tools|skills` 同步到外部目录：
-  - `AGENT_EXTERNAL_DIR`
-  - `AGENT_VIEWPORT_EXTERNAL_DIR`
-  - `AGENT_TOOLS_EXTERNAL_DIR`
-  - `AGENT_SKILL_EXTERNAL_DIR`
-- 同名内置文件会覆盖；外部额外自定义文件会保留，不会被删除。
-- `viewports` 支持后缀：`.html`、`.qlc`、`.dqlc`、`.json_schema`、`.custom`，默认每 30 秒刷新内存快照。
-- `tools`:
-  - 后端工具文件：`*.backend`
-  - 前端工具文件：`*.frontend`
-  - 动作文件：`*.action`
-  - 文件内容均为模型工具定义 JSON（`{"tools":[...]}`）
-- `skills`:
-  - 目录结构：`skills/<skill-id>/SKILL.md`（强约束，目录式）
-  - 可选子目录：`scripts/`、`references/`、`assets/`
-  - `skill-id` 取目录名，`SKILL.md` frontmatter 的 `name/description` 作为元信息。
-  - 正例：`skills/math_basic/SKILL.md`
-  - 反例：`skills/SKILL.md`、`skills/math_basic.md`
-  - 启动同步策略与 agents 一致：同名内置覆盖外部同名文件；外部额外文件保留；不做删除清理。
-- `show_weather_card` 当前仅作为 viewport（`viewports/show_weather_card.html`），不是可调用 tool。
-- 工具名冲突策略：冲突项会被跳过，其它项继续生效。
-
-### /api/viewport 约定
-
-- `GET /api/viewport?viewportKey=weather_card`
-- `chatId`、`runId` 为可选参数，不参与必填校验。
-- 返回：
-  - `html` 文件：`data = {"html":"<...>"}`
-  - `qlc/dqlc/json_schema/custom`：`data` 直接是文件内 JSON 对象
-- `viewportKey` 不存在时返回 `404`。
-
-### viewport 输出协议示例
-
-```viewport
-type=html, key=show_weather_card
-{
-  "city": "Shanghai",
-  "date": "2026-02-13",
-  "temperatureC": 22,
-  "humidity": 61,
-  "windLevel": 3,
-  "condition": "Partly Cloudy",
-  "mockTag": "idempotent-random-json"
-}
-```
-
-### 前端 tool 提交流程
-
-- 当前端工具触发时，SSE `tool.start` / `tool.snapshot` 会包含：
-  - `toolType`：`html` 或 `qlc`
-  - `toolKey`：对应 viewport key
-  - `toolTimeout`：提交等待超时（毫秒）
-- 默认等待超时 `5 分钟`（可配置）。
-- `POST /api/submit` 请求体（V2）：
-  - `runId` + `toolId` + `params`
-  - 不再接收 `requestId/chatId/viewId/payload`
-- `POST /api/submit` 响应语义：
-  - HTTP 200 + `code=0`
-  - `data.accepted=true/false`
-  - `data.status=accepted/unmatched`
-  - `data.runId` / `data.toolId` / `data.detail`
-- 成功命中后会释放对应 `runId + toolId` 的等待；未命中返回 `accepted=false`，不会释放任何等待。
-- 前端工具返回值提取规则：直接回传 `params`（若为 `null` 则回传 `{}`）。
-- 动作工具触发 `action.start` 后不等待提交，直接返回 `"OK"` 给模型。
-- 动作事件顺序：`action.start` -> `action.args`（可多次）-> `action.end` -> `action.result`。
-
-### 内置 action 能力
-
-- `switch_theme(theme)`：主题切换，`theme` 仅支持 `light/dark`。
-- `launch_fireworks(durationMs?)`：播放烟花特效，`durationMs` 可选（毫秒）。
-- `show_modal(title, content, closeText?)`：弹出模态框，`title/content` 必填，`closeText` 可选。
-
-### 内置脚本执行工具
-
-- `_skill_run_script_(skill, script?, pythonCode?, args?, timeoutMs?)`：执行 `skills/<skill>/` 目录下脚本，或执行临时 Python 脚本。
-- `script` 与 `pythonCode` 二选一，不能同时提供。
-- `script` 仅支持 skill 内相对路径，文件类型仅支持 `.py` / `.sh`，不允许越权访问外部目录。
-- `pythonCode` 会临时写入 `/tmp/agent-platform-skill-inline/<skill>/inline_<uuid>.py`，执行后自动清理。
-- 破坏性变更：旧工具名 `skill_script_run` 已移除，agent 配置需改为 `_skill_run_script_`。
-
-### 内置 skills
-
-- `screenshot`：截图流程示例（含脚本 smoke test）。
-- `math_basic`：算术计算（`add/sub/mul/div/pow/mod`）。
-- `math_stats`：统计计算（`summary/count/sum/min/max/mean/median/mode/stdev`）。
-- `text_utils`：文本指标（字符/词数/行数，可选空白归一化）。
-
-## 内置智能体
-
-- `demoModePlain`（`ONESHOT`）：单次直答。
-- `demoModeThinking`（`ONESHOT`）：开启 reasoning 的单次作答。
-- `demoModePlainTooling`（`ONESHOT`）：单轮按需调用工具。
-- `demoModeThinking`（`ONESHOT`）：开启 reasoning 的单轮工具模式。
-- `demoModeReact`（`REACT`）：按需多轮工具调用。
-- `demoModePlanExecute`（`PLAN_EXECUTE`）：先规划后执行，execute 阶段由框架下发任务列表与当前 taskId，模型完成后调用 `_plan_update_task_` 推进 plan（可选调用 `_plan_get_tasks_` 查看快照）。
-- `demoViewport`（`PLAN_EXECUTE`）：调用 `city_datetime`、`mock_city_weather`，最终按 `viewport` 代码块协议输出天气卡片数据。
-- `demoAction`（`ONESHOT`）：根据用户意图调用 `switch_theme` / `launch_fireworks` / `show_modal`。
-- `demoAgentCreator`（`PLAN_EXECUTE`）：调用 `agent_file_create` 创建/更新 `agents/{agentId}.json`。
-- `demoModePlainSkillMath`（`ONESHOT`）：加载 `math_basic/math_stats/text_utils` skills，并调用 `_skill_run_script_` 完成确定性计算。
-- `demoConfirmDialog`（`REACT`）：确认对话框 human-in-the-loop 示例，LLM 通过 `confirm_dialog` 前端工具向用户提问并等待回复。
-- 使用 `demoAgentCreator` 时建议提供：`key`、`name`、`icon`、`description`、`modelConfig`、`mode`、`toolConfig` 与各 mode 的 prompt 字段。
-- `agent_file_create` 会校验 `key/agentId`（仅允许 `A-Za-z0-9_-`，最长 64）。
-- `providerKey` 不做白名单校验；未提供时默认 `bailian`。
-- 生成格式：
-
-```json
-{
-  "key": "fortune_teller",
-  "name": "算命大师",
-  "icon": "emoji:🔮",
-  "description": "算命大师",
-  "modelConfig": {
-    "providerKey": "bailian",
-    "model": "qwen3-max",
-    "reasoning": { "enabled": false }
-  },
-  "toolConfig": null,
-  "mode": "ONESHOT",
-  "plain": {
-    "systemPrompt": "你是算命大师"
-  }
-}
-```
-
-- `systemPrompt` 为多行时会写成标准 JSON 字符串（含 `\\n` 换行）。
-
-## Bash 工具目录授权
-
-`_bash_` 工具默认仅允许访问工作目录（`user.dir`）。工具返回文本包含 `exitCode`、`"workingDirectory"`、`stdout`、`stderr`。若需要让 Agent 在容器内读取 `/opt` 等目录，可配置：
-
-```yaml
-agent:
-  tools:
-    bash:
-      working-directory: /opt/app
-      allowed-paths:
-        - /opt
-```
-
-也可使用环境变量：
-
-```bash
-AGENT_BASH_WORKING_DIRECTORY=/opt/app
-AGENT_BASH_ALLOWED_PATHS=/opt,/data
-```
-
-动态目录相关环境变量：
-
-```bash
-AGENT_VIEWPORT_EXTERNAL_DIR=/opt/viewports
-AGENT_VIEWPORT_REFRESH_INTERVAL_MS=30000
-AGENT_TOOLS_EXTERNAL_DIR=/opt/tools
-AGENT_CAPABILITY_REFRESH_INTERVAL_MS=30000
-AGENT_SKILL_EXTERNAL_DIR=/opt/skills
-AGENT_SKILL_REFRESH_INTERVAL_MS=30000
-AGENT_SKILL_MAX_PROMPT_CHARS=8000
-AGENT_TOOLS_FRONTEND_SUBMIT_TIMEOUT_MS=300000
-```
-
-```bash
 BASE_URL="http://localhost:11949"
 ACCESS_TOKEN=""
 ```
@@ -508,6 +426,9 @@ curl -N -X POST "$BASE_URL/api/query" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"message":"元素碳的简介，200字","agentKey":"demoModePlain"}'
+```
+
+```bash
 curl -N -X POST "$BASE_URL/api/query" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
@@ -517,7 +438,7 @@ curl -N -X POST "$BASE_URL/api/query" \
 ```bash
 curl -N -X POST "$BASE_URL/api/query" \
   -H "Content-Type: application/json" \
-  -d '{"message":"【确认是否有敏感信息】本项目突破传统竖井式系统建设模式，基于1+1+3+N架构（1个企业级数据库、1套OneID客户主数据、3类客群CRM系统整合优化、N个展业数字化应用），打造了覆盖展业全生命周期、贯通公司全客群管理的OneLink分支一体化数智展业服务平台。在数据基础层面，本项目首创企业级数据库及OneID客户主数据运作体系，实现公司全域客户及业务数据物理入湖，并通过事前注册、事中应用管理、事后可分析的机制，实现个人、企业、机构三类客群千万级客户的统一识别与关联。","agentKey":"demoModePlainTooling"}'
+  -d '{"message":"给我一个微服务网关的落地方案，100字内","agentKey":"demoModePlanExecute"}'
 ```
 
 ```bash
@@ -558,6 +479,12 @@ curl -N -X POST "$BASE_URL/api/query" \
   -d '{"message":"请计算 (2+3)*4，并说明过程","agentKey":"demoModePlainSkillMath"}'
 ```
 
+```bash
+curl -N -X POST "$BASE_URL/api/query" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"【确认是否有敏感信息】本项目突破传统竖井式系统建设模式，基于1+1+3+N架构（1个企业级数据库、1套OneID客户主数据、3类客群CRM系统整合优化、N个展业数字化应用），打造了覆盖展业全生命周期、贯通公司全客群管理的OneLink分支一体化数智展业服务平台。在数据基础层面，本项目首创企业级数据库及OneID客户主数据运作体系，实现公司全域客户及业务数据物理入湖，并通过事前注册、事中应用管理、事后可分析的机制，实现个人、企业、机构三类客群千万级客户的统一识别与关联。","agentKey":"demoModePlainTooling"}'
+```
+
 ### 确认对话框（Human-in-the-Loop）
 
 confirm_dialog 是前端工具，LLM 调用后 SSE 流会暂停等待用户提交。需要两个终端配合测试。
@@ -572,7 +499,6 @@ curl -N -X POST "$BASE_URL/api/query" \
 
 观察 SSE 输出，当看到 `toolName` 为 `confirm_dialog` 且事件携带 `toolType/toolKey/toolTimeout` 后，
 流会暂停等待。记录事件中的 `runId` 和 `toolId` 值。
-前端工具事件会携带 `toolType=html`、`toolKey=confirm_dialog`、`toolTimeout`。
 
 **终端 2：提交用户选择（用终端 1 中的 runId 和 toolId 替换占位符）**
 
