@@ -13,10 +13,12 @@ import com.linlay.agentplatform.agent.runtime.policy.Budget;
 import com.linlay.agentplatform.agent.runtime.policy.ComputePolicy;
 import com.linlay.agentplatform.agent.runtime.policy.RunSpec;
 import com.linlay.agentplatform.agent.runtime.policy.ToolChoice;
+import com.linlay.agentplatform.config.FrontendToolProperties;
 import com.linlay.agentplatform.memory.ChatWindowMemoryProperties;
 import com.linlay.agentplatform.memory.ChatWindowMemoryStore;
 import com.linlay.agentplatform.model.AgentRequest;
 import com.linlay.agentplatform.model.AgentDelta;
+import com.linlay.agentplatform.service.FrontendSubmitCoordinator;
 import com.linlay.agentplatform.service.LlmCallSpec;
 import com.linlay.agentplatform.service.LlmService;
 import com.linlay.agentplatform.skill.SkillCatalogProperties;
@@ -45,6 +47,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.spy;
 
 @ExtendWith(OutputCaptureExtension.class)
 class DefinitionDrivenAgentTest {
@@ -163,6 +167,86 @@ class DefinitionDrivenAgentTest {
                 .toList();
         assertThat(contentDeltas).containsExactly("这", "是", "答案");
         assertThat(deltas.get(deltas.size() - 1).finishReason()).isEqualTo("stop");
+    }
+
+    @Test
+    void frontendSubmitTimeoutShouldEmitStructuredToolResultAndTimeoutFinishReason() throws Exception {
+        AgentDefinition definition = definition(
+                "demoFrontendTimeout",
+                AgentRuntimeMode.ONESHOT,
+                new RunSpec(ToolChoice.AUTO, Budget.DEFAULT),
+                new OneshotMode(new StageSettings("你是测试助手", null, null, List.of("confirm_dialog"), false, ComputePolicy.MEDIUM), null, null),
+                List.of("confirm_dialog")
+        );
+
+        LlmService llmService = new StubLlmService() {
+            @Override
+            protected Flux<LlmDelta> deltaByStage(String stage) {
+                if ("agent-oneshot-tool-first".equals(stage)) {
+                    return Flux.just(new LlmDelta(
+                            null,
+                            List.of(new ToolCallDelta("call_frontend_timeout_1", "frontend", "confirm_dialog", "{\"question\":\"去哪玩\"}")),
+                            "tool_calls"
+                    ));
+                }
+                return Flux.empty();
+            }
+        };
+
+        BaseTool frontendTool = new BaseTool() {
+            @Override
+            public String name() {
+                return "confirm_dialog";
+            }
+
+            @Override
+            public String description() {
+                return "confirm";
+            }
+
+            @Override
+            public JsonNode invoke(Map<String, Object> args) {
+                return objectMapper.valueToTree(Map.of("ok", true));
+            }
+        };
+
+        ToolRegistry toolRegistry = spy(new ToolRegistry(List.of(frontendTool)));
+        doReturn("frontend").when(toolRegistry).toolCallType("confirm_dialog");
+        doReturn(true).when(toolRegistry).isFrontend("confirm_dialog");
+
+        FrontendToolProperties frontendToolProperties = new FrontendToolProperties();
+        frontendToolProperties.setSubmitTimeoutMs(60L);
+        FrontendSubmitCoordinator frontendSubmitCoordinator = new FrontendSubmitCoordinator(frontendToolProperties);
+
+        DefinitionDrivenAgent agent = new DefinitionDrivenAgent(
+                definition,
+                llmService,
+                toolRegistry,
+                objectMapper,
+                null,
+                frontendSubmitCoordinator
+        );
+
+        List<AgentDelta> deltas = agent.stream(new AgentRequest("测试 frontend timeout", null, null, "run_frontend_timeout_1"))
+                .collectList()
+                .block(Duration.ofSeconds(3));
+
+        assertThat(deltas).isNotNull();
+        List<String> toolResults = deltas.stream()
+                .flatMap(delta -> delta.toolResults().stream())
+                .map(AgentDelta.ToolResult::result)
+                .toList();
+        assertThat(toolResults).isNotEmpty();
+        JsonNode firstResult = objectMapper.readTree(toolResults.getFirst());
+        assertThat(firstResult.path("code").asText()).isEqualTo("frontend_submit_timeout");
+
+        List<String> contentDeltas = deltas.stream()
+                .map(AgentDelta::content)
+                .filter(value -> value != null && !value.isBlank())
+                .toList();
+        assertThat(contentDeltas).anyMatch(text -> text.contains("前端工具等待用户提交超时"));
+        assertThat(contentDeltas).noneMatch(text -> text.contains("模型调用失败，请稍后重试。"));
+        assertThat(deltas.getLast().finishReason()).isEqualTo("timeout");
     }
 
     @Test

@@ -390,7 +390,7 @@
         const params = buildSubmitParams();
         window.parent.postMessage(
           {
-            type: 'agw_frontend_submit',
+            type: 'frontend_submit',
             params
           },
           '*'
@@ -415,7 +415,7 @@
       if (!message || typeof message !== 'object') {
         return;
       }
-      if (message.type !== 'agw_tool_init') {
+      if (message.type !== 'tool_init') {
         return;
       }
       applyInitPayload(message.data || {});

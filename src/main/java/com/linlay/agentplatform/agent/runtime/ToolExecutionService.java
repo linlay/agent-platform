@@ -32,6 +32,8 @@ import java.util.function.Consumer;
 
 public class ToolExecutionService {
 
+    public static final String FRONTEND_SUBMIT_TIMEOUT_CODE = "frontend_submit_timeout";
+
     private static final ExecutorService BACKEND_TOOL_EXECUTOR = Executors.newCachedThreadPool(runnable -> {
         Thread thread = new Thread(runnable, "agent-platform-backend-tool");
         thread.setDaemon(true);
@@ -312,7 +314,10 @@ public class ToolExecutionService {
                 Object normalized = payload == null ? Map.of() : payload;
                 return objectMapper.valueToTree(normalized);
             } catch (Exception ex) {
-                return errorResult(toolName, ex.getMessage());
+                if (isFrontendSubmitTimeout(ex)) {
+                    return errorResult(toolName, FRONTEND_SUBMIT_TIMEOUT_CODE, resolveErrorMessage(ex));
+                }
+                return errorResult(toolName, resolveErrorMessage(ex));
             }
         }
 
@@ -612,11 +617,44 @@ public class ToolExecutionService {
     }
 
     private ObjectNode errorResult(String toolName, String message) {
+        return errorResult(toolName, null, message);
+    }
+
+    private ObjectNode errorResult(String toolName, String code, String message) {
         ObjectNode error = objectMapper.createObjectNode();
         error.put("tool", toolName);
         error.put("ok", false);
+        if (StringUtils.hasText(code)) {
+            error.put("code", code);
+        }
         error.put("error", message == null ? "unknown error" : message);
         return error;
+    }
+
+    private boolean isFrontendSubmitTimeout(Throwable throwable) {
+        Throwable cursor = throwable;
+        while (cursor != null) {
+            if (cursor instanceof TimeoutException) {
+                return true;
+            }
+            String message = cursor.getMessage();
+            if (StringUtils.hasText(message) && message.contains("Frontend tool submit timeout")) {
+                return true;
+            }
+            cursor = cursor.getCause();
+        }
+        return false;
+    }
+
+    private String resolveErrorMessage(Throwable throwable) {
+        Throwable cursor = throwable;
+        while (cursor != null) {
+            if (StringUtils.hasText(cursor.getMessage())) {
+                return cursor.getMessage();
+            }
+            cursor = cursor.getCause();
+        }
+        return "unknown error";
     }
 
     public record ToolExecutionEvent(

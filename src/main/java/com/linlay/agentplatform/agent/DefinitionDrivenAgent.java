@@ -9,6 +9,7 @@ import com.linlay.agentplatform.agent.mode.ReactMode;
 import com.linlay.agentplatform.agent.mode.StageSettings;
 import com.linlay.agentplatform.agent.runtime.AgentRuntimeMode;
 import com.linlay.agentplatform.agent.runtime.ExecutionContext;
+import com.linlay.agentplatform.agent.runtime.FrontendSubmitTimeoutException;
 import com.linlay.agentplatform.agent.runtime.ToolExecutionService;
 import com.linlay.agentplatform.agent.runtime.policy.Budget;
 import com.linlay.agentplatform.agent.runtime.policy.RunSpec;
@@ -43,6 +44,7 @@ import java.util.UUID;
 public class DefinitionDrivenAgent implements Agent {
 
     private static final Logger log = LoggerFactory.getLogger(DefinitionDrivenAgent.class);
+    private static final String FRONTEND_TIMEOUT_FALLBACK_MESSAGE = "前端工具等待用户提交超时，本次运行已结束。请重新发起或在超时前提交。";
 
     private final AgentDefinition definition;
     private final ChatWindowMemoryStore chatWindowMemoryStore;
@@ -195,6 +197,14 @@ public class DefinitionDrivenAgent implements Agent {
             if (!sink.isCancelled()) {
                 sink.complete();
             }
+        } catch (FrontendSubmitTimeoutException ex) {
+            log.info("[agent:{}] frontend submit timeout: {}", definition.id(), ex.getMessage());
+            String timeoutMessage = resolveFrontendTimeoutMessage(ex);
+            services.emit(sink, AgentDelta.content(timeoutMessage));
+            services.emit(sink, AgentDelta.finish("timeout"));
+            if (!sink.isCancelled()) {
+                sink.complete();
+            }
         } catch (Exception ex) {
             log.warn("[agent:{}] orchestration failed", definition.id(), ex);
             services.emit(sink, AgentDelta.content("模型调用失败，请稍后重试。"));
@@ -203,6 +213,17 @@ public class DefinitionDrivenAgent implements Agent {
                 sink.complete();
             }
         }
+    }
+
+    private String resolveFrontendTimeoutMessage(FrontendSubmitTimeoutException ex) {
+        if (ex == null || !StringUtils.hasText(ex.getMessage())) {
+            return FRONTEND_TIMEOUT_FALLBACK_MESSAGE;
+        }
+        String raw = ex.getMessage().trim();
+        if (raw.contains("Frontend tool submit timeout")) {
+            return FRONTEND_TIMEOUT_FALLBACK_MESSAGE;
+        }
+        return raw;
     }
 
     private Map<String, BaseTool> resolveEnabledTools(List<String> configuredTools) {

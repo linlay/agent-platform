@@ -52,7 +52,12 @@ public class ChatEventCallbackService {
         try {
             body = objectMapper.writeValueAsString(buildPayload(chatId, runId, chatName));
         } catch (Exception ex) {
-            log.warn("Failed to build chat event callback payload chatId={}, runId={}", chatId, runId, ex);
+            log.warn(
+                "Failed to build chat event callback payload chatId={}, runId={}, error={}",
+                chatId,
+                runId,
+                summarizeThrowable(ex)
+            );
             return;
         }
 
@@ -60,7 +65,12 @@ public class ChatEventCallbackService {
         try {
             signature = sign(properties.getSecret(), timestamp, body);
         } catch (Exception ex) {
-            log.warn("Failed to sign chat event callback payload chatId={}, runId={}", chatId, runId, ex);
+            log.warn(
+                "Failed to sign chat event callback payload chatId={}, runId={}, error={}",
+                chatId,
+                runId,
+                summarizeThrowable(ex)
+            );
             return;
         }
 
@@ -74,7 +84,11 @@ public class ChatEventCallbackService {
                 .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
                 .build();
         } catch (Exception ex) {
-            log.warn("Invalid callback URL configured: {}", properties.getUrl(), ex);
+            log.warn(
+                "Invalid callback URL configured url={}, error={}",
+                properties.getUrl(),
+                summarizeThrowable(ex)
+            );
             return;
         }
 
@@ -82,11 +96,11 @@ public class ChatEventCallbackService {
             .whenComplete((response, throwable) -> {
                 if (throwable != null) {
                     log.warn(
-                        "chat event callback failed chatId={}, runId={}, url={}",
+                        "chat event callback failed chatId={}, runId={}, url={}, error={}",
                         chatId,
                         runId,
                         properties.getUrl(),
-                        throwable
+                        summarizeThrowable(throwable)
                     );
                     return;
                 }
@@ -100,6 +114,18 @@ public class ChatEventCallbackService {
                     );
                 }
             });
+    }
+
+    private String summarizeThrowable(Throwable throwable) {
+        if (throwable == null) {
+            return "unknown";
+        }
+        Throwable cursor = throwable;
+        while (cursor.getCause() != null && cursor.getCause() != cursor) {
+            cursor = cursor.getCause();
+        }
+        String message = StringUtils.hasText(cursor.getMessage()) ? cursor.getMessage().trim() : "no message";
+        return cursor.getClass().getSimpleName() + ": " + message;
     }
 
     private Map<String, Object> buildPayload(String chatId, String runId, String chatName) {

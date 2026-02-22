@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linlay.agentplatform.agent.PlannedToolCall;
 import com.linlay.agentplatform.agent.runtime.ExecutionContext;
+import com.linlay.agentplatform.agent.runtime.FrontendSubmitTimeoutException;
 import com.linlay.agentplatform.agent.runtime.ToolExecutionService;
 import com.linlay.agentplatform.agent.runtime.policy.ComputePolicy;
 import com.linlay.agentplatform.agent.runtime.policy.ToolChoice;
@@ -38,6 +39,7 @@ public class OrchestratorServices {
     private static final Pattern STEP_PREFIX = Pattern.compile(
             "^(?:[-*•]|\\d+[.)]|步骤\\s*\\d+[:：.)]?|[一二三四五六七八九十]+[、.)])\\s*(.+)$"
     );
+    private static final String FRONTEND_TIMEOUT_MESSAGE = "前端工具等待用户提交超时，本次运行已结束。请重新发起或在超时前提交。";
 
     private final LlmService llmService;
     private final ToolExecutionService toolExecutionService;
@@ -272,12 +274,16 @@ public class OrchestratorServices {
                 context.activeTaskId(),
                 delta -> emit(sink, delta)
         );
-        context.incrementToolCalls(batch.events().size());
+        FrontendSubmitTimeoutException frontendTimeout = detectFrontendSubmitTimeout(batch.events());
         for (AgentDelta delta : batch.deltas()) {
             emit(sink, delta);
         }
         appendToolEvents(context.conversationMessages(), batch.events());
         appendToolEvents(context.executeMessages(), batch.events());
+        if (frontendTimeout != null) {
+            throw frontendTimeout;
+        }
+        context.incrementToolCalls(batch.events().size());
     }
 
     public void emitFinalAnswer(
@@ -425,6 +431,33 @@ public class OrchestratorServices {
             );
             messages.add(new ToolResponseMessage(List.of(toolResponse)));
         }
+    }
+
+    private FrontendSubmitTimeoutException detectFrontendSubmitTimeout(List<ToolExecutionService.ToolExecutionEvent> events) {
+        if (events == null || events.isEmpty()) {
+            return null;
+        }
+        for (ToolExecutionService.ToolExecutionEvent event : events) {
+            if (event == null || !StringUtils.hasText(event.resultText())) {
+                continue;
+            }
+            try {
+                JsonNode result = objectMapper.readTree(event.resultText());
+                if (!result.isObject()) {
+                    continue;
+                }
+                String code = result.path("code").asText(null);
+                if (!ToolExecutionService.FRONTEND_SUBMIT_TIMEOUT_CODE.equals(code)) {
+                    continue;
+                }
+                String rawMessage = result.path("error").asText(null);
+                String message = StringUtils.hasText(rawMessage) ? rawMessage.trim() : FRONTEND_TIMEOUT_MESSAGE;
+                return new FrontendSubmitTimeoutException(message);
+            } catch (Exception ignored) {
+                // ignore malformed tool results and continue scanning
+            }
+        }
+        return null;
     }
 
     private Map<String, Object> parseMap(String raw) {

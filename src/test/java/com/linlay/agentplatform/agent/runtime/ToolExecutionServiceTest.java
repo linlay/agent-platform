@@ -236,6 +236,46 @@ class ToolExecutionServiceTest {
     }
 
     @Test
+    void frontendTimeoutResultShouldContainStructuredTimeoutCode() throws Exception {
+        ConstantTool frontendTool = new ConstantTool("confirm_dialog", "IGNORED");
+        ToolRegistry toolRegistry = spy(new ToolRegistry(List.of(frontendTool)));
+        doReturn("frontend").when(toolRegistry).toolCallType("confirm_dialog");
+        doReturn(true).when(toolRegistry).isFrontend("confirm_dialog");
+
+        FrontendToolProperties frontendToolProperties = new FrontendToolProperties();
+        frontendToolProperties.setSubmitTimeoutMs(60L);
+        FrontendSubmitCoordinator submitCoordinator = new FrontendSubmitCoordinator(frontendToolProperties);
+
+        ToolExecutionService toolExecutionService = new ToolExecutionService(
+                toolRegistry,
+                new ToolArgumentResolver(objectMapper),
+                objectMapper,
+                submitCoordinator
+        );
+
+        ExecutionContext context = new ExecutionContext(
+                definition(List.of("confirm_dialog"), Budget.DEFAULT),
+                new AgentRequest("test", "chat_frontend_timeout", null, "run_frontend_timeout"),
+                List.of()
+        );
+
+        ToolExecutionService.ToolExecutionBatch batch = toolExecutionService.executeToolCalls(
+                List.of(new PlannedToolCall("confirm_dialog", Map.of("question", "去哪玩"), "call_frontend_timeout_1")),
+                enabledTools(toolRegistry),
+                new ArrayList<>(),
+                "run_frontend_timeout",
+                context,
+                false
+        );
+
+        String result = singleToolResult(batch, "call_frontend_timeout_1");
+        com.fasterxml.jackson.databind.JsonNode resultNode = objectMapper.readTree(result);
+        assertThat(resultNode.path("ok").asBoolean(true)).isFalse();
+        assertThat(resultNode.path("code").asText()).isEqualTo(ToolExecutionService.FRONTEND_SUBMIT_TIMEOUT_CODE);
+        assertThat(resultNode.path("error").asText()).contains("Frontend tool submit timeout");
+    }
+
+    @Test
     void backendIllegalArgumentShouldNotRetry() throws Exception {
         FlakyIllegalArgumentTool badArgsTool = new FlakyIllegalArgumentTool("bad_args_tool");
         ToolRegistry toolRegistry = new ToolRegistry(List.of(badArgsTool));
