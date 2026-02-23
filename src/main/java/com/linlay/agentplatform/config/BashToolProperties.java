@@ -10,6 +10,8 @@ public class BashToolProperties {
 
     private String workingDirectory = System.getProperty("user.dir", ".");
     private List<String> allowedPaths = new ArrayList<>();
+    private List<String> allowedCommands = new ArrayList<>();
+    private List<String> pathCheckedCommands = new ArrayList<>();
 
     public String getWorkingDirectory() {
         return workingDirectory;
@@ -25,5 +27,21 @@ public class BashToolProperties {
 
     public void setAllowedPaths(List<String> allowedPaths) {
         this.allowedPaths = allowedPaths;
+    }
+
+    public List<String> getAllowedCommands() {
+        return allowedCommands;
+    }
+
+    public void setAllowedCommands(List<String> allowedCommands) {
+        this.allowedCommands = allowedCommands;
+    }
+
+    public List<String> getPathCheckedCommands() {
+        return pathCheckedCommands;
+    }
+
+    public void setPathCheckedCommands(List<String> pathCheckedCommands) {
+        this.pathCheckedCommands = pathCheckedCommands;
     }
 }

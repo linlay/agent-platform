@@ -9,6 +9,7 @@ import java.nio.file.Path;
 import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -233,6 +234,18 @@ class ToolRegistryTest {
         assertThat(result.isTextual()).isTrue();
         assertThat(result.asText()).contains("exitCode: 0");
         assertThat(result.asText()).contains("secret");
+    }
+
+    @Test
+    void bashToolShouldAllowCustomConfiguredCommands(@TempDir Path tempDir) {
+        SystemBash localBashTool = new SystemBash(tempDir, List.of(), Set.of("echo", "ls"), Set.of("ls"));
+
+        JsonNode echoResult = localBashTool.invoke(Map.of("command", "echo hello"));
+        assertThat(echoResult.asText()).contains("exitCode: 0");
+        assertThat(echoResult.asText()).contains("hello");
+
+        JsonNode catResult = localBashTool.invoke(Map.of("command", "cat somefile"));
+        assertThat(catResult.asText()).contains("Command not allowed: cat");
     }
 
     @Test
