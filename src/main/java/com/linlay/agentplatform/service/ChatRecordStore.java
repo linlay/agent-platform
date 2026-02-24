@@ -159,6 +159,7 @@ public class ChatRecordStore {
             return new ChatDetailResponse(
                     summary.chatId,
                     summary.chatName,
+                    null,
                     rawMessages,
                     events,
                     references

@@ -43,6 +43,9 @@ public class ApiJwtAuthWebFilter implements WebFilter {
         if (HttpMethod.OPTIONS.equals(exchange.getRequest().getMethod())) {
             return chain.filter(exchange);
         }
+        if (isDataApiTokenRequest(exchange)) {
+            return chain.filter(exchange);
+        }
 
         String token = resolveBearerToken(exchange);
         JwtPrincipal principal = jwtVerifier.verify(token).orElse(null);
@@ -64,6 +67,17 @@ public class ApiJwtAuthWebFilter implements WebFilter {
         }
         String token = authorization.substring(AUTH_PREFIX.length()).trim();
         return StringUtils.hasText(token) ? token : null;
+    }
+
+    private boolean isDataApiTokenRequest(ServerWebExchange exchange) {
+        if (!HttpMethod.GET.equals(exchange.getRequest().getMethod())) {
+            return false;
+        }
+        String path = exchange.getRequest().getPath().value();
+        if (!"/api/ap/data".equals(path)) {
+            return false;
+        }
+        return exchange.getRequest().getQueryParams().containsKey("t");
     }
 
     private Mono<Void> writeUnauthorized(ServerWebExchange exchange) {

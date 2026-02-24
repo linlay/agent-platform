@@ -27,6 +27,7 @@ logs/
 /tools/
 /viewports/
 /skills/
+/data/
 /com/
 application-local.yml
 application-local.yaml

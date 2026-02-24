@@ -28,11 +28,10 @@
 
       - 对于平台本地文件：Markdown 里写的路径与 `file` 参数一对一透传，不做特殊转换
       - 示例：
-        - `![示例照片](/data/sample_photo.jpg)` → `file=/data/sample_photo.jpg`
-        - `![示例图片](aaa.jpg)` → `file=aaa.jpg`
+        - `![示例照片](sample_photo.jpg)` → `file=sample_photo.jpg`
       - 非 `http://`/`https://` 的路径都按相对路径处理（包括 `/data/文件名` 和 `文件名`）
       - `http://`/`https://` 才是绝对路径
-      - 如果用户要求强制下载平台本地图片，使用 API 链接：`[文件名](/api/ap/data?file=%2Fdata%2F文件名&download=true)`（注意 `file` 要 URL encode）
+      - 如果用户要求强制下载平台本地图片，使用 API 链接：`[文件名](/api/ap/data?file=文件名&download=true)`（注意 `file` 要 URL encode）
       - 互联网图片必须使用绝对 URL，不要拼接 `/data/` 前缀
       - 只使用上面列表中存在的文件，不要虚构文件名
       - 用户问到有哪些文件时，展示完整文件列表

@@ -9,6 +9,7 @@ import java.util.Map;
 public record ChatDetailResponse(
         String chatId,
         String chatName,
+        String chatImageToken,
         List<Map<String, Object>> rawMessages,
         List<Map<String, Object>> events,
         List<QueryRequest.Reference> references

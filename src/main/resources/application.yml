@@ -54,6 +54,10 @@ agent:
     #   testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest
     #   testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest
     #   -----END PUBLIC KEY-----
+  chat-image-token:
+    secret: ${CHAT_IMAGE_TOKEN_SECRET:}
+    previous-secrets: ${CHAT_IMAGE_TOKEN_PREVIOUS_SECRETS:}
+    ttl-seconds: ${CHAT_IMAGE_TOKEN_TTL_SECONDS:86400}
   chat-event-callback:
     enabled: ${AGENT_CHAT_EVENT_CALLBACK_ENABLED:true}
     url: ${AGENT_CHAT_EVENT_CALLBACK_URL:http://127.0.0.1:38080/api/app/internal/chat-events}
