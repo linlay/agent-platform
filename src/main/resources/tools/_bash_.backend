@@ -3,7 +3,7 @@
     {
       "type": "function",
       "name": "_bash_",
-      "description": "运行白名单 bash 命令（支持 ls/pwd/cat/head/tail/top/free/df/git，仅允许授权目录内路径）",
+      "description": "运行白名单 bash 命令（仅支持授权命令，仅允许授权目录内路径）",
       "parameters": {
         "type": "object",
         "properties": {

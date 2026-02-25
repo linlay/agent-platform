@@ -4,8 +4,7 @@
   "icon": "emoji:🎬",
   "description": "内置示例：UI 动作智能体（主题/烟花/模态框）",
   "modelConfig": {
-    "providerKey": "bailian",
-    "model": "qwen3-max",
+    "modelKey": "bailian-qwen3-max",
     "reasoning": {
       "enabled": false
     }

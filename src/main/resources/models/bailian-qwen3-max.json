@@ -1,0 +1,18 @@
+{
+  "key": "bailian-qwen3-max",
+  "provider": "bailian",
+  "protocol": "OPENAI",
+  "modelId": "qwen3-max",
+  "isReasoner": false,
+  "isFunction": true,
+  "maxTokens": 32768,
+  "maxInputTokens": 32768,
+  "maxOutputTokens": 8192,
+  "pricing": {
+    "promptPointsPer1k": 10,
+    "completionPointsPer1k": 30,
+    "perCallPoints": 0,
+    "priceRatio": 1.0,
+    "tiers": []
+  }
+}

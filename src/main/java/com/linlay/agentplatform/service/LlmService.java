@@ -8,7 +8,7 @@ import com.linlay.agentplatform.agent.runtime.policy.ToolChoice;
 import com.linlay.agentplatform.config.AgentProviderProperties;
 import com.linlay.agentplatform.config.ChatClientRegistry;
 import com.linlay.agentplatform.config.LlmInteractionLogProperties;
-import com.linlay.agentplatform.model.ProviderProtocol;
+import com.linlay.agentplatform.model.ModelProtocol;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -41,6 +41,7 @@ public class LlmService {
     private final ChatClientRegistry chatClientRegistry;
     private final AgentProviderProperties providerProperties;
     private final OpenAiCompatibleSseClient openAiCompatibleSseClient;
+    private final NewApiOpenAiCompatibleSseClient newApiOpenAiCompatibleSseClient;
     private final AnthropicSseClient anthropicSseClient;
     private final LlmCallLogger callLogger;
     private final Map<String, ChatClient> legacyClients;
@@ -101,6 +102,7 @@ public class LlmService {
         this.providerProperties = providerProperties == null ? new AgentProviderProperties() : providerProperties;
         this.callLogger = new LlmCallLogger(logProperties);
         this.openAiCompatibleSseClient = new OpenAiCompatibleSseClient(this.providerProperties, objectMapper, this.callLogger, connectionProvider);
+        this.newApiOpenAiCompatibleSseClient = new NewApiOpenAiCompatibleSseClient(this.providerProperties, this.openAiCompatibleSseClient);
         this.anthropicSseClient = new AnthropicSseClient();
         this.legacyClients = legacyClients == null ? Map.of() : Map.copyOf(legacyClients);
     }
@@ -150,7 +152,7 @@ public class LlmService {
             String userPrompt,
             String stage
     ) {
-        return streamDeltas(providerKey, model, systemPrompt, List.of(), userPrompt, List.of(), stage);
+        return streamDeltas(providerKey, model, ModelProtocol.OPENAI, systemPrompt, List.of(), userPrompt, List.of(), stage, false);
     }
 
     public Flux<LlmDelta> streamDeltas(
@@ -162,7 +164,7 @@ public class LlmService {
             List<LlmFunctionTool> tools,
             String stage
     ) {
-        return streamDeltas(providerKey, model, systemPrompt, historyMessages, userPrompt, tools, stage, false);
+        return streamDeltas(providerKey, model, ModelProtocol.OPENAI, systemPrompt, historyMessages, userPrompt, tools, stage, false);
     }
 
     public Flux<LlmDelta> streamDeltas(LlmCallSpec spec) {
@@ -172,6 +174,7 @@ public class LlmService {
         return streamDeltas(
                 spec.providerKey(),
                 spec.model(),
+                spec.protocol(),
                 spec.systemPrompt(),
                 spec.messages(),
                 spec.userPrompt(),
@@ -190,6 +193,7 @@ public class LlmService {
     public Flux<LlmDelta> streamDeltas(
             String providerKey,
             String model,
+            ModelProtocol protocol,
             String systemPrompt,
             List<Message> historyMessages,
             String userPrompt,
@@ -200,6 +204,7 @@ public class LlmService {
         return streamDeltas(
                 providerKey,
                 model,
+                protocol,
                 systemPrompt,
                 historyMessages,
                 userPrompt,
@@ -212,6 +217,50 @@ public class LlmService {
                 false,
                 null,
                 null
+        );
+    }
+
+    public Flux<LlmDelta> streamDeltas(
+            String providerKey,
+            String model,
+            ModelProtocol protocol,
+            String systemPrompt,
+            List<Message> historyMessages,
+            String userPrompt,
+            List<LlmFunctionTool> tools,
+            String stage,
+            boolean parallelToolCalls,
+            ToolChoice toolChoice,
+            String jsonSchema,
+            ComputePolicy computePolicy,
+            boolean reasoningEnabled,
+            Integer maxTokens,
+            Long timeoutMs
+    ) {
+        return streamDeltasInternal(providerKey, model, protocol, systemPrompt, historyMessages, userPrompt, tools, stage,
+                parallelToolCalls, toolChoice, jsonSchema, computePolicy, reasoningEnabled, maxTokens, timeoutMs);
+    }
+
+    public Flux<LlmDelta> streamDeltas(
+            String providerKey,
+            String model,
+            String systemPrompt,
+            List<Message> historyMessages,
+            String userPrompt,
+            List<LlmFunctionTool> tools,
+            String stage,
+            boolean parallelToolCalls
+    ) {
+        return streamDeltas(
+                providerKey,
+                model,
+                ModelProtocol.OPENAI,
+                systemPrompt,
+                historyMessages,
+                userPrompt,
+                tools,
+                stage,
+                parallelToolCalls
         );
     }
 
@@ -231,8 +280,23 @@ public class LlmService {
             Integer maxTokens,
             Long timeoutMs
     ) {
-        return streamDeltasInternal(providerKey, model, systemPrompt, historyMessages, userPrompt, tools, stage,
-                parallelToolCalls, toolChoice, jsonSchema, computePolicy, reasoningEnabled, maxTokens, timeoutMs);
+        return streamDeltas(
+                providerKey,
+                model,
+                ModelProtocol.OPENAI,
+                systemPrompt,
+                historyMessages,
+                userPrompt,
+                tools,
+                stage,
+                parallelToolCalls,
+                toolChoice,
+                jsonSchema,
+                computePolicy,
+                reasoningEnabled,
+                maxTokens,
+                timeoutMs
+        );
     }
 
     public Flux<String> streamContentRawSse(
@@ -243,9 +307,38 @@ public class LlmService {
             String userPrompt,
             String stage
     ) {
-        ProviderProtocol protocol = resolveProviderProtocol(providerKey);
-        if (protocol == ProviderProtocol.ANTHROPIC) {
+        return streamContentRawSse(
+                providerKey,
+                model,
+                ModelProtocol.OPENAI,
+                systemPrompt,
+                historyMessages,
+                userPrompt,
+                stage
+        );
+    }
+
+    public Flux<String> streamContentRawSse(
+            String providerKey,
+            String model,
+            ModelProtocol protocol,
+            String systemPrompt,
+            List<Message> historyMessages,
+            String userPrompt,
+            String stage
+    ) {
+        if (protocol == ModelProtocol.ANTHROPIC) {
             return anthropicSseClient.streamContentRawSse(providerKey, model, systemPrompt, historyMessages, userPrompt, stage);
+        }
+        if (protocol == ModelProtocol.NEWAPI_OPENAI_COMPATIBLE) {
+            return newApiOpenAiCompatibleSseClient.streamContentRawSse(
+                    providerKey,
+                    model,
+                    systemPrompt,
+                    historyMessages,
+                    userPrompt,
+                    stage
+            );
         }
         return openAiCompatibleSseClient.streamContentRawSse(providerKey, model, systemPrompt, historyMessages, userPrompt, stage);
     }
@@ -261,20 +354,30 @@ public class LlmService {
             String userPrompt,
             String stage
     ) {
-        return completeTextInternal(providerKey, model, systemPrompt, userPrompt, stage);
+        return completeTextInternal(providerKey, model, ModelProtocol.OPENAI, systemPrompt, userPrompt, stage);
     }
 
     private Flux<String> streamContentInternal(
             String providerKey,
             String model,
+            ModelProtocol protocol,
             String systemPrompt,
             List<Message> historyMessages,
             String userPrompt,
             String stage
     ) {
-        ProviderProtocol protocol = resolveProviderProtocol(providerKey);
-        if (protocol == ProviderProtocol.ANTHROPIC) {
+        if (protocol == ModelProtocol.ANTHROPIC) {
             return anthropicSseClient.streamContentRawSse(providerKey, model, systemPrompt, historyMessages, userPrompt, stage);
+        }
+        if (protocol == ModelProtocol.NEWAPI_OPENAI_COMPATIBLE) {
+            return newApiOpenAiCompatibleSseClient.streamContentRawSse(
+                    providerKey,
+                    model,
+                    systemPrompt,
+                    historyMessages,
+                    userPrompt,
+                    stage
+            );
         }
         ChatClient chatClient = resolveChatClient(providerKey);
         if (chatClient == null) {
@@ -353,9 +456,29 @@ public class LlmService {
         });
     }
 
+    private Flux<String> streamContentInternal(
+            String providerKey,
+            String model,
+            String systemPrompt,
+            List<Message> historyMessages,
+            String userPrompt,
+            String stage
+    ) {
+        return streamContentInternal(
+                providerKey,
+                model,
+                ModelProtocol.OPENAI,
+                systemPrompt,
+                historyMessages,
+                userPrompt,
+                stage
+        );
+    }
+
     private Flux<LlmDelta> streamDeltasInternal(
             String providerKey,
             String model,
+            ModelProtocol protocol,
             String systemPrompt,
             List<Message> historyMessages,
             String userPrompt,
@@ -375,8 +498,8 @@ public class LlmService {
             StringBuilder responseBuffer = new StringBuilder();
             ChatClient chatClient = resolveChatClient(providerKey);
             boolean hasTools = tools != null && !tools.isEmpty();
-            ProviderProtocol protocol = resolveProviderProtocol(providerKey);
-            boolean preferRawSse = requiresRawSse(jsonSchema, computePolicy, reasoningEnabled);
+            boolean preferRawSse = requiresRawSse(jsonSchema, computePolicy, reasoningEnabled)
+                    || protocol == ModelProtocol.NEWAPI_OPENAI_COMPATIBLE;
             Map<String, Object> requestBody = openAiCompatibleSseClient.buildRequestBody(
                     providerKey,
                     model,
@@ -403,13 +526,38 @@ public class LlmService {
 
             if (chatClient == null) {
                 // Compatibility bridge for tests/legacy callers overriding streamContent.
+                if (protocol == ModelProtocol.ANTHROPIC) {
+                    return anthropicSseClient.streamContentRawSse(providerKey, model, systemPrompt, historyMessages, userPrompt, stage)
+                            .map(content -> new LlmDelta(content, null, null));
+                }
+                if (protocol == ModelProtocol.NEWAPI_OPENAI_COMPATIBLE) {
+                    return newApiOpenAiCompatibleSseClient.streamContentRawSse(providerKey, model, systemPrompt, historyMessages, userPrompt, stage)
+                            .map(content -> new LlmDelta(content, null, null));
+                }
                 return streamContent(providerKey, model, systemPrompt, userPrompt, stage)
                         .map(content -> new LlmDelta(content, null, null));
             }
 
             Flux<LlmDelta> deltaFlux;
-            if (protocol == ProviderProtocol.ANTHROPIC) {
+            if (protocol == ModelProtocol.ANTHROPIC) {
                 deltaFlux = anthropicSseClient.streamDeltasRawSse(
+                        providerKey,
+                        model,
+                        systemPrompt,
+                        historyMessages,
+                        userPrompt,
+                        tools,
+                        parallelToolCalls,
+                        toolChoice,
+                        jsonSchema,
+                        computePolicy,
+                        reasoningEnabled,
+                        maxTokens,
+                        traceId,
+                        stage
+                );
+            } else if (protocol == ModelProtocol.NEWAPI_OPENAI_COMPATIBLE) {
+                deltaFlux = newApiOpenAiCompatibleSseClient.streamDeltasRawSse(
                         providerKey,
                         model,
                         systemPrompt,
@@ -527,15 +675,27 @@ public class LlmService {
     private Mono<String> completeTextInternal(
             String providerKey,
             String model,
+            ModelProtocol protocol,
             String systemPrompt,
             String userPrompt,
             String stage
     ) {
-        ProviderProtocol protocol = resolveProviderProtocol(providerKey);
-        if (protocol == ProviderProtocol.ANTHROPIC) {
+        if (protocol == ModelProtocol.ANTHROPIC) {
             return Mono.error(new UnsupportedOperationException(
                     "Anthropic protocol is not implemented yet for provider: " + providerKey
             ));
+        }
+        if (protocol == ModelProtocol.NEWAPI_OPENAI_COMPATIBLE) {
+            return streamContentRawSse(
+                    providerKey,
+                    model,
+                    protocol,
+                    systemPrompt,
+                    List.of(),
+                    userPrompt,
+                    stage
+            ).reduce(new StringBuilder(), StringBuilder::append)
+                    .map(StringBuilder::toString);
         }
         return Mono.fromCallable(() -> {
                     ChatClient chatClient = resolveChatClient(providerKey);
@@ -701,17 +861,6 @@ public class LlmService {
                 ? null
                 : response.getResult().getMetadata().getFinishReason();
         return new LlmDelta(content, toolCalls.isEmpty() ? null : toolCalls, finishReason);
-    }
-
-    private ProviderProtocol resolveProviderProtocol(String providerKey) {
-        if (providerProperties == null) {
-            return ProviderProtocol.OPENAI_COMPATIBLE;
-        }
-        AgentProviderProperties.ProviderConfig config = providerProperties.getProvider(providerKey);
-        if (config == null || config.getProtocol() == null) {
-            return ProviderProtocol.OPENAI_COMPATIBLE;
-        }
-        return config.getProtocol();
     }
 
     private ChatClient resolveChatClient(String providerKey) {

@@ -1,6 +1,5 @@
 package com.linlay.agentplatform.config;
 
-import com.linlay.agentplatform.model.ProviderProtocol;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.validation.annotation.Validated;
 
@@ -26,18 +25,10 @@ public class AgentProviderProperties {
     }
 
     public static class ProviderConfig {
-        private ProviderProtocol protocol = ProviderProtocol.OPENAI_COMPATIBLE;
         private String baseUrl;
         private String apiKey;
         private String model;
-
-        public ProviderProtocol getProtocol() {
-            return protocol;
-        }
-
-        public void setProtocol(ProviderProtocol protocol) {
-            this.protocol = protocol;
-        }
+        private String newApiPath;
 
         public String getBaseUrl() {
             return baseUrl;
@@ -61,6 +52,14 @@ public class AgentProviderProperties {
 
         public void setModel(String model) {
             this.model = model;
+        }
+
+        public String getNewApiPath() {
+            return newApiPath;
+        }
+
+        public void setNewApiPath(String newApiPath) {
+            this.newApiPath = newApiPath;
         }
     }
 }

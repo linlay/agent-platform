@@ -12,6 +12,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linlay.agentplatform.agent.AgentCatalogProperties;
 import com.linlay.agentplatform.config.CapabilityCatalogProperties;
 import com.linlay.agentplatform.config.ViewportCatalogProperties;
+import com.linlay.agentplatform.model.ModelCatalogProperties;
 import com.linlay.agentplatform.service.RuntimeResourceSyncService;
 
 class CapabilityRegistryServiceTest {
@@ -156,6 +157,8 @@ class CapabilityRegistryServiceTest {
         viewportProperties.setExternalDir(root.resolve("viewports").toString());
         CapabilityCatalogProperties capabilityProperties = new CapabilityCatalogProperties();
         capabilityProperties.setToolsExternalDir(toolsDir.toString());
-        return new RuntimeResourceSyncService(agentProperties, viewportProperties, capabilityProperties);
+        ModelCatalogProperties modelProperties = new ModelCatalogProperties();
+        modelProperties.setExternalDir(root.resolve("models").toString());
+        return new RuntimeResourceSyncService(agentProperties, viewportProperties, capabilityProperties, modelProperties);
     }
 }

@@ -6,7 +6,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linlay.agentplatform.agent.runtime.policy.ComputePolicy;
 import com.linlay.agentplatform.agent.runtime.policy.ToolChoice;
 import com.linlay.agentplatform.config.AgentProviderProperties;
-import com.linlay.agentplatform.model.ProviderProtocol;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -73,6 +72,42 @@ class OpenAiCompatibleSseClient {
             String traceId,
             String stage
     ) {
+        return streamDeltasRawSse(
+                providerKey,
+                model,
+                systemPrompt,
+                historyMessages,
+                userPrompt,
+                tools,
+                parallelToolCalls,
+                toolChoice,
+                jsonSchema,
+                computePolicy,
+                reasoningEnabled,
+                maxTokens,
+                traceId,
+                stage,
+                null
+        );
+    }
+
+    Flux<LlmDelta> streamDeltasRawSse(
+            String providerKey,
+            String model,
+            String systemPrompt,
+            List<Message> historyMessages,
+            String userPrompt,
+            List<LlmService.LlmFunctionTool> tools,
+            boolean parallelToolCalls,
+            ToolChoice toolChoice,
+            String jsonSchema,
+            ComputePolicy computePolicy,
+            boolean reasoningEnabled,
+            Integer maxTokens,
+            String traceId,
+            String stage,
+            String endpointPath
+    ) {
         return Flux.defer(() -> {
             AgentProviderProperties.ProviderConfig config = resolveProviderConfig(providerKey);
             WebClient webClient = buildRawWebClient(config);
@@ -100,7 +135,7 @@ class OpenAiCompatibleSseClient {
             AtomicBoolean firstChunkReceived = new AtomicBoolean(false);
 
             return webClient.post()
-                    .uri(resolveRawCompletionsUri(config.getBaseUrl()))
+                    .uri(resolveRawCompletionsUri(config.getBaseUrl(), endpointPath))
                     .accept(MediaType.TEXT_EVENT_STREAM)
                     .bodyValue(request)
                     .retrieve()
@@ -146,6 +181,18 @@ class OpenAiCompatibleSseClient {
             String userPrompt,
             String stage
     ) {
+        return streamContentRawSse(providerKey, model, systemPrompt, historyMessages, userPrompt, stage, null);
+    }
+
+    Flux<String> streamContentRawSse(
+            String providerKey,
+            String model,
+            String systemPrompt,
+            List<Message> historyMessages,
+            String userPrompt,
+            String stage,
+            String endpointPath
+    ) {
         return Flux.defer(() -> {
             String traceId = callLogger.generateTraceId();
             long startNanos = System.nanoTime();
@@ -175,7 +222,7 @@ class OpenAiCompatibleSseClient {
             );
             AtomicBoolean firstChunkReceived = new AtomicBoolean(false);
             return webClient.post()
-                    .uri(resolveRawCompletionsUri(config.getBaseUrl()))
+                    .uri(resolveRawCompletionsUri(config.getBaseUrl(), endpointPath))
                     .accept(MediaType.TEXT_EVENT_STREAM)
                     .bodyValue(request)
                     .retrieve()
@@ -220,12 +267,6 @@ class OpenAiCompatibleSseClient {
         if (config == null) {
             throw new IllegalStateException("No provider config found for key: " + providerKey);
         }
-        ProviderProtocol protocol = config.getProtocol() == null
-                ? ProviderProtocol.OPENAI_COMPATIBLE
-                : config.getProtocol();
-        if (protocol != ProviderProtocol.OPENAI_COMPATIBLE) {
-            throw new IllegalStateException("Unsupported protocol for key '%s': %s".formatted(providerKey, protocol));
-        }
         if (!StringUtils.hasText(config.getBaseUrl())) {
             throw new IllegalStateException("Missing base-url for key: " + providerKey);
         }
@@ -250,7 +291,11 @@ class OpenAiCompatibleSseClient {
                 .build();
     }
 
-    private String resolveRawCompletionsUri(String baseUrl) {
+    private String resolveRawCompletionsUri(String baseUrl, String endpointPath) {
+        if (StringUtils.hasText(endpointPath)) {
+            String path = endpointPath.trim();
+            return path.startsWith("/") ? path : "/" + path;
+        }
         String normalized = baseUrl == null ? "" : baseUrl.trim().toLowerCase(Locale.ROOT);
         if (normalized.endsWith("/v1") || normalized.endsWith("/v1/")) {
             return "/chat/completions";

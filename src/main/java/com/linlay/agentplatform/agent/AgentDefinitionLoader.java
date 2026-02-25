@@ -7,11 +7,14 @@ import com.linlay.agentplatform.agent.mode.AgentMode;
 import com.linlay.agentplatform.agent.mode.AgentModeFactory;
 import com.linlay.agentplatform.agent.runtime.AgentRuntimeMode;
 import com.linlay.agentplatform.agent.runtime.policy.RunSpec;
-import com.linlay.agentplatform.config.ChatClientRegistry;
+import com.linlay.agentplatform.model.ModelDefinition;
+import com.linlay.agentplatform.model.ModelProtocol;
+import com.linlay.agentplatform.model.ModelRegistryService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -22,6 +25,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -37,13 +41,17 @@ public class AgentDefinitionLoader {
 
     private final ObjectMapper objectMapper;
     private final AgentCatalogProperties properties;
-    private final ChatClientRegistry chatClientRegistry;
+    private final ModelRegistryService modelRegistryService;
 
     @Autowired
-    public AgentDefinitionLoader(ObjectMapper objectMapper, AgentCatalogProperties properties, ChatClientRegistry chatClientRegistry) {
+    public AgentDefinitionLoader(
+            ObjectMapper objectMapper,
+            AgentCatalogProperties properties,
+            ModelRegistryService modelRegistryService
+    ) {
         this.objectMapper = objectMapper;
         this.properties = properties;
-        this.chatClientRegistry = chatClientRegistry;
+        this.modelRegistryService = modelRegistryService;
     }
 
     public List<AgentDefinition> loadAll() {
@@ -82,12 +90,12 @@ public class AgentDefinitionLoader {
         return new ArrayList<>(loaded.values());
     }
 
-    private java.util.Optional<AgentDefinition> tryLoadExternal(Path file) {
+    private Optional<AgentDefinition> tryLoadExternal(Path file) {
         String fileName = file.getFileName().toString();
         String fileBasedId = fileName.substring(0, fileName.length() - ".json".length()).trim();
         if (fileBasedId.isEmpty()) {
             log.warn("Skip external agent with empty name: {}", file);
-            return java.util.Optional.empty();
+            return Optional.empty();
         }
 
         try {
@@ -100,26 +108,29 @@ public class AgentDefinitionLoader {
                     .readTree(normalizedJson);
             if (isLegacyConfig(root)) {
                 log.warn("Skip legacy agent config {}. Only Agent JSON v2 is supported.", file);
-                return java.util.Optional.empty();
+                return Optional.empty();
             }
             if (hasRemovedFields(root)) {
                 log.warn("Skip agent config {}. Removed fields are no longer supported.", file);
-                return java.util.Optional.empty();
+                return Optional.empty();
             }
 
             AgentConfigFile config = objectMapper.treeToValue(root, AgentConfigFile.class);
             AgentRuntimeMode mode = config.getMode();
             if (mode == null) {
                 log.warn("Skip agent without mode in {}", file);
-                return java.util.Optional.empty();
+                return Optional.empty();
             }
             if (!hasAnyModelConfig(config)) {
                 log.warn("Skip agent without modelConfig (top-level or stage-level) in {}", file);
-                return java.util.Optional.empty();
+                return Optional.empty();
             }
 
-            String providerKey = resolveProviderKey(config);
-            String model = resolveModel(config, providerKey);
+            ModelDefinition primaryModel = resolvePrimaryModel(config).orElse(null);
+            if (primaryModel == null) {
+                log.warn("Skip agent without resolvable modelKey in {}", file);
+                return Optional.empty();
+            }
             String key = normalize(config.getKey(), fileBasedId);
             String name = normalize(config.getName(), key);
             String icon = normalizeIcon(config.getIcon());
@@ -127,16 +138,18 @@ public class AgentDefinitionLoader {
             List<String> tools = collectToolNames(config);
             List<String> skills = collectSkillNames(config);
 
-            AgentMode agentMode = AgentModeFactory.create(mode, config, file);
+            AgentMode agentMode = AgentModeFactory.create(mode, config, file, this::resolveModelByKey);
             RunSpec runSpec = agentMode.defaultRunSpec(config);
 
-            return java.util.Optional.of(new AgentDefinition(
+            return Optional.of(new AgentDefinition(
                     key,
                     name,
                     icon,
                     description,
-                    providerKey,
-                    model,
+                    primaryModel.key(),
+                    primaryModel.provider(),
+                    primaryModel.modelId(),
+                    primaryModel.protocol(),
                     mode,
                     runSpec,
                     agentMode,
@@ -145,7 +158,7 @@ public class AgentDefinitionLoader {
             ));
         } catch (Exception ex) {
             log.warn("Skip invalid external agent file: {}", file, ex);
-            return java.util.Optional.empty();
+            return Optional.empty();
         }
     }
 
@@ -189,6 +202,14 @@ public class AgentDefinitionLoader {
         if (root == null || !root.isObject()) {
             return false;
         }
+        if (hasLegacyModelConfigFields(root.path("modelConfig"))
+                || hasLegacyModelConfigFields(root.path("plain").path("modelConfig"))
+                || hasLegacyModelConfigFields(root.path("react").path("modelConfig"))
+                || hasLegacyModelConfigFields(root.path("planExecute").path("plan").path("modelConfig"))
+                || hasLegacyModelConfigFields(root.path("planExecute").path("execute").path("modelConfig"))
+                || hasLegacyModelConfigFields(root.path("planExecute").path("summary").path("modelConfig"))) {
+            return true;
+        }
         if (root.has("verify") || root.has("output") || root.has("toolPolicy")) {
             return true;
         }
@@ -222,6 +243,13 @@ public class AgentDefinitionLoader {
                 || planExecute.has("updateRoundPromptTemplate")
                 || planExecute.has("updateRoundMultipleToolsUserPrompt")
                 || planExecute.has("allStepsCompletedUserPrompt");
+    }
+
+    private boolean hasLegacyModelConfigFields(JsonNode modelConfig) {
+        if (modelConfig == null || !modelConfig.isObject()) {
+            return false;
+        }
+        return modelConfig.has("providerKey") || modelConfig.has("model");
     }
 
     private String normalizeMultilinePrompts(String rawJson) throws IOException {
@@ -259,13 +287,13 @@ public class AgentDefinitionLoader {
         if (config == null) {
             return false;
         }
-        if (config.getModelConfig() != null) {
+        if (hasModelKey(config.getModelConfig())) {
             return true;
         }
-        if (config.getPlain() != null && config.getPlain().getModelConfig() != null) {
+        if (config.getPlain() != null && hasModelKey(config.getPlain().getModelConfig())) {
             return true;
         }
-        if (config.getReact() != null && config.getReact().getModelConfig() != null) {
+        if (config.getReact() != null && hasModelKey(config.getReact().getModelConfig())) {
             return true;
         }
         if (config.getPlanExecute() == null) {
@@ -277,34 +305,11 @@ public class AgentDefinitionLoader {
     }
 
     private boolean hasStageModelConfig(AgentConfigFile.StageConfig stageConfig) {
-        return stageConfig != null && stageConfig.getModelConfig() != null;
+        return stageConfig != null && hasModelKey(stageConfig.getModelConfig());
     }
 
-    private String resolveProviderKey(AgentConfigFile config) {
-        AgentConfigFile.ModelConfig modelConfig = config == null ? null : config.getModelConfig();
-        if (modelConfig != null && modelConfig.getProviderKey() != null && !modelConfig.getProviderKey().isBlank()) {
-            return modelConfig.getProviderKey().trim().toLowerCase(Locale.ROOT);
-        }
-        return "bailian";
-    }
-
-    private String resolveModel(AgentConfigFile config, String providerKey) {
-        AgentConfigFile.ModelConfig modelConfig = config == null ? null : config.getModelConfig();
-        String configured = modelConfig == null ? null : modelConfig.getModel();
-        return normalize(configured, resolveDefaultModel(providerKey));
-    }
-
-    private String resolveDefaultModel(String providerKey) {
-        if (chatClientRegistry != null) {
-            String dynamicModel = chatClientRegistry.defaultModel(providerKey);
-            if (dynamicModel != null && !dynamicModel.isBlank()) {
-                return dynamicModel;
-            }
-        }
-        if ("siliconflow".equalsIgnoreCase(providerKey)) {
-            return "deepseek-ai/DeepSeek-V3.2";
-        }
-        return "qwen3-max";
+    private boolean hasModelKey(AgentConfigFile.ModelConfig modelConfig) {
+        return modelConfig != null && StringUtils.hasText(modelConfig.getModelKey());
     }
 
     private List<String> normalizeToolNames(List<String> rawTools) {
@@ -390,5 +395,105 @@ public class AgentDefinitionLoader {
         merged.addAll(normalizeToolNames(toolConfig.getFrontends()));
         merged.addAll(normalizeToolNames(toolConfig.getActions()));
         return merged;
+    }
+
+    private Optional<ModelDefinition> resolvePrimaryModel(AgentConfigFile config) {
+        String primaryKey = resolvePrimaryModelKey(config);
+        if (!StringUtils.hasText(primaryKey)) {
+            return Optional.empty();
+        }
+        ModelDefinition resolved = resolveModelByKey(primaryKey);
+        return Optional.ofNullable(resolved);
+    }
+
+    private String resolvePrimaryModelKey(AgentConfigFile config) {
+        if (config == null) {
+            return null;
+        }
+        if (config.getModelConfig() != null && StringUtils.hasText(config.getModelConfig().getModelKey())) {
+            return config.getModelConfig().getModelKey();
+        }
+        if (config.getPlain() != null && config.getPlain().getModelConfig() != null
+                && StringUtils.hasText(config.getPlain().getModelConfig().getModelKey())) {
+            return config.getPlain().getModelConfig().getModelKey();
+        }
+        if (config.getReact() != null && config.getReact().getModelConfig() != null
+                && StringUtils.hasText(config.getReact().getModelConfig().getModelKey())) {
+            return config.getReact().getModelConfig().getModelKey();
+        }
+        if (config.getPlanExecute() == null) {
+            return null;
+        }
+        String fromPlan = resolveStageModelKey(config.getPlanExecute().getPlan());
+        if (StringUtils.hasText(fromPlan)) {
+            return fromPlan;
+        }
+        String fromExecute = resolveStageModelKey(config.getPlanExecute().getExecute());
+        if (StringUtils.hasText(fromExecute)) {
+            return fromExecute;
+        }
+        return resolveStageModelKey(config.getPlanExecute().getSummary());
+    }
+
+    private String resolveStageModelKey(AgentConfigFile.StageConfig stageConfig) {
+        if (stageConfig == null || stageConfig.getModelConfig() == null) {
+            return null;
+        }
+        return stageConfig.getModelConfig().getModelKey();
+    }
+
+    private ModelDefinition resolveModelByKey(String rawModelKey) {
+        String modelKey = normalize(rawModelKey, "").trim().toLowerCase(Locale.ROOT);
+        if (modelKey.isBlank()) {
+            return null;
+        }
+        if (modelRegistryService != null) {
+            return modelRegistryService.find(modelKey).orElse(null);
+        }
+        return fallbackModels().get(modelKey);
+    }
+
+    private Map<String, ModelDefinition> fallbackModels() {
+        Map<String, ModelDefinition> map = new LinkedHashMap<>();
+        map.put("bailian-qwen3-max", new ModelDefinition(
+                "bailian-qwen3-max",
+                "bailian",
+                ModelProtocol.OPENAI,
+                "qwen3-max",
+                false,
+                true,
+                null,
+                null,
+                null,
+                null,
+                null
+        ));
+        map.put("bailian-qwen3_5-plus", new ModelDefinition(
+                "bailian-qwen3_5-plus",
+                "bailian",
+                ModelProtocol.OPENAI,
+                "qwen3.5-plus",
+                true,
+                true,
+                null,
+                null,
+                null,
+                null,
+                null
+        ));
+        map.put("siliconflow-deepseek-v3_2", new ModelDefinition(
+                "siliconflow-deepseek-v3_2",
+                "siliconflow",
+                ModelProtocol.OPENAI,
+                "deepseek-ai/DeepSeek-V3.2",
+                true,
+                true,
+                null,
+                null,
+                null,
+                null,
+                null
+        ));
+        return map;
     }
 }

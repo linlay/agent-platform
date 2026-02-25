@@ -28,6 +28,9 @@ agent:
     external-dir: ${AGENT_SKILL_EXTERNAL_DIR:skills}
     refresh-interval-ms: ${AGENT_SKILL_REFRESH_INTERVAL_MS:30000}
     max-prompt-chars: ${AGENT_SKILL_MAX_PROMPT_CHARS:8000}
+  model:
+    external-dir: ${AGENT_MODEL_EXTERNAL_DIR:models}
+    refresh-interval-ms: ${AGENT_MODEL_REFRESH_INTERVAL_MS:30000}
   llm:
     interaction-log:
       enabled: ${AGENT_LLM_INTERACTION_LOG_ENABLED:true}
@@ -38,10 +41,12 @@ agent:
     agent-file-create:
       default-system-prompt: ${AGENT_TOOLS_AGENT_FILE_CREATE_DEFAULT_SYSTEM_PROMPT:你是通用助理，回答要清晰和可执行。}
     bash:
+      # Baseline defaults live here; concrete local whitelist is recommended in application-local.yml.
+      # If AGENT_BASH_ALLOWED_COMMANDS is empty, _bash_ will reject all commands.
       working-directory: ${AGENT_BASH_WORKING_DIRECTORY:${user.dir}}
-      allowed-paths: ${AGENT_BASH_ALLOWED_PATHS:}
-      allowed-commands: ${AGENT_BASH_ALLOWED_COMMANDS:}
-      path-checked-commands: ${AGENT_BASH_PATH_CHECKED_COMMANDS:}
+      allowed-paths: ${AGENT_BASH_ALLOWED_PATHS:${user.dir},/tmp}
+      allowed-commands: ${AGENT_BASH_ALLOWED_COMMANDS:ls,pwd,cat,head,tail,top,free,df,git,rg,find}
+      path-checked-commands: ${AGENT_BASH_PATH_CHECKED_COMMANDS:ls,cat,head,tail,git,rg,find}
   auth:
     enabled: ${AGENT_AUTH_ENABLED:true}
     jwks-uri: ${AGENT_AUTH_JWKS_URI:}

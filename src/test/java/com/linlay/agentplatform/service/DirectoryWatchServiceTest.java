@@ -72,4 +72,23 @@ class DirectoryWatchServiceTest {
         DirectoryWatchService service = new DirectoryWatchService(null, null, null, null, dirs);
         service.destroy();
     }
+
+    @Test
+    void shouldTriggerModelRefreshCallbackOnFileChange() throws Exception {
+        Path modelsDir = tempDir.resolve("models");
+        Files.createDirectories(modelsDir);
+
+        CountDownLatch latch = new CountDownLatch(1);
+        Map<Path, Runnable> dirs = new LinkedHashMap<>();
+        dirs.put(modelsDir, latch::countDown);
+
+        DirectoryWatchService service = new DirectoryWatchService(null, null, null, null, dirs);
+        try {
+            Files.writeString(modelsDir.resolve("demo-model.json"), "{}");
+            boolean triggered = latch.await(10, TimeUnit.SECONDS);
+            assertThat(triggered).isTrue();
+        } finally {
+            service.destroy();
+        }
+    }
 }

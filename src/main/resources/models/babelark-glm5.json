@@ -1,0 +1,18 @@
+{
+  "key": "babelark-glm5",
+  "provider": "babelark",
+  "protocol": "NEWAPI_OPENAI_COMPATIBLE",
+  "modelId": "GLM-5",
+  "isReasoner": true,
+  "isFunction": true,
+  "maxTokens": 65536,
+  "maxInputTokens": 65536,
+  "maxOutputTokens": 8192,
+  "pricing": {
+    "promptPointsPer1k": 15,
+    "completionPointsPer1k": 45,
+    "perCallPoints": 0,
+    "priceRatio": 1.0,
+    "tiers": []
+  }
+}

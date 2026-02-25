@@ -6,6 +6,9 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.linlay.agentplatform.agent.AgentCatalogProperties;
 import com.linlay.agentplatform.agent.runtime.AgentRuntimeMode;
 import com.linlay.agentplatform.config.AgentFileCreateToolProperties;
+import com.linlay.agentplatform.config.AgentProviderProperties;
+import com.linlay.agentplatform.model.ModelDefinition;
+import com.linlay.agentplatform.model.ModelRegistryService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -19,33 +22,43 @@ import java.util.Map;
 import java.util.regex.Pattern;
 
 @Component
-public class AgentFileCreateTool extends AbstractDeterministicTool {
+public class PlatformCreateAgent extends AbstractDeterministicTool {
 
     private static final Pattern AGENT_ID_PATTERN = Pattern.compile("^[A-Za-z0-9_-]{1,64}$");
-    private static final String DEFAULT_DESCRIPTION = "由 demoAgentCreator 创建的智能体";
-    private static final String DEFAULT_MODEL = "qwen3-max";
-    private static final String DEFAULT_PROVIDER_KEY = "bailian";
+    private static final String DEFAULT_DESCRIPTION = "由 agent_file_create 创建的智能体";
 
     private final Path agentsDir;
     private final String defaultSystemPrompt;
+    private final String defaultModelKey;
 
     @Autowired
-    public AgentFileCreateTool(AgentCatalogProperties properties, AgentFileCreateToolProperties toolProperties) {
+    public PlatformCreateAgent(
+            AgentCatalogProperties properties,
+            AgentFileCreateToolProperties toolProperties,
+            AgentProviderProperties providerProperties,
+            ModelRegistryService modelRegistryService
+    ) {
         this(
                 Path.of(properties.getExternalDir()),
                 toolProperties == null
                         ? AgentFileCreateToolProperties.DEFAULT_SYSTEM_PROMPT
-                        : toolProperties.getDefaultSystemPrompt()
+                        : toolProperties.getDefaultSystemPrompt(),
+                resolveDefaultModelKey(providerProperties, modelRegistryService)
         );
     }
 
-    public AgentFileCreateTool(Path agentsDir) {
-        this(agentsDir, AgentFileCreateToolProperties.DEFAULT_SYSTEM_PROMPT);
+    public PlatformCreateAgent(Path agentsDir) {
+        this(agentsDir, AgentFileCreateToolProperties.DEFAULT_SYSTEM_PROMPT, "");
     }
 
-    public AgentFileCreateTool(Path agentsDir, String defaultSystemPrompt) {
+    public PlatformCreateAgent(Path agentsDir, String defaultSystemPrompt) {
+        this(agentsDir, defaultSystemPrompt, "");
+    }
+
+    public PlatformCreateAgent(Path agentsDir, String defaultSystemPrompt, String defaultModelKey) {
         this.agentsDir = agentsDir.toAbsolutePath().normalize();
         this.defaultSystemPrompt = normalizeText(defaultSystemPrompt, AgentFileCreateToolProperties.DEFAULT_SYSTEM_PROMPT);
+        this.defaultModelKey = normalizeText(defaultModelKey, "").toLowerCase(Locale.ROOT);
     }
 
     @Override
@@ -94,6 +107,9 @@ public class AgentFileCreateTool extends AbstractDeterministicTool {
         root.put("mode", mode.name());
 
         ObjectNode modelConfig = buildModelConfig(mergedArgs);
+        if (modelConfig == null) {
+            return failure(result, "Missing modelKey and cannot resolve default model from provider config");
+        }
         root.set("modelConfig", modelConfig);
 
         ObjectNode toolConfig = buildToolConfig(mergedArgs);
@@ -248,10 +264,11 @@ public class AgentFileCreateTool extends AbstractDeterministicTool {
             }
         }
         ObjectNode modelConfig = OBJECT_MAPPER.createObjectNode();
-        String providerKey = normalizeProviderKey(readString(args, "providerKey"));
-        String model = normalizeText(readString(args, "model"), DEFAULT_MODEL);
-        modelConfig.put("providerKey", providerKey);
-        modelConfig.put("model", model);
+        String modelKey = normalizeText(readString(args, "modelKey"), defaultModelKey).toLowerCase(Locale.ROOT);
+        if (modelKey.isBlank()) {
+            return null;
+        }
+        modelConfig.put("modelKey", modelKey);
         ObjectNode reasoning = parseReasoning(args);
         if (reasoning != null) {
             modelConfig.set("reasoning", reasoning);
@@ -267,10 +284,12 @@ public class AgentFileCreateTool extends AbstractDeterministicTool {
             return null;
         }
         ObjectNode modelConfig = OBJECT_MAPPER.createObjectNode();
-        String providerKey = raw.get("providerKey") == null ? null : raw.get("providerKey").toString();
-        String model = raw.get("model") == null ? null : raw.get("model").toString();
-        modelConfig.put("providerKey", normalizeProviderKey(providerKey));
-        modelConfig.put("model", normalizeText(model, DEFAULT_MODEL));
+        String modelKey = raw.get("modelKey") == null ? null : raw.get("modelKey").toString();
+        String resolvedModelKey = normalizeText(modelKey, defaultModelKey).toLowerCase(Locale.ROOT);
+        if (resolvedModelKey.isBlank()) {
+            return null;
+        }
+        modelConfig.put("modelKey", resolvedModelKey);
 
         Object reasoningRaw = raw.get("reasoning");
         if (reasoningRaw instanceof Map<?, ?> reasoningMap) {
@@ -443,13 +462,6 @@ public class AgentFileCreateTool extends AbstractDeterministicTool {
         }
     }
 
-    private String normalizeProviderKey(String raw) {
-        if (raw == null || raw.isBlank()) {
-            return DEFAULT_PROVIDER_KEY;
-        }
-        return raw.trim().toLowerCase(Locale.ROOT);
-    }
-
     private String readString(Map<String, Object> args, String... keys) {
         for (String key : keys) {
             Object value = args.get(key);
@@ -471,5 +483,65 @@ public class AgentFileCreateTool extends AbstractDeterministicTool {
         root.put("ok", false);
         root.put("error", error);
         return root;
+    }
+
+    private static String resolveDefaultModelKey(
+            AgentProviderProperties providerProperties,
+            ModelRegistryService modelRegistryService
+    ) {
+        if (modelRegistryService == null) {
+            return "";
+        }
+        List<ModelDefinition> models = modelRegistryService.list();
+        if (models.isEmpty()) {
+            return "";
+        }
+        if (providerProperties == null || providerProperties.getProviders().isEmpty()) {
+            return models.get(0).key();
+        }
+        Map.Entry<String, AgentProviderProperties.ProviderConfig> firstProvider = null;
+        for (Map.Entry<String, AgentProviderProperties.ProviderConfig> entry : providerProperties.getProviders().entrySet()) {
+            if (entry.getKey() != null && !entry.getKey().isBlank()) {
+                firstProvider = entry;
+                break;
+            }
+        }
+        if (firstProvider == null) {
+            return models.get(0).key();
+        }
+
+        String providerKey = firstProvider.getKey().trim().toLowerCase(Locale.ROOT);
+        String providerDefaultModelId = normalizeStatic(
+                firstProvider.getValue() == null ? null : firstProvider.getValue().getModel()
+        );
+
+        if (!providerDefaultModelId.isBlank()) {
+            for (ModelDefinition model : models) {
+                if (providerKey.equalsIgnoreCase(model.provider())
+                        && providerDefaultModelId.equalsIgnoreCase(normalizeStatic(model.key()))) {
+                    return model.key();
+                }
+            }
+            for (ModelDefinition model : models) {
+                if (providerKey.equalsIgnoreCase(model.provider())
+                        && providerDefaultModelId.equalsIgnoreCase(normalizeStatic(model.modelId()))) {
+                    return model.key();
+                }
+            }
+        }
+
+        for (ModelDefinition model : models) {
+            if (providerKey.equalsIgnoreCase(model.provider())) {
+                return model.key();
+            }
+        }
+        return models.get(0).key();
+    }
+
+    private static String normalizeStatic(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        return value.trim();
     }
 }

@@ -5,8 +5,7 @@
   "description": "内置示例：REACT 模式 + 确认对话框（human-in-the-loop）",
   "mode": "REACT",
   "modelConfig": {
-    "providerKey": "bailian",
-    "model": "qwen3-max",
+    "modelKey": "bailian-qwen3-max",
     "reasoning": { "enabled": false }
   },
   "toolConfig": {

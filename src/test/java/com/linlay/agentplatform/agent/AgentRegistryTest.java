@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linlay.agentplatform.memory.ChatWindowMemoryProperties;
 import com.linlay.agentplatform.memory.ChatWindowMemoryStore;
 import com.linlay.agentplatform.service.LlmService;
-import com.linlay.agentplatform.tool.AgentFileCreateTool;
+import com.linlay.agentplatform.tool.PlatformCreateAgent;
 import com.linlay.agentplatform.tool.SystemBash;
 import com.linlay.agentplatform.tool.ToolRegistry;
 import org.junit.jupiter.api.Test;
@@ -33,8 +33,7 @@ class AgentRegistryTest {
                   "description": "demo one",
                   "key": "demo_one",
                   "modelConfig": {
-                    "providerKey": "bailian",
-                    "model": "qwen3-max"
+                    "modelKey": "bailian-qwen3-max"
                   },
                   "toolConfig": {
                     "backends": ["_bash_"],
@@ -53,7 +52,7 @@ class AgentRegistryTest {
         LlmService llmService = new LlmService(null, null);
         ToolRegistry toolRegistry = new ToolRegistry(List.of(
                 new SystemBash(),
-                new AgentFileCreateTool(agentsDir)
+                new PlatformCreateAgent(agentsDir)
         ));
         ChatWindowMemoryProperties memoryProperties = new ChatWindowMemoryProperties();
         memoryProperties.setDir(tempDir.resolve("chats").toString());
@@ -79,8 +78,7 @@ class AgentRegistryTest {
                   "description": "demo two",
                   "key": "demo_two",
                   "modelConfig": {
-                    "providerKey": "bailian",
-                    "model": "qwen3-max"
+                    "modelKey": "bailian-qwen3-max"
                   },
                   "toolConfig": {
                     "backends": ["_bash_"],

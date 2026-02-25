@@ -1,6 +1,5 @@
 package com.linlay.agentplatform.config;
 
-import com.linlay.agentplatform.model.ProviderProtocol;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
@@ -72,12 +71,6 @@ public class ChatClientRegistry {
             RestClient.Builder restClientBuilder,
             WebClient.Builder webClientBuilder
     ) {
-        ProviderProtocol protocol = config.getProtocol() == null
-                ? ProviderProtocol.OPENAI_COMPATIBLE
-                : config.getProtocol();
-        if (protocol != ProviderProtocol.OPENAI_COMPATIBLE) {
-            throw new IllegalStateException("Unsupported protocol for provider '%s': %s".formatted(providerName, protocol));
-        }
         assertOpenAiCompatibleConfig(providerName, config);
 
         OpenAiApi api = OpenAiApi.builder()
@@ -88,7 +81,7 @@ public class ChatClientRegistry {
                 .build();
 
         OpenAiChatOptions options = OpenAiChatOptions.builder()
-                .model(config.getModel())
+                .model(StringUtils.hasText(config.getModel()) ? config.getModel() : SAFE_DEFAULT_MODEL)
                 .temperature(0.2)
                 .build();
 
@@ -104,9 +97,6 @@ public class ChatClientRegistry {
         }
         if (!StringUtils.hasText(config.getApiKey())) {
             throw new IllegalStateException("Missing api-key for provider '" + providerName + "'");
-        }
-        if (!StringUtils.hasText(config.getModel())) {
-            throw new IllegalStateException("Missing model for provider '" + providerName + "'");
         }
     }
 }

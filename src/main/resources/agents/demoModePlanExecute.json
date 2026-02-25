@@ -23,8 +23,7 @@
         根据用户的问题进行深度思考，然后规划出2～4个任务。当前plan阶段必须调用_plan_add_tasks_工具。
       """,
       "modelConfig": {
-        "providerKey": "bailian",
-        "model": "qwen3.5-plus",
+        "modelKey": "bailian-qwen3_5-plus",
         "reasoning": {
           "enabled": false
         }
@@ -46,8 +45,7 @@
         完成当前任务后必须调用 _plan_update_task_ 更新状态，再继续下一个任务。
       """,
       "modelConfig": {
-        "providerKey": "bailian",
-        "model": "qwen3.5-plus",
+        "modelKey": "bailian-qwen3_5-plus",
         "reasoning": {
           "enabled": false
         }
@@ -67,8 +65,7 @@
         4) 每个小节至少包含 1 条清晰条目，内容简洁可执行。
       """,
       "modelConfig": {
-        "providerKey": "bailian",
-        "model": "qwen3.5-plus",
+        "modelKey": "bailian-qwen3_5-plus",
         "reasoning": {
           "enabled": true,
           "effort": "LOW"

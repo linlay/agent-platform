@@ -4,8 +4,7 @@
   "icon": "emoji:🎞️",
   "description": "内置示例：Slack GIF 制作助手（REACT + skill + 脚本执行）",
   "modelConfig": {
-    "providerKey": "bailian",
-    "model": "qwen3-max",
+    "modelKey": "bailian-qwen3-max",
     "reasoning": {
       "enabled": false
     }

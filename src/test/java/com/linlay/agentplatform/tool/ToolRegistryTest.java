@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.ZonedDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -18,14 +19,18 @@ import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linlay.agentplatform.agent.AgentCatalogProperties;
+import com.linlay.agentplatform.config.AgentFileCreateToolProperties;
+import com.linlay.agentplatform.config.AgentProviderProperties;
 import com.linlay.agentplatform.config.CapabilityCatalogProperties;
 import com.linlay.agentplatform.config.ViewportCatalogProperties;
+import com.linlay.agentplatform.model.ModelCatalogProperties;
+import com.linlay.agentplatform.model.ModelRegistryService;
 import com.linlay.agentplatform.service.RuntimeResourceSyncService;
 
 class ToolRegistryTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private final CityDateTimeTool cityDateTimeTool = new CityDateTimeTool();
+    private final CityDateTime cityDateTimeTool = new CityDateTime();
     private final MockCityWeatherTool cityWeatherTool = new MockCityWeatherTool();
     private final MockLogisticsStatusTool logisticsStatusTool = new MockLogisticsStatusTool();
     private final MockTransportScheduleTool transportScheduleTool = new MockTransportScheduleTool();
@@ -160,7 +165,7 @@ class ToolRegistryTest {
         StaticListableBeanFactory beanFactory = new StaticListableBeanFactory();
         beanFactory.addBean("capabilityRegistryService", capabilityRegistryService);
         ToolRegistry toolRegistry = new ToolRegistry(
-                List.of(new CityDateTimeTool()),
+                List.of(new CityDateTime()),
                 beanFactory.getBeanProvider(CapabilityRegistryService.class)
         );
 
@@ -177,48 +182,47 @@ class ToolRegistryTest {
     }
 
     @Test
-    void bashToolShouldRejectUnlistedCommand() {
+    void bashToolShouldRejectWhenAllowedCommandsAreNotConfigured() {
         JsonNode result = bashTool.invoke(Map.of("command", "cat /etc/passwd"));
+        assertThat(result.isTextual()).isTrue();
+        assertThat(result.asText()).contains("exitCode: -1");
+        assertThat(result.asText()).contains("agent.tools.bash.allowed-commands");
+    }
+
+    @Test
+    void bashToolShouldRejectDefaultLsWhenWhitelistIsEmpty() {
+        JsonNode result = bashTool.invoke(Map.of("command", "ls"));
+        assertThat(result.isTextual()).isTrue();
+        assertThat(result.asText()).contains("exitCode: -1");
+        assertThat(result.asText()).contains("agent.tools.bash.allowed-commands");
+    }
+
+    @Test
+    void bashToolShouldRejectRelativePathWhenWorkingDirectoryNotInAllowedPaths(@TempDir Path tempDir) throws IOException {
+        Path file = tempDir.resolve("demo.txt");
+        Files.writeString(file, "hello");
+        SystemBash localBashTool = new SystemBash(tempDir, List.of(), Set.of("cat"), Set.of());
+
+        JsonNode result = localBashTool.invoke(Map.of("command", "cat demo.txt"));
+
         assertThat(result.isTextual()).isTrue();
         assertThat(result.asText()).contains("exitCode: -1");
         assertThat(result.asText()).contains("Path not allowed outside authorized directories");
     }
 
     @Test
-    void bashToolShouldRunAllowedLsCommand() {
-        JsonNode result = bashTool.invoke(Map.of("command", "ls"));
-        assertThat(result.isTextual()).isTrue();
-        assertThat(result.asText()).contains("exitCode: 0");
-        assertThat(result.asText()).contains("\"workingDirectory\": \"");
-    }
-
-    @Test
-    void bashToolShouldReadLocalFile(@TempDir Path tempDir) throws IOException {
+    void bashToolShouldAllowRelativeAndAbsolutePathsInsideAllowedPaths(@TempDir Path tempDir) throws IOException {
         Path file = tempDir.resolve("demo.txt");
         Files.writeString(file, "hello");
-        SystemBash localBashTool = new SystemBash(tempDir);
+        SystemBash localBashTool = new SystemBash(tempDir, List.of(tempDir), Set.of("cat"), Set.of());
 
-        JsonNode result = localBashTool.invoke(Map.of("command", "cat demo.txt"));
+        JsonNode relativeResult = localBashTool.invoke(Map.of("command", "cat demo.txt"));
+        JsonNode absoluteResult = localBashTool.invoke(Map.of("command", "cat " + file));
 
-        assertThat(result.isTextual()).isTrue();
-        assertThat(result.asText()).contains("exitCode: 0");
-        assertThat(result.asText()).contains("hello");
-    }
-
-    @Test
-    void bashToolShouldExpandGlobForCat(@TempDir Path tempDir) throws IOException {
-        Path agentsDir = tempDir.resolve("agents");
-        Files.createDirectories(agentsDir);
-        Files.writeString(agentsDir.resolve("a.json"), "{\"name\":\"a\"}\n");
-        Files.writeString(agentsDir.resolve("b.json"), "{\"name\":\"b\"}\n");
-        SystemBash localBashTool = new SystemBash(tempDir);
-
-        JsonNode result = localBashTool.invoke(Map.of("command", "cat agents/*"));
-
-        assertThat(result.isTextual()).isTrue();
-        assertThat(result.asText()).contains("exitCode: 0");
-        assertThat(result.asText()).contains("\"name\":\"a\"");
-        assertThat(result.asText()).contains("\"name\":\"b\"");
+        assertThat(relativeResult.asText()).contains("exitCode: 0");
+        assertThat(relativeResult.asText()).contains("hello");
+        assertThat(absoluteResult.asText()).contains("exitCode: 0");
+        assertThat(absoluteResult.asText()).contains("hello");
     }
 
     @Test
@@ -228,12 +232,29 @@ class ToolRegistryTest {
         Path keyFile = externalDir.resolve("demo.key");
         Files.writeString(keyFile, "secret");
 
-        SystemBash localBashTool = new SystemBash(Path.of(System.getProperty("user.dir", ".")), List.of(externalDir));
+        SystemBash localBashTool = new SystemBash(
+                Path.of(System.getProperty("user.dir", ".")),
+                List.of(externalDir),
+                Set.of("cat"),
+                Set.of()
+        );
         JsonNode result = localBashTool.invoke(Map.of("command", "cat " + keyFile));
 
         assertThat(result.isTextual()).isTrue();
         assertThat(result.asText()).contains("exitCode: 0");
         assertThat(result.asText()).contains("secret");
+    }
+
+    @Test
+    void bashToolShouldUseAllowedCommandsAsDefaultPathCheckedCommands(@TempDir Path tempDir) throws IOException {
+        Path file = tempDir.resolve("demo.txt");
+        Files.writeString(file, "hello");
+        SystemBash localBashTool = new SystemBash(tempDir, List.of(), Set.of("cat"), Set.of());
+
+        JsonNode result = localBashTool.invoke(Map.of("command", "cat " + file));
+
+        assertThat(result.asText()).contains("exitCode: -1");
+        assertThat(result.asText()).contains("Path not allowed outside authorized directories");
     }
 
     @Test
@@ -251,13 +272,12 @@ class ToolRegistryTest {
     @Test
     void agentFileCreateToolShouldWriteAgentJson(@TempDir Path tempDir) throws IOException {
         Path agentsDir = tempDir.resolve("agents");
-        AgentFileCreateTool tool = new AgentFileCreateTool(agentsDir);
+        PlatformCreateAgent tool = new PlatformCreateAgent(agentsDir);
 
         JsonNode result = tool.invoke(Map.of(
                 "agentId", "qa_bot",
                 "description", "QA 助手",
-                "providerKey", "openai",
-                "model", "gpt-3.5-turbo",
+                "modelKey", "openai-gpt35",
                 "systemPrompt", "你是 QA 助手\n请先问清问题",
                 "mode", "ONESHOT"
         ));
@@ -270,8 +290,7 @@ class ToolRegistryTest {
         assertThat(Files.exists(file)).isTrue();
         JsonNode content = objectMapper.readTree(Files.readString(file));
         assertThat(content.path("description").asText()).isEqualTo("QA 助手");
-        assertThat(content.path("modelConfig").path("providerKey").asText()).isEqualTo("openai");
-        assertThat(content.path("modelConfig").path("model").asText()).isEqualTo("gpt-3.5-turbo");
+        assertThat(content.path("modelConfig").path("modelKey").asText()).isEqualTo("openai-gpt35");
         assertThat(content.path("mode").asText()).isEqualTo("ONESHOT");
         assertThat(content.path("plain").path("systemPrompt").asText()).isEqualTo("你是 QA 助手\n请先问清问题");
         assertThat(content.has("toolConfig")).isFalse();
@@ -279,7 +298,7 @@ class ToolRegistryTest {
 
     @Test
     void agentFileCreateToolShouldRejectInvalidAgentId(@TempDir Path tempDir) {
-        AgentFileCreateTool tool = new AgentFileCreateTool(tempDir.resolve("agents"));
+        PlatformCreateAgent tool = new PlatformCreateAgent(tempDir.resolve("agents"));
 
         JsonNode result = tool.invoke(Map.of("agentId", "../escape"));
 
@@ -288,9 +307,61 @@ class ToolRegistryTest {
     }
 
     @Test
-    void agentFileCreateToolShouldDefaultProviderToBailian(@TempDir Path tempDir) throws IOException {
+    void agentFileCreateToolShouldDefaultModelKeyFromFirstProvider(@TempDir Path tempDir) throws IOException {
         Path agentsDir = tempDir.resolve("agents");
-        AgentFileCreateTool tool = new AgentFileCreateTool(agentsDir);
+        Path modelsDir = tempDir.resolve("models");
+        Path toolsDir = tempDir.resolve("tools");
+        Files.createDirectories(modelsDir);
+        Files.createDirectories(toolsDir);
+        Files.writeString(modelsDir.resolve("zhipu-glm-4-plus.json"), """
+                {
+                  "key": "zhipu-glm-4-plus",
+                  "provider": "zhipu",
+                  "protocol": "OPENAI",
+                  "modelId": "glm-4-plus"
+                }
+                """);
+        Files.writeString(modelsDir.resolve("bailian-qwen3-max.json"), """
+                {
+                  "key": "bailian-qwen3-max",
+                  "provider": "bailian",
+                  "protocol": "OPENAI",
+                  "modelId": "qwen3-max"
+                }
+                """);
+
+        AgentProviderProperties providerProperties = new AgentProviderProperties();
+        LinkedHashMap<String, AgentProviderProperties.ProviderConfig> providers = new LinkedHashMap<>();
+        AgentProviderProperties.ProviderConfig zhipu = new AgentProviderProperties.ProviderConfig();
+        zhipu.setBaseUrl("https://example.com/v1");
+        zhipu.setApiKey("test-zhipu-key");
+        zhipu.setModel("glm-4-plus");
+        providers.put("zhipu", zhipu);
+        AgentProviderProperties.ProviderConfig bailian = new AgentProviderProperties.ProviderConfig();
+        bailian.setBaseUrl("https://example.com/v1");
+        bailian.setApiKey("test-bailian-key");
+        bailian.setModel("qwen3-max");
+        providers.put("bailian", bailian);
+        providerProperties.setProviders(providers);
+
+        ModelCatalogProperties modelProperties = new ModelCatalogProperties();
+        modelProperties.setExternalDir(modelsDir.toString());
+        ModelRegistryService modelRegistryService = new ModelRegistryService(
+                objectMapper,
+                modelProperties,
+                providerProperties,
+                createRuntimeResourceSyncService(tempDir, toolsDir)
+        );
+
+        AgentCatalogProperties agentProperties = new AgentCatalogProperties();
+        agentProperties.setExternalDir(agentsDir.toString());
+        AgentFileCreateToolProperties toolProperties = new AgentFileCreateToolProperties();
+        PlatformCreateAgent tool = new PlatformCreateAgent(
+                agentProperties,
+                toolProperties,
+                providerProperties,
+                modelRegistryService
+        );
 
         JsonNode result = tool.invoke(Map.of(
                 "agentId", "fortune_bot",
@@ -301,17 +372,18 @@ class ToolRegistryTest {
 
         assertThat(result.path("ok").asBoolean()).isTrue();
         JsonNode content = objectMapper.readTree(Files.readString(agentsDir.resolve("fortune_bot.json")));
-        assertThat(content.path("modelConfig").path("providerKey").asText()).isEqualTo("bailian");
+        assertThat(content.path("modelConfig").path("modelKey").asText()).isEqualTo("zhipu-glm-4-plus");
         assertThat(content.path("mode").asText()).isEqualTo("ONESHOT");
     }
 
     @Test
     void agentFileCreateToolShouldUseConfiguredDefaultSystemPrompt(@TempDir Path tempDir) throws IOException {
         Path agentsDir = tempDir.resolve("agents");
-        AgentFileCreateTool tool = new AgentFileCreateTool(agentsDir, "这是配置的默认提示词");
+        PlatformCreateAgent tool = new PlatformCreateAgent(agentsDir, "这是配置的默认提示词");
 
         JsonNode result = tool.invoke(Map.of(
                 "agentId", "default_prompt_bot",
+                "modelKey", "bailian-qwen3-max",
                 "mode", "ONESHOT"
         ));
 
@@ -347,6 +419,8 @@ class ToolRegistryTest {
         viewportProperties.setExternalDir(root.resolve("viewports").toString());
         CapabilityCatalogProperties capabilityProperties = new CapabilityCatalogProperties();
         capabilityProperties.setToolsExternalDir(toolsDir.toString());
-        return new RuntimeResourceSyncService(agentProperties, viewportProperties, capabilityProperties);
+        ModelCatalogProperties modelProperties = new ModelCatalogProperties();
+        modelProperties.setExternalDir(root.resolve("models").toString());
+        return new RuntimeResourceSyncService(agentProperties, viewportProperties, capabilityProperties, modelProperties);
     }
 }

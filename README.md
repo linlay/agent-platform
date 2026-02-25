@@ -107,6 +107,7 @@
 ├── src/
 ├── agents/
 ├── data/
+├── models/
 ├── skills/
 ├── viewports/
 ├── tools/
@@ -185,8 +186,9 @@ agent:
 > 完整 schema 规范、配置规则和已移除字段列表见 [CLAUDE.md #Agent JSON 定义](./CLAUDE.md#agent-json-定义)。
 
 - `agents/*.json` 以 `key` 作为 agentId；若缺失 `key`，回退为文件名（不含 `.json`）
-- 服务启动时会先加载一次，之后每 10 秒刷新一次缓存（默认值）
-- 可通过 `AGENT_EXTERNAL_DIR` 指定目录，通过 `AGENT_REFRESH_INTERVAL_MS` 调整刷新间隔
+- `modelConfig.modelKey` 为必填，模型信息统一从 `models/*.json` 解析
+- 服务启动时会先加载一次，并通过目录监听自动刷新
+- 可通过 `AGENT_EXTERNAL_DIR` 指定目录
 - `systemPrompt` 同时支持标准 JSON 字符串和 `"""` 多行写法（仅 `systemPrompt`）
 
 ### ONESHOT 示例
@@ -200,8 +202,7 @@ agent:
   "icon": "emoji:🔮",
   "description": "算命大师",
   "modelConfig": {
-    "providerKey": "bailian",
-    "model": "qwen3-max",
+    "modelKey": "bailian-qwen3-max",
     "reasoning": { "enabled": false }
   },
   "mode": "ONESHOT",
@@ -219,8 +220,7 @@ agent:
 {
   "mode": "REACT",
   "modelConfig": {
-    "providerKey": "bailian",
-    "model": "qwen3-max",
+    "modelKey": "bailian-qwen3-max",
     "reasoning": { "enabled": true, "effort": "MEDIUM" }
   },
   "toolConfig": {
@@ -246,8 +246,7 @@ agent:
 {
   "mode": "PLAN_EXECUTE",
   "modelConfig": {
-    "providerKey": "bailian",
-    "model": "qwen3-max",
+    "modelKey": "bailian-qwen3-max",
     "reasoning": { "enabled": true, "effort": "HIGH" }
   },
   "toolConfig": {
@@ -274,7 +273,7 @@ agent:
 }
 ```
 
-## 工具 / 视图 / 技能目录
+## Models / 工具 / 视图 / 技能目录
 
 > 工具系统设计规范（继承规则、提交协议、action 行为）见 [CLAUDE.md #Tool 系统](./CLAUDE.md#tool-系统)。
 > Skills 系统设计见 [CLAUDE.md #Skills 系统](./CLAUDE.md#skills-系统)。
@@ -282,11 +281,13 @@ agent:
 
 - 运行目录默认值：
   - agents: `agents/`
+  - models: `models/`
   - viewports: `viewports/`
   - tools: `tools/`
   - skills: `skills/`
-- 启动时会将 `src/main/resources/agents|viewports|tools|skills` 同步到外部目录：
+- 启动时会将 `src/main/resources/agents|models|viewports|tools|skills` 同步到外部目录：
   - `AGENT_EXTERNAL_DIR`
+  - `AGENT_MODEL_EXTERNAL_DIR`
   - `AGENT_VIEWPORT_EXTERNAL_DIR`
   - `AGENT_TOOLS_EXTERNAL_DIR`
   - `AGENT_SKILL_EXTERNAL_DIR`
@@ -301,6 +302,10 @@ agent:
   - 目录结构：`skills/<skill-id>/SKILL.md`（强约束，目录式）
   - 可选子目录：`scripts/`、`references/`、`assets/`
   - `skill-id` 取目录名，`SKILL.md` frontmatter 的 `name/description` 作为元信息。
+- `models`:
+  - 目录结构：`models/<model-key>.json`
+  - 关键字段：`key/provider/protocol/modelId/pricing`
+  - `protocol` 固定值：`OPENAI`、`ANTHROPIC`、`NEWAPI_OPENAI_COMPATIBLE`
 - `show_weather_card` 当前仅作为 viewport（`viewports/show_weather_card.html`），不是可调用 tool。
 
 ### /api/ap/viewport 约定
@@ -353,14 +358,16 @@ agent:
 ### 内置工具
 
 - `_skill_run_script_`：执行 skills 目录下脚本或临时 Python 脚本。
-- `_bash_`：Shell 命令执行，受 `allowed-paths` 白名单约束。
+- `_bash_`：Shell 命令执行，需显式配置 `allowed-commands` 与 `allowed-paths` 白名单。
 - `city_datetime`：获取城市当前日期时间。
 - `mock_city_weather`：模拟城市天气数据。
 - `agent_file_create`：创建/更新 agent JSON 文件（校验 key 仅允许 `A-Za-z0-9_-`，最长 64）。
 
 ## Bash 工具配置
 
-`_bash_` 工具默认仅允许访问工作目录（`user.dir`）。工具返回文本包含 `exitCode`、`"workingDirectory"`、`stdout`、`stderr`。若需要让 Agent 在容器内读取 `/opt` 等目录，可配置：
+`_bash_` 工具必须显式配置命令白名单（`allowed-commands`）和目录白名单（`allowed-paths`）。未配置 `allowed-commands` 时会直接拒绝执行任何命令。工具返回文本包含 `exitCode`、`"workingDirectory"`、`stdout`、`stderr`。
+
+`path-checked-commands` 为空时，默认等于 `allowed-commands`；并且只会对 `allowed-commands` 的交集生效。`working-directory` 仅决定进程启动目录，不会自动加入 `allowed-paths`。
 
 ```yaml
 agent:
@@ -368,14 +375,21 @@ agent:
     bash:
       working-directory: /opt/app
       allowed-paths:
-        - /opt
+        - /opt/app
+        - /opt/data
+      allowed-commands:
+        - ls,pwd,cat,head,tail,top,free,df,git
+      path-checked-commands:
+        - ls,cat,head,tail,git
 ```
 
-也可使用环境变量：
+也可使用环境变量（逗号分隔）：
 
 ```bash
 AGENT_BASH_WORKING_DIRECTORY=/opt/app
-AGENT_BASH_ALLOWED_PATHS=/opt,/data
+AGENT_BASH_ALLOWED_PATHS=/opt/app,/opt/data
+AGENT_BASH_ALLOWED_COMMANDS=ls,pwd,cat,head,tail,top,free,df,git
+AGENT_BASH_PATH_CHECKED_COMMANDS=ls,cat,head,tail,git
 ```
 
 ## 环境变量速查
@@ -388,13 +402,15 @@ AGENT_BASH_ALLOWED_PATHS=/opt,/data
 |---------|-------|------|
 | `SERVER_PORT` | `8080` | HTTP 服务端口 |
 | `AGENT_EXTERNAL_DIR` | `agents` | Agent 定义目录 |
-| `AGENT_REFRESH_INTERVAL_MS` | `10000` | Agent 刷新间隔（ms） |
+| `AGENT_MODEL_EXTERNAL_DIR` | `models` | Model 定义目录 |
 | `AGENT_VIEWPORT_EXTERNAL_DIR` | `viewports` | Viewport 目录 |
 | `AGENT_TOOLS_EXTERNAL_DIR` | `tools` | 工具目录 |
 | `AGENT_SKILL_EXTERNAL_DIR` | `skills` | 技能目录 |
 | `AGENT_DATA_EXTERNAL_DIR` | `data` | 静态文件目录 |
 | `AGENT_BASH_WORKING_DIRECTORY` | `${user.dir}` | Bash 工作目录 |
 | `AGENT_BASH_ALLOWED_PATHS` | （空） | Bash 允许路径 |
+| `AGENT_BASH_ALLOWED_COMMANDS` | （空=拒绝执行） | Bash 允许命令列表（逗号分隔） |
+| `AGENT_BASH_PATH_CHECKED_COMMANDS` | （空=默认等于 allowed-commands） | 启用路径校验的命令列表（逗号分隔） |
 | `AGENT_TOOLS_FRONTEND_SUBMIT_TIMEOUT_MS` | `300000` | 前端工具提交超时 |
 | `AGENT_AUTH_ENABLED` | `true` | JWT 认证开关 |
 | `MEMORY_CHAT_DIR` | `./chats` | 聊天记忆目录 |

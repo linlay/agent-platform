@@ -15,7 +15,7 @@ import java.util.Locale;
 import java.util.Map;
 
 @Component
-public class CityDateTimeTool extends AbstractDeterministicTool {
+public class CityDateTime extends AbstractDeterministicTool {
 
     @Override
     public String name() {

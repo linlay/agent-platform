@@ -37,9 +37,8 @@ agent:
 @Component
 public class SystemBash extends AbstractDeterministicTool {
 
-    private static final Set<String> DEFAULT_ALLOWED_COMMANDS = Set.of("ls", "pwd", "cat", "head", "tail", "top", "free", "df", "git");
-    private static final Set<String> DEFAULT_PATH_CHECKED_COMMANDS = Set.of("ls", "cat", "head", "tail", "git");
     private static final int MAX_OUTPUT_CHARS = 2000;
+    private static final String COMMANDS_NOT_CONFIGURED_MESSAGE = "Bash command whitelist is empty. Configure agent.tools.bash.allowed-commands";
     private final Path workingDirectory;
     private final List<Path> allowedRoots;
     private final Set<String> allowedCommands;
@@ -49,27 +48,27 @@ public class SystemBash extends AbstractDeterministicTool {
     public SystemBash(BashToolProperties properties) {
         this(resolveWorkingDirectory(properties.getWorkingDirectory()),
              parseAllowedPaths(properties.getAllowedPaths()),
-             parseCommandSet(properties.getAllowedCommands(), DEFAULT_ALLOWED_COMMANDS),
-             parseCommandSet(properties.getPathCheckedCommands(), DEFAULT_PATH_CHECKED_COMMANDS));
+             parseCommandSet(properties.getAllowedCommands()),
+             parseCommandSet(properties.getPathCheckedCommands()));
     }
 
     public SystemBash() {
-        this(resolveWorkingDirectory(""), List.of(), DEFAULT_ALLOWED_COMMANDS, DEFAULT_PATH_CHECKED_COMMANDS);
+        this(resolveWorkingDirectory(""), List.of(), Set.of(), Set.of());
     }
 
     SystemBash(Path workingDirectory) {
-        this(workingDirectory, List.of(), DEFAULT_ALLOWED_COMMANDS, DEFAULT_PATH_CHECKED_COMMANDS);
+        this(workingDirectory, List.of(), Set.of(), Set.of());
     }
 
     SystemBash(Path workingDirectory, List<Path> additionalAllowedRoots) {
-        this(workingDirectory, additionalAllowedRoots, DEFAULT_ALLOWED_COMMANDS, DEFAULT_PATH_CHECKED_COMMANDS);
+        this(workingDirectory, additionalAllowedRoots, Set.of(), Set.of());
     }
 
     SystemBash(Path workingDirectory, List<Path> additionalAllowedRoots, Set<String> allowedCommands, Set<String> pathCheckedCommands) {
         this.workingDirectory = workingDirectory.toAbsolutePath().normalize();
-        this.allowedRoots = buildAllowedRoots(this.workingDirectory, additionalAllowedRoots);
-        this.allowedCommands = allowedCommands;
-        this.pathCheckedCommands = pathCheckedCommands;
+        this.allowedRoots = buildAllowedRoots(additionalAllowedRoots);
+        this.allowedCommands = normalizeCommandSet(allowedCommands);
+        this.pathCheckedCommands = resolvePathCheckedCommands(pathCheckedCommands, this.allowedCommands);
     }
 
     @Override
@@ -89,6 +88,10 @@ public class SystemBash extends AbstractDeterministicTool {
         List<String> tokens = tokenize(rawCommand);
         if (tokens.isEmpty()) {
             return textResult(-1, "", "Cannot parse command");
+        }
+
+        if (allowedCommands.isEmpty()) {
+            return textResult(-1, "", COMMANDS_NOT_CONFIGURED_MESSAGE);
         }
 
         String baseCommand = tokens.get(0);
@@ -281,20 +284,25 @@ public class SystemBash extends AbstractDeterministicTool {
         }
 
         List<Path> paths = new ArrayList<>();
-        for (String configuredAllowedPath : configuredAllowedPaths) {
-            if (configuredAllowedPath == null || configuredAllowedPath.isBlank()) {
+        for (String entry : configuredAllowedPaths) {
+            if (entry == null || entry.isBlank()) {
                 continue;
             }
-            paths.add(Path.of(configuredAllowedPath).toAbsolutePath().normalize());
+            for (String path : entry.split(",")) {
+                String trimmed = path.trim();
+                if (!trimmed.isEmpty()) {
+                    paths.add(Path.of(trimmed).toAbsolutePath().normalize());
+                }
+            }
         }
         return paths;
     }
 
-    private static Set<String> parseCommandSet(List<String> configured, Set<String> defaults) {
-        if (configured == null || configured.isEmpty()) {
-            return defaults;
-        }
+    private static Set<String> parseCommandSet(List<String> configured) {
         LinkedHashSet<String> commands = new LinkedHashSet<>();
+        if (configured == null || configured.isEmpty()) {
+            return Set.of();
+        }
         for (String entry : configured) {
             if (entry == null || entry.isBlank()) {
                 continue;
@@ -306,12 +314,42 @@ public class SystemBash extends AbstractDeterministicTool {
                 }
             }
         }
-        return commands.isEmpty() ? defaults : Set.copyOf(commands);
+        return commands.isEmpty() ? Set.of() : Set.copyOf(commands);
     }
 
-    private static List<Path> buildAllowedRoots(Path workingDirectory, List<Path> additionalAllowedRoots) {
+    private static Set<String> normalizeCommandSet(Set<String> commands) {
+        if (commands == null || commands.isEmpty()) {
+            return Set.of();
+        }
+        LinkedHashSet<String> normalized = new LinkedHashSet<>();
+        for (String command : commands) {
+            if (command == null || command.isBlank()) {
+                continue;
+            }
+            normalized.add(command.trim());
+        }
+        return normalized.isEmpty() ? Set.of() : Set.copyOf(normalized);
+    }
+
+    private static Set<String> resolvePathCheckedCommands(Set<String> configuredPathCheckedCommands, Set<String> allowedCommands) {
+        if (allowedCommands.isEmpty()) {
+            return Set.of();
+        }
+        Set<String> normalized = normalizeCommandSet(configuredPathCheckedCommands);
+        if (normalized.isEmpty()) {
+            return allowedCommands;
+        }
+        LinkedHashSet<String> intersected = new LinkedHashSet<>();
+        for (String command : normalized) {
+            if (allowedCommands.contains(command)) {
+                intersected.add(command);
+            }
+        }
+        return intersected.isEmpty() ? Set.of() : Set.copyOf(intersected);
+    }
+
+    private static List<Path> buildAllowedRoots(List<Path> additionalAllowedRoots) {
         LinkedHashSet<Path> roots = new LinkedHashSet<>();
-        roots.add(workingDirectory.toAbsolutePath().normalize());
         if (additionalAllowedRoots != null) {
             for (Path path : additionalAllowedRoots) {
                 if (path != null) {

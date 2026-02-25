@@ -414,8 +414,10 @@ public final class PlanExecuteMode extends AgentMode {
         }
         return new StageSettings(
                 stage.systemPrompt(),
+                stage.modelKey(),
                 stage.providerKey(),
                 stage.model(),
+                stage.protocol(),
                 stage.tools(),
                 reasoningEnabled,
                 stage.reasoningEffort(),
@@ -537,8 +539,10 @@ public final class PlanExecuteMode extends AgentMode {
         String augmentedPrompt = (planStage.systemPrompt() == null ? "" : planStage.systemPrompt()) + extraPrompt;
         return new StageSettings(
                 augmentedPrompt,
+                planStage.modelKey(),
                 planStage.providerKey(),
                 planStage.model(),
+                planStage.protocol(),
                 planStage.tools(),
                 planStage.reasoningEnabled(),
                 planStage.reasoningEffort(),

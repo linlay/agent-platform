@@ -29,8 +29,7 @@ class AgentDefinitionLoaderTest {
                   "icon": "emoji:📅",
                   "description": "运维助手",
                   "modelConfig": {
-                    "providerKey": "bailian",
-                    "model": "qwen3-max"
+                    "modelKey": "bailian-qwen3-max"
                   },
                   "toolConfig": {
                     "backends": ["_bash_"],
@@ -90,13 +89,36 @@ class AgentDefinitionLoaderTest {
     }
 
     @Test
+    void shouldRejectModelConfigWithProviderAndModelFields() throws IOException {
+        Files.writeString(tempDir.resolve("legacy_model_config.json"), """
+                {
+                  "key": "legacy_model_config",
+                  "description": "legacy modelConfig",
+                  "modelConfig": {
+                    "providerKey": "bailian",
+                    "model": "qwen3-max"
+                  },
+                  "mode": "ONESHOT",
+                  "plain": { "systemPrompt": "test" }
+                }
+                """);
+
+        AgentCatalogProperties properties = new AgentCatalogProperties();
+        properties.setExternalDir(tempDir.toString());
+        AgentDefinitionLoader loader = new AgentDefinitionLoader(new ObjectMapper(), properties, null);
+        Map<String, AgentDefinition> byId = loader.loadAll().stream()
+                .collect(Collectors.toMap(AgentDefinition::id, definition -> definition));
+
+        assertThat(byId).doesNotContainKey("legacy_model_config");
+    }
+
+    @Test
     void shouldLoadTripleQuotedPromptForOneshot() throws IOException {
         Files.writeString(tempDir.resolve("fortune_teller.json"), "{" + "\n"
                 + "  \"key\": \"fortune_teller\",\n"
                 + "  \"description\": \"算命大师\",\n"
                 + "  \"modelConfig\": {\n"
-                + "    \"providerKey\": \"bailian\",\n"
-                + "    \"model\": \"qwen3-max\"\n"
+                + "    \"modelKey\": \"bailian-qwen3-max\"\n"
                 + "  },\n"
                 + "  \"toolConfig\": null,\n"
                 + "  \"mode\": \"ONESHOT\",\n"
@@ -126,8 +148,7 @@ class AgentDefinitionLoaderTest {
                 + "  \"key\": \"demoModePlanExecute\",\n"
                 + "  \"description\": \"plan execute with comments\",\n"
                 + "  \"modelConfig\": {\n"
-                + "    \"providerKey\": \"bailian\",\n"
-                + "    \"model\": \"qwen3-max\"\n"
+                + "    \"modelKey\": \"bailian-qwen3-max\"\n"
                 + "  },\n"
                 + "  \"mode\": \"PLAN_EXECUTE\",\n"
                 + "  \"planExecute\": {\n"
@@ -173,8 +194,7 @@ class AgentDefinitionLoaderTest {
                   "key": "m_oneshot",
                   "description": "oneshot",
                   "modelConfig": {
-                    "providerKey": "bailian",
-                    "model": "qwen3-max"
+                    "modelKey": "bailian-qwen3-max"
                   },
                   "toolConfig": null,
                   "mode": "ONESHOT",
@@ -186,8 +206,7 @@ class AgentDefinitionLoaderTest {
                   "key": "m_react",
                   "description": "react",
                   "modelConfig": {
-                    "providerKey": "bailian",
-                    "model": "qwen3-max"
+                    "modelKey": "bailian-qwen3-max"
                   },
                   "toolConfig": null,
                   "mode": "REACT",
@@ -202,8 +221,7 @@ class AgentDefinitionLoaderTest {
                   "key": "m_plan_execute",
                   "description": "plan execute",
                   "modelConfig": {
-                    "providerKey": "bailian",
-                    "model": "qwen3-max"
+                    "modelKey": "bailian-qwen3-max"
                   },
                   "toolConfig": null,
                   "mode": "PLAN_EXECUTE",
@@ -234,8 +252,7 @@ class AgentDefinitionLoaderTest {
                   "key": "skills_top_level",
                   "description": "skills top level",
                   "modelConfig": {
-                    "providerKey": "bailian",
-                    "model": "qwen3-max"
+                    "modelKey": "bailian-qwen3-max"
                   },
                   "skillConfig": {
                     "skills": ["screenshot", "Doc", "screenshot"]
@@ -264,8 +281,7 @@ class AgentDefinitionLoaderTest {
                   "key": "skills_alias",
                   "description": "skills alias",
                   "modelConfig": {
-                    "providerKey": "bailian",
-                    "model": "qwen3-max"
+                    "modelKey": "bailian-qwen3-max"
                   },
                   "skills": ["pdf", "doc"],
                   "skillConfig": {
@@ -295,8 +311,7 @@ class AgentDefinitionLoaderTest {
                   "key": "demoModePlainSkillMath",
                   "description": "skill math demo",
                   "modelConfig": {
-                    "providerKey": "bailian",
-                    "model": "qwen3-max"
+                    "modelKey": "bailian-qwen3-max"
                   },
                   "toolConfig": {
                     "backends": ["_skill_run_script_"],
@@ -335,9 +350,8 @@ class AgentDefinitionLoaderTest {
                   "plain": {
                     "systemPrompt": "inner model prompt",
                     "modelConfig": {
-                      "providerKey": "siliconflow",
-                      "model": "deepseek-ai/DeepSeek-V3.2"
-                    }
+                    "modelKey": "siliconflow-deepseek-v3_2"
+                  }
                   }
                 }
                 """);
@@ -351,8 +365,8 @@ class AgentDefinitionLoaderTest {
                 .findFirst()
                 .orElseThrow();
 
-        assertThat(definition.providerKey()).isEqualTo("bailian");
-        assertThat(definition.model()).isEqualTo("qwen3-max");
+        assertThat(definition.providerKey()).isEqualTo("siliconflow");
+        assertThat(definition.model()).isEqualTo("deepseek-ai/DeepSeek-V3.2");
         assertThat(definition.mode()).isEqualTo(AgentRuntimeMode.ONESHOT);
 
         OneshotMode mode = (OneshotMode) definition.agentMode();
@@ -388,8 +402,7 @@ class AgentDefinitionLoaderTest {
                   "key": "inherit_plan",
                   "description": "inherit test",
                   "modelConfig": {
-                    "providerKey": "bailian",
-                    "model": "qwen3-max",
+                    "modelKey": "bailian-qwen3-max",
                     "reasoning": { "enabled": true, "effort": "HIGH" }
                   },
                   "toolConfig": {
@@ -438,8 +451,7 @@ class AgentDefinitionLoaderTest {
                   "key": "deep_thinking_plan",
                   "description": "deep thinking test",
                   "modelConfig": {
-                    "providerKey": "bailian",
-                    "model": "qwen3-max"
+                    "modelKey": "bailian-qwen3-max"
                   },
                   "toolConfig": {
                     "backends": ["city_datetime"],
@@ -501,8 +513,7 @@ class AgentDefinitionLoaderTest {
                   "key": "runtime_prompts",
                   "description": "runtime prompts",
                   "modelConfig": {
-                    "providerKey": "bailian",
-                    "model": "qwen3-max"
+                    "modelKey": "bailian-qwen3-max"
                   },
                   "mode": "ONESHOT",
                   "plain": { "systemPrompt": "plain prompt" },
@@ -544,8 +555,7 @@ class AgentDefinitionLoaderTest {
                   "key": "removed_fields",
                   "description": "removed fields",
                   "modelConfig": {
-                    "providerKey": "bailian",
-                    "model": "qwen3-max"
+                    "modelKey": "bailian-qwen3-max"
                   },
                   "verify": "NONE",
                   "mode": "ONESHOT",
@@ -568,8 +578,7 @@ class AgentDefinitionLoaderTest {
                   "key": "budget_v2",
                   "description": "budget v2",
                   "modelConfig": {
-                    "providerKey": "bailian",
-                    "model": "qwen3-max"
+                    "modelKey": "bailian-qwen3-max"
                   },
                   "budget": {
                     "runTimeoutMs": 180000,
@@ -607,8 +616,7 @@ class AgentDefinitionLoaderTest {
                   "key": "budget_legacy",
                   "description": "budget legacy",
                   "modelConfig": {
-                    "providerKey": "bailian",
-                    "model": "qwen3-max"
+                    "modelKey": "bailian-qwen3-max"
                   },
                   "budget": {
                     "maxModelCalls": 8,
@@ -631,8 +639,7 @@ class AgentDefinitionLoaderTest {
                   "key": "demoModePlanExecute",
                   "description": "main demo",
                   "modelConfig": {
-                    "providerKey": "bailian",
-                    "model": "qwen3-max"
+                    "modelKey": "bailian-qwen3-max"
                   },
                   "mode": "PLAN_EXECUTE",
                   "planExecute": {
@@ -647,8 +654,7 @@ class AgentDefinitionLoaderTest {
                   "key": "demoModePlanExecuteDeepThinking",
                   "description": "deep demo",
                   "modelConfig": {
-                    "providerKey": "bailian",
-                    "model": "qwen3-max"
+                    "modelKey": "bailian-qwen3-max"
                   },
                   "mode": "PLAN_EXECUTE",
                   "planExecute": {
@@ -690,8 +696,7 @@ class AgentDefinitionLoaderTest {
                   "key": "%s",
                   "description": "invalid deepThinking stage config",
                   "modelConfig": {
-                    "providerKey": "bailian",
-                    "model": "qwen3-max"
+                    "modelKey": "bailian-qwen3-max"
                   },
                   "mode": "PLAN_EXECUTE",
                   "planExecute": {

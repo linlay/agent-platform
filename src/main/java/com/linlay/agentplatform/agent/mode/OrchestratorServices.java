@@ -12,6 +12,7 @@ import com.linlay.agentplatform.agent.runtime.ToolExecutionService;
 import com.linlay.agentplatform.agent.runtime.policy.ComputePolicy;
 import com.linlay.agentplatform.agent.runtime.policy.ToolChoice;
 import com.linlay.agentplatform.model.AgentDelta;
+import com.linlay.agentplatform.model.ModelProtocol;
 import com.linlay.agentplatform.service.LlmCallSpec;
 import com.linlay.agentplatform.service.LlmService;
 import com.linlay.agentplatform.tool.BaseTool;
@@ -152,6 +153,7 @@ public class OrchestratorServices {
         for (LlmDelta delta : llmService.streamDeltas(new LlmCallSpec(
                 resolveProvider(stageSettings, context),
                 resolveModel(stageSettings, context),
+                resolveProtocol(stageSettings, context),
                 effectiveSystemPrompt,
                 messages,
                 userPrompt,
@@ -529,6 +531,13 @@ public class OrchestratorServices {
             return model;
         }
         return context.definition().model();
+    }
+
+    private ModelProtocol resolveProtocol(StageSettings stageSettings, ExecutionContext context) {
+        if (stageSettings.protocol() != null) {
+            return stageSettings.protocol();
+        }
+        return context.definition().protocol();
     }
 
     private String mergeSystemPrompt(String base, String appendix) {

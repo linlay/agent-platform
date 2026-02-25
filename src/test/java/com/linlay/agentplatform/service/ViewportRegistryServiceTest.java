@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linlay.agentplatform.agent.AgentCatalogProperties;
 import com.linlay.agentplatform.config.CapabilityCatalogProperties;
 import com.linlay.agentplatform.config.ViewportCatalogProperties;
+import com.linlay.agentplatform.model.ModelCatalogProperties;
 import com.linlay.agentplatform.model.ViewportType;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -66,6 +67,8 @@ class ViewportRegistryServiceTest {
         viewportProperties.setExternalDir(root.toString());
         CapabilityCatalogProperties capabilityProperties = new CapabilityCatalogProperties();
         capabilityProperties.setToolsExternalDir(root.resolve("tools").toString());
-        return new RuntimeResourceSyncService(agentProperties, viewportProperties, capabilityProperties);
+        ModelCatalogProperties modelProperties = new ModelCatalogProperties();
+        modelProperties.setExternalDir(root.resolve("models").toString());
+        return new RuntimeResourceSyncService(agentProperties, viewportProperties, capabilityProperties, modelProperties);
     }
 }

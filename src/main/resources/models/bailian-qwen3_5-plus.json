@@ -1,0 +1,35 @@
+{
+  "key": "bailian-qwen3_5-plus",
+  "provider": "bailian",
+  "protocol": "OPENAI",
+  "modelId": "qwen3.5-plus",
+  "isReasoner": true,
+  "isFunction": true,
+  "maxTokens": 32768,
+  "maxInputTokens": 32768,
+  "maxOutputTokens": 8192,
+  "pricing": {
+    "promptPointsPer1k": 20,
+    "completionPointsPer1k": 60,
+    "perCallPoints": 0,
+    "priceRatio": 1.0,
+    "tiers": [
+      {
+        "minInputTokens": 0,
+        "maxInputTokens": 8000,
+        "promptPointsPer1k": 18,
+        "completionPointsPer1k": 54,
+        "perCallPoints": 0,
+        "priceRatio": 1.0
+      },
+      {
+        "minInputTokens": 8001,
+        "maxInputTokens": 32768,
+        "promptPointsPer1k": 20,
+        "completionPointsPer1k": 60,
+        "perCallPoints": 0,
+        "priceRatio": 1.1
+      }
+    ]
+  }
+}

@@ -5,12 +5,14 @@ import com.linlay.agentplatform.agent.SkillAppend;
 import com.linlay.agentplatform.agent.ToolAppend;
 import com.linlay.agentplatform.agent.runtime.AgentRuntimeMode;
 import com.linlay.agentplatform.agent.runtime.policy.ComputePolicy;
+import com.linlay.agentplatform.model.ModelDefinition;
 import org.springframework.util.StringUtils;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.function.Function;
 
 public final class AgentModeFactory {
 
@@ -20,7 +22,12 @@ public final class AgentModeFactory {
     private AgentModeFactory() {
     }
 
-    public static AgentMode create(AgentRuntimeMode mode, AgentConfigFile config, Path file) {
+    public static AgentMode create(
+            AgentRuntimeMode mode,
+            AgentConfigFile config,
+            Path file,
+            Function<String, ModelDefinition> modelResolver
+    ) {
         AgentConfigFile.RuntimePromptsConfig runtimePromptsConfig = config == null ? null : config.getRuntimePrompts();
         SkillAppend skillAppend = buildSkillAppend(runtimePromptsConfig);
         ToolAppend toolAppend = buildToolAppend(runtimePromptsConfig);
@@ -28,7 +35,7 @@ public final class AgentModeFactory {
 
         return switch (mode) {
             case ONESHOT -> {
-                StageSettings stage = stageSettings(config, config == null ? null : config.getPlain(), List.of());
+                StageSettings stage = stageSettings(config, config == null ? null : config.getPlain(), List.of(), modelResolver);
                 if (isBlank(stage.systemPrompt())) {
                     throw new IllegalArgumentException("plain.systemPrompt is required: " + file);
                 }
@@ -36,7 +43,7 @@ public final class AgentModeFactory {
             }
             case REACT -> {
                 AgentConfigFile.ReactConfig react = config == null ? null : config.getReact();
-                StageSettings stage = stageSettings(config, react, List.of());
+                StageSettings stage = stageSettings(config, react, List.of(), modelResolver);
                 if (isBlank(stage.systemPrompt())) {
                     throw new IllegalArgumentException("react.systemPrompt is required: " + file);
                 }
@@ -50,17 +57,20 @@ public final class AgentModeFactory {
                 StageSettings planStage = stageSettings(
                         config,
                         pe == null ? null : pe.getPlan(),
-                        List.of(PLAN_ADD_TASK_TOOL)
+                        List.of(PLAN_ADD_TASK_TOOL),
+                        modelResolver
                 );
                 StageSettings executeStage = stageSettings(
                         config,
                         pe == null ? null : pe.getExecute(),
-                        List.of(PLAN_UPDATE_TASK_TOOL)
+                        List.of(PLAN_UPDATE_TASK_TOOL),
+                        modelResolver
                 );
                 StageSettings summaryStage = stageSettings(
                         config,
                         pe == null ? null : pe.getSummary(),
-                        List.of()
+                        List.of(),
+                        modelResolver
                 );
                 if (isBlank(planStage.systemPrompt()) || isBlank(executeStage.systemPrompt())) {
                     throw new IllegalArgumentException(
@@ -69,8 +79,10 @@ public final class AgentModeFactory {
                 if (isBlank(summaryStage.systemPrompt())) {
                     summaryStage = new StageSettings(
                             executeStage.systemPrompt(),
+                            summaryStage.modelKey(),
                             summaryStage.providerKey(),
                             summaryStage.model(),
+                            summaryStage.protocol(),
                             summaryStage.tools(),
                             summaryStage.reasoningEnabled(),
                             summaryStage.reasoningEffort(),
@@ -151,9 +163,21 @@ public final class AgentModeFactory {
     private static StageSettings stageSettings(
             AgentConfigFile config,
             AgentConfigFile.StageConfig stage,
-            List<String> requiredTools
+            List<String> requiredTools,
+            Function<String, ModelDefinition> modelResolver
     ) {
         AgentConfigFile.ModelConfig resolvedModelConfig = resolveModelConfig(config, stage);
+        if (resolvedModelConfig == null || !StringUtils.hasText(resolvedModelConfig.getModelKey())) {
+            throw new IllegalArgumentException("modelConfig.modelKey is required");
+        }
+        if (modelResolver == null) {
+            throw new IllegalArgumentException("modelResolver is required");
+        }
+        String modelKey = normalize(resolvedModelConfig.getModelKey());
+        ModelDefinition resolvedModel = modelResolver.apply(modelKey);
+        if (resolvedModel == null) {
+            throw new IllegalArgumentException("Unknown modelKey: " + modelKey);
+        }
         AgentConfigFile.ReasoningConfig resolvedReasoning = resolvedModelConfig == null ? null : resolvedModelConfig.getReasoning();
         boolean reasoningEnabled = resolvedReasoning != null && Boolean.TRUE.equals(resolvedReasoning.getEnabled());
         ComputePolicy reasoningEffort = resolvedReasoning != null && resolvedReasoning.getEffort() != null
@@ -163,8 +187,10 @@ public final class AgentModeFactory {
 
         return new StageSettings(
                 normalize(stage == null ? null : stage.getSystemPrompt()),
-                normalize(resolvedModelConfig == null ? null : resolvedModelConfig.getProviderKey()),
-                normalize(resolvedModelConfig == null ? null : resolvedModelConfig.getModel()),
+                normalize(resolvedModel.key()),
+                normalize(resolvedModel.provider()),
+                normalize(resolvedModel.modelId()),
+                resolvedModel.protocol(),
                 tools,
                 reasoningEnabled,
                 reasoningEffort,

@@ -5,8 +5,7 @@
   "description": "内置示例：REACT 模式按需多轮工具调用",
   "mode": "REACT",
   "modelConfig": {
-    "providerKey": "bailian",
-    "model": "qwen3.5-plus",
+    "modelKey": "bailian-qwen3_5-plus",
     "reasoning": {
       "enabled": true,
       "effort": "LOW"

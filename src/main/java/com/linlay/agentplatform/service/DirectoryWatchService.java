@@ -4,6 +4,8 @@ import com.linlay.agentplatform.agent.AgentCatalogProperties;
 import com.linlay.agentplatform.agent.AgentRegistry;
 import com.linlay.agentplatform.config.CapabilityCatalogProperties;
 import com.linlay.agentplatform.config.ViewportCatalogProperties;
+import com.linlay.agentplatform.model.ModelCatalogProperties;
+import com.linlay.agentplatform.model.ModelRegistryService;
 import com.linlay.agentplatform.skill.SkillCatalogProperties;
 import com.linlay.agentplatform.skill.SkillRegistryService;
 import com.linlay.agentplatform.tool.CapabilityRegistryService;
@@ -41,10 +43,12 @@ public class DirectoryWatchService implements DisposableBean {
             AgentRegistry agentRegistry,
             ViewportRegistryService viewportRegistryService,
             CapabilityRegistryService capabilityRegistryService,
+            ModelRegistryService modelRegistryService,
             SkillRegistryService skillRegistryService,
             AgentCatalogProperties agentCatalogProperties,
             ViewportCatalogProperties viewportCatalogProperties,
             CapabilityCatalogProperties capabilityCatalogProperties,
+            ModelCatalogProperties modelCatalogProperties,
             SkillCatalogProperties skillCatalogProperties
     ) {
         this.watchedDirs = new LinkedHashMap<>();
@@ -63,6 +67,13 @@ public class DirectoryWatchService implements DisposableBean {
         watchedDirs.put(
                 Path.of(skillCatalogProperties.getExternalDir()).toAbsolutePath().normalize(),
                 skillRegistryService::refreshSkills
+        );
+        watchedDirs.put(
+                Path.of(modelCatalogProperties.getExternalDir()).toAbsolutePath().normalize(),
+                () -> {
+                    modelRegistryService.refreshModels();
+                    agentRegistry.refreshAgents();
+                }
         );
 
         start();

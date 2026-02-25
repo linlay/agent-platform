@@ -4,8 +4,7 @@
   "icon": "emoji:🖼️",
   "description": "内置示例：展示图片和可下载附件（Markdown 格式）",
   "modelConfig": {
-    "providerKey": "bailian",
-    "model": "qwen3-max",
+    "modelKey": "bailian-qwen3-max",
     "reasoning": { "enabled": false }
   },
   "toolConfig": null,

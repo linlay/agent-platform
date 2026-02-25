@@ -199,7 +199,9 @@ AGENT_AUTH_ENABLED=false
 # JAVA_OPTS=-server -Xms256m -Xmx512m
 
 # --- Bash Tool Security ---
-# Default allowed commands: ls,pwd,cat,head,tail,top,free,df,git
+# The bash tool requires explicit allowlists.
+# If AGENT_BASH_ALLOWED_COMMANDS is empty, all _bash_ calls are rejected.
+# working-directory does NOT imply path permission; set AGENT_BASH_ALLOWED_PATHS explicitly.
 #
 # Read-only monitoring example:
 # AGENT_BASH_ALLOWED_COMMANDS=ls,pwd,cat,head,tail,top,free,df,git
@@ -261,8 +263,8 @@ mkdir -p chats
 
 ## Bash Tool Configuration
 
-The bash tool is disabled by default unless explicitly configured. Use environment
-variables in `.env` to control which commands the agent can execute.
+The bash tool requires explicit allowlists. If `AGENT_BASH_ALLOWED_COMMANDS` is
+empty, `_bash_` rejects all commands. Use `.env` to configure command/path scope.
 
 ### Read-only Monitoring
 

@@ -2,6 +2,7 @@ package com.linlay.agentplatform.service;
 
 import com.linlay.agentplatform.agent.runtime.policy.ComputePolicy;
 import com.linlay.agentplatform.agent.runtime.policy.ToolChoice;
+import com.linlay.agentplatform.model.ModelProtocol;
 import org.springframework.ai.chat.messages.Message;
 
 import java.util.List;
@@ -9,6 +10,7 @@ import java.util.List;
 public record LlmCallSpec(
         String providerKey,
         String model,
+        ModelProtocol protocol,
         String systemPrompt,
         List<Message> messages,
         String userPrompt,
@@ -38,6 +40,9 @@ public record LlmCallSpec(
         }
         if (compute == null) {
             compute = ComputePolicy.MEDIUM;
+        }
+        if (protocol == null) {
+            protocol = ModelProtocol.OPENAI;
         }
         if (stage == null || stage.isBlank()) {
             stage = "default";

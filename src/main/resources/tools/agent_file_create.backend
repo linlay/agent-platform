@@ -35,10 +35,7 @@
           "modelConfig": {
             "type": "object",
             "properties": {
-              "providerKey": {
-                "type": "string"
-              },
-              "model": {
+              "modelKey": {
                 "type": "string"
               },
               "reasoning": {
@@ -69,6 +66,9 @@
               }
             },
             "additionalProperties": false
+          },
+          "modelKey": {
+            "type": "string"
           },
           "toolConfig": {
             "type": [
@@ -140,17 +140,38 @@
           "budget": {
             "type": "object",
             "properties": {
-              "maxModelCalls": {
+              "runTimeoutMs": {
                 "type": "integer"
               },
-              "maxToolCalls": {
-                "type": "integer"
+              "model": {
+                "type": "object",
+                "properties": {
+                  "maxCalls": {
+                    "type": "integer"
+                  },
+                  "timeoutMs": {
+                    "type": "integer"
+                  },
+                  "retryCount": {
+                    "type": "integer"
+                  }
+                },
+                "additionalProperties": false
               },
-              "timeoutMs": {
-                "type": "integer"
-              },
-              "retryCount": {
-                "type": "integer"
+              "tool": {
+                "type": "object",
+                "properties": {
+                  "maxCalls": {
+                    "type": "integer"
+                  },
+                  "timeoutMs": {
+                    "type": "integer"
+                  },
+                  "retryCount": {
+                    "type": "integer"
+                  }
+                },
+                "additionalProperties": false
               }
             },
             "additionalProperties": false

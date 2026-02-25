@@ -20,6 +20,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linlay.agentplatform.agent.AgentCatalogProperties;
 import com.linlay.agentplatform.config.CapabilityCatalogProperties;
 import com.linlay.agentplatform.config.ViewportCatalogProperties;
+import com.linlay.agentplatform.model.ModelCatalogProperties;
 import com.linlay.agentplatform.skill.SkillCatalogProperties;
 
 import jakarta.annotation.PostConstruct;
@@ -39,34 +40,39 @@ public class RuntimeResourceSyncService {
     private final Path viewportsDir;
     private final Path toolsDir;
     private final Path skillsDir;
+    private final Path modelsDir;
 
     @Autowired
     public RuntimeResourceSyncService(
             AgentCatalogProperties agentCatalogProperties,
             ViewportCatalogProperties viewportCatalogProperties,
             CapabilityCatalogProperties capabilityCatalogProperties,
-            SkillCatalogProperties skillCatalogProperties
+            SkillCatalogProperties skillCatalogProperties,
+            ModelCatalogProperties modelCatalogProperties
     ) {
         this(
                 new PathMatchingResourcePatternResolver(),
                 Path.of(agentCatalogProperties.getExternalDir()).toAbsolutePath().normalize(),
                 Path.of(viewportCatalogProperties.getExternalDir()).toAbsolutePath().normalize(),
                 Path.of(capabilityCatalogProperties.getToolsExternalDir()).toAbsolutePath().normalize(),
-                Path.of(skillCatalogProperties.getExternalDir()).toAbsolutePath().normalize()
+                Path.of(skillCatalogProperties.getExternalDir()).toAbsolutePath().normalize(),
+                Path.of(modelCatalogProperties.getExternalDir()).toAbsolutePath().normalize()
         );
     }
 
     public RuntimeResourceSyncService(
             AgentCatalogProperties agentCatalogProperties,
             ViewportCatalogProperties viewportCatalogProperties,
-            CapabilityCatalogProperties capabilityCatalogProperties
+            CapabilityCatalogProperties capabilityCatalogProperties,
+            ModelCatalogProperties modelCatalogProperties
     ) {
         this(
                 new PathMatchingResourcePatternResolver(),
                 Path.of(agentCatalogProperties.getExternalDir()).toAbsolutePath().normalize(),
                 Path.of(viewportCatalogProperties.getExternalDir()).toAbsolutePath().normalize(),
                 Path.of(capabilityCatalogProperties.getToolsExternalDir()).toAbsolutePath().normalize(),
-                Path.of("skills").toAbsolutePath().normalize()
+                Path.of("skills").toAbsolutePath().normalize(),
+                Path.of(modelCatalogProperties.getExternalDir()).toAbsolutePath().normalize()
         );
     }
 
@@ -75,13 +81,15 @@ public class RuntimeResourceSyncService {
             Path agentsDir,
             Path viewportsDir,
             Path toolsDir,
-            Path skillsDir
+            Path skillsDir,
+            Path modelsDir
     ) {
         this.resourceResolver = resourceResolver;
         this.agentsDir = agentsDir;
         this.viewportsDir = viewportsDir;
         this.toolsDir = toolsDir;
         this.skillsDir = skillsDir;
+        this.modelsDir = modelsDir;
     }
 
     @PostConstruct
@@ -90,6 +98,7 @@ public class RuntimeResourceSyncService {
         syncResourceDirectory("viewports", viewportsDir);
         syncResourceDirectory("tools", toolsDir);
         syncResourceDirectory("skills", skillsDir);
+        syncResourceDirectory("models", modelsDir);
         cleanupLegacyToolAliases(toolsDir);
     }
 

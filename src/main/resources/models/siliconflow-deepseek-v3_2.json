@@ -1,0 +1,18 @@
+{
+  "key": "siliconflow-deepseek-v3_2",
+  "provider": "siliconflow",
+  "protocol": "OPENAI",
+  "modelId": "deepseek-ai/DeepSeek-V3.2",
+  "isReasoner": true,
+  "isFunction": true,
+  "maxTokens": 65536,
+  "maxInputTokens": 65536,
+  "maxOutputTokens": 8192,
+  "pricing": {
+    "promptPointsPer1k": 12,
+    "completionPointsPer1k": 36,
+    "perCallPoints": 0,
+    "priceRatio": 1.0,
+    "tiers": []
+  }
+}

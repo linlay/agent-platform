@@ -289,8 +289,7 @@ public class AgentConfigFile {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static class ModelConfig {
-        private String providerKey;
-        private String model;
+        private String modelKey;
         private ReasoningConfig reasoning;
         private Double temperature;
         @JsonProperty("top_p")
@@ -298,20 +297,12 @@ public class AgentConfigFile {
         @JsonProperty("max_tokens")
         private Integer maxTokens;
 
-        public String getProviderKey() {
-            return providerKey;
+        public String getModelKey() {
+            return modelKey;
         }
 
-        public void setProviderKey(String providerKey) {
-            this.providerKey = providerKey;
-        }
-
-        public String getModel() {
-            return model;
-        }
-
-        public void setModel(String model) {
-            this.model = model;
+        public void setModelKey(String modelKey) {
+            this.modelKey = modelKey;
         }
 
         public ReasoningConfig getReasoning() {

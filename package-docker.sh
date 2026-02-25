@@ -103,6 +103,12 @@ AGENT_AUTH_ENABLED=false
 # AGENT_AUTH_ISSUER=
 
 # LLM provider keys (configure in application-local.yml)
+
+# Bash tool security (explicit allowlists required)
+# AGENT_BASH_WORKING_DIRECTORY=/opt
+# AGENT_BASH_ALLOWED_PATHS=/opt/agents,/opt/chats
+# AGENT_BASH_ALLOWED_COMMANDS=ls,pwd,cat,head,tail,top,free,df,git
+# AGENT_BASH_PATH_CHECKED_COMMANDS=ls,cat,head,tail,git
 EOF
 
 # 生成部署说明

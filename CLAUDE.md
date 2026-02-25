@@ -6,7 +6,7 @@ Spring Boot + Spring AI agent gateway — 基于 WebFlux 的响应式 LLM Agent 
 
 **技术栈:** Java 21, Spring Boot 3.3.8, Spring AI 1.0.0, WebFlux (Reactor), Jackson
 
-**LLM 提供商:** Bailian (阿里云百炼/Qwen), SiliconFlow (DeepSeek)，均通过 OpenAI 兼容 API 对接。
+**LLM 提供商:** Bailian (阿里云百炼/Qwen), SiliconFlow (DeepSeek), Babelark 等；provider 只承载连接配置，实际调用协议由模型定义决定。
 
 ## Build & Run
 
@@ -34,7 +34,7 @@ POST /api/ap/query → AgentController → AgentQueryService → DefinitionDrive
 | `agent.mode` | `AgentMode`（sealed：`OneshotMode`/`ReactMode`/`PlanExecuteMode`）、`OrchestratorServices` 流式编排、`StageSettings` |
 | `agent.runtime` | `AgentRuntimeMode` 枚举、`ExecutionContext`（状态/预算/对话历史管理）、`ToolExecutionService` |
 | `agent.runtime.policy` | `RunSpec`、`ToolChoice`、`ComputePolicy`、`Budget` 等策略定义 |
-| `model` | `AgentRequest`、`ProviderProtocol`、`ProviderType`、`ViewportType` |
+| `model` | `AgentRequest`、`ModelCatalogProperties`、`ModelDefinition`、`ModelProtocol`、`ViewportType` |
 | `model.api` | REST 契约：`ApiResponse`、`AgwQueryRequest`、`AgwSubmitRequest`、`AgwChatDetailResponse` 等 |
 | `model.stream` | 流式类型：`AgentDelta` |
 | `service` | `LlmService`（WebClient SSE + ChatClient 双路径）、`AgentQueryService`（流编排）、`ChatRecordStore`、`DirectoryWatchService` |
@@ -46,6 +46,7 @@ POST /api/ap/query → AgentController → AgentQueryService → DefinitionDrive
 ### 关键设计
 
 - **定义驱动** — Agent 通过 `agents/` 目录下 JSON 文件配置，文件名即 agentId
+- **模型注册中心** — 模型通过 `models/*.json` 管理，启动同步内置模型到外置目录并热加载到内存
 - **原生 Function Calling** — `tools[]` + `delta.tool_calls` 流式协议
 - **工具参数模板** — `{{tool_name.field+Nd}}` 日期运算和链式引用
 - **双路径 LLM** — WebClient 原生 SSE 和 ChatClient，按需选择
@@ -63,8 +64,7 @@ POST /api/ap/query → AgentController → AgentQueryService → DefinitionDrive
   "icon": "emoji:🤖",
   "description": "描述",
   "modelConfig": {
-    "providerKey": "bailian",
-    "model": "qwen3-max",
+    "modelKey": "bailian-qwen3-max",
     "reasoning": { "enabled": true, "effort": "MEDIUM" },
     "temperature": 0.7,
     "top_p": 0.95,
@@ -88,7 +88,7 @@ POST /api/ap/query → AgentController → AgentQueryService → DefinitionDrive
   },
   "plain": {
     "systemPrompt": "系统提示词",
-    "modelConfig": { "providerKey": "bailian", "model": "qwen3-max" },
+    "modelConfig": { "modelKey": "bailian-qwen3-max" },
     "toolConfig": null
   },
   "react": {
@@ -129,7 +129,8 @@ POST /api/ap/query → AgentController → AgentQueryService → DefinitionDrive
 
 **modelConfig 继承：**
 - 支持外层默认 + stage 内层覆盖；内层优先。
-- 外层 `modelConfig` 可省略，但"外层或任一 stage"至少要有一处 `modelConfig`。
+- 外层 `modelConfig` 可省略，但"外层或任一 stage"至少要有一处 `modelConfig.modelKey`。
+- `provider/modelId/protocol` 不在 Agent JSON 中声明，统一由 `models/<modelKey>.json` 解析得到。
 
 **toolConfig 继承：**
 - 支持外层默认 + stage 覆盖。
@@ -154,10 +155,22 @@ POST /api/ap/query → AgentController → AgentQueryService → DefinitionDrive
 | 类别 | 被拒绝的字段 |
 |------|------------|
 | 顶层 | `verify`, `output`, `toolPolicy` |
-| 旧结构 | `providerKey`, `model`, `reasoning`, `tools`, `deepThink`, `systemPrompt`（顶层） |
+| 旧结构 | `modelConfig.providerKey`, `modelConfig.model`, `reasoning`（顶层）, `tools`, `deepThink`, `systemPrompt`（顶层） |
 | budget 旧字段 | `maxModelCalls`, `maxToolCalls`, `maxSteps`（budget 内）, `timeoutMs`（budget 内）, `retryCount`（budget 内） |
 | runtimePrompts 旧字段 | `verify`, `finalAnswer`, `oneshot`, `react` |
 | runtimePrompts.planExecute 旧子字段 | `executeToolsTitle`, `planCallableToolsTitle`, `draftInstructionBlock`, `generateInstructionBlockFromDraft`, `generateInstructionBlockDirect`, `taskRequireToolUserPrompt`, `taskMultipleToolsUserPrompt`, `taskUpdateNoProgressUserPrompt`, `taskContinueUserPrompt`, `updateRoundPromptTemplate`, `updateRoundMultipleToolsUserPrompt`, `allStepsCompletedUserPrompt` |
+
+## Models 目录（内部注册）
+
+- 运行目录：`models/`（默认，可通过 `agent.model.external-dir` 覆盖）。
+- 启动同步：`src/main/resources/models` 会同步到外置 `models/`；同名内置文件覆盖，外置自定义文件保留。
+- 热加载：目录变更会触发模型刷新，并联动 agent 重新加载（因为 agent 依赖 `modelKey` 解析）。
+- 文件格式：每个模型一个 JSON（建议 `models/<modelKey>.json`）。
+- 必填字段：`key`、`provider`、`protocol`、`modelId`。
+- 常用字段：`isReasoner`、`isFunction`、`maxTokens`、`maxInputTokens`、`maxOutputTokens`。
+- 计费字段：`pricing.promptPointsPer1k`、`pricing.completionPointsPer1k`、`pricing.perCallPoints`、`pricing.priceRatio`、`pricing.tiers[]`。
+- 协议枚举：`OPENAI`、`ANTHROPIC`、`NEWAPI_OPENAI_COMPATIBLE`。
+- 约定：`10000 积分 = 1 RMB`，按每 `1K tokens` 计价；运行时只做配置解析与透传，不内置财务结算逻辑。
 
 ## Agent 模式行为
 
@@ -217,7 +230,7 @@ execute 阶段每轮最多 1 个工具，完成后在更新回合调用 `_plan_u
 ### 内置工具
 
 - `_skill_run_script_`：执行 `skills/<skill>/` 目录下脚本或临时 Python 脚本。`script` 与 `pythonCode` 二选一；支持 `.py` / `.sh`；内联 Python 写入 `/tmp/agent-platform-skill-inline/`，执行后清理。
-- `_bash_`：Shell 命令执行，受 `allowed-paths` 白名单约束。
+- `_bash_`：Shell 命令执行，需显式配置 `allowed-commands` 与 `allowed-paths` 白名单。
 - `city_datetime`：获取城市当前日期时间。
 - `mock_city_weather`：模拟城市天气数据。
 - `agent_file_create`：创建/更新 agent JSON 文件。
@@ -461,12 +474,14 @@ SSE 事件中的 reasoningId/contentId 同步使用新前缀格式：`{runId}_r_
 
 ### 环境变量完整列表
 
-#### Agent Catalog / Viewport / Data
+#### Agent Catalog / Model / Viewport / Data
 
 | 环境变量 | 属性键 | 默认值 | 说明 |
 |---------|--------|-------|------|
 | `AGENT_EXTERNAL_DIR` | `agent.catalog.external-dir` | `agents` | Agent JSON 定义目录 |
 | `AGENT_REFRESH_INTERVAL_MS` | `agent.catalog.refresh-interval-ms` | `10000` | Agent 目录刷新间隔（ms） |
+| `AGENT_MODEL_EXTERNAL_DIR` | `agent.model.external-dir` | `models` | Model JSON 定义目录 |
+| `AGENT_MODEL_REFRESH_INTERVAL_MS` | `agent.model.refresh-interval-ms` | `30000` | Model 目录刷新间隔（ms） |
 | `AGENT_VIEWPORT_EXTERNAL_DIR` | `agent.viewport.external-dir` | `viewports` | Viewport 目录 |
 | `AGENT_VIEWPORT_REFRESH_INTERVAL_MS` | `agent.viewport.refresh-interval-ms` | `30000` | Viewport 刷新间隔（ms） |
 | `AGENT_DATA_EXTERNAL_DIR` | `agent.data.external-dir` | `data` | 静态文件目录 |
@@ -481,8 +496,8 @@ SSE 事件中的 reasoningId/contentId 同步使用新前缀格式：`{runId}_r_
 | `AGENT_TOOLS_AGENT_FILE_CREATE_DEFAULT_SYSTEM_PROMPT` | `agent.tools.agent-file-create.default-system-prompt` | `你是通用助理，回答要清晰和可执行。` | `agent_file_create` 默认 system prompt |
 | `AGENT_BASH_WORKING_DIRECTORY` | `agent.tools.bash.working-directory` | `${user.dir}` | Bash 工具工作目录 |
 | `AGENT_BASH_ALLOWED_PATHS` | `agent.tools.bash.allowed-paths` | （空） | Bash 工具路径白名单（逗号分隔） |
-| `AGENT_BASH_ALLOWED_COMMANDS` | `agent.tools.bash.allowed-commands` | （空=使用内置默认白名单） | Bash 允许命令列表（逗号分隔） |
-| `AGENT_BASH_PATH_CHECKED_COMMANDS` | `agent.tools.bash.path-checked-commands` | （空=使用内置默认列表） | 启用路径校验的命令列表（逗号分隔） |
+| `AGENT_BASH_ALLOWED_COMMANDS` | `agent.tools.bash.allowed-commands` | （空=拒绝执行） | Bash 允许命令列表（逗号分隔） |
+| `AGENT_BASH_PATH_CHECKED_COMMANDS` | `agent.tools.bash.path-checked-commands` | （空=默认等于 allowed-commands） | 启用路径校验的命令列表（逗号分隔） |
 | `AGENT_SKILL_EXTERNAL_DIR` | `agent.skill.external-dir` | `skills` | 技能目录 |
 | `AGENT_SKILL_REFRESH_INTERVAL_MS` | `agent.skill.refresh-interval-ms` | `30000` | 技能刷新间隔（ms） |
 | `AGENT_SKILL_MAX_PROMPT_CHARS` | `agent.skill.max-prompt-chars` | `8000` | 技能 prompt 最大字符数 |
@@ -523,10 +538,14 @@ SSE 事件中的 reasoningId/contentId 同步使用新前缀格式：`{runId}_r_
 ### Provider 配置（通常在 `application-local.yml`）
 
 `agent.providers.<providerKey>` 支持：
-- `protocol`（默认 `OPENAI_COMPATIBLE`，可选 `ANTHROPIC`）
 - `base-url`
 - `api-key`
-- `model`
+- `model`（可选，作为 provider 默认 model）
+- `new-api-path`（可选，仅 `NEWAPI_OPENAI_COMPATIBLE` 协议使用）
+
+说明：
+- provider 不再绑定 protocol；协议由 `models/*.json` 中 `protocol` 字段决定。
+- `NEWAPI_OPENAI_COMPATIBLE` 首版请求/响应同 OpenAI SSE，仅 endpoint 路径取 `new-api-path`（默认 `/v1/chat/completions`）。
 
 ### Logging（主配置默认）
 

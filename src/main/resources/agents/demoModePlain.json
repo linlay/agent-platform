@@ -4,8 +4,7 @@
   "icon": "emoji:📝",
   "description": "内置示例：ONESHOT 模式单次直答",
   "modelConfig": {
-    "providerKey": "bailian",
-    "model": "qwen3-max",
+    "modelKey": "bailian-qwen3-max",
     "reasoning": {
       "enabled": false
     }

@@ -4,8 +4,7 @@
   "icon": "emoji:🛠️",
   "description": "内置智能体：根据需求创建 agents 目录下的智能体配置",
   "modelConfig": {
-    "providerKey": "bailian",
-    "model": "qwen3-max",
+    "modelKey": "bailian-qwen3-max",
     "reasoning": {
       "enabled": true,
       "effort": "MEDIUM"

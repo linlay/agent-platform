@@ -28,6 +28,7 @@ logs/
 /viewports/
 /skills/
 /data/
+/models/
 /com/
 application-local.yml
 application-local.yaml
@@ -43,6 +44,8 @@ application-local.yaml
 !/src/main/resources/viewports/**
 !/src/main/resources/skills/
 !/src/main/resources/skills/**
+!/src/main/resources/models/
+!/src/main/resources/models/**
 
 # Java
 hs_err_pid*
