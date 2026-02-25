@@ -12,6 +12,10 @@ public class BashToolProperties {
     private List<String> allowedPaths = new ArrayList<>();
     private List<String> allowedCommands = new ArrayList<>();
     private List<String> pathCheckedCommands = new ArrayList<>();
+    private boolean shellFeaturesEnabled = false;
+    private String shellExecutable = "bash";
+    private int shellTimeoutMs = 10_000;
+    private int maxCommandChars = 16_000;
 
     public String getWorkingDirectory() {
         return workingDirectory;
@@ -43,5 +47,37 @@ public class BashToolProperties {
 
     public void setPathCheckedCommands(List<String> pathCheckedCommands) {
         this.pathCheckedCommands = pathCheckedCommands;
+    }
+
+    public boolean isShellFeaturesEnabled() {
+        return shellFeaturesEnabled;
+    }
+
+    public void setShellFeaturesEnabled(boolean shellFeaturesEnabled) {
+        this.shellFeaturesEnabled = shellFeaturesEnabled;
+    }
+
+    public String getShellExecutable() {
+        return shellExecutable;
+    }
+
+    public void setShellExecutable(String shellExecutable) {
+        this.shellExecutable = shellExecutable;
+    }
+
+    public int getShellTimeoutMs() {
+        return shellTimeoutMs;
+    }
+
+    public void setShellTimeoutMs(int shellTimeoutMs) {
+        this.shellTimeoutMs = shellTimeoutMs;
+    }
+
+    public int getMaxCommandChars() {
+        return maxCommandChars;
+    }
+
+    public void setMaxCommandChars(int maxCommandChars) {
+        this.maxCommandChars = maxCommandChars;
     }
 }

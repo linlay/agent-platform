@@ -3,13 +3,13 @@
     {
       "type": "function",
       "name": "_bash_",
-      "description": "运行白名单 bash 命令（仅支持授权命令，仅允许授权目录内路径）",
+      "description": "运行白名单 bash 命令（默认严格模式；可配置启用高级 shell 语法，如管道、重定向与 here-doc）",
       "parameters": {
         "type": "object",
         "properties": {
           "command": {
             "type": "string",
-            "description": "单条白名单命令，例如 ls、pwd、df -h。禁止管道与多命令拼接。"
+            "description": "命令字符串。默认严格模式仅支持单条命令；开启 shell-features-enabled 后支持管道、重定向、here-doc 等高级语法。"
           }
         },
         "required": [

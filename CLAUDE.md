@@ -498,6 +498,10 @@ SSE 事件中的 reasoningId/contentId 同步使用新前缀格式：`{runId}_r_
 | `AGENT_BASH_ALLOWED_PATHS` | `agent.tools.bash.allowed-paths` | （空） | Bash 工具路径白名单（逗号分隔） |
 | `AGENT_BASH_ALLOWED_COMMANDS` | `agent.tools.bash.allowed-commands` | （空=拒绝执行） | Bash 允许命令列表（逗号分隔） |
 | `AGENT_BASH_PATH_CHECKED_COMMANDS` | `agent.tools.bash.path-checked-commands` | （空=默认等于 allowed-commands） | 启用路径校验的命令列表（逗号分隔） |
+| `AGENT_BASH_SHELL_FEATURES_ENABLED` | `agent.tools.bash.shell-features-enabled` | `false` | Bash 高级 shell 语法开关 |
+| `AGENT_BASH_SHELL_EXECUTABLE` | `agent.tools.bash.shell-executable` | `bash` | Shell 模式执行器 |
+| `AGENT_BASH_SHELL_TIMEOUT_MS` | `agent.tools.bash.shell-timeout-ms` | `10000` | Shell 模式超时（ms） |
+| `AGENT_BASH_MAX_COMMAND_CHARS` | `agent.tools.bash.max-command-chars` | `16000` | Bash 命令最大字符数 |
 | `AGENT_SKILL_EXTERNAL_DIR` | `agent.skill.external-dir` | `skills` | 技能目录 |
 | `AGENT_SKILL_REFRESH_INTERVAL_MS` | `agent.skill.refresh-interval-ms` | `30000` | 技能刷新间隔（ms） |
 | `AGENT_SKILL_MAX_PROMPT_CHARS` | `agent.skill.max-prompt-chars` | `8000` | 技能 prompt 最大字符数 |

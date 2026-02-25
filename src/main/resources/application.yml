@@ -47,6 +47,10 @@ agent:
       allowed-paths: ${AGENT_BASH_ALLOWED_PATHS:${user.dir},/tmp}
       allowed-commands: ${AGENT_BASH_ALLOWED_COMMANDS:ls,pwd,cat,head,tail,top,free,df,git,rg,find}
       path-checked-commands: ${AGENT_BASH_PATH_CHECKED_COMMANDS:ls,cat,head,tail,git,rg,find}
+      shell-features-enabled: ${AGENT_BASH_SHELL_FEATURES_ENABLED:false}
+      shell-executable: ${AGENT_BASH_SHELL_EXECUTABLE:bash}
+      shell-timeout-ms: ${AGENT_BASH_SHELL_TIMEOUT_MS:10000}
+      max-command-chars: ${AGENT_BASH_MAX_COMMAND_CHARS:16000}
   auth:
     enabled: ${AGENT_AUTH_ENABLED:true}
     jwks-uri: ${AGENT_AUTH_JWKS_URI:}

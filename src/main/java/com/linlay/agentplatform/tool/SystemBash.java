@@ -6,9 +6,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -37,38 +40,69 @@ agent:
 @Component
 public class SystemBash extends AbstractDeterministicTool {
 
-    private static final int MAX_OUTPUT_CHARS = 2000;
+    private static final int DEFAULT_TIMEOUT_MS = 10_000;
+    private static final int MAX_TIMEOUT_MS = 120_000;
+    private static final int DEFAULT_MAX_COMMAND_CHARS = 16_000;
+    private static final int MAX_OUTPUT_CHARS = 8_000;
     private static final String COMMANDS_NOT_CONFIGURED_MESSAGE = "Bash command whitelist is empty. Configure agent.tools.bash.allowed-commands";
+    private static final String DEFAULT_SHELL_EXECUTABLE = "bash";
+    private static final Set<String> UNSUPPORTED_COMMANDS = Set.of(".", "source", "eval", "exec", "coproc", "fg", "bg", "jobs");
+
     private final Path workingDirectory;
     private final List<Path> allowedRoots;
     private final Set<String> allowedCommands;
     private final Set<String> pathCheckedCommands;
+    private final boolean shellFeaturesEnabled;
+    private final String shellExecutable;
+    private final int timeoutMs;
+    private final int maxCommandChars;
+    private final ShellCommandValidator shellCommandValidator;
 
     @Autowired
     public SystemBash(BashToolProperties properties) {
         this(resolveWorkingDirectory(properties.getWorkingDirectory()),
              parseAllowedPaths(properties.getAllowedPaths()),
              parseCommandSet(properties.getAllowedCommands()),
-             parseCommandSet(properties.getPathCheckedCommands()));
+             parseCommandSet(properties.getPathCheckedCommands()),
+             properties.isShellFeaturesEnabled(),
+             properties.getShellExecutable(),
+             properties.getShellTimeoutMs(),
+             properties.getMaxCommandChars());
     }
 
     public SystemBash() {
-        this(resolveWorkingDirectory(""), List.of(), Set.of(), Set.of());
+        this(resolveWorkingDirectory(""), List.of(), Set.of(), Set.of(), false, DEFAULT_SHELL_EXECUTABLE, DEFAULT_TIMEOUT_MS, DEFAULT_MAX_COMMAND_CHARS);
     }
 
     SystemBash(Path workingDirectory) {
-        this(workingDirectory, List.of(), Set.of(), Set.of());
+        this(workingDirectory, List.of(), Set.of(), Set.of(), false, DEFAULT_SHELL_EXECUTABLE, DEFAULT_TIMEOUT_MS, DEFAULT_MAX_COMMAND_CHARS);
     }
 
     SystemBash(Path workingDirectory, List<Path> additionalAllowedRoots) {
-        this(workingDirectory, additionalAllowedRoots, Set.of(), Set.of());
+        this(workingDirectory, additionalAllowedRoots, Set.of(), Set.of(), false, DEFAULT_SHELL_EXECUTABLE, DEFAULT_TIMEOUT_MS, DEFAULT_MAX_COMMAND_CHARS);
     }
 
     SystemBash(Path workingDirectory, List<Path> additionalAllowedRoots, Set<String> allowedCommands, Set<String> pathCheckedCommands) {
+        this(workingDirectory, additionalAllowedRoots, allowedCommands, pathCheckedCommands, false, DEFAULT_SHELL_EXECUTABLE, DEFAULT_TIMEOUT_MS, DEFAULT_MAX_COMMAND_CHARS);
+    }
+
+    SystemBash(Path workingDirectory,
+               List<Path> additionalAllowedRoots,
+               Set<String> allowedCommands,
+               Set<String> pathCheckedCommands,
+               boolean shellFeaturesEnabled,
+               String shellExecutable,
+               int timeoutMs,
+               int maxCommandChars) {
         this.workingDirectory = workingDirectory.toAbsolutePath().normalize();
         this.allowedRoots = buildAllowedRoots(additionalAllowedRoots);
         this.allowedCommands = normalizeCommandSet(allowedCommands);
         this.pathCheckedCommands = resolvePathCheckedCommands(pathCheckedCommands, this.allowedCommands);
+        this.shellFeaturesEnabled = shellFeaturesEnabled;
+        this.shellExecutable = normalizeShellExecutable(shellExecutable);
+        this.timeoutMs = clampTimeout(timeoutMs);
+        this.maxCommandChars = clampMaxCommandChars(maxCommandChars);
+        this.shellCommandValidator = new ShellCommandValidator(this.workingDirectory, this.allowedRoots, this.allowedCommands, this.pathCheckedCommands);
     }
 
     @Override
@@ -79,60 +113,174 @@ public class SystemBash extends AbstractDeterministicTool {
     @Override
     public JsonNode invoke(Map<String, Object> args) {
         Map<String, Object> safeArgs = args == null ? Map.of() : args;
-        String rawCommand = String.valueOf(safeArgs.getOrDefault("command", "")).trim();
+        Object rawValue = safeArgs.get("command");
+        String rawCommand = rawValue == null ? "" : rawValue.toString();
 
-        if (rawCommand.isEmpty()) {
-            return textResult(-1, "", "Missing argument: command");
+        if (rawCommand.isBlank()) {
+            return textResult(-1, "", "Missing argument: command", "strict");
         }
 
-        List<String> tokens = tokenize(rawCommand);
-        if (tokens.isEmpty()) {
-            return textResult(-1, "", "Cannot parse command");
+        if (rawCommand.length() > maxCommandChars) {
+            return textResult(-1, "", "Command is too long. Maximum length is " + maxCommandChars + " characters.", "strict");
         }
 
         if (allowedCommands.isEmpty()) {
-            return textResult(-1, "", COMMANDS_NOT_CONFIGURED_MESSAGE);
+            return textResult(-1, "", COMMANDS_NOT_CONFIGURED_MESSAGE, "strict");
+        }
+
+        if (shellFeaturesEnabled && detectAdvancedSyntax(rawCommand)) {
+            return invokeShell(rawCommand);
+        }
+
+        return invokeStrict(rawCommand.trim());
+    }
+
+    private JsonNode invokeStrict(String rawCommand) {
+        List<String> tokens = tokenize(rawCommand);
+        if (tokens.isEmpty()) {
+            return textResult(-1, "", "Cannot parse command", "strict");
         }
 
         String baseCommand = tokens.get(0);
+        if (UNSUPPORTED_COMMANDS.contains(baseCommand)) {
+            return textResult(-1, "", "Unsupported syntax for _bash_: " + baseCommand, "strict");
+        }
         if (!allowedCommands.contains(baseCommand)) {
-            return textResult(-1, "", "Command not allowed: " + baseCommand);
+            return textResult(-1, "", "Command not allowed: " + baseCommand, "strict");
         }
 
         String argsError = unsafeArgumentError(tokens);
         if (argsError != null) {
-            return textResult(-1, "", argsError);
+            return textResult(-1, "", argsError, "strict");
         }
 
         List<String> expanded = expandPathGlobs(tokens);
         String expandedArgsError = unsafeArgumentError(expanded);
         if (expandedArgsError != null) {
-            return textResult(-1, "", expandedArgsError);
+            return textResult(-1, "", expandedArgsError, "strict");
         }
 
         List<String> normalized = normalize(expanded);
+        return execute(normalized, "strict");
+    }
 
+    private JsonNode invokeShell(String rawCommand) {
+        String validationError = shellCommandValidator.validate(rawCommand);
+        if (validationError != null) {
+            return textResult(-1, "", validationError, "shell");
+        }
+
+        String commandWithPipefail = "set -o pipefail\n" + rawCommand;
+        return execute(List.of(shellExecutable, "-lc", commandWithPipefail), "shell");
+    }
+
+    private JsonNode execute(List<String> command, String mode) {
+        Process process;
         try {
-            Process process = new ProcessBuilder(normalized)
+            process = new ProcessBuilder(command)
                     .directory(workingDirectory.toFile())
                     .start();
-            boolean finished = process.waitFor(5, TimeUnit.SECONDS);
+        } catch (IOException ex) {
+            String message = ex.getMessage() == null ? "Unknown error" : ex.getMessage();
+            return textResult(-1, "", message, mode);
+        }
+
+        StreamCollector stdoutCollector = new StreamCollector(process.getInputStream(), MAX_OUTPUT_CHARS);
+        StreamCollector stderrCollector = new StreamCollector(process.getErrorStream(), MAX_OUTPUT_CHARS);
+        Thread stdoutThread = new Thread(stdoutCollector, "system-bash-stdout");
+        Thread stderrThread = new Thread(stderrCollector, "system-bash-stderr");
+        stdoutThread.setDaemon(true);
+        stderrThread.setDaemon(true);
+        stdoutThread.start();
+        stderrThread.start();
+
+        boolean timedOut = false;
+        int exitCode = -1;
+        try {
+            boolean finished = process.waitFor(timeoutMs, TimeUnit.MILLISECONDS);
             if (!finished) {
+                timedOut = true;
                 process.destroyForcibly();
-                return textResult(-1, "", "Command timed out");
+                process.waitFor(1, TimeUnit.SECONDS);
+            }
+            if (!timedOut) {
+                exitCode = process.exitValue();
+            }
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            timedOut = true;
+            process.destroyForcibly();
+        }
+
+        joinQuietly(stdoutThread);
+        joinQuietly(stderrThread);
+
+        if (timedOut) {
+            String stderr = stderrCollector.text();
+            if (!stderr.isBlank()) {
+                stderr = stderr + "\n";
+            }
+            stderr = stderr + "Command timed out";
+            return textResult(-1, stdoutCollector.text(), stderr, mode);
+        }
+
+        return textResult(exitCode, stdoutCollector.text(), stderrCollector.text(), mode);
+    }
+
+    private void joinQuietly(Thread thread) {
+        if (thread == null) {
+            return;
+        }
+        try {
+            thread.join(500);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private boolean detectAdvancedSyntax(String rawCommand) {
+        boolean singleQuoted = false;
+        boolean doubleQuoted = false;
+        boolean escaped = false;
+        for (int i = 0; i < rawCommand.length(); i++) {
+            char ch = rawCommand.charAt(i);
+            if (escaped) {
+                escaped = false;
+                continue;
+            }
+            if (singleQuoted) {
+                if (ch == '\'') {
+                    singleQuoted = false;
+                }
+                continue;
+            }
+            if (doubleQuoted) {
+                if (ch == '"') {
+                    doubleQuoted = false;
+                } else if (ch == '\\') {
+                    escaped = true;
+                }
+                continue;
             }
 
-            int exitCode = process.exitValue();
-            String stdout = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            String stderr = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
-            return textResult(exitCode, truncate(stdout), truncate(stderr));
-        } catch (IOException | InterruptedException ex) {
-            if (ex instanceof InterruptedException) {
-                Thread.currentThread().interrupt();
+            if (ch == '\\') {
+                escaped = true;
+                continue;
             }
-            String message = ex.getMessage() == null ? "Unknown error" : ex.getMessage();
-            return textResult(-1, "", message);
+            if (ch == '\'') {
+                singleQuoted = true;
+                continue;
+            }
+            if (ch == '"') {
+                doubleQuoted = true;
+                continue;
+            }
+
+            if (ch == '\n' || ch == ';' || ch == '|' || ch == '&' || ch == '<' || ch == '>' || ch == '(' || ch == ')' || ch == '{' || ch == '}') {
+                return true;
+            }
         }
+        return false;
     }
 
     private List<String> tokenize(String rawCommand) {
@@ -191,7 +339,12 @@ public class SystemBash extends AbstractDeterministicTool {
     }
 
     private List<String> expandSingleGlobToken(String token) {
-        Path tokenPath = Path.of(token);
+        Path tokenPath;
+        try {
+            tokenPath = Path.of(token);
+        } catch (InvalidPathException ex) {
+            return List.of();
+        }
         Path parent = tokenPath.getParent();
         String pattern = tokenPath.getFileName() == null ? token : tokenPath.getFileName().toString();
 
@@ -240,6 +393,9 @@ public class SystemBash extends AbstractDeterministicTool {
                 continue;
             }
             Path resolved = resolvePath(token);
+            if (resolved == null) {
+                return "Illegal path argument: " + token;
+            }
             if (!isAllowedPath(resolved)) {
                 return "Path not allowed outside authorized directories: " + token;
             }
@@ -248,7 +404,12 @@ public class SystemBash extends AbstractDeterministicTool {
     }
 
     private Path resolvePath(String token) {
-        Path tokenPath = Path.of(token);
+        Path tokenPath;
+        try {
+            tokenPath = Path.of(token);
+        } catch (InvalidPathException ex) {
+            return null;
+        }
         if (tokenPath.isAbsolute()) {
             return tokenPath.normalize();
         }
@@ -256,6 +417,9 @@ public class SystemBash extends AbstractDeterministicTool {
     }
 
     private boolean isAllowedPath(Path path) {
+        if (path == null) {
+            return false;
+        }
         for (Path allowedRoot : allowedRoots) {
             if (path.startsWith(allowedRoot)) {
                 return true;
@@ -360,28 +524,92 @@ public class SystemBash extends AbstractDeterministicTool {
         return List.copyOf(roots);
     }
 
+    private static String normalizeShellExecutable(String shellExecutable) {
+        if (shellExecutable == null || shellExecutable.isBlank()) {
+            return DEFAULT_SHELL_EXECUTABLE;
+        }
+        return shellExecutable.trim();
+    }
+
+    private static int clampTimeout(int timeoutMs) {
+        if (timeoutMs <= 0) {
+            return DEFAULT_TIMEOUT_MS;
+        }
+        return Math.min(timeoutMs, MAX_TIMEOUT_MS);
+    }
+
+    private static int clampMaxCommandChars(int maxCommandChars) {
+        if (maxCommandChars <= 0) {
+            return DEFAULT_MAX_COMMAND_CHARS;
+        }
+        return maxCommandChars;
+    }
+
     private boolean isMac() {
         String osName = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
         return osName.contains("mac");
     }
 
-    private String truncate(String text) {
-        if (text == null || text.isEmpty()) {
-            return "";
-        }
-        if (text.length() <= MAX_OUTPUT_CHARS) {
-            return text;
-        }
-        return text.substring(0, MAX_OUTPUT_CHARS) + "...(truncated)";
-    }
-
-    private JsonNode textResult(int exitCode, String stdout, String stderr) {
+    private JsonNode textResult(int exitCode, String stdout, String stderr, String mode) {
         String safeStdout = stdout == null ? "" : stdout;
         String safeStderr = stderr == null ? "" : stderr;
         String text = "exitCode: " + exitCode
+                + "\nmode: " + mode
                 + "\n\"workingDirectory\": \"" + workingDirectory + "\""
                 + "\nstdout:\n" + safeStdout
                 + "\nstderr:\n" + safeStderr;
         return OBJECT_MAPPER.getNodeFactory().textNode(text);
+    }
+
+    private static final class StreamCollector implements Runnable {
+
+        private final InputStream stream;
+        private final int maxChars;
+        private final StringBuilder out = new StringBuilder();
+        private boolean truncated;
+
+        private StreamCollector(InputStream stream, int maxChars) {
+            this.stream = stream;
+            this.maxChars = Math.max(256, maxChars);
+        }
+
+        @Override
+        public void run() {
+            if (stream == null) {
+                return;
+            }
+            try (InputStream input = stream; InputStreamReader reader = new InputStreamReader(input, StandardCharsets.UTF_8)) {
+                char[] buffer = new char[1024];
+                int len;
+                while ((len = reader.read(buffer)) >= 0) {
+                    append(buffer, len);
+                }
+            } catch (IOException ignored) {
+                // swallow stream read errors to avoid masking tool execution result.
+            }
+        }
+
+        private void append(char[] chars, int len) {
+            if (len <= 0) {
+                return;
+            }
+            if (out.length() >= maxChars) {
+                truncated = true;
+                return;
+            }
+            int remain = maxChars - out.length();
+            int toWrite = Math.min(remain, len);
+            out.append(chars, 0, toWrite);
+            if (toWrite < len) {
+                truncated = true;
+            }
+        }
+
+        private String text() {
+            if (!truncated) {
+                return out.toString();
+            }
+            return out + "\n[TRUNCATED]";
+        }
     }
 }

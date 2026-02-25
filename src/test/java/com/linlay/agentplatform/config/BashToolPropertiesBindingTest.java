@@ -76,6 +76,37 @@ class BashToolPropertiesBindingTest {
                 });
     }
 
+    @Test
+    void shellFeaturePropertiesShouldBindAndEnablePipeline(@TempDir Path tempDir) throws IOException {
+        Path file = tempDir.resolve("demo.txt");
+        Files.writeString(file, "hello-shell\nworld");
+
+        contextRunner
+                .withPropertyValues(
+                        "agent.tools.bash.working-directory=" + tempDir,
+                        "agent.tools.bash.allowed-paths=" + tempDir,
+                        "agent.tools.bash.allowed-commands=cat,rg",
+                        "agent.tools.bash.path-checked-commands=cat",
+                        "agent.tools.bash.shell-features-enabled=true",
+                        "agent.tools.bash.shell-executable=bash",
+                        "agent.tools.bash.shell-timeout-ms=15000",
+                        "agent.tools.bash.max-command-chars=32000"
+                )
+                .run(context -> {
+                    BashToolProperties properties = context.getBean(BashToolProperties.class);
+                    assertThat(properties.isShellFeaturesEnabled()).isTrue();
+                    assertThat(properties.getShellExecutable()).isEqualTo("bash");
+                    assertThat(properties.getShellTimeoutMs()).isEqualTo(15000);
+                    assertThat(properties.getMaxCommandChars()).isEqualTo(32000);
+
+                    SystemBash bash = context.getBean(SystemBash.class);
+                    JsonNode result = bash.invoke(Map.of("command", "cat demo.txt | rg hello-shell"));
+                    assertThat(result.asText()).contains("exitCode: 0");
+                    assertThat(result.asText()).contains("mode: shell");
+                    assertThat(result.asText()).contains("hello-shell");
+                });
+    }
+
     @Configuration(proxyBeanMethods = false)
     @EnableConfigurationProperties(BashToolProperties.class)
     static class BashToolConfiguration {
