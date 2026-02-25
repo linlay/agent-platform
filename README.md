@@ -139,8 +139,9 @@ mvn spring-boot:run
 
 ### 默认配置基线
 
-- 主配置事实源为 `src/main/resources/application.yml`，本地可通过 `application-local.yml` 覆盖。
-- `spring.config.import` 默认加载：`./application-local.yml` 和 `/opt/application.yml`（均为 optional）。
+- 主配置事实源为 `src/main/resources/application.yml`，本地可通过 `./application.yml` 覆盖。
+- 可先复制根目录示例：`cp application.example.yml application.yml`，再填写本地私有配置（如 API Key）。
+- `spring.config.import` 默认加载：`./application.yml` 和 `/opt/application.yml`（均为 optional）。
 - `agent.cors.enabled` 在主配置中默认是 `false`，即默认不启用 CORS 过滤器。
 - `spring.ai.openai.api-key` 默认 `dummy-openai-key`，仅作 Spring AI 占位；实际模型调用使用 `agent.providers.*`。
 

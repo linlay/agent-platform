@@ -1,0 +1,40 @@
+server:
+  port: ${SERVER_PORT:11949}
+
+agent:
+  # Local overrides for development. Copy this file to application-local.yml
+  # and replace placeholder values with your own settings.
+  catalog:
+    external-dir: ${AGENT_EXTERNAL_DIR:agents}
+  auth:
+    enabled: ${AGENT_AUTH_ENABLED:true}
+    # Optional: set either local-public-key or jwks settings.
+    # local-public-key: |
+    #   -----BEGIN PUBLIC KEY-----
+    #   REPLACE_WITH_YOUR_RSA_PUBLIC_KEY
+    #   -----END PUBLIC KEY-----
+    jwks-uri: ${AGENT_AUTH_JWKS_URI:}
+    issuer: ${AGENT_AUTH_ISSUER:}
+    jwks-cache-seconds: ${AGENT_AUTH_JWKS_CACHE_SECONDS:}
+  chat-image-token:
+    secret: ${CHAT_IMAGE_TOKEN_SECRET:}
+    ttl-seconds: ${CHAT_IMAGE_TOKEN_TTL_SECONDS:86400}
+  providers:
+    bailian:
+      base-url: ${BAILIAN_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode}
+      api-key: ${BAILIAN_API_KEY:replace-with-your-bailian-api-key}
+      model: ${BAILIAN_MODEL:qwen3-max}
+    siliconflow:
+      base-url: ${SILICONFLOW_BASE_URL:https://api.siliconflow.cn}
+      api-key: ${SILICONFLOW_API_KEY:replace-with-your-siliconflow-api-key}
+      model: ${SILICONFLOW_MODEL:deepseek-ai/DeepSeek-V3.2}
+  tools:
+    bash:
+      working-directory: ${AGENT_BASH_WORKING_DIRECTORY:${user.dir}}
+      allowed-paths: ${AGENT_BASH_ALLOWED_PATHS:${user.dir},/tmp}
+      allowed-commands: ${AGENT_BASH_ALLOWED_COMMANDS:ls,pwd,cat,head,tail,top,free,df,git,rg,find}
+      path-checked-commands: ${AGENT_BASH_PATH_CHECKED_COMMANDS:ls,cat,head,tail,git,rg,find}
+      shell-features-enabled: ${AGENT_BASH_SHELL_FEATURES_ENABLED:false}
+      shell-executable: ${AGENT_BASH_SHELL_EXECUTABLE:bash}
+      shell-timeout-ms: ${AGENT_BASH_SHELL_TIMEOUT_MS:10000}
+      max-command-chars: ${AGENT_BASH_MAX_COMMAND_CHARS:16000}

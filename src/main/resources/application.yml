@@ -6,7 +6,7 @@ spring:
     name: springai-agent-platform
   config:
     import:
-      - optional:file:./application-local.yml
+      - optional:file:./application.yml
       - optional:file:/opt/application.yml
   ai:
     openai:
