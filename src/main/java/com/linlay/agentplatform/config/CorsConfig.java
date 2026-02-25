@@ -1,6 +1,7 @@
 package com.linlay.agentplatform.config;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.cors.CorsConfiguration;
@@ -14,6 +15,7 @@ import java.util.List;
 public class CorsConfig {
 
     @Bean
+    @ConditionalOnProperty(prefix = "agent.cors", name = "enabled", havingValue = "true", matchIfMissing = true)
     public CorsWebFilter corsWebFilter(
             @Value("${agent.cors.path-pattern:/api/ap/**}") String pathPattern,
             @Value("${agent.cors.allowed-origin-patterns:http://localhost:*}") List<String> allowedOriginPatterns,

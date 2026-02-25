@@ -17,7 +17,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
@@ -47,19 +46,20 @@ public class ChatImageTokenService {
             logMissingSecretOnce();
             return null;
         }
+        String normalizedUid = uid.trim();
+        String normalizedChatId = normalizeUuid(chatId);
+        if (!StringUtils.hasText(normalizedChatId)) {
+            return null;
+        }
 
         Instant now = Instant.now();
         long ttlSeconds = Math.max(60L, properties.getTtlSeconds());
-        Instant expiresAt = now.plusSeconds(ttlSeconds);
+        long expiresAt = now.plusSeconds(ttlSeconds).getEpochSecond();
 
         JWTClaimsSet claimsSet = new JWTClaimsSet.Builder()
-                .subject(uid.trim())
-                .issueTime(Date.from(now))
-                .expirationTime(Date.from(expiresAt))
-                .jwtID(UUID.randomUUID().toString())
-                .claim("uid", uid.trim())
-                .claim("chatId", chatId.trim())
-                .claim("scope", DATA_READ_SCOPE)
+                .claim("e", expiresAt)
+                .claim("c", normalizedChatId)
+                .claim("u", normalizedUid)
                 .build();
 
         try {
@@ -93,26 +93,21 @@ public class ChatImageTokenService {
             return VerifyResult.invalid(ERROR_CODE_INVALID, "chat image token invalid");
         }
 
-        Date expirationTime = claimsSet.getExpirationTime();
-        if (expirationTime == null) {
-            return VerifyResult.invalid(ERROR_CODE_INVALID, "chat image token invalid");
-        }
-        if (expirationTime.toInstant().isBefore(Instant.now())) {
-            return VerifyResult.invalid(ERROR_CODE_EXPIRED, "chat image token expired");
-        }
-
         if (!verifySignature(jwt, resolveSigningSecrets())) {
             return VerifyResult.invalid(ERROR_CODE_INVALID, "chat image token invalid");
         }
 
-        String uid = stringClaim(claimsSet, "uid");
-        if (!StringUtils.hasText(uid)) {
-            uid = claimsSet.getSubject();
+        Long expiresEpochSeconds = longClaim(claimsSet, "e");
+        if (expiresEpochSeconds == null) {
+            return VerifyResult.invalid(ERROR_CODE_INVALID, "chat image token invalid");
         }
-        String chatId = stringClaim(claimsSet, "chatId");
-        String scope = stringClaim(claimsSet, "scope");
-        Instant issuedAt = claimsSet.getIssueTime() == null ? null : claimsSet.getIssueTime().toInstant();
-        Instant expiresAt = claimsSet.getExpirationTime().toInstant();
+        Instant expiresAt = Instant.ofEpochSecond(expiresEpochSeconds);
+        if (expiresAt.isBefore(Instant.now())) {
+            return VerifyResult.invalid(ERROR_CODE_EXPIRED, "chat image token expired");
+        }
+
+        String uid = stringClaim(claimsSet, "u");
+        String chatId = normalizeUuid(stringClaim(claimsSet, "c"));
 
         if (!StringUtils.hasText(uid) || !StringUtils.hasText(chatId)) {
             return VerifyResult.invalid(ERROR_CODE_INVALID, "chat image token invalid");
@@ -121,10 +116,10 @@ public class ChatImageTokenService {
         return VerifyResult.valid(new Claims(
                 uid.trim(),
                 chatId.trim(),
-                scope,
-                issuedAt,
+                DATA_READ_SCOPE,
+                null,
                 expiresAt,
-                claimsSet.getJWTID()
+                null
         ));
     }
 
@@ -170,6 +165,32 @@ public class ChatImageTokenService {
     private String stringClaim(JWTClaimsSet claimsSet, String key) {
         Object value = claimsSet.getClaim(key);
         return value == null ? null : String.valueOf(value);
+    }
+
+    private Long longClaim(JWTClaimsSet claimsSet, String key) {
+        Object value = claimsSet.getClaim(key);
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        if (value instanceof String text && StringUtils.hasText(text)) {
+            try {
+                return Long.parseLong(text.trim());
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private String normalizeUuid(String raw) {
+        if (!StringUtils.hasText(raw)) {
+            return null;
+        }
+        try {
+            return UUID.fromString(raw.trim()).toString();
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
     }
 
     private String maskToken(String token) {

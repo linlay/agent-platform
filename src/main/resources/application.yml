@@ -54,16 +54,28 @@ agent:
     #   testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest
     #   testtesttesttesttesttesttesttesttesttesttesttesttesttesttesttest
     #   -----END PUBLIC KEY-----
+  cors:
+    enabled: false
+    path-pattern: /api/**
+    allowed-origin-patterns:
+      - http://localhost:8081
+    allowed-methods:
+      - GET
+      - POST
+      - PUT
+      - PATCH
+      - DELETE
+      - OPTIONS
+    allowed-headers:
+      - "*"
+    exposed-headers:
+      - Content-Type
+    allow-credentials: false
+    max-age-seconds: 3600
   chat-image-token:
     secret: ${CHAT_IMAGE_TOKEN_SECRET:}
     previous-secrets: ${CHAT_IMAGE_TOKEN_PREVIOUS_SECRETS:}
     ttl-seconds: ${CHAT_IMAGE_TOKEN_TTL_SECONDS:86400}
-  chat-event-callback:
-    enabled: ${AGENT_CHAT_EVENT_CALLBACK_ENABLED:true}
-    url: ${AGENT_CHAT_EVENT_CALLBACK_URL:http://127.0.0.1:38080/api/app/internal/chat-events}
-    secret: ${AGENT_CHAT_EVENT_CALLBACK_SECRET:change-me}
-    connect-timeout-ms: ${AGENT_CHAT_EVENT_CALLBACK_CONNECT_TIMEOUT_MS:1000}
-    request-timeout-ms: ${AGENT_CHAT_EVENT_CALLBACK_REQUEST_TIMEOUT_MS:1500}
 
 memory:
   chat:

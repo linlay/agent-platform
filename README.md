@@ -10,7 +10,7 @@
 - `GET /api/ap/agent?agentKey=...`: 智能体详情
 - `GET /api/ap/chats`: 会话列表
 - `GET /api/ap/chat?chatId=...`: 会话详情（默认返回快照事件流）
-- `GET /api/ap/chat?chatId=...&includeRawMessages=true`: 会话详情（附带原始 messages）
+- `GET /api/ap/chat?chatId=...&includeRawMessages=true`: 会话详情（附带原始 `rawMessages`）
 - `GET /api/ap/data?file={filename}&download=true|false`: 静态文件服务（图片 inline / 附件 download）
 - `GET /api/ap/viewport?viewportKey=...`: 获取工具/动作视图内容
 - `POST /api/ap/query`: 提问接口（默认返回 SDK 标准 SSE；`requestId` 可省略，缺省时等于 `runId`）
@@ -35,7 +35,7 @@
   - 智能体详情：`data` 直接是 `agent`
   - 会话详情：`data` 直接是 `chat`
   - 视图详情：`data` 直接是视图内容（`html` 时为 `{ "html": "..." }`，`qlc/dqlc` 时为 schema JSON）
-- `GET /api/ap/chat` 默认始终返回 `events`；仅当 `includeRawMessages=true` 时才返回 `messages`。
+- `GET /api/ap/chat` 默认始终返回 `events`；仅当 `includeRawMessages=true` 时才返回 `rawMessages`。
 - `includeEvents` 参数已废弃，传入将返回 `400`。
 - 事件协议仅支持 SDK Event Model v2，不兼容旧命名（如 `query.message`、`message.start|delta|end`、`message.snapshot`）。
 
@@ -76,7 +76,7 @@
     {
       "seq": 5,
       "type": "content.snapshot",
-      "contentId": "8ad0081d-191b-4990-9432-664ea0c38c3e_content_0",
+      "contentId": "8ad0081d-191b-4990-9432-664ea0c38c3e_c_0",
       "text": "碳是一种非金属元素...",
       "timestamp": 1770863186549
     }
@@ -88,7 +88,7 @@
 当 `includeRawMessages=true` 时，会额外返回：
 
 ```json
-"messages": [
+"rawMessages": [
   {
     "role": "user",
     "content": "元素碳的简介，100字",
@@ -135,6 +135,13 @@ mvn spring-boot:run
 ```
 
 默认端口 `8080`。
+
+### 默认配置基线
+
+- 主配置事实源为 `src/main/resources/application.yml`，本地可通过 `application-local.yml` 覆盖。
+- `spring.config.import` 默认加载：`./application-local.yml` 和 `/opt/application.yml`（均为 optional）。
+- `agent.cors.enabled` 在主配置中默认是 `false`，即默认不启用 CORS 过滤器。
+- `spring.ai.openai.api-key` 默认 `dummy-openai-key`，仅作 Spring AI 占位；实际模型调用使用 `agent.providers.*`。
 
 ### settings.xml 说明
 
@@ -298,7 +305,7 @@ agent:
 
 ### /api/ap/viewport 约定
 
-- `GET /api/ap/viewport?viewportKey=weather_card`
+- `GET /api/ap/viewport?viewportKey=show_weather_card`
 - `chatId`、`runId` 为可选参数，不参与必填校验。
 - 返回：
   - `html` 文件：`data = {"html":"<...>"}`

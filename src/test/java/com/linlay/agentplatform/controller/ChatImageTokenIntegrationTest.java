@@ -247,9 +247,7 @@ class ChatImageTokenIntegrationTest {
         String expiredToken = issueChatImageToken(
                 "user-expired",
                 chatId,
-                Instant.now().minusSeconds(120),
-                Instant.now().minusSeconds(60),
-                "ap_data:read"
+                Instant.now().minusSeconds(60)
         );
 
         webTestClient.get()
@@ -420,18 +418,12 @@ class ChatImageTokenIntegrationTest {
     private String issueChatImageToken(
             String uid,
             String chatId,
-            Instant issuedAt,
-            Instant expiresAt,
-            String scope
+            Instant expiresAt
     ) throws Exception {
         JWTClaimsSet claimsSet = new JWTClaimsSet.Builder()
-                .subject(uid)
-                .issueTime(Date.from(issuedAt))
-                .expirationTime(Date.from(expiresAt))
-                .jwtID(UUID.randomUUID().toString())
-                .claim("uid", uid)
-                .claim("chatId", chatId)
-                .claim("scope", scope)
+                .claim("e", expiresAt.getEpochSecond())
+                .claim("c", chatId)
+                .claim("u", uid)
                 .build();
 
         SignedJWT jwt = new SignedJWT(new JWSHeader.Builder(JWSAlgorithm.HS256).build(), claimsSet);

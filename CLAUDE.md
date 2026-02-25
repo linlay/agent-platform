@@ -192,7 +192,7 @@ execute 阶段每轮最多 1 个工具，完成后在更新回合调用 `_plan_u
 |------|----------------|------|
 | `.backend` | `BACKEND` | 后端工具，模型通过 Function Calling 调用。`description` 用于 OpenAI tool schema，`after_call_hint` 用于注入 system prompt 的"工具调用后推荐指令"章节 |
 | `.action` | `ACTION` | 动作工具，触发前端行为（如主题切换、烟花特效）。不等待 `/api/ap/submit`，直接返回 `"OK"` |
-| `.html` / `.qlc` / `.dqlc` | `FRONTEND` | 前端工具，触发 UI 渲染并等待 `/api/ap/submit` 提交 |
+| `.frontend` | `FRONTEND` | 前端工具定义文件，触发 UI 渲染并等待 `/api/ap/submit` 提交；实际渲染内容由 `viewports/` 下 `.html/.qlc/.dqlc/.json_schema/.custom` 文件提供 |
 
 文件内容均为 `{"tools":[...]}` 格式的 JSON。工具名冲突策略：冲突项会被跳过，其它项继续生效。
 
@@ -448,96 +448,96 @@ SSE 事件中的 reasoningId/contentId 同步使用新前缀格式：`{runId}_r_
 
 ## Configuration
 
-主配置 `application.yml`，本地覆盖 `application-local.yml`（含 API key）。
+主配置事实源：`src/main/resources/application.yml`。本地覆盖：`application-local.yml`（可放私有 provider key）。
+
+### Spring/Server
+
+| 项 | 默认值 | 说明 |
+|----|--------|------|
+| `server.port` | `8080` | HTTP 端口（环境变量 `SERVER_PORT`） |
+| `spring.application.name` | `springai-agent-platform` | 服务名 |
+| `spring.config.import` | `optional:file:./application-local.yml, optional:file:/opt/application.yml` | 启动时按顺序加载本地和容器外部覆盖文件 |
+| `spring.ai.openai.api-key` | `${OPENAI_API_KEY:dummy-openai-key}` | Spring AI 占位 key；真实模型调用走 `agent.providers.*` |
 
 ### 环境变量完整列表
 
-#### Server
-
-| 环境变量 | 属性键 | 默认值 | 说明 |
-|---------|--------|-------|------|
-| `SERVER_PORT` | `server.port` | `8080` | HTTP 服务端口 |
-
-#### Agent Catalog
+#### Agent Catalog / Viewport / Data
 
 | 环境变量 | 属性键 | 默认值 | 说明 |
 |---------|--------|-------|------|
 | `AGENT_EXTERNAL_DIR` | `agent.catalog.external-dir` | `agents` | Agent JSON 定义目录 |
 | `AGENT_REFRESH_INTERVAL_MS` | `agent.catalog.refresh-interval-ms` | `10000` | Agent 目录刷新间隔（ms） |
+| `AGENT_VIEWPORT_EXTERNAL_DIR` | `agent.viewport.external-dir` | `viewports` | Viewport 目录 |
+| `AGENT_VIEWPORT_REFRESH_INTERVAL_MS` | `agent.viewport.refresh-interval-ms` | `30000` | Viewport 刷新间隔（ms） |
+| `AGENT_DATA_EXTERNAL_DIR` | `agent.data.external-dir` | `data` | 静态文件目录 |
 
-#### Viewport
-
-| 环境变量 | 属性键 | 默认值 | 说明 |
-|---------|--------|-------|------|
-| `AGENT_VIEWPORT_EXTERNAL_DIR` | `agent.viewport.external-dir` | `viewports` | Viewport 文件目录 |
-| `AGENT_VIEWPORT_REFRESH_INTERVAL_MS` | `agent.viewport.refresh-interval-ms` | `30000` | Viewport 目录刷新间隔（ms） |
-
-#### Tools
+#### Tools / Skills
 
 | 环境变量 | 属性键 | 默认值 | 说明 |
 |---------|--------|-------|------|
 | `AGENT_TOOLS_EXTERNAL_DIR` | `agent.capability.tools-external-dir` | `tools` | 工具定义文件目录 |
 | `AGENT_CAPABILITY_REFRESH_INTERVAL_MS` | `agent.capability.refresh-interval-ms` | `30000` | 工具目录刷新间隔（ms） |
-| `AGENT_BASH_WORKING_DIRECTORY` | `agent.tools.bash.working-directory` | `${user.dir}` | Bash 工具工作目录 |
-| `AGENT_BASH_ALLOWED_PATHS` | `agent.tools.bash.allowed-paths` | （空） | Bash 工具允许路径白名单 |
 | `AGENT_TOOLS_FRONTEND_SUBMIT_TIMEOUT_MS` | `agent.tools.frontend.submit-timeout-ms` | `300000` | 前端工具提交等待超时（ms） |
-| `AGENT_TOOLS_AGENT_FILE_CREATE_DEFAULT_SYSTEM_PROMPT` | `agent.tools.agent-file-create.default-system-prompt` | `你是通用助理...` | agent_file_create 默认 system prompt |
-
-#### Skills
-
-| 环境变量 | 属性键 | 默认值 | 说明 |
-|---------|--------|-------|------|
-| `AGENT_SKILL_EXTERNAL_DIR` | `agent.skill.external-dir` | `skills` | 技能文件目录 |
-| `AGENT_SKILL_REFRESH_INTERVAL_MS` | `agent.skill.refresh-interval-ms` | `30000` | 技能目录刷新间隔（ms） |
+| `AGENT_TOOLS_AGENT_FILE_CREATE_DEFAULT_SYSTEM_PROMPT` | `agent.tools.agent-file-create.default-system-prompt` | `你是通用助理，回答要清晰和可执行。` | `agent_file_create` 默认 system prompt |
+| `AGENT_BASH_WORKING_DIRECTORY` | `agent.tools.bash.working-directory` | `${user.dir}` | Bash 工具工作目录 |
+| `AGENT_BASH_ALLOWED_PATHS` | `agent.tools.bash.allowed-paths` | （空） | Bash 工具路径白名单（逗号分隔） |
+| `AGENT_BASH_ALLOWED_COMMANDS` | `agent.tools.bash.allowed-commands` | （空=使用内置默认白名单） | Bash 允许命令列表（逗号分隔） |
+| `AGENT_BASH_PATH_CHECKED_COMMANDS` | `agent.tools.bash.path-checked-commands` | （空=使用内置默认列表） | 启用路径校验的命令列表（逗号分隔） |
+| `AGENT_SKILL_EXTERNAL_DIR` | `agent.skill.external-dir` | `skills` | 技能目录 |
+| `AGENT_SKILL_REFRESH_INTERVAL_MS` | `agent.skill.refresh-interval-ms` | `30000` | 技能刷新间隔（ms） |
 | `AGENT_SKILL_MAX_PROMPT_CHARS` | `agent.skill.max-prompt-chars` | `8000` | 技能 prompt 最大字符数 |
 
-#### LLM 日志
+#### Auth / Chat Image Token / Memory / LLM 日志
 
 | 环境变量 | 属性键 | 默认值 | 说明 |
 |---------|--------|-------|------|
-| `AGENT_LLM_INTERACTION_LOG_ENABLED` | `agent.llm.interaction-log.enabled` | `true` | LLM 交互日志开关 |
-| `AGENT_LLM_INTERACTION_LOG_MASK_SENSITIVE` | `agent.llm.interaction-log.mask-sensitive` | `true` | 脱敏 authorization/apiKey/token/secret/password |
-
-#### Auth
-
-| 环境变量 | 属性键 | 默认值 | 说明 |
-|---------|--------|-------|------|
-| `AGENT_AUTH_ENABLED` | `agent.auth.enabled` | `true` | 是否启用 JWT 认证 |
-| `AGENT_AUTH_JWKS_URI` | `agent.auth.jwks-uri` | （空） | JWKS 端点 URI |
-| `AGENT_AUTH_ISSUER` | `agent.auth.issuer` | （空） | JWT issuer 声明 |
-| `AGENT_AUTH_JWKS_CACHE_SECONDS` | `agent.auth.jwks-cache-seconds` | （空） | JWKS 缓存时长（秒） |
-| — | `agent.auth.local-public-key` | （空） | 本地 RSA 公钥 PEM（仅 YAML 配置） |
-
-#### Memory
-
-| 环境变量 | 属性键 | 默认值 | 说明 |
-|---------|--------|-------|------|
-| `MEMORY_CHAT_DIR` | `memory.chat.dir` | `./chats` | 聊天记忆存储目录 |
-| `MEMORY_CHAT_K` | `memory.chat.k` | `20` | 滑动窗口大小（run 数） |
-| `MEMORY_CHAT_CHARSET` | `memory.chat.charset` | `UTF-8` | 聊天记忆文件编码 |
+| `AGENT_AUTH_ENABLED` | `agent.auth.enabled` | `true` | JWT 认证开关 |
+| `AGENT_AUTH_JWKS_URI` | `agent.auth.jwks-uri` | （空） | JWKS 地址 |
+| `AGENT_AUTH_ISSUER` | `agent.auth.issuer` | （空） | JWT issuer |
+| `AGENT_AUTH_JWKS_CACHE_SECONDS` | `agent.auth.jwks-cache-seconds` | （空） | JWKS 缓存秒数 |
+| `CHAT_IMAGE_TOKEN_SECRET` | `agent.chat-image-token.secret` | （空） | 图片令牌签名密钥（为空则 token 机制禁用） |
+| `CHAT_IMAGE_TOKEN_PREVIOUS_SECRETS` | `agent.chat-image-token.previous-secrets` | （空） | 历史密钥列表（逗号分隔），用于密钥轮换验证 |
+| `CHAT_IMAGE_TOKEN_TTL_SECONDS` | `agent.chat-image-token.ttl-seconds` | `86400` | 图片令牌过期秒数 |
+| `MEMORY_CHAT_DIR` | `memory.chat.dir` | `./chats` | 聊天记忆目录 |
+| `MEMORY_CHAT_K` | `memory.chat.k` | `20` | 滑动窗口大小（按 run） |
+| `MEMORY_CHAT_CHARSET` | `memory.chat.charset` | `UTF-8` | 记忆文件编码 |
 | `MEMORY_CHAT_ACTION_TOOLS` | `memory.chat.action-tools` | （空） | action 工具白名单 |
+| `AGENT_LLM_INTERACTION_LOG_ENABLED` | `agent.llm.interaction-log.enabled` | `true` | LLM 交互日志开关 |
+| `AGENT_LLM_INTERACTION_LOG_MASK_SENSITIVE` | `agent.llm.interaction-log.mask-sensitive` | `true` | 日志脱敏开关 |
 
-#### Chat Event Callback
+说明：`agent.auth.local-public-key` 仅支持在 YAML 中配置 PEM 文本，不提供环境变量映射。
 
-| 环境变量 | 属性键 | 默认值 | 说明 |
-|---------|--------|-------|------|
-| `AGENT_CHAT_EVENT_CALLBACK_ENABLED` | `agent.chat-event-callback.enabled` | `true` | 聊天事件回调开关 |
-| `AGENT_CHAT_EVENT_CALLBACK_URL` | `agent.chat-event-callback.url` | `http://127.0.0.1:38080/api/app/internal/chat-events` | 回调 URL |
-| `AGENT_CHAT_EVENT_CALLBACK_SECRET` | `agent.chat-event-callback.secret` | `change-me` | 回调签名密钥 |
-| `AGENT_CHAT_EVENT_CALLBACK_CONNECT_TIMEOUT_MS` | `agent.chat-event-callback.connect-timeout-ms` | `1000` | 连接超时（ms） |
-| `AGENT_CHAT_EVENT_CALLBACK_REQUEST_TIMEOUT_MS` | `agent.chat-event-callback.request-timeout-ms` | `1500` | 请求超时（ms） |
-
-#### CORS
+### CORS（主配置默认）
 
 | 属性键 | 默认值 | 说明 |
 |--------|-------|------|
-| `agent.cors.path-pattern` | `/api/ap/**` | CORS 匹配路径 |
-| `agent.cors.allowed-origin-patterns` | `http://localhost:*` | 允许的源 |
-| `agent.cors.allowed-methods` | `GET,POST,PUT,PATCH,DELETE,OPTIONS` | 允许的方法 |
-| `agent.cors.allowed-headers` | `*` | 允许的请求头 |
-| `agent.cors.exposed-headers` | `Content-Type` | 暴露的响应头 |
+| `agent.cors.enabled` | `false` | 默认关闭 CORS 过滤器 |
+| `agent.cors.path-pattern` | `/api/**` | CORS 匹配路径 |
+| `agent.cors.allowed-origin-patterns` | `http://localhost:8081` | 允许源（列表） |
+| `agent.cors.allowed-methods` | `GET,POST,PUT,PATCH,DELETE,OPTIONS` | 允许方法（列表） |
+| `agent.cors.allowed-headers` | `*` | 允许请求头 |
+| `agent.cors.exposed-headers` | `Content-Type` | 暴露响应头 |
 | `agent.cors.allow-credentials` | `false` | 是否允许凭证 |
-| `agent.cors.max-age-seconds` | `3600` | 预检缓存时长（秒） |
+| `agent.cors.max-age-seconds` | `3600` | 预检缓存秒数 |
+
+### Provider 配置（通常在 `application-local.yml`）
+
+`agent.providers.<providerKey>` 支持：
+- `protocol`（默认 `OPENAI_COMPATIBLE`，可选 `ANTHROPIC`）
+- `base-url`
+- `api-key`
+- `model`
+
+### Logging（主配置默认）
+
+| 属性键 | 默认值 |
+|--------|--------|
+| `logging.level.root` | `INFO` |
+| `logging.level.com.linlay.agentplatform` | `INFO` |
+| `logging.level.com.linlay.agentplatform.service.LlmService` | `DEBUG` |
+| `logging.level.com.linlay.agentplatform.service.OpenAiCompatibleSseClient` | `DEBUG` |
+| `logging.level.com.linlay.agentplatform.service.LlmCallLogger` | `DEBUG` |
+| `logging.level.com.linlay.agentplatform.llm.wiretap` | `DEBUG` |
 
 ## 真流式约束（CRITICAL）
 

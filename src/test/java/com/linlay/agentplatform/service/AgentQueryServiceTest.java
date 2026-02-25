@@ -79,7 +79,6 @@ class AgentQueryServiceTest {
         when(viewportRegistryService.find("confirm_dialog")).thenReturn(Optional.of(
                 new ViewportRegistryService.ViewportEntry("confirm_dialog", ViewportType.HTML, "<div>ok</div>")
         ));
-        ChatEventCallbackService chatEventCallbackService = mock(ChatEventCallbackService.class);
 
         AgentQueryService service = new AgentQueryService(
                 null,
@@ -88,8 +87,7 @@ class AgentQueryServiceTest {
                 null,
                 toolRegistry,
                 viewportRegistryService,
-                frontendToolProperties,
-                chatEventCallbackService
+                frontendToolProperties
         );
         ServerSentEvent<String> event = ServerSentEvent.builder("""
                 {"type":"tool.start","toolName":"confirm_dialog","toolId":"call_1","runId":"run_1"}
@@ -115,7 +113,6 @@ class AgentQueryServiceTest {
         when(viewportRegistryService.find("confirm_dialog")).thenReturn(Optional.of(
                 new ViewportRegistryService.ViewportEntry("confirm_dialog", ViewportType.QLC, Map.of("schema", Map.of()))
         ));
-        ChatEventCallbackService chatEventCallbackService = mock(ChatEventCallbackService.class);
 
         AgentQueryService service = new AgentQueryService(
                 null,
@@ -124,8 +121,7 @@ class AgentQueryServiceTest {
                 null,
                 toolRegistry,
                 viewportRegistryService,
-                frontendToolProperties,
-                chatEventCallbackService
+                frontendToolProperties
         );
         ServerSentEvent<String> event = ServerSentEvent.builder("""
                 {"type":"tool.snapshot","toolName":"confirm_dialog","toolId":"call_2","runId":"run_2"}
@@ -156,7 +152,6 @@ class AgentQueryServiceTest {
     }
 
     private AgentQueryService newService() {
-        ChatEventCallbackService chatEventCallbackService = mock(ChatEventCallbackService.class);
         return new AgentQueryService(
                 null,
                 null,
@@ -164,8 +159,7 @@ class AgentQueryServiceTest {
                 null,
                 mock(ToolRegistry.class),
                 mock(ViewportRegistryService.class),
-                new FrontendToolProperties(),
-                chatEventCallbackService
+                new FrontendToolProperties()
         );
     }
 }

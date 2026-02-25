@@ -26,7 +26,6 @@ import reactor.core.publisher.Flux;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -52,7 +51,6 @@ public class AgentQueryService {
     private final ToolRegistry toolRegistry;
     private final ViewportRegistryService viewportRegistryService;
     private final FrontendToolProperties frontendToolProperties;
-    private final ChatEventCallbackService chatEventCallbackService;
 
     public AgentQueryService(
             AgentRegistry agentRegistry,
@@ -61,8 +59,7 @@ public class AgentQueryService {
             ChatRecordStore chatRecordStore,
             ToolRegistry toolRegistry,
             ViewportRegistryService viewportRegistryService,
-            FrontendToolProperties frontendToolProperties,
-            ChatEventCallbackService chatEventCallbackService
+            FrontendToolProperties frontendToolProperties
     ) {
         this.agentRegistry = agentRegistry;
         this.sdkSseStreamer = sdkSseStreamer;
@@ -71,7 +68,6 @@ public class AgentQueryService {
         this.toolRegistry = toolRegistry;
         this.viewportRegistryService = viewportRegistryService;
         this.frontendToolProperties = frontendToolProperties;
-        this.chatEventCallbackService = chatEventCallbackService;
     }
 
     public QuerySession prepare(QueryRequest request) {
@@ -125,20 +121,12 @@ public class AgentQueryService {
     }
 
     public Flux<ServerSentEvent<String>> stream(QuerySession session) {
-        AtomicBoolean callbackSent = new AtomicBoolean(false);
         Flux<AgentDelta> deltas = session.agent().stream(session.agentRequest());
         Flux<AgwInput> inputs = new AgentDeltaToSdkInputMapper(session.request().runId(), toolRegistry).map(deltas);
         return sdkSseStreamer.stream(session.request(), inputs)
                 .map(this::normalizeEvent)
                 .doOnNext(event -> {
                     String eventType = extractEventType(event.data());
-                    if (shouldTriggerChatCallback(eventType) && callbackSent.compareAndSet(false, true)) {
-                        chatEventCallbackService.notifyNewContent(
-                            session.request().chatId(),
-                            session.request().runId(),
-                            session.request().chatName()
-                        );
-                    }
                     if (!isToolEvent(eventType)) {
                         return;
                     }
@@ -150,10 +138,6 @@ public class AgentQueryService {
                     );
                 })
                 .doOnNext(event -> chatRecordStore.appendEvent(session.request().chatId(), event.data()));
-    }
-
-    private boolean shouldTriggerChatCallback(String eventType) {
-        return "content.delta".equals(eventType) || "content.snapshot".equals(eventType);
     }
 
     private ServerSentEvent<String> normalizeEvent(ServerSentEvent<String> event) {
