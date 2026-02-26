@@ -30,8 +30,8 @@ logs/
 /data/
 /models/
 /com/
-application-local.yml
-application-local.yaml
+/application.yaml
+/application.yml
 .env
 .env.*
 

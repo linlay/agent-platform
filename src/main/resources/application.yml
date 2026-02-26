@@ -41,7 +41,7 @@ agent:
     agent-file-create:
       default-system-prompt: ${AGENT_TOOLS_AGENT_FILE_CREATE_DEFAULT_SYSTEM_PROMPT:你是通用助理，回答要清晰和可执行。}
     bash:
-      # Baseline defaults live here; concrete local whitelist is recommended in application-local.yml.
+      # Baseline defaults live here; concrete local whitelist is recommended in application.yml.
       # If AGENT_BASH_ALLOWED_COMMANDS is empty, _bash_ will reject all commands.
       working-directory: ${AGENT_BASH_WORKING_DIRECTORY:${user.dir}}
       allowed-paths: ${AGENT_BASH_ALLOWED_PATHS:${user.dir},/tmp}

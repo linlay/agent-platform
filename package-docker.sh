@@ -87,7 +87,7 @@ services:
       - ./tools:/opt/tools
       - ./skills:/opt/skills
       - ./chats:/opt/chats
-      - ./application-local.yml:/opt/application.yml:ro
+      - ./application.yml:/opt/application.yml:ro
     env_file:
       - .env
 EOF
@@ -102,7 +102,7 @@ AGENT_AUTH_ENABLED=false
 # AGENT_AUTH_JWKS_URI=
 # AGENT_AUTH_ISSUER=
 
-# LLM provider keys (configure in application-local.yml)
+# LLM provider keys (configure in application.yml)
 
 # Bash tool security (explicit allowlists required)
 # AGENT_BASH_WORKING_DIRECTORY=/opt
@@ -121,8 +121,8 @@ cat >"$RELEASE_DIR/DEPLOY.md" <<'EOF'
    cp .env.example .env
    # Edit .env with production values
 
-   # Create application-local.yml with LLM provider API keys
-   touch application-local.yml
+   # Create application.yml with LLM provider API keys
+   touch application.yml
 
 3. Create data directory for chat memory:
 

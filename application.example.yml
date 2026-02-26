@@ -2,7 +2,7 @@ server:
   port: ${SERVER_PORT:11949}
 
 agent:
-  # Local overrides for development. Copy this file to application-local.yml
+  # Local overrides for development. Copy this file to application.yml
   # and replace placeholder values with your own settings.
   catalog:
     external-dir: ${AGENT_EXTERNAL_DIR:agents}

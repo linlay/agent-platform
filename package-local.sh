@@ -108,8 +108,8 @@ export MEMORY_CHAT_DIR="${MEMORY_CHAT_DIR:-$APP_DIR/chats}"
 
 # Spring 额外配置文件
 SPRING_OPTS=""
-if [ -f "$APP_DIR/application-local.yml" ]; then
-  SPRING_OPTS="--spring.config.additional-location=file:$APP_DIR/application-local.yml"
+if [ -f "$APP_DIR/application.yml" ]; then
+  SPRING_OPTS="--spring.config.additional-location=file:$APP_DIR/application.yml"
 fi
 
 DAEMON=false
@@ -192,7 +192,7 @@ cat >"$RELEASE_DIR/DEPLOY.md" <<'DEPLOYEOF'
 # 1. Prepare runtime .env (setup usually creates release-local/.env)
 # Edit .env with your settings
 
-# 2. Ensure application-local.yml exists
+# 2. Ensure application.yml exists
 # setup usually creates it from application.example.yml
 # Add provider configuration (see project docs for schema)
 
@@ -244,7 +244,7 @@ release-local/
 ├── start.sh             # Start script (-d for background)
 ├── stop.sh              # Stop script (graceful shutdown)
 ├── .env                 # Environment variables (created by setup or manually)
-├── application-local.yml # Spring config override (created by setup or manually)
+├── application.yml # Spring config override (created by setup or manually)
 ├── app.pid              # PID file (auto-managed)
 ├── app.log              # Log file (background mode)
 ├── agents/              # Agent JSON definitions

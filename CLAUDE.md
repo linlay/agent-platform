@@ -461,7 +461,7 @@ SSE 事件中的 reasoningId/contentId 同步使用新前缀格式：`{runId}_r_
 
 ## Configuration
 
-主配置事实源：`src/main/resources/application.yml`。本地覆盖：`application-local.yml`（可放私有 provider key）。
+主配置事实源：`src/main/resources/application.yml`。本地覆盖：`application.yml`（可放私有 provider key）。
 
 ### Spring/Server
 
@@ -469,7 +469,7 @@ SSE 事件中的 reasoningId/contentId 同步使用新前缀格式：`{runId}_r_
 |----|--------|------|
 | `server.port` | `8080` | HTTP 端口（环境变量 `SERVER_PORT`） |
 | `spring.application.name` | `springai-agent-platform` | 服务名 |
-| `spring.config.import` | `optional:file:./application-local.yml, optional:file:/opt/application.yml` | 启动时按顺序加载本地和容器外部覆盖文件 |
+| `spring.config.import` | `optional:file:./application.yml, optional:file:/opt/application.yml` | 启动时按顺序加载本地和容器外部覆盖文件 |
 | `spring.ai.openai.api-key` | `${OPENAI_API_KEY:dummy-openai-key}` | Spring AI 占位 key；真实模型调用走 `agent.providers.*` |
 
 ### 环境变量完整列表
@@ -539,7 +539,7 @@ SSE 事件中的 reasoningId/contentId 同步使用新前缀格式：`{runId}_r_
 | `agent.cors.allow-credentials` | `false` | 是否允许凭证 |
 | `agent.cors.max-age-seconds` | `3600` | 预检缓存秒数 |
 
-### Provider 配置（通常在 `application-local.yml`）
+### Provider 配置（通常在 `application.yml`）
 
 `agent.providers.<providerKey>` 支持：
 - `base-url`
