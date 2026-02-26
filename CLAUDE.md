@@ -21,18 +21,18 @@ mvn test -Dtest=ClassName#methodName    # 运行单个测试方法
 
 ### Release Scripts（跨平台入口）
 
-- macOS / Linux:
-  - `./release-scripts/package-local.sh`
-  - `./release-scripts/package-docker.sh`
-  - `./release-scripts/start-local.sh`
-  - `./release-scripts/stop-local.sh`
+- macOS（Bash）:
+  - `./release-scripts/mac/package-local.sh`
+  - `./release-scripts/mac/package-docker.sh`
+  - `./release-scripts/mac/start-local.sh`
+  - `./release-scripts/mac/stop-local.sh`
 - Windows（非 WSL / Git Bash，PowerShell 原生）:
-  - `.\release-scripts\package-local.ps1`
-  - `.\release-scripts\package-docker.ps1`
-  - `.\release-scripts\start-local.ps1`
-  - `.\release-scripts\stop-local.ps1`
+  - `.\release-scripts\windows\package-local.ps1`
+  - `.\release-scripts\windows\package-docker.ps1`
+  - `.\release-scripts\windows\start-local.ps1`
+  - `.\release-scripts\windows\stop-local.ps1`
 
-`release-scripts/` 根目录脚本为平台入口，分别转发到 `release-scripts/unix/` 和 `release-scripts/windows/`。
+`release-scripts/` 仅保留平台实现脚本目录，不再保留根目录转发脚本。
 
 ### 发布相关文件放置约定
 

@@ -14,5 +14,5 @@ if [ -x "$RELEASE_DIR/start.sh" ]; then
 fi
 
 echo "[start-local] release-local start script not found." >&2
-echo "[start-local] run ./release-scripts/package-local.sh first to generate release-local artifacts." >&2
+echo "[start-local] run ./release-scripts/mac/package-local.sh first to generate release-local artifacts." >&2
 exit 1

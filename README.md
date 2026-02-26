@@ -111,7 +111,7 @@
 ├── viewports/
 ├── tools/
 ├── release-scripts/
-│   ├── unix/
+│   ├── mac/
 │   └── windows/
 ├── application.example.yml
 ├── nginx.conf
@@ -137,31 +137,31 @@ mvn spring-boot:run
 
 ### release-local 配置说明
 
-通过 hub 仓库 `setup-mac.sh` 的首次安装流程时，会先执行 `./release-scripts/package-local.sh`，再在 `release-local/` 写入运行时配置：
+通过 hub 仓库 `setup-mac.sh` 的首次安装流程时，会先执行 `./release-scripts/mac/package-local.sh`，再在 `release-local/` 写入运行时配置：
 
 - `application.yml`：由根目录 `application.example.yml` 复制生成
 - `.env`：由安装流程按环境生成（若存在 `.env.example` 会优先复制）
 
-`release-scripts/package-local.sh` 只负责构建产物，不负责生成运行时配置。
+`release-scripts/mac/package-local.sh` 只负责构建产物，不负责生成运行时配置。
 
 #### 跨平台脚本入口
 
-- macOS / Linux:
-  - `./release-scripts/package-local.sh`
-  - `./release-scripts/package-docker.sh`
-  - `./release-scripts/start-local.sh`
-  - `./release-scripts/stop-local.sh`
+- macOS（Bash）:
+  - `./release-scripts/mac/package-local.sh`
+  - `./release-scripts/mac/package-docker.sh`
+  - `./release-scripts/mac/start-local.sh`
+  - `./release-scripts/mac/stop-local.sh`
 - Windows（非 WSL / Git Bash，PowerShell 原生）:
-  - `.\release-scripts\package-local.ps1`
-  - `.\release-scripts\package-docker.ps1`
-  - `.\release-scripts\start-local.ps1`
-  - `.\release-scripts\stop-local.ps1`
+  - `.\release-scripts\windows\package-local.ps1`
+  - `.\release-scripts\windows\package-docker.ps1`
+  - `.\release-scripts\windows\start-local.ps1`
+  - `.\release-scripts\windows\stop-local.ps1`
 
-说明：`release-scripts/` 根目录脚本是平台入口，分别转发到 `release-scripts/unix/` 与 `release-scripts/windows/`。
+说明：`release-scripts/` 仅保留平台实现脚本目录，不再保留根目录转发脚本。
 
 #### 文件放置约定
 
-- `release-scripts/` 仅放打包与运行脚本（入口 + 平台实现），不放部署配置资产。
+- `release-scripts/` 仅放打包与运行脚本（按平台分目录），不放部署配置资产。
 - `Dockerfile` 与 `settings.xml` 保持在项目根目录，匹配 `docker build .` 常见上下文和当前打包脚本路径约定。
 - `application.example.yml` 保持在项目根目录，作为开发初始化模板（复制为 `application.yml`）。
 - `nginx.conf` 当前保持在项目根目录，作为反向代理示例配置；若后续出现多环境部署资产，可统一迁移到 `deploy/nginx/`。

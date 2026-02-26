@@ -6,19 +6,19 @@
   <title>confirm_dialog</title>
   <style>
     :root {
-      --bg: #f4f7fc;
+      --bg: #f3f5f9;
       --panel: #ffffff;
-      --panel-soft: #f7f9fd;
-      --line: #d9e2ef;
-      --line-strong: #c6d3e5;
-      --text: #1f2a3a;
-      --sub: #56647a;
-      --muted: #77869d;
-      --accent: #2757d8;
-      --accent-soft: rgba(39, 87, 216, 0.12);
-      --danger: #ca3a3a;
-      --ok: #16805d;
-      --shadow: 0 6px 18px rgba(22, 37, 66, 0.08);
+      --panel-soft: #f7f8fb;
+      --line: #dce1ea;
+      --line-strong: #c8d0de;
+      --text: #202737;
+      --sub: #5b667c;
+      --muted: #768197;
+      --accent: #234fbe;
+      --accent-soft: rgba(35, 79, 190, 0.1);
+      --danger: #b13b3b;
+      --ok: #1b7a5f;
+      --shadow: 0 10px 24px rgba(25, 34, 53, 0.06);
     }
 
     * {
@@ -35,9 +35,9 @@
       font-family: "SF Pro Text", "SF Pro Display", "Inter", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
       color: var(--text);
       background:
-        radial-gradient(circle at 10% 8%, rgba(39, 87, 216, 0.11), transparent 34%),
-        linear-gradient(170deg, var(--bg), #f7f9fd 68%);
-      padding: 12px;
+        radial-gradient(circle at 12% 6%, rgba(35, 79, 190, 0.08), transparent 38%),
+        linear-gradient(170deg, var(--bg), #f7f8fb 70%);
+      padding: 14px;
     }
 
     .shell {
@@ -47,17 +47,17 @@
 
     .card {
       border: 1px solid var(--line);
-      border-radius: 14px;
-      background: color-mix(in srgb, var(--panel) 92%, var(--panel-soft));
+      border-radius: 16px;
+      background: color-mix(in srgb, var(--panel) 94%, var(--panel-soft));
       box-shadow: var(--shadow);
-      padding: 12px;
+      padding: 14px;
       display: grid;
-      gap: 10px;
+      gap: 12px;
     }
 
     .question {
       margin: 0;
-      font-size: 15px;
+      font-size: 16px;
       line-height: 1.4;
       font-weight: 600;
       letter-spacing: 0.01em;
@@ -67,24 +67,24 @@
 
     .options {
       display: grid;
-      gap: 7px;
+      gap: 8px;
     }
 
     .option {
       border: 1px solid var(--line);
-      border-radius: 10px;
-      background: color-mix(in srgb, var(--panel) 88%, var(--panel-soft));
-      padding: 8px 10px;
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--panel) 90%, var(--panel-soft));
+      padding: 10px 12px;
       display: flex;
       align-items: center;
-      gap: 9px;
+      gap: 10px;
       cursor: pointer;
-      transition: border-color 0.18s ease, background-color 0.18s ease;
+      transition: border-color 0.16s ease, background-color 0.16s ease;
     }
 
     .option:hover {
       border-color: var(--line-strong);
-      background: color-mix(in srgb, var(--panel) 80%, #ffffff);
+      background: color-mix(in srgb, var(--panel) 78%, #ffffff);
     }
 
     .option.is-selected {
@@ -101,7 +101,7 @@
     }
 
     .option-label {
-      font-size: 13px;
+      font-size: 13.5px;
       line-height: 1.45;
       color: var(--text);
       word-break: break-word;
@@ -110,7 +110,7 @@
 
     .free-wrap {
       display: none;
-      gap: 6px;
+      gap: 8px;
     }
 
     .free-wrap.show {
@@ -118,22 +118,22 @@
     }
 
     .free-label {
-      font-size: 12px;
+      font-size: 12.5px;
       color: var(--sub);
     }
 
     .free-input {
       width: 100%;
-      min-height: 66px;
+      min-height: 72px;
       max-height: 160px;
       resize: vertical;
       border: 1px solid var(--line);
-      border-radius: 10px;
+      border-radius: 11px;
       background: #ffffff;
       color: var(--text);
-      font-size: 13px;
+      font-size: 13.5px;
       line-height: 1.45;
-      padding: 8px 10px;
+      padding: 10px 12px;
       font-family: inherit;
     }
 
@@ -146,15 +146,16 @@
     .bar {
       display: flex;
       align-items: center;
-      justify-content: space-between;
-      gap: 8px;
+      justify-content: flex-start;
+      gap: 6px;
       flex-wrap: wrap;
-      margin-top: 2px;
+      margin-top: 0;
     }
 
     .status {
       font-size: 12px;
       color: var(--muted);
+      line-height: 1.4;
     }
 
     .status.ok {
@@ -166,16 +167,16 @@
     }
 
     .submit {
-      border: 1px solid color-mix(in srgb, var(--accent) 62%, var(--line));
-      border-radius: 9px;
-      background: linear-gradient(140deg, #2f62de, #2552c4);
+      border: 1px solid color-mix(in srgb, var(--accent) 58%, var(--line));
+      border-radius: 10px;
+      background: linear-gradient(145deg, #2c5ccf, #234fbe);
       color: #ffffff;
       font-size: 13px;
       font-weight: 600;
       letter-spacing: 0.01em;
-      padding: 7px 13px;
+      padding: 8px 14px;
       cursor: pointer;
-      box-shadow: 0 4px 10px rgba(39, 87, 216, 0.28);
+      box-shadow: 0 5px 12px rgba(35, 79, 190, 0.22);
     }
 
     .submit[disabled] {
@@ -191,7 +192,7 @@
 
       .card {
         border-radius: 12px;
-        padding: 10px;
+        padding: 11px;
       }
 
       .question {
@@ -216,10 +217,10 @@
       <div id="freeWrap" class="free-wrap">
         <label class="free-label" for="freeInput">请输入自定义内容</label>
         <textarea id="freeInput" class="free-input" placeholder="输入你的自定义选项"></textarea>
+        <button id="submit" class="submit" type="button">确定</button>
       </div>
       <div class="bar">
-        <span id="status" class="status">等待提交</span>
-        <button id="submit" class="submit" type="button">提交</button>
+        <span id="status" class="status">请选择一个选项</span>
       </div>
     </section>
   </main>
@@ -281,13 +282,21 @@
       return state.allowFreeText && state.customIndex >= 0 && state.selectedIndex === state.customIndex;
     }
 
+    function syncCustomSubmitState() {
+      const customSelected = isCustomSelected();
+      const hasInput = Boolean(elements.freeInput.value.trim());
+      elements.submit.disabled = !customSelected || !hasInput;
+    }
+
     function syncFreeInput() {
       const customSelected = isCustomSelected();
       elements.freeWrap.classList.toggle('show', customSelected);
       if (!customSelected) {
         elements.freeInput.value = '';
+        syncCustomSubmitState();
         return;
       }
+      syncCustomSubmitState();
       window.setTimeout(() => {
         elements.freeInput.focus();
       }, 0);
@@ -312,7 +321,11 @@
           state.selectedIndex = index;
           markSelectedOption();
           syncFreeInput();
-          setStatus('等待提交', 'normal');
+          if (isCustomSelected()) {
+            setStatus('请输入内容后点击确定，或按回车提交', 'normal');
+            return;
+          }
+          submit();
         });
 
         const label = document.createElement('span');
@@ -345,23 +358,15 @@
       state.options = normalized.options;
       state.allowFreeText = normalized.allowFreeText;
       state.customIndex = state.allowFreeText ? state.options.length : -1;
-
-      if (state.options.length > 0) {
-        state.selectedIndex = 0;
-      } else if (state.allowFreeText) {
-        state.selectedIndex = state.customIndex;
-      } else {
-        state.selectedIndex = -1;
-      }
+      state.selectedIndex = -1;
 
       elements.question.textContent = state.question;
       renderOptions();
 
-      elements.submit.disabled = listWithCustom().length === 0;
-      if (elements.submit.disabled) {
+      if (listWithCustom().length === 0) {
         setStatus('暂无可选项', 'err');
       } else {
-        setStatus('等待提交', 'normal');
+        setStatus('请选择一个选项', 'normal');
       }
     }
 
@@ -402,6 +407,10 @@
     }
 
     elements.submit.addEventListener('click', submit);
+
+    elements.freeInput.addEventListener('input', () => {
+      syncCustomSubmitState();
+    });
 
     elements.freeInput.addEventListener('keydown', (event) => {
       if (event.key === 'Enter' && !event.shiftKey) {

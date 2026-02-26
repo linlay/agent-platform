@@ -18,5 +18,5 @@ if (Test-Path $stopScript) {
 }
 
 Write-Error "[stop-local] release-local stop script not found."
-Write-Error "[stop-local] run .\release-scripts\package-local.ps1 first to generate release-local artifacts."
+Write-Error "[stop-local] run .\release-scripts\windows\package-local.ps1 first to generate release-local artifacts."
 exit 1

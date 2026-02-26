@@ -18,5 +18,5 @@ if (Test-Path $startScript) {
 }
 
 Write-Error "[start-local] release-local start script not found."
-Write-Error "[start-local] run .\release-scripts\package-local.ps1 first to generate release-local artifacts."
+Write-Error "[start-local] run .\release-scripts\windows\package-local.ps1 first to generate release-local artifacts."
 exit 1
