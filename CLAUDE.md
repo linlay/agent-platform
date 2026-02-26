@@ -17,7 +17,7 @@ mvn test -Dtest=ClassName               # 运行单个测试类
 mvn test -Dtest=ClassName#methodName    # 运行单个测试方法
 ```
 
-SDK 依赖: 已以内置源码方式集成在 `src/main/java/com/aiagent/agw/sdk/**`。
+流式事件模块源码位于 `src/main/java/com/linlay/agentplatform/stream/**`。
 
 ### Release Scripts（跨平台入口）
 
@@ -58,7 +58,7 @@ POST /api/ap/query → AgentController → AgentQueryService → DefinitionDrive
 | `agent.runtime` | `AgentRuntimeMode` 枚举、`ExecutionContext`（状态/预算/对话历史管理）、`ToolExecutionService` |
 | `agent.runtime.policy` | `RunSpec`、`ToolChoice`、`ComputePolicy`、`Budget` 等策略定义 |
 | `model` | `AgentRequest`、`ModelCatalogProperties`、`ModelDefinition`、`ModelProtocol`、`ViewportType` |
-| `model.api` | REST 契约：`ApiResponse`、`AgwQueryRequest`、`AgwSubmitRequest`、`AgwChatDetailResponse` 等 |
+| `model.api` | REST 契约：`ApiResponse`、`QueryRequest`、`SubmitRequest`、`ChatDetailResponse` 等 |
 | `model.stream` | 流式类型：`AgentDelta` |
 | `service` | `LlmService`（WebClient SSE + ChatClient 双路径）、`AgentQueryService`（流编排）、`ChatRecordStore`、`DirectoryWatchService` |
 | `tool` | `BaseTool` 接口、`ToolRegistry` 自动注册、`CapabilityRegistryService`（外部工具），内置 bash/city_datetime/mock_city_weather 等 |
@@ -478,7 +478,7 @@ SSE 事件中的 reasoningId/contentId 同步使用新前缀格式：`{runId}_r_
 ### _usage 真实填充
 
 - 通过 `stream_options.include_usage=true` 请求 LLM provider 返回真实 usage 数据。
-- `LlmDelta` record 新增 `Map<String, Object> usage` 字段，SDK parser 解析最后一个 chunk 的 usage。
+- `LlmDelta` record 新增 `Map<String, Object> usage` 字段，SSE parser 解析最后一个 chunk 的 usage。
 - usage 通过管道穿透：`LlmDelta` → `AgentDelta` → `StepAccumulator.capturedUsage` → `RunMessage` → `StoredMessage._usage`。
 - 不再写入 placeholder null 值；当 LLM 未返回 usage 时 `_usage` 仍使用默认占位结构。
 

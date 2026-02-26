@@ -1,9 +1,9 @@
 package com.linlay.agentplatform.service;
 
-import com.aiagent.agw.sdk.model.AgwInput;
-import com.aiagent.agw.sdk.model.AgwRequest;
-import com.aiagent.agw.sdk.service.AgwEventAssembler;
-import com.aiagent.agw.sdk.service.AgwSseStreamer;
+import com.linlay.agentplatform.stream.model.StreamInput;
+import com.linlay.agentplatform.stream.model.StreamRequest;
+import com.linlay.agentplatform.stream.service.StreamEventAssembler;
+import com.linlay.agentplatform.stream.service.StreamSseStreamer;
 import com.linlay.agentplatform.config.FrontendToolProperties;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -33,7 +33,7 @@ import java.util.regex.Pattern;
  * Agent 查询入口编排服务。
  * <p>
  * 负责把 API 请求组装为一次完整的运行上下文：选择 Agent、补齐 request/chat/run 标识、
- * 构建 SDK Query 请求、并将 AgentDelta 流映射为 SSE 事件流。
+ * 构建 Query 请求、并将 AgentDelta 流映射为 SSE 事件流。
  * 同时在流式发送过程中做事件规范化（如 plan.update）与会话持久化挂接。
  */
 @Service
@@ -45,7 +45,7 @@ public class AgentQueryService {
     private static final Logger log = LoggerFactory.getLogger(AgentQueryService.class);
 
     private final AgentRegistry agentRegistry;
-    private final AgwSseStreamer sdkSseStreamer;
+    private final StreamSseStreamer streamSseStreamer;
     private final ObjectMapper objectMapper;
     private final ChatRecordStore chatRecordStore;
     private final ToolRegistry toolRegistry;
@@ -54,7 +54,7 @@ public class AgentQueryService {
 
     public AgentQueryService(
             AgentRegistry agentRegistry,
-            AgwSseStreamer sdkSseStreamer,
+            StreamSseStreamer streamSseStreamer,
             ObjectMapper objectMapper,
             ChatRecordStore chatRecordStore,
             ToolRegistry toolRegistry,
@@ -62,7 +62,7 @@ public class AgentQueryService {
             FrontendToolProperties frontendToolProperties
     ) {
         this.agentRegistry = agentRegistry;
-        this.sdkSseStreamer = sdkSseStreamer;
+        this.streamSseStreamer = streamSseStreamer;
         this.objectMapper = objectMapper;
         this.chatRecordStore = chatRecordStore;
         this.toolRegistry = toolRegistry;
@@ -87,7 +87,7 @@ public class AgentQueryService {
         );
         String chatName = summary.chatName();
         Map<String, Object> queryParams = mergeQueryParams(request.params(), summary.created());
-        AgwRequest.Query sdkRequest = new AgwRequest.Query(
+        StreamRequest.Query streamRequest = new StreamRequest.Query(
                 requestId,
                 chatId,
                 role,
@@ -117,13 +117,13 @@ public class AgentQueryService {
                 request.references(),
                 request.scene()
         );
-        return new QuerySession(agent, sdkRequest, agentRequest);
+        return new QuerySession(agent, streamRequest, agentRequest);
     }
 
     public Flux<ServerSentEvent<String>> stream(QuerySession session) {
         Flux<AgentDelta> deltas = session.agent().stream(session.agentRequest());
-        Flux<AgwInput> inputs = new AgentDeltaToSdkInputMapper(session.request().runId(), toolRegistry).map(deltas);
-        return sdkSseStreamer.stream(session.request(), inputs)
+        Flux<StreamInput> inputs = new AgentDeltaToStreamInputMapper(session.request().runId(), toolRegistry).map(deltas);
+        return streamSseStreamer.stream(session.request(), inputs)
                 .map(this::normalizeEvent)
                 .doOnNext(event -> {
                     String eventType = extractEventType(event.data());
@@ -274,7 +274,7 @@ public class AgentQueryService {
         if (requestParams != null && !requestParams.isEmpty()) {
             merged.putAll(requestParams);
         }
-        merged.put(AgwEventAssembler.INTERNAL_PARAM_EMIT_CHAT_START, created);
+        merged.put(StreamEventAssembler.INTERNAL_PARAM_EMIT_CHAT_START, created);
         return merged;
     }
 
@@ -348,7 +348,7 @@ public class AgentQueryService {
 
     public record QuerySession(
             Agent agent,
-            AgwRequest.Query request,
+            StreamRequest.Query request,
             AgentRequest agentRequest
     ) {
     }

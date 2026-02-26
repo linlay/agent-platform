@@ -1,7 +1,7 @@
 package com.linlay.agentplatform.agent.mode;
 
-import com.aiagent.agw.sdk.model.LlmDelta;
-import com.aiagent.agw.sdk.model.ToolCallDelta;
+import com.linlay.agentplatform.stream.model.LlmDelta;
+import com.linlay.agentplatform.stream.model.ToolCallDelta;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;

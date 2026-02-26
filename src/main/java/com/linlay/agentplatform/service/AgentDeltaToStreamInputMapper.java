@@ -1,0 +1,311 @@
+package com.linlay.agentplatform.service;
+
+import com.linlay.agentplatform.stream.model.StreamInput;
+import com.linlay.agentplatform.stream.model.ToolCallDelta;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.linlay.agentplatform.model.AgentDelta;
+import com.linlay.agentplatform.tool.ToolRegistry;
+import reactor.core.publisher.Flux;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+
+/**
+ * 将 Agent 内部流式增量（{@link AgentDelta}）转换为 流式输入事件序列。
+ * <p>
+ * 该类负责三类映射语义：
+ * 1) 文本块（reasoning/content）按块分配独立 ID，块结束后不可复用；
+ * 2) tool/action 增量参数与结果事件保持顺序并补齐必要元数据；
+ * 3) 计划更新、运行结束等控制事件透传为对应流式事件。
+ */
+public class AgentDeltaToStreamInputMapper {
+
+    private final AtomicLong idCounter = new AtomicLong(0);
+    private final Map<Integer, String> indexedToolIds = new HashMap<>();
+    private final Map<String, AtomicInteger> toolArgChunkCounters = new HashMap<>();
+    private final Map<String, StringBuilder> toolArgsBuffer = new HashMap<>();
+    private final Set<String> actionToolIds = new HashSet<>();
+    private final String runPrefix;
+    private final ToolRegistry toolRegistry;
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
+    private int reasoningSeq = 0;
+    private int contentSeq = 0;
+    private String activeReasoningId;
+    private String activeContentId;
+
+    public AgentDeltaToStreamInputMapper() {
+        this(null, null);
+    }
+
+    public AgentDeltaToStreamInputMapper(String runId) {
+        this(runId, null);
+    }
+
+    public AgentDeltaToStreamInputMapper(String runId, ToolRegistry toolRegistry) {
+        this.runPrefix = hasText(runId) ? runId : "run";
+        this.toolRegistry = toolRegistry;
+    }
+
+    public Flux<StreamInput> map(Flux<AgentDelta> deltas) {
+        Objects.requireNonNull(deltas, "deltas must not be null");
+        return deltas.concatMapIterable(this::mapOrEmpty);
+    }
+
+    public List<StreamInput> mapOrEmpty(AgentDelta delta) {
+        if (delta == null) {
+            return List.of();
+        }
+
+        if (hasText(delta.stageMarker())) {
+            closeTextBlocks();
+            return List.of();
+        }
+
+        List<StreamInput> inputs = new ArrayList<>();
+
+        if (delta.taskLifecycle() != null) {
+            appendTaskLifecycleInput(delta.taskLifecycle(), inputs);
+        }
+
+        if (hasText(delta.reasoning())) {
+            closeContentBlock();
+            inputs.add(new StreamInput.ReasoningDelta(openReasoningBlockIfNeeded(), delta.reasoning(), delta.taskId()));
+        }
+
+        if (hasText(delta.content())) {
+            closeReasoningBlock();
+            inputs.add(new StreamInput.ContentDelta(openContentBlockIfNeeded(), delta.content(), delta.taskId()));
+        }
+
+        if (delta.toolCalls() != null && !delta.toolCalls().isEmpty()) {
+            for (int i = 0; i < delta.toolCalls().size(); i++) {
+                ToolCallDelta toolCall = delta.toolCalls().get(i);
+                if (toolCall == null) {
+                    continue;
+                }
+                String toolId = resolveToolId(toolCall, i);
+                String toolName = toolCall.name();
+                String normalizedType = resolveToolType(toolName, toolCall.type());
+                String argsDelta = toolCall.arguments() == null ? "" : toolCall.arguments();
+                toolArgsBuffer.computeIfAbsent(toolId, key -> new StringBuilder()).append(argsDelta);
+
+                if ("action".equalsIgnoreCase(normalizedType)) {
+                    actionToolIds.add(toolId);
+                    inputs.add(new StreamInput.ActionArgs(
+                            toolId,
+                            argsDelta,
+                            delta.taskId(),
+                            toolName,
+                            resolveDescription(toolName)
+                    ));
+                    continue;
+                }
+
+                int chunkIndex = toolArgChunkCounters
+                        .computeIfAbsent(toolId, key -> new AtomicInteger(0))
+                        .getAndIncrement();
+                inputs.add(new StreamInput.ToolArgs(
+                        toolId,
+                        argsDelta,
+                        delta.taskId(),
+                        toolName,
+                        normalizedType,
+                        resolveToolApi(toolName),
+                        parseToolParams(toolId),
+                        resolveDescription(toolName),
+                        chunkIndex
+                ));
+            }
+        }
+
+        if (delta.toolEnds() != null && !delta.toolEnds().isEmpty()) {
+            for (String toolId : delta.toolEnds()) {
+                if (!hasText(toolId) || actionToolIds.contains(toolId)) {
+                    continue;
+                }
+                inputs.add(new StreamInput.ToolEnd(toolId));
+            }
+        }
+
+        if (delta.toolResults() != null && !delta.toolResults().isEmpty()) {
+            for (AgentDelta.ToolResult toolResult : delta.toolResults()) {
+                if (toolResult == null || !hasText(toolResult.toolId())) {
+                    continue;
+                }
+                if (actionToolIds.contains(toolResult.toolId())) {
+                    inputs.add(new StreamInput.ActionEnd(toolResult.toolId()));
+                    inputs.add(new StreamInput.ActionResult(
+                            toolResult.toolId(),
+                            parseResult(toolResult.result())
+                    ));
+                    actionToolIds.remove(toolResult.toolId());
+                    toolArgsBuffer.remove(toolResult.toolId());
+                    continue;
+                }
+                inputs.add(new StreamInput.ToolResult(
+                        toolResult.toolId(),
+                        toolResult.result() == null ? "null" : toolResult.result()
+                ));
+                toolArgsBuffer.remove(toolResult.toolId());
+            }
+        }
+
+        if (delta.planUpdate() != null) {
+            AgentDelta.PlanUpdate planUpdate = delta.planUpdate();
+            inputs.add(new StreamInput.PlanUpdate(
+                    planUpdate.planId(),
+                    planUpdate.plan(),
+                    hasText(planUpdate.chatId()) ? planUpdate.chatId() : null
+            ));
+        }
+
+        if (hasText(delta.finishReason())) {
+            inputs.add(new StreamInput.RunComplete(delta.finishReason()));
+        }
+
+        if (hasNonTextPayload(delta)) {
+            closeTextBlocks();
+        }
+
+        return inputs;
+    }
+
+    private boolean hasNonTextPayload(AgentDelta delta) {
+        if (delta == null) {
+            return false;
+        }
+        return delta.taskLifecycle() != null
+                || (delta.toolCalls() != null && !delta.toolCalls().isEmpty())
+                || (delta.toolEnds() != null && !delta.toolEnds().isEmpty())
+                || (delta.toolResults() != null && !delta.toolResults().isEmpty())
+                || delta.planUpdate() != null
+                || hasText(delta.finishReason());
+    }
+
+    private void appendTaskLifecycleInput(AgentDelta.TaskLifecycle lifecycle, List<StreamInput> inputs) {
+        if (lifecycle == null || !hasText(lifecycle.kind()) || !hasText(lifecycle.taskId())) {
+            return;
+        }
+        String kind = lifecycle.kind().trim().toLowerCase();
+        switch (kind) {
+            case "start" -> {
+                if (hasText(lifecycle.runId())) {
+                    inputs.add(new StreamInput.TaskStart(
+                            lifecycle.taskId(),
+                            lifecycle.runId(),
+                            lifecycle.taskName(),
+                            lifecycle.description()
+                    ));
+                }
+            }
+            case "complete" -> inputs.add(new StreamInput.TaskComplete(lifecycle.taskId()));
+            case "cancel" -> inputs.add(new StreamInput.TaskCancel(lifecycle.taskId()));
+            case "fail" -> inputs.add(new StreamInput.TaskFail(lifecycle.taskId(), lifecycle.error()));
+            default -> {
+                // ignore unknown task lifecycle type
+            }
+        }
+    }
+
+    private String openReasoningBlockIfNeeded() {
+        if (!hasText(activeReasoningId)) {
+            reasoningSeq++;
+            activeReasoningId = runPrefix + "_r_" + reasoningSeq;
+        }
+        return activeReasoningId;
+    }
+
+    private String openContentBlockIfNeeded() {
+        if (!hasText(activeContentId)) {
+            contentSeq++;
+            activeContentId = runPrefix + "_c_" + contentSeq;
+        }
+        return activeContentId;
+    }
+
+    private void closeReasoningBlock() {
+        activeReasoningId = null;
+    }
+
+    private void closeContentBlock() {
+        activeContentId = null;
+    }
+
+    private void closeTextBlocks() {
+        closeReasoningBlock();
+        closeContentBlock();
+    }
+
+    private String resolveToolId(ToolCallDelta toolCall, int fallbackIndex) {
+        if (hasText(toolCall.id())) {
+            if (toolCall.index() != null) {
+                indexedToolIds.put(toolCall.index(), toolCall.id());
+            }
+            return toolCall.id();
+        }
+        if (toolCall.index() != null && indexedToolIds.containsKey(toolCall.index())) {
+            return indexedToolIds.get(toolCall.index());
+        }
+        int effectiveIndex = toolCall.index() != null ? toolCall.index() : fallbackIndex;
+        String generated = "t_" + idCounter.incrementAndGet();
+        indexedToolIds.put(effectiveIndex, generated);
+        return generated;
+    }
+
+    private String resolveToolType(String toolName, String rawType) {
+        if (toolRegistry != null && hasText(toolName)) {
+            return toolRegistry.toolCallType(toolName);
+        }
+        return hasText(rawType) ? rawType.trim() : "function";
+    }
+
+    private Object parseToolParams(String toolId) {
+        StringBuilder builder = toolArgsBuffer.get(toolId);
+        if (builder == null || builder.isEmpty()) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(builder.toString(), Object.class);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private Object parseResult(String raw) {
+        String value = raw == null ? "null" : raw;
+        try {
+            return objectMapper.readValue(value, Object.class);
+        } catch (Exception ignored) {
+            return value;
+        }
+    }
+
+    private String resolveDescription(String toolName) {
+        if (toolRegistry == null || !hasText(toolName)) {
+            return null;
+        }
+        String description = toolRegistry.description(toolName);
+        return hasText(description) ? description : null;
+    }
+
+    private String resolveToolApi(String toolName) {
+        if (toolRegistry == null || !hasText(toolName)) {
+            return null;
+        }
+        return toolRegistry.capability(toolName)
+                .map(descriptor -> hasText(descriptor.toolApi()) ? descriptor.toolApi() : null)
+                .orElse(null);
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
+    }
+}

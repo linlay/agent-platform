@@ -1,6 +1,6 @@
 package com.linlay.agentplatform.agent;
 
-import com.aiagent.agw.sdk.model.ToolCallDelta;
+import com.linlay.agentplatform.stream.model.ToolCallDelta;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linlay.agentplatform.agent.mode.AgentMode;
 import com.linlay.agentplatform.agent.mode.OneshotMode;

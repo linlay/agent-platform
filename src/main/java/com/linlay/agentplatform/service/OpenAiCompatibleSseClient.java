@@ -1,7 +1,7 @@
 package com.linlay.agentplatform.service;
 
-import com.aiagent.agw.sdk.adapter.openai.OpenAiSseDeltaParser;
-import com.aiagent.agw.sdk.model.LlmDelta;
+import com.linlay.agentplatform.stream.adapter.openai.OpenAiSseDeltaParser;
+import com.linlay.agentplatform.stream.model.LlmDelta;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linlay.agentplatform.agent.runtime.policy.ComputePolicy;
 import com.linlay.agentplatform.agent.runtime.policy.ToolChoice;

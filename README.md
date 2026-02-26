@@ -1,6 +1,6 @@
 # springai-agent-platform
 
-本仓库是可独立构建和部署的 Spring AI Agent 服务，已经改为直接引用仓库内的 SDK jar，不依赖本地 Maven 安装。
+本仓库是可独立构建和部署的 Spring AI Agent 服务，已将流式事件模块源码内置到本仓库，不依赖外置 jar。
 
 > 详细架构设计、数据模型、API 契约和开发约束见 [CLAUDE.md](./CLAUDE.md)。
 
@@ -13,7 +13,7 @@
 - `GET /api/ap/chat?chatId=...&includeRawMessages=true`: 会话详情（附带原始 `rawMessages`）
 - `GET /api/ap/data?file={filename}&download=true|false`: 静态文件服务（图片 inline / 附件 download）
 - `GET /api/ap/viewport?viewportKey=...`: 获取工具/动作视图内容
-- `POST /api/ap/query`: 提问接口（默认返回 SDK 标准 SSE；`requestId` 可省略，缺省时等于 `runId`）
+- `POST /api/ap/query`: 提问接口（默认返回标准 SSE；`requestId` 可省略，缺省时等于 `runId`）
 - `POST /api/ap/submit`: Human-in-the-loop 提交接口
 
 ## 返回格式约定
@@ -37,7 +37,7 @@
   - 视图详情：`data` 直接是视图内容（`html` 时为 `{ "html": "..." }`，`qlc/dqlc` 时为 schema JSON）
 - `GET /api/ap/chat` 默认始终返回 `events`；仅当 `includeRawMessages=true` 时才返回 `rawMessages`。
 - `includeEvents` 参数已废弃，传入将返回 `400`。
-- 事件协议仅支持 SDK Event Model v2，不兼容旧命名（如 `query.message`、`message.start|delta|end`、`message.snapshot`）。
+- 事件协议仅支持 Event Model v2，不兼容旧命名（如 `query.message`、`message.start|delta|end`、`message.snapshot`）。
 
 `GET /api/ap/chats` 示例（新增 `updatedAt`）：
 
@@ -122,9 +122,9 @@
 
 ## 构建与运行
 
-### SDK 说明
+### 流式模块说明
 
-`agw-springai-sdk` 已以内置源码方式集成在本仓库（`src/main/java/com/aiagent/agw/sdk/**`），无需额外放置 SDK jar。
+流式事件模块源码位于 `src/main/java/com/linlay/agentplatform/stream/**`，无需额外放置 jar。
 
 ### 本地运行
 

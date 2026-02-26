@@ -1,6 +1,6 @@
 package com.linlay.agentplatform.model;
 
-import com.aiagent.agw.sdk.model.ToolCallDelta;
+import com.linlay.agentplatform.stream.model.ToolCallDelta;
 import com.fasterxml.jackson.databind.JsonNode;
 
 import java.util.List;

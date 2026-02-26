@@ -1,1 +1,1 @@
-com.aiagent.agw.sdk.autoconfigure.AgwSseAutoConfiguration
+com.linlay.agentplatform.stream.autoconfigure.StreamSseAutoConfiguration

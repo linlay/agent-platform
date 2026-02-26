@@ -1,7 +1,7 @@
 package com.linlay.agentplatform.service;
 
-import com.aiagent.agw.sdk.model.LlmDelta;
-import com.aiagent.agw.sdk.model.ToolCallDelta;
+import com.linlay.agentplatform.stream.model.LlmDelta;
+import com.linlay.agentplatform.stream.model.ToolCallDelta;
 import com.linlay.agentplatform.config.LlmInteractionLogProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
