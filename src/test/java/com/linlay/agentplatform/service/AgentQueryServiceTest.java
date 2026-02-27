@@ -159,7 +159,7 @@ class AgentQueryServiceTest {
         String chatId = UUID.randomUUID().toString();
         when(chatRecordStore.findBoundAgentKey(chatId)).thenReturn(Optional.of("bound-agent"));
         when(chatRecordStore.ensureChat(chatId, "bound-agent", "Bound Agent", "hello"))
-                .thenReturn(new ChatRecordStore.ChatSummary(chatId, "hello", "bound-agent", "Bound Agent", 1L, 2L, null, false));
+                .thenReturn(new ChatRecordStore.ChatSummary(chatId, "hello", "bound-agent", 1L, 2L, "", "", 1, 2L, false));
 
         AgentQueryService service = new AgentQueryService(
                 agentRegistry,

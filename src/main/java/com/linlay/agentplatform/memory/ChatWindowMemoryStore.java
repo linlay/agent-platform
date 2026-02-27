@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.linlay.agentplatform.service.RunIdGenerator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -764,7 +765,7 @@ public class ChatWindowMemoryStore {
         if (hasText(runId)) {
             return runId.trim();
         }
-        return UUID.randomUUID().toString();
+        return RunIdGenerator.nextRunId();
     }
 
     private String nullable(String value) {

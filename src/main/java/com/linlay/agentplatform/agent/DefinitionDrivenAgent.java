@@ -19,6 +19,7 @@ import com.linlay.agentplatform.model.AgentRequest;
 import com.linlay.agentplatform.model.AgentDelta;
 import com.linlay.agentplatform.service.FrontendSubmitCoordinator;
 import com.linlay.agentplatform.service.LlmService;
+import com.linlay.agentplatform.service.RunIdGenerator;
 import com.linlay.agentplatform.skill.SkillDescriptor;
 import com.linlay.agentplatform.skill.SkillRegistryService;
 import com.linlay.agentplatform.tool.BaseTool;
@@ -358,7 +359,7 @@ public class DefinitionDrivenAgent implements Agent {
         if (StringUtils.hasText(request.runId())) {
             return request.runId().trim();
         }
-        return UUID.randomUUID().toString();
+        return RunIdGenerator.nextRunId();
     }
 
     private ChatWindowMemoryStore.SystemSnapshot buildSystemSnapshot(AgentRequest request) {

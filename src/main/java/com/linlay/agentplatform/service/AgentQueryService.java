@@ -74,7 +74,7 @@ public class AgentQueryService {
         String chatId = parseOrGenerateUuid(request.chatId(), "chatId");
         String boundAgentKey = chatRecordStore.findBoundAgentKey(chatId).orElse(null);
         Agent agent = resolveAgent(StringUtils.hasText(boundAgentKey) ? boundAgentKey : request.agentKey());
-        String runId = UUID.randomUUID().toString();
+        String runId = RunIdGenerator.nextRunId();
         String requestId = StringUtils.hasText(request.requestId())
                 ? request.requestId().trim()
                 : runId;

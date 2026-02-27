@@ -1,5 +1,6 @@
 package com.linlay.agentplatform.controller;
 
+import com.linlay.agentplatform.config.ChatImageTokenProperties;
 import com.linlay.agentplatform.config.DataCatalogProperties;
 import com.linlay.agentplatform.model.api.ApiResponse;
 import com.linlay.agentplatform.security.ChatImageTokenService;
@@ -53,15 +54,18 @@ public class DataFileController {
     private final Path dataDir;
     private final ChatImageTokenService chatImageTokenService;
     private final ChatAssetAccessService chatAssetAccessService;
+    private final boolean dataTokenValidationEnabled;
 
     public DataFileController(
             DataCatalogProperties properties,
+            ChatImageTokenProperties chatImageTokenProperties,
             ChatImageTokenService chatImageTokenService,
             ChatAssetAccessService chatAssetAccessService
     ) {
         this.dataDir = Path.of(properties.getExternalDir()).toAbsolutePath().normalize();
         this.chatImageTokenService = chatImageTokenService;
         this.chatAssetAccessService = chatAssetAccessService;
+        this.dataTokenValidationEnabled = chatImageTokenProperties.isDataTokenValidationEnabled();
     }
 
     @GetMapping("/api/ap/data")
@@ -81,7 +85,7 @@ public class DataFileController {
             return Mono.just(jsonResponse(HttpStatus.BAD_REQUEST, ApiResponse.failure(400, "Invalid filename")));
         }
 
-        if (chatImageToken != null) {
+        if (dataTokenValidationEnabled && chatImageToken != null) {
             verifyResult = chatImageTokenService.verify(chatImageToken);
             if (!verifyResult.valid()) {
                 return Mono.just(forbiddenToken(verifyResult.message(), verifyResult.errorCode()));

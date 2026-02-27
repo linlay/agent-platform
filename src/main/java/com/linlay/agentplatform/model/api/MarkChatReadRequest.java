@@ -2,8 +2,8 @@ package com.linlay.agentplatform.model.api;
 
 import jakarta.validation.constraints.NotBlank;
 
-public record MarkAgentReadRequest(
+public record MarkChatReadRequest(
         @NotBlank
-        String agentKey
+        String chatId
 ) {
 }

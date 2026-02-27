@@ -3,6 +3,7 @@ package com.linlay.agentplatform.security;
 import java.nio.charset.StandardCharsets;
 
 import com.linlay.agentplatform.config.AppAuthProperties;
+import com.linlay.agentplatform.config.ChatImageTokenProperties;
 import com.linlay.agentplatform.security.JwksJwtVerifier.JwtPrincipal;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -22,10 +23,16 @@ public class ApiJwtAuthWebFilter implements WebFilter {
     private static final String AUTH_PREFIX = "Bearer ";
 
     private final AppAuthProperties authProperties;
+    private final ChatImageTokenProperties chatImageTokenProperties;
     private final JwksJwtVerifier jwtVerifier;
 
-    public ApiJwtAuthWebFilter(AppAuthProperties authProperties, JwksJwtVerifier jwtVerifier) {
+    public ApiJwtAuthWebFilter(
+            AppAuthProperties authProperties,
+            ChatImageTokenProperties chatImageTokenProperties,
+            JwksJwtVerifier jwtVerifier
+    ) {
         this.authProperties = authProperties;
+        this.chatImageTokenProperties = chatImageTokenProperties;
         this.jwtVerifier = jwtVerifier;
     }
 
@@ -70,6 +77,9 @@ public class ApiJwtAuthWebFilter implements WebFilter {
     }
 
     private boolean isDataApiTokenRequest(ServerWebExchange exchange) {
+        if (!chatImageTokenProperties.isDataTokenValidationEnabled()) {
+            return false;
+        }
         if (!HttpMethod.GET.equals(exchange.getRequest().getMethod())) {
             return false;
         }

@@ -16,6 +16,7 @@ agent:
   chat-image-token:
     secret: replace-with-your-chat-image-token-secret
     ttl-seconds: 86400
+    data-token-validation-enabled: true
   providers:
     bailian:
       base-url: https://dashscope.aliyuncs.com/compatible-mode

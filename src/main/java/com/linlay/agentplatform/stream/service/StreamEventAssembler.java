@@ -3,6 +3,7 @@ package com.linlay.agentplatform.stream.service;
 import com.linlay.agentplatform.stream.model.StreamEvent;
 import com.linlay.agentplatform.stream.model.StreamInput;
 import com.linlay.agentplatform.stream.model.StreamRequest;
+import com.linlay.agentplatform.service.RunIdGenerator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -599,7 +600,7 @@ public class StreamEventAssembler {
                 if (query.runId() != null && !query.runId().isBlank()) {
                     return query.runId();
                 }
-                return nextId("run");
+                return RunIdGenerator.nextRunId();
             }
             if (request instanceof StreamRequest.Submit submit) {
                 return submit.runId();

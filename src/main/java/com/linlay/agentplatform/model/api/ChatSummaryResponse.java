@@ -3,10 +3,12 @@ package com.linlay.agentplatform.model.api;
 public record ChatSummaryResponse(
         String chatId,
         String chatName,
-        String firstAgentKey,
-        String firstAgentName,
+        String agentKey,
         long createdAt,
         long updatedAt,
-        String agentAvatar
+        String lastRunId,
+        String lastRunContent,
+        int readStatus,
+        Long readAt
 ) {
 }

@@ -8,9 +8,8 @@
 
 - `GET /api/ap/agents`: 智能体列表
 - `GET /api/ap/agent?agentKey=...`: 智能体详情
-- `GET /api/ap/chats`: 会话列表
-- `GET /api/ap/agent-chats?sort=...`: Agent 维度会话列表（默认按最新会话时间倒序）
-- `POST /api/ap/agent-reads`: 按 Agent 执行已读 ACK
+- `GET /api/ap/chats`: 会话列表（支持 `lastRunId` 增量查询）
+- `POST /api/ap/read`: 标记单个会话已读
 - `GET /api/ap/chat?chatId=...`: 会话详情（默认返回快照事件流）
 - `GET /api/ap/chat?chatId=...&includeRawMessages=true`: 会话详情（附带原始 `rawMessages`）
 - `GET /api/ap/data?file={filename}&download=true|false`: 静态文件服务（图片 inline / 附件 download）
@@ -46,7 +45,7 @@
 - `GET /api/ap/chat` 默认始终返回 `events`；仅当 `includeRawMessages=true` 时才返回 `rawMessages`。
 - 事件协议仅支持 Event Model v2，不兼容旧命名（如 `query.message`、`message.start|delta|end`、`message.snapshot`）。
 
-`GET /api/ap/chats` 示例（兼容 `firstAgent*`，新增 `agentAvatar`）：
+`GET /api/ap/chats` 示例：
 
 ```json
 {
@@ -56,17 +55,19 @@
     {
       "chatId": "d0e5b9ab-af21-4e3b-8e1a-a977dc6d5656",
       "chatName": "元素碳的简介，100",
-      "firstAgentKey": "demoModePlain",
-      "firstAgentName": "示例-单次直答",
+      "agentKey": "demoModePlain",
       "createdAt": 1770866044047,
       "updatedAt": 1770866412459,
-      "agentAvatar": null
+      "lastRunId": "mtoewf3u",
+      "lastRunContent": "碳是一种非金属元素...",
+      "readStatus": 0,
+      "readAt": null
     }
   ]
 }
 ```
 
-`GET /api/ap/agent-chats?sort=LATEST_CHAT_TIME_DESC` 示例：
+`GET /api/ap/chats?lastRunId=mtoewf3u` 示例：
 
 ```json
 {
@@ -74,30 +75,30 @@
   "msg": "success",
   "data": [
     {
+      "chatId": "d0e5b9ab-af21-4e3b-8e1a-a977dc6d5656",
+      "chatName": "元素碳的简介，100",
       "agentKey": "demoModePlain",
-      "agentName": "示例-单次直答",
-      "avatar": null,
-      "latestChatId": "d0e5b9ab-af21-4e3b-8e1a-a977dc6d5656",
-      "latestChatName": "元素碳的简介，100",
-      "latestChatContent": "碳是一种非金属元素...",
-      "latestChatTime": 1770866412459,
-      "unreadChatCount": 1
+      "createdAt": 1770866044047,
+      "updatedAt": 1770867412459,
+      "lastRunId": "mtoewfr9",
+      "lastRunContent": "碳在自然界中有多种同素异形体...",
+      "readStatus": 0,
+      "readAt": null
     }
   ]
 }
 ```
 
-`POST /api/ap/agent-reads` 示例：
+`POST /api/ap/read` 示例：
 
 ```json
 {
   "code": 0,
   "msg": "success",
   "data": {
-    "agentKey": "demoModePlain",
-    "ackedEvents": 3,
-    "ackedChats": 1,
-    "unreadChatCount": 0
+    "chatId": "d0e5b9ab-af21-4e3b-8e1a-a977dc6d5656",
+    "readStatus": 1,
+    "readAt": 1770867421123
   }
 }
 ```
@@ -512,6 +513,7 @@ for f in *.md; do echo "$f"; done
 | `AGENT_BASH_MAX_COMMAND_CHARS` | `16000` | Bash 命令最大字符数 |
 | `AGENT_TOOLS_FRONTEND_SUBMIT_TIMEOUT_MS` | `300000` | 前端工具提交超时 |
 | `AGENT_AUTH_ENABLED` | `true` | JWT 认证开关 |
+| `CHAT_IMAGE_TOKEN_DATA_TOKEN_VALIDATION_ENABLED` | `true` | `/api/ap/data` 的 `t` 参数校验开关（关闭后忽略 `t`） |
 | `MEMORY_CHAT_DIR` | `./chats` | 聊天记忆目录 |
 | `MEMORY_CHAT_INDEX_SQLITE_FILE` | `chats.db` | 聊天索引 SQLite 文件路径（相对路径按工作目录解析） |
 | `MEMORY_CHAT_K` | `20` | 滑动窗口大小 |
@@ -529,6 +531,7 @@ for f in *.md; do echo "$f"; done
   - Markdown `![图](aaa.jpg)` → `file=aaa.jpg`
 - 调用时请对 `file` 做 URL encode（尤其是 `/`、空格、中文等字符）。
 - 安全防护：拒绝路径穿越（`..`）、反斜杠（`\`）和符号链接。
+- 可选 `t` 参数用于 chat image token 校验；开关为 `agent.chat-image-token.data-token-validation-enabled`（默认开启，可关闭）。
 
 ### Content-Disposition 规则
 
@@ -571,22 +574,16 @@ curl -N -X GET "$BASE_URL/api/ap/chats" \
 ```
 
 ```bash
-curl -N -X GET "$BASE_URL/api/ap/agent-chats" \
+curl -N -X GET "$BASE_URL/api/ap/chats?lastRunId=mtoewf3u" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
   -H "Content-Type: application/json"
 ```
 
 ```bash
-curl -N -X GET "$BASE_URL/api/ap/agent-chats?sort=UNREAD_CHAT_COUNT_DESC" \
-  -H "Authorization: Bearer $ACCESS_TOKEN" \
-  -H "Content-Type: application/json"
-```
-
-```bash
-curl -N -X POST "$BASE_URL/api/ap/agent-reads" \
+curl -N -X POST "$BASE_URL/api/ap/read" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"agentKey":"demoModePlain"}'
+  -d '{"chatId":"d0e5b9ab-af21-4e3b-8e1a-a977dc6d5656"}'
 ```
 
 ```bash

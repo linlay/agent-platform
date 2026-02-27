@@ -205,6 +205,7 @@ class AgentControllerTest {
         String runId = extractFirstValue(joined, "runId");
         assertThat(requestId).isNotBlank();
         assertThat(runId).isNotBlank();
+        assertThat(runId).matches("^[0-9a-z]+$");
         assertThat(requestId).isEqualTo(runId);
     }
 
@@ -416,7 +417,9 @@ class AgentControllerTest {
 
         String joined = String.join("", chunks);
         String chatId = extractFirstValue(joined, "chatId");
+        String runId = extractFirstValue(joined, "runId");
         assertThat(chatId).isNotBlank();
+        assertThat(runId).isNotBlank();
 
         webTestClient.get()
                 .uri("/api/ap/chats")
@@ -425,10 +428,12 @@ class AgentControllerTest {
                 .expectBody()
                 .jsonPath("$.data[0].chatId").isEqualTo(chatId)
                 .jsonPath("$.data[0].chatName").isEqualTo(message)
-                .jsonPath("$.data[0].firstAgentKey").isEqualTo("demoModePlanExecute")
-                .jsonPath("$.data[0].firstAgentName").isEqualTo("示例-先规划后执行")
+                .jsonPath("$.data[0].agentKey").isEqualTo("demoModePlanExecute")
                 .jsonPath("$.data[0].createdAt").isNumber()
-                .jsonPath("$.data[0].updatedAt").isNumber();
+                .jsonPath("$.data[0].updatedAt").isNumber()
+                .jsonPath("$.data[0].lastRunId").isEqualTo(runId)
+                .jsonPath("$.data[0].lastRunContent").isNotEmpty()
+                .jsonPath("$.data[0].readStatus").isEqualTo(0);
 
         webTestClient.get()
                 .uri(uriBuilder -> uriBuilder
@@ -462,8 +467,8 @@ class AgentControllerTest {
     }
 
     @Test
-    void agentChatsAndAgentReadsApisShouldWork() {
-        FluxExchangeResult<String> result = webTestClient.post()
+    void readAndIncrementalChatsApisShouldWork() throws Exception {
+        FluxExchangeResult<String> firstResult = webTestClient.post()
                 .uri("/api/ap/query")
                 .contentType(MediaType.APPLICATION_JSON)
                 .bodyValue(Map.of(
@@ -474,35 +479,73 @@ class AgentControllerTest {
                 .expectStatus().isOk()
                 .returnResult(String.class);
 
-        List<String> chunks = result.getResponseBody()
+        List<String> firstChunks = firstResult.getResponseBody()
                 .take(800)
                 .collectList()
                 .block(Duration.ofSeconds(8));
-        assertThat(chunks).isNotNull();
+        assertThat(firstChunks).isNotNull();
+        String firstJoined = String.join("", firstChunks);
+        String chatId = extractFirstValue(firstJoined, "chatId");
+        String firstRunId = extractFirstValue(firstJoined, "runId");
+        assertThat(chatId).isNotBlank();
+        assertThat(firstRunId).isNotBlank();
+
+        Thread.sleep(20L);
+        FluxExchangeResult<String> secondResult = webTestClient.post()
+                .uri("/api/ap/query")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(Map.of(
+                        "chatId", chatId,
+                        "agentKey", "demoModePlain",
+                        "message", "agent list smoke second"
+                ))
+                .exchange()
+                .expectStatus().isOk()
+                .returnResult(String.class);
+
+        List<String> secondChunks = secondResult.getResponseBody()
+                .take(800)
+                .collectList()
+                .block(Duration.ofSeconds(8));
+        assertThat(secondChunks).isNotNull();
+        String secondJoined = String.join("", secondChunks);
+        String secondRunId = extractFirstValue(secondJoined, "runId");
+        assertThat(secondRunId).isNotBlank();
 
         webTestClient.get()
                 .uri(uriBuilder -> uriBuilder
-                        .path("/api/ap/agent-chats")
-                        .queryParam("sort", "INVALID_SORT")
+                        .path("/api/ap/chats")
+                        .queryParam("lastRunId", firstRunId)
                         .build())
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
                 .jsonPath("$.code").isEqualTo(0)
-                .jsonPath("$.data[0].agentKey").isEqualTo("demoModePlain")
-                .jsonPath("$.data[0].latestChatContent").isNotEmpty()
-                .jsonPath("$.data[0].unreadChatCount").isNumber();
+                .jsonPath("$.data[0].chatId").isEqualTo(chatId)
+                .jsonPath("$.data[0].lastRunId").isEqualTo(secondRunId)
+                .jsonPath("$.data[0].readStatus").isEqualTo(0);
 
         webTestClient.post()
-                .uri("/api/ap/agent-reads")
+                .uri("/api/ap/read")
                 .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(Map.of("agentKey", "demoModePlain"))
+                .bodyValue(Map.of("chatId", chatId))
                 .exchange()
                 .expectStatus().isOk()
                 .expectBody()
                 .jsonPath("$.code").isEqualTo(0)
-                .jsonPath("$.data.agentKey").isEqualTo("demoModePlain")
-                .jsonPath("$.data.unreadChatCount").isEqualTo(0);
+                .jsonPath("$.data.chatId").isEqualTo(chatId)
+                .jsonPath("$.data.readStatus").isEqualTo(1)
+                .jsonPath("$.data.readAt").isNumber();
+    }
+
+    @Test
+    void readApiShouldRejectBlankChatId() {
+        webTestClient.post()
+                .uri("/api/ap/read")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(Map.of("chatId", ""))
+                .exchange()
+                .expectStatus().isBadRequest();
     }
 
     @Test

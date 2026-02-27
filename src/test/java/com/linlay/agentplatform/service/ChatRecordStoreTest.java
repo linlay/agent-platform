@@ -2,7 +2,6 @@ package com.linlay.agentplatform.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linlay.agentplatform.memory.ChatWindowMemoryProperties;
-import com.linlay.agentplatform.model.api.AgentChatSummaryResponse;
 import com.linlay.agentplatform.model.api.ChatDetailResponse;
 import com.linlay.agentplatform.model.api.ChatSummaryResponse;
 import org.junit.jupiter.api.Test;
@@ -153,13 +152,15 @@ class ChatRecordStoreTest {
         assertThat(chats).hasSize(2);
         assertThat(chats.getFirst().chatId()).isEqualTo(secondChat);
         assertThat(chats.getFirst().chatName()).isEqualTo("active");
-        assertThat(chats.getFirst().firstAgentKey()).isEqualTo("demo");
-        assertThat(chats.getFirst().firstAgentName()).isEqualTo("Demo Agent");
+        assertThat(chats.getFirst().agentKey()).isEqualTo("demo");
         assertThat(chats.getFirst().updatedAt()).isGreaterThan(0L);
+        assertThat(chats.getFirst().lastRunId()).isEqualTo("run-2");
+        assertThat(chats.getFirst().readStatus()).isEqualTo(0);
         assertThat(chats.get(1).chatId()).isEqualTo(firstChat);
         assertThat(chats.get(1).chatName()).isEqualTo("legacy");
-        assertThat(chats.get(1).firstAgentName()).isEqualTo("Demo Agent");
+        assertThat(chats.get(1).agentKey()).isEqualTo("demo");
         assertThat(chats.get(1).updatedAt()).isGreaterThan(0L);
+        assertThat(chats.get(1).lastRunId()).isEqualTo("run-1");
     }
 
     @Test
@@ -171,8 +172,7 @@ class ChatRecordStoreTest {
 
         assertThat(first.created()).isTrue();
         assertThat(second.created()).isFalse();
-        assertThat(second.firstAgentKey()).isEqualTo("demo");
-        assertThat(second.firstAgentName()).isEqualTo("Demo Agent");
+        assertThat(second.agentKey()).isEqualTo("demo");
         assertThat(second.updatedAt()).isGreaterThanOrEqualTo(first.updatedAt());
     }
 
@@ -185,6 +185,9 @@ class ChatRecordStoreTest {
                 """);
 
         ChatRecordStore store = newStore();
+        List<String> tables = listTables(chatDir.resolve("chats.db"));
+        assertThat(tables).contains("CHATS");
+        assertThat(tables).doesNotContain("CHAT_INDEX_", "CHAT_NOTIFY_QUEUE_", "AGENT_DIALOG_INDEX_");
         assertThat(store.listChats()).isEmpty();
 
         store.ensureChat("123e4567-e89b-12d3-a456-426614174020", "demo", "Demo Agent", "fresh");
@@ -193,27 +196,40 @@ class ChatRecordStoreTest {
     }
 
     @Test
-    void agentChatsShouldSortAndAckUnread() {
-        String chatA = "123e4567-e89b-12d3-a456-426614174091";
-        String chatB = "123e4567-e89b-12d3-a456-426614174092";
+    void markChatReadShouldUpdateReadStatusAndReadAt() {
+        String chatId = "123e4567-e89b-12d3-a456-426614174091";
+        ChatRecordStore store = newStore();
+        store.ensureChat(chatId, "agent-a", "Agent A", "hello a");
+        store.onRunCompleted(new ChatRecordStore.RunCompletion(chatId, "run-a", "reply a", "hello a", System.currentTimeMillis()));
+
+        List<ChatSummaryResponse> unreadChats = store.listChats();
+        assertThat(unreadChats.getFirst().readStatus()).isEqualTo(0);
+        assertThat(unreadChats.getFirst().readAt()).isNull();
+
+        ChatRecordStore.MarkChatReadResult readResult = store.markChatRead(chatId);
+        assertThat(readResult.chatId()).isEqualTo(chatId);
+        assertThat(readResult.readStatus()).isEqualTo(1);
+        assertThat(readResult.readAt()).isNotNull();
+
+        List<ChatSummaryResponse> readChats = store.listChats();
+        assertThat(readChats.getFirst().readStatus()).isEqualTo(1);
+        assertThat(readChats.getFirst().readAt()).isNotNull();
+    }
+
+    @Test
+    void listChatsShouldSupportIncrementalQueryByLastRunId() {
+        String chatA = "123e4567-e89b-12d3-a456-426614174093";
+        String chatB = "123e4567-e89b-12d3-a456-426614174094";
         ChatRecordStore store = newStore();
         store.ensureChat(chatA, "agent-a", "Agent A", "hello a");
         store.ensureChat(chatB, "agent-b", "Agent B", "hello b");
-        store.onRunCompleted(new ChatRecordStore.RunCompletion(chatA, "run-a", "reply a", "hello a", System.currentTimeMillis()));
-        store.onRunCompleted(new ChatRecordStore.RunCompletion(chatB, "run-b", "reply b", "hello b", System.currentTimeMillis() + 1));
+        store.onRunCompleted(new ChatRecordStore.RunCompletion(chatA, "a1", "reply a", "hello a", System.currentTimeMillis()));
+        store.onRunCompleted(new ChatRecordStore.RunCompletion(chatB, "a2", "reply b", "hello b", System.currentTimeMillis() + 1));
 
-        List<AgentChatSummaryResponse> latest = store.listAgentChats("LATEST_CHAT_TIME_DESC");
-        assertThat(latest).hasSize(2);
-        assertThat(latest.getFirst().agentKey()).isEqualTo("agent-b");
-        assertThat(latest.getFirst().unreadChatCount()).isEqualTo(1L);
-
-        ChatRecordStore.MarkReadResult ack = store.markAgentRead("agent-b");
-        assertThat(ack.ackedEvents()).isEqualTo(1L);
-        assertThat(ack.ackedChats()).isEqualTo(1L);
-        assertThat(ack.unreadChatCount()).isEqualTo(0L);
-
-        List<AgentChatSummaryResponse> unreadSort = store.listAgentChats("UNREAD_CHAT_COUNT_DESC");
-        assertThat(unreadSort.getFirst().agentKey()).isEqualTo("agent-a");
+        List<ChatSummaryResponse> incremental = store.listChats("a1");
+        assertThat(incremental).hasSize(1);
+        assertThat(incremental.getFirst().chatId()).isEqualTo(chatB);
+        assertThat(incremental.getFirst().lastRunId()).isEqualTo("a2");
     }
 
     @Test
@@ -352,43 +368,39 @@ class ChatRecordStoreTest {
 
     private void writeIndex(Path chatDir, String chatId, String chatName, long createdAt, long updatedAt) throws Exception {
         Files.createDirectories(chatDir);
-        Path dbPath = chatDir.resolve("chats.db");
-        try (java.sql.Connection connection = java.sql.DriverManager.getConnection("jdbc:sqlite:" + dbPath);
-             java.sql.Statement statement = connection.createStatement()) {
+            Path dbPath = chatDir.resolve("chats.db");
+            try (java.sql.Connection connection = java.sql.DriverManager.getConnection("jdbc:sqlite:" + dbPath);
+                 java.sql.Statement statement = connection.createStatement()) {
             statement.execute("""
-                    CREATE TABLE IF NOT EXISTS CHAT_INDEX_ (
+                    CREATE TABLE IF NOT EXISTS CHATS (
                       CHAT_ID_ TEXT PRIMARY KEY,
                       CHAT_NAME_ TEXT NOT NULL,
                       AGENT_KEY_ TEXT NOT NULL,
-                      AGENT_NAME_ TEXT NOT NULL,
-                      AGENT_AVATAR_ TEXT,
                       CREATED_AT_ INTEGER NOT NULL,
                       UPDATED_AT_ INTEGER NOT NULL,
-                      LAST_CHAT_CONTENT_ TEXT NOT NULL DEFAULT '',
-                      LAST_CHAT_TIME_ INTEGER NOT NULL,
-                      LAST_RUN_ID_ TEXT
+                      LAST_RUN_ID_ VARCHAR(12) NOT NULL,
+                      LAST_RUN_CONTENT_ TEXT NOT NULL DEFAULT '',
+                      READ_STATUS_ INTEGER NOT NULL DEFAULT 1,
+                      READ_AT_ INTEGER
                     )
                     """);
             try (java.sql.PreparedStatement upsert = connection.prepareStatement("""
-                    INSERT INTO CHAT_INDEX_(
-                        CHAT_ID_, CHAT_NAME_, AGENT_KEY_, AGENT_NAME_, AGENT_AVATAR_,
-                        CREATED_AT_, UPDATED_AT_, LAST_CHAT_CONTENT_, LAST_CHAT_TIME_, LAST_RUN_ID_
-                    ) VALUES (?, ?, ?, ?, NULL, ?, ?, '', ?, NULL)
+                    INSERT INTO CHATS(
+                        CHAT_ID_, CHAT_NAME_, AGENT_KEY_,
+                        CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_STATUS_, READ_AT_
+                    ) VALUES (?, ?, ?, ?, ?, '', '', 1, ?)
                     ON CONFLICT(CHAT_ID_) DO UPDATE SET
                         CHAT_NAME_ = excluded.CHAT_NAME_,
                         AGENT_KEY_ = excluded.AGENT_KEY_,
-                        AGENT_NAME_ = excluded.AGENT_NAME_,
                         CREATED_AT_ = excluded.CREATED_AT_,
-                        UPDATED_AT_ = excluded.UPDATED_AT_,
-                        LAST_CHAT_TIME_ = excluded.LAST_CHAT_TIME_
+                        UPDATED_AT_ = excluded.UPDATED_AT_
                     """)) {
                 upsert.setString(1, chatId);
                 upsert.setString(2, chatName);
                 upsert.setString(3, "demo");
-                upsert.setString(4, "Demo Agent");
-                upsert.setLong(5, createdAt);
+                upsert.setLong(4, createdAt);
+                upsert.setLong(5, updatedAt);
                 upsert.setLong(6, updatedAt);
-                upsert.setLong(7, updatedAt);
                 upsert.executeUpdate();
             }
         }
@@ -398,6 +410,22 @@ class ChatRecordStoreTest {
         Files.createDirectories(path.getParent());
         String line = objectMapper.writeValueAsString(value) + System.lineSeparator();
         Files.writeString(path, line, java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+    }
+
+    private List<String> listTables(Path dbPath) throws Exception {
+        try (java.sql.Connection connection = java.sql.DriverManager.getConnection("jdbc:sqlite:" + dbPath);
+             java.sql.PreparedStatement statement = connection.prepareStatement("""
+                     SELECT name
+                     FROM sqlite_master
+                     WHERE type = 'table'
+                     """);
+             java.sql.ResultSet resultSet = statement.executeQuery()) {
+            List<String> names = new java.util.ArrayList<>();
+            while (resultSet.next()) {
+                names.add(resultSet.getString("name"));
+            }
+            return names;
+        }
     }
 
     private Map<String, Object> queryLine(String chatId, String runId, Map<String, Object> query) {

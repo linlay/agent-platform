@@ -537,6 +537,7 @@ SSE 事件中的 reasoningId/contentId 同步使用新前缀格式：`{runId}_r_
 | `CHAT_IMAGE_TOKEN_SECRET` | `agent.chat-image-token.secret` | （空） | 图片令牌签名密钥（为空则 token 机制禁用） |
 | `CHAT_IMAGE_TOKEN_PREVIOUS_SECRETS` | `agent.chat-image-token.previous-secrets` | （空） | 历史密钥列表（逗号分隔），用于密钥轮换验证 |
 | `CHAT_IMAGE_TOKEN_TTL_SECONDS` | `agent.chat-image-token.ttl-seconds` | `86400` | 图片令牌过期秒数 |
+| `CHAT_IMAGE_TOKEN_DATA_TOKEN_VALIDATION_ENABLED` | `agent.chat-image-token.data-token-validation-enabled` | `true` | `/api/ap/data` 的 `t` 参数校验开关（关闭后忽略 `t`） |
 | `MEMORY_CHAT_DIR` | `memory.chat.dir` | `./chats` | 聊天记忆目录 |
 | `MEMORY_CHAT_K` | `memory.chat.k` | `20` | 滑动窗口大小（按 run） |
 | `MEMORY_CHAT_CHARSET` | `memory.chat.charset` | `UTF-8` | 记忆文件编码 |

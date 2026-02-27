@@ -8,6 +8,7 @@ public class ChatImageTokenProperties {
     private String secret;
     private String previousSecrets;
     private long ttlSeconds = 86_400L;
+    private boolean dataTokenValidationEnabled = true;
 
     public String getSecret() {
         return secret;
@@ -31,5 +32,13 @@ public class ChatImageTokenProperties {
 
     public void setTtlSeconds(long ttlSeconds) {
         this.ttlSeconds = ttlSeconds;
+    }
+
+    public boolean isDataTokenValidationEnabled() {
+        return dataTokenValidationEnabled;
+    }
+
+    public void setDataTokenValidationEnabled(boolean dataTokenValidationEnabled) {
+        this.dataTokenValidationEnabled = dataTokenValidationEnabled;
     }
 }

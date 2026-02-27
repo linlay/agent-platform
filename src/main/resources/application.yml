@@ -85,6 +85,7 @@ agent:
     secret: ${CHAT_IMAGE_TOKEN_SECRET:}
     previous-secrets: ${CHAT_IMAGE_TOKEN_PREVIOUS_SECRETS:}
     ttl-seconds: ${CHAT_IMAGE_TOKEN_TTL_SECONDS:86400}
+    data-token-validation-enabled: ${CHAT_IMAGE_TOKEN_DATA_TOKEN_VALIDATION_ENABLED:true}
 
 memory:
   chat:
