@@ -9,12 +9,20 @@
 - `GET /api/ap/agents`: 智能体列表
 - `GET /api/ap/agent?agentKey=...`: 智能体详情
 - `GET /api/ap/chats`: 会话列表
+- `GET /api/ap/agent-chats?sort=...`: Agent 维度会话列表（默认按最新会话时间倒序）
+- `POST /api/ap/agent-reads`: 按 Agent 执行已读 ACK
 - `GET /api/ap/chat?chatId=...`: 会话详情（默认返回快照事件流）
 - `GET /api/ap/chat?chatId=...&includeRawMessages=true`: 会话详情（附带原始 `rawMessages`）
 - `GET /api/ap/data?file={filename}&download=true|false`: 静态文件服务（图片 inline / 附件 download）
 - `GET /api/ap/viewport?viewportKey=...`: 获取工具/动作视图内容
 - `POST /api/ap/query`: 提问接口（默认返回标准 SSE；`requestId` 可省略，缺省时等于 `runId`）
 - `POST /api/ap/submit`: Human-in-the-loop 提交接口
+
+## 不兼容升级说明
+
+- 会话索引已从 `./chats/_chats.jsonl` 切换到 SQLite（默认文件：`chats.db`）。
+- 服务启动时若检测到 `./chats/_chats.jsonl`，仅输出 warning，不会读取/迁移该文件。
+- 聊天正文与回放仍使用 `./chats/{chatId}.json`，接口行为保持兼容。
 
 ## 返回格式约定
 
@@ -38,7 +46,7 @@
 - `GET /api/ap/chat` 默认始终返回 `events`；仅当 `includeRawMessages=true` 时才返回 `rawMessages`。
 - 事件协议仅支持 Event Model v2，不兼容旧命名（如 `query.message`、`message.start|delta|end`、`message.snapshot`）。
 
-`GET /api/ap/chats` 示例（新增 `updatedAt`）：
+`GET /api/ap/chats` 示例（兼容 `firstAgent*`，新增 `agentAvatar`）：
 
 ```json
 {
@@ -49,10 +57,48 @@
       "chatId": "d0e5b9ab-af21-4e3b-8e1a-a977dc6d5656",
       "chatName": "元素碳的简介，100",
       "firstAgentKey": "demoModePlain",
+      "firstAgentName": "示例-单次直答",
       "createdAt": 1770866044047,
-      "updatedAt": 1770866412459
+      "updatedAt": 1770866412459,
+      "agentAvatar": null
     }
   ]
+}
+```
+
+`GET /api/ap/agent-chats?sort=LATEST_CHAT_TIME_DESC` 示例：
+
+```json
+{
+  "code": 0,
+  "msg": "success",
+  "data": [
+    {
+      "agentKey": "demoModePlain",
+      "agentName": "示例-单次直答",
+      "avatar": null,
+      "latestChatId": "d0e5b9ab-af21-4e3b-8e1a-a977dc6d5656",
+      "latestChatName": "元素碳的简介，100",
+      "latestChatContent": "碳是一种非金属元素...",
+      "latestChatTime": 1770866412459,
+      "unreadChatCount": 1
+    }
+  ]
+}
+```
+
+`POST /api/ap/agent-reads` 示例：
+
+```json
+{
+  "code": 0,
+  "msg": "success",
+  "data": {
+    "agentKey": "demoModePlain",
+    "ackedEvents": 3,
+    "ackedChats": 1,
+    "unreadChatCount": 0
+  }
 }
 ```
 
@@ -467,6 +513,7 @@ for f in *.md; do echo "$f"; done
 | `AGENT_TOOLS_FRONTEND_SUBMIT_TIMEOUT_MS` | `300000` | 前端工具提交超时 |
 | `AGENT_AUTH_ENABLED` | `true` | JWT 认证开关 |
 | `MEMORY_CHAT_DIR` | `./chats` | 聊天记忆目录 |
+| `MEMORY_CHAT_INDEX_SQLITE_FILE` | `chats.db` | 聊天索引 SQLite 文件路径（相对路径按工作目录解析） |
 | `MEMORY_CHAT_K` | `20` | 滑动窗口大小 |
 | `AGENT_LLM_INTERACTION_LOG_ENABLED` | `true` | LLM 日志开关 |
 
@@ -521,6 +568,25 @@ for f in *.md; do echo "$f"; done
 curl -N -X GET "$BASE_URL/api/ap/chats" \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
   -H "Content-Type: application/json"
+```
+
+```bash
+curl -N -X GET "$BASE_URL/api/ap/agent-chats" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Content-Type: application/json"
+```
+
+```bash
+curl -N -X GET "$BASE_URL/api/ap/agent-chats?sort=UNREAD_CHAT_COUNT_DESC" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Content-Type: application/json"
+```
+
+```bash
+curl -N -X POST "$BASE_URL/api/ap/agent-reads" \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"agentKey":"demoModePlain"}'
 ```
 
 ```bash

@@ -4,9 +4,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linlay.agentplatform.memory.ChatWindowMemoryProperties;
 import com.linlay.agentplatform.memory.ChatWindowMemoryStore;
+import com.linlay.agentplatform.model.api.AgentChatSummaryResponse;
 import com.linlay.agentplatform.model.api.ChatDetailResponse;
 import com.linlay.agentplatform.model.api.ChatSummaryResponse;
 import com.linlay.agentplatform.model.api.QueryRequest;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -19,12 +21,19 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -37,7 +46,77 @@ import java.util.UUID;
 public class ChatRecordStore {
 
     private static final Logger log = LoggerFactory.getLogger(ChatRecordStore.class);
-    private static final String CHAT_INDEX_FILE = "_chats.jsonl";
+    private static final String CHAT_INDEX_FILE_LEGACY = "_chats.jsonl";
+    private static final String EVENT_KIND_RUN_COMPLETED = "RUN_COMPLETED";
+    private static final String EVENT_STATE_PENDING = "PENDING";
+    private static final String EVENT_STATE_ACKED = "ACKED";
+
+    private static final Set<String> ALLOWED_AGENT_CHAT_SORTS = Set.of(
+            "LATEST_CHAT_TIME_DESC",
+            "UNREAD_CHAT_COUNT_DESC",
+            "AGENT_NAME_ASC"
+    );
+
+    private static final String CREATE_CHAT_INDEX_SQL = """
+            CREATE TABLE IF NOT EXISTS CHAT_INDEX_ (
+              CHAT_ID_ TEXT PRIMARY KEY,
+              CHAT_NAME_ TEXT NOT NULL,
+              AGENT_KEY_ TEXT NOT NULL,
+              AGENT_NAME_ TEXT NOT NULL,
+              AGENT_AVATAR_ TEXT,
+              CREATED_AT_ INTEGER NOT NULL,
+              UPDATED_AT_ INTEGER NOT NULL,
+              LAST_CHAT_CONTENT_ TEXT NOT NULL DEFAULT '',
+              LAST_CHAT_TIME_ INTEGER NOT NULL,
+              LAST_RUN_ID_ TEXT
+            )
+            """;
+    private static final String CREATE_CHAT_INDEX_UPDATED_INDEX_SQL = """
+            CREATE INDEX IF NOT EXISTS IDX_CHAT_INDEX_UPDATED_AT_
+              ON CHAT_INDEX_(UPDATED_AT_ DESC)
+            """;
+    private static final String CREATE_CHAT_INDEX_AGENT_UPDATED_INDEX_SQL = """
+            CREATE INDEX IF NOT EXISTS IDX_CHAT_INDEX_AGENT_KEY_UPDATED_AT_
+              ON CHAT_INDEX_(AGENT_KEY_, UPDATED_AT_ DESC)
+            """;
+    private static final String CREATE_NOTIFY_QUEUE_SQL = """
+            CREATE TABLE IF NOT EXISTS CHAT_NOTIFY_QUEUE_ (
+              EVENT_ID_ INTEGER PRIMARY KEY AUTOINCREMENT,
+              AGENT_KEY_ TEXT NOT NULL,
+              CHAT_ID_ TEXT NOT NULL,
+              RUN_ID_ TEXT NOT NULL,
+              EVENT_KIND_ TEXT NOT NULL,
+              STATE_ TEXT NOT NULL,
+              ENQUEUE_AT_ INTEGER NOT NULL,
+              ACK_AT_ INTEGER,
+              PAYLOAD_JSON_ TEXT
+            )
+            """;
+    private static final String CREATE_NOTIFY_QUEUE_UQ_SQL = """
+            CREATE UNIQUE INDEX IF NOT EXISTS UQ_CHAT_NOTIFY_QUEUE_RUN_KIND_
+              ON CHAT_NOTIFY_QUEUE_(RUN_ID_, EVENT_KIND_)
+            """;
+    private static final String CREATE_NOTIFY_QUEUE_AGENT_STATE_INDEX_SQL = """
+            CREATE INDEX IF NOT EXISTS IDX_CHAT_NOTIFY_QUEUE_AGENT_STATE_EVENT_
+              ON CHAT_NOTIFY_QUEUE_(AGENT_KEY_, STATE_, EVENT_ID_)
+            """;
+    private static final String CREATE_AGENT_DIALOG_INDEX_SQL = """
+            CREATE TABLE IF NOT EXISTS AGENT_DIALOG_INDEX_ (
+              AGENT_KEY_ TEXT PRIMARY KEY,
+              AGENT_NAME_ TEXT NOT NULL,
+              AGENT_AVATAR_ TEXT,
+              LATEST_CHAT_ID_ TEXT,
+              LATEST_CHAT_NAME_ TEXT,
+              LATEST_CHAT_CONTENT_ TEXT NOT NULL DEFAULT '',
+              LATEST_CHAT_TIME_ INTEGER NOT NULL DEFAULT 0,
+              UNREAD_CHAT_COUNT_ INTEGER NOT NULL DEFAULT 0,
+              UPDATED_AT_ INTEGER NOT NULL
+            )
+            """;
+    private static final String CREATE_AGENT_DIALOG_LATEST_INDEX_SQL = """
+            CREATE INDEX IF NOT EXISTS IDX_AGENT_DIALOG_INDEX_LATEST_CHAT_TIME_
+              ON AGENT_DIALOG_INDEX_(LATEST_CHAT_TIME_ DESC)
+            """;
 
     private final ObjectMapper objectMapper;
     private final ChatWindowMemoryProperties properties;
@@ -48,45 +127,99 @@ public class ChatRecordStore {
         this.properties = properties;
     }
 
+    @PostConstruct
+    public void initializeDatabase() {
+        synchronized (lock) {
+            Path dbPath = resolveSqlitePath();
+            Path parent = dbPath.getParent();
+            try {
+                if (parent != null) {
+                    Files.createDirectories(parent);
+                }
+            } catch (IOException ex) {
+                throw new IllegalStateException("Cannot create sqlite directory for " + dbPath, ex);
+            }
+
+            Path legacyIndex = resolveBaseDir().resolve(CHAT_INDEX_FILE_LEGACY);
+            if (Files.exists(legacyIndex)) {
+                log.warn("Legacy chat index detected and ignored: {}", legacyIndex.toAbsolutePath().normalize());
+            }
+
+            try (Connection connection = openConnection();
+                 Statement statement = connection.createStatement()) {
+                statement.execute(CREATE_CHAT_INDEX_SQL);
+                statement.execute(CREATE_CHAT_INDEX_UPDATED_INDEX_SQL);
+                statement.execute(CREATE_CHAT_INDEX_AGENT_UPDATED_INDEX_SQL);
+                statement.execute(CREATE_NOTIFY_QUEUE_SQL);
+                statement.execute(CREATE_NOTIFY_QUEUE_UQ_SQL);
+                statement.execute(CREATE_NOTIFY_QUEUE_AGENT_STATE_INDEX_SQL);
+                statement.execute(CREATE_AGENT_DIALOG_INDEX_SQL);
+                statement.execute(CREATE_AGENT_DIALOG_LATEST_INDEX_SQL);
+                ensureColumnExists(connection, "CHAT_INDEX_", "AGENT_AVATAR_", "TEXT");
+                ensureColumnExists(connection, "CHAT_INDEX_", "LAST_CHAT_CONTENT_", "TEXT NOT NULL DEFAULT ''");
+                ensureColumnExists(connection, "CHAT_INDEX_", "LAST_CHAT_TIME_", "INTEGER NOT NULL DEFAULT 0");
+                ensureColumnExists(connection, "CHAT_INDEX_", "LAST_RUN_ID_", "TEXT");
+                ensureColumnExists(connection, "AGENT_DIALOG_INDEX_", "AGENT_AVATAR_", "TEXT");
+                ensureColumnExists(connection, "AGENT_DIALOG_INDEX_", "LATEST_CHAT_CONTENT_", "TEXT NOT NULL DEFAULT ''");
+                ensureColumnExists(connection, "AGENT_DIALOG_INDEX_", "LATEST_CHAT_TIME_", "INTEGER NOT NULL DEFAULT 0");
+                ensureColumnExists(connection, "AGENT_DIALOG_INDEX_", "UNREAD_CHAT_COUNT_", "INTEGER NOT NULL DEFAULT 0");
+            } catch (SQLException ex) {
+                throw new IllegalStateException("Cannot initialize sqlite chat index", ex);
+            }
+        }
+    }
+
     public ChatSummary ensureChat(String chatId, String firstAgentKey, String firstAgentName, String firstMessage) {
         requireValidChatId(chatId);
+        String normalizedAgentKey = nullable(firstAgentKey);
+        if (!StringUtils.hasText(normalizedAgentKey)) {
+            throw new IllegalArgumentException("agentKey must not be blank");
+        }
+        String normalizedAgentName = resolveFirstAgentName(firstAgentName, normalizedAgentKey);
+        String normalizedChatName = deriveChatName(firstMessage);
+        long now = System.currentTimeMillis();
         synchronized (lock) {
-            LinkedHashMap<String, ChatIndexRecord> recordsByChatId = new LinkedHashMap<>();
-            for (ChatIndexRecord record : readIndexRecords()) {
-                recordsByChatId.put(record.chatId, record);
-            }
-            String normalizedFirstAgentKey = nullable(firstAgentKey);
-            String normalizedFirstAgentName = resolveFirstAgentName(firstAgentName, normalizedFirstAgentKey);
-            long now = System.currentTimeMillis();
-            ChatIndexRecord record = recordsByChatId.get(chatId);
-            boolean created = false;
-            if (record == null) {
-                record = new ChatIndexRecord();
-                record.chatId = chatId;
-                record.chatName = deriveChatName(firstMessage);
-                record.firstAgentKey = normalizedFirstAgentKey;
-                record.firstAgentName = normalizedFirstAgentName;
-                record.createdAt = now;
-                record.updatedAt = now;
-                recordsByChatId.put(chatId, record);
-                created = true;
-            } else {
-                if (!StringUtils.hasText(record.chatName)) {
-                    record.chatName = deriveChatName(firstMessage);
-                }
-                if (!StringUtils.hasText(record.firstAgentKey)) {
-                    record.firstAgentKey = normalizedFirstAgentKey;
-                }
-                if (!StringUtils.hasText(record.firstAgentName)) {
-                    record.firstAgentName = resolveFirstAgentName(normalizedFirstAgentName, record.firstAgentKey);
-                }
-                if (record.createdAt <= 0) {
+            try (Connection connection = openConnection()) {
+                connection.setAutoCommit(false);
+                ChatIndexRecord existing = findChatRecordById(connection, chatId);
+                boolean created = existing == null;
+                ChatIndexRecord record = created ? new ChatIndexRecord() : existing;
+                if (created) {
+                    record.chatId = chatId;
+                    record.chatName = normalizedChatName;
+                    record.firstAgentKey = normalizedAgentKey;
+                    record.firstAgentName = normalizedAgentName;
+                    record.agentAvatar = null;
                     record.createdAt = now;
+                    record.updatedAt = now;
+                    record.lastChatContent = StringUtils.hasText(firstMessage) ? firstMessage.trim() : "";
+                    record.lastChatTime = now;
+                    record.lastRunId = null;
+                } else {
+                    if (!StringUtils.hasText(record.chatName)) {
+                        record.chatName = normalizedChatName;
+                    }
+                    if (!StringUtils.hasText(record.firstAgentName)) {
+                        record.firstAgentName = resolveFirstAgentName(normalizedAgentName, record.firstAgentKey);
+                    }
+                    if (record.createdAt <= 0) {
+                        record.createdAt = now;
+                    }
+                    record.updatedAt = now;
+                    if (record.lastChatTime <= 0) {
+                        record.lastChatTime = now;
+                    }
+                    if (!StringUtils.hasText(record.lastChatContent) && StringUtils.hasText(firstMessage)) {
+                        record.lastChatContent = firstMessage.trim();
+                    }
                 }
-                record.updatedAt = now;
+                upsertChatIndex(connection, record);
+                refreshAgentDialogIndex(connection, record.firstAgentKey);
+                connection.commit();
+                return toChatSummary(record, created);
+            } catch (SQLException ex) {
+                throw new IllegalStateException("Cannot upsert chat index for chatId=" + chatId, ex);
             }
-            writeIndexRecords(List.copyOf(recordsByChatId.values()));
-            return toChatSummary(record, created);
         }
     }
 
@@ -126,20 +259,159 @@ public class ChatRecordStore {
         }
     }
 
+    public Optional<String> findBoundAgentKey(String chatId) {
+        if (!isValidChatId(chatId)) {
+            return Optional.empty();
+        }
+        synchronized (lock) {
+            try (Connection connection = openConnection()) {
+                ChatIndexRecord record = findChatRecordById(connection, chatId);
+                if (record == null || !StringUtils.hasText(record.firstAgentKey)) {
+                    return Optional.empty();
+                }
+                return Optional.of(record.firstAgentKey);
+            } catch (SQLException ex) {
+                log.warn("Cannot query bound agent for chatId={}", chatId, ex);
+                return Optional.empty();
+            }
+        }
+    }
+
+    public void onRunCompleted(RunCompletion completion) {
+        if (completion == null || !isValidChatId(completion.chatId()) || !StringUtils.hasText(completion.runId())) {
+            return;
+        }
+        synchronized (lock) {
+            try (Connection connection = openConnection()) {
+                connection.setAutoCommit(false);
+                ChatIndexRecord record = findChatRecordById(connection, completion.chatId());
+                if (record == null || !StringUtils.hasText(record.firstAgentKey)) {
+                    connection.rollback();
+                    return;
+                }
+
+                long eventAt = completion.completedAt() > 0 ? completion.completedAt() : System.currentTimeMillis();
+                String assistantContent = nullable(completion.assistantContent());
+                String fallbackUserMessage = nullable(completion.fallbackUserMessage());
+                String mergedContent = assistantContent != null
+                        ? assistantContent
+                        : (fallbackUserMessage != null ? fallbackUserMessage : nullable(record.lastChatContent));
+                if (mergedContent == null) {
+                    mergedContent = "";
+                }
+
+                record.lastRunId = completion.runId().trim();
+                record.lastChatTime = eventAt;
+                record.updatedAt = eventAt;
+                record.lastChatContent = mergedContent;
+                upsertChatIndex(connection, record);
+
+                Map<String, Object> payload = new LinkedHashMap<>();
+                payload.put("chatId", record.chatId);
+                payload.put("runId", record.lastRunId);
+                payload.put("latestChatTime", record.lastChatTime);
+                payload.put("latestChatContent", record.lastChatContent);
+                upsertNotifyQueue(
+                        connection,
+                        record.firstAgentKey,
+                        record.chatId,
+                        record.lastRunId,
+                        eventAt,
+                        objectMapper.writeValueAsString(payload)
+                );
+                refreshAgentDialogIndex(connection, record.firstAgentKey);
+                connection.commit();
+            } catch (Exception ex) {
+                log.warn("Cannot update run completion index chatId={}, runId={}", completion.chatId(), completion.runId(), ex);
+            }
+        }
+    }
+
     public List<ChatSummaryResponse> listChats() {
         synchronized (lock) {
-            return readIndexRecords().stream()
-                    .sorted((left, right) -> Long.compare(resolveUpdatedAt(right), resolveUpdatedAt(left)))
-                    .map(this::toChatSummary)
-                    .map(summary -> new ChatSummaryResponse(
+            try (Connection connection = openConnection();
+                 PreparedStatement statement = connection.prepareStatement("""
+                         SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_, AGENT_NAME_, AGENT_AVATAR_,
+                                CREATED_AT_, UPDATED_AT_, LAST_CHAT_CONTENT_, LAST_CHAT_TIME_, LAST_RUN_ID_
+                         FROM CHAT_INDEX_
+                         ORDER BY UPDATED_AT_ DESC
+                         """);
+                 ResultSet resultSet = statement.executeQuery()) {
+                List<ChatSummaryResponse> responses = new ArrayList<>();
+                while (resultSet.next()) {
+                    ChatIndexRecord record = mapChatIndexRecord(resultSet);
+                    ChatSummary summary = toChatSummary(record);
+                    responses.add(new ChatSummaryResponse(
                             summary.chatId(),
                             summary.chatName(),
                             summary.firstAgentKey(),
                             summary.firstAgentName(),
                             summary.createdAt(),
-                            summary.updatedAt()
-                    ))
-                    .toList();
+                            summary.updatedAt(),
+                            summary.agentAvatar()
+                    ));
+                }
+                return List.copyOf(responses);
+            } catch (SQLException ex) {
+                throw new IllegalStateException("Cannot list chats from sqlite", ex);
+            }
+        }
+    }
+
+    public List<AgentChatSummaryResponse> listAgentChats(String rawSort) {
+        String normalizedSort = normalizeAgentChatSort(rawSort);
+        String orderClause = switch (normalizedSort) {
+            case "UNREAD_CHAT_COUNT_DESC" -> "UNREAD_CHAT_COUNT_ DESC, LATEST_CHAT_TIME_ DESC";
+            case "AGENT_NAME_ASC" -> "AGENT_NAME_ ASC, LATEST_CHAT_TIME_ DESC";
+            default -> "LATEST_CHAT_TIME_ DESC, UPDATED_AT_ DESC";
+        };
+        String sql = """
+                SELECT AGENT_KEY_, AGENT_NAME_, AGENT_AVATAR_, LATEST_CHAT_ID_, LATEST_CHAT_NAME_,
+                       LATEST_CHAT_CONTENT_, LATEST_CHAT_TIME_, UNREAD_CHAT_COUNT_
+                FROM AGENT_DIALOG_INDEX_
+                ORDER BY %s
+                """.formatted(orderClause);
+        synchronized (lock) {
+            try (Connection connection = openConnection();
+                 PreparedStatement statement = connection.prepareStatement(sql);
+                 ResultSet resultSet = statement.executeQuery()) {
+                List<AgentChatSummaryResponse> responses = new ArrayList<>();
+                while (resultSet.next()) {
+                    responses.add(new AgentChatSummaryResponse(
+                            nullable(resultSet.getString("AGENT_KEY_")),
+                            nullable(resultSet.getString("AGENT_NAME_")),
+                            nullable(resultSet.getString("AGENT_AVATAR_")),
+                            nullable(resultSet.getString("LATEST_CHAT_ID_")),
+                            nullable(resultSet.getString("LATEST_CHAT_NAME_")),
+                            nullable(resultSet.getString("LATEST_CHAT_CONTENT_")),
+                            resultSet.getLong("LATEST_CHAT_TIME_"),
+                            resultSet.getLong("UNREAD_CHAT_COUNT_")
+                    ));
+                }
+                return List.copyOf(responses);
+            } catch (SQLException ex) {
+                throw new IllegalStateException("Cannot list agent chats from sqlite", ex);
+            }
+        }
+    }
+
+    public MarkReadResult markAgentRead(String agentKey) {
+        String normalizedAgentKey = nullable(agentKey);
+        if (!StringUtils.hasText(normalizedAgentKey)) {
+            throw new IllegalArgumentException("agentKey must not be blank");
+        }
+        synchronized (lock) {
+            try (Connection connection = openConnection()) {
+                connection.setAutoCommit(false);
+                long ackedChats = countDistinctPendingChats(connection, normalizedAgentKey);
+                long ackedEvents = markAllPendingAsAcked(connection, normalizedAgentKey, System.currentTimeMillis());
+                refreshAgentDialogIndex(connection, normalizedAgentKey);
+                long unreadAfter = countDistinctPendingChats(connection, normalizedAgentKey);
+                connection.commit();
+                return new MarkReadResult(normalizedAgentKey, ackedEvents, ackedChats, unreadAfter);
+            } catch (SQLException ex) {
+                throw new IllegalStateException("Cannot ack agent read for " + normalizedAgentKey, ex);
+            }
         }
     }
 
@@ -147,19 +419,22 @@ public class ChatRecordStore {
         requireValidChatId(chatId);
         Path historyPath = resolveHistoryPath(chatId);
         synchronized (lock) {
-            Optional<ChatIndexRecord> indexRecord = readIndexRecords().stream()
-                    .filter(item -> chatId.equals(item.chatId))
-                    .findFirst();
+            ChatIndexRecord indexRecord;
+            try (Connection connection = openConnection()) {
+                indexRecord = findChatRecordById(connection, chatId);
+            } catch (SQLException ex) {
+                throw new IllegalStateException("Cannot query chat index for chatId=" + chatId, ex);
+            }
 
-            if (indexRecord.isEmpty() && !Files.exists(historyPath)) {
+            if (indexRecord == null && !Files.exists(historyPath)) {
                 throw new ChatNotFoundException(chatId);
             }
 
-            ChatSummary summary = indexRecord
+            ChatSummary summary = Optional.ofNullable(indexRecord)
                     .map(this::toChatSummary)
                     .orElseGet(() -> {
                         long createdAt = resolveCreatedAt(historyPath);
-                        return new ChatSummary(chatId, chatId, null, null, createdAt, createdAt, false);
+                        return new ChatSummary(chatId, chatId, null, null, createdAt, createdAt, null, false);
                     });
 
             ParsedChatContent content = readChatContent(
@@ -837,74 +1112,225 @@ public class ChatRecordStore {
     ) {
     }
 
-    private List<ChatIndexRecord> readIndexRecords() {
-        Path path = resolveIndexPath();
-        if (!Files.exists(path)) {
-            return List.of();
+    private Connection openConnection() throws SQLException {
+        return DriverManager.getConnection("jdbc:sqlite:" + resolveSqlitePath());
+    }
+
+    private Path resolveSqlitePath() {
+        ChatWindowMemoryProperties.IndexProperties index = properties.getIndex();
+        String configured = index == null ? null : index.getSqliteFile();
+        if (!StringUtils.hasText(configured)) {
+            configured = "chats.db";
         }
-        try {
-            List<ChatIndexRecord> records = new ArrayList<>();
-            List<String> lines = Files.readAllLines(path, resolveCharset());
-            for (String line : lines) {
-                if (!StringUtils.hasText(line)) {
-                    continue;
+        Path path = Paths.get(configured.trim());
+        if (!path.isAbsolute()) {
+            path = Paths.get(System.getProperty("user.dir")).resolve(path).normalize();
+        }
+        return path.toAbsolutePath().normalize();
+    }
+
+    private ChatIndexRecord findChatRecordById(Connection connection, String chatId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_, AGENT_NAME_, AGENT_AVATAR_,
+                       CREATED_AT_, UPDATED_AT_, LAST_CHAT_CONTENT_, LAST_CHAT_TIME_, LAST_RUN_ID_
+                FROM CHAT_INDEX_
+                WHERE CHAT_ID_ = ?
+                """)) {
+            statement.setString(1, chatId);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                if (!resultSet.next()) {
+                    return null;
                 }
-                JsonNode node = parseLine(line);
-                if (node == null || !node.isObject()) {
-                    continue;
-                }
-                ChatIndexRecord record = objectMapper.treeToValue(node, ChatIndexRecord.class);
-                if (record == null || !isValidChatId(record.chatId)) {
-                    continue;
-                }
-                if (!StringUtils.hasText(record.chatName)) {
-                    record.chatName = record.chatId;
-                }
-                if (record.createdAt <= 0 && record.updatedAt > 0) {
-                    record.createdAt = record.updatedAt;
-                }
-                if (record.updatedAt <= 0) {
-                    record.updatedAt = record.createdAt;
-                }
-                records.add(record);
+                return mapChatIndexRecord(resultSet);
             }
-            return List.copyOf(records);
-        } catch (Exception ex) {
-            log.warn("Cannot read chat index file={}, fallback to empty", path, ex);
-            return List.of();
         }
     }
 
-    private void writeIndexRecords(List<ChatIndexRecord> records) {
-        Path path = resolveIndexPath();
-        try {
-            Files.createDirectories(path.getParent());
-            StringBuilder content = new StringBuilder();
-            for (ChatIndexRecord record : records) {
-                if (record == null || !isValidChatId(record.chatId)) {
-                    continue;
+    private ChatIndexRecord mapChatIndexRecord(ResultSet resultSet) throws SQLException {
+        ChatIndexRecord record = new ChatIndexRecord();
+        record.chatId = nullable(resultSet.getString("CHAT_ID_"));
+        record.chatName = nullable(resultSet.getString("CHAT_NAME_"));
+        record.firstAgentKey = nullable(resultSet.getString("AGENT_KEY_"));
+        record.firstAgentName = nullable(resultSet.getString("AGENT_NAME_"));
+        record.agentAvatar = nullable(resultSet.getString("AGENT_AVATAR_"));
+        record.createdAt = resultSet.getLong("CREATED_AT_");
+        record.updatedAt = resultSet.getLong("UPDATED_AT_");
+        record.lastChatContent = nullable(resultSet.getString("LAST_CHAT_CONTENT_"));
+        record.lastChatTime = resultSet.getLong("LAST_CHAT_TIME_");
+        record.lastRunId = nullable(resultSet.getString("LAST_RUN_ID_"));
+        return record;
+    }
+
+    private void upsertChatIndex(Connection connection, ChatIndexRecord record) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                INSERT INTO CHAT_INDEX_(
+                    CHAT_ID_, CHAT_NAME_, AGENT_KEY_, AGENT_NAME_, AGENT_AVATAR_,
+                    CREATED_AT_, UPDATED_AT_, LAST_CHAT_CONTENT_, LAST_CHAT_TIME_, LAST_RUN_ID_
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(CHAT_ID_) DO UPDATE SET
+                    CHAT_NAME_ = excluded.CHAT_NAME_,
+                    AGENT_KEY_ = excluded.AGENT_KEY_,
+                    AGENT_NAME_ = excluded.AGENT_NAME_,
+                    AGENT_AVATAR_ = excluded.AGENT_AVATAR_,
+                    CREATED_AT_ = excluded.CREATED_AT_,
+                    UPDATED_AT_ = excluded.UPDATED_AT_,
+                    LAST_CHAT_CONTENT_ = excluded.LAST_CHAT_CONTENT_,
+                    LAST_CHAT_TIME_ = excluded.LAST_CHAT_TIME_,
+                    LAST_RUN_ID_ = excluded.LAST_RUN_ID_
+                """)) {
+            statement.setString(1, record.chatId);
+            statement.setString(2, StringUtils.hasText(record.chatName) ? record.chatName : record.chatId);
+            statement.setString(3, StringUtils.hasText(record.firstAgentKey) ? record.firstAgentKey : "");
+            statement.setString(4, resolveFirstAgentName(record.firstAgentName, record.firstAgentKey));
+            statement.setString(5, nullable(record.agentAvatar));
+            statement.setLong(6, record.createdAt > 0 ? record.createdAt : System.currentTimeMillis());
+            statement.setLong(7, record.updatedAt > 0 ? record.updatedAt : System.currentTimeMillis());
+            statement.setString(8, StringUtils.hasText(record.lastChatContent) ? record.lastChatContent : "");
+            statement.setLong(9, record.lastChatTime > 0 ? record.lastChatTime : System.currentTimeMillis());
+            statement.setString(10, nullable(record.lastRunId));
+            statement.executeUpdate();
+        }
+    }
+
+    private void upsertNotifyQueue(
+            Connection connection,
+            String agentKey,
+            String chatId,
+            String runId,
+            long enqueueAt,
+            String payloadJson
+    ) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                INSERT OR IGNORE INTO CHAT_NOTIFY_QUEUE_(
+                    AGENT_KEY_, CHAT_ID_, RUN_ID_, EVENT_KIND_, STATE_, ENQUEUE_AT_, ACK_AT_, PAYLOAD_JSON_
+                ) VALUES (?, ?, ?, ?, ?, ?, NULL, ?)
+                """)) {
+            statement.setString(1, agentKey);
+            statement.setString(2, chatId);
+            statement.setString(3, runId);
+            statement.setString(4, EVENT_KIND_RUN_COMPLETED);
+            statement.setString(5, EVENT_STATE_PENDING);
+            statement.setLong(6, enqueueAt);
+            statement.setString(7, payloadJson);
+            statement.executeUpdate();
+        }
+    }
+
+    private long markAllPendingAsAcked(Connection connection, String agentKey, long ackAt) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                UPDATE CHAT_NOTIFY_QUEUE_
+                SET STATE_ = ?, ACK_AT_ = ?
+                WHERE AGENT_KEY_ = ? AND STATE_ = ?
+                """)) {
+            statement.setString(1, EVENT_STATE_ACKED);
+            statement.setLong(2, ackAt);
+            statement.setString(3, agentKey);
+            statement.setString(4, EVENT_STATE_PENDING);
+            return statement.executeUpdate();
+        }
+    }
+
+    private long countDistinctPendingChats(Connection connection, String agentKey) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                SELECT COUNT(DISTINCT CHAT_ID_) AS CNT
+                FROM CHAT_NOTIFY_QUEUE_
+                WHERE AGENT_KEY_ = ? AND STATE_ = ?
+                """)) {
+            statement.setString(1, agentKey);
+            statement.setString(2, EVENT_STATE_PENDING);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                if (!resultSet.next()) {
+                    return 0L;
                 }
-                if (!StringUtils.hasText(record.chatName)) {
-                    record.chatName = record.chatId;
-                }
-                if (record.createdAt <= 0) {
-                    record.createdAt = System.currentTimeMillis();
-                }
-                if (record.updatedAt <= 0) {
-                    record.updatedAt = record.createdAt;
-                }
-                content.append(objectMapper.writeValueAsString(record)).append(System.lineSeparator());
+                return resultSet.getLong("CNT");
             }
-            Files.writeString(
-                    path,
-                    content.toString(),
-                    resolveCharset(),
-                    StandardOpenOption.CREATE,
-                    StandardOpenOption.TRUNCATE_EXISTING,
-                    StandardOpenOption.WRITE
-            );
-        } catch (IOException ex) {
-            throw new IllegalStateException("Cannot rewrite chat index file=" + path, ex);
+        }
+    }
+
+    private void refreshAgentDialogIndex(Connection connection, String agentKey) throws SQLException {
+        if (!StringUtils.hasText(agentKey)) {
+            return;
+        }
+        ChatIndexRecord latest;
+        try (PreparedStatement latestStatement = connection.prepareStatement("""
+                SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_, AGENT_NAME_, AGENT_AVATAR_,
+                       CREATED_AT_, UPDATED_AT_, LAST_CHAT_CONTENT_, LAST_CHAT_TIME_, LAST_RUN_ID_
+                FROM CHAT_INDEX_
+                WHERE AGENT_KEY_ = ?
+                ORDER BY LAST_CHAT_TIME_ DESC, UPDATED_AT_ DESC
+                LIMIT 1
+                """)) {
+            latestStatement.setString(1, agentKey);
+            try (ResultSet latestResult = latestStatement.executeQuery()) {
+                if (!latestResult.next()) {
+                    return;
+                }
+                latest = mapChatIndexRecord(latestResult);
+            }
+        }
+
+        long unread = countDistinctPendingChats(connection, agentKey);
+        long updatedAt = System.currentTimeMillis();
+        try (PreparedStatement upsert = connection.prepareStatement("""
+                INSERT INTO AGENT_DIALOG_INDEX_(
+                    AGENT_KEY_, AGENT_NAME_, AGENT_AVATAR_, LATEST_CHAT_ID_, LATEST_CHAT_NAME_,
+                    LATEST_CHAT_CONTENT_, LATEST_CHAT_TIME_, UNREAD_CHAT_COUNT_, UPDATED_AT_
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(AGENT_KEY_) DO UPDATE SET
+                    AGENT_NAME_ = excluded.AGENT_NAME_,
+                    AGENT_AVATAR_ = excluded.AGENT_AVATAR_,
+                    LATEST_CHAT_ID_ = excluded.LATEST_CHAT_ID_,
+                    LATEST_CHAT_NAME_ = excluded.LATEST_CHAT_NAME_,
+                    LATEST_CHAT_CONTENT_ = excluded.LATEST_CHAT_CONTENT_,
+                    LATEST_CHAT_TIME_ = excluded.LATEST_CHAT_TIME_,
+                    UNREAD_CHAT_COUNT_ = excluded.UNREAD_CHAT_COUNT_,
+                    UPDATED_AT_ = excluded.UPDATED_AT_
+                """)) {
+            upsert.setString(1, latest.firstAgentKey);
+            upsert.setString(2, resolveFirstAgentName(latest.firstAgentName, latest.firstAgentKey));
+            upsert.setString(3, nullable(latest.agentAvatar));
+            upsert.setString(4, nullable(latest.chatId));
+            upsert.setString(5, nullable(latest.chatName));
+            upsert.setString(6, StringUtils.hasText(latest.lastChatContent) ? latest.lastChatContent : "");
+            upsert.setLong(7, latest.lastChatTime > 0 ? latest.lastChatTime : latest.updatedAt);
+            upsert.setLong(8, unread);
+            upsert.setLong(9, updatedAt);
+            upsert.executeUpdate();
+        }
+    }
+
+    private String normalizeAgentChatSort(String rawSort) {
+        String normalized = nullable(rawSort);
+        if (normalized == null) {
+            return "LATEST_CHAT_TIME_DESC";
+        }
+        if (!ALLOWED_AGENT_CHAT_SORTS.contains(normalized)) {
+            return "LATEST_CHAT_TIME_DESC";
+        }
+        return normalized;
+    }
+
+    private void ensureColumnExists(
+            Connection connection,
+            String tableName,
+            String columnName,
+            String columnDefinition
+    ) throws SQLException {
+        boolean exists = false;
+        try (PreparedStatement statement = connection.prepareStatement("PRAGMA table_info(" + tableName + ")");
+             ResultSet resultSet = statement.executeQuery()) {
+            while (resultSet.next()) {
+                if (columnName.equalsIgnoreCase(resultSet.getString("name"))) {
+                    exists = true;
+                    break;
+                }
+            }
+        }
+        if (exists) {
+            return;
+        }
+        try (Statement statement = connection.createStatement()) {
+            statement.execute("ALTER TABLE " + tableName + " ADD COLUMN " + columnName + " " + columnDefinition);
         }
     }
 
@@ -962,10 +1388,6 @@ public class ChatRecordStore {
 
     private Path resolveBaseDir() {
         return Paths.get(properties.getDir()).toAbsolutePath().normalize();
-    }
-
-    private Path resolveIndexPath() {
-        return resolveBaseDir().resolve(CHAT_INDEX_FILE);
     }
 
     private Path resolveHistoryPath(String chatId) {
@@ -1026,15 +1448,9 @@ public class ChatRecordStore {
                 resolveFirstAgentName(record.firstAgentName, record.firstAgentKey),
                 createdAt,
                 updatedAt,
+                nullable(record.agentAvatar),
                 created
         );
-    }
-
-    private long resolveUpdatedAt(ChatIndexRecord record) {
-        if (record == null) {
-            return 0L;
-        }
-        return record.updatedAt > 0 ? record.updatedAt : record.createdAt;
     }
 
     private String nullable(String value) {
@@ -1069,7 +1485,25 @@ public class ChatRecordStore {
             String firstAgentName,
             long createdAt,
             long updatedAt,
+            String agentAvatar,
             boolean created
+    ) {
+    }
+
+    public record RunCompletion(
+            String chatId,
+            String runId,
+            String assistantContent,
+            String fallbackUserMessage,
+            long completedAt
+    ) {
+    }
+
+    public record MarkReadResult(
+            String agentKey,
+            long ackedEvents,
+            long ackedChats,
+            long unreadChatCount
     ) {
     }
 
@@ -1108,7 +1542,11 @@ public class ChatRecordStore {
         public String chatName;
         public String firstAgentKey;
         public String firstAgentName;
+        public String agentAvatar;
         public long createdAt;
         public long updatedAt;
+        public String lastChatContent;
+        public long lastChatTime;
+        public String lastRunId;
     }
 }

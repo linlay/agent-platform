@@ -1,8 +1,8 @@
 package com.linlay.agentplatform.service;
 
-import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linlay.agentplatform.memory.ChatWindowMemoryProperties;
+import com.linlay.agentplatform.model.api.AgentChatSummaryResponse;
 import com.linlay.agentplatform.model.api.ChatDetailResponse;
 import com.linlay.agentplatform.model.api.ChatSummaryResponse;
 import org.junit.jupiter.api.Test;
@@ -143,24 +143,11 @@ class ChatRecordStoreTest {
     void listChatsShouldUseUpdatedAtAndFallbackToCreatedAtForLegacyRecords() throws Exception {
         String firstChat = "123e4567-e89b-12d3-a456-426614174013";
         String secondChat = "123e4567-e89b-12d3-a456-426614174014";
-        Path chatDir = tempDir.resolve("chats");
-        Path indexPath = chatDir.resolve("_chats.jsonl");
-        writeJsonLine(indexPath, Map.of(
-                "chatId", firstChat,
-                "chatName", "legacy",
-                "firstAgentKey", "demo",
-                "createdAt", 100L
-        ));
-        writeJsonLine(indexPath, Map.of(
-                "chatId", secondChat,
-                "chatName", "active",
-                "firstAgentKey", "demo",
-                "firstAgentName", "Demo Agent",
-                "createdAt", 50L,
-                "updatedAt", 200L
-        ));
-
         ChatRecordStore store = newStore();
+        store.ensureChat(firstChat, "demo", "Demo Agent", "legacy");
+        store.ensureChat(secondChat, "demo", "Demo Agent", "active");
+        store.onRunCompleted(new ChatRecordStore.RunCompletion(firstChat, "run-1", "legacy", "legacy", 1000L));
+        store.onRunCompleted(new ChatRecordStore.RunCompletion(secondChat, "run-2", "active", "active", 2000L));
         List<ChatSummaryResponse> chats = store.listChats();
 
         assertThat(chats).hasSize(2);
@@ -168,45 +155,65 @@ class ChatRecordStoreTest {
         assertThat(chats.getFirst().chatName()).isEqualTo("active");
         assertThat(chats.getFirst().firstAgentKey()).isEqualTo("demo");
         assertThat(chats.getFirst().firstAgentName()).isEqualTo("Demo Agent");
-        assertThat(chats.getFirst().updatedAt()).isEqualTo(200L);
+        assertThat(chats.getFirst().updatedAt()).isGreaterThan(0L);
         assertThat(chats.get(1).chatId()).isEqualTo(firstChat);
         assertThat(chats.get(1).chatName()).isEqualTo("legacy");
-        assertThat(chats.get(1).firstAgentName()).isEqualTo("demo");
-        assertThat(chats.get(1).updatedAt()).isEqualTo(100L);
+        assertThat(chats.get(1).firstAgentName()).isEqualTo("Demo Agent");
+        assertThat(chats.get(1).updatedAt()).isGreaterThan(0L);
     }
 
     @Test
     void ensureChatShouldRefreshUpdatedAtAndRewriteDuplicateRecords() throws Exception {
         String chatId = "123e4567-e89b-12d3-a456-426614174015";
+        ChatRecordStore store = newStore();
+        ChatRecordStore.ChatSummary first = store.ensureChat(chatId, "demo", "Demo Agent", "dup-1");
+        ChatRecordStore.ChatSummary second = store.ensureChat(chatId, "other", "Other Agent", "dup-2");
+
+        assertThat(first.created()).isTrue();
+        assertThat(second.created()).isFalse();
+        assertThat(second.firstAgentKey()).isEqualTo("demo");
+        assertThat(second.firstAgentName()).isEqualTo("Demo Agent");
+        assertThat(second.updatedAt()).isGreaterThanOrEqualTo(first.updatedAt());
+    }
+
+    @Test
+    void initializeDatabaseShouldIgnoreLegacyJsonlIndex() throws Exception {
         Path chatDir = tempDir.resolve("chats");
-        Path indexPath = chatDir.resolve("_chats.jsonl");
-        writeJsonLine(indexPath, Map.of(
-                "chatId", chatId,
-                "chatName", "dup-1",
-                "firstAgentKey", "demo",
-                "createdAt", 1000L,
-                "updatedAt", 1000L
-        ));
-        writeJsonLine(indexPath, Map.of(
-                "chatId", chatId,
-                "chatName", "dup-2",
-                "firstAgentKey", "demo",
-                "createdAt", 1000L,
-                "updatedAt", 1000L
-        ));
+        Files.createDirectories(chatDir);
+        Files.writeString(chatDir.resolve("_chats.jsonl"), """
+                {"chatId":"123e4567-e89b-12d3-a456-426614174019","chatName":"legacy-index"}
+                """);
 
         ChatRecordStore store = newStore();
-        store.ensureChat(chatId, "demoAgent", "Demo Agent", "后续消息");
+        assertThat(store.listChats()).isEmpty();
 
-        List<String> lines = Files.readAllLines(indexPath).stream().filter(line -> !line.isBlank()).toList();
-        assertThat(lines).hasSize(1);
-        Map<String, Object> record = objectMapper.readValue(lines.getFirst(), new TypeReference<>() {
-        });
-        assertThat(record.get("chatId")).isEqualTo(chatId);
-        assertThat(record.get("firstAgentKey")).isEqualTo("demo");
-        assertThat(record.get("firstAgentName")).isEqualTo("Demo Agent");
-        assertThat(((Number) record.get("createdAt")).longValue()).isEqualTo(1000L);
-        assertThat(((Number) record.get("updatedAt")).longValue()).isGreaterThanOrEqualTo(1000L);
+        store.ensureChat("123e4567-e89b-12d3-a456-426614174020", "demo", "Demo Agent", "fresh");
+        assertThat(store.listChats()).hasSize(1);
+        assertThat(store.listChats().getFirst().chatId()).isEqualTo("123e4567-e89b-12d3-a456-426614174020");
+    }
+
+    @Test
+    void agentChatsShouldSortAndAckUnread() {
+        String chatA = "123e4567-e89b-12d3-a456-426614174091";
+        String chatB = "123e4567-e89b-12d3-a456-426614174092";
+        ChatRecordStore store = newStore();
+        store.ensureChat(chatA, "agent-a", "Agent A", "hello a");
+        store.ensureChat(chatB, "agent-b", "Agent B", "hello b");
+        store.onRunCompleted(new ChatRecordStore.RunCompletion(chatA, "run-a", "reply a", "hello a", System.currentTimeMillis()));
+        store.onRunCompleted(new ChatRecordStore.RunCompletion(chatB, "run-b", "reply b", "hello b", System.currentTimeMillis() + 1));
+
+        List<AgentChatSummaryResponse> latest = store.listAgentChats("LATEST_CHAT_TIME_DESC");
+        assertThat(latest).hasSize(2);
+        assertThat(latest.getFirst().agentKey()).isEqualTo("agent-b");
+        assertThat(latest.getFirst().unreadChatCount()).isEqualTo(1L);
+
+        ChatRecordStore.MarkReadResult ack = store.markAgentRead("agent-b");
+        assertThat(ack.ackedEvents()).isEqualTo(1L);
+        assertThat(ack.ackedChats()).isEqualTo(1L);
+        assertThat(ack.unreadChatCount()).isEqualTo(0L);
+
+        List<AgentChatSummaryResponse> unreadSort = store.listAgentChats("UNREAD_CHAT_COUNT_DESC");
+        assertThat(unreadSort.getFirst().agentKey()).isEqualTo("agent-a");
     }
 
     @Test
@@ -337,20 +344,54 @@ class ChatRecordStoreTest {
     private ChatRecordStore newStore() {
         ChatWindowMemoryProperties properties = new ChatWindowMemoryProperties();
         properties.setDir(tempDir.resolve("chats").toString());
-        return new ChatRecordStore(objectMapper, properties);
+        properties.getIndex().setSqliteFile(tempDir.resolve("chats").resolve("chats.db").toString());
+        ChatRecordStore store = new ChatRecordStore(objectMapper, properties);
+        store.initializeDatabase();
+        return store;
     }
 
     private void writeIndex(Path chatDir, String chatId, String chatName, long createdAt, long updatedAt) throws Exception {
         Files.createDirectories(chatDir);
-        Path indexPath = chatDir.resolve("_chats.jsonl");
-        writeJsonLine(indexPath, Map.of(
-                "chatId", chatId,
-                "chatName", chatName,
-                "firstAgentKey", "demo",
-                "firstAgentName", "Demo Agent",
-                "createdAt", createdAt,
-                "updatedAt", updatedAt
-        ));
+        Path dbPath = chatDir.resolve("chats.db");
+        try (java.sql.Connection connection = java.sql.DriverManager.getConnection("jdbc:sqlite:" + dbPath);
+             java.sql.Statement statement = connection.createStatement()) {
+            statement.execute("""
+                    CREATE TABLE IF NOT EXISTS CHAT_INDEX_ (
+                      CHAT_ID_ TEXT PRIMARY KEY,
+                      CHAT_NAME_ TEXT NOT NULL,
+                      AGENT_KEY_ TEXT NOT NULL,
+                      AGENT_NAME_ TEXT NOT NULL,
+                      AGENT_AVATAR_ TEXT,
+                      CREATED_AT_ INTEGER NOT NULL,
+                      UPDATED_AT_ INTEGER NOT NULL,
+                      LAST_CHAT_CONTENT_ TEXT NOT NULL DEFAULT '',
+                      LAST_CHAT_TIME_ INTEGER NOT NULL,
+                      LAST_RUN_ID_ TEXT
+                    )
+                    """);
+            try (java.sql.PreparedStatement upsert = connection.prepareStatement("""
+                    INSERT INTO CHAT_INDEX_(
+                        CHAT_ID_, CHAT_NAME_, AGENT_KEY_, AGENT_NAME_, AGENT_AVATAR_,
+                        CREATED_AT_, UPDATED_AT_, LAST_CHAT_CONTENT_, LAST_CHAT_TIME_, LAST_RUN_ID_
+                    ) VALUES (?, ?, ?, ?, NULL, ?, ?, '', ?, NULL)
+                    ON CONFLICT(CHAT_ID_) DO UPDATE SET
+                        CHAT_NAME_ = excluded.CHAT_NAME_,
+                        AGENT_KEY_ = excluded.AGENT_KEY_,
+                        AGENT_NAME_ = excluded.AGENT_NAME_,
+                        CREATED_AT_ = excluded.CREATED_AT_,
+                        UPDATED_AT_ = excluded.UPDATED_AT_,
+                        LAST_CHAT_TIME_ = excluded.LAST_CHAT_TIME_
+                    """)) {
+                upsert.setString(1, chatId);
+                upsert.setString(2, chatName);
+                upsert.setString(3, "demo");
+                upsert.setString(4, "Demo Agent");
+                upsert.setLong(5, createdAt);
+                upsert.setLong(6, updatedAt);
+                upsert.setLong(7, updatedAt);
+                upsert.executeUpdate();
+            }
+        }
     }
 
     private void writeJsonLine(Path path, Object value) throws Exception {

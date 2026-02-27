@@ -7,10 +7,13 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.linlay.agentplatform.agent.Agent;
 import com.linlay.agentplatform.agent.AgentRegistry;
 import com.linlay.agentplatform.model.api.AgentDetailResponse;
+import com.linlay.agentplatform.model.api.AgentChatSummaryResponse;
 import com.linlay.agentplatform.model.api.AgentListResponse;
 import com.linlay.agentplatform.model.api.ApiResponse;
 import com.linlay.agentplatform.model.api.ChatDetailResponse;
 import com.linlay.agentplatform.model.api.ChatSummaryResponse;
+import com.linlay.agentplatform.model.api.MarkAgentReadRequest;
+import com.linlay.agentplatform.model.api.MarkAgentReadResponse;
 import com.linlay.agentplatform.model.api.QueryRequest;
 import com.linlay.agentplatform.model.api.SubmitRequest;
 import com.linlay.agentplatform.model.api.SubmitResponse;
@@ -99,6 +102,24 @@ public class AgentController {
     @GetMapping("/chats")
     public ApiResponse<List<ChatSummaryResponse>> chats() {
         return ApiResponse.success(chatRecordStore.listChats());
+    }
+
+    @GetMapping("/agent-chats")
+    public ApiResponse<List<AgentChatSummaryResponse>> agentChats(
+            @RequestParam(required = false) String sort
+    ) {
+        return ApiResponse.success(chatRecordStore.listAgentChats(sort));
+    }
+
+    @PostMapping("/agent-reads")
+    public ApiResponse<MarkAgentReadResponse> markAgentReads(@Valid @RequestBody MarkAgentReadRequest request) {
+        ChatRecordStore.MarkReadResult ack = chatRecordStore.markAgentRead(request.agentKey());
+        return ApiResponse.success(new MarkAgentReadResponse(
+                ack.agentKey(),
+                ack.ackedEvents(),
+                ack.ackedChats(),
+                ack.unreadChatCount()
+        ));
     }
 
     @GetMapping("/chat")

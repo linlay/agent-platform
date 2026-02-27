@@ -6,6 +6,7 @@ public record ChatSummaryResponse(
         String firstAgentKey,
         String firstAgentName,
         long createdAt,
-        long updatedAt
+        long updatedAt,
+        String agentAvatar
 ) {
 }

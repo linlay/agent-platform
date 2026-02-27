@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linlay.agentplatform.config.DataCatalogProperties;
 import com.linlay.agentplatform.memory.ChatWindowMemoryProperties;
+import com.linlay.agentplatform.service.ChatRecordStore;
 import com.linlay.agentplatform.service.LlmService;
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.JWSAlgorithm;
@@ -67,6 +68,7 @@ import static org.assertj.core.api.Assertions.assertThat;
                 "agent.chat-image-token.secret=chat-image-token-secret-for-tests",
                 "agent.chat-image-token.ttl-seconds=86400",
                 "memory.chat.dir=${java.io.tmpdir}/springai-agent-platform-chat-image-token-chats-${random.uuid}",
+                "memory.chat.index.sqlite-file=${java.io.tmpdir}/springai-agent-platform-chat-image-token-chats-db-${random.uuid}/chats.db",
                 "agent.viewport.external-dir=${java.io.tmpdir}/springai-agent-platform-chat-image-token-viewports-${random.uuid}",
                 "agent.capability.tools-external-dir=${java.io.tmpdir}/springai-agent-platform-chat-image-token-tools-${random.uuid}",
                 "agent.skill.external-dir=${java.io.tmpdir}/springai-agent-platform-chat-image-token-skills-${random.uuid}",
@@ -89,6 +91,8 @@ class ChatImageTokenIntegrationTest {
     private ChatWindowMemoryProperties chatWindowMemoryProperties;
     @Autowired
     private DataCatalogProperties dataCatalogProperties;
+    @Autowired
+    private ChatRecordStore chatRecordStore;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -329,14 +333,7 @@ class ChatImageTokenIntegrationTest {
         Files.createDirectories(chatDir);
         long now = System.currentTimeMillis();
         String runId = UUID.randomUUID().toString();
-
-        writeJsonLine(chatDir.resolve("_chats.jsonl"), Map.of(
-                "chatId", chatId,
-                "chatName", "image chat",
-                "firstAgentKey", "demoModePlain",
-                "createdAt", now,
-                "updatedAt", now
-        ));
+        chatRecordStore.ensureChat(chatId, "demoModePlain", "示例-单次直答", "show image");
 
         Map<String, Object> queryLine = new LinkedHashMap<>();
         queryLine.put("_type", "query");

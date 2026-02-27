@@ -9,6 +9,7 @@ public class ChatWindowMemoryProperties {
     private int k = 20;
     private String charset = "UTF-8";
     private java.util.List<String> actionTools = java.util.List.of();
+    private IndexProperties index = new IndexProperties();
 
     public String getDir() {
         return dir;
@@ -40,5 +41,25 @@ public class ChatWindowMemoryProperties {
 
     public void setActionTools(java.util.List<String> actionTools) {
         this.actionTools = actionTools == null ? java.util.List.of() : java.util.List.copyOf(actionTools);
+    }
+
+    public IndexProperties getIndex() {
+        return index;
+    }
+
+    public void setIndex(IndexProperties index) {
+        this.index = index == null ? new IndexProperties() : index;
+    }
+
+    public static class IndexProperties {
+        private String sqliteFile = "chats.db";
+
+        public String getSqliteFile() {
+            return sqliteFile;
+        }
+
+        public void setSqliteFile(String sqliteFile) {
+            this.sqliteFile = sqliteFile;
+        }
     }
 }

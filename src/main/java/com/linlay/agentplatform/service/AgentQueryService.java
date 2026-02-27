@@ -71,14 +71,16 @@ public class AgentQueryService {
     }
 
     public QuerySession prepare(QueryRequest request) {
-        Agent agent = resolveAgent(request.agentKey());
         String chatId = parseOrGenerateUuid(request.chatId(), "chatId");
+        String boundAgentKey = chatRecordStore.findBoundAgentKey(chatId).orElse(null);
+        Agent agent = resolveAgent(StringUtils.hasText(boundAgentKey) ? boundAgentKey : request.agentKey());
         String runId = UUID.randomUUID().toString();
         String requestId = StringUtils.hasText(request.requestId())
                 ? request.requestId().trim()
                 : runId;
         String role = StringUtils.hasText(request.role()) ? request.role().trim() : "user";
-        Map<String, Object> querySnapshot = buildQuerySnapshot(request, requestId, chatId, role);
+        String effectiveAgentKey = agent.id();
+        Map<String, Object> querySnapshot = buildQuerySnapshot(request, requestId, chatId, role, effectiveAgentKey);
         ChatRecordStore.ChatSummary summary = chatRecordStore.ensureChat(
                 chatId,
                 agent.id(),
@@ -92,7 +94,7 @@ public class AgentQueryService {
                 chatId,
                 role,
                 request.message(),
-                request.agentKey(),
+                effectiveAgentKey,
                 request.references() == null ? null : request.references().stream().map(value -> (Object) value).toList(),
                 queryParams,
                 serializeScene(request.scene()),
@@ -114,8 +116,45 @@ public class AgentQueryService {
     public Flux<ServerSentEvent<String>> stream(QuerySession session) {
         Flux<AgentDelta> deltas = session.agent().stream(session.agentRequest());
         Flux<StreamInput> inputs = new AgentDeltaToStreamInputMapper(session.request().runId(), toolRegistry).map(deltas);
+        StringBuilder assistantContent = new StringBuilder();
+        boolean[] completed = {false};
         return streamSseStreamer.stream(session.request(), inputs)
                 .map(this::normalizeEvent)
+                .doOnNext(event -> {
+                    if (event == null || !StringUtils.hasText(event.data())) {
+                        return;
+                    }
+                    JsonNode node;
+                    try {
+                        node = objectMapper.readTree(event.data());
+                    } catch (Exception ignored) {
+                        return;
+                    }
+                    String type = node.path("type").asText(null);
+                    if ("content.delta".equals(type)) {
+                        String delta = node.path("delta").asText("");
+                        if (StringUtils.hasText(delta)) {
+                            assistantContent.append(delta);
+                        }
+                    } else if ("content.snapshot".equals(type)) {
+                        String text = node.path("text").asText("");
+                        if (StringUtils.hasText(text)) {
+                            assistantContent.setLength(0);
+                            assistantContent.append(text);
+                        }
+                    } else if ("run.complete".equals(type) && !completed[0]) {
+                        completed[0] = true;
+                        long completedAt = node.path("timestamp").asLong(System.currentTimeMillis());
+                        String assistantText = assistantContent.toString().trim();
+                        chatRecordStore.onRunCompleted(new ChatRecordStore.RunCompletion(
+                                session.request().chatId(),
+                                session.request().runId(),
+                                StringUtils.hasText(assistantText) ? assistantText : null,
+                                session.request().message(),
+                                completedAt
+                        ));
+                    }
+                })
                 .doOnNext(event -> {
                     String eventType = extractEventType(event.data());
                     if (!isToolEvent(eventType)) {
@@ -321,12 +360,13 @@ public class AgentQueryService {
             QueryRequest request,
             String requestId,
             String chatId,
-            String role
+            String role,
+            String effectiveAgentKey
     ) {
         Map<String, Object> snapshot = new LinkedHashMap<>();
         snapshot.put("requestId", requestId);
         snapshot.put("chatId", chatId);
-        snapshot.put("agentKey", StringUtils.hasText(request.agentKey()) ? request.agentKey().trim() : null);
+        snapshot.put("agentKey", effectiveAgentKey);
         snapshot.put("role", role);
         snapshot.put("message", request.message());
         snapshot.put("references", request.references());

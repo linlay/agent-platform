@@ -4,6 +4,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linlay.agentplatform.memory.ChatWindowMemoryProperties;
 import com.linlay.agentplatform.config.ViewportCatalogProperties;
+import com.linlay.agentplatform.service.ChatRecordStore;
 import com.linlay.agentplatform.service.FrontendSubmitCoordinator;
 import com.linlay.agentplatform.service.LlmService;
 import com.linlay.agentplatform.service.ViewportRegistryService;
@@ -45,6 +46,7 @@ import static org.assertj.core.api.Assertions.assertThat;
                 "agent.providers.siliconflow.model=test-siliconflow-model",
                 "agent.auth.enabled=false",
                 "memory.chat.dir=${java.io.tmpdir}/springai-agent-platform-test-chats-${random.uuid}",
+                "memory.chat.index.sqlite-file=${java.io.tmpdir}/springai-agent-platform-test-chats-db-${random.uuid}/chats.db",
                 "agent.viewport.external-dir=${java.io.tmpdir}/springai-agent-platform-test-viewports-${random.uuid}",
                 "agent.capability.tools-external-dir=${java.io.tmpdir}/springai-agent-platform-test-tools-${random.uuid}",
                 "agent.skill.external-dir=${java.io.tmpdir}/springai-agent-platform-test-skills-${random.uuid}",
@@ -65,6 +67,8 @@ class AgentControllerTest {
     private ViewportRegistryService viewportRegistryService;
     @Autowired
     private ChatWindowMemoryProperties chatWindowMemoryProperties;
+    @Autowired
+    private ChatRecordStore chatRecordStore;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -458,6 +462,50 @@ class AgentControllerTest {
     }
 
     @Test
+    void agentChatsAndAgentReadsApisShouldWork() {
+        FluxExchangeResult<String> result = webTestClient.post()
+                .uri("/api/ap/query")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(Map.of(
+                        "agentKey", "demoModePlain",
+                        "message", "agent list smoke"
+                ))
+                .exchange()
+                .expectStatus().isOk()
+                .returnResult(String.class);
+
+        List<String> chunks = result.getResponseBody()
+                .take(800)
+                .collectList()
+                .block(Duration.ofSeconds(8));
+        assertThat(chunks).isNotNull();
+
+        webTestClient.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/api/ap/agent-chats")
+                        .queryParam("sort", "INVALID_SORT")
+                        .build())
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo(0)
+                .jsonPath("$.data[0].agentKey").isEqualTo("demoModePlain")
+                .jsonPath("$.data[0].latestChatContent").isNotEmpty()
+                .jsonPath("$.data[0].unreadChatCount").isNumber();
+
+        webTestClient.post()
+                .uri("/api/ap/agent-reads")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(Map.of("agentKey", "demoModePlain"))
+                .exchange()
+                .expectStatus().isOk()
+                .expectBody()
+                .jsonPath("$.code").isEqualTo(0)
+                .jsonPath("$.data.agentKey").isEqualTo("demoModePlain")
+                .jsonPath("$.data.unreadChatCount").isEqualTo(0);
+    }
+
+    @Test
     void chatShouldRejectInvalidChatId() {
         webTestClient.get()
                 .uri(uriBuilder -> uriBuilder
@@ -551,14 +599,7 @@ class AgentControllerTest {
         String chatId = "123e4567-e89b-12d3-a456-426614174088";
         Path chatDir = Path.of(chatWindowMemoryProperties.getDir());
         Files.createDirectories(chatDir);
-
-        writeJsonLine(chatDir.resolve("_chats.jsonl"), Map.of(
-                "chatId", chatId,
-                "chatName", "计划会话",
-                "firstAgentKey", "demoModePlanExecute",
-                "createdAt", 1707000600000L,
-                "updatedAt", 1707000600000L
-        ));
+        chatRecordStore.ensureChat(chatId, "demoModePlanExecute", "示例-先规划后执行", "测试计划");
 
         Map<String, Object> queryLine = new LinkedHashMap<>();
         queryLine.put("_type", "query");
@@ -639,14 +680,7 @@ class AgentControllerTest {
         String chatId = "123e4567-e89b-12d3-a456-426614174089";
         Path chatDir = Path.of(chatWindowMemoryProperties.getDir());
         Files.createDirectories(chatDir);
-
-        writeJsonLine(chatDir.resolve("_chats.jsonl"), Map.of(
-                "chatId", chatId,
-                "chatName", "计划会话",
-                "firstAgentKey", "demoModePlanExecute",
-                "createdAt", 1707000700000L,
-                "updatedAt", 1707000700000L
-        ));
+        chatRecordStore.ensureChat(chatId, "demoModePlanExecute", "示例-先规划后执行", "初始化计划");
 
         Map<String, Object> queryLine = new LinkedHashMap<>();
         queryLine.put("_type", "query");

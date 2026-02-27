@@ -34,6 +34,7 @@ import org.springframework.test.web.reactive.server.WebTestClient;
         "agent.auth.enabled=true",
         "agent.auth.issuer=https://auth.example.local",
         "memory.chat.dir=${java.io.tmpdir}/springai-agent-platform-auth-local-offline-test-chats-${random.uuid}",
+        "memory.chat.index.sqlite-file=${java.io.tmpdir}/springai-agent-platform-auth-local-offline-test-chats-db-${random.uuid}/chats.db",
         "agent.viewport.external-dir=${java.io.tmpdir}/springai-agent-platform-auth-local-offline-test-viewports-${random.uuid}",
         "agent.capability.tools-external-dir=${java.io.tmpdir}/springai-agent-platform-auth-local-offline-test-tools-${random.uuid}",
         "agent.skill.external-dir=${java.io.tmpdir}/springai-agent-platform-auth-local-offline-test-skills-${random.uuid}"

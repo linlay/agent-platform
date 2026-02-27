@@ -3,6 +3,12 @@ package com.linlay.agentplatform.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.linlay.agentplatform.config.FrontendToolProperties;
+import com.linlay.agentplatform.agent.Agent;
+import com.linlay.agentplatform.agent.AgentRegistry;
+import com.linlay.agentplatform.model.AgentRequest;
+import com.linlay.agentplatform.model.AgentDelta;
+import com.linlay.agentplatform.model.api.QueryRequest;
+import com.linlay.agentplatform.stream.model.StreamRequest;
 import com.linlay.agentplatform.model.ViewportType;
 import com.linlay.agentplatform.tool.CapabilityDescriptor;
 import com.linlay.agentplatform.tool.CapabilityKind;
@@ -10,13 +16,18 @@ import com.linlay.agentplatform.tool.ToolRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.test.util.ReflectionTestUtils;
+import reactor.core.publisher.Flux;
 
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class AgentQueryServiceTest {
@@ -134,6 +145,71 @@ class AgentQueryServiceTest {
         assertThat(payload.path("toolType").asText()).isEqualTo("qlc");
         assertThat(payload.path("toolKey").asText()).isEqualTo("confirm_dialog");
         assertThat(payload.path("toolTimeout").asLong()).isEqualTo(30_000L);
+    }
+
+    @Test
+    void prepareShouldPreferBoundAgentWhenChatAlreadyBound() {
+        AgentRegistry agentRegistry = mock(AgentRegistry.class);
+        Agent boundAgent = mock(Agent.class);
+        when(boundAgent.id()).thenReturn("bound-agent");
+        when(boundAgent.name()).thenReturn("Bound Agent");
+        when(agentRegistry.get("bound-agent")).thenReturn(boundAgent);
+
+        ChatRecordStore chatRecordStore = mock(ChatRecordStore.class);
+        String chatId = UUID.randomUUID().toString();
+        when(chatRecordStore.findBoundAgentKey(chatId)).thenReturn(Optional.of("bound-agent"));
+        when(chatRecordStore.ensureChat(chatId, "bound-agent", "Bound Agent", "hello"))
+                .thenReturn(new ChatRecordStore.ChatSummary(chatId, "hello", "bound-agent", "Bound Agent", 1L, 2L, null, false));
+
+        AgentQueryService service = new AgentQueryService(
+                agentRegistry,
+                mock(com.linlay.agentplatform.stream.service.StreamSseStreamer.class),
+                objectMapper,
+                chatRecordStore,
+                mock(ToolRegistry.class),
+                mock(ViewportRegistryService.class),
+                new FrontendToolProperties()
+        );
+
+        QueryRequest request = new QueryRequest("req-1", chatId, "request-agent", "user", "hello", null, null, null, true);
+        AgentQueryService.QuerySession session = service.prepare(request);
+
+        assertThat(session.agent().id()).isEqualTo("bound-agent");
+        assertThat(session.request().agentKey()).isEqualTo("bound-agent");
+        assertThat(session.agentRequest().query()).containsEntry("agentKey", "bound-agent");
+    }
+
+    @Test
+    void streamShouldReportRunCompletionToChatStore() {
+        Agent agent = mock(Agent.class);
+        when(agent.stream(any(AgentRequest.class))).thenReturn(Flux.<AgentDelta>empty());
+
+        com.linlay.agentplatform.stream.service.StreamSseStreamer streamer = mock(com.linlay.agentplatform.stream.service.StreamSseStreamer.class);
+        when(streamer.stream(any(StreamRequest.class), any())).thenReturn(Flux.just(
+                ServerSentEvent.builder("{\"type\":\"content.delta\",\"delta\":\"hello\"}").build(),
+                ServerSentEvent.builder("{\"type\":\"run.complete\",\"runId\":\"run-1\",\"timestamp\":100}").build()
+        ));
+
+        ChatRecordStore chatRecordStore = mock(ChatRecordStore.class);
+        AgentQueryService service = new AgentQueryService(
+                mock(AgentRegistry.class),
+                streamer,
+                objectMapper,
+                chatRecordStore,
+                mock(ToolRegistry.class),
+                mock(ViewportRegistryService.class),
+                new FrontendToolProperties()
+        );
+
+        AgentQueryService.QuerySession session = new AgentQueryService.QuerySession(
+                agent,
+                new StreamRequest.Query("req-1", UUID.randomUUID().toString(), "user", "fallback", "demo", null, null, null, true, "chat", "run-1"),
+                new AgentRequest("fallback", UUID.randomUUID().toString(), "req-1", "run-1", Map.of())
+        );
+
+        List<ServerSentEvent<String>> events = service.stream(session).collectList().block();
+        assertThat(events).hasSize(2);
+        verify(chatRecordStore).onRunCompleted(any(ChatRecordStore.RunCompletion.class));
     }
 
     private CapabilityDescriptor frontendCapability() {

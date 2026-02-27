@@ -92,6 +92,8 @@ memory:
     k: ${MEMORY_CHAT_K:20}
     charset: ${MEMORY_CHAT_CHARSET:UTF-8}
     action-tools: ${MEMORY_CHAT_ACTION_TOOLS:}
+    index:
+      sqlite-file: ${MEMORY_CHAT_INDEX_SQLITE_FILE:chats.db}
 
 logging:
   level:

@@ -35,3 +35,9 @@ agent:
       shell-executable: bash
       shell-timeout-ms: 10000
       max-command-chars: 16000
+
+memory:
+  chat:
+    dir: ./chats
+    index:
+      sqlite-file: chats.db
