@@ -182,18 +182,6 @@ POST /api/ap/query → AgentController → AgentQueryService → DefinitionDrive
 - `react.maxSteps` 控制 REACT 循环上限。
 - `planExecute.maxSteps` 控制 PLAN_EXECUTE 执行阶段步骤上限。
 
-### 已移除字段（拒绝加载）
-
-以下旧字段出现在 Agent JSON 中会导致该 agent 被拒绝加载：
-
-| 类别 | 被拒绝的字段 |
-|------|------------|
-| 顶层 | `verify`, `output`, `toolPolicy` |
-| 旧结构 | `modelConfig.providerKey`, `modelConfig.model`, `reasoning`（顶层）, `tools`, `deepThink`, `systemPrompt`（顶层） |
-| budget 旧字段 | `maxModelCalls`, `maxToolCalls`, `maxSteps`（budget 内）, `timeoutMs`（budget 内）, `retryCount`（budget 内） |
-| runtimePrompts 旧字段 | `verify`, `finalAnswer`, `oneshot`, `react` |
-| runtimePrompts.planExecute 旧子字段 | `executeToolsTitle`, `planCallableToolsTitle`, `draftInstructionBlock`, `generateInstructionBlockFromDraft`, `generateInstructionBlockDirect`, `taskRequireToolUserPrompt`, `taskMultipleToolsUserPrompt`, `taskUpdateNoProgressUserPrompt`, `taskContinueUserPrompt`, `updateRoundPromptTemplate`, `updateRoundMultipleToolsUserPrompt`, `allStepsCompletedUserPrompt` |
-
 ## Models 目录（内部注册）
 
 - 运行目录：`models/`（默认，可通过 `agent.model.external-dir` 覆盖）。
