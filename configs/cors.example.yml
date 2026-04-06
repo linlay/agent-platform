@@ -1,0 +1,17 @@
+enabled: false
+path-pattern: /api/**
+allowed-origin-patterns:
+  - http://localhost:8081
+allowed-methods:
+  - GET
+  - POST
+  - PUT
+  - PATCH
+  - DELETE
+  - OPTIONS
+allowed-headers:
+  - "*"
+exposed-headers:
+  - Content-Type
+allow-credentials: false
+max-age-seconds: 3600

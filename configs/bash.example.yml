@@ -1,0 +1,35 @@
+# Bash 低权限预设：适合本地联调，限制路径、命令和 shell 特性。
+# Low-privilege bash preset: suitable for local debugging with restricted paths, commands, and shell features.
+working-directory: .
+allowed-paths: ., /tmp
+allowed-commands: ls,pwd,cat,head,tail,top,free,df,git,rg,find
+path-checked-commands: ls,cat,head,tail,git,rg,find
+path-check-bypass-commands: git
+shell-features-enabled: false
+shell-executable: bash
+shell-timeout-ms: 30000
+max-command-chars: 16000
+
+# Bash 高权限预设：扩大命令与路径范围，但仍保持显式白名单与可控边界。
+# High-privilege bash preset: broader command/path coverage while keeping explicit allowlists and guardrails.
+# working-directory: .
+# allowed-paths: ., /tmp, /Users/you/Project, /Users/you/Server
+# allowed-commands: ls,pwd,cat,head,tail,top,free,df,du,ps,git,rg,find,grep,wc,sed,awk,cut,sort,uniq,tr,xargs,env,printenv,echo,tee,curl,mkdir,cp,mv,touch
+# path-checked-commands: ls,cat,head,tail,du,git,rg,find,grep,wc,sed,awk,cut,sort,uniq,tr,xargs,mkdir,cp,mv,touch,echo
+# path-check-bypass-commands: git,curl
+# shell-features-enabled: true
+# shell-executable: bash
+# shell-timeout-ms: 20000
+# max-command-chars: 24000
+
+# Bash 危险全开预设（Dangerous Open）：允许任意命令与任意路径，仅适合完全信任调用方的隔离环境。
+# Bash dangerous-open preset: arbitrary commands and paths; only for isolated environments where the caller is fully trusted.
+# working-directory: .
+# allowed-paths: /
+# allowed-commands: '*'
+# path-checked-commands: '*'
+# path-check-bypass-commands: '*'
+# shell-features-enabled: true
+# shell-executable: bash
+# shell-timeout-ms: 30000
+# max-command-chars: 32000

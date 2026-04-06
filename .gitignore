@@ -1,0 +1,62 @@
+# Build outputs
+dist/
+out/
+/release/
+/release-local/
+target/
+
+# Go build artifacts
+agent-platform-runner
+*.test
+*.out
+coverage.out
+
+# Runtime generated directories (generated/overridden locally)
+/runtime/
+/agents/
+/teams/
+/chats/
+/data/
+/models/
+/mcp-servers/
+/providers/
+/skills/
+/schedules/
+/tools/
+/viewports/
+/memory/
+/pan/
+
+# Local config/secrets
+.env
+/application.yaml
+/application.yml
+/configs/*.yml
+/configs/*.yaml
+/configs/*.pem
+/configs/**/*.yml
+/configs/**/*.yaml
+/configs/**/*.pem
+!/configs/*.example.yml
+!/configs/*.example.yaml
+!/configs/*.example.pem
+!/configs/**/*.example.yml
+!/configs/**/*.example.yaml
+!/configs/**/*.example.pem
+
+# IDE/Editor
+.classpath
+.idea/
+.project
+.settings/
+.vscode/
+*.iml
+
+# OS / local assistant files
+.DS_Store
+Thumbs.db
+AGENTS.md
+
+# Logs
+*.log
+logs/

@@ -1,0 +1,628 @@
+package catalog
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+
+	"agent-platform-runner-go/internal/api"
+	"agent-platform-runner-go/internal/config"
+)
+
+type Registry interface {
+	Agents(tag string) []api.AgentSummary
+	Teams() []api.TeamSummary
+	Skills(tag string) []api.SkillSummary
+	Tools(kind string, tag string) []api.ToolSummary
+	Tool(name string) (api.ToolDetailResponse, bool)
+	DefaultAgentKey() string
+	AgentDefinition(key string) (AgentDefinition, bool)
+	TeamDefinition(teamID string) (TeamDefinition, bool)
+	Reload(ctx context.Context, reason string) error
+}
+
+type AgentDefinition struct {
+	Key           string
+	Name          string
+	Icon          any
+	Description   string
+	Role          string
+	ModelKey      string
+	Mode          string
+	Tools         []string
+	Skills        []string
+	Sandbox       map[string]any
+	ReactMaxSteps int
+}
+
+type TeamDefinition struct {
+	TeamID          string
+	Name            string
+	Icon            any
+	AgentKeys       []string
+	DefaultAgentKey string
+}
+
+type SkillDefinition struct {
+	Key             string
+	Name            string
+	Description     string
+	Prompt          string
+	PromptTruncated bool
+}
+
+type FileRegistry struct {
+	cfg   config.Config
+	tools []api.ToolDetailResponse
+
+	mu     sync.RWMutex
+	agents map[string]AgentDefinition
+	teams  map[string]TeamDefinition
+	skills map[string]SkillDefinition
+}
+
+func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*FileRegistry, error) {
+	registry := &FileRegistry{
+		cfg:    cfg,
+		tools:  append(append([]api.ToolDetailResponse(nil), toolDefs...), confirmDialogTool()),
+		agents: map[string]AgentDefinition{},
+		teams:  map[string]TeamDefinition{},
+		skills: map[string]SkillDefinition{},
+	}
+	if err := registry.Reload(context.Background(), "startup"); err != nil {
+		return nil, err
+	}
+	return registry, nil
+}
+
+func (r *FileRegistry) Reload(_ context.Context, _ string) error {
+	agents, err := loadAgents(r.cfg.Paths.AgentsDir)
+	if err != nil {
+		return err
+	}
+	teams, err := loadTeams(r.cfg.Paths.TeamsDir)
+	if err != nil {
+		return err
+	}
+	skills, err := loadSkills(r.cfg.Paths.SkillsMarketDir, r.cfg.Skills.MaxPromptChars)
+	if err != nil {
+		return err
+	}
+
+	r.mu.Lock()
+	r.agents = agents
+	r.teams = teams
+	r.skills = skills
+	r.mu.Unlock()
+	return nil
+}
+
+func (r *FileRegistry) Agents(tag string) []api.AgentSummary {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	keys := sortedKeys(r.agents)
+	items := make([]api.AgentSummary, 0, len(keys))
+	needle := strings.ToLower(strings.TrimSpace(tag))
+	for _, key := range keys {
+		def := r.agents[key]
+		summary := api.AgentSummary{
+			Key:         def.Key,
+			Name:        def.Name,
+			Icon:        def.Icon,
+			Description: def.Description,
+			Role:        def.Role,
+			Meta: map[string]any{
+				"model":  def.ModelKey,
+				"mode":   def.Mode,
+				"tools":  append([]string(nil), def.Tools...),
+				"skills": append([]string(nil), def.Skills...),
+			},
+		}
+		if def.Sandbox != nil {
+			summary.Meta["sandbox"] = def.Sandbox
+		}
+		if needle != "" && !matchesAgentTag(summary, needle) {
+			continue
+		}
+		items = append(items, summary)
+	}
+	return items
+}
+
+func (r *FileRegistry) Teams() []api.TeamSummary {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	agentKeys := sortedKeys(r.agents)
+	agentsByID := make(map[string]AgentDefinition, len(agentKeys))
+	for _, key := range agentKeys {
+		agentsByID[key] = r.agents[key]
+	}
+
+	keys := sortedKeys(r.teams)
+	items := make([]api.TeamSummary, 0, len(keys))
+	for _, key := range keys {
+		team := r.teams[key]
+		invalidAgentKeys := make([]string, 0)
+		icon := team.Icon
+		for _, agentKey := range team.AgentKeys {
+			agent, ok := agentsByID[agentKey]
+			if !ok {
+				invalidAgentKeys = append(invalidAgentKeys, agentKey)
+				continue
+			}
+			if icon == nil {
+				icon = agent.Icon
+			}
+		}
+		defaultValid := team.DefaultAgentKey != "" && containsString(team.AgentKeys, team.DefaultAgentKey) && agentsByID[team.DefaultAgentKey].Key != ""
+		items = append(items, api.TeamSummary{
+			TeamID:    team.TeamID,
+			Name:      team.Name,
+			Icon:      icon,
+			AgentKeys: append([]string(nil), team.AgentKeys...),
+			Meta: map[string]any{
+				"invalidAgentKeys":     invalidAgentKeys,
+				"defaultAgentKey":      team.DefaultAgentKey,
+				"defaultAgentKeyValid": defaultValid,
+			},
+		})
+	}
+	return items
+}
+
+func (r *FileRegistry) Skills(tag string) []api.SkillSummary {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	needle := strings.ToLower(strings.TrimSpace(tag))
+	keys := sortedKeys(r.skills)
+	items := make([]api.SkillSummary, 0, len(keys))
+	for _, key := range keys {
+		skill := r.skills[key]
+		if needle != "" && !matchesSkillTag(skill, needle) {
+			continue
+		}
+		items = append(items, api.SkillSummary{
+			Key:         skill.Key,
+			Name:        skill.Name,
+			Description: skill.Description,
+			Meta: map[string]any{
+				"promptTruncated": skill.PromptTruncated,
+			},
+		})
+	}
+	return items
+}
+
+func (r *FileRegistry) Tools(kind string, tag string) []api.ToolSummary {
+	needleKind := strings.ToLower(strings.TrimSpace(kind))
+	needleTag := strings.ToLower(strings.TrimSpace(tag))
+	items := make([]api.ToolSummary, 0, len(r.tools))
+	for _, tool := range r.tools {
+		metaKind, _ := tool.Meta["kind"].(string)
+		if needleKind != "" && strings.ToLower(metaKind) != needleKind {
+			continue
+		}
+		if needleTag != "" && !matchesToolTag(tool, needleTag) {
+			continue
+		}
+		items = append(items, api.ToolSummary{
+			Key:         tool.Key,
+			Name:        tool.Name,
+			Label:       tool.Label,
+			Description: tool.Description,
+			Meta:        cloneMap(tool.Meta),
+		})
+	}
+	return items
+}
+
+func (r *FileRegistry) Tool(name string) (api.ToolDetailResponse, bool) {
+	needle := strings.TrimSpace(strings.ToLower(name))
+	for _, tool := range r.tools {
+		if strings.ToLower(tool.Name) == needle || strings.ToLower(tool.Key) == needle {
+			return api.ToolDetailResponse{
+				Key:           tool.Key,
+				Name:          tool.Name,
+				Label:         tool.Label,
+				Description:   tool.Description,
+				AfterCallHint: tool.AfterCallHint,
+				Parameters:    cloneMap(tool.Parameters),
+				Meta:          cloneMap(tool.Meta),
+			}, true
+		}
+	}
+	return api.ToolDetailResponse{}, false
+}
+
+func (r *FileRegistry) DefaultAgentKey() string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	keys := sortedKeys(r.agents)
+	if len(keys) == 0 {
+		return ""
+	}
+	return keys[0]
+}
+
+func (r *FileRegistry) AgentDefinition(key string) (AgentDefinition, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	def, ok := r.agents[key]
+	return def, ok
+}
+
+func (r *FileRegistry) TeamDefinition(teamID string) (TeamDefinition, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	def, ok := r.teams[teamID]
+	return def, ok
+}
+
+func loadAgents(root string) (map[string]AgentDefinition, error) {
+	items := map[string]AgentDefinition{}
+	entries, err := os.ReadDir(root)
+	if os.IsNotExist(err) {
+		return items, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if strings.HasPrefix(name, ".") {
+			continue
+		}
+		if entry.IsDir() {
+			path := filepath.Join(root, name, "agent.yml")
+			if _, err := os.Stat(path); err != nil {
+				continue
+			}
+			def, err := parseAgentFile(path)
+			if err != nil {
+				continue
+			}
+			if def.Key != name {
+				continue
+			}
+			items[def.Key] = def
+			continue
+		}
+		if !strings.HasSuffix(name, ".yml") && !strings.HasSuffix(name, ".yaml") {
+			continue
+		}
+		def, err := parseAgentFile(filepath.Join(root, name))
+		if err != nil {
+			continue
+		}
+		items[def.Key] = def
+	}
+	return items, nil
+}
+
+func loadTeams(root string) (map[string]TeamDefinition, error) {
+	items := map[string]TeamDefinition{}
+	entries, err := os.ReadDir(root)
+	if os.IsNotExist(err) {
+		return items, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yml") {
+			continue
+		}
+		path := filepath.Join(root, entry.Name())
+		def, err := parseTeamFile(path)
+		if err != nil {
+			continue
+		}
+		items[def.TeamID] = def
+	}
+	return items, nil
+}
+
+func loadSkills(root string, maxPromptChars int) (map[string]SkillDefinition, error) {
+	items := map[string]SkillDefinition{}
+	entries, err := os.ReadDir(root)
+	if os.IsNotExist(err) {
+		return items, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		skillPath := filepath.Join(root, entry.Name(), "SKILL.md")
+		content, err := os.ReadFile(skillPath)
+		if err != nil {
+			continue
+		}
+		prompt := strings.TrimSpace(string(content))
+		description := firstNonEmptyMarkdownLine(prompt)
+		truncated := false
+		if maxPromptChars > 0 && len(prompt) > maxPromptChars {
+			truncated = true
+		}
+		items[entry.Name()] = SkillDefinition{
+			Key:             entry.Name(),
+			Name:            skillDisplayName(description, entry.Name()),
+			Description:     description,
+			Prompt:          prompt,
+			PromptTruncated: truncated,
+		}
+	}
+	return items, nil
+}
+
+func parseAgentFile(path string) (AgentDefinition, error) {
+	tree, err := config.LoadYAMLTree(path)
+	if err != nil {
+		return AgentDefinition{}, err
+	}
+	root, ok := tree.(map[string]any)
+	if !ok {
+		return AgentDefinition{}, fmt.Errorf("agent file must be a map")
+	}
+	def := AgentDefinition{
+		Key:         stringNode(root["key"]),
+		Name:        stringNode(root["name"]),
+		Icon:        root["icon"],
+		Description: stringNode(root["description"]),
+		Role:        stringNode(root["role"]),
+		Mode:        strings.ToUpper(defaultString(stringNode(root["mode"]), "ONESHOT")),
+	}
+	modelConfig := mapNode(root["modelConfig"])
+	def.ModelKey = stringNode(modelConfig["modelKey"])
+	toolConfig := mapNode(root["toolConfig"])
+	def.Tools = append(def.Tools, listStrings(toolConfig["backends"])...)
+	def.Tools = append(def.Tools, listStrings(toolConfig["frontends"])...)
+	def.Tools = append(def.Tools, listStrings(toolConfig["actions"])...)
+	def.Skills = listStrings(mapNode(root["skillConfig"])["skills"])
+	sandboxConfig := mapNode(root["sandboxConfig"])
+	if len(sandboxConfig) > 0 {
+		def.Sandbox = map[string]any{
+			"environmentId": stringNode(sandboxConfig["environmentId"]),
+			"level":         strings.ToLower(stringNode(sandboxConfig["level"])),
+		}
+		if mounts := listMaps(sandboxConfig["extraMounts"]); len(mounts) > 0 {
+			def.Sandbox["extraMounts"] = mounts
+		}
+	}
+	def.ReactMaxSteps = intNode(mapNode(root["react"])["maxSteps"])
+	if def.Key == "" {
+		return AgentDefinition{}, fmt.Errorf("agent key is required")
+	}
+	if def.Name == "" {
+		def.Name = def.Key
+	}
+	if def.Description == "" {
+		def.Description = def.Key
+	}
+	if def.Role == "" {
+		def.Role = def.Name
+	}
+	return def, nil
+}
+
+func parseTeamFile(path string) (TeamDefinition, error) {
+	tree, err := config.LoadYAMLTree(path)
+	if err != nil {
+		return TeamDefinition{}, err
+	}
+	root, ok := tree.(map[string]any)
+	if !ok {
+		return TeamDefinition{}, fmt.Errorf("team file must be a map")
+	}
+	base := filepath.Base(path)
+	teamID := strings.TrimSuffix(strings.TrimSuffix(base, ".yaml"), ".yml")
+	return TeamDefinition{
+		TeamID:          teamID,
+		Name:            defaultString(stringNode(root["name"]), teamID),
+		Icon:            root["icon"],
+		AgentKeys:       listStrings(root["agentKeys"]),
+		DefaultAgentKey: stringNode(root["defaultAgentKey"]),
+	}, nil
+}
+
+func sortedKeys[T any](values map[string]T) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func cloneMap(src map[string]any) map[string]any {
+	if src == nil {
+		return nil
+	}
+	dst := make(map[string]any, len(src))
+	for key, value := range src {
+		dst[key] = value
+	}
+	return dst
+}
+
+func matchesAgentTag(agent api.AgentSummary, needle string) bool {
+	if strings.Contains(strings.ToLower(agent.Key), needle) || strings.Contains(strings.ToLower(agent.Name), needle) || strings.Contains(strings.ToLower(agent.Description), needle) || strings.Contains(strings.ToLower(agent.Role), needle) {
+		return true
+	}
+	for _, key := range listStrings(agent.Meta["tools"]) {
+		if strings.Contains(strings.ToLower(key), needle) {
+			return true
+		}
+	}
+	for _, key := range listStrings(agent.Meta["skills"]) {
+		if strings.Contains(strings.ToLower(key), needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func matchesSkillTag(skill SkillDefinition, needle string) bool {
+	return strings.Contains(strings.ToLower(skill.Key), needle) ||
+		strings.Contains(strings.ToLower(skill.Name), needle) ||
+		strings.Contains(strings.ToLower(skill.Description), needle) ||
+		strings.Contains(strings.ToLower(skill.Prompt), needle)
+}
+
+func matchesToolTag(tool api.ToolDetailResponse, needle string) bool {
+	fields := []string{
+		tool.Key,
+		tool.Name,
+		tool.Label,
+		tool.Description,
+		tool.AfterCallHint,
+		stringNode(tool.Meta["kind"]),
+		stringNode(tool.Meta["toolType"]),
+		stringNode(tool.Meta["viewportKey"]),
+	}
+	for _, field := range fields {
+		if strings.Contains(strings.ToLower(field), needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func confirmDialogTool() api.ToolDetailResponse {
+	return api.ToolDetailResponse{
+		Key:         "confirm_dialog",
+		Name:        "confirm_dialog",
+		Label:       "确认对话框",
+		Description: "展示确认对话框并等待用户提交",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"question": map[string]any{"type": "string"},
+			},
+			"required": []string{"question"},
+		},
+		Meta: map[string]any{
+			"kind":        "frontend",
+			"toolType":    "html",
+			"viewportKey": "confirm_dialog",
+			"strict":      true,
+			"sourceType":  "local",
+			"sourceKey":   "confirm_dialog",
+		},
+	}
+}
+
+func stringNode(value any) string {
+	switch v := value.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	case int64:
+		return fmt.Sprintf("%d", v)
+	case int:
+		return fmt.Sprintf("%d", v)
+	default:
+		return ""
+	}
+}
+
+func intNode(value any) int {
+	switch v := value.(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	case string:
+		n, _ := strconv.Atoi(strings.TrimSpace(v))
+		return n
+	default:
+		return 0
+	}
+}
+
+func mapNode(value any) map[string]any {
+	result, _ := value.(map[string]any)
+	return result
+}
+
+func listStrings(value any) []string {
+	switch v := value.(type) {
+	case []any:
+		items := make([]string, 0, len(v))
+		for _, item := range v {
+			if text := stringNode(item); text != "" {
+				items = append(items, text)
+			}
+		}
+		return items
+	case []string:
+		return append([]string(nil), v...)
+	case string:
+		if strings.TrimSpace(v) == "" {
+			return nil
+		}
+		return []string{strings.TrimSpace(v)}
+	default:
+		return nil
+	}
+}
+
+func listMaps(value any) []map[string]any {
+	items, _ := value.([]any)
+	result := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		if entry, ok := item.(map[string]any); ok {
+			result = append(result, entry)
+		}
+	}
+	return result
+}
+
+func containsString(values []string, needle string) bool {
+	for _, value := range values {
+		if strings.EqualFold(value, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func defaultString(value string, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
+}
+
+func firstNonEmptyMarkdownLine(content string) string {
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		line = strings.TrimPrefix(line, "#")
+		line = strings.TrimSpace(line)
+		if line != "" {
+			return line
+		}
+	}
+	return ""
+}
+
+func skillDisplayName(description string, fallback string) string {
+	if description != "" {
+		return description
+	}
+	return fallback
+}

@@ -1,0 +1,60 @@
+services:
+  agent-platform:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: agent-platform-runner-go
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT:-11949}:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    env_file:
+      - .env
+    environment:
+      SERVER_PORT: 8080
+      REGISTRIES_DIR: /opt/registries
+      OWNER_DIR: /opt/owner
+      AGENTS_DIR: /opt/agents
+      TEAMS_DIR: /opt/teams
+      ROOT_DIR: /opt/root
+      SCHEDULES_DIR: /opt/schedules
+      CHATS_DIR: /opt/chats
+      MEMORY_DIR: /opt/memory
+      PAN_DIR: /opt/pan
+      SKILLS_MARKET_DIR: /opt/skills-market
+    volumes:
+      - type: bind
+        source: ./configs
+        target: /opt/configs
+        read_only: true
+      - type: bind
+        source: ${REGISTRIES_DIR:-./runtime/registries}
+        target: /opt/registries
+      - type: bind
+        source: ${OWNER_DIR:-./runtime/owner}
+        target: /opt/owner
+      - type: bind
+        source: ${AGENTS_DIR:-./runtime/agents}
+        target: /opt/agents
+      - type: bind
+        source: ${TEAMS_DIR:-./runtime/teams}
+        target: /opt/teams
+      - type: bind
+        source: ${ROOT_DIR:-./runtime/root}
+        target: /opt/root
+      - type: bind
+        source: ${SCHEDULES_DIR:-./runtime/schedules}
+        target: /opt/schedules
+      - type: bind
+        source: ${CHATS_DIR:-./runtime/chats}
+        target: /opt/chats
+      - type: bind
+        source: ${MEMORY_DIR:-./runtime/memory}
+        target: /opt/memory
+      - type: bind
+        source: ${PAN_DIR:-./runtime/pan}
+        target: /opt/pan
+      - type: bind
+        source: ${SKILLS_MARKET_DIR:-./runtime/skills-market}
+        target: /opt/skills-market
