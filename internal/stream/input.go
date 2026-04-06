@@ -77,6 +77,12 @@ type ActionResult struct {
 
 func (ActionResult) streamInputTag() {}
 
+type StageMarker struct {
+	Stage string
+}
+
+func (StageMarker) streamInputTag() {}
+
 type PlanUpdate struct {
 	PlanID string
 	Plan   any

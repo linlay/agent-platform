@@ -165,6 +165,9 @@ func (s *SQLiteStore) Write(item api.StoredMemoryResponse) error {
 	if err := s.persistIndex(items); err != nil {
 		return err
 	}
+	if err := AppendJournal(s.root, item); err != nil {
+		return err
+	}
 	payload, err := json.MarshalIndent(item, "", "  ")
 	if err != nil {
 		return err

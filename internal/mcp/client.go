@@ -17,16 +17,24 @@ import (
 type Client struct {
 	registry   *Registry
 	httpClient *http.Client
+	gate       *AvailabilityGate
 }
 
 func NewClient(registry *Registry, httpClient *http.Client) *Client {
+	return NewClientWithGate(registry, httpClient, nil)
+}
+
+func NewClientWithGate(registry *Registry, httpClient *http.Client, gate *AvailabilityGate) *Client {
 	if httpClient == nil {
 		httpClient = &http.Client{}
 	}
-	return &Client{registry: registry, httpClient: httpClient}
+	return &Client{registry: registry, httpClient: httpClient, gate: gate}
 }
 
 func (c *Client) CallTool(ctx context.Context, serverKey string, toolName string, args map[string]any) (map[string]any, error) {
+	if c.gate != nil && !c.gate.Allow(serverKey) {
+		return nil, fmt.Errorf("%w: server %s is temporarily unavailable", engine.ErrMCPCallFailed, serverKey)
+	}
 	server, ok := c.registry.Server(serverKey)
 	if !ok {
 		return nil, fmt.Errorf("%w: server %s not found", engine.ErrMCPCallFailed, serverKey)
@@ -42,6 +50,9 @@ func (c *Client) CallTool(ctx context.Context, serverKey string, toolName string
 }
 
 func (c *Client) ListTools(ctx context.Context, serverKey string) ([]ToolDefinition, error) {
+	if c.gate != nil && !c.gate.Allow(serverKey) {
+		return nil, fmt.Errorf("%w: server %s is temporarily unavailable", engine.ErrMCPCallFailed, serverKey)
+	}
 	server, ok := c.registry.Server(serverKey)
 	if !ok {
 		return nil, fmt.Errorf("%w: server %s not found", engine.ErrMCPCallFailed, serverKey)
@@ -86,6 +97,9 @@ func (c *Client) call(ctx context.Context, server ServerDefinition, method strin
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		if c.gate != nil {
+			c.gate.MarkFailure(server.Key)
+		}
 		return fmt.Errorf("%w: %v", engine.ErrMCPCallFailed, err)
 	}
 	defer resp.Body.Close()
@@ -94,7 +108,13 @@ func (c *Client) call(ctx context.Context, server ServerDefinition, method strin
 		return fmt.Errorf("%w: read response: %v", engine.ErrMCPCallFailed, err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		if c.gate != nil {
+			c.gate.MarkFailure(server.Key)
+		}
 		return fmt.Errorf("%w: status %d: %s", engine.ErrMCPCallFailed, resp.StatusCode, strings.TrimSpace(string(data)))
+	}
+	if c.gate != nil {
+		c.gate.MarkSuccess(server.Key)
 	}
 	observability.Log("mcp.response", map[string]any{
 		"serverKey": server.Key,

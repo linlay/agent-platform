@@ -35,6 +35,7 @@ type ServerConfig struct {
 
 type PathsConfig struct {
 	RegistriesDir   string
+	ToolsDir        string
 	OwnerDir        string
 	AgentsDir       string
 	TeamsDir        string
@@ -224,6 +225,7 @@ func Load() (Config, error) {
 func defaultConfig() Config {
 	paths := PathsConfig{
 		RegistriesDir:   filepath.Join("runtime", "registries"),
+		ToolsDir:        filepath.Join("runtime", "registries", "tools"),
 		OwnerDir:        filepath.Join("runtime", "owner"),
 		AgentsDir:       filepath.Join("runtime", "agents"),
 		TeamsDir:        filepath.Join("runtime", "teams"),
@@ -434,6 +436,7 @@ func (c *Config) applyEnv() {
 	c.Server.Port = stringEnv("SERVER_PORT", c.Server.Port)
 
 	c.Paths.RegistriesDir = pathEnv("REGISTRIES_DIR", c.Paths.RegistriesDir)
+	c.Paths.ToolsDir = pathEnv("TOOLS_DIR", c.Paths.ToolsDir)
 	c.Paths.OwnerDir = pathEnv("OWNER_DIR", c.Paths.OwnerDir)
 	c.Paths.AgentsDir = pathEnv("AGENTS_DIR", c.Paths.AgentsDir)
 	c.Paths.TeamsDir = pathEnv("TEAMS_DIR", c.Paths.TeamsDir)
@@ -545,6 +548,7 @@ func (c *Config) applyEnv() {
 
 func (c *Config) normalize() {
 	c.Paths.RegistriesDir = filepath.Clean(c.Paths.RegistriesDir)
+	c.Paths.ToolsDir = filepath.Clean(c.Paths.ToolsDir)
 	c.Paths.OwnerDir = filepath.Clean(c.Paths.OwnerDir)
 	c.Paths.AgentsDir = filepath.Clean(c.Paths.AgentsDir)
 	c.Paths.TeamsDir = filepath.Clean(c.Paths.TeamsDir)

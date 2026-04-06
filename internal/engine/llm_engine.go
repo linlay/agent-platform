@@ -12,9 +12,11 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/config"
+	"agent-platform-runner-go/internal/observability"
 )
 
 type LLMAgentEngine struct {
@@ -135,6 +137,15 @@ type preparedToolInvocation struct {
 	prelude  []AgentDelta
 }
 
+type runStreamOptions struct {
+	ExecCtx      *ExecutionContext
+	Messages     []openAIMessage
+	ToolNames    []string
+	ModelKey     string
+	MaxSteps     int
+	SystemPrompt string
+}
+
 func NewLLMAgentEngine(cfg config.Config, models *ModelRegistry, tools ToolExecutor, sandbox SandboxClient) *LLMAgentEngine {
 	return NewLLMAgentEngineWithHTTPClient(cfg, models, tools, sandbox, nil)
 }
@@ -157,35 +168,83 @@ func (e *LLMAgentEngine) Stream(ctx context.Context, req api.QueryRequest, sessi
 }
 
 func (e *LLMAgentEngine) newRunStream(ctx context.Context, req api.QueryRequest, session QuerySession, allowToolUse bool) (AgentStream, error) {
-	model, provider, err := e.models.Get(session.ModelKey)
+	return e.newRunStreamWithOptions(ctx, req, session, allowToolUse, runStreamOptions{})
+}
+
+func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.QueryRequest, session QuerySession, allowToolUse bool, options runStreamOptions) (AgentStream, error) {
+	modelKey := session.ModelKey
+	if strings.TrimSpace(options.ModelKey) != "" {
+		modelKey = strings.TrimSpace(options.ModelKey)
+	}
+	model, provider, err := e.models.Get(modelKey)
 	if err != nil {
 		return nil, err
 	}
-	toolSpecs := toOpenAIToolSpecs(filterToolDefinitions(e.tools.Definitions(), session.ToolNames))
-	execCtx := &ExecutionContext{Request: req, Session: session}
-	execCtx.RunControl = RunControlFromContext(ctx)
-
-	stream := &llmRunStream{
-		engine:     e,
-		ctx:        ctx,
-		req:        req,
-		session:    session,
-		runControl: execCtx.RunControl,
-		model:      model,
-		provider:   provider,
-		toolSpecs:  toolSpecs,
-		messages: []openAIMessage{
+	allowedTools := session.ToolNames
+	if options.ToolNames != nil {
+		allowedTools = options.ToolNames
+	}
+	effectiveDefs := applyToolOverrides(filterToolDefinitions(e.tools.Definitions(), allowedTools), session.ToolOverrides)
+	toolSpecs := toOpenAIToolSpecs(effectiveDefs)
+	execCtx := options.ExecCtx
+	if execCtx == nil {
+		execCtx = &ExecutionContext{
+			Request:       req,
+			Session:       session,
+			Budget:        session.ResolvedBudget,
+			StageSettings: session.ResolvedStageSettings,
+			ToolOverrides: cloneToolOverrides(session.ToolOverrides),
+			RunLoopState:  RunLoopStateIdle,
+		}
+	}
+	execCtx.Request = req
+	execCtx.Session = session
+	if execCtx.RunControl == nil {
+		execCtx.RunControl = RunControlFromContext(ctx)
+	}
+	if execCtx.Budget.RunTimeoutMs <= 0 {
+		execCtx.Budget = normalizeBudget(session.ResolvedBudget)
+	}
+	if execCtx.StartedAt.IsZero() {
+		execCtx.StartedAt = time.Now()
+	}
+	if execCtx.RunControl != nil {
+		execCtx.RunControl.TransitionState(RunLoopStateModelStreaming)
+	}
+	messages := options.Messages
+	if len(messages) == 0 {
+		systemPrompt := buildSystemPrompt(session, req, model.Key)
+		if strings.TrimSpace(options.SystemPrompt) != "" {
+			systemPrompt = strings.TrimSpace(options.SystemPrompt)
+		}
+		messages = []openAIMessage{
 			{
 				Role:    "system",
-				Content: buildSystemPrompt(session, req, model.Key),
+				Content: systemPrompt,
 			},
 			{
 				Role:    "user",
 				Content: req.Message,
 			},
-		},
+		}
+	}
+	maxSteps := options.MaxSteps
+	if maxSteps <= 0 {
+		maxSteps = e.resolveMaxSteps()
+	}
+
+	stream := &llmRunStream{
+		engine:       e,
+		ctx:          ctx,
+		req:          req,
+		session:      session,
+		runControl:   execCtx.RunControl,
+		model:        model,
+		provider:     provider,
+		toolSpecs:    toolSpecs,
+		messages:     append([]openAIMessage(nil), messages...),
 		execCtx:      execCtx,
-		maxSteps:     e.resolveMaxSteps(),
+		maxSteps:     maxSteps,
 		allowToolUse: allowToolUse,
 	}
 	if !stream.allowToolUse {
@@ -292,10 +351,20 @@ func (s *llmRunStream) prepareNextTurn() error {
 	if len(s.pending) > 0 {
 		return nil
 	}
+	if err := s.checkBudgetBeforeModelCall(); err != nil {
+		s.pending = append(s.pending, DeltaError{Error: err})
+		s.finished = true
+		return nil
+	}
+	if s.runControl != nil {
+		s.runControl.TransitionState(RunLoopStateModelStreaming)
+	}
+	s.execCtx.RunLoopState = RunLoopStateModelStreaming
 	turn, err := s.engine.openProviderStream(s.ctx, s.provider, s.model, s.messages, s.toolSpecs)
 	if err != nil {
 		return err
 	}
+	s.execCtx.ModelCalls++
 	s.currentTurn = turn
 	s.step++
 	return nil
@@ -404,12 +473,13 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		return nil
 	}
 	if !s.allowToolUse {
-		s.pending = append(s.pending, DeltaError{Error: map[string]any{
-			"code":     "tool_calls_not_allowed",
-			"message":  "tool calls are not allowed in ONESHOT mode",
-			"scope":    "run",
-			"category": "runtime",
-		}})
+		s.pending = append(s.pending, DeltaError{Error: NewErrorPayload(
+			"tool_calls_not_allowed",
+			"tool calls are not allowed in ONESHOT mode",
+			ErrorScopeRun,
+			ErrorCategorySystem,
+			nil,
+		)})
 		s.finished = true
 		return nil
 	}
@@ -508,6 +578,11 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 
 	s.execCtx.CurrentToolID = invocation.toolID
 	s.execCtx.CurrentToolName = invocation.toolName
+	s.execCtx.RunLoopState = RunLoopStateToolExecuting
+	if s.runControl != nil {
+		s.runControl.TransitionState(RunLoopStateToolExecuting)
+	}
+	s.execCtx.ToolCalls++
 	defer func() {
 		s.execCtx.CurrentToolID = ""
 		s.execCtx.CurrentToolName = ""
@@ -527,12 +602,65 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 		ToolName: invocation.toolName,
 		Result:   result,
 	})
+	if published, ok := result.Structured["publishedArtifacts"].([]map[string]any); ok {
+		for _, item := range published {
+			s.pending = append(s.pending, DeltaArtifactPublish{
+				ArtifactID: anyStringNode(item["artifactId"]),
+				ChatID:     s.session.ChatID,
+				RunID:      s.session.RunID,
+				Artifact:   item,
+			})
+		}
+	} else if published, ok := result.Structured["publishedArtifacts"].([]any); ok {
+		for _, raw := range published {
+			item, _ := raw.(map[string]any)
+			if len(item) == 0 {
+				continue
+			}
+			s.pending = append(s.pending, DeltaArtifactPublish{
+				ArtifactID: anyStringNode(item["artifactId"]),
+				ChatID:     s.session.ChatID,
+				RunID:      s.session.RunID,
+				Artifact:   item,
+			})
+		}
+	}
 	s.messages = append(s.messages, openAIMessage{
 		Role:       "tool",
 		ToolCallID: invocation.toolID,
 		Name:       invocation.toolName,
 		Content:    result.Output,
 	})
+	return nil
+}
+
+func (s *llmRunStream) checkBudgetBeforeModelCall() map[string]any {
+	budget := normalizeBudget(s.execCtx.Budget)
+	if budget.RunTimeoutMs > 0 && time.Since(s.execCtx.StartedAt) > budget.RunTimeout() {
+		return NewErrorPayload(
+			"run_timeout",
+			"run exceeded configured timeout",
+			ErrorScopeRun,
+			ErrorCategoryTimeout,
+			map[string]any{
+				"elapsedMs": time.Since(s.execCtx.StartedAt).Milliseconds(),
+				"timeoutMs": budget.RunTimeoutMs,
+			},
+		)
+	}
+	if budget.Model.MaxCalls > 0 && s.execCtx.ModelCalls >= budget.Model.MaxCalls {
+		return NewErrorPayload(
+			"model_calls_exceeded",
+			"model call budget exceeded",
+			ErrorScopeModel,
+			ErrorCategoryModel,
+			map[string]any{
+				"modelCalls": s.execCtx.ModelCalls,
+				"limitValue": budget.Model.MaxCalls,
+				"limitName":  "model.maxCalls",
+			},
+		)
+	}
 	return nil
 }
 
@@ -595,7 +723,7 @@ func (s *llmRunStream) preToolInvocationDeltas(toolID string, toolName string, p
 }
 
 func (s *llmRunStream) lookupToolDefinition(toolName string) (api.ToolDetailResponse, bool) {
-	for _, tool := range s.engine.tools.Definitions() {
+	for _, tool := range applyToolOverrides(s.engine.tools.Definitions(), s.execCtx.ToolOverrides) {
 		if strings.EqualFold(strings.TrimSpace(tool.Name), strings.TrimSpace(toolName)) {
 			return tool, true
 		}
@@ -604,6 +732,69 @@ func (s *llmRunStream) lookupToolDefinition(toolName string) (api.ToolDetailResp
 		}
 	}
 	return api.ToolDetailResponse{}, false
+}
+
+func applyToolOverrides(defs []api.ToolDetailResponse, overrides map[string]api.ToolDetailResponse) []api.ToolDetailResponse {
+	if len(overrides) == 0 {
+		return defs
+	}
+	out := make([]api.ToolDetailResponse, 0, len(defs))
+	for _, def := range defs {
+		override, ok := overrides[normalizeOverrideKey(def.Name)]
+		if !ok {
+			override, ok = overrides[normalizeOverrideKey(def.Key)]
+		}
+		if !ok {
+			out = append(out, def)
+			continue
+		}
+		out = append(out, mergeToolOverride(def, override))
+	}
+	return out
+}
+
+func mergeToolOverride(base api.ToolDetailResponse, override api.ToolDetailResponse) api.ToolDetailResponse {
+	merged := cloneToolDefinition(base)
+	if strings.TrimSpace(override.Key) != "" {
+		merged.Key = override.Key
+	}
+	if strings.TrimSpace(override.Name) != "" {
+		merged.Name = override.Name
+	}
+	if strings.TrimSpace(override.Label) != "" {
+		merged.Label = override.Label
+	}
+	if strings.TrimSpace(override.Description) != "" {
+		merged.Description = override.Description
+	}
+	if strings.TrimSpace(override.AfterCallHint) != "" {
+		merged.AfterCallHint = override.AfterCallHint
+	}
+	if len(override.Parameters) > 0 {
+		merged.Parameters = cloneAnyMap(override.Parameters)
+	}
+	if len(merged.Meta) == 0 {
+		merged.Meta = map[string]any{}
+	}
+	for key, value := range override.Meta {
+		merged.Meta[key] = value
+	}
+	return merged
+}
+
+func cloneToolOverrides(src map[string]api.ToolDetailResponse) map[string]api.ToolDetailResponse {
+	if src == nil {
+		return nil
+	}
+	out := make(map[string]api.ToolDetailResponse, len(src))
+	for key, value := range src {
+		out[key] = cloneToolDefinition(value)
+	}
+	return out
+}
+
+func normalizeOverrideKey(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
 }
 
 func (t *providerTurnStream) appendToolDelta(delta openAIStreamToolDelta) {
@@ -742,7 +933,7 @@ func (e *LLMAgentEngine) logParsedToolDelta(runID string, delta openAIStreamTool
 }
 
 func (e *LLMAgentEngine) maskLogText(text string) string {
-	normalized := strings.ReplaceAll(strings.TrimSpace(text), "\n", "\\n")
+	normalized := observability.SanitizeLog(strings.ReplaceAll(strings.TrimSpace(text), "\n", "\\n"))
 	if normalized == "" {
 		return `""`
 	}

@@ -172,12 +172,16 @@ func (s *FileStore) LoadChat(chatID string) (Detail, error) {
 		return Detail{}, err
 	}
 
+	plan, artifact := deriveRunState(events)
+
 	return Detail{
 		ChatID:      summary.ChatID,
 		ChatName:    summary.ChatName,
 		Events:      events,
 		RawMessages: rawMessages,
 		References:  nil,
+		Plan:        plan,
+		Artifact:    artifact,
 	}, nil
 }
 
@@ -214,6 +218,56 @@ func cloneEventMap(event map[string]any) map[string]any {
 		copy[key] = value
 	}
 	return copy
+}
+
+func deriveRunState(events []map[string]any) (*PlanState, *ArtifactState) {
+	var plan *PlanState
+	var artifact *ArtifactState
+	for _, event := range events {
+		eventType, _ := event["type"].(string)
+		switch eventType {
+		case "plan.update":
+			planID, _ := event["planId"].(string)
+			next := &PlanState{PlanID: planID}
+			rawPlan, _ := event["plan"].(map[string]any)
+			if planID == "" && rawPlan != nil {
+				planID, _ = rawPlan["planId"].(string)
+				next.PlanID = planID
+			}
+			rawTasks := event["tasks"]
+			if rawTasks == nil && rawPlan != nil {
+				rawTasks = rawPlan["tasks"]
+			}
+			if items, ok := rawTasks.([]any); ok {
+				for _, item := range items {
+					mapped, _ := item.(map[string]any)
+					next.Tasks = append(next.Tasks, PlanTaskState{
+						TaskID:      stringValue(mapped["taskId"]),
+						Description: stringValue(mapped["description"]),
+						Status:      stringValue(mapped["status"]),
+					})
+				}
+			}
+			plan = next
+		case "artifact.publish":
+			if artifact == nil {
+				artifact = &ArtifactState{}
+			}
+			item, _ := event["artifact"].(map[string]any)
+			artifact.Items = append(artifact.Items, ArtifactItemState{
+				ArtifactID: stringValue(event["artifactId"]),
+				Type:       stringValue(item["type"]),
+				Name:       stringValue(item["name"]),
+				URL:        stringValue(item["url"]),
+			})
+		}
+	}
+	return plan, artifact
+}
+
+func stringValue(value any) string {
+	text, _ := value.(string)
+	return strings.TrimSpace(text)
 }
 
 func (s *FileStore) MarkRead(chatID string) (Summary, error) {

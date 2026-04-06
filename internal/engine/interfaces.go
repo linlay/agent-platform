@@ -54,22 +54,25 @@ type CatalogReloader interface {
 }
 
 type QuerySession struct {
-	RequestID     string
-	RunID         string
-	ChatID        string
-	ChatName      string
-	AgentKey      string
-	AgentName     string
-	ModelKey      string
-	ToolNames     []string
-	Mode          string
-	TeamID        string
-	Created       bool
-	Subject       string
-	SkillKeys     []string
-	ContextTags   []string
-	Budget        map[string]any
-	StageSettings map[string]any
+	RequestID             string
+	RunID                 string
+	ChatID                string
+	ChatName              string
+	AgentKey              string
+	AgentName             string
+	ModelKey              string
+	ToolNames             []string
+	Mode                  string
+	TeamID                string
+	Created               bool
+	Subject               string
+	SkillKeys             []string
+	ContextTags           []string
+	Budget                map[string]any
+	StageSettings         map[string]any
+	ToolOverrides         map[string]api.ToolDetailResponse
+	ResolvedBudget        Budget
+	ResolvedStageSettings PlanExecuteSettings
 }
 
 type ExecutionContext struct {
@@ -79,6 +82,14 @@ type ExecutionContext struct {
 	CurrentToolID   string
 	CurrentToolName string
 	SandboxSession  *SandboxSession
+	Budget          Budget
+	StageSettings   PlanExecuteSettings
+	RunLoopState    RunLoopState
+	PlanState       *PlanRuntimeState
+	ToolOverrides   map[string]api.ToolDetailResponse
+	StartedAt       time.Time
+	ModelCalls      int
+	ToolCalls       int
 }
 
 type SandboxSession struct {
@@ -125,6 +136,30 @@ type InterruptAck struct {
 	Accepted bool
 	Status   string
 	Detail   string
+}
+
+type RunLoopState string
+
+const (
+	RunLoopStateIdle           RunLoopState = "IDLE"
+	RunLoopStateModelStreaming RunLoopState = "MODEL_STREAMING"
+	RunLoopStateToolExecuting  RunLoopState = "TOOL_EXECUTING"
+	RunLoopStateWaitingSubmit  RunLoopState = "WAITING_SUBMIT"
+	RunLoopStateCompleted      RunLoopState = "COMPLETED"
+	RunLoopStateCancelled      RunLoopState = "CANCELLED"
+	RunLoopStateFailed         RunLoopState = "FAILED"
+)
+
+type PlanTask struct {
+	TaskID      string
+	Description string
+	Status      string
+}
+
+type PlanRuntimeState struct {
+	PlanID       string
+	Tasks        []PlanTask
+	ActiveTaskID string
 }
 
 type NoopToolExecutor struct{}

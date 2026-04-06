@@ -36,6 +36,12 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 		return d.handleActionEnd(value)
 	case ActionResult:
 		return d.handleActionResult(value)
+	case StageMarker:
+		return []StreamEvent{NewEvent("stage.marker", map[string]any{
+			"runId":  d.request.RunID,
+			"chatId": d.request.ChatID,
+			"stage":  value.Stage,
+		})}
 	case PlanUpdate:
 		return d.handlePlanUpdate(value)
 	case TaskStart:

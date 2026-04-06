@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"agent-platform-runner-go/internal/catalog"
 	"agent-platform-runner-go/internal/api"
+	"agent-platform-runner-go/internal/catalog"
 	"agent-platform-runner-go/internal/chat"
 	"agent-platform-runner-go/internal/config"
 	"agent-platform-runner-go/internal/engine"
@@ -80,12 +80,18 @@ func New() (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load mcp registry: %w", err)
 	}
-	mcpClient := mcp.NewClient(mcpRegistry, nil)
+	mcpGate := mcp.NewAvailabilityGate()
+	mcpClient := mcp.NewClientWithGate(mcpRegistry, nil, mcpGate)
 	mcpTools, err := mcp.NewToolSync(mcpRegistry, mcpClient).Load(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("load mcp tools: %w", err)
 	}
-	toolExecutor := engine.NewToolRouter(backendTools, mcpClient, engine.NewFrontendSubmitCoordinator(), engine.NewNoopActionInvoker(), mcpTools...)
+	runtimeTools, err := engine.LoadRuntimeToolDefinitions(cfg.Paths.ToolsDir)
+	if err != nil {
+		return nil, fmt.Errorf("load runtime tools: %w", err)
+	}
+	extraDefs := append(append([]api.ToolDetailResponse(nil), runtimeTools...), mcpTools...)
+	toolExecutor := engine.NewToolRouter(backendTools, mcpClient, engine.NewFrontendSubmitCoordinator(), engine.NewNoopActionInvoker(), extraDefs...)
 
 	registryStartedAt := time.Now()
 	registry, err := catalog.NewFileRegistry(cfg, toolExecutor.Definitions())
@@ -111,6 +117,7 @@ func New() (*App, error) {
 	reloader := engine.NewRuntimeCatalogReloader(registry, modelRegistry)
 	backgroundCtx, backgroundCancel := context.WithCancel(context.Background())
 	engine.StartBackgroundReloaders(backgroundCtx, cfg, reloader)
+	mcp.NewReconnectLoop(mcpRegistry, mcpClient, mcpGate, 10*time.Second).Start(backgroundCtx)
 	log.Printf("background reloaders started (agents=%dms teams=%dms skills=%dms models=%dms providers=%dms)",
 		cfg.Agents.RefreshIntervalMs,
 		cfg.Teams.RefreshIntervalMs,
@@ -121,16 +128,20 @@ func New() (*App, error) {
 
 	serverStartedAt := time.Now()
 	srv, err := server.New(server.Dependencies{
-		Config:          cfg,
-		Chats:           chatStore,
-		Memory:          memoryStore,
-		Registry:        registry,
-		Runs:            runManager,
-		Agent:           agentEngine,
-		Tools:           toolExecutor,
-		Sandbox:         sandbox,
-		MCP:             mcpClient,
-		Viewport:        viewport.NewService(viewport.NewRegistry(viewport.DefaultRoot(cfg.Paths.RegistriesDir)), engine.NewNoopViewportClient()),
+		Config:   cfg,
+		Chats:    chatStore,
+		Memory:   memoryStore,
+		Registry: registry,
+		Runs:     runManager,
+		Agent:    agentEngine,
+		Tools:    toolExecutor,
+		Sandbox:  sandbox,
+		MCP:      mcpClient,
+		Viewport: viewport.NewServiceWithServers(
+			viewport.NewRegistry(viewport.DefaultRoot(cfg.Paths.RegistriesDir)),
+			viewport.NewSyncer(viewport.NewServerRegistry(filepath.Join(viewport.DefaultRoot(cfg.Paths.RegistriesDir), "servers")), nil),
+			engine.NewNoopViewportClient(),
+		),
 		CatalogReloader: reloader,
 	})
 	if err != nil {

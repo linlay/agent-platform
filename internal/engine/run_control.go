@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"agent-platform-runner-go/internal/api"
 )
@@ -45,6 +46,7 @@ type RunControl struct {
 	mu            sync.Mutex
 	steerQueue    []api.SteerRequest
 	submitWaiters map[string]*submitWaiter
+	state         RunLoopState
 }
 
 func NewRunControl(parent context.Context, runID string) *RunControl {
@@ -54,6 +56,7 @@ func NewRunControl(parent context.Context, runID string) *RunControl {
 		ctx:           ctx,
 		cancel:        cancel,
 		submitWaiters: map[string]*submitWaiter{},
+		state:         RunLoopStateIdle,
 	}
 }
 
@@ -94,6 +97,7 @@ func (c *RunControl) Interrupt() bool {
 	if !c.interrupted.CompareAndSwap(false, true) {
 		return false
 	}
+	c.TransitionState(RunLoopStateCancelled)
 	c.cancel()
 	c.closeWaiters("interrupted", "Run interrupted")
 	return true
@@ -106,6 +110,7 @@ func (c *RunControl) Finish() bool {
 	if !c.finished.CompareAndSwap(false, true) {
 		return false
 	}
+	c.TransitionState(RunLoopStateCompleted)
 	c.cancel()
 	c.closeWaiters("finished", "Run finished before submit arrived")
 	return true
@@ -139,6 +144,10 @@ func (c *RunControl) DrainSteers() []api.SteerRequest {
 }
 
 func (c *RunControl) AwaitSubmit(ctx context.Context, toolID string) (SubmitResult, error) {
+	return c.AwaitSubmitWithTimeout(ctx, toolID, 0)
+}
+
+func (c *RunControl) AwaitSubmitWithTimeout(ctx context.Context, toolID string, timeout time.Duration) (SubmitResult, error) {
 	if c == nil {
 		return SubmitResult{}, ErrRunControlUnavailable
 	}
@@ -150,6 +159,12 @@ func (c *RunControl) AwaitSubmit(ctx context.Context, toolID string) (SubmitResu
 	}
 	if c.finished.Load() {
 		return SubmitResult{}, ErrRunFinished
+	}
+
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
 	}
 
 	waiter := &submitWaiter{ch: make(chan SubmitResult, 1)}
@@ -198,6 +213,24 @@ func (c *RunControl) AwaitSubmit(ctx context.Context, toolID string) (SubmitResu
 		}
 		return SubmitResult{}, context.Canceled
 	}
+}
+
+func (c *RunControl) State() RunLoopState {
+	if c == nil {
+		return RunLoopStateIdle
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.state
+}
+
+func (c *RunControl) TransitionState(next RunLoopState) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	c.state = next
+	c.mu.Unlock()
 }
 
 func (c *RunControl) ResolveSubmit(req api.SubmitRequest) SubmitAck {

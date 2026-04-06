@@ -27,6 +27,9 @@ func NewRuntimeToolExecutor(cfg config.Config, sandbox SandboxClient, memoryStor
 		bashToolDefinition(),
 		dateTimeToolDefinition(),
 		artifactPublishToolDefinition(),
+		planAddTasksToolDefinition(),
+		planGetTasksToolDefinition(),
+		planUpdateTaskToolDefinition(),
 		memorySearchToolDefinition(),
 		memoryReadToolDefinition(),
 		memoryWriteToolDefinition(),
@@ -51,7 +54,13 @@ func (t *RuntimeToolExecutor) Invoke(ctx context.Context, toolName string, args 
 	case "_datetime_":
 		return t.invokeDateTime(), nil
 	case "_artifact_publish_":
-		return t.invokeArtifactPublish(args)
+		return t.invokeArtifactPublish(args, execCtx)
+	case "_plan_add_tasks_":
+		return t.invokePlanAddTasks(args, execCtx)
+	case "_plan_get_tasks_":
+		return t.invokePlanGetTasks(execCtx)
+	case "_plan_update_task_":
+		return t.invokePlanUpdateTask(args, execCtx)
 	case "_bash_":
 		return t.invokeHostBash(ctx, args)
 	case "_sandbox_bash_":
@@ -138,13 +147,106 @@ func (t *RuntimeToolExecutor) invokeDateTime() ToolExecutionResult {
 	return structuredResult(payload)
 }
 
-func (t *RuntimeToolExecutor) invokeArtifactPublish(args map[string]any) (ToolExecutionResult, error) {
+func (t *RuntimeToolExecutor) invokeArtifactPublish(args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	artifacts, _ := args["artifacts"]
+	published := make([]map[string]any, 0)
+	if execCtx != nil {
+		published = publishArtifacts(t.cfg.Paths.ChatsDir, execCtx.Session.ChatID, artifacts)
+	}
 	payload := map[string]any{
-		"status":    "published",
-		"artifacts": artifacts,
+		"status":             "published",
+		"artifacts":          artifacts,
+		"publishedArtifacts": published,
 	}
 	return structuredResult(payload), nil
+}
+
+func (t *RuntimeToolExecutor) invokePlanAddTasks(args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
+	if execCtx == nil {
+		return ToolExecutionResult{Output: "失败: 缺少执行上下文", Error: "plan_context_unavailable", ExitCode: -1}, nil
+	}
+	state := ensurePlanState(execCtx)
+	var tasks []PlanTask
+	if rawTasks, ok := args["tasks"].([]any); ok {
+		for _, item := range rawTasks {
+			taskMap, _ := item.(map[string]any)
+			description := anyStringNode(taskMap["description"])
+			if strings.TrimSpace(description) == "" {
+				continue
+			}
+			taskID := anyStringNode(taskMap["taskId"])
+			if strings.TrimSpace(taskID) == "" {
+				taskID = shortPlanID()
+			}
+			tasks = append(tasks, PlanTask{
+				TaskID:      taskID,
+				Description: strings.TrimSpace(description),
+				Status:      normalizePlanTaskStatus(anyStringNode(taskMap["status"])),
+			})
+		}
+	}
+	if len(tasks) == 0 {
+		description := anyStringNode(args["description"])
+		if strings.TrimSpace(description) == "" {
+			return ToolExecutionResult{Output: "失败: 缺少任务描述", Error: "missing_task_description", ExitCode: -1}, nil
+		}
+		taskID := anyStringNode(args["taskId"])
+		if strings.TrimSpace(taskID) == "" {
+			taskID = shortPlanID()
+		}
+		tasks = append(tasks, PlanTask{
+			TaskID:      taskID,
+			Description: strings.TrimSpace(description),
+			Status:      normalizePlanTaskStatus(anyStringNode(args["status"])),
+		})
+	}
+	if state.PlanID == "" {
+		state.PlanID = execCtx.Session.RunID + "_plan"
+	}
+	state.Tasks = append(state.Tasks, tasks...)
+	lines := make([]string, 0, len(tasks))
+	for _, task := range tasks {
+		lines = append(lines, task.TaskID+" | "+task.Status+" | "+task.Description)
+	}
+	return ToolExecutionResult{
+		Output:     strings.Join(lines, "\n"),
+		Structured: planStatePayload(state),
+		ExitCode:   0,
+	}, nil
+}
+
+func (t *RuntimeToolExecutor) invokePlanGetTasks(execCtx *ExecutionContext) (ToolExecutionResult, error) {
+	if execCtx == nil || execCtx.PlanState == nil {
+		payload := NewErrorPayload("plan_context_unavailable", "Plan context is unavailable in direct invocation", ErrorScopeRun, ErrorCategorySystem, nil)
+		return ToolExecutionResult{Output: marshalJSON(payload), Structured: payload, Error: "plan_context_unavailable", ExitCode: -1}, nil
+	}
+	return structuredResult(planStatePayload(execCtx.PlanState)), nil
+}
+
+func (t *RuntimeToolExecutor) invokePlanUpdateTask(args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
+	if execCtx == nil {
+		return ToolExecutionResult{Output: "失败: 缺少执行上下文", Error: "plan_context_unavailable", ExitCode: -1}, nil
+	}
+	state := ensurePlanState(execCtx)
+	taskID := anyStringNode(args["taskId"])
+	if strings.TrimSpace(taskID) == "" {
+		return ToolExecutionResult{Output: "失败: 缺少 taskId", Error: "missing_task_id", ExitCode: -1}, nil
+	}
+	status := normalizePlanTaskStatus(anyStringNode(args["status"]))
+	if status == "" {
+		return ToolExecutionResult{Output: "失败: 非法状态，仅支持 init/in_progress/completed/failed/canceled", Error: "invalid_task_status", ExitCode: -1}, nil
+	}
+	for index := range state.Tasks {
+		if strings.TrimSpace(state.Tasks[index].TaskID) != strings.TrimSpace(taskID) {
+			continue
+		}
+		state.Tasks[index].Status = status
+		if state.ActiveTaskID == taskID && (status == "completed" || status == "failed" || status == "canceled") {
+			state.ActiveTaskID = ""
+		}
+		return ToolExecutionResult{Output: "OK", Structured: planStatePayload(state), ExitCode: 0}, nil
+	}
+	return ToolExecutionResult{Output: "失败: taskId 不存在", Error: "task_not_found", ExitCode: -1}, nil
 }
 
 func (t *RuntimeToolExecutor) invokeSandboxBash(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
@@ -336,6 +438,109 @@ func structuredResultWithExit(payload map[string]any, exitCode int) ToolExecutio
 	}
 }
 
+func ensurePlanState(execCtx *ExecutionContext) *PlanRuntimeState {
+	if execCtx.PlanState == nil {
+		execCtx.PlanState = &PlanRuntimeState{
+			PlanID: execCtx.Session.RunID + "_plan",
+		}
+	}
+	return execCtx.PlanState
+}
+
+func planStatePayload(state *PlanRuntimeState) map[string]any {
+	if state == nil {
+		return map[string]any{
+			"tasks": []map[string]any{},
+		}
+	}
+	tasks := make([]map[string]any, 0, len(state.Tasks))
+	for _, task := range state.Tasks {
+		tasks = append(tasks, map[string]any{
+			"taskId":      task.TaskID,
+			"description": task.Description,
+			"status":      task.Status,
+		})
+	}
+	payload := map[string]any{
+		"planId": state.PlanID,
+		"tasks":  tasks,
+	}
+	if state.ActiveTaskID != "" {
+		payload["currentTaskId"] = state.ActiveTaskID
+	}
+	return payload
+}
+
+func shortPlanID() string {
+	return fmt.Sprintf("task_%d", time.Now().UnixNano())
+}
+
+func publishArtifacts(chatsRoot string, chatID string, raw any) []map[string]any {
+	if strings.TrimSpace(chatsRoot) == "" || strings.TrimSpace(chatID) == "" {
+		return nil
+	}
+	items, _ := raw.([]any)
+	if len(items) == 0 {
+		return nil
+	}
+	artifactsDir := filepath.Join(chatsRoot, chatID, "artifacts")
+	if err := os.MkdirAll(artifactsDir, 0o755); err != nil {
+		return nil
+	}
+	published := make([]map[string]any, 0, len(items))
+	for index, item := range items {
+		mapped, _ := item.(map[string]any)
+		if mapped == nil {
+			continue
+		}
+		artifactID := anyStringNode(mapped["artifactId"])
+		if artifactID == "" {
+			artifactID = fmt.Sprintf("artifact_%d_%d", time.Now().UnixNano(), index)
+		}
+		name := anyStringNode(mapped["name"])
+		if name == "" {
+			name = artifactID + ".json"
+		}
+		filename := filepath.Base(name)
+		if !strings.Contains(filename, ".") {
+			filename += ".json"
+		}
+		targetPath := filepath.Join(artifactsDir, filename)
+		data, err := json.MarshalIndent(mapped, "", "  ")
+		if err != nil {
+			continue
+		}
+		if err := os.WriteFile(targetPath, data, 0o644); err != nil {
+			continue
+		}
+		published = append(published, map[string]any{
+			"artifactId": artifactID,
+			"name":       filename,
+			"path":       targetPath,
+			"url":        "/api/resource?file=" + filepath.ToSlash(filepath.Join(chatID, "artifacts", filename)),
+			"type":       defaultStringArg(mapped, "type", "file"),
+		})
+	}
+	return published
+}
+
+func normalizePlanTaskStatus(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "", "init":
+		return "init"
+	case "in_progress", "in-progress", "inprogress":
+		return "in_progress"
+	case "completed", "complete":
+		return "completed"
+	case "failed", "fail":
+		return "failed"
+	case "canceled", "cancelled", "cancel":
+		return "canceled"
+	default:
+		return ""
+	}
+}
+
 func dateTimeToolDefinition() api.ToolDetailResponse {
 	return api.ToolDetailResponse{
 		Key:         "_datetime_",
@@ -364,6 +569,58 @@ func artifactPublishToolDefinition() api.ToolDetailResponse {
 			"required": []string{"artifacts"},
 		},
 		Meta: map[string]any{"kind": "backend", "strict": true, "sourceType": "local", "sourceKey": "_artifact_publish_"},
+	}
+}
+
+func planAddTasksToolDefinition() api.ToolDetailResponse {
+	return api.ToolDetailResponse{
+		Key:         "_plan_add_tasks_",
+		Name:        "_plan_add_tasks_",
+		Label:       "创建计划任务",
+		Description: "创建计划任务（追加模式），支持一次添加多个任务。",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"description": map[string]any{"type": "string"},
+				"status":      map[string]any{"type": "string"},
+				"tasks": map[string]any{
+					"type": "array",
+				},
+			},
+		},
+		Meta: map[string]any{"kind": "backend", "strict": true, "sourceType": "local", "sourceKey": "_plan_add_tasks_"},
+	}
+}
+
+func planGetTasksToolDefinition() api.ToolDetailResponse {
+	return api.ToolDetailResponse{
+		Key:         "_plan_get_tasks_",
+		Name:        "_plan_get_tasks_",
+		Label:       "读取计划任务",
+		Description: "读取当前计划任务快照。",
+		Parameters: map[string]any{
+			"type":       "object",
+			"properties": map[string]any{},
+		},
+		Meta: map[string]any{"kind": "backend", "strict": true, "sourceType": "local", "sourceKey": "_plan_get_tasks_"},
+	}
+}
+
+func planUpdateTaskToolDefinition() api.ToolDetailResponse {
+	return api.ToolDetailResponse{
+		Key:         "_plan_update_task_",
+		Name:        "_plan_update_task_",
+		Label:       "更新计划任务",
+		Description: "更新计划中的任务状态。",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"taskId": map[string]any{"type": "string"},
+				"status": map[string]any{"type": "string"},
+			},
+			"required": []string{"taskId", "status"},
+		},
+		Meta: map[string]any{"kind": "backend", "strict": true, "sourceType": "local", "sourceKey": "_plan_update_task_"},
 	}
 }
 

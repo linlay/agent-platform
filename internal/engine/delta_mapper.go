@@ -128,6 +128,9 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			Error:           value.Result.Error,
 			ExitCode:        value.Result.ExitCode,
 		}}
+	case DeltaStageMarker:
+		m.lastKind = ""
+		return []stream.StreamInput{stream.StageMarker{Stage: value.Stage}}
 	case DeltaFinishReason:
 		m.lastKind = ""
 		return []stream.StreamInput{stream.InputRunComplete{FinishReason: value.Reason}}

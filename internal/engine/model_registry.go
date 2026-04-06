@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"agent-platform-runner-go/internal/catalog"
 	"agent-platform-runner-go/internal/config"
 )
 
@@ -134,10 +135,11 @@ func loadProviders(dir string) (map[string]ProviderDefinition, error) {
 		return nil, fmt.Errorf("read providers dir: %w", err)
 	}
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yml") {
+		name := entry.Name()
+		if entry.IsDir() || !catalog.ShouldLoadRuntimeName(name) || (!strings.HasSuffix(name, ".yml") && !strings.HasSuffix(name, ".yaml")) {
 			continue
 		}
-		tree, err := config.LoadYAMLTree(filepath.Join(dir, entry.Name()))
+		tree, err := config.LoadYAMLTree(filepath.Join(dir, name))
 		if err != nil {
 			return nil, fmt.Errorf("load provider %s: %w", entry.Name(), err)
 		}
@@ -167,10 +169,11 @@ func loadModels(dir string) (map[string]ModelDefinition, error) {
 		return nil, fmt.Errorf("read models dir: %w", err)
 	}
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yml") {
+		name := entry.Name()
+		if entry.IsDir() || !catalog.ShouldLoadRuntimeName(name) || (!strings.HasSuffix(name, ".yml") && !strings.HasSuffix(name, ".yaml")) {
 			continue
 		}
-		tree, err := config.LoadYAMLTree(filepath.Join(dir, entry.Name()))
+		tree, err := config.LoadYAMLTree(filepath.Join(dir, name))
 		if err != nil {
 			return nil, fmt.Errorf("load model %s: %w", entry.Name(), err)
 		}

@@ -23,6 +23,7 @@ import (
 	"agent-platform-runner-go/internal/config"
 	"agent-platform-runner-go/internal/engine"
 	"agent-platform-runner-go/internal/memory"
+	"agent-platform-runner-go/internal/observability"
 	"agent-platform-runner-go/internal/stream"
 )
 
@@ -174,6 +175,7 @@ func (s *Server) logRequest(r *http.Request, status int, cost time.Duration) {
 	if !s.deps.Config.Logging.Request.Enabled {
 		return
 	}
+	observability.LogRequest(r, status, cost)
 	log.Printf("%s %s -> %d (%s)", r.Method, r.URL.RequestURI(), status, cost.Round(time.Millisecond))
 }
 
@@ -387,17 +389,22 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	session := engine.QuerySession{
-		RequestID: requestID,
-		RunID:     runID,
-		ChatID:    chatID,
-		ChatName:  summary.ChatName,
-		AgentKey:  agentKey,
-		AgentName: agentDef.Name,
-		ModelKey:  agentDef.ModelKey,
-		ToolNames: append([]string(nil), agentDef.Tools...),
-		Mode:      agentDef.Mode,
-		TeamID:    req.TeamID,
-		Created:   created,
+		RequestID:             requestID,
+		RunID:                 runID,
+		ChatID:                chatID,
+		ChatName:              summary.ChatName,
+		AgentKey:              agentKey,
+		AgentName:             agentDef.Name,
+		ModelKey:              agentDef.ModelKey,
+		ToolNames:             append([]string(nil), agentDef.Tools...),
+		Mode:                  agentDef.Mode,
+		TeamID:                req.TeamID,
+		Created:               created,
+		Budget:                cloneMap(agentDef.Budget),
+		StageSettings:         cloneMap(agentDef.StageSettings),
+		ToolOverrides:         cloneToolOverrides(agentDef.ToolOverrides),
+		ResolvedBudget:        engine.ResolveBudget(s.deps.Config, agentDef.Budget),
+		ResolvedStageSettings: engine.ResolvePlanExecuteSettings(agentDef.StageSettings, s.deps.Config.Defaults.Plan.MaxSteps, s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask),
 	}
 	if principal := PrincipalFromContext(r.Context()); principal != nil {
 		session.Subject = principal.Subject
@@ -743,6 +750,36 @@ func defaultRole(role string) string {
 		return "user"
 	}
 	return strings.TrimSpace(role)
+}
+
+func cloneMap(src map[string]any) map[string]any {
+	if src == nil {
+		return nil
+	}
+	out := make(map[string]any, len(src))
+	for key, value := range src {
+		out[key] = value
+	}
+	return out
+}
+
+func cloneToolOverrides(src map[string]api.ToolDetailResponse) map[string]api.ToolDetailResponse {
+	if src == nil {
+		return nil
+	}
+	out := make(map[string]api.ToolDetailResponse, len(src))
+	for key, value := range src {
+		out[key] = api.ToolDetailResponse{
+			Key:           value.Key,
+			Name:          value.Name,
+			Label:         value.Label,
+			Description:   value.Description,
+			AfterCallHint: value.AfterCallHint,
+			Parameters:    cloneMap(value.Parameters),
+			Meta:          cloneMap(value.Meta),
+		}
+	}
+	return out
 }
 
 func pickUploadFile(form *multipart.Form) (multipart.File, *multipart.FileHeader, error) {

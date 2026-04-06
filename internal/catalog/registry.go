@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -41,6 +42,7 @@ type AgentDefinition struct {
 	ContextTags   []string
 	Budget        map[string]any
 	StageSettings map[string]any
+	ToolOverrides map[string]api.ToolDetailResponse
 }
 
 type TeamDefinition struct {
@@ -174,6 +176,9 @@ func (r *FileRegistry) Teams() []api.TeamSummary {
 			}
 		}
 		defaultValid := team.DefaultAgentKey != "" && containsString(team.AgentKeys, team.DefaultAgentKey) && agentsByID[team.DefaultAgentKey].Key != ""
+		if len(invalidAgentKeys) > 0 {
+			log.Printf("[catalog][teams] team=%s invalidAgentKeys=%v", team.TeamID, invalidAgentKeys)
+		}
 		items = append(items, api.TeamSummary{
 			TeamID:    team.TeamID,
 			Name:      team.Name,
@@ -289,7 +294,7 @@ func loadAgents(root string) (map[string]AgentDefinition, error) {
 	}
 	for _, entry := range entries {
 		name := entry.Name()
-		if strings.HasPrefix(name, ".") {
+		if strings.HasPrefix(name, ".") || !ShouldLoadRuntimeName(name) {
 			continue
 		}
 		if entry.IsDir() {
@@ -329,10 +334,11 @@ func loadTeams(root string) (map[string]TeamDefinition, error) {
 		return nil, err
 	}
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".yml") {
+		name := entry.Name()
+		if entry.IsDir() || !ShouldLoadRuntimeName(name) || (!strings.HasSuffix(name, ".yml") && !strings.HasSuffix(name, ".yaml")) {
 			continue
 		}
-		path := filepath.Join(root, entry.Name())
+		path := filepath.Join(root, name)
 		def, err := parseTeamFile(path)
 		if err != nil {
 			continue
@@ -400,6 +406,7 @@ func parseAgentFile(path string) (AgentDefinition, error) {
 	def.Tools = append(def.Tools, listStrings(toolConfig["backends"])...)
 	def.Tools = append(def.Tools, listStrings(toolConfig["frontends"])...)
 	def.Tools = append(def.Tools, listStrings(toolConfig["actions"])...)
+	def.ToolOverrides = parseToolOverrides(toolConfig["overrides"])
 	def.Skills = listStrings(mapNode(root["skillConfig"])["skills"])
 	def.ContextTags = listStrings(root["contextTags"])
 	if budget := mapNode(root["budget"]); len(budget) > 0 {
@@ -632,6 +639,57 @@ func containsString(values []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+func parseToolOverrides(value any) map[string]api.ToolDetailResponse {
+	root := mapNode(value)
+	if len(root) == 0 {
+		return nil
+	}
+	result := make(map[string]api.ToolDetailResponse, len(root))
+	for toolName, rawOverride := range root {
+		override := mapNode(rawOverride)
+		if len(override) == 0 {
+			continue
+		}
+		name := defaultString(stringNode(override["name"]), toolName)
+		key := defaultString(stringNode(override["key"]), toolName)
+		meta := mapNode(override["meta"])
+		if toolType := stringNode(override["toolType"]); toolType != "" {
+			if meta == nil {
+				meta = map[string]any{}
+			}
+			meta["toolType"] = toolType
+		}
+		if viewportKey := stringNode(override["viewportKey"]); viewportKey != "" {
+			if meta == nil {
+				meta = map[string]any{}
+			}
+			meta["viewportKey"] = viewportKey
+		}
+		result[strings.ToLower(strings.TrimSpace(toolName))] = api.ToolDetailResponse{
+			Key:           key,
+			Name:          name,
+			Label:         stringNode(override["label"]),
+			Description:   stringNode(override["description"]),
+			AfterCallHint: stringNode(override["afterCallHint"]),
+			Parameters:    cloneMap(firstMapNode(override["inputSchema"], override["parameters"])),
+			Meta:          cloneMap(meta),
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func firstMapNode(values ...any) map[string]any {
+	for _, value := range values {
+		if mapped := mapNode(value); len(mapped) > 0 {
+			return mapped
+		}
+	}
+	return nil
 }
 
 func defaultString(value string, fallback string) string {

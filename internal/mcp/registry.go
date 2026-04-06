@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"agent-platform-runner-go/internal/catalog"
 	"agent-platform-runner-go/internal/config"
 )
 
@@ -42,10 +43,11 @@ func (r *Registry) Reload() error {
 
 	servers := map[string]ServerDefinition{}
 	for _, entry := range entries {
-		if entry.IsDir() || (!strings.HasSuffix(entry.Name(), ".yml") && !strings.HasSuffix(entry.Name(), ".yaml")) {
+		name := entry.Name()
+		if entry.IsDir() || !catalog.ShouldLoadRuntimeName(name) || (!strings.HasSuffix(name, ".yml") && !strings.HasSuffix(name, ".yaml")) {
 			continue
 		}
-		path := filepath.Join(r.root, entry.Name())
+		path := filepath.Join(r.root, name)
 		server, err := parseServerFile(path)
 		if err != nil {
 			continue
