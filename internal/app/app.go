@@ -1,22 +1,34 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"agent-platform-runner-go/internal/catalog"
+	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/chat"
 	"agent-platform-runner-go/internal/config"
 	"agent-platform-runner-go/internal/engine"
+	"agent-platform-runner-go/internal/mcp"
 	"agent-platform-runner-go/internal/memory"
+	"agent-platform-runner-go/internal/schedule"
 	"agent-platform-runner-go/internal/server"
+	"agent-platform-runner-go/internal/viewport"
 )
 
 type App struct {
-	Config config.Config
-	Router *server.Server
+	Config           config.Config
+	Router           *server.Server
+	backgroundCancel context.CancelFunc
+	scheduler        *schedule.Orchestrator
 }
 
 func New() (*App, error) {
@@ -48,7 +60,7 @@ func New() (*App, error) {
 	log.Printf("chat store ready in %s (root=%s)", startupElapsed(chatStoreStartedAt), cfg.Paths.ChatsDir)
 
 	memoryStoreStartedAt := time.Now()
-	memoryStore, err := memory.NewFileStore(cfg.Paths.MemoryDir)
+	memoryStore, err := memory.NewSQLiteStore(cfg.Paths.MemoryDir, cfg.Memory.DBFileName)
 	if err != nil {
 		return nil, fmt.Errorf("init memory store (%s): %w", cfg.Paths.MemoryDir, err)
 	}
@@ -63,7 +75,17 @@ func New() (*App, error) {
 
 	runManager := engine.NewInMemoryRunManager()
 	sandbox := engine.NewContainerHubSandboxService(cfg.ContainerHub, cfg.Paths)
-	toolExecutor := engine.NewRuntimeToolExecutor(cfg, sandbox)
+	backendTools := engine.NewRuntimeToolExecutor(cfg, sandbox, memoryStore)
+	mcpRegistry, err := mcp.NewRegistry(filepath.Join(cfg.Paths.RegistriesDir, "mcp-servers"))
+	if err != nil {
+		return nil, fmt.Errorf("load mcp registry: %w", err)
+	}
+	mcpClient := mcp.NewClient(mcpRegistry, nil)
+	mcpTools, err := mcp.NewToolSync(mcpRegistry, mcpClient).Load(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("load mcp tools: %w", err)
+	}
+	toolExecutor := engine.NewToolRouter(backendTools, mcpClient, engine.NewFrontendSubmitCoordinator(), engine.NewNoopActionInvoker(), mcpTools...)
 
 	registryStartedAt := time.Now()
 	registry, err := catalog.NewFileRegistry(cfg, toolExecutor.Definitions())
@@ -87,7 +109,8 @@ func New() (*App, error) {
 
 	agentEngine := engine.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, sandbox)
 	reloader := engine.NewRuntimeCatalogReloader(registry, modelRegistry)
-	engine.StartBackgroundReloaders(context.Background(), cfg, reloader)
+	backgroundCtx, backgroundCancel := context.WithCancel(context.Background())
+	engine.StartBackgroundReloaders(backgroundCtx, cfg, reloader)
 	log.Printf("background reloaders started (agents=%dms teams=%dms skills=%dms models=%dms providers=%dms)",
 		cfg.Agents.RefreshIntervalMs,
 		cfg.Teams.RefreshIntervalMs,
@@ -106,20 +129,63 @@ func New() (*App, error) {
 		Agent:           agentEngine,
 		Tools:           toolExecutor,
 		Sandbox:         sandbox,
-		MCP:             engine.NewNoopMcpClient(),
-		Viewport:        engine.NewNoopViewportClient(),
+		MCP:             mcpClient,
+		Viewport:        viewport.NewService(viewport.NewRegistry(viewport.DefaultRoot(cfg.Paths.RegistriesDir)), engine.NewNoopViewportClient()),
 		CatalogReloader: reloader,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("init server: %w", err)
 	}
 	log.Printf("server dependencies wired in %s", startupElapsed(serverStartedAt))
+
+	var scheduler *schedule.Orchestrator
+	if cfg.Schedule.Enabled {
+		scheduleRegistry := schedule.NewRegistry(cfg.Paths.SchedulesDir)
+		dispatcher := schedule.NewDispatcher(func(ctx context.Context, req api.QueryRequest) error {
+			body, err := json.Marshal(req)
+			if err != nil {
+				return err
+			}
+			httpReq := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewReader(body)).WithContext(ctx)
+			httpReq.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			srv.ServeHTTP(rec, httpReq)
+			if rec.Code != http.StatusOK {
+				return fmt.Errorf("scheduled query failed with status %d: %s", rec.Code, strings.TrimSpace(rec.Body.String()))
+			}
+			return nil
+		})
+		scheduler = schedule.NewOrchestrator(scheduleRegistry, dispatcher)
+		if err := scheduler.Start(backgroundCtx); err != nil {
+			backgroundCancel()
+			return nil, fmt.Errorf("start schedule orchestrator: %w", err)
+		}
+		log.Printf("schedule orchestrator started in %s (dir=%s)", startupElapsed(serverStartedAt), cfg.Paths.SchedulesDir)
+	} else {
+		log.Printf("schedule orchestrator disabled")
+	}
 	log.Printf("app dependencies initialized in %s", startupElapsed(appInitStartedAt))
 
 	return &App{
-		Config: cfg,
-		Router: srv,
+		Config:           cfg,
+		Router:           srv,
+		backgroundCancel: backgroundCancel,
+		scheduler:        scheduler,
 	}, nil
+}
+
+func (a *App) Close() error {
+	if a == nil {
+		return nil
+	}
+	if a.backgroundCancel != nil {
+		a.backgroundCancel()
+	}
+	if a.scheduler != nil {
+		done := a.scheduler.Stop()
+		<-done.Done()
+	}
+	return nil
 }
 
 func startupElapsed(startedAt time.Time) time.Duration {

@@ -166,6 +166,7 @@ func (s *FileStore) LoadChat(chatID string) (Detail, error) {
 	if err != nil {
 		return Detail{}, err
 	}
+	events = rebuildSnapshotEvents(events)
 	rawMessages, err := readJSONLines(filepath.Join(s.ChatDir(chatID), "raw_messages.jsonl"))
 	if err != nil {
 		return Detail{}, err
@@ -178,6 +179,41 @@ func (s *FileStore) LoadChat(chatID string) (Detail, error) {
 		RawMessages: rawMessages,
 		References:  nil,
 	}, nil
+}
+
+func rebuildSnapshotEvents(events []map[string]any) []map[string]any {
+	if len(events) == 0 {
+		return nil
+	}
+
+	rebuilt := make([]map[string]any, 0, len(events))
+	emittedChatStart := false
+	seq := int64(1)
+	for _, event := range events {
+		if event == nil {
+			continue
+		}
+		eventType, _ := event["type"].(string)
+		if eventType == "chat.start" {
+			if emittedChatStart {
+				continue
+			}
+			emittedChatStart = true
+		}
+		copy := cloneEventMap(event)
+		copy["seq"] = seq
+		rebuilt = append(rebuilt, copy)
+		seq++
+	}
+	return rebuilt
+}
+
+func cloneEventMap(event map[string]any) map[string]any {
+	copy := make(map[string]any, len(event))
+	for key, value := range event {
+		copy[key] = value
+	}
+	return copy
 }
 
 func (s *FileStore) MarkRead(chatID string) (Summary, error) {

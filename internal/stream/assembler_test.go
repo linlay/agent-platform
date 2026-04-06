@@ -40,6 +40,22 @@ func TestAssemblerBootstrapAndComplete(t *testing.T) {
 	}
 }
 
+func TestAssemblerBootstrapSkipsChatStartForExistingChat(t *testing.T) {
+	assembler := NewAssembler(StreamRequest{
+		RequestID: "req_2",
+		RunID:     "run_2",
+		ChatID:    "chat_1",
+		ChatName:  "Existing Chat",
+		AgentKey:  "agent_1",
+		Message:   "again",
+		Role:      "user",
+		Created:   false,
+	}, false)
+
+	bootstrap := assembler.Bootstrap()
+	assertStampedTypes(t, bootstrap, "request.query", "run.start")
+}
+
 func TestAssemblerFailNormalizesRunError(t *testing.T) {
 	assembler := NewAssembler(StreamRequest{
 		RunID:  "run_1",

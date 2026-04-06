@@ -97,6 +97,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r == nil {
 		return
 	}
+	if s.deps.Config.Logging.Request.Enabled {
+		log.Printf("%s %s (arrived)", r.Method, r.URL.RequestURI())
+	}
 	rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 	s.router.ServeHTTP(rec, r)
 	s.logRequest(r, rec.status, time.Since(startedAt))
@@ -399,10 +402,10 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	if principal := PrincipalFromContext(r.Context()); principal != nil {
 		session.Subject = principal.Subject
 	}
-	s.deps.Runs.Register(runID, chatID, agentKey)
+	runCtx, _, _ := s.deps.Runs.Register(r.Context(), session)
 	defer s.deps.Runs.Finish(runID)
 
-	agentStream, err := s.deps.Agent.Stream(r.Context(), req, session)
+	agentStream, err := s.deps.Agent.Stream(runCtx, req, session)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
@@ -465,9 +468,14 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	streamFailed := false
+	streamInterrupted := false
 	for {
 		delta, err := agentStream.Next()
 		if errors.Is(err, io.EOF) {
+			break
+		}
+		if engine.IsRunInterrupted(err) {
+			streamInterrupted = true
 			break
 		}
 		if err != nil {
@@ -490,6 +498,10 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if streamFailed {
+		_ = sseWriter.WriteDone()
+		return
+	}
+	if streamInterrupted {
 		_ = sseWriter.WriteDone()
 		return
 	}
@@ -618,12 +630,6 @@ func (s *Server) handleViewport(w http.ResponseWriter, r *http.Request) {
 	viewportKey := r.URL.Query().Get("viewportKey")
 	if viewportKey == "" {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "viewportKey is required"))
-		return
-	}
-	if viewportKey == "confirm_dialog" {
-		writeJSON(w, http.StatusOK, api.Success(map[string]string{
-			"html": `<div data-viewport="confirm_dialog"><p>confirm dialog viewport placeholder</p></div>`,
-		}))
 		return
 	}
 	payload, err := s.deps.Viewport.Get(r.Context(), viewportKey)

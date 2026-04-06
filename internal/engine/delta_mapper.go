@@ -184,6 +184,8 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			SteerID:   value.SteerID,
 			Message:   value.Message,
 		}}
+	case DeltaRunCancel:
+		return []stream.StreamInput{stream.RunCancel{RunID: value.RunID}}
 	default:
 		return nil
 	}

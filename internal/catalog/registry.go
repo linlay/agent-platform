@@ -38,6 +38,9 @@ type AgentDefinition struct {
 	Skills        []string
 	Sandbox       map[string]any
 	ReactMaxSteps int
+	ContextTags   []string
+	Budget        map[string]any
+	StageSettings map[string]any
 }
 
 type TeamDefinition struct {
@@ -69,7 +72,7 @@ type FileRegistry struct {
 func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*FileRegistry, error) {
 	registry := &FileRegistry{
 		cfg:    cfg,
-		tools:  append(append([]api.ToolDetailResponse(nil), toolDefs...), confirmDialogTool()),
+		tools:  dedupeToolDefinitions(append(append([]api.ToolDetailResponse(nil), toolDefs...), confirmDialogTool())),
 		agents: map[string]AgentDefinition{},
 		teams:  map[string]TeamDefinition{},
 		skills: map[string]SkillDefinition{},
@@ -123,6 +126,15 @@ func (r *FileRegistry) Agents(tag string) []api.AgentSummary {
 				"tools":  append([]string(nil), def.Tools...),
 				"skills": append([]string(nil), def.Skills...),
 			},
+		}
+		if len(def.ContextTags) > 0 {
+			summary.Meta["contextTags"] = append([]string(nil), def.ContextTags...)
+		}
+		if def.Budget != nil {
+			summary.Meta["budget"] = cloneMap(def.Budget)
+		}
+		if def.StageSettings != nil {
+			summary.Meta["stageSettings"] = cloneMap(def.StageSettings)
 		}
 		if def.Sandbox != nil {
 			summary.Meta["sandbox"] = def.Sandbox
@@ -389,6 +401,13 @@ func parseAgentFile(path string) (AgentDefinition, error) {
 	def.Tools = append(def.Tools, listStrings(toolConfig["frontends"])...)
 	def.Tools = append(def.Tools, listStrings(toolConfig["actions"])...)
 	def.Skills = listStrings(mapNode(root["skillConfig"])["skills"])
+	def.ContextTags = listStrings(root["contextTags"])
+	if budget := mapNode(root["budget"]); len(budget) > 0 {
+		def.Budget = cloneMap(budget)
+	}
+	if stageSettings := mapNode(root["stageSettings"]); len(stageSettings) > 0 {
+		def.StageSettings = cloneMap(stageSettings)
+	}
 	sandboxConfig := mapNode(root["sandboxConfig"])
 	if len(sandboxConfig) > 0 {
 		def.Sandbox = map[string]any{
@@ -453,6 +472,23 @@ func cloneMap(src map[string]any) map[string]any {
 		dst[key] = value
 	}
 	return dst
+}
+
+func dedupeToolDefinitions(src []api.ToolDetailResponse) []api.ToolDetailResponse {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make([]api.ToolDetailResponse, 0, len(src))
+	seen := map[string]struct{}{}
+	for _, tool := range src {
+		dedupeKey := strings.ToLower(strings.TrimSpace(tool.Key)) + "|" + strings.ToLower(strings.TrimSpace(tool.Name))
+		if _, ok := seen[dedupeKey]; ok {
+			continue
+		}
+		seen[dedupeKey] = struct{}{}
+		out = append(out, tool)
+	}
+	return out
 }
 
 func matchesAgentTag(agent api.AgentSummary, needle string) bool {

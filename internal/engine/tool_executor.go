@@ -12,19 +12,24 @@ import (
 
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/config"
+	"agent-platform-runner-go/internal/memory"
 )
 
 type RuntimeToolExecutor struct {
 	cfg     config.Config
 	sandbox SandboxClient
+	memory  memory.Store
 	defs    []api.ToolDetailResponse
 }
 
-func NewRuntimeToolExecutor(cfg config.Config, sandbox SandboxClient) *RuntimeToolExecutor {
+func NewRuntimeToolExecutor(cfg config.Config, sandbox SandboxClient, memoryStore memory.Store) *RuntimeToolExecutor {
 	defs := []api.ToolDetailResponse{
 		bashToolDefinition(),
 		dateTimeToolDefinition(),
 		artifactPublishToolDefinition(),
+		memorySearchToolDefinition(),
+		memoryReadToolDefinition(),
+		memoryWriteToolDefinition(),
 	}
 	if cfg.ContainerHub.Enabled {
 		defs = append(defs, sandboxBashToolDefinition())
@@ -32,6 +37,7 @@ func NewRuntimeToolExecutor(cfg config.Config, sandbox SandboxClient) *RuntimeTo
 	return &RuntimeToolExecutor{
 		cfg:     cfg,
 		sandbox: sandbox,
+		memory:  memoryStore,
 		defs:    defs,
 	}
 }
@@ -50,6 +56,12 @@ func (t *RuntimeToolExecutor) Invoke(ctx context.Context, toolName string, args 
 		return t.invokeHostBash(ctx, args)
 	case "_sandbox_bash_":
 		return t.invokeSandboxBash(ctx, args, execCtx)
+	case "memory_search":
+		return t.invokeMemorySearch(args)
+	case "memory_read":
+		return t.invokeMemoryRead(args)
+	case "memory_write":
+		return t.invokeMemoryWrite(args)
 	default:
 		return ToolExecutionResult{
 			Output:   "tool not registered: " + toolName,
@@ -57,6 +69,63 @@ func (t *RuntimeToolExecutor) Invoke(ctx context.Context, toolName string, args 
 			ExitCode: -1,
 		}, nil
 	}
+}
+
+func (t *RuntimeToolExecutor) invokeMemorySearch(args map[string]any) (ToolExecutionResult, error) {
+	if t.memory == nil {
+		return ToolExecutionResult{Output: "memory store not configured", Error: "memory_not_configured", ExitCode: -1}, nil
+	}
+	items, err := t.memory.Search(stringArg(args, "query"), int(int64Arg(args, "limit")))
+	if err != nil {
+		return ToolExecutionResult{}, err
+	}
+	payload := map[string]any{"items": items, "count": len(items)}
+	return structuredResult(payload), nil
+}
+
+func (t *RuntimeToolExecutor) invokeMemoryRead(args map[string]any) (ToolExecutionResult, error) {
+	if t.memory == nil {
+		return ToolExecutionResult{Output: "memory store not configured", Error: "memory_not_configured", ExitCode: -1}, nil
+	}
+	id := stringArg(args, "id")
+	if id == "" {
+		return ToolExecutionResult{Output: "Missing argument: id", Error: "missing_id", ExitCode: -1}, nil
+	}
+	item, err := t.memory.Read(id)
+	if err != nil {
+		return ToolExecutionResult{}, err
+	}
+	if item == nil {
+		return ToolExecutionResult{Output: "memory item not found", Error: "memory_not_found", ExitCode: -1}, nil
+	}
+	return structuredResult(map[string]any{"item": item}), nil
+}
+
+func (t *RuntimeToolExecutor) invokeMemoryWrite(args map[string]any) (ToolExecutionResult, error) {
+	if t.memory == nil {
+		return ToolExecutionResult{Output: "memory store not configured", Error: "memory_not_configured", ExitCode: -1}, nil
+	}
+	item := api.StoredMemoryResponse{
+		ID:         stringArg(args, "id"),
+		ChatID:     stringArg(args, "chatId"),
+		SubjectKey: stringArg(args, "subjectKey"),
+		Summary:    stringArg(args, "summary"),
+		SourceType: defaultStringArg(args, "sourceType", "tool"),
+		Category:   defaultStringArg(args, "category", "tool"),
+		Importance: int(int64Arg(args, "importance")),
+		CreatedAt:  time.Now().UnixMilli(),
+		UpdatedAt:  time.Now().UnixMilli(),
+	}
+	if item.ID == "" {
+		item.ID = fmt.Sprintf("mem_%d", time.Now().UnixNano())
+	}
+	if item.ChatID == "" || strings.TrimSpace(item.Summary) == "" {
+		return ToolExecutionResult{Output: "Missing required memory fields", Error: "missing_memory_fields", ExitCode: -1}, nil
+	}
+	if err := t.memory.Write(item); err != nil {
+		return ToolExecutionResult{}, err
+	}
+	return structuredResult(map[string]any{"item": item, "status": "stored"}), nil
 }
 
 func (t *RuntimeToolExecutor) invokeDateTime() ToolExecutionResult {
@@ -247,6 +316,13 @@ func int64Arg(args map[string]any, key string) int64 {
 	}
 }
 
+func defaultStringArg(args map[string]any, key string, fallback string) string {
+	if value := stringArg(args, key); strings.TrimSpace(value) != "" {
+		return value
+	}
+	return fallback
+}
+
 func structuredResult(payload map[string]any) ToolExecutionResult {
 	return structuredResultWithExit(payload, 0)
 }
@@ -326,5 +402,62 @@ func sandboxBashToolDefinition() api.ToolDetailResponse {
 			"additionalProperties": false,
 		},
 		Meta: map[string]any{"kind": "backend", "strict": true, "sourceType": "local", "sourceKey": "_sandbox_bash_"},
+	}
+}
+
+func memorySearchToolDefinition() api.ToolDetailResponse {
+	return api.ToolDetailResponse{
+		Key:         "memory_search",
+		Name:        "memory_search",
+		Label:       "搜索记忆",
+		Description: "搜索已存储的记忆摘要",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"query": map[string]any{"type": "string"},
+				"limit": map[string]any{"type": "integer"},
+			},
+		},
+		Meta: map[string]any{"kind": "backend", "strict": true, "sourceType": "local", "sourceKey": "memory_search"},
+	}
+}
+
+func memoryReadToolDefinition() api.ToolDetailResponse {
+	return api.ToolDetailResponse{
+		Key:         "memory_read",
+		Name:        "memory_read",
+		Label:       "读取记忆",
+		Description: "按 ID 读取单条记忆",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id": map[string]any{"type": "string"},
+			},
+			"required": []string{"id"},
+		},
+		Meta: map[string]any{"kind": "backend", "strict": true, "sourceType": "local", "sourceKey": "memory_read"},
+	}
+}
+
+func memoryWriteToolDefinition() api.ToolDetailResponse {
+	return api.ToolDetailResponse{
+		Key:         "memory_write",
+		Name:        "memory_write",
+		Label:       "写入记忆",
+		Description: "写入一条记忆记录",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id":         map[string]any{"type": "string"},
+				"chatId":     map[string]any{"type": "string"},
+				"subjectKey": map[string]any{"type": "string"},
+				"summary":    map[string]any{"type": "string"},
+				"sourceType": map[string]any{"type": "string"},
+				"category":   map[string]any{"type": "string"},
+				"importance": map[string]any{"type": "integer"},
+			},
+			"required": []string{"chatId", "summary"},
+		},
+		Meta: map[string]any{"kind": "backend", "strict": true, "sourceType": "local", "sourceKey": "memory_write"},
 	}
 }

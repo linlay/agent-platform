@@ -12,13 +12,16 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"io"
+	"log"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/catalog"
@@ -195,6 +198,105 @@ func TestRememberEndpointReturnsStoredMemory(t *testing.T) {
 	}
 }
 
+func TestChatSnapshotDeduplicatesChatStartAcrossMultipleQueries(t *testing.T) {
+	fixture := newTestFixture(t)
+	server := fixture.server
+
+	firstReq := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"first turn"}`))
+	firstReq.Header.Set("Content-Type", "application/json")
+	firstRec := httptest.NewRecorder()
+	server.ServeHTTP(firstRec, firstReq)
+	if firstRec.Code != http.StatusOK {
+		t.Fatalf("first query expected 200, got %d: %s", firstRec.Code, firstRec.Body.String())
+	}
+
+	chatsRec := httptest.NewRecorder()
+	server.ServeHTTP(chatsRec, httptest.NewRequest(http.MethodGet, "/api/chats", nil))
+	var chatsResp api.ApiResponse[[]api.ChatSummaryResponse]
+	if err := json.Unmarshal(chatsRec.Body.Bytes(), &chatsResp); err != nil {
+		t.Fatalf("decode chats response: %v", err)
+	}
+	if len(chatsResp.Data) != 1 {
+		t.Fatalf("expected one chat after first query, got %#v", chatsResp.Data)
+	}
+	chatID := chatsResp.Data[0].ChatID
+
+	secondReq := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"`+chatID+`","message":"second turn"}`))
+	secondReq.Header.Set("Content-Type", "application/json")
+	secondRec := httptest.NewRecorder()
+	server.ServeHTTP(secondRec, secondReq)
+	if secondRec.Code != http.StatusOK {
+		t.Fatalf("second query expected 200, got %d: %s", secondRec.Code, secondRec.Body.String())
+	}
+
+	chatRec := httptest.NewRecorder()
+	server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatID+"&includeRawMessages=true", nil))
+	if chatRec.Code != http.StatusOK {
+		t.Fatalf("chat detail expected 200, got %d: %s", chatRec.Code, chatRec.Body.String())
+	}
+
+	var chatResp api.ApiResponse[api.ChatDetailResponse]
+	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
+		t.Fatalf("decode chat detail: %v", err)
+	}
+
+	chatStartCount := 0
+	runStartCount := 0
+	prevSeq := int64(0)
+	for _, event := range chatResp.Data.Events {
+		eventType, _ := event["type"].(string)
+		switch eventType {
+		case "chat.start":
+			chatStartCount++
+		case "run.start":
+			runStartCount++
+		}
+		seq := int64(event["seq"].(float64))
+		if seq != prevSeq+1 {
+			t.Fatalf("expected contiguous seq values, got prev=%d current=%d events=%#v", prevSeq, seq, chatResp.Data.Events)
+		}
+		prevSeq = seq
+	}
+	if chatStartCount != 1 {
+		t.Fatalf("expected one chat.start in snapshot, got %d events=%#v", chatStartCount, chatResp.Data.Events)
+	}
+	if runStartCount != 2 {
+		t.Fatalf("expected two run.start events, got %d events=%#v", runStartCount, chatResp.Data.Events)
+	}
+	if len(chatResp.Data.RawMessages) != 4 {
+		t.Fatalf("expected four raw messages for two turns, got %#v", chatResp.Data.RawMessages)
+	}
+}
+
+func TestServeHTTPLogsArrivalBeforeCompletion(t *testing.T) {
+	fixture := newTestFixture(t)
+
+	var buffer bytes.Buffer
+	originalWriter := log.Writer()
+	log.SetOutput(&buffer)
+	defer log.SetOutput(originalWriter)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/agents", nil)
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	logText := buffer.String()
+	arrived := strings.Index(logText, "GET /api/agents (arrived)")
+	completed := strings.Index(logText, "GET /api/agents -> 200")
+	if arrived < 0 {
+		t.Fatalf("expected arrival log, got %q", logText)
+	}
+	if completed < 0 {
+		t.Fatalf("expected completion log, got %q", logText)
+	}
+	if arrived > completed {
+		t.Fatalf("expected arrival log before completion log, got %q", logText)
+	}
+}
+
 func TestCatalogEndpoints(t *testing.T) {
 	fixture := newTestFixture(t)
 	server := fixture.server
@@ -365,6 +467,254 @@ func TestQueryStreamsBeforeRunCompleteOverHTTP(t *testing.T) {
 	}
 }
 
+func TestInterruptCancelsActiveRunAndSkipsRunComplete(t *testing.T) {
+	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			t.Fatalf("expected flusher")
+		}
+		if _, err := io.WriteString(w, "data: "+`{"choices":[{"delta":{"content":"partial"}}]}`+"\n\n"); err != nil {
+			t.Fatalf("write partial delta: %v", err)
+		}
+		flusher.Flush()
+		<-r.Context().Done()
+	})
+
+	httpServer := httptest.NewServer(fixture.server)
+	defer httpServer.Close()
+
+	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"interrupt me"}`))
+	if err != nil {
+		t.Fatalf("post query: %v", err)
+	}
+	defer resp.Body.Close()
+
+	reader := bufio.NewReader(resp.Body)
+	var streamBody strings.Builder
+	runID := ""
+	for {
+		line, readErr := reader.ReadString('\n')
+		streamBody.WriteString(line)
+		if strings.HasPrefix(line, "data: {") {
+			payload := decodeSSELine(t, line)
+			if payload["type"] == "run.start" {
+				runID, _ = payload["runId"].(string)
+			}
+			if payload["type"] == "content.delta" && runID != "" {
+				break
+			}
+		}
+		if readErr != nil {
+			t.Fatalf("read query stream before interrupt: %v", readErr)
+		}
+	}
+
+	interruptRec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(interruptRec, httptest.NewRequest(http.MethodPost, "/api/interrupt", bytes.NewBufferString(`{"runId":"`+runID+`"}`)))
+	if interruptRec.Code != http.StatusOK {
+		t.Fatalf("interrupt expected 200, got %d: %s", interruptRec.Code, interruptRec.Body.String())
+	}
+	var interruptResp api.ApiResponse[api.InterruptResponse]
+	if err := json.Unmarshal(interruptRec.Body.Bytes(), &interruptResp); err != nil {
+		t.Fatalf("decode interrupt response: %v", err)
+	}
+	if !interruptResp.Data.Accepted || interruptResp.Data.Status != "accepted" {
+		t.Fatalf("expected accepted interrupt, got %#v", interruptResp.Data)
+	}
+
+	for {
+		line, readErr := reader.ReadString('\n')
+		streamBody.WriteString(line)
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			t.Fatalf("read query stream after interrupt: %v", readErr)
+		}
+	}
+
+	body := streamBody.String()
+	if !strings.Contains(body, `"type":"run.cancel"`) {
+		t.Fatalf("expected run.cancel event, got %s", body)
+	}
+	if strings.Contains(body, `"type":"run.complete"`) {
+		t.Fatalf("did not expect run.complete after interrupt, got %s", body)
+	}
+
+	chatsRec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(chatsRec, httptest.NewRequest(http.MethodGet, "/api/chats", nil))
+	var chatsResp api.ApiResponse[[]api.ChatSummaryResponse]
+	if err := json.Unmarshal(chatsRec.Body.Bytes(), &chatsResp); err != nil {
+		t.Fatalf("decode chats response: %v", err)
+	}
+	if len(chatsResp.Data) != 1 {
+		t.Fatalf("expected one chat, got %#v", chatsResp.Data)
+	}
+	if chatsResp.Data[0].LastRunID != "" || chatsResp.Data[0].LastRunContent != "" {
+		t.Fatalf("expected interrupted run to skip completion summary, got %#v", chatsResp.Data[0])
+	}
+}
+
+func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
+	var providerCallCount atomic.Int32
+	secondTurnMessages := make(chan []map[string]any, 1)
+
+	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		call := providerCallCount.Add(1)
+		switch call {
+		case 1:
+			writeProviderSSE(t, w,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_confirm","type":"function","function":{"name":"confirm_dialog","arguments":"{\"title\":\"Need confirmation\"}"}}]},"finish_reason":"tool_calls"}]}`,
+				`[DONE]`,
+			)
+		case 2:
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode second provider request: %v", err)
+			}
+			secondTurnMessages <- normalizeProviderMessages(payload["messages"])
+			writeProviderSSE(t, w,
+				`{"choices":[{"delta":{"content":"final answer"},"finish_reason":"stop"}]}`,
+				`[DONE]`,
+			)
+		default:
+			t.Fatalf("unexpected provider call %d", call)
+		}
+	})
+
+	httpServer := httptest.NewServer(fixture.server)
+	defer httpServer.Close()
+
+	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"please confirm first"}`))
+	if err != nil {
+		t.Fatalf("post query: %v", err)
+	}
+	defer resp.Body.Close()
+
+	reader := bufio.NewReader(resp.Body)
+	var streamBody strings.Builder
+	runID := ""
+	toolID := ""
+	for {
+		line, readErr := reader.ReadString('\n')
+		streamBody.WriteString(line)
+		if strings.HasPrefix(line, "data: {") {
+			payload := decodeSSELine(t, line)
+			if payload["type"] == "request.submit" {
+				runID, _ = payload["runId"].(string)
+				toolID, _ = payload["toolId"].(string)
+				break
+			}
+		}
+		if readErr != nil {
+			t.Fatalf("read query stream before submit: %v", readErr)
+		}
+	}
+
+	steerReq := httptest.NewRequest(http.MethodPost, "/api/steer", bytes.NewBufferString(`{"runId":"`+runID+`","message":"Please keep it short."}`))
+	steerReq.Header.Set("Content-Type", "application/json")
+	steerRec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(steerRec, steerReq)
+	if steerRec.Code != http.StatusOK {
+		t.Fatalf("steer expected 200, got %d: %s", steerRec.Code, steerRec.Body.String())
+	}
+	var steerResp api.ApiResponse[api.SteerResponse]
+	if err := json.Unmarshal(steerRec.Body.Bytes(), &steerResp); err != nil {
+		t.Fatalf("decode steer response: %v", err)
+	}
+	if !steerResp.Data.Accepted || steerResp.Data.Status != "accepted" {
+		t.Fatalf("expected accepted steer, got %#v", steerResp.Data)
+	}
+
+	submitReq := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+runID+`","toolId":"`+toolID+`","params":{"confirmed":true}}`))
+	submitReq.Header.Set("Content-Type", "application/json")
+	submitRec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(submitRec, submitReq)
+	if submitRec.Code != http.StatusOK {
+		t.Fatalf("submit expected 200, got %d: %s", submitRec.Code, submitRec.Body.String())
+	}
+	var submitResp api.ApiResponse[api.SubmitResponse]
+	if err := json.Unmarshal(submitRec.Body.Bytes(), &submitResp); err != nil {
+		t.Fatalf("decode submit response: %v", err)
+	}
+	if !submitResp.Data.Accepted || submitResp.Data.Status != "accepted" {
+		t.Fatalf("expected accepted submit, got %#v", submitResp.Data)
+	}
+
+	for {
+		line, readErr := reader.ReadString('\n')
+		streamBody.WriteString(line)
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			t.Fatalf("read query stream after submit: %v", readErr)
+		}
+	}
+
+	body := streamBody.String()
+	if !strings.Contains(body, `"type":"request.submit"`) {
+		t.Fatalf("expected request.submit event, got %s", body)
+	}
+	if !strings.Contains(body, `"type":"request.steer"`) {
+		t.Fatalf("expected request.steer event, got %s", body)
+	}
+	if !strings.Contains(body, `"type":"tool.result"`) {
+		t.Fatalf("expected tool.result event, got %s", body)
+	}
+	if !strings.Contains(body, "final answer") {
+		t.Fatalf("expected final answer in stream, got %s", body)
+	}
+
+	select {
+	case messages := <-secondTurnMessages:
+		toolIndex := -1
+		steerIndex := -1
+		for i, message := range messages {
+			role, _ := message["role"].(string)
+			content, _ := message["content"].(string)
+			if role == "tool" {
+				toolIndex = i
+			}
+			if role == "user" && content == "Please keep it short." {
+				steerIndex = i
+			}
+		}
+		if toolIndex < 0 {
+			t.Fatalf("expected second turn to include tool message, got %#v", messages)
+		}
+		if steerIndex <= toolIndex {
+			t.Fatalf("expected steer message after tool message, got %#v", messages)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for second provider request")
+	}
+}
+
+func TestSubmitReturnsUnmatchedWhenNoActiveWaiter(t *testing.T) {
+	fixture := newTestFixture(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"missing-run","toolId":"missing-tool","params":{"ok":true}}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var response api.ApiResponse[api.SubmitResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode submit response: %v", err)
+	}
+	if response.Data.Accepted {
+		t.Fatalf("expected unmatched submit to be rejected, got %#v", response.Data)
+	}
+	if response.Data.Status != "unmatched" {
+		t.Fatalf("expected unmatched status, got %#v", response.Data)
+	}
+}
+
 func TestServerRejectsInvalidLocalJWTConfigAtStartup(t *testing.T) {
 	fixture := newTestFixture(t)
 	fixture.cfg.Auth = config.AuthConfig{
@@ -509,6 +859,8 @@ func newTestFixture(t *testing.T) testFixture {
 func newTestFixtureWithModelHandler(t *testing.T, modelHandler http.HandlerFunc) testFixture {
 	t.Helper()
 	root := t.TempDir()
+	providerServer := httptest.NewServer(modelHandler)
+	t.Cleanup(providerServer.Close)
 
 	registriesDir := filepath.Join(root, "registries")
 	agentsDir := filepath.Join(root, "agents")
@@ -533,7 +885,7 @@ func newTestFixtureWithModelHandler(t *testing.T, modelHandler http.HandlerFunc)
 	}
 	if err := os.WriteFile(filepath.Join(providersDir, "mock.yml"), []byte(strings.Join([]string{
 		"key: mock",
-		"baseUrl: http://mock.local",
+		"baseUrl: " + providerServer.URL,
 		"apiKey: test-key",
 		"defaultModel: mock-model",
 	}, "\n")), 0o644); err != nil {
@@ -559,7 +911,8 @@ func newTestFixtureWithModelHandler(t *testing.T, modelHandler http.HandlerFunc)
 		"toolConfig:",
 		"  backends:",
 		"    - _datetime_",
-		"  frontends: []",
+		"  frontends:",
+		"    - confirm_dialog",
 		"  actions: []",
 		"skillConfig:",
 		"  skills:",
@@ -606,6 +959,9 @@ func newTestFixtureWithModelHandler(t *testing.T, modelHandler http.HandlerFunc)
 		Defaults: config.DefaultsConfig{
 			React: config.ReactDefaultsConfig{MaxSteps: 6},
 		},
+		Logging: config.LoggingConfig{
+			Request: config.ToggleConfig{Enabled: true},
+		},
 		Skills: config.SkillCatalogConfig{
 			CatalogConfig:  config.CatalogConfig{ExternalDir: skillsDir},
 			MaxPromptChars: 8000,
@@ -637,8 +993,9 @@ func newTestFixtureWithModelHandler(t *testing.T, modelHandler http.HandlerFunc)
 	if err != nil {
 		t.Fatalf("load model registry: %v", err)
 	}
-	toolExecutor := engine.NewRuntimeToolExecutor(cfg, engine.NewNoopSandboxClient())
-	modelClient := newScriptedHTTPClient(modelHandler)
+	backendTools := engine.NewRuntimeToolExecutor(cfg, engine.NewNoopSandboxClient(), memories)
+	mcp := engine.NewNoopMcpClient()
+	toolExecutor := engine.NewToolRouter(backendTools, mcp, engine.NewFrontendSubmitCoordinator(), engine.NewNoopActionInvoker())
 	registry, err := catalog.NewFileRegistry(cfg, toolExecutor.Definitions())
 	if err != nil {
 		t.Fatalf("new file registry: %v", err)
@@ -647,8 +1004,7 @@ func newTestFixtureWithModelHandler(t *testing.T, modelHandler http.HandlerFunc)
 
 	runs := engine.NewInMemoryRunManager()
 	sandbox := engine.NewNoopSandboxClient()
-	agentEngine := engine.NewLLMAgentEngineWithHTTPClient(cfg, modelRegistry, toolExecutor, sandbox, modelClient)
-	mcp := engine.NewNoopMcpClient()
+	agentEngine := engine.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, sandbox)
 	viewport := engine.NewNoopViewportClient()
 	server, err := New(Dependencies{
 		Config:          cfg,
@@ -780,6 +1136,26 @@ func decodeSSEMessages(t *testing.T, body string) []map[string]any {
 			t.Fatalf("decode sse message %q: %v", payload, err)
 		}
 		messages = append(messages, msg)
+	}
+	return messages
+}
+
+func decodeSSELine(t *testing.T, line string) map[string]any {
+	t.Helper()
+	payload := strings.TrimSpace(strings.TrimPrefix(line, "data: "))
+	var message map[string]any
+	if err := json.Unmarshal([]byte(payload), &message); err != nil {
+		t.Fatalf("decode sse line %q: %v", line, err)
+	}
+	return message
+}
+
+func normalizeProviderMessages(value any) []map[string]any {
+	items, _ := value.([]any)
+	messages := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		message, _ := item.(map[string]any)
+		messages = append(messages, message)
 	}
 	return messages
 }

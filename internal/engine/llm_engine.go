@@ -87,23 +87,29 @@ type openAIStreamFunctionDelta struct {
 }
 
 type llmRunStream struct {
-	engine    *LLMAgentEngine
-	ctx       context.Context
-	req       api.QueryRequest
-	session   QuerySession
-	model     ModelDefinition
-	provider  ProviderDefinition
-	toolSpecs []openAIToolSpec
-	messages  []openAIMessage
-	execCtx   *ExecutionContext
-	maxSteps  int
+	engine     *LLMAgentEngine
+	ctx        context.Context
+	req        api.QueryRequest
+	session    QuerySession
+	runControl *RunControl
+	model      ModelDefinition
+	provider   ProviderDefinition
+	toolSpecs  []openAIToolSpec
+	messages   []openAIMessage
+	execCtx    *ExecutionContext
+	maxSteps   int
 
-	step         int
-	pending      []AgentDelta
-	currentTurn  *providerTurnStream
-	finished     bool
-	closed       bool
-	fallbackSent bool
+	step               int
+	pending            []AgentDelta
+	currentTurn        *providerTurnStream
+	finished           bool
+	closed             bool
+	fallbackSent       bool
+	cancelSent         bool
+	allowToolUse       bool
+	previousToolResult any
+	queuedToolCalls    []*preparedToolInvocation
+	activeToolCall     *preparedToolInvocation
 }
 
 type providerTurnStream struct {
@@ -120,6 +126,13 @@ type toolCallAccumulator struct {
 	Type         string
 	FunctionName string
 	Arguments    strings.Builder
+}
+
+type preparedToolInvocation struct {
+	toolID   string
+	toolName string
+	args     map[string]any
+	prelude  []AgentDelta
 }
 
 func NewLLMAgentEngine(cfg config.Config, models *ModelRegistry, tools ToolExecutor, sandbox SandboxClient) *LLMAgentEngine {
@@ -140,21 +153,27 @@ func NewLLMAgentEngineWithHTTPClient(cfg config.Config, models *ModelRegistry, t
 }
 
 func (e *LLMAgentEngine) Stream(ctx context.Context, req api.QueryRequest, session QuerySession) (AgentStream, error) {
+	return resolveAgentMode(session.Mode).Start(e, ctx, req, session)
+}
+
+func (e *LLMAgentEngine) newRunStream(ctx context.Context, req api.QueryRequest, session QuerySession, allowToolUse bool) (AgentStream, error) {
 	model, provider, err := e.models.Get(session.ModelKey)
 	if err != nil {
 		return nil, err
 	}
 	toolSpecs := toOpenAIToolSpecs(filterToolDefinitions(e.tools.Definitions(), session.ToolNames))
 	execCtx := &ExecutionContext{Request: req, Session: session}
+	execCtx.RunControl = RunControlFromContext(ctx)
 
 	stream := &llmRunStream{
-		engine:    e,
-		ctx:       ctx,
-		req:       req,
-		session:   session,
-		model:     model,
-		provider:  provider,
-		toolSpecs: toolSpecs,
+		engine:     e,
+		ctx:        ctx,
+		req:        req,
+		session:    session,
+		runControl: execCtx.RunControl,
+		model:      model,
+		provider:   provider,
+		toolSpecs:  toolSpecs,
 		messages: []openAIMessage{
 			{
 				Role:    "system",
@@ -165,8 +184,13 @@ func (e *LLMAgentEngine) Stream(ctx context.Context, req api.QueryRequest, sessi
 				Content: req.Message,
 			},
 		},
-		execCtx:  execCtx,
-		maxSteps: e.resolveMaxSteps(),
+		execCtx:      execCtx,
+		maxSteps:     e.resolveMaxSteps(),
+		allowToolUse: allowToolUse,
+	}
+	if !stream.allowToolUse {
+		stream.toolSpecs = nil
+		stream.maxSteps = 1
 	}
 	if err := stream.prepareNextTurn(); err != nil {
 		stream.Close()
@@ -223,8 +247,21 @@ func (s *llmRunStream) prime() error {
 
 func (s *llmRunStream) fillPending() error {
 	for len(s.pending) == 0 {
+		if err := s.handleInterruptIfNeeded(); err != nil || len(s.pending) > 0 {
+			return err
+		}
 		if s.finished {
 			return io.EOF
+		}
+		if s.activeToolCall != nil {
+			if err := s.invokeActiveToolCall(); err != nil {
+				return err
+			}
+			continue
+		}
+		if len(s.queuedToolCalls) > 0 {
+			s.activateNextToolCall()
+			continue
 		}
 		if s.currentTurn == nil {
 			if s.step >= s.maxSteps {
@@ -234,6 +271,9 @@ func (s *llmRunStream) fillPending() error {
 			}
 			if err := s.prepareNextTurn(); err != nil {
 				return err
+			}
+			if len(s.pending) > 0 || s.currentTurn == nil {
+				continue
 			}
 		}
 		done, err := s.consumeCurrentTurn()
@@ -248,6 +288,10 @@ func (s *llmRunStream) fillPending() error {
 }
 
 func (s *llmRunStream) prepareNextTurn() error {
+	s.appendPendingSteers()
+	if len(s.pending) > 0 {
+		return nil
+	}
 	turn, err := s.engine.openProviderStream(s.ctx, s.provider, s.model, s.messages, s.toolSpecs)
 	if err != nil {
 		return err
@@ -260,6 +304,9 @@ func (s *llmRunStream) prepareNextTurn() error {
 func (s *llmRunStream) consumeCurrentTurn() (bool, error) {
 	rawChunk, err := readSSEData(s.currentTurn.reader)
 	if err != nil {
+		if s.isInterrupted() {
+			return false, nil
+		}
 		if errors.Is(err, io.EOF) {
 			if s.currentTurn.finishReason == "" && !s.currentTurn.hasMeaningful {
 				return false, fmt.Errorf("provider stream ended before first valid event")
@@ -300,6 +347,9 @@ func (s *llmRunStream) consumeCurrentTurn() (bool, error) {
 			for _, toolDelta := range choice.Delta.ToolCalls {
 				s.currentTurn.appendToolDelta(toolDelta)
 				s.engine.logParsedToolDelta(s.session.RunID, toolDelta)
+				if !s.allowToolUse {
+					continue
+				}
 				if toolDelta.ID != "" || toolDelta.Type != "" || toolDelta.Function.Name != "" || toolDelta.Function.Arguments != "" {
 					s.pending = append(s.pending, DeltaToolCall{
 						Index:     toolDelta.Index,
@@ -353,6 +403,16 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		s.finished = true
 		return nil
 	}
+	if !s.allowToolUse {
+		s.pending = append(s.pending, DeltaError{Error: map[string]any{
+			"code":     "tool_calls_not_allowed",
+			"message":  "tool calls are not allowed in ONESHOT mode",
+			"scope":    "run",
+			"category": "runtime",
+		}})
+		s.finished = true
+		return nil
+	}
 
 	toolIDs := make([]string, 0, len(toolCalls))
 	for _, toolCall := range toolCalls {
@@ -360,14 +420,24 @@ func (s *llmRunStream) finishCurrentTurn() error {
 	}
 	s.pending = append(s.pending, DeltaToolEnd{ToolIDs: toolIDs})
 	for _, toolCall := range toolCalls {
-		toolEvents, toolMessage := s.executeToolCall(toolCall)
-		s.pending = append(s.pending, toolEvents...)
-		s.messages = append(s.messages, toolMessage)
+		invocation, immediateEvents, toolMessage := s.prepareToolCall(toolCall)
+		if len(immediateEvents) > 0 {
+			s.pending = append(s.pending, immediateEvents...)
+		}
+		if toolMessage != nil {
+			s.messages = append(s.messages, *toolMessage)
+		}
+		if invocation != nil {
+			s.queuedToolCalls = append(s.queuedToolCalls, invocation)
+		}
+	}
+	if s.activeToolCall == nil && len(s.queuedToolCalls) > 0 {
+		s.activateNextToolCall()
 	}
 	return nil
 }
 
-func (s *llmRunStream) executeToolCall(toolCall openAIToolCall) ([]AgentDelta, openAIMessage) {
+func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolInvocation, []AgentDelta, *openAIMessage) {
 	toolID := toolCall.ID
 	if toolID == "" {
 		toolID = s.session.RunID + "_tool_" + strings.ReplaceAll(toolCall.Function.Name, " ", "_")
@@ -376,7 +446,7 @@ func (s *llmRunStream) executeToolCall(toolCall openAIToolCall) ([]AgentDelta, o
 	args := map[string]any{}
 	if strings.TrimSpace(toolCall.Function.Arguments) != "" {
 		if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
-			return []AgentDelta{DeltaToolResult{
+			return nil, []AgentDelta{DeltaToolResult{
 					ToolID:   toolID,
 					ToolName: toolCall.Function.Name,
 					Result: ToolExecutionResult{
@@ -384,7 +454,7 @@ func (s *llmRunStream) executeToolCall(toolCall openAIToolCall) ([]AgentDelta, o
 						Error:    "invalid_tool_arguments",
 						ExitCode: -1,
 					},
-				}}, openAIMessage{
+				}}, &openAIMessage{
 					Role:       "tool",
 					ToolCallID: toolID,
 					Name:       toolCall.Function.Name,
@@ -392,21 +462,78 @@ func (s *llmRunStream) executeToolCall(toolCall openAIToolCall) ([]AgentDelta, o
 				}
 		}
 	}
+	expandedArgs, err := ExpandToolArgsTemplates(args, s.previousToolResult)
+	if err != nil {
+		return nil, []AgentDelta{DeltaToolResult{
+				ToolID:   toolID,
+				ToolName: toolCall.Function.Name,
+				Result: ToolExecutionResult{
+					Output:   err.Error(),
+					Error:    "tool_args_template_missing_value",
+					ExitCode: -1,
+				},
+			}}, &openAIMessage{
+				Role:       "tool",
+				ToolCallID: toolID,
+				Name:       toolCall.Function.Name,
+				Content:    err.Error(),
+			}
+	}
+	args, _ = expandedArgs.(map[string]any)
 
-	result, invokeErr := s.engine.tools.Invoke(s.ctx, toolCall.Function.Name, args, s.execCtx)
+	return &preparedToolInvocation{
+		toolID:   toolID,
+		toolName: toolCall.Function.Name,
+		args:     args,
+		prelude:  s.preToolInvocationDeltas(toolID, toolCall.Function.Name, args),
+	}, nil, nil
+}
+
+func (s *llmRunStream) activateNextToolCall() {
+	if s.activeToolCall != nil || len(s.queuedToolCalls) == 0 {
+		return
+	}
+	s.activeToolCall = s.queuedToolCalls[0]
+	s.queuedToolCalls = s.queuedToolCalls[1:]
+	if len(s.activeToolCall.prelude) > 0 {
+		s.pending = append(s.pending, s.activeToolCall.prelude...)
+	}
+}
+
+func (s *llmRunStream) invokeActiveToolCall() error {
+	invocation := s.activeToolCall
+	if invocation == nil {
+		return nil
+	}
+
+	s.execCtx.CurrentToolID = invocation.toolID
+	s.execCtx.CurrentToolName = invocation.toolName
+	defer func() {
+		s.execCtx.CurrentToolID = ""
+		s.execCtx.CurrentToolName = ""
+		s.activeToolCall = nil
+	}()
+
+	result, invokeErr := s.engine.tools.Invoke(s.ctx, invocation.toolName, invocation.args, s.execCtx)
 	if invokeErr != nil {
+		if errors.Is(invokeErr, ErrRunInterrupted) {
+			return s.handleInterruptIfNeeded()
+		}
 		result = ToolExecutionResult{Output: invokeErr.Error(), Error: "tool_execution_failed", ExitCode: -1}
 	}
-	return []AgentDelta{DeltaToolResult{
-			ToolID:   toolID,
-			ToolName: toolCall.Function.Name,
-			Result:   result,
-		}}, openAIMessage{
-			Role:       "tool",
-			ToolCallID: toolID,
-			Name:       toolCall.Function.Name,
-			Content:    result.Output,
-		}
+	s.previousToolResult = result.StructuredOrOutput()
+	s.pending = append(s.pending, DeltaToolResult{
+		ToolID:   invocation.toolID,
+		ToolName: invocation.toolName,
+		Result:   result,
+	})
+	s.messages = append(s.messages, openAIMessage{
+		Role:       "tool",
+		ToolCallID: invocation.toolID,
+		Name:       invocation.toolName,
+		Content:    result.Output,
+	})
+	return nil
 }
 
 func (s *llmRunStream) enqueueFallback(text string) {
@@ -419,6 +546,64 @@ func (s *llmRunStream) enqueueFallback(text string) {
 
 func (s *llmRunStream) newContentDeltaEvent(delta string) AgentDelta {
 	return DeltaContent{Text: delta}
+}
+
+func (s *llmRunStream) appendPendingSteers() {
+	if s.runControl == nil {
+		return
+	}
+	for _, steer := range s.runControl.DrainSteers() {
+		s.pending = append(s.pending, NewSteerDelta(steer))
+		s.messages = append(s.messages, openAIMessage{
+			Role:    "user",
+			Content: steer.Message,
+		})
+	}
+}
+
+func (s *llmRunStream) isInterrupted() bool {
+	return s.runControl != nil && s.runControl.Interrupted()
+}
+
+func (s *llmRunStream) handleInterruptIfNeeded() error {
+	if !s.isInterrupted() {
+		return nil
+	}
+	if s.currentTurn != nil && s.currentTurn.body != nil {
+		_ = s.currentTurn.body.Close()
+		s.currentTurn = nil
+	}
+	if !s.cancelSent {
+		s.cancelSent = true
+		s.pending = append(s.pending, DeltaRunCancel{RunID: s.session.RunID})
+		return nil
+	}
+	return ErrRunInterrupted
+}
+
+func (s *llmRunStream) preToolInvocationDeltas(toolID string, toolName string, payload map[string]any) []AgentDelta {
+	tool, ok := s.lookupToolDefinition(toolName)
+	if !ok {
+		return nil
+	}
+	toolKind, _ := tool.Meta["kind"].(string)
+	if !strings.EqualFold(strings.TrimSpace(toolKind), "frontend") {
+		return nil
+	}
+	viewID, _ := tool.Meta["viewportKey"].(string)
+	return []AgentDelta{NewFrontendSubmitRequest(s.session, toolID, payload, viewID)}
+}
+
+func (s *llmRunStream) lookupToolDefinition(toolName string) (api.ToolDetailResponse, bool) {
+	for _, tool := range s.engine.tools.Definitions() {
+		if strings.EqualFold(strings.TrimSpace(tool.Name), strings.TrimSpace(toolName)) {
+			return tool, true
+		}
+		if strings.EqualFold(strings.TrimSpace(tool.Key), strings.TrimSpace(toolName)) {
+			return tool, true
+		}
+	}
+	return api.ToolDetailResponse{}, false
 }
 
 func (t *providerTurnStream) appendToolDelta(delta openAIStreamToolDelta) {
@@ -626,37 +811,6 @@ func toOpenAIToolSpecs(defs []api.ToolDetailResponse) []openAIToolSpec {
 		})
 	}
 	return out
-}
-
-func buildSystemPrompt(session QuerySession, req api.QueryRequest, modelKey string) string {
-	var builder strings.Builder
-	builder.WriteString("You are the Go runner agent.\n")
-	if session.AgentName != "" {
-		builder.WriteString("Current agentName: " + session.AgentName + "\n")
-	}
-	builder.WriteString("Current runId: " + session.RunID + "\n")
-	builder.WriteString("Current chatId: " + session.ChatID + "\n")
-	builder.WriteString("Current agentKey: " + session.AgentKey + "\n")
-	builder.WriteString("Current modelKey: " + modelKey + "\n")
-	if session.Mode != "" {
-		builder.WriteString("Current mode: " + session.Mode + "\n")
-	}
-	if session.Subject != "" {
-		builder.WriteString("Current subject: " + session.Subject + "\n")
-	}
-	if len(req.References) > 0 {
-		builder.WriteString("References:\n")
-		for _, ref := range req.References {
-			builder.WriteString("- ")
-			builder.WriteString(ref.Name)
-			if ref.SandboxPath != "" {
-				builder.WriteString(" sandboxPath=" + ref.SandboxPath)
-			}
-			builder.WriteString("\n")
-		}
-	}
-	builder.WriteString("Use available tools when they are necessary, and provide a final assistant answer after tool use.")
-	return builder.String()
 }
 
 func filterToolDefinitions(defs []api.ToolDetailResponse, allowed []string) []api.ToolDetailResponse {

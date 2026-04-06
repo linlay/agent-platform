@@ -107,3 +107,9 @@ type DeltaRequestSteer struct {
 }
 
 func (DeltaRequestSteer) agentDeltaTag() {}
+
+type DeltaRunCancel struct {
+	RunID string
+}
+
+func (DeltaRunCancel) agentDeltaTag() {}

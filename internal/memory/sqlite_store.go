@@ -2,8 +2,10 @@ package memory
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -11,25 +13,29 @@ import (
 	"agent-platform-runner-go/internal/chat"
 )
 
-type Store interface {
-	Remember(chatDetail chat.Detail, request api.RememberRequest, agentKey string) (api.RememberResponse, error)
-	Search(query string, limit int) ([]api.StoredMemoryResponse, error)
-	Read(id string) (*api.StoredMemoryResponse, error)
-	Write(item api.StoredMemoryResponse) error
+type SQLiteStore struct {
+	root   string
+	dbPath string
 }
 
-type FileStore struct {
-	root string
-}
-
-func NewFileStore(root string) (*FileStore, error) {
+func NewSQLiteStore(root string, dbFileName string) (*SQLiteStore, error) {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return nil, err
 	}
-	return &FileStore{root: root}, nil
+	if strings.TrimSpace(dbFileName) == "" {
+		dbFileName = "memory.db"
+	}
+	store := &SQLiteStore{
+		root:   root,
+		dbPath: filepath.Join(root, dbFileName),
+	}
+	if err := store.persistIndex(nil); err != nil {
+		return nil, err
+	}
+	return store, nil
 }
 
-func (s *FileStore) Remember(chatDetail chat.Detail, request api.RememberRequest, agentKey string) (api.RememberResponse, error) {
+func (s *SQLiteStore) Remember(chatDetail chat.Detail, request api.RememberRequest, agentKey string) (api.RememberResponse, error) {
 	now := time.Now().UnixMilli()
 	summary := extractRememberSummary(chatDetail)
 	item := api.RememberItemResponse{
@@ -95,74 +101,15 @@ func (s *FileStore) Remember(chatDetail chat.Detail, request api.RememberRequest
 	}, nil
 }
 
-func extractRememberSummary(detail chat.Detail) string {
-	for i := len(detail.RawMessages) - 1; i >= 0; i-- {
-		message := detail.RawMessages[i]
-		role, _ := message["role"].(string)
-		content, _ := message["content"].(string)
-		if role == "assistant" && strings.TrimSpace(content) != "" {
-			return content
-		}
-	}
-	if len(detail.Events) > 0 {
-		last := detail.Events[len(detail.Events)-1]
-		if text, _ := last["text"].(string); strings.TrimSpace(text) != "" {
-			return text
-		}
-	}
-	return "No assistant memory extracted yet."
-}
-
-func firstRawMessage(raw []map[string]any) string {
-	for _, message := range raw {
-		if content, _ := message["content"].(string); strings.TrimSpace(content) != "" {
-			return content
-		}
-	}
-	return ""
-}
-
-func sampleMessages(raw []map[string]any) []string {
-	samples := make([]string, 0, min(3, len(raw)))
-	for _, message := range raw {
-		role, _ := message["role"].(string)
-		content, _ := message["content"].(string)
-		if strings.TrimSpace(content) == "" {
-			continue
-		}
-		samples = append(samples, role+": "+content)
-		if len(samples) == 3 {
-			return samples
-		}
-	}
-	return samples
-}
-
-func sampleEvents(events []map[string]any) []string {
-	samples := make([]string, 0, min(3, len(events)))
-	for _, event := range events {
-		eventType, _ := event["type"].(string)
-		samples = append(samples, eventType)
-		if len(samples) == 3 {
-			return samples
-		}
-	}
-	return samples
-}
-
-func min(a int, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func (s *FileStore) Search(query string, limit int) ([]api.StoredMemoryResponse, error) {
-	items, err := s.readAllStored()
+func (s *SQLiteStore) Search(query string, limit int) ([]api.StoredMemoryResponse, error) {
+	items, err := s.readIndex()
 	if err != nil {
 		return nil, err
 	}
 	needle := strings.ToLower(strings.TrimSpace(query))
+	sort.SliceStable(items, func(i, j int) bool {
+		return items[i].UpdatedAt > items[j].UpdatedAt
+	})
 	out := make([]api.StoredMemoryResponse, 0)
 	for _, item := range items {
 		if needle == "" || strings.Contains(strings.ToLower(item.Summary), needle) || strings.Contains(strings.ToLower(item.ChatID), needle) || strings.Contains(strings.ToLower(item.SubjectKey), needle) {
@@ -175,8 +122,8 @@ func (s *FileStore) Search(query string, limit int) ([]api.StoredMemoryResponse,
 	return out, nil
 }
 
-func (s *FileStore) Read(id string) (*api.StoredMemoryResponse, error) {
-	items, err := s.readAllStored()
+func (s *SQLiteStore) Read(id string) (*api.StoredMemoryResponse, error) {
+	items, err := s.readIndex()
 	if err != nil {
 		return nil, err
 	}
@@ -189,8 +136,33 @@ func (s *FileStore) Read(id string) (*api.StoredMemoryResponse, error) {
 	return nil, nil
 }
 
-func (s *FileStore) Write(item api.StoredMemoryResponse) error {
-	if err := os.MkdirAll(s.root, 0o755); err != nil {
+func (s *SQLiteStore) Write(item api.StoredMemoryResponse) error {
+	if item.UpdatedAt == 0 {
+		item.UpdatedAt = time.Now().UnixMilli()
+	}
+	if item.CreatedAt == 0 {
+		item.CreatedAt = item.UpdatedAt
+	}
+	if item.ID == "" {
+		item.ID = fmt.Sprintf("mem_%d", time.Now().UnixNano())
+	}
+
+	items, err := s.readIndex()
+	if err != nil {
+		return err
+	}
+	replaced := false
+	for idx := range items {
+		if items[idx].ID == item.ID {
+			items[idx] = item
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		items = append(items, item)
+	}
+	if err := s.persistIndex(items); err != nil {
 		return err
 	}
 	payload, err := json.MarshalIndent(item, "", "  ")
@@ -200,25 +172,28 @@ func (s *FileStore) Write(item api.StoredMemoryResponse) error {
 	return os.WriteFile(filepath.Join(s.root, item.ID+".stored.json"), payload, 0o644)
 }
 
-func (s *FileStore) readAllStored() ([]api.StoredMemoryResponse, error) {
-	entries, err := os.ReadDir(s.root)
+func (s *SQLiteStore) readIndex() ([]api.StoredMemoryResponse, error) {
+	data, err := os.ReadFile(s.dbPath)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
-	items := make([]api.StoredMemoryResponse, 0)
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".stored.json") {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(s.root, entry.Name()))
-		if err != nil {
-			return nil, err
-		}
-		var item api.StoredMemoryResponse
-		if err := json.Unmarshal(data, &item); err != nil {
-			return nil, err
-		}
-		items = append(items, item)
+	if len(data) == 0 {
+		return nil, nil
+	}
+	var items []api.StoredMemoryResponse
+	if err := json.Unmarshal(data, &items); err != nil {
+		return nil, err
 	}
 	return items, nil
+}
+
+func (s *SQLiteStore) persistIndex(items []api.StoredMemoryResponse) error {
+	data, err := json.MarshalIndent(items, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(s.dbPath, data, 0o644)
 }

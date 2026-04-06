@@ -2,7 +2,6 @@ package engine
 
 import (
 	"context"
-	"sync"
 	"time"
 
 	"agent-platform-runner-go/internal/api"
@@ -17,17 +16,23 @@ type AgentStream interface {
 	Close() error
 }
 
-type RunManager interface {
-	Register(runID string, chatID string, agentKey string) ActiveRun
+type ActiveRunService interface {
+	Register(parent context.Context, session QuerySession) (context.Context, *RunControl, ActiveRun)
 	Submit(req api.SubmitRequest) SubmitAck
 	Steer(req api.SteerRequest) SteerAck
 	Interrupt(req api.InterruptRequest) InterruptAck
 	Finish(runID string)
 }
 
+type RunManager = ActiveRunService
+
 type ToolExecutor interface {
 	Definitions() []api.ToolDetailResponse
 	Invoke(ctx context.Context, toolName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error)
+}
+
+type ActionInvoker interface {
+	Invoke(ctx context.Context, actionName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error)
 }
 
 type SandboxClient interface {
@@ -49,24 +54,31 @@ type CatalogReloader interface {
 }
 
 type QuerySession struct {
-	RequestID string
-	RunID     string
-	ChatID    string
-	ChatName  string
-	AgentKey  string
-	AgentName string
-	ModelKey  string
-	ToolNames []string
-	Mode      string
-	TeamID    string
-	Created   bool
-	Subject   string
+	RequestID     string
+	RunID         string
+	ChatID        string
+	ChatName      string
+	AgentKey      string
+	AgentName     string
+	ModelKey      string
+	ToolNames     []string
+	Mode          string
+	TeamID        string
+	Created       bool
+	Subject       string
+	SkillKeys     []string
+	ContextTags   []string
+	Budget        map[string]any
+	StageSettings map[string]any
 }
 
 type ExecutionContext struct {
-	Request        api.QueryRequest
-	Session        QuerySession
-	SandboxSession *SandboxSession
+	Request         api.QueryRequest
+	Session         QuerySession
+	RunControl      *RunControl
+	CurrentToolID   string
+	CurrentToolName string
+	SandboxSession  *SandboxSession
 }
 
 type SandboxSession struct {
@@ -115,59 +127,6 @@ type InterruptAck struct {
 	Detail   string
 }
 
-type InMemoryRunManager struct {
-	mu   sync.Mutex
-	runs map[string]ActiveRun
-}
-
-func NewInMemoryRunManager() *InMemoryRunManager {
-	return &InMemoryRunManager{
-		runs: map[string]ActiveRun{},
-	}
-}
-
-func (m *InMemoryRunManager) Register(runID string, chatID string, agentKey string) ActiveRun {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	run := ActiveRun{RunID: runID, ChatID: chatID, AgentKey: agentKey}
-	m.runs[runID] = run
-	return run
-}
-
-func (m *InMemoryRunManager) Submit(req api.SubmitRequest) SubmitAck {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, ok := m.runs[req.RunID]; !ok {
-		return SubmitAck{Accepted: false, Status: "unmatched", Detail: "No active run found"}
-	}
-	return SubmitAck{Accepted: true, Status: "accepted", Detail: "Frontend submit accepted"}
-}
-
-func (m *InMemoryRunManager) Steer(req api.SteerRequest) SteerAck {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, ok := m.runs[req.RunID]; !ok {
-		return SteerAck{Accepted: false, Status: "unmatched", SteerID: normalizeSteerID(req.SteerID), Detail: "No active run found"}
-	}
-	return SteerAck{Accepted: true, Status: "accepted", SteerID: normalizeSteerID(req.SteerID), Detail: "Steer accepted"}
-}
-
-func (m *InMemoryRunManager) Interrupt(req api.InterruptRequest) InterruptAck {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, ok := m.runs[req.RunID]; !ok {
-		return InterruptAck{Accepted: false, Status: "unmatched", Detail: "No active run found"}
-	}
-	delete(m.runs, req.RunID)
-	return InterruptAck{Accepted: true, Status: "accepted", Detail: "Interrupt accepted"}
-}
-
-func (m *InMemoryRunManager) Finish(runID string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	delete(m.runs, runID)
-}
-
 type NoopToolExecutor struct{}
 
 func NewNoopToolExecutor() *NoopToolExecutor { return &NoopToolExecutor{} }
@@ -178,6 +137,19 @@ func (n *NoopToolExecutor) Invoke(_ context.Context, toolName string, args map[s
 	return ToolExecutionResult{
 		Output:     "status: not_implemented",
 		Structured: map[string]any{"toolName": toolName, "args": args, "status": "not_implemented"},
+		Error:      "not_implemented",
+		ExitCode:   -1,
+	}, nil
+}
+
+type NoopActionInvoker struct{}
+
+func NewNoopActionInvoker() *NoopActionInvoker { return &NoopActionInvoker{} }
+
+func (n *NoopActionInvoker) Invoke(_ context.Context, actionName string, args map[string]any, _ *ExecutionContext) (ToolExecutionResult, error) {
+	return ToolExecutionResult{
+		Output:     "status: not_implemented",
+		Structured: map[string]any{"actionName": actionName, "args": args, "status": "not_implemented"},
 		Error:      "not_implemented",
 		ExitCode:   -1,
 	}, nil
