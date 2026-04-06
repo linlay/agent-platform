@@ -13,7 +13,7 @@ type AgentEngine interface {
 }
 
 type AgentStream interface {
-	Next() (map[string]any, error)
+	Next() (AgentDelta, error)
 	Close() error
 }
 

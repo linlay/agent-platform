@@ -70,6 +70,8 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 	if !strings.Contains(bodyText, "data: [DONE]") {
 		t.Fatalf("expected done sentinel, got %s", bodyText)
 	}
+	assertSSEMessagesHaveSeqAndTimestamp(t, bodyText)
+	assertSSEEventOrder(t, bodyText, "request.query", "chat.start", "run.start")
 
 	chatsReq := httptest.NewRequest(http.MethodGet, "/api/chats", nil)
 	chatsRec := httptest.NewRecorder()
@@ -250,6 +252,12 @@ func TestQueryCanExecuteBackendToolLoop(t *testing.T) {
 	if !strings.Contains(body, `"type":"tool.start"`) {
 		t.Fatalf("expected tool.start event, got %s", body)
 	}
+	if !strings.Contains(body, `"type":"tool.args"`) {
+		t.Fatalf("expected tool.args event, got %s", body)
+	}
+	if !strings.Contains(body, `"type":"tool.end"`) {
+		t.Fatalf("expected tool.end event, got %s", body)
+	}
 	if !strings.Contains(body, `"type":"tool.snapshot"`) {
 		t.Fatalf("expected tool.snapshot event, got %s", body)
 	}
@@ -259,6 +267,7 @@ func TestQueryCanExecuteBackendToolLoop(t *testing.T) {
 	if !strings.Contains(body, "完成工具调用后的最终回答") {
 		t.Fatalf("expected final assistant content, got %s", body)
 	}
+	assertSSEMessagesHaveSeqAndTimestamp(t, body)
 }
 
 func TestQueryReturnsJSONErrorBeforeSSEOnInvalidFirstFrame(t *testing.T) {
@@ -311,6 +320,7 @@ func TestQueryEmitsRunErrorWhenStreamFailsMidFlight(t *testing.T) {
 	if !strings.Contains(body, "data: [DONE]") {
 		t.Fatalf("expected done sentinel, got %s", body)
 	}
+	assertSSEMessagesHaveSeqAndTimestamp(t, body)
 }
 
 func TestQueryStreamsBeforeRunCompleteOverHTTP(t *testing.T) {
@@ -754,4 +764,57 @@ func mustSignRS256JWT(t *testing.T, privateKey *rsa.PrivateKey, payload map[stri
 		t.Fatalf("sign jwt: %v", err)
 	}
 	return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature)
+}
+
+func decodeSSEMessages(t *testing.T, body string) []map[string]any {
+	t.Helper()
+	lines := strings.Split(body, "\n")
+	messages := make([]map[string]any, 0)
+	for _, line := range lines {
+		if !strings.HasPrefix(line, "data: {") {
+			continue
+		}
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data: "))
+		var msg map[string]any
+		if err := json.Unmarshal([]byte(payload), &msg); err != nil {
+			t.Fatalf("decode sse message %q: %v", payload, err)
+		}
+		messages = append(messages, msg)
+	}
+	return messages
+}
+
+func assertSSEMessagesHaveSeqAndTimestamp(t *testing.T, body string) {
+	t.Helper()
+	messages := decodeSSEMessages(t, body)
+	if len(messages) == 0 {
+		t.Fatalf("expected sse messages, got body %s", body)
+	}
+	prevSeq := 0.0
+	for _, msg := range messages {
+		seq, ok := msg["seq"].(float64)
+		if !ok || seq <= prevSeq {
+			t.Fatalf("expected ascending seq, got %#v", messages)
+		}
+		prevSeq = seq
+		if _, ok := msg["type"].(string); !ok {
+			t.Fatalf("expected type field, got %#v", msg)
+		}
+		if ts, ok := msg["timestamp"].(float64); !ok || ts <= 0 {
+			t.Fatalf("expected positive timestamp, got %#v", msg)
+		}
+	}
+}
+
+func assertSSEEventOrder(t *testing.T, body string, want ...string) {
+	t.Helper()
+	messages := decodeSSEMessages(t, body)
+	if len(messages) < len(want) {
+		t.Fatalf("expected at least %d messages, got %#v", len(want), messages)
+	}
+	for idx, eventType := range want {
+		if messages[idx]["type"] != eventType {
+			t.Fatalf("event %d: expected %s, got %#v", idx, eventType, messages[idx])
+		}
+	}
 }

@@ -409,6 +409,18 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 	defer agentStream.Close()
 
+	assembler := stream.NewAssembler(stream.StreamRequest{
+		RequestID: requestID,
+		RunID:     runID,
+		ChatID:    chatID,
+		ChatName:  summary.ChatName,
+		AgentKey:  agentKey,
+		Message:   req.Message,
+		Role:      defaultRole(req.Role),
+		Created:   created,
+	}, s.deps.Config.SSE.IncludeToolPayloadEvents)
+	mapper := engine.NewDeltaMapper(runID, chatID, s.deps.Registry)
+
 	sseWriter, err := stream.NewWriter(w, stream.Options{
 		SSE:            s.deps.Config.SSE,
 		Render:         s.deps.Config.H2A.Render,
@@ -422,85 +434,58 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	sseWriter.StartHeartbeat()
 
 	var assistantText strings.Builder
-	writeEvent := func(event map[string]any) error {
-		if event == nil {
-			return nil
-		}
-		if eventType, _ := event["type"].(string); eventType == "content.delta" {
-			if delta, _ := event["delta"].(string); delta != "" {
+	writeEvent := func(event stream.StreamEvent) error {
+		data := event.ToData()
+		if event.Type == "content.delta" {
+			if delta, _ := data["delta"].(string); delta != "" {
 				assistantText.WriteString(delta)
 			}
 		}
-		if err := s.deps.Chats.AppendEvent(chatID, event); err != nil {
+		if event.Type == "content.snapshot" {
+			if text, _ := data["text"].(string); text != "" {
+				assistantText.Reset()
+				assistantText.WriteString(text)
+			}
+		}
+		if err := s.deps.Chats.AppendEvent(chatID, data); err != nil {
 			return err
 		}
-		return sseWriter.WriteJSON("message", event)
+		return sseWriter.WriteJSON("message", data)
 	}
 
-	requestEvent := map[string]any{
-		"type":      "request.query",
-		"requestId": requestID,
-		"chatId":    chatID,
-		"role":      defaultRole(req.Role),
-		"message":   req.Message,
-		"timestamp": now,
-	}
 	_ = s.deps.Chats.AppendRawMessage(chatID, map[string]any{
 		"role":    defaultRole(req.Role),
 		"content": req.Message,
 		"ts":      now,
 	})
-	if err := writeEvent(requestEvent); err != nil {
-		return
-	}
-
-	if created {
-		chatStart := map[string]any{
-			"type":      "chat.start",
-			"chatId":    chatID,
-			"chatName":  summary.ChatName,
-			"timestamp": now,
-		}
-		if err := writeEvent(chatStart); err != nil {
+	for _, event := range assembler.Bootstrap() {
+		if err := writeEvent(event); err != nil {
 			return
 		}
 	}
 
-	runStart := map[string]any{
-		"type":      "run.start",
-		"runId":     runID,
-		"chatId":    chatID,
-		"agentKey":  agentKey,
-		"timestamp": now,
-	}
-	if err := writeEvent(runStart); err != nil {
-		return
-	}
-
 	streamFailed := false
 	for {
-		event, err := agentStream.Next()
+		delta, err := agentStream.Next()
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
 			streamFailed = true
-			runError := map[string]any{
-				"type":      "run.error",
-				"runId":     runID,
-				"chatId":    chatID,
-				"agentKey":  agentKey,
-				"error":     "stream_failed",
-				"detail":    err.Error(),
-				"timestamp": time.Now().UnixMilli(),
-			}
-			if writeErr := writeEvent(runError); writeErr != nil {
-				return
+			for _, event := range assembler.Fail(err) {
+				if writeErr := writeEvent(event); writeErr != nil {
+					return
+				}
 			}
 			break
 		}
-		if err := writeEvent(event); err != nil {
-			return
+		inputs := mapper.Map(delta)
+		for _, input := range inputs {
+			for _, event := range assembler.Consume(input) {
+				if err := writeEvent(event); err != nil {
+					return
+				}
+			}
 		}
 	}
 
@@ -509,41 +494,27 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	finalAssistantText := assistantText.String()
-	snapshot := map[string]any{
-		"type":      "content.snapshot",
-		"runId":     runID,
-		"chatId":    chatID,
-		"contentId": runID + "_c_0",
-		"text":      finalAssistantText,
-		"timestamp": time.Now().UnixMilli(),
+	for _, event := range assembler.Complete() {
+		if err := writeEvent(event); err != nil {
+			return
+		}
 	}
+
+	finalAssistantText := assistantText.String()
 	_ = s.deps.Chats.AppendRawMessage(chatID, map[string]any{
 		"role":    "assistant",
 		"content": finalAssistantText,
 		"ts":      time.Now().UnixMilli(),
 	})
-	if err := writeEvent(snapshot); err != nil {
-		return
-	}
-
-	runComplete := map[string]any{
-		"type":      "run.complete",
-		"runId":     runID,
-		"chatId":    chatID,
-		"agentKey":  agentKey,
-		"timestamp": time.Now().UnixMilli(),
-	}
-	if err := writeEvent(runComplete); err != nil {
-		return
-	}
-	_ = s.deps.Chats.OnRunCompleted(chat.RunCompletion{
+	if err := s.deps.Chats.OnRunCompleted(chat.RunCompletion{
 		ChatID:          chatID,
 		RunID:           runID,
 		AssistantText:   finalAssistantText,
 		InitialMessage:  req.Message,
 		UpdatedAtMillis: time.Now().UnixMilli(),
-	})
+	}); err != nil {
+		return
+	}
 	_ = sseWriter.WriteDone()
 }
 

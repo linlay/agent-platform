@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"sort"
 	"strings"
-	"time"
 
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/config"
@@ -100,8 +99,7 @@ type llmRunStream struct {
 	maxSteps  int
 
 	step         int
-	deltaIndex   int
-	pending      []map[string]any
+	pending      []AgentDelta
 	currentTurn  *providerTurnStream
 	finished     bool
 	closed       bool
@@ -189,7 +187,7 @@ func (e *LLMAgentEngine) resolveMaxSteps() int {
 	return maxSteps
 }
 
-func (s *llmRunStream) Next() (map[string]any, error) {
+func (s *llmRunStream) Next() (AgentDelta, error) {
 	if len(s.pending) == 0 {
 		if err := s.fillPending(); err != nil {
 			return nil, err
@@ -302,6 +300,14 @@ func (s *llmRunStream) consumeCurrentTurn() (bool, error) {
 			for _, toolDelta := range choice.Delta.ToolCalls {
 				s.currentTurn.appendToolDelta(toolDelta)
 				s.engine.logParsedToolDelta(s.session.RunID, toolDelta)
+				if toolDelta.ID != "" || toolDelta.Type != "" || toolDelta.Function.Name != "" || toolDelta.Function.Arguments != "" {
+					s.pending = append(s.pending, DeltaToolCall{
+						Index:     toolDelta.Index,
+						ID:        toolDelta.ID,
+						Name:      toolDelta.Function.Name,
+						ArgsDelta: toolDelta.Function.Arguments,
+					})
+				}
 			}
 		}
 		if strings.TrimSpace(choice.FinishReason) != "" {
@@ -341,10 +347,18 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		if strings.TrimSpace(content) == "" {
 			s.enqueueFallback("Model returned no assistant content.")
 		}
+		if finishReason := strings.TrimSpace(turn.finishReason); finishReason != "" && !strings.EqualFold(finishReason, "tool_calls") {
+			s.pending = append(s.pending, DeltaFinishReason{Reason: finishReason})
+		}
 		s.finished = true
 		return nil
 	}
 
+	toolIDs := make([]string, 0, len(toolCalls))
+	for _, toolCall := range toolCalls {
+		toolIDs = append(toolIDs, toolCall.ID)
+	}
+	s.pending = append(s.pending, DeltaToolEnd{ToolIDs: toolIDs})
 	for _, toolCall := range toolCalls {
 		toolEvents, toolMessage := s.executeToolCall(toolCall)
 		s.pending = append(s.pending, toolEvents...)
@@ -353,7 +367,7 @@ func (s *llmRunStream) finishCurrentTurn() error {
 	return nil
 }
 
-func (s *llmRunStream) executeToolCall(toolCall openAIToolCall) ([]map[string]any, openAIMessage) {
+func (s *llmRunStream) executeToolCall(toolCall openAIToolCall) ([]AgentDelta, openAIMessage) {
 	toolID := toolCall.ID
 	if toolID == "" {
 		toolID = s.session.RunID + "_tool_" + strings.ReplaceAll(toolCall.Function.Name, " ", "_")
@@ -362,88 +376,37 @@ func (s *llmRunStream) executeToolCall(toolCall openAIToolCall) ([]map[string]an
 	args := map[string]any{}
 	if strings.TrimSpace(toolCall.Function.Arguments) != "" {
 		if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
-			errorEvent := map[string]any{
-				"type":      "tool.error",
-				"runId":     s.session.RunID,
-				"chatId":    s.session.ChatID,
-				"toolId":    toolID,
-				"toolName":  toolCall.Function.Name,
-				"error":     "invalid_tool_arguments",
-				"detail":    err.Error(),
-				"timestamp": time.Now().UnixMilli(),
-			}
-			return []map[string]any{errorEvent}, openAIMessage{
-				Role:       "tool",
-				ToolCallID: toolID,
-				Name:       toolCall.Function.Name,
-				Content:    "invalid tool arguments: " + err.Error(),
-			}
+			return []AgentDelta{DeltaToolResult{
+					ToolID:   toolID,
+					ToolName: toolCall.Function.Name,
+					Result: ToolExecutionResult{
+						Output:   "invalid tool arguments: " + err.Error(),
+						Error:    "invalid_tool_arguments",
+						ExitCode: -1,
+					},
+				}}, openAIMessage{
+					Role:       "tool",
+					ToolCallID: toolID,
+					Name:       toolCall.Function.Name,
+					Content:    "invalid tool arguments: " + err.Error(),
+				}
 		}
-	}
-
-	events := []map[string]any{
-		{
-			"type":      "tool.start",
-			"runId":     s.session.RunID,
-			"chatId":    s.session.ChatID,
-			"toolId":    toolID,
-			"toolName":  toolCall.Function.Name,
-			"toolType":  "backend",
-			"timestamp": time.Now().UnixMilli(),
-		},
-	}
-	if s.engine.cfg.SSE.IncludeToolPayloadEvents {
-		events = append(events, map[string]any{
-			"type":      "tool.snapshot",
-			"runId":     s.session.RunID,
-			"chatId":    s.session.ChatID,
-			"toolId":    toolID,
-			"toolName":  toolCall.Function.Name,
-			"toolType":  "backend",
-			"arguments": args,
-			"timestamp": time.Now().UnixMilli(),
-		})
 	}
 
 	result, invokeErr := s.engine.tools.Invoke(s.ctx, toolCall.Function.Name, args, s.execCtx)
 	if invokeErr != nil {
 		result = ToolExecutionResult{Output: invokeErr.Error(), Error: "tool_execution_failed", ExitCode: -1}
 	}
-	if result.Error != "" {
-		event := map[string]any{
-			"type":      "tool.error",
-			"runId":     s.session.RunID,
-			"chatId":    s.session.ChatID,
-			"toolId":    toolID,
-			"toolName":  toolCall.Function.Name,
-			"error":     result.Error,
-			"timestamp": time.Now().UnixMilli(),
+	return []AgentDelta{DeltaToolResult{
+			ToolID:   toolID,
+			ToolName: toolCall.Function.Name,
+			Result:   result,
+		}}, openAIMessage{
+			Role:       "tool",
+			ToolCallID: toolID,
+			Name:       toolCall.Function.Name,
+			Content:    result.Output,
 		}
-		if s.engine.cfg.SSE.IncludeToolPayloadEvents {
-			event["output"] = result.Output
-		}
-		events = append(events, event)
-	} else {
-		event := map[string]any{
-			"type":      "tool.result",
-			"runId":     s.session.RunID,
-			"chatId":    s.session.ChatID,
-			"toolId":    toolID,
-			"toolName":  toolCall.Function.Name,
-			"timestamp": time.Now().UnixMilli(),
-		}
-		if s.engine.cfg.SSE.IncludeToolPayloadEvents {
-			event["output"] = result.StructuredOrOutput()
-		}
-		events = append(events, event)
-	}
-
-	return events, openAIMessage{
-		Role:       "tool",
-		ToolCallID: toolID,
-		Name:       toolCall.Function.Name,
-		Content:    result.Output,
-	}
 }
 
 func (s *llmRunStream) enqueueFallback(text string) {
@@ -454,18 +417,8 @@ func (s *llmRunStream) enqueueFallback(text string) {
 	s.pending = append(s.pending, s.newContentDeltaEvent(text))
 }
 
-func (s *llmRunStream) newContentDeltaEvent(delta string) map[string]any {
-	event := map[string]any{
-		"type":      "content.delta",
-		"runId":     s.session.RunID,
-		"chatId":    s.session.ChatID,
-		"contentId": s.session.RunID + "_c_0",
-		"delta":     delta,
-		"index":     s.deltaIndex,
-		"timestamp": time.Now().UnixMilli(),
-	}
-	s.deltaIndex++
-	return event
+func (s *llmRunStream) newContentDeltaEvent(delta string) AgentDelta {
+	return DeltaContent{Text: delta}
 }
 
 func (t *providerTurnStream) appendToolDelta(delta openAIStreamToolDelta) {

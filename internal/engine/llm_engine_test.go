@@ -40,19 +40,32 @@ func TestLLMAgentEngineStreamsContentDeltas(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first next: %v", err)
 	}
-	if got, _ := first["type"].(string); got != "content.delta" {
-		t.Fatalf("expected content.delta, got %#v", first)
+	firstContent, ok := first.(DeltaContent)
+	if !ok {
+		t.Fatalf("expected DeltaContent, got %#v", first)
 	}
-	if got, _ := first["delta"].(string); got != "hello " {
-		t.Fatalf("expected first streamed delta, got %#v", first)
+	if got := firstContent.Text; got != "hello " {
+		t.Fatalf("expected first streamed delta, got %#v", firstContent)
 	}
 
 	second, err := stream.Next()
 	if err != nil {
 		t.Fatalf("second next: %v", err)
 	}
-	if got, _ := second["delta"].(string); got != "world" {
-		t.Fatalf("expected second streamed delta, got %#v", second)
+	secondContent, ok := second.(DeltaContent)
+	if !ok {
+		t.Fatalf("expected DeltaContent, got %#v", second)
+	}
+	if got := secondContent.Text; got != "world" {
+		t.Fatalf("expected second streamed delta, got %#v", secondContent)
+	}
+
+	third, err := stream.Next()
+	if err != nil {
+		t.Fatalf("third next: %v", err)
+	}
+	if finish, ok := third.(DeltaFinishReason); !ok || finish.Reason != "stop" {
+		t.Fatalf("expected DeltaFinishReason(stop), got %#v", third)
 	}
 
 	if _, err := stream.Next(); err != io.EOF {
@@ -139,9 +152,7 @@ func TestLLMAgentEngineAccumulatesToolCallFragments(t *testing.T) {
 		if err != nil {
 			t.Fatalf("next: %v", err)
 		}
-		if eventType, _ := event["type"].(string); eventType != "" {
-			seenTypes = append(seenTypes, eventType)
-		}
+		seenTypes = append(seenTypes, deltaTypeName(event))
 	}
 
 	if len(tools.invocations) != 1 {
@@ -150,10 +161,11 @@ func TestLLMAgentEngineAccumulatesToolCallFragments(t *testing.T) {
 	if got := tools.invocations[0]["value"]; got != float64(1) {
 		t.Fatalf("expected accumulated tool arguments, got %#v", tools.invocations[0])
 	}
-	assertContainsType(t, seenTypes, "tool.start")
-	assertContainsType(t, seenTypes, "tool.snapshot")
+	assertContainsType(t, seenTypes, "tool.args")
+	assertContainsType(t, seenTypes, "tool.end")
 	assertContainsType(t, seenTypes, "tool.result")
 	assertContainsType(t, seenTypes, "content.delta")
+	assertContainsType(t, seenTypes, "run.complete")
 }
 
 type scriptedHTTPResponse struct {
@@ -253,4 +265,23 @@ func assertContainsType(t *testing.T, seen []string, want string) {
 		}
 	}
 	t.Fatalf("expected event type %s in %#v", want, seen)
+}
+
+func deltaTypeName(delta AgentDelta) string {
+	switch delta.(type) {
+	case DeltaContent:
+		return "content.delta"
+	case DeltaToolCall:
+		return "tool.args"
+	case DeltaToolEnd:
+		return "tool.end"
+	case DeltaToolResult:
+		return "tool.result"
+	case DeltaFinishReason:
+		return "run.complete"
+	case DeltaError:
+		return "run.error"
+	default:
+		return "unknown"
+	}
 }
