@@ -28,7 +28,7 @@
 
 返回格式约定：
 
-- `POST /api/query` 成功时返回 SSE event stream，结束时追加 `data: [DONE]`。
+- `POST /api/query` 成功时返回真实流式 SSE event stream，服务端会按 provider 原始流式 chunk 逐步透传 `content.delta`，结束时追加 `data: [DONE]`。
 - 其余 JSON 接口统一返回：
 
 ```json
@@ -89,6 +89,8 @@ make test
 - `CHAT_RESOURCE_TICKET_ENABLED`
 - `AGENT_CONTAINER_HUB_*`
 - `AGENT_SSE_INCLUDE_TOOL_PAYLOAD_EVENTS`
+- `AGENT_SSE_HEARTBEAT_INTERVAL_MS`
+- `AGENT_H2A_RENDER_*`
 - `AGENT_DEFAULT_*`
 - `REGISTRIES_DIR` / `OWNER_DIR` / `AGENTS_DIR` / `TEAMS_DIR` / `ROOT_DIR` / `SCHEDULES_DIR` / `CHATS_DIR` / `MEMORY_DIR` / `SKILLS_MARKET_DIR` / `PAN_DIR`
 - `AGENT_*_REFRESH_INTERVAL_MS`

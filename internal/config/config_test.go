@@ -25,6 +25,12 @@ func TestLoadDefaults(t *testing.T) {
 		if !cfg.ChatImage.ResourceTicketEnabled {
 			t.Fatalf("expected resource ticket enabled by default")
 		}
+		if cfg.SSE.HeartbeatIntervalMs != 15000 {
+			t.Fatalf("expected default heartbeat interval 15000, got %d", cfg.SSE.HeartbeatIntervalMs)
+		}
+		if cfg.H2A.Render.HeartbeatPassThrough != true {
+			t.Fatalf("expected heartbeat pass-through enabled by default")
+		}
 	})
 }
 
@@ -110,14 +116,19 @@ func TestLoadRejectsDeprecatedEnv(t *testing.T) {
 
 func TestLoadAcceptsJavaEnvContract(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
-		"AGENT_AUTH_ENABLED":                    "false",
-		"CHAT_IMAGE_TOKEN_SECRET":               "secret",
-		"CHAT_RESOURCE_TICKET_ENABLED":          "true",
-		"AGENT_SSE_INCLUDE_TOOL_PAYLOAD_EVENTS": "true",
-		"AGENT_DEFAULT_REACT_MAX_STEPS":         "12",
-		"AGENT_MEMORY_REMEMBER_MODEL_KEY":       "demo-model",
-		"AGENT_SCHEDULE_ENABLED":                "false",
-		"LOGGING_AGENT_REQUEST_ENABLED":         "false",
+		"AGENT_AUTH_ENABLED":                      "false",
+		"CHAT_IMAGE_TOKEN_SECRET":                 "secret",
+		"CHAT_RESOURCE_TICKET_ENABLED":            "true",
+		"AGENT_SSE_INCLUDE_TOOL_PAYLOAD_EVENTS":   "true",
+		"AGENT_SSE_HEARTBEAT_INTERVAL_MS":         "3000",
+		"AGENT_H2A_RENDER_FLUSH_INTERVAL_MS":      "25",
+		"AGENT_H2A_RENDER_MAX_BUFFERED_CHARS":     "256",
+		"AGENT_H2A_RENDER_MAX_BUFFERED_EVENTS":    "3",
+		"AGENT_H2A_RENDER_HEARTBEAT_PASS_THROUGH": "false",
+		"AGENT_DEFAULT_REACT_MAX_STEPS":           "12",
+		"AGENT_MEMORY_REMEMBER_MODEL_KEY":         "demo-model",
+		"AGENT_SCHEDULE_ENABLED":                  "false",
+		"LOGGING_AGENT_REQUEST_ENABLED":           "false",
 	}, func() {
 		cfg, err := Load()
 		if err != nil {
@@ -131,6 +142,21 @@ func TestLoadAcceptsJavaEnvContract(t *testing.T) {
 		}
 		if !cfg.SSE.IncludeToolPayloadEvents {
 			t.Fatalf("expected sse tool payload flag enabled")
+		}
+		if cfg.SSE.HeartbeatIntervalMs != 3000 {
+			t.Fatalf("unexpected heartbeat interval: %d", cfg.SSE.HeartbeatIntervalMs)
+		}
+		if cfg.H2A.Render.FlushIntervalMs != 25 {
+			t.Fatalf("unexpected flush interval: %d", cfg.H2A.Render.FlushIntervalMs)
+		}
+		if cfg.H2A.Render.MaxBufferedChars != 256 {
+			t.Fatalf("unexpected max buffered chars: %d", cfg.H2A.Render.MaxBufferedChars)
+		}
+		if cfg.H2A.Render.MaxBufferedEvents != 3 {
+			t.Fatalf("unexpected max buffered events: %d", cfg.H2A.Render.MaxBufferedEvents)
+		}
+		if cfg.H2A.Render.HeartbeatPassThrough {
+			t.Fatalf("expected heartbeat pass-through disabled from env")
 		}
 		if cfg.Defaults.React.MaxSteps != 12 {
 			t.Fatalf("unexpected react max steps: %d", cfg.Defaults.React.MaxSteps)
@@ -245,6 +271,11 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 		"CHAT_IMAGE_TOKEN_TTL_SECONDS",
 		"CHAT_RESOURCE_TICKET_ENABLED",
 		"AGENT_SSE_INCLUDE_TOOL_PAYLOAD_EVENTS",
+		"AGENT_SSE_HEARTBEAT_INTERVAL_MS",
+		"AGENT_H2A_RENDER_FLUSH_INTERVAL_MS",
+		"AGENT_H2A_RENDER_MAX_BUFFERED_CHARS",
+		"AGENT_H2A_RENDER_MAX_BUFFERED_EVENTS",
+		"AGENT_H2A_RENDER_HEARTBEAT_PASS_THROUGH",
 		"AGENT_AGENTS_REFRESH_INTERVAL_MS",
 		"AGENT_TEAMS_REFRESH_INTERVAL_MS",
 		"AGENT_PROVIDERS_REFRESH_INTERVAL_MS",

@@ -19,6 +19,7 @@ type Config struct {
 	Memory       MemoryConfig
 	Defaults     DefaultsConfig
 	SSE          SSEConfig
+	H2A          H2AConfig
 	Auth         AuthConfig
 	ChatImage    ChatImageTokenConfig
 	ChatStorage  ChatStorageConfig
@@ -110,6 +111,18 @@ type PlanExecuteDefaultsConfig struct {
 
 type SSEConfig struct {
 	IncludeToolPayloadEvents bool
+	HeartbeatIntervalMs      int64
+}
+
+type H2AConfig struct {
+	Render H2ARenderConfig
+}
+
+type H2ARenderConfig struct {
+	FlushIntervalMs      int64
+	MaxBufferedChars     int
+	MaxBufferedEvents    int
+	HeartbeatPassThrough bool
 }
 
 type AuthConfig struct {
@@ -279,7 +292,18 @@ func defaultConfig() Config {
 				MaxWorkRoundsPerTask: 6,
 			},
 		},
-		SSE: SSEConfig{IncludeToolPayloadEvents: false},
+		SSE: SSEConfig{
+			IncludeToolPayloadEvents: false,
+			HeartbeatIntervalMs:      15000,
+		},
+		H2A: H2AConfig{
+			Render: H2ARenderConfig{
+				FlushIntervalMs:      0,
+				MaxBufferedChars:     0,
+				MaxBufferedEvents:    0,
+				HeartbeatPassThrough: true,
+			},
+		},
 		Auth: AuthConfig{
 			Enabled:            true,
 			LocalPublicKeyFile: "local-public-key.pem",
@@ -466,6 +490,11 @@ func (c *Config) applyEnv() {
 	c.Defaults.Plan.MaxWorkRoundsPerTask = intEnv("AGENT_DEFAULT_PLAN_EXECUTE_MAX_WORK_ROUNDS_PER_TASK", c.Defaults.Plan.MaxWorkRoundsPerTask)
 
 	c.SSE.IncludeToolPayloadEvents = boolEnv("AGENT_SSE_INCLUDE_TOOL_PAYLOAD_EVENTS", c.SSE.IncludeToolPayloadEvents)
+	c.SSE.HeartbeatIntervalMs = int64Env("AGENT_SSE_HEARTBEAT_INTERVAL_MS", c.SSE.HeartbeatIntervalMs)
+	c.H2A.Render.FlushIntervalMs = int64Env("AGENT_H2A_RENDER_FLUSH_INTERVAL_MS", c.H2A.Render.FlushIntervalMs)
+	c.H2A.Render.MaxBufferedChars = intEnv("AGENT_H2A_RENDER_MAX_BUFFERED_CHARS", c.H2A.Render.MaxBufferedChars)
+	c.H2A.Render.MaxBufferedEvents = intEnv("AGENT_H2A_RENDER_MAX_BUFFERED_EVENTS", c.H2A.Render.MaxBufferedEvents)
+	c.H2A.Render.HeartbeatPassThrough = boolEnv("AGENT_H2A_RENDER_HEARTBEAT_PASS_THROUGH", c.H2A.Render.HeartbeatPassThrough)
 
 	c.Auth.Enabled = boolEnv("AGENT_AUTH_ENABLED", c.Auth.Enabled)
 	c.Auth.JWKSURI = stringEnv("AGENT_AUTH_JWKS_URI", c.Auth.JWKSURI)

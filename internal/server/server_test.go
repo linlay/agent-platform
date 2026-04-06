@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"io"
@@ -213,12 +214,19 @@ func TestQueryCanExecuteBackendToolLoop(t *testing.T) {
 				break
 			}
 		}
-		w.Header().Set("Content-Type", "application/json")
 		if !hasToolMessage {
-			_, _ = io.WriteString(w, `{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"call_datetime","type":"function","function":{"name":"_datetime_","arguments":"{}"}}]}}]}`)
+			writeProviderSSE(t, w,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_datetime","type":"function","function":{"name":"_datetime_","arguments":"{"}}]}}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"}"}}],"finish_reason":"tool_calls"}]}`,
+				`[DONE]`,
+			)
 			return
 		}
-		_, _ = io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"完成工具调用后的最终回答"}}]}`)
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"content":"完成工具调用后"}}]}`,
+			`{"choices":[{"delta":{"content":"的最终回答"},"finish_reason":"stop"}]}`,
+			`[DONE]`,
+		)
 	})
 	server := fixture.server
 
@@ -246,6 +254,97 @@ func TestQueryCanExecuteBackendToolLoop(t *testing.T) {
 	}
 }
 
+func TestQueryReturnsJSONErrorBeforeSSEOnInvalidFirstFrame(t *testing.T) {
+	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `{"broken":true}`, `[DONE]`)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"bad stream"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	fixture.server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Type"); !strings.Contains(got, "application/json") {
+		t.Fatalf("expected json response, got %q", got)
+	}
+	if strings.Contains(rec.Body.String(), "event: message") {
+		t.Fatalf("expected no sse response on invalid first frame, got %s", rec.Body.String())
+	}
+}
+
+func TestQueryEmitsRunErrorWhenStreamFailsMidFlight(t *testing.T) {
+	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `{"choices":[{"delta":{"content":"partial"}}]}`)
+		_, _ = io.WriteString(w, "data: {not-json}\n\n")
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"mid stream error"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	fixture.server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `"type":"content.delta"`) {
+		t.Fatalf("expected streamed content delta, got %s", body)
+	}
+	if !strings.Contains(body, `"type":"run.error"`) {
+		t.Fatalf("expected run.error event, got %s", body)
+	}
+	if !strings.Contains(body, "data: [DONE]") {
+		t.Fatalf("expected done sentinel, got %s", body)
+	}
+}
+
+func TestQueryStreamsBeforeRunCompleteOverHTTP(t *testing.T) {
+	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"content":"first "}}]}`,
+			`{"choices":[{"delta":{"content":"second"},"finish_reason":"stop"}]}`,
+			`[DONE]`,
+		)
+	})
+	httpServer := httptest.NewServer(fixture.server)
+	defer httpServer.Close()
+
+	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"stream please"}`))
+	if err != nil {
+		t.Fatalf("post query: %v", err)
+	}
+	defer resp.Body.Close()
+
+	reader := bufio.NewReader(resp.Body)
+	seenDelta := false
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil && err != io.EOF {
+			t.Fatalf("read sse line: %v", err)
+		}
+		if strings.Contains(line, `"type":"content.delta"`) {
+			seenDelta = true
+		}
+		if strings.Contains(line, `"type":"run.complete"`) && !seenDelta {
+			t.Fatalf("expected content.delta before run.complete")
+		}
+		if err == io.EOF {
+			break
+		}
+	}
+	if !seenDelta {
+		t.Fatalf("expected to observe streamed content delta before completion")
+	}
+}
+
 type testFixture struct {
 	server *Server
 	cfg    config.Config
@@ -253,8 +352,11 @@ type testFixture struct {
 
 func newTestFixture(t *testing.T) testFixture {
 	return newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"Go runner test response"}}]}`)
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"content":"Go runner "}}]}`,
+			`{"choices":[{"delta":{"content":"test response"},"finish_reason":"stop"}]}`,
+			`[DONE]`,
+		)
 	})
 }
 
@@ -419,4 +521,19 @@ func newTestFixtureWithModelHandler(t *testing.T, modelHandler http.HandlerFunc)
 func TestMain(m *testing.M) {
 	code := m.Run()
 	os.Exit(code)
+}
+
+func writeProviderSSE(t *testing.T, w http.ResponseWriter, frames ...string) {
+	t.Helper()
+	w.Header().Set("Content-Type", "text/event-stream")
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		t.Fatalf("expected flusher")
+	}
+	for _, frame := range frames {
+		if _, err := io.WriteString(w, "data: "+frame+"\n\n"); err != nil {
+			t.Fatalf("write sse frame: %v", err)
+		}
+		flusher.Flush()
+	}
 }

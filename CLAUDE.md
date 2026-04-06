@@ -7,7 +7,7 @@
 当前仓库的定位不是“功能完全对齐”，而是“最小可运行闭环”：
 
 - 已具备独立 HTTP 服务与统一 JSON 包裹
-- 已具备 `POST /api/query` SSE 输出与 `[DONE]` 结束帧
+- 已具备 `POST /api/query` 真流式 SSE 输出、heartbeat 与 `[DONE]` 结束帧
 - 已具备 chat 摘要、事件流、原始消息、上传资源落盘
 - 已具备 remember 最小落盘能力
 - 已具备 OpenAI 兼容模型调用、backend tool 执行与 Container Hub sandbox 接入
@@ -59,17 +59,17 @@ HTTP request
   -> 归一化 requestId / chatId / agentKey
   -> Chats.EnsureChat()
   -> Runs.Register()
-  -> Agent.Generate()
-  -> stream.Prepare()
+  -> Agent.Stream()
+  -> stream.NewWriter()
   -> 发送 request.query / chat.start / run.start
-  -> 逐条发送 content.delta
+  -> 按上游 chunk 逐条发送 content.delta / tool.*
   -> 发送 content.snapshot
   -> 发送 run.complete
   -> Chats.OnRunCompleted()
   -> stream.WriteDone()
 ```
 
-SSE 由 `internal/stream/sse.go` 提供，事件名统一写为 `message`，结束帧写 `data: [DONE]`。
+SSE 由 `internal/stream/sse.go` 提供，事件名统一写为 `message`，结束帧写 `data: [DONE]`；默认逐事件立刻 flush，也可通过 `AGENT_H2A_RENDER_*` 开启传输层缓冲。
 
 ### 当前模块边界
 
