@@ -97,7 +97,7 @@ func New() (*App, error) {
 	)
 
 	serverStartedAt := time.Now()
-	srv := server.New(server.Dependencies{
+	srv, err := server.New(server.Dependencies{
 		Config:          cfg,
 		Chats:           chatStore,
 		Memory:          memoryStore,
@@ -110,6 +110,9 @@ func New() (*App, error) {
 		Viewport:        engine.NewNoopViewportClient(),
 		CatalogReloader: reloader,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("init server: %w", err)
+	}
 	log.Printf("server dependencies wired in %s", startupElapsed(serverStartedAt))
 	log.Printf("app dependencies initialized in %s", startupElapsed(appInitStartedAt))
 

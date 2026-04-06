@@ -11,11 +11,12 @@ test:
 		attempt=1; \
 		while true; do \
 			cache_dir=$$(mktemp -d); \
-			if GOCACHE=$$cache_dir CGO_ENABLED=$(CGO_ENABLED) go test $$pkg; then \
+			GOCACHE=$$cache_dir CGO_ENABLED=$(CGO_ENABLED) go test $$pkg; \
+			status=$$?; \
+			if [ $$status -eq 0 ]; then \
 				rm -rf $$cache_dir; \
 				break; \
 			fi; \
-			status=$$?; \
 			rm -rf $$cache_dir; \
 			if [ $$attempt -ge 3 ]; then \
 				exit $$status; \

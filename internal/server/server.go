@@ -63,15 +63,29 @@ func (r *statusRecorder) Flush() {
 	}
 }
 
-func New(deps Dependencies) *Server {
+func New(deps Dependencies) (*Server, error) {
+	authVerifier := NewJWTVerifier(deps.Config.Auth)
+	if deps.Config.Auth.Enabled {
+		if err := authVerifier.ValidateConfiguration(); err != nil {
+			return nil, fmt.Errorf("validate auth config: %w", err)
+		}
+		switch authVerifier.Mode() {
+		case "local-public-key":
+			log.Printf("auth enabled: mode=local-public-key public_key=%s", deps.Config.Auth.LocalPublicKeyFile)
+		case "jwks":
+			log.Printf("auth enabled: mode=jwks jwks_uri=%s", deps.Config.Auth.JWKSURI)
+		}
+	} else {
+		log.Printf("auth disabled")
+	}
 	s := &Server{
 		router:        http.NewServeMux(),
 		deps:          deps,
-		authVerifier:  NewJWTVerifier(deps.Config.Auth),
+		authVerifier:  authVerifier,
 		ticketService: NewResourceTicketService(deps.Config.ChatImage),
 	}
 	s.routes()
-	return s
+	return s, nil
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

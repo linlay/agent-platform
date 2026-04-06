@@ -53,6 +53,30 @@ func NewJWTVerifier(cfg config.AuthConfig) *JWTVerifier {
 	}
 }
 
+func (v *JWTVerifier) Mode() string {
+	if strings.TrimSpace(v.cfg.LocalPublicKeyFile) != "" {
+		return "local-public-key"
+	}
+	if strings.TrimSpace(v.cfg.JWKSURI) != "" {
+		return "jwks"
+	}
+	return "unconfigured"
+}
+
+func (v *JWTVerifier) ValidateConfiguration() error {
+	switch v.Mode() {
+	case "local-public-key":
+		if _, err := v.localKey(); err != nil {
+			return fmt.Errorf("load local jwt public key %s: %w", v.cfg.LocalPublicKeyFile, err)
+		}
+		return nil
+	case "jwks":
+		return nil
+	default:
+		return fmt.Errorf("jwt verification not configured")
+	}
+}
+
 func NewResourceTicketService(cfg config.ChatImageTokenConfig) *ResourceTicketService {
 	return &ResourceTicketService{cfg: cfg}
 }

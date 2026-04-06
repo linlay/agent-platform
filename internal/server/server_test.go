@@ -3,7 +3,14 @@ package server
 import (
 	"bufio"
 	"bytes"
+	"crypto"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -348,9 +355,135 @@ func TestQueryStreamsBeforeRunCompleteOverHTTP(t *testing.T) {
 	}
 }
 
+func TestServerRejectsInvalidLocalJWTConfigAtStartup(t *testing.T) {
+	fixture := newTestFixture(t)
+	fixture.cfg.Auth = config.AuthConfig{
+		Enabled:            true,
+		LocalPublicKeyFile: filepath.Join(fixture.cfg.Paths.ChatsDir, "missing.pem"),
+	}
+
+	_, err := New(Dependencies{
+		Config:          fixture.cfg,
+		Chats:           fixture.chats,
+		Memory:          fixture.memories,
+		Registry:        fixture.registry,
+		Runs:            fixture.runs,
+		Agent:           fixture.agent,
+		Tools:           fixture.tools,
+		Sandbox:         fixture.sandbox,
+		MCP:             fixture.mcp,
+		Viewport:        fixture.viewport,
+		CatalogReloader: fixture.catalogReloader,
+	})
+	if err == nil {
+		t.Fatal("expected startup auth config error")
+	}
+	if !strings.Contains(err.Error(), "load local jwt public key") {
+		t.Fatalf("expected local key error, got %v", err)
+	}
+}
+
+func TestQueryAcceptsValidLocalJWT(t *testing.T) {
+	fixture := newTestFixture(t)
+	privateKey, publicKeyPath := writeTestJWTKeyPair(t, fixture.cfg.Paths.ChatsDir)
+	fixture.cfg.Auth = config.AuthConfig{
+		Enabled:            true,
+		LocalPublicKeyFile: publicKeyPath,
+		Issuer:             "zenmind-local",
+	}
+	server, err := New(Dependencies{
+		Config:          fixture.cfg,
+		Chats:           fixture.chats,
+		Memory:          fixture.memories,
+		Registry:        fixture.registry,
+		Runs:            fixture.runs,
+		Agent:           fixture.agent,
+		Tools:           fixture.tools,
+		Sandbox:         fixture.sandbox,
+		MCP:             fixture.mcp,
+		Viewport:        fixture.viewport,
+		CatalogReloader: fixture.catalogReloader,
+	})
+	if err != nil {
+		t.Fatalf("new server: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"鉴权测试"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+mustSignRS256JWT(t, privateKey, map[string]any{
+		"sub": "tester",
+		"iss": "zenmind-local",
+		"exp": float64(4102444800),
+	}))
+	rec := httptest.NewRecorder()
+
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"type":"content.delta"`) {
+		t.Fatalf("expected streaming response, got %s", rec.Body.String())
+	}
+}
+
+func TestQueryRejectsInvalidLocalJWT(t *testing.T) {
+	fixture := newTestFixture(t)
+	privateKey, publicKeyPath := writeTestJWTKeyPair(t, fixture.cfg.Paths.ChatsDir)
+	fixture.cfg.Auth = config.AuthConfig{
+		Enabled:            true,
+		LocalPublicKeyFile: publicKeyPath,
+		Issuer:             "zenmind-local",
+	}
+	server, err := New(Dependencies{
+		Config:          fixture.cfg,
+		Chats:           fixture.chats,
+		Memory:          fixture.memories,
+		Registry:        fixture.registry,
+		Runs:            fixture.runs,
+		Agent:           fixture.agent,
+		Tools:           fixture.tools,
+		Sandbox:         fixture.sandbox,
+		MCP:             fixture.mcp,
+		Viewport:        fixture.viewport,
+		CatalogReloader: fixture.catalogReloader,
+	})
+	if err != nil {
+		t.Fatalf("new server: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"鉴权测试"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+mustSignRS256JWT(t, privateKey, map[string]any{
+		"sub": "tester",
+		"iss": "wrong-issuer",
+		"exp": float64(4102444800),
+	}))
+	rec := httptest.NewRecorder()
+
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"error":"unauthorized"`) {
+		t.Fatalf("expected unauthorized body, got %s", rec.Body.String())
+	}
+}
+
 type testFixture struct {
-	server *Server
-	cfg    config.Config
+	server          *Server
+	cfg             config.Config
+	chats           chat.Store
+	memories        memory.Store
+	registry        catalog.Registry
+	runs            engine.RunManager
+	agent           engine.AgentEngine
+	tools           engine.ToolExecutor
+	sandbox         engine.SandboxClient
+	mcp             engine.McpClient
+	viewport        engine.ViewportClient
+	catalogReloader engine.CatalogReloader
 }
 
 func newTestFixture(t *testing.T) testFixture {
@@ -502,21 +635,41 @@ func newTestFixtureWithModelHandler(t *testing.T, modelHandler http.HandlerFunc)
 	}
 	reloader := engine.NewRuntimeCatalogReloader(registry, modelRegistry)
 
+	runs := engine.NewInMemoryRunManager()
+	sandbox := engine.NewNoopSandboxClient()
+	agentEngine := engine.NewLLMAgentEngineWithHTTPClient(cfg, modelRegistry, toolExecutor, sandbox, modelClient)
+	mcp := engine.NewNoopMcpClient()
+	viewport := engine.NewNoopViewportClient()
+	server, err := New(Dependencies{
+		Config:          cfg,
+		Chats:           chats,
+		Memory:          memories,
+		Registry:        registry,
+		Runs:            runs,
+		Agent:           agentEngine,
+		Tools:           toolExecutor,
+		Sandbox:         sandbox,
+		MCP:             mcp,
+		Viewport:        viewport,
+		CatalogReloader: reloader,
+	})
+	if err != nil {
+		t.Fatalf("new server: %v", err)
+	}
+
 	return testFixture{
-		server: New(Dependencies{
-			Config:          cfg,
-			Chats:           chats,
-			Memory:          memories,
-			Registry:        registry,
-			Runs:            engine.NewInMemoryRunManager(),
-			Agent:           engine.NewLLMAgentEngineWithHTTPClient(cfg, modelRegistry, toolExecutor, engine.NewNoopSandboxClient(), modelClient),
-			Tools:           toolExecutor,
-			Sandbox:         engine.NewNoopSandboxClient(),
-			MCP:             engine.NewNoopMcpClient(),
-			Viewport:        engine.NewNoopViewportClient(),
-			CatalogReloader: reloader,
-		}),
-		cfg: cfg,
+		server:          server,
+		cfg:             cfg,
+		chats:           chats,
+		memories:        memories,
+		registry:        registry,
+		runs:            runs,
+		agent:           agentEngine,
+		tools:           toolExecutor,
+		sandbox:         sandbox,
+		mcp:             mcp,
+		viewport:        viewport,
+		catalogReloader: reloader,
 	}
 }
 
@@ -559,4 +712,46 @@ func (r scriptedRoundTripper) RoundTrip(req *http.Request) (*http.Response, erro
 
 func newScriptedHTTPClient(handler http.HandlerFunc) *http.Client {
 	return &http.Client{Transport: scriptedRoundTripper{handler: handler}}
+}
+
+func writeTestJWTKeyPair(t *testing.T, dir string) (*rsa.PrivateKey, string) {
+	t.Helper()
+
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate rsa key: %v", err)
+	}
+	der, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
+	if err != nil {
+		t.Fatalf("marshal public key: %v", err)
+	}
+	path := filepath.Join(dir, "test-public-key.pem")
+	block := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})
+	if err := os.WriteFile(path, block, 0o644); err != nil {
+		t.Fatalf("write public key: %v", err)
+	}
+	return privateKey, path
+}
+
+func mustSignRS256JWT(t *testing.T, privateKey *rsa.PrivateKey, payload map[string]any) string {
+	t.Helper()
+
+	headerJSON, err := json.Marshal(map[string]any{
+		"alg": "RS256",
+		"typ": "JWT",
+	})
+	if err != nil {
+		t.Fatalf("marshal header: %v", err)
+	}
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	signingInput := base64.RawURLEncoding.EncodeToString(headerJSON) + "." + base64.RawURLEncoding.EncodeToString(payloadJSON)
+	sum := sha256.Sum256([]byte(signingInput))
+	signature, err := rsa.SignPKCS1v15(rand.Reader, privateKey, crypto.SHA256, sum[:])
+	if err != nil {
+		t.Fatalf("sign jwt: %v", err)
+	}
+	return signingInput + "." + base64.RawURLEncoding.EncodeToString(signature)
 }

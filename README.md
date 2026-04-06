@@ -123,6 +123,13 @@ RUN_SOCKET_TESTS=1 make test-integration
 
 `configs/` 不是可配置目录，固定使用 runner 根目录下的 `./configs`；容器内固定挂载到 `/opt/configs`。
 
+本地 JWT 公钥规则：
+
+- 默认值是 `configs/local-public-key.pem`
+- `AGENT_AUTH_LOCAL_PUBLIC_KEY_FILE` 若是绝对路径，则原样使用
+- 若是相对路径，则按项目根目录解析
+- 若为了兼容仍写成单文件名 `local-public-key.pem`，会自动解析到 `configs/local-public-key.pem`
+
 配置优先级：
 
 - 无外部 yml: 代码默认值 `<` 环境变量

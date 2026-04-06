@@ -22,6 +22,9 @@ func TestLoadDefaults(t *testing.T) {
 		if !cfg.Auth.Enabled {
 			t.Fatalf("expected auth enabled by default")
 		}
+		if cfg.Auth.LocalPublicKeyFile != ProjectFile(filepath.Join("configs", "local-public-key.pem")) {
+			t.Fatalf("unexpected default auth public key path: %q", cfg.Auth.LocalPublicKeyFile)
+		}
 		if !cfg.ChatImage.ResourceTicketEnabled {
 			t.Fatalf("expected resource ticket enabled by default")
 		}
@@ -30,6 +33,51 @@ func TestLoadDefaults(t *testing.T) {
 		}
 		if cfg.H2A.Render.HeartbeatPassThrough != true {
 			t.Fatalf("expected heartbeat pass-through enabled by default")
+		}
+	})
+}
+
+func TestLoadAuthLocalPublicKeyPathUnderConfigs(t *testing.T) {
+	withIsolatedEnv(t, map[string]string{
+		"AGENT_AUTH_LOCAL_PUBLIC_KEY_FILE": "local-public-key.pem",
+	}, func() {
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		want := ProjectFile(filepath.Join("configs", "local-public-key.pem"))
+		if cfg.Auth.LocalPublicKeyFile != want {
+			t.Fatalf("expected compat auth public key path %q, got %q", want, cfg.Auth.LocalPublicKeyFile)
+		}
+	})
+}
+
+func TestLoadAuthLocalPublicKeyPathPreservesExplicitConfigsPath(t *testing.T) {
+	withIsolatedEnv(t, map[string]string{
+		"AGENT_AUTH_LOCAL_PUBLIC_KEY_FILE": filepath.Join("configs", "custom.pem"),
+	}, func() {
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		want := ProjectFile(filepath.Join("configs", "custom.pem"))
+		if cfg.Auth.LocalPublicKeyFile != want {
+			t.Fatalf("expected auth public key path %q, got %q", want, cfg.Auth.LocalPublicKeyFile)
+		}
+	})
+}
+
+func TestLoadAuthLocalPublicKeyPathPreservesAbsolutePath(t *testing.T) {
+	withIsolatedEnv(t, map[string]string{
+		"AGENT_AUTH_LOCAL_PUBLIC_KEY_FILE": filepath.Join(string(os.PathSeparator), "tmp", "custom.pem"),
+	}, func() {
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		want := filepath.Join(string(os.PathSeparator), "tmp", "custom.pem")
+		if cfg.Auth.LocalPublicKeyFile != want {
+			t.Fatalf("expected absolute auth public key path %q, got %q", want, cfg.Auth.LocalPublicKeyFile)
 		}
 	})
 }

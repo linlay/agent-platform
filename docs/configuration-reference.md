@@ -85,6 +85,9 @@
 - `cors.yml` 会直接驱动 `/api/**` 的 CORS 行为
 - `local-public-key.pem` 会在启用 `AGENT_AUTH_ENABLED=true` 且使用本地公钥模式时参与 JWT 验签
 - 当前 Go 版仍不支持 `CONFIGS_DIR`，配置目录固定为项目根下 `configs/`
+- `AGENT_AUTH_LOCAL_PUBLIC_KEY_FILE` 默认值为 `configs/local-public-key.pem`
+- `AGENT_AUTH_LOCAL_PUBLIC_KEY_FILE` 若是绝对路径则原样使用；若是相对路径则按项目根解析
+- 为兼容旧写法，`local-public-key.pem` 会自动解析到 `configs/local-public-key.pem`
 
 ## 配置优先级
 

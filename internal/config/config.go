@@ -306,7 +306,7 @@ func defaultConfig() Config {
 		},
 		Auth: AuthConfig{
 			Enabled:            true,
-			LocalPublicKeyFile: "local-public-key.pem",
+			LocalPublicKeyFile: filepath.Join("configs", "local-public-key.pem"),
 		},
 		ChatImage: ChatImageTokenConfig{
 			Secret:                "",
@@ -564,9 +564,7 @@ func (c *Config) normalize() {
 	c.Providers.ExternalDir = filepath.Clean(filepath.Join(c.Paths.RegistriesDir, "providers"))
 	c.Models.ExternalDir = filepath.Clean(filepath.Join(c.Paths.RegistriesDir, "models"))
 
-	if c.Auth.LocalPublicKeyFile != "" && !filepath.IsAbs(c.Auth.LocalPublicKeyFile) {
-		c.Auth.LocalPublicKeyFile = ProjectFile(filepath.Join("configs", c.Auth.LocalPublicKeyFile))
-	}
+	c.Auth.LocalPublicKeyFile = resolveAuthLocalPublicKeyFile(c.Auth.LocalPublicKeyFile)
 	if c.ContainerHub.DefaultSandboxLevel == "" {
 		c.ContainerHub.DefaultSandboxLevel = "run"
 	}
@@ -590,6 +588,24 @@ func rejectEnvVars(keys []string, message string) error {
 		return fmt.Errorf("%s: %s", message, strings.Join(found, ", "))
 	}
 	return nil
+}
+
+func resolveAuthLocalPublicKeyFile(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if filepath.IsAbs(value) {
+		return filepath.Clean(value)
+	}
+	clean := filepath.Clean(value)
+	if clean == "." {
+		return ""
+	}
+	if strings.Contains(filepath.ToSlash(clean), "/") {
+		return ProjectFile(clean)
+	}
+	return ProjectFile(filepath.Join("configs", clean))
 }
 
 func stringEnv(key string, fallback string) string {
