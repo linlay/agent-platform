@@ -222,6 +222,8 @@ make run
 make test
 ```
 
+当前本地 `make run` / `make test` 默认会带 `CGO_ENABLED=0`，其中 `make test` 还会串行执行包测试并使用临时 `GOCACHE`，避免 macOS 上 `CGO=1` 的 `net/http` 二进制在进入 `main()` 前被系统直接杀掉，以及并发 test/cache 导致的异常。需要显式验证真实 loopback 端口测试时，使用 `RUN_SOCKET_TESTS=1 make test-integration`。
+
 容器验证：
 
 ```bash

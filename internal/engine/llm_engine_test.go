@@ -5,7 +5,8 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
 
 	"agent-platform-runner-go/internal/api"
@@ -13,20 +14,17 @@ import (
 )
 
 func TestLLMAgentEngineStreamsContentDeltas(t *testing.T) {
-	modelServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		writeProviderSSE(t, w,
-			`{"choices":[{"delta":{"content":"hello "}}]}`,
-			`{"choices":[{"delta":{"content":"world"},"finish_reason":"stop"}]}`,
-			`[DONE]`,
-		)
-	}))
-	defer modelServer.Close()
-
-	engine := NewLLMAgentEngine(
+	client := newScriptedHTTPClient(
+		func(*http.Request) scriptedHTTPResponse {
+			return scriptedSSE(`{"choices":[{"delta":{"content":"hello "}}]}`, `{"choices":[{"delta":{"content":"world"},"finish_reason":"stop"}]}`, `[DONE]`)
+		},
+	)
+	engine := NewLLMAgentEngineWithHTTPClient(
 		config.Config{Defaults: config.DefaultsConfig{React: config.ReactDefaultsConfig{MaxSteps: 4}}},
-		newTestModelRegistry(modelServer.URL),
+		newTestModelRegistry("http://mock.local"),
 		&testToolExecutor{},
 		NewNoopSandboxClient(),
+		client,
 	)
 	stream, err := engine.Stream(context.Background(), api.QueryRequest{Message: "hi"}, QuerySession{
 		RunID:    "run_1",
@@ -63,9 +61,22 @@ func TestLLMAgentEngineStreamsContentDeltas(t *testing.T) {
 }
 
 func TestLLMAgentEngineAccumulatesToolCallFragments(t *testing.T) {
-	modelServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	var mu sync.Mutex
+	callCount := 0
+	client := newScriptedHTTPClient(func(req *http.Request) scriptedHTTPResponse {
+		mu.Lock()
+		defer mu.Unlock()
+
+		callCount++
+		if callCount == 1 {
+			return scriptedSSE(
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_math","type":"function","function":{"name":"mock.tool","arguments":"{"}}]}}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"value\":1}"}}]},"finish_reason":"tool_calls"}]}`,
+				`[DONE]`,
+			)
+		}
 		var request map[string]any
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		if err := json.NewDecoder(req.Body).Decode(&request); err != nil {
 			t.Fatalf("decode request: %v", err)
 		}
 		messages, _ := request["messages"].([]any)
@@ -78,19 +89,13 @@ func TestLLMAgentEngineAccumulatesToolCallFragments(t *testing.T) {
 			}
 		}
 		if !hasToolMessage {
-			writeProviderSSE(t, w,
-				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_math","type":"function","function":{"name":"mock.tool","arguments":"{"}}]}}]}`,
-				`{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"value\":1}"}}],"finish_reason":"tool_calls"}]}`,
-				`[DONE]`,
-			)
-			return
+			t.Fatalf("expected second request to include tool message, got %#v", request)
 		}
-		writeProviderSSE(t, w,
+		return scriptedSSE(
 			`{"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}]}`,
 			`[DONE]`,
 		)
-	}))
-	defer modelServer.Close()
+	})
 
 	tools := &testToolExecutor{
 		definitions: []api.ToolDetailResponse{
@@ -102,18 +107,17 @@ func TestLLMAgentEngineAccumulatesToolCallFragments(t *testing.T) {
 				},
 			},
 		},
-		result: ToolExecutionResult{
-			Output: "ok",
-		},
+		result: ToolExecutionResult{Output: "ok"},
 	}
-	engine := NewLLMAgentEngine(
+	engine := NewLLMAgentEngineWithHTTPClient(
 		config.Config{
 			SSE:      config.SSEConfig{IncludeToolPayloadEvents: true},
 			Defaults: config.DefaultsConfig{React: config.ReactDefaultsConfig{MaxSteps: 4}},
 		},
-		newTestModelRegistry(modelServer.URL),
+		newTestModelRegistry("http://mock.local"),
 		tools,
 		NewNoopSandboxClient(),
+		client,
 	)
 	stream, err := engine.Stream(context.Background(), api.QueryRequest{Message: "call tool"}, QuerySession{
 		RunID:     "run_tool",
@@ -150,6 +154,55 @@ func TestLLMAgentEngineAccumulatesToolCallFragments(t *testing.T) {
 	assertContainsType(t, seenTypes, "tool.snapshot")
 	assertContainsType(t, seenTypes, "tool.result")
 	assertContainsType(t, seenTypes, "content.delta")
+}
+
+type scriptedHTTPResponse struct {
+	statusCode int
+	body       string
+	headers    map[string]string
+}
+
+type scriptedRoundTripper struct {
+	handler func(*http.Request) scriptedHTTPResponse
+}
+
+func (r scriptedRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	response := r.handler(req)
+	statusCode := response.statusCode
+	if statusCode == 0 {
+		statusCode = http.StatusOK
+	}
+	header := make(http.Header)
+	for key, value := range response.headers {
+		header.Set(key, value)
+	}
+	if header.Get("Content-Type") == "" {
+		header.Set("Content-Type", "text/event-stream")
+	}
+	return &http.Response{
+		StatusCode: statusCode,
+		Header:     header,
+		Body:       io.NopCloser(strings.NewReader(response.body)),
+		Request:    req,
+	}, nil
+}
+
+func newScriptedHTTPClient(handler func(*http.Request) scriptedHTTPResponse) *http.Client {
+	return &http.Client{Transport: scriptedRoundTripper{handler: handler}}
+}
+
+func scriptedSSE(frames ...string) scriptedHTTPResponse {
+	var builder strings.Builder
+	for _, frame := range frames {
+		builder.WriteString("data: ")
+		builder.WriteString(frame)
+		builder.WriteString("\n\n")
+	}
+	return scriptedHTTPResponse{
+		statusCode: http.StatusOK,
+		body:       builder.String(),
+		headers:    map[string]string{"Content-Type": "text/event-stream"},
+	}
 }
 
 type testToolExecutor struct {
@@ -189,21 +242,6 @@ func newTestModelRegistry(baseURL string) *ModelRegistry {
 				ModelID:  "mock-model",
 			},
 		},
-	}
-}
-
-func writeProviderSSE(t *testing.T, w http.ResponseWriter, frames ...string) {
-	t.Helper()
-	w.Header().Set("Content-Type", "text/event-stream")
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		t.Fatalf("expected flusher")
-	}
-	for _, frame := range frames {
-		if _, err := io.WriteString(w, "data: "+frame+"\n\n"); err != nil {
-			t.Fatalf("write sse frame: %v", err)
-		}
-		flusher.Flush()
 	}
 }
 

@@ -125,12 +125,19 @@ type toolCallAccumulator struct {
 }
 
 func NewLLMAgentEngine(cfg config.Config, models *ModelRegistry, tools ToolExecutor, sandbox SandboxClient) *LLMAgentEngine {
+	return NewLLMAgentEngineWithHTTPClient(cfg, models, tools, sandbox, nil)
+}
+
+func NewLLMAgentEngineWithHTTPClient(cfg config.Config, models *ModelRegistry, tools ToolExecutor, sandbox SandboxClient, httpClient *http.Client) *LLMAgentEngine {
+	if httpClient == nil {
+		httpClient = &http.Client{}
+	}
 	return &LLMAgentEngine{
 		cfg:        cfg,
 		models:     models,
 		tools:      tools,
 		sandbox:    sandbox,
-		httpClient: &http.Client{},
+		httpClient: httpClient,
 	}
 }
 

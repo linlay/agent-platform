@@ -59,7 +59,7 @@ cp .env.example .env
 make run
 ```
 
-`make run` 会先加载根目录 `.env`，并按参考仓库同样的入口规则把 `HOST_PORT` 映射到本地监听端口。日常本地联调和 `docker compose` 都优先使用 `HOST_PORT`；`SERVER_PORT` 仅保留为兼容/高级覆盖项。直接执行 `go run ./cmd/agent-platform-runner` 不会自动加载 `.env`，此时才是纯 `SERVER_PORT -> 8080` 的应用级默认链路。
+`make run` 会先加载根目录 `.env`，并按参考仓库同样的入口规则把 `HOST_PORT` 映射到本地监听端口。日常本地联调和 `docker compose` 都优先使用 `HOST_PORT`；`SERVER_PORT` 仅保留为兼容/高级覆盖项。`make run` 还会默认带上 `CGO_ENABLED=0`，以规避当前 macOS 环境里 `CGO=1` 的 `net/http` 二进制在进入 `main()` 前被系统直接 `signal: killed` 的问题。直接执行 `go run ./cmd/agent-platform-runner` 不会自动加载 `.env`，也不会自动注入这个默认值。
 
 常用验证：
 
@@ -72,6 +72,12 @@ curl http://127.0.0.1:11949/api/chats
 
 ```bash
 make test
+```
+
+默认 `make test` 同样会使用 `CGO_ENABLED=0`，并通过串行包测试加临时 `GOCACHE` 规避当前 macOS 环境里的并发 test/cache 异常；它也不会运行依赖真实 loopback 端口绑定的测试。需要显式验证真实本地 socket 流式链路时，使用：
+
+```bash
+RUN_SOCKET_TESTS=1 make test-integration
 ```
 
 ## 3. 配置说明

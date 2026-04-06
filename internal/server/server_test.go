@@ -217,7 +217,7 @@ func TestQueryCanExecuteBackendToolLoop(t *testing.T) {
 		if !hasToolMessage {
 			writeProviderSSE(t, w,
 				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_datetime","type":"function","function":{"name":"_datetime_","arguments":"{"}}]}}]}`,
-				`{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"}"}}],"finish_reason":"tool_calls"}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"}"}}]},"finish_reason":"tool_calls"}]}`,
 				`[DONE]`,
 			)
 			return
@@ -307,6 +307,9 @@ func TestQueryEmitsRunErrorWhenStreamFailsMidFlight(t *testing.T) {
 }
 
 func TestQueryStreamsBeforeRunCompleteOverHTTP(t *testing.T) {
+	if os.Getenv("RUN_SOCKET_TESTS") != "1" {
+		t.Skip("set RUN_SOCKET_TESTS=1 to run real loopback SSE test")
+	}
 	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w,
 			`{"choices":[{"delta":{"content":"first "}}]}`,
@@ -363,8 +366,6 @@ func newTestFixture(t *testing.T) testFixture {
 func newTestFixtureWithModelHandler(t *testing.T, modelHandler http.HandlerFunc) testFixture {
 	t.Helper()
 	root := t.TempDir()
-	modelServer := httptest.NewServer(modelHandler)
-	t.Cleanup(modelServer.Close)
 
 	registriesDir := filepath.Join(root, "registries")
 	agentsDir := filepath.Join(root, "agents")
@@ -389,7 +390,7 @@ func newTestFixtureWithModelHandler(t *testing.T, modelHandler http.HandlerFunc)
 	}
 	if err := os.WriteFile(filepath.Join(providersDir, "mock.yml"), []byte(strings.Join([]string{
 		"key: mock",
-		"baseUrl: " + modelServer.URL,
+		"baseUrl: http://mock.local",
 		"apiKey: test-key",
 		"defaultModel: mock-model",
 	}, "\n")), 0o644); err != nil {
@@ -494,6 +495,7 @@ func newTestFixtureWithModelHandler(t *testing.T, modelHandler http.HandlerFunc)
 		t.Fatalf("load model registry: %v", err)
 	}
 	toolExecutor := engine.NewRuntimeToolExecutor(cfg, engine.NewNoopSandboxClient())
+	modelClient := newScriptedHTTPClient(modelHandler)
 	registry, err := catalog.NewFileRegistry(cfg, toolExecutor.Definitions())
 	if err != nil {
 		t.Fatalf("new file registry: %v", err)
@@ -507,7 +509,7 @@ func newTestFixtureWithModelHandler(t *testing.T, modelHandler http.HandlerFunc)
 			Memory:          memories,
 			Registry:        registry,
 			Runs:            engine.NewInMemoryRunManager(),
-			Agent:           engine.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, engine.NewNoopSandboxClient()),
+			Agent:           engine.NewLLMAgentEngineWithHTTPClient(cfg, modelRegistry, toolExecutor, engine.NewNoopSandboxClient(), modelClient),
 			Tools:           toolExecutor,
 			Sandbox:         engine.NewNoopSandboxClient(),
 			MCP:             engine.NewNoopMcpClient(),
@@ -536,4 +538,25 @@ func writeProviderSSE(t *testing.T, w http.ResponseWriter, frames ...string) {
 		}
 		flusher.Flush()
 	}
+}
+
+type scriptedRoundTripper struct {
+	handler http.HandlerFunc
+}
+
+func (r scriptedRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	rec := httptest.NewRecorder()
+	r.handler(rec, req)
+	result := rec.Result()
+	return &http.Response{
+		StatusCode: result.StatusCode,
+		Status:     result.Status,
+		Header:     result.Header.Clone(),
+		Body:       result.Body,
+		Request:    req,
+	}, nil
+}
+
+func newScriptedHTTPClient(handler http.HandlerFunc) *http.Client {
+	return &http.Client{Transport: scriptedRoundTripper{handler: handler}}
 }
