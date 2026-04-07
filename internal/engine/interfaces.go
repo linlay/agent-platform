@@ -74,6 +74,7 @@ type QuerySession struct {
 	ResolvedBudget        Budget
 	ResolvedStageSettings PlanExecuteSettings
 	HistoryMessages       []map[string]any
+	MemoryContext         string
 }
 
 type ExecutionContext struct {

@@ -130,16 +130,18 @@ func (r *Registry) parseDefinition(path string) (Definition, error) {
 	}
 
 	return Definition{
-		ID:          id,
-		Name:        name,
-		Description: description,
-		Enabled:     boolNode(root["enabled"], true),
-		Cron:        cronExpr,
-		AgentKey:    agentKey,
-		TeamID:      teamID,
-		Environment: Environment{ZoneID: zoneID},
-		Query:       query,
-		SourceFile:  path,
+		ID:           id,
+		Name:         name,
+		Description:  description,
+		Enabled:      boolNode(root["enabled"], true),
+		Cron:         cronExpr,
+		AgentKey:     agentKey,
+		TeamID:       teamID,
+		Environment:  Environment{ZoneID: zoneID},
+		Query:        query,
+		PushURL:      stringNode(root["pushUrl"]),
+		PushTargetID: stringNode(root["pushTargetId"]),
+		SourceFile:   path,
 	}, nil
 }
 

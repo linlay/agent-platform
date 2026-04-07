@@ -135,8 +135,13 @@ func promptSection(tag string, session QuerySession, req api.QueryRequest, model
 		}
 		return "Skills:\n- " + strings.Join(session.SkillKeys, "\n- ")
 	case "memory_context":
+		// Prefer session-level memory context (auto-queried from store)
+		if strings.TrimSpace(session.MemoryContext) != "" {
+			return "Runtime Context: Agent Memory\n" + strings.TrimSpace(session.MemoryContext)
+		}
+		// Fallback to request params
 		if memoryText, _ := req.Params["memoryContext"].(string); strings.TrimSpace(memoryText) != "" {
-			return "Memory Context:\n" + strings.TrimSpace(memoryText)
+			return "Runtime Context: Agent Memory\n" + strings.TrimSpace(memoryText)
 		}
 		return ""
 	case "execution_policy":

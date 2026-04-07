@@ -415,6 +415,33 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		historyMessages, _ = s.deps.Chats.LoadRawMessages(chatID, s.deps.Config.ChatStorage.K)
 	}
 
+	// Auto-inject memory context into system prompt
+	var memoryContext string
+	if s.deps.Memory != nil && req.Message != "" {
+		topN := s.deps.Config.Memory.ContextTopN
+		if topN <= 0 {
+			topN = 5
+		}
+		maxChars := s.deps.Config.Memory.ContextMaxChars
+		if maxChars <= 0 {
+			maxChars = 4000
+		}
+		memories, _ := s.deps.Memory.Search(req.Message, topN)
+		if len(memories) > 0 {
+			var sb strings.Builder
+			for _, mem := range memories {
+				entry := fmt.Sprintf("id: %s\nsubjectKey: %s\nsourceType: %s\ncategory: %s\nimportance: %d\ntags: %s\ncontent: %s\n---\n",
+					mem.ID, mem.SubjectKey, mem.SourceType, mem.Category, mem.Importance,
+					strings.Join(mem.Tags, ","), mem.Summary)
+				if sb.Len()+len(entry) > maxChars {
+					break
+				}
+				sb.WriteString(entry)
+			}
+			memoryContext = sb.String()
+		}
+	}
+
 	session := engine.QuerySession{
 		RequestID:             requestID,
 		RunID:                 runID,
@@ -433,6 +460,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		ResolvedBudget:        engine.ResolveBudget(s.deps.Config, agentDef.Budget),
 		ResolvedStageSettings: engine.ResolvePlanExecuteSettings(agentDef.StageSettings, s.deps.Config.Defaults.Plan.MaxSteps, s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask),
 		HistoryMessages:       historyMessages,
+		MemoryContext:         memoryContext,
 	}
 	if principal := PrincipalFromContext(r.Context()); principal != nil {
 		session.Subject = principal.Subject
@@ -473,6 +501,8 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 
 	var assistantText strings.Builder
 	var reasoningText strings.Builder
+	var toolCallsForRaw []map[string]any
+	var toolResultsForRaw []map[string]any
 	writeEvent := func(event stream.StreamEvent) error {
 		data := event.Data()
 		if event.Type == "content.delta" {
@@ -490,6 +520,26 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 			if delta := data.String("delta"); delta != "" {
 				reasoningText.WriteString(delta)
 			}
+		}
+		if event.Type == "tool.snapshot" {
+			toolCallsForRaw = append(toolCallsForRaw, map[string]any{
+				"id":   data.String("toolId"),
+				"type": "function",
+				"function": map[string]any{
+					"name":      data.String("toolName"),
+					"arguments": data.String("arguments"),
+				},
+			})
+		}
+		if event.Type == "tool.result" {
+			toolResultsForRaw = append(toolResultsForRaw, map[string]any{
+				"role":         "tool",
+				"tool_call_id": data.String("toolId"),
+				"name":         data.String("toolName"),
+				"content":      fmt.Sprintf("%v", data.Value("result")),
+				"runId":        runID,
+				"ts":           time.Now().UnixMilli(),
+			})
 		}
 		if event.Type == "reasoning.snapshot" {
 			if text := data.String("text"); text != "" {
@@ -575,7 +625,13 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	if r := reasoningText.String(); r != "" {
 		rawMsg["reasoning_content"] = r
 	}
+	if len(toolCallsForRaw) > 0 {
+		rawMsg["tool_calls"] = toolCallsForRaw
+	}
 	_ = s.deps.Chats.AppendRawMessage(chatID, rawMsg)
+	for _, toolResult := range toolResultsForRaw {
+		_ = s.deps.Chats.AppendRawMessage(chatID, toolResult)
+	}
 	if err := s.deps.Chats.OnRunCompleted(chat.RunCompletion{
 		ChatID:          chatID,
 		RunID:           runID,

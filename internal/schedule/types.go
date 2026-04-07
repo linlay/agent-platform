@@ -7,16 +7,18 @@ import (
 )
 
 type Definition struct {
-	ID          string
-	Name        string
-	Description string
-	Enabled     bool
-	Cron        string
-	AgentKey    string
-	TeamID      string
-	Environment Environment
-	Query       Query
-	SourceFile  string
+	ID           string
+	Name         string
+	Description  string
+	Enabled      bool
+	Cron         string
+	AgentKey     string
+	TeamID       string
+	Environment  Environment
+	Query        Query
+	PushURL      string
+	PushTargetID string
+	SourceFile   string
 }
 
 type Environment struct {
