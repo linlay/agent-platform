@@ -265,6 +265,15 @@ func isTerminalEvent(payload any) bool {
 }
 
 func stringField(payload any, key string) string {
+	switch value := payload.(type) {
+	case EventData:
+		return value.String(key)
+	case *EventData:
+		if value == nil {
+			return ""
+		}
+		return value.String(key)
+	}
 	valueMap, ok := payload.(map[string]any)
 	if !ok {
 		return ""

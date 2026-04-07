@@ -9,6 +9,7 @@ import (
 
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/chat"
+	"agent-platform-runner-go/internal/stream"
 )
 
 type Store interface {
@@ -106,7 +107,7 @@ func extractRememberSummary(detail chat.Detail) string {
 	}
 	if len(detail.Events) > 0 {
 		last := detail.Events[len(detail.Events)-1]
-		if text, _ := last["text"].(string); strings.TrimSpace(text) != "" {
+		if text := last.String("text"); strings.TrimSpace(text) != "" {
 			return text
 		}
 	}
@@ -138,11 +139,10 @@ func sampleMessages(raw []map[string]any) []string {
 	return samples
 }
 
-func sampleEvents(events []map[string]any) []string {
+func sampleEvents(events []stream.EventData) []string {
 	samples := make([]string, 0, min(3, len(events)))
 	for _, event := range events {
-		eventType, _ := event["type"].(string)
-		samples = append(samples, eventType)
+		samples = append(samples, event.Type)
 		if len(samples) == 3 {
 			return samples
 		}

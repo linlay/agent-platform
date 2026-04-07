@@ -1,5 +1,7 @@
 package api
 
+import "agent-platform-runner-go/internal/stream"
+
 type ApiResponse[T any] struct {
 	Code int    `json:"code"`
 	Msg  string `json:"msg"`
@@ -248,14 +250,14 @@ type MarkChatReadResponse struct {
 }
 
 type ChatDetailResponse struct {
-	ChatID         string           `json:"chatId"`
-	ChatName       string           `json:"chatName"`
-	ChatImageToken string           `json:"chatImageToken,omitempty"`
-	RawMessages    []map[string]any `json:"rawMessages,omitempty"`
-	Events         []map[string]any `json:"events"`
-	Plan           any              `json:"plan,omitempty"`
-	Artifact       any              `json:"artifact,omitempty"`
-	References     []Reference      `json:"references,omitempty"`
+	ChatID         string             `json:"chatId"`
+	ChatName       string             `json:"chatName"`
+	ChatImageToken string             `json:"chatImageToken,omitempty"`
+	RawMessages    []map[string]any   `json:"rawMessages,omitempty"`
+	Events         []stream.EventData `json:"events"`
+	Plan           any                `json:"plan,omitempty"`
+	Artifact       any                `json:"artifact,omitempty"`
+	References     []Reference        `json:"references,omitempty"`
 }
 
 type UploadResponse struct {

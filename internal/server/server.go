@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -466,25 +467,25 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	var assistantText strings.Builder
 	var reasoningText strings.Builder
 	writeEvent := func(event stream.StreamEvent) error {
-		data := event.ToData()
+		data := event.Data()
 		if event.Type == "content.delta" {
-			if delta, _ := data["delta"].(string); delta != "" {
+			if delta := data.String("delta"); delta != "" {
 				assistantText.WriteString(delta)
 			}
 		}
 		if event.Type == "content.snapshot" {
-			if text, _ := data["text"].(string); text != "" {
+			if text := data.String("text"); text != "" {
 				assistantText.Reset()
 				assistantText.WriteString(text)
 			}
 		}
 		if event.Type == "reasoning.delta" {
-			if delta, _ := data["delta"].(string); delta != "" {
+			if delta := data.String("delta"); delta != "" {
 				reasoningText.WriteString(delta)
 			}
 		}
 		if event.Type == "reasoning.snapshot" {
-			if text, _ := data["text"].(string); text != "" {
+			if text := data.String("text"); text != "" {
 				reasoningText.Reset()
 				reasoningText.WriteString(text)
 			}
@@ -494,7 +495,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 		}
-		if event.Type == "tool.snapshot" && !s.deps.Config.SSE.IncludeToolPayloadEvents {
+		if strings.HasSuffix(event.Type, ".snapshot") {
 			return nil
 		}
 		return sseWriter.WriteJSON("message", data)
@@ -933,7 +934,20 @@ func newRunID() string {
 }
 
 func newChatID() string {
-	return "chat_" + time.Now().UTC().Format("20060102150405.000000000")
+	var data [16]byte
+	if _, err := rand.Read(data[:]); err != nil {
+		panic(err)
+	}
+	data[6] = (data[6] & 0x0f) | 0x40
+	data[8] = (data[8] & 0x3f) | 0x80
+	return fmt.Sprintf(
+		"%08x-%04x-%04x-%04x-%012x",
+		data[0:4],
+		data[4:6],
+		data[6:8],
+		data[8:10],
+		data[10:16],
+	)
 }
 
 func withTimeout(parent context.Context) (context.Context, context.CancelFunc) {

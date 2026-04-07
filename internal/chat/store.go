@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"agent-platform-runner-go/internal/stream"
 )
 
 var ErrChatNotFound = errors.New("chat not found")
@@ -17,7 +19,7 @@ var ErrChatNotFound = errors.New("chat not found")
 type Store interface {
 	EnsureChat(chatID string, agentKey string, teamID string, firstMessage string) (Summary, bool, error)
 	Summary(chatID string) (*Summary, error)
-	AppendEvent(chatID string, event map[string]any) error
+	AppendEvent(chatID string, event stream.EventData) error
 	AppendRawMessage(chatID string, message map[string]any) error
 	OnRunCompleted(completion RunCompletion) error
 	ListChats(lastRunID string, agentKey string) ([]Summary, error)
@@ -72,7 +74,7 @@ func (s *FileStore) EnsureChat(chatID string, agentKey string, teamID string, fi
 	return summary, true, nil
 }
 
-func (s *FileStore) AppendEvent(chatID string, event map[string]any) error {
+func (s *FileStore) AppendEvent(chatID string, event stream.EventData) error {
 	return s.appendJSONLine(filepath.Join(s.ChatDir(chatID), "events.jsonl"), event)
 }
 
@@ -173,11 +175,15 @@ func (s *FileStore) LoadChat(chatID string) (Detail, error) {
 	}
 
 	plan, artifact := deriveRunState(events)
+	orderedEvents := make([]stream.EventData, 0, len(events))
+	for _, event := range events {
+		orderedEvents = append(orderedEvents, stream.EventDataFromMap(event))
+	}
 
 	return Detail{
 		ChatID:      summary.ChatID,
 		ChatName:    summary.ChatName,
-		Events:      events,
+		Events:      orderedEvents,
 		RawMessages: rawMessages,
 		References:  nil,
 		Plan:        plan,
@@ -281,7 +287,7 @@ func (s *FileStore) ChatDir(chatID string) string {
 	return filepath.Join(s.root, chatID)
 }
 
-func (s *FileStore) appendJSONLine(path string, payload map[string]any) error {
+func (s *FileStore) appendJSONLine(path string, payload any) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

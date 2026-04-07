@@ -110,22 +110,6 @@ func (d *StreamEventDispatcher) Complete() []StreamEvent {
 		d.state.terminated = true
 		return events
 	}
-	if d.state.reasoningSeen && d.state.lastReasoningID != "" {
-		events = append(events, NewEvent("reasoning.snapshot", map[string]any{
-			"runId":       d.request.RunID,
-			"chatId":      d.request.ChatID,
-			"reasoningId": d.state.lastReasoningID,
-			"text":        d.state.fullReasoning,
-		}))
-	}
-	if d.state.contentSeen && d.state.lastContentID != "" {
-		events = append(events, NewEvent("content.snapshot", map[string]any{
-			"runId":     d.request.RunID,
-			"chatId":    d.request.ChatID,
-			"contentId": d.state.lastContentID,
-			"text":      d.state.fullContent,
-		}))
-	}
 	events = append(events, NewEvent("run.complete", map[string]any{
 		"runId":        d.request.RunID,
 		"finishReason": d.state.runFinishReason,
@@ -157,9 +141,9 @@ func (d *StreamEventDispatcher) handleReasoningDelta(input ReasoningDelta) []Str
 	events := d.closeForSwitch("reasoning")
 	if d.state.activeReasoningID == "" || d.state.activeReasoningID != input.ReasoningID {
 		d.state.activeReasoningID = input.ReasoningID
+		d.state.activeReasoning = reasoningBlockState{TaskID: input.TaskID}
 		events = append(events, NewEvent("reasoning.start", map[string]any{
 			"runId":       d.request.RunID,
-			"chatId":      d.request.ChatID,
 			"reasoningId": input.ReasoningID,
 			"taskId":      input.TaskID,
 		}))
@@ -169,10 +153,7 @@ func (d *StreamEventDispatcher) handleReasoningDelta(input ReasoningDelta) []Str
 	d.state.lastReasoningID = input.ReasoningID
 	d.state.fullReasoning += input.Delta
 	events = append(events, NewEvent("reasoning.delta", map[string]any{
-		"runId":       d.request.RunID,
-		"chatId":      d.request.ChatID,
 		"reasoningId": input.ReasoningID,
-		"taskId":      input.TaskID,
 		"delta":       input.Delta,
 	}))
 	return events
@@ -182,22 +163,20 @@ func (d *StreamEventDispatcher) handleContentDelta(input ContentDelta) []StreamE
 	events := d.closeForSwitch("content")
 	if d.state.activeContentID == "" || d.state.activeContentID != input.ContentID {
 		d.state.activeContentID = input.ContentID
+		d.state.activeContent = contentBlockState{TaskID: input.TaskID}
 		d.state.lastContentID = input.ContentID
 		events = append(events, NewEvent("content.start", map[string]any{
-			"runId":     d.request.RunID,
-			"chatId":    d.request.ChatID,
 			"contentId": input.ContentID,
+			"runId":     d.request.RunID,
 			"taskId":    input.TaskID,
 		}))
 	}
 	d.state.contentSeen = true
 	d.state.lastContentID = input.ContentID
+	d.state.contentBuffer[input.ContentID] += input.Delta
 	d.state.fullContent += input.Delta
 	events = append(events, NewEvent("content.delta", map[string]any{
-		"runId":     d.request.RunID,
-		"chatId":    d.request.ChatID,
 		"contentId": input.ContentID,
-		"taskId":    input.TaskID,
 		"delta":     input.Delta,
 	}))
 	return events
@@ -207,15 +186,15 @@ func (d *StreamEventDispatcher) handleToolArgs(input ToolArgs) []StreamEvent {
 	events := d.closeForSwitch("tool")
 	if _, ok := d.state.openTools[input.ToolID]; !ok {
 		d.state.openTools[input.ToolID] = toolBlockState{
+			TaskID:      input.TaskID,
 			Name:        input.ToolName,
 			Type:        input.ToolType,
 			Label:       input.ToolLabel,
 			Description: input.ToolDescription,
 		}
 		events = append(events, NewEvent("tool.start", map[string]any{
-			"runId":           d.request.RunID,
-			"chatId":          d.request.ChatID,
 			"toolId":          input.ToolID,
+			"runId":           d.request.RunID,
 			"taskId":          input.TaskID,
 			"toolName":        input.ToolName,
 			"toolType":        input.ToolType,
@@ -225,16 +204,9 @@ func (d *StreamEventDispatcher) handleToolArgs(input ToolArgs) []StreamEvent {
 	}
 	d.state.toolArgsBuffer[input.ToolID] += input.Delta
 	events = append(events, NewEvent("tool.args", map[string]any{
-		"runId":           d.request.RunID,
-		"chatId":          d.request.ChatID,
-		"toolId":          input.ToolID,
-		"taskId":          input.TaskID,
-		"toolName":        input.ToolName,
-		"toolType":        input.ToolType,
-		"toolLabel":       input.ToolLabel,
-		"toolDescription": input.ToolDescription,
-		"delta":           input.Delta,
-		"chunkIndex":      input.ChunkIndex,
+		"toolId":     input.ToolID,
+		"delta":      input.Delta,
+		"chunkIndex": input.ChunkIndex,
 	}))
 	return events
 }
@@ -246,18 +218,8 @@ func (d *StreamEventDispatcher) handleToolEnd(input ToolEnd) []StreamEvent {
 func (d *StreamEventDispatcher) handleToolResult(input ToolResult) []StreamEvent {
 	events := d.closeTool(input.ToolID)
 	payload := map[string]any{
-		"runId":           d.request.RunID,
-		"chatId":          d.request.ChatID,
-		"toolId":          input.ToolID,
-		"toolName":        input.ToolName,
-		"toolType":        input.ToolType,
-		"toolLabel":       input.ToolLabel,
-		"toolDescription": input.ToolDescription,
-		"output":          input.Result,
-		"exitCode":        input.ExitCode,
-	}
-	if input.Error != "" {
-		payload["error"] = input.Error
+		"toolId": input.ToolID,
+		"result": buildToolResultValue(input),
 	}
 	events = append(events, NewEvent("tool.result", payload))
 	return events
@@ -267,26 +229,22 @@ func (d *StreamEventDispatcher) handleActionArgs(input ActionArgs) []StreamEvent
 	events := d.closeForSwitch("action")
 	if _, ok := d.state.openActions[input.ActionID]; !ok {
 		d.state.openActions[input.ActionID] = actionBlockState{
+			TaskID:      input.TaskID,
 			Name:        input.ActionName,
 			Description: input.Description,
 		}
 		events = append(events, NewEvent("action.start", map[string]any{
-			"runId":       d.request.RunID,
-			"chatId":      d.request.ChatID,
 			"actionId":    input.ActionID,
+			"runId":       d.request.RunID,
 			"taskId":      input.TaskID,
 			"actionName":  input.ActionName,
 			"description": input.Description,
 		}))
 	}
+	d.state.actionArgsBuffer[input.ActionID] += input.Delta
 	events = append(events, NewEvent("action.args", map[string]any{
-		"runId":       d.request.RunID,
-		"chatId":      d.request.ChatID,
-		"actionId":    input.ActionID,
-		"taskId":      input.TaskID,
-		"actionName":  input.ActionName,
-		"description": input.Description,
-		"delta":       input.Delta,
+		"actionId": input.ActionID,
+		"delta":    input.Delta,
 	}))
 	return events
 }
@@ -298,12 +256,8 @@ func (d *StreamEventDispatcher) handleActionEnd(input ActionEnd) []StreamEvent {
 func (d *StreamEventDispatcher) handleActionResult(input ActionResult) []StreamEvent {
 	events := d.closeAction(input.ActionID)
 	events = append(events, NewEvent("action.result", map[string]any{
-		"runId":       d.request.RunID,
-		"chatId":      d.request.ChatID,
-		"actionId":    input.ActionID,
-		"actionName":  input.ActionName,
-		"description": input.Description,
-		"result":      input.Result,
+		"actionId": input.ActionID,
+		"result":   input.Result,
 	}))
 	return events
 }
@@ -387,12 +341,21 @@ func (d *StreamEventDispatcher) closeReasoning() []StreamEvent {
 		return nil
 	}
 	reasoningID := d.state.activeReasoningID
+	block := d.state.activeReasoning
 	d.state.activeReasoningID = ""
-	return []StreamEvent{NewEvent("reasoning.end", map[string]any{
-		"runId":       d.request.RunID,
-		"chatId":      d.request.ChatID,
+	d.state.activeReasoning = reasoningBlockState{}
+	events := []StreamEvent{NewEvent("reasoning.end", map[string]any{
 		"reasoningId": reasoningID,
 	})}
+	if d.state.reasoningSeen {
+		events = append(events, NewEvent("reasoning.snapshot", map[string]any{
+			"reasoningId": reasoningID,
+			"runId":       d.request.RunID,
+			"text":        d.state.reasoningBuffer[reasoningID],
+			"taskId":      block.TaskID,
+		}))
+	}
+	return events
 }
 
 func (d *StreamEventDispatcher) closeContent() []StreamEvent {
@@ -400,12 +363,21 @@ func (d *StreamEventDispatcher) closeContent() []StreamEvent {
 		return nil
 	}
 	contentID := d.state.activeContentID
+	block := d.state.activeContent
 	d.state.activeContentID = ""
-	return []StreamEvent{NewEvent("content.end", map[string]any{
-		"runId":     d.request.RunID,
-		"chatId":    d.request.ChatID,
+	d.state.activeContent = contentBlockState{}
+	events := []StreamEvent{NewEvent("content.end", map[string]any{
 		"contentId": contentID,
 	})}
+	if d.state.contentSeen {
+		events = append(events, NewEvent("content.snapshot", map[string]any{
+			"contentId": contentID,
+			"runId":     d.request.RunID,
+			"text":      d.state.contentBuffer[contentID],
+			"taskId":    block.TaskID,
+		}))
+	}
+	return events
 }
 
 func (d *StreamEventDispatcher) closeAllTools() []StreamEvent {
@@ -426,15 +398,13 @@ func (d *StreamEventDispatcher) closeTool(toolID string) []StreamEvent {
 	}
 	delete(d.state.openTools, toolID)
 	events := []StreamEvent{NewEvent("tool.end", map[string]any{
-		"runId":  d.request.RunID,
-		"chatId": d.request.ChatID,
 		"toolId": toolID,
 	})}
 	events = append(events, NewEvent("tool.snapshot", map[string]any{
-		"runId":           d.request.RunID,
-		"chatId":          d.request.ChatID,
 		"toolId":          toolID,
+		"runId":           d.request.RunID,
 		"toolName":        block.Name,
+		"taskId":          block.TaskID,
 		"toolType":        block.Type,
 		"toolLabel":       block.Label,
 		"toolDescription": block.Description,
@@ -455,15 +425,24 @@ func (d *StreamEventDispatcher) closeAllActions() []StreamEvent {
 }
 
 func (d *StreamEventDispatcher) closeAction(actionID string) []StreamEvent {
-	if _, ok := d.state.openActions[actionID]; !ok {
+	block, ok := d.state.openActions[actionID]
+	if !ok {
 		return nil
 	}
 	delete(d.state.openActions, actionID)
-	return []StreamEvent{NewEvent("action.end", map[string]any{
-		"runId":    d.request.RunID,
-		"chatId":   d.request.ChatID,
-		"actionId": actionID,
-	})}
+	return []StreamEvent{
+		NewEvent("action.end", map[string]any{
+			"actionId": actionID,
+		}),
+		NewEvent("action.snapshot", map[string]any{
+			"actionId":    actionID,
+			"runId":       d.request.RunID,
+			"actionName":  block.Name,
+			"taskId":      block.TaskID,
+			"description": block.Description,
+			"arguments":   d.state.actionArgsBuffer[actionID],
+		}),
+	}
 }
 
 func normalizeErrorMap(input map[string]any, defaultCode string, defaultScope string, defaultCategory string) map[string]any {
@@ -484,4 +463,20 @@ func normalizeErrorMap(input map[string]any, defaultCode string, defaultScope st
 		output["category"] = defaultCategory
 	}
 	return output
+}
+
+func buildToolResultValue(input ToolResult) any {
+	if input.Error == "" && input.ExitCode == 0 {
+		return input.Result
+	}
+	result := map[string]any{
+		"output": input.Result,
+	}
+	if input.ExitCode != 0 {
+		result["exitCode"] = input.ExitCode
+	}
+	if input.Error != "" {
+		result["error"] = input.Error
+	}
+	return result
 }

@@ -29,6 +29,7 @@ import (
 	"agent-platform-runner-go/internal/config"
 	"agent-platform-runner-go/internal/engine"
 	"agent-platform-runner-go/internal/memory"
+	"agent-platform-runner-go/internal/stream"
 )
 
 var disallowedPersistedEventTypes = []string{
@@ -82,8 +83,8 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 	if !strings.Contains(bodyText, `"type":"request.query"`) {
 		t.Fatalf("expected request.query event, got %s", bodyText)
 	}
-	if !strings.Contains(bodyText, `"type":"content.snapshot"`) {
-		t.Fatalf("expected content.snapshot event, got %s", bodyText)
+	if strings.Contains(bodyText, `.snapshot"`) {
+		t.Fatalf("expected live sse to exclude snapshot events, got %s", bodyText)
 	}
 	if !strings.Contains(bodyText, "data: [DONE]") {
 		t.Fatalf("expected done sentinel, got %s", bodyText)
@@ -103,6 +104,7 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 		t.Fatalf("expected 1 chat, got %d", len(chatsResp.Data))
 	}
 	chatID := chatsResp.Data[0].ChatID
+	assertUUIDLike(t, chatID)
 
 	chatReq := httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatID+"&includeRawMessages=true", nil)
 	chatRec := httptest.NewRecorder()
@@ -122,6 +124,14 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 		"content.snapshot",
 		"run.complete",
 	)
+	assertBodyContainsOrderedEvent(t, chatRec.Body.String(), `"type":"request.query"`, []string{
+		`"seq":`,
+		`"type":"request.query"`,
+		`"requestId":`,
+		`"runId":`,
+		`"chatId":`,
+		`"timestamp":`,
+	})
 	if len(chatResp.Data.RawMessages) != 2 {
 		t.Fatalf("expected 2 raw messages, got %#v", chatResp.Data.RawMessages)
 	}
@@ -171,11 +181,11 @@ func TestQueryUsesProvidedRunIDAndPersistsItEverywhere(t *testing.T) {
 	}
 	foundRequest := false
 	for _, event := range chatResp.Data.Events {
-		if event["type"] != "request.query" {
+		if event.Type != "request.query" {
 			continue
 		}
 		foundRequest = true
-		if got := event["runId"]; got != runID {
+		if got := event.String("runId"); got != runID {
 			t.Fatalf("expected persisted request.query run id, got %#v", event)
 		}
 	}
@@ -246,6 +256,7 @@ func TestUploadAndResourceRoundTrip(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode upload response: %v", err)
 	}
+	assertUUIDLike(t, response.Data.ChatID)
 	resourceReq := httptest.NewRequest(http.MethodGet, response.Data.Upload.URL, nil)
 	resourceRec := httptest.NewRecorder()
 	server.ServeHTTP(resourceRec, resourceReq)
@@ -352,14 +363,14 @@ func TestChatSnapshotDeduplicatesChatStartAcrossMultipleQueries(t *testing.T) {
 	runStartCount := 0
 	prevSeq := int64(0)
 	for _, event := range chatResp.Data.Events {
-		eventType, _ := event["type"].(string)
+		eventType := event.Type
 		switch eventType {
 		case "chat.start":
 			chatStartCount++
 		case "run.start":
 			runStartCount++
 		}
-		seq := int64(event["seq"].(float64))
+		seq := event.Seq
 		if seq != prevSeq+1 {
 			t.Fatalf("expected contiguous seq values, got prev=%d current=%d events=%#v", prevSeq, seq, chatResp.Data.Events)
 		}
@@ -559,16 +570,23 @@ func TestQueryCanExecuteBackendToolLoop(t *testing.T) {
 	if !strings.Contains(body, `"type":"tool.end"`) {
 		t.Fatalf("expected tool.end event, got %s", body)
 	}
-	if !strings.Contains(body, `"type":"tool.snapshot"`) {
-		t.Fatalf("expected tool.snapshot event, got %s", body)
+	if strings.Contains(body, `"type":"tool.snapshot"`) || strings.Contains(body, `"type":"content.snapshot"`) {
+		t.Fatalf("expected live sse to exclude snapshot events, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"tool.result"`) {
 		t.Fatalf("expected tool.result event, got %s", body)
 	}
-	if !strings.Contains(body, "完成工具调用后的最终回答") {
-		t.Fatalf("expected final assistant content, got %s", body)
+	if !strings.Contains(body, "完成工具调用后") || !strings.Contains(body, "的最终回答") {
+		t.Fatalf("expected live sse deltas for final assistant content, got %s", body)
 	}
 	assertSSEMessagesHaveSeqAndTimestamp(t, body)
+	assertSSEPayloadOrder(t, body, "tool.start", []string{
+		`"seq":`,
+		`"type":"tool.start"`,
+		`"toolId":"`,
+		`"runId":"`,
+		`"timestamp":`,
+	})
 
 	chatsRec := httptest.NewRecorder()
 	server.ServeHTTP(chatsRec, httptest.NewRequest(http.MethodGet, "/api/chats", nil))
@@ -654,8 +672,8 @@ func TestQueryPersistsToolSnapshotWhenSSEPayloadEventsDisabled(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 	body := rec.Body.String()
-	if strings.Contains(body, `"type":"tool.snapshot"`) {
-		t.Fatalf("expected tool.snapshot to be suppressed from sse, got %s", body)
+	if strings.Contains(body, `.snapshot"`) {
+		t.Fatalf("expected live sse to exclude snapshot events, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"tool.start"`) || !strings.Contains(body, `"type":"tool.result"`) {
 		t.Fatalf("expected tool lifecycle to remain in sse, got %s", body)
@@ -1419,11 +1437,11 @@ func writeProviderSSE(t *testing.T, w http.ResponseWriter, frames ...string) {
 	}
 }
 
-func assertPersistedEventTypes(t *testing.T, events []map[string]any, want ...string) {
+func assertPersistedEventTypes(t *testing.T, events []stream.EventData, want ...string) {
 	t.Helper()
 	seen := make(map[string]int)
 	for _, event := range events {
-		eventType, _ := event["type"].(string)
+		eventType := event.Type
 		seen[eventType]++
 	}
 	for _, eventType := range want {
@@ -1519,6 +1537,18 @@ func decodeSSEMessages(t *testing.T, body string) []map[string]any {
 	return messages
 }
 
+func decodeSSEPayloadStrings(body string) []string {
+	lines := strings.Split(body, "\n")
+	payloads := make([]string, 0)
+	for _, line := range lines {
+		if !strings.HasPrefix(line, "data: {") {
+			continue
+		}
+		payloads = append(payloads, strings.TrimSpace(strings.TrimPrefix(line, "data: ")))
+	}
+	return payloads
+}
+
 func decodeSSELine(t *testing.T, line string) map[string]any {
 	t.Helper()
 	payload := strings.TrimSpace(strings.TrimPrefix(line, "data: "))
@@ -1570,6 +1600,61 @@ func assertSSEEventOrder(t *testing.T, body string, want ...string) {
 	for idx, eventType := range want {
 		if messages[idx]["type"] != eventType {
 			t.Fatalf("event %d: expected %s, got %#v", idx, eventType, messages[idx])
+		}
+	}
+}
+
+func assertSSEPayloadOrder(t *testing.T, body string, eventType string, parts []string) {
+	t.Helper()
+	for _, payload := range decodeSSEPayloadStrings(body) {
+		if !strings.Contains(payload, `"type":"`+eventType+`"`) {
+			continue
+		}
+		assertOrderedSubstrings(t, payload, parts)
+		return
+	}
+	t.Fatalf("expected sse event type %s in body %s", eventType, body)
+}
+
+func assertBodyContainsOrderedEvent(t *testing.T, body string, marker string, parts []string) {
+	t.Helper()
+	index := strings.Index(body, marker)
+	if index < 0 {
+		t.Fatalf("expected marker %q in body %s", marker, body)
+	}
+	start := strings.LastIndex(body[:index], "{")
+	end := strings.Index(body[index:], "}")
+	if start < 0 || end < 0 {
+		t.Fatalf("expected json object around marker %q in body %s", marker, body)
+	}
+	assertOrderedSubstrings(t, body[start:index+end+1], parts)
+}
+
+func assertOrderedSubstrings(t *testing.T, body string, parts []string) {
+	t.Helper()
+	prev := -1
+	for _, part := range parts {
+		idx := strings.Index(body, part)
+		if idx < 0 {
+			t.Fatalf("expected %q in %s", part, body)
+		}
+		if idx <= prev {
+			t.Fatalf("expected ordered substrings %v in %s", parts, body)
+		}
+		prev = idx
+	}
+}
+
+func assertUUIDLike(t *testing.T, value string) {
+	t.Helper()
+	parts := strings.Split(value, "-")
+	if len(parts) != 5 {
+		t.Fatalf("expected uuid-like value, got %q", value)
+	}
+	lengths := []int{8, 4, 4, 4, 12}
+	for idx, part := range parts {
+		if len(part) != lengths[idx] {
+			t.Fatalf("expected uuid-like value, got %q", value)
 		}
 	}
 }

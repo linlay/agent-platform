@@ -1,5 +1,7 @@
 package chat
 
+import "agent-platform-runner-go/internal/stream"
+
 type PlanState struct {
 	PlanID string          `json:"planId"`
 	Tasks  []PlanTaskState `json:"tasks,omitempty"`
@@ -42,7 +44,7 @@ type Detail struct {
 	ChatID      string
 	ChatName    string
 	RawMessages []map[string]any
-	Events      []map[string]any
+	Events      []stream.EventData
 	References  []map[string]any
 	Plan        *PlanState
 	Artifact    *ArtifactState
