@@ -21,6 +21,7 @@ type Store interface {
 	Summary(chatID string) (*Summary, error)
 	AppendEvent(chatID string, event stream.EventData) error
 	AppendRawMessage(chatID string, message map[string]any) error
+	LoadRawMessages(chatID string, k int) ([]map[string]any, error)
 	OnRunCompleted(completion RunCompletion) error
 	ListChats(lastRunID string, agentKey string) ([]Summary, error)
 	LoadChat(chatID string) (Detail, error)
@@ -96,6 +97,52 @@ func (s *FileStore) Summary(chatID string) (*Summary, error) {
 
 func (s *FileStore) AppendRawMessage(chatID string, message map[string]any) error {
 	return s.appendJSONLine(filepath.Join(s.ChatDir(chatID), "raw_messages.jsonl"), message)
+}
+
+func (s *FileStore) LoadRawMessages(chatID string, k int) ([]map[string]any, error) {
+	if k <= 0 {
+		k = 20
+	}
+	messages, err := readJSONLines(filepath.Join(s.ChatDir(chatID), "raw_messages.jsonl"))
+	if err != nil || len(messages) == 0 {
+		return nil, err
+	}
+
+	// Group messages by runId, preserving order
+	type runBucket struct {
+		runID    string
+		messages []map[string]any
+	}
+	var runs []*runBucket
+	runIndex := map[string]*runBucket{}
+	for _, msg := range messages {
+		runID, _ := msg["runId"].(string)
+		if runID == "" {
+			// Messages without runId go into a standalone bucket
+			bucket := &runBucket{messages: []map[string]any{msg}}
+			runs = append(runs, bucket)
+			continue
+		}
+		bucket, ok := runIndex[runID]
+		if !ok {
+			bucket = &runBucket{runID: runID}
+			runIndex[runID] = bucket
+			runs = append(runs, bucket)
+		}
+		bucket.messages = append(bucket.messages, msg)
+	}
+
+	// Keep only the last K runs (sliding window)
+	if len(runs) > k {
+		runs = runs[len(runs)-k:]
+	}
+
+	// Flatten back to a single slice
+	var result []map[string]any
+	for _, bucket := range runs {
+		result = append(result, bucket.messages...)
+	}
+	return result, nil
 }
 
 func (s *FileStore) OnRunCompleted(completion RunCompletion) error {

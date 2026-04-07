@@ -409,6 +409,12 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Load conversation history (sliding window of last K runs)
+	var historyMessages []map[string]any
+	if !created {
+		historyMessages, _ = s.deps.Chats.LoadRawMessages(chatID, s.deps.Config.ChatStorage.K)
+	}
+
 	session := engine.QuerySession{
 		RequestID:             requestID,
 		RunID:                 runID,
@@ -426,6 +432,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		ToolOverrides:         cloneToolOverrides(agentDef.ToolOverrides),
 		ResolvedBudget:        engine.ResolveBudget(s.deps.Config, agentDef.Budget),
 		ResolvedStageSettings: engine.ResolvePlanExecuteSettings(agentDef.StageSettings, s.deps.Config.Defaults.Plan.MaxSteps, s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask),
+		HistoryMessages:       historyMessages,
 	}
 	if principal := PrincipalFromContext(r.Context()); principal != nil {
 		session.Subject = principal.Subject

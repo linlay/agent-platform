@@ -225,11 +225,19 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 				Role:    "system",
 				Content: systemPrompt,
 			},
-			{
-				Role:    "user",
-				Content: req.Message,
-			},
 		}
+		// Append conversation history from previous runs
+		for _, raw := range session.HistoryMessages {
+			msg := rawMessageToOpenAI(raw)
+			if msg.Role != "" {
+				messages = append(messages, msg)
+			}
+		}
+		// Append current user message
+		messages = append(messages, openAIMessage{
+			Role:    "user",
+			Content: req.Message,
+		})
 	}
 	maxSteps := options.MaxSteps
 	if maxSteps <= 0 {
@@ -1054,4 +1062,45 @@ func filterToolDefinitions(defs []api.ToolDetailResponse, allowed []string) []ap
 		}
 	}
 	return filtered
+}
+
+// rawMessageToOpenAI converts a raw_messages.jsonl entry to an openAIMessage.
+// Format follows the Java version: role + content, with tool_calls for assistant messages.
+func rawMessageToOpenAI(raw map[string]any) openAIMessage {
+	role, _ := raw["role"].(string)
+	content, _ := raw["content"].(string)
+	if role == "" {
+		return openAIMessage{}
+	}
+	msg := openAIMessage{Role: role, Content: content}
+	if role == "assistant" {
+		if calls, ok := raw["tool_calls"].([]any); ok {
+			for _, c := range calls {
+				callMap, _ := c.(map[string]any)
+				if callMap == nil {
+					continue
+				}
+				tc := openAIToolCall{}
+				tc.ID, _ = callMap["id"].(string)
+				tc.Type, _ = callMap["type"].(string)
+				if tc.Type == "" {
+					tc.Type = "function"
+				}
+				if fn, ok := callMap["function"].(map[string]any); ok {
+					tc.Function.Name, _ = fn["name"].(string)
+					tc.Function.Arguments, _ = fn["arguments"].(string)
+				}
+				msg.ToolCalls = append(msg.ToolCalls, tc)
+			}
+			// Assistant messages with tool_calls must not have content per OpenAI spec
+			if len(msg.ToolCalls) > 0 && content == "" {
+				msg.Content = nil
+			}
+		}
+	}
+	if role == "tool" {
+		msg.ToolCallID, _ = raw["tool_call_id"].(string)
+		msg.Name, _ = raw["name"].(string)
+	}
+	return msg
 }

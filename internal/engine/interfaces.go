@@ -73,6 +73,7 @@ type QuerySession struct {
 	ToolOverrides         map[string]api.ToolDetailResponse
 	ResolvedBudget        Budget
 	ResolvedStageSettings PlanExecuteSettings
+	HistoryMessages       []map[string]any
 }
 
 type ExecutionContext struct {

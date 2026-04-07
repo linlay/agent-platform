@@ -1,10 +1,20 @@
 COMPOSE_FILE ?= compose.yml
 CGO_ENABLED ?= 0
 
+ifeq ($(OS),Windows_NT)
+SHELL := powershell.exe
+.SHELLFLAGS := -NoProfile -Command
+endif
+
 .PHONY: run test test-integration docker-build docker-up docker-down
 
+ifeq ($(OS),Windows_NT)
+run:
+	@Get-Content .env -ErrorAction SilentlyContinue | ForEach-Object { $$l = $$_.Trim(); if ($$l -and -not $$l.StartsWith('#')) { $$i = $$l.IndexOf('='); if ($$i -gt 0) { [System.Environment]::SetEnvironmentVariable($$l.Substring(0,$$i).Trim(), $$l.Substring($$i+1).Trim(), 'Process') } } }; $$env:SERVER_PORT = if ($$env:HOST_PORT) { $$env:HOST_PORT } else { if ($$env:SERVER_PORT) { $$env:SERVER_PORT } else { '8080' } }; $$env:CGO_ENABLED = '$(CGO_ENABLED)'; go run ./cmd/agent-platform-runner
+else
 run:
 	set -a; [ ! -f .env ] || . ./.env; set +a; SERVER_PORT="$${HOST_PORT:-$${SERVER_PORT:-8080}}" CGO_ENABLED=$(CGO_ENABLED) go run ./cmd/agent-platform-runner
+endif
 
 test:
 	@for pkg in $$(go list ./...); do \
