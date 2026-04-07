@@ -12,7 +12,7 @@ func TestAssemblerBootstrapAndComplete(t *testing.T) {
 		Message:   "hello",
 		Role:      "user",
 		Created:   true,
-	}, false)
+	})
 
 	bootstrap := assembler.Bootstrap()
 	assertStampedTypes(t, bootstrap, "request.query", "chat.start", "run.start")
@@ -50,7 +50,7 @@ func TestAssemblerBootstrapSkipsChatStartForExistingChat(t *testing.T) {
 		Message:   "again",
 		Role:      "user",
 		Created:   false,
-	}, false)
+	})
 
 	bootstrap := assembler.Bootstrap()
 	assertStampedTypes(t, bootstrap, "request.query", "run.start")
@@ -60,7 +60,7 @@ func TestAssemblerFailNormalizesRunError(t *testing.T) {
 	assembler := NewAssembler(StreamRequest{
 		RunID:  "run_1",
 		ChatID: "chat_1",
-	}, false)
+	})
 
 	events := assembler.Fail(assertErr("broken"))
 	assertStampedTypes(t, events, "run.error")

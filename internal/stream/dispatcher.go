@@ -1,16 +1,14 @@
 package stream
 
 type StreamEventDispatcher struct {
-	request             StreamRequest
-	state               *StreamEventStateData
-	includeToolPayloads bool
+	request StreamRequest
+	state   *StreamEventStateData
 }
 
-func NewDispatcher(request StreamRequest, includeToolPayloads bool) *StreamEventDispatcher {
+func NewDispatcher(request StreamRequest) *StreamEventDispatcher {
 	return &StreamEventDispatcher{
-		request:             request,
-		state:               NewStateData(),
-		includeToolPayloads: includeToolPayloads,
+		request: request,
+		state:   NewStateData(),
 	}
 }
 
@@ -112,6 +110,14 @@ func (d *StreamEventDispatcher) Complete() []StreamEvent {
 		d.state.terminated = true
 		return events
 	}
+	if d.state.reasoningSeen && d.state.lastReasoningID != "" {
+		events = append(events, NewEvent("reasoning.snapshot", map[string]any{
+			"runId":       d.request.RunID,
+			"chatId":      d.request.ChatID,
+			"reasoningId": d.state.lastReasoningID,
+			"text":        d.state.fullReasoning,
+		}))
+	}
 	if d.state.contentSeen && d.state.lastContentID != "" {
 		events = append(events, NewEvent("content.snapshot", map[string]any{
 			"runId":     d.request.RunID,
@@ -159,6 +165,9 @@ func (d *StreamEventDispatcher) handleReasoningDelta(input ReasoningDelta) []Str
 		}))
 	}
 	d.state.reasoningBuffer[input.ReasoningID] += input.Delta
+	d.state.reasoningSeen = true
+	d.state.lastReasoningID = input.ReasoningID
+	d.state.fullReasoning += input.Delta
 	events = append(events, NewEvent("reasoning.delta", map[string]any{
 		"runId":       d.request.RunID,
 		"chatId":      d.request.ChatID,
@@ -421,18 +430,16 @@ func (d *StreamEventDispatcher) closeTool(toolID string) []StreamEvent {
 		"chatId": d.request.ChatID,
 		"toolId": toolID,
 	})}
-	if d.includeToolPayloads {
-		events = append(events, NewEvent("tool.snapshot", map[string]any{
-			"runId":           d.request.RunID,
-			"chatId":          d.request.ChatID,
-			"toolId":          toolID,
-			"toolName":        block.Name,
-			"toolType":        block.Type,
-			"toolLabel":       block.Label,
-			"toolDescription": block.Description,
-			"arguments":       d.state.toolArgsBuffer[toolID],
-		}))
-	}
+	events = append(events, NewEvent("tool.snapshot", map[string]any{
+		"runId":           d.request.RunID,
+		"chatId":          d.request.ChatID,
+		"toolId":          toolID,
+		"toolName":        block.Name,
+		"toolType":        block.Type,
+		"toolLabel":       block.Label,
+		"toolDescription": block.Description,
+		"arguments":       d.state.toolArgsBuffer[toolID],
+	}))
 	return events
 }
 

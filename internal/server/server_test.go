@@ -31,6 +31,21 @@ import (
 	"agent-platform-runner-go/internal/memory"
 )
 
+var disallowedPersistedEventTypes = []string{
+	"reasoning.start",
+	"reasoning.delta",
+	"reasoning.end",
+	"content.start",
+	"content.delta",
+	"content.end",
+	"tool.start",
+	"tool.args",
+	"tool.end",
+	"action.start",
+	"action.args",
+	"action.end",
+}
+
 func TestStatusRecorderExposesFlusherWhenUnderlyingWriterSupportsIt(t *testing.T) {
 	base := httptest.NewRecorder()
 	rec := &statusRecorder{ResponseWriter: base, status: http.StatusOK}
@@ -100,6 +115,13 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 	if len(chatResp.Data.Events) < 4 {
 		t.Fatalf("expected persisted events, got %#v", chatResp.Data.Events)
 	}
+	assertPersistedEventTypes(t, chatResp.Data.Events,
+		"request.query",
+		"chat.start",
+		"run.start",
+		"content.snapshot",
+		"run.complete",
+	)
 	if len(chatResp.Data.RawMessages) != 2 {
 		t.Fatalf("expected 2 raw messages, got %#v", chatResp.Data.RawMessages)
 	}
@@ -263,6 +285,9 @@ func TestChatSnapshotDeduplicatesChatStartAcrossMultipleQueries(t *testing.T) {
 	if runStartCount != 2 {
 		t.Fatalf("expected two run.start events, got %d events=%#v", runStartCount, chatResp.Data.Events)
 	}
+	if len(chatResp.Data.Events) != 9 {
+		t.Fatalf("expected 9 persisted events for two turns, got %d events=%#v", len(chatResp.Data.Events), chatResp.Data.Events)
+	}
 	if len(chatResp.Data.RawMessages) != 4 {
 		t.Fatalf("expected four raw messages for two turns, got %#v", chatResp.Data.RawMessages)
 	}
@@ -297,11 +322,99 @@ func TestServeHTTPLogsArrivalBeforeCompletion(t *testing.T) {
 	}
 }
 
+func TestAgentEndpointReturnsDetail(t *testing.T) {
+	fixture := newTestFixture(t)
+	rec := httptest.NewRecorder()
+
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agent?agentKey=mock-runner", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var response api.ApiResponse[api.AgentDetailResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode agent response: %v", err)
+	}
+	if response.Data.Key != "mock-runner" {
+		t.Fatalf("expected mock-runner key, got %#v", response.Data)
+	}
+	if response.Data.Model != "mock-model-id" {
+		t.Fatalf("expected resolved model id, got %#v", response.Data)
+	}
+	if response.Data.Mode != "REACT" {
+		t.Fatalf("expected REACT mode, got %#v", response.Data)
+	}
+	if len(response.Data.Tools) != 2 || response.Data.Tools[0] != "_datetime_" {
+		t.Fatalf("expected tools in detail response, got %#v", response.Data.Tools)
+	}
+	if len(response.Data.Skills) != 1 || response.Data.Skills[0] != "mock-skill" {
+		t.Fatalf("expected skills in detail response, got %#v", response.Data.Skills)
+	}
+	if len(response.Data.Controls) != 1 || response.Data.Controls[0]["key"] != "tone" {
+		t.Fatalf("expected controls in detail response, got %#v", response.Data.Controls)
+	}
+	if response.Data.Meta["modelKey"] != "mock-model" {
+		t.Fatalf("expected modelKey meta, got %#v", response.Data.Meta)
+	}
+	if response.Data.Meta["providerKey"] != "mock" {
+		t.Fatalf("expected providerKey meta, got %#v", response.Data.Meta)
+	}
+	if response.Data.Meta["protocol"] != "OPENAI" {
+		t.Fatalf("expected protocol meta, got %#v", response.Data.Meta)
+	}
+	modelKeys, ok := response.Data.Meta["modelKeys"].([]any)
+	if !ok || len(modelKeys) != 1 || modelKeys[0] != "mock-model" {
+		t.Fatalf("expected modelKeys meta, got %#v", response.Data.Meta["modelKeys"])
+	}
+	sandbox, ok := response.Data.Meta["sandbox"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected sandbox meta, got %#v", response.Data.Meta)
+	}
+	extraMounts, ok := sandbox["extraMounts"].([]any)
+	if !ok || len(extraMounts) != 1 {
+		t.Fatalf("expected sandbox extraMounts, got %#v", sandbox)
+	}
+}
+
+func TestAgentEndpointRequiresAgentKey(t *testing.T) {
+	fixture := newTestFixture(t)
+	rec := httptest.NewRecorder()
+
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agent", nil))
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAgentEndpointRejectsBlankAgentKey(t *testing.T) {
+	fixture := newTestFixture(t)
+	rec := httptest.NewRecorder()
+
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agent?agentKey=%20%20%20", nil))
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAgentEndpointReturnsNotFoundForUnknownAgent(t *testing.T) {
+	fixture := newTestFixture(t)
+	rec := httptest.NewRecorder()
+
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agent?agentKey=missing-agent", nil))
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestCatalogEndpoints(t *testing.T) {
 	fixture := newTestFixture(t)
 	server := fixture.server
 
-	for _, path := range []string{"/api/agents", "/api/teams", "/api/skills", "/api/tools", "/api/tool?toolName=_bash_"} {
+	for _, path := range []string{"/api/agents", "/api/agent?agentKey=mock-runner", "/api/teams", "/api/skills", "/api/tools", "/api/tool?toolName=_bash_"} {
 		rec := httptest.NewRecorder()
 		server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 		if rec.Code != http.StatusOK {
@@ -370,6 +483,123 @@ func TestQueryCanExecuteBackendToolLoop(t *testing.T) {
 		t.Fatalf("expected final assistant content, got %s", body)
 	}
 	assertSSEMessagesHaveSeqAndTimestamp(t, body)
+
+	chatsRec := httptest.NewRecorder()
+	server.ServeHTTP(chatsRec, httptest.NewRequest(http.MethodGet, "/api/chats", nil))
+	var chatsResp api.ApiResponse[[]api.ChatSummaryResponse]
+	if err := json.Unmarshal(chatsRec.Body.Bytes(), &chatsResp); err != nil {
+		t.Fatalf("decode chats response: %v", err)
+	}
+	if len(chatsResp.Data) != 1 {
+		t.Fatalf("expected 1 chat, got %d", len(chatsResp.Data))
+	}
+
+	chatRec := httptest.NewRecorder()
+	server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatsResp.Data[0].ChatID, nil))
+	var chatResp api.ApiResponse[api.ChatDetailResponse]
+	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
+		t.Fatalf("decode chat detail: %v", err)
+	}
+	assertPersistedEventTypes(t, chatResp.Data.Events,
+		"request.query",
+		"chat.start",
+		"run.start",
+		"tool.snapshot",
+		"tool.result",
+		"content.snapshot",
+		"run.complete",
+	)
+}
+
+func TestQueryPersistsToolSnapshotWhenSSEPayloadEventsDisabled(t *testing.T) {
+	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode model request: %v", err)
+		}
+		messages, _ := payload["messages"].([]any)
+		hasToolMessage := false
+		for _, item := range messages {
+			message, _ := item.(map[string]any)
+			if role, _ := message["role"].(string); role == "tool" {
+				hasToolMessage = true
+				break
+			}
+		}
+		if !hasToolMessage {
+			writeProviderSSE(t, w,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_datetime","type":"function","function":{"name":"_datetime_","arguments":"{"}}]}}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"}"}}]},"finish_reason":"tool_calls"}]}`,
+				`[DONE]`,
+			)
+			return
+		}
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"content":"payload hidden"}}]}`,
+			`{"choices":[{"delta":{"content":" from sse"},"finish_reason":"stop"}]}`,
+			`[DONE]`,
+		)
+	})
+	fixture.cfg.SSE.IncludeToolPayloadEvents = false
+	server, err := New(Dependencies{
+		Config:          fixture.cfg,
+		Chats:           fixture.chats,
+		Memory:          fixture.memories,
+		Registry:        fixture.registry,
+		Models:          nil,
+		Runs:            fixture.runs,
+		Agent:           fixture.agent,
+		Tools:           fixture.tools,
+		Sandbox:         fixture.sandbox,
+		MCP:             fixture.mcp,
+		Viewport:        fixture.viewport,
+		CatalogReloader: fixture.catalogReloader,
+	})
+	if err != nil {
+		t.Fatalf("new server: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"现在几点？"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, `"type":"tool.snapshot"`) {
+		t.Fatalf("expected tool.snapshot to be suppressed from sse, got %s", body)
+	}
+	if !strings.Contains(body, `"type":"tool.start"`) || !strings.Contains(body, `"type":"tool.result"`) {
+		t.Fatalf("expected tool lifecycle to remain in sse, got %s", body)
+	}
+
+	chatsRec := httptest.NewRecorder()
+	server.ServeHTTP(chatsRec, httptest.NewRequest(http.MethodGet, "/api/chats", nil))
+	var chatsResp api.ApiResponse[[]api.ChatSummaryResponse]
+	if err := json.Unmarshal(chatsRec.Body.Bytes(), &chatsResp); err != nil {
+		t.Fatalf("decode chats response: %v", err)
+	}
+	if len(chatsResp.Data) != 1 {
+		t.Fatalf("expected 1 chat, got %d", len(chatsResp.Data))
+	}
+
+	chatRec := httptest.NewRecorder()
+	server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatsResp.Data[0].ChatID, nil))
+	var chatResp api.ApiResponse[api.ChatDetailResponse]
+	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
+		t.Fatalf("decode chat detail: %v", err)
+	}
+	assertPersistedEventTypes(t, chatResp.Data.Events,
+		"request.query",
+		"chat.start",
+		"run.start",
+		"tool.snapshot",
+		"tool.result",
+		"content.snapshot",
+		"run.complete",
+	)
 }
 
 func TestQueryReturnsJSONErrorBeforeSSEOnInvalidFirstFrame(t *testing.T) {
@@ -895,7 +1125,7 @@ func newTestFixtureWithModelHandler(t *testing.T, modelHandler http.HandlerFunc)
 		"key: mock-model",
 		"provider: mock",
 		"protocol: OPENAI",
-		"modelId: mock-model",
+		"modelId: mock-model-id",
 		"isFunction: true",
 		"isReasoner: false",
 	}, "\n")), 0o644); err != nil {
@@ -917,6 +1147,21 @@ func newTestFixtureWithModelHandler(t *testing.T, modelHandler http.HandlerFunc)
 		"skillConfig:",
 		"  skills:",
 		"    - mock-skill",
+		"controls:",
+		"  - key: tone",
+		"    type: select",
+		"    label: 输出语气",
+		"    defaultValue: concise",
+		"    options:",
+		"      - value: concise",
+		"        label: 简洁",
+		"sandboxConfig:",
+		"  environmentId: shell",
+		"  level: RUN",
+		"  extraMounts:",
+		"    - platform: skills-market",
+		"      destination: /skills",
+		"      mode: ro",
 		"mode: REACT",
 		"react:",
 		"  maxSteps: 6",
@@ -1011,6 +1256,7 @@ func newTestFixtureWithModelHandler(t *testing.T, modelHandler http.HandlerFunc)
 		Chats:           chats,
 		Memory:          memories,
 		Registry:        registry,
+		Models:          modelRegistry,
 		Runs:            runs,
 		Agent:           agentEngine,
 		Tools:           toolExecutor,
@@ -1056,6 +1302,25 @@ func writeProviderSSE(t *testing.T, w http.ResponseWriter, frames ...string) {
 			t.Fatalf("write sse frame: %v", err)
 		}
 		flusher.Flush()
+	}
+}
+
+func assertPersistedEventTypes(t *testing.T, events []map[string]any, want ...string) {
+	t.Helper()
+	seen := make(map[string]int)
+	for _, event := range events {
+		eventType, _ := event["type"].(string)
+		seen[eventType]++
+	}
+	for _, eventType := range want {
+		if seen[eventType] == 0 {
+			t.Fatalf("expected persisted event type %q, got %#v", eventType, events)
+		}
+	}
+	for _, eventType := range disallowedPersistedEventTypes {
+		if seen[eventType] > 0 {
+			t.Fatalf("did not expect persisted event type %q, got %#v", eventType, events)
+		}
 	}
 }
 

@@ -10,6 +10,9 @@ type StreamEventStateData struct {
 	contentSeen       bool
 	lastContentID     string
 	fullContent       string
+	reasoningSeen     bool
+	lastReasoningID   string
+	fullReasoning     string
 	reasoningBuffer   map[string]string
 	toolArgsBuffer    map[string]string
 	runFinishReason   string

@@ -69,8 +69,9 @@ type openAIToolDefinition struct {
 type openAIStreamResponse struct {
 	Choices []struct {
 		Delta struct {
-			Content   string                  `json:"content"`
-			ToolCalls []openAIStreamToolDelta `json:"tool_calls"`
+			Content          string                  `json:"content"`
+			ReasoningContent string                  `json:"reasoning_content"`
+			ToolCalls        []openAIStreamToolDelta `json:"tool_calls"`
 		} `json:"delta"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
@@ -118,6 +119,7 @@ type providerTurnStream struct {
 	body          io.ReadCloser
 	reader        *bufio.Reader
 	content       strings.Builder
+	reasoning     strings.Builder
 	toolCalls     map[int]*toolCallAccumulator
 	finishReason  string
 	hasMeaningful bool
@@ -410,6 +412,12 @@ func (s *llmRunStream) consumeCurrentTurn() (bool, error) {
 			s.currentTurn.content.WriteString(choice.Delta.Content)
 			s.engine.logParsedDelta(s.session.RunID, "content", choice.Delta.Content)
 			s.pending = append(s.pending, s.newContentDeltaEvent(choice.Delta.Content))
+		}
+		if choice.Delta.ReasoningContent != "" {
+			s.currentTurn.hasMeaningful = true
+			s.currentTurn.reasoning.WriteString(choice.Delta.ReasoningContent)
+			s.engine.logParsedDelta(s.session.RunID, "reasoning_content", choice.Delta.ReasoningContent)
+			s.pending = append(s.pending, DeltaReasoning{Text: choice.Delta.ReasoningContent})
 		}
 		if len(choice.Delta.ToolCalls) > 0 {
 			s.currentTurn.hasMeaningful = true
@@ -907,14 +915,14 @@ func (e *LLMAgentEngine) logRawChunk(runID string, chunk string) {
 	if !e.cfg.Logging.LLMInteraction.Enabled {
 		return
 	}
-	log.Printf("[llm][run:%s][raw_chunk] %s", runID, e.maskLogText(chunk))
+	log.Printf("[llm][run:%s][raw_chunk] %s", runID, e.formatLogText(chunk))
 }
 
 func (e *LLMAgentEngine) logParsedDelta(runID string, kind string, value string) {
 	if !e.cfg.Logging.LLMInteraction.Enabled {
 		return
 	}
-	log.Printf("[llm][run:%s][parsed_%s] %s", runID, kind, e.maskLogText(value))
+	log.Printf("[llm][run:%s][parsed_%s] %s", runID, kind, e.formatLogText(value))
 }
 
 func (e *LLMAgentEngine) logParsedToolDelta(runID string, delta openAIStreamToolDelta) {
@@ -925,14 +933,14 @@ func (e *LLMAgentEngine) logParsedToolDelta(runID string, delta openAIStreamTool
 		"[llm][run:%s][parsed_tool_call] index=%d id=%s type=%s name=%s args=%s",
 		runID,
 		delta.Index,
-		e.maskLogText(delta.ID),
-		e.maskLogText(delta.Type),
-		e.maskLogText(delta.Function.Name),
-		e.maskLogText(delta.Function.Arguments),
+		e.formatLogText(delta.ID),
+		e.formatLogText(delta.Type),
+		e.formatLogText(delta.Function.Name),
+		e.formatLogText(delta.Function.Arguments),
 	)
 }
 
-func (e *LLMAgentEngine) maskLogText(text string) string {
+func (e *LLMAgentEngine) formatLogText(text string) string {
 	normalized := observability.SanitizeLog(strings.ReplaceAll(strings.TrimSpace(text), "\n", "\\n"))
 	if normalized == "" {
 		return `""`
@@ -940,11 +948,7 @@ func (e *LLMAgentEngine) maskLogText(text string) string {
 	if e.cfg.Logging.LLMInteraction.MaskSensitive {
 		return fmt.Sprintf("[masked chars=%d]", len(normalized))
 	}
-	const limit = 240
-	if len(normalized) <= limit {
-		return normalized
-	}
-	return normalized[:limit] + "...[truncated]"
+	return normalized
 }
 
 func readSSEData(reader *bufio.Reader) (string, error) {

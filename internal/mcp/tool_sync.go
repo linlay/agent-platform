@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"log"
 
 	"agent-platform-runner-go/internal/api"
 )
@@ -22,7 +23,8 @@ func (s *ToolSync) Load(ctx context.Context) ([]api.ToolDetailResponse, error) {
 		if len(tools) == 0 {
 			discovered, err := s.client.ListTools(ctx, server.Key)
 			if err != nil {
-				return nil, err
+				log.Printf("[mcp] skip unavailable server %q during tool sync: %v", server.Key, err)
+				continue
 			}
 			tools = discovered
 		}

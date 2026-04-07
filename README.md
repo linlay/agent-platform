@@ -9,6 +9,7 @@
 当前已提供的接口：
 
 - `GET /api/agents`
+- `GET /api/agent?agentKey=...`
 - `GET /api/teams`
 - `GET /api/skills`
 - `GET /api/tools`
@@ -65,6 +66,7 @@ make run
 
 ```bash
 curl http://127.0.0.1:11949/api/agents
+curl "http://127.0.0.1:11949/api/agent?agentKey=go_runner"
 curl http://127.0.0.1:11949/api/chats
 ```
 
@@ -104,6 +106,8 @@ RUN_SOCKET_TESTS=1 make test-integration
 - `AGENT_MEMORY_*`
 - `CHAT_STORAGE_*`
 - `LOGGING_AGENT_*`
+
+LLM 交互日志默认会直接打印真实 `raw_chunk`、`parsed_content`、`parsed_finish_reason` 和 `parsed_tool_call` 内容，仍会对 Bearer token / `apiKey` / `secret` 一类敏感串做 `[redacted]` 脱敏；如需恢复长度掩码，可设置 `LOGGING_AGENT_LLM_INTERACTION_MASK_SENSITIVE=true`。
 
 ### `configs/` 目录
 
@@ -186,6 +190,7 @@ docker compose logs -f
 
 - 服务无法启动：先检查环境里是否设置了已废弃的旧变量，或鉴权公钥 / JWKS 配置是否不完整。
 - Query 无法调用模型：检查 `REGISTRIES_DIR/providers`、`REGISTRIES_DIR/models` 是否存在，并确认 provider `apiKey` / `baseUrl` 可用。
+- Query 看起来不像真流式：先检查是否启用了 `AGENT_H2A_RENDER_FLUSH_INTERVAL_MS`、`AGENT_H2A_RENDER_MAX_BUFFERED_CHARS` 或 `AGENT_H2A_RENDER_MAX_BUFFERED_EVENTS` 这类传输层缓冲参数；默认 SSE writer 会逐事件 flush。
 - `_sandbox_bash_` 执行失败：检查 `AGENT_CONTAINER_HUB_BASE_URL`、`default-environment-id`，以及 `.env` 中的目录变量是否为宿主机真实路径。
 - chat 没有持久化：检查 `CHATS_DIR` 是否可写。
 - remember 没有输出文件：确认请求体里同时传了 `requestId` 和 `chatId`。

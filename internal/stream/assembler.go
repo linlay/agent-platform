@@ -20,10 +20,10 @@ type StreamEventAssembler struct {
 	request    StreamRequest
 }
 
-func NewAssembler(request StreamRequest, includeToolPayloads bool) *StreamEventAssembler {
+func NewAssembler(request StreamRequest) *StreamEventAssembler {
 	return &StreamEventAssembler{
-		dispatcher: NewDispatcher(request, includeToolPayloads),
-		normalizer: NewNormalizer(includeToolPayloads),
+		dispatcher: NewDispatcher(request),
+		normalizer: NewNormalizer(),
 		request:    request,
 	}
 }

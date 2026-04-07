@@ -64,6 +64,19 @@
 | `AGENT_BASH_SHELL_TIMEOUT_MS` | `30000` | shell 模式超时 |
 | `AGENT_BASH_MAX_COMMAND_CHARS` | `16000` | 最大命令长度 |
 
+### Logging
+
+| 环境变量 | 默认值 | 说明 |
+|---|---|---|
+| `LOGGING_AGENT_LLM_INTERACTION_ENABLED` | `true` | 是否记录 LLM provider 原始 chunk 与解析后的 delta 日志 |
+| `LOGGING_AGENT_LLM_INTERACTION_MASK_SENSITIVE` | `false` | 是否把 LLM 交互日志替换为 `[masked chars=N]`；关闭时输出真实内容，但仍会把 Bearer token / `apiKey` / `secret` 等敏感串替换为 `[redacted]` |
+
+说明：
+
+- 默认日志会直接打印真实 `raw_chunk`、`parsed_content`、`parsed_finish_reason` 和 `parsed_tool_call` 内容，便于排查模型侧是否真的逐 chunk 返回。
+- 日志仍保持单行格式，换行会被转义为 `\n`。
+- 若现场看起来不像真流式，优先检查是否开启了 `AGENT_H2A_RENDER_FLUSH_INTERVAL_MS`、`AGENT_H2A_RENDER_MAX_BUFFERED_CHARS`、`AGENT_H2A_RENDER_MAX_BUFFERED_EVENTS` 这类传输层缓冲参数；默认 SSE writer 会逐事件 flush。
+
 ## `configs/` 目录
 
 当前仓库保留以下模板文件：

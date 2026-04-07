@@ -2,8 +2,7 @@ package schedule
 
 import (
 	"context"
-	"fmt"
-	"strings"
+	"log"
 	"sync"
 	"time"
 )
@@ -12,14 +11,21 @@ type Orchestrator struct {
 	registry   *Registry
 	dispatcher *Dispatcher
 
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	mu            sync.Mutex
+	registrations map[string]Registration
+	cancel        context.CancelFunc
+	wg            sync.WaitGroup
+}
+
+type Registration struct {
+	Definition Definition
 }
 
 func NewOrchestrator(registry *Registry, dispatcher *Dispatcher) *Orchestrator {
 	return &Orchestrator{
-		registry:   registry,
-		dispatcher: dispatcher,
+		registry:      registry,
+		dispatcher:    dispatcher,
+		registrations: map[string]Registration{},
 	}
 }
 
@@ -33,27 +39,59 @@ func (o *Orchestrator) Start(ctx context.Context) error {
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	o.cancel = cancel
+
 	for _, def := range defs {
-		interval, err := parseSpec(def.Spec)
-		if err != nil {
-			return err
+		if !def.Enabled {
+			continue
 		}
+		schedule, err := parseCronSchedule(def.Cron)
+		if err != nil {
+			log.Printf("[schedule] skip registration for %q: %v", def.ID, err)
+			continue
+		}
+		next := schedule.Next(time.Now())
+		log.Printf(
+			"[schedule] registered id=%s name=%s cron=%s agentKey=%s teamId=%s nextFireTime=%s source=%s",
+			def.ID,
+			def.Name,
+			def.Cron,
+			def.AgentKey,
+			def.TeamID,
+			next.Format(time.RFC3339),
+			def.SourceFile,
+		)
+
+		o.mu.Lock()
+		o.registrations[def.ID] = Registration{Definition: def}
+		o.mu.Unlock()
+
 		definition := def
 		o.wg.Add(1)
 		go func() {
 			defer o.wg.Done()
-			ticker := time.NewTicker(interval)
-			defer ticker.Stop()
 			for {
+				nextRun := schedule.Next(time.Now())
+				timer := time.NewTimer(time.Until(nextRun))
 				select {
 				case <-runCtx.Done():
+					if !timer.Stop() {
+						select {
+						case <-timer.C:
+						default:
+						}
+					}
 					return
-				case <-ticker.C:
+				case <-timer.C:
 					_ = o.dispatcher.Dispatch(runCtx, definition)
 				}
 			}
 		}()
 	}
+
+	o.mu.Lock()
+	count := len(o.registrations)
+	o.mu.Unlock()
+	log.Printf("[schedule] registry ready count=%d", count)
 	return nil
 }
 
@@ -69,18 +107,4 @@ func (o *Orchestrator) Stop() context.Context {
 		cancel()
 	}()
 	return done
-}
-
-func parseSpec(spec string) (time.Duration, error) {
-	normalized := strings.TrimSpace(spec)
-	switch normalized {
-	case "@hourly":
-		return time.Hour, nil
-	case "@daily":
-		return 24 * time.Hour, nil
-	}
-	if strings.HasPrefix(normalized, "@every ") {
-		return time.ParseDuration(strings.TrimSpace(strings.TrimPrefix(normalized, "@every ")))
-	}
-	return 0, fmt.Errorf("unsupported schedule spec %q", spec)
 }

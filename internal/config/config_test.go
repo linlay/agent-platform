@@ -34,6 +34,9 @@ func TestLoadDefaults(t *testing.T) {
 		if cfg.H2A.Render.HeartbeatPassThrough != true {
 			t.Fatalf("expected heartbeat pass-through enabled by default")
 		}
+		if cfg.Logging.LLMInteraction.MaskSensitive {
+			t.Fatalf("expected llm interaction logs to be unmasked by default")
+		}
 	})
 }
 
@@ -272,6 +275,20 @@ func TestLoadEnvOverridesStructuredConfig(t *testing.T) {
 		}
 		if len(cfg.Bash.PathCheckBypassCommands) != 1 || cfg.Bash.PathCheckBypassCommands[0] != "echo" {
 			t.Fatalf("unexpected path bypass commands: %#v", cfg.Bash.PathCheckBypassCommands)
+		}
+	})
+}
+
+func TestLoadLLMInteractionMaskSensitiveFromEnv(t *testing.T) {
+	withIsolatedEnv(t, map[string]string{
+		"LOGGING_AGENT_LLM_INTERACTION_MASK_SENSITIVE": "true",
+	}, func() {
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		if !cfg.Logging.LLMInteraction.MaskSensitive {
+			t.Fatalf("expected llm interaction masking enabled from env")
 		}
 	})
 }

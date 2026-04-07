@@ -132,6 +132,7 @@ func New() (*App, error) {
 		Chats:    chatStore,
 		Memory:   memoryStore,
 		Registry: registry,
+		Models:   modelRegistry,
 		Runs:     runManager,
 		Agent:    agentEngine,
 		Tools:    toolExecutor,
@@ -151,7 +152,7 @@ func New() (*App, error) {
 
 	var scheduler *schedule.Orchestrator
 	if cfg.Schedule.Enabled {
-		scheduleRegistry := schedule.NewRegistry(cfg.Paths.SchedulesDir)
+		scheduleRegistry := schedule.NewRegistry(cfg.Paths.SchedulesDir, registry)
 		dispatcher := schedule.NewDispatcher(func(ctx context.Context, req api.QueryRequest) error {
 			body, err := json.Marshal(req)
 			if err != nil {

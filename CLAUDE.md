@@ -186,6 +186,7 @@ remember 根目录由 `MEMORY_DIR` 控制：
 主要接口：
 
 - `GET /api/agents`：返回目录驱动的 agent 列表，支持 `tag`
+- `GET /api/agent?agentKey=...`：返回单个 agent 详情，包含 model / tool / skill / sandbox 元数据
 - `GET /api/teams`：返回目录驱动的 team 列表
 - `GET /api/skills`：返回目录驱动的 skill 列表，支持 `tag`
 - `GET /api/tools`：返回 tool 列表，支持 `kind` 过滤

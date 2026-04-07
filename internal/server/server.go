@@ -32,6 +32,7 @@ type Dependencies struct {
 	Chats           chat.Store
 	Memory          memory.Store
 	Registry        catalog.Registry
+	Models          *engine.ModelRegistry
 	Runs            engine.RunManager
 	Agent           engine.AgentEngine
 	Tools           engine.ToolExecutor
@@ -198,6 +199,7 @@ func resourceBelongsToChat(fileParam string, chatID string) bool {
 
 func (s *Server) routes() {
 	s.router.HandleFunc("/api/agents", s.method(http.MethodGet, s.handleAgents))
+	s.router.HandleFunc("/api/agent", s.method(http.MethodGet, s.handleAgent))
 	s.router.HandleFunc("/api/teams", s.method(http.MethodGet, s.handleTeams))
 	s.router.HandleFunc("/api/skills", s.method(http.MethodGet, s.handleSkills))
 	s.router.HandleFunc("/api/tools", s.method(http.MethodGet, s.handleTools))
@@ -229,6 +231,20 @@ func (s *Server) method(expected string, handler http.HandlerFunc) http.HandlerF
 
 func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, api.Success(s.deps.Registry.Agents(r.URL.Query().Get("tag"))))
+}
+
+func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
+	agentKey := strings.TrimSpace(r.URL.Query().Get("agentKey"))
+	if agentKey == "" {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "agentKey is required"))
+		return
+	}
+	def, ok := s.deps.Registry.AgentDefinition(agentKey)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "agent not found"))
+		return
+	}
+	writeJSON(w, http.StatusOK, api.Success(s.buildAgentDetailResponse(def)))
 }
 
 func (s *Server) handleTeams(w http.ResponseWriter, r *http.Request) {
@@ -428,7 +444,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		Message:   req.Message,
 		Role:      defaultRole(req.Role),
 		Created:   created,
-	}, s.deps.Config.SSE.IncludeToolPayloadEvents)
+	})
 	mapper := engine.NewDeltaMapper(runID, chatID, s.deps.Registry)
 
 	sseWriter, err := stream.NewWriter(w, stream.Options{
@@ -444,6 +460,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	sseWriter.StartHeartbeat()
 
 	var assistantText strings.Builder
+	var reasoningText strings.Builder
 	writeEvent := func(event stream.StreamEvent) error {
 		data := event.ToData()
 		if event.Type == "content.delta" {
@@ -457,8 +474,24 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 				assistantText.WriteString(text)
 			}
 		}
-		if err := s.deps.Chats.AppendEvent(chatID, data); err != nil {
-			return err
+		if event.Type == "reasoning.delta" {
+			if delta, _ := data["delta"].(string); delta != "" {
+				reasoningText.WriteString(delta)
+			}
+		}
+		if event.Type == "reasoning.snapshot" {
+			if text, _ := data["text"].(string); text != "" {
+				reasoningText.Reset()
+				reasoningText.WriteString(text)
+			}
+		}
+		if stream.IsPersistedEventType(event.Type) {
+			if err := s.deps.Chats.AppendEvent(chatID, data); err != nil {
+				return err
+			}
+		}
+		if event.Type == "tool.snapshot" && !s.deps.Config.SSE.IncludeToolPayloadEvents {
+			return nil
 		}
 		return sseWriter.WriteJSON("message", data)
 	}
@@ -520,11 +553,15 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	finalAssistantText := assistantText.String()
-	_ = s.deps.Chats.AppendRawMessage(chatID, map[string]any{
+	rawMsg := map[string]any{
 		"role":    "assistant",
 		"content": finalAssistantText,
 		"ts":      time.Now().UnixMilli(),
-	})
+	}
+	if r := reasoningText.String(); r != "" {
+		rawMsg["reasoning_content"] = r
+	}
+	_ = s.deps.Chats.AppendRawMessage(chatID, rawMsg)
 	if err := s.deps.Chats.OnRunCompleted(chat.RunCompletion{
 		ChatID:          chatID,
 		RunID:           runID,
@@ -752,6 +789,57 @@ func defaultRole(role string) string {
 	return strings.TrimSpace(role)
 }
 
+func (s *Server) buildAgentDetailResponse(def catalog.AgentDefinition) api.AgentDetailResponse {
+	modelName, meta := s.buildAgentDetailMeta(def)
+	return api.AgentDetailResponse{
+		Key:         def.Key,
+		Name:        def.Name,
+		Icon:        def.Icon,
+		Description: def.Description,
+		Role:        def.Role,
+		Model:       modelName,
+		Mode:        def.Mode,
+		Tools:       append([]string{}, def.Tools...),
+		Skills:      append([]string{}, def.Skills...),
+		Controls:    cloneListMaps(def.Controls),
+		Meta:        meta,
+	}
+}
+
+func (s *Server) buildAgentDetailMeta(def catalog.AgentDefinition) (string, map[string]any) {
+	modelName := strings.TrimSpace(def.ModelKey)
+	meta := map[string]any{}
+	if def.ModelKey != "" {
+		meta["modelKey"] = def.ModelKey
+		meta["modelKeys"] = []string{def.ModelKey}
+	}
+	if s.deps.Models != nil {
+		model, provider, err := s.deps.Models.Get(def.ModelKey)
+		if err == nil {
+			if strings.TrimSpace(model.ModelID) != "" {
+				modelName = strings.TrimSpace(model.ModelID)
+			}
+			if strings.TrimSpace(model.Key) != "" {
+				meta["modelKey"] = model.Key
+				meta["modelKeys"] = []string{model.Key}
+			}
+			if strings.TrimSpace(provider.Key) != "" {
+				meta["providerKey"] = provider.Key
+			}
+			if strings.TrimSpace(model.Protocol) != "" {
+				meta["protocol"] = model.Protocol
+			}
+		}
+	}
+	if modelName == "" {
+		modelName = def.ModelKey
+	}
+	if def.Sandbox != nil {
+		meta["sandbox"] = cloneMap(def.Sandbox)
+	}
+	return modelName, meta
+}
+
 func cloneMap(src map[string]any) map[string]any {
 	if src == nil {
 		return nil
@@ -759,6 +847,17 @@ func cloneMap(src map[string]any) map[string]any {
 	out := make(map[string]any, len(src))
 	for key, value := range src {
 		out[key] = value
+	}
+	return out
+}
+
+func cloneListMaps(src []map[string]any) []map[string]any {
+	if len(src) == 0 {
+		return []map[string]any{}
+	}
+	out := make([]map[string]any, 0, len(src))
+	for _, item := range src {
+		out = append(out, cloneMap(item))
 	}
 	return out
 }

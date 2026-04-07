@@ -16,6 +16,10 @@ curl -X GET "$BASE_URL/api/agents"
 ```
 
 ```bash
+curl -X GET "$BASE_URL/api/agent?agentKey=go_runner"
+```
+
+```bash
 curl -X GET "$BASE_URL/api/teams"
 ```
 

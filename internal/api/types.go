@@ -176,6 +176,20 @@ type AgentSummary struct {
 	Meta        map[string]any `json:"meta,omitempty"`
 }
 
+type AgentDetailResponse struct {
+	Key         string           `json:"key"`
+	Name        string           `json:"name"`
+	Icon        any              `json:"icon,omitempty"`
+	Description string           `json:"description,omitempty"`
+	Role        string           `json:"role,omitempty"`
+	Model       string           `json:"model"`
+	Mode        string           `json:"mode"`
+	Tools       []string         `json:"tools"`
+	Skills      []string         `json:"skills"`
+	Controls    []map[string]any `json:"controls"`
+	Meta        map[string]any   `json:"meta"`
+}
+
 type TeamSummary struct {
 	TeamID    string         `json:"teamId"`
 	Name      string         `json:"name"`

@@ -37,6 +37,7 @@ type AgentDefinition struct {
 	Mode          string
 	Tools         []string
 	Skills        []string
+	Controls      []map[string]any
 	Sandbox       map[string]any
 	ReactMaxSteps int
 	ContextTags   []string
@@ -358,10 +359,11 @@ func loadSkills(root string, maxPromptChars int) (map[string]SkillDefinition, er
 		return nil, err
 	}
 	for _, entry := range entries {
-		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+		name := entry.Name()
+		if !entry.IsDir() || strings.HasPrefix(name, ".") || !ShouldLoadRuntimeName(name) {
 			continue
 		}
-		skillPath := filepath.Join(root, entry.Name(), "SKILL.md")
+		skillPath := filepath.Join(root, name, "SKILL.md")
 		content, err := os.ReadFile(skillPath)
 		if err != nil {
 			continue
@@ -372,9 +374,9 @@ func loadSkills(root string, maxPromptChars int) (map[string]SkillDefinition, er
 		if maxPromptChars > 0 && len(prompt) > maxPromptChars {
 			truncated = true
 		}
-		items[entry.Name()] = SkillDefinition{
-			Key:             entry.Name(),
-			Name:            skillDisplayName(description, entry.Name()),
+		items[name] = SkillDefinition{
+			Key:             name,
+			Name:            skillDisplayName(description, name),
 			Description:     description,
 			Prompt:          prompt,
 			PromptTruncated: truncated,
@@ -408,6 +410,7 @@ func parseAgentFile(path string) (AgentDefinition, error) {
 	def.Tools = append(def.Tools, listStrings(toolConfig["actions"])...)
 	def.ToolOverrides = parseToolOverrides(toolConfig["overrides"])
 	def.Skills = listStrings(mapNode(root["skillConfig"])["skills"])
+	def.Controls = cloneListMaps(listMaps(root["controls"]))
 	def.ContextTags = listStrings(root["contextTags"])
 	if budget := mapNode(root["budget"]); len(budget) > 0 {
 		def.Budget = cloneMap(budget)
@@ -422,7 +425,7 @@ func parseAgentFile(path string) (AgentDefinition, error) {
 			"level":         strings.ToLower(stringNode(sandboxConfig["level"])),
 		}
 		if mounts := listMaps(sandboxConfig["extraMounts"]); len(mounts) > 0 {
-			def.Sandbox["extraMounts"] = mounts
+			def.Sandbox["extraMounts"] = cloneListMaps(mounts)
 		}
 	}
 	def.ReactMaxSteps = intNode(mapNode(root["react"])["maxSteps"])
@@ -477,6 +480,17 @@ func cloneMap(src map[string]any) map[string]any {
 	dst := make(map[string]any, len(src))
 	for key, value := range src {
 		dst[key] = value
+	}
+	return dst
+}
+
+func cloneListMaps(src []map[string]any) []map[string]any {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make([]map[string]any, 0, len(src))
+	for _, item := range src {
+		dst = append(dst, cloneMap(item))
 	}
 	return dst
 }

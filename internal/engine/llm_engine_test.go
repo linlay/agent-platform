@@ -1,9 +1,11 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -168,6 +170,198 @@ func TestLLMAgentEngineAccumulatesToolCallFragments(t *testing.T) {
 	assertContainsType(t, seenTypes, "run.complete")
 }
 
+func TestLLMAgentEngineLogsRawChunksAndParsedContent(t *testing.T) {
+	rawHello := `{"choices":[{"delta":{"content":"hello "}}]}`
+	rawWorld := `{"choices":[{"delta":{"content":"world"},"finish_reason":"stop"}]}`
+	client := newScriptedHTTPClient(
+		func(*http.Request) scriptedHTTPResponse {
+			return scriptedSSE(rawHello, rawWorld, `[DONE]`)
+		},
+	)
+	engine := NewLLMAgentEngineWithHTTPClient(
+		config.Config{
+			Logging:  config.LoggingConfig{LLMInteraction: config.LLMInteractionLoggingConfig{Enabled: true}},
+			Defaults: config.DefaultsConfig{React: config.ReactDefaultsConfig{MaxSteps: 4}},
+		},
+		newTestModelRegistry("http://mock.local"),
+		&testToolExecutor{},
+		NewNoopSandboxClient(),
+		client,
+	)
+
+	var stream AgentStream
+	logs := captureLogOutput(t, func() {
+		var err error
+		stream, err = engine.Stream(context.Background(), api.QueryRequest{Message: "hi"}, QuerySession{
+			RunID:    "run_logs_plain",
+			ChatID:   "chat_logs_plain",
+			ModelKey: "mock-model",
+		})
+		if err != nil {
+			t.Fatalf("stream query: %v", err)
+		}
+		defer stream.Close()
+		drainAgentStream(t, stream)
+	})
+
+	if !strings.Contains(logs, "[llm][run:run_logs_plain][raw_chunk] "+rawHello) {
+		t.Fatalf("expected raw hello chunk in logs, got %s", logs)
+	}
+	if !strings.Contains(logs, "[llm][run:run_logs_plain][raw_chunk] "+rawWorld) {
+		t.Fatalf("expected raw world chunk in logs, got %s", logs)
+	}
+	if !strings.Contains(logs, "[llm][run:run_logs_plain][parsed_content] hello") {
+		t.Fatalf("expected parsed hello content in logs, got %s", logs)
+	}
+	if !strings.Contains(logs, "[llm][run:run_logs_plain][parsed_content] world") {
+		t.Fatalf("expected parsed world content in logs, got %s", logs)
+	}
+	if !strings.Contains(logs, "[llm][run:run_logs_plain][parsed_finish_reason] stop") {
+		t.Fatalf("expected parsed finish reason in logs, got %s", logs)
+	}
+}
+
+func TestLLMAgentEngineMasksLLMInteractionLogsWhenConfigured(t *testing.T) {
+	client := newScriptedHTTPClient(
+		func(*http.Request) scriptedHTTPResponse {
+			return scriptedSSE(`{"choices":[{"delta":{"content":"secret-text"},"finish_reason":"stop"}]}`, `[DONE]`)
+		},
+	)
+	engine := NewLLMAgentEngineWithHTTPClient(
+		config.Config{
+			Logging: config.LoggingConfig{
+				LLMInteraction: config.LLMInteractionLoggingConfig{
+					Enabled:       true,
+					MaskSensitive: true,
+				},
+			},
+			Defaults: config.DefaultsConfig{React: config.ReactDefaultsConfig{MaxSteps: 4}},
+		},
+		newTestModelRegistry("http://mock.local"),
+		&testToolExecutor{},
+		NewNoopSandboxClient(),
+		client,
+	)
+
+	var stream AgentStream
+	logs := captureLogOutput(t, func() {
+		var err error
+		stream, err = engine.Stream(context.Background(), api.QueryRequest{Message: "hi"}, QuerySession{
+			RunID:    "run_logs_masked",
+			ChatID:   "chat_logs_masked",
+			ModelKey: "mock-model",
+		})
+		if err != nil {
+			t.Fatalf("stream query: %v", err)
+		}
+		defer stream.Close()
+		drainAgentStream(t, stream)
+	})
+
+	if !strings.Contains(logs, "[llm][run:run_logs_masked][raw_chunk] [masked chars=") {
+		t.Fatalf("expected masked raw chunk log, got %s", logs)
+	}
+	if !strings.Contains(logs, "[llm][run:run_logs_masked][parsed_content] [masked chars=") {
+		t.Fatalf("expected masked parsed content log, got %s", logs)
+	}
+	if strings.Contains(logs, "secret-text") {
+		t.Fatalf("expected secret text to stay masked, got %s", logs)
+	}
+}
+
+func TestLLMAgentEngineSanitizesSensitiveLLMInteractionLogs(t *testing.T) {
+	engine := &LLMAgentEngine{
+		cfg: config.Config{
+			Logging: config.LoggingConfig{
+				LLMInteraction: config.LLMInteractionLoggingConfig{Enabled: true},
+			},
+		},
+	}
+
+	logs := captureLogOutput(t, func() {
+		engine.logRawChunk("run_sanitized", "Bearer sk-secret-value\ntoken=demo-token\napiKey=demo-key\nsecret=demo-secret")
+		engine.logParsedDelta("run_sanitized", "content", "line one\nline two")
+	})
+
+	if strings.Contains(logs, "sk-secret-value") || strings.Contains(logs, "demo-token") || strings.Contains(logs, "demo-key") || strings.Contains(logs, "demo-secret") {
+		t.Fatalf("expected sensitive values to be redacted, got %s", logs)
+	}
+	if !strings.Contains(logs, "[redacted]") {
+		t.Fatalf("expected redacted marker in logs, got %s", logs)
+	}
+	if !strings.Contains(logs, "line one\\nline two") {
+		t.Fatalf("expected newline escaping in logs, got %s", logs)
+	}
+}
+
+func TestLLMAgentEngineStreamsReasoningThenContent(t *testing.T) {
+	client := newScriptedHTTPClient(
+		func(*http.Request) scriptedHTTPResponse {
+			return scriptedSSE(
+				`{"choices":[{"delta":{"reasoning_content":"thinking..."}}]}`,
+				`{"choices":[{"delta":{"reasoning_content":" more thoughts"}}]}`,
+				`{"choices":[{"delta":{"content":"hello"}}]}`,
+				`{"choices":[{"delta":{"content":" world"},"finish_reason":"stop"}]}`,
+				`[DONE]`,
+			)
+		},
+	)
+	engine := NewLLMAgentEngineWithHTTPClient(
+		config.Config{Defaults: config.DefaultsConfig{React: config.ReactDefaultsConfig{MaxSteps: 4}}},
+		newTestModelRegistry("http://mock.local"),
+		&testToolExecutor{},
+		NewNoopSandboxClient(),
+		client,
+	)
+	stream, err := engine.Stream(context.Background(), api.QueryRequest{Message: "hi"}, QuerySession{
+		RunID:    "run_reason",
+		ChatID:   "chat_reason",
+		ModelKey: "mock-model",
+	})
+	if err != nil {
+		t.Fatalf("stream query: %v", err)
+	}
+	defer stream.Close()
+
+	var seenTypes []string
+	var reasoningTexts []string
+	var contentTexts []string
+	for {
+		event, err := stream.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("next: %v", err)
+		}
+		typeName := deltaTypeName(event)
+		seenTypes = append(seenTypes, typeName)
+		if r, ok := event.(DeltaReasoning); ok {
+			reasoningTexts = append(reasoningTexts, r.Text)
+		}
+		if c, ok := event.(DeltaContent); ok {
+			contentTexts = append(contentTexts, c.Text)
+		}
+	}
+
+	assertContainsType(t, seenTypes, "reasoning.delta")
+	assertContainsType(t, seenTypes, "content.delta")
+	assertContainsType(t, seenTypes, "run.complete")
+
+	if len(reasoningTexts) != 2 {
+		t.Fatalf("expected 2 reasoning deltas, got %d: %v", len(reasoningTexts), reasoningTexts)
+	}
+	if reasoningTexts[0] != "thinking..." || reasoningTexts[1] != " more thoughts" {
+		t.Fatalf("unexpected reasoning texts: %v", reasoningTexts)
+	}
+	if len(contentTexts) != 2 {
+		t.Fatalf("expected 2 content deltas, got %d: %v", len(contentTexts), contentTexts)
+	}
+	if contentTexts[0] != "hello" || contentTexts[1] != " world" {
+		t.Fatalf("unexpected content texts: %v", contentTexts)
+	}
+}
+
 type scriptedHTTPResponse struct {
 	statusCode int
 	body       string
@@ -271,6 +465,8 @@ func deltaTypeName(delta AgentDelta) string {
 	switch delta.(type) {
 	case DeltaContent:
 		return "content.delta"
+	case DeltaReasoning:
+		return "reasoning.delta"
 	case DeltaToolCall:
 		return "tool.args"
 	case DeltaToolEnd:
@@ -284,4 +480,34 @@ func deltaTypeName(delta AgentDelta) string {
 	default:
 		return "unknown"
 	}
+}
+
+func drainAgentStream(t *testing.T, stream AgentStream) {
+	t.Helper()
+	for {
+		if _, err := stream.Next(); err != nil {
+			if err == io.EOF {
+				return
+			}
+			t.Fatalf("drain stream: %v", err)
+		}
+	}
+}
+
+func captureLogOutput(t *testing.T, fn func()) string {
+	t.Helper()
+	var buf bytes.Buffer
+	originalWriter := log.Writer()
+	originalFlags := log.Flags()
+	originalPrefix := log.Prefix()
+	log.SetOutput(&buf)
+	log.SetFlags(0)
+	log.SetPrefix("")
+	defer func() {
+		log.SetOutput(originalWriter)
+		log.SetFlags(originalFlags)
+		log.SetPrefix(originalPrefix)
+	}()
+	fn()
+	return buf.String()
 }

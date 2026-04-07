@@ -2,13 +2,9 @@ package stream
 
 import "strings"
 
-type SseEventNormalizer struct {
-	includeToolPayloadEvents bool
-}
+type SseEventNormalizer struct{}
 
-func NewNormalizer(includeToolPayloadEvents bool) *SseEventNormalizer {
-	return &SseEventNormalizer{includeToolPayloadEvents: includeToolPayloadEvents}
-}
+func NewNormalizer() *SseEventNormalizer { return &SseEventNormalizer{} }
 
 func (n *SseEventNormalizer) Normalize(events []StreamEvent) []StreamEvent {
 	if len(events) == 0 {
@@ -25,9 +21,6 @@ func (n *SseEventNormalizer) Normalize(events []StreamEvent) []StreamEvent {
 }
 
 func (n *SseEventNormalizer) shouldDrop(event StreamEvent) bool {
-	if event.Type == "tool.snapshot" && !n.includeToolPayloadEvents {
-		return true
-	}
 	toolName, _ := event.Payload["toolName"].(string)
 	return strings.HasPrefix(toolName, "_hidden_")
 }

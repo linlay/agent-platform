@@ -20,5 +20,8 @@ func (d *Dispatcher) Dispatch(ctx context.Context, def Definition) error {
 	if d == nil || d.dispatch == nil {
 		return nil
 	}
-	return d.dispatch(ctx, def.Request)
+	if !def.Enabled {
+		return nil
+	}
+	return d.dispatch(ctx, def.ToQueryRequest())
 }

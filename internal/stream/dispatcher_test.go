@@ -9,7 +9,7 @@ func TestDispatcherClosesContentWhenSwitchingToTool(t *testing.T) {
 	dispatcher := NewDispatcher(StreamRequest{
 		RunID:  "run_1",
 		ChatID: "chat_1",
-	}, true)
+	})
 
 	events := dispatcher.Dispatch(ContentDelta{ContentID: "run_1_c_1", Delta: "hello"})
 	assertEventTypes(t, events, "content.start", "content.delta")
@@ -28,7 +28,7 @@ func TestDispatcherEmitsToolSnapshotAndResultLifecycle(t *testing.T) {
 	dispatcher := NewDispatcher(StreamRequest{
 		RunID:  "run_1",
 		ChatID: "chat_1",
-	}, true)
+	})
 
 	_ = dispatcher.Dispatch(ToolArgs{
 		ToolID:     "tool_1",
@@ -48,11 +48,54 @@ func TestDispatcherEmitsToolSnapshotAndResultLifecycle(t *testing.T) {
 	assertEventTypes(t, resultEvents, "tool.result")
 }
 
+func TestDispatcherCompleteEmitsReasoningSnapshot(t *testing.T) {
+	dispatcher := NewDispatcher(StreamRequest{
+		RunID:  "run_1",
+		ChatID: "chat_1",
+	})
+
+	events := dispatcher.Dispatch(ReasoningDelta{ReasoningID: "run_1_r_1", Delta: "thinking..."})
+	assertEventTypes(t, events, "reasoning.start", "reasoning.delta")
+
+	events = dispatcher.Dispatch(ReasoningDelta{ReasoningID: "run_1_r_1", Delta: " more"})
+	assertEventTypes(t, events, "reasoning.delta")
+
+	events = dispatcher.Dispatch(ContentDelta{ContentID: "run_1_c_1", Delta: "hello"})
+	assertEventTypes(t, events, "reasoning.end", "content.start", "content.delta")
+
+	events = dispatcher.Dispatch(InputRunComplete{FinishReason: "stop"})
+	assertEventTypes(t, events)
+
+	completeEvents := dispatcher.Complete()
+	var types []string
+	for _, event := range completeEvents {
+		types = append(types, event.Type)
+	}
+
+	found := false
+	for _, event := range completeEvents {
+		if event.Type == "reasoning.snapshot" {
+			found = true
+			data := event.ToData()
+			if data["reasoningId"] != "run_1_r_1" {
+				t.Fatalf("expected reasoningId=run_1_r_1, got %v", data["reasoningId"])
+			}
+			if data["text"] != "thinking... more" {
+				t.Fatalf("expected full reasoning text, got %v", data["text"])
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected reasoning.snapshot in complete events, got types: %v", types)
+	}
+}
+
 func TestDispatcherFailClosesOpenBlocksAndEmitsRunError(t *testing.T) {
 	dispatcher := NewDispatcher(StreamRequest{
 		RunID:  "run_1",
 		ChatID: "chat_1",
-	}, false)
+	})
 
 	_ = dispatcher.Dispatch(ContentDelta{ContentID: "run_1_c_1", Delta: "partial"})
 	events := dispatcher.Fail(errors.New("boom"))

@@ -19,6 +19,8 @@ func TestShouldLoadRuntimeNameMatchesJavaSemantics(t *testing.T) {
 		{name: "agent.demo.yml", want: true},
 		{name: "agent.example", want: false},
 		{name: "agent.example.yml", want: false},
+		{name: "agent.EXAMPLE.yaml", want: false},
+		{name: "skill.example", want: false},
 		{name: ".hidden.example", want: false},
 		{name: "sample.demo.yaml", want: true},
 	}
@@ -46,7 +48,7 @@ func TestLogicalRuntimeBaseNameStripsDemoAndExampleMarkers(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileReadsContextTagsBudgetAndStageSettings(t *testing.T) {
+func TestParseAgentFileReadsContextTagsBudgetStageSettingsAndControls(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
 	if err := os.WriteFile(path, []byte(
@@ -55,6 +57,13 @@ func TestParseAgentFileReadsContextTagsBudgetAndStageSettings(t *testing.T) {
 			"mode: REACT\n"+
 			"modelConfig:\n"+
 			"  modelKey: demo-model\n"+
+			"controls:\n"+
+			"  - key: tone\n"+
+			"    type: select\n"+
+			"    label: 语气\n"+
+			"    options:\n"+
+			"      - value: concise\n"+
+			"        label: 简洁\n"+
 			"contextTags:\n"+
 			"  - execution_policy\n"+
 			"  - agent_identity\n"+
@@ -75,6 +84,9 @@ func TestParseAgentFileReadsContextTagsBudgetAndStageSettings(t *testing.T) {
 	}
 	if def.StageSettings["stage"] != "alpha" {
 		t.Fatalf("expected stage settings, got %#v", def.StageSettings)
+	}
+	if len(def.Controls) != 1 || def.Controls[0]["key"] != "tone" {
+		t.Fatalf("expected parsed controls, got %#v", def.Controls)
 	}
 }
 
@@ -108,6 +120,36 @@ func TestLoadTeamsSupportsYAMLAndSkipsExampleFiles(t *testing.T) {
 	}
 	if _, ok := teams["example.example"]; ok {
 		t.Fatalf("did not expect example team to load, got %#v", teams)
+	}
+}
+
+func TestLoadSkillsSkipsExampleDirectories(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "mock-skill"), 0o755); err != nil {
+		t.Fatalf("mkdir mock skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "mock-skill", "SKILL.md"), []byte("# Mock Skill\n\nSkill description"), 0o644); err != nil {
+		t.Fatalf("write mock skill: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "sample.example"), 0o755); err != nil {
+		t.Fatalf("mkdir example skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "sample.example", "SKILL.md"), []byte("# Example Skill\n\nShould be ignored"), 0o644); err != nil {
+		t.Fatalf("write example skill: %v", err)
+	}
+
+	skills, err := loadSkills(root, 0)
+	if err != nil {
+		t.Fatalf("load skills: %v", err)
+	}
+	if len(skills) != 1 {
+		t.Fatalf("expected one loadable skill, got %#v", skills)
+	}
+	if _, ok := skills["mock-skill"]; !ok {
+		t.Fatalf("expected mock-skill to load, got %#v", skills)
+	}
+	if _, ok := skills["sample.example"]; ok {
+		t.Fatalf("did not expect example skill to load, got %#v", skills)
 	}
 }
 

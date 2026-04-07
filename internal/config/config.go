@@ -333,7 +333,7 @@ func defaultConfig() Config {
 			SSE:       ToggleConfig{Enabled: false},
 			LLMInteraction: LLMInteractionLoggingConfig{
 				Enabled:       true,
-				MaskSensitive: true,
+				MaskSensitive: false,
 			},
 		},
 		CORS: CORSConfig{

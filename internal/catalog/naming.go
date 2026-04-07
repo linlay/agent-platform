@@ -10,6 +10,7 @@ const (
 	demoSuffix    = ".demo"
 )
 
+// ShouldLoadRuntimeName applies to both runtime file names and directory names.
 func ShouldLoadRuntimeName(rawName string) bool {
 	return strings.TrimSpace(rawName) != "" && !isMarkedRuntimeName(rawName, exampleSuffix)
 }
