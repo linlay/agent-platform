@@ -32,6 +32,7 @@ func (a *StreamEventAssembler) Bootstrap() []StreamEvent {
 	events := []StreamEvent{
 		NewEvent("request.query", map[string]any{
 			"requestId": a.request.RequestID,
+			"runId":     a.request.RunID,
 			"chatId":    a.request.ChatID,
 			"role":      a.request.Role,
 			"message":   a.request.Message,

@@ -127,6 +127,92 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 	}
 }
 
+func TestQueryUsesProvidedRunIDAndPersistsItEverywhere(t *testing.T) {
+	fixture := newTestFixture(t)
+	server := fixture.server
+	runID := "loyw3v28"
+
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"reuse run id","runId":"`+runID+`"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	messages := decodeSSEMessages(t, body)
+	if len(messages) < 3 {
+		t.Fatalf("expected bootstrap messages, got %#v", messages)
+	}
+	if messages[0]["type"] != "request.query" || messages[0]["runId"] != runID {
+		t.Fatalf("expected request.query to carry provided run id, got %#v", messages[0])
+	}
+	if messages[2]["type"] != "run.start" || messages[2]["runId"] != runID {
+		t.Fatalf("expected run.start to carry provided run id, got %#v", messages[2])
+	}
+
+	chatsRec := httptest.NewRecorder()
+	server.ServeHTTP(chatsRec, httptest.NewRequest(http.MethodGet, "/api/chats", nil))
+	var chatsResp api.ApiResponse[[]api.ChatSummaryResponse]
+	if err := json.Unmarshal(chatsRec.Body.Bytes(), &chatsResp); err != nil {
+		t.Fatalf("decode chats response: %v", err)
+	}
+	if len(chatsResp.Data) != 1 || chatsResp.Data[0].LastRunID != runID {
+		t.Fatalf("expected summary lastRunId=%s, got %#v", runID, chatsResp.Data)
+	}
+
+	chatReq := httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatsResp.Data[0].ChatID+"&includeRawMessages=true", nil)
+	chatRec := httptest.NewRecorder()
+	server.ServeHTTP(chatRec, chatReq)
+	var chatResp api.ApiResponse[api.ChatDetailResponse]
+	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
+		t.Fatalf("decode chat response: %v", err)
+	}
+	foundRequest := false
+	for _, event := range chatResp.Data.Events {
+		if event["type"] != "request.query" {
+			continue
+		}
+		foundRequest = true
+		if got := event["runId"]; got != runID {
+			t.Fatalf("expected persisted request.query run id, got %#v", event)
+		}
+	}
+	if !foundRequest {
+		t.Fatalf("expected persisted request.query event, got %#v", chatResp.Data.Events)
+	}
+	for _, message := range chatResp.Data.RawMessages {
+		if got := message["runId"]; got != runID {
+			t.Fatalf("expected raw message runId=%s, got %#v", runID, message)
+		}
+	}
+}
+
+func TestQueryGeneratesBase36RunIDWhenMissing(t *testing.T) {
+	fixture := newTestFixture(t)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"generate run id"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	messages := decodeSSEMessages(t, rec.Body.String())
+	if len(messages) < 3 {
+		t.Fatalf("expected bootstrap messages, got %#v", messages)
+	}
+	runID, _ := messages[2]["runId"].(string)
+	if runID == "" || strings.HasPrefix(runID, "run_") {
+		t.Fatalf("expected new base36 run id, got %q", runID)
+	}
+	if millis, ok := chat.ParseRunIDMillis(runID); !ok || millis <= 0 {
+		t.Fatalf("expected generated run id to parse as epoch millis, got %q millis=%d ok=%v", runID, millis, ok)
+	}
+}
+
 func TestUploadAndResourceRoundTrip(t *testing.T) {
 	fixture := newTestFixture(t)
 	server := fixture.server
@@ -600,6 +686,34 @@ func TestQueryPersistsToolSnapshotWhenSSEPayloadEventsDisabled(t *testing.T) {
 		"content.snapshot",
 		"run.complete",
 	)
+}
+
+func TestQueryFailsRunWhenProviderOmitsToolCallID(t *testing.T) {
+	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"tool_calls":[{"index":0,"type":"function","function":{"name":"_datetime_","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}`,
+			`[DONE]`,
+		)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"现在几点？"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `"type":"run.error"`) {
+		t.Fatalf("expected run.error when toolCallId is missing, got %s", body)
+	}
+	if strings.Contains(body, `"type":"tool.result"`) {
+		t.Fatalf("did not expect tool.result when toolCallId is missing, got %s", body)
+	}
+	if strings.Contains(body, `"type":"run.complete"`) {
+		t.Fatalf("did not expect run.complete after toolCallId error, got %s", body)
+	}
 }
 
 func TestQueryReturnsJSONErrorBeforeSSEOnInvalidFirstFrame(t *testing.T) {

@@ -56,12 +56,12 @@ cmd/agent-platform-runner/main.go
 ```text
 HTTP request
   -> QueryRequest 校验
-  -> 归一化 requestId / chatId / agentKey
+  -> 归一化 runId / requestId / chatId / agentKey
   -> Chats.EnsureChat()
   -> Runs.Register()
   -> Agent.Stream()
   -> stream.NewWriter()
-  -> 发送 request.query / chat.start / run.start
+  -> 发送 request.query(runId) / chat.start / run.start
   -> 按上游 chunk 逐条发送 content.delta / tool.*
   -> 发送 content.snapshot
   -> 发送 run.complete
@@ -141,8 +141,8 @@ chat 根目录由 `CHATS_DIR` 控制，默认布局：
 含义：
 
 - `index.json`：chat 摘要索引，记录 `chatId`、`chatName`、`agentKey`、`lastRunId`、`readStatus` 等
-- `events.jsonl`：运行事件流，如 `request.query`、`chat.start`、`run.start`、`content.delta`、`content.snapshot`、`run.complete`
-- `raw_messages.jsonl`：用户与助手原始消息
+- `events.jsonl`：运行事件流，如 `request.query(runId)`、`chat.start`、`run.start`、`content.delta`、`content.snapshot`、`run.complete`
+- `raw_messages.jsonl`：用户与助手原始消息，新写入记录会带 `runId`
 - 上传文件：直接存放在 chat 目录下，由 `/api/resource` 提供回读
 
 ### Remember 存储
@@ -191,10 +191,10 @@ remember 根目录由 `MEMORY_DIR` 控制：
 - `GET /api/skills`：返回目录驱动的 skill 列表，支持 `tag`
 - `GET /api/tools`：返回 tool 列表，支持 `kind` 过滤
 - `GET /api/tool?toolName=...`：返回单个 tool 详情
-- `GET /api/chats`：返回 chat 摘要列表，支持 `lastRunId`、`agentKey`
+- `GET /api/chats`：返回 chat 摘要列表，支持 `lastRunId`、`agentKey`，`lastRunId` 兼容 base36 毫秒 runId 与旧版 `run_YYYY...` 格式
 - `GET /api/chat?chatId=...`：返回 chat 详情，`includeRawMessages=true` 时附带 `rawMessages`
 - `POST /api/read`：将 chat 标记为已读
-- `POST /api/query`：返回 SSE；缺失 `requestId` / `chatId` 时服务端自动生成，缺失 `agentKey` 时回退到默认 agent
+- `POST /api/query`：返回 SSE；支持可选 `runId` 透传；缺失 `runId` 时服务端按 `base36(epochMillis)` 生成，缺失 `requestId` / `chatId` 时服务端自动生成，缺失 `agentKey` 时回退到默认 agent
 - `POST /api/submit`：当前返回最小 ack，占位 frontend tool 提交链路
 - `POST /api/steer`：当前返回最小 ack，占位运行中 steer 链路
 - `POST /api/interrupt`：中断活跃 run 并返回 ack

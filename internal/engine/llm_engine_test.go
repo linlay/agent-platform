@@ -170,6 +170,124 @@ func TestLLMAgentEngineAccumulatesToolCallFragments(t *testing.T) {
 	assertContainsType(t, seenTypes, "run.complete")
 }
 
+func TestLLMAgentEngineWaitsForToolCallIDBeforeStreamingToolArgs(t *testing.T) {
+	var mu sync.Mutex
+	callCount := 0
+	client := newScriptedHTTPClient(func(*http.Request) scriptedHTTPResponse {
+		mu.Lock()
+		defer mu.Unlock()
+		callCount++
+		if callCount == 1 {
+			return scriptedSSE(
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"type":"function","function":{"name":"mock.tool","arguments":"{"}}]}}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_math","function":{"arguments":"\"value\":1}"}}]},"finish_reason":"tool_calls"}]}`,
+				`[DONE]`,
+			)
+		}
+		return scriptedSSE(
+			`{"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}]}`,
+			`[DONE]`,
+		)
+	})
+	tools := &testToolExecutor{
+		definitions: []api.ToolDetailResponse{
+			{Key: "mock.tool", Name: "mock.tool", Parameters: map[string]any{"type": "object"}},
+		},
+		result: ToolExecutionResult{Output: "ok"},
+	}
+	engine := NewLLMAgentEngineWithHTTPClient(
+		config.Config{Defaults: config.DefaultsConfig{React: config.ReactDefaultsConfig{MaxSteps: 4}}},
+		newTestModelRegistry("http://mock.local"),
+		tools,
+		NewNoopSandboxClient(),
+		client,
+	)
+	stream, err := engine.Stream(context.Background(), api.QueryRequest{Message: "call tool"}, QuerySession{
+		RunID:     "run_tool",
+		ChatID:    "chat_tool",
+		ModelKey:  "mock-model",
+		ToolNames: []string{"mock.tool"},
+	})
+	if err != nil {
+		t.Fatalf("stream query: %v", err)
+	}
+	defer stream.Close()
+
+	var toolCalls []DeltaToolCall
+	for {
+		event, err := stream.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("next: %v", err)
+		}
+		if toolCall, ok := event.(DeltaToolCall); ok {
+			toolCalls = append(toolCalls, toolCall)
+		}
+	}
+
+	if len(toolCalls) != 1 {
+		t.Fatalf("expected one streamed tool call after id arrives, got %#v", toolCalls)
+	}
+	if toolCalls[0].ID != "call_math" {
+		t.Fatalf("expected real toolCallId to be reused, got %#v", toolCalls[0])
+	}
+	if toolCalls[0].ArgsDelta != "{\"value\":1}" {
+		t.Fatalf("expected buffered arguments to flush once id arrives, got %#v", toolCalls[0])
+	}
+}
+
+func TestLLMAgentEngineFailsRunWhenToolCallIDNeverArrives(t *testing.T) {
+	client := newScriptedHTTPClient(func(*http.Request) scriptedHTTPResponse {
+		return scriptedSSE(
+			`{"choices":[{"delta":{"tool_calls":[{"index":0,"type":"function","function":{"name":"mock.tool","arguments":"{\"value\":1}"}}]},"finish_reason":"tool_calls"}]}`,
+			`[DONE]`,
+		)
+	})
+	tools := &testToolExecutor{
+		definitions: []api.ToolDetailResponse{
+			{Key: "mock.tool", Name: "mock.tool", Parameters: map[string]any{"type": "object"}},
+		},
+		result: ToolExecutionResult{Output: "ok"},
+	}
+	engine := NewLLMAgentEngineWithHTTPClient(
+		config.Config{Defaults: config.DefaultsConfig{React: config.ReactDefaultsConfig{MaxSteps: 4}}},
+		newTestModelRegistry("http://mock.local"),
+		tools,
+		NewNoopSandboxClient(),
+		client,
+	)
+	stream, err := engine.Stream(context.Background(), api.QueryRequest{Message: "call tool"}, QuerySession{
+		RunID:     "run_tool_missing_id",
+		ChatID:    "chat_tool_missing_id",
+		ModelKey:  "mock-model",
+		ToolNames: []string{"mock.tool"},
+	})
+	if err != nil {
+		t.Fatalf("stream query: %v", err)
+	}
+	defer stream.Close()
+
+	event, err := stream.Next()
+	if err != nil {
+		t.Fatalf("next: %v", err)
+	}
+	runErr, ok := event.(DeltaError)
+	if !ok {
+		t.Fatalf("expected DeltaError, got %#v", event)
+	}
+	if runErr.Error["code"] != "missing_tool_call_id" {
+		t.Fatalf("expected missing_tool_call_id, got %#v", runErr.Error)
+	}
+	if len(tools.invocations) != 0 {
+		t.Fatalf("expected tool execution to be skipped, got %#v", tools.invocations)
+	}
+	if _, err := stream.Next(); err != io.EOF {
+		t.Fatalf("expected eof after tool id error, got %v", err)
+	}
+}
+
 func TestLLMAgentEngineLogsRawChunksAndParsedContent(t *testing.T) {
 	rawHello := `{"choices":[{"delta":{"content":"hello "}}]}`
 	rawWorld := `{"choices":[{"delta":{"content":"world"},"finish_reason":"stop"}]}`

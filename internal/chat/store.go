@@ -133,7 +133,7 @@ func (s *FileStore) ListChats(lastRunID string, agentKey string) ([]Summary, err
 		if agentKey != "" && summary.AgentKey != agentKey {
 			continue
 		}
-		if lastRunID != "" && !(summary.LastRunID > lastRunID) {
+		if lastRunID != "" && !RunIDAfter(summary.LastRunID, lastRunID) {
 			continue
 		}
 		items = append(items, summary)
@@ -183,33 +183,6 @@ func (s *FileStore) LoadChat(chatID string) (Detail, error) {
 		Plan:        plan,
 		Artifact:    artifact,
 	}, nil
-}
-
-func rebuildSnapshotEvents(events []map[string]any) []map[string]any {
-	if len(events) == 0 {
-		return nil
-	}
-
-	rebuilt := make([]map[string]any, 0, len(events))
-	emittedChatStart := false
-	seq := int64(1)
-	for _, event := range events {
-		if event == nil {
-			continue
-		}
-		eventType, _ := event["type"].(string)
-		if eventType == "chat.start" {
-			if emittedChatStart {
-				continue
-			}
-			emittedChatStart = true
-		}
-		copy := cloneEventMap(event)
-		copy["seq"] = seq
-		rebuilt = append(rebuilt, copy)
-		seq++
-	}
-	return rebuilt
 }
 
 func cloneEventMap(event map[string]any) map[string]any {

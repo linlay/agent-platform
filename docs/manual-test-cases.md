@@ -83,6 +83,12 @@ curl -N -X POST "$BASE_URL/api/query" \
   -d '{"chatId":"replace-me","message":"继续上一轮内容","agentKey":"go_runner"}'
 ```
 
+```bash
+curl -N -X POST "$BASE_URL/api/query" \
+  -H "Content-Type: application/json" \
+  -d '{"runId":"replace-me","message":"使用指定 runId 发起一次请求","agentKey":"go_runner"}'
+```
+
 ## Submit / Steer / Interrupt 占位测试
 
 这些接口当前返回最小 ack，主要用于校验 API 契约，而不是完整的人机协作能力。

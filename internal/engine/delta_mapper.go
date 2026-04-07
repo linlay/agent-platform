@@ -73,6 +73,9 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		}}
 	case DeltaToolCall:
 		toolID := m.resolveToolID(value.Index, value.ID, value.Name)
+		if toolID == "" {
+			return nil
+		}
 		toolType, toolLabel, toolDescription := m.resolveToolMetadata(value.Name)
 		if toolType == "action" {
 			m.actionToolIDs[toolID] = true
@@ -202,12 +205,7 @@ func (m *DeltaMapper) resolveToolID(index int, candidate string, toolName string
 	if value := strings.TrimSpace(m.indexedToolIDs[index]); value != "" {
 		return value
 	}
-	fallback := fmt.Sprintf("%s_tool_%d", m.runID, index)
-	if toolName != "" {
-		fallback = fmt.Sprintf("%s_tool_%s", m.runID, strings.ReplaceAll(toolName, " ", "_"))
-	}
-	m.indexedToolIDs[index] = fallback
-	return fallback
+	return ""
 }
 
 func (m *DeltaMapper) resolveToolMetadata(toolName string) (string, string, string) {

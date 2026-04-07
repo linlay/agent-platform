@@ -362,7 +362,10 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now().UnixMilli()
-	runID := newRunID()
+	runID := strings.TrimSpace(req.RunID)
+	if runID == "" {
+		runID = newRunID()
+	}
 	requestID := strings.TrimSpace(req.RequestID)
 	if requestID == "" {
 		requestID = runID
@@ -396,6 +399,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	req.ChatID = chatID
 	req.AgentKey = agentKey
 	req.RequestID = requestID
+	req.RunID = runID
 	req.TeamID = teamID
 
 	summary, created, err := s.deps.Chats.EnsureChat(chatID, agentKey, req.TeamID, req.Message)
@@ -497,6 +501,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_ = s.deps.Chats.AppendRawMessage(chatID, map[string]any{
+		"runId":   runID,
 		"role":    defaultRole(req.Role),
 		"content": req.Message,
 		"ts":      now,
@@ -554,6 +559,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 
 	finalAssistantText := assistantText.String()
 	rawMsg := map[string]any{
+		"runId":   runID,
 		"role":    "assistant",
 		"content": finalAssistantText,
 		"ts":      time.Now().UnixMilli(),
@@ -923,7 +929,7 @@ func safeFilename(name string) string {
 }
 
 func newRunID() string {
-	return "run_" + time.Now().UTC().Format("20060102150405.000000000")
+	return chat.NewRunID()
 }
 
 func newChatID() string {

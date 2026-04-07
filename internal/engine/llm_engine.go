@@ -130,6 +130,7 @@ type toolCallAccumulator struct {
 	Type         string
 	FunctionName string
 	Arguments    strings.Builder
+	EmittedBytes int
 }
 
 type preparedToolInvocation struct {
@@ -422,19 +423,12 @@ func (s *llmRunStream) consumeCurrentTurn() (bool, error) {
 		if len(choice.Delta.ToolCalls) > 0 {
 			s.currentTurn.hasMeaningful = true
 			for _, toolDelta := range choice.Delta.ToolCalls {
-				s.currentTurn.appendToolDelta(toolDelta)
+				deltas := s.currentTurn.appendToolDelta(toolDelta)
 				s.engine.logParsedToolDelta(s.session.RunID, toolDelta)
 				if !s.allowToolUse {
 					continue
 				}
-				if toolDelta.ID != "" || toolDelta.Type != "" || toolDelta.Function.Name != "" || toolDelta.Function.Arguments != "" {
-					s.pending = append(s.pending, DeltaToolCall{
-						Index:     toolDelta.Index,
-						ID:        toolDelta.ID,
-						Name:      toolDelta.Function.Name,
-						ArgsDelta: toolDelta.Function.Arguments,
-					})
-				}
+				s.pending = append(s.pending, deltas...)
 			}
 		}
 		if strings.TrimSpace(choice.FinishReason) != "" {
@@ -457,7 +451,18 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		_ = turn.body.Close()
 	}
 
-	toolCalls := turn.materializeToolCalls(s.session.RunID)
+	toolCalls, err := turn.materializeToolCalls()
+	if err != nil {
+		s.pending = append(s.pending, DeltaError{Error: NewErrorPayload(
+			"missing_tool_call_id",
+			err.Error(),
+			ErrorScopeModel,
+			ErrorCategoryModel,
+			nil,
+		)})
+		s.finished = true
+		return nil
+	}
 	content := turn.content.String()
 	if content != "" || len(toolCalls) > 0 {
 		msg := openAIMessage{Role: "assistant"}
@@ -517,8 +522,14 @@ func (s *llmRunStream) finishCurrentTurn() error {
 
 func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolInvocation, []AgentDelta, *openAIMessage) {
 	toolID := toolCall.ID
-	if toolID == "" {
-		toolID = s.session.RunID + "_tool_" + strings.ReplaceAll(toolCall.Function.Name, " ", "_")
+	if strings.TrimSpace(toolID) == "" {
+		return nil, []AgentDelta{DeltaError{Error: NewErrorPayload(
+			"missing_tool_call_id",
+			"provider tool call missing toolCallId",
+			ErrorScopeModel,
+			ErrorCategoryModel,
+			nil,
+		)}}, nil
 	}
 
 	args := map[string]any{}
@@ -805,7 +816,7 @@ func normalizeOverrideKey(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
 }
 
-func (t *providerTurnStream) appendToolDelta(delta openAIStreamToolDelta) {
+func (t *providerTurnStream) appendToolDelta(delta openAIStreamToolDelta) []AgentDelta {
 	if t.toolCalls == nil {
 		t.toolCalls = map[int]*toolCallAccumulator{}
 	}
@@ -826,11 +837,26 @@ func (t *providerTurnStream) appendToolDelta(delta openAIStreamToolDelta) {
 	if delta.Function.Arguments != "" {
 		acc.Arguments.WriteString(delta.Function.Arguments)
 	}
+	if acc.ID == "" {
+		return nil
+	}
+	arguments := acc.Arguments.String()
+	if len(arguments) <= acc.EmittedBytes {
+		return nil
+	}
+	argsDelta := arguments[acc.EmittedBytes:]
+	acc.EmittedBytes = len(arguments)
+	return []AgentDelta{DeltaToolCall{
+		Index:     delta.Index,
+		ID:        acc.ID,
+		Name:      acc.FunctionName,
+		ArgsDelta: argsDelta,
+	}}
 }
 
-func (t *providerTurnStream) materializeToolCalls(runID string) []openAIToolCall {
+func (t *providerTurnStream) materializeToolCalls() ([]openAIToolCall, error) {
 	if len(t.toolCalls) == 0 {
-		return nil
+		return nil, nil
 	}
 	indexes := make([]int, 0, len(t.toolCalls))
 	for idx := range t.toolCalls {
@@ -840,16 +866,15 @@ func (t *providerTurnStream) materializeToolCalls(runID string) []openAIToolCall
 	out := make([]openAIToolCall, 0, len(t.toolCalls))
 	for _, idx := range indexes {
 		acc := t.toolCalls[idx]
-		id := acc.ID
-		if id == "" {
-			id = fmt.Sprintf("%s_tool_%d", runID, idx)
+		if strings.TrimSpace(acc.ID) == "" {
+			return nil, fmt.Errorf("provider tool call missing toolCallId for index %d", idx)
 		}
 		toolType := acc.Type
 		if toolType == "" {
 			toolType = "function"
 		}
 		out = append(out, openAIToolCall{
-			ID:   id,
+			ID:   acc.ID,
 			Type: toolType,
 			Function: openAIFunctionCall{
 				Name:      acc.FunctionName,
@@ -857,7 +882,7 @@ func (t *providerTurnStream) materializeToolCalls(runID string) []openAIToolCall
 			},
 		})
 	}
-	return out
+	return out, nil
 }
 
 func (e *LLMAgentEngine) openProviderStream(ctx context.Context, provider ProviderDefinition, model ModelDefinition, messages []openAIMessage, toolSpecs []openAIToolSpec) (*providerTurnStream, error) {

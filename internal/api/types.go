@@ -24,6 +24,7 @@ func Failure(code int, msg string) ApiResponse[map[string]any] {
 
 type QueryRequest struct {
 	RequestID  string         `json:"requestId,omitempty"`
+	RunID      string         `json:"runId,omitempty"`
 	ChatID     string         `json:"chatId,omitempty"`
 	AgentKey   string         `json:"agentKey,omitempty"`
 	TeamID     string         `json:"teamId,omitempty"`
