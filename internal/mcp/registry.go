@@ -87,11 +87,14 @@ func parseServerFile(path string) (ServerDefinition, error) {
 		return ServerDefinition{}, fmt.Errorf("mcp server file must be a map")
 	}
 	server := ServerDefinition{
-		Key:       stringNode(root["key"]),
-		Name:      stringNode(root["name"]),
-		BaseURL:   stringNode(root["baseUrl"]),
-		AuthToken: stringNode(root["authToken"]),
-		TimeoutMs: intNode(root["timeoutMs"]),
+		Key:          stringNode(root["key"]),
+		Name:         stringNode(root["name"]),
+		BaseURL:      stringNode(root["baseUrl"]),
+		EndpointPath: stringNode(root["endpointPath"]),
+		AuthToken:    stringNode(root["authToken"]),
+		Headers:      stringMapNode(root["headers"]),
+		TimeoutMs:    intNode(root["timeoutMs"]),
+		Retry:        intNode(root["retry"]),
 	}
 	for _, item := range listMaps(root["tools"]) {
 		server.Tools = append(server.Tools, ToolDefinition{
@@ -133,6 +136,20 @@ func intNode(value any) int {
 func mapNode(value any) map[string]any {
 	result, _ := value.(map[string]any)
 	return result
+}
+
+func stringMapNode(value any) map[string]string {
+	raw, _ := value.(map[string]any)
+	if len(raw) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(raw))
+	for k, v := range raw {
+		if s, ok := v.(string); ok {
+			out[k] = s
+		}
+	}
+	return out
 }
 
 func listMaps(value any) []map[string]any {

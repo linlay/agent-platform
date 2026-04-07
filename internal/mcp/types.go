@@ -1,14 +1,30 @@
 package mcp
 
-import "agent-platform-runner-go/internal/api"
+import (
+	"strings"
+
+	"agent-platform-runner-go/internal/api"
+)
 
 type ServerDefinition struct {
-	Key       string
-	Name      string
-	BaseURL   string
-	AuthToken string
-	TimeoutMs int
-	Tools     []ToolDefinition
+	Key          string
+	Name         string
+	BaseURL      string
+	EndpointPath string
+	AuthToken    string
+	Headers      map[string]string
+	TimeoutMs    int
+	Retry        int
+	Tools        []ToolDefinition
+}
+
+func (s ServerDefinition) ResolvedURL() string {
+	base := strings.TrimRight(s.BaseURL, "/")
+	path := strings.TrimLeft(s.EndpointPath, "/")
+	if path == "" {
+		return base
+	}
+	return base + "/" + path
 }
 
 type ToolDefinition struct {

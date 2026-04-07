@@ -10,10 +10,11 @@ import (
 )
 
 type ServerDefinition struct {
-	Key       string
-	BaseURL   string
-	AuthToken string
-	TimeoutMs int
+	Key          string
+	BaseURL      string
+	EndpointPath string
+	AuthToken    string
+	TimeoutMs    int
 }
 
 type ServerRegistry struct {
@@ -44,10 +45,11 @@ func (r *ServerRegistry) List() ([]ServerDefinition, error) {
 		}
 		rootNode, _ := tree.(map[string]any)
 		server := ServerDefinition{
-			Key:       strings.TrimSpace(anyString(rootNode["key"])),
-			BaseURL:   strings.TrimSpace(anyString(rootNode["baseUrl"])),
-			AuthToken: strings.TrimSpace(anyString(rootNode["authToken"])),
-			TimeoutMs: anyInt(rootNode["timeoutMs"]),
+			Key:          strings.TrimSpace(anyString(rootNode["key"])),
+			BaseURL:      strings.TrimSpace(anyString(rootNode["baseUrl"])),
+			EndpointPath: strings.TrimSpace(anyString(rootNode["endpointPath"])),
+			AuthToken:    strings.TrimSpace(anyString(rootNode["authToken"])),
+			TimeoutMs:    anyInt(rootNode["timeoutMs"]),
 		}
 		if server.Key == "" {
 			server.Key = strings.TrimSuffix(strings.TrimSuffix(name, ".yaml"), ".yml")

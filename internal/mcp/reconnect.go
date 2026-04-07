@@ -35,7 +35,8 @@ func (r *ReconnectLoop) Start(ctx context.Context) {
 					if !r.gate.IsUnavailable(server.Key) {
 						continue
 					}
-					_, _ = r.client.ListTools(ctx, server.Key)
+					_ = r.client.Initialize(ctx, server.Key)
+				_, _ = r.client.ListTools(ctx, server.Key)
 				}
 			}
 		}

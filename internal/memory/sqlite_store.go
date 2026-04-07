@@ -1,21 +1,33 @@
 package memory
 
 import (
+	"crypto/rand"
+	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/chat"
+
+	_ "modernc.org/sqlite"
 )
 
 type SQLiteStore struct {
-	root   string
-	dbPath string
+	root           string
+	dbPath         string
+	dualWriteMD    bool
+	mu             sync.Mutex
+	db             *sql.DB
+	ftsVectorWeight float64
+	ftsFTSWeight    float64
 }
 
 func NewSQLiteStore(root string, dbFileName string) (*SQLiteStore, error) {
@@ -26,13 +38,69 @@ func NewSQLiteStore(root string, dbFileName string) (*SQLiteStore, error) {
 		dbFileName = "memory.db"
 	}
 	store := &SQLiteStore{
-		root:   root,
-		dbPath: filepath.Join(root, dbFileName),
+		root:            root,
+		dbPath:          filepath.Join(root, dbFileName),
+		dualWriteMD:     true,
+		ftsVectorWeight: 0.7,
+		ftsFTSWeight:    0.3,
 	}
-	if err := store.persistIndex(nil); err != nil {
+	if err := store.initDB(); err != nil {
 		return nil, err
 	}
 	return store, nil
+}
+
+func (s *SQLiteStore) initDB() error {
+	db, err := sql.Open("sqlite", s.dbPath)
+	if err != nil {
+		return err
+	}
+	s.db = db
+
+	statements := []string{
+		`CREATE TABLE IF NOT EXISTS MEMORIES (
+			ID_ TEXT PRIMARY KEY,
+			TS_ INTEGER NOT NULL,
+			REQUEST_ID_ TEXT,
+			CHAT_ID_ TEXT,
+			AGENT_KEY_ TEXT NOT NULL DEFAULT '',
+			SUBJECT_KEY_ TEXT NOT NULL DEFAULT '',
+			SOURCE_TYPE_ TEXT NOT NULL DEFAULT '',
+			SUMMARY_ TEXT NOT NULL DEFAULT '',
+			CATEGORY_ TEXT DEFAULT 'general',
+			IMPORTANCE_ INTEGER DEFAULT 5,
+			TAGS_ TEXT,
+			EMBEDDING_ BLOB,
+			EMBEDDING_MODEL_ TEXT,
+			UPDATED_AT_ INTEGER NOT NULL,
+			ACCESS_COUNT_ INTEGER DEFAULT 0,
+			LAST_ACCESSED_AT_ INTEGER
+		)`,
+		`CREATE VIRTUAL TABLE IF NOT EXISTS MEMORIES_FTS USING fts5(
+			SUMMARY_, SUBJECT_KEY_, CATEGORY_, TAGS_,
+			content=MEMORIES, content_rowid=rowid
+		)`,
+		`CREATE TRIGGER IF NOT EXISTS MEMORIES_AI AFTER INSERT ON MEMORIES BEGIN
+			INSERT INTO MEMORIES_FTS(rowid, SUMMARY_, SUBJECT_KEY_, CATEGORY_, TAGS_)
+			VALUES (new.rowid, new.SUMMARY_, new.SUBJECT_KEY_, new.CATEGORY_, new.TAGS_);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS MEMORIES_AU AFTER UPDATE ON MEMORIES BEGIN
+			INSERT INTO MEMORIES_FTS(MEMORIES_FTS, rowid, SUMMARY_, SUBJECT_KEY_, CATEGORY_, TAGS_)
+			VALUES ('delete', old.rowid, old.SUMMARY_, old.SUBJECT_KEY_, old.CATEGORY_, old.TAGS_);
+			INSERT INTO MEMORIES_FTS(rowid, SUMMARY_, SUBJECT_KEY_, CATEGORY_, TAGS_)
+			VALUES (new.rowid, new.SUMMARY_, new.SUBJECT_KEY_, new.CATEGORY_, new.TAGS_);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS MEMORIES_AD AFTER DELETE ON MEMORIES BEGIN
+			INSERT INTO MEMORIES_FTS(MEMORIES_FTS, rowid, SUMMARY_, SUBJECT_KEY_, CATEGORY_, TAGS_)
+			VALUES ('delete', old.rowid, old.SUMMARY_, old.SUBJECT_KEY_, old.CATEGORY_, old.TAGS_);
+		END`,
+	}
+	for _, stmt := range statements {
+		if _, err := db.Exec(stmt); err != nil {
+			return fmt.Errorf("init schema: %w", err)
+		}
+	}
+	return nil
 }
 
 func (s *SQLiteStore) Remember(chatDetail chat.Detail, request api.RememberRequest, agentKey string) (api.RememberResponse, error) {
@@ -42,8 +110,9 @@ func (s *SQLiteStore) Remember(chatDetail chat.Detail, request api.RememberReque
 		Summary:    summary,
 		SubjectKey: chatDetail.ChatID,
 	}
+	id := generateMemoryID()
 	stored := api.StoredMemoryResponse{
-		ID:         "mem_" + strings.ReplaceAll(request.ChatID, "-", "")[:min(12, len(strings.ReplaceAll(request.ChatID, "-", "")))],
+		ID:         id,
 		RequestID:  request.RequestID,
 		ChatID:     request.ChatID,
 		AgentKey:   agentKey,
@@ -51,7 +120,7 @@ func (s *SQLiteStore) Remember(chatDetail chat.Detail, request api.RememberReque
 		Summary:    summary,
 		SourceType: "remember",
 		Category:   "remember",
-		Importance: 5,
+		Importance: 6,
 		Tags:       []string{"remember"},
 		CreatedAt:  now,
 		UpdatedAt:  now,
@@ -102,101 +171,320 @@ func (s *SQLiteStore) Remember(chatDetail chat.Detail, request api.RememberReque
 }
 
 func (s *SQLiteStore) Search(query string, limit int) ([]api.StoredMemoryResponse, error) {
-	items, err := s.readIndex()
-	if err != nil {
-		return nil, err
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if limit <= 0 {
+		limit = 10
 	}
-	needle := strings.ToLower(strings.TrimSpace(query))
-	sort.SliceStable(items, func(i, j int) bool {
-		return items[i].UpdatedAt > items[j].UpdatedAt
-	})
-	out := make([]api.StoredMemoryResponse, 0)
-	for _, item := range items {
-		if needle == "" || strings.Contains(strings.ToLower(item.Summary), needle) || strings.Contains(strings.ToLower(item.ChatID), needle) || strings.Contains(strings.ToLower(item.SubjectKey), needle) {
-			out = append(out, item)
+	needle := strings.TrimSpace(query)
+	if needle == "" {
+		return s.listRecent(limit)
+	}
+
+	// FTS5 search
+	ftsResults, err := s.ftsSearch(needle, limit*3)
+	if err != nil {
+		// Fallback to LIKE search on FTS failure
+		ftsResults, _ = s.likeSearch(needle, limit*3)
+	}
+
+	// Score normalization and sorting
+	if len(ftsResults) == 0 {
+		return []api.StoredMemoryResponse{}, nil
+	}
+
+	// Normalize FTS scores
+	normalizeScores(ftsResults)
+
+	// Sort by score desc, importance desc, updatedAt desc
+	sort.SliceStable(ftsResults, func(i, j int) bool {
+		if ftsResults[i].score != ftsResults[j].score {
+			return ftsResults[i].score > ftsResults[j].score
 		}
-		if limit > 0 && len(out) >= limit {
+		if ftsResults[i].item.Importance != ftsResults[j].item.Importance {
+			return ftsResults[i].item.Importance > ftsResults[j].item.Importance
+		}
+		return ftsResults[i].item.UpdatedAt > ftsResults[j].item.UpdatedAt
+	})
+
+	out := make([]api.StoredMemoryResponse, 0, limit)
+	for i, r := range ftsResults {
+		if i >= limit {
 			break
 		}
+		// Update access tracking
+		now := time.Now().UnixMilli()
+		_, _ = s.db.Exec(
+			`UPDATE MEMORIES SET ACCESS_COUNT_ = ACCESS_COUNT_ + 1, LAST_ACCESSED_AT_ = ?, UPDATED_AT_ = ? WHERE ID_ = ?`,
+			now, now, r.item.ID,
+		)
+		out = append(out, r.item)
 	}
 	return out, nil
 }
 
-func (s *SQLiteStore) Read(id string) (*api.StoredMemoryResponse, error) {
-	items, err := s.readIndex()
+type scoredItem struct {
+	item  api.StoredMemoryResponse
+	score float64
+}
+
+func (s *SQLiteStore) ftsSearch(query string, limit int) ([]scoredItem, error) {
+	// Build FTS5 match expression: quote each term
+	terms := strings.Fields(query)
+	quoted := make([]string, len(terms))
+	for i, t := range terms {
+		quoted[i] = `"` + strings.ReplaceAll(t, `"`, `""`) + `"`
+	}
+	matchExpr := strings.Join(quoted, " AND ")
+
+	rows, err := s.db.Query(
+		`SELECT m.ID_, m.TS_, m.REQUEST_ID_, m.CHAT_ID_, m.AGENT_KEY_, m.SUBJECT_KEY_,
+			m.SOURCE_TYPE_, m.SUMMARY_, m.CATEGORY_, m.IMPORTANCE_, m.TAGS_,
+			m.UPDATED_AT_, m.ACCESS_COUNT_, m.LAST_ACCESSED_AT_,
+			bm25(MEMORIES_FTS) as score
+		FROM MEMORIES_FTS fts
+		JOIN MEMORIES m ON m.rowid = fts.rowid
+		WHERE MEMORIES_FTS MATCH ?
+		ORDER BY score
+		LIMIT ?`,
+		matchExpr, limit,
+	)
 	if err != nil {
 		return nil, err
 	}
-	for _, item := range items {
-		if item.ID == id {
-			copy := item
-			return &copy, nil
+	defer rows.Close()
+	return scanScoredRows(rows)
+}
+
+func (s *SQLiteStore) likeSearch(query string, limit int) ([]scoredItem, error) {
+	pattern := "%" + query + "%"
+	rows, err := s.db.Query(
+		`SELECT ID_, TS_, REQUEST_ID_, CHAT_ID_, AGENT_KEY_, SUBJECT_KEY_,
+			SOURCE_TYPE_, SUMMARY_, CATEGORY_, IMPORTANCE_, TAGS_,
+			UPDATED_AT_, ACCESS_COUNT_, LAST_ACCESSED_AT_,
+			0 as score
+		FROM MEMORIES
+		WHERE SUMMARY_ LIKE ? OR SUBJECT_KEY_ LIKE ? OR CATEGORY_ LIKE ? OR TAGS_ LIKE ?
+		ORDER BY UPDATED_AT_ DESC
+		LIMIT ?`,
+		pattern, pattern, pattern, pattern, limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanScoredRows(rows)
+}
+
+func (s *SQLiteStore) listRecent(limit int) ([]api.StoredMemoryResponse, error) {
+	rows, err := s.db.Query(
+		`SELECT ID_, TS_, REQUEST_ID_, CHAT_ID_, AGENT_KEY_, SUBJECT_KEY_,
+			SOURCE_TYPE_, SUMMARY_, CATEGORY_, IMPORTANCE_, TAGS_,
+			UPDATED_AT_, ACCESS_COUNT_, LAST_ACCESSED_AT_
+		FROM MEMORIES
+		ORDER BY IMPORTANCE_ DESC, UPDATED_AT_ DESC
+		LIMIT ?`,
+		limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []api.StoredMemoryResponse
+	for rows.Next() {
+		item, err := scanMemoryRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func scanScoredRows(rows *sql.Rows) ([]scoredItem, error) {
+	var results []scoredItem
+	for rows.Next() {
+		var item api.StoredMemoryResponse
+		var ts int64
+		var requestID, chatID, tags sql.NullString
+		var accessCount sql.NullInt64
+		var lastAccessedAt sql.NullInt64
+		var score float64
+
+		err := rows.Scan(
+			&item.ID, &ts, &requestID, &chatID,
+			&item.AgentKey, &item.SubjectKey, &item.SourceType,
+			&item.Summary, &item.Category, &item.Importance, &tags,
+			&item.UpdatedAt, &accessCount, &lastAccessedAt, &score,
+		)
+		if err != nil {
+			return nil, err
+		}
+		item.CreatedAt = ts
+		if requestID.Valid {
+			item.RequestID = requestID.String
+		}
+		if chatID.Valid {
+			item.ChatID = chatID.String
+		}
+		if tags.Valid && tags.String != "" {
+			item.Tags = strings.Split(tags.String, ",")
+		}
+		// BM25 returns negative scores (more negative = better match), convert to positive
+		results = append(results, scoredItem{item: item, score: math.Abs(score)})
+	}
+	return results, rows.Err()
+}
+
+func scanMemoryRow(rows *sql.Rows) (api.StoredMemoryResponse, error) {
+	var item api.StoredMemoryResponse
+	var ts int64
+	var requestID, chatID, tags sql.NullString
+	var accessCount sql.NullInt64
+	var lastAccessedAt sql.NullInt64
+
+	err := rows.Scan(
+		&item.ID, &ts, &requestID, &chatID,
+		&item.AgentKey, &item.SubjectKey, &item.SourceType,
+		&item.Summary, &item.Category, &item.Importance, &tags,
+		&item.UpdatedAt, &accessCount, &lastAccessedAt,
+	)
+	if err != nil {
+		return item, err
+	}
+	item.CreatedAt = ts
+	if requestID.Valid {
+		item.RequestID = requestID.String
+	}
+	if chatID.Valid {
+		item.ChatID = chatID.String
+	}
+	if tags.Valid && tags.String != "" {
+		item.Tags = strings.Split(tags.String, ",")
+	}
+	return item, nil
+}
+
+func normalizeScores(items []scoredItem) {
+	if len(items) <= 1 {
+		return
+	}
+	minScore, maxScore := items[0].score, items[0].score
+	for _, item := range items[1:] {
+		if item.score < minScore {
+			minScore = item.score
+		}
+		if item.score > maxScore {
+			maxScore = item.score
 		}
 	}
-	return nil, nil
+	spread := maxScore - minScore
+	if spread == 0 {
+		for i := range items {
+			items[i].score = 1.0
+		}
+		return
+	}
+	for i := range items {
+		items[i].score = (items[i].score - minScore) / spread
+	}
+}
+
+func (s *SQLiteStore) Read(id string) (*api.StoredMemoryResponse, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	row := s.db.QueryRow(
+		`SELECT ID_, TS_, REQUEST_ID_, CHAT_ID_, AGENT_KEY_, SUBJECT_KEY_,
+			SOURCE_TYPE_, SUMMARY_, CATEGORY_, IMPORTANCE_, TAGS_,
+			UPDATED_AT_, ACCESS_COUNT_, LAST_ACCESSED_AT_
+		FROM MEMORIES WHERE ID_ = ?`,
+		id,
+	)
+	var item api.StoredMemoryResponse
+	var ts int64
+	var requestID, chatID, tags sql.NullString
+	var accessCount sql.NullInt64
+	var lastAccessedAt sql.NullInt64
+
+	err := row.Scan(
+		&item.ID, &ts, &requestID, &chatID,
+		&item.AgentKey, &item.SubjectKey, &item.SourceType,
+		&item.Summary, &item.Category, &item.Importance, &tags,
+		&item.UpdatedAt, &accessCount, &lastAccessedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	item.CreatedAt = ts
+	if requestID.Valid {
+		item.RequestID = requestID.String
+	}
+	if chatID.Valid {
+		item.ChatID = chatID.String
+	}
+	if tags.Valid && tags.String != "" {
+		item.Tags = strings.Split(tags.String, ",")
+	}
+
+	// Update access tracking
+	now := time.Now().UnixMilli()
+	_, _ = s.db.Exec(
+		`UPDATE MEMORIES SET ACCESS_COUNT_ = ACCESS_COUNT_ + 1, LAST_ACCESSED_AT_ = ?, UPDATED_AT_ = ? WHERE ID_ = ?`,
+		now, now, id,
+	)
+	return &item, nil
 }
 
 func (s *SQLiteStore) Write(item api.StoredMemoryResponse) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if item.ID == "" {
+		item.ID = generateMemoryID()
+	}
+	now := time.Now().UnixMilli()
 	if item.UpdatedAt == 0 {
-		item.UpdatedAt = time.Now().UnixMilli()
+		item.UpdatedAt = now
 	}
 	if item.CreatedAt == 0 {
 		item.CreatedAt = item.UpdatedAt
 	}
-	if item.ID == "" {
-		item.ID = fmt.Sprintf("mem_%d", time.Now().UnixNano())
+
+	tagsStr := strings.Join(item.Tags, ",")
+
+	_, err := s.db.Exec(
+		`INSERT INTO MEMORIES (ID_, TS_, REQUEST_ID_, CHAT_ID_, AGENT_KEY_, SUBJECT_KEY_,
+			SOURCE_TYPE_, SUMMARY_, CATEGORY_, IMPORTANCE_, TAGS_, UPDATED_AT_)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(ID_) DO UPDATE SET
+			SUMMARY_ = excluded.SUMMARY_,
+			CATEGORY_ = excluded.CATEGORY_,
+			IMPORTANCE_ = excluded.IMPORTANCE_,
+			TAGS_ = excluded.TAGS_,
+			UPDATED_AT_ = excluded.UPDATED_AT_`,
+		item.ID, item.CreatedAt, item.RequestID, item.ChatID,
+		item.AgentKey, item.SubjectKey, item.SourceType,
+		item.Summary, item.Category, item.Importance, tagsStr, item.UpdatedAt,
+	)
+	if err != nil {
+		return err
 	}
 
-	items, err := s.readIndex()
-	if err != nil {
-		return err
+	// Dual-write to journal
+	if s.dualWriteMD {
+		_ = AppendJournal(s.root, item)
 	}
-	replaced := false
-	for idx := range items {
-		if items[idx].ID == item.ID {
-			items[idx] = item
-			replaced = true
-			break
-		}
-	}
-	if !replaced {
-		items = append(items, item)
-	}
-	if err := s.persistIndex(items); err != nil {
-		return err
-	}
-	if err := AppendJournal(s.root, item); err != nil {
-		return err
-	}
-	payload, err := json.MarshalIndent(item, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(filepath.Join(s.root, item.ID+".stored.json"), payload, 0o644)
+	return nil
 }
 
-func (s *SQLiteStore) readIndex() ([]api.StoredMemoryResponse, error) {
-	data, err := os.ReadFile(s.dbPath)
-	if os.IsNotExist(err) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	if len(data) == 0 {
-		return nil, nil
-	}
-	var items []api.StoredMemoryResponse
-	if err := json.Unmarshal(data, &items); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-func (s *SQLiteStore) persistIndex(items []api.StoredMemoryResponse) error {
-	data, err := json.MarshalIndent(items, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(s.dbPath, data, 0o644)
+func generateMemoryID() string {
+	b := make([]byte, 4)
+	_, _ = rand.Read(b)
+	return "mem_" + hex.EncodeToString(b)
 }
