@@ -6,7 +6,7 @@ out/
 target/
 
 # Go build artifacts
-agent-platform-runner
+/agent-platform-runner
 *.test
 *.out
 coverage.out

@@ -1,0 +1,84 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
+
+	"agent-platform-runner-go/internal/app"
+	"agent-platform-runner-go/internal/config"
+)
+
+func main() {
+	startedAt := time.Now()
+	log.Printf("starting runner: pid=%d", os.Getpid())
+
+	appInitStartedAt := time.Now()
+	application, err := app.New()
+	if err != nil {
+		log.Fatalf("startup failed during app init after %s: %v", startupElapsed(appInitStartedAt), err)
+	}
+	defer func() {
+		if err := application.Close(); err != nil {
+			log.Printf("app close: %v", err)
+		}
+	}()
+
+	server := &http.Server{
+		Addr:              application.Config.ServerAddress(),
+		Handler:           application.Router,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+	runtimeDescription := resolvedRuntimeDescription(application.Config)
+	log.Printf(
+		"server ready: %s addr=%s app_init=%s total=%s",
+		runtimeDescription,
+		server.Addr,
+		startupElapsed(appInitStartedAt),
+		startupElapsed(startedAt),
+	)
+
+	go func() {
+		listenStartedAt := time.Now()
+		log.Printf("listening on %s (%s)", server.Addr, runtimeDescription)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("listen on %s failed after %s: %v", server.Addr, startupElapsed(listenStartedAt), err)
+		}
+	}()
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	sig := <-stop
+	log.Printf("shutdown signal received: %s", sig)
+
+	shutdownStartedAt := time.Now()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := server.Shutdown(ctx); err != nil {
+		log.Printf("shutdown: %v", err)
+		return
+	}
+	log.Printf("shutdown complete in %s", startupElapsed(shutdownStartedAt))
+}
+
+func startupElapsed(startedAt time.Time) time.Duration {
+	return time.Since(startedAt).Round(time.Millisecond)
+}
+
+func resolvedRuntimeDescription(cfg config.Config) string {
+	if strings.HasPrefix(cfg.Paths.RegistriesDir, "/opt/") &&
+		strings.HasPrefix(cfg.Paths.AgentsDir, "/opt/") &&
+		strings.HasPrefix(cfg.Paths.ChatsDir, "/opt/") {
+		return "mode=compose/container"
+	}
+	if hostPort, ok := os.LookupEnv("HOST_PORT"); ok && strings.TrimSpace(hostPort) != "" {
+		return fmt.Sprintf("mode=local host_port=%s", strings.TrimSpace(hostPort))
+	}
+	return "mode=local"
+}
