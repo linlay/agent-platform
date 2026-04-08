@@ -132,6 +132,36 @@ func TestParseAgentFileNormalizesJavaContextTagsAndRuntimePrompts(t *testing.T) 
 	}
 }
 
+func TestParseAgentFilePrefersContextConfigTags(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	if err := os.WriteFile(path, []byte(
+		"key: zenmi\n"+
+			"name: 小宅\n"+
+			"mode: REACT\n"+
+			"modelConfig:\n"+
+			"  modelKey: demo-model\n"+
+			"contextConfig:\n"+
+			"  tags:\n"+
+			"    - system\n"+
+			"    - context\n"+
+			"    - owner\n"+
+			"    - auth\n"+
+			"contextTags:\n"+
+			"  - execution_policy\n",
+	), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	if got := strings.Join(def.ContextTags, ","); got != "system,context,owner,auth" {
+		t.Fatalf("expected contextConfig tags to win, got %q", got)
+	}
+}
+
 func TestLoadTeamsSupportsYAMLAndSkipsExampleFiles(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "default.yaml"), []byte(

@@ -672,7 +672,12 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	def.ToolOverrides = parseToolOverrides(toolConfig["overrides"])
 	def.Skills = listStrings(mapNode(root["skillConfig"])["skills"])
 	def.Controls = cloneListMaps(listMaps(root["controls"]))
-	def.ContextTags = normalizeContextTags(listStrings(root["contextTags"]))
+	contextConfig := mapNode(root["contextConfig"])
+	contextTags := listStrings(contextConfig["tags"])
+	if len(contextTags) == 0 {
+		contextTags = listStrings(root["contextTags"])
+	}
+	def.ContextTags = normalizeContextTags(contextTags)
 	if budget := mapNode(root["budget"]); len(budget) > 0 {
 		def.Budget = cloneMap(budget)
 	}

@@ -76,19 +76,37 @@ func (c *ContainerHubClient) GetEnvironmentAgentPrompt(environmentID string) (En
 		return EnvironmentAgentPromptResult{}, err
 	}
 	result := EnvironmentAgentPromptResult{
-		EnvironmentName: strings.TrimSpace(anyStringNode(decoded["environmentName"])),
-		HasPrompt:       anyBoolNode(decoded["hasPrompt"]),
-		Prompt:          anyStringNode(decoded["prompt"]),
-		UpdatedAt:       anyStringNode(decoded["updatedAt"]),
+		EnvironmentName: strings.TrimSpace(firstStringValue(decoded, "environmentName", "environment_name")),
+		HasPrompt:       firstBoolValue(decoded, "hasPrompt", "has_prompt"),
+		Prompt:          firstStringValue(decoded, "prompt"),
+		UpdatedAt:       firstStringValue(decoded, "updatedAt", "updated_at"),
 		OK:              resp.StatusCode >= 200 && resp.StatusCode < 300,
 	}
 	if !result.OK {
-		result.Error = anyStringNode(decoded["error"])
+		result.Error = firstStringValue(decoded, "error")
 		if strings.TrimSpace(result.Error) == "" {
 			result.Error = fmt.Sprintf("status %d", resp.StatusCode)
 		}
 	}
 	return result, nil
+}
+
+func firstStringValue(values map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(anyStringNode(values[key])); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func firstBoolValue(values map[string]any, keys ...string) bool {
+	for _, key := range keys {
+		if value, ok := values[key]; ok {
+			return anyBoolNode(value)
+		}
+	}
+	return false
 }
 
 func (c *ContainerHubClient) post(ctx context.Context, path string, payload map[string]any) (map[string]any, error) {
