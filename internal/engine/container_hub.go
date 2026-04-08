@@ -214,11 +214,16 @@ func (s *ContainerHubSandboxService) OpenIfNeeded(ctx context.Context, execCtx *
 	if !s.cfg.Enabled {
 		return fmt.Errorf("container-hub sandbox is disabled")
 	}
-	if strings.TrimSpace(s.cfg.DefaultEnvironmentID) == "" {
+
+	// Resolve environmentId: agent sandboxConfig > global default (mirrors Java)
+	environmentID := s.resolveEnvironmentID(execCtx)
+	if environmentID == "" {
 		return fmt.Errorf("container-hub environment id is required")
 	}
+	// Store resolved ID so acquire methods can use it
+	execCtx.resolvedEnvironmentID = environmentID
 
-	level := strings.ToLower(strings.TrimSpace(s.cfg.DefaultSandboxLevel))
+	level := s.resolveSandboxLevel(execCtx)
 	if level == "" {
 		level = "run"
 	}
@@ -231,6 +236,26 @@ func (s *ContainerHubSandboxService) OpenIfNeeded(ctx context.Context, execCtx *
 	default:
 		return s.acquireRunSession(ctx, execCtx)
 	}
+}
+
+// resolveEnvironmentID mirrors Java's ContainerHubSandboxService.resolveEnvironmentId:
+// agent sandboxConfig.environmentId > global default.
+func (s *ContainerHubSandboxService) resolveEnvironmentID(execCtx *ExecutionContext) string {
+	if execCtx != nil && execCtx.Session.SandboxEnvironmentID != "" {
+		return strings.TrimSpace(execCtx.Session.SandboxEnvironmentID)
+	}
+	return strings.TrimSpace(s.cfg.DefaultEnvironmentID)
+}
+
+func (s *ContainerHubSandboxService) resolveSandboxLevel(execCtx *ExecutionContext) string {
+	if execCtx != nil && execCtx.Session.SandboxLevel != "" {
+		return strings.ToLower(strings.TrimSpace(execCtx.Session.SandboxLevel))
+	}
+	level := strings.ToLower(strings.TrimSpace(s.cfg.DefaultSandboxLevel))
+	if level == "" {
+		return "run"
+	}
+	return level
 }
 
 func (s *ContainerHubSandboxService) Execute(ctx context.Context, execCtx *ExecutionContext, command string, cwd string, timeoutMs int64) (SandboxExecutionResult, error) {
@@ -386,7 +411,7 @@ func (s *ContainerHubSandboxService) createAndBind(ctx context.Context, execCtx 
 	}
 	response, err := s.client.CreateSession(ctx, map[string]any{
 		"session_id":     sessionID,
-		"environment_id": s.cfg.DefaultEnvironmentID,
+		"environment_name": execCtx.resolvedEnvironmentID,
 		"cwd":            "/workspace",
 		"mounts":         payloadMounts,
 		"labels": map[string]string{
@@ -408,7 +433,7 @@ func (s *ContainerHubSandboxService) createAndBind(ctx context.Context, execCtx 
 	}
 	execCtx.SandboxSession = &SandboxSession{
 		SessionID:     returnedSessionID,
-		EnvironmentID: s.cfg.DefaultEnvironmentID,
+		EnvironmentID: execCtx.resolvedEnvironmentID,
 		DefaultCwd:    defaultCwd,
 		Level:         level,
 	}

@@ -82,6 +82,9 @@ type QuerySession struct {
 	PlanPrompt    string
 	ExecutePrompt string
 	SummaryPrompt string
+
+	SandboxEnvironmentID string
+	SandboxLevel         string
 }
 
 type ExecutionContext struct {
@@ -99,6 +102,8 @@ type ExecutionContext struct {
 	StartedAt       time.Time
 	ModelCalls      int
 	ToolCalls       int
+
+	resolvedEnvironmentID string // set by OpenIfNeeded, used by acquire methods
 }
 
 type SandboxSession struct {

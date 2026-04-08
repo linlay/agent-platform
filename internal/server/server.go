@@ -461,11 +461,13 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		ResolvedStageSettings: engine.ResolvePlanExecuteSettings(agentDef.StageSettings, s.deps.Config.Defaults.Plan.MaxSteps, s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask),
 		HistoryMessages:       historyMessages,
 		MemoryContext:         memoryContext,
-		SoulPrompt:            agentDef.SoulPrompt,
-		AgentsPrompt:          agentDef.AgentsPrompt,
-		PlanPrompt:            agentDef.PlanPrompt,
-		ExecutePrompt:         agentDef.ExecutePrompt,
-		SummaryPrompt:         agentDef.SummaryPrompt,
+		SoulPrompt:           agentDef.SoulPrompt,
+		AgentsPrompt:         agentDef.AgentsPrompt,
+		PlanPrompt:           agentDef.PlanPrompt,
+		ExecutePrompt:        agentDef.ExecutePrompt,
+		SummaryPrompt:        agentDef.SummaryPrompt,
+		SandboxEnvironmentID: extractSandboxField(agentDef.Sandbox, "environmentId"),
+		SandboxLevel:         extractSandboxField(agentDef.Sandbox, "level"),
 	}
 	if principal := PrincipalFromContext(r.Context()); principal != nil {
 		session.Subject = principal.Subject
@@ -1018,6 +1020,14 @@ func nullableStringValue(value any) any {
 		return nil
 	}
 	return text
+}
+
+func extractSandboxField(sandbox map[string]any, key string) string {
+	if sandbox == nil {
+		return ""
+	}
+	v, _ := sandbox[key].(string)
+	return strings.TrimSpace(v)
 }
 
 func cloneMap(src map[string]any) map[string]any {
