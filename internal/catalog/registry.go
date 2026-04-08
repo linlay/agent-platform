@@ -449,6 +449,22 @@ func parseAgentFile(path string) (AgentDefinition, error) {
 		}
 	}
 	def.ReactMaxSteps = intNode(mapNode(root["react"])["maxSteps"])
+
+	// Implicit tool injection — mirrors Java AgentDefinitionLoader behaviour.
+	// Agents with skillConfig.skills automatically get _sandbox_bash_.
+	if len(def.Skills) > 0 && !containsString(def.Tools, "_sandbox_bash_") {
+		def.Tools = append(def.Tools, "_sandbox_bash_")
+	}
+	// Agents with memoryConfig.enabled automatically get memory tools.
+	memoryConfig := mapNode(root["memoryConfig"])
+	if enabled, ok := memoryConfig["enabled"].(bool); ok && enabled {
+		for _, memTool := range []string{"_memory_write_", "_memory_read_", "_memory_search_"} {
+			if !containsString(def.Tools, memTool) {
+				def.Tools = append(def.Tools, memTool)
+			}
+		}
+	}
+
 	if def.Key == "" {
 		return AgentDefinition{}, fmt.Errorf("agent key is required")
 	}
