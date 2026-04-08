@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"agent-platform-runner-go/internal/api"
@@ -502,8 +503,11 @@ func planStatePayload(state *PlanRuntimeState) map[string]any {
 	return payload
 }
 
+var planTaskCounter atomic.Int64
+
 func shortPlanID() string {
-	return fmt.Sprintf("task_%d", time.Now().UnixNano())
+	seq := planTaskCounter.Add(1)
+	return fmt.Sprintf("task_%d_%d", time.Now().UnixMilli(), seq)
 }
 
 func publishArtifacts(chatsRoot string, chatID string, raw any) []map[string]any {
