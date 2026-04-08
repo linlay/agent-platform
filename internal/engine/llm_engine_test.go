@@ -42,6 +42,13 @@ func TestLLMAgentEngineStreamsContentDeltas(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first next: %v", err)
 	}
+	// Skip react-step marker if present
+	if _, isMarker := first.(DeltaStageMarker); isMarker {
+		first, err = stream.Next()
+		if err != nil {
+			t.Fatalf("next after marker: %v", err)
+		}
+	}
 	firstContent, ok := first.(DeltaContent)
 	if !ok {
 		t.Fatalf("expected DeltaContent, got %#v", first)
@@ -272,6 +279,13 @@ func TestLLMAgentEngineFailsRunWhenToolCallIDNeverArrives(t *testing.T) {
 	event, err := stream.Next()
 	if err != nil {
 		t.Fatalf("next: %v", err)
+	}
+	// Skip react-step marker if present
+	if _, isMarker := event.(DeltaStageMarker); isMarker {
+		event, err = stream.Next()
+		if err != nil {
+			t.Fatalf("next after marker: %v", err)
+		}
 	}
 	runErr, ok := event.(DeltaError)
 	if !ok {

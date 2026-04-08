@@ -3,6 +3,7 @@ package schedule
 import (
 	"context"
 	"log"
+	"strings"
 	"sync"
 	"time"
 )
@@ -49,7 +50,8 @@ func (o *Orchestrator) Start(ctx context.Context) error {
 			log.Printf("[schedule] skip registration for %q: %v", def.ID, err)
 			continue
 		}
-		next := schedule.Next(time.Now())
+		loc := resolveScheduleLocation(def.Environment.ZoneID)
+		next := schedule.Next(time.Now().In(loc))
 		log.Printf(
 			"[schedule] registered id=%s name=%s cron=%s agentKey=%s teamId=%s nextFireTime=%s source=%s",
 			def.ID,
@@ -67,10 +69,11 @@ func (o *Orchestrator) Start(ctx context.Context) error {
 
 		definition := def
 		o.wg.Add(1)
+		scheduleLoc := loc
 		go func() {
 			defer o.wg.Done()
 			for {
-				nextRun := schedule.Next(time.Now())
+				nextRun := schedule.Next(time.Now().In(scheduleLoc))
 				timer := time.NewTimer(time.Until(nextRun))
 				select {
 				case <-runCtx.Done():
@@ -93,6 +96,18 @@ func (o *Orchestrator) Start(ctx context.Context) error {
 	o.mu.Unlock()
 	log.Printf("[schedule] registry ready count=%d", count)
 	return nil
+}
+
+func resolveScheduleLocation(zoneID string) *time.Location {
+	if strings.TrimSpace(zoneID) == "" {
+		return time.Local
+	}
+	loc, err := time.LoadLocation(strings.TrimSpace(zoneID))
+	if err != nil {
+		log.Printf("[schedule] invalid zoneId %q, using local: %v", zoneID, err)
+		return time.Local
+	}
+	return loc
 }
 
 func (o *Orchestrator) Stop() context.Context {

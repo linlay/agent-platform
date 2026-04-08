@@ -12,10 +12,21 @@ import (
 	"agent-platform-runner-go/internal/config"
 )
 
-func TestOneshotModeRejectsToolCalls(t *testing.T) {
+func TestOneshotModeAllowsToolCalls(t *testing.T) {
+	var mu sync.Mutex
+	callCount := 0
 	client := newScriptedHTTPClient(func(*http.Request) scriptedHTTPResponse {
+		mu.Lock()
+		defer mu.Unlock()
+		callCount++
+		if callCount == 1 {
+			return scriptedSSE(
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"mock.tool","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}`,
+				`[DONE]`,
+			)
+		}
 		return scriptedSSE(
-			`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"mock.tool","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}`,
+			`{"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}]}`,
 			`[DONE]`,
 		)
 	})
@@ -39,19 +50,29 @@ func TestOneshotModeRejectsToolCalls(t *testing.T) {
 	}
 	defer stream.Close()
 
-	event, err := stream.Next()
-	if err != nil {
-		t.Fatalf("next: %v", err)
+	// ONESHOT now allows tool use (Java behaviour), should get tool events then content
+	sawToolResult := false
+	sawContent := false
+	for {
+		event, err := stream.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("next: %v", err)
+		}
+		switch event.(type) {
+		case DeltaToolResult:
+			sawToolResult = true
+		case DeltaContent:
+			sawContent = true
+		}
 	}
-	deltaErr, ok := event.(DeltaError)
-	if !ok {
-		t.Fatalf("expected DeltaError, got %#v", event)
+	if !sawToolResult {
+		t.Fatal("expected tool result in ONESHOT mode")
 	}
-	if deltaErr.Error["code"] != "tool_calls_not_allowed" {
-		t.Fatalf("unexpected error payload: %#v", deltaErr.Error)
-	}
-	if _, err := stream.Next(); err != io.EOF {
-		t.Fatalf("expected eof, got %v", err)
+	if !sawContent {
+		t.Fatal("expected content after tool execution in ONESHOT mode")
 	}
 }
 

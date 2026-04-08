@@ -47,12 +47,17 @@ type openAIFunctionCall struct {
 }
 
 type openAIChatRequest struct {
-	Model       string           `json:"model"`
-	Messages    []openAIMessage  `json:"messages"`
-	Tools       []openAIToolSpec `json:"tools,omitempty"`
-	ToolChoice  string           `json:"tool_choice,omitempty"`
-	Temperature float64          `json:"temperature,omitempty"`
-	Stream      bool             `json:"stream,omitempty"`
+	Model         string           `json:"model"`
+	Messages      []openAIMessage  `json:"messages"`
+	Tools         []openAIToolSpec `json:"tools,omitempty"`
+	ToolChoice    string           `json:"tool_choice,omitempty"`
+	Temperature   float64          `json:"temperature,omitempty"`
+	Stream        bool             `json:"stream,omitempty"`
+	StreamOptions *streamOptions   `json:"stream_options,omitempty"`
+}
+
+type streamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 type openAIToolSpec struct {
@@ -112,6 +117,7 @@ type llmRunStream struct {
 	closed             bool
 	fallbackSent       bool
 	cancelSent         bool
+	finalTurnAttempted bool
 	allowToolUse       bool
 	previousToolResult any
 	queuedToolCalls    []*preparedToolInvocation
@@ -306,7 +312,7 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 func (e *LLMAgentEngine) resolveMaxSteps() int {
 	maxSteps := e.cfg.Defaults.React.MaxSteps
 	if maxSteps <= 0 {
-		return 6
+		return 60 // Java default
 	}
 	return maxSteps
 }
@@ -372,6 +378,15 @@ func (s *llmRunStream) fillPending() error {
 		}
 		if s.currentTurn == nil {
 			if s.step >= s.maxSteps {
+				// Java: force one final turn with ToolChoice.NONE to generate answer
+				if !s.finalTurnAttempted {
+					s.finalTurnAttempted = true
+					s.toolSpecs = nil // disable tools for final turn
+					if err := s.prepareNextTurn(); err != nil {
+						return err
+					}
+					continue
+				}
 				s.enqueueFallback("Tool execution loop reached the maximum number of steps.")
 				s.finished = true
 				continue
@@ -398,6 +413,13 @@ func (s *llmRunStream) prepareNextTurn() error {
 	s.appendPendingSteers()
 	if len(s.pending) > 0 {
 		return nil
+	}
+	// Emit react-step-N marker for each model turn (Java: ReactMode line 72)
+	// Only for REACT mode (allowToolUse=true, not PLAN_EXECUTE which has its own markers)
+	if s.allowToolUse && s.execCtx != nil && s.execCtx.PlanState == nil {
+		s.pending = append(s.pending, DeltaStageMarker{
+			Stage: fmt.Sprintf("react-step-%d", s.step+1),
+		})
 	}
 	if err := s.checkBudgetBeforeModelCall(); err != nil {
 		s.pending = append(s.pending, DeltaError{Error: err})
@@ -729,7 +751,7 @@ func (s *llmRunStream) checkBudgetBeforeModelCall() map[string]any {
 			},
 		)
 	}
-	if budget.Model.MaxCalls > 0 && s.execCtx.ModelCalls >= budget.Model.MaxCalls {
+	if budget.Model.MaxCalls > 0 && s.execCtx.ModelCalls > budget.Model.MaxCalls {
 		return NewErrorPayload(
 			"model_calls_exceeded",
 			"model call budget exceeded",
@@ -739,6 +761,19 @@ func (s *llmRunStream) checkBudgetBeforeModelCall() map[string]any {
 				"modelCalls": s.execCtx.ModelCalls,
 				"limitValue": budget.Model.MaxCalls,
 				"limitName":  "model.maxCalls",
+			},
+		)
+	}
+	if budget.Tool.MaxCalls > 0 && s.execCtx.ToolCalls > budget.Tool.MaxCalls {
+		return NewErrorPayload(
+			"tool_calls_exceeded",
+			"tool call budget exceeded",
+			ErrorScopeTool,
+			ErrorCategoryTool,
+			map[string]any{
+				"toolCalls":  s.execCtx.ToolCalls,
+				"limitValue": budget.Tool.MaxCalls,
+				"limitName":  "tool.maxCalls",
 			},
 		)
 	}
@@ -982,12 +1017,13 @@ func (e *LLMAgentEngine) openProviderStream(ctx context.Context, provider Provid
 		effectiveToolChoice = ""
 	}
 	requestBody := openAIChatRequest{
-		Model:       model.ModelID,
-		Messages:    messages,
-		Tools:       toolSpecs,
-		ToolChoice:  effectiveToolChoice,
-		Temperature: 0,
-		Stream:      true,
+		Model:         model.ModelID,
+		Messages:      messages,
+		Tools:         toolSpecs,
+		ToolChoice:    effectiveToolChoice,
+		Temperature:   0,
+		Stream:        true,
+		StreamOptions: &streamOptions{IncludeUsage: true},
 	}
 	body, err := json.Marshal(requestBody)
 	if err != nil {

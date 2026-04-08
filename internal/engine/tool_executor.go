@@ -304,6 +304,9 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	exitCode := 0
 	stderr := ""
 	stdout := string(output)
+	if len(stdout) > maxBashOutputChars {
+		stdout = stdout[:maxBashOutputChars]
+	}
 	if err != nil {
 		exitCode = -1
 		if exitErr, ok := err.(*exec.ExitError); ok {
@@ -324,6 +327,14 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	return structuredResultWithExit(payload, exitCode), nil
 }
 
+// Hardcoded unsupported commands blacklist (Java: SystemBash.UNSUPPORTED_COMMANDS)
+var unsupportedBashCommands = map[string]bool{
+	".": true, "source": true, "eval": true, "exec": true,
+	"coproc": true, "fg": true, "bg": true, "jobs": true,
+}
+
+const maxBashOutputChars = 8000 // Java: MAX_OUTPUT_CHARS = 8_000
+
 func validateStrictCommand(command string, cfg config.BashConfig) error {
 	if strings.ContainsAny(command, "\n;&|<>(){}") {
 		return fmt.Errorf("Unsupported syntax for _bash_")
@@ -333,6 +344,9 @@ func validateStrictCommand(command string, cfg config.BashConfig) error {
 		return fmt.Errorf("Cannot parse command")
 	}
 	base := fields[0]
+	if unsupportedBashCommands[strings.ToLower(base)] {
+		return fmt.Errorf("Unsupported command: %s", base)
+	}
 	if !containsString(cfg.AllowedCommands, base) {
 		return fmt.Errorf("Command not allowed: %s", base)
 	}
