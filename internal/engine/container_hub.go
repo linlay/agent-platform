@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -46,8 +47,41 @@ func (c *ContainerHubClient) CreateSession(ctx context.Context, payload map[stri
 	return c.post(ctx, "/api/sessions/create", payload)
 }
 
-func (c *ContainerHubClient) ExecuteSession(ctx context.Context, sessionID string, payload map[string]any) (map[string]any, error) {
-	return c.post(ctx, "/api/sessions/"+strings.TrimSpace(sessionID)+"/execute", payload)
+// ExecuteSessionRaw calls the container-hub execute API and returns the raw response.
+// Container Hub returns plain text on success, JSON error on failure.
+// Java: ContainerHubClient.executeSession with contentTypeAware=true
+//   → success: textBody(response.body()) returns raw text as-is
+//   → failure: parsed as JSON error
+func (c *ContainerHubClient) ExecuteSessionRaw(ctx context.Context, sessionID string, payload map[string]any) (string, bool, error) {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", false, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/sessions/"+strings.TrimSpace(sessionID)+"/execute", bytes.NewReader(body))
+	if err != nil {
+		return "", false, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.authToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.authToken)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", false, err
+	}
+	defer resp.Body.Close()
+	rawBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", false, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", false, fmt.Errorf("/api/sessions/execute returned status %d", resp.StatusCode)
+	}
+	// Return raw text + whether it's JSON (error) or plain text (success)
+	text := string(rawBody)
+	var jsonCheck map[string]any
+	isJSON := json.Unmarshal(rawBody, &jsonCheck) == nil
+	return text, isJSON, nil
 }
 
 func (c *ContainerHubClient) StopSession(ctx context.Context, sessionID string) (map[string]any, error) {
@@ -338,14 +372,26 @@ func (s *ContainerHubSandboxService) Execute(ctx context.Context, execCtx *Execu
 	if timeoutMs > 0 {
 		payload["timeout_ms"] = timeoutMs
 	}
-	response, err := s.client.ExecuteSession(ctx, execCtx.SandboxSession.SessionID, payload)
+	rawText, isJSON, err := s.client.ExecuteSessionRaw(ctx, execCtx.SandboxSession.SessionID, payload)
 	if err != nil {
 		return SandboxExecutionResult{}, err
 	}
+	if !isJSON {
+		// Success: plain text output (Java: textBody → isTextual → return directly)
+		return SandboxExecutionResult{
+			ExitCode:         0,
+			Stdout:           rawText,
+			WorkingDirectory: workingDirectory,
+		}, nil
+	}
+	// Error: JSON response with exitCode/stdout/stderr
+	var parsed map[string]any
+	_ = json.Unmarshal([]byte(rawText), &parsed)
+	exitCode := intValue(parsed["exitCode"], -1)
 	return SandboxExecutionResult{
-		ExitCode:         intValue(response["exit_code"], -1),
-		Stdout:           stringValue(response["stdout"]),
-		Stderr:           stringValue(response["stderr"]),
+		ExitCode:         exitCode,
+		Stdout:           stringValue(parsed["stdout"]),
+		Stderr:           stringValue(parsed["stderr"]),
 		WorkingDirectory: workingDirectory,
 	}, nil
 }

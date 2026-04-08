@@ -265,6 +265,11 @@ func (t *RuntimeToolExecutor) invokeSandboxBash(ctx context.Context, args map[st
 	if err != nil {
 		return ToolExecutionResult{Output: err.Error(), Error: "sandbox_execute_failed", ExitCode: -1}, nil
 	}
+	// Java: success (exitCode=0, no stderr) → plain text stdout
+	//       failure → JSON error object
+	if result.ExitCode == 0 && strings.TrimSpace(result.Stderr) == "" {
+		return ToolExecutionResult{Output: result.Stdout, ExitCode: 0}, nil
+	}
 	payload := map[string]any{
 		"exitCode":         result.ExitCode,
 		"mode":             "sandbox",
