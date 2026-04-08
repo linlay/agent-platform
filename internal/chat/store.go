@@ -222,8 +222,14 @@ func (s *FileStore) LoadChat(chatID string) (Detail, error) {
 	}
 
 	plan, artifact := deriveRunState(events)
+	// Filter out plan.update/plan.create/artifact.publish from events —
+	// these are promoted to top-level data.plan / data.artifact (Java contract).
 	orderedEvents := make([]stream.EventData, 0, len(events))
 	for _, event := range events {
+		eventType, _ := event["type"].(string)
+		if eventType == "plan.create" || eventType == "plan.update" || eventType == "artifact.publish" {
+			continue
+		}
 		orderedEvents = append(orderedEvents, stream.EventDataFromMap(event))
 	}
 
@@ -252,17 +258,31 @@ func deriveRunState(events []map[string]any) (*PlanState, *ArtifactState) {
 	for _, event := range events {
 		eventType, _ := event["type"].(string)
 		switch eventType {
-		case "plan.update":
+		case "plan.create", "plan.update":
 			planID, _ := event["planId"].(string)
-			next := &PlanState{PlanID: planID}
+			next := &PlanState{PlanID: planID, Tasks: []PlanTaskState{}}
 			rawPlan, _ := event["plan"].(map[string]any)
 			if planID == "" && rawPlan != nil {
 				planID, _ = rawPlan["planId"].(string)
 				next.PlanID = planID
 			}
-			rawTasks := event["tasks"]
+			// event.plan is the tasks array directly (matching Java/frontend contract).
+			// Also check rawPlan["plan"] and legacy "tasks" for compatibility.
+			var rawTasks any
+			if rawPlan != nil {
+				rawTasks = rawPlan
+			}
+			if _, isSlice := rawTasks.([]any); !isSlice {
+				rawTasks = nil
+			}
+			if rawTasks == nil && rawPlan != nil {
+				rawTasks = rawPlan["plan"]
+			}
 			if rawTasks == nil && rawPlan != nil {
 				rawTasks = rawPlan["tasks"]
+			}
+			if rawTasks == nil {
+				rawTasks = event["tasks"]
 			}
 			if items, ok := rawTasks.([]any); ok {
 				for _, item := range items {

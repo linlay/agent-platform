@@ -509,6 +509,14 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		Role:      defaultRole(req.Role),
 		Created:   created,
 	})
+	// Register tools with clientVisible=false so their SSE events are suppressed.
+	if s.deps.Tools != nil {
+		for _, toolDef := range s.deps.Tools.Definitions() {
+			if cv, ok := toolDef.Meta["clientVisible"].(bool); ok && !cv {
+				assembler.RegisterHiddenTools(toolDef.Name)
+			}
+		}
+	}
 	mapper := engine.NewDeltaMapper(runID, chatID, s.deps.Registry)
 
 	sseWriter, err := stream.NewWriter(w, stream.Options{

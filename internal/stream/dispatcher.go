@@ -266,10 +266,7 @@ func (d *StreamEventDispatcher) handleActionResult(input ActionResult) []StreamE
 }
 
 func (d *StreamEventDispatcher) handlePlanUpdate(input PlanUpdate) []StreamEvent {
-	eventType := "plan.create"
-	if d.state.planID != "" && d.state.planID == input.PlanID {
-		eventType = "plan.update"
-	}
+	eventType := "plan.update"
 	d.state.planID = input.PlanID
 	return []StreamEvent{NewEvent(eventType, map[string]any{
 		"planId": input.PlanID,

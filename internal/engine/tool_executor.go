@@ -447,10 +447,27 @@ func ensurePlanState(execCtx *ExecutionContext) *PlanRuntimeState {
 	return execCtx.PlanState
 }
 
+// planTasksArray returns just the tasks array for SSE plan events.
+// The frontend reads event.plan as List<PlanTask> directly.
+func planTasksArray(state *PlanRuntimeState) []map[string]any {
+	if state == nil {
+		return []map[string]any{}
+	}
+	tasks := make([]map[string]any, 0, len(state.Tasks))
+	for _, task := range state.Tasks {
+		tasks = append(tasks, map[string]any{
+			"taskId":      task.TaskID,
+			"description": task.Description,
+			"status":      task.Status,
+		})
+	}
+	return tasks
+}
+
 func planStatePayload(state *PlanRuntimeState) map[string]any {
 	if state == nil {
 		return map[string]any{
-			"tasks": []map[string]any{},
+			"plan": []map[string]any{},
 		}
 	}
 	tasks := make([]map[string]any, 0, len(state.Tasks))
@@ -463,7 +480,7 @@ func planStatePayload(state *PlanRuntimeState) map[string]any {
 	}
 	payload := map[string]any{
 		"planId": state.PlanID,
-		"tasks":  tasks,
+		"plan":   tasks,
 	}
 	if state.ActiveTaskID != "" {
 		payload["currentTaskId"] = state.ActiveTaskID
@@ -588,7 +605,7 @@ func planAddTasksToolDefinition() api.ToolDetailResponse {
 				},
 			},
 		},
-		Meta: map[string]any{"kind": "backend", "strict": true, "sourceType": "local", "sourceKey": "_plan_add_tasks_"},
+		Meta: map[string]any{"kind": "backend", "strict": true, "sourceType": "local", "sourceKey": "_plan_add_tasks_", "clientVisible": false},
 	}
 }
 
@@ -602,7 +619,7 @@ func planGetTasksToolDefinition() api.ToolDetailResponse {
 			"type":       "object",
 			"properties": map[string]any{},
 		},
-		Meta: map[string]any{"kind": "backend", "strict": true, "sourceType": "local", "sourceKey": "_plan_get_tasks_"},
+		Meta: map[string]any{"kind": "backend", "strict": true, "sourceType": "local", "sourceKey": "_plan_get_tasks_", "clientVisible": false},
 	}
 }
 
@@ -620,7 +637,7 @@ func planUpdateTaskToolDefinition() api.ToolDetailResponse {
 			},
 			"required": []string{"taskId", "status"},
 		},
-		Meta: map[string]any{"kind": "backend", "strict": true, "sourceType": "local", "sourceKey": "_plan_update_task_"},
+		Meta: map[string]any{"kind": "backend", "strict": true, "sourceType": "local", "sourceKey": "_plan_update_task_", "clientVisible": false},
 	}
 }
 

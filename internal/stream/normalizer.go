@@ -2,9 +2,30 @@ package stream
 
 import "strings"
 
-type SseEventNormalizer struct{}
+// SseEventNormalizer filters and transforms SSE events before they reach the client.
+// Tools marked clientVisible=false have their tool.* events suppressed.
+type SseEventNormalizer struct {
+	hiddenToolNames map[string]bool
+	hiddenToolIDs   map[string]bool
+}
 
-func NewNormalizer() *SseEventNormalizer { return &SseEventNormalizer{} }
+func NewNormalizer() *SseEventNormalizer {
+	return &SseEventNormalizer{
+		hiddenToolNames: map[string]bool{},
+		hiddenToolIDs:   map[string]bool{},
+	}
+}
+
+// RegisterHiddenTools marks tool names as non-client-visible.
+// Their tool.start/tool.args/tool.end/tool.snapshot/tool.result SSE events
+// will be suppressed, matching Java SseEventNormalizer.shouldHideToolEvent.
+func (n *SseEventNormalizer) RegisterHiddenTools(names ...string) {
+	for _, name := range names {
+		if strings.TrimSpace(name) != "" {
+			n.hiddenToolNames[strings.ToLower(strings.TrimSpace(name))] = true
+		}
+	}
+}
 
 func (n *SseEventNormalizer) Normalize(events []StreamEvent) []StreamEvent {
 	if len(events) == 0 {
@@ -15,21 +36,44 @@ func (n *SseEventNormalizer) Normalize(events []StreamEvent) []StreamEvent {
 		if n.shouldDrop(event) {
 			continue
 		}
-		out = append(out, n.normalize(event))
+		out = append(out, event)
 	}
 	return out
 }
 
 func (n *SseEventNormalizer) shouldDrop(event StreamEvent) bool {
 	toolName, _ := event.Payload["toolName"].(string)
-	return strings.HasPrefix(toolName, "_hidden_")
+	if strings.HasPrefix(toolName, "_hidden_") {
+		return true
+	}
+
+	// Suppress tool events for clientVisible=false tools.
+	eventType := event.Type
+	if !strings.HasPrefix(eventType, "tool.") {
+		return false
+	}
+	toolID, _ := event.Payload["toolId"].(string)
+
+	if eventType == "tool.start" || eventType == "tool.snapshot" {
+		if n.isHiddenToolName(toolName) {
+			if toolID != "" {
+				n.hiddenToolIDs[toolID] = true
+			}
+			return true
+		}
+		return false
+	}
+
+	// tool.args, tool.end, tool.result — check by toolId
+	if toolID != "" && n.hiddenToolIDs[toolID] {
+		if eventType == "tool.result" {
+			delete(n.hiddenToolIDs, toolID)
+		}
+		return true
+	}
+	return false
 }
 
-func (n *SseEventNormalizer) normalize(event StreamEvent) StreamEvent {
-	if event.Type == "plan.create" {
-		if planID, _ := event.Payload["planId"].(string); planID != "" {
-			return event
-		}
-	}
-	return event
+func (n *SseEventNormalizer) isHiddenToolName(name string) bool {
+	return n.hiddenToolNames[strings.ToLower(strings.TrimSpace(name))]
 }

@@ -638,6 +638,16 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 		ToolName: invocation.toolName,
 		Result:   result,
 	})
+	// Emit plan.update after plan tool execution (mirrors Java PlanTaskDeltaBuilder).
+	// Plan field must be the tasks array directly (not the full planStatePayload object),
+	// because the frontend reads event.plan as List<PlanTask>.
+	if isPlanTool(invocation.toolName) && s.execCtx != nil && s.execCtx.PlanState != nil && len(s.execCtx.PlanState.Tasks) > 0 {
+		s.pending = append(s.pending, DeltaPlanUpdate{
+			PlanID: s.execCtx.PlanState.PlanID,
+			ChatID: s.session.ChatID,
+			Plan:   planTasksArray(s.execCtx.PlanState),
+		})
+	}
 	if published, ok := result.Structured["publishedArtifacts"].([]map[string]any); ok {
 		for _, item := range published {
 			s.pending = append(s.pending, DeltaArtifactPublish{
@@ -710,6 +720,15 @@ func (s *llmRunStream) enqueueFallback(text string) {
 
 func (s *llmRunStream) newContentDeltaEvent(delta string) AgentDelta {
 	return DeltaContent{Text: delta}
+}
+
+func isPlanTool(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "_plan_add_tasks_", "_plan_update_task_":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *llmRunStream) appendPendingSteers() {

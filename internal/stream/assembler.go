@@ -28,6 +28,12 @@ func NewAssembler(request StreamRequest) *StreamEventAssembler {
 	}
 }
 
+// RegisterHiddenTools marks tools as clientVisible=false so their
+// SSE tool.* events are suppressed.
+func (a *StreamEventAssembler) RegisterHiddenTools(names ...string) {
+	a.normalizer.RegisterHiddenTools(names...)
+}
+
 func (a *StreamEventAssembler) Bootstrap() []StreamEvent {
 	events := []StreamEvent{
 		NewEvent("request.query", map[string]any{
