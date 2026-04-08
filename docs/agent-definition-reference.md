@@ -54,6 +54,7 @@ plain:
 - query 请求会绑定 `agentKey`
 - tool 执行器已支持 backend tool
 - Container Hub sandbox 已可参与 tool 执行
+- context tags 解析、归一化与 prompt 注入
 - model registry 已支持从外部目录读取模型定义
 - 定时轮询式 catalog/model refresh
 
@@ -61,9 +62,36 @@ plain:
 
 - `ONESHOT / REACT / PLAN_EXECUTE` 的完整定义驱动编排
 - prompt 分层拼装
-- context tags
 - per-agent memory / skill / tool 目录覆盖
 - WatchService 类文件系统事件热重载
+
+## Context Tags
+
+当前 Go runner 不会为所有 agent 自动附加一组全局默认 `context tags`；每个 agent 仍需在 definition 中显式声明：
+
+- 优先 `contextConfig.tags`
+- 回退 `contextTags`
+
+支持/归一化后的标签：
+
+- `system`
+- `context`
+- `owner`
+- `auth`
+- `sandbox`
+- `all-agents`
+- `memory`
+
+兼容别名映射：
+
+- `agent_identity` / `run_session` / `scene` / `references` / `execution_policy` / `skills` -> `context`
+- `memory_context` -> `memory`
+
+其中：
+
+- `context` 会暴露运行时上下文与 sandbox 路径
+- `owner` 会注入 `OWNER_DIR` 下的 markdown 内容
+- `memory` 会注入运行期 memory context
 
 ## 当前建议
 

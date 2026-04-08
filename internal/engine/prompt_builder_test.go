@@ -123,6 +123,46 @@ func TestBuildSystemPromptUsesCustomAppendixTitles(t *testing.T) {
 	}
 }
 
+func TestBuildSystemPromptContextTagShowsOwnerAndMemoryPathsWithoutInjectingSections(t *testing.T) {
+	prompt := buildSystemPrompt(QuerySession{
+		RequestID:    "req_1",
+		RunID:        "run_1",
+		ChatID:       "chat_1",
+		AgentKey:     "agent_1",
+		ContextTags:  []string{"context"},
+		MemoryPrompt: "memory markdown",
+		RuntimeContext: RuntimeRequestContext{
+			AgentKey: "agent_1",
+			SandboxPaths: SandboxPaths{
+				WorkspaceDir: "/workspace",
+				OwnerDir:     "/owner",
+				MemoryDir:    "/memory",
+			},
+			LocalPaths: LocalPaths{
+				OwnerDir: "/tmp/owner",
+			},
+		},
+		ResolvedStageSettings: PlanExecuteSettings{
+			Execute: StageSettings{SystemPrompt: "yaml prompt"},
+		},
+	}, api.QueryRequest{}, "mock-model", PromptBuildOptions{
+		Stage: "execute",
+	})
+
+	if !strings.Contains(prompt, "sandbox_owner_dir: /owner") {
+		t.Fatalf("expected sandbox owner dir in context section, got %q", prompt)
+	}
+	if !strings.Contains(prompt, "sandbox_memory_dir: /memory") {
+		t.Fatalf("expected sandbox memory dir in context section, got %q", prompt)
+	}
+	if strings.Contains(prompt, "Runtime Context: Owner") {
+		t.Fatalf("did not expect owner section for context-only tags, got %q", prompt)
+	}
+	if strings.Contains(prompt, "Runtime Context: Agent Memory") {
+		t.Fatalf("did not expect memory section for context-only tags, got %q", prompt)
+	}
+}
+
 func assertOrdered(t *testing.T, text string, parts ...string) {
 	t.Helper()
 	last := -1

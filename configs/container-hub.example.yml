@@ -14,5 +14,7 @@ destroy-queue-delay-ms: 5000
 # - /root      -> ROOT_DIR         (default: rw)
 # - /skills    -> AGENTS_DIR/<agentKey>/skills for RUN/AGENT, SKILLS_MARKET_DIR for GLOBAL (default: ro)
 # - /pan       -> PAN_DIR          (default: rw)
-# - /agent     -> AGENTS_DIR/<agentKey> when directory agent exists (default: ro)
+# - /agent     -> AGENTS_DIR/<agentKey> (default: ro, required; missing directory fails fast)
+# - /owner     -> OWNER_DIR         (default: ro, auto-created when missing)
+# - /memory    -> MEMORY_DIR/<agentKey> (default: ro, auto-created when missing)
 # 可选平台挂载和自定义挂载需要在 agent.yml 的 sandboxConfig.extraMounts 中显式声明 mode: ro|rw

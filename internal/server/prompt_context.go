@@ -178,12 +178,12 @@ func resolveSandboxPaths(cfg config.Config, def catalog.AgentDefinition, chatID 
 	}
 
 	var skillsMarketDir string
-	var ownerDir string
+	ownerDir := ifNonEmpty(cfg.Paths.OwnerDir, "/owner")
 	var agentsDir string
 	var teamsDir string
 	var schedulesDir string
 	var chatsDir string
-	var memoryDir string
+	memoryDir := ifNonEmpty(cfg.Paths.MemoryDir, "/memory")
 	var modelsDir string
 	var providersDir string
 	var mcpServersDir string
@@ -194,8 +194,6 @@ func resolveSandboxPaths(cfg config.Config, def catalog.AgentDefinition, chatID 
 		switch strings.ToLower(strings.TrimSpace(anyString(mount["platform"]))) {
 		case "skills-market":
 			skillsMarketDir = "/skills-market"
-		case "owner":
-			ownerDir = "/owner"
 		case "agents":
 			agentsDir = "/agents"
 		case "teams":
@@ -204,8 +202,6 @@ func resolveSandboxPaths(cfg config.Config, def catalog.AgentDefinition, chatID 
 			schedulesDir = "/schedules"
 		case "chats":
 			chatsDir = "/chats"
-		case "memory":
-			memoryDir = "/memory"
 		case "models":
 			modelsDir = "/models"
 		case "providers":

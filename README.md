@@ -176,6 +176,18 @@ docker compose up --build
 - 容器内目录固定为 `/opt/registries`、`/opt/owner`、`/opt/agents`、`/opt/teams`、`/opt/root`、`/opt/schedules`、`/opt/chats`、`/opt/memory`、`/opt/pan`、`/opt/skills-market`
 - `./configs` 只读挂载到 `/opt/configs`
 
+Container Hub 默认基础挂载当前固定为 7 个：
+
+- `/workspace` -> `CHATS_DIR/<chatId>`（`rw`）
+- `/root` -> `ROOT_DIR`（`rw`）
+- `/skills` -> `AGENTS_DIR/<agentKey>/skills`（`run/agent`）或 `SKILLS_MARKET_DIR`（`global`），`ro`
+- `/pan` -> `PAN_DIR`（`rw`）
+- `/agent` -> `AGENTS_DIR/<agentKey>`（`ro`，必挂载；目录缺失会 fail-fast）
+- `/owner` -> `OWNER_DIR`（`ro`，目录缺失时自动创建）
+- `/memory` -> `MEMORY_DIR/<agentKey>`（`ro`，目录缺失时自动创建）
+
+`context tags` 不是全局默认集合，而是每个 agent 从 `contextConfig.tags` 或 `contextTags` 读取。当前支持/归一化后的标签有 `system`、`context`、`owner`、`auth`、`sandbox`、`all-agents`、`memory`；其中 `agent_identity`、`run_session`、`scene`、`references`、`execution_policy`、`skills` 会归一化为 `context`，`memory_context` 会归一化为 `memory`。
+
 部署时的敏感信息应通过环境变量或 Secret 注入，不要写入仓库文件。
 
 ## 5. 运维

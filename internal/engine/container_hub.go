@@ -50,8 +50,9 @@ func (c *ContainerHubClient) CreateSession(ctx context.Context, payload map[stri
 // ExecuteSessionRaw calls the container-hub execute API and returns the raw response.
 // Container Hub returns plain text on success, JSON error on failure.
 // Java: ContainerHubClient.executeSession with contentTypeAware=true
-//   → success: textBody(response.body()) returns raw text as-is
-//   → failure: parsed as JSON error
+//
+//	→ success: textBody(response.body()) returns raw text as-is
+//	→ failure: parsed as JSON error
 func (c *ContainerHubClient) ExecuteSessionRaw(ctx context.Context, sessionID string, payload map[string]any) (string, bool, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -187,6 +188,10 @@ func NewContainerHubMountResolver(paths config.PathsConfig) *ContainerHubMountRe
 }
 
 func (r *ContainerHubMountResolver) Resolve(chatID string, agentKey string, level string) ([]MountSpec, error) {
+	agentKey = strings.TrimSpace(agentKey)
+	if agentKey == "" {
+		return nil, fmt.Errorf("container-hub mount validation failed for agent-self: agentKey is required")
+	}
 	workspaceRoot, err := hostPath("CHATS_DIR", r.paths.ChatsDir)
 	if err != nil {
 		return nil, fmt.Errorf("container-hub mount validation failed for data-dir: %w", err)
@@ -213,6 +218,11 @@ func (r *ContainerHubMountResolver) Resolve(chatID string, agentKey string, leve
 	} else if err != nil {
 		return nil, fmt.Errorf("container-hub mount validation failed for pan-dir: %w", err)
 	}
+	if agentDir, err := r.agentSource(agentKey); err == nil && agentDir != "" {
+		mounts = append(mounts, MountSpec{Name: "agent-self", Source: agentDir, Destination: "/agent", ReadOnly: true})
+	} else if err != nil {
+		return nil, err
+	}
 
 	skillsSource, err := r.skillsSource(agentKey, level)
 	if err != nil {
@@ -221,9 +231,13 @@ func (r *ContainerHubMountResolver) Resolve(chatID string, agentKey string, leve
 	if skillsSource != "" {
 		mounts = append(mounts, MountSpec{Name: "skills-dir", Source: skillsSource, Destination: "/skills", ReadOnly: true})
 	}
-
-	if agentDir, err := r.agentSource(agentKey); err == nil && agentDir != "" {
-		mounts = append(mounts, MountSpec{Name: "agent-self", Source: agentDir, Destination: "/agent", ReadOnly: true})
+	if ownerDir, err := r.ownerSource(); err == nil && ownerDir != "" {
+		mounts = append(mounts, MountSpec{Name: "owner-dir", Source: ownerDir, Destination: "/owner", ReadOnly: true})
+	} else if err != nil {
+		return nil, err
+	}
+	if memoryDir, err := r.memorySource(agentKey); err == nil && memoryDir != "" {
+		mounts = append(mounts, MountSpec{Name: "memory-dir", Source: memoryDir, Destination: "/memory", ReadOnly: true})
 	} else if err != nil {
 		return nil, err
 	}
@@ -249,18 +263,47 @@ func (r *ContainerHubMountResolver) skillsSource(agentKey string, level string) 
 }
 
 func (r *ContainerHubMountResolver) agentSource(agentKey string) (string, error) {
-	if agentKey == "" {
-		return "", nil
-	}
 	agentsRoot, err := hostPath("AGENTS_DIR", r.paths.AgentsDir)
 	if err != nil {
 		return "", fmt.Errorf("container-hub mount validation failed for agent-self: %w", err)
+	}
+	if agentsRoot == "" {
+		return "", fmt.Errorf("container-hub mount validation failed for agent-self: AGENTS_DIR is required")
 	}
 	agentDir := filepath.Join(agentsRoot, agentKey)
 	if stat, err := os.Stat(agentDir); err == nil && stat.IsDir() {
 		return agentDir, nil
 	}
-	return "", nil
+	return "", fmt.Errorf("container-hub mount validation failed for agent-self: missing agent directory %s", agentDir)
+}
+
+func (r *ContainerHubMountResolver) ownerSource() (string, error) {
+	ownerDir, err := hostPath("OWNER_DIR", r.paths.OwnerDir)
+	if err != nil {
+		return "", fmt.Errorf("container-hub mount validation failed for owner-dir: %w", err)
+	}
+	if ownerDir == "" {
+		return "", fmt.Errorf("container-hub mount validation failed for owner-dir: OWNER_DIR is required")
+	}
+	if err := os.MkdirAll(ownerDir, 0o755); err != nil {
+		return "", fmt.Errorf("container-hub mount validation failed for owner-dir: %w", err)
+	}
+	return ownerDir, nil
+}
+
+func (r *ContainerHubMountResolver) memorySource(agentKey string) (string, error) {
+	memoryRoot, err := hostPath("MEMORY_DIR", r.paths.MemoryDir)
+	if err != nil {
+		return "", fmt.Errorf("container-hub mount validation failed for memory-dir: %w", err)
+	}
+	if memoryRoot == "" {
+		return "", fmt.Errorf("container-hub mount validation failed for memory-dir: MEMORY_DIR is required")
+	}
+	memoryDir := filepath.Join(memoryRoot, agentKey)
+	if err := os.MkdirAll(memoryDir, 0o755); err != nil {
+		return "", fmt.Errorf("container-hub mount validation failed for memory-dir: %w", err)
+	}
+	return memoryDir, nil
 }
 
 func hostPath(envKey string, configured string) (string, error) {

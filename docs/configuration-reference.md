@@ -50,6 +50,21 @@
 | `AGENT_CONTAINER_HUB_AGENT_IDLE_TIMEOUT_MS` | `1800000` | agent 级沙箱闲置回收时间 |
 | `AGENT_CONTAINER_HUB_DESTROY_QUEUE_DELAY_MS` | `5000` | 销毁队列延迟 |
 
+Container Hub 默认基础挂载为：
+
+- `/workspace` -> `CHATS_DIR/<chatId>`（`rw`）
+- `/root` -> `ROOT_DIR`（`rw`）
+- `/skills` -> `AGENTS_DIR/<agentKey>/skills`（`run/agent`）或 `SKILLS_MARKET_DIR`（`global`），`ro`
+- `/pan` -> `PAN_DIR`（`rw`）
+- `/agent` -> `AGENTS_DIR/<agentKey>`（`ro`，必挂载；缺失时 fail-fast）
+- `/owner` -> `OWNER_DIR`（`ro`，缺失时自动创建）
+- `/memory` -> `MEMORY_DIR/<agentKey>`（`ro`，缺失时自动创建）
+
+说明：
+
+- `/memory` 当前只影响沙箱挂载与 prompt 中的路径暴露；runner 自身 memory store 仍保持现有 `MEMORY_DIR` 存储布局。
+- `sandboxConfig.extraMounts` 仍只表示附加平台挂载和自定义挂载，不包含上述基础挂载。
+
 ### Bash 工具
 
 | 环境变量 | 默认值 | 说明 |
@@ -157,3 +172,31 @@
 | `SKILLS_MARKET_DIR` | `/opt/skills-market` |
 
 这些环境变量在容器内也会同步设置为对应 `/opt/*` 路径，且 `SERVER_PORT` 固定为 `8080`。
+
+## Agent Context Tags
+
+`context tags` 不是全局默认集合，而是每个 agent 从以下字段读取：
+
+- 优先 `contextConfig.tags`
+- 回退 `contextTags`
+
+当前支持/归一化后的标签：
+
+- `system`
+- `context`
+- `owner`
+- `auth`
+- `sandbox`
+- `all-agents`
+- `memory`
+
+兼容别名映射：
+
+- `agent_identity` / `run_session` / `scene` / `references` / `execution_policy` / `skills` -> `context`
+- `memory_context` -> `memory`
+
+说明：
+
+- `context` 负责暴露运行上下文与 sandbox 路径，例如 `sandbox_owner_dir=/owner`、`sandbox_memory_dir=/memory`
+- `owner` 负责注入 `OWNER_DIR` 下的 markdown 内容
+- `memory` 负责注入运行期 memory context
