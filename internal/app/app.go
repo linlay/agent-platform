@@ -118,12 +118,10 @@ func New() (*App, error) {
 	backgroundCtx, backgroundCancel := context.WithCancel(context.Background())
 	engine.StartBackgroundReloaders(backgroundCtx, cfg, reloader)
 	mcp.NewReconnectLoop(mcpRegistry, mcpClient, mcpGate, 10*time.Second).Start(backgroundCtx)
-	log.Printf("background reloaders started (agents=%dms teams=%dms skills=%dms models=%dms providers=%dms)",
-		cfg.Agents.RefreshIntervalMs,
-		cfg.Teams.RefreshIntervalMs,
-		cfg.Skills.RefreshIntervalMs,
-		cfg.Models.RefreshIntervalMs,
-		cfg.Providers.RefreshIntervalMs,
+	log.Printf("background file watchers started (agents=%s teams=%s skills=%s)",
+		cfg.Paths.AgentsDir,
+		cfg.Paths.TeamsDir,
+		cfg.Paths.SkillsMarketDir,
 	)
 
 	serverStartedAt := time.Now()
