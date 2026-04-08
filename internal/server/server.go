@@ -468,13 +468,6 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	runCtx, _, _ := s.deps.Runs.Register(r.Context(), session)
 	defer s.deps.Runs.Finish(runID)
 
-	agentStream, err := s.deps.Agent.Stream(runCtx, req, session)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
-		return
-	}
-	defer agentStream.Close()
-
 	assembler := stream.NewAssembler(stream.StreamRequest{
 		RequestID: requestID,
 		RunID:     runID,
@@ -569,6 +562,19 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+
+	// Start LLM stream AFTER bootstrap events are flushed to the client.
+	// This ensures the browser receives request.query/chat.start/run.start
+	// before reasoning tokens arrive, matching the Java reactive behaviour.
+	agentStream, err := s.deps.Agent.Stream(runCtx, req, session)
+	if err != nil {
+		for _, event := range assembler.Fail(err) {
+			_ = writeEvent(event)
+		}
+		_ = sseWriter.WriteDone()
+		return
+	}
+	defer agentStream.Close()
 
 	streamFailed := false
 	streamInterrupted := false

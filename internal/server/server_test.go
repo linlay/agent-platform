@@ -734,7 +734,7 @@ func TestQueryFailsRunWhenProviderOmitsToolCallID(t *testing.T) {
 	}
 }
 
-func TestQueryReturnsJSONErrorBeforeSSEOnInvalidFirstFrame(t *testing.T) {
+func TestQueryEmitsRunErrorOnInvalidFirstFrame(t *testing.T) {
 	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `{"broken":true}`, `[DONE]`)
 	})
@@ -745,14 +745,21 @@ func TestQueryReturnsJSONErrorBeforeSSEOnInvalidFirstFrame(t *testing.T) {
 
 	fixture.server.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusInternalServerError {
-		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	// LLM stream now starts after bootstrap events, so the response is
+	// always SSE (200).  An invalid first frame produces run.error via SSE
+	// instead of a JSON 500 — consistent with Java behaviour.
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 SSE response, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if got := rec.Header().Get("Content-Type"); !strings.Contains(got, "application/json") {
-		t.Fatalf("expected json response, got %q", got)
+	body := rec.Body.String()
+	if !strings.Contains(body, "run.start") {
+		t.Fatalf("expected bootstrap events before error, got %s", body)
 	}
-	if strings.Contains(rec.Body.String(), "event: message") {
-		t.Fatalf("expected no sse response on invalid first frame, got %s", rec.Body.String())
+	if !strings.Contains(body, "run.error") {
+		t.Fatalf("expected run.error event, got %s", body)
+	}
+	if !strings.Contains(body, "[DONE]") {
+		t.Fatalf("expected [DONE] sentinel, got %s", body)
 	}
 }
 

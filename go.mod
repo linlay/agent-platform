@@ -16,3 +16,4 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 	modernc.org/sqlite v1.48.1 // indirect
 )
+

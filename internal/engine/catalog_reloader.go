@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"log"
 	"sync/atomic"
 	"time"
 
@@ -23,17 +24,21 @@ func NewRuntimeCatalogReloader(registry catalog.Registry, models *ModelRegistry)
 }
 
 func (r *RuntimeCatalogReloader) Reload(ctx context.Context, reason string) error {
+	start := time.Now()
 	if r.registry != nil {
 		if err := r.registry.Reload(ctx, reason); err != nil {
+			log.Printf("[reload] %s catalog reload failed: %v", reason, err)
 			return err
 		}
 	}
 	if r.models != nil {
 		if err := r.models.Reload(); err != nil {
+			log.Printf("[reload] %s models reload failed: %v", reason, err)
 			return err
 		}
 	}
 	r.lastReloadNs.Store(time.Now().UnixNano())
+	log.Printf("[reload] %s reloaded in %s", reason, time.Since(start).Truncate(time.Millisecond))
 	return nil
 }
 
@@ -48,9 +53,12 @@ func StartBackgroundReloaders(ctx context.Context, cfg config.Config, reloader C
 			for {
 				select {
 				case <-ctx.Done():
+					log.Printf("[reload] %s background reloader stopped", reason)
 					return
 				case <-ticker.C:
-					_ = reloader.Reload(ctx, reason)
+					if err := reloader.Reload(ctx, reason); err != nil {
+						log.Printf("[reload] %s periodic reload failed: %v", reason, err)
+					}
 				}
 			}
 		}()

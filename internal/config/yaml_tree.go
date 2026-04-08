@@ -105,6 +105,20 @@ func parseYAMLMap(lines []yamlLine, start int, indent int) (map[string]any, int,
 			continue
 		}
 
+		// Handle YAML shorthand where list items sit at the same indent as
+		// their parent key (e.g. "backends:\n- item" without extra indent).
+		// This is valid YAML — the list is the value of the key.
+		if i+1 < len(lines) && lines[i+1].indent == indent &&
+			(strings.HasPrefix(lines[i+1].text, "- ") || lines[i+1].text == "-") {
+			child, next, err := parseYAMLList(lines, i+1, indent)
+			if err != nil {
+				return nil, i, err
+			}
+			result[key] = child
+			i = next
+			continue
+		}
+
 		result[key] = map[string]any{}
 		i++
 	}

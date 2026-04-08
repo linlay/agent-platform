@@ -284,10 +284,21 @@ func (r *FileRegistry) TeamDefinition(teamID string) (TeamDefinition, bool) {
 	return def, ok
 }
 
+func resolveDirectoryAgentConfig(dirPath string) string {
+	for _, candidate := range []string{"agent.yml", "agent.yaml"} {
+		path := filepath.Join(dirPath, candidate)
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+	}
+	return ""
+}
+
 func loadAgents(root string) (map[string]AgentDefinition, error) {
 	items := map[string]AgentDefinition{}
 	entries, err := os.ReadDir(root)
 	if os.IsNotExist(err) {
+		log.Printf("[catalog][agents] directory not found: %s", root)
 		return items, nil
 	}
 	if err != nil {
@@ -299,15 +310,18 @@ func loadAgents(root string) (map[string]AgentDefinition, error) {
 			continue
 		}
 		if entry.IsDir() {
-			path := filepath.Join(root, name, "agent.yml")
-			if _, err := os.Stat(path); err != nil {
+			configPath := resolveDirectoryAgentConfig(filepath.Join(root, name))
+			if configPath == "" {
+				log.Printf("[catalog][agents] skip directory %s: no agent.yml or agent.yaml found", name)
 				continue
 			}
-			def, err := parseAgentFile(path)
+			def, err := parseAgentFile(configPath)
 			if err != nil {
+				log.Printf("[catalog][agents] skip directory %s: parse error: %v", name, err)
 				continue
 			}
 			if def.Key != name {
+				log.Printf("[catalog][agents] skip directory %s: key mismatch (file key=%q, directory=%q)", name, def.Key, name)
 				continue
 			}
 			items[def.Key] = def
@@ -318,10 +332,12 @@ func loadAgents(root string) (map[string]AgentDefinition, error) {
 		}
 		def, err := parseAgentFile(filepath.Join(root, name))
 		if err != nil {
+			log.Printf("[catalog][agents] skip file %s: parse error: %v", name, err)
 			continue
 		}
 		items[def.Key] = def
 	}
+	log.Printf("[catalog][agents] loaded %d agents from %s", len(items), root)
 	return items, nil
 }
 
@@ -342,10 +358,12 @@ func loadTeams(root string) (map[string]TeamDefinition, error) {
 		path := filepath.Join(root, name)
 		def, err := parseTeamFile(path)
 		if err != nil {
+			log.Printf("[catalog][teams] skip file %s: parse error: %v", name, err)
 			continue
 		}
 		items[def.TeamID] = def
 	}
+	log.Printf("[catalog][teams] loaded %d teams from %s", len(items), root)
 	return items, nil
 }
 
@@ -366,6 +384,7 @@ func loadSkills(root string, maxPromptChars int) (map[string]SkillDefinition, er
 		skillPath := filepath.Join(root, name, "SKILL.md")
 		content, err := os.ReadFile(skillPath)
 		if err != nil {
+			log.Printf("[catalog][skills] skip directory %s: no SKILL.md found", name)
 			continue
 		}
 		prompt := strings.TrimSpace(string(content))
@@ -382,6 +401,7 @@ func loadSkills(root string, maxPromptChars int) (map[string]SkillDefinition, er
 			PromptTruncated: truncated,
 		}
 	}
+	log.Printf("[catalog][skills] loaded %d skills from %s", len(items), root)
 	return items, nil
 }
 
