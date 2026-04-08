@@ -605,7 +605,7 @@ func planAddTasksToolDefinition() api.ToolDetailResponse {
 				},
 			},
 		},
-		Meta: map[string]any{"kind": "backend", "strict": true, "sourceType": "local", "sourceKey": "_plan_add_tasks_"},
+		Meta: map[string]any{"kind": "backend", "strict": true, "sourceType": "local", "sourceKey": "_plan_add_tasks_", "clientVisible": false},
 	}
 }
 
@@ -619,7 +619,7 @@ func planGetTasksToolDefinition() api.ToolDetailResponse {
 			"type":       "object",
 			"properties": map[string]any{},
 		},
-		Meta: map[string]any{"kind": "backend", "strict": true, "sourceType": "local", "sourceKey": "_plan_get_tasks_"},
+		Meta: map[string]any{"kind": "backend", "strict": true, "sourceType": "local", "sourceKey": "_plan_get_tasks_", "clientVisible": false},
 	}
 }
 
@@ -637,7 +637,7 @@ func planUpdateTaskToolDefinition() api.ToolDetailResponse {
 			},
 			"required": []string{"taskId", "status"},
 		},
-		Meta: map[string]any{"kind": "backend", "strict": true, "sourceType": "local", "sourceKey": "_plan_update_task_"},
+		Meta: map[string]any{"kind": "backend", "strict": true, "sourceType": "local", "sourceKey": "_plan_update_task_", "clientVisible": false},
 	}
 }
 
