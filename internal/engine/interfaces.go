@@ -89,6 +89,14 @@ type QuerySession struct {
 
 	SandboxEnvironmentID string
 	SandboxLevel         string
+	SandboxExtraMounts   []SandboxExtraMount
+}
+
+type SandboxExtraMount struct {
+	Platform    string
+	Source      string
+	Destination string
+	Mode        string
 }
 
 type ExecutionContext struct {

@@ -492,6 +492,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		SummaryPrompt:         agentDef.SummaryPrompt,
 		SandboxEnvironmentID:  extractSandboxField(agentDef.Sandbox, "environmentId"),
 		SandboxLevel:          extractSandboxField(agentDef.Sandbox, "level"),
+		SandboxExtraMounts:    sandboxExtraMounts(agentDef.Sandbox["extraMounts"]),
 	}
 	if principal != nil {
 		session.Subject = principal.Subject
@@ -1039,6 +1040,23 @@ func normalizeSandboxMount(mount map[string]any) map[string]any {
 		"destination": nullableStringValue(mount["destination"]),
 		"mode":        stringValue(mount["mode"]),
 	}
+}
+
+func sandboxExtraMounts(value any) []engine.SandboxExtraMount {
+	mounts := normalizeSandboxMounts(value)
+	if len(mounts) == 0 {
+		return nil
+	}
+	out := make([]engine.SandboxExtraMount, 0, len(mounts))
+	for _, mount := range mounts {
+		out = append(out, engine.SandboxExtraMount{
+			Platform:    stringValue(mount["platform"]),
+			Source:      stringValue(mount["source"]),
+			Destination: stringValue(mount["destination"]),
+			Mode:        stringValue(mount["mode"]),
+		})
+	}
+	return out
 }
 
 func stringValue(value any) string {

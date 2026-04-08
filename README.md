@@ -186,6 +186,12 @@ Container Hub 默认基础挂载当前固定为 7 个：
 - `/owner` -> `OWNER_DIR`（`ro`，目录缺失时自动创建）
 - `/memory` -> `MEMORY_DIR/<agentKey>`（`ro`，目录缺失时自动创建）
 
+`sandboxConfig.extraMounts` 会真实影响 Container Hub session mounts：
+
+- `platform + mode`：恢复按需平台挂载，或覆盖默认 `/owner`、`/memory` 模式
+- `destination + mode`：覆盖默认基础挂载模式
+- `source + destination + mode`：新增自定义挂载，不能拿来覆盖默认基础挂载路径
+
 `context tags` 不是全局默认集合，而是每个 agent 从 `contextConfig.tags` 或 `contextTags` 读取。当前支持/归一化后的标签有 `system`、`context`、`owner`、`auth`、`sandbox`、`all-agents`、`memory`；其中 `agent_identity`、`run_session`、`scene`、`references`、`execution_policy`、`skills` 会归一化为 `context`，`memory_context` 会归一化为 `memory`。
 
 部署时的敏感信息应通过环境变量或 Secret 注入，不要写入仓库文件。

@@ -17,4 +17,8 @@ destroy-queue-delay-ms: 5000
 # - /agent     -> AGENTS_DIR/<agentKey> (default: ro, required; missing directory fails fast)
 # - /owner     -> OWNER_DIR         (default: ro, auto-created when missing)
 # - /memory    -> MEMORY_DIR/<agentKey> (default: ro, auto-created when missing)
-# 可选平台挂载和自定义挂载需要在 agent.yml 的 sandboxConfig.extraMounts 中显式声明 mode: ro|rw
+# sandboxConfig.extraMounts 会真实影响 Container Hub session mounts：
+# - platform + mode               -> 恢复按需平台挂载，或覆盖 /owner、/memory 默认模式
+# - destination + mode            -> 仅覆盖默认基础挂载模式
+# - source + destination + mode   -> 新增自定义挂载
+# 所有 extraMounts 项都必须显式声明 mode: ro|rw
