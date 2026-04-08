@@ -461,6 +461,11 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		ResolvedStageSettings: engine.ResolvePlanExecuteSettings(agentDef.StageSettings, s.deps.Config.Defaults.Plan.MaxSteps, s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask),
 		HistoryMessages:       historyMessages,
 		MemoryContext:         memoryContext,
+		SoulPrompt:            agentDef.SoulPrompt,
+		AgentsPrompt:          agentDef.AgentsPrompt,
+		PlanPrompt:            agentDef.PlanPrompt,
+		ExecutePrompt:         agentDef.ExecutePrompt,
+		SummaryPrompt:         agentDef.SummaryPrompt,
 	}
 	if principal := PrincipalFromContext(r.Context()); principal != nil {
 		session.Subject = principal.Subject

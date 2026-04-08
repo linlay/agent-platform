@@ -44,6 +44,15 @@ type AgentDefinition struct {
 	Budget        map[string]any
 	StageSettings map[string]any
 	ToolOverrides map[string]api.ToolDetailResponse
+
+	// Prompt files loaded from agent directory.
+	SoulPrompt   string // from SOUL.md
+	AgentsPrompt string // resolved from promptFile or AGENTS.md fallback
+
+	// PLAN_EXECUTE stage prompts (stage-scoped promptFile).
+	PlanPrompt    string
+	ExecutePrompt string
+	SummaryPrompt string
 }
 
 type TeamDefinition struct {
@@ -310,12 +319,13 @@ func loadAgents(root string) (map[string]AgentDefinition, error) {
 			continue
 		}
 		if entry.IsDir() {
-			configPath := resolveDirectoryAgentConfig(filepath.Join(root, name))
+			agentDir := filepath.Join(root, name)
+			configPath := resolveDirectoryAgentConfig(agentDir)
 			if configPath == "" {
 				log.Printf("[catalog][agents] skip directory %s: no agent.yml or agent.yaml found", name)
 				continue
 			}
-			def, err := parseAgentFile(configPath)
+			def, err := parseAgentFileWithPrompts(configPath, agentDir)
 			if err != nil {
 				log.Printf("[catalog][agents] skip directory %s: parse error: %v", name, err)
 				continue
@@ -405,14 +415,147 @@ func loadSkills(root string, maxPromptChars int) (map[string]SkillDefinition, er
 	return items, nil
 }
 
+// loadAgentPrompts resolves SOUL.md, promptFile and AGENTS.md for directory agents.
+// For ONESHOT/REACT: top-level promptFile → fallback AGENTS.md
+// For PLAN_EXECUTE: stage-scoped promptFile (plan/execute/summary)
+func loadAgentPrompts(agentDir string, def *AgentDefinition, root map[string]any) {
+	if agentDir == "" {
+		return
+	}
+
+	// Always load SOUL.md
+	def.SoulPrompt = readOptionalMarkdown(filepath.Join(agentDir, "SOUL.md"))
+
+	// Resolve top-level promptFile (string or []string)
+	topPromptFiles := parsePromptFileField(root["promptFile"])
+
+	switch def.Mode {
+	case "PLAN_EXECUTE":
+		pe := mapNode(root["planExecute"])
+		def.PlanPrompt = resolveStagePrompt(agentDir, mapNode(pe["plan"]), topPromptFiles, root)
+		def.ExecutePrompt = resolveStagePrompt(agentDir, mapNode(pe["execute"]), topPromptFiles, root)
+		def.SummaryPrompt = resolveStagePrompt(agentDir, mapNode(pe["summary"]), topPromptFiles, root)
+	default:
+		// ONESHOT / REACT: only top-level promptFile, fallback AGENTS.md
+		if len(topPromptFiles) > 0 {
+			def.AgentsPrompt = loadPromptMarkdowns(agentDir, topPromptFiles)
+		}
+		if def.AgentsPrompt == "" {
+			def.AgentsPrompt = readOptionalMarkdown(filepath.Join(agentDir, "AGENTS.md"))
+		}
+	}
+}
+
+func resolveStagePrompt(agentDir string, stageConfig map[string]any, topPromptFiles []string, root map[string]any) string {
+	// Stage-level promptFile takes priority
+	stageFiles := parsePromptFileField(stageConfig["promptFile"])
+	if len(stageFiles) > 0 {
+		if content := loadPromptMarkdowns(agentDir, stageFiles); content != "" {
+			return content
+		}
+	}
+	// Fallback to top-level promptFile
+	if len(topPromptFiles) > 0 {
+		if content := loadPromptMarkdowns(agentDir, topPromptFiles); content != "" {
+			return content
+		}
+	}
+	// Final fallback to AGENTS.md
+	return readOptionalMarkdown(filepath.Join(agentDir, "AGENTS.md"))
+}
+
+// parsePromptFileField handles both string and []string formats:
+//
+//	promptFile: AGENTS.md
+//	promptFile:
+//	  - AGENTS.10-basics.md
+//	  - AGENTS.20-discovery.md
+func parsePromptFileField(value any) []string {
+	switch v := value.(type) {
+	case string:
+		if strings.TrimSpace(v) != "" {
+			return []string{strings.TrimSpace(v)}
+		}
+		return nil
+	case []any:
+		result := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+				result = append(result, strings.TrimSpace(s))
+			}
+		}
+		return result
+	case []string:
+		result := make([]string, 0, len(v))
+		for _, s := range v {
+			if strings.TrimSpace(s) != "" {
+				result = append(result, strings.TrimSpace(s))
+			}
+		}
+		return result
+	default:
+		return nil
+	}
+}
+
+func loadPromptMarkdowns(agentDir string, promptFiles []string) string {
+	var parts []string
+	root := filepath.Clean(agentDir)
+	for _, file := range promptFiles {
+		if filepath.IsAbs(file) {
+			log.Printf("[catalog][agents] skip absolute promptFile path: %s", file)
+			continue
+		}
+		resolved := filepath.Clean(filepath.Join(root, file))
+		if !strings.HasPrefix(resolved, root) {
+			log.Printf("[catalog][agents] skip promptFile escaping agent dir: %s", file)
+			continue
+		}
+		if !strings.HasSuffix(strings.ToLower(file), ".md") {
+			log.Printf("[catalog][agents] skip non-.md promptFile: %s", file)
+			continue
+		}
+		content := readOptionalMarkdown(resolved)
+		if content != "" {
+			parts = append(parts, content)
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+func readOptionalMarkdown(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+func parseAgentFileWithPrompts(path string, agentDir string) (AgentDefinition, error) {
+	def, tree, err := parseAgentFileRaw(path)
+	if err != nil {
+		return def, err
+	}
+	loadAgentPrompts(agentDir, &def, tree)
+	return def, nil
+}
+
 func parseAgentFile(path string) (AgentDefinition, error) {
+	def, _, err := parseAgentFileRaw(path)
+	return def, err
+}
+
+func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	tree, err := config.LoadYAMLTree(path)
 	if err != nil {
-		return AgentDefinition{}, err
+		return AgentDefinition{}, nil, err
 	}
 	root, ok := tree.(map[string]any)
 	if !ok {
-		return AgentDefinition{}, fmt.Errorf("agent file must be a map")
+		return AgentDefinition{}, nil, fmt.Errorf("agent file must be a map")
 	}
 	def := AgentDefinition{
 		Key:         stringNode(root["key"]),
@@ -466,7 +609,7 @@ func parseAgentFile(path string) (AgentDefinition, error) {
 	}
 
 	if def.Key == "" {
-		return AgentDefinition{}, fmt.Errorf("agent key is required")
+		return AgentDefinition{}, nil, fmt.Errorf("agent key is required")
 	}
 	if def.Name == "" {
 		def.Name = def.Key
@@ -477,7 +620,7 @@ func parseAgentFile(path string) (AgentDefinition, error) {
 	if def.Role == "" {
 		def.Role = def.Name
 	}
-	return def, nil
+	return def, root, nil
 }
 
 func parseTeamFile(path string) (TeamDefinition, error) {

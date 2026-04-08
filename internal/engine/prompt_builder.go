@@ -20,6 +20,22 @@ var defaultContextTagOrder = []string{
 
 func buildSystemPrompt(session QuerySession, req api.QueryRequest, modelKey string) string {
 	var builder strings.Builder
+
+	// SOUL.md — agent personality, always first.
+	if strings.TrimSpace(session.SoulPrompt) != "" {
+		builder.WriteString(strings.TrimSpace(session.SoulPrompt))
+	}
+
+	// AGENTS prompt — from promptFile or AGENTS.md fallback.
+	agentsPrompt := session.AgentsPrompt
+	if agentsPrompt != "" {
+		if builder.Len() > 0 {
+			builder.WriteString("\n\n")
+		}
+		builder.WriteString(agentsPrompt)
+	}
+
+	// Runtime context tags.
 	tags := orderedContextTags(session.ContextTags)
 	for _, tag := range tags {
 		section := promptSection(tag, session, req, modelKey)
