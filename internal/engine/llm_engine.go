@@ -221,10 +221,13 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	}
 	messages := options.Messages
 	if len(messages) == 0 {
-		systemPrompt := buildSystemPrompt(session, req, model.Key)
-		if strings.TrimSpace(options.SystemPrompt) != "" {
-			systemPrompt = strings.TrimSpace(options.SystemPrompt)
-		}
+		systemPrompt := buildSystemPrompt(session, req, model.Key, PromptBuildOptions{
+			Stage:                   options.Stage,
+			StageInstructionsPrompt: "",
+			StageSystemPrompt:       "",
+			ToolDefinitions:         effectiveDefs,
+			IncludeAfterCallHints:   true,
+		})
 		log.Printf("[llm][run:%s][%s] LLM delta stream system prompt:\n%s", session.RunID, options.Stage, systemPrompt)
 		messages = []openAIMessage{
 			{

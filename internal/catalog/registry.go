@@ -19,6 +19,7 @@ type Registry interface {
 	Agents(tag string) []api.AgentSummary
 	Teams() []api.TeamSummary
 	Skills(tag string) []api.SkillSummary
+	SkillDefinition(key string) (SkillDefinition, bool)
 	Tools(kind string, tag string) []api.ToolSummary
 	Tool(name string) (api.ToolDetailResponse, bool)
 	DefaultAgentKey() string
@@ -28,22 +29,24 @@ type Registry interface {
 }
 
 type AgentDefinition struct {
-	Key           string
-	Name          string
-	Icon          any
-	Description   string
-	Role          string
-	ModelKey      string
-	Mode          string
-	Tools         []string
-	Skills        []string
-	Controls      []map[string]any
-	Sandbox       map[string]any
-	ReactMaxSteps int
-	ContextTags   []string
-	Budget        map[string]any
-	StageSettings map[string]any
-	ToolOverrides map[string]api.ToolDetailResponse
+	Key            string
+	Name           string
+	Icon           any
+	Description    string
+	Role           string
+	ModelKey       string
+	Mode           string
+	Tools          []string
+	Skills         []string
+	Controls       []map[string]any
+	Sandbox        map[string]any
+	ReactMaxSteps  int
+	ContextTags    []string
+	Budget         map[string]any
+	StageSettings  map[string]any
+	ToolOverrides  map[string]api.ToolDetailResponse
+	RuntimePrompts AgentRuntimePrompts
+	AgentDir       string
 
 	// Prompt files loaded from agent directory.
 	SoulPrompt   string // from SOUL.md
@@ -53,6 +56,28 @@ type AgentDefinition struct {
 	PlanPrompt    string
 	ExecutePrompt string
 	SummaryPrompt string
+	MemoryPrompt  string
+}
+
+type AgentRuntimePrompts struct {
+	Skill        SkillPromptConfig
+	ToolAppendix ToolAppendixPromptConfig
+	PlanExecute  PlanExecutePromptConfig
+}
+
+type SkillPromptConfig struct {
+	CatalogHeader     string
+	DisclosureHeader  string
+	InstructionsLabel string
+}
+
+type ToolAppendixPromptConfig struct {
+	ToolDescriptionTitle string
+	AfterCallHintTitle   string
+}
+
+type PlanExecutePromptConfig struct {
+	TaskExecutionPromptTemplate string
 }
 
 type TeamDefinition struct {
@@ -251,6 +276,13 @@ func (r *FileRegistry) Tools(kind string, tag string) []api.ToolSummary {
 	return items
 }
 
+func (r *FileRegistry) SkillDefinition(key string) (SkillDefinition, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	def, ok := r.skills[key]
+	return def, ok
+}
+
 func (r *FileRegistry) Tool(name string) (api.ToolDetailResponse, bool) {
 	needle := strings.TrimSpace(strings.ToLower(name))
 	for _, tool := range r.tools {
@@ -334,6 +366,7 @@ func loadAgents(root string) (map[string]AgentDefinition, error) {
 				log.Printf("[catalog][agents] skip directory %s: key mismatch (file key=%q, directory=%q)", name, def.Key, name)
 				continue
 			}
+			def.AgentDir = agentDir
 			items[def.Key] = def
 			continue
 		}
@@ -425,6 +458,7 @@ func loadAgentPrompts(agentDir string, def *AgentDefinition, root map[string]any
 
 	// Always load SOUL.md
 	def.SoulPrompt = readOptionalMarkdown(filepath.Join(agentDir, "SOUL.md"))
+	def.MemoryPrompt = readOptionalMarkdown(filepath.Join(agentDir, "memory", "memory.md"))
 
 	// Resolve top-level promptFile (string or []string)
 	topPromptFiles := parsePromptFileField(root["promptFile"])
@@ -495,6 +529,70 @@ func parsePromptFileField(value any) []string {
 		return result
 	default:
 		return nil
+	}
+}
+
+func normalizeContextTags(tags []string) []string {
+	if len(tags) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(tags))
+	seen := map[string]struct{}{}
+	for _, raw := range tags {
+		switch normalizeContextTag(raw) {
+		case "":
+			continue
+		default:
+			if _, ok := seen[normalizeContextTag(raw)]; ok {
+				continue
+			}
+			tag := normalizeContextTag(raw)
+			seen[tag] = struct{}{}
+			out = append(out, tag)
+		}
+	}
+	return out
+}
+
+func normalizeContextTag(raw string) string {
+	tag := strings.ToLower(strings.TrimSpace(raw))
+	switch tag {
+	case "system", "context", "owner", "auth", "sandbox", "all-agents", "memory":
+		return tag
+	case "agent_identity", "run_session", "scene", "references", "execution_policy":
+		return "context"
+	case "memory_context":
+		return "memory"
+	case "skills":
+		return "context"
+	default:
+		return tag
+	}
+}
+
+func parseRuntimePrompts(root map[string]any) AgentRuntimePrompts {
+	if len(root) == 0 {
+		return AgentRuntimePrompts{}
+	}
+	skill := mapNode(root["skill"])
+	toolAppendix := mapNode(root["toolAppendix"])
+	if len(toolAppendix) == 0 {
+		toolAppendix = mapNode(root["toolAppendixConfig"])
+	}
+	planExecute := mapNode(root["planExecute"])
+	return AgentRuntimePrompts{
+		Skill: SkillPromptConfig{
+			CatalogHeader:     stringNode(skill["catalogHeader"]),
+			DisclosureHeader:  stringNode(skill["disclosureHeader"]),
+			InstructionsLabel: stringNode(skill["instructionsLabel"]),
+		},
+		ToolAppendix: ToolAppendixPromptConfig{
+			ToolDescriptionTitle: stringNode(toolAppendix["toolDescriptionTitle"]),
+			AfterCallHintTitle:   stringNode(toolAppendix["afterCallHintTitle"]),
+		},
+		PlanExecute: PlanExecutePromptConfig{
+			TaskExecutionPromptTemplate: stringNode(planExecute["taskExecutionPromptTemplate"]),
+		},
 	}
 }
 
@@ -574,12 +672,21 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	def.ToolOverrides = parseToolOverrides(toolConfig["overrides"])
 	def.Skills = listStrings(mapNode(root["skillConfig"])["skills"])
 	def.Controls = cloneListMaps(listMaps(root["controls"]))
-	def.ContextTags = listStrings(root["contextTags"])
+	def.ContextTags = normalizeContextTags(listStrings(root["contextTags"]))
 	if budget := mapNode(root["budget"]); len(budget) > 0 {
 		def.Budget = cloneMap(budget)
 	}
 	if stageSettings := mapNode(root["stageSettings"]); len(stageSettings) > 0 {
 		def.StageSettings = cloneMap(stageSettings)
+	}
+	def.RuntimePrompts = parseRuntimePrompts(mapNode(root["runtimePrompts"]))
+	if strings.TrimSpace(def.RuntimePrompts.PlanExecute.TaskExecutionPromptTemplate) != "" {
+		if def.StageSettings == nil {
+			def.StageSettings = map[string]any{}
+		}
+		if strings.TrimSpace(stringNode(def.StageSettings["taskExecutionPromptTemplate"])) == "" {
+			def.StageSettings["taskExecutionPromptTemplate"] = def.RuntimePrompts.PlanExecute.TaskExecutionPromptTemplate
+		}
 	}
 	sandboxConfig := mapNode(root["sandboxConfig"])
 	if len(sandboxConfig) > 0 {

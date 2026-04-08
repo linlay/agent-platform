@@ -22,6 +22,15 @@ type ContainerHubClient struct {
 	httpClient *http.Client
 }
 
+type EnvironmentAgentPromptResult struct {
+	EnvironmentName string
+	HasPrompt       bool
+	Prompt          string
+	UpdatedAt       string
+	Error           string
+	OK              bool
+}
+
 func NewContainerHubClient(cfg config.ContainerHubConfig) *ContainerHubClient {
 	return &ContainerHubClient{
 		baseURL:   strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/"),
@@ -43,6 +52,43 @@ func (c *ContainerHubClient) ExecuteSession(ctx context.Context, sessionID strin
 
 func (c *ContainerHubClient) StopSession(ctx context.Context, sessionID string) (map[string]any, error) {
 	return c.post(ctx, "/api/sessions/"+strings.TrimSpace(sessionID)+"/stop", map[string]any{})
+}
+
+func (c *ContainerHubClient) GetEnvironmentAgentPrompt(environmentID string) (EnvironmentAgentPromptResult, error) {
+	normalized := strings.TrimSpace(environmentID)
+	if normalized == "" {
+		return EnvironmentAgentPromptResult{}, fmt.Errorf("environment id is required")
+	}
+	req, err := http.NewRequest(http.MethodGet, c.baseURL+"/api/environments/"+normalized+"/agent-prompt", nil)
+	if err != nil {
+		return EnvironmentAgentPromptResult{}, err
+	}
+	if c.authToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.authToken)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return EnvironmentAgentPromptResult{}, err
+	}
+	defer resp.Body.Close()
+	var decoded map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		return EnvironmentAgentPromptResult{}, err
+	}
+	result := EnvironmentAgentPromptResult{
+		EnvironmentName: strings.TrimSpace(anyStringNode(decoded["environmentName"])),
+		HasPrompt:       anyBoolNode(decoded["hasPrompt"]),
+		Prompt:          anyStringNode(decoded["prompt"]),
+		UpdatedAt:       anyStringNode(decoded["updatedAt"]),
+		OK:              resp.StatusCode >= 200 && resp.StatusCode < 300,
+	}
+	if !result.OK {
+		result.Error = anyStringNode(decoded["error"])
+		if strings.TrimSpace(result.Error) == "" {
+			result.Error = fmt.Sprintf("status %d", resp.StatusCode)
+		}
+	}
+	return result, nil
 }
 
 func (c *ContainerHubClient) post(ctx context.Context, path string, payload map[string]any) (map[string]any, error) {
@@ -410,10 +456,10 @@ func (s *ContainerHubSandboxService) createAndBind(ctx context.Context, execCtx 
 		})
 	}
 	response, err := s.client.CreateSession(ctx, map[string]any{
-		"session_id":     sessionID,
+		"session_id":       sessionID,
 		"environment_name": execCtx.resolvedEnvironmentID,
-		"cwd":            "/workspace",
-		"mounts":         payloadMounts,
+		"cwd":              "/workspace",
+		"mounts":           payloadMounts,
 		"labels": map[string]string{
 			"runId":    execCtx.Session.RunID,
 			"chatId":   execCtx.Session.ChatID,

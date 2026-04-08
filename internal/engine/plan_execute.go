@@ -195,17 +195,13 @@ func (s *planExecuteStream) afterStageEOF() error {
 
 func (s *planExecuteStream) startPlanStage() error {
 	req := s.req
-	req.Message = composeStageMessage(
-		s.settings.Plan.PrimaryPrompt(),
-		"Create an execution plan for the user's request. You MUST call _plan_add_tasks_ before the stage finishes.\n\nUser request:\n"+s.req.Message,
-	)
+	req.Message = "Create an execution plan for the user's request. You MUST call _plan_add_tasks_ before the stage finishes.\n\nUser request:\n" + s.req.Message
 	stream, err := s.engine.newRunStreamWithOptions(s.ctx, req, s.sessionForStage(s.settings.Plan, s.planStageTools()), true, runStreamOptions{
-		ExecCtx:      s.execCtx,
-		ToolNames:    s.planStageTools(),
-		ModelKey:     s.resolveStageModelKey(s.settings.Plan),
-		MaxSteps:     minPositive(s.settings.MaxSteps, 6),
-		SystemPrompt: s.settings.Plan.PrimaryPrompt(),
-		Stage:        "plan",
+		ExecCtx:   s.execCtx,
+		ToolNames: s.planStageTools(),
+		ModelKey:  s.resolveStageModelKey(s.settings.Plan),
+		MaxSteps:  minPositive(s.settings.MaxSteps, 6),
+		Stage:     "plan",
 	})
 	if err != nil {
 		return err
@@ -236,21 +232,17 @@ func (s *planExecuteStream) startNextTask() error {
 		},
 	)
 	req := s.req
-	req.Message = composeStageMessage(
-		s.settings.Execute.PrimaryPrompt(),
-		renderTemplate(defaultTaskTemplate(s.settings), map[string]string{
-			"task_list":        formatTaskList(s.execCtx.PlanState.Tasks),
-			"task_id":          task.TaskID,
-			"task_description": task.Description,
-		}),
-	)
+	req.Message = renderTemplate(defaultTaskTemplate(s.settings), map[string]string{
+		"task_list":        formatTaskList(s.execCtx.PlanState.Tasks),
+		"task_id":          task.TaskID,
+		"task_description": task.Description,
+	})
 	stream, err := s.engine.newRunStreamWithOptions(s.ctx, req, s.sessionForStage(s.settings.Execute, s.executeStageTools()), true, runStreamOptions{
-		ExecCtx:      s.execCtx,
-		ToolNames:    s.executeStageTools(),
-		ModelKey:     s.resolveStageModelKey(s.settings.Execute),
-		MaxSteps:     s.settings.MaxWorkRoundsPerTask,
-		SystemPrompt: s.settings.Execute.PrimaryPrompt(),
-		Stage:        "execute",
+		ExecCtx:   s.execCtx,
+		ToolNames: s.executeStageTools(),
+		ModelKey:  s.resolveStageModelKey(s.settings.Execute),
+		MaxSteps:  s.settings.MaxWorkRoundsPerTask,
+		Stage:     "execute",
 	})
 	if err != nil {
 		return err
@@ -263,17 +255,13 @@ func (s *planExecuteStream) startNextTask() error {
 func (s *planExecuteStream) startSummaryStage() error {
 	s.pending = append(s.pending, DeltaStageMarker{Stage: "summary"})
 	req := s.req
-	req.Message = composeStageMessage(
-		s.settings.Summary.PrimaryPrompt(),
-		"Summarize the completed plan execution for the user.\n\nOriginal request:\n"+s.req.Message+"\n\nTask results:\n"+formatTaskList(s.execCtx.PlanState.Tasks),
-	)
+	req.Message = "Summarize the completed plan execution for the user.\n\nOriginal request:\n" + s.req.Message + "\n\nTask results:\n" + formatTaskList(s.execCtx.PlanState.Tasks)
 	stream, err := s.engine.newRunStreamWithOptions(s.ctx, req, s.sessionForStage(s.settings.Summary, nil), false, runStreamOptions{
-		ExecCtx:      s.execCtx,
-		ToolNames:    nil,
-		ModelKey:     s.resolveStageModelKey(s.settings.Summary),
-		MaxSteps:     1,
-		SystemPrompt: s.settings.Summary.PrimaryPrompt(),
-		Stage:        "summary",
+		ExecCtx:   s.execCtx,
+		ToolNames: nil,
+		ModelKey:  s.resolveStageModelKey(s.settings.Summary),
+		MaxSteps:  1,
+		Stage:     "summary",
 	})
 	if err != nil {
 		return err
@@ -332,13 +320,6 @@ func appendUniqueTools(base []string, extra ...string) []string {
 		out = append(out, key)
 	}
 	return out
-}
-
-func composeStageMessage(systemPrompt string, body string) string {
-	if strings.TrimSpace(systemPrompt) == "" {
-		return body
-	}
-	return strings.TrimSpace(systemPrompt) + "\n\n" + body
 }
 
 func defaultTaskTemplate(settings PlanExecuteSettings) string {

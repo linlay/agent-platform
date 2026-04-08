@@ -79,7 +79,7 @@ func TestParseAgentFileReadsContextTagsBudgetStageSettingsAndControls(t *testing
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	if len(def.ContextTags) != 2 || def.Budget["runTimeoutMs"] != int64(1000) && def.Budget["runTimeoutMs"] != 1000 {
+	if len(def.ContextTags) != 1 || def.ContextTags[0] != "context" || def.Budget["runTimeoutMs"] != int64(1000) && def.Budget["runTimeoutMs"] != 1000 {
 		t.Fatalf("expected parsed context tags and budget, got %#v", def)
 	}
 	if def.StageSettings["stage"] != "alpha" {
@@ -87,6 +87,48 @@ func TestParseAgentFileReadsContextTagsBudgetStageSettingsAndControls(t *testing
 	}
 	if len(def.Controls) != 1 || def.Controls[0]["key"] != "tone" {
 		t.Fatalf("expected parsed controls, got %#v", def.Controls)
+	}
+}
+
+func TestParseAgentFileNormalizesJavaContextTagsAndRuntimePrompts(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	if err := os.WriteFile(path, []byte(
+		"key: runtime_prompts\n"+
+			"name: Runtime Prompts\n"+
+			"mode: ONESHOT\n"+
+			"modelConfig:\n"+
+			"  modelKey: demo-model\n"+
+			"contextTags:\n"+
+			"  - agent_identity\n"+
+			"  - run_session\n"+
+			"  - memory_context\n"+
+			"runtimePrompts:\n"+
+			"  planExecute:\n"+
+			"    taskExecutionPromptTemplate: TASK={{task_id}}\n"+
+			"  skill:\n"+
+			"    catalogHeader: skills-header-override\n"+
+			"  toolAppendix:\n"+
+			"    toolDescriptionTitle: tool-desc-title-override\n",
+	), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	if got := strings.Join(def.ContextTags, ","); got != "context,memory" {
+		t.Fatalf("expected normalized context tags, got %q", got)
+	}
+	if def.RuntimePrompts.Skill.CatalogHeader != "skills-header-override" {
+		t.Fatalf("expected skill prompt override, got %#v", def.RuntimePrompts)
+	}
+	if def.RuntimePrompts.ToolAppendix.ToolDescriptionTitle != "tool-desc-title-override" {
+		t.Fatalf("expected tool appendix override, got %#v", def.RuntimePrompts)
+	}
+	if def.StageSettings["taskExecutionPromptTemplate"] != "TASK={{task_id}}" {
+		t.Fatalf("expected task execution prompt template merged into stage settings, got %#v", def.StageSettings)
 	}
 }
 

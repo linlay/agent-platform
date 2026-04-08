@@ -75,6 +75,10 @@ type QuerySession struct {
 	ResolvedStageSettings PlanExecuteSettings
 	HistoryMessages       []map[string]any
 	MemoryContext         string
+	RuntimeContext        RuntimeRequestContext
+	PromptAppend          PromptAppendConfig
+	MemoryPrompt          string
+	SkillCatalogPrompt    string
 
 	// Prompt files loaded from agent directory.
 	SoulPrompt    string

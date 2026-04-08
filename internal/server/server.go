@@ -442,6 +442,24 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	principal := PrincipalFromContext(r.Context())
+	runtimeContext, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
+		agentKey:   agentKey,
+		teamID:     req.TeamID,
+		role:       defaultRole(req.Role),
+		chatID:     chatID,
+		chatName:   summary.ChatName,
+		scene:      req.Scene,
+		references: req.References,
+		principal:  principal,
+		definition: agentDef,
+	})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
+		return
+	}
+	promptAppend := buildPromptAppendConfig(agentDef)
+
 	session := engine.QuerySession{
 		RequestID:             requestID,
 		RunID:                 runID,
@@ -454,6 +472,8 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		Mode:                  agentDef.Mode,
 		TeamID:                req.TeamID,
 		Created:               created,
+		SkillKeys:             append([]string(nil), agentDef.Skills...),
+		ContextTags:           append([]string(nil), agentDef.ContextTags...),
 		Budget:                cloneMap(agentDef.Budget),
 		StageSettings:         cloneMap(agentDef.StageSettings),
 		ToolOverrides:         cloneToolOverrides(agentDef.ToolOverrides),
@@ -461,15 +481,19 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		ResolvedStageSettings: engine.ResolvePlanExecuteSettings(agentDef.StageSettings, s.deps.Config.Defaults.Plan.MaxSteps, s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask),
 		HistoryMessages:       historyMessages,
 		MemoryContext:         memoryContext,
-		SoulPrompt:           agentDef.SoulPrompt,
-		AgentsPrompt:         agentDef.AgentsPrompt,
-		PlanPrompt:           agentDef.PlanPrompt,
-		ExecutePrompt:        agentDef.ExecutePrompt,
-		SummaryPrompt:        agentDef.SummaryPrompt,
-		SandboxEnvironmentID: extractSandboxField(agentDef.Sandbox, "environmentId"),
-		SandboxLevel:         extractSandboxField(agentDef.Sandbox, "level"),
+		RuntimeContext:        runtimeContext,
+		PromptAppend:          promptAppend,
+		MemoryPrompt:          agentDef.MemoryPrompt,
+		SkillCatalogPrompt:    buildSkillCatalogPrompt(agentDef, s.deps.Registry, promptAppend),
+		SoulPrompt:            agentDef.SoulPrompt,
+		AgentsPrompt:          agentDef.AgentsPrompt,
+		PlanPrompt:            agentDef.PlanPrompt,
+		ExecutePrompt:         agentDef.ExecutePrompt,
+		SummaryPrompt:         agentDef.SummaryPrompt,
+		SandboxEnvironmentID:  extractSandboxField(agentDef.Sandbox, "environmentId"),
+		SandboxLevel:          extractSandboxField(agentDef.Sandbox, "level"),
 	}
-	if principal := PrincipalFromContext(r.Context()); principal != nil {
+	if principal != nil {
 		session.Subject = principal.Subject
 	}
 	runCtx, _, _ := s.deps.Runs.Register(r.Context(), session)
