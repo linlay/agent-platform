@@ -4,7 +4,7 @@ import "agent-platform-runner-go/internal/stream"
 
 type PlanState struct {
 	PlanID string          `json:"planId"`
-	Tasks  []PlanTaskState `json:"tasks,omitempty"`
+	Tasks  []PlanTaskState `json:"plan"`
 }
 
 type PlanTaskState struct {

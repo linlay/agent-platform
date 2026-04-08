@@ -60,7 +60,7 @@ func newPlanExecuteStream(engine *LLMAgentEngine, ctx context.Context, req api.Q
 			DeltaPlanUpdate{
 				PlanID: session.RunID + "_plan",
 				ChatID: session.ChatID,
-				Plan:   planStatePayload(execCtx.PlanState),
+				Plan:   planTasksArray(execCtx.PlanState),
 			},
 		},
 	}
@@ -147,7 +147,7 @@ func (s *planExecuteStream) afterStageEOF() error {
 		s.pending = append(s.pending, DeltaPlanUpdate{
 			PlanID: s.execCtx.PlanState.PlanID,
 			ChatID: s.session.ChatID,
-			Plan:   planStatePayload(s.execCtx.PlanState),
+			Plan:   planTasksArray(s.execCtx.PlanState),
 		})
 		return nil
 	}
@@ -162,7 +162,7 @@ func (s *planExecuteStream) afterStageEOF() error {
 		s.pending = append(s.pending, DeltaPlanUpdate{
 			PlanID: s.execCtx.PlanState.PlanID,
 			ChatID: s.session.ChatID,
-			Plan:   planStatePayload(s.execCtx.PlanState),
+			Plan:   planTasksArray(s.execCtx.PlanState),
 		})
 		switch finalStatus {
 		case "completed":
@@ -225,7 +225,7 @@ func (s *planExecuteStream) startNextTask() error {
 		DeltaPlanUpdate{
 			PlanID: s.execCtx.PlanState.PlanID,
 			ChatID: s.session.ChatID,
-			Plan:   planStatePayload(s.execCtx.PlanState),
+			Plan:   planTasksArray(s.execCtx.PlanState),
 		},
 		DeltaTaskLifecycle{
 			Kind:        "start",
