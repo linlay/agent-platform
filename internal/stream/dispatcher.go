@@ -67,13 +67,16 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 			"viewId":    value.ViewID,
 		})}
 	case RequestSteer:
-		return []StreamEvent{NewEvent("request.steer", map[string]any{
+		events := d.closeOpenBlocks()
+		events = append(events, NewEvent("request.steer", map[string]any{
 			"requestId": value.RequestID,
 			"chatId":    value.ChatID,
 			"runId":     value.RunID,
 			"steerId":   value.SteerID,
 			"message":   value.Message,
-		})}
+			"role":      "user",
+		}))
+		return events
 	case RunCancel:
 		events := d.closeOpenBlocks()
 		events = append(events, NewEvent("run.cancel", map[string]any{
