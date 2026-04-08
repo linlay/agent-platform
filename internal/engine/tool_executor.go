@@ -2,7 +2,9 @@ package engine
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"log"
 	"fmt"
 	"os"
 	"os/exec"
@@ -152,7 +154,10 @@ func (t *RuntimeToolExecutor) invokeArtifactPublish(args map[string]any, execCtx
 	artifacts, _ := args["artifacts"]
 	published := make([]map[string]any, 0)
 	if execCtx != nil {
-		published = publishArtifacts(t.cfg.Paths.ChatsDir, execCtx.Session.ChatID, artifacts)
+		log.Printf("[artifact-publish] chatsDir=%s chatID=%s runID=%s artifacts=%v",
+			t.cfg.Paths.ChatsDir, execCtx.Session.ChatID, execCtx.Session.RunID, artifacts)
+		published = publishArtifacts(t.cfg.Paths.ChatsDir, execCtx.Session.ChatID, execCtx.Session.RunID, artifacts)
+		log.Printf("[artifact-publish] published=%d items=%v", len(published), published)
 	}
 	payload := map[string]any{
 		"status":             "published",
@@ -510,7 +515,10 @@ func shortPlanID() string {
 	return fmt.Sprintf("task_%d_%d", time.Now().UnixMilli(), seq)
 }
 
-func publishArtifacts(chatsRoot string, chatID string, raw any) []map[string]any {
+// publishArtifacts resolves artifact paths from the sandbox /workspace to the
+// local chat directory, copies files into artifacts/<runId>/, and returns
+// publication metadata. Mirrors Java ArtifactPublishService.publish().
+func publishArtifacts(chatsRoot string, chatID string, runID string, raw any) []map[string]any {
 	if strings.TrimSpace(chatsRoot) == "" || strings.TrimSpace(chatID) == "" {
 		return nil
 	}
@@ -518,45 +526,214 @@ func publishArtifacts(chatsRoot string, chatID string, raw any) []map[string]any
 	if len(items) == 0 {
 		return nil
 	}
-	artifactsDir := filepath.Join(chatsRoot, chatID, "artifacts")
+	chatDir := filepath.Join(chatsRoot, chatID)
+	artifactsDir := filepath.Join(chatDir, "artifacts", runID)
 	if err := os.MkdirAll(artifactsDir, 0o755); err != nil {
 		return nil
 	}
 	published := make([]map[string]any, 0, len(items))
 	for index, item := range items {
-		mapped, _ := item.(map[string]any)
-		if mapped == nil {
+		// Support both {"path": "/workspace/file"} and plain "/workspace/file"
+		var rawPath string
+		var mapped map[string]any
+		switch v := item.(type) {
+		case map[string]any:
+			mapped = v
+			rawPath = anyStringNode(v["path"])
+		case string:
+			rawPath = strings.TrimSpace(v)
+			mapped = map[string]any{"path": rawPath}
+		default:
 			continue
 		}
+		if rawPath == "" {
+			continue
+		}
+
+		// Resolve source path: /workspace/... → chatsDir/chatID/...
+		sourcePath := resolveArtifactSourcePath(rawPath, chatDir)
+		if sourcePath == "" {
+			log.Printf("[artifact-publish] skip: path resolve failed rawPath=%s chatDir=%s", rawPath, chatDir)
+			continue
+		}
+		info, err := os.Stat(sourcePath)
+		if err != nil || info.IsDir() {
+			log.Printf("[artifact-publish] skip: file not found sourcePath=%s err=%v", sourcePath, err)
+			continue
+		}
+
 		artifactID := anyStringNode(mapped["artifactId"])
 		if artifactID == "" {
-			artifactID = fmt.Sprintf("artifact_%d_%d", time.Now().UnixNano(), index)
+			artifactID = fmt.Sprintf("artifact_%d_%d", time.Now().UnixMilli(), index)
 		}
+
+		// Determine display name from path or explicit name
 		name := anyStringNode(mapped["name"])
 		if name == "" {
-			name = artifactID + ".json"
+			name = filepath.Base(sourcePath)
 		}
 		filename := filepath.Base(name)
-		if !strings.Contains(filename, ".") {
-			filename += ".json"
+
+		// Copy file into artifacts dir with dedup (Java: materializeIntoChatAssets)
+		targetPath := deduplicateTargetPath(artifactsDir, filename, sourcePath)
+		if !strings.HasPrefix(filepath.Clean(sourcePath), filepath.Clean(artifactsDir)) {
+			if copyErr := copyFile(sourcePath, targetPath); copyErr != nil {
+				continue
+			}
+		} else {
+			targetPath = sourcePath
 		}
-		targetPath := filepath.Join(artifactsDir, filename)
-		data, err := json.MarshalIndent(mapped, "", "  ")
-		if err != nil {
-			continue
-		}
-		if err := os.WriteFile(targetPath, data, 0o644); err != nil {
-			continue
-		}
+
+		sha256hex := sha256Hex(targetPath)
+		publishedFilename := filepath.Base(targetPath)
+		relPath := filepath.ToSlash(filepath.Join(chatID, "artifacts", runID, publishedFilename))
 		published = append(published, map[string]any{
 			"artifactId": artifactID,
-			"name":       filename,
-			"path":       targetPath,
-			"url":        "/api/resource?file=" + filepath.ToSlash(filepath.Join(chatID, "artifacts", filename)),
+			"name":       publishedFilename,
+			"mimeType":   guessMimeType(publishedFilename),
+			"sizeBytes":  info.Size(),
+			"sha256":     sha256hex,
+			"url":        "/api/resource?file=" + relPath,
 			"type":       defaultStringArg(mapped, "type", "file"),
 		})
 	}
 	return published
+}
+
+// resolveArtifactSourcePath maps sandbox paths (/workspace/...) to local paths.
+// Java: ArtifactPublishService.resolveSourcePath()
+func resolveArtifactSourcePath(rawPath string, chatDir string) string {
+	const sandboxPrefix = "/workspace"
+	normalized := strings.TrimSpace(rawPath)
+	if strings.HasPrefix(normalized, sandboxPrefix) {
+		suffix := strings.TrimPrefix(normalized, sandboxPrefix)
+		suffix = strings.TrimLeft(suffix, "/")
+		if suffix == "" {
+			return chatDir
+		}
+		resolved := filepath.Clean(filepath.Join(chatDir, suffix))
+		if !strings.HasPrefix(resolved, filepath.Clean(chatDir)) {
+			return "" // path escapes chat dir
+		}
+		return resolved
+	}
+	// Relative path → resolve relative to chat dir
+	if !filepath.IsAbs(normalized) {
+		resolved := filepath.Clean(filepath.Join(chatDir, normalized))
+		if !strings.HasPrefix(resolved, filepath.Clean(chatDir)) {
+			return ""
+		}
+		return resolved
+	}
+	// Absolute path — must be inside chat dir
+	resolved := filepath.Clean(normalized)
+	if !strings.HasPrefix(resolved, filepath.Clean(chatDir)) {
+		return ""
+	}
+	return resolved
+}
+
+// deduplicateTargetPath returns a target path with counter suffix if filename
+// already exists with different content (Java: materializeIntoChatAssets).
+func deduplicateTargetPath(dir string, filename string, sourcePath string) string {
+	baseName := filename
+	ext := ""
+	if dotIdx := strings.LastIndex(filename, "."); dotIdx > 0 {
+		baseName = filename[:dotIdx]
+		ext = filename[dotIdx:]
+	}
+	counter := 0
+	for {
+		candidateName := filename
+		if counter > 0 {
+			candidateName = fmt.Sprintf("%s-%d%s", baseName, counter, ext)
+		}
+		candidate := filepath.Join(dir, candidateName)
+		info, err := os.Stat(candidate)
+		if err != nil {
+			// Doesn't exist yet — use this name
+			return candidate
+		}
+		// Exists — check if same content
+		if info.Mode().IsRegular() && sameFileContent(sourcePath, candidate) {
+			return candidate
+		}
+		counter++
+	}
+}
+
+func sameFileContent(left string, right string) bool {
+	leftInfo, err := os.Stat(left)
+	if err != nil {
+		return false
+	}
+	rightInfo, err := os.Stat(right)
+	if err != nil {
+		return false
+	}
+	if leftInfo.Size() != rightInfo.Size() {
+		return false
+	}
+	leftData, err := os.ReadFile(left)
+	if err != nil {
+		return false
+	}
+	rightData, err := os.ReadFile(right)
+	if err != nil {
+		return false
+	}
+	return string(leftData) == string(rightData)
+}
+
+func sha256Hex(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	hash := sha256.Sum256(data)
+	return fmt.Sprintf("%x", hash)
+}
+
+func copyFile(src string, dst string) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, data, 0o644)
+}
+
+func guessMimeType(filename string) string {
+	ext := strings.ToLower(filepath.Ext(filename))
+	switch ext {
+	case ".pdf":
+		return "application/pdf"
+	case ".docx":
+		return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+	case ".xlsx":
+		return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+	case ".pptx":
+		return "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+	case ".png":
+		return "image/png"
+	case ".jpg", ".jpeg":
+		return "image/jpeg"
+	case ".gif":
+		return "image/gif"
+	case ".svg":
+		return "image/svg+xml"
+	case ".txt":
+		return "text/plain"
+	case ".html":
+		return "text/html"
+	case ".json":
+		return "application/json"
+	case ".zip":
+		return "application/zip"
+	case ".md":
+		return "text/markdown"
+	default:
+		return "application/octet-stream"
+	}
 }
 
 func normalizePlanTaskStatus(raw string) string {
