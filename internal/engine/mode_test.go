@@ -116,16 +116,13 @@ func TestPlanExecuteModeRunsPlanTaskAndSummaryStages(t *testing.T) {
 				`[DONE]`,
 			)
 		case 3:
+			// Execute: _plan_update_task_ sets task_1 to completed → PostToolHook stops stream
 			return scriptedSSE(
 				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"task_update","type":"function","function":{"name":"_plan_update_task_","arguments":"{\"taskId\":\"task_1\",\"status\":\"completed\"}"}}]},"finish_reason":"tool_calls"}]}`,
 				`[DONE]`,
 			)
-		case 4:
-			return scriptedSSE(
-				`{"choices":[{"delta":{"content":"task complete"},"finish_reason":"stop"}]}`,
-				`[DONE]`,
-			)
 		default:
+			// Summary stage
 			return scriptedSSE(
 				`{"choices":[{"delta":{"content":"final summary"},"finish_reason":"stop"}]}`,
 				`[DONE]`,
@@ -172,7 +169,7 @@ func TestPlanExecuteModeRunsPlanTaskAndSummaryStages(t *testing.T) {
 		}
 		switch value := event.(type) {
 		case DeltaStageMarker:
-			if value.Stage == "execute" {
+			if strings.HasPrefix(value.Stage, "execute") {
 				sawExecuteStage = true
 			}
 			if value.Stage == "summary" {

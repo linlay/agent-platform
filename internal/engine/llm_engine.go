@@ -100,7 +100,10 @@ type llmRunStream struct {
 	toolSpecs  []openAIToolSpec
 	messages   []openAIMessage
 	execCtx    *ExecutionContext
-	maxSteps   int
+	maxSteps            int
+	toolChoice          string
+	maxToolCallsPerTurn int
+	postToolHook        func(string, string) PostToolHookResult
 
 	step               int
 	pending            []AgentDelta
@@ -140,14 +143,25 @@ type preparedToolInvocation struct {
 	prelude  []AgentDelta
 }
 
+// PostToolHookResult controls what happens after a tool call.
+type PostToolHookResult int
+
+const (
+	PostToolContinue PostToolHookResult = iota // keep going
+	PostToolStop                               // stop the stream (task status changed)
+)
+
 type runStreamOptions struct {
-	ExecCtx      *ExecutionContext
-	Messages     []openAIMessage
-	ToolNames    []string
-	ModelKey     string
-	MaxSteps     int
-	SystemPrompt string
-	Stage        string
+	ExecCtx             *ExecutionContext
+	Messages            []openAIMessage
+	ToolNames           []string
+	ModelKey            string
+	MaxSteps            int
+	SystemPrompt        string
+	Stage               string
+	ToolChoice          string             // "auto" (default), "required", "none"
+	MaxToolCallsPerTurn int                // 0 = unlimited; 1 = only first tool call per LLM turn (Java behaviour)
+	PostToolHook        func(toolName string, toolID string) PostToolHookResult // called after each tool execution
 }
 
 func NewLLMAgentEngine(cfg config.Config, models *ModelRegistry, tools ToolExecutor, sandbox SandboxClient) *LLMAgentEngine {
@@ -253,6 +267,10 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		maxSteps = e.resolveMaxSteps()
 	}
 
+	toolChoice := strings.TrimSpace(strings.ToLower(options.ToolChoice))
+	if toolChoice == "" {
+		toolChoice = "auto"
+	}
 	stream := &llmRunStream{
 		engine:       e,
 		ctx:          ctx,
@@ -264,8 +282,11 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		toolSpecs:    toolSpecs,
 		messages:     append([]openAIMessage(nil), messages...),
 		execCtx:      execCtx,
-		maxSteps:     maxSteps,
-		allowToolUse: allowToolUse,
+		maxSteps:            maxSteps,
+		toolChoice:          toolChoice,
+		maxToolCallsPerTurn: options.MaxToolCallsPerTurn,
+		postToolHook:        options.PostToolHook,
+		allowToolUse:        allowToolUse,
 	}
 	if !stream.allowToolUse {
 		stream.toolSpecs = nil
@@ -333,8 +354,15 @@ func (s *llmRunStream) fillPending() error {
 			return io.EOF
 		}
 		if s.activeToolCall != nil {
+			toolName := s.activeToolCall.toolName
+			toolID := s.activeToolCall.toolID
 			if err := s.invokeActiveToolCall(); err != nil {
 				return err
+			}
+			// Post-tool hook: allow caller to stop stream early (e.g. task status changed)
+			if s.postToolHook != nil && s.postToolHook(toolName, toolID) == PostToolStop {
+				s.queuedToolCalls = nil
+				s.finished = true
 			}
 			continue
 		}
@@ -380,7 +408,7 @@ func (s *llmRunStream) prepareNextTurn() error {
 		s.runControl.TransitionState(RunLoopStateModelStreaming)
 	}
 	s.execCtx.RunLoopState = RunLoopStateModelStreaming
-	turn, err := s.engine.openProviderStream(s.ctx, s.provider, s.model, s.messages, s.toolSpecs)
+	turn, err := s.engine.openProviderStream(s.ctx, s.provider, s.model, s.messages, s.toolSpecs, s.toolChoice)
 	if err != nil {
 		return err
 	}
@@ -480,6 +508,13 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		s.finished = true
 		return nil
 	}
+	// When maxToolCallsPerTurn is set, only keep the first N tool calls
+	// in the assistant message (Java: only getFirst() from toolCalls).
+	// This ensures the LLM only sees results for tool calls we actually execute.
+	if s.maxToolCallsPerTurn > 0 && len(toolCalls) > s.maxToolCallsPerTurn {
+		toolCalls = toolCalls[:s.maxToolCallsPerTurn]
+	}
+
 	content := turn.content.String()
 	if content != "" || len(toolCalls) > 0 {
 		msg := openAIMessage{Role: "assistant"}
@@ -722,6 +757,13 @@ func (s *llmRunStream) newContentDeltaEvent(delta string) AgentDelta {
 	return DeltaContent{Text: delta}
 }
 
+// AccumulatedMessages returns the messages accumulated during the stream's
+// lifetime, including system prompt, user messages, assistant replies and
+// tool results. Used by plan_execute to carry context into the summary stage.
+func (s *llmRunStream) AccumulatedMessages() []openAIMessage {
+	return append([]openAIMessage(nil), s.messages...)
+}
+
 func isPlanTool(name string) bool {
 	switch strings.ToLower(strings.TrimSpace(name)) {
 	case "_plan_add_tasks_", "_plan_update_task_":
@@ -921,7 +963,7 @@ func (t *providerTurnStream) materializeToolCalls() ([]openAIToolCall, error) {
 	return out, nil
 }
 
-func (e *LLMAgentEngine) openProviderStream(ctx context.Context, provider ProviderDefinition, model ModelDefinition, messages []openAIMessage, toolSpecs []openAIToolSpec) (*providerTurnStream, error) {
+func (e *LLMAgentEngine) openProviderStream(ctx context.Context, provider ProviderDefinition, model ModelDefinition, messages []openAIMessage, toolSpecs []openAIToolSpec, toolChoice string) (*providerTurnStream, error) {
 	if provider.BaseURL == "" {
 		return nil, fmt.Errorf("provider %s has empty baseUrl", provider.Key)
 	}
@@ -932,11 +974,18 @@ func (e *LLMAgentEngine) openProviderStream(ctx context.Context, provider Provid
 		return nil, fmt.Errorf("streaming protocol %s is not supported", model.Protocol)
 	}
 
+	effectiveToolChoice := "auto"
+	if toolChoice != "" {
+		effectiveToolChoice = toolChoice
+	}
+	if len(toolSpecs) == 0 {
+		effectiveToolChoice = ""
+	}
 	requestBody := openAIChatRequest{
 		Model:       model.ModelID,
 		Messages:    messages,
 		Tools:       toolSpecs,
-		ToolChoice:  "auto",
+		ToolChoice:  effectiveToolChoice,
 		Temperature: 0,
 		Stream:      true,
 	}

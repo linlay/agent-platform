@@ -34,6 +34,8 @@ type planExecuteStream struct {
 	completed     bool
 	closed        bool
 	taskLifecycle bool
+
+	executeMessages []openAIMessage // accumulated messages across rounds for summary
 }
 
 func newPlanExecuteStream(engine *LLMAgentEngine, ctx context.Context, req api.QueryRequest, session QuerySession) (AgentStream, error) {
@@ -88,6 +90,10 @@ func (s *planExecuteStream) Next() (AgentDelta, error) {
 		}
 		event, err := s.current.Next()
 		if err == io.EOF {
+			// Capture accumulated messages before closing (for summary stage context)
+			if llmStream, ok := s.current.(*llmRunStream); ok && s.taskLifecycle {
+				s.executeMessages = append(s.executeMessages, llmStream.AccumulatedMessages()...)
+			}
 			_ = s.current.Close()
 			s.current = nil
 			if err := s.afterStageEOF(); err != nil {
@@ -118,12 +124,78 @@ func (s *planExecuteStream) advance() error {
 		return s.startPlanStage()
 	}
 	if s.taskIndex < len(s.execCtx.PlanState.Tasks) {
-		return s.startNextTask()
+		return s.advanceTaskExecution()
 	}
 	if !s.summaryDone {
 		return s.startSummaryStage()
 	}
 	s.completed = true
+	return nil
+}
+
+// advanceTaskExecution starts execution for the current task.
+// The llmRunStream handles the multi-turn tool execution loop internally.
+// MaxToolCallsPerTurn=1 ensures only one tool is processed per round (Java behaviour).
+// After the stream ends, afterStageEOF checks task status.
+func (s *planExecuteStream) advanceTaskExecution() error {
+	task := &s.execCtx.PlanState.Tasks[s.taskIndex]
+
+	if task.Status == "" || task.Status == "init" {
+		task.Status = "in_progress"
+	}
+	s.execCtx.PlanState.ActiveTaskID = task.TaskID
+	s.pending = append(s.pending,
+		DeltaStageMarker{Stage: fmt.Sprintf("execute-task-%d", s.taskIndex+1)},
+		DeltaPlanUpdate{
+			PlanID: s.execCtx.PlanState.PlanID,
+			ChatID: s.session.ChatID,
+			Plan:   planTasksArray(s.execCtx.PlanState),
+		},
+		DeltaTaskLifecycle{
+			Kind:        "start",
+			TaskID:      task.TaskID,
+			RunID:       s.session.RunID,
+			TaskName:    task.TaskID,
+			Description: task.Description,
+		},
+	)
+
+	return s.startTaskStream(task)
+}
+
+func (s *planExecuteStream) startTaskStream(task *PlanTask) error {
+	beforeStatus := normalizePlanTaskStatus(task.Status)
+	req := s.req
+	req.Message = renderTemplate(defaultTaskTemplate(s.settings), map[string]string{
+		"task_list":        formatTaskList(s.execCtx.PlanState.Tasks),
+		"task_id":          task.TaskID,
+		"task_description": task.Description,
+	})
+	stream, err := s.engine.newRunStreamWithOptions(s.ctx, req, s.sessionForStage(s.settings.Execute, s.executeStageTools()), true, runStreamOptions{
+		ExecCtx:             s.execCtx,
+		ToolNames:           s.executeStageTools(),
+		ModelKey:            s.resolveStageModelKey(s.settings.Execute),
+		MaxSteps:            s.settings.MaxWorkRoundsPerTask,
+		SystemPrompt:        s.settings.Execute.PrimaryPrompt(),
+		Stage:               fmt.Sprintf("execute-step-%d", s.taskIndex+1),
+		MaxToolCallsPerTurn: 1,
+		// PostToolHook: stop early when _plan_update_task_ changes the task status (Java behaviour)
+		PostToolHook: func(toolName string, toolID string) PostToolHookResult {
+			if !isPlanTool(toolName) {
+				return PostToolContinue
+			}
+			afterStatus := normalizePlanTaskStatus(task.Status)
+			if afterStatus != beforeStatus && isTerminalPlanStatus(afterStatus) {
+				return PostToolStop
+			}
+			return PostToolContinue
+		},
+	})
+	if err != nil {
+		return err
+	}
+	s.current = stream
+	s.taskLifecycle = true
 	return nil
 }
 
@@ -151,123 +223,156 @@ func (s *planExecuteStream) afterStageEOF() error {
 		})
 		return nil
 	}
+
 	if s.taskLifecycle {
 		s.taskLifecycle = false
-		task := s.execCtx.PlanState.Tasks[s.taskIndex]
+		task := &s.execCtx.PlanState.Tasks[s.taskIndex]
 		finalStatus := normalizePlanTaskStatus(task.Status)
-		if finalStatus == "" || finalStatus == "init" || finalStatus == "in_progress" {
-			finalStatus = "failed"
-			s.execCtx.PlanState.Tasks[s.taskIndex].Status = finalStatus
+
+		if isTerminalPlanStatus(finalStatus) {
+			s.emitTaskTerminal(task, finalStatus)
+			if finalStatus == "failed" {
+				// Failed tasks stop the entire plan (Java behaviour)
+				s.taskIndex = len(s.execCtx.PlanState.Tasks)
+			}
+			return nil
 		}
-		s.pending = append(s.pending, DeltaPlanUpdate{
-			PlanID: s.execCtx.PlanState.PlanID,
-			ChatID: s.session.ChatID,
-			Plan:   planTasksArray(s.execCtx.PlanState),
-		})
-		switch finalStatus {
-		case "completed":
-			s.pending = append(s.pending, DeltaTaskLifecycle{Kind: "complete", TaskID: task.TaskID})
-		case "canceled":
-			s.pending = append(s.pending, DeltaTaskLifecycle{Kind: "cancel", TaskID: task.TaskID})
-		default:
-			s.pending = append(s.pending, DeltaTaskLifecycle{
-				Kind:   "fail",
-				TaskID: task.TaskID,
-				Error: NewErrorPayload(
-					"task_execution_error",
-					"task execution did not reach a terminal _plan_update_task_ status",
-					ErrorScopeTask,
-					ErrorCategorySystem,
-					map[string]any{
-						"taskId": task.TaskID,
-						"status": finalStatus,
-					},
-				),
-			})
-		}
-		s.taskIndex++
+
+		// Task did not reach terminal status — mark as failed
+		s.emitTaskFailure(task, "task execution did not reach a terminal status")
 		return nil
 	}
+
+	// Summary stage finished
 	s.summaryDone = true
 	s.completed = true
 	return nil
 }
 
-func (s *planExecuteStream) startPlanStage() error {
-	req := s.req
-	req.Message = "Create an execution plan for the user's request. You MUST call _plan_add_tasks_ before the stage finishes.\n\nUser request:\n" + s.req.Message
-	stream, err := s.engine.newRunStreamWithOptions(s.ctx, req, s.sessionForStage(s.settings.Plan, s.planStageTools()), true, runStreamOptions{
-		ExecCtx:   s.execCtx,
-		ToolNames: s.planStageTools(),
-		ModelKey:  s.resolveStageModelKey(s.settings.Plan),
-		MaxSteps:  minPositive(s.settings.MaxSteps, 6),
-		Stage:     "plan",
+func (s *planExecuteStream) emitTaskTerminal(task *PlanTask, status string) {
+	s.pending = append(s.pending, DeltaPlanUpdate{
+		PlanID: s.execCtx.PlanState.PlanID,
+		ChatID: s.session.ChatID,
+		Plan:   planTasksArray(s.execCtx.PlanState),
 	})
-	if err != nil {
-		return err
+	switch status {
+	case "completed":
+		s.pending = append(s.pending, DeltaTaskLifecycle{Kind: "complete", TaskID: task.TaskID})
+	case "canceled":
+		s.pending = append(s.pending, DeltaTaskLifecycle{Kind: "cancel", TaskID: task.TaskID})
+	case "failed":
+		s.pending = append(s.pending, DeltaTaskLifecycle{
+			Kind:   "fail",
+			TaskID: task.TaskID,
+			Error: NewErrorPayload("task_failed", "Task status updated to failed",
+				ErrorScopeTask, ErrorCategorySystem, nil),
+		})
 	}
-	s.current = stream
-	return nil
+	s.taskIndex++
+	s.execCtx.PlanState.ActiveTaskID = ""
 }
 
-func (s *planExecuteStream) startNextTask() error {
-	task := &s.execCtx.PlanState.Tasks[s.taskIndex]
-	if task.Status == "" || task.Status == "init" {
-		task.Status = "in_progress"
-	}
-	s.execCtx.PlanState.ActiveTaskID = task.TaskID
-	s.pending = append(s.pending,
-		DeltaStageMarker{Stage: "execute"},
-		DeltaPlanUpdate{
-			PlanID: s.execCtx.PlanState.PlanID,
-			ChatID: s.session.ChatID,
-			Plan:   planTasksArray(s.execCtx.PlanState),
-		},
-		DeltaTaskLifecycle{
-			Kind:        "start",
-			TaskID:      task.TaskID,
-			RunID:       s.session.RunID,
-			TaskName:    task.TaskID,
-			Description: task.Description,
-		},
-	)
-	req := s.req
-	req.Message = renderTemplate(defaultTaskTemplate(s.settings), map[string]string{
-		"task_list":        formatTaskList(s.execCtx.PlanState.Tasks),
-		"task_id":          task.TaskID,
-		"task_description": task.Description,
+func (s *planExecuteStream) emitTaskFailure(task *PlanTask, message string) {
+	task.Status = "failed"
+	s.pending = append(s.pending, DeltaPlanUpdate{
+		PlanID: s.execCtx.PlanState.PlanID,
+		ChatID: s.session.ChatID,
+		Plan:   planTasksArray(s.execCtx.PlanState),
 	})
-	stream, err := s.engine.newRunStreamWithOptions(s.ctx, req, s.sessionForStage(s.settings.Execute, s.executeStageTools()), true, runStreamOptions{
-		ExecCtx:   s.execCtx,
-		ToolNames: s.executeStageTools(),
-		ModelKey:  s.resolveStageModelKey(s.settings.Execute),
-		MaxSteps:  s.settings.MaxWorkRoundsPerTask,
-		Stage:     "execute",
+	s.pending = append(s.pending, DeltaTaskLifecycle{
+		Kind:   "fail",
+		TaskID: task.TaskID,
+		Error: NewErrorPayload("task_execution_error", message,
+			ErrorScopeTask, ErrorCategorySystem, map[string]any{"taskId": task.TaskID}),
+	})
+	s.taskIndex++
+	s.execCtx.PlanState.ActiveTaskID = ""
+}
+
+func (s *planExecuteStream) startPlanStage() error {
+	// Augment plan prompt with execute-stage tool descriptions (Java: augmentPlanStageWithToolPrompts)
+	planPrompt := s.settings.Plan.PrimaryPrompt()
+	executeToolDesc := s.buildExecuteToolDescriptions()
+	if executeToolDesc != "" {
+		planPrompt = planPrompt + "\n\n" + executeToolDesc
+	}
+	planCallableDesc := s.buildPlanCallableToolDescriptions()
+	if planCallableDesc != "" {
+		planPrompt = planPrompt + "\n\n" + planCallableDesc
+	}
+
+	req := s.req
+	req.Message = strings.TrimSpace(planPrompt) + "\n\nCreate an execution plan for the user's request. You MUST call _plan_add_tasks_ before the stage finishes.\n\nUser request:\n" + s.req.Message
+	stream, err := s.engine.newRunStreamWithOptions(s.ctx, req, s.sessionForStage(s.settings.Plan, s.planStageTools()), true, runStreamOptions{
+		ExecCtx:      s.execCtx,
+		ToolNames:    s.planStageTools(),
+		ModelKey:     s.resolveStageModelKey(s.settings.Plan),
+		MaxSteps:     minPositive(s.settings.MaxSteps, 6),
+		SystemPrompt: planPrompt,
+		Stage:        "plan",
 	})
 	if err != nil {
 		return err
 	}
 	s.current = stream
-	s.taskLifecycle = true
 	return nil
 }
 
 func (s *planExecuteStream) startSummaryStage() error {
 	s.pending = append(s.pending, DeltaStageMarker{Stage: "summary"})
-	req := s.req
-	req.Message = "Summarize the completed plan execution for the user.\n\nOriginal request:\n" + s.req.Message + "\n\nTask results:\n" + formatTaskList(s.execCtx.PlanState.Tasks)
-	stream, err := s.engine.newRunStreamWithOptions(s.ctx, req, s.sessionForStage(s.settings.Summary, nil), false, runStreamOptions{
-		ExecCtx:   s.execCtx,
-		ToolNames: nil,
-		ModelKey:  s.resolveStageModelKey(s.settings.Summary),
-		MaxSteps:  1,
-		Stage:     "summary",
+
+	// Build summary messages from accumulated execute history (Java: context.executeMessages())
+	summaryMessages := make([]openAIMessage, 0, len(s.executeMessages)+2)
+	systemPrompt := s.settings.Summary.PrimaryPrompt()
+	if systemPrompt == "" {
+		systemPrompt = "Summarize the completed plan execution for the user."
+	}
+	summaryMessages = append(summaryMessages, openAIMessage{Role: "system", Content: systemPrompt})
+	summaryMessages = append(summaryMessages, s.executeMessages...)
+	summaryMessages = append(summaryMessages, openAIMessage{
+		Role:    "user",
+		Content: "Please provide a final summary of the completed plan.\n\nOriginal request:\n" + s.req.Message + "\n\nTask results:\n" + formatTaskList(s.execCtx.PlanState.Tasks),
+	})
+
+	stream, err := s.engine.newRunStreamWithOptions(s.ctx, s.req, s.sessionForStage(s.settings.Summary, nil), false, runStreamOptions{
+		ExecCtx:      s.execCtx,
+		Messages:     summaryMessages,
+		ToolNames:    nil,
+		ModelKey:     s.resolveStageModelKey(s.settings.Summary),
+		MaxSteps:     1,
+		SystemPrompt: s.settings.Summary.PrimaryPrompt(),
+		Stage:        "summary",
 	})
 	if err != nil {
 		return err
 	}
 	s.current = stream
 	return nil
+}
+
+// buildExecuteToolDescriptions returns a prompt section describing execute-stage
+// tools for reference during planning (Java: augmentPlanStageWithToolPrompts).
+func (s *planExecuteStream) buildExecuteToolDescriptions() string {
+	tools := s.executeStageTools()
+	if len(tools) == 0 {
+		return ""
+	}
+	var lines []string
+	lines = append(lines, "以下是执行阶段可用工具说明（当前是规划阶段，仅供参考，不允许调用）:")
+	for _, toolName := range tools {
+		if strings.HasPrefix(toolName, "_plan_") {
+			continue // skip plan tools in reference section
+		}
+		lines = append(lines, fmt.Sprintf("- %s", toolName))
+	}
+	if len(lines) <= 1 {
+		return ""
+	}
+	return strings.Join(lines, "\n")
+}
+
+func (s *planExecuteStream) buildPlanCallableToolDescriptions() string {
+	return "当前规划阶段可调用工具（必须调用 _plan_add_tasks_ 创建计划）:\n- _plan_add_tasks_"
 }
 
 func (s *planExecuteStream) sessionForStage(stage StageSettings, toolNames []string) QuerySession {
@@ -290,12 +395,23 @@ func (s *planExecuteStream) resolveStageModelKey(stage StageSettings) string {
 
 func (s *planExecuteStream) planStageTools() []string {
 	tools := stageToolsOrDefault(s.settings.Plan, s.session.ToolNames)
-	return appendUniqueTools(tools, "_plan_add_tasks_", "_plan_get_tasks_", "_plan_update_task_")
+	// Only _plan_add_tasks_ is callable in plan stage (Java: selectPlanCallableTools)
+	return appendUniqueTools(tools, "_plan_add_tasks_")
 }
 
 func (s *planExecuteStream) executeStageTools() []string {
 	tools := stageToolsOrDefault(s.settings.Execute, s.session.ToolNames)
-	return appendUniqueTools(tools, "_plan_get_tasks_", "_plan_update_task_")
+	// _plan_update_task_ for status updates, no _plan_get_tasks_ (per Zhang Qian's feedback)
+	return appendUniqueTools(tools, "_plan_update_task_")
+}
+
+func isTerminalPlanStatus(status string) bool {
+	switch status {
+	case "completed", "canceled", "failed":
+		return true
+	default:
+		return false
+	}
 }
 
 func stageToolsOrDefault(stage StageSettings, fallback []string) []string {
