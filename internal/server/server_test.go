@@ -442,7 +442,7 @@ func TestAgentEndpointReturnsDetail(t *testing.T) {
 	if response.Data.Mode != "REACT" {
 		t.Fatalf("expected REACT mode, got %#v", response.Data)
 	}
-	if len(response.Data.Tools) != 2 || response.Data.Tools[0] != "_datetime_" {
+	if len(response.Data.Tools) != 3 || response.Data.Tools[0] != "_datetime_" || response.Data.Tools[2] != "_sandbox_bash_" {
 		t.Fatalf("expected tools in detail response, got %#v", response.Data.Tools)
 	}
 	if len(response.Data.Skills) != 1 || response.Data.Skills[0] != "mock-skill" {
@@ -464,13 +464,30 @@ func TestAgentEndpointReturnsDetail(t *testing.T) {
 	if !ok || len(modelKeys) != 1 || modelKeys[0] != "mock-model" {
 		t.Fatalf("expected modelKeys meta, got %#v", response.Data.Meta["modelKeys"])
 	}
+	perAgentSkills, ok := response.Data.Meta["perAgentSkills"].([]any)
+	if !ok || len(perAgentSkills) != 1 || perAgentSkills[0] != "mock-skill" {
+		t.Fatalf("expected perAgentSkills meta, got %#v", response.Data.Meta["perAgentSkills"])
+	}
 	sandbox, ok := response.Data.Meta["sandbox"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected sandbox meta, got %#v", response.Data.Meta)
 	}
+	if sandbox["level"] != "RUN" {
+		t.Fatalf("expected sandbox level RUN, got %#v", sandbox["level"])
+	}
 	extraMounts, ok := sandbox["extraMounts"].([]any)
 	if !ok || len(extraMounts) != 1 {
 		t.Fatalf("expected sandbox extraMounts, got %#v", sandbox)
+	}
+	firstMount, ok := extraMounts[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected first sandbox mount map, got %#v", extraMounts[0])
+	}
+	if _, exists := firstMount["source"]; !exists || firstMount["source"] != nil {
+		t.Fatalf("expected sandbox mount source=null, got %#v", firstMount)
+	}
+	if firstMount["destination"] != "/skills" {
+		t.Fatalf("expected sandbox mount destination /skills, got %#v", firstMount)
 	}
 }
 

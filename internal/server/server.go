@@ -875,7 +875,7 @@ func (s *Server) buildAgentDetailResponse(def catalog.AgentDefinition) api.Agent
 		Role:        def.Role,
 		Model:       modelName,
 		Mode:        def.Mode,
-		Tools:       append([]string{}, def.Tools...),
+		Tools:       normalizedAgentTools(def),
 		Skills:      append([]string{}, def.Skills...),
 		Controls:    cloneListMaps(def.Controls),
 		Meta:        meta,
@@ -910,10 +910,109 @@ func (s *Server) buildAgentDetailMeta(def catalog.AgentDefinition) (string, map[
 	if modelName == "" {
 		modelName = def.ModelKey
 	}
+	if len(def.Skills) > 0 {
+		meta["perAgentSkills"] = append([]string(nil), def.Skills...)
+	}
 	if def.Sandbox != nil {
-		meta["sandbox"] = cloneMap(def.Sandbox)
+		meta["sandbox"] = normalizedSandboxMeta(def.Sandbox)
 	}
 	return modelName, meta
+}
+
+func normalizedAgentTools(def catalog.AgentDefinition) []string {
+	tools := make([]string, 0, len(def.Tools)+1)
+	seen := map[string]struct{}{}
+	for _, tool := range def.Tools {
+		name := strings.TrimSpace(tool)
+		if name == "" {
+			continue
+		}
+		key := strings.ToLower(name)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		tools = append(tools, name)
+	}
+	if hasSandboxConfig(def.Sandbox) {
+		if _, ok := seen["_sandbox_bash_"]; !ok {
+			tools = append(tools, "_sandbox_bash_")
+		}
+	}
+	return tools
+}
+
+func hasSandboxConfig(sandbox map[string]any) bool {
+	if len(sandbox) == 0 {
+		return false
+	}
+	if strings.TrimSpace(stringValue(sandbox["environmentId"])) != "" {
+		return true
+	}
+	if strings.TrimSpace(stringValue(sandbox["level"])) != "" {
+		return true
+	}
+	mounts, _ := sandbox["extraMounts"].([]map[string]any)
+	return len(mounts) > 0
+}
+
+func normalizedSandboxMeta(sandbox map[string]any) map[string]any {
+	if sandbox == nil {
+		return nil
+	}
+	out := map[string]any{
+		"environmentId": stringValue(sandbox["environmentId"]),
+		"level":         strings.ToUpper(stringValue(sandbox["level"])),
+	}
+	if mounts := normalizeSandboxMounts(sandbox["extraMounts"]); len(mounts) > 0 {
+		out["extraMounts"] = mounts
+	}
+	return out
+}
+
+func normalizeSandboxMounts(value any) []map[string]any {
+	switch mounts := value.(type) {
+	case []map[string]any:
+		out := make([]map[string]any, 0, len(mounts))
+		for _, mount := range mounts {
+			out = append(out, normalizeSandboxMount(mount))
+		}
+		return out
+	case []any:
+		out := make([]map[string]any, 0, len(mounts))
+		for _, raw := range mounts {
+			mount, ok := raw.(map[string]any)
+			if !ok {
+				continue
+			}
+			out = append(out, normalizeSandboxMount(mount))
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func normalizeSandboxMount(mount map[string]any) map[string]any {
+	return map[string]any{
+		"platform":    stringValue(mount["platform"]),
+		"source":      nullableStringValue(mount["source"]),
+		"destination": nullableStringValue(mount["destination"]),
+		"mode":        stringValue(mount["mode"]),
+	}
+}
+
+func stringValue(value any) string {
+	text, _ := value.(string)
+	return strings.TrimSpace(text)
+}
+
+func nullableStringValue(value any) any {
+	text := stringValue(value)
+	if text == "" {
+		return nil
+	}
+	return text
 }
 
 func cloneMap(src map[string]any) map[string]any {
