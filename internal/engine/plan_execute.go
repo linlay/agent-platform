@@ -165,21 +165,34 @@ func (s *planExecuteStream) advanceTaskExecution() error {
 
 func (s *planExecuteStream) startTaskStream(task *PlanTask) error {
 	beforeStatus := normalizePlanTaskStatus(task.Status)
-	req := s.req
-	req.Message = renderTemplate(defaultTaskTemplate(s.settings), map[string]string{
+
+	// Build messages from accumulated executeMessages (Java: context.executeMessages() is shared
+	// across all tasks, so each task sees previous tasks' conversation + steers).
+	taskPrompt := renderTemplate(defaultTaskTemplate(s.settings), map[string]string{
 		"task_list":        formatTaskList(s.execCtx.PlanState.Tasks),
 		"task_id":          task.TaskID,
 		"task_description": task.Description,
 	})
+	messages := make([]openAIMessage, 0, len(s.executeMessages)+2)
+	systemPrompt := s.settings.Execute.PrimaryPrompt()
+	if systemPrompt == "" {
+		systemPrompt = "Execute the current task."
+	}
+	messages = append(messages, openAIMessage{Role: "system", Content: systemPrompt})
+	messages = append(messages, s.executeMessages...)
+	messages = append(messages, openAIMessage{Role: "user", Content: taskPrompt})
+
+	req := s.req
+	req.Message = taskPrompt
 	stream, err := s.engine.newRunStreamWithOptions(s.ctx, req, s.sessionForStage(s.settings.Execute, s.executeStageTools()), true, runStreamOptions{
 		ExecCtx:             s.execCtx,
+		Messages:            messages, // Carry full execute history including steers
 		ToolNames:           s.executeStageTools(),
 		ModelKey:            s.resolveStageModelKey(s.settings.Execute),
 		MaxSteps:            s.settings.MaxWorkRoundsPerTask,
 		SystemPrompt:        s.settings.Execute.PrimaryPrompt(),
 		Stage:               fmt.Sprintf("execute-step-%d", s.taskIndex+1),
 		MaxToolCallsPerTurn: 1,
-		// PostToolHook: stop early when _plan_update_task_ changes the task status (Java behaviour)
 		PostToolHook: func(toolName string, toolID string) PostToolHookResult {
 			if !isPlanTool(toolName) {
 				return PostToolContinue
