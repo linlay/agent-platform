@@ -147,6 +147,7 @@ type runStreamOptions struct {
 	ModelKey     string
 	MaxSteps     int
 	SystemPrompt string
+	Stage        string
 }
 
 func NewLLMAgentEngine(cfg config.Config, models *ModelRegistry, tools ToolExecutor, sandbox SandboxClient) *LLMAgentEngine {
@@ -171,7 +172,11 @@ func (e *LLMAgentEngine) Stream(ctx context.Context, req api.QueryRequest, sessi
 }
 
 func (e *LLMAgentEngine) newRunStream(ctx context.Context, req api.QueryRequest, session QuerySession, allowToolUse bool) (AgentStream, error) {
-	return e.newRunStreamWithOptions(ctx, req, session, allowToolUse, runStreamOptions{})
+	stage := strings.ToLower(session.Mode)
+	if stage == "" {
+		stage = "oneshot"
+	}
+	return e.newRunStreamWithOptions(ctx, req, session, allowToolUse, runStreamOptions{Stage: stage})
 }
 
 func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.QueryRequest, session QuerySession, allowToolUse bool, options runStreamOptions) (AgentStream, error) {
@@ -220,6 +225,7 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		if strings.TrimSpace(options.SystemPrompt) != "" {
 			systemPrompt = strings.TrimSpace(options.SystemPrompt)
 		}
+		log.Printf("[llm][run:%s][%s] LLM delta stream system prompt:\n%s", session.RunID, options.Stage, systemPrompt)
 		messages = []openAIMessage{
 			{
 				Role:    "system",

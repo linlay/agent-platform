@@ -205,6 +205,7 @@ func (s *planExecuteStream) startPlanStage() error {
 		ModelKey:     s.resolveStageModelKey(s.settings.Plan),
 		MaxSteps:     minPositive(s.settings.MaxSteps, 6),
 		SystemPrompt: s.settings.Plan.PrimaryPrompt(),
+		Stage:        "plan",
 	})
 	if err != nil {
 		return err
@@ -249,6 +250,7 @@ func (s *planExecuteStream) startNextTask() error {
 		ModelKey:     s.resolveStageModelKey(s.settings.Execute),
 		MaxSteps:     s.settings.MaxWorkRoundsPerTask,
 		SystemPrompt: s.settings.Execute.PrimaryPrompt(),
+		Stage:        "execute",
 	})
 	if err != nil {
 		return err
@@ -271,6 +273,7 @@ func (s *planExecuteStream) startSummaryStage() error {
 		ModelKey:     s.resolveStageModelKey(s.settings.Summary),
 		MaxSteps:     1,
 		SystemPrompt: s.settings.Summary.PrimaryPrompt(),
+		Stage:        "summary",
 	})
 	if err != nil {
 		return err
