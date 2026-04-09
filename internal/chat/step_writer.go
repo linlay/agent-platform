@@ -253,6 +253,10 @@ func (w *StepWriter) flushCurrentStep() {
 
 func (w *StepWriter) writeEventLine(event stream.EventData) {
 	eventMap := event.Map()
+	// Java does not include seq/timestamp inside the event payload —
+	// they live at the outer line level (updatedAt).
+	delete(eventMap, "seq")
+	delete(eventMap, "timestamp")
 	_ = w.store.AppendEventLine(w.chatID, EventLine{
 		Type:      "event",
 		ChatID:    w.chatID,

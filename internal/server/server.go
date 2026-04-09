@@ -517,7 +517,11 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	mapper := engine.NewDeltaMapper(runID, chatID, s.deps.Registry)
+	var toolLookup engine.ToolDefinitionLookup = s.deps.Registry
+	if tl, ok := s.deps.Tools.(engine.ToolDefinitionLookup); ok {
+		toolLookup = engine.NewCompositeToolLookup(s.deps.Registry, tl)
+	}
+	mapper := engine.NewDeltaMapper(runID, chatID, toolLookup)
 
 	sseWriter, err := stream.NewWriter(w, stream.Options{
 		SSE:            s.deps.Config.SSE,

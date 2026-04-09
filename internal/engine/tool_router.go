@@ -87,6 +87,12 @@ func (r *ToolRouter) Invoke(ctx context.Context, toolName string, args map[strin
 	})
 }
 
+// Tool implements ToolDefinitionLookup so ToolRouter can be used in DeltaMapper
+// to resolve toolLabel/toolType for MCP tools.
+func (r *ToolRouter) Tool(toolName string) (api.ToolDetailResponse, bool) {
+	return r.lookup(toolName)
+}
+
 func (r *ToolRouter) lookup(toolName string) (api.ToolDetailResponse, bool) {
 	if r == nil {
 		return api.ToolDetailResponse{}, false
