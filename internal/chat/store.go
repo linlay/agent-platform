@@ -2,17 +2,19 @@ package chat
 
 import (
 	"bufio"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"agent-platform-runner-go/internal/stream"
+
+	_ "modernc.org/sqlite"
 )
 
 var ErrChatNotFound = errors.New("chat not found")
@@ -37,25 +39,99 @@ type Store interface {
 type FileStore struct {
 	root string
 	mu   sync.Mutex
+	db   *sql.DB
 }
 
 func NewFileStore(root string) (*FileStore, error) {
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return nil, err
 	}
-	return &FileStore{root: root}, nil
+	store := &FileStore{root: root}
+	if err := store.initDB(); err != nil {
+		return nil, err
+	}
+	return store, nil
+}
+
+// ---------------------------------------------------------------------------
+// SQLite index (replaces index.json, matching Java chats.db)
+// ---------------------------------------------------------------------------
+
+func (s *FileStore) initDB() error {
+	dbPath := filepath.Join(s.root, "chats.db")
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		return fmt.Errorf("open chats.db: %w", err)
+	}
+	s.db = db
+
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS CHATS (
+			CHAT_ID_          TEXT PRIMARY KEY,
+			CHAT_NAME_        TEXT NOT NULL,
+			AGENT_KEY_        TEXT NOT NULL DEFAULT '',
+			TEAM_ID_          TEXT,
+			CREATED_AT_       INTEGER NOT NULL,
+			UPDATED_AT_       INTEGER NOT NULL,
+			LAST_RUN_ID_      TEXT NOT NULL DEFAULT '',
+			LAST_RUN_CONTENT_ TEXT NOT NULL DEFAULT '',
+			READ_STATUS_      INTEGER NOT NULL DEFAULT 1,
+			READ_AT_          INTEGER
+		);
+		CREATE INDEX IF NOT EXISTS IDX_CHATS_LAST_RUN_ID_ ON CHATS(LAST_RUN_ID_);
+	`)
+	if err != nil {
+		return fmt.Errorf("create chats table: %w", err)
+	}
+
+	// Migrate from index.json if it exists and DB is empty
+	s.migrateFromIndexJSON()
+	return nil
+}
+
+func (s *FileStore) migrateFromIndexJSON() {
+	path := filepath.Join(s.root, "index.json")
+	file, err := os.Open(path)
+	if err != nil {
+		return // no index.json, nothing to migrate
+	}
+	defer file.Close()
+
+	var count int
+	_ = s.db.QueryRow("SELECT COUNT(*) FROM CHATS").Scan(&count)
+	if count > 0 {
+		return // DB already has data
+	}
+
+	var summaries map[string]Summary
+	if err := json.NewDecoder(file).Decode(&summaries); err != nil || len(summaries) == 0 {
+		return
+	}
+	for _, sum := range summaries {
+		_, _ = s.db.Exec(`INSERT OR IGNORE INTO CHATS (CHAT_ID_, CHAT_NAME_, AGENT_KEY_, TEAM_ID_, CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_STATUS_, READ_AT_)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			sum.ChatID, sum.ChatName, sum.AgentKey, nilIfEmpty(sum.TeamID),
+			sum.CreatedAt, sum.UpdatedAt, sum.LastRunID, sum.LastRunContent,
+			sum.ReadStatus, sum.ReadAt)
+	}
+}
+
+func nilIfEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
 
 func (s *FileStore) EnsureChat(chatID string, agentKey string, teamID string, firstMessage string) (Summary, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	summaries, err := s.readIndexLocked()
-	if err != nil {
-		return Summary{}, false, err
-	}
-
-	if existing, ok := summaries[chatID]; ok {
+	// Check if exists
+	var existing Summary
+	err := s.db.QueryRow("SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_, COALESCE(TEAM_ID_,''), CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_STATUS_, READ_AT_ FROM CHATS WHERE CHAT_ID_=?", chatID).
+		Scan(&existing.ChatID, &existing.ChatName, &existing.AgentKey, &existing.TeamID, &existing.CreatedAt, &existing.UpdatedAt, &existing.LastRunID, &existing.LastRunContent, &existing.ReadStatus, &existing.ReadAt)
+	if err == nil {
 		return existing, false, nil
 	}
 
@@ -69,19 +145,18 @@ func (s *FileStore) EnsureChat(chatID string, agentKey string, teamID string, fi
 		UpdatedAt:  now,
 		ReadStatus: 1,
 	}
-	summaries[chatID] = summary
-	if err := s.writeIndexLocked(summaries); err != nil {
+	_, err = s.db.Exec(`INSERT INTO CHATS (CHAT_ID_, CHAT_NAME_, AGENT_KEY_, TEAM_ID_, CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_STATUS_)
+		VALUES (?, ?, ?, ?, ?, ?, '', '', 1)`,
+		chatID, summary.ChatName, agentKey, nilIfEmpty(teamID), now, now)
+	if err != nil {
 		return Summary{}, false, err
 	}
-	if err := os.MkdirAll(s.ChatDir(chatID), 0o755); err != nil {
-		return Summary{}, false, err
-	}
+	// Create directory for uploads/attachments
+	_ = os.MkdirAll(s.ChatDir(chatID), 0o755)
 	return summary, true, nil
 }
 
-// AppendEvent writes a raw SSE event to events.jsonl (legacy path, kept for
-// backward compatibility). New code should use StepWriter which calls
-// AppendQueryLine / AppendStepLine / AppendEventLine.
+// AppendEvent writes a raw SSE event to events.jsonl (legacy path).
 func (s *FileStore) AppendEvent(chatID string, event stream.EventData) error {
 	return s.appendJSONLine(filepath.Join(s.ChatDir(chatID), "events.jsonl"), event)
 }
@@ -106,33 +181,47 @@ func (s *FileStore) chatJSONLPath(chatID string) string {
 func (s *FileStore) Summary(chatID string) (*Summary, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.loadSummary(chatID)
+}
 
-	summaries, err := s.readIndexLocked()
+func (s *FileStore) loadSummary(chatID string) (*Summary, error) {
+	var sum Summary
+	err := s.db.QueryRow("SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_, COALESCE(TEAM_ID_,''), CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_STATUS_, READ_AT_ FROM CHATS WHERE CHAT_ID_=?", chatID).
+		Scan(&sum.ChatID, &sum.ChatName, &sum.AgentKey, &sum.TeamID, &sum.CreatedAt, &sum.UpdatedAt, &sum.LastRunID, &sum.LastRunContent, &sum.ReadStatus, &sum.ReadAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
-	summary, ok := summaries[chatID]
-	if !ok {
-		return nil, nil
-	}
-	copy := summary
-	return &copy, nil
+	return &sum, nil
 }
 
+// AppendRawMessage kept for interface compatibility but writes to {chatId}/raw_messages.jsonl.
+// TODO: remove once history is fully loaded from step lines.
 func (s *FileStore) AppendRawMessage(chatID string, message map[string]any) error {
 	return s.appendJSONLine(filepath.Join(s.ChatDir(chatID), "raw_messages.jsonl"), message)
 }
 
+// LoadRawMessages loads conversation history from {chatId}.jsonl step lines,
+// falling back to {chatId}/raw_messages.jsonl for old chats.
 func (s *FileStore) LoadRawMessages(chatID string, k int) ([]map[string]any, error) {
 	if k <= 0 {
 		k = 20
 	}
-	messages, err := readJSONLines(filepath.Join(s.ChatDir(chatID), "raw_messages.jsonl"))
-	if err != nil || len(messages) == 0 {
-		return nil, err
+
+	// Try loading from step lines in {chatId}.jsonl (Java-compatible path)
+	messages := s.loadRawMessagesFromJSONL(chatID)
+	if len(messages) == 0 {
+		// Fallback to old raw_messages.jsonl
+		var err error
+		messages, err = readJSONLines(filepath.Join(s.ChatDir(chatID), "raw_messages.jsonl"))
+		if err != nil || len(messages) == 0 {
+			return nil, err
+		}
 	}
 
-	// Group messages by runId, preserving order
+	// Group by runId, keep last K runs (sliding window)
 	type runBucket struct {
 		runID    string
 		messages []map[string]any
@@ -154,11 +243,9 @@ func (s *FileStore) LoadRawMessages(chatID string, k int) ([]map[string]any, err
 		}
 		bucket.messages = append(bucket.messages, msg)
 	}
-
 	if len(runs) > k {
 		runs = runs[len(runs)-k:]
 	}
-
 	var result []map[string]any
 	for _, bucket := range runs {
 		result = append(result, bucket.messages...)
@@ -166,69 +253,118 @@ func (s *FileStore) LoadRawMessages(chatID string, k int) ([]map[string]any, err
 	return result, nil
 }
 
+// loadRawMessagesFromJSONL extracts OpenAI-format messages from step lines.
+func (s *FileStore) loadRawMessagesFromJSONL(chatID string) []map[string]any {
+	lines, err := readJSONLines(s.chatJSONLPath(chatID))
+	if err != nil || len(lines) == 0 {
+		return nil
+	}
+	if !isNewFormat(lines) {
+		return nil
+	}
+
+	var messages []map[string]any
+	for _, line := range lines {
+		lineType, _ := line["_type"].(string)
+		runID, _ := line["runId"].(string)
+
+		switch lineType {
+		case "query":
+			query, _ := line["query"].(map[string]any)
+			if query == nil {
+				continue
+			}
+			msg := map[string]any{
+				"runId":   runID,
+				"role":    stringValue(query["role"]),
+				"content": stringValue(query["message"]),
+				"ts":      line["updatedAt"],
+			}
+			messages = append(messages, msg)
+
+		case "step":
+			rawMsgs, _ := line["messages"].([]any)
+			for _, raw := range rawMsgs {
+				m, _ := raw.(map[string]any)
+				if m == nil {
+					continue
+				}
+				role, _ := m["role"].(string)
+				msg := map[string]any{"runId": runID}
+				for k, v := range m {
+					msg[k] = v
+				}
+				// Flatten content parts to plain text for LLM context
+				if role == "user" || role == "assistant" {
+					if parts, ok := m["content"].([]any); ok {
+						msg["content"] = extractTextFromContent(parts)
+					}
+					if parts, ok := m["reasoning_content"].([]any); ok {
+						msg["reasoning_content"] = extractTextFromContent(parts)
+					}
+				}
+				if role == "tool" {
+					if parts, ok := m["content"].([]any); ok {
+						msg["content"] = extractTextFromContent(parts)
+					}
+				}
+				messages = append(messages, msg)
+			}
+		}
+	}
+	return messages
+}
+
 func (s *FileStore) OnRunCompleted(completion RunCompletion) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	summaries, err := s.readIndexLocked()
-	if err != nil {
-		return err
-	}
-
-	summary, ok := summaries[completion.ChatID]
-	if !ok {
-		return ErrChatNotFound
-	}
-
-	summary.LastRunID = completion.RunID
-	summary.LastRunContent = completion.AssistantText
-	summary.UpdatedAt = completion.UpdatedAtMillis
-	summary.ReadStatus = 0
-	summary.ReadAt = nil
-	summaries[completion.ChatID] = summary
-	return s.writeIndexLocked(summaries)
+	_, err := s.db.Exec(`UPDATE CHATS SET LAST_RUN_ID_=?, LAST_RUN_CONTENT_=?, UPDATED_AT_=?, READ_STATUS_=0, READ_AT_=NULL WHERE CHAT_ID_=?`,
+		completion.RunID, completion.AssistantText, completion.UpdatedAtMillis, completion.ChatID)
+	return err
 }
 
 func (s *FileStore) ListChats(lastRunID string, agentKey string) ([]Summary, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	summaries, err := s.readIndexLocked()
+	query := "SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_, COALESCE(TEAM_ID_,''), CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_STATUS_, READ_AT_ FROM CHATS WHERE 1=1"
+	var args []any
+	if agentKey != "" {
+		query += " AND AGENT_KEY_=?"
+		args = append(args, agentKey)
+	}
+	query += " ORDER BY UPDATED_AT_ DESC, CHAT_ID_ DESC"
+
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
-	items := make([]Summary, 0, len(summaries))
-	for _, summary := range summaries {
-		if agentKey != "" && summary.AgentKey != agentKey {
+	var items []Summary
+	for rows.Next() {
+		var sum Summary
+		if err := rows.Scan(&sum.ChatID, &sum.ChatName, &sum.AgentKey, &sum.TeamID, &sum.CreatedAt, &sum.UpdatedAt, &sum.LastRunID, &sum.LastRunContent, &sum.ReadStatus, &sum.ReadAt); err != nil {
+			return nil, err
+		}
+		if lastRunID != "" && !RunIDAfter(sum.LastRunID, lastRunID) {
 			continue
 		}
-		if lastRunID != "" && !RunIDAfter(summary.LastRunID, lastRunID) {
-			continue
-		}
-		items = append(items, summary)
+		items = append(items, sum)
 	}
-
-	sort.Slice(items, func(i, j int) bool {
-		if items[i].UpdatedAt == items[j].UpdatedAt {
-			return items[i].ChatID > items[j].ChatID
-		}
-		return items[i].UpdatedAt > items[j].UpdatedAt
-	})
-
-	return items, nil
+	return items, rows.Err()
 }
 
 func (s *FileStore) LoadChat(chatID string) (Detail, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	summaries, err := s.readIndexLocked()
+	sum, err := s.loadSummary(chatID)
 	if err != nil {
 		return Detail{}, err
 	}
-	summary, ok := summaries[chatID]
-	if !ok {
+	if sum == nil {
 		return Detail{}, ErrChatNotFound
 	}
 
@@ -243,16 +379,18 @@ func (s *FileStore) LoadChat(chatID string) (Detail, error) {
 			return Detail{}, err
 		}
 	}
-	rawMessages, err := readJSONLines(filepath.Join(s.ChatDir(chatID), "raw_messages.jsonl"))
-	if err != nil {
-		return Detail{}, err
+
+	// Load raw messages for includeRawMessages support
+	rawMessages := s.loadRawMessagesFromJSONL(chatID)
+	if len(rawMessages) == 0 {
+		rawMessages, _ = readJSONLines(filepath.Join(s.ChatDir(chatID), "raw_messages.jsonl"))
 	}
 
 	// Detect format: new format has _type field, old format has type field.
 	if isNewFormat(lines) {
-		return s.loadChatNewFormat(summary, lines, rawMessages)
+		return s.loadChatNewFormat(*sum, lines, rawMessages)
 	}
-	return s.loadChatLegacyFormat(summary, lines, rawMessages)
+	return s.loadChatLegacyFormat(*sum, lines, rawMessages)
 }
 
 // ---------------------------------------------------------------------------
@@ -263,7 +401,6 @@ func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, r
 	var plan *PlanState
 	var artifact *ArtifactState
 
-	// Parse lines and build SSE-style events for the frontend
 	runs := map[string]*chatRunData{}
 	var runOrder []string
 	var chatStartEvent *stream.EventData
@@ -278,7 +415,6 @@ func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, r
 
 		switch lineType {
 		case "query":
-			// Reconstruct request.query event
 			query, _ := line["query"].(map[string]any)
 			if query == nil {
 				query = map[string]any{}
@@ -302,7 +438,6 @@ func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, r
 		case "step":
 			rd := ensureRun(runs, &runOrder, runID)
 
-			// Extract plan/artifact state from step
 			if rawPlan, ok := line["plan"].(map[string]any); ok {
 				plan = parsePlanFromStep(rawPlan)
 			}
@@ -310,7 +445,6 @@ func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, r
 				artifact = parseArtifactFromStep(rawArt)
 			}
 
-			// Reconstruct SSE events from stored messages
 			stage, _ := line["_stage"].(string)
 			taskID, _ := line["taskId"].(string)
 			msgs, _ := line["messages"].([]any)
@@ -331,7 +465,6 @@ func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, r
 			}
 			eventType, _ := eventMap["type"].(string)
 
-			// Skip artifact.publish — promoted to top-level
 			if eventType == "artifact.publish" {
 				continue
 			}
@@ -353,10 +486,8 @@ func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, r
 		}
 	}
 
-	// Assemble final events list
 	allEvents := make([]stream.EventData, 0)
 
-	// Add chat.start as first event
 	if chatStartEvent == nil && summary.ChatName != "" {
 		allEvents = append(allEvents, stream.EventData{
 			Seq:       nextSeq(),
@@ -368,7 +499,6 @@ func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, r
 
 	for _, runID := range runOrder {
 		rd := runs[runID]
-		// Insert run.start before run body if not already present
 		hasRunStart := false
 		for _, ev := range rd.events {
 			if ev.Type == "run.start" {
@@ -387,7 +517,6 @@ func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, r
 		allEvents = append(allEvents, rd.events...)
 	}
 
-	// Re-sequence
 	for i := range allEvents {
 		allEvents[i].Seq = int64(i + 1)
 	}
@@ -395,9 +524,8 @@ func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, r
 	return Detail{
 		ChatID:      summary.ChatID,
 		ChatName:    summary.ChatName,
-		Events:      allEvents,
 		RawMessages: rawMessages,
-		References:  nil,
+		Events:      allEvents,
 		Plan:        plan,
 		Artifact:    artifact,
 	}, nil
@@ -424,9 +552,8 @@ func (s *FileStore) loadChatLegacyFormat(summary Summary, events []map[string]an
 	return Detail{
 		ChatID:      summary.ChatID,
 		ChatName:    summary.ChatName,
-		Events:      orderedEvents,
 		RawMessages: rawMessages,
-		References:  nil,
+		Events:      orderedEvents,
 		Plan:        plan,
 		Artifact:    artifact,
 	}, nil
@@ -458,7 +585,6 @@ func storedMessageToEvents(msg map[string]any, runID, taskID, stage string, next
 
 	switch role {
 	case "assistant":
-		// Reasoning snapshot
 		if rc, ok := msg["reasoning_content"]; ok {
 			text := extractTextFromContent(rc)
 			if text != "" {
@@ -475,7 +601,6 @@ func storedMessageToEvents(msg map[string]any, runID, taskID, stage string, next
 				})
 			}
 		}
-		// Content snapshot
 		if c, ok := msg["content"]; ok {
 			text := extractTextFromContent(c)
 			if text != "" {
@@ -492,7 +617,6 @@ func storedMessageToEvents(msg map[string]any, runID, taskID, stage string, next
 				})
 			}
 		}
-		// Tool/Action snapshots
 		if tcs, ok := msg["tool_calls"].([]any); ok {
 			actionID, _ := msg["_actionId"].(string)
 			toolID, _ := msg["_toolId"].(string)
@@ -530,10 +654,10 @@ func storedMessageToEvents(msg map[string]any, runID, taskID, stage string, next
 						Seq:  nextSeq(),
 						Type: "tool.snapshot",
 						Payload: map[string]any{
-							"toolId":   id,
-							"runId":    runID,
-							"toolName": fnName,
-							"taskId":   taskID,
+							"toolId":    id,
+							"runId":     runID,
+							"toolName":  fnName,
+							"taskId":    taskID,
 							"arguments": fnArgs,
 						},
 					})
@@ -542,7 +666,6 @@ func storedMessageToEvents(msg map[string]any, runID, taskID, stage string, next
 		}
 
 	case "tool":
-		// Tool/Action result
 		text := extractTextFromContent(msg["content"])
 		actionID, _ := msg["_actionId"].(string)
 		toolID, _ := msg["_toolId"].(string)
@@ -577,7 +700,6 @@ func storedMessageToEvents(msg map[string]any, runID, taskID, stage string, next
 }
 
 func extractTextFromContent(v any) string {
-	// Handle []ContentPart format: [{"type":"text","text":"..."}]
 	if parts, ok := v.([]any); ok {
 		var sb strings.Builder
 		for _, part := range parts {
@@ -589,7 +711,6 @@ func extractTextFromContent(v any) string {
 		}
 		return sb.String()
 	}
-	// Handle plain string
 	if text, ok := v.(string); ok {
 		return text
 	}
@@ -665,7 +786,7 @@ func int64FromAny(v any) int64 {
 }
 
 // ---------------------------------------------------------------------------
-// Legacy format helpers (kept for backward compatibility with old JSONL files)
+// Legacy format helpers
 // ---------------------------------------------------------------------------
 
 func deriveRunState(events []map[string]any) (*PlanState, *ArtifactState) {
@@ -677,8 +798,6 @@ func deriveRunState(events []map[string]any) (*PlanState, *ArtifactState) {
 		case "plan.create", "plan.update":
 			planID, _ := event["planId"].(string)
 			next := &PlanState{PlanID: planID, Tasks: []PlanTaskState{}}
-
-			// The "plan" field may be the tasks array directly or a map.
 			rawPlan := event["plan"]
 			if items, ok := rawPlan.([]any); ok {
 				for _, item := range items {
@@ -695,7 +814,6 @@ func deriveRunState(events []map[string]any) (*PlanState, *ArtifactState) {
 				plan = next
 				continue
 			}
-			// Try map form
 			if rawMap, ok := rawPlan.(map[string]any); ok {
 				var rawTasks any
 				rawTasks = rawMap["tasks"]
@@ -717,7 +835,6 @@ func deriveRunState(events []map[string]any) (*PlanState, *ArtifactState) {
 				}
 			}
 			plan = next
-
 		case "artifact.publish":
 			if artifact == nil {
 				artifact = &ArtifactState{}
@@ -746,22 +863,20 @@ func (s *FileStore) MarkRead(chatID string) (Summary, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	summaries, err := s.readIndexLocked()
+	now := time.Now().UnixMilli()
+	result, err := s.db.Exec("UPDATE CHATS SET READ_STATUS_=1, READ_AT_=? WHERE CHAT_ID_=?", now, chatID)
 	if err != nil {
 		return Summary{}, err
 	}
-	summary, ok := summaries[chatID]
-	if !ok {
+	n, _ := result.RowsAffected()
+	if n == 0 {
 		return Summary{}, ErrChatNotFound
 	}
-	now := time.Now().UnixMilli()
-	summary.ReadStatus = 1
-	summary.ReadAt = &now
-	summaries[chatID] = summary
-	if err := s.writeIndexLocked(summaries); err != nil {
-		return Summary{}, err
+	sum, err := s.loadSummary(chatID)
+	if err != nil || sum == nil {
+		return Summary{}, ErrChatNotFound
 	}
-	return summary, nil
+	return *sum, nil
 }
 
 func (s *FileStore) ResolveResource(file string) (string, error) {
@@ -797,44 +912,6 @@ func (s *FileStore) appendJSONLine(path string, payload any) error {
 	return encoder.Encode(payload)
 }
 
-func (s *FileStore) readIndexLocked() (map[string]Summary, error) {
-	path := filepath.Join(s.root, "index.json")
-	file, err := os.Open(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return map[string]Summary{}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	var summaries map[string]Summary
-	if err := json.NewDecoder(file).Decode(&summaries); err != nil {
-		return nil, err
-	}
-	if summaries == nil {
-		return map[string]Summary{}, nil
-	}
-	return summaries, nil
-}
-
-func (s *FileStore) writeIndexLocked(summaries map[string]Summary) error {
-	path := filepath.Join(s.root, "index.json")
-	tmp := path + ".tmp"
-	file, err := os.Create(tmp)
-	if err != nil {
-		return err
-	}
-	if err := json.NewEncoder(file).Encode(summaries); err != nil {
-		file.Close()
-		return err
-	}
-	if err := file.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
-}
-
 func readJSONLines(path string) ([]map[string]any, error) {
 	file, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -847,7 +924,6 @@ func readJSONLines(path string) ([]map[string]any, error) {
 
 	var items []map[string]any
 	scanner := bufio.NewScanner(file)
-	// Increase scanner buffer for large lines (step lines with many messages)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -874,3 +950,5 @@ func defaultChatName(message string) string {
 	}
 	return message
 }
+
+// RunIDAfter and related helpers are in run_id.go

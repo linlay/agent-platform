@@ -362,7 +362,6 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	now := time.Now().UnixMilli()
 	runID := strings.TrimSpace(req.RunID)
 	if runID == "" {
 		runID = newRunID()
@@ -533,9 +532,6 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	sseWriter.StartHeartbeat()
 
 	var assistantText strings.Builder
-	var reasoningText strings.Builder
-	var toolCallsForRaw []map[string]any
-	var toolResultsForRaw []map[string]any
 	stepWriter := chat.NewStepWriter(s.deps.Chats, chatID, runID)
 	writeEvent := func(event stream.StreamEvent) error {
 		data := event.Data()
@@ -548,37 +544,6 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 			if text := data.String("text"); text != "" {
 				assistantText.Reset()
 				assistantText.WriteString(text)
-			}
-		}
-		if event.Type == "reasoning.delta" {
-			if delta := data.String("delta"); delta != "" {
-				reasoningText.WriteString(delta)
-			}
-		}
-		if event.Type == "tool.snapshot" {
-			toolCallsForRaw = append(toolCallsForRaw, map[string]any{
-				"id":   data.String("toolId"),
-				"type": "function",
-				"function": map[string]any{
-					"name":      data.String("toolName"),
-					"arguments": data.String("arguments"),
-				},
-			})
-		}
-		if event.Type == "tool.result" {
-			toolResultsForRaw = append(toolResultsForRaw, map[string]any{
-				"role":         "tool",
-				"tool_call_id": data.String("toolId"),
-				"name":         data.String("toolName"),
-				"content":      fmt.Sprintf("%v", data.Value("result")),
-				"runId":        runID,
-				"ts":           time.Now().UnixMilli(),
-			})
-		}
-		if event.Type == "reasoning.snapshot" {
-			if text := data.String("text"); text != "" {
-				reasoningText.Reset()
-				reasoningText.WriteString(text)
 			}
 		}
 		// Write to JSONL via StepWriter (Java-compatible _type format)
@@ -594,12 +559,6 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return sseWriter.WriteJSON("message", data)
 	}
 
-	_ = s.deps.Chats.AppendRawMessage(chatID, map[string]any{
-		"runId":   runID,
-		"role":    defaultRole(req.Role),
-		"content": req.Message,
-		"ts":      now,
-	})
 	for _, event := range assembler.Bootstrap() {
 		if err := writeEvent(event); err != nil {
 			return
@@ -667,22 +626,6 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	finalAssistantText := assistantText.String()
-	rawMsg := map[string]any{
-		"runId":   runID,
-		"role":    "assistant",
-		"content": finalAssistantText,
-		"ts":      time.Now().UnixMilli(),
-	}
-	if r := reasoningText.String(); r != "" {
-		rawMsg["reasoning_content"] = r
-	}
-	if len(toolCallsForRaw) > 0 {
-		rawMsg["tool_calls"] = toolCallsForRaw
-	}
-	_ = s.deps.Chats.AppendRawMessage(chatID, rawMsg)
-	for _, toolResult := range toolResultsForRaw {
-		_ = s.deps.Chats.AppendRawMessage(chatID, toolResult)
-	}
 	if err := s.deps.Chats.OnRunCompleted(chat.RunCompletion{
 		ChatID:          chatID,
 		RunID:           runID,
