@@ -536,6 +536,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	var reasoningText strings.Builder
 	var toolCallsForRaw []map[string]any
 	var toolResultsForRaw []map[string]any
+	stepWriter := chat.NewStepWriter(s.deps.Chats, chatID, runID)
 	writeEvent := func(event stream.StreamEvent) error {
 		data := event.Data()
 		if event.Type == "content.delta" {
@@ -580,10 +581,12 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 				reasoningText.WriteString(text)
 			}
 		}
-		if stream.IsPersistedEventType(event.Type) {
-			if err := s.deps.Chats.AppendEvent(chatID, data); err != nil {
-				return err
-			}
+		// Write to JSONL via StepWriter (Java-compatible _type format)
+		stepWriter.OnEvent(data)
+		// stage.marker is an internal step boundary signal — Java never sends it
+		// as an SSE event (AgentDeltaToStreamInputMapper returns empty list).
+		if event.Type == "stage.marker" {
+			return nil
 		}
 		if strings.HasSuffix(event.Type, ".snapshot") {
 			return nil
@@ -647,10 +650,12 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if streamFailed {
+		stepWriter.Flush()
 		_ = sseWriter.WriteDone()
 		return
 	}
 	if streamInterrupted {
+		stepWriter.Flush()
 		_ = sseWriter.WriteDone()
 		return
 	}

@@ -5,6 +5,14 @@ import (
 	"strings"
 )
 
+func cloneEventMap(event map[string]any) map[string]any {
+	copy := make(map[string]any, len(event))
+	for key, value := range event {
+		copy[key] = value
+	}
+	return copy
+}
+
 type snapshotAssembly struct {
 	chatStart *map[string]any
 	runs      map[string]*snapshotRunBucket

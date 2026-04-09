@@ -185,7 +185,7 @@ func IsPersistedEventType(eventType string) bool {
 		"action.snapshot", "action.result",
 		"plan.create", "plan.update",
 		"task.start", "task.complete", "task.cancel", "task.fail",
-		"stage.marker", "artifact.publish":
+		"artifact.publish":
 		return true
 	default:
 		return false

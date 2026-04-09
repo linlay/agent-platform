@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -20,6 +21,9 @@ type Store interface {
 	EnsureChat(chatID string, agentKey string, teamID string, firstMessage string) (Summary, bool, error)
 	Summary(chatID string) (*Summary, error)
 	AppendEvent(chatID string, event stream.EventData) error
+	AppendQueryLine(chatID string, line QueryLine) error
+	AppendStepLine(chatID string, line StepLine) error
+	AppendEventLine(chatID string, line EventLine) error
 	AppendRawMessage(chatID string, message map[string]any) error
 	LoadRawMessages(chatID string, k int) ([]map[string]any, error)
 	OnRunCompleted(completion RunCompletion) error
@@ -75,8 +79,23 @@ func (s *FileStore) EnsureChat(chatID string, agentKey string, teamID string, fi
 	return summary, true, nil
 }
 
+// AppendEvent writes a raw SSE event to events.jsonl (legacy path, kept for
+// backward compatibility). New code should use StepWriter which calls
+// AppendQueryLine / AppendStepLine / AppendEventLine.
 func (s *FileStore) AppendEvent(chatID string, event stream.EventData) error {
 	return s.appendJSONLine(filepath.Join(s.ChatDir(chatID), "events.jsonl"), event)
+}
+
+func (s *FileStore) AppendQueryLine(chatID string, line QueryLine) error {
+	return s.appendJSONLine(filepath.Join(s.ChatDir(chatID), "events.jsonl"), line)
+}
+
+func (s *FileStore) AppendStepLine(chatID string, line StepLine) error {
+	return s.appendJSONLine(filepath.Join(s.ChatDir(chatID), "events.jsonl"), line)
+}
+
+func (s *FileStore) AppendEventLine(chatID string, line EventLine) error {
+	return s.appendJSONLine(filepath.Join(s.ChatDir(chatID), "events.jsonl"), line)
 }
 
 func (s *FileStore) Summary(chatID string) (*Summary, error) {
@@ -118,7 +137,6 @@ func (s *FileStore) LoadRawMessages(chatID string, k int) ([]map[string]any, err
 	for _, msg := range messages {
 		runID, _ := msg["runId"].(string)
 		if runID == "" {
-			// Messages without runId go into a standalone bucket
 			bucket := &runBucket{messages: []map[string]any{msg}}
 			runs = append(runs, bucket)
 			continue
@@ -132,12 +150,10 @@ func (s *FileStore) LoadRawMessages(chatID string, k int) ([]map[string]any, err
 		bucket.messages = append(bucket.messages, msg)
 	}
 
-	// Keep only the last K runs (sliding window)
 	if len(runs) > k {
 		runs = runs[len(runs)-k:]
 	}
 
-	// Flatten back to a single slice
 	var result []map[string]any
 	for _, bucket := range runs {
 		result = append(result, bucket.messages...)
@@ -211,23 +227,183 @@ func (s *FileStore) LoadChat(chatID string) (Detail, error) {
 		return Detail{}, ErrChatNotFound
 	}
 
-	events, err := readJSONLines(filepath.Join(s.ChatDir(chatID), "events.jsonl"))
+	lines, err := readJSONLines(filepath.Join(s.ChatDir(chatID), "events.jsonl"))
 	if err != nil {
 		return Detail{}, err
 	}
-	events = rebuildSnapshotEvents(events)
 	rawMessages, err := readJSONLines(filepath.Join(s.ChatDir(chatID), "raw_messages.jsonl"))
 	if err != nil {
 		return Detail{}, err
 	}
 
+	// Detect format: new format has _type field, old format has type field.
+	if isNewFormat(lines) {
+		return s.loadChatNewFormat(summary, lines, rawMessages)
+	}
+	return s.loadChatLegacyFormat(summary, lines, rawMessages)
+}
+
+// ---------------------------------------------------------------------------
+// New format: _type = "query" / "step" / "event" (matching Java)
+// ---------------------------------------------------------------------------
+
+func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, rawMessages []map[string]any) (Detail, error) {
+	var plan *PlanState
+	var artifact *ArtifactState
+
+	// Parse lines and build SSE-style events for the frontend
+	runs := map[string]*chatRunData{}
+	var runOrder []string
+	var chatStartEvent *stream.EventData
+
+	seq := int64(0)
+	nextSeq := func() int64 { seq++; return seq }
+
+	for _, line := range lines {
+		lineType, _ := line["_type"].(string)
+		chatID, _ := line["chatId"].(string)
+		runID, _ := line["runId"].(string)
+
+		switch lineType {
+		case "query":
+			// Reconstruct request.query event
+			query, _ := line["query"].(map[string]any)
+			if query == nil {
+				query = map[string]any{}
+			}
+			payload := map[string]any{}
+			for k, v := range query {
+				payload[k] = v
+			}
+			if _, ok := payload["chatId"]; !ok {
+				payload["chatId"] = chatID
+			}
+
+			rd := ensureRun(runs, &runOrder, runID)
+			rd.events = append(rd.events, stream.EventData{
+				Seq:       nextSeq(),
+				Type:      "request.query",
+				Timestamp: int64FromAny(line["updatedAt"]),
+				Payload:   payload,
+			})
+
+		case "step":
+			rd := ensureRun(runs, &runOrder, runID)
+
+			// Extract plan/artifact state from step
+			if rawPlan, ok := line["plan"].(map[string]any); ok {
+				plan = parsePlanFromStep(rawPlan)
+			}
+			if rawArt, ok := line["artifacts"].(map[string]any); ok {
+				artifact = parseArtifactFromStep(rawArt)
+			}
+
+			// Reconstruct SSE events from stored messages
+			stage, _ := line["_stage"].(string)
+			taskID, _ := line["taskId"].(string)
+			msgs, _ := line["messages"].([]any)
+			for _, rawMsg := range msgs {
+				msgMap, _ := rawMsg.(map[string]any)
+				if msgMap == nil {
+					continue
+				}
+				for _, ev := range storedMessageToEvents(msgMap, runID, taskID, stage, nextSeq) {
+					rd.events = append(rd.events, ev)
+				}
+			}
+
+		case "event":
+			eventMap, _ := line["event"].(map[string]any)
+			if eventMap == nil {
+				continue
+			}
+			eventType, _ := eventMap["type"].(string)
+
+			// Skip artifact.publish — promoted to top-level
+			if eventType == "artifact.publish" {
+				continue
+			}
+
+			rd := ensureRun(runs, &runOrder, runID)
+			payload := map[string]any{}
+			for k, v := range eventMap {
+				if k == "type" || k == "seq" || k == "timestamp" {
+					continue
+				}
+				payload[k] = v
+			}
+			rd.events = append(rd.events, stream.EventData{
+				Seq:       nextSeq(),
+				Type:      eventType,
+				Timestamp: int64FromAny(eventMap["timestamp"]),
+				Payload:   payload,
+			})
+		}
+	}
+
+	// Assemble final events list
+	allEvents := make([]stream.EventData, 0)
+
+	// Add chat.start as first event
+	if chatStartEvent == nil && summary.ChatName != "" {
+		allEvents = append(allEvents, stream.EventData{
+			Seq:       nextSeq(),
+			Type:      "chat.start",
+			Timestamp: summary.CreatedAt,
+			Payload:   map[string]any{"chatId": summary.ChatID, "chatName": summary.ChatName},
+		})
+	}
+
+	for _, runID := range runOrder {
+		rd := runs[runID]
+		// Insert run.start before run body if not already present
+		hasRunStart := false
+		for _, ev := range rd.events {
+			if ev.Type == "run.start" {
+				hasRunStart = true
+				break
+			}
+		}
+		if !hasRunStart && runID != "" {
+			allEvents = append(allEvents, stream.EventData{
+				Seq:       nextSeq(),
+				Type:      "run.start",
+				Timestamp: 0,
+				Payload:   map[string]any{"runId": runID, "chatId": summary.ChatID, "agentKey": rd.agentKey},
+			})
+		}
+		allEvents = append(allEvents, rd.events...)
+	}
+
+	// Re-sequence
+	for i := range allEvents {
+		allEvents[i].Seq = int64(i + 1)
+	}
+
+	return Detail{
+		ChatID:      summary.ChatID,
+		ChatName:    summary.ChatName,
+		Events:      allEvents,
+		RawMessages: rawMessages,
+		References:  nil,
+		Plan:        plan,
+		Artifact:    artifact,
+	}, nil
+}
+
+// ---------------------------------------------------------------------------
+// Legacy format: raw SSE events with "type" field (old Go format)
+// ---------------------------------------------------------------------------
+
+func (s *FileStore) loadChatLegacyFormat(summary Summary, events []map[string]any, rawMessages []map[string]any) (Detail, error) {
+	events = rebuildSnapshotEvents(events)
+
 	plan, artifact := deriveRunState(events)
-	// Filter out plan.update/plan.create/artifact.publish from events —
-	// these are promoted to top-level data.plan / data.artifact (Java contract).
 	orderedEvents := make([]stream.EventData, 0, len(events))
 	for _, event := range events {
 		eventType, _ := event["type"].(string)
-		if eventType == "plan.create" || eventType == "plan.update" || eventType == "artifact.publish" {
+		if eventType == "plan.create" || eventType == "plan.update" || eventType == "artifact.publish" ||
+			eventType == "stage.marker" {
 			continue
 		}
 		orderedEvents = append(orderedEvents, stream.EventDataFromMap(event))
@@ -244,13 +420,241 @@ func (s *FileStore) LoadChat(chatID string) (Detail, error) {
 	}, nil
 }
 
-func cloneEventMap(event map[string]any) map[string]any {
-	copy := make(map[string]any, len(event))
-	for key, value := range event {
-		copy[key] = value
+// ---------------------------------------------------------------------------
+// Format detection
+// ---------------------------------------------------------------------------
+
+func isNewFormat(lines []map[string]any) bool {
+	for _, line := range lines {
+		if _, ok := line["_type"]; ok {
+			return true
+		}
+		if _, ok := line["type"]; ok {
+			return false
+		}
 	}
-	return copy
+	return false
 }
+
+// ---------------------------------------------------------------------------
+// Step line → SSE events reconstruction
+// ---------------------------------------------------------------------------
+
+func storedMessageToEvents(msg map[string]any, runID, taskID, stage string, nextSeq func() int64) []stream.EventData {
+	role, _ := msg["role"].(string)
+	var events []stream.EventData
+
+	switch role {
+	case "assistant":
+		// Reasoning snapshot
+		if rc, ok := msg["reasoning_content"]; ok {
+			text := extractTextFromContent(rc)
+			if text != "" {
+				reasoningID, _ := msg["_reasoningId"].(string)
+				events = append(events, stream.EventData{
+					Seq:  nextSeq(),
+					Type: "reasoning.snapshot",
+					Payload: map[string]any{
+						"reasoningId": reasoningID,
+						"runId":       runID,
+						"text":        text,
+						"taskId":      taskID,
+					},
+				})
+			}
+		}
+		// Content snapshot
+		if c, ok := msg["content"]; ok {
+			text := extractTextFromContent(c)
+			if text != "" {
+				contentID, _ := msg["_contentId"].(string)
+				events = append(events, stream.EventData{
+					Seq:  nextSeq(),
+					Type: "content.snapshot",
+					Payload: map[string]any{
+						"contentId": contentID,
+						"runId":     runID,
+						"text":      text,
+						"taskId":    taskID,
+					},
+				})
+			}
+		}
+		// Tool/Action snapshots
+		if tcs, ok := msg["tool_calls"].([]any); ok {
+			actionID, _ := msg["_actionId"].(string)
+			toolID, _ := msg["_toolId"].(string)
+			for _, tc := range tcs {
+				tcMap, _ := tc.(map[string]any)
+				if tcMap == nil {
+					continue
+				}
+				fn, _ := tcMap["function"].(map[string]any)
+				if fn == nil {
+					fn = map[string]any{}
+				}
+				callID, _ := tcMap["id"].(string)
+				fnName, _ := fn["name"].(string)
+				fnArgs, _ := fn["arguments"].(string)
+
+				if actionID != "" {
+					events = append(events, stream.EventData{
+						Seq:  nextSeq(),
+						Type: "action.snapshot",
+						Payload: map[string]any{
+							"actionId":   callID,
+							"runId":      runID,
+							"actionName": fnName,
+							"taskId":     taskID,
+							"arguments":  fnArgs,
+						},
+					})
+				} else {
+					id := toolID
+					if id == "" {
+						id = callID
+					}
+					events = append(events, stream.EventData{
+						Seq:  nextSeq(),
+						Type: "tool.snapshot",
+						Payload: map[string]any{
+							"toolId":   id,
+							"runId":    runID,
+							"toolName": fnName,
+							"taskId":   taskID,
+							"arguments": fnArgs,
+						},
+					})
+				}
+			}
+		}
+
+	case "tool":
+		// Tool/Action result
+		text := extractTextFromContent(msg["content"])
+		actionID, _ := msg["_actionId"].(string)
+		toolID, _ := msg["_toolId"].(string)
+		toolCallID, _ := msg["tool_call_id"].(string)
+
+		if actionID != "" {
+			events = append(events, stream.EventData{
+				Seq:  nextSeq(),
+				Type: "action.result",
+				Payload: map[string]any{
+					"actionId": toolCallID,
+					"result":   text,
+				},
+			})
+		} else {
+			id := toolID
+			if id == "" {
+				id = toolCallID
+			}
+			events = append(events, stream.EventData{
+				Seq:  nextSeq(),
+				Type: "tool.result",
+				Payload: map[string]any{
+					"toolId": id,
+					"result": text,
+				},
+			})
+		}
+	}
+
+	return events
+}
+
+func extractTextFromContent(v any) string {
+	// Handle []ContentPart format: [{"type":"text","text":"..."}]
+	if parts, ok := v.([]any); ok {
+		var sb strings.Builder
+		for _, part := range parts {
+			if pMap, ok := part.(map[string]any); ok {
+				if text, ok := pMap["text"].(string); ok {
+					sb.WriteString(text)
+				}
+			}
+		}
+		return sb.String()
+	}
+	// Handle plain string
+	if text, ok := v.(string); ok {
+		return text
+	}
+	return ""
+}
+
+func parsePlanFromStep(raw map[string]any) *PlanState {
+	planID, _ := raw["planId"].(string)
+	plan := &PlanState{PlanID: planID, Tasks: []PlanTaskState{}}
+	tasks, _ := raw["tasks"].([]any)
+	for _, t := range tasks {
+		tMap, _ := t.(map[string]any)
+		if tMap == nil {
+			continue
+		}
+		plan.Tasks = append(plan.Tasks, PlanTaskState{
+			TaskID:      stringValue(tMap["taskId"]),
+			Description: stringValue(tMap["description"]),
+			Status:      stringValue(tMap["status"]),
+		})
+	}
+	return plan
+}
+
+func parseArtifactFromStep(raw map[string]any) *ArtifactState {
+	art := &ArtifactState{}
+	items, _ := raw["items"].([]any)
+	for _, item := range items {
+		iMap, _ := item.(map[string]any)
+		if iMap == nil {
+			continue
+		}
+		art.Items = append(art.Items, ArtifactItemState{
+			ArtifactID: stringValue(iMap["artifactId"]),
+			Type:       stringValue(iMap["type"]),
+			Name:       stringValue(iMap["name"]),
+			URL:        stringValue(iMap["url"]),
+		})
+	}
+	return art
+}
+
+type chatRunData struct {
+	runID    string
+	agentKey string
+	events   []stream.EventData
+}
+
+func ensureRun(runs map[string]*chatRunData, order *[]string, runID string) *chatRunData {
+	if rd, ok := runs[runID]; ok {
+		return rd
+	}
+	rd := &chatRunData{runID: runID}
+	runs[runID] = rd
+	*order = append(*order, runID)
+	return rd
+}
+
+func int64FromAny(v any) int64 {
+	switch t := v.(type) {
+	case float64:
+		return int64(t)
+	case int64:
+		return t
+	case int:
+		return int64(t)
+	case json.Number:
+		n, _ := t.Int64()
+		return n
+	default:
+		return 0
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Legacy format helpers (kept for backward compatibility with old JSONL files)
+// ---------------------------------------------------------------------------
 
 func deriveRunState(events []map[string]any) (*PlanState, *ArtifactState) {
 	var plan *PlanState
@@ -261,45 +665,55 @@ func deriveRunState(events []map[string]any) (*PlanState, *ArtifactState) {
 		case "plan.create", "plan.update":
 			planID, _ := event["planId"].(string)
 			next := &PlanState{PlanID: planID, Tasks: []PlanTaskState{}}
-			rawPlan, _ := event["plan"].(map[string]any)
-			if planID == "" && rawPlan != nil {
-				planID, _ = rawPlan["planId"].(string)
-				next.PlanID = planID
-			}
-			// event.plan is the tasks array directly (matching Java/frontend contract).
-			// Also check rawPlan["plan"] and legacy "tasks" for compatibility.
-			var rawTasks any
-			if rawPlan != nil {
-				rawTasks = rawPlan
-			}
-			if _, isSlice := rawTasks.([]any); !isSlice {
-				rawTasks = nil
-			}
-			if rawTasks == nil && rawPlan != nil {
-				rawTasks = rawPlan["plan"]
-			}
-			if rawTasks == nil && rawPlan != nil {
-				rawTasks = rawPlan["tasks"]
-			}
-			if rawTasks == nil {
-				rawTasks = event["tasks"]
-			}
-			if items, ok := rawTasks.([]any); ok {
+
+			// The "plan" field may be the tasks array directly or a map.
+			rawPlan := event["plan"]
+			if items, ok := rawPlan.([]any); ok {
 				for _, item := range items {
 					mapped, _ := item.(map[string]any)
+					if mapped == nil {
+						continue
+					}
 					next.Tasks = append(next.Tasks, PlanTaskState{
 						TaskID:      stringValue(mapped["taskId"]),
 						Description: stringValue(mapped["description"]),
 						Status:      stringValue(mapped["status"]),
 					})
 				}
+				plan = next
+				continue
+			}
+			// Try map form
+			if rawMap, ok := rawPlan.(map[string]any); ok {
+				var rawTasks any
+				rawTasks = rawMap["tasks"]
+				if rawTasks == nil {
+					rawTasks = rawMap["plan"]
+				}
+				if items, ok := rawTasks.([]any); ok {
+					for _, item := range items {
+						mapped, _ := item.(map[string]any)
+						if mapped == nil {
+							continue
+						}
+						next.Tasks = append(next.Tasks, PlanTaskState{
+							TaskID:      stringValue(mapped["taskId"]),
+							Description: stringValue(mapped["description"]),
+							Status:      stringValue(mapped["status"]),
+						})
+					}
+				}
 			}
 			plan = next
+
 		case "artifact.publish":
 			if artifact == nil {
 				artifact = &ArtifactState{}
 			}
 			item, _ := event["artifact"].(map[string]any)
+			if item == nil {
+				continue
+			}
 			artifact.Items = append(artifact.Items, ArtifactItemState{
 				ArtifactID: stringValue(event["artifactId"]),
 				Type:       stringValue(item["type"]),
@@ -421,6 +835,8 @@ func readJSONLines(path string) ([]map[string]any, error) {
 
 	var items []map[string]any
 	scanner := bufio.NewScanner(file)
+	// Increase scanner buffer for large lines (step lines with many messages)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
@@ -428,7 +844,7 @@ func readJSONLines(path string) ([]map[string]any, error) {
 		}
 		var payload map[string]any
 		if err := json.Unmarshal([]byte(line), &payload); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("parse JSONL line: %w", err)
 		}
 		items = append(items, payload)
 	}

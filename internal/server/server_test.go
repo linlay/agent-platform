@@ -382,8 +382,8 @@ func TestChatSnapshotDeduplicatesChatStartAcrossMultipleQueries(t *testing.T) {
 	if runStartCount != 2 {
 		t.Fatalf("expected two run.start events, got %d events=%#v", runStartCount, chatResp.Data.Events)
 	}
-	if len(chatResp.Data.Events) != 11 {
-		t.Fatalf("expected 11 persisted events for two turns (including react step markers), got %d events=%#v", len(chatResp.Data.Events), chatResp.Data.Events)
+	if len(chatResp.Data.Events) != 9 {
+		t.Fatalf("expected 9 persisted events for two turns, got %d events=%#v", len(chatResp.Data.Events), chatResp.Data.Events)
 	}
 	if len(chatResp.Data.RawMessages) != 4 {
 		t.Fatalf("expected four raw messages for two turns, got %#v", chatResp.Data.RawMessages)
