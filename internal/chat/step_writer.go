@@ -261,19 +261,14 @@ func (w *StepWriter) updatePlan(event stream.EventData) {
 	plan := &PlanState{PlanID: planID, Tasks: []PlanTaskState{}}
 
 	// The "plan" field in plan.update is the tasks array directly.
+	// Runtime type may be []map[string]any (from Go engine) or []any (from JSON).
 	rawPlan := event.Value("plan")
-	if items, ok := rawPlan.([]any); ok {
-		for _, item := range items {
-			mapped, _ := item.(map[string]any)
-			if mapped == nil {
-				continue
-			}
-			plan.Tasks = append(plan.Tasks, PlanTaskState{
-				TaskID:      stringVal(mapped["taskId"]),
-				Description: stringVal(mapped["description"]),
-				Status:      stringVal(mapped["status"]),
-			})
-		}
+	for _, mapped := range toMapSlice(rawPlan) {
+		plan.Tasks = append(plan.Tasks, PlanTaskState{
+			TaskID:      stringVal(mapped["taskId"]),
+			Description: stringVal(mapped["description"]),
+			Status:      stringVal(mapped["status"]),
+		})
 	}
 	w.latestPlan = plan
 }
@@ -321,6 +316,25 @@ func formatResult(v any) string {
 func stringVal(v any) string {
 	s, _ := v.(string)
 	return strings.TrimSpace(s)
+}
+
+// toMapSlice converts an any value to []map[string]any.
+// Handles both []any (from JSON unmarshal) and []map[string]any (from Go engine).
+func toMapSlice(v any) []map[string]any {
+	switch typed := v.(type) {
+	case []map[string]any:
+		return typed
+	case []any:
+		result := make([]map[string]any, 0, len(typed))
+		for _, item := range typed {
+			if m, ok := item.(map[string]any); ok {
+				result = append(result, m)
+			}
+		}
+		return result
+	default:
+		return nil
+	}
 }
 
 func generateMsgID() string {
