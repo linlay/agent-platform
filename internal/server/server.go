@@ -303,6 +303,10 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Backfill toolLabel/toolType on reconstructed tool.snapshot events
+	// (LoadChat only has tool name from JSONL, label is resolved from registry).
+	s.enrichToolMetadata(detail.Events)
+
 	includeRaw := strings.EqualFold(r.URL.Query().Get("includeRawMessages"), "true")
 	response := api.ChatDetailResponse{
 		ChatID:     detail.ChatID,
@@ -323,6 +327,45 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		response.Artifact = detail.Artifact
 	}
 	writeJSON(w, http.StatusOK, api.Success(response))
+}
+
+// enrichToolMetadata fills toolLabel/toolType on tool.snapshot events by
+// looking up the tool definition in the registry. LoadChat reconstructs these
+// events from JSONL which only has the raw tool name.
+func (s *Server) enrichToolMetadata(events []stream.EventData) {
+	lookup := s.toolLookup()
+	if lookup == nil {
+		return
+	}
+	for i := range events {
+		if events[i].Type != "tool.snapshot" {
+			continue
+		}
+		toolName := events[i].String("toolName")
+		if toolName == "" {
+			continue
+		}
+		def, ok := lookup.Tool(toolName)
+		if !ok {
+			continue
+		}
+		if events[i].Payload == nil {
+			events[i].Payload = map[string]any{}
+		}
+		if label := def.Label; label != "" {
+			events[i].Payload["toolLabel"] = label
+		}
+		if kind, _ := def.Meta["kind"].(string); kind != "" {
+			events[i].Payload["toolType"] = kind
+		}
+	}
+}
+
+func (s *Server) toolLookup() engine.ToolDefinitionLookup {
+	if tl, ok := s.deps.Tools.(engine.ToolDefinitionLookup); ok {
+		return engine.NewCompositeToolLookup(s.deps.Registry, tl)
+	}
+	return s.deps.Registry
 }
 
 func (s *Server) handleRead(w http.ResponseWriter, r *http.Request) {
@@ -536,7 +579,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	sseWriter.StartHeartbeat()
 
 	var assistantText strings.Builder
-	stepWriter := chat.NewStepWriter(s.deps.Chats, chatID, runID)
+	stepWriter := chat.NewStepWriter(s.deps.Chats, chatID, runID, agentDef.Mode)
 	writeEvent := func(event stream.StreamEvent) error {
 		data := event.Data()
 		if event.Type == "content.delta" {

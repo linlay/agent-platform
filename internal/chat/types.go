@@ -46,9 +46,13 @@ type QueryLine struct {
 	Type      string         `json:"_type"`
 }
 
-// StepLine represents a _type:"step" line in chatId.jsonl.
-// Field order matches Java: chatId, runId, updatedAt, [taskId], [system],
-// messages, _type, _stage, _seq, [plan], [artifacts].
+// StepLine represents a step line in chatId.jsonl.
+// _type is the agent mode: "react" or "plan-execute".
+// REACT mode: { _type: "react", seq: N, messages: [...] }
+// PLAN_EXECUTE mode:
+//   { _type: "plan-execute", stage: "plan", messages: [...] }
+//   { _type: "plan-execute", stage: "execute", seq: N, messages: [...] }
+//   { _type: "plan-execute", stage: "summary", messages: [...] }
 type StepLine struct {
 	ChatID    string          `json:"chatId"`
 	RunID     string          `json:"runId"`
@@ -57,21 +61,10 @@ type StepLine struct {
 	System    map[string]any  `json:"system,omitempty"`
 	Messages  []StoredMessage `json:"messages"`
 	Type      string          `json:"_type"`
-	Stage     string          `json:"_stage"`
-	Seq       int             `json:"_seq"`
+	Stage     string          `json:"stage,omitempty"`
+	Seq       int             `json:"seq,omitempty"`
 	Plan      *PlanState      `json:"plan,omitempty"`
 	Artifacts *ArtifactState  `json:"artifacts,omitempty"`
-}
-
-// EventLine represents a _type:"event" line in chatId.jsonl.
-// Field order matches Java: _type, chatId, runId, updatedAt, [hidden], event.
-type EventLine struct {
-	Type      string         `json:"_type"`
-	ChatID    string         `json:"chatId"`
-	RunID     string         `json:"runId"`
-	UpdatedAt int64          `json:"updatedAt"`
-	Hidden    *bool          `json:"hidden,omitempty"`
-	Event     map[string]any `json:"event"`
 }
 
 // ---------------------------------------------------------------------------

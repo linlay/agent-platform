@@ -120,7 +120,44 @@ func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*Fil
 	return registry, nil
 }
 
-func (r *FileRegistry) Reload(_ context.Context, _ string) error {
+// Reload reloads catalog entries scoped by reason. Supported reasons:
+//   "startup" / "" / "config" — reload everything
+//   "agents" — reload only agents
+//   "teams"  — reload only teams
+//   "skills" — reload only skills
+// Other reasons fall through to a full reload.
+func (r *FileRegistry) Reload(_ context.Context, reason string) error {
+	switch reason {
+	case "agents":
+		agents, err := loadAgents(r.cfg.Paths.AgentsDir)
+		if err != nil {
+			return err
+		}
+		r.mu.Lock()
+		r.agents = agents
+		r.mu.Unlock()
+		return nil
+	case "teams":
+		teams, err := loadTeams(r.cfg.Paths.TeamsDir)
+		if err != nil {
+			return err
+		}
+		r.mu.Lock()
+		r.teams = teams
+		r.mu.Unlock()
+		return nil
+	case "skills":
+		skills, err := loadSkills(r.cfg.Paths.SkillsMarketDir, r.cfg.Skills.MaxPromptChars)
+		if err != nil {
+			return err
+		}
+		r.mu.Lock()
+		r.skills = skills
+		r.mu.Unlock()
+		return nil
+	}
+
+	// Full reload (startup, config, or unknown reason)
 	agents, err := loadAgents(r.cfg.Paths.AgentsDir)
 	if err != nil {
 		return err
@@ -380,7 +417,6 @@ func loadAgents(root string) (map[string]AgentDefinition, error) {
 		}
 		items[def.Key] = def
 	}
-	log.Printf("[catalog][agents] loaded %d agents from %s", len(items), root)
 	return items, nil
 }
 
@@ -406,7 +442,6 @@ func loadTeams(root string) (map[string]TeamDefinition, error) {
 		}
 		items[def.TeamID] = def
 	}
-	log.Printf("[catalog][teams] loaded %d teams from %s", len(items), root)
 	return items, nil
 }
 
@@ -444,7 +479,6 @@ func loadSkills(root string, maxPromptChars int) (map[string]SkillDefinition, er
 			PromptTruncated: truncated,
 		}
 	}
-	log.Printf("[catalog][skills] loaded %d skills from %s", len(items), root)
 	return items, nil
 }
 

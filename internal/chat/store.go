@@ -1,11 +1,11 @@
 package chat
 
 import (
-	"bufio"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -25,7 +25,6 @@ type Store interface {
 	AppendEvent(chatID string, event stream.EventData) error
 	AppendQueryLine(chatID string, line QueryLine) error
 	AppendStepLine(chatID string, line StepLine) error
-	AppendEventLine(chatID string, line EventLine) error
 	AppendRawMessage(chatID string, message map[string]any) error
 	LoadRawMessages(chatID string, k int) ([]map[string]any, error)
 	OnRunCompleted(completion RunCompletion) error
@@ -169,10 +168,6 @@ func (s *FileStore) AppendStepLine(chatID string, line StepLine) error {
 	return s.appendJSONLine(s.chatJSONLPath(chatID), line)
 }
 
-func (s *FileStore) AppendEventLine(chatID string, line EventLine) error {
-	return s.appendJSONLine(s.chatJSONLPath(chatID), line)
-}
-
 // chatJSONLPath returns the path to {chatId}.jsonl (flat file, matching Java).
 func (s *FileStore) chatJSONLPath(chatID string) string {
 	return filepath.Join(s.root, chatID+".jsonl")
@@ -282,7 +277,7 @@ func (s *FileStore) loadRawMessagesFromJSONL(chatID string) []map[string]any {
 			}
 			messages = append(messages, msg)
 
-		case "step":
+		case "step", "react", "plan-execute":
 			rawMsgs, _ := line["messages"].([]any)
 			for _, raw := range rawMsgs {
 				m, _ := raw.(map[string]any)
@@ -435,7 +430,7 @@ func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, r
 				Payload:   payload,
 			})
 
-		case "step":
+		case "react", "plan-execute", "step":
 			rd := ensureRun(runs, &runOrder, runID)
 
 			if rawPlan, ok := line["plan"].(map[string]any); ok {
@@ -445,7 +440,11 @@ func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, r
 				artifact = parseArtifactFromStep(rawArt)
 			}
 
-			stage, _ := line["_stage"].(string)
+			// new format uses "stage", legacy uses "_stage"
+			stage, _ := line["stage"].(string)
+			if stage == "" {
+				stage, _ = line["_stage"].(string)
+			}
 			taskID, _ := line["taskId"].(string)
 			msgs, _ := line["messages"].([]any)
 			for _, rawMsg := range msgs {
@@ -457,32 +456,6 @@ func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, r
 					rd.events = append(rd.events, ev)
 				}
 			}
-
-		case "event":
-			eventMap, _ := line["event"].(map[string]any)
-			if eventMap == nil {
-				continue
-			}
-			eventType, _ := eventMap["type"].(string)
-
-			if eventType == "artifact.publish" {
-				continue
-			}
-
-			rd := ensureRun(runs, &runOrder, runID)
-			payload := map[string]any{}
-			for k, v := range eventMap {
-				if k == "type" || k == "seq" || k == "timestamp" {
-					continue
-				}
-				payload[k] = v
-			}
-			rd.events = append(rd.events, stream.EventData{
-				Seq:       nextSeq(),
-				Type:      eventType,
-				Timestamp: int64FromAny(eventMap["timestamp"]),
-				Payload:   payload,
-			})
 		}
 	}
 
@@ -515,6 +488,14 @@ func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, r
 			})
 		}
 		allEvents = append(allEvents, rd.events...)
+		// Synthesize run.complete for the frontend (not persisted in JSONL).
+		if runID != "" {
+			allEvents = append(allEvents, stream.EventData{
+				Seq:     nextSeq(),
+				Type:    "run.complete",
+				Payload: map[string]any{"runId": runID, "finishReason": "stop"},
+			})
+		}
 	}
 
 	for i := range allEvents {
@@ -912,6 +893,9 @@ func (s *FileStore) appendJSONLine(path string, payload any) error {
 	return encoder.Encode(payload)
 }
 
+// readJSONLines reads a JSONL file. Uses json.Decoder so it handles both
+// single-line JSON objects (Go's writer) and pretty-printed multi-line JSON
+// objects (Java may write either format).
 func readJSONLines(path string) ([]map[string]any, error) {
 	file, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {
@@ -923,20 +907,20 @@ func readJSONLines(path string) ([]map[string]any, error) {
 	defer file.Close()
 
 	var items []map[string]any
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
+	decoder := json.NewDecoder(file)
+	for {
 		var payload map[string]any
-		if err := json.Unmarshal([]byte(line), &payload); err != nil {
-			return nil, fmt.Errorf("parse JSONL line: %w", err)
+		if err := decoder.Decode(&payload); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return nil, fmt.Errorf("parse JSONL: %w", err)
 		}
-		items = append(items, payload)
+		if payload != nil {
+			items = append(items, payload)
+		}
 	}
-	return items, scanner.Err()
+	return items, nil
 }
 
 func defaultChatName(message string) string {

@@ -22,6 +22,7 @@ type StepWriter struct {
 	store  Store
 	chatID string
 	runID  string
+	mode   string // "REACT" / "PLAN_EXECUTE" / "ONESHOT"
 
 	queryWritten bool
 	seqCounter   int
@@ -43,11 +44,12 @@ type StepWriter struct {
 }
 
 // NewStepWriter creates a StepWriter for a single run.
-func NewStepWriter(store Store, chatID, runID string) *StepWriter {
+func NewStepWriter(store Store, chatID, runID, mode string) *StepWriter {
 	return &StepWriter{
 		store:       store,
 		chatID:      chatID,
 		runID:       runID,
+		mode:        strings.ToUpper(strings.TrimSpace(mode)),
 		toolNames:   map[string]string{},
 		actionNames: map[string]string{},
 	}
@@ -174,14 +176,9 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 
 	case "artifact.publish":
 		w.updateArtifact(event)
-		w.writeEventLine(event)
-
-	case "request.submit", "request.steer":
-		w.writeEventLine(event)
 
 	case "run.complete", "run.cancel", "run.error":
 		w.flushCurrentStep()
-		w.writeEventLine(event)
 	}
 }
 
@@ -226,13 +223,9 @@ func (w *StepWriter) flushCurrentStep() {
 		return
 	}
 
-	w.seqCounter++
 	line := StepLine{
-		Type:      "step",
 		ChatID:    w.chatID,
 		RunID:     w.runID,
-		Stage:     w.currentStage,
-		Seq:       w.seqCounter,
 		UpdatedAt: time.Now().UnixMilli(),
 		Messages:  w.messages,
 	}
@@ -245,25 +238,24 @@ func (w *StepWriter) flushCurrentStep() {
 	if w.latestArtifact != nil {
 		line.Artifacts = w.latestArtifact
 	}
+
+	if w.mode == "PLAN_EXECUTE" {
+		line.Type = "plan-execute"
+		line.Stage = w.currentStage
+		// seq 只在 execute 阶段输出
+		if w.currentStage == "execute" {
+			w.seqCounter++
+			line.Seq = w.seqCounter
+		}
+	} else {
+		// REACT / ONESHOT 都用 react，每行都带 seq
+		line.Type = "react"
+		w.seqCounter++
+		line.Seq = w.seqCounter
+	}
+
 	_ = w.store.AppendStepLine(w.chatID, line)
-
-	// Reset accumulated messages for next step
 	w.messages = nil
-}
-
-func (w *StepWriter) writeEventLine(event stream.EventData) {
-	eventMap := event.Map()
-	// Java does not include seq/timestamp inside the event payload —
-	// they live at the outer line level (updatedAt).
-	delete(eventMap, "seq")
-	delete(eventMap, "timestamp")
-	_ = w.store.AppendEventLine(w.chatID, EventLine{
-		Type:      "event",
-		ChatID:    w.chatID,
-		RunID:     w.runID,
-		UpdatedAt: event.Timestamp,
-		Event:     eventMap,
-	})
 }
 
 func (w *StepWriter) updatePlan(event stream.EventData) {

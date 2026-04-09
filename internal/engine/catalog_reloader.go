@@ -32,18 +32,40 @@ func NewRuntimeCatalogReloader(registry catalog.Registry, models *ModelRegistry)
 
 func (r *RuntimeCatalogReloader) Reload(ctx context.Context, reason string) error {
 	start := time.Now()
-	if r.registry != nil {
-		if err := r.registry.Reload(ctx, reason); err != nil {
-			log.Printf("[reload] %s catalog reload failed: %v", reason, err)
-			return err
+
+	// Dispatch by reason: catalog (agents/teams/skills) and model registry are
+	// independent. Only reload what actually changed.
+	switch reason {
+	case "models", "providers":
+		if r.models != nil {
+			if err := r.models.Reload(); err != nil {
+				log.Printf("[reload] %s models reload failed: %v", reason, err)
+				return err
+			}
+		}
+	case "agents", "teams", "skills":
+		if r.registry != nil {
+			if err := r.registry.Reload(ctx, reason); err != nil {
+				log.Printf("[reload] %s catalog reload failed: %v", reason, err)
+				return err
+			}
+		}
+	default:
+		// Unknown / startup / config — full reload
+		if r.registry != nil {
+			if err := r.registry.Reload(ctx, reason); err != nil {
+				log.Printf("[reload] %s catalog reload failed: %v", reason, err)
+				return err
+			}
+		}
+		if r.models != nil {
+			if err := r.models.Reload(); err != nil {
+				log.Printf("[reload] %s models reload failed: %v", reason, err)
+				return err
+			}
 		}
 	}
-	if r.models != nil {
-		if err := r.models.Reload(); err != nil {
-			log.Printf("[reload] %s models reload failed: %v", reason, err)
-			return err
-		}
-	}
+
 	r.lastReloadNs.Store(time.Now().UnixNano())
 	log.Printf("[reload] %s reloaded in %s", reason, time.Since(start).Truncate(time.Millisecond))
 	return nil

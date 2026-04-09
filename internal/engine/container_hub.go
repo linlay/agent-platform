@@ -168,6 +168,8 @@ func (c *ContainerHubClient) post(ctx context.Context, path string, payload map[
 		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		detail, _ := json.Marshal(decoded)
+		log.Printf("[container-hub] %s %d request=%s response=%s", path, resp.StatusCode, string(body), string(detail))
 		return nil, fmt.Errorf("%s returned status %d", path, resp.StatusCode)
 	}
 	return decoded, nil
