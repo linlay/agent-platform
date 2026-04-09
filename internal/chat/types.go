@@ -41,7 +41,7 @@ type QueryLine struct {
 	ChatID    string         `json:"chatId"`
 	RunID     string         `json:"runId"`
 	UpdatedAt int64          `json:"updatedAt"`
-	Hidden    bool           `json:"hidden"`
+	Hidden    bool           `json:"hidden,omitempty"`
 	Query     map[string]any `json:"query"`
 	Type      string         `json:"_type"`
 }
