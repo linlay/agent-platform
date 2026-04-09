@@ -129,7 +129,7 @@ func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*Fil
 func (r *FileRegistry) Reload(_ context.Context, reason string) error {
 	switch reason {
 	case "agents":
-		agents, err := loadAgents(r.cfg.Paths.AgentsDir)
+		agents, err := loadAgents(r.cfg.Paths.AgentsDir, r.cfg.Paths.SkillsMarketDir)
 		if err != nil {
 			return err
 		}
@@ -158,7 +158,7 @@ func (r *FileRegistry) Reload(_ context.Context, reason string) error {
 	}
 
 	// Full reload (startup, config, or unknown reason)
-	agents, err := loadAgents(r.cfg.Paths.AgentsDir)
+	agents, err := loadAgents(r.cfg.Paths.AgentsDir, r.cfg.Paths.SkillsMarketDir)
 	if err != nil {
 		return err
 	}
@@ -372,7 +372,7 @@ func resolveDirectoryAgentConfig(dirPath string) string {
 	return ""
 }
 
-func loadAgents(root string) (map[string]AgentDefinition, error) {
+func loadAgents(root, marketDir string) (map[string]AgentDefinition, error) {
 	items := map[string]AgentDefinition{}
 	entries, err := os.ReadDir(root)
 	if os.IsNotExist(err) {
@@ -404,6 +404,12 @@ func loadAgents(root string) (map[string]AgentDefinition, error) {
 				continue
 			}
 			def.AgentDir = agentDir
+			// Sync declared skills from skills-market into agent's local skills/.
+			if marketDir != "" && len(def.Skills) > 0 {
+				if err := reconcileDeclaredSkills(agentDir, def.Skills, marketDir); err != nil {
+					log.Printf("[catalog][skills] sync %s: %v", def.Key, err)
+				}
+			}
 			items[def.Key] = def
 			continue
 		}

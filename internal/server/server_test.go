@@ -1401,7 +1401,7 @@ func newTestFixtureWithModelHandler(t *testing.T, modelHandler http.HandlerFunc)
 	if err != nil {
 		t.Fatalf("new file registry: %v", err)
 	}
-	reloader := engine.NewRuntimeCatalogReloader(registry, modelRegistry)
+	reloader := engine.NewRuntimeCatalogReloader(registry, modelRegistry, nil)
 
 	runs := engine.NewInMemoryRunManager()
 	sandbox := engine.NewNoopSandboxClient()

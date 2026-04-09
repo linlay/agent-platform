@@ -17,46 +17,92 @@ import (
 
 const reloadDebounce = 500 * time.Millisecond
 
+// McpRegistryReloader is the minimal interface RuntimeCatalogReloader needs
+// from the mcp package. Defined here to avoid an import cycle.
+type McpRegistryReloader interface {
+	Reload() error
+}
+
 type RuntimeCatalogReloader struct {
 	registry     catalog.Registry
 	models       *ModelRegistry
+	mcp          McpRegistryReloader
 	lastReloadNs atomic.Int64
 }
 
-func NewRuntimeCatalogReloader(registry catalog.Registry, models *ModelRegistry) *RuntimeCatalogReloader {
+func NewRuntimeCatalogReloader(registry catalog.Registry, models *ModelRegistry, mcpRegistry McpRegistryReloader) *RuntimeCatalogReloader {
 	return &RuntimeCatalogReloader{
 		registry: registry,
 		models:   models,
+		mcp:      mcpRegistry,
 	}
 }
 
+// Reload dispatches reloads by reason. Reload spec:
+//
+//	agents          → reload agents (re-syncs declared skills from skills-market)
+//	teams           → reload teams
+//	skills          → no-op (skills-market is read-only catalog)
+//	models          → reload models + reload agents (cascade for affected agents)
+//	providers       → reload providers only (independent)
+//	mcp-servers     → reload mcp registry + reload agents (cascade)
+//	viewport-servers → reload agents (cascade; viewport server registry reads
+//	                  on-demand and doesn't cache)
+//	default / config → full reload
 func (r *RuntimeCatalogReloader) Reload(ctx context.Context, reason string) error {
 	start := time.Now()
 
-	// Dispatch by reason: catalog (agents/teams/skills) and model registry are
-	// independent. Only reload what actually changed.
 	switch reason {
-	case "models", "providers":
+	case "agents":
+		if err := r.reloadCatalog(ctx, "agents"); err != nil {
+			return err
+		}
+	case "teams":
+		if err := r.reloadCatalog(ctx, "teams"); err != nil {
+			return err
+		}
+	case "skills":
+		// noop — skills-market changes do not trigger any reload
+		log.Printf("[reload] skills change ignored (skills-market is read-only)")
+		return nil
+	case "models":
 		if r.models != nil {
-			if err := r.models.Reload(); err != nil {
-				log.Printf("[reload] %s models reload failed: %v", reason, err)
+			if err := r.models.ReloadModels(); err != nil {
+				log.Printf("[reload] models reload failed: %v", err)
 				return err
 			}
 		}
-	case "agents", "teams", "skills":
-		if r.registry != nil {
-			if err := r.registry.Reload(ctx, reason); err != nil {
-				log.Printf("[reload] %s catalog reload failed: %v", reason, err)
+		log.Printf("[reload] cascade: models → agents")
+		if err := r.reloadCatalog(ctx, "agents"); err != nil {
+			return err
+		}
+	case "providers":
+		if r.models != nil {
+			if err := r.models.ReloadProviders(); err != nil {
+				log.Printf("[reload] providers reload failed: %v", err)
 				return err
 			}
+		}
+	case "mcp-servers":
+		if r.mcp != nil {
+			if err := r.mcp.Reload(); err != nil {
+				log.Printf("[reload] mcp registry reload failed: %v", err)
+				return err
+			}
+		}
+		log.Printf("[reload] cascade: mcp-servers → agents")
+		if err := r.reloadCatalog(ctx, "agents"); err != nil {
+			return err
+		}
+	case "viewport-servers":
+		log.Printf("[reload] cascade: viewport-servers → agents")
+		if err := r.reloadCatalog(ctx, "agents"); err != nil {
+			return err
 		}
 	default:
-		// Unknown / startup / config — full reload
-		if r.registry != nil {
-			if err := r.registry.Reload(ctx, reason); err != nil {
-				log.Printf("[reload] %s catalog reload failed: %v", reason, err)
-				return err
-			}
+		// startup / config / unknown — full reload
+		if err := r.reloadCatalog(ctx, reason); err != nil {
+			return err
 		}
 		if r.models != nil {
 			if err := r.models.Reload(); err != nil {
@@ -68,6 +114,17 @@ func (r *RuntimeCatalogReloader) Reload(ctx context.Context, reason string) erro
 
 	r.lastReloadNs.Store(time.Now().UnixNano())
 	log.Printf("[reload] %s reloaded in %s", reason, time.Since(start).Truncate(time.Millisecond))
+	return nil
+}
+
+func (r *RuntimeCatalogReloader) reloadCatalog(ctx context.Context, reason string) error {
+	if r.registry == nil {
+		return nil
+	}
+	if err := r.registry.Reload(ctx, reason); err != nil {
+		log.Printf("[reload] %s catalog reload failed: %v", reason, err)
+		return err
+	}
 	return nil
 }
 
@@ -89,6 +146,8 @@ func StartBackgroundReloaders(ctx context.Context, cfg config.Config, reloader C
 		{cfg.Paths.SkillsMarketDir, "skills"},
 		{filepath.Join(cfg.Paths.RegistriesDir, "models"), "models"},
 		{filepath.Join(cfg.Paths.RegistriesDir, "providers"), "providers"},
+		{filepath.Join(cfg.Paths.RegistriesDir, "mcp-servers"), "mcp-servers"},
+		{filepath.Join(cfg.Paths.RegistriesDir, "viewport-servers"), "viewport-servers"},
 	}
 
 	fsw, err := fsnotify.NewWatcher()
@@ -120,6 +179,7 @@ func StartBackgroundReloaders(ctx context.Context, cfg config.Config, reloader C
 
 		var timer *time.Timer
 		var pendingReason string
+		var pendingPath string // last path printed in the current debounce window
 
 		for {
 			select {
@@ -144,8 +204,20 @@ func StartBackgroundReloaders(ctx context.Context, cfg config.Config, reloader C
 					}
 				}
 
+				// Ignore changes inside per-agent skills/ subdirs — those are
+				// written by reconcileDeclaredSkills and would cause an infinite
+				// reload loop. Pattern: {agentsDir}/{agentKey}/skills/...
+				if isAgentSkillsSubpath(event.Name, cfg.Paths.AgentsDir) {
+					continue
+				}
+
 				reason := resolveChangeReason(event.Name, entries)
-				log.Printf("[reload] change detected: %s (%s)", filepath.Base(event.Name), reason)
+				// Dedupe: editors often emit multiple write events per save.
+				// Only log once per (path, reason) within the debounce window.
+				if pendingPath != event.Name || pendingReason != reason {
+					log.Printf("[reload] change detected: %s (%s)", filepath.Base(event.Name), reason)
+					pendingPath = event.Name
+				}
 				pendingReason = reason
 				if timer != nil {
 					timer.Stop()
@@ -154,6 +226,7 @@ func StartBackgroundReloaders(ctx context.Context, cfg config.Config, reloader C
 					if err := reloader.Reload(ctx, pendingReason); err != nil {
 						log.Printf("[reload] %s reload failed: %v", pendingReason, err)
 					}
+					pendingPath = ""
 				})
 
 			case watchErr, ok := <-fsw.Errors:
@@ -186,6 +259,22 @@ func addRecursive(fsw *fsnotify.Watcher, root string) error {
 		}
 	}
 	return nil
+}
+
+// isAgentSkillsSubpath returns true if changedPath is inside
+// {agentsDir}/{agentKey}/skills/... — those files are managed by
+// reconcileDeclaredSkills and must not retrigger a reload.
+func isAgentSkillsSubpath(changedPath, agentsDir string) bool {
+	if agentsDir == "" {
+		return false
+	}
+	rel, err := filepath.Rel(agentsDir, changedPath)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return false
+	}
+	parts := strings.Split(filepath.ToSlash(rel), "/")
+	// {agentKey}/skills/... → at least 2 parts with parts[1] == "skills"
+	return len(parts) >= 2 && parts[1] == "skills"
 }
 
 func resolveChangeReason(changedPath string, dirs []watchEntry) string {

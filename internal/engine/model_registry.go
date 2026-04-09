@@ -46,16 +46,32 @@ func LoadModelRegistry(registriesDir string) (*ModelRegistry, error) {
 }
 
 func (r *ModelRegistry) Reload() error {
-	providers, err := loadProviders(filepath.Join(r.root, "providers"))
-	if err != nil {
+	if err := r.ReloadProviders(); err != nil {
 		return err
 	}
-	models, err := loadModels(filepath.Join(r.root, "models"))
+	return r.ReloadModels()
+}
+
+// ReloadProviders reloads only provider definitions. Independent of models —
+// model definitions still resolve providers by key from the latest map.
+func (r *ModelRegistry) ReloadProviders() error {
+	providers, err := loadProviders(filepath.Join(r.root, "providers"))
 	if err != nil {
 		return err
 	}
 	r.mu.Lock()
 	r.providers = providers
+	r.mu.Unlock()
+	return nil
+}
+
+// ReloadModels reloads only model definitions.
+func (r *ModelRegistry) ReloadModels() error {
+	models, err := loadModels(filepath.Join(r.root, "models"))
+	if err != nil {
+		return err
+	}
+	r.mu.Lock()
 	r.models = models
 	r.mu.Unlock()
 	return nil

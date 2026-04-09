@@ -114,7 +114,7 @@ func New() (*App, error) {
 	)
 
 	agentEngine := engine.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, sandbox)
-	reloader := engine.NewRuntimeCatalogReloader(registry, modelRegistry)
+	reloader := engine.NewRuntimeCatalogReloader(registry, modelRegistry, mcpRegistry)
 	backgroundCtx, backgroundCancel := context.WithCancel(context.Background())
 	engine.StartBackgroundReloaders(backgroundCtx, cfg, reloader)
 	mcp.NewReconnectLoop(mcpRegistry, mcpClient, mcpGate, 10*time.Second).Start(backgroundCtx)
