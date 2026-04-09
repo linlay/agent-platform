@@ -36,31 +36,35 @@ type ArtifactItemState struct {
 // ---------------------------------------------------------------------------
 
 // QueryLine represents a _type:"query" line in chatId.jsonl.
+// Field order matches Java: chatId, runId, updatedAt, hidden, query, _type.
 type QueryLine struct {
-	Type      string         `json:"_type"`
 	ChatID    string         `json:"chatId"`
 	RunID     string         `json:"runId"`
 	UpdatedAt int64          `json:"updatedAt"`
-	Hidden    *bool          `json:"hidden,omitempty"`
+	Hidden    bool           `json:"hidden"`
 	Query     map[string]any `json:"query"`
+	Type      string         `json:"_type"`
 }
 
 // StepLine represents a _type:"step" line in chatId.jsonl.
+// Field order matches Java: chatId, runId, updatedAt, [taskId], [system],
+// messages, _type, _stage, _seq, [plan], [artifacts].
 type StepLine struct {
-	Type      string          `json:"_type"`
 	ChatID    string          `json:"chatId"`
 	RunID     string          `json:"runId"`
+	UpdatedAt int64           `json:"updatedAt"`
+	TaskID    string          `json:"taskId,omitempty"`
+	System    map[string]any  `json:"system,omitempty"`
+	Messages  []StoredMessage `json:"messages"`
+	Type      string          `json:"_type"`
 	Stage     string          `json:"_stage"`
 	Seq       int             `json:"_seq"`
-	TaskID    string          `json:"taskId,omitempty"`
-	UpdatedAt int64           `json:"updatedAt"`
-	System    map[string]any  `json:"system,omitempty"`
 	Plan      *PlanState      `json:"plan,omitempty"`
 	Artifacts *ArtifactState  `json:"artifacts,omitempty"`
-	Messages  []StoredMessage `json:"messages"`
 }
 
 // EventLine represents a _type:"event" line in chatId.jsonl.
+// Field order matches Java: _type, chatId, runId, updatedAt, [hidden], event.
 type EventLine struct {
 	Type      string         `json:"_type"`
 	ChatID    string         `json:"chatId"`

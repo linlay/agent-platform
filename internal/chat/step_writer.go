@@ -73,21 +73,25 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 	case "reasoning.snapshot":
 		w.ensureStep()
 		w.ensureMsgID()
+		ts := event.Timestamp
 		w.messages = append(w.messages, StoredMessage{
 			Role:             "assistant",
 			ReasoningContent: textContent(event.String("text")),
 			ReasoningID:      event.String("reasoningId"),
 			MsgID:            w.currentMsgID,
+			Ts:               &ts,
 		})
 
 	case "content.snapshot":
 		w.ensureStep()
 		w.ensureMsgID()
+		ts := event.Timestamp
 		w.messages = append(w.messages, StoredMessage{
 			Role:      "assistant",
 			Content:   textContent(event.String("text")),
 			ContentID: event.String("contentId"),
 			MsgID:     w.currentMsgID,
+			Ts:        &ts,
 		})
 
 	case "tool.snapshot":
@@ -95,6 +99,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		w.ensureMsgID()
 		toolID := event.String("toolId")
 		toolName := event.String("toolName")
+		ts := event.Timestamp
 		w.toolNames[toolID] = toolName
 		w.messages = append(w.messages, StoredMessage{
 			Role: "assistant",
@@ -108,6 +113,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 			}},
 			ToolID: toolID,
 			MsgID:  w.currentMsgID,
+			Ts:     &ts,
 		})
 
 	case "tool.result":

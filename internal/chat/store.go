@@ -87,15 +87,20 @@ func (s *FileStore) AppendEvent(chatID string, event stream.EventData) error {
 }
 
 func (s *FileStore) AppendQueryLine(chatID string, line QueryLine) error {
-	return s.appendJSONLine(filepath.Join(s.ChatDir(chatID), "events.jsonl"), line)
+	return s.appendJSONLine(s.chatJSONLPath(chatID), line)
 }
 
 func (s *FileStore) AppendStepLine(chatID string, line StepLine) error {
-	return s.appendJSONLine(filepath.Join(s.ChatDir(chatID), "events.jsonl"), line)
+	return s.appendJSONLine(s.chatJSONLPath(chatID), line)
 }
 
 func (s *FileStore) AppendEventLine(chatID string, line EventLine) error {
-	return s.appendJSONLine(filepath.Join(s.ChatDir(chatID), "events.jsonl"), line)
+	return s.appendJSONLine(s.chatJSONLPath(chatID), line)
+}
+
+// chatJSONLPath returns the path to {chatId}.jsonl (flat file, matching Java).
+func (s *FileStore) chatJSONLPath(chatID string) string {
+	return filepath.Join(s.root, chatID+".jsonl")
 }
 
 func (s *FileStore) Summary(chatID string) (*Summary, error) {
@@ -227,9 +232,16 @@ func (s *FileStore) LoadChat(chatID string) (Detail, error) {
 		return Detail{}, ErrChatNotFound
 	}
 
-	lines, err := readJSONLines(filepath.Join(s.ChatDir(chatID), "events.jsonl"))
+	// Read {chatId}.jsonl (flat file, Java format). Fallback to {chatId}/events.jsonl (old Go format).
+	lines, err := readJSONLines(s.chatJSONLPath(chatID))
 	if err != nil {
 		return Detail{}, err
+	}
+	if len(lines) == 0 {
+		lines, err = readJSONLines(filepath.Join(s.ChatDir(chatID), "events.jsonl"))
+		if err != nil {
+			return Detail{}, err
+		}
 	}
 	rawMessages, err := readJSONLines(filepath.Join(s.ChatDir(chatID), "raw_messages.jsonl"))
 	if err != nil {
