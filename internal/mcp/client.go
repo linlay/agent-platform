@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -46,26 +47,30 @@ func (c *Client) Initialize(ctx context.Context, serverKey string) error {
 	}, nil)
 }
 
-func (c *Client) CallTool(ctx context.Context, serverKey string, toolName string, args map[string]any) (map[string]any, error) {
-	if c.gate != nil && !c.gate.Allow(serverKey) {
+func (c *Client) CallTool(ctx context.Context, serverKey string, toolName string, args map[string]any, meta map[string]any) (any, error) {
+	if c.gate != nil && c.gate.IsBlocked(serverKey) {
 		return nil, fmt.Errorf("%w: server %s is temporarily unavailable", engine.ErrMCPCallFailed, serverKey)
 	}
 	server, ok := c.registry.Server(serverKey)
 	if !ok {
 		return nil, fmt.Errorf("%w: server %s not found", engine.ErrMCPCallFailed, serverKey)
 	}
-	var result map[string]any
-	if err := c.callWithRetry(ctx, server, "tools/call", map[string]any{
+	params := map[string]any{
 		"name":      toolName,
-		"arguments": args,
-	}, &result); err != nil {
+		"arguments": defaultArgs(args),
+	}
+	if len(meta) > 0 {
+		params["_meta"] = meta
+	}
+	var result any
+	if err := c.callWithRetry(ctx, server, "tools/call", params, &result); err != nil {
 		return nil, err
 	}
 	return result, nil
 }
 
 func (c *Client) ListTools(ctx context.Context, serverKey string) ([]ToolDefinition, error) {
-	if c.gate != nil && !c.gate.Allow(serverKey) {
+	if c.gate != nil && c.gate.IsBlocked(serverKey) {
 		return nil, fmt.Errorf("%w: server %s is temporarily unavailable", engine.ErrMCPCallFailed, serverKey)
 	}
 	server, ok := c.registry.Server(serverKey)
@@ -75,7 +80,7 @@ func (c *Client) ListTools(ctx context.Context, serverKey string) ([]ToolDefinit
 	var payload struct {
 		Tools []ToolDefinition `json:"tools"`
 	}
-	if err := c.callWithRetry(ctx, server, "tools/list", nil, &payload); err != nil {
+	if err := c.callWithRetry(ctx, server, "tools/list", map[string]any{}, &payload); err != nil {
 		return nil, err
 	}
 	return payload.Tools, nil
@@ -103,7 +108,7 @@ func (c *Client) callWithRetry(ctx context.Context, server ServerDefinition, met
 }
 
 func (c *Client) call(ctx context.Context, server ServerDefinition, method string, params map[string]any, target any) error {
-	timeout := time.Duration(server.TimeoutMs) * time.Millisecond
+	timeout := time.Duration(server.ReadTimeoutMs) * time.Millisecond
 	if timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, timeout)
@@ -123,6 +128,7 @@ func (c *Client) call(ctx context.Context, server ServerDefinition, method strin
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
 	for k, v := range server.Headers {
 		req.Header.Set(k, v)
 	}
@@ -134,7 +140,7 @@ func (c *Client) call(ctx context.Context, server ServerDefinition, method strin
 		"method":    method,
 	})
 
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClientForServer(server).Do(req)
 	if err != nil {
 		if c.gate != nil {
 			c.gate.MarkFailure(server.Key)
@@ -152,6 +158,19 @@ func (c *Client) call(ctx context.Context, server ServerDefinition, method strin
 		}
 		return fmt.Errorf("%w: status %d: %s", engine.ErrMCPCallFailed, resp.StatusCode, strings.TrimSpace(string(data)))
 	}
+	payload, err := parseResponsePayload(data)
+	if err != nil {
+		if c.gate != nil {
+			c.gate.MarkFailure(server.Key)
+		}
+		return fmt.Errorf("%w: decode response: %v", engine.ErrMCPCallFailed, err)
+	}
+	if payload.Error != nil {
+		if c.gate != nil {
+			c.gate.MarkFailure(server.Key)
+		}
+		return fmt.Errorf("%w: %s", engine.ErrMCPCallFailed, payload.Error.Message)
+	}
 	if c.gate != nil {
 		c.gate.MarkSuccess(server.Key)
 	}
@@ -160,19 +179,95 @@ func (c *Client) call(ctx context.Context, server ServerDefinition, method strin
 		"method":    method,
 		"status":    resp.StatusCode,
 	})
-	var decoded JSONRPCResponse
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		return fmt.Errorf("%w: decode response: %v", engine.ErrMCPCallFailed, err)
-	}
-	if decoded.Error != nil {
-		return fmt.Errorf("%w: %s", engine.ErrMCPCallFailed, decoded.Error.Message)
-	}
 	if target == nil {
 		return nil
 	}
-	payload, err := json.Marshal(decoded.Result)
+	resultBytes, err := json.Marshal(payload.Result)
 	if err != nil {
 		return err
 	}
-	return json.Unmarshal(payload, target)
+	return json.Unmarshal(resultBytes, target)
+}
+
+func parseResponsePayload(data []byte) (JSONRPCResponse, error) {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 {
+		return JSONRPCResponse{}, fmt.Errorf("empty payload")
+	}
+	var payload JSONRPCResponse
+	if err := json.Unmarshal(trimmed, &payload); err == nil {
+		return payload, nil
+	}
+	var last JSONRPCResponse
+	found := false
+	block := bytes.Buffer{}
+	lines := bytes.Split(trimmed, []byte{'\n'})
+	for _, rawLine := range lines {
+		line := bytes.TrimSpace(bytes.TrimRight(rawLine, "\r"))
+		if len(line) == 0 {
+			if parsed, ok := parseSSEBlock(block.Bytes()); ok {
+				last = parsed
+				found = true
+			}
+			block.Reset()
+			continue
+		}
+		if bytes.HasPrefix(line, []byte("data:")) {
+			if block.Len() > 0 {
+				block.WriteByte('\n')
+			}
+			block.Write(bytes.TrimSpace(line[5:]))
+		}
+	}
+	if parsed, ok := parseSSEBlock(block.Bytes()); ok {
+		last = parsed
+		found = true
+	}
+	if !found {
+		return JSONRPCResponse{}, fmt.Errorf("unrecognized payload")
+	}
+	return last, nil
+}
+
+func parseSSEBlock(data []byte) (JSONRPCResponse, bool) {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 {
+		return JSONRPCResponse{}, false
+	}
+	var payload JSONRPCResponse
+	if err := json.Unmarshal(trimmed, &payload); err != nil {
+		return JSONRPCResponse{}, false
+	}
+	return payload, true
+}
+
+func defaultArgs(args map[string]any) map[string]any {
+	if args == nil {
+		return map[string]any{}
+	}
+	return args
+}
+
+func (c *Client) httpClientForServer(server ServerDefinition) *http.Client {
+	if c == nil || c.httpClient == nil {
+		return &http.Client{}
+	}
+	if server.ConnectTimeoutMs <= 0 {
+		return c.httpClient
+	}
+	cloned := *c.httpClient
+	baseTransport := c.httpClient.Transport
+	if baseTransport == nil {
+		if defaultTransport, ok := http.DefaultTransport.(*http.Transport); ok {
+			baseTransport = defaultTransport.Clone()
+		}
+	}
+	if transport, ok := baseTransport.(*http.Transport); ok && transport != nil {
+		transport = transport.Clone()
+		transport.DialContext = (&net.Dialer{
+			Timeout: time.Duration(server.ConnectTimeoutMs) * time.Millisecond,
+		}).DialContext
+		cloned.Transport = transport
+	}
+	return &cloned
 }

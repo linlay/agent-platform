@@ -1,0 +1,23 @@
+name: _plan_add_tasks_
+label: 创建计划任务
+description: 创建计划任务（追加模式），支持一次添加多个任务；每个任务必须包含 description（任务描述文本）；成功返回多行文本：taskId | status | description。
+type: function
+clientVisible: true
+inputSchema:
+  type: object
+  properties:
+    tasks:
+      type: array
+      description: 要创建的任务列表，每个元素包含一条任务描述。
+      items:
+        type: object
+        properties:
+          description:
+            type: string
+            description: 任务描述文本，说明该任务需要完成的工作内容。
+        required:
+          - description
+        additionalProperties: false
+  required:
+    - tasks
+  additionalProperties: false

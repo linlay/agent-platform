@@ -1,0 +1,19 @@
+name: _sandbox_bash_
+label: 执行命令
+description: 在沙箱容器中执行命令。
+type: builtin
+inputSchema:
+  type: object
+  properties:
+    command:
+      type: string
+      description: 必填。要在沙箱容器中通过 /bin/sh -lc 执行的命令字符串。
+    cwd:
+      type: string
+      description: 可选。本次执行的工作目录；为空时沿用当前 run 沙箱默认 cwd。
+    timeout_ms:
+      type: integer
+      description: 可选。本次执行超时，单位毫秒。
+  required:
+    - command
+  additionalProperties: false

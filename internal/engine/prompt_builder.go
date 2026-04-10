@@ -412,15 +412,16 @@ func buildToolAppendix(definitions []api.ToolDetailResponse, appendConfig Prompt
 	seenAfterHints := map[string]struct{}{}
 	for _, tool := range sortedDefs {
 		kind, _ := tool.Meta["kind"].(string)
-		if kind != "" && !strings.EqualFold(kind, "backend") {
-			continue
-		}
 		name := normalizePromptToolName(tool)
 		if name == "" {
 			continue
 		}
+		displayName := name
+		if normalizedKind := strings.ToLower(strings.TrimSpace(kind)); normalizedKind != "" && normalizedKind != "backend" {
+			displayName = name + " [" + normalizedKind + "]"
+		}
 		if description := strings.TrimSpace(tool.Description); description != "" {
-			line := "- " + name + ": " + description
+			line := "- " + displayName + ": " + description
 			if _, ok := seenDescriptions[line]; !ok {
 				seenDescriptions[line] = struct{}{}
 				descriptionLines = append(descriptionLines, line)
@@ -428,7 +429,7 @@ func buildToolAppendix(definitions []api.ToolDetailResponse, appendConfig Prompt
 		}
 		if includeAfterCallHints {
 			if hint := strings.TrimSpace(tool.AfterCallHint); hint != "" {
-				line := "- " + name + ": " + hint
+				line := "- " + displayName + ": " + hint
 				if _, ok := seenAfterHints[line]; !ok {
 					seenAfterHints[line] = struct{}{}
 					afterCallLines = append(afterCallLines, line)

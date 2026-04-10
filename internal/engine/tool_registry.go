@@ -41,8 +41,9 @@ func LoadRuntimeToolDefinitions(root string) ([]api.ToolDetailResponse, error) {
 			log.Printf("[tools] skip invalid tool file %s: object root required", path)
 			continue
 		}
-		def, ok := parseRuntimeToolDefinition(path, rootNode)
-		if !ok {
+		def, err := parseToolDefinition(rootNode, toolDefinitionParseOptions{sourceType: "agent-local"})
+		if err != nil {
+			log.Printf("[tools] skip invalid tool file %s: %v", path, err)
 			continue
 		}
 		out = append(out, def)
@@ -92,58 +93,6 @@ func MergeToolDefinitions(base []api.ToolDetailResponse, runtime []api.ToolDetai
 		merged = append(merged, cloneToolDefinition(def))
 	}
 	return merged
-}
-
-func parseRuntimeToolDefinition(source string, root map[string]any) (api.ToolDetailResponse, bool) {
-	name := anyStringNode(root["name"])
-	if name == "" {
-		log.Printf("[tools] skip tool file %s without name", source)
-		return api.ToolDetailResponse{}, false
-	}
-	typeValue := strings.ToLower(anyStringNode(root["type"]))
-	kind := "backend"
-	switch typeValue {
-	case "frontend":
-		kind = "frontend"
-	case "action":
-		kind = "action"
-	case "backend", "builtin", "function", "":
-		kind = "backend"
-	default:
-		kind = "backend"
-	}
-	if anyBoolNode(root["toolAction"]) {
-		kind = "action"
-	}
-	meta := map[string]any{
-		"kind":       kind,
-		"sourceType": "agent-local",
-	}
-	if strict, ok := root["strict"].(bool); ok {
-		meta["strict"] = strict
-	}
-	if toolType := anyStringNode(root["toolType"]); toolType != "" {
-		meta["toolType"] = toolType
-	}
-	if viewportKey := anyStringNode(root["viewportKey"]); viewportKey != "" {
-		meta["viewportKey"] = viewportKey
-	}
-	if sourceKey := anyStringNode(root["sourceKey"]); sourceKey != "" {
-		meta["sourceKey"] = sourceKey
-	}
-	parameters := anyMapNode(root["inputSchema"])
-	if len(parameters) == 0 {
-		parameters = anyMapNode(root["parameters"])
-	}
-	return api.ToolDetailResponse{
-		Key:           anyStringNode(root["key"]),
-		Name:          name,
-		Label:         anyStringNode(root["label"]),
-		Description:   anyStringNode(root["description"]),
-		AfterCallHint: anyStringNode(root["afterCallHint"]),
-		Parameters:    cloneAnyMap(parameters),
-		Meta:          meta,
-	}, true
 }
 
 func normalizeToolName(def api.ToolDetailResponse) string {

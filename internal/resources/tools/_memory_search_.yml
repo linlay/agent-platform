@@ -1,0 +1,20 @@
+name: _memory_search_
+label: 搜索记忆
+description: 搜索 agent 持久化记忆，支持 FTS 与可选向量混合检索
+type: function
+clientVisible: false
+inputSchema:
+  type: object
+  properties:
+    query:
+      type: string
+      description: 搜索查询
+    category:
+      type: string
+      description: 可选分类筛选
+    limit:
+      type: integer
+      description: 可选最大返回条数，默认 10
+  required:
+    - query
+  additionalProperties: false

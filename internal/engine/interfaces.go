@@ -42,7 +42,7 @@ type SandboxClient interface {
 }
 
 type McpClient interface {
-	CallTool(ctx context.Context, serverKey string, toolName string, args map[string]any) (map[string]any, error)
+	CallTool(ctx context.Context, serverKey string, toolName string, args map[string]any, meta map[string]any) (any, error)
 }
 
 type ViewportClient interface {
@@ -237,8 +237,8 @@ type NoopMcpClient struct{}
 
 func NewNoopMcpClient() *NoopMcpClient { return &NoopMcpClient{} }
 
-func (n *NoopMcpClient) CallTool(_ context.Context, serverKey string, toolName string, args map[string]any) (map[string]any, error) {
-	return map[string]any{"serverKey": serverKey, "toolName": toolName, "args": args, "status": "not_implemented"}, nil
+func (n *NoopMcpClient) CallTool(_ context.Context, serverKey string, toolName string, args map[string]any, meta map[string]any) (any, error) {
+	return map[string]any{"serverKey": serverKey, "toolName": toolName, "args": args, "meta": meta, "status": "not_implemented"}, nil
 }
 
 type NoopViewportClient struct{}

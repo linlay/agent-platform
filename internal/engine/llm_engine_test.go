@@ -13,6 +13,7 @@ import (
 
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/config"
+	"agent-platform-runner-go/internal/memory"
 )
 
 func TestLLMAgentEngineStreamsContentDeltas(t *testing.T) {
@@ -353,6 +354,133 @@ func TestLLMAgentEngineLogsRawChunksAndParsedContent(t *testing.T) {
 	}
 }
 
+func TestLLMAgentEngineLogsOutgoingRequestBodyWithToolSchema(t *testing.T) {
+	client := newScriptedHTTPClient(
+		func(*http.Request) scriptedHTTPResponse {
+			return scriptedSSE(`{"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}]}`, `[DONE]`)
+		},
+	)
+	engine := NewLLMAgentEngineWithHTTPClient(
+		config.Config{
+			Logging:  config.LoggingConfig{LLMInteraction: config.LLMInteractionLoggingConfig{Enabled: true}},
+			Defaults: config.DefaultsConfig{React: config.ReactDefaultsConfig{MaxSteps: 4}},
+		},
+		newTestModelRegistry("http://mock.local"),
+		&testToolExecutor{
+			definitions: []api.ToolDetailResponse{
+				{
+					Key:  "mock.tool",
+					Name: "mock.tool",
+					Parameters: map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"value": map[string]any{
+								"type": "number",
+							},
+						},
+					},
+				},
+			},
+		},
+		NewNoopSandboxClient(),
+		client,
+	)
+
+	var stream AgentStream
+	logs := captureLogOutput(t, func() {
+		var err error
+		stream, err = engine.Stream(context.Background(), api.QueryRequest{Message: "hello schema"}, QuerySession{
+			RunID:     "run_request_body",
+			ChatID:    "chat_request_body",
+			ModelKey:  "mock-model",
+			ToolNames: []string{"mock.tool"},
+		})
+		if err != nil {
+			t.Fatalf("stream query: %v", err)
+		}
+		defer stream.Close()
+		drainAgentStream(t, stream)
+	})
+
+	if !strings.Contains(logs, "[llm][run:run_request_body][request_summary]") {
+		t.Fatalf("expected request summary log, got %s", logs)
+	}
+	if !strings.Contains(logs, "toolCount=1") {
+		t.Fatalf("expected request summary to report one tool, got %s", logs)
+	}
+	if !strings.Contains(logs, "[llm][run:run_request_body][request_body]") {
+		t.Fatalf("expected request body log, got %s", logs)
+	}
+	for _, needle := range []string{`"messages":[`, `"tools":[`, `"parameters":{`, `"name":"mock.tool"`, `"value":{"type":"number"}`, `hello schema`} {
+		if !strings.Contains(logs, needle) {
+			t.Fatalf("expected request body log to contain %q, got %s", needle, logs)
+		}
+	}
+}
+
+func TestLLMAgentEngineUsesCanonicalBuiltinMemoryToolNameInRequestBody(t *testing.T) {
+	client := newScriptedHTTPClient(
+		func(*http.Request) scriptedHTTPResponse {
+			return scriptedSSE(`{"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}]}`, `[DONE]`)
+		},
+	)
+	store, err := memory.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	backendTools, err := NewRuntimeToolExecutor(
+		config.Config{
+			Logging: config.LoggingConfig{LLMInteraction: config.LLMInteractionLoggingConfig{Enabled: true}},
+			Memory:  config.MemoryConfig{SearchDefaultLimit: 10},
+			Defaults: config.DefaultsConfig{
+				React: config.ReactDefaultsConfig{MaxSteps: 4},
+			},
+		},
+		NewNoopSandboxClient(),
+		store,
+	)
+	if err != nil {
+		t.Fatalf("new runtime tool executor: %v", err)
+	}
+	engine := NewLLMAgentEngineWithHTTPClient(
+		config.Config{
+			Logging:  config.LoggingConfig{LLMInteraction: config.LLMInteractionLoggingConfig{Enabled: true}},
+			Defaults: config.DefaultsConfig{React: config.ReactDefaultsConfig{MaxSteps: 4}},
+		},
+		newTestModelRegistry("http://mock.local"),
+		backendTools,
+		NewNoopSandboxClient(),
+		client,
+	)
+
+	var stream AgentStream
+	logs := captureLogOutput(t, func() {
+		stream, err = engine.Stream(context.Background(), api.QueryRequest{Message: "inspect canonical memory tool"}, QuerySession{
+			RunID:     "run_memory_builtin_request",
+			ChatID:    "chat_memory_builtin_request",
+			ModelKey:  "mock-model",
+			AgentKey:  "agent-a",
+			ToolNames: []string{"_memory_read_"},
+		})
+		if err != nil {
+			t.Fatalf("stream query: %v", err)
+		}
+		defer stream.Close()
+		drainAgentStream(t, stream)
+	})
+
+	if !strings.Contains(logs, `"name":"_memory_read_"`) {
+		t.Fatalf("expected canonical builtin name in request body log, got %s", logs)
+	}
+	if strings.Contains(logs, `"name":"memory_read"`) {
+		t.Fatalf("did not expect legacy memory_read name in request body log, got %s", logs)
+	}
+	if !strings.Contains(logs, `"sort":{"description":"可选排序，支持 recent 或 importance，默认 recent","type":"string"}`) &&
+		!strings.Contains(logs, `"sort":{"description":"可选排序`) {
+		t.Fatalf("expected Java memory read schema in request body log, got %s", logs)
+	}
+}
+
 func TestLLMAgentEngineMasksLLMInteractionLogsWhenConfigured(t *testing.T) {
 	client := newScriptedHTTPClient(
 		func(*http.Request) scriptedHTTPResponse {
@@ -396,6 +524,9 @@ func TestLLMAgentEngineMasksLLMInteractionLogsWhenConfigured(t *testing.T) {
 	if !strings.Contains(logs, "[llm][run:run_logs_masked][parsed_content] [masked chars=") {
 		t.Fatalf("expected masked parsed content log, got %s", logs)
 	}
+	if !strings.Contains(logs, "[llm][run:run_logs_masked][request_body]") || !strings.Contains(logs, "body=[masked chars=") {
+		t.Fatalf("expected masked request body log, got %s", logs)
+	}
 	if strings.Contains(logs, "secret-text") {
 		t.Fatalf("expected secret text to stay masked, got %s", logs)
 	}
@@ -413,6 +544,16 @@ func TestLLMAgentEngineSanitizesSensitiveLLMInteractionLogs(t *testing.T) {
 	logs := captureLogOutput(t, func() {
 		engine.logRawChunk("run_sanitized", "Bearer sk-secret-value\ntoken=demo-token\napiKey=demo-key\nsecret=demo-secret")
 		engine.logParsedDelta("run_sanitized", "content", "line one\nline two")
+		engine.logOutgoingRequest(
+			"run_sanitized",
+			ProviderDefinition{Key: "mock"},
+			ModelDefinition{ModelID: "mock-model"},
+			"http://mock.local/v1/chat/completions",
+			nil,
+			nil,
+			"auto",
+			[]byte(`{"messages":[{"role":"user","content":"Bearer sk-secret-value token=demo-token apiKey=demo-key secret=demo-secret"}]}`),
+		)
 	})
 
 	if strings.Contains(logs, "sk-secret-value") || strings.Contains(logs, "demo-token") || strings.Contains(logs, "demo-key") || strings.Contains(logs, "demo-secret") {
@@ -423,6 +564,50 @@ func TestLLMAgentEngineSanitizesSensitiveLLMInteractionLogs(t *testing.T) {
 	}
 	if !strings.Contains(logs, "line one\\nline two") {
 		t.Fatalf("expected newline escaping in logs, got %s", logs)
+	}
+}
+
+func TestLLMAgentEngineWarnsWhenRequestedToolsProduceNoToolSpecs(t *testing.T) {
+	client := newScriptedHTTPClient(
+		func(*http.Request) scriptedHTTPResponse {
+			return scriptedSSE(`{"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}]}`, `[DONE]`)
+		},
+	)
+	engine := NewLLMAgentEngineWithHTTPClient(
+		config.Config{
+			Logging:  config.LoggingConfig{LLMInteraction: config.LLMInteractionLoggingConfig{Enabled: true}},
+			Defaults: config.DefaultsConfig{React: config.ReactDefaultsConfig{MaxSteps: 4}},
+		},
+		newTestModelRegistry("http://mock.local"),
+		&testToolExecutor{},
+		NewNoopSandboxClient(),
+		client,
+	)
+
+	var stream AgentStream
+	logs := captureLogOutput(t, func() {
+		var err error
+		stream, err = engine.Stream(context.Background(), api.QueryRequest{Message: "missing tool"}, QuerySession{
+			RunID:     "run_missing_schema",
+			ChatID:    "chat_missing_schema",
+			ModelKey:  "mock-model",
+			ToolNames: []string{"missing.tool"},
+		})
+		if err != nil {
+			t.Fatalf("stream query: %v", err)
+		}
+		defer stream.Close()
+		drainAgentStream(t, stream)
+	})
+
+	if !strings.Contains(logs, "[llm][run:run_missing_schema][warning]") {
+		t.Fatalf("expected missing tool schema warning, got %s", logs)
+	}
+	if !strings.Contains(logs, "missing.tool") {
+		t.Fatalf("expected warning to include requested tool name, got %s", logs)
+	}
+	if strings.Contains(logs, `"tools":[`) {
+		t.Fatalf("expected request body to omit tools when no specs exist, got %s", logs)
 	}
 }
 

@@ -1,0 +1,25 @@
+name: _memory_write_
+label: 写入记忆
+description: 写入 agent 持久化记忆，支持分类、重要度和标签
+type: function
+clientVisible: false
+inputSchema:
+  type: object
+  properties:
+    content:
+      type: string
+      description: 记忆内容
+    category:
+      type: string
+      description: 可选分类，默认 general
+    importance:
+      type: integer
+      description: 可选重要度，范围 1-10，默认 5
+    tags:
+      type: array
+      description: 可选标签列表
+      items:
+        type: string
+  required:
+    - content
+  additionalProperties: false

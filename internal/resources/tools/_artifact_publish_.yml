@@ -1,0 +1,30 @@
+name: _artifact_publish_
+label: 发布产物
+description: 一次发布多个当前运行中生成的产出物，并为每个产出物触发独立 artifact.publish SSE 事件。适用于先生成文件，再显式声明它们是本次运行的产出物。
+type: function
+clientVisible: false
+inputSchema:
+  type: object
+  properties:
+    artifacts:
+      type: array
+      description: 要发布的产出物列表，不能为空。
+      minItems: 1
+      items:
+        type: object
+        properties:
+          path:
+            type: string
+            description: 要发布的文件路径。沙箱内通常使用 /workspace/... 或相对当前 chat 工作目录的路径。
+          name:
+            type: string
+            description: 可选，自定义产出物展示名。默认使用源文件名。
+          description:
+            type: string
+            description: 可选，对这个产出物做一句简短说明。
+        required:
+          - path
+        additionalProperties: false
+  required:
+    - artifacts
+  additionalProperties: false

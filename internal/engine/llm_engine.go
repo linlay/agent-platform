@@ -95,16 +95,17 @@ type openAIStreamFunctionDelta struct {
 }
 
 type llmRunStream struct {
-	engine     *LLMAgentEngine
-	ctx        context.Context
-	req        api.QueryRequest
-	session    QuerySession
-	runControl *RunControl
-	model      ModelDefinition
-	provider   ProviderDefinition
-	toolSpecs  []openAIToolSpec
-	messages   []openAIMessage
-	execCtx    *ExecutionContext
+	engine              *LLMAgentEngine
+	ctx                 context.Context
+	req                 api.QueryRequest
+	session             QuerySession
+	runControl          *RunControl
+	model               ModelDefinition
+	provider            ProviderDefinition
+	toolSpecs           []openAIToolSpec
+	requestedToolNames  []string
+	messages            []openAIMessage
+	execCtx             *ExecutionContext
 	maxSteps            int
 	toolChoice          string
 	maxToolCallsPerTurn int
@@ -165,8 +166,8 @@ type runStreamOptions struct {
 	MaxSteps            int
 	SystemPrompt        string
 	Stage               string
-	ToolChoice          string             // "auto" (default), "required", "none"
-	MaxToolCallsPerTurn int                // 0 = unlimited; 1 = only first tool call per LLM turn (Java behaviour)
+	ToolChoice          string                                                  // "auto" (default), "required", "none"
+	MaxToolCallsPerTurn int                                                     // 0 = unlimited; 1 = only first tool call per LLM turn (Java behaviour)
 	PostToolHook        func(toolName string, toolID string) PostToolHookResult // called after each tool execution
 }
 
@@ -278,16 +279,17 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		toolChoice = "auto"
 	}
 	stream := &llmRunStream{
-		engine:       e,
-		ctx:          ctx,
-		req:          req,
-		session:      session,
-		runControl:   execCtx.RunControl,
-		model:        model,
-		provider:     provider,
-		toolSpecs:    toolSpecs,
-		messages:     append([]openAIMessage(nil), messages...),
-		execCtx:      execCtx,
+		engine:              e,
+		ctx:                 ctx,
+		req:                 req,
+		session:             session,
+		runControl:          execCtx.RunControl,
+		model:               model,
+		provider:            provider,
+		toolSpecs:           toolSpecs,
+		requestedToolNames:  append([]string(nil), allowedTools...),
+		messages:            append([]openAIMessage(nil), messages...),
+		execCtx:             execCtx,
 		maxSteps:            maxSteps,
 		toolChoice:          toolChoice,
 		maxToolCallsPerTurn: options.MaxToolCallsPerTurn,
@@ -430,7 +432,10 @@ func (s *llmRunStream) prepareNextTurn() error {
 		s.runControl.TransitionState(RunLoopStateModelStreaming)
 	}
 	s.execCtx.RunLoopState = RunLoopStateModelStreaming
-	turn, err := s.engine.openProviderStream(s.ctx, s.provider, s.model, s.messages, s.toolSpecs, s.toolChoice)
+	if len(s.requestedToolNames) > 0 && len(s.toolSpecs) == 0 && !s.finalTurnAttempted {
+		s.engine.logMissingToolSpecsWarning(s.session.RunID, s.requestedToolNames)
+	}
+	turn, err := s.engine.openProviderStream(s.ctx, s.session.RunID, s.provider, s.model, s.messages, s.toolSpecs, s.toolChoice)
 	if err != nil {
 		return err
 	}
@@ -847,6 +852,10 @@ func (s *llmRunStream) preToolInvocationDeltas(toolID string, toolName string, p
 		return nil
 	}
 	toolKind, _ := tool.Meta["kind"].(string)
+	sourceType, _ := tool.Meta["sourceType"].(string)
+	if strings.EqualFold(strings.TrimSpace(sourceType), "mcp") {
+		return nil
+	}
 	if !strings.EqualFold(strings.TrimSpace(toolKind), "frontend") {
 		return nil
 	}
@@ -998,7 +1007,7 @@ func (t *providerTurnStream) materializeToolCalls() ([]openAIToolCall, error) {
 	return out, nil
 }
 
-func (e *LLMAgentEngine) openProviderStream(ctx context.Context, provider ProviderDefinition, model ModelDefinition, messages []openAIMessage, toolSpecs []openAIToolSpec, toolChoice string) (*providerTurnStream, error) {
+func (e *LLMAgentEngine) openProviderStream(ctx context.Context, runID string, provider ProviderDefinition, model ModelDefinition, messages []openAIMessage, toolSpecs []openAIToolSpec, toolChoice string) (*providerTurnStream, error) {
 	if provider.BaseURL == "" {
 		return nil, fmt.Errorf("provider %s has empty baseUrl", provider.Key)
 	}
@@ -1031,6 +1040,7 @@ func (e *LLMAgentEngine) openProviderStream(ctx context.Context, provider Provid
 	}
 
 	endpoint := strings.TrimRight(provider.BaseURL, "/") + provider.EndpointPath
+	e.logOutgoingRequest(runID, provider, model, endpoint, messages, toolSpecs, effectiveToolChoice, body)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -1055,6 +1065,44 @@ func (e *LLMAgentEngine) openProviderStream(ctx context.Context, provider Provid
 		body:   resp.Body,
 		reader: bufio.NewReader(resp.Body),
 	}, nil
+}
+
+func (e *LLMAgentEngine) logOutgoingRequest(runID string, provider ProviderDefinition, model ModelDefinition, endpoint string, messages []openAIMessage, toolSpecs []openAIToolSpec, toolChoice string, body []byte) {
+	if !e.cfg.Logging.LLMInteraction.Enabled {
+		return
+	}
+	if strings.TrimSpace(toolChoice) == "" {
+		toolChoice = "none"
+	}
+	log.Printf(
+		"[llm][run:%s][request_summary] provider=%s endpoint=%s model=%s messageCount=%d toolCount=%d toolChoice=%s",
+		runID,
+		e.formatLogText(provider.Key),
+		e.formatLogText(endpoint),
+		e.formatLogText(model.ModelID),
+		len(messages),
+		len(toolSpecs),
+		e.formatLogText(toolChoice),
+	)
+	log.Printf(
+		"[llm][run:%s][request_body] provider=%s endpoint=%s model=%s body=%s",
+		runID,
+		e.formatLogText(provider.Key),
+		e.formatLogText(endpoint),
+		e.formatLogText(model.ModelID),
+		e.formatLogText(string(body)),
+	)
+}
+
+func (e *LLMAgentEngine) logMissingToolSpecsWarning(runID string, requestedToolNames []string) {
+	if !e.cfg.Logging.LLMInteraction.Enabled {
+		return
+	}
+	log.Printf(
+		"[llm][run:%s][warning] requestedTools=%s no tool schema included in provider request",
+		runID,
+		e.formatLogText(strings.Join(requestedToolNames, ",")),
+	)
 }
 
 func (e *LLMAgentEngine) logRawChunk(runID string, chunk string) {

@@ -12,13 +12,31 @@ type fakeMCPClient struct {
 	payload map[string]any
 }
 
-func (f fakeMCPClient) CallTool(_ context.Context, serverKey string, toolName string, args map[string]any) (map[string]any, error) {
+func (f fakeMCPClient) CallTool(_ context.Context, serverKey string, toolName string, args map[string]any, meta map[string]any) (any, error) {
 	return map[string]any{
 		"serverKey": serverKey,
 		"toolName":  toolName,
 		"args":      args,
+		"meta":      meta,
 		"payload":   f.payload,
 	}, nil
+}
+
+type fakeToolCatalog struct {
+	defs []api.ToolDetailResponse
+}
+
+func (f fakeToolCatalog) Definitions() []api.ToolDetailResponse {
+	return append([]api.ToolDetailResponse(nil), f.defs...)
+}
+
+func (f fakeToolCatalog) Tool(name string) (api.ToolDetailResponse, bool) {
+	for _, def := range f.defs {
+		if def.Name == name || def.Key == name {
+			return def, true
+		}
+	}
+	return api.ToolDetailResponse{}, false
 }
 
 type fakeActionInvoker struct {
@@ -36,14 +54,16 @@ func TestToolRouterRoutesMCPAndActionKinds(t *testing.T) {
 	router := NewToolRouter(
 		&testToolExecutor{},
 		fakeMCPClient{payload: map[string]any{"status": "ok"}},
+		fakeToolCatalog{defs: []api.ToolDetailResponse{
+			{
+				Key:         "mcp_tool",
+				Name:        "mcp_tool",
+				Description: "mcp",
+				Meta:        map[string]any{"kind": "backend", "sourceType": "mcp", "serverKey": "server_a", "sourceKey": "server_a"},
+			},
+		}},
 		NewFrontendSubmitCoordinator(),
 		fakeActionInvoker{},
-		api.ToolDetailResponse{
-			Key:         "mcp_tool",
-			Name:        "mcp_tool",
-			Description: "mcp",
-			Meta:        map[string]any{"kind": "mcp", "serverKey": "server_a"},
-		},
 		api.ToolDetailResponse{
 			Key:         "action_tool",
 			Name:        "action_tool",
@@ -70,7 +90,19 @@ func TestToolRouterRoutesMCPAndActionKinds(t *testing.T) {
 }
 
 func TestToolRouterFrontendSubmitWaitsForMatchingTool(t *testing.T) {
-	router := NewToolRouter(&testToolExecutor{}, fakeMCPClient{}, NewFrontendSubmitCoordinator(), fakeActionInvoker{})
+	router := NewToolRouter(
+		&testToolExecutor{},
+		fakeMCPClient{},
+		nil,
+		NewFrontendSubmitCoordinator(),
+		fakeActionInvoker{},
+		api.ToolDetailResponse{
+			Key:         "confirm_dialog",
+			Name:        "confirm_dialog",
+			Description: "confirm",
+			Meta:        map[string]any{"kind": "frontend", "toolType": "html", "viewportKey": "confirm_dialog", "sourceType": "local"},
+		},
+	)
 	control := NewRunControl(context.Background(), "run_frontend")
 	execCtx := &ExecutionContext{
 		RunControl:    control,

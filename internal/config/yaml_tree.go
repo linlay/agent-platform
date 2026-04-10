@@ -2,7 +2,9 @@ package config
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -23,8 +25,20 @@ func LoadYAMLTree(path string) (any, error) {
 	}
 	defer file.Close()
 
+	return LoadYAMLTreeReader(file)
+}
+
+func LoadYAMLTreeBytes(data []byte) (any, error) {
+	return LoadYAMLTreeReader(bytes.NewReader(data))
+}
+
+func LoadYAMLTreeReader(reader io.Reader) (any, error) {
+	if reader == nil {
+		return map[string]any{}, nil
+	}
+
 	lines := make([]yamlLine, 0, 64)
-	scanner := bufio.NewScanner(file)
+	scanner := bufio.NewScanner(reader)
 	for scanner.Scan() {
 		raw := strings.TrimRight(scanner.Text(), "\r\n")
 		if strings.TrimSpace(raw) == "" {

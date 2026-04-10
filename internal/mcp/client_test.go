@@ -39,8 +39,8 @@ func TestToolSyncLoadsStaticAndDiscoveredTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load tools: %v", err)
 	}
-	if len(tools) != 1 || tools[0].Name != "static_tool" {
-		t.Fatalf("expected static mcp tool, got %#v", tools)
+	if len(tools) != 1 || tools[0].Name != "remote_tool" {
+		t.Fatalf("expected discovered mcp tool, got %#v", tools)
 	}
 
 	// Remove static tools and verify discovery path.
@@ -57,7 +57,7 @@ func TestToolSyncLoadsStaticAndDiscoveredTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load discovered tools: %v", err)
 	}
-	if len(tools) != 1 || tools[0].Name != "remote_tool" || tools[0].Meta["kind"] != "mcp" {
+	if len(tools) != 1 || tools[0].Name != "remote_tool" || tools[0].Meta["sourceType"] != "mcp" {
 		t.Fatalf("expected discovered mcp tool, got %#v", tools)
 	}
 }
@@ -81,11 +81,12 @@ func TestClientCallToolUsesJSONRPC(t *testing.T) {
 		t.Fatalf("new registry: %v", err)
 	}
 	client := NewClient(registry, server.Client())
-	result, err := client.CallTool(context.Background(), "demo", "tool_a", map[string]any{"value": 1})
+	result, err := client.CallTool(context.Background(), "demo", "tool_a", map[string]any{"value": 1}, map[string]any{"toolName": "tool_a"})
 	if err != nil {
 		t.Fatalf("call tool: %v", err)
 	}
-	if result["status"] != "ok" {
+	resultMap, _ := result.(map[string]any)
+	if resultMap["status"] != "ok" {
 		t.Fatalf("expected ok result, got %#v", result)
 	}
 }

@@ -25,27 +25,24 @@ type RuntimeToolExecutor struct {
 	defs    []api.ToolDetailResponse
 }
 
-func NewRuntimeToolExecutor(cfg config.Config, sandbox SandboxClient, memoryStore memory.Store) *RuntimeToolExecutor {
-	defs := []api.ToolDetailResponse{
-		bashToolDefinition(),
-		dateTimeToolDefinition(),
-		artifactPublishToolDefinition(),
-		planAddTasksToolDefinition(),
-		planGetTasksToolDefinition(),
-		planUpdateTaskToolDefinition(),
-		memorySearchToolDefinition(),
-		memoryReadToolDefinition(),
-		memoryWriteToolDefinition(),
+func NewRuntimeToolExecutor(cfg config.Config, sandbox SandboxClient, memoryStore memory.Store) (*RuntimeToolExecutor, error) {
+	defs, err := LoadEmbeddedToolDefinitions()
+	if err != nil {
+		return nil, err
 	}
-	if cfg.ContainerHub.Enabled {
-		defs = append(defs, sandboxBashToolDefinition())
+	filtered := make([]api.ToolDetailResponse, 0, len(defs))
+	for _, def := range defs {
+		if !cfg.ContainerHub.Enabled && strings.EqualFold(strings.TrimSpace(def.Name), "_sandbox_bash_") {
+			continue
+		}
+		filtered = append(filtered, def)
 	}
 	return &RuntimeToolExecutor{
 		cfg:     cfg,
 		sandbox: sandbox,
 		memory:  memoryStore,
-		defs:    defs,
-	}
+		defs:    filtered,
+	}, nil
 }
 
 func (t *RuntimeToolExecutor) Definitions() []api.ToolDetailResponse {
@@ -55,7 +52,7 @@ func (t *RuntimeToolExecutor) Definitions() []api.ToolDetailResponse {
 func (t *RuntimeToolExecutor) Invoke(ctx context.Context, toolName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	switch strings.TrimSpace(toolName) {
 	case "_datetime_":
-		return t.invokeDateTime(), nil
+		return t.invokeDateTime(args), nil
 	case "_artifact_publish_":
 		return t.invokeArtifactPublish(args, execCtx)
 	case "_plan_add_tasks_":
@@ -68,12 +65,12 @@ func (t *RuntimeToolExecutor) Invoke(ctx context.Context, toolName string, args 
 		return t.invokeHostBash(ctx, args)
 	case "_sandbox_bash_":
 		return t.invokeSandboxBash(ctx, args, execCtx)
-	case "memory_search":
-		return t.invokeMemorySearch(args)
-	case "memory_read":
-		return t.invokeMemoryRead(args)
-	case "memory_write":
-		return t.invokeMemoryWrite(args)
+	case "_memory_search_", "memory_search":
+		return t.invokeMemorySearch(toolName, args, execCtx)
+	case "_memory_read_", "memory_read":
+		return t.invokeMemoryRead(toolName, args, execCtx)
+	case "_memory_write_", "memory_write":
+		return t.invokeMemoryWrite(toolName, args, execCtx)
 	default:
 		return ToolExecutionResult{
 			Output:   "tool not registered: " + toolName,
@@ -83,69 +80,109 @@ func (t *RuntimeToolExecutor) Invoke(ctx context.Context, toolName string, args 
 	}
 }
 
-func (t *RuntimeToolExecutor) invokeMemorySearch(args map[string]any) (ToolExecutionResult, error) {
+func (t *RuntimeToolExecutor) invokeMemorySearch(toolName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	if t.memory == nil {
 		return ToolExecutionResult{Output: "memory store not configured", Error: "memory_not_configured", ExitCode: -1}, nil
 	}
-	items, err := t.memory.Search(stringArg(args, "query"), int(int64Arg(args, "limit")))
+	agentKey, _, _, contextErr := requireMemoryToolContext(execCtx, toolName)
+	if contextErr != nil {
+		return *contextErr, nil
+	}
+	query := strings.TrimSpace(stringArg(args, "query"))
+	if query == "" {
+		return ToolExecutionResult{Output: "query must not be blank", Error: "missing_query", ExitCode: -1}, nil
+	}
+	items, err := t.memory.SearchDetailed(agentKey, query, stringArg(args, "category"), memoryToolLimit(int(int64Arg(args, "limit")), t.cfg.Memory.SearchDefaultLimit))
 	if err != nil {
 		return ToolExecutionResult{}, err
 	}
-	payload := map[string]any{"items": items, "count": len(items)}
+	results := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		results = append(results, map[string]any{
+			"memory":    memoryToolRecordValue(item.Memory),
+			"score":     item.Score,
+			"matchType": item.MatchType,
+		})
+	}
+	payload := map[string]any{"results": results, "count": len(results)}
 	return structuredResult(payload), nil
 }
 
-func (t *RuntimeToolExecutor) invokeMemoryRead(args map[string]any) (ToolExecutionResult, error) {
+func (t *RuntimeToolExecutor) invokeMemoryRead(toolName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	if t.memory == nil {
 		return ToolExecutionResult{Output: "memory store not configured", Error: "memory_not_configured", ExitCode: -1}, nil
 	}
-	id := stringArg(args, "id")
-	if id == "" {
-		return ToolExecutionResult{Output: "Missing argument: id", Error: "missing_id", ExitCode: -1}, nil
+	agentKey, _, _, contextErr := requireMemoryToolContext(execCtx, toolName)
+	if contextErr != nil {
+		return *contextErr, nil
 	}
-	item, err := t.memory.Read(id)
+	id := stringArg(args, "id")
+	if id != "" {
+		item, err := t.memory.ReadDetail(agentKey, id)
+		if err != nil {
+			return ToolExecutionResult{}, err
+		}
+		if item == nil {
+			return structuredResult(map[string]any{"found": false}), nil
+		}
+		return structuredResult(map[string]any{"found": true, "memory": memoryToolRecordValue(*item)}), nil
+	}
+	items, err := t.memory.List(agentKey, stringArg(args, "category"), memoryToolLimit(int(int64Arg(args, "limit")), t.cfg.Memory.SearchDefaultLimit), stringArg(args, "sort"))
 	if err != nil {
 		return ToolExecutionResult{}, err
 	}
-	if item == nil {
-		return ToolExecutionResult{Output: "memory item not found", Error: "memory_not_found", ExitCode: -1}, nil
+	results := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		results = append(results, memoryToolRecordValue(item))
 	}
-	return structuredResult(map[string]any{"item": item}), nil
+	return structuredResult(map[string]any{"count": len(results), "results": results}), nil
 }
 
-func (t *RuntimeToolExecutor) invokeMemoryWrite(args map[string]any) (ToolExecutionResult, error) {
+func (t *RuntimeToolExecutor) invokeMemoryWrite(toolName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	if t.memory == nil {
 		return ToolExecutionResult{Output: "memory store not configured", Error: "memory_not_configured", ExitCode: -1}, nil
 	}
+	agentKey, requestID, chatID, contextErr := requireMemoryToolContext(execCtx, toolName)
+	if contextErr != nil {
+		return *contextErr, nil
+	}
+	content := strings.TrimSpace(stringArg(args, "content"))
+	if content == "" {
+		return ToolExecutionResult{Output: "content must not be blank", Error: "missing_content", ExitCode: -1}, nil
+	}
+	now := time.Now().UnixMilli()
 	item := api.StoredMemoryResponse{
-		ID:         stringArg(args, "id"),
-		ChatID:     stringArg(args, "chatId"),
-		SubjectKey: stringArg(args, "subjectKey"),
-		Summary:    stringArg(args, "summary"),
-		SourceType: defaultStringArg(args, "sourceType", "tool"),
-		Category:   defaultStringArg(args, "category", "tool"),
-		Importance: int(int64Arg(args, "importance")),
-		CreatedAt:  time.Now().UnixMilli(),
-		UpdatedAt:  time.Now().UnixMilli(),
-	}
-	if item.ID == "" {
-		item.ID = fmt.Sprintf("mem_%d", time.Now().UnixNano())
-	}
-	if item.ChatID == "" || strings.TrimSpace(item.Summary) == "" {
-		return ToolExecutionResult{Output: "Missing required memory fields", Error: "missing_memory_fields", ExitCode: -1}, nil
+		ID:         fmt.Sprintf("mem_%d", time.Now().UnixNano()),
+		RequestID:  requestID,
+		ChatID:     chatID,
+		AgentKey:   agentKey,
+		SubjectKey: normalizeMemorySubjectKey("", chatID, agentKey),
+		Summary:    content,
+		SourceType: normalizeMemorySourceType("tool-write"),
+		Category:   normalizeMemoryCategory(stringArg(args, "category")),
+		Importance: normalizeMemoryImportance(int(int64Arg(args, "importance"))),
+		Tags:       normalizeMemoryTags(stringListArg(args, "tags")),
+		CreatedAt:  now,
+		UpdatedAt:  now,
 	}
 	if err := t.memory.Write(item); err != nil {
 		return ToolExecutionResult{}, err
 	}
-	return structuredResult(map[string]any{"item": item, "status": "stored"}), nil
+	return structuredResult(map[string]any{
+		"id":           item.ID,
+		"status":       "stored",
+		"subjectKey":   item.SubjectKey,
+		"sourceType":   item.SourceType,
+		"category":     item.Category,
+		"importance":   item.Importance,
+		"hasEmbedding": false,
+	}), nil
 }
 
-func (t *RuntimeToolExecutor) invokeDateTime() ToolExecutionResult {
-	now := time.Now()
-	payload := map[string]any{
-		"iso8601": now.Format(time.RFC3339),
-		"unixMs":  now.UnixMilli(),
-		"zone":    now.Location().String(),
+func (t *RuntimeToolExecutor) invokeDateTime(args map[string]any) ToolExecutionResult {
+	payload, err := buildDateTimePayload(args, time.Now())
+	if err != nil {
+		return ToolExecutionResult{Output: err.Error(), Error: "invalid_datetime_arguments", ExitCode: -1}
 	}
 	return structuredResult(payload)
 }
@@ -755,183 +792,5 @@ func normalizePlanTaskStatus(raw string) string {
 		return "canceled"
 	default:
 		return ""
-	}
-}
-
-func dateTimeToolDefinition() api.ToolDetailResponse {
-	return api.ToolDetailResponse{
-		Key:         "_datetime_",
-		Name:        "_datetime_",
-		Label:       "日期时间",
-		Description: "获取当前或偏移后的日期时间",
-		Parameters: map[string]any{
-			"type":       "object",
-			"properties": map[string]any{},
-		},
-		Meta: map[string]any{"kind": "backend", "strict": true, "sourceType": "local", "sourceKey": "_datetime_"},
-	}
-}
-
-func artifactPublishToolDefinition() api.ToolDetailResponse {
-	return api.ToolDetailResponse{
-		Key:         "_artifact_publish_",
-		Name:        "_artifact_publish_",
-		Label:       "发布产物",
-		Description: "发布当前运行中生成的产物",
-		Parameters: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"artifacts": map[string]any{"type": "array"},
-			},
-			"required": []string{"artifacts"},
-		},
-		Meta: map[string]any{"kind": "backend", "strict": true, "sourceType": "local", "sourceKey": "_artifact_publish_"},
-	}
-}
-
-func planAddTasksToolDefinition() api.ToolDetailResponse {
-	return api.ToolDetailResponse{
-		Key:         "_plan_add_tasks_",
-		Name:        "_plan_add_tasks_",
-		Label:       "创建计划任务",
-		Description: "创建计划任务（追加模式），支持一次添加多个任务。",
-		Parameters: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"description": map[string]any{"type": "string"},
-				"status":      map[string]any{"type": "string"},
-				"tasks": map[string]any{
-					"type": "array",
-				},
-			},
-		},
-		Meta: map[string]any{"kind": "backend", "strict": true, "sourceType": "local", "sourceKey": "_plan_add_tasks_", "clientVisible": false},
-	}
-}
-
-func planGetTasksToolDefinition() api.ToolDetailResponse {
-	return api.ToolDetailResponse{
-		Key:         "_plan_get_tasks_",
-		Name:        "_plan_get_tasks_",
-		Label:       "读取计划任务",
-		Description: "读取当前计划任务快照。",
-		Parameters: map[string]any{
-			"type":       "object",
-			"properties": map[string]any{},
-		},
-		Meta: map[string]any{"kind": "backend", "strict": true, "sourceType": "local", "sourceKey": "_plan_get_tasks_", "clientVisible": false},
-	}
-}
-
-func planUpdateTaskToolDefinition() api.ToolDetailResponse {
-	return api.ToolDetailResponse{
-		Key:         "_plan_update_task_",
-		Name:        "_plan_update_task_",
-		Label:       "更新计划任务",
-		Description: "更新计划中的任务状态。",
-		Parameters: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"taskId": map[string]any{"type": "string"},
-				"status": map[string]any{"type": "string"},
-			},
-			"required": []string{"taskId", "status"},
-		},
-		Meta: map[string]any{"kind": "backend", "strict": true, "sourceType": "local", "sourceKey": "_plan_update_task_", "clientVisible": false},
-	}
-}
-
-func bashToolDefinition() api.ToolDetailResponse {
-	return api.ToolDetailResponse{
-		Key:         "_bash_",
-		Name:        "_bash_",
-		Label:       "执行命令（宿主机）",
-		Description: "运行白名单 bash 命令（默认严格模式；可配置启用高级 shell 语法，如管道、重定向与 here-doc）",
-		Parameters: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"command": map[string]any{"type": "string"},
-			},
-			"required":             []string{"command"},
-			"additionalProperties": false,
-		},
-		Meta: map[string]any{"kind": "backend", "strict": true, "sourceType": "local", "sourceKey": "_bash_"},
-	}
-}
-
-func sandboxBashToolDefinition() api.ToolDetailResponse {
-	return api.ToolDetailResponse{
-		Key:         "_sandbox_bash_",
-		Name:        "_sandbox_bash_",
-		Label:       "执行命令",
-		Description: "在沙箱容器中执行命令。",
-		Parameters: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"command":    map[string]any{"type": "string"},
-				"cwd":        map[string]any{"type": "string"},
-				"timeout_ms": map[string]any{"type": "integer"},
-			},
-			"required":             []string{"command"},
-			"additionalProperties": false,
-		},
-		Meta: map[string]any{"kind": "backend", "strict": true, "sourceType": "local", "sourceKey": "_sandbox_bash_"},
-	}
-}
-
-func memorySearchToolDefinition() api.ToolDetailResponse {
-	return api.ToolDetailResponse{
-		Key:         "memory_search",
-		Name:        "memory_search",
-		Label:       "搜索记忆",
-		Description: "搜索已存储的记忆摘要",
-		Parameters: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"query": map[string]any{"type": "string"},
-				"limit": map[string]any{"type": "integer"},
-			},
-		},
-		Meta: map[string]any{"kind": "backend", "strict": true, "sourceType": "local", "sourceKey": "memory_search"},
-	}
-}
-
-func memoryReadToolDefinition() api.ToolDetailResponse {
-	return api.ToolDetailResponse{
-		Key:         "memory_read",
-		Name:        "memory_read",
-		Label:       "读取记忆",
-		Description: "按 ID 读取单条记忆",
-		Parameters: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"id": map[string]any{"type": "string"},
-			},
-			"required": []string{"id"},
-		},
-		Meta: map[string]any{"kind": "backend", "strict": true, "sourceType": "local", "sourceKey": "memory_read"},
-	}
-}
-
-func memoryWriteToolDefinition() api.ToolDetailResponse {
-	return api.ToolDetailResponse{
-		Key:         "memory_write",
-		Name:        "memory_write",
-		Label:       "写入记忆",
-		Description: "写入一条记忆记录",
-		Parameters: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"id":         map[string]any{"type": "string"},
-				"chatId":     map[string]any{"type": "string"},
-				"subjectKey": map[string]any{"type": "string"},
-				"summary":    map[string]any{"type": "string"},
-				"sourceType": map[string]any{"type": "string"},
-				"category":   map[string]any{"type": "string"},
-				"importance": map[string]any{"type": "integer"},
-			},
-			"required": []string{"chatId", "summary"},
-		},
-		Meta: map[string]any{"kind": "backend", "strict": true, "sourceType": "local", "sourceKey": "memory_write"},
 	}
 }

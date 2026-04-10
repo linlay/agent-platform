@@ -1,0 +1,23 @@
+name: _plan_update_task_
+label: 更新计划任务
+description: "更新计划中的任务状态。status 仅支持 init/completed/failed/canceled；成功返回 OK，失败返回 失败: 原因。"
+type: function
+clientVisible: true
+inputSchema:
+  type: object
+  properties:
+    taskId:
+      type: string
+    status:
+      type: string
+      enum:
+        - init
+        - completed
+        - failed
+        - canceled
+    description:
+      type: string
+  required:
+    - taskId
+    - status
+  additionalProperties: false

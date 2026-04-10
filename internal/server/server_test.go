@@ -502,6 +502,37 @@ func TestAgentEndpointRequiresAgentKey(t *testing.T) {
 	}
 }
 
+func TestToolEndpointReturnsCanonicalJavaBuiltinSchemas(t *testing.T) {
+	fixture := newTestFixture(t)
+
+	for _, tc := range []struct {
+		toolName         string
+		requiredProperty string
+	}{
+		{toolName: "_memory_read_", requiredProperty: "sort"},
+		{toolName: "_datetime_", requiredProperty: "timezone"},
+	} {
+		rec := httptest.NewRecorder()
+		fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/tool?toolName="+tc.toolName, nil))
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("expected 200 for %s, got %d: %s", tc.toolName, rec.Code, rec.Body.String())
+		}
+
+		var response api.ApiResponse[api.ToolDetailResponse]
+		if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+			t.Fatalf("decode tool response for %s: %v", tc.toolName, err)
+		}
+		if response.Data.Name != tc.toolName {
+			t.Fatalf("expected tool %s, got %#v", tc.toolName, response.Data)
+		}
+		properties, _ := response.Data.Parameters["properties"].(map[string]any)
+		if _, ok := properties[tc.requiredProperty]; !ok {
+			t.Fatalf("expected property %s in %s schema, got %#v", tc.requiredProperty, tc.toolName, response.Data.Parameters)
+		}
+	}
+}
+
 func TestAgentEndpointRejectsBlankAgentKey(t *testing.T) {
 	fixture := newTestFixture(t)
 	rec := httptest.NewRecorder()
@@ -1394,9 +1425,12 @@ func newTestFixtureWithModelHandler(t *testing.T, modelHandler http.HandlerFunc)
 	if err != nil {
 		t.Fatalf("load model registry: %v", err)
 	}
-	backendTools := engine.NewRuntimeToolExecutor(cfg, engine.NewNoopSandboxClient(), memories)
+	backendTools, err := engine.NewRuntimeToolExecutor(cfg, engine.NewNoopSandboxClient(), memories)
+	if err != nil {
+		t.Fatalf("new runtime tool executor: %v", err)
+	}
 	mcp := engine.NewNoopMcpClient()
-	toolExecutor := engine.NewToolRouter(backendTools, mcp, engine.NewFrontendSubmitCoordinator(), engine.NewNoopActionInvoker())
+	toolExecutor := engine.NewToolRouter(backendTools, mcp, nil, engine.NewFrontendSubmitCoordinator(), engine.NewNoopActionInvoker())
 	registry, err := catalog.NewFileRegistry(cfg, toolExecutor.Definitions())
 	if err != nil {
 		t.Fatalf("new file registry: %v", err)

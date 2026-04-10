@@ -257,7 +257,7 @@ func (s *Server) handleSkills(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTools(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, api.Success(s.deps.Registry.Tools(r.URL.Query().Get("kind"), r.URL.Query().Get("tag"))))
+	writeJSON(w, http.StatusOK, api.Success(s.listTools(r.URL.Query().Get("kind"), r.URL.Query().Get("tag"))))
 }
 
 func (s *Server) handleTool(w http.ResponseWriter, r *http.Request) {
@@ -266,7 +266,7 @@ func (s *Server) handleTool(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "toolName is required"))
 		return
 	}
-	tool, ok := s.deps.Registry.Tool(toolName)
+	tool, ok := s.lookupTool(toolName)
 	if !ok {
 		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "tool not found"))
 		return
@@ -363,9 +363,61 @@ func (s *Server) enrichToolMetadata(events []stream.EventData) {
 
 func (s *Server) toolLookup() engine.ToolDefinitionLookup {
 	if tl, ok := s.deps.Tools.(engine.ToolDefinitionLookup); ok {
-		return engine.NewCompositeToolLookup(s.deps.Registry, tl)
+		return engine.NewCompositeToolLookup(tl, s.deps.Registry)
 	}
 	return s.deps.Registry
+}
+
+func (s *Server) listTools(kind string, tag string) []api.ToolSummary {
+	needleKind := strings.ToLower(strings.TrimSpace(kind))
+	needleTag := strings.ToLower(strings.TrimSpace(tag))
+	defs := s.deps.Tools.Definitions()
+	items := make([]api.ToolSummary, 0, len(defs))
+	for _, tool := range defs {
+		metaKind, _ := tool.Meta["kind"].(string)
+		if needleKind != "" && strings.ToLower(strings.TrimSpace(metaKind)) != needleKind {
+			continue
+		}
+		if needleTag != "" && !matchesToolTag(tool, needleTag) {
+			continue
+		}
+		items = append(items, api.ToolSummary{
+			Key:         tool.Key,
+			Name:        tool.Name,
+			Label:       tool.Label,
+			Description: tool.Description,
+			Meta:        cloneMap(tool.Meta),
+		})
+	}
+	return items
+}
+
+func (s *Server) lookupTool(toolName string) (api.ToolDetailResponse, bool) {
+	if tl, ok := s.deps.Tools.(engine.ToolDefinitionLookup); ok {
+		if tool, exists := tl.Tool(toolName); exists {
+			return tool, true
+		}
+	}
+	return s.deps.Registry.Tool(toolName)
+}
+
+func matchesToolTag(tool api.ToolDetailResponse, needle string) bool {
+	fields := []string{
+		tool.Key,
+		tool.Name,
+		tool.Label,
+		tool.Description,
+		tool.AfterCallHint,
+		anyStringValue(tool.Meta["kind"]),
+		anyStringValue(tool.Meta["toolType"]),
+		anyStringValue(tool.Meta["viewportKey"]),
+	}
+	for _, field := range fields {
+		if strings.Contains(strings.ToLower(field), needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) handleRead(w http.ResponseWriter, r *http.Request) {
@@ -1057,6 +1109,15 @@ func sandboxExtraMounts(value any) []engine.SandboxExtraMount {
 func stringValue(value any) string {
 	text, _ := value.(string)
 	return strings.TrimSpace(text)
+}
+
+func anyStringValue(value any) string {
+	switch v := value.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	default:
+		return ""
+	}
 }
 
 func nullableStringValue(value any) any {

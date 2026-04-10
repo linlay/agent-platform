@@ -151,7 +151,10 @@ func TestPlanExecuteModeRunsPlanTaskAndSummaryStages(t *testing.T) {
 		}
 	})
 
-	tools := NewRuntimeToolExecutor(config.Config{}, NewNoopSandboxClient(), nil)
+	tools, err := NewRuntimeToolExecutor(config.Config{}, NewNoopSandboxClient(), nil)
+	if err != nil {
+		t.Fatalf("new runtime tool executor: %v", err)
+	}
 	engine := NewLLMAgentEngineWithHTTPClient(
 		config.Config{Defaults: config.DefaultsConfig{Plan: config.PlanExecuteDefaultsConfig{MaxSteps: 4, MaxWorkRoundsPerTask: 2}}},
 		newTestModelRegistry("http://mock.local"),

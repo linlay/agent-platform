@@ -9,46 +9,54 @@ import (
 	"agent-platform-runner-go/internal/observability"
 )
 
+type toolCatalog interface {
+	Definitions() []api.ToolDetailResponse
+	Tool(name string) (api.ToolDetailResponse, bool)
+}
+
 type ToolRouter struct {
 	backend   ToolExecutor
 	mcp       McpClient
+	mcpTools  toolCatalog
 	frontend  *FrontendSubmitCoordinator
 	action    ActionInvoker
-	defs      []api.ToolDetailResponse
-	defByName map[string]api.ToolDetailResponse
+	localDefs []api.ToolDetailResponse
+	localByName map[string]api.ToolDetailResponse
 }
 
-func NewToolRouter(backend ToolExecutor, mcp McpClient, frontend *FrontendSubmitCoordinator, action ActionInvoker, extraDefs ...api.ToolDetailResponse) *ToolRouter {
+func NewToolRouter(backend ToolExecutor, mcp McpClient, mcpTools toolCatalog, frontend *FrontendSubmitCoordinator, action ActionInvoker, extraDefs ...api.ToolDetailResponse) *ToolRouter {
 	baseDefs := append([]api.ToolDetailResponse(nil), backend.Definitions()...)
-	baseDefs = append(baseDefs, frontendToolDefinitions()...)
 	var runtimeDefs []api.ToolDetailResponse
-	var mcpDefs []api.ToolDetailResponse
 	for _, def := range extraDefs {
 		kind, _ := def.Meta["kind"].(string)
 		if strings.EqualFold(kind, "mcp") {
-			mcpDefs = append(mcpDefs, def)
 			continue
 		}
 		runtimeDefs = append(runtimeDefs, def)
 	}
-	defs := MergeToolDefinitions(baseDefs, runtimeDefs, mcpDefs)
-	defByName := make(map[string]api.ToolDetailResponse, len(defs)*2)
-	for _, def := range defs {
-		defByName[strings.ToLower(strings.TrimSpace(def.Name))] = def
-		defByName[strings.ToLower(strings.TrimSpace(def.Key))] = def
+	localDefs := MergeToolDefinitions(baseDefs, runtimeDefs, nil)
+	localByName := make(map[string]api.ToolDetailResponse, len(localDefs)*2)
+	for _, def := range localDefs {
+		localByName[strings.ToLower(strings.TrimSpace(def.Name))] = def
+		localByName[strings.ToLower(strings.TrimSpace(def.Key))] = def
 	}
 	return &ToolRouter{
-		backend:   backend,
-		mcp:       mcp,
-		frontend:  frontend,
-		action:    action,
-		defs:      defs,
-		defByName: defByName,
+		backend:    backend,
+		mcp:        mcp,
+		mcpTools:   mcpTools,
+		frontend:   frontend,
+		action:     action,
+		localDefs:  localDefs,
+		localByName: localByName,
 	}
 }
 
 func (r *ToolRouter) Definitions() []api.ToolDetailResponse {
-	return append([]api.ToolDetailResponse(nil), r.defs...)
+	mcpDefs := []api.ToolDetailResponse(nil)
+	if r.mcpTools != nil {
+		mcpDefs = r.mcpTools.Definitions()
+	}
+	return MergeToolDefinitions(r.localDefs, nil, mcpDefs)
 }
 
 func (r *ToolRouter) Invoke(ctx context.Context, toolName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
@@ -59,21 +67,15 @@ func (r *ToolRouter) Invoke(ctx context.Context, toolName string, args map[strin
 		})
 	}
 
+	sourceType, _ := def.Meta["sourceType"].(string)
 	kind, _ := def.Meta["kind"].(string)
 	return r.invokeWithPolicy(ctx, def.Name, execCtx, func(callCtx context.Context) (ToolExecutionResult, error) {
+		if strings.EqualFold(strings.TrimSpace(sourceType), "mcp") {
+			return r.invokeMCPTool(callCtx, def, args, execCtx), nil
+		}
 		switch strings.ToLower(strings.TrimSpace(kind)) {
 		case "frontend":
 			return r.frontend.Await(callCtx, execCtx)
-		case "mcp":
-			serverKey, _ := def.Meta["serverKey"].(string)
-			if strings.TrimSpace(serverKey) == "" {
-				serverKey, _ = def.Meta["sourceKey"].(string)
-			}
-			payload, err := r.mcp.CallTool(callCtx, serverKey, def.Name, args)
-			if err != nil {
-				return ToolExecutionResult{}, err
-			}
-			return structuredResult(payload), nil
 		case "action":
 			if r.action == nil {
 				return ToolExecutionResult{Output: "action invoker not configured", Error: "action_not_configured", ExitCode: -1}, nil
@@ -87,8 +89,6 @@ func (r *ToolRouter) Invoke(ctx context.Context, toolName string, args map[strin
 	})
 }
 
-// Tool implements ToolDefinitionLookup so ToolRouter can be used in DeltaMapper
-// to resolve toolLabel/toolType for MCP tools.
 func (r *ToolRouter) Tool(toolName string) (api.ToolDetailResponse, bool) {
 	return r.lookup(toolName)
 }
@@ -97,33 +97,120 @@ func (r *ToolRouter) lookup(toolName string) (api.ToolDetailResponse, bool) {
 	if r == nil {
 		return api.ToolDetailResponse{}, false
 	}
-	def, ok := r.defByName[strings.ToLower(strings.TrimSpace(toolName))]
-	return def, ok
+	normalized := strings.ToLower(strings.TrimSpace(toolName))
+	if def, ok := r.localByName[normalized]; ok {
+		return def, true
+	}
+	if r.mcpTools != nil {
+		return r.mcpTools.Tool(toolName)
+	}
+	return api.ToolDetailResponse{}, false
 }
 
-func frontendToolDefinitions() []api.ToolDetailResponse {
-	return []api.ToolDetailResponse{
-		{
-			Key:         "confirm_dialog",
-			Name:        "confirm_dialog",
-			Label:       "确认对话框",
-			Description: "展示确认对话框并等待用户提交",
-			Parameters: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"question": map[string]any{"type": "string"},
-				},
-				"required": []string{"question"},
-			},
-			Meta: map[string]any{
-				"kind":        "frontend",
-				"toolType":    "html",
-				"viewportKey": "confirm_dialog",
-				"strict":      true,
-				"sourceType":  "local",
-				"sourceKey":   "confirm_dialog",
-			},
-		},
+func (r *ToolRouter) invokeMCPTool(ctx context.Context, def api.ToolDetailResponse, args map[string]any, execCtx *ExecutionContext) ToolExecutionResult {
+	if r.mcp == nil {
+		return mcpErrorResult(def.Name, "mcp_disabled", "MCP is disabled")
+	}
+	serverKey, _ := def.Meta["serverKey"].(string)
+	if strings.TrimSpace(serverKey) == "" {
+		serverKey, _ = def.Meta["sourceKey"].(string)
+	}
+	if strings.TrimSpace(serverKey) == "" {
+		return mcpErrorResult(def.Name, "mcp_source_key_missing", "MCP server key is missing")
+	}
+	payload, err := r.mcp.CallTool(ctx, serverKey, def.Name, args, buildMCPMeta(def.Name, execCtx))
+	if err != nil {
+		return mcpErrorResult(def.Name, "mcp_server_unavailable", err.Error())
+	}
+	return normalizeMCPResult(def.Name, payload)
+}
+
+func buildMCPMeta(toolName string, execCtx *ExecutionContext) map[string]any {
+	if execCtx == nil {
+		return nil
+	}
+	meta := map[string]any{}
+	if value := strings.TrimSpace(execCtx.Request.ChatID); value != "" {
+		meta["chatId"] = value
+	}
+	if value := strings.TrimSpace(execCtx.Request.RequestID); value != "" {
+		meta["requestId"] = value
+	}
+	if value := strings.TrimSpace(execCtx.Request.RunID); value != "" {
+		meta["runId"] = value
+	}
+	if value := strings.TrimSpace(toolName); value != "" {
+		meta["toolName"] = value
+	}
+	if len(meta) == 0 {
+		return nil
+	}
+	return meta
+}
+
+func normalizeMCPResult(toolName string, payload any) ToolExecutionResult {
+	if payload == nil {
+		return mcpErrorResult(toolName, "mcp_empty_result", "MCP result is empty")
+	}
+	if mapped, ok := payload.(map[string]any); ok {
+		if isError, _ := mapped["isError"].(bool); isError {
+			return mcpErrorResult(toolName, "mcp_tool_error", extractMCPErrorMessage(mapped))
+		}
+		if structured, ok := mapped["structuredContent"]; ok && structured != nil {
+			return payloadToToolResult(structured)
+		}
+		if items, ok := mapped["content"].([]any); ok && len(items) > 0 {
+			first := items[0]
+			if contentMap, ok := first.(map[string]any); ok {
+				if strings.EqualFold(strings.TrimSpace(anyStringNode(contentMap["type"])), "text") {
+					return ToolExecutionResult{Output: anyStringNode(contentMap["text"]), ExitCode: 0}
+				}
+				return payloadToToolResult(contentMap)
+			}
+			return payloadToToolResult(first)
+		}
+		return payloadToToolResult(mapped)
+	}
+	return payloadToToolResult(payload)
+}
+
+func payloadToToolResult(payload any) ToolExecutionResult {
+	switch value := payload.(type) {
+	case map[string]any:
+		return structuredResult(value)
+	case string:
+		return ToolExecutionResult{Output: value, ExitCode: 0}
+	default:
+		return ToolExecutionResult{Output: marshalJSON(payload), ExitCode: 0}
+	}
+}
+
+func extractMCPErrorMessage(payload map[string]any) string {
+	if message := anyStringNode(payload["error"]); strings.TrimSpace(message) != "" {
+		return message
+	}
+	if items, ok := payload["content"].([]any); ok && len(items) > 0 {
+		if contentMap, ok := items[0].(map[string]any); ok {
+			if text := anyStringNode(contentMap["text"]); strings.TrimSpace(text) != "" {
+				return text
+			}
+		}
+	}
+	return "MCP tool call failed"
+}
+
+func mcpErrorResult(toolName string, code string, message string) ToolExecutionResult {
+	payload := map[string]any{
+		"tool":  toolName,
+		"ok":    false,
+		"code":  code,
+		"error": message,
+	}
+	return ToolExecutionResult{
+		Output:     marshalJSON(payload),
+		Structured: payload,
+		Error:      code,
+		ExitCode:   -1,
 	}
 }
 

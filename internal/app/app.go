@@ -75,23 +75,25 @@ func New() (*App, error) {
 
 	runManager := engine.NewInMemoryRunManager()
 	sandbox := engine.NewContainerHubSandboxService(cfg.ContainerHub, cfg.Paths)
-	backendTools := engine.NewRuntimeToolExecutor(cfg, sandbox, memoryStore)
+	backendTools, err := engine.NewRuntimeToolExecutor(cfg, sandbox, memoryStore)
+	if err != nil {
+		return nil, fmt.Errorf("init runtime tools: %w", err)
+	}
 	mcpRegistry, err := mcp.NewRegistry(filepath.Join(cfg.Paths.RegistriesDir, "mcp-servers"))
 	if err != nil {
 		return nil, fmt.Errorf("load mcp registry: %w", err)
 	}
 	mcpGate := mcp.NewAvailabilityGate()
 	mcpClient := mcp.NewClientWithGate(mcpRegistry, nil, mcpGate)
-	mcpTools, err := mcp.NewToolSync(mcpRegistry, mcpClient).Load(context.Background())
-	if err != nil {
+	mcpToolSync := mcp.NewToolSync(mcpRegistry, mcpClient)
+	if _, err := mcpToolSync.Load(context.Background()); err != nil {
 		return nil, fmt.Errorf("load mcp tools: %w", err)
 	}
 	runtimeTools, err := engine.LoadRuntimeToolDefinitions(cfg.Paths.ToolsDir)
 	if err != nil {
 		return nil, fmt.Errorf("load runtime tools: %w", err)
 	}
-	extraDefs := append(append([]api.ToolDetailResponse(nil), runtimeTools...), mcpTools...)
-	toolExecutor := engine.NewToolRouter(backendTools, mcpClient, engine.NewFrontendSubmitCoordinator(), engine.NewNoopActionInvoker(), extraDefs...)
+	toolExecutor := engine.NewToolRouter(backendTools, mcpClient, mcpToolSync, engine.NewFrontendSubmitCoordinator(), engine.NewNoopActionInvoker(), append([]api.ToolDetailResponse(nil), runtimeTools...)...)
 
 	registryStartedAt := time.Now()
 	registry, err := catalog.NewFileRegistry(cfg, toolExecutor.Definitions())
@@ -114,10 +116,10 @@ func New() (*App, error) {
 	)
 
 	agentEngine := engine.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, sandbox)
-	reloader := engine.NewRuntimeCatalogReloader(registry, modelRegistry, mcpRegistry)
+	reloader := engine.NewRuntimeCatalogReloader(registry, modelRegistry, mcp.NewRegistryReloader(mcpRegistry, mcpToolSync))
 	backgroundCtx, backgroundCancel := context.WithCancel(context.Background())
 	engine.StartBackgroundReloaders(backgroundCtx, cfg, reloader)
-	mcp.NewReconnectLoop(mcpRegistry, mcpClient, mcpGate, 10*time.Second).Start(backgroundCtx)
+	mcp.NewReconnectLoop(mcpRegistry, mcpToolSync, mcpGate, 10*time.Second).Start(backgroundCtx)
 	log.Printf("background file watchers started (agents=%s teams=%s skills=%s)",
 		cfg.Paths.AgentsDir,
 		cfg.Paths.TeamsDir,

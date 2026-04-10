@@ -20,7 +20,7 @@ const reloadDebounce = 500 * time.Millisecond
 // McpRegistryReloader is the minimal interface RuntimeCatalogReloader needs
 // from the mcp package. Defined here to avoid an import cycle.
 type McpRegistryReloader interface {
-	Reload() error
+	Reload(ctx context.Context) error
 }
 
 type RuntimeCatalogReloader struct {
@@ -85,7 +85,7 @@ func (r *RuntimeCatalogReloader) Reload(ctx context.Context, reason string) erro
 		}
 	case "mcp-servers":
 		if r.mcp != nil {
-			if err := r.mcp.Reload(); err != nil {
+			if err := r.mcp.Reload(ctx); err != nil {
 				log.Printf("[reload] mcp registry reload failed: %v", err)
 				return err
 			}

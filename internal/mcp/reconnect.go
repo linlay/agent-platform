@@ -7,20 +7,20 @@ import (
 
 type ReconnectLoop struct {
 	registry *Registry
-	client   *Client
+	sync     *ToolSync
 	gate     *AvailabilityGate
 	interval time.Duration
 }
 
-func NewReconnectLoop(registry *Registry, client *Client, gate *AvailabilityGate, interval time.Duration) *ReconnectLoop {
+func NewReconnectLoop(registry *Registry, sync *ToolSync, gate *AvailabilityGate, interval time.Duration) *ReconnectLoop {
 	if interval <= 0 {
 		interval = 10 * time.Second
 	}
-	return &ReconnectLoop{registry: registry, client: client, gate: gate, interval: interval}
+	return &ReconnectLoop{registry: registry, sync: sync, gate: gate, interval: interval}
 }
 
 func (r *ReconnectLoop) Start(ctx context.Context) {
-	if r == nil || r.registry == nil || r.client == nil || r.gate == nil {
+	if r == nil || r.registry == nil || r.sync == nil || r.gate == nil {
 		return
 	}
 	ticker := time.NewTicker(r.interval)
@@ -31,13 +31,16 @@ func (r *ReconnectLoop) Start(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				for _, server := range r.registry.Servers() {
-					if !r.gate.IsUnavailable(server.Key) {
-						continue
-					}
-					_ = r.client.Initialize(ctx, server.Key)
-				_, _ = r.client.ListTools(ctx, server.Key)
+				servers := r.registry.Servers()
+				keys := make([]string, 0, len(servers))
+				for _, server := range servers {
+					keys = append(keys, server.Key)
 				}
+				due := r.gate.ReadyToRetry(keys)
+				if len(due) == 0 {
+					continue
+				}
+				_, _ = r.sync.RefreshServers(ctx, due)
 			}
 		}
 	}()

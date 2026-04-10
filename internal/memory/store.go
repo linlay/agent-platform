@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -15,7 +16,10 @@ import (
 type Store interface {
 	Remember(chatDetail chat.Detail, request api.RememberRequest, agentKey string) (api.RememberResponse, error)
 	Search(query string, limit int) ([]api.StoredMemoryResponse, error)
+	SearchDetailed(agentKey string, query string, category string, limit int) ([]ScoredRecord, error)
 	Read(id string) (*api.StoredMemoryResponse, error)
+	ReadDetail(agentKey string, id string) (*ToolRecord, error)
+	List(agentKey string, category string, limit int, sort string) ([]ToolRecord, error)
 	Write(item api.StoredMemoryResponse) error
 }
 
@@ -189,6 +193,78 @@ func (s *FileStore) Read(id string) (*api.StoredMemoryResponse, error) {
 	return nil, nil
 }
 
+func (s *FileStore) ReadDetail(agentKey string, id string) (*ToolRecord, error) {
+	item, err := s.Read(id)
+	if err != nil || item == nil {
+		return nil, err
+	}
+	if strings.TrimSpace(agentKey) != "" && strings.TrimSpace(item.AgentKey) != strings.TrimSpace(agentKey) {
+		return nil, nil
+	}
+	record := toolRecordFromStored(*item)
+	return &record, nil
+}
+
+func (s *FileStore) List(agentKey string, category string, limit int, sortBy string) ([]ToolRecord, error) {
+	items, err := s.readAllStored()
+	if err != nil {
+		return nil, err
+	}
+	filtered := make([]ToolRecord, 0, len(items))
+	normalizedCategory := normalizeOptionalCategory(category)
+	for _, item := range items {
+		if strings.TrimSpace(agentKey) != "" && strings.TrimSpace(item.AgentKey) != strings.TrimSpace(agentKey) {
+			continue
+		}
+		if normalizedCategory != "" && normalizeOptionalCategory(item.Category) != normalizedCategory {
+			continue
+		}
+		filtered = append(filtered, toolRecordFromStored(item))
+	}
+
+	sortToolRecords(filtered, normalizeSort(sortBy))
+	limit = normalizeLimit(limit, 10)
+	if len(filtered) > limit {
+		filtered = filtered[:limit]
+	}
+	return filtered, nil
+}
+
+func (s *FileStore) SearchDetailed(agentKey string, query string, category string, limit int) ([]ScoredRecord, error) {
+	items, err := s.readAllStored()
+	if err != nil {
+		return nil, err
+	}
+	needle := strings.ToLower(strings.TrimSpace(query))
+	if needle == "" {
+		return []ScoredRecord{}, nil
+	}
+	normalizedCategory := normalizeOptionalCategory(category)
+	results := make([]ScoredRecord, 0)
+	for _, item := range items {
+		if strings.TrimSpace(agentKey) != "" && strings.TrimSpace(item.AgentKey) != strings.TrimSpace(agentKey) {
+			continue
+		}
+		if normalizedCategory != "" && normalizeOptionalCategory(item.Category) != normalizedCategory {
+			continue
+		}
+		if !matchesMemoryNeedle(item, needle) {
+			continue
+		}
+		results = append(results, ScoredRecord{
+			Memory:    toolRecordFromStored(item),
+			Score:     1,
+			MatchType: "like",
+		})
+	}
+	sortScoredRecords(results)
+	limit = normalizeLimit(limit, 10)
+	if len(results) > limit {
+		results = results[:limit]
+	}
+	return results, nil
+}
+
 func (s *FileStore) Write(item api.StoredMemoryResponse) error {
 	if err := os.MkdirAll(s.root, 0o755); err != nil {
 		return err
@@ -221,4 +297,48 @@ func (s *FileStore) readAllStored() ([]api.StoredMemoryResponse, error) {
 		items = append(items, item)
 	}
 	return items, nil
+}
+
+func matchesMemoryNeedle(item api.StoredMemoryResponse, needle string) bool {
+	if needle == "" {
+		return true
+	}
+	if strings.Contains(strings.ToLower(item.Summary), needle) ||
+		strings.Contains(strings.ToLower(item.SubjectKey), needle) ||
+		strings.Contains(strings.ToLower(item.Category), needle) {
+		return true
+	}
+	for _, tag := range item.Tags {
+		if strings.Contains(strings.ToLower(tag), needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func sortToolRecords(items []ToolRecord, sortBy string) {
+	sort.SliceStable(items, func(i, j int) bool {
+		if sortBy == "importance" {
+			if items[i].Importance != items[j].Importance {
+				return items[i].Importance > items[j].Importance
+			}
+			return items[i].UpdatedAt > items[j].UpdatedAt
+		}
+		if items[i].UpdatedAt != items[j].UpdatedAt {
+			return items[i].UpdatedAt > items[j].UpdatedAt
+		}
+		return items[i].Importance > items[j].Importance
+	})
+}
+
+func sortScoredRecords(items []ScoredRecord) {
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].Score != items[j].Score {
+			return items[i].Score > items[j].Score
+		}
+		if items[i].Memory.Importance != items[j].Memory.Importance {
+			return items[i].Memory.Importance > items[j].Memory.Importance
+		}
+		return items[i].Memory.UpdatedAt > items[j].Memory.UpdatedAt
+	})
 }

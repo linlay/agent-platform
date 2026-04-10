@@ -109,7 +109,7 @@ type FileRegistry struct {
 func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*FileRegistry, error) {
 	registry := &FileRegistry{
 		cfg:    cfg,
-		tools:  dedupeToolDefinitions(append(append([]api.ToolDetailResponse(nil), toolDefs...), confirmDialogTool())),
+		tools:  dedupeToolDefinitions(append([]api.ToolDetailResponse(nil), toolDefs...)),
 		agents: map[string]AgentDefinition{},
 		teams:  map[string]TeamDefinition{},
 		skills: map[string]SkillDefinition{},
@@ -884,30 +884,6 @@ func matchesToolTag(tool api.ToolDetailResponse, needle string) bool {
 		}
 	}
 	return false
-}
-
-func confirmDialogTool() api.ToolDetailResponse {
-	return api.ToolDetailResponse{
-		Key:         "confirm_dialog",
-		Name:        "confirm_dialog",
-		Label:       "确认对话框",
-		Description: "展示确认对话框并等待用户提交",
-		Parameters: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"question": map[string]any{"type": "string"},
-			},
-			"required": []string{"question"},
-		},
-		Meta: map[string]any{
-			"kind":        "frontend",
-			"toolType":    "html",
-			"viewportKey": "confirm_dialog",
-			"strict":      true,
-			"sourceType":  "local",
-			"sourceKey":   "confirm_dialog",
-		},
-	}
 }
 
 func stringNode(value any) string {
