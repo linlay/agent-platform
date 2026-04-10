@@ -14,7 +14,7 @@ func TestDispatcherBuildsStructuredQueryRequest(t *testing.T) {
 		Name:        "Daily Summary",
 		Description: "Summarize the day",
 		Enabled:     true,
-		Cron:        "0 0 9 * * *",
+		Cron:        "0 9 * * *",
 		AgentKey:    "demo-agent",
 		TeamID:      "team-a",
 		SourceFile:  "/tmp/daily.yml",

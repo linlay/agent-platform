@@ -2,6 +2,7 @@ package schedule
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,13 +22,31 @@ func (f fakeTeamLookup) TeamDefinition(teamID string) (catalog.TeamDefinition, b
 	return def, ok
 }
 
+func TestParseCronScheduleAcceptsTraditionalFiveField(t *testing.T) {
+	valid := []string{"0 9 * * *", "17 9 * * *", "*/5 * * * *"}
+	for _, spec := range valid {
+		if _, err := parseCronSchedule(spec); err != nil {
+			t.Fatalf("expected %q to be valid: %v", spec, err)
+		}
+	}
+}
+
+func TestParseCronScheduleRejectsSixField(t *testing.T) {
+	invalid := []string{"0 0 9 * * *", "*/1 * * * * *"}
+	for _, spec := range invalid {
+		if _, err := parseCronSchedule(spec); err == nil {
+			t.Fatalf("expected %q to be rejected", spec)
+		}
+	}
+}
+
 func TestRegistryLoadsStructuredScheduleDefinition(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "daily.demo.yml"), []byte(
 		"name: Daily Demo\n"+
 			"description: Demo schedule\n"+
 			"enabled: true\n"+
-			"cron: \"*/1 * * * * *\"\n"+
+			"cron: \"*/5 * * * *\"\n"+
 			"remainingRuns: 3\n"+
 			"agentKey: demo-agent\n"+
 			"environment:\n"+
@@ -63,7 +82,7 @@ func TestRegistryLoadsStructuredScheduleDefinition(t *testing.T) {
 	if def.ID != "daily" || def.Name != "Daily Demo" || def.Description != "Demo schedule" {
 		t.Fatalf("unexpected definition header %#v", def)
 	}
-	if !def.Enabled || def.Cron != "*/1 * * * * *" || def.AgentKey != "demo-agent" {
+	if !def.Enabled || def.Cron != "*/5 * * * *" || def.AgentKey != "demo-agent" {
 		t.Fatalf("unexpected definition fields %#v", def)
 	}
 	if def.RemainingRuns == nil || *def.RemainingRuns != 3 {
@@ -97,7 +116,7 @@ func TestRegistrySkipsExampleScheduleDefinition(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "demo.yml"), []byte(
 		"name: Demo\n"+
 			"description: valid\n"+
-			"cron: \"*/1 * * * * *\"\n"+
+			"cron: \"17 9 * * *\"\n"+
 			"agentKey: demo-agent\n"+
 			"query:\n"+
 			"  message: hello\n",
@@ -107,7 +126,7 @@ func TestRegistrySkipsExampleScheduleDefinition(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "ignored.example.yml"), []byte(
 		"name: Ignored\n"+
 			"description: ignored\n"+
-			"cron: \"*/1 * * * * *\"\n"+
+			"cron: \"17 9 * * *\"\n"+
 			"agentKey: ignored-agent\n"+
 			"query:\n"+
 			"  message: ignored\n",
@@ -127,14 +146,15 @@ func TestRegistrySkipsExampleScheduleDefinition(t *testing.T) {
 func TestRegistrySkipsInvalidSchedules(t *testing.T) {
 	root := t.TempDir()
 	files := map[string]string{
-		"missing-message.yml":       "name: Missing Message\ndescription: bad\ncron: \"*/1 * * * * *\"\nagentKey: demo-agent\nquery:\n  hidden: true\n",
-		"invalid-chat.yml":          "name: Invalid Chat\ndescription: bad\ncron: \"*/1 * * * * *\"\nagentKey: demo-agent\nquery:\n  message: hi\n  chatId: not-a-uuid\n",
-		"invalid-zone.yml":          "name: Invalid Zone\ndescription: bad\ncron: \"*/1 * * * * *\"\nagentKey: demo-agent\nenvironment:\n  zoneId: Mars/Base\nquery:\n  message: hi\n",
-		"invalid-cron.yml":          "name: Invalid Cron\ndescription: bad\ncron: \"nope\"\nagentKey: demo-agent\nquery:\n  message: hi\n",
-		"invalid-zero-runs.yml":     "name: Invalid Runs Zero\ndescription: bad\ncron: \"*/1 * * * * *\"\nremainingRuns: 0\nagentKey: demo-agent\nquery:\n  message: hi\n",
-		"invalid-negative-runs.yml": "name: Invalid Runs Negative\ndescription: bad\ncron: \"*/1 * * * * *\"\nremainingRuns: -1\nagentKey: demo-agent\nquery:\n  message: hi\n",
-		"invalid-text-runs.yml":     "name: Invalid Runs Text\ndescription: bad\ncron: \"*/1 * * * * *\"\nremainingRuns: nope\nagentKey: demo-agent\nquery:\n  message: hi\n",
-		"valid.yml":                 "name: Valid\ndescription: ok\ncron: \"*/1 * * * * *\"\nremainingRuns: 2\nagentKey: demo-agent\nquery:\n  message: hi\n",
+		"missing-message.yml":       "name: Missing Message\ndescription: bad\ncron: \"17 9 * * *\"\nagentKey: demo-agent\nquery:\n  hidden: true\n",
+		"invalid-chat.yml":          "name: Invalid Chat\ndescription: bad\ncron: \"17 9 * * *\"\nagentKey: demo-agent\nquery:\n  message: hi\n  chatId: not-a-uuid\n",
+		"invalid-zone.yml":          "name: Invalid Zone\ndescription: bad\ncron: \"17 9 * * *\"\nagentKey: demo-agent\nenvironment:\n  zoneId: Mars/Base\nquery:\n  message: hi\n",
+		"invalid-cron.yml":          "name: Invalid Cron\ndescription: bad\ncron: \"0 0 9 * * *\"\nagentKey: demo-agent\nquery:\n  message: hi\n",
+		"invalid-text-cron.yml":     "name: Invalid Text Cron\ndescription: bad\ncron: \"nope\"\nagentKey: demo-agent\nquery:\n  message: hi\n",
+		"invalid-zero-runs.yml":     "name: Invalid Runs Zero\ndescription: bad\ncron: \"17 9 * * *\"\nremainingRuns: 0\nagentKey: demo-agent\nquery:\n  message: hi\n",
+		"invalid-negative-runs.yml": "name: Invalid Runs Negative\ndescription: bad\ncron: \"17 9 * * *\"\nremainingRuns: -1\nagentKey: demo-agent\nquery:\n  message: hi\n",
+		"invalid-text-runs.yml":     "name: Invalid Runs Text\ndescription: bad\ncron: \"17 9 * * *\"\nremainingRuns: nope\nagentKey: demo-agent\nquery:\n  message: hi\n",
+		"valid.yml":                 "name: Valid\ndescription: ok\ncron: \"17 9 * * *\"\nremainingRuns: 2\nagentKey: demo-agent\nquery:\n  message: hi\n",
 	}
 	for name, body := range files {
 		if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0o644); err != nil {
@@ -154,12 +174,26 @@ func TestRegistrySkipsInvalidSchedules(t *testing.T) {
 	}
 }
 
+func TestRegistryRejectsSixFieldCronWithHelpfulError(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "invalid.yml")
+	writeSchedule(t, path, scheduleBody("hello", "0 0 9 * * *", ""))
+
+	_, err := NewRegistry(root, nil).parseDefinition(path)
+	if err == nil {
+		t.Fatal("expected six-field cron to fail")
+	}
+	if !strings.Contains(err.Error(), "only traditional 5-field cron") {
+		t.Fatalf("expected helpful error, got %v", err)
+	}
+}
+
 func TestRegistryValidatesTeamScopedSchedule(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "valid.yml"), []byte(
 		"name: Team Valid\n"+
 			"description: ok\n"+
-			"cron: \"*/1 * * * * *\"\n"+
+			"cron: \"17 9 * * *\"\n"+
 			"agentKey: demo-agent\n"+
 			"teamId: team-a\n"+
 			"query:\n"+
@@ -170,7 +204,7 @@ func TestRegistryValidatesTeamScopedSchedule(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "invalid.yml"), []byte(
 		"name: Team Invalid\n"+
 			"description: bad\n"+
-			"cron: \"*/1 * * * * *\"\n"+
+			"cron: \"17 9 * * *\"\n"+
 			"agentKey: other-agent\n"+
 			"teamId: team-a\n"+
 			"query:\n"+
@@ -191,13 +225,13 @@ func TestRegistryValidatesTeamScopedSchedule(t *testing.T) {
 	}
 }
 
-func TestOrchestratorDispatchesEnabledCronSchedule(t *testing.T) {
+func TestOrchestratorRegistersEnabledCronSchedule(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "demo.yml"), []byte(
 		"name: Demo\n"+
 			"description: valid\n"+
 			"enabled: true\n"+
-			"cron: \"*/1 * * * * *\"\n"+
+			"cron: \"17 9 * * *\"\n"+
 			"agentKey: demo-agent\n"+
 			"query:\n"+
 			"  message: hello\n",
@@ -208,7 +242,7 @@ func TestOrchestratorDispatchesEnabledCronSchedule(t *testing.T) {
 		"name: Disabled\n"+
 			"description: disabled\n"+
 			"enabled: false\n"+
-			"cron: \"*/1 * * * * *\"\n"+
+			"cron: \"17 9 * * *\"\n"+
 			"agentKey: demo-agent\n"+
 			"query:\n"+
 			"  message: skipped\n",
@@ -216,9 +250,7 @@ func TestOrchestratorDispatchesEnabledCronSchedule(t *testing.T) {
 		t.Fatalf("write disabled schedule file: %v", err)
 	}
 
-	dispatched := make(chan api.QueryRequest, 2)
-	orchestrator := NewOrchestrator(NewRegistry(root, nil), NewDispatcher(func(_ context.Context, req api.QueryRequest) error {
-		dispatched <- req
+	orchestrator := NewOrchestrator(NewRegistry(root, nil), NewDispatcher(func(_ context.Context, _ api.QueryRequest) error {
 		return nil
 	}))
 	if err := orchestrator.Start(context.Background()); err != nil {
@@ -226,18 +258,17 @@ func TestOrchestratorDispatchesEnabledCronSchedule(t *testing.T) {
 	}
 	defer waitForStop(t, orchestrator)
 
-	req := waitForRequest(t, dispatched, 2500*time.Millisecond, func(req api.QueryRequest) bool {
-		return req.Message == "hello"
-	})
-	if req.Message != "hello" {
-		t.Fatalf("unexpected dispatched request %#v", req)
+	reg := waitForRegistration(t, orchestrator, "demo", 2*time.Second)
+	if reg.Definition.Query.Message != "hello" {
+		t.Fatalf("unexpected registration %#v", reg.Definition)
 	}
+	waitForNoRegistration(t, orchestrator, "disabled", 500*time.Millisecond)
 }
 
 func TestOrchestratorConsumesRemainingRunsAndDeletesFile(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "limited.yml")
-	writeSchedule(t, path, scheduleBody("hello", "*/1 * * * * *", "remainingRuns: 2\n"))
+	writeSchedule(t, path, scheduleBody("hello", "17 9 * * *", "remainingRuns: 2\n"))
 
 	dispatched := make(chan api.QueryRequest, 4)
 	orchestrator := NewOrchestrator(NewRegistry(root, nil), NewDispatcher(func(_ context.Context, req api.QueryRequest) error {
@@ -249,9 +280,18 @@ func TestOrchestratorConsumesRemainingRunsAndDeletesFile(t *testing.T) {
 	}
 	defer waitForStop(t, orchestrator)
 
-	waitForRequest(t, dispatched, 2500*time.Millisecond, func(req api.QueryRequest) bool {
-		return req.Message == "hello"
-	})
+	reg := waitForRegistration(t, orchestrator, "limited", 2*time.Second)
+	stop, err := orchestrator.fire(reg)
+	if err != nil {
+		t.Fatalf("first fire: %v", err)
+	}
+	if stop {
+		t.Fatal("expected schedule to remain after first fire")
+	}
+	req := waitForRequest(t, dispatched, time.Second)
+	if req.Message != "hello" {
+		t.Fatalf("unexpected request %#v", req)
+	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -261,45 +301,56 @@ func TestOrchestratorConsumesRemainingRunsAndDeletesFile(t *testing.T) {
 		t.Fatalf("expected remainingRuns to be decremented, got:\n%s", string(data))
 	}
 
-	waitForRequest(t, dispatched, 2500*time.Millisecond, func(req api.QueryRequest) bool {
-		return req.Message == "hello"
-	})
+	reg = waitForRegistration(t, orchestrator, "limited", 2*time.Second)
+	stop, err = orchestrator.fire(reg)
+	if err != nil {
+		t.Fatalf("second fire: %v", err)
+	}
+	if !stop {
+		t.Fatal("expected schedule to stop after second fire")
+	}
+	waitForRequest(t, dispatched, time.Second)
 
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("expected schedule file deleted, got err=%v", err)
 	}
-	assertNoRequest(t, dispatched, 1500*time.Millisecond)
+	waitForNoRegistration(t, orchestrator, "limited", 2*time.Second)
 }
 
 func TestOrchestratorConsumesRunOnDispatchFailure(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "failing.yml")
-	writeSchedule(t, path, scheduleBody("boom", "*/1 * * * * *", "remainingRuns: 1\n"))
+	writeSchedule(t, path, scheduleBody("boom", "17 9 * * *", "remainingRuns: 1\n"))
 
+	expectedErr := errors.New("dispatch failed")
 	attempts := make(chan api.QueryRequest, 2)
 	orchestrator := NewOrchestrator(NewRegistry(root, nil), NewDispatcher(func(_ context.Context, req api.QueryRequest) error {
 		attempts <- req
-		return context.DeadlineExceeded
+		return expectedErr
 	}))
 	if err := orchestrator.Start(context.Background()); err != nil {
 		t.Fatalf("start orchestrator: %v", err)
 	}
 	defer waitForStop(t, orchestrator)
 
-	waitForRequest(t, attempts, 2500*time.Millisecond, func(req api.QueryRequest) bool {
-		return req.Message == "boom"
-	})
+	reg := waitForRegistration(t, orchestrator, "failing", 2*time.Second)
+	stop, err := orchestrator.fire(reg)
+	if !errors.Is(err, expectedErr) {
+		t.Fatalf("expected dispatch error, got %v", err)
+	}
+	if !stop {
+		t.Fatal("expected last run to stop schedule")
+	}
+	waitForRequest(t, attempts, time.Second)
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("expected schedule file deleted after failed dispatch, got err=%v", err)
 	}
-	assertNoRequest(t, attempts, 1500*time.Millisecond)
+	waitForNoRegistration(t, orchestrator, "failing", 2*time.Second)
 }
 
 func TestOrchestratorWatchesScheduleDirectory(t *testing.T) {
 	root := t.TempDir()
-	dispatched := make(chan api.QueryRequest, 8)
-	orchestrator := NewOrchestrator(NewRegistry(root, nil), NewDispatcher(func(_ context.Context, req api.QueryRequest) error {
-		dispatched <- req
+	orchestrator := NewOrchestrator(NewRegistry(root, nil), NewDispatcher(func(_ context.Context, _ api.QueryRequest) error {
 		return nil
 	}))
 	if err := orchestrator.Start(context.Background()); err != nil {
@@ -308,32 +359,39 @@ func TestOrchestratorWatchesScheduleDirectory(t *testing.T) {
 	defer waitForStop(t, orchestrator)
 
 	original := filepath.Join(root, "demo.yml")
-	writeSchedule(t, original, scheduleBody("first", "*/2 * * * * *", ""))
+	writeSchedule(t, original, scheduleBody("first", "17 9 * * *", ""))
 
-	waitForRequest(t, dispatched, 5*time.Second, func(req api.QueryRequest) bool {
-		return req.Message == "first"
+	reg := waitForRegistrationMatch(t, orchestrator, "demo", 2*time.Second, func(reg *Registration) bool {
+		return reg.Definition.Query.Message == "first"
 	})
+	if reg.Definition.Query.Message != "first" {
+		t.Fatalf("unexpected registration %#v", reg.Definition)
+	}
 
-	writeSchedule(t, original, scheduleBody("second", "*/2 * * * * *", ""))
-	waitForRequest(t, dispatched, 5*time.Second, func(req api.QueryRequest) bool {
-		return req.Message == "second"
+	writeSchedule(t, original, scheduleBody("second", "23 10 * * *", ""))
+	reg = waitForRegistrationMatch(t, orchestrator, "demo", 2*time.Second, func(reg *Registration) bool {
+		return reg.Definition.Query.Message == "second" && reg.Definition.Cron == "23 10 * * *"
 	})
+	if reg.Definition.Query.Message != "second" || reg.Definition.Cron != "23 10 * * *" {
+		t.Fatalf("expected updated registration, got %#v", reg.Definition)
+	}
 
 	renamed := filepath.Join(root, "renamed.yml")
 	if err := os.Rename(original, renamed); err != nil {
 		t.Fatalf("rename schedule: %v", err)
 	}
-	req := waitForRequest(t, dispatched, 5*time.Second, func(req api.QueryRequest) bool {
-		return req.Message == "second" && scheduleID(req) == "renamed"
+	waitForNoRegistration(t, orchestrator, "demo", 2*time.Second)
+	reg = waitForRegistrationMatch(t, orchestrator, "renamed", 2*time.Second, func(reg *Registration) bool {
+		return reg.Definition.Query.Message == "second"
 	})
-	if scheduleID(req) != "renamed" {
-		t.Fatalf("expected renamed schedule id, got %#v", req.Params["__schedule"])
+	if reg.Definition.Query.Message != "second" {
+		t.Fatalf("unexpected renamed registration %#v", reg.Definition)
 	}
 
 	if err := os.Remove(renamed); err != nil {
 		t.Fatalf("remove schedule: %v", err)
 	}
-	assertNoRequest(t, dispatched, 2500*time.Millisecond)
+	waitForNoRegistration(t, orchestrator, "renamed", 2*time.Second)
 }
 
 func waitForStop(t *testing.T, orchestrator *Orchestrator) {
@@ -346,28 +404,51 @@ func waitForStop(t *testing.T, orchestrator *Orchestrator) {
 	}
 }
 
-func waitForRequest(t *testing.T, ch <-chan api.QueryRequest, timeout time.Duration, match func(api.QueryRequest) bool) api.QueryRequest {
-	t.Helper()
-	deadline := time.After(timeout)
-	for {
-		select {
-		case req := <-ch:
-			if match == nil || match(req) {
-				return req
-			}
-		case <-deadline:
-			t.Fatal("timed out waiting for scheduled dispatch")
-		}
-	}
-}
-
-func assertNoRequest(t *testing.T, ch <-chan api.QueryRequest, timeout time.Duration) {
+func waitForRequest(t *testing.T, ch <-chan api.QueryRequest, timeout time.Duration) api.QueryRequest {
 	t.Helper()
 	select {
 	case req := <-ch:
-		t.Fatalf("expected no dispatch, got %#v", req)
+		return req
 	case <-time.After(timeout):
+		t.Fatal("timed out waiting for scheduled dispatch")
+		return api.QueryRequest{}
 	}
+}
+
+func waitForRegistration(t *testing.T, orchestrator *Orchestrator, id string, timeout time.Duration) *Registration {
+	t.Helper()
+	return waitForRegistrationMatch(t, orchestrator, id, timeout, nil)
+}
+
+func waitForRegistrationMatch(t *testing.T, orchestrator *Orchestrator, id string, timeout time.Duration, match func(*Registration) bool) *Registration {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		orchestrator.mu.Lock()
+		reg := orchestrator.registrations[id]
+		orchestrator.mu.Unlock()
+		if reg != nil && (match == nil || match(reg)) {
+			return reg
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for registration %q", id)
+	return nil
+}
+
+func waitForNoRegistration(t *testing.T, orchestrator *Orchestrator, id string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		orchestrator.mu.Lock()
+		reg := orchestrator.registrations[id]
+		orchestrator.mu.Unlock()
+		if reg == nil {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for registration %q to disappear", id)
 }
 
 func writeSchedule(t *testing.T, path string, body string) {
@@ -386,13 +467,4 @@ func scheduleBody(message string, cronExpr string, extra string) string {
 		"agentKey: demo-agent\n" +
 		"query:\n" +
 		"  message: " + message + "\n"
-}
-
-func scheduleID(req api.QueryRequest) string {
-	meta, ok := req.Params["__schedule"].(map[string]any)
-	if !ok {
-		return ""
-	}
-	id, _ := meta["scheduleId"].(string)
-	return id
 }

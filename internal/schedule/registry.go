@@ -20,7 +20,7 @@ import (
 )
 
 var (
-	cronParser  = cron.NewParser(cron.Second | cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+	cronParser  = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 	uuidPattern = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 )
 
@@ -99,7 +99,7 @@ func (r *Registry) parseDefinition(path string) (Definition, error) {
 		return Definition{}, fmt.Errorf("cron is required")
 	}
 	if _, err := parseCronSchedule(cronExpr); err != nil {
-		return Definition{}, fmt.Errorf("invalid cron %q: %w", cronExpr, err)
+		return Definition{}, fmt.Errorf("invalid cron %q: only traditional 5-field cron (minute hour day-of-month month day-of-week) is supported: %w", cronExpr, err)
 	}
 	remainingRuns, err := positiveIntPtrNode(root["remainingRuns"], "remainingRuns")
 	if err != nil {
