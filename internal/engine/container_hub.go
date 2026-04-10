@@ -384,6 +384,7 @@ type platformMountDefinition struct {
 
 func (r *ContainerHubMountResolver) platformMountDef(platform string, agentKey string) (platformMountDefinition, bool) {
 	defs := map[string]platformMountDefinition{
+		"agent":         {destination: "/agent", overrideOnly: true},
 		"agents":        {destination: "/agents", source: func() (string, error) { return hostPath("AGENTS_DIR", r.paths.AgentsDir) }},
 		"chats":         {destination: "/chats", source: func() (string, error) { return hostPath("CHATS_DIR", r.paths.ChatsDir) }},
 		"memory":        {destination: "/memory", overrideOnly: true},

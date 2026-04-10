@@ -189,7 +189,7 @@ Container Hub 默认基础挂载当前固定为 7 个：
 
 `sandboxConfig.extraMounts` 会真实影响 Container Hub session mounts：
 
-- `platform + mode`：恢复按需平台挂载，或覆盖默认 `/owner`、`/memory` 模式
+- `platform + mode`：恢复按需平台挂载，或覆盖默认 `/agent`、`/owner`、`/memory` 模式
 - `destination + mode`：覆盖默认基础挂载模式
 - `source + destination + mode`：新增自定义挂载，不能拿来覆盖默认基础挂载路径
 

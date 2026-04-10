@@ -165,6 +165,30 @@ func TestContainerHubMountResolverResolvePlatformMemoryOverrideMakesMountWritabl
 	assertMount(t, mounts, "/memory", filepath.Join(paths.MemoryDir, "demo-agent"), false)
 }
 
+func TestContainerHubMountResolverResolvePlatformAgentOverrideMakesMountWritable(t *testing.T) {
+	paths := setupMountResolverPaths(t)
+	resolver := NewContainerHubMountResolver(paths)
+	mounts, err := resolver.Resolve("chat-1", "demo-agent", "run", []SandboxExtraMount{
+		{Platform: "agent", Mode: "rw"},
+	})
+	if err != nil {
+		t.Fatalf("resolve mounts: %v", err)
+	}
+	assertMount(t, mounts, "/agent", filepath.Join(paths.AgentsDir, "demo-agent"), false)
+}
+
+func TestContainerHubMountResolverResolvePlatformAgentOverrideKeepsMountReadOnly(t *testing.T) {
+	paths := setupMountResolverPaths(t)
+	resolver := NewContainerHubMountResolver(paths)
+	mounts, err := resolver.Resolve("chat-1", "demo-agent", "run", []SandboxExtraMount{
+		{Platform: "agent", Mode: "ro"},
+	})
+	if err != nil {
+		t.Fatalf("resolve mounts: %v", err)
+	}
+	assertMount(t, mounts, "/agent", filepath.Join(paths.AgentsDir, "demo-agent"), true)
+}
+
 func TestContainerHubMountResolverResolveDestinationOverrideMakesAgentMountWritable(t *testing.T) {
 	paths := setupMountResolverPaths(t)
 	resolver := NewContainerHubMountResolver(paths)
@@ -249,6 +273,26 @@ func TestContainerHubMountResolverResolveSkipsUnknownPlatform(t *testing.T) {
 	}
 	if len(mounts) != 7 {
 		t.Fatalf("expected unknown platform to be ignored, got %#v", mounts)
+	}
+}
+
+func TestContainerHubMountResolverResolvePlatformAgentDoesNotDuplicateMount(t *testing.T) {
+	paths := setupMountResolverPaths(t)
+	resolver := NewContainerHubMountResolver(paths)
+	mounts, err := resolver.Resolve("chat-1", "demo-agent", "run", []SandboxExtraMount{
+		{Platform: "agent", Mode: "rw"},
+	})
+	if err != nil {
+		t.Fatalf("resolve mounts: %v", err)
+	}
+	agentMounts := 0
+	for _, mount := range mounts {
+		if mount.Destination == "/agent" {
+			agentMounts++
+		}
+	}
+	if agentMounts != 1 {
+		t.Fatalf("expected exactly one /agent mount, got %#v", mounts)
 	}
 }
 

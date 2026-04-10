@@ -64,7 +64,7 @@ Container Hub 默认基础挂载为：
 
 - `/memory` 当前只影响沙箱挂载与 prompt 中的路径暴露；runner 自身 memory store 仍保持现有 `MEMORY_DIR` 存储布局。
 - `sandboxConfig.extraMounts` 现在会真实影响 Container Hub session payload，并在基础挂载生成后应用覆盖规则。
-- `platform: owner` / `platform: memory` 主要用于覆盖默认 `/owner` / `/memory` 的只读模式，不会新增第二个挂载。
+- `platform: agent` / `platform: owner` / `platform: memory` 主要用于覆盖默认 `/agent` / `/owner` / `/memory` 的只读模式，不会新增第二个挂载。
 - `destination + mode` 是覆盖默认基础挂载模式的唯一合法写法，适用于 `/workspace`、`/root`、`/skills`、`/pan`、`/agent`、`/owner`、`/memory`。
 - `source + destination + mode` 只能新增非默认目标路径挂载；若目标是默认基础挂载路径会直接报错。
 
