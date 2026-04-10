@@ -149,11 +149,11 @@ func TestBuildSystemPromptContextTagShowsOwnerAndMemoryPathsWithoutInjectingSect
 		Stage: "execute",
 	})
 
-	if !strings.Contains(prompt, "sandbox_owner_dir: /owner") {
-		t.Fatalf("expected sandbox owner dir in context section, got %q", prompt)
+	if !strings.Contains(prompt, "owner_dir: /owner") {
+		t.Fatalf("expected owner dir in context section, got %q", prompt)
 	}
-	if !strings.Contains(prompt, "sandbox_memory_dir: /memory") {
-		t.Fatalf("expected sandbox memory dir in context section, got %q", prompt)
+	if !strings.Contains(prompt, "memory_dir: /memory") {
+		t.Fatalf("expected memory dir in context section, got %q", prompt)
 	}
 	if strings.Contains(prompt, "Runtime Context: Owner") {
 		t.Fatalf("did not expect owner section for context-only tags, got %q", prompt)

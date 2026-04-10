@@ -124,15 +124,21 @@ func buildRuntimeContextPrompt(session QuerySession, req api.QueryRequest) strin
 
 func buildSystemEnvironmentSection() string {
 	now := time.Now()
+	tz := now.Location().String()
+	if tz == "Local" {
+		// Try to resolve a meaningful timezone name instead of "Local"
+		zone, _ := now.Zone()
+		if zone != "" {
+			tz = zone
+		}
+	}
 	lines := []string{
 		"Runtime Context: System Environment",
 		"os: " + runtime.GOOS,
 		"arch: " + runtime.GOARCH,
-		"go_version: " + runtime.Version(),
-		"timezone: " + now.Location().String(),
-		"locale: " + resolveLocale(),
-		"current_date: " + now.Format("2006-01-02"),
-		"current_datetime: " + now.Format(time.RFC3339),
+		"timezone: " + tz,
+		"datetime: " + now.Format(time.RFC3339),
+		"language: 中文",
 	}
 	return strings.Join(lines, "\n")
 }
@@ -154,30 +160,34 @@ func resolveLocale() string {
 
 func buildContextSection(session QuerySession, req api.QueryRequest) string {
 	lines := []string{"Runtime Context: Context"}
-	paths := session.RuntimeContext.SandboxPaths
-	appendKeyValue(&lines, "sandbox_workspace_dir", paths.WorkspaceDir)
-	appendKeyValue(&lines, "sandbox_root_dir", paths.RootDir)
-	appendKeyValue(&lines, "sandbox_skills_dir", paths.SkillsDir)
-	appendKeyValue(&lines, "sandbox_skills_market_dir", paths.SkillsMarketDir)
-	appendKeyValue(&lines, "sandbox_pan_dir", paths.PanDir)
-	appendKeyValue(&lines, "sandbox_agent_dir", paths.AgentDir)
-	appendKeyValue(&lines, "sandbox_owner_dir", paths.OwnerDir)
-	appendKeyValue(&lines, "sandbox_agents_dir", paths.AgentsDir)
-	appendKeyValue(&lines, "sandbox_teams_dir", paths.TeamsDir)
-	appendKeyValue(&lines, "sandbox_schedules_dir", paths.SchedulesDir)
-	appendKeyValue(&lines, "sandbox_chats_dir", paths.ChatsDir)
-	appendKeyValue(&lines, "sandbox_memory_dir", paths.MemoryDir)
-	appendKeyValue(&lines, "sandbox_models_dir", paths.ModelsDir)
-	appendKeyValue(&lines, "sandbox_providers_dir", paths.ProvidersDir)
-	appendKeyValue(&lines, "sandbox_mcp_servers_dir", paths.MCPServersDir)
-	appendKeyValue(&lines, "sandbox_viewport_servers_dir", paths.ViewportServersDir)
-	appendKeyValue(&lines, "sandbox_tools_dir", paths.ToolsDir)
-	appendKeyValue(&lines, "sandbox_viewports_dir", paths.ViewportsDir)
+	// chatId / runId / requestId first
 	appendKeyValue(&lines, "chatId", session.ChatID)
-	appendKeyValue(&lines, "requestId", session.RequestID)
 	appendKeyValue(&lines, "runId", session.RunID)
-	appendKeyValue(&lines, "agentKey", session.RuntimeContext.AgentKey)
+	appendKeyValue(&lines, "requestId", session.RequestID)
 	appendKeyValue(&lines, "teamId", session.RuntimeContext.TeamID)
+
+	// Sandbox paths — no "sandbox_" prefix; only include dirs that have a mount.
+	// Each entry has a brief description so the model knows what the dir is for.
+	paths := session.RuntimeContext.SandboxPaths
+	appendContextDir(&lines, "workspace_dir", paths.WorkspaceDir, "当前工作目录")
+	appendContextDir(&lines, "root_dir", paths.RootDir, "容器家目录")
+	appendContextDir(&lines, "skills_dir", paths.SkillsDir, "当前 agent 私有技能目录")
+	appendContextDir(&lines, "skills_market_dir", paths.SkillsMarketDir, "共享技能市场目录")
+	appendContextDir(&lines, "pan_dir", paths.PanDir, "用户网盘挂载目录")
+	appendContextDir(&lines, "agent_dir", paths.AgentDir, "当前 agent 定义目录")
+	appendContextDir(&lines, "owner_dir", paths.OwnerDir, "owner 用户档案目录")
+	appendContextDir(&lines, "agents_dir", paths.AgentsDir, "全部 agent 定义目录")
+	appendContextDir(&lines, "teams_dir", paths.TeamsDir, "团队配置目录")
+	appendContextDir(&lines, "schedules_dir", paths.SchedulesDir, "计划任务配置目录")
+	appendContextDir(&lines, "chats_dir", paths.ChatsDir, "会话记录目录")
+	appendContextDir(&lines, "memory_dir", paths.MemoryDir, "记忆存储目录")
+	appendContextDir(&lines, "models_dir", paths.ModelsDir, "模型注册配置目录")
+	appendContextDir(&lines, "providers_dir", paths.ProvidersDir, "供应商注册配置目录")
+	appendContextDir(&lines, "mcp_servers_dir", paths.MCPServersDir, "MCP 服务注册目录")
+	appendContextDir(&lines, "viewport_servers_dir", paths.ViewportServersDir, "Viewport 服务注册目录")
+	appendContextDir(&lines, "tools_dir", paths.ToolsDir, "工具定义目录")
+	appendContextDir(&lines, "viewports_dir", paths.ViewportsDir, "Viewport 模板目录")
+
 	if summary := summarizeScene(session.RuntimeContext.Scene); summary != "" {
 		lines = append(lines, "scene: "+summary)
 	}
@@ -186,6 +196,14 @@ func buildContextSection(session QuerySession, req api.QueryRequest) string {
 		return ""
 	}
 	return strings.Join(lines, "\n")
+}
+
+// appendContextDir adds a dir entry only if mounted (non-empty), with a description.
+func appendContextDir(lines *[]string, key, value, desc string) {
+	if strings.TrimSpace(value) == "" {
+		return
+	}
+	*lines = append(*lines, key+": "+strings.TrimSpace(value)+" # "+desc)
 }
 
 func buildOwnerSection(paths LocalPaths) string {
@@ -256,11 +274,8 @@ func buildSandboxSection(context *SandboxContext) string {
 	}
 	lines := []string{"Runtime Context: Sandbox"}
 	appendKeyValue(&lines, "environmentId", context.EnvironmentID)
-	appendKeyValue(&lines, "configuredEnvironmentId", context.ConfiguredEnvironmentID)
 	appendKeyValue(&lines, "defaultEnvironmentId", context.DefaultEnvironmentID)
 	appendKeyValue(&lines, "level", context.Level)
-	lines = append(lines, fmt.Sprintf("container_hub_enabled: %t", context.ContainerHubEnabled))
-	lines = append(lines, fmt.Sprintf("uses_sandbox_bash: %t", context.UsesSandboxBash))
 	if len(context.ExtraMounts) > 0 {
 		lines = append(lines, "extraMounts:")
 		for _, mount := range context.ExtraMounts {
@@ -311,6 +326,7 @@ func buildAllAgentsSection(digests []AgentDigest) string {
 	}
 	builder := strings.Builder{}
 	builder.WriteString("Runtime Context: All Agents\n")
+	builder.WriteString("以下是平台已注册的智能体摘要。如需了解某个智能体的完整配置，可以自行查看 agents 目录下对应的 agent.yml。\n")
 	builder.WriteString(strings.Join(blocks, "\n---\n"))
 	if included < total {
 		builder.WriteString(fmt.Sprintf("\n[TRUNCATED: all-agents exceeds max chars=%d, included=%d/%d]", allAgentsPromptMaxChars, included, total))
@@ -324,15 +340,6 @@ func formatAgentDigest(digest AgentDigest) string {
 	appendKeyValue(&lines, "name", digest.Name)
 	appendKeyValue(&lines, "role", digest.Role)
 	appendKeyValue(&lines, "description", digest.Description)
-	appendKeyValue(&lines, "mode", digest.Mode)
-	appendKeyValue(&lines, "modelKey", digest.ModelKey)
-	appendInlineList(&lines, "tools", digest.Tools)
-	appendInlineList(&lines, "skills", digest.Skills)
-	if digest.Sandbox != nil && (strings.TrimSpace(digest.Sandbox.EnvironmentID) != "" || strings.TrimSpace(digest.Sandbox.Level) != "") {
-		lines = append(lines, "sandbox:")
-		appendIndentedKeyValue(&lines, "environmentId", digest.Sandbox.EnvironmentID)
-		appendIndentedKeyValue(&lines, "level", digest.Sandbox.Level)
-	}
 	return strings.Join(lines, "\n")
 }
 
