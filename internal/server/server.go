@@ -552,6 +552,12 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
+	// PROXY mode: forward to remote AGW service, skip local LLM engine entirely.
+	if strings.EqualFold(agentDef.Mode, "PROXY") {
+		s.handleProxyQuery(w, r, req, agentDef)
+		return
+	}
+
 	promptAppend := buildPromptAppendConfig(agentDef)
 
 	session := engine.QuerySession{

@@ -48,6 +48,9 @@ type AgentDefinition struct {
 	RuntimePrompts AgentRuntimePrompts
 	AgentDir       string
 
+	// PROXY mode: forward /api/query to a remote AGW-compatible service.
+	ProxyConfig *ProxyConfig
+
 	// Prompt files loaded from agent directory.
 	SoulPrompt   string // from SOUL.md
 	AgentsPrompt string // resolved from promptFile or AGENTS.md fallback
@@ -63,6 +66,14 @@ type AgentRuntimePrompts struct {
 	Skill        SkillPromptConfig
 	ToolAppendix ToolAppendixPromptConfig
 	PlanExecute  PlanExecutePromptConfig
+}
+
+// ProxyConfig configures PROXY mode: forward /api/query to a remote
+// AGW-compatible service (e.g. claude-code relay-server on port 3210).
+type ProxyConfig struct {
+	BaseURL   string // e.g. http://127.0.0.1:3210
+	Token     string // optional Bearer token
+	TimeoutMs int    // default 300000 (5 min)
 }
 
 type SkillPromptConfig struct {
@@ -723,6 +734,17 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	}
 	if stageSettings := mapNode(root["stageSettings"]); len(stageSettings) > 0 {
 		def.StageSettings = cloneMap(stageSettings)
+	}
+	// PROXY mode config
+	if proxyRaw := mapNode(root["proxyConfig"]); len(proxyRaw) > 0 {
+		def.ProxyConfig = &ProxyConfig{
+			BaseURL:   stringNode(proxyRaw["baseUrl"]),
+			Token:     stringNode(proxyRaw["token"]),
+			TimeoutMs: intNode(proxyRaw["timeoutMs"]),
+		}
+		if def.ProxyConfig.TimeoutMs <= 0 {
+			def.ProxyConfig.TimeoutMs = 300000 // 5 min default
+		}
 	}
 	def.RuntimePrompts = parseRuntimePrompts(mapNode(root["runtimePrompts"]))
 	if strings.TrimSpace(def.RuntimePrompts.PlanExecute.TaskExecutionPromptTemplate) != "" {
