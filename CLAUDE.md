@@ -200,7 +200,7 @@ remember 根目录由 `MEMORY_DIR` 控制：
 - `POST /api/interrupt`：中断活跃 run 并返回 ack
 - `POST /api/remember`：从 chat 快照生成最小 remember 文件
 - `POST /api/learn`：当前固定返回 `accepted=false`、`status="not_connected"`
-- `GET /api/viewport`：默认只对 `confirm_dialog` 返回占位 html，其余走 noop viewport client
+- `GET /api/viewport`：先查 `registries/viewports` 本地模板，再查 `registries/viewport-servers` 里的远端 viewport server，最后才回退 noop viewport client
 - `GET /api/resource`：按 chat 目录中的相对路径回读静态资源，可结合 resource ticket 访问
 - `POST /api/upload`：写入 chat 目录并返回 upload ticket
 
@@ -244,6 +244,6 @@ docker compose logs -f
 - 当前仍不是 Java 版的功能完全等价实现，但 `.env` 契约、catalog API、基础鉴权与 resource ticket 已对齐。
 - `skills`、`teams`、`agents` 已支持定时轮询式目录热刷新。
 - `submit` / `steer` / `interrupt` 还没有形成 Java 版那样的运行中双向编排控制面。
-- `viewport` 只有最小占位返回，不代表真实前端协议已经落地。
+- `viewport` 已支持本地模板和远端 `viewports/get` 拉取；协议能力仍是最小子集，未完全对齐 Java 版前端协议。
 - `remember` 是文件输出最小实现，不包含 embedding、召回、排序等能力。
 - 若环境中显式设置了废弃旧变量，应用会直接启动失败。

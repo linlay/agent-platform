@@ -66,6 +66,10 @@ func DefaultRoot(registriesDir string) string {
 	return filepath.Join(registriesDir, "viewports")
 }
 
+func DefaultServersRoot(registriesDir string) string {
+	return filepath.Join(registriesDir, "viewport-servers")
+}
+
 func MissingViewportError(viewportKey string) error {
 	return fmt.Errorf("viewport %s not found", viewportKey)
 }

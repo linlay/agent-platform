@@ -2,6 +2,9 @@ package viewport
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -44,5 +47,85 @@ func TestRegistryProvidesDefaultConfirmDialog(t *testing.T) {
 	}
 	if payload["viewportKey"] != "confirm_dialog" {
 		t.Fatalf("unexpected payload %#v", payload)
+	}
+}
+
+func TestServerRegistryLoadsViewportServersDirectoryAndServerKey(t *testing.T) {
+	registriesRoot := t.TempDir()
+	serversRoot := DefaultServersRoot(registriesRoot)
+	if err := os.MkdirAll(serversRoot, 0o755); err != nil {
+		t.Fatalf("create viewport servers dir: %v", err)
+	}
+	config := "serverKey: weather\nbaseUrl: http://127.0.0.1:11969\nendpointPath: /mcp\n"
+	if err := os.WriteFile(filepath.Join(serversRoot, "mock.yml"), []byte(config), 0o644); err != nil {
+		t.Fatalf("write viewport server config: %v", err)
+	}
+
+	servers, err := NewServerRegistry(serversRoot).List()
+	if err != nil {
+		t.Fatalf("list viewport servers: %v", err)
+	}
+	if len(servers) != 1 {
+		t.Fatalf("expected 1 server, got %d", len(servers))
+	}
+	if servers[0].Key != "weather" {
+		t.Fatalf("expected server key from serverKey field, got %#v", servers[0])
+	}
+}
+
+func TestServiceLoadsRemoteHTMLViewportBeforeFallback(t *testing.T) {
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req jsonRPCRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if req.Method != "viewports/get" {
+			t.Fatalf("unexpected method %q", req.Method)
+		}
+		if req.Params["viewportKey"] != "show_weather_card" {
+			t.Fatalf("unexpected params %#v", req.Params)
+		}
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"jsonrpc": "2.0",
+			"id":      req.ID,
+			"result": map[string]any{
+				"viewportKey":  "show_weather_card",
+				"viewportType": "html",
+				"payload":      "<html><body>weather</body></html>",
+			},
+		}); err != nil {
+			t.Fatalf("encode response: %v", err)
+		}
+	}))
+	defer remote.Close()
+
+	registriesRoot := t.TempDir()
+	if err := os.MkdirAll(DefaultRoot(registriesRoot), 0o755); err != nil {
+		t.Fatalf("create viewports dir: %v", err)
+	}
+	serversRoot := DefaultServersRoot(registriesRoot)
+	if err := os.MkdirAll(serversRoot, 0o755); err != nil {
+		t.Fatalf("create viewport servers dir: %v", err)
+	}
+	config := "serverKey: mock\nbaseUrl: " + remote.URL + "\nendpointPath: /mcp\n"
+	if err := os.WriteFile(filepath.Join(serversRoot, "mock.yml"), []byte(config), 0o644); err != nil {
+		t.Fatalf("write viewport server config: %v", err)
+	}
+
+	service := NewServiceWithServers(
+		NewRegistry(DefaultRoot(registriesRoot)),
+		NewSyncer(NewServerRegistry(serversRoot), remote.Client()),
+		engine.NewNoopViewportClient(),
+	)
+
+	payload, err := service.Get(context.Background(), "show_weather_card")
+	if err != nil {
+		t.Fatalf("load remote viewport: %v", err)
+	}
+	if payload["html"] != "<html><body>weather</body></html>" {
+		t.Fatalf("expected remote html payload, got %#v", payload)
+	}
+	if _, exists := payload["status"]; exists {
+		t.Fatalf("expected remote payload before fallback, got %#v", payload)
 	}
 }

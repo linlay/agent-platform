@@ -42,6 +42,7 @@
 
 - `code = 0` 表示成功，失败时 `code` 使用 HTTP 状态码数值。
 - `GET /api/chat` 默认返回 `events`，`includeRawMessages=true` 时追加 `rawMessages`。
+- `GET /api/viewport` 会先读取 `registries/viewports` 下的本地 `.html/.qlc` 模板，再尝试 `registries/viewport-servers` 中注册的远端 viewport server，命中失败时才返回 fallback 占位结果。
 
 当前仍未与 Java 版完全对齐的能力主要集中在 frontend tool 完整闭环、MCP 实接，以及更深层的 memory / schedule 执行编排细节；配置契约、catalog API、基础鉴权与 resource ticket 已按 Java 语义接入。
 

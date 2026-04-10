@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -30,9 +31,14 @@ func (s *Syncer) Get(ctx context.Context, viewportKey string) (map[string]any, b
 	if err != nil {
 		return nil, false, err
 	}
+	if len(servers) == 0 {
+		log.Printf("[viewport] no viewport servers configured for %q", viewportKey)
+		return nil, false, nil
+	}
 	for _, server := range servers {
 		payload, ok, err := s.fetch(ctx, server, viewportKey)
 		if err != nil {
+			log.Printf("[viewport] fetch %q from server %q failed: %v", viewportKey, server.Key, err)
 			continue
 		}
 		if ok {
@@ -50,8 +56,8 @@ type jsonRPCRequest struct {
 }
 
 type jsonRPCResponse struct {
-	Result any            `json:"result,omitempty"`
-	Error  *jsonRPCError  `json:"error,omitempty"`
+	Result any           `json:"result,omitempty"`
+	Error  *jsonRPCError `json:"error,omitempty"`
 }
 
 type jsonRPCError struct {
@@ -95,6 +101,7 @@ func (s *Syncer) fetch(ctx context.Context, server ServerDefinition, viewportKey
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		log.Printf("[viewport] server %q returned HTTP %d for %q", server.Key, resp.StatusCode, viewportKey)
 		return nil, false, nil
 	}
 	var rpcResp jsonRPCResponse
@@ -102,13 +109,16 @@ func (s *Syncer) fetch(ctx context.Context, server ServerDefinition, viewportKey
 		return nil, false, err
 	}
 	if rpcResp.Error != nil {
+		log.Printf("[viewport] server %q returned RPC error for %q: code=%d message=%s", server.Key, viewportKey, rpcResp.Error.Code, rpcResp.Error.Message)
 		return nil, false, nil
 	}
 	if rpcResp.Result == nil {
+		log.Printf("[viewport] server %q returned empty result for %q", server.Key, viewportKey)
 		return nil, false, nil
 	}
 	resultMap, ok := rpcResp.Result.(map[string]any)
 	if !ok {
+		log.Printf("[viewport] server %q returned non-object result for %q", server.Key, viewportKey)
 		return nil, false, nil
 	}
 

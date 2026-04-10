@@ -45,7 +45,7 @@ func (r *ServerRegistry) List() ([]ServerDefinition, error) {
 		}
 		rootNode, _ := tree.(map[string]any)
 		server := ServerDefinition{
-			Key:          strings.TrimSpace(anyString(rootNode["key"])),
+			Key:          strings.TrimSpace(firstNonEmptyString(rootNode["key"], rootNode["serverKey"])),
 			BaseURL:      strings.TrimSpace(anyString(rootNode["baseUrl"])),
 			EndpointPath: strings.TrimSpace(anyString(rootNode["endpointPath"])),
 			AuthToken:    strings.TrimSpace(anyString(rootNode["authToken"])),
@@ -59,6 +59,15 @@ func (r *ServerRegistry) List() ([]ServerDefinition, error) {
 		}
 	}
 	return out, nil
+}
+
+func firstNonEmptyString(values ...any) string {
+	for _, value := range values {
+		if text := strings.TrimSpace(anyString(value)); text != "" {
+			return text
+		}
+	}
+	return ""
 }
 
 func anyString(value any) string {

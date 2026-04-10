@@ -140,7 +140,7 @@ func New() (*App, error) {
 		MCP:      mcpClient,
 		Viewport: viewport.NewServiceWithServers(
 			viewport.NewRegistry(viewport.DefaultRoot(cfg.Paths.RegistriesDir)),
-			viewport.NewSyncer(viewport.NewServerRegistry(filepath.Join(viewport.DefaultRoot(cfg.Paths.RegistriesDir), "servers")), nil),
+			viewport.NewSyncer(viewport.NewServerRegistry(viewport.DefaultServersRoot(cfg.Paths.RegistriesDir)), nil),
 			engine.NewNoopViewportClient(),
 		),
 		CatalogReloader: reloader,
