@@ -72,6 +72,14 @@ func (a *StreamEventAssembler) Fail(err error) []StreamEvent {
 
 func (a *StreamEventAssembler) stamp(events []StreamEvent) []StreamEvent {
 	for idx := range events {
+		// stage.marker is an internal step boundary signal (Java parity:
+		// AgentDeltaToStreamInputMapper returns empty list for stage markers).
+		// Do not assign a seq — the event reaches stepWriter for JSONL but
+		// is filtered out before SSE by server.go. Assigning a seq would
+		// create gaps in the client-visible sequence (e.g., #4 missing).
+		if events[idx].Type == "stage.marker" {
+			continue
+		}
 		events[idx].Seq = a.seq.Add(1)
 	}
 	return events

@@ -109,13 +109,8 @@ func TestPlanExecuteModePrependsPlanLifecycleEvents(t *testing.T) {
 	if marker, ok := first.(DeltaStageMarker); !ok || marker.Stage != "plan" {
 		t.Fatalf("expected first event to be DeltaStageMarker(plan), got %#v", first)
 	}
-	second, err := stream.Next()
-	if err != nil {
-		t.Fatalf("second next: %v", err)
-	}
-	if _, ok := second.(DeltaPlanUpdate); !ok {
-		t.Fatalf("expected second event to be DeltaPlanUpdate, got %#v", second)
-	}
+	// Java parity: no empty plan.update at initialization — first plan.update
+	// is emitted after _plan_add_tasks_ creates tasks.
 }
 
 func TestPlanExecuteModeRunsPlanTaskAndSummaryStages(t *testing.T) {

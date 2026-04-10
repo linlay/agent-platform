@@ -59,11 +59,9 @@ func newPlanExecuteStream(engine *LLMAgentEngine, ctx context.Context, req api.Q
 		settings: session.ResolvedStageSettings,
 		pending: []AgentDelta{
 			DeltaStageMarker{Stage: "plan"},
-			DeltaPlanUpdate{
-				PlanID: session.RunID + "_plan",
-				ChatID: session.ChatID,
-				Plan:   planTasksArray(execCtx.PlanState),
-			},
+			// Java parity: do NOT emit an empty plan.update at initialization.
+			// The first plan.update is emitted in afterStageEOF after
+			// _plan_add_tasks_ has populated PlanState.Tasks.
 		},
 	}
 	if stream.settings.MaxSteps <= 0 || stream.settings.MaxWorkRoundsPerTask <= 0 {
@@ -365,27 +363,50 @@ func (s *planExecuteStream) startSummaryStage() error {
 
 // buildExecuteToolDescriptions returns a prompt section describing execute-stage
 // tools for reference during planning (Java: augmentPlanStageWithToolPrompts).
+// Output format matches Java backendToolDescriptionSection: "- name: description".
 func (s *planExecuteStream) buildExecuteToolDescriptions() string {
 	tools := s.executeStageTools()
 	if len(tools) == 0 {
 		return ""
 	}
+	descByName := s.toolDescriptionsByName()
 	var lines []string
-	lines = append(lines, "以下是执行阶段可用工具说明（当前是规划阶段，仅供参考，不允许调用）:")
 	for _, toolName := range tools {
 		if strings.HasPrefix(toolName, "_plan_") {
 			continue // skip plan tools in reference section
 		}
-		lines = append(lines, fmt.Sprintf("- %s", toolName))
+		desc := strings.TrimSpace(descByName[strings.ToLower(toolName)])
+		if desc == "" {
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("- %s: %s", toolName, desc))
 	}
-	if len(lines) <= 1 {
+	if len(lines) == 0 {
 		return ""
 	}
-	return strings.Join(lines, "\n")
+	return "以下是执行阶段可用工具说明（当前是规划阶段，仅供参考，不允许调用）:\n" + strings.Join(lines, "\n")
 }
 
 func (s *planExecuteStream) buildPlanCallableToolDescriptions() string {
-	return "当前规划阶段可调用工具（必须调用 _plan_add_tasks_ 创建计划）:\n- _plan_add_tasks_"
+	descByName := s.toolDescriptionsByName()
+	desc := strings.TrimSpace(descByName["_plan_add_tasks_"])
+	if desc == "" {
+		return "当前规划阶段可调用工具（必须调用 _plan_add_tasks_ 创建计划）:\n- _plan_add_tasks_"
+	}
+	return "当前规划阶段可调用工具（必须调用 _plan_add_tasks_ 创建计划）:\n- _plan_add_tasks_: " + desc
+}
+
+func (s *planExecuteStream) toolDescriptionsByName() map[string]string {
+	defs := s.engine.tools.Definitions()
+	out := make(map[string]string, len(defs))
+	for _, def := range defs {
+		name := strings.ToLower(strings.TrimSpace(def.Name))
+		if name == "" {
+			continue
+		}
+		out[name] = def.Description
+	}
+	return out
 }
 
 func (s *planExecuteStream) sessionForStage(stage StageSettings, toolNames []string) QuerySession {

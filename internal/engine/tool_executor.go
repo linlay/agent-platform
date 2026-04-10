@@ -325,6 +325,12 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	if len(command) > maxInt(t.cfg.Bash.MaxCommandChars, 16000) {
 		return ToolExecutionResult{Output: "Command is too long", Error: "command_too_long", ExitCode: -1}, nil
 	}
+	// Security pre-check: reject commands with obfuscation, injection, or
+	// other dangerous patterns BEFORE whitelist/path validation runs.
+	// Ported from Claude Code bashSecurity.ts.
+	if ok, reason := checkBashSecurity(command); !ok {
+		return ToolExecutionResult{Output: reason, Error: "bash_security_blocked", ExitCode: -1}, nil
+	}
 	if len(t.cfg.Bash.AllowedCommands) == 0 {
 		return ToolExecutionResult{Output: "Bash command whitelist is empty", Error: "command_whitelist_empty", ExitCode: -1}, nil
 	}
