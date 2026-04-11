@@ -2,6 +2,7 @@ package engine
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -164,15 +165,106 @@ func loadProviders(dir string) (map[string]ProviderDefinition, error) {
 		if key == "" {
 			continue
 		}
+		baseURL := resolveProviderBaseURL(key, values)
 		result[key] = ProviderDefinition{
 			Key:          key,
-			BaseURL:      strings.TrimSpace(stringNode(values["baseUrl"])),
+			BaseURL:      baseURL,
 			APIKey:       strings.TrimSpace(stringNode(values["apiKey"])),
 			DefaultModel: strings.TrimSpace(stringNode(values["defaultModel"])),
-			EndpointPath: defaultString(strings.TrimSpace(stringNode(values["endpointPath"])), "/v1/chat/completions"),
+			EndpointPath: resolveProviderEndpointPath(values, baseURL),
 		}
 	}
 	return result, nil
+}
+
+func resolveProviderBaseURL(key string, values map[string]any) string {
+	if value := strings.TrimSpace(os.Getenv(providerBaseURLEnvKey(key))); value != "" {
+		return value
+	}
+	if hasProtocolConfig(values, "OPENAI") {
+		if value := strings.TrimSpace(os.Getenv("OPENAI_BASE_URL")); value != "" {
+			return value
+		}
+	}
+	return strings.TrimSpace(stringNode(values["baseUrl"]))
+}
+
+func resolveProviderEndpointPath(values map[string]any, baseURL string) string {
+	if protocolNode := nestedMap(values, "protocols", "OPENAI"); protocolNode != nil {
+		if value := strings.TrimSpace(stringNode(protocolNode["endpointPath"])); value != "" {
+			return normalizeEndpointPath(value, baseURL)
+		}
+	}
+	if value := strings.TrimSpace(stringNode(values["endpointPath"])); value != "" {
+		return normalizeEndpointPath(value, baseURL)
+	}
+	return defaultOpenAIEndpointPath(baseURL)
+}
+
+func hasProtocolConfig(values map[string]any, protocol string) bool {
+	return nestedMap(values, "protocols", protocol) != nil
+}
+
+func nestedMap(values map[string]any, keys ...string) map[string]any {
+	current := values
+	for _, key := range keys {
+		next, _ := current[key].(map[string]any)
+		if next == nil {
+			return nil
+		}
+		current = next
+	}
+	return current
+}
+
+func providerBaseURLEnvKey(key string) string {
+	normalized := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z':
+			return r - ('a' - 'A')
+		case r >= 'A' && r <= 'Z':
+			return r
+		case r >= '0' && r <= '9':
+			return r
+		default:
+			return '_'
+		}
+	}, strings.TrimSpace(key))
+	normalized = strings.Trim(normalized, "_")
+	if normalized == "" {
+		return "BASE_URL"
+	}
+	return normalized + "_BASE_URL"
+}
+
+func normalizeEndpointPath(value string, baseURL string) string {
+	path := "/" + strings.TrimLeft(strings.TrimSpace(value), "/")
+	if basePath := normalizedBasePath(baseURL); basePath != "" && basePath != "/" && strings.HasPrefix(path, basePath+"/") {
+		path = strings.TrimPrefix(path, basePath)
+	}
+	return path
+}
+
+func defaultOpenAIEndpointPath(baseURL string) string {
+	if normalizedBasePath(baseURL) == "/v1" {
+		return "/chat/completions"
+	}
+	return "/v1/chat/completions"
+}
+
+func normalizedBasePath(rawBaseURL string) string {
+	parsed, err := url.Parse(strings.TrimSpace(rawBaseURL))
+	if err != nil {
+		return ""
+	}
+	path := strings.TrimSpace(parsed.EscapedPath())
+	if path == "" {
+		path = strings.TrimSpace(parsed.Path)
+	}
+	if path == "" || path == "/" {
+		return ""
+	}
+	return "/" + strings.Trim(strings.TrimSpace(path), "/")
 }
 
 func loadModels(dir string) (map[string]ModelDefinition, error) {
