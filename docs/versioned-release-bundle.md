@@ -1,84 +1,88 @@
 # 版本化离线打包方案
 
-本文件沿用参考仓库的主题，但当前 Go 仓库还没有实现 Java 版那套完整的 `VERSION + dist/release + release-assets` 离线打包链路。
+`agent-platform` 现已具备面向 `zenmind-desktop` builtin 分发的 program bundle 发布链路，目标是把 Go 二进制、配置模板、运行目录和启停脚本打成版本化 `tar.gz`。
 
 ## 1. 当前状态
 
 目前已具备：
 
-- `Dockerfile`
-- `compose.yml`
-- `make run`
-- `make test`
-- `docker build`
-- `docker compose up --build`
-
-目前尚未具备：
-
 - 根目录 `VERSION`
-- `make release`
+- `make release` / `make release-program`
 - `scripts/release.sh`
-- `scripts/release-assets/`
+- `scripts/release-common.sh`
+- `scripts/release-program.sh`
+- `scripts/release-assets/program/{start.sh,stop.sh,README.txt}`
 - `dist/release/` 版本化 bundle 输出
 
-## 2. 当前可用交付方式
+当前默认产物命名：
 
-现阶段建议的交付方式只有两种：
+- `agent-platform-program-v0.1.0-darwin-arm64.tar.gz`
 
-### 方式 A: 镜像交付
+如需自定义目标矩阵，可通过 `PROGRAM_TARGET_MATRIX` 或 `PROGRAM_TARGETS` 覆盖。
 
-```bash
-docker build -t agent-platform-runner-go:latest .
-```
+## 2. 发布命令
 
-然后把镜像推送到镜像仓库，部署侧通过标准容器流程拉取。
-
-### 方式 B: 仓库 + Compose 交付
-
-交付内容：
-
-- 源码仓库
-- `.env.example`
-- `compose.yml`
-- `configs/*.example.yml`
-
-部署侧步骤：
+标准发布命令：
 
 ```bash
-cp .env.example .env
-docker compose up --build -d
+make release-program
 ```
 
-## 3. 若后续补齐版本化打包，建议保持的结构
+等价命令：
 
-建议与参考仓库保持同样的发布骨架：
+```bash
+VERSION=$(cat VERSION) ARCH=arm64 bash scripts/release.sh
+```
+
+## 3. Bundle 结构
+
+解压后的目录结构如下：
 
 ```text
-VERSION
-scripts/
-  release.sh
-  release-assets/
-dist/
-  release/
+agent-platform/
+  agent-platform-runner
+  .env.example
+  README.txt
+  start.sh
+  stop.sh
+  configs/
+    bash.example.yml
+    container-hub.example.yml
+    cors.example.yml
+    local-public-key.example.pem
+  runtime/
+    registries/
+    owner/
+    agents/
+    teams/
+    root/
+    schedules/
+    chats/
+    memory/
+    pan/
+    skills-market/
 ```
 
-建议目标产物命名：
+说明：
 
-- `agent-platform-runner-go-vX.Y.Z-linux-amd64.tar.gz`
-- `agent-platform-runner-go-vX.Y.Z-linux-arm64.tar.gz`
+- 顶层目录固定为 `agent-platform`，供 Desktop 安装时直接解压到 `userData/services/agent-platform/<version>/`
+- `start.sh` 默认以守护进程模式启动，并把 PID / 日志写入 `.runtime/`
+- `runtime/` 目录是安装目录内部的默认运行态数据目录
 
-## 4. 建议的发布内容
+## 4. Desktop 集成约束
 
-若后续引入 bundle，建议包含：
+该 bundle 供 `zenmind-desktop` 作为 builtin 资源消费，Desktop 会在启动前自动完成：
 
-- 预构建镜像 tar
-- `compose.release.yml`
-- `start.sh`
-- `stop.sh`
-- `.env.example`
-- `configs/*.example.yml`
-- 简短部署说明
+- 写入 `SERVER_PORT` 默认值
+- 注入 `AGENT_CONTAINER_HUB_BASE_URL=http://127.0.0.1:<port>`
+- 分发 `configs/local-public-key.pem`
+- 强制开启 `AGENT_AUTH_ENABLED=true`
 
-## 5. 当前结论
+因此 bundle 内只需要携带模板文件，不需要预置真实密钥或固定运行态数据。
 
-Go 版目前适合开发期与内部联调，不适合宣称已经具备参考仓库那种标准化离线发布能力；在真正补齐脚本前，这份文档只定义目标方向，不应被当作“现状说明”。
+## 5. 适用场景
+
+当前推荐两种交付方式：
+
+- Desktop builtin：使用 `make release-program` 产出 tar.gz，随后由 `zenmind-desktop` 的 `npm run sync:assets` 同步到 Electron 资源目录
+- Compose / 开发联调：继续使用 `make run`、`make test`、`docker compose up --build`
