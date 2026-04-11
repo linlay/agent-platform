@@ -35,11 +35,42 @@ func (d *Dispatcher) Dispatch(ctx context.Context, def Definition) error {
 	if !def.Enabled {
 		return nil
 	}
+	startedAt := time.Now()
+	triggeredAt := startedAt.Format(time.RFC3339)
+	log.Printf(
+		"[schedule] dispatch start id=%s name=%s agentKey=%s teamId=%s source=%s triggeredAt=%s",
+		def.ID,
+		def.Name,
+		def.AgentKey,
+		def.TeamID,
+		def.SourceFile,
+		triggeredAt,
+	)
 	err := d.dispatch(ctx, def.ToQueryRequest())
 	if err != nil {
-		log.Printf("[schedule] dispatch failed for %s: %v", def.ID, err)
+		log.Printf(
+			"[schedule] dispatch failed id=%s name=%s agentKey=%s teamId=%s source=%s triggeredAt=%s duration=%s err=%v",
+			def.ID,
+			def.Name,
+			def.AgentKey,
+			def.TeamID,
+			def.SourceFile,
+			triggeredAt,
+			time.Since(startedAt).Round(time.Millisecond),
+			err,
+		)
 		return err
 	}
+	log.Printf(
+		"[schedule] dispatch success id=%s name=%s agentKey=%s teamId=%s source=%s triggeredAt=%s duration=%s",
+		def.ID,
+		def.Name,
+		def.AgentKey,
+		def.TeamID,
+		def.SourceFile,
+		triggeredAt,
+		time.Since(startedAt).Round(time.Millisecond),
+	)
 
 	// Push results to external URL if configured
 	if strings.TrimSpace(def.PushURL) != "" {

@@ -3,6 +3,7 @@ package server
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto"
 	"crypto/rand"
 	"crypto/rsa"
@@ -1304,6 +1305,76 @@ func TestQueryRejectsInvalidLocalJWT(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `"error":"unauthorized"`) {
 		t.Fatalf("expected unauthorized body, got %s", rec.Body.String())
 	}
+}
+
+func TestQueryRejectsMissingBearerWhenLocalJWTEnabled(t *testing.T) {
+	fixture := newTestFixture(t)
+	_, publicKeyPath := writeTestJWTKeyPair(t, fixture.cfg.Paths.ChatsDir)
+	fixture.cfg.Auth = config.AuthConfig{
+		Enabled:            true,
+		LocalPublicKeyFile: publicKeyPath,
+		Issuer:             "zenmind-local",
+	}
+	server := newServerFromFixture(t, fixture)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"鉴权测试"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"error":"unauthorized"`) {
+		t.Fatalf("expected unauthorized body, got %s", rec.Body.String())
+	}
+}
+
+func TestExecuteInternalQueryBypassesHTTPAuth(t *testing.T) {
+	fixture := newTestFixture(t)
+	_, publicKeyPath := writeTestJWTKeyPair(t, fixture.cfg.Paths.ChatsDir)
+	fixture.cfg.Auth = config.AuthConfig{
+		Enabled:            true,
+		LocalPublicKeyFile: publicKeyPath,
+		Issuer:             "zenmind-local",
+	}
+	server := newServerFromFixture(t, fixture)
+
+	status, body, err := server.ExecuteInternalQuery(context.Background(), api.QueryRequest{
+		Message:  "计划任务内部执行",
+		AgentKey: "mock-runner",
+	})
+	if err != nil {
+		t.Fatalf("execute internal query: %v", err)
+	}
+	if status != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", status, body)
+	}
+	if !strings.Contains(body, `"type":"content.delta"`) {
+		t.Fatalf("expected streaming response, got %s", body)
+	}
+}
+
+func newServerFromFixture(t *testing.T, fixture testFixture) *Server {
+	t.Helper()
+	server, err := New(Dependencies{
+		Config:          fixture.cfg,
+		Chats:           fixture.chats,
+		Memory:          fixture.memories,
+		Registry:        fixture.registry,
+		Runs:            fixture.runs,
+		Agent:           fixture.agent,
+		Tools:           fixture.tools,
+		Sandbox:         fixture.sandbox,
+		MCP:             fixture.mcp,
+		Viewport:        fixture.viewport,
+		CatalogReloader: fixture.catalogReloader,
+	})
+	if err != nil {
+		t.Fatalf("new server: %v", err)
+	}
+	return server
 }
 
 type testFixture struct {

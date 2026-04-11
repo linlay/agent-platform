@@ -205,10 +205,16 @@ Container Hub 默认基础挂载当前固定为 7 个：
 docker compose logs -f
 ```
 
+计划任务目前没有单独日志文件，统一写进服务进程的 stdout：
+
+- 用 `make run` 本地启动时，直接看启动它的终端输出
+- 用 `docker compose up` 启动时，使用 `docker compose logs -f`
+
 ### 常见排查
 
 - 服务无法启动：先检查环境里是否设置了已废弃的旧变量，或鉴权公钥 / JWKS 配置是否不完整。
 - Query 无法调用模型：检查 `REGISTRIES_DIR/providers`、`REGISTRIES_DIR/models` 是否存在，并确认 provider `apiKey` / `baseUrl` 可用。
+- Schedule 看起来没有触发：先确认服务进程本身正在运行；如果是本地 `make run`，日志不会出现在 `docker compose logs` 里。随后检查 stdout 中是否有 `schedule orchestrator started`、`[schedule] registered ...`、`[schedule] dispatch ...`。
 - Query 看起来不像真流式：先检查是否启用了 `AGENT_H2A_RENDER_FLUSH_INTERVAL_MS`、`AGENT_H2A_RENDER_MAX_BUFFERED_CHARS` 或 `AGENT_H2A_RENDER_MAX_BUFFERED_EVENTS` 这类传输层缓冲参数；默认 SSE writer 会逐事件 flush。
 - `_sandbox_bash_` 执行失败：检查 `AGENT_CONTAINER_HUB_BASE_URL`、`default-environment-id`，以及 `.env` 中的目录变量是否为宿主机真实路径。
 - chat 没有持久化：检查 `CHATS_DIR` 是否可写。

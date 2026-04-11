@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -12,6 +13,7 @@ import (
 	"log"
 	"mime/multipart"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -106,6 +108,24 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 	s.router.ServeHTTP(rec, r)
 	s.logRequest(r, rec.status, time.Since(startedAt))
+}
+
+// ExecuteInternalQuery reuses the normal query handling pipeline for
+// in-process callers such as the scheduler, while intentionally bypassing the
+// outer HTTP auth gate enforced by ServeHTTP.
+func (s *Server) ExecuteInternalQuery(ctx context.Context, req api.QueryRequest) (int, string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		return 0, "", err
+	}
+	httpReq := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewReader(body)).WithContext(ctx)
+	httpReq.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	s.handleQuery(rec, httpReq)
+	return rec.Code, strings.TrimSpace(rec.Body.String()), nil
 }
 
 func (s *Server) handleCORS(w http.ResponseWriter, r *http.Request) bool {

@@ -1,13 +1,10 @@
 package app
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
-	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"time"
@@ -154,16 +151,12 @@ func New() (*App, error) {
 	if cfg.Schedule.Enabled {
 		scheduleRegistry := schedule.NewRegistry(cfg.Paths.SchedulesDir, registry)
 		dispatcher := schedule.NewDispatcher(func(ctx context.Context, req api.QueryRequest) error {
-			body, err := json.Marshal(req)
+			status, body, err := srv.ExecuteInternalQuery(ctx, req)
 			if err != nil {
 				return err
 			}
-			httpReq := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewReader(body)).WithContext(ctx)
-			httpReq.Header.Set("Content-Type", "application/json")
-			rec := httptest.NewRecorder()
-			srv.ServeHTTP(rec, httpReq)
-			if rec.Code != http.StatusOK {
-				return fmt.Errorf("scheduled query failed with status %d: %s", rec.Code, strings.TrimSpace(rec.Body.String()))
+			if status != http.StatusOK {
+				return fmt.Errorf("scheduled query failed with status %d: %s", status, summarizeScheduleErrorBody(body))
 			}
 			return nil
 		})
@@ -202,4 +195,16 @@ func (a *App) Close() error {
 
 func startupElapsed(startedAt time.Time) time.Duration {
 	return time.Since(startedAt).Round(time.Millisecond)
+}
+
+func summarizeScheduleErrorBody(body string) string {
+	body = strings.Join(strings.Fields(strings.TrimSpace(body)), " ")
+	if body == "" {
+		return "<empty body>"
+	}
+	const maxLen = 240
+	if len(body) > maxLen {
+		return body[:maxLen] + "..."
+	}
+	return body
 }
