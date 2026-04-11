@@ -162,6 +162,67 @@ func TestParseAgentFilePrefersContextConfigTags(t *testing.T) {
 	}
 }
 
+func TestParseAgentFileMapsModelReasoningIntoStageSettings(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	if err := os.WriteFile(path, []byte(
+		"key: reasoned\n"+
+			"name: Reasoned\n"+
+			"mode: REACT\n"+
+			"modelConfig:\n"+
+			"  modelKey: demo-model\n"+
+			"  reasoning:\n"+
+			"    enabled: true\n"+
+			"    effort: HIGH\n",
+	), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	if def.StageSettings["reasoningEnabled"] != true {
+		t.Fatalf("expected reasoningEnabled default, got %#v", def.StageSettings)
+	}
+	if def.StageSettings["reasoningEffort"] != "HIGH" {
+		t.Fatalf("expected reasoningEffort default, got %#v", def.StageSettings)
+	}
+}
+
+func TestParseAgentFilePreservesExplicitStageReasoningOverrides(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	if err := os.WriteFile(path, []byte(
+		"key: reasoned\n"+
+			"name: Reasoned\n"+
+			"mode: PLAN_EXECUTE\n"+
+			"modelConfig:\n"+
+			"  modelKey: demo-model\n"+
+			"  reasoning:\n"+
+			"    enabled: true\n"+
+			"    effort: HIGH\n"+
+			"stageSettings:\n"+
+			"  execute:\n"+
+			"    reasoningEnabled: false\n"+
+			"    reasoningEffort: LOW\n",
+	), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	execute, _ := def.StageSettings["execute"].(map[string]any)
+	if execute["reasoningEnabled"] != false {
+		t.Fatalf("expected explicit execute reasoningEnabled to win, got %#v", execute)
+	}
+	if execute["reasoningEffort"] != "LOW" {
+		t.Fatalf("expected explicit execute reasoningEffort to win, got %#v", execute)
+	}
+}
+
 func TestLoadTeamsSupportsYAMLAndSkipsExampleFiles(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "default.yaml"), []byte(

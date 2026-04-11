@@ -105,6 +105,7 @@ type llmRunStream struct {
 	toolSpecs           []openAIToolSpec
 	requestedToolNames  []string
 	messages            []openAIMessage
+	stageSettings       StageSettings
 	execCtx             *ExecutionContext
 	maxSteps            int
 	toolChoice          string
@@ -289,6 +290,7 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		toolSpecs:           toolSpecs,
 		requestedToolNames:  append([]string(nil), allowedTools...),
 		messages:            append([]openAIMessage(nil), messages...),
+		stageSettings:       stageSettingsForName(session.ResolvedStageSettings, options.Stage),
 		execCtx:             execCtx,
 		maxSteps:            maxSteps,
 		toolChoice:          toolChoice,
@@ -317,6 +319,17 @@ func (e *LLMAgentEngine) resolveMaxSteps() int {
 		return 60 // Java default
 	}
 	return maxSteps
+}
+
+func stageSettingsForName(settings PlanExecuteSettings, stage string) StageSettings {
+	switch strings.ToLower(strings.TrimSpace(stage)) {
+	case "plan":
+		return settings.Plan
+	case "summary":
+		return settings.Summary
+	default:
+		return settings.Execute
+	}
 }
 
 func (s *llmRunStream) Next() (AgentDelta, error) {
@@ -435,7 +448,7 @@ func (s *llmRunStream) prepareNextTurn() error {
 	if len(s.requestedToolNames) > 0 && len(s.toolSpecs) == 0 && !s.finalTurnAttempted {
 		s.engine.logMissingToolSpecsWarning(s.session.RunID, s.requestedToolNames)
 	}
-	turn, err := s.engine.openProviderStream(s.ctx, s.session.RunID, s.provider, s.model, s.messages, s.toolSpecs, s.toolChoice)
+	turn, err := s.engine.openProviderStream(s.ctx, s.session.RunID, s.provider, s.model, s.stageSettings, s.messages, s.toolSpecs, s.toolChoice)
 	if err != nil {
 		return err
 	}
@@ -446,7 +459,7 @@ func (s *llmRunStream) prepareNextTurn() error {
 }
 
 func (s *llmRunStream) consumeCurrentTurn() (bool, error) {
-	rawChunk, err := readSSEData(s.currentTurn.reader)
+	eventName, rawChunk, err := readSSEFrame(s.currentTurn.reader)
 	if err != nil {
 		if s.isInterrupted() {
 			return false, nil
@@ -463,7 +476,7 @@ func (s *llmRunStream) consumeCurrentTurn() (bool, error) {
 		return false, err
 	}
 
-	s.engine.logRawChunk(s.session.RunID, rawChunk)
+	s.engine.logRawChunk(s.session.RunID, formatRawSSEFrame(eventName, rawChunk))
 	if rawChunk == "" {
 		return false, nil
 	}
@@ -471,6 +484,15 @@ func (s *llmRunStream) consumeCurrentTurn() (bool, error) {
 		return true, s.finishCurrentTurn()
 	}
 
+	switch strings.ToUpper(strings.TrimSpace(s.model.Protocol)) {
+	case "ANTHROPIC":
+		return s.consumeAnthropicTurn(eventName, rawChunk)
+	default:
+		return s.consumeOpenAITurn(rawChunk)
+	}
+}
+
+func (s *llmRunStream) consumeOpenAITurn(rawChunk string) (bool, error) {
 	var decoded openAIStreamResponse
 	if err := json.Unmarshal([]byte(rawChunk), &decoded); err != nil {
 		return false, fmt.Errorf("decode provider stream chunk: %w", err)
@@ -495,7 +517,7 @@ func (s *llmRunStream) consumeCurrentTurn() (bool, error) {
 		if len(choice.Delta.ToolCalls) > 0 {
 			s.currentTurn.hasMeaningful = true
 			for _, toolDelta := range choice.Delta.ToolCalls {
-				deltas := s.currentTurn.appendToolDelta(toolDelta)
+				deltas := s.currentTurn.appendOpenAIToolDelta(toolDelta)
 				s.engine.logParsedToolDelta(s.session.RunID, toolDelta)
 				if !s.allowToolUse {
 					continue
@@ -508,6 +530,95 @@ func (s *llmRunStream) consumeCurrentTurn() (bool, error) {
 			s.engine.logParsedDelta(s.session.RunID, "finish_reason", s.currentTurn.finishReason)
 			return true, s.finishCurrentTurn()
 		}
+	}
+
+	return false, nil
+}
+
+func (s *llmRunStream) consumeAnthropicTurn(eventName string, rawChunk string) (bool, error) {
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(rawChunk), &payload); err != nil {
+		return false, fmt.Errorf("decode provider stream chunk: %w", err)
+	}
+
+	switch strings.TrimSpace(eventName) {
+	case "", "ping":
+		return false, nil
+	case "content_block_start":
+		block := anyMapNode(payload["content_block"])
+		blockType := anyStringNode(block["type"])
+		if blockType == "tool_use" {
+			index := anyIntNode(payload["index"])
+			input, _ := block["input"].(map[string]any)
+			toolID := anyStringNode(block["id"])
+			toolName := anyStringNode(block["name"])
+			var argsChunk string
+			if len(input) > 0 {
+				data, err := json.Marshal(input)
+				if err != nil {
+					return false, err
+				}
+				argsChunk = string(data)
+			}
+			deltas := s.currentTurn.appendToolCallDelta(index, toolID, "function", toolName, argsChunk)
+			if !s.allowToolUse {
+				return false, nil
+			}
+			s.pending = append(s.pending, deltas...)
+		}
+	case "content_block_delta":
+		index := anyIntNode(payload["index"])
+		delta := anyMapNode(payload["delta"])
+		switch anyStringNode(delta["type"]) {
+		case "text_delta":
+			text := anyStringNode(delta["text"])
+			if text == "" {
+				return false, nil
+			}
+			s.currentTurn.hasMeaningful = true
+			s.currentTurn.content.WriteString(text)
+			s.engine.logParsedDelta(s.session.RunID, "content", text)
+			s.pending = append(s.pending, s.newContentDeltaEvent(text))
+		case "thinking_delta":
+			text := anyStringNode(delta["thinking"])
+			if text == "" {
+				return false, nil
+			}
+			s.currentTurn.hasMeaningful = true
+			s.currentTurn.reasoning.WriteString(text)
+			s.engine.logParsedDelta(s.session.RunID, "reasoning_content", text)
+			s.pending = append(s.pending, DeltaReasoning{Text: text})
+		case "input_json_delta":
+			partialJSON := anyStringNode(delta["partial_json"])
+			if partialJSON == "" {
+				return false, nil
+			}
+			deltas := s.currentTurn.appendToolCallDelta(index, "", "function", "", partialJSON)
+			if !s.allowToolUse {
+				return false, nil
+			}
+			s.pending = append(s.pending, deltas...)
+		case "signature_delta":
+			return false, nil
+		}
+	case "message_delta":
+		delta := anyMapNode(payload["delta"])
+		stopReason := strings.TrimSpace(anyStringNode(delta["stop_reason"]))
+		if stopReason == "" {
+			return false, nil
+		}
+		if stopReason == "tool_use" {
+			stopReason = "tool_calls"
+		}
+		s.currentTurn.finishReason = stopReason
+		s.engine.logParsedDelta(s.session.RunID, "finish_reason", s.currentTurn.finishReason)
+		return true, s.finishCurrentTurn()
+	case "message_stop":
+		if strings.TrimSpace(s.currentTurn.finishReason) == "" {
+			s.currentTurn.finishReason = "end_turn"
+			s.engine.logParsedDelta(s.session.RunID, "finish_reason", s.currentTurn.finishReason)
+		}
+		return true, s.finishCurrentTurn()
 	}
 
 	return false, nil
@@ -938,26 +1049,30 @@ func normalizeOverrideKey(value string) string {
 	return strings.ToLower(strings.TrimSpace(value))
 }
 
-func (t *providerTurnStream) appendToolDelta(delta openAIStreamToolDelta) []AgentDelta {
+func (t *providerTurnStream) appendOpenAIToolDelta(delta openAIStreamToolDelta) []AgentDelta {
+	return t.appendToolCallDelta(delta.Index, delta.ID, delta.Type, delta.Function.Name, delta.Function.Arguments)
+}
+
+func (t *providerTurnStream) appendToolCallDelta(index int, toolID string, toolType string, toolName string, argumentsChunk string) []AgentDelta {
 	if t.toolCalls == nil {
 		t.toolCalls = map[int]*toolCallAccumulator{}
 	}
-	acc, ok := t.toolCalls[delta.Index]
+	acc, ok := t.toolCalls[index]
 	if !ok {
 		acc = &toolCallAccumulator{}
-		t.toolCalls[delta.Index] = acc
+		t.toolCalls[index] = acc
 	}
-	if delta.ID != "" {
-		acc.ID = delta.ID
+	if toolID != "" {
+		acc.ID = toolID
 	}
-	if delta.Type != "" {
-		acc.Type = delta.Type
+	if toolType != "" {
+		acc.Type = toolType
 	}
-	if delta.Function.Name != "" {
-		acc.FunctionName = delta.Function.Name
+	if toolName != "" {
+		acc.FunctionName = toolName
 	}
-	if delta.Function.Arguments != "" {
-		acc.Arguments.WriteString(delta.Function.Arguments)
+	if argumentsChunk != "" {
+		acc.Arguments.WriteString(argumentsChunk)
 	}
 	if acc.ID == "" {
 		return nil
@@ -969,7 +1084,7 @@ func (t *providerTurnStream) appendToolDelta(delta openAIStreamToolDelta) []Agen
 	argsDelta := arguments[acc.EmittedBytes:]
 	acc.EmittedBytes = len(arguments)
 	return []AgentDelta{DeltaToolCall{
-		Index:     delta.Index,
+		Index:     index,
 		ID:        acc.ID,
 		Name:      acc.FunctionName,
 		ArgsDelta: argsDelta,
@@ -1007,17 +1122,102 @@ func (t *providerTurnStream) materializeToolCalls() ([]openAIToolCall, error) {
 	return out, nil
 }
 
-func (e *LLMAgentEngine) openProviderStream(ctx context.Context, runID string, provider ProviderDefinition, model ModelDefinition, messages []openAIMessage, toolSpecs []openAIToolSpec, toolChoice string) (*providerTurnStream, error) {
+func (e *LLMAgentEngine) openProviderStream(ctx context.Context, runID string, provider ProviderDefinition, model ModelDefinition, stageSettings StageSettings, messages []openAIMessage, toolSpecs []openAIToolSpec, toolChoice string) (*providerTurnStream, error) {
 	if provider.BaseURL == "" {
 		return nil, fmt.Errorf("provider %s has empty baseUrl", provider.Key)
 	}
 	if provider.APIKey == "" {
 		return nil, fmt.Errorf("provider %s has empty apiKey", provider.Key)
 	}
-	if model.Protocol != "" && model.Protocol != "OPENAI" {
-		return nil, fmt.Errorf("streaming protocol %s is not supported", model.Protocol)
+	protocol := strings.ToUpper(strings.TrimSpace(model.Protocol))
+	if protocol == "" {
+		protocol = "OPENAI"
 	}
 
+	protocolConfig := resolveProtocolRuntimeConfig(provider, model)
+	endpoint := strings.TrimRight(provider.BaseURL, "/") + protocolConfig.EndpointPath
+
+	switch protocol {
+	case "OPENAI":
+		return e.openOpenAIProviderStream(ctx, runID, provider, model, messages, toolSpecs, toolChoice, endpoint)
+	case "ANTHROPIC":
+		return e.openAnthropicProviderStream(ctx, runID, provider, model, stageSettings, messages, toolSpecs, toolChoice, endpoint, protocolConfig)
+	default:
+		return nil, fmt.Errorf("streaming protocol %s is not supported", model.Protocol)
+	}
+}
+
+type protocolRuntimeConfig struct {
+	EndpointPath string
+	Headers      map[string]string
+	Compat       map[string]any
+}
+
+func resolveProtocolRuntimeConfig(provider ProviderDefinition, model ModelDefinition) protocolRuntimeConfig {
+	protocol := strings.ToUpper(strings.TrimSpace(model.Protocol))
+	if protocol == "" {
+		protocol = "OPENAI"
+	}
+	def := provider.Protocol(protocol)
+	endpointPath := def.EndpointPath
+	if endpointPath == "" {
+		endpointPath = defaultEndpointPath(protocol, provider.BaseURL)
+	}
+	return protocolRuntimeConfig{
+		EndpointPath: endpointPath,
+		Headers:      mergeStringMaps(defaultProtocolHeaders(protocol), def.Headers, model.Headers),
+		Compat:       mergeAnyMaps(def.Compat, model.Compat),
+	}
+}
+
+func defaultProtocolHeaders(protocol string) map[string]string {
+	switch strings.ToUpper(strings.TrimSpace(protocol)) {
+	case "ANTHROPIC":
+		return map[string]string{
+			"anthropic-version": "2023-06-01",
+		}
+	default:
+		return nil
+	}
+}
+
+func mergeStringMaps(maps ...map[string]string) map[string]string {
+	var out map[string]string
+	for _, current := range maps {
+		if len(current) == 0 {
+			continue
+		}
+		if out == nil {
+			out = map[string]string{}
+		}
+		for key, value := range current {
+			out[key] = value
+		}
+	}
+	return out
+}
+
+func mergeAnyMaps(base map[string]any, overlay map[string]any) map[string]any {
+	if len(base) == 0 && len(overlay) == 0 {
+		return nil
+	}
+	out := cloneAnyMap(base)
+	if out == nil {
+		out = map[string]any{}
+	}
+	for key, value := range overlay {
+		if baseValue, ok := out[key].(map[string]any); ok {
+			if overlayValue, ok := value.(map[string]any); ok {
+				out[key] = mergeAnyMaps(baseValue, overlayValue)
+				continue
+			}
+		}
+		out[key] = value
+	}
+	return out
+}
+
+func (e *LLMAgentEngine) openOpenAIProviderStream(ctx context.Context, runID string, provider ProviderDefinition, model ModelDefinition, messages []openAIMessage, toolSpecs []openAIToolSpec, toolChoice string, endpoint string) (*providerTurnStream, error) {
 	effectiveToolChoice := "auto"
 	if toolChoice != "" {
 		effectiveToolChoice = toolChoice
@@ -1039,7 +1239,6 @@ func (e *LLMAgentEngine) openProviderStream(ctx context.Context, runID string, p
 		return nil, err
 	}
 
-	endpoint := strings.TrimRight(provider.BaseURL, "/") + provider.EndpointPath
 	e.logOutgoingRequest(runID, provider, model, endpoint, messages, toolSpecs, effectiveToolChoice, body)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
@@ -1049,6 +1248,35 @@ func (e *LLMAgentEngine) openProviderStream(ctx context.Context, runID string, p
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Authorization", "Bearer "+provider.APIKey)
 
+	return e.executeProviderRequest(req)
+}
+
+func (e *LLMAgentEngine) openAnthropicProviderStream(ctx context.Context, runID string, provider ProviderDefinition, model ModelDefinition, stageSettings StageSettings, messages []openAIMessage, toolSpecs []openAIToolSpec, toolChoice string, endpoint string, protocolConfig protocolRuntimeConfig) (*providerTurnStream, error) {
+	requestBody, effectiveToolChoice, err := e.buildAnthropicRequestBody(model, stageSettings, messages, toolSpecs, toolChoice, protocolConfig)
+	if err != nil {
+		return nil, err
+	}
+	body, err := json.Marshal(requestBody)
+	if err != nil {
+		return nil, err
+	}
+
+	e.logOutgoingRequest(runID, provider, model, endpoint, messages, toolSpecs, effectiveToolChoice, body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+	req.Header.Set("X-Api-Key", provider.APIKey)
+	for key, value := range protocolConfig.Headers {
+		req.Header.Set(key, value)
+	}
+
+	return e.executeProviderRequest(req)
+}
+
+func (e *LLMAgentEngine) executeProviderRequest(req *http.Request) (*providerTurnStream, error) {
 	resp, err := e.httpClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -1065,6 +1293,181 @@ func (e *LLMAgentEngine) openProviderStream(ctx context.Context, runID string, p
 		body:   resp.Body,
 		reader: bufio.NewReader(resp.Body),
 	}, nil
+}
+
+func (e *LLMAgentEngine) buildAnthropicRequestBody(model ModelDefinition, stageSettings StageSettings, messages []openAIMessage, toolSpecs []openAIToolSpec, toolChoice string, protocolConfig protocolRuntimeConfig) (map[string]any, string, error) {
+	systemPrompt, anthropicMessages, err := convertMessagesToAnthropic(messages)
+	if err != nil {
+		return nil, "", err
+	}
+
+	effectiveToolChoice := strings.TrimSpace(strings.ToLower(toolChoice))
+	if effectiveToolChoice == "" {
+		effectiveToolChoice = "auto"
+	}
+	if len(toolSpecs) == 0 || effectiveToolChoice == "none" {
+		effectiveToolChoice = ""
+	}
+
+	requestBody := map[string]any{
+		"model":      model.ModelID,
+		"messages":   anthropicMessages,
+		"stream":     true,
+		"max_tokens": resolveAnthropicMaxTokens(e.cfg, stageSettings),
+	}
+	if strings.TrimSpace(systemPrompt) != "" {
+		requestBody["system"] = systemPrompt
+	}
+	if len(toolSpecs) > 0 && effectiveToolChoice != "" {
+		requestBody["tools"] = toAnthropicToolSpecs(toolSpecs)
+		requestBody["tool_choice"] = anthropicToolChoice(effectiveToolChoice, stageSettings.ReasoningEnabled)
+	}
+
+	if stageSettings.ReasoningEnabled {
+		requestBody["thinking"] = map[string]any{
+			"type":          "enabled",
+			"budget_tokens": reasoningBudgetTokens(stageSettings.ReasoningEffort),
+		}
+		if compatRequest := anyMapNode(anyMapNode(protocolConfig.Compat["request"])["whenReasoningEnabled"]); len(compatRequest) > 0 {
+			requestBody = mergeAnyMaps(requestBody, compatRequest)
+		}
+	}
+
+	return requestBody, effectiveToolChoice, nil
+}
+
+func convertMessagesToAnthropic(messages []openAIMessage) (string, []map[string]any, error) {
+	var systemParts []string
+	var out []map[string]any
+	for index := 0; index < len(messages); index++ {
+		msg := messages[index]
+		switch strings.TrimSpace(msg.Role) {
+		case "system":
+			if text := anthropicTextFromContent(msg.Content); text != "" {
+				systemParts = append(systemParts, text)
+			}
+		case "user":
+			blocks := anthropicTextBlocks(msg.Content)
+			if len(blocks) > 0 {
+				out = append(out, map[string]any{"role": "user", "content": blocks})
+			}
+		case "assistant":
+			blocks, err := anthropicAssistantBlocks(msg)
+			if err != nil {
+				return "", nil, err
+			}
+			if len(blocks) > 0 {
+				out = append(out, map[string]any{"role": "assistant", "content": blocks})
+			}
+		case "tool":
+			blocks := make([]map[string]any, 0, 2)
+			for index < len(messages) && strings.TrimSpace(messages[index].Role) == "tool" {
+				toolMsg := messages[index]
+				blocks = append(blocks, map[string]any{
+					"type":        "tool_result",
+					"tool_use_id": toolMsg.ToolCallID,
+					"content":     anthropicTextFromContent(toolMsg.Content),
+				})
+				index++
+			}
+			if index < len(messages) && strings.TrimSpace(messages[index].Role) == "user" {
+				blocks = append(blocks, anthropicTextBlocks(messages[index].Content)...)
+			} else {
+				index--
+			}
+			if len(blocks) > 0 {
+				out = append(out, map[string]any{"role": "user", "content": blocks})
+			}
+		}
+	}
+	return strings.Join(systemParts, "\n\n"), out, nil
+}
+
+func anthropicAssistantBlocks(msg openAIMessage) ([]map[string]any, error) {
+	blocks := anthropicTextBlocks(msg.Content)
+	for _, toolCall := range msg.ToolCalls {
+		input := map[string]any{}
+		if strings.TrimSpace(toolCall.Function.Arguments) != "" {
+			if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &input); err != nil {
+				return nil, fmt.Errorf("decode assistant tool call %s: %w", toolCall.ID, err)
+			}
+		}
+		blocks = append(blocks, map[string]any{
+			"type":  "tool_use",
+			"id":    toolCall.ID,
+			"name":  toolCall.Function.Name,
+			"input": input,
+		})
+	}
+	return blocks, nil
+}
+
+func anthropicTextBlocks(content any) []map[string]any {
+	text := anthropicTextFromContent(content)
+	if text == "" {
+		return nil
+	}
+	return []map[string]any{{"type": "text", "text": text}}
+}
+
+func anthropicTextFromContent(content any) string {
+	switch value := content.(type) {
+	case string:
+		return strings.TrimSpace(value)
+	case nil:
+		return ""
+	default:
+		return strings.TrimSpace(fmt.Sprintf("%v", value))
+	}
+}
+
+func toAnthropicToolSpecs(specs []openAIToolSpec) []map[string]any {
+	out := make([]map[string]any, 0, len(specs))
+	for _, spec := range specs {
+		out = append(out, map[string]any{
+			"name":         spec.Function.Name,
+			"description":  spec.Function.Description,
+			"input_schema": spec.Function.Parameters,
+		})
+	}
+	return out
+}
+
+func anthropicToolChoice(toolChoice string, reasoningEnabled bool) map[string]any {
+	switch strings.TrimSpace(strings.ToLower(toolChoice)) {
+	case "required":
+		if reasoningEnabled {
+			return map[string]any{"type": "auto"}
+		}
+		return map[string]any{"type": "any"}
+	case "auto":
+		return map[string]any{"type": "auto"}
+	default:
+		return map[string]any{"type": "auto"}
+	}
+}
+
+func resolveAnthropicMaxTokens(cfg config.Config, stageSettings StageSettings) int {
+	if stageSettings.MaxTokens > 0 {
+		return stageSettings.MaxTokens
+	}
+	if cfg.Defaults.MaxTokens > 0 {
+		return cfg.Defaults.MaxTokens
+	}
+	return 4096
+}
+
+func reasoningBudgetTokens(effort string) int {
+	switch strings.ToUpper(strings.TrimSpace(effort)) {
+	case "LOW":
+		return 1024
+	case "HIGH":
+		return 4096
+	case "MEDIUM":
+		fallthrough
+	default:
+		return 2048
+	}
 }
 
 func (e *LLMAgentEngine) logOutgoingRequest(runID string, provider ProviderDefinition, model ModelDefinition, endpoint string, messages []openAIMessage, toolSpecs []openAIToolSpec, toolChoice string, body []byte) {
@@ -1145,39 +1548,50 @@ func (e *LLMAgentEngine) formatLogText(text string) string {
 	return normalized
 }
 
-func readSSEData(reader *bufio.Reader) (string, error) {
+func readSSEFrame(reader *bufio.Reader) (string, string, error) {
+	var eventName string
 	var dataLines []string
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil && !errors.Is(err, io.EOF) {
-			return "", err
+			return "", "", err
 		}
 		line = strings.TrimRight(line, "\r\n")
 		if line == "" {
-			if len(dataLines) > 0 {
-				return strings.Join(dataLines, "\n"), nil
+			if len(dataLines) > 0 || eventName != "" {
+				return eventName, strings.Join(dataLines, "\n"), nil
 			}
 			if errors.Is(err, io.EOF) {
-				return "", io.EOF
+				return "", "", io.EOF
 			}
 			continue
 		}
 		if strings.HasPrefix(line, ":") {
 			if errors.Is(err, io.EOF) {
-				return "", io.EOF
+				return "", "", io.EOF
 			}
 			continue
+		}
+		if strings.HasPrefix(line, "event:") {
+			eventName = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
 		}
 		if strings.HasPrefix(line, "data:") {
 			dataLines = append(dataLines, strings.TrimSpace(strings.TrimPrefix(line, "data:")))
 		}
 		if errors.Is(err, io.EOF) {
-			if len(dataLines) == 0 {
-				return "", io.EOF
+			if len(dataLines) == 0 && eventName == "" {
+				return "", "", io.EOF
 			}
-			return strings.Join(dataLines, "\n"), nil
+			return eventName, strings.Join(dataLines, "\n"), nil
 		}
 	}
+}
+
+func formatRawSSEFrame(eventName string, rawChunk string) string {
+	if strings.TrimSpace(eventName) == "" {
+		return rawChunk
+	}
+	return "event: " + strings.TrimSpace(eventName) + "\ndata: " + rawChunk
 }
 
 func (r ToolExecutionResult) StructuredOrOutput() any {

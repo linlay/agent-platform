@@ -679,6 +679,174 @@ func TestLLMAgentEngineStreamsReasoningThenContent(t *testing.T) {
 	}
 }
 
+func TestLLMAgentEngineSupportsAnthropicStreamingAndToolUse(t *testing.T) {
+	var mu sync.Mutex
+	callCount := 0
+	client := newScriptedHTTPClient(func(req *http.Request) scriptedHTTPResponse {
+		mu.Lock()
+		defer mu.Unlock()
+		callCount++
+
+		if got := req.URL.String(); got != "https://provider.example.com/v1/messages" {
+			t.Fatalf("unexpected anthropic endpoint: %s", got)
+		}
+		if got := req.Header.Get("X-Api-Key"); got != "test-key" {
+			t.Fatalf("expected x-api-key header, got %q", got)
+		}
+		if got := req.Header.Get("anthropic-version"); got != "2023-06-01" {
+			t.Fatalf("expected anthropic-version header, got %q", got)
+		}
+		if got := req.Header.Get("anthropic-beta"); got != "tools-2024-04-04" {
+			t.Fatalf("expected model header override, got %q", got)
+		}
+
+		var request map[string]any
+		if err := json.NewDecoder(req.Body).Decode(&request); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if request["model"] != "reasoner-model" {
+			t.Fatalf("unexpected model in request: %#v", request)
+		}
+		if request["max_tokens"] != float64(2048) {
+			t.Fatalf("expected max_tokens from stage settings, got %#v", request["max_tokens"])
+		}
+		thinking, _ := request["thinking"].(map[string]any)
+		if thinking["budget_tokens"] != float64(3072) {
+			t.Fatalf("expected compat-overridden thinking budget, got %#v", thinking)
+		}
+		messages, _ := request["messages"].([]any)
+		if callCount == 1 {
+			if len(messages) == 0 {
+				t.Fatalf("expected initial anthropic messages, got %#v", request)
+			}
+			return scriptedEventSSE(
+				sseFrame{"message_start", `{"type":"message_start"}`},
+				sseFrame{"content_block_start", `{"type":"content_block_start","index":0,"content_block":{"type":"thinking"}}`},
+				sseFrame{"content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"thinking..."}}`},
+				sseFrame{"content_block_start", `{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_1","name":"mock.tool"}}`},
+				sseFrame{"content_block_delta", `{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"value\":1}"}}`},
+				sseFrame{"message_delta", `{"type":"message_delta","delta":{"stop_reason":"tool_use"}}`},
+				sseFrame{"message_stop", `{"type":"message_stop"}`},
+			)
+		}
+
+		foundToolResult := false
+		for _, raw := range messages {
+			msg, _ := raw.(map[string]any)
+			if msg["role"] != "user" {
+				continue
+			}
+			content, _ := msg["content"].([]any)
+			if len(content) == 0 {
+				continue
+			}
+			firstBlock, _ := content[0].(map[string]any)
+			if firstBlock["type"] == "tool_result" && firstBlock["tool_use_id"] == "toolu_1" {
+				foundToolResult = true
+				break
+			}
+		}
+		if !foundToolResult {
+			t.Fatalf("expected second anthropic request to include tool_result block first, got %#v", request)
+		}
+
+		return scriptedEventSSE(
+			sseFrame{"content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"done"}}`},
+			sseFrame{"message_delta", `{"type":"message_delta","delta":{"stop_reason":"end_turn"}}`},
+			sseFrame{"message_stop", `{"type":"message_stop"}`},
+		)
+	})
+
+	tools := &testToolExecutor{
+		definitions: []api.ToolDetailResponse{
+			{
+				Key:  "mock.tool",
+				Name: "mock.tool",
+				Parameters: map[string]any{
+					"type": "object",
+				},
+			},
+		},
+		result: ToolExecutionResult{Output: "tool-ok"},
+	}
+	engine := NewLLMAgentEngineWithHTTPClient(
+		config.Config{Defaults: config.DefaultsConfig{MaxTokens: 4096, React: config.ReactDefaultsConfig{MaxSteps: 4}}},
+		&ModelRegistry{
+			providers: map[string]ProviderDefinition{
+				"compat_provider": {
+					Key:     "compat_provider",
+					BaseURL: "https://provider.example.com",
+					APIKey:  "test-key",
+					Protocols: map[string]ProtocolDefinition{
+						"ANTHROPIC": {
+							EndpointPath: "/v1/messages",
+							Headers:      map[string]string{"anthropic-version": "2023-06-01"},
+							Compat: map[string]any{
+								"request": map[string]any{
+									"whenReasoningEnabled": map[string]any{
+										"thinking": map[string]any{"budget_tokens": 3072},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			models: map[string]ModelDefinition{
+				"reasoner-model": {
+					Key:      "reasoner-model",
+					Provider: "compat_provider",
+					Protocol: "ANTHROPIC",
+					ModelID:  "reasoner-model",
+					Headers:  map[string]string{"anthropic-beta": "tools-2024-04-04"},
+				},
+			},
+		},
+		tools,
+		NewNoopSandboxClient(),
+		client,
+	)
+
+	stream, err := engine.Stream(context.Background(), api.QueryRequest{Message: "use tool"}, QuerySession{
+		RunID:     "run_anthropic",
+		ChatID:    "chat_anthropic",
+		ModelKey:  "reasoner-model",
+		ToolNames: []string{"mock.tool"},
+		ResolvedStageSettings: PlanExecuteSettings{
+			Execute: StageSettings{
+				ReasoningEnabled: true,
+				ReasoningEffort:  "HIGH",
+				MaxTokens:        2048,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("stream query: %v", err)
+	}
+	defer stream.Close()
+
+	var seenTypes []string
+	for {
+		event, err := stream.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("next: %v", err)
+		}
+		seenTypes = append(seenTypes, deltaTypeName(event))
+	}
+
+	if len(tools.invocations) != 1 || tools.invocations[0]["value"] != float64(1) {
+		t.Fatalf("expected anthropic tool invocation args, got %#v", tools.invocations)
+	}
+	assertContainsType(t, seenTypes, "reasoning.delta")
+	assertContainsType(t, seenTypes, "tool.args")
+	assertContainsType(t, seenTypes, "tool.result")
+	assertContainsType(t, seenTypes, "content.delta")
+	assertContainsType(t, seenTypes, "run.complete")
+}
+
 type scriptedHTTPResponse struct {
 	statusCode int
 	body       string
@@ -719,6 +887,30 @@ func scriptedSSE(frames ...string) scriptedHTTPResponse {
 	for _, frame := range frames {
 		builder.WriteString("data: ")
 		builder.WriteString(frame)
+		builder.WriteString("\n\n")
+	}
+	return scriptedHTTPResponse{
+		statusCode: http.StatusOK,
+		body:       builder.String(),
+		headers:    map[string]string{"Content-Type": "text/event-stream"},
+	}
+}
+
+type sseFrame struct {
+	event string
+	data  string
+}
+
+func scriptedEventSSE(frames ...sseFrame) scriptedHTTPResponse {
+	var builder strings.Builder
+	for _, frame := range frames {
+		if strings.TrimSpace(frame.event) != "" {
+			builder.WriteString("event: ")
+			builder.WriteString(frame.event)
+			builder.WriteString("\n")
+		}
+		builder.WriteString("data: ")
+		builder.WriteString(frame.data)
 		builder.WriteString("\n\n")
 	}
 	return scriptedHTTPResponse{

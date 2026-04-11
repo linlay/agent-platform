@@ -132,10 +132,12 @@ func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*Fil
 }
 
 // Reload reloads catalog entries scoped by reason. Supported reasons:
-//   "startup" / "" / "config" — reload everything
-//   "agents" — reload only agents
-//   "teams"  — reload only teams
-//   "skills" — reload only skills
+//
+//	"startup" / "" / "config" — reload everything
+//	"agents" — reload only agents
+//	"teams"  — reload only teams
+//	"skills" — reload only skills
+//
 // Other reasons fall through to a full reload.
 func (r *FileRegistry) Reload(_ context.Context, reason string) error {
 	switch reason {
@@ -735,6 +737,7 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	if stageSettings := mapNode(root["stageSettings"]); len(stageSettings) > 0 {
 		def.StageSettings = cloneMap(stageSettings)
 	}
+	def.StageSettings = applyModelReasoningDefaults(def.StageSettings, mapNode(modelConfig["reasoning"]))
 	// PROXY mode config
 	if proxyRaw := mapNode(root["proxyConfig"]); len(proxyRaw) > 0 {
 		def.ProxyConfig = &ProxyConfig{
@@ -795,6 +798,43 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 		def.Role = def.Name
 	}
 	return def, root, nil
+}
+
+func applyModelReasoningDefaults(stageSettings map[string]any, reasoning map[string]any) map[string]any {
+	if len(reasoning) == 0 {
+		return stageSettings
+	}
+	enabled, enabledOK := reasoning["enabled"]
+	effort, effortOK := reasoning["effort"]
+	if !enabledOK && !effortOK {
+		return stageSettings
+	}
+	if stageSettings == nil {
+		stageSettings = map[string]any{}
+	}
+	applyReasoningDefaultsToStageNode(stageSettings, enabled, enabledOK, effort, effortOK)
+	for _, key := range []string{"plan", "execute", "summary"} {
+		node := mapNode(stageSettings[key])
+		if len(node) == 0 {
+			continue
+		}
+		applyReasoningDefaultsToStageNode(node, enabled, enabledOK, effort, effortOK)
+		stageSettings[key] = node
+	}
+	return stageSettings
+}
+
+func applyReasoningDefaultsToStageNode(node map[string]any, enabled any, enabledOK bool, effort any, effortOK bool) {
+	if enabledOK {
+		if _, exists := node["reasoningEnabled"]; !exists {
+			node["reasoningEnabled"] = enabled
+		}
+	}
+	if effortOK {
+		if _, exists := node["reasoningEffort"]; !exists {
+			node["reasoningEffort"] = effort
+		}
+	}
 }
 
 func parseTeamFile(path string) (TeamDefinition, error) {

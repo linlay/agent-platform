@@ -31,6 +31,9 @@ func TestLoadProvidersReadsOpenAIEndpointFromProtocolConfig(t *testing.T) {
 	if provider.EndpointPath != "/v1/chat/completions" {
 		t.Fatalf("expected normalized endpoint path, got %q", provider.EndpointPath)
 	}
+	if provider.Protocol("OPENAI").EndpointPath != "/v1/chat/completions" {
+		t.Fatalf("expected openai protocol endpoint path, got %#v", provider.Protocols)
+	}
 }
 
 func TestLoadProvidersDefaultsEndpointPathFromBaseURL(t *testing.T) {
@@ -119,6 +122,75 @@ func TestLoadProvidersSupportsBaseURLEnvOverrides(t *testing.T) {
 	}
 }
 
+func TestLoadProvidersSupportsAnthropicProtocolMetadata(t *testing.T) {
+	dir := t.TempDir()
+	writeProviderFixture(t, dir, "protocol_provider.yml", ""+
+		"key: protocol_provider\n"+
+		"baseUrl: https://provider.example.com\n"+
+		"apiKey: test-key\n"+
+		"defaultModel: protocol-model\n"+
+		"protocols:\n"+
+		"  ANTHROPIC:\n"+
+		"    endpointPath: v1/messages\n"+
+		"    headers:\n"+
+		"      anthropic-version: 2023-06-01\n"+
+		"    compat:\n"+
+		"      request:\n"+
+		"        whenReasoningEnabled:\n"+
+		"          thinking:\n"+
+		"            budget_tokens: 2048\n")
+
+	providers, err := loadProviders(dir)
+	if err != nil {
+		t.Fatalf("load providers: %v", err)
+	}
+
+	protocol := providers["protocol_provider"].Protocol("ANTHROPIC")
+	if protocol.EndpointPath != "/v1/messages" {
+		t.Fatalf("expected anthropic endpoint path, got %#v", protocol)
+	}
+	if protocol.Headers["anthropic-version"] != "2023-06-01" {
+		t.Fatalf("expected anthropic headers, got %#v", protocol.Headers)
+	}
+	requestCompat, _ := anyMapNode(protocol.Compat["request"])["whenReasoningEnabled"].(map[string]any)
+	if requestCompat == nil {
+		t.Fatalf("expected anthropic compat, got %#v", protocol.Compat)
+	}
+}
+
+func TestLoadModelsSupportsHeadersAndCompat(t *testing.T) {
+	dir := t.TempDir()
+	writeProviderFixture(t, dir, "protocol_model.yml", ""+
+		"key: protocol-model\n"+
+		"provider: protocol_provider\n"+
+		"protocol: ANTHROPIC\n"+
+		"modelId: protocol-model\n"+
+		"headers:\n"+
+		"  anthropic-beta: tools-2024-04-04\n"+
+		"compat:\n"+
+		"  request:\n"+
+		"    whenReasoningEnabled:\n"+
+		"      thinking:\n"+
+		"        budget_tokens: 4096\n")
+
+	models, err := loadModels(dir)
+	if err != nil {
+		t.Fatalf("load models: %v", err)
+	}
+
+	model := models["protocol-model"]
+	if model.Protocol != "ANTHROPIC" {
+		t.Fatalf("expected anthropic protocol, got %#v", model)
+	}
+	if model.Headers["anthropic-beta"] != "tools-2024-04-04" {
+		t.Fatalf("expected model headers, got %#v", model.Headers)
+	}
+	requestCompat, _ := anyMapNode(model.Compat["request"])["whenReasoningEnabled"].(map[string]any)
+	if requestCompat == nil {
+		t.Fatalf("expected model compat, got %#v", model.Compat)
+	}
+}
+
 func TestLLMAgentEngineAvoidsDuplicateV1InProviderURL(t *testing.T) {
 	registry := &ModelRegistry{
 		providers: map[string]ProviderDefinition{
@@ -167,6 +239,41 @@ func TestLLMAgentEngineAvoidsDuplicateV1InProviderURL(t *testing.T) {
 
 	if requestURL != "https://provider.example.com/v1/chat/completions" {
 		t.Fatalf("expected canonical provider url, got %q", requestURL)
+	}
+}
+
+func TestModelRegistryDefaultPrefersExplicitDefaultModelKeyAcrossProtocols(t *testing.T) {
+	registry := &ModelRegistry{
+		providers: map[string]ProviderDefinition{
+			"compat_provider": {
+				Key:          "compat_provider",
+				BaseURL:      "https://provider.example.com",
+				APIKey:       "test-key",
+				DefaultModel: "reasoner-model-openai",
+			},
+		},
+		models: map[string]ModelDefinition{
+			"reasoner-model-openai": {
+				Key:      "reasoner-model-openai",
+				Provider: "compat_provider",
+				Protocol: "OPENAI",
+				ModelID:  "shared-model-id",
+			},
+			"reasoner-model-anthropic": {
+				Key:      "reasoner-model-anthropic",
+				Provider: "compat_provider",
+				Protocol: "ANTHROPIC",
+				ModelID:  "shared-model-id",
+			},
+		},
+	}
+
+	model, _, err := registry.Default()
+	if err != nil {
+		t.Fatalf("default: %v", err)
+	}
+	if model.Key != "reasoner-model-openai" {
+		t.Fatalf("expected explicit default model key, got %#v", model)
 	}
 }
 

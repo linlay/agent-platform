@@ -19,6 +19,13 @@ type ProviderDefinition struct {
 	APIKey       string
 	DefaultModel string
 	EndpointPath string
+	Protocols    map[string]ProtocolDefinition
+}
+
+type ProtocolDefinition struct {
+	EndpointPath string
+	Headers      map[string]string
+	Compat       map[string]any
 }
 
 type ModelDefinition struct {
@@ -28,6 +35,8 @@ type ModelDefinition struct {
 	ModelID    string
 	IsFunction bool
 	IsReasoner bool
+	Headers    map[string]string
+	Compat     map[string]any
 }
 
 type ModelRegistry struct {
@@ -36,6 +45,20 @@ type ModelRegistry struct {
 	mu        sync.RWMutex
 	providers map[string]ProviderDefinition
 	models    map[string]ModelDefinition
+}
+
+func (p ProviderDefinition) Protocol(protocol string) ProtocolDefinition {
+	normalized := strings.ToUpper(strings.TrimSpace(protocol))
+	if normalized == "" {
+		normalized = "OPENAI"
+	}
+	if def, ok := p.Protocols[normalized]; ok {
+		return def
+	}
+	if normalized == "OPENAI" {
+		return ProtocolDefinition{EndpointPath: p.EndpointPath}
+	}
+	return ProtocolDefinition{}
 }
 
 func LoadModelRegistry(registriesDir string) (*ModelRegistry, error) {
@@ -166,12 +189,14 @@ func loadProviders(dir string) (map[string]ProviderDefinition, error) {
 			continue
 		}
 		baseURL := resolveProviderBaseURL(key, values)
+		protocols := loadProviderProtocols(values, baseURL)
 		result[key] = ProviderDefinition{
 			Key:          key,
 			BaseURL:      baseURL,
 			APIKey:       strings.TrimSpace(stringNode(values["apiKey"])),
 			DefaultModel: strings.TrimSpace(stringNode(values["defaultModel"])),
-			EndpointPath: resolveProviderEndpointPath(values, baseURL),
+			EndpointPath: resolveProviderEndpointPath(values, baseURL, "OPENAI"),
+			Protocols:    protocols,
 		}
 	}
 	return result, nil
@@ -189,16 +214,21 @@ func resolveProviderBaseURL(key string, values map[string]any) string {
 	return strings.TrimSpace(stringNode(values["baseUrl"]))
 }
 
-func resolveProviderEndpointPath(values map[string]any, baseURL string) string {
-	if protocolNode := nestedMap(values, "protocols", "OPENAI"); protocolNode != nil {
-		if value := strings.TrimSpace(stringNode(protocolNode["endpointPath"])); value != "" {
-			return normalizeEndpointPath(value, baseURL)
+func resolveProviderEndpointPath(values map[string]any, baseURL string, protocol string) string {
+	normalizedProtocol := strings.ToUpper(strings.TrimSpace(protocol))
+	if normalizedProtocol != "" {
+		if protocolNode := nestedMap(values, "protocols", normalizedProtocol); protocolNode != nil {
+			if value := strings.TrimSpace(stringNode(protocolNode["endpointPath"])); value != "" {
+				return normalizeEndpointPath(value, baseURL, normalizedProtocol)
+			}
 		}
 	}
-	if value := strings.TrimSpace(stringNode(values["endpointPath"])); value != "" {
-		return normalizeEndpointPath(value, baseURL)
+	if normalizedProtocol == "" || normalizedProtocol == "OPENAI" {
+		if value := strings.TrimSpace(stringNode(values["endpointPath"])); value != "" {
+			return normalizeEndpointPath(value, baseURL, normalizedProtocol)
+		}
 	}
-	return defaultOpenAIEndpointPath(baseURL)
+	return defaultEndpointPath(normalizedProtocol, baseURL)
 }
 
 func hasProtocolConfig(values map[string]any, protocol string) bool {
@@ -215,6 +245,29 @@ func nestedMap(values map[string]any, keys ...string) map[string]any {
 		current = next
 	}
 	return current
+}
+
+func loadProviderProtocols(values map[string]any, baseURL string) map[string]ProtocolDefinition {
+	result := map[string]ProtocolDefinition{}
+	protocolNodes := anyMapNode(values["protocols"])
+	for rawProtocol, rawValue := range protocolNodes {
+		protocol := strings.ToUpper(strings.TrimSpace(rawProtocol))
+		if protocol == "" {
+			continue
+		}
+		node := anyMapNode(rawValue)
+		result[protocol] = ProtocolDefinition{
+			EndpointPath: resolveProviderEndpointPath(values, baseURL, protocol),
+			Headers:      stringMapNode(node["headers"]),
+			Compat:       cloneAnyMap(anyMapNode(node["compat"])),
+		}
+	}
+	if _, ok := result["OPENAI"]; !ok {
+		result["OPENAI"] = ProtocolDefinition{
+			EndpointPath: resolveProviderEndpointPath(values, baseURL, "OPENAI"),
+		}
+	}
+	return result
 }
 
 func providerBaseURLEnvKey(key string) string {
@@ -237,7 +290,7 @@ func providerBaseURLEnvKey(key string) string {
 	return normalized + "_BASE_URL"
 }
 
-func normalizeEndpointPath(value string, baseURL string) string {
+func normalizeEndpointPath(value string, baseURL string, protocol string) string {
 	path := "/" + strings.TrimLeft(strings.TrimSpace(value), "/")
 	if basePath := normalizedBasePath(baseURL); basePath != "" && basePath != "/" && strings.HasPrefix(path, basePath+"/") {
 		path = strings.TrimPrefix(path, basePath)
@@ -245,11 +298,25 @@ func normalizeEndpointPath(value string, baseURL string) string {
 	return path
 }
 
-func defaultOpenAIEndpointPath(baseURL string) string {
-	if normalizedBasePath(baseURL) == "/v1" {
-		return "/chat/completions"
+func defaultEndpointPath(protocol string, baseURL string) string {
+	switch strings.ToUpper(strings.TrimSpace(protocol)) {
+	case "ANTHROPIC":
+		if normalizedBasePath(baseURL) == "/v1" {
+			return "/messages"
+		}
+		return "/v1/messages"
+	case "", "OPENAI":
+		if normalizedBasePath(baseURL) == "/v1" {
+			return "/chat/completions"
+		}
+		return "/v1/chat/completions"
+	default:
+		return ""
 	}
-	return "/v1/chat/completions"
+}
+
+func defaultOpenAIEndpointPath(baseURL string) string {
+	return defaultEndpointPath("OPENAI", baseURL)
 }
 
 func normalizedBasePath(rawBaseURL string) string {
@@ -297,9 +364,28 @@ func loadModels(dir string) (map[string]ModelDefinition, error) {
 			ModelID:    strings.TrimSpace(stringNode(values["modelId"])),
 			IsFunction: parseTruthy(stringNode(values["isFunction"])),
 			IsReasoner: parseTruthy(stringNode(values["isReasoner"])),
+			Headers:    stringMapNode(values["headers"]),
+			Compat:     cloneAnyMap(anyMapNode(values["compat"])),
 		}
 	}
 	return result, nil
+}
+
+func stringMapNode(value any) map[string]string {
+	node := anyMapNode(value)
+	if len(node) == 0 {
+		return nil
+	}
+	result := make(map[string]string, len(node))
+	for key, raw := range node {
+		if text := strings.TrimSpace(anyStringNode(raw)); text != "" {
+			result[key] = text
+		}
+	}
+	if len(result) == 0 {
+		return nil
+	}
+	return result
 }
 
 func stringNode(value any) string {
