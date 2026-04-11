@@ -2,6 +2,7 @@ package schedule
 
 import (
 	"fmt"
+	"io/fs"
 	"log"
 	"math"
 	"os"
@@ -38,7 +39,7 @@ func NewRegistry(root string, teams TeamLookup) *Registry {
 }
 
 func (r *Registry) Load() ([]Definition, error) {
-	entries, err := os.ReadDir(r.root)
+	paths, err := collectSchedulePaths(r.root)
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -46,29 +47,58 @@ func (r *Registry) Load() ([]Definition, error) {
 		return nil, err
 	}
 
-	names := make([]string, 0, len(entries))
-	byName := make(map[string]os.DirEntry, len(entries))
-	for _, entry := range entries {
-		names = append(names, entry.Name())
-		byName[entry.Name()] = entry
-	}
-	sort.Strings(names)
-
-	defs := make([]Definition, 0, len(names))
-	for _, name := range names {
-		entry := byName[name]
-		if entry.IsDir() || !catalog.ShouldLoadRuntimeName(name) || (!strings.HasSuffix(name, ".yml") && !strings.HasSuffix(name, ".yaml")) {
-			continue
-		}
-		path := filepath.Join(r.root, name)
+	defs := make([]Definition, 0, len(paths))
+	loadedByID := make(map[string]string, len(paths))
+	for _, path := range paths {
 		def, err := r.parseDefinition(path)
 		if err != nil {
 			log.Printf("[schedule] skip invalid schedule file %s: %v", path, err)
 			continue
 		}
+		if existing, ok := loadedByID[def.ID]; ok {
+			log.Printf("[schedule] skip duplicate schedule id=%s from %s (already loaded from %s)", def.ID, path, existing)
+			continue
+		}
+		loadedByID[def.ID] = path
 		defs = append(defs, def)
 	}
 	return defs, nil
+}
+
+func collectSchedulePaths(root string) ([]string, error) {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		return nil, nil
+	}
+
+	paths := make([]string, 0)
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == root {
+			return nil
+		}
+
+		name := strings.TrimSpace(d.Name())
+		if d.IsDir() {
+			if !shouldTraverseScheduleDir(name) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !isScheduleRuntimeFile(path) {
+			return nil
+		}
+		paths = append(paths, path)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	sort.Strings(paths)
+	return paths, nil
 }
 
 func (r *Registry) parseDefinition(path string) (Definition, error) {
@@ -99,7 +129,7 @@ func (r *Registry) parseDefinition(path string) (Definition, error) {
 		return Definition{}, fmt.Errorf("cron is required")
 	}
 	if _, err := parseCronSchedule(cronExpr); err != nil {
-		return Definition{}, fmt.Errorf("invalid cron %q: only traditional 5-field cron (minute hour day-of-month month day-of-week) is supported: %w", cronExpr, err)
+		return Definition{}, fmt.Errorf("invalid cron %q: go schedule supports only traditional 5-field cron (minute hour day-of-month month day-of-week): %w", cronExpr, err)
 	}
 	remainingRuns, err := positiveIntPtrNode(root["remainingRuns"], "remainingRuns")
 	if err != nil {
@@ -316,6 +346,30 @@ func sceneNode(value any) (*api.Scene, error) {
 
 func parseCronSchedule(spec string) (cron.Schedule, error) {
 	return cronParser.Parse(strings.TrimSpace(spec))
+}
+
+func shouldTraverseScheduleDir(name string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" || strings.HasPrefix(name, ".") {
+		return false
+	}
+	return catalog.ShouldLoadRuntimeName(name)
+}
+
+func isScheduleRuntimeFile(path string) bool {
+	name := strings.TrimSpace(filepath.Base(path))
+	if name == "" || strings.HasSuffix(name, ".tmp") {
+		return false
+	}
+	if !catalog.ShouldLoadRuntimeName(name) {
+		return false
+	}
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".yml", ".yaml":
+		return true
+	default:
+		return false
+	}
 }
 
 func mapNode(value any, allowNil bool) (map[string]any, error) {

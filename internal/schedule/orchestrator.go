@@ -2,6 +2,8 @@ package schedule
 
 import (
 	"context"
+	"fmt"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -9,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"agent-platform-runner-go/internal/config"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/robfig/cron/v3"
@@ -19,11 +23,13 @@ const reloadDebounce = 150 * time.Millisecond
 type Orchestrator struct {
 	registry   *Registry
 	dispatcher *Dispatcher
+	cfg        config.ScheduleConfig
 
 	mu            sync.Mutex
 	registrations map[string]*Registration
 	cancel        context.CancelFunc
 	runCtx        context.Context
+	dispatchSlots chan struct{}
 	wg            sync.WaitGroup
 }
 
@@ -35,10 +41,16 @@ type Registration struct {
 	cancel     context.CancelFunc
 }
 
-func NewOrchestrator(registry *Registry, dispatcher *Dispatcher) *Orchestrator {
+func NewOrchestrator(registry *Registry, dispatcher *Dispatcher, cfg config.ScheduleConfig) *Orchestrator {
+	poolSize := cfg.PoolSize
+	if poolSize < 1 {
+		poolSize = 1
+	}
 	return &Orchestrator{
 		registry:      registry,
 		dispatcher:    dispatcher,
+		cfg:           cfg,
+		dispatchSlots: make(chan struct{}, poolSize),
 		registrations: map[string]*Registration{},
 	}
 }
@@ -122,7 +134,7 @@ func (o *Orchestrator) registerLocked(def Definition) {
 		log.Printf("[schedule] skip registration for %q: %v", def.ID, err)
 		return
 	}
-	loc := resolveScheduleLocation(def.Environment.ZoneID)
+	loc := resolveScheduleLocation(def.Environment.ZoneID, o.cfg.DefaultZoneID)
 	regCtx, cancel := context.WithCancel(o.runCtx)
 	reg := &Registration{
 		Definition: def,
@@ -221,6 +233,10 @@ func (o *Orchestrator) fire(reg *Registration) (bool, error) {
 	if o.dispatcher == nil {
 		return stop, nil
 	}
+	if !o.acquireDispatchSlot(reg.ctx) {
+		return true, reg.ctx.Err()
+	}
+	defer o.releaseDispatchSlot()
 	return stop, o.dispatcher.Dispatch(reg.ctx, dispatchDef)
 }
 
@@ -229,7 +245,8 @@ func (o *Orchestrator) startWatcher(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := fsw.Add(o.registry.root); err != nil {
+	watchedDirs, err := watchScheduleDirTree(fsw, o.registry.root)
+	if err != nil {
 		_ = fsw.Close()
 		return err
 	}
@@ -258,13 +275,21 @@ func (o *Orchestrator) startWatcher(ctx context.Context) error {
 				if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Remove|fsnotify.Rename) == 0 {
 					continue
 				}
-				if !isScheduleRuntimeFile(event.Name) {
+				changedPath := filepath.Clean(event.Name)
+				if event.Op&fsnotify.Create != 0 {
+					if err := refreshScheduleWatchTree(fsw, o.registry.root, changedPath, watchedDirs); err != nil {
+						log.Printf("[schedule] watcher register failed for %s: %v", changedPath, err)
+					}
+				}
+				if event.Op&(fsnotify.Remove|fsnotify.Rename) != 0 {
+					pruneScheduleWatchDir(changedPath, watchedDirs)
+				}
+				if !shouldReloadSchedulePath(o.registry.root, changedPath) {
 					continue
 				}
 				if timer != nil {
 					timer.Stop()
 				}
-				changedPath := event.Name
 				timer = time.AfterFunc(reloadDebounce, func() {
 					if err := o.Reload(); err != nil {
 						log.Printf("[schedule] reload failed after %s: %v", filepath.Base(changedPath), err)
@@ -281,27 +306,163 @@ func (o *Orchestrator) startWatcher(ctx context.Context) error {
 	return nil
 }
 
-func isScheduleRuntimeFile(path string) bool {
-	name := filepath.Base(path)
-	if strings.HasSuffix(name, ".tmp") {
+func (o *Orchestrator) acquireDispatchSlot(ctx context.Context) bool {
+	if o == nil || o.dispatchSlots == nil {
+		return true
+	}
+	select {
+	case o.dispatchSlots <- struct{}{}:
+		return true
+	case <-ctx.Done():
 		return false
 	}
-	if !catalogShouldLoadRuntimeName(name) {
-		return false
-	}
-	return strings.HasSuffix(name, ".yml") || strings.HasSuffix(name, ".yaml")
 }
 
-func resolveScheduleLocation(zoneID string) *time.Location {
-	if strings.TrimSpace(zoneID) == "" {
-		return time.Local
+func (o *Orchestrator) releaseDispatchSlot() {
+	if o == nil || o.dispatchSlots == nil {
+		return
 	}
-	loc, err := time.LoadLocation(strings.TrimSpace(zoneID))
+	select {
+	case <-o.dispatchSlots:
+	default:
+	}
+}
+
+func watchScheduleDirTree(fsw *fsnotify.Watcher, root string) (map[string]struct{}, error) {
+	watched := map[string]struct{}{}
+	root = filepath.Clean(root)
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if !d.IsDir() {
+			return nil
+		}
+		if path != root && !shouldTraverseScheduleDir(d.Name()) {
+			return filepath.SkipDir
+		}
+		return addScheduleWatchDir(fsw, path, watched)
+	})
 	if err != nil {
-		log.Printf("[schedule] invalid zoneId %q, using local: %v", zoneID, err)
-		return time.Local
+		return nil, err
 	}
-	return loc
+	return watched, nil
+}
+
+func refreshScheduleWatchTree(fsw *fsnotify.Watcher, root string, path string, watched map[string]struct{}) error {
+	info, err := os.Stat(path)
+	if err != nil || !info.IsDir() {
+		return nil
+	}
+	if !insideDir(root, path) {
+		return nil
+	}
+	base := filepath.Base(path)
+	if !shouldTraverseScheduleDir(base) {
+		return nil
+	}
+	_, err = watchScheduleDirTreeFrom(fsw, root, path, watched)
+	return err
+}
+
+func watchScheduleDirTreeFrom(fsw *fsnotify.Watcher, root string, start string, watched map[string]struct{}) (map[string]struct{}, error) {
+	root = filepath.Clean(root)
+	start = filepath.Clean(start)
+	err := filepath.WalkDir(start, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if !d.IsDir() {
+			return nil
+		}
+		if path != root && path != start && !shouldTraverseScheduleDir(d.Name()) {
+			return filepath.SkipDir
+		}
+		return addScheduleWatchDir(fsw, path, watched)
+	})
+	if err != nil {
+		return watched, err
+	}
+	return watched, nil
+}
+
+func addScheduleWatchDir(fsw *fsnotify.Watcher, path string, watched map[string]struct{}) error {
+	path = filepath.Clean(path)
+	if _, ok := watched[path]; ok {
+		return nil
+	}
+	if err := fsw.Add(path); err != nil {
+		return err
+	}
+	watched[path] = struct{}{}
+	return nil
+}
+
+func pruneScheduleWatchDir(path string, watched map[string]struct{}) {
+	path = filepath.Clean(path)
+	for dir := range watched {
+		if dir == path || strings.HasPrefix(dir, path+string(os.PathSeparator)) {
+			delete(watched, dir)
+		}
+	}
+}
+
+func shouldReloadSchedulePath(root string, path string) bool {
+	path = filepath.Clean(path)
+	if !insideDir(root, path) {
+		return false
+	}
+	rel, err := filepath.Rel(filepath.Clean(root), path)
+	if err != nil || rel == "." {
+		return false
+	}
+	parts := splitPathParts(rel)
+	if len(parts) == 0 {
+		return false
+	}
+	for _, part := range parts[:len(parts)-1] {
+		if !shouldTraverseScheduleDir(part) {
+			return false
+		}
+	}
+	last := parts[len(parts)-1]
+	if strings.EqualFold(filepath.Ext(last), ".tmp") {
+		return false
+	}
+	if ext := strings.ToLower(filepath.Ext(last)); ext == ".yml" || ext == ".yaml" {
+		return isScheduleRuntimeFile(path)
+	}
+	return shouldTraverseScheduleDir(last)
+}
+
+func splitPathParts(path string) []string {
+	path = filepath.Clean(path)
+	if path == "." || path == string(os.PathSeparator) || path == "" {
+		return nil
+	}
+	return strings.Split(path, string(os.PathSeparator))
+}
+
+func resolveScheduleLocation(zoneID string, defaultZoneID string) *time.Location {
+	if loc, err := loadScheduleLocation(zoneID); err == nil {
+		return loc
+	} else if strings.TrimSpace(zoneID) != "" {
+		log.Printf("[schedule] invalid zoneId %q, falling back: %v", zoneID, err)
+	}
+	if loc, err := loadScheduleLocation(defaultZoneID); err == nil {
+		return loc
+	} else if strings.TrimSpace(defaultZoneID) != "" {
+		log.Printf("[schedule] invalid default zoneId %q, using local: %v", defaultZoneID, err)
+	}
+	return time.Local
+}
+
+func loadScheduleLocation(zoneID string) (*time.Location, error) {
+	zoneID = strings.TrimSpace(zoneID)
+	if zoneID == "" {
+		return nil, fmt.Errorf("empty zoneId")
+	}
+	return time.LoadLocation(zoneID)
 }
 
 func (o *Orchestrator) Stop() context.Context {
@@ -321,14 +482,4 @@ func (o *Orchestrator) Stop() context.Context {
 func intPtr(value int) *int {
 	result := value
 	return &result
-}
-
-func catalogShouldLoadRuntimeName(name string) bool {
-	if strings.TrimSpace(name) == "" {
-		return false
-	}
-	if strings.HasPrefix(name, ".") || strings.HasSuffix(name, ".example.yml") || strings.HasSuffix(name, ".example.yaml") {
-		return false
-	}
-	return true
 }

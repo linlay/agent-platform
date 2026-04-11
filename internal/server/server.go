@@ -302,10 +302,16 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
+	summary, err := s.deps.Chats.Summary(chatID)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
+		return
+	}
 
-	// Backfill toolLabel/toolType on reconstructed tool.snapshot events
-	// (LoadChat only has tool name from JSONL, label is resolved from registry).
-	s.enrichToolMetadata(detail.Events)
+	// Backfill display metadata on reconstructed tool.snapshot events.
+	// Snapshot events are historical display data only; runtime frontend
+	// behaviour relies on live tool.start events.
+	s.enrichToolMetadata(detail.Events, summaryAgentKey(summary))
 
 	includeRaw := strings.EqualFold(r.URL.Query().Get("includeRawMessages"), "true")
 	response := api.ChatDetailResponse{
@@ -329,14 +335,15 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, api.Success(response))
 }
 
-// enrichToolMetadata fills toolLabel/toolType on tool.snapshot events by
-// looking up the tool definition in the registry. LoadChat reconstructs these
-// events from JSONL which only has the raw tool name.
-func (s *Server) enrichToolMetadata(events []stream.EventData) {
+// enrichToolMetadata fills display fields on tool.snapshot events by looking up
+// the tool definition in the registry. LoadChat reconstructs these events from
+// JSONL which only has the raw tool name.
+func (s *Server) enrichToolMetadata(events []stream.EventData, agentKey string) {
 	lookup := s.toolLookup()
 	if lookup == nil {
 		return
 	}
+	toolTimeout := s.toolTimeoutForAgent(agentKey)
 	for i := range events {
 		if events[i].Type != "tool.snapshot" {
 			continue
@@ -355,8 +362,12 @@ func (s *Server) enrichToolMetadata(events []stream.EventData) {
 		if label := def.Label; label != "" {
 			events[i].Payload["toolLabel"] = label
 		}
-		if kind, _ := def.Meta["kind"].(string); kind != "" {
-			events[i].Payload["toolType"] = kind
+		if toolType, viewportKey, ok := frontendToolMetadata(def); ok {
+			events[i].Payload["toolType"] = toolType
+			events[i].Payload["viewportKey"] = viewportKey
+			if toolTimeout > 0 {
+				events[i].Payload["toolTimeout"] = toolTimeout
+			}
 		}
 	}
 }
@@ -418,6 +429,79 @@ func matchesToolTag(tool api.ToolDetailResponse, needle string) bool {
 		}
 	}
 	return false
+}
+
+func summaryAgentKey(summary *chat.Summary) string {
+	if summary == nil {
+		return ""
+	}
+	return strings.TrimSpace(summary.AgentKey)
+}
+
+func frontendToolMetadata(def api.ToolDetailResponse) (toolType string, viewportKey string, ok bool) {
+	metaKind := strings.ToLower(strings.TrimSpace(anyStringValue(def.Meta["kind"])))
+	toolType = strings.TrimSpace(anyStringValue(def.Meta["toolType"]))
+	viewportKey = strings.TrimSpace(anyStringValue(def.Meta["viewportKey"]))
+	if metaKind == "frontend" && toolType != "" && viewportKey != "" {
+		return toolType, viewportKey, true
+	}
+	if toolType != "" && viewportKey != "" {
+		return toolType, viewportKey, true
+	}
+	return "", "", false
+}
+
+func (s *Server) toolTimeoutForAgent(agentKey string) int64 {
+	budget := engine.ResolveBudget(s.deps.Config, nil)
+	if strings.TrimSpace(agentKey) == "" {
+		return int64(budget.Tool.TimeoutMs)
+	}
+	if agentDef, ok := s.deps.Registry.AgentDefinition(agentKey); ok {
+		budget = engine.ResolveBudget(s.deps.Config, agentDef.Budget)
+	}
+	return int64(budget.Tool.TimeoutMs)
+}
+
+func applyToolOverride(def api.ToolDetailResponse, overrides map[string]api.ToolDetailResponse) api.ToolDetailResponse {
+	if len(overrides) == 0 {
+		return def
+	}
+	override, ok := overrides[strings.ToLower(strings.TrimSpace(def.Name))]
+	if !ok {
+		override, ok = overrides[strings.ToLower(strings.TrimSpace(def.Key))]
+	}
+	if !ok {
+		return def
+	}
+	merged := def
+	if strings.TrimSpace(override.Key) != "" {
+		merged.Key = override.Key
+	}
+	if strings.TrimSpace(override.Name) != "" {
+		merged.Name = override.Name
+	}
+	if strings.TrimSpace(override.Label) != "" {
+		merged.Label = override.Label
+	}
+	if strings.TrimSpace(override.Description) != "" {
+		merged.Description = override.Description
+	}
+	if strings.TrimSpace(override.AfterCallHint) != "" {
+		merged.AfterCallHint = override.AfterCallHint
+	}
+	if len(override.Parameters) > 0 {
+		merged.Parameters = cloneMap(override.Parameters)
+	}
+	if len(def.Meta) > 0 {
+		merged.Meta = cloneMap(def.Meta)
+	}
+	if len(merged.Meta) == 0 {
+		merged.Meta = map[string]any{}
+	}
+	for key, value := range override.Meta {
+		merged.Meta[key] = value
+	}
+	return merged
 }
 
 func (s *Server) handleRead(w http.ResponseWriter, r *http.Request) {
@@ -610,11 +694,17 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		Role:      defaultRole(req.Role),
 		Created:   created,
 	})
+	toolTimeout := int64(session.ResolvedBudget.Tool.TimeoutMs)
 	// Register tools with clientVisible=false so their SSE events are suppressed.
 	if s.deps.Tools != nil {
 		for _, toolDef := range s.deps.Tools.Definitions() {
-			if cv, ok := toolDef.Meta["clientVisible"].(bool); ok && !cv {
-				assembler.RegisterHiddenTools(toolDef.Name)
+			effective := applyToolOverride(toolDef, session.ToolOverrides)
+			if cv, ok := effective.Meta["clientVisible"].(bool); ok && !cv {
+				assembler.RegisterHiddenTools(effective.Name, effective.Key)
+			}
+			if toolType, viewportKey, ok := frontendToolMetadata(effective); ok {
+				assembler.RegisterFrontendTool(effective.Name, toolType, viewportKey, toolTimeout)
+				assembler.RegisterFrontendTool(effective.Key, toolType, viewportKey, toolTimeout)
 			}
 		}
 	}

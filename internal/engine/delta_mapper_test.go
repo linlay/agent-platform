@@ -36,7 +36,7 @@ func TestDeltaMapperAssignsContentIDsAndToolLifecycleInputs(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected ToolArgs, got %#v", toolInputs)
 	}
-	if toolArgs.ChunkIndex != 0 || toolArgs.ToolType != "backend" {
+	if toolArgs.ChunkIndex != 0 || toolArgs.ToolType != "" {
 		t.Fatalf("unexpected tool args mapping: %#v", toolArgs)
 	}
 
@@ -65,12 +65,12 @@ func TestDeltaMapperAssignsContentIDsAndToolLifecycleInputs(t *testing.T) {
 	}
 }
 
-func TestDeltaMapperMapsActionTools(t *testing.T) {
+func TestDeltaMapperMapsFrontendTools(t *testing.T) {
 	mapper := NewDeltaMapper("run_1", "chat_1", stubToolLookup{
 		"confirm_dialog": api.ToolDetailResponse{
 			Name:        "confirm_dialog",
 			Description: "confirm",
-			Meta:        map[string]any{"kind": "action"},
+			Meta:        map[string]any{"kind": "frontend", "toolType": "html", "viewportKey": "confirm_dialog"},
 		},
 	})
 
@@ -78,6 +78,30 @@ func TestDeltaMapperMapsActionTools(t *testing.T) {
 		Index:     0,
 		ID:        "action_1",
 		Name:      "confirm_dialog",
+		ArgsDelta: "{\"ok\":true}",
+	})
+	toolArgs, ok := inputs[0].(stream.ToolArgs)
+	if !ok {
+		t.Fatalf("expected ToolArgs, got %#v", inputs)
+	}
+	if toolArgs.ToolType != "html" {
+		t.Fatalf("expected frontend tool type html, got %#v", toolArgs)
+	}
+}
+
+func TestDeltaMapperMapsActionTools(t *testing.T) {
+	mapper := NewDeltaMapper("run_1", "chat_1", stubToolLookup{
+		"mock_action": api.ToolDetailResponse{
+			Name:        "mock_action",
+			Description: "action",
+			Meta:        map[string]any{"kind": "action"},
+		},
+	})
+
+	inputs := mapper.Map(DeltaToolCall{
+		Index:     0,
+		ID:        "action_1",
+		Name:      "mock_action",
 		ArgsDelta: "{\"ok\":true}",
 	})
 	if _, ok := inputs[0].(stream.ActionArgs); !ok {

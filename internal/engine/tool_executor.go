@@ -4,8 +4,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
-	"log"
 	"fmt"
+	"log"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -564,8 +565,9 @@ func shortPlanID() string {
 }
 
 // publishArtifacts resolves artifact paths from the sandbox /workspace to the
-// local chat directory, copies files into artifacts/<runId>/, and returns
-// publication metadata. Mirrors Java ArtifactPublishService.publish().
+// local chat directory. Files already inside the current chat stay in place;
+// files outside the chat but inside the server workspace are materialized into
+// artifacts/<runId>/. Mirrors Java ArtifactPublishService.publish().
 func publishArtifacts(chatsRoot string, chatID string, runID string, raw any) []map[string]any {
 	if strings.TrimSpace(chatsRoot) == "" || strings.TrimSpace(chatID) == "" {
 		return nil
@@ -575,10 +577,6 @@ func publishArtifacts(chatsRoot string, chatID string, runID string, raw any) []
 		return nil
 	}
 	chatDir := filepath.Join(chatsRoot, chatID)
-	artifactsDir := filepath.Join(chatDir, "artifacts", runID)
-	if err := os.MkdirAll(artifactsDir, 0o755); err != nil {
-		return nil
-	}
 	published := make([]map[string]any, 0, len(items))
 	for index, item := range items {
 		// Support both {"path": "/workspace/file"} and plain "/workspace/file"
@@ -622,26 +620,38 @@ func publishArtifacts(chatsRoot string, chatID string, runID string, raw any) []
 		}
 		filename := filepath.Base(name)
 
-		// Copy file into artifacts dir with dedup (Java: materializeIntoChatAssets)
-		targetPath := deduplicateTargetPath(artifactsDir, filename, sourcePath)
-		if !strings.HasPrefix(filepath.Clean(sourcePath), filepath.Clean(artifactsDir)) {
-			if copyErr := copyFile(sourcePath, targetPath); copyErr != nil {
+		targetPath := sourcePath
+		relativePath, relErr := filepath.Rel(chatDir, targetPath)
+		if relErr != nil || isPathOutsideBase(relativePath) {
+			artifactsDir := filepath.Join(chatDir, "artifacts", runID)
+			if err := os.MkdirAll(artifactsDir, 0o755); err != nil {
+				log.Printf("[artifact-publish] skip: create artifacts dir failed dir=%s err=%v", artifactsDir, err)
 				continue
 			}
-		} else {
-			targetPath = sourcePath
+			targetPath = deduplicateTargetPath(artifactsDir, filename, sourcePath)
+			if !samePath(sourcePath, targetPath) {
+				if copyErr := copyFile(sourcePath, targetPath); copyErr != nil {
+					log.Printf("[artifact-publish] skip: copy failed source=%s target=%s err=%v", sourcePath, targetPath, copyErr)
+					continue
+				}
+			}
+			relativePath, relErr = filepath.Rel(chatDir, targetPath)
+			if relErr != nil || isPathOutsideBase(relativePath) {
+				log.Printf("[artifact-publish] skip: target escaped chat dir target=%s chatDir=%s", targetPath, chatDir)
+				continue
+			}
 		}
 
 		sha256hex := sha256Hex(targetPath)
 		publishedFilename := filepath.Base(targetPath)
-		relPath := filepath.ToSlash(filepath.Join(chatID, "artifacts", runID, publishedFilename))
+		relativePath = filepath.ToSlash(relativePath)
 		published = append(published, map[string]any{
 			"artifactId": artifactID,
 			"name":       publishedFilename,
 			"mimeType":   guessMimeType(publishedFilename),
 			"sizeBytes":  info.Size(),
 			"sha256":     sha256hex,
-			"url":        "/api/resource?file=" + relPath,
+			"url":        artifactResourceURL(chatID, relativePath),
 			"type":       defaultStringArg(mapped, "type", "file"),
 		})
 	}
@@ -660,7 +670,7 @@ func resolveArtifactSourcePath(rawPath string, chatDir string) string {
 			return chatDir
 		}
 		resolved := filepath.Clean(filepath.Join(chatDir, suffix))
-		if !strings.HasPrefix(resolved, filepath.Clean(chatDir)) {
+		if !pathWithinBase(resolved, chatDir) {
 			return "" // path escapes chat dir
 		}
 		return resolved
@@ -668,17 +678,24 @@ func resolveArtifactSourcePath(rawPath string, chatDir string) string {
 	// Relative path → resolve relative to chat dir
 	if !filepath.IsAbs(normalized) {
 		resolved := filepath.Clean(filepath.Join(chatDir, normalized))
-		if !strings.HasPrefix(resolved, filepath.Clean(chatDir)) {
+		if !pathWithinBase(resolved, chatDir) {
 			return ""
 		}
 		return resolved
 	}
-	// Absolute path — must be inside chat dir
+	// Absolute path — must be inside chat dir or the current server workspace.
 	resolved := filepath.Clean(normalized)
-	if !strings.HasPrefix(resolved, filepath.Clean(chatDir)) {
+	if pathWithinBase(resolved, chatDir) {
+		return resolved
+	}
+	workspaceRoot, err := os.Getwd()
+	if err != nil {
 		return ""
 	}
-	return resolved
+	if pathWithinBase(resolved, workspaceRoot) {
+		return resolved
+	}
+	return ""
 }
 
 // deduplicateTargetPath returns a target path with counter suffix if filename
@@ -731,6 +748,28 @@ func sameFileContent(left string, right string) bool {
 		return false
 	}
 	return string(leftData) == string(rightData)
+}
+
+func samePath(left string, right string) bool {
+	return filepath.Clean(left) == filepath.Clean(right)
+}
+
+func artifactResourceURL(chatID string, relativePath string) string {
+	file := filepath.ToSlash(filepath.Join(chatID, relativePath))
+	return "/api/resource?file=" + url.QueryEscape(file)
+}
+
+func pathWithinBase(path string, base string) bool {
+	rel, err := filepath.Rel(filepath.Clean(base), filepath.Clean(path))
+	if err != nil {
+		return false
+	}
+	return !isPathOutsideBase(rel)
+}
+
+func isPathOutsideBase(rel string) bool {
+	clean := filepath.Clean(rel)
+	return clean == ".." || strings.HasPrefix(clean, ".."+string(os.PathSeparator))
 }
 
 func sha256Hex(path string) string {

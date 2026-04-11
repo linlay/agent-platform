@@ -234,15 +234,21 @@ func (m *DeltaMapper) resolveToolID(index int, candidate string, toolName string
 
 func (m *DeltaMapper) resolveToolMetadata(toolName string) (string, string, string) {
 	if m.toolRegistry == nil {
-		return "backend", "", ""
+		return "", "", ""
 	}
 	tool, ok := m.toolRegistry.Tool(toolName)
 	if !ok {
-		return "backend", "", ""
+		return "", "", ""
 	}
-	toolType, _ := tool.Meta["kind"].(string)
-	if strings.TrimSpace(toolType) == "" {
-		toolType = "backend"
+
+	kind, _ := tool.Meta["kind"].(string)
+	switch strings.ToLower(strings.TrimSpace(kind)) {
+	case "action":
+		return "action", tool.Label, tool.Description
+	case "frontend":
+		toolType, _ := tool.Meta["toolType"].(string)
+		return strings.TrimSpace(toolType), tool.Label, tool.Description
+	default:
+		return "", tool.Label, tool.Description
 	}
-	return toolType, tool.Label, tool.Description
 }

@@ -167,7 +167,7 @@ func New() (*App, error) {
 			}
 			return nil
 		})
-		scheduler = schedule.NewOrchestrator(scheduleRegistry, dispatcher)
+		scheduler = schedule.NewOrchestrator(scheduleRegistry, dispatcher, cfg.Schedule)
 		if err := scheduler.Start(backgroundCtx); err != nil {
 			backgroundCancel()
 			return nil, fmt.Errorf("start schedule orchestrator: %w", err)

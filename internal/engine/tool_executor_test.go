@@ -2,6 +2,9 @@ package engine
 
 import (
 	"context"
+	"net/url"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -139,5 +142,99 @@ func TestRuntimeToolExecutorMemoryToolsRequireContextAndUseCanonicalNames(t *tes
 	}
 	if legacyResult.Structured["found"] != true {
 		t.Fatalf("expected legacy alias to keep working, got %#v", legacyResult.Structured)
+	}
+}
+
+func TestPublishArtifactsKeepsChatWorkspaceFilesInPlace(t *testing.T) {
+	chatsRoot := t.TempDir()
+	chatID := "chat_1"
+	runID := "run_1"
+	chatDir := filepath.Join(chatsRoot, chatID)
+	if err := os.MkdirAll(chatDir, 0o755); err != nil {
+		t.Fatalf("mkdir chat dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(chatDir, "joke.md"), []byte("# hi\n"), 0o644); err != nil {
+		t.Fatalf("write joke.md: %v", err)
+	}
+
+	published := publishArtifacts(chatsRoot, chatID, runID, []any{
+		map[string]any{"path": "/workspace/joke.md"},
+	})
+
+	if len(published) != 1 {
+		t.Fatalf("expected one published artifact, got %#v", published)
+	}
+	if published[0]["url"] != "/api/resource?file="+url.QueryEscape(chatID+"/joke.md") {
+		t.Fatalf("expected chat-root resource url, got %#v", published[0]["url"])
+	}
+	if _, err := os.Stat(filepath.Join(chatDir, "artifacts", runID)); !os.IsNotExist(err) {
+		t.Fatalf("expected artifacts dir to remain absent, err=%v", err)
+	}
+}
+
+func TestPublishArtifactsMaterializesExternalFilesAndDeduplicates(t *testing.T) {
+	workspaceRoot, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	sourceRoot, err := os.MkdirTemp(workspaceRoot, "artifact-publish-*")
+	if err != nil {
+		t.Fatalf("mkdtemp in workspace: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(sourceRoot) })
+
+	sameA := filepath.Join(sourceRoot, "same-a", "report.md")
+	sameB := filepath.Join(sourceRoot, "same-b", "report.md")
+	diffC := filepath.Join(sourceRoot, "diff-c", "report.md")
+	writeTestFile(t, sameA, "same-content\n")
+	writeTestFile(t, sameB, "same-content\n")
+	writeTestFile(t, diffC, "different-content\n")
+
+	chatsRoot := t.TempDir()
+	chatID := "chat_1"
+	runID := "run_1"
+	chatDir := filepath.Join(chatsRoot, chatID)
+	if err := os.MkdirAll(chatDir, 0o755); err != nil {
+		t.Fatalf("mkdir chat dir: %v", err)
+	}
+
+	published := publishArtifacts(chatsRoot, chatID, runID, []any{
+		map[string]any{"path": sameA},
+		map[string]any{"path": sameB},
+		map[string]any{"path": diffC},
+	})
+
+	if len(published) != 3 {
+		t.Fatalf("expected three published artifacts, got %#v", published)
+	}
+
+	firstURL := "/api/resource?file=" + url.QueryEscape(chatID+"/artifacts/"+runID+"/report.md")
+	thirdURL := "/api/resource?file=" + url.QueryEscape(chatID+"/artifacts/"+runID+"/report-1.md")
+	if published[0]["url"] != firstURL {
+		t.Fatalf("expected first artifact in artifacts dir, got %#v", published[0]["url"])
+	}
+	if published[1]["url"] != firstURL {
+		t.Fatalf("expected same-content duplicate to reuse target path, got %#v", published[1]["url"])
+	}
+	if published[2]["url"] != thirdURL {
+		t.Fatalf("expected different-content duplicate to use suffixed target path, got %#v", published[2]["url"])
+	}
+
+	entries, err := os.ReadDir(filepath.Join(chatDir, "artifacts", runID))
+	if err != nil {
+		t.Fatalf("read artifacts dir: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("expected two materialized files, got %d", len(entries))
+	}
+}
+
+func writeTestFile(t *testing.T, path string, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", path, err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
 	}
 }

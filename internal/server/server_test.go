@@ -624,6 +624,12 @@ func TestQueryCanExecuteBackendToolLoop(t *testing.T) {
 	if !strings.Contains(body, `"type":"tool.result"`) {
 		t.Fatalf("expected tool.result event, got %s", body)
 	}
+	if strings.Contains(body, `"toolType":"backend"`) {
+		t.Fatalf("did not expect backend toolType in live sse, got %s", body)
+	}
+	if strings.Contains(body, `"viewportKey":`) {
+		t.Fatalf("did not expect viewportKey for backend tool, got %s", body)
+	}
 	if !strings.Contains(body, "完成工具调用后") || !strings.Contains(body, "的最终回答") {
 		t.Fatalf("expected live sse deltas for final assistant content, got %s", body)
 	}
@@ -1013,11 +1019,15 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	var streamBody strings.Builder
 	runID := ""
 	toolID := ""
+	var toolStartPayload map[string]any
 	for {
 		line, readErr := reader.ReadString('\n')
 		streamBody.WriteString(line)
 		if strings.HasPrefix(line, "data: {") {
 			payload := decodeSSELine(t, line)
+			if payload["type"] == "tool.start" && payload["toolName"] == "confirm_dialog" {
+				toolStartPayload = payload
+			}
 			if payload["type"] == "request.submit" {
 				runID, _ = payload["runId"].(string)
 				toolID, _ = payload["toolId"].(string)
@@ -1027,6 +1037,18 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 		if readErr != nil {
 			t.Fatalf("read query stream before submit: %v", readErr)
 		}
+	}
+	if toolStartPayload == nil {
+		t.Fatalf("expected frontend tool.start before request.submit, got %s", streamBody.String())
+	}
+	if toolStartPayload["toolType"] != "html" {
+		t.Fatalf("expected frontend toolType html, got %#v", toolStartPayload)
+	}
+	if toolStartPayload["viewportKey"] != "confirm_dialog" {
+		t.Fatalf("expected viewportKey confirm_dialog, got %#v", toolStartPayload)
+	}
+	if toolStartPayload["toolTimeout"] != float64(210000) {
+		t.Fatalf("expected toolTimeout 210000, got %#v", toolStartPayload)
 	}
 
 	steerReq := httptest.NewRequest(http.MethodPost, "/api/steer", bytes.NewBufferString(`{"runId":"`+runID+`","message":"Please keep it short."}`))
@@ -1082,6 +1104,42 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	}
 	if !strings.Contains(body, "final answer") {
 		t.Fatalf("expected final answer in stream, got %s", body)
+	}
+
+	chatsRec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(chatsRec, httptest.NewRequest(http.MethodGet, "/api/chats", nil))
+	var chatsResp api.ApiResponse[[]api.ChatSummaryResponse]
+	if err := json.Unmarshal(chatsRec.Body.Bytes(), &chatsResp); err != nil {
+		t.Fatalf("decode chats response: %v", err)
+	}
+	if len(chatsResp.Data) != 1 {
+		t.Fatalf("expected 1 chat, got %d", len(chatsResp.Data))
+	}
+
+	chatRec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatsResp.Data[0].ChatID, nil))
+	var chatResp api.ApiResponse[api.ChatDetailResponse]
+	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
+		t.Fatalf("decode chat detail: %v", err)
+	}
+	foundFrontendSnapshot := false
+	for _, event := range chatResp.Data.Events {
+		if event.Type != "tool.snapshot" || event.String("toolName") != "confirm_dialog" {
+			continue
+		}
+		foundFrontendSnapshot = true
+		if event.String("toolType") != "html" {
+			t.Fatalf("expected frontend snapshot toolType html, got %#v", event)
+		}
+		if event.String("viewportKey") != "confirm_dialog" {
+			t.Fatalf("expected frontend snapshot viewportKey confirm_dialog, got %#v", event)
+		}
+		if timeout, ok := event.Payload["toolTimeout"].(float64); !ok || timeout != 210000 {
+			t.Fatalf("expected frontend snapshot toolTimeout 210000, got %#v", event)
+		}
+	}
+	if !foundFrontendSnapshot {
+		t.Fatalf("expected confirm_dialog tool.snapshot in chat detail, got %#v", chatResp.Data.Events)
 	}
 
 	select {
@@ -1350,6 +1408,9 @@ func newTestFixtureWithModelHandler(t *testing.T, modelHandler http.HandlerFunc)
 		"      destination: /skills",
 		"      mode: ro",
 		"mode: REACT",
+		"budget:",
+		"  tool:",
+		"    timeoutMs: 210000",
 		"react:",
 		"  maxSteps: 6",
 	}, "\n")), 0o644); err != nil {

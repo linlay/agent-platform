@@ -179,6 +179,8 @@ func TestLoadAcceptsJavaEnvContract(t *testing.T) {
 		"AGENT_DEFAULT_REACT_MAX_STEPS":           "12",
 		"AGENT_MEMORY_REMEMBER_MODEL_KEY":         "demo-model",
 		"AGENT_SCHEDULE_ENABLED":                  "false",
+		"AGENT_SCHEDULE_DEFAULT_ZONE_ID":          "Asia/Shanghai",
+		"AGENT_SCHEDULE_POOL_SIZE":                "7",
 		"LOGGING_AGENT_REQUEST_ENABLED":           "false",
 	}, func() {
 		cfg, err := Load()
@@ -217,6 +219,12 @@ func TestLoadAcceptsJavaEnvContract(t *testing.T) {
 		}
 		if cfg.Schedule.Enabled {
 			t.Fatalf("expected schedule disabled")
+		}
+		if cfg.Schedule.DefaultZoneID != "Asia/Shanghai" {
+			t.Fatalf("unexpected schedule default zone: %q", cfg.Schedule.DefaultZoneID)
+		}
+		if cfg.Schedule.PoolSize != 7 {
+			t.Fatalf("unexpected schedule pool size: %d", cfg.Schedule.PoolSize)
 		}
 		if cfg.Logging.Request.Enabled {
 			t.Fatalf("expected request logging disabled")

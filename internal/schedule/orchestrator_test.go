@@ -6,11 +6,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/catalog"
+	"agent-platform-runner-go/internal/config"
 )
 
 type fakeTeamLookup struct {
@@ -143,6 +145,48 @@ func TestRegistrySkipsExampleScheduleDefinition(t *testing.T) {
 	}
 }
 
+func TestRegistryLoadsNestedScheduleDefinition(t *testing.T) {
+	root := t.TempDir()
+	nested := filepath.Join(root, "nested", "daily")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatalf("create nested dirs: %v", err)
+	}
+	writeSchedule(t, filepath.Join(nested, "demo.yml"), scheduleBody("hello", "17 9 * * *", ""))
+
+	defs, err := NewRegistry(root, nil).Load()
+	if err != nil {
+		t.Fatalf("load schedules: %v", err)
+	}
+	if len(defs) != 1 || defs[0].ID != "demo" {
+		t.Fatalf("expected nested schedule to load, got %#v", defs)
+	}
+}
+
+func TestRegistryKeepsLexicallyFirstDuplicateScheduleID(t *testing.T) {
+	root := t.TempDir()
+	firstDir := filepath.Join(root, "a")
+	secondDir := filepath.Join(root, "b")
+	if err := os.MkdirAll(firstDir, 0o755); err != nil {
+		t.Fatalf("create first dir: %v", err)
+	}
+	if err := os.MkdirAll(secondDir, 0o755); err != nil {
+		t.Fatalf("create second dir: %v", err)
+	}
+	writeSchedule(t, filepath.Join(firstDir, "daily.yml"), scheduleBodyWithDescription("first", "17 9 * * *", "", "first"))
+	writeSchedule(t, filepath.Join(secondDir, "daily.demo.yml"), scheduleBodyWithDescription("second", "17 9 * * *", "", "second"))
+
+	defs, err := NewRegistry(root, nil).Load()
+	if err != nil {
+		t.Fatalf("load schedules: %v", err)
+	}
+	if len(defs) != 1 {
+		t.Fatalf("expected one schedule after duplicate resolution, got %#v", defs)
+	}
+	if defs[0].ID != "daily" || defs[0].Query.Message != "first" || defs[0].Description != "first" {
+		t.Fatalf("expected lexically first schedule to win, got %#v", defs[0])
+	}
+}
+
 func TestRegistrySkipsInvalidSchedules(t *testing.T) {
 	root := t.TempDir()
 	files := map[string]string{
@@ -252,7 +296,7 @@ func TestOrchestratorRegistersEnabledCronSchedule(t *testing.T) {
 
 	orchestrator := NewOrchestrator(NewRegistry(root, nil), NewDispatcher(func(_ context.Context, _ api.QueryRequest) error {
 		return nil
-	}))
+	}), config.ScheduleConfig{})
 	if err := orchestrator.Start(context.Background()); err != nil {
 		t.Fatalf("start orchestrator: %v", err)
 	}
@@ -274,7 +318,7 @@ func TestOrchestratorConsumesRemainingRunsAndDeletesFile(t *testing.T) {
 	orchestrator := NewOrchestrator(NewRegistry(root, nil), NewDispatcher(func(_ context.Context, req api.QueryRequest) error {
 		dispatched <- req
 		return nil
-	}))
+	}), config.ScheduleConfig{})
 	if err := orchestrator.Start(context.Background()); err != nil {
 		t.Fatalf("start orchestrator: %v", err)
 	}
@@ -327,7 +371,7 @@ func TestOrchestratorConsumesRunOnDispatchFailure(t *testing.T) {
 	orchestrator := NewOrchestrator(NewRegistry(root, nil), NewDispatcher(func(_ context.Context, req api.QueryRequest) error {
 		attempts <- req
 		return expectedErr
-	}))
+	}), config.ScheduleConfig{})
 	if err := orchestrator.Start(context.Background()); err != nil {
 		t.Fatalf("start orchestrator: %v", err)
 	}
@@ -352,13 +396,17 @@ func TestOrchestratorWatchesScheduleDirectory(t *testing.T) {
 	root := t.TempDir()
 	orchestrator := NewOrchestrator(NewRegistry(root, nil), NewDispatcher(func(_ context.Context, _ api.QueryRequest) error {
 		return nil
-	}))
+	}), config.ScheduleConfig{})
 	if err := orchestrator.Start(context.Background()); err != nil {
 		t.Fatalf("start orchestrator: %v", err)
 	}
 	defer waitForStop(t, orchestrator)
 
-	original := filepath.Join(root, "demo.yml")
+	nested := filepath.Join(root, "nested")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatalf("create nested dir: %v", err)
+	}
+	original := filepath.Join(nested, "demo.yml")
 	writeSchedule(t, original, scheduleBody("first", "17 9 * * *", ""))
 
 	reg := waitForRegistrationMatch(t, orchestrator, "demo", 2*time.Second, func(reg *Registration) bool {
@@ -394,6 +442,113 @@ func TestOrchestratorWatchesScheduleDirectory(t *testing.T) {
 	waitForNoRegistration(t, orchestrator, "renamed", 2*time.Second)
 }
 
+func TestOrchestratorUsesDefaultZoneIDWhenScheduleZoneMissing(t *testing.T) {
+	root := t.TempDir()
+	writeSchedule(t, filepath.Join(root, "demo.yml"), scheduleBody("hello", "17 9 * * *", ""))
+
+	orchestrator := NewOrchestrator(
+		NewRegistry(root, nil),
+		NewDispatcher(func(_ context.Context, _ api.QueryRequest) error { return nil }),
+		config.ScheduleConfig{DefaultZoneID: "Asia/Shanghai"},
+	)
+	if err := orchestrator.Start(context.Background()); err != nil {
+		t.Fatalf("start orchestrator: %v", err)
+	}
+	defer waitForStop(t, orchestrator)
+
+	reg := waitForRegistration(t, orchestrator, "demo", 2*time.Second)
+	if reg.location == nil || reg.location.String() != "Asia/Shanghai" {
+		t.Fatalf("expected default zone to apply, got %#v", reg.location)
+	}
+}
+
+func TestOrchestratorLimitsDispatchConcurrency(t *testing.T) {
+	root := t.TempDir()
+	orchestrator := NewOrchestrator(
+		NewRegistry(root, nil),
+		NewDispatcher(func(_ context.Context, _ api.QueryRequest) error { return nil }),
+		config.ScheduleConfig{PoolSize: 1},
+	)
+
+	regCtx1, cancel1 := context.WithCancel(context.Background())
+	defer cancel1()
+	regCtx2, cancel2 := context.WithCancel(context.Background())
+	defer cancel2()
+
+	reg1 := &Registration{
+		Definition: Definition{ID: "one", Enabled: true, Query: Query{Message: "first"}},
+		ctx:        regCtx1,
+		cancel:     cancel1,
+	}
+	reg2 := &Registration{
+		Definition: Definition{ID: "two", Enabled: true, Query: Query{Message: "second"}},
+		ctx:        regCtx2,
+		cancel:     cancel2,
+	}
+
+	orchestrator.registrations["one"] = reg1
+	orchestrator.registrations["two"] = reg2
+
+	release := make(chan struct{})
+	entered := make(chan string, 2)
+	var current int32
+	var maxConcurrent int32
+	orchestrator.dispatcher = NewDispatcher(func(_ context.Context, req api.QueryRequest) error {
+		next := atomic.AddInt32(&current, 1)
+		for {
+			prev := atomic.LoadInt32(&maxConcurrent)
+			if next <= prev || atomic.CompareAndSwapInt32(&maxConcurrent, prev, next) {
+				break
+			}
+		}
+		entered <- req.Message
+		<-release
+		atomic.AddInt32(&current, -1)
+		return nil
+	})
+
+	done := make(chan error, 2)
+	go func() {
+		_, err := orchestrator.fire(reg1)
+		done <- err
+	}()
+	go func() {
+		_, err := orchestrator.fire(reg2)
+		done <- err
+	}()
+
+	first := waitForMessage(t, entered, time.Second)
+	if first != "first" && first != "second" {
+		t.Fatalf("unexpected first dispatched message %q", first)
+	}
+	select {
+	case second := <-entered:
+		t.Fatalf("expected second dispatch to wait for pool slot, got %q", second)
+	case <-time.After(150 * time.Millisecond):
+	}
+	if atomic.LoadInt32(&maxConcurrent) != 1 {
+		t.Fatalf("expected max concurrency 1, got %d", atomic.LoadInt32(&maxConcurrent))
+	}
+
+	release <- struct{}{}
+	second := waitForMessage(t, entered, time.Second)
+	if second == first {
+		t.Fatalf("expected different second dispatch, got %q twice", second)
+	}
+	release <- struct{}{}
+
+	for i := 0; i < 2; i++ {
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("fire returned error: %v", err)
+			}
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for fire completion")
+		}
+	}
+}
+
 func waitForStop(t *testing.T, orchestrator *Orchestrator) {
 	t.Helper()
 	done := orchestrator.Stop()
@@ -412,6 +567,17 @@ func waitForRequest(t *testing.T, ch <-chan api.QueryRequest, timeout time.Durat
 	case <-time.After(timeout):
 		t.Fatal("timed out waiting for scheduled dispatch")
 		return api.QueryRequest{}
+	}
+}
+
+func waitForMessage(t *testing.T, ch <-chan string, timeout time.Duration) string {
+	t.Helper()
+	select {
+	case msg := <-ch:
+		return msg
+	case <-time.After(timeout):
+		t.Fatal("timed out waiting for dispatched message")
+		return ""
 	}
 }
 
@@ -459,8 +625,12 @@ func writeSchedule(t *testing.T, path string, body string) {
 }
 
 func scheduleBody(message string, cronExpr string, extra string) string {
+	return scheduleBodyWithDescription(message, cronExpr, extra, "valid")
+}
+
+func scheduleBodyWithDescription(message string, cronExpr string, extra string, description string) string {
 	return "name: Demo\n" +
-		"description: valid\n" +
+		"description: " + description + "\n" +
 		"enabled: true\n" +
 		"cron: \"" + cronExpr + "\"\n" +
 		extra +
