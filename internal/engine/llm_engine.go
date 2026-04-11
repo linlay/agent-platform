@@ -76,6 +76,7 @@ type openAIStreamResponse struct {
 		Delta struct {
 			Content          string                  `json:"content"`
 			ReasoningContent string                  `json:"reasoning_content"`
+			ReasoningDetails []map[string]any        `json:"reasoning_details"`
 			ToolCalls        []openAIStreamToolDelta `json:"tool_calls"`
 		} `json:"delta"`
 		FinishReason string `json:"finish_reason"`
@@ -105,6 +106,7 @@ type llmRunStream struct {
 	toolSpecs           []openAIToolSpec
 	requestedToolNames  []string
 	messages            []openAIMessage
+	protocolConfig      protocolRuntimeConfig
 	stageSettings       StageSettings
 	execCtx             *ExecutionContext
 	maxSteps            int
@@ -131,9 +133,15 @@ type providerTurnStream struct {
 	reader        *bufio.Reader
 	content       strings.Builder
 	reasoning     strings.Builder
+	thinkTag      thinkTagParserState
 	toolCalls     map[int]*toolCallAccumulator
 	finishReason  string
 	hasMeaningful bool
+}
+
+type thinkTagParserState struct {
+	buffer  strings.Builder
+	inThink bool
 }
 
 type toolCallAccumulator struct {
@@ -279,6 +287,7 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	if toolChoice == "" {
 		toolChoice = "auto"
 	}
+	protocolConfig := resolveProtocolRuntimeConfig(provider, model)
 	stream := &llmRunStream{
 		engine:              e,
 		ctx:                 ctx,
@@ -290,6 +299,7 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		toolSpecs:           toolSpecs,
 		requestedToolNames:  append([]string(nil), allowedTools...),
 		messages:            append([]openAIMessage(nil), messages...),
+		protocolConfig:      protocolConfig,
 		stageSettings:       stageSettingsForName(session.ResolvedStageSettings, options.Stage),
 		execCtx:             execCtx,
 		maxSteps:            maxSteps,
@@ -448,7 +458,7 @@ func (s *llmRunStream) prepareNextTurn() error {
 	if len(s.requestedToolNames) > 0 && len(s.toolSpecs) == 0 && !s.finalTurnAttempted {
 		s.engine.logMissingToolSpecsWarning(s.session.RunID, s.requestedToolNames)
 	}
-	turn, err := s.engine.openProviderStream(s.ctx, s.session.RunID, s.provider, s.model, s.stageSettings, s.messages, s.toolSpecs, s.toolChoice)
+	turn, err := s.engine.openProviderStream(s.ctx, s.session.RunID, s.provider, s.model, s.protocolConfig, s.stageSettings, s.messages, s.toolSpecs, s.toolChoice)
 	if err != nil {
 		return err
 	}
@@ -502,18 +512,8 @@ func (s *llmRunStream) consumeOpenAITurn(rawChunk string) (bool, error) {
 	}
 
 	for _, choice := range decoded.Choices {
-		if choice.Delta.Content != "" {
-			s.currentTurn.hasMeaningful = true
-			s.currentTurn.content.WriteString(choice.Delta.Content)
-			s.engine.logParsedDelta(s.session.RunID, "content", choice.Delta.Content)
-			s.pending = append(s.pending, s.newContentDeltaEvent(choice.Delta.Content))
-		}
-		if choice.Delta.ReasoningContent != "" {
-			s.currentTurn.hasMeaningful = true
-			s.currentTurn.reasoning.WriteString(choice.Delta.ReasoningContent)
-			s.engine.logParsedDelta(s.session.RunID, "reasoning_content", choice.Delta.ReasoningContent)
-			s.pending = append(s.pending, DeltaReasoning{Text: choice.Delta.ReasoningContent})
-		}
+		s.appendCompatReasoningFromOpenAI(choice.Delta.ReasoningContent, choice.Delta.ReasoningDetails)
+		s.appendCompatContent(choice.Delta.Content)
 		if len(choice.Delta.ToolCalls) > 0 {
 			s.currentTurn.hasMeaningful = true
 			for _, toolDelta := range choice.Delta.ToolCalls {
@@ -571,23 +571,9 @@ func (s *llmRunStream) consumeAnthropicTurn(eventName string, rawChunk string) (
 		delta := anyMapNode(payload["delta"])
 		switch anyStringNode(delta["type"]) {
 		case "text_delta":
-			text := anyStringNode(delta["text"])
-			if text == "" {
-				return false, nil
-			}
-			s.currentTurn.hasMeaningful = true
-			s.currentTurn.content.WriteString(text)
-			s.engine.logParsedDelta(s.session.RunID, "content", text)
-			s.pending = append(s.pending, s.newContentDeltaEvent(text))
+			s.appendCompatContent(anyStringNode(delta["text"]))
 		case "thinking_delta":
-			text := anyStringNode(delta["thinking"])
-			if text == "" {
-				return false, nil
-			}
-			s.currentTurn.hasMeaningful = true
-			s.currentTurn.reasoning.WriteString(text)
-			s.engine.logParsedDelta(s.session.RunID, "reasoning_content", text)
-			s.pending = append(s.pending, DeltaReasoning{Text: text})
+			s.appendCompatAnthropicThinking(anyStringNode(delta["thinking"]))
 		case "input_json_delta":
 			partialJSON := anyStringNode(delta["partial_json"])
 			if partialJSON == "" {
@@ -624,7 +610,141 @@ func (s *llmRunStream) consumeAnthropicTurn(eventName string, rawChunk string) (
 	return false, nil
 }
 
+func (s *llmRunStream) appendCompatReasoningFromOpenAI(reasoningContent string, reasoningDetails []map[string]any) {
+	switch s.responseReasoningFormat() {
+	case "REASONING_DETAILS_TEXT":
+		for _, text := range extractReasoningDetailTexts(reasoningDetails) {
+			s.appendReasoningDelta(text, "reasoning_details")
+		}
+	case "REASONING_CONTENT":
+		s.appendReasoningDelta(reasoningContent, "reasoning_content")
+	}
+}
+
+func (s *llmRunStream) appendCompatAnthropicThinking(thinking string) {
+	if s.responseReasoningFormat() != "ANTHROPIC_THINKING_DELTA" {
+		return
+	}
+	s.appendReasoningDelta(thinking, "thinking_delta")
+}
+
+func (s *llmRunStream) appendCompatContent(text string) {
+	if text == "" {
+		return
+	}
+	if s.responseReasoningFormat() == "THINK_TAG_CONTENT" {
+		s.appendThinkTagContent(text, false)
+		return
+	}
+	s.appendContentDelta(text)
+}
+
+func (s *llmRunStream) appendContentDelta(text string) {
+	if text == "" {
+		return
+	}
+	s.currentTurn.hasMeaningful = true
+	s.currentTurn.content.WriteString(text)
+	s.engine.logParsedDelta(s.session.RunID, "content", text)
+	s.pending = append(s.pending, s.newContentDeltaEvent(text))
+}
+
+func (s *llmRunStream) appendReasoningDelta(text string, label string) {
+	if text == "" {
+		return
+	}
+	s.currentTurn.hasMeaningful = true
+	s.currentTurn.reasoning.WriteString(text)
+	s.engine.logParsedDelta(s.session.RunID, label, text)
+	s.pending = append(s.pending, DeltaReasoning{Text: text})
+}
+
+func (s *llmRunStream) appendThinkTagContent(chunk string, flush bool) {
+	const (
+		startTag = "<think>"
+		endTag   = "</think>"
+	)
+
+	s.currentTurn.hasMeaningful = true
+	parser := &s.currentTurn.thinkTag
+	parser.buffer.WriteString(chunk)
+	for {
+		pending := parser.buffer.String()
+		if parser.inThink {
+			index := strings.Index(pending, endTag)
+			if index >= 0 {
+				s.appendReasoningDelta(pending[:index], "think_tag")
+				parser.buffer.Reset()
+				parser.buffer.WriteString(pending[index+len(endTag):])
+				parser.inThink = false
+				continue
+			}
+			if !flush {
+				flushLen := len(pending) - (len(endTag) - 1)
+				if flushLen <= 0 {
+					return
+				}
+				s.appendReasoningDelta(pending[:flushLen], "think_tag")
+				parser.buffer.Reset()
+				parser.buffer.WriteString(pending[flushLen:])
+				return
+			}
+			s.appendReasoningDelta(pending, "think_tag")
+			parser.buffer.Reset()
+			return
+		}
+
+		index := strings.Index(pending, startTag)
+		if index >= 0 {
+			s.appendContentDelta(pending[:index])
+			parser.buffer.Reset()
+			parser.buffer.WriteString(pending[index+len(startTag):])
+			parser.inThink = true
+			continue
+		}
+		if !flush {
+			flushLen := len(pending) - (len(startTag) - 1)
+			if flushLen <= 0 {
+				return
+			}
+			s.appendContentDelta(pending[:flushLen])
+			parser.buffer.Reset()
+			parser.buffer.WriteString(pending[flushLen:])
+			return
+		}
+		s.appendContentDelta(pending)
+		parser.buffer.Reset()
+		return
+	}
+}
+
+func (s *llmRunStream) responseReasoningFormat() string {
+	format := anyStringNode(anyMapNode(s.protocolConfig.Compat["response"])["reasoningFormat"])
+	if format == "" {
+		switch strings.ToUpper(strings.TrimSpace(s.model.Protocol)) {
+		case "ANTHROPIC":
+			return "ANTHROPIC_THINKING_DELTA"
+		default:
+			return "REASONING_CONTENT"
+		}
+	}
+	return strings.ToUpper(strings.TrimSpace(format))
+}
+
+func extractReasoningDetailTexts(details []map[string]any) []string {
+	texts := make([]string, 0, len(details))
+	for _, detail := range details {
+		if text := anyStringNode(detail["text"]); text != "" {
+			texts = append(texts, text)
+		}
+	}
+	return texts
+}
+
 func (s *llmRunStream) finishCurrentTurn() error {
+	if s.currentTurn != nil && s.responseReasoningFormat() == "THINK_TAG_CONTENT" {
+		s.appendThinkTagContent("", true)
+	}
 	turn := s.currentTurn
 	if turn == nil {
 		return nil
@@ -1122,7 +1242,7 @@ func (t *providerTurnStream) materializeToolCalls() ([]openAIToolCall, error) {
 	return out, nil
 }
 
-func (e *LLMAgentEngine) openProviderStream(ctx context.Context, runID string, provider ProviderDefinition, model ModelDefinition, stageSettings StageSettings, messages []openAIMessage, toolSpecs []openAIToolSpec, toolChoice string) (*providerTurnStream, error) {
+func (e *LLMAgentEngine) openProviderStream(ctx context.Context, runID string, provider ProviderDefinition, model ModelDefinition, protocolConfig protocolRuntimeConfig, stageSettings StageSettings, messages []openAIMessage, toolSpecs []openAIToolSpec, toolChoice string) (*providerTurnStream, error) {
 	if provider.BaseURL == "" {
 		return nil, fmt.Errorf("provider %s has empty baseUrl", provider.Key)
 	}
@@ -1133,13 +1253,11 @@ func (e *LLMAgentEngine) openProviderStream(ctx context.Context, runID string, p
 	if protocol == "" {
 		protocol = "OPENAI"
 	}
-
-	protocolConfig := resolveProtocolRuntimeConfig(provider, model)
 	endpoint := strings.TrimRight(provider.BaseURL, "/") + protocolConfig.EndpointPath
 
 	switch protocol {
 	case "OPENAI":
-		return e.openOpenAIProviderStream(ctx, runID, provider, model, messages, toolSpecs, toolChoice, endpoint)
+		return e.openOpenAIProviderStream(ctx, runID, provider, model, protocolConfig, stageSettings, messages, toolSpecs, toolChoice, endpoint)
 	case "ANTHROPIC":
 		return e.openAnthropicProviderStream(ctx, runID, provider, model, stageSettings, messages, toolSpecs, toolChoice, endpoint, protocolConfig)
 	default:
@@ -1166,7 +1284,7 @@ func resolveProtocolRuntimeConfig(provider ProviderDefinition, model ModelDefini
 	return protocolRuntimeConfig{
 		EndpointPath: endpointPath,
 		Headers:      mergeStringMaps(defaultProtocolHeaders(protocol), def.Headers, model.Headers),
-		Compat:       mergeAnyMaps(def.Compat, model.Compat),
+		Compat:       mergeAnyMaps(mergeAnyMaps(defaultProtocolCompat(protocol), def.Compat), model.Compat),
 	}
 }
 
@@ -1178,6 +1296,31 @@ func defaultProtocolHeaders(protocol string) map[string]string {
 		}
 	default:
 		return nil
+	}
+}
+
+func defaultProtocolCompat(protocol string) map[string]any {
+	switch strings.ToUpper(strings.TrimSpace(protocol)) {
+	case "ANTHROPIC":
+		return map[string]any{
+			"request": map[string]any{
+				"whenReasoningEnabled": map[string]any{
+					"thinking": map[string]any{},
+				},
+			},
+			"response": map[string]any{
+				"reasoningFormat": "ANTHROPIC_THINKING_DELTA",
+			},
+		}
+	default:
+		return map[string]any{
+			"request": map[string]any{
+				"whenReasoningEnabled": map[string]any{},
+			},
+			"response": map[string]any{
+				"reasoningFormat": "REASONING_CONTENT",
+			},
+		}
 	}
 }
 
@@ -1217,7 +1360,7 @@ func mergeAnyMaps(base map[string]any, overlay map[string]any) map[string]any {
 	return out
 }
 
-func (e *LLMAgentEngine) openOpenAIProviderStream(ctx context.Context, runID string, provider ProviderDefinition, model ModelDefinition, messages []openAIMessage, toolSpecs []openAIToolSpec, toolChoice string, endpoint string) (*providerTurnStream, error) {
+func (e *LLMAgentEngine) openOpenAIProviderStream(ctx context.Context, runID string, provider ProviderDefinition, model ModelDefinition, protocolConfig protocolRuntimeConfig, stageSettings StageSettings, messages []openAIMessage, toolSpecs []openAIToolSpec, toolChoice string, endpoint string) (*providerTurnStream, error) {
 	effectiveToolChoice := "auto"
 	if toolChoice != "" {
 		effectiveToolChoice = toolChoice
@@ -1225,14 +1368,23 @@ func (e *LLMAgentEngine) openOpenAIProviderStream(ctx context.Context, runID str
 	if len(toolSpecs) == 0 {
 		effectiveToolChoice = ""
 	}
-	requestBody := openAIChatRequest{
-		Model:         model.ModelID,
-		Messages:      messages,
-		Tools:         toolSpecs,
-		ToolChoice:    effectiveToolChoice,
-		Temperature:   0,
-		Stream:        true,
-		StreamOptions: &streamOptions{IncludeUsage: true},
+	requestBody := map[string]any{
+		"model":          model.ModelID,
+		"messages":       messages,
+		"temperature":    0,
+		"stream":         true,
+		"stream_options": &streamOptions{IncludeUsage: true},
+	}
+	if len(toolSpecs) > 0 {
+		requestBody["tools"] = toolSpecs
+	}
+	if effectiveToolChoice != "" {
+		requestBody["tool_choice"] = effectiveToolChoice
+	}
+	if stageSettings.ReasoningEnabled {
+		if compatRequest := anyMapNode(anyMapNode(protocolConfig.Compat["request"])["whenReasoningEnabled"]); compatRequest != nil {
+			requestBody = mergeAnyMaps(requestBody, compatRequest)
+		}
 	}
 	body, err := json.Marshal(requestBody)
 	if err != nil {
@@ -1247,6 +1399,9 @@ func (e *LLMAgentEngine) openOpenAIProviderStream(ctx context.Context, runID str
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Authorization", "Bearer "+provider.APIKey)
+	for key, value := range protocolConfig.Headers {
+		req.Header.Set(key, value)
+	}
 
 	return e.executeProviderRequest(req)
 }

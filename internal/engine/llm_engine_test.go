@@ -679,6 +679,332 @@ func TestLLMAgentEngineStreamsReasoningThenContent(t *testing.T) {
 	}
 }
 
+func TestLLMAgentEngineAppliesOpenAIReasoningCompatOnlyWhenEnabled(t *testing.T) {
+	requestBodies := make([]map[string]any, 0, 2)
+	client := newScriptedHTTPClient(func(req *http.Request) scriptedHTTPResponse {
+		var request map[string]any
+		if err := json.NewDecoder(req.Body).Decode(&request); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		requestBodies = append(requestBodies, request)
+		return scriptedSSE(`{"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}]}`, `[DONE]`)
+	})
+
+	registry := &ModelRegistry{
+		providers: map[string]ProviderDefinition{
+			"mock": {
+				Key:     "mock",
+				BaseURL: "http://mock.local",
+				APIKey:  "test-key",
+				Protocols: map[string]ProtocolDefinition{
+					"OPENAI": {
+						EndpointPath: "/v1/chat/completions",
+						Compat: map[string]any{
+							"request": map[string]any{
+								"whenReasoningEnabled": map[string]any{
+									"reasoning_split": true,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		models: map[string]ModelDefinition{
+			"mock-model": {
+				Key:      "mock-model",
+				Provider: "mock",
+				Protocol: "OPENAI",
+				ModelID:  "mock-model",
+				Compat: map[string]any{
+					"request": map[string]any{
+						"whenReasoningEnabled": map[string]any{
+							"reasoning_split": nil,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	engine := NewLLMAgentEngineWithHTTPClient(
+		config.Config{Defaults: config.DefaultsConfig{React: config.ReactDefaultsConfig{MaxSteps: 4}}},
+		registry,
+		&testToolExecutor{},
+		NewNoopSandboxClient(),
+		client,
+	)
+
+	for _, session := range []QuerySession{
+		{
+			RunID:    "run_reasoning_enabled",
+			ChatID:   "chat_reasoning_enabled",
+			ModelKey: "mock-model",
+			ResolvedStageSettings: PlanExecuteSettings{
+				Execute: StageSettings{ReasoningEnabled: true},
+			},
+		},
+		{
+			RunID:    "run_reasoning_disabled",
+			ChatID:   "chat_reasoning_disabled",
+			ModelKey: "mock-model",
+		},
+	} {
+		stream, err := engine.Stream(context.Background(), api.QueryRequest{Message: "hi"}, session)
+		if err != nil {
+			t.Fatalf("stream query: %v", err)
+		}
+		drainAgentStream(t, stream)
+		_ = stream.Close()
+	}
+
+	if len(requestBodies) != 2 {
+		t.Fatalf("expected 2 requests, got %d", len(requestBodies))
+	}
+	if value, ok := requestBodies[0]["reasoning_split"]; !ok || value != nil {
+		t.Fatalf("expected reasoning_split:null when reasoning enabled, got %#v", requestBodies[0])
+	}
+	if _, ok := requestBodies[1]["reasoning_split"]; ok {
+		t.Fatalf("expected reasoning_split to be omitted when reasoning disabled, got %#v", requestBodies[1])
+	}
+}
+
+func TestLLMAgentEngineSupportsOpenAIReasoningDetailsCompat(t *testing.T) {
+	client := newScriptedHTTPClient(
+		func(*http.Request) scriptedHTTPResponse {
+			return scriptedSSE(
+				`{"choices":[{"delta":{"reasoning_details":[{"text":"thinking..."}]}}]}`,
+				`{"choices":[{"delta":{"reasoning_details":[{"text":" more thoughts"}]}}]}`,
+				`{"choices":[{"delta":{"content":"hello"},"finish_reason":"stop"}]}`,
+				`[DONE]`,
+			)
+		},
+	)
+	engine := NewLLMAgentEngineWithHTTPClient(
+		config.Config{Defaults: config.DefaultsConfig{React: config.ReactDefaultsConfig{MaxSteps: 4}}},
+		&ModelRegistry{
+			providers: map[string]ProviderDefinition{
+				"mock": {
+					Key:     "mock",
+					BaseURL: "http://mock.local",
+					APIKey:  "test-key",
+					Protocols: map[string]ProtocolDefinition{
+						"OPENAI": {
+							EndpointPath: "/v1/chat/completions",
+							Compat: map[string]any{
+								"response": map[string]any{
+									"reasoningFormat": "REASONING_DETAILS_TEXT",
+								},
+							},
+						},
+					},
+				},
+			},
+			models: map[string]ModelDefinition{
+				"mock-model": {
+					Key:      "mock-model",
+					Provider: "mock",
+					Protocol: "OPENAI",
+					ModelID:  "mock-model",
+				},
+			},
+		},
+		&testToolExecutor{},
+		NewNoopSandboxClient(),
+		client,
+	)
+
+	stream, err := engine.Stream(context.Background(), api.QueryRequest{Message: "hi"}, QuerySession{
+		RunID:    "run_reason_details",
+		ChatID:   "chat_reason_details",
+		ModelKey: "mock-model",
+	})
+	if err != nil {
+		t.Fatalf("stream query: %v", err)
+	}
+	defer stream.Close()
+
+	var reasoningTexts []string
+	for {
+		event, err := stream.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("next: %v", err)
+		}
+		if reasoning, ok := event.(DeltaReasoning); ok {
+			reasoningTexts = append(reasoningTexts, reasoning.Text)
+		}
+	}
+
+	if len(reasoningTexts) != 2 || reasoningTexts[0] != "thinking..." || reasoningTexts[1] != "more thoughts" {
+		t.Fatalf("unexpected reasoning texts: %v", reasoningTexts)
+	}
+}
+
+func TestLLMAgentEngineSupportsThinkTagReasoningCompat(t *testing.T) {
+	client := newScriptedHTTPClient(
+		func(*http.Request) scriptedHTTPResponse {
+			return scriptedSSE(
+				`{"choices":[{"delta":{"content":"<thi"}}]}`,
+				`{"choices":[{"delta":{"content":"nk>secret"}}]}`,
+				`{"choices":[{"delta":{"content":"</think>hello"}}]}`,
+				`{"choices":[{"delta":{"content":" world"},"finish_reason":"stop"}]}`,
+				`[DONE]`,
+			)
+		},
+	)
+	engine := NewLLMAgentEngineWithHTTPClient(
+		config.Config{Defaults: config.DefaultsConfig{React: config.ReactDefaultsConfig{MaxSteps: 4}}},
+		&ModelRegistry{
+			providers: map[string]ProviderDefinition{
+				"mock": {
+					Key:     "mock",
+					BaseURL: "http://mock.local",
+					APIKey:  "test-key",
+					Protocols: map[string]ProtocolDefinition{
+						"OPENAI": {
+							EndpointPath: "/v1/chat/completions",
+							Compat: map[string]any{
+								"response": map[string]any{
+									"reasoningFormat": "THINK_TAG_CONTENT",
+								},
+							},
+						},
+					},
+				},
+			},
+			models: map[string]ModelDefinition{
+				"mock-model": {
+					Key:      "mock-model",
+					Provider: "mock",
+					Protocol: "OPENAI",
+					ModelID:  "mock-model",
+				},
+			},
+		},
+		&testToolExecutor{},
+		NewNoopSandboxClient(),
+		client,
+	)
+
+	stream, err := engine.Stream(context.Background(), api.QueryRequest{Message: "hi"}, QuerySession{
+		RunID:    "run_think_tags",
+		ChatID:   "chat_think_tags",
+		ModelKey: "mock-model",
+	})
+	if err != nil {
+		t.Fatalf("stream query: %v", err)
+	}
+	defer stream.Close()
+
+	var reasoningTexts []string
+	var contentTexts []string
+	for {
+		event, err := stream.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("next: %v", err)
+		}
+		if reasoning, ok := event.(DeltaReasoning); ok {
+			reasoningTexts = append(reasoningTexts, reasoning.Text)
+		}
+		if content, ok := event.(DeltaContent); ok {
+			contentTexts = append(contentTexts, content.Text)
+		}
+	}
+
+	if len(reasoningTexts) != 1 || reasoningTexts[0] != "secret" {
+		t.Fatalf("unexpected reasoning texts: %v", reasoningTexts)
+	}
+	if strings.Join(contentTexts, "") != "hello world" {
+		t.Fatalf("unexpected content texts: %v", contentTexts)
+	}
+}
+
+func TestLLMAgentEngineSupportsAnthropicThinkTagCompatOverride(t *testing.T) {
+	client := newScriptedHTTPClient(
+		func(*http.Request) scriptedHTTPResponse {
+			return scriptedEventSSE(
+				sseFrame{"content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"<think>secret</think>answer"}}`},
+				sseFrame{"message_delta", `{"type":"message_delta","delta":{"stop_reason":"end_turn"}}`},
+				sseFrame{"message_stop", `{"type":"message_stop"}`},
+			)
+		},
+	)
+	engine := NewLLMAgentEngineWithHTTPClient(
+		config.Config{Defaults: config.DefaultsConfig{React: config.ReactDefaultsConfig{MaxSteps: 4}}},
+		&ModelRegistry{
+			providers: map[string]ProviderDefinition{
+				"compat_provider": {
+					Key:     "compat_provider",
+					BaseURL: "https://provider.example.com",
+					APIKey:  "test-key",
+					Protocols: map[string]ProtocolDefinition{
+						"ANTHROPIC": {
+							EndpointPath: "/v1/messages",
+							Compat: map[string]any{
+								"response": map[string]any{
+									"reasoningFormat": "THINK_TAG_CONTENT",
+								},
+							},
+						},
+					},
+				},
+			},
+			models: map[string]ModelDefinition{
+				"reasoner-model": {
+					Key:      "reasoner-model",
+					Provider: "compat_provider",
+					Protocol: "ANTHROPIC",
+					ModelID:  "reasoner-model",
+				},
+			},
+		},
+		&testToolExecutor{},
+		NewNoopSandboxClient(),
+		client,
+	)
+
+	stream, err := engine.Stream(context.Background(), api.QueryRequest{Message: "hi"}, QuerySession{
+		RunID:    "run_anthropic_think_tag",
+		ChatID:   "chat_anthropic_think_tag",
+		ModelKey: "reasoner-model",
+	})
+	if err != nil {
+		t.Fatalf("stream query: %v", err)
+	}
+	defer stream.Close()
+
+	var reasoningTexts []string
+	var contentTexts []string
+	for {
+		event, err := stream.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("next: %v", err)
+		}
+		if reasoning, ok := event.(DeltaReasoning); ok {
+			reasoningTexts = append(reasoningTexts, reasoning.Text)
+		}
+		if content, ok := event.(DeltaContent); ok {
+			contentTexts = append(contentTexts, content.Text)
+		}
+	}
+
+	if len(reasoningTexts) != 1 || reasoningTexts[0] != "secret" {
+		t.Fatalf("unexpected anthropic reasoning texts: %v", reasoningTexts)
+	}
+	if strings.Join(contentTexts, "") != "answer" {
+		t.Fatalf("unexpected anthropic content texts: %v", contentTexts)
+	}
+}
+
 func TestLLMAgentEngineSupportsAnthropicStreamingAndToolUse(t *testing.T) {
 	var mu sync.Mutex
 	callCount := 0
