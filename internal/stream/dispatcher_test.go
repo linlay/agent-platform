@@ -80,7 +80,7 @@ func TestDispatcherEmitsActionSnapshotAndResultLifecycle(t *testing.T) {
 
 	_ = dispatcher.Dispatch(ActionArgs{
 		ActionID:    "action_1",
-		ActionName:  "confirm_dialog",
+		ActionName:  "approval_action",
 		Description: "Need confirmation",
 		Delta:       `{"confirmed":`,
 	})

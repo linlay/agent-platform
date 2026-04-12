@@ -448,7 +448,11 @@ func TestAgentEndpointReturnsDetail(t *testing.T) {
 	if response.Data.Mode != "REACT" {
 		t.Fatalf("expected REACT mode, got %#v", response.Data)
 	}
-	if len(response.Data.Tools) != 3 || response.Data.Tools[0] != "_datetime_" || response.Data.Tools[2] != "_sandbox_bash_" {
+	if len(response.Data.Tools) != 4 ||
+		response.Data.Tools[0] != "_datetime_" ||
+		response.Data.Tools[1] != "_ask_user_question_" ||
+		response.Data.Tools[2] != "_ask_user_approval_" ||
+		response.Data.Tools[3] != "_sandbox_bash_" {
 		t.Fatalf("expected tools in detail response, got %#v", response.Data.Tools)
 	}
 	if len(response.Data.Skills) != 1 || response.Data.Skills[0] != "mock-skill" {
@@ -994,7 +998,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 		switch call {
 		case 1:
 			writeProviderSSE(t, w,
-				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_confirm","type":"function","function":{"name":"confirm_dialog","arguments":"{\"title\":\"Need confirmation\"}"}}]},"finish_reason":"tool_calls"}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_confirm","type":"function","function":{"name":"_ask_user_approval_","arguments":"{\"mode\":\"approval\",\"question\":\"Need confirmation\",\"options\":[{\"label\":\"Approve\",\"value\":\"approve\",\"description\":\"Continue with the request\"}],\"allowFreeText\":true,\"freeTextPlaceholder\":\"Type your own answer\"}"}}]},"finish_reason":"tool_calls"}]}`,
 				`[DONE]`,
 			)
 		case 2:
@@ -1031,7 +1035,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 		streamBody.WriteString(line)
 		if strings.HasPrefix(line, "data: {") {
 			payload := decodeSSELine(t, line)
-			if payload["type"] == "tool.start" && payload["toolName"] == "confirm_dialog" {
+			if payload["type"] == "tool.start" && payload["toolName"] == "_ask_user_approval_" {
 				toolStartPayload = payload
 			}
 			if payload["type"] == "request.submit" {
@@ -1047,8 +1051,8 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	if toolStartPayload == nil {
 		t.Fatalf("expected frontend tool.start before request.submit, got %s", streamBody.String())
 	}
-	if toolStartPayload["toolType"] != "html" {
-		t.Fatalf("expected frontend toolType html, got %#v", toolStartPayload)
+	if toolStartPayload["toolType"] != "builtin" {
+		t.Fatalf("expected frontend toolType builtin, got %#v", toolStartPayload)
 	}
 	if toolStartPayload["viewportKey"] != "confirm_dialog" {
 		t.Fatalf("expected viewportKey confirm_dialog, got %#v", toolStartPayload)
@@ -1072,7 +1076,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 		t.Fatalf("expected accepted steer, got %#v", steerResp.Data)
 	}
 
-	submitReq := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+runID+`","toolId":"`+toolID+`","params":{"confirmed":true}}`))
+	submitReq := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+runID+`","toolId":"`+toolID+`","params":{"value":"approve"}}`))
 	submitReq.Header.Set("Content-Type", "application/json")
 	submitRec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(submitRec, submitReq)
@@ -1130,12 +1134,12 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	}
 	foundFrontendSnapshot := false
 	for _, event := range chatResp.Data.Events {
-		if event.Type != "tool.snapshot" || event.String("toolName") != "confirm_dialog" {
+		if event.Type != "tool.snapshot" || event.String("toolName") != "_ask_user_approval_" {
 			continue
 		}
 		foundFrontendSnapshot = true
-		if event.String("toolType") != "html" {
-			t.Fatalf("expected frontend snapshot toolType html, got %#v", event)
+		if event.String("toolType") != "builtin" {
+			t.Fatalf("expected frontend snapshot toolType builtin, got %#v", event)
 		}
 		if event.String("viewportKey") != "confirm_dialog" {
 			t.Fatalf("expected frontend snapshot viewportKey confirm_dialog, got %#v", event)
@@ -1145,7 +1149,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 		}
 	}
 	if !foundFrontendSnapshot {
-		t.Fatalf("expected confirm_dialog tool.snapshot in chat detail, got %#v", chatResp.Data.Events)
+		t.Fatalf("expected _ask_user_approval_ tool.snapshot in chat detail, got %#v", chatResp.Data.Events)
 	}
 
 	select {
@@ -1463,7 +1467,8 @@ func newTestFixtureWithModelHandler(t *testing.T, modelHandler http.HandlerFunc)
 		"  backends:",
 		"    - _datetime_",
 		"  frontends:",
-		"    - confirm_dialog",
+		"    - _ask_user_question_",
+		"    - _ask_user_approval_",
 		"  actions: []",
 		"skillConfig:",
 		"  skills:",

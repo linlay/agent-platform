@@ -74,7 +74,7 @@ func TestRebuildSnapshotEventsGroupsByRunAndBackfillsLegacyIDs(t *testing.T) {
 		{"type": "tool.end", "chatId": "chat_1", "runId": run2},
 		{"type": "tool.snapshot", "chatId": "chat_1", "runId": run2, "arguments": "{}"},
 		{"type": "tool.result", "chatId": "chat_1", "runId": run2, "output": map[string]any{"ok": true}},
-		{"type": "action.start", "chatId": "chat_1", "runId": run2, "actionName": "confirm_dialog"},
+		{"type": "action.start", "chatId": "chat_1", "runId": run2, "actionName": "approval_action"},
 		{"type": "action.end", "chatId": "chat_1", "runId": run2},
 		{"type": "action.result", "chatId": "chat_1", "runId": run2, "result": map[string]any{"confirmed": true}},
 		{"type": "run.complete", "runId": run2},

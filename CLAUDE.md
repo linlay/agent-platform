@@ -213,6 +213,24 @@ remember 根目录由 `MEMORY_DIR` 控制：
 - `GET /api/resource`：按 chat 目录中的相对路径回读静态资源，可结合 resource ticket 访问
 - `POST /api/upload`：写入 chat 目录并返回 upload ticket
 
+### `confirm_dialog` 共享 viewport 约定
+
+- `_ask_user_question_` 与 `_ask_user_approval_` 都使用 `toolType=builtin`、`viewportKey=confirm_dialog`。
+- 两个工具的输入里都必须带 `mode`：
+  - `mode=question`：对应 `_ask_user_question_`
+  - `mode=approval`：对应 `_ask_user_approval_`
+- `mode=question`：
+  - 顶层字段为 `questions`
+  - 每个问题支持 `type`、`header`、`placeholder`、`allowFreeText`、`freeTextPlaceholder`
+  - `select` 题的 `options` 结构是 `{ label, description? }`，不包含 `value`
+  - 单个问题里，选项回答与自由输入互斥，最终都写入 `answer`
+  - `/api/submit` 提交结构：`{"answers":[{"question":"...","answer":...}]}`
+- `mode=approval`：
+  - 顶层字段为 `question`、`description`、`options`、`allowFreeText`、`freeTextPlaceholder`
+  - `options` 结构是 `{ label, value, description? }`
+  - 预设选项与自由输入互斥
+  - `/api/submit` 提交结构：`{"value":"..."}` 或 `{"freeText":"..."}`
+
 ## 7. 开发要点
 
 - 配置事实源以 `internal/config/config.go` 和 `configs/*.example.yml` 为准，`README.md` 只解释，不重复维护默认值。

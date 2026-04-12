@@ -20,7 +20,7 @@ func (r *Registry) Get(viewportKey string) (map[string]any, bool, error) {
 	if strings.TrimSpace(viewportKey) == "confirm_dialog" {
 		return map[string]any{
 			"viewportKey": "confirm_dialog",
-			"html":        `<div data-viewport="confirm_dialog"><p>confirm dialog viewport placeholder</p></div>`,
+			"html":        `<div data-viewport="confirm_dialog"><p>builtin ask-user viewport placeholder</p></div>`,
 		}, true, nil
 	}
 

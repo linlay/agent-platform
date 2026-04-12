@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"agent-platform-runner-go/internal/contracts"
@@ -47,6 +48,9 @@ func TestRegistryProvidesDefaultConfirmDialog(t *testing.T) {
 	}
 	if payload["viewportKey"] != "confirm_dialog" {
 		t.Fatalf("unexpected payload %#v", payload)
+	}
+	if html, _ := payload["html"].(string); !strings.Contains(html, "ask-user viewport placeholder") {
+		t.Fatalf("expected generic ask-user placeholder, got %#v", payload)
 	}
 }
 

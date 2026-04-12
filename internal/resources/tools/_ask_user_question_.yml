@@ -1,0 +1,69 @@
+name: _ask_user_question_
+label: 用户提问
+description: 向用户展示多个问题，支持文本、数字、密码、选项等回答方式。单个问题可以在选项回答与自由输入之间二选一，工具会阻塞等待用户提交回复。
+type: function
+toolType: builtin
+viewportKey: confirm_dialog
+inputSchema:
+  type: object
+  properties:
+    mode:
+      type: string
+      description: 共享 confirm_dialog viewport 的渲染模式
+      enum:
+        - question
+    questions:
+      type: array
+      description: 需要一次性展示给用户的问题列表
+      items:
+        type: object
+        properties:
+          question:
+            type: string
+            description: 问题正文
+          type:
+            type: string
+            description: 问题类型
+            enum:
+              - text
+              - number
+              - select
+              - password
+          header:
+            type: string
+            description: 问题分组标题或短标题
+          placeholder:
+            type: string
+            description: 输入框占位提示
+          options:
+            type: array
+            description: 仅 select 类型使用的选项列表
+            items:
+              type: object
+              properties:
+                label:
+                  type: string
+                  description: 选项展示文案，也是提交时的取值
+                description:
+                  type: string
+                  description: 选项补充说明
+              required:
+                - label
+              additionalProperties: false
+          multiSelect:
+            type: boolean
+            description: select 类型是否允许多选
+          allowFreeText:
+            type: boolean
+            description: 是否允许该问题改用自由输入作答；与选项选择互斥
+          freeTextPlaceholder:
+            type: string
+            description: 自由输入模式的占位提示
+        required:
+          - question
+          - type
+        additionalProperties: false
+  required:
+    - mode
+    - questions
+  additionalProperties: false

@@ -1,0 +1,53 @@
+name: _ask_user_approval_
+label: 用户确认
+description: 向用户展示单题单选确认。用户可以在预设选项和自由输入之间二选一，工具会阻塞等待用户提交回复。
+type: function
+toolType: builtin
+viewportKey: confirm_dialog
+inputSchema:
+  type: object
+  properties:
+    mode:
+      type: string
+      description: 共享 confirm_dialog viewport 的渲染模式
+      enum:
+        - approval
+    question:
+      type: string
+      description: 向用户展示的确认问题
+    header:
+      type: string
+      description: 确认卡片标题
+    description:
+      type: string
+      description: 对本次确认的补充说明
+    options:
+      type: array
+      description: 可选择的确认项列表，提交时使用 value
+      items:
+        type: object
+        properties:
+          label:
+            type: string
+            description: 选项展示文案
+          value:
+            type: string
+            description: 选中该项后提交的值
+          description:
+            type: string
+            description: 选项补充说明
+        required:
+          - label
+          - value
+        additionalProperties: false
+    allowFreeText:
+      type: boolean
+      description: 是否允许放弃预设选项，改为自由输入；与选项选择互斥
+    freeTextPlaceholder:
+      type: string
+      description: 自由输入模式的占位提示
+  required:
+    - mode
+    - question
+    - options
+  additionalProperties: false
