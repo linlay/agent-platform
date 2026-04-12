@@ -195,12 +195,13 @@ func NewNoopToolExecutor() *NoopToolExecutor { return &NoopToolExecutor{} }
 func (n *NoopToolExecutor) Definitions() []api.ToolDetailResponse { return nil }
 
 func (n *NoopToolExecutor) Invoke(_ context.Context, toolName string, args map[string]any, _ *ExecutionContext) (ToolExecutionResult, error) {
-	return ToolExecutionResult{
+	result := ToolExecutionResult{
 		Output:     "status: not_implemented",
 		Structured: map[string]any{"toolName": toolName, "args": args, "status": "not_implemented"},
 		Error:      "not_implemented",
 		ExitCode:   -1,
-	}, nil
+	}
+	return result, ErrNotImplemented
 }
 
 type NoopActionInvoker struct{}
@@ -208,12 +209,13 @@ type NoopActionInvoker struct{}
 func NewNoopActionInvoker() *NoopActionInvoker { return &NoopActionInvoker{} }
 
 func (n *NoopActionInvoker) Invoke(_ context.Context, actionName string, args map[string]any, _ *ExecutionContext) (ToolExecutionResult, error) {
-	return ToolExecutionResult{
+	result := ToolExecutionResult{
 		Output:     "status: not_implemented",
 		Structured: map[string]any{"actionName": actionName, "args": args, "status": "not_implemented"},
 		Error:      "not_implemented",
 		ExitCode:   -1,
-	}, nil
+	}
+	return result, ErrNotImplemented
 }
 
 type NoopSandboxClient struct{}
@@ -223,12 +225,13 @@ func NewNoopSandboxClient() *NoopSandboxClient { return &NoopSandboxClient{} }
 func (n *NoopSandboxClient) OpenIfNeeded(_ context.Context, _ *ExecutionContext) error { return nil }
 
 func (n *NoopSandboxClient) Execute(_ context.Context, _ *ExecutionContext, command string, cwd string, _ int64) (SandboxExecutionResult, error) {
-	return SandboxExecutionResult{
+	result := SandboxExecutionResult{
 		ExitCode:         -1,
 		Stdout:           "",
 		Stderr:           "status: not_implemented",
 		WorkingDirectory: cwd,
-	}, nil
+	}
+	return result, ErrNotImplemented
 }
 
 func (n *NoopSandboxClient) CloseQuietly(_ *ExecutionContext) {}

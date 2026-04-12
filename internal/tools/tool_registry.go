@@ -10,6 +10,7 @@ import (
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/catalog"
 	"agent-platform-runner-go/internal/config"
+	. "agent-platform-runner-go/internal/contracts"
 )
 
 func LoadRuntimeToolDefinitions(root string) ([]api.ToolDetailResponse, error) {
@@ -121,9 +122,9 @@ func mergeBackendToolDefinition(runtime api.ToolDetailResponse, overlay api.Tool
 		merged.AfterCallHint = overlay.AfterCallHint
 	}
 	if len(overlay.Parameters) > 0 {
-		merged.Parameters = cloneAnyMap(overlay.Parameters)
+		merged.Parameters = CloneMap(overlay.Parameters)
 	}
-	merged.Meta = cloneAnyMap(runtime.Meta)
+	merged.Meta = CloneMap(runtime.Meta)
 	for key, value := range overlay.Meta {
 		merged.Meta[key] = value
 	}
@@ -137,7 +138,7 @@ func cloneToolDefinition(def api.ToolDetailResponse) api.ToolDetailResponse {
 		Label:         def.Label,
 		Description:   def.Description,
 		AfterCallHint: def.AfterCallHint,
-		Parameters:    cloneAnyMap(def.Parameters),
-		Meta:          cloneAnyMap(def.Meta),
+		Parameters:    CloneMap(def.Parameters),
+		Meta:          CloneMap(def.Meta),
 	}
 }

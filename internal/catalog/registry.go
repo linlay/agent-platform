@@ -11,6 +11,7 @@ import (
 
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/config"
+	"agent-platform-runner-go/internal/contracts"
 )
 
 type Registry interface {
@@ -216,10 +217,10 @@ func (r *FileRegistry) Agents(tag string) []api.AgentSummary {
 			summary.Meta["contextTags"] = append([]string(nil), def.ContextTags...)
 		}
 		if def.Budget != nil {
-			summary.Meta["budget"] = cloneMap(def.Budget)
+			summary.Meta["budget"] = contracts.CloneMap(def.Budget)
 		}
 		if def.StageSettings != nil {
-			summary.Meta["stageSettings"] = cloneMap(def.StageSettings)
+			summary.Meta["stageSettings"] = contracts.CloneMap(def.StageSettings)
 		}
 		if def.Sandbox != nil {
 			summary.Meta["sandbox"] = def.Sandbox
@@ -318,7 +319,7 @@ func (r *FileRegistry) Tools(kind string, tag string) []api.ToolSummary {
 			Name:        tool.Name,
 			Label:       tool.Label,
 			Description: tool.Description,
-			Meta:        cloneMap(tool.Meta),
+			Meta:        contracts.CloneMap(tool.Meta),
 		})
 	}
 	return items
@@ -341,8 +342,8 @@ func (r *FileRegistry) Tool(name string) (api.ToolDetailResponse, bool) {
 				Label:         tool.Label,
 				Description:   tool.Description,
 				AfterCallHint: tool.AfterCallHint,
-				Parameters:    cloneMap(tool.Parameters),
-				Meta:          cloneMap(tool.Meta),
+				Parameters:    contracts.CloneMap(tool.Parameters),
+				Meta:          contracts.CloneMap(tool.Meta),
 			}, true
 		}
 	}
@@ -382,24 +383,13 @@ func sortedKeys[T any](values map[string]T) []string {
 	return keys
 }
 
-func cloneMap(src map[string]any) map[string]any {
-	if src == nil {
-		return nil
-	}
-	dst := make(map[string]any, len(src))
-	for key, value := range src {
-		dst[key] = value
-	}
-	return dst
-}
-
 func cloneListMaps(src []map[string]any) []map[string]any {
 	if len(src) == 0 {
 		return nil
 	}
 	dst := make([]map[string]any, 0, len(src))
 	for _, item := range src {
-		dst = append(dst, cloneMap(item))
+		dst = append(dst, contracts.CloneMap(item))
 	}
 	return dst
 }
@@ -572,8 +562,8 @@ func parseToolOverrides(value any) map[string]api.ToolDetailResponse {
 			Label:         stringNode(override["label"]),
 			Description:   stringNode(override["description"]),
 			AfterCallHint: stringNode(override["afterCallHint"]),
-			Parameters:    cloneMap(firstMapNode(override["inputSchema"], override["parameters"])),
-			Meta:          cloneMap(meta),
+			Parameters:    contracts.CloneMap(firstMapNode(override["inputSchema"], override["parameters"])),
+			Meta:          contracts.CloneMap(meta),
 		}
 	}
 	if len(result) == 0 {

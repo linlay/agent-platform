@@ -16,37 +16,36 @@ const manifestFile = ".market-synced-skills"
 
 func loadSkills(root string, maxPromptChars int) (map[string]SkillDefinition, error) {
 	items := map[string]SkillDefinition{}
-	entries, err := os.ReadDir(root)
-	if os.IsNotExist(err) {
-		return items, nil
-	}
+	err := visitRuntimeEntries(
+		root,
+		nil,
+		func(name string, entry os.DirEntry) bool {
+			return entry.IsDir() && !strings.HasPrefix(name, ".") && ShouldLoadRuntimeName(name)
+		},
+		func(name string, _ os.DirEntry) {
+			skillPath := filepath.Join(root, name, "SKILL.md")
+			content, err := os.ReadFile(skillPath)
+			if err != nil {
+				log.Printf("[catalog][skills] skip directory %s: no SKILL.md found", name)
+				return
+			}
+			prompt := strings.TrimSpace(string(content))
+			description := firstNonEmptyMarkdownLine(prompt)
+			truncated := false
+			if maxPromptChars > 0 && len(prompt) > maxPromptChars {
+				truncated = true
+			}
+			items[name] = SkillDefinition{
+				Key:             name,
+				Name:            skillDisplayName(description, name),
+				Description:     description,
+				Prompt:          prompt,
+				PromptTruncated: truncated,
+			}
+		},
+	)
 	if err != nil {
 		return nil, err
-	}
-	for _, entry := range entries {
-		name := entry.Name()
-		if !entry.IsDir() || strings.HasPrefix(name, ".") || !ShouldLoadRuntimeName(name) {
-			continue
-		}
-		skillPath := filepath.Join(root, name, "SKILL.md")
-		content, err := os.ReadFile(skillPath)
-		if err != nil {
-			log.Printf("[catalog][skills] skip directory %s: no SKILL.md found", name)
-			continue
-		}
-		prompt := strings.TrimSpace(string(content))
-		description := firstNonEmptyMarkdownLine(prompt)
-		truncated := false
-		if maxPromptChars > 0 && len(prompt) > maxPromptChars {
-			truncated = true
-		}
-		items[name] = SkillDefinition{
-			Key:             name,
-			Name:            skillDisplayName(description, name),
-			Description:     description,
-			Prompt:          prompt,
-			PromptTruncated: truncated,
-		}
 	}
 	return items, nil
 }

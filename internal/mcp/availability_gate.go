@@ -7,10 +7,10 @@ import (
 )
 
 type AvailabilityGate struct {
-	mu                 sync.Mutex
-	failures           map[string]int
-	nextRetry          map[string]time.Time
-	reconnectInterval  time.Duration
+	mu                sync.Mutex
+	failures          map[string]int
+	nextRetry         map[string]time.Time
+	reconnectInterval time.Duration
 }
 
 func NewAvailabilityGate() *AvailabilityGate {
@@ -31,7 +31,7 @@ func (g *AvailabilityGate) IsBlocked(serverKey string) bool {
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	next := g.nextRetry[normalizeLookup(serverKey)]
+	next := g.nextRetry[normalizeKey(serverKey)]
 	return !next.IsZero() && time.Now().Before(next)
 }
 
@@ -40,8 +40,8 @@ func (g *AvailabilityGate) MarkSuccess(serverKey string) {
 		return
 	}
 	g.mu.Lock()
-	delete(g.failures, normalizeLookup(serverKey))
-	delete(g.nextRetry, normalizeLookup(serverKey))
+	delete(g.failures, normalizeKey(serverKey))
+	delete(g.nextRetry, normalizeKey(serverKey))
 	g.mu.Unlock()
 }
 
@@ -49,7 +49,7 @@ func (g *AvailabilityGate) MarkFailure(serverKey string) {
 	if g == nil {
 		return
 	}
-	key := normalizeLookup(serverKey)
+	key := normalizeKey(serverKey)
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.failures[key]++
@@ -65,7 +65,7 @@ func (g *AvailabilityGate) ReadyToRetry(serverKeys []string) []string {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	for _, serverKey := range serverKeys {
-		key := normalizeLookup(serverKey)
+		key := normalizeKey(serverKey)
 		next := g.nextRetry[key]
 		if !next.IsZero() && !now.Before(next) {
 			ready = append(ready, key)
@@ -85,7 +85,7 @@ func (g *AvailabilityGate) Prune(activeServerKeys []string) {
 	}
 	allowed := map[string]struct{}{}
 	for _, key := range activeServerKeys {
-		if normalized := normalizeLookup(key); normalized != "" {
+		if normalized := normalizeKey(key); normalized != "" {
 			allowed[normalized] = struct{}{}
 		}
 	}

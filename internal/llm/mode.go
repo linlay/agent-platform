@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"agent-platform-runner-go/internal/api"
+	. "agent-platform-runner-go/internal/contracts"
 )
 
 type AgentMode interface {

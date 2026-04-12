@@ -50,7 +50,7 @@ func (s *FileStore) Remember(chatDetail chat.Detail, request api.RememberRequest
 		Summary:    summary,
 		SourceType: "remember",
 		Category:   "remember",
-		Importance: 5,
+		Importance: rememberImportance,
 		Tags:       []string{"remember"},
 		CreatedAt:  now,
 		UpdatedAt:  now,

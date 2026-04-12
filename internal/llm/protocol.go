@@ -7,6 +7,9 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	. "agent-platform-runner-go/internal/contracts"
+	. "agent-platform-runner-go/internal/models"
 )
 
 type providerProtocol interface {

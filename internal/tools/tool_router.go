@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"agent-platform-runner-go/internal/api"
+	. "agent-platform-runner-go/internal/contracts"
 	"agent-platform-runner-go/internal/observability"
 )
 
@@ -166,8 +167,8 @@ func normalizeMCPResult(toolName string, payload any) ToolExecutionResult {
 		if items, ok := mapped["content"].([]any); ok && len(items) > 0 {
 			first := items[0]
 			if contentMap, ok := first.(map[string]any); ok {
-				if strings.EqualFold(strings.TrimSpace(anyStringNode(contentMap["type"])), "text") {
-					return ToolExecutionResult{Output: anyStringNode(contentMap["text"]), ExitCode: 0}
+				if strings.EqualFold(strings.TrimSpace(AnyStringNode(contentMap["type"])), "text") {
+					return ToolExecutionResult{Output: AnyStringNode(contentMap["text"]), ExitCode: 0}
 				}
 				return payloadToToolResult(contentMap)
 			}
@@ -185,17 +186,17 @@ func payloadToToolResult(payload any) ToolExecutionResult {
 	case string:
 		return ToolExecutionResult{Output: value, ExitCode: 0}
 	default:
-		return ToolExecutionResult{Output: marshalJSON(payload), ExitCode: 0}
+		return ToolExecutionResult{Output: MarshalJSON(payload), ExitCode: 0}
 	}
 }
 
 func extractMCPErrorMessage(payload map[string]any) string {
-	if message := anyStringNode(payload["error"]); strings.TrimSpace(message) != "" {
+	if message := AnyStringNode(payload["error"]); strings.TrimSpace(message) != "" {
 		return message
 	}
 	if items, ok := payload["content"].([]any); ok && len(items) > 0 {
 		if contentMap, ok := items[0].(map[string]any); ok {
-			if text := anyStringNode(contentMap["text"]); strings.TrimSpace(text) != "" {
+			if text := AnyStringNode(contentMap["text"]); strings.TrimSpace(text) != "" {
 				return text
 			}
 		}
@@ -211,7 +212,7 @@ func mcpErrorResult(toolName string, code string, message string) ToolExecutionR
 		"error": message,
 	}
 	return ToolExecutionResult{
-		Output:     marshalJSON(payload),
+		Output:     MarshalJSON(payload),
 		Structured: payload,
 		Error:      code,
 		ExitCode:   -1,
@@ -221,10 +222,10 @@ func mcpErrorResult(toolName string, code string, message string) ToolExecutionR
 func (r *ToolRouter) invokeWithPolicy(ctx context.Context, toolName string, execCtx *ExecutionContext, invoke func(context.Context) (ToolExecutionResult, error)) (ToolExecutionResult, error) {
 	budget := Budget{}
 	if execCtx != nil {
-		budget = normalizeBudget(execCtx.Budget)
+		budget = NormalizeBudget(execCtx.Budget)
 		if budget.Tool.MaxCalls > 0 && execCtx.ToolCalls > budget.Tool.MaxCalls {
 			return ToolExecutionResult{
-				Output: marshalJSON(NewErrorPayload(
+				Output: MarshalJSON(NewErrorPayload(
 					"tool_calls_exceeded",
 					"tool call budget exceeded",
 					ErrorScopeTool,

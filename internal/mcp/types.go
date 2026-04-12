@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"agent-platform-runner-go/internal/api"
+	"agent-platform-runner-go/internal/contracts"
 )
 
 type ServerDefinition struct {
@@ -74,12 +75,12 @@ func (t *ToolDefinition) UnmarshalJSON(data []byte) error {
 		Label:         raw.Label,
 		Description:   raw.Description,
 		AfterCallHint: raw.AfterCallHint,
-		Parameters:    cloneMap(parameters),
+		Parameters:    contracts.CloneMap(parameters),
 		ToolAction:    raw.ToolAction,
 		ToolType:      raw.ToolType,
 		ViewportKey:   raw.ViewportKey,
 		Aliases:       append([]string(nil), raw.Aliases...),
-		Meta:          cloneMap(raw.Meta),
+		Meta:          contracts.CloneMap(raw.Meta),
 	}
 	return nil
 }
@@ -111,11 +112,11 @@ func (t ToolDefinition) ToAPITool(serverKey string) api.ToolDetailResponse {
 		kind = "frontend"
 	}
 	meta := map[string]any{
-		"kind":         kind,
-		"serverKey":    serverKey,
-		"sourceType":   "mcp",
-		"sourceKey":    serverKey,
-		"toolAction":   t.ToolAction,
+		"kind":          kind,
+		"serverKey":     serverKey,
+		"sourceType":    "mcp",
+		"sourceKey":     serverKey,
+		"toolAction":    t.ToolAction,
 		"clientVisible": true,
 	}
 	if strings.TrimSpace(t.ToolType) != "" {
@@ -133,7 +134,7 @@ func (t ToolDefinition) ToAPITool(serverKey string) api.ToolDetailResponse {
 		Label:         t.Label,
 		Description:   t.Description,
 		AfterCallHint: t.AfterCallHint,
-		Parameters:    cloneMap(t.Parameters),
+		Parameters:    contracts.CloneMap(t.Parameters),
 		Meta:          meta,
 	}
 }
@@ -143,15 +144,4 @@ func defaultToolKey(key string, name string) string {
 		return strings.TrimSpace(key)
 	}
 	return strings.TrimSpace(name)
-}
-
-func cloneMap(src map[string]any) map[string]any {
-	if src == nil {
-		return nil
-	}
-	dst := make(map[string]any, len(src))
-	for key, value := range src {
-		dst[key] = value
-	}
-	return dst
 }

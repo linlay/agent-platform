@@ -5,6 +5,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	. "agent-platform-runner-go/internal/contracts"
 )
 
 func (t *RuntimeToolExecutor) invokePlanAddTasks(args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
@@ -16,34 +18,34 @@ func (t *RuntimeToolExecutor) invokePlanAddTasks(args map[string]any, execCtx *E
 	if rawTasks, ok := args["tasks"].([]any); ok {
 		for _, item := range rawTasks {
 			taskMap, _ := item.(map[string]any)
-			description := anyStringNode(taskMap["description"])
+			description := AnyStringNode(taskMap["description"])
 			if strings.TrimSpace(description) == "" {
 				continue
 			}
-			taskID := anyStringNode(taskMap["taskId"])
+			taskID := AnyStringNode(taskMap["taskId"])
 			if strings.TrimSpace(taskID) == "" {
 				taskID = shortPlanID()
 			}
 			tasks = append(tasks, PlanTask{
 				TaskID:      taskID,
 				Description: strings.TrimSpace(description),
-				Status:      normalizePlanTaskStatus(anyStringNode(taskMap["status"])),
+				Status:      NormalizePlanTaskStatus(AnyStringNode(taskMap["status"])),
 			})
 		}
 	}
 	if len(tasks) == 0 {
-		description := anyStringNode(args["description"])
+		description := AnyStringNode(args["description"])
 		if strings.TrimSpace(description) == "" {
 			return ToolExecutionResult{Output: "失败: 缺少任务描述", Error: "missing_task_description", ExitCode: -1}, nil
 		}
-		taskID := anyStringNode(args["taskId"])
+		taskID := AnyStringNode(args["taskId"])
 		if strings.TrimSpace(taskID) == "" {
 			taskID = shortPlanID()
 		}
 		tasks = append(tasks, PlanTask{
 			TaskID:      taskID,
 			Description: strings.TrimSpace(description),
-			Status:      normalizePlanTaskStatus(anyStringNode(args["status"])),
+			Status:      NormalizePlanTaskStatus(AnyStringNode(args["status"])),
 		})
 	}
 	if state.PlanID == "" {
@@ -64,7 +66,7 @@ func (t *RuntimeToolExecutor) invokePlanAddTasks(args map[string]any, execCtx *E
 func (t *RuntimeToolExecutor) invokePlanGetTasks(execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	if execCtx == nil || execCtx.PlanState == nil {
 		payload := NewErrorPayload("plan_context_unavailable", "Plan context is unavailable in direct invocation", ErrorScopeRun, ErrorCategorySystem, nil)
-		return ToolExecutionResult{Output: marshalJSON(payload), Structured: payload, Error: "plan_context_unavailable", ExitCode: -1}, nil
+		return ToolExecutionResult{Output: MarshalJSON(payload), Structured: payload, Error: "plan_context_unavailable", ExitCode: -1}, nil
 	}
 	return structuredResult(planStatePayload(execCtx.PlanState)), nil
 }
@@ -74,11 +76,11 @@ func (t *RuntimeToolExecutor) invokePlanUpdateTask(args map[string]any, execCtx 
 		return ToolExecutionResult{Output: "失败: 缺少执行上下文", Error: "plan_context_unavailable", ExitCode: -1}, nil
 	}
 	state := ensurePlanState(execCtx)
-	taskID := anyStringNode(args["taskId"])
+	taskID := AnyStringNode(args["taskId"])
 	if strings.TrimSpace(taskID) == "" {
 		return ToolExecutionResult{Output: "失败: 缺少 taskId", Error: "missing_task_id", ExitCode: -1}, nil
 	}
-	status := normalizePlanTaskStatus(anyStringNode(args["status"]))
+	status := NormalizePlanTaskStatus(AnyStringNode(args["status"]))
 	if status == "" {
 		return ToolExecutionResult{Output: "失败: 非法状态，仅支持 init/in_progress/completed/failed/canceled", Error: "invalid_task_status", ExitCode: -1}, nil
 	}
@@ -112,7 +114,7 @@ func planStatePayload(state *PlanRuntimeState) map[string]any {
 	}
 	payload := map[string]any{
 		"planId": state.PlanID,
-		"plan":   planTasksArray(state),
+		"plan":   PlanTasksArray(state),
 	}
 	if state.ActiveTaskID != "" {
 		payload["currentTaskId"] = state.ActiveTaskID

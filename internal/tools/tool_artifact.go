@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	. "agent-platform-runner-go/internal/contracts"
 )
 
 func (t *RuntimeToolExecutor) invokeArtifactPublish(args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
@@ -48,7 +50,7 @@ func publishArtifacts(chatsRoot string, chatID string, runID string, raw any) []
 		switch v := item.(type) {
 		case map[string]any:
 			mapped = v
-			rawPath = anyStringNode(v["path"])
+			rawPath = AnyStringNode(v["path"])
 		case string:
 			rawPath = strings.TrimSpace(v)
 			mapped = map[string]any{"path": rawPath}
@@ -70,12 +72,12 @@ func publishArtifacts(chatsRoot string, chatID string, runID string, raw any) []
 			continue
 		}
 
-		artifactID := anyStringNode(mapped["artifactId"])
+		artifactID := AnyStringNode(mapped["artifactId"])
 		if artifactID == "" {
 			artifactID = fmt.Sprintf("artifact_%d_%d", time.Now().UnixMilli(), index)
 		}
 
-		name := anyStringNode(mapped["name"])
+		name := AnyStringNode(mapped["name"])
 		if name == "" {
 			name = filepath.Base(sourcePath)
 		}

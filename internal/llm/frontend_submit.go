@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"agent-platform-runner-go/internal/api"
+	. "agent-platform-runner-go/internal/contracts"
 )
 
 type FrontendSubmitCoordinator struct{}
@@ -23,7 +24,7 @@ func (c *FrontendSubmitCoordinator) Await(ctx context.Context, execCtx *Executio
 	}
 	toolName := execCtx.CurrentToolName
 	toolID := execCtx.CurrentToolID
-	timeout := toolTimeout(normalizeBudget(execCtx.Budget).Tool)
+	timeout := toolTimeout(NormalizeBudget(execCtx.Budget).Tool)
 	execCtx.RunLoopState = RunLoopStateWaitingSubmit
 	execCtx.RunControl.TransitionState(RunLoopStateWaitingSubmit)
 	waitStarted := time.Now()

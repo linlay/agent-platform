@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"agent-platform-runner-go/internal/api"
+	. "agent-platform-runner-go/internal/contracts"
 )
 
 type openAIProtocol struct {
@@ -110,7 +111,7 @@ func (p *openAIProtocol) OpenStream(ctx context.Context, params protocolStreamPa
 		requestBody["tool_choice"] = effectiveToolChoice
 	}
 	if params.stageSettings.ReasoningEnabled {
-		if compatRequest := anyMapNode(anyMapNode(params.protocolConfig.Compat["request"])["whenReasoningEnabled"]); compatRequest != nil {
+		if compatRequest := AnyMapNode(AnyMapNode(params.protocolConfig.Compat["request"])["whenReasoningEnabled"]); compatRequest != nil {
 			requestBody = mergeAnyMaps(requestBody, compatRequest)
 		}
 	}

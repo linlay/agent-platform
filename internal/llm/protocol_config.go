@@ -1,6 +1,11 @@
 package llm
 
-import "strings"
+import (
+	"strings"
+
+	. "agent-platform-runner-go/internal/contracts"
+	. "agent-platform-runner-go/internal/models"
+)
 
 type protocolRuntimeConfig struct {
 	EndpointPath string
@@ -81,7 +86,7 @@ func mergeAnyMaps(base map[string]any, overlay map[string]any) map[string]any {
 	if len(base) == 0 && len(overlay) == 0 {
 		return nil
 	}
-	out := cloneAnyMap(base)
+	out := CloneMap(base)
 	if out == nil {
 		out = map[string]any{}
 	}

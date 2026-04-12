@@ -262,113 +262,120 @@ func (n *runReplayNormalizer) normalizeContentEvent(event map[string]any) {
 }
 
 func (n *runReplayNormalizer) normalizeToolEvent(event map[string]any) {
-	eventType := stringValue(event["type"])
-	toolID := stringValue(event["toolId"])
-	switch eventType {
-	case "tool.start":
-		if toolID == "" {
-			toolID = n.nextToolID()
-		}
-		n.openTool(toolID)
-		n.lastToolID = toolID
-	case "tool.args":
-		if toolID == "" {
-			if current := n.currentOpenTool(); current != "" {
-				toolID = current
-			} else {
-				toolID = n.nextToolID()
-				n.openTool(toolID)
-			}
-		}
-		if !n.hasOpenTool(toolID) {
-			n.openTool(toolID)
-		}
-		n.lastToolID = toolID
-	case "tool.snapshot":
-		if toolID == "" {
-			switch {
-			case n.currentOpenTool() != "":
-				toolID = n.currentOpenTool()
-			case n.lastToolID != "":
-				toolID = n.lastToolID
-			default:
-				toolID = n.nextToolID()
-			}
-		}
-		n.lastToolID = toolID
-	case "tool.end":
-		if toolID == "" {
-			switch {
-			case n.currentOpenTool() != "":
-				toolID = n.currentOpenTool()
-			case n.lastToolID != "":
-				toolID = n.lastToolID
-			default:
-				toolID = n.nextToolID()
-			}
-		}
-		n.closeTool(toolID)
-		n.lastToolID = toolID
-	case "tool.result":
-		if toolID == "" {
-			if current := n.currentOpenTool(); current != "" {
-				toolID = current
-			} else {
-				toolID = n.nextToolResultID()
-			}
-		}
-		n.closeTool(toolID)
-	}
-	event["toolId"] = toolID
+	n.normalizeBlockEvent(event, blockEventConfig{
+		blockType:    "tool",
+		idKey:        "toolId",
+		currentOpen:  n.currentOpenTool,
+		hasOpen:      n.hasOpenTool,
+		open:         n.openTool,
+		close:        n.closeTool,
+		nextID:       n.nextToolID,
+		nextResultID: n.nextToolResultID,
+		getLastID: func() string {
+			return n.lastToolID
+		},
+		setLastID: func(id string) {
+			n.lastToolID = id
+		},
+		allowSnapshot: true,
+	})
 }
 
 func (n *runReplayNormalizer) normalizeActionEvent(event map[string]any) {
+	n.normalizeBlockEvent(event, blockEventConfig{
+		blockType:    "action",
+		idKey:        "actionId",
+		currentOpen:  n.currentOpenAction,
+		hasOpen:      n.hasOpenAction,
+		open:         n.openAction,
+		close:        n.closeAction,
+		nextID:       n.nextActionID,
+		nextResultID: n.nextActionResultID,
+		getLastID: func() string {
+			return n.lastActionID
+		},
+		setLastID: func(id string) {
+			n.lastActionID = id
+		},
+	})
+}
+
+type blockEventConfig struct {
+	blockType     string
+	idKey         string
+	currentOpen   func() string
+	hasOpen       func(string) bool
+	open          func(string)
+	close         func(string)
+	nextID        func() string
+	nextResultID  func() string
+	getLastID     func() string
+	setLastID     func(string)
+	allowSnapshot bool
+}
+
+func (n *runReplayNormalizer) normalizeBlockEvent(event map[string]any, cfg blockEventConfig) {
 	eventType := stringValue(event["type"])
-	actionID := stringValue(event["actionId"])
+	blockID := stringValue(event[cfg.idKey])
 	switch eventType {
-	case "action.start":
-		if actionID == "" {
-			actionID = n.nextActionID()
+	case cfg.blockType + ".start":
+		if blockID == "" {
+			blockID = cfg.nextID()
 		}
-		n.openAction(actionID)
-		n.lastActionID = actionID
-	case "action.args":
-		if actionID == "" {
-			if current := n.currentOpenAction(); current != "" {
-				actionID = current
+		cfg.open(blockID)
+		cfg.setLastID(blockID)
+	case cfg.blockType + ".args":
+		if blockID == "" {
+			if current := cfg.currentOpen(); current != "" {
+				blockID = current
 			} else {
-				actionID = n.nextActionID()
-				n.openAction(actionID)
+				blockID = cfg.nextID()
+				cfg.open(blockID)
 			}
 		}
-		if !n.hasOpenAction(actionID) {
-			n.openAction(actionID)
+		if !cfg.hasOpen(blockID) {
+			cfg.open(blockID)
 		}
-		n.lastActionID = actionID
-	case "action.end":
-		if actionID == "" {
+		cfg.setLastID(blockID)
+	case cfg.blockType + ".snapshot":
+		if !cfg.allowSnapshot {
+			break
+		}
+		if blockID == "" {
 			switch {
-			case n.currentOpenAction() != "":
-				actionID = n.currentOpenAction()
-			case n.lastActionID != "":
-				actionID = n.lastActionID
+			case cfg.currentOpen() != "":
+				blockID = cfg.currentOpen()
+			case cfg.getLastID() != "":
+				blockID = cfg.getLastID()
 			default:
-				actionID = n.nextActionID()
+				blockID = cfg.nextID()
 			}
 		}
-		n.closeAction(actionID)
-		n.lastActionID = actionID
-	case "action.result":
-		if actionID == "" {
-			if current := n.currentOpenAction(); current != "" {
-				actionID = current
+		cfg.setLastID(blockID)
+	case cfg.blockType + ".end":
+		if blockID == "" {
+			switch {
+			case cfg.currentOpen() != "":
+				blockID = cfg.currentOpen()
+			case cfg.getLastID() != "":
+				blockID = cfg.getLastID()
+			default:
+				blockID = cfg.nextID()
+			}
+		}
+		cfg.close(blockID)
+		cfg.setLastID(blockID)
+	case cfg.blockType + ".result":
+		if blockID == "" {
+			if current := cfg.currentOpen(); current != "" {
+				blockID = current
 			} else {
-				actionID = n.nextActionResultID()
+				blockID = cfg.nextResultID()
 			}
 		}
-		n.closeAction(actionID)
+		cfg.close(blockID)
 	}
-	event["actionId"] = actionID
+	event[cfg.idKey] = blockID
 }
 
 func (n *runReplayNormalizer) nextReasoningID() string {

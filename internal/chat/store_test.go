@@ -1,6 +1,8 @@
 package chat
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -135,5 +137,31 @@ func TestRebuildSnapshotEventsGroupsByRunAndBackfillsLegacyIDs(t *testing.T) {
 		if got := int64(index + 1); event["seq"] != got {
 			t.Fatalf("expected contiguous seq at index %d, got %#v", index, event)
 		}
+	}
+}
+
+func TestLoadRawMessagesFallsBackToLegacyFile(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	if err := os.MkdirAll(store.ChatDir("chat-1"), 0o755); err != nil {
+		t.Fatalf("create chat dir: %v", err)
+	}
+	legacyPath := filepath.Join(store.ChatDir("chat-1"), "raw_messages.jsonl")
+	content := "{\"role\":\"user\",\"content\":\"hello\",\"runId\":\"run-1\"}\n{\"role\":\"assistant\",\"content\":\"world\",\"runId\":\"run-1\"}\n"
+	if err := os.WriteFile(legacyPath, []byte(content), 0o644); err != nil {
+		t.Fatalf("write legacy raw messages: %v", err)
+	}
+
+	messages, err := store.LoadRawMessages("chat-1", 5)
+	if err != nil {
+		t.Fatalf("load raw messages: %v", err)
+	}
+	if len(messages) != 2 {
+		t.Fatalf("expected legacy fallback messages, got %#v", messages)
+	}
+	if messages[1]["content"] != "world" {
+		t.Fatalf("expected assistant message from legacy fallback, got %#v", messages)
 	}
 }

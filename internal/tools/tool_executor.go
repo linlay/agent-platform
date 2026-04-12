@@ -7,6 +7,7 @@ import (
 
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/config"
+	. "agent-platform-runner-go/internal/contracts"
 	"agent-platform-runner-go/internal/memory"
 )
 

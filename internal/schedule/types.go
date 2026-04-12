@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"agent-platform-runner-go/internal/api"
+	"agent-platform-runner-go/internal/contracts"
 )
 
 type Definition struct {
@@ -38,7 +39,7 @@ type Query struct {
 }
 
 func (d Definition) ToQueryRequest() api.QueryRequest {
-	params := cloneMap(d.Query.Params)
+	params := contracts.CloneMap(d.Query.Params)
 	if params == nil {
 		params = map[string]any{}
 	}
@@ -67,17 +68,6 @@ func (d Definition) ToQueryRequest() api.QueryRequest {
 		Scene:      cloneScene(d.Query.Scene),
 		Hidden:     cloneBoolPtr(d.Query.Hidden),
 	}
-}
-
-func cloneMap(src map[string]any) map[string]any {
-	if src == nil {
-		return nil
-	}
-	dst := make(map[string]any, len(src))
-	for key, value := range src {
-		dst[key] = value
-	}
-	return dst
 }
 
 func cloneScene(src *api.Scene) *api.Scene {

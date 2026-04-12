@@ -3,7 +3,6 @@ package config
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -137,30 +136,22 @@ func TestLoadCustomStorageDirs(t *testing.T) {
 	})
 }
 
-func TestLoadRejectsLegacyMemoryStorageEnv(t *testing.T) {
+func TestLoadIgnoresLegacyMemoryStorageEnv(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"AGENT_MEMORY_STORAGE_DIR": filepath.Join("var", "custom-memory"),
 	}, func() {
-		_, err := Load()
-		if err == nil {
-			t.Fatal("expected deprecated env error")
-		}
-		if !strings.Contains(err.Error(), "AGENT_MEMORY_STORAGE_DIR") {
-			t.Fatalf("expected legacy memory env in error, got %v", err)
+		if _, err := Load(); err != nil {
+			t.Fatalf("expected deprecated env to be ignored, got %v", err)
 		}
 	})
 }
 
-func TestLoadRejectsDeprecatedEnv(t *testing.T) {
+func TestLoadIgnoresDeprecatedEnv(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"RUNTIME_DIR": "runtime",
 	}, func() {
-		_, err := Load()
-		if err == nil {
-			t.Fatal("expected deprecated env error")
-		}
-		if !strings.Contains(err.Error(), "RUNTIME_DIR") {
-			t.Fatalf("expected deprecated env in error, got %v", err)
+		if _, err := Load(); err != nil {
+			t.Fatalf("expected deprecated env to be ignored, got %v", err)
 		}
 	})
 }

@@ -2,6 +2,7 @@ package contracts
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -100,4 +101,36 @@ func AnyMapNode(value any) map[string]any {
 
 func AnyListStrings(value any) []string {
 	return anyListStrings(value)
+}
+
+func StringValue(value any) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case int:
+		return strconv.Itoa(v)
+	case int64:
+		return strconv.FormatInt(v, 10)
+	case float64:
+		return strconv.Itoa(int(v))
+	case json.Number:
+		return v.String()
+	case fmt.Stringer:
+		return v.String()
+	default:
+		return ""
+	}
+}
+
+func IntValue(value any) int {
+	return anyIntNode(value)
+}
+
+func FirstNonEmptyString(values ...any) string {
+	for _, value := range values {
+		if text := strings.TrimSpace(StringValue(value)); text != "" {
+			return text
+		}
+	}
+	return ""
 }

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"agent-platform-runner-go/internal/api"
+	. "agent-platform-runner-go/internal/contracts"
 )
 
 type toolDefinitionParseOptions struct {
@@ -13,17 +14,17 @@ type toolDefinitionParseOptions struct {
 }
 
 func parseToolDefinition(root map[string]any, options toolDefinitionParseOptions) (api.ToolDetailResponse, error) {
-	name := anyStringNode(root["name"])
+	name := AnyStringNode(root["name"])
 	if name == "" {
 		return api.ToolDetailResponse{}, fmt.Errorf("name is required")
 	}
-	parameters := anyMapNode(root["inputSchema"])
+	parameters := AnyMapNode(root["inputSchema"])
 	if len(parameters) == 0 {
-		parameters = anyMapNode(root["parameters"])
+		parameters = AnyMapNode(root["parameters"])
 	}
-	typeValue := strings.ToLower(anyStringNode(root["type"]))
-	toolType := anyStringNode(root["toolType"])
-	viewportKey := anyStringNode(root["viewportKey"])
+	typeValue := strings.ToLower(AnyStringNode(root["type"]))
+	toolType := AnyStringNode(root["toolType"])
+	viewportKey := AnyStringNode(root["viewportKey"])
 	kind := "backend"
 	switch typeValue {
 	case "frontend":
@@ -35,7 +36,7 @@ func parseToolDefinition(root map[string]any, options toolDefinitionParseOptions
 	default:
 		kind = "backend"
 	}
-	if anyBoolNode(root["toolAction"]) {
+	if AnyBoolNode(root["toolAction"]) {
 		kind = "action"
 	} else if toolType != "" || viewportKey != "" {
 		kind = "frontend"
@@ -45,7 +46,7 @@ func parseToolDefinition(root map[string]any, options toolDefinitionParseOptions
 	if sourceType == "" {
 		sourceType = "agent-local"
 	}
-	sourceKey := anyStringNode(root["sourceKey"])
+	sourceKey := AnyStringNode(root["sourceKey"])
 	if sourceKey == "" {
 		sourceKey = strings.TrimSpace(options.defaultSourceKey)
 	}
@@ -76,12 +77,12 @@ func parseToolDefinition(root map[string]any, options toolDefinitionParseOptions
 		meta["sourceKey"] = sourceKey
 	}
 	return api.ToolDetailResponse{
-		Key:           fallbackToolString(anyStringNode(root["key"]), name),
+		Key:           fallbackToolString(AnyStringNode(root["key"]), name),
 		Name:          name,
-		Label:         anyStringNode(root["label"]),
-		Description:   anyStringNode(root["description"]),
-		AfterCallHint: anyStringNode(root["afterCallHint"]),
-		Parameters:    cloneAnyMap(parameters),
+		Label:         AnyStringNode(root["label"]),
+		Description:   AnyStringNode(root["description"]),
+		AfterCallHint: AnyStringNode(root["afterCallHint"]),
+		Parameters:    CloneMap(parameters),
 		Meta:          meta,
 	}, nil
 }

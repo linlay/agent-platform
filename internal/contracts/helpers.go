@@ -9,6 +9,10 @@ func NormalizeBudget(b Budget) Budget {
 	return normalizeBudget(b)
 }
 
+func CloneMap(values map[string]any) map[string]any {
+	return cloneAnyMap(values)
+}
+
 func NormalizePlanTaskStatus(raw string) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "", "init":

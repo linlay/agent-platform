@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"agent-platform-runner-go/internal/config"
+	"agent-platform-runner-go/internal/contracts"
 )
 
 func resolveDirectoryAgentConfig(dirPath string) string {
@@ -22,53 +23,53 @@ func resolveDirectoryAgentConfig(dirPath string) string {
 
 func loadAgents(root, marketDir string) (map[string]AgentDefinition, error) {
 	items := map[string]AgentDefinition{}
-	entries, err := os.ReadDir(root)
-	if os.IsNotExist(err) {
-		log.Printf("[catalog][agents] directory not found: %s", root)
-		return items, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	for _, entry := range entries {
-		name := entry.Name()
-		if strings.HasPrefix(name, ".") || !ShouldLoadRuntimeName(name) {
-			continue
-		}
-		if entry.IsDir() {
-			agentDir := filepath.Join(root, name)
-			configPath := resolveDirectoryAgentConfig(agentDir)
-			if configPath == "" {
-				log.Printf("[catalog][agents] skip directory %s: no agent.yml or agent.yaml found", name)
-				continue
-			}
-			def, err := parseAgentFileWithPrompts(configPath, agentDir)
-			if err != nil {
-				log.Printf("[catalog][agents] skip directory %s: parse error: %v", name, err)
-				continue
-			}
-			if def.Key != name {
-				log.Printf("[catalog][agents] skip directory %s: key mismatch (file key=%q, directory=%q)", name, def.Key, name)
-				continue
-			}
-			def.AgentDir = agentDir
-			if marketDir != "" && len(def.Skills) > 0 {
-				if err := reconcileDeclaredSkills(agentDir, def.Skills, marketDir); err != nil {
-					log.Printf("[catalog][skills] sync %s: %v", def.Key, err)
+	err := visitRuntimeEntries(
+		root,
+		func(root string) {
+			log.Printf("[catalog][agents] directory not found: %s", root)
+		},
+		func(name string, _ os.DirEntry) bool {
+			return !strings.HasPrefix(name, ".") && ShouldLoadRuntimeName(name)
+		},
+		func(name string, entry os.DirEntry) {
+			if entry.IsDir() {
+				agentDir := filepath.Join(root, name)
+				configPath := resolveDirectoryAgentConfig(agentDir)
+				if configPath == "" {
+					log.Printf("[catalog][agents] skip directory %s: no agent.yml or agent.yaml found", name)
+					return
 				}
+				def, err := parseAgentFileWithPrompts(configPath, agentDir)
+				if err != nil {
+					log.Printf("[catalog][agents] skip directory %s: parse error: %v", name, err)
+					return
+				}
+				if def.Key != name {
+					log.Printf("[catalog][agents] skip directory %s: key mismatch (file key=%q, directory=%q)", name, def.Key, name)
+					return
+				}
+				def.AgentDir = agentDir
+				if marketDir != "" && len(def.Skills) > 0 {
+					if err := reconcileDeclaredSkills(agentDir, def.Skills, marketDir); err != nil {
+						log.Printf("[catalog][skills] sync %s: %v", def.Key, err)
+					}
+				}
+				items[def.Key] = def
+				return
+			}
+			if !strings.HasSuffix(name, ".yml") && !strings.HasSuffix(name, ".yaml") {
+				return
+			}
+			def, err := parseAgentFile(filepath.Join(root, name))
+			if err != nil {
+				log.Printf("[catalog][agents] skip file %s: parse error: %v", name, err)
+				return
 			}
 			items[def.Key] = def
-			continue
-		}
-		if !strings.HasSuffix(name, ".yml") && !strings.HasSuffix(name, ".yaml") {
-			continue
-		}
-		def, err := parseAgentFile(filepath.Join(root, name))
-		if err != nil {
-			log.Printf("[catalog][agents] skip file %s: parse error: %v", name, err)
-			continue
-		}
-		items[def.Key] = def
+		},
+	)
+	if err != nil {
+		return nil, err
 	}
 	return items, nil
 }
@@ -287,10 +288,10 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	}
 	def.ContextTags = normalizeContextTags(contextTags)
 	if budget := mapNode(root["budget"]); len(budget) > 0 {
-		def.Budget = cloneMap(budget)
+		def.Budget = contracts.CloneMap(budget)
 	}
 	if stageSettings := mapNode(root["stageSettings"]); len(stageSettings) > 0 {
-		def.StageSettings = cloneMap(stageSettings)
+		def.StageSettings = contracts.CloneMap(stageSettings)
 	}
 	def.StageSettings = applyModelReasoningDefaults(def.StageSettings, mapNode(modelConfig["reasoning"]))
 	if proxyRaw := mapNode(root["proxyConfig"]); len(proxyRaw) > 0 {

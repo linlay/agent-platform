@@ -29,6 +29,7 @@ var (
 	ErrToolArgsTemplateMissingValue = errors.New("tool args template missing value")
 	ErrBudgetExceeded               = errors.New("budget exceeded")
 	ErrMCPCallFailed                = errors.New("mcp call failed")
+	ErrNotImplemented               = errors.New("not implemented")
 )
 
 func NewErrorPayload(code string, message string, scope string, category ErrorCategory, diagnostics map[string]any) map[string]any {

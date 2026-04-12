@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"agent-platform-runner-go/internal/api"
+	. "agent-platform-runner-go/internal/contracts"
 )
 
 const allAgentsPromptMaxChars = 12000

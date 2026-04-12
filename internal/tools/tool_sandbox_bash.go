@@ -3,6 +3,8 @@ package tools
 import (
 	"context"
 	"strings"
+
+	. "agent-platform-runner-go/internal/contracts"
 )
 
 func (t *RuntimeToolExecutor) invokeSandboxBash(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {

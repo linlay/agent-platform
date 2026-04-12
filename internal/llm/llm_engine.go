@@ -11,6 +11,8 @@ import (
 
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/config"
+	. "agent-platform-runner-go/internal/contracts"
+	. "agent-platform-runner-go/internal/models"
 )
 
 type LLMAgentEngine struct {
@@ -95,7 +97,7 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		execCtx.RunControl = RunControlFromContext(ctx)
 	}
 	if execCtx.Budget.RunTimeoutMs <= 0 {
-		execCtx.Budget = normalizeBudget(session.ResolvedBudget)
+		execCtx.Budget = NormalizeBudget(session.ResolvedBudget)
 	}
 	if execCtx.StartedAt.IsZero() {
 		execCtx.StartedAt = time.Now()
@@ -252,7 +254,7 @@ func mergeToolOverride(base api.ToolDetailResponse, override api.ToolDetailRespo
 		merged.AfterCallHint = override.AfterCallHint
 	}
 	if len(override.Parameters) > 0 {
-		merged.Parameters = cloneAnyMap(override.Parameters)
+		merged.Parameters = CloneMap(override.Parameters)
 	}
 	if len(merged.Meta) == 0 {
 		merged.Meta = map[string]any{}

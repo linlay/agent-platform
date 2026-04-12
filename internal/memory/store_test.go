@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"agent-platform-runner-go/internal/api"
+	"agent-platform-runner-go/internal/chat"
 )
 
 func TestFileStoreToolQueries(t *testing.T) {
@@ -20,6 +21,58 @@ func TestSQLiteStoreToolQueries(t *testing.T) {
 		t.Fatalf("new sqlite store: %v", err)
 	}
 	assertStoreToolQueries(t, store, "fts")
+}
+
+func TestRememberUsesConsistentImportanceAcrossStores(t *testing.T) {
+	tests := []struct {
+		name  string
+		build func(t *testing.T) Store
+	}{
+		{
+			name: "file",
+			build: func(t *testing.T) Store {
+				store, err := NewFileStore(t.TempDir())
+				if err != nil {
+					t.Fatalf("new file store: %v", err)
+				}
+				return store
+			},
+		},
+		{
+			name: "sqlite",
+			build: func(t *testing.T) Store {
+				store, err := NewSQLiteStore(t.TempDir(), "memory.db")
+				if err != nil {
+					t.Fatalf("new sqlite store: %v", err)
+				}
+				return store
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := tt.build(t)
+			resp, err := store.Remember(chat.Detail{
+				ChatID:   "chat-1",
+				ChatName: "Demo Chat",
+				RawMessages: []map[string]any{
+					{"role": "assistant", "content": "Captured summary"},
+				},
+			}, api.RememberRequest{
+				RequestID: "req-1",
+				ChatID:    "chat-1",
+			}, "agent-a")
+			if err != nil {
+				t.Fatalf("remember: %v", err)
+			}
+			if len(resp.Stored) != 1 {
+				t.Fatalf("expected one stored memory, got %#v", resp.Stored)
+			}
+			if resp.Stored[0].Importance != rememberImportance {
+				t.Fatalf("expected importance %d, got %#v", rememberImportance, resp.Stored[0])
+			}
+		})
+	}
 }
 
 func assertStoreToolQueries(t *testing.T, store Store, expectedMatchType string) {

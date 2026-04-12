@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"agent-platform-runner-go/internal/api"
+	. "agent-platform-runner-go/internal/contracts"
 )
 
 const defaultTaskExecutionPromptTemplate = `Task list:
@@ -43,7 +44,7 @@ func newPlanExecuteStream(engine *LLMAgentEngine, ctx context.Context, req api.Q
 		Request:       req,
 		Session:       session,
 		RunControl:    RunControlFromContext(ctx),
-		Budget:        normalizeBudget(session.ResolvedBudget),
+		Budget:        NormalizeBudget(session.ResolvedBudget),
 		StageSettings: session.ResolvedStageSettings,
 		RunLoopState:  RunLoopStateIdle,
 		PlanState: &PlanRuntimeState{
@@ -147,7 +148,7 @@ func (s *planExecuteStream) advanceTaskExecution() error {
 		DeltaPlanUpdate{
 			PlanID: s.execCtx.PlanState.PlanID,
 			ChatID: s.session.ChatID,
-			Plan:   planTasksArray(s.execCtx.PlanState),
+			Plan:   PlanTasksArray(s.execCtx.PlanState),
 		},
 		DeltaTaskLifecycle{
 			Kind:        "start",
@@ -162,7 +163,7 @@ func (s *planExecuteStream) advanceTaskExecution() error {
 }
 
 func (s *planExecuteStream) startTaskStream(task *PlanTask) error {
-	beforeStatus := normalizePlanTaskStatus(task.Status)
+	beforeStatus := NormalizePlanTaskStatus(task.Status)
 
 	// Build messages from accumulated executeMessages (Java: context.executeMessages() is shared
 	// across all tasks, so each task sees previous tasks' conversation + steers).
@@ -195,7 +196,7 @@ func (s *planExecuteStream) startTaskStream(task *PlanTask) error {
 			if !isPlanTool(toolName) {
 				return PostToolContinue
 			}
-			afterStatus := normalizePlanTaskStatus(task.Status)
+			afterStatus := NormalizePlanTaskStatus(task.Status)
 			if afterStatus != beforeStatus && isTerminalPlanStatus(afterStatus) {
 				return PostToolStop
 			}
@@ -230,7 +231,7 @@ func (s *planExecuteStream) afterStageEOF() error {
 		s.pending = append(s.pending, DeltaPlanUpdate{
 			PlanID: s.execCtx.PlanState.PlanID,
 			ChatID: s.session.ChatID,
-			Plan:   planTasksArray(s.execCtx.PlanState),
+			Plan:   PlanTasksArray(s.execCtx.PlanState),
 		})
 		return nil
 	}
@@ -238,7 +239,7 @@ func (s *planExecuteStream) afterStageEOF() error {
 	if s.taskLifecycle {
 		s.taskLifecycle = false
 		task := &s.execCtx.PlanState.Tasks[s.taskIndex]
-		finalStatus := normalizePlanTaskStatus(task.Status)
+		finalStatus := NormalizePlanTaskStatus(task.Status)
 
 		if isTerminalPlanStatus(finalStatus) {
 			s.emitTaskTerminal(task, finalStatus)
@@ -264,7 +265,7 @@ func (s *planExecuteStream) emitTaskTerminal(task *PlanTask, status string) {
 	s.pending = append(s.pending, DeltaPlanUpdate{
 		PlanID: s.execCtx.PlanState.PlanID,
 		ChatID: s.session.ChatID,
-		Plan:   planTasksArray(s.execCtx.PlanState),
+		Plan:   PlanTasksArray(s.execCtx.PlanState),
 	})
 	switch status {
 	case "completed":
@@ -288,7 +289,7 @@ func (s *planExecuteStream) emitTaskFailure(task *PlanTask, message string) {
 	s.pending = append(s.pending, DeltaPlanUpdate{
 		PlanID: s.execCtx.PlanState.PlanID,
 		ChatID: s.session.ChatID,
-		Plan:   planTasksArray(s.execCtx.PlanState),
+		Plan:   PlanTasksArray(s.execCtx.PlanState),
 	})
 	s.pending = append(s.pending, DeltaTaskLifecycle{
 		Kind:   "fail",

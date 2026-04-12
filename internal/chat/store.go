@@ -25,7 +25,6 @@ type Store interface {
 	AppendEvent(chatID string, event stream.EventData) error
 	AppendQueryLine(chatID string, line QueryLine) error
 	AppendStepLine(chatID string, line StepLine) error
-	AppendRawMessage(chatID string, message map[string]any) error
 	LoadRawMessages(chatID string, k int) ([]map[string]any, error)
 	OnRunCompleted(completion RunCompletion) error
 	ListChats(lastRunID string, agentKey string) ([]Summary, error)
@@ -190,12 +189,6 @@ func (s *FileStore) loadSummary(chatID string) (*Summary, error) {
 		return nil, err
 	}
 	return &sum, nil
-}
-
-// AppendRawMessage kept for interface compatibility but writes to {chatId}/raw_messages.jsonl.
-// TODO: remove once history is fully loaded from step lines.
-func (s *FileStore) AppendRawMessage(chatID string, message map[string]any) error {
-	return s.appendJSONLine(filepath.Join(s.ChatDir(chatID), "raw_messages.jsonl"), message)
 }
 
 // LoadRawMessages loads conversation history from {chatId}.jsonl step lines,

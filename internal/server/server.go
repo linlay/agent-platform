@@ -306,7 +306,7 @@ func (s *Server) listTools(kind string, tag string) []api.ToolSummary {
 			Name:        tool.Name,
 			Label:       tool.Label,
 			Description: tool.Description,
-			Meta:        cloneMap(tool.Meta),
+			Meta:        contracts.CloneMap(tool.Meta),
 		})
 	}
 	return items
@@ -399,10 +399,10 @@ func applyToolOverride(def api.ToolDetailResponse, overrides map[string]api.Tool
 		merged.AfterCallHint = override.AfterCallHint
 	}
 	if len(override.Parameters) > 0 {
-		merged.Parameters = cloneMap(override.Parameters)
+		merged.Parameters = contracts.CloneMap(override.Parameters)
 	}
 	if len(def.Meta) > 0 {
-		merged.Meta = cloneMap(def.Meta)
+		merged.Meta = contracts.CloneMap(def.Meta)
 	}
 	if len(merged.Meta) == 0 {
 		merged.Meta = map[string]any{}
@@ -615,24 +615,13 @@ func extractSandboxField(sandbox map[string]any, key string) string {
 	return strings.TrimSpace(v)
 }
 
-func cloneMap(src map[string]any) map[string]any {
-	if src == nil {
-		return nil
-	}
-	out := make(map[string]any, len(src))
-	for key, value := range src {
-		out[key] = value
-	}
-	return out
-}
-
 func cloneListMaps(src []map[string]any) []map[string]any {
 	if len(src) == 0 {
 		return []map[string]any{}
 	}
 	out := make([]map[string]any, 0, len(src))
 	for _, item := range src {
-		out = append(out, cloneMap(item))
+		out = append(out, contracts.CloneMap(item))
 	}
 	return out
 }
@@ -649,8 +638,8 @@ func cloneToolOverrides(src map[string]api.ToolDetailResponse) map[string]api.To
 			Label:         value.Label,
 			Description:   value.Description,
 			AfterCallHint: value.AfterCallHint,
-			Parameters:    cloneMap(value.Parameters),
-			Meta:          cloneMap(value.Meta),
+			Parameters:    contracts.CloneMap(value.Parameters),
+			Meta:          contracts.CloneMap(value.Meta),
 		}
 	}
 	return out

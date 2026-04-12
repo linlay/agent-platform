@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"time"
 )
@@ -135,17 +136,5 @@ func CosineSimilarity(a, b []float64) float64 {
 	if normA == 0 || normB == 0 {
 		return 0
 	}
-	return dot / (sqrt(normA) * sqrt(normB))
-}
-
-func sqrt(x float64) float64 {
-	if x <= 0 {
-		return 0
-	}
-	// Newton's method
-	z := x
-	for i := 0; i < 50; i++ {
-		z = (z + x/z) / 2
-	}
-	return z
+	return dot / (math.Sqrt(normA) * math.Sqrt(normB))
 }

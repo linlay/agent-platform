@@ -21,11 +21,11 @@ import (
 )
 
 type SQLiteStore struct {
-	root           string
-	dbPath         string
-	dualWriteMD    bool
-	mu             sync.Mutex
-	db             *sql.DB
+	root            string
+	dbPath          string
+	dualWriteMD     bool
+	mu              sync.Mutex
+	db              *sql.DB
 	ftsVectorWeight float64
 	ftsFTSWeight    float64
 }
@@ -120,7 +120,7 @@ func (s *SQLiteStore) Remember(chatDetail chat.Detail, request api.RememberReque
 		Summary:    summary,
 		SourceType: "remember",
 		Category:   "remember",
-		Importance: 6,
+		Importance: rememberImportance,
 		Tags:       []string{"remember"},
 		CreatedAt:  now,
 		UpdatedAt:  now,

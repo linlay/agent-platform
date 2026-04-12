@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"agent-platform-runner-go/internal/api"
+	. "agent-platform-runner-go/internal/contracts"
 )
 
 func (t *RuntimeToolExecutor) invokeMemorySearch(toolName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {

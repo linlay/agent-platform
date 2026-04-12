@@ -322,10 +322,7 @@ func (o *Orchestrator) releaseDispatchSlot() {
 	if o == nil || o.dispatchSlots == nil {
 		return
 	}
-	select {
-	case <-o.dispatchSlots:
-	default:
-	}
+	<-o.dispatchSlots
 }
 
 func watchScheduleDirTree(fsw *fsnotify.Watcher, root string) (map[string]struct{}, error) {

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestToolSyncLoadsStaticAndDiscoveredTools(t *testing.T) {
@@ -163,5 +164,18 @@ func TestToolSyncSkipsUnavailableServersAndKeepsReachableTools(t *testing.T) {
 	}
 	if gate.IsUnavailable("reachable") {
 		t.Fatalf("expected reachable server to remain available")
+	}
+}
+
+func TestAvailabilityGateReadyToRetryNormalizesKeys(t *testing.T) {
+	gate := NewAvailabilityGate()
+	gate.MarkFailure(" Demo ")
+	gate.mu.Lock()
+	gate.nextRetry["demo"] = time.Now().Add(-time.Second)
+	gate.mu.Unlock()
+
+	ready := gate.ReadyToRetry([]string{" demo "})
+	if len(ready) != 1 || ready[0] != "demo" {
+		t.Fatalf("expected normalized ready key, got %#v", ready)
 	}
 }

@@ -204,10 +204,6 @@ type BashConfig struct {
 }
 
 func Load() (Config, error) {
-	if err := rejectEnvVars(deprecatedEnvVars, "deprecated environment variables are not supported"); err != nil {
-		return Config{}, err
-	}
-
 	cfg := defaultConfig()
 	cfg.applyStructuredConfig()
 	cfg.applyEnv()
@@ -579,19 +575,6 @@ func (c *Config) normalize() {
 
 func (c Config) ServerAddress() string {
 	return ":" + c.Server.Port
-}
-
-func rejectEnvVars(keys []string, message string) error {
-	var found []string
-	for _, key := range keys {
-		if _, ok := os.LookupEnv(key); ok {
-			found = append(found, key)
-		}
-	}
-	if len(found) > 0 {
-		return fmt.Errorf("%s: %s", message, strings.Join(found, ", "))
-	}
-	return nil
 }
 
 func resolveAuthLocalPublicKeyFile(value string) string {

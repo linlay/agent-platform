@@ -7,6 +7,7 @@ import (
 
 	"agent-platform-runner-go/internal/catalog"
 	"agent-platform-runner-go/internal/config"
+	"agent-platform-runner-go/internal/contracts"
 )
 
 type ServerDefinition struct {
@@ -45,11 +46,11 @@ func (r *ServerRegistry) List() ([]ServerDefinition, error) {
 		}
 		rootNode, _ := tree.(map[string]any)
 		server := ServerDefinition{
-			Key:          strings.TrimSpace(firstNonEmptyString(rootNode["key"], rootNode["serverKey"])),
-			BaseURL:      strings.TrimSpace(anyString(rootNode["baseUrl"])),
-			EndpointPath: strings.TrimSpace(anyString(rootNode["endpointPath"])),
-			AuthToken:    strings.TrimSpace(anyString(rootNode["authToken"])),
-			TimeoutMs:    anyInt(rootNode["timeoutMs"]),
+			Key:          strings.TrimSpace(contracts.FirstNonEmptyString(rootNode["key"], rootNode["serverKey"])),
+			BaseURL:      strings.TrimSpace(contracts.StringValue(rootNode["baseUrl"])),
+			EndpointPath: strings.TrimSpace(contracts.StringValue(rootNode["endpointPath"])),
+			AuthToken:    strings.TrimSpace(contracts.StringValue(rootNode["authToken"])),
+			TimeoutMs:    contracts.IntValue(rootNode["timeoutMs"]),
 		}
 		if server.Key == "" {
 			server.Key = strings.TrimSuffix(strings.TrimSuffix(name, ".yaml"), ".yml")
@@ -59,31 +60,4 @@ func (r *ServerRegistry) List() ([]ServerDefinition, error) {
 		}
 	}
 	return out, nil
-}
-
-func firstNonEmptyString(values ...any) string {
-	for _, value := range values {
-		if text := strings.TrimSpace(anyString(value)); text != "" {
-			return text
-		}
-	}
-	return ""
-}
-
-func anyString(value any) string {
-	text, _ := value.(string)
-	return text
-}
-
-func anyInt(value any) int {
-	switch v := value.(type) {
-	case int:
-		return v
-	case int64:
-		return int(v)
-	case float64:
-		return int(v)
-	default:
-		return 0
-	}
 }

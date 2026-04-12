@@ -12,6 +12,7 @@ import (
 
 	"agent-platform-runner-go/internal/catalog"
 	"agent-platform-runner-go/internal/config"
+	"agent-platform-runner-go/internal/contracts"
 )
 
 const defaultReadTimeoutMs = 15000
@@ -130,25 +131,25 @@ func parseServerFile(path string) (ServerDefinition, error) {
 	if !firstBool(root["enabled"], true) {
 		return ServerDefinition{}, nil
 	}
-	serverKey := normalizeKey(firstString(root["serverKey"], root["server-key"], root["key"]))
+	serverKey := normalizeKey(contracts.FirstNonEmptyString(root["serverKey"], root["server-key"], root["key"]))
 	if serverKey == "" {
 		base := filepath.Base(path)
 		serverKey = normalizeKey(strings.TrimSuffix(strings.TrimSuffix(base, ".yaml"), ".yml"))
 	}
-	baseURL := strings.TrimSpace(firstString(root["baseUrl"], root["base-url"], root["url"]))
+	baseURL := strings.TrimSpace(contracts.FirstNonEmptyString(root["baseUrl"], root["base-url"], root["url"]))
 	if baseURL == "" {
 		return ServerDefinition{}, fmt.Errorf("empty baseUrl")
 	}
-	endpointPath := normalizeEndpointPath(firstString(root["endpointPath"], root["endpoint-path"], root["path"]))
+	endpointPath := normalizeEndpointPath(contracts.FirstNonEmptyString(root["endpointPath"], root["endpoint-path"], root["path"]))
 	server := ServerDefinition{
 		Key:              serverKey,
-		Name:             fallbackString(firstString(root["name"]), serverKey),
+		Name:             fallbackString(contracts.FirstNonEmptyString(root["name"]), serverKey),
 		BaseURL:          baseURL,
 		EndpointPath:     endpointPath,
-		ToolPrefix:       strings.TrimSpace(firstString(root["toolPrefix"], root["tool-prefix"])),
-		AuthToken:        strings.TrimSpace(firstString(root["authToken"], root["auth-token"])),
-		Headers:          normalizeStringMap(anyMapNode(root["headers"])),
-		AliasMap:         normalizeAliasMap(anyMapNode(root["aliasMap"])),
+		ToolPrefix:       strings.TrimSpace(contracts.FirstNonEmptyString(root["toolPrefix"], root["tool-prefix"])),
+		AuthToken:        strings.TrimSpace(contracts.FirstNonEmptyString(root["authToken"], root["auth-token"])),
+		Headers:          normalizeStringMap(contracts.AnyMapNode(root["headers"])),
+		AliasMap:         normalizeAliasMap(contracts.AnyMapNode(root["aliasMap"])),
 		ConnectTimeoutMs: firstInt(root["connectTimeoutMs"], root["connect-timeout-ms"], 3000),
 		ReadTimeoutMs:    firstInt(root["readTimeoutMs"], root["read-timeout-ms"], defaultReadTimeoutMs),
 		Retry:            firstInt(root["retry"], nil, 1),
@@ -164,36 +165,32 @@ func parseServerFile(path string) (ServerDefinition, error) {
 }
 
 func parseToolDefinition(root map[string]any) (ToolDefinition, error) {
-	name := strings.TrimSpace(firstString(root["name"]))
+	name := strings.TrimSpace(contracts.FirstNonEmptyString(root["name"]))
 	if name == "" {
 		return ToolDefinition{}, fmt.Errorf("tool name is required")
 	}
-	parameters := anyMapNode(root["inputSchema"])
+	parameters := contracts.AnyMapNode(root["inputSchema"])
 	if len(parameters) == 0 {
-		parameters = anyMapNode(root["parameters"])
+		parameters = contracts.AnyMapNode(root["parameters"])
 	}
 	aliases := normalizeAliases(root["aliases"])
 	return ToolDefinition{
-		Key:           strings.TrimSpace(firstString(root["key"])),
+		Key:           strings.TrimSpace(contracts.FirstNonEmptyString(root["key"])),
 		Name:          name,
-		Label:         strings.TrimSpace(firstString(root["label"])),
-		Description:   strings.TrimSpace(firstString(root["description"])),
-		AfterCallHint: strings.TrimSpace(firstString(root["afterCallHint"])),
-		Parameters:    cloneMap(parameters),
+		Label:         strings.TrimSpace(contracts.FirstNonEmptyString(root["label"])),
+		Description:   strings.TrimSpace(contracts.FirstNonEmptyString(root["description"])),
+		AfterCallHint: strings.TrimSpace(contracts.FirstNonEmptyString(root["afterCallHint"])),
+		Parameters:    contracts.CloneMap(parameters),
 		ToolAction:    firstBool(root["toolAction"], false),
-		ToolType:      strings.TrimSpace(firstString(root["toolType"])),
-		ViewportKey:   strings.TrimSpace(firstString(root["viewportKey"])),
+		ToolType:      strings.TrimSpace(contracts.FirstNonEmptyString(root["toolType"])),
+		ViewportKey:   strings.TrimSpace(contracts.FirstNonEmptyString(root["viewportKey"])),
 		Aliases:       aliases,
-		Meta:          cloneMap(anyMapNode(root["meta"])),
+		Meta:          contracts.CloneMap(contracts.AnyMapNode(root["meta"])),
 	}, nil
 }
 
 func (s ServerDefinition) Enabled() bool {
 	return strings.TrimSpace(s.Key) != "" && strings.TrimSpace(s.BaseURL) != ""
-}
-
-func normalizeKey(value string) string {
-	return strings.ToLower(strings.TrimSpace(value))
 }
 
 func normalizeEndpointPath(value string) string {
@@ -214,7 +211,7 @@ func normalizeStringMap(values map[string]any) map[string]string {
 	out := make(map[string]string, len(values))
 	for key, value := range values {
 		normalizedKey := strings.TrimSpace(key)
-		normalizedValue := strings.TrimSpace(anyString(value))
+		normalizedValue := strings.TrimSpace(contracts.StringValue(value))
 		if normalizedKey == "" || normalizedValue == "" {
 			continue
 		}
@@ -233,7 +230,7 @@ func normalizeAliasMap(values map[string]any) map[string]string {
 	out := make(map[string]string, len(values))
 	for key, value := range values {
 		alias := normalizeKey(key)
-		target := normalizeKey(anyString(value))
+		target := normalizeKey(contracts.StringValue(value))
 		if alias == "" || target == "" {
 			continue
 		}
@@ -252,7 +249,7 @@ func normalizeAliases(value any) []string {
 	}
 	out := make([]string, 0, len(raw))
 	for _, item := range raw {
-		alias := normalizeKey(anyString(item))
+		alias := normalizeKey(contracts.StringValue(item))
 		if alias != "" {
 			out = append(out, alias)
 		}
@@ -272,15 +269,6 @@ func listMaps(value any) []map[string]any {
 		}
 	}
 	return out
-}
-
-func firstString(values ...any) string {
-	for _, value := range values {
-		if text := strings.TrimSpace(anyString(value)); text != "" {
-			return text
-		}
-	}
-	return ""
 }
 
 func firstInt(primary any, secondary any, fallback int) int {
@@ -325,28 +313,6 @@ func firstBool(value any, fallback bool) bool {
 		}
 	}
 	return fallback
-}
-
-func anyMapNode(value any) map[string]any {
-	result, _ := value.(map[string]any)
-	return result
-}
-
-func anyString(value any) string {
-	switch v := value.(type) {
-	case string:
-		return v
-	case int:
-		return strconv.Itoa(v)
-	case int64:
-		return strconv.FormatInt(v, 10)
-	case float64:
-		return strconv.Itoa(int(v))
-	case fmt.Stringer:
-		return v.String()
-	default:
-		return ""
-	}
 }
 
 func fallbackString(value string, fallback string) string {

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"agent-platform-runner-go/internal/contracts"
+	. "agent-platform-runner-go/internal/contracts"
 	"agent-platform-runner-go/internal/stream"
 )
 
@@ -19,10 +19,10 @@ type DeltaMapper struct {
 	indexedToolIDs       map[int]string
 	toolArgChunkCounters map[string]int
 	actionToolIDs        map[string]bool
-	toolRegistry         contracts.ToolDefinitionLookup
+	toolRegistry         ToolDefinitionLookup
 }
 
-func NewDeltaMapper(runID string, chatID string, toolRegistry contracts.ToolDefinitionLookup) *DeltaMapper {
+func NewDeltaMapper(runID string, chatID string, toolRegistry ToolDefinitionLookup) *DeltaMapper {
 	return &DeltaMapper{
 		runID:                runID,
 		chatID:               chatID,

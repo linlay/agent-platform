@@ -16,6 +16,7 @@ import (
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/catalog"
 	"agent-platform-runner-go/internal/config"
+	"agent-platform-runner-go/internal/contracts"
 
 	"github.com/robfig/cron/v3"
 )
@@ -327,7 +328,7 @@ func paramsNode(value any) (map[string]any, error) {
 	if !ok {
 		return nil, fmt.Errorf("expected object")
 	}
-	return cloneMap(node), nil
+	return contracts.CloneMap(node), nil
 }
 
 func sceneNode(value any) (*api.Scene, error) {

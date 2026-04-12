@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"agent-platform-runner-go/internal/api"
+	. "agent-platform-runner-go/internal/contracts"
+	. "agent-platform-runner-go/internal/models"
 )
 
 type llmRunStream struct {
@@ -361,7 +363,7 @@ func (s *llmRunStream) appendThinkTagContent(chunk string, flush bool) {
 }
 
 func (s *llmRunStream) responseReasoningFormat() string {
-	format := anyStringNode(anyMapNode(s.protocolConfig.Compat["response"])["reasoningFormat"])
+	format := AnyStringNode(AnyMapNode(s.protocolConfig.Compat["response"])["reasoningFormat"])
 	if format == "" {
 		switch strings.ToUpper(strings.TrimSpace(s.model.Protocol)) {
 		case "ANTHROPIC":
@@ -376,7 +378,7 @@ func (s *llmRunStream) responseReasoningFormat() string {
 func extractReasoningDetailTexts(details []map[string]any) []string {
 	texts := make([]string, 0, len(details))
 	for _, detail := range details {
-		if text := anyStringNode(detail["text"]); text != "" {
+		if text := AnyStringNode(detail["text"]); text != "" {
 			texts = append(texts, text)
 		}
 	}
@@ -574,13 +576,13 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 		s.pending = append(s.pending, DeltaPlanUpdate{
 			PlanID: s.execCtx.PlanState.PlanID,
 			ChatID: s.session.ChatID,
-			Plan:   planTasksArray(s.execCtx.PlanState),
+			Plan:   PlanTasksArray(s.execCtx.PlanState),
 		})
 	}
 	if published, ok := result.Structured["publishedArtifacts"].([]map[string]any); ok {
 		for _, item := range published {
 			s.pending = append(s.pending, DeltaArtifactPublish{
-				ArtifactID: anyStringNode(item["artifactId"]),
+				ArtifactID: AnyStringNode(item["artifactId"]),
 				ChatID:     s.session.ChatID,
 				RunID:      s.session.RunID,
 				Artifact:   item,
@@ -593,7 +595,7 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 				continue
 			}
 			s.pending = append(s.pending, DeltaArtifactPublish{
-				ArtifactID: anyStringNode(item["artifactId"]),
+				ArtifactID: AnyStringNode(item["artifactId"]),
 				ChatID:     s.session.ChatID,
 				RunID:      s.session.RunID,
 				Artifact:   item,
@@ -610,7 +612,7 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 }
 
 func (s *llmRunStream) checkBudgetBeforeModelCall() map[string]any {
-	budget := normalizeBudget(s.execCtx.Budget)
+	budget := NormalizeBudget(s.execCtx.Budget)
 	if budget.RunTimeoutMs > 0 && time.Since(s.execCtx.StartedAt) > budget.RunTimeout() {
 		return NewErrorPayload(
 			"run_timeout",

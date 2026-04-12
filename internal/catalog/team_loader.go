@@ -12,25 +12,24 @@ import (
 
 func loadTeams(root string) (map[string]TeamDefinition, error) {
 	items := map[string]TeamDefinition{}
-	entries, err := os.ReadDir(root)
-	if os.IsNotExist(err) {
-		return items, nil
-	}
+	err := visitRuntimeEntries(
+		root,
+		nil,
+		func(name string, entry os.DirEntry) bool {
+			return !entry.IsDir() && ShouldLoadRuntimeName(name) && (strings.HasSuffix(name, ".yml") || strings.HasSuffix(name, ".yaml"))
+		},
+		func(name string, _ os.DirEntry) {
+			path := filepath.Join(root, name)
+			def, err := parseTeamFile(path)
+			if err != nil {
+				log.Printf("[catalog][teams] skip file %s: parse error: %v", name, err)
+				return
+			}
+			items[def.TeamID] = def
+		},
+	)
 	if err != nil {
 		return nil, err
-	}
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !ShouldLoadRuntimeName(name) || (!strings.HasSuffix(name, ".yml") && !strings.HasSuffix(name, ".yaml")) {
-			continue
-		}
-		path := filepath.Join(root, name)
-		def, err := parseTeamFile(path)
-		if err != nil {
-			log.Printf("[catalog][teams] skip file %s: parse error: %v", name, err)
-			continue
-		}
-		items[def.TeamID] = def
 	}
 	return items, nil
 }

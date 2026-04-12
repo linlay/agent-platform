@@ -1,6 +1,10 @@
 package tools
 
-import "time"
+import (
+	"time"
+
+	. "agent-platform-runner-go/internal/contracts"
+)
 
 func (t *RuntimeToolExecutor) invokeDateTime(args map[string]any) ToolExecutionResult {
 	payload, err := buildDateTimePayload(args, time.Now())

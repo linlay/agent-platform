@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"agent-platform-runner-go/internal/api"
+	"agent-platform-runner-go/internal/contracts"
 )
 
 type ToolSync struct {
@@ -40,13 +41,13 @@ func (s *ToolSync) Load(ctx context.Context) ([]api.ToolDetailResponse, error) {
 }
 
 func (s *ToolSync) RefreshServer(ctx context.Context, serverKey string) ([]api.ToolDetailResponse, error) {
-	return s.refreshTools(ctx, map[string]struct{}{normalizeLookup(serverKey): {}})
+	return s.refreshTools(ctx, map[string]struct{}{normalizeKey(serverKey): {}})
 }
 
 func (s *ToolSync) RefreshServers(ctx context.Context, serverKeys []string) ([]api.ToolDetailResponse, error) {
 	targets := map[string]struct{}{}
 	for _, key := range serverKeys {
-		if normalized := normalizeLookup(key); normalized != "" {
+		if normalized := normalizeKey(key); normalized != "" {
 			targets[normalized] = struct{}{}
 		}
 	}
@@ -63,7 +64,7 @@ func (s *ToolSync) Tool(name string) (api.ToolDetailResponse, bool) {
 	if s == nil {
 		return api.ToolDetailResponse{}, false
 	}
-	normalized := normalizeLookup(name)
+	normalized := normalizeKey(name)
 	if normalized == "" {
 		return api.ToolDetailResponse{}, false
 	}
@@ -82,7 +83,7 @@ func (s *ToolSync) Tool(name string) (api.ToolDetailResponse, bool) {
 }
 
 func (s *ToolSync) ResolveAlias(name string) (string, bool) {
-	normalized := normalizeLookup(name)
+	normalized := normalizeKey(name)
 	if normalized == "" {
 		return "", false
 	}
@@ -103,7 +104,7 @@ func (s *ToolSync) refreshTools(ctx context.Context, targets map[string]struct{}
 	s.mu.RUnlock()
 
 	for _, server := range servers {
-		serverKey := normalizeLookup(server.Key)
+		serverKey := normalizeKey(server.Key)
 		activeKeys[serverKey] = struct{}{}
 		if len(targets) > 0 {
 			if _, ok := targets[serverKey]; !ok {
@@ -143,7 +144,7 @@ func (s *ToolSync) syncServer(ctx context.Context, server ServerDefinition) (ser
 	toolsByName := map[string]api.ToolDetailResponse{}
 	aliasToCanonical := map[string]string{}
 	for _, tool := range discovered {
-		normalizedName := normalizeLookup(tool.Name)
+		normalizedName := normalizeKey(tool.Name)
 		if normalizedName == "" {
 			continue
 		}
@@ -160,14 +161,14 @@ func (s *ToolSync) syncServer(ctx context.Context, server ServerDefinition) (ser
 }
 
 func findServerToolOverride(overrides []ToolDefinition, tool ToolDefinition) *ToolDefinition {
-	toolName := normalizeLookup(tool.Name)
-	toolKey := normalizeLookup(tool.Key)
+	toolName := normalizeKey(tool.Name)
+	toolKey := normalizeKey(tool.Key)
 	for i := range overrides {
 		override := &overrides[i]
-		if normalizeLookup(override.Name) == toolName && toolName != "" {
+		if normalizeKey(override.Name) == toolName && toolName != "" {
 			return override
 		}
-		if normalizeLookup(override.Key) == toolKey && toolKey != "" {
+		if normalizeKey(override.Key) == toolKey && toolKey != "" {
 			return override
 		}
 	}
@@ -192,7 +193,7 @@ func applyServerToolOverride(base ToolDefinition, override *ToolDefinition) Tool
 		merged.AfterCallHint = strings.TrimSpace(override.AfterCallHint)
 	}
 	if len(override.Parameters) > 0 {
-		merged.Parameters = cloneMap(override.Parameters)
+		merged.Parameters = contracts.CloneMap(override.Parameters)
 	}
 	if override.ToolAction {
 		merged.ToolAction = true
@@ -219,7 +220,7 @@ func mergeSnapshots(servers []ServerDefinition, snapshots map[string]serverToolS
 	aliasToCanonical := map[string]string{}
 	conflicts := map[string]struct{}{}
 	for _, server := range servers {
-		snapshot, ok := snapshots[normalizeLookup(server.Key)]
+		snapshot, ok := snapshots[normalizeKey(server.Key)]
 		if !ok {
 			continue
 		}
@@ -266,14 +267,14 @@ func registerAliases(server ServerDefinition, canonical string, aliases []string
 		registerAlias(alias, canonical, aliasToCanonical)
 	}
 	for alias, target := range server.AliasMap {
-		if normalizeLookup(target) == canonical {
+		if normalizeKey(target) == canonical {
 			registerAlias(alias, canonical, aliasToCanonical)
 		}
 	}
 }
 
 func registerAlias(alias string, canonical string, aliasToCanonical map[string]string) {
-	normalizedAlias := normalizeLookup(alias)
+	normalizedAlias := normalizeKey(alias)
 	if normalizedAlias == "" || normalizedAlias == canonical {
 		return
 	}
@@ -309,10 +310,6 @@ func cloneSortedToolDefinitions(tools map[string]api.ToolDetailResponse) []api.T
 	return out
 }
 
-func normalizeLookup(value string) string {
-	return strings.ToLower(strings.TrimSpace(value))
-}
-
 func cloneTool(tool api.ToolDetailResponse) api.ToolDetailResponse {
 	return api.ToolDetailResponse{
 		Key:           tool.Key,
@@ -320,7 +317,7 @@ func cloneTool(tool api.ToolDetailResponse) api.ToolDetailResponse {
 		Label:         tool.Label,
 		Description:   tool.Description,
 		AfterCallHint: tool.AfterCallHint,
-		Parameters:    cloneMap(tool.Parameters),
-		Meta:          cloneMap(tool.Meta),
+		Parameters:    contracts.CloneMap(tool.Parameters),
+		Meta:          contracts.CloneMap(tool.Meta),
 	}
 }

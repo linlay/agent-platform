@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -139,7 +140,9 @@ func (s *ContainerHubSandboxService) CloseQuietly(execCtx *contracts.ExecutionCo
 			timer := time.NewTimer(delay)
 			defer timer.Stop()
 			<-timer.C
-			_, _ = s.client.StopSession(context.Background(), sessionID)
+			if _, err := s.client.StopSession(context.Background(), sessionID); err != nil {
+				log.Printf("[sandbox] stop session failed id=%s: %v", sessionID, err)
+			}
 		}(session.SessionID, time.Duration(maxInt64(s.cfg.DestroyQueueDelayMs, 0))*time.Millisecond)
 	}
 	execCtx.SandboxSession = nil
@@ -213,7 +216,9 @@ func (s *ContainerHubSandboxService) releaseAgentSession(agentKey string) {
 	idle := time.Duration(maxInt64(s.cfg.AgentIdleTimeoutMs, 0)) * time.Millisecond
 	s.mu.Unlock()
 	if idle <= 0 {
-		_, _ = s.client.StopSession(context.Background(), sessionID)
+		if _, err := s.client.StopSession(context.Background(), sessionID); err != nil {
+			log.Printf("[sandbox] stop agent session failed id=%s agent=%s: %v", sessionID, agentKey, err)
+		}
 		s.mu.Lock()
 		delete(s.agentSessions, agentKey)
 		s.mu.Unlock()
@@ -231,7 +236,9 @@ func (s *ContainerHubSandboxService) releaseAgentSession(agentKey string) {
 		}
 		delete(s.agentSessions, agentKey)
 		s.mu.Unlock()
-		_, _ = s.client.StopSession(context.Background(), sessionID)
+		if _, err := s.client.StopSession(context.Background(), sessionID); err != nil {
+			log.Printf("[sandbox] stop idle agent session failed id=%s agent=%s: %v", sessionID, agentKey, err)
+		}
 	}()
 }
 

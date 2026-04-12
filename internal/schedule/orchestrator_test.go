@@ -549,6 +549,81 @@ func TestOrchestratorLimitsDispatchConcurrency(t *testing.T) {
 	}
 }
 
+func TestOrchestratorReleasesDispatchSlotAfterDispatchFailure(t *testing.T) {
+	root := t.TempDir()
+	orchestrator := NewOrchestrator(
+		NewRegistry(root, nil),
+		NewDispatcher(func(_ context.Context, _ api.QueryRequest) error { return nil }),
+		config.ScheduleConfig{PoolSize: 1},
+	)
+
+	reg1 := &Registration{Definition: Definition{ID: "one", Enabled: true, Query: Query{Message: "first"}}, ctx: context.Background()}
+	reg2 := &Registration{Definition: Definition{ID: "two", Enabled: true, Query: Query{Message: "second"}}, ctx: context.Background()}
+	orchestrator.registrations["one"] = reg1
+	orchestrator.registrations["two"] = reg2
+
+	entered := make(chan string, 2)
+	release := make(chan struct{})
+	var calls int32
+	orchestrator.dispatcher = NewDispatcher(func(_ context.Context, req api.QueryRequest) error {
+		entered <- req.Message
+		<-release
+		if atomic.AddInt32(&calls, 1) == 1 {
+			return errors.New("dispatch failed")
+		}
+		return nil
+	})
+
+	done1 := make(chan error, 1)
+	done2 := make(chan error, 1)
+	go func() {
+		_, err := orchestrator.fire(reg1)
+		done1 <- err
+	}()
+	first := waitForMessage(t, entered, time.Second)
+	if first != "first" {
+		t.Fatalf("expected first registration to dispatch first, got %q", first)
+	}
+	go func() {
+		_, err := orchestrator.fire(reg2)
+		done2 <- err
+	}()
+
+	release <- struct{}{}
+	if err := <-done1; err == nil {
+		t.Fatal("expected first dispatch to fail")
+	}
+	second := waitForMessage(t, entered, time.Second)
+	if second != "second" {
+		t.Fatalf("expected second registration to acquire released slot, got %q", second)
+	}
+	release <- struct{}{}
+	if err := <-done2; err != nil {
+		t.Fatalf("expected second dispatch to succeed, got %v", err)
+	}
+}
+
+func TestAcquireDispatchSlotContextCancellationDoesNotLeak(t *testing.T) {
+	orchestrator := NewOrchestrator(
+		NewRegistry(t.TempDir(), nil),
+		nil,
+		config.ScheduleConfig{PoolSize: 1},
+	)
+	orchestrator.dispatchSlots <- struct{}{}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if orchestrator.acquireDispatchSlot(ctx) {
+		t.Fatal("expected acquire to fail after context cancellation")
+	}
+
+	orchestrator.releaseDispatchSlot()
+	if !orchestrator.acquireDispatchSlot(context.Background()) {
+		t.Fatal("expected slot to remain available after canceled acquire")
+	}
+	orchestrator.releaseDispatchSlot()
+}
+
 func waitForStop(t *testing.T, orchestrator *Orchestrator) {
 	t.Helper()
 	done := orchestrator.Stop()

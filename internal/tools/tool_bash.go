@@ -10,7 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"agent-platform-runner-go/internal/bashsec"
 	"agent-platform-runner-go/internal/config"
+	. "agent-platform-runner-go/internal/contracts"
 )
 
 func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[string]any) (ToolExecutionResult, error) {
@@ -21,7 +23,7 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	if len(command) > maxInt(t.cfg.Bash.MaxCommandChars, 16000) {
 		return ToolExecutionResult{Output: "Command is too long", Error: "command_too_long", ExitCode: -1}, nil
 	}
-	if ok, reason := checkBashSecurity(command); !ok {
+	if ok, reason := bashsec.CheckBashSecurity(command); !ok {
 		return ToolExecutionResult{Output: reason, Error: "bash_security_blocked", ExitCode: -1}, nil
 	}
 	if len(t.cfg.Bash.AllowedCommands) == 0 {

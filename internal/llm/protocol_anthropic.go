@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"agent-platform-runner-go/internal/config"
+	. "agent-platform-runner-go/internal/contracts"
+	. "agent-platform-runner-go/internal/models"
 )
 
 type anthropicProtocol struct {
@@ -55,13 +57,13 @@ func (p *anthropicProtocol) ConsumeChunk(s *llmRunStream, eventName string, rawC
 	case "", "ping":
 		return false, nil
 	case "content_block_start":
-		block := anyMapNode(payload["content_block"])
-		blockType := anyStringNode(block["type"])
+		block := AnyMapNode(payload["content_block"])
+		blockType := AnyStringNode(block["type"])
 		if blockType == "tool_use" {
-			index := anyIntNode(payload["index"])
+			index := AnyIntNode(payload["index"])
 			input, _ := block["input"].(map[string]any)
-			toolID := anyStringNode(block["id"])
-			toolName := anyStringNode(block["name"])
+			toolID := AnyStringNode(block["id"])
+			toolName := AnyStringNode(block["name"])
 			var argsChunk string
 			if len(input) > 0 {
 				data, err := json.Marshal(input)
@@ -77,15 +79,15 @@ func (p *anthropicProtocol) ConsumeChunk(s *llmRunStream, eventName string, rawC
 			s.pending = append(s.pending, deltas...)
 		}
 	case "content_block_delta":
-		index := anyIntNode(payload["index"])
-		delta := anyMapNode(payload["delta"])
-		switch anyStringNode(delta["type"]) {
+		index := AnyIntNode(payload["index"])
+		delta := AnyMapNode(payload["delta"])
+		switch AnyStringNode(delta["type"]) {
 		case "text_delta":
-			s.appendCompatContent(anyStringNode(delta["text"]))
+			s.appendCompatContent(AnyStringNode(delta["text"]))
 		case "thinking_delta":
-			s.appendCompatAnthropicThinking(anyStringNode(delta["thinking"]))
+			s.appendCompatAnthropicThinking(AnyStringNode(delta["thinking"]))
 		case "input_json_delta":
-			partialJSON := anyStringNode(delta["partial_json"])
+			partialJSON := AnyStringNode(delta["partial_json"])
 			if partialJSON == "" {
 				return false, nil
 			}
@@ -98,8 +100,8 @@ func (p *anthropicProtocol) ConsumeChunk(s *llmRunStream, eventName string, rawC
 			return false, nil
 		}
 	case "message_delta":
-		delta := anyMapNode(payload["delta"])
-		stopReason := strings.TrimSpace(anyStringNode(delta["stop_reason"]))
+		delta := AnyMapNode(payload["delta"])
+		stopReason := strings.TrimSpace(AnyStringNode(delta["stop_reason"]))
 		if stopReason == "" {
 			return false, nil
 		}
@@ -153,7 +155,7 @@ func (p *anthropicProtocol) buildRequestBody(model ModelDefinition, stageSetting
 			"type":          "enabled",
 			"budget_tokens": reasoningBudgetTokens(stageSettings.ReasoningEffort),
 		}
-		if compatRequest := anyMapNode(anyMapNode(protocolConfig.Compat["request"])["whenReasoningEnabled"]); len(compatRequest) > 0 {
+		if compatRequest := AnyMapNode(AnyMapNode(protocolConfig.Compat["request"])["whenReasoningEnabled"]); len(compatRequest) > 0 {
 			requestBody = mergeAnyMaps(requestBody, compatRequest)
 		}
 	}

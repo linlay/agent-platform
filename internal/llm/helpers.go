@@ -1,12 +1,81 @@
-package tools
+package llm
 
 import (
 	"fmt"
+	"net/url"
 	"regexp"
 	"strings"
+	"time"
 
-	. "agent-platform-runner-go/internal/contracts"
+	"agent-platform-runner-go/internal/api"
+	"agent-platform-runner-go/internal/contracts"
 )
+
+func runTimeout(b contracts.Budget) time.Duration {
+	return time.Duration(maxInt(b.RunTimeoutMs, 1)) * time.Millisecond
+}
+
+func toolTimeout(policy contracts.RetryPolicy) time.Duration {
+	return time.Duration(maxInt(policy.TimeoutMs, 1)) * time.Millisecond
+}
+
+func structuredOrOutput(result contracts.ToolExecutionResult) any {
+	if len(result.Structured) > 0 {
+		return result.Structured
+	}
+	return result.Output
+}
+
+func maxInt(value int, fallback int) int {
+	if value > 0 {
+		return value
+	}
+	return fallback
+}
+
+func cloneToolDefinition(def api.ToolDetailResponse) api.ToolDetailResponse {
+	return api.ToolDetailResponse{
+		Key:           def.Key,
+		Name:          def.Name,
+		Label:         def.Label,
+		Description:   def.Description,
+		AfterCallHint: def.AfterCallHint,
+		Parameters:    contracts.CloneMap(def.Parameters),
+		Meta:          contracts.CloneMap(def.Meta),
+	}
+}
+
+func defaultEndpointPath(protocol string, baseURL string) string {
+	switch strings.ToUpper(strings.TrimSpace(protocol)) {
+	case "ANTHROPIC":
+		if normalizedBasePath(baseURL) == "/v1" {
+			return "/messages"
+		}
+		return "/v1/messages"
+	case "", "OPENAI":
+		if normalizedBasePath(baseURL) == "/v1" {
+			return "/chat/completions"
+		}
+		return "/v1/chat/completions"
+	default:
+		return ""
+	}
+}
+
+func normalizedBasePath(rawBaseURL string) string {
+	parsed, err := urlParse(strings.TrimSpace(rawBaseURL))
+	if err != nil {
+		return ""
+	}
+	path := strings.TrimSpace(parsed.EscapedPath())
+	if path == "" {
+		path = strings.TrimSpace(parsed.Path)
+	}
+	if path == "" || path == "/" {
+		return ""
+	}
+	return "/" + strings.Trim(strings.TrimSpace(path), "/")
+}
 
 var previousResultPattern = regexp.MustCompile(`\$\{previousResult\.([a-zA-Z0-9_.-]+)\}`)
 
@@ -75,13 +144,17 @@ func resolvePreviousResultPath(path string, previousResult any) (any, error) {
 		}
 		asMap, ok := current.(map[string]any)
 		if !ok {
-			return nil, fmt.Errorf("%w: %s", ErrToolArgsTemplateMissingValue, path)
+			return nil, fmt.Errorf("%w: %s", contracts.ErrToolArgsTemplateMissingValue, path)
 		}
 		next, ok := asMap[segment]
 		if !ok {
-			return nil, fmt.Errorf("%w: %s", ErrToolArgsTemplateMissingValue, path)
+			return nil, fmt.Errorf("%w: %s", contracts.ErrToolArgsTemplateMissingValue, path)
 		}
 		current = next
 	}
 	return current, nil
+}
+
+func urlParse(raw string) (*url.URL, error) {
+	return url.Parse(raw)
 }
