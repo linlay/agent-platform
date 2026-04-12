@@ -35,7 +35,7 @@ func DefaultBudget(cfg config.Config) Budget {
 }
 
 func ResolveBudget(cfg config.Config, overrides map[string]any) Budget {
-	budget := normalizeBudget(DefaultBudget(cfg))
+	budget := NormalizeBudget(DefaultBudget(cfg))
 	if len(overrides) == 0 {
 		return budget
 	}
@@ -48,7 +48,7 @@ func ResolveBudget(cfg config.Config, overrides map[string]any) Budget {
 	if tool := anyMapNode(overrides["tool"]); len(tool) > 0 {
 		budget.Tool = mergeRetryPolicy(budget.Tool, tool)
 	}
-	return normalizeBudget(budget)
+	return NormalizeBudget(budget)
 }
 
 func normalizeBudget(b Budget) Budget {

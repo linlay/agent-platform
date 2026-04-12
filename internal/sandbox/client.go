@@ -1,0 +1,173 @@
+package sandbox
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"strings"
+	"time"
+
+	"agent-platform-runner-go/internal/config"
+	"agent-platform-runner-go/internal/contracts"
+)
+
+type ContainerHubClient struct {
+	baseURL    string
+	authToken  string
+	timeout    time.Duration
+	httpClient *http.Client
+}
+
+type EnvironmentAgentPromptResult struct {
+	EnvironmentName string
+	HasPrompt       bool
+	Prompt          string
+	UpdatedAt       string
+	Error           string
+	OK              bool
+}
+
+func NewContainerHubClient(cfg config.ContainerHubConfig) *ContainerHubClient {
+	return &ContainerHubClient{
+		baseURL:   strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/"),
+		authToken: strings.TrimSpace(cfg.AuthToken),
+		timeout:   time.Duration(maxInt(cfg.RequestTimeoutMs, 1)) * time.Millisecond,
+		httpClient: &http.Client{
+			Timeout: time.Duration(maxInt(cfg.RequestTimeoutMs, 1)) * time.Millisecond,
+		},
+	}
+}
+
+func (c *ContainerHubClient) CreateSession(ctx context.Context, payload map[string]any) (map[string]any, error) {
+	return c.post(ctx, "/api/sessions/create", payload)
+}
+
+// ExecuteSessionRaw calls the container-hub execute API and returns the raw response.
+// Container Hub returns plain text on success, JSON error on failure.
+// Java: ContainerHubClient.executeSession with contentTypeAware=true
+//
+//	→ success: textBody(response.body()) returns raw text as-is
+//	→ failure: parsed as JSON error
+func (c *ContainerHubClient) ExecuteSessionRaw(ctx context.Context, sessionID string, payload map[string]any) (string, bool, error) {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return "", false, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/sessions/"+strings.TrimSpace(sessionID)+"/execute", bytes.NewReader(body))
+	if err != nil {
+		return "", false, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.authToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.authToken)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", false, err
+	}
+	defer resp.Body.Close()
+	rawBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", false, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", false, fmt.Errorf("/api/sessions/execute returned status %d", resp.StatusCode)
+	}
+	text := string(rawBody)
+	var jsonCheck map[string]any
+	isJSON := json.Unmarshal(rawBody, &jsonCheck) == nil
+	return text, isJSON, nil
+}
+
+func (c *ContainerHubClient) StopSession(ctx context.Context, sessionID string) (map[string]any, error) {
+	return c.post(ctx, "/api/sessions/"+strings.TrimSpace(sessionID)+"/stop", map[string]any{})
+}
+
+func (c *ContainerHubClient) GetEnvironmentAgentPrompt(environmentID string) (EnvironmentAgentPromptResult, error) {
+	normalized := strings.TrimSpace(environmentID)
+	if normalized == "" {
+		return EnvironmentAgentPromptResult{}, fmt.Errorf("environment id is required")
+	}
+	req, err := http.NewRequest(http.MethodGet, c.baseURL+"/api/environments/"+normalized+"/agent-prompt", nil)
+	if err != nil {
+		return EnvironmentAgentPromptResult{}, err
+	}
+	if c.authToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.authToken)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return EnvironmentAgentPromptResult{}, err
+	}
+	defer resp.Body.Close()
+	var decoded map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		return EnvironmentAgentPromptResult{}, err
+	}
+	result := EnvironmentAgentPromptResult{
+		EnvironmentName: strings.TrimSpace(firstStringValue(decoded, "environmentName", "environment_name")),
+		HasPrompt:       firstBoolValue(decoded, "hasPrompt", "has_prompt"),
+		Prompt:          firstStringValue(decoded, "prompt"),
+		UpdatedAt:       firstStringValue(decoded, "updatedAt", "updated_at"),
+		OK:              resp.StatusCode >= 200 && resp.StatusCode < 300,
+	}
+	if !result.OK {
+		result.Error = firstStringValue(decoded, "error")
+		if strings.TrimSpace(result.Error) == "" {
+			result.Error = fmt.Sprintf("status %d", resp.StatusCode)
+		}
+	}
+	return result, nil
+}
+
+func firstStringValue(values map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(contracts.AnyStringNode(values[key])); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func firstBoolValue(values map[string]any, keys ...string) bool {
+	for _, key := range keys {
+		if value, ok := values[key]; ok {
+			return contracts.AnyBoolNode(value)
+		}
+	}
+	return false
+}
+
+func (c *ContainerHubClient) post(ctx context.Context, path string, payload map[string]any) (map[string]any, error) {
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+path, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if c.authToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.authToken)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var decoded map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		detail, _ := json.Marshal(decoded)
+		log.Printf("[container-hub] %s %d request=%s response=%s", path, resp.StatusCode, string(body), string(detail))
+		return nil, fmt.Errorf("%s returned status %d", path, resp.StatusCode)
+	}
+	return decoded, nil
+}

@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"encoding/json"
 	"time"
 
 	"agent-platform-runner-go/internal/bashsec"
@@ -66,12 +65,7 @@ func cloneAnyMap(values map[string]any) map[string]any {
 }
 
 func normalizeBudget(b Budget) Budget {
-	if b.RunTimeoutMs <= 0 {
-		b.RunTimeoutMs = 300000
-	}
-	b.Model = normalizeRetryPolicy(b.Model, RetryPolicy{MaxCalls: 30, TimeoutMs: 120000, RetryCount: 0})
-	b.Tool = normalizeRetryPolicy(b.Tool, RetryPolicy{MaxCalls: 50, TimeoutMs: 300000, RetryCount: 0})
-	return b
+	return contracts.NormalizeBudget(b)
 }
 
 func normalizeRetryPolicy(policy RetryPolicy, fallback RetryPolicy) RetryPolicy {
@@ -88,11 +82,7 @@ func normalizeRetryPolicy(policy RetryPolicy, fallback RetryPolicy) RetryPolicy 
 }
 
 func marshalJSON(value any) string {
-	data, err := json.Marshal(value)
-	if err != nil {
-		return "{}"
-	}
-	return string(data)
+	return contracts.MarshalJSON(value)
 }
 
 func checkBashSecurity(command string) (bool, string) {
@@ -115,4 +105,12 @@ func maxInt64(value int64, fallback int64) int64 {
 
 func toolTimeout(policy RetryPolicy) time.Duration {
 	return time.Duration(maxInt(policy.TimeoutMs, 1)) * time.Millisecond
+}
+
+func normalizePlanTaskStatus(raw string) string {
+	return contracts.NormalizePlanTaskStatus(raw)
+}
+
+func planTasksArray(state *PlanRuntimeState) []map[string]any {
+	return contracts.PlanTasksArray(state)
 }

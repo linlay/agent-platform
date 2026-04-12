@@ -126,12 +126,7 @@ func RunControlFromContext(ctx context.Context) *RunControl {
 }
 
 func normalizeBudget(b Budget) Budget {
-	if b.RunTimeoutMs <= 0 {
-		b.RunTimeoutMs = 300000
-	}
-	b.Model = normalizeRetryPolicy(b.Model, RetryPolicy{MaxCalls: 30, TimeoutMs: 120000, RetryCount: 0})
-	b.Tool = normalizeRetryPolicy(b.Tool, RetryPolicy{MaxCalls: 50, TimeoutMs: 300000, RetryCount: 0})
-	return b
+	return contracts.NormalizeBudget(b)
 }
 
 func normalizeRetryPolicy(policy RetryPolicy, fallback RetryPolicy) RetryPolicy {
@@ -170,20 +165,7 @@ func maxInt(value int, fallback int) int {
 }
 
 func normalizePlanTaskStatus(raw string) string {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "", "init":
-		return "init"
-	case "in_progress", "in-progress", "inprogress":
-		return "in_progress"
-	case "completed", "complete":
-		return "completed"
-	case "failed", "fail":
-		return "failed"
-	case "canceled", "cancelled", "cancel":
-		return "canceled"
-	default:
-		return ""
-	}
+	return contracts.NormalizePlanTaskStatus(raw)
 }
 
 func cloneAnyMap(values map[string]any) map[string]any {
@@ -210,18 +192,7 @@ func cloneToolDefinition(def api.ToolDetailResponse) api.ToolDetailResponse {
 }
 
 func planTasksArray(state *PlanRuntimeState) []map[string]any {
-	if state == nil {
-		return []map[string]any{}
-	}
-	tasks := make([]map[string]any, 0, len(state.Tasks))
-	for _, task := range state.Tasks {
-		tasks = append(tasks, map[string]any{
-			"taskId":      task.TaskID,
-			"description": task.Description,
-			"status":      task.Status,
-		})
-	}
-	return tasks
+	return contracts.PlanTasksArray(state)
 }
 
 func defaultEndpointPath(protocol string, baseURL string) string {
