@@ -3,20 +3,20 @@ package viewport
 import (
 	"context"
 
-	"agent-platform-runner-go/internal/engine"
+	"agent-platform-runner-go/internal/contracts"
 )
 
 type Service struct {
 	registry *Registry
 	syncer   *Syncer
-	fallback engine.ViewportClient
+	fallback contracts.ViewportClient
 }
 
-func NewService(registry *Registry, fallback engine.ViewportClient) *Service {
+func NewService(registry *Registry, fallback contracts.ViewportClient) *Service {
 	return &Service{registry: registry, fallback: fallback}
 }
 
-func NewServiceWithServers(registry *Registry, syncer *Syncer, fallback engine.ViewportClient) *Service {
+func NewServiceWithServers(registry *Registry, syncer *Syncer, fallback contracts.ViewportClient) *Service {
 	return &Service{registry: registry, syncer: syncer, fallback: fallback}
 }
 

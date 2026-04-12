@@ -13,11 +13,17 @@ import (
 	"agent-platform-runner-go/internal/catalog"
 	"agent-platform-runner-go/internal/chat"
 	"agent-platform-runner-go/internal/config"
-	"agent-platform-runner-go/internal/engine"
+	"agent-platform-runner-go/internal/contracts"
+	"agent-platform-runner-go/internal/llm"
 	"agent-platform-runner-go/internal/mcp"
 	"agent-platform-runner-go/internal/memory"
+	"agent-platform-runner-go/internal/models"
+	"agent-platform-runner-go/internal/reload"
+	"agent-platform-runner-go/internal/runctl"
+	"agent-platform-runner-go/internal/sandbox"
 	"agent-platform-runner-go/internal/schedule"
 	"agent-platform-runner-go/internal/server"
+	"agent-platform-runner-go/internal/tools"
 	"agent-platform-runner-go/internal/viewport"
 )
 
@@ -64,15 +70,15 @@ func New() (*App, error) {
 	log.Printf("memory store ready in %s (root=%s)", startupElapsed(memoryStoreStartedAt), cfg.Paths.MemoryDir)
 
 	modelRegistryStartedAt := time.Now()
-	modelRegistry, err := engine.LoadModelRegistry(cfg.Paths.RegistriesDir)
+	modelRegistry, err := models.LoadModelRegistry(cfg.Paths.RegistriesDir)
 	if err != nil {
 		return nil, fmt.Errorf("load model registry (%s): %w", cfg.Paths.RegistriesDir, err)
 	}
 	log.Printf("model registry ready in %s (root=%s)", startupElapsed(modelRegistryStartedAt), cfg.Paths.RegistriesDir)
 
-	runManager := engine.NewInMemoryRunManager()
-	sandbox := engine.NewContainerHubSandboxService(cfg.ContainerHub, cfg.Paths)
-	backendTools, err := engine.NewRuntimeToolExecutor(cfg, sandbox, memoryStore)
+	runManager := runctl.NewInMemoryRunManager()
+	sandboxClient := sandbox.NewContainerHubSandboxService(cfg.ContainerHub, cfg.Paths)
+	backendTools, err := tools.NewRuntimeToolExecutor(cfg, sandboxClient, memoryStore)
 	if err != nil {
 		return nil, fmt.Errorf("init runtime tools: %w", err)
 	}
@@ -86,11 +92,11 @@ func New() (*App, error) {
 	if _, err := mcpToolSync.Load(context.Background()); err != nil {
 		return nil, fmt.Errorf("load mcp tools: %w", err)
 	}
-	runtimeTools, err := engine.LoadRuntimeToolDefinitions(cfg.Paths.ToolsDir)
+	runtimeTools, err := tools.LoadRuntimeToolDefinitions(cfg.Paths.ToolsDir)
 	if err != nil {
 		return nil, fmt.Errorf("load runtime tools: %w", err)
 	}
-	toolExecutor := engine.NewToolRouter(backendTools, mcpClient, mcpToolSync, engine.NewFrontendSubmitCoordinator(), engine.NewNoopActionInvoker(), append([]api.ToolDetailResponse(nil), runtimeTools...)...)
+	toolExecutor := tools.NewToolRouter(backendTools, mcpClient, mcpToolSync, llm.NewFrontendSubmitCoordinator(), contracts.NewNoopActionInvoker(), append([]api.ToolDetailResponse(nil), runtimeTools...)...)
 
 	registryStartedAt := time.Now()
 	registry, err := catalog.NewFileRegistry(cfg, toolExecutor.Definitions())
@@ -112,10 +118,16 @@ func New() (*App, error) {
 		len(toolExecutor.Definitions()),
 	)
 
-	agentEngine := engine.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, sandbox)
-	reloader := engine.NewRuntimeCatalogReloader(registry, modelRegistry, mcp.NewRegistryReloader(mcpRegistry, mcpToolSync))
+	agentEngine := llm.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, sandboxClient)
+	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, mcp.NewRegistryReloader(mcpRegistry, mcpToolSync))
 	backgroundCtx, backgroundCancel := context.WithCancel(context.Background())
-	engine.StartBackgroundReloaders(backgroundCtx, cfg, reloader)
+	cleanupBackground := true
+	defer func() {
+		if cleanupBackground {
+			backgroundCancel()
+		}
+	}()
+	reload.StartBackgroundReloaders(backgroundCtx, cfg, reloader)
 	mcp.NewReconnectLoop(mcpRegistry, mcpToolSync, mcpGate, 10*time.Second).Start(backgroundCtx)
 	log.Printf("background file watchers started (agents=%s teams=%s skills=%s)",
 		cfg.Paths.AgentsDir,
@@ -133,12 +145,12 @@ func New() (*App, error) {
 		Runs:     runManager,
 		Agent:    agentEngine,
 		Tools:    toolExecutor,
-		Sandbox:  sandbox,
+		Sandbox:  sandboxClient,
 		MCP:      mcpClient,
 		Viewport: viewport.NewServiceWithServers(
 			viewport.NewRegistry(viewport.DefaultRoot(cfg.Paths.RegistriesDir)),
 			viewport.NewSyncer(viewport.NewServerRegistry(viewport.DefaultServersRoot(cfg.Paths.RegistriesDir)), nil),
-			engine.NewNoopViewportClient(),
+			contracts.NewNoopViewportClient(),
 		),
 		CatalogReloader: reloader,
 	})
@@ -170,6 +182,7 @@ func New() (*App, error) {
 		log.Printf("schedule orchestrator disabled")
 	}
 	log.Printf("app dependencies initialized in %s", startupElapsed(appInitStartedAt))
+	cleanupBackground = false
 
 	return &App{
 		Config:           cfg,

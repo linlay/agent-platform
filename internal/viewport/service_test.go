@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"agent-platform-runner-go/internal/engine"
+	"agent-platform-runner-go/internal/contracts"
 )
 
 func TestServiceLoadsLocalViewportAndFallbacks(t *testing.T) {
@@ -18,7 +18,7 @@ func TestServiceLoadsLocalViewportAndFallbacks(t *testing.T) {
 		t.Fatalf("write viewport file: %v", err)
 	}
 
-	service := NewService(NewRegistry(root), engine.NewNoopViewportClient())
+	service := NewService(NewRegistry(root), contracts.NewNoopViewportClient())
 	local, err := service.Get(context.Background(), "demo")
 	if err != nil {
 		t.Fatalf("load local viewport: %v", err)
@@ -115,7 +115,7 @@ func TestServiceLoadsRemoteHTMLViewportBeforeFallback(t *testing.T) {
 	service := NewServiceWithServers(
 		NewRegistry(DefaultRoot(registriesRoot)),
 		NewSyncer(NewServerRegistry(serversRoot), remote.Client()),
-		engine.NewNoopViewportClient(),
+		contracts.NewNoopViewportClient(),
 	)
 
 	payload, err := service.Get(context.Background(), "show_weather_card")

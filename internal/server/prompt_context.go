@@ -10,11 +10,12 @@ import (
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/catalog"
 	"agent-platform-runner-go/internal/config"
-	"agent-platform-runner-go/internal/engine"
+	"agent-platform-runner-go/internal/contracts"
+	"agent-platform-runner-go/internal/sandbox"
 )
 
-func buildPromptAppendConfig(def catalog.AgentDefinition) engine.PromptAppendConfig {
-	config := engine.DefaultPromptAppendConfig()
+func buildPromptAppendConfig(def catalog.AgentDefinition) contracts.PromptAppendConfig {
+	config := contracts.DefaultPromptAppendConfig()
 	if strings.TrimSpace(def.RuntimePrompts.Skill.CatalogHeader) != "" {
 		config.Skill.CatalogHeader = strings.TrimSpace(def.RuntimePrompts.Skill.CatalogHeader)
 	}
@@ -45,8 +46,8 @@ type runtimeRequestContextInput struct {
 	definition catalog.AgentDefinition
 }
 
-func (s *Server) buildRuntimeRequestContext(input runtimeRequestContextInput) (engine.RuntimeRequestContext, error) {
-	context := engine.RuntimeRequestContext{
+func (s *Server) buildRuntimeRequestContext(input runtimeRequestContextInput) (contracts.RuntimeRequestContext, error) {
+	context := contracts.RuntimeRequestContext{
 		AgentKey:     input.agentKey,
 		TeamID:       input.teamID,
 		Role:         input.role,
@@ -63,14 +64,14 @@ func (s *Server) buildRuntimeRequestContext(input runtimeRequestContextInput) (e
 	if containsContextTag(input.definition.ContextTags, "sandbox") {
 		sandboxContext, err := buildSandboxContext(s.deps.Config, input.definition)
 		if err != nil {
-			return engine.RuntimeRequestContext{}, err
+			return contracts.RuntimeRequestContext{}, err
 		}
 		context.SandboxContext = sandboxContext
 	}
 	return context, nil
 }
 
-func buildSkillCatalogPrompt(def catalog.AgentDefinition, registry catalog.Registry, appendConfig engine.PromptAppendConfig) string {
+func buildSkillCatalogPrompt(def catalog.AgentDefinition, registry catalog.Registry, appendConfig contracts.PromptAppendConfig) string {
 	if len(def.Skills) == 0 {
 		return ""
 	}
@@ -143,11 +144,11 @@ func localSkillDisplayName(description string, fallback string) string {
 	return fallback
 }
 
-func resolveLocalPaths(paths config.PathsConfig, chatID string) engine.LocalPaths {
+func resolveLocalPaths(paths config.PathsConfig, chatID string) contracts.LocalPaths {
 	runtimeHome := filepath.Dir(filepath.Clean(paths.AgentsDir))
 	workingDirectory, _ := os.Getwd()
 	attachmentsDir := cleanOrEmpty(filepath.Join(paths.ChatsDir, strings.TrimSpace(chatID)))
-	return engine.LocalPaths{
+	return contracts.LocalPaths{
 		RuntimeHome:        runtimeHome,
 		WorkingDirectory:   cleanOrEmpty(workingDirectory),
 		RootDir:            cleanOrEmpty(paths.RootDir),
@@ -162,7 +163,7 @@ func resolveLocalPaths(paths config.PathsConfig, chatID string) engine.LocalPath
 	}
 }
 
-func resolveSandboxPaths(cfg config.Config, def catalog.AgentDefinition, chatID string) engine.SandboxPaths {
+func resolveSandboxPaths(cfg config.Config, def catalog.AgentDefinition, chatID string) contracts.SandboxPaths {
 	level := strings.ToLower(strings.TrimSpace(anyString(def.Sandbox["level"])))
 	if level == "" {
 		level = strings.ToLower(strings.TrimSpace(cfg.ContainerHub.DefaultSandboxLevel))
@@ -217,7 +218,7 @@ func resolveSandboxPaths(cfg config.Config, def catalog.AgentDefinition, chatID 
 		}
 	}
 
-	return engine.SandboxPaths{
+	return contracts.SandboxPaths{
 		Cwd:                "/workspace",
 		WorkspaceDir:       "/workspace",
 		RootDir:            ifNonEmpty(cfg.Paths.RootDir, "/root"),
@@ -240,12 +241,12 @@ func resolveSandboxPaths(cfg config.Config, def catalog.AgentDefinition, chatID 
 	}
 }
 
-func buildAgentDigests(registry catalog.Registry) []engine.AgentDigest {
+func buildAgentDigests(registry catalog.Registry) []contracts.AgentDigest {
 	items := registry.Agents("")
-	digests := make([]engine.AgentDigest, 0, len(items))
+	digests := make([]contracts.AgentDigest, 0, len(items))
 	for _, item := range items {
 		meta := item.Meta
-		digest := engine.AgentDigest{
+		digest := contracts.AgentDigest{
 			Key:         item.Key,
 			Name:        item.Name,
 			Role:        item.Role,
@@ -259,7 +260,7 @@ func buildAgentDigests(registry catalog.Registry) []engine.AgentDigest {
 			environmentID := strings.TrimSpace(anyString(sandbox["environmentId"]))
 			level := strings.TrimSpace(anyString(sandbox["level"]))
 			if environmentID != "" || level != "" {
-				digest.Sandbox = &engine.SandboxDigest{
+				digest.Sandbox = &contracts.SandboxDigest{
 					EnvironmentID: environmentID,
 					Level:         level,
 				}
@@ -270,11 +271,11 @@ func buildAgentDigests(registry catalog.Registry) []engine.AgentDigest {
 	return digests
 }
 
-func buildAuthIdentity(principal *Principal) *engine.AuthIdentity {
+func buildAuthIdentity(principal *Principal) *contracts.AuthIdentity {
 	if principal == nil {
 		return nil
 	}
-	identity := &engine.AuthIdentity{
+	identity := &contracts.AuthIdentity{
 		Subject:  principal.Subject,
 		DeviceID: firstStringClaim(principal.Claims, "deviceId", "device_id"),
 		Scope:    firstStringClaim(principal.Claims, "scope"),
@@ -288,7 +289,7 @@ func buildAuthIdentity(principal *Principal) *engine.AuthIdentity {
 	return identity
 }
 
-func buildSandboxContext(cfg config.Config, def catalog.AgentDefinition) (*engine.SandboxContext, error) {
+func buildSandboxContext(cfg config.Config, def catalog.AgentDefinition) (*contracts.SandboxContext, error) {
 	configuredEnvironmentID := strings.TrimSpace(anyString(def.Sandbox["environmentId"]))
 	defaultEnvironmentID := strings.TrimSpace(cfg.ContainerHub.DefaultEnvironmentID)
 	environmentID := configuredEnvironmentID
@@ -311,7 +312,7 @@ func buildSandboxContext(cfg config.Config, def catalog.AgentDefinition) (*engin
 	if err != nil {
 		return nil, err
 	}
-	return &engine.SandboxContext{
+	return &contracts.SandboxContext{
 		EnvironmentID:           environmentID,
 		ConfiguredEnvironmentID: configuredEnvironmentID,
 		DefaultEnvironmentID:    defaultEnvironmentID,
@@ -327,7 +328,7 @@ func fetchSandboxPrompt(cfg config.ContainerHubConfig, environmentID string) (st
 	if !cfg.Enabled {
 		return "", fmt.Errorf("sandbox context requires container-hub client availability")
 	}
-	result, err := engine.NewContainerHubClient(cfg).GetEnvironmentAgentPrompt(environmentID)
+	result, err := sandbox.NewContainerHubClient(cfg).GetEnvironmentAgentPrompt(environmentID)
 	if err != nil {
 		return "", fmt.Errorf("sandbox context failed to load environment prompt for %q: %w", environmentID, err)
 	}

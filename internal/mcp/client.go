@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"agent-platform-runner-go/internal/engine"
+	"agent-platform-runner-go/internal/contracts"
 	"agent-platform-runner-go/internal/observability"
 )
 
@@ -35,7 +35,7 @@ func NewClientWithGate(registry *Registry, httpClient *http.Client, gate *Availa
 func (c *Client) Initialize(ctx context.Context, serverKey string) error {
 	server, ok := c.registry.Server(serverKey)
 	if !ok {
-		return fmt.Errorf("%w: server %s not found", engine.ErrMCPCallFailed, serverKey)
+		return fmt.Errorf("%w: server %s not found", contracts.ErrMCPCallFailed, serverKey)
 	}
 	return c.callWithRetry(ctx, server, "initialize", map[string]any{
 		"protocolVersion": "2025-06",
@@ -49,11 +49,11 @@ func (c *Client) Initialize(ctx context.Context, serverKey string) error {
 
 func (c *Client) CallTool(ctx context.Context, serverKey string, toolName string, args map[string]any, meta map[string]any) (any, error) {
 	if c.gate != nil && c.gate.IsBlocked(serverKey) {
-		return nil, fmt.Errorf("%w: server %s is temporarily unavailable", engine.ErrMCPCallFailed, serverKey)
+		return nil, fmt.Errorf("%w: server %s is temporarily unavailable", contracts.ErrMCPCallFailed, serverKey)
 	}
 	server, ok := c.registry.Server(serverKey)
 	if !ok {
-		return nil, fmt.Errorf("%w: server %s not found", engine.ErrMCPCallFailed, serverKey)
+		return nil, fmt.Errorf("%w: server %s not found", contracts.ErrMCPCallFailed, serverKey)
 	}
 	params := map[string]any{
 		"name":      toolName,
@@ -71,11 +71,11 @@ func (c *Client) CallTool(ctx context.Context, serverKey string, toolName string
 
 func (c *Client) ListTools(ctx context.Context, serverKey string) ([]ToolDefinition, error) {
 	if c.gate != nil && c.gate.IsBlocked(serverKey) {
-		return nil, fmt.Errorf("%w: server %s is temporarily unavailable", engine.ErrMCPCallFailed, serverKey)
+		return nil, fmt.Errorf("%w: server %s is temporarily unavailable", contracts.ErrMCPCallFailed, serverKey)
 	}
 	server, ok := c.registry.Server(serverKey)
 	if !ok {
-		return nil, fmt.Errorf("%w: server %s not found", engine.ErrMCPCallFailed, serverKey)
+		return nil, fmt.Errorf("%w: server %s not found", contracts.ErrMCPCallFailed, serverKey)
 	}
 	var payload struct {
 		Tools []ToolDefinition `json:"tools"`
@@ -145,31 +145,31 @@ func (c *Client) call(ctx context.Context, server ServerDefinition, method strin
 		if c.gate != nil {
 			c.gate.MarkFailure(server.Key)
 		}
-		return fmt.Errorf("%w: %v", engine.ErrMCPCallFailed, err)
+		return fmt.Errorf("%w: %v", contracts.ErrMCPCallFailed, err)
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("%w: read response: %v", engine.ErrMCPCallFailed, err)
+		return fmt.Errorf("%w: read response: %v", contracts.ErrMCPCallFailed, err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		if c.gate != nil {
 			c.gate.MarkFailure(server.Key)
 		}
-		return fmt.Errorf("%w: status %d: %s", engine.ErrMCPCallFailed, resp.StatusCode, strings.TrimSpace(string(data)))
+		return fmt.Errorf("%w: status %d: %s", contracts.ErrMCPCallFailed, resp.StatusCode, strings.TrimSpace(string(data)))
 	}
 	payload, err := parseResponsePayload(data)
 	if err != nil {
 		if c.gate != nil {
 			c.gate.MarkFailure(server.Key)
 		}
-		return fmt.Errorf("%w: decode response: %v", engine.ErrMCPCallFailed, err)
+		return fmt.Errorf("%w: decode response: %v", contracts.ErrMCPCallFailed, err)
 	}
 	if payload.Error != nil {
 		if c.gate != nil {
 			c.gate.MarkFailure(server.Key)
 		}
-		return fmt.Errorf("%w: %s", engine.ErrMCPCallFailed, payload.Error.Message)
+		return fmt.Errorf("%w: %s", contracts.ErrMCPCallFailed, payload.Error.Message)
 	}
 	if c.gate != nil {
 		c.gate.MarkSuccess(server.Key)

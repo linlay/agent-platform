@@ -28,9 +28,14 @@ import (
 	"agent-platform-runner-go/internal/catalog"
 	"agent-platform-runner-go/internal/chat"
 	"agent-platform-runner-go/internal/config"
-	"agent-platform-runner-go/internal/engine"
+	"agent-platform-runner-go/internal/contracts"
+	"agent-platform-runner-go/internal/llm"
 	"agent-platform-runner-go/internal/memory"
+	"agent-platform-runner-go/internal/models"
+	"agent-platform-runner-go/internal/reload"
+	"agent-platform-runner-go/internal/runctl"
 	"agent-platform-runner-go/internal/stream"
+	"agent-platform-runner-go/internal/tools"
 )
 
 var disallowedPersistedEventTypes = []string{
@@ -1383,13 +1388,13 @@ type testFixture struct {
 	chats           chat.Store
 	memories        memory.Store
 	registry        catalog.Registry
-	runs            engine.RunManager
-	agent           engine.AgentEngine
-	tools           engine.ToolExecutor
-	sandbox         engine.SandboxClient
-	mcp             engine.McpClient
-	viewport        engine.ViewportClient
-	catalogReloader engine.CatalogReloader
+	runs            contracts.RunManager
+	agent           contracts.AgentEngine
+	tools           contracts.ToolExecutor
+	sandbox         contracts.SandboxClient
+	mcp             contracts.McpClient
+	viewport        contracts.ViewportClient
+	catalogReloader contracts.CatalogReloader
 }
 
 func newTestFixture(t *testing.T) testFixture {
@@ -1553,26 +1558,26 @@ func newTestFixtureWithModelHandler(t *testing.T, modelHandler http.HandlerFunc)
 	if err != nil {
 		t.Fatalf("new memory store: %v", err)
 	}
-	modelRegistry, err := engine.LoadModelRegistry(cfg.Paths.RegistriesDir)
+	modelRegistry, err := models.LoadModelRegistry(cfg.Paths.RegistriesDir)
 	if err != nil {
 		t.Fatalf("load model registry: %v", err)
 	}
-	backendTools, err := engine.NewRuntimeToolExecutor(cfg, engine.NewNoopSandboxClient(), memories)
+	backendTools, err := tools.NewRuntimeToolExecutor(cfg, contracts.NewNoopSandboxClient(), memories)
 	if err != nil {
 		t.Fatalf("new runtime tool executor: %v", err)
 	}
-	mcp := engine.NewNoopMcpClient()
-	toolExecutor := engine.NewToolRouter(backendTools, mcp, nil, engine.NewFrontendSubmitCoordinator(), engine.NewNoopActionInvoker())
+	mcp := contracts.NewNoopMcpClient()
+	toolExecutor := tools.NewToolRouter(backendTools, mcp, nil, llm.NewFrontendSubmitCoordinator(), contracts.NewNoopActionInvoker())
 	registry, err := catalog.NewFileRegistry(cfg, toolExecutor.Definitions())
 	if err != nil {
 		t.Fatalf("new file registry: %v", err)
 	}
-	reloader := engine.NewRuntimeCatalogReloader(registry, modelRegistry, nil)
+	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, nil)
 
-	runs := engine.NewInMemoryRunManager()
-	sandbox := engine.NewNoopSandboxClient()
-	agentEngine := engine.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, sandbox)
-	viewport := engine.NewNoopViewportClient()
+	runs := runctl.NewInMemoryRunManager()
+	sandbox := contracts.NewNoopSandboxClient()
+	agentEngine := llm.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, sandbox)
+	viewport := contracts.NewNoopViewportClient()
 	server, err := New(Dependencies{
 		Config:          cfg,
 		Chats:           chats,

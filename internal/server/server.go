@@ -4,18 +4,11 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"log"
-	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -24,8 +17,9 @@ import (
 	"agent-platform-runner-go/internal/catalog"
 	"agent-platform-runner-go/internal/chat"
 	"agent-platform-runner-go/internal/config"
-	"agent-platform-runner-go/internal/engine"
+	"agent-platform-runner-go/internal/contracts"
 	"agent-platform-runner-go/internal/memory"
+	"agent-platform-runner-go/internal/models"
 	"agent-platform-runner-go/internal/observability"
 	"agent-platform-runner-go/internal/stream"
 )
@@ -35,14 +29,14 @@ type Dependencies struct {
 	Chats           chat.Store
 	Memory          memory.Store
 	Registry        catalog.Registry
-	Models          *engine.ModelRegistry
-	Runs            engine.RunManager
-	Agent           engine.AgentEngine
-	Tools           engine.ToolExecutor
-	Sandbox         engine.SandboxClient
-	MCP             engine.McpClient
-	Viewport        engine.ViewportClient
-	CatalogReloader engine.CatalogReloader
+	Models          *models.ModelRegistry
+	Runs            contracts.RunManager
+	Agent           contracts.AgentEngine
+	Tools           contracts.ToolExecutor
+	Sandbox         contracts.SandboxClient
+	MCP             contracts.McpClient
+	Viewport        contracts.ViewportClient
+	CatalogReloader contracts.CatalogReloader
 }
 
 type Server struct {
@@ -250,111 +244,6 @@ func (s *Server) method(expected string, handler http.HandlerFunc) http.HandlerF
 	}
 }
 
-func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, api.Success(s.deps.Registry.Agents(r.URL.Query().Get("tag"))))
-}
-
-func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
-	agentKey := strings.TrimSpace(r.URL.Query().Get("agentKey"))
-	if agentKey == "" {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "agentKey is required"))
-		return
-	}
-	def, ok := s.deps.Registry.AgentDefinition(agentKey)
-	if !ok {
-		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "agent not found"))
-		return
-	}
-	writeJSON(w, http.StatusOK, api.Success(s.buildAgentDetailResponse(def)))
-}
-
-func (s *Server) handleTeams(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, api.Success(s.deps.Registry.Teams()))
-}
-
-func (s *Server) handleSkills(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, api.Success(s.deps.Registry.Skills(r.URL.Query().Get("tag"))))
-}
-
-func (s *Server) handleTools(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, api.Success(s.listTools(r.URL.Query().Get("kind"), r.URL.Query().Get("tag"))))
-}
-
-func (s *Server) handleTool(w http.ResponseWriter, r *http.Request) {
-	toolName := r.URL.Query().Get("toolName")
-	if toolName == "" {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "toolName is required"))
-		return
-	}
-	tool, ok := s.lookupTool(toolName)
-	if !ok {
-		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "tool not found"))
-		return
-	}
-	writeJSON(w, http.StatusOK, api.Success(tool))
-}
-
-func (s *Server) handleChats(w http.ResponseWriter, r *http.Request) {
-	items, err := s.deps.Chats.ListChats(r.URL.Query().Get("lastRunId"), r.URL.Query().Get("agentKey"))
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
-		return
-	}
-	response := make([]api.ChatSummaryResponse, 0, len(items))
-	for _, item := range items {
-		response = append(response, api.ChatSummaryResponse(item))
-	}
-	writeJSON(w, http.StatusOK, api.Success(response))
-}
-
-func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
-	chatID := r.URL.Query().Get("chatId")
-	if chatID == "" {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "chatId is required"))
-		return
-	}
-	detail, err := s.deps.Chats.LoadChat(chatID)
-	if errors.Is(err, chat.ErrChatNotFound) {
-		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "chat not found"))
-		return
-	}
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
-		return
-	}
-	summary, err := s.deps.Chats.Summary(chatID)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
-		return
-	}
-
-	// Backfill display metadata on reconstructed tool.snapshot events.
-	// Snapshot events are historical display data only; runtime frontend
-	// behaviour relies on live tool.start events.
-	s.enrichToolMetadata(detail.Events, summaryAgentKey(summary))
-
-	includeRaw := strings.EqualFold(r.URL.Query().Get("includeRawMessages"), "true")
-	response := api.ChatDetailResponse{
-		ChatID:     detail.ChatID,
-		ChatName:   detail.ChatName,
-		Events:     detail.Events,
-		References: nil,
-	}
-	if principal := PrincipalFromContext(r.Context()); principal != nil {
-		response.ChatImageToken = s.ticketService.Issue(principal.Subject, detail.ChatID)
-	}
-	if includeRaw {
-		response.RawMessages = detail.RawMessages
-	}
-	if detail.Plan != nil {
-		response.Plan = detail.Plan
-	}
-	if detail.Artifact != nil {
-		response.Artifact = detail.Artifact
-	}
-	writeJSON(w, http.StatusOK, api.Success(response))
-}
-
 // enrichToolMetadata fills display fields on tool.snapshot events by looking up
 // the tool definition in the registry. LoadChat reconstructs these events from
 // JSONL which only has the raw tool name.
@@ -392,9 +281,9 @@ func (s *Server) enrichToolMetadata(events []stream.EventData, agentKey string) 
 	}
 }
 
-func (s *Server) toolLookup() engine.ToolDefinitionLookup {
-	if tl, ok := s.deps.Tools.(engine.ToolDefinitionLookup); ok {
-		return engine.NewCompositeToolLookup(tl, s.deps.Registry)
+func (s *Server) toolLookup() contracts.ToolDefinitionLookup {
+	if tl, ok := s.deps.Tools.(contracts.ToolDefinitionLookup); ok {
+		return contracts.NewCompositeToolLookup(tl, s.deps.Registry)
 	}
 	return s.deps.Registry
 }
@@ -424,7 +313,7 @@ func (s *Server) listTools(kind string, tag string) []api.ToolSummary {
 }
 
 func (s *Server) lookupTool(toolName string) (api.ToolDetailResponse, bool) {
-	if tl, ok := s.deps.Tools.(engine.ToolDefinitionLookup); ok {
+	if tl, ok := s.deps.Tools.(contracts.ToolDefinitionLookup); ok {
 		if tool, exists := tl.Tool(toolName); exists {
 			return tool, true
 		}
@@ -472,12 +361,12 @@ func frontendToolMetadata(def api.ToolDetailResponse) (toolType string, viewport
 }
 
 func (s *Server) toolTimeoutForAgent(agentKey string) int64 {
-	budget := engine.ResolveBudget(s.deps.Config, nil)
+	budget := contracts.ResolveBudget(s.deps.Config, nil)
 	if strings.TrimSpace(agentKey) == "" {
 		return int64(budget.Tool.TimeoutMs)
 	}
 	if agentDef, ok := s.deps.Registry.AgentDefinition(agentKey); ok {
-		budget = engine.ResolveBudget(s.deps.Config, agentDef.Budget)
+		budget = contracts.ResolveBudget(s.deps.Config, agentDef.Budget)
 	}
 	return int64(budget.Tool.TimeoutMs)
 }
@@ -522,532 +411,6 @@ func applyToolOverride(def api.ToolDetailResponse, overrides map[string]api.Tool
 		merged.Meta[key] = value
 	}
 	return merged
-}
-
-func (s *Server) handleRead(w http.ResponseWriter, r *http.Request) {
-	var req api.MarkChatReadRequest
-	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.ChatID) == "" {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "chatId is required"))
-		return
-	}
-	summary, err := s.deps.Chats.MarkRead(req.ChatID)
-	if errors.Is(err, chat.ErrChatNotFound) {
-		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "chat not found"))
-		return
-	}
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
-		return
-	}
-	readAt := int64(0)
-	if summary.ReadAt != nil {
-		readAt = *summary.ReadAt
-	}
-	writeJSON(w, http.StatusOK, api.Success(api.MarkChatReadResponse{
-		ChatID:     summary.ChatID,
-		ReadStatus: summary.ReadStatus,
-		ReadAt:     readAt,
-	}))
-}
-
-func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
-	var req api.QueryRequest
-	if err := decodeJSON(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid request body"))
-		return
-	}
-	if strings.TrimSpace(req.Message) == "" {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "message is required"))
-		return
-	}
-
-	runID := strings.TrimSpace(req.RunID)
-	if runID == "" {
-		runID = newRunID()
-	}
-	requestID := strings.TrimSpace(req.RequestID)
-	if requestID == "" {
-		requestID = runID
-	}
-	chatID := strings.TrimSpace(req.ChatID)
-	if chatID == "" {
-		chatID = newChatID()
-	}
-	existingSummary, _ := s.deps.Chats.Summary(chatID)
-	teamID := strings.TrimSpace(req.TeamID)
-	if teamID == "" && existingSummary != nil {
-		teamID = existingSummary.TeamID
-	}
-	agentKey := strings.TrimSpace(req.AgentKey)
-	if agentKey == "" && existingSummary != nil {
-		agentKey = existingSummary.AgentKey
-	}
-	if agentKey == "" && teamID != "" {
-		if team, ok := s.deps.Registry.TeamDefinition(teamID); ok && team.DefaultAgentKey != "" {
-			agentKey = team.DefaultAgentKey
-		}
-	}
-	if agentKey == "" {
-		agentKey = s.deps.Registry.DefaultAgentKey()
-	}
-	agentDef, ok := s.deps.Registry.AgentDefinition(agentKey)
-	if !ok {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "agent not found"))
-		return
-	}
-	req.ChatID = chatID
-	req.AgentKey = agentKey
-	req.RequestID = requestID
-	req.RunID = runID
-	req.TeamID = teamID
-
-	summary, created, err := s.deps.Chats.EnsureChat(chatID, agentKey, req.TeamID, req.Message)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
-		return
-	}
-
-	// Load conversation history (sliding window of last K runs)
-	var historyMessages []map[string]any
-	if !created {
-		historyMessages, _ = s.deps.Chats.LoadRawMessages(chatID, s.deps.Config.ChatStorage.K)
-	}
-
-	// Auto-inject memory context into system prompt
-	var memoryContext string
-	if s.deps.Memory != nil && req.Message != "" {
-		topN := s.deps.Config.Memory.ContextTopN
-		if topN <= 0 {
-			topN = 5
-		}
-		maxChars := s.deps.Config.Memory.ContextMaxChars
-		if maxChars <= 0 {
-			maxChars = 4000
-		}
-		memories, _ := s.deps.Memory.Search(req.Message, topN)
-		if len(memories) > 0 {
-			var sb strings.Builder
-			for _, mem := range memories {
-				entry := fmt.Sprintf("id: %s\nsubjectKey: %s\nsourceType: %s\ncategory: %s\nimportance: %d\ntags: %s\ncontent: %s\n---\n",
-					mem.ID, mem.SubjectKey, mem.SourceType, mem.Category, mem.Importance,
-					strings.Join(mem.Tags, ","), mem.Summary)
-				if sb.Len()+len(entry) > maxChars {
-					break
-				}
-				sb.WriteString(entry)
-			}
-			memoryContext = sb.String()
-		}
-	}
-
-	principal := PrincipalFromContext(r.Context())
-	runtimeContext, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
-		agentKey:   agentKey,
-		teamID:     req.TeamID,
-		role:       defaultRole(req.Role),
-		chatID:     chatID,
-		chatName:   summary.ChatName,
-		scene:      req.Scene,
-		references: req.References,
-		principal:  principal,
-		definition: agentDef,
-	})
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
-		return
-	}
-	// PROXY mode: forward to remote AGW service, skip local LLM engine entirely.
-	if strings.EqualFold(agentDef.Mode, "PROXY") {
-		s.handleProxyQuery(w, r, req, agentDef)
-		return
-	}
-
-	promptAppend := buildPromptAppendConfig(agentDef)
-
-	session := engine.QuerySession{
-		RequestID:             requestID,
-		RunID:                 runID,
-		ChatID:                chatID,
-		ChatName:              summary.ChatName,
-		AgentKey:              agentKey,
-		AgentName:             agentDef.Name,
-		ModelKey:              agentDef.ModelKey,
-		ToolNames:             append([]string(nil), agentDef.Tools...),
-		Mode:                  agentDef.Mode,
-		TeamID:                req.TeamID,
-		Created:               created,
-		SkillKeys:             append([]string(nil), agentDef.Skills...),
-		ContextTags:           append([]string(nil), agentDef.ContextTags...),
-		Budget:                cloneMap(agentDef.Budget),
-		StageSettings:         cloneMap(agentDef.StageSettings),
-		ToolOverrides:         cloneToolOverrides(agentDef.ToolOverrides),
-		ResolvedBudget:        engine.ResolveBudget(s.deps.Config, agentDef.Budget),
-		ResolvedStageSettings: engine.ResolvePlanExecuteSettings(agentDef.StageSettings, s.deps.Config.Defaults.Plan.MaxSteps, s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask),
-		HistoryMessages:       historyMessages,
-		MemoryContext:         memoryContext,
-		RuntimeContext:        runtimeContext,
-		PromptAppend:          promptAppend,
-		MemoryPrompt:          agentDef.MemoryPrompt,
-		SkillCatalogPrompt:    buildSkillCatalogPrompt(agentDef, s.deps.Registry, promptAppend),
-		SoulPrompt:            agentDef.SoulPrompt,
-		AgentsPrompt:          agentDef.AgentsPrompt,
-		PlanPrompt:            agentDef.PlanPrompt,
-		ExecutePrompt:         agentDef.ExecutePrompt,
-		SummaryPrompt:         agentDef.SummaryPrompt,
-		SandboxEnvironmentID:  extractSandboxField(agentDef.Sandbox, "environmentId"),
-		SandboxLevel:          extractSandboxField(agentDef.Sandbox, "level"),
-		SandboxExtraMounts:    sandboxExtraMounts(agentDef.Sandbox["extraMounts"]),
-	}
-	if principal != nil {
-		session.Subject = principal.Subject
-	}
-	runCtx, _, _ := s.deps.Runs.Register(r.Context(), session)
-	defer s.deps.Runs.Finish(runID)
-
-	assembler := stream.NewAssembler(stream.StreamRequest{
-		RequestID: requestID,
-		RunID:     runID,
-		ChatID:    chatID,
-		ChatName:  summary.ChatName,
-		AgentKey:  agentKey,
-		Message:   req.Message,
-		Role:      defaultRole(req.Role),
-		Created:   created,
-	})
-	toolTimeout := int64(session.ResolvedBudget.Tool.TimeoutMs)
-	// Register tools with clientVisible=false so their SSE events are suppressed.
-	if s.deps.Tools != nil {
-		for _, toolDef := range s.deps.Tools.Definitions() {
-			effective := applyToolOverride(toolDef, session.ToolOverrides)
-			if cv, ok := effective.Meta["clientVisible"].(bool); ok && !cv {
-				assembler.RegisterHiddenTools(effective.Name, effective.Key)
-			}
-			if toolType, viewportKey, ok := frontendToolMetadata(effective); ok {
-				assembler.RegisterFrontendTool(effective.Name, toolType, viewportKey, toolTimeout)
-				assembler.RegisterFrontendTool(effective.Key, toolType, viewportKey, toolTimeout)
-			}
-		}
-	}
-	var toolLookup engine.ToolDefinitionLookup = s.deps.Registry
-	if tl, ok := s.deps.Tools.(engine.ToolDefinitionLookup); ok {
-		toolLookup = engine.NewCompositeToolLookup(s.deps.Registry, tl)
-	}
-	mapper := engine.NewDeltaMapper(runID, chatID, toolLookup)
-
-	sseWriter, err := stream.NewWriter(w, stream.Options{
-		SSE:            s.deps.Config.SSE,
-		Render:         s.deps.Config.H2A.Render,
-		LoggingEnabled: s.deps.Config.Logging.SSE.Enabled,
-	})
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
-		return
-	}
-	defer sseWriter.Close()
-	sseWriter.StartHeartbeat()
-
-	var assistantText strings.Builder
-	stepWriter := chat.NewStepWriter(s.deps.Chats, chatID, runID, agentDef.Mode)
-	writeEvent := func(event stream.StreamEvent) error {
-		data := event.Data()
-		if event.Type == "content.delta" {
-			if delta := data.String("delta"); delta != "" {
-				assistantText.WriteString(delta)
-			}
-		}
-		if event.Type == "content.snapshot" {
-			if text := data.String("text"); text != "" {
-				assistantText.Reset()
-				assistantText.WriteString(text)
-			}
-		}
-		// Write to JSONL via StepWriter (Java-compatible _type format)
-		stepWriter.OnEvent(data)
-		// stage.marker is an internal step boundary signal — Java never sends it
-		// as an SSE event (AgentDeltaToStreamInputMapper returns empty list).
-		if event.Type == "stage.marker" {
-			return nil
-		}
-		if strings.HasSuffix(event.Type, ".snapshot") {
-			return nil
-		}
-		return sseWriter.WriteJSON("message", data)
-	}
-
-	for _, event := range assembler.Bootstrap() {
-		if err := writeEvent(event); err != nil {
-			return
-		}
-	}
-
-	// Start LLM stream AFTER bootstrap events are flushed to the client.
-	// This ensures the browser receives request.query/chat.start/run.start
-	// before reasoning tokens arrive, matching the Java reactive behaviour.
-	agentStream, err := s.deps.Agent.Stream(runCtx, req, session)
-	if err != nil {
-		for _, event := range assembler.Fail(err) {
-			_ = writeEvent(event)
-		}
-		_ = sseWriter.WriteDone()
-		return
-	}
-	defer agentStream.Close()
-
-	streamFailed := false
-	streamInterrupted := false
-	for {
-		delta, err := agentStream.Next()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if engine.IsRunInterrupted(err) {
-			streamInterrupted = true
-			break
-		}
-		if err != nil {
-			streamFailed = true
-			for _, event := range assembler.Fail(err) {
-				if writeErr := writeEvent(event); writeErr != nil {
-					return
-				}
-			}
-			break
-		}
-		inputs := mapper.Map(delta)
-		for _, input := range inputs {
-			for _, event := range assembler.Consume(input) {
-				if err := writeEvent(event); err != nil {
-					return
-				}
-			}
-		}
-	}
-
-	if streamFailed {
-		stepWriter.Flush()
-		_ = sseWriter.WriteDone()
-		return
-	}
-	if streamInterrupted {
-		stepWriter.Flush()
-		_ = sseWriter.WriteDone()
-		return
-	}
-
-	for _, event := range assembler.Complete() {
-		if err := writeEvent(event); err != nil {
-			return
-		}
-	}
-
-	finalAssistantText := assistantText.String()
-	if err := s.deps.Chats.OnRunCompleted(chat.RunCompletion{
-		ChatID:          chatID,
-		RunID:           runID,
-		AssistantText:   finalAssistantText,
-		InitialMessage:  req.Message,
-		UpdatedAtMillis: time.Now().UnixMilli(),
-	}); err != nil {
-		return
-	}
-	_ = sseWriter.WriteDone()
-}
-
-func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
-	var req api.SubmitRequest
-	if err := decodeJSON(r, &req); err != nil || req.RunID == "" || req.ToolID == "" {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "runId and toolId are required"))
-		return
-	}
-	ack := s.deps.Runs.Submit(req)
-	writeJSON(w, http.StatusOK, api.Success(api.SubmitResponse{
-		Accepted: ack.Accepted,
-		Status:   ack.Status,
-		RunID:    req.RunID,
-		ToolID:   req.ToolID,
-		Detail:   ack.Detail,
-	}))
-}
-
-func (s *Server) handleSteer(w http.ResponseWriter, r *http.Request) {
-	var req api.SteerRequest
-	if err := decodeJSON(r, &req); err != nil || req.RunID == "" || strings.TrimSpace(req.Message) == "" {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "runId and message are required"))
-		return
-	}
-	ack := s.deps.Runs.Steer(req)
-	writeJSON(w, http.StatusOK, api.Success(api.SteerResponse{
-		Accepted: ack.Accepted,
-		Status:   ack.Status,
-		RunID:    req.RunID,
-		SteerID:  ack.SteerID,
-		Detail:   ack.Detail,
-	}))
-}
-
-func (s *Server) handleInterrupt(w http.ResponseWriter, r *http.Request) {
-	var req api.InterruptRequest
-	if err := decodeJSON(r, &req); err != nil || req.RunID == "" {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "runId is required"))
-		return
-	}
-	ack := s.deps.Runs.Interrupt(req)
-	writeJSON(w, http.StatusOK, api.Success(api.InterruptResponse{
-		Accepted: ack.Accepted,
-		Status:   ack.Status,
-		RunID:    req.RunID,
-		Detail:   ack.Detail,
-	}))
-}
-
-func (s *Server) handleRemember(w http.ResponseWriter, r *http.Request) {
-	var req api.RememberRequest
-	if err := decodeJSON(r, &req); err != nil || req.RequestID == "" || req.ChatID == "" {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "requestId and chatId are required"))
-		return
-	}
-	detail, err := s.deps.Chats.LoadChat(req.ChatID)
-	if errors.Is(err, chat.ErrChatNotFound) {
-		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "chat not found"))
-		return
-	}
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
-		return
-	}
-	items, err := s.deps.Chats.ListChats("", "")
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
-		return
-	}
-	agentKey := ""
-	for _, item := range items {
-		if item.ChatID == req.ChatID {
-			agentKey = item.AgentKey
-			break
-		}
-	}
-	response, err := s.deps.Memory.Remember(detail, req, agentKey)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
-		return
-	}
-	writeJSON(w, http.StatusOK, api.Success(response))
-}
-
-func (s *Server) handleLearn(w http.ResponseWriter, r *http.Request) {
-	var req api.LearnRequest
-	if err := decodeJSON(r, &req); err != nil || req.ChatID == "" {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "chatId is required"))
-		return
-	}
-	writeJSON(w, http.StatusOK, api.Success(api.LearnResponse{
-		Accepted:  false,
-		Status:    "not_connected",
-		RequestID: req.RequestID,
-		ChatID:    req.ChatID,
-	}))
-}
-
-func (s *Server) handleViewport(w http.ResponseWriter, r *http.Request) {
-	viewportKey := r.URL.Query().Get("viewportKey")
-	if viewportKey == "" {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "viewportKey is required"))
-		return
-	}
-	payload, err := s.deps.Viewport.Get(r.Context(), viewportKey)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
-		return
-	}
-	writeJSON(w, http.StatusOK, api.Success(payload))
-}
-
-func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
-	fileParam := r.URL.Query().Get("file")
-	if fileParam == "" {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "file is required"))
-		return
-	}
-	if s.deps.Config.ChatImage.ResourceTicketEnabled {
-		principal := PrincipalFromContext(r.Context())
-		ticket := strings.TrimSpace(r.URL.Query().Get("t"))
-		if principal == nil {
-			if ticket == "" {
-				writeJSON(w, http.StatusUnauthorized, api.Failure(http.StatusUnauthorized, "resource ticket required"))
-				return
-			}
-			chatID, err := s.ticketService.Verify(ticket)
-			if err != nil {
-				writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, err.Error()))
-				return
-			}
-			if !resourceBelongsToChat(fileParam, chatID) {
-				writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "resource ticket chat mismatch"))
-				return
-			}
-		}
-	}
-	path, err := s.deps.Chats.ResolveResource(fileParam)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "resource not found"))
-			return
-		}
-		writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "resource access denied"))
-		return
-	}
-	http.ServeFile(w, r, path)
-}
-
-func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid multipart form"))
-		return
-	}
-	requestID := strings.TrimSpace(r.FormValue("requestId"))
-	if requestID == "" {
-		requestID = newRunID()
-	}
-	chatID := strings.TrimSpace(r.FormValue("chatId"))
-	if chatID == "" {
-		chatID = newChatID()
-	}
-	_, _, err := s.deps.Chats.EnsureChat(chatID, s.deps.Registry.DefaultAgentKey(), "", r.FormValue("name"))
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
-		return
-	}
-	file, header, err := pickUploadFile(r.MultipartForm)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
-		return
-	}
-	defer file.Close()
-
-	uploadID := "r01"
-	targetName := safeFilename(header.Filename)
-	targetPath := filepath.Join(s.deps.Chats.ChatDir(chatID), targetName)
-	sum, size, err := saveUploadedFile(targetPath, file)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
-		return
-	}
-
-	resourceURL := "/api/resource?file=" + url.QueryEscape(filepath.ToSlash(filepath.Join(chatID, targetName)))
-	writeJSON(w, http.StatusOK, api.Success(api.UploadResponse{
-		RequestID: requestID,
-		ChatID:    chatID,
-		Upload: api.UploadTicket{
-			ID:        uploadID,
-			Type:      "file",
-			Name:      targetName,
-			MimeType:  header.Header.Get("Content-Type"),
-			SizeBytes: size,
-			URL:       resourceURL,
-			SHA256:    sum,
-		},
-	}))
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {
@@ -1205,14 +568,14 @@ func normalizeSandboxMount(mount map[string]any) map[string]any {
 	}
 }
 
-func sandboxExtraMounts(value any) []engine.SandboxExtraMount {
+func sandboxExtraMounts(value any) []contracts.SandboxExtraMount {
 	mounts := normalizeSandboxMounts(value)
 	if len(mounts) == 0 {
 		return nil
 	}
-	out := make([]engine.SandboxExtraMount, 0, len(mounts))
+	out := make([]contracts.SandboxExtraMount, 0, len(mounts))
 	for _, mount := range mounts {
-		out = append(out, engine.SandboxExtraMount{
+		out = append(out, contracts.SandboxExtraMount{
 			Platform:    stringValue(mount["platform"]),
 			Source:      stringValue(mount["source"]),
 			Destination: stringValue(mount["destination"]),
@@ -1291,47 +654,6 @@ func cloneToolOverrides(src map[string]api.ToolDetailResponse) map[string]api.To
 		}
 	}
 	return out
-}
-
-func pickUploadFile(form *multipart.Form) (multipart.File, *multipart.FileHeader, error) {
-	if form == nil || len(form.File) == 0 {
-		return nil, nil, errors.New("file is required")
-	}
-	for _, headers := range form.File {
-		if len(headers) == 0 {
-			continue
-		}
-		file, err := headers[0].Open()
-		return file, headers[0], err
-	}
-	return nil, nil, errors.New("file is required")
-}
-
-func saveUploadedFile(path string, src multipart.File) (string, int64, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return "", 0, err
-	}
-	file, err := os.Create(path)
-	if err != nil {
-		return "", 0, err
-	}
-	defer file.Close()
-
-	hash := sha256.New()
-	writer := io.MultiWriter(file, hash)
-	size, err := io.Copy(writer, src)
-	if err != nil {
-		return "", 0, err
-	}
-	return hex.EncodeToString(hash.Sum(nil)), size, nil
-}
-
-func safeFilename(name string) string {
-	name = filepath.Base(strings.TrimSpace(name))
-	if name == "" || name == "." || name == string(filepath.Separator) {
-		return "upload.bin"
-	}
-	return name
 }
 
 func newRunID() string {
