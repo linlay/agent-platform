@@ -219,17 +219,30 @@ remember 根目录由 `MEMORY_DIR` 控制：
 - 两个工具的输入里都必须带 `mode`：
   - `mode=question`：对应 `_ask_user_question_`
   - `mode=approval`：对应 `_ask_user_approval_`
+- 前端确认流 SSE 语义：
+  - `tool.start` / `tool.snapshot` 保持纯净，不再携带 `viewportKey` / `toolTimeout`
+  - `_ask_user_question_` 事件顺序：
+    `await.question -> tool.start -> tool.args* -> tool.end -> await.payload -> [用户 /api/submit] -> await.answer -> tool.result`
+  - `_ask_user_approval_` 事件顺序：
+    `tool.start -> tool.args* -> tool.end -> await.question -> await.payload -> [用户 /api/submit] -> await.answer -> tool.result`
+  - `await.answer` 是用户提交后的事件，不再表示“前端应该显示确认框”
+  - `tool.result` 是工具规范化后的真实执行结果，不等同于原始 submit payload
+- `await.question` 使用独立字段命名：
+  - `awaitId`、`awaitName`、`viewportType`、`viewportKey`、`mode`、`toolTimeout`
+- `await.payload` 在 `question` / `approval` 两种模式下都会出现；`await.question` 不再内联展示 payload
 - `mode=question`：
   - 顶层字段为 `questions`
   - 每个问题支持 `type`、`header`、`placeholder`、`allowFreeText`、`freeTextPlaceholder`
   - `select` 题的 `options` 结构是 `{ label, description? }`，不包含 `value`
   - 单个问题里，选项回答与自由输入互斥，最终都写入 `answer`
   - `/api/submit` 提交结构：`{"answers":[{"question":"...","answer":...}]}`
+  - `tool.result` 规范化结构：`{"mode":"question","answers":[{"question":"...","answer":...}]}`
 - `mode=approval`：
   - 顶层字段为 `question`、`description`、`options`、`allowFreeText`、`freeTextPlaceholder`
   - `options` 结构是 `{ label, value, description? }`
   - 预设选项与自由输入互斥
   - `/api/submit` 提交结构：`{"value":"..."}` 或 `{"freeText":"..."}`
+  - `tool.result` 规范化结构：`{"mode":"approval","value":"..."}` 或 `{"mode":"approval","freeText":"..."}`
 
 ## 7. 开发要点
 

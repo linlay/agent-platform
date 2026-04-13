@@ -1,5 +1,7 @@
 package stream
 
+import "strings"
+
 type StreamEventDispatcher struct {
 	request StreamRequest
 	state   *StreamEventStateData
@@ -57,14 +59,33 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 			"runId":      value.RunID,
 			"artifact":   value.Artifact,
 		})}
-	case RequestSubmit:
-		return []StreamEvent{NewEvent("request.submit", map[string]any{
+	case AwaitQuestion:
+		payload := map[string]any{
+			"awaitId":      value.AwaitID,
+			"awaitName":    value.AwaitName,
+			"viewportType": value.ViewportType,
+			"viewportKey":  value.ViewportKey,
+			"mode":         value.Mode,
+			"toolTimeout":  value.ToolTimeout,
+			"runId":        value.RunID,
+			"chatId":       value.ChatID,
+		}
+		if value.Payload != nil {
+			payload["payload"] = value.Payload
+		}
+		return []StreamEvent{NewEvent("await.question", payload)}
+	case AwaitPayload:
+		return []StreamEvent{NewEvent("await.payload", map[string]any{
+			"awaitId": value.AwaitID,
+			"payload": value.Payload,
+		})}
+	case AwaitAnswer:
+		return []StreamEvent{NewEvent("await.answer", map[string]any{
 			"requestId": value.RequestID,
 			"chatId":    value.ChatID,
 			"runId":     value.RunID,
 			"toolId":    value.ToolID,
 			"payload":   value.Payload,
-			"viewId":    value.ViewID,
 		})}
 	case RequestSteer:
 		events := d.closeOpenBlocks()
@@ -142,13 +163,18 @@ func (d *StreamEventDispatcher) Fail(err error) []StreamEvent {
 
 func (d *StreamEventDispatcher) handleReasoningDelta(input ReasoningDelta) []StreamEvent {
 	events := d.closeForSwitch("reasoning")
+	reasoningLabel := strings.TrimSpace(input.ReasoningLabel)
+	if reasoningLabel == "" {
+		reasoningLabel = ReasoningLabelForID(input.ReasoningID)
+	}
 	if d.state.activeReasoningID == "" || d.state.activeReasoningID != input.ReasoningID {
 		d.state.activeReasoningID = input.ReasoningID
-		d.state.activeReasoning = reasoningBlockState{TaskID: input.TaskID}
+		d.state.activeReasoning = reasoningBlockState{TaskID: input.TaskID, Label: reasoningLabel}
 		events = append(events, NewEvent("reasoning.start", map[string]any{
-			"runId":       d.request.RunID,
-			"reasoningId": input.ReasoningID,
-			"taskId":      input.TaskID,
+			"runId":          d.request.RunID,
+			"reasoningId":    input.ReasoningID,
+			"taskId":         input.TaskID,
+			"reasoningLabel": reasoningLabel,
 		}))
 	}
 	d.state.reasoningBuffer[input.ReasoningID] += input.Delta
@@ -349,10 +375,11 @@ func (d *StreamEventDispatcher) closeReasoning() []StreamEvent {
 	})}
 	if d.state.reasoningSeen {
 		events = append(events, NewEvent("reasoning.snapshot", map[string]any{
-			"reasoningId": reasoningID,
-			"runId":       d.request.RunID,
-			"text":        d.state.reasoningBuffer[reasoningID],
-			"taskId":      block.TaskID,
+			"reasoningId":    reasoningID,
+			"runId":          d.request.RunID,
+			"text":           d.state.reasoningBuffer[reasoningID],
+			"taskId":         block.TaskID,
+			"reasoningLabel": block.Label,
 		}))
 	}
 	return events

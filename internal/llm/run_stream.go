@@ -300,7 +300,7 @@ func (s *llmRunStream) appendReasoningDelta(text string, label string) {
 	s.currentTurn.hasMeaningful = true
 	s.currentTurn.reasoning.WriteString(text)
 	s.engine.logParsedDelta(s.session.RunID, label, text)
-	s.pending = append(s.pending, DeltaReasoning{Text: text})
+	s.pending = append(s.pending, DeltaReasoning{Text: text, ReasoningLabel: label})
 }
 
 func (s *llmRunStream) appendThinkTagContent(chunk string, flush bool) {
@@ -566,6 +566,15 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 		}
 		result = ToolExecutionResult{Output: invokeErr.Error(), Error: "tool_execution_failed", ExitCode: -1}
 	}
+	if result.SubmitInfo != nil {
+		s.pending = append(s.pending, DeltaAwaitAnswer{
+			RequestID: s.session.RequestID,
+			ChatID:    s.session.ChatID,
+			RunID:     s.session.RunID,
+			ToolID:    result.SubmitInfo.ToolID,
+			Payload:   result.SubmitInfo.Params,
+		})
+	}
 	s.previousToolResult = structuredOrOutput(result)
 	s.pending = append(s.pending, DeltaToolResult{
 		ToolID:   invocation.toolID,
@@ -728,8 +737,61 @@ func (s *llmRunStream) preToolInvocationDeltas(toolID string, toolName string, p
 	if !strings.EqualFold(strings.TrimSpace(toolKind), "frontend") {
 		return nil
 	}
-	viewID, _ := tool.Meta["viewportKey"].(string)
-	return []AgentDelta{NewFrontendSubmitRequest(s.session, toolID, payload, viewID)}
+	viewportKey, _ := tool.Meta["viewportKey"].(string)
+	viewportType, _ := tool.Meta["toolType"].(string)
+	mode, _ := payload["mode"].(string)
+	toolTimeout := int64(0)
+	if budget := NormalizeBudget(s.execCtx.Budget); budget.Tool.TimeoutMs > 0 {
+		toolTimeout = int64(budget.Tool.TimeoutMs)
+	}
+
+	normalizedMode := strings.ToLower(strings.TrimSpace(mode))
+	events := make([]AgentDelta, 0, 2)
+	if normalizedMode == "approval" {
+		events = append(events, DeltaAwaitQuestion{
+			AwaitID:      toolID,
+			AwaitName:    toolName,
+			ViewportType: viewportType,
+			ViewportKey:  viewportKey,
+			Mode:         normalizedMode,
+			ToolTimeout:  toolTimeout,
+			RunID:        s.session.RunID,
+			ChatID:       s.session.ChatID,
+			Payload:      inlineAwaitPayload(toolName, payload),
+		})
+	}
+	if awaitPayload := deferredAwaitPayload(toolName, payload); awaitPayload != nil {
+		events = append(events, DeltaAwaitPayload{
+			AwaitID: toolID,
+			Payload: awaitPayload,
+		})
+	}
+	return events
+}
+
+func inlineAwaitPayload(toolName string, payload map[string]any) any {
+	_, _ = toolName, payload
+	return nil
+}
+
+func deferredAwaitPayload(toolName string, payload map[string]any) any {
+	switch strings.ToLower(strings.TrimSpace(toolName)) {
+	case "_ask_user_question_", "_ask_user_approval_":
+		return cloneAwaitPayload(payload)
+	default:
+		return nil
+	}
+}
+
+func cloneAwaitPayload(payload map[string]any) map[string]any {
+	if payload == nil {
+		return nil
+	}
+	cloned := make(map[string]any, len(payload))
+	for key, value := range payload {
+		cloned[key] = value
+	}
+	return cloned
 }
 
 func (s *llmRunStream) lookupToolDefinition(toolName string) (api.ToolDetailResponse, bool) {

@@ -50,9 +50,10 @@ type QueryLine struct {
 // _type is the agent mode: "react" or "plan-execute".
 // REACT mode: { _type: "react", seq: N, messages: [...] }
 // PLAN_EXECUTE mode:
-//   { _type: "plan-execute", stage: "plan", messages: [...] }
-//   { _type: "plan-execute", stage: "execute", seq: N, messages: [...] }
-//   { _type: "plan-execute", stage: "summary", messages: [...] }
+//
+//	{ _type: "plan-execute", stage: "plan", messages: [...] }
+//	{ _type: "plan-execute", stage: "execute", seq: N, messages: [...] }
+//	{ _type: "plan-execute", stage: "summary", messages: [...] }
 type StepLine struct {
 	ChatID    string          `json:"chatId"`
 	RunID     string          `json:"runId"`
@@ -65,6 +66,14 @@ type StepLine struct {
 	Seq       int             `json:"seq,omitempty"`
 	Plan      *PlanState      `json:"plan,omitempty"`
 	Artifacts *ArtifactState  `json:"artifacts,omitempty"`
+}
+
+type EventLine struct {
+	ChatID    string         `json:"chatId"`
+	RunID     string         `json:"runId"`
+	UpdatedAt int64          `json:"updatedAt"`
+	Event     map[string]any `json:"event"`
+	Type      string         `json:"_type"`
 }
 
 // ---------------------------------------------------------------------------

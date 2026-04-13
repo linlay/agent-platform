@@ -5,9 +5,10 @@ type StreamInput interface {
 }
 
 type ReasoningDelta struct {
-	ReasoningID string
-	Delta       string
-	TaskID      string
+	ReasoningID    string
+	ReasoningLabel string
+	Delta          string
+	TaskID         string
 }
 
 func (ReasoningDelta) streamInputTag() {}
@@ -128,16 +129,36 @@ type ArtifactPublish struct {
 
 func (ArtifactPublish) streamInputTag() {}
 
-type RequestSubmit struct {
+type AwaitQuestion struct {
+	AwaitID      string
+	AwaitName    string
+	ViewportType string
+	ViewportKey  string
+	Mode         string
+	ToolTimeout  int64
+	RunID        string
+	ChatID       string
+	Payload      any
+}
+
+func (AwaitQuestion) streamInputTag() {}
+
+type AwaitPayload struct {
+	AwaitID string
+	Payload any
+}
+
+func (AwaitPayload) streamInputTag() {}
+
+type AwaitAnswer struct {
 	RequestID string
 	ChatID    string
 	RunID     string
 	ToolID    string
 	Payload   any
-	ViewID    string
 }
 
-func (RequestSubmit) streamInputTag() {}
+func (AwaitAnswer) streamInputTag() {}
 
 type RequestSteer struct {
 	RequestID string

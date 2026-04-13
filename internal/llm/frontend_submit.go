@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"agent-platform-runner-go/internal/api"
@@ -17,7 +19,7 @@ func NewFrontendSubmitCoordinator() *FrontendSubmitCoordinator {
 	return &FrontendSubmitCoordinator{}
 }
 
-func (c *FrontendSubmitCoordinator) Await(ctx context.Context, execCtx *ExecutionContext) (ToolExecutionResult, error) {
+func (c *FrontendSubmitCoordinator) Await(ctx context.Context, execCtx *ExecutionContext, args map[string]any) (ToolExecutionResult, error) {
 	_ = c
 	if execCtx == nil || execCtx.RunControl == nil {
 		return ToolExecutionResult{}, ErrRunControlUnavailable
@@ -58,17 +60,41 @@ func (c *FrontendSubmitCoordinator) Await(ctx context.Context, execCtx *Executio
 	execCtx.RunLoopState = RunLoopStateToolExecuting
 	execCtx.RunControl.TransitionState(RunLoopStateToolExecuting)
 
-	payload := map[string]any{
-		"status": "submitted",
-		"runId":  result.Request.RunID,
-		"toolId": result.Request.ToolID,
-		"params": result.Request.Params,
+	normalized, normalizeErr := normalizeFrontendSubmitResult(toolName, args, result.Request.Params)
+	if normalizeErr != nil {
+		payload := NewErrorPayload(
+			"frontend_submit_invalid_payload",
+			normalizeErr.Error(),
+			ErrorScopeFrontendSubmit,
+			ErrorCategoryTool,
+			map[string]any{
+				"toolId":   toolID,
+				"toolName": toolName,
+				"params":   result.Request.Params,
+			},
+		)
+		return ToolExecutionResult{
+			Output:     marshalJSON(payload),
+			Structured: payload,
+			Error:      "frontend_submit_invalid_payload",
+			ExitCode:   -1,
+			SubmitInfo: &SubmitInfo{
+				RunID:  result.Request.RunID,
+				ToolID: result.Request.ToolID,
+				Params: result.Request.Params,
+			},
+		}, nil
 	}
-	data, _ := json.Marshal(payload)
+	data, _ := json.Marshal(normalized)
 	return ToolExecutionResult{
 		Output:     string(data),
-		Structured: payload,
+		Structured: normalized,
 		ExitCode:   0,
+		SubmitInfo: &SubmitInfo{
+			RunID:  result.Request.RunID,
+			ToolID: result.Request.ToolID,
+			Params: result.Request.Params,
+		},
 	}, nil
 }
 
@@ -91,17 +117,6 @@ func marshalJSON(value any) string {
 	return string(data)
 }
 
-func NewFrontendSubmitRequest(session QuerySession, toolID string, payload any, viewID string) DeltaRequestSubmit {
-	return DeltaRequestSubmit{
-		RequestID: session.RequestID,
-		ChatID:    session.ChatID,
-		RunID:     session.RunID,
-		ToolID:    toolID,
-		Payload:   payload,
-		ViewID:    viewID,
-	}
-}
-
 func NewSteerDelta(req api.SteerRequest) DeltaRequestSteer {
 	return DeltaRequestSteer{
 		RequestID: req.RequestID,
@@ -110,4 +125,198 @@ func NewSteerDelta(req api.SteerRequest) DeltaRequestSteer {
 		SteerID:   req.SteerID,
 		Message:   req.Message,
 	}
+}
+
+func normalizeFrontendSubmitResult(toolName string, args map[string]any, params any) (map[string]any, error) {
+	switch strings.TrimSpace(toolName) {
+	case "_ask_user_question_":
+		return normalizeAskUserQuestionSubmit(args, params)
+	case "_ask_user_approval_":
+		return normalizeAskUserApprovalSubmit(args, params)
+	default:
+		payload, ok := params.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("frontend submit params must be an object")
+		}
+		return map[string]any{
+			"mode":   AnyStringNode(args["mode"]),
+			"params": cloneMap(payload),
+		}, nil
+	}
+}
+
+func normalizeAskUserQuestionSubmit(args map[string]any, params any) (map[string]any, error) {
+	payload, ok := params.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("ask_user_question submit params must be an object")
+	}
+	rawAnswers, ok := payload["answers"].([]any)
+	if !ok {
+		return nil, fmt.Errorf("ask_user_question submit params.answers must be an array")
+	}
+
+	questionDefs := map[string]map[string]any{}
+	for _, rawQuestion := range asAnySlice(args["questions"]) {
+		question := AnyMapNode(rawQuestion)
+		text := AnyStringNode(question["question"])
+		if text == "" {
+			continue
+		}
+		questionDefs[text] = question
+	}
+
+	answers := make([]map[string]any, 0, len(rawAnswers))
+	for _, rawAnswer := range rawAnswers {
+		answerMap := AnyMapNode(rawAnswer)
+		if len(answerMap) == 0 {
+			return nil, fmt.Errorf("ask_user_question answers must contain objects")
+		}
+		questionText := AnyStringNode(answerMap["question"])
+		if questionText == "" {
+			return nil, fmt.Errorf("ask_user_question answers.question is required")
+		}
+		definition, ok := questionDefs[questionText]
+		if !ok {
+			return nil, fmt.Errorf("unknown question: %s", questionText)
+		}
+		normalizedAnswer, err := normalizeQuestionAnswer(definition, answerMap["answer"])
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", questionText, err)
+		}
+		answers = append(answers, map[string]any{
+			"question": questionText,
+			"answer":   normalizedAnswer,
+		})
+	}
+
+	return map[string]any{
+		"mode":    "question",
+		"answers": answers,
+	}, nil
+}
+
+func normalizeAskUserApprovalSubmit(args map[string]any, params any) (map[string]any, error) {
+	payload, ok := params.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("ask_user_approval submit params must be an object")
+	}
+	value, hasValue := nonEmptyStringField(payload["value"])
+	freeText, hasFreeText := nonEmptyStringField(payload["freeText"])
+	if hasValue == hasFreeText {
+		return nil, fmt.Errorf("ask_user_approval submit params must contain exactly one of value or freeText")
+	}
+	if hasValue {
+		allowed := map[string]bool{}
+		for _, rawOption := range asAnySlice(args["options"]) {
+			option := AnyMapNode(rawOption)
+			if optionValue := AnyStringNode(option["value"]); optionValue != "" {
+				allowed[optionValue] = true
+			}
+		}
+		if len(allowed) > 0 && !allowed[value] {
+			return nil, fmt.Errorf("ask_user_approval value is not an allowed option")
+		}
+		return map[string]any{
+			"mode":  "approval",
+			"value": value,
+		}, nil
+	}
+	if !AnyBoolNode(args["allowFreeText"]) {
+		return nil, fmt.Errorf("ask_user_approval freeText is not allowed")
+	}
+	return map[string]any{
+		"mode":     "approval",
+		"freeText": freeText,
+	}, nil
+}
+
+func normalizeQuestionAnswer(definition map[string]any, rawAnswer any) (any, error) {
+	questionType := strings.ToLower(AnyStringNode(definition["type"]))
+	switch questionType {
+	case "number":
+		switch value := rawAnswer.(type) {
+		case int, int32, int64, float32, float64, json.Number:
+			return value, nil
+		default:
+			return nil, fmt.Errorf("answer must be a number")
+		}
+	case "text", "password":
+		text := AnyStringNode(rawAnswer)
+		if text == "" {
+			return nil, fmt.Errorf("answer must be a non-empty string")
+		}
+		return text, nil
+	case "select":
+		if AnyBoolNode(definition["multiSelect"]) {
+			items, ok := rawAnswer.([]any)
+			if !ok {
+				return nil, fmt.Errorf("answer must be an array")
+			}
+			values := make([]string, 0, len(items))
+			for _, item := range items {
+				text := AnyStringNode(item)
+				if text == "" {
+					return nil, fmt.Errorf("answer items must be non-empty strings")
+				}
+				values = append(values, text)
+			}
+			if len(values) == 0 {
+				return nil, fmt.Errorf("answer must not be empty")
+			}
+			if !AnyBoolNode(definition["allowFreeText"]) {
+				allowed := allowedQuestionOptions(definition)
+				for _, value := range values {
+					if !allowed[value] {
+						return nil, fmt.Errorf("answer item %q is not an allowed option", value)
+					}
+				}
+			}
+			return values, nil
+		}
+		text := AnyStringNode(rawAnswer)
+		if text == "" {
+			return nil, fmt.Errorf("answer must be a non-empty string")
+		}
+		if !AnyBoolNode(definition["allowFreeText"]) {
+			if !allowedQuestionOptions(definition)[text] {
+				return nil, fmt.Errorf("answer is not an allowed option")
+			}
+		}
+		return text, nil
+	default:
+		return rawAnswer, nil
+	}
+}
+
+func allowedQuestionOptions(definition map[string]any) map[string]bool {
+	allowed := map[string]bool{}
+	for _, rawOption := range asAnySlice(definition["options"]) {
+		option := AnyMapNode(rawOption)
+		label := AnyStringNode(option["label"])
+		if label != "" {
+			allowed[label] = true
+		}
+	}
+	return allowed
+}
+
+func nonEmptyStringField(value any) (string, bool) {
+	text := AnyStringNode(value)
+	return text, text != ""
+}
+
+func asAnySlice(value any) []any {
+	items, _ := value.([]any)
+	return items
+}
+
+func cloneMap(input map[string]any) map[string]any {
+	if input == nil {
+		return nil
+	}
+	out := make(map[string]any, len(input))
+	for key, value := range input {
+		out[key] = value
+	}
+	return out
 }

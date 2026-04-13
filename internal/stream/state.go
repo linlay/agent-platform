@@ -26,6 +26,7 @@ type StreamEventStateData struct {
 
 type reasoningBlockState struct {
 	TaskID string
+	Label  string
 }
 
 type contentBlockState struct {

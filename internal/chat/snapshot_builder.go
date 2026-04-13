@@ -3,6 +3,8 @@ package chat
 import (
 	"fmt"
 	"strings"
+
+	"agent-platform-runner-go/internal/stream"
 )
 
 func cloneEventMap(event map[string]any) map[string]any {
@@ -214,6 +216,9 @@ func (n *runReplayNormalizer) normalizeReasoningEvent(event map[string]any) {
 		n.lastReasoningID = reasoningID
 	}
 	event["reasoningId"] = reasoningID
+	if (eventType == "reasoning.start" || eventType == "reasoning.snapshot") && strings.TrimSpace(stringValue(event["reasoningLabel"])) == "" {
+		event["reasoningLabel"] = stream.ReasoningLabelForID(reasoningID)
+	}
 }
 
 func (n *runReplayNormalizer) normalizeContentEvent(event map[string]any) {

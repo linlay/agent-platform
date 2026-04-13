@@ -7,20 +7,12 @@ import "strings"
 type SseEventNormalizer struct {
 	hiddenToolNames map[string]bool
 	hiddenToolIDs   map[string]bool
-	frontendTools   map[string]frontendToolMetadata
-}
-
-type frontendToolMetadata struct {
-	ToolType    string
-	ViewportKey string
-	ToolTimeout int64
 }
 
 func NewNormalizer() *SseEventNormalizer {
 	return &SseEventNormalizer{
 		hiddenToolNames: map[string]bool{},
 		hiddenToolIDs:   map[string]bool{},
-		frontendTools:   map[string]frontendToolMetadata{},
 	}
 }
 
@@ -35,18 +27,6 @@ func (n *SseEventNormalizer) RegisterHiddenTools(names ...string) {
 	}
 }
 
-func (n *SseEventNormalizer) RegisterFrontendTool(name string, toolType string, viewportKey string, toolTimeout int64) {
-	normalizedName := strings.ToLower(strings.TrimSpace(name))
-	if normalizedName == "" || strings.TrimSpace(viewportKey) == "" {
-		return
-	}
-	n.frontendTools[normalizedName] = frontendToolMetadata{
-		ToolType:    strings.TrimSpace(toolType),
-		ViewportKey: strings.TrimSpace(viewportKey),
-		ToolTimeout: toolTimeout,
-	}
-}
-
 func (n *SseEventNormalizer) Normalize(events []StreamEvent) []StreamEvent {
 	if len(events) == 0 {
 		return nil
@@ -56,7 +36,6 @@ func (n *SseEventNormalizer) Normalize(events []StreamEvent) []StreamEvent {
 		if n.shouldDrop(event) {
 			continue
 		}
-		event = n.enrich(event)
 		out = append(out, event)
 	}
 	return out
@@ -67,13 +46,34 @@ func (n *SseEventNormalizer) shouldDrop(event StreamEvent) bool {
 	if strings.HasPrefix(toolName, "_hidden_") {
 		return true
 	}
+	awaitName, _ := event.Payload["awaitName"].(string)
+	if strings.HasPrefix(awaitName, "_hidden_") {
+		return true
+	}
 
 	// Suppress tool events for clientVisible=false tools.
 	eventType := event.Type
+	toolID, _ := event.Payload["toolId"].(string)
+	awaitID, _ := event.Payload["awaitId"].(string)
+
+	if eventType == "await.question" {
+		if n.isHiddenToolName(awaitName) {
+			if awaitID != "" {
+				n.hiddenToolIDs[awaitID] = true
+			}
+			return true
+		}
+		return false
+	}
+	if eventType == "await.payload" {
+		return awaitID != "" && n.hiddenToolIDs[awaitID]
+	}
+	if eventType == "await.answer" {
+		return toolID != "" && n.hiddenToolIDs[toolID]
+	}
 	if !strings.HasPrefix(eventType, "tool.") {
 		return false
 	}
-	toolID, _ := event.Payload["toolId"].(string)
 
 	if eventType == "tool.start" || eventType == "tool.snapshot" {
 		if n.isHiddenToolName(toolName) {
@@ -97,26 +97,4 @@ func (n *SseEventNormalizer) shouldDrop(event StreamEvent) bool {
 
 func (n *SseEventNormalizer) isHiddenToolName(name string) bool {
 	return n.hiddenToolNames[strings.ToLower(strings.TrimSpace(name))]
-}
-
-func (n *SseEventNormalizer) enrich(event StreamEvent) StreamEvent {
-	if event.Type != "tool.start" && event.Type != "tool.snapshot" {
-		return event
-	}
-	toolName, _ := event.Payload["toolName"].(string)
-	metadata, ok := n.frontendTools[strings.ToLower(strings.TrimSpace(toolName))]
-	if !ok {
-		return event
-	}
-	if event.Payload == nil {
-		event.Payload = map[string]any{}
-	}
-	if metadata.ToolType != "" {
-		event.Payload["toolType"] = metadata.ToolType
-	}
-	event.Payload["viewportKey"] = metadata.ViewportKey
-	if metadata.ToolTimeout > 0 {
-		event.Payload["toolTimeout"] = metadata.ToolTimeout
-	}
-	return event
 }

@@ -130,6 +130,13 @@ type ToolExecutionResult struct {
 	Structured map[string]any
 	Error      string
 	ExitCode   int
+	SubmitInfo *SubmitInfo
+}
+
+type SubmitInfo struct {
+	RunID  string
+	ToolID string
+	Params any
 }
 
 type SandboxExecutionResult struct {

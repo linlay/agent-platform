@@ -34,10 +34,6 @@ func (a *StreamEventAssembler) RegisterHiddenTools(names ...string) {
 	a.normalizer.RegisterHiddenTools(names...)
 }
 
-func (a *StreamEventAssembler) RegisterFrontendTool(name string, toolType string, viewportKey string, toolTimeout int64) {
-	a.normalizer.RegisterFrontendTool(name, toolType, viewportKey, toolTimeout)
-}
-
 func (a *StreamEventAssembler) Bootstrap() []StreamEvent {
 	events := []StreamEvent{
 		NewEvent("request.query", map[string]any{

@@ -175,16 +175,11 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		Role:      defaultRole(req.Role),
 		Created:   created,
 	})
-	toolTimeout := int64(session.ResolvedBudget.Tool.TimeoutMs)
 	if s.deps.Tools != nil {
 		for _, toolDef := range s.deps.Tools.Definitions() {
 			effective := applyToolOverride(toolDef, session.ToolOverrides)
 			if cv, ok := effective.Meta["clientVisible"].(bool); ok && !cv {
 				assembler.RegisterHiddenTools(effective.Name, effective.Key)
-			}
-			if toolType, viewportKey, ok := frontendToolMetadata(effective); ok {
-				assembler.RegisterFrontendTool(effective.Name, toolType, viewportKey, toolTimeout)
-				assembler.RegisterFrontendTool(effective.Key, toolType, viewportKey, toolTimeout)
 			}
 		}
 	}
@@ -192,7 +187,8 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	if tl, ok := s.deps.Tools.(contracts.ToolDefinitionLookup); ok {
 		toolLookup = contracts.NewCompositeToolLookup(s.deps.Registry, tl)
 	}
-	mapper := llm.NewDeltaMapper(runID, chatID, toolLookup)
+	toolTimeoutMs := int64(contracts.NormalizeBudget(session.ResolvedBudget).Tool.TimeoutMs)
+	mapper := llm.NewDeltaMapper(runID, chatID, toolTimeoutMs, toolLookup)
 
 	sseWriter, err := stream.NewWriter(w, stream.Options{
 		SSE:            s.deps.Config.SSE,

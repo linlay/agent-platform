@@ -25,6 +25,7 @@ type Store interface {
 	AppendEvent(chatID string, event stream.EventData) error
 	AppendQueryLine(chatID string, line QueryLine) error
 	AppendStepLine(chatID string, line StepLine) error
+	AppendEventLine(chatID string, line EventLine) error
 	LoadRawMessages(chatID string, k int) ([]map[string]any, error)
 	OnRunCompleted(completion RunCompletion) error
 	ListChats(lastRunID string, agentKey string) ([]Summary, error)
@@ -164,6 +165,10 @@ func (s *FileStore) AppendQueryLine(chatID string, line QueryLine) error {
 }
 
 func (s *FileStore) AppendStepLine(chatID string, line StepLine) error {
+	return s.appendJSONLine(s.chatJSONLPath(chatID), line)
+}
+
+func (s *FileStore) AppendEventLine(chatID string, line EventLine) error {
 	return s.appendJSONLine(s.chatJSONLPath(chatID), line)
 }
 
@@ -449,6 +454,16 @@ func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, r
 					rd.events = append(rd.events, ev)
 				}
 			}
+		case "event":
+			event, _ := line["event"].(map[string]any)
+			if len(event) == 0 {
+				continue
+			}
+			if _, ok := event["runId"]; !ok && runID != "" {
+				event["runId"] = runID
+			}
+			rd := ensureRun(runs, &runOrder, runID)
+			rd.events = append(rd.events, stream.EventDataFromMap(event))
 		}
 	}
 
@@ -567,10 +582,11 @@ func storedMessageToEvents(msg map[string]any, runID, taskID, stage string, next
 					Seq:  nextSeq(),
 					Type: "reasoning.snapshot",
 					Payload: map[string]any{
-						"reasoningId": reasoningID,
-						"runId":       runID,
-						"text":        text,
-						"taskId":      taskID,
+						"reasoningId":    reasoningID,
+						"runId":          runID,
+						"text":           text,
+						"taskId":         taskID,
+						"reasoningLabel": stream.ReasoningLabelForID(reasoningID),
 					},
 				})
 			}

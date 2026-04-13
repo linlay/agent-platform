@@ -12,8 +12,9 @@ type DeltaContent struct {
 func (DeltaContent) agentDeltaTag() {}
 
 type DeltaReasoning struct {
-	Text        string
-	ReasoningID string
+	Text           string
+	ReasoningID    string
+	ReasoningLabel string
 }
 
 func (DeltaReasoning) agentDeltaTag() {}
@@ -87,16 +88,36 @@ type DeltaArtifactPublish struct {
 
 func (DeltaArtifactPublish) agentDeltaTag() {}
 
-type DeltaRequestSubmit struct {
+type DeltaAwaitQuestion struct {
+	AwaitID      string
+	AwaitName    string
+	ViewportType string
+	ViewportKey  string
+	Mode         string
+	ToolTimeout  int64
+	RunID        string
+	ChatID       string
+	Payload      any
+}
+
+func (DeltaAwaitQuestion) agentDeltaTag() {}
+
+type DeltaAwaitPayload struct {
+	AwaitID string
+	Payload any
+}
+
+func (DeltaAwaitPayload) agentDeltaTag() {}
+
+type DeltaAwaitAnswer struct {
 	RequestID string
 	ChatID    string
 	RunID     string
 	ToolID    string
 	Payload   any
-	ViewID    string
 }
 
-func (DeltaRequestSubmit) agentDeltaTag() {}
+func (DeltaAwaitAnswer) agentDeltaTag() {}
 
 type DeltaRequestSteer struct {
 	RequestID string

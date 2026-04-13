@@ -17,7 +17,7 @@ import (
 //   - stage.marker triggers flushing the current step and starting a new one
 //   - plan/artifact state is tracked and attached to step lines
 //   - snapshot events (reasoning/content/tool/action) become StoredMessages
-//   - lifecycle events (run.complete/error/cancel, request.submit/steer) become EventLines
+//   - confirm/request lifecycle events become EventLines so chat detail can replay them
 type StepWriter struct {
 	store  Store
 	chatID string
@@ -131,6 +131,10 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 			Ts:         &ts,
 		})
 		w.needNewMsgID = true
+
+	case "await.question", "await.payload", "await.answer", "request.steer":
+		w.flushCurrentStep()
+		w.appendEventLine(event)
 
 	case "action.snapshot":
 		w.ensureStep()
@@ -256,6 +260,19 @@ func (w *StepWriter) flushCurrentStep() {
 
 	_ = w.store.AppendStepLine(w.chatID, line)
 	w.messages = nil
+}
+
+func (w *StepWriter) appendEventLine(event stream.EventData) {
+	if w.store == nil {
+		return
+	}
+	_ = w.store.AppendEventLine(w.chatID, EventLine{
+		ChatID:    w.chatID,
+		RunID:     w.runID,
+		UpdatedAt: time.Now().UnixMilli(),
+		Event:     event.Map(),
+		Type:      "event",
+	})
 }
 
 func (w *StepWriter) updatePlan(event stream.EventData) {

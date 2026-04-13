@@ -16,7 +16,7 @@ type toolCatalog interface {
 }
 
 type frontendSubmitter interface {
-	Await(ctx context.Context, execCtx *ExecutionContext) (ToolExecutionResult, error)
+	Await(ctx context.Context, execCtx *ExecutionContext, args map[string]any) (ToolExecutionResult, error)
 }
 
 type ToolRouter struct {
@@ -80,7 +80,7 @@ func (r *ToolRouter) Invoke(ctx context.Context, toolName string, args map[strin
 		}
 		switch strings.ToLower(strings.TrimSpace(kind)) {
 		case "frontend":
-			return r.frontend.Await(callCtx, execCtx)
+			return r.frontend.Await(callCtx, execCtx, args)
 		case "action":
 			if r.action == nil {
 				return ToolExecutionResult{Output: "action invoker not configured", Error: "action_not_configured", ExitCode: -1}, nil

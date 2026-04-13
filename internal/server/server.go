@@ -247,12 +247,11 @@ func (s *Server) method(expected string, handler http.HandlerFunc) http.HandlerF
 // enrichToolMetadata fills display fields on tool.snapshot events by looking up
 // the tool definition in the registry. LoadChat reconstructs these events from
 // JSONL which only has the raw tool name.
-func (s *Server) enrichToolMetadata(events []stream.EventData, agentKey string) {
+func (s *Server) enrichToolMetadata(events []stream.EventData, _ string) {
 	lookup := s.toolLookup()
 	if lookup == nil {
 		return
 	}
-	toolTimeout := s.toolTimeoutForAgent(agentKey)
 	for i := range events {
 		if events[i].Type != "tool.snapshot" {
 			continue
@@ -271,12 +270,8 @@ func (s *Server) enrichToolMetadata(events []stream.EventData, agentKey string) 
 		if label := def.Label; label != "" {
 			events[i].Payload["toolLabel"] = label
 		}
-		if toolType, viewportKey, ok := frontendToolMetadata(def); ok {
+		if toolType := strings.TrimSpace(anyStringValue(def.Meta["toolType"])); toolType != "" {
 			events[i].Payload["toolType"] = toolType
-			events[i].Payload["viewportKey"] = viewportKey
-			if toolTimeout > 0 {
-				events[i].Payload["toolTimeout"] = toolTimeout
-			}
 		}
 	}
 }
@@ -345,30 +340,6 @@ func summaryAgentKey(summary *chat.Summary) string {
 		return ""
 	}
 	return strings.TrimSpace(summary.AgentKey)
-}
-
-func frontendToolMetadata(def api.ToolDetailResponse) (toolType string, viewportKey string, ok bool) {
-	metaKind := strings.ToLower(strings.TrimSpace(anyStringValue(def.Meta["kind"])))
-	toolType = strings.TrimSpace(anyStringValue(def.Meta["toolType"]))
-	viewportKey = strings.TrimSpace(anyStringValue(def.Meta["viewportKey"]))
-	if metaKind == "frontend" && toolType != "" && viewportKey != "" {
-		return toolType, viewportKey, true
-	}
-	if toolType != "" && viewportKey != "" {
-		return toolType, viewportKey, true
-	}
-	return "", "", false
-}
-
-func (s *Server) toolTimeoutForAgent(agentKey string) int64 {
-	budget := contracts.ResolveBudget(s.deps.Config, nil)
-	if strings.TrimSpace(agentKey) == "" {
-		return int64(budget.Tool.TimeoutMs)
-	}
-	if agentDef, ok := s.deps.Registry.AgentDefinition(agentKey); ok {
-		budget = contracts.ResolveBudget(s.deps.Config, agentDef.Budget)
-	}
-	return int64(budget.Tool.TimeoutMs)
 }
 
 func applyToolOverride(def api.ToolDetailResponse, overrides map[string]api.ToolDetailResponse) api.ToolDetailResponse {
