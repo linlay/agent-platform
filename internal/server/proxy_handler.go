@@ -13,11 +13,21 @@ import (
 
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/catalog"
+	"agent-platform-runner-go/internal/chat"
+	"agent-platform-runner-go/internal/stream"
 )
 
-// handleProxyQuery forwards the /api/query request to a remote AGW-compatible
-// service (e.g. claude-code relay-server) and pipes the SSE response back to
-// the client unchanged. No protocol conversion needed — both sides speak AGW.
+// handleProxyQuery forwards /api/query to a remote AGW-compatible service
+// (e.g. claude-code relay-server) and pipes its SSE response back to the
+// client unchanged. While piping, it also tees the events into a StepWriter
+// so the local chat store ends up in the same {chatId}.jsonl shape produced
+// by non-PROXY agents.
+//
+// Upstream emits delta-style events (content.start / content.delta /
+// content.end, reasoning.start/delta/end, tool.start / tool.args / tool.end,
+// tool.result, run.complete). StepWriter only consumes snapshot-style events
+// (content.snapshot, reasoning.snapshot, tool.snapshot, tool.result, …), so
+// we accumulate per-id buffers and synthesise snapshot events at *.end.
 func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, req api.QueryRequest, agentDef catalog.AgentDefinition) {
 	proxy := agentDef.ProxyConfig
 	if proxy == nil || strings.TrimSpace(proxy.BaseURL) == "" {
@@ -28,7 +38,6 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, req ap
 	baseURL := strings.TrimRight(proxy.BaseURL, "/")
 	targetURL := baseURL + "/api/query"
 
-	// Build request body — pass through the original fields.
 	body, err := json.Marshal(map[string]any{
 		"requestId":  req.RequestID,
 		"chatId":     req.ChatID,
@@ -74,7 +83,6 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, req ap
 		return
 	}
 
-	// Set SSE headers and pipe the upstream SSE stream to the client.
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
@@ -86,19 +94,194 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, req ap
 		return
 	}
 
-	// Pipe SSE lines from upstream to client line-by-line.
+	chatStore := s.deps.Chats
+	var stepWriter *chat.StepWriter
+	var assistantText strings.Builder
+	if chatStore != nil {
+		stepWriter = chat.NewStepWriter(chatStore, req.ChatID, req.RunID, agentDef.Mode)
+		stepWriter.OnEvent(stream.EventData{
+			Type:      "request.query",
+			Timestamp: time.Now().UnixMilli(),
+			Payload: map[string]any{
+				"requestId": req.RequestID,
+				"runId":     req.RunID,
+				"chatId":    req.ChatID,
+				"agentKey":  req.AgentKey,
+				"role":      req.Role,
+				"message":   req.Message,
+			},
+		})
+	}
+
+	type contentBucket struct {
+		runID string
+		text  strings.Builder
+	}
+	type toolBucket struct {
+		runID    string
+		toolName string
+		args     strings.Builder
+	}
+	contents := map[string]*contentBucket{}
+	reasonings := map[string]*contentBucket{}
+	tools := map[string]*toolBucket{}
+
 	scanner := bufio.NewScanner(resp.Body)
-	scanner.Buffer(make([]byte, 0, 256*1024), 1024*1024) // 1MB max line
+	scanner.Buffer(make([]byte, 0, 256*1024), 1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
 		fmt.Fprintf(w, "%s\n", line)
-		// Flush on empty line (end of SSE event) or data line.
 		if line == "" || strings.HasPrefix(line, "data:") {
 			flusher.Flush()
+		}
+
+		if stepWriter == nil || !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload == "" || payload == stream.DoneSentinel {
+			continue
+		}
+		var event stream.EventData
+		if err := json.Unmarshal([]byte(payload), &event); err != nil {
+			continue
+		}
+		if event.Type == "" {
+			continue
+		}
+
+		switch event.Type {
+		case "content.start":
+			id, _ := event.Payload["contentId"].(string)
+			runID, _ := event.Payload["runId"].(string)
+			if id != "" {
+				contents[id] = &contentBucket{runID: runID}
+			}
+		case "content.delta":
+			id, _ := event.Payload["contentId"].(string)
+			delta, _ := event.Payload["delta"].(string)
+			if delta == "" {
+				break
+			}
+			assistantText.WriteString(delta)
+			if b := contents[id]; b != nil {
+				b.text.WriteString(delta)
+			}
+		case "content.end":
+			id, _ := event.Payload["contentId"].(string)
+			b := contents[id]
+			delete(contents, id)
+			text, _ := event.Payload["text"].(string)
+			if b == nil {
+				b = &contentBucket{}
+			}
+			if text == "" {
+				text = b.text.String()
+			}
+			if text == "" {
+				break
+			}
+			stepWriter.OnEvent(stream.EventData{
+				Type:      "content.snapshot",
+				Timestamp: event.Timestamp,
+				Payload: map[string]any{
+					"contentId": id,
+					"runId":     b.runID,
+					"text":      text,
+				},
+			})
+
+		case "reasoning.start":
+			id, _ := event.Payload["reasoningId"].(string)
+			runID, _ := event.Payload["runId"].(string)
+			if id != "" {
+				reasonings[id] = &contentBucket{runID: runID}
+			}
+		case "reasoning.delta":
+			id, _ := event.Payload["reasoningId"].(string)
+			delta, _ := event.Payload["delta"].(string)
+			if delta == "" {
+				break
+			}
+			if b := reasonings[id]; b != nil {
+				b.text.WriteString(delta)
+			}
+		case "reasoning.end":
+			id, _ := event.Payload["reasoningId"].(string)
+			b := reasonings[id]
+			delete(reasonings, id)
+			text, _ := event.Payload["text"].(string)
+			if b == nil {
+				b = &contentBucket{}
+			}
+			if text == "" {
+				text = b.text.String()
+			}
+			if text == "" {
+				break
+			}
+			stepWriter.OnEvent(stream.EventData{
+				Type:      "reasoning.snapshot",
+				Timestamp: event.Timestamp,
+				Payload: map[string]any{
+					"reasoningId": id,
+					"runId":       b.runID,
+					"text":        text,
+				},
+			})
+
+		case "tool.start":
+			id, _ := event.Payload["toolId"].(string)
+			runID, _ := event.Payload["runId"].(string)
+			toolName, _ := event.Payload["toolName"].(string)
+			if id != "" {
+				tools[id] = &toolBucket{runID: runID, toolName: toolName}
+			}
+		case "tool.args":
+			id, _ := event.Payload["toolId"].(string)
+			delta, _ := event.Payload["delta"].(string)
+			if b := tools[id]; b != nil && delta != "" {
+				b.args.WriteString(delta)
+			}
+		case "tool.end":
+			id, _ := event.Payload["toolId"].(string)
+			b := tools[id]
+			delete(tools, id)
+			if b == nil {
+				b = &toolBucket{}
+			}
+			stepWriter.OnEvent(stream.EventData{
+				Type:      "tool.snapshot",
+				Timestamp: event.Timestamp,
+				Payload: map[string]any{
+					"toolId":    id,
+					"runId":     b.runID,
+					"toolName":  b.toolName,
+					"arguments": b.args.String(),
+				},
+			})
+
+		case "tool.result", "run.complete", "run.cancel", "run.error",
+			"task.start", "task.complete", "task.cancel", "task.fail",
+			"plan.create", "plan.update", "artifact.publish":
+			stepWriter.OnEvent(event)
 		}
 	}
 	if err := scanner.Err(); err != nil {
 		log.Printf("[proxy] stream read error: %v", err)
+	}
+
+	if stepWriter != nil {
+		stepWriter.Flush()
+		if err := chatStore.OnRunCompleted(chat.RunCompletion{
+			ChatID:          req.ChatID,
+			RunID:           req.RunID,
+			AssistantText:   assistantText.String(),
+			InitialMessage:  req.Message,
+			UpdatedAtMillis: time.Now().UnixMilli(),
+		}); err != nil {
+			log.Printf("[proxy] OnRunCompleted failed: %v", err)
+		}
 	}
 
 	log.Printf("[proxy] stream completed (agent=%s, chatId=%s)", agentDef.Key, req.ChatID)
