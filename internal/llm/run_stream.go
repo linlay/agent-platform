@@ -570,7 +570,7 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 		result = ToolExecutionResult{Output: invokeErr.Error(), Error: "tool_execution_failed", ExitCode: -1}
 	}
 	if result.SubmitInfo != nil {
-		s.pending = append(s.pending, DeltaAwaitAnswer{
+		s.pending = append(s.pending, DeltaRequestSubmit{
 			RequestID: s.session.RequestID,
 			ChatID:    s.session.ChatID,
 			RunID:     s.session.RunID,
@@ -757,7 +757,7 @@ func (s *llmRunStream) preToolInvocationDeltas(toolID string, toolName string, p
 	normalizedMode := strings.ToLower(strings.TrimSpace(mode))
 	events := make([]AgentDelta, 0, 2)
 	if normalizedMode == "approval" {
-		events = append(events, DeltaAwaitQuestion{
+		events = append(events, DeltaAwaitAsk{
 			AwaitID:      toolID,
 			ViewportType: viewportType,
 			ViewportKey:  viewportKey,

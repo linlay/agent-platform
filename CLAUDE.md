@@ -222,23 +222,23 @@ remember 根目录由 `MEMORY_DIR` 控制：
 - 前端确认流 SSE 语义：
   - `tool.start` / `tool.snapshot` 保持纯净，不再携带 `viewportKey` / `toolTimeout`
   - `_ask_user_question_` 事件顺序：
-    `tool.start -> await.question -> tool.args* -> tool.end -> await.payload -> [用户 /api/submit] -> await.answer -> tool.result`
+    `tool.start -> await.ask -> tool.args* -> tool.end -> await.payload -> [用户 /api/submit] -> request.submit -> tool.result`
   - `_ask_user_approval_` 事件顺序：
-    `tool.start -> tool.args* -> tool.end -> await.question -> [用户 /api/submit] -> await.answer -> tool.result`
-  - `await.answer` 是用户提交后的事件，不再表示“前端应该显示确认框”
+    `tool.start -> tool.args* -> tool.end -> await.ask -> [用户 /api/submit] -> request.submit -> tool.result`
+  - `request.submit` 是用户提交后的事件，不再表示“前端应该显示确认框”
   - `tool.result` 是工具规范化后的真实执行结果，不等同于原始 submit payload
-- `await.question` 使用独立字段命名：
+- `await.ask` 使用独立字段命名：
   - `awaitId`、`viewportType`、`viewportKey`、`mode`、`toolTimeout`、`runId`
 - `await.payload` 只在 `question` 模式下出现：
   - 顶层直接输出 `questions: []`
   - 不再嵌套 `payload`
   - 不再重复携带 `mode`
 - `question` 模式：
-  - `await.question` 不带 `questions`
+  - `await.ask` 不带 `questions`
   - `questions` 只出现在 `await.payload`
 - `approval` 模式：
   - 不再发 `await.payload`
-  - `questions` 直接内联在 `await.question`
+  - `questions` 直接内联在 `await.ask`
 - `mode=question`：
   - 顶层字段为 `questions`
   - 每个问题支持 `type`、`header`、`placeholder`、`allowFreeText`、`freeTextPlaceholder`
@@ -247,7 +247,7 @@ remember 根目录由 `MEMORY_DIR` 控制：
   - `/api/submit` 提交结构：`{"answers":[{"question":"...","answer":...}]}`
   - `tool.result` 规范化结构：`{"mode":"question","answers":[{"question":"...","answer":...}]}`
 - `mode=approval`：
-  - 前端事件里的 `await.question` 统一输出 `questions: [{ question, header?, description?, options, allowFreeText?, freeTextPlaceholder? }]`
+  - 前端事件里的 `await.ask` 统一输出 `questions: [{ question, header?, description?, options, allowFreeText?, freeTextPlaceholder? }]`
   - `questions` 数组长度固定为 1
   - `options` 结构是 `{ label, value, description? }`
   - 预设选项与自由输入互斥

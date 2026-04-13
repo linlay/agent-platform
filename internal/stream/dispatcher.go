@@ -57,15 +57,15 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 			"runId":      value.RunID,
 			"artifact":   value.Artifact,
 		})}
-	case AwaitQuestion:
-		return []StreamEvent{d.newAwaitQuestionEvent(value)}
+	case AwaitAsk:
+		return []StreamEvent{d.newAwaitAskEvent(value)}
 	case AwaitPayload:
 		return []StreamEvent{NewEvent("await.payload", map[string]any{
 			"awaitId":   value.AwaitID,
 			"questions": value.Questions,
 		})}
-	case AwaitAnswer:
-		return []StreamEvent{NewEvent("await.answer", map[string]any{
+	case RequestSubmit:
+		return []StreamEvent{NewEvent("request.submit", map[string]any{
 			"requestId": value.RequestID,
 			"chatId":    value.ChatID,
 			"runId":     value.RunID,
@@ -212,8 +212,8 @@ func (d *StreamEventDispatcher) handleToolArgs(input ToolArgs) []StreamEvent {
 			"toolLabel":       input.ToolLabel,
 			"toolDescription": input.ToolDescription,
 		}))
-		if input.AwaitQuestion != nil {
-			events = append(events, d.newAwaitQuestionEvent(*input.AwaitQuestion))
+		if input.AwaitAsk != nil {
+			events = append(events, d.newAwaitAskEvent(*input.AwaitAsk))
 		}
 	}
 	d.state.toolArgsBuffer[input.ToolID] += input.Delta
@@ -225,7 +225,7 @@ func (d *StreamEventDispatcher) handleToolArgs(input ToolArgs) []StreamEvent {
 	return events
 }
 
-func (d *StreamEventDispatcher) newAwaitQuestionEvent(input AwaitQuestion) StreamEvent {
+func (d *StreamEventDispatcher) newAwaitAskEvent(input AwaitAsk) StreamEvent {
 	payload := map[string]any{
 		"awaitId":      input.AwaitID,
 		"viewportType": input.ViewportType,
@@ -237,7 +237,7 @@ func (d *StreamEventDispatcher) newAwaitQuestionEvent(input AwaitQuestion) Strea
 	if len(input.Questions) > 0 {
 		payload["questions"] = input.Questions
 	}
-	return NewEvent("await.question", payload)
+	return NewEvent("await.ask", payload)
 }
 
 func (d *StreamEventDispatcher) handleToolEnd(input ToolEnd) []StreamEvent {

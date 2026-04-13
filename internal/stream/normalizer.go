@@ -52,13 +52,13 @@ func (n *SseEventNormalizer) shouldDrop(event StreamEvent) bool {
 	toolID, _ := event.Payload["toolId"].(string)
 	awaitID, _ := event.Payload["awaitId"].(string)
 
-	if eventType == "await.question" {
+	if eventType == "await.ask" {
 		return awaitID != "" && n.hiddenToolIDs[awaitID]
 	}
 	if eventType == "await.payload" {
 		return awaitID != "" && n.hiddenToolIDs[awaitID]
 	}
-	if eventType == "await.answer" {
+	if eventType == "request.submit" {
 		return toolID != "" && n.hiddenToolIDs[toolID]
 	}
 	if !strings.HasPrefix(eventType, "tool.") {

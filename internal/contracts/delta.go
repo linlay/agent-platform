@@ -88,7 +88,7 @@ type DeltaArtifactPublish struct {
 
 func (DeltaArtifactPublish) agentDeltaTag() {}
 
-type DeltaAwaitQuestion struct {
+type DeltaAwaitAsk struct {
 	AwaitID      string
 	ViewportType string
 	ViewportKey  string
@@ -98,7 +98,7 @@ type DeltaAwaitQuestion struct {
 	Questions    []any
 }
 
-func (DeltaAwaitQuestion) agentDeltaTag() {}
+func (DeltaAwaitAsk) agentDeltaTag() {}
 
 type DeltaAwaitPayload struct {
 	AwaitID   string
@@ -107,7 +107,7 @@ type DeltaAwaitPayload struct {
 
 func (DeltaAwaitPayload) agentDeltaTag() {}
 
-type DeltaAwaitAnswer struct {
+type DeltaRequestSubmit struct {
 	RequestID string
 	ChatID    string
 	RunID     string
@@ -115,7 +115,7 @@ type DeltaAwaitAnswer struct {
 	Payload   any
 }
 
-func (DeltaAwaitAnswer) agentDeltaTag() {}
+func (DeltaRequestSubmit) agentDeltaTag() {}
 
 type DeltaRequestSteer struct {
 	RequestID string

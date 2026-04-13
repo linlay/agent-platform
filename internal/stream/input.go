@@ -30,7 +30,7 @@ type ToolArgs struct {
 	ToolLabel       string
 	ToolDescription string
 	ChunkIndex      int
-	AwaitQuestion   *AwaitQuestion
+	AwaitAsk        *AwaitAsk
 }
 
 func (ToolArgs) streamInputTag() {}
@@ -130,7 +130,7 @@ type ArtifactPublish struct {
 
 func (ArtifactPublish) streamInputTag() {}
 
-type AwaitQuestion struct {
+type AwaitAsk struct {
 	AwaitID      string
 	ViewportType string
 	ViewportKey  string
@@ -140,7 +140,7 @@ type AwaitQuestion struct {
 	Questions    []any
 }
 
-func (AwaitQuestion) streamInputTag() {}
+func (AwaitAsk) streamInputTag() {}
 
 type AwaitPayload struct {
 	AwaitID   string
@@ -149,7 +149,7 @@ type AwaitPayload struct {
 
 func (AwaitPayload) streamInputTag() {}
 
-type AwaitAnswer struct {
+type RequestSubmit struct {
 	RequestID string
 	ChatID    string
 	RunID     string
@@ -157,7 +157,7 @@ type AwaitAnswer struct {
 	Payload   any
 }
 
-func (AwaitAnswer) streamInputTag() {}
+func (RequestSubmit) streamInputTag() {}
 
 type RequestSteer struct {
 	RequestID string

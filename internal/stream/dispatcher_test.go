@@ -50,7 +50,7 @@ func TestDispatcherEmitsToolSnapshotAndResultLifecycle(t *testing.T) {
 	assertEventTypes(t, resultEvents, "tool.result")
 }
 
-func TestDispatcherEmitsQuestionModeAwaitQuestionAfterToolStart(t *testing.T) {
+func TestDispatcherEmitsQuestionModeAwaitAskAfterToolStart(t *testing.T) {
 	dispatcher := NewDispatcher(StreamRequest{
 		RunID:  "run_1",
 		ChatID: "chat_1",
@@ -62,7 +62,7 @@ func TestDispatcherEmitsQuestionModeAwaitQuestionAfterToolStart(t *testing.T) {
 		ToolType:   "builtin",
 		Delta:      "{",
 		ChunkIndex: 0,
-		AwaitQuestion: &AwaitQuestion{
+		AwaitAsk: &AwaitAsk{
 			AwaitID:      "tool_1",
 			ViewportType: "builtin",
 			ViewportKey:  "confirm_dialog",
@@ -71,16 +71,16 @@ func TestDispatcherEmitsQuestionModeAwaitQuestionAfterToolStart(t *testing.T) {
 			RunID:        "run_1",
 		},
 	})
-	assertEventTypes(t, events, "tool.start", "await.question", "tool.args")
+	assertEventTypes(t, events, "tool.start", "await.ask", "tool.args")
 }
 
-func TestDispatcherEmitsApprovalModeAwaitQuestionWithQuestions(t *testing.T) {
+func TestDispatcherEmitsApprovalModeAwaitAskWithQuestions(t *testing.T) {
 	dispatcher := NewDispatcher(StreamRequest{
 		RunID:  "run_1",
 		ChatID: "chat_1",
 	})
 
-	viewportEvents := dispatcher.Dispatch(AwaitQuestion{
+	viewportEvents := dispatcher.Dispatch(AwaitAsk{
 		AwaitID:      "tool_1",
 		ViewportType: "builtin",
 		ViewportKey:  "confirm_dialog",
@@ -91,7 +91,7 @@ func TestDispatcherEmitsApprovalModeAwaitQuestionWithQuestions(t *testing.T) {
 			map[string]any{"question": "Proceed?", "options": []any{map[string]any{"label": "Yes", "value": "yes"}}},
 		},
 	})
-	assertEventTypes(t, viewportEvents, "await.question")
+	assertEventTypes(t, viewportEvents, "await.ask")
 
 	payloadEvents := dispatcher.Dispatch(AwaitPayload{
 		AwaitID:   "tool_1",
@@ -292,8 +292,8 @@ func TestEventDataMarshalsWithContractKeyOrder(t *testing.T) {
 	}
 }
 
-func TestEventDataMarshalsAwaitQuestionWithContractKeyOrder(t *testing.T) {
-	event := NewEvent("await.question", map[string]any{
+func TestEventDataMarshalsAwaitAskWithContractKeyOrder(t *testing.T) {
+	event := NewEvent("await.ask", map[string]any{
 		"toolTimeout":  120000,
 		"runId":        "run_1",
 		"viewportKey":  "confirm_dialog",
@@ -309,7 +309,7 @@ func TestEventDataMarshalsAwaitQuestionWithContractKeyOrder(t *testing.T) {
 	text := string(data)
 	order := []string{
 		`"seq":9`,
-		`"type":"await.question"`,
+		`"type":"await.ask"`,
 		`"awaitId":"tool_1"`,
 		`"viewportType":"builtin"`,
 		`"viewportKey":"confirm_dialog"`,
@@ -331,8 +331,8 @@ func TestEventDataMarshalsAwaitQuestionWithContractKeyOrder(t *testing.T) {
 	}
 }
 
-func TestEventDataMarshalsApprovalAwaitQuestionWithQuestions(t *testing.T) {
-	event := NewEvent("await.question", map[string]any{
+func TestEventDataMarshalsApprovalAwaitAskWithQuestions(t *testing.T) {
+	event := NewEvent("await.ask", map[string]any{
 		"awaitId":      "tool_1",
 		"viewportType": "builtin",
 		"viewportKey":  "confirm_dialog",
@@ -349,7 +349,7 @@ func TestEventDataMarshalsApprovalAwaitQuestionWithQuestions(t *testing.T) {
 	}
 	text := string(data)
 	if !strings.Contains(text, `"questions":[`) {
-		t.Fatalf("expected questions in approval await.question: %s", text)
+		t.Fatalf("expected questions in approval await.ask: %s", text)
 	}
 }
 
@@ -377,8 +377,8 @@ func TestEventDataMarshalsAwaitPayloadWithQuestions(t *testing.T) {
 	}
 }
 
-func TestEventDataMarshalsAwaitAnswerWithoutViewID(t *testing.T) {
-	event := NewEvent("await.answer", map[string]any{
+func TestEventDataMarshalsRequestSubmitWithoutViewID(t *testing.T) {
+	event := NewEvent("request.submit", map[string]any{
 		"requestId": "req_1",
 		"chatId":    "chat_1",
 		"runId":     "run_1",
@@ -392,7 +392,7 @@ func TestEventDataMarshalsAwaitAnswerWithoutViewID(t *testing.T) {
 	}
 	text := string(data)
 	if strings.Contains(text, `"viewId"`) {
-		t.Fatalf("did not expect viewId in await.answer payload: %s", text)
+		t.Fatalf("did not expect viewId in request.submit payload: %s", text)
 	}
 }
 

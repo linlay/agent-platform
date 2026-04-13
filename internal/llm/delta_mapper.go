@@ -89,7 +89,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		chunkIndex := m.toolArgChunkCounters[toolID]
 		m.toolArgChunkCounters[toolID] = chunkIndex + 1
 		m.lastKind = "tool"
-		awaitQuestion := m.buildQuestionToolAwaitQuestion(toolID, value.Name, toolType, chunkIndex)
+		awaitAsk := m.buildQuestionToolAwaitAsk(toolID, value.Name, toolType, chunkIndex)
 		return []stream.StreamInput{stream.ToolArgs{
 			ToolID:          toolID,
 			Delta:           value.ArgsDelta,
@@ -98,7 +98,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			ToolLabel:       toolLabel,
 			ToolDescription: toolDescription,
 			ChunkIndex:      chunkIndex,
-			AwaitQuestion:   awaitQuestion,
+			AwaitAsk:        awaitAsk,
 		}}
 	case DeltaToolEnd:
 		m.lastKind = ""
@@ -174,8 +174,8 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			RunID:      value.RunID,
 			Artifact:   value.Artifact,
 		}}
-	case DeltaAwaitQuestion:
-		return []stream.StreamInput{stream.AwaitQuestion{
+	case DeltaAwaitAsk:
+		return []stream.StreamInput{stream.AwaitAsk{
 			AwaitID:      value.AwaitID,
 			ViewportType: value.ViewportType,
 			ViewportKey:  value.ViewportKey,
@@ -189,8 +189,8 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			AwaitID:   value.AwaitID,
 			Questions: append([]any(nil), value.Questions...),
 		}}
-	case DeltaAwaitAnswer:
-		return []stream.StreamInput{stream.AwaitAnswer{
+	case DeltaRequestSubmit:
+		return []stream.StreamInput{stream.RequestSubmit{
 			RequestID: value.RequestID,
 			ChatID:    value.ChatID,
 			RunID:     value.RunID,
@@ -212,7 +212,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 	}
 }
 
-func (m *DeltaMapper) buildQuestionToolAwaitQuestion(toolID string, toolName string, toolType string, chunkIndex int) *stream.AwaitQuestion {
+func (m *DeltaMapper) buildQuestionToolAwaitAsk(toolID string, toolName string, toolType string, chunkIndex int) *stream.AwaitAsk {
 	if !strings.EqualFold(strings.TrimSpace(toolName), "_ask_user_question_") {
 		return nil
 	}
@@ -226,7 +226,7 @@ func (m *DeltaMapper) buildQuestionToolAwaitQuestion(toolID string, toolName str
 	if strings.TrimSpace(toolType) == "" {
 		toolType = resolvedToolType
 	}
-	return &stream.AwaitQuestion{
+	return &stream.AwaitAsk{
 		AwaitID:      toolID,
 		ViewportType: toolType,
 		ViewportKey:  viewportKey,

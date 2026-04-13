@@ -222,7 +222,7 @@ func TestLoadChatReplaysQuestionAwaitLifecycleEventLines(t *testing.T) {
 		UpdatedAt: 1001,
 		Type:      "event",
 		Event: map[string]any{
-			"type":         "await.question",
+			"type":         "await.ask",
 			"awaitId":      "tool-1",
 			"viewportType": "builtin",
 			"viewportKey":  "confirm_dialog",
@@ -231,7 +231,7 @@ func TestLoadChatReplaysQuestionAwaitLifecycleEventLines(t *testing.T) {
 			"runId":        "run-1",
 		},
 	}); err != nil {
-		t.Fatalf("append await question line: %v", err)
+		t.Fatalf("append await ask line: %v", err)
 	}
 
 	if err := store.AppendEventLine("chat-1", EventLine{
@@ -259,7 +259,7 @@ func TestLoadChatReplaysQuestionAwaitLifecycleEventLines(t *testing.T) {
 		UpdatedAt: 1003,
 		Type:      "event",
 		Event: map[string]any{
-			"type":      "await.answer",
+			"type":      "request.submit",
 			"requestId": "req-1",
 			"chatId":    "chat-1",
 			"runId":     "run-1",
@@ -274,7 +274,7 @@ func TestLoadChatReplaysQuestionAwaitLifecycleEventLines(t *testing.T) {
 			},
 		},
 	}); err != nil {
-		t.Fatalf("append await answer line: %v", err)
+		t.Fatalf("append request submit line: %v", err)
 	}
 
 	detail, err := store.LoadChat("chat-1")
@@ -290,9 +290,9 @@ func TestLoadChatReplaysQuestionAwaitLifecycleEventLines(t *testing.T) {
 		"chat.start",
 		"run.start",
 		"request.query",
-		"await.question",
+		"await.ask",
 		"await.payload",
-		"await.answer",
+		"request.submit",
 		"run.complete",
 	}
 	for i, eventType := range expectedTypes {
@@ -303,13 +303,13 @@ func TestLoadChatReplaysQuestionAwaitLifecycleEventLines(t *testing.T) {
 
 	viewport := detail.Events[3]
 	if viewport.String("viewportKey") != "confirm_dialog" {
-		t.Fatalf("unexpected await question replay %#v", viewport)
+		t.Fatalf("unexpected await ask replay %#v", viewport)
 	}
 	if _, exists := viewport.Payload["awaitName"]; exists {
-		t.Fatalf("did not expect awaitName on await.question replay %#v", viewport)
+		t.Fatalf("did not expect awaitName on await.ask replay %#v", viewport)
 	}
 	if _, exists := viewport.Payload["chatId"]; exists {
-		t.Fatalf("did not expect chatId on await.question replay %#v", viewport)
+		t.Fatalf("did not expect chatId on await.ask replay %#v", viewport)
 	}
 
 	payload := detail.Events[4]
@@ -321,7 +321,7 @@ func TestLoadChatReplaysQuestionAwaitLifecycleEventLines(t *testing.T) {
 	submit := detail.Events[5]
 	submitPayload, _ := submit.Value("payload").(map[string]any)
 	if submit.String("toolId") != "tool-1" || submitPayload == nil {
-		t.Fatalf("unexpected await.answer replay %#v", submit)
+		t.Fatalf("unexpected request.submit replay %#v", submit)
 	}
 }
 
@@ -354,7 +354,7 @@ func TestLoadChatReplaysApprovalAwaitLifecycleEventLines(t *testing.T) {
 		UpdatedAt: 1001,
 		Type:      "event",
 		Event: map[string]any{
-			"type":         "await.question",
+			"type":         "await.ask",
 			"awaitId":      "tool-approval",
 			"viewportType": "builtin",
 			"viewportKey":  "confirm_dialog",
@@ -371,7 +371,7 @@ func TestLoadChatReplaysApprovalAwaitLifecycleEventLines(t *testing.T) {
 			},
 		},
 	}); err != nil {
-		t.Fatalf("append approval await question line: %v", err)
+		t.Fatalf("append approval await ask line: %v", err)
 	}
 
 	if err := store.AppendEventLine("chat-approval", EventLine{
@@ -380,7 +380,7 @@ func TestLoadChatReplaysApprovalAwaitLifecycleEventLines(t *testing.T) {
 		UpdatedAt: 1002,
 		Type:      "event",
 		Event: map[string]any{
-			"type":      "await.answer",
+			"type":      "request.submit",
 			"requestId": "req-approval",
 			"chatId":    "chat-approval",
 			"runId":     "run-approval",
@@ -388,7 +388,7 @@ func TestLoadChatReplaysApprovalAwaitLifecycleEventLines(t *testing.T) {
 			"payload":   map[string]any{"value": "approve"},
 		},
 	}); err != nil {
-		t.Fatalf("append approval await answer line: %v", err)
+		t.Fatalf("append approval request submit line: %v", err)
 	}
 
 	detail, err := store.LoadChat("chat-approval")
@@ -396,22 +396,22 @@ func TestLoadChatReplaysApprovalAwaitLifecycleEventLines(t *testing.T) {
 		t.Fatalf("load chat: %v", err)
 	}
 
-	foundAwaitQuestion := false
+	foundAwaitAsk := false
 	foundAwaitPayload := false
 	for _, event := range detail.Events {
 		switch event.Type {
-		case "await.question":
-			foundAwaitQuestion = true
+		case "await.ask":
+			foundAwaitAsk = true
 			questions, _ := event.Value("questions").([]any)
 			if len(questions) != 1 {
-				t.Fatalf("expected approval await.question questions length 1, got %#v", event)
+				t.Fatalf("expected approval await.ask questions length 1, got %#v", event)
 			}
 		case "await.payload":
 			foundAwaitPayload = true
 		}
 	}
-	if !foundAwaitQuestion {
-		t.Fatalf("expected approval await.question replay, got %#v", detail.Events)
+	if !foundAwaitAsk {
+		t.Fatalf("expected approval await.ask replay, got %#v", detail.Events)
 	}
 	if foundAwaitPayload {
 		t.Fatalf("did not expect approval await.payload replay, got %#v", detail.Events)

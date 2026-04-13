@@ -1040,7 +1040,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 				toolStartPayload = payload
 				toolID, _ = payload["toolId"].(string)
 			}
-			if payload["type"] == "await.question" {
+			if payload["type"] == "await.ask" {
 				awaitQuestionPayload = payload
 				runID, _ = payload["runId"].(string)
 				break
@@ -1051,7 +1051,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 		}
 	}
 	if toolStartPayload == nil {
-		t.Fatalf("expected frontend tool.start before await.question, got %s", streamBody.String())
+		t.Fatalf("expected frontend tool.start before await.ask, got %s", streamBody.String())
 	}
 	if toolStartPayload["toolType"] != "builtin" {
 		t.Fatalf("expected frontend toolType builtin, got %#v", toolStartPayload)
@@ -1063,7 +1063,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 		t.Fatalf("did not expect toolTimeout on tool.start, got %#v", toolStartPayload)
 	}
 	if awaitQuestionPayload == nil {
-		t.Fatalf("expected await.question before submit, got %s", streamBody.String())
+		t.Fatalf("expected await.ask before submit, got %s", streamBody.String())
 	}
 	if awaitQuestionPayload["awaitId"] != toolID {
 		t.Fatalf("expected awaitId to match toolId, got %#v", awaitQuestionPayload)
@@ -1081,14 +1081,14 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 		t.Fatalf("expected await question mode approval, got %#v", awaitQuestionPayload)
 	}
 	if _, exists := awaitQuestionPayload["awaitName"]; exists {
-		t.Fatalf("did not expect awaitName on await.question, got %#v", awaitQuestionPayload)
+		t.Fatalf("did not expect awaitName on await.ask, got %#v", awaitQuestionPayload)
 	}
 	if _, exists := awaitQuestionPayload["chatId"]; exists {
-		t.Fatalf("did not expect chatId on await.question, got %#v", awaitQuestionPayload)
+		t.Fatalf("did not expect chatId on await.ask, got %#v", awaitQuestionPayload)
 	}
 	approvalQuestions, _ := awaitQuestionPayload["questions"].([]any)
 	if len(approvalQuestions) != 1 {
-		t.Fatalf("expected approval await.question questions length 1, got %#v", awaitQuestionPayload)
+		t.Fatalf("expected approval await.ask questions length 1, got %#v", awaitQuestionPayload)
 	}
 
 	steerReq := httptest.NewRequest(http.MethodPost, "/api/steer", bytes.NewBufferString(`{"runId":"`+runID+`","message":"Please keep it short."}`))
@@ -1133,17 +1133,17 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	}
 
 	body := streamBody.String()
-	if !strings.Contains(body, `"type":"await.question"`) {
-		t.Fatalf("expected await.question event, got %s", body)
+	if !strings.Contains(body, `"type":"await.ask"`) {
+		t.Fatalf("expected await.ask event, got %s", body)
 	}
 	if strings.Contains(body, `"type":"await.payload"`) {
 		t.Fatalf("did not expect await.payload event for approval mode, got %s", body)
 	}
 	if !strings.Contains(body, `"questions":[`) {
-		t.Fatalf("expected top-level questions in approval await.question event, got %s", body)
+		t.Fatalf("expected top-level questions in approval await.ask event, got %s", body)
 	}
-	if !strings.Contains(body, `"type":"await.answer"`) {
-		t.Fatalf("expected await.answer event, got %s", body)
+	if !strings.Contains(body, `"type":"request.submit"`) {
+		t.Fatalf("expected request.submit event, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"request.steer"`) {
 		t.Fatalf("expected request.steer event, got %s", body)
@@ -1157,7 +1157,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	if !strings.Contains(body, "final answer") {
 		t.Fatalf("expected final answer in stream, got %s", body)
 	}
-	assertEventOrder(t, body, "tool.start", "tool.end", "await.question", "await.answer", "tool.result")
+	assertEventOrder(t, body, "tool.start", "tool.end", "await.ask", "request.submit", "tool.result")
 
 	chatsRec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(chatsRec, httptest.NewRequest(http.MethodGet, "/api/chats", nil))
@@ -1176,8 +1176,8 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 		t.Fatalf("decode chat detail: %v", err)
 	}
 	foundFrontendSnapshot := false
-	foundAwaitQuestion := false
-	foundAwaitAnswer := false
+	foundAwaitAsk := false
+	foundRequestSubmit := false
 	for _, event := range chatResp.Data.Events {
 		switch event.Type {
 		case "tool.snapshot":
@@ -1194,33 +1194,33 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 			if _, exists := event.Payload["toolTimeout"]; exists {
 				t.Fatalf("did not expect frontend snapshot toolTimeout, got %#v", event)
 			}
-		case "await.question":
-			foundAwaitQuestion = true
+		case "await.ask":
+			foundAwaitAsk = true
 			if event.String("viewportKey") != "confirm_dialog" {
-				t.Fatalf("unexpected await.question payload %#v", event)
+				t.Fatalf("unexpected await.ask payload %#v", event)
 			}
 			if _, exists := event.Payload["awaitName"]; exists {
-				t.Fatalf("did not expect awaitName on await.question in chat detail, got %#v", event)
+				t.Fatalf("did not expect awaitName on await.ask in chat detail, got %#v", event)
 			}
 			if _, exists := event.Payload["chatId"]; exists {
-				t.Fatalf("did not expect chatId on await.question in chat detail, got %#v", event)
+				t.Fatalf("did not expect chatId on await.ask in chat detail, got %#v", event)
 			}
 			questions, _ := event.Payload["questions"].([]any)
 			if len(questions) != 1 {
-				t.Fatalf("expected approval await.question questions length 1, got %#v", event)
+				t.Fatalf("expected approval await.ask questions length 1, got %#v", event)
 			}
-		case "await.answer":
-			foundAwaitAnswer = true
+		case "request.submit":
+			foundRequestSubmit = true
 		}
 	}
 	if !foundFrontendSnapshot {
 		t.Fatalf("expected _ask_user_approval_ tool.snapshot in chat detail, got %#v", chatResp.Data.Events)
 	}
-	if !foundAwaitQuestion {
-		t.Fatalf("expected await.question in chat detail, got %#v", chatResp.Data.Events)
+	if !foundAwaitAsk {
+		t.Fatalf("expected await.ask in chat detail, got %#v", chatResp.Data.Events)
 	}
-	if !foundAwaitAnswer {
-		t.Fatalf("expected await.answer in chat detail, got %#v", chatResp.Data.Events)
+	if !foundRequestSubmit {
+		t.Fatalf("expected request.submit in chat detail, got %#v", chatResp.Data.Events)
 	}
 
 	select {
@@ -1297,7 +1297,7 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 		if strings.HasPrefix(line, "data: {") {
 			payload := decodeSSELine(t, line)
 			switch payload["type"] {
-			case "await.question":
+			case "await.ask":
 				awaitQuestionPayload = payload
 				runID, _ = payload["runId"].(string)
 			case "tool.start":
@@ -1323,7 +1323,7 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 	}
 
 	if awaitQuestionPayload == nil {
-		t.Fatalf("expected await.question after tool.start and before tool.args, got %s", streamBody.String())
+		t.Fatalf("expected await.ask after tool.start and before tool.args, got %s", streamBody.String())
 	}
 	if toolStartPayload == nil {
 		t.Fatalf("expected tool.start for _ask_user_question_, got %s", streamBody.String())
@@ -1335,13 +1335,13 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 		t.Fatalf("expected question mode, got %#v", awaitQuestionPayload)
 	}
 	if _, exists := awaitQuestionPayload["questions"]; exists {
-		t.Fatalf("did not expect questions on question-mode await.question, got %#v", awaitQuestionPayload)
+		t.Fatalf("did not expect questions on question-mode await.ask, got %#v", awaitQuestionPayload)
 	}
 	if _, exists := awaitQuestionPayload["awaitName"]; exists {
-		t.Fatalf("did not expect awaitName on question-mode await.question, got %#v", awaitQuestionPayload)
+		t.Fatalf("did not expect awaitName on question-mode await.ask, got %#v", awaitQuestionPayload)
 	}
 	if _, exists := awaitQuestionPayload["chatId"]; exists {
-		t.Fatalf("did not expect chatId on question-mode await.question, got %#v", awaitQuestionPayload)
+		t.Fatalf("did not expect chatId on question-mode await.ask, got %#v", awaitQuestionPayload)
 	}
 	if !awaitPayloadSeen {
 		t.Fatalf("expected await.payload before submit, got %s", streamBody.String())
@@ -1367,8 +1367,8 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 	}
 
 	body := streamBody.String()
-	if !strings.Contains(body, `"type":"await.question"`) {
-		t.Fatalf("expected await.question event, got %s", body)
+	if !strings.Contains(body, `"type":"await.ask"`) {
+		t.Fatalf("expected await.ask event, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"await.payload"`) {
 		t.Fatalf("expected await.payload event, got %s", body)
@@ -1379,8 +1379,8 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 	if strings.Contains(body, `"payload":{"mode":"question"`) {
 		t.Fatalf("did not expect nested payload mode in question await.payload event, got %s", body)
 	}
-	if !strings.Contains(body, `"type":"await.answer"`) {
-		t.Fatalf("expected await.answer event, got %s", body)
+	if !strings.Contains(body, `"type":"request.submit"`) {
+		t.Fatalf("expected request.submit event, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"tool.result"`) {
 		t.Fatalf("expected tool.result event, got %s", body)
@@ -1388,7 +1388,7 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 	if !strings.Contains(body, `"mode":"question"`) || !strings.Contains(body, `"question":"Pick a plan"`) {
 		t.Fatalf("expected normalized question tool.result, got %s", body)
 	}
-	assertEventOrder(t, body, "tool.start", "await.question", "tool.args", "tool.end", "await.payload", "await.answer", "tool.result")
+	assertEventOrder(t, body, "tool.start", "await.ask", "tool.args", "tool.end", "await.payload", "request.submit", "tool.result")
 
 	select {
 	case messages := <-secondTurnMessages:
