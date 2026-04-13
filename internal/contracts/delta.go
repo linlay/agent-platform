@@ -90,21 +90,18 @@ func (DeltaArtifactPublish) agentDeltaTag() {}
 
 type DeltaAwaitQuestion struct {
 	AwaitID      string
-	AwaitName    string
 	ViewportType string
 	ViewportKey  string
 	Mode         string
 	ToolTimeout  int64
 	RunID        string
-	ChatID       string
-	Payload      any
 }
 
 func (DeltaAwaitQuestion) agentDeltaTag() {}
 
 type DeltaAwaitPayload struct {
-	AwaitID string
-	Payload any
+	AwaitID   string
+	Questions []any
 }
 
 func (DeltaAwaitPayload) agentDeltaTag() {}

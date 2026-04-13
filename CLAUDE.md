@@ -228,8 +228,11 @@ remember 根目录由 `MEMORY_DIR` 控制：
   - `await.answer` 是用户提交后的事件，不再表示“前端应该显示确认框”
   - `tool.result` 是工具规范化后的真实执行结果，不等同于原始 submit payload
 - `await.question` 使用独立字段命名：
-  - `awaitId`、`awaitName`、`viewportType`、`viewportKey`、`mode`、`toolTimeout`
-- `await.payload` 在 `question` / `approval` 两种模式下都会出现；`await.question` 不再内联展示 payload
+  - `awaitId`、`viewportType`、`viewportKey`、`mode`、`toolTimeout`、`runId`
+- `await.payload` 在 `question` / `approval` 两种模式下都会出现：
+  - 顶层直接输出 `questions: []`
+  - 不再嵌套 `payload`
+  - 不再重复携带 `mode`
 - `mode=question`：
   - 顶层字段为 `questions`
   - 每个问题支持 `type`、`header`、`placeholder`、`allowFreeText`、`freeTextPlaceholder`
@@ -238,7 +241,8 @@ remember 根目录由 `MEMORY_DIR` 控制：
   - `/api/submit` 提交结构：`{"answers":[{"question":"...","answer":...}]}`
   - `tool.result` 规范化结构：`{"mode":"question","answers":[{"question":"...","answer":...}]}`
 - `mode=approval`：
-  - 顶层字段为 `question`、`description`、`options`、`allowFreeText`、`freeTextPlaceholder`
+  - 前端事件里的 `await.payload` 统一输出 `questions: [{ question, header?, description?, options, allowFreeText?, freeTextPlaceholder? }]`
+  - `questions` 数组长度固定为 1
   - `options` 结构是 `{ label, value, description? }`
   - 预设选项与自由输入互斥
   - `/api/submit` 提交结构：`{"value":"..."}` 或 `{"freeText":"..."}`

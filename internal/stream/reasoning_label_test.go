@@ -18,3 +18,18 @@ func TestReasoningLabelForIDFallsBackForEmptyID(t *testing.T) {
 		t.Fatalf("expected first reasoning label for empty id fallback, got %q", got)
 	}
 }
+
+func TestReasoningLabelForIDNeverReturnsInternalReasoningSource(t *testing.T) {
+	disallowed := map[string]struct{}{
+		"reasoning_details": {},
+		"reasoning_content": {},
+		"thinking_delta":    {},
+		"think_tag":         {},
+	}
+
+	for _, id := range []string{"run_1_r_1", "run_1_r_2", "mnwz16xf_r_1"} {
+		if _, found := disallowed[ReasoningLabelForID(id)]; found {
+			t.Fatalf("expected phrase-pool display label for %q, got internal source label %q", id, ReasoningLabelForID(id))
+		}
+	}
+}

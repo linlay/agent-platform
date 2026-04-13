@@ -737,6 +737,9 @@ func (s *llmRunStream) preToolInvocationDeltas(toolID string, toolName string, p
 	if !strings.EqualFold(strings.TrimSpace(toolKind), "frontend") {
 		return nil
 	}
+	if clientVisible, ok := tool.Meta["clientVisible"].(bool); ok && !clientVisible {
+		return nil
+	}
 	viewportKey, _ := tool.Meta["viewportKey"].(string)
 	viewportType, _ := tool.Meta["toolType"].(string)
 	mode, _ := payload["mode"].(string)
@@ -750,48 +753,90 @@ func (s *llmRunStream) preToolInvocationDeltas(toolID string, toolName string, p
 	if normalizedMode == "approval" {
 		events = append(events, DeltaAwaitQuestion{
 			AwaitID:      toolID,
-			AwaitName:    toolName,
 			ViewportType: viewportType,
 			ViewportKey:  viewportKey,
 			Mode:         normalizedMode,
 			ToolTimeout:  toolTimeout,
 			RunID:        s.session.RunID,
-			ChatID:       s.session.ChatID,
-			Payload:      inlineAwaitPayload(toolName, payload),
 		})
 	}
-	if awaitPayload := deferredAwaitPayload(toolName, payload); awaitPayload != nil {
+	if awaitQuestions := deferredAwaitQuestions(toolName, payload); len(awaitQuestions) > 0 {
 		events = append(events, DeltaAwaitPayload{
-			AwaitID: toolID,
-			Payload: awaitPayload,
+			AwaitID:   toolID,
+			Questions: awaitQuestions,
 		})
 	}
 	return events
 }
 
-func inlineAwaitPayload(toolName string, payload map[string]any) any {
-	_, _ = toolName, payload
-	return nil
-}
-
-func deferredAwaitPayload(toolName string, payload map[string]any) any {
+func deferredAwaitQuestions(toolName string, payload map[string]any) []any {
 	switch strings.ToLower(strings.TrimSpace(toolName)) {
 	case "_ask_user_question_", "_ask_user_approval_":
-		return cloneAwaitPayload(payload)
+		return buildAwaitQuestions(payload)
 	default:
 		return nil
 	}
 }
 
-func cloneAwaitPayload(payload map[string]any) map[string]any {
+func buildAwaitQuestions(payload map[string]any) []any {
 	if payload == nil {
 		return nil
 	}
-	cloned := make(map[string]any, len(payload))
-	for key, value := range payload {
-		cloned[key] = value
+	mode := strings.ToLower(strings.TrimSpace(AnyStringNode(payload["mode"])))
+	switch mode {
+	case "question":
+		rawQuestions, _ := payload["questions"].([]any)
+		return cloneAwaitQuestions(rawQuestions)
+	case "approval":
+		question := map[string]any{}
+		if value := AnyStringNode(payload["question"]); value != "" {
+			question["question"] = value
+		}
+		if value := AnyStringNode(payload["header"]); value != "" {
+			question["header"] = value
+		}
+		if value := AnyStringNode(payload["description"]); value != "" {
+			question["description"] = value
+		}
+		if options, ok := payload["options"].([]any); ok {
+			question["options"] = cloneAwaitQuestions(options)
+		}
+		if _, exists := payload["allowFreeText"]; exists {
+			question["allowFreeText"] = payload["allowFreeText"]
+		}
+		if value := AnyStringNode(payload["freeTextPlaceholder"]); value != "" {
+			question["freeTextPlaceholder"] = value
+		}
+		return []any{question}
+	default:
+		return nil
+	}
+}
+
+func cloneAwaitQuestions(input []any) []any {
+	if len(input) == 0 {
+		return nil
+	}
+	cloned := make([]any, 0, len(input))
+	for _, value := range input {
+		cloned = append(cloned, deepCloneAny(value))
 	}
 	return cloned
+}
+
+func deepCloneAny(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		cloned := make(map[string]any, len(typed))
+		for key, item := range typed {
+			cloned[key] = deepCloneAny(item)
+		}
+		return cloned
+	case []any:
+		return cloneAwaitQuestions(typed)
+	default:
+		return typed
+	}
 }
 
 func (s *llmRunStream) lookupToolDefinition(toolName string) (api.ToolDetailResponse, bool) {

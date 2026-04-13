@@ -1,7 +1,5 @@
 package stream
 
-import "strings"
-
 type StreamEventDispatcher struct {
 	request StreamRequest
 	state   *StreamEventStateData
@@ -62,22 +60,17 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 	case AwaitQuestion:
 		payload := map[string]any{
 			"awaitId":      value.AwaitID,
-			"awaitName":    value.AwaitName,
 			"viewportType": value.ViewportType,
 			"viewportKey":  value.ViewportKey,
 			"mode":         value.Mode,
 			"toolTimeout":  value.ToolTimeout,
 			"runId":        value.RunID,
-			"chatId":       value.ChatID,
-		}
-		if value.Payload != nil {
-			payload["payload"] = value.Payload
 		}
 		return []StreamEvent{NewEvent("await.question", payload)}
 	case AwaitPayload:
 		return []StreamEvent{NewEvent("await.payload", map[string]any{
-			"awaitId": value.AwaitID,
-			"payload": value.Payload,
+			"awaitId":   value.AwaitID,
+			"questions": value.Questions,
 		})}
 	case AwaitAnswer:
 		return []StreamEvent{NewEvent("await.answer", map[string]any{
@@ -163,10 +156,7 @@ func (d *StreamEventDispatcher) Fail(err error) []StreamEvent {
 
 func (d *StreamEventDispatcher) handleReasoningDelta(input ReasoningDelta) []StreamEvent {
 	events := d.closeForSwitch("reasoning")
-	reasoningLabel := strings.TrimSpace(input.ReasoningLabel)
-	if reasoningLabel == "" {
-		reasoningLabel = ReasoningLabelForID(input.ReasoningID)
-	}
+	reasoningLabel := ReasoningLabelForID(input.ReasoningID)
 	if d.state.activeReasoningID == "" || d.state.activeReasoningID != input.ReasoningID {
 		d.state.activeReasoningID = input.ReasoningID
 		d.state.activeReasoning = reasoningBlockState{TaskID: input.TaskID, Label: reasoningLabel}

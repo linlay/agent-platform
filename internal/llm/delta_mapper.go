@@ -182,19 +182,16 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 	case DeltaAwaitQuestion:
 		return []stream.StreamInput{stream.AwaitQuestion{
 			AwaitID:      value.AwaitID,
-			AwaitName:    value.AwaitName,
 			ViewportType: value.ViewportType,
 			ViewportKey:  value.ViewportKey,
 			Mode:         value.Mode,
 			ToolTimeout:  value.ToolTimeout,
 			RunID:        value.RunID,
-			ChatID:       value.ChatID,
-			Payload:      value.Payload,
 		}}
 	case DeltaAwaitPayload:
 		return []stream.StreamInput{stream.AwaitPayload{
-			AwaitID: value.AwaitID,
-			Payload: value.Payload,
+			AwaitID:   value.AwaitID,
+			Questions: append([]any(nil), value.Questions...),
 		}}
 	case DeltaAwaitAnswer:
 		return []stream.StreamInput{stream.AwaitAnswer{
@@ -223,6 +220,9 @@ func (m *DeltaMapper) buildEarlyAwaitQuestion(toolID string, toolName string, to
 	if !strings.EqualFold(strings.TrimSpace(toolName), "_ask_user_question_") {
 		return nil
 	}
+	if !m.isClientVisibleTool(toolName) {
+		return nil
+	}
 	if m.earlyAwaitEmitted[toolID] {
 		return nil
 	}
@@ -233,13 +233,11 @@ func (m *DeltaMapper) buildEarlyAwaitQuestion(toolID string, toolName string, to
 	}
 	return &stream.AwaitQuestion{
 		AwaitID:      toolID,
-		AwaitName:    toolName,
 		ViewportType: toolType,
 		ViewportKey:  viewportKey,
 		Mode:         "question",
 		ToolTimeout:  m.toolTimeoutMs,
 		RunID:        m.runID,
-		ChatID:       m.chatID,
 	}
 }
 
@@ -286,4 +284,18 @@ func (m *DeltaMapper) resolveViewportMetadata(toolName string) (string, string) 
 	toolType, _ := tool.Meta["toolType"].(string)
 	viewportKey, _ := tool.Meta["viewportKey"].(string)
 	return strings.TrimSpace(toolType), strings.TrimSpace(viewportKey)
+}
+
+func (m *DeltaMapper) isClientVisibleTool(toolName string) bool {
+	if m.toolRegistry == nil {
+		return true
+	}
+	tool, ok := m.toolRegistry.Tool(toolName)
+	if !ok {
+		return true
+	}
+	if clientVisible, ok := tool.Meta["clientVisible"].(bool); ok {
+		return clientVisible
+	}
+	return true
 }

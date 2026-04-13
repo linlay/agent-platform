@@ -58,19 +58,17 @@ func TestDispatcherEmitsAwaitQuestionAndPayload(t *testing.T) {
 
 	viewportEvents := dispatcher.Dispatch(AwaitQuestion{
 		AwaitID:      "tool_1",
-		AwaitName:    "_ask_user_question_",
 		ViewportType: "builtin",
 		ViewportKey:  "confirm_dialog",
 		Mode:         "question",
 		ToolTimeout:  120000,
 		RunID:        "run_1",
-		ChatID:       "chat_1",
 	})
 	assertEventTypes(t, viewportEvents, "await.question")
 
 	payloadEvents := dispatcher.Dispatch(AwaitPayload{
-		AwaitID: "tool_1",
-		Payload: map[string]any{"mode": "question"},
+		AwaitID:   "tool_1",
+		Questions: []any{map[string]any{"question": "How many?", "type": "number"}},
 	})
 	assertEventTypes(t, payloadEvents, "await.payload")
 }
@@ -81,15 +79,29 @@ func TestDispatcherCompleteEmitsReasoningSnapshot(t *testing.T) {
 		ChatID: "chat_1",
 	})
 
-	events := dispatcher.Dispatch(ReasoningDelta{ReasoningID: "run_1_r_1", Delta: "thinking..."})
+	events := dispatcher.Dispatch(ReasoningDelta{
+		ReasoningID:    "run_1_r_1",
+		ReasoningLabel: "reasoning_details",
+		Delta:          "thinking...",
+	})
 	assertEventTypes(t, events, "reasoning.start", "reasoning.delta")
 	start := events[0].ToData()
 	startLabel := start["reasoningLabel"]
 	if startLabel == "" {
 		t.Fatalf("expected reasoning.start to include reasoningLabel, got %#v", start)
 	}
+	if startLabel == "reasoning_details" {
+		t.Fatalf("expected reasoning.start to use display phrase instead of internal source tag, got %#v", start)
+	}
+	if startLabel != ReasoningLabelForID("run_1_r_1") {
+		t.Fatalf("expected reasoning.start to use deterministic display phrase, got %#v", start)
+	}
 
-	events = dispatcher.Dispatch(ReasoningDelta{ReasoningID: "run_1_r_1", Delta: " more"})
+	events = dispatcher.Dispatch(ReasoningDelta{
+		ReasoningID:    "run_1_r_1",
+		ReasoningLabel: "thinking_delta",
+		Delta:          " more",
+	})
 	assertEventTypes(t, events, "reasoning.delta")
 
 	events = dispatcher.Dispatch(ContentDelta{ContentID: "run_1_c_1", Delta: "hello"})
@@ -104,6 +116,34 @@ func TestDispatcherCompleteEmitsReasoningSnapshot(t *testing.T) {
 
 	completeEvents := dispatcher.Complete()
 	assertEventTypes(t, completeEvents, "content.end", "content.snapshot", "run.complete")
+}
+
+func TestDispatcherNeverEmitsInternalReasoningSourceAsReasoningLabel(t *testing.T) {
+	internalLabels := []string{
+		"reasoning_details",
+		"reasoning_content",
+		"thinking_delta",
+		"think_tag",
+	}
+
+	for _, internalLabel := range internalLabels {
+		dispatcher := NewDispatcher(StreamRequest{
+			RunID:  "run_1",
+			ChatID: "chat_1",
+		})
+
+		events := dispatcher.Dispatch(ReasoningDelta{
+			ReasoningID:    "run_1_r_9",
+			ReasoningLabel: internalLabel,
+			Delta:          "thinking...",
+		})
+		assertEventTypes(t, events, "reasoning.start", "reasoning.delta")
+
+		start := events[0].ToData()
+		if start["reasoningLabel"] == internalLabel {
+			t.Fatalf("expected reasoning.start not to expose internal reasoning label %q, got %#v", internalLabel, start)
+		}
+	}
 }
 
 func TestEventDataMarshalsReasoningSnapshotWithContractKeyOrder(t *testing.T) {
@@ -227,11 +267,9 @@ func TestEventDataMarshalsWithContractKeyOrder(t *testing.T) {
 
 func TestEventDataMarshalsAwaitQuestionWithContractKeyOrder(t *testing.T) {
 	event := NewEvent("await.question", map[string]any{
-		"chatId":       "chat_1",
 		"toolTimeout":  120000,
 		"runId":        "run_1",
 		"viewportKey":  "confirm_dialog",
-		"awaitName":    "_ask_user_approval_",
 		"mode":         "approval",
 		"awaitId":      "tool_1",
 		"viewportType": "builtin",
@@ -246,13 +284,11 @@ func TestEventDataMarshalsAwaitQuestionWithContractKeyOrder(t *testing.T) {
 		`"seq":9`,
 		`"type":"await.question"`,
 		`"awaitId":"tool_1"`,
-		`"awaitName":"_ask_user_approval_"`,
 		`"viewportType":"builtin"`,
 		`"viewportKey":"confirm_dialog"`,
 		`"mode":"approval"`,
 		`"toolTimeout":120000`,
 		`"runId":"run_1"`,
-		`"chatId":"chat_1"`,
 		`"timestamp":`,
 	}
 	prev := -1
@@ -265,6 +301,30 @@ func TestEventDataMarshalsAwaitQuestionWithContractKeyOrder(t *testing.T) {
 			t.Fatalf("expected ordered keys in %s", text)
 		}
 		prev = idx
+	}
+}
+
+func TestEventDataMarshalsAwaitPayloadWithQuestions(t *testing.T) {
+	event := NewEvent("await.payload", map[string]any{
+		"awaitId": "tool_1",
+		"questions": []any{
+			map[string]any{
+				"question": "Destination?",
+				"type":     "select",
+			},
+		},
+	})
+	event.Seq = 10
+	data, err := json.Marshal(event.Data())
+	if err != nil {
+		t.Fatalf("marshal event data: %v", err)
+	}
+	text := string(data)
+	if !strings.Contains(text, `"questions":[`) {
+		t.Fatalf("expected top-level questions in await.payload: %s", text)
+	}
+	if strings.Contains(text, `"payload":`) {
+		t.Fatalf("did not expect payload wrapper in await.payload: %s", text)
 	}
 }
 

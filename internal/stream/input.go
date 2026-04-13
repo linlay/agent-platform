@@ -131,21 +131,18 @@ func (ArtifactPublish) streamInputTag() {}
 
 type AwaitQuestion struct {
 	AwaitID      string
-	AwaitName    string
 	ViewportType string
 	ViewportKey  string
 	Mode         string
 	ToolTimeout  int64
 	RunID        string
-	ChatID       string
-	Payload      any
 }
 
 func (AwaitQuestion) streamInputTag() {}
 
 type AwaitPayload struct {
-	AwaitID string
-	Payload any
+	AwaitID   string
+	Questions []any
 }
 
 func (AwaitPayload) streamInputTag() {}

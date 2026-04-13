@@ -46,10 +46,6 @@ func (n *SseEventNormalizer) shouldDrop(event StreamEvent) bool {
 	if strings.HasPrefix(toolName, "_hidden_") {
 		return true
 	}
-	awaitName, _ := event.Payload["awaitName"].(string)
-	if strings.HasPrefix(awaitName, "_hidden_") {
-		return true
-	}
 
 	// Suppress tool events for clientVisible=false tools.
 	eventType := event.Type
@@ -57,13 +53,7 @@ func (n *SseEventNormalizer) shouldDrop(event StreamEvent) bool {
 	awaitID, _ := event.Payload["awaitId"].(string)
 
 	if eventType == "await.question" {
-		if n.isHiddenToolName(awaitName) {
-			if awaitID != "" {
-				n.hiddenToolIDs[awaitID] = true
-			}
-			return true
-		}
-		return false
+		return awaitID != "" && n.hiddenToolIDs[awaitID]
 	}
 	if eventType == "await.payload" {
 		return awaitID != "" && n.hiddenToolIDs[awaitID]

@@ -224,12 +224,10 @@ func TestLoadChatReplaysEventLinesForAwaitLifecycle(t *testing.T) {
 		Event: map[string]any{
 			"type":         "await.question",
 			"awaitId":      "tool-1",
-			"awaitName":    "_ask_user_question_",
 			"viewportType": "builtin",
 			"viewportKey":  "confirm_dialog",
 			"mode":         "question",
 			"toolTimeout":  120000,
-			"chatId":       "chat-1",
 			"runId":        "run-1",
 		},
 	}); err != nil {
@@ -244,13 +242,10 @@ func TestLoadChatReplaysEventLinesForAwaitLifecycle(t *testing.T) {
 		Event: map[string]any{
 			"type":    "await.payload",
 			"awaitId": "tool-1",
-			"payload": map[string]any{
-				"mode": "question",
-				"questions": []any{
-					map[string]any{
-						"question": "How many?",
-						"type":     "number",
-					},
+			"questions": []any{
+				map[string]any{
+					"question": "How many?",
+					"type":     "number",
 				},
 			},
 		},
@@ -307,13 +302,19 @@ func TestLoadChatReplaysEventLinesForAwaitLifecycle(t *testing.T) {
 	}
 
 	viewport := detail.Events[3]
-	if viewport.String("awaitName") != "_ask_user_question_" || viewport.String("viewportKey") != "confirm_dialog" {
+	if viewport.String("viewportKey") != "confirm_dialog" {
 		t.Fatalf("unexpected await question replay %#v", viewport)
+	}
+	if _, exists := viewport.Payload["awaitName"]; exists {
+		t.Fatalf("did not expect awaitName on await.question replay %#v", viewport)
+	}
+	if _, exists := viewport.Payload["chatId"]; exists {
+		t.Fatalf("did not expect chatId on await.question replay %#v", viewport)
 	}
 
 	payload := detail.Events[4]
-	payloadMap, _ := payload.Value("payload").(map[string]any)
-	if payloadMap["mode"] != "question" {
+	questions, _ := payload.Value("questions").([]any)
+	if len(questions) != 1 {
 		t.Fatalf("expected await payload replay, got %#v", payload)
 	}
 
