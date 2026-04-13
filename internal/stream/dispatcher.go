@@ -58,15 +58,7 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 			"artifact":   value.Artifact,
 		})}
 	case AwaitQuestion:
-		payload := map[string]any{
-			"awaitId":      value.AwaitID,
-			"viewportType": value.ViewportType,
-			"viewportKey":  value.ViewportKey,
-			"mode":         value.Mode,
-			"toolTimeout":  value.ToolTimeout,
-			"runId":        value.RunID,
-		}
-		return []StreamEvent{NewEvent("await.question", payload)}
+		return []StreamEvent{d.newAwaitQuestionEvent(value)}
 	case AwaitPayload:
 		return []StreamEvent{NewEvent("await.payload", map[string]any{
 			"awaitId":   value.AwaitID,
@@ -220,6 +212,9 @@ func (d *StreamEventDispatcher) handleToolArgs(input ToolArgs) []StreamEvent {
 			"toolLabel":       input.ToolLabel,
 			"toolDescription": input.ToolDescription,
 		}))
+		if input.AwaitQuestion != nil {
+			events = append(events, d.newAwaitQuestionEvent(*input.AwaitQuestion))
+		}
 	}
 	d.state.toolArgsBuffer[input.ToolID] += input.Delta
 	events = append(events, NewEvent("tool.args", map[string]any{
@@ -228,6 +223,21 @@ func (d *StreamEventDispatcher) handleToolArgs(input ToolArgs) []StreamEvent {
 		"chunkIndex": input.ChunkIndex,
 	}))
 	return events
+}
+
+func (d *StreamEventDispatcher) newAwaitQuestionEvent(input AwaitQuestion) StreamEvent {
+	payload := map[string]any{
+		"awaitId":      input.AwaitID,
+		"viewportType": input.ViewportType,
+		"viewportKey":  input.ViewportKey,
+		"mode":         input.Mode,
+		"toolTimeout":  input.ToolTimeout,
+		"runId":        input.RunID,
+	}
+	if len(input.Questions) > 0 {
+		payload["questions"] = input.Questions
+	}
+	return NewEvent("await.question", payload)
 }
 
 func (d *StreamEventDispatcher) handleToolEnd(input ToolEnd) []StreamEvent {

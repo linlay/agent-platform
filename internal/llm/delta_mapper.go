@@ -20,7 +20,6 @@ type DeltaMapper struct {
 	indexedToolIDs       map[int]string
 	toolArgChunkCounters map[string]int
 	actionToolIDs        map[string]bool
-	earlyAwaitEmitted    map[string]bool
 	toolRegistry         ToolDefinitionLookup
 }
 
@@ -32,7 +31,6 @@ func NewDeltaMapper(runID string, chatID string, toolTimeoutMs int64, toolRegist
 		indexedToolIDs:       map[int]string{},
 		toolArgChunkCounters: map[string]int{},
 		actionToolIDs:        map[string]bool{},
-		earlyAwaitEmitted:    map[string]bool{},
 		toolRegistry:         toolRegistry,
 	}
 }
@@ -91,11 +89,8 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		chunkIndex := m.toolArgChunkCounters[toolID]
 		m.toolArgChunkCounters[toolID] = chunkIndex + 1
 		m.lastKind = "tool"
-		inputs := make([]stream.StreamInput, 0, 2)
-		if earlyAwait := m.buildEarlyAwaitQuestion(toolID, value.Name, toolType); earlyAwait != nil {
-			inputs = append(inputs, *earlyAwait)
-		}
-		inputs = append(inputs, stream.ToolArgs{
+		awaitQuestion := m.buildQuestionToolAwaitQuestion(toolID, value.Name, toolType, chunkIndex)
+		return []stream.StreamInput{stream.ToolArgs{
 			ToolID:          toolID,
 			Delta:           value.ArgsDelta,
 			ToolName:        value.Name,
@@ -103,8 +98,8 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			ToolLabel:       toolLabel,
 			ToolDescription: toolDescription,
 			ChunkIndex:      chunkIndex,
-		})
-		return inputs
+			AwaitQuestion:   awaitQuestion,
+		}}
 	case DeltaToolEnd:
 		m.lastKind = ""
 		inputs := make([]stream.StreamInput, 0, len(value.ToolIDs))
@@ -187,6 +182,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			Mode:         value.Mode,
 			ToolTimeout:  value.ToolTimeout,
 			RunID:        value.RunID,
+			Questions:    append([]any(nil), value.Questions...),
 		}}
 	case DeltaAwaitPayload:
 		return []stream.StreamInput{stream.AwaitPayload{
@@ -216,17 +212,16 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 	}
 }
 
-func (m *DeltaMapper) buildEarlyAwaitQuestion(toolID string, toolName string, toolType string) *stream.AwaitQuestion {
+func (m *DeltaMapper) buildQuestionToolAwaitQuestion(toolID string, toolName string, toolType string, chunkIndex int) *stream.AwaitQuestion {
 	if !strings.EqualFold(strings.TrimSpace(toolName), "_ask_user_question_") {
+		return nil
+	}
+	if chunkIndex != 0 {
 		return nil
 	}
 	if !m.isClientVisibleTool(toolName) {
 		return nil
 	}
-	if m.earlyAwaitEmitted[toolID] {
-		return nil
-	}
-	m.earlyAwaitEmitted[toolID] = true
 	resolvedToolType, viewportKey := m.resolveViewportMetadata(toolName)
 	if strings.TrimSpace(toolType) == "" {
 		toolType = resolvedToolType

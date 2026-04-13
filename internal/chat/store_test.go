@@ -193,7 +193,7 @@ func TestLoadRawMessagesFallsBackToLegacyFile(t *testing.T) {
 	}
 }
 
-func TestLoadChatReplaysEventLinesForAwaitLifecycle(t *testing.T) {
+func TestLoadChatReplaysQuestionAwaitLifecycleEventLines(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
@@ -322,6 +322,99 @@ func TestLoadChatReplaysEventLinesForAwaitLifecycle(t *testing.T) {
 	submitPayload, _ := submit.Value("payload").(map[string]any)
 	if submit.String("toolId") != "tool-1" || submitPayload == nil {
 		t.Fatalf("unexpected await.answer replay %#v", submit)
+	}
+}
+
+func TestLoadChatReplaysApprovalAwaitLifecycleEventLines(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	if _, _, err := store.EnsureChat("chat-approval", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	if err := store.AppendQueryLine("chat-approval", QueryLine{
+		ChatID:    "chat-approval",
+		RunID:     "run-approval",
+		UpdatedAt: 1000,
+		Query: map[string]any{
+			"chatId":  "chat-approval",
+			"message": "please approve",
+		},
+		Type: "query",
+	}); err != nil {
+		t.Fatalf("append query line: %v", err)
+	}
+
+	if err := store.AppendEventLine("chat-approval", EventLine{
+		ChatID:    "chat-approval",
+		RunID:     "run-approval",
+		UpdatedAt: 1001,
+		Type:      "event",
+		Event: map[string]any{
+			"type":         "await.question",
+			"awaitId":      "tool-approval",
+			"viewportType": "builtin",
+			"viewportKey":  "confirm_dialog",
+			"mode":         "approval",
+			"toolTimeout":  120000,
+			"runId":        "run-approval",
+			"questions": []any{
+				map[string]any{
+					"question": "Proceed?",
+					"options": []any{
+						map[string]any{"label": "Approve", "value": "approve"},
+					},
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("append approval await question line: %v", err)
+	}
+
+	if err := store.AppendEventLine("chat-approval", EventLine{
+		ChatID:    "chat-approval",
+		RunID:     "run-approval",
+		UpdatedAt: 1002,
+		Type:      "event",
+		Event: map[string]any{
+			"type":      "await.answer",
+			"requestId": "req-approval",
+			"chatId":    "chat-approval",
+			"runId":     "run-approval",
+			"toolId":    "tool-approval",
+			"payload":   map[string]any{"value": "approve"},
+		},
+	}); err != nil {
+		t.Fatalf("append approval await answer line: %v", err)
+	}
+
+	detail, err := store.LoadChat("chat-approval")
+	if err != nil {
+		t.Fatalf("load chat: %v", err)
+	}
+
+	foundAwaitQuestion := false
+	foundAwaitPayload := false
+	for _, event := range detail.Events {
+		switch event.Type {
+		case "await.question":
+			foundAwaitQuestion = true
+			questions, _ := event.Value("questions").([]any)
+			if len(questions) != 1 {
+				t.Fatalf("expected approval await.question questions length 1, got %#v", event)
+			}
+		case "await.payload":
+			foundAwaitPayload = true
+		}
+	}
+	if !foundAwaitQuestion {
+		t.Fatalf("expected approval await.question replay, got %#v", detail.Events)
+	}
+	if foundAwaitPayload {
+		t.Fatalf("did not expect approval await.payload replay, got %#v", detail.Events)
 	}
 }
 

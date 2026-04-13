@@ -554,6 +554,9 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 	}
 	s.execCtx.ToolCalls++
 	defer func() {
+		if s.runControl != nil {
+			s.runControl.ClearExpectedSubmit(invocation.toolID)
+		}
 		s.execCtx.CurrentToolID = ""
 		s.execCtx.CurrentToolName = ""
 		s.activeToolCall = nil
@@ -740,6 +743,9 @@ func (s *llmRunStream) preToolInvocationDeltas(toolID string, toolName string, p
 	if clientVisible, ok := tool.Meta["clientVisible"].(bool); ok && !clientVisible {
 		return nil
 	}
+	if s.runControl != nil {
+		s.runControl.ExpectSubmit(toolID)
+	}
 	viewportKey, _ := tool.Meta["viewportKey"].(string)
 	viewportType, _ := tool.Meta["toolType"].(string)
 	mode, _ := payload["mode"].(string)
@@ -758,13 +764,16 @@ func (s *llmRunStream) preToolInvocationDeltas(toolID string, toolName string, p
 			Mode:         normalizedMode,
 			ToolTimeout:  toolTimeout,
 			RunID:        s.session.RunID,
+			Questions:    deferredAwaitQuestions(toolName, payload),
 		})
 	}
-	if awaitQuestions := deferredAwaitQuestions(toolName, payload); len(awaitQuestions) > 0 {
-		events = append(events, DeltaAwaitPayload{
-			AwaitID:   toolID,
-			Questions: awaitQuestions,
-		})
+	if normalizedMode == "question" {
+		if awaitQuestions := deferredAwaitQuestions(toolName, payload); len(awaitQuestions) > 0 {
+			events = append(events, DeltaAwaitPayload{
+				AwaitID:   toolID,
+				Questions: awaitQuestions,
+			})
+		}
 	}
 	return events
 }

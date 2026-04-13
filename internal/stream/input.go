@@ -30,6 +30,7 @@ type ToolArgs struct {
 	ToolLabel       string
 	ToolDescription string
 	ChunkIndex      int
+	AwaitQuestion   *AwaitQuestion
 }
 
 func (ToolArgs) streamInputTag() {}
@@ -136,6 +137,7 @@ type AwaitQuestion struct {
 	Mode         string
 	ToolTimeout  int64
 	RunID        string
+	Questions    []any
 }
 
 func (AwaitQuestion) streamInputTag() {}

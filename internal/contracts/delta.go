@@ -95,6 +95,7 @@ type DeltaAwaitQuestion struct {
 	Mode         string
 	ToolTimeout  int64
 	RunID        string
+	Questions    []any
 }
 
 func (DeltaAwaitQuestion) agentDeltaTag() {}

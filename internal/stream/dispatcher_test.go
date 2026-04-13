@@ -50,7 +50,31 @@ func TestDispatcherEmitsToolSnapshotAndResultLifecycle(t *testing.T) {
 	assertEventTypes(t, resultEvents, "tool.result")
 }
 
-func TestDispatcherEmitsAwaitQuestionAndPayload(t *testing.T) {
+func TestDispatcherEmitsQuestionModeAwaitQuestionAfterToolStart(t *testing.T) {
+	dispatcher := NewDispatcher(StreamRequest{
+		RunID:  "run_1",
+		ChatID: "chat_1",
+	})
+
+	events := dispatcher.Dispatch(ToolArgs{
+		ToolID:     "tool_1",
+		ToolName:   "_ask_user_question_",
+		ToolType:   "builtin",
+		Delta:      "{",
+		ChunkIndex: 0,
+		AwaitQuestion: &AwaitQuestion{
+			AwaitID:      "tool_1",
+			ViewportType: "builtin",
+			ViewportKey:  "confirm_dialog",
+			Mode:         "question",
+			ToolTimeout:  120000,
+			RunID:        "run_1",
+		},
+	})
+	assertEventTypes(t, events, "tool.start", "await.question", "tool.args")
+}
+
+func TestDispatcherEmitsApprovalModeAwaitQuestionWithQuestions(t *testing.T) {
 	dispatcher := NewDispatcher(StreamRequest{
 		RunID:  "run_1",
 		ChatID: "chat_1",
@@ -60,9 +84,12 @@ func TestDispatcherEmitsAwaitQuestionAndPayload(t *testing.T) {
 		AwaitID:      "tool_1",
 		ViewportType: "builtin",
 		ViewportKey:  "confirm_dialog",
-		Mode:         "question",
+		Mode:         "approval",
 		ToolTimeout:  120000,
 		RunID:        "run_1",
+		Questions: []any{
+			map[string]any{"question": "Proceed?", "options": []any{map[string]any{"label": "Yes", "value": "yes"}}},
+		},
 	})
 	assertEventTypes(t, viewportEvents, "await.question")
 
@@ -301,6 +328,28 @@ func TestEventDataMarshalsAwaitQuestionWithContractKeyOrder(t *testing.T) {
 			t.Fatalf("expected ordered keys in %s", text)
 		}
 		prev = idx
+	}
+}
+
+func TestEventDataMarshalsApprovalAwaitQuestionWithQuestions(t *testing.T) {
+	event := NewEvent("await.question", map[string]any{
+		"awaitId":      "tool_1",
+		"viewportType": "builtin",
+		"viewportKey":  "confirm_dialog",
+		"mode":         "approval",
+		"toolTimeout":  120000,
+		"runId":        "run_1",
+		"questions": []any{
+			map[string]any{"question": "Proceed?"},
+		},
+	})
+	data, err := json.Marshal(event.Data())
+	if err != nil {
+		t.Fatalf("marshal event data: %v", err)
+	}
+	text := string(data)
+	if !strings.Contains(text, `"questions":[`) {
+		t.Fatalf("expected questions in approval await.question: %s", text)
 	}
 }
 

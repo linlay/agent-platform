@@ -43,20 +43,23 @@ type RunControl struct {
 	interrupted atomic.Bool
 	finished    atomic.Bool
 
-	mu            sync.Mutex
-	steerQueue    []api.SteerRequest
-	submitWaiters map[string]*submitWaiter
-	state         RunLoopState
+	mu                   sync.Mutex
+	steerQueue           []api.SteerRequest
+	submitWaiters        map[string]*submitWaiter
+	pendingSubmits       map[string]SubmitResult
+	expectedSubmitToolID string
+	state                RunLoopState
 }
 
 func NewRunControl(parent context.Context, runID string) *RunControl {
 	ctx, cancel := context.WithCancel(parent)
 	return &RunControl{
-		runID:         runID,
-		ctx:           ctx,
-		cancel:        cancel,
-		submitWaiters: map[string]*submitWaiter{},
-		state:         RunLoopStateIdle,
+		runID:          runID,
+		ctx:            ctx,
+		cancel:         cancel,
+		submitWaiters:  map[string]*submitWaiter{},
+		pendingSubmits: map[string]SubmitResult{},
+		state:          RunLoopStateIdle,
 	}
 }
 
@@ -181,6 +184,14 @@ func (c *RunControl) AwaitSubmitWithTimeout(ctx context.Context, toolID string, 
 		c.mu.Unlock()
 		return SubmitResult{}, ErrFrontendSubmitAlreadyWaiting
 	}
+	if pending, exists := c.pendingSubmits[toolID]; exists {
+		delete(c.pendingSubmits, toolID)
+		if c.expectedSubmitToolID == toolID {
+			c.expectedSubmitToolID = ""
+		}
+		c.mu.Unlock()
+		return pending, nil
+	}
 	c.submitWaiters[toolID] = waiter
 	c.mu.Unlock()
 
@@ -241,6 +252,19 @@ func (c *RunControl) ResolveSubmit(req api.SubmitRequest) SubmitAck {
 	waiter, ok := c.submitWaiters[req.ToolID]
 	if ok {
 		delete(c.submitWaiters, req.ToolID)
+		if c.expectedSubmitToolID == req.ToolID {
+			c.expectedSubmitToolID = ""
+		}
+	}
+	if !ok && req.ToolID != "" && req.ToolID == c.expectedSubmitToolID && !c.interrupted.Load() && !c.finished.Load() {
+		c.pendingSubmits[req.ToolID] = SubmitResult{
+			Request: req,
+			Status:  "accepted",
+			Detail:  "Frontend submit accepted",
+		}
+		c.expectedSubmitToolID = ""
+		c.mu.Unlock()
+		return SubmitAck{Accepted: true, Status: "accepted", Detail: "Frontend submit accepted"}
 	}
 	c.mu.Unlock()
 	if !ok {
@@ -254,6 +278,26 @@ func (c *RunControl) ResolveSubmit(req api.SubmitRequest) SubmitAck {
 		return SubmitAck{Accepted: false, Status: "unmatched", Detail: "Frontend submit waiter is no longer active"}
 	}
 	return SubmitAck{Accepted: true, Status: "accepted", Detail: "Frontend submit accepted"}
+}
+
+func (c *RunControl) ExpectSubmit(toolID string) {
+	if c == nil || toolID == "" {
+		return
+	}
+	c.mu.Lock()
+	c.expectedSubmitToolID = toolID
+	c.mu.Unlock()
+}
+
+func (c *RunControl) ClearExpectedSubmit(toolID string) {
+	if c == nil || toolID == "" {
+		return
+	}
+	c.mu.Lock()
+	if c.expectedSubmitToolID == toolID {
+		c.expectedSubmitToolID = ""
+	}
+	c.mu.Unlock()
 }
 
 func (c *RunControl) closeWaiters(status string, detail string) {
