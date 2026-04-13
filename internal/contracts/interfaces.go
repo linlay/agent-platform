@@ -105,6 +105,7 @@ type ExecutionContext struct {
 	RunControl      *RunControl
 	CurrentToolID   string
 	CurrentToolName string
+	HITLLevel       int
 	SandboxSession  *SandboxSession
 	Budget          Budget
 	StageSettings   PlanExecuteSettings

@@ -29,6 +29,7 @@ import (
 	"agent-platform-runner-go/internal/chat"
 	"agent-platform-runner-go/internal/config"
 	"agent-platform-runner-go/internal/contracts"
+	"agent-platform-runner-go/internal/hitl"
 	"agent-platform-runner-go/internal/llm"
 	"agent-platform-runner-go/internal/memory"
 	"agent-platform-runner-go/internal/models"
@@ -1407,6 +1408,242 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 	}
 }
 
+type recordingSandbox struct {
+	commands []string
+}
+
+func (s *recordingSandbox) OpenIfNeeded(_ context.Context, _ *contracts.ExecutionContext) error {
+	return nil
+}
+
+func (s *recordingSandbox) Execute(_ context.Context, _ *contracts.ExecutionContext, command string, cwd string, _ int64) (contracts.SandboxExecutionResult, error) {
+	s.commands = append(s.commands, command)
+	return contracts.SandboxExecutionResult{
+		ExitCode:         0,
+		Stdout:           "executed: " + command,
+		Stderr:           "",
+		WorkingDirectory: cwd,
+	}, nil
+}
+
+func (s *recordingSandbox) CloseQuietly(_ *contracts.ExecutionContext) {}
+
+func TestBashHITLApproveFlow(t *testing.T) {
+	body, executed := runBashHITLFlow(t, "approve", "")
+	if len(executed) != 1 || executed[0] != "git push origin main" {
+		t.Fatalf("expected approved command to execute once, got %#v", executed)
+	}
+	if !strings.Contains(body, `"_hitl_confirm_dialog_"`) {
+		t.Fatalf("expected synthetic HITL tool in stream, got %s", body)
+	}
+}
+
+func TestBashHITLModifyFlow(t *testing.T) {
+	body, executed := runBashHITLFlow(t, "modify", "git push origin release")
+	if len(executed) != 1 || executed[0] != "git push origin release" {
+		t.Fatalf("expected modified command to execute once, got %#v", executed)
+	}
+	if !strings.Contains(body, `"action":"modify"`) {
+		t.Fatalf("expected modify synthetic result, got %s", body)
+	}
+}
+
+func TestBashHITLRejectFlow(t *testing.T) {
+	body, executed := runBashHITLFlow(t, "reject", "")
+	if len(executed) != 0 {
+		t.Fatalf("expected rejected command not to execute, got %#v", executed)
+	}
+	if !strings.Contains(body, `"code":"hitl_rejected"`) {
+		t.Fatalf("expected rejected original bash result, got %s", body)
+	}
+}
+
+func runBashHITLFlow(t *testing.T, action string, modifiedCommand string) (string, []string) {
+	t.Helper()
+
+	var providerCallCount atomic.Int32
+	secondTurnMessages := make(chan []map[string]any, 1)
+	sandbox := &recordingSandbox{}
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		call := providerCallCount.Add(1)
+		switch call {
+		case 1:
+			writeProviderSSE(t, w,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_bash","type":"function","function":{"name":"_sandbox_bash_","arguments":"{\"command\":\"git push origin main\",\"cwd\":\"/workspace\"}"}}]},"finish_reason":"tool_calls"}]}`,
+				`[DONE]`,
+			)
+		case 2:
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode second provider request: %v", err)
+			}
+			secondTurnMessages <- normalizeProviderMessages(payload["messages"])
+			writeProviderSSE(t, w,
+				`{"choices":[{"delta":{"content":"bash hitl complete"},"finish_reason":"stop"}]}`,
+				`[DONE]`,
+			)
+		default:
+			t.Fatalf("unexpected provider call %d", call)
+		}
+	}, testFixtureOptions{
+		sandbox: sandbox,
+		configure: func(cfg *config.Config) {
+			cfg.BashHITL.Enabled = true
+			cfg.BashHITL.DefaultTimeoutMs = 15000
+		},
+		setupRuntime: func(_ string, cfg *config.Config) {
+			root := filepath.Join(cfg.Paths.RegistriesDir, "bash-hitl")
+			if err := os.MkdirAll(root, 0o755); err != nil {
+				t.Fatalf("mkdir bash-hitl dir: %v", err)
+			}
+			content := strings.Join([]string{
+				"commands:",
+				"  - command: git",
+				"    subcommands:",
+				"      - match: push",
+				"        level: 2",
+				"        hitlType: system",
+				"        toolType: builtin",
+				"        viewportKey: confirm_dialog",
+			}, "\n")
+			if err := os.WriteFile(filepath.Join(root, "dangerous.yml"), []byte(content), 0o644); err != nil {
+				t.Fatalf("write bash-hitl rule: %v", err)
+			}
+		},
+	})
+
+	httpServer := httptest.NewServer(fixture.server)
+	defer httpServer.Close()
+
+	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"please push the change"}`))
+	if err != nil {
+		t.Fatalf("post query: %v", err)
+	}
+	defer resp.Body.Close()
+
+	reader := bufio.NewReader(resp.Body)
+	var streamBody strings.Builder
+	originalToolID := ""
+	syntheticToolID := ""
+	for {
+		line, readErr := reader.ReadString('\n')
+		streamBody.WriteString(line)
+		if strings.HasPrefix(line, "data: {") {
+			payload := decodeSSELine(t, line)
+			switch payload["type"] {
+			case "tool.start":
+				switch payload["toolName"] {
+				case "_sandbox_bash_":
+					originalToolID, _ = payload["toolId"].(string)
+				case "_hitl_confirm_dialog_":
+					syntheticToolID, _ = payload["toolId"].(string)
+				}
+			case "await.ask":
+				if syntheticToolID == "" {
+					syntheticToolID, _ = payload["awaitId"].(string)
+				}
+				goto submit
+			}
+		}
+		if readErr != nil {
+			t.Fatalf("read query stream before submit: %v", readErr)
+		}
+	}
+
+submit:
+	submitPayload := `{"action":"` + action + `"}`
+	if action == "modify" {
+		submitPayload = `{"action":"modify","command":"` + modifiedCommand + `"}`
+	}
+	submitRec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(submitRec, httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+extractRunIDFromStream(t, streamBody.String())+`","toolId":"`+syntheticToolID+`","params":`+submitPayload+`}`)))
+	if submitRec.Code != http.StatusOK {
+		t.Fatalf("submit expected 200, got %d: %s", submitRec.Code, submitRec.Body.String())
+	}
+
+	for {
+		line, readErr := reader.ReadString('\n')
+		streamBody.WriteString(line)
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			t.Fatalf("read query stream after submit: %v", readErr)
+		}
+	}
+
+	messages := decodeSSEMessages(t, streamBody.String())
+	assertSpecificEventOrder(t, messages, originalToolID, syntheticToolID)
+	select {
+	case secondTurn := <-secondTurnMessages:
+		toolMessages := 0
+		for _, message := range secondTurn {
+			role, _ := message["role"].(string)
+			if role == "tool" {
+				toolMessages++
+			}
+		}
+		if toolMessages < 2 {
+			t.Fatalf("expected second turn to receive both tool messages, got %#v", secondTurn)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for second provider request")
+	}
+
+	return streamBody.String(), append([]string(nil), sandbox.commands...)
+}
+
+func extractRunIDFromStream(t *testing.T, body string) string {
+	t.Helper()
+	for _, message := range decodeSSEMessages(t, body) {
+		if runID, _ := message["runId"].(string); runID != "" {
+			return runID
+		}
+	}
+	t.Fatalf("expected runId in stream body: %s", body)
+	return ""
+}
+
+func assertSpecificEventOrder(t *testing.T, messages []map[string]any, originalToolID string, syntheticToolID string) {
+	t.Helper()
+	originalStart := -1
+	syntheticStart := -1
+	awaitAsk := -1
+	requestSubmit := -1
+	syntheticResult := -1
+	originalResult := -1
+	for idx, message := range messages {
+		eventType, _ := message["type"].(string)
+		switch eventType {
+		case "tool.start":
+			switch message["toolId"] {
+			case originalToolID:
+				originalStart = idx
+			case syntheticToolID:
+				syntheticStart = idx
+			}
+		case "await.ask":
+			if message["awaitId"] == syntheticToolID {
+				awaitAsk = idx
+			}
+		case "request.submit":
+			if message["toolId"] == syntheticToolID {
+				requestSubmit = idx
+			}
+		case "tool.result":
+			if message["toolId"] == syntheticToolID {
+				syntheticResult = idx
+			}
+			if message["toolId"] == originalToolID {
+				originalResult = idx
+			}
+		}
+	}
+	if !(originalStart >= 0 && syntheticStart > originalStart && awaitAsk > syntheticStart && requestSubmit > awaitAsk && syntheticResult > requestSubmit && originalResult > syntheticResult) {
+		t.Fatalf("unexpected HITL event order: %#v", messages)
+	}
+}
+
 func TestSubmitReturnsUnmatchedWhenNoActiveWaiter(t *testing.T) {
 	fixture := newTestFixture(t)
 
@@ -1643,8 +1880,15 @@ type testFixture struct {
 	tools           contracts.ToolExecutor
 	sandbox         contracts.SandboxClient
 	mcp             contracts.McpClient
+	hitl            *hitl.Registry
 	viewport        contracts.ViewportClient
 	catalogReloader contracts.CatalogReloader
+}
+
+type testFixtureOptions struct {
+	sandbox      contracts.SandboxClient
+	configure    func(*config.Config)
+	setupRuntime func(root string, cfg *config.Config)
 }
 
 func newTestFixture(t *testing.T) testFixture {
@@ -1658,6 +1902,10 @@ func newTestFixture(t *testing.T) testFixture {
 }
 
 func newTestFixtureWithModelHandler(t *testing.T, modelHandler http.HandlerFunc) testFixture {
+	return newTestFixtureWithModelHandlerAndOptions(t, modelHandler, testFixtureOptions{})
+}
+
+func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.HandlerFunc, options testFixtureOptions) testFixture {
 	t.Helper()
 	root := t.TempDir()
 	providerServer := httptest.NewServer(modelHandler)
@@ -1800,6 +2048,12 @@ func newTestFixtureWithModelHandler(t *testing.T, modelHandler http.HandlerFunc)
 			Enabled: false,
 		},
 	}
+	if options.configure != nil {
+		options.configure(&cfg)
+	}
+	if options.setupRuntime != nil {
+		options.setupRuntime(root, &cfg)
+	}
 
 	chats, err := chat.NewFileStore(cfg.Paths.ChatsDir)
 	if err != nil {
@@ -1813,7 +2067,11 @@ func newTestFixtureWithModelHandler(t *testing.T, modelHandler http.HandlerFunc)
 	if err != nil {
 		t.Fatalf("load model registry: %v", err)
 	}
-	backendTools, err := tools.NewRuntimeToolExecutor(cfg, contracts.NewNoopSandboxClient(), memories)
+	sandboxClient := options.sandbox
+	if sandboxClient == nil {
+		sandboxClient = contracts.NewNoopSandboxClient()
+	}
+	backendTools, err := tools.NewRuntimeToolExecutor(cfg, sandboxClient, memories)
 	if err != nil {
 		t.Fatalf("new runtime tool executor: %v", err)
 	}
@@ -1823,11 +2081,18 @@ func newTestFixtureWithModelHandler(t *testing.T, modelHandler http.HandlerFunc)
 	if err != nil {
 		t.Fatalf("new file registry: %v", err)
 	}
-	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, nil)
+	var hitlRegistry *hitl.Registry
+	if cfg.BashHITL.Enabled {
+		hitlRegistry, err = hitl.NewRegistry(filepath.Join(cfg.Paths.RegistriesDir, "bash-hitl"))
+		if err != nil {
+			t.Fatalf("new hitl registry: %v", err)
+		}
+	}
+	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, nil, hitlRegistry)
 
 	runs := runctl.NewInMemoryRunManager()
-	sandbox := contracts.NewNoopSandboxClient()
-	agentEngine := llm.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, sandbox)
+	sandbox := sandboxClient
+	agentEngine := llm.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, sandbox, hitlRegistry)
 	viewport := contracts.NewNoopViewportClient()
 	server, err := New(Dependencies{
 		Config:          cfg,
@@ -1840,6 +2105,7 @@ func newTestFixtureWithModelHandler(t *testing.T, modelHandler http.HandlerFunc)
 		Tools:           toolExecutor,
 		Sandbox:         sandbox,
 		MCP:             mcp,
+		HITL:            hitlRegistry,
 		Viewport:        viewport,
 		CatalogReloader: reloader,
 	})
@@ -1858,6 +2124,7 @@ func newTestFixtureWithModelHandler(t *testing.T, modelHandler http.HandlerFunc)
 		tools:           toolExecutor,
 		sandbox:         sandbox,
 		mcp:             mcp,
+		hitl:            hitlRegistry,
 		viewport:        viewport,
 		catalogReloader: reloader,
 	}

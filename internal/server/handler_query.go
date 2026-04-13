@@ -185,7 +185,9 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 	var toolLookup contracts.ToolDefinitionLookup = s.deps.Registry
 	if tl, ok := s.deps.Tools.(contracts.ToolDefinitionLookup); ok {
-		toolLookup = contracts.NewCompositeToolLookup(s.deps.Registry, tl)
+		toolLookup = contracts.NewCompositeToolLookup(s.deps.HITL, tl, s.deps.Registry)
+	} else if s.deps.HITL != nil {
+		toolLookup = contracts.NewCompositeToolLookup(s.deps.HITL, s.deps.Registry)
 	}
 	toolTimeoutMs := int64(contracts.NormalizeBudget(session.ResolvedBudget).Tool.TimeoutMs)
 	mapper := llm.NewDeltaMapper(runID, chatID, toolTimeoutMs, toolLookup)

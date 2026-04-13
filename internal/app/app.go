@@ -14,6 +14,7 @@ import (
 	"agent-platform-runner-go/internal/chat"
 	"agent-platform-runner-go/internal/config"
 	"agent-platform-runner-go/internal/contracts"
+	"agent-platform-runner-go/internal/hitl"
 	"agent-platform-runner-go/internal/llm"
 	"agent-platform-runner-go/internal/mcp"
 	"agent-platform-runner-go/internal/memory"
@@ -107,6 +108,16 @@ func New() (*App, error) {
 	}
 	toolExecutor := tools.NewToolRouter(backendTools, mcpClient, mcpToolSync, llm.NewFrontendSubmitCoordinator(), contracts.NewNoopActionInvoker(), append([]api.ToolDetailResponse(nil), runtimeTools...)...)
 
+	var hitlRegistry *hitl.Registry
+	if cfg.BashHITL.Enabled {
+		hitlRoot := filepath.Join(cfg.Paths.RegistriesDir, "bash-hitl")
+		hitlRegistry, err = hitl.NewRegistry(hitlRoot)
+		if err != nil {
+			return nil, fmt.Errorf("init hitl registry (%s): %w", hitlRoot, err)
+		}
+		log.Printf("bash HITL registry ready (%d rules)", len(hitlRegistry.Rules()))
+	}
+
 	registryStartedAt := time.Now()
 	registry, err := catalog.NewFileRegistry(cfg, toolExecutor.Definitions())
 	if err != nil {
@@ -127,8 +138,8 @@ func New() (*App, error) {
 		len(toolExecutor.Definitions()),
 	)
 
-	agentEngine := llm.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, sandboxClient)
-	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, mcp.NewRegistryReloader(mcpRegistry, mcpToolSync))
+	agentEngine := llm.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, sandboxClient, hitlRegistry)
+	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, mcp.NewRegistryReloader(mcpRegistry, mcpToolSync), hitlRegistry)
 	backgroundCtx, backgroundCancel := context.WithCancel(context.Background())
 	cleanupBackground := true
 	defer func() {
@@ -156,6 +167,7 @@ func New() (*App, error) {
 		Tools:    toolExecutor,
 		Sandbox:  sandboxClient,
 		MCP:      mcpClient,
+		HITL:     hitlRegistry,
 		Viewport: viewport.NewServiceWithServers(
 			viewport.NewRegistry(viewport.DefaultRoot(cfg.Paths.RegistriesDir)),
 			viewport.NewSyncer(viewport.NewServerRegistry(viewport.DefaultServersRoot(cfg.Paths.RegistriesDir)), nil),

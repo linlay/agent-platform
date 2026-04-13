@@ -25,18 +25,24 @@ type McpRegistryReloader interface {
 	Reload(ctx context.Context) error
 }
 
+type HitlRegistryReloader interface {
+	Reload() error
+}
+
 type RuntimeCatalogReloader struct {
 	registry     catalog.Registry
 	models       *models.ModelRegistry
 	mcp          McpRegistryReloader
+	hitl         HitlRegistryReloader
 	lastReloadNs atomic.Int64
 }
 
-func NewRuntimeCatalogReloader(registry catalog.Registry, models *models.ModelRegistry, mcpRegistry McpRegistryReloader) *RuntimeCatalogReloader {
+func NewRuntimeCatalogReloader(registry catalog.Registry, models *models.ModelRegistry, mcpRegistry McpRegistryReloader, hitlRegistry HitlRegistryReloader) *RuntimeCatalogReloader {
 	return &RuntimeCatalogReloader{
 		registry: registry,
 		models:   models,
 		mcp:      mcpRegistry,
+		hitl:     hitlRegistry,
 	}
 }
 
@@ -101,6 +107,13 @@ func (r *RuntimeCatalogReloader) Reload(ctx context.Context, reason string) erro
 		if err := r.reloadCatalog(ctx, "agents"); err != nil {
 			return err
 		}
+	case "bash-hitl":
+		if r.hitl != nil {
+			if err := r.hitl.Reload(); err != nil {
+				log.Printf("[reload] bash-hitl reload failed: %v", err)
+				return err
+			}
+		}
 	default:
 		// startup / config / unknown — full reload
 		if err := r.reloadCatalog(ctx, reason); err != nil {
@@ -150,6 +163,7 @@ func StartBackgroundReloaders(ctx context.Context, cfg config.Config, reloader c
 		{filepath.Join(cfg.Paths.RegistriesDir, "providers"), "providers"},
 		{filepath.Join(cfg.Paths.RegistriesDir, "mcp-servers"), "mcp-servers"},
 		{filepath.Join(cfg.Paths.RegistriesDir, "viewport-servers"), "viewport-servers"},
+		{filepath.Join(cfg.Paths.RegistriesDir, "bash-hitl"), "bash-hitl"},
 	}
 
 	fsw, err := fsnotify.NewWatcher()

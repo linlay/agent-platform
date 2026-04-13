@@ -13,6 +13,7 @@ import (
 
 	"agent-platform-runner-go/internal/api"
 	. "agent-platform-runner-go/internal/contracts"
+	"agent-platform-runner-go/internal/hitl"
 	. "agent-platform-runner-go/internal/models"
 )
 
@@ -48,6 +49,11 @@ type llmRunStream struct {
 	previousToolResult any
 	queuedToolCalls    []*preparedToolInvocation
 	activeToolCall     *preparedToolInvocation
+	hitlPendingCall    *preparedToolInvocation
+	hitlMatch          *hitl.InterceptResult
+	hitlSyntheticID    string
+	hitlSyntheticName  string
+	skipPostToolHook   bool
 }
 
 type providerTurnStream struct {
@@ -75,10 +81,11 @@ type toolCallAccumulator struct {
 }
 
 type preparedToolInvocation struct {
-	toolID   string
-	toolName string
-	args     map[string]any
-	prelude  []AgentDelta
+	toolID          string
+	toolName        string
+	args            map[string]any
+	prelude         []AgentDelta
+	toolCallCounted bool
 }
 
 // PostToolHookResult controls what happens after a tool call.
@@ -131,11 +138,21 @@ func (s *llmRunStream) fillPending() error {
 		if s.finished {
 			return io.EOF
 		}
+		if s.hitlPendingCall != nil {
+			if err := s.awaitHITLSubmitAndExecute(); err != nil {
+				return err
+			}
+			continue
+		}
 		if s.activeToolCall != nil {
 			toolName := s.activeToolCall.toolName
 			toolID := s.activeToolCall.toolID
 			if err := s.invokeActiveToolCall(); err != nil {
 				return err
+			}
+			if s.skipPostToolHook {
+				s.skipPostToolHook = false
+				continue
 			}
 			if s.postToolHook != nil && s.postToolHook(toolName, toolID) == PostToolStop {
 				s.queuedToolCalls = nil
@@ -545,6 +562,7 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 	if invocation == nil {
 		return nil
 	}
+	s.skipPostToolHook = false
 
 	s.execCtx.CurrentToolID = invocation.toolID
 	s.execCtx.CurrentToolName = invocation.toolName
@@ -552,7 +570,17 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 	if s.runControl != nil {
 		s.runControl.TransitionState(RunLoopStateToolExecuting)
 	}
-	s.execCtx.ToolCalls++
+	if !invocation.toolCallCounted {
+		s.execCtx.ToolCalls++
+		invocation.toolCallCounted = true
+	}
+	if s.engine.hitl != nil && isBashTool(invocation.toolName) {
+		command := mapStringArg(invocation.args, "command")
+		if result := s.engine.hitl.Check(command, s.execCtx.HITLLevel); result.Intercepted {
+			s.skipPostToolHook = true
+			return s.emitHITLConfirmDeltas(invocation, result)
+		}
+	}
 	defer func() {
 		if s.runControl != nil {
 			s.runControl.ClearExpectedSubmit(invocation.toolID)
@@ -621,6 +649,319 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 		Content:    result.Output,
 	})
 	return nil
+}
+
+func (s *llmRunStream) emitHITLConfirmDeltas(invocation *preparedToolInvocation, result hitl.InterceptResult) error {
+	s.hitlPendingCall = invocation
+	s.hitlMatch = &result
+	s.hitlSyntheticID = "hitl_" + invocation.toolID
+	s.hitlSyntheticName = "_hitl_" + result.Rule.ViewportKey + "_"
+
+	args := s.buildHITLArgs(invocation, result)
+	argsJSON, _ := json.Marshal(args)
+
+	s.pending = append(s.pending, DeltaToolCall{
+		Index:     0,
+		ID:        s.hitlSyntheticID,
+		Name:      s.hitlSyntheticName,
+		ArgsDelta: string(argsJSON),
+	})
+	s.pending = append(s.pending, DeltaToolEnd{ToolIDs: []string{s.hitlSyntheticID}})
+	s.pending = append(s.pending, DeltaAwaitAsk{
+		AwaitID:      s.hitlSyntheticID,
+		ViewportType: result.Rule.ToolType,
+		ViewportKey:  result.Rule.ViewportKey,
+		Mode:         "approval",
+		ToolTimeout:  s.resolveHITLTimeout(),
+		RunID:        s.session.RunID,
+		Questions:    s.buildHITLAwaitQuestions(args, result),
+	})
+
+	if s.runControl != nil {
+		s.runControl.ExpectSubmit(s.hitlSyntheticID)
+	}
+	s.activeToolCall = nil
+	s.execCtx.CurrentToolID = ""
+	s.execCtx.CurrentToolName = ""
+	return nil
+}
+
+func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
+	invocation := s.hitlPendingCall
+	match := s.hitlMatch
+	syntheticID := s.hitlSyntheticID
+	syntheticName := s.hitlSyntheticName
+	if invocation == nil || match == nil || syntheticID == "" {
+		s.hitlPendingCall = nil
+		s.hitlMatch = nil
+		s.hitlSyntheticID = ""
+		s.hitlSyntheticName = ""
+		return nil
+	}
+	defer func() {
+		s.hitlPendingCall = nil
+		s.hitlMatch = nil
+		s.hitlSyntheticID = ""
+		s.hitlSyntheticName = ""
+		s.execCtx.CurrentToolID = ""
+		s.execCtx.CurrentToolName = ""
+		if s.runControl != nil {
+			s.runControl.ClearExpectedSubmit(syntheticID)
+		}
+	}()
+	if s.runControl == nil {
+		return ErrRunControlUnavailable
+	}
+
+	s.execCtx.CurrentToolID = syntheticID
+	s.execCtx.CurrentToolName = syntheticName
+	s.execCtx.RunLoopState = RunLoopStateWaitingSubmit
+	if s.runControl != nil {
+		s.runControl.TransitionState(RunLoopStateWaitingSubmit)
+	}
+
+	submitResult, err := s.runControl.AwaitSubmitWithTimeout(s.ctx, syntheticID, time.Duration(s.resolveHITLTimeout())*time.Millisecond)
+	if err != nil {
+		if errors.Is(err, ErrRunInterrupted) {
+			return s.handleInterruptIfNeeded()
+		}
+		timeoutResult := ToolExecutionResult{
+			Output: marshalJSON(map[string]any{
+				"status": "timeout",
+				"code":   "hitl_timeout",
+			}),
+			Structured: map[string]any{
+				"status": "timeout",
+				"code":   "hitl_timeout",
+			},
+			Error:    "hitl_timeout",
+			ExitCode: -1,
+		}
+		s.appendSyntheticToolResult(syntheticID, syntheticName, timeoutResult)
+		rejected := ToolExecutionResult{
+			Output: marshalJSON(NewErrorPayload(
+				"hitl_timeout",
+				"command execution timed out while waiting for user approval",
+				ErrorScopeTool,
+				ErrorCategoryTimeout,
+				map[string]any{
+					"toolId":   invocation.toolID,
+					"toolName": invocation.toolName,
+				},
+			)),
+			Structured: NewErrorPayload(
+				"hitl_timeout",
+				"command execution timed out while waiting for user approval",
+				ErrorScopeTool,
+				ErrorCategoryTimeout,
+				map[string]any{
+					"toolId":   invocation.toolID,
+					"toolName": invocation.toolName,
+				},
+			),
+			Error:    "hitl_timeout",
+			ExitCode: -1,
+		}
+		s.appendOriginalToolResult(invocation, rejected)
+		return nil
+	}
+
+	s.execCtx.RunLoopState = RunLoopStateToolExecuting
+	if s.runControl != nil {
+		s.runControl.TransitionState(RunLoopStateToolExecuting)
+	}
+
+	s.pending = append(s.pending, DeltaRequestSubmit{
+		RequestID: s.session.RequestID,
+		ChatID:    s.session.ChatID,
+		RunID:     s.session.RunID,
+		ToolID:    syntheticID,
+		Payload:   submitResult.Request.Params,
+	})
+
+	params, _ := submitResult.Request.Params.(map[string]any)
+	action := strings.ToLower(strings.TrimSpace(AnyStringNode(params["action"])))
+	switch action {
+	case "approve":
+		s.appendSyntheticToolResult(syntheticID, syntheticName, structuredResult(map[string]any{
+			"status": "approved",
+			"action": "approve",
+		}))
+		return s.executeOriginalBash(invocation)
+	case "modify":
+		modifiedCommand := strings.TrimSpace(AnyStringNode(params["command"]))
+		if modifiedCommand != "" {
+			invocation.args["command"] = modifiedCommand
+		}
+		s.appendSyntheticToolResult(syntheticID, syntheticName, structuredResult(map[string]any{
+			"status":   "approved",
+			"action":   "modify",
+			"modified": modifiedCommand != "",
+			"command":  mapStringArg(invocation.args, "command"),
+		}))
+		return s.executeOriginalBash(invocation)
+	default:
+		s.appendSyntheticToolResult(syntheticID, syntheticName, structuredResult(map[string]any{
+			"status": "rejected",
+			"action": "reject",
+		}))
+		rejected := ToolExecutionResult{
+			Output: marshalJSON(NewErrorPayload(
+				"hitl_rejected",
+				"command execution rejected by user",
+				ErrorScopeTool,
+				ErrorCategorySystem,
+				map[string]any{
+					"toolId":   invocation.toolID,
+					"toolName": invocation.toolName,
+				},
+			)),
+			Structured: NewErrorPayload(
+				"hitl_rejected",
+				"command execution rejected by user",
+				ErrorScopeTool,
+				ErrorCategorySystem,
+				map[string]any{
+					"toolId":   invocation.toolID,
+					"toolName": invocation.toolName,
+				},
+			),
+			Error:    "user_rejected",
+			ExitCode: -1,
+		}
+		s.appendOriginalToolResult(invocation, rejected)
+		return nil
+	}
+}
+
+func (s *llmRunStream) executeOriginalBash(invocation *preparedToolInvocation) error {
+	s.execCtx.CurrentToolID = invocation.toolID
+	s.execCtx.CurrentToolName = invocation.toolName
+	s.execCtx.RunLoopState = RunLoopStateToolExecuting
+	if s.runControl != nil {
+		s.runControl.TransitionState(RunLoopStateToolExecuting)
+	}
+
+	result, invokeErr := s.engine.tools.Invoke(s.ctx, invocation.toolName, invocation.args, s.execCtx)
+	if invokeErr != nil {
+		if errors.Is(invokeErr, ErrRunInterrupted) {
+			return s.handleInterruptIfNeeded()
+		}
+		result = ToolExecutionResult{Output: invokeErr.Error(), Error: "tool_execution_failed", ExitCode: -1}
+	}
+	s.appendOriginalToolResult(invocation, result)
+	s.execCtx.CurrentToolID = ""
+	s.execCtx.CurrentToolName = ""
+	return nil
+}
+
+func (s *llmRunStream) buildHITLArgs(invocation *preparedToolInvocation, result hitl.InterceptResult) map[string]any {
+	command := mapStringArg(invocation.args, "command")
+	return map[string]any{
+		"mode":              "approval",
+		"hitlType":          result.Rule.HITLType,
+		"originalCommand":   command,
+		"baseCommand":       result.ParsedCommand.BaseCommand,
+		"matchedSubcommand": result.Rule.Match,
+		"originalToolName":  invocation.toolName,
+		"originalToolId":    invocation.toolID,
+		"ruleKey":           result.Rule.FileKey,
+		"requiredLevel":     result.Rule.Level,
+		"chatLevel":         s.execCtx.HITLLevel,
+		"allowModify":       strings.EqualFold(result.Rule.ToolType, "html"),
+	}
+}
+
+func (s *llmRunStream) buildHITLAwaitQuestions(args map[string]any, result hitl.InterceptResult) []any {
+	if !strings.EqualFold(result.Rule.ToolType, "builtin") {
+		return nil
+	}
+	command := AnyStringNode(args["originalCommand"])
+	description := "Command: " + command
+	return []any{
+		map[string]any{
+			"header":      "Bash Approval",
+			"question":    "Approve this intercepted bash command?",
+			"description": description,
+			"options": []any{
+				map[string]any{
+					"label":       "Approve",
+					"value":       "approve",
+					"description": "Execute the command as-is.",
+				},
+				map[string]any{
+					"label":       "Reject",
+					"value":       "reject",
+					"description": "Do not execute the command.",
+				},
+			},
+		},
+	}
+}
+
+func (s *llmRunStream) resolveHITLTimeout() int64 {
+	if s.engine.cfg.BashHITL.DefaultTimeoutMs > 0 {
+		return int64(s.engine.cfg.BashHITL.DefaultTimeoutMs)
+	}
+	budget := NormalizeBudget(s.execCtx.Budget)
+	if budget.Tool.TimeoutMs > 0 {
+		return int64(budget.Tool.TimeoutMs)
+	}
+	return 120000
+}
+
+func (s *llmRunStream) appendSyntheticToolResult(toolID string, toolName string, result ToolExecutionResult) {
+	s.pending = append(s.pending, DeltaToolResult{
+		ToolID:   toolID,
+		ToolName: toolName,
+		Result:   result,
+	})
+	s.messages = append(s.messages, openAIMessage{
+		Role:       "tool",
+		ToolCallID: toolID,
+		Name:       toolName,
+		Content:    result.Output,
+	})
+}
+
+func (s *llmRunStream) appendOriginalToolResult(invocation *preparedToolInvocation, result ToolExecutionResult) {
+	s.previousToolResult = structuredOrOutput(result)
+	s.pending = append(s.pending, DeltaToolResult{
+		ToolID:   invocation.toolID,
+		ToolName: invocation.toolName,
+		Result:   result,
+	})
+	s.messages = append(s.messages, openAIMessage{
+		Role:       "tool",
+		ToolCallID: invocation.toolID,
+		Name:       invocation.toolName,
+		Content:    result.Output,
+	})
+}
+
+func isBashTool(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "_bash_", "_sandbox_bash_":
+		return true
+	default:
+		return false
+	}
+}
+
+func mapStringArg(args map[string]any, key string) string {
+	if value, ok := args[key].(string); ok {
+		return value
+	}
+	return ""
+}
+
+func structuredResult(payload map[string]any) ToolExecutionResult {
+	data, _ := json.Marshal(payload)
+	return ToolExecutionResult{
+		Output:     string(data),
+		Structured: payload,
+		ExitCode:   0,
+	}
 }
 
 func (s *llmRunStream) checkBudgetBeforeModelCall() map[string]any {
@@ -849,6 +1190,11 @@ func deepCloneAny(value any) any {
 }
 
 func (s *llmRunStream) lookupToolDefinition(toolName string) (api.ToolDetailResponse, bool) {
+	if s.engine.hitl != nil {
+		if tool, ok := s.engine.hitl.Tool(toolName); ok {
+			return tool, true
+		}
+	}
 	for _, tool := range applyToolOverrides(s.engine.tools.Definitions(), s.execCtx.ToolOverrides) {
 		if strings.EqualFold(strings.TrimSpace(tool.Name), strings.TrimSpace(toolName)) {
 			return tool, true

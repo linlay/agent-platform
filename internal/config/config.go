@@ -27,6 +27,7 @@ type Config struct {
 	CORS         CORSConfig
 	ContainerHub ContainerHubConfig
 	Bash         BashConfig
+	BashHITL     BashHITLConfig
 }
 
 type ServerConfig struct {
@@ -204,6 +205,11 @@ type BashConfig struct {
 	MaxCommandChars         int
 }
 
+type BashHITLConfig struct {
+	Enabled          bool
+	DefaultTimeoutMs int
+}
+
 func Load() (Config, error) {
 	cfg := defaultConfig()
 	cfg.applyStructuredConfig()
@@ -361,6 +367,10 @@ func defaultConfig() Config {
 			ShellExecutable:         "bash",
 			ShellTimeoutMs:          10000,
 			MaxCommandChars:         16000,
+		},
+		BashHITL: BashHITLConfig{
+			Enabled:          false,
+			DefaultTimeoutMs: 120000,
 		},
 	}
 }
@@ -541,6 +551,8 @@ func (c *Config) applyEnv() {
 	c.Bash.ShellExecutable = stringEnv("AGENT_BASH_SHELL_EXECUTABLE", c.Bash.ShellExecutable)
 	c.Bash.ShellTimeoutMs = intEnv("AGENT_BASH_SHELL_TIMEOUT_MS", c.Bash.ShellTimeoutMs)
 	c.Bash.MaxCommandChars = intEnv("AGENT_BASH_MAX_COMMAND_CHARS", c.Bash.MaxCommandChars)
+	c.BashHITL.Enabled = boolEnv("AGENT_BASH_HITL_ENABLED", c.BashHITL.Enabled)
+	c.BashHITL.DefaultTimeoutMs = intEnv("AGENT_BASH_HITL_DEFAULT_TIMEOUT_MS", c.BashHITL.DefaultTimeoutMs)
 }
 
 func (c *Config) normalize() {

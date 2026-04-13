@@ -12,6 +12,7 @@ import (
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/config"
 	. "agent-platform-runner-go/internal/contracts"
+	"agent-platform-runner-go/internal/hitl"
 	. "agent-platform-runner-go/internal/models"
 )
 
@@ -21,6 +22,7 @@ type LLMAgentEngine struct {
 	tools      ToolExecutor
 	sandbox    SandboxClient
 	httpClient *http.Client
+	hitl       *hitl.Registry
 }
 
 type runStreamOptions struct {
@@ -36,11 +38,11 @@ type runStreamOptions struct {
 	PostToolHook        func(toolName string, toolID string) PostToolHookResult
 }
 
-func NewLLMAgentEngine(cfg config.Config, models *ModelRegistry, tools ToolExecutor, sandbox SandboxClient) *LLMAgentEngine {
-	return NewLLMAgentEngineWithHTTPClient(cfg, models, tools, sandbox, nil)
+func NewLLMAgentEngine(cfg config.Config, models *ModelRegistry, tools ToolExecutor, sandbox SandboxClient, hitlRegistry *hitl.Registry) *LLMAgentEngine {
+	return NewLLMAgentEngineWithHTTPClient(cfg, models, tools, sandbox, hitlRegistry, nil)
 }
 
-func NewLLMAgentEngineWithHTTPClient(cfg config.Config, models *ModelRegistry, tools ToolExecutor, sandbox SandboxClient, httpClient *http.Client) *LLMAgentEngine {
+func NewLLMAgentEngineWithHTTPClient(cfg config.Config, models *ModelRegistry, tools ToolExecutor, sandbox SandboxClient, hitlRegistry *hitl.Registry, httpClient *http.Client) *LLMAgentEngine {
 	if httpClient == nil {
 		httpClient = &http.Client{}
 	}
@@ -50,6 +52,7 @@ func NewLLMAgentEngineWithHTTPClient(cfg config.Config, models *ModelRegistry, t
 		tools:      tools,
 		sandbox:    sandbox,
 		httpClient: httpClient,
+		hitl:       hitlRegistry,
 	}
 }
 
@@ -93,6 +96,7 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	}
 	execCtx.Request = req
 	execCtx.Session = session
+	execCtx.HITLLevel = AnyIntNode(req.Params["hitlLevel"])
 	if execCtx.RunControl == nil {
 		execCtx.RunControl = RunControlFromContext(ctx)
 	}
