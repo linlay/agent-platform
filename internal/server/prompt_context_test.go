@@ -1,42 +1,212 @@
 package server
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 
+	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/catalog"
 	"agent-platform-runner-go/internal/config"
 )
 
-func TestResolveSandboxPathsIncludesDefaultOwnerAndMemoryDirs(t *testing.T) {
-	cfg := config.Config{
-		Paths: config.PathsConfig{
-			RootDir:         filepath.Join("runtime", "root"),
-			OwnerDir:        filepath.Join("runtime", "owner"),
-			MemoryDir:       filepath.Join("runtime", "memory"),
-			PanDir:          filepath.Join("runtime", "pan"),
-			SkillsMarketDir: filepath.Join("runtime", "skills-market"),
-		},
-		ContainerHub: config.ContainerHubConfig{
-			DefaultSandboxLevel: "run",
-		},
+func TestResolveSandboxPathsLocalModeDisabledHub(t *testing.T) {
+	t.Parallel()
+
+	cfg := testPromptContextConfig(t)
+	cfg.ContainerHub.Enabled = false
+	def := testPromptContextDefinition(cfg.Paths)
+
+	paths := resolveSandboxPaths(cfg, def, "chat-1")
+	if paths.WorkspaceDir != absTestPath(t, filepath.Join(cfg.Paths.ChatsDir, "chat-1")) {
+		t.Fatalf("workspace dir = %q", paths.WorkspaceDir)
 	}
-	def := catalog.AgentDefinition{
-		Key:      "demo-agent",
-		AgentDir: filepath.Join("runtime", "agents", "demo-agent"),
-		Sandbox: map[string]any{
-			"level": "run",
+	if paths.RootDir != absTestPath(t, cfg.Paths.RootDir) {
+		t.Fatalf("root dir = %q", paths.RootDir)
+	}
+	if paths.AgentDir != absTestPath(t, def.AgentDir) {
+		t.Fatalf("agent dir = %q", paths.AgentDir)
+	}
+	if paths.OwnerDir != absTestPath(t, cfg.Paths.OwnerDir) {
+		t.Fatalf("owner dir = %q", paths.OwnerDir)
+	}
+	if paths.MemoryDir != absTestPath(t, cfg.Paths.MemoryDir) {
+		t.Fatalf("memory dir = %q", paths.MemoryDir)
+	}
+	if paths.SkillsDir != absTestPath(t, filepath.Join(def.AgentDir, "skills")) {
+		t.Fatalf("skills dir = %q", paths.SkillsDir)
+	}
+}
+
+func TestResolveSandboxPathsLocalModeLocalEngine(t *testing.T) {
+	t.Parallel()
+
+	cfg := testPromptContextConfig(t)
+	cfg.ContainerHub.Enabled = true
+	cfg.ContainerHub.ResolvedEngine = "local"
+	def := testPromptContextDefinition(cfg.Paths)
+
+	paths := resolveSandboxPaths(cfg, def, "chat-1")
+	if paths.WorkspaceDir != absTestPath(t, filepath.Join(cfg.Paths.ChatsDir, "chat-1")) {
+		t.Fatalf("workspace dir = %q", paths.WorkspaceDir)
+	}
+	if paths.SkillsMarketDir != absTestPath(t, cfg.Paths.SkillsMarketDir) {
+		t.Fatalf("skills market dir = %q", paths.SkillsMarketDir)
+	}
+	if paths.AgentsDir != absTestPath(t, cfg.Paths.AgentsDir) {
+		t.Fatalf("agents dir = %q", paths.AgentsDir)
+	}
+	if paths.ModelsDir != absTestPath(t, filepath.Join(cfg.Paths.RegistriesDir, "models")) {
+		t.Fatalf("models dir = %q", paths.ModelsDir)
+	}
+	if paths.ViewportServersDir != absTestPath(t, filepath.Join(cfg.Paths.RegistriesDir, "viewport-servers")) {
+		t.Fatalf("viewport servers dir = %q", paths.ViewportServersDir)
+	}
+	if paths.ViewportsDir != absTestPath(t, filepath.Join(cfg.Paths.RegistriesDir, "viewports")) {
+		t.Fatalf("viewports dir = %q", paths.ViewportsDir)
+	}
+}
+
+func TestResolveSandboxPathsContainerMode(t *testing.T) {
+	t.Parallel()
+
+	cfg := testPromptContextConfig(t)
+	cfg.ContainerHub.Enabled = true
+	cfg.ContainerHub.ResolvedEngine = "docker"
+	def := testPromptContextDefinition(cfg.Paths)
+
+	paths := resolveSandboxPaths(cfg, def, "chat-1")
+	if paths.WorkspaceDir != "/workspace" {
+		t.Fatalf("workspace dir = %q", paths.WorkspaceDir)
+	}
+	if paths.AgentDir != "/agent" {
+		t.Fatalf("agent dir = %q", paths.AgentDir)
+	}
+	if paths.OwnerDir != "/owner" {
+		t.Fatalf("owner dir = %q", paths.OwnerDir)
+	}
+	if paths.MemoryDir != "/memory" {
+		t.Fatalf("memory dir = %q", paths.MemoryDir)
+	}
+}
+
+func TestBuildRuntimeContextSkipsSandboxContextWhenHubDisabled(t *testing.T) {
+	t.Parallel()
+
+	cfg := testPromptContextConfig(t)
+	cfg.ContainerHub.Enabled = false
+	s := &Server{
+		deps: Dependencies{
+			Config:   cfg,
+			Registry: testCatalogRegistry{},
 		},
 	}
 
-	paths := resolveSandboxPaths(cfg, def, "chat-1")
-	if paths.AgentDir != "/agent" {
-		t.Fatalf("expected sandbox agent dir, got %#v", paths)
+	context, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
+		agentKey: "demo-agent",
+		teamID:   "team-1",
+		role:     "assistant",
+		chatID:   "chat-1",
+		chatName: "Chat 1",
+		scene:    &api.Scene{URL: "https://example.com"},
+		definition: catalog.AgentDefinition{
+			Key:         "demo-agent",
+			AgentDir:    filepath.Join(cfg.Paths.AgentsDir, "demo-agent"),
+			ContextTags: []string{"sandbox"},
+			Sandbox: map[string]any{
+				"environmentId": "shell",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildRuntimeRequestContext() error = %v", err)
 	}
-	if paths.OwnerDir != "/owner" {
-		t.Fatalf("expected default owner dir, got %#v", paths)
+	if !context.LocalMode {
+		t.Fatal("expected local mode when container hub is disabled")
 	}
-	if paths.MemoryDir != "/memory" {
-		t.Fatalf("expected default memory dir, got %#v", paths)
+	if context.SandboxContext != nil {
+		t.Fatalf("expected sandbox context to be skipped, got %#v", context.SandboxContext)
 	}
 }
+
+func testPromptContextConfig(t *testing.T) config.Config {
+	t.Helper()
+
+	root := t.TempDir()
+	cfg := config.Config{
+		Paths: config.PathsConfig{
+			RegistriesDir:   filepath.Join(root, "runtime", "registries"),
+			ToolsDir:        filepath.Join(root, "runtime", "registries", "tools"),
+			OwnerDir:        filepath.Join(root, "runtime", "owner"),
+			AgentsDir:       filepath.Join(root, "runtime", "agents"),
+			TeamsDir:        filepath.Join(root, "runtime", "teams"),
+			RootDir:         filepath.Join(root, "runtime", "root"),
+			SchedulesDir:    filepath.Join(root, "runtime", "schedules"),
+			ChatsDir:        filepath.Join(root, "runtime", "chats"),
+			MemoryDir:       filepath.Join(root, "runtime", "memory"),
+			PanDir:          filepath.Join(root, "runtime", "pan"),
+			SkillsMarketDir: filepath.Join(root, "runtime", "skills-market"),
+		},
+		ContainerHub: config.ContainerHubConfig{
+			Enabled:             true,
+			DefaultSandboxLevel: "run",
+		},
+	}
+	return cfg
+}
+
+func testPromptContextDefinition(paths config.PathsConfig) catalog.AgentDefinition {
+	return catalog.AgentDefinition{
+		Key:      "demo-agent",
+		AgentDir: filepath.Join(paths.AgentsDir, "demo-agent"),
+		Sandbox: map[string]any{
+			"level": "run",
+			"extraMounts": []map[string]any{
+				{"platform": "skills-market"},
+				{"platform": "agents"},
+				{"platform": "teams"},
+				{"platform": "schedules"},
+				{"platform": "chats"},
+				{"platform": "models"},
+				{"platform": "providers"},
+				{"platform": "mcp-servers"},
+				{"platform": "viewport-servers"},
+				{"platform": "tools"},
+				{"platform": "viewports"},
+			},
+		},
+	}
+}
+
+func absTestPath(t *testing.T, path string) string {
+	t.Helper()
+
+	absolute, err := filepath.Abs(filepath.Clean(path))
+	if err != nil {
+		t.Fatalf("filepath.Abs(%q) error = %v", path, err)
+	}
+	return absolute
+}
+
+type testCatalogRegistry struct{}
+
+func (testCatalogRegistry) Agents(string) []api.AgentSummary { return nil }
+func (testCatalogRegistry) Teams() []api.TeamSummary         { return nil }
+func (testCatalogRegistry) Skills(string) []api.SkillSummary { return nil }
+func (testCatalogRegistry) SkillDefinition(string) (catalog.SkillDefinition, bool) {
+	return catalog.SkillDefinition{}, false
+}
+func (testCatalogRegistry) Tools(string, string) []api.ToolSummary { return nil }
+func (testCatalogRegistry) Tool(string) (api.ToolDetailResponse, bool) {
+	return api.ToolDetailResponse{}, false
+}
+func (testCatalogRegistry) DefaultAgentKey() string { return "" }
+func (testCatalogRegistry) AgentDefinition(string) (catalog.AgentDefinition, bool) {
+	return catalog.AgentDefinition{}, false
+}
+func (testCatalogRegistry) TeamDefinition(string) (catalog.TeamDefinition, bool) {
+	return catalog.TeamDefinition{}, false
+}
+func (testCatalogRegistry) Reload(context.Context, string) error { return nil }
+
+var _ catalog.Registry = testCatalogRegistry{}

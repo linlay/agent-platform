@@ -43,6 +43,15 @@ func New() (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
+	if cfg.ContainerHub.Enabled {
+		runtimeInfo := sandbox.NewContainerHubClient(cfg.ContainerHub).GetRuntimeInfo()
+		if runtimeInfo.OK {
+			cfg.ContainerHub.ResolvedEngine = runtimeInfo.Engine
+			log.Printf("container-hub runtime info resolved (engine=%s)", strings.TrimSpace(runtimeInfo.Engine))
+		} else {
+			log.Printf("container-hub runtime info unavailable; falling back to container path prompts")
+		}
+	}
 	log.Printf(
 		"loaded config in %s (registries=%s agents=%s teams=%s skills=%s chats=%s memory=%s)",
 		startupElapsed(configStartedAt),

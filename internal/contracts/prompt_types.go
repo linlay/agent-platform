@@ -37,6 +37,7 @@ type RuntimeRequestContext struct {
 	TeamID         string
 	Role           string
 	ChatName       string
+	LocalMode      bool
 	Scene          *api.Scene
 	References     []api.Reference
 	AuthIdentity   *AuthIdentity

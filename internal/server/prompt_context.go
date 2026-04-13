@@ -52,6 +52,7 @@ func (s *Server) buildRuntimeRequestContext(input runtimeRequestContextInput) (c
 		TeamID:       input.teamID,
 		Role:         input.role,
 		ChatName:     input.chatName,
+		LocalMode:    s.deps.Config.IsLocalMode(),
 		Scene:        input.scene,
 		References:   append([]api.Reference(nil), input.references...),
 		LocalPaths:   resolveLocalPaths(s.deps.Config.Paths, input.chatID),
@@ -61,7 +62,7 @@ func (s *Server) buildRuntimeRequestContext(input runtimeRequestContextInput) (c
 	if input.principal != nil {
 		context.AuthIdentity = buildAuthIdentity(input.principal)
 	}
-	if containsContextTag(input.definition.ContextTags, "sandbox") {
+	if containsContextTag(input.definition.ContextTags, "sandbox") && s.deps.Config.ContainerHub.Enabled {
 		sandboxContext, err := buildSandboxContext(s.deps.Config, input.definition)
 		if err != nil {
 			return contracts.RuntimeRequestContext{}, err
@@ -164,6 +165,13 @@ func resolveLocalPaths(paths config.PathsConfig, chatID string) contracts.LocalP
 }
 
 func resolveSandboxPaths(cfg config.Config, def catalog.AgentDefinition, chatID string) contracts.SandboxPaths {
+	if cfg.IsLocalMode() {
+		return resolveLocalSandboxPaths(cfg, def, chatID)
+	}
+	return resolveContainerSandboxPaths(cfg, def, chatID)
+}
+
+func resolveContainerSandboxPaths(cfg config.Config, def catalog.AgentDefinition, chatID string) contracts.SandboxPaths {
 	level := strings.ToLower(strings.TrimSpace(anyString(def.Sandbox["level"])))
 	if level == "" {
 		level = strings.ToLower(strings.TrimSpace(cfg.ContainerHub.DefaultSandboxLevel))
@@ -239,6 +247,61 @@ func resolveSandboxPaths(cfg config.Config, def catalog.AgentDefinition, chatID 
 		ToolsDir:           toolsDir,
 		ViewportsDir:       viewportsDir,
 	}
+}
+
+func resolveLocalSandboxPaths(cfg config.Config, def catalog.AgentDefinition, chatID string) contracts.SandboxPaths {
+	level := strings.ToLower(strings.TrimSpace(anyString(def.Sandbox["level"])))
+	if level == "" {
+		level = strings.ToLower(strings.TrimSpace(cfg.ContainerHub.DefaultSandboxLevel))
+	}
+	if level == "" {
+		level = "run"
+	}
+	hasAgentDir := strings.TrimSpace(def.AgentDir) != ""
+	hasGlobalSkillsDir := strings.TrimSpace(cfg.Paths.SkillsMarketDir) != ""
+	hasSkillsDir := hasGlobalSkillsDir
+	if level != "global" && hasAgentDir {
+		hasSkillsDir = true
+	}
+
+	workspaceDir := resolveLocalWorkspaceDir(cfg.Paths, chatID)
+	paths := contracts.SandboxPaths{
+		Cwd:          workspaceDir,
+		WorkspaceDir: workspaceDir,
+		RootDir:      absOrEmpty(cfg.Paths.RootDir),
+		SkillsDir:    resolveLocalSkillsDir(hasSkillsDir, level, def.AgentDir, cfg.Paths.SkillsMarketDir),
+		PanDir:       absOrEmpty(cfg.Paths.PanDir),
+		AgentDir:     absOrEmpty(def.AgentDir),
+		OwnerDir:     absOrEmpty(cfg.Paths.OwnerDir),
+		MemoryDir:    absOrEmpty(cfg.Paths.MemoryDir),
+	}
+	for _, mount := range promptContextSandboxMounts(def.Sandbox["extraMounts"]) {
+		switch strings.ToLower(strings.TrimSpace(anyString(mount["platform"]))) {
+		case "skills-market":
+			paths.SkillsMarketDir = absOrEmpty(cfg.Paths.SkillsMarketDir)
+		case "agents":
+			paths.AgentsDir = absOrEmpty(cfg.Paths.AgentsDir)
+		case "teams":
+			paths.TeamsDir = absOrEmpty(cfg.Paths.TeamsDir)
+		case "schedules":
+			paths.SchedulesDir = absOrEmpty(cfg.Paths.SchedulesDir)
+		case "chats":
+			paths.ChatsDir = absOrEmpty(cfg.Paths.ChatsDir)
+		case "models":
+			paths.ModelsDir = absOrEmpty(filepath.Join(cfg.Paths.RegistriesDir, "models"))
+		case "providers":
+			paths.ProvidersDir = absOrEmpty(filepath.Join(cfg.Paths.RegistriesDir, "providers"))
+		case "mcp-servers":
+			paths.MCPServersDir = absOrEmpty(filepath.Join(cfg.Paths.RegistriesDir, "mcp-servers"))
+		case "viewport-servers":
+			paths.ViewportServersDir = absOrEmpty(filepath.Join(cfg.Paths.RegistriesDir, "viewport-servers"))
+		case "tools":
+			paths.ToolsDir = absOrEmpty(cfg.Paths.ToolsDir)
+		case "viewports":
+			paths.ViewportsDir = absOrEmpty(filepath.Join(cfg.Paths.RegistriesDir, "viewports"))
+		}
+	}
+	return paths
 }
 
 func buildAgentDigests(registry catalog.Registry) []contracts.AgentDigest {
@@ -442,6 +505,39 @@ func cleanOrEmpty(path string) string {
 		return ""
 	}
 	return filepath.Clean(path)
+}
+
+func absOrEmpty(path string) string {
+	if strings.TrimSpace(path) == "" {
+		return ""
+	}
+	clean := filepath.Clean(path)
+	absolute, err := filepath.Abs(clean)
+	if err != nil {
+		return clean
+	}
+	return absolute
+}
+
+func resolveLocalWorkspaceDir(paths config.PathsConfig, chatID string) string {
+	if strings.TrimSpace(chatID) != "" {
+		return absOrEmpty(filepath.Join(paths.ChatsDir, strings.TrimSpace(chatID)))
+	}
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	return absOrEmpty(workingDirectory)
+}
+
+func resolveLocalSkillsDir(hasSkillsDir bool, level string, agentDir string, skillsMarketDir string) string {
+	if !hasSkillsDir {
+		return ""
+	}
+	if level != "global" && strings.TrimSpace(agentDir) != "" {
+		return absOrEmpty(filepath.Join(agentDir, "skills"))
+	}
+	return absOrEmpty(skillsMarketDir)
 }
 
 func ifNonEmpty(path string, target string) string {

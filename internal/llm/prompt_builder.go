@@ -170,11 +170,17 @@ func buildContextSection(session QuerySession, req api.QueryRequest) string {
 	// Sandbox paths — no "sandbox_" prefix; only include dirs that have a mount.
 	// Each entry has a brief description so the model knows what the dir is for.
 	paths := session.RuntimeContext.SandboxPaths
+	rootDirDesc := "容器家目录"
+	panDirDesc := "用户网盘挂载目录"
+	if session.RuntimeContext.LocalMode {
+		rootDirDesc = "root 目录"
+		panDirDesc = "用户网盘目录"
+	}
 	appendContextDir(&lines, "workspace_dir", paths.WorkspaceDir, "当前工作目录")
-	appendContextDir(&lines, "root_dir", paths.RootDir, "容器家目录")
+	appendContextDir(&lines, "root_dir", paths.RootDir, rootDirDesc)
 	appendContextDir(&lines, "skills_dir", paths.SkillsDir, "当前 agent 私有技能目录")
 	appendContextDir(&lines, "skills_market_dir", paths.SkillsMarketDir, "共享技能市场目录")
-	appendContextDir(&lines, "pan_dir", paths.PanDir, "用户网盘挂载目录")
+	appendContextDir(&lines, "pan_dir", paths.PanDir, panDirDesc)
 	appendContextDir(&lines, "agent_dir", paths.AgentDir, "当前 agent 定义目录")
 	appendContextDir(&lines, "owner_dir", paths.OwnerDir, "owner 用户档案目录")
 	appendContextDir(&lines, "agents_dir", paths.AgentsDir, "全部 agent 定义目录")

@@ -31,6 +31,11 @@ type EnvironmentAgentPromptResult struct {
 	OK              bool
 }
 
+type RuntimeInfo struct {
+	Engine string
+	OK     bool
+}
+
 func NewContainerHubClient(cfg config.ContainerHubConfig) *ContainerHubClient {
 	return &ContainerHubClient{
 		baseURL:   strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/"),
@@ -85,6 +90,33 @@ func (c *ContainerHubClient) ExecuteSessionRaw(ctx context.Context, sessionID st
 
 func (c *ContainerHubClient) StopSession(ctx context.Context, sessionID string) (map[string]any, error) {
 	return c.post(ctx, "/api/sessions/"+strings.TrimSpace(sessionID)+"/stop", map[string]any{})
+}
+
+func (c *ContainerHubClient) GetRuntimeInfo() RuntimeInfo {
+	req, err := http.NewRequest(http.MethodGet, c.baseURL+"/api/runtime-info", nil)
+	if err != nil {
+		return RuntimeInfo{}
+	}
+	if c.authToken != "" {
+		req.Header.Set("Authorization", "Bearer "+c.authToken)
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return RuntimeInfo{}
+	}
+	defer resp.Body.Close()
+
+	var decoded map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		return RuntimeInfo{}
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return RuntimeInfo{}
+	}
+	return RuntimeInfo{
+		Engine: strings.TrimSpace(firstStringValue(decoded, "engine")),
+		OK:     true,
+	}
 }
 
 func (c *ContainerHubClient) GetEnvironmentAgentPrompt(environmentID string) (EnvironmentAgentPromptResult, error) {

@@ -189,6 +189,7 @@ type ContainerHubConfig struct {
 	DefaultSandboxLevel  string
 	AgentIdleTimeoutMs   int64
 	DestroyQueueDelayMs  int64
+	ResolvedEngine       string
 }
 
 type BashConfig struct {
@@ -575,6 +576,13 @@ func (c *Config) normalize() {
 
 func (c Config) ServerAddress() string {
 	return ":" + c.Server.Port
+}
+
+func (c Config) IsLocalMode() bool {
+	if !c.ContainerHub.Enabled {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(c.ContainerHub.ResolvedEngine), "local")
 }
 
 func resolveAuthLocalPublicKeyFile(value string) string {
