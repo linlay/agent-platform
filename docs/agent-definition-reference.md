@@ -29,9 +29,7 @@ icon: "emoji:🤖"
 modelConfig:
   modelKey: qwen3-max
 toolConfig:
-  backends: ["_bash_", "_datetime_"]
-  frontends: []
-  actions: []
+  tools: ["_bash_", "_datetime_"]
 mode: ONESHOT
 plain:
   systemPrompt: |
@@ -42,7 +40,7 @@ plain:
 
 - 前 4 行固定 `key`、`name`、`role`、`description`
 - `modelConfig` 引用 `registries/models/*.yml`
-- `toolConfig` 声明 backend / frontend / action 工具
+- `toolConfig` 直接声明工具名列表
 - `mode` 决定 agent 执行模式
 
 ## Go 版已落地能力

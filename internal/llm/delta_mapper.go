@@ -75,8 +75,8 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		if toolID == "" {
 			return nil
 		}
-		toolType, toolLabel, toolDescription := m.resolveToolMetadata(value.Name)
-		if toolType == "action" {
+		viewportType, toolLabel, toolDescription := m.resolveToolMetadata(value.Name)
+		if viewportType == "action" {
 			m.actionToolIDs[toolID] = true
 			m.lastKind = "action"
 			return []stream.StreamInput{stream.ActionArgs{
@@ -89,12 +89,11 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		chunkIndex := m.toolArgChunkCounters[toolID]
 		m.toolArgChunkCounters[toolID] = chunkIndex + 1
 		m.lastKind = "tool"
-		awaitAsk := m.buildQuestionToolAwaitAsk(toolID, value.Name, toolType, chunkIndex)
+		awaitAsk := m.buildQuestionToolAwaitAsk(toolID, value.Name, chunkIndex)
 		return []stream.StreamInput{stream.ToolArgs{
 			ToolID:          toolID,
 			Delta:           value.ArgsDelta,
 			ToolName:        value.Name,
-			ToolType:        toolType,
 			ToolLabel:       toolLabel,
 			ToolDescription: toolDescription,
 			ChunkIndex:      chunkIndex,
@@ -113,7 +112,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		return inputs
 	case DeltaToolResult:
 		m.lastKind = ""
-		toolType, toolLabel, toolDescription := m.resolveToolMetadata(value.ToolName)
+		_, toolLabel, toolDescription := m.resolveToolMetadata(value.ToolName)
 		if m.actionToolIDs[value.ToolID] {
 			return []stream.StreamInput{stream.ActionResult{
 				ActionID:    value.ToolID,
@@ -125,7 +124,6 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		return []stream.StreamInput{stream.ToolResult{
 			ToolID:          value.ToolID,
 			ToolName:        value.ToolName,
-			ToolType:        toolType,
 			ToolLabel:       toolLabel,
 			ToolDescription: toolDescription,
 			Result:          structuredOrOutput(value.Result),
@@ -176,7 +174,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		}}
 	case DeltaAwaitAsk:
 		return []stream.StreamInput{stream.AwaitAsk{
-			AwaitID:      value.AwaitID,
+			AwaitingID:   value.AwaitingID,
 			ViewportType: value.ViewportType,
 			ViewportKey:  value.ViewportKey,
 			Mode:         value.Mode,
@@ -186,8 +184,8 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		}}
 	case DeltaAwaitPayload:
 		return []stream.StreamInput{stream.AwaitPayload{
-			AwaitID:   value.AwaitID,
-			Questions: append([]any(nil), value.Questions...),
+			AwaitingID: value.AwaitingID,
+			Questions:  append([]any(nil), value.Questions...),
 		}}
 	case DeltaRequestSubmit:
 		return []stream.StreamInput{stream.RequestSubmit{
@@ -212,7 +210,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 	}
 }
 
-func (m *DeltaMapper) buildQuestionToolAwaitAsk(toolID string, toolName string, toolType string, chunkIndex int) *stream.AwaitAsk {
+func (m *DeltaMapper) buildQuestionToolAwaitAsk(toolID string, toolName string, chunkIndex int) *stream.AwaitAsk {
 	if !strings.EqualFold(strings.TrimSpace(toolName), "_ask_user_question_") {
 		return nil
 	}
@@ -222,13 +220,10 @@ func (m *DeltaMapper) buildQuestionToolAwaitAsk(toolID string, toolName string, 
 	if !m.isClientVisibleTool(toolName) {
 		return nil
 	}
-	resolvedToolType, viewportKey := m.resolveViewportMetadata(toolName)
-	if strings.TrimSpace(toolType) == "" {
-		toolType = resolvedToolType
-	}
+	viewportType, viewportKey := m.resolveViewportMetadata(toolName)
 	return &stream.AwaitAsk{
-		AwaitID:      toolID,
-		ViewportType: toolType,
+		AwaitingID:   toolID,
+		ViewportType: viewportType,
 		ViewportKey:  viewportKey,
 		Mode:         "question",
 		ToolTimeout:  m.toolTimeoutMs,
@@ -261,8 +256,8 @@ func (m *DeltaMapper) resolveToolMetadata(toolName string) (string, string, stri
 	case "action":
 		return "action", tool.Label, tool.Description
 	case "frontend":
-		toolType, _ := tool.Meta["toolType"].(string)
-		return strings.TrimSpace(toolType), tool.Label, tool.Description
+		viewportType, _ := tool.Meta["viewportType"].(string)
+		return strings.TrimSpace(viewportType), tool.Label, tool.Description
 	default:
 		return "", tool.Label, tool.Description
 	}
@@ -276,9 +271,9 @@ func (m *DeltaMapper) resolveViewportMetadata(toolName string) (string, string) 
 	if !ok {
 		return "", ""
 	}
-	toolType, _ := tool.Meta["toolType"].(string)
+	viewportType, _ := tool.Meta["viewportType"].(string)
 	viewportKey, _ := tool.Meta["viewportKey"].(string)
-	return strings.TrimSpace(toolType), strings.TrimSpace(viewportKey)
+	return strings.TrimSpace(viewportType), strings.TrimSpace(viewportKey)
 }
 
 func (m *DeltaMapper) isClientVisibleTool(toolName string) bool {

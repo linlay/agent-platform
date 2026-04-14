@@ -64,23 +64,23 @@ func loadRulesFromDir(root string) ([]FlatRule, error) {
 					return nil, fmt.Errorf("%s: %w", path, err)
 				}
 				viewportTypeKey := strings.ToLower(strings.TrimSpace(sub.ViewportKey))
-				toolType := strings.ToLower(strings.TrimSpace(sub.ToolType))
-				if existing, ok := viewportTypes[viewportTypeKey]; ok && existing != toolType {
-					return nil, fmt.Errorf("%s: viewportKey %q is associated with multiple toolType values", path, sub.ViewportKey)
+				viewportType := strings.ToLower(strings.TrimSpace(sub.ViewportType))
+				if existing, ok := viewportTypes[viewportTypeKey]; ok && existing != viewportType {
+					return nil, fmt.Errorf("%s: viewportKey %q is associated with multiple viewportType values", path, sub.ViewportKey)
 				}
-				viewportTypes[viewportTypeKey] = toolType
+				viewportTypes[viewportTypeKey] = viewportType
 				seen[key] = true
 				rules = append(rules, FlatRule{
-					FileKey:     file.Key,
-					SourcePath:  path,
-					Order:       order,
-					Command:     command,
-					Match:       match,
-					MatchTokens: matchTokens,
-					Level:       sub.Level,
-					HITLType:    strings.ToLower(strings.TrimSpace(sub.HITLType)),
-					ToolType:    toolType,
-					ViewportKey: strings.TrimSpace(sub.ViewportKey),
+					FileKey:      file.Key,
+					SourcePath:   path,
+					Order:        order,
+					Command:      command,
+					Match:        match,
+					MatchTokens:  matchTokens,
+					Level:        sub.Level,
+					HITLType:     strings.ToLower(strings.TrimSpace(sub.HITLType)),
+					ViewportType: viewportType,
+					ViewportKey:  strings.TrimSpace(sub.ViewportKey),
 				})
 				order++
 			}
@@ -117,11 +117,11 @@ func parseRuleFile(path string) (RuleFile, bool, error) {
 		}
 		for _, rawSub := range listMaps(rawCommand["subcommands"]) {
 			block.Subcommands = append(block.Subcommands, SubcommandRule{
-				Match:       strings.TrimSpace(stringValue(rawSub["match"])),
-				Level:       intValue(rawSub["level"]),
-				HITLType:    strings.TrimSpace(stringValue(rawSub["hitlType"])),
-				ToolType:    strings.TrimSpace(stringValue(rawSub["toolType"])),
-				ViewportKey: strings.TrimSpace(stringValue(rawSub["viewportKey"])),
+				Match:        strings.TrimSpace(stringValue(rawSub["match"])),
+				Level:        intValue(rawSub["level"]),
+				HITLType:     strings.TrimSpace(stringValue(rawSub["hitlType"])),
+				ViewportType: strings.TrimSpace(firstString(rawSub, "viewportType", "toolType")),
+				ViewportKey:  strings.TrimSpace(stringValue(rawSub["viewportKey"])),
 			})
 		}
 		file.Commands = append(file.Commands, block)
@@ -144,10 +144,10 @@ func validateSubcommandRule(command string, sub SubcommandRule, matchTokens []st
 	default:
 		return fmt.Errorf("hitlType must be one of system,business")
 	}
-	switch strings.ToLower(strings.TrimSpace(sub.ToolType)) {
+	switch strings.ToLower(strings.TrimSpace(sub.ViewportType)) {
 	case "builtin", "html":
 	default:
-		return fmt.Errorf("toolType must be one of builtin,html")
+		return fmt.Errorf("viewportType must be one of builtin,html")
 	}
 	if strings.TrimSpace(sub.ViewportKey) == "" {
 		return fmt.Errorf("viewportKey is required")
@@ -168,6 +168,15 @@ func listMaps(value any) []map[string]any {
 		}
 	}
 	return out
+}
+
+func firstString(root map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if text := strings.TrimSpace(stringValue(root[key])); text != "" {
+			return text
+		}
+	}
+	return ""
 }
 
 func stringValue(value any) string {

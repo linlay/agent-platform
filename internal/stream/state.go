@@ -36,7 +36,6 @@ type contentBlockState struct {
 type toolBlockState struct {
 	TaskID      string
 	Name        string
-	Type        string
 	Label       string
 	Description string
 }

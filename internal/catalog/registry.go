@@ -443,7 +443,7 @@ func matchesToolTag(tool api.ToolDetailResponse, needle string) bool {
 		tool.Description,
 		tool.AfterCallHint,
 		stringNode(tool.Meta["kind"]),
-		stringNode(tool.Meta["toolType"]),
+		stringNode(tool.Meta["viewportType"]),
 		stringNode(tool.Meta["viewportKey"]),
 	}
 	for _, field := range fields {
@@ -544,11 +544,11 @@ func parseToolOverrides(value any) map[string]api.ToolDetailResponse {
 		name := defaultString(stringNode(override["name"]), toolName)
 		key := defaultString(stringNode(override["key"]), toolName)
 		meta := mapNode(override["meta"])
-		if toolType := stringNode(override["toolType"]); toolType != "" {
+		if viewportType := firstStringNode(override, "viewportType", "toolType"); viewportType != "" {
 			if meta == nil {
 				meta = map[string]any{}
 			}
-			meta["toolType"] = toolType
+			meta["viewportType"] = viewportType
 		}
 		if viewportKey := stringNode(override["viewportKey"]); viewportKey != "" {
 			if meta == nil {
@@ -570,6 +570,15 @@ func parseToolOverrides(value any) map[string]api.ToolDetailResponse {
 		return nil
 	}
 	return result
+}
+
+func firstStringNode(root map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if text := stringNode(root[key]); text != "" {
+			return text
+		}
+	}
+	return ""
 }
 
 func firstMapNode(values ...any) map[string]any {

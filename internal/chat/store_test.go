@@ -222,8 +222,8 @@ func TestLoadChatReplaysQuestionAwaitLifecycleEventLines(t *testing.T) {
 		UpdatedAt: 1001,
 		Type:      "event",
 		Event: map[string]any{
-			"type":         "await.ask",
-			"awaitId":      "tool-1",
+			"type":         "awaiting.ask",
+			"awaitingId":   "tool-1",
 			"viewportType": "builtin",
 			"viewportKey":  "confirm_dialog",
 			"mode":         "question",
@@ -240,8 +240,8 @@ func TestLoadChatReplaysQuestionAwaitLifecycleEventLines(t *testing.T) {
 		UpdatedAt: 1002,
 		Type:      "event",
 		Event: map[string]any{
-			"type":    "await.payload",
-			"awaitId": "tool-1",
+			"type":       "awaiting.payload",
+			"awaitingId": "tool-1",
 			"questions": []any{
 				map[string]any{
 					"question": "How many?",
@@ -290,8 +290,8 @@ func TestLoadChatReplaysQuestionAwaitLifecycleEventLines(t *testing.T) {
 		"chat.start",
 		"run.start",
 		"request.query",
-		"await.ask",
-		"await.payload",
+		"awaiting.ask",
+		"awaiting.payload",
 		"request.submit",
 		"run.complete",
 	}
@@ -306,10 +306,10 @@ func TestLoadChatReplaysQuestionAwaitLifecycleEventLines(t *testing.T) {
 		t.Fatalf("unexpected await ask replay %#v", viewport)
 	}
 	if _, exists := viewport.Payload["awaitName"]; exists {
-		t.Fatalf("did not expect awaitName on await.ask replay %#v", viewport)
+		t.Fatalf("did not expect awaitName on awaiting.ask replay %#v", viewport)
 	}
 	if _, exists := viewport.Payload["chatId"]; exists {
-		t.Fatalf("did not expect chatId on await.ask replay %#v", viewport)
+		t.Fatalf("did not expect chatId on awaiting.ask replay %#v", viewport)
 	}
 
 	payload := detail.Events[4]
@@ -354,8 +354,8 @@ func TestLoadChatReplaysApprovalAwaitLifecycleEventLines(t *testing.T) {
 		UpdatedAt: 1001,
 		Type:      "event",
 		Event: map[string]any{
-			"type":         "await.ask",
-			"awaitId":      "tool-approval",
+			"type":         "awaiting.ask",
+			"awaitingId":   "tool-approval",
 			"viewportType": "builtin",
 			"viewportKey":  "confirm_dialog",
 			"mode":         "approval",
@@ -400,21 +400,21 @@ func TestLoadChatReplaysApprovalAwaitLifecycleEventLines(t *testing.T) {
 	foundAwaitPayload := false
 	for _, event := range detail.Events {
 		switch event.Type {
-		case "await.ask":
+		case "awaiting.ask":
 			foundAwaitAsk = true
 			questions, _ := event.Value("questions").([]any)
 			if len(questions) != 1 {
-				t.Fatalf("expected approval await.ask questions length 1, got %#v", event)
+				t.Fatalf("expected approval awaiting.ask questions length 1, got %#v", event)
 			}
-		case "await.payload":
+		case "awaiting.payload":
 			foundAwaitPayload = true
 		}
 	}
 	if !foundAwaitAsk {
-		t.Fatalf("expected approval await.ask replay, got %#v", detail.Events)
+		t.Fatalf("expected approval awaiting.ask replay, got %#v", detail.Events)
 	}
 	if foundAwaitPayload {
-		t.Fatalf("did not expect approval await.payload replay, got %#v", detail.Events)
+		t.Fatalf("did not expect approval awaiting.payload replay, got %#v", detail.Events)
 	}
 }
 

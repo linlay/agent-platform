@@ -132,7 +132,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		})
 		w.needNewMsgID = true
 
-	case "await.ask", "await.payload", "request.submit", "request.steer":
+	case "awaiting.ask", "awaiting.payload", "request.submit", "request.steer":
 		w.flushCurrentStep()
 		w.appendEventLine(event)
 

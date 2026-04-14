@@ -23,7 +23,7 @@ func parseToolDefinition(root map[string]any, options toolDefinitionParseOptions
 		parameters = AnyMapNode(root["parameters"])
 	}
 	typeValue := strings.ToLower(AnyStringNode(root["type"]))
-	toolType := AnyStringNode(root["toolType"])
+	viewportType := firstNonEmptyStringNode(root["viewportType"], root["toolType"])
 	viewportKey := AnyStringNode(root["viewportKey"])
 	kind := "backend"
 	switch typeValue {
@@ -38,7 +38,7 @@ func parseToolDefinition(root map[string]any, options toolDefinitionParseOptions
 	}
 	if AnyBoolNode(root["toolAction"]) {
 		kind = "action"
-	} else if toolType != "" || viewportKey != "" {
+	} else if viewportType != "" || viewportKey != "" {
 		kind = "frontend"
 	}
 
@@ -67,8 +67,8 @@ func parseToolDefinition(root map[string]any, options toolDefinitionParseOptions
 	if toolAction, ok := root["toolAction"].(bool); ok {
 		meta["toolAction"] = toolAction
 	}
-	if toolType != "" {
-		meta["toolType"] = toolType
+	if viewportType != "" {
+		meta["viewportType"] = viewportType
 	}
 	if viewportKey != "" {
 		meta["viewportKey"] = viewportKey
@@ -92,4 +92,13 @@ func fallbackToolString(value string, fallback string) string {
 		return strings.TrimSpace(value)
 	}
 	return strings.TrimSpace(fallback)
+}
+
+func firstNonEmptyStringNode(values ...any) string {
+	for _, value := range values {
+		if text := AnyStringNode(value); text != "" {
+			return text
+		}
+	}
+	return ""
 }

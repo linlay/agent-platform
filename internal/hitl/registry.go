@@ -153,7 +153,7 @@ func buildSyntheticToolDefinition(rule FlatRule) api.ToolDetailResponse {
 			"sourceType":    "hitl",
 			"sourceKey":     rule.FileKey,
 			"clientVisible": true,
-			"toolType":      rule.ToolType,
+			"viewportType":  rule.ViewportType,
 			"viewportKey":   rule.ViewportKey,
 		},
 	}

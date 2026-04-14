@@ -40,7 +40,7 @@ type ToolDefinition struct {
 	AfterCallHint string
 	Parameters    map[string]any
 	ToolAction    bool
-	ToolType      string
+	ViewportType  string
 	ViewportKey   string
 	Aliases       []string
 	Meta          map[string]any
@@ -56,6 +56,7 @@ func (t *ToolDefinition) UnmarshalJSON(data []byte) error {
 		InputSchema   map[string]any `json:"inputSchema"`
 		Parameters    map[string]any `json:"parameters"`
 		ToolAction    bool           `json:"toolAction"`
+		ViewportType  string         `json:"viewportType"`
 		ToolType      string         `json:"toolType"`
 		ViewportKey   string         `json:"viewportKey"`
 		Aliases       []string       `json:"aliases"`
@@ -77,7 +78,7 @@ func (t *ToolDefinition) UnmarshalJSON(data []byte) error {
 		AfterCallHint: raw.AfterCallHint,
 		Parameters:    contracts.CloneMap(parameters),
 		ToolAction:    raw.ToolAction,
-		ToolType:      raw.ToolType,
+		ViewportType:  strings.TrimSpace(contracts.FirstNonEmptyString(raw.ViewportType, raw.ToolType)),
 		ViewportKey:   raw.ViewportKey,
 		Aliases:       append([]string(nil), raw.Aliases...),
 		Meta:          contracts.CloneMap(raw.Meta),
@@ -108,7 +109,7 @@ func (t ToolDefinition) ToAPITool(serverKey string) api.ToolDetailResponse {
 	kind := "backend"
 	if t.ToolAction {
 		kind = "action"
-	} else if strings.TrimSpace(t.ToolType) != "" || strings.TrimSpace(t.ViewportKey) != "" {
+	} else if strings.TrimSpace(t.ViewportType) != "" || strings.TrimSpace(t.ViewportKey) != "" {
 		kind = "frontend"
 	}
 	meta := map[string]any{
@@ -119,8 +120,8 @@ func (t ToolDefinition) ToAPITool(serverKey string) api.ToolDetailResponse {
 		"toolAction":    t.ToolAction,
 		"clientVisible": true,
 	}
-	if strings.TrimSpace(t.ToolType) != "" {
-		meta["toolType"] = strings.TrimSpace(t.ToolType)
+	if strings.TrimSpace(t.ViewportType) != "" {
+		meta["viewportType"] = strings.TrimSpace(t.ViewportType)
 	}
 	if strings.TrimSpace(t.ViewportKey) != "" {
 		meta["viewportKey"] = strings.TrimSpace(t.ViewportKey)

@@ -215,7 +215,7 @@ remember 根目录由 `MEMORY_DIR` 控制：
 
 ### `confirm_dialog` 共享 viewport 约定
 
-- `_ask_user_question_` 与 `_ask_user_approval_` 都使用 `toolType=builtin`、`viewportKey=confirm_dialog`。
+- `_ask_user_question_` 与 `_ask_user_approval_` 都使用 `viewportType=builtin`、`viewportKey=confirm_dialog`。
 - 两个工具的输入里都必须带 `mode`：
   - `mode=question`：对应 `_ask_user_question_`
   - `mode=approval`：对应 `_ask_user_approval_`

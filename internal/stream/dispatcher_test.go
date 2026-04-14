@@ -19,7 +19,6 @@ func TestDispatcherClosesContentWhenSwitchingToTool(t *testing.T) {
 	events = dispatcher.Dispatch(ToolArgs{
 		ToolID:     "tool_1",
 		ToolName:   "_datetime_",
-		ToolType:   "backend",
 		Delta:      "{",
 		ChunkIndex: 0,
 	})
@@ -35,7 +34,6 @@ func TestDispatcherEmitsToolSnapshotAndResultLifecycle(t *testing.T) {
 	_ = dispatcher.Dispatch(ToolArgs{
 		ToolID:     "tool_1",
 		ToolName:   "_datetime_",
-		ToolType:   "backend",
 		Delta:      "{",
 		ChunkIndex: 0,
 	})
@@ -59,11 +57,10 @@ func TestDispatcherEmitsQuestionModeAwaitAskAfterToolStart(t *testing.T) {
 	events := dispatcher.Dispatch(ToolArgs{
 		ToolID:     "tool_1",
 		ToolName:   "_ask_user_question_",
-		ToolType:   "builtin",
 		Delta:      "{",
 		ChunkIndex: 0,
 		AwaitAsk: &AwaitAsk{
-			AwaitID:      "tool_1",
+			AwaitingID:   "tool_1",
 			ViewportType: "builtin",
 			ViewportKey:  "confirm_dialog",
 			Mode:         "question",
@@ -71,7 +68,7 @@ func TestDispatcherEmitsQuestionModeAwaitAskAfterToolStart(t *testing.T) {
 			RunID:        "run_1",
 		},
 	})
-	assertEventTypes(t, events, "tool.start", "await.ask", "tool.args")
+	assertEventTypes(t, events, "tool.start", "awaiting.ask", "tool.args")
 }
 
 func TestDispatcherEmitsApprovalModeAwaitAskWithQuestions(t *testing.T) {
@@ -81,7 +78,7 @@ func TestDispatcherEmitsApprovalModeAwaitAskWithQuestions(t *testing.T) {
 	})
 
 	viewportEvents := dispatcher.Dispatch(AwaitAsk{
-		AwaitID:      "tool_1",
+		AwaitingID:   "tool_1",
 		ViewportType: "builtin",
 		ViewportKey:  "confirm_dialog",
 		Mode:         "approval",
@@ -91,13 +88,13 @@ func TestDispatcherEmitsApprovalModeAwaitAskWithQuestions(t *testing.T) {
 			map[string]any{"question": "Proceed?", "options": []any{map[string]any{"label": "Yes", "value": "yes"}}},
 		},
 	})
-	assertEventTypes(t, viewportEvents, "await.ask")
+	assertEventTypes(t, viewportEvents, "awaiting.ask")
 
 	payloadEvents := dispatcher.Dispatch(AwaitPayload{
-		AwaitID:   "tool_1",
-		Questions: []any{map[string]any{"question": "How many?", "type": "number"}},
+		AwaitingID: "tool_1",
+		Questions:  []any{map[string]any{"question": "How many?", "type": "number"}},
 	})
-	assertEventTypes(t, payloadEvents, "await.payload")
+	assertEventTypes(t, payloadEvents, "awaiting.payload")
 }
 
 func TestDispatcherCompleteEmitsReasoningSnapshot(t *testing.T) {
@@ -255,7 +252,6 @@ func TestEventDataMarshalsWithContractKeyOrder(t *testing.T) {
 		"toolDescription": "desc",
 		"taskId":          "task_1",
 		"toolLabel":       "Datetime",
-		"toolType":        "function",
 		"runId":           "run_1",
 		"toolName":        "_datetime_",
 		"toolId":          "tool_1",
@@ -273,7 +269,6 @@ func TestEventDataMarshalsWithContractKeyOrder(t *testing.T) {
 		`"runId":"run_1"`,
 		`"toolName":"_datetime_"`,
 		`"taskId":"task_1"`,
-		`"toolType":"function"`,
 		`"toolLabel":"Datetime"`,
 		`"toolDescription":"desc"`,
 		`"arguments":"{}"`,
@@ -293,12 +288,12 @@ func TestEventDataMarshalsWithContractKeyOrder(t *testing.T) {
 }
 
 func TestEventDataMarshalsAwaitAskWithContractKeyOrder(t *testing.T) {
-	event := NewEvent("await.ask", map[string]any{
+	event := NewEvent("awaiting.ask", map[string]any{
 		"toolTimeout":  120000,
 		"runId":        "run_1",
 		"viewportKey":  "confirm_dialog",
 		"mode":         "approval",
-		"awaitId":      "tool_1",
+		"awaitingId":   "tool_1",
 		"viewportType": "builtin",
 	})
 	event.Seq = 9
@@ -309,8 +304,8 @@ func TestEventDataMarshalsAwaitAskWithContractKeyOrder(t *testing.T) {
 	text := string(data)
 	order := []string{
 		`"seq":9`,
-		`"type":"await.ask"`,
-		`"awaitId":"tool_1"`,
+		`"type":"awaiting.ask"`,
+		`"awaitingId":"tool_1"`,
 		`"viewportType":"builtin"`,
 		`"viewportKey":"confirm_dialog"`,
 		`"mode":"approval"`,
@@ -332,8 +327,8 @@ func TestEventDataMarshalsAwaitAskWithContractKeyOrder(t *testing.T) {
 }
 
 func TestEventDataMarshalsApprovalAwaitAskWithQuestions(t *testing.T) {
-	event := NewEvent("await.ask", map[string]any{
-		"awaitId":      "tool_1",
+	event := NewEvent("awaiting.ask", map[string]any{
+		"awaitingId":   "tool_1",
 		"viewportType": "builtin",
 		"viewportKey":  "confirm_dialog",
 		"mode":         "approval",
@@ -349,13 +344,13 @@ func TestEventDataMarshalsApprovalAwaitAskWithQuestions(t *testing.T) {
 	}
 	text := string(data)
 	if !strings.Contains(text, `"questions":[`) {
-		t.Fatalf("expected questions in approval await.ask: %s", text)
+		t.Fatalf("expected questions in approval awaiting.ask: %s", text)
 	}
 }
 
 func TestEventDataMarshalsAwaitPayloadWithQuestions(t *testing.T) {
-	event := NewEvent("await.payload", map[string]any{
-		"awaitId": "tool_1",
+	event := NewEvent("awaiting.payload", map[string]any{
+		"awaitingId": "tool_1",
 		"questions": []any{
 			map[string]any{
 				"question": "Destination?",
@@ -370,10 +365,10 @@ func TestEventDataMarshalsAwaitPayloadWithQuestions(t *testing.T) {
 	}
 	text := string(data)
 	if !strings.Contains(text, `"questions":[`) {
-		t.Fatalf("expected top-level questions in await.payload: %s", text)
+		t.Fatalf("expected top-level questions in awaiting.payload: %s", text)
 	}
 	if strings.Contains(text, `"payload":`) {
-		t.Fatalf("did not expect payload wrapper in await.payload: %s", text)
+		t.Fatalf("did not expect payload wrapper in awaiting.payload: %s", text)
 	}
 }
 

@@ -272,9 +272,6 @@ func (s *Server) enrichToolMetadata(events []stream.EventData, _ string) {
 		if label := def.Label; label != "" {
 			events[i].Payload["toolLabel"] = label
 		}
-		if toolType := strings.TrimSpace(anyStringValue(def.Meta["toolType"])); toolType != "" {
-			events[i].Payload["toolType"] = toolType
-		}
 	}
 }
 
@@ -329,7 +326,7 @@ func matchesToolTag(tool api.ToolDetailResponse, needle string) bool {
 		tool.Description,
 		tool.AfterCallHint,
 		anyStringValue(tool.Meta["kind"]),
-		anyStringValue(tool.Meta["toolType"]),
+		anyStringValue(tool.Meta["viewportType"]),
 		anyStringValue(tool.Meta["viewportKey"]),
 	}
 	for _, field := range fields {

@@ -60,9 +60,9 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 	case AwaitAsk:
 		return []StreamEvent{d.newAwaitAskEvent(value)}
 	case AwaitPayload:
-		return []StreamEvent{NewEvent("await.payload", map[string]any{
-			"awaitId":   value.AwaitID,
-			"questions": value.Questions,
+		return []StreamEvent{NewEvent("awaiting.payload", map[string]any{
+			"awaitingId": value.AwaitingID,
+			"questions":  value.Questions,
 		})}
 	case RequestSubmit:
 		return []StreamEvent{NewEvent("request.submit", map[string]any{
@@ -199,7 +199,6 @@ func (d *StreamEventDispatcher) handleToolArgs(input ToolArgs) []StreamEvent {
 		d.state.openTools[input.ToolID] = toolBlockState{
 			TaskID:      input.TaskID,
 			Name:        input.ToolName,
-			Type:        input.ToolType,
 			Label:       input.ToolLabel,
 			Description: input.ToolDescription,
 		}
@@ -208,7 +207,6 @@ func (d *StreamEventDispatcher) handleToolArgs(input ToolArgs) []StreamEvent {
 			"runId":           d.request.RunID,
 			"taskId":          input.TaskID,
 			"toolName":        input.ToolName,
-			"toolType":        input.ToolType,
 			"toolLabel":       input.ToolLabel,
 			"toolDescription": input.ToolDescription,
 		}))
@@ -227,7 +225,7 @@ func (d *StreamEventDispatcher) handleToolArgs(input ToolArgs) []StreamEvent {
 
 func (d *StreamEventDispatcher) newAwaitAskEvent(input AwaitAsk) StreamEvent {
 	payload := map[string]any{
-		"awaitId":      input.AwaitID,
+		"awaitingId":   input.AwaitingID,
 		"viewportType": input.ViewportType,
 		"viewportKey":  input.ViewportKey,
 		"mode":         input.Mode,
@@ -237,7 +235,7 @@ func (d *StreamEventDispatcher) newAwaitAskEvent(input AwaitAsk) StreamEvent {
 	if len(input.Questions) > 0 {
 		payload["questions"] = input.Questions
 	}
-	return NewEvent("await.ask", payload)
+	return NewEvent("awaiting.ask", payload)
 }
 
 func (d *StreamEventDispatcher) handleToolEnd(input ToolEnd) []StreamEvent {
@@ -432,7 +430,6 @@ func (d *StreamEventDispatcher) closeTool(toolID string) []StreamEvent {
 		"runId":           d.request.RunID,
 		"toolName":        block.Name,
 		"taskId":          block.TaskID,
-		"toolType":        block.Type,
 		"toolLabel":       block.Label,
 		"toolDescription": block.Description,
 		"arguments":       d.state.toolArgsBuffer[toolID],

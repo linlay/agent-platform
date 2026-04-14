@@ -35,12 +35,12 @@ func TestAskUserToolSchemasMatchContract(t *testing.T) {
 		switch def.Name {
 		case "_ask_user_question_":
 			questionDef = def.Parameters
-			if def.Meta["toolType"] != "builtin" || def.Meta["viewportKey"] != "confirm_dialog" {
+			if def.Meta["viewportType"] != "builtin" || def.Meta["viewportKey"] != "confirm_dialog" {
 				t.Fatalf("unexpected question tool metadata: %#v", def.Meta)
 			}
 		case "_ask_user_approval_":
 			approvalDef = def.Parameters
-			if def.Meta["toolType"] != "builtin" || def.Meta["viewportKey"] != "confirm_dialog" {
+			if def.Meta["viewportType"] != "builtin" || def.Meta["viewportKey"] != "confirm_dialog" {
 				t.Fatalf("unexpected approval tool metadata: %#v", def.Meta)
 			}
 		}

@@ -26,7 +26,6 @@ type ToolArgs struct {
 	Delta           string
 	TaskID          string
 	ToolName        string
-	ToolType        string
 	ToolLabel       string
 	ToolDescription string
 	ChunkIndex      int
@@ -44,7 +43,6 @@ func (ToolEnd) streamInputTag() {}
 type ToolResult struct {
 	ToolID          string
 	ToolName        string
-	ToolType        string
 	ToolLabel       string
 	ToolDescription string
 	Result          any
@@ -131,7 +129,7 @@ type ArtifactPublish struct {
 func (ArtifactPublish) streamInputTag() {}
 
 type AwaitAsk struct {
-	AwaitID      string
+	AwaitingID   string
 	ViewportType string
 	ViewportKey  string
 	Mode         string
@@ -143,8 +141,8 @@ type AwaitAsk struct {
 func (AwaitAsk) streamInputTag() {}
 
 type AwaitPayload struct {
-	AwaitID   string
-	Questions []any
+	AwaitingID string
+	Questions  []any
 }
 
 func (AwaitPayload) streamInputTag() {}

@@ -275,9 +275,7 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	modelConfig := mapNode(root["modelConfig"])
 	def.ModelKey = stringNode(modelConfig["modelKey"])
 	toolConfig := mapNode(root["toolConfig"])
-	def.Tools = append(def.Tools, listStrings(toolConfig["backends"])...)
-	def.Tools = append(def.Tools, listStrings(toolConfig["frontends"])...)
-	def.Tools = append(def.Tools, listStrings(toolConfig["actions"])...)
+	def.Tools = parseToolConfigTools(toolConfig)
 	def.ToolOverrides = parseToolOverrides(toolConfig["overrides"])
 	def.Skills = listStrings(mapNode(root["skillConfig"])["skills"])
 	def.Controls = cloneListMaps(listMaps(root["controls"]))
@@ -350,6 +348,17 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 		def.Role = def.Name
 	}
 	return def, root, nil
+}
+
+func parseToolConfigTools(toolConfig map[string]any) []string {
+	if tools := listStrings(toolConfig["tools"]); len(tools) > 0 {
+		return tools
+	}
+	var tools []string
+	tools = append(tools, listStrings(toolConfig["backends"])...)
+	tools = append(tools, listStrings(toolConfig["frontends"])...)
+	tools = append(tools, listStrings(toolConfig["actions"])...)
+	return tools
 }
 
 func applyModelReasoningDefaults(stageSettings map[string]any, reasoning map[string]any) map[string]any {
