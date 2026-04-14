@@ -58,6 +58,10 @@ resolve_release_context() {
 archive_format_for_os() {
   local target_os="$1"
   validate_target_os "$target_os"
+  if [[ -n "${PROGRAM_ARCHIVE_FORMAT:-}" ]]; then
+    printf '%s\n' "$PROGRAM_ARCHIVE_FORMAT"
+    return
+  fi
   case "$target_os" in
     windows) printf 'zip\n' ;;
     *) printf 'tar.gz\n' ;;
