@@ -123,7 +123,7 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 			Role:    "system",
 			Content: systemPrompt,
 		}}
-		for _, raw := range session.HistoryMessages {
+		for _, raw := range mergeRawMessagesByMsgID(session.HistoryMessages) {
 			msg := rawMessageToOpenAI(raw)
 			if msg.Role != "" {
 				messages = append(messages, msg)
