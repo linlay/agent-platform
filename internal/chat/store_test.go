@@ -259,11 +259,11 @@ func TestLoadChatReplaysQuestionAwaitLifecycleEventLines(t *testing.T) {
 		UpdatedAt: 1003,
 		Type:      "event",
 		Event: map[string]any{
-			"type":      "request.submit",
-			"requestId": "req-1",
-			"chatId":    "chat-1",
-			"runId":     "run-1",
-			"toolId":    "tool-1",
+			"type":       "request.submit",
+			"requestId":  "req-1",
+			"chatId":     "chat-1",
+			"runId":      "run-1",
+			"awaitingId": "tool-1",
 			"payload": map[string]any{
 				"answers": []any{
 					map[string]any{
@@ -320,7 +320,7 @@ func TestLoadChatReplaysQuestionAwaitLifecycleEventLines(t *testing.T) {
 
 	submit := detail.Events[5]
 	submitPayload, _ := submit.Value("payload").(map[string]any)
-	if submit.String("toolId") != "tool-1" || submitPayload == nil {
+	if submit.String("awaitingId") != "tool-1" || submitPayload == nil {
 		t.Fatalf("unexpected request.submit replay %#v", submit)
 	}
 }
@@ -380,12 +380,12 @@ func TestLoadChatReplaysApprovalAwaitLifecycleEventLines(t *testing.T) {
 		UpdatedAt: 1002,
 		Type:      "event",
 		Event: map[string]any{
-			"type":      "request.submit",
-			"requestId": "req-approval",
-			"chatId":    "chat-approval",
-			"runId":     "run-approval",
-			"toolId":    "tool-approval",
-			"payload":   map[string]any{"value": "approve"},
+			"type":       "request.submit",
+			"requestId":  "req-approval",
+			"chatId":     "chat-approval",
+			"runId":      "run-approval",
+			"awaitingId": "tool-approval",
+			"payload":    map[string]any{"value": "approve"},
 		},
 	}); err != nil {
 		t.Fatalf("append approval request submit line: %v", err)
@@ -459,12 +459,12 @@ func TestLoadChatReplaysLegacyConfirmLifecycleEvents(t *testing.T) {
 			"payload":   map[string]any{"mode": "approval"},
 		},
 		{
-			"type":      "request.submit",
-			"requestId": "req-legacy",
-			"chatId":    "chat-legacy",
-			"runId":     "run-legacy",
-			"toolId":    "tool-legacy",
-			"payload":   map[string]any{"value": "approve"},
+			"type":       "request.submit",
+			"requestId":  "req-legacy",
+			"chatId":     "chat-legacy",
+			"runId":      "run-legacy",
+			"awaitingId": "tool-legacy",
+			"payload":    map[string]any{"value": "approve"},
 		},
 	}
 	for _, event := range legacyEvents {

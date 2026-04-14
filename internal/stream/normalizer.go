@@ -59,7 +59,7 @@ func (n *SseEventNormalizer) shouldDrop(event StreamEvent) bool {
 		return awaitID != "" && n.hiddenToolIDs[awaitID]
 	}
 	if eventType == "request.submit" {
-		return toolID != "" && n.hiddenToolIDs[toolID]
+		return awaitID != "" && n.hiddenToolIDs[awaitID]
 	}
 	if !strings.HasPrefix(eventType, "tool.") {
 		return false

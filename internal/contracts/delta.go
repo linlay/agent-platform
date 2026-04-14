@@ -108,11 +108,11 @@ type DeltaAwaitPayload struct {
 func (DeltaAwaitPayload) agentDeltaTag() {}
 
 type DeltaRequestSubmit struct {
-	RequestID string
-	ChatID    string
-	RunID     string
-	ToolID    string
-	Payload   any
+	RequestID  string
+	ChatID     string
+	RunID      string
+	AwaitingID string
+	Payload    any
 }
 
 func (DeltaRequestSubmit) agentDeltaTag() {}

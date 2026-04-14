@@ -599,11 +599,11 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 	}
 	if result.SubmitInfo != nil {
 		s.pending = append(s.pending, DeltaRequestSubmit{
-			RequestID: s.session.RequestID,
-			ChatID:    s.session.ChatID,
-			RunID:     s.session.RunID,
-			ToolID:    result.SubmitInfo.ToolID,
-			Payload:   result.SubmitInfo.Params,
+			RequestID:  s.session.RequestID,
+			ChatID:     s.session.ChatID,
+			RunID:      s.session.RunID,
+			AwaitingID: result.SubmitInfo.AwaitingID,
+			Payload:    result.SubmitInfo.Params,
 		})
 	}
 	s.previousToolResult = structuredOrOutput(result)
@@ -772,11 +772,11 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 	}
 
 	s.pending = append(s.pending, DeltaRequestSubmit{
-		RequestID: s.session.RequestID,
-		ChatID:    s.session.ChatID,
-		RunID:     s.session.RunID,
-		ToolID:    syntheticID,
-		Payload:   submitResult.Request.Params,
+		RequestID:  s.session.RequestID,
+		ChatID:     s.session.ChatID,
+		RunID:      s.session.RunID,
+		AwaitingID: syntheticID,
+		Payload:    submitResult.Request.Params,
 	})
 
 	params, _ := submitResult.Request.Params.(map[string]any)

@@ -66,11 +66,11 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 		})}
 	case RequestSubmit:
 		return []StreamEvent{NewEvent("request.submit", map[string]any{
-			"requestId": value.RequestID,
-			"chatId":    value.ChatID,
-			"runId":     value.RunID,
-			"toolId":    value.ToolID,
-			"payload":   value.Payload,
+			"requestId":  value.RequestID,
+			"chatId":     value.ChatID,
+			"runId":      value.RunID,
+			"awaitingId": value.AwaitingID,
+			"payload":    value.Payload,
 		})}
 	case RequestSteer:
 		events := d.closeOpenBlocks()

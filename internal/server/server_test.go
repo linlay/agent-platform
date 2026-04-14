@@ -1107,7 +1107,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 		t.Fatalf("expected accepted steer, got %#v", steerResp.Data)
 	}
 
-	submitReq := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+runID+`","toolId":"`+toolID+`","params":{"value":"approve"}}`))
+	submitReq := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+runID+`","awaitingId":"`+toolID+`","params":{"value":"approve"}}`))
 	submitReq.Header.Set("Content-Type", "application/json")
 	submitRec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(submitRec, submitReq)
@@ -1348,7 +1348,7 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 		t.Fatalf("expected awaiting.payload before submit, got %s", streamBody.String())
 	}
 
-	submitReq := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+runID+`","toolId":"`+toolID+`","params":{"answers":[{"question":"Pick a plan","answer":"Weekend"},{"question":"How many people?","answer":2}]}}`))
+	submitReq := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+runID+`","awaitingId":"`+toolID+`","params":{"answers":[{"question":"Pick a plan","answer":"Weekend"},{"question":"How many people?","answer":2}]}}`))
 	submitReq.Header.Set("Content-Type", "application/json")
 	submitRec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(submitRec, submitReq)
@@ -1556,7 +1556,7 @@ submit:
 		submitPayload = `{"action":"modify","command":"` + modifiedCommand + `"}`
 	}
 	submitRec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(submitRec, httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+extractRunIDFromStream(t, streamBody.String())+`","toolId":"`+syntheticToolID+`","params":`+submitPayload+`}`)))
+	fixture.server.ServeHTTP(submitRec, httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+extractRunIDFromStream(t, streamBody.String())+`","awaitingId":"`+syntheticToolID+`","params":`+submitPayload+`}`)))
 	if submitRec.Code != http.StatusOK {
 		t.Fatalf("submit expected 200, got %d: %s", submitRec.Code, submitRec.Body.String())
 	}
@@ -1627,7 +1627,7 @@ func assertSpecificEventOrder(t *testing.T, messages []map[string]any, originalT
 				awaitAsk = idx
 			}
 		case "request.submit":
-			if message["toolId"] == syntheticToolID {
+			if message["awaitingId"] == syntheticToolID {
 				requestSubmit = idx
 			}
 		case "tool.result":
@@ -1647,7 +1647,7 @@ func assertSpecificEventOrder(t *testing.T, messages []map[string]any, originalT
 func TestSubmitReturnsUnmatchedWhenNoActiveWaiter(t *testing.T) {
 	fixture := newTestFixture(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"missing-run","toolId":"missing-tool","params":{"ok":true}}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"missing-run","awaitingId":"missing-awaiting","params":{"ok":true}}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, req)

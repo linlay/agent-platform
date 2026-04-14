@@ -189,11 +189,11 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		}}
 	case DeltaRequestSubmit:
 		return []stream.StreamInput{stream.RequestSubmit{
-			RequestID: value.RequestID,
-			ChatID:    value.ChatID,
-			RunID:     value.RunID,
-			ToolID:    value.ToolID,
-			Payload:   value.Payload,
+			RequestID:  value.RequestID,
+			ChatID:     value.ChatID,
+			RunID:      value.RunID,
+			AwaitingID: value.AwaitingID,
+			Payload:    value.Payload,
 		}}
 	case DeltaRequestSteer:
 		return []stream.StreamInput{stream.RequestSteer{

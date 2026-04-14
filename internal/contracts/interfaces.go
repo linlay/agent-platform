@@ -135,9 +135,9 @@ type ToolExecutionResult struct {
 }
 
 type SubmitInfo struct {
-	RunID  string
-	ToolID string
-	Params any
+	RunID      string
+	AwaitingID string
+	Params     any
 }
 
 type SandboxExecutionResult struct {

@@ -204,7 +204,7 @@ remember 根目录由 `MEMORY_DIR` 控制：
 - `GET /api/chat?chatId=...`：返回 chat 详情，`includeRawMessages=true` 时附带 `rawMessages`
 - `POST /api/read`：将 chat 标记为已读
 - `POST /api/query`：返回 SSE；支持可选 `runId` 透传；缺失 `runId` 时服务端按 `base36(epochMillis)` 生成，缺失 `requestId` / `chatId` 时服务端自动生成，缺失 `agentKey` 时回退到默认 agent
-- `POST /api/submit`：当前返回最小 ack，占位 frontend tool 提交链路
+- `POST /api/submit`：当前返回最小 ack，占位 awaiting 提交链路；请求体要求 `runId + awaitingId`
 - `POST /api/steer`：当前返回最小 ack，占位运行中 steer 链路
 - `POST /api/interrupt`：中断活跃 run 并返回 ack
 - `POST /api/remember`：从 chat 快照生成最小 remember 文件
@@ -228,7 +228,7 @@ remember 根目录由 `MEMORY_DIR` 控制：
   - `request.submit` 是用户提交后的事件，不再表示“前端应该显示确认框”
   - `tool.result` 是工具规范化后的真实执行结果，不等同于原始 submit payload
 - `await.ask` 使用独立字段命名：
-  - `awaitId`、`viewportType`、`viewportKey`、`mode`、`toolTimeout`、`runId`
+  - `awaitingId`、`viewportType`、`viewportKey`、`mode`、`toolTimeout`、`runId`
 - `await.payload` 只在 `question` 模式下出现：
   - 顶层直接输出 `questions: []`
   - 不再嵌套 `payload`
@@ -244,14 +244,14 @@ remember 根目录由 `MEMORY_DIR` 控制：
   - 每个问题支持 `type`、`header`、`placeholder`、`allowFreeText`、`freeTextPlaceholder`
   - `select` 题的 `options` 结构是 `{ label, description? }`，不包含 `value`
   - 单个问题里，选项回答与自由输入互斥，最终都写入 `answer`
-  - `/api/submit` 提交结构：`{"answers":[{"question":"...","answer":...}]}`
+  - `/api/submit` 提交结构：`{"runId":"...","awaitingId":"...","params":{"answers":[{"question":"...","answer":...}]}}`
   - `tool.result` 规范化结构：`{"mode":"question","answers":[{"question":"...","answer":...}]}`
 - `mode=approval`：
   - 前端事件里的 `await.ask` 统一输出 `questions: [{ question, header?, description?, options, allowFreeText?, freeTextPlaceholder? }]`
   - `questions` 数组长度固定为 1
   - `options` 结构是 `{ label, value, description? }`
   - 预设选项与自由输入互斥
-  - `/api/submit` 提交结构：`{"value":"..."}` 或 `{"freeText":"..."}`
+  - `/api/submit` 提交结构：`{"runId":"...","awaitingId":"...","params":{"value":"..."}}` 或 `{"runId":"...","awaitingId":"...","params":{"freeText":"..."}}`
   - `tool.result` 规范化结构：`{"mode":"approval","value":"..."}` 或 `{"mode":"approval","freeText":"..."}`
 
 ## 7. 开发要点

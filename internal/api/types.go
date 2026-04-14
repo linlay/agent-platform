@@ -57,17 +57,17 @@ type Reference struct {
 }
 
 type SubmitRequest struct {
-	RunID  string `json:"runId"`
-	ToolID string `json:"toolId"`
-	Params any    `json:"params"`
+	RunID      string `json:"runId"`
+	AwaitingID string `json:"awaitingId"`
+	Params     any    `json:"params"`
 }
 
 type SubmitResponse struct {
-	Accepted bool   `json:"accepted"`
-	Status   string `json:"status"`
-	RunID    string `json:"runId"`
-	ToolID   string `json:"toolId"`
-	Detail   string `json:"detail"`
+	Accepted   bool   `json:"accepted"`
+	Status     string `json:"status"`
+	RunID      string `json:"runId"`
+	AwaitingID string `json:"awaitingId"`
+	Detail     string `json:"detail"`
 }
 
 type SteerRequest struct {

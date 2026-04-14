@@ -374,11 +374,11 @@ func TestEventDataMarshalsAwaitPayloadWithQuestions(t *testing.T) {
 
 func TestEventDataMarshalsRequestSubmitWithoutViewID(t *testing.T) {
 	event := NewEvent("request.submit", map[string]any{
-		"requestId": "req_1",
-		"chatId":    "chat_1",
-		"runId":     "run_1",
-		"toolId":    "tool_1",
-		"payload":   map[string]any{"value": "approve"},
+		"requestId":  "req_1",
+		"chatId":     "chat_1",
+		"runId":      "run_1",
+		"awaitingId": "tool_1",
+		"payload":    map[string]any{"value": "approve"},
 	})
 	event.Seq = 11
 	data, err := json.Marshal(event.Data())

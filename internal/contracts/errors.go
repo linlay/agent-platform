@@ -24,7 +24,7 @@ var (
 	ErrRunInterrupted               = errors.New("run interrupted")
 	ErrRunFinished                  = errors.New("run finished")
 	ErrRunControlUnavailable        = errors.New("run control unavailable")
-	ErrFrontendToolMissingToolID    = errors.New("frontend tool missing tool id")
+	ErrFrontendSubmitMissingAwaitID = errors.New("frontend submit missing awaiting id")
 	ErrFrontendSubmitAlreadyWaiting = errors.New("frontend submit waiter already exists")
 	ErrToolArgsTemplateMissingValue = errors.New("tool args template missing value")
 	ErrBudgetExceeded               = errors.New("budget exceeded")

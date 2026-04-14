@@ -148,11 +148,11 @@ type AwaitPayload struct {
 func (AwaitPayload) streamInputTag() {}
 
 type RequestSubmit struct {
-	RequestID string
-	ChatID    string
-	RunID     string
-	ToolID    string
-	Payload   any
+	RequestID  string
+	ChatID     string
+	RunID      string
+	AwaitingID string
+	Payload    any
 }
 
 func (RequestSubmit) streamInputTag() {}

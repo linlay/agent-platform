@@ -47,7 +47,7 @@ type RunControl struct {
 	steerQueue           []api.SteerRequest
 	submitWaiters        map[string]*submitWaiter
 	pendingSubmits       map[string]SubmitResult
-	expectedSubmitToolID string
+	expectedSubmitAwaitID string
 	state                RunLoopState
 }
 
@@ -146,16 +146,16 @@ func (c *RunControl) DrainSteers() []api.SteerRequest {
 	return queue
 }
 
-func (c *RunControl) AwaitSubmit(ctx context.Context, toolID string) (SubmitResult, error) {
-	return c.AwaitSubmitWithTimeout(ctx, toolID, 0)
+func (c *RunControl) AwaitSubmit(ctx context.Context, awaitingID string) (SubmitResult, error) {
+	return c.AwaitSubmitWithTimeout(ctx, awaitingID, 0)
 }
 
-func (c *RunControl) AwaitSubmitWithTimeout(ctx context.Context, toolID string, timeout time.Duration) (SubmitResult, error) {
+func (c *RunControl) AwaitSubmitWithTimeout(ctx context.Context, awaitingID string, timeout time.Duration) (SubmitResult, error) {
 	if c == nil {
 		return SubmitResult{}, ErrRunControlUnavailable
 	}
-	if toolID == "" {
-		return SubmitResult{}, ErrFrontendToolMissingToolID
+	if awaitingID == "" {
+		return SubmitResult{}, ErrFrontendSubmitMissingAwaitID
 	}
 	if c.interrupted.Load() {
 		return SubmitResult{}, ErrRunInterrupted
@@ -180,25 +180,25 @@ func (c *RunControl) AwaitSubmitWithTimeout(ctx context.Context, toolID string, 
 		c.mu.Unlock()
 		return SubmitResult{}, ErrRunFinished
 	}
-	if _, exists := c.submitWaiters[toolID]; exists {
+	if _, exists := c.submitWaiters[awaitingID]; exists {
 		c.mu.Unlock()
 		return SubmitResult{}, ErrFrontendSubmitAlreadyWaiting
 	}
-	if pending, exists := c.pendingSubmits[toolID]; exists {
-		delete(c.pendingSubmits, toolID)
-		if c.expectedSubmitToolID == toolID {
-			c.expectedSubmitToolID = ""
+	if pending, exists := c.pendingSubmits[awaitingID]; exists {
+		delete(c.pendingSubmits, awaitingID)
+		if c.expectedSubmitAwaitID == awaitingID {
+			c.expectedSubmitAwaitID = ""
 		}
 		c.mu.Unlock()
 		return pending, nil
 	}
-	c.submitWaiters[toolID] = waiter
+	c.submitWaiters[awaitingID] = waiter
 	c.mu.Unlock()
 
 	defer func() {
 		c.mu.Lock()
-		if current, exists := c.submitWaiters[toolID]; exists && current == waiter {
-			delete(c.submitWaiters, toolID)
+		if current, exists := c.submitWaiters[awaitingID]; exists && current == waiter {
+			delete(c.submitWaiters, awaitingID)
 		}
 		c.mu.Unlock()
 	}()
@@ -249,20 +249,20 @@ func (c *RunControl) ResolveSubmit(req api.SubmitRequest) SubmitAck {
 		return SubmitAck{Accepted: false, Status: "unmatched", Detail: "No active run found"}
 	}
 	c.mu.Lock()
-	waiter, ok := c.submitWaiters[req.ToolID]
+	waiter, ok := c.submitWaiters[req.AwaitingID]
 	if ok {
-		delete(c.submitWaiters, req.ToolID)
-		if c.expectedSubmitToolID == req.ToolID {
-			c.expectedSubmitToolID = ""
+		delete(c.submitWaiters, req.AwaitingID)
+		if c.expectedSubmitAwaitID == req.AwaitingID {
+			c.expectedSubmitAwaitID = ""
 		}
 	}
-	if !ok && req.ToolID != "" && req.ToolID == c.expectedSubmitToolID && !c.interrupted.Load() && !c.finished.Load() {
-		c.pendingSubmits[req.ToolID] = SubmitResult{
+	if !ok && req.AwaitingID != "" && req.AwaitingID == c.expectedSubmitAwaitID && !c.interrupted.Load() && !c.finished.Load() {
+		c.pendingSubmits[req.AwaitingID] = SubmitResult{
 			Request: req,
 			Status:  "accepted",
 			Detail:  "Frontend submit accepted",
 		}
-		c.expectedSubmitToolID = ""
+		c.expectedSubmitAwaitID = ""
 		c.mu.Unlock()
 		return SubmitAck{Accepted: true, Status: "accepted", Detail: "Frontend submit accepted"}
 	}
@@ -280,22 +280,22 @@ func (c *RunControl) ResolveSubmit(req api.SubmitRequest) SubmitAck {
 	return SubmitAck{Accepted: true, Status: "accepted", Detail: "Frontend submit accepted"}
 }
 
-func (c *RunControl) ExpectSubmit(toolID string) {
-	if c == nil || toolID == "" {
+func (c *RunControl) ExpectSubmit(awaitingID string) {
+	if c == nil || awaitingID == "" {
 		return
 	}
 	c.mu.Lock()
-	c.expectedSubmitToolID = toolID
+	c.expectedSubmitAwaitID = awaitingID
 	c.mu.Unlock()
 }
 
-func (c *RunControl) ClearExpectedSubmit(toolID string) {
-	if c == nil || toolID == "" {
+func (c *RunControl) ClearExpectedSubmit(awaitingID string) {
+	if c == nil || awaitingID == "" {
 		return
 	}
 	c.mu.Lock()
-	if c.expectedSubmitToolID == toolID {
-		c.expectedSubmitToolID = ""
+	if c.expectedSubmitAwaitID == awaitingID {
+		c.expectedSubmitAwaitID = ""
 	}
 	c.mu.Unlock()
 }
