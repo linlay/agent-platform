@@ -168,12 +168,14 @@ write_program_manifest() {
   local stop_script="stop.sh"
   local deploy_script="deploy.sh"
   local program_common="scripts/program-common.sh"
+  local error_log_json=""
 
   if [[ "$target_os" == "windows" ]]; then
     start_script="start.ps1"
     stop_script="stop.ps1"
     deploy_script="deploy.ps1"
     program_common="scripts/program-common.ps1"
+    error_log_json='    "errorLogRelativePath": "run/agent-platform-runner.stderr.log",'
   fi
 
   cat >"$dest" <<EOF
@@ -231,6 +233,7 @@ write_program_manifest() {
   "runtime": {
     "pidRelativePath": "run/agent-platform-runner.pid",
     "logRelativePath": "run/agent-platform-runner.log",
+${error_log_json}
     "requiredPaths": [
       "$backend_entry",
       "$start_script",
