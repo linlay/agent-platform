@@ -189,11 +189,16 @@ func loadProviders(dir string) (map[string]ProviderDefinition, error) {
 			continue
 		}
 		baseURL := resolveProviderBaseURL(key, values)
+		rawAPIKey := strings.TrimSpace(stringNode(values["apiKey"]))
+		apiKey, err := resolveProviderAPIKey(key, rawAPIKey)
+		if err != nil {
+			return nil, fmt.Errorf("resolve provider %s apiKey: %w", key, err)
+		}
 		protocols := loadProviderProtocols(values, baseURL)
 		result[key] = ProviderDefinition{
 			Key:          key,
 			BaseURL:      baseURL,
-			APIKey:       strings.TrimSpace(stringNode(values["apiKey"])),
+			APIKey:       apiKey,
 			DefaultModel: strings.TrimSpace(stringNode(values["defaultModel"])),
 			EndpointPath: resolveProviderEndpointPath(values, baseURL, "OPENAI"),
 			Protocols:    protocols,

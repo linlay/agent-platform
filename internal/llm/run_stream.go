@@ -646,7 +646,7 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 		Role:       "tool",
 		ToolCallID: invocation.toolID,
 		Name:       invocation.toolName,
-		Content:    result.Output,
+		Content:    s.toolResultContent(invocation.toolName, result),
 	})
 	return nil
 }
@@ -935,8 +935,16 @@ func (s *llmRunStream) appendOriginalToolResult(invocation *preparedToolInvocati
 		Role:       "tool",
 		ToolCallID: invocation.toolID,
 		Name:       invocation.toolName,
-		Content:    result.Output,
+		Content:    s.toolResultContent(invocation.toolName, result),
 	})
+}
+
+func (s *llmRunStream) toolResultContent(toolName string, result ToolExecutionResult) string {
+	toolDef, ok := s.lookupToolDefinition(toolName)
+	if !ok {
+		return result.Output
+	}
+	return formatSubmitResultForLLM(toolName, toolDef.Meta, result)
 }
 
 func isBashTool(name string) bool {

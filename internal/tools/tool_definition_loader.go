@@ -76,6 +76,9 @@ func parseToolDefinition(root map[string]any, options toolDefinitionParseOptions
 	if sourceKey != "" {
 		meta["sourceKey"] = sourceKey
 	}
+	if submitResultFormat := AnyStringNode(root["submitResultFormat"]); submitResultFormat != "" {
+		meta["submitResultFormat"] = submitResultFormat
+	}
 	return api.ToolDetailResponse{
 		Key:           fallbackToolString(AnyStringNode(root["key"]), name),
 		Name:          name,

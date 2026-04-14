@@ -244,8 +244,8 @@ remember 根目录由 `MEMORY_DIR` 控制：
   - 每个问题支持 `type`、`header`、`placeholder`、`allowFreeText`、`freeTextPlaceholder`
   - `select` 题的 `options` 结构是 `{ label, description? }`，不包含 `value`
   - 单个问题里，选项回答与自由输入互斥，最终都写入 `answer`
-  - `/api/submit` 提交结构：`{"runId":"...","awaitingId":"...","params":{"answers":[{"question":"...","answer":...}]}}`
-  - `tool.result` 规范化结构：`{"mode":"question","answers":[{"question":"...","answer":...}]}`
+  - `/api/submit` 提交结构：`{"runId":"...","awaitingId":"...","params":[{"question":"...","answer":...}]}`
+  - `tool.result` 仍返回规范化 JSON：`{"mode":"question","answers":[{"question":"...","header":"...","answer":...}]}`
 - `mode=approval`：
   - 前端事件里的 `await.ask` 统一输出 `questions: [{ question, header?, description?, options, allowFreeText?, freeTextPlaceholder? }]`
   - `questions` 数组长度固定为 1

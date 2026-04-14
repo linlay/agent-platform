@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"context"
 	"crypto"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -680,6 +682,48 @@ func TestQueryCanExecuteBackendToolLoop(t *testing.T) {
 	)
 }
 
+func TestQueryDecryptsAESProviderAPIKeyBeforeSendingAuthorizationHeader(t *testing.T) {
+	const envPart = "server-test-env-secret"
+	const plainAPIKey = "test-key"
+
+	t.Setenv("PROVIDER_APIKEY_KEY_PART", envPart)
+
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer "+plainAPIKey {
+			t.Fatalf("expected decrypted Authorization header, got %q", got)
+		}
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"content":"hello"},"finish_reason":"stop"}]}`,
+			`[DONE]`,
+		)
+	}, testFixtureOptions{
+		setupRuntime: func(root string, _ *config.Config) {
+			providerConfig := strings.Join([]string{
+				"key: mock",
+				"baseUrl: http://placeholder.invalid",
+				"apiKey: " + mustEncryptProviderAPIKeyForServerTest(t, envPart, plainAPIKey),
+				"defaultModel: mock-model",
+			}, "\n")
+			providerPath := filepath.Join(root, "registries", "providers", "mock.yml")
+			if err := os.WriteFile(providerPath, []byte(providerConfig), 0o644); err != nil {
+				t.Fatalf("write encrypted provider config: %v", err)
+			}
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"hello","agentKey":"mock-runner"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "data: [DONE]") {
+		t.Fatalf("expected done sentinel, got %s", rec.Body.String())
+	}
+}
+
 func TestQueryPersistsToolSnapshotWhenSSEPayloadEventsDisabled(t *testing.T) {
 	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
 		var payload map[string]any
@@ -1348,7 +1392,7 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 		t.Fatalf("expected awaiting.payload before submit, got %s", streamBody.String())
 	}
 
-	submitReq := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+runID+`","awaitingId":"`+toolID+`","params":{"answers":[{"question":"Pick a plan","answer":"Weekend"},{"question":"How many people?","answer":2}]}}`))
+	submitReq := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+runID+`","awaitingId":"`+toolID+`","params":[{"question":"Pick a plan","answer":"Weekend"},{"question":"How many people?","answer":2}]}`))
 	submitReq.Header.Set("Content-Type", "application/json")
 	submitRec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(submitRec, submitReq)
@@ -1393,15 +1437,18 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 
 	select {
 	case messages := <-secondTurnMessages:
-		foundTool := false
+		toolContent := ""
 		for _, message := range messages {
 			if role, _ := message["role"].(string); role == "tool" {
-				foundTool = true
+				toolContent, _ = message["content"].(string)
 				break
 			}
 		}
-		if !foundTool {
+		if toolContent == "" {
 			t.Fatalf("expected second turn to include tool message, got %#v", messages)
+		}
+		if toolContent != "Pick a plan=Weekend; How many people?=2" {
+			t.Fatalf("expected kv-formatted tool content, got %#v", messages)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for second provider request")
@@ -2146,6 +2193,27 @@ func writeProviderSSE(t *testing.T, w http.ResponseWriter, frames ...string) {
 		}
 		flusher.Flush()
 	}
+}
+
+func mustEncryptProviderAPIKeyForServerTest(t *testing.T, envPart string, plaintext string) string {
+	t.Helper()
+
+	const providerAPIKeyCodePart = "agent-platform-provider-apikey-code-part-v1"
+
+	sum := sha256.Sum256([]byte(providerAPIKeyCodePart + ":" + envPart))
+	block, err := aes.NewCipher(sum[:])
+	if err != nil {
+		t.Fatalf("new cipher: %v", err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		t.Fatalf("new gcm: %v", err)
+	}
+
+	nonce := []byte("0123456789ab")
+	data := gcm.Seal(nil, nonce, []byte(plaintext), nil)
+	payload := append(append([]byte{}, nonce...), data...)
+	return "AES(v1:" + base64.RawURLEncoding.EncodeToString(payload) + ")"
 }
 
 func assertPersistedEventTypes(t *testing.T, events []stream.EventData, want ...string) {

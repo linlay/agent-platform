@@ -146,13 +146,9 @@ func normalizeFrontendSubmitResult(toolName string, args map[string]any, params 
 }
 
 func normalizeAskUserQuestionSubmit(args map[string]any, params any) (map[string]any, error) {
-	payload, ok := params.(map[string]any)
+	rawAnswers, ok := params.([]any)
 	if !ok {
-		return nil, fmt.Errorf("ask_user_question submit params must be an object")
-	}
-	rawAnswers, ok := payload["answers"].([]any)
-	if !ok {
-		return nil, fmt.Errorf("ask_user_question submit params.answers must be an array")
+		return nil, fmt.Errorf("ask_user_question submit params must be an array")
 	}
 
 	questionDefs := map[string]map[string]any{}
@@ -185,6 +181,7 @@ func normalizeAskUserQuestionSubmit(args map[string]any, params any) (map[string
 		}
 		answers = append(answers, map[string]any{
 			"question": questionText,
+			"header":   AnyStringNode(definition["header"]),
 			"answer":   normalizedAnswer,
 		})
 	}
@@ -272,6 +269,9 @@ func normalizeQuestionAnswer(definition map[string]any, rawAnswer any) (any, err
 				}
 			}
 			return values, nil
+		}
+		if items, ok := rawAnswer.([]any); ok && len(items) == 1 {
+			rawAnswer = items[0]
 		}
 		text := AnyStringNode(rawAnswer)
 		if text == "" {
