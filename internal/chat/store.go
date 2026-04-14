@@ -481,6 +481,12 @@ func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, r
 	for _, runID := range runOrder {
 		rd := runs[runID]
 		hasRunStart := false
+		runStartTimestamp := int64(0)
+		runCompleteTimestamp := int64(0)
+		if len(rd.events) > 0 {
+			runStartTimestamp = rd.events[0].Timestamp
+			runCompleteTimestamp = rd.events[len(rd.events)-1].Timestamp
+		}
 		for _, ev := range rd.events {
 			if ev.Type == "run.start" {
 				hasRunStart = true
@@ -491,7 +497,7 @@ func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, r
 			allEvents = append(allEvents, stream.EventData{
 				Seq:       nextSeq(),
 				Type:      "run.start",
-				Timestamp: 0,
+				Timestamp: runStartTimestamp,
 				Payload:   map[string]any{"runId": runID, "chatId": summary.ChatID, "agentKey": rd.agentKey},
 			})
 		}
@@ -499,9 +505,10 @@ func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, r
 		// Synthesize run.complete for the frontend (not persisted in JSONL).
 		if runID != "" {
 			allEvents = append(allEvents, stream.EventData{
-				Seq:     nextSeq(),
-				Type:    "run.complete",
-				Payload: map[string]any{"runId": runID, "finishReason": "stop"},
+				Seq:       nextSeq(),
+				Type:      "run.complete",
+				Timestamp: runCompleteTimestamp,
+				Payload:   map[string]any{"runId": runID, "finishReason": "stop"},
 			})
 		}
 	}
@@ -570,6 +577,7 @@ func isNewFormat(lines []map[string]any) bool {
 
 func storedMessageToEvents(msg map[string]any, runID, taskID, stage string, nextSeq func() int64) []stream.EventData {
 	role, _ := msg["role"].(string)
+	ts := int64FromAny(msg["ts"])
 	var events []stream.EventData
 
 	switch role {
@@ -579,8 +587,9 @@ func storedMessageToEvents(msg map[string]any, runID, taskID, stage string, next
 			if text != "" {
 				reasoningID, _ := msg["_reasoningId"].(string)
 				events = append(events, stream.EventData{
-					Seq:  nextSeq(),
-					Type: "reasoning.snapshot",
+					Seq:       nextSeq(),
+					Type:      "reasoning.snapshot",
+					Timestamp: ts,
 					Payload: map[string]any{
 						"reasoningId":    reasoningID,
 						"runId":          runID,
@@ -596,8 +605,9 @@ func storedMessageToEvents(msg map[string]any, runID, taskID, stage string, next
 			if text != "" {
 				contentID, _ := msg["_contentId"].(string)
 				events = append(events, stream.EventData{
-					Seq:  nextSeq(),
-					Type: "content.snapshot",
+					Seq:       nextSeq(),
+					Type:      "content.snapshot",
+					Timestamp: ts,
 					Payload: map[string]any{
 						"contentId": contentID,
 						"runId":     runID,
@@ -625,8 +635,9 @@ func storedMessageToEvents(msg map[string]any, runID, taskID, stage string, next
 
 				if actionID != "" {
 					events = append(events, stream.EventData{
-						Seq:  nextSeq(),
-						Type: "action.snapshot",
+						Seq:       nextSeq(),
+						Type:      "action.snapshot",
+						Timestamp: ts,
 						Payload: map[string]any{
 							"actionId":   callID,
 							"runId":      runID,
@@ -641,8 +652,9 @@ func storedMessageToEvents(msg map[string]any, runID, taskID, stage string, next
 						id = callID
 					}
 					events = append(events, stream.EventData{
-						Seq:  nextSeq(),
-						Type: "tool.snapshot",
+						Seq:       nextSeq(),
+						Type:      "tool.snapshot",
+						Timestamp: ts,
 						Payload: map[string]any{
 							"toolId":    id,
 							"runId":     runID,
@@ -663,8 +675,9 @@ func storedMessageToEvents(msg map[string]any, runID, taskID, stage string, next
 
 		if actionID != "" {
 			events = append(events, stream.EventData{
-				Seq:  nextSeq(),
-				Type: "action.result",
+				Seq:       nextSeq(),
+				Type:      "action.result",
+				Timestamp: ts,
 				Payload: map[string]any{
 					"actionId": toolCallID,
 					"result":   text,
@@ -676,8 +689,9 @@ func storedMessageToEvents(msg map[string]any, runID, taskID, stage string, next
 				id = toolCallID
 			}
 			events = append(events, stream.EventData{
-				Seq:  nextSeq(),
-				Type: "tool.result",
+				Seq:       nextSeq(),
+				Type:      "tool.result",
+				Timestamp: ts,
 				Payload: map[string]any{
 					"toolId": id,
 					"result": text,

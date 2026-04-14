@@ -141,6 +141,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		w.ensureMsgID()
 		actionID := event.String("actionId")
 		actionName := event.String("actionName")
+		ts := event.Timestamp
 		w.actionNames[actionID] = actionName
 		w.messages = append(w.messages, StoredMessage{
 			Role: "assistant",
@@ -154,6 +155,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 			}},
 			ActionID: actionID,
 			MsgID:    w.currentMsgID,
+			Ts:       &ts,
 		})
 
 	case "action.result":

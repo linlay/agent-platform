@@ -167,6 +167,235 @@ func TestStoredMessageToEventsAddsReasoningLabel(t *testing.T) {
 	}
 }
 
+func TestStoredMessageToEventsPreservesTimestamp(t *testing.T) {
+	const ts int64 = 12345
+
+	testCases := []struct {
+		name     string
+		msg      map[string]any
+		wantType string
+	}{
+		{
+			name: "reasoning snapshot",
+			msg: map[string]any{
+				"role":              "assistant",
+				"ts":                ts,
+				"_reasoningId":      "run_1_r_1",
+				"reasoning_content": []any{map[string]any{"type": "text", "text": "thinking"}},
+			},
+			wantType: "reasoning.snapshot",
+		},
+		{
+			name: "content snapshot",
+			msg: map[string]any{
+				"role":       "assistant",
+				"ts":         ts,
+				"_contentId": "run_1_c_1",
+				"content":    []any{map[string]any{"type": "text", "text": "answer"}},
+			},
+			wantType: "content.snapshot",
+		},
+		{
+			name: "action snapshot",
+			msg: map[string]any{
+				"role":      "assistant",
+				"ts":        ts,
+				"_actionId": "stored-action",
+				"tool_calls": []any{
+					map[string]any{
+						"id": "action-call-1",
+						"function": map[string]any{
+							"name":      "approval_action",
+							"arguments": "{\"approved\":true}",
+						},
+					},
+				},
+			},
+			wantType: "action.snapshot",
+		},
+		{
+			name: "tool snapshot",
+			msg: map[string]any{
+				"role":    "assistant",
+				"ts":      ts,
+				"_toolId": "stored-tool",
+				"tool_calls": []any{
+					map[string]any{
+						"id": "tool-call-1",
+						"function": map[string]any{
+							"name":      "_datetime_",
+							"arguments": "{}",
+						},
+					},
+				},
+			},
+			wantType: "tool.snapshot",
+		},
+		{
+			name: "action result",
+			msg: map[string]any{
+				"role":         "tool",
+				"ts":           ts,
+				"_actionId":    "stored-action",
+				"tool_call_id": "action-call-1",
+				"content":      "approved",
+			},
+			wantType: "action.result",
+		},
+		{
+			name: "tool result",
+			msg: map[string]any{
+				"role":         "tool",
+				"ts":           ts,
+				"_toolId":      "stored-tool",
+				"tool_call_id": "tool-call-1",
+				"content":      "ok",
+			},
+			wantType: "tool.result",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			events := storedMessageToEvents(tc.msg, "run_1", "task_1", "execute", func() int64 { return 1 })
+			if len(events) != 1 {
+				t.Fatalf("expected one event, got %#v", events)
+			}
+			if events[0].Type != tc.wantType {
+				t.Fatalf("expected %s, got %#v", tc.wantType, events[0])
+			}
+			if events[0].Timestamp != ts {
+				t.Fatalf("expected timestamp %d, got %#v", ts, events[0])
+			}
+		})
+	}
+}
+
+func TestLoadChatSynthesizesRunBoundaryTimestamps(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	if _, _, err := store.EnsureChat("chat-ts", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	if err := store.AppendQueryLine("chat-ts", QueryLine{
+		ChatID:    "chat-ts",
+		RunID:     "run-ts",
+		UpdatedAt: 1001,
+		Query: map[string]any{
+			"chatId":  "chat-ts",
+			"message": "hello",
+		},
+		Type: "query",
+	}); err != nil {
+		t.Fatalf("append query line: %v", err)
+	}
+
+	if err := store.AppendStepLine("chat-ts", StepLine{
+		ChatID:    "chat-ts",
+		RunID:     "run-ts",
+		UpdatedAt: 1002,
+		Type:      "react",
+		Seq:       1,
+		Messages: []StoredMessage{
+			{
+				Role:      "assistant",
+				Content:   textContent("answer"),
+				ContentID: "run-ts_c_1",
+				MsgID:     "msg-1",
+				Ts:        func() *int64 { v := int64(2002); return &v }(),
+			},
+		},
+	}); err != nil {
+		t.Fatalf("append step line: %v", err)
+	}
+
+	detail, err := store.LoadChat("chat-ts")
+	if err != nil {
+		t.Fatalf("load chat: %v", err)
+	}
+
+	var runStart, runComplete *stream.EventData
+	for i := range detail.Events {
+		switch detail.Events[i].Type {
+		case "run.start":
+			runStart = &detail.Events[i]
+		case "run.complete":
+			runComplete = &detail.Events[i]
+		}
+	}
+	if runStart == nil || runComplete == nil {
+		t.Fatalf("expected synthesized run boundaries, got %#v", detail.Events)
+	}
+	if runStart.Timestamp != 1001 {
+		t.Fatalf("expected run.start timestamp 1001, got %#v", runStart)
+	}
+	if runComplete.Timestamp != 2002 {
+		t.Fatalf("expected run.complete timestamp 2002, got %#v", runComplete)
+	}
+}
+
+func TestStepWriterActionSnapshotPersistsTsAndReplaysTimestamp(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	if _, _, err := store.EnsureChat("chat-action-ts", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	writer := NewStepWriter(store, "chat-action-ts", "run-action-ts", "react")
+	writer.OnEvent(stream.EventData{
+		Type:      "action.snapshot",
+		Timestamp: 3456,
+		Payload: map[string]any{
+			"actionId":   "action-1",
+			"actionName": "approval_action",
+			"arguments":  "{\"approved\":true}",
+		},
+	})
+	writer.Flush()
+
+	lines, err := readJSONLines(store.chatJSONLPath("chat-action-ts"))
+	if err != nil {
+		t.Fatalf("read chat jsonl: %v", err)
+	}
+	if len(lines) != 1 {
+		t.Fatalf("expected one persisted line, got %#v", lines)
+	}
+
+	messages, _ := lines[0]["messages"].([]any)
+	if len(messages) != 1 {
+		t.Fatalf("expected one persisted message, got %#v", lines[0])
+	}
+	msg, _ := messages[0].(map[string]any)
+	if got := int64FromAny(msg["ts"]); got != 3456 {
+		t.Fatalf("expected persisted ts=3456, got %#v", msg)
+	}
+
+	detail, err := store.LoadChat("chat-action-ts")
+	if err != nil {
+		t.Fatalf("load chat: %v", err)
+	}
+
+	found := false
+	for _, event := range detail.Events {
+		if event.Type == "action.snapshot" {
+			found = true
+			if event.Timestamp != 3456 {
+				t.Fatalf("expected replayed action.snapshot timestamp 3456, got %#v", event)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected action.snapshot in replayed events, got %#v", detail.Events)
+	}
+}
+
 func TestLoadRawMessagesFallsBackToLegacyFile(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
