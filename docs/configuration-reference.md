@@ -69,6 +69,19 @@ Container Hub 默认基础挂载为：
 - `destination + mode` 是覆盖默认基础挂载模式的唯一合法写法，适用于 `/workspace`、`/root`、`/skills`、`/pan`、`/agent`、`/owner`、`/memory`。
 - `source + destination + mode` 只能新增非默认目标路径挂载；若目标是默认基础挂载路径会直接报错。
 
+### Schedule
+
+| 环境变量 | 默认值 | 说明 |
+|---|---|---|
+| `AGENT_SCHEDULE_ENABLED` | `true` | 是否启用 schedule orchestrator |
+| `AGENT_SCHEDULE_DEFAULT_ZONE_ID` | 空 | 默认 schedule 时区；未配置时回退到宿主机本地时区 (`time.Local`) |
+| `AGENT_SCHEDULE_POOL_SIZE` | `4` | schedule dispatch 最大并发数 |
+
+说明：
+
+- 普通部署通常不需要显式配置 `AGENT_SCHEDULE_*`，直接依赖代码默认值即可。
+- 只有在需要固定默认业务时区，或需要限制/放大 schedule 并发时，才建议显式配置这些变量。
+
 ### Bash 工具
 
 | 环境变量 | 默认值 | 说明 |
@@ -161,7 +174,6 @@ provider registry 中的 `apiKey` 支持以下两种形态：
 - `LOGGING_AGENT_*`
 - `AGENT_MEMORY_*`
 - `AGENT_DEFAULT_*`
-- `AGENT_*_REFRESH_INTERVAL_MS`
 - `AGENT_SSE_INCLUDE_TOOL_PAYLOAD_EVENTS`
 - `AGENT_SSE_HEARTBEAT_INTERVAL_MS`
 - `AGENT_H2A_RENDER_*`

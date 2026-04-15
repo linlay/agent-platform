@@ -25,7 +25,7 @@ inputSchema:
             description: 问题正文
           type:
             type: string
-            description: 问题类型
+            description: 问题类型。text/number/password 为自由输入，select 为选项选择；select 可通过 allowFreeText 额外开启自由输入
             enum:
               - text
               - number
@@ -57,10 +57,10 @@ inputSchema:
             description: select 类型是否允许多选
           allowFreeText:
             type: boolean
-            description: 是否允许该问题改用自由输入作答；与选项选择互斥
+            description: 仅 select 类型生效；启用后允许该问题改用自由输入作答，与选项选择互斥
           freeTextPlaceholder:
             type: string
-            description: 自由输入模式的占位提示
+            description: 仅 select 类型且 allowFreeText=true 时生效的自由输入占位提示
         required:
           - question
           - type

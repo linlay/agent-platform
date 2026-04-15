@@ -1172,7 +1172,7 @@ func buildAwaitQuestions(payload map[string]any) []any {
 	switch mode {
 	case "question":
 		rawQuestions, _ := payload["questions"].([]any)
-		return cloneAwaitQuestions(rawQuestions)
+		return sanitizeQuestionFields(cloneAwaitQuestions(rawQuestions))
 	case "approval":
 		question := map[string]any{}
 		if value := AnyStringNode(payload["question"]); value != "" {
@@ -1197,6 +1197,24 @@ func buildAwaitQuestions(payload map[string]any) []any {
 	default:
 		return nil
 	}
+}
+
+func sanitizeQuestionFields(questions []any) []any {
+	for _, raw := range questions {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		questionType := strings.ToLower(strings.TrimSpace(AnyStringNode(item["type"])))
+		if questionType == "select" {
+			continue
+		}
+		delete(item, "allowFreeText")
+		delete(item, "freeTextPlaceholder")
+		delete(item, "multiSelect")
+		delete(item, "options")
+	}
+	return questions
 }
 
 func cloneAwaitQuestions(input []any) []any {

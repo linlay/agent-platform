@@ -49,8 +49,7 @@ type PathsConfig struct {
 }
 
 type CatalogConfig struct {
-	ExternalDir       string
-	RefreshIntervalMs int64
+	ExternalDir string
 }
 
 type SkillCatalogConfig struct {
@@ -242,20 +241,14 @@ func defaultConfig() Config {
 	return Config{
 		Server: ServerConfig{Port: "8080"},
 		Paths:  paths,
-		Agents: CatalogConfig{ExternalDir: paths.AgentsDir, RefreshIntervalMs: 10000},
-		Teams:  CatalogConfig{ExternalDir: paths.TeamsDir, RefreshIntervalMs: 30000},
+		Agents: CatalogConfig{ExternalDir: paths.AgentsDir},
+		Teams:  CatalogConfig{ExternalDir: paths.TeamsDir},
 		Skills: SkillCatalogConfig{
-			CatalogConfig:  CatalogConfig{ExternalDir: paths.SkillsMarketDir, RefreshIntervalMs: 30000},
+			CatalogConfig:  CatalogConfig{ExternalDir: paths.SkillsMarketDir},
 			MaxPromptChars: 8000,
 		},
-		Providers: CatalogConfig{
-			ExternalDir:       filepath.Join(paths.RegistriesDir, "providers"),
-			RefreshIntervalMs: 30000,
-		},
-		Models: CatalogConfig{
-			ExternalDir:       filepath.Join(paths.RegistriesDir, "models"),
-			RefreshIntervalMs: 30000,
-		},
+		Providers: CatalogConfig{ExternalDir: filepath.Join(paths.RegistriesDir, "providers")},
+		Models:    CatalogConfig{ExternalDir: filepath.Join(paths.RegistriesDir, "models")},
 		Schedule: ScheduleConfig{
 			ExternalDir: paths.SchedulesDir,
 			Enabled:     true,
@@ -455,16 +448,11 @@ func (c *Config) applyEnv() {
 	c.Paths.SkillsMarketDir = pathEnv("SKILLS_MARKET_DIR", c.Paths.SkillsMarketDir)
 
 	c.Agents.ExternalDir = pathEnv("AGENTS_DIR", c.Paths.AgentsDir)
-	c.Agents.RefreshIntervalMs = int64Env("AGENT_AGENTS_REFRESH_INTERVAL_MS", c.Agents.RefreshIntervalMs)
 	c.Teams.ExternalDir = pathEnv("TEAMS_DIR", c.Paths.TeamsDir)
-	c.Teams.RefreshIntervalMs = int64Env("AGENT_TEAMS_REFRESH_INTERVAL_MS", c.Teams.RefreshIntervalMs)
 	c.Skills.ExternalDir = pathEnv("SKILLS_MARKET_DIR", c.Paths.SkillsMarketDir)
-	c.Skills.RefreshIntervalMs = int64Env("AGENT_SKILLS_REFRESH_INTERVAL_MS", c.Skills.RefreshIntervalMs)
 	c.Skills.MaxPromptChars = intEnv("AGENT_SKILLS_MAX_PROMPT_CHARS", c.Skills.MaxPromptChars)
 	c.Providers.ExternalDir = filepath.Clean(filepath.Join(c.Paths.RegistriesDir, "providers"))
-	c.Providers.RefreshIntervalMs = int64Env("AGENT_PROVIDERS_REFRESH_INTERVAL_MS", c.Providers.RefreshIntervalMs)
 	c.Models.ExternalDir = filepath.Clean(filepath.Join(c.Paths.RegistriesDir, "models"))
-	c.Models.RefreshIntervalMs = int64Env("AGENT_MODELS_REFRESH_INTERVAL_MS", c.Models.RefreshIntervalMs)
 
 	c.Schedule.ExternalDir = pathEnv("SCHEDULES_DIR", c.Paths.SchedulesDir)
 	c.Schedule.Enabled = boolEnv("AGENT_SCHEDULE_ENABLED", c.Schedule.Enabled)

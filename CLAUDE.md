@@ -244,7 +244,9 @@ remember 根目录由 `MEMORY_DIR` 控制：
   - 用户提交后额外发 `awaiting.answer`，结构为 `{"awaitingId":"...","mode":"approval","value":"..."}`，HITL modify 时可附带 `freeText`
 - `mode=question`：
   - 顶层字段为 `questions`
-  - 每个问题支持 `type`、`header`、`placeholder`、`allowFreeText`、`freeTextPlaceholder`
+  - 每个问题支持 `type`、`header`、`placeholder`
+  - `select` 类型额外支持 `options`、`multiSelect`、`allowFreeText`、`freeTextPlaceholder`
+  - `allowFreeText` / `freeTextPlaceholder` 仅在 `select` 类型上生效，非 `select` 类型的这些字段会被后端自动剥离
   - `select` 题的 `options` 结构是 `{ label, description? }`，不包含 `value`
   - 单个问题里，选项回答与自由输入互斥，最终都写入 `answer`
   - `/api/submit` 提交结构：`{"runId":"...","awaitingId":"...","params":[{"question":"...","answer":...}]}`
