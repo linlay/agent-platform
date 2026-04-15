@@ -1320,7 +1320,7 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 		switch call {
 		case 1:
 			writeProviderSSE(t, w,
-				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Pick a plan\",\"type\":\"select\",\"options\":[{\"label\":\"Weekend\",\"description\":\"2 days\"}],\"allowFreeText\":false,\"multiSelect\":false},{\"question\":\"How many people?\",\"type\":\"number\"}]}"}}]},"finish_reason":"tool_calls"}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Notification topics\",\"type\":\"select\",\"options\":[{\"label\":\"产品更新\",\"description\":\"Release notes and new features\"},{\"label\":\"使用教程\",\"description\":\"How-to guides and walkthroughs\"}],\"allowFreeText\":false,\"multiSelect\":true},{\"question\":\"How many people?\",\"type\":\"number\"}]}"}}]},"finish_reason":"tool_calls"}]}`,
 				`[DONE]`,
 			)
 		case 2:
@@ -1411,7 +1411,7 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 		t.Fatalf("expected awaiting.payload before submit, got %s", streamBody.String())
 	}
 
-	submitReq := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+runID+`","awaitingId":"`+toolID+`","params":[{"question":"Pick a plan","answer":"Weekend"},{"question":"How many people?","answer":2}]}`))
+	submitReq := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+runID+`","awaitingId":"`+toolID+`","params":[{"question":"Notification topics","answers":["产品更新","使用教程"]},{"question":"How many people?","answer":2}]}`))
 	submitReq.Header.Set("Content-Type", "application/json")
 	submitRec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(submitRec, submitReq)
@@ -1452,13 +1452,13 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 	if !strings.Contains(body, `"type":"request.submit"`) {
 		t.Fatalf("expected request.submit event, got %s", body)
 	}
-	if !strings.Contains(body, `"params":[{"answer":"Weekend","question":"Pick a plan"},{"answer":2,"question":"How many people?"}]`) {
+	if !strings.Contains(body, `"params":[{"answers":["产品更新","使用教程"],"question":"Notification topics"},{"answer":2,"question":"How many people?"}]`) {
 		t.Fatalf("expected request.submit params array, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"awaiting.answer"`) {
 		t.Fatalf("expected awaiting.answer event, got %s", body)
 	}
-	if !strings.Contains(body, `"answers":[{"answer":"Weekend","question":"Pick a plan"},{"answer":"2","question":"How many people?"}]`) {
+	if !strings.Contains(body, `"answers":[{"answer":"产品更新, 使用教程","question":"Notification topics"},{"answer":"2","question":"How many people?"}]`) {
 		t.Fatalf("expected formatted awaiting.answer answers, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"tool.result"`) {
@@ -1476,7 +1476,8 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 	}
 	firstItem, _ := resultItems[0].(map[string]any)
 	secondItem, _ := resultItems[1].(map[string]any)
-	if firstItem["question"] != "Pick a plan" || firstItem["answer"] != "Weekend" {
+	firstAnswers, _ := firstItem["answers"].([]any)
+	if firstItem["question"] != "Notification topics" || len(firstAnswers) != 2 || firstAnswers[0] != "产品更新" || firstAnswers[1] != "使用教程" {
 		t.Fatalf("unexpected first tool.result item: %#v", firstItem)
 	}
 	if secondItem["question"] != "How many people?" || secondItem["answer"] != float64(2) {
@@ -1496,7 +1497,7 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 		if toolContent == "" {
 			t.Fatalf("expected second turn to include tool message, got %#v", messages)
 		}
-		if toolContent != "问题：Pick a plan\n回答：Weekend\n问题：How many people?\n回答：2" {
+		if toolContent != "问题：Notification topics\n回答：产品更新, 使用教程\n问题：How many people?\n回答：2" {
 			t.Fatalf("expected qa-formatted tool content, got %#v", messages)
 		}
 	case <-time.After(2 * time.Second):

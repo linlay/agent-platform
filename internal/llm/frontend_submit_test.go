@@ -55,6 +55,107 @@ func TestNormalizeAskUserQuestionSubmit_ArrayParams(t *testing.T) {
 	}
 }
 
+func TestNormalizeAskUserQuestionSubmit_MultiSelectUsesAnswers(t *testing.T) {
+	args := map[string]any{
+		"questions": []any{
+			map[string]any{
+				"question":    "Notification topics",
+				"type":        "select",
+				"header":      "通知内容",
+				"multiSelect": true,
+				"options": []any{
+					map[string]any{"label": "产品更新"},
+					map[string]any{"label": "使用教程"},
+				},
+			},
+		},
+	}
+
+	result, err := normalizeAskUserQuestionSubmit(args, []any{
+		map[string]any{"question": "Notification topics", "answers": []any{"产品更新", "使用教程"}},
+	})
+	if err != nil {
+		t.Fatalf("normalizeAskUserQuestionSubmit returned error: %v", err)
+	}
+
+	answers, ok := result["answers"].([]map[string]any)
+	if !ok || len(answers) != 1 {
+		t.Fatalf("expected one normalized answer, got %#v", result["answers"])
+	}
+	if answers[0]["header"] != "通知内容" {
+		t.Fatalf("expected header to be preserved, got %#v", answers[0])
+	}
+	if !reflect.DeepEqual(answers[0]["answer"], []string{"产品更新", "使用教程"}) {
+		t.Fatalf("expected multi-select answer slice, got %#v", answers[0]["answer"])
+	}
+}
+
+func TestNormalizeAskUserQuestionSubmit_MultiSelectRejectsLegacyAnswerArray(t *testing.T) {
+	_, err := normalizeAskUserQuestionSubmit(map[string]any{
+		"questions": []any{
+			map[string]any{
+				"question":    "Notification topics",
+				"type":        "select",
+				"multiSelect": true,
+			},
+		},
+	}, []any{
+		map[string]any{"question": "Notification topics", "answer": []any{"产品更新", "使用教程"}},
+	})
+	if err == nil {
+		t.Fatal("expected error for legacy answer array")
+	}
+	if !strings.Contains(err.Error(), "answers is required for multi-select questions") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestNormalizeAskUserQuestionSubmit_MultiSelectRejectsAnswerAndAnswersTogether(t *testing.T) {
+	_, err := normalizeAskUserQuestionSubmit(map[string]any{
+		"questions": []any{
+			map[string]any{
+				"question":    "Notification topics",
+				"type":        "select",
+				"multiSelect": true,
+			},
+		},
+	}, []any{
+		map[string]any{
+			"question": "Notification topics",
+			"answer":   "产品更新",
+			"answers":  []any{"产品更新", "使用教程"},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected error when answer and answers are both present")
+	}
+	if !strings.Contains(err.Error(), "answer and answers cannot both be provided") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestNormalizeAskUserQuestionSubmit_SingleSelectRejectsAnswers(t *testing.T) {
+	_, err := normalizeAskUserQuestionSubmit(map[string]any{
+		"questions": []any{
+			map[string]any{
+				"question": "Pick a plan",
+				"type":     "select",
+				"options": []any{
+					map[string]any{"label": "Weekend"},
+				},
+			},
+		},
+	}, []any{
+		map[string]any{"question": "Pick a plan", "answers": []any{"Weekend"}},
+	})
+	if err == nil {
+		t.Fatal("expected error when answers is used for single-select")
+	}
+	if !strings.Contains(err.Error(), "answers is only allowed for multi-select questions") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestNormalizeAskUserQuestionSubmit_RejectsLegacyObjectParams(t *testing.T) {
 	_, err := normalizeAskUserQuestionSubmit(map[string]any{}, map[string]any{
 		"answers": []any{},
@@ -178,6 +279,63 @@ func TestFrontendSubmitCoordinatorAwait_AskUserQuestionPreservesRawParams(t *tes
 	answers, ok := result.Structured["answers"].([]map[string]any)
 	if !ok || len(answers) != 2 {
 		t.Fatalf("expected normalized answers in Structured, got %#v", result.Structured)
+	}
+}
+
+func TestFrontendSubmitCoordinatorAwait_AskUserQuestionMultiSelectPreservesRawAnswersField(t *testing.T) {
+	rawParams := []any{
+		map[string]any{"question": "Notification topics", "answers": []any{"产品更新", "使用教程"}},
+	}
+	control := contracts.NewRunControl(context.Background(), "run_1")
+	control.ExpectSubmit("tool_1")
+	ack := control.ResolveSubmit(api.SubmitRequest{
+		RunID:      "run_1",
+		AwaitingID: "tool_1",
+		Params:     rawParams,
+	})
+	if !ack.Accepted {
+		t.Fatalf("expected submit to be accepted, got %#v", ack)
+	}
+
+	result, err := NewFrontendSubmitCoordinator().Await(context.Background(), &contracts.ExecutionContext{
+		RunControl:      control,
+		CurrentToolID:   "tool_1",
+		CurrentToolName: "_ask_user_question_",
+		Budget: contracts.Budget{
+			Tool: contracts.RetryPolicy{TimeoutMs: 50},
+		},
+	}, map[string]any{
+		"questions": []any{
+			map[string]any{
+				"question":    "Notification topics",
+				"type":        "select",
+				"multiSelect": true,
+				"header":      "通知内容",
+				"options": []any{
+					map[string]any{"label": "产品更新"},
+					map[string]any{"label": "使用教程"},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Await returned error: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Fatalf("expected success exit code, got %#v", result)
+	}
+	if !reflect.DeepEqual(result.RawParams, rawParams) {
+		t.Fatalf("expected RawParams to preserve original submit params, got %#v", result.RawParams)
+	}
+	if result.SubmitInfo == nil || !reflect.DeepEqual(result.SubmitInfo.Params, rawParams) {
+		t.Fatalf("expected SubmitInfo params to preserve original submit params, got %#v", result.SubmitInfo)
+	}
+	answers, ok := result.Structured["answers"].([]map[string]any)
+	if !ok || len(answers) != 1 {
+		t.Fatalf("expected normalized answers in Structured, got %#v", result.Structured)
+	}
+	if !reflect.DeepEqual(answers[0]["answer"], []string{"产品更新", "使用教程"}) {
+		t.Fatalf("expected normalized multi-select answer slice, got %#v", answers[0]["answer"])
 	}
 }
 

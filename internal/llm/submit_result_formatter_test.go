@@ -32,7 +32,7 @@ func TestFormatSubmitResultForLLM_QuestionSummary(t *testing.T) {
 		Structured: map[string]any{
 			"answers": []any{
 				map[string]any{"question": "Pick a plan", "header": "行程安排", "answer": "Weekend"},
-				map[string]any{"question": "How many people?", "header": "人数", "answer": 2},
+				map[string]any{"question": "Subscription topics", "header": "订阅内容", "answer": []any{"产品更新", "使用教程"}},
 			},
 		},
 	}
@@ -40,7 +40,7 @@ func TestFormatSubmitResultForLLM_QuestionSummary(t *testing.T) {
 	got := formatSubmitResultForLLM("_ask_user_question_", map[string]any{
 		"submitResultFormat": "summary",
 	}, result)
-	want := "用户回答了以下问题:\n- 行程安排: Weekend\n- 人数: 2"
+	want := "用户回答了以下问题:\n- 行程安排: Weekend\n- 订阅内容: 产品更新, 使用教程"
 	if got != want {
 		t.Fatalf("expected %q, got %q", want, got)
 	}
@@ -62,6 +62,25 @@ func TestFormatSubmitResultForLLM_QuestionQA(t *testing.T) {
 		"submitResultFormat": "qa",
 	}, result)
 	want := "问题：Pick a plan\n回答：Weekend\n问题：How many people?\n回答：2\n问题：Preferred scenes\n回答：自然风光, 古镇"
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
+func TestFormatSubmitResultForLLM_QuestionKVFormatsArrayAnswers(t *testing.T) {
+	result := ToolExecutionResult{
+		Output: `{"mode":"question"}`,
+		Structured: map[string]any{
+			"answers": []any{
+				map[string]any{"question": "Subscription topics", "header": "订阅内容", "answer": []any{"产品更新", "使用教程"}},
+			},
+		},
+	}
+
+	got := formatSubmitResultForLLM("_ask_user_question_", map[string]any{
+		"submitResultFormat": "kv",
+	}, result)
+	want := "订阅内容=产品更新, 使用教程"
 	if got != want {
 		t.Fatalf("expected %q, got %q", want, got)
 	}

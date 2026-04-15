@@ -179,7 +179,11 @@ func normalizeAskUserQuestionSubmit(args map[string]any, params any) (map[string
 		if !ok {
 			return nil, fmt.Errorf("unknown question: %s", questionText)
 		}
-		normalizedAnswer, err := normalizeQuestionAnswer(definition, answerMap["answer"])
+		rawValue, err := normalizeQuestionSubmitValue(definition, answerMap)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", questionText, err)
+		}
+		normalizedAnswer, err := normalizeQuestionAnswer(definition, rawValue)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", questionText, err)
 		}
@@ -194,6 +198,30 @@ func normalizeAskUserQuestionSubmit(args map[string]any, params any) (map[string
 		"mode":    "question",
 		"answers": answers,
 	}, nil
+}
+
+func normalizeQuestionSubmitValue(definition map[string]any, answerMap map[string]any) (any, error) {
+	questionType := strings.ToLower(AnyStringNode(definition["type"]))
+	_, hasAnswer := answerMap["answer"]
+	rawAnswers, hasAnswers := answerMap["answers"]
+
+	if questionType == "select" && AnyBoolNode(definition["multiSelect"]) {
+		if hasAnswer && hasAnswers {
+			return nil, fmt.Errorf("answer and answers cannot both be provided")
+		}
+		if !hasAnswers {
+			return nil, fmt.Errorf("answers is required for multi-select questions")
+		}
+		return rawAnswers, nil
+	}
+
+	if hasAnswers {
+		return nil, fmt.Errorf("answers is only allowed for multi-select questions")
+	}
+	if !hasAnswer {
+		return nil, fmt.Errorf("answer is required")
+	}
+	return answerMap["answer"], nil
 }
 
 func normalizeAskUserApprovalSubmit(args map[string]any, params any) (map[string]any, error) {
