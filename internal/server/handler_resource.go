@@ -79,7 +79,11 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	if chatID == "" {
 		chatID = newChatID()
 	}
-	_, _, err := s.deps.Chats.EnsureChat(chatID, s.deps.Registry.DefaultAgentKey(), "", r.FormValue("name"))
+	agentKey := strings.TrimSpace(r.FormValue("agentKey"))
+	if agentKey == "" {
+		agentKey = s.deps.Registry.DefaultAgentKey()
+	}
+	_, _, err := s.deps.Chats.EnsureChat(chatID, agentKey, "", r.FormValue("name"))
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
