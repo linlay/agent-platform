@@ -117,7 +117,12 @@ func (s *ContainerHubSandboxService) Execute(ctx context.Context, execCtx *contr
 	}
 	var parsed map[string]any
 	_ = json.Unmarshal([]byte(rawText), &parsed)
-	exitCode := intValue(parsed["exitCode"], -1)
+	// container-hub error envelope uses snake_case: exit_code / stdout / stderr / working_directory
+	exitCode := intValue(parsed["exit_code"], -1)
+	if exitCode == -1 {
+		// tolerate legacy camelCase variants
+		exitCode = intValue(parsed["exitCode"], -1)
+	}
 	return contracts.SandboxExecutionResult{
 		ExitCode:         exitCode,
 		Stdout:           stringValue(parsed["stdout"]),
