@@ -52,7 +52,7 @@ func TestLoadModelRegistryReturnsDecryptErrorForInvalidAESProviderAPIKey(t *test
 	if err == nil {
 		t.Fatal("expected LoadModelRegistry to fail")
 	}
-	if !strings.Contains(err.Error(), "resolve provider mock apiKey") || !strings.Contains(err.Error(), "decrypt failed") {
+	if !strings.Contains(err.Error(), "resolve provider mock apiKey") || !strings.Contains(err.Error(), "invalid AES payload format") {
 		t.Fatalf("expected decrypt error, got %v", err)
 	}
 }

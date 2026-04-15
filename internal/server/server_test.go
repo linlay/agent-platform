@@ -2276,7 +2276,7 @@ func mustEncryptProviderAPIKeyForServerTest(t *testing.T, envPart string, plaint
 	nonce := []byte("0123456789ab")
 	data := gcm.Seal(nil, nonce, []byte(plaintext), nil)
 	payload := append(append([]byte{}, nonce...), data...)
-	return "AES(v1:" + base64.RawURLEncoding.EncodeToString(payload) + ")"
+	return "AES(" + base64.RawURLEncoding.EncodeToString(payload) + ")"
 }
 
 func assertPersistedEventTypes(t *testing.T, events []stream.EventData, want ...string) {

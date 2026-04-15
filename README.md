@@ -114,9 +114,9 @@ LLM 交互日志默认会直接打印真实 `raw_chunk`、`parsed_content`、`pa
 Provider `apiKey` 支持两种写法：
 
 - 明文：`apiKey: sk-...`
-- 弱对抗密文：`apiKey: AES(v1:...)`
+- 弱对抗密文：`apiKey: AES(...)`
 
-当使用 `AES(v1:...)` 时，runner 会在加载 provider registry 时自动解密，并继续把还原后的真实 key 用于上游请求头。需要同时满足程序内置 code part 和环境变量 `PROVIDER_APIKEY_KEY_PART`。这套方案只用于“防直接看配置文件”，不等同于真正的 secret manager；明文 `apiKey` 仍然兼容，便于渐进迁移和回滚。
+当使用 `AES(...)` 时，runner 会在加载 provider registry 时自动解密，并继续把还原后的真实 key 用于上游请求头。需要同时满足程序内置 code part 和环境变量 `PROVIDER_APIKEY_KEY_PART`。这套方案只用于“防直接看配置文件”，不等同于真正的 secret manager；明文 `apiKey` 仍然兼容，便于渐进迁移和回滚。旧的 `AES(v1:...)` 已不再支持，需要重新生成密文。
 
 ### `configs/` 目录
 
@@ -222,7 +222,7 @@ docker compose logs -f
 
 - 服务无法启动：先检查环境里是否设置了已废弃的旧变量，或鉴权公钥 / JWKS 配置是否不完整。
 - Query 无法调用模型：检查 `REGISTRIES_DIR/providers`、`REGISTRIES_DIR/models` 是否存在，并确认 provider `apiKey` / `baseUrl` 可用。
-- 若 provider 使用 `apiKey: AES(v1:...)`：确认 `.env` 或进程环境中已提供 `PROVIDER_APIKEY_KEY_PART`，且与当前密文匹配。
+- 若 provider 使用 `apiKey: AES(...)`：确认 `.env` 或进程环境中已提供 `PROVIDER_APIKEY_KEY_PART`，且与当前密文匹配；旧 `AES(v1:...)` 需先重生成。
 - Schedule 看起来没有触发：先确认服务进程本身正在运行；如果是本地 `make run`，日志不会出现在 `docker compose logs` 里。随后检查 stdout 中是否有 `schedule orchestrator started`、`[schedule] registered ...`、`[schedule] dispatch ...`。
 - Query 看起来不像真流式：先检查是否启用了 `AGENT_H2A_RENDER_FLUSH_INTERVAL_MS`、`AGENT_H2A_RENDER_MAX_BUFFERED_CHARS` 或 `AGENT_H2A_RENDER_MAX_BUFFERED_EVENTS` 这类传输层缓冲参数；默认 SSE writer 会逐事件 flush。
 - `_sandbox_bash_` 执行失败：检查 `AGENT_CONTAINER_HUB_BASE_URL`、`default-environment-id`，以及 `.env` 中的目录变量是否为宿主机真实路径。

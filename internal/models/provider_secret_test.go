@@ -40,10 +40,10 @@ func TestResolveProviderAPIKeyErrorsWhenEnvPartMissing(t *testing.T) {
 	}
 }
 
-func TestResolveProviderAPIKeyErrorsWhenVersionMissing(t *testing.T) {
+func TestResolveProviderAPIKeyErrorsWhenLegacyVersionedFormatUsed(t *testing.T) {
 	t.Setenv(providerAPIKeyEnvPartKey, "env-secret")
 
-	_, err := resolveProviderAPIKey("mock", "AES(not-versioned)")
+	_, err := resolveProviderAPIKey("mock", "AES(v1:not-versioned)")
 	if err == nil || !strings.Contains(err.Error(), "invalid AES payload format") {
 		t.Fatalf("expected invalid format error, got %v", err)
 	}
@@ -52,7 +52,7 @@ func TestResolveProviderAPIKeyErrorsWhenVersionMissing(t *testing.T) {
 func TestResolveProviderAPIKeyErrorsWhenBase64Invalid(t *testing.T) {
 	t.Setenv(providerAPIKeyEnvPartKey, "env-secret")
 
-	_, err := resolveProviderAPIKey("mock", "AES(v1:not-base64!!!)")
+	_, err := resolveProviderAPIKey("mock", "AES(not-base64!!!)")
 	if err == nil || !strings.Contains(err.Error(), "invalid base64 payload") {
 		t.Fatalf("expected invalid base64 error, got %v", err)
 	}
@@ -62,7 +62,7 @@ func TestResolveProviderAPIKeyErrorsWhenNonceTooShort(t *testing.T) {
 	t.Setenv(providerAPIKeyEnvPartKey, "env-secret")
 
 	payload := base64.RawURLEncoding.EncodeToString([]byte("short"))
-	_, err := resolveProviderAPIKey("mock", "AES(v1:"+payload+")")
+	_, err := resolveProviderAPIKey("mock", "AES("+payload+")")
 	if err == nil || !strings.Contains(err.Error(), "invalid nonce length") {
 		t.Fatalf("expected invalid nonce error, got %v", err)
 	}
@@ -103,5 +103,5 @@ func mustEncryptProviderAPIKeyForTest(t *testing.T, envPart string, plaintext st
 	nonce := []byte("0123456789ab")
 	data := gcm.Seal(nil, nonce, []byte(plaintext), nil)
 	payload := append(append([]byte{}, nonce...), data...)
-	return "AES(" + providerAPIKeyCipherVersion + ":" + base64.RawURLEncoding.EncodeToString(payload) + ")"
+	return "AES(" + base64.RawURLEncoding.EncodeToString(payload) + ")"
 }

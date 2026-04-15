@@ -36,7 +36,7 @@
 | `MEMORY_DIR` | `runtime/memory` | remember 落盘目录 |
 | `PAN_DIR` | `runtime/pan` | pan 目录映射 |
 | `SKILLS_MARKET_DIR` | `runtime/skills-market` | skills market 目录映射 |
-| `PROVIDER_APIKEY_KEY_PART` | 空 | provider `apiKey: AES(v1:...)` 的环境变量半密钥；与程序内置 code part 一起派生解密密钥 |
+| `PROVIDER_APIKEY_KEY_PART` | 空 | provider `apiKey: AES(...)` 的环境变量半密钥；与程序内置 code part 一起派生解密密钥 |
 
 ### Container Hub
 
@@ -114,15 +114,16 @@ Container Hub 默认基础挂载为：
 provider registry 中的 `apiKey` 支持以下两种形态：
 
 - 明文：`apiKey: sk-...`
-- 密文：`apiKey: AES(v1:...)`
+- 密文：`apiKey: AES(...)`
 
-当值为 `AES(v1:...)` 时，runner 会在加载 `REGISTRIES_DIR/providers` 时自动解密，然后再把真实 key 用于请求上游模型。
+当值为 `AES(...)` 时，runner 会在加载 `REGISTRIES_DIR/providers` 时自动解密，然后再把真实 key 用于请求上游模型。
 
 说明：
 
 - 解密依赖两部分材料：程序内置 code part + 环境变量 `PROVIDER_APIKEY_KEY_PART`
 - 只要命中 `AES(...)`，缺少环境变量或密钥不匹配都会导致 provider 加载失败
 - 明文 `apiKey` 仍然兼容
+- 旧 `AES(v1:...)` 已不再支持，需要重新生成密文
 - 这是“弱对抗”方案，只适合防直接查看配置文件，不等同于完整 secret manager
 
 ## `configs/` 目录

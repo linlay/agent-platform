@@ -11,11 +11,10 @@ import (
 )
 
 const (
-	providerAPIKeyEnvPartKey    = "PROVIDER_APIKEY_KEY_PART"
-	providerAPIKeyCipherPrefix  = "AES("
-	providerAPIKeyCipherSuffix  = ")"
-	providerAPIKeyCipherVersion = "v1"
-	providerAPIKeyCodePart      = "zenmind-provider"
+	providerAPIKeyEnvPartKey   = "PROVIDER_APIKEY_KEY_PART"
+	providerAPIKeyCipherPrefix = "AES("
+	providerAPIKeyCipherSuffix = ")"
+	providerAPIKeyCodePart     = "zenmind-provider"
 )
 
 func resolveProviderAPIKey(providerKey, raw string) (string, error) {
@@ -31,13 +30,12 @@ func resolveProviderAPIKey(providerKey, raw string) (string, error) {
 
 func decryptProviderAPIKey(providerKey, wrapped string) (string, error) {
 	trimmed := strings.TrimSpace(wrapped)
-	inner := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmed, providerAPIKeyCipherPrefix), providerAPIKeyCipherSuffix))
-	version, payload, ok := strings.Cut(inner, ":")
-	if !ok || strings.TrimSpace(version) != providerAPIKeyCipherVersion || strings.TrimSpace(payload) == "" {
+	payload := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(trimmed, providerAPIKeyCipherPrefix), providerAPIKeyCipherSuffix))
+	if payload == "" || strings.Contains(payload, ":") {
 		return "", fmt.Errorf("provider %s apiKey decrypt failed: invalid AES payload format", providerKey)
 	}
 
-	data, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(payload))
+	data, err := base64.RawURLEncoding.DecodeString(payload)
 	if err != nil {
 		return "", fmt.Errorf("provider %s apiKey decrypt failed: invalid base64 payload", providerKey)
 	}
