@@ -112,10 +112,17 @@ type DeltaRequestSubmit struct {
 	ChatID     string
 	RunID      string
 	AwaitingID string
-	Payload    any
+	Params     any
 }
 
 func (DeltaRequestSubmit) agentDeltaTag() {}
+
+type DeltaAwaitingAnswer struct {
+	AwaitingID string
+	Answer     map[string]any
+}
+
+func (DeltaAwaitingAnswer) agentDeltaTag() {}
 
 type DeltaRequestSteer struct {
 	RequestID string

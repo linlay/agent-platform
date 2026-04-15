@@ -378,7 +378,7 @@ func TestEventDataMarshalsRequestSubmitWithoutViewID(t *testing.T) {
 		"chatId":     "chat_1",
 		"runId":      "run_1",
 		"awaitingId": "tool_1",
-		"payload":    map[string]any{"value": "approve"},
+		"params":     map[string]any{"value": "approve"},
 	})
 	event.Seq = 11
 	data, err := json.Marshal(event.Data())
@@ -386,8 +386,79 @@ func TestEventDataMarshalsRequestSubmitWithoutViewID(t *testing.T) {
 		t.Fatalf("marshal event data: %v", err)
 	}
 	text := string(data)
+	if !strings.Contains(text, `"params":{"value":"approve"}`) {
+		t.Fatalf("expected params in request.submit payload: %s", text)
+	}
 	if strings.Contains(text, `"viewId"`) {
 		t.Fatalf("did not expect viewId in request.submit payload: %s", text)
+	}
+}
+
+func TestDispatcherEmitsAwaitingAnswerForQuestionMode(t *testing.T) {
+	dispatcher := NewDispatcher(StreamRequest{
+		RunID:  "run_1",
+		ChatID: "chat_1",
+	})
+
+	events := dispatcher.Dispatch(AwaitingAnswer{
+		AwaitingID: "tool_1",
+		Answer: map[string]any{
+			"mode": "question",
+			"answers": []any{
+				map[string]any{
+					"question": "Destination?",
+					"header":   "Trip",
+					"answer":   []any{"Xitang", "Suzhou"},
+				},
+			},
+		},
+	})
+	assertEventTypes(t, events, "awaiting.answer")
+	payload := events[0].ToData()
+	if payload["mode"] != "question" {
+		t.Fatalf("expected question mode, got %#v", payload)
+	}
+	answers, _ := payload["answers"].([]map[string]any)
+	if len(answers) != 1 {
+		t.Fatalf("expected one formatted answer, got %#v", payload)
+	}
+	if answers[0]["question"] != "Destination?" || answers[0]["answer"] != "Xitang, Suzhou" {
+		t.Fatalf("unexpected formatted answers %#v", answers)
+	}
+}
+
+func TestEventDataMarshalsAwaitingAnswerWithContractKeyOrder(t *testing.T) {
+	event := NewEvent("awaiting.answer", map[string]any{
+		"awaitingId": "tool_1",
+		"mode":       "approval",
+		"value":      "modify",
+		"freeText":   "git push origin release",
+	})
+	event.Seq = 12
+	data, err := json.Marshal(event.Data())
+	if err != nil {
+		t.Fatalf("marshal event data: %v", err)
+	}
+	text := string(data)
+	order := []string{
+		`"seq":12`,
+		`"type":"awaiting.answer"`,
+		`"awaitingId":"tool_1"`,
+		`"mode":"approval"`,
+		`"value":"modify"`,
+		`"freeText":"git push origin release"`,
+		`"timestamp":`,
+	}
+	prev := -1
+	for _, part := range order {
+		idx := strings.Index(text, part)
+		if idx < 0 {
+			t.Fatalf("expected %q in %s", part, text)
+		}
+		if idx <= prev {
+			t.Fatalf("expected ordered keys in %s", text)
+		}
+		prev = idx
 	}
 }
 

@@ -603,8 +603,14 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 			ChatID:     s.session.ChatID,
 			RunID:      s.session.RunID,
 			AwaitingID: result.SubmitInfo.AwaitingID,
-			Payload:    result.SubmitInfo.Params,
+			Params:     result.SubmitInfo.Params,
 		})
+		if result.Error == "" && len(result.Structured) > 0 {
+			s.pending = append(s.pending, DeltaAwaitingAnswer{
+				AwaitingID: result.SubmitInfo.AwaitingID,
+				Answer:     cloneMap(result.Structured),
+			})
+		}
 	}
 	s.previousToolResult = structuredOrOutput(result)
 	s.pending = append(s.pending, DeltaToolResult{
@@ -776,11 +782,18 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 		ChatID:     s.session.ChatID,
 		RunID:      s.session.RunID,
 		AwaitingID: syntheticID,
-		Payload:    submitResult.Request.Params,
+		Params:     submitResult.Request.Params,
 	})
 
 	params, _ := submitResult.Request.Params.(map[string]any)
 	action := strings.ToLower(strings.TrimSpace(AnyStringNode(params["action"])))
+	answer := hitlAwaitingAnswer(action, strings.TrimSpace(AnyStringNode(params["command"])))
+	if len(answer) > 0 {
+		s.pending = append(s.pending, DeltaAwaitingAnswer{
+			AwaitingID: syntheticID,
+			Answer:     answer,
+		})
+	}
 	switch action {
 	case "approve":
 		s.appendSyntheticToolResult(syntheticID, syntheticName, structuredResult(map[string]any{
@@ -961,6 +974,21 @@ func mapStringArg(args map[string]any, key string) string {
 		return value
 	}
 	return ""
+}
+
+func hitlAwaitingAnswer(action string, command string) map[string]any {
+	action = strings.ToLower(strings.TrimSpace(action))
+	if action == "" {
+		return nil
+	}
+	answer := map[string]any{
+		"mode":  "approval",
+		"value": action,
+	}
+	if action == "modify" && command != "" {
+		answer["freeText"] = command
+	}
+	return answer
 }
 
 func structuredResult(payload map[string]any) ToolExecutionResult {

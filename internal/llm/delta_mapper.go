@@ -193,7 +193,12 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			ChatID:     value.ChatID,
 			RunID:      value.RunID,
 			AwaitingID: value.AwaitingID,
-			Payload:    value.Payload,
+			Params:     value.Params,
+		}}
+	case DeltaAwaitingAnswer:
+		return []stream.StreamInput{stream.AwaitingAnswer{
+			AwaitingID: value.AwaitingID,
+			Answer:     cloneMap(value.Answer),
 		}}
 	case DeltaRequestSteer:
 		return []stream.StreamInput{stream.RequestSteer{

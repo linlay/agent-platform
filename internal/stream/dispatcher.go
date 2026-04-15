@@ -1,5 +1,10 @@
 package stream
 
+import (
+	"fmt"
+	"strings"
+)
+
 type StreamEventDispatcher struct {
 	request StreamRequest
 	state   *StreamEventStateData
@@ -70,8 +75,14 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 			"chatId":     value.ChatID,
 			"runId":      value.RunID,
 			"awaitingId": value.AwaitingID,
-			"payload":    value.Payload,
+			"params":     value.Params,
 		})}
+	case AwaitingAnswer:
+		event := newAwaitingAnswerEvent(value)
+		if event.Type == "" {
+			return nil
+		}
+		return []StreamEvent{event}
 	case RequestSteer:
 		events := d.closeOpenBlocks()
 		events = append(events, NewEvent("request.steer", map[string]any{
@@ -104,6 +115,88 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 	default:
 		return nil
 	}
+}
+
+func newAwaitingAnswerEvent(input AwaitingAnswer) StreamEvent {
+	answer := clonePayload(input.Answer)
+	if len(answer) == 0 {
+		return StreamEvent{}
+	}
+	mode := strings.ToLower(strings.TrimSpace(anyString(answer["mode"])))
+	if mode == "" {
+		return StreamEvent{}
+	}
+	payload := map[string]any{
+		"awaitingId": input.AwaitingID,
+		"mode":       mode,
+	}
+	switch mode {
+	case "question":
+		formatted := formatAwaitingAnswers(answer["answers"])
+		if len(formatted) > 0 {
+			payload["answers"] = formatted
+		}
+	case "approval":
+		if value := strings.TrimSpace(anyString(answer["value"])); value != "" {
+			payload["value"] = value
+		}
+		if freeText := strings.TrimSpace(anyString(answer["freeText"])); freeText != "" {
+			payload["freeText"] = freeText
+		}
+	default:
+		return StreamEvent{}
+	}
+	return NewEvent("awaiting.answer", payload)
+}
+
+func formatAwaitingAnswers(raw any) []map[string]any {
+	switch typed := raw.(type) {
+	case []map[string]any:
+		items := make([]any, 0, len(typed))
+		for _, item := range typed {
+			items = append(items, item)
+		}
+		return formatAwaitingAnswers(items)
+	case []any:
+		formatted := make([]map[string]any, 0, len(typed))
+		for _, item := range typed {
+			answer, ok := item.(map[string]any)
+			if !ok {
+				continue
+			}
+			question := strings.TrimSpace(anyString(answer["question"]))
+			if question == "" {
+				continue
+			}
+			formatted = append(formatted, map[string]any{
+				"question": question,
+				"answer":   formatAwaitingAnswerValue(answer["answer"]),
+			})
+		}
+		return formatted
+	default:
+		return nil
+	}
+}
+
+func formatAwaitingAnswerValue(value any) string {
+	switch typed := value.(type) {
+	case []string:
+		return strings.Join(typed, ", ")
+	case []any:
+		items := make([]string, 0, len(typed))
+		for _, item := range typed {
+			items = append(items, strings.TrimSpace(fmt.Sprint(item)))
+		}
+		return strings.Join(items, ", ")
+	default:
+		return strings.TrimSpace(fmt.Sprint(value))
+	}
+}
+
+func anyString(value any) string {
+	text, _ := value.(string)
+	return text
 }
 
 func (d *StreamEventDispatcher) Complete() []StreamEvent {

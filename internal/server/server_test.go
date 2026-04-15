@@ -1190,6 +1190,12 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	if !strings.Contains(body, `"type":"request.submit"`) {
 		t.Fatalf("expected request.submit event, got %s", body)
 	}
+	if !strings.Contains(body, `"params":{"value":"approve"}`) {
+		t.Fatalf("expected request.submit params, got %s", body)
+	}
+	if !strings.Contains(body, `"type":"awaiting.answer"`) {
+		t.Fatalf("expected awaiting.answer event, got %s", body)
+	}
 	if !strings.Contains(body, `"type":"request.steer"`) {
 		t.Fatalf("expected request.steer event, got %s", body)
 	}
@@ -1202,7 +1208,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	if !strings.Contains(body, "final answer") {
 		t.Fatalf("expected final answer in stream, got %s", body)
 	}
-	assertEventOrder(t, body, "tool.start", "tool.end", "awaiting.ask", "request.submit", "tool.result")
+	assertEventOrder(t, body, "tool.start", "tool.end", "awaiting.ask", "request.submit", "awaiting.answer", "tool.result")
 
 	chatsRec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(chatsRec, httptest.NewRequest(http.MethodGet, "/api/chats", nil))
@@ -1223,6 +1229,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	foundFrontendSnapshot := false
 	foundAwaitAsk := false
 	foundRequestSubmit := false
+	foundAwaitingAnswer := false
 	for _, event := range chatResp.Data.Events {
 		switch event.Type {
 		case "tool.snapshot":
@@ -1256,6 +1263,14 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 			}
 		case "request.submit":
 			foundRequestSubmit = true
+			if event.Value("params") == nil {
+				t.Fatalf("expected params on request.submit in chat detail, got %#v", event)
+			}
+		case "awaiting.answer":
+			foundAwaitingAnswer = true
+			if event.String("mode") != "approval" || event.String("value") != "approve" {
+				t.Fatalf("unexpected awaiting.answer in chat detail %#v", event)
+			}
 		}
 	}
 	if !foundFrontendSnapshot {
@@ -1266,6 +1281,9 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	}
 	if !foundRequestSubmit {
 		t.Fatalf("expected request.submit in chat detail, got %#v", chatResp.Data.Events)
+	}
+	if !foundAwaitingAnswer {
+		t.Fatalf("expected awaiting.answer in chat detail, got %#v", chatResp.Data.Events)
 	}
 
 	select {
@@ -1434,6 +1452,15 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 	if !strings.Contains(body, `"type":"request.submit"`) {
 		t.Fatalf("expected request.submit event, got %s", body)
 	}
+	if !strings.Contains(body, `"params":[{"answer":"Weekend","question":"Pick a plan"},{"answer":2,"question":"How many people?"}]`) {
+		t.Fatalf("expected request.submit params array, got %s", body)
+	}
+	if !strings.Contains(body, `"type":"awaiting.answer"`) {
+		t.Fatalf("expected awaiting.answer event, got %s", body)
+	}
+	if !strings.Contains(body, `"answers":[{"answer":"Weekend","question":"Pick a plan"},{"answer":"2","question":"How many people?"}]`) {
+		t.Fatalf("expected formatted awaiting.answer answers, got %s", body)
+	}
 	if !strings.Contains(body, `"type":"tool.result"`) {
 		t.Fatalf("expected tool.result event, got %s", body)
 	}
@@ -1455,7 +1482,7 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 	if secondItem["question"] != "How many people?" || secondItem["answer"] != float64(2) {
 		t.Fatalf("unexpected second tool.result item: %#v", secondItem)
 	}
-	assertEventOrder(t, body, "tool.start", "awaiting.ask", "tool.args", "tool.end", "awaiting.payload", "request.submit", "tool.result")
+	assertEventOrder(t, body, "tool.start", "awaiting.ask", "tool.args", "tool.end", "awaiting.payload", "request.submit", "awaiting.answer", "tool.result")
 
 	select {
 	case messages := <-secondTurnMessages:
@@ -1505,6 +1532,9 @@ func TestBashHITLApproveFlow(t *testing.T) {
 	if !strings.Contains(body, `"_hitl_confirm_dialog_"`) {
 		t.Fatalf("expected synthetic HITL tool in stream, got %s", body)
 	}
+	if !strings.Contains(body, `"type":"awaiting.answer"`) || !strings.Contains(body, `"value":"approve"`) {
+		t.Fatalf("expected approve awaiting.answer in stream, got %s", body)
+	}
 }
 
 func TestBashHITLModifyFlow(t *testing.T) {
@@ -1515,6 +1545,9 @@ func TestBashHITLModifyFlow(t *testing.T) {
 	if !strings.Contains(body, `"action":"modify"`) {
 		t.Fatalf("expected modify synthetic result, got %s", body)
 	}
+	if !strings.Contains(body, `"type":"awaiting.answer"`) || !strings.Contains(body, `"value":"modify"`) || !strings.Contains(body, `"freeText":"git push origin release"`) {
+		t.Fatalf("expected modify awaiting.answer in stream, got %s", body)
+	}
 }
 
 func TestBashHITLRejectFlow(t *testing.T) {
@@ -1524,6 +1557,9 @@ func TestBashHITLRejectFlow(t *testing.T) {
 	}
 	if !strings.Contains(body, `"code":"hitl_rejected"`) {
 		t.Fatalf("expected rejected original bash result, got %s", body)
+	}
+	if !strings.Contains(body, `"type":"awaiting.answer"`) || !strings.Contains(body, `"value":"reject"`) {
+		t.Fatalf("expected reject awaiting.answer in stream, got %s", body)
 	}
 }
 
@@ -1679,6 +1715,7 @@ func assertSpecificEventOrder(t *testing.T, messages []map[string]any, originalT
 	syntheticStart := -1
 	awaitAsk := -1
 	requestSubmit := -1
+	awaitingAnswer := -1
 	syntheticResult := -1
 	originalResult := -1
 	for idx, message := range messages {
@@ -1699,6 +1736,10 @@ func assertSpecificEventOrder(t *testing.T, messages []map[string]any, originalT
 			if message["awaitingId"] == syntheticToolID {
 				requestSubmit = idx
 			}
+		case "awaiting.answer":
+			if message["awaitingId"] == syntheticToolID {
+				awaitingAnswer = idx
+			}
 		case "tool.result":
 			if message["toolId"] == syntheticToolID {
 				syntheticResult = idx
@@ -1708,7 +1749,7 @@ func assertSpecificEventOrder(t *testing.T, messages []map[string]any, originalT
 			}
 		}
 	}
-	if !(originalStart >= 0 && syntheticStart > originalStart && awaitAsk > syntheticStart && requestSubmit > awaitAsk && syntheticResult > requestSubmit && originalResult > syntheticResult) {
+	if !(originalStart >= 0 && syntheticStart > originalStart && awaitAsk > syntheticStart && requestSubmit > awaitAsk && awaitingAnswer > requestSubmit && syntheticResult > awaitingAnswer && originalResult > syntheticResult) {
 		t.Fatalf("unexpected HITL event order: %#v", messages)
 	}
 }
@@ -2220,7 +2261,7 @@ func writeProviderSSE(t *testing.T, w http.ResponseWriter, frames ...string) {
 func mustEncryptProviderAPIKeyForServerTest(t *testing.T, envPart string, plaintext string) string {
 	t.Helper()
 
-	const providerAPIKeyCodePart = "agent-platform-provider-apikey-code-part-v1"
+	const providerAPIKeyCodePart = "zenmind-provider"
 
 	sum := sha256.Sum256([]byte(providerAPIKeyCodePart + ":" + envPart))
 	block, err := aes.NewCipher(sum[:])
