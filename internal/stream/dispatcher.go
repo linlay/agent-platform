@@ -130,6 +130,12 @@ func newAwaitingAnswerEvent(input AwaitingAnswer) StreamEvent {
 		"awaitingId": input.AwaitingID,
 		"mode":       mode,
 	}
+	if cancelled, ok := answer["cancelled"].(bool); ok && cancelled {
+		payload["cancelled"] = true
+		if reason := strings.TrimSpace(anyString(answer["reason"])); reason != "" {
+			payload["reason"] = reason
+		}
+	}
 	switch mode {
 	case "question":
 		formatted := formatAwaitingAnswers(answer["answers"])

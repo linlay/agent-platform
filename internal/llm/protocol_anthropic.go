@@ -155,9 +155,9 @@ func (p *anthropicProtocol) buildRequestBody(model ModelDefinition, stageSetting
 			"type":          "enabled",
 			"budget_tokens": reasoningBudgetTokens(stageSettings.ReasoningEffort),
 		}
-		if compatRequest := AnyMapNode(AnyMapNode(protocolConfig.Compat["request"])["whenReasoningEnabled"]); len(compatRequest) > 0 {
-			requestBody = mergeAnyMaps(requestBody, compatRequest)
-		}
+	}
+	if compatRequest := compatRequestOverrides(protocolConfig, stageSettings.ReasoningEnabled); len(compatRequest) > 0 {
+		requestBody = mergeAnyMaps(requestBody, compatRequest)
 	}
 
 	return requestBody, effectiveToolChoice, nil

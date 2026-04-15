@@ -1504,6 +1504,133 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 	}
 }
 
+func TestQuestionAwaitDismissReturnsCancelledStructuredResult(t *testing.T) {
+	var providerCallCount atomic.Int32
+	secondTurnMessages := make(chan []map[string]any, 1)
+
+	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		call := providerCallCount.Add(1)
+		switch call {
+		case 1:
+			writeProviderSSE(t, w,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Pick a plan\",\"type\":\"select\",\"options\":[{\"label\":\"Weekend\",\"description\":\"2 days\"}],\"allowFreeText\":false,\"multiSelect\":false}]}"}}]},"finish_reason":"tool_calls"}]}`,
+				`[DONE]`,
+			)
+		case 2:
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode second provider request: %v", err)
+			}
+			secondTurnMessages <- normalizeProviderMessages(payload["messages"])
+			writeProviderSSE(t, w,
+				`{"choices":[{"delta":{"content":"question cancel flow complete"},"finish_reason":"stop"}]}`,
+				`[DONE]`,
+			)
+		default:
+			t.Fatalf("unexpected provider call %d", call)
+		}
+	})
+
+	httpServer := httptest.NewServer(fixture.server)
+	defer httpServer.Close()
+
+	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"ask me a question"}`))
+	if err != nil {
+		t.Fatalf("post query: %v", err)
+	}
+	defer resp.Body.Close()
+
+	reader := bufio.NewReader(resp.Body)
+	var streamBody strings.Builder
+	runID := ""
+	toolID := ""
+	awaitPayloadSeen := false
+	for {
+		line, readErr := reader.ReadString('\n')
+		streamBody.WriteString(line)
+		if strings.HasPrefix(line, "data: {") {
+			payload := decodeSSELine(t, line)
+			switch payload["type"] {
+			case "awaiting.ask":
+				runID, _ = payload["runId"].(string)
+				toolID, _ = payload["awaitingId"].(string)
+			case "awaiting.payload":
+				awaitPayloadSeen = true
+			}
+			if awaitPayloadSeen {
+				break
+			}
+		}
+		if readErr != nil {
+			t.Fatalf("read query stream before submit: %v", readErr)
+		}
+	}
+
+	submitReq := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+runID+`","awaitingId":"`+toolID+`","params":[]}`))
+	submitReq.Header.Set("Content-Type", "application/json")
+	submitRec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(submitRec, submitReq)
+	if submitRec.Code != http.StatusOK {
+		t.Fatalf("submit expected 200, got %d: %s", submitRec.Code, submitRec.Body.String())
+	}
+
+	var toolResultPayload map[string]any
+	for {
+		line, readErr := reader.ReadString('\n')
+		streamBody.WriteString(line)
+		if strings.HasPrefix(line, "data: {") {
+			payload := decodeSSELine(t, line)
+			if payload["type"] == "tool.result" {
+				toolResultPayload = payload
+			}
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			t.Fatalf("read query stream after submit: %v", readErr)
+		}
+	}
+
+	body := streamBody.String()
+	if !strings.Contains(body, `"type":"request.submit"`) || !strings.Contains(body, `"params":[]`) {
+		t.Fatalf("expected request.submit with empty params array, got %s", body)
+	}
+	if !strings.Contains(body, `"type":"awaiting.answer"`) || !strings.Contains(body, `"cancelled":true`) || !strings.Contains(body, `"reason":"user_dismissed"`) {
+		t.Fatalf("expected cancelled awaiting.answer in stream, got %s", body)
+	}
+	if toolResultPayload == nil {
+		t.Fatalf("expected tool.result payload, got %s", body)
+	}
+	resultMap, ok := toolResultPayload["result"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected structured tool.result object, got %#v", toolResultPayload)
+	}
+	if resultMap["mode"] != "question" || resultMap["cancelled"] != true || resultMap["reason"] != "user_dismissed" {
+		t.Fatalf("unexpected cancelled tool.result payload %#v", resultMap)
+	}
+	assertEventOrder(t, body, "tool.start", "awaiting.ask", "tool.args", "tool.end", "awaiting.payload", "request.submit", "awaiting.answer", "tool.result")
+
+	select {
+	case messages := <-secondTurnMessages:
+		toolContent := ""
+		for _, message := range messages {
+			if role, _ := message["role"].(string); role == "tool" {
+				toolContent, _ = message["content"].(string)
+				break
+			}
+		}
+		if toolContent == "" {
+			t.Fatalf("expected second turn to include tool message, got %#v", messages)
+		}
+		if !strings.Contains(toolContent, `"cancelled":true`) || !strings.Contains(toolContent, `"mode":"question"`) || !strings.Contains(toolContent, `"reason":"user_dismissed"`) {
+			t.Fatalf("expected cancelled JSON tool content, got %#v", messages)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for second provider request")
+	}
+}
+
 type recordingSandbox struct {
 	commands []string
 }

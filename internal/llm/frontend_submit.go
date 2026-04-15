@@ -78,10 +78,14 @@ func (c *FrontendSubmitCoordinator) Await(ctx context.Context, execCtx *Executio
 		}, nil
 	}
 	data, _ := json.Marshal(normalized)
+	rawParams := result.Request.Params
+	if normalized["cancelled"] == true {
+		rawParams = nil
+	}
 	return ToolExecutionResult{
 		Output:     string(data),
 		Structured: normalized,
-		RawParams:  result.Request.Params,
+		RawParams:  rawParams,
 		ExitCode:   0,
 		SubmitInfo: &SubmitInfo{
 			RunID:      result.Request.RunID,
@@ -143,6 +147,13 @@ func normalizeAskUserQuestionSubmit(args map[string]any, params any) (map[string
 	if !ok {
 		return nil, fmt.Errorf("ask_user_question submit params must be an array")
 	}
+	if len(rawAnswers) == 0 {
+		return map[string]any{
+			"mode":      "question",
+			"cancelled": true,
+			"reason":    "user_dismissed",
+		}, nil
+	}
 
 	questionDefs := map[string]map[string]any{}
 	for _, rawQuestion := range asAnySlice(args["questions"]) {
@@ -192,7 +203,14 @@ func normalizeAskUserApprovalSubmit(args map[string]any, params any) (map[string
 	}
 	value, hasValue := nonEmptyStringField(payload["value"])
 	freeText, hasFreeText := nonEmptyStringField(payload["freeText"])
-	if hasValue == hasFreeText {
+	if !hasValue && !hasFreeText {
+		return map[string]any{
+			"mode":      "approval",
+			"cancelled": true,
+			"reason":    "user_dismissed",
+		}, nil
+	}
+	if hasValue && hasFreeText {
 		return nil, fmt.Errorf("ask_user_approval submit params must contain exactly one of value or freeText")
 	}
 	if hasValue {

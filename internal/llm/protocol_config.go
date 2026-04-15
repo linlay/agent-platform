@@ -46,6 +46,7 @@ func defaultProtocolCompat(protocol string) map[string]any {
 	case "ANTHROPIC":
 		return map[string]any{
 			"request": map[string]any{
+				"always": map[string]any{},
 				"whenReasoningEnabled": map[string]any{
 					"thinking": map[string]any{},
 				},
@@ -57,6 +58,7 @@ func defaultProtocolCompat(protocol string) map[string]any {
 	default:
 		return map[string]any{
 			"request": map[string]any{
+				"always":               map[string]any{},
 				"whenReasoningEnabled": map[string]any{},
 			},
 			"response": map[string]any{
@@ -64,6 +66,18 @@ func defaultProtocolCompat(protocol string) map[string]any {
 			},
 		}
 	}
+}
+
+func compatRequestOverrides(protocolConfig protocolRuntimeConfig, reasoningEnabled bool) map[string]any {
+	requestCompat := AnyMapNode(protocolConfig.Compat["request"])
+	if len(requestCompat) == 0 {
+		return nil
+	}
+	overrides := CloneMap(AnyMapNode(requestCompat["always"]))
+	if reasoningEnabled {
+		overrides = mergeAnyMaps(overrides, AnyMapNode(requestCompat["whenReasoningEnabled"]))
+	}
+	return overrides
 }
 
 func mergeStringMaps(maps ...map[string]string) map[string]string {

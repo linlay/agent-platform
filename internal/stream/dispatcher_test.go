@@ -427,10 +427,36 @@ func TestDispatcherEmitsAwaitingAnswerForQuestionMode(t *testing.T) {
 	}
 }
 
+func TestDispatcherEmitsAwaitingAnswerCancelledFields(t *testing.T) {
+	dispatcher := NewDispatcher(StreamRequest{
+		RunID:  "run_1",
+		ChatID: "chat_1",
+	})
+
+	events := dispatcher.Dispatch(AwaitingAnswer{
+		AwaitingID: "tool_1",
+		Answer: map[string]any{
+			"mode":      "question",
+			"cancelled": true,
+			"reason":    "user_dismissed",
+		},
+	})
+	assertEventTypes(t, events, "awaiting.answer")
+	payload := events[0].ToData()
+	if payload["mode"] != "question" || payload["cancelled"] != true || payload["reason"] != "user_dismissed" {
+		t.Fatalf("unexpected cancelled awaiting.answer payload %#v", payload)
+	}
+	if _, exists := payload["answers"]; exists {
+		t.Fatalf("did not expect answers on cancelled awaiting.answer, got %#v", payload)
+	}
+}
+
 func TestEventDataMarshalsAwaitingAnswerWithContractKeyOrder(t *testing.T) {
 	event := NewEvent("awaiting.answer", map[string]any{
 		"awaitingId": "tool_1",
 		"mode":       "approval",
+		"cancelled":  true,
+		"reason":     "user_dismissed",
 		"value":      "modify",
 		"freeText":   "git push origin release",
 	})
@@ -445,6 +471,8 @@ func TestEventDataMarshalsAwaitingAnswerWithContractKeyOrder(t *testing.T) {
 		`"type":"awaiting.answer"`,
 		`"awaitingId":"tool_1"`,
 		`"mode":"approval"`,
+		`"cancelled":true`,
+		`"reason":"user_dismissed"`,
 		`"value":"modify"`,
 		`"freeText":"git push origin release"`,
 		`"timestamp":`,
