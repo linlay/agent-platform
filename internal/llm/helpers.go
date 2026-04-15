@@ -26,6 +26,13 @@ func structuredOrOutput(result contracts.ToolExecutionResult) any {
 	return result.Output
 }
 
+func sseResultValue(result contracts.ToolExecutionResult) any {
+	if result.RawParams != nil {
+		return result.RawParams
+	}
+	return structuredOrOutput(result)
+}
+
 func maxInt(value int, fallback int) int {
 	if value > 0 {
 		return value

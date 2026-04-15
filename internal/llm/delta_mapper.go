@@ -126,7 +126,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			ToolName:        value.ToolName,
 			ToolLabel:       toolLabel,
 			ToolDescription: toolDescription,
-			Result:          structuredOrOutput(value.Result),
+			Result:          sseResultValue(value.Result),
 			Error:           value.Result.Error,
 			ExitCode:        value.Result.ExitCode,
 		}}

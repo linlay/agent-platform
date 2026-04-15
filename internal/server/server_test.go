@@ -1335,6 +1335,7 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 	toolID := ""
 	var awaitQuestionPayload map[string]any
 	var toolStartPayload map[string]any
+	var toolResultPayload map[string]any
 	var awaitPayloadSeen bool
 	for {
 		line, readErr := reader.ReadString('\n')
@@ -1403,6 +1404,12 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 	for {
 		line, readErr := reader.ReadString('\n')
 		streamBody.WriteString(line)
+		if strings.HasPrefix(line, "data: {") {
+			payload := decodeSSELine(t, line)
+			if payload["type"] == "tool.result" {
+				toolResultPayload = payload
+			}
+		}
 		if readErr == io.EOF {
 			break
 		}
@@ -1430,8 +1437,23 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 	if !strings.Contains(body, `"type":"tool.result"`) {
 		t.Fatalf("expected tool.result event, got %s", body)
 	}
-	if !strings.Contains(body, `"mode":"question"`) || !strings.Contains(body, `"question":"Pick a plan"`) {
-		t.Fatalf("expected normalized question tool.result, got %s", body)
+	if strings.Contains(body, `"result":{"mode":"question"`) {
+		t.Fatalf("did not expect normalized question wrapper in tool.result, got %s", body)
+	}
+	if toolResultPayload == nil {
+		t.Fatalf("expected tool.result payload, got %s", body)
+	}
+	resultItems, ok := toolResultPayload["result"].([]any)
+	if !ok || len(resultItems) != 2 {
+		t.Fatalf("expected raw submit array in tool.result, got %#v", toolResultPayload)
+	}
+	firstItem, _ := resultItems[0].(map[string]any)
+	secondItem, _ := resultItems[1].(map[string]any)
+	if firstItem["question"] != "Pick a plan" || firstItem["answer"] != "Weekend" {
+		t.Fatalf("unexpected first tool.result item: %#v", firstItem)
+	}
+	if secondItem["question"] != "How many people?" || secondItem["answer"] != float64(2) {
+		t.Fatalf("unexpected second tool.result item: %#v", secondItem)
 	}
 	assertEventOrder(t, body, "tool.start", "awaiting.ask", "tool.args", "tool.end", "awaiting.payload", "request.submit", "tool.result")
 
@@ -1447,8 +1469,8 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 		if toolContent == "" {
 			t.Fatalf("expected second turn to include tool message, got %#v", messages)
 		}
-		if toolContent != "Pick a plan=Weekend; How many people?=2" {
-			t.Fatalf("expected kv-formatted tool content, got %#v", messages)
+		if toolContent != "问题：Pick a plan\n回答：Weekend\n问题：How many people?\n回答：2" {
+			t.Fatalf("expected qa-formatted tool content, got %#v", messages)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for second provider request")

@@ -129,6 +129,7 @@ type SandboxSession struct {
 type ToolExecutionResult struct {
 	Output     string
 	Structured map[string]any
+	RawParams  any
 	Error      string
 	ExitCode   int
 	SubmitInfo *SubmitInfo

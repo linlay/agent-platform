@@ -5,7 +5,7 @@ type: function
 viewportType: builtin
 viewportKey: confirm_dialog
 clientVisible: true
-submitResultFormat: kv
+submitResultFormat: qa
 inputSchema:
   type: object
   properties:

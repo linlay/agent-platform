@@ -36,23 +36,15 @@ func (c *FrontendSubmitCoordinator) Await(ctx context.Context, execCtx *Executio
 		if errors.Is(err, context.DeadlineExceeded) {
 			elapsedMs := time.Since(waitStarted).Milliseconds()
 			timeoutMs := timeout.Milliseconds()
-			payload := NewErrorPayload(
-				"frontend_submit_timeout",
-				resolveFrontendTimeoutMessage(toolName, awaitingID, timeoutMs, elapsedMs),
-				ErrorScopeFrontendSubmit,
-				ErrorCategoryTimeout,
-				map[string]any{
-					"awaitingId": awaitingID,
-					"toolName":   toolName,
-					"timeoutMs":  timeoutMs,
-					"elapsedMs":  elapsedMs,
-				},
-			)
+			detailedMsg := resolveFrontendTimeoutMessage(toolName, awaitingID, timeoutMs, elapsedMs)
 			return ToolExecutionResult{
-				Output:     marshalJSON(payload),
-				Structured: payload,
-				Error:      "frontend_submit_timeout",
-				ExitCode:   -1,
+				Output: detailedMsg,
+				Structured: map[string]any{
+					"code":    "frontend_submit_timeout",
+					"message": "用户未在规定时间内回答",
+				},
+				Error:    "frontend_submit_timeout",
+				ExitCode: -1,
 			}, nil
 		}
 		return ToolExecutionResult{}, err
@@ -89,6 +81,7 @@ func (c *FrontendSubmitCoordinator) Await(ctx context.Context, execCtx *Executio
 	return ToolExecutionResult{
 		Output:     string(data),
 		Structured: normalized,
+		RawParams:  result.Request.Params,
 		ExitCode:   0,
 		SubmitInfo: &SubmitInfo{
 			RunID:      result.Request.RunID,
