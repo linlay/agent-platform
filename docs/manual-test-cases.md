@@ -96,7 +96,7 @@ curl -N -X POST "$BASE_URL/api/query" \
 ```bash
 curl -X POST "$BASE_URL/api/submit" \
   -H "Content-Type: application/json" \
-  -d '{"runId":"replace-me","toolId":"tool_01","params":{"confirmed":true}}'
+  -d '{"runId":"replace-me","awaitingId":"await_01","params":{"confirmed":true}}'
 ```
 
 ```bash

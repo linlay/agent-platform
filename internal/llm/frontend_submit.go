@@ -25,27 +25,27 @@ func (c *FrontendSubmitCoordinator) Await(ctx context.Context, execCtx *Executio
 		return ToolExecutionResult{}, ErrRunControlUnavailable
 	}
 	toolName := execCtx.CurrentToolName
-	toolID := execCtx.CurrentToolID
+	awaitingID := execCtx.CurrentToolID
 	timeout := toolTimeout(NormalizeBudget(execCtx.Budget).Tool)
 	execCtx.RunLoopState = RunLoopStateWaitingSubmit
 	execCtx.RunControl.TransitionState(RunLoopStateWaitingSubmit)
 	waitStarted := time.Now()
 
-	result, err := execCtx.RunControl.AwaitSubmitWithTimeout(ctx, toolID, timeout)
+	result, err := execCtx.RunControl.AwaitSubmitWithTimeout(ctx, awaitingID, timeout)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			elapsedMs := time.Since(waitStarted).Milliseconds()
 			timeoutMs := timeout.Milliseconds()
 			payload := NewErrorPayload(
 				"frontend_submit_timeout",
-				resolveFrontendTimeoutMessage(toolName, toolID, timeoutMs, elapsedMs),
+				resolveFrontendTimeoutMessage(toolName, awaitingID, timeoutMs, elapsedMs),
 				ErrorScopeFrontendSubmit,
 				ErrorCategoryTimeout,
 				map[string]any{
-					"toolId":    toolID,
-					"toolName":  toolName,
-					"timeoutMs": timeoutMs,
-					"elapsedMs": elapsedMs,
+					"awaitingId": awaitingID,
+					"toolName":   toolName,
+					"timeoutMs":  timeoutMs,
+					"elapsedMs":  elapsedMs,
 				},
 			)
 			return ToolExecutionResult{
@@ -68,9 +68,9 @@ func (c *FrontendSubmitCoordinator) Await(ctx context.Context, execCtx *Executio
 			ErrorScopeFrontendSubmit,
 			ErrorCategoryTool,
 			map[string]any{
-				"toolId":   toolID,
-				"toolName": toolName,
-				"params":   result.Request.Params,
+				"awaitingId": awaitingID,
+				"toolName":   toolName,
+				"params":     result.Request.Params,
 			},
 		)
 		return ToolExecutionResult{
@@ -79,9 +79,9 @@ func (c *FrontendSubmitCoordinator) Await(ctx context.Context, execCtx *Executio
 			Error:      "frontend_submit_invalid_payload",
 			ExitCode:   -1,
 			SubmitInfo: &SubmitInfo{
-				RunID:  result.Request.RunID,
-				ToolID: result.Request.ToolID,
-				Params: result.Request.Params,
+				RunID:      result.Request.RunID,
+				AwaitingID: result.Request.AwaitingID,
+				Params:     result.Request.Params,
 			},
 		}, nil
 	}
@@ -91,21 +91,21 @@ func (c *FrontendSubmitCoordinator) Await(ctx context.Context, execCtx *Executio
 		Structured: normalized,
 		ExitCode:   0,
 		SubmitInfo: &SubmitInfo{
-			RunID:  result.Request.RunID,
-			ToolID: result.Request.ToolID,
-			Params: result.Request.Params,
+			RunID:      result.Request.RunID,
+			AwaitingID: result.Request.AwaitingID,
+			Params:     result.Request.Params,
 		},
 	}, nil
 }
 
-func resolveFrontendTimeoutMessage(toolName string, toolID string, timeoutMs int64, elapsedMs int64) string {
+func resolveFrontendTimeoutMessage(toolName string, awaitingID string, timeoutMs int64, elapsedMs int64) string {
 	if toolName == "" {
 		toolName = "unknown"
 	}
-	if toolID == "" {
-		toolID = "unknown"
+	if awaitingID == "" {
+		awaitingID = "unknown"
 	}
-	return "Frontend tool submit timeout: tool=" + toolName + ", toolId=" + toolID + ", elapsedMs=" + formatInt64(elapsedMs) + ", timeoutMs=" + formatInt64(timeoutMs)
+	return "Frontend tool submit timeout: tool=" + toolName + ", awaitingId=" + awaitingID + ", elapsedMs=" + formatInt64(elapsedMs) + ", timeoutMs=" + formatInt64(timeoutMs)
 }
 
 func formatInt64(value int64) string {
@@ -146,13 +146,9 @@ func normalizeFrontendSubmitResult(toolName string, args map[string]any, params 
 }
 
 func normalizeAskUserQuestionSubmit(args map[string]any, params any) (map[string]any, error) {
-	payload, ok := params.(map[string]any)
+	rawAnswers, ok := params.([]any)
 	if !ok {
-		return nil, fmt.Errorf("ask_user_question submit params must be an object")
-	}
-	rawAnswers, ok := payload["answers"].([]any)
-	if !ok {
-		return nil, fmt.Errorf("ask_user_question submit params.answers must be an array")
+		return nil, fmt.Errorf("ask_user_question submit params must be an array")
 	}
 
 	questionDefs := map[string]map[string]any{}
@@ -185,6 +181,7 @@ func normalizeAskUserQuestionSubmit(args map[string]any, params any) (map[string
 		}
 		answers = append(answers, map[string]any{
 			"question": questionText,
+			"header":   AnyStringNode(definition["header"]),
 			"answer":   normalizedAnswer,
 		})
 	}
@@ -272,6 +269,9 @@ func normalizeQuestionAnswer(definition map[string]any, rawAnswer any) (any, err
 				}
 			}
 			return values, nil
+		}
+		if items, ok := rawAnswer.([]any); ok && len(items) == 1 {
+			rawAnswer = items[0]
 		}
 		text := AnyStringNode(rawAnswer)
 		if text == "" {

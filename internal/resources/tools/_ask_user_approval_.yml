@@ -2,9 +2,10 @@ name: _ask_user_approval_
 label: 用户确认
 description: 向用户展示单题单选确认。用户可以在预设选项和自由输入之间二选一，工具会阻塞等待用户提交回复。
 type: function
-toolType: builtin
+viewportType: builtin
 viewportKey: confirm_dialog
 clientVisible: true
+submitResultFormat: kv
 inputSchema:
   type: object
   properties:

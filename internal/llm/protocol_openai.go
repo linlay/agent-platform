@@ -220,5 +220,93 @@ func rawMessageToOpenAI(raw map[string]any) openAIMessage {
 		msg.ToolCallID, _ = raw["tool_call_id"].(string)
 		msg.Name, _ = raw["name"].(string)
 	}
+	// Drop empty assistant messages (no meaningful content, no tool_calls)
+	if role == "assistant" {
+		hasContent := false
+		if s, ok := msg.Content.(string); ok && strings.TrimSpace(s) != "" {
+			hasContent = true
+		}
+		if !hasContent && len(msg.ToolCalls) == 0 {
+			return openAIMessage{} // Role="" → filtered by caller
+		}
+	}
 	return msg
+}
+
+// mergeRawMessagesByMsgID merges multiple raw assistant messages that share the
+// same _msgId into a single entry. This is necessary because the storage layer
+// writes reasoning, content, and each tool_call as separate StoredMessage
+// entries (with a shared _msgId), but the OpenAI protocol requires all
+// tool_calls from one turn to be in a single assistant message.
+func mergeRawMessagesByMsgID(raw []map[string]any) []map[string]any {
+	var result []map[string]any
+	msgIDIndex := map[string]int{} // _msgId → index in result
+
+	for _, entry := range raw {
+		role, _ := entry["role"].(string)
+		msgID, _ := entry["_msgId"].(string)
+
+		// Only merge assistant messages with a _msgId
+		if role != "assistant" || msgID == "" {
+			result = append(result, entry)
+			continue
+		}
+
+		idx, seen := msgIDIndex[msgID]
+		if !seen {
+			// First occurrence: clone the entry and record its position
+			merged := map[string]any{}
+			for k, v := range entry {
+				merged[k] = v
+			}
+			msgIDIndex[msgID] = len(result)
+			result = append(result, merged)
+			continue
+		}
+
+		// Merge into existing entry at idx
+		existing := result[idx]
+
+		// Merge content (string concatenation)
+		if newContent, _ := entry["content"].(string); newContent != "" {
+			if oldContent, _ := existing["content"].(string); oldContent != "" {
+				existing["content"] = oldContent + newContent
+			} else {
+				existing["content"] = newContent
+			}
+		}
+
+		// Merge reasoning_content (string concatenation)
+		if newRC, _ := entry["reasoning_content"].(string); newRC != "" {
+			if oldRC, _ := existing["reasoning_content"].(string); oldRC != "" {
+				existing["reasoning_content"] = oldRC + newRC
+			} else {
+				existing["reasoning_content"] = newRC
+			}
+		}
+
+		// Merge tool_calls (append to array)
+		if newCalls, ok := entry["tool_calls"].([]any); ok && len(newCalls) > 0 {
+			if oldCalls, ok := existing["tool_calls"].([]any); ok {
+				existing["tool_calls"] = append(oldCalls, newCalls...)
+			} else {
+				existing["tool_calls"] = newCalls
+			}
+		}
+	}
+
+	// Cleanup: drop assistant messages with no content and no tool_calls
+	cleaned := make([]map[string]any, 0, len(result))
+	for _, entry := range result {
+		role, _ := entry["role"].(string)
+		if role == "assistant" {
+			content, _ := entry["content"].(string)
+			_, hasToolCalls := entry["tool_calls"].([]any)
+			if strings.TrimSpace(content) == "" && !hasToolCalls {
+				continue // drop empty assistant message
+			}
+		}
+		cleaned = append(cleaned, entry)
+	}
+	return cleaned
 }

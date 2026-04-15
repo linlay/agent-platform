@@ -178,7 +178,7 @@ func (d EventData) String(key string) string {
 func IsPersistedEventType(eventType string) bool {
 	switch eventType {
 	case "request.query", "request.submit", "request.steer",
-		"await.ask", "await.payload",
+		"awaiting.ask", "awaiting.payload",
 		"chat.start",
 		"run.start", "run.complete", "run.cancel", "run.error",
 		"reasoning.snapshot", "content.snapshot",
@@ -241,7 +241,7 @@ func shouldOmitPayloadField(eventType string, key string, value any) bool {
 		"content.start", "content.snapshot",
 		"tool.start", "tool.snapshot",
 		"action.start", "action.snapshot":
-		return key == "taskId" || key == "reasoningLabel" || key == "toolName" || key == "toolType" || key == "toolLabel" ||
+		return key == "taskId" || key == "reasoningLabel" || key == "toolName" || key == "toolLabel" ||
 			key == "toolDescription" || key == "viewportKey" || key == "actionName" ||
 			key == "description" || key == "arguments"
 	default:
@@ -253,12 +253,12 @@ func eventPayloadKeyOrder(eventType string) []string {
 	switch eventType {
 	case "request.query":
 		return []string{"requestId", "chatId", "role", "message", "agentKey", "teamId", "references", "params", "scene", "stream", "hidden"}
-	case "await.ask":
-		return []string{"awaitId", "viewportType", "viewportKey", "mode", "toolTimeout", "runId", "questions"}
-	case "await.payload":
-		return []string{"awaitId", "questions"}
+	case "awaiting.ask":
+		return []string{"awaitingId", "viewportType", "viewportKey", "mode", "toolTimeout", "runId", "questions"}
+	case "awaiting.payload":
+		return []string{"awaitingId", "questions"}
 	case "request.submit":
-		return []string{"requestId", "chatId", "runId", "toolId", "payload"}
+		return []string{"requestId", "chatId", "runId", "awaitingId", "payload"}
 	case "request.steer":
 		return []string{"requestId", "chatId", "runId", "steerId", "message", "role"}
 	case "chat.start":
@@ -288,13 +288,13 @@ func eventPayloadKeyOrder(eventType string) []string {
 	case "content.snapshot":
 		return []string{"contentId", "runId", "text", "taskId"}
 	case "tool.start":
-		return []string{"toolId", "runId", "taskId", "toolName", "toolType", "toolLabel", "toolDescription"}
+		return []string{"toolId", "runId", "taskId", "toolName", "toolLabel", "toolDescription"}
 	case "tool.args":
 		return []string{"toolId", "delta", "chunkIndex"}
 	case "tool.end":
 		return []string{"toolId"}
 	case "tool.snapshot":
-		return []string{"toolId", "runId", "toolName", "taskId", "toolType", "toolLabel", "toolDescription", "arguments"}
+		return []string{"toolId", "runId", "toolName", "taskId", "toolLabel", "toolDescription", "arguments"}
 	case "tool.result":
 		return []string{"toolId", "result"}
 	case "action.start":

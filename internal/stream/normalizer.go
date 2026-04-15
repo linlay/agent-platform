@@ -50,16 +50,16 @@ func (n *SseEventNormalizer) shouldDrop(event StreamEvent) bool {
 	// Suppress tool events for clientVisible=false tools.
 	eventType := event.Type
 	toolID, _ := event.Payload["toolId"].(string)
-	awaitID, _ := event.Payload["awaitId"].(string)
+	awaitID, _ := event.Payload["awaitingId"].(string)
 
-	if eventType == "await.ask" {
+	if eventType == "awaiting.ask" {
 		return awaitID != "" && n.hiddenToolIDs[awaitID]
 	}
-	if eventType == "await.payload" {
+	if eventType == "awaiting.payload" {
 		return awaitID != "" && n.hiddenToolIDs[awaitID]
 	}
 	if eventType == "request.submit" {
-		return toolID != "" && n.hiddenToolIDs[toolID]
+		return awaitID != "" && n.hiddenToolIDs[awaitID]
 	}
 	if !strings.HasPrefix(eventType, "tool.") {
 		return false

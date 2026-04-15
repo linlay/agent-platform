@@ -302,17 +302,17 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	var req api.SubmitRequest
-	if err := decodeJSON(r, &req); err != nil || req.RunID == "" || req.ToolID == "" {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "runId and toolId are required"))
+	if err := decodeJSON(r, &req); err != nil || req.RunID == "" || req.AwaitingID == "" {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "runId and awaitingId are required"))
 		return
 	}
 	ack := s.deps.Runs.Submit(req)
 	writeJSON(w, http.StatusOK, api.Success(api.SubmitResponse{
-		Accepted: ack.Accepted,
-		Status:   ack.Status,
-		RunID:    req.RunID,
-		ToolID:   req.ToolID,
-		Detail:   ack.Detail,
+		Accepted:   ack.Accepted,
+		Status:     ack.Status,
+		RunID:      req.RunID,
+		AwaitingID: req.AwaitingID,
+		Detail:     ack.Detail,
 	}))
 }
 

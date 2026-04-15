@@ -16,12 +16,12 @@ commands:
       - match: push
         level: 2
         hitlType: system
-        toolType: builtin
+        viewportType: builtin
         viewportKey: confirm_dialog
       - match: push --force
         level: 5
         hitlType: business
-        toolType: html
+        viewportType: html
         viewportKey: git_force_push
 `
 	if err := os.WriteFile(filepath.Join(root, "dangerous.yml"), []byte(content), 0o644); err != nil {
@@ -53,7 +53,7 @@ commands:
       - match: push
         level: 2
         hitlType: system
-        toolType: builtin
+        viewportType: builtin
         viewportKey: confirm_dialog
 `
 	if err := os.WriteFile(filepath.Join(root, "disabled.yml"), []byte(content), 0o644); err != nil {
@@ -78,7 +78,7 @@ commands:
       - match: push
         level: 0
         hitlType: invalid
-        toolType: builtin
+        viewportType: builtin
         viewportKey: confirm_dialog
 `
 	if err := os.WriteFile(filepath.Join(root, "invalid.yml"), []byte(content), 0o644); err != nil {
@@ -99,7 +99,7 @@ commands:
       - match: push
         level: 2
         hitlType: system
-        toolType: builtin
+        viewportType: builtin
         viewportKey: confirm_dialog
 `
 	second := `
@@ -109,7 +109,7 @@ commands:
       - match: push
         level: 5
         hitlType: business
-        toolType: html
+        viewportType: html
         viewportKey: another
 `
 	if err := os.WriteFile(filepath.Join(root, "a.yml"), []byte(first), 0o644); err != nil {
@@ -131,7 +131,35 @@ commands:
 	}
 }
 
-func TestLoadRulesRejectsViewportToolTypeConflict(t *testing.T) {
+func TestLoadRulesRejectsViewportTypeConflict(t *testing.T) {
+	root := t.TempDir()
+	content := `
+commands:
+  - command: git
+    subcommands:
+      - match: push
+        level: 2
+        hitlType: system
+        viewportType: builtin
+        viewportKey: same
+  - command: docker
+    subcommands:
+      - match: rm
+        level: 3
+        hitlType: business
+        viewportType: html
+        viewportKey: same
+`
+	if err := os.WriteFile(filepath.Join(root, "conflict.yml"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write conflict rule file: %v", err)
+	}
+
+	if _, err := loadRulesFromDir(root); err == nil {
+		t.Fatalf("expected viewport conflict error")
+	}
+}
+
+func TestLoadRulesSupportsLegacyToolTypeField(t *testing.T) {
 	root := t.TempDir()
 	content := `
 commands:
@@ -141,20 +169,20 @@ commands:
         level: 2
         hitlType: system
         toolType: builtin
-        viewportKey: same
-  - command: docker
-    subcommands:
-      - match: rm
-        level: 3
-        hitlType: business
-        toolType: html
-        viewportKey: same
+        viewportKey: confirm_dialog
 `
-	if err := os.WriteFile(filepath.Join(root, "conflict.yml"), []byte(content), 0o644); err != nil {
-		t.Fatalf("write conflict rule file: %v", err)
+	if err := os.WriteFile(filepath.Join(root, "legacy.yml"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write legacy rule file: %v", err)
 	}
 
-	if _, err := loadRulesFromDir(root); err == nil {
-		t.Fatalf("expected viewport conflict error")
+	rules, err := loadRulesFromDir(root)
+	if err != nil {
+		t.Fatalf("load rules: %v", err)
+	}
+	if len(rules) != 1 {
+		t.Fatalf("expected 1 rule, got %#v", rules)
+	}
+	if rules[0].ViewportType != "builtin" {
+		t.Fatalf("expected legacy toolType to map to viewportType, got %#v", rules[0])
 	}
 }

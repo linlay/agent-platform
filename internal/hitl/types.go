@@ -1,11 +1,11 @@
 package hitl
 
 type SubcommandRule struct {
-	Match       string `yaml:"match"`
-	Level       int    `yaml:"level"`
-	HITLType    string `yaml:"hitlType"`
-	ToolType    string `yaml:"toolType"`
-	ViewportKey string `yaml:"viewportKey"`
+	Match        string `yaml:"match"`
+	Level        int    `yaml:"level"`
+	HITLType     string `yaml:"hitlType"`
+	ViewportType string `yaml:"viewportType"`
+	ViewportKey  string `yaml:"viewportKey"`
 }
 
 type CommandBlock struct {
@@ -20,16 +20,16 @@ type RuleFile struct {
 }
 
 type FlatRule struct {
-	FileKey     string
-	SourcePath  string
-	Order       int
-	Command     string
-	Match       string
-	MatchTokens []string
-	Level       int
-	HITLType    string
-	ToolType    string
-	ViewportKey string
+	FileKey      string
+	SourcePath   string
+	Order        int
+	Command      string
+	Match        string
+	MatchTokens  []string
+	Level        int
+	HITLType     string
+	ViewportType string
+	ViewportKey  string
 }
 
 type CommandComponents struct {

@@ -599,11 +599,11 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 	}
 	if result.SubmitInfo != nil {
 		s.pending = append(s.pending, DeltaRequestSubmit{
-			RequestID: s.session.RequestID,
-			ChatID:    s.session.ChatID,
-			RunID:     s.session.RunID,
-			ToolID:    result.SubmitInfo.ToolID,
-			Payload:   result.SubmitInfo.Params,
+			RequestID:  s.session.RequestID,
+			ChatID:     s.session.ChatID,
+			RunID:      s.session.RunID,
+			AwaitingID: result.SubmitInfo.AwaitingID,
+			Payload:    result.SubmitInfo.Params,
 		})
 	}
 	s.previousToolResult = structuredOrOutput(result)
@@ -646,7 +646,7 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 		Role:       "tool",
 		ToolCallID: invocation.toolID,
 		Name:       invocation.toolName,
-		Content:    result.Output,
+		Content:    s.toolResultContent(invocation.toolName, result),
 	})
 	return nil
 }
@@ -668,8 +668,8 @@ func (s *llmRunStream) emitHITLConfirmDeltas(invocation *preparedToolInvocation,
 	})
 	s.pending = append(s.pending, DeltaToolEnd{ToolIDs: []string{s.hitlSyntheticID}})
 	s.pending = append(s.pending, DeltaAwaitAsk{
-		AwaitID:      s.hitlSyntheticID,
-		ViewportType: result.Rule.ToolType,
+		AwaitingID:   s.hitlSyntheticID,
+		ViewportType: result.Rule.ViewportType,
 		ViewportKey:  result.Rule.ViewportKey,
 		Mode:         "approval",
 		ToolTimeout:  s.resolveHITLTimeout(),
@@ -772,11 +772,11 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 	}
 
 	s.pending = append(s.pending, DeltaRequestSubmit{
-		RequestID: s.session.RequestID,
-		ChatID:    s.session.ChatID,
-		RunID:     s.session.RunID,
-		ToolID:    syntheticID,
-		Payload:   submitResult.Request.Params,
+		RequestID:  s.session.RequestID,
+		ChatID:     s.session.ChatID,
+		RunID:      s.session.RunID,
+		AwaitingID: syntheticID,
+		Payload:    submitResult.Request.Params,
 	})
 
 	params, _ := submitResult.Request.Params.(map[string]any)
@@ -868,12 +868,12 @@ func (s *llmRunStream) buildHITLArgs(invocation *preparedToolInvocation, result 
 		"ruleKey":           result.Rule.FileKey,
 		"requiredLevel":     result.Rule.Level,
 		"chatLevel":         s.execCtx.HITLLevel,
-		"allowModify":       strings.EqualFold(result.Rule.ToolType, "html"),
+		"allowModify":       strings.EqualFold(result.Rule.ViewportType, "html"),
 	}
 }
 
 func (s *llmRunStream) buildHITLAwaitQuestions(args map[string]any, result hitl.InterceptResult) []any {
-	if !strings.EqualFold(result.Rule.ToolType, "builtin") {
+	if !strings.EqualFold(result.Rule.ViewportType, "builtin") {
 		return nil
 	}
 	command := AnyStringNode(args["originalCommand"])
@@ -935,8 +935,16 @@ func (s *llmRunStream) appendOriginalToolResult(invocation *preparedToolInvocati
 		Role:       "tool",
 		ToolCallID: invocation.toolID,
 		Name:       invocation.toolName,
-		Content:    result.Output,
+		Content:    s.toolResultContent(invocation.toolName, result),
 	})
+}
+
+func (s *llmRunStream) toolResultContent(toolName string, result ToolExecutionResult) string {
+	toolDef, ok := s.lookupToolDefinition(toolName)
+	if !ok {
+		return result.Output
+	}
+	return formatSubmitResultForLLM(toolName, toolDef.Meta, result)
 }
 
 func isBashTool(name string) bool {
@@ -1088,7 +1096,7 @@ func (s *llmRunStream) preToolInvocationDeltas(toolID string, toolName string, p
 		s.runControl.ExpectSubmit(toolID)
 	}
 	viewportKey, _ := tool.Meta["viewportKey"].(string)
-	viewportType, _ := tool.Meta["toolType"].(string)
+	viewportType, _ := tool.Meta["viewportType"].(string)
 	mode, _ := payload["mode"].(string)
 	toolTimeout := int64(0)
 	if budget := NormalizeBudget(s.execCtx.Budget); budget.Tool.TimeoutMs > 0 {
@@ -1099,7 +1107,7 @@ func (s *llmRunStream) preToolInvocationDeltas(toolID string, toolName string, p
 	events := make([]AgentDelta, 0, 2)
 	if normalizedMode == "approval" {
 		events = append(events, DeltaAwaitAsk{
-			AwaitID:      toolID,
+			AwaitingID:   toolID,
 			ViewportType: viewportType,
 			ViewportKey:  viewportKey,
 			Mode:         normalizedMode,
@@ -1111,8 +1119,8 @@ func (s *llmRunStream) preToolInvocationDeltas(toolID string, toolName string, p
 	if normalizedMode == "question" {
 		if awaitQuestions := deferredAwaitQuestions(toolName, payload); len(awaitQuestions) > 0 {
 			events = append(events, DeltaAwaitPayload{
-				AwaitID:   toolID,
-				Questions: awaitQuestions,
+				AwaitingID: toolID,
+				Questions:  awaitQuestions,
 			})
 		}
 	}

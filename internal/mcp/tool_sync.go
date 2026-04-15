@@ -198,8 +198,8 @@ func applyServerToolOverride(base ToolDefinition, override *ToolDefinition) Tool
 	if override.ToolAction {
 		merged.ToolAction = true
 	}
-	if strings.TrimSpace(override.ToolType) != "" {
-		merged.ToolType = strings.TrimSpace(override.ToolType)
+	if strings.TrimSpace(override.ViewportType) != "" {
+		merged.ViewportType = strings.TrimSpace(override.ViewportType)
 	}
 	if strings.TrimSpace(override.ViewportKey) != "" {
 		merged.ViewportKey = strings.TrimSpace(override.ViewportKey)

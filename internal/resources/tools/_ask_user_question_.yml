@@ -2,9 +2,10 @@ name: _ask_user_question_
 label: 用户提问
 description: 向用户展示多个问题，支持文本、数字、密码、选项等回答方式。单个问题可以在选项回答与自由输入之间二选一，工具会阻塞等待用户提交回复。
 type: function
-toolType: builtin
+viewportType: builtin
 viewportKey: confirm_dialog
 clientVisible: true
+submitResultFormat: kv
 inputSchema:
   type: object
   properties:

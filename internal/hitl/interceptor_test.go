@@ -15,12 +15,12 @@ commands:
       - match: push
         level: 2
         hitlType: system
-        toolType: builtin
+        viewportType: builtin
         viewportKey: confirm_dialog
       - match: push --force
         level: 5
         hitlType: business
-        toolType: html
+        viewportType: html
         viewportKey: git_force_push
 `
 	if err := os.WriteFile(filepath.Join(root, "rules.yml"), []byte(content), 0o644); err != nil {
@@ -66,7 +66,7 @@ commands:
       - match: push
         level: 2
         hitlType: system
-        toolType: builtin
+        viewportType: builtin
         viewportKey: confirm_dialog
 `
 	if err := os.WriteFile(filepath.Join(root, "rules.yml"), []byte(content), 0o644); err != nil {
@@ -81,7 +81,7 @@ commands:
 	if !ok {
 		t.Fatalf("expected synthetic tool definition")
 	}
-	if tool.Meta["toolType"] != "builtin" || tool.Meta["viewportKey"] != "confirm_dialog" {
+	if tool.Meta["viewportType"] != "builtin" || tool.Meta["viewportKey"] != "confirm_dialog" {
 		t.Fatalf("unexpected synthetic tool meta: %#v", tool.Meta)
 	}
 }

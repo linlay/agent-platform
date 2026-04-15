@@ -132,7 +132,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		})
 		w.needNewMsgID = true
 
-	case "await.ask", "await.payload", "request.submit", "request.steer":
+	case "awaiting.ask", "awaiting.payload", "request.submit", "request.steer":
 		w.flushCurrentStep()
 		w.appendEventLine(event)
 
@@ -141,6 +141,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		w.ensureMsgID()
 		actionID := event.String("actionId")
 		actionName := event.String("actionName")
+		ts := event.Timestamp
 		w.actionNames[actionID] = actionName
 		w.messages = append(w.messages, StoredMessage{
 			Role: "assistant",
@@ -154,6 +155,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 			}},
 			ActionID: actionID,
 			MsgID:    w.currentMsgID,
+			Ts:       &ts,
 		})
 
 	case "action.result":

@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"context"
 	"crypto"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -635,8 +637,8 @@ func TestQueryCanExecuteBackendToolLoop(t *testing.T) {
 	if !strings.Contains(body, `"type":"tool.result"`) {
 		t.Fatalf("expected tool.result event, got %s", body)
 	}
-	if strings.Contains(body, `"toolType":"backend"`) {
-		t.Fatalf("did not expect backend toolType in live sse, got %s", body)
+	if strings.Contains(body, `"toolType":`) {
+		t.Fatalf("did not expect toolType in live sse, got %s", body)
 	}
 	if strings.Contains(body, `"viewportKey":`) {
 		t.Fatalf("did not expect viewportKey for backend tool, got %s", body)
@@ -678,6 +680,48 @@ func TestQueryCanExecuteBackendToolLoop(t *testing.T) {
 		"content.snapshot",
 		"run.complete",
 	)
+}
+
+func TestQueryDecryptsAESProviderAPIKeyBeforeSendingAuthorizationHeader(t *testing.T) {
+	const envPart = "server-test-env-secret"
+	const plainAPIKey = "test-key"
+
+	t.Setenv("PROVIDER_APIKEY_KEY_PART", envPart)
+
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "Bearer "+plainAPIKey {
+			t.Fatalf("expected decrypted Authorization header, got %q", got)
+		}
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"content":"hello"},"finish_reason":"stop"}]}`,
+			`[DONE]`,
+		)
+	}, testFixtureOptions{
+		setupRuntime: func(root string, _ *config.Config) {
+			providerConfig := strings.Join([]string{
+				"key: mock",
+				"baseUrl: http://placeholder.invalid",
+				"apiKey: " + mustEncryptProviderAPIKeyForServerTest(t, envPart, plainAPIKey),
+				"defaultModel: mock-model",
+			}, "\n")
+			providerPath := filepath.Join(root, "registries", "providers", "mock.yml")
+			if err := os.WriteFile(providerPath, []byte(providerConfig), 0o644); err != nil {
+				t.Fatalf("write encrypted provider config: %v", err)
+			}
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"hello","agentKey":"mock-runner"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "data: [DONE]") {
+		t.Fatalf("expected done sentinel, got %s", rec.Body.String())
+	}
 }
 
 func TestQueryPersistsToolSnapshotWhenSSEPayloadEventsDisabled(t *testing.T) {
@@ -1041,7 +1085,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 				toolStartPayload = payload
 				toolID, _ = payload["toolId"].(string)
 			}
-			if payload["type"] == "await.ask" {
+			if payload["type"] == "awaiting.ask" {
 				awaitQuestionPayload = payload
 				runID, _ = payload["runId"].(string)
 				break
@@ -1052,10 +1096,10 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 		}
 	}
 	if toolStartPayload == nil {
-		t.Fatalf("expected frontend tool.start before await.ask, got %s", streamBody.String())
+		t.Fatalf("expected frontend tool.start before awaiting.ask, got %s", streamBody.String())
 	}
-	if toolStartPayload["toolType"] != "builtin" {
-		t.Fatalf("expected frontend toolType builtin, got %#v", toolStartPayload)
+	if _, exists := toolStartPayload["toolType"]; exists {
+		t.Fatalf("did not expect toolType on tool.start, got %#v", toolStartPayload)
 	}
 	if _, exists := toolStartPayload["viewportKey"]; exists {
 		t.Fatalf("did not expect viewportKey on tool.start, got %#v", toolStartPayload)
@@ -1064,10 +1108,10 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 		t.Fatalf("did not expect toolTimeout on tool.start, got %#v", toolStartPayload)
 	}
 	if awaitQuestionPayload == nil {
-		t.Fatalf("expected await.ask before submit, got %s", streamBody.String())
+		t.Fatalf("expected awaiting.ask before submit, got %s", streamBody.String())
 	}
-	if awaitQuestionPayload["awaitId"] != toolID {
-		t.Fatalf("expected awaitId to match toolId, got %#v", awaitQuestionPayload)
+	if awaitQuestionPayload["awaitingId"] != toolID {
+		t.Fatalf("expected awaitingId to match toolId, got %#v", awaitQuestionPayload)
 	}
 	if awaitQuestionPayload["viewportType"] != "builtin" {
 		t.Fatalf("expected viewportType builtin, got %#v", awaitQuestionPayload)
@@ -1082,14 +1126,14 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 		t.Fatalf("expected await question mode approval, got %#v", awaitQuestionPayload)
 	}
 	if _, exists := awaitQuestionPayload["awaitName"]; exists {
-		t.Fatalf("did not expect awaitName on await.ask, got %#v", awaitQuestionPayload)
+		t.Fatalf("did not expect awaitName on awaiting.ask, got %#v", awaitQuestionPayload)
 	}
 	if _, exists := awaitQuestionPayload["chatId"]; exists {
-		t.Fatalf("did not expect chatId on await.ask, got %#v", awaitQuestionPayload)
+		t.Fatalf("did not expect chatId on awaiting.ask, got %#v", awaitQuestionPayload)
 	}
 	approvalQuestions, _ := awaitQuestionPayload["questions"].([]any)
 	if len(approvalQuestions) != 1 {
-		t.Fatalf("expected approval await.ask questions length 1, got %#v", awaitQuestionPayload)
+		t.Fatalf("expected approval awaiting.ask questions length 1, got %#v", awaitQuestionPayload)
 	}
 
 	steerReq := httptest.NewRequest(http.MethodPost, "/api/steer", bytes.NewBufferString(`{"runId":"`+runID+`","message":"Please keep it short."}`))
@@ -1107,7 +1151,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 		t.Fatalf("expected accepted steer, got %#v", steerResp.Data)
 	}
 
-	submitReq := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+runID+`","toolId":"`+toolID+`","params":{"value":"approve"}}`))
+	submitReq := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+runID+`","awaitingId":"`+toolID+`","params":{"value":"approve"}}`))
 	submitReq.Header.Set("Content-Type", "application/json")
 	submitRec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(submitRec, submitReq)
@@ -1134,14 +1178,14 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	}
 
 	body := streamBody.String()
-	if !strings.Contains(body, `"type":"await.ask"`) {
-		t.Fatalf("expected await.ask event, got %s", body)
+	if !strings.Contains(body, `"type":"awaiting.ask"`) {
+		t.Fatalf("expected awaiting.ask event, got %s", body)
 	}
-	if strings.Contains(body, `"type":"await.payload"`) {
-		t.Fatalf("did not expect await.payload event for approval mode, got %s", body)
+	if strings.Contains(body, `"type":"awaiting.payload"`) {
+		t.Fatalf("did not expect awaiting.payload event for approval mode, got %s", body)
 	}
 	if !strings.Contains(body, `"questions":[`) {
-		t.Fatalf("expected top-level questions in approval await.ask event, got %s", body)
+		t.Fatalf("expected top-level questions in approval awaiting.ask event, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"request.submit"`) {
 		t.Fatalf("expected request.submit event, got %s", body)
@@ -1158,7 +1202,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	if !strings.Contains(body, "final answer") {
 		t.Fatalf("expected final answer in stream, got %s", body)
 	}
-	assertEventOrder(t, body, "tool.start", "tool.end", "await.ask", "request.submit", "tool.result")
+	assertEventOrder(t, body, "tool.start", "tool.end", "awaiting.ask", "request.submit", "tool.result")
 
 	chatsRec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(chatsRec, httptest.NewRequest(http.MethodGet, "/api/chats", nil))
@@ -1186,8 +1230,8 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 				continue
 			}
 			foundFrontendSnapshot = true
-			if event.String("toolType") != "builtin" {
-				t.Fatalf("expected frontend snapshot toolType builtin, got %#v", event)
+			if _, exists := event.Payload["toolType"]; exists {
+				t.Fatalf("did not expect frontend snapshot toolType, got %#v", event)
 			}
 			if _, exists := event.Payload["viewportKey"]; exists {
 				t.Fatalf("did not expect frontend snapshot viewportKey, got %#v", event)
@@ -1195,20 +1239,20 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 			if _, exists := event.Payload["toolTimeout"]; exists {
 				t.Fatalf("did not expect frontend snapshot toolTimeout, got %#v", event)
 			}
-		case "await.ask":
+		case "awaiting.ask":
 			foundAwaitAsk = true
 			if event.String("viewportKey") != "confirm_dialog" {
-				t.Fatalf("unexpected await.ask payload %#v", event)
+				t.Fatalf("unexpected awaiting.ask payload %#v", event)
 			}
 			if _, exists := event.Payload["awaitName"]; exists {
-				t.Fatalf("did not expect awaitName on await.ask in chat detail, got %#v", event)
+				t.Fatalf("did not expect awaitName on awaiting.ask in chat detail, got %#v", event)
 			}
 			if _, exists := event.Payload["chatId"]; exists {
-				t.Fatalf("did not expect chatId on await.ask in chat detail, got %#v", event)
+				t.Fatalf("did not expect chatId on awaiting.ask in chat detail, got %#v", event)
 			}
 			questions, _ := event.Payload["questions"].([]any)
 			if len(questions) != 1 {
-				t.Fatalf("expected approval await.ask questions length 1, got %#v", event)
+				t.Fatalf("expected approval awaiting.ask questions length 1, got %#v", event)
 			}
 		case "request.submit":
 			foundRequestSubmit = true
@@ -1218,7 +1262,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 		t.Fatalf("expected _ask_user_approval_ tool.snapshot in chat detail, got %#v", chatResp.Data.Events)
 	}
 	if !foundAwaitAsk {
-		t.Fatalf("expected await.ask in chat detail, got %#v", chatResp.Data.Events)
+		t.Fatalf("expected awaiting.ask in chat detail, got %#v", chatResp.Data.Events)
 	}
 	if !foundRequestSubmit {
 		t.Fatalf("expected request.submit in chat detail, got %#v", chatResp.Data.Events)
@@ -1298,7 +1342,7 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 		if strings.HasPrefix(line, "data: {") {
 			payload := decodeSSELine(t, line)
 			switch payload["type"] {
-			case "await.ask":
+			case "awaiting.ask":
 				awaitQuestionPayload = payload
 				runID, _ = payload["runId"].(string)
 			case "tool.start":
@@ -1306,10 +1350,10 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 					toolStartPayload = payload
 					toolID, _ = payload["toolId"].(string)
 				}
-			case "await.payload":
+			case "awaiting.payload":
 				questions, _ := payload["questions"].([]any)
 				if len(questions) != 2 {
-					t.Fatalf("expected question await.payload questions length 2, got %#v", payload)
+					t.Fatalf("expected question awaiting.payload questions length 2, got %#v", payload)
 				}
 				awaitPayloadSeen = true
 				break
@@ -1324,31 +1368,31 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 	}
 
 	if awaitQuestionPayload == nil {
-		t.Fatalf("expected await.ask after tool.start and before tool.args, got %s", streamBody.String())
+		t.Fatalf("expected awaiting.ask after tool.start and before tool.args, got %s", streamBody.String())
 	}
 	if toolStartPayload == nil {
 		t.Fatalf("expected tool.start for _ask_user_question_, got %s", streamBody.String())
 	}
-	if awaitQuestionPayload["awaitId"] != toolID {
-		t.Fatalf("expected awaitId to match toolId, got %#v", awaitQuestionPayload)
+	if awaitQuestionPayload["awaitingId"] != toolID {
+		t.Fatalf("expected awaitingId to match toolId, got %#v", awaitQuestionPayload)
 	}
 	if awaitQuestionPayload["mode"] != "question" {
 		t.Fatalf("expected question mode, got %#v", awaitQuestionPayload)
 	}
 	if _, exists := awaitQuestionPayload["questions"]; exists {
-		t.Fatalf("did not expect questions on question-mode await.ask, got %#v", awaitQuestionPayload)
+		t.Fatalf("did not expect questions on question-mode awaiting.ask, got %#v", awaitQuestionPayload)
 	}
 	if _, exists := awaitQuestionPayload["awaitName"]; exists {
-		t.Fatalf("did not expect awaitName on question-mode await.ask, got %#v", awaitQuestionPayload)
+		t.Fatalf("did not expect awaitName on question-mode awaiting.ask, got %#v", awaitQuestionPayload)
 	}
 	if _, exists := awaitQuestionPayload["chatId"]; exists {
-		t.Fatalf("did not expect chatId on question-mode await.ask, got %#v", awaitQuestionPayload)
+		t.Fatalf("did not expect chatId on question-mode awaiting.ask, got %#v", awaitQuestionPayload)
 	}
 	if !awaitPayloadSeen {
-		t.Fatalf("expected await.payload before submit, got %s", streamBody.String())
+		t.Fatalf("expected awaiting.payload before submit, got %s", streamBody.String())
 	}
 
-	submitReq := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+runID+`","toolId":"`+toolID+`","params":{"answers":[{"question":"Pick a plan","answer":"Weekend"},{"question":"How many people?","answer":2}]}}`))
+	submitReq := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+runID+`","awaitingId":"`+toolID+`","params":[{"question":"Pick a plan","answer":"Weekend"},{"question":"How many people?","answer":2}]}`))
 	submitReq.Header.Set("Content-Type", "application/json")
 	submitRec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(submitRec, submitReq)
@@ -1368,17 +1412,17 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 	}
 
 	body := streamBody.String()
-	if !strings.Contains(body, `"type":"await.ask"`) {
-		t.Fatalf("expected await.ask event, got %s", body)
+	if !strings.Contains(body, `"type":"awaiting.ask"`) {
+		t.Fatalf("expected awaiting.ask event, got %s", body)
 	}
-	if !strings.Contains(body, `"type":"await.payload"`) {
-		t.Fatalf("expected await.payload event, got %s", body)
+	if !strings.Contains(body, `"type":"awaiting.payload"`) {
+		t.Fatalf("expected awaiting.payload event, got %s", body)
 	}
 	if !strings.Contains(body, `"questions":[`) {
-		t.Fatalf("expected top-level questions in await.payload event, got %s", body)
+		t.Fatalf("expected top-level questions in awaiting.payload event, got %s", body)
 	}
 	if strings.Contains(body, `"payload":{"mode":"question"`) {
-		t.Fatalf("did not expect nested payload mode in question await.payload event, got %s", body)
+		t.Fatalf("did not expect nested payload mode in question awaiting.payload event, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"request.submit"`) {
 		t.Fatalf("expected request.submit event, got %s", body)
@@ -1389,19 +1433,22 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 	if !strings.Contains(body, `"mode":"question"`) || !strings.Contains(body, `"question":"Pick a plan"`) {
 		t.Fatalf("expected normalized question tool.result, got %s", body)
 	}
-	assertEventOrder(t, body, "tool.start", "await.ask", "tool.args", "tool.end", "await.payload", "request.submit", "tool.result")
+	assertEventOrder(t, body, "tool.start", "awaiting.ask", "tool.args", "tool.end", "awaiting.payload", "request.submit", "tool.result")
 
 	select {
 	case messages := <-secondTurnMessages:
-		foundTool := false
+		toolContent := ""
 		for _, message := range messages {
 			if role, _ := message["role"].(string); role == "tool" {
-				foundTool = true
+				toolContent, _ = message["content"].(string)
 				break
 			}
 		}
-		if !foundTool {
+		if toolContent == "" {
 			t.Fatalf("expected second turn to include tool message, got %#v", messages)
+		}
+		if toolContent != "Pick a plan=Weekend; How many people?=2" {
+			t.Fatalf("expected kv-formatted tool content, got %#v", messages)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for second provider request")
@@ -1503,7 +1550,7 @@ func runBashHITLFlow(t *testing.T, action string, modifiedCommand string) (strin
 				"      - match: push",
 				"        level: 2",
 				"        hitlType: system",
-				"        toolType: builtin",
+				"        viewportType: builtin",
 				"        viewportKey: confirm_dialog",
 			}, "\n")
 			if err := os.WriteFile(filepath.Join(root, "dangerous.yml"), []byte(content), 0o644); err != nil {
@@ -1538,9 +1585,9 @@ func runBashHITLFlow(t *testing.T, action string, modifiedCommand string) (strin
 				case "_hitl_confirm_dialog_":
 					syntheticToolID, _ = payload["toolId"].(string)
 				}
-			case "await.ask":
+			case "awaiting.ask":
 				if syntheticToolID == "" {
-					syntheticToolID, _ = payload["awaitId"].(string)
+					syntheticToolID, _ = payload["awaitingId"].(string)
 				}
 				goto submit
 			}
@@ -1556,7 +1603,7 @@ submit:
 		submitPayload = `{"action":"modify","command":"` + modifiedCommand + `"}`
 	}
 	submitRec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(submitRec, httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+extractRunIDFromStream(t, streamBody.String())+`","toolId":"`+syntheticToolID+`","params":`+submitPayload+`}`)))
+	fixture.server.ServeHTTP(submitRec, httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+extractRunIDFromStream(t, streamBody.String())+`","awaitingId":"`+syntheticToolID+`","params":`+submitPayload+`}`)))
 	if submitRec.Code != http.StatusOK {
 		t.Fatalf("submit expected 200, got %d: %s", submitRec.Code, submitRec.Body.String())
 	}
@@ -1622,12 +1669,12 @@ func assertSpecificEventOrder(t *testing.T, messages []map[string]any, originalT
 			case syntheticToolID:
 				syntheticStart = idx
 			}
-		case "await.ask":
-			if message["awaitId"] == syntheticToolID {
+		case "awaiting.ask":
+			if message["awaitingId"] == syntheticToolID {
 				awaitAsk = idx
 			}
 		case "request.submit":
-			if message["toolId"] == syntheticToolID {
+			if message["awaitingId"] == syntheticToolID {
 				requestSubmit = idx
 			}
 		case "tool.result":
@@ -1647,7 +1694,7 @@ func assertSpecificEventOrder(t *testing.T, messages []map[string]any, originalT
 func TestSubmitReturnsUnmatchedWhenNoActiveWaiter(t *testing.T) {
 	fixture := newTestFixture(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"missing-run","toolId":"missing-tool","params":{"ok":true}}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"missing-run","awaitingId":"missing-awaiting","params":{"ok":true}}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, req)
@@ -1958,12 +2005,10 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 		"modelConfig:",
 		"  modelKey: mock-model",
 		"toolConfig:",
-		"  backends:",
+		"  tools:",
 		"    - _datetime_",
-		"  frontends:",
 		"    - _ask_user_question_",
 		"    - _ask_user_approval_",
-		"  actions: []",
 		"skillConfig:",
 		"  skills:",
 		"    - mock-skill",
@@ -2148,6 +2193,27 @@ func writeProviderSSE(t *testing.T, w http.ResponseWriter, frames ...string) {
 		}
 		flusher.Flush()
 	}
+}
+
+func mustEncryptProviderAPIKeyForServerTest(t *testing.T, envPart string, plaintext string) string {
+	t.Helper()
+
+	const providerAPIKeyCodePart = "agent-platform-provider-apikey-code-part-v1"
+
+	sum := sha256.Sum256([]byte(providerAPIKeyCodePart + ":" + envPart))
+	block, err := aes.NewCipher(sum[:])
+	if err != nil {
+		t.Fatalf("new cipher: %v", err)
+	}
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		t.Fatalf("new gcm: %v", err)
+	}
+
+	nonce := []byte("0123456789ab")
+	data := gcm.Seal(nil, nonce, []byte(plaintext), nil)
+	payload := append(append([]byte{}, nonce...), data...)
+	return "AES(v1:" + base64.RawURLEncoding.EncodeToString(payload) + ")"
 }
 
 func assertPersistedEventTypes(t *testing.T, events []stream.EventData, want ...string) {

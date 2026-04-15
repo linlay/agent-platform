@@ -182,7 +182,7 @@ func parseToolDefinition(root map[string]any) (ToolDefinition, error) {
 		AfterCallHint: strings.TrimSpace(contracts.FirstNonEmptyString(root["afterCallHint"])),
 		Parameters:    contracts.CloneMap(parameters),
 		ToolAction:    firstBool(root["toolAction"], false),
-		ToolType:      strings.TrimSpace(contracts.FirstNonEmptyString(root["toolType"])),
+		ViewportType:  strings.TrimSpace(contracts.FirstNonEmptyString(root["viewportType"], root["toolType"])),
 		ViewportKey:   strings.TrimSpace(contracts.FirstNonEmptyString(root["viewportKey"])),
 		Aliases:       aliases,
 		Meta:          contracts.CloneMap(contracts.AnyMapNode(root["meta"])),
