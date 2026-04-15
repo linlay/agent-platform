@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SSE Event Color Preview</title>
+  <style>
+    :root {
+      --bg: #f6f1e7;
+      --panel: rgba(255, 251, 244, 0.92);
+      --line: rgba(77, 61, 40, 0.14);
+      --text: #2f2417;
+      --muted: #7a654c;
+      --shadow: 0 18px 48px rgba(78, 56, 28, 0.12);
+
+      --transport: #8A8175;
+      --request: #5A86C8;
+      --chat: #6B92BF;
+      --run: #4476AD;
+      --awaiting: #BE8E73;
+      --reasoning: #5AA79D;
+      --content: #7AB9A8;
+      --tool: #D6A05E;
+      --action: #CA9168;
+      --plan: #8E82C4;
+      --task: #A094D0;
+      --artifact: #D5A774;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Avenir Next", "PingFang SC", "Noto Sans SC", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(90, 134, 200, 0.09), transparent 28%),
+        radial-gradient(circle at top right, rgba(142, 130, 196, 0.10), transparent 26%),
+        radial-gradient(circle at bottom left, rgba(122, 185, 168, 0.12), transparent 28%),
+        linear-gradient(180deg, #faf6ef 0%, #f1e8d9 100%);
+      min-height: 100vh;
+    }
+
+    .wrap {
+      width: min(1260px, calc(100vw - 32px));
+      margin: 32px auto 48px;
+    }
+
+    .hero, .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+    }
+
+    .hero {
+      padding: 28px;
+      margin-bottom: 20px;
+    }
+
+    h1, h2, h3, p { margin: 0; }
+
+    h1 {
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(32px, 5vw, 50px);
+      line-height: 1.04;
+      letter-spacing: -0.03em;
+    }
+
+    .subtitle {
+      margin-top: 12px;
+      max-width: 960px;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.72;
+    }
+
+    .legend {
+      margin-top: 20px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .chip, .event-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.70);
+      border: 1px solid rgba(77, 61, 40, 0.10);
+      font-size: 13px;
+    }
+
+    .swatch {
+      width: 10px;
+      height: 10px;
+      border-radius: 999px;
+      background: currentColor;
+      flex: 0 0 auto;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1.05fr 1.15fr;
+      gap: 20px;
+    }
+
+    .panel {
+      padding: 22px;
+    }
+
+    .panel h2 {
+      font-size: 18px;
+      margin-bottom: 14px;
+    }
+
+    .tree {
+      font-size: 14px;
+      line-height: 1.82;
+      padding-left: 18px;
+    }
+
+    .tree ul {
+      margin: 4px 0 8px;
+      padding-left: 18px;
+      border-left: 1px dashed rgba(0, 0, 0, 0.12);
+    }
+
+    .node {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 2px 0;
+    }
+
+    .label {
+      font-weight: 700;
+    }
+
+    .note {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .section {
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+    }
+
+    .section:first-of-type {
+      margin-top: 0;
+      padding-top: 0;
+      border-top: 0;
+    }
+
+    .section-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .section h3 {
+      font-size: 16px;
+    }
+
+    .section p {
+      font-size: 13px;
+      line-height: 1.65;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .event-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .event-chip {
+      justify-content: space-between;
+      width: 100%;
+      min-width: 0;
+    }
+
+    .event-chip code {
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .event-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .hex {
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+    }
+
+    .transport { color: var(--transport); }
+    .request { color: var(--request); }
+    .chat { color: var(--chat); }
+    .run { color: var(--run); }
+    .awaiting { color: var(--awaiting); }
+    .reasoning { color: var(--reasoning); }
+    .content { color: var(--content); }
+    .tool { color: var(--tool); }
+    .action { color: var(--action); }
+    .plan { color: var(--plan); }
+    .task { color: var(--task); }
+    .artifact { color: var(--artifact); }
+
+    .small {
+      margin-top: 16px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.7;
+    }
+
+    @media (max-width: 1040px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .event-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="hero">
+      <h1>SSE Event Architecture</h1>
+      <p class="subtitle">
+        这版按功能邻近性把颜色收敛成 4 个主色族：蓝色族对应 <code>request/chat/run</code>，
+        青绿色族对应 <code>reasoning/content</code>，暖琥珀族对应 <code>tool/action/awaiting/artifact</code>，
+        灰紫族对应 <code>plan/task</code>。树形结构只保留层级，具体事件的 <code>#RRGGBB</code> 只在右侧色卡展示。
+      </p>
+      <div class="legend">
+        <span class="chip request"><span class="swatch"></span>request</span>
+        <span class="chip chat"><span class="swatch"></span>chat</span>
+        <span class="chip run"><span class="swatch"></span>run</span>
+        <span class="chip awaiting"><span class="swatch"></span>awaiting</span>
+        <span class="chip reasoning"><span class="swatch"></span>reasoning</span>
+        <span class="chip content"><span class="swatch"></span>content</span>
+        <span class="chip tool"><span class="swatch"></span>tool</span>
+        <span class="chip action"><span class="swatch"></span>action</span>
+        <span class="chip plan"><span class="swatch"></span>plan</span>
+        <span class="chip task"><span class="swatch"></span>task</span>
+        <span class="chip artifact"><span class="swatch"></span>artifact</span>
+        <span class="chip transport"><span class="swatch"></span>transport/internal</span>
+      </div>
+    </section>
+
+    <section class="grid">
+      <article class="panel">
+        <h2>总体树形架构</h2>
+        <div class="tree">
+          <div class="node transport"><span class="swatch"></span><span class="label">SSE transport</span><span class="note">固定外层协议</span></div>
+          <ul>
+            <li><span class="node transport"><span class="swatch"></span><code>event: message</code> + <code>data: {...}</code></span></li>
+            <li><span class="node transport"><span class="swatch"></span><code>: heartbeat</code></span></li>
+            <li><span class="node transport"><span class="swatch"></span><code>data: [DONE]</code></span></li>
+          </ul>
+
+          <div class="node chat"><span class="swatch"></span><span class="label">chat</span><span class="note">事件总容器</span></div>
+          <ul>
+            <li><code>chat.start</code></li>
+            <li>
+              <span class="node request"><span class="swatch"></span><span class="label">request</span></span>
+              <ul>
+                <li><code>request.query</code></li>
+                <li><code>request.submit</code></li>
+                <li><code>request.steer</code></li>
+              </ul>
+            </li>
+            <li>
+              <span class="node plan"><span class="swatch"></span><span class="label">plan</span></span>
+              <ul>
+                <li><code>plan.update</code></li>
+                <li><code>plan.create</code> <span class="note">schema/store 中保留，当前未见 emitter</span></li>
+              </ul>
+            </li>
+            <li>
+              <span class="node run"><span class="swatch"></span><span class="label">run</span></span>
+              <ul>
+                <li><code>run.start</code></li>
+                <li><code>run.complete</code></li>
+                <li><code>run.cancel</code></li>
+                <li><code>run.error</code></li>
+                <li>
+                  <span class="node task"><span class="swatch"></span><span class="label">task</span></span>
+                  <ul>
+                    <li><code>task.start</code></li>
+                    <li><code>task.complete</code></li>
+                    <li><code>task.cancel</code></li>
+                    <li><code>task.fail</code></li>
+                    <li>
+                      <span class="node reasoning"><span class="swatch"></span><span class="label">reasoning</span></span>
+                      <ul>
+                        <li><code>reasoning.start</code></li>
+                        <li><code>reasoning.delta</code></li>
+                        <li><code>reasoning.end</code></li>
+                        <li><code>reasoning.snapshot</code></li>
+                      </ul>
+                    </li>
+                    <li>
+                      <span class="node content"><span class="swatch"></span><span class="label">content</span></span>
+                      <ul>
+                        <li><code>content.start</code></li>
+                        <li><code>content.delta</code></li>
+                        <li><code>content.end</code></li>
+                        <li><code>content.snapshot</code></li>
+                      </ul>
+                    </li>
+                    <li>
+                      <span class="node tool"><span class="swatch"></span><span class="label">tool</span></span>
+                      <ul>
+                        <li><code>tool.start</code></li>
+                        <li><code>tool.args</code></li>
+                        <li><code>tool.end</code></li>
+                        <li><code>tool.snapshot</code></li>
+                        <li><code>tool.result</code></li>
+                        <li><code>awaiting.ask</code></li>
+                        <li><code>awaiting.payload</code></li>
+                      </ul>
+                    </li>
+                    <li>
+                      <span class="node action"><span class="swatch"></span><span class="label">action</span></span>
+                      <ul>
+                        <li><code>action.start</code></li>
+                        <li><code>action.args</code></li>
+                        <li><code>action.end</code></li>
+                        <li><code>action.snapshot</code></li>
+                        <li><code>action.result</code></li>
+                      </ul>
+                    </li>
+                  </ul>
+                </li>
+              </ul>
+            </li>
+            <li>
+              <span class="node artifact"><span class="swatch"></span><span class="label">artifact</span></span>
+              <ul>
+                <li><code>artifact.publish</code></li>
+              </ul>
+            </li>
+            <li>
+              <span class="node transport"><span class="swatch"></span><span class="label">internal</span></span>
+              <ul>
+                <li><code>stage.marker</code> <span class="note">内部 step 边界事件，不作为独立主色</span></li>
+              </ul>
+            </li>
+          </ul>
+        </div>
+      </article>
+
+      <article class="panel">
+        <h2>具体事件颜色卡</h2>
+
+        <section class="section">
+          <div class="section-head">
+            <h3>蓝色族</h3>
+            <span class="note">request / chat / run</span>
+          </div>
+          <div class="event-grid">
+            <span class="event-chip request"><span class="event-label"><span class="swatch"></span><code>request.query</code></span><span class="hex">#5A86C8</span></span>
+            <span class="event-chip request"><span class="event-label"><span class="swatch"></span><code>request.submit</code></span><span class="hex">#5A86C8</span></span>
+            <span class="event-chip request"><span class="event-label"><span class="swatch"></span><code>request.steer</code></span><span class="hex">#5A86C8</span></span>
+            <span class="event-chip chat"><span class="event-label"><span class="swatch"></span><code>chat.start</code></span><span class="hex">#6B92BF</span></span>
+            <span class="event-chip run"><span class="event-label"><span class="swatch"></span><code>run.start</code></span><span class="hex">#4476AD</span></span>
+            <span class="event-chip run"><span class="event-label"><span class="swatch"></span><code>run.complete</code></span><span class="hex">#4476AD</span></span>
+            <span class="event-chip run"><span class="event-label"><span class="swatch"></span><code>run.cancel</code></span><span class="hex">#4476AD</span></span>
+            <span class="event-chip run"><span class="event-label"><span class="swatch"></span><code>run.error</code></span><span class="hex">#4476AD</span></span>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-head">
+            <h3>青绿色族</h3>
+            <span class="note">reasoning / content</span>
+          </div>
+          <div class="event-grid">
+            <span class="event-chip reasoning"><span class="event-label"><span class="swatch"></span><code>reasoning.start</code></span><span class="hex">#5AA79D</span></span>
+            <span class="event-chip reasoning"><span class="event-label"><span class="swatch"></span><code>reasoning.delta</code></span><span class="hex">#5AA79D</span></span>
+            <span class="event-chip reasoning"><span class="event-label"><span class="swatch"></span><code>reasoning.end</code></span><span class="hex">#5AA79D</span></span>
+            <span class="event-chip reasoning"><span class="event-label"><span class="swatch"></span><code>reasoning.snapshot</code></span><span class="hex">#5AA79D</span></span>
+            <span class="event-chip content"><span class="event-label"><span class="swatch"></span><code>content.start</code></span><span class="hex">#7AB9A8</span></span>
+            <span class="event-chip content"><span class="event-label"><span class="swatch"></span><code>content.delta</code></span><span class="hex">#7AB9A8</span></span>
+            <span class="event-chip content"><span class="event-label"><span class="swatch"></span><code>content.end</code></span><span class="hex">#7AB9A8</span></span>
+            <span class="event-chip content"><span class="event-label"><span class="swatch"></span><code>content.snapshot</code></span><span class="hex">#7AB9A8</span></span>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-head">
+            <h3>暖琥珀族</h3>
+            <span class="note">tool / action / awaiting / artifact</span>
+          </div>
+          <div class="event-grid">
+            <span class="event-chip tool"><span class="event-label"><span class="swatch"></span><code>tool.start</code></span><span class="hex">#D6A05E</span></span>
+            <span class="event-chip tool"><span class="event-label"><span class="swatch"></span><code>tool.args</code></span><span class="hex">#D6A05E</span></span>
+            <span class="event-chip tool"><span class="event-label"><span class="swatch"></span><code>tool.end</code></span><span class="hex">#D6A05E</span></span>
+            <span class="event-chip tool"><span class="event-label"><span class="swatch"></span><code>tool.snapshot</code></span><span class="hex">#D6A05E</span></span>
+            <span class="event-chip tool"><span class="event-label"><span class="swatch"></span><code>tool.result</code></span><span class="hex">#D6A05E</span></span>
+            <span class="event-chip action"><span class="event-label"><span class="swatch"></span><code>action.start</code></span><span class="hex">#CA9168</span></span>
+            <span class="event-chip action"><span class="event-label"><span class="swatch"></span><code>action.args</code></span><span class="hex">#CA9168</span></span>
+            <span class="event-chip action"><span class="event-label"><span class="swatch"></span><code>action.end</code></span><span class="hex">#CA9168</span></span>
+            <span class="event-chip action"><span class="event-label"><span class="swatch"></span><code>action.snapshot</code></span><span class="hex">#CA9168</span></span>
+            <span class="event-chip action"><span class="event-label"><span class="swatch"></span><code>action.result</code></span><span class="hex">#CA9168</span></span>
+            <span class="event-chip awaiting"><span class="event-label"><span class="swatch"></span><code>awaiting.ask</code></span><span class="hex">#BE8E73</span></span>
+            <span class="event-chip awaiting"><span class="event-label"><span class="swatch"></span><code>awaiting.payload</code></span><span class="hex">#BE8E73</span></span>
+            <span class="event-chip artifact"><span class="event-label"><span class="swatch"></span><code>artifact.publish</code></span><span class="hex">#D5A774</span></span>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-head">
+            <h3>灰紫族</h3>
+            <span class="note">plan / task</span>
+          </div>
+          <div class="event-grid">
+            <span class="event-chip plan"><span class="event-label"><span class="swatch"></span><code>plan.update</code></span><span class="hex">#8E82C4</span></span>
+            <span class="event-chip plan"><span class="event-label"><span class="swatch"></span><code>plan.create</code></span><span class="hex">#8E82C4</span></span>
+            <span class="event-chip task"><span class="event-label"><span class="swatch"></span><code>task.start</code></span><span class="hex">#A094D0</span></span>
+            <span class="event-chip task"><span class="event-label"><span class="swatch"></span><code>task.complete</code></span><span class="hex">#A094D0</span></span>
+            <span class="event-chip task"><span class="event-label"><span class="swatch"></span><code>task.cancel</code></span><span class="hex">#A094D0</span></span>
+            <span class="event-chip task"><span class="event-label"><span class="swatch"></span><code>task.fail</code></span><span class="hex">#A094D0</span></span>
+          </div>
+        </section>
+
+        <section class="section">
+          <div class="section-head">
+            <h3>Transport / Internal</h3>
+            <span class="note">弱化展示</span>
+          </div>
+          <div class="event-grid">
+            <span class="event-chip transport"><span class="event-label"><span class="swatch"></span><code>event: message</code></span><span class="hex">#8A8175</span></span>
+            <span class="event-chip transport"><span class="event-label"><span class="swatch"></span><code>: heartbeat</code></span><span class="hex">#8A8175</span></span>
+            <span class="event-chip transport"><span class="event-label"><span class="swatch"></span><code>[DONE]</code></span><span class="hex">#8A8175</span></span>
+            <span class="event-chip transport muted"><span class="event-label"><span class="swatch"></span><code>stage.marker</code></span><span class="hex">#8A8175</span></span>
+          </div>
+        </section>
+
+        <p class="small">
+          同一 prefix 下所有具体事件都继承同一个 hex。右侧是完整事件全集；左侧树只负责展示结构，不再重复颜色值。
+        </p>
+      </article>
+    </section>
+  </div>
+</body>
+</html>

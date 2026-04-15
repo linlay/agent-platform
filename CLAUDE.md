@@ -222,10 +222,11 @@ remember 根目录由 `MEMORY_DIR` 控制：
 - 前端确认流 SSE 语义：
   - `tool.start` / `tool.snapshot` 保持纯净，不再携带 `viewportKey` / `toolTimeout`
   - `_ask_user_question_` 事件顺序：
-    `tool.start -> await.ask -> tool.args* -> tool.end -> await.payload -> [用户 /api/submit] -> request.submit -> tool.result`
+    `tool.start -> await.ask -> tool.args* -> tool.end -> await.payload -> [用户 /api/submit] -> request.submit -> awaiting.answer -> tool.result`
   - `_ask_user_approval_` 事件顺序：
-    `tool.start -> tool.args* -> tool.end -> await.ask -> [用户 /api/submit] -> request.submit -> tool.result`
+    `tool.start -> tool.args* -> tool.end -> await.ask -> [用户 /api/submit] -> request.submit -> awaiting.answer -> tool.result`
   - `request.submit` 是用户提交后的事件，不再表示“前端应该显示确认框”
+  - `awaiting.answer` 是用户提交后的结构化摘要事件，便于前端展示问答/审批结果
   - `tool.result` 是工具规范化后的真实执行结果，不等同于原始 submit payload
 - `await.ask` 使用独立字段命名：
   - `awaitingId`、`viewportType`、`viewportKey`、`mode`、`toolTimeout`、`runId`
@@ -236,9 +237,11 @@ remember 根目录由 `MEMORY_DIR` 控制：
 - `question` 模式：
   - `await.ask` 不带 `questions`
   - `questions` 只出现在 `await.payload`
+  - 用户提交后额外发 `awaiting.answer`，结构为 `{"awaitingId":"...","mode":"question","answers":[{"question":"...","answer":"..."}]}`
 - `approval` 模式：
   - 不再发 `await.payload`
   - `questions` 直接内联在 `await.ask`
+  - 用户提交后额外发 `awaiting.answer`，结构为 `{"awaitingId":"...","mode":"approval","value":"..."}`，HITL modify 时可附带 `freeText`
 - `mode=question`：
   - 顶层字段为 `questions`
   - 每个问题支持 `type`、`header`、`placeholder`、`allowFreeText`、`freeTextPlaceholder`

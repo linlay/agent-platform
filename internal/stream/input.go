@@ -152,10 +152,17 @@ type RequestSubmit struct {
 	ChatID     string
 	RunID      string
 	AwaitingID string
-	Payload    any
+	Params     any
 }
 
 func (RequestSubmit) streamInputTag() {}
+
+type AwaitingAnswer struct {
+	AwaitingID string
+	Answer     map[string]any
+}
+
+func (AwaitingAnswer) streamInputTag() {}
 
 type RequestSteer struct {
 	RequestID string

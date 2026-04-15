@@ -493,12 +493,10 @@ func TestLoadChatReplaysQuestionAwaitLifecycleEventLines(t *testing.T) {
 			"chatId":     "chat-1",
 			"runId":      "run-1",
 			"awaitingId": "tool-1",
-			"payload": map[string]any{
-				"answers": []any{
-					map[string]any{
-						"question": "How many?",
-						"answer":   3,
-					},
+			"params": []any{
+				map[string]any{
+					"question": "How many?",
+					"answer":   3,
 				},
 			},
 		},
@@ -506,13 +504,33 @@ func TestLoadChatReplaysQuestionAwaitLifecycleEventLines(t *testing.T) {
 		t.Fatalf("append request submit line: %v", err)
 	}
 
+	if err := store.AppendEventLine("chat-1", EventLine{
+		ChatID:    "chat-1",
+		RunID:     "run-1",
+		UpdatedAt: 1004,
+		Type:      "event",
+		Event: map[string]any{
+			"type":       "awaiting.answer",
+			"awaitingId": "tool-1",
+			"mode":       "question",
+			"answers": []any{
+				map[string]any{
+					"question": "How many?",
+					"answer":   "3",
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("append awaiting.answer line: %v", err)
+	}
+
 	detail, err := store.LoadChat("chat-1")
 	if err != nil {
 		t.Fatalf("load chat: %v", err)
 	}
 
-	if len(detail.Events) != 7 {
-		t.Fatalf("expected 7 replayed events, got %d: %#v", len(detail.Events), detail.Events)
+	if len(detail.Events) != 8 {
+		t.Fatalf("expected 8 replayed events, got %d: %#v", len(detail.Events), detail.Events)
 	}
 
 	expectedTypes := []string{
@@ -522,6 +540,7 @@ func TestLoadChatReplaysQuestionAwaitLifecycleEventLines(t *testing.T) {
 		"awaiting.ask",
 		"awaiting.payload",
 		"request.submit",
+		"awaiting.answer",
 		"run.complete",
 	}
 	for i, eventType := range expectedTypes {
@@ -548,9 +567,14 @@ func TestLoadChatReplaysQuestionAwaitLifecycleEventLines(t *testing.T) {
 	}
 
 	submit := detail.Events[5]
-	submitPayload, _ := submit.Value("payload").(map[string]any)
-	if submit.String("awaitingId") != "tool-1" || submitPayload == nil {
+	submitParams, _ := submit.Value("params").([]any)
+	if submit.String("awaitingId") != "tool-1" || len(submitParams) != 1 {
 		t.Fatalf("unexpected request.submit replay %#v", submit)
+	}
+	answer := detail.Events[6]
+	answers, _ := answer.Value("answers").([]any)
+	if answer.String("awaitingId") != "tool-1" || len(answers) != 1 {
+		t.Fatalf("unexpected awaiting.answer replay %#v", answer)
 	}
 }
 
@@ -614,10 +638,25 @@ func TestLoadChatReplaysApprovalAwaitLifecycleEventLines(t *testing.T) {
 			"chatId":     "chat-approval",
 			"runId":      "run-approval",
 			"awaitingId": "tool-approval",
-			"payload":    map[string]any{"value": "approve"},
+			"params":     map[string]any{"value": "approve"},
 		},
 	}); err != nil {
 		t.Fatalf("append approval request submit line: %v", err)
+	}
+
+	if err := store.AppendEventLine("chat-approval", EventLine{
+		ChatID:    "chat-approval",
+		RunID:     "run-approval",
+		UpdatedAt: 1003,
+		Type:      "event",
+		Event: map[string]any{
+			"type":       "awaiting.answer",
+			"awaitingId": "tool-approval",
+			"mode":       "approval",
+			"value":      "approve",
+		},
+	}); err != nil {
+		t.Fatalf("append approval awaiting.answer line: %v", err)
 	}
 
 	detail, err := store.LoadChat("chat-approval")
@@ -627,6 +666,7 @@ func TestLoadChatReplaysApprovalAwaitLifecycleEventLines(t *testing.T) {
 
 	foundAwaitAsk := false
 	foundAwaitPayload := false
+	foundAwaitAnswer := false
 	for _, event := range detail.Events {
 		switch event.Type {
 		case "awaiting.ask":
@@ -637,6 +677,11 @@ func TestLoadChatReplaysApprovalAwaitLifecycleEventLines(t *testing.T) {
 			}
 		case "awaiting.payload":
 			foundAwaitPayload = true
+		case "awaiting.answer":
+			foundAwaitAnswer = true
+			if event.String("mode") != "approval" || event.String("value") != "approve" {
+				t.Fatalf("unexpected approval awaiting.answer %#v", event)
+			}
 		}
 	}
 	if !foundAwaitAsk {
@@ -644,6 +689,9 @@ func TestLoadChatReplaysApprovalAwaitLifecycleEventLines(t *testing.T) {
 	}
 	if foundAwaitPayload {
 		t.Fatalf("did not expect approval awaiting.payload replay, got %#v", detail.Events)
+	}
+	if !foundAwaitAnswer {
+		t.Fatalf("expected approval awaiting.answer replay, got %#v", detail.Events)
 	}
 }
 
@@ -693,7 +741,7 @@ func TestLoadChatReplaysLegacyConfirmLifecycleEvents(t *testing.T) {
 			"chatId":     "chat-legacy",
 			"runId":      "run-legacy",
 			"awaitingId": "tool-legacy",
-			"payload":    map[string]any{"value": "approve"},
+			"params":     map[string]any{"value": "approve"},
 		},
 	}
 	for _, event := range legacyEvents {

@@ -46,6 +46,27 @@ func TestFormatSubmitResultForLLM_QuestionSummary(t *testing.T) {
 	}
 }
 
+func TestFormatSubmitResultForLLM_QuestionQA(t *testing.T) {
+	result := ToolExecutionResult{
+		Output: `{"mode":"question"}`,
+		Structured: map[string]any{
+			"answers": []any{
+				map[string]any{"question": "Pick a plan", "header": "行程安排", "answer": "Weekend"},
+				map[string]any{"question": "How many people?", "answer": 2},
+				map[string]any{"question": "Preferred scenes", "answer": []any{"自然风光", "古镇"}},
+			},
+		},
+	}
+
+	got := formatSubmitResultForLLM("_ask_user_question_", map[string]any{
+		"submitResultFormat": "qa",
+	}, result)
+	want := "问题：Pick a plan\n回答：Weekend\n问题：How many people?\n回答：2\n问题：Preferred scenes\n回答：自然风光, 古镇"
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}
+
 func TestFormatSubmitResultForLLM_ApprovalFormats(t *testing.T) {
 	valueResult := ToolExecutionResult{
 		Output:     `{"mode":"approval","value":"approve"}`,
@@ -92,6 +113,23 @@ func TestFormatSubmitResultForLLM_JSONCompact(t *testing.T) {
 	want := `{"answers":[{"answer":"Weekend","question":"Pick a plan"}],"mode":"question"}`
 	if got != want {
 		t.Fatalf("expected compact json %q, got %q", want, got)
+	}
+}
+
+func TestFormatSubmitResultForLLM_QuestionQAFallsBackToRaw(t *testing.T) {
+	result := ToolExecutionResult{
+		Output: `{"raw":true}`,
+		Structured: map[string]any{
+			"answers": []any{
+				map[string]any{"answer": "Weekend"},
+			},
+		},
+	}
+
+	if got := formatSubmitResultForLLM("_ask_user_question_", map[string]any{
+		"submitResultFormat": "qa",
+	}, result); got != result.Output {
+		t.Fatalf("expected raw output fallback, got %q", got)
 	}
 }
 

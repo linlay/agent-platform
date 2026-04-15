@@ -178,7 +178,7 @@ func (d EventData) String(key string) string {
 func IsPersistedEventType(eventType string) bool {
 	switch eventType {
 	case "request.query", "request.submit", "request.steer",
-		"awaiting.ask", "awaiting.payload",
+		"awaiting.ask", "awaiting.payload", "awaiting.answer",
 		"chat.start",
 		"run.start", "run.complete", "run.cancel", "run.error",
 		"reasoning.snapshot", "content.snapshot",
@@ -257,8 +257,10 @@ func eventPayloadKeyOrder(eventType string) []string {
 		return []string{"awaitingId", "viewportType", "viewportKey", "mode", "toolTimeout", "runId", "questions"}
 	case "awaiting.payload":
 		return []string{"awaitingId", "questions"}
+	case "awaiting.answer":
+		return []string{"awaitingId", "mode", "answers", "value", "freeText"}
 	case "request.submit":
-		return []string{"requestId", "chatId", "runId", "awaitingId", "payload"}
+		return []string{"requestId", "chatId", "runId", "awaitingId", "params"}
 	case "request.steer":
 		return []string{"requestId", "chatId", "runId", "steerId", "message", "role"}
 	case "chat.start":

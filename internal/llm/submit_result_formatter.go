@@ -15,6 +15,8 @@ func formatSubmitResultForLLM(toolName string, meta map[string]any, result ToolE
 		return formatSummaryResult(toolName, result)
 	case "kv":
 		return formatKVResult(toolName, result)
+	case "qa":
+		return formatQAResult(toolName, result)
 	case "json-compact":
 		return formatJSONCompactResult(result)
 	default:
@@ -39,6 +41,17 @@ func formatKVResult(toolName string, result ToolExecutionResult) string {
 		return formatQuestionKV(result)
 	case "_ask_user_approval_":
 		return formatApprovalKV(result)
+	default:
+		return result.Output
+	}
+}
+
+func formatQAResult(toolName string, result ToolExecutionResult) string {
+	switch strings.ToLower(strings.TrimSpace(toolName)) {
+	case "_ask_user_question_":
+		return formatQuestionQA(result)
+	case "_ask_user_approval_":
+		return formatApprovalSummary(result)
 	default:
 		return result.Output
 	}
@@ -92,6 +105,26 @@ func formatQuestionKV(result ToolExecutionResult) string {
 		items = append(items, key+"="+formatAnswerValue(answer["answer"]))
 	}
 	return strings.Join(items, "; ")
+}
+
+func formatQuestionQA(result ToolExecutionResult) string {
+	answers, ok := structuredAnswers(result)
+	if !ok || len(answers) == 0 {
+		return result.Output
+	}
+	lines := make([]string, 0, len(answers)*2)
+	for _, answer := range answers {
+		question := strings.TrimSpace(AnyStringNode(answer["question"]))
+		if question == "" {
+			question = strings.TrimSpace(AnyStringNode(answer["header"]))
+		}
+		if question == "" {
+			return result.Output
+		}
+		lines = append(lines, "问题："+question)
+		lines = append(lines, "回答："+formatAnswerValue(answer["answer"]))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func formatApprovalSummary(result ToolExecutionResult) string {

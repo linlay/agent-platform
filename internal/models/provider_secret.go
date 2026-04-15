@@ -15,7 +15,7 @@ const (
 	providerAPIKeyCipherPrefix  = "AES("
 	providerAPIKeyCipherSuffix  = ")"
 	providerAPIKeyCipherVersion = "v1"
-	providerAPIKeyCodePart      = "agent-platform-provider-apikey-code-part-v1"
+	providerAPIKeyCodePart      = "zenmind-provider"
 )
 
 func resolveProviderAPIKey(providerKey, raw string) (string, error) {
