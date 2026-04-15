@@ -18,6 +18,7 @@ import (
 	"agent-platform-runner-go/internal/chat"
 	"agent-platform-runner-go/internal/config"
 	"agent-platform-runner-go/internal/contracts"
+	"agent-platform-runner-go/internal/frontendtools"
 	"agent-platform-runner-go/internal/hitl"
 	"agent-platform-runner-go/internal/memory"
 	"agent-platform-runner-go/internal/models"
@@ -38,6 +39,7 @@ type Dependencies struct {
 	MCP             contracts.McpClient
 	Viewport        contracts.ViewportClient
 	HITL            *hitl.Registry
+	FrontendTools   *frontendtools.Registry
 	CatalogReloader contracts.CatalogReloader
 }
 

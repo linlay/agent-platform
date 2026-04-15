@@ -96,7 +96,7 @@ func TestOpenAIProtocolOpenStreamAlwaysRequestOverridesApplyWithoutReasoning(t *
 			}))
 			defer server.Close()
 
-			engine := NewLLMAgentEngineWithHTTPClient(config.Config{}, nil, nil, nil, nil, server.Client())
+			engine := NewLLMAgentEngineWithHTTPClient(config.Config{}, nil, nil, nil, nil, nil, server.Client())
 			protocol := &openAIProtocol{engine: engine}
 
 			stream, err := protocol.OpenStream(context.Background(), protocolStreamParams{

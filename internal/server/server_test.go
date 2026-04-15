@@ -31,6 +31,7 @@ import (
 	"agent-platform-runner-go/internal/chat"
 	"agent-platform-runner-go/internal/config"
 	"agent-platform-runner-go/internal/contracts"
+	"agent-platform-runner-go/internal/frontendtools"
 	"agent-platform-runner-go/internal/hitl"
 	"agent-platform-runner-go/internal/llm"
 	"agent-platform-runner-go/internal/memory"
@@ -2312,7 +2313,8 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 		t.Fatalf("new runtime tool executor: %v", err)
 	}
 	mcp := contracts.NewNoopMcpClient()
-	toolExecutor := tools.NewToolRouter(backendTools, mcp, nil, llm.NewFrontendSubmitCoordinator(), contracts.NewNoopActionInvoker())
+	frontendRegistry := frontendtools.NewDefaultRegistry()
+	toolExecutor := tools.NewToolRouter(backendTools, mcp, nil, llm.NewFrontendSubmitCoordinator(frontendRegistry), contracts.NewNoopActionInvoker())
 	registry, err := catalog.NewFileRegistry(cfg, toolExecutor.Definitions())
 	if err != nil {
 		t.Fatalf("new file registry: %v", err)
@@ -2328,7 +2330,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 
 	runs := runctl.NewInMemoryRunManager()
 	sandbox := sandboxClient
-	agentEngine := llm.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, sandbox, hitlRegistry)
+	agentEngine := llm.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, frontendRegistry, sandbox, hitlRegistry)
 	viewport := contracts.NewNoopViewportClient()
 	server, err := New(Dependencies{
 		Config:          cfg,
@@ -2342,6 +2344,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 		Sandbox:         sandbox,
 		MCP:             mcp,
 		HITL:            hitlRegistry,
+		FrontendTools:   frontendRegistry,
 		Viewport:        viewport,
 		CatalogReloader: reloader,
 	})
