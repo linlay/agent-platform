@@ -52,11 +52,14 @@ func (c *ContainerHubClient) CreateSession(ctx context.Context, payload map[stri
 }
 
 // ExecuteSessionRaw calls the container-hub execute API and returns the raw response.
-// Container Hub returns plain text on success, JSON error on failure.
+// Container Hub returns plain text on success, JSON error envelope on failure.
+// The response's Content-Type is authoritative (text/plain vs application/json);
+// previously we detected "is this JSON?" by body parse, which false-positives when
+// stdout happens to be valid JSON (e.g. dbx --format json output).
 // Java: ContainerHubClient.executeSession with contentTypeAware=true
 //
-//	→ success: textBody(response.body()) returns raw text as-is
-//	→ failure: parsed as JSON error
+//	→ success (Content-Type: text/plain): body is raw stdout
+//	→ failure (Content-Type: application/json): body is error envelope
 func (c *ContainerHubClient) ExecuteSessionRaw(ctx context.Context, sessionID string, payload map[string]any) (string, bool, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -82,10 +85,8 @@ func (c *ContainerHubClient) ExecuteSessionRaw(ctx context.Context, sessionID st
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return "", false, fmt.Errorf("/api/sessions/execute returned status %d", resp.StatusCode)
 	}
-	text := string(rawBody)
-	var jsonCheck map[string]any
-	isJSON := json.Unmarshal(rawBody, &jsonCheck) == nil
-	return text, isJSON, nil
+	isJSON := strings.HasPrefix(strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Type"))), "application/json")
+	return string(rawBody), isJSON, nil
 }
 
 func (c *ContainerHubClient) StopSession(ctx context.Context, sessionID string) (map[string]any, error) {
