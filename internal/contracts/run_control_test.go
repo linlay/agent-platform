@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"agent-platform-runner-go/internal/api"
+	"agent-platform-runner-go/internal/stream"
 )
 
 func TestInMemoryRunManagerRegisterDetachesFromParentContext(t *testing.T) {
@@ -107,5 +108,65 @@ func TestRunControlResolveSubmitMarksAlreadyResolved(t *testing.T) {
 	})
 	if second.Accepted || second.Status != "already_resolved" {
 		t.Fatalf("expected second submit already resolved, got %#v", second)
+	}
+}
+
+func TestInMemoryRunManagerReaperPublishesRunExpiredBeforeInterrupt(t *testing.T) {
+	manager := NewInMemoryRunManager()
+	manager.maxBackgroundDuration = time.Millisecond
+
+	_, control, _ := manager.Register(context.Background(), QuerySession{
+		RunID:    "run_expired",
+		ChatID:   "chat_1",
+		AgentKey: "agent_1",
+	})
+	eventBus, ok := manager.EventBus("run_expired")
+	if !ok {
+		t.Fatalf("expected event bus")
+	}
+	eventBus.Publish(stream.EventData{
+		Seq:       1,
+		Type:      "run.start",
+		Timestamp: time.Now().UnixMilli(),
+		Payload:   map[string]any{"runId": "run_expired"},
+	})
+
+	manager.mu.Lock()
+	manager.runs["run_expired"].startedAt = time.Now().Add(-time.Second)
+	manager.mu.Unlock()
+
+	manager.reapExpiredRuns()
+
+	if !control.Interrupted() {
+		t.Fatalf("expected run to be interrupted by reaper")
+	}
+
+	observer, err := eventBus.Subscribe(0)
+	if err != nil {
+		t.Fatalf("subscribe replay: %v", err)
+	}
+	defer eventBus.Unsubscribe(observer.ID)
+
+	first := mustReadEvent(t, observer.Events)
+	second := mustReadEvent(t, observer.Events)
+	if first.Type != "run.start" {
+		t.Fatalf("expected first replay event run.start, got %#v", first)
+	}
+	if second.Type != "run.expired" {
+		t.Fatalf("expected second replay event run.expired, got %#v", second)
+	}
+	if second.String("runId") != "run_expired" {
+		t.Fatalf("expected run.expired payload to include runId, got %#v", second)
+	}
+}
+
+func mustReadEvent(t *testing.T, events <-chan stream.EventData) stream.EventData {
+	t.Helper()
+	select {
+	case event := <-events:
+		return event
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for replay event")
+		return stream.EventData{}
 	}
 }

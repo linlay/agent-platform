@@ -162,34 +162,11 @@ func (s *Server) wsChats(_ context.Context, conn *ws.Conn, req ws.RequestFrame) 
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	items, listErr := s.deps.Chats.ListChats(payload.LastRunID, payload.AgentKey)
+	response, listErr := s.listChatSummaries(payload.LastRunID, payload.AgentKey)
 	if listErr != nil {
 		conn.SendError(req.ID, "internal_error", 500, listErr.Error(), nil)
 		conn.CompleteRequest(req.ID)
 		return
-	}
-	response := make([]api.ChatSummaryResponse, 0, len(items))
-	for _, item := range items {
-		resp := api.ChatSummaryResponse{
-			ChatID:         item.ChatID,
-			ChatName:       item.ChatName,
-			AgentKey:       item.AgentKey,
-			TeamID:         item.TeamID,
-			CreatedAt:      item.CreatedAt,
-			UpdatedAt:      item.UpdatedAt,
-			LastRunID:      item.LastRunID,
-			LastRunContent: item.LastRunContent,
-			ReadStatus:     item.ReadStatus,
-			ReadAt:         item.ReadAt,
-		}
-		if item.Usage != nil && item.Usage.TotalTokens > 0 {
-			resp.Usage = &api.ChatUsageData{
-				PromptTokens:     item.Usage.PromptTokens,
-				CompletionTokens: item.Usage.CompletionTokens,
-				TotalTokens:      item.Usage.TotalTokens,
-			}
-		}
-		response = append(response, resp)
 	}
 	conn.SendResponse(req.Type, req.ID, 0, "success", response)
 	conn.CompleteRequest(req.ID)
@@ -205,7 +182,7 @@ func (s *Server) wsChat(ctx context.Context, conn *ws.Conn, req ws.RequestFrame)
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	detail, loadErr := s.deps.Chats.LoadChat(payload.ChatID)
+	response, loadErr := s.loadChatDetail(ctx, payload.ChatID, payload.IncludeRawMessages)
 	if errors.Is(loadErr, chat.ErrChatNotFound) {
 		conn.SendError(req.ID, "not_found", 404, "chat not found", nil)
 		conn.CompleteRequest(req.ID)
@@ -215,38 +192,6 @@ func (s *Server) wsChat(ctx context.Context, conn *ws.Conn, req ws.RequestFrame)
 		conn.SendError(req.ID, "internal_error", 500, loadErr.Error(), nil)
 		conn.CompleteRequest(req.ID)
 		return
-	}
-	summary, summaryErr := s.deps.Chats.Summary(payload.ChatID)
-	if summaryErr != nil {
-		conn.SendError(req.ID, "internal_error", 500, summaryErr.Error(), nil)
-		conn.CompleteRequest(req.ID)
-		return
-	}
-	s.enrichToolMetadata(detail.Events, summaryAgentKey(summary))
-	response := api.ChatDetailResponse{
-		ChatID:     detail.ChatID,
-		ChatName:   detail.ChatName,
-		Events:     detail.Events,
-		References: nil,
-	}
-	if principal := PrincipalFromContext(ctx); principal != nil {
-		response.ChatImageToken = s.ticketService.Issue(principal.Subject, detail.ChatID)
-	}
-	if payload.IncludeRawMessages {
-		response.RawMessages = detail.RawMessages
-	}
-	if detail.Plan != nil {
-		response.Plan = detail.Plan
-	}
-	if detail.Artifact != nil {
-		response.Artifact = detail.Artifact
-	}
-	if summary != nil && summary.Usage != nil && summary.Usage.TotalTokens > 0 {
-		response.Usage = &api.ChatUsageData{
-			PromptTokens:     summary.Usage.PromptTokens,
-			CompletionTokens: summary.Usage.CompletionTokens,
-			TotalTokens:      summary.Usage.TotalTokens,
-		}
 	}
 	conn.SendResponse(req.Type, req.ID, 0, "success", response)
 	conn.CompleteRequest(req.ID)
@@ -482,31 +427,12 @@ func (s *Server) wsRemember(_ context.Context, conn *ws.Conn, req ws.RequestFram
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	detail, loadErr := s.deps.Chats.LoadChat(payload.ChatID)
-	if errors.Is(loadErr, chat.ErrChatNotFound) {
+	response, rememberErr := s.executeRemember(payload)
+	if errors.Is(rememberErr, chat.ErrChatNotFound) {
 		conn.SendError(req.ID, "not_found", 404, "chat not found", nil)
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	if loadErr != nil {
-		conn.SendError(req.ID, "internal_error", 500, loadErr.Error(), nil)
-		conn.CompleteRequest(req.ID)
-		return
-	}
-	items, listErr := s.deps.Chats.ListChats("", "")
-	if listErr != nil {
-		conn.SendError(req.ID, "internal_error", 500, listErr.Error(), nil)
-		conn.CompleteRequest(req.ID)
-		return
-	}
-	agentKey := ""
-	for _, item := range items {
-		if item.ChatID == payload.ChatID {
-			agentKey = item.AgentKey
-			break
-		}
-	}
-	response, rememberErr := s.deps.Memory.Remember(detail, payload, agentKey)
 	if rememberErr != nil {
 		conn.SendError(req.ID, "internal_error", 500, rememberErr.Error(), nil)
 		conn.CompleteRequest(req.ID)

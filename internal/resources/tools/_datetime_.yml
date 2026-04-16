@@ -1,14 +1,14 @@
 name: _datetime_
 label: 日期时间
-description: 获取当前或偏移后的日期时间，支持可选 timezone 和链式 offset，输出包含农历
+description: Get the current or offset date and time with optional timezone and chained offset support. The output also includes the lunar calendar.
 type: function
 inputSchema:
   type: object
   properties:
     timezone:
       type: string
-      description: 可选时区，支持 IANA zoneId 或 UTC+8、+08:00、Z 等偏移表示
+      description: Timezone to use. Supports IANA zoneId values and offset formats such as UTC+8, +08:00, and Z.
     offset:
       type: string
-      description: 可选链式时间偏移，例如 +1D、+1D-3H+20m、+10M+25D、-2y、+3w；其中y=年、M=月、D=天、H=小时、m=分钟；不填或 0 表示当前时间
+      description: Chained time offset, for example +1D, +1D-3H+20m, +10M+25D, -2y, or +3w. Here y=year, M=month, D=day, H=hour, and m=minute. Leave blank or use 0 for the current time.
   additionalProperties: false

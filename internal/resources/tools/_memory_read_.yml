@@ -1,6 +1,6 @@
 name: _memory_read_
 label: 读取记忆
-description: 读取 agent 持久化记忆，可按 ID、分类、数量和排序查询
+description: Read persisted agent memory, with optional filtering by ID, category, limit, and sort order.
 type: function
 clientVisible: false
 inputSchema:
@@ -8,14 +8,14 @@ inputSchema:
   properties:
     id:
       type: string
-      description: 可选记忆 ID；提供时只返回该条记录
+      description: Memory ID to read. When provided, only that record is returned.
     category:
       type: string
-      description: 可选分类筛选
+      description: Category filter.
     limit:
       type: integer
-      description: 可选最大返回条数，默认 10
+      description: Maximum number of records to return. Defaults to 10.
     sort:
       type: string
-      description: 可选排序，支持 recent 或 importance，默认 recent
+      description: Sort order. Supported values are recent and importance. Defaults to recent.
   additionalProperties: false

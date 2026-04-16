@@ -1,6 +1,6 @@
 name: _ask_user_question_
 label: 用户提问
-description: 向用户展示多个问题，支持文本、数字、密码、选项等回答方式。单个问题可以在选项回答与自由输入之间二选一，工具会阻塞等待用户提交回复。
+description: Show multiple questions to the user, supporting text, number, password, and select-style answers. Each question can use either option selection or free text, and the tool blocks until the user submits a response.
 type: function
 viewportType: builtin
 viewportKey: confirm_dialog
@@ -11,21 +11,21 @@ inputSchema:
   properties:
     mode:
       type: string
-      description: 共享 confirm_dialog viewport 的渲染模式
+      description: Required. Render mode for the shared confirm_dialog viewport.
       enum:
         - question
     questions:
       type: array
-      description: 需要一次性展示给用户的问题列表
+      description: Required. List of questions to present to the user in a single prompt.
       items:
         type: object
         properties:
           question:
             type: string
-            description: 问题正文
+            description: Required. Main question text.
           type:
             type: string
-            description: 问题类型。text/number/password 为自由输入，select 为选项选择；select 可通过 allowFreeText 额外开启自由输入
+            description: Required. Question type. text, number, and password use free input; select uses option selection. select can additionally allow free input through allowFreeText.
             enum:
               - text
               - number
@@ -33,34 +33,34 @@ inputSchema:
               - password
           header:
             type: string
-            description: 问题分组标题或短标题
+            description: Group title or short heading for the question.
           placeholder:
             type: string
-            description: 输入框占位提示
+            description: Placeholder shown in the input field.
           options:
             type: array
-            description: 仅 select 类型使用的选项列表
+            description: Option list used only when type is select.
             items:
               type: object
               properties:
                 label:
                   type: string
-                  description: 选项展示文案，也是提交时的取值
+                  description: Required. Text shown for this option. This is also the submitted value.
                 description:
                   type: string
-                  description: 选项补充说明
+                  description: Additional explanation for this option.
               required:
                 - label
               additionalProperties: false
           multiSelect:
             type: boolean
-            description: select 类型是否允许多选
+            description: Whether a select question allows multiple selections.
           allowFreeText:
             type: boolean
-            description: 仅 select 类型生效；启用后允许该问题改用自由输入作答，与选项选择互斥
+            description: Only applies to select questions. When enabled, the user may answer with free text instead of selecting an option. This is mutually exclusive with option selection.
           freeTextPlaceholder:
             type: string
-            description: 仅 select 类型且 allowFreeText=true 时生效的自由输入占位提示
+            description: Placeholder for free-text input when type is select and allowFreeText=true.
         required:
           - question
           - type

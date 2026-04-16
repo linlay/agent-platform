@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -9,11 +10,10 @@ import (
 	"agent-platform-runner-go/internal/chat"
 )
 
-func (s *Server) handleChats(w http.ResponseWriter, r *http.Request) {
-	items, err := s.deps.Chats.ListChats(r.URL.Query().Get("lastRunId"), r.URL.Query().Get("agentKey"))
+func (s *Server) listChatSummaries(lastRunID string, agentKey string) ([]api.ChatSummaryResponse, error) {
+	items, err := s.deps.Chats.ListChats(lastRunID, agentKey)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
-		return
+		return nil, err
 	}
 	response := make([]api.ChatSummaryResponse, 0, len(items))
 	for _, item := range items {
@@ -38,43 +38,31 @@ func (s *Server) handleChats(w http.ResponseWriter, r *http.Request) {
 		}
 		response = append(response, resp)
 	}
-	writeJSON(w, http.StatusOK, api.Success(response))
+	return response, nil
 }
 
-func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
-	chatID := r.URL.Query().Get("chatId")
-	if chatID == "" {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "chatId is required"))
-		return
-	}
+func (s *Server) loadChatDetail(ctx context.Context, chatID string, includeRawMessages bool) (api.ChatDetailResponse, error) {
 	detail, err := s.deps.Chats.LoadChat(chatID)
-	if errors.Is(err, chat.ErrChatNotFound) {
-		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "chat not found"))
-		return
-	}
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
-		return
+		return api.ChatDetailResponse{}, err
 	}
 	summary, err := s.deps.Chats.Summary(chatID)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
-		return
+		return api.ChatDetailResponse{}, err
 	}
 
 	s.enrichToolMetadata(detail.Events, summaryAgentKey(summary))
 
-	includeRaw := strings.EqualFold(r.URL.Query().Get("includeRawMessages"), "true")
 	response := api.ChatDetailResponse{
 		ChatID:     detail.ChatID,
 		ChatName:   detail.ChatName,
 		Events:     detail.Events,
 		References: nil,
 	}
-	if principal := PrincipalFromContext(r.Context()); principal != nil {
+	if principal := PrincipalFromContext(ctx); principal != nil {
 		response.ChatImageToken = s.ticketService.Issue(principal.Subject, detail.ChatID)
 	}
-	if includeRaw {
+	if includeRawMessages {
 		response.RawMessages = detail.RawMessages
 	}
 	if detail.Plan != nil {
@@ -89,6 +77,33 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			CompletionTokens: summary.Usage.CompletionTokens,
 			TotalTokens:      summary.Usage.TotalTokens,
 		}
+	}
+	return response, nil
+}
+
+func (s *Server) handleChats(w http.ResponseWriter, r *http.Request) {
+	response, err := s.listChatSummaries(r.URL.Query().Get("lastRunId"), r.URL.Query().Get("agentKey"))
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
+		return
+	}
+	writeJSON(w, http.StatusOK, api.Success(response))
+}
+
+func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
+	chatID := r.URL.Query().Get("chatId")
+	if chatID == "" {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "chatId is required"))
+		return
+	}
+	response, err := s.loadChatDetail(r.Context(), chatID, strings.EqualFold(r.URL.Query().Get("includeRawMessages"), "true"))
+	if errors.Is(err, chat.ErrChatNotFound) {
+		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "chat not found"))
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
+		return
 	}
 	writeJSON(w, http.StatusOK, api.Success(response))
 }

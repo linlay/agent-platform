@@ -66,7 +66,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	conn := NewConn(socket, h.hub, h.cfg, h.heartbeatInterval, auth)
-	conn.SendPush("connected", map[string]any{"sessionId": conn.SessionID()})
 	conn.Run(func(ctx context.Context, conn *Conn, req RequestFrame) {
 		h.routeRequest(ctx, conn, req)
 	})

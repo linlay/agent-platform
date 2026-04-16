@@ -1,6 +1,6 @@
 name: _ask_user_approval_
 label: 用户确认
-description: 向用户展示多个确认问题。每个问题都是单选确认，提交时同时返回选项展示文案 answer 和机器值 value。
+description: Show multiple single-choice approval prompts to the user. Each question returns both the display answer text and the machine-readable value, and the tool blocks until a response is submitted.
 type: function
 viewportType: builtin
 viewportKey: confirm_dialog
@@ -11,61 +11,61 @@ inputSchema:
   properties:
     mode:
       type: string
-      description: 共享 confirm_dialog viewport 的渲染模式
+      description: Required. Render mode for the shared confirm_dialog viewport.
       enum:
         - approval
     questions:
       type: array
-      description: 需要一次性展示给用户的确认问题列表
+      description: Required. List of approval questions to present to the user in a single prompt.
       items:
         type: object
         properties:
           question:
             type: string
-            description: 确认问题正文
+            description: Required. Approval question text.
           header:
             type: string
-            description: 确认卡片标题或短标题
+            description: Title or short heading shown on the approval card.
           description:
             type: string
-            description: 对本次确认的补充说明
+            description: Additional context for this approval request.
           options:
             type: array
-            description: 可选择的确认项列表；answer 为 label，value 为机器值
+            description: List of selectable approval options. answer uses the label and value uses the machine-readable value.
             items:
               type: object
               properties:
                 label:
                   type: string
-                  description: 选项展示文案
+                  description: Required. Text shown for this option.
                 value:
                   type: string
-                  description: 选中该项后提交的机器值
+                  description: Required. Value submitted when this option is selected.
                 description:
                   type: string
-                  description: 选项补充说明
+                  description: Additional explanation for this option.
               required:
                 - label
                 - value
               additionalProperties: false
           allowFreeText:
             type: boolean
-            description: 是否允许放弃预设选项，改为自由输入；与选项选择互斥
+            description: Whether the user may skip the predefined options and enter free text instead. This is mutually exclusive with option selection.
           freeTextPlaceholder:
             type: string
-            description: 自由输入模式的占位提示
+            description: Placeholder shown in free-text mode.
         required:
           - question
         additionalProperties: false
     viewportType:
       type: string
-      description: 可选覆盖默认 viewportType，用于 HITL 场景切换到 html 视图
+      description: Override the default viewportType, for example to switch HITL flows to an html view.
     viewportKey:
       type: string
-      description: 可选覆盖默认 viewportKey，用于 HITL 场景切换到指定视图
+      description: Override the default viewportKey, for example to switch HITL flows to a specific view.
     payload:
       type: object
-      description: 传给前端视图的附加结构化数据
+      description: Additional structured data passed to the frontend view.
   required:
     - mode
     - questions

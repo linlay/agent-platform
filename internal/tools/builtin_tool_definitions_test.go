@@ -1,6 +1,10 @@
 package tools
 
-import "testing"
+import (
+	"fmt"
+	"strings"
+	"testing"
+)
 
 func TestLoadEmbeddedToolDefinitionsIncludesAskUserBuiltins(t *testing.T) {
 	defs, err := LoadEmbeddedToolDefinitions()
@@ -83,6 +87,22 @@ func TestAskUserToolSchemasMatchContract(t *testing.T) {
 	}
 }
 
+func TestEmbeddedToolDescriptionsAreEnglishFriendlyAndComplete(t *testing.T) {
+	defs, err := LoadEmbeddedToolDefinitions()
+	if err != nil {
+		t.Fatalf("load embedded tool definitions: %v", err)
+	}
+
+	for _, def := range defs {
+		if strings.TrimSpace(def.Description) == "" {
+			t.Fatalf("expected non-empty top-level description for %s", def.Name)
+		}
+		if err := validateSchemaDescriptions(def.Parameters, ""); err != nil {
+			t.Fatalf("validate descriptions for %s: %v", def.Name, err)
+		}
+	}
+}
+
 func mapChild(t *testing.T, parent map[string]any, key string) map[string]any {
 	t.Helper()
 	child, ok := parent[key].(map[string]any)
@@ -108,4 +128,62 @@ func enumContains(t *testing.T, field any, want string) bool {
 		}
 	}
 	return false
+}
+
+func validateSchemaDescriptions(schema map[string]any, path string) error {
+	properties, _ := schema["properties"].(map[string]any)
+	if len(properties) == 0 {
+		return nil
+	}
+
+	requiredSet := map[string]bool{}
+	if required, ok := schema["required"].([]any); ok {
+		for _, item := range required {
+			if name, ok := item.(string); ok {
+				requiredSet[name] = true
+			}
+		}
+	}
+
+	for name, rawChild := range properties {
+		child, ok := rawChild.(map[string]any)
+		if !ok {
+			return fmt.Errorf("property %s must be an object schema, got %#v", formatSchemaPath(path, name), rawChild)
+		}
+		description := strings.TrimSpace(stringValue(child["description"]))
+		if description == "" {
+			return fmt.Errorf("property %s is missing description", formatSchemaPath(path, name))
+		}
+		if requiredSet[name] && !strings.HasPrefix(description, "Required.") {
+			return fmt.Errorf("required property %s must start with \"Required.\", got %q", formatSchemaPath(path, name), description)
+		}
+		if err := validateNestedSchemaDescriptions(child, formatSchemaPath(path, name)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateNestedSchemaDescriptions(schema map[string]any, path string) error {
+	if err := validateSchemaDescriptions(schema, path); err != nil {
+		return err
+	}
+	if items, ok := schema["items"].(map[string]any); ok {
+		if err := validateSchemaDescriptions(items, path+"[]"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func formatSchemaPath(prefix string, name string) string {
+	if strings.TrimSpace(prefix) == "" {
+		return name
+	}
+	return prefix + "." + name
+}
+
+func stringValue(value any) string {
+	text, _ := value.(string)
+	return text
 }
