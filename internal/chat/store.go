@@ -654,14 +654,14 @@ func synthesizeActivityEvents(runID, chatID string, usage map[string]any, runCum
 	}
 	if len(contextWindow) > 0 {
 		cw := map[string]any{}
-		if v := toIntValue(contextWindow["max"]); v > 0 {
-			cw["max"] = v
+		if v := toIntValue(contextWindow["max_size"]); v > 0 {
+			cw["max_size"] = v
 		}
-		if v := toIntValue(contextWindow["actual"]); v > 0 {
-			cw["actual"] = v
+		if v := toIntValue(contextWindow["actual_size"]); v > 0 {
+			cw["actual_size"] = v
 		}
-		if v := toIntValue(contextWindow["estimated"]); v > 0 {
-			cw["estimated"] = v
+		if v := toIntValue(contextWindow["estimated_size"]); v > 0 {
+			cw["estimated_size"] = v
 		}
 		events = append(events, stream.EventData{
 			Seq:       nextSeq(),

@@ -192,8 +192,8 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 	case "debug.context":
 		if inner, ok := event.Value("data").(map[string]any); ok {
 			if cw, ok := inner["contextWindow"].(map[string]any); ok {
-				w.pendingContextWindowMax = toInt(cw["max"])
-				w.pendingEstimated = toInt(cw["estimated"])
+				w.pendingContextWindowMax = toInt(cw["max_size"])
+				w.pendingEstimated = toInt(cw["estimated_size"])
 			}
 		}
 
@@ -263,13 +263,13 @@ func (w *StepWriter) flushCurrentStep() {
 		}
 		cw := map[string]any{}
 		if w.pendingContextWindowMax > 0 {
-			cw["max"] = w.pendingContextWindowMax
+			cw["max_size"] = w.pendingContextWindowMax
 		}
 		if actual > 0 {
-			cw["actual"] = actual
+			cw["actual_size"] = actual
 		}
 		if w.pendingEstimated > 0 {
-			cw["estimated"] = w.pendingEstimated
+			cw["estimated_size"] = w.pendingEstimated
 		}
 		for i := len(w.messages) - 1; i >= 0; i-- {
 			if w.messages[i].Role == "assistant" {

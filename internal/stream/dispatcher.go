@@ -112,9 +112,9 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 					"key": value.ModelKey,
 				},
 				"contextWindow": map[string]any{
-					"max":       value.ContextWindow,
-					"actual":    value.CurrentContextSize,
-					"estimated": value.EstimatedNextCallSize,
+					"max_size":       value.ContextWindow,
+					"actual_size":    value.CurrentContextSize,
+					"estimated_size": value.EstimatedNextCallSize,
 				},
 			},
 		})}
