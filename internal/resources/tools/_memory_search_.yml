@@ -1,6 +1,6 @@
 name: _memory_search_
 label: 搜索记忆
-description: 搜索 agent 持久化记忆，支持 FTS 与可选向量混合检索
+description: Search persisted agent memory with FTS and optional hybrid vector retrieval.
 type: function
 clientVisible: false
 inputSchema:
@@ -8,13 +8,13 @@ inputSchema:
   properties:
     query:
       type: string
-      description: 搜索查询
+      description: Required. Search query.
     category:
       type: string
-      description: 可选分类筛选
+      description: Category filter.
     limit:
       type: integer
-      description: 可选最大返回条数，默认 10
+      description: Maximum number of records to return. Defaults to 10.
   required:
     - query
   additionalProperties: false

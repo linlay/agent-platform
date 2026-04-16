@@ -1,6 +1,6 @@
 name: _memory_write_
 label: 写入记忆
-description: 写入 agent 持久化记忆，支持分类、重要度和标签
+description: Write persisted agent memory with optional category, importance, and tags.
 type: function
 clientVisible: false
 inputSchema:
@@ -8,16 +8,16 @@ inputSchema:
   properties:
     content:
       type: string
-      description: 记忆内容
+      description: Required. Memory content.
     category:
       type: string
-      description: 可选分类，默认 general
+      description: Category to store with the memory. Defaults to general.
     importance:
       type: integer
-      description: 可选重要度，范围 1-10，默认 5
+      description: Importance level from 1 to 10. Defaults to 5.
     tags:
       type: array
-      description: 可选标签列表
+      description: List of tags to attach to the memory.
       items:
         type: string
   required:
