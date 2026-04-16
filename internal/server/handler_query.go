@@ -190,7 +190,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		toolLookup = contracts.NewCompositeToolLookup(s.deps.HITL, s.deps.Registry)
 	}
 	toolTimeoutMs := int64(contracts.NormalizeBudget(session.ResolvedBudget).Tool.TimeoutMs)
-	mapper := llm.NewDeltaMapper(runID, chatID, toolTimeoutMs, toolLookup)
+	mapper := llm.NewDeltaMapper(runID, chatID, toolTimeoutMs, toolLookup, s.deps.FrontendTools)
 
 	sseWriter, err := stream.NewWriter(w, stream.Options{
 		SSE:            s.deps.Config.SSE,

@@ -608,7 +608,7 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 		if result.Error == "" && len(result.Structured) > 0 {
 			s.pending = append(s.pending, DeltaAwaitingAnswer{
 				AwaitingID: result.SubmitInfo.AwaitingID,
-				Answer:     cloneMap(result.Structured),
+				Answer:     CloneMap(result.Structured),
 			})
 		}
 	}
@@ -957,7 +957,7 @@ func (s *llmRunStream) toolResultContent(toolName string, result ToolExecutionRe
 	if !ok {
 		return result.Output
 	}
-	return formatSubmitResultForLLM(toolName, toolDef.Meta, result)
+	return formatSubmitResultForLLM(toolDef, s.engine.frontend, result)
 }
 
 func isBashTool(name string) bool {
@@ -1120,127 +1120,43 @@ func (s *llmRunStream) preToolInvocationDeltas(toolID string, toolName string, p
 	if clientVisible, ok := tool.Meta["clientVisible"].(bool); ok && !clientVisible {
 		return nil
 	}
+	if s.engine.frontend == nil {
+		return nil
+	}
+	handler, ok := s.engine.frontend.Handler(toolName)
+	if !ok {
+		return nil
+	}
 	if s.runControl != nil {
 		s.runControl.ExpectSubmit(toolID)
 	}
-	viewportKey, _ := tool.Meta["viewportKey"].(string)
-	viewportType, _ := tool.Meta["viewportType"].(string)
-	mode, _ := payload["mode"].(string)
 	toolTimeout := int64(0)
 	if budget := NormalizeBudget(s.execCtx.Budget); budget.Tool.TimeoutMs > 0 {
 		toolTimeout = int64(budget.Tool.TimeoutMs)
 	}
-
-	normalizedMode := strings.ToLower(strings.TrimSpace(mode))
-	events := make([]AgentDelta, 0, 2)
-	if normalizedMode == "approval" {
-		events = append(events, DeltaAwaitAsk{
-			AwaitingID:   toolID,
-			ViewportType: viewportType,
-			ViewportKey:  viewportKey,
-			Mode:         normalizedMode,
-			ToolTimeout:  toolTimeout,
-			RunID:        s.session.RunID,
-			Questions:    deferredAwaitQuestions(toolName, payload),
-		})
-	}
-	if normalizedMode == "question" {
-		if awaitQuestions := deferredAwaitQuestions(toolName, payload); len(awaitQuestions) > 0 {
-			events = append(events, DeltaAwaitPayload{
-				AwaitingID: toolID,
-				Questions:  awaitQuestions,
-			})
-		}
-	}
-	return events
+	return cloneAgentDeltas(handler.BuildDeferredAwait(toolID, s.session.RunID, tool, payload, toolTimeout))
 }
 
-func deferredAwaitQuestions(toolName string, payload map[string]any) []any {
-	switch strings.ToLower(strings.TrimSpace(toolName)) {
-	case "_ask_user_question_", "_ask_user_approval_":
-		return buildAwaitQuestions(payload)
-	default:
-		return nil
-	}
-}
-
-func buildAwaitQuestions(payload map[string]any) []any {
-	if payload == nil {
-		return nil
-	}
-	mode := strings.ToLower(strings.TrimSpace(AnyStringNode(payload["mode"])))
-	switch mode {
-	case "question":
-		rawQuestions, _ := payload["questions"].([]any)
-		return sanitizeQuestionFields(cloneAwaitQuestions(rawQuestions))
-	case "approval":
-		question := map[string]any{}
-		if value := AnyStringNode(payload["question"]); value != "" {
-			question["question"] = value
-		}
-		if value := AnyStringNode(payload["header"]); value != "" {
-			question["header"] = value
-		}
-		if value := AnyStringNode(payload["description"]); value != "" {
-			question["description"] = value
-		}
-		if options, ok := payload["options"].([]any); ok {
-			question["options"] = cloneAwaitQuestions(options)
-		}
-		if _, exists := payload["allowFreeText"]; exists {
-			question["allowFreeText"] = payload["allowFreeText"]
-		}
-		if value := AnyStringNode(payload["freeTextPlaceholder"]); value != "" {
-			question["freeTextPlaceholder"] = value
-		}
-		return []any{question}
-	default:
-		return nil
-	}
-}
-
-func sanitizeQuestionFields(questions []any) []any {
-	for _, raw := range questions {
-		item, ok := raw.(map[string]any)
-		if !ok {
-			continue
-		}
-		questionType := strings.ToLower(strings.TrimSpace(AnyStringNode(item["type"])))
-		if questionType == "select" {
-			continue
-		}
-		delete(item, "allowFreeText")
-		delete(item, "freeTextPlaceholder")
-		delete(item, "multiSelect")
-		delete(item, "options")
-	}
-	return questions
-}
-
-func cloneAwaitQuestions(input []any) []any {
+func cloneAgentDeltas(input []AgentDelta) []AgentDelta {
 	if len(input) == 0 {
 		return nil
 	}
-	cloned := make([]any, 0, len(input))
-	for _, value := range input {
-		cloned = append(cloned, deepCloneAny(value))
-	}
-	return cloned
-}
-
-func deepCloneAny(value any) any {
-	switch typed := value.(type) {
-	case map[string]any:
-		cloned := make(map[string]any, len(typed))
-		for key, item := range typed {
-			cloned[key] = deepCloneAny(item)
+	out := make([]AgentDelta, 0, len(input))
+	for _, delta := range input {
+		switch value := delta.(type) {
+		case DeltaAwaitAsk:
+			cloned := value
+			cloned.Questions = append([]any(nil), value.Questions...)
+			out = append(out, cloned)
+		case DeltaAwaitPayload:
+			cloned := value
+			cloned.Questions = append([]any(nil), value.Questions...)
+			out = append(out, cloned)
+		default:
+			out = append(out, delta)
 		}
-		return cloned
-	case []any:
-		return cloneAwaitQuestions(typed)
-	default:
-		return typed
 	}
+	return out
 }
 
 func (s *llmRunStream) lookupToolDefinition(toolName string) (api.ToolDetailResponse, bool) {

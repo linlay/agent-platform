@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	. "agent-platform-runner-go/internal/contracts"
+	"agent-platform-runner-go/internal/frontendtools"
 	"agent-platform-runner-go/internal/stream"
 )
 
@@ -21,9 +22,10 @@ type DeltaMapper struct {
 	toolArgChunkCounters map[string]int
 	actionToolIDs        map[string]bool
 	toolRegistry         ToolDefinitionLookup
+	frontend             *frontendtools.Registry
 }
 
-func NewDeltaMapper(runID string, chatID string, toolTimeoutMs int64, toolRegistry ToolDefinitionLookup) *DeltaMapper {
+func NewDeltaMapper(runID string, chatID string, toolTimeoutMs int64, toolRegistry ToolDefinitionLookup, frontend *frontendtools.Registry) *DeltaMapper {
 	return &DeltaMapper{
 		runID:                runID,
 		chatID:               chatID,
@@ -32,6 +34,7 @@ func NewDeltaMapper(runID string, chatID string, toolTimeoutMs int64, toolRegist
 		toolArgChunkCounters: map[string]int{},
 		actionToolIDs:        map[string]bool{},
 		toolRegistry:         toolRegistry,
+		frontend:             frontend,
 	}
 }
 
@@ -89,7 +92,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		chunkIndex := m.toolArgChunkCounters[toolID]
 		m.toolArgChunkCounters[toolID] = chunkIndex + 1
 		m.lastKind = "tool"
-		awaitAsk := m.buildQuestionToolAwaitAsk(toolID, value.Name, chunkIndex)
+		awaitAsk := m.buildFrontendToolAwaitAsk(toolID, value.Name, chunkIndex)
 		return []stream.StreamInput{stream.ToolArgs{
 			ToolID:          toolID,
 			Delta:           value.ArgsDelta,
@@ -198,7 +201,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 	case DeltaAwaitingAnswer:
 		return []stream.StreamInput{stream.AwaitingAnswer{
 			AwaitingID: value.AwaitingID,
-			Answer:     cloneMap(value.Answer),
+			Answer:     CloneMap(value.Answer),
 		}}
 	case DeltaRequestSteer:
 		return []stream.StreamInput{stream.RequestSteer{
@@ -215,25 +218,26 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 	}
 }
 
-func (m *DeltaMapper) buildQuestionToolAwaitAsk(toolID string, toolName string, chunkIndex int) *stream.AwaitAsk {
-	if !strings.EqualFold(strings.TrimSpace(toolName), "_ask_user_question_") {
+func (m *DeltaMapper) buildFrontendToolAwaitAsk(toolID string, toolName string, chunkIndex int) *stream.AwaitAsk {
+	if m.frontend == nil || m.toolRegistry == nil {
 		return nil
 	}
-	if chunkIndex != 0 {
+	tool, ok := m.toolRegistry.Tool(toolName)
+	if !ok {
+		return nil
+	}
+	kind, _ := tool.Meta["kind"].(string)
+	if !strings.EqualFold(strings.TrimSpace(kind), "frontend") {
 		return nil
 	}
 	if !m.isClientVisibleTool(toolName) {
 		return nil
 	}
-	viewportType, viewportKey := m.resolveViewportMetadata(toolName)
-	return &stream.AwaitAsk{
-		AwaitingID:   toolID,
-		ViewportType: viewportType,
-		ViewportKey:  viewportKey,
-		Mode:         "question",
-		ToolTimeout:  m.toolTimeoutMs,
-		RunID:        m.runID,
+	handler, ok := m.frontend.Handler(toolName)
+	if !ok {
+		return nil
 	}
+	return handler.BuildInitialAwaitAsk(toolID, m.runID, tool, chunkIndex, m.toolTimeoutMs)
 }
 
 func (m *DeltaMapper) resolveToolID(index int, candidate string, toolName string) string {

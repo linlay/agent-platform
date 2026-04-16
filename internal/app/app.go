@@ -14,6 +14,7 @@ import (
 	"agent-platform-runner-go/internal/chat"
 	"agent-platform-runner-go/internal/config"
 	"agent-platform-runner-go/internal/contracts"
+	"agent-platform-runner-go/internal/frontendtools"
 	"agent-platform-runner-go/internal/hitl"
 	"agent-platform-runner-go/internal/llm"
 	"agent-platform-runner-go/internal/mcp"
@@ -106,7 +107,8 @@ func New() (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load runtime tools: %w", err)
 	}
-	toolExecutor := tools.NewToolRouter(backendTools, mcpClient, mcpToolSync, llm.NewFrontendSubmitCoordinator(), contracts.NewNoopActionInvoker(), append([]api.ToolDetailResponse(nil), runtimeTools...)...)
+	frontendRegistry := frontendtools.NewDefaultRegistry()
+	toolExecutor := tools.NewToolRouter(backendTools, mcpClient, mcpToolSync, llm.NewFrontendSubmitCoordinator(frontendRegistry), contracts.NewNoopActionInvoker(), append([]api.ToolDetailResponse(nil), runtimeTools...)...)
 
 	var hitlRegistry *hitl.Registry
 	if cfg.BashHITL.Enabled {
@@ -138,7 +140,7 @@ func New() (*App, error) {
 		len(toolExecutor.Definitions()),
 	)
 
-	agentEngine := llm.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, sandboxClient, hitlRegistry)
+	agentEngine := llm.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, frontendRegistry, sandboxClient, hitlRegistry)
 	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, mcp.NewRegistryReloader(mcpRegistry, mcpToolSync), hitlRegistry)
 	backgroundCtx, backgroundCancel := context.WithCancel(context.Background())
 	cleanupBackground := true
@@ -157,17 +159,18 @@ func New() (*App, error) {
 
 	serverStartedAt := time.Now()
 	srv, err := server.New(server.Dependencies{
-		Config:   cfg,
-		Chats:    chatStore,
-		Memory:   memoryStore,
-		Registry: registry,
-		Models:   modelRegistry,
-		Runs:     runManager,
-		Agent:    agentEngine,
-		Tools:    toolExecutor,
-		Sandbox:  sandboxClient,
-		MCP:      mcpClient,
-		HITL:     hitlRegistry,
+		Config:        cfg,
+		Chats:         chatStore,
+		Memory:        memoryStore,
+		Registry:      registry,
+		Models:        modelRegistry,
+		Runs:          runManager,
+		Agent:         agentEngine,
+		Tools:         toolExecutor,
+		Sandbox:       sandboxClient,
+		MCP:           mcpClient,
+		HITL:          hitlRegistry,
+		FrontendTools: frontendRegistry,
 		Viewport: viewport.NewServiceWithServers(
 			viewport.NewRegistry(viewport.DefaultRoot(cfg.Paths.RegistriesDir)),
 			viewport.NewSyncer(viewport.NewServerRegistry(viewport.DefaultServersRoot(cfg.Paths.RegistriesDir)), nil),

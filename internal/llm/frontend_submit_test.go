@@ -8,124 +8,8 @@ import (
 
 	"agent-platform-runner-go/internal/api"
 	contracts "agent-platform-runner-go/internal/contracts"
+	"agent-platform-runner-go/internal/frontendtools"
 )
-
-func TestNormalizeAskUserQuestionSubmit_ArrayParams(t *testing.T) {
-	args := map[string]any{
-		"questions": []any{
-			map[string]any{
-				"question": "Pick a plan",
-				"type":     "select",
-				"header":   "行程安排",
-				"options": []any{
-					map[string]any{"label": "Weekend"},
-				},
-			},
-			map[string]any{
-				"question": "How many people?",
-				"type":     "number",
-				"header":   "人数",
-			},
-		},
-	}
-
-	result, err := normalizeAskUserQuestionSubmit(args, []any{
-		map[string]any{"question": "Pick a plan", "answer": "Weekend"},
-		map[string]any{"question": "How many people?", "answer": 2},
-	})
-	if err != nil {
-		t.Fatalf("normalizeAskUserQuestionSubmit returned error: %v", err)
-	}
-	if got := result["mode"]; got != "question" {
-		t.Fatalf("expected mode=question, got %#v", got)
-	}
-
-	answers, ok := result["answers"].([]map[string]any)
-	if !ok {
-		t.Fatalf("expected answers slice, got %#v", result["answers"])
-	}
-	if len(answers) != 2 {
-		t.Fatalf("expected 2 answers, got %#v", answers)
-	}
-	if answers[0]["header"] != "行程安排" {
-		t.Fatalf("expected header to be preserved, got %#v", answers[0])
-	}
-	if answers[1]["answer"] != 2 {
-		t.Fatalf("expected numeric answer to be preserved, got %#v", answers[1])
-	}
-}
-
-func TestNormalizeAskUserQuestionSubmit_RejectsLegacyObjectParams(t *testing.T) {
-	_, err := normalizeAskUserQuestionSubmit(map[string]any{}, map[string]any{
-		"answers": []any{},
-	})
-	if err == nil {
-		t.Fatal("expected error for legacy object params")
-	}
-	if !strings.Contains(err.Error(), "params must be an array") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestNormalizeAskUserQuestionSubmit_EmptyArrayReturnsCancelled(t *testing.T) {
-	result, err := normalizeAskUserQuestionSubmit(map[string]any{}, []any{})
-	if err != nil {
-		t.Fatalf("normalizeAskUserQuestionSubmit returned error: %v", err)
-	}
-	expected := map[string]any{
-		"mode":      "question",
-		"cancelled": true,
-		"reason":    "user_dismissed",
-	}
-	if !reflect.DeepEqual(result, expected) {
-		t.Fatalf("expected cancelled result, got %#v", result)
-	}
-}
-
-func TestNormalizeAskUserApprovalSubmit_EmptyObjectReturnsCancelled(t *testing.T) {
-	result, err := normalizeAskUserApprovalSubmit(map[string]any{}, map[string]any{})
-	if err != nil {
-		t.Fatalf("normalizeAskUserApprovalSubmit returned error: %v", err)
-	}
-	expected := map[string]any{
-		"mode":      "approval",
-		"cancelled": true,
-		"reason":    "user_dismissed",
-	}
-	if !reflect.DeepEqual(result, expected) {
-		t.Fatalf("expected cancelled result, got %#v", result)
-	}
-}
-
-func TestNormalizeAskUserApprovalSubmit_RejectsValueAndFreeTextTogether(t *testing.T) {
-	_, err := normalizeAskUserApprovalSubmit(map[string]any{
-		"allowFreeText": true,
-	}, map[string]any{
-		"value":    "approve",
-		"freeText": "override",
-	})
-	if err == nil {
-		t.Fatal("expected error when both value and freeText are present")
-	}
-	if !strings.Contains(err.Error(), "exactly one of value or freeText") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestNormalizeQuestionAnswer_SelectUnwrapsSingleItemArray(t *testing.T) {
-	value, err := normalizeQuestionAnswer(map[string]any{
-		"type": "select",
-		"options": []any{
-			map[string]any{"label": "Weekend"},
-		},
-	}, []any{"Weekend"})
-	if err != nil {
-		t.Fatalf("normalizeQuestionAnswer returned error: %v", err)
-	}
-	if value != "Weekend" {
-		t.Fatalf("expected unwrapped string answer, got %#v", value)
-	}
-}
 
 func TestFrontendSubmitCoordinatorAwait_AskUserQuestionPreservesRawParams(t *testing.T) {
 	rawParams := []any{
@@ -143,7 +27,7 @@ func TestFrontendSubmitCoordinatorAwait_AskUserQuestionPreservesRawParams(t *tes
 		t.Fatalf("expected submit to be accepted, got %#v", ack)
 	}
 
-	result, err := NewFrontendSubmitCoordinator().Await(context.Background(), &contracts.ExecutionContext{
+	result, err := NewFrontendSubmitCoordinator(frontendtools.NewDefaultRegistry()).Await(context.Background(), &contracts.ExecutionContext{
 		RunControl:      control,
 		CurrentToolID:   "tool_1",
 		CurrentToolName: "_ask_user_question_",
@@ -181,6 +65,63 @@ func TestFrontendSubmitCoordinatorAwait_AskUserQuestionPreservesRawParams(t *tes
 	}
 }
 
+func TestFrontendSubmitCoordinatorAwait_AskUserQuestionMultiSelectPreservesRawAnswersField(t *testing.T) {
+	rawParams := []any{
+		map[string]any{"question": "Notification topics", "answers": []any{"产品更新", "使用教程"}},
+	}
+	control := contracts.NewRunControl(context.Background(), "run_1")
+	control.ExpectSubmit("tool_1")
+	ack := control.ResolveSubmit(api.SubmitRequest{
+		RunID:      "run_1",
+		AwaitingID: "tool_1",
+		Params:     rawParams,
+	})
+	if !ack.Accepted {
+		t.Fatalf("expected submit to be accepted, got %#v", ack)
+	}
+
+	result, err := NewFrontendSubmitCoordinator(frontendtools.NewDefaultRegistry()).Await(context.Background(), &contracts.ExecutionContext{
+		RunControl:      control,
+		CurrentToolID:   "tool_1",
+		CurrentToolName: "_ask_user_question_",
+		Budget: contracts.Budget{
+			Tool: contracts.RetryPolicy{TimeoutMs: 50},
+		},
+	}, map[string]any{
+		"questions": []any{
+			map[string]any{
+				"question":    "Notification topics",
+				"type":        "select",
+				"multiSelect": true,
+				"header":      "通知内容",
+				"options": []any{
+					map[string]any{"label": "产品更新"},
+					map[string]any{"label": "使用教程"},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Await returned error: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Fatalf("expected success exit code, got %#v", result)
+	}
+	if !reflect.DeepEqual(result.RawParams, rawParams) {
+		t.Fatalf("expected RawParams to preserve original submit params, got %#v", result.RawParams)
+	}
+	if result.SubmitInfo == nil || !reflect.DeepEqual(result.SubmitInfo.Params, rawParams) {
+		t.Fatalf("expected SubmitInfo params to preserve original submit params, got %#v", result.SubmitInfo)
+	}
+	answers, ok := result.Structured["answers"].([]map[string]any)
+	if !ok || len(answers) != 1 {
+		t.Fatalf("expected normalized answers in Structured, got %#v", result.Structured)
+	}
+	if !reflect.DeepEqual(answers[0]["answer"], []string{"产品更新", "使用教程"}) {
+		t.Fatalf("expected normalized multi-select answer slice, got %#v", answers[0]["answer"])
+	}
+}
+
 func TestFrontendSubmitCoordinatorAwait_AskUserQuestionCancelClearsRawParams(t *testing.T) {
 	rawParams := []any{}
 	control := contracts.NewRunControl(context.Background(), "run_1")
@@ -194,7 +135,7 @@ func TestFrontendSubmitCoordinatorAwait_AskUserQuestionCancelClearsRawParams(t *
 		t.Fatalf("expected submit to be accepted, got %#v", ack)
 	}
 
-	result, err := NewFrontendSubmitCoordinator().Await(context.Background(), &contracts.ExecutionContext{
+	result, err := NewFrontendSubmitCoordinator(frontendtools.NewDefaultRegistry()).Await(context.Background(), &contracts.ExecutionContext{
 		RunControl:      control,
 		CurrentToolID:   "tool_1",
 		CurrentToolName: "_ask_user_question_",
@@ -241,7 +182,7 @@ func TestFrontendSubmitCoordinatorAwait_AskUserApprovalCancelClearsRawParams(t *
 		t.Fatalf("expected submit to be accepted, got %#v", ack)
 	}
 
-	result, err := NewFrontendSubmitCoordinator().Await(context.Background(), &contracts.ExecutionContext{
+	result, err := NewFrontendSubmitCoordinator(frontendtools.NewDefaultRegistry()).Await(context.Background(), &contracts.ExecutionContext{
 		RunControl:      control,
 		CurrentToolID:   "tool_1",
 		CurrentToolName: "_ask_user_approval_",
@@ -275,8 +216,34 @@ func TestFrontendSubmitCoordinatorAwait_AskUserApprovalCancelClearsRawParams(t *
 	}
 }
 
+func TestFrontendSubmitCoordinatorAwait_MissingHandlerReturnsConfigError(t *testing.T) {
+	control := contracts.NewRunControl(context.Background(), "run_1")
+	control.ExpectSubmit("tool_1")
+
+	result, err := NewFrontendSubmitCoordinator(frontendtools.NewRegistry()).Await(context.Background(), &contracts.ExecutionContext{
+		RunControl:      control,
+		CurrentToolID:   "tool_1",
+		CurrentToolName: "_missing_frontend_tool_",
+		Budget: contracts.Budget{
+			Tool: contracts.RetryPolicy{TimeoutMs: 50},
+		},
+	}, map[string]any{"mode": "question"})
+	if err != nil {
+		t.Fatalf("Await returned error: %v", err)
+	}
+	if result.Error != "frontend_tool_handler_not_registered" {
+		t.Fatalf("expected missing handler error, got %#v", result)
+	}
+	if result.ExitCode != -1 {
+		t.Fatalf("expected exit code -1, got %#v", result)
+	}
+	if !strings.Contains(result.Output, "frontend tool handler not registered") {
+		t.Fatalf("expected config error output, got %q", result.Output)
+	}
+}
+
 func TestFrontendSubmitCoordinatorAwait_TimeoutReturnsCompactStructuredError(t *testing.T) {
-	result, err := NewFrontendSubmitCoordinator().Await(context.Background(), &contracts.ExecutionContext{
+	result, err := NewFrontendSubmitCoordinator(frontendtools.NewDefaultRegistry()).Await(context.Background(), &contracts.ExecutionContext{
 		RunControl:      contracts.NewRunControl(context.Background(), "run_1"),
 		CurrentToolID:   "tool_1",
 		CurrentToolName: "_ask_user_question_",
