@@ -86,30 +86,35 @@ RUN_SOCKET_TESTS=1 make test-integration
 
 ## 3. 配置说明
 
-所有本地配置从 `.env.example` 复制到 `.env`。`.env` 不提交，`.env.example` 仅维护环境变量契约；默认值的单一事实源以代码和 `configs/*.example.yml` 模板为准。
+所有本地配置从 `.env.example` 复制到 `.env`。`.env` 不提交；`.env.example` 只保留推荐给普通部署者的最终用户配置入口，默认值的单一事实源仍以代码和 `configs/*.example.yml` 模板为准。更完整的高级、排障和兼容性环境变量参考见 [docs/configuration-reference.md](./docs/configuration-reference.md)。
 
 ### 根 `.env.example`
 
-根 `.env.example` 与 Java runner 保持同一份环境变量契约，覆盖：
+根 `.env.example` 现在是面向最终用户的最小启动模板，默认保留以下高频配置：
 
 - `HOST_PORT`
 - `SERVER_PORT`
-- `AGENT_AUTH_*`
-- `CHAT_IMAGE_TOKEN_*`
+- `AGENT_AUTH_ENABLED`
+- `AGENT_AUTH_LOCAL_PUBLIC_KEY_FILE`
+- `AGENT_AUTH_JWKS_URI`
+- `AGENT_AUTH_ISSUER`
 - `CHAT_RESOURCE_TICKET_ENABLED`
+- `CHAT_IMAGE_TOKEN_SECRET`
 - `AGENT_CONTAINER_HUB_*`
+- `AGENT_WS_ENABLED`
 - `AGENT_SSE_INCLUDE_TOOL_PAYLOAD_EVENTS`
-- `AGENT_SSE_HEARTBEAT_INTERVAL_MS`
-- `AGENT_H2A_RENDER_*`
 - `AGENT_DEFAULT_*`
 - `REGISTRIES_DIR` / `OWNER_DIR` / `AGENTS_DIR` / `TEAMS_DIR` / `ROOT_DIR` / `SCHEDULES_DIR` / `CHATS_DIR` / `MEMORY_DIR` / `SKILLS_MARKET_DIR` / `PAN_DIR`
-- `AGENT_SCHEDULE_*`
-- `AGENT_MEMORY_*`
-- `CHAT_STORAGE_*`
-- `LOGGING_AGENT_*`
 - `PROVIDER_APIKEY_KEY_PART`
 
-LLM 交互日志默认会直接打印真实 `raw_chunk`、`parsed_content`、`parsed_finish_reason` 和 `parsed_tool_call` 内容，仍会对 Bearer token / `apiKey` / `secret` 一类敏感串做 `[redacted]` 脱敏；如需恢复长度掩码，可设置 `LOGGING_AGENT_LLM_INTERACTION_MASK_SENSITIVE=true`。
+以下环境变量仍受 Go runner 支持，但为了降低最终用户理解成本，默认不再出现在 `.env.example` 中：
+
+- 传输与渲染调试：`AGENT_SSE_HEARTBEAT_INTERVAL_MS`、`AGENT_H2A_RENDER_*`
+- WebSocket 深度调优：`AGENT_WS_MAX_MESSAGE_SIZE`、`AGENT_WS_PING_INTERVAL_MS`、`AGENT_WS_WRITE_TIMEOUT_MS`、`AGENT_WS_WRITE_QUEUE_SIZE`、`AGENT_WS_MAX_OBSERVES_PER_CONN`
+- 日志排障：`LOGGING_AGENT_*`
+- memory / chat storage 深度调优：`AGENT_MEMORY_*`、`CHAT_STORAGE_*`
+
+LLM 交互日志、SSE/H2A 传输参数、WebSocket 开关和 memory/chat storage 细粒度参数的默认值、适用人群和注意事项统一见 [docs/configuration-reference.md](./docs/configuration-reference.md)。
 
 Provider `apiKey` 支持两种写法：
 
