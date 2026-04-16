@@ -63,14 +63,36 @@ func (p *runEventProcessor) decorate(data *stream.EventData) {
 				p.assistantText.WriteString(text)
 			}
 		}
-	case "run.context":
-		if data.Payload == nil {
-			data.Payload = map[string]any{}
+	case "debug.context":
+		inner, ok := data.Payload["data"].(map[string]any)
+		if !ok {
+			inner = map[string]any{}
+			if data.Payload == nil {
+				data.Payload = map[string]any{}
+			}
+			data.Payload["data"] = inner
 		}
-		data.Payload["chatUsage"] = map[string]any{
+		inner["chatUsage"] = map[string]any{
 			"promptTokens":     p.chatUsage.PromptTokens,
 			"completionTokens": p.chatUsage.CompletionTokens,
 			"totalTokens":      p.chatUsage.TotalTokens,
+		}
+	case "debug.usage":
+		inner, ok := data.Payload["data"].(map[string]any)
+		if !ok {
+			return
+		}
+		if p.runUsage != nil {
+			if ru, ok := inner["runUsage"].(map[string]any); ok {
+				p.runUsage.PromptTokens = contracts.AnyIntNode(ru["promptTokens"])
+				p.runUsage.CompletionTokens = contracts.AnyIntNode(ru["completionTokens"])
+				p.runUsage.TotalTokens = contracts.AnyIntNode(ru["totalTokens"])
+			}
+		}
+		inner["chatUsage"] = map[string]any{
+			"promptTokens":     p.chatUsage.PromptTokens + p.runUsage.PromptTokens,
+			"completionTokens": p.chatUsage.CompletionTokens + p.runUsage.CompletionTokens,
+			"totalTokens":      p.chatUsage.TotalTokens + p.runUsage.TotalTokens,
 		}
 	case "run.complete", "run.error", "run.cancel":
 		if p.runUsage != nil {

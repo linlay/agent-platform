@@ -41,6 +41,11 @@ type StepWriter struct {
 	// msgId generation
 	currentMsgID string
 	needNewMsgID bool
+
+	// pending usage / contextWindow captured from activity.* events;
+	// attached to last assistant message on step flush
+	pendingUsage         map[string]any
+	pendingContextWindow int
 }
 
 // NewStepWriter creates a StepWriter for a single run.
@@ -183,6 +188,28 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 	case "artifact.publish":
 		w.updateArtifact(event)
 
+	case "debug.context":
+		if inner, ok := event.Value("data").(map[string]any); ok {
+			if model, ok := inner["model"].(map[string]any); ok {
+				if cw, ok := model["contextWindow"].(int); ok && cw > 0 {
+					w.pendingContextWindow = cw
+				} else if cw, ok := model["contextWindow"].(float64); ok && cw > 0 {
+					w.pendingContextWindow = int(cw)
+				}
+			}
+		}
+
+	case "debug.usage":
+		if inner, ok := event.Value("data").(map[string]any); ok {
+			if llm, ok := inner["llmReturnUsage"].(map[string]any); ok {
+				w.pendingUsage = map[string]any{
+					"prompt_tokens":     toInt(llm["promptTokens"]),
+					"completion_tokens": toInt(llm["completionTokens"]),
+					"total_tokens":      toInt(llm["totalTokens"]),
+				}
+			}
+		}
+
 	case "run.complete", "run.cancel", "run.error":
 		w.flushCurrentStep()
 	}
@@ -227,6 +254,24 @@ func (w *StepWriter) ensureStep() {
 func (w *StepWriter) flushCurrentStep() {
 	if len(w.messages) == 0 {
 		return
+	}
+
+	// Attach pending usage / contextWindow to the last assistant message
+	// (matches Java convention: _usage / _contextWindow on StoredMessage).
+	if w.pendingUsage != nil || w.pendingContextWindow > 0 {
+		for i := len(w.messages) - 1; i >= 0; i-- {
+			if w.messages[i].Role == "assistant" {
+				if w.pendingUsage != nil {
+					w.messages[i].Usage = w.pendingUsage
+				}
+				if w.pendingContextWindow > 0 {
+					w.messages[i].ContextWindow = w.pendingContextWindow
+				}
+				break
+			}
+		}
+		w.pendingUsage = nil
+		w.pendingContextWindow = 0
 	}
 
 	line := StepLine{
@@ -337,6 +382,18 @@ func formatResult(v any) string {
 func stringVal(v any) string {
 	s, _ := v.(string)
 	return strings.TrimSpace(s)
+}
+
+func toInt(v any) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case int64:
+		return int(n)
+	case float64:
+		return int(n)
+	}
+	return 0
 }
 
 // toMapSlice converts an any value to []map[string]any.

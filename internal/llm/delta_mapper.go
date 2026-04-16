@@ -138,12 +138,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		return []stream.StreamInput{stream.StageMarker{Stage: value.Stage}}
 	case DeltaFinishReason:
 		m.lastKind = ""
-		return []stream.StreamInput{stream.InputRunComplete{
-			FinishReason:     value.Reason,
-			PromptTokens:     value.PromptTokens,
-			CompletionTokens: value.CompletionTokens,
-			TotalTokens:      value.TotalTokens,
-		}}
+		return []stream.StreamInput{stream.InputRunComplete{FinishReason: value.Reason}}
 	case DeltaError:
 		m.lastKind = ""
 		return []stream.StreamInput{stream.InputRunError{Error: value.Error}}
@@ -216,21 +211,28 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			SteerID:   value.SteerID,
 			Message:   value.Message,
 		}}
-	case DeltaRunContext:
+	case DeltaActivityContext:
 		m.lastKind = ""
-		return []stream.StreamInput{stream.InputRunContext{
+		return []stream.StreamInput{stream.InputActivityContext{
 			ChatID:                value.ChatID,
 			ModelKey:              value.ModelKey,
 			ContextWindow:         value.ContextWindow,
-			EstimatedPromptTokens: value.EstimatedPromptTokens,
+			CurrentContextSize:    value.CurrentContextSize,
+			EstimatedNextCallSize: value.EstimatedNextCallSize,
+		}}
+	case DeltaActivityUsage:
+		m.lastKind = ""
+		return []stream.StreamInput{stream.InputActivityUsage{
+			ChatID:                    value.ChatID,
+			LLMReturnPromptTokens:     value.LLMReturnPromptTokens,
+			LLMReturnCompletionTokens: value.LLMReturnCompletionTokens,
+			LLMReturnTotalTokens:      value.LLMReturnTotalTokens,
+			RunPromptTokens:           value.RunPromptTokens,
+			RunCompletionTokens:       value.RunCompletionTokens,
+			RunTotalTokens:            value.RunTotalTokens,
 		}}
 	case DeltaRunCancel:
-		return []stream.StreamInput{stream.RunCancel{
-			RunID:            value.RunID,
-			PromptTokens:     value.PromptTokens,
-			CompletionTokens: value.CompletionTokens,
-			TotalTokens:      value.TotalTokens,
-		}}
+		return []stream.StreamInput{stream.RunCancel{RunID: value.RunID}}
 	default:
 		return nil
 	}

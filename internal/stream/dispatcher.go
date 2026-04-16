@@ -95,42 +95,53 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 		}))
 		return events
 	case RunCancel:
-		if value.TotalTokens > 0 {
-			d.state.runUsage = &runUsageState{
-				PromptTokens:     value.PromptTokens,
-				CompletionTokens: value.CompletionTokens,
-				TotalTokens:      value.TotalTokens,
-			}
-		}
 		events := d.closeOpenBlocks()
-		payload := map[string]any{
-			"runId": value.RunID,
-		}
+		payload := map[string]any{"runId": value.RunID}
 		if usage := d.usagePayload(); usage != nil {
 			payload["usage"] = usage
 		}
 		events = append(events, NewEvent("run.cancel", payload))
 		d.state.terminated = true
 		return events
-	case InputRunContext:
-		return []StreamEvent{NewEvent("run.context", map[string]any{
+	case InputActivityContext:
+		return []StreamEvent{NewEvent("debug.context", map[string]any{
 			"runId":  d.request.RunID,
 			"chatId": value.ChatID,
-			"model": map[string]any{
-				"key":           value.ModelKey,
-				"contextWindow": value.ContextWindow,
+			"data": map[string]any{
+				"model": map[string]any{
+					"key":           value.ModelKey,
+					"contextWindow": value.ContextWindow,
+				},
+				"currentContextSize":    value.CurrentContextSize,
+				"estimatedNextCallSize": value.EstimatedNextCallSize,
 			},
-			"estimatedPromptTokens": value.EstimatedPromptTokens,
+		})}
+	case InputActivityUsage:
+		if value.RunTotalTokens > 0 {
+			d.state.runUsage = &runUsageState{
+				PromptTokens:     value.RunPromptTokens,
+				CompletionTokens: value.RunCompletionTokens,
+				TotalTokens:      value.RunTotalTokens,
+			}
+		}
+		return []StreamEvent{NewEvent("debug.usage", map[string]any{
+			"runId":  d.request.RunID,
+			"chatId": value.ChatID,
+			"data": map[string]any{
+				"llmReturnUsage": map[string]any{
+					"promptTokens":     value.LLMReturnPromptTokens,
+					"completionTokens": value.LLMReturnCompletionTokens,
+					"totalTokens":      value.LLMReturnTotalTokens,
+				},
+				"runUsage": map[string]any{
+					"promptTokens":     value.RunPromptTokens,
+					"completionTokens": value.RunCompletionTokens,
+					"totalTokens":      value.RunTotalTokens,
+				},
+			},
 		})}
 	case InputRunComplete:
 		d.state.runFinishReason = value.FinishReason
-		if value.TotalTokens > 0 {
-			d.state.runUsage = &runUsageState{
-				PromptTokens:     value.PromptTokens,
-				CompletionTokens: value.CompletionTokens,
-				TotalTokens:      value.TotalTokens,
-			}
-		}
 		return nil
 	case InputRunError:
 		events := d.closeOpenBlocks()
@@ -287,17 +298,6 @@ func (d *StreamEventDispatcher) Fail(err error) []StreamEvent {
 	events = append(events, NewEvent("run.error", payload))
 	d.state.terminated = true
 	return events
-}
-
-func (d *StreamEventDispatcher) usagePayload() map[string]any {
-	if d.state.runUsage == nil || d.state.runUsage.TotalTokens == 0 {
-		return nil
-	}
-	return map[string]any{
-		"promptTokens":     d.state.runUsage.PromptTokens,
-		"completionTokens": d.state.runUsage.CompletionTokens,
-		"totalTokens":      d.state.runUsage.TotalTokens,
-	}
 }
 
 func (d *StreamEventDispatcher) handleReasoningDelta(input ReasoningDelta) []StreamEvent {
@@ -503,6 +503,17 @@ func (d *StreamEventDispatcher) closeForSwitch(next string) []StreamEvent {
 		return append(d.closeReasoning(), append(d.closeContent(), d.closeAllTools()...)...)
 	default:
 		return d.closeOpenBlocks()
+	}
+}
+
+func (d *StreamEventDispatcher) usagePayload() map[string]any {
+	if d.state.runUsage == nil || d.state.runUsage.TotalTokens == 0 {
+		return nil
+	}
+	return map[string]any{
+		"promptTokens":     d.state.runUsage.PromptTokens,
+		"completionTokens": d.state.runUsage.CompletionTokens,
+		"totalTokens":      d.state.runUsage.TotalTokens,
 	}
 }
 

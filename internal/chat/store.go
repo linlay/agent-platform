@@ -469,14 +469,35 @@ func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, r
 			}
 			taskID, _ := line["taskId"].(string)
 			msgs, _ := line["messages"].([]any)
+			var stepUsage map[string]any
+			var stepContextWindow int
 			for _, rawMsg := range msgs {
 				msgMap, _ := rawMsg.(map[string]any)
 				if msgMap == nil {
 					continue
 				}
+				if u, ok := msgMap["_usage"].(map[string]any); ok && len(u) > 0 {
+					stepUsage = u
+				}
+				if cw, ok := msgMap["_contextWindow"].(float64); ok && cw > 0 {
+					stepContextWindow = int(cw)
+				}
 				for _, ev := range storedMessageToEvents(msgMap, runID, taskID, stage, nextSeq) {
 					rd.events = append(rd.events, ev)
 				}
+			}
+			if stepUsage != nil {
+				rd.totalPromptTokens += toIntValue(stepUsage["prompt_tokens"])
+				rd.totalCompletionTokens += toIntValue(stepUsage["completion_tokens"])
+				rd.totalTotalTokens += toIntValue(stepUsage["total_tokens"])
+			}
+			if stepUsage != nil || stepContextWindow > 0 {
+				runCumulative := map[string]int{
+					"promptTokens":     rd.totalPromptTokens,
+					"completionTokens": rd.totalCompletionTokens,
+					"totalTokens":      rd.totalTotalTokens,
+				}
+				rd.events = append(rd.events, synthesizeActivityEvents(runID, chatID, stepUsage, runCumulative, stepContextWindow, int64FromAny(line["updatedAt"]), nextSeq)...)
 			}
 		case "event":
 			event, _ := line["event"].(map[string]any)
@@ -502,7 +523,7 @@ func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, r
 		})
 	}
 
-	for i, runID := range runOrder {
+	for _, runID := range runOrder {
 		rd := runs[runID]
 		hasRunStart := false
 		runStartTimestamp := int64(0)
@@ -528,20 +549,19 @@ func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, r
 		allEvents = append(allEvents, rd.events...)
 		// Synthesize run.complete for the frontend (not persisted in JSONL).
 		if runID != "" {
-			completePayload := map[string]any{"runId": runID, "finishReason": "stop"}
-			isLastRun := i == len(runOrder)-1
-			if isLastRun && summary.Usage != nil && summary.Usage.TotalTokens > 0 {
-				completePayload["chatUsage"] = map[string]any{
-					"promptTokens":     summary.Usage.PromptTokens,
-					"completionTokens": summary.Usage.CompletionTokens,
-					"totalTokens":      summary.Usage.TotalTokens,
+			payload := map[string]any{"runId": runID, "finishReason": "stop"}
+			if rd.totalTotalTokens > 0 {
+				payload["usage"] = map[string]any{
+					"promptTokens":     rd.totalPromptTokens,
+					"completionTokens": rd.totalCompletionTokens,
+					"totalTokens":      rd.totalTotalTokens,
 				}
 			}
 			allEvents = append(allEvents, stream.EventData{
 				Seq:       nextSeq(),
 				Type:      "run.complete",
 				Timestamp: runCompleteTimestamp,
-				Payload:   completePayload,
+				Payload:   payload,
 			})
 		}
 	}
@@ -607,6 +627,73 @@ func isNewFormat(lines []map[string]any) bool {
 // ---------------------------------------------------------------------------
 // Step line → SSE events reconstruction
 // ---------------------------------------------------------------------------
+
+func synthesizeActivityEvents(runID, chatID string, usage map[string]any, runCumulative map[string]int, contextWindow int, ts int64, nextSeq func() int64) []stream.EventData {
+	events := make([]stream.EventData, 0, 2)
+	if contextWindow > 0 {
+		promptTokens := 0
+		if usage != nil {
+			promptTokens = toIntValue(usage["prompt_tokens"])
+		}
+		events = append(events, stream.EventData{
+			Seq:       nextSeq(),
+			Type:      "debug.context",
+			Timestamp: ts,
+			Payload: map[string]any{
+				"runId":  runID,
+				"chatId": chatID,
+				"data": map[string]any{
+					"model": map[string]any{
+						"contextWindow": contextWindow,
+					},
+					"currentContextSize":    promptTokens,
+					"estimatedNextCallSize": promptTokens,
+				},
+			},
+		})
+	}
+	if usage != nil {
+		llm := map[string]any{
+			"promptTokens":     toIntValue(usage["prompt_tokens"]),
+			"completionTokens": toIntValue(usage["completion_tokens"]),
+			"totalTokens":      toIntValue(usage["total_tokens"]),
+		}
+		run := llm
+		if runCumulative != nil {
+			run = map[string]any{
+				"promptTokens":     runCumulative["promptTokens"],
+				"completionTokens": runCumulative["completionTokens"],
+				"totalTokens":      runCumulative["totalTokens"],
+			}
+		}
+		events = append(events, stream.EventData{
+			Seq:       nextSeq(),
+			Type:      "debug.usage",
+			Timestamp: ts,
+			Payload: map[string]any{
+				"runId":  runID,
+				"chatId": chatID,
+				"data": map[string]any{
+					"llmReturnUsage": llm,
+					"runUsage":       run,
+				},
+			},
+		})
+	}
+	return events
+}
+
+func toIntValue(v any) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case int64:
+		return int(n)
+	case float64:
+		return int(n)
+	}
+	return 0
+}
 
 func storedMessageToEvents(msg map[string]any, runID, taskID, stage string, nextSeq func() int64) []stream.EventData {
 	role, _ := msg["role"].(string)
@@ -791,9 +878,12 @@ func parseArtifactFromStep(raw map[string]any) *ArtifactState {
 }
 
 type chatRunData struct {
-	runID    string
-	agentKey string
-	events   []stream.EventData
+	runID                 string
+	agentKey              string
+	events                []stream.EventData
+	totalPromptTokens     int
+	totalCompletionTokens int
+	totalTotalTokens      int
 }
 
 func ensureRun(runs map[string]*chatRunData, order *[]string, runID string) *chatRunData {

@@ -49,10 +49,7 @@ type DeltaStageMarker struct {
 func (DeltaStageMarker) agentDeltaTag() {}
 
 type DeltaFinishReason struct {
-	Reason           string
-	PromptTokens     int
-	CompletionTokens int
-	TotalTokens      int
+	Reason string
 }
 
 func (DeltaFinishReason) agentDeltaTag() {}
@@ -137,20 +134,30 @@ type DeltaRequestSteer struct {
 
 func (DeltaRequestSteer) agentDeltaTag() {}
 
-type DeltaRunContext struct {
+type DeltaActivityContext struct {
 	ChatID                string
 	ModelKey              string
 	ContextWindow         int
-	EstimatedPromptTokens int
+	CurrentContextSize    int
+	EstimatedNextCallSize int
 }
 
-func (DeltaRunContext) agentDeltaTag() {}
+func (DeltaActivityContext) agentDeltaTag() {}
+
+type DeltaActivityUsage struct {
+	ChatID                    string
+	LLMReturnPromptTokens     int
+	LLMReturnCompletionTokens int
+	LLMReturnTotalTokens      int
+	RunPromptTokens           int
+	RunCompletionTokens       int
+	RunTotalTokens            int
+}
+
+func (DeltaActivityUsage) agentDeltaTag() {}
 
 type DeltaRunCancel struct {
-	RunID            string
-	PromptTokens     int
-	CompletionTokens int
-	TotalTokens      int
+	RunID string
 }
 
 func (DeltaRunCancel) agentDeltaTag() {}

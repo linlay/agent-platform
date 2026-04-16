@@ -56,9 +56,13 @@ type llmRunStream struct {
 	hitlSyntheticName  string
 	skipPostToolHook   bool
 
-	usagePromptTokens     int
-	usageCompletionTokens int
-	usageTotalTokens      int
+	lastCallPromptTokens     int
+	lastCallCompletionTokens int
+	lastCallTotalTokens      int
+	runPromptTokens          int
+	runCompletionTokens      int
+	runTotalTokens           int
+	pendingUsageEmit         bool
 }
 
 type providerTurnStream struct {
@@ -226,11 +230,12 @@ func (s *llmRunStream) prepareNextTurn() error {
 	if s.protocol == nil {
 		return fmt.Errorf("streaming protocol %s is not supported", s.model.Protocol)
 	}
-	s.pending = append(s.pending, DeltaRunContext{
+	s.pending = append(s.pending, DeltaActivityContext{
 		ChatID:                s.session.ChatID,
 		ModelKey:              s.model.Key,
 		ContextWindow:         s.effectiveContextWindow(),
-		EstimatedPromptTokens: s.estimatePromptTokens(),
+		CurrentContextSize:    s.currentContextSize(),
+		EstimatedNextCallSize: s.estimatedNextCallSize(),
 	})
 	turn, err := s.protocol.OpenStream(s.ctx, protocolStreamParams{
 		runID:          s.session.RunID,
@@ -454,17 +459,14 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		s.messages = append(s.messages, msg)
 	}
 
+	s.emitPendingUsageDelta()
+
 	if len(toolCalls) == 0 {
 		if strings.TrimSpace(content) == "" {
 			s.enqueueFallback("Model returned no assistant content.")
 		}
 		if finishReason := strings.TrimSpace(turn.finishReason); finishReason != "" && !strings.EqualFold(finishReason, "tool_calls") {
-			s.pending = append(s.pending, DeltaFinishReason{
-				Reason:           finishReason,
-				PromptTokens:     s.usagePromptTokens,
-				CompletionTokens: s.usageCompletionTokens,
-				TotalTokens:      s.usageTotalTokens,
-			})
+			s.pending = append(s.pending, DeltaFinishReason{Reason: finishReason})
 		}
 		s.finished = true
 		return nil
@@ -504,19 +506,42 @@ func (s *llmRunStream) finishCurrentTurn() error {
 	return nil
 }
 
-func (s *llmRunStream) estimatePromptTokens() int {
-	if s.usagePromptTokens > 0 {
-		newBytes := 0
-		for i := len(s.messages) - 1; i >= 0; i-- {
-			msg := s.messages[i]
-			if msg.Role == "assistant" && i < len(s.messages)-1 {
-				break
-			}
-			raw, _ := json.Marshal(msg)
-			newBytes += len(raw)
-		}
-		return s.usagePromptTokens + s.usageCompletionTokens + newBytes/4
+func (s *llmRunStream) currentContextSize() int {
+	return s.lastCallPromptTokens
+}
+
+func (s *llmRunStream) estimatedNextCallSize() int {
+	if s.lastCallPromptTokens > 0 {
+		return s.lastCallPromptTokens + s.lastCallCompletionTokens + s.bytesAfterLastAssistant()/4
 	}
+	return s.fallbackContextEstimate()
+}
+
+// bytesAfterLastAssistant returns bytes of messages strictly after the
+// last assistant message. Matches Claude Code's messages.slice(i+1) logic
+// in tokenCountWithEstimation: the assistant message itself is covered by
+// lastCallCompletionTokens (its output), so only tool_results / new user
+// messages added since then count as "new".
+func (s *llmRunStream) bytesAfterLastAssistant() int {
+	lastAssistant := -1
+	for i := len(s.messages) - 1; i >= 0; i-- {
+		if s.messages[i].Role == "assistant" {
+			lastAssistant = i
+			break
+		}
+	}
+	if lastAssistant == -1 {
+		return 0
+	}
+	newBytes := 0
+	for i := lastAssistant + 1; i < len(s.messages); i++ {
+		raw, _ := json.Marshal(s.messages[i])
+		newBytes += len(raw)
+	}
+	return newBytes
+}
+
+func (s *llmRunStream) fallbackContextEstimate() int {
 	total := 0
 	for _, msg := range s.messages {
 		raw, _ := json.Marshal(msg)
@@ -538,12 +563,32 @@ func (s *llmRunStream) effectiveContextWindow() int {
 	return defaultContextWindow
 }
 
+func (s *llmRunStream) emitPendingUsageDelta() {
+	if !s.pendingUsageEmit {
+		return
+	}
+	s.pendingUsageEmit = false
+	s.pending = append(s.pending, DeltaActivityUsage{
+		ChatID:                    s.session.ChatID,
+		LLMReturnPromptTokens:     s.lastCallPromptTokens,
+		LLMReturnCompletionTokens: s.lastCallCompletionTokens,
+		LLMReturnTotalTokens:      s.lastCallTotalTokens,
+		RunPromptTokens:           s.runPromptTokens,
+		RunCompletionTokens:       s.runCompletionTokens,
+		RunTotalTokens:            s.runTotalTokens,
+	})
+}
+
 func (s *llmRunStream) accumulateUsage(prompt, completion, total int) {
-	s.usagePromptTokens += prompt
-	s.usageCompletionTokens += completion
-	s.usageTotalTokens += total
-	log.Printf("[llm][run:%s][usage] turn accumulated: prompt=%d completion=%d total=%d (cumulative: prompt=%d completion=%d total=%d)",
-		s.session.RunID, prompt, completion, total, s.usagePromptTokens, s.usageCompletionTokens, s.usageTotalTokens)
+	s.lastCallPromptTokens = prompt
+	s.lastCallCompletionTokens = completion
+	s.lastCallTotalTokens = total
+	s.runPromptTokens += prompt
+	s.runCompletionTokens += completion
+	s.runTotalTokens += total
+	s.pendingUsageEmit = true
+	log.Printf("[llm][run:%s][usage] last-call: prompt=%d completion=%d total=%d | run-cumulative: prompt=%d completion=%d total=%d",
+		s.session.RunID, prompt, completion, total, s.runPromptTokens, s.runCompletionTokens, s.runTotalTokens)
 }
 
 func (s *llmRunStream) drainUsageChunk() {
@@ -1176,12 +1221,8 @@ func (s *llmRunStream) handleInterruptIfNeeded() error {
 	}
 	if !s.cancelSent {
 		s.cancelSent = true
-		s.pending = append(s.pending, DeltaRunCancel{
-			RunID:            s.session.RunID,
-			PromptTokens:     s.usagePromptTokens,
-			CompletionTokens: s.usageCompletionTokens,
-			TotalTokens:      s.usageTotalTokens,
-		})
+		s.emitPendingUsageDelta()
+		s.pending = append(s.pending, DeltaRunCancel{RunID: s.session.RunID})
 		return nil
 	}
 	return ErrRunInterrupted

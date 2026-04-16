@@ -267,14 +267,14 @@ func eventPayloadKeyOrder(eventType string) []string {
 		return []string{"chatId", "chatName"}
 	case "run.start":
 		return []string{"runId", "chatId", "agentKey"}
-	case "run.context":
-		return []string{"runId", "chatId", "model", "estimatedPromptTokens", "chatUsage"}
+	case "debug.context", "debug.usage":
+		return []string{"runId", "chatId", "data"}
 	case "run.complete":
-		return []string{"runId", "finishReason", "usage", "chatUsage"}
+		return []string{"runId", "finishReason", "usage"}
 	case "run.cancel":
-		return []string{"runId", "usage", "chatUsage"}
+		return []string{"runId", "usage"}
 	case "run.error":
-		return []string{"runId", "error", "usage", "chatUsage"}
+		return []string{"runId", "error", "usage"}
 	case "reasoning.start":
 		return []string{"reasoningId", "runId", "taskId", "reasoningLabel"}
 	case "reasoning.delta":
