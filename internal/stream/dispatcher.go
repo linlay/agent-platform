@@ -202,11 +202,9 @@ func newAwaitingAnswerEvent(input AwaitingAnswer) StreamEvent {
 			payload["questions"] = formatted
 		}
 	case "approval":
-		if value := strings.TrimSpace(anyString(answer["value"])); value != "" {
-			payload["value"] = value
-		}
-		if freeText := strings.TrimSpace(anyString(answer["freeText"])); freeText != "" {
-			payload["freeText"] = freeText
+		formatted := formatAwaitingQuestions(answer["questions"])
+		if len(formatted) > 0 {
+			payload["questions"] = formatted
 		}
 	default:
 		return StreamEvent{}
@@ -240,6 +238,9 @@ func formatAwaitingQuestions(raw any) []map[string]any {
 				entry["header"] = header
 			}
 			appendAwaitingQuestionValue(entry, answer["answer"])
+			if value := strings.TrimSpace(anyString(answer["value"])); value != "" {
+				entry["value"] = value
+			}
 			formatted = append(formatted, entry)
 		}
 		return formatted

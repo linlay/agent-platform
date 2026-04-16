@@ -27,6 +27,10 @@ func (h *AskUserApprovalHandler) BuildDeferredAwait(toolID string, runID string,
 	if !strings.EqualFold(strings.TrimSpace(contracts.AnyStringNode(args["mode"])), "approval") {
 		return nil
 	}
+	questions := cloneAwaitQuestions(asAnySlice(args["questions"]))
+	if len(questions) == 0 {
+		return nil
+	}
 	viewportType, _ := tool.Meta["viewportType"].(string)
 	viewportKey, _ := tool.Meta["viewportKey"].(string)
 	if value := contracts.AnyStringNode(args["viewportType"]); value != "" {
@@ -35,25 +39,6 @@ func (h *AskUserApprovalHandler) BuildDeferredAwait(toolID string, runID string,
 	if value := contracts.AnyStringNode(args["viewportKey"]); value != "" {
 		viewportKey = value
 	}
-	question := map[string]any{}
-	if value := contracts.AnyStringNode(args["question"]); value != "" {
-		question["question"] = value
-	}
-	if value := contracts.AnyStringNode(args["header"]); value != "" {
-		question["header"] = value
-	}
-	if value := contracts.AnyStringNode(args["description"]); value != "" {
-		question["description"] = value
-	}
-	if options, ok := args["options"].([]any); ok {
-		question["options"] = cloneAwaitQuestions(options)
-	}
-	if _, exists := args["allowFreeText"]; exists {
-		question["allowFreeText"] = args["allowFreeText"]
-	}
-	if value := contracts.AnyStringNode(args["freeTextPlaceholder"]); value != "" {
-		question["freeTextPlaceholder"] = value
-	}
 	return []contracts.AgentDelta{contracts.DeltaAwaitAsk{
 		AwaitingID:   toolID,
 		ViewportType: strings.TrimSpace(viewportType),
@@ -61,84 +46,180 @@ func (h *AskUserApprovalHandler) BuildDeferredAwait(toolID string, runID string,
 		Mode:         "approval",
 		ToolTimeout:  timeoutMs,
 		RunID:        runID,
-		Questions:    []any{question},
+		Questions:    questions,
 	}}
 }
 
 func (h *AskUserApprovalHandler) NormalizeSubmit(args map[string]any, params any) (map[string]any, error) {
-	payload, ok := params.(map[string]any)
+	rawAnswers, ok := params.([]any)
 	if !ok {
-		return nil, fmt.Errorf("ask_user_approval submit params must be an object")
+		return nil, fmt.Errorf("ask_user_approval submit params must be an array")
 	}
-	value, hasValue := nonEmptyStringField(payload["value"])
-	freeText, hasFreeText := nonEmptyStringField(payload["freeText"])
-	if !hasValue && !hasFreeText {
+	if len(rawAnswers) == 0 {
 		return map[string]any{
 			"mode":      "approval",
 			"cancelled": true,
 			"reason":    "user_dismissed",
 		}, nil
 	}
-	if hasValue && hasFreeText {
-		return nil, fmt.Errorf("ask_user_approval submit params must contain exactly one of value or freeText")
-	}
-	if hasValue {
-		allowed := map[string]bool{}
-		for _, rawOption := range asAnySlice(args["options"]) {
-			option := contracts.AnyMapNode(rawOption)
-			if optionValue := contracts.AnyStringNode(option["value"]); optionValue != "" {
-				allowed[optionValue] = true
-			}
+
+	questionDefs := map[string]map[string]any{}
+	for _, rawQuestion := range asAnySlice(args["questions"]) {
+		question := contracts.AnyMapNode(rawQuestion)
+		text := contracts.AnyStringNode(question["question"])
+		if text == "" {
+			continue
 		}
-		if len(allowed) > 0 && !allowed[value] {
-			return nil, fmt.Errorf("ask_user_approval value is not an allowed option")
+		questionDefs[text] = question
+	}
+
+	seenQuestions := map[string]bool{}
+	questions := make([]map[string]any, 0, len(rawAnswers))
+	for _, rawAnswer := range rawAnswers {
+		answerMap := contracts.AnyMapNode(rawAnswer)
+		if len(answerMap) == 0 {
+			return nil, fmt.Errorf("ask_user_approval answers must contain objects")
 		}
-		return map[string]any{
-			"mode":  "approval",
-			"value": value,
-		}, nil
+		questionText := contracts.AnyStringNode(answerMap["question"])
+		if questionText == "" {
+			return nil, fmt.Errorf("ask_user_approval answers.question is required")
+		}
+		if seenQuestions[questionText] {
+			return nil, fmt.Errorf("duplicate question: %s", questionText)
+		}
+		definition, ok := questionDefs[questionText]
+		if !ok {
+			return nil, fmt.Errorf("unknown question: %s", questionText)
+		}
+		answerText := contracts.AnyStringNode(answerMap["answer"])
+		if answerText == "" {
+			return nil, fmt.Errorf("%s: answer is required", questionText)
+		}
+		normalizedQuestion, err := normalizeApprovalQuestion(definition, answerText, answerMap)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", questionText, err)
+		}
+		questions = append(questions, normalizedQuestion)
+		seenQuestions[questionText] = true
 	}
-	if !contracts.AnyBoolNode(args["allowFreeText"]) {
-		return nil, fmt.Errorf("ask_user_approval freeText is not allowed")
-	}
+
 	return map[string]any{
-		"mode":     "approval",
-		"freeText": freeText,
+		"mode":      "approval",
+		"questions": questions,
 	}, nil
 }
 
 func (h *AskUserApprovalHandler) FormatSubmitResult(format string, result contracts.ToolExecutionResult) (string, bool) {
 	switch strings.ToLower(strings.TrimSpace(format)) {
-	case "summary", "qa":
+	case "summary":
 		return formatApprovalSummary(result), true
 	case "kv":
 		return formatApprovalKV(result), true
+	case "qa":
+		return formatApprovalQA(result), true
 	default:
 		return "", false
 	}
 }
 
+func normalizeApprovalQuestion(definition map[string]any, answerText string, answerMap map[string]any) (map[string]any, error) {
+	questionText := contracts.AnyStringNode(definition["question"])
+	entry := map[string]any{
+		"question": questionText,
+		"header":   contracts.AnyStringNode(definition["header"]),
+		"answer":   answerText,
+	}
+
+	options := approvalOptionMap(definition)
+	if expectedValue, ok := options[answerText]; ok {
+		submittedValue := contracts.AnyStringNode(answerMap["value"])
+		if submittedValue == "" {
+			return nil, fmt.Errorf("value is required for preset options")
+		}
+		if submittedValue != expectedValue {
+			return nil, fmt.Errorf("value does not match selected option")
+		}
+		entry["value"] = submittedValue
+		return entry, nil
+	}
+
+	if !contracts.AnyBoolNode(definition["allowFreeText"]) {
+		return nil, fmt.Errorf("answer is not an allowed option")
+	}
+	submittedValue := contracts.AnyStringNode(answerMap["value"])
+	if submittedValue == "" {
+		submittedValue = answerText
+	}
+	if submittedValue != answerText {
+		return nil, fmt.Errorf("value must match answer for free-text approval")
+	}
+	entry["value"] = submittedValue
+	return entry, nil
+}
+
+func approvalOptionMap(definition map[string]any) map[string]string {
+	options := map[string]string{}
+	for _, rawOption := range asAnySlice(definition["options"]) {
+		option := contracts.AnyMapNode(rawOption)
+		label := contracts.AnyStringNode(option["label"])
+		value := contracts.AnyStringNode(option["value"])
+		if label == "" || value == "" {
+			continue
+		}
+		options[label] = value
+	}
+	return options
+}
+
 func formatApprovalSummary(result contracts.ToolExecutionResult) string {
-	if value := strings.TrimSpace(contracts.AnyStringNode(result.Structured["value"])); value != "" {
-		return "用户选择了: " + value
+	questions, ok := structuredQuestions(result)
+	if !ok || len(questions) == 0 {
+		return result.Output
 	}
-	if freeText := strings.TrimSpace(contracts.AnyStringNode(result.Structured["freeText"])); freeText != "" {
-		return "用户自由输入: " + freeText
+	lines := make([]string, 0, len(questions)+1)
+	lines = append(lines, "用户完成了以下确认:")
+	for _, question := range questions {
+		key := formatAnswerKey(question)
+		if key == "" {
+			return result.Output
+		}
+		lines = append(lines, "- "+key+": "+formatAnswerValue(question["answer"]))
 	}
-	return result.Output
+	return strings.Join(lines, "\n")
 }
 
 func formatApprovalKV(result contracts.ToolExecutionResult) string {
-	if value := strings.TrimSpace(contracts.AnyStringNode(result.Structured["value"])); value != "" {
-		return "选择=" + value
+	questions, ok := structuredQuestions(result)
+	if !ok || len(questions) == 0 {
+		return result.Output
 	}
-	if freeText := strings.TrimSpace(contracts.AnyStringNode(result.Structured["freeText"])); freeText != "" {
-		return "自由输入=" + freeText
+	items := make([]string, 0, len(questions))
+	for _, question := range questions {
+		key := formatAnswerKey(question)
+		if key == "" {
+			return result.Output
+		}
+		items = append(items, key+"="+formatAnswerValue(question["answer"]))
 	}
-	return result.Output
+	return strings.Join(items, "; ")
 }
 
-func nonEmptyStringField(value any) (string, bool) {
-	text := contracts.AnyStringNode(value)
-	return text, text != ""
+func formatApprovalQA(result contracts.ToolExecutionResult) string {
+	questions, ok := structuredQuestions(result)
+	if !ok || len(questions) == 0 {
+		return result.Output
+	}
+	lines := make([]string, 0, len(questions)*2)
+	for _, question := range questions {
+		prompt := strings.TrimSpace(contracts.AnyStringNode(question["question"]))
+		if prompt == "" {
+			prompt = strings.TrimSpace(contracts.AnyStringNode(question["header"]))
+		}
+		if prompt == "" {
+			return result.Output
+		}
+		lines = append(lines, "问题："+prompt)
+		lines = append(lines, "回答："+formatAnswerValue(question["answer"]))
+	}
+	return strings.Join(lines, "\n")
 }

@@ -170,7 +170,7 @@ func TestFrontendSubmitCoordinatorAwait_AskUserQuestionCancelClearsRawParams(t *
 }
 
 func TestFrontendSubmitCoordinatorAwait_AskUserApprovalCancelClearsRawParams(t *testing.T) {
-	rawParams := map[string]any{}
+	rawParams := []any{}
 	control := contracts.NewRunControl(context.Background(), "run_1")
 	control.ExpectSubmit("tool_1")
 	ack := control.ResolveSubmit(api.SubmitRequest{
@@ -190,8 +190,13 @@ func TestFrontendSubmitCoordinatorAwait_AskUserApprovalCancelClearsRawParams(t *
 			Tool: contracts.RetryPolicy{TimeoutMs: 50},
 		},
 	}, map[string]any{
-		"options": []any{
-			map[string]any{"label": "Approve", "value": "approve"},
+		"questions": []any{
+			map[string]any{
+				"question": "Need confirmation",
+				"options": []any{
+					map[string]any{"label": "Approve", "value": "approve"},
+				},
+			},
 		},
 	})
 	if err != nil {

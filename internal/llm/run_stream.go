@@ -949,7 +949,10 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 	}
 	s.appendSyntheticToolResult(syntheticID, syntheticName, structuredResult(normalized))
 
-	if normalized["cancelled"] == true || strings.EqualFold(AnyStringNode(normalized["value"]), "reject") {
+	selectedApproval := firstApprovalQuestion(normalized["questions"])
+	selectedValue := strings.TrimSpace(AnyStringNode(selectedApproval["value"]))
+	selectedAnswer := strings.TrimSpace(AnyStringNode(selectedApproval["answer"]))
+	if normalized["cancelled"] == true || strings.EqualFold(selectedValue, "reject") {
 		rejected := ToolExecutionResult{
 			Output: marshalJSON(NewErrorPayload(
 				"hitl_rejected",
@@ -978,7 +981,7 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 		return nil
 	}
 
-	if modifiedCommand := strings.TrimSpace(AnyStringNode(normalized["freeText"])); modifiedCommand != "" {
+	if modifiedCommand := resolveApprovedCommand(selectedValue, selectedAnswer); modifiedCommand != "" {
 		invocation.args["command"] = modifiedCommand
 	}
 	return s.executeOriginalBash(invocation)
@@ -1019,27 +1022,31 @@ func (s *llmRunStream) buildHITLArgs(invocation *preparedToolInvocation, result 
 		"requiredLevel":     result.Rule.Level,
 		"chatLevel":         s.execCtx.HITLLevel,
 		"allowModify":       strings.EqualFold(result.Rule.ViewportType, "html"),
-		"question":          "Approve this intercepted bash command?",
-		"header":            "Bash Approval",
-		"description":       "Command: " + command,
-		"options": []any{
+		"questions": []any{
 			map[string]any{
-				"label":       "Approve",
-				"value":       "approve",
-				"description": "Execute the command as-is.",
-			},
-			map[string]any{
-				"label":       "Reject",
-				"value":       "reject",
-				"description": "Do not execute the command.",
+				"question":    "Approve this intercepted bash command?",
+				"header":      "Bash Approval",
+				"description": "Command: " + command,
+				"options": []any{
+					map[string]any{
+						"label":       "Approve",
+						"value":       "approve",
+						"description": "Execute the command as-is.",
+					},
+					map[string]any{
+						"label":       "Reject",
+						"value":       "reject",
+						"description": "Do not execute the command.",
+					},
+				},
 			},
 		},
 	}
 	if strings.EqualFold(result.Rule.ViewportType, "html") {
 		args["viewportType"] = result.Rule.ViewportType
 		args["viewportKey"] = result.Rule.ViewportKey
-		args["allowFreeText"] = true
-		args["freeTextPlaceholder"] = "Edit the command before approval"
+		args["questions"].([]any)[0].(map[string]any)["allowFreeText"] = true
+		args["questions"].([]any)[0].(map[string]any)["freeTextPlaceholder"] = "Edit the command before approval"
 		if payload := extractMockLeavePayload(result.ParsedCommand); len(payload) > 0 {
 			args["payload"] = payload
 		}
@@ -1117,6 +1124,36 @@ func structuredResult(payload map[string]any) ToolExecutionResult {
 		Output:     string(data),
 		Structured: payload,
 		ExitCode:   0,
+	}
+}
+
+func firstApprovalQuestion(raw any) map[string]any {
+	switch typed := raw.(type) {
+	case []map[string]any:
+		for _, question := range typed {
+			if len(question) > 0 {
+				return question
+			}
+		}
+	case []any:
+		for _, item := range typed {
+			question := AnyMapNode(item)
+			if len(question) > 0 {
+				return question
+			}
+		}
+	}
+	return nil
+}
+
+func resolveApprovedCommand(value string, answer string) string {
+	switch {
+	case strings.EqualFold(value, "approve"), strings.EqualFold(value, "reject"):
+		return ""
+	case value != "":
+		return value
+	default:
+		return answer
 	}
 }
 

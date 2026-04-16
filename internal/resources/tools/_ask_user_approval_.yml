@@ -1,6 +1,6 @@
 name: _ask_user_approval_
 label: 用户确认
-description: 向用户展示单题单选确认。用户可以在预设选项和自由输入之间二选一，工具会阻塞等待用户提交回复。
+description: 向用户展示多个确认问题。每个问题都是单选确认，提交时同时返回选项展示文案 answer 和机器值 value。
 type: function
 viewportType: builtin
 viewportKey: confirm_dialog
@@ -14,40 +14,49 @@ inputSchema:
       description: 共享 confirm_dialog viewport 的渲染模式
       enum:
         - approval
-    question:
-      type: string
-      description: 向用户展示的确认问题
-    header:
-      type: string
-      description: 确认卡片标题
-    description:
-      type: string
-      description: 对本次确认的补充说明
-    options:
+    questions:
       type: array
-      description: 可选择的确认项列表，提交时使用 value
+      description: 需要一次性展示给用户的确认问题列表
       items:
         type: object
         properties:
-          label:
+          question:
             type: string
-            description: 选项展示文案
-          value:
+            description: 确认问题正文
+          header:
             type: string
-            description: 选中该项后提交的值
+            description: 确认卡片标题或短标题
           description:
             type: string
-            description: 选项补充说明
+            description: 对本次确认的补充说明
+          options:
+            type: array
+            description: 可选择的确认项列表；answer 为 label，value 为机器值
+            items:
+              type: object
+              properties:
+                label:
+                  type: string
+                  description: 选项展示文案
+                value:
+                  type: string
+                  description: 选中该项后提交的机器值
+                description:
+                  type: string
+                  description: 选项补充说明
+              required:
+                - label
+                - value
+              additionalProperties: false
+          allowFreeText:
+            type: boolean
+            description: 是否允许放弃预设选项，改为自由输入；与选项选择互斥
+          freeTextPlaceholder:
+            type: string
+            description: 自由输入模式的占位提示
         required:
-          - label
-          - value
+          - question
         additionalProperties: false
-    allowFreeText:
-      type: boolean
-      description: 是否允许放弃预设选项，改为自由输入；与选项选择互斥
-    freeTextPlaceholder:
-      type: string
-      description: 自由输入模式的占位提示
     viewportType:
       type: string
       description: 可选覆盖默认 viewportType，用于 HITL 场景切换到 html 视图
@@ -59,6 +68,5 @@ inputSchema:
       description: 传给前端视图的附加结构化数据
   required:
     - mode
-    - question
-    - options
+    - questions
   additionalProperties: false

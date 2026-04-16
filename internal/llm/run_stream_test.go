@@ -99,10 +99,14 @@ func TestPreToolInvocationDeltas_ApprovalUsesFrontendHandlerAwaitAsk(t *testing.
 	}
 
 	deltas := stream.preToolInvocationDeltas("tool_1", "_ask_user_approval_", map[string]any{
-		"mode":     "approval",
-		"question": "Need confirmation",
-		"options": []any{
-			map[string]any{"label": "Approve", "value": "approve"},
+		"mode": "approval",
+		"questions": []any{
+			map[string]any{
+				"question": "Need confirmation",
+				"options": []any{
+					map[string]any{"label": "Approve", "value": "approve"},
+				},
+			},
 		},
 	})
 	if len(deltas) != 1 {

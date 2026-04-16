@@ -242,7 +242,8 @@ remember 根目录由 `MEMORY_DIR` 控制：
 - `approval` 模式：
   - 不再发 `await.payload`
   - `questions` 直接内联在 `await.ask`
-  - 用户提交后额外发 `awaiting.answer`，结构为 `{"awaitingId":"...","mode":"approval","value":"..."}`，HITL modify 时可附带 `freeText`
+  - 用户提交后额外发 `awaiting.answer`，结构为 `{"awaitingId":"...","mode":"approval","questions":[{"question":"...","header":"...","answer":"...","value":"..."}]}`
+  - 若用户取消，不输出 `questions`，仅保留 `cancelled` / `reason`
 - `mode=question`：
   - 顶层字段为 `questions`
   - 每个问题支持 `type`、`header`、`placeholder`
@@ -256,11 +257,10 @@ remember 根目录由 `MEMORY_DIR` 控制：
   - `tool.result` 仍返回规范化 JSON：`{"mode":"question","answers":[{"question":"...","header":"...","answer":...}]}`
 - `mode=approval`：
   - 前端事件里的 `await.ask` 统一输出 `questions: [{ question, header?, description?, options, allowFreeText?, freeTextPlaceholder? }]`
-  - `questions` 数组长度固定为 1
   - `options` 结构是 `{ label, value, description? }`
-  - 预设选项与自由输入互斥
-  - `/api/submit` 提交结构：`{"runId":"...","awaitingId":"...","params":{"value":"..."}}` 或 `{"runId":"...","awaitingId":"...","params":{"freeText":"..."}}`
-  - `tool.result` 规范化结构：`{"mode":"approval","value":"..."}` 或 `{"mode":"approval","freeText":"..."}`
+  - 预设选项与自由输入互斥；提交项里的 `answer` 为展示文案，`value` 为机器值
+  - `/api/submit` 提交结构：`{"runId":"...","awaitingId":"...","params":[{"question":"...","answer":"确认删除","value":"yes"}]}`
+  - `tool.result` 规范化结构：`{"mode":"approval","questions":[{"question":"...","header":"...","answer":"确认删除","value":"yes"}]}`
 
 ## 7. 开发要点
 

@@ -68,13 +68,15 @@ func TestAskUserToolSchemasMatchContract(t *testing.T) {
 	if !enumContains(t, approvalProperties["mode"], "approval") {
 		t.Fatal("expected ask user approval mode=approval")
 	}
-	if _, ok := approvalProperties["allowFreeText"]; !ok {
-		t.Fatal("expected allowFreeText on ask user approval root")
+	approvalQuestions := mapChild(t, approvalProperties, "questions")
+	approvalItem := mapChild(t, mapChild(t, approvalQuestions, "items"), "properties")
+	if _, ok := approvalItem["allowFreeText"]; !ok {
+		t.Fatal("expected allowFreeText on ask user approval items")
 	}
-	if _, ok := approvalProperties["freeTextPlaceholder"]; !ok {
-		t.Fatal("expected freeTextPlaceholder on ask user approval root")
+	if _, ok := approvalItem["freeTextPlaceholder"]; !ok {
+		t.Fatal("expected freeTextPlaceholder on ask user approval items")
 	}
-	approvalOptions := mapChild(t, mapChild(t, approvalProperties, "options"), "items")
+	approvalOptions := mapChild(t, mapChild(t, approvalItem, "options"), "items")
 	approvalOptionProperties := mapChild(t, approvalOptions, "properties")
 	if _, ok := approvalOptionProperties["value"]; !ok {
 		t.Fatal("expected value on ask user approval options")

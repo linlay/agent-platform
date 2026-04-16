@@ -169,15 +169,25 @@ func TestAskUserQuestionHandlerFormatSubmitResult(t *testing.T) {
 func TestAskUserApprovalHandlerBuildDeferredAwaitAndNormalizeSubmit(t *testing.T) {
 	handler := NewAskUserApprovalHandler()
 	deltas := handler.BuildDeferredAwait("tool_1", "run_1", frontendTool("_ask_user_approval_"), map[string]any{
-		"mode":                "approval",
-		"question":            "Need confirmation",
-		"header":              "安全检查",
-		"viewportType":        "html",
-		"viewportKey":         "leave_form",
-		"allowFreeText":       true,
-		"freeTextPlaceholder": "Type your own answer",
-		"options": []any{
-			map[string]any{"label": "Approve", "value": "approve"},
+		"mode":         "approval",
+		"viewportType": "html",
+		"viewportKey":  "leave_form",
+		"questions": []any{
+			map[string]any{
+				"question":            "Need confirmation",
+				"header":              "安全检查",
+				"allowFreeText":       true,
+				"freeTextPlaceholder": "Type your own answer",
+				"options": []any{
+					map[string]any{"label": "Approve", "value": "approve"},
+				},
+			},
+			map[string]any{
+				"question": "Secondary confirmation",
+				"options": []any{
+					map[string]any{"label": "Reject", "value": "reject"},
+				},
+			},
 		},
 	}, 5000)
 	if len(deltas) != 1 {
@@ -190,44 +200,98 @@ func TestAskUserApprovalHandlerBuildDeferredAwaitAndNormalizeSubmit(t *testing.T
 	if awaitAsk.Mode != "approval" || awaitAsk.ViewportKey != "leave_form" || awaitAsk.ViewportType != "html" {
 		t.Fatalf("unexpected await ask %#v", awaitAsk)
 	}
+	if len(awaitAsk.Questions) != 2 {
+		t.Fatalf("expected all approval questions to be forwarded, got %#v", awaitAsk.Questions)
+	}
 
 	result, err := handler.NormalizeSubmit(map[string]any{
-		"allowFreeText": true,
-		"options": []any{
-			map[string]any{"label": "Approve", "value": "approve"},
+		"questions": []any{
+			map[string]any{
+				"question": "Need confirmation",
+				"header":   "安全检查",
+				"options": []any{
+					map[string]any{"label": "Approve", "value": "approve"},
+				},
+			},
+			map[string]any{
+				"question":      "Edited command",
+				"header":        "命令修改",
+				"allowFreeText": true,
+			},
 		},
-	}, map[string]any{"value": "approve"})
+	}, []any{
+		map[string]any{"question": "Need confirmation", "answer": "Approve", "value": "approve"},
+		map[string]any{"question": "Edited command", "answer": "later"},
+	})
 	if err != nil {
 		t.Fatalf("NormalizeSubmit returned error: %v", err)
 	}
-	if result["value"] != "approve" {
-		t.Fatalf("expected approval result, got %#v", result)
+	questions, ok := result["questions"].([]map[string]any)
+	if !ok || len(questions) != 2 {
+		t.Fatalf("expected normalized approval questions, got %#v", result)
 	}
-
-	result, err = handler.NormalizeSubmit(map[string]any{
-		"allowFreeText": true,
-	}, map[string]any{"freeText": "later"})
-	if err != nil {
-		t.Fatalf("NormalizeSubmit returned error for freeText: %v", err)
+	if questions[0]["answer"] != "Approve" || questions[0]["value"] != "approve" {
+		t.Fatalf("expected preset option approval result, got %#v", questions[0])
 	}
-	if result["freeText"] != "later" {
-		t.Fatalf("expected freeText result, got %#v", result)
+	if questions[1]["answer"] != "later" || questions[1]["value"] != "later" {
+		t.Fatalf("expected free-text approval value to default from answer, got %#v", questions[1])
 	}
 }
 
 func TestAskUserApprovalHandlerFormatSubmitResult(t *testing.T) {
 	handler := NewAskUserApprovalHandler()
 	valueResult := contracts.ToolExecutionResult{
-		Output:     `{"mode":"approval","value":"approve"}`,
-		Structured: map[string]any{"value": "approve"},
+		Output: `{"mode":"approval","questions":[{"question":"Need confirmation","header":"安全检查","answer":"Approve","value":"approve"},{"question":"Edited command","answer":"later","value":"later"}]}`,
+		Structured: map[string]any{
+			"questions": []any{
+				map[string]any{"question": "Need confirmation", "header": "安全检查", "answer": "Approve", "value": "approve"},
+				map[string]any{"question": "Edited command", "answer": "later", "value": "later"},
+			},
+		},
 	}
-	if got, ok := handler.FormatSubmitResult("summary", valueResult); !ok || got != "用户选择了: approve" {
+	if got, ok := handler.FormatSubmitResult("summary", valueResult); !ok || got != "用户完成了以下确认:\n- 安全检查: Approve\n- Edited command: later" {
 		t.Fatalf("unexpected summary result: ok=%v got=%q", ok, got)
 	}
-	if got, ok := handler.FormatSubmitResult("kv", valueResult); !ok || got != "选择=approve" {
+	if got, ok := handler.FormatSubmitResult("kv", valueResult); !ok || got != "安全检查=Approve; Edited command=later" {
 		t.Fatalf("unexpected kv result: ok=%v got=%q", ok, got)
 	}
-	if got, ok := handler.FormatSubmitResult("qa", valueResult); !ok || got != "用户选择了: approve" {
+	if got, ok := handler.FormatSubmitResult("qa", valueResult); !ok || got != "问题：Need confirmation\n回答：Approve\n问题：Edited command\n回答：later" {
 		t.Fatalf("unexpected qa result: ok=%v got=%q", ok, got)
+	}
+}
+
+func TestAskUserApprovalHandlerRejectsLegacyObjectSubmit(t *testing.T) {
+	handler := NewAskUserApprovalHandler()
+	_, err := handler.NormalizeSubmit(map[string]any{
+		"questions": []any{
+			map[string]any{
+				"question": "Need confirmation",
+				"options": []any{
+					map[string]any{"label": "Approve", "value": "approve"},
+				},
+			},
+		},
+	}, map[string]any{"value": "approve"})
+	if err == nil || !strings.Contains(err.Error(), "submit params must be an array") {
+		t.Fatalf("expected legacy object submit to be rejected, got %v", err)
+	}
+}
+
+func TestAskUserApprovalHandlerRejectsMismatchedLabelAndValue(t *testing.T) {
+	handler := NewAskUserApprovalHandler()
+	_, err := handler.NormalizeSubmit(map[string]any{
+		"questions": []any{
+			map[string]any{
+				"question": "Need confirmation",
+				"options": []any{
+					map[string]any{"label": "Approve", "value": "approve"},
+				},
+			},
+		},
+	}, []any{
+		map[string]any{"question": "Need confirmation", "answer": "Approve", "value": "reject"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "value does not match selected option") {
+		t.Fatalf("expected mismatched label/value to be rejected, got %v", err)
 	}
 }

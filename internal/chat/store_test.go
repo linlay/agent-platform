@@ -646,7 +646,9 @@ func TestLoadChatReplaysApprovalAwaitLifecycleEventLines(t *testing.T) {
 			"chatId":     "chat-approval",
 			"runId":      "run-approval",
 			"awaitingId": "tool-approval",
-			"params":     map[string]any{"value": "approve"},
+			"params": []any{
+				map[string]any{"question": "Proceed?", "answer": "Approve", "value": "approve"},
+			},
 		},
 	}); err != nil {
 		t.Fatalf("append approval request submit line: %v", err)
@@ -661,7 +663,9 @@ func TestLoadChatReplaysApprovalAwaitLifecycleEventLines(t *testing.T) {
 			"type":       "awaiting.answer",
 			"awaitingId": "tool-approval",
 			"mode":       "approval",
-			"value":      "approve",
+			"questions": []any{
+				map[string]any{"question": "Proceed?", "answer": "Approve", "value": "approve"},
+			},
 		},
 	}); err != nil {
 		t.Fatalf("append approval awaiting.answer line: %v", err)
@@ -687,7 +691,8 @@ func TestLoadChatReplaysApprovalAwaitLifecycleEventLines(t *testing.T) {
 			foundAwaitPayload = true
 		case "awaiting.answer":
 			foundAwaitAnswer = true
-			if event.String("mode") != "approval" || event.String("value") != "approve" {
+			questions, _ := event.Value("questions").([]any)
+			if event.String("mode") != "approval" || len(questions) != 1 {
 				t.Fatalf("unexpected approval awaiting.answer %#v", event)
 			}
 		}

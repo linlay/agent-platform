@@ -379,7 +379,9 @@ func TestEventDataMarshalsRequestSubmitWithoutViewID(t *testing.T) {
 		"chatId":     "chat_1",
 		"runId":      "run_1",
 		"awaitingId": "tool_1",
-		"params":     map[string]any{"value": "approve"},
+		"params": []any{
+			map[string]any{"question": "Proceed?", "answer": "Approve", "value": "approve"},
+		},
 	})
 	event.Seq = 11
 	data, err := json.Marshal(event.Data())
@@ -387,11 +389,45 @@ func TestEventDataMarshalsRequestSubmitWithoutViewID(t *testing.T) {
 		t.Fatalf("marshal event data: %v", err)
 	}
 	text := string(data)
-	if !strings.Contains(text, `"params":{"value":"approve"}`) {
+	if !strings.Contains(text, `"params":[{"answer":"Approve","question":"Proceed?","value":"approve"}]`) {
 		t.Fatalf("expected params in request.submit payload: %s", text)
 	}
 	if strings.Contains(text, `"viewId"`) {
 		t.Fatalf("did not expect viewId in request.submit payload: %s", text)
+	}
+}
+
+func TestDispatcherEmitsAwaitingAnswerForApprovalMode(t *testing.T) {
+	dispatcher := NewDispatcher(StreamRequest{
+		RunID:  "run_1",
+		ChatID: "chat_1",
+	})
+
+	events := dispatcher.Dispatch(AwaitingAnswer{
+		AwaitingID: "tool_1",
+		Answer: map[string]any{
+			"mode": "approval",
+			"questions": []any{
+				map[string]any{
+					"question": "Proceed?",
+					"header":   "审批",
+					"answer":   "Approve",
+					"value":    "approve",
+				},
+			},
+		},
+	})
+	assertEventTypes(t, events, "awaiting.answer")
+	payload := events[0].ToData()
+	if payload["mode"] != "approval" {
+		t.Fatalf("expected approval mode, got %#v", payload)
+	}
+	questions, _ := payload["questions"].([]map[string]any)
+	if len(questions) != 1 {
+		t.Fatalf("expected formatted approval questions, got %#v", payload)
+	}
+	if questions[0]["question"] != "Proceed?" || questions[0]["header"] != "审批" || questions[0]["answer"] != "Approve" || questions[0]["value"] != "approve" {
+		t.Fatalf("unexpected approval awaiting.answer payload %#v", questions[0])
 	}
 }
 

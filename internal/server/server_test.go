@@ -1045,7 +1045,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 		switch call {
 		case 1:
 			writeProviderSSE(t, w,
-				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_confirm","type":"function","function":{"name":"_ask_user_approval_","arguments":"{\"mode\":\"approval\",\"question\":\"Need confirmation\",\"options\":[{\"label\":\"Approve\",\"value\":\"approve\",\"description\":\"Continue with the request\"}],\"allowFreeText\":true,\"freeTextPlaceholder\":\"Type your own answer\"}"}}]},"finish_reason":"tool_calls"}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_confirm","type":"function","function":{"name":"_ask_user_approval_","arguments":"{\"mode\":\"approval\",\"questions\":[{\"question\":\"Need confirmation\",\"options\":[{\"label\":\"Approve\",\"value\":\"approve\",\"description\":\"Continue with the request\"}],\"allowFreeText\":true,\"freeTextPlaceholder\":\"Type your own answer\"}]}"}}]},"finish_reason":"tool_calls"}]}`,
 				`[DONE]`,
 			)
 		case 2:
@@ -1153,7 +1153,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 		t.Fatalf("expected accepted steer, got %#v", steerResp.Data)
 	}
 
-	submitReq := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+runID+`","awaitingId":"`+toolID+`","params":{"value":"approve"}}`))
+	submitReq := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+runID+`","awaitingId":"`+toolID+`","params":[{"question":"Need confirmation","answer":"Approve","value":"approve"}]}`))
 	submitReq.Header.Set("Content-Type", "application/json")
 	submitRec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(submitRec, submitReq)
@@ -1192,7 +1192,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	if !strings.Contains(body, `"type":"request.submit"`) {
 		t.Fatalf("expected request.submit event, got %s", body)
 	}
-	if !strings.Contains(body, `"params":{"value":"approve"}`) {
+	if !strings.Contains(body, `"params":[{"answer":"Approve","question":"Need confirmation","value":"approve"}]`) {
 		t.Fatalf("expected request.submit params, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"awaiting.answer"`) {
@@ -1204,7 +1204,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	if !strings.Contains(body, `"type":"tool.result"`) {
 		t.Fatalf("expected tool.result event, got %s", body)
 	}
-	if !strings.Contains(body, `"mode":"approval"`) || !strings.Contains(body, `"value":"approve"`) {
+	if !strings.Contains(body, `"mode":"approval"`) || !strings.Contains(body, `"questions":[{"answer":"Approve","question":"Need confirmation","value":"approve"}]`) {
 		t.Fatalf("expected normalized approval tool.result, got %s", body)
 	}
 	if !strings.Contains(body, "final answer") {
@@ -1270,7 +1270,8 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 			}
 		case "awaiting.answer":
 			foundAwaitingAnswer = true
-			if event.String("mode") != "approval" || event.String("value") != "approve" {
+			questions, _ := event.Value("questions").([]any)
+			if event.String("mode") != "approval" || len(questions) != 1 {
 				t.Fatalf("unexpected awaiting.answer in chat detail %#v", event)
 			}
 		}
@@ -1698,7 +1699,10 @@ func TestBashHITLApproveFlow(t *testing.T) {
 	if !strings.Contains(body, `"viewportKey":"leave_form"`) {
 		t.Fatalf("expected leave_form viewport in stream, got %s", body)
 	}
-	if !strings.Contains(body, `"type":"awaiting.answer"`) || !strings.Contains(body, `"value":"approve"`) {
+	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
+		!strings.Contains(body, `"question":"Approve this intercepted bash command?"`) ||
+		!strings.Contains(body, `"answer":"Approve"`) ||
+		!strings.Contains(body, `"value":"approve"`) {
 		t.Fatalf("expected approve awaiting.answer in stream, got %s", body)
 	}
 }
@@ -1709,7 +1713,10 @@ func TestBashHITLModifyFlow(t *testing.T) {
 	if len(executed) != 1 || executed[0] != modified {
 		t.Fatalf("expected modified command to execute once, got %#v", executed)
 	}
-	if !strings.Contains(body, `"type":"awaiting.answer"`) || !strings.Contains(body, `"freeText":`+strconv.Quote(modified)) {
+	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
+		!strings.Contains(body, `"question":"Approve this intercepted bash command?"`) ||
+		!strings.Contains(body, `"answer":`+strconv.Quote(modified)) ||
+		!strings.Contains(body, `"value":`+strconv.Quote(modified)) {
 		t.Fatalf("expected modify awaiting.answer in stream, got %s", body)
 	}
 }
@@ -1722,7 +1729,10 @@ func TestBashHITLRejectFlow(t *testing.T) {
 	if !strings.Contains(body, `"code":"hitl_rejected"`) {
 		t.Fatalf("expected rejected original bash result, got %s", body)
 	}
-	if !strings.Contains(body, `"type":"awaiting.answer"`) || !strings.Contains(body, `"value":"reject"`) {
+	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
+		!strings.Contains(body, `"question":"Approve this intercepted bash command?"`) ||
+		!strings.Contains(body, `"answer":"Reject"`) ||
+		!strings.Contains(body, `"value":"reject"`) {
 		t.Fatalf("expected reject awaiting.answer in stream, got %s", body)
 	}
 }
@@ -1871,10 +1881,17 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 	}
 
 submit:
-	submitPayload := `{"value":"` + options.action + `"}`
+	submitPayload := `[{"question":"Approve this intercepted bash command?",`
 	if options.action == "modify" {
-		submitPayload = `{"freeText":` + strconv.Quote(options.modifiedCommand) + `}`
+		submitPayload += `"answer":` + strconv.Quote(options.modifiedCommand) + `,"value":` + strconv.Quote(options.modifiedCommand)
+	} else {
+		label := "Approve"
+		if options.action == "reject" {
+			label = "Reject"
+		}
+		submitPayload += `"answer":"` + label + `","value":"` + options.action + `"`
 	}
+	submitPayload += `}]`
 	submitRec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(submitRec, httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+extractRunIDFromStream(t, streamBody.String())+`","awaitingId":"`+syntheticToolID+`","params":`+submitPayload+`}`)))
 	if submitRec.Code != http.StatusOK {
