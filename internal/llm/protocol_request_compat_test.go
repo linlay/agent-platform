@@ -5,13 +5,19 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"agent-platform-runner-go/internal/config"
 	. "agent-platform-runner-go/internal/contracts"
 	. "agent-platform-runner-go/internal/models"
 )
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
 
 func TestCompatRequestOverridesMergeAlwaysAndReasoningScopedEntries(t *testing.T) {
 	provider := ProviderDefinition{
@@ -86,23 +92,27 @@ func TestOpenAIProtocolOpenStreamAlwaysRequestOverridesApplyWithoutReasoning(t *
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			var captured map[string]any
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				defer r.Body.Close()
-				if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
-					t.Fatalf("decode request body: %v", err)
-				}
-				w.Header().Set("Content-Type", "text/event-stream")
-				_, _ = io.WriteString(w, "data: [DONE]\n\n")
-			}))
-			defer server.Close()
+			httpClient := &http.Client{
+				Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
+					defer r.Body.Close()
+					if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+						t.Fatalf("decode request body: %v", err)
+					}
+					return &http.Response{
+						StatusCode: http.StatusOK,
+						Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+						Body:       io.NopCloser(strings.NewReader("data: [DONE]\n\n")),
+					}, nil
+				}),
+			}
 
-			engine := NewLLMAgentEngineWithHTTPClient(config.Config{}, nil, nil, nil, nil, server.Client())
+			engine := NewLLMAgentEngineWithHTTPClient(config.Config{}, nil, nil, nil, nil, httpClient)
 			protocol := &openAIProtocol{engine: engine}
 
 			stream, err := protocol.OpenStream(context.Background(), protocolStreamParams{
 				provider: ProviderDefinition{
 					Key:     "mock",
-					BaseURL: server.URL,
+					BaseURL: "https://example.com",
 					APIKey:  "token",
 				},
 				model: ModelDefinition{
