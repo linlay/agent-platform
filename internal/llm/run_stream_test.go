@@ -8,6 +8,7 @@ import (
 	"agent-platform-runner-go/internal/api"
 	contracts "agent-platform-runner-go/internal/contracts"
 	"agent-platform-runner-go/internal/frontendtools"
+	"agent-platform-runner-go/internal/hitl"
 )
 
 type stubToolExecutor struct {
@@ -124,5 +125,19 @@ func TestPreToolInvocationDeltas_ApprovalUsesFrontendHandlerAwaitAsk(t *testing.
 	}
 	if !reflect.DeepEqual(awaitAsk.Questions, expectedQuestions) {
 		t.Fatalf("unexpected approval questions %#v", awaitAsk.Questions)
+	}
+}
+
+func TestExtractMockLeavePayload(t *testing.T) {
+	payload := extractMockLeavePayload(hitl.ParseCommandComponents(`mock create-leave --payload '{"employee_id":"E1001","days":3}'`))
+	if payload["employee_id"] != "E1001" {
+		t.Fatalf("expected employee_id to be parsed, got %#v", payload)
+	}
+	if payload["days"] != float64(3) {
+		t.Fatalf("expected days to be parsed, got %#v", payload)
+	}
+
+	if got := extractMockLeavePayload(hitl.ParseCommandComponents(`mock create-leave --payload-file ./leave.json`)); got != nil {
+		t.Fatalf("expected payload-file command to skip prefill, got %#v", got)
 	}
 }

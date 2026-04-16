@@ -21,6 +21,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -1637,6 +1638,14 @@ type recordingSandbox struct {
 	commands []string
 }
 
+type recordingMCPClient struct {
+	commands []string
+}
+
+type stubMCPToolCatalog struct {
+	defs []api.ToolDetailResponse
+}
+
 func (s *recordingSandbox) OpenIfNeeded(_ context.Context, _ *contracts.ExecutionContext) error {
 	return nil
 }
@@ -1653,13 +1662,41 @@ func (s *recordingSandbox) Execute(_ context.Context, _ *contracts.ExecutionCont
 
 func (s *recordingSandbox) CloseQuietly(_ *contracts.ExecutionContext) {}
 
+func (m *recordingMCPClient) CallTool(_ context.Context, _ string, toolName string, args map[string]any, _ map[string]any) (any, error) {
+	command, _ := args["command"].(string)
+	m.commands = append(m.commands, command)
+	return map[string]any{
+		"structuredContent": map[string]any{
+			"tool":    toolName,
+			"command": command,
+			"status":  "ok",
+		},
+	}, nil
+}
+
+func (c stubMCPToolCatalog) Definitions() []api.ToolDetailResponse {
+	return append([]api.ToolDetailResponse(nil), c.defs...)
+}
+
+func (c stubMCPToolCatalog) Tool(name string) (api.ToolDetailResponse, bool) {
+	for _, def := range c.defs {
+		if strings.EqualFold(def.Name, name) || strings.EqualFold(def.Key, name) {
+			return def, true
+		}
+	}
+	return api.ToolDetailResponse{}, false
+}
+
 func TestBashHITLApproveFlow(t *testing.T) {
-	body, executed := runBashHITLFlow(t, "approve", "")
-	if len(executed) != 1 || executed[0] != "git push origin main" {
+	body, executed := runBashHITLFlow(t, bashHITLFlowOptions{action: "approve"})
+	if len(executed) != 1 || executed[0] != `mock create-leave --payload {"employee_id":"E1001","employee_name":"Lin","leave_type":"annual","start_date":"2026-04-20","end_date":"2026-04-22","days":3,"reason":"family_trip","handover_to":"E2001","urgent_contact":"13800138000"}` {
 		t.Fatalf("expected approved command to execute once, got %#v", executed)
 	}
-	if !strings.Contains(body, `"_hitl_confirm_dialog_"`) {
-		t.Fatalf("expected synthetic HITL tool in stream, got %s", body)
+	if !strings.Contains(body, `"_ask_user_approval_"`) {
+		t.Fatalf("expected ask_user_approval tool in stream, got %s", body)
+	}
+	if !strings.Contains(body, `"viewportKey":"leave_form"`) {
+		t.Fatalf("expected leave_form viewport in stream, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"awaiting.answer"`) || !strings.Contains(body, `"value":"approve"`) {
 		t.Fatalf("expected approve awaiting.answer in stream, got %s", body)
@@ -1667,20 +1704,18 @@ func TestBashHITLApproveFlow(t *testing.T) {
 }
 
 func TestBashHITLModifyFlow(t *testing.T) {
-	body, executed := runBashHITLFlow(t, "modify", "git push origin release")
-	if len(executed) != 1 || executed[0] != "git push origin release" {
+	modified := `mock create-leave --payload {"employee_id":"E1001","employee_name":"Lin","leave_type":"personal","start_date":"2026-04-21","end_date":"2026-04-22","days":2,"reason":"family_trip","handover_to":"E2001","urgent_contact":"13800138000"}`
+	body, executed := runBashHITLFlow(t, bashHITLFlowOptions{action: "modify", modifiedCommand: modified})
+	if len(executed) != 1 || executed[0] != modified {
 		t.Fatalf("expected modified command to execute once, got %#v", executed)
 	}
-	if !strings.Contains(body, `"action":"modify"`) {
-		t.Fatalf("expected modify synthetic result, got %s", body)
-	}
-	if !strings.Contains(body, `"type":"awaiting.answer"`) || !strings.Contains(body, `"value":"modify"`) || !strings.Contains(body, `"freeText":"git push origin release"`) {
+	if !strings.Contains(body, `"type":"awaiting.answer"`) || !strings.Contains(body, `"freeText":`+strconv.Quote(modified)) {
 		t.Fatalf("expected modify awaiting.answer in stream, got %s", body)
 	}
 }
 
 func TestBashHITLRejectFlow(t *testing.T) {
-	body, executed := runBashHITLFlow(t, "reject", "")
+	body, executed := runBashHITLFlow(t, bashHITLFlowOptions{action: "reject"})
 	if len(executed) != 0 {
 		t.Fatalf("expected rejected command not to execute, got %#v", executed)
 	}
@@ -1692,8 +1727,52 @@ func TestBashHITLRejectFlow(t *testing.T) {
 	}
 }
 
-func runBashHITLFlow(t *testing.T, action string, modifiedCommand string) (string, []string) {
+func TestBashHITLSimpleBashApproveFlow(t *testing.T) {
+	mcpClient := &recordingMCPClient{}
+	body, executed := runBashHITLFlow(t, bashHITLFlowOptions{
+		toolName: "simple-bash",
+		action:   "approve",
+		mcp:      mcpClient,
+		mcpTools: stubMCPToolCatalog{defs: []api.ToolDetailResponse{
+			{
+				Key:         "simple-bash",
+				Name:        "simple-bash",
+				Label:       "Simple Bash",
+				Description: "Execute mock bash command",
+				Parameters:  map[string]any{"type": "object"},
+				Meta: map[string]any{
+					"kind":          "backend",
+					"sourceType":    "mcp",
+					"sourceKey":     "mock",
+					"serverKey":     "mock",
+					"clientVisible": true,
+				},
+			},
+		}},
+	})
+	if len(executed) != 1 || executed[0] != `mock create-leave --payload {"employee_id":"E1001","employee_name":"Lin","leave_type":"annual","start_date":"2026-04-20","end_date":"2026-04-22","days":3,"reason":"family_trip","handover_to":"E2001","urgent_contact":"13800138000"}` {
+		t.Fatalf("expected simple-bash command to execute once, got %#v", executed)
+	}
+	if !strings.Contains(body, `"viewportKey":"leave_form"`) {
+		t.Fatalf("expected leave_form viewport in stream, got %s", body)
+	}
+}
+
+type bashHITLFlowOptions struct {
+	toolName        string
+	action          string
+	modifiedCommand string
+	mcp             contracts.McpClient
+	mcpTools        stubMCPToolCatalog
+}
+
+func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []string) {
 	t.Helper()
+	toolName := options.toolName
+	if toolName == "" {
+		toolName = "_sandbox_bash_"
+	}
+	command := `mock create-leave --payload {"employee_id":"E1001","employee_name":"Lin","leave_type":"annual","start_date":"2026-04-20","end_date":"2026-04-22","days":3,"reason":"family_trip","handover_to":"E2001","urgent_contact":"13800138000"}`
 
 	var providerCallCount atomic.Int32
 	secondTurnMessages := make(chan []map[string]any, 1)
@@ -1703,7 +1782,10 @@ func runBashHITLFlow(t *testing.T, action string, modifiedCommand string) (strin
 		switch call {
 		case 1:
 			writeProviderSSE(t, w,
-				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_bash","type":"function","function":{"name":"_sandbox_bash_","arguments":"{\"command\":\"git push origin main\",\"cwd\":\"/workspace\"}"}}]},"finish_reason":"tool_calls"}]}`,
+				providerToolCallFrame(t, "tool_bash", toolName, map[string]any{
+					"command": command,
+					"cwd":     "/workspace",
+				}),
 				`[DONE]`,
 			)
 		case 2:
@@ -1720,7 +1802,9 @@ func runBashHITLFlow(t *testing.T, action string, modifiedCommand string) (strin
 			t.Fatalf("unexpected provider call %d", call)
 		}
 	}, testFixtureOptions{
-		sandbox: sandbox,
+		sandbox:  sandbox,
+		mcp:      options.mcp,
+		mcpTools: options.mcpTools,
 		configure: func(cfg *config.Config) {
 			cfg.BashHITL.Enabled = true
 			cfg.BashHITL.DefaultTimeoutMs = 15000
@@ -1732,13 +1816,13 @@ func runBashHITLFlow(t *testing.T, action string, modifiedCommand string) (strin
 			}
 			content := strings.Join([]string{
 				"commands:",
-				"  - command: git",
+				"  - command: mock",
 				"    subcommands:",
-				"      - match: push",
-				"        level: 2",
-				"        hitlType: system",
-				"        viewportType: builtin",
-				"        viewportKey: confirm_dialog",
+				"      - match: create-leave",
+				"        level: 1",
+				"        hitlType: business",
+				"        viewportType: html",
+				"        viewportKey: leave_form",
 			}, "\n")
 			if err := os.WriteFile(filepath.Join(root, "dangerous.yml"), []byte(content), 0o644); err != nil {
 				t.Fatalf("write bash-hitl rule: %v", err)
@@ -1769,7 +1853,9 @@ func runBashHITLFlow(t *testing.T, action string, modifiedCommand string) (strin
 				switch payload["toolName"] {
 				case "_sandbox_bash_":
 					originalToolID, _ = payload["toolId"].(string)
-				case "_hitl_confirm_dialog_":
+				case "simple-bash":
+					originalToolID, _ = payload["toolId"].(string)
+				case "_ask_user_approval_":
 					syntheticToolID, _ = payload["toolId"].(string)
 				}
 			case "awaiting.ask":
@@ -1785,9 +1871,9 @@ func runBashHITLFlow(t *testing.T, action string, modifiedCommand string) (strin
 	}
 
 submit:
-	submitPayload := `{"action":"` + action + `"}`
-	if action == "modify" {
-		submitPayload = `{"action":"modify","command":"` + modifiedCommand + `"}`
+	submitPayload := `{"value":"` + options.action + `"}`
+	if options.action == "modify" {
+		submitPayload = `{"freeText":` + strconv.Quote(options.modifiedCommand) + `}`
 	}
 	submitRec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(submitRec, httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+extractRunIDFromStream(t, streamBody.String())+`","awaitingId":"`+syntheticToolID+`","params":`+submitPayload+`}`)))
@@ -1824,6 +1910,13 @@ submit:
 		t.Fatal("timed out waiting for second provider request")
 	}
 
+	if toolName == "simple-bash" {
+		client, ok := options.mcp.(*recordingMCPClient)
+		if !ok {
+			return streamBody.String(), nil
+		}
+		return streamBody.String(), append([]string(nil), client.commands...)
+	}
 	return streamBody.String(), append([]string(nil), sandbox.commands...)
 }
 
@@ -2126,6 +2219,8 @@ type testFixture struct {
 
 type testFixtureOptions struct {
 	sandbox      contracts.SandboxClient
+	mcp          contracts.McpClient
+	mcpTools     stubMCPToolCatalog
 	configure    func(*config.Config)
 	setupRuntime func(root string, cfg *config.Config)
 }
@@ -2312,9 +2407,19 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 	if err != nil {
 		t.Fatalf("new runtime tool executor: %v", err)
 	}
-	mcp := contracts.NewNoopMcpClient()
+	mcp := options.mcp
+	if mcp == nil {
+		mcp = contracts.NewNoopMcpClient()
+	}
 	frontendRegistry := frontendtools.NewDefaultRegistry()
-	toolExecutor := tools.NewToolRouter(backendTools, mcp, nil, llm.NewFrontendSubmitCoordinator(frontendRegistry), contracts.NewNoopActionInvoker())
+	var mcpTools interface {
+		Definitions() []api.ToolDetailResponse
+		Tool(name string) (api.ToolDetailResponse, bool)
+	}
+	if len(options.mcpTools.defs) > 0 {
+		mcpTools = options.mcpTools
+	}
+	toolExecutor := tools.NewToolRouter(backendTools, mcp, mcpTools, llm.NewFrontendSubmitCoordinator(frontendRegistry), contracts.NewNoopActionInvoker())
 	registry, err := catalog.NewFileRegistry(cfg, toolExecutor.Definitions())
 	if err != nil {
 		t.Fatalf("new file registry: %v", err)
@@ -2389,6 +2494,38 @@ func writeProviderSSE(t *testing.T, w http.ResponseWriter, frames ...string) {
 		}
 		flusher.Flush()
 	}
+}
+
+func providerToolCallFrame(t *testing.T, toolID string, toolName string, args map[string]any) string {
+	t.Helper()
+	argsJSON, err := json.Marshal(args)
+	if err != nil {
+		t.Fatalf("marshal tool args: %v", err)
+	}
+	frame, err := json.Marshal(map[string]any{
+		"choices": []any{
+			map[string]any{
+				"delta": map[string]any{
+					"tool_calls": []any{
+						map[string]any{
+							"index": 0,
+							"id":    toolID,
+							"type":  "function",
+							"function": map[string]any{
+								"name":      toolName,
+								"arguments": string(argsJSON),
+							},
+						},
+					},
+				},
+				"finish_reason": "tool_calls",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal provider tool call frame: %v", err)
+	}
+	return string(frame)
 }
 
 func mustEncryptProviderAPIKeyForServerTest(t *testing.T, envPart string, plaintext string) string {

@@ -172,6 +172,8 @@ func TestAskUserApprovalHandlerBuildDeferredAwaitAndNormalizeSubmit(t *testing.T
 		"mode":                "approval",
 		"question":            "Need confirmation",
 		"header":              "安全检查",
+		"viewportType":        "html",
+		"viewportKey":         "leave_form",
 		"allowFreeText":       true,
 		"freeTextPlaceholder": "Type your own answer",
 		"options": []any{
@@ -185,7 +187,7 @@ func TestAskUserApprovalHandlerBuildDeferredAwaitAndNormalizeSubmit(t *testing.T
 	if !ok {
 		t.Fatalf("expected DeltaAwaitAsk, got %#v", deltas[0])
 	}
-	if awaitAsk.Mode != "approval" || awaitAsk.ViewportKey != "confirm_dialog" {
+	if awaitAsk.Mode != "approval" || awaitAsk.ViewportKey != "leave_form" || awaitAsk.ViewportType != "html" {
 		t.Fatalf("unexpected await ask %#v", awaitAsk)
 	}
 
