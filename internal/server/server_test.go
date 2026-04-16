@@ -1459,8 +1459,8 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 	if !strings.Contains(body, `"type":"awaiting.answer"`) {
 		t.Fatalf("expected awaiting.answer event, got %s", body)
 	}
-	if !strings.Contains(body, `"questions":[{"answer":"产品更新, 使用教程","question":"Notification topics"},{"answer":"2","question":"How many people?"}]`) {
-		t.Fatalf("expected formatted awaiting.answer questions, got %s", body)
+	if !strings.Contains(body, `"questions":[{"answers":["产品更新","使用教程"],"question":"Notification topics"},{"answer":2,"question":"How many people?"}]`) {
+		t.Fatalf("expected submit-shaped awaiting.answer questions, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"tool.result"`) {
 		t.Fatalf("expected tool.result event, got %s", body)

@@ -498,6 +498,10 @@ func TestLoadChatReplaysQuestionAwaitLifecycleEventLines(t *testing.T) {
 					"question": "How many?",
 					"answer":   3,
 				},
+				map[string]any{
+					"question": "Topics?",
+					"answers":  []any{"产品更新", "使用教程"},
+				},
 			},
 		},
 	}); err != nil {
@@ -516,7 +520,11 @@ func TestLoadChatReplaysQuestionAwaitLifecycleEventLines(t *testing.T) {
 			"questions": []any{
 				map[string]any{
 					"question": "How many?",
-					"answer":   "3",
+					"answer":   3,
+				},
+				map[string]any{
+					"question": "Topics?",
+					"answers":  []any{"产品更新", "使用教程"},
 				},
 			},
 		},
@@ -568,12 +576,12 @@ func TestLoadChatReplaysQuestionAwaitLifecycleEventLines(t *testing.T) {
 
 	submit := detail.Events[5]
 	submitParams, _ := submit.Value("params").([]any)
-	if submit.String("awaitingId") != "tool-1" || len(submitParams) != 1 {
+	if submit.String("awaitingId") != "tool-1" || len(submitParams) != 2 {
 		t.Fatalf("unexpected request.submit replay %#v", submit)
 	}
 	answer := detail.Events[6]
 	answerQuestions, _ := answer.Value("questions").([]any)
-	if answer.String("awaitingId") != "tool-1" || len(answerQuestions) != 1 {
+	if answer.String("awaitingId") != "tool-1" || len(answerQuestions) != 2 {
 		t.Fatalf("unexpected awaiting.answer replay %#v", answer)
 	}
 }

@@ -29,6 +29,12 @@ func (h *AskUserApprovalHandler) BuildDeferredAwait(toolID string, runID string,
 	}
 	viewportType, _ := tool.Meta["viewportType"].(string)
 	viewportKey, _ := tool.Meta["viewportKey"].(string)
+	if value := contracts.AnyStringNode(args["viewportType"]); value != "" {
+		viewportType = value
+	}
+	if value := contracts.AnyStringNode(args["viewportKey"]); value != "" {
+		viewportKey = value
+	}
 	question := map[string]any{}
 	if value := contracts.AnyStringNode(args["question"]); value != "" {
 		question["question"] = value

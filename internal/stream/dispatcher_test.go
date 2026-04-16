@@ -3,6 +3,7 @@ package stream
 import (
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -408,7 +409,11 @@ func TestDispatcherEmitsAwaitingAnswerForQuestionMode(t *testing.T) {
 				map[string]any{
 					"question": "Destination?",
 					"header":   "Trip",
-					"answer":   []any{"Xitang", "Suzhou"},
+					"answer":   []string{"Xitang", "Suzhou"},
+				},
+				map[string]any{
+					"question": "How many people?",
+					"answer":   2,
 				},
 			},
 		},
@@ -419,11 +424,15 @@ func TestDispatcherEmitsAwaitingAnswerForQuestionMode(t *testing.T) {
 		t.Fatalf("expected question mode, got %#v", payload)
 	}
 	questions, _ := payload["questions"].([]map[string]any)
-	if len(questions) != 1 {
-		t.Fatalf("expected one formatted answer, got %#v", payload)
+	if len(questions) != 2 {
+		t.Fatalf("expected formatted questions, got %#v", payload)
 	}
-	if questions[0]["question"] != "Destination?" || questions[0]["header"] != "Trip" || questions[0]["answer"] != "Xitang, Suzhou" {
+	firstAnswers, _ := questions[0]["answers"].([]string)
+	if questions[0]["question"] != "Destination?" || questions[0]["header"] != "Trip" || !reflect.DeepEqual(firstAnswers, []string{"Xitang", "Suzhou"}) {
 		t.Fatalf("unexpected formatted questions %#v", questions)
+	}
+	if questions[1]["question"] != "How many people?" || questions[1]["answer"] != 2 {
+		t.Fatalf("unexpected scalar formatted question %#v", questions[1])
 	}
 }
 
@@ -460,7 +469,7 @@ func TestEventDataMarshalsAwaitingAnswerWithContractKeyOrder(t *testing.T) {
 		"questions": []any{
 			map[string]any{
 				"question": "Destination?",
-				"answer":   "Xitang, Suzhou",
+				"answers":  []string{"Xitang", "Suzhou"},
 			},
 		},
 	})
@@ -477,7 +486,7 @@ func TestEventDataMarshalsAwaitingAnswerWithContractKeyOrder(t *testing.T) {
 		`"mode":"question"`,
 		`"cancelled":true`,
 		`"reason":"user_dismissed"`,
-		`"questions":[{"answer":"Xitang, Suzhou","question":"Destination?"}]`,
+		`"questions":[{"answers":["Xitang","Suzhou"],"question":"Destination?"}]`,
 		`"timestamp":`,
 	}
 	prev := -1

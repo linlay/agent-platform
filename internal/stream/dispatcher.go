@@ -1,9 +1,6 @@
 package stream
 
-import (
-	"fmt"
-	"strings"
-)
+import "strings"
 
 type StreamEventDispatcher struct {
 	request StreamRequest
@@ -238,11 +235,11 @@ func formatAwaitingQuestions(raw any) []map[string]any {
 			}
 			entry := map[string]any{
 				"question": question,
-				"answer":   formatAwaitingAnswerValue(answer["answer"]),
 			}
 			if header := strings.TrimSpace(anyString(answer["header"])); header != "" {
 				entry["header"] = header
 			}
+			appendAwaitingQuestionValue(entry, answer["answer"])
 			formatted = append(formatted, entry)
 		}
 		return formatted
@@ -251,18 +248,14 @@ func formatAwaitingQuestions(raw any) []map[string]any {
 	}
 }
 
-func formatAwaitingAnswerValue(value any) string {
+func appendAwaitingQuestionValue(entry map[string]any, value any) {
 	switch typed := value.(type) {
 	case []string:
-		return strings.Join(typed, ", ")
+		entry["answers"] = append([]string(nil), typed...)
 	case []any:
-		items := make([]string, 0, len(typed))
-		for _, item := range typed {
-			items = append(items, strings.TrimSpace(fmt.Sprint(item)))
-		}
-		return strings.Join(items, ", ")
+		entry["answers"] = append([]any(nil), typed...)
 	default:
-		return strings.TrimSpace(fmt.Sprint(value))
+		entry["answer"] = value
 	}
 }
 

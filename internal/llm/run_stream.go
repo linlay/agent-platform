@@ -54,6 +54,7 @@ type llmRunStream struct {
 	hitlMatch          *hitl.InterceptResult
 	hitlSyntheticID    string
 	hitlSyntheticName  string
+	hitlSyntheticArgs  map[string]any
 	skipPostToolHook   bool
 
 	lastCallPromptTokens     int
@@ -791,9 +792,10 @@ func (s *llmRunStream) emitHITLConfirmDeltas(invocation *preparedToolInvocation,
 	s.hitlPendingCall = invocation
 	s.hitlMatch = &result
 	s.hitlSyntheticID = "hitl_" + invocation.toolID
-	s.hitlSyntheticName = "_hitl_" + result.Rule.ViewportKey + "_"
+	s.hitlSyntheticName = "_ask_user_approval_"
 
 	args := s.buildHITLArgs(invocation, result)
+	s.hitlSyntheticArgs = CloneMap(args)
 	argsJSON, _ := json.Marshal(args)
 
 	s.pending = append(s.pending, DeltaToolCall{
@@ -803,15 +805,13 @@ func (s *llmRunStream) emitHITLConfirmDeltas(invocation *preparedToolInvocation,
 		ArgsDelta: string(argsJSON),
 	})
 	s.pending = append(s.pending, DeltaToolEnd{ToolIDs: []string{s.hitlSyntheticID}})
-	s.pending = append(s.pending, DeltaAwaitAsk{
-		AwaitingID:   s.hitlSyntheticID,
-		ViewportType: result.Rule.ViewportType,
-		ViewportKey:  result.Rule.ViewportKey,
-		Mode:         "approval",
-		ToolTimeout:  s.resolveHITLTimeout(),
-		RunID:        s.session.RunID,
-		Questions:    s.buildHITLAwaitQuestions(args, result),
-	})
+	if s.engine.frontend != nil {
+		if handler, ok := s.engine.frontend.Handler(s.hitlSyntheticName); ok {
+			if toolDef, found := s.lookupToolDefinition(s.hitlSyntheticName); found {
+				s.pending = append(s.pending, handler.BuildDeferredAwait(s.hitlSyntheticID, s.session.RunID, toolDef, args, s.resolveHITLTimeout())...)
+			}
+		}
+	}
 
 	if s.runControl != nil {
 		s.runControl.ExpectSubmit(s.hitlSyntheticID)
@@ -827,11 +827,13 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 	match := s.hitlMatch
 	syntheticID := s.hitlSyntheticID
 	syntheticName := s.hitlSyntheticName
+	syntheticArgs := CloneMap(s.hitlSyntheticArgs)
 	if invocation == nil || match == nil || syntheticID == "" {
 		s.hitlPendingCall = nil
 		s.hitlMatch = nil
 		s.hitlSyntheticID = ""
 		s.hitlSyntheticName = ""
+		s.hitlSyntheticArgs = nil
 		return nil
 	}
 	defer func() {
@@ -839,6 +841,7 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 		s.hitlMatch = nil
 		s.hitlSyntheticID = ""
 		s.hitlSyntheticName = ""
+		s.hitlSyntheticArgs = nil
 		s.execCtx.CurrentToolID = ""
 		s.execCtx.CurrentToolName = ""
 		if s.runControl != nil {
@@ -915,39 +918,38 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 		Params:     submitResult.Request.Params,
 	})
 
-	params, _ := submitResult.Request.Params.(map[string]any)
-	action := strings.ToLower(strings.TrimSpace(AnyStringNode(params["action"])))
-	answer := hitlAwaitingAnswer(action, strings.TrimSpace(AnyStringNode(params["command"])))
-	if len(answer) > 0 {
+	normalized, normalizeErr := s.normalizeHITLSubmit(syntheticArgs, submitResult.Request.Params)
+	if normalizeErr != nil {
+		payload := NewErrorPayload(
+			"frontend_submit_invalid_payload",
+			normalizeErr.Error(),
+			ErrorScopeFrontendSubmit,
+			ErrorCategoryTool,
+			map[string]any{
+				"awaitingId": syntheticID,
+				"toolName":   syntheticName,
+				"params":     submitResult.Request.Params,
+			},
+		)
+		result := ToolExecutionResult{
+			Output:     marshalJSON(payload),
+			Structured: payload,
+			Error:      "frontend_submit_invalid_payload",
+			ExitCode:   -1,
+		}
+		s.appendSyntheticToolResult(syntheticID, syntheticName, result)
+		s.appendOriginalToolResult(invocation, result)
+		return nil
+	}
+	if len(normalized) > 0 {
 		s.pending = append(s.pending, DeltaAwaitingAnswer{
 			AwaitingID: syntheticID,
-			Answer:     answer,
+			Answer:     CloneMap(normalized),
 		})
 	}
-	switch action {
-	case "approve":
-		s.appendSyntheticToolResult(syntheticID, syntheticName, structuredResult(map[string]any{
-			"status": "approved",
-			"action": "approve",
-		}))
-		return s.executeOriginalBash(invocation)
-	case "modify":
-		modifiedCommand := strings.TrimSpace(AnyStringNode(params["command"]))
-		if modifiedCommand != "" {
-			invocation.args["command"] = modifiedCommand
-		}
-		s.appendSyntheticToolResult(syntheticID, syntheticName, structuredResult(map[string]any{
-			"status":   "approved",
-			"action":   "modify",
-			"modified": modifiedCommand != "",
-			"command":  mapStringArg(invocation.args, "command"),
-		}))
-		return s.executeOriginalBash(invocation)
-	default:
-		s.appendSyntheticToolResult(syntheticID, syntheticName, structuredResult(map[string]any{
-			"status": "rejected",
-			"action": "reject",
-		}))
+	s.appendSyntheticToolResult(syntheticID, syntheticName, structuredResult(normalized))
+
+	if normalized["cancelled"] == true || strings.EqualFold(AnyStringNode(normalized["value"]), "reject") {
 		rejected := ToolExecutionResult{
 			Output: marshalJSON(NewErrorPayload(
 				"hitl_rejected",
@@ -975,6 +977,11 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 		s.appendOriginalToolResult(invocation, rejected)
 		return nil
 	}
+
+	if modifiedCommand := strings.TrimSpace(AnyStringNode(normalized["freeText"])); modifiedCommand != "" {
+		invocation.args["command"] = modifiedCommand
+	}
+	return s.executeOriginalBash(invocation)
 }
 
 func (s *llmRunStream) executeOriginalBash(invocation *preparedToolInvocation) error {
@@ -1000,7 +1007,7 @@ func (s *llmRunStream) executeOriginalBash(invocation *preparedToolInvocation) e
 
 func (s *llmRunStream) buildHITLArgs(invocation *preparedToolInvocation, result hitl.InterceptResult) map[string]any {
 	command := mapStringArg(invocation.args, "command")
-	return map[string]any{
+	args := map[string]any{
 		"mode":              "approval",
 		"hitlType":          result.Rule.HITLType,
 		"originalCommand":   command,
@@ -1012,34 +1019,32 @@ func (s *llmRunStream) buildHITLArgs(invocation *preparedToolInvocation, result 
 		"requiredLevel":     result.Rule.Level,
 		"chatLevel":         s.execCtx.HITLLevel,
 		"allowModify":       strings.EqualFold(result.Rule.ViewportType, "html"),
-	}
-}
-
-func (s *llmRunStream) buildHITLAwaitQuestions(args map[string]any, result hitl.InterceptResult) []any {
-	if !strings.EqualFold(result.Rule.ViewportType, "builtin") {
-		return nil
-	}
-	command := AnyStringNode(args["originalCommand"])
-	description := "Command: " + command
-	return []any{
-		map[string]any{
-			"header":      "Bash Approval",
-			"question":    "Approve this intercepted bash command?",
-			"description": description,
-			"options": []any{
-				map[string]any{
-					"label":       "Approve",
-					"value":       "approve",
-					"description": "Execute the command as-is.",
-				},
-				map[string]any{
-					"label":       "Reject",
-					"value":       "reject",
-					"description": "Do not execute the command.",
-				},
+		"question":          "Approve this intercepted bash command?",
+		"header":            "Bash Approval",
+		"description":       "Command: " + command,
+		"options": []any{
+			map[string]any{
+				"label":       "Approve",
+				"value":       "approve",
+				"description": "Execute the command as-is.",
+			},
+			map[string]any{
+				"label":       "Reject",
+				"value":       "reject",
+				"description": "Do not execute the command.",
 			},
 		},
 	}
+	if strings.EqualFold(result.Rule.ViewportType, "html") {
+		args["viewportType"] = result.Rule.ViewportType
+		args["viewportKey"] = result.Rule.ViewportKey
+		args["allowFreeText"] = true
+		args["freeTextPlaceholder"] = "Edit the command before approval"
+		if payload := extractMockLeavePayload(result.ParsedCommand); len(payload) > 0 {
+			args["payload"] = payload
+		}
+	}
+	return args
 }
 
 func (s *llmRunStream) resolveHITLTimeout() int64 {
@@ -1092,7 +1097,7 @@ func (s *llmRunStream) toolResultContent(toolName string, result ToolExecutionRe
 
 func isBashTool(name string) bool {
 	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "_bash_", "_sandbox_bash_":
+	case "_bash_", "_sandbox_bash_", "simple-bash":
 		return true
 	default:
 		return false
@@ -1106,21 +1111,6 @@ func mapStringArg(args map[string]any, key string) string {
 	return ""
 }
 
-func hitlAwaitingAnswer(action string, command string) map[string]any {
-	action = strings.ToLower(strings.TrimSpace(action))
-	if action == "" {
-		return nil
-	}
-	answer := map[string]any{
-		"mode":  "approval",
-		"value": action,
-	}
-	if action == "modify" && command != "" {
-		answer["freeText"] = command
-	}
-	return answer
-}
-
 func structuredResult(payload map[string]any) ToolExecutionResult {
 	data, _ := json.Marshal(payload)
 	return ToolExecutionResult{
@@ -1128,6 +1118,37 @@ func structuredResult(payload map[string]any) ToolExecutionResult {
 		Structured: payload,
 		ExitCode:   0,
 	}
+}
+
+func (s *llmRunStream) normalizeHITLSubmit(args map[string]any, params any) (map[string]any, error) {
+	if s.engine.frontend == nil {
+		return nil, fmt.Errorf("frontend registry not configured")
+	}
+	handler, ok := s.engine.frontend.Handler("_ask_user_approval_")
+	if !ok {
+		return nil, fmt.Errorf("frontend tool handler not registered: _ask_user_approval_")
+	}
+	return handler.NormalizeSubmit(args, params)
+}
+
+func extractMockLeavePayload(parsed hitl.CommandComponents) map[string]any {
+	if !strings.EqualFold(strings.TrimSpace(parsed.BaseCommand), "mock") {
+		return nil
+	}
+	if len(parsed.Tokens) < 3 || !strings.EqualFold(strings.TrimSpace(parsed.Tokens[0]), "create-leave") {
+		return nil
+	}
+	for idx := 1; idx < len(parsed.Tokens)-1; idx++ {
+		if strings.TrimSpace(parsed.Tokens[idx]) != "--payload" {
+			continue
+		}
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(parsed.Tokens[idx+1]), &payload); err != nil {
+			return nil
+		}
+		return payload
+	}
+	return nil
 }
 
 func (s *llmRunStream) checkBudgetBeforeModelCall() map[string]any {

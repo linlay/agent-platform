@@ -48,6 +48,15 @@ inputSchema:
     freeTextPlaceholder:
       type: string
       description: 自由输入模式的占位提示
+    viewportType:
+      type: string
+      description: 可选覆盖默认 viewportType，用于 HITL 场景切换到 html 视图
+    viewportKey:
+      type: string
+      description: 可选覆盖默认 viewportKey，用于 HITL 场景切换到指定视图
+    payload:
+      type: object
+      description: 传给前端视图的附加结构化数据
   required:
     - mode
     - question
