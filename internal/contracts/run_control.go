@@ -3,11 +3,22 @@ package contracts
 import (
 	"context"
 	"errors"
+	"log"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"agent-platform-runner-go/internal/api"
+	"agent-platform-runner-go/internal/config"
+	"agent-platform-runner-go/internal/stream"
+)
+
+const (
+	defaultRunReaperInterval        = 30 * time.Second
+	defaultRunMaxBackgroundDuration = 10 * time.Minute
+	defaultRunCompletedRetention    = 10 * time.Minute
+	defaultRunEventBusMaxEvents     = 10000
+	defaultRunMaxDisconnectedWait   = 10 * time.Minute
 )
 
 type runControlContextKey struct{}
@@ -42,25 +53,36 @@ type RunControl struct {
 
 	interrupted atomic.Bool
 	finished    atomic.Bool
+	observerCnt atomic.Int32
 
-	mu                   sync.Mutex
-	steerQueue           []api.SteerRequest
-	submitWaiters        map[string]*submitWaiter
-	pendingSubmits       map[string]SubmitResult
+	mu                    sync.Mutex
+	steerQueue            []api.SteerRequest
+	submitWaiters         map[string]*submitWaiter
+	pendingSubmits        map[string]SubmitResult
 	expectedSubmitAwaitID string
-	state                RunLoopState
+	state                 RunLoopState
+
+	maxDisconnectedWait time.Duration
+	observerChanged     chan struct{}
 }
 
 func NewRunControl(parent context.Context, runID string) *RunControl {
-	ctx, cancel := context.WithCancel(parent)
-	return &RunControl{
-		runID:          runID,
-		ctx:            ctx,
-		cancel:         cancel,
-		submitWaiters:  map[string]*submitWaiter{},
-		pendingSubmits: map[string]SubmitResult{},
-		state:          RunLoopStateIdle,
+	if parent == nil {
+		parent = context.Background()
 	}
+	ctx, cancel := context.WithCancel(parent)
+	control := &RunControl{
+		runID:               runID,
+		ctx:                 ctx,
+		cancel:              cancel,
+		submitWaiters:       map[string]*submitWaiter{},
+		pendingSubmits:      map[string]SubmitResult{},
+		state:               RunLoopStateIdle,
+		maxDisconnectedWait: defaultRunMaxDisconnectedWait,
+		observerChanged:     make(chan struct{}, 1),
+	}
+	control.observerCnt.Store(1)
+	return control
 }
 
 func WithRunControl(ctx context.Context, control *RunControl) context.Context {
@@ -113,7 +135,10 @@ func (c *RunControl) Finish() bool {
 	if !c.finished.CompareAndSwap(false, true) {
 		return false
 	}
-	c.TransitionState(RunLoopStateCompleted)
+	state := c.State()
+	if state != RunLoopStateCancelled && state != RunLoopStateFailed {
+		c.TransitionState(RunLoopStateCompleted)
+	}
 	c.cancel()
 	c.closeWaiters("finished", "Run finished before submit arrived")
 	return true
@@ -157,17 +182,14 @@ func (c *RunControl) AwaitSubmitWithTimeout(ctx context.Context, awaitingID stri
 	if awaitingID == "" {
 		return SubmitResult{}, ErrFrontendSubmitMissingAwaitID
 	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if c.interrupted.Load() {
 		return SubmitResult{}, ErrRunInterrupted
 	}
 	if c.finished.Load() {
 		return SubmitResult{}, ErrRunFinished
-	}
-
-	if timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, timeout)
-		defer cancel()
 	}
 
 	waiter := &submitWaiter{ch: make(chan SubmitResult, 1)}
@@ -203,26 +225,46 @@ func (c *RunControl) AwaitSubmitWithTimeout(ctx context.Context, awaitingID stri
 		c.mu.Unlock()
 	}()
 
-	select {
-	case result := <-waiter.ch:
-		switch result.Status {
-		case "interrupted":
-			return SubmitResult{}, ErrRunInterrupted
-		case "finished":
-			return SubmitResult{}, ErrRunFinished
-		default:
-			return result, nil
+	connectedRemaining := timeout
+	disconnectedRemaining := c.maxDisconnectedWaitValue()
+	lastHasObserver := c.HasObserver()
+	lastTick := time.Now()
+	timer := newWaitTimer(lastHasObserver, connectedRemaining, disconnectedRemaining)
+	defer stopWaitTimer(timer)
+
+	for {
+		select {
+		case result := <-waiter.ch:
+			switch result.Status {
+			case "interrupted":
+				return SubmitResult{}, ErrRunInterrupted
+			case "finished":
+				return SubmitResult{}, ErrRunFinished
+			default:
+				return result, nil
+			}
+		case <-ctx.Done():
+			return SubmitResult{}, ctx.Err()
+		case <-c.ctx.Done():
+			if c.interrupted.Load() {
+				return SubmitResult{}, ErrRunInterrupted
+			}
+			if c.finished.Load() {
+				return SubmitResult{}, ErrRunFinished
+			}
+			return SubmitResult{}, context.Canceled
+		case <-c.observerChanged:
+		case <-waitTimerChan(timer):
 		}
-	case <-ctx.Done():
-		return SubmitResult{}, ctx.Err()
-	case <-c.ctx.Done():
-		if c.interrupted.Load() {
-			return SubmitResult{}, ErrRunInterrupted
+
+		now := time.Now()
+		connectedRemaining, disconnectedRemaining, expired := consumeWaitBudget(now.Sub(lastTick), lastHasObserver, connectedRemaining, disconnectedRemaining)
+		if expired {
+			return SubmitResult{}, context.DeadlineExceeded
 		}
-		if c.finished.Load() {
-			return SubmitResult{}, ErrRunFinished
-		}
-		return SubmitResult{}, context.Canceled
+		lastTick = now
+		lastHasObserver = c.HasObserver()
+		resetWaitTimer(timer, lastHasObserver, connectedRemaining, disconnectedRemaining)
 	}
 }
 
@@ -300,6 +342,49 @@ func (c *RunControl) ClearExpectedSubmit(awaitingID string) {
 	c.mu.Unlock()
 }
 
+func (c *RunControl) SetObserverCount(count int32) {
+	if c == nil {
+		return
+	}
+	if count < 0 {
+		count = 0
+	}
+	c.observerCnt.Store(count)
+	select {
+	case c.observerChanged <- struct{}{}:
+	default:
+	}
+}
+
+func (c *RunControl) HasObserver() bool {
+	return c != nil && c.observerCnt.Load() > 0
+}
+
+func (c *RunControl) ObserverCount() int32 {
+	if c == nil {
+		return 0
+	}
+	return c.observerCnt.Load()
+}
+
+func (c *RunControl) SetMaxDisconnectedWait(wait time.Duration) {
+	if c == nil || wait <= 0 {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.maxDisconnectedWait = wait
+}
+
+func (c *RunControl) maxDisconnectedWaitValue() time.Duration {
+	if c == nil {
+		return defaultRunMaxDisconnectedWait
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.maxDisconnectedWait
+}
+
 func (c *RunControl) closeWaiters(status string, detail string) {
 	c.mu.Lock()
 	waiters := c.submitWaiters
@@ -310,27 +395,156 @@ func (c *RunControl) closeWaiters(status string, detail string) {
 	}
 }
 
-type activeRunState struct {
-	run     ActiveRun
-	control *RunControl
+func newWaitTimer(hasObserver bool, connectedRemaining time.Duration, disconnectedRemaining time.Duration) *time.Timer {
+	if delay, ok := nextWaitDelay(hasObserver, connectedRemaining, disconnectedRemaining); ok {
+		return time.NewTimer(delay)
+	}
+	return nil
+}
+
+func waitTimerChan(timer *time.Timer) <-chan time.Time {
+	if timer == nil {
+		return nil
+	}
+	return timer.C
+}
+
+func stopWaitTimer(timer *time.Timer) {
+	if timer == nil {
+		return
+	}
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
+}
+
+func resetWaitTimer(timer *time.Timer, hasObserver bool, connectedRemaining time.Duration, disconnectedRemaining time.Duration) {
+	if timer == nil {
+		return
+	}
+	delay, ok := nextWaitDelay(hasObserver, connectedRemaining, disconnectedRemaining)
+	if !ok {
+		stopWaitTimer(timer)
+		return
+	}
+	if !timer.Stop() {
+		select {
+		case <-timer.C:
+		default:
+		}
+	}
+	timer.Reset(delay)
+}
+
+func nextWaitDelay(hasObserver bool, connectedRemaining time.Duration, disconnectedRemaining time.Duration) (time.Duration, bool) {
+	if hasObserver {
+		if connectedRemaining > 0 {
+			return connectedRemaining, true
+		}
+		return 0, false
+	}
+	if disconnectedRemaining > 0 {
+		return disconnectedRemaining, true
+	}
+	return 0, false
+}
+
+func consumeWaitBudget(elapsed time.Duration, hadObserver bool, connectedRemaining time.Duration, disconnectedRemaining time.Duration) (time.Duration, time.Duration, bool) {
+	if elapsed <= 0 {
+		return connectedRemaining, disconnectedRemaining, false
+	}
+	if hadObserver && connectedRemaining > 0 {
+		connectedRemaining -= elapsed
+		if connectedRemaining <= 0 {
+			return 0, disconnectedRemaining, true
+		}
+	}
+	if !hadObserver && disconnectedRemaining > 0 {
+		disconnectedRemaining -= elapsed
+		if disconnectedRemaining <= 0 {
+			return connectedRemaining, 0, true
+		}
+	}
+	return connectedRemaining, disconnectedRemaining, false
+}
+
+type managedRun struct {
+	run         ActiveRun
+	control     *RunControl
+	eventBus    *stream.RunEventBus
+	startedAt   time.Time
+	completedAt time.Time
 }
 
 type InMemoryRunManager struct {
-	mu   sync.Mutex
-	runs map[string]activeRunState
+	mu                    sync.Mutex
+	runs                  map[string]*managedRun
+	reaperStop            chan struct{}
+	reaperOnce            sync.Once
+	reaperInterval        time.Duration
+	maxBackgroundDuration time.Duration
+	completedRetention    time.Duration
+	eventBusMaxEvents     int
+	maxDisconnectedWait   time.Duration
 }
 
 func NewInMemoryRunManager() *InMemoryRunManager {
-	return &InMemoryRunManager{runs: map[string]activeRunState{}}
+	return &InMemoryRunManager{
+		runs:                  map[string]*managedRun{},
+		reaperStop:            make(chan struct{}),
+		reaperInterval:        defaultRunReaperInterval,
+		maxBackgroundDuration: defaultRunMaxBackgroundDuration,
+		completedRetention:    defaultRunCompletedRetention,
+		eventBusMaxEvents:     defaultRunEventBusMaxEvents,
+		maxDisconnectedWait:   defaultRunMaxDisconnectedWait,
+	}
 }
 
-func (m *InMemoryRunManager) Register(parent context.Context, session QuerySession) (context.Context, *RunControl, ActiveRun) {
+func (m *InMemoryRunManager) ConfigureRunLifecycle(cfg config.RunConfig) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if cfg.ReaperIntervalMs > 0 {
+		m.reaperInterval = time.Duration(cfg.ReaperIntervalMs) * time.Millisecond
+	}
+	if cfg.MaxBackgroundDurationMs > 0 {
+		m.maxBackgroundDuration = time.Duration(cfg.MaxBackgroundDurationMs) * time.Millisecond
+	}
+	if cfg.CompletedRetentionMs > 0 {
+		m.completedRetention = time.Duration(cfg.CompletedRetentionMs) * time.Millisecond
+	}
+	if cfg.EventBusMaxEvents > 0 {
+		m.eventBusMaxEvents = cfg.EventBusMaxEvents
+	}
+	if cfg.MaxDisconnectedWaitMs > 0 {
+		m.maxDisconnectedWait = time.Duration(cfg.MaxDisconnectedWaitMs) * time.Millisecond
+	}
+	m.startReaper()
+}
+
+func (m *InMemoryRunManager) Register(_ context.Context, session QuerySession) (context.Context, *RunControl, ActiveRun) {
+	m.startReaper()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	control := NewRunControl(parent, session.RunID)
+	control := NewRunControl(context.Background(), session.RunID)
+	control.SetMaxDisconnectedWait(m.maxDisconnectedWait)
 	run := ActiveRun{RunID: session.RunID, ChatID: session.ChatID, AgentKey: session.AgentKey}
-	m.runs[session.RunID] = activeRunState{run: run, control: control}
+	eventBus := stream.NewRunEventBus(m.eventBusMaxEvents, func(count int) {
+		control.SetObserverCount(int32(count))
+	})
+	control.SetObserverCount(0)
+	m.runs[session.RunID] = &managedRun{
+		run:       run,
+		control:   control,
+		eventBus:  eventBus,
+		startedAt: time.Now(),
+	}
 	return WithRunControl(control.Context(), control), control, run
 }
 
@@ -358,14 +572,13 @@ func (m *InMemoryRunManager) Steer(req api.SteerRequest) SteerAck {
 func (m *InMemoryRunManager) Interrupt(req api.InterruptRequest) InterruptAck {
 	m.mu.Lock()
 	state, ok := m.runs[req.RunID]
-	if ok {
-		delete(m.runs, req.RunID)
-	}
 	m.mu.Unlock()
 	if !ok {
 		return InterruptAck{Accepted: false, Status: "unmatched", Detail: "No active run found"}
 	}
-	state.control.Interrupt()
+	if !state.control.Interrupt() {
+		return InterruptAck{Accepted: false, Status: "unmatched", Detail: "Run is no longer active"}
+	}
 	return InterruptAck{Accepted: true, Status: "accepted", Detail: "Interrupt accepted"}
 }
 
@@ -373,7 +586,7 @@ func (m *InMemoryRunManager) Finish(runID string) {
 	m.mu.Lock()
 	state, ok := m.runs[runID]
 	if ok {
-		delete(m.runs, runID)
+		state.completedAt = time.Now()
 	}
 	m.mu.Unlock()
 	if ok {
@@ -381,14 +594,122 @@ func (m *InMemoryRunManager) Finish(runID string) {
 	}
 }
 
-func (m *InMemoryRunManager) lookupControl(runID string) (*RunControl, bool) {
+func (m *InMemoryRunManager) AttachObserver(runID string, afterSeq int64) (*stream.Observer, error) {
+	state, ok := m.lookupRun(runID)
+	if !ok {
+		return nil, ErrRunControlUnavailable
+	}
+	return state.eventBus.Subscribe(afterSeq)
+}
+
+func (m *InMemoryRunManager) DetachObserver(runID string, observerID string) {
+	state, ok := m.lookupRun(runID)
+	if !ok || state.eventBus == nil {
+		return
+	}
+	state.eventBus.Unsubscribe(observerID)
+}
+
+func (m *InMemoryRunManager) RunStatus(runID string) (RunStatusInfo, bool) {
+	state, ok := m.lookupRun(runID)
+	if !ok {
+		return RunStatusInfo{}, false
+	}
+	info := RunStatusInfo{
+		RunID:         state.run.RunID,
+		ChatID:        state.run.ChatID,
+		AgentKey:      state.run.AgentKey,
+		State:         state.control.State(),
+		LastSeq:       state.eventBus.LatestSeq(),
+		OldestSeq:     state.eventBus.OldestSeq(),
+		ObserverCount: state.eventBus.ObserverCount(),
+		StartedAt:     state.startedAt.UnixMilli(),
+	}
+	if !state.completedAt.IsZero() {
+		info.CompletedAt = state.completedAt.UnixMilli()
+	}
+	return info, true
+}
+
+func (m *InMemoryRunManager) EventBus(runID string) (*stream.RunEventBus, bool) {
+	state, ok := m.lookupRun(runID)
+	if !ok || state.eventBus == nil {
+		return nil, false
+	}
+	return state.eventBus, true
+}
+
+func (m *InMemoryRunManager) startReaper() {
+	if m == nil {
+		return
+	}
+	m.reaperOnce.Do(func() {
+		go func() {
+			ticker := time.NewTicker(m.reaperInterval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					m.reapExpiredRuns()
+				case <-m.reaperStop:
+					return
+				}
+			}
+		}()
+	})
+}
+
+func (m *InMemoryRunManager) reapExpiredRuns() {
+	if m == nil {
+		return
+	}
+	now := time.Now()
+	var toInterrupt []*managedRun
+	var toDelete []string
+
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	state, ok := m.runs[runID]
+	for runID, state := range m.runs {
+		if state == nil {
+			continue
+		}
+		if !state.completedAt.IsZero() {
+			if now.Sub(state.completedAt) > m.completedRetention {
+				toDelete = append(toDelete, runID)
+			}
+			continue
+		}
+		if state.eventBus.ObserverCount() > 0 {
+			continue
+		}
+		if now.Sub(state.startedAt) > m.maxBackgroundDuration {
+			toInterrupt = append(toInterrupt, state)
+		}
+	}
+	for _, runID := range toDelete {
+		delete(m.runs, runID)
+	}
+	m.mu.Unlock()
+
+	for _, state := range toInterrupt {
+		if !state.control.Interrupt() {
+			log.Printf("[runctl] reaper skip interrupt run=%s state=%s", state.run.RunID, state.control.State())
+		}
+	}
+}
+
+func (m *InMemoryRunManager) lookupControl(runID string) (*RunControl, bool) {
+	state, ok := m.lookupRun(runID)
 	if !ok {
 		return nil, false
 	}
 	return state.control, true
+}
+
+func (m *InMemoryRunManager) lookupRun(runID string) (*managedRun, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	state, ok := m.runs[runID]
+	return state, ok
 }
 
 func IsRunInterrupted(err error) bool {

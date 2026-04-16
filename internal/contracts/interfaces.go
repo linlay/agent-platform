@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"agent-platform-runner-go/internal/api"
+	"agent-platform-runner-go/internal/config"
+	"agent-platform-runner-go/internal/stream"
 )
 
 type AgentEngine interface {
@@ -22,6 +24,10 @@ type ActiveRunService interface {
 	Steer(req api.SteerRequest) SteerAck
 	Interrupt(req api.InterruptRequest) InterruptAck
 	Finish(runID string)
+	AttachObserver(runID string, afterSeq int64) (*stream.Observer, error)
+	DetachObserver(runID string, observerID string)
+	EventBus(runID string) (*stream.RunEventBus, bool)
+	RunStatus(runID string) (RunStatusInfo, bool)
 }
 
 type RunManager = ActiveRunService
@@ -152,6 +158,22 @@ type ActiveRun struct {
 	RunID    string
 	ChatID   string
 	AgentKey string
+}
+
+type RunStatusInfo struct {
+	RunID         string
+	ChatID        string
+	AgentKey      string
+	State         RunLoopState
+	LastSeq       int64
+	OldestSeq     int64
+	ObserverCount int
+	StartedAt     int64
+	CompletedAt   int64
+}
+
+type RunLifecycleConfigurer interface {
+	ConfigureRunLifecycle(cfg config.RunConfig)
 }
 
 type SubmitAck struct {

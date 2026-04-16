@@ -106,6 +106,18 @@ type InterruptResponse struct {
 	Detail   string `json:"detail"`
 }
 
+type RunStatusResponse struct {
+	RunID         string `json:"runId"`
+	ChatID        string `json:"chatId"`
+	AgentKey      string `json:"agentKey"`
+	State         string `json:"state"`
+	LastSeq       int64  `json:"lastSeq"`
+	OldestSeq     int64  `json:"oldestSeq"`
+	ObserverCount int    `json:"observerCount"`
+	StartedAt     int64  `json:"startedAt"`
+	CompletedAt   int64  `json:"completedAt,omitempty"`
+}
+
 type LearnRequest struct {
 	RequestID  string `json:"requestId,omitempty"`
 	ChatID     string `json:"chatId"`

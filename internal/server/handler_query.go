@@ -1,29 +1,70 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"agent-platform-runner-go/internal/api"
+	"agent-platform-runner-go/internal/catalog"
 	"agent-platform-runner-go/internal/chat"
 	"agent-platform-runner-go/internal/contracts"
 	"agent-platform-runner-go/internal/llm"
 	"agent-platform-runner-go/internal/stream"
 )
 
+type preparedQuery struct {
+	req      api.QueryRequest
+	summary  chat.Summary
+	created  bool
+	agentDef catalog.AgentDefinition
+	session  contracts.QuerySession
+}
+
 func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
-	var req api.QueryRequest
-	if err := decodeJSON(r, &req); err != nil {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid request body"))
+	prepared, err := s.prepareQuery(r)
+	if err != nil {
+		var statusErr *statusError
+		if errors.As(err, &statusErr) {
+			writeJSON(w, statusErr.status, api.Failure(statusErr.status, statusErr.message))
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
-	if strings.TrimSpace(req.Message) == "" {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "message is required"))
+	if strings.EqualFold(prepared.agentDef.Mode, "PROXY") {
+		s.handleProxyQuery(w, r, prepared.req, prepared.agentDef)
 		return
+	}
+	if isSyncQueryContext(r.Context()) {
+		s.handleQuerySync(w, r.Context(), prepared)
+		return
+	}
+	s.handleQueryAsync(w, r, prepared)
+}
+
+type statusError struct {
+	status  int
+	message string
+}
+
+func (e *statusError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return e.message
+}
+
+func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
+	var req api.QueryRequest
+	if err := decodeJSON(r, &req); err != nil {
+		return preparedQuery{}, &statusError{status: http.StatusBadRequest, message: "invalid request body"}
+	}
+	if strings.TrimSpace(req.Message) == "" {
+		return preparedQuery{}, &statusError{status: http.StatusBadRequest, message: "message is required"}
 	}
 
 	runID := strings.TrimSpace(req.RunID)
@@ -57,9 +98,9 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 	agentDef, ok := s.deps.Registry.AgentDefinition(agentKey)
 	if !ok {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "agent not found"))
-		return
+		return preparedQuery{}, &statusError{status: http.StatusBadRequest, message: "agent not found"}
 	}
+
 	req.ChatID = chatID
 	req.AgentKey = agentKey
 	req.RequestID = requestID
@@ -68,8 +109,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 
 	summary, created, err := s.deps.Chats.EnsureChat(chatID, agentKey, req.TeamID, req.Message)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
-		return
+		return preparedQuery{}, err
 	}
 
 	var historyMessages []map[string]any
@@ -116,12 +156,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		definition: agentDef,
 	})
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
-		return
-	}
-	if strings.EqualFold(agentDef.Mode, "PROXY") {
-		s.handleProxyQuery(w, r, req, agentDef)
-		return
+		return preparedQuery{}, err
 	}
 
 	promptAppend := buildPromptAppendConfig(agentDef)
@@ -162,36 +197,111 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	if principal != nil {
 		session.Subject = principal.Subject
 	}
-	runCtx, _, _ := s.deps.Runs.Register(r.Context(), session)
-	defer s.deps.Runs.Finish(runID)
 
+	return preparedQuery{
+		req:      req,
+		summary:  summary,
+		created:  created,
+		agentDef: agentDef,
+		session:  session,
+	}, nil
+}
+
+func (s *Server) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamEventAssembler, *llm.DeltaMapper) {
 	assembler := stream.NewAssembler(stream.StreamRequest{
-		RequestID: requestID,
-		RunID:     runID,
-		ChatID:    chatID,
-		ChatName:  summary.ChatName,
-		AgentKey:  agentKey,
-		Message:   req.Message,
-		Role:      defaultRole(req.Role),
-		Created:   created,
+		RequestID: prepared.req.RequestID,
+		RunID:     prepared.req.RunID,
+		ChatID:    prepared.req.ChatID,
+		ChatName:  prepared.summary.ChatName,
+		AgentKey:  prepared.req.AgentKey,
+		Message:   prepared.req.Message,
+		Role:      defaultRole(prepared.req.Role),
+		Created:   prepared.created,
 	})
 	if s.deps.Tools != nil {
 		for _, toolDef := range s.deps.Tools.Definitions() {
-			effective := applyToolOverride(toolDef, session.ToolOverrides)
+			effective := applyToolOverride(toolDef, prepared.session.ToolOverrides)
 			if cv, ok := effective.Meta["clientVisible"].(bool); ok && !cv {
 				assembler.RegisterHiddenTools(effective.Name, effective.Key)
 			}
 		}
 	}
-	var toolLookup contracts.ToolDefinitionLookup = s.deps.Registry
-	if tl, ok := s.deps.Tools.(contracts.ToolDefinitionLookup); ok {
-		toolLookup = contracts.NewCompositeToolLookup(s.deps.HITL, tl, s.deps.Registry)
-	} else if s.deps.HITL != nil {
-		toolLookup = contracts.NewCompositeToolLookup(s.deps.HITL, s.deps.Registry)
-	}
-	toolTimeoutMs := int64(contracts.NormalizeBudget(session.ResolvedBudget).Tool.TimeoutMs)
-	mapper := llm.NewDeltaMapper(runID, chatID, toolTimeoutMs, toolLookup, s.deps.FrontendTools)
+	toolTimeoutMs := int64(contracts.NormalizeBudget(prepared.session.ResolvedBudget).Tool.TimeoutMs)
+	mapper := llm.NewDeltaMapper(prepared.req.RunID, prepared.req.ChatID, toolTimeoutMs, s.toolLookup(), s.deps.FrontendTools)
+	return assembler, mapper
+}
 
+func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepared preparedQuery) {
+	runCtx, control, _ := s.deps.Runs.Register(r.Context(), prepared.session)
+	eventBus, ok := s.deps.Runs.EventBus(prepared.req.RunID)
+	if !ok {
+		s.deps.Runs.Interrupt(api.InterruptRequest{RunID: prepared.req.RunID})
+		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, "run event bus unavailable"))
+		return
+	}
+
+	sseWriter, err := stream.NewWriter(w, stream.Options{
+		SSE:            s.deps.Config.SSE,
+		Render:         s.deps.Config.H2A.Render,
+		LoggingEnabled: s.deps.Config.Logging.SSE.Enabled,
+	})
+	if err != nil {
+		s.deps.Runs.Interrupt(api.InterruptRequest{RunID: prepared.req.RunID})
+		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
+		return
+	}
+	defer sseWriter.Close()
+	sseWriter.StartHeartbeat()
+
+	observer, err := s.deps.Runs.AttachObserver(prepared.req.RunID, 0)
+	if err != nil {
+		s.deps.Runs.Interrupt(api.InterruptRequest{RunID: prepared.req.RunID})
+		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
+		return
+	}
+	defer s.deps.Runs.DetachObserver(prepared.req.RunID, observer.ID)
+
+	assembler, mapper := s.newAssemblerAndMapper(prepared)
+	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode)
+
+	StartRunExecutor(RunExecutorParams{
+		RunCtx:     runCtx,
+		Request:    prepared.req,
+		Session:    prepared.session,
+		Summary:    prepared.summary,
+		Agent:      s.deps.Agent,
+		Assembler:  assembler,
+		Mapper:     mapper,
+		StepWriter: stepWriter,
+		EventBus:   eventBus,
+		Chats:      s.deps.Chats,
+		RunControl: control,
+		OnComplete: s.deps.Runs.Finish,
+	})
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case event, ok := <-observer.Events:
+			if !ok {
+				_ = sseWriter.WriteDone()
+				return
+			}
+			if err := sseWriter.WriteJSON("message", event); err != nil {
+				return
+			}
+		}
+	}
+}
+
+func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, prepared preparedQuery) {
+	control := contracts.NewRunControl(ctx, prepared.req.RunID)
+	control.SetObserverCount(1)
+	runCtx := contracts.WithRunControl(control.Context(), control)
+	defer control.SetObserverCount(0)
+
+	assembler, mapper := s.newAssemblerAndMapper(prepared)
 	sseWriter, err := stream.NewWriter(w, stream.Options{
 		SSE:            s.deps.Config.SSE,
 		Render:         s.deps.Config.H2A.Render,
@@ -204,51 +314,23 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	defer sseWriter.Close()
 	sseWriter.StartHeartbeat()
 
-	var assistantText strings.Builder
-	var chatUsage chat.UsageData
-	if summary.Usage != nil {
-		chatUsage = *summary.Usage
+	var (
+		assistantText strings.Builder
+		chatUsage     chat.UsageData
+		runUsage      chat.UsageData
+	)
+	if prepared.summary.Usage != nil {
+		chatUsage = *prepared.summary.Usage
 	}
-	var runUsage chat.UsageData
-	stepWriter := chat.NewStepWriter(s.deps.Chats, chatID, runID, agentDef.Mode)
+	processor := &runEventProcessor{
+		assistantText: &assistantText,
+		stepWriter:    chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode),
+		chatUsage:     chatUsage,
+		runUsage:      &runUsage,
+	}
 	writeEvent := func(event stream.StreamEvent) error {
-		data := event.Data()
-		if event.Type == "content.delta" {
-			if delta := data.String("delta"); delta != "" {
-				assistantText.WriteString(delta)
-			}
-		}
-		if event.Type == "content.snapshot" {
-			if text := data.String("text"); text != "" {
-				assistantText.Reset()
-				assistantText.WriteString(text)
-			}
-		}
-		if event.Type == "run.context" {
-			data.Payload["chatUsage"] = map[string]any{
-				"promptTokens":     chatUsage.PromptTokens,
-				"completionTokens": chatUsage.CompletionTokens,
-				"totalTokens":      chatUsage.TotalTokens,
-			}
-		}
-		if event.Type == "run.complete" || event.Type == "run.error" || event.Type == "run.cancel" {
-			if u, ok := data.Payload["usage"].(map[string]any); ok {
-				runUsage.PromptTokens = contracts.AnyIntNode(u["promptTokens"])
-				runUsage.CompletionTokens = contracts.AnyIntNode(u["completionTokens"])
-				runUsage.TotalTokens = contracts.AnyIntNode(u["totalTokens"])
-			}
-			updatedChatUsage := map[string]any{
-				"promptTokens":     chatUsage.PromptTokens + runUsage.PromptTokens,
-				"completionTokens": chatUsage.CompletionTokens + runUsage.CompletionTokens,
-				"totalTokens":      chatUsage.TotalTokens + runUsage.TotalTokens,
-			}
-			data.Payload["chatUsage"] = updatedChatUsage
-		}
-		stepWriter.OnEvent(data)
-		if event.Type == "stage.marker" {
-			return nil
-		}
-		if strings.HasSuffix(event.Type, ".snapshot") {
+		data, visible := processor.Consume(event)
+		if !visible {
 			return nil
 		}
 		return sseWriter.WriteJSON("message", data)
@@ -260,11 +342,18 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	agentStream, err := s.deps.Agent.Stream(runCtx, req, session)
+	agentStream, err := s.deps.Agent.Stream(runCtx, prepared.req, prepared.session)
 	if err != nil {
+		control.TransitionState(contracts.RunLoopStateFailed)
 		for _, event := range assembler.Fail(err) {
 			_ = writeEvent(event)
 		}
+		persistRunCompletionIfNeeded(RunExecutorParams{
+			Request:    prepared.req,
+			Session:    prepared.session,
+			Chats:      s.deps.Chats,
+			RunControl: control,
+		}, assistantText.String(), runUsage, false)
 		_ = sseWriter.WriteDone()
 		return
 	}
@@ -273,17 +362,18 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	streamFailed := false
 	streamInterrupted := false
 	for {
-		delta, err := agentStream.Next()
-		if errors.Is(err, io.EOF) {
+		delta, nextErr := agentStream.Next()
+		if errors.Is(nextErr, io.EOF) {
 			break
 		}
-		if contracts.IsRunInterrupted(err) {
+		if contracts.IsRunInterrupted(nextErr) {
 			streamInterrupted = true
 			break
 		}
-		if err != nil {
+		if nextErr != nil {
 			streamFailed = true
-			for _, event := range assembler.Fail(err) {
+			control.TransitionState(contracts.RunLoopStateFailed)
+			for _, event := range assembler.Fail(nextErr) {
 				if writeErr := writeEvent(event); writeErr != nil {
 					return
 				}
@@ -300,18 +390,14 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	processor.stepWriter.Flush()
 	if streamFailed || streamInterrupted {
-		stepWriter.Flush()
-		if runUsage.TotalTokens > 0 {
-			_ = s.deps.Chats.OnRunCompleted(chat.RunCompletion{
-				ChatID:          chatID,
-				RunID:           runID,
-				AssistantText:   assistantText.String(),
-				InitialMessage:  req.Message,
-				UpdatedAtMillis: time.Now().UnixMilli(),
-				Usage:           runUsage,
-			})
-		}
+		persistRunCompletionIfNeeded(RunExecutorParams{
+			Request:    prepared.req,
+			Session:    prepared.session,
+			Chats:      s.deps.Chats,
+			RunControl: control,
+		}, assistantText.String(), runUsage, false)
 		_ = sseWriter.WriteDone()
 		return
 	}
@@ -321,18 +407,12 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-
-	finalAssistantText := assistantText.String()
-	if err := s.deps.Chats.OnRunCompleted(chat.RunCompletion{
-		ChatID:          chatID,
-		RunID:           runID,
-		AssistantText:   finalAssistantText,
-		InitialMessage:  req.Message,
-		UpdatedAtMillis: time.Now().UnixMilli(),
-		Usage:           runUsage,
-	}); err != nil {
-		return
-	}
+	persistRunCompletionIfNeeded(RunExecutorParams{
+		Request:    prepared.req,
+		Session:    prepared.session,
+		Chats:      s.deps.Chats,
+		RunControl: control,
+	}, assistantText.String(), runUsage, true)
 	_ = sseWriter.WriteDone()
 }
 

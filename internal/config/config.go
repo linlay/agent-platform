@@ -28,6 +28,7 @@ type Config struct {
 	ContainerHub ContainerHubConfig
 	Bash         BashConfig
 	BashHITL     BashHITLConfig
+	Run          RunConfig
 }
 
 type ServerConfig struct {
@@ -209,6 +210,14 @@ type BashHITLConfig struct {
 	DefaultTimeoutMs int
 }
 
+type RunConfig struct {
+	ReaperIntervalMs        int64
+	MaxBackgroundDurationMs int64
+	CompletedRetentionMs    int64
+	EventBusMaxEvents       int
+	MaxDisconnectedWaitMs   int64
+}
+
 func Load() (Config, error) {
 	cfg := defaultConfig()
 	cfg.applyStructuredConfig()
@@ -364,6 +373,13 @@ func defaultConfig() Config {
 		BashHITL: BashHITLConfig{
 			Enabled:          false,
 			DefaultTimeoutMs: 120000,
+		},
+		Run: RunConfig{
+			ReaperIntervalMs:        30000,
+			MaxBackgroundDurationMs: 600000,
+			CompletedRetentionMs:    600000,
+			EventBusMaxEvents:       10000,
+			MaxDisconnectedWaitMs:   600000,
 		},
 	}
 }
@@ -541,6 +557,11 @@ func (c *Config) applyEnv() {
 	c.Bash.MaxCommandChars = intEnv("AGENT_BASH_MAX_COMMAND_CHARS", c.Bash.MaxCommandChars)
 	c.BashHITL.Enabled = boolEnv("AGENT_BASH_HITL_ENABLED", c.BashHITL.Enabled)
 	c.BashHITL.DefaultTimeoutMs = intEnv("AGENT_BASH_HITL_DEFAULT_TIMEOUT_MS", c.BashHITL.DefaultTimeoutMs)
+	c.Run.ReaperIntervalMs = int64Env("AGENT_RUN_REAPER_INTERVAL_MS", c.Run.ReaperIntervalMs)
+	c.Run.MaxBackgroundDurationMs = int64Env("AGENT_RUN_MAX_BACKGROUND_DURATION_MS", c.Run.MaxBackgroundDurationMs)
+	c.Run.CompletedRetentionMs = int64Env("AGENT_RUN_COMPLETED_RETENTION_MS", c.Run.CompletedRetentionMs)
+	c.Run.EventBusMaxEvents = intEnv("AGENT_RUN_EVENTBUS_MAX_EVENTS", c.Run.EventBusMaxEvents)
+	c.Run.MaxDisconnectedWaitMs = int64Env("AGENT_RUN_MAX_DISCONNECTED_WAIT_MS", c.Run.MaxDisconnectedWaitMs)
 }
 
 func (c *Config) normalize() {

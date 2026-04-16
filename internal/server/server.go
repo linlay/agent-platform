@@ -50,6 +50,8 @@ type Server struct {
 	ticketService *ResourceTicketService
 }
 
+type syncQueryContextKey struct{}
+
 type statusRecorder struct {
 	http.ResponseWriter
 	status int
@@ -67,6 +69,9 @@ func (r *statusRecorder) Flush() {
 }
 
 func New(deps Dependencies) (*Server, error) {
+	if configurable, ok := deps.Runs.(contracts.RunLifecycleConfigurer); ok {
+		configurable.ConfigureRunLifecycle(deps.Config.Run)
+	}
 	authVerifier := NewJWTVerifier(deps.Config.Auth)
 	if deps.Config.Auth.Enabled {
 		if err := authVerifier.ValidateConfiguration(); err != nil {
@@ -119,11 +124,23 @@ func (s *Server) ExecuteInternalQuery(ctx context.Context, req api.QueryRequest)
 	if err != nil {
 		return 0, "", err
 	}
-	httpReq := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewReader(body)).WithContext(ctx)
+	httpReq := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewReader(body)).WithContext(withSyncQueryContext(ctx))
 	httpReq.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	s.handleQuery(rec, httpReq)
 	return rec.Code, strings.TrimSpace(rec.Body.String()), nil
+}
+
+func withSyncQueryContext(ctx context.Context) context.Context {
+	return context.WithValue(ctx, syncQueryContextKey{}, true)
+}
+
+func isSyncQueryContext(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	value, _ := ctx.Value(syncQueryContextKey{}).(bool)
+	return value
 }
 
 func (s *Server) handleCORS(w http.ResponseWriter, r *http.Request) bool {
@@ -227,6 +244,8 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/chat", s.method(http.MethodGet, s.handleChat))
 	s.router.HandleFunc("/api/read", s.method(http.MethodPost, s.handleRead))
 	s.router.HandleFunc("/api/query", s.method(http.MethodPost, s.handleQuery))
+	s.router.HandleFunc("/api/run/stream", s.method(http.MethodGet, s.handleRunStream))
+	s.router.HandleFunc("/api/run/status", s.method(http.MethodGet, s.handleRunStatus))
 	s.router.HandleFunc("/api/submit", s.method(http.MethodPost, s.handleSubmit))
 	s.router.HandleFunc("/api/steer", s.method(http.MethodPost, s.handleSteer))
 	s.router.HandleFunc("/api/interrupt", s.method(http.MethodPost, s.handleInterrupt))
