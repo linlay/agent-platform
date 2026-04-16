@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -63,6 +64,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	socket, err := h.upgrader.Upgrade(w, r, responseHeader)
 	if err != nil {
+		log.Printf("websocket upgrade failed: path=%s has_subprotocol=%t err=%v", r.URL.Path, subprotocol != "", err)
 		return
 	}
 	conn := NewConn(socket, h.hub, h.cfg, h.heartbeatInterval, auth)

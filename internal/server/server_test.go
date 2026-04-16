@@ -20,6 +20,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -42,6 +43,9 @@ import (
 	"agent-platform-runner-go/internal/runctl"
 	"agent-platform-runner-go/internal/stream"
 	"agent-platform-runner-go/internal/tools"
+	"agent-platform-runner-go/internal/ws"
+
+	gws "github.com/gorilla/websocket"
 )
 
 var disallowedPersistedEventTypes = []string{
@@ -72,6 +76,120 @@ func TestStatusRecorderExposesFlusherWhenUnderlyingWriterSupportsIt(t *testing.T
 	if !base.Flushed {
 		t.Fatalf("expected Flush to be forwarded to underlying response writer")
 	}
+}
+
+func TestStatusRecorderExposesHijackerWhenUnderlyingWriterSupportsIt(t *testing.T) {
+	serverConn, clientConn := net.Pipe()
+	defer serverConn.Close()
+	defer clientConn.Close()
+
+	base := &hijackableResponseWriter{
+		header: make(http.Header),
+		conn:   serverConn,
+		rw:     bufio.NewReadWriter(bufio.NewReader(serverConn), bufio.NewWriter(serverConn)),
+	}
+	rec := &statusRecorder{ResponseWriter: base, status: http.StatusOK}
+
+	hijacker, ok := any(rec).(http.Hijacker)
+	if !ok {
+		t.Fatalf("expected statusRecorder to implement http.Hijacker")
+	}
+
+	gotConn, gotRW, err := hijacker.Hijack()
+	if err != nil {
+		t.Fatalf("hijack: %v", err)
+	}
+	if gotConn != base.conn {
+		t.Fatalf("expected hijacked conn to match underlying conn")
+	}
+	if gotRW != base.rw {
+		t.Fatalf("expected hijacked read writer to match underlying read writer")
+	}
+}
+
+func TestStatusRecorderHijackReturnsErrorWhenUnderlyingWriterDoesNotSupportIt(t *testing.T) {
+	rec := &statusRecorder{ResponseWriter: httptest.NewRecorder(), status: http.StatusOK}
+
+	_, _, err := rec.Hijack()
+	if err == nil {
+		t.Fatalf("expected hijack to fail when underlying writer does not implement http.Hijacker")
+	}
+	if !strings.Contains(err.Error(), "underlying ResponseWriter does not implement http.Hijacker") {
+		t.Fatalf("unexpected hijack error: %v", err)
+	}
+}
+
+func TestWebSocketUpgradeAcceptsValidTokenThroughStatusRecorder(t *testing.T) {
+	var privateKey *rsa.PrivateKey
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		notifications: ws.NewHub(),
+		setupRuntime: func(root string, cfg *config.Config) {
+			var publicKeyPath string
+			privateKey, publicKeyPath = writeTestJWTKeyPair(t, root)
+			cfg.Auth = config.AuthConfig{
+				Enabled:            true,
+				LocalPublicKeyFile: publicKeyPath,
+				Issuer:             "zenmind-local",
+			}
+			cfg.WebSocket.Enabled = true
+			cfg.WebSocket.WriteQueueSize = 4
+			cfg.WebSocket.PingIntervalMs = 30000
+		},
+	})
+
+	server := httptest.NewServer(fixture.server)
+	defer server.Close()
+
+	token := mustSignRS256JWT(t, privateKey, map[string]any{
+		"sub": "tester",
+		"iss": "zenmind-local",
+		"exp": float64(4102444800),
+	})
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws?token=" + url.QueryEscape(token)
+	conn, resp, err := gws.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		status := 0
+		body := ""
+		if resp != nil {
+			status = resp.StatusCode
+			if resp.Body != nil {
+				data, readErr := io.ReadAll(resp.Body)
+				if readErr != nil {
+					body = readErr.Error()
+				} else {
+					body = string(data)
+				}
+				resp.Body.Close()
+			}
+		}
+		t.Fatalf("expected websocket handshake to succeed, got err=%v status=%d body=%q", err, status, body)
+	}
+	defer conn.Close()
+}
+
+type hijackableResponseWriter struct {
+	header http.Header
+	conn   net.Conn
+	rw     *bufio.ReadWriter
+}
+
+func (w *hijackableResponseWriter) Header() http.Header {
+	if w.header == nil {
+		w.header = make(http.Header)
+	}
+	return w.header
+}
+
+func (w *hijackableResponseWriter) Write(data []byte) (int, error) {
+	return len(data), nil
+}
+
+func (w *hijackableResponseWriter) WriteHeader(status int) {}
+
+func (w *hijackableResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	return w.conn, w.rw, nil
 }
 
 func TestQuerySSEPersistsChatHistory(t *testing.T) {
