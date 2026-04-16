@@ -63,19 +63,24 @@ func (p *runEventProcessor) decorate(data *stream.EventData) {
 				p.assistantText.WriteString(text)
 			}
 		}
-	case "debug.usage":
+	case "debug.preCall", "debug.postCall":
 		inner, ok := data.Payload["data"].(map[string]any)
 		if !ok {
 			return
 		}
+		usage, ok := inner["usage"].(map[string]any)
+		if !ok {
+			usage = map[string]any{}
+			inner["usage"] = usage
+		}
 		if p.runUsage != nil {
-			if ru, ok := inner["runUsage"].(map[string]any); ok {
+			if ru, ok := usage["runUsage"].(map[string]any); ok {
 				p.runUsage.PromptTokens = contracts.AnyIntNode(ru["promptTokens"])
 				p.runUsage.CompletionTokens = contracts.AnyIntNode(ru["completionTokens"])
 				p.runUsage.TotalTokens = contracts.AnyIntNode(ru["totalTokens"])
 			}
 		}
-		inner["chatUsage"] = map[string]any{
+		usage["chatUsage"] = map[string]any{
 			"promptTokens":     p.chatUsage.PromptTokens + p.runUsage.PromptTokens,
 			"completionTokens": p.chatUsage.CompletionTokens + p.runUsage.CompletionTokens,
 			"totalTokens":      p.chatUsage.TotalTokens + p.runUsage.TotalTokens,

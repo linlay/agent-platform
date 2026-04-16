@@ -103,8 +103,8 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 		events = append(events, NewEvent("run.cancel", payload))
 		d.state.terminated = true
 		return events
-	case InputActivityContext:
-		return []StreamEvent{NewEvent("debug.context", map[string]any{
+	case InputDebugPreCall:
+		return []StreamEvent{NewEvent("debug.preCall", map[string]any{
 			"runId":  d.request.RunID,
 			"chatId": value.ChatID,
 			"data": map[string]any{
@@ -116,9 +116,16 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 					"actual_size":    value.CurrentContextSize,
 					"estimated_size": value.EstimatedNextCallSize,
 				},
+				"usage": map[string]any{
+					"runUsage": map[string]any{
+						"promptTokens":     value.RunPromptTokens,
+						"completionTokens": value.RunCompletionTokens,
+						"totalTokens":      value.RunTotalTokens,
+					},
+				},
 			},
 		})}
-	case InputActivityUsage:
+	case InputDebugPostCall:
 		if value.RunTotalTokens > 0 {
 			d.state.runUsage = &runUsageState{
 				PromptTokens:     value.RunPromptTokens,
@@ -126,19 +133,29 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 				TotalTokens:      value.RunTotalTokens,
 			}
 		}
-		return []StreamEvent{NewEvent("debug.usage", map[string]any{
+		return []StreamEvent{NewEvent("debug.postCall", map[string]any{
 			"runId":  d.request.RunID,
 			"chatId": value.ChatID,
 			"data": map[string]any{
-				"llmReturnUsage": map[string]any{
-					"promptTokens":     value.LLMReturnPromptTokens,
-					"completionTokens": value.LLMReturnCompletionTokens,
-					"totalTokens":      value.LLMReturnTotalTokens,
+				"model": map[string]any{
+					"key": value.ModelKey,
 				},
-				"runUsage": map[string]any{
-					"promptTokens":     value.RunPromptTokens,
-					"completionTokens": value.RunCompletionTokens,
-					"totalTokens":      value.RunTotalTokens,
+				"contextWindow": map[string]any{
+					"max_size":       value.ContextWindow,
+					"actual_size":    value.CurrentContextSize,
+					"estimated_size": value.EstimatedNextCallSize,
+				},
+				"usage": map[string]any{
+					"llmReturnUsage": map[string]any{
+						"promptTokens":     value.LLMReturnPromptTokens,
+						"completionTokens": value.LLMReturnCompletionTokens,
+						"totalTokens":      value.LLMReturnTotalTokens,
+					},
+					"runUsage": map[string]any{
+						"promptTokens":     value.RunPromptTokens,
+						"completionTokens": value.RunCompletionTokens,
+						"totalTokens":      value.RunTotalTokens,
+					},
 				},
 			},
 		})}

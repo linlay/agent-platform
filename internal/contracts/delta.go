@@ -134,18 +134,25 @@ type DeltaRequestSteer struct {
 
 func (DeltaRequestSteer) agentDeltaTag() {}
 
-type DeltaActivityContext struct {
+type DeltaDebugPreCall struct {
 	ChatID                string
 	ModelKey              string
 	ContextWindow         int
 	CurrentContextSize    int
 	EstimatedNextCallSize int
+	RunPromptTokens       int
+	RunCompletionTokens   int
+	RunTotalTokens        int
 }
 
-func (DeltaActivityContext) agentDeltaTag() {}
+func (DeltaDebugPreCall) agentDeltaTag() {}
 
-type DeltaActivityUsage struct {
+type DeltaDebugPostCall struct {
 	ChatID                    string
+	ModelKey                  string
+	ContextWindow             int
+	CurrentContextSize        int
+	EstimatedNextCallSize     int
 	LLMReturnPromptTokens     int
 	LLMReturnCompletionTokens int
 	LLMReturnTotalTokens      int
@@ -154,7 +161,7 @@ type DeltaActivityUsage struct {
 	RunTotalTokens            int
 }
 
-func (DeltaActivityUsage) agentDeltaTag() {}
+func (DeltaDebugPostCall) agentDeltaTag() {}
 
 type DeltaRunCancel struct {
 	RunID string

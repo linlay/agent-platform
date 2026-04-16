@@ -211,19 +211,26 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			SteerID:   value.SteerID,
 			Message:   value.Message,
 		}}
-	case DeltaActivityContext:
+	case DeltaDebugPreCall:
 		m.lastKind = ""
-		return []stream.StreamInput{stream.InputActivityContext{
+		return []stream.StreamInput{stream.InputDebugPreCall{
 			ChatID:                value.ChatID,
 			ModelKey:              value.ModelKey,
 			ContextWindow:         value.ContextWindow,
 			CurrentContextSize:    value.CurrentContextSize,
 			EstimatedNextCallSize: value.EstimatedNextCallSize,
+			RunPromptTokens:       value.RunPromptTokens,
+			RunCompletionTokens:   value.RunCompletionTokens,
+			RunTotalTokens:        value.RunTotalTokens,
 		}}
-	case DeltaActivityUsage:
+	case DeltaDebugPostCall:
 		m.lastKind = ""
-		return []stream.StreamInput{stream.InputActivityUsage{
+		return []stream.StreamInput{stream.InputDebugPostCall{
 			ChatID:                    value.ChatID,
+			ModelKey:                  value.ModelKey,
+			ContextWindow:             value.ContextWindow,
+			CurrentContextSize:        value.CurrentContextSize,
+			EstimatedNextCallSize:     value.EstimatedNextCallSize,
 			LLMReturnPromptTokens:     value.LLMReturnPromptTokens,
 			LLMReturnCompletionTokens: value.LLMReturnCompletionTokens,
 			LLMReturnTotalTokens:      value.LLMReturnTotalTokens,

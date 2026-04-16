@@ -484,6 +484,28 @@ func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, r
 				if cw, ok := msgMap["_contextWindow"].(map[string]any); ok && len(cw) > 0 {
 					stepContextWindow = cw
 				}
+			}
+			ts := int64FromAny(line["updatedAt"])
+			if stepUsage != nil || len(stepContextWindow) > 0 {
+				runCumulativePre := map[string]int{
+					"promptTokens":     rd.totalPromptTokens,
+					"completionTokens": rd.totalCompletionTokens,
+					"totalTokens":      rd.totalTotalTokens,
+				}
+				chatCumulativePre := map[string]int{
+					"promptTokens":     chatTotalPromptTokens,
+					"completionTokens": chatTotalCompletionTokens,
+					"totalTokens":      chatTotalTotalTokens,
+				}
+				if ev := synthesizePreCallEvent(runID, chatID, runCumulativePre, chatCumulativePre, stepContextWindow, ts, nextSeq); ev != nil {
+					rd.events = append(rd.events, *ev)
+				}
+			}
+			for _, rawMsg := range msgs {
+				msgMap, _ := rawMsg.(map[string]any)
+				if msgMap == nil {
+					continue
+				}
 				for _, ev := range storedMessageToEvents(msgMap, runID, taskID, stage, nextSeq) {
 					rd.events = append(rd.events, ev)
 				}
@@ -497,17 +519,19 @@ func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, r
 				chatTotalTotalTokens += toIntValue(stepUsage["total_tokens"])
 			}
 			if stepUsage != nil || len(stepContextWindow) > 0 {
-				runCumulative := map[string]int{
+				runCumulativePost := map[string]int{
 					"promptTokens":     rd.totalPromptTokens,
 					"completionTokens": rd.totalCompletionTokens,
 					"totalTokens":      rd.totalTotalTokens,
 				}
-				chatCumulative := map[string]int{
+				chatCumulativePost := map[string]int{
 					"promptTokens":     chatTotalPromptTokens,
 					"completionTokens": chatTotalCompletionTokens,
 					"totalTokens":      chatTotalTotalTokens,
 				}
-				rd.events = append(rd.events, synthesizeActivityEvents(runID, chatID, stepUsage, runCumulative, chatCumulative, stepContextWindow, int64FromAny(line["updatedAt"]), nextSeq)...)
+				if ev := synthesizePostCallEvent(runID, chatID, stepUsage, runCumulativePost, chatCumulativePost, stepContextWindow, ts, nextSeq); ev != nil {
+					rd.events = append(rd.events, *ev)
+				}
 			}
 		case "event":
 			event, _ := line["event"].(map[string]any)
@@ -638,74 +662,83 @@ func isNewFormat(lines []map[string]any) bool {
 // Step line → SSE events reconstruction
 // ---------------------------------------------------------------------------
 
-func synthesizeActivityEvents(runID, chatID string, usage map[string]any, runCumulative map[string]int, chatCumulative map[string]int, contextWindow map[string]any, ts int64, nextSeq func() int64) []stream.EventData {
-	events := make([]stream.EventData, 0, 2)
-	chatUsage := map[string]any{
-		"promptTokens":     0,
-		"completionTokens": 0,
-		"totalTokens":      0,
+func synthesizedContextWindow(contextWindow map[string]any) map[string]any {
+	cw := map[string]any{}
+	if len(contextWindow) == 0 {
+		return cw
 	}
-	if chatCumulative != nil {
-		chatUsage = map[string]any{
-			"promptTokens":     chatCumulative["promptTokens"],
-			"completionTokens": chatCumulative["completionTokens"],
-			"totalTokens":      chatCumulative["totalTokens"],
-		}
+	if v := toIntValue(contextWindow["max_size"]); v > 0 {
+		cw["max_size"] = v
 	}
-	if len(contextWindow) > 0 {
-		cw := map[string]any{}
-		if v := toIntValue(contextWindow["max_size"]); v > 0 {
-			cw["max_size"] = v
-		}
-		if v := toIntValue(contextWindow["actual_size"]); v > 0 {
-			cw["actual_size"] = v
-		}
-		if v := toIntValue(contextWindow["estimated_size"]); v > 0 {
-			cw["estimated_size"] = v
-		}
-		events = append(events, stream.EventData{
-			Seq:       nextSeq(),
-			Type:      "debug.context",
-			Timestamp: ts,
-			Payload: map[string]any{
-				"runId":  runID,
-				"chatId": chatID,
-				"data": map[string]any{
-					"contextWindow": cw,
-				},
-			},
-		})
+	if v := toIntValue(contextWindow["actual_size"]); v > 0 {
+		cw["actual_size"] = v
 	}
+	if v := toIntValue(contextWindow["estimated_size"]); v > 0 {
+		cw["estimated_size"] = v
+	}
+	return cw
+}
+
+func cumulativeUsagePayload(cumulative map[string]int) map[string]any {
+	if cumulative == nil {
+		return map[string]any{"promptTokens": 0, "completionTokens": 0, "totalTokens": 0}
+	}
+	return map[string]any{
+		"promptTokens":     cumulative["promptTokens"],
+		"completionTokens": cumulative["completionTokens"],
+		"totalTokens":      cumulative["totalTokens"],
+	}
+}
+
+func synthesizePreCallEvent(runID, chatID string, runCumulative, chatCumulative map[string]int, contextWindow map[string]any, ts int64, nextSeq func() int64) *stream.EventData {
+	data := map[string]any{}
+	if cw := synthesizedContextWindow(contextWindow); len(cw) > 0 {
+		data["contextWindow"] = cw
+	}
+	data["usage"] = map[string]any{
+		"runUsage":  cumulativeUsagePayload(runCumulative),
+		"chatUsage": cumulativeUsagePayload(chatCumulative),
+	}
+	return &stream.EventData{
+		Seq:       nextSeq(),
+		Type:      "debug.preCall",
+		Timestamp: ts,
+		Payload: map[string]any{
+			"runId":  runID,
+			"chatId": chatID,
+			"data":   data,
+		},
+	}
+}
+
+func synthesizePostCallEvent(runID, chatID string, usage map[string]any, runCumulative, chatCumulative map[string]int, contextWindow map[string]any, ts int64, nextSeq func() int64) *stream.EventData {
+	llm := map[string]any{"promptTokens": 0, "completionTokens": 0, "totalTokens": 0}
 	if usage != nil {
-		llm := map[string]any{
+		llm = map[string]any{
 			"promptTokens":     toIntValue(usage["prompt_tokens"]),
 			"completionTokens": toIntValue(usage["completion_tokens"]),
 			"totalTokens":      toIntValue(usage["total_tokens"]),
 		}
-		run := llm
-		if runCumulative != nil {
-			run = map[string]any{
-				"promptTokens":     runCumulative["promptTokens"],
-				"completionTokens": runCumulative["completionTokens"],
-				"totalTokens":      runCumulative["totalTokens"],
-			}
-		}
-		events = append(events, stream.EventData{
-			Seq:       nextSeq(),
-			Type:      "debug.usage",
-			Timestamp: ts,
-			Payload: map[string]any{
-				"runId":  runID,
-				"chatId": chatID,
-				"data": map[string]any{
-					"llmReturnUsage": llm,
-					"runUsage":       run,
-					"chatUsage":      chatUsage,
-				},
-			},
-		})
 	}
-	return events
+	data := map[string]any{}
+	if cw := synthesizedContextWindow(contextWindow); len(cw) > 0 {
+		data["contextWindow"] = cw
+	}
+	data["usage"] = map[string]any{
+		"llmReturnUsage": llm,
+		"runUsage":       cumulativeUsagePayload(runCumulative),
+		"chatUsage":      cumulativeUsagePayload(chatCumulative),
+	}
+	return &stream.EventData{
+		Seq:       nextSeq(),
+		Type:      "debug.postCall",
+		Timestamp: ts,
+		Payload: map[string]any{
+			"runId":  runID,
+			"chatId": chatID,
+			"data":   data,
+		},
+	}
 }
 
 func toIntValue(v any) int {

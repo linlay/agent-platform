@@ -189,21 +189,19 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 	case "artifact.publish":
 		w.updateArtifact(event)
 
-	case "debug.context":
+	case "debug.preCall", "debug.postCall":
 		if inner, ok := event.Value("data").(map[string]any); ok {
 			if cw, ok := inner["contextWindow"].(map[string]any); ok {
 				w.pendingContextWindowMax = toInt(cw["max_size"])
 				w.pendingEstimated = toInt(cw["estimated_size"])
 			}
-		}
-
-	case "debug.usage":
-		if inner, ok := event.Value("data").(map[string]any); ok {
-			if llm, ok := inner["llmReturnUsage"].(map[string]any); ok {
-				w.pendingUsage = map[string]any{
-					"prompt_tokens":     toInt(llm["promptTokens"]),
-					"completion_tokens": toInt(llm["completionTokens"]),
-					"total_tokens":      toInt(llm["totalTokens"]),
+			if usage, ok := inner["usage"].(map[string]any); ok {
+				if llm, ok := usage["llmReturnUsage"].(map[string]any); ok {
+					w.pendingUsage = map[string]any{
+						"prompt_tokens":     toInt(llm["promptTokens"]),
+						"completion_tokens": toInt(llm["completionTokens"]),
+						"total_tokens":      toInt(llm["totalTokens"]),
+					}
 				}
 			}
 		}

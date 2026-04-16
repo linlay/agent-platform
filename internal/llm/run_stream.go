@@ -230,12 +230,15 @@ func (s *llmRunStream) prepareNextTurn() error {
 	if s.protocol == nil {
 		return fmt.Errorf("streaming protocol %s is not supported", s.model.Protocol)
 	}
-	s.pending = append(s.pending, DeltaActivityContext{
+	s.pending = append(s.pending, DeltaDebugPreCall{
 		ChatID:                s.session.ChatID,
 		ModelKey:              s.model.Key,
 		ContextWindow:         s.effectiveContextWindow(),
 		CurrentContextSize:    s.currentContextSize(),
 		EstimatedNextCallSize: s.estimatedNextCallSize(),
+		RunPromptTokens:       s.runPromptTokens,
+		RunCompletionTokens:   s.runCompletionTokens,
+		RunTotalTokens:        s.runTotalTokens,
 	})
 	turn, err := s.protocol.OpenStream(s.ctx, protocolStreamParams{
 		runID:          s.session.RunID,
@@ -568,8 +571,12 @@ func (s *llmRunStream) emitPendingUsageDelta() {
 		return
 	}
 	s.pendingUsageEmit = false
-	s.pending = append(s.pending, DeltaActivityUsage{
+	s.pending = append(s.pending, DeltaDebugPostCall{
 		ChatID:                    s.session.ChatID,
+		ModelKey:                  s.model.Key,
+		ContextWindow:             s.effectiveContextWindow(),
+		CurrentContextSize:        s.currentContextSize(),
+		EstimatedNextCallSize:     s.estimatedNextCallSize(),
 		LLMReturnPromptTokens:     s.lastCallPromptTokens,
 		LLMReturnCompletionTokens: s.lastCallCompletionTokens,
 		LLMReturnTotalTokens:      s.lastCallTotalTokens,
