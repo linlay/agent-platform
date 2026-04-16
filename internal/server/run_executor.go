@@ -63,20 +63,6 @@ func (p *runEventProcessor) decorate(data *stream.EventData) {
 				p.assistantText.WriteString(text)
 			}
 		}
-	case "debug.context":
-		inner, ok := data.Payload["data"].(map[string]any)
-		if !ok {
-			inner = map[string]any{}
-			if data.Payload == nil {
-				data.Payload = map[string]any{}
-			}
-			data.Payload["data"] = inner
-		}
-		inner["chatUsage"] = map[string]any{
-			"promptTokens":     p.chatUsage.PromptTokens,
-			"completionTokens": p.chatUsage.CompletionTokens,
-			"totalTokens":      p.chatUsage.TotalTokens,
-		}
 	case "debug.usage":
 		inner, ok := data.Payload["data"].(map[string]any)
 		if !ok {

@@ -94,7 +94,7 @@ type StoredMessage struct {
 	ToolID           string           `json:"_toolId,omitempty"`
 	ActionID         string           `json:"_actionId,omitempty"`
 	Usage            map[string]any   `json:"_usage,omitempty"`
-	ContextWindow    int              `json:"_contextWindow,omitempty"`
+	ContextWindow    map[string]any   `json:"_contextWindow,omitempty"`
 }
 
 type ContentPart struct {

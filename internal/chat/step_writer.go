@@ -42,10 +42,11 @@ type StepWriter struct {
 	currentMsgID string
 	needNewMsgID bool
 
-	// pending usage / contextWindow captured from activity.* events;
+	// pending usage / contextWindow captured from debug.* events;
 	// attached to last assistant message on step flush
-	pendingUsage         map[string]any
-	pendingContextWindow int
+	pendingUsage            map[string]any
+	pendingContextWindowMax int
+	pendingEstimated        int
 }
 
 // NewStepWriter creates a StepWriter for a single run.
@@ -190,12 +191,9 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 
 	case "debug.context":
 		if inner, ok := event.Value("data").(map[string]any); ok {
-			if model, ok := inner["model"].(map[string]any); ok {
-				if cw, ok := model["contextWindow"].(int); ok && cw > 0 {
-					w.pendingContextWindow = cw
-				} else if cw, ok := model["contextWindow"].(float64); ok && cw > 0 {
-					w.pendingContextWindow = int(cw)
-				}
+			if cw, ok := inner["contextWindow"].(map[string]any); ok {
+				w.pendingContextWindowMax = toInt(cw["max"])
+				w.pendingEstimated = toInt(cw["estimated"])
 			}
 		}
 
@@ -258,20 +256,35 @@ func (w *StepWriter) flushCurrentStep() {
 
 	// Attach pending usage / contextWindow to the last assistant message
 	// (matches Java convention: _usage / _contextWindow on StoredMessage).
-	if w.pendingUsage != nil || w.pendingContextWindow > 0 {
+	if w.pendingUsage != nil || w.pendingContextWindowMax > 0 || w.pendingEstimated > 0 {
+		actual := 0
+		if w.pendingUsage != nil {
+			actual = toInt(w.pendingUsage["prompt_tokens"])
+		}
+		cw := map[string]any{}
+		if w.pendingContextWindowMax > 0 {
+			cw["max"] = w.pendingContextWindowMax
+		}
+		if actual > 0 {
+			cw["actual"] = actual
+		}
+		if w.pendingEstimated > 0 {
+			cw["estimated"] = w.pendingEstimated
+		}
 		for i := len(w.messages) - 1; i >= 0; i-- {
 			if w.messages[i].Role == "assistant" {
 				if w.pendingUsage != nil {
 					w.messages[i].Usage = w.pendingUsage
 				}
-				if w.pendingContextWindow > 0 {
-					w.messages[i].ContextWindow = w.pendingContextWindow
+				if len(cw) > 0 {
+					w.messages[i].ContextWindow = cw
 				}
 				break
 			}
 		}
 		w.pendingUsage = nil
-		w.pendingContextWindow = 0
+		w.pendingContextWindowMax = 0
+		w.pendingEstimated = 0
 	}
 
 	line := StepLine{

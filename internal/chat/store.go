@@ -425,6 +425,8 @@ func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, r
 	seq := int64(0)
 	nextSeq := func() int64 { seq++; return seq }
 
+	var chatTotalPromptTokens, chatTotalCompletionTokens, chatTotalTotalTokens int
+
 	for _, line := range lines {
 		lineType, _ := line["_type"].(string)
 		chatID, _ := line["chatId"].(string)
@@ -470,7 +472,7 @@ func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, r
 			taskID, _ := line["taskId"].(string)
 			msgs, _ := line["messages"].([]any)
 			var stepUsage map[string]any
-			var stepContextWindow int
+			var stepContextWindow map[string]any
 			for _, rawMsg := range msgs {
 				msgMap, _ := rawMsg.(map[string]any)
 				if msgMap == nil {
@@ -479,8 +481,8 @@ func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, r
 				if u, ok := msgMap["_usage"].(map[string]any); ok && len(u) > 0 {
 					stepUsage = u
 				}
-				if cw, ok := msgMap["_contextWindow"].(float64); ok && cw > 0 {
-					stepContextWindow = int(cw)
+				if cw, ok := msgMap["_contextWindow"].(map[string]any); ok && len(cw) > 0 {
+					stepContextWindow = cw
 				}
 				for _, ev := range storedMessageToEvents(msgMap, runID, taskID, stage, nextSeq) {
 					rd.events = append(rd.events, ev)
@@ -490,14 +492,22 @@ func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, r
 				rd.totalPromptTokens += toIntValue(stepUsage["prompt_tokens"])
 				rd.totalCompletionTokens += toIntValue(stepUsage["completion_tokens"])
 				rd.totalTotalTokens += toIntValue(stepUsage["total_tokens"])
+				chatTotalPromptTokens += toIntValue(stepUsage["prompt_tokens"])
+				chatTotalCompletionTokens += toIntValue(stepUsage["completion_tokens"])
+				chatTotalTotalTokens += toIntValue(stepUsage["total_tokens"])
 			}
-			if stepUsage != nil || stepContextWindow > 0 {
+			if stepUsage != nil || len(stepContextWindow) > 0 {
 				runCumulative := map[string]int{
 					"promptTokens":     rd.totalPromptTokens,
 					"completionTokens": rd.totalCompletionTokens,
 					"totalTokens":      rd.totalTotalTokens,
 				}
-				rd.events = append(rd.events, synthesizeActivityEvents(runID, chatID, stepUsage, runCumulative, stepContextWindow, int64FromAny(line["updatedAt"]), nextSeq)...)
+				chatCumulative := map[string]int{
+					"promptTokens":     chatTotalPromptTokens,
+					"completionTokens": chatTotalCompletionTokens,
+					"totalTokens":      chatTotalTotalTokens,
+				}
+				rd.events = append(rd.events, synthesizeActivityEvents(runID, chatID, stepUsage, runCumulative, chatCumulative, stepContextWindow, int64FromAny(line["updatedAt"]), nextSeq)...)
 			}
 		case "event":
 			event, _ := line["event"].(map[string]any)
@@ -628,12 +638,30 @@ func isNewFormat(lines []map[string]any) bool {
 // Step line → SSE events reconstruction
 // ---------------------------------------------------------------------------
 
-func synthesizeActivityEvents(runID, chatID string, usage map[string]any, runCumulative map[string]int, contextWindow int, ts int64, nextSeq func() int64) []stream.EventData {
+func synthesizeActivityEvents(runID, chatID string, usage map[string]any, runCumulative map[string]int, chatCumulative map[string]int, contextWindow map[string]any, ts int64, nextSeq func() int64) []stream.EventData {
 	events := make([]stream.EventData, 0, 2)
-	if contextWindow > 0 {
-		promptTokens := 0
-		if usage != nil {
-			promptTokens = toIntValue(usage["prompt_tokens"])
+	chatUsage := map[string]any{
+		"promptTokens":     0,
+		"completionTokens": 0,
+		"totalTokens":      0,
+	}
+	if chatCumulative != nil {
+		chatUsage = map[string]any{
+			"promptTokens":     chatCumulative["promptTokens"],
+			"completionTokens": chatCumulative["completionTokens"],
+			"totalTokens":      chatCumulative["totalTokens"],
+		}
+	}
+	if len(contextWindow) > 0 {
+		cw := map[string]any{}
+		if v := toIntValue(contextWindow["max"]); v > 0 {
+			cw["max"] = v
+		}
+		if v := toIntValue(contextWindow["actual"]); v > 0 {
+			cw["actual"] = v
+		}
+		if v := toIntValue(contextWindow["estimated"]); v > 0 {
+			cw["estimated"] = v
 		}
 		events = append(events, stream.EventData{
 			Seq:       nextSeq(),
@@ -643,11 +671,7 @@ func synthesizeActivityEvents(runID, chatID string, usage map[string]any, runCum
 				"runId":  runID,
 				"chatId": chatID,
 				"data": map[string]any{
-					"model": map[string]any{
-						"contextWindow": contextWindow,
-					},
-					"currentContextSize":    promptTokens,
-					"estimatedNextCallSize": promptTokens,
+					"contextWindow": cw,
 				},
 			},
 		})
@@ -676,6 +700,7 @@ func synthesizeActivityEvents(runID, chatID string, usage map[string]any, runCum
 				"data": map[string]any{
 					"llmReturnUsage": llm,
 					"runUsage":       run,
+					"chatUsage":      chatUsage,
 				},
 			},
 		})

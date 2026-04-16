@@ -109,11 +109,13 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 			"chatId": value.ChatID,
 			"data": map[string]any{
 				"model": map[string]any{
-					"key":           value.ModelKey,
-					"contextWindow": value.ContextWindow,
+					"key": value.ModelKey,
 				},
-				"currentContextSize":    value.CurrentContextSize,
-				"estimatedNextCallSize": value.EstimatedNextCallSize,
+				"contextWindow": map[string]any{
+					"max":       value.ContextWindow,
+					"actual":    value.CurrentContextSize,
+					"estimated": value.EstimatedNextCallSize,
+				},
 			},
 		})}
 	case InputActivityUsage:
