@@ -174,14 +174,29 @@ type RequestSteer struct {
 
 func (RequestSteer) streamInputTag() {}
 
+type InputRunContext struct {
+	ChatID                string
+	ModelKey              string
+	ContextWindow         int
+	EstimatedPromptTokens int
+}
+
+func (InputRunContext) streamInputTag() {}
+
 type RunCancel struct {
-	RunID string
+	RunID            string
+	PromptTokens     int
+	CompletionTokens int
+	TotalTokens      int
 }
 
 func (RunCancel) streamInputTag() {}
 
 type InputRunComplete struct {
-	FinishReason string
+	FinishReason     string
+	PromptTokens     int
+	CompletionTokens int
+	TotalTokens      int
 }
 
 func (InputRunComplete) streamInputTag() {}

@@ -116,16 +116,17 @@ type StoredFunction struct {
 // ---------------------------------------------------------------------------
 
 type Summary struct {
-	ChatID         string `json:"chatId"`
-	ChatName       string `json:"chatName"`
-	AgentKey       string `json:"agentKey,omitempty"`
-	TeamID         string `json:"teamId,omitempty"`
-	CreatedAt      int64  `json:"createdAt"`
-	UpdatedAt      int64  `json:"updatedAt"`
-	LastRunID      string `json:"lastRunId,omitempty"`
-	LastRunContent string `json:"lastRunContent,omitempty"`
-	ReadStatus     int    `json:"readStatus"`
-	ReadAt         *int64 `json:"readAt,omitempty"`
+	ChatID         string     `json:"chatId"`
+	ChatName       string     `json:"chatName"`
+	AgentKey       string     `json:"agentKey,omitempty"`
+	TeamID         string     `json:"teamId,omitempty"`
+	CreatedAt      int64      `json:"createdAt"`
+	UpdatedAt      int64      `json:"updatedAt"`
+	LastRunID      string     `json:"lastRunId,omitempty"`
+	LastRunContent string     `json:"lastRunContent,omitempty"`
+	ReadStatus     int        `json:"readStatus"`
+	ReadAt         *int64     `json:"readAt,omitempty"`
+	Usage          *UsageData `json:"usage,omitempty"`
 }
 
 type Detail struct {
@@ -138,10 +139,17 @@ type Detail struct {
 	Artifact    *ArtifactState
 }
 
+type UsageData struct {
+	PromptTokens     int `json:"promptTokens"`
+	CompletionTokens int `json:"completionTokens"`
+	TotalTokens      int `json:"totalTokens"`
+}
+
 type RunCompletion struct {
 	ChatID          string
 	RunID           string
 	AssistantText   string
 	InitialMessage  string
 	UpdatedAtMillis int64
+	Usage           UsageData
 }

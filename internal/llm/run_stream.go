@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"sort"
 	"strings"
 	"time"
@@ -54,6 +55,10 @@ type llmRunStream struct {
 	hitlSyntheticID    string
 	hitlSyntheticName  string
 	skipPostToolHook   bool
+
+	usagePromptTokens     int
+	usageCompletionTokens int
+	usageTotalTokens      int
 }
 
 type providerTurnStream struct {
@@ -221,6 +226,12 @@ func (s *llmRunStream) prepareNextTurn() error {
 	if s.protocol == nil {
 		return fmt.Errorf("streaming protocol %s is not supported", s.model.Protocol)
 	}
+	s.pending = append(s.pending, DeltaRunContext{
+		ChatID:                s.session.ChatID,
+		ModelKey:              s.model.Key,
+		ContextWindow:         s.effectiveContextWindow(),
+		EstimatedPromptTokens: s.estimatePromptTokens(),
+	})
 	turn, err := s.protocol.OpenStream(s.ctx, protocolStreamParams{
 		runID:          s.session.RunID,
 		provider:       s.provider,
@@ -448,7 +459,12 @@ func (s *llmRunStream) finishCurrentTurn() error {
 			s.enqueueFallback("Model returned no assistant content.")
 		}
 		if finishReason := strings.TrimSpace(turn.finishReason); finishReason != "" && !strings.EqualFold(finishReason, "tool_calls") {
-			s.pending = append(s.pending, DeltaFinishReason{Reason: finishReason})
+			s.pending = append(s.pending, DeltaFinishReason{
+				Reason:           finishReason,
+				PromptTokens:     s.usagePromptTokens,
+				CompletionTokens: s.usageCompletionTokens,
+				TotalTokens:      s.usageTotalTokens,
+			})
 		}
 		s.finished = true
 		return nil
@@ -486,6 +502,68 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		s.activateNextToolCall()
 	}
 	return nil
+}
+
+func (s *llmRunStream) estimatePromptTokens() int {
+	if s.usagePromptTokens > 0 {
+		newBytes := 0
+		for i := len(s.messages) - 1; i >= 0; i-- {
+			msg := s.messages[i]
+			if msg.Role == "assistant" && i < len(s.messages)-1 {
+				break
+			}
+			raw, _ := json.Marshal(msg)
+			newBytes += len(raw)
+		}
+		return s.usagePromptTokens + s.usageCompletionTokens + newBytes/4
+	}
+	total := 0
+	for _, msg := range s.messages {
+		raw, _ := json.Marshal(msg)
+		total += len(raw)
+	}
+	if len(s.toolSpecs) > 0 {
+		raw, _ := json.Marshal(s.toolSpecs)
+		total += len(raw) / 2
+	}
+	return total / 4
+}
+
+const defaultContextWindow = 128000
+
+func (s *llmRunStream) effectiveContextWindow() int {
+	if s.model.ContextWindow > 0 {
+		return s.model.ContextWindow
+	}
+	return defaultContextWindow
+}
+
+func (s *llmRunStream) accumulateUsage(prompt, completion, total int) {
+	s.usagePromptTokens += prompt
+	s.usageCompletionTokens += completion
+	s.usageTotalTokens += total
+	log.Printf("[llm][run:%s][usage] turn accumulated: prompt=%d completion=%d total=%d (cumulative: prompt=%d completion=%d total=%d)",
+		s.session.RunID, prompt, completion, total, s.usagePromptTokens, s.usageCompletionTokens, s.usageTotalTokens)
+}
+
+func (s *llmRunStream) drainUsageChunk() {
+	if s.currentTurn == nil || s.currentTurn.reader == nil {
+		return
+	}
+	for i := 0; i < 3; i++ {
+		_, rawChunk, err := readSSEFrame(s.currentTurn.reader)
+		if err != nil {
+			break
+		}
+		if rawChunk == "" || rawChunk == "[DONE]" {
+			break
+		}
+		var decoded openAIStreamResponse
+		if json.Unmarshal([]byte(rawChunk), &decoded) == nil && decoded.Usage != nil {
+			s.accumulateUsage(decoded.Usage.PromptTokens, decoded.Usage.CompletionTokens, decoded.Usage.TotalTokens)
+			break
+		}
+	}
 }
 
 func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolInvocation, []AgentDelta, *openAIMessage) {
@@ -1098,7 +1176,12 @@ func (s *llmRunStream) handleInterruptIfNeeded() error {
 	}
 	if !s.cancelSent {
 		s.cancelSent = true
-		s.pending = append(s.pending, DeltaRunCancel{RunID: s.session.RunID})
+		s.pending = append(s.pending, DeltaRunCancel{
+			RunID:            s.session.RunID,
+			PromptTokens:     s.usagePromptTokens,
+			CompletionTokens: s.usageCompletionTokens,
+			TotalTokens:      s.usageTotalTokens,
+		})
 		return nil
 	}
 	return ErrRunInterrupted

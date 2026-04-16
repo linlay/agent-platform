@@ -49,7 +49,10 @@ type DeltaStageMarker struct {
 func (DeltaStageMarker) agentDeltaTag() {}
 
 type DeltaFinishReason struct {
-	Reason string
+	Reason           string
+	PromptTokens     int
+	CompletionTokens int
+	TotalTokens      int
 }
 
 func (DeltaFinishReason) agentDeltaTag() {}
@@ -134,8 +137,20 @@ type DeltaRequestSteer struct {
 
 func (DeltaRequestSteer) agentDeltaTag() {}
 
+type DeltaRunContext struct {
+	ChatID                string
+	ModelKey              string
+	ContextWindow         int
+	EstimatedPromptTokens int
+}
+
+func (DeltaRunContext) agentDeltaTag() {}
+
 type DeltaRunCancel struct {
-	RunID string
+	RunID            string
+	PromptTokens     int
+	CompletionTokens int
+	TotalTokens      int
 }
 
 func (DeltaRunCancel) agentDeltaTag() {}

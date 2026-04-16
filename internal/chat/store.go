@@ -83,9 +83,17 @@ func (s *FileStore) initDB() error {
 		return fmt.Errorf("create chats table: %w", err)
 	}
 
+	s.migrateAddUsageColumns()
+
 	// Migrate from index.json if it exists and DB is empty
 	s.migrateFromIndexJSON()
 	return nil
+}
+
+func (s *FileStore) migrateAddUsageColumns() {
+	for _, col := range []string{"USAGE_PROMPT_TOKENS_", "USAGE_COMPLETION_TOKENS_", "USAGE_TOTAL_TOKENS_"} {
+		_, _ = s.db.Exec(fmt.Sprintf("ALTER TABLE CHATS ADD COLUMN %s INTEGER NOT NULL DEFAULT 0", col))
+	}
 }
 
 func (s *FileStore) migrateFromIndexJSON() {
@@ -128,9 +136,13 @@ func (s *FileStore) EnsureChat(chatID string, agentKey string, teamID string, fi
 
 	// Check if exists
 	var existing Summary
-	err := s.db.QueryRow("SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_, COALESCE(TEAM_ID_,''), CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_STATUS_, READ_AT_ FROM CHATS WHERE CHAT_ID_=?", chatID).
-		Scan(&existing.ChatID, &existing.ChatName, &existing.AgentKey, &existing.TeamID, &existing.CreatedAt, &existing.UpdatedAt, &existing.LastRunID, &existing.LastRunContent, &existing.ReadStatus, &existing.ReadAt)
+	var usage UsageData
+	err := s.db.QueryRow("SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_, COALESCE(TEAM_ID_,''), CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_STATUS_, READ_AT_, USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_ FROM CHATS WHERE CHAT_ID_=?", chatID).
+		Scan(&existing.ChatID, &existing.ChatName, &existing.AgentKey, &existing.TeamID, &existing.CreatedAt, &existing.UpdatedAt, &existing.LastRunID, &existing.LastRunContent, &existing.ReadStatus, &existing.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens)
 	if err == nil {
+		if usage.TotalTokens > 0 {
+			existing.Usage = &usage
+		}
 		return existing, false, nil
 	}
 
@@ -185,13 +197,17 @@ func (s *FileStore) Summary(chatID string) (*Summary, error) {
 
 func (s *FileStore) loadSummary(chatID string) (*Summary, error) {
 	var sum Summary
-	err := s.db.QueryRow("SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_, COALESCE(TEAM_ID_,''), CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_STATUS_, READ_AT_ FROM CHATS WHERE CHAT_ID_=?", chatID).
-		Scan(&sum.ChatID, &sum.ChatName, &sum.AgentKey, &sum.TeamID, &sum.CreatedAt, &sum.UpdatedAt, &sum.LastRunID, &sum.LastRunContent, &sum.ReadStatus, &sum.ReadAt)
+	var usage UsageData
+	err := s.db.QueryRow("SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_, COALESCE(TEAM_ID_,''), CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_STATUS_, READ_AT_, USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_ FROM CHATS WHERE CHAT_ID_=?", chatID).
+		Scan(&sum.ChatID, &sum.ChatName, &sum.AgentKey, &sum.TeamID, &sum.CreatedAt, &sum.UpdatedAt, &sum.LastRunID, &sum.LastRunContent, &sum.ReadStatus, &sum.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
+	}
+	if usage.TotalTokens > 0 {
+		sum.Usage = &usage
 	}
 	return &sum, nil
 }
@@ -312,8 +328,12 @@ func (s *FileStore) OnRunCompleted(completion RunCompletion) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	_, err := s.db.Exec(`UPDATE CHATS SET LAST_RUN_ID_=?, LAST_RUN_CONTENT_=?, UPDATED_AT_=?, READ_STATUS_=0, READ_AT_=NULL WHERE CHAT_ID_=?`,
-		completion.RunID, completion.AssistantText, completion.UpdatedAtMillis, completion.ChatID)
+	_, err := s.db.Exec(`UPDATE CHATS SET LAST_RUN_ID_=?, LAST_RUN_CONTENT_=?, UPDATED_AT_=?, READ_STATUS_=0, READ_AT_=NULL,
+		USAGE_PROMPT_TOKENS_=USAGE_PROMPT_TOKENS_+?, USAGE_COMPLETION_TOKENS_=USAGE_COMPLETION_TOKENS_+?, USAGE_TOTAL_TOKENS_=USAGE_TOTAL_TOKENS_+?
+		WHERE CHAT_ID_=?`,
+		completion.RunID, completion.AssistantText, completion.UpdatedAtMillis,
+		completion.Usage.PromptTokens, completion.Usage.CompletionTokens, completion.Usage.TotalTokens,
+		completion.ChatID)
 	return err
 }
 
@@ -321,7 +341,7 @@ func (s *FileStore) ListChats(lastRunID string, agentKey string) ([]Summary, err
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	query := "SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_, COALESCE(TEAM_ID_,''), CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_STATUS_, READ_AT_ FROM CHATS WHERE 1=1"
+	query := "SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_, COALESCE(TEAM_ID_,''), CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_STATUS_, READ_AT_, USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_ FROM CHATS WHERE 1=1"
 	var args []any
 	if agentKey != "" {
 		query += " AND AGENT_KEY_=?"
@@ -338,8 +358,12 @@ func (s *FileStore) ListChats(lastRunID string, agentKey string) ([]Summary, err
 	var items []Summary
 	for rows.Next() {
 		var sum Summary
-		if err := rows.Scan(&sum.ChatID, &sum.ChatName, &sum.AgentKey, &sum.TeamID, &sum.CreatedAt, &sum.UpdatedAt, &sum.LastRunID, &sum.LastRunContent, &sum.ReadStatus, &sum.ReadAt); err != nil {
+		var usage UsageData
+		if err := rows.Scan(&sum.ChatID, &sum.ChatName, &sum.AgentKey, &sum.TeamID, &sum.CreatedAt, &sum.UpdatedAt, &sum.LastRunID, &sum.LastRunContent, &sum.ReadStatus, &sum.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens); err != nil {
 			return nil, err
+		}
+		if usage.TotalTokens > 0 {
+			sum.Usage = &usage
 		}
 		if lastRunID != "" && !RunIDAfter(sum.LastRunID, lastRunID) {
 			continue
@@ -478,7 +502,7 @@ func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, r
 		})
 	}
 
-	for _, runID := range runOrder {
+	for i, runID := range runOrder {
 		rd := runs[runID]
 		hasRunStart := false
 		runStartTimestamp := int64(0)
@@ -504,11 +528,20 @@ func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, r
 		allEvents = append(allEvents, rd.events...)
 		// Synthesize run.complete for the frontend (not persisted in JSONL).
 		if runID != "" {
+			completePayload := map[string]any{"runId": runID, "finishReason": "stop"}
+			isLastRun := i == len(runOrder)-1
+			if isLastRun && summary.Usage != nil && summary.Usage.TotalTokens > 0 {
+				completePayload["chatUsage"] = map[string]any{
+					"promptTokens":     summary.Usage.PromptTokens,
+					"completionTokens": summary.Usage.CompletionTokens,
+					"totalTokens":      summary.Usage.TotalTokens,
+				}
+			}
 			allEvents = append(allEvents, stream.EventData{
 				Seq:       nextSeq(),
 				Type:      "run.complete",
 				Timestamp: runCompleteTimestamp,
-				Payload:   map[string]any{"runId": runID, "finishReason": "stop"},
+				Payload:   completePayload,
 			})
 		}
 	}

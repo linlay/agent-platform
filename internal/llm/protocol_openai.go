@@ -69,6 +69,13 @@ type openAIStreamResponse struct {
 		} `json:"delta"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
+	Usage *openAIUsage `json:"usage,omitempty"`
+}
+
+type openAIUsage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
 }
 
 type openAIStreamToolDelta struct {
@@ -138,7 +145,15 @@ func (p *openAIProtocol) ConsumeChunk(s *llmRunStream, _ string, rawChunk string
 		return false, fmt.Errorf("decode provider stream chunk: %w", err)
 	}
 	if len(decoded.Choices) == 0 {
+		if decoded.Usage != nil {
+			s.accumulateUsage(decoded.Usage.PromptTokens, decoded.Usage.CompletionTokens, decoded.Usage.TotalTokens)
+			return false, nil
+		}
 		return false, fmt.Errorf("provider stream returned no choices")
+	}
+
+	if decoded.Usage != nil {
+		s.accumulateUsage(decoded.Usage.PromptTokens, decoded.Usage.CompletionTokens, decoded.Usage.TotalTokens)
 	}
 
 	for _, choice := range decoded.Choices {
@@ -158,6 +173,9 @@ func (p *openAIProtocol) ConsumeChunk(s *llmRunStream, _ string, rawChunk string
 		if strings.TrimSpace(choice.FinishReason) != "" {
 			s.currentTurn.finishReason = strings.TrimSpace(choice.FinishReason)
 			s.engine.logParsedDelta(s.session.RunID, "finish_reason", s.currentTurn.finishReason)
+			if decoded.Usage == nil {
+				s.drainUsageChunk()
+			}
 			return true, s.finishCurrentTurn()
 		}
 	}

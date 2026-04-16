@@ -29,14 +29,15 @@ type ProtocolDefinition struct {
 }
 
 type ModelDefinition struct {
-	Key        string
-	Provider   string
-	Protocol   string
-	ModelID    string
-	IsFunction bool
-	IsReasoner bool
-	Headers    map[string]string
-	Compat     map[string]any
+	Key           string
+	Provider      string
+	Protocol      string
+	ModelID       string
+	IsFunction    bool
+	IsReasoner    bool
+	ContextWindow int
+	Headers       map[string]string
+	Compat        map[string]any
 }
 
 type ModelRegistry struct {
@@ -363,14 +364,15 @@ func loadModels(dir string) (map[string]ModelDefinition, error) {
 			continue
 		}
 		result[key] = ModelDefinition{
-			Key:        key,
-			Provider:   strings.TrimSpace(stringNode(values["provider"])),
-			Protocol:   strings.ToUpper(strings.TrimSpace(stringNode(values["protocol"]))),
-			ModelID:    strings.TrimSpace(stringNode(values["modelId"])),
-			IsFunction: parseTruthy(stringNode(values["isFunction"])),
-			IsReasoner: parseTruthy(stringNode(values["isReasoner"])),
-			Headers:    stringMapNode(values["headers"]),
-			Compat:     cloneAnyMap(contracts.AnyMapNode(values["compat"])),
+			Key:           key,
+			Provider:      strings.TrimSpace(stringNode(values["provider"])),
+			Protocol:      strings.ToUpper(strings.TrimSpace(stringNode(values["protocol"]))),
+			ModelID:       strings.TrimSpace(stringNode(values["modelId"])),
+			IsFunction:    parseTruthy(stringNode(values["isFunction"])),
+			IsReasoner:    parseTruthy(stringNode(values["isReasoner"])),
+			ContextWindow: contracts.AnyIntNode(values["contextWindow"]),
+			Headers:       stringMapNode(values["headers"]),
+			Compat:        cloneAnyMap(contracts.AnyMapNode(values["compat"])),
 		}
 	}
 	return result, nil

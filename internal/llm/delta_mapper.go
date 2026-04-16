@@ -138,7 +138,12 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		return []stream.StreamInput{stream.StageMarker{Stage: value.Stage}}
 	case DeltaFinishReason:
 		m.lastKind = ""
-		return []stream.StreamInput{stream.InputRunComplete{FinishReason: value.Reason}}
+		return []stream.StreamInput{stream.InputRunComplete{
+			FinishReason:     value.Reason,
+			PromptTokens:     value.PromptTokens,
+			CompletionTokens: value.CompletionTokens,
+			TotalTokens:      value.TotalTokens,
+		}}
 	case DeltaError:
 		m.lastKind = ""
 		return []stream.StreamInput{stream.InputRunError{Error: value.Error}}
@@ -211,8 +216,21 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			SteerID:   value.SteerID,
 			Message:   value.Message,
 		}}
+	case DeltaRunContext:
+		m.lastKind = ""
+		return []stream.StreamInput{stream.InputRunContext{
+			ChatID:                value.ChatID,
+			ModelKey:              value.ModelKey,
+			ContextWindow:         value.ContextWindow,
+			EstimatedPromptTokens: value.EstimatedPromptTokens,
+		}}
 	case DeltaRunCancel:
-		return []stream.StreamInput{stream.RunCancel{RunID: value.RunID}}
+		return []stream.StreamInput{stream.RunCancel{
+			RunID:            value.RunID,
+			PromptTokens:     value.PromptTokens,
+			CompletionTokens: value.CompletionTokens,
+			TotalTokens:      value.TotalTokens,
+		}}
 	default:
 		return nil
 	}

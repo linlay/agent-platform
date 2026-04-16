@@ -205,6 +205,11 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	sseWriter.StartHeartbeat()
 
 	var assistantText strings.Builder
+	var chatUsage chat.UsageData
+	if summary.Usage != nil {
+		chatUsage = *summary.Usage
+	}
+	var runUsage chat.UsageData
 	stepWriter := chat.NewStepWriter(s.deps.Chats, chatID, runID, agentDef.Mode)
 	writeEvent := func(event stream.StreamEvent) error {
 		data := event.Data()
@@ -218,6 +223,26 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 				assistantText.Reset()
 				assistantText.WriteString(text)
 			}
+		}
+		if event.Type == "run.context" {
+			data.Payload["chatUsage"] = map[string]any{
+				"promptTokens":     chatUsage.PromptTokens,
+				"completionTokens": chatUsage.CompletionTokens,
+				"totalTokens":      chatUsage.TotalTokens,
+			}
+		}
+		if event.Type == "run.complete" || event.Type == "run.error" || event.Type == "run.cancel" {
+			if u, ok := data.Payload["usage"].(map[string]any); ok {
+				runUsage.PromptTokens = contracts.AnyIntNode(u["promptTokens"])
+				runUsage.CompletionTokens = contracts.AnyIntNode(u["completionTokens"])
+				runUsage.TotalTokens = contracts.AnyIntNode(u["totalTokens"])
+			}
+			updatedChatUsage := map[string]any{
+				"promptTokens":     chatUsage.PromptTokens + runUsage.PromptTokens,
+				"completionTokens": chatUsage.CompletionTokens + runUsage.CompletionTokens,
+				"totalTokens":      chatUsage.TotalTokens + runUsage.TotalTokens,
+			}
+			data.Payload["chatUsage"] = updatedChatUsage
 		}
 		stepWriter.OnEvent(data)
 		if event.Type == "stage.marker" {
@@ -277,6 +302,16 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 
 	if streamFailed || streamInterrupted {
 		stepWriter.Flush()
+		if runUsage.TotalTokens > 0 {
+			_ = s.deps.Chats.OnRunCompleted(chat.RunCompletion{
+				ChatID:          chatID,
+				RunID:           runID,
+				AssistantText:   assistantText.String(),
+				InitialMessage:  req.Message,
+				UpdatedAtMillis: time.Now().UnixMilli(),
+				Usage:           runUsage,
+			})
+		}
 		_ = sseWriter.WriteDone()
 		return
 	}
@@ -294,6 +329,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		AssistantText:   finalAssistantText,
 		InitialMessage:  req.Message,
 		UpdatedAtMillis: time.Now().UnixMilli(),
+		Usage:           runUsage,
 	}); err != nil {
 		return
 	}

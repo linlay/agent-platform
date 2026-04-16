@@ -21,7 +21,14 @@ type StreamEventStateData struct {
 	actionArgsBuffer  map[string]string
 	runFinishReason   string
 	runError          map[string]any
+	runUsage          *runUsageState
 	terminated        bool
+}
+
+type runUsageState struct {
+	PromptTokens     int
+	CompletionTokens int
+	TotalTokens      int
 }
 
 type reasoningBlockState struct {

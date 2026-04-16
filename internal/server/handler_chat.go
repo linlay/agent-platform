@@ -17,7 +17,26 @@ func (s *Server) handleChats(w http.ResponseWriter, r *http.Request) {
 	}
 	response := make([]api.ChatSummaryResponse, 0, len(items))
 	for _, item := range items {
-		response = append(response, api.ChatSummaryResponse(item))
+		resp := api.ChatSummaryResponse{
+			ChatID:         item.ChatID,
+			ChatName:       item.ChatName,
+			AgentKey:       item.AgentKey,
+			TeamID:         item.TeamID,
+			CreatedAt:      item.CreatedAt,
+			UpdatedAt:      item.UpdatedAt,
+			LastRunID:      item.LastRunID,
+			LastRunContent: item.LastRunContent,
+			ReadStatus:     item.ReadStatus,
+			ReadAt:         item.ReadAt,
+		}
+		if item.Usage != nil && item.Usage.TotalTokens > 0 {
+			resp.Usage = &api.ChatUsageData{
+				PromptTokens:     item.Usage.PromptTokens,
+				CompletionTokens: item.Usage.CompletionTokens,
+				TotalTokens:      item.Usage.TotalTokens,
+			}
+		}
+		response = append(response, resp)
 	}
 	writeJSON(w, http.StatusOK, api.Success(response))
 }
@@ -63,6 +82,13 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 	if detail.Artifact != nil {
 		response.Artifact = detail.Artifact
+	}
+	if summary != nil && summary.Usage != nil && summary.Usage.TotalTokens > 0 {
+		response.Usage = &api.ChatUsageData{
+			PromptTokens:     summary.Usage.PromptTokens,
+			CompletionTokens: summary.Usage.CompletionTokens,
+			TotalTokens:      summary.Usage.TotalTokens,
+		}
 	}
 	writeJSON(w, http.StatusOK, api.Success(response))
 }

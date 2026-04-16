@@ -95,21 +95,53 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 		}))
 		return events
 	case RunCancel:
+		if value.TotalTokens > 0 {
+			d.state.runUsage = &runUsageState{
+				PromptTokens:     value.PromptTokens,
+				CompletionTokens: value.CompletionTokens,
+				TotalTokens:      value.TotalTokens,
+			}
+		}
 		events := d.closeOpenBlocks()
-		events = append(events, NewEvent("run.cancel", map[string]any{
+		payload := map[string]any{
 			"runId": value.RunID,
-		}))
+		}
+		if usage := d.usagePayload(); usage != nil {
+			payload["usage"] = usage
+		}
+		events = append(events, NewEvent("run.cancel", payload))
 		d.state.terminated = true
 		return events
+	case InputRunContext:
+		return []StreamEvent{NewEvent("run.context", map[string]any{
+			"runId":  d.request.RunID,
+			"chatId": value.ChatID,
+			"model": map[string]any{
+				"key":           value.ModelKey,
+				"contextWindow": value.ContextWindow,
+			},
+			"estimatedPromptTokens": value.EstimatedPromptTokens,
+		})}
 	case InputRunComplete:
 		d.state.runFinishReason = value.FinishReason
+		if value.TotalTokens > 0 {
+			d.state.runUsage = &runUsageState{
+				PromptTokens:     value.PromptTokens,
+				CompletionTokens: value.CompletionTokens,
+				TotalTokens:      value.TotalTokens,
+			}
+		}
 		return nil
 	case InputRunError:
 		events := d.closeOpenBlocks()
-		events = append(events, NewEvent("run.error", map[string]any{
+		payload := map[string]any{
 			"runId": d.request.RunID,
 			"error": normalizeErrorMap(value.Error, "run_error", "run", "runtime"),
-		}))
+		}
+		if usage := d.usagePayload(); usage != nil {
+			payload["usage"] = usage
+		}
+		events = append(events, NewEvent("run.error", payload))
 		d.state.terminated = true
 		return events
 	default:
@@ -211,17 +243,25 @@ func (d *StreamEventDispatcher) Complete() []StreamEvent {
 	}
 	events := d.closeOpenBlocks()
 	if d.state.runError != nil {
-		events = append(events, NewEvent("run.error", map[string]any{
+		payload := map[string]any{
 			"runId": d.request.RunID,
 			"error": normalizeErrorMap(d.state.runError, "stream_failed", "run", "runtime"),
-		}))
+		}
+		if usage := d.usagePayload(); usage != nil {
+			payload["usage"] = usage
+		}
+		events = append(events, NewEvent("run.error", payload))
 		d.state.terminated = true
 		return events
 	}
-	events = append(events, NewEvent("run.complete", map[string]any{
+	completePayload := map[string]any{
 		"runId":        d.request.RunID,
 		"finishReason": d.state.runFinishReason,
-	}))
+	}
+	if usage := d.usagePayload(); usage != nil {
+		completePayload["usage"] = usage
+	}
+	events = append(events, NewEvent("run.complete", completePayload))
 	d.state.terminated = true
 	return events
 }
@@ -237,12 +277,27 @@ func (d *StreamEventDispatcher) Fail(err error) []StreamEvent {
 		"category": "runtime",
 	}
 	events := d.closeOpenBlocks()
-	events = append(events, NewEvent("run.error", map[string]any{
+	payload := map[string]any{
 		"runId": d.request.RunID,
 		"error": normalizeErrorMap(d.state.runError, "stream_failed", "run", "runtime"),
-	}))
+	}
+	if usage := d.usagePayload(); usage != nil {
+		payload["usage"] = usage
+	}
+	events = append(events, NewEvent("run.error", payload))
 	d.state.terminated = true
 	return events
+}
+
+func (d *StreamEventDispatcher) usagePayload() map[string]any {
+	if d.state.runUsage == nil || d.state.runUsage.TotalTokens == 0 {
+		return nil
+	}
+	return map[string]any{
+		"promptTokens":     d.state.runUsage.PromptTokens,
+		"completionTokens": d.state.runUsage.CompletionTokens,
+		"totalTokens":      d.state.runUsage.TotalTokens,
+	}
 }
 
 func (d *StreamEventDispatcher) handleReasoningDelta(input ReasoningDelta) []StreamEvent {
