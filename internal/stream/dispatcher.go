@@ -200,9 +200,9 @@ func newAwaitingAnswerEvent(input AwaitingAnswer) StreamEvent {
 	}
 	switch mode {
 	case "question":
-		formatted := formatAwaitingAnswers(answer["answers"])
+		formatted := formatAwaitingQuestions(answer["answers"])
 		if len(formatted) > 0 {
-			payload["answers"] = formatted
+			payload["questions"] = formatted
 		}
 	case "approval":
 		if value := strings.TrimSpace(anyString(answer["value"])); value != "" {
@@ -217,14 +217,14 @@ func newAwaitingAnswerEvent(input AwaitingAnswer) StreamEvent {
 	return NewEvent("awaiting.answer", payload)
 }
 
-func formatAwaitingAnswers(raw any) []map[string]any {
+func formatAwaitingQuestions(raw any) []map[string]any {
 	switch typed := raw.(type) {
 	case []map[string]any:
 		items := make([]any, 0, len(typed))
 		for _, item := range typed {
 			items = append(items, item)
 		}
-		return formatAwaitingAnswers(items)
+		return formatAwaitingQuestions(items)
 	case []any:
 		formatted := make([]map[string]any, 0, len(typed))
 		for _, item := range typed {
@@ -236,10 +236,14 @@ func formatAwaitingAnswers(raw any) []map[string]any {
 			if question == "" {
 				continue
 			}
-			formatted = append(formatted, map[string]any{
+			entry := map[string]any{
 				"question": question,
 				"answer":   formatAwaitingAnswerValue(answer["answer"]),
-			})
+			}
+			if header := strings.TrimSpace(anyString(answer["header"])); header != "" {
+				entry["header"] = header
+			}
+			formatted = append(formatted, entry)
 		}
 		return formatted
 	default:

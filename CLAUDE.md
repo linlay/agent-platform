@@ -237,7 +237,8 @@ remember 根目录由 `MEMORY_DIR` 控制：
 - `question` 模式：
   - `await.ask` 不带 `questions`
   - `questions` 只出现在 `await.payload`
-  - 用户提交后额外发 `awaiting.answer`，结构为 `{"awaitingId":"...","mode":"question","answers":[{"question":"...","answer":"..."}]}`
+  - 用户提交后额外发 `awaiting.answer`，结构为 `{"awaitingId":"...","mode":"question","questions":[{"question":"...","header":"...","answer":"..."}]}`
+  - 若用户取消，不输出 `questions`，仅保留 `cancelled` / `reason`
 - `approval` 模式：
   - 不再发 `await.payload`
   - `questions` 直接内联在 `await.ask`

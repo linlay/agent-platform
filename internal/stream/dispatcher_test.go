@@ -418,12 +418,12 @@ func TestDispatcherEmitsAwaitingAnswerForQuestionMode(t *testing.T) {
 	if payload["mode"] != "question" {
 		t.Fatalf("expected question mode, got %#v", payload)
 	}
-	answers, _ := payload["answers"].([]map[string]any)
-	if len(answers) != 1 {
+	questions, _ := payload["questions"].([]map[string]any)
+	if len(questions) != 1 {
 		t.Fatalf("expected one formatted answer, got %#v", payload)
 	}
-	if answers[0]["question"] != "Destination?" || answers[0]["answer"] != "Xitang, Suzhou" {
-		t.Fatalf("unexpected formatted answers %#v", answers)
+	if questions[0]["question"] != "Destination?" || questions[0]["header"] != "Trip" || questions[0]["answer"] != "Xitang, Suzhou" {
+		t.Fatalf("unexpected formatted questions %#v", questions)
 	}
 }
 
@@ -446,19 +446,23 @@ func TestDispatcherEmitsAwaitingAnswerCancelledFields(t *testing.T) {
 	if payload["mode"] != "question" || payload["cancelled"] != true || payload["reason"] != "user_dismissed" {
 		t.Fatalf("unexpected cancelled awaiting.answer payload %#v", payload)
 	}
-	if _, exists := payload["answers"]; exists {
-		t.Fatalf("did not expect answers on cancelled awaiting.answer, got %#v", payload)
+	if _, exists := payload["questions"]; exists {
+		t.Fatalf("did not expect questions on cancelled awaiting.answer, got %#v", payload)
 	}
 }
 
 func TestEventDataMarshalsAwaitingAnswerWithContractKeyOrder(t *testing.T) {
 	event := NewEvent("awaiting.answer", map[string]any{
 		"awaitingId": "tool_1",
-		"mode":       "approval",
+		"mode":       "question",
 		"cancelled":  true,
 		"reason":     "user_dismissed",
-		"value":      "modify",
-		"freeText":   "git push origin release",
+		"questions": []any{
+			map[string]any{
+				"question": "Destination?",
+				"answer":   "Xitang, Suzhou",
+			},
+		},
 	})
 	event.Seq = 12
 	data, err := json.Marshal(event.Data())
@@ -470,11 +474,10 @@ func TestEventDataMarshalsAwaitingAnswerWithContractKeyOrder(t *testing.T) {
 		`"seq":12`,
 		`"type":"awaiting.answer"`,
 		`"awaitingId":"tool_1"`,
-		`"mode":"approval"`,
+		`"mode":"question"`,
 		`"cancelled":true`,
 		`"reason":"user_dismissed"`,
-		`"value":"modify"`,
-		`"freeText":"git push origin release"`,
+		`"questions":[{"answer":"Xitang, Suzhou","question":"Destination?"}]`,
 		`"timestamp":`,
 	}
 	prev := -1

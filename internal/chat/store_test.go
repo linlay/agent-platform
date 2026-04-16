@@ -513,7 +513,7 @@ func TestLoadChatReplaysQuestionAwaitLifecycleEventLines(t *testing.T) {
 			"type":       "awaiting.answer",
 			"awaitingId": "tool-1",
 			"mode":       "question",
-			"answers": []any{
+			"questions": []any{
 				map[string]any{
 					"question": "How many?",
 					"answer":   "3",
@@ -572,8 +572,8 @@ func TestLoadChatReplaysQuestionAwaitLifecycleEventLines(t *testing.T) {
 		t.Fatalf("unexpected request.submit replay %#v", submit)
 	}
 	answer := detail.Events[6]
-	answers, _ := answer.Value("answers").([]any)
-	if answer.String("awaitingId") != "tool-1" || len(answers) != 1 {
+	answerQuestions, _ := answer.Value("questions").([]any)
+	if answer.String("awaitingId") != "tool-1" || len(answerQuestions) != 1 {
 		t.Fatalf("unexpected awaiting.answer replay %#v", answer)
 	}
 }
