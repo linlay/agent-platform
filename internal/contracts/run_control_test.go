@@ -86,3 +86,26 @@ func TestRunControlAwaitSubmitHonorsMaxDisconnectedWait(t *testing.T) {
 		t.Fatalf("expected disconnect timeout to fire near configured window, elapsed=%s", elapsed)
 	}
 }
+
+func TestRunControlResolveSubmitMarksAlreadyResolved(t *testing.T) {
+	control := NewRunControl(context.Background(), "run_1")
+	control.ExpectSubmit("await_1")
+
+	first := control.ResolveSubmit(api.SubmitRequest{
+		RunID:      "run_1",
+		AwaitingID: "await_1",
+		Params:     map[string]any{"ok": true},
+	})
+	if !first.Accepted || first.Status != "accepted" {
+		t.Fatalf("expected first submit accepted, got %#v", first)
+	}
+
+	second := control.ResolveSubmit(api.SubmitRequest{
+		RunID:      "run_1",
+		AwaitingID: "await_1",
+		Params:     map[string]any{"ok": false},
+	})
+	if second.Accepted || second.Status != "already_resolved" {
+		t.Fatalf("expected second submit already resolved, got %#v", second)
+	}
+}

@@ -117,4 +117,9 @@ func (s *Server) handleRead(w http.ResponseWriter, r *http.Request) {
 		ReadStatus: summary.ReadStatus,
 		ReadAt:     readAt,
 	}))
+	s.broadcast("chat.read", map[string]any{
+		"chatId":     summary.ChatID,
+		"readStatus": summary.ReadStatus,
+		"readAt":     readAt,
+	})
 }

@@ -14,6 +14,17 @@ type ReplayWindowExceededError struct {
 	LatestSeq int64
 }
 
+type ObserverLimitExceededError struct {
+	Max int
+}
+
+func (e *ObserverLimitExceededError) Error() string {
+	if e == nil || e.Max <= 0 {
+		return "observer limit exceeded"
+	}
+	return fmt.Sprintf("observer limit exceeded: max=%d", e.Max)
+}
+
 func (e *ReplayWindowExceededError) Error() string {
 	if e == nil {
 		return "replay window exceeded"
@@ -45,19 +56,21 @@ type RunEventBus struct {
 	frozen                bool
 	observers             map[string]*Observer
 	maxEvents             int
+	maxObservers          int
 	oldestSeq             int64
 	latestSeq             int64
 	nextObserverID        atomic.Int64
 	onObserverCountChange func(int)
 }
 
-func NewRunEventBus(maxEvents int, onObserverCountChange func(int)) *RunEventBus {
+func NewRunEventBus(maxEvents int, maxObservers int, onObserverCountChange func(int)) *RunEventBus {
 	if maxEvents <= 0 {
 		maxEvents = 10000
 	}
 	return &RunEventBus{
 		observers:             map[string]*Observer{},
 		maxEvents:             maxEvents,
+		maxObservers:          maxObservers,
 		onObserverCountChange: onObserverCountChange,
 	}
 }
@@ -123,6 +136,11 @@ func (b *RunEventBus) Subscribe(afterSeq int64) (*Observer, error) {
 	}
 
 	b.mu.Lock()
+	if b.maxObservers > 0 && len(b.observers) >= b.maxObservers && !b.frozen {
+		err := &ObserverLimitExceededError{Max: b.maxObservers}
+		b.mu.Unlock()
+		return nil, err
+	}
 	if b.oldestSeq > 0 && afterSeq < b.oldestSeq-1 {
 		err := &ReplayWindowExceededError{
 			AfterSeq:  afterSeq,

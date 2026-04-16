@@ -111,6 +111,14 @@ func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
 	if err != nil {
 		return preparedQuery{}, err
 	}
+	if created {
+		s.broadcast("chat.created", map[string]any{
+			"chatId":    chatID,
+			"chatName":  summary.ChatName,
+			"agentKey":  agentKey,
+			"timestamp": summary.CreatedAt,
+		})
+	}
 
 	var historyMessages []map[string]any
 	if !created {
@@ -239,6 +247,11 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, "run event bus unavailable"))
 		return
 	}
+	s.broadcast("run.started", map[string]any{
+		"runId":    prepared.req.RunID,
+		"chatId":   prepared.req.ChatID,
+		"agentKey": prepared.req.AgentKey,
+	})
 
 	sseWriter, err := stream.NewWriter(w, stream.Options{
 		SSE:            s.deps.Config.SSE,
@@ -265,18 +278,25 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode)
 
 	StartRunExecutor(RunExecutorParams{
-		RunCtx:     runCtx,
-		Request:    prepared.req,
-		Session:    prepared.session,
-		Summary:    prepared.summary,
-		Agent:      s.deps.Agent,
-		Assembler:  assembler,
-		Mapper:     mapper,
-		StepWriter: stepWriter,
-		EventBus:   eventBus,
-		Chats:      s.deps.Chats,
-		RunControl: control,
-		OnComplete: s.deps.Runs.Finish,
+		RunCtx:        runCtx,
+		Request:       prepared.req,
+		Session:       prepared.session,
+		Summary:       prepared.summary,
+		Agent:         s.deps.Agent,
+		Assembler:     assembler,
+		Mapper:        mapper,
+		StepWriter:    stepWriter,
+		EventBus:      eventBus,
+		Chats:         s.deps.Chats,
+		RunControl:    control,
+		Notifications: s.deps.Notifications,
+		OnComplete: func(runID string) {
+			s.deps.Runs.Finish(runID)
+			s.broadcast("run.finished", map[string]any{
+				"runId":  runID,
+				"chatId": prepared.req.ChatID,
+			})
+		},
 	})
 
 	for {
@@ -349,10 +369,11 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 			_ = writeEvent(event)
 		}
 		persistRunCompletionIfNeeded(RunExecutorParams{
-			Request:    prepared.req,
-			Session:    prepared.session,
-			Chats:      s.deps.Chats,
-			RunControl: control,
+			Request:       prepared.req,
+			Session:       prepared.session,
+			Chats:         s.deps.Chats,
+			RunControl:    control,
+			Notifications: s.deps.Notifications,
 		}, assistantText.String(), runUsage, false)
 		_ = sseWriter.WriteDone()
 		return
@@ -393,10 +414,11 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 	processor.stepWriter.Flush()
 	if streamFailed || streamInterrupted {
 		persistRunCompletionIfNeeded(RunExecutorParams{
-			Request:    prepared.req,
-			Session:    prepared.session,
-			Chats:      s.deps.Chats,
-			RunControl: control,
+			Request:       prepared.req,
+			Session:       prepared.session,
+			Chats:         s.deps.Chats,
+			RunControl:    control,
+			Notifications: s.deps.Notifications,
 		}, assistantText.String(), runUsage, false)
 		_ = sseWriter.WriteDone()
 		return
@@ -408,10 +430,11 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 		}
 	}
 	persistRunCompletionIfNeeded(RunExecutorParams{
-		Request:    prepared.req,
-		Session:    prepared.session,
-		Chats:      s.deps.Chats,
-		RunControl: control,
+		Request:       prepared.req,
+		Session:       prepared.session,
+		Chats:         s.deps.Chats,
+		RunControl:    control,
+		Notifications: s.deps.Notifications,
 	}, assistantText.String(), runUsage, true)
 	_ = sseWriter.WriteDone()
 }

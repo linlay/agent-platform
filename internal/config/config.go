@@ -29,6 +29,7 @@ type Config struct {
 	Bash         BashConfig
 	BashHITL     BashHITLConfig
 	Run          RunConfig
+	WebSocket    WebSocketConfig
 }
 
 type ServerConfig struct {
@@ -216,6 +217,16 @@ type RunConfig struct {
 	CompletedRetentionMs    int64
 	EventBusMaxEvents       int
 	MaxDisconnectedWaitMs   int64
+	MaxObserversPerRun      int
+}
+
+type WebSocketConfig struct {
+	Enabled             bool
+	MaxMessageSizeBytes int
+	PingIntervalMs      int64
+	WriteTimeoutMs      int64
+	WriteQueueSize      int
+	MaxObservesPerConn  int
 }
 
 func Load() (Config, error) {
@@ -380,6 +391,14 @@ func defaultConfig() Config {
 			CompletedRetentionMs:    600000,
 			EventBusMaxEvents:       10000,
 			MaxDisconnectedWaitMs:   600000,
+		},
+		WebSocket: WebSocketConfig{
+			Enabled:             false,
+			MaxMessageSizeBytes: 1 << 20,
+			PingIntervalMs:      30000,
+			WriteTimeoutMs:      15000,
+			WriteQueueSize:      256,
+			MaxObservesPerConn:  8,
 		},
 	}
 }
@@ -562,6 +581,13 @@ func (c *Config) applyEnv() {
 	c.Run.CompletedRetentionMs = int64Env("AGENT_RUN_COMPLETED_RETENTION_MS", c.Run.CompletedRetentionMs)
 	c.Run.EventBusMaxEvents = intEnv("AGENT_RUN_EVENTBUS_MAX_EVENTS", c.Run.EventBusMaxEvents)
 	c.Run.MaxDisconnectedWaitMs = int64Env("AGENT_RUN_MAX_DISCONNECTED_WAIT_MS", c.Run.MaxDisconnectedWaitMs)
+	c.Run.MaxObserversPerRun = intEnv("AGENT_RUN_MAX_OBSERVERS_PER_RUN", c.Run.MaxObserversPerRun)
+	c.WebSocket.Enabled = boolEnv("AGENT_WS_ENABLED", c.WebSocket.Enabled)
+	c.WebSocket.MaxMessageSizeBytes = intEnv("AGENT_WS_MAX_MESSAGE_SIZE", c.WebSocket.MaxMessageSizeBytes)
+	c.WebSocket.PingIntervalMs = int64Env("AGENT_WS_PING_INTERVAL_MS", c.WebSocket.PingIntervalMs)
+	c.WebSocket.WriteTimeoutMs = int64Env("AGENT_WS_WRITE_TIMEOUT_MS", c.WebSocket.WriteTimeoutMs)
+	c.WebSocket.WriteQueueSize = intEnv("AGENT_WS_WRITE_QUEUE_SIZE", c.WebSocket.WriteQueueSize)
+	c.WebSocket.MaxObservesPerConn = intEnv("AGENT_WS_MAX_OBSERVES_PER_CONN", c.WebSocket.MaxObservesPerConn)
 }
 
 func (c *Config) normalize() {

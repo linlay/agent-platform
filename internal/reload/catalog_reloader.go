@@ -30,19 +30,21 @@ type HitlRegistryReloader interface {
 }
 
 type RuntimeCatalogReloader struct {
-	registry     catalog.Registry
-	models       *models.ModelRegistry
-	mcp          McpRegistryReloader
-	hitl         HitlRegistryReloader
-	lastReloadNs atomic.Int64
+	registry      catalog.Registry
+	models        *models.ModelRegistry
+	mcp           McpRegistryReloader
+	hitl          HitlRegistryReloader
+	notifications contracts.NotificationSink
+	lastReloadNs  atomic.Int64
 }
 
-func NewRuntimeCatalogReloader(registry catalog.Registry, models *models.ModelRegistry, mcpRegistry McpRegistryReloader, hitlRegistry HitlRegistryReloader) *RuntimeCatalogReloader {
+func NewRuntimeCatalogReloader(registry catalog.Registry, models *models.ModelRegistry, mcpRegistry McpRegistryReloader, hitlRegistry HitlRegistryReloader, notifications contracts.NotificationSink) *RuntimeCatalogReloader {
 	return &RuntimeCatalogReloader{
-		registry: registry,
-		models:   models,
-		mcp:      mcpRegistry,
-		hitl:     hitlRegistry,
+		registry:      registry,
+		models:        models,
+		mcp:           mcpRegistry,
+		hitl:          hitlRegistry,
+		notifications: notifications,
 	}
 }
 
@@ -128,6 +130,12 @@ func (r *RuntimeCatalogReloader) Reload(ctx context.Context, reason string) erro
 	}
 
 	r.lastReloadNs.Store(time.Now().UnixNano())
+	if r.notifications != nil {
+		r.notifications.Broadcast("catalog.updated", map[string]any{
+			"reason":    reason,
+			"timestamp": time.Now().UnixMilli(),
+		})
+	}
 	log.Printf("[reload] %s reloaded in %s", reason, time.Since(start).Truncate(time.Millisecond))
 	return nil
 }

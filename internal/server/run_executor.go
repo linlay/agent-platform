@@ -15,18 +15,19 @@ import (
 )
 
 type RunExecutorParams struct {
-	RunCtx     context.Context
-	Request    api.QueryRequest
-	Session    contracts.QuerySession
-	Summary    chat.Summary
-	Agent      contracts.AgentEngine
-	Assembler  *stream.StreamEventAssembler
-	Mapper     *llm.DeltaMapper
-	StepWriter *chat.StepWriter
-	EventBus   *stream.RunEventBus
-	Chats      chat.Store
-	RunControl *contracts.RunControl
-	OnComplete func(string)
+	RunCtx        context.Context
+	Request       api.QueryRequest
+	Session       contracts.QuerySession
+	Summary       chat.Summary
+	Agent         contracts.AgentEngine
+	Assembler     *stream.StreamEventAssembler
+	Mapper        *llm.DeltaMapper
+	StepWriter    *chat.StepWriter
+	EventBus      *stream.RunEventBus
+	Chats         chat.Store
+	RunControl    *contracts.RunControl
+	Notifications contracts.NotificationSink
+	OnComplete    func(string)
 }
 
 type runEventProcessor struct {
@@ -214,12 +215,23 @@ func persistRunCompletionIfNeeded(params RunExecutorParams, assistantText string
 	if !always && runUsage.TotalTokens == 0 {
 		return
 	}
-	_ = params.Chats.OnRunCompleted(chat.RunCompletion{
+	completion := chat.RunCompletion{
 		ChatID:          params.Session.ChatID,
 		RunID:           params.Session.RunID,
 		AssistantText:   assistantText,
 		InitialMessage:  params.Request.Message,
 		UpdatedAtMillis: time.Now().UnixMilli(),
 		Usage:           runUsage,
-	})
+	}
+	if err := params.Chats.OnRunCompleted(completion); err != nil {
+		return
+	}
+	if params.Notifications != nil {
+		params.Notifications.Broadcast("chat.updated", map[string]any{
+			"chatId":         completion.ChatID,
+			"lastRunId":      completion.RunID,
+			"lastRunContent": completion.AssistantText,
+			"updatedAt":      completion.UpdatedAtMillis,
+		})
+	}
 }

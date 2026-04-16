@@ -27,6 +27,7 @@ import (
 	"agent-platform-runner-go/internal/server"
 	"agent-platform-runner-go/internal/tools"
 	"agent-platform-runner-go/internal/viewport"
+	"agent-platform-runner-go/internal/ws"
 )
 
 type App struct {
@@ -141,7 +142,11 @@ func New() (*App, error) {
 	)
 
 	agentEngine := llm.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, frontendRegistry, sandboxClient, hitlRegistry)
-	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, mcp.NewRegistryReloader(mcpRegistry, mcpToolSync), hitlRegistry)
+	notifications := contracts.NewNoopNotificationSink()
+	if cfg.WebSocket.Enabled {
+		notifications = ws.NewHub()
+	}
+	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, mcp.NewRegistryReloader(mcpRegistry, mcpToolSync), hitlRegistry, notifications)
 	backgroundCtx, backgroundCancel := context.WithCancel(context.Background())
 	cleanupBackground := true
 	defer func() {
@@ -177,6 +182,7 @@ func New() (*App, error) {
 			contracts.NewNoopViewportClient(),
 		),
 		CatalogReloader: reloader,
+		Notifications:   notifications,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("init server: %w", err)

@@ -19,6 +19,7 @@ const (
 	defaultRunCompletedRetention    = 10 * time.Minute
 	defaultRunEventBusMaxEvents     = 10000
 	defaultRunMaxDisconnectedWait   = 10 * time.Minute
+	defaultRunMaxObserversPerRun    = 16
 )
 
 type runControlContextKey struct{}
@@ -59,6 +60,7 @@ type RunControl struct {
 	steerQueue            []api.SteerRequest
 	submitWaiters         map[string]*submitWaiter
 	pendingSubmits        map[string]SubmitResult
+	resolvedSubmits       map[string]SubmitResult
 	expectedSubmitAwaitID string
 	state                 RunLoopState
 
@@ -77,6 +79,7 @@ func NewRunControl(parent context.Context, runID string) *RunControl {
 		cancel:              cancel,
 		submitWaiters:       map[string]*submitWaiter{},
 		pendingSubmits:      map[string]SubmitResult{},
+		resolvedSubmits:     map[string]SubmitResult{},
 		state:               RunLoopStateIdle,
 		maxDisconnectedWait: defaultRunMaxDisconnectedWait,
 		observerChanged:     make(chan struct{}, 1),
@@ -291,19 +294,34 @@ func (c *RunControl) ResolveSubmit(req api.SubmitRequest) SubmitAck {
 		return SubmitAck{Accepted: false, Status: "unmatched", Detail: "No active run found"}
 	}
 	c.mu.Lock()
+	if resolved, exists := c.resolvedSubmits[req.AwaitingID]; exists {
+		c.mu.Unlock()
+		detail := resolved.Detail
+		if detail == "" {
+			detail = "Frontend submit already resolved"
+		}
+		return SubmitAck{Accepted: false, Status: "already_resolved", Detail: detail}
+	}
 	waiter, ok := c.submitWaiters[req.AwaitingID]
 	if ok {
 		delete(c.submitWaiters, req.AwaitingID)
 		if c.expectedSubmitAwaitID == req.AwaitingID {
 			c.expectedSubmitAwaitID = ""
 		}
-	}
-	if !ok && req.AwaitingID != "" && req.AwaitingID == c.expectedSubmitAwaitID && !c.interrupted.Load() && !c.finished.Load() {
-		c.pendingSubmits[req.AwaitingID] = SubmitResult{
+		c.resolvedSubmits[req.AwaitingID] = SubmitResult{
 			Request: req,
 			Status:  "accepted",
 			Detail:  "Frontend submit accepted",
 		}
+	}
+	if !ok && req.AwaitingID != "" && req.AwaitingID == c.expectedSubmitAwaitID && !c.interrupted.Load() && !c.finished.Load() {
+		accepted := SubmitResult{
+			Request: req,
+			Status:  "accepted",
+			Detail:  "Frontend submit accepted",
+		}
+		c.pendingSubmits[req.AwaitingID] = accepted
+		c.resolvedSubmits[req.AwaitingID] = accepted
 		c.expectedSubmitAwaitID = ""
 		c.mu.Unlock()
 		return SubmitAck{Accepted: true, Status: "accepted", Detail: "Frontend submit accepted"}
@@ -489,6 +507,7 @@ type InMemoryRunManager struct {
 	completedRetention    time.Duration
 	eventBusMaxEvents     int
 	maxDisconnectedWait   time.Duration
+	maxObserversPerRun    int
 }
 
 func NewInMemoryRunManager() *InMemoryRunManager {
@@ -500,6 +519,7 @@ func NewInMemoryRunManager() *InMemoryRunManager {
 		completedRetention:    defaultRunCompletedRetention,
 		eventBusMaxEvents:     defaultRunEventBusMaxEvents,
 		maxDisconnectedWait:   defaultRunMaxDisconnectedWait,
+		maxObserversPerRun:    defaultRunMaxObserversPerRun,
 	}
 }
 
@@ -524,6 +544,9 @@ func (m *InMemoryRunManager) ConfigureRunLifecycle(cfg config.RunConfig) {
 	if cfg.MaxDisconnectedWaitMs > 0 {
 		m.maxDisconnectedWait = time.Duration(cfg.MaxDisconnectedWaitMs) * time.Millisecond
 	}
+	if cfg.MaxObserversPerRun > 0 {
+		m.maxObserversPerRun = cfg.MaxObserversPerRun
+	}
 	m.startReaper()
 }
 
@@ -535,7 +558,7 @@ func (m *InMemoryRunManager) Register(_ context.Context, session QuerySession) (
 	control := NewRunControl(context.Background(), session.RunID)
 	control.SetMaxDisconnectedWait(m.maxDisconnectedWait)
 	run := ActiveRun{RunID: session.RunID, ChatID: session.ChatID, AgentKey: session.AgentKey}
-	eventBus := stream.NewRunEventBus(m.eventBusMaxEvents, func(count int) {
+	eventBus := stream.NewRunEventBus(m.eventBusMaxEvents, m.maxObserversPerRun, func(count int) {
 		control.SetObserverCount(int32(count))
 	})
 	control.SetObserverCount(0)

@@ -83,10 +83,18 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	if agentKey == "" {
 		agentKey = s.deps.Registry.DefaultAgentKey()
 	}
-	_, _, err := s.deps.Chats.EnsureChat(chatID, agentKey, "", r.FormValue("name"))
+	summary, created, err := s.deps.Chats.EnsureChat(chatID, agentKey, "", r.FormValue("name"))
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
+	}
+	if created {
+		s.broadcast("chat.created", map[string]any{
+			"chatId":    chatID,
+			"chatName":  summary.ChatName,
+			"agentKey":  agentKey,
+			"timestamp": summary.CreatedAt,
+		})
 	}
 	file, header, err := pickUploadFile(r.MultipartForm)
 	if err != nil {

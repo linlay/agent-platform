@@ -1,11 +1,12 @@
 package stream
 
 import (
+	"sync"
 	"testing"
 )
 
 func TestRunEventBusReplaysAndFreezes(t *testing.T) {
-	bus := NewRunEventBus(10, nil)
+	bus := NewRunEventBus(10, 0, nil)
 	bus.Publish(EventData{Seq: 1, Type: "request.query"})
 	bus.Publish(EventData{Seq: 2, Type: "run.start"})
 	bus.Publish(EventData{Seq: 3, Type: "content.delta"})
@@ -31,7 +32,7 @@ func TestRunEventBusReplaysAndFreezes(t *testing.T) {
 }
 
 func TestRunEventBusDropsSlowObserver(t *testing.T) {
-	bus := NewRunEventBus(256, nil)
+	bus := NewRunEventBus(256, 0, nil)
 	observer, err := bus.Subscribe(0)
 	if err != nil {
 		t.Fatalf("subscribe: %v", err)
@@ -52,7 +53,7 @@ func TestRunEventBusDropsSlowObserver(t *testing.T) {
 }
 
 func TestRunEventBusReplayExpansionDoesNotDropObserver(t *testing.T) {
-	bus := NewRunEventBus(256, nil)
+	bus := NewRunEventBus(256, 0, nil)
 	for seq := int64(1); seq <= int64(defaultObserverBuffer+1); seq++ {
 		bus.Publish(EventData{Seq: seq, Type: "content.delta"})
 	}
@@ -78,7 +79,7 @@ func TestRunEventBusReplayExpansionDoesNotDropObserver(t *testing.T) {
 }
 
 func TestRunEventBusCloseIsIdempotent(t *testing.T) {
-	bus := NewRunEventBus(256, nil)
+	bus := NewRunEventBus(256, 0, nil)
 	observer, err := bus.Subscribe(0)
 	if err != nil {
 		t.Fatalf("subscribe: %v", err)
@@ -90,7 +91,7 @@ func TestRunEventBusCloseIsIdempotent(t *testing.T) {
 }
 
 func TestRunEventBusReplayWindowExceeded(t *testing.T) {
-	bus := NewRunEventBus(3, nil)
+	bus := NewRunEventBus(3, 0, nil)
 	for seq := int64(1); seq <= 4; seq++ {
 		bus.Publish(EventData{Seq: seq, Type: "content.delta"})
 	}
@@ -106,4 +107,46 @@ func TestRunEventBusReplayWindowExceeded(t *testing.T) {
 	if replayErr.OldestSeq != 2 || replayErr.LatestSeq != 4 {
 		t.Fatalf("unexpected replay window: %#v", replayErr)
 	}
+}
+
+func TestRunEventBusRejectsObserverLimit(t *testing.T) {
+	bus := NewRunEventBus(10, 1, nil)
+	first, err := bus.Subscribe(0)
+	if err != nil {
+		t.Fatalf("subscribe first observer: %v", err)
+	}
+	defer bus.Unsubscribe(first.ID)
+
+	_, err = bus.Subscribe(0)
+	if err == nil {
+		t.Fatalf("expected observer limit error")
+	}
+	if _, ok := err.(*ObserverLimitExceededError); !ok {
+		t.Fatalf("expected ObserverLimitExceededError, got %T", err)
+	}
+}
+
+func TestRunEventBusConcurrentPublishSubscribe(t *testing.T) {
+	bus := NewRunEventBus(512, 0, nil)
+	var wg sync.WaitGroup
+
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			observer, err := bus.Subscribe(0)
+			if err != nil {
+				t.Errorf("subscribe: %v", err)
+				return
+			}
+			defer bus.Unsubscribe(observer.ID)
+			for range observer.Events {
+			}
+		}()
+	}
+	for i := 0; i < 100; i++ {
+		bus.Publish(EventData{Seq: int64(i + 1), Type: "content.delta"})
+	}
+	bus.Freeze()
+	wg.Wait()
 }

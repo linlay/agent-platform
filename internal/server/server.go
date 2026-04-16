@@ -24,6 +24,7 @@ import (
 	"agent-platform-runner-go/internal/models"
 	"agent-platform-runner-go/internal/observability"
 	"agent-platform-runner-go/internal/stream"
+	"agent-platform-runner-go/internal/ws"
 )
 
 type Dependencies struct {
@@ -41,6 +42,7 @@ type Dependencies struct {
 	HITL            *hitl.Registry
 	FrontendTools   *frontendtools.Registry
 	CatalogReloader contracts.CatalogReloader
+	Notifications   contracts.NotificationSink
 }
 
 type Server struct {
@@ -48,6 +50,7 @@ type Server struct {
 	deps          Dependencies
 	authVerifier  *JWTVerifier
 	ticketService *ResourceTicketService
+	wsHandler     *ws.Handler
 }
 
 type syncQueryContextKey struct{}
@@ -86,11 +89,19 @@ func New(deps Dependencies) (*Server, error) {
 	} else {
 		log.Printf("auth disabled")
 	}
+	if deps.Notifications == nil {
+		deps.Notifications = contracts.NewNoopNotificationSink()
+	}
 	s := &Server{
 		router:        http.NewServeMux(),
 		deps:          deps,
 		authVerifier:  authVerifier,
 		ticketService: NewResourceTicketService(deps.Config.ChatImage),
+	}
+	if deps.Config.WebSocket.Enabled {
+		if hub, ok := deps.Notifications.(*ws.Hub); ok {
+			s.wsHandler = s.newWSHandler(hub)
+		}
 	}
 	s.routes()
 	return s, nil
@@ -254,6 +265,9 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/viewport", s.method(http.MethodGet, s.handleViewport))
 	s.router.HandleFunc("/api/resource", s.method(http.MethodGet, s.handleResource))
 	s.router.HandleFunc("/api/upload", s.method(http.MethodPost, s.handleUpload))
+	if s.wsHandler != nil {
+		s.router.Handle("/ws", s.wsHandler)
+	}
 }
 
 func (s *Server) method(expected string, handler http.HandlerFunc) http.HandlerFunc {

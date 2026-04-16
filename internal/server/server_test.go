@@ -2326,7 +2326,8 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 			t.Fatalf("new hitl registry: %v", err)
 		}
 	}
-	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, nil, hitlRegistry)
+	notifications := contracts.NewNoopNotificationSink()
+	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, nil, hitlRegistry, notifications)
 
 	runs := runctl.NewInMemoryRunManager()
 	sandbox := sandboxClient
@@ -2347,6 +2348,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 		FrontendTools:   frontendRegistry,
 		Viewport:        viewport,
 		CatalogReloader: reloader,
+		Notifications:   notifications,
 	})
 	if err != nil {
 		t.Fatalf("new server: %v", err)
