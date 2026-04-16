@@ -714,6 +714,14 @@ func (m *InMemoryRunManager) reapExpiredRuns() {
 	m.mu.Unlock()
 
 	for _, state := range toInterrupt {
+		if state != nil && state.eventBus != nil {
+			state.eventBus.Publish(stream.EventData{
+				Seq:       state.eventBus.LatestSeq() + 1,
+				Type:      "run.expired",
+				Timestamp: time.Now().UnixMilli(),
+				Payload:   map[string]any{"runId": state.run.RunID},
+			})
+		}
 		if !state.control.Interrupt() {
 			log.Printf("[runctl] reaper skip interrupt run=%s state=%s", state.run.RunID, state.control.State())
 		}

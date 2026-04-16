@@ -131,6 +131,7 @@ func (c *Conn) Run(dispatch RouteHandler) {
 	})
 
 	go c.writeLoop()
+	c.SendPush("connected", map[string]any{"sessionId": c.sessionID})
 
 	for {
 		_, data, err := c.socket.ReadMessage()
@@ -160,7 +161,7 @@ func (c *Conn) Run(dispatch RouteHandler) {
 			}
 			continue
 		}
-		dispatch(c.Context(), c, req)
+		go dispatch(c.Context(), c, req)
 	}
 }
 
@@ -251,6 +252,8 @@ func (c *Conn) StartStreamForward(requestID string, observer *stream.Observer) {
 					reason = "error"
 				case "run.cancel":
 					reason = "cancelled"
+				case "run.expired":
+					reason = "expired"
 				}
 				entry := c.lookupStream(requestID)
 				if entry == nil {

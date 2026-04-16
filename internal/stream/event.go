@@ -180,7 +180,7 @@ func IsPersistedEventType(eventType string) bool {
 	case "request.query", "request.submit", "request.steer",
 		"awaiting.ask", "awaiting.payload", "awaiting.answer",
 		"chat.start",
-		"run.start", "run.complete", "run.cancel", "run.error",
+		"run.start", "run.complete", "run.cancel", "run.error", "run.expired",
 		"reasoning.snapshot", "content.snapshot",
 		"tool.snapshot", "tool.result",
 		"action.snapshot", "action.result",
@@ -275,6 +275,8 @@ func eventPayloadKeyOrder(eventType string) []string {
 		return []string{"runId", "usage"}
 	case "run.error":
 		return []string{"runId", "error", "usage"}
+	case "run.expired":
+		return []string{"runId"}
 	case "reasoning.start":
 		return []string{"reasoningId", "runId", "taskId", "reasoningLabel"}
 	case "reasoning.delta":

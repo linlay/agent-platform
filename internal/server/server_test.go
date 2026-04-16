@@ -17,6 +17,7 @@ import (
 	"io"
 	"log"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -916,7 +917,7 @@ func TestQueryStreamsBeforeRunCompleteOverHTTP(t *testing.T) {
 			`[DONE]`,
 		)
 	})
-	httpServer := httptest.NewServer(fixture.server)
+	httpServer := newLoopbackServer(t, fixture.server)
 	defer httpServer.Close()
 
 	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"stream please"}`))
@@ -961,7 +962,7 @@ func TestInterruptCancelsActiveRunAndSkipsRunComplete(t *testing.T) {
 		<-r.Context().Done()
 	})
 
-	httpServer := httptest.NewServer(fixture.server)
+	httpServer := newLoopbackServer(t, fixture.server)
 	defer httpServer.Close()
 
 	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"interrupt me"}`))
@@ -1063,7 +1064,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 		}
 	})
 
-	httpServer := httptest.NewServer(fixture.server)
+	httpServer := newLoopbackServer(t, fixture.server)
 	defer httpServer.Close()
 
 	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"please confirm first"}`))
@@ -1340,7 +1341,7 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 		}
 	})
 
-	httpServer := httptest.NewServer(fixture.server)
+	httpServer := newLoopbackServer(t, fixture.server)
 	defer httpServer.Close()
 
 	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"ask me a few things"}`))
@@ -1534,7 +1535,7 @@ func TestQuestionAwaitDismissReturnsCancelledStructuredResult(t *testing.T) {
 		}
 	})
 
-	httpServer := httptest.NewServer(fixture.server)
+	httpServer := newLoopbackServer(t, fixture.server)
 	defer httpServer.Close()
 
 	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"ask me a question"}`))
@@ -1830,7 +1831,7 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 		},
 	})
 
-	httpServer := httptest.NewServer(fixture.server)
+	httpServer := newLoopbackServer(t, fixture.server)
 	defer httpServer.Close()
 
 	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"please push the change"}`))
@@ -2218,11 +2219,12 @@ type testFixture struct {
 }
 
 type testFixtureOptions struct {
-	sandbox      contracts.SandboxClient
-	mcp          contracts.McpClient
-	mcpTools     stubMCPToolCatalog
-	configure    func(*config.Config)
-	setupRuntime func(root string, cfg *config.Config)
+	sandbox       contracts.SandboxClient
+	mcp           contracts.McpClient
+	mcpTools      stubMCPToolCatalog
+	notifications contracts.NotificationSink
+	configure     func(*config.Config)
+	setupRuntime  func(root string, cfg *config.Config)
 }
 
 func newTestFixture(t *testing.T) testFixture {
@@ -2242,8 +2244,7 @@ func newTestFixtureWithModelHandler(t *testing.T, modelHandler http.HandlerFunc)
 func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.HandlerFunc, options testFixtureOptions) testFixture {
 	t.Helper()
 	root := t.TempDir()
-	providerServer := httptest.NewServer(modelHandler)
-	t.Cleanup(providerServer.Close)
+	providerServer := newLoopbackServer(t, modelHandler)
 
 	registriesDir := filepath.Join(root, "registries")
 	agentsDir := filepath.Join(root, "agents")
@@ -2431,7 +2432,10 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 			t.Fatalf("new hitl registry: %v", err)
 		}
 	}
-	notifications := contracts.NewNoopNotificationSink()
+	notifications := options.notifications
+	if notifications == nil {
+		notifications = contracts.NewNoopNotificationSink()
+	}
 	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, nil, hitlRegistry, notifications)
 
 	runs := runctl.NewInMemoryRunManager()
@@ -2479,6 +2483,43 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 func TestMain(m *testing.M) {
 	code := m.Run()
 	os.Exit(code)
+}
+
+type loopbackServer struct {
+	URL    string
+	server *http.Server
+	ln     net.Listener
+}
+
+func (s *loopbackServer) Close() {
+	if s == nil {
+		return
+	}
+	if s.server != nil {
+		_ = s.server.Close()
+	}
+	if s.ln != nil {
+		_ = s.ln.Close()
+	}
+}
+
+func newLoopbackServer(t *testing.T, handler http.Handler) *loopbackServer {
+	t.Helper()
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen loopback server: %v", err)
+	}
+	server := &http.Server{Handler: handler}
+	go func() {
+		_ = server.Serve(listener)
+	}()
+	result := &loopbackServer{
+		URL:    "http://" + listener.Addr().String(),
+		server: server,
+		ln:     listener,
+	}
+	t.Cleanup(result.Close)
+	return result
 }
 
 func writeProviderSSE(t *testing.T, w http.ResponseWriter, frames ...string) {
