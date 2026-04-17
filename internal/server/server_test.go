@@ -35,7 +35,6 @@ import (
 	"agent-platform-runner-go/internal/config"
 	"agent-platform-runner-go/internal/contracts"
 	"agent-platform-runner-go/internal/frontendtools"
-	"agent-platform-runner-go/internal/hitl"
 	"agent-platform-runner-go/internal/llm"
 	"agent-platform-runner-go/internal/memory"
 	"agent-platform-runner-go/internal/models"
@@ -2285,12 +2284,12 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 			cfg.BashHITL.DefaultTimeoutMs = 15000
 		},
 		setupRuntime: func(_ string, cfg *config.Config) {
-			root := filepath.Join(cfg.Paths.RegistriesDir, "bash-hitl")
+			root := filepath.Join(cfg.Paths.SkillsMarketDir, "mock-skill", ".bash-hooks")
 			if err := os.MkdirAll(root, 0o755); err != nil {
-				t.Fatalf("mkdir bash-hitl dir: %v", err)
+				t.Fatalf("mkdir skill bash-hooks dir: %v", err)
 			}
 			if err := os.WriteFile(filepath.Join(root, "dangerous.yml"), []byte(rulesContent), 0o644); err != nil {
-				t.Fatalf("write bash-hitl rule: %v", err)
+				t.Fatalf("write skill bash hook rule: %v", err)
 			}
 		},
 	})
@@ -2688,7 +2687,6 @@ type testFixture struct {
 	tools           contracts.ToolExecutor
 	sandbox         contracts.SandboxClient
 	mcp             contracts.McpClient
-	hitl            *hitl.Registry
 	viewport        contracts.ViewportClient
 	catalogReloader contracts.CatalogReloader
 }
@@ -2900,20 +2898,15 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 	if err != nil {
 		t.Fatalf("new file registry: %v", err)
 	}
-	var hitlRegistry *hitl.Registry
-	hitlRegistry, err = hitl.NewRegistry(filepath.Join(cfg.Paths.RegistriesDir, "bash-hitl"))
-	if err != nil {
-		t.Fatalf("new hitl registry: %v", err)
-	}
 	notifications := options.notifications
 	if notifications == nil {
 		notifications = contracts.NewNoopNotificationSink()
 	}
-	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, nil, hitlRegistry, notifications)
+	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, nil, notifications)
 
 	runs := runctl.NewInMemoryRunManager()
 	sandbox := sandboxClient
-	agentEngine := llm.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, frontendRegistry, sandbox, hitlRegistry)
+	agentEngine := llm.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, frontendRegistry, sandbox)
 	viewport := contracts.NewNoopViewportClient()
 	server, err := New(Dependencies{
 		Config:          cfg,
@@ -2926,7 +2919,6 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 		Tools:           toolExecutor,
 		Sandbox:         sandbox,
 		MCP:             mcp,
-		HITL:            hitlRegistry,
 		FrontendTools:   frontendRegistry,
 		Viewport:        viewport,
 		CatalogReloader: reloader,
@@ -2947,7 +2939,6 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 		tools:           toolExecutor,
 		sandbox:         sandbox,
 		mcp:             mcp,
-		hitl:            hitlRegistry,
 		viewport:        viewport,
 		catalogReloader: reloader,
 	}

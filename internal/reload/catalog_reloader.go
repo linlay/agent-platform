@@ -25,25 +25,19 @@ type McpRegistryReloader interface {
 	Reload(ctx context.Context) error
 }
 
-type HitlRegistryReloader interface {
-	Reload() error
-}
-
 type RuntimeCatalogReloader struct {
 	registry      catalog.Registry
 	models        *models.ModelRegistry
 	mcp           McpRegistryReloader
-	hitl          HitlRegistryReloader
 	notifications contracts.NotificationSink
 	lastReloadNs  atomic.Int64
 }
 
-func NewRuntimeCatalogReloader(registry catalog.Registry, models *models.ModelRegistry, mcpRegistry McpRegistryReloader, hitlRegistry HitlRegistryReloader, notifications contracts.NotificationSink) *RuntimeCatalogReloader {
+func NewRuntimeCatalogReloader(registry catalog.Registry, models *models.ModelRegistry, mcpRegistry McpRegistryReloader, notifications contracts.NotificationSink) *RuntimeCatalogReloader {
 	return &RuntimeCatalogReloader{
 		registry:      registry,
 		models:        models,
 		mcp:           mcpRegistry,
-		hitl:          hitlRegistry,
 		notifications: notifications,
 	}
 }
@@ -52,7 +46,7 @@ func NewRuntimeCatalogReloader(registry catalog.Registry, models *models.ModelRe
 //
 //	agents          → reload agents (re-syncs declared skills from skills-market)
 //	teams           → reload teams
-//	skills          → no-op (skills-market is read-only catalog)
+//	skills          → reload skills
 //	models          → reload models + reload agents (cascade for affected agents)
 //	providers       → reload providers only (independent)
 //	mcp-servers     → reload mcp registry + reload agents (cascade)
@@ -72,9 +66,9 @@ func (r *RuntimeCatalogReloader) Reload(ctx context.Context, reason string) erro
 			return err
 		}
 	case "skills":
-		// noop — skills-market changes do not trigger any reload
-		log.Printf("[reload] skills change ignored (skills-market is read-only)")
-		return nil
+		if err := r.reloadCatalog(ctx, "skills"); err != nil {
+			return err
+		}
 	case "models":
 		if r.models != nil {
 			if err := r.models.ReloadModels(); err != nil {
@@ -108,13 +102,6 @@ func (r *RuntimeCatalogReloader) Reload(ctx context.Context, reason string) erro
 		log.Printf("[reload] cascade: viewport-servers → agents")
 		if err := r.reloadCatalog(ctx, "agents"); err != nil {
 			return err
-		}
-	case "bash-hitl":
-		if r.hitl != nil {
-			if err := r.hitl.Reload(); err != nil {
-				log.Printf("[reload] bash-hitl reload failed: %v", err)
-				return err
-			}
 		}
 	default:
 		// startup / config / unknown — full reload
@@ -171,7 +158,6 @@ func StartBackgroundReloaders(ctx context.Context, cfg config.Config, reloader c
 		{filepath.Join(cfg.Paths.RegistriesDir, "providers"), "providers"},
 		{filepath.Join(cfg.Paths.RegistriesDir, "mcp-servers"), "mcp-servers"},
 		{filepath.Join(cfg.Paths.RegistriesDir, "viewport-servers"), "viewport-servers"},
-		{filepath.Join(cfg.Paths.RegistriesDir, "bash-hitl"), "bash-hitl"},
 	}
 
 	fsw, err := fsnotify.NewWatcher()

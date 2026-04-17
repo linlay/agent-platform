@@ -1,7 +1,6 @@
 package hitl
 
 import (
-	"sort"
 	"strings"
 	"sync"
 
@@ -35,28 +34,7 @@ func (r *Registry) Reload() error {
 	if err != nil {
 		return err
 	}
-	byCmd := make(map[string][]FlatRule, len(rules))
-	tools := map[string]api.ToolDetailResponse{}
-	for _, rule := range rules {
-		byCmd[rule.Command] = append(byCmd[rule.Command], rule)
-		toolName := syntheticToolName(rule.ViewportKey)
-		if _, exists := tools[toolName]; !exists {
-			tools[toolName] = buildSyntheticToolDefinition(rule)
-		}
-	}
-	for command := range byCmd {
-		sort.SliceStable(byCmd[command], func(i int, j int) bool {
-			left := byCmd[command][i]
-			right := byCmd[command][j]
-			if len(left.MatchTokens) != len(right.MatchTokens) {
-				return len(left.MatchTokens) > len(right.MatchTokens)
-			}
-			if left.SourcePath != right.SourcePath {
-				return left.SourcePath < right.SourcePath
-			}
-			return left.Order < right.Order
-		})
-	}
+	byCmd, tools := buildIndexes(rules)
 
 	r.mu.Lock()
 	r.rules = append([]FlatRule(nil), rules...)
@@ -89,37 +67,20 @@ func (r *Registry) Tool(name string) (api.ToolDetailResponse, bool) {
 	return def, ok
 }
 
-func (r *Registry) Check(command string, chatLevel int) InterceptResult {
-	parsed := ParseCommandComponents(command)
-	base := strings.ToLower(strings.TrimSpace(parsed.BaseCommand))
-	if base == "" {
-		return InterceptResult{}
+func (r *Registry) Tools() []api.ToolDetailResponse {
+	if r == nil {
+		return nil
 	}
-
 	r.mu.RLock()
-	candidates := append([]FlatRule(nil), r.byCmd[base]...)
-	r.mu.RUnlock()
+	defer r.mu.RUnlock()
+	return toolList(r.tools)
+}
 
-	for _, rule := range candidates {
-		if !matchesTokens(parsed.Tokens, rule.MatchTokens) {
-			continue
-		}
-		if chatLevel >= rule.Level {
-			return InterceptResult{
-				Intercepted:     false,
-				Rule:            rule,
-				ParsedCommand:   parsed,
-				OriginalCommand: command,
-			}
-		}
-		return InterceptResult{
-			Intercepted:     true,
-			Rule:            rule,
-			ParsedCommand:   parsed,
-			OriginalCommand: command,
-		}
-	}
-	return InterceptResult{}
+func (r *Registry) Check(command string, chatLevel int) InterceptResult {
+	r.mu.RLock()
+	byCmd := r.byCmd
+	r.mu.RUnlock()
+	return checkRules(byCmd, command, chatLevel)
 }
 
 func syntheticToolName(viewportKey string) string {
@@ -127,7 +88,10 @@ func syntheticToolName(viewportKey string) string {
 }
 
 func matchesTokens(commandTokens []string, matchTokens []string) bool {
-	if len(matchTokens) == 0 || len(commandTokens) < len(matchTokens) {
+	if len(matchTokens) == 0 {
+		return true
+	}
+	if len(commandTokens) < len(matchTokens) {
 		return false
 	}
 	for idx := range matchTokens {

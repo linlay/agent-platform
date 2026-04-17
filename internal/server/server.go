@@ -21,7 +21,6 @@ import (
 	"agent-platform-runner-go/internal/config"
 	"agent-platform-runner-go/internal/contracts"
 	"agent-platform-runner-go/internal/frontendtools"
-	"agent-platform-runner-go/internal/hitl"
 	"agent-platform-runner-go/internal/memory"
 	"agent-platform-runner-go/internal/models"
 	"agent-platform-runner-go/internal/observability"
@@ -41,7 +40,6 @@ type Dependencies struct {
 	Sandbox         contracts.SandboxClient
 	MCP             contracts.McpClient
 	Viewport        contracts.ViewportClient
-	HITL            *hitl.Registry
 	FrontendTools   *frontendtools.Registry
 	CatalogReloader contracts.CatalogReloader
 	Notifications   contracts.NotificationSink
@@ -321,10 +319,7 @@ func (s *Server) enrichToolMetadata(events []stream.EventData, _ string) {
 
 func (s *Server) toolLookup() contracts.ToolDefinitionLookup {
 	if tl, ok := s.deps.Tools.(contracts.ToolDefinitionLookup); ok {
-		return contracts.NewCompositeToolLookup(s.deps.HITL, tl, s.deps.Registry)
-	}
-	if s.deps.HITL != nil {
-		return contracts.NewCompositeToolLookup(s.deps.HITL, s.deps.Registry)
+		return contracts.NewCompositeToolLookup(tl, s.deps.Registry)
 	}
 	return s.deps.Registry
 }

@@ -37,6 +37,7 @@ type llmRunStream struct {
 	toolChoice          string
 	maxToolCallsPerTurn int
 	postToolHook        func(string, string) PostToolHookResult
+	checker             hitl.Checker
 
 	step               int
 	pending            []AgentDelta
@@ -741,9 +742,9 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 		s.execCtx.ToolCalls++
 		invocation.toolCallCounted = true
 	}
-	if s.engine.hitl != nil && isBashTool(invocation.toolName) {
+	if s.checker != nil && isBashTool(invocation.toolName) {
 		command := mapStringArg(invocation.args, "command")
-		if result := s.engine.hitl.Check(command, s.execCtx.HITLLevel); result.Intercepted {
+		if result := s.checker.Check(command, s.execCtx.HITLLevel); result.Intercepted {
 			s.skipPostToolHook = true
 			return s.emitHITLConfirmDeltas(invocation, result)
 		}
@@ -1387,8 +1388,8 @@ func cloneAgentDeltas(input []AgentDelta) []AgentDelta {
 }
 
 func (s *llmRunStream) lookupToolDefinition(toolName string) (api.ToolDetailResponse, bool) {
-	if s.engine.hitl != nil {
-		if tool, ok := s.engine.hitl.Tool(toolName); ok {
+	if s.checker != nil {
+		if tool, ok := s.checker.Tool(toolName); ok {
 			return tool, true
 		}
 	}

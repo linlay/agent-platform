@@ -24,7 +24,6 @@ type LLMAgentEngine struct {
 	frontend   *frontendtools.Registry
 	sandbox    SandboxClient
 	httpClient *http.Client
-	hitl       *hitl.Registry
 }
 
 type runStreamOptions struct {
@@ -40,11 +39,11 @@ type runStreamOptions struct {
 	PostToolHook        func(toolName string, toolID string) PostToolHookResult
 }
 
-func NewLLMAgentEngine(cfg config.Config, models *ModelRegistry, tools ToolExecutor, frontend *frontendtools.Registry, sandbox SandboxClient, hitlRegistry *hitl.Registry) *LLMAgentEngine {
-	return NewLLMAgentEngineWithHTTPClient(cfg, models, tools, frontend, sandbox, hitlRegistry, nil)
+func NewLLMAgentEngine(cfg config.Config, models *ModelRegistry, tools ToolExecutor, frontend *frontendtools.Registry, sandbox SandboxClient) *LLMAgentEngine {
+	return NewLLMAgentEngineWithHTTPClient(cfg, models, tools, frontend, sandbox, nil)
 }
 
-func NewLLMAgentEngineWithHTTPClient(cfg config.Config, models *ModelRegistry, tools ToolExecutor, frontend *frontendtools.Registry, sandbox SandboxClient, hitlRegistry *hitl.Registry, httpClient *http.Client) *LLMAgentEngine {
+func NewLLMAgentEngineWithHTTPClient(cfg config.Config, models *ModelRegistry, tools ToolExecutor, frontend *frontendtools.Registry, sandbox SandboxClient, httpClient *http.Client) *LLMAgentEngine {
 	if httpClient == nil {
 		httpClient = &http.Client{}
 	}
@@ -55,7 +54,6 @@ func NewLLMAgentEngineWithHTTPClient(cfg config.Config, models *ModelRegistry, t
 		frontend:   frontend,
 		sandbox:    sandbox,
 		httpClient: httpClient,
-		hitl:       hitlRegistry,
 	}
 }
 
@@ -100,6 +98,9 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	execCtx.Request = req
 	execCtx.Session = session
 	execCtx.HITLLevel = AnyIntNode(req.Params["hitlLevel"])
+	if len(execCtx.SandboxEnvOverrides) == 0 {
+		execCtx.SandboxEnvOverrides = CloneStringMap(session.SandboxEnvOverrides)
+	}
 	if execCtx.RunControl == nil {
 		execCtx.RunControl = RunControlFromContext(ctx)
 	}
@@ -166,6 +167,13 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		maxToolCallsPerTurn: options.MaxToolCallsPerTurn,
 		postToolHook:        options.PostToolHook,
 		allowToolUse:        allowToolUse,
+	}
+	if len(session.SkillHookDirs) > 0 {
+		checker, err := hitl.NewSkillChecker(session.SkillHookDirs)
+		if err != nil {
+			return nil, err
+		}
+		stream.checker = checker
 	}
 	if !stream.allowToolUse {
 		stream.toolSpecs = nil

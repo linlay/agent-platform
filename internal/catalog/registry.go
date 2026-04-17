@@ -104,6 +104,8 @@ type SkillDefinition struct {
 	Description     string
 	Prompt          string
 	PromptTruncated bool
+	BashHooksDir    string
+	SandboxEnv      map[string]string
 }
 
 type FileRegistry struct {

@@ -286,6 +286,57 @@ func TestLoadSkillsSkipsExampleDirectories(t *testing.T) {
 	}
 }
 
+func TestLoadSkillsLoadsBashHooksAndSandboxEnv(t *testing.T) {
+	root := t.TempDir()
+	skillDir := filepath.Join(root, "mock-skill")
+	if err := os.MkdirAll(filepath.Join(skillDir, ".bash-hooks"), 0o755); err != nil {
+		t.Fatalf("mkdir bash hooks: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# Mock Skill\n\nSkill description"), 0o644); err != nil {
+		t.Fatalf("write skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, ".sandbox-env.json"), []byte(`{"NODE_ENV":"production","DEBUG":"0"}`), 0o644); err != nil {
+		t.Fatalf("write sandbox env: %v", err)
+	}
+
+	skills, err := loadSkills(root, 0)
+	if err != nil {
+		t.Fatalf("load skills: %v", err)
+	}
+	got, ok := skills["mock-skill"]
+	if !ok {
+		t.Fatalf("expected mock-skill to load, got %#v", skills)
+	}
+	wantHooksDir, err := filepath.Abs(filepath.Join(skillDir, ".bash-hooks"))
+	if err != nil {
+		t.Fatalf("abs bash hooks dir: %v", err)
+	}
+	if got.BashHooksDir != wantHooksDir {
+		t.Fatalf("BashHooksDir = %q, want %q", got.BashHooksDir, wantHooksDir)
+	}
+	if got.SandboxEnv["NODE_ENV"] != "production" || got.SandboxEnv["DEBUG"] != "0" {
+		t.Fatalf("SandboxEnv = %#v", got.SandboxEnv)
+	}
+}
+
+func TestLoadSkillsRejectsInvalidSandboxEnvJSON(t *testing.T) {
+	root := t.TempDir()
+	skillDir := filepath.Join(root, "mock-skill")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("mkdir skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# Mock Skill\n\nSkill description"), 0o644); err != nil {
+		t.Fatalf("write skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, ".sandbox-env.json"), []byte(`{"NODE_ENV":}`), 0o644); err != nil {
+		t.Fatalf("write sandbox env: %v", err)
+	}
+
+	if _, err := loadSkills(root, 0); err == nil {
+		t.Fatal("expected invalid sandbox env error")
+	}
+}
+
 func TestTeamsLogsInvalidAgentKeys(t *testing.T) {
 	var buf bytes.Buffer
 	previous := log.Writer()

@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"bufio"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ const manifestFile = ".market-synced-skills"
 
 func loadSkills(root string, maxPromptChars int) (map[string]SkillDefinition, error) {
 	items := map[string]SkillDefinition{}
+	var loadErr error
 	err := visitRuntimeEntries(
 		root,
 		nil,
@@ -23,7 +25,11 @@ func loadSkills(root string, maxPromptChars int) (map[string]SkillDefinition, er
 			return entry.IsDir() && !strings.HasPrefix(name, ".") && ShouldLoadRuntimeName(name)
 		},
 		func(name string, _ os.DirEntry) {
-			skillPath := filepath.Join(root, name, "SKILL.md")
+			if loadErr != nil {
+				return
+			}
+			skillDir := filepath.Join(root, name)
+			skillPath := filepath.Join(skillDir, "SKILL.md")
 			content, err := os.ReadFile(skillPath)
 			if err != nil {
 				log.Printf("[catalog][skills] skip directory %s: no SKILL.md found", name)
@@ -35,19 +41,65 @@ func loadSkills(root string, maxPromptChars int) (map[string]SkillDefinition, er
 			if maxPromptChars > 0 && len(prompt) > maxPromptChars {
 				truncated = true
 			}
+			bashHooksDir, err := resolveSkillBashHooksDir(skillDir)
+			if err != nil {
+				loadErr = fmt.Errorf("skill %s .bash-hooks: %w", name, err)
+				return
+			}
+			sandboxEnv, err := loadSkillSandboxEnv(skillDir)
+			if err != nil {
+				loadErr = fmt.Errorf("skill %s .sandbox-env.json: %w", name, err)
+				return
+			}
 			items[name] = SkillDefinition{
 				Key:             name,
 				Name:            skillDisplayName(description, name),
 				Description:     description,
 				Prompt:          prompt,
 				PromptTruncated: truncated,
+				BashHooksDir:    bashHooksDir,
+				SandboxEnv:      sandboxEnv,
 			}
 		},
 	)
 	if err != nil {
 		return nil, err
 	}
+	if loadErr != nil {
+		return nil, loadErr
+	}
 	return items, nil
+}
+
+func resolveSkillBashHooksDir(skillDir string) (string, error) {
+	path := filepath.Join(skillDir, ".bash-hooks")
+	info, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("not a directory")
+	}
+	return filepath.Abs(path)
+}
+
+func loadSkillSandboxEnv(skillDir string) (map[string]string, error) {
+	path := filepath.Join(skillDir, ".sandbox-env.json")
+	content, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var env map[string]string
+	if err := json.Unmarshal(content, &env); err != nil {
+		return nil, err
+	}
+	return env, nil
 }
 
 func reconcileDeclaredSkills(agentDir string, declaredSkills []string, marketDir string) error {

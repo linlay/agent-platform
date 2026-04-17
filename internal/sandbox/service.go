@@ -264,7 +264,7 @@ func (s *ContainerHubSandboxService) createAndBind(ctx context.Context, execCtx 
 			"read_only":   mount.ReadOnly,
 		})
 	}
-	response, err := s.client.CreateSession(ctx, map[string]any{
+	payload := map[string]any{
 		"session_id":       sessionID,
 		"environment_name": environmentID,
 		"cwd":              "/workspace",
@@ -274,7 +274,11 @@ func (s *ContainerHubSandboxService) createAndBind(ctx context.Context, execCtx 
 			"chatId":   execCtx.Session.ChatID,
 			"agentKey": execCtx.Session.AgentKey,
 		},
-	})
+	}
+	if len(execCtx.SandboxEnvOverrides) > 0 {
+		payload["env"] = contracts.CloneStringMap(execCtx.SandboxEnvOverrides)
+	}
+	response, err := s.client.CreateSession(ctx, payload)
 	if err != nil {
 		return err
 	}

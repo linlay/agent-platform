@@ -47,6 +47,26 @@ func (r *recordingToolExecutor) Invoke(_ context.Context, name string, args map[
 	return r.result, nil
 }
 
+type stubChecker struct {
+	result hitl.InterceptResult
+	tools  map[string]api.ToolDetailResponse
+}
+
+func (s stubChecker) Check(string, int) hitl.InterceptResult { return s.result }
+
+func (s stubChecker) Tool(name string) (api.ToolDetailResponse, bool) {
+	tool, ok := s.tools[strings.ToLower(strings.TrimSpace(name))]
+	return tool, ok
+}
+
+func (s stubChecker) Tools() []api.ToolDetailResponse {
+	items := make([]api.ToolDetailResponse, 0, len(s.tools))
+	for _, tool := range s.tools {
+		items = append(items, tool)
+	}
+	return items
+}
+
 func approvalToolDefinition() api.ToolDetailResponse {
 	return api.ToolDetailResponse{
 		Name: "_ask_user_approval_",
@@ -394,6 +414,65 @@ func TestBashHITLApprovalUsesAskUserApprovalForAllViewports(t *testing.T) {
 				t.Fatalf("expected submit/answer/results deltas, got %#v", stream.pending)
 			}
 		})
+	}
+}
+
+func TestInvokeActiveToolCallUsesSkillScopedChecker(t *testing.T) {
+	executor := &recordingToolExecutor{
+		defs: []api.ToolDetailResponse{approvalToolDefinition()},
+		result: contracts.ToolExecutionResult{
+			Output:   "executed",
+			ExitCode: 0,
+		},
+	}
+	runControl := contracts.NewRunControl(context.Background(), "run_1")
+	stream := &llmRunStream{
+		ctx: context.Background(),
+		engine: &LLMAgentEngine{
+			tools:    executor,
+			frontend: frontendtools.NewDefaultRegistry(),
+		},
+		checker: stubChecker{
+			result: hitl.InterceptResult{
+				Intercepted: true,
+				Rule: hitl.FlatRule{
+					Match:        "push",
+					Level:        1,
+					ViewportType: "builtin",
+					ViewportKey:  "confirm_dialog",
+				},
+				ParsedCommand: hitl.CommandComponents{
+					BaseCommand: "git",
+					Tokens:      []string{"push", "origin", "main"},
+				},
+			},
+		},
+		session: contracts.QuerySession{
+			RequestID: "req_1",
+			ChatID:    "chat_1",
+			RunID:     "run_1",
+		},
+		runControl: runControl,
+		execCtx: &contracts.ExecutionContext{
+			Budget: contracts.Budget{Tool: contracts.RetryPolicy{TimeoutMs: 50}},
+		},
+		activeToolCall: &preparedToolInvocation{
+			toolID:   "tool_1",
+			toolName: "_sandbox_bash_",
+			args: map[string]any{
+				"command": "git push origin main",
+			},
+		},
+	}
+
+	if err := stream.invokeActiveToolCall(); err != nil {
+		t.Fatalf("invokeActiveToolCall returned error: %v", err)
+	}
+	if stream.hitlSyntheticName != "_ask_user_approval_" {
+		t.Fatalf("expected approval tool, got %q", stream.hitlSyntheticName)
+	}
+	if len(executor.invocations) != 0 {
+		t.Fatalf("expected bash execution to wait for approval, got %#v", executor.invocations)
 	}
 }
 

@@ -63,10 +63,10 @@ func loadRulesFromDir(root string) ([]FlatRule, error) {
 				if err := validateSubcommandRule(command, sub, matchTokens); err != nil {
 					return nil, fmt.Errorf("%s: %w", path, err)
 				}
-				viewportTypeKey := strings.ToLower(strings.TrimSpace(sub.ViewportKey))
-				viewportType := strings.ToLower(strings.TrimSpace(sub.ViewportType))
+				viewportType, viewportKey := normalizeViewport(sub)
+				viewportTypeKey := strings.ToLower(strings.TrimSpace(viewportKey))
 				if existing, ok := viewportTypes[viewportTypeKey]; ok && existing != viewportType {
-					return nil, fmt.Errorf("%s: viewportKey %q is associated with multiple viewportType values", path, sub.ViewportKey)
+					return nil, fmt.Errorf("%s: viewportKey %q is associated with multiple viewportType values", path, viewportKey)
 				}
 				viewportTypes[viewportTypeKey] = viewportType
 				seen[key] = true
@@ -79,7 +79,7 @@ func loadRulesFromDir(root string) ([]FlatRule, error) {
 					MatchTokens:  matchTokens,
 					Level:        sub.Level,
 					ViewportType: viewportType,
-					ViewportKey:  strings.TrimSpace(sub.ViewportKey),
+					ViewportKey:  viewportKey,
 				})
 				order++
 			}
@@ -131,21 +131,37 @@ func validateSubcommandRule(command string, sub SubcommandRule, matchTokens []st
 	if strings.TrimSpace(command) == "" {
 		return fmt.Errorf("command is required")
 	}
-	if strings.TrimSpace(sub.Match) == "" || len(matchTokens) == 0 {
-		return fmt.Errorf("match is required")
-	}
 	if sub.Level <= 0 {
 		return fmt.Errorf("level must be greater than 0")
 	}
-	switch strings.ToLower(strings.TrimSpace(sub.ViewportType)) {
+	viewportType, viewportKey := normalizeViewport(sub)
+	switch viewportType {
 	case "builtin", "html":
 	default:
 		return fmt.Errorf("viewportType must be one of builtin,html")
 	}
-	if strings.TrimSpace(sub.ViewportKey) == "" {
+	if strings.TrimSpace(viewportKey) == "" {
 		return fmt.Errorf("viewportKey is required")
 	}
+	if strings.TrimSpace(sub.Match) != "" && len(matchTokens) == 0 {
+		return fmt.Errorf("match is invalid")
+	}
 	return nil
+}
+
+func normalizeViewport(sub SubcommandRule) (string, string) {
+	viewportType := strings.ToLower(strings.TrimSpace(sub.ViewportType))
+	viewportKey := strings.TrimSpace(sub.ViewportKey)
+	if viewportType == "" && viewportKey == "" {
+		return "builtin", "confirm_dialog"
+	}
+	if viewportType == "" {
+		viewportType = "builtin"
+	}
+	if viewportKey == "" {
+		viewportKey = "confirm_dialog"
+	}
+	return viewportType, viewportKey
 }
 
 func listMaps(value any) []map[string]any {

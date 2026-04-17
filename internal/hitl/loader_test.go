@@ -177,3 +177,53 @@ commands:
 		t.Fatalf("expected legacy toolType to map to viewportType, got %#v", rules[0])
 	}
 }
+
+func TestLoadRulesDefaultsViewportToBuiltinConfirmDialog(t *testing.T) {
+	root := t.TempDir()
+	content := `
+commands:
+  - command: reboot
+    subcommands:
+      - match: now
+        level: 1
+`
+	if err := os.WriteFile(filepath.Join(root, "defaults.yml"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write rule file: %v", err)
+	}
+
+	rules, err := loadRulesFromDir(root)
+	if err != nil {
+		t.Fatalf("load rules: %v", err)
+	}
+	if len(rules) != 1 {
+		t.Fatalf("expected 1 rule, got %#v", rules)
+	}
+	if rules[0].ViewportType != "builtin" || rules[0].ViewportKey != "confirm_dialog" {
+		t.Fatalf("expected default builtin confirm dialog, got %#v", rules[0])
+	}
+}
+
+func TestLoadRulesAllowsEmptyMatch(t *testing.T) {
+	root := t.TempDir()
+	content := `
+commands:
+  - command: reboot
+    subcommands:
+      - match: ""
+        level: 1
+`
+	if err := os.WriteFile(filepath.Join(root, "empty-match.yml"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write rule file: %v", err)
+	}
+
+	rules, err := loadRulesFromDir(root)
+	if err != nil {
+		t.Fatalf("load rules: %v", err)
+	}
+	if len(rules) != 1 {
+		t.Fatalf("expected 1 rule, got %#v", rules)
+	}
+	if len(rules[0].MatchTokens) != 0 {
+		t.Fatalf("expected empty match tokens, got %#v", rules[0].MatchTokens)
+	}
+}

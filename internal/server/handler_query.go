@@ -168,6 +168,7 @@ func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
 	}
 
 	promptAppend := buildPromptAppendConfig(agentDef)
+	skillHookDirs, sandboxEnvOverrides := resolveSkillRuntimeSettings(agentDef.Skills, s.deps.Registry)
 	session := contracts.QuerySession{
 		RequestID:             requestID,
 		RunID:                 runID,
@@ -201,6 +202,8 @@ func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
 		SandboxEnvironmentID:  extractSandboxField(agentDef.Sandbox, "environmentId"),
 		SandboxLevel:          extractSandboxField(agentDef.Sandbox, "level"),
 		SandboxExtraMounts:    sandboxExtraMounts(agentDef.Sandbox["extraMounts"]),
+		SkillHookDirs:         skillHookDirs,
+		SandboxEnvOverrides:   sandboxEnvOverrides,
 	}
 	if principal != nil {
 		session.Subject = principal.Subject
@@ -213,6 +216,39 @@ func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
 		agentDef: agentDef,
 		session:  session,
 	}, nil
+}
+
+func resolveSkillRuntimeSettings(skillKeys []string, registry catalog.Registry) ([]string, map[string]string) {
+	if len(skillKeys) == 0 || registry == nil {
+		return nil, nil
+	}
+	seen := map[string]struct{}{}
+	var hookDirs []string
+	var sandboxEnv map[string]string
+	for _, raw := range skillKeys {
+		skillKey := strings.ToLower(strings.TrimSpace(raw))
+		if skillKey == "" {
+			continue
+		}
+		if _, ok := seen[skillKey]; ok {
+			continue
+		}
+		seen[skillKey] = struct{}{}
+		def, ok := registry.SkillDefinition(skillKey)
+		if !ok {
+			continue
+		}
+		if strings.TrimSpace(def.BashHooksDir) != "" {
+			hookDirs = append(hookDirs, def.BashHooksDir)
+		}
+		for key, value := range def.SandboxEnv {
+			if sandboxEnv == nil {
+				sandboxEnv = make(map[string]string, len(def.SandboxEnv))
+			}
+			sandboxEnv[key] = value
+		}
+	}
+	return hookDirs, sandboxEnv
 }
 
 func (s *Server) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamEventAssembler, *llm.DeltaMapper) {

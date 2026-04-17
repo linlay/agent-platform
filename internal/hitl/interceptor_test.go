@@ -125,3 +125,29 @@ commands:
 		t.Fatalf("did not expect docker images to be intercepted: %#v", result)
 	}
 }
+
+func TestRegistryCheckSupportsEmptyMatch(t *testing.T) {
+	root := t.TempDir()
+	content := `
+commands:
+  - command: reboot
+    subcommands:
+      - match: ""
+        level: 1
+`
+	if err := os.WriteFile(filepath.Join(root, "reboot.yml"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write rule file: %v", err)
+	}
+
+	registry, err := NewRegistry(root)
+	if err != nil {
+		t.Fatalf("new registry: %v", err)
+	}
+
+	for _, command := range []string{"reboot", "reboot now"} {
+		result := registry.Check(command, 0)
+		if !result.Intercepted {
+			t.Fatalf("expected %q to be intercepted, got %#v", command, result)
+		}
+	}
+}

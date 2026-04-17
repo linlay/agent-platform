@@ -143,7 +143,7 @@ Container Hub 默认基础挂载为：
 | `AGENT_BASH_MAX_COMMAND_CHARS` | `16000` | `Advanced / operator` | 最大命令长度 |
 | `AGENT_BASH_HITL_DEFAULT_TIMEOUT_MS` | `120000` | `Advanced / operator` | bash HITL 默认超时 |
 
-`bash-hitl` 不再有单独的 `.env` 开关；只要 `registries/bash-hitl` 目录里存在至少一条有效规则，bash HITL 就会自动生效。目录为空或没有可加载规则时，运行时不会拦截 bash 命令。
+`bash HITL` 不再有单独的 `.env` 开关。是否拦截 bash 命令完全由当前 agent 挂载的 skills 决定：规则来自 skill 目录下的 `.bash-hooks/`，未挂载任何 bash hooks 时不会触发拦截。`AGENT_BASH_HITL_DEFAULT_TIMEOUT_MS` 仍用于控制审批等待超时，但不再对应任何全局 `registries/bash-hitl` 目录。
 
 ### Memory 行为调优
 

@@ -96,6 +96,8 @@ type QuerySession struct {
 	SandboxEnvironmentID string
 	SandboxLevel         string
 	SandboxExtraMounts   []SandboxExtraMount
+	SkillHookDirs        []string
+	SandboxEnvOverrides  map[string]string
 }
 
 type SandboxExtraMount struct {
@@ -106,21 +108,22 @@ type SandboxExtraMount struct {
 }
 
 type ExecutionContext struct {
-	Request         api.QueryRequest
-	Session         QuerySession
-	RunControl      *RunControl
-	CurrentToolID   string
-	CurrentToolName string
-	HITLLevel       int
-	SandboxSession  *SandboxSession
-	Budget          Budget
-	StageSettings   PlanExecuteSettings
-	RunLoopState    RunLoopState
-	PlanState       *PlanRuntimeState
-	ToolOverrides   map[string]api.ToolDetailResponse
-	StartedAt       time.Time
-	ModelCalls      int
-	ToolCalls       int
+	Request             api.QueryRequest
+	Session             QuerySession
+	RunControl          *RunControl
+	CurrentToolID       string
+	CurrentToolName     string
+	HITLLevel           int
+	SandboxSession      *SandboxSession
+	Budget              Budget
+	StageSettings       PlanExecuteSettings
+	RunLoopState        RunLoopState
+	PlanState           *PlanRuntimeState
+	ToolOverrides       map[string]api.ToolDetailResponse
+	SandboxEnvOverrides map[string]string
+	StartedAt           time.Time
+	ModelCalls          int
+	ToolCalls           int
 
 	resolvedEnvironmentID string // set by OpenIfNeeded, used by acquire methods
 }
