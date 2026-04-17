@@ -669,12 +669,48 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 	}
 	args, _ = expandedArgs.(map[string]any)
 
+	if validationErr := s.validateFrontendToolArgs(toolCall.Function.Name, args); validationErr != nil {
+		return nil, []AgentDelta{DeltaToolResult{
+				ToolID:   toolID,
+				ToolName: toolCall.Function.Name,
+				Result: ToolExecutionResult{
+					Output:   "invalid tool arguments: " + validationErr.Error(),
+					Error:    "invalid_tool_arguments",
+					ExitCode: -1,
+				},
+			}}, &openAIMessage{
+				Role:       "tool",
+				ToolCallID: toolID,
+				Name:       toolCall.Function.Name,
+				Content:    "invalid tool arguments: " + validationErr.Error(),
+			}
+	}
+
 	return &preparedToolInvocation{
 		toolID:   toolID,
 		toolName: toolCall.Function.Name,
 		args:     args,
 		prelude:  s.preToolInvocationDeltas(toolID, toolCall.Function.Name, args),
 	}, nil, nil
+}
+
+func (s *llmRunStream) validateFrontendToolArgs(toolName string, args map[string]any) error {
+	tool, ok := s.lookupToolDefinition(toolName)
+	if !ok {
+		return nil
+	}
+	toolKind, _ := tool.Meta["kind"].(string)
+	if !strings.EqualFold(strings.TrimSpace(toolKind), "frontend") {
+		return nil
+	}
+	if s.engine.frontend == nil {
+		return nil
+	}
+	handler, ok := s.engine.frontend.Handler(toolName)
+	if !ok {
+		return nil
+	}
+	return handler.ValidateArgs(args)
 }
 
 func (s *llmRunStream) activateNextToolCall() {
@@ -792,6 +828,8 @@ func (s *llmRunStream) emitHITLConfirmDeltas(invocation *preparedToolInvocation,
 	s.hitlPendingCall = invocation
 	s.hitlMatch = &result
 	s.hitlSyntheticID = "hitl_" + invocation.toolID
+	// Bash HITL always funnels through the shared approval tool. Rule viewport data
+	// only affects how that approval is rendered, not which tool handles the submit.
 	s.hitlSyntheticName = "_ask_user_approval_"
 
 	args := s.buildHITLArgs(invocation, result)
@@ -1012,7 +1050,6 @@ func (s *llmRunStream) buildHITLArgs(invocation *preparedToolInvocation, result 
 	command := mapStringArg(invocation.args, "command")
 	args := map[string]any{
 		"mode":              "approval",
-		"hitlType":          result.Rule.HITLType,
 		"originalCommand":   command,
 		"baseCommand":       result.ParsedCommand.BaseCommand,
 		"matchedSubcommand": result.Rule.Match,
@@ -1024,9 +1061,8 @@ func (s *llmRunStream) buildHITLArgs(invocation *preparedToolInvocation, result 
 		"allowModify":       strings.EqualFold(result.Rule.ViewportType, "html"),
 		"questions": []any{
 			map[string]any{
-				"question":    "Approve this intercepted bash command?",
-				"header":      "Bash Approval",
-				"description": "Command: " + command,
+				"question": command,
+				"header":   "Bash Approval",
 				"options": []any{
 					map[string]any{
 						"label":       "Approve",
@@ -1043,6 +1079,8 @@ func (s *llmRunStream) buildHITLArgs(invocation *preparedToolInvocation, result 
 		},
 	}
 	if strings.EqualFold(result.Rule.ViewportType, "html") {
+		// HTML rules still reuse _ask_user_approval_; these fields only override the
+		// shared tool's render target for the approval prompt.
 		args["viewportType"] = result.Rule.ViewportType
 		args["viewportKey"] = result.Rule.ViewportKey
 		args["questions"].([]any)[0].(map[string]any)["allowFreeText"] = true

@@ -257,8 +257,10 @@ remember 根目录由 `MEMORY_DIR` 控制：
   - `tool.result` 仍返回规范化 JSON：`{"mode":"question","answers":[{"question":"...","header":"...","answer":...}]}`
 - `mode=approval`：
   - 前端事件里的 `await.ask` 统一输出 `questions: [{ question, header?, description?, options, allowFreeText?, freeTextPlaceholder? }]`
+  - Bash HITL 的 `question` 直接使用被拦截的原始命令字符串，不再包装固定问句
   - `options` 结构是 `{ label, value, description? }`
   - 预设选项与自由输入互斥；提交项里的 `answer` 为展示文案，`value` 为机器值
+  - 预设选项提交必须同时带上 `answer` 与 `value`；`request.submit` 保留前端原始提交，`awaiting.answer` / `tool.result` 输出后端规范化后的结果
   - `/api/submit` 提交结构：`{"runId":"...","awaitingId":"...","params":[{"question":"...","answer":"确认删除","value":"yes"}]}`
   - `tool.result` 规范化结构：`{"mode":"approval","questions":[{"question":"...","header":"...","answer":"确认删除","value":"yes"}]}`
 

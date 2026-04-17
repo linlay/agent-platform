@@ -19,6 +19,10 @@ func (h *AskUserApprovalHandler) ToolName() string {
 	return "_ask_user_approval_"
 }
 
+func (h *AskUserApprovalHandler) ValidateArgs(args map[string]any) error {
+	return nil
+}
+
 func (h *AskUserApprovalHandler) BuildInitialAwaitAsk(_ string, _ string, _ api.ToolDetailResponse, _ int, _ int64) *stream.AwaitAsk {
 	return nil
 }
@@ -130,16 +134,29 @@ func normalizeApprovalQuestion(definition map[string]any, answerText string, ans
 		"answer":   answerText,
 	}
 
-	options := approvalOptionMap(definition)
-	if expectedValue, ok := options[answerText]; ok {
+	if option, ok := approvalOptionByLabel(definition, answerText); ok {
 		submittedValue := contracts.AnyStringNode(answerMap["value"])
 		if submittedValue == "" {
 			return nil, fmt.Errorf("value is required for preset options")
 		}
-		if submittedValue != expectedValue {
+		if submittedValue != option.Value {
 			return nil, fmt.Errorf("value does not match selected option")
 		}
-		entry["value"] = submittedValue
+		entry["answer"] = option.Label
+		entry["value"] = option.Value
+		return entry, nil
+	}
+
+	if option, ok := approvalOptionByValue(definition, answerText); ok {
+		submittedValue := contracts.AnyStringNode(answerMap["value"])
+		if submittedValue == "" {
+			submittedValue = option.Value
+		}
+		if submittedValue != option.Value {
+			return nil, fmt.Errorf("value does not match selected option")
+		}
+		entry["answer"] = option.Label
+		entry["value"] = option.Value
 		return entry, nil
 	}
 
@@ -157,18 +174,43 @@ func normalizeApprovalQuestion(definition map[string]any, answerText string, ans
 	return entry, nil
 }
 
-func approvalOptionMap(definition map[string]any) map[string]string {
-	options := map[string]string{}
+type approvalOption struct {
+	Label string
+	Value string
+}
+
+func approvalOptionByLabel(definition map[string]any, label string) (approvalOption, bool) {
 	for _, rawOption := range asAnySlice(definition["options"]) {
 		option := contracts.AnyMapNode(rawOption)
-		label := contracts.AnyStringNode(option["label"])
-		value := contracts.AnyStringNode(option["value"])
-		if label == "" || value == "" {
+		candidate := approvalOption{
+			Label: contracts.AnyStringNode(option["label"]),
+			Value: contracts.AnyStringNode(option["value"]),
+		}
+		if candidate.Label == "" || candidate.Value == "" {
 			continue
 		}
-		options[label] = value
+		if candidate.Label == label {
+			return candidate, true
+		}
 	}
-	return options
+	return approvalOption{}, false
+}
+
+func approvalOptionByValue(definition map[string]any, value string) (approvalOption, bool) {
+	for _, rawOption := range asAnySlice(definition["options"]) {
+		option := contracts.AnyMapNode(rawOption)
+		candidate := approvalOption{
+			Label: contracts.AnyStringNode(option["label"]),
+			Value: contracts.AnyStringNode(option["value"]),
+		}
+		if candidate.Label == "" || candidate.Value == "" {
+			continue
+		}
+		if candidate.Value == value {
+			return candidate, true
+		}
+	}
+	return approvalOption{}, false
 }
 
 func formatApprovalSummary(result contracts.ToolExecutionResult) string {

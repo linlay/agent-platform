@@ -3,7 +3,6 @@ package hitl
 type SubcommandRule struct {
 	Match        string `yaml:"match"`
 	Level        int    `yaml:"level"`
-	HITLType     string `yaml:"hitlType"`
 	ViewportType string `yaml:"viewportType"`
 	ViewportKey  string `yaml:"viewportKey"`
 }
@@ -27,7 +26,6 @@ type FlatRule struct {
 	Match        string
 	MatchTokens  []string
 	Level        int
-	HITLType     string
 	ViewportType string
 	ViewportKey  string
 }

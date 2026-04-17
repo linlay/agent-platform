@@ -15,12 +15,10 @@ commands:
     subcommands:
       - match: push
         level: 2
-        hitlType: system
         viewportType: builtin
         viewportKey: confirm_dialog
       - match: push --force
         level: 5
-        hitlType: business
         viewportType: html
         viewportKey: git_force_push
 `
@@ -52,7 +50,6 @@ commands:
     subcommands:
       - match: push
         level: 2
-        hitlType: system
         viewportType: builtin
         viewportKey: confirm_dialog
 `
@@ -76,9 +73,8 @@ commands:
   - command: git
     subcommands:
       - match: push
-        level: 0
-        hitlType: invalid
-        viewportType: builtin
+        level: 1
+        viewportType: invalid
         viewportKey: confirm_dialog
 `
 	if err := os.WriteFile(filepath.Join(root, "invalid.yml"), []byte(content), 0o644); err != nil {
@@ -98,7 +94,6 @@ commands:
     subcommands:
       - match: push
         level: 2
-        hitlType: system
         viewportType: builtin
         viewportKey: confirm_dialog
 `
@@ -108,7 +103,6 @@ commands:
     subcommands:
       - match: push
         level: 5
-        hitlType: business
         viewportType: html
         viewportKey: another
 `
@@ -139,14 +133,12 @@ commands:
     subcommands:
       - match: push
         level: 2
-        hitlType: system
         viewportType: builtin
         viewportKey: same
   - command: docker
     subcommands:
       - match: rm
         level: 3
-        hitlType: business
         viewportType: html
         viewportKey: same
 `
@@ -167,7 +159,6 @@ commands:
     subcommands:
       - match: push
         level: 2
-        hitlType: system
         toolType: builtin
         viewportKey: confirm_dialog
 `

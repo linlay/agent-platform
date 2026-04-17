@@ -207,7 +207,6 @@ type BashConfig struct {
 }
 
 type BashHITLConfig struct {
-	Enabled          bool
 	DefaultTimeoutMs int
 }
 
@@ -382,7 +381,6 @@ func defaultConfig() Config {
 			MaxCommandChars:         16000,
 		},
 		BashHITL: BashHITLConfig{
-			Enabled:          false,
 			DefaultTimeoutMs: 120000,
 		},
 		Run: RunConfig{
@@ -574,7 +572,6 @@ func (c *Config) applyEnv() {
 	c.Bash.ShellExecutable = stringEnv("AGENT_BASH_SHELL_EXECUTABLE", c.Bash.ShellExecutable)
 	c.Bash.ShellTimeoutMs = intEnv("AGENT_BASH_SHELL_TIMEOUT_MS", c.Bash.ShellTimeoutMs)
 	c.Bash.MaxCommandChars = intEnv("AGENT_BASH_MAX_COMMAND_CHARS", c.Bash.MaxCommandChars)
-	c.BashHITL.Enabled = boolEnv("AGENT_BASH_HITL_ENABLED", c.BashHITL.Enabled)
 	c.BashHITL.DefaultTimeoutMs = intEnv("AGENT_BASH_HITL_DEFAULT_TIMEOUT_MS", c.BashHITL.DefaultTimeoutMs)
 	c.Run.ReaperIntervalMs = int64Env("AGENT_RUN_REAPER_INTERVAL_MS", c.Run.ReaperIntervalMs)
 	c.Run.MaxBackgroundDurationMs = int64Env("AGENT_RUN_MAX_BACKGROUND_DURATION_MS", c.Run.MaxBackgroundDurationMs)

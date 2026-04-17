@@ -221,6 +221,61 @@ func TestFrontendSubmitCoordinatorAwait_AskUserApprovalCancelClearsRawParams(t *
 	}
 }
 
+func TestFrontendSubmitCoordinatorAwait_AskUserApprovalNormalizesLegacyPresetSubmit(t *testing.T) {
+	rawParams := []any{
+		map[string]any{
+			"question": "docker rmi busybox:latest 2>&1",
+			"answer":   "approve",
+		},
+	}
+	control := contracts.NewRunControl(context.Background(), "run_1")
+	control.ExpectSubmit("tool_1")
+	ack := control.ResolveSubmit(api.SubmitRequest{
+		RunID:      "run_1",
+		AwaitingID: "tool_1",
+		Params:     rawParams,
+	})
+	if !ack.Accepted {
+		t.Fatalf("expected submit to be accepted, got %#v", ack)
+	}
+
+	result, err := NewFrontendSubmitCoordinator(frontendtools.NewDefaultRegistry()).Await(context.Background(), &contracts.ExecutionContext{
+		RunControl:      control,
+		CurrentToolID:   "tool_1",
+		CurrentToolName: "_ask_user_approval_",
+		Budget: contracts.Budget{
+			Tool: contracts.RetryPolicy{TimeoutMs: 50},
+		},
+	}, map[string]any{
+		"questions": []any{
+			map[string]any{
+				"question": "docker rmi busybox:latest 2>&1",
+				"header":   "Bash Approval",
+				"options": []any{
+					map[string]any{"label": "Approve", "value": "approve"},
+					map[string]any{"label": "Reject", "value": "reject"},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Await returned error: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Fatalf("expected success exit code, got %#v", result)
+	}
+	if !reflect.DeepEqual(result.RawParams, rawParams) {
+		t.Fatalf("expected RawParams to preserve original submit params, got %#v", result.RawParams)
+	}
+	questions, ok := result.Structured["questions"].([]map[string]any)
+	if !ok || len(questions) != 1 {
+		t.Fatalf("expected normalized approval questions in Structured, got %#v", result.Structured)
+	}
+	if questions[0]["question"] != "docker rmi busybox:latest 2>&1" || questions[0]["answer"] != "Approve" || questions[0]["value"] != "approve" {
+		t.Fatalf("expected legacy approval submit to normalize, got %#v", questions[0])
+	}
+}
+
 func TestFrontendSubmitCoordinatorAwait_MissingHandlerReturnsConfigError(t *testing.T) {
 	control := contracts.NewRunControl(context.Background(), "run_1")
 	control.ExpectSubmit("tool_1")

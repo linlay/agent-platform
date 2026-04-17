@@ -36,9 +36,6 @@ func TestLoadDefaults(t *testing.T) {
 		if cfg.Logging.LLMInteraction.MaskSensitive {
 			t.Fatalf("expected llm interaction logs to be unmasked by default")
 		}
-		if cfg.BashHITL.Enabled {
-			t.Fatalf("expected bash HITL disabled by default")
-		}
 		if cfg.BashHITL.DefaultTimeoutMs != 120000 {
 			t.Fatalf("expected default bash HITL timeout 120000, got %d", cfg.BashHITL.DefaultTimeoutMs)
 		}
@@ -258,7 +255,6 @@ func TestLoadEnvOverridesStructuredConfig(t *testing.T) {
 		"AGENT_BASH_SHELL_FEATURES_ENABLED":     "true",
 		"AGENT_BASH_WORKING_DIRECTORY":          filepath.Join("var", "runner"),
 		"AGENT_BASH_PATH_CHECK_BYPASS_COMMANDS": "echo",
-		"AGENT_BASH_HITL_ENABLED":               "true",
 		"AGENT_BASH_HITL_DEFAULT_TIMEOUT_MS":    "45000",
 	}, func() {
 		cfg, err := Load()
@@ -282,9 +278,6 @@ func TestLoadEnvOverridesStructuredConfig(t *testing.T) {
 		}
 		if len(cfg.Bash.PathCheckBypassCommands) != 1 || cfg.Bash.PathCheckBypassCommands[0] != "echo" {
 			t.Fatalf("unexpected path bypass commands: %#v", cfg.Bash.PathCheckBypassCommands)
-		}
-		if !cfg.BashHITL.Enabled {
-			t.Fatalf("expected bash HITL enabled from env")
 		}
 		if cfg.BashHITL.DefaultTimeoutMs != 45000 {
 			t.Fatalf("unexpected bash HITL timeout: %d", cfg.BashHITL.DefaultTimeoutMs)
@@ -340,7 +333,6 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 		"AGENT_BASH_SHELL_EXECUTABLE",
 		"AGENT_BASH_SHELL_TIMEOUT_MS",
 		"AGENT_BASH_MAX_COMMAND_CHARS",
-		"AGENT_BASH_HITL_ENABLED",
 		"AGENT_BASH_HITL_DEFAULT_TIMEOUT_MS",
 		"AGENT_AUTH_ENABLED",
 		"AGENT_AUTH_LOCAL_PUBLIC_KEY_FILE",

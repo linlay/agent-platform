@@ -34,7 +34,7 @@ func TestDeltaMapper_QuestionInitialAwaitAskComesFromFrontendHandler(t *testing.
 		Index:     0,
 		ID:        "tool_1",
 		Name:      "_ask_user_question_",
-		ArgsDelta: "{",
+		ArgsDelta: `{"mode":"question","questions":[{"question":"Pick a plan","type":"select","options":[{"label":"Weekend"}]}]}`,
 	})
 	if len(inputs) != 1 {
 		t.Fatalf("expected one mapped input, got %#v", inputs)
@@ -48,6 +48,38 @@ func TestDeltaMapper_QuestionInitialAwaitAskComesFromFrontendHandler(t *testing.
 	}
 	if args.AwaitAsk.Mode != "question" || args.AwaitAsk.AwaitingID != "tool_1" {
 		t.Fatalf("unexpected await ask %#v", args.AwaitAsk)
+	}
+}
+
+func TestDeltaMapper_InvalidQuestionArgsDoNotEmitInitialAwaitAsk(t *testing.T) {
+	tools := stubToolLookup{
+		"_ask_user_question_": {
+			Name: "_ask_user_question_",
+			Meta: map[string]any{
+				"kind":          "frontend",
+				"viewportType":  "builtin",
+				"viewportKey":   "confirm_dialog",
+				"clientVisible": true,
+			},
+		},
+	}
+	mapper := NewDeltaMapper("run_1", "chat_1", 5000, tools, frontendtools.NewDefaultRegistry())
+
+	inputs := mapper.Map(contracts.DeltaToolCall{
+		Index:     0,
+		ID:        "tool_1",
+		Name:      "_ask_user_question_",
+		ArgsDelta: `{"mode":"question","questions":[{"question":"Pick a plan","type":"select"}]}`,
+	})
+	if len(inputs) != 1 {
+		t.Fatalf("expected one mapped input, got %#v", inputs)
+	}
+	args, ok := inputs[0].(stream.ToolArgs)
+	if !ok {
+		t.Fatalf("expected ToolArgs input, got %#v", inputs[0])
+	}
+	if args.AwaitAsk != nil {
+		t.Fatalf("did not expect initial await ask, got %#v", args.AwaitAsk)
 	}
 }
 

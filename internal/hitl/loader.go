@@ -78,7 +78,6 @@ func loadRulesFromDir(root string) ([]FlatRule, error) {
 					Match:        match,
 					MatchTokens:  matchTokens,
 					Level:        sub.Level,
-					HITLType:     strings.ToLower(strings.TrimSpace(sub.HITLType)),
 					ViewportType: viewportType,
 					ViewportKey:  strings.TrimSpace(sub.ViewportKey),
 				})
@@ -119,7 +118,6 @@ func parseRuleFile(path string) (RuleFile, bool, error) {
 			block.Subcommands = append(block.Subcommands, SubcommandRule{
 				Match:        strings.TrimSpace(stringValue(rawSub["match"])),
 				Level:        intValue(rawSub["level"]),
-				HITLType:     strings.TrimSpace(stringValue(rawSub["hitlType"])),
 				ViewportType: strings.TrimSpace(firstString(rawSub, "viewportType", "toolType")),
 				ViewportKey:  strings.TrimSpace(stringValue(rawSub["viewportKey"])),
 			})
@@ -138,11 +136,6 @@ func validateSubcommandRule(command string, sub SubcommandRule, matchTokens []st
 	}
 	if sub.Level <= 0 {
 		return fmt.Errorf("level must be greater than 0")
-	}
-	switch strings.ToLower(strings.TrimSpace(sub.HITLType)) {
-	case "system", "business":
-	default:
-		return fmt.Errorf("hitlType must be one of system,business")
 	}
 	switch strings.ToLower(strings.TrimSpace(sub.ViewportType)) {
 	case "builtin", "html":

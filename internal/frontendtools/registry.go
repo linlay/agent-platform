@@ -10,6 +10,7 @@ import (
 
 type Handler interface {
 	ToolName() string
+	ValidateArgs(args map[string]any) error
 	BuildInitialAwaitAsk(toolID string, runID string, tool api.ToolDetailResponse, chunkIndex int, timeoutMs int64) *stream.AwaitAsk
 	BuildDeferredAwait(toolID string, runID string, tool api.ToolDetailResponse, args map[string]any, timeoutMs int64) []contracts.AgentDelta
 	NormalizeSubmit(args map[string]any, params any) (map[string]any, error)

@@ -3,6 +3,7 @@ package hitl
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -14,12 +15,10 @@ commands:
     subcommands:
       - match: push
         level: 2
-        hitlType: system
         viewportType: builtin
         viewportKey: confirm_dialog
       - match: push --force
         level: 5
-        hitlType: business
         viewportType: html
         viewportKey: git_force_push
 `
@@ -65,7 +64,6 @@ commands:
     subcommands:
       - match: push
         level: 2
-        hitlType: system
         viewportType: builtin
         viewportKey: confirm_dialog
 `
@@ -83,5 +81,47 @@ commands:
 	}
 	if tool.Meta["viewportType"] != "builtin" || tool.Meta["viewportKey"] != "confirm_dialog" {
 		t.Fatalf("unexpected synthetic tool meta: %#v", tool.Meta)
+	}
+	if !strings.Contains(tool.Description, "_ask_user_approval_") {
+		t.Fatalf("expected synthetic tool description to point at _ask_user_approval_, got %#v", tool.Description)
+	}
+}
+
+func TestRegistryCheckSupportsDockerImageDeleteVariants(t *testing.T) {
+	root := t.TempDir()
+	content := `
+commands:
+  - command: docker
+    subcommands:
+      - match: rmi
+        level: 1
+        viewportType: builtin
+        viewportKey: confirm_dialog
+      - match: image rm
+        level: 1
+        viewportType: builtin
+        viewportKey: confirm_dialog
+`
+	if err := os.WriteFile(filepath.Join(root, "docker.yml"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write rule file: %v", err)
+	}
+
+	registry, err := NewRegistry(root)
+	if err != nil {
+		t.Fatalf("new registry: %v", err)
+	}
+
+	rmi := registry.Check("docker rmi nginx:latest", 0)
+	if !rmi.Intercepted || rmi.Rule.Match != "rmi" {
+		t.Fatalf("expected docker rmi to be intercepted, got %#v", rmi)
+	}
+
+	imageRM := registry.Check("docker image rm nginx:latest", 0)
+	if !imageRM.Intercepted || imageRM.Rule.Match != "image rm" {
+		t.Fatalf("expected docker image rm to be intercepted, got %#v", imageRM)
+	}
+
+	if result := registry.Check("docker images", 0); result.Intercepted {
+		t.Fatalf("did not expect docker images to be intercepted: %#v", result)
 	}
 }

@@ -39,7 +39,8 @@ inputSchema:
             description: Placeholder shown in the input field.
           options:
             type: array
-            description: Option list used only when type is select.
+            description: Required for select questions. Option list used only when type is select.
+            minItems: 1
             items:
               type: object
               properties:
@@ -64,6 +65,15 @@ inputSchema:
         required:
           - question
           - type
+        allOf:
+          -
+            if:
+              properties:
+                type:
+                  const: select
+            then:
+              required:
+                - options
         additionalProperties: false
   required:
     - mode

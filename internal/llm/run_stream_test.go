@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"reflect"
+	"strings"
 	"testing"
 
 	"agent-platform-runner-go/internal/api"
@@ -19,6 +20,44 @@ func (s stubToolExecutor) Definitions() []api.ToolDetailResponse { return s.defs
 
 func (s stubToolExecutor) Invoke(_ context.Context, _ string, _ map[string]any, _ *contracts.ExecutionContext) (contracts.ToolExecutionResult, error) {
 	return contracts.ToolExecutionResult{}, nil
+}
+
+type recordedToolInvocation struct {
+	name string
+	args map[string]any
+}
+
+type recordingToolExecutor struct {
+	defs        []api.ToolDetailResponse
+	result      contracts.ToolExecutionResult
+	invocations []recordedToolInvocation
+}
+
+func (r *recordingToolExecutor) Definitions() []api.ToolDetailResponse { return r.defs }
+
+func (r *recordingToolExecutor) Invoke(_ context.Context, name string, args map[string]any, _ *contracts.ExecutionContext) (contracts.ToolExecutionResult, error) {
+	cloned := make(map[string]any, len(args))
+	for key, value := range args {
+		cloned[key] = value
+	}
+	r.invocations = append(r.invocations, recordedToolInvocation{name: name, args: cloned})
+	if r.result.Output == "" && r.result.Structured == nil && r.result.Error == "" && r.result.ExitCode == 0 {
+		return contracts.ToolExecutionResult{Output: "ok", ExitCode: 0}, nil
+	}
+	return r.result, nil
+}
+
+func approvalToolDefinition() api.ToolDetailResponse {
+	return api.ToolDetailResponse{
+		Name: "_ask_user_approval_",
+		Meta: map[string]any{
+			"kind":          "frontend",
+			"sourceType":    "local",
+			"viewportType":  "builtin",
+			"viewportKey":   "confirm_dialog",
+			"clientVisible": true,
+		},
+	}
 }
 
 func TestPreToolInvocationDeltas_QuestionUsesFrontendHandlerPayload(t *testing.T) {
@@ -75,9 +114,9 @@ func TestPreToolInvocationDeltas_QuestionUsesFrontendHandlerPayload(t *testing.T
 	}
 }
 
-func TestPreToolInvocationDeltas_ApprovalUsesFrontendHandlerAwaitAsk(t *testing.T) {
+func TestPrepareToolCall_InvalidAskUserQuestionArgsReturnToolError(t *testing.T) {
 	tool := api.ToolDetailResponse{
-		Name: "_ask_user_approval_",
+		Name: "_ask_user_question_",
 		Meta: map[string]any{
 			"kind":          "frontend",
 			"sourceType":    "local",
@@ -86,6 +125,44 @@ func TestPreToolInvocationDeltas_ApprovalUsesFrontendHandlerAwaitAsk(t *testing.
 			"clientVisible": true,
 		},
 	}
+	stream := &llmRunStream{
+		engine: &LLMAgentEngine{
+			tools:    stubToolExecutor{defs: []api.ToolDetailResponse{tool}},
+			frontend: frontendtools.NewDefaultRegistry(),
+		},
+		session: contracts.QuerySession{RunID: "run_1"},
+		execCtx: &contracts.ExecutionContext{},
+	}
+
+	invocation, deltas, toolMsg := stream.prepareToolCall(openAIToolCall{
+		ID:   "tool_1",
+		Type: "function",
+		Function: openAIFunctionCall{
+			Name:      "_ask_user_question_",
+			Arguments: `{"mode":"question","questions":[{"question":"Pick a plan","type":"select"}]}`,
+		},
+	})
+	if invocation != nil {
+		t.Fatalf("expected no invocation, got %#v", invocation)
+	}
+	if len(deltas) != 1 {
+		t.Fatalf("expected one error delta, got %#v", deltas)
+	}
+	result, ok := deltas[0].(contracts.DeltaToolResult)
+	if !ok {
+		t.Fatalf("expected DeltaToolResult, got %#v", deltas[0])
+	}
+	if result.Result.Error != "invalid_tool_arguments" || !strings.Contains(result.Result.Output, "options is required for select questions") {
+		t.Fatalf("unexpected tool result %#v", result)
+	}
+	toolContent, _ := toolMsg.Content.(string)
+	if toolMsg == nil || !strings.Contains(toolContent, "options is required for select questions") {
+		t.Fatalf("unexpected tool message %#v", toolMsg)
+	}
+}
+
+func TestPreToolInvocationDeltas_ApprovalUsesFrontendHandlerAwaitAsk(t *testing.T) {
+	tool := approvalToolDefinition()
 	stream := &llmRunStream{
 		engine: &LLMAgentEngine{
 			tools:    stubToolExecutor{defs: []api.ToolDetailResponse{tool}},
@@ -129,6 +206,194 @@ func TestPreToolInvocationDeltas_ApprovalUsesFrontendHandlerAwaitAsk(t *testing.
 	}
 	if !reflect.DeepEqual(awaitAsk.Questions, expectedQuestions) {
 		t.Fatalf("unexpected approval questions %#v", awaitAsk.Questions)
+	}
+}
+
+func TestBashHITLApprovalUsesAskUserApprovalForAllViewports(t *testing.T) {
+	tests := []struct {
+		name            string
+		rule            hitl.FlatRule
+		submitParams    []any
+		expectedCommand string
+		expectedView    string
+		expectedKey     string
+	}{
+		{
+			name: "builtin confirm dialog",
+			rule: hitl.FlatRule{
+				Match:        "push",
+				Level:        1,
+				ViewportType: "builtin",
+				ViewportKey:  "confirm_dialog",
+			},
+			submitParams: []any{
+				map[string]any{
+					"question": "git push origin main",
+					"answer":   "Approve",
+					"value":    "approve",
+				},
+			},
+			expectedCommand: "git push origin main",
+			expectedView:    "builtin",
+			expectedKey:     "confirm_dialog",
+		},
+		{
+			name: "html viewport override",
+			rule: hitl.FlatRule{
+				Match:        "create-leave",
+				Level:        1,
+				ViewportType: "html",
+				ViewportKey:  "leave_form",
+			},
+			submitParams: []any{
+				map[string]any{
+					"question": "mock create-leave",
+					"answer":   "mock create-leave --payload '{\"employee_id\":\"E1001\"}'",
+				},
+			},
+			expectedCommand: "mock create-leave --payload '{\"employee_id\":\"E1001\"}'",
+			expectedView:    "html",
+			expectedKey:     "leave_form",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			executor := &recordingToolExecutor{
+				defs: []api.ToolDetailResponse{approvalToolDefinition()},
+				result: contracts.ToolExecutionResult{
+					Output:   "executed",
+					ExitCode: 0,
+				},
+			}
+			runControl := contracts.NewRunControl(context.Background(), "run_1")
+			stream := &llmRunStream{
+				ctx: context.Background(),
+				engine: &LLMAgentEngine{
+					tools:    executor,
+					frontend: frontendtools.NewDefaultRegistry(),
+				},
+				session: contracts.QuerySession{
+					RequestID: "req_1",
+					ChatID:    "chat_1",
+					RunID:     "run_1",
+				},
+				runControl: runControl,
+				execCtx: &contracts.ExecutionContext{
+					Budget: contracts.Budget{Tool: contracts.RetryPolicy{TimeoutMs: 50}},
+				},
+			}
+			invocation := &preparedToolInvocation{
+				toolID:   "tool_1",
+				toolName: "_sandbox_bash_",
+				args: map[string]any{
+					"command": "git push origin main",
+				},
+			}
+			if tc.rule.Match == "create-leave" {
+				invocation.args["command"] = "mock create-leave"
+			}
+			result := hitl.InterceptResult{
+				Intercepted: true,
+				Rule:        tc.rule,
+				ParsedCommand: hitl.CommandComponents{
+					BaseCommand: "git",
+					Tokens:      []string{"push", "origin", "main"},
+				},
+			}
+			if tc.rule.Match == "create-leave" {
+				result.ParsedCommand = hitl.CommandComponents{
+					BaseCommand: "mock",
+					Tokens:      []string{"create-leave"},
+				}
+			}
+
+			if err := stream.emitHITLConfirmDeltas(invocation, result); err != nil {
+				t.Fatalf("emitHITLConfirmDeltas returned error: %v", err)
+			}
+			if stream.hitlSyntheticName != "_ask_user_approval_" {
+				t.Fatalf("expected bash HITL to use _ask_user_approval_, got %q", stream.hitlSyntheticName)
+			}
+
+			var awaitAsk contracts.DeltaAwaitAsk
+			foundAwaitAsk := false
+			for _, delta := range stream.pending {
+				if toolCall, ok := delta.(contracts.DeltaToolCall); ok {
+					if toolCall.Name != "_ask_user_approval_" {
+						t.Fatalf("expected tool call name _ask_user_approval_, got %#v", toolCall)
+					}
+				}
+				if ask, ok := delta.(contracts.DeltaAwaitAsk); ok {
+					awaitAsk = ask
+					foundAwaitAsk = true
+				}
+			}
+			if !foundAwaitAsk {
+				t.Fatalf("expected awaiting.ask delta, got %#v", stream.pending)
+			}
+			if awaitAsk.Mode != "approval" || awaitAsk.ViewportType != tc.expectedView || awaitAsk.ViewportKey != tc.expectedKey {
+				t.Fatalf("unexpected await ask %#v", awaitAsk)
+			}
+			questions := awaitAsk.Questions
+			if len(questions) != 1 {
+				t.Fatalf("expected one approval question, got %#v", awaitAsk.Questions)
+			}
+			firstQuestion, ok := questions[0].(map[string]any)
+			if !ok {
+				t.Fatalf("expected approval question object, got %#v", questions[0])
+			}
+			if firstQuestion["question"] != tc.submitParams[0].(map[string]any)["question"] {
+				t.Fatalf("expected approval question to use original command, got %#v", firstQuestion)
+			}
+
+			ack := runControl.ResolveSubmit(api.SubmitRequest{
+				RunID:      "run_1",
+				AwaitingID: stream.hitlSyntheticID,
+				Params:     tc.submitParams,
+			})
+			if !ack.Accepted {
+				t.Fatalf("expected submit to be accepted, got %#v", ack)
+			}
+			if err := stream.awaitHITLSubmitAndExecute(); err != nil {
+				t.Fatalf("awaitHITLSubmitAndExecute returned error: %v", err)
+			}
+			if len(executor.invocations) != 1 {
+				t.Fatalf("expected original bash tool to run once, got %#v", executor.invocations)
+			}
+			if executor.invocations[0].name != "_sandbox_bash_" {
+				t.Fatalf("expected original bash tool to execute, got %#v", executor.invocations[0])
+			}
+			if got := executor.invocations[0].args["command"]; got != tc.expectedCommand {
+				t.Fatalf("expected command %q, got %#v", tc.expectedCommand, got)
+			}
+
+			foundRequestSubmit := false
+			foundAwaitingAnswer := false
+			foundSyntheticResult := false
+			foundOriginalResult := false
+			for _, delta := range stream.pending {
+				switch typed := delta.(type) {
+				case contracts.DeltaRequestSubmit:
+					if typed.AwaitingID == "hitl_tool_1" {
+						foundRequestSubmit = true
+					}
+				case contracts.DeltaAwaitingAnswer:
+					if typed.AwaitingID == "hitl_tool_1" {
+						foundAwaitingAnswer = true
+					}
+				case contracts.DeltaToolResult:
+					if typed.ToolName == "_ask_user_approval_" {
+						foundSyntheticResult = true
+					}
+					if typed.ToolName == "_sandbox_bash_" {
+						foundOriginalResult = true
+					}
+				}
+			}
+			if !foundRequestSubmit || !foundAwaitingAnswer || !foundSyntheticResult || !foundOriginalResult {
+				t.Fatalf("expected submit/answer/results deltas, got %#v", stream.pending)
+			}
+		})
 	}
 }
 

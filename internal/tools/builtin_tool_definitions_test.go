@@ -63,6 +63,19 @@ func TestAskUserToolSchemasMatchContract(t *testing.T) {
 		t.Fatal("expected freeTextPlaceholder on ask user question items")
 	}
 	questionOptions := mapChild(t, mapChild(t, questionItem, "options"), "items")
+	questionOptionsSchema := mapChild(t, questionItem, "options")
+	if fmt.Sprint(questionOptionsSchema["minItems"]) != "1" {
+		t.Fatalf("expected ask user question options minItems=1, got %#v", questionOptionsSchema["minItems"])
+	}
+	allOf, ok := mapChild(t, questionsField, "items")["allOf"].([]any)
+	if !ok || len(allOf) == 0 {
+		t.Fatalf("expected conditional schema on ask user question items, got %#v", mapChild(t, questionsField, "items")["allOf"])
+	}
+	conditional := mapChild(t, allOf[0].(map[string]any), "then")
+	required, ok := conditional["required"].([]any)
+	if !ok || len(required) != 1 || required[0] != "options" {
+		t.Fatalf("expected select conditional to require options, got %#v", conditional["required"])
+	}
 	questionOptionProperties := mapChild(t, questionOptions, "properties")
 	if _, ok := questionOptionProperties["value"]; ok {
 		t.Fatal("did not expect value on ask user question options")

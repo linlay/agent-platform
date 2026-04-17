@@ -19,6 +19,47 @@ func (h *AskUserQuestionHandler) ToolName() string {
 	return "_ask_user_question_"
 }
 
+func (h *AskUserQuestionHandler) ValidateArgs(args map[string]any) error {
+	if !strings.EqualFold(strings.TrimSpace(contracts.AnyStringNode(args["mode"])), "question") {
+		return fmt.Errorf("ask_user_question mode must be question")
+	}
+
+	rawQuestions, ok := args["questions"].([]any)
+	if !ok || len(rawQuestions) == 0 {
+		return fmt.Errorf("ask_user_question questions must be a non-empty array")
+	}
+
+	for index, rawQuestion := range rawQuestions {
+		question := contracts.AnyMapNode(rawQuestion)
+		if len(question) == 0 {
+			return fmt.Errorf("question %d must be an object", index+1)
+		}
+		questionText := strings.TrimSpace(contracts.AnyStringNode(question["question"]))
+		if questionText == "" {
+			return fmt.Errorf("question %d: question is required", index+1)
+		}
+		questionType := strings.ToLower(strings.TrimSpace(contracts.AnyStringNode(question["type"])))
+		if questionType == "" {
+			return fmt.Errorf("%s: type is required", questionText)
+		}
+		if questionType != "select" {
+			continue
+		}
+		options, ok := question["options"].([]any)
+		if !ok || len(options) == 0 {
+			return fmt.Errorf("%s: options is required for select questions", questionText)
+		}
+		for optionIndex, rawOption := range options {
+			option := contracts.AnyMapNode(rawOption)
+			label := strings.TrimSpace(contracts.AnyStringNode(option["label"]))
+			if label == "" {
+				return fmt.Errorf("%s: option %d label is required", questionText, optionIndex+1)
+			}
+		}
+	}
+	return nil
+}
+
 func (h *AskUserQuestionHandler) BuildInitialAwaitAsk(toolID string, runID string, tool api.ToolDetailResponse, chunkIndex int, timeoutMs int64) *stream.AwaitAsk {
 	if chunkIndex != 0 {
 		return nil

@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -20,6 +21,7 @@ type DeltaMapper struct {
 	lastKind             string
 	indexedToolIDs       map[int]string
 	toolArgChunkCounters map[string]int
+	toolArgBuffers       map[string]strings.Builder
 	actionToolIDs        map[string]bool
 	toolRegistry         ToolDefinitionLookup
 	frontend             *frontendtools.Registry
@@ -32,6 +34,7 @@ func NewDeltaMapper(runID string, chatID string, toolTimeoutMs int64, toolRegist
 		toolTimeoutMs:        toolTimeoutMs,
 		indexedToolIDs:       map[int]string{},
 		toolArgChunkCounters: map[string]int{},
+		toolArgBuffers:       map[string]strings.Builder{},
 		actionToolIDs:        map[string]bool{},
 		toolRegistry:         toolRegistry,
 		frontend:             frontend,
@@ -92,7 +95,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		chunkIndex := m.toolArgChunkCounters[toolID]
 		m.toolArgChunkCounters[toolID] = chunkIndex + 1
 		m.lastKind = "tool"
-		awaitAsk := m.buildFrontendToolAwaitAsk(toolID, value.Name, chunkIndex)
+		awaitAsk := m.buildFrontendToolAwaitAsk(toolID, value.Name, value.ArgsDelta, chunkIndex)
 		return []stream.StreamInput{stream.ToolArgs{
 			ToolID:          toolID,
 			Delta:           value.ArgsDelta,
@@ -106,6 +109,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		m.lastKind = ""
 		inputs := make([]stream.StreamInput, 0, len(value.ToolIDs))
 		for _, toolID := range value.ToolIDs {
+			delete(m.toolArgBuffers, toolID)
 			if m.actionToolIDs[toolID] {
 				inputs = append(inputs, stream.ActionEnd{ActionID: toolID})
 				continue
@@ -245,7 +249,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 	}
 }
 
-func (m *DeltaMapper) buildFrontendToolAwaitAsk(toolID string, toolName string, chunkIndex int) *stream.AwaitAsk {
+func (m *DeltaMapper) buildFrontendToolAwaitAsk(toolID string, toolName string, argsDelta string, chunkIndex int) *stream.AwaitAsk {
 	if m.frontend == nil || m.toolRegistry == nil {
 		return nil
 	}
@@ -262,6 +266,33 @@ func (m *DeltaMapper) buildFrontendToolAwaitAsk(toolID string, toolName string, 
 	}
 	handler, ok := m.frontend.Handler(toolName)
 	if !ok {
+		return nil
+	}
+	if chunkIndex > 0 {
+		buffer := m.toolArgBuffers[toolID]
+		buffer.WriteString(argsDelta)
+		m.toolArgBuffers[toolID] = buffer
+		var args map[string]any
+		if err := json.Unmarshal([]byte(buffer.String()), &args); err != nil {
+			return nil
+		}
+		if err := handler.ValidateArgs(args); err != nil {
+			return nil
+		}
+		delete(m.toolArgBuffers, toolID)
+		return handler.BuildInitialAwaitAsk(toolID, m.runID, tool, chunkIndex, m.toolTimeoutMs)
+	}
+	if strings.TrimSpace(argsDelta) != "" {
+		var args map[string]any
+		if err := json.Unmarshal([]byte(argsDelta), &args); err == nil {
+			if err := handler.ValidateArgs(args); err == nil {
+				return handler.BuildInitialAwaitAsk(toolID, m.runID, tool, chunkIndex, m.toolTimeoutMs)
+			}
+			return nil
+		}
+		var buffer strings.Builder
+		buffer.WriteString(argsDelta)
+		m.toolArgBuffers[toolID] = buffer
 		return nil
 	}
 	return handler.BuildInitialAwaitAsk(toolID, m.runID, tool, chunkIndex, m.toolTimeoutMs)

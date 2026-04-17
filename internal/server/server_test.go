@@ -1627,6 +1627,92 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 	}
 }
 
+func TestQuestionInvalidSelectOptionsFailsBeforeAwait(t *testing.T) {
+	var providerCallCount atomic.Int32
+	secondTurnMessages := make(chan []map[string]any, 1)
+
+	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		call := providerCallCount.Add(1)
+		switch call {
+		case 1:
+			writeProviderSSE(t, w,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Pick a plan\",\"type\":\"select\"}]}"}}]},"finish_reason":"tool_calls"}]}`,
+				`[DONE]`,
+			)
+		case 2:
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode second provider request: %v", err)
+			}
+			secondTurnMessages <- normalizeProviderMessages(payload["messages"])
+			writeProviderSSE(t, w,
+				`{"choices":[{"delta":{"content":"invalid question flow complete"},"finish_reason":"stop"}]}`,
+				`[DONE]`,
+			)
+		default:
+			t.Fatalf("unexpected provider call %d", call)
+		}
+	})
+
+	httpServer := newLoopbackServer(t, fixture.server)
+	defer httpServer.Close()
+
+	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"ask me a question"}`))
+	if err != nil {
+		t.Fatalf("post query: %v", err)
+	}
+	defer resp.Body.Close()
+
+	reader := bufio.NewReader(resp.Body)
+	var streamBody strings.Builder
+	for {
+		line, readErr := reader.ReadString('\n')
+		streamBody.WriteString(line)
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			t.Fatalf("read query stream: %v", readErr)
+		}
+	}
+
+	body := streamBody.String()
+	if !strings.Contains(body, `"type":"tool.start"`) {
+		t.Fatalf("expected tool.start event, got %s", body)
+	}
+	if !strings.Contains(body, `"type":"tool.args"`) {
+		t.Fatalf("expected tool.args event, got %s", body)
+	}
+	if !strings.Contains(body, `"type":"tool.end"`) {
+		t.Fatalf("expected tool.end event, got %s", body)
+	}
+	if strings.Contains(body, `"type":"awaiting.ask"`) {
+		t.Fatalf("did not expect awaiting.ask for invalid question args, got %s", body)
+	}
+	if strings.Contains(body, `"type":"awaiting.payload"`) {
+		t.Fatalf("did not expect awaiting.payload for invalid question args, got %s", body)
+	}
+	if !strings.Contains(body, `"type":"tool.result"`) || !strings.Contains(body, `invalid tool arguments: Pick a plan: options is required for select questions`) {
+		t.Fatalf("expected invalid tool arguments tool.result, got %s", body)
+	}
+
+	select {
+	case messages := <-secondTurnMessages:
+		toolContent := ""
+		for _, message := range messages {
+			if role, _ := message["role"].(string); role == "tool" {
+				toolContent, _ = message["content"].(string)
+				break
+			}
+		}
+		if !strings.Contains(toolContent, "invalid tool arguments: Pick a plan: options is required for select questions") {
+			t.Fatalf("expected invalid tool arguments in second turn tool message, got %#v", messages)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for second provider request")
+	}
+}
+
 func TestQuestionAwaitDismissReturnsCancelledStructuredResult(t *testing.T) {
 	var providerCallCount atomic.Int32
 	secondTurnMessages := make(chan []map[string]any, 1)
@@ -1819,7 +1905,7 @@ func TestBashHITLApproveFlow(t *testing.T) {
 		t.Fatalf("expected leave_form viewport in stream, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
-		!strings.Contains(body, `"question":"Approve this intercepted bash command?"`) ||
+		!strings.Contains(body, `"question":"mock create-leave --payload {\"employee_id\":\"E1001\",\"employee_name\":\"Lin\",\"leave_type\":\"annual\",\"start_date\":\"2026-04-20\",\"end_date\":\"2026-04-22\",\"days\":3,\"reason\":\"family_trip\",\"handover_to\":\"E2001\",\"urgent_contact\":\"13800138000\"}"`) ||
 		!strings.Contains(body, `"answer":"Approve"`) ||
 		!strings.Contains(body, `"value":"approve"`) {
 		t.Fatalf("expected approve awaiting.answer in stream, got %s", body)
@@ -1833,7 +1919,7 @@ func TestBashHITLModifyFlow(t *testing.T) {
 		t.Fatalf("expected modified command to execute once, got %#v", executed)
 	}
 	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
-		!strings.Contains(body, `"question":"Approve this intercepted bash command?"`) ||
+		!strings.Contains(body, `"question":"mock create-leave --payload {\"employee_id\":\"E1001\",\"employee_name\":\"Lin\",\"leave_type\":\"annual\",\"start_date\":\"2026-04-20\",\"end_date\":\"2026-04-22\",\"days\":3,\"reason\":\"family_trip\",\"handover_to\":\"E2001\",\"urgent_contact\":\"13800138000\"}"`) ||
 		!strings.Contains(body, `"answer":`+strconv.Quote(modified)) ||
 		!strings.Contains(body, `"value":`+strconv.Quote(modified)) {
 		t.Fatalf("expected modify awaiting.answer in stream, got %s", body)
@@ -1849,7 +1935,7 @@ func TestBashHITLRejectFlow(t *testing.T) {
 		t.Fatalf("expected rejected original bash result, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
-		!strings.Contains(body, `"question":"Approve this intercepted bash command?"`) ||
+		!strings.Contains(body, `"question":"mock create-leave --payload {\"employee_id\":\"E1001\",\"employee_name\":\"Lin\",\"leave_type\":\"annual\",\"start_date\":\"2026-04-20\",\"end_date\":\"2026-04-22\",\"days\":3,\"reason\":\"family_trip\",\"handover_to\":\"E2001\",\"urgent_contact\":\"13800138000\"}"`) ||
 		!strings.Contains(body, `"answer":"Reject"`) ||
 		!strings.Contains(body, `"value":"reject"`) {
 		t.Fatalf("expected reject awaiting.answer in stream, got %s", body)
@@ -1887,10 +1973,82 @@ func TestBashHITLSimpleBashApproveFlow(t *testing.T) {
 	}
 }
 
+func TestBashHITLDockerRMIApproveFlow(t *testing.T) {
+	command := "docker rmi nginx:latest"
+	rules := strings.Join([]string{
+		"commands:",
+		"  - command: docker",
+		"    subcommands:",
+		"      - match: rmi",
+		"        level: 1",
+		"        viewportType: builtin",
+		"        viewportKey: confirm_dialog",
+	}, "\n")
+	body, executed := runBashHITLFlow(t, bashHITLFlowOptions{
+		action:       "approve",
+		command:      command,
+		rulesContent: rules,
+		legacySubmit: true,
+	})
+	if len(executed) != 1 || executed[0] != command {
+		t.Fatalf("expected approved docker rmi to execute once, got %#v", executed)
+	}
+	if !strings.Contains(body, `"_ask_user_approval_"`) {
+		t.Fatalf("expected ask_user_approval tool in stream, got %s", body)
+	}
+	if !strings.Contains(body, `"viewportKey":"confirm_dialog"`) {
+		t.Fatalf("expected confirm_dialog viewport in stream, got %s", body)
+	}
+	if !strings.Contains(body, `"type":"request.submit"`) ||
+		!strings.Contains(body, `"question":"docker rmi nginx:latest"`) ||
+		!strings.Contains(body, `"answer":"approve"`) {
+		t.Fatalf("expected legacy request.submit payload in stream, got %s", body)
+	}
+	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
+		!strings.Contains(body, `"question":"docker rmi nginx:latest"`) ||
+		!strings.Contains(body, `"answer":"Approve"`) ||
+		!strings.Contains(body, `"value":"approve"`) {
+		t.Fatalf("expected normalized awaiting.answer payload in stream, got %s", body)
+	}
+	if strings.Contains(body, `"frontend_submit_invalid_payload"`) {
+		t.Fatalf("did not expect frontend_submit_invalid_payload, got %s", body)
+	}
+}
+
+func TestBashHITLDockerImageRMRejectFlow(t *testing.T) {
+	command := "docker image rm nginx:latest"
+	rules := strings.Join([]string{
+		"commands:",
+		"  - command: docker",
+		"    subcommands:",
+		"      - match: image rm",
+		"        level: 1",
+		"        viewportType: builtin",
+		"        viewportKey: confirm_dialog",
+	}, "\n")
+	body, executed := runBashHITLFlow(t, bashHITLFlowOptions{
+		action:       "reject",
+		command:      command,
+		rulesContent: rules,
+	})
+	if len(executed) != 0 {
+		t.Fatalf("expected rejected docker image rm not to execute, got %#v", executed)
+	}
+	if !strings.Contains(body, `"code":"hitl_rejected"`) {
+		t.Fatalf("expected rejected original bash result, got %s", body)
+	}
+	if !strings.Contains(body, `"viewportKey":"confirm_dialog"`) {
+		t.Fatalf("expected confirm_dialog viewport in stream, got %s", body)
+	}
+}
+
 type bashHITLFlowOptions struct {
 	toolName        string
 	action          string
 	modifiedCommand string
+	command         string
+	rulesContent    string
+	legacySubmit    bool
 	mcp             contracts.McpClient
 	mcpTools        stubMCPToolCatalog
 }
@@ -1902,6 +2060,21 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 		toolName = "_sandbox_bash_"
 	}
 	command := `mock create-leave --payload {"employee_id":"E1001","employee_name":"Lin","leave_type":"annual","start_date":"2026-04-20","end_date":"2026-04-22","days":3,"reason":"family_trip","handover_to":"E2001","urgent_contact":"13800138000"}`
+	if strings.TrimSpace(options.command) != "" {
+		command = options.command
+	}
+	rulesContent := strings.Join([]string{
+		"commands:",
+		"  - command: mock",
+		"    subcommands:",
+		"      - match: create-leave",
+		"        level: 1",
+		"        viewportType: html",
+		"        viewportKey: leave_form",
+	}, "\n")
+	if strings.TrimSpace(options.rulesContent) != "" {
+		rulesContent = options.rulesContent
+	}
 
 	var providerCallCount atomic.Int32
 	secondTurnMessages := make(chan []map[string]any, 1)
@@ -1935,7 +2108,6 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 		mcp:      options.mcp,
 		mcpTools: options.mcpTools,
 		configure: func(cfg *config.Config) {
-			cfg.BashHITL.Enabled = true
 			cfg.BashHITL.DefaultTimeoutMs = 15000
 		},
 		setupRuntime: func(_ string, cfg *config.Config) {
@@ -1943,17 +2115,7 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 			if err := os.MkdirAll(root, 0o755); err != nil {
 				t.Fatalf("mkdir bash-hitl dir: %v", err)
 			}
-			content := strings.Join([]string{
-				"commands:",
-				"  - command: mock",
-				"    subcommands:",
-				"      - match: create-leave",
-				"        level: 1",
-				"        hitlType: business",
-				"        viewportType: html",
-				"        viewportKey: leave_form",
-			}, "\n")
-			if err := os.WriteFile(filepath.Join(root, "dangerous.yml"), []byte(content), 0o644); err != nil {
+			if err := os.WriteFile(filepath.Join(root, "dangerous.yml"), []byte(rulesContent), 0o644); err != nil {
 				t.Fatalf("write bash-hitl rule: %v", err)
 			}
 		},
@@ -2000,7 +2162,7 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 	}
 
 submit:
-	submitPayload := `[{"question":"Approve this intercepted bash command?",`
+	submitPayload := `[{"question":` + strconv.Quote(command) + `,`
 	if options.action == "modify" {
 		submitPayload += `"answer":` + strconv.Quote(options.modifiedCommand) + `,"value":` + strconv.Quote(options.modifiedCommand)
 	} else {
@@ -2008,7 +2170,11 @@ submit:
 		if options.action == "reject" {
 			label = "Reject"
 		}
-		submitPayload += `"answer":"` + label + `","value":"` + options.action + `"`
+		if options.legacySubmit {
+			submitPayload += `"answer":"` + options.action + `"`
+		} else {
+			submitPayload += `"answer":"` + label + `","value":"` + options.action + `"`
+		}
 	}
 	submitPayload += `}]`
 	submitRec := httptest.NewRecorder()
@@ -2561,11 +2727,9 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 		t.Fatalf("new file registry: %v", err)
 	}
 	var hitlRegistry *hitl.Registry
-	if cfg.BashHITL.Enabled {
-		hitlRegistry, err = hitl.NewRegistry(filepath.Join(cfg.Paths.RegistriesDir, "bash-hitl"))
-		if err != nil {
-			t.Fatalf("new hitl registry: %v", err)
-		}
+	hitlRegistry, err = hitl.NewRegistry(filepath.Join(cfg.Paths.RegistriesDir, "bash-hitl"))
+	if err != nil {
+		t.Fatalf("new hitl registry: %v", err)
 	}
 	notifications := options.notifications
 	if notifications == nil {

@@ -1,6 +1,6 @@
 name: _ask_user_approval_
 label: 用户确认
-description: Show multiple single-choice approval prompts to the user. Each question returns both the display answer text and the machine-readable value, and the tool blocks until a response is submitted.
+description: Unified approval entrypoint for user confirmations, including intercepted bash HITL flows. Each question returns both the display answer text and the machine-readable value, while viewportType and viewportKey only control how the approval UI is rendered.
 type: function
 viewportType: builtin
 viewportKey: confirm_dialog

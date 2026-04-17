@@ -141,8 +141,9 @@ Container Hub 默认基础挂载为：
 | `AGENT_BASH_SHELL_EXECUTABLE` | `bash` | `Advanced / operator` | shell 可执行文件 |
 | `AGENT_BASH_SHELL_TIMEOUT_MS` | `10000` | `Advanced / operator` | shell 模式超时 |
 | `AGENT_BASH_MAX_COMMAND_CHARS` | `16000` | `Advanced / operator` | 最大命令长度 |
-| `AGENT_BASH_HITL_ENABLED` | `false` | `Advanced / operator` | 是否启用 bash HITL |
 | `AGENT_BASH_HITL_DEFAULT_TIMEOUT_MS` | `120000` | `Advanced / operator` | bash HITL 默认超时 |
+
+`bash-hitl` 不再有单独的 `.env` 开关；只要 `registries/bash-hitl` 目录里存在至少一条有效规则，bash HITL 就会自动生效。目录为空或没有可加载规则时，运行时不会拦截 bash 命令。
 
 ### Memory 行为调优
 

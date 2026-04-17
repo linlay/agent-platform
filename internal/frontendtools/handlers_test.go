@@ -34,6 +34,82 @@ func TestAskUserQuestionHandlerBuildInitialAwaitAsk(t *testing.T) {
 	}
 }
 
+func TestAskUserQuestionHandlerValidateArgs(t *testing.T) {
+	handler := NewAskUserQuestionHandler()
+
+	validArgs := map[string]any{
+		"mode": "question",
+		"questions": []any{
+			map[string]any{
+				"question": "Pick a plan",
+				"type":     "select",
+				"options": []any{
+					map[string]any{"label": "Weekend"},
+				},
+			},
+			map[string]any{
+				"question": "How many people?",
+				"type":     "number",
+			},
+		},
+	}
+	if err := handler.ValidateArgs(validArgs); err != nil {
+		t.Fatalf("ValidateArgs returned error for valid args: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		args map[string]any
+		want string
+	}{
+		{
+			name: "select missing options",
+			args: map[string]any{
+				"mode": "question",
+				"questions": []any{
+					map[string]any{"question": "Pick a plan", "type": "select"},
+				},
+			},
+			want: "options is required for select questions",
+		},
+		{
+			name: "select empty options",
+			args: map[string]any{
+				"mode": "question",
+				"questions": []any{
+					map[string]any{"question": "Pick a plan", "type": "select", "options": []any{}},
+				},
+			},
+			want: "options is required for select questions",
+		},
+		{
+			name: "select blank option label",
+			args: map[string]any{
+				"mode": "question",
+				"questions": []any{
+					map[string]any{
+						"question": "Pick a plan",
+						"type":     "select",
+						"options": []any{
+							map[string]any{"label": " "},
+						},
+					},
+				},
+			},
+			want: "option 1 label is required",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := handler.ValidateArgs(tc.args)
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 func TestAskUserQuestionHandlerBuildDeferredAwaitSanitizesQuestions(t *testing.T) {
 	handler := NewAskUserQuestionHandler()
 	args := map[string]any{
@@ -238,6 +314,62 @@ func TestAskUserApprovalHandlerBuildDeferredAwaitAndNormalizeSubmit(t *testing.T
 	}
 }
 
+func TestAskUserApprovalHandlerNormalizeSubmitAcceptsLegacyPresetValueWithoutSubmittedValue(t *testing.T) {
+	handler := NewAskUserApprovalHandler()
+	result, err := handler.NormalizeSubmit(map[string]any{
+		"questions": []any{
+			map[string]any{
+				"question": "docker rmi busybox:latest 2>&1",
+				"header":   "Bash Approval",
+				"options": []any{
+					map[string]any{"label": "Approve", "value": "approve"},
+					map[string]any{"label": "Reject", "value": "reject"},
+				},
+			},
+		},
+	}, []any{
+		map[string]any{"question": "docker rmi busybox:latest 2>&1", "answer": "approve"},
+	})
+	if err != nil {
+		t.Fatalf("NormalizeSubmit returned error: %v", err)
+	}
+	questions, ok := result["questions"].([]map[string]any)
+	if !ok || len(questions) != 1 {
+		t.Fatalf("expected normalized approval questions, got %#v", result)
+	}
+	if questions[0]["answer"] != "Approve" || questions[0]["value"] != "approve" {
+		t.Fatalf("expected legacy preset submit to normalize to label/value, got %#v", questions[0])
+	}
+}
+
+func TestAskUserApprovalHandlerNormalizeSubmitAcceptsLegacyPresetValuePair(t *testing.T) {
+	handler := NewAskUserApprovalHandler()
+	result, err := handler.NormalizeSubmit(map[string]any{
+		"questions": []any{
+			map[string]any{
+				"question": "docker rmi busybox:latest 2>&1",
+				"header":   "Bash Approval",
+				"options": []any{
+					map[string]any{"label": "Approve", "value": "approve"},
+					map[string]any{"label": "Reject", "value": "reject"},
+				},
+			},
+		},
+	}, []any{
+		map[string]any{"question": "docker rmi busybox:latest 2>&1", "answer": "approve", "value": "approve"},
+	})
+	if err != nil {
+		t.Fatalf("NormalizeSubmit returned error: %v", err)
+	}
+	questions, ok := result["questions"].([]map[string]any)
+	if !ok || len(questions) != 1 {
+		t.Fatalf("expected normalized approval questions, got %#v", result)
+	}
+	if questions[0]["answer"] != "Approve" || questions[0]["value"] != "approve" {
+		t.Fatalf("expected legacy preset pair to normalize to label/value, got %#v", questions[0])
+	}
+}
+
 func TestAskUserApprovalHandlerFormatSubmitResult(t *testing.T) {
 	handler := NewAskUserApprovalHandler()
 	valueResult := contracts.ToolExecutionResult{
@@ -293,5 +425,25 @@ func TestAskUserApprovalHandlerRejectsMismatchedLabelAndValue(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "value does not match selected option") {
 		t.Fatalf("expected mismatched label/value to be rejected, got %v", err)
+	}
+}
+
+func TestAskUserApprovalHandlerRejectsConflictingLegacyValueAndSubmittedValue(t *testing.T) {
+	handler := NewAskUserApprovalHandler()
+	_, err := handler.NormalizeSubmit(map[string]any{
+		"questions": []any{
+			map[string]any{
+				"question": "Need confirmation",
+				"options": []any{
+					map[string]any{"label": "Approve", "value": "approve"},
+					map[string]any{"label": "Reject", "value": "reject"},
+				},
+			},
+		},
+	}, []any{
+		map[string]any{"question": "Need confirmation", "answer": "reject", "value": "approve"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "value does not match selected option") {
+		t.Fatalf("expected conflicting legacy value pair to be rejected, got %v", err)
 	}
 }

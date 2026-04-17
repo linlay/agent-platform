@@ -111,15 +111,12 @@ func New() (*App, error) {
 	frontendRegistry := frontendtools.NewDefaultRegistry()
 	toolExecutor := tools.NewToolRouter(backendTools, mcpClient, mcpToolSync, llm.NewFrontendSubmitCoordinator(frontendRegistry), contracts.NewNoopActionInvoker(), append([]api.ToolDetailResponse(nil), runtimeTools...)...)
 
-	var hitlRegistry *hitl.Registry
-	if cfg.BashHITL.Enabled {
-		hitlRoot := filepath.Join(cfg.Paths.RegistriesDir, "bash-hitl")
-		hitlRegistry, err = hitl.NewRegistry(hitlRoot)
-		if err != nil {
-			return nil, fmt.Errorf("init hitl registry (%s): %w", hitlRoot, err)
-		}
-		log.Printf("bash HITL registry ready (%d rules)", len(hitlRegistry.Rules()))
+	hitlRoot := filepath.Join(cfg.Paths.RegistriesDir, "bash-hitl")
+	hitlRegistry, err := hitl.NewRegistry(hitlRoot)
+	if err != nil {
+		return nil, fmt.Errorf("init hitl registry (%s): %w", hitlRoot, err)
 	}
+	log.Printf("bash HITL registry ready (%d rules)", len(hitlRegistry.Rules()))
 
 	registryStartedAt := time.Now()
 	registry, err := catalog.NewFileRegistry(cfg, toolExecutor.Definitions())
