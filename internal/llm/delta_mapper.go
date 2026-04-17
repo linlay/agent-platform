@@ -190,7 +190,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			ViewportType: value.ViewportType,
 			ViewportKey:  value.ViewportKey,
 			Mode:         value.Mode,
-			ToolTimeout:  value.ToolTimeout,
+			Timeout:      value.Timeout,
 			RunID:        value.RunID,
 			Questions:    append([]any(nil), value.Questions...),
 		}}

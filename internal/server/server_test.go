@@ -1240,8 +1240,11 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	if awaitQuestionPayload["viewportKey"] != "confirm_dialog" {
 		t.Fatalf("expected viewportKey confirm_dialog, got %#v", awaitQuestionPayload)
 	}
-	if awaitQuestionPayload["toolTimeout"] != float64(210000) {
-		t.Fatalf("expected await question toolTimeout 210000, got %#v", awaitQuestionPayload)
+	if _, exists := awaitQuestionPayload["toolTimeout"]; exists {
+		t.Fatalf("did not expect toolTimeout on awaiting.ask, got %#v", awaitQuestionPayload)
+	}
+	if awaitQuestionPayload["timeout"] != float64(210000) {
+		t.Fatalf("expected await question timeout 210000, got %#v", awaitQuestionPayload)
 	}
 	if awaitQuestionPayload["mode"] != "approval" {
 		t.Fatalf("expected await question mode approval, got %#v", awaitQuestionPayload)

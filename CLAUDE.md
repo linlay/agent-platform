@@ -229,7 +229,7 @@ remember 根目录由 `MEMORY_DIR` 控制：
   - `awaiting.answer` 是用户提交后的结构化摘要事件，便于前端展示问答/审批结果
   - `tool.result` 是工具规范化后的真实执行结果，不等同于原始 submit payload
 - `await.ask` 使用独立字段命名：
-  - `awaitingId`、`viewportType`、`viewportKey`、`mode`、`toolTimeout`、`runId`
+  - `awaitingId`、`viewportType`、`viewportKey`、`mode`、`timeout`、`runId`
 - `await.payload` 只在 `question` 模式下出现：
   - 顶层直接输出 `questions: []`
   - 不再嵌套 `payload`

@@ -48,7 +48,7 @@ func (h *AskUserApprovalHandler) BuildDeferredAwait(toolID string, runID string,
 		ViewportType: strings.TrimSpace(viewportType),
 		ViewportKey:  strings.TrimSpace(viewportKey),
 		Mode:         "approval",
-		ToolTimeout:  timeoutMs,
+		Timeout:      timeoutMs,
 		RunID:        runID,
 		Questions:    questions,
 	}}

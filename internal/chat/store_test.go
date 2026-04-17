@@ -456,7 +456,7 @@ func TestLoadChatReplaysQuestionAwaitLifecycleEventLines(t *testing.T) {
 			"viewportType": "builtin",
 			"viewportKey":  "confirm_dialog",
 			"mode":         "question",
-			"toolTimeout":  120000,
+			"timeout":      120000,
 			"runId":        "run-1",
 		},
 	}); err != nil {
@@ -620,7 +620,7 @@ func TestLoadChatReplaysApprovalAwaitLifecycleEventLines(t *testing.T) {
 			"viewportType": "builtin",
 			"viewportKey":  "confirm_dialog",
 			"mode":         "approval",
-			"toolTimeout":  120000,
+			"timeout":      120000,
 			"runId":        "run-approval",
 			"questions": []any{
 				map[string]any{
@@ -739,7 +739,7 @@ func TestLoadChatReplaysLegacyConfirmLifecycleEvents(t *testing.T) {
 			"viewportType": "builtin",
 			"viewportKey":  "confirm_dialog",
 			"mode":         "approval",
-			"toolTimeout":  120000,
+			"timeout":      120000,
 			"runId":        "run-legacy",
 			"chatId":       "chat-legacy",
 		},

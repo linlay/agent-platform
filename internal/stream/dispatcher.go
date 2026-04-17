@@ -400,7 +400,7 @@ func (d *StreamEventDispatcher) newAwaitAskEvent(input AwaitAsk) StreamEvent {
 		"viewportType": input.ViewportType,
 		"viewportKey":  input.ViewportKey,
 		"mode":         input.Mode,
-		"toolTimeout":  input.ToolTimeout,
+		"timeout":      input.Timeout,
 		"runId":        input.RunID,
 	}
 	if len(input.Questions) > 0 {

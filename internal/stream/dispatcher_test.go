@@ -65,7 +65,7 @@ func TestDispatcherEmitsQuestionModeAwaitAskAfterToolStart(t *testing.T) {
 			ViewportType: "builtin",
 			ViewportKey:  "confirm_dialog",
 			Mode:         "question",
-			ToolTimeout:  120000,
+			Timeout:      120000,
 			RunID:        "run_1",
 		},
 	})
@@ -83,7 +83,7 @@ func TestDispatcherEmitsApprovalModeAwaitAskWithQuestions(t *testing.T) {
 		ViewportType: "builtin",
 		ViewportKey:  "confirm_dialog",
 		Mode:         "approval",
-		ToolTimeout:  120000,
+		Timeout:      120000,
 		RunID:        "run_1",
 		Questions: []any{
 			map[string]any{"question": "Proceed?", "options": []any{map[string]any{"label": "Yes", "value": "yes"}}},
@@ -290,7 +290,7 @@ func TestEventDataMarshalsWithContractKeyOrder(t *testing.T) {
 
 func TestEventDataMarshalsAwaitAskWithContractKeyOrder(t *testing.T) {
 	event := NewEvent("awaiting.ask", map[string]any{
-		"toolTimeout":  120000,
+		"timeout":      120000,
 		"runId":        "run_1",
 		"viewportKey":  "confirm_dialog",
 		"mode":         "approval",
@@ -310,7 +310,7 @@ func TestEventDataMarshalsAwaitAskWithContractKeyOrder(t *testing.T) {
 		`"viewportType":"builtin"`,
 		`"viewportKey":"confirm_dialog"`,
 		`"mode":"approval"`,
-		`"toolTimeout":120000`,
+		`"timeout":120000`,
 		`"runId":"run_1"`,
 		`"timestamp":`,
 	}
@@ -333,7 +333,7 @@ func TestEventDataMarshalsApprovalAwaitAskWithQuestions(t *testing.T) {
 		"viewportType": "builtin",
 		"viewportKey":  "confirm_dialog",
 		"mode":         "approval",
-		"toolTimeout":  120000,
+		"timeout":      120000,
 		"runId":        "run_1",
 		"questions": []any{
 			map[string]any{"question": "Proceed?"},

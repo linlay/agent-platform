@@ -71,7 +71,7 @@ func (h *AskUserQuestionHandler) BuildInitialAwaitAsk(toolID string, runID strin
 		ViewportType: strings.TrimSpace(viewportType),
 		ViewportKey:  strings.TrimSpace(viewportKey),
 		Mode:         "question",
-		ToolTimeout:  timeoutMs,
+		Timeout:      timeoutMs,
 		RunID:        runID,
 	}
 }

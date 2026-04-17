@@ -93,7 +93,7 @@ type DeltaAwaitAsk struct {
 	ViewportType string
 	ViewportKey  string
 	Mode         string
-	ToolTimeout  int64
+	Timeout      int64
 	RunID        string
 	Questions    []any
 }
