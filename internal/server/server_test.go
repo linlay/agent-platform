@@ -1627,6 +1627,177 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 	}
 }
 
+func TestQuestionChunkedArgsEmitAwaitAfterFirstToolArgs(t *testing.T) {
+	var providerCallCount atomic.Int32
+	secondTurnMessages := make(chan []map[string]any, 1)
+
+	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		call := providerCallCount.Add(1)
+		switch call {
+		case 1:
+			writeProviderSSE(t, w,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Notification topics\",\"type\":\"select\","}}]}}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"options\":[{\"label\":\"产品更新\",\"description\":\"Release notes and new features\"},{\"label\":\"使用教程\",\"description\":\"How-to guides and walkthroughs\"}],\"allowFreeText\":false,\"multiSelect\":true},{\"question\":\"How many people?\",\"type\":\"number\"}]}"}}]},"finish_reason":"tool_calls"}]}`,
+				`[DONE]`,
+			)
+		case 2:
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode second provider request: %v", err)
+			}
+			secondTurnMessages <- normalizeProviderMessages(payload["messages"])
+			writeProviderSSE(t, w,
+				`{"choices":[{"delta":{"content":"chunked question flow complete"},"finish_reason":"stop"}]}`,
+				`[DONE]`,
+			)
+		default:
+			t.Fatalf("unexpected provider call %d", call)
+		}
+	})
+
+	httpServer := newLoopbackServer(t, fixture.server)
+	defer httpServer.Close()
+
+	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"ask me a few things"}`))
+	if err != nil {
+		t.Fatalf("post query: %v", err)
+	}
+	defer resp.Body.Close()
+
+	reader := bufio.NewReader(resp.Body)
+	var streamBody strings.Builder
+	runID := ""
+	toolID := ""
+	var awaitQuestionPayload map[string]any
+	var toolStartPayload map[string]any
+	var toolResultPayload map[string]any
+	var awaitPayloadSeen bool
+	for {
+		line, readErr := reader.ReadString('\n')
+		streamBody.WriteString(line)
+		if strings.HasPrefix(line, "data: {") {
+			payload := decodeSSELine(t, line)
+			switch payload["type"] {
+			case "awaiting.ask":
+				awaitQuestionPayload = payload
+				runID, _ = payload["runId"].(string)
+			case "tool.start":
+				if payload["toolName"] == "_ask_user_question_" {
+					toolStartPayload = payload
+					toolID, _ = payload["toolId"].(string)
+				}
+			case "awaiting.payload":
+				questions, _ := payload["questions"].([]any)
+				if len(questions) != 2 {
+					t.Fatalf("expected question awaiting.payload questions length 2, got %#v", payload)
+				}
+				awaitPayloadSeen = true
+				break
+			}
+			if awaitPayloadSeen {
+				break
+			}
+		}
+		if readErr != nil {
+			t.Fatalf("read query stream before submit: %v", readErr)
+		}
+	}
+
+	if awaitQuestionPayload == nil {
+		t.Fatalf("expected awaiting.ask after chunked tool args, got %s", streamBody.String())
+	}
+	if toolStartPayload == nil {
+		t.Fatalf("expected tool.start for _ask_user_question_, got %s", streamBody.String())
+	}
+	if awaitQuestionPayload["awaitingId"] != toolID {
+		t.Fatalf("expected awaitingId to match toolId, got %#v", awaitQuestionPayload)
+	}
+	if awaitQuestionPayload["mode"] != "question" {
+		t.Fatalf("expected question mode, got %#v", awaitQuestionPayload)
+	}
+	if _, exists := awaitQuestionPayload["questions"]; exists {
+		t.Fatalf("did not expect questions on question-mode awaiting.ask, got %#v", awaitQuestionPayload)
+	}
+	if !awaitPayloadSeen {
+		t.Fatalf("expected awaiting.payload before submit, got %s", streamBody.String())
+	}
+
+	submitReq := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+runID+`","awaitingId":"`+toolID+`","params":[{"question":"Notification topics","answers":["产品更新","使用教程"]},{"question":"How many people?","answer":2}]}`))
+	submitReq.Header.Set("Content-Type", "application/json")
+	submitRec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(submitRec, submitReq)
+	if submitRec.Code != http.StatusOK {
+		t.Fatalf("submit expected 200, got %d: %s", submitRec.Code, submitRec.Body.String())
+	}
+
+	for {
+		line, readErr := reader.ReadString('\n')
+		streamBody.WriteString(line)
+		if strings.HasPrefix(line, "data: {") {
+			payload := decodeSSELine(t, line)
+			if payload["type"] == "tool.result" {
+				toolResultPayload = payload
+			}
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			t.Fatalf("read query stream after submit: %v", readErr)
+		}
+	}
+
+	body := streamBody.String()
+	if !strings.Contains(body, `"type":"awaiting.ask"`) {
+		t.Fatalf("expected awaiting.ask event, got %s", body)
+	}
+	if !strings.Contains(body, `"type":"awaiting.payload"`) {
+		t.Fatalf("expected awaiting.payload event, got %s", body)
+	}
+	if !strings.Contains(body, `"chunkIndex":0`) || !strings.Contains(body, `"chunkIndex":1`) {
+		t.Fatalf("expected tool.args chunks 0 and 1, got %s", body)
+	}
+	firstToolArgsIndex := strings.Index(body, `"chunkIndex":0`)
+	awaitAskIndex := strings.Index(body, `"type":"awaiting.ask"`)
+	secondToolArgsIndex := strings.Index(body, `"chunkIndex":1`)
+	toolEndIndex := strings.Index(body, `"type":"tool.end"`)
+	awaitPayloadIndex := strings.Index(body, `"type":"awaiting.payload"`)
+	if firstToolArgsIndex < 0 || awaitAskIndex < 0 || secondToolArgsIndex < 0 || toolEndIndex < 0 || awaitPayloadIndex < 0 {
+		t.Fatalf("expected chunked question flow markers, got %s", body)
+	}
+	if !(firstToolArgsIndex < awaitAskIndex && awaitAskIndex < secondToolArgsIndex && secondToolArgsIndex < toolEndIndex && toolEndIndex < awaitPayloadIndex) {
+		t.Fatalf("expected chunked event order tool.args(0) -> awaiting.ask -> tool.args(1) -> tool.end -> awaiting.payload, got %s", body)
+	}
+	if !strings.Contains(body, `"type":"request.submit"`) {
+		t.Fatalf("expected request.submit event, got %s", body)
+	}
+	if !strings.Contains(body, `"type":"awaiting.answer"`) {
+		t.Fatalf("expected awaiting.answer event, got %s", body)
+	}
+	if toolResultPayload == nil {
+		t.Fatalf("expected tool.result payload, got %s", body)
+	}
+
+	select {
+	case messages := <-secondTurnMessages:
+		toolContent := ""
+		for _, message := range messages {
+			if role, _ := message["role"].(string); role == "tool" {
+				toolContent, _ = message["content"].(string)
+				break
+			}
+		}
+		if toolContent == "" {
+			t.Fatalf("expected second turn to include tool message, got %#v", messages)
+		}
+		if toolContent != "问题：Notification topics\n回答：产品更新, 使用教程\n问题：How many people?\n回答：2" {
+			t.Fatalf("expected qa-formatted tool content, got %#v", messages)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for second provider request")
+	}
+}
+
 func TestQuestionInvalidSelectOptionsFailsBeforeAwait(t *testing.T) {
 	var providerCallCount atomic.Int32
 	secondTurnMessages := make(chan []map[string]any, 1)
