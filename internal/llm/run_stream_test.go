@@ -545,6 +545,75 @@ func TestInvokeActiveToolCallUsesSkillScopedChecker(t *testing.T) {
 	}
 }
 
+func TestExtractCommandPayload(t *testing.T) {
+	tests := []struct {
+		name     string
+		command  string
+		expected map[string]any
+	}{
+		{
+			name:     "mock command payload",
+			command:  `mock create-leave --payload '{"employee_id":"E1001","days":3}'`,
+			expected: map[string]any{"employee_id": "E1001", "days": float64(3)},
+		},
+		{
+			name:     "non mock command payload",
+			command:  `demo submit-request --payload '{"request_id":"REQ-1","priority":"high"}'`,
+			expected: map[string]any{"request_id": "REQ-1", "priority": "high"},
+		},
+		{
+			name:    "payload file is ignored",
+			command: `mock create-leave --payload-file ./leave.json`,
+		},
+		{
+			name:    "missing payload value",
+			command: `mock create-leave --payload`,
+		},
+		{
+			name:    "invalid json payload",
+			command: `mock create-leave --payload '{invalid-json}'`,
+		},
+		{
+			name:    "payload must be object",
+			command: `mock create-leave --payload '["E1001"]'`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			payload := extractCommandPayload(hitl.ParseCommandComponents(tc.command))
+			if !reflect.DeepEqual(payload, tc.expected) {
+				t.Fatalf("expected payload %#v, got %#v", tc.expected, payload)
+			}
+		})
+	}
+}
+
+func TestBuildFormApprovalArgsFallsBackToOriginalCommandPayload(t *testing.T) {
+	stream := &llmRunStream{
+		session: contracts.QuerySession{RunID: "run_1"},
+	}
+	args := stream.buildFormApprovalArgs(hitl.InterceptResult{
+		Rule: hitl.FlatRule{
+			ViewportType: "html",
+			ViewportKey:  "leave_form",
+		},
+		ParsedCommand: hitl.CommandComponents{
+			BaseCommand: "mock",
+			Tokens:      []string{"create-leave", "--payload", "{employee_id:E1001}"},
+		},
+		OriginalCommand: `mock create-leave --payload {"employee_id":"E1001","days":3}`,
+	})
+	payload, ok := args["payload"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected payload in form approval args, got %#v", args)
+	}
+	expected := map[string]any{"employee_id": "E1001", "days": float64(3)}
+	if !reflect.DeepEqual(payload, expected) {
+		t.Fatalf("expected payload %#v, got %#v", expected, payload)
+	}
+}
+
 func TestReconstructCommandWithPayload(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -675,6 +744,10 @@ func TestInvokeActiveToolCallDoesNotAutoApproveHTMLViewport(t *testing.T) {
 					Level:        2,
 					ViewportType: "html",
 					ViewportKey:  "leave_form",
+				},
+				ParsedCommand: hitl.CommandComponents{
+					BaseCommand: "mock",
+					Tokens:      []string{"create-leave", "--payload", `{"employee_id":"E1001"}`},
 				},
 			},
 		},

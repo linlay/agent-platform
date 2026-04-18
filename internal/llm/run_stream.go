@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1126,7 +1127,7 @@ func (s *llmRunStream) executeOriginalBash(invocation *preparedToolInvocation) e
 func (s *llmRunStream) buildHITLArgs(invocation *preparedToolInvocation, result hitl.InterceptResult) map[string]any {
 	command := mapStringArg(invocation.args, "command")
 	if strings.EqualFold(result.Rule.ViewportType, "html") {
-		return s.buildFormApprovalArgs(command, result)
+		return s.buildFormApprovalArgs(result)
 	}
 	return s.buildConfirmApprovalArgs(command)
 }
@@ -1160,18 +1161,26 @@ func (s *llmRunStream) buildConfirmApprovalArgs(command string) map[string]any {
 	}
 }
 
-func (s *llmRunStream) buildFormApprovalArgs(command string, result hitl.InterceptResult) map[string]any {
-	payload, err := extractPayloadFromCommand(command)
-	if err != nil {
-		log.Printf("[llm] failed to extract form approval payload from command %q: %v", command, err)
-		payload = map[string]any{}
-	}
-	return map[string]any{
+func (s *llmRunStream) buildFormApprovalArgs(result hitl.InterceptResult) map[string]any {
+	args := map[string]any{
 		"mode":         "approval",
 		"viewportType": result.Rule.ViewportType,
 		"viewportKey":  result.Rule.ViewportKey,
-		"payload":      payload,
 	}
+	if payload := extractCommandPayload(result.ParsedCommand); len(payload) > 0 {
+		args["payload"] = payload
+		return args
+	}
+	if payload := extractPayloadFromOriginalCommand(result.OriginalCommand); len(payload) > 0 {
+		args["payload"] = payload
+		return args
+	}
+	log.Printf("[llm][run:%s][hitl][warning] missing html approval payload viewportKey=%s command=%q",
+		s.session.RunID,
+		result.Rule.ViewportKey,
+		result.OriginalCommand,
+	)
+	return args
 }
 
 func (s *llmRunStream) resolveHITLTimeout() int64 {
@@ -1288,27 +1297,74 @@ func (s *llmRunStream) normalizeHITLSubmit(args map[string]any, params any) (map
 	return handler.NormalizeSubmit(args, params)
 }
 
-func extractPayloadFromCommand(command string) (map[string]any, error) {
-	if strings.TrimSpace(command) == "" {
-		return nil, fmt.Errorf("original command is required")
+func extractCommandPayload(parsed hitl.CommandComponents) map[string]any {
+	for idx := 0; idx < len(parsed.Tokens)-1; idx++ {
+		if strings.TrimSpace(parsed.Tokens[idx]) != "--payload" {
+			continue
+		}
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(parsed.Tokens[idx+1]), &payload); err != nil {
+			return nil
+		}
+		if payload == nil {
+			return nil
+		}
+		return payload
 	}
+	return nil
+}
 
+func extractPayloadFromOriginalCommand(command string) map[string]any {
+	if strings.TrimSpace(command) == "" {
+		return nil
+	}
 	tokenSpans := firstSegmentTokenSpans(command)
 	for idx := 0; idx < len(tokenSpans)-1; idx++ {
 		if strings.TrimSpace(tokenSpans[idx].Text) != "--payload" {
 			continue
 		}
-		payloadToken := tokenSpans[idx+1].Text
+		rawToken := strings.TrimSpace(command[tokenSpans[idx+1].Start:tokenSpans[idx+1].End])
+		if rawToken == "" {
+			return nil
+		}
+		if unquoted, ok := shellUnquotePayloadToken(rawToken); ok {
+			rawToken = unquoted
+		}
 		var payload map[string]any
-		if err := json.Unmarshal([]byte(payloadToken), &payload); err != nil {
-			return nil, fmt.Errorf("decode payload: %w", err)
+		if err := json.Unmarshal([]byte(rawToken), &payload); err != nil {
+			return nil
 		}
 		if payload == nil {
-			return nil, fmt.Errorf("payload must be an object")
+			return nil
 		}
-		return payload, nil
+		return payload
 	}
-	return nil, fmt.Errorf("original command does not contain --payload")
+	return nil
+}
+
+func shellUnquotePayloadToken(token string) (string, bool) {
+	token = strings.TrimSpace(token)
+	if len(token) < 2 {
+		return token, false
+	}
+	switch token[0] {
+	case '\'':
+		if token[len(token)-1] != '\'' {
+			return token, false
+		}
+		return token[1 : len(token)-1], true
+	case '"':
+		unquoted, err := strconv.Unquote(token)
+		if err == nil {
+			return unquoted, true
+		}
+		if token[len(token)-1] != '"' {
+			return token, false
+		}
+		return token[1 : len(token)-1], true
+	default:
+		return token, false
+	}
 }
 
 func reconstructCommandWithPayload(command string, payload map[string]any) (string, error) {

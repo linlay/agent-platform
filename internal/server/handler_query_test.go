@@ -55,6 +55,28 @@ func TestResolveSkillRuntimeSettingsMergesEnvAndHookDirsInOrder(t *testing.T) {
 	}
 }
 
+func TestResolveSkillRuntimeSettingsSkipsMissingSkills(t *testing.T) {
+	registry := skillRuntimeRegistry{
+		skills: map[string]catalog.SkillDefinition{
+			"beta": {
+				Key:          "beta",
+				BashHooksDir: "/skills/beta/.bash-hooks",
+				SandboxEnv: map[string]string{
+					"TZ": "UTC",
+				},
+			},
+		},
+	}
+
+	hookDirs, env := resolveSkillRuntimeSettings([]string{"missing", "beta"}, registry)
+	if !reflect.DeepEqual(hookDirs, []string{"/skills/beta/.bash-hooks"}) {
+		t.Fatalf("hookDirs = %#v", hookDirs)
+	}
+	if !reflect.DeepEqual(env, map[string]string{"TZ": "UTC"}) {
+		t.Fatalf("env = %#v", env)
+	}
+}
+
 func (skillRuntimeRegistry) Agents(string) []api.AgentSummary       { return nil }
 func (skillRuntimeRegistry) Teams() []api.TeamSummary               { return nil }
 func (skillRuntimeRegistry) Skills(string) []api.SkillSummary       { return nil }

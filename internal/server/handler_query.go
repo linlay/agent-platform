@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"sort"
 	"strings"
 
 	"agent-platform-runner-go/internal/api"
@@ -169,6 +171,12 @@ func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
 
 	promptAppend := buildPromptAppendConfig(agentDef)
 	skillHookDirs, sandboxEnvOverrides := resolveSkillRuntimeSettings(agentDef.Skills, s.deps.Registry)
+	log.Printf("[server][skill-runtime] agent=%s skills=%v hookDirs=%v sandboxEnvKeys=%v",
+		agentDef.Key,
+		agentDef.Skills,
+		skillHookDirs,
+		sortedStringKeys(sandboxEnvOverrides),
+	)
 	session := contracts.QuerySession{
 		RequestID:             requestID,
 		RunID:                 runID,
@@ -236,6 +244,7 @@ func resolveSkillRuntimeSettings(skillKeys []string, registry catalog.Registry) 
 		seen[skillKey] = struct{}{}
 		def, ok := registry.SkillDefinition(skillKey)
 		if !ok {
+			log.Printf("[server][skill-runtime][warn] skill definition not found key=%s", skillKey)
 			continue
 		}
 		if strings.TrimSpace(def.BashHooksDir) != "" {
@@ -249,6 +258,18 @@ func resolveSkillRuntimeSettings(skillKeys []string, registry catalog.Registry) 
 		}
 	}
 	return hookDirs, sandboxEnv
+}
+
+func sortedStringKeys(values map[string]string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func (s *Server) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamEventAssembler, *llm.DeltaMapper) {
