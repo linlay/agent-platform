@@ -2160,6 +2160,9 @@ func TestBashHITLApproveFlow(t *testing.T) {
 	if !strings.Contains(body, `"payload":`+string(expectedAwaitPayload)) {
 		t.Fatalf("expected form awaiting.ask payload in stream, got %s", body)
 	}
+	if strings.Contains(body, "map[") {
+		t.Fatalf("did not expect Go map string in stream, got %s", body)
+	}
 }
 
 func TestBashHITLModifyFlow(t *testing.T) {
@@ -2173,6 +2176,9 @@ func TestBashHITLModifyFlow(t *testing.T) {
 		!strings.Contains(body, `"action":"submit"`) ||
 		!strings.Contains(body, `"payload":{"days":2,"employee_id":"E1001","employee_name":"Lin","end_date":"2026-04-22","handover_to":"E2001","leave_type":"personal","reason":"family_trip","start_date":"2026-04-21","urgent_contact":"13800138000"}`) {
 		t.Fatalf("expected modify awaiting.answer in stream, got %s", body)
+	}
+	if strings.Contains(body, "map[") {
+		t.Fatalf("did not expect Go map string in stream, got %s", body)
 	}
 }
 
@@ -2188,6 +2194,30 @@ func TestBashHITLRejectFlow(t *testing.T) {
 		!strings.Contains(body, `"cancelled":true`) ||
 		!strings.Contains(body, `"reason":"user_cancelled"`) {
 		t.Fatalf("expected reject awaiting.answer in stream, got %s", body)
+	}
+	if strings.Contains(body, "map[") {
+		t.Fatalf("did not expect Go map string in stream, got %s", body)
+	}
+}
+
+func TestBashHITLTimeoutFlow(t *testing.T) {
+	body, executed := runBashHITLFlow(t, bashHITLFlowOptions{
+		skipSubmit: true,
+		timeoutMs:  20,
+	})
+	if len(executed) != 0 {
+		t.Fatalf("expected timed out command not to execute, got %#v", executed)
+	}
+	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
+		!strings.Contains(body, `"cancelled":true`) ||
+		!strings.Contains(body, `"reason":"timeout"`) {
+		t.Fatalf("expected timeout awaiting.answer in stream, got %s", body)
+	}
+	if !strings.Contains(body, `"type":"tool.result"`) || !strings.Contains(body, `"code":"hitl_timeout"`) {
+		t.Fatalf("expected timeout tool.result in stream, got %s", body)
+	}
+	if strings.Contains(body, "map[") {
+		t.Fatalf("did not expect Go map string in stream, got %s", body)
 	}
 }
 
@@ -2363,6 +2393,8 @@ type bashHITLFlowOptions struct {
 	command         string
 	rulesContent    string
 	legacySubmit    bool
+	skipSubmit      bool
+	timeoutMs       int
 	mcp             contracts.McpClient
 	mcpTools        stubMCPToolCatalog
 }
@@ -2423,6 +2455,9 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 		mcpTools: options.mcpTools,
 		configure: func(cfg *config.Config) {
 			cfg.BashHITL.DefaultTimeoutMs = 15000
+			if options.timeoutMs > 0 {
+				cfg.BashHITL.DefaultTimeoutMs = options.timeoutMs
+			}
 		},
 		setupRuntime: func(_ string, cfg *config.Config) {
 			root := filepath.Join(cfg.Paths.SkillsMarketDir, "mock-skill", ".bash-hooks")
@@ -2474,45 +2509,47 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 	}
 
 submit:
-	var submitPayload string
-	if strings.EqualFold(stringValue(awaitAskPayload["viewportType"]), "html") {
-		if options.action == "reject" {
-			submitPayload = `{"action":"cancel"}`
-		} else {
-			submitCommand := command
-			if options.action == "modify" {
-				submitCommand = options.modifiedCommand
-			}
-			payloadJSON, err := json.Marshal(map[string]any{
-				"action":  "submit",
-				"payload": payloadFromCommandForTest(t, submitCommand),
-			})
-			if err != nil {
-				t.Fatalf("marshal html submit payload: %v", err)
-			}
-			submitPayload = string(payloadJSON)
-		}
-	} else {
-		submitPayload = `[{"question":` + strconv.Quote(command) + `,`
-		if options.action == "modify" {
-			submitPayload += `"answer":` + strconv.Quote(options.modifiedCommand) + `,"value":` + strconv.Quote(options.modifiedCommand)
-		} else {
-			label := "Approve"
+	if !options.skipSubmit {
+		var submitPayload string
+		if strings.EqualFold(stringValue(awaitAskPayload["viewportType"]), "html") {
 			if options.action == "reject" {
-				label = "Reject"
-			}
-			if options.legacySubmit {
-				submitPayload += `"answer":"` + options.action + `"`
+				submitPayload = `{"action":"cancel"}`
 			} else {
-				submitPayload += `"answer":"` + label + `","value":"` + options.action + `"`
+				submitCommand := command
+				if options.action == "modify" {
+					submitCommand = options.modifiedCommand
+				}
+				payloadJSON, err := json.Marshal(map[string]any{
+					"action":  "submit",
+					"payload": payloadFromCommandForTest(t, submitCommand),
+				})
+				if err != nil {
+					t.Fatalf("marshal html submit payload: %v", err)
+				}
+				submitPayload = string(payloadJSON)
 			}
+		} else {
+			submitPayload = `[{"question":` + strconv.Quote(command) + `,`
+			if options.action == "modify" {
+				submitPayload += `"answer":` + strconv.Quote(options.modifiedCommand) + `,"value":` + strconv.Quote(options.modifiedCommand)
+			} else {
+				label := "Approve"
+				if options.action == "reject" {
+					label = "Reject"
+				}
+				if options.legacySubmit {
+					submitPayload += `"answer":"` + options.action + `"`
+				} else {
+					submitPayload += `"answer":"` + label + `","value":"` + options.action + `"`
+				}
+			}
+			submitPayload += `}]`
 		}
-		submitPayload += `}]`
-	}
-	submitRec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(submitRec, httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+extractRunIDFromStream(t, streamBody.String())+`","awaitingId":"`+awaitingID+`","params":`+submitPayload+`}`)))
-	if submitRec.Code != http.StatusOK {
-		t.Fatalf("submit expected 200, got %d: %s", submitRec.Code, submitRec.Body.String())
+		submitRec := httptest.NewRecorder()
+		fixture.server.ServeHTTP(submitRec, httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+extractRunIDFromStream(t, streamBody.String())+`","awaitingId":"`+awaitingID+`","params":`+submitPayload+`}`)))
+		if submitRec.Code != http.StatusOK {
+			t.Fatalf("submit expected 200, got %d: %s", submitRec.Code, submitRec.Body.String())
+		}
 	}
 
 	for {
@@ -2632,7 +2669,13 @@ func assertSpecificEventOrder(t *testing.T, messages []map[string]any, originalT
 			}
 		}
 	}
-	if !(originalStart >= 0 && awaitAsk > originalStart && requestSubmit > awaitAsk && awaitingAnswer > requestSubmit && originalResult > awaitingAnswer) {
+	if requestSubmit >= 0 {
+		if !(originalStart >= 0 && awaitAsk > originalStart && requestSubmit > awaitAsk && awaitingAnswer > requestSubmit && originalResult > awaitingAnswer) {
+			t.Fatalf("unexpected HITL event order: %#v", messages)
+		}
+		return
+	}
+	if !(originalStart >= 0 && awaitAsk > originalStart && awaitingAnswer > awaitAsk && originalResult > awaitingAnswer) {
 		t.Fatalf("unexpected HITL event order: %#v", messages)
 	}
 }

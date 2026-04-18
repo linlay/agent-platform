@@ -216,6 +216,7 @@ remember 根目录由 `MEMORY_DIR` 控制：
 ### `confirm_dialog` 共享 viewport 约定
 
 - `_ask_user_question_` 与 `_ask_user_approval_` 都使用 `viewportType=builtin`、`viewportKey=confirm_dialog`。
+- `_ask_user_approval_` 现为 deprecated legacy tool，仅用于模型显式发起确认；Bash HITL 不再通过它中转。
 - 两个工具的输入里都必须带 `mode`：
   - `mode=question`：对应 `_ask_user_question_`
   - `mode=approval`：对应 `_ask_user_approval_`
@@ -223,7 +224,7 @@ remember 根目录由 `MEMORY_DIR` 控制：
   - `tool.start` / `tool.snapshot` 保持纯净，不再携带 `viewportKey` / `toolTimeout`
   - `_ask_user_question_` 事件顺序：
     `tool.start -> await.ask -> tool.args* -> tool.end -> await.payload -> [用户 /api/submit] -> request.submit -> awaiting.answer -> tool.result`
-  - `_ask_user_approval_` 事件顺序：
+  - `_ask_user_approval_`（deprecated，但仍兼容）事件顺序：
     `tool.start -> tool.args* -> tool.end -> await.ask -> [用户 /api/submit] -> request.submit -> awaiting.answer -> tool.result`
   - `request.submit` 是用户提交后的事件，不再表示“前端应该显示确认框”
   - `awaiting.answer` 是用户提交后的结构化摘要事件，便于前端展示问答/审批结果

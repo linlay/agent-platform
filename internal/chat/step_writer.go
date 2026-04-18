@@ -3,6 +3,7 @@ package chat
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -371,12 +372,14 @@ func (w *StepWriter) writeSubmitLine(answer stream.EventData) {
 		w.pendingSubmit = nil
 		return
 	}
+	answerPayload := answer.Map()
+	delete(answerPayload, "seq")
 	_ = w.store.AppendSubmitLine(w.chatID, SubmitLine{
 		ChatID:    w.chatID,
 		RunID:     w.runID,
 		UpdatedAt: time.Now().UnixMilli(),
 		Submit:    w.pendingSubmit,
-		Answer:    answer.Map(),
+		Answer:    answerPayload,
 		Type:      "submit",
 	})
 	w.pendingSubmit = nil
@@ -448,6 +451,12 @@ func textContent(text string) []ContentPart {
 func formatResult(v any) string {
 	if v == nil {
 		return ""
+	}
+	if text, ok := v.(string); ok {
+		return text
+	}
+	if data, err := json.Marshal(v); err == nil {
+		return string(data)
 	}
 	return fmt.Sprintf("%v", v)
 }

@@ -1,8 +1,10 @@
 package chat
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -516,6 +518,7 @@ func TestStepWriterMergesSubmitAndAnswer(t *testing.T) {
 	})
 	writer.OnEvent(stream.EventData{
 		Type:      "awaiting.answer",
+		Seq:       34,
 		Timestamp: 1002,
 		Payload: map[string]any{
 			"type":       "awaiting.answer",
@@ -545,6 +548,72 @@ func TestStepWriterMergesSubmitAndAnswer(t *testing.T) {
 	}
 	if answer == nil || answer["type"] != "awaiting.answer" {
 		t.Fatalf("expected merged answer payload, got %#v", lines[0])
+	}
+	if _, ok := answer["seq"]; ok {
+		t.Fatalf("did not expect seq on merged answer payload, got %#v", answer)
+	}
+}
+
+func TestStepWriterFormatsStructuredToolResultAsJSON(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	writer := NewStepWriter(store, "chat-tool-result-json", "run-tool-result-json", "react")
+	writer.OnEvent(stream.EventData{
+		Type:      "tool.snapshot",
+		Timestamp: 1001,
+		Payload: map[string]any{
+			"toolId":    "tool-1",
+			"toolName":  "_sandbox_bash_",
+			"arguments": `{"command":"echo hi"}`,
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "tool.result",
+		Timestamp: 1002,
+		Payload: map[string]any{
+			"toolId": "tool-1",
+			"result": map[string]any{
+				"error":    "hitl_timeout",
+				"exitCode": -1,
+				"output": map[string]any{
+					"code":   "hitl_timeout",
+					"status": "timeout",
+				},
+			},
+		},
+	})
+	writer.Flush()
+
+	lines, err := readJSONLines(store.chatJSONLPath("chat-tool-result-json"))
+	if err != nil {
+		t.Fatalf("read chat jsonl: %v", err)
+	}
+	if len(lines) != 1 {
+		t.Fatalf("expected one step line, got %#v", lines)
+	}
+	messages, _ := lines[0]["messages"].([]any)
+	if len(messages) != 2 {
+		t.Fatalf("expected tool snapshot and tool result messages, got %#v", lines[0])
+	}
+	resultMsg, _ := messages[1].(map[string]any)
+	content, _ := resultMsg["content"].([]any)
+	if len(content) != 1 {
+		t.Fatalf("expected one content item, got %#v", resultMsg)
+	}
+	textPart, _ := content[0].(map[string]any)
+	text, _ := textPart["text"].(string)
+	if strings.Contains(text, "map[") {
+		t.Fatalf("expected JSON tool result text, got %q", text)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(text), &decoded); err != nil {
+		t.Fatalf("expected JSON tool result text, got %q err=%v", text, err)
+	}
+	if decoded["error"] != "hitl_timeout" {
+		t.Fatalf("unexpected decoded tool result %#v", decoded)
 	}
 }
 

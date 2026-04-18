@@ -480,6 +480,171 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 	}
 }
 
+func TestAwaitHITLSubmitAndExecute_RejectEmitsCancelledAnswer(t *testing.T) {
+	runControl := contracts.NewRunControl(context.Background(), "run_1")
+	stream := &llmRunStream{
+		ctx: context.Background(),
+		engine: &LLMAgentEngine{
+			tools:    &recordingToolExecutor{defs: []api.ToolDetailResponse{approvalToolDefinition()}},
+			frontend: frontendtools.NewDefaultRegistry(),
+		},
+		session: contracts.QuerySession{
+			RequestID: "req_1",
+			ChatID:    "chat_1",
+			RunID:     "run_1",
+		},
+		runControl: runControl,
+		execCtx: &contracts.ExecutionContext{
+			Budget: contracts.Budget{Tool: contracts.RetryPolicy{TimeoutMs: 50}},
+		},
+		hitlPendingCall: &preparedToolInvocation{
+			toolID:   "tool_1",
+			toolName: "_sandbox_bash_",
+			args: map[string]any{
+				"command": "docker rmi nginx:latest",
+			},
+		},
+		hitlMatch: &hitl.InterceptResult{
+			Intercepted: true,
+			Rule: hitl.FlatRule{
+				Match:        "rmi",
+				Level:        1,
+				ViewportType: "builtin",
+				ViewportKey:  "confirm_dialog",
+			},
+		},
+		hitlAwaitingID: buildHITLAwaitingID("tool_1"),
+		hitlAwaitArgs: map[string]any{
+			"mode": "approval",
+			"questions": []any{
+				map[string]any{
+					"question": "docker rmi nginx:latest",
+					"header":   "Bash Approval",
+					"options": []any{
+						map[string]any{"label": "Approve", "value": "approve"},
+						map[string]any{"label": "Reject", "value": "reject"},
+					},
+				},
+			},
+		},
+	}
+	runControl.ExpectSubmit(stream.hitlAwaitingID)
+	ack := runControl.ResolveSubmit(api.SubmitRequest{
+		RunID:      "run_1",
+		AwaitingID: stream.hitlAwaitingID,
+		Params: []any{
+			map[string]any{
+				"question": "docker rmi nginx:latest",
+				"answer":   "Reject",
+				"value":    "reject",
+			},
+		},
+	})
+	if !ack.Accepted {
+		t.Fatalf("expected submit to be accepted, got %#v", ack)
+	}
+
+	if err := stream.awaitHITLSubmitAndExecute(); err != nil {
+		t.Fatalf("awaitHITLSubmitAndExecute returned error: %v", err)
+	}
+
+	foundAnswer := false
+	foundResult := false
+	for _, delta := range stream.pending {
+		switch typed := delta.(type) {
+		case contracts.DeltaAwaitingAnswer:
+			if typed.AwaitingID == buildHITLAwaitingID("tool_1") {
+				foundAnswer = true
+				if typed.Answer["mode"] != "approval" {
+					t.Fatalf("unexpected reject answer %#v", typed.Answer)
+				}
+				questions, ok := typed.Answer["questions"].([]map[string]any)
+				if !ok || len(questions) != 1 || questions[0]["value"] != "reject" {
+					t.Fatalf("unexpected reject questions %#v", typed.Answer)
+				}
+			}
+		case contracts.DeltaToolResult:
+			if typed.ToolName == "_sandbox_bash_" {
+				foundResult = true
+				if typed.Result.Error != "user_rejected" {
+					t.Fatalf("expected user_rejected tool result, got %#v", typed.Result)
+				}
+			}
+		}
+	}
+	if !foundAnswer || !foundResult {
+		t.Fatalf("expected reject answer and tool result, got %#v", stream.pending)
+	}
+}
+
+func TestAwaitHITLSubmitAndExecute_TimeoutEmitsTerminalAnswer(t *testing.T) {
+	stream := &llmRunStream{
+		ctx: context.Background(),
+		engine: &LLMAgentEngine{
+			tools:    &recordingToolExecutor{defs: []api.ToolDetailResponse{approvalToolDefinition()}},
+			frontend: frontendtools.NewDefaultRegistry(),
+		},
+		session: contracts.QuerySession{
+			RequestID: "req_1",
+			ChatID:    "chat_1",
+			RunID:     "run_1",
+		},
+		runControl: contracts.NewRunControl(context.Background(), "run_1"),
+		execCtx: &contracts.ExecutionContext{
+			Budget: contracts.Budget{Tool: contracts.RetryPolicy{TimeoutMs: 1}},
+		},
+		hitlPendingCall: &preparedToolInvocation{
+			toolID:   "tool_1",
+			toolName: "_sandbox_bash_",
+			args: map[string]any{
+				"command": "docker rmi nginx:latest",
+			},
+		},
+		hitlMatch: &hitl.InterceptResult{
+			Intercepted: true,
+			Rule: hitl.FlatRule{
+				Match:        "rmi",
+				Level:        1,
+				ViewportType: "builtin",
+				ViewportKey:  "confirm_dialog",
+			},
+		},
+		hitlAwaitingID: buildHITLAwaitingID("tool_1"),
+		hitlAwaitArgs: map[string]any{
+			"mode": "approval",
+		},
+	}
+	stream.runControl.ExpectSubmit(stream.hitlAwaitingID)
+
+	if err := stream.awaitHITLSubmitAndExecute(); err != nil {
+		t.Fatalf("awaitHITLSubmitAndExecute returned error: %v", err)
+	}
+
+	foundAnswer := false
+	foundResult := false
+	for _, delta := range stream.pending {
+		switch typed := delta.(type) {
+		case contracts.DeltaAwaitingAnswer:
+			if typed.AwaitingID == buildHITLAwaitingID("tool_1") {
+				foundAnswer = true
+				if typed.Answer["reason"] != "timeout" || typed.Answer["code"] != "hitl_timeout" {
+					t.Fatalf("unexpected timeout answer %#v", typed.Answer)
+				}
+			}
+		case contracts.DeltaToolResult:
+			if typed.ToolName == "_sandbox_bash_" {
+				foundResult = true
+				if typed.Result.Error != "hitl_timeout" {
+					t.Fatalf("expected hitl_timeout tool result, got %#v", typed.Result)
+				}
+			}
+		}
+	}
+	if !foundAnswer || !foundResult {
+		t.Fatalf("expected timeout answer and tool result, got %#v", stream.pending)
+	}
+}
+
 func TestInvokeActiveToolCallUsesSkillScopedChecker(t *testing.T) {
 	executor := &recordingToolExecutor{
 		defs: []api.ToolDetailResponse{approvalToolDefinition()},
