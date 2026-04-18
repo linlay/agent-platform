@@ -82,8 +82,8 @@ commands:
 	if tool.Meta["viewportType"] != "builtin" || tool.Meta["viewportKey"] != "confirm_dialog" {
 		t.Fatalf("unexpected synthetic tool meta: %#v", tool.Meta)
 	}
-	if !strings.Contains(tool.Description, "_ask_user_approval_") {
-		t.Fatalf("expected synthetic tool description to point at _ask_user_approval_, got %#v", tool.Description)
+	if !strings.Contains(tool.Description, "awaiting events directly") {
+		t.Fatalf("expected synthetic tool description to describe direct awaiting events, got %#v", tool.Description)
 	}
 }
 

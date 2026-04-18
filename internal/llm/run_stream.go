@@ -54,9 +54,8 @@ type llmRunStream struct {
 	activeToolCall     *preparedToolInvocation
 	hitlPendingCall    *preparedToolInvocation
 	hitlMatch          *hitl.InterceptResult
-	hitlSyntheticID    string
-	hitlSyntheticName  string
-	hitlSyntheticArgs  map[string]any
+	hitlAwaitingID     string
+	hitlAwaitArgs      map[string]any
 	skipPostToolHook   bool
 
 	lastCallPromptTokens     int
@@ -842,32 +841,14 @@ func (s *llmRunStream) shouldAutoApproveHITL(result hitl.InterceptResult) bool {
 func (s *llmRunStream) emitHITLConfirmDeltas(invocation *preparedToolInvocation, result hitl.InterceptResult) error {
 	s.hitlPendingCall = invocation
 	s.hitlMatch = &result
-	s.hitlSyntheticID = "hitl_" + invocation.toolID
-	// Bash HITL always funnels through the shared approval tool. Rule viewport data
-	// only affects how that approval is rendered, not which tool handles the submit.
-	s.hitlSyntheticName = "_ask_user_approval_"
+	s.hitlAwaitingID = buildHITLAwaitingID(invocation.toolID)
 
 	args := s.buildHITLArgs(invocation, result)
-	s.hitlSyntheticArgs = CloneMap(args)
-	argsJSON, _ := json.Marshal(args)
-
-	s.pending = append(s.pending, DeltaToolCall{
-		Index:     0,
-		ID:        s.hitlSyntheticID,
-		Name:      s.hitlSyntheticName,
-		ArgsDelta: string(argsJSON),
-	})
-	s.pending = append(s.pending, DeltaToolEnd{ToolIDs: []string{s.hitlSyntheticID}})
-	if s.engine.frontend != nil {
-		if handler, ok := s.engine.frontend.Handler(s.hitlSyntheticName); ok {
-			if toolDef, found := s.lookupToolDefinition(s.hitlSyntheticName); found {
-				s.pending = append(s.pending, handler.BuildDeferredAwait(s.hitlSyntheticID, s.session.RunID, toolDef, args, s.resolveHITLTimeout())...)
-			}
-		}
-	}
+	s.hitlAwaitArgs = CloneMap(args)
+	s.pending = append(s.pending, s.buildHITLAwaitDelta(s.hitlAwaitingID, args))
 
 	if s.runControl != nil {
-		s.runControl.ExpectSubmit(s.hitlSyntheticID)
+		s.runControl.ExpectSubmit(s.hitlAwaitingID)
 	}
 	s.activeToolCall = nil
 	s.execCtx.CurrentToolID = ""
@@ -878,58 +859,46 @@ func (s *llmRunStream) emitHITLConfirmDeltas(invocation *preparedToolInvocation,
 func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 	invocation := s.hitlPendingCall
 	match := s.hitlMatch
-	syntheticID := s.hitlSyntheticID
-	syntheticName := s.hitlSyntheticName
-	syntheticArgs := CloneMap(s.hitlSyntheticArgs)
-	if invocation == nil || match == nil || syntheticID == "" {
+	awaitingID := s.hitlAwaitingID
+	awaitArgs := CloneMap(s.hitlAwaitArgs)
+	if invocation == nil || match == nil || awaitingID == "" {
 		s.hitlPendingCall = nil
 		s.hitlMatch = nil
-		s.hitlSyntheticID = ""
-		s.hitlSyntheticName = ""
-		s.hitlSyntheticArgs = nil
+		s.hitlAwaitingID = ""
+		s.hitlAwaitArgs = nil
 		return nil
 	}
 	defer func() {
 		s.hitlPendingCall = nil
 		s.hitlMatch = nil
-		s.hitlSyntheticID = ""
-		s.hitlSyntheticName = ""
-		s.hitlSyntheticArgs = nil
+		s.hitlAwaitingID = ""
+		s.hitlAwaitArgs = nil
 		s.execCtx.CurrentToolID = ""
 		s.execCtx.CurrentToolName = ""
 		if s.runControl != nil {
-			s.runControl.ClearExpectedSubmit(syntheticID)
+			s.runControl.ClearExpectedSubmit(awaitingID)
 		}
 	}()
 	if s.runControl == nil {
 		return ErrRunControlUnavailable
 	}
 
-	s.execCtx.CurrentToolID = syntheticID
-	s.execCtx.CurrentToolName = syntheticName
+	s.execCtx.CurrentToolID = awaitingID
+	s.execCtx.CurrentToolName = invocation.toolName
 	s.execCtx.RunLoopState = RunLoopStateWaitingSubmit
 	if s.runControl != nil {
 		s.runControl.TransitionState(RunLoopStateWaitingSubmit)
 	}
 
-	submitResult, err := s.runControl.AwaitSubmitWithTimeout(s.ctx, syntheticID, time.Duration(s.resolveHITLTimeout())*time.Millisecond)
+	submitResult, err := s.runControl.AwaitSubmitWithTimeout(s.ctx, awaitingID, time.Duration(s.resolveHITLTimeout())*time.Millisecond)
 	if err != nil {
 		if errors.Is(err, ErrRunInterrupted) {
 			return s.handleInterruptIfNeeded()
 		}
-		timeoutResult := ToolExecutionResult{
-			Output: marshalJSON(map[string]any{
-				"status": "timeout",
-				"code":   "hitl_timeout",
-			}),
-			Structured: map[string]any{
-				"status": "timeout",
-				"code":   "hitl_timeout",
-			},
-			Error:    "hitl_timeout",
-			ExitCode: -1,
-		}
-		s.appendSyntheticToolResult(syntheticID, syntheticName, timeoutResult)
+		s.pending = append(s.pending, DeltaAwaitingAnswer{
+			AwaitingID: awaitingID,
+			Answer:     hitlTimeoutAnswer(),
+		})
 		rejected := ToolExecutionResult{
 			Output: marshalJSON(NewErrorPayload(
 				"hitl_timeout",
@@ -967,11 +936,11 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 		RequestID:  s.session.RequestID,
 		ChatID:     s.session.ChatID,
 		RunID:      s.session.RunID,
-		AwaitingID: syntheticID,
+		AwaitingID: awaitingID,
 		Params:     submitResult.Request.Params,
 	})
 
-	normalized, normalizeErr := s.normalizeHITLSubmit(syntheticArgs, submitResult.Request.Params)
+	normalized, normalizeErr := s.normalizeHITLSubmit(awaitArgs, submitResult.Request.Params)
 	if normalizeErr != nil {
 		payload := NewErrorPayload(
 			"frontend_submit_invalid_payload",
@@ -979,8 +948,8 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 			ErrorScopeFrontendSubmit,
 			ErrorCategoryTool,
 			map[string]any{
-				"awaitingId": syntheticID,
-				"toolName":   syntheticName,
+				"awaitingId": awaitingID,
+				"toolName":   invocation.toolName,
 				"params":     submitResult.Request.Params,
 			},
 		)
@@ -990,17 +959,15 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 			Error:      "frontend_submit_invalid_payload",
 			ExitCode:   -1,
 		}
-		s.appendSyntheticToolResult(syntheticID, syntheticName, result)
 		s.appendOriginalToolResult(invocation, result)
 		return nil
 	}
 	if len(normalized) > 0 {
 		s.pending = append(s.pending, DeltaAwaitingAnswer{
-			AwaitingID: syntheticID,
+			AwaitingID: awaitingID,
 			Answer:     CloneMap(normalized),
 		})
 	}
-	s.appendSyntheticToolResult(syntheticID, syntheticName, structuredResult(normalized))
 
 	if normalized["cancelled"] == true {
 		rejected := ToolExecutionResult{
@@ -1041,8 +1008,8 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 				ErrorScopeFrontendSubmit,
 				ErrorCategoryTool,
 				map[string]any{
-					"awaitingId": syntheticID,
-					"toolName":   syntheticName,
+					"awaitingId": awaitingID,
+					"toolName":   invocation.toolName,
 					"payload":    formPayload,
 				},
 			)
@@ -1194,20 +1161,6 @@ func (s *llmRunStream) resolveHITLTimeout() int64 {
 	return 120000
 }
 
-func (s *llmRunStream) appendSyntheticToolResult(toolID string, toolName string, result ToolExecutionResult) {
-	s.pending = append(s.pending, DeltaToolResult{
-		ToolID:   toolID,
-		ToolName: toolName,
-		Result:   result,
-	})
-	s.messages = append(s.messages, openAIMessage{
-		Role:       "tool",
-		ToolCallID: toolID,
-		Name:       toolName,
-		Content:    result.Output,
-	})
-}
-
 func (s *llmRunStream) appendOriginalToolResult(invocation *preparedToolInvocation, result ToolExecutionResult) {
 	s.previousToolResult = structuredOrOutput(result)
 	s.pending = append(s.pending, DeltaToolResult{
@@ -1256,6 +1209,61 @@ func structuredResult(payload map[string]any) ToolExecutionResult {
 	}
 }
 
+func buildHITLAwaitingID(toolID string) string {
+	return "await_" + strings.TrimSpace(toolID)
+}
+
+func hitlTimeoutAnswer() map[string]any {
+	return map[string]any{
+		"mode":      "approval",
+		"cancelled": true,
+		"reason":    "timeout",
+		"status":    "timeout",
+		"code":      "hitl_timeout",
+	}
+}
+
+func (s *llmRunStream) buildHITLAwaitDelta(awaitingID string, args map[string]any) DeltaAwaitAsk {
+	await := DeltaAwaitAsk{
+		AwaitingID:   awaitingID,
+		ViewportType: "builtin",
+		ViewportKey:  "confirm_dialog",
+		Mode:         "approval",
+		Timeout:      s.resolveHITLTimeout(),
+		RunID:        s.session.RunID,
+	}
+	if viewportType := strings.TrimSpace(AnyStringNode(args["viewportType"])); viewportType != "" {
+		await.ViewportType = viewportType
+	}
+	if viewportKey := strings.TrimSpace(AnyStringNode(args["viewportKey"])); viewportKey != "" {
+		await.ViewportKey = viewportKey
+	}
+	if payload := AnyMapNode(args["payload"]); len(payload) > 0 {
+		await.Payload = CloneMap(payload)
+	}
+	if questions := cloneAnySlice(args["questions"]); len(questions) > 0 {
+		await.Questions = questions
+	}
+	return await
+}
+
+func cloneAnySlice(raw any) []any {
+	items, ok := raw.([]any)
+	if !ok || len(items) == 0 {
+		return nil
+	}
+	cloned := make([]any, 0, len(items))
+	for _, item := range items {
+		switch value := item.(type) {
+		case map[string]any:
+			cloned = append(cloned, CloneMap(value))
+		default:
+			cloned = append(cloned, value)
+		}
+	}
+	return cloned
+}
+
 func firstApprovalQuestion(raw any) map[string]any {
 	switch typed := raw.(type) {
 	case []map[string]any:
@@ -1287,14 +1295,7 @@ func resolveApprovedCommand(value string, answer string) string {
 }
 
 func (s *llmRunStream) normalizeHITLSubmit(args map[string]any, params any) (map[string]any, error) {
-	if s.engine.frontend == nil {
-		return nil, fmt.Errorf("frontend registry not configured")
-	}
-	handler, ok := s.engine.frontend.Handler("_ask_user_approval_")
-	if !ok {
-		return nil, fmt.Errorf("frontend tool handler not registered: _ask_user_approval_")
-	}
-	return handler.NormalizeSubmit(args, params)
+	return normalizeHITLSubmit(args, params)
 }
 
 func extractCommandPayload(parsed hitl.CommandComponents) map[string]any {

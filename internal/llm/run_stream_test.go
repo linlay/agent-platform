@@ -229,7 +229,7 @@ func TestPreToolInvocationDeltas_ApprovalUsesFrontendHandlerAwaitAsk(t *testing.
 	}
 }
 
-func TestBashHITLApprovalUsesAskUserApprovalForAllViewports(t *testing.T) {
+func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 	tests := []struct {
 		name                 string
 		rule                 hitl.FlatRule
@@ -388,17 +388,15 @@ func TestBashHITLApprovalUsesAskUserApprovalForAllViewports(t *testing.T) {
 			if err := stream.emitHITLConfirmDeltas(invocation, result); err != nil {
 				t.Fatalf("emitHITLConfirmDeltas returned error: %v", err)
 			}
-			if stream.hitlSyntheticName != "_ask_user_approval_" {
-				t.Fatalf("expected bash HITL to use _ask_user_approval_, got %q", stream.hitlSyntheticName)
+			if stream.hitlAwaitingID != buildHITLAwaitingID("tool_1") {
+				t.Fatalf("expected bash HITL awaiting id, got %q", stream.hitlAwaitingID)
 			}
 
 			var awaitAsk contracts.DeltaAwaitAsk
 			foundAwaitAsk := false
 			for _, delta := range stream.pending {
 				if toolCall, ok := delta.(contracts.DeltaToolCall); ok {
-					if toolCall.Name != "_ask_user_approval_" {
-						t.Fatalf("expected tool call name _ask_user_approval_, got %#v", toolCall)
-					}
+					t.Fatalf("did not expect synthetic approval tool call, got %#v", toolCall)
 				}
 				if ask, ok := delta.(contracts.DeltaAwaitAsk); ok {
 					awaitAsk = ask
@@ -434,7 +432,7 @@ func TestBashHITLApprovalUsesAskUserApprovalForAllViewports(t *testing.T) {
 
 			ack := runControl.ResolveSubmit(api.SubmitRequest{
 				RunID:      "run_1",
-				AwaitingID: stream.hitlSyntheticID,
+				AwaitingID: stream.hitlAwaitingID,
 				Params:     tc.submitParams,
 			})
 			if !ack.Accepted {
@@ -455,31 +453,27 @@ func TestBashHITLApprovalUsesAskUserApprovalForAllViewports(t *testing.T) {
 
 			foundRequestSubmit := false
 			foundAwaitingAnswer := false
-			foundSyntheticResult := false
 			foundOriginalResult := false
 			for _, delta := range stream.pending {
 				switch typed := delta.(type) {
 				case contracts.DeltaRequestSubmit:
-					if typed.AwaitingID == "hitl_tool_1" {
+					if typed.AwaitingID == buildHITLAwaitingID("tool_1") {
 						foundRequestSubmit = true
 					}
 				case contracts.DeltaAwaitingAnswer:
-					if typed.AwaitingID == "hitl_tool_1" {
+					if typed.AwaitingID == buildHITLAwaitingID("tool_1") {
 						foundAwaitingAnswer = true
 						if tc.expectedAnswerAction != "" && typed.Answer["action"] != tc.expectedAnswerAction {
 							t.Fatalf("expected awaiting.answer action %q, got %#v", tc.expectedAnswerAction, typed.Answer)
 						}
 					}
 				case contracts.DeltaToolResult:
-					if typed.ToolName == "_ask_user_approval_" {
-						foundSyntheticResult = true
-					}
 					if typed.ToolName == "_sandbox_bash_" {
 						foundOriginalResult = true
 					}
 				}
 			}
-			if !foundRequestSubmit || !foundAwaitingAnswer || !foundSyntheticResult || !foundOriginalResult {
+			if !foundRequestSubmit || !foundAwaitingAnswer || !foundOriginalResult {
 				t.Fatalf("expected submit/answer/results deltas, got %#v", stream.pending)
 			}
 		})
@@ -537,8 +531,8 @@ func TestInvokeActiveToolCallUsesSkillScopedChecker(t *testing.T) {
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invokeActiveToolCall returned error: %v", err)
 	}
-	if stream.hitlSyntheticName != "_ask_user_approval_" {
-		t.Fatalf("expected approval tool, got %q", stream.hitlSyntheticName)
+	if stream.hitlAwaitingID != buildHITLAwaitingID("tool_1") {
+		t.Fatalf("expected awaiting id, got %q", stream.hitlAwaitingID)
 	}
 	if len(executor.invocations) != 0 {
 		t.Fatalf("expected bash execution to wait for approval, got %#v", executor.invocations)

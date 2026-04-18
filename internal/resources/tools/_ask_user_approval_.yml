@@ -1,6 +1,6 @@
 name: _ask_user_approval_
-label: 用户确认
-description: Unified approval entrypoint for user confirmations, including intercepted bash HITL flows. Builtin confirm flows submit approval questions with answer/value pairs, while html form flows submit a command for frontend parsing and return structured payload data on submit.
+label: 向用户确认
+description: Unified approval entrypoint for model-initiated user confirmations. Builtin confirm flows submit approval questions with answer/value pairs, while html form flows submit structured payload data on submit.
 type: function
 viewportType: builtin
 viewportKey: confirm_dialog

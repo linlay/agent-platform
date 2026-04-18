@@ -139,7 +139,7 @@ func buildSyntheticToolDefinition(rule FlatRule) api.ToolDetailResponse {
 		Key:         name,
 		Name:        name,
 		Label:       "Bash HITL Viewport Metadata",
-		Description: "Synthetic metadata entry for Bash HITL viewport lookup. Intercepted bash commands are still approved through _ask_user_approval_.",
+		Description: "Synthetic metadata entry for Bash HITL viewport lookup. Intercepted bash commands emit awaiting events directly and no longer synthesize approval tool calls.",
 		Parameters: map[string]any{
 			"type": "object",
 		},

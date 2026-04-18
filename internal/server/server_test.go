@@ -2149,9 +2149,6 @@ func TestBashHITLApproveFlow(t *testing.T) {
 	if len(executed) != 1 || executed[0] != expectedCommand {
 		t.Fatalf("expected approved command to execute once, got %#v", executed)
 	}
-	if !strings.Contains(body, `"_ask_user_approval_"`) {
-		t.Fatalf("expected ask_user_approval tool in stream, got %s", body)
-	}
 	if !strings.Contains(body, `"viewportKey":"leave_form"`) {
 		t.Fatalf("expected leave_form viewport in stream, got %s", body)
 	}
@@ -2310,9 +2307,6 @@ func TestBashHITLDockerRMIApproveFlow(t *testing.T) {
 	if len(executed) != 1 || executed[0] != command {
 		t.Fatalf("expected approved docker rmi to execute once, got %#v", executed)
 	}
-	if !strings.Contains(body, `"_ask_user_approval_"`) {
-		t.Fatalf("expected ask_user_approval tool in stream, got %s", body)
-	}
 	if !strings.Contains(body, `"viewportKey":"confirm_dialog"`) {
 		t.Fatalf("expected confirm_dialog viewport in stream, got %s", body)
 	}
@@ -2453,7 +2447,7 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 	reader := bufio.NewReader(resp.Body)
 	var streamBody strings.Builder
 	originalToolID := ""
-	syntheticToolID := ""
+	awaitingID := ""
 	var awaitAskPayload map[string]any
 	for {
 		line, readErr := reader.ReadString('\n')
@@ -2467,14 +2461,10 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 					originalToolID, _ = payload["toolId"].(string)
 				case "simple-bash":
 					originalToolID, _ = payload["toolId"].(string)
-				case "_ask_user_approval_":
-					syntheticToolID, _ = payload["toolId"].(string)
 				}
 			case "awaiting.ask":
 				awaitAskPayload = payload
-				if syntheticToolID == "" {
-					syntheticToolID, _ = payload["awaitingId"].(string)
-				}
+				awaitingID, _ = payload["awaitingId"].(string)
 				goto submit
 			}
 		}
@@ -2520,7 +2510,7 @@ submit:
 		submitPayload += `}]`
 	}
 	submitRec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(submitRec, httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+extractRunIDFromStream(t, streamBody.String())+`","awaitingId":"`+syntheticToolID+`","params":`+submitPayload+`}`)))
+	fixture.server.ServeHTTP(submitRec, httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+extractRunIDFromStream(t, streamBody.String())+`","awaitingId":"`+awaitingID+`","params":`+submitPayload+`}`)))
 	if submitRec.Code != http.StatusOK {
 		t.Fatalf("submit expected 200, got %d: %s", submitRec.Code, submitRec.Body.String())
 	}
@@ -2537,7 +2527,7 @@ submit:
 	}
 
 	messages := decodeSSEMessages(t, streamBody.String())
-	assertSpecificEventOrder(t, messages, originalToolID, syntheticToolID)
+	assertSpecificEventOrder(t, messages, originalToolID, awaitingID)
 	select {
 	case secondTurn := <-secondTurnMessages:
 		toolMessages := 0
@@ -2547,8 +2537,8 @@ submit:
 				toolMessages++
 			}
 		}
-		if toolMessages < 2 {
-			t.Fatalf("expected second turn to receive both tool messages, got %#v", secondTurn)
+		if toolMessages < 1 {
+			t.Fatalf("expected second turn to receive original bash tool result, got %#v", secondTurn)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for second provider request")
@@ -2610,47 +2600,39 @@ func extractRunIDFromStream(t *testing.T, body string) string {
 	return ""
 }
 
-func assertSpecificEventOrder(t *testing.T, messages []map[string]any, originalToolID string, syntheticToolID string) {
+func assertSpecificEventOrder(t *testing.T, messages []map[string]any, originalToolID string, awaitingID string) {
 	t.Helper()
 	originalStart := -1
-	syntheticStart := -1
 	awaitAsk := -1
 	requestSubmit := -1
 	awaitingAnswer := -1
-	syntheticResult := -1
 	originalResult := -1
 	for idx, message := range messages {
 		eventType, _ := message["type"].(string)
 		switch eventType {
 		case "tool.start":
-			switch message["toolId"] {
-			case originalToolID:
+			if message["toolId"] == originalToolID {
 				originalStart = idx
-			case syntheticToolID:
-				syntheticStart = idx
 			}
 		case "awaiting.ask":
-			if message["awaitingId"] == syntheticToolID {
+			if message["awaitingId"] == awaitingID {
 				awaitAsk = idx
 			}
 		case "request.submit":
-			if message["awaitingId"] == syntheticToolID {
+			if message["awaitingId"] == awaitingID {
 				requestSubmit = idx
 			}
 		case "awaiting.answer":
-			if message["awaitingId"] == syntheticToolID {
+			if message["awaitingId"] == awaitingID {
 				awaitingAnswer = idx
 			}
 		case "tool.result":
-			if message["toolId"] == syntheticToolID {
-				syntheticResult = idx
-			}
 			if message["toolId"] == originalToolID {
 				originalResult = idx
 			}
 		}
 	}
-	if !(originalStart >= 0 && syntheticStart > originalStart && awaitAsk > syntheticStart && requestSubmit > awaitAsk && awaitingAnswer > requestSubmit && syntheticResult > awaitingAnswer && originalResult > syntheticResult) {
+	if !(originalStart >= 0 && awaitAsk > originalStart && requestSubmit > awaitAsk && awaitingAnswer > requestSubmit && originalResult > awaitingAnswer) {
 		t.Fatalf("unexpected HITL event order: %#v", messages)
 	}
 }
