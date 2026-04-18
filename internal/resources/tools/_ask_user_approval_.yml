@@ -1,6 +1,6 @@
 name: _ask_user_approval_
 label: 用户确认
-description: Unified approval entrypoint for user confirmations, including intercepted bash HITL flows. Each question returns both the display answer text and the machine-readable value, while viewportType and viewportKey only control how the approval UI is rendered.
+description: Unified approval entrypoint for user confirmations, including intercepted bash HITL flows. Builtin confirm flows submit approval questions with answer/value pairs, while html form flows submit a command for frontend parsing and return structured payload data on submit.
 type: function
 viewportType: builtin
 viewportKey: confirm_dialog
@@ -16,7 +16,7 @@ inputSchema:
         - approval
     questions:
       type: array
-      description: Required. List of approval questions to present to the user in a single prompt.
+      description: Optional. List of approval questions for builtin confirm-style approval prompts.
       items:
         type: object
         properties:
@@ -63,10 +63,9 @@ inputSchema:
     viewportKey:
       type: string
       description: Override the default viewportKey, for example to switch HITL flows to a specific view.
-    payload:
-      type: object
-      description: Additional structured data passed to the frontend view.
+    command:
+      type: string
+      description: Optional. Original command string for html form-style approval flows. The frontend parses and edits the payload client-side, then submits the updated payload back to the server.
   required:
     - mode
-    - questions
   additionalProperties: false

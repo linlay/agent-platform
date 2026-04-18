@@ -241,8 +241,11 @@ remember 根目录由 `MEMORY_DIR` 控制：
   - 若用户取消，不输出 `questions`，仅保留 `cancelled` / `reason`
 - `approval` 模式：
   - 不再发 `await.payload`
-  - `questions` 直接内联在 `await.ask`
-  - 用户提交后额外发 `awaiting.answer`，结构为 `{"awaitingId":"...","mode":"approval","questions":[{"question":"...","header":"...","answer":"...","value":"..."}]}`
+  - `builtin` confirm 使用 `questions` 直接内联在 `await.ask`
+  - `html` form 使用 `command` 直接内联在 `await.ask`，不再输出 `questions`
+  - 用户提交后额外发 `awaiting.answer`：
+    - confirm：`{"awaitingId":"...","mode":"approval","questions":[{"question":"...","header":"...","answer":"...","value":"..."}]}`
+    - form submit：`{"awaitingId":"...","mode":"approval","action":"submit","payload":{...}}`
   - 若用户取消，不输出 `questions`，仅保留 `cancelled` / `reason`
 - `mode=question`：
   - 顶层字段为 `questions`
@@ -256,13 +259,17 @@ remember 根目录由 `MEMORY_DIR` 控制：
     - 多选题：`{"runId":"...","awaitingId":"...","params":[{"question":"...","answers":[...]}]}`
   - `tool.result` 仍返回规范化 JSON：`{"mode":"question","answers":[{"question":"...","header":"...","answer":...}]}`
 - `mode=approval`：
-  - 前端事件里的 `await.ask` 统一输出 `questions: [{ question, header?, description?, options, allowFreeText?, freeTextPlaceholder? }]`
-  - Bash HITL 的 `question` 直接使用被拦截的原始命令字符串，不再包装固定问句
+  - builtin confirm 的 `await.ask` 输出 `questions: [{ question, header?, description?, options }]`
+  - html form 的 `await.ask` 输出 `command: "..."`，HTML 自行从原始命令中读取并重组 payload
+  - Bash HITL 的 builtin `question` 直接使用被拦截的原始命令字符串，不再包装固定问句
   - `options` 结构是 `{ label, value, description? }`
   - 预设选项与自由输入互斥；提交项里的 `answer` 为展示文案，`value` 为机器值
+  - builtin confirm 额外支持 `approve_always`，作用域仅限当前 run 内相同 level 的 builtin confirm
   - 预设选项提交必须同时带上 `answer` 与 `value`；`request.submit` 保留前端原始提交，`awaiting.answer` / `tool.result` 输出后端规范化后的结果
-  - `/api/submit` 提交结构：`{"runId":"...","awaitingId":"...","params":[{"question":"...","answer":"确认删除","value":"yes"}]}`
-  - `tool.result` 规范化结构：`{"mode":"approval","questions":[{"question":"...","header":"...","answer":"确认删除","value":"yes"}]}`
+  - builtin confirm `/api/submit`：`{"runId":"...","awaitingId":"...","params":[{"question":"...","answer":"确认删除","value":"yes"}]}`
+  - html form `/api/submit`：`{"runId":"...","awaitingId":"...","params":{"action":"submit","payload":{...}}}` 或 `{"runId":"...","awaitingId":"...","params":{"action":"cancel"}}`
+  - confirm `tool.result` 规范化结构：`{"mode":"approval","questions":[{"question":"...","header":"...","answer":"确认删除","value":"yes"}]}`
+  - form `tool.result` 规范化结构：`{"mode":"approval","action":"submit","payload":{...}}`
 
 ## 7. 开发要点
 

@@ -202,6 +202,13 @@ func newAwaitingAnswerEvent(input AwaitingAnswer) StreamEvent {
 			payload["questions"] = formatted
 		}
 	case "approval":
+		if action := strings.ToLower(strings.TrimSpace(anyString(answer["action"]))); action == "submit" {
+			payload["action"] = action
+			if rawPayload, ok := answer["payload"].(map[string]any); ok && len(rawPayload) > 0 {
+				payload["payload"] = clonePayload(rawPayload)
+			}
+			return NewEvent("awaiting.answer", payload)
+		}
 		formatted := formatAwaitingQuestions(answer["questions"])
 		if len(formatted) > 0 {
 			payload["questions"] = formatted
@@ -402,6 +409,9 @@ func (d *StreamEventDispatcher) newAwaitAskEvent(input AwaitAsk) StreamEvent {
 		"mode":         input.Mode,
 		"timeout":      input.Timeout,
 		"runId":        input.RunID,
+	}
+	if strings.TrimSpace(input.Command) != "" {
+		payload["command"] = input.Command
 	}
 	if len(input.Questions) > 0 {
 		payload["questions"] = input.Questions

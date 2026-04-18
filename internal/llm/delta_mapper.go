@@ -192,6 +192,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			Mode:         value.Mode,
 			Timeout:      value.Timeout,
 			RunID:        value.RunID,
+			Command:      value.Command,
 			Questions:    append([]any(nil), value.Questions...),
 		}}
 	case DeltaAwaitPayload:

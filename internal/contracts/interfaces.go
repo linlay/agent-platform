@@ -115,6 +115,7 @@ type ExecutionContext struct {
 	CurrentToolID       string
 	CurrentToolName     string
 	HITLLevel           int
+	AutoApproveLevels   map[int]bool
 	SandboxSession      *SandboxSession
 	Budget              Budget
 	StageSettings       PlanExecuteSettings

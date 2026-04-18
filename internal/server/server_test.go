@@ -2141,7 +2141,8 @@ func (c stubMCPToolCatalog) Tool(name string) (api.ToolDetailResponse, bool) {
 
 func TestBashHITLApproveFlow(t *testing.T) {
 	body, executed := runBashHITLFlow(t, bashHITLFlowOptions{action: "approve"})
-	if len(executed) != 1 || executed[0] != `mock create-leave --payload {"employee_id":"E1001","employee_name":"Lin","leave_type":"annual","start_date":"2026-04-20","end_date":"2026-04-22","days":3,"reason":"family_trip","handover_to":"E2001","urgent_contact":"13800138000"}` {
+	expectedCommand := rebuildPayloadCommandForTest(t, defaultBashHITLCommand(), payloadFromCommandForTest(t, defaultBashHITLCommand()))
+	if len(executed) != 1 || executed[0] != expectedCommand {
 		t.Fatalf("expected approved command to execute once, got %#v", executed)
 	}
 	if !strings.Contains(body, `"_ask_user_approval_"`) {
@@ -2151,23 +2152,25 @@ func TestBashHITLApproveFlow(t *testing.T) {
 		t.Fatalf("expected leave_form viewport in stream, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
-		!strings.Contains(body, `"question":"mock create-leave --payload {\"employee_id\":\"E1001\",\"employee_name\":\"Lin\",\"leave_type\":\"annual\",\"start_date\":\"2026-04-20\",\"end_date\":\"2026-04-22\",\"days\":3,\"reason\":\"family_trip\",\"handover_to\":\"E2001\",\"urgent_contact\":\"13800138000\"}"`) ||
-		!strings.Contains(body, `"answer":"Approve"`) ||
-		!strings.Contains(body, `"value":"approve"`) {
+		!strings.Contains(body, `"action":"submit"`) ||
+		!strings.Contains(body, `"payload":{"days":3,"employee_id":"E1001","employee_name":"Lin","end_date":"2026-04-22","handover_to":"E2001","leave_type":"annual","reason":"family_trip","start_date":"2026-04-20","urgent_contact":"13800138000"}`) {
 		t.Fatalf("expected approve awaiting.answer in stream, got %s", body)
+	}
+	if !strings.Contains(body, `"command":"mock create-leave --payload {\"employee_id\":\"E1001\",\"employee_name\":\"Lin\",\"leave_type\":\"annual\",\"start_date\":\"2026-04-20\",\"end_date\":\"2026-04-22\",\"days\":3,\"reason\":\"family_trip\",\"handover_to\":\"E2001\",\"urgent_contact\":\"13800138000\"}"`) {
+		t.Fatalf("expected form awaiting.ask command in stream, got %s", body)
 	}
 }
 
 func TestBashHITLModifyFlow(t *testing.T) {
 	modified := `mock create-leave --payload {"employee_id":"E1001","employee_name":"Lin","leave_type":"personal","start_date":"2026-04-21","end_date":"2026-04-22","days":2,"reason":"family_trip","handover_to":"E2001","urgent_contact":"13800138000"}`
 	body, executed := runBashHITLFlow(t, bashHITLFlowOptions{action: "modify", modifiedCommand: modified})
-	if len(executed) != 1 || executed[0] != modified {
+	expectedCommand := rebuildPayloadCommandForTest(t, defaultBashHITLCommand(), payloadFromCommandForTest(t, modified))
+	if len(executed) != 1 || executed[0] != expectedCommand {
 		t.Fatalf("expected modified command to execute once, got %#v", executed)
 	}
 	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
-		!strings.Contains(body, `"question":"mock create-leave --payload {\"employee_id\":\"E1001\",\"employee_name\":\"Lin\",\"leave_type\":\"annual\",\"start_date\":\"2026-04-20\",\"end_date\":\"2026-04-22\",\"days\":3,\"reason\":\"family_trip\",\"handover_to\":\"E2001\",\"urgent_contact\":\"13800138000\"}"`) ||
-		!strings.Contains(body, `"answer":`+strconv.Quote(modified)) ||
-		!strings.Contains(body, `"value":`+strconv.Quote(modified)) {
+		!strings.Contains(body, `"action":"submit"`) ||
+		!strings.Contains(body, `"payload":{"days":2,"employee_id":"E1001","employee_name":"Lin","end_date":"2026-04-22","handover_to":"E2001","leave_type":"personal","reason":"family_trip","start_date":"2026-04-21","urgent_contact":"13800138000"}`) {
 		t.Fatalf("expected modify awaiting.answer in stream, got %s", body)
 	}
 }
@@ -2181,9 +2184,8 @@ func TestBashHITLRejectFlow(t *testing.T) {
 		t.Fatalf("expected rejected original bash result, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
-		!strings.Contains(body, `"question":"mock create-leave --payload {\"employee_id\":\"E1001\",\"employee_name\":\"Lin\",\"leave_type\":\"annual\",\"start_date\":\"2026-04-20\",\"end_date\":\"2026-04-22\",\"days\":3,\"reason\":\"family_trip\",\"handover_to\":\"E2001\",\"urgent_contact\":\"13800138000\"}"`) ||
-		!strings.Contains(body, `"answer":"Reject"`) ||
-		!strings.Contains(body, `"value":"reject"`) {
+		!strings.Contains(body, `"cancelled":true`) ||
+		!strings.Contains(body, `"reason":"user_cancelled"`) {
 		t.Fatalf("expected reject awaiting.answer in stream, got %s", body)
 	}
 }
@@ -2211,7 +2213,8 @@ func TestBashHITLSimpleBashApproveFlow(t *testing.T) {
 			},
 		}},
 	})
-	if len(executed) != 1 || executed[0] != `mock create-leave --payload {"employee_id":"E1001","employee_name":"Lin","leave_type":"annual","start_date":"2026-04-20","end_date":"2026-04-22","days":3,"reason":"family_trip","handover_to":"E2001","urgent_contact":"13800138000"}` {
+	expectedCommand := rebuildPayloadCommandForTest(t, defaultBashHITLCommand(), payloadFromCommandForTest(t, defaultBashHITLCommand()))
+	if len(executed) != 1 || executed[0] != expectedCommand {
 		t.Fatalf("expected simple-bash command to execute once, got %#v", executed)
 	}
 	if !strings.Contains(body, `"viewportKey":"leave_form"`) {
@@ -2235,14 +2238,15 @@ func TestBashHITLApproveFlowForExpenseCreate(t *testing.T) {
 		command:      command,
 		rulesContent: rules,
 	})
-	if len(executed) != 1 || executed[0] != command {
+	expectedCommand := rebuildPayloadCommandForTest(t, command, payloadFromCommandForTest(t, command))
+	if len(executed) != 1 || executed[0] != expectedCommand {
 		t.Fatalf("expected approved expense command to execute once, got %#v", executed)
 	}
 	if !strings.Contains(body, `"viewportKey":"expense_form"`) {
 		t.Fatalf("expected expense_form viewport in stream, got %s", body)
 	}
-	if !strings.Contains(body, `"question":"`+strings.ReplaceAll(command, `"`, `\"`)+`"`) {
-		t.Fatalf("expected expense approval question in stream, got %s", body)
+	if !strings.Contains(body, `"command":"`+strings.ReplaceAll(command, `"`, `\"`)+`"`) {
+		t.Fatalf("expected expense approval command in stream, got %s", body)
 	}
 }
 
@@ -2262,14 +2266,15 @@ func TestBashHITLApproveFlowForProcurementCreate(t *testing.T) {
 		command:      command,
 		rulesContent: rules,
 	})
-	if len(executed) != 1 || executed[0] != command {
+	expectedCommand := rebuildPayloadCommandForTest(t, command, payloadFromCommandForTest(t, command))
+	if len(executed) != 1 || executed[0] != expectedCommand {
 		t.Fatalf("expected approved procurement command to execute once, got %#v", executed)
 	}
 	if !strings.Contains(body, `"viewportKey":"procurement_form"`) {
 		t.Fatalf("expected procurement_form viewport in stream, got %s", body)
 	}
-	if !strings.Contains(body, `"question":"`+strings.ReplaceAll(command, `"`, `\"`)+`"`) {
-		t.Fatalf("expected procurement approval question in stream, got %s", body)
+	if !strings.Contains(body, `"command":"`+strings.ReplaceAll(command, `"`, `\"`)+`"`) {
+		t.Fatalf("expected procurement approval command in stream, got %s", body)
 	}
 }
 
@@ -2298,6 +2303,9 @@ func TestBashHITLDockerRMIApproveFlow(t *testing.T) {
 	}
 	if !strings.Contains(body, `"viewportKey":"confirm_dialog"`) {
 		t.Fatalf("expected confirm_dialog viewport in stream, got %s", body)
+	}
+	if !strings.Contains(body, `"value":"approve_always"`) {
+		t.Fatalf("expected approve_always option in stream, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"request.submit"`) ||
 		!strings.Contains(body, `"question":"docker rmi nginx:latest"`) ||
@@ -2359,7 +2367,7 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 	if toolName == "" {
 		toolName = "_sandbox_bash_"
 	}
-	command := `mock create-leave --payload {"employee_id":"E1001","employee_name":"Lin","leave_type":"annual","start_date":"2026-04-20","end_date":"2026-04-22","days":3,"reason":"family_trip","handover_to":"E2001","urgent_contact":"13800138000"}`
+	command := defaultBashHITLCommand()
 	if strings.TrimSpace(options.command) != "" {
 		command = options.command
 	}
@@ -2434,6 +2442,7 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 	var streamBody strings.Builder
 	originalToolID := ""
 	syntheticToolID := ""
+	var awaitAskPayload map[string]any
 	for {
 		line, readErr := reader.ReadString('\n')
 		streamBody.WriteString(line)
@@ -2450,6 +2459,7 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 					syntheticToolID, _ = payload["toolId"].(string)
 				}
 			case "awaiting.ask":
+				awaitAskPayload = payload
 				if syntheticToolID == "" {
 					syntheticToolID, _ = payload["awaitingId"].(string)
 				}
@@ -2462,21 +2472,41 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 	}
 
 submit:
-	submitPayload := `[{"question":` + strconv.Quote(command) + `,`
-	if options.action == "modify" {
-		submitPayload += `"answer":` + strconv.Quote(options.modifiedCommand) + `,"value":` + strconv.Quote(options.modifiedCommand)
-	} else {
-		label := "Approve"
+	var submitPayload string
+	if strings.EqualFold(stringValue(awaitAskPayload["viewportType"]), "html") {
 		if options.action == "reject" {
-			label = "Reject"
-		}
-		if options.legacySubmit {
-			submitPayload += `"answer":"` + options.action + `"`
+			submitPayload = `{"action":"cancel"}`
 		} else {
-			submitPayload += `"answer":"` + label + `","value":"` + options.action + `"`
+			submitCommand := command
+			if options.action == "modify" {
+				submitCommand = options.modifiedCommand
+			}
+			payloadJSON, err := json.Marshal(map[string]any{
+				"action":  "submit",
+				"payload": payloadFromCommandForTest(t, submitCommand),
+			})
+			if err != nil {
+				t.Fatalf("marshal html submit payload: %v", err)
+			}
+			submitPayload = string(payloadJSON)
 		}
+	} else {
+		submitPayload = `[{"question":` + strconv.Quote(command) + `,`
+		if options.action == "modify" {
+			submitPayload += `"answer":` + strconv.Quote(options.modifiedCommand) + `,"value":` + strconv.Quote(options.modifiedCommand)
+		} else {
+			label := "Approve"
+			if options.action == "reject" {
+				label = "Reject"
+			}
+			if options.legacySubmit {
+				submitPayload += `"answer":"` + options.action + `"`
+			} else {
+				submitPayload += `"answer":"` + label + `","value":"` + options.action + `"`
+			}
+		}
+		submitPayload += `}]`
 	}
-	submitPayload += `}]`
 	submitRec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(submitRec, httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+extractRunIDFromStream(t, streamBody.String())+`","awaitingId":"`+syntheticToolID+`","params":`+submitPayload+`}`)))
 	if submitRec.Code != http.StatusOK {
@@ -2520,6 +2550,41 @@ submit:
 		return streamBody.String(), append([]string(nil), client.commands...)
 	}
 	return streamBody.String(), append([]string(nil), sandbox.commands...)
+}
+
+func defaultBashHITLCommand() string {
+	return `mock create-leave --payload {"employee_id":"E1001","employee_name":"Lin","leave_type":"annual","start_date":"2026-04-20","end_date":"2026-04-22","days":3,"reason":"family_trip","handover_to":"E2001","urgent_contact":"13800138000"}`
+}
+
+func payloadFromCommandForTest(t *testing.T, command string) map[string]any {
+	t.Helper()
+	idx := strings.Index(command, "--payload ")
+	if idx < 0 {
+		t.Fatalf("expected --payload in command %q", command)
+	}
+	raw := strings.TrimSpace(command[idx+len("--payload "):])
+	if strings.HasPrefix(raw, "'") && strings.HasSuffix(raw, "'") && len(raw) >= 2 {
+		raw = raw[1 : len(raw)-1]
+		raw = strings.ReplaceAll(raw, `'"'"'`, `'`)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		t.Fatalf("decode payload from command %q: %v", command, err)
+	}
+	return payload
+}
+
+func rebuildPayloadCommandForTest(t *testing.T, originalCommand string, payload map[string]any) string {
+	t.Helper()
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	idx := strings.Index(originalCommand, "--payload ")
+	if idx < 0 {
+		t.Fatalf("expected --payload in command %q", originalCommand)
+	}
+	return originalCommand[:idx+len("--payload ")] + "'" + strings.ReplaceAll(string(payloadJSON), "'", `'"'"'`) + "'"
 }
 
 func extractRunIDFromStream(t *testing.T, body string) string {

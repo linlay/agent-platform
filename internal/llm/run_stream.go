@@ -742,13 +742,6 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 		s.execCtx.ToolCalls++
 		invocation.toolCallCounted = true
 	}
-	if s.checker != nil && isBashTool(invocation.toolName) {
-		command := mapStringArg(invocation.args, "command")
-		if result := s.checker.Check(command, s.execCtx.HITLLevel); result.Intercepted {
-			s.skipPostToolHook = true
-			return s.emitHITLConfirmDeltas(invocation, result)
-		}
-	}
 	defer func() {
 		if s.runControl != nil {
 			s.runControl.ClearExpectedSubmit(invocation.toolID)
@@ -757,6 +750,16 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 		s.execCtx.CurrentToolName = ""
 		s.activeToolCall = nil
 	}()
+	if s.checker != nil && isBashTool(invocation.toolName) {
+		command := mapStringArg(invocation.args, "command")
+		if result := s.checker.Check(command, s.execCtx.HITLLevel); result.Intercepted {
+			s.skipPostToolHook = true
+			if s.shouldAutoApproveHITL(result) {
+				return s.executeOriginalBash(invocation)
+			}
+			return s.emitHITLConfirmDeltas(invocation, result)
+		}
+	}
 
 	result, invokeErr := s.engine.tools.Invoke(s.ctx, invocation.toolName, invocation.args, s.execCtx)
 	if invokeErr != nil {
@@ -823,6 +826,16 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 		Content:    s.toolResultContent(invocation.toolName, result),
 	})
 	return nil
+}
+
+func (s *llmRunStream) shouldAutoApproveHITL(result hitl.InterceptResult) bool {
+	if s.execCtx == nil || !strings.EqualFold(result.Rule.ViewportType, "builtin") {
+		return false
+	}
+	if len(s.execCtx.AutoApproveLevels) == 0 {
+		return false
+	}
+	return s.execCtx.AutoApproveLevels[result.Rule.Level]
 }
 
 func (s *llmRunStream) emitHITLConfirmDeltas(invocation *preparedToolInvocation, result hitl.InterceptResult) error {
@@ -988,10 +1001,7 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 	}
 	s.appendSyntheticToolResult(syntheticID, syntheticName, structuredResult(normalized))
 
-	selectedApproval := firstApprovalQuestion(normalized["questions"])
-	selectedValue := strings.TrimSpace(AnyStringNode(selectedApproval["value"]))
-	selectedAnswer := strings.TrimSpace(AnyStringNode(selectedApproval["answer"]))
-	if normalized["cancelled"] == true || strings.EqualFold(selectedValue, "reject") {
+	if normalized["cancelled"] == true {
 		rejected := ToolExecutionResult{
 			Output: marshalJSON(NewErrorPayload(
 				"hitl_rejected",
@@ -1020,6 +1030,72 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 		return nil
 	}
 
+	if strings.EqualFold(AnyStringNode(normalized["action"]), "submit") {
+		formPayload := AnyMapNode(normalized["payload"])
+		rebuiltCommand, rebuildErr := reconstructCommandWithPayload(mapStringArg(invocation.args, "command"), formPayload)
+		if rebuildErr != nil {
+			payload := NewErrorPayload(
+				"frontend_submit_invalid_payload",
+				rebuildErr.Error(),
+				ErrorScopeFrontendSubmit,
+				ErrorCategoryTool,
+				map[string]any{
+					"awaitingId": syntheticID,
+					"toolName":   syntheticName,
+					"payload":    formPayload,
+				},
+			)
+			result := ToolExecutionResult{
+				Output:     marshalJSON(payload),
+				Structured: payload,
+				Error:      "frontend_submit_invalid_payload",
+				ExitCode:   -1,
+			}
+			s.appendOriginalToolResult(invocation, result)
+			return nil
+		}
+		invocation.args["command"] = rebuiltCommand
+		return s.executeOriginalBash(invocation)
+	}
+
+	selectedApproval := firstApprovalQuestion(normalized["questions"])
+	selectedValue := strings.TrimSpace(AnyStringNode(selectedApproval["value"]))
+	selectedAnswer := strings.TrimSpace(AnyStringNode(selectedApproval["answer"]))
+	if strings.EqualFold(selectedValue, "reject") {
+		rejected := ToolExecutionResult{
+			Output: marshalJSON(NewErrorPayload(
+				"hitl_rejected",
+				"command execution rejected by user",
+				ErrorScopeTool,
+				ErrorCategorySystem,
+				map[string]any{
+					"toolId":   invocation.toolID,
+					"toolName": invocation.toolName,
+				},
+			)),
+			Structured: NewErrorPayload(
+				"hitl_rejected",
+				"command execution rejected by user",
+				ErrorScopeTool,
+				ErrorCategorySystem,
+				map[string]any{
+					"toolId":   invocation.toolID,
+					"toolName": invocation.toolName,
+				},
+			),
+			Error:    "user_rejected",
+			ExitCode: -1,
+		}
+		s.appendOriginalToolResult(invocation, rejected)
+		return nil
+	}
+
+	if strings.EqualFold(selectedValue, "approve_always") && s.execCtx != nil {
+		if s.execCtx.AutoApproveLevels == nil {
+			s.execCtx.AutoApproveLevels = map[int]bool{}
+		}
+		s.execCtx.AutoApproveLevels[match.Rule.Level] = true
+	}
 	if modifiedCommand := resolveApprovedCommand(selectedValue, selectedAnswer); modifiedCommand != "" {
 		invocation.args["command"] = modifiedCommand
 	}
@@ -1049,7 +1125,14 @@ func (s *llmRunStream) executeOriginalBash(invocation *preparedToolInvocation) e
 
 func (s *llmRunStream) buildHITLArgs(invocation *preparedToolInvocation, result hitl.InterceptResult) map[string]any {
 	command := mapStringArg(invocation.args, "command")
-	args := map[string]any{
+	if strings.EqualFold(result.Rule.ViewportType, "html") {
+		return s.buildFormApprovalArgs(command, result)
+	}
+	return s.buildConfirmApprovalArgs(command)
+}
+
+func (s *llmRunStream) buildConfirmApprovalArgs(command string) map[string]any {
+	return map[string]any{
 		"mode": "approval",
 		"questions": []any{
 			map[string]any{
@@ -1062,6 +1145,11 @@ func (s *llmRunStream) buildHITLArgs(invocation *preparedToolInvocation, result 
 						"description": "Execute the command as-is.",
 					},
 					map[string]any{
+						"label":       "Always Approve",
+						"value":       "approve_always",
+						"description": "Always approve this command level in this run.",
+					},
+					map[string]any{
 						"label":       "Reject",
 						"value":       "reject",
 						"description": "Do not execute the command.",
@@ -1070,18 +1158,15 @@ func (s *llmRunStream) buildHITLArgs(invocation *preparedToolInvocation, result 
 			},
 		},
 	}
-	if strings.EqualFold(result.Rule.ViewportType, "html") {
-		// HTML rules still reuse _ask_user_approval_; these fields only override the
-		// shared tool's render target for the approval prompt.
-		args["viewportType"] = result.Rule.ViewportType
-		args["viewportKey"] = result.Rule.ViewportKey
-		args["questions"].([]any)[0].(map[string]any)["allowFreeText"] = true
-		args["questions"].([]any)[0].(map[string]any)["freeTextPlaceholder"] = "Edit the command before approval"
-		if payload := extractMockBusinessCreatePayload(result.ParsedCommand); len(payload) > 0 {
-			args["payload"] = payload
-		}
+}
+
+func (s *llmRunStream) buildFormApprovalArgs(command string, result hitl.InterceptResult) map[string]any {
+	return map[string]any{
+		"mode":         "approval",
+		"viewportType": result.Rule.ViewportType,
+		"viewportKey":  result.Rule.ViewportKey,
+		"command":      command,
 	}
-	return args
 }
 
 func (s *llmRunStream) resolveHITLTimeout() int64 {
@@ -1178,7 +1263,7 @@ func firstApprovalQuestion(raw any) map[string]any {
 
 func resolveApprovedCommand(value string, answer string) string {
 	switch {
-	case strings.EqualFold(value, "approve"), strings.EqualFold(value, "reject"):
+	case strings.EqualFold(value, "approve"), strings.EqualFold(value, "approve_always"), strings.EqualFold(value, "reject"):
 		return ""
 	case value != "":
 		return value
@@ -1198,29 +1283,118 @@ func (s *llmRunStream) normalizeHITLSubmit(args map[string]any, params any) (map
 	return handler.NormalizeSubmit(args, params)
 }
 
-func extractMockBusinessCreatePayload(parsed hitl.CommandComponents) map[string]any {
-	if !strings.EqualFold(strings.TrimSpace(parsed.BaseCommand), "mock") {
-		return nil
+func reconstructCommandWithPayload(command string, payload map[string]any) (string, error) {
+	if strings.TrimSpace(command) == "" {
+		return "", fmt.Errorf("original command is required")
 	}
-	if len(parsed.Tokens) < 3 {
-		return nil
+	if payload == nil {
+		return "", fmt.Errorf("payload must be an object")
 	}
-	switch strings.ToLower(strings.TrimSpace(parsed.Tokens[0])) {
-	case "create-leave", "create-expense", "create-procurement":
-	default:
-		return nil
-	}
-	for idx := 1; idx < len(parsed.Tokens)-1; idx++ {
-		if strings.TrimSpace(parsed.Tokens[idx]) != "--payload" {
+
+	tokenSpans := firstSegmentTokenSpans(command)
+	for idx := 0; idx < len(tokenSpans)-1; idx++ {
+		if strings.TrimSpace(tokenSpans[idx].Text) != "--payload" {
 			continue
 		}
-		var payload map[string]any
-		if err := json.Unmarshal([]byte(parsed.Tokens[idx+1]), &payload); err != nil {
-			return nil
+		payloadJSON, err := json.Marshal(payload)
+		if err != nil {
+			return "", fmt.Errorf("marshal payload: %w", err)
 		}
-		return payload
+		replacement := shellQuoteToken(string(payloadJSON))
+		valueSpan := tokenSpans[idx+1]
+		return command[:valueSpan.Start] + replacement + command[valueSpan.End:], nil
 	}
-	return nil
+	return "", fmt.Errorf("original command does not contain --payload")
+}
+
+type shellTokenSpan struct {
+	Start int
+	End   int
+	Text  string
+}
+
+func firstSegmentTokenSpans(command string) []shellTokenSpan {
+	var (
+		spans      []shellTokenSpan
+		current    strings.Builder
+		tokenStart = -1
+		quote      rune
+		escaped    bool
+	)
+
+	flush := func(end int) {
+		if tokenStart < 0 || current.Len() == 0 {
+			tokenStart = -1
+			current.Reset()
+			return
+		}
+		spans = append(spans, shellTokenSpan{
+			Start: tokenStart,
+			End:   end,
+			Text:  current.String(),
+		})
+		tokenStart = -1
+		current.Reset()
+	}
+
+	for idx, r := range command {
+		switch {
+		case escaped:
+			current.WriteRune(r)
+			escaped = false
+		case quote == '\'':
+			if r == '\'' {
+				quote = 0
+				continue
+			}
+			current.WriteRune(r)
+		case quote == '"':
+			if r == '"' {
+				quote = 0
+				continue
+			}
+			if r == '\\' {
+				escaped = true
+				continue
+			}
+			current.WriteRune(r)
+		default:
+			switch {
+			case r == '|':
+				flush(idx)
+				return spans
+			case r == '\'' || r == '"':
+				if tokenStart < 0 {
+					tokenStart = idx
+				}
+				quote = r
+			case r == '\\':
+				if tokenStart < 0 {
+					tokenStart = idx
+				}
+				escaped = true
+			case strings.ContainsRune(" \t\r\n", r):
+				flush(idx)
+			default:
+				if tokenStart < 0 {
+					tokenStart = idx
+				}
+				current.WriteRune(r)
+			}
+		}
+	}
+	if escaped {
+		current.WriteRune('\\')
+	}
+	flush(len(command))
+	return spans
+}
+
+func shellQuoteToken(value string) string {
+	if value == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'"
 }
 
 func (s *llmRunStream) checkBudgetBeforeModelCall() map[string]any {

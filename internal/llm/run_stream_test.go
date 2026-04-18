@@ -231,12 +231,16 @@ func TestPreToolInvocationDeltas_ApprovalUsesFrontendHandlerAwaitAsk(t *testing.
 
 func TestBashHITLApprovalUsesAskUserApprovalForAllViewports(t *testing.T) {
 	tests := []struct {
-		name            string
-		rule            hitl.FlatRule
-		submitParams    []any
-		expectedCommand string
-		expectedView    string
-		expectedKey     string
+		name                 string
+		rule                 hitl.FlatRule
+		initialCommand       string
+		parsedCommand        hitl.CommandComponents
+		submitParams         any
+		expectedCommand      string
+		expectedView         string
+		expectedKey          string
+		expectedAwaitCommand string
+		expectedAnswerAction string
 	}{
 		{
 			name: "builtin confirm dialog",
@@ -245,6 +249,11 @@ func TestBashHITLApprovalUsesAskUserApprovalForAllViewports(t *testing.T) {
 				Level:        1,
 				ViewportType: "builtin",
 				ViewportKey:  "confirm_dialog",
+			},
+			initialCommand: "git push origin main",
+			parsedCommand: hitl.CommandComponents{
+				BaseCommand: "git",
+				Tokens:      []string{"push", "origin", "main"},
 			},
 			submitParams: []any{
 				map[string]any{
@@ -265,15 +274,23 @@ func TestBashHITLApprovalUsesAskUserApprovalForAllViewports(t *testing.T) {
 				ViewportType: "html",
 				ViewportKey:  "leave_form",
 			},
-			submitParams: []any{
-				map[string]any{
-					"question": "mock create-leave",
-					"answer":   "mock create-leave --payload '{\"employee_id\":\"E1001\"}'",
+			initialCommand: `mock create-leave --payload '{"employee_id":"E1001","days":3}'`,
+			parsedCommand: hitl.CommandComponents{
+				BaseCommand: "mock",
+				Tokens:      []string{"create-leave", "--payload", `{"employee_id":"E1001","days":3}`},
+			},
+			submitParams: map[string]any{
+				"action": "submit",
+				"payload": map[string]any{
+					"employee_id": "E1001",
+					"days":        2,
 				},
 			},
-			expectedCommand: "mock create-leave --payload '{\"employee_id\":\"E1001\"}'",
-			expectedView:    "html",
-			expectedKey:     "leave_form",
+			expectedCommand:      `mock create-leave --payload '{"days":2,"employee_id":"E1001"}'`,
+			expectedView:         "html",
+			expectedKey:          "leave_form",
+			expectedAwaitCommand: `mock create-leave --payload '{"employee_id":"E1001","days":3}'`,
+			expectedAnswerAction: "submit",
 		},
 		{
 			name: "expense html viewport override",
@@ -283,15 +300,23 @@ func TestBashHITLApprovalUsesAskUserApprovalForAllViewports(t *testing.T) {
 				ViewportType: "html",
 				ViewportKey:  "expense_form",
 			},
-			submitParams: []any{
-				map[string]any{
-					"question": "mock create-expense",
-					"answer":   "mock create-expense --payload '{\"employee_id\":\"E1001\"}'",
+			initialCommand: `mock create-expense --payload '{"employee_id":"E1001","total_amount":1280.5}'`,
+			parsedCommand: hitl.CommandComponents{
+				BaseCommand: "mock",
+				Tokens:      []string{"create-expense", "--payload", `{"employee_id":"E1001","total_amount":1280.5}`},
+			},
+			submitParams: map[string]any{
+				"action": "submit",
+				"payload": map[string]any{
+					"employee_id":  "E1001",
+					"total_amount": 640.25,
 				},
 			},
-			expectedCommand: "mock create-expense --payload '{\"employee_id\":\"E1001\"}'",
-			expectedView:    "html",
-			expectedKey:     "expense_form",
+			expectedCommand:      `mock create-expense --payload '{"employee_id":"E1001","total_amount":640.25}'`,
+			expectedView:         "html",
+			expectedKey:          "expense_form",
+			expectedAwaitCommand: `mock create-expense --payload '{"employee_id":"E1001","total_amount":1280.5}'`,
+			expectedAnswerAction: "submit",
 		},
 		{
 			name: "procurement html viewport override",
@@ -301,15 +326,23 @@ func TestBashHITLApprovalUsesAskUserApprovalForAllViewports(t *testing.T) {
 				ViewportType: "html",
 				ViewportKey:  "procurement_form",
 			},
-			submitParams: []any{
-				map[string]any{
-					"question": "mock create-procurement",
-					"answer":   "mock create-procurement --payload '{\"requester_id\":\"E1001\"}'",
+			initialCommand: `mock create-procurement --payload '{"delivery_city":"Shanghai","requester_id":"E1001"}'`,
+			parsedCommand: hitl.CommandComponents{
+				BaseCommand: "mock",
+				Tokens:      []string{"create-procurement", "--payload", `{"delivery_city":"Shanghai","requester_id":"E1001"}`},
+			},
+			submitParams: map[string]any{
+				"action": "submit",
+				"payload": map[string]any{
+					"delivery_city": "Hangzhou",
+					"requester_id":  "E1001",
 				},
 			},
-			expectedCommand: "mock create-procurement --payload '{\"requester_id\":\"E1001\"}'",
-			expectedView:    "html",
-			expectedKey:     "procurement_form",
+			expectedCommand:      `mock create-procurement --payload '{"delivery_city":"Hangzhou","requester_id":"E1001"}'`,
+			expectedView:         "html",
+			expectedKey:          "procurement_form",
+			expectedAwaitCommand: `mock create-procurement --payload '{"delivery_city":"Shanghai","requester_id":"E1001"}'`,
+			expectedAnswerAction: "submit",
 		},
 	}
 
@@ -343,36 +376,13 @@ func TestBashHITLApprovalUsesAskUserApprovalForAllViewports(t *testing.T) {
 				toolID:   "tool_1",
 				toolName: "_sandbox_bash_",
 				args: map[string]any{
-					"command": "git push origin main",
+					"command": tc.initialCommand,
 				},
 			}
 			result := hitl.InterceptResult{
-				Intercepted: true,
-				Rule:        tc.rule,
-				ParsedCommand: hitl.CommandComponents{
-					BaseCommand: "git",
-					Tokens:      []string{"push", "origin", "main"},
-				},
-			}
-			switch tc.rule.Match {
-			case "create-leave":
-				invocation.args["command"] = "mock create-leave"
-				result.ParsedCommand = hitl.CommandComponents{
-					BaseCommand: "mock",
-					Tokens:      []string{"create-leave"},
-				}
-			case "create-expense":
-				invocation.args["command"] = "mock create-expense"
-				result.ParsedCommand = hitl.CommandComponents{
-					BaseCommand: "mock",
-					Tokens:      []string{"create-expense"},
-				}
-			case "create-procurement":
-				invocation.args["command"] = "mock create-procurement"
-				result.ParsedCommand = hitl.CommandComponents{
-					BaseCommand: "mock",
-					Tokens:      []string{"create-procurement"},
-				}
+				Intercepted:   true,
+				Rule:          tc.rule,
+				ParsedCommand: tc.parsedCommand,
 			}
 
 			if err := stream.emitHITLConfirmDeltas(invocation, result); err != nil {
@@ -401,16 +411,25 @@ func TestBashHITLApprovalUsesAskUserApprovalForAllViewports(t *testing.T) {
 			if awaitAsk.Mode != "approval" || awaitAsk.ViewportType != tc.expectedView || awaitAsk.ViewportKey != tc.expectedKey {
 				t.Fatalf("unexpected await ask %#v", awaitAsk)
 			}
-			questions := awaitAsk.Questions
-			if len(questions) != 1 {
-				t.Fatalf("expected one approval question, got %#v", awaitAsk.Questions)
-			}
-			firstQuestion, ok := questions[0].(map[string]any)
-			if !ok {
-				t.Fatalf("expected approval question object, got %#v", questions[0])
-			}
-			if firstQuestion["question"] != tc.submitParams[0].(map[string]any)["question"] {
-				t.Fatalf("expected approval question to use original command, got %#v", firstQuestion)
+			if tc.expectedAwaitCommand != "" {
+				if awaitAsk.Command != tc.expectedAwaitCommand {
+					t.Fatalf("expected approval form command %q, got %#v", tc.expectedAwaitCommand, awaitAsk)
+				}
+				if len(awaitAsk.Questions) != 0 {
+					t.Fatalf("expected form approval to omit questions, got %#v", awaitAsk.Questions)
+				}
+			} else {
+				questions := awaitAsk.Questions
+				if len(questions) != 1 {
+					t.Fatalf("expected one approval question, got %#v", awaitAsk.Questions)
+				}
+				firstQuestion, ok := questions[0].(map[string]any)
+				if !ok {
+					t.Fatalf("expected approval question object, got %#v", questions[0])
+				}
+				if firstQuestion["question"] != tc.submitParams.([]any)[0].(map[string]any)["question"] {
+					t.Fatalf("expected approval question to use original command, got %#v", firstQuestion)
+				}
 			}
 
 			ack := runControl.ResolveSubmit(api.SubmitRequest{
@@ -447,6 +466,9 @@ func TestBashHITLApprovalUsesAskUserApprovalForAllViewports(t *testing.T) {
 				case contracts.DeltaAwaitingAnswer:
 					if typed.AwaitingID == "hitl_tool_1" {
 						foundAwaitingAnswer = true
+						if tc.expectedAnswerAction != "" && typed.Answer["action"] != tc.expectedAnswerAction {
+							t.Fatalf("expected awaiting.answer action %q, got %#v", tc.expectedAnswerAction, typed.Answer)
+						}
 					}
 				case contracts.DeltaToolResult:
 					if typed.ToolName == "_ask_user_approval_" {
@@ -523,46 +545,171 @@ func TestInvokeActiveToolCallUsesSkillScopedChecker(t *testing.T) {
 	}
 }
 
-func TestExtractMockBusinessCreatePayload(t *testing.T) {
+func TestReconstructCommandWithPayload(t *testing.T) {
 	tests := []struct {
-		name    string
-		command string
-		key     string
-		want    any
+		name     string
+		command  string
+		payload  map[string]any
+		expected string
 	}{
 		{
-			name:    "leave",
-			command: `mock create-leave --payload '{"employee_id":"E1001","days":3}'`,
-			key:     "employee_id",
-			want:    "E1001",
+			name:     "leave",
+			command:  `mock create-leave --payload '{"employee_id":"E1001","days":3}'`,
+			payload:  map[string]any{"employee_id": "E1001", "days": 2},
+			expected: `mock create-leave --payload '{"days":2,"employee_id":"E1001"}'`,
 		},
 		{
-			name:    "expense",
-			command: `mock create-expense --payload '{"employee_id":"E1001","total_amount":1280.5}'`,
-			key:     "total_amount",
-			want:    1280.5,
+			name:     "expense",
+			command:  `mock create-expense --payload '{"employee_id":"E1001","total_amount":1280.5}'`,
+			payload:  map[string]any{"employee_id": "E1001", "total_amount": 1280.5},
+			expected: `mock create-expense --payload '{"employee_id":"E1001","total_amount":1280.5}'`,
 		},
 		{
-			name:    "procurement",
-			command: `mock create-procurement --payload '{"requester_id":"E1001","delivery_city":"Shanghai"}'`,
-			key:     "delivery_city",
-			want:    "Shanghai",
+			name:     "procurement",
+			command:  `mock create-procurement --payload '{"requester_id":"E1001","delivery_city":"Shanghai"}'`,
+			payload:  map[string]any{"requester_id": "E1001", "delivery_city": "Shanghai"},
+			expected: `mock create-procurement --payload '{"delivery_city":"Shanghai","requester_id":"E1001"}'`,
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			payload := extractMockBusinessCreatePayload(hitl.ParseCommandComponents(tc.command))
-			if got := payload[tc.key]; !reflect.DeepEqual(got, tc.want) {
-				t.Fatalf("expected %s=%#v, got %#v from %#v", tc.key, tc.want, got, payload)
+			rebuilt, err := reconstructCommandWithPayload(tc.command, tc.payload)
+			if err != nil {
+				t.Fatalf("reconstructCommandWithPayload returned error: %v", err)
+			}
+			if rebuilt != tc.expected {
+				t.Fatalf("expected %q, got %q", tc.expected, rebuilt)
 			}
 		})
 	}
 
-	if got := extractMockBusinessCreatePayload(hitl.ParseCommandComponents(`mock create-leave --payload-file ./leave.json`)); got != nil {
-		t.Fatalf("expected payload-file command to skip prefill, got %#v", got)
+	if _, err := reconstructCommandWithPayload(`mock create-leave --payload-file ./leave.json`, map[string]any{"employee_id": "E1001"}); err == nil {
+		t.Fatal("expected command without --payload to fail reconstruction")
 	}
-	if got := extractMockBusinessCreatePayload(hitl.ParseCommandComponents(`mock update-leave --payload '{"request_id":"LV-1"}'`)); got != nil {
-		t.Fatalf("expected update command to skip prefill, got %#v", got)
+
+	withQuote, err := reconstructCommandWithPayload(`mock create-leave --payload '{"reason":"o'\''hara"}'`, map[string]any{"reason": "o'hara"})
+	if err != nil {
+		t.Fatalf("reconstructCommandWithPayload returned error for apostrophe payload: %v", err)
+	}
+	if withQuote != `mock create-leave --payload '{"reason":"o'"'"'hara"}'` {
+		t.Fatalf("expected shell-safe quoted payload, got %q", withQuote)
+	}
+}
+
+func TestInvokeActiveToolCallAutoApprovesBuiltinLevelInCurrentRun(t *testing.T) {
+	executor := &recordingToolExecutor{
+		defs: []api.ToolDetailResponse{approvalToolDefinition()},
+		result: contracts.ToolExecutionResult{
+			Output:   "executed",
+			ExitCode: 0,
+		},
+	}
+	stream := &llmRunStream{
+		ctx: context.Background(),
+		engine: &LLMAgentEngine{
+			tools:    executor,
+			frontend: frontendtools.NewDefaultRegistry(),
+		},
+		checker: stubChecker{
+			result: hitl.InterceptResult{
+				Intercepted: true,
+				Rule: hitl.FlatRule{
+					Match:        "push",
+					Level:        2,
+					ViewportType: "builtin",
+					ViewportKey:  "confirm_dialog",
+				},
+			},
+		},
+		session: contracts.QuerySession{
+			RequestID: "req_1",
+			ChatID:    "chat_1",
+			RunID:     "run_1",
+		},
+		execCtx: &contracts.ExecutionContext{
+			Budget:            contracts.Budget{Tool: contracts.RetryPolicy{TimeoutMs: 50}},
+			AutoApproveLevels: map[int]bool{2: true},
+		},
+		activeToolCall: &preparedToolInvocation{
+			toolID:   "tool_1",
+			toolName: "_sandbox_bash_",
+			args: map[string]any{
+				"command": "git push origin main",
+			},
+		},
+	}
+
+	if err := stream.invokeActiveToolCall(); err != nil {
+		t.Fatalf("invokeActiveToolCall returned error: %v", err)
+	}
+	if len(executor.invocations) != 1 {
+		t.Fatalf("expected auto-approved command to execute once, got %#v", executor.invocations)
+	}
+	for _, delta := range stream.pending {
+		if _, ok := delta.(contracts.DeltaAwaitAsk); ok {
+			t.Fatalf("did not expect approval prompt when auto-approving, got %#v", stream.pending)
+		}
+	}
+}
+
+func TestInvokeActiveToolCallDoesNotAutoApproveHTMLViewport(t *testing.T) {
+	executor := &recordingToolExecutor{
+		defs: []api.ToolDetailResponse{approvalToolDefinition()},
+		result: contracts.ToolExecutionResult{
+			Output:   "executed",
+			ExitCode: 0,
+		},
+	}
+	stream := &llmRunStream{
+		ctx: context.Background(),
+		engine: &LLMAgentEngine{
+			tools:    executor,
+			frontend: frontendtools.NewDefaultRegistry(),
+		},
+		checker: stubChecker{
+			result: hitl.InterceptResult{
+				Intercepted: true,
+				Rule: hitl.FlatRule{
+					Match:        "create-leave",
+					Level:        2,
+					ViewportType: "html",
+					ViewportKey:  "leave_form",
+				},
+			},
+		},
+		session: contracts.QuerySession{
+			RequestID: "req_1",
+			ChatID:    "chat_1",
+			RunID:     "run_1",
+		},
+		runControl: contracts.NewRunControl(context.Background(), "run_1"),
+		execCtx: &contracts.ExecutionContext{
+			Budget:            contracts.Budget{Tool: contracts.RetryPolicy{TimeoutMs: 50}},
+			AutoApproveLevels: map[int]bool{2: true},
+		},
+		activeToolCall: &preparedToolInvocation{
+			toolID:   "tool_1",
+			toolName: "_sandbox_bash_",
+			args: map[string]any{
+				"command": `mock create-leave --payload '{"employee_id":"E1001"}'`,
+			},
+		},
+	}
+
+	if err := stream.invokeActiveToolCall(); err != nil {
+		t.Fatalf("invokeActiveToolCall returned error: %v", err)
+	}
+	if len(executor.invocations) != 0 {
+		t.Fatalf("expected html command to remain gated by form approval, got %#v", executor.invocations)
+	}
+	foundAwaitAsk := false
+	for _, delta := range stream.pending {
+		if _, ok := delta.(contracts.DeltaAwaitAsk); ok {
+			foundAwaitAsk = true
+		}
+	}
+	if !foundAwaitAsk {
+		t.Fatalf("expected html viewport to keep approval prompt, got %#v", stream.pending)
 	}
 }

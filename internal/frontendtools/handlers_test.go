@@ -242,29 +242,13 @@ func TestAskUserQuestionHandlerFormatSubmitResult(t *testing.T) {
 	}
 }
 
-func TestAskUserApprovalHandlerBuildDeferredAwaitAndNormalizeSubmit(t *testing.T) {
+func TestAskUserApprovalHandlerBuildDeferredAwaitForFormViewport(t *testing.T) {
 	handler := NewAskUserApprovalHandler()
 	deltas := handler.BuildDeferredAwait("tool_1", "run_1", frontendTool("_ask_user_approval_"), map[string]any{
 		"mode":         "approval",
 		"viewportType": "html",
 		"viewportKey":  "leave_form",
-		"questions": []any{
-			map[string]any{
-				"question":            "Need confirmation",
-				"header":              "安全检查",
-				"allowFreeText":       true,
-				"freeTextPlaceholder": "Type your own answer",
-				"options": []any{
-					map[string]any{"label": "Approve", "value": "approve"},
-				},
-			},
-			map[string]any{
-				"question": "Secondary confirmation",
-				"options": []any{
-					map[string]any{"label": "Reject", "value": "reject"},
-				},
-			},
-		},
+		"command":      `mock create-leave --payload '{"employee_id":"E1001"}'`,
 	}, 5000)
 	if len(deltas) != 1 {
 		t.Fatalf("expected one delta, got %#v", deltas)
@@ -276,41 +260,39 @@ func TestAskUserApprovalHandlerBuildDeferredAwaitAndNormalizeSubmit(t *testing.T
 	if awaitAsk.Mode != "approval" || awaitAsk.ViewportKey != "leave_form" || awaitAsk.ViewportType != "html" {
 		t.Fatalf("unexpected await ask %#v", awaitAsk)
 	}
-	if len(awaitAsk.Questions) != 2 {
-		t.Fatalf("expected all approval questions to be forwarded, got %#v", awaitAsk.Questions)
+	if awaitAsk.Command != `mock create-leave --payload '{"employee_id":"E1001"}'` {
+		t.Fatalf("expected command to be forwarded, got %#v", awaitAsk)
 	}
+	if len(awaitAsk.Questions) != 0 {
+		t.Fatalf("expected form approval to omit questions, got %#v", awaitAsk.Questions)
+	}
+}
 
+func TestAskUserApprovalHandlerNormalizeSubmitForFormViewport(t *testing.T) {
+	handler := NewAskUserApprovalHandler()
 	result, err := handler.NormalizeSubmit(map[string]any{
-		"questions": []any{
-			map[string]any{
-				"question": "Need confirmation",
-				"header":   "安全检查",
-				"options": []any{
-					map[string]any{"label": "Approve", "value": "approve"},
-				},
-			},
-			map[string]any{
-				"question":      "Edited command",
-				"header":        "命令修改",
-				"allowFreeText": true,
-			},
+		"mode":         "approval",
+		"viewportType": "html",
+		"command":      `mock create-leave --payload '{"employee_id":"E1001"}'`,
+	}, map[string]any{
+		"action": "submit",
+		"payload": map[string]any{
+			"employee_id": "E1001",
+			"days":        2,
 		},
-	}, []any{
-		map[string]any{"question": "Need confirmation", "answer": "Approve", "value": "approve"},
-		map[string]any{"question": "Edited command", "answer": "later"},
 	})
 	if err != nil {
 		t.Fatalf("NormalizeSubmit returned error: %v", err)
 	}
-	questions, ok := result["questions"].([]map[string]any)
-	if !ok || len(questions) != 2 {
-		t.Fatalf("expected normalized approval questions, got %#v", result)
+	if result["mode"] != "approval" || result["action"] != "submit" {
+		t.Fatalf("unexpected normalized form submit %#v", result)
 	}
-	if questions[0]["answer"] != "Approve" || questions[0]["value"] != "approve" {
-		t.Fatalf("expected preset option approval result, got %#v", questions[0])
+	payload, ok := result["payload"].(map[string]any)
+	if !ok || payload["employee_id"] != "E1001" || payload["days"] != 2 {
+		t.Fatalf("expected normalized payload, got %#v", result)
 	}
-	if questions[1]["answer"] != "later" || questions[1]["value"] != "later" {
-		t.Fatalf("expected free-text approval value to default from answer, got %#v", questions[1])
+	if _, exists := result["questions"]; exists {
+		t.Fatalf("did not expect questions in form submit result, got %#v", result)
 	}
 }
 
@@ -390,6 +372,27 @@ func TestAskUserApprovalHandlerFormatSubmitResult(t *testing.T) {
 	if got, ok := handler.FormatSubmitResult("qa", valueResult); !ok || got != "问题：Need confirmation\n回答：Approve\n问题：Edited command\n回答：later" {
 		t.Fatalf("unexpected qa result: ok=%v got=%q", ok, got)
 	}
+
+	formResult := contracts.ToolExecutionResult{
+		Output: `{"mode":"approval","action":"submit","payload":{"days":2,"employee_id":"E1001"}}`,
+		Structured: map[string]any{
+			"mode":   "approval",
+			"action": "submit",
+			"payload": map[string]any{
+				"days":        2,
+				"employee_id": "E1001",
+			},
+		},
+	}
+	if got, ok := handler.FormatSubmitResult("summary", formResult); !ok || got != "用户提交了表单:\n- days: 2\n- employee_id: E1001" {
+		t.Fatalf("unexpected form summary result: ok=%v got=%q", ok, got)
+	}
+	if got, ok := handler.FormatSubmitResult("kv", formResult); !ok || got != "days=2; employee_id=E1001" {
+		t.Fatalf("unexpected form kv result: ok=%v got=%q", ok, got)
+	}
+	if got, ok := handler.FormatSubmitResult("qa", formResult); !ok || got != "字段：days\n值：2\n字段：employee_id\n值：E1001" {
+		t.Fatalf("unexpected form qa result: ok=%v got=%q", ok, got)
+	}
 }
 
 func TestAskUserApprovalHandlerRejectsLegacyObjectSubmit(t *testing.T) {
@@ -406,6 +409,57 @@ func TestAskUserApprovalHandlerRejectsLegacyObjectSubmit(t *testing.T) {
 	}, map[string]any{"value": "approve"})
 	if err == nil || !strings.Contains(err.Error(), "submit params must be an array") {
 		t.Fatalf("expected legacy object submit to be rejected, got %v", err)
+	}
+}
+
+func TestAskUserApprovalHandlerNormalizeSubmitForFormCancel(t *testing.T) {
+	handler := NewAskUserApprovalHandler()
+	result, err := handler.NormalizeSubmit(map[string]any{
+		"mode":         "approval",
+		"viewportType": "html",
+		"command":      `mock create-leave --payload '{"employee_id":"E1001"}'`,
+	}, map[string]any{
+		"action": "cancel",
+	})
+	if err != nil {
+		t.Fatalf("NormalizeSubmit returned error: %v", err)
+	}
+	expected := map[string]any{
+		"mode":      "approval",
+		"cancelled": true,
+		"reason":    "user_cancelled",
+	}
+	if !reflect.DeepEqual(result, expected) {
+		t.Fatalf("expected cancel payload %#v, got %#v", expected, result)
+	}
+}
+
+func TestAskUserApprovalHandlerNormalizeSubmitAcceptsApproveAlways(t *testing.T) {
+	handler := NewAskUserApprovalHandler()
+	result, err := handler.NormalizeSubmit(map[string]any{
+		"questions": []any{
+			map[string]any{
+				"question": "docker rmi busybox:latest 2>&1",
+				"header":   "Bash Approval",
+				"options": []any{
+					map[string]any{"label": "Approve", "value": "approve"},
+					map[string]any{"label": "Always Approve", "value": "approve_always"},
+					map[string]any{"label": "Reject", "value": "reject"},
+				},
+			},
+		},
+	}, []any{
+		map[string]any{"question": "docker rmi busybox:latest 2>&1", "answer": "Always Approve", "value": "approve_always"},
+	})
+	if err != nil {
+		t.Fatalf("NormalizeSubmit returned error: %v", err)
+	}
+	questions, ok := result["questions"].([]map[string]any)
+	if !ok || len(questions) != 1 {
+		t.Fatalf("expected normalized approval questions, got %#v", result)
+	}
+	if questions[0]["answer"] != "Always Approve" || questions[0]["value"] != "approve_always" {
+		t.Fatalf("expected approve_always to normalize, got %#v", questions[0])
 	}
 }
 

@@ -2,6 +2,7 @@ package frontendtools
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"agent-platform-runner-go/internal/api"
@@ -31,10 +32,6 @@ func (h *AskUserApprovalHandler) BuildDeferredAwait(toolID string, runID string,
 	if !strings.EqualFold(strings.TrimSpace(contracts.AnyStringNode(args["mode"])), "approval") {
 		return nil
 	}
-	questions := cloneAwaitQuestions(asAnySlice(args["questions"]))
-	if len(questions) == 0 {
-		return nil
-	}
 	viewportType, _ := tool.Meta["viewportType"].(string)
 	viewportKey, _ := tool.Meta["viewportKey"].(string)
 	if value := contracts.AnyStringNode(args["viewportType"]); value != "" {
@@ -42,6 +39,22 @@ func (h *AskUserApprovalHandler) BuildDeferredAwait(toolID string, runID string,
 	}
 	if value := contracts.AnyStringNode(args["viewportKey"]); value != "" {
 		viewportKey = value
+	}
+	command := strings.TrimSpace(contracts.AnyStringNode(args["command"]))
+	if strings.EqualFold(strings.TrimSpace(viewportType), "html") && command != "" {
+		return []contracts.AgentDelta{contracts.DeltaAwaitAsk{
+			AwaitingID:   toolID,
+			ViewportType: strings.TrimSpace(viewportType),
+			ViewportKey:  strings.TrimSpace(viewportKey),
+			Mode:         "approval",
+			Timeout:      timeoutMs,
+			RunID:        runID,
+			Command:      command,
+		}}
+	}
+	questions := cloneAwaitQuestions(asAnySlice(args["questions"]))
+	if len(questions) == 0 {
+		return nil
 	}
 	return []contracts.AgentDelta{contracts.DeltaAwaitAsk{
 		AwaitingID:   toolID,
@@ -55,6 +68,10 @@ func (h *AskUserApprovalHandler) BuildDeferredAwait(toolID string, runID string,
 }
 
 func (h *AskUserApprovalHandler) NormalizeSubmit(args map[string]any, params any) (map[string]any, error) {
+	if isFormApprovalArgs(args) {
+		return normalizeFormApprovalSubmit(params)
+	}
+
 	rawAnswers, ok := params.([]any)
 	if !ok {
 		return nil, fmt.Errorf("ask_user_approval submit params must be an array")
@@ -111,6 +128,40 @@ func (h *AskUserApprovalHandler) NormalizeSubmit(args map[string]any, params any
 		"mode":      "approval",
 		"questions": questions,
 	}, nil
+}
+
+func isFormApprovalArgs(args map[string]any) bool {
+	return strings.EqualFold(strings.TrimSpace(contracts.AnyStringNode(args["viewportType"])), "html") &&
+		strings.TrimSpace(contracts.AnyStringNode(args["command"])) != ""
+}
+
+func normalizeFormApprovalSubmit(params any) (map[string]any, error) {
+	payload := contracts.AnyMapNode(params)
+	if len(payload) == 0 {
+		return nil, fmt.Errorf("ask_user_approval form submit params must be an object")
+	}
+
+	action := strings.ToLower(strings.TrimSpace(contracts.AnyStringNode(payload["action"])))
+	switch action {
+	case "cancel":
+		return map[string]any{
+			"mode":      "approval",
+			"cancelled": true,
+			"reason":    "user_cancelled",
+		}, nil
+	case "submit":
+		formPayload := contracts.AnyMapNode(payload["payload"])
+		if formPayload == nil {
+			return nil, fmt.Errorf("ask_user_approval form submit payload must be an object")
+		}
+		return map[string]any{
+			"mode":    "approval",
+			"action":  "submit",
+			"payload": formPayload,
+		}, nil
+	default:
+		return nil, fmt.Errorf("ask_user_approval form action must be submit or cancel")
+	}
 }
 
 func (h *AskUserApprovalHandler) FormatSubmitResult(format string, result contracts.ToolExecutionResult) (string, bool) {
@@ -214,6 +265,9 @@ func approvalOptionByValue(definition map[string]any, value string) (approvalOpt
 }
 
 func formatApprovalSummary(result contracts.ToolExecutionResult) string {
+	if summary, ok := formatFormApprovalSummary(result); ok {
+		return summary
+	}
 	questions, ok := structuredQuestions(result)
 	if !ok || len(questions) == 0 {
 		return result.Output
@@ -231,6 +285,9 @@ func formatApprovalSummary(result contracts.ToolExecutionResult) string {
 }
 
 func formatApprovalKV(result contracts.ToolExecutionResult) string {
+	if summary, ok := formatFormApprovalKV(result); ok {
+		return summary
+	}
 	questions, ok := structuredQuestions(result)
 	if !ok || len(questions) == 0 {
 		return result.Output
@@ -247,6 +304,9 @@ func formatApprovalKV(result contracts.ToolExecutionResult) string {
 }
 
 func formatApprovalQA(result contracts.ToolExecutionResult) string {
+	if summary, ok := formatFormApprovalQA(result); ok {
+		return summary
+	}
 	questions, ok := structuredQuestions(result)
 	if !ok || len(questions) == 0 {
 		return result.Output
@@ -264,4 +324,88 @@ func formatApprovalQA(result contracts.ToolExecutionResult) string {
 		lines = append(lines, "回答："+formatAnswerValue(question["answer"]))
 	}
 	return strings.Join(lines, "\n")
+}
+
+func formatFormApprovalSummary(result contracts.ToolExecutionResult) (string, bool) {
+	if formPayload, ok := structuredApprovalPayload(result); ok {
+		lines := make([]string, 0, len(formPayload)+1)
+		lines = append(lines, "用户提交了表单:")
+		for _, entry := range formatPayloadEntries(formPayload) {
+			lines = append(lines, "- "+entry.summary)
+		}
+		return strings.Join(lines, "\n"), true
+	}
+	if result.Structured["cancelled"] == true {
+		return "用户取消了表单提交", true
+	}
+	return "", false
+}
+
+func formatFormApprovalKV(result contracts.ToolExecutionResult) (string, bool) {
+	if formPayload, ok := structuredApprovalPayload(result); ok {
+		entries := formatPayloadEntries(formPayload)
+		items := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			items = append(items, entry.kv)
+		}
+		return strings.Join(items, "; "), true
+	}
+	if result.Structured["cancelled"] == true {
+		return "status=cancelled; reason=" + formatAnswerValue(result.Structured["reason"]), true
+	}
+	return "", false
+}
+
+func formatFormApprovalQA(result contracts.ToolExecutionResult) (string, bool) {
+	if formPayload, ok := structuredApprovalPayload(result); ok {
+		entries := formatPayloadEntries(formPayload)
+		lines := make([]string, 0, len(entries)*2)
+		for _, entry := range entries {
+			lines = append(lines, "字段："+entry.key)
+			lines = append(lines, "值："+entry.value)
+		}
+		return strings.Join(lines, "\n"), true
+	}
+	if result.Structured["cancelled"] == true {
+		return "字段：status\n值：cancelled", true
+	}
+	return "", false
+}
+
+func structuredApprovalPayload(result contracts.ToolExecutionResult) (map[string]any, bool) {
+	if !strings.EqualFold(strings.TrimSpace(contracts.AnyStringNode(result.Structured["action"])), "submit") {
+		return nil, false
+	}
+	payload := contracts.AnyMapNode(result.Structured["payload"])
+	if payload == nil {
+		return nil, false
+	}
+	return payload, true
+}
+
+type formattedPayloadEntry struct {
+	key     string
+	value   string
+	summary string
+	kv      string
+}
+
+func formatPayloadEntries(payload map[string]any) []formattedPayloadEntry {
+	keys := make([]string, 0, len(payload))
+	for key := range payload {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	entries := make([]formattedPayloadEntry, 0, len(keys))
+	for _, key := range keys {
+		value := formatAnswerValue(payload[key])
+		entries = append(entries, formattedPayloadEntry{
+			key:     key,
+			value:   value,
+			summary: key + ": " + value,
+			kv:      key + "=" + value,
+		})
+	}
+	return entries
 }
