@@ -40,8 +40,11 @@ func (h *AskUserApprovalHandler) BuildDeferredAwait(toolID string, runID string,
 	if value := contracts.AnyStringNode(args["viewportKey"]); value != "" {
 		viewportKey = value
 	}
-	command := strings.TrimSpace(contracts.AnyStringNode(args["command"]))
-	if strings.EqualFold(strings.TrimSpace(viewportType), "html") && command != "" {
+	if strings.EqualFold(strings.TrimSpace(viewportType), "html") {
+		payload := contracts.AnyMapNode(args["payload"])
+		if payload == nil {
+			return nil
+		}
 		return []contracts.AgentDelta{contracts.DeltaAwaitAsk{
 			AwaitingID:   toolID,
 			ViewportType: strings.TrimSpace(viewportType),
@@ -49,7 +52,7 @@ func (h *AskUserApprovalHandler) BuildDeferredAwait(toolID string, runID string,
 			Mode:         "approval",
 			Timeout:      timeoutMs,
 			RunID:        runID,
-			Command:      command,
+			Payload:      contracts.CloneMap(payload),
 		}}
 	}
 	questions := cloneAwaitQuestions(asAnySlice(args["questions"]))
@@ -132,7 +135,7 @@ func (h *AskUserApprovalHandler) NormalizeSubmit(args map[string]any, params any
 
 func isFormApprovalArgs(args map[string]any) bool {
 	return strings.EqualFold(strings.TrimSpace(contracts.AnyStringNode(args["viewportType"])), "html") &&
-		strings.TrimSpace(contracts.AnyStringNode(args["command"])) != ""
+		contracts.AnyMapNode(args["payload"]) != nil
 }
 
 func normalizeFormApprovalSubmit(params any) (map[string]any, error) {

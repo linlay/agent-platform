@@ -95,7 +95,7 @@ type DeltaAwaitAsk struct {
 	Mode         string
 	Timeout      int64
 	RunID        string
-	Command      string
+	Payload      map[string]any
 	Questions    []any
 }
 

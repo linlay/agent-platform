@@ -410,8 +410,8 @@ func (d *StreamEventDispatcher) newAwaitAskEvent(input AwaitAsk) StreamEvent {
 		"timeout":      input.Timeout,
 		"runId":        input.RunID,
 	}
-	if strings.TrimSpace(input.Command) != "" {
-		payload["command"] = input.Command
+	if len(input.Payload) > 0 {
+		payload["payload"] = clonePayload(input.Payload)
 	}
 	if len(input.Questions) > 0 {
 		payload["questions"] = input.Questions
