@@ -1050,16 +1050,7 @@ func (s *llmRunStream) executeOriginalBash(invocation *preparedToolInvocation) e
 func (s *llmRunStream) buildHITLArgs(invocation *preparedToolInvocation, result hitl.InterceptResult) map[string]any {
 	command := mapStringArg(invocation.args, "command")
 	args := map[string]any{
-		"mode":              "approval",
-		"originalCommand":   command,
-		"baseCommand":       result.ParsedCommand.BaseCommand,
-		"matchedSubcommand": result.Rule.Match,
-		"originalToolName":  invocation.toolName,
-		"originalToolId":    invocation.toolID,
-		"ruleKey":           result.Rule.FileKey,
-		"requiredLevel":     result.Rule.Level,
-		"chatLevel":         s.execCtx.HITLLevel,
-		"allowModify":       strings.EqualFold(result.Rule.ViewportType, "html"),
+		"mode": "approval",
 		"questions": []any{
 			map[string]any{
 				"question": command,
