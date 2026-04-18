@@ -91,6 +91,29 @@ plain:
 - `owner` 会注入 `OWNER_DIR` 下的 markdown 内容
 - `memory` 会注入运行期 memory context
 
+## Sandbox Config
+
+Go runner 当前支持在 `agent.yml -> sandboxConfig` 下声明：
+
+```yaml
+sandboxConfig:
+  environmentId: shell
+  level: RUN
+  env:
+    HTTP_PROXY: "http://127.0.0.1:7890"
+    HTTPS_PROXY: "http://127.0.0.1:7890"
+    TZ: "Asia/Shanghai"
+```
+
+约束与语义：
+
+- `env` 只接受 `map[string]string`
+- key 必须非空，且不能包含空白字符或 `=`
+- value 必须是字面量字符串；空字符串允许并原样下发
+- 不支持 `${VAR}` 或其他宿主环境变量展开
+- agent `sandboxConfig.env` 作为基础值，skill 目录下的 `.sandbox-env.json` 会按 agent 声明顺序叠加并覆盖同名键
+- `/api/agents` 与 `/api/agent` 的 `sandbox` meta 不会回显 `env`，避免暴露代理地址、凭据或私有 endpoint；`extraMounts` 仍可对外暴露，因为它描述的是白名单路径而非敏感值
+
 ## 当前建议
 
 当前建议：

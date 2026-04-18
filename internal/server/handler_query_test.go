@@ -41,12 +41,17 @@ func TestResolveSkillRuntimeSettingsMergesEnvAndHookDirsInOrder(t *testing.T) {
 		},
 	}
 
-	hookDirs, env := resolveSkillRuntimeSettings([]string{"alpha", "beta", "alpha"}, registry)
+	agentEnv := map[string]string{
+		"NODE_ENV": "test",
+		"BASE":     "1",
+	}
+	hookDirs, env := resolveSkillRuntimeSettings(agentEnv, []string{"alpha", "beta", "alpha"}, registry)
 	if !reflect.DeepEqual(hookDirs, []string{"/skills/alpha/.bash-hooks", "/skills/beta/.bash-hooks"}) {
 		t.Fatalf("hookDirs = %#v", hookDirs)
 	}
 	wantEnv := map[string]string{
 		"NODE_ENV": "production",
+		"BASE":     "1",
 		"DEBUG":    "1",
 		"TZ":       "UTC",
 	}
@@ -68,12 +73,32 @@ func TestResolveSkillRuntimeSettingsSkipsMissingSkills(t *testing.T) {
 		},
 	}
 
-	hookDirs, env := resolveSkillRuntimeSettings([]string{"missing", "beta"}, registry)
+	agentEnv := map[string]string{
+		"HTTP_PROXY": "http://agent",
+	}
+	hookDirs, env := resolveSkillRuntimeSettings(agentEnv, []string{"missing", "beta"}, registry)
 	if !reflect.DeepEqual(hookDirs, []string{"/skills/beta/.bash-hooks"}) {
 		t.Fatalf("hookDirs = %#v", hookDirs)
 	}
-	if !reflect.DeepEqual(env, map[string]string{"TZ": "UTC"}) {
+	if !reflect.DeepEqual(env, map[string]string{"HTTP_PROXY": "http://agent", "TZ": "UTC"}) {
 		t.Fatalf("env = %#v", env)
+	}
+}
+
+func TestResolveSkillRuntimeSettingsReturnsAgentEnvWithoutSkills(t *testing.T) {
+	agentEnv := map[string]string{
+		"HTTP_PROXY": "http://agent",
+	}
+
+	hookDirs, env := resolveSkillRuntimeSettings(agentEnv, nil, nil)
+	if hookDirs != nil {
+		t.Fatalf("hookDirs = %#v, want nil", hookDirs)
+	}
+	if !reflect.DeepEqual(env, agentEnv) {
+		t.Fatalf("env = %#v, want %#v", env, agentEnv)
+	}
+	if env["HTTP_PROXY"] != "http://agent" {
+		t.Fatalf("expected cloned env to preserve values, got %#v", env)
 	}
 }
 

@@ -170,7 +170,7 @@ func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
 	}
 
 	promptAppend := buildPromptAppendConfig(agentDef)
-	skillHookDirs, sandboxEnvOverrides := resolveSkillRuntimeSettings(agentDef.Skills, s.deps.Registry)
+	skillHookDirs, sandboxEnvOverrides := resolveSkillRuntimeSettings(sandboxAgentEnv(agentDef.Sandbox["env"]), agentDef.Skills, s.deps.Registry)
 	log.Printf("[server][skill-runtime] agent=%s skills=%v hookDirs=%v sandboxEnvKeys=%v",
 		agentDef.Key,
 		agentDef.Skills,
@@ -226,13 +226,22 @@ func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
 	}, nil
 }
 
-func resolveSkillRuntimeSettings(skillKeys []string, registry catalog.Registry) ([]string, map[string]string) {
+func sandboxAgentEnv(value any) map[string]string {
+	switch env := value.(type) {
+	case map[string]string:
+		return contracts.CloneStringMap(env)
+	default:
+		return nil
+	}
+}
+
+func resolveSkillRuntimeSettings(agentEnv map[string]string, skillKeys []string, registry catalog.Registry) ([]string, map[string]string) {
+	sandboxEnv := contracts.CloneStringMap(agentEnv)
 	if len(skillKeys) == 0 || registry == nil {
-		return nil, nil
+		return nil, sandboxEnv
 	}
 	seen := map[string]struct{}{}
 	var hookDirs []string
-	var sandboxEnv map[string]string
 	for _, raw := range skillKeys {
 		skillKey := strings.ToLower(strings.TrimSpace(raw))
 		if skillKey == "" {
@@ -252,7 +261,7 @@ func resolveSkillRuntimeSettings(skillKeys []string, registry catalog.Registry) 
 		}
 		for key, value := range def.SandboxEnv {
 			if sandboxEnv == nil {
-				sandboxEnv = make(map[string]string, len(def.SandboxEnv))
+				sandboxEnv = make(map[string]string, len(agentEnv)+len(def.SandboxEnv))
 			}
 			sandboxEnv[key] = value
 		}

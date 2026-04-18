@@ -542,6 +542,7 @@ func normalizedSandboxMeta(sandbox map[string]any) map[string]any {
 		"environmentId": stringValue(sandbox["environmentId"]),
 		"level":         strings.ToUpper(stringValue(sandbox["level"])),
 	}
+	// Intentionally do not expose sandbox env values via API metadata.
 	if mounts := normalizeSandboxMounts(sandbox["extraMounts"]); len(mounts) > 0 {
 		out["extraMounts"] = mounts
 	}

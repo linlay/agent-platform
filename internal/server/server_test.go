@@ -681,6 +681,9 @@ func TestAgentEndpointReturnsDetail(t *testing.T) {
 	if sandbox["level"] != "RUN" {
 		t.Fatalf("expected sandbox level RUN, got %#v", sandbox["level"])
 	}
+	if _, exists := sandbox["env"]; exists {
+		t.Fatalf("expected sandbox env to stay private, got %#v", sandbox)
+	}
 	extraMounts, ok := sandbox["extraMounts"].([]any)
 	if !ok || len(extraMounts) != 1 {
 		t.Fatalf("expected sandbox extraMounts, got %#v", sandbox)
@@ -3013,6 +3016,9 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 		"sandboxConfig:",
 		"  environmentId: shell",
 		"  level: RUN",
+		"  env:",
+		"    HTTP_PROXY: http://agent-proxy",
+		"    TZ: Asia/Shanghai",
 		"  extraMounts:",
 		"    - platform: skills-market",
 		"      destination: /skills",

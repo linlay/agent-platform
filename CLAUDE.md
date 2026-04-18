@@ -180,6 +180,28 @@ remember 根目录由 `MEMORY_DIR` 控制：
 - `ChatDetailResponse`
 - `UploadResponse` / `UploadTicket`
 
+### Agent sandboxConfig
+
+`agent.yml` 当前可在 `sandboxConfig` 下声明 agent 级沙箱基础配置：
+
+```yaml
+sandboxConfig:
+  environmentId: shell
+  level: RUN
+  env:
+    HTTP_PROXY: "http://127.0.0.1:7890"
+    HTTPS_PROXY: "http://127.0.0.1:7890"
+    TZ: "Asia/Shanghai"
+```
+
+约束：
+
+- `env` 只接受字面量字符串 map；不支持 `${VAR}` 展开
+- key 必须非空，且不能包含空白字符或 `=`
+- value 必须是字符串；空字符串允许并原样传给 Container Hub
+- 最终合并顺序是 `agent.sandboxConfig.env < skill[i].SandboxEnv`，后声明的 skill 继续覆盖前者
+- `/api/agents` 和 `/api/agent` 的 sandbox meta 不暴露 `env`，因为其中可能包含代理地址、凭据或私有 endpoint；`extraMounts` 仍继续对外暴露
+
 ## 6. API 定义
 
 所有非 SSE 接口统一返回：

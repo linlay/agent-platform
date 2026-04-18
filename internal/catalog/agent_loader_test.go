@@ -3,6 +3,8 @@ package catalog
 import (
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -98,5 +100,92 @@ func TestParseAgentFileLoadsToolOverridesFromToolConfig(t *testing.T) {
 	}
 	if override.Meta["viewportType"] != "confirm_dialog" {
 		t.Fatalf("expected viewportType in tool override meta, got %#v", override.Meta)
+	}
+}
+
+func TestParseAgentFileLoadsSandboxEnv(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	content := "" +
+		"key: demo\n" +
+		"name: Demo\n" +
+		"modelConfig:\n" +
+		"  modelKey: demo-model\n" +
+		"sandboxConfig:\n" +
+		"  env:\n" +
+		"    HTTP_PROXY: http://127.0.0.1:7890\n" +
+		"    EMPTY: \"\"\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	got, ok := def.Sandbox["env"].(map[string]string)
+	if !ok {
+		t.Fatalf("expected sandbox env map[string]string, got %#v", def.Sandbox["env"])
+	}
+	want := map[string]string{
+		"HTTP_PROXY": "http://127.0.0.1:7890",
+		"EMPTY":      "",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("sandbox env = %#v, want %#v", got, want)
+	}
+}
+
+func TestParseAgentFileRejectsInvalidSandboxEnv(t *testing.T) {
+	tests := []struct {
+		name        string
+		envValue    any
+		errContains string
+	}{
+		{
+			name:        "env must be map",
+			envValue:    []any{"HTTP_PROXY"},
+			errContains: "sandboxConfig.env must be a map[string]string",
+		},
+		{
+			name: "value must be string",
+			envValue: map[string]any{
+				"HTTP_PROXY": int64(7890),
+			},
+			errContains: `sandboxConfig.env["HTTP_PROXY"] must be a string`,
+		},
+		{
+			name: "key must not be empty",
+			envValue: map[string]any{
+				"": "value",
+			},
+			errContains: "sandboxConfig.env contains an empty key",
+		},
+		{
+			name: "key must not contain whitespace",
+			envValue: map[string]any{
+				"BAD KEY": "value",
+			},
+			errContains: `sandboxConfig.env key "BAD KEY" must not contain whitespace`,
+		},
+		{
+			name: "key must not contain equals",
+			envValue: map[string]any{
+				"BAD=KEY": "value",
+			},
+			errContains: `sandboxConfig.env key "BAD=KEY" must not contain '='`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := parseSandboxEnv(tt.envValue)
+			if err == nil {
+				t.Fatal("expected parseSandboxEnv error")
+			}
+			if !strings.Contains(err.Error(), tt.errContains) {
+				t.Fatalf("error = %q, want substring %q", err.Error(), tt.errContains)
+			}
+		})
 	}
 }

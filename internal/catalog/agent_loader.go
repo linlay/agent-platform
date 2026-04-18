@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"agent-platform-runner-go/internal/config"
 	"agent-platform-runner-go/internal/contracts"
@@ -317,6 +318,13 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 			"environmentId": stringNode(sandboxConfig["environmentId"]),
 			"level":         strings.ToLower(stringNode(sandboxConfig["level"])),
 		}
+		sandboxEnv, err := parseSandboxEnv(sandboxConfig["env"])
+		if err != nil {
+			return AgentDefinition{}, nil, err
+		}
+		if len(sandboxEnv) > 0 {
+			def.Sandbox["env"] = sandboxEnv
+		}
 		if mounts := listMaps(sandboxConfig["extraMounts"]); len(mounts) > 0 {
 			def.Sandbox["extraMounts"] = cloneListMaps(mounts)
 		}
@@ -348,6 +356,46 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 		def.Role = def.Name
 	}
 	return def, root, nil
+}
+
+func parseSandboxEnv(value any) (map[string]string, error) {
+	if value == nil {
+		return nil, nil
+	}
+	root, ok := value.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("sandboxConfig.env must be a map[string]string")
+	}
+	if len(root) == 0 {
+		return nil, nil
+	}
+	result := make(map[string]string, len(root))
+	for key, rawValue := range root {
+		if err := validateSandboxEnvKey(key); err != nil {
+			return nil, err
+		}
+		stringValue, ok := rawValue.(string)
+		if !ok {
+			return nil, fmt.Errorf("sandboxConfig.env[%q] must be a string", key)
+		}
+		result[key] = stringValue
+	}
+	return result, nil
+}
+
+func validateSandboxEnvKey(key string) error {
+	if key == "" {
+		return fmt.Errorf("sandboxConfig.env contains an empty key")
+	}
+	if strings.ContainsRune(key, '=') {
+		return fmt.Errorf("sandboxConfig.env key %q must not contain '='", key)
+	}
+	for _, r := range key {
+		if unicode.IsSpace(r) {
+			return fmt.Errorf("sandboxConfig.env key %q must not contain whitespace", key)
+		}
+	}
+	return nil
 }
 
 func applyModelReasoningDefaults(stageSettings map[string]any, reasoning map[string]any) map[string]any {
