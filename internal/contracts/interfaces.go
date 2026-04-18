@@ -28,6 +28,7 @@ type ActiveRunService interface {
 	DetachObserver(runID string, observerID string)
 	EventBus(runID string) (*stream.RunEventBus, bool)
 	RunStatus(runID string) (RunStatusInfo, bool)
+	ActiveRunForChat(chatID string) (RunStatusInfo, bool, error)
 }
 
 type RunManager = ActiveRunService

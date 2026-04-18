@@ -111,6 +111,52 @@ func TestRunControlResolveSubmitMarksAlreadyResolved(t *testing.T) {
 	}
 }
 
+func TestInMemoryRunManagerActiveRunForChatReturnsSingleActiveRun(t *testing.T) {
+	manager := NewInMemoryRunManager()
+	_, _, _ = manager.Register(context.Background(), QuerySession{
+		RunID:    "run_1",
+		ChatID:   "chat_1",
+		AgentKey: "agent_1",
+	})
+
+	status, ok, err := manager.ActiveRunForChat("chat_1")
+	if err != nil {
+		t.Fatalf("active run for chat: %v", err)
+	}
+	if !ok {
+		t.Fatalf("expected active run for chat")
+	}
+	if status.RunID != "run_1" || status.ChatID != "chat_1" {
+		t.Fatalf("unexpected active run status %#v", status)
+	}
+}
+
+func TestInMemoryRunManagerActiveRunForChatReturnsConflictForMultipleRuns(t *testing.T) {
+	manager := NewInMemoryRunManager()
+	_, _, _ = manager.Register(context.Background(), QuerySession{
+		RunID:    "run_1",
+		ChatID:   "chat_1",
+		AgentKey: "agent_1",
+	})
+	_, _, _ = manager.Register(context.Background(), QuerySession{
+		RunID:    "run_2",
+		ChatID:   "chat_1",
+		AgentKey: "agent_1",
+	})
+
+	_, ok, err := manager.ActiveRunForChat("chat_1")
+	if ok {
+		t.Fatalf("expected conflict to suppress active run result")
+	}
+	var conflictErr *ActiveRunConflictError
+	if !errors.As(err, &conflictErr) {
+		t.Fatalf("expected ActiveRunConflictError, got %v", err)
+	}
+	if len(conflictErr.RunIDs) != 2 {
+		t.Fatalf("expected both run ids in conflict, got %#v", conflictErr.RunIDs)
+	}
+}
+
 func TestInMemoryRunManagerReaperPublishesRunExpiredBeforeInterrupt(t *testing.T) {
 	manager := NewInMemoryRunManager()
 	manager.maxBackgroundDuration = time.Millisecond

@@ -1086,7 +1086,7 @@ func (s *llmRunStream) buildHITLArgs(invocation *preparedToolInvocation, result 
 		args["viewportKey"] = result.Rule.ViewportKey
 		args["questions"].([]any)[0].(map[string]any)["allowFreeText"] = true
 		args["questions"].([]any)[0].(map[string]any)["freeTextPlaceholder"] = "Edit the command before approval"
-		if payload := extractMockLeavePayload(result.ParsedCommand); len(payload) > 0 {
+		if payload := extractMockBusinessCreatePayload(result.ParsedCommand); len(payload) > 0 {
 			args["payload"] = payload
 		}
 	}
@@ -1207,11 +1207,16 @@ func (s *llmRunStream) normalizeHITLSubmit(args map[string]any, params any) (map
 	return handler.NormalizeSubmit(args, params)
 }
 
-func extractMockLeavePayload(parsed hitl.CommandComponents) map[string]any {
+func extractMockBusinessCreatePayload(parsed hitl.CommandComponents) map[string]any {
 	if !strings.EqualFold(strings.TrimSpace(parsed.BaseCommand), "mock") {
 		return nil
 	}
-	if len(parsed.Tokens) < 3 || !strings.EqualFold(strings.TrimSpace(parsed.Tokens[0]), "create-leave") {
+	if len(parsed.Tokens) < 3 {
+		return nil
+	}
+	switch strings.ToLower(strings.TrimSpace(parsed.Tokens[0])) {
+	case "create-leave", "create-expense", "create-procurement":
+	default:
 		return nil
 	}
 	for idx := 1; idx < len(parsed.Tokens)-1; idx++ {

@@ -8,6 +8,7 @@ import (
 
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/chat"
+	"agent-platform-runner-go/internal/contracts"
 )
 
 func (s *Server) listChatSummaries(lastRunID string, agentKey string) ([]api.ChatSummaryResponse, error) {
@@ -78,7 +79,34 @@ func (s *Server) loadChatDetail(ctx context.Context, chatID string, includeRawMe
 			TotalTokens:      summary.Usage.TotalTokens,
 		}
 	}
+	if s.deps.Runs != nil {
+		activeRun, ok, activeErr := s.deps.Runs.ActiveRunForChat(chatID)
+		if activeErr != nil {
+			return api.ChatDetailResponse{}, activeErr
+		}
+		if ok {
+			response.ActiveRun = &api.ActiveRunInfo{
+				RunID:     activeRun.RunID,
+				State:     string(activeRun.State),
+				LastSeq:   activeRun.LastSeq,
+				OldestSeq: activeRun.OldestSeq,
+				StartedAt: activeRun.StartedAt,
+			}
+		}
+	}
 	return response, nil
+}
+
+func writeActiveRunConflict(w http.ResponseWriter, conflict *contracts.ActiveRunConflictError) {
+	writeJSON(w, http.StatusConflict, api.ApiResponse[map[string]any]{
+		Code: http.StatusConflict,
+		Msg:  "active_run_conflict",
+		Data: map[string]any{
+			"code":   "active_run_conflict",
+			"chatId": conflict.ChatID,
+			"runIds": append([]string(nil), conflict.RunIDs...),
+		},
+	})
 }
 
 func (s *Server) handleChats(w http.ResponseWriter, r *http.Request) {
@@ -99,6 +127,11 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	response, err := s.loadChatDetail(r.Context(), chatID, strings.EqualFold(r.URL.Query().Get("includeRawMessages"), "true"))
 	if errors.Is(err, chat.ErrChatNotFound) {
 		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "chat not found"))
+		return
+	}
+	var conflictErr *contracts.ActiveRunConflictError
+	if errors.As(err, &conflictErr) {
+		writeActiveRunConflict(w, conflictErr)
 		return
 	}
 	if err != nil {

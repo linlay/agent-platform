@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -32,6 +33,18 @@ type SubmitResult struct {
 
 type submitWaiter struct {
 	ch chan SubmitResult
+}
+
+type ActiveRunConflictError struct {
+	ChatID string
+	RunIDs []string
+}
+
+func (e *ActiveRunConflictError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return "multiple active runs found for chat"
 }
 
 func (w *submitWaiter) deliver(result SubmitResult) bool {
@@ -652,6 +665,62 @@ func (m *InMemoryRunManager) RunStatus(runID string) (RunStatusInfo, bool) {
 		info.CompletedAt = state.completedAt.UnixMilli()
 	}
 	return info, true
+}
+
+func (m *InMemoryRunManager) ActiveRunForChat(chatID string) (RunStatusInfo, bool, error) {
+	if strings.TrimSpace(chatID) == "" {
+		return RunStatusInfo{}, false, nil
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var (
+		match   *managedRun
+		runIDs  []string
+		chatKey = strings.TrimSpace(chatID)
+	)
+	for _, state := range m.runs {
+		if state == nil || state.eventBus == nil || !state.completedAt.IsZero() {
+			continue
+		}
+		if strings.TrimSpace(state.run.ChatID) != chatKey {
+			continue
+		}
+		runIDs = append(runIDs, state.run.RunID)
+		if match == nil {
+			match = state
+			continue
+		}
+		if state.startedAt.After(match.startedAt) {
+			match = state
+		}
+	}
+
+	if len(runIDs) == 0 || match == nil {
+		return RunStatusInfo{}, false, nil
+	}
+	if len(runIDs) > 1 {
+		return RunStatusInfo{}, false, &ActiveRunConflictError{
+			ChatID: chatKey,
+			RunIDs: append([]string(nil), runIDs...),
+		}
+	}
+
+	info := RunStatusInfo{
+		RunID:         match.run.RunID,
+		ChatID:        match.run.ChatID,
+		AgentKey:      match.run.AgentKey,
+		State:         match.control.State(),
+		LastSeq:       match.eventBus.LatestSeq(),
+		OldestSeq:     match.eventBus.OldestSeq(),
+		ObserverCount: match.eventBus.ObserverCount(),
+		StartedAt:     match.startedAt.UnixMilli(),
+	}
+	if !match.completedAt.IsZero() {
+		info.CompletedAt = match.completedAt.UnixMilli()
+	}
+	return info, true, nil
 }
 
 func (m *InMemoryRunManager) EventBus(runID string) (*stream.RunEventBus, bool) {

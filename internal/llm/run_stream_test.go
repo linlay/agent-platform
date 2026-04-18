@@ -258,7 +258,7 @@ func TestBashHITLApprovalUsesAskUserApprovalForAllViewports(t *testing.T) {
 			expectedKey:     "confirm_dialog",
 		},
 		{
-			name: "html viewport override",
+			name: "leave html viewport override",
 			rule: hitl.FlatRule{
 				Match:        "create-leave",
 				Level:        1,
@@ -274,6 +274,42 @@ func TestBashHITLApprovalUsesAskUserApprovalForAllViewports(t *testing.T) {
 			expectedCommand: "mock create-leave --payload '{\"employee_id\":\"E1001\"}'",
 			expectedView:    "html",
 			expectedKey:     "leave_form",
+		},
+		{
+			name: "expense html viewport override",
+			rule: hitl.FlatRule{
+				Match:        "create-expense",
+				Level:        1,
+				ViewportType: "html",
+				ViewportKey:  "expense_form",
+			},
+			submitParams: []any{
+				map[string]any{
+					"question": "mock create-expense",
+					"answer":   "mock create-expense --payload '{\"employee_id\":\"E1001\"}'",
+				},
+			},
+			expectedCommand: "mock create-expense --payload '{\"employee_id\":\"E1001\"}'",
+			expectedView:    "html",
+			expectedKey:     "expense_form",
+		},
+		{
+			name: "procurement html viewport override",
+			rule: hitl.FlatRule{
+				Match:        "create-procurement",
+				Level:        1,
+				ViewportType: "html",
+				ViewportKey:  "procurement_form",
+			},
+			submitParams: []any{
+				map[string]any{
+					"question": "mock create-procurement",
+					"answer":   "mock create-procurement --payload '{\"requester_id\":\"E1001\"}'",
+				},
+			},
+			expectedCommand: "mock create-procurement --payload '{\"requester_id\":\"E1001\"}'",
+			expectedView:    "html",
+			expectedKey:     "procurement_form",
 		},
 	}
 
@@ -310,9 +346,6 @@ func TestBashHITLApprovalUsesAskUserApprovalForAllViewports(t *testing.T) {
 					"command": "git push origin main",
 				},
 			}
-			if tc.rule.Match == "create-leave" {
-				invocation.args["command"] = "mock create-leave"
-			}
 			result := hitl.InterceptResult{
 				Intercepted: true,
 				Rule:        tc.rule,
@@ -321,10 +354,24 @@ func TestBashHITLApprovalUsesAskUserApprovalForAllViewports(t *testing.T) {
 					Tokens:      []string{"push", "origin", "main"},
 				},
 			}
-			if tc.rule.Match == "create-leave" {
+			switch tc.rule.Match {
+			case "create-leave":
+				invocation.args["command"] = "mock create-leave"
 				result.ParsedCommand = hitl.CommandComponents{
 					BaseCommand: "mock",
 					Tokens:      []string{"create-leave"},
+				}
+			case "create-expense":
+				invocation.args["command"] = "mock create-expense"
+				result.ParsedCommand = hitl.CommandComponents{
+					BaseCommand: "mock",
+					Tokens:      []string{"create-expense"},
+				}
+			case "create-procurement":
+				invocation.args["command"] = "mock create-procurement"
+				result.ParsedCommand = hitl.CommandComponents{
+					BaseCommand: "mock",
+					Tokens:      []string{"create-procurement"},
 				}
 			}
 
@@ -476,16 +523,46 @@ func TestInvokeActiveToolCallUsesSkillScopedChecker(t *testing.T) {
 	}
 }
 
-func TestExtractMockLeavePayload(t *testing.T) {
-	payload := extractMockLeavePayload(hitl.ParseCommandComponents(`mock create-leave --payload '{"employee_id":"E1001","days":3}'`))
-	if payload["employee_id"] != "E1001" {
-		t.Fatalf("expected employee_id to be parsed, got %#v", payload)
-	}
-	if payload["days"] != float64(3) {
-		t.Fatalf("expected days to be parsed, got %#v", payload)
+func TestExtractMockBusinessCreatePayload(t *testing.T) {
+	tests := []struct {
+		name    string
+		command string
+		key     string
+		want    any
+	}{
+		{
+			name:    "leave",
+			command: `mock create-leave --payload '{"employee_id":"E1001","days":3}'`,
+			key:     "employee_id",
+			want:    "E1001",
+		},
+		{
+			name:    "expense",
+			command: `mock create-expense --payload '{"employee_id":"E1001","total_amount":1280.5}'`,
+			key:     "total_amount",
+			want:    1280.5,
+		},
+		{
+			name:    "procurement",
+			command: `mock create-procurement --payload '{"requester_id":"E1001","delivery_city":"Shanghai"}'`,
+			key:     "delivery_city",
+			want:    "Shanghai",
+		},
 	}
 
-	if got := extractMockLeavePayload(hitl.ParseCommandComponents(`mock create-leave --payload-file ./leave.json`)); got != nil {
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			payload := extractMockBusinessCreatePayload(hitl.ParseCommandComponents(tc.command))
+			if got := payload[tc.key]; !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("expected %s=%#v, got %#v from %#v", tc.key, tc.want, got, payload)
+			}
+		})
+	}
+
+	if got := extractMockBusinessCreatePayload(hitl.ParseCommandComponents(`mock create-leave --payload-file ./leave.json`)); got != nil {
 		t.Fatalf("expected payload-file command to skip prefill, got %#v", got)
+	}
+	if got := extractMockBusinessCreatePayload(hitl.ParseCommandComponents(`mock update-leave --payload '{"request_id":"LV-1"}'`)); got != nil {
+		t.Fatalf("expected update command to skip prefill, got %#v", got)
 	}
 }

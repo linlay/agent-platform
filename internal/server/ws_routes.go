@@ -10,6 +10,7 @@ import (
 
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/chat"
+	"agent-platform-runner-go/internal/contracts"
 	"agent-platform-runner-go/internal/stream"
 	"agent-platform-runner-go/internal/ws"
 )
@@ -59,7 +60,9 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/chat", s.wsChat)
 	handler.RegisterRoute("/api/read", s.wsRead)
 	handler.RegisterRoute("/api/query", s.wsQuery)
+	handler.RegisterRoute("/api/attach", s.wsRunStream)
 	handler.RegisterRoute("/api/run/stream", s.wsRunStream)
+	handler.RegisterRoute("/api/runstatus", s.wsRunStatus)
 	handler.RegisterRoute("/api/run/status", s.wsRunStatus)
 	handler.RegisterRoute("/api/submit", s.wsSubmit)
 	handler.RegisterRoute("/api/steer", s.wsSteer)
@@ -185,6 +188,16 @@ func (s *Server) wsChat(ctx context.Context, conn *ws.Conn, req ws.RequestFrame)
 	response, loadErr := s.loadChatDetail(ctx, payload.ChatID, payload.IncludeRawMessages)
 	if errors.Is(loadErr, chat.ErrChatNotFound) {
 		conn.SendError(req.ID, "not_found", 404, "chat not found", nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	var conflictErr *contracts.ActiveRunConflictError
+	if errors.As(loadErr, &conflictErr) {
+		conn.SendError(req.ID, "active_run_conflict", 409, "multiple active runs found for chat", map[string]any{
+			"code":   "active_run_conflict",
+			"chatId": conflictErr.ChatID,
+			"runIds": append([]string(nil), conflictErr.RunIDs...),
+		})
 		conn.CompleteRequest(req.ID)
 		return
 	}

@@ -168,6 +168,79 @@ func TestWebSocketUpgradeAcceptsValidTokenThroughStatusRecorder(t *testing.T) {
 	defer conn.Close()
 }
 
+func TestWebSocketChatReturnsActiveRunConflict(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		notifications: ws.NewHub(),
+		configure: func(cfg *config.Config) {
+			cfg.WebSocket.Enabled = true
+			cfg.WebSocket.WriteQueueSize = 4
+			cfg.WebSocket.PingIntervalMs = 30000
+		},
+	})
+
+	if _, _, err := fixture.chats.EnsureChat("chat_ws_conflict", "mock-runner", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	runs := fixture.runs.(*runctl.InMemoryRunManager)
+	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
+		RunID:    "run_ws_1",
+		ChatID:   "chat_ws_conflict",
+		AgentKey: "mock-runner",
+	})
+	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
+		RunID:    "run_ws_2",
+		ChatID:   "chat_ws_conflict",
+		AgentKey: "mock-runner",
+	})
+
+	server := httptest.NewServer(fixture.server)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
+	conn, _, err := gws.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer conn.Close()
+
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame: ws.FrameRequest,
+		Type:  "/api/chat",
+		ID:    "req_chat_conflict",
+		Payload: ws.MarshalPayload(map[string]any{
+			"chatId": "chat_ws_conflict",
+		}),
+	}); err != nil {
+		t.Fatalf("write request: %v", err)
+	}
+
+	_, raw, err := conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("read message: %v", err)
+	}
+	var connected ws.PushFrame
+	if err := json.Unmarshal(raw, &connected); err != nil {
+		t.Fatalf("decode initial frame: %v", err)
+	}
+	if connected.Frame != ws.FramePush {
+		t.Fatalf("expected initial push frame, got %s", string(raw))
+	}
+
+	_, raw, err = conn.ReadMessage()
+	if err != nil {
+		t.Fatalf("read error frame: %v", err)
+	}
+	var frame ws.ErrorFrame
+	if err := json.Unmarshal(raw, &frame); err != nil {
+		t.Fatalf("decode frame: %v", err)
+	}
+	if frame.Frame != ws.FrameError || frame.Type != "active_run_conflict" || frame.Code != http.StatusConflict {
+		t.Fatalf("unexpected websocket error frame: %s", string(raw))
+	}
+}
+
 type hijackableResponseWriter struct {
 	header http.Header
 	conn   net.Conn
@@ -2143,6 +2216,60 @@ func TestBashHITLSimpleBashApproveFlow(t *testing.T) {
 	}
 	if !strings.Contains(body, `"viewportKey":"leave_form"`) {
 		t.Fatalf("expected leave_form viewport in stream, got %s", body)
+	}
+}
+
+func TestBashHITLApproveFlowForExpenseCreate(t *testing.T) {
+	command := `mock create-expense --payload {"employee_id":"E1001","department":"engineering","expense_type":"travel","currency":"CNY","total_amount":1280.5,"items":[{"category":"transport","amount":800,"invoice_id":"INV-001","occurred_on":"2026-04-10","description":"flight"},{"category":"hotel","amount":480.5,"invoice_id":"INV-002","occurred_on":"2026-04-11","description":"hotel"}],"submitted_at":"2026-04-14T10:30:00+08:00"}`
+	rules := strings.Join([]string{
+		"commands:",
+		"  - command: mock",
+		"    subcommands:",
+		"      - match: create-expense",
+		"        level: 1",
+		"        viewportType: html",
+		"        viewportKey: expense_form",
+	}, "\n")
+	body, executed := runBashHITLFlow(t, bashHITLFlowOptions{
+		action:       "approve",
+		command:      command,
+		rulesContent: rules,
+	})
+	if len(executed) != 1 || executed[0] != command {
+		t.Fatalf("expected approved expense command to execute once, got %#v", executed)
+	}
+	if !strings.Contains(body, `"viewportKey":"expense_form"`) {
+		t.Fatalf("expected expense_form viewport in stream, got %s", body)
+	}
+	if !strings.Contains(body, `"question":"`+strings.ReplaceAll(command, `"`, `\"`)+`"`) {
+		t.Fatalf("expected expense approval question in stream, got %s", body)
+	}
+}
+
+func TestBashHITLApproveFlowForProcurementCreate(t *testing.T) {
+	command := `mock create-procurement --payload {"requester_id":"E1001","department":"engineering","budget_code":"RD-2026-001","reason":"team expansion","delivery_city":"Shanghai","items":[{"name":"MacBook Pro","quantity":2,"unit_price":18999,"vendor":"Apple"}],"approvers":["MGR100","FIN200"],"requested_at":"2026-04-14T11:00:00+08:00"}`
+	rules := strings.Join([]string{
+		"commands:",
+		"  - command: mock",
+		"    subcommands:",
+		"      - match: create-procurement",
+		"        level: 1",
+		"        viewportType: html",
+		"        viewportKey: procurement_form",
+	}, "\n")
+	body, executed := runBashHITLFlow(t, bashHITLFlowOptions{
+		action:       "approve",
+		command:      command,
+		rulesContent: rules,
+	})
+	if len(executed) != 1 || executed[0] != command {
+		t.Fatalf("expected approved procurement command to execute once, got %#v", executed)
+	}
+	if !strings.Contains(body, `"viewportKey":"procurement_form"`) {
+		t.Fatalf("expected procurement_form viewport in stream, got %s", body)
+	}
+	if !strings.Contains(body, `"question":"`+strings.ReplaceAll(command, `"`, `\"`)+`"`) {
+		t.Fatalf("expected procurement approval question in stream, got %s", body)
 	}
 }
 

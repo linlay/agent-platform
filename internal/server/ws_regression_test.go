@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,7 +14,9 @@ import (
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/chat"
 	"agent-platform-runner-go/internal/config"
+	"agent-platform-runner-go/internal/contracts"
 	"agent-platform-runner-go/internal/memory"
+	"agent-platform-runner-go/internal/runctl"
 )
 
 func TestServerSharedHelpersUseCommonChatAndMemoryStores(t *testing.T) {
@@ -125,6 +128,48 @@ func TestLoadChatDetailAndRememberReturnNotFoundAcrossHTTP(t *testing.T) {
 	}
 }
 
+func TestLoadChatDetailIncludesActiveRunAndConflictReturnsHTTP409(t *testing.T) {
+	server, chats, _ := newServerForHelperTests(t)
+	runs := runctl.NewInMemoryRunManager()
+	server.deps.Runs = runs
+
+	if _, _, err := chats.EnsureChat("chat-live", "agent-1", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
+		RunID:    "run-live",
+		ChatID:   "chat-live",
+		AgentKey: "agent-1",
+	})
+
+	detail, err := server.loadChatDetail(context.Background(), "chat-live", false)
+	if err != nil {
+		t.Fatalf("load chat detail: %v", err)
+	}
+	if detail.ActiveRun == nil || detail.ActiveRun.RunID != "run-live" {
+		t.Fatalf("expected active run in chat detail, got %#v", detail.ActiveRun)
+	}
+
+	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
+		RunID:    "run-live-2",
+		ChatID:   "chat-live",
+		AgentKey: "agent-1",
+	})
+
+	rec := httptest.NewRecorder()
+	server.handleChat(rec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId=chat-live", nil))
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("expected HTTP 409, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp api.ApiResponse[map[string]any]
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Msg != "active_run_conflict" {
+		t.Fatalf("expected active_run_conflict, got %#v", resp)
+	}
+}
+
 func TestBroadcastDefinitionsStayAlignedAcrossHTTPAndWS(t *testing.T) {
 	root, err := os.Getwd()
 	if err != nil {
@@ -138,6 +183,8 @@ func TestBroadcastDefinitionsStayAlignedAcrossHTTPAndWS(t *testing.T) {
 	assertContains(t, handlerQuery, `s.broadcast("run.finished"`)
 	assertContains(t, handlerQuery, `s.broadcast("chat.created"`)
 	assertContains(t, handlerChat, `s.broadcast("chat.read"`)
+	assertContains(t, wsRoutes, `handler.RegisterRoute("/api/attach"`)
+	assertContains(t, wsRoutes, `handler.RegisterRoute("/api/runstatus"`)
 	assertContains(t, wsRoutes, `s.broadcast("run.started"`)
 	assertContains(t, wsRoutes, `s.broadcast("run.finished"`)
 	assertContains(t, wsRoutes, `s.broadcast("chat.read"`)

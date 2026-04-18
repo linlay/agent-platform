@@ -274,10 +274,19 @@ type ChatDetailResponse struct {
 	ChatImageToken string             `json:"chatImageToken,omitempty"`
 	RawMessages    []map[string]any   `json:"rawMessages,omitempty"`
 	Events         []stream.EventData `json:"events"`
+	ActiveRun      *ActiveRunInfo     `json:"activeRun,omitempty"`
 	Plan           any                `json:"plan,omitempty"`
 	Artifact       any                `json:"artifact,omitempty"`
 	References     []Reference        `json:"references,omitempty"`
 	Usage          *ChatUsageData     `json:"usage,omitempty"`
+}
+
+type ActiveRunInfo struct {
+	RunID     string `json:"runId"`
+	State     string `json:"state"`
+	LastSeq   int64  `json:"lastSeq"`
+	OldestSeq int64  `json:"oldestSeq"`
+	StartedAt int64  `json:"startedAt"`
 }
 
 type UploadResponse struct {
