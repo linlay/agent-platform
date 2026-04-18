@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -17,7 +18,7 @@ import (
 //   - stage.marker triggers flushing the current step and starting a new one
 //   - plan/artifact state is tracked and attached to step lines
 //   - snapshot events (reasoning/content/tool/action) become StoredMessages
-//   - confirm/request lifecycle events become EventLines so chat detail can replay them
+//   - request/answer lifecycle events become EventLines so chat detail can replay them
 type StepWriter struct {
 	store  Store
 	chatID string
@@ -42,8 +43,8 @@ type StepWriter struct {
 	currentMsgID string
 	needNewMsgID bool
 
-	// pending usage / contextWindow captured from debug.* events;
-	// attached to last assistant message on step flush
+	// pending step-level metadata captured during the current LLM turn
+	pendingAwaiting         []map[string]any
 	pendingUsage            map[string]any
 	pendingContextWindowMax int
 	pendingEstimated        int
@@ -138,7 +139,10 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		})
 		w.needNewMsgID = true
 
-	case "awaiting.ask", "awaiting.payload", "awaiting.answer", "request.submit", "request.steer":
+	case "awaiting.ask", "awaiting.payload":
+		w.bufferAwaitingEvent(event)
+
+	case "awaiting.answer", "request.submit", "request.steer":
 		w.flushCurrentStep()
 		w.appendEventLine(event)
 
@@ -248,12 +252,29 @@ func (w *StepWriter) ensureStep() {
 }
 
 func (w *StepWriter) flushCurrentStep() {
-	if len(w.messages) == 0 {
+	if len(w.messages) == 0 && len(w.pendingAwaiting) == 0 {
 		return
 	}
 
-	// Attach pending usage / contextWindow to the last assistant message
-	// (matches Java convention: _usage / _contextWindow on StoredMessage).
+	if len(w.messages) == 0 && len(w.pendingAwaiting) > 0 {
+		log.Printf("[chat] dropping pending awaiting without messages (chatId=%s runId=%s count=%d)", w.chatID, w.runID, len(w.pendingAwaiting))
+		w.pendingAwaiting = nil
+		return
+	}
+
+	line := StepLine{
+		ChatID:    w.chatID,
+		RunID:     w.runID,
+		UpdatedAt: time.Now().UnixMilli(),
+		Messages:  w.messages,
+	}
+	if len(w.pendingAwaiting) > 0 {
+		line.Awaiting = w.pendingAwaiting
+		w.pendingAwaiting = nil
+	}
+	if w.pendingUsage != nil {
+		line.Usage = w.pendingUsage
+	}
 	if w.pendingUsage != nil || w.pendingContextWindowMax > 0 || w.pendingEstimated > 0 {
 		actual := 0
 		if w.pendingUsage != nil {
@@ -269,27 +290,12 @@ func (w *StepWriter) flushCurrentStep() {
 		if w.pendingEstimated > 0 {
 			cw["estimated_size"] = w.pendingEstimated
 		}
-		for i := len(w.messages) - 1; i >= 0; i-- {
-			if w.messages[i].Role == "assistant" {
-				if w.pendingUsage != nil {
-					w.messages[i].Usage = w.pendingUsage
-				}
-				if len(cw) > 0 {
-					w.messages[i].ContextWindow = cw
-				}
-				break
-			}
+		if len(cw) > 0 {
+			line.ContextWindow = cw
 		}
 		w.pendingUsage = nil
 		w.pendingContextWindowMax = 0
 		w.pendingEstimated = 0
-	}
-
-	line := StepLine{
-		ChatID:    w.chatID,
-		RunID:     w.runID,
-		UpdatedAt: time.Now().UnixMilli(),
-		Messages:  w.messages,
 	}
 	if w.currentTaskID != "" {
 		line.TaskID = w.currentTaskID
@@ -318,6 +324,10 @@ func (w *StepWriter) flushCurrentStep() {
 
 	_ = w.store.AppendStepLine(w.chatID, line)
 	w.messages = nil
+}
+
+func (w *StepWriter) bufferAwaitingEvent(event stream.EventData) {
+	w.pendingAwaiting = append(w.pendingAwaiting, event.Map())
 }
 
 func (w *StepWriter) appendEventLine(event stream.EventData) {

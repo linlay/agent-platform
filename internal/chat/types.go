@@ -55,17 +55,20 @@ type QueryLine struct {
 //	{ _type: "plan-execute", stage: "execute", seq: N, messages: [...] }
 //	{ _type: "plan-execute", stage: "summary", messages: [...] }
 type StepLine struct {
-	ChatID    string          `json:"chatId"`
-	RunID     string          `json:"runId"`
-	UpdatedAt int64           `json:"updatedAt"`
-	TaskID    string          `json:"taskId,omitempty"`
-	System    map[string]any  `json:"system,omitempty"`
-	Messages  []StoredMessage `json:"messages"`
-	Type      string          `json:"_type"`
-	Stage     string          `json:"stage,omitempty"`
-	Seq       int             `json:"seq,omitempty"`
-	Plan      *PlanState      `json:"plan,omitempty"`
-	Artifacts *ArtifactState  `json:"artifacts,omitempty"`
+	ChatID        string           `json:"chatId"`
+	RunID         string           `json:"runId"`
+	UpdatedAt     int64            `json:"updatedAt"`
+	TaskID        string           `json:"taskId,omitempty"`
+	System        map[string]any   `json:"system,omitempty"`
+	Messages      []StoredMessage  `json:"messages"`
+	Awaiting      []map[string]any `json:"awaiting,omitempty"`
+	Usage         map[string]any   `json:"usage,omitempty"`
+	ContextWindow map[string]any   `json:"contextWindow,omitempty"`
+	Type          string           `json:"_type"`
+	Stage         string           `json:"stage,omitempty"`
+	Seq           int              `json:"seq,omitempty"`
+	Plan          *PlanState       `json:"plan,omitempty"`
+	Artifacts     *ArtifactState   `json:"artifacts,omitempty"`
 }
 
 type EventLine struct {

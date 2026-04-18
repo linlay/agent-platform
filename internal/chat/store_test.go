@@ -396,6 +396,203 @@ func TestStepWriterActionSnapshotPersistsTsAndReplaysTimestamp(t *testing.T) {
 	}
 }
 
+func TestStepWriterEmbedsAwaitingInStepLine(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	writer := NewStepWriter(store, "chat-awaiting-step", "run-awaiting-step", "react")
+	writer.OnEvent(stream.EventData{
+		Type:      "tool.snapshot",
+		Timestamp: 1001,
+		Payload: map[string]any{
+			"toolId":    "tool-1",
+			"toolName":  "ask_user",
+			"arguments": "{\"question\":\"How many?\"}",
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "awaiting.ask",
+		Timestamp: 1002,
+		Payload: map[string]any{
+			"awaitingId":   "tool-1",
+			"viewportType": "builtin",
+			"viewportKey":  "confirm_dialog",
+			"mode":         "question",
+			"timeout":      120000,
+			"runId":        "run-awaiting-step",
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "awaiting.payload",
+		Timestamp: 1003,
+		Payload: map[string]any{
+			"awaitingId": "tool-1",
+			"questions": []any{
+				map[string]any{
+					"question": "How many?",
+					"type":     "number",
+				},
+			},
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "request.submit",
+		Timestamp: 1004,
+		Payload: map[string]any{
+			"requestId":  "req-1",
+			"chatId":     "chat-awaiting-step",
+			"runId":      "run-awaiting-step",
+			"awaitingId": "tool-1",
+			"params": []any{
+				map[string]any{"question": "How many?", "answer": 3},
+			},
+		},
+	})
+	writer.Flush()
+
+	lines, err := readJSONLines(store.chatJSONLPath("chat-awaiting-step"))
+	if err != nil {
+		t.Fatalf("read chat jsonl: %v", err)
+	}
+	if len(lines) != 2 {
+		t.Fatalf("expected one step line and one request event line, got %#v", lines)
+	}
+
+	if got := lines[0]["_type"]; got != "react" {
+		t.Fatalf("expected first persisted line to be step, got %#v", lines[0])
+	}
+	awaiting, _ := lines[0]["awaiting"].([]any)
+	if len(awaiting) != 2 {
+		t.Fatalf("expected embedded awaiting events on step line, got %#v", lines[0])
+	}
+	messages, _ := lines[0]["messages"].([]any)
+	if len(messages) != 1 {
+		t.Fatalf("expected one tool snapshot message, got %#v", lines[0])
+	}
+
+	if got := lines[1]["_type"]; got != "event" {
+		t.Fatalf("expected second persisted line to be event, got %#v", lines[1])
+	}
+	event, _ := lines[1]["event"].(map[string]any)
+	if event == nil || event["type"] != "request.submit" {
+		t.Fatalf("expected request.submit event line, got %#v", lines[1])
+	}
+
+	for _, line := range lines {
+		if line["_type"] != "event" {
+			continue
+		}
+		event, _ := line["event"].(map[string]any)
+		if event == nil {
+			continue
+		}
+		if event["type"] == "awaiting.ask" || event["type"] == "awaiting.payload" {
+			t.Fatalf("did not expect standalone awaiting event line, got %#v", line)
+		}
+	}
+}
+
+func TestStepWriterEmbedsUsageAtStepLevel(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	writer := NewStepWriter(store, "chat-usage-step", "run-usage-step", "react")
+	writer.OnEvent(stream.EventData{
+		Type:      "content.snapshot",
+		Timestamp: 2001,
+		Payload: map[string]any{
+			"contentId": "content-1",
+			"text":      "hello",
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "debug.postCall",
+		Timestamp: 2002,
+		Payload: map[string]any{
+			"data": map[string]any{
+				"contextWindow": map[string]any{
+					"max_size":       128000,
+					"estimated_size": 200,
+				},
+				"usage": map[string]any{
+					"llmReturnUsage": map[string]any{
+						"promptTokens":     100,
+						"completionTokens": 50,
+						"totalTokens":      150,
+					},
+				},
+			},
+		},
+	})
+	writer.OnEvent(stream.EventData{Type: "run.complete", Timestamp: 2003})
+
+	lines, err := readJSONLines(store.chatJSONLPath("chat-usage-step"))
+	if err != nil {
+		t.Fatalf("read chat jsonl: %v", err)
+	}
+	if len(lines) != 1 {
+		t.Fatalf("expected one step line, got %#v", lines)
+	}
+
+	usage, _ := lines[0]["usage"].(map[string]any)
+	if toIntValue(usage["prompt_tokens"]) != 100 || toIntValue(usage["total_tokens"]) != 150 {
+		t.Fatalf("expected step-level usage, got %#v", lines[0])
+	}
+	contextWindow, _ := lines[0]["contextWindow"].(map[string]any)
+	if toIntValue(contextWindow["max_size"]) != 128000 || toIntValue(contextWindow["actual_size"]) != 100 || toIntValue(contextWindow["estimated_size"]) != 200 {
+		t.Fatalf("expected step-level context window, got %#v", lines[0])
+	}
+
+	messages, _ := lines[0]["messages"].([]any)
+	if len(messages) != 1 {
+		t.Fatalf("expected one stored message, got %#v", lines[0])
+	}
+	msg, _ := messages[0].(map[string]any)
+	if _, ok := msg["_usage"]; ok {
+		t.Fatalf("did not expect message-level _usage in new format, got %#v", msg)
+	}
+	if _, ok := msg["_contextWindow"]; ok {
+		t.Fatalf("did not expect message-level _contextWindow in new format, got %#v", msg)
+	}
+}
+
+func TestStepWriterDropsAwaitingWithoutMessages(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	writer := NewStepWriter(store, "chat-awaiting-drop", "run-awaiting-drop", "react")
+	writer.OnEvent(stream.EventData{
+		Type:      "awaiting.ask",
+		Timestamp: 3001,
+		Payload: map[string]any{
+			"awaitingId":   "tool-1",
+			"viewportType": "builtin",
+			"viewportKey":  "confirm_dialog",
+			"mode":         "question",
+			"timeout":      120000,
+		},
+	})
+	writer.Flush()
+
+	if len(writer.pendingAwaiting) != 0 {
+		t.Fatalf("expected pending awaiting to be cleared, got %#v", writer.pendingAwaiting)
+	}
+
+	lines, err := readJSONLines(store.chatJSONLPath("chat-awaiting-drop"))
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("read chat jsonl: %v", err)
+	}
+	if len(lines) != 0 {
+		t.Fatalf("did not expect persisted lines for dropped awaiting, got %#v", lines)
+	}
+}
+
 func TestLoadRawMessagesFallsBackToLegacyFile(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
@@ -583,6 +780,195 @@ func TestLoadChatReplaysQuestionAwaitLifecycleEventLines(t *testing.T) {
 	answerQuestions, _ := answer.Value("questions").([]any)
 	if answer.String("awaitingId") != "tool-1" || len(answerQuestions) != 2 {
 		t.Fatalf("unexpected awaiting.answer replay %#v", answer)
+	}
+}
+
+func TestLoadChatReplaysAwaitingFromStepLine(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	if _, _, err := store.EnsureChat("chat-awaiting-replay", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	if err := store.AppendQueryLine("chat-awaiting-replay", QueryLine{
+		ChatID:    "chat-awaiting-replay",
+		RunID:     "run-awaiting-replay",
+		UpdatedAt: 1000,
+		Query: map[string]any{
+			"chatId":  "chat-awaiting-replay",
+			"message": "please ask me",
+		},
+		Type: "query",
+	}); err != nil {
+		t.Fatalf("append query line: %v", err)
+	}
+
+	toolTs := int64(1001)
+	if err := store.AppendStepLine("chat-awaiting-replay", StepLine{
+		ChatID:    "chat-awaiting-replay",
+		RunID:     "run-awaiting-replay",
+		UpdatedAt: 1004,
+		Type:      "react",
+		Seq:       1,
+		Messages: []StoredMessage{
+			{
+				Role: "assistant",
+				ToolCalls: []StoredToolCall{{
+					ID:   "tool-1",
+					Type: "function",
+					Function: StoredFunction{
+						Name:      "ask_user",
+						Arguments: "{\"question\":\"How many?\"}",
+					},
+				}},
+				ToolID: "tool-1",
+				MsgID:  "msg-1",
+				Ts:     &toolTs,
+			},
+		},
+		Awaiting: []map[string]any{
+			{
+				"type":         "awaiting.ask",
+				"timestamp":    1002,
+				"awaitingId":   "tool-1",
+				"viewportType": "builtin",
+				"viewportKey":  "confirm_dialog",
+				"mode":         "question",
+				"timeout":      120000,
+			},
+			{
+				"type":       "awaiting.payload",
+				"timestamp":  1003,
+				"awaitingId": "tool-1",
+				"questions": []any{
+					map[string]any{
+						"question": "How many?",
+						"type":     "number",
+					},
+				},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("append step line: %v", err)
+	}
+
+	detail, err := store.LoadChat("chat-awaiting-replay")
+	if err != nil {
+		t.Fatalf("load chat: %v", err)
+	}
+
+	expectedTypes := []string{
+		"chat.start",
+		"run.start",
+		"request.query",
+		"tool.snapshot",
+		"awaiting.ask",
+		"awaiting.payload",
+		"run.complete",
+	}
+	if len(detail.Events) != len(expectedTypes) {
+		t.Fatalf("expected %d replayed events, got %d: %#v", len(expectedTypes), len(detail.Events), detail.Events)
+	}
+	for i, eventType := range expectedTypes {
+		if detail.Events[i].Type != eventType {
+			t.Fatalf("expected event %d to be %s, got %#v", i, eventType, detail.Events[i])
+		}
+	}
+	if detail.Events[4].String("runId") != "run-awaiting-replay" {
+		t.Fatalf("expected runId to be backfilled on awaiting.ask, got %#v", detail.Events[4])
+	}
+}
+
+func TestLoadChatReadsUsageFromStepLevel(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	if _, _, err := store.EnsureChat("chat-step-usage", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	if err := store.AppendQueryLine("chat-step-usage", QueryLine{
+		ChatID:    "chat-step-usage",
+		RunID:     "run-step-usage",
+		UpdatedAt: 1000,
+		Query: map[string]any{
+			"chatId":  "chat-step-usage",
+			"message": "hello",
+		},
+		Type: "query",
+	}); err != nil {
+		t.Fatalf("append query line: %v", err)
+	}
+
+	contentTs := int64(1002)
+	if err := store.AppendStepLine("chat-step-usage", StepLine{
+		ChatID:    "chat-step-usage",
+		RunID:     "run-step-usage",
+		UpdatedAt: 1003,
+		Type:      "react",
+		Seq:       1,
+		Messages: []StoredMessage{
+			{
+				Role:      "assistant",
+				Content:   textContent("answer"),
+				ContentID: "content-1",
+				MsgID:     "msg-1",
+				Ts:        &contentTs,
+			},
+		},
+		Usage: map[string]any{
+			"prompt_tokens":     100,
+			"completion_tokens": 50,
+			"total_tokens":      150,
+		},
+		ContextWindow: map[string]any{
+			"max_size":       128000,
+			"actual_size":    100,
+			"estimated_size": 200,
+		},
+	}); err != nil {
+		t.Fatalf("append step line: %v", err)
+	}
+
+	detail, err := store.LoadChat("chat-step-usage")
+	if err != nil {
+		t.Fatalf("load chat: %v", err)
+	}
+
+	expectedTypes := []string{
+		"chat.start",
+		"run.start",
+		"request.query",
+		"debug.preCall",
+		"content.snapshot",
+		"debug.postCall",
+		"run.complete",
+	}
+	if len(detail.Events) != len(expectedTypes) {
+		t.Fatalf("expected %d replayed events, got %d: %#v", len(expectedTypes), len(detail.Events), detail.Events)
+	}
+	for i, eventType := range expectedTypes {
+		if detail.Events[i].Type != eventType {
+			t.Fatalf("expected event %d to be %s, got %#v", i, eventType, detail.Events[i])
+		}
+	}
+
+	preCallData, _ := detail.Events[3].Value("data").(map[string]any)
+	preCallCW, _ := preCallData["contextWindow"].(map[string]any)
+	if toIntValue(preCallCW["max_size"]) != 128000 || toIntValue(preCallCW["actual_size"]) != 100 || toIntValue(preCallCW["estimated_size"]) != 200 {
+		t.Fatalf("unexpected debug.preCall context window %#v", detail.Events[3])
+	}
+
+	postCallData, _ := detail.Events[5].Value("data").(map[string]any)
+	postCallUsage, _ := postCallData["usage"].(map[string]any)
+	llmUsage, _ := postCallUsage["llmReturnUsage"].(map[string]any)
+	if toIntValue(llmUsage["promptTokens"]) != 100 || toIntValue(llmUsage["completionTokens"]) != 50 || toIntValue(llmUsage["totalTokens"]) != 150 {
+		t.Fatalf("unexpected debug.postCall usage %#v", detail.Events[5])
 	}
 }
 

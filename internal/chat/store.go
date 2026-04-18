@@ -471,18 +471,20 @@ func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, r
 			}
 			taskID, _ := line["taskId"].(string)
 			msgs, _ := line["messages"].([]any)
-			var stepUsage map[string]any
-			var stepContextWindow map[string]any
-			for _, rawMsg := range msgs {
-				msgMap, _ := rawMsg.(map[string]any)
-				if msgMap == nil {
-					continue
-				}
-				if u, ok := msgMap["_usage"].(map[string]any); ok && len(u) > 0 {
-					stepUsage = u
-				}
-				if cw, ok := msgMap["_contextWindow"].(map[string]any); ok && len(cw) > 0 {
-					stepContextWindow = cw
+			stepUsage, _ := line["usage"].(map[string]any)
+			stepContextWindow, _ := line["contextWindow"].(map[string]any)
+			if stepUsage == nil && stepContextWindow == nil {
+				for _, rawMsg := range msgs {
+					msgMap, _ := rawMsg.(map[string]any)
+					if msgMap == nil {
+						continue
+					}
+					if u, ok := msgMap["_usage"].(map[string]any); ok && len(u) > 0 {
+						stepUsage = u
+					}
+					if cw, ok := msgMap["_contextWindow"].(map[string]any); ok && len(cw) > 0 {
+						stepContextWindow = cw
+					}
 				}
 			}
 			ts := int64FromAny(line["updatedAt"])
@@ -508,6 +510,18 @@ func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, r
 				}
 				for _, ev := range storedMessageToEvents(msgMap, runID, taskID, stage, nextSeq) {
 					rd.events = append(rd.events, ev)
+				}
+			}
+			if awaitingList, ok := line["awaiting"].([]any); ok {
+				for _, rawItem := range awaitingList {
+					item, _ := rawItem.(map[string]any)
+					if item == nil {
+						continue
+					}
+					if _, ok := item["runId"]; !ok && runID != "" {
+						item["runId"] = runID
+					}
+					rd.events = append(rd.events, stream.EventDataFromMap(item))
 				}
 			}
 			if stepUsage != nil {
