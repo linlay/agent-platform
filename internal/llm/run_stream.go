@@ -1161,11 +1161,16 @@ func (s *llmRunStream) buildConfirmApprovalArgs(command string) map[string]any {
 }
 
 func (s *llmRunStream) buildFormApprovalArgs(command string, result hitl.InterceptResult) map[string]any {
+	payload, err := extractPayloadFromCommand(command)
+	if err != nil {
+		log.Printf("[llm] failed to extract form approval payload from command %q: %v", command, err)
+		payload = map[string]any{}
+	}
 	return map[string]any{
 		"mode":         "approval",
 		"viewportType": result.Rule.ViewportType,
 		"viewportKey":  result.Rule.ViewportKey,
-		"command":      command,
+		"payload":      payload,
 	}
 }
 
@@ -1281,6 +1286,29 @@ func (s *llmRunStream) normalizeHITLSubmit(args map[string]any, params any) (map
 		return nil, fmt.Errorf("frontend tool handler not registered: _ask_user_approval_")
 	}
 	return handler.NormalizeSubmit(args, params)
+}
+
+func extractPayloadFromCommand(command string) (map[string]any, error) {
+	if strings.TrimSpace(command) == "" {
+		return nil, fmt.Errorf("original command is required")
+	}
+
+	tokenSpans := firstSegmentTokenSpans(command)
+	for idx := 0; idx < len(tokenSpans)-1; idx++ {
+		if strings.TrimSpace(tokenSpans[idx].Text) != "--payload" {
+			continue
+		}
+		payloadToken := tokenSpans[idx+1].Text
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(payloadToken), &payload); err != nil {
+			return nil, fmt.Errorf("decode payload: %w", err)
+		}
+		if payload == nil {
+			return nil, fmt.Errorf("payload must be an object")
+		}
+		return payload, nil
+	}
+	return nil, fmt.Errorf("original command does not contain --payload")
 }
 
 func reconstructCommandWithPayload(command string, payload map[string]any) (string, error) {

@@ -12,13 +12,15 @@ import (
 )
 
 // StepWriter accumulates SSE events and writes Java-compatible JSONL lines
-// (_type: "query" / "step" / "event") to the chat store.
+// (_type: "query" / "react" / "plan-execute" / "submit" / "steer" / "event")
+// to the chat store.
 //
 // It mirrors the behaviour of Java's TurnTraceWriter:
 //   - stage.marker triggers flushing the current step and starting a new one
 //   - plan/artifact state is tracked and attached to step lines
 //   - snapshot events (reasoning/content/tool/action) become StoredMessages
-//   - request/answer lifecycle events become EventLines so chat detail can replay them
+//   - request.submit + awaiting.answer are merged into SubmitLines
+//   - request.steer becomes a typed EventLine so chat detail can replay it
 type StepWriter struct {
 	store  Store
 	chatID string
@@ -45,6 +47,7 @@ type StepWriter struct {
 
 	// pending step-level metadata captured during the current LLM turn
 	pendingAwaiting         []map[string]any
+	pendingSubmit           map[string]any
 	pendingUsage            map[string]any
 	pendingContextWindowMax int
 	pendingEstimated        int
@@ -142,9 +145,17 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 	case "awaiting.ask", "awaiting.payload":
 		w.bufferAwaitingEvent(event)
 
-	case "awaiting.answer", "request.submit", "request.steer":
+	case "request.submit":
 		w.flushCurrentStep()
-		w.appendEventLine(event)
+		w.bufferSubmitEvent(event)
+
+	case "awaiting.answer":
+		w.flushCurrentStep()
+		w.writeSubmitLine(event)
+
+	case "request.steer":
+		w.flushCurrentStep()
+		w.appendTypedEventLine(event, "steer")
 
 	case "action.snapshot":
 		w.ensureStep()
@@ -212,12 +223,14 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 
 	case "run.complete", "run.cancel", "run.error":
 		w.flushCurrentStep()
+		w.flushPendingSubmit()
 	}
 }
 
 // Flush writes any remaining accumulated step. Call at end of stream.
 func (w *StepWriter) Flush() {
 	w.flushCurrentStep()
+	w.flushPendingSubmit()
 }
 
 // ---------------------------------------------------------------------------
@@ -327,10 +340,49 @@ func (w *StepWriter) flushCurrentStep() {
 }
 
 func (w *StepWriter) bufferAwaitingEvent(event stream.EventData) {
-	w.pendingAwaiting = append(w.pendingAwaiting, event.Map())
+	m := event.Map()
+	delete(m, "seq")
+	w.pendingAwaiting = append(w.pendingAwaiting, m)
 }
 
-func (w *StepWriter) appendEventLine(event stream.EventData) {
+func (w *StepWriter) bufferSubmitEvent(event stream.EventData) {
+	if w.pendingSubmit != nil {
+		w.flushPendingSubmit()
+	}
+	w.pendingSubmit = event.Map()
+}
+
+func (w *StepWriter) flushPendingSubmit() {
+	if w.store == nil || w.pendingSubmit == nil {
+		return
+	}
+	_ = w.store.AppendSubmitLine(w.chatID, SubmitLine{
+		ChatID:    w.chatID,
+		RunID:     w.runID,
+		UpdatedAt: time.Now().UnixMilli(),
+		Submit:    w.pendingSubmit,
+		Type:      "submit",
+	})
+	w.pendingSubmit = nil
+}
+
+func (w *StepWriter) writeSubmitLine(answer stream.EventData) {
+	if w.store == nil {
+		w.pendingSubmit = nil
+		return
+	}
+	_ = w.store.AppendSubmitLine(w.chatID, SubmitLine{
+		ChatID:    w.chatID,
+		RunID:     w.runID,
+		UpdatedAt: time.Now().UnixMilli(),
+		Submit:    w.pendingSubmit,
+		Answer:    answer.Map(),
+		Type:      "submit",
+	})
+	w.pendingSubmit = nil
+}
+
+func (w *StepWriter) appendTypedEventLine(event stream.EventData, lineType string) {
 	if w.store == nil {
 		return
 	}
@@ -339,7 +391,7 @@ func (w *StepWriter) appendEventLine(event stream.EventData) {
 		RunID:     w.runID,
 		UpdatedAt: time.Now().UnixMilli(),
 		Event:     event.Map(),
-		Type:      "event",
+		Type:      lineType,
 	})
 }
 

@@ -2142,6 +2142,10 @@ func (c stubMCPToolCatalog) Tool(name string) (api.ToolDetailResponse, bool) {
 func TestBashHITLApproveFlow(t *testing.T) {
 	body, executed := runBashHITLFlow(t, bashHITLFlowOptions{action: "approve"})
 	expectedCommand := rebuildPayloadCommandForTest(t, defaultBashHITLCommand(), payloadFromCommandForTest(t, defaultBashHITLCommand()))
+	expectedAwaitPayload, err := json.Marshal(payloadFromCommandForTest(t, defaultBashHITLCommand()))
+	if err != nil {
+		t.Fatalf("marshal expected await payload: %v", err)
+	}
 	if len(executed) != 1 || executed[0] != expectedCommand {
 		t.Fatalf("expected approved command to execute once, got %#v", executed)
 	}
@@ -2156,8 +2160,8 @@ func TestBashHITLApproveFlow(t *testing.T) {
 		!strings.Contains(body, `"payload":{"days":3,"employee_id":"E1001","employee_name":"Lin","end_date":"2026-04-22","handover_to":"E2001","leave_type":"annual","reason":"family_trip","start_date":"2026-04-20","urgent_contact":"13800138000"}`) {
 		t.Fatalf("expected approve awaiting.answer in stream, got %s", body)
 	}
-	if !strings.Contains(body, `"command":"mock create-leave --payload {\"employee_id\":\"E1001\",\"employee_name\":\"Lin\",\"leave_type\":\"annual\",\"start_date\":\"2026-04-20\",\"end_date\":\"2026-04-22\",\"days\":3,\"reason\":\"family_trip\",\"handover_to\":\"E2001\",\"urgent_contact\":\"13800138000\"}"`) {
-		t.Fatalf("expected form awaiting.ask command in stream, got %s", body)
+	if !strings.Contains(body, `"payload":`+string(expectedAwaitPayload)) {
+		t.Fatalf("expected form awaiting.ask payload in stream, got %s", body)
 	}
 }
 
@@ -2239,14 +2243,18 @@ func TestBashHITLApproveFlowForExpenseCreate(t *testing.T) {
 		rulesContent: rules,
 	})
 	expectedCommand := rebuildPayloadCommandForTest(t, command, payloadFromCommandForTest(t, command))
+	expectedAwaitPayload, err := json.Marshal(payloadFromCommandForTest(t, command))
+	if err != nil {
+		t.Fatalf("marshal expected expense await payload: %v", err)
+	}
 	if len(executed) != 1 || executed[0] != expectedCommand {
 		t.Fatalf("expected approved expense command to execute once, got %#v", executed)
 	}
 	if !strings.Contains(body, `"viewportKey":"expense_form"`) {
 		t.Fatalf("expected expense_form viewport in stream, got %s", body)
 	}
-	if !strings.Contains(body, `"command":"`+strings.ReplaceAll(command, `"`, `\"`)+`"`) {
-		t.Fatalf("expected expense approval command in stream, got %s", body)
+	if !strings.Contains(body, `"payload":`+string(expectedAwaitPayload)) {
+		t.Fatalf("expected expense approval payload in stream, got %s", body)
 	}
 }
 
@@ -2267,14 +2275,18 @@ func TestBashHITLApproveFlowForProcurementCreate(t *testing.T) {
 		rulesContent: rules,
 	})
 	expectedCommand := rebuildPayloadCommandForTest(t, command, payloadFromCommandForTest(t, command))
+	expectedAwaitPayload, err := json.Marshal(payloadFromCommandForTest(t, command))
+	if err != nil {
+		t.Fatalf("marshal expected procurement await payload: %v", err)
+	}
 	if len(executed) != 1 || executed[0] != expectedCommand {
 		t.Fatalf("expected approved procurement command to execute once, got %#v", executed)
 	}
 	if !strings.Contains(body, `"viewportKey":"procurement_form"`) {
 		t.Fatalf("expected procurement_form viewport in stream, got %s", body)
 	}
-	if !strings.Contains(body, `"command":"`+strings.ReplaceAll(command, `"`, `\"`)+`"`) {
-		t.Fatalf("expected procurement approval command in stream, got %s", body)
+	if !strings.Contains(body, `"payload":`+string(expectedAwaitPayload)) {
+		t.Fatalf("expected procurement approval payload in stream, got %s", body)
 	}
 }
 

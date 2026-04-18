@@ -239,7 +239,7 @@ func TestBashHITLApprovalUsesAskUserApprovalForAllViewports(t *testing.T) {
 		expectedCommand      string
 		expectedView         string
 		expectedKey          string
-		expectedAwaitCommand string
+		expectedAwaitPayload map[string]any
 		expectedAnswerAction string
 	}{
 		{
@@ -289,7 +289,7 @@ func TestBashHITLApprovalUsesAskUserApprovalForAllViewports(t *testing.T) {
 			expectedCommand:      `mock create-leave --payload '{"days":2,"employee_id":"E1001"}'`,
 			expectedView:         "html",
 			expectedKey:          "leave_form",
-			expectedAwaitCommand: `mock create-leave --payload '{"employee_id":"E1001","days":3}'`,
+			expectedAwaitPayload: map[string]any{"employee_id": "E1001", "days": float64(3)},
 			expectedAnswerAction: "submit",
 		},
 		{
@@ -315,7 +315,7 @@ func TestBashHITLApprovalUsesAskUserApprovalForAllViewports(t *testing.T) {
 			expectedCommand:      `mock create-expense --payload '{"employee_id":"E1001","total_amount":640.25}'`,
 			expectedView:         "html",
 			expectedKey:          "expense_form",
-			expectedAwaitCommand: `mock create-expense --payload '{"employee_id":"E1001","total_amount":1280.5}'`,
+			expectedAwaitPayload: map[string]any{"employee_id": "E1001", "total_amount": 1280.5},
 			expectedAnswerAction: "submit",
 		},
 		{
@@ -341,7 +341,7 @@ func TestBashHITLApprovalUsesAskUserApprovalForAllViewports(t *testing.T) {
 			expectedCommand:      `mock create-procurement --payload '{"delivery_city":"Hangzhou","requester_id":"E1001"}'`,
 			expectedView:         "html",
 			expectedKey:          "procurement_form",
-			expectedAwaitCommand: `mock create-procurement --payload '{"delivery_city":"Shanghai","requester_id":"E1001"}'`,
+			expectedAwaitPayload: map[string]any{"delivery_city": "Shanghai", "requester_id": "E1001"},
 			expectedAnswerAction: "submit",
 		},
 	}
@@ -411,9 +411,9 @@ func TestBashHITLApprovalUsesAskUserApprovalForAllViewports(t *testing.T) {
 			if awaitAsk.Mode != "approval" || awaitAsk.ViewportType != tc.expectedView || awaitAsk.ViewportKey != tc.expectedKey {
 				t.Fatalf("unexpected await ask %#v", awaitAsk)
 			}
-			if tc.expectedAwaitCommand != "" {
-				if awaitAsk.Command != tc.expectedAwaitCommand {
-					t.Fatalf("expected approval form command %q, got %#v", tc.expectedAwaitCommand, awaitAsk)
+			if tc.expectedAwaitPayload != nil {
+				if !reflect.DeepEqual(awaitAsk.Payload, tc.expectedAwaitPayload) {
+					t.Fatalf("expected approval form payload %#v, got %#v", tc.expectedAwaitPayload, awaitAsk)
 				}
 				if len(awaitAsk.Questions) != 0 {
 					t.Fatalf("expected form approval to omit questions, got %#v", awaitAsk.Questions)

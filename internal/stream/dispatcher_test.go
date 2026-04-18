@@ -98,7 +98,7 @@ func TestDispatcherEmitsApprovalModeAwaitAskWithQuestions(t *testing.T) {
 	assertEventTypes(t, payloadEvents, "awaiting.payload")
 }
 
-func TestDispatcherEmitsApprovalModeAwaitAskWithCommandOnlyForForm(t *testing.T) {
+func TestDispatcherEmitsApprovalModeAwaitAskWithPayloadOnlyForForm(t *testing.T) {
 	dispatcher := NewDispatcher(StreamRequest{
 		RunID:  "run_1",
 		ChatID: "chat_1",
@@ -111,12 +111,15 @@ func TestDispatcherEmitsApprovalModeAwaitAskWithCommandOnlyForForm(t *testing.T)
 		Mode:         "approval",
 		Timeout:      120000,
 		RunID:        "run_1",
-		Command:      `mock create-leave --payload '{"employee_id":"E1001"}'`,
+		Payload: map[string]any{
+			"employee_id": "E1001",
+		},
 	})
 	assertEventTypes(t, events, "awaiting.ask")
 	payload := events[0].ToData()
-	if payload["command"] != `mock create-leave --payload '{"employee_id":"E1001"}'` {
-		t.Fatalf("expected command in approval awaiting.ask, got %#v", payload)
+	formPayload, _ := payload["payload"].(map[string]any)
+	if formPayload == nil || formPayload["employee_id"] != "E1001" {
+		t.Fatalf("expected payload in approval awaiting.ask, got %#v", payload)
 	}
 	if _, exists := payload["questions"]; exists {
 		t.Fatalf("did not expect questions in form awaiting.ask, got %#v", payload)

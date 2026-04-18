@@ -26,6 +26,7 @@ type Store interface {
 	AppendQueryLine(chatID string, line QueryLine) error
 	AppendStepLine(chatID string, line StepLine) error
 	AppendEventLine(chatID string, line EventLine) error
+	AppendSubmitLine(chatID string, line SubmitLine) error
 	LoadRawMessages(chatID string, k int) ([]map[string]any, error)
 	OnRunCompleted(completion RunCompletion) error
 	ListChats(lastRunID string, agentKey string) ([]Summary, error)
@@ -181,6 +182,10 @@ func (s *FileStore) AppendStepLine(chatID string, line StepLine) error {
 }
 
 func (s *FileStore) AppendEventLine(chatID string, line EventLine) error {
+	return s.appendJSONLine(s.chatJSONLPath(chatID), line)
+}
+
+func (s *FileStore) AppendSubmitLine(chatID string, line SubmitLine) error {
 	return s.appendJSONLine(s.chatJSONLPath(chatID), line)
 }
 
@@ -473,20 +478,6 @@ func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, r
 			msgs, _ := line["messages"].([]any)
 			stepUsage, _ := line["usage"].(map[string]any)
 			stepContextWindow, _ := line["contextWindow"].(map[string]any)
-			if stepUsage == nil && stepContextWindow == nil {
-				for _, rawMsg := range msgs {
-					msgMap, _ := rawMsg.(map[string]any)
-					if msgMap == nil {
-						continue
-					}
-					if u, ok := msgMap["_usage"].(map[string]any); ok && len(u) > 0 {
-						stepUsage = u
-					}
-					if cw, ok := msgMap["_contextWindow"].(map[string]any); ok && len(cw) > 0 {
-						stepContextWindow = cw
-					}
-				}
-			}
 			ts := int64FromAny(line["updatedAt"])
 			if stepUsage != nil || len(stepContextWindow) > 0 {
 				runCumulativePre := map[string]int{
@@ -547,7 +538,23 @@ func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, r
 					rd.events = append(rd.events, *ev)
 				}
 			}
-		case "event":
+		case "submit":
+			rd := ensureRun(runs, &runOrder, runID)
+			submit, _ := line["submit"].(map[string]any)
+			answer, _ := line["answer"].(map[string]any)
+			if len(submit) > 0 {
+				if _, ok := submit["runId"]; !ok && runID != "" {
+					submit["runId"] = runID
+				}
+				rd.events = append(rd.events, stream.EventDataFromMap(submit))
+			}
+			if len(answer) > 0 {
+				if _, ok := answer["runId"]; !ok && runID != "" {
+					answer["runId"] = runID
+				}
+				rd.events = append(rd.events, stream.EventDataFromMap(answer))
+			}
+		case "event", "steer":
 			event, _ := line["event"].(map[string]any)
 			if len(event) == 0 {
 				continue

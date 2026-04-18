@@ -244,11 +244,15 @@ func TestAskUserQuestionHandlerFormatSubmitResult(t *testing.T) {
 
 func TestAskUserApprovalHandlerBuildDeferredAwaitForFormViewport(t *testing.T) {
 	handler := NewAskUserApprovalHandler()
+	formPayload := map[string]any{
+		"employee_id": "E1001",
+		"days":        2,
+	}
 	deltas := handler.BuildDeferredAwait("tool_1", "run_1", frontendTool("_ask_user_approval_"), map[string]any{
 		"mode":         "approval",
 		"viewportType": "html",
 		"viewportKey":  "leave_form",
-		"command":      `mock create-leave --payload '{"employee_id":"E1001"}'`,
+		"payload":      formPayload,
 	}, 5000)
 	if len(deltas) != 1 {
 		t.Fatalf("expected one delta, got %#v", deltas)
@@ -260,8 +264,12 @@ func TestAskUserApprovalHandlerBuildDeferredAwaitForFormViewport(t *testing.T) {
 	if awaitAsk.Mode != "approval" || awaitAsk.ViewportKey != "leave_form" || awaitAsk.ViewportType != "html" {
 		t.Fatalf("unexpected await ask %#v", awaitAsk)
 	}
-	if awaitAsk.Command != `mock create-leave --payload '{"employee_id":"E1001"}'` {
-		t.Fatalf("expected command to be forwarded, got %#v", awaitAsk)
+	if !reflect.DeepEqual(awaitAsk.Payload, formPayload) {
+		t.Fatalf("expected payload to be forwarded, got %#v", awaitAsk)
+	}
+	formPayload["employee_id"] = "mutated"
+	if awaitAsk.Payload["employee_id"] != "E1001" {
+		t.Fatalf("expected payload to be cloned, got %#v", awaitAsk.Payload)
 	}
 	if len(awaitAsk.Questions) != 0 {
 		t.Fatalf("expected form approval to omit questions, got %#v", awaitAsk.Questions)
@@ -273,7 +281,9 @@ func TestAskUserApprovalHandlerNormalizeSubmitForFormViewport(t *testing.T) {
 	result, err := handler.NormalizeSubmit(map[string]any{
 		"mode":         "approval",
 		"viewportType": "html",
-		"command":      `mock create-leave --payload '{"employee_id":"E1001"}'`,
+		"payload": map[string]any{
+			"employee_id": "E1001",
+		},
 	}, map[string]any{
 		"action": "submit",
 		"payload": map[string]any{
@@ -417,7 +427,9 @@ func TestAskUserApprovalHandlerNormalizeSubmitForFormCancel(t *testing.T) {
 	result, err := handler.NormalizeSubmit(map[string]any{
 		"mode":         "approval",
 		"viewportType": "html",
-		"command":      `mock create-leave --payload '{"employee_id":"E1001"}'`,
+		"payload": map[string]any{
+			"employee_id": "E1001",
+		},
 	}, map[string]any{
 		"action": "cancel",
 	})

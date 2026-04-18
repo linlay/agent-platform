@@ -79,6 +79,15 @@ type EventLine struct {
 	Type      string         `json:"_type"`
 }
 
+type SubmitLine struct {
+	ChatID    string         `json:"chatId"`
+	RunID     string         `json:"runId"`
+	UpdatedAt int64          `json:"updatedAt"`
+	Submit    map[string]any `json:"submit,omitempty"`
+	Answer    map[string]any `json:"answer,omitempty"`
+	Type      string         `json:"_type"`
+}
+
 // ---------------------------------------------------------------------------
 // StoredMessage — one message inside a StepLine.messages array
 // ---------------------------------------------------------------------------
@@ -96,8 +105,6 @@ type StoredMessage struct {
 	MsgID            string           `json:"_msgId,omitempty"`
 	ToolID           string           `json:"_toolId,omitempty"`
 	ActionID         string           `json:"_actionId,omitempty"`
-	Usage            map[string]any   `json:"_usage,omitempty"`
-	ContextWindow    map[string]any   `json:"_contextWindow,omitempty"`
 }
 
 type ContentPart struct {

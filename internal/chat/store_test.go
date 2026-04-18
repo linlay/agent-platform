@@ -457,7 +457,7 @@ func TestStepWriterEmbedsAwaitingInStepLine(t *testing.T) {
 		t.Fatalf("read chat jsonl: %v", err)
 	}
 	if len(lines) != 2 {
-		t.Fatalf("expected one step line and one request event line, got %#v", lines)
+		t.Fatalf("expected one step line and one submit line, got %#v", lines)
 	}
 
 	if got := lines[0]["_type"]; got != "react" {
@@ -467,30 +467,84 @@ func TestStepWriterEmbedsAwaitingInStepLine(t *testing.T) {
 	if len(awaiting) != 2 {
 		t.Fatalf("expected embedded awaiting events on step line, got %#v", lines[0])
 	}
+	for _, raw := range awaiting {
+		item, _ := raw.(map[string]any)
+		if item == nil {
+			continue
+		}
+		if _, ok := item["seq"]; ok {
+			t.Fatalf("did not expect seq on embedded awaiting item, got %#v", item)
+		}
+	}
 	messages, _ := lines[0]["messages"].([]any)
 	if len(messages) != 1 {
 		t.Fatalf("expected one tool snapshot message, got %#v", lines[0])
 	}
 
-	if got := lines[1]["_type"]; got != "event" {
-		t.Fatalf("expected second persisted line to be event, got %#v", lines[1])
+	if got := lines[1]["_type"]; got != "submit" {
+		t.Fatalf("expected second persisted line to be submit, got %#v", lines[1])
 	}
-	event, _ := lines[1]["event"].(map[string]any)
-	if event == nil || event["type"] != "request.submit" {
-		t.Fatalf("expected request.submit event line, got %#v", lines[1])
+	submit, _ := lines[1]["submit"].(map[string]any)
+	if submit == nil || submit["type"] != "request.submit" {
+		t.Fatalf("expected request.submit submit line, got %#v", lines[1])
+	}
+	if _, ok := lines[1]["answer"]; ok {
+		t.Fatalf("did not expect answer on submit-only line, got %#v", lines[1])
+	}
+}
+
+func TestStepWriterMergesSubmitAndAnswer(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
 	}
 
-	for _, line := range lines {
-		if line["_type"] != "event" {
-			continue
-		}
-		event, _ := line["event"].(map[string]any)
-		if event == nil {
-			continue
-		}
-		if event["type"] == "awaiting.ask" || event["type"] == "awaiting.payload" {
-			t.Fatalf("did not expect standalone awaiting event line, got %#v", line)
-		}
+	writer := NewStepWriter(store, "chat-submit-merge", "run-submit-merge", "react")
+	writer.OnEvent(stream.EventData{
+		Type:      "request.submit",
+		Timestamp: 1001,
+		Payload: map[string]any{
+			"type":       "request.submit",
+			"requestId":  "req-1",
+			"chatId":     "chat-submit-merge",
+			"runId":      "run-submit-merge",
+			"awaitingId": "tool-1",
+			"params": []any{
+				map[string]any{"question": "How many?", "answer": 3},
+			},
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "awaiting.answer",
+		Timestamp: 1002,
+		Payload: map[string]any{
+			"type":       "awaiting.answer",
+			"awaitingId": "tool-1",
+			"mode":       "question",
+			"questions": []any{
+				map[string]any{"question": "How many?", "answer": 3},
+			},
+		},
+	})
+	writer.Flush()
+
+	lines, err := readJSONLines(store.chatJSONLPath("chat-submit-merge"))
+	if err != nil {
+		t.Fatalf("read chat jsonl: %v", err)
+	}
+	if len(lines) != 1 {
+		t.Fatalf("expected one merged submit line, got %#v", lines)
+	}
+	if got := lines[0]["_type"]; got != "submit" {
+		t.Fatalf("expected submit line, got %#v", lines[0])
+	}
+	submit, _ := lines[0]["submit"].(map[string]any)
+	answer, _ := lines[0]["answer"].(map[string]any)
+	if submit == nil || submit["type"] != "request.submit" {
+		t.Fatalf("expected merged submit payload, got %#v", lines[0])
+	}
+	if answer == nil || answer["type"] != "awaiting.answer" {
+		t.Fatalf("expected merged answer payload, got %#v", lines[0])
 	}
 }
 
@@ -619,7 +673,7 @@ func TestLoadRawMessagesFallsBackToLegacyFile(t *testing.T) {
 	}
 }
 
-func TestLoadChatReplaysQuestionAwaitLifecycleEventLines(t *testing.T) {
+func TestLoadChatReplaysQuestionAwaitLifecycleLegacyEventLines(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
@@ -783,6 +837,84 @@ func TestLoadChatReplaysQuestionAwaitLifecycleEventLines(t *testing.T) {
 	}
 }
 
+func TestLoadChatReplaysSubmitLine(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	if _, _, err := store.EnsureChat("chat-submit-replay", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	if err := store.AppendQueryLine("chat-submit-replay", QueryLine{
+		ChatID:    "chat-submit-replay",
+		RunID:     "run-submit-replay",
+		UpdatedAt: 1000,
+		Query: map[string]any{
+			"chatId":  "chat-submit-replay",
+			"message": "please ask me",
+		},
+		Type: "query",
+	}); err != nil {
+		t.Fatalf("append query line: %v", err)
+	}
+
+	if err := store.AppendSubmitLine("chat-submit-replay", SubmitLine{
+		ChatID:    "chat-submit-replay",
+		RunID:     "run-submit-replay",
+		UpdatedAt: 1001,
+		Type:      "submit",
+		Submit: map[string]any{
+			"type":       "request.submit",
+			"requestId":  "req-1",
+			"chatId":     "chat-submit-replay",
+			"awaitingId": "tool-1",
+			"params": []any{
+				map[string]any{"question": "How many?", "answer": 3},
+			},
+		},
+		Answer: map[string]any{
+			"type":       "awaiting.answer",
+			"awaitingId": "tool-1",
+			"mode":       "question",
+			"questions": []any{
+				map[string]any{"question": "How many?", "answer": 3},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("append submit line: %v", err)
+	}
+
+	detail, err := store.LoadChat("chat-submit-replay")
+	if err != nil {
+		t.Fatalf("load chat: %v", err)
+	}
+
+	expectedTypes := []string{
+		"chat.start",
+		"run.start",
+		"request.query",
+		"request.submit",
+		"awaiting.answer",
+		"run.complete",
+	}
+	if len(detail.Events) != len(expectedTypes) {
+		t.Fatalf("expected %d replayed events, got %d: %#v", len(expectedTypes), len(detail.Events), detail.Events)
+	}
+	for i, eventType := range expectedTypes {
+		if detail.Events[i].Type != eventType {
+			t.Fatalf("expected event %d to be %s, got %#v", i, eventType, detail.Events[i])
+		}
+	}
+	if detail.Events[3].String("runId") != "run-submit-replay" {
+		t.Fatalf("expected runId to be backfilled on request.submit, got %#v", detail.Events[3])
+	}
+	if detail.Events[4].String("runId") != "run-submit-replay" {
+		t.Fatalf("expected runId to be backfilled on awaiting.answer, got %#v", detail.Events[4])
+	}
+}
+
 func TestLoadChatReplaysAwaitingFromStepLine(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
@@ -882,6 +1014,70 @@ func TestLoadChatReplaysAwaitingFromStepLine(t *testing.T) {
 	}
 }
 
+func TestLoadChatReplaysSteerLine(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	if _, _, err := store.EnsureChat("chat-steer", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	if err := store.AppendQueryLine("chat-steer", QueryLine{
+		ChatID:    "chat-steer",
+		RunID:     "run-steer",
+		UpdatedAt: 1000,
+		Query: map[string]any{
+			"chatId":  "chat-steer",
+			"message": "hello",
+		},
+		Type: "query",
+	}); err != nil {
+		t.Fatalf("append query line: %v", err)
+	}
+
+	if err := store.AppendEventLine("chat-steer", EventLine{
+		ChatID:    "chat-steer",
+		RunID:     "run-steer",
+		UpdatedAt: 1001,
+		Type:      "steer",
+		Event: map[string]any{
+			"type":      "request.steer",
+			"requestId": "req-steer",
+			"chatId":    "chat-steer",
+			"steerId":   "steer-1",
+			"message":   "focus on the root cause",
+		},
+	}); err != nil {
+		t.Fatalf("append steer line: %v", err)
+	}
+
+	detail, err := store.LoadChat("chat-steer")
+	if err != nil {
+		t.Fatalf("load chat: %v", err)
+	}
+
+	expectedTypes := []string{
+		"chat.start",
+		"run.start",
+		"request.query",
+		"request.steer",
+		"run.complete",
+	}
+	if len(detail.Events) != len(expectedTypes) {
+		t.Fatalf("expected %d replayed events, got %d: %#v", len(expectedTypes), len(detail.Events), detail.Events)
+	}
+	for i, eventType := range expectedTypes {
+		if detail.Events[i].Type != eventType {
+			t.Fatalf("expected event %d to be %s, got %#v", i, eventType, detail.Events[i])
+		}
+	}
+	if detail.Events[3].String("runId") != "run-steer" {
+		t.Fatalf("expected runId to be backfilled on request.steer, got %#v", detail.Events[3])
+	}
+}
+
 func TestLoadChatReadsUsageFromStepLevel(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
@@ -972,7 +1168,7 @@ func TestLoadChatReadsUsageFromStepLevel(t *testing.T) {
 	}
 }
 
-func TestLoadChatReplaysApprovalAwaitLifecycleEventLines(t *testing.T) {
+func TestLoadChatReplaysApprovalAwaitLifecycleLegacyEventLines(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
