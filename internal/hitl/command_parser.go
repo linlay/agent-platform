@@ -7,7 +7,37 @@ import (
 )
 
 func ParseCommandComponents(command string) CommandComponents {
-	tokens := splitShellLikeFirstSegment(command)
+	return parseCommandTokens(splitShellLikeFirstSegment(command))
+}
+
+func splitMatchTokens(match string) []string {
+	trimmed := strings.TrimSpace(match)
+	if strings.HasPrefix(trimmed, "|") {
+		tokens := splitShellLikeFirstSegment(strings.TrimSpace(strings.TrimPrefix(trimmed, "|")))
+		out := make([]string, 0, len(tokens)+1)
+		out = append(out, "|")
+		for _, token := range tokens {
+			token = strings.ToLower(strings.TrimSpace(token))
+			if token == "" {
+				continue
+			}
+			out = append(out, token)
+		}
+		return out
+	}
+	tokens := splitShellLikeFirstSegment(match)
+	out := make([]string, 0, len(tokens))
+	for _, token := range tokens {
+		token = strings.ToLower(strings.TrimSpace(token))
+		if token == "" {
+			continue
+		}
+		out = append(out, token)
+	}
+	return out
+}
+
+func parseCommandTokens(tokens []string) CommandComponents {
 	if len(tokens) == 0 {
 		return CommandComponents{}
 	}
@@ -44,25 +74,21 @@ func ParseCommandComponents(command string) CommandComponents {
 	}
 }
 
-func splitMatchTokens(match string) []string {
-	tokens := splitShellLikeFirstSegment(match)
-	out := make([]string, 0, len(tokens))
-	for _, token := range tokens {
-		token = strings.ToLower(strings.TrimSpace(token))
-		if token == "" {
-			continue
-		}
-		out = append(out, token)
+func splitShellLikeFirstSegment(command string) []string {
+	segments := splitShellLikeSegments(command)
+	if len(segments) == 0 {
+		return nil
 	}
-	return out
+	return segments[0]
 }
 
-func splitShellLikeFirstSegment(command string) []string {
+func splitShellLikeSegments(command string) [][]string {
 	var (
-		tokens  []string
-		current strings.Builder
-		quote   rune
-		escaped bool
+		tokens   []string
+		segments [][]string
+		current  strings.Builder
+		quote    rune
+		escaped  bool
 	)
 
 	flush := func() {
@@ -71,6 +97,14 @@ func splitShellLikeFirstSegment(command string) []string {
 		}
 		tokens = append(tokens, current.String())
 		current.Reset()
+	}
+	flushSegment := func() {
+		flush()
+		if len(tokens) == 0 {
+			return
+		}
+		segments = append(segments, append([]string(nil), tokens...))
+		tokens = nil
 	}
 
 	for _, r := range command {
@@ -99,8 +133,7 @@ func splitShellLikeFirstSegment(command string) []string {
 			case unicode.IsSpace(r):
 				flush()
 			case r == '|':
-				flush()
-				return tokens
+				flushSegment()
 			case r == '\'' || r == '"':
 				quote = r
 			case r == '\\':
@@ -113,8 +146,8 @@ func splitShellLikeFirstSegment(command string) []string {
 	if escaped {
 		current.WriteRune('\\')
 	}
-	flush()
-	return tokens
+	flushSegment()
+	return segments
 }
 
 func isEnvAssignment(token string) bool {

@@ -99,7 +99,7 @@ func checkRules(byCmd map[string][]FlatRule, command string, chatLevel int) Inte
 	}
 	candidates := append([]FlatRule(nil), byCmd[base]...)
 	for _, rule := range candidates {
-		if !matchesTokens(parsed.Tokens, rule.MatchTokens) {
+		if !matchesRule(command, parsed, rule) {
 			continue
 		}
 		if chatLevel >= rule.Level {

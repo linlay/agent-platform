@@ -102,6 +102,37 @@ func matchesTokens(commandTokens []string, matchTokens []string) bool {
 	return true
 }
 
+func matchesRule(command string, parsed CommandComponents, rule FlatRule) bool {
+	if len(rule.MatchTokens) > 0 && rule.MatchTokens[0] == "|" {
+		return matchesPipelineTokens(command, rule.MatchTokens[1:])
+	}
+	return matchesTokens(parsed.Tokens, rule.MatchTokens)
+}
+
+func matchesPipelineTokens(command string, matchTokens []string) bool {
+	if len(matchTokens) == 0 {
+		return false
+	}
+	segments := splitShellLikeSegments(command)
+	if len(segments) < 2 {
+		return false
+	}
+	parsed := parseCommandTokens(segments[1])
+	if strings.TrimSpace(parsed.BaseCommand) == "" {
+		return false
+	}
+	commandTokens := make([]string, 0, len(parsed.Tokens)+1)
+	commandTokens = append(commandTokens, strings.ToLower(strings.TrimSpace(parsed.BaseCommand)))
+	for _, token := range parsed.Tokens {
+		token = strings.ToLower(strings.TrimSpace(token))
+		if token == "" {
+			continue
+		}
+		commandTokens = append(commandTokens, token)
+	}
+	return matchesTokens(commandTokens, matchTokens)
+}
+
 func buildSyntheticToolDefinition(rule FlatRule) api.ToolDetailResponse {
 	name := syntheticToolName(rule.ViewportKey)
 	return api.ToolDetailResponse{

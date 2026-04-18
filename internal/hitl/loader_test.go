@@ -227,3 +227,30 @@ commands:
 		t.Fatalf("expected empty match tokens, got %#v", rules[0].MatchTokens)
 	}
 }
+
+func TestLoadRulesSupportsInlineMapSubcommands(t *testing.T) {
+	root := t.TempDir()
+	content := `
+commands:
+  - command: curl
+    subcommands:
+      - { match: "| bash", level: 1 }
+`
+	if err := os.WriteFile(filepath.Join(root, "inline.yml"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write rule file: %v", err)
+	}
+
+	rules, err := loadRulesFromDir(root)
+	if err != nil {
+		t.Fatalf("load rules: %v", err)
+	}
+	if len(rules) != 1 {
+		t.Fatalf("expected 1 rule, got %#v", rules)
+	}
+	if rules[0].Match != "| bash" {
+		t.Fatalf("expected inline map match, got %#v", rules[0])
+	}
+	if rules[0].Level != 1 {
+		t.Fatalf("expected inline map level 1, got %#v", rules[0])
+	}
+}

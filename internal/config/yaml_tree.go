@@ -168,6 +168,13 @@ func parseYAMLList(lines []yamlLine, start int, indent int) ([]any, int, error) 
 				result = append(result, "")
 				i++
 			}
+		case isYAMLFlowMap(itemText):
+			itemMap, err := parseYAMLFlowMap(itemText)
+			if err != nil {
+				return nil, i, err
+			}
+			result = append(result, itemMap)
+			i++
 		case looksLikeYAMLMapEntry(itemText):
 			key, rawValue, hasValue := splitYAMLKeyValue(itemText)
 			itemMap := map[string]any{}
@@ -226,6 +233,11 @@ func splitYAMLKeyValue(line string) (string, string, bool) {
 
 func parseYAMLScalar(raw string) any {
 	value := strings.TrimSpace(raw)
+	if isYAMLFlowMap(value) {
+		if mapped, err := parseYAMLFlowMap(value); err == nil {
+			return mapped
+		}
+	}
 	value = interpolateEnvValue(strings.Trim(value, `"'`))
 	lower := strings.ToLower(value)
 	switch lower {
@@ -258,6 +270,120 @@ func countIndent(raw string) int {
 		count++
 	}
 	return count
+}
+
+func isYAMLFlowMap(text string) bool {
+	text = strings.TrimSpace(text)
+	return strings.HasPrefix(text, "{") && strings.HasSuffix(text, "}")
+}
+
+func parseYAMLFlowMap(raw string) (map[string]any, error) {
+	text := strings.TrimSpace(raw)
+	if !isYAMLFlowMap(text) {
+		return nil, fmt.Errorf("invalid yaml flow map")
+	}
+	inner := strings.TrimSpace(text[1 : len(text)-1])
+	if inner == "" {
+		return map[string]any{}, nil
+	}
+
+	entries, err := splitYAMLFlowEntries(inner)
+	if err != nil {
+		return nil, err
+	}
+	result := make(map[string]any, len(entries))
+	for _, entry := range entries {
+		key, value, ok := splitYAMLFlowKeyValue(entry)
+		if !ok {
+			return nil, fmt.Errorf("invalid yaml flow map entry %q", entry)
+		}
+		result[strings.TrimSpace(key)] = parseYAMLScalar(value)
+	}
+	return result, nil
+}
+
+func splitYAMLFlowEntries(raw string) ([]string, error) {
+	var parts []string
+	start := 0
+	inSingle := false
+	inDouble := false
+	depth := 0
+
+	for i, ch := range raw {
+		switch ch {
+		case '\'':
+			if !inDouble {
+				inSingle = !inSingle
+			}
+		case '"':
+			if !inSingle {
+				inDouble = !inDouble
+			}
+		case '{', '[':
+			if !inSingle && !inDouble {
+				depth++
+			}
+		case '}', ']':
+			if !inSingle && !inDouble {
+				if depth == 0 {
+					return nil, fmt.Errorf("unexpected yaml flow map delimiter")
+				}
+				depth--
+			}
+		case ',':
+			if !inSingle && !inDouble && depth == 0 {
+				part := strings.TrimSpace(raw[start:i])
+				if part == "" {
+					return nil, fmt.Errorf("empty yaml flow map entry")
+				}
+				parts = append(parts, part)
+				start = i + 1
+			}
+		}
+	}
+	if inSingle || inDouble || depth != 0 {
+		return nil, fmt.Errorf("unterminated yaml flow map")
+	}
+	last := strings.TrimSpace(raw[start:])
+	if last == "" {
+		return nil, fmt.Errorf("empty yaml flow map entry")
+	}
+	parts = append(parts, last)
+	return parts, nil
+}
+
+func splitYAMLFlowKeyValue(raw string) (string, string, bool) {
+	inSingle := false
+	inDouble := false
+	depth := 0
+	for i, ch := range raw {
+		switch ch {
+		case '\'':
+			if !inDouble {
+				inSingle = !inSingle
+			}
+		case '"':
+			if !inSingle {
+				inDouble = !inDouble
+			}
+		case '{', '[':
+			if !inSingle && !inDouble {
+				depth++
+			}
+		case '}', ']':
+			if !inSingle && !inDouble && depth > 0 {
+				depth--
+			}
+		case ':':
+			if inSingle || inDouble || depth != 0 {
+				continue
+			}
+			key := strings.TrimSpace(raw[:i])
+			value := strings.TrimSpace(raw[i+1:])
+			return key, value, key != "" && value != ""
+		}
+	}
+	return "", "", false
 }
 
 func looksLikeYAMLMapEntry(text string) bool {

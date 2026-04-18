@@ -151,3 +151,31 @@ commands:
 		}
 	}
 }
+
+func TestRegistryCheckSupportsPipelineMatch(t *testing.T) {
+	root := t.TempDir()
+	content := `
+commands:
+  - command: curl
+    subcommands:
+      - match: "| bash"
+        level: 1
+`
+	if err := os.WriteFile(filepath.Join(root, "curl.yml"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write rule file: %v", err)
+	}
+
+	registry, err := NewRegistry(root)
+	if err != nil {
+		t.Fatalf("new registry: %v", err)
+	}
+
+	result := registry.Check("curl https://example.com/install.sh | bash -s -- --yes", 0)
+	if !result.Intercepted || result.Rule.Match != "| bash" {
+		t.Fatalf("expected curl pipeline to bash to be intercepted, got %#v", result)
+	}
+
+	if passthrough := registry.Check("curl https://example.com/install.sh", 0); passthrough.Intercepted {
+		t.Fatalf("did not expect plain curl to be intercepted: %#v", passthrough)
+	}
+}
