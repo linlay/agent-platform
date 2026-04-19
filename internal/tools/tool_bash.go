@@ -66,14 +66,7 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 			stderr = "Command timed out"
 		}
 	}
-	payload := map[string]any{
-		"exitCode":         exitCode,
-		"mode":             "host",
-		"workingDirectory": workingDir,
-		"stdout":           stdout,
-		"stderr":           stderr,
-	}
-	return structuredResultWithExit(payload, exitCode), nil
+	return bashResult(stdout, stderr, "host", workingDir, exitCode, ""), nil
 }
 
 var unsupportedBashCommands = map[string]bool{

@@ -125,6 +125,13 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 	case DeltaToolResult:
 		m.lastKind = ""
 		_, toolLabel, toolDescription := m.resolveToolMetadata(value.ToolName)
+		sseResult := sseResultValue(value.Result)
+		resultError := value.Result.Error
+		resultExitCode := value.Result.ExitCode
+		if isBashTool(value.ToolName) && len(value.Result.Structured) > 0 {
+			resultError = ""
+			resultExitCode = 0
+		}
 		if m.actionToolIDs[value.ToolID] {
 			return []stream.StreamInput{stream.ActionResult{
 				ActionID:    value.ToolID,
@@ -138,10 +145,10 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			ToolName:        value.ToolName,
 			ToolLabel:       toolLabel,
 			ToolDescription: toolDescription,
-			Result:          sseResultValue(value.Result),
+			Result:          sseResult,
 			Hitl:            CloneMap(value.Result.HITL),
-			Error:           value.Result.Error,
-			ExitCode:        value.Result.ExitCode,
+			Error:           resultError,
+			ExitCode:        resultExitCode,
 		}}
 	case DeltaStageMarker:
 		m.lastKind = ""

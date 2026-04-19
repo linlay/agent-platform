@@ -91,6 +91,29 @@ func structuredResult(payload map[string]any) ToolExecutionResult {
 	return structuredResultWithExit(payload, 0)
 }
 
+func bashResult(stdout, stderr, mode, workingDirectory string, exitCode int, hardError string) ToolExecutionResult {
+	if exitCode == 0 && strings.TrimSpace(hardError) == "" {
+		return ToolExecutionResult{
+			Output:   stdout,
+			ExitCode: 0,
+		}
+	}
+
+	payload := map[string]any{
+		"exitCode":         exitCode,
+		"mode":             mode,
+		"workingDirectory": workingDirectory,
+		"stdout":           stdout,
+		"stderr":           stderr,
+	}
+	if strings.TrimSpace(hardError) != "" {
+		payload["error"] = hardError
+	}
+	result := structuredResultWithExit(payload, exitCode)
+	result.Error = strings.TrimSpace(hardError)
+	return result
+}
+
 func structuredResultWithExit(payload map[string]any, exitCode int) ToolExecutionResult {
 	data, _ := json.Marshal(payload)
 	return ToolExecutionResult{

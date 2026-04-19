@@ -2205,6 +2205,10 @@ type recordingSandbox struct {
 	commands []string
 }
 
+type scriptedSandbox struct {
+	execute func(command string, cwd string) contracts.SandboxExecutionResult
+}
+
 type recordingMCPClient struct {
 	commands []string
 }
@@ -2228,6 +2232,19 @@ func (s *recordingSandbox) Execute(_ context.Context, _ *contracts.ExecutionCont
 }
 
 func (s *recordingSandbox) CloseQuietly(_ *contracts.ExecutionContext) {}
+
+func (s *scriptedSandbox) OpenIfNeeded(_ context.Context, _ *contracts.ExecutionContext) error {
+	return nil
+}
+
+func (s *scriptedSandbox) Execute(_ context.Context, _ *contracts.ExecutionContext, command string, cwd string, _ int64) (contracts.SandboxExecutionResult, error) {
+	if s.execute == nil {
+		return contracts.SandboxExecutionResult{ExitCode: 0, WorkingDirectory: cwd}, nil
+	}
+	return s.execute(command, cwd), nil
+}
+
+func (s *scriptedSandbox) CloseQuietly(_ *contracts.ExecutionContext) {}
 
 func (m *recordingMCPClient) CallTool(_ context.Context, _ string, toolName string, args map[string]any, _ map[string]any) (any, error) {
 	command, _ := args["command"].(string)
@@ -2283,6 +2300,78 @@ func TestBashHITLApproveFlow(t *testing.T) {
 	if strings.Contains(body, "map[") {
 		t.Fatalf("did not expect Go map string in stream, got %s", body)
 	}
+}
+
+func TestSandboxBashResultShapeAcrossStreamBoundaries(t *testing.T) {
+	t.Run("success uses plain stdout for sse and tool message", func(t *testing.T) {
+		body, secondTurn := runSandboxBashQueryForResultShape(t, &scriptedSandbox{
+			execute: func(command string, cwd string) contracts.SandboxExecutionResult {
+				return contracts.SandboxExecutionResult{
+					ExitCode:         0,
+					Stdout:           "listed from " + cwd + ": " + command + "\n",
+					WorkingDirectory: cwd,
+				}
+			},
+		})
+
+		resultPayload := findToolResultPayload(t, body, "tool_bash")
+		if got, ok := resultPayload["result"].(string); !ok || got != "listed from /workspace: ls sample\n" {
+			t.Fatalf("expected string tool.result payload, got %#v", resultPayload["result"])
+		}
+		toolContent := findToolMessageContent(t, secondTurn, "_sandbox_bash_")
+		if toolContent != "listed from /workspace: ls sample\n" {
+			t.Fatalf("expected plain stdout tool message, got %q", toolContent)
+		}
+	})
+
+	t.Run("failure uses structured object for sse and json for tool message", func(t *testing.T) {
+		body, secondTurn := runSandboxBashQueryForResultShape(t, &scriptedSandbox{
+			execute: func(_ string, cwd string) contracts.SandboxExecutionResult {
+				return contracts.SandboxExecutionResult{
+					ExitCode:         2,
+					Stdout:           "",
+					Stderr:           "ls: sample: No such file or directory\n",
+					WorkingDirectory: cwd,
+				}
+			},
+		})
+
+		resultPayload := findToolResultPayload(t, body, "tool_bash")
+		resultObject, ok := resultPayload["result"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected object tool.result payload, got %#v", resultPayload["result"])
+		}
+		if resultObject["exitCode"] != float64(2) {
+			t.Fatalf("expected exitCode=2, got %#v", resultObject)
+		}
+		if resultObject["stderr"] != "ls: sample: No such file or directory\n" {
+			t.Fatalf("expected stderr in result payload, got %#v", resultObject)
+		}
+		toolContent := findToolMessageContent(t, secondTurn, "_sandbox_bash_")
+		if !strings.HasPrefix(toolContent, "{") || !strings.Contains(toolContent, `"exitCode":2`) || !strings.Contains(toolContent, `"stderr":"ls: sample: No such file or directory\n"`) {
+			t.Fatalf("expected JSON tool message for failure, got %q", toolContent)
+		}
+	})
+
+	t.Run("hitl approved success remains structured", func(t *testing.T) {
+		body, _ := runBashHITLFlow(t, bashHITLFlowOptions{action: "approve"})
+
+		resultPayload := findToolResultPayload(t, body, "tool_bash")
+		resultObject, ok := resultPayload["result"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected object tool.result payload, got %#v", resultPayload["result"])
+		}
+		if resultObject["output"] == nil {
+			t.Fatalf("expected raw output to be wrapped under output, got %#v", resultObject)
+		}
+		hitlPayload, ok := resultObject["hitl"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected hitl metadata, got %#v", resultObject)
+		}
+		if hitlPayload["decision"] != "approve" || resultObject["executed"] != true {
+			t.Fatalf("expected approved HITL metadata, got %#v", resultObject)
+		}
+	})
 }
 
 func TestBashHITLModifyFlow(t *testing.T) {
@@ -2721,6 +2810,57 @@ submit:
 		return streamBody.String(), append([]string(nil), client.commands...)
 	}
 	return streamBody.String(), append([]string(nil), sandbox.commands...)
+}
+
+func runSandboxBashQueryForResultShape(t *testing.T, sandbox contracts.SandboxClient) (string, []map[string]any) {
+	t.Helper()
+
+	var providerCallCount atomic.Int32
+	secondTurnMessages := make(chan []map[string]any, 1)
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		call := providerCallCount.Add(1)
+		switch call {
+		case 1:
+			writeProviderSSE(t, w,
+				providerToolCallFrame(t, "tool_bash", "_sandbox_bash_", map[string]any{
+					"command":     "ls sample",
+					"description": "列出 sample",
+					"cwd":         "/workspace",
+				}),
+				`[DONE]`,
+			)
+		case 2:
+			var payload map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatalf("decode second provider request: %v", err)
+			}
+			secondTurnMessages <- normalizeProviderMessages(payload["messages"])
+			writeProviderSSE(t, w,
+				`{"choices":[{"delta":{"content":"query complete"},"finish_reason":"stop"}]}`,
+				`[DONE]`,
+			)
+		default:
+			t.Fatalf("unexpected provider call %d", call)
+		}
+	}, testFixtureOptions{
+		sandbox: sandbox,
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"list sample","agentKey":"mock-runner"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	select {
+	case messages := <-secondTurnMessages:
+		return rec.Body.String(), messages
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for second provider request, body=%s", rec.Body.String())
+	}
+	return "", nil
 }
 
 func defaultBashHITLCommand() string {
@@ -3676,6 +3816,32 @@ func decodeSSEMessages(t *testing.T, body string) []map[string]any {
 		messages = append(messages, msg)
 	}
 	return messages
+}
+
+func findToolResultPayload(t *testing.T, body string, toolID string) map[string]any {
+	t.Helper()
+	for _, message := range decodeSSEMessages(t, body) {
+		if message["type"] == "tool.result" && message["toolId"] == toolID {
+			return message
+		}
+	}
+	t.Fatalf("expected tool.result for %s in body %s", toolID, body)
+	return nil
+}
+
+func findToolMessageContent(t *testing.T, messages []map[string]any, toolName string) string {
+	t.Helper()
+	for _, message := range messages {
+		if message["role"] != "tool" || message["name"] != toolName {
+			continue
+		}
+		content, _ := message["content"].(string)
+		if content != "" {
+			return content
+		}
+	}
+	t.Fatalf("expected tool message for %s in %#v", toolName, messages)
+	return ""
 }
 
 func decodeSSEPayloadStrings(body string) []string {

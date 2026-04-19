@@ -17,12 +17,5 @@ func (t *RuntimeToolExecutor) invokeSandboxBash(ctx context.Context, args map[st
 	if err != nil {
 		return ToolExecutionResult{Output: err.Error(), Error: "sandbox_execute_failed", ExitCode: -1}, nil
 	}
-	payload := map[string]any{
-		"exitCode":         result.ExitCode,
-		"mode":             "sandbox",
-		"workingDirectory": result.WorkingDirectory,
-		"stdout":           result.Stdout,
-		"stderr":           result.Stderr,
-	}
-	return structuredResultWithExit(payload, result.ExitCode), nil
+	return bashResult(result.Stdout, result.Stderr, "sandbox", result.WorkingDirectory, result.ExitCode, ""), nil
 }
