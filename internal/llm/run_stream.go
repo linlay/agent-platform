@@ -59,6 +59,7 @@ type llmRunStream struct {
 	hitlAwaitingID     string
 	hitlAwaitArgs      map[string]any
 	hitlRuleWhitelist  map[string]struct{}
+	pendingHITLNotices []hitlNoticeEntry
 	skipPostToolHook   bool
 
 	lastCallPromptTokens     int
@@ -121,6 +122,14 @@ type hitlDecisionState struct {
 	Scope      string
 	Executed   bool
 	Mode       string
+}
+
+type hitlNoticeEntry struct {
+	toolID   string
+	command  string
+	decision string
+	ruleKey  string
+	reason   string
 }
 
 // PostToolHookResult controls what happens after a tool call.
@@ -1383,7 +1392,18 @@ func (s *llmRunStream) appendOriginalToolResult(invocation *preparedToolInvocati
 		Name:       invocation.toolName,
 		Content:    s.toolResultContent(invocation.toolName, result),
 	})
-	appendHITLNoticeMessage(&s.messages, invocation)
+	if entry, ok := buildHITLNoticeEntry(invocation); ok {
+		s.pendingHITLNotices = append(s.pendingHITLNotices, entry)
+	}
+	if len(s.queuedToolCalls) == 0 && len(s.pendingHITLNotices) > 0 {
+		if summary := formatHITLBatchSummary(s.pendingHITLNotices); summary != "" {
+			s.messages = append(s.messages, openAIMessage{
+				Role:    "user",
+				Content: summary,
+			})
+		}
+		s.pendingHITLNotices = nil
+	}
 }
 
 func applyHITLApproval(result ToolExecutionResult, invocation *preparedToolInvocation) ToolExecutionResult {
@@ -1413,35 +1433,67 @@ func buildHITLApprovalPayload(decision *hitlDecisionState) map[string]any {
 	return payload
 }
 
-func appendHITLNoticeMessage(messages *[]openAIMessage, invocation *preparedToolInvocation) {
-	if messages == nil {
-		return
+func buildHITLNoticeEntry(invocation *preparedToolInvocation) (hitlNoticeEntry, bool) {
+	if invocation == nil || invocation.hitlDecision == nil || !strings.EqualFold(invocation.hitlDecision.Mode, "approval") {
+		return hitlNoticeEntry{}, false
 	}
-	if notice := formatHITLNotice(invocation); notice != "" {
-		*messages = append(*messages, openAIMessage{
-			Role:    "user",
-			Content: notice,
-		})
-	}
+	return hitlNoticeEntry{
+		toolID:   invocation.toolID,
+		command:  mapStringArg(invocation.args, "command"),
+		decision: invocation.hitlDecision.Decision,
+		ruleKey:  invocation.hitlDecision.RuleKey,
+		reason:   invocation.hitlDecision.Reason,
+	}, true
 }
 
-func formatHITLNotice(invocation *preparedToolInvocation) string {
-	if invocation == nil || invocation.hitlDecision == nil {
+func formatHITLBatchSummary(entries []hitlNoticeEntry) string {
+	if len(entries) == 0 {
 		return ""
 	}
-	parts := []string{
-		"[HITL]",
-		"tool=" + invocation.toolID,
-		"cmd=" + strconv.Quote(mapStringArg(invocation.args, "command")),
-		"decision=" + invocation.hitlDecision.Decision,
+
+	sharedRuleKey := strings.TrimSpace(entries[0].ruleKey)
+	allApproved := true
+	shareSameRule := sharedRuleKey != ""
+	for _, entry := range entries {
+		if strings.EqualFold(strings.TrimSpace(entry.decision), "reject") {
+			allApproved = false
+		}
+		if strings.TrimSpace(entry.ruleKey) != sharedRuleKey {
+			shareSameRule = false
+		}
 	}
-	if ruleKey := strings.TrimSpace(invocation.hitlDecision.RuleKey); ruleKey != "" {
-		parts = append(parts, "rule="+ruleKey)
+
+	if allApproved && shareSameRule {
+		commands := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			commands = append(commands, strconv.Quote(entry.command))
+		}
+		return "[HITL] all approved (rule=" + sharedRuleKey + "): " + strings.Join(commands, "; ")
 	}
-	if reason := strings.TrimSpace(invocation.hitlDecision.Reason); reason != "" {
-		parts = append(parts, "reason="+strconv.Quote(reason))
+
+	lines := make([]string, 0, len(entries)+1)
+	header := "[HITL] batch summary"
+	if shareSameRule {
+		header += " (rule=" + sharedRuleKey + ")"
 	}
-	return strings.Join(parts, " ")
+	lines = append(lines, header+":")
+	for _, entry := range entries {
+		parts := []string{
+			"- " + entry.toolID,
+			"cmd=" + strconv.Quote(entry.command),
+			"decision=" + entry.decision,
+		}
+		if !shareSameRule {
+			if ruleKey := strings.TrimSpace(entry.ruleKey); ruleKey != "" {
+				parts = append(parts, "rule="+ruleKey)
+			}
+		}
+		if reason := strings.TrimSpace(entry.reason); reason != "" {
+			parts = append(parts, "reason="+strconv.Quote(reason))
+		}
+		lines = append(lines, strings.Join(parts, " "))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (s *llmRunStream) applyHITLDecision(invocation *preparedToolInvocation, result hitl.InterceptResult, awaitingID string, decision string, reason string, executed bool) {

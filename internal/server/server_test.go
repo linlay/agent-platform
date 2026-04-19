@@ -2792,14 +2792,34 @@ submit:
 	select {
 	case secondTurn := <-secondTurnMessages:
 		toolMessages := 0
+		hitlSummaries := 0
+		seenUserAfterTool := false
 		for _, message := range secondTurn {
 			role, _ := message["role"].(string)
 			if role == "tool" {
 				toolMessages++
+				if seenUserAfterTool {
+					t.Fatalf("expected tool results to stay contiguous before HITL summary, got %#v", secondTurn)
+				}
+				continue
+			}
+			if role == "user" {
+				content, _ := message["content"].(string)
+				if strings.Contains(content, "[HITL]") {
+					hitlSummaries++
+					seenUserAfterTool = true
+				}
 			}
 		}
 		if toolMessages < 1 {
 			t.Fatalf("expected second turn to receive original bash tool result, got %#v", secondTurn)
+		}
+		if strings.EqualFold(stringValue(awaitAskPayload["mode"]), "approval") {
+			if hitlSummaries != 1 {
+				t.Fatalf("expected one HITL summary user message for approval flow, got %#v", secondTurn)
+			}
+		} else if hitlSummaries != 0 {
+			t.Fatalf("did not expect HITL summary user message for form flow, got %#v", secondTurn)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for second provider request")

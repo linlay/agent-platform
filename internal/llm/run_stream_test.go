@@ -616,20 +616,24 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 			if !foundRequestSubmit || !foundAwaitingAnswer || !foundOriginalResult {
 				t.Fatalf("expected submit/answer/results deltas, got %#v", stream.pending)
 			}
-			if len(stream.messages) < 2 {
-				t.Fatalf("expected tool result and HITL notice messages, got %#v", stream.messages)
-			}
-			toolMsg := stream.messages[len(stream.messages)-2]
-			if toolMsg.Role != "tool" || toolMsg.ToolCallID != "tool_1" || toolMsg.Content != "executed" {
-				t.Fatalf("expected pure tool output before HITL notice, got %#v", toolMsg)
-			}
-			hitlNotice := stream.messages[len(stream.messages)-1]
-			if hitlNotice.Role != "user" {
-				t.Fatalf("expected HITL notice to be appended as user message, got %#v", hitlNotice)
-			}
-			noticeText, _ := hitlNotice.Content.(string)
-			if !strings.Contains(noticeText, "[HITL]") || !strings.Contains(noticeText, `tool=tool_1`) || !strings.Contains(noticeText, `decision=approve`) {
-				t.Fatalf("expected HITL notice content, got %#v", hitlNotice)
+			if tc.expectedInitialPayload == nil {
+				if len(stream.messages) < 2 {
+					t.Fatalf("expected tool result and HITL summary messages, got %#v", stream.messages)
+				}
+				toolMsg := stream.messages[len(stream.messages)-2]
+				if toolMsg.Role != "tool" || toolMsg.ToolCallID != "tool_1" || toolMsg.Content != "executed" {
+					t.Fatalf("expected pure tool output before HITL summary, got %#v", toolMsg)
+				}
+				hitlNotice := stream.messages[len(stream.messages)-1]
+				if hitlNotice.Role != "user" {
+					t.Fatalf("expected HITL summary to be appended as user message, got %#v", hitlNotice)
+				}
+				noticeText, _ := hitlNotice.Content.(string)
+				if !strings.Contains(noticeText, "[HITL] batch summary") || !strings.Contains(noticeText, `"git push origin main"`) || !strings.Contains(noticeText, `decision=approve`) {
+					t.Fatalf("expected HITL summary content, got %#v", hitlNotice)
+				}
+			} else if len(stream.messages) != 1 || stream.messages[0].Role != "tool" {
+				t.Fatalf("expected form HITL flow to keep only tool result message, got %#v", stream.messages)
 			}
 		})
 	}
@@ -732,7 +736,7 @@ func TestAwaitHITLSubmitAndExecute_RejectEmitsCancelledAnswer(t *testing.T) {
 		t.Fatalf("expected reject answer and tool result, got %#v", stream.pending)
 	}
 	if len(stream.messages) < 2 {
-		t.Fatalf("expected reject flow to append tool result and HITL notice, got %#v", stream.messages)
+		t.Fatalf("expected reject flow to append tool result and HITL summary, got %#v", stream.messages)
 	}
 	toolMsg := stream.messages[len(stream.messages)-2]
 	if toolMsg.Role != "tool" || toolMsg.ToolCallID != "tool_1" {
@@ -740,8 +744,106 @@ func TestAwaitHITLSubmitAndExecute_RejectEmitsCancelledAnswer(t *testing.T) {
 	}
 	hitlNotice := stream.messages[len(stream.messages)-1]
 	noticeText, _ := hitlNotice.Content.(string)
-	if hitlNotice.Role != "user" || !strings.Contains(noticeText, `decision=reject`) || !strings.Contains(noticeText, `reason="风险过高"`) {
-		t.Fatalf("expected reject HITL notice, got %#v", hitlNotice)
+	if hitlNotice.Role != "user" || !strings.Contains(noticeText, `[HITL] batch summary`) || !strings.Contains(noticeText, `decision=reject`) || !strings.Contains(noticeText, `reason="风险过高"`) {
+		t.Fatalf("expected reject HITL summary, got %#v", hitlNotice)
+	}
+}
+
+func TestPrepareQueuedBashApprovalBatch_AppendsSingleSummaryAfterAllApprovedResults(t *testing.T) {
+	executor := &recordingToolExecutor{
+		defs: []api.ToolDetailResponse{bashToolDefinition()},
+		result: contracts.ToolExecutionResult{
+			Output:   "ok",
+			ExitCode: 0,
+		},
+	}
+	stream := &llmRunStream{
+		ctx: context.Background(),
+		engine: &LLMAgentEngine{
+			tools: executor,
+		},
+		session: contracts.QuerySession{
+			RequestID: "req_1",
+			ChatID:    "chat_1",
+			RunID:     "run_1",
+		},
+		runControl: contracts.NewRunControl(context.Background(), "run_1"),
+		execCtx: &contracts.ExecutionContext{
+			Budget: contracts.Budget{Tool: contracts.RetryPolicy{TimeoutMs: 50}},
+		},
+		checker: commandResultChecker{
+			results: map[string]hitl.InterceptResult{
+				"chmod 777 ~/a.sh": {
+					Intercepted:     true,
+					Rule:            hitl.FlatRule{Level: 1, ViewportType: "builtin", ViewportKey: "confirm_dialog", RuleKey: "dangerous-commands::chmod"},
+					OriginalCommand: "chmod 777 ~/a.sh",
+				},
+				"chmod 777 ~/b.sh": {
+					Intercepted:     true,
+					Rule:            hitl.FlatRule{Level: 1, ViewportType: "builtin", ViewportKey: "confirm_dialog", RuleKey: "dangerous-commands::chmod"},
+					OriginalCommand: "chmod 777 ~/b.sh",
+				},
+				"chmod 777 ~/c.sh": {
+					Intercepted:     true,
+					Rule:            hitl.FlatRule{Level: 1, ViewportType: "builtin", ViewportKey: "confirm_dialog", RuleKey: "dangerous-commands::chmod"},
+					OriginalCommand: "chmod 777 ~/c.sh",
+				},
+			},
+			tools: map[string]api.ToolDetailResponse{
+				strings.ToLower(bashToolDefinition().Name): bashToolDefinition(),
+			},
+		},
+		queuedToolCalls: []*preparedToolInvocation{
+			{toolID: "tool_1", toolName: "_sandbox_bash_", args: map[string]any{"command": "chmod 777 ~/a.sh", "description": "放开 a.sh 权限"}},
+			{toolID: "tool_2", toolName: "_sandbox_bash_", args: map[string]any{"command": "chmod 777 ~/b.sh", "description": "放开 b.sh 权限"}},
+			{toolID: "tool_3", toolName: "_sandbox_bash_", args: map[string]any{"command": "chmod 777 ~/c.sh", "description": "放开 c.sh 权限"}},
+		},
+	}
+
+	if !stream.prepareQueuedBashApprovalBatch() {
+		t.Fatal("expected batch approval await to be prepared")
+	}
+	ask := stream.pending[0].(contracts.DeltaAwaitAsk)
+	ack := stream.runControl.ResolveSubmit(api.SubmitRequest{
+		RunID:      "run_1",
+		AwaitingID: ask.AwaitingID,
+		Params: encodedSubmitParams(t, []map[string]any{
+			{"id": "tool_1", "decision": "approve"},
+			{"id": "tool_2", "decision": "approve"},
+			{"id": "tool_3", "decision": "approve"},
+		}),
+	})
+	if !ack.Accepted {
+		t.Fatalf("expected submit to be accepted, got %#v", ack)
+	}
+	if err := stream.awaitHITLApprovalBatchAndContinue(); err != nil {
+		t.Fatalf("awaitHITLApprovalBatchAndContinue returned error: %v", err)
+	}
+	for len(stream.queuedToolCalls) > 0 {
+		stream.activateNextToolCall()
+		if err := stream.invokeActiveToolCall(); err != nil {
+			t.Fatalf("invokeActiveToolCall returned error: %v", err)
+		}
+	}
+
+	if len(stream.messages) != 4 {
+		t.Fatalf("expected tool, tool, tool, user summary messages, got %#v", stream.messages)
+	}
+	for index := 0; index < 3; index++ {
+		if stream.messages[index].Role != "tool" {
+			t.Fatalf("expected message %d to be tool result, got %#v", index, stream.messages[index])
+		}
+	}
+	summary := stream.messages[3]
+	if summary.Role != "user" {
+		t.Fatalf("expected final message to be user summary, got %#v", summary)
+	}
+	text, _ := summary.Content.(string)
+	if !strings.Contains(text, `[HITL] all approved (rule=dangerous-commands::chmod):`) ||
+		!strings.Contains(text, `"chmod 777 ~/a.sh"`) ||
+		!strings.Contains(text, `"chmod 777 ~/b.sh"`) ||
+		!strings.Contains(text, `"chmod 777 ~/c.sh"`) {
+		t.Fatalf("unexpected all-approved summary %#v", summary)
 	}
 }
 
@@ -907,6 +1009,25 @@ func TestPrepareQueuedBashApprovalBatch_MergesAllBuiltinApprovalsInSingleAwait(t
 	if approvalAskCount != 1 {
 		t.Fatalf("expected exactly one batch approval ask, got %#v", stream.pending)
 	}
+	if len(stream.messages) != 4 {
+		t.Fatalf("expected mixed batch to end with single user summary, got %#v", stream.messages)
+	}
+	for index := 0; index < 3; index++ {
+		if stream.messages[index].Role != "tool" {
+			t.Fatalf("expected message %d to be tool result, got %#v", index, stream.messages[index])
+		}
+	}
+	summary := stream.messages[3]
+	if summary.Role != "user" {
+		t.Fatalf("expected final mixed-batch message to be user summary, got %#v", summary)
+	}
+	text, _ := summary.Content.(string)
+	if !strings.Contains(text, `[HITL] batch summary:`) ||
+		!strings.Contains(text, `- tool_1 cmd="chmod 777 ~/a.sh" decision=approve`) ||
+		!strings.Contains(text, `- tool_2 cmd="chmod 777 ~/b.sh" decision=approve`) ||
+		!strings.Contains(text, `- tool_3 cmd="chmod 777 ~/c.sh" decision=reject`) {
+		t.Fatalf("unexpected mixed summary %#v", summary)
+	}
 }
 
 func TestPrepareQueuedBashApprovalBatch_LeavesHtmlViewportOutsideMergedApprovalAsk(t *testing.T) {
@@ -1004,6 +1125,27 @@ func TestPrepareQueuedBashApprovalBatch_LeavesHtmlViewportOutsideMergedApprovalA
 	}
 	if !foundFormAsk {
 		t.Fatalf("expected html invocation to emit its own form await, got %#v", stream.pending)
+	}
+}
+
+func TestAppendOriginalToolResult_DoesNotAppendHITLSummaryWithoutApprovalEntries(t *testing.T) {
+	stream := &llmRunStream{
+		engine: &LLMAgentEngine{
+			tools: stubToolExecutor{defs: []api.ToolDetailResponse{bashToolDefinition()}},
+		},
+		execCtx: &contracts.ExecutionContext{},
+	}
+	invocation := &preparedToolInvocation{
+		toolID:   "tool_1",
+		toolName: "_sandbox_bash_",
+		args:     map[string]any{"command": "ls"},
+	}
+	stream.appendOriginalToolResult(invocation, contracts.ToolExecutionResult{
+		Output:   "ok",
+		ExitCode: 0,
+	})
+	if len(stream.messages) != 1 || stream.messages[0].Role != "tool" {
+		t.Fatalf("expected only tool message without HITL summary, got %#v", stream.messages)
 	}
 }
 
