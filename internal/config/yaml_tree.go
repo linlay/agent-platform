@@ -104,6 +104,12 @@ func parseYAMLMap(lines []yamlLine, start int, indent int) (map[string]any, int,
 			return nil, i, fmt.Errorf("invalid yaml key at line %d", i+1)
 		}
 		if hasValue {
+			if isYAMLBlockScalar(rawValue) {
+				scalar, next := parseYAMLBlockScalar(lines, i+1, indent, rawValue)
+				result[key] = scalar
+				i = next
+				continue
+			}
 			result[key] = parseYAMLScalar(rawValue)
 			i++
 			continue
@@ -195,12 +201,50 @@ func parseYAMLList(lines []yamlLine, start int, indent int) ([]any, int, error) 
 				i = next
 			}
 			result = append(result, itemMap)
+		case isYAMLBlockScalar(itemText):
+			scalar, next := parseYAMLBlockScalar(lines, i+1, indent, itemText)
+			result = append(result, scalar)
+			i = next
 		default:
 			result = append(result, parseYAMLScalar(itemText))
 			i++
 		}
 	}
 	return result, i, nil
+}
+
+func isYAMLBlockScalar(text string) bool {
+	value := strings.TrimSpace(text)
+	switch value {
+	case "|", "|-", ">", ">-":
+		return true
+	default:
+		return false
+	}
+}
+
+func parseYAMLBlockScalar(lines []yamlLine, start int, parentIndent int, marker string) (string, int) {
+	if start >= len(lines) || lines[start].indent <= parentIndent {
+		return "", start
+	}
+	contentIndent := lines[start].indent
+	parts := make([]string, 0, 4)
+	i := start
+	for i < len(lines) {
+		line := lines[i]
+		if line.indent <= parentIndent {
+			break
+		}
+		if line.indent < contentIndent {
+			break
+		}
+		parts = append(parts, line.text)
+		i++
+	}
+	if strings.HasPrefix(strings.TrimSpace(marker), ">") {
+		return strings.Join(parts, " "), i
+	}
+	return strings.Join(parts, "\n"), i
 }
 
 func splitYAMLKeyValue(line string) (string, string, bool) {

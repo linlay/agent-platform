@@ -271,6 +271,7 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 		Icon:        root["icon"],
 		Description: stringNode(root["description"]),
 		Role:        stringNode(root["role"]),
+		Wonders:     normalizeWonderStrings(root["wonders"]),
 		Mode:        strings.ToUpper(defaultString(stringNode(root["mode"]), "ONESHOT")),
 	}
 	modelConfig := mapNode(root["modelConfig"])
@@ -356,6 +357,25 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 		def.Role = def.Name
 	}
 	return def, root, nil
+}
+
+func normalizeWonderStrings(value any) []string {
+	raw := listStrings(value)
+	if len(raw) == 0 {
+		return nil
+	}
+	items := make([]string, 0, len(raw))
+	for _, item := range raw {
+		trimmed := strings.TrimSpace(item)
+		if trimmed == "" {
+			continue
+		}
+		items = append(items, trimmed)
+	}
+	if len(items) == 0 {
+		return nil
+	}
+	return items
 }
 
 func parseSandboxEnv(value any) (map[string]string, error) {

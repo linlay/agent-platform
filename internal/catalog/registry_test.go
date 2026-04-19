@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -105,6 +106,38 @@ func TestParseAgentFileReadsContextTagsBudgetStageSettingsAndControls(t *testing
 	}
 	if len(def.Controls) != 1 || def.Controls[0]["key"] != "tone" {
 		t.Fatalf("expected parsed controls, got %#v", def.Controls)
+	}
+}
+
+func TestParseAgentFilePreservesMultilineWonders(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	if err := os.WriteFile(path, []byte(
+		"key: demo\n"+
+			"name: Demo\n"+
+			"modelConfig:\n"+
+			"  modelKey: demo-model\n"+
+			"wonders:\n"+
+			"  - 单行推荐问题\n"+
+			"  - |-\n"+
+			"    帮我演示 Bash HITL 审批确认\n"+
+			"    并展示下一步会出现什么\n"+
+			"  - \"\"\n",
+	), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+
+	want := []string{
+		"单行推荐问题",
+		"帮我演示 Bash HITL 审批确认\n并展示下一步会出现什么",
+	}
+	if got := def.Wonders; !reflect.DeepEqual(got, want) {
+		t.Fatalf("wonders = %#v, want %#v", got, want)
 	}
 }
 

@@ -84,3 +84,49 @@ commands:
 		t.Fatalf("expected level 2, got %#v", got)
 	}
 }
+
+func TestLoadYAMLTreeSupportsBlockScalarListItems(t *testing.T) {
+	content := []byte(`
+wonders:
+  - |-
+    第一行
+    第二行
+`)
+
+	tree, err := LoadYAMLTreeBytes(content)
+	if err != nil {
+		t.Fatalf("load yaml tree: %v", err)
+	}
+
+	root := tree.(map[string]any)
+	items, ok := root["wonders"].([]any)
+	if !ok || len(items) != 1 {
+		t.Fatalf("expected one wonder item, got %#v", root["wonders"])
+	}
+	if got := items[0]; got != "第一行\n第二行" {
+		t.Fatalf("expected multiline wonder preserved, got %#v", got)
+	}
+}
+
+func TestLoadYAMLTreeSupportsBlockScalarMapValues(t *testing.T) {
+	content := []byte(`
+plain:
+  systemPrompt: |-
+    你是一个助手
+    请保持简洁
+`)
+
+	tree, err := LoadYAMLTreeBytes(content)
+	if err != nil {
+		t.Fatalf("load yaml tree: %v", err)
+	}
+
+	root := tree.(map[string]any)
+	plain, ok := root["plain"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected plain map, got %#v", root["plain"])
+	}
+	if got := plain["systemPrompt"]; got != "你是一个助手\n请保持简洁" {
+		t.Fatalf("expected multiline prompt preserved, got %#v", got)
+	}
+}

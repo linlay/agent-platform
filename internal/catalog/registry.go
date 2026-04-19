@@ -33,6 +33,7 @@ type AgentDefinition struct {
 	Icon           any
 	Description    string
 	Role           string
+	Wonders        []string
 	ModelKey       string
 	Mode           string
 	Tools          []string

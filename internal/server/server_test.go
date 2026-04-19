@@ -23,6 +23,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -701,6 +702,13 @@ func TestAgentEndpointReturnsDetail(t *testing.T) {
 	}
 	if response.Data.Mode != "REACT" {
 		t.Fatalf("expected REACT mode, got %#v", response.Data)
+	}
+	wantWonders := []string{
+		"帮我演示提问式确认",
+		"帮我演示 Bash HITL 审批确认\n并说明用户接下来会看到什么",
+	}
+	if !reflect.DeepEqual(response.Data.Wonders, wantWonders) {
+		t.Fatalf("expected wonders in detail response, got %#v", response.Data.Wonders)
 	}
 	if len(response.Data.Tools) != 3 ||
 		response.Data.Tools[0] != "_datetime_" ||
@@ -3587,6 +3595,11 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 		"name: Mock Runner",
 		"role: 测试代理",
 		"description: test agent",
+		"wonders:",
+		"  - 帮我演示提问式确认",
+		"  - |",
+		"    帮我演示 Bash HITL 审批确认",
+		"    并说明用户接下来会看到什么",
 		"modelConfig:",
 		"  modelKey: mock-model",
 		"toolConfig:",
