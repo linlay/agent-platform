@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"agent-platform-runner-go/internal/api"
+	"agent-platform-runner-go/internal/chat"
 	. "agent-platform-runner-go/internal/contracts"
 	"agent-platform-runner-go/internal/hitl"
 	. "agent-platform-runner-go/internal/models"
@@ -61,6 +62,7 @@ type llmRunStream struct {
 	hitlRuleWhitelist  map[string]struct{}
 	pendingHITLNotices []hitlNoticeEntry
 	skipPostToolHook   bool
+	onApprovalSummary  func(chat.StepApproval)
 
 	lastCallPromptTokens     int
 	lastCallCompletionTokens int
@@ -1396,11 +1398,15 @@ func (s *llmRunStream) appendOriginalToolResult(invocation *preparedToolInvocati
 		s.pendingHITLNotices = append(s.pendingHITLNotices, entry)
 	}
 	if len(s.queuedToolCalls) == 0 && len(s.pendingHITLNotices) > 0 {
-		if summary := formatHITLBatchSummary(s.pendingHITLNotices); summary != "" {
+		summary, approval := buildHITLBatchSummaryAndApproval(s.pendingHITLNotices)
+		if summary != "" {
 			s.messages = append(s.messages, openAIMessage{
 				Role:    "user",
 				Content: summary,
 			})
+		}
+		if s.onApprovalSummary != nil && approval != nil {
+			s.onApprovalSummary(*approval)
 		}
 		s.pendingHITLNotices = nil
 	}
@@ -1494,6 +1500,37 @@ func formatHITLBatchSummary(entries []hitlNoticeEntry) string {
 		lines = append(lines, strings.Join(parts, " "))
 	}
 	return strings.Join(lines, "\n")
+}
+
+func buildHITLBatchSummaryAndApproval(entries []hitlNoticeEntry) (string, *chat.StepApproval) {
+	summary := formatHITLBatchSummary(entries)
+	if summary == "" {
+		return "", nil
+	}
+
+	approval := &chat.StepApproval{
+		Summary:   summary,
+		Decisions: make([]chat.StepApprovalDecision, 0, len(entries)),
+	}
+	sharedRuleKey := strings.TrimSpace(entries[0].ruleKey)
+	if sharedRuleKey != "" {
+		for _, entry := range entries[1:] {
+			if strings.TrimSpace(entry.ruleKey) != sharedRuleKey {
+				sharedRuleKey = ""
+				break
+			}
+		}
+	}
+	approval.RuleKey = sharedRuleKey
+	for _, entry := range entries {
+		approval.Decisions = append(approval.Decisions, chat.StepApprovalDecision{
+			ToolID:   entry.toolID,
+			Command:  entry.command,
+			Decision: entry.decision,
+			Reason:   entry.reason,
+		})
+	}
+	return summary, approval
 }
 
 func (s *llmRunStream) applyHITLDecision(invocation *preparedToolInvocation, result hitl.InterceptResult, awaitingID string, decision string, reason string, executed bool) {

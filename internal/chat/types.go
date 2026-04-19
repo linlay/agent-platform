@@ -61,6 +61,7 @@ type StepLine struct {
 	TaskID        string           `json:"taskId,omitempty"`
 	System        map[string]any   `json:"system,omitempty"`
 	Messages      []StoredMessage  `json:"messages"`
+	Approval      *StepApproval    `json:"approval,omitempty"`
 	Awaiting      []map[string]any `json:"awaiting,omitempty"`
 	Usage         map[string]any   `json:"usage,omitempty"`
 	ContextWindow map[string]any   `json:"contextWindow,omitempty"`
@@ -69,6 +70,19 @@ type StepLine struct {
 	Seq           int              `json:"seq,omitempty"`
 	Plan          *PlanState       `json:"plan,omitempty"`
 	Artifacts     *ArtifactState   `json:"artifacts,omitempty"`
+}
+
+type StepApproval struct {
+	RuleKey   string                 `json:"ruleKey,omitempty"`
+	Summary   string                 `json:"summary"`
+	Decisions []StepApprovalDecision `json:"decisions,omitempty"`
+}
+
+type StepApprovalDecision struct {
+	ToolID   string `json:"toolId"`
+	Command  string `json:"command"`
+	Decision string `json:"decision"`
+	Reason   string `json:"reason,omitempty"`
 }
 
 type EventLine struct {

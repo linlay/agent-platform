@@ -324,6 +324,16 @@ func (s *FileStore) loadRawMessagesFromJSONL(chatID string) []map[string]any {
 				}
 				messages = append(messages, msg)
 			}
+			if approval, ok := line["approval"].(map[string]any); ok {
+				if summary := stringValue(approval["summary"]); summary != "" {
+					messages = append(messages, map[string]any{
+						"runId":   runID,
+						"role":    "user",
+						"content": summary,
+						"ts":      line["updatedAt"],
+					})
+				}
+			}
 		}
 	}
 	return messages

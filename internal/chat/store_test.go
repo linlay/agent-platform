@@ -706,6 +706,135 @@ func TestStepWriterDropsAwaitingWithoutMessages(t *testing.T) {
 	}
 }
 
+func TestStepWriterPersistsApprovalSidecarOnStepLine(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	writer := NewStepWriter(store, "chat-approval-step", "run-approval-step", "react")
+	writer.OnEvent(stream.EventData{
+		Type:      "tool.snapshot",
+		Timestamp: 4001,
+		Payload: map[string]any{
+			"toolId":    "tool-1",
+			"toolName":  "_sandbox_bash_",
+			"arguments": `{"command":"chmod 777 ~/a.sh"}`,
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "tool.result",
+		Timestamp: 4002,
+		Payload: map[string]any{
+			"toolId": "tool-1",
+			"result": "",
+		},
+	})
+	writer.RecordApproval(StepApproval{
+		RuleKey: "dangerous-commands::chmod",
+		Summary: `[HITL] all approved (rule=dangerous-commands::chmod): "chmod 777 ~/a.sh"`,
+		Decisions: []StepApprovalDecision{{
+			ToolID:   "tool-1",
+			Command:  "chmod 777 ~/a.sh",
+			Decision: "approve",
+		}},
+	})
+	writer.Flush()
+
+	lines, err := readJSONLines(store.chatJSONLPath("chat-approval-step"))
+	if err != nil {
+		t.Fatalf("read chat jsonl: %v", err)
+	}
+	if len(lines) != 1 {
+		t.Fatalf("expected one step line, got %#v", lines)
+	}
+	if _, ok := lines[0]["approval"].(map[string]any); !ok {
+		t.Fatalf("expected approval sidecar on step line, got %#v", lines[0])
+	}
+	messages, _ := lines[0]["messages"].([]any)
+	if len(messages) != 2 {
+		t.Fatalf("expected only tool snapshot and tool result messages, got %#v", lines[0])
+	}
+}
+
+func TestLoadRawMessagesReplaysApprovalSummaryFromStepLine(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	if _, _, err := store.EnsureChat("chat-approval-raw", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	toolTs := int64(5001)
+	resultTs := int64(5002)
+	if err := store.AppendStepLine("chat-approval-raw", StepLine{
+		ChatID:    "chat-approval-raw",
+		RunID:     "run-approval-raw",
+		UpdatedAt: 5003,
+		Type:      "react",
+		Seq:       1,
+		Messages: []StoredMessage{
+			{
+				Role: "assistant",
+				ToolCalls: []StoredToolCall{{
+					ID:   "tool-1",
+					Type: "function",
+					Function: StoredFunction{
+						Name:      "_sandbox_bash_",
+						Arguments: `{"command":"chmod 777 ~/a.sh"}`,
+					},
+				}},
+				ToolID: "tool-1",
+				MsgID:  "msg-1",
+				Ts:     &toolTs,
+			},
+			{
+				Role:       "tool",
+				Name:       "_sandbox_bash_",
+				ToolCallID: "tool-1",
+				Content:    []ContentPart{{Type: "text", Text: ""}},
+				ToolID:     "tool-1",
+				Ts:         &resultTs,
+			},
+		},
+		Approval: &StepApproval{
+			RuleKey: "dangerous-commands::chmod",
+			Summary: `[HITL] all approved (rule=dangerous-commands::chmod): "chmod 777 ~/a.sh"`,
+			Decisions: []StepApprovalDecision{{
+				ToolID:   "tool-1",
+				Command:  "chmod 777 ~/a.sh",
+				Decision: "approve",
+			}},
+		},
+	}); err != nil {
+		t.Fatalf("append step line: %v", err)
+	}
+
+	rawMessages, err := store.LoadRawMessages("chat-approval-raw", 5)
+	if err != nil {
+		t.Fatalf("load raw messages: %v", err)
+	}
+	if len(rawMessages) != 3 {
+		t.Fatalf("expected assistant, tool, synthetic user messages, got %#v", rawMessages)
+	}
+	if rawMessages[2]["role"] != "user" || rawMessages[2]["content"] != `[HITL] all approved (rule=dangerous-commands::chmod): "chmod 777 ~/a.sh"` {
+		t.Fatalf("expected approval summary replayed as user raw message, got %#v", rawMessages[2])
+	}
+
+	detail, err := store.LoadChat("chat-approval-raw")
+	if err != nil {
+		t.Fatalf("load chat: %v", err)
+	}
+	if len(detail.RawMessages) != 3 {
+		t.Fatalf("expected load chat raw messages to include synthetic approval summary, got %#v", detail.RawMessages)
+	}
+	if detail.RawMessages[2]["role"] != "user" {
+		t.Fatalf("expected synthetic approval summary at end of raw messages, got %#v", detail.RawMessages)
+	}
+}
+
 func TestLoadRawMessagesFallsBackToLegacyFile(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {

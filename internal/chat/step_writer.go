@@ -48,6 +48,7 @@ type StepWriter struct {
 
 	// pending step-level metadata captured during the current LLM turn
 	pendingAwaiting         []map[string]any
+	pendingApproval         *StepApproval
 	pendingSubmit           map[string]any
 	pendingUsage            map[string]any
 	pendingContextWindowMax int
@@ -234,6 +235,18 @@ func (w *StepWriter) Flush() {
 	w.flushPendingSubmit()
 }
 
+func (w *StepWriter) RecordApproval(approval StepApproval) {
+	if strings.TrimSpace(approval.Summary) == "" {
+		w.pendingApproval = nil
+		return
+	}
+	copyApproval := approval
+	if len(approval.Decisions) > 0 {
+		copyApproval.Decisions = append([]StepApprovalDecision(nil), approval.Decisions...)
+	}
+	w.pendingApproval = &copyApproval
+}
+
 // ---------------------------------------------------------------------------
 // internal
 // ---------------------------------------------------------------------------
@@ -267,12 +280,14 @@ func (w *StepWriter) ensureStep() {
 
 func (w *StepWriter) flushCurrentStep() {
 	if len(w.messages) == 0 && len(w.pendingAwaiting) == 0 {
+		w.pendingApproval = nil
 		return
 	}
 
 	if len(w.messages) == 0 && len(w.pendingAwaiting) > 0 {
 		log.Printf("[chat] dropping pending awaiting without messages (chatId=%s runId=%s count=%d)", w.chatID, w.runID, len(w.pendingAwaiting))
 		w.pendingAwaiting = nil
+		w.pendingApproval = nil
 		return
 	}
 
@@ -285,6 +300,10 @@ func (w *StepWriter) flushCurrentStep() {
 	if len(w.pendingAwaiting) > 0 {
 		line.Awaiting = w.pendingAwaiting
 		w.pendingAwaiting = nil
+	}
+	if w.pendingApproval != nil {
+		line.Approval = w.pendingApproval
+		w.pendingApproval = nil
 	}
 	if w.pendingUsage != nil {
 		line.Usage = w.pendingUsage

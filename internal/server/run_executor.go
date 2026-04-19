@@ -151,6 +151,11 @@ func runExecutor(params RunExecutorParams) {
 		runUsage:      &runUsage,
 	}
 
+	runCtx := params.RunCtx
+	if params.StepWriter != nil {
+		runCtx = llm.WithApprovalSummarySink(runCtx, params.StepWriter.RecordApproval)
+	}
+
 	publish := func(event stream.StreamEvent) {
 		data, visible := processor.Consume(event)
 		if visible && params.EventBus != nil {
@@ -162,7 +167,7 @@ func runExecutor(params RunExecutorParams) {
 		publish(event)
 	}
 
-	agentStream, err := params.Agent.Stream(params.RunCtx, params.Request, params.Session)
+	agentStream, err := params.Agent.Stream(runCtx, params.Request, params.Session)
 	if err != nil {
 		if params.RunControl != nil {
 			params.RunControl.TransitionState(contracts.RunLoopStateFailed)

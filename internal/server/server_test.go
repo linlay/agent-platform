@@ -2302,6 +2302,145 @@ func TestBashHITLApproveFlow(t *testing.T) {
 	}
 }
 
+func TestBashHITLApproveFlowReplaysApprovalSummaryInChatRawMessages(t *testing.T) {
+	var providerCallCount atomic.Int32
+	command := "docker rmi nginx:latest"
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		call := providerCallCount.Add(1)
+		switch call {
+		case 1:
+			writeProviderSSE(t, w,
+				providerToolCallFrame(t, "tool_bash", "_sandbox_bash_", map[string]any{
+					"command":     command,
+					"description": "执行测试命令",
+					"cwd":         "/workspace",
+				}),
+				`[DONE]`,
+			)
+		case 2:
+			writeProviderSSE(t, w,
+				`{"choices":[{"delta":{"content":"bash hitl complete"},"finish_reason":"stop"}]}`,
+				`[DONE]`,
+			)
+		default:
+			t.Fatalf("unexpected provider call %d", call)
+		}
+	}, testFixtureOptions{
+		sandbox: &recordingSandbox{},
+		configure: func(cfg *config.Config) {
+			cfg.BashHITL.DefaultTimeoutMs = 15000
+		},
+		setupRuntime: func(_ string, cfg *config.Config) {
+			root := filepath.Join(cfg.Paths.SkillsMarketDir, "mock-skill", ".bash-hooks")
+			if err := os.MkdirAll(root, 0o755); err != nil {
+				t.Fatalf("mkdir skill bash-hooks dir: %v", err)
+			}
+			rulesContent := strings.Join([]string{
+				"commands:",
+				"  - command: docker",
+				"    subcommands:",
+				"      - match: rmi",
+				"        level: 1",
+				"        viewportType: builtin",
+				"        viewportKey: confirm_dialog",
+				"        ruleKey: dangerous-commands::docker-rmi",
+			}, "\n")
+			if err := os.WriteFile(filepath.Join(root, "dangerous.yml"), []byte(rulesContent), 0o644); err != nil {
+				t.Fatalf("write skill bash hook rule: %v", err)
+			}
+		},
+	})
+
+	httpServer := newLoopbackServer(t, fixture.server)
+	defer httpServer.Close()
+
+	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"please push the change"}`))
+	if err != nil {
+		t.Fatalf("post query: %v", err)
+	}
+	defer resp.Body.Close()
+
+	reader := bufio.NewReader(resp.Body)
+	var streamBody strings.Builder
+	awaitingID := ""
+	approvalID := ""
+	for {
+		line, readErr := reader.ReadString('\n')
+		streamBody.WriteString(line)
+		if strings.HasPrefix(line, "data: {") {
+			payload := decodeSSELine(t, line)
+			if payload["type"] == "awaiting.ask" {
+				awaitingID, _ = payload["awaitingId"].(string)
+				if approvals, ok := payload["approvals"].([]any); ok && len(approvals) > 0 {
+					if firstApproval, ok := approvals[0].(map[string]any); ok {
+						approvalID, _ = firstApproval["id"].(string)
+					}
+				}
+				break
+			}
+		}
+		if readErr != nil {
+			t.Fatalf("read query stream before submit: %v", readErr)
+		}
+	}
+	if awaitingID == "" || approvalID == "" {
+		t.Fatalf("expected approval awaiting payload, got %s", streamBody.String())
+	}
+
+	submitRec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(submitRec, httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+extractRunIDFromStream(t, streamBody.String())+`","awaitingId":"`+awaitingID+`","params":[{"id":"`+approvalID+`","decision":"approve"}]}`)))
+	if submitRec.Code != http.StatusOK {
+		t.Fatalf("submit expected 200, got %d: %s", submitRec.Code, submitRec.Body.String())
+	}
+
+	for {
+		_, readErr := reader.ReadString('\n')
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			t.Fatalf("read query stream after submit: %v", readErr)
+		}
+	}
+
+	chatsRec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(chatsRec, httptest.NewRequest(http.MethodGet, "/api/chats", nil))
+	var chatsResp api.ApiResponse[[]api.ChatSummaryResponse]
+	if err := json.Unmarshal(chatsRec.Body.Bytes(), &chatsResp); err != nil {
+		t.Fatalf("decode chats response: %v", err)
+	}
+	if len(chatsResp.Data) != 1 {
+		t.Fatalf("expected one chat, got %#v", chatsResp)
+	}
+
+	chatID := chatsResp.Data[0].ChatID
+	chatRec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatID+"&includeRawMessages=true", nil))
+	var chatResp api.ApiResponse[api.ChatDetailResponse]
+	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
+		t.Fatalf("decode chat response: %v", err)
+	}
+
+	hitlIndex := -1
+	hitlCount := 0
+	for i, message := range chatResp.Data.RawMessages {
+		if message["role"] == "user" && strings.Contains(stringValue(message["content"]), "[HITL]") {
+			hitlIndex = i
+			hitlCount++
+		}
+	}
+	if hitlCount != 1 {
+		t.Fatalf("expected exactly one replayed HITL summary raw message, got %#v", chatResp.Data.RawMessages)
+	}
+	if hitlIndex == 0 || chatResp.Data.RawMessages[hitlIndex-1]["role"] != "tool" {
+		t.Fatalf("expected HITL raw message to follow tool result, got %#v", chatResp.Data.RawMessages)
+	}
+	if !strings.Contains(stringValue(chatResp.Data.RawMessages[hitlIndex]["content"]), `[HITL] batch summary`) &&
+		!strings.Contains(stringValue(chatResp.Data.RawMessages[hitlIndex]["content"]), `[HITL] all approved`) {
+		t.Fatalf("expected replayed HITL summary content, got %#v", chatResp.Data.RawMessages[hitlIndex])
+	}
+}
+
 func TestSandboxBashResultShapeAcrossStreamBoundaries(t *testing.T) {
 	t.Run("success uses plain stdout for sse and tool message", func(t *testing.T) {
 		body, secondTurn := runSandboxBashQueryForResultShape(t, &scriptedSandbox{

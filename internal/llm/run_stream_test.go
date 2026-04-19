@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"agent-platform-runner-go/internal/api"
+	"agent-platform-runner-go/internal/chat"
 	contracts "agent-platform-runner-go/internal/contracts"
 	"agent-platform-runner-go/internal/frontendtools"
 	"agent-platform-runner-go/internal/hitl"
@@ -799,6 +800,12 @@ func TestPrepareQueuedBashApprovalBatch_AppendsSingleSummaryAfterAllApprovedResu
 			{toolID: "tool_3", toolName: "_sandbox_bash_", args: map[string]any{"command": "chmod 777 ~/c.sh", "description": "放开 c.sh 权限"}},
 		},
 	}
+	var recordedApproval *chat.StepApproval
+	stream.onApprovalSummary = func(approval chat.StepApproval) {
+		copied := approval
+		copied.Decisions = append([]chat.StepApprovalDecision(nil), approval.Decisions...)
+		recordedApproval = &copied
+	}
 
 	if !stream.prepareQueuedBashApprovalBatch() {
 		t.Fatal("expected batch approval await to be prepared")
@@ -844,6 +851,18 @@ func TestPrepareQueuedBashApprovalBatch_AppendsSingleSummaryAfterAllApprovedResu
 		!strings.Contains(text, `"chmod 777 ~/b.sh"`) ||
 		!strings.Contains(text, `"chmod 777 ~/c.sh"`) {
 		t.Fatalf("unexpected all-approved summary %#v", summary)
+	}
+	if recordedApproval == nil {
+		t.Fatal("expected approval batch to be recorded")
+	}
+	if recordedApproval.RuleKey != "dangerous-commands::chmod" {
+		t.Fatalf("expected shared rule key on recorded approval, got %#v", recordedApproval)
+	}
+	if recordedApproval.Summary != text {
+		t.Fatalf("expected recorded approval summary to match user message, got %#v", recordedApproval)
+	}
+	if len(recordedApproval.Decisions) != 3 || recordedApproval.Decisions[2].Decision != "approve" {
+		t.Fatalf("expected recorded approval decisions, got %#v", recordedApproval)
 	}
 }
 
