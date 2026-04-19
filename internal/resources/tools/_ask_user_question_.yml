@@ -16,7 +16,7 @@ inputSchema:
         - question
     questions:
       type: array
-      description: Required. List of questions to present to the user in a single prompt.
+      description: Required. List of questions to present to the user in a single prompt. Every item must include `question` and `type`. For free-input prompts, use `type=text`, `number`, or `password`; do not send a free-input question that only sets `allowFreeText`.
       items:
         type: object
         properties:
@@ -25,7 +25,7 @@ inputSchema:
             description: Required. Main question text.
           type:
             type: string
-            description: Required. Question type. text, number, and password use free input; select uses option selection. select can additionally allow free input through allowFreeText.
+            description: Required. Every question must provide a type. Use text, number, or password for free input. Use select for option picking; select questions may additionally allow free input through allowFreeText.
             enum:
               - text
               - number
@@ -58,10 +58,10 @@ inputSchema:
             description: Whether a select question allows multiple selections.
           allowFreeText:
             type: boolean
-            description: Only applies to select questions. When enabled, the user may answer with free text instead of selecting an option. This is mutually exclusive with option selection.
+            description: Only applies when `type=select`. When enabled, the user may answer with free text instead of selecting an option. This is mutually exclusive with option selection and should not be used on text, number, or password questions.
           freeTextPlaceholder:
             type: string
-            description: Placeholder for free-text input when type is select and allowFreeText=true.
+            description: Only applies when `type=select` and `allowFreeText=true`. Placeholder for the free-text input shown in that select question.
         required:
           - question
           - type
