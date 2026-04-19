@@ -1,8 +1,10 @@
 package schedule
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -622,6 +624,40 @@ func TestAcquireDispatchSlotContextCancellationDoesNotLeak(t *testing.T) {
 		t.Fatal("expected slot to remain available after canceled acquire")
 	}
 	orchestrator.releaseDispatchSlot()
+}
+
+func TestWatcherIgnoresDSStoreChangesButReloadsRuntimeFiles(t *testing.T) {
+	root := t.TempDir()
+	var buf bytes.Buffer
+	previous := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(previous)
+
+	orchestrator := NewOrchestrator(
+		NewRegistry(root, nil),
+		nil,
+		config.ScheduleConfig{PoolSize: 1},
+	)
+	if err := orchestrator.Start(context.Background()); err != nil {
+		t.Fatalf("start orchestrator: %v", err)
+	}
+	defer waitForStop(t, orchestrator)
+
+	buf.Reset()
+
+	if err := os.WriteFile(filepath.Join(root, ".DS_Store"), []byte("finder"), 0o644); err != nil {
+		t.Fatalf("write .DS_Store: %v", err)
+	}
+	time.Sleep(reloadDebounce + 300*time.Millisecond)
+	if strings.Contains(buf.String(), "registry ready count=") {
+		t.Fatalf("expected .DS_Store change to be ignored, got logs %q", buf.String())
+	}
+
+	writeSchedule(t, filepath.Join(root, "demo.yml"), scheduleBody("hello", "17 9 * * *", ""))
+	waitForRegistration(t, orchestrator, "demo", 3*time.Second)
+	if !strings.Contains(buf.String(), "registered id=demo") {
+		t.Fatalf("expected runtime file change to trigger reload, got logs %q", buf.String())
+	}
 }
 
 func waitForStop(t *testing.T, orchestrator *Orchestrator) {

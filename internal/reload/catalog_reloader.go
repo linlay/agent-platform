@@ -206,6 +206,9 @@ func StartBackgroundReloaders(ctx context.Context, cfg config.Config, reloader c
 				if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Remove|fsnotify.Rename) == 0 {
 					continue
 				}
+				if catalog.ShouldIgnoreRuntimeWatchPath(event.Name) {
+					continue
+				}
 
 				// When a new directory is created, start watching it too.
 				if event.Op&fsnotify.Create != 0 {

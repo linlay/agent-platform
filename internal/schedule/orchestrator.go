@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"agent-platform-runner-go/internal/catalog"
 	"agent-platform-runner-go/internal/config"
 
 	"github.com/fsnotify/fsnotify"
@@ -276,6 +277,9 @@ func (o *Orchestrator) startWatcher(ctx context.Context) error {
 					continue
 				}
 				changedPath := filepath.Clean(event.Name)
+				if catalog.ShouldIgnoreRuntimeWatchPath(changedPath) {
+					continue
+				}
 				if event.Op&fsnotify.Create != 0 {
 					if err := refreshScheduleWatchTree(fsw, o.registry.root, changedPath, watchedDirs); err != nil {
 						log.Printf("[schedule] watcher register failed for %s: %v", changedPath, err)

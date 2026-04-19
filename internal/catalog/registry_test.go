@@ -31,6 +31,24 @@ func TestShouldLoadRuntimeNameMatchesJavaSemantics(t *testing.T) {
 	}
 }
 
+func TestShouldIgnoreRuntimeWatchPath(t *testing.T) {
+	cases := []struct {
+		path string
+		want bool
+	}{
+		{path: ".DS_Store", want: true},
+		{path: "/tmp/runtime/.DS_Store", want: true},
+		{path: "agent.yml", want: false},
+		{path: "SKILL.md", want: false},
+		{path: "/tmp/runtime/demo.yaml", want: false},
+	}
+	for _, tc := range cases {
+		if got := ShouldIgnoreRuntimeWatchPath(tc.path); got != tc.want {
+			t.Fatalf("ShouldIgnoreRuntimeWatchPath(%q)=%v want %v", tc.path, got, tc.want)
+		}
+	}
+}
+
 func TestLogicalRuntimeBaseNameStripsDemoAndExampleMarkers(t *testing.T) {
 	cases := map[string]string{
 		"auth.yml":            "auth",

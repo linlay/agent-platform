@@ -15,6 +15,13 @@ func ShouldLoadRuntimeName(rawName string) bool {
 	return strings.TrimSpace(rawName) != "" && !isMarkedRuntimeName(rawName, exampleSuffix)
 }
 
+// ShouldIgnoreRuntimeWatchPath returns true for filesystem noise that should
+// never trigger runtime reloads.
+func ShouldIgnoreRuntimeWatchPath(path string) bool {
+	name := filepath.Base(filepath.Clean(strings.TrimSpace(path)))
+	return name == ".DS_Store"
+}
+
 func LogicalRuntimeBaseName(rawName string) string {
 	name := strings.TrimSpace(rawName)
 	if name == "" {
