@@ -98,6 +98,37 @@ func TestDispatcherEmitsApprovalModeAwaitAskWithQuestions(t *testing.T) {
 	}
 }
 
+func TestDispatcherSkipsDuplicateAwaitAskForSameAwaitingID(t *testing.T) {
+	dispatcher := NewDispatcher(StreamRequest{
+		RunID:  "run_1",
+		ChatID: "chat_1",
+	})
+
+	first := dispatcher.Dispatch(AwaitAsk{
+		AwaitingID: "await_1",
+		Mode:       "approval",
+		Timeout:    120000,
+		RunID:      "run_1",
+		Approvals: []any{
+			map[string]any{"id": "tool_1", "command": "chmod 777 ~/a.sh", "level": 1},
+		},
+	})
+	assertEventTypes(t, first, "awaiting.ask")
+
+	second := dispatcher.Dispatch(AwaitAsk{
+		AwaitingID: "await_1",
+		Mode:       "approval",
+		Timeout:    120000,
+		RunID:      "run_1",
+		Approvals: []any{
+			map[string]any{"id": "tool_1", "command": "chmod 777 ~/a.sh", "level": 1},
+		},
+	})
+	if len(second) != 0 {
+		t.Fatalf("expected duplicate awaiting.ask to be ignored, got %#v", second)
+	}
+}
+
 func TestDispatcherEmitsApprovalModeAwaitAskWithPayloadOnlyForForm(t *testing.T) {
 	dispatcher := NewDispatcher(StreamRequest{
 		RunID:  "run_1",

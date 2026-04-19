@@ -3,6 +3,7 @@ package llm
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 
 	"agent-platform-runner-go/internal/api"
@@ -42,6 +43,15 @@ func normalizeHITLApprovalSubmit(args map[string]any, params any) (map[string]an
 	approvals := make([]map[string]any, 0, len(items))
 	for index, item := range items {
 		definition := contracts.AnyMapNode(definitions[index])
+		definitionID := contracts.AnyStringNode(definition["id"])
+		submittedID := contracts.AnyStringNode(item["id"])
+		if submittedID != "" && definitionID != "" && submittedID != definitionID {
+			log.Printf("[llm][hitl][warn] approval submit id mismatch index=%d expected=%s actual=%s",
+				index,
+				definitionID,
+				submittedID,
+			)
+		}
 		decision := strings.ToLower(strings.TrimSpace(contracts.AnyStringNode(item["decision"])))
 		switch decision {
 		case "approve", "reject", "approve_always":
@@ -49,7 +59,7 @@ func normalizeHITLApprovalSubmit(args map[string]any, params any) (map[string]an
 			return nil, fmt.Errorf("items[%d]: decision must be approve, reject, or approve_always", index)
 		}
 		entry := map[string]any{
-			"id":       contracts.AnyStringNode(definition["id"]),
+			"id":       definitionID,
 			"command":  contracts.AnyStringNode(definition["command"]),
 			"decision": decision,
 		}

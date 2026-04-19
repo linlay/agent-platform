@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -250,7 +251,7 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 			},
 			submitParams: encodedSubmitParams(t, []map[string]any{
 				map[string]any{
-					"id":       "cmd-1",
+					"id":       "tool_1",
 					"decision": "approve",
 				},
 			}),
@@ -432,7 +433,7 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 				if !ok {
 					t.Fatalf("expected approval object, got %#v", approvals[0])
 				}
-				if firstApproval["command"] != tc.initialCommand || firstApproval["id"] != "cmd-1" {
+				if firstApproval["command"] != tc.initialCommand || firstApproval["id"] != "tool_1" {
 					t.Fatalf("expected approval item to use original command, got %#v", firstApproval)
 				}
 			}
@@ -528,7 +529,7 @@ func TestAwaitHITLSubmitAndExecute_RejectEmitsCancelledAnswer(t *testing.T) {
 			"mode": "approval",
 			"approvals": []any{
 				map[string]any{
-					"id":      "cmd-1",
+					"id":      "tool_1",
 					"command": "docker rmi nginx:latest",
 					"level":   1,
 				},
@@ -543,7 +544,7 @@ func TestAwaitHITLSubmitAndExecute_RejectEmitsCancelledAnswer(t *testing.T) {
 	ack := runControl.ResolveSubmit(api.SubmitRequest{
 		RunID:      "run_1",
 		AwaitingID: stream.hitlAwaitingID,
-		Params:     encodedSubmitParams(t, []map[string]any{{"id": "cmd-1", "decision": "reject"}}),
+		Params:     encodedSubmitParams(t, []map[string]any{{"id": "tool_1", "decision": "reject"}}),
 	})
 	if !ack.Accepted {
 		t.Fatalf("expected submit to be accepted, got %#v", ack)
@@ -647,14 +648,24 @@ func TestPrepareQueuedBashApprovalBatch_MergesAllBuiltinApprovalsInSingleAwait(t
 	if ask.Mode != "approval" || len(ask.Approvals) != 3 {
 		t.Fatalf("unexpected batch await ask %#v", ask)
 	}
+	for index, rawApproval := range ask.Approvals {
+		approval, ok := rawApproval.(map[string]any)
+		if !ok {
+			t.Fatalf("expected approval object, got %#v", rawApproval)
+		}
+		expectedID := fmt.Sprintf("tool_%d", index+1)
+		if approval["id"] != expectedID {
+			t.Fatalf("expected approval[%d] id %q, got %#v", index, expectedID, approval)
+		}
+	}
 
 	ack := stream.runControl.ResolveSubmit(api.SubmitRequest{
 		RunID:      "run_1",
 		AwaitingID: ask.AwaitingID,
 		Params: encodedSubmitParams(t, []map[string]any{
-			{"id": "cmd-1", "decision": "approve"},
-			{"id": "cmd-2", "decision": "approve"},
-			{"id": "cmd-3", "decision": "reject"},
+			{"id": "tool_1", "decision": "approve"},
+			{"id": "tool_2", "decision": "approve"},
+			{"id": "tool_3", "decision": "reject"},
 		}),
 	})
 	if !ack.Accepted {
@@ -679,9 +690,14 @@ func TestPrepareQueuedBashApprovalBatch_MergesAllBuiltinApprovalsInSingleAwait(t
 	}
 
 	var answer map[string]any
+	approvalAskCount := 0
 	rejectedCount := 0
 	for _, delta := range stream.pending {
 		switch typed := delta.(type) {
+		case contracts.DeltaAwaitAsk:
+			if typed.AwaitingID == ask.AwaitingID && typed.Mode == "approval" {
+				approvalAskCount++
+			}
 		case contracts.DeltaAwaitingAnswer:
 			if typed.AwaitingID == ask.AwaitingID {
 				answer = typed.Answer
@@ -704,6 +720,9 @@ func TestPrepareQueuedBashApprovalBatch_MergesAllBuiltinApprovalsInSingleAwait(t
 	}
 	if rejectedCount != 1 {
 		t.Fatalf("expected exactly one rejected tool result, got %#v", stream.pending)
+	}
+	if approvalAskCount != 1 {
+		t.Fatalf("expected exactly one batch approval ask, got %#v", stream.pending)
 	}
 }
 
@@ -775,7 +794,7 @@ func TestPrepareQueuedBashApprovalBatch_LeavesHtmlViewportOutsideMergedApprovalA
 		RunID:      "run_1",
 		AwaitingID: ask.AwaitingID,
 		Params: encodedSubmitParams(t, []map[string]any{
-			{"id": "cmd-1", "decision": "approve"},
+			{"id": "tool_1", "decision": "approve"},
 		}),
 	})
 	if !ack.Accepted {
@@ -802,6 +821,125 @@ func TestPrepareQueuedBashApprovalBatch_LeavesHtmlViewportOutsideMergedApprovalA
 	}
 	if !foundFormAsk {
 		t.Fatalf("expected html invocation to emit its own form await, got %#v", stream.pending)
+	}
+}
+
+func TestPrepareQueuedBashApprovalBatch_BlocksEntireTurnAndResumesInOriginalOrder(t *testing.T) {
+	executor := &recordingToolExecutor{
+		defs: []api.ToolDetailResponse{
+			bashToolDefinition(),
+			backendToolDefinition("weather_tool"),
+		},
+		result: contracts.ToolExecutionResult{
+			Output:   "ok",
+			ExitCode: 0,
+		},
+	}
+	stream := &llmRunStream{
+		ctx: context.Background(),
+		engine: &LLMAgentEngine{
+			tools: executor,
+		},
+		session: contracts.QuerySession{
+			RequestID: "req_1",
+			ChatID:    "chat_1",
+			RunID:     "run_1",
+		},
+		runControl: contracts.NewRunControl(context.Background(), "run_1"),
+		execCtx: &contracts.ExecutionContext{
+			Budget: contracts.Budget{Tool: contracts.RetryPolicy{TimeoutMs: 50}},
+		},
+		checker: commandResultChecker{
+			results: map[string]hitl.InterceptResult{
+				"chmod 777 ~/a.sh": {
+					Intercepted:     true,
+					Rule:            hitl.FlatRule{Level: 1, ViewportType: "builtin", ViewportKey: "confirm_dialog"},
+					OriginalCommand: "chmod 777 ~/a.sh",
+				},
+				"chmod 777 ~/b.sh": {
+					Intercepted:     true,
+					Rule:            hitl.FlatRule{Level: 1, ViewportType: "builtin", ViewportKey: "confirm_dialog"},
+					OriginalCommand: "chmod 777 ~/b.sh",
+				},
+			},
+			tools: map[string]api.ToolDetailResponse{
+				strings.ToLower(bashToolDefinition().Name):                  bashToolDefinition(),
+				strings.ToLower(backendToolDefinition("weather_tool").Name): backendToolDefinition("weather_tool"),
+			},
+		},
+		queuedToolCalls: []*preparedToolInvocation{
+			{toolID: "tool_1", toolName: "_sandbox_bash_", args: map[string]any{"command": "chmod 777 ~/a.sh"}},
+			{toolID: "tool_2", toolName: "weather_tool", args: map[string]any{"city": "Shanghai"}},
+			{toolID: "tool_3", toolName: "_sandbox_bash_", args: map[string]any{"command": "chmod 777 ~/b.sh"}},
+		},
+	}
+
+	if !stream.prepareQueuedBashApprovalBatch() {
+		t.Fatal("expected batch approval await to be prepared")
+	}
+	if len(executor.invocations) != 0 {
+		t.Fatalf("expected no tool execution before submit, got %#v", executor.invocations)
+	}
+
+	ask, ok := stream.pending[0].(contracts.DeltaAwaitAsk)
+	if !ok {
+		t.Fatalf("expected first pending delta to be await ask, got %#v", stream.pending)
+	}
+	if len(ask.Approvals) != 2 {
+		t.Fatalf("expected two blocked approvals in merged ask, got %#v", ask)
+	}
+
+	ack := stream.runControl.ResolveSubmit(api.SubmitRequest{
+		RunID:      "run_1",
+		AwaitingID: ask.AwaitingID,
+		Params: encodedSubmitParams(t, []map[string]any{
+			{"id": "tool_1", "decision": "approve"},
+			{"id": "tool_3", "decision": "reject"},
+		}),
+	})
+	if !ack.Accepted {
+		t.Fatalf("expected submit to be accepted, got %#v", ack)
+	}
+	if err := stream.awaitHITLApprovalBatchAndContinue(); err != nil {
+		t.Fatalf("awaitHITLApprovalBatchAndContinue returned error: %v", err)
+	}
+
+	for len(stream.queuedToolCalls) > 0 {
+		stream.activateNextToolCall()
+		if err := stream.invokeActiveToolCall(); err != nil {
+			t.Fatalf("invokeActiveToolCall returned error: %v", err)
+		}
+	}
+
+	if len(executor.invocations) != 2 {
+		t.Fatalf("expected approved bash plus unblocked tool to execute, got %#v", executor.invocations)
+	}
+	if executor.invocations[0].name != "_sandbox_bash_" || executor.invocations[0].args["command"] != "chmod 777 ~/a.sh" {
+		t.Fatalf("expected first execution to be approved first bash, got %#v", executor.invocations)
+	}
+	if executor.invocations[1].name != "weather_tool" || executor.invocations[1].args["city"] != "Shanghai" {
+		t.Fatalf("expected unblocked tool to resume in original order after submit, got %#v", executor.invocations)
+	}
+
+	approvalAskCount := 0
+	rejectedCount := 0
+	for _, delta := range stream.pending {
+		switch typed := delta.(type) {
+		case contracts.DeltaAwaitAsk:
+			if typed.AwaitingID == ask.AwaitingID && typed.Mode == "approval" {
+				approvalAskCount++
+			}
+		case contracts.DeltaToolResult:
+			if typed.ToolID == "tool_3" && typed.Result.Error == "user_rejected" {
+				rejectedCount++
+			}
+		}
+	}
+	if approvalAskCount != 1 {
+		t.Fatalf("expected exactly one approval ask for the whole turn, got %#v", stream.pending)
+	}
+	if rejectedCount != 1 {
+		t.Fatalf("expected rejected blocked command to emit user_rejected result, got %#v", stream.pending)
 	}
 }
 

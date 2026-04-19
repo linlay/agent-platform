@@ -190,9 +190,6 @@ func (s *llmRunStream) fillPending() error {
 			continue
 		}
 		if len(s.queuedToolCalls) > 0 {
-			if s.prepareQueuedBashApprovalBatch() {
-				continue
-			}
 			s.activateNextToolCall()
 			continue
 		}
@@ -527,6 +524,9 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		}
 	}
 	if s.activeToolCall == nil && len(s.queuedToolCalls) > 0 {
+		if s.prepareQueuedBashApprovalBatch() {
+			return nil
+		}
 		s.activateNextToolCall()
 	}
 	return nil
@@ -939,11 +939,8 @@ func (s *llmRunStream) prepareQueuedBashApprovalBatch() bool {
 		if s.shouldAutoApproveHITL(result) {
 			continue
 		}
-		if invocation.approvalID == "" {
-			invocation.approvalID = fmt.Sprintf("cmd-%d", len(approvals)+1)
-		}
 		approvals = append(approvals, map[string]any{
-			"id":      invocation.approvalID,
+			"id":      invocation.toolID,
 			"command": mapStringArg(invocation.args, "command"),
 			"level":   result.Rule.Level,
 		})
@@ -953,7 +950,7 @@ func (s *llmRunStream) prepareQueuedBashApprovalBatch() bool {
 		return false
 	}
 
-	awaitingID := buildHITLBatchAwaitingID(invocations[0].toolID)
+	awaitingID := buildHITLBatchAwaitingID(s.session.RunID, s.step)
 	args := map[string]any{
 		"mode":      "approval",
 		"approvals": approvals,
@@ -1027,6 +1024,7 @@ func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {
 			timeoutResult := hitlTimeoutToolResult(invocation)
 			invocation.queuedResult = &timeoutResult
 		}
+		s.hitlPendingBatch = nil
 		return nil
 	}
 
@@ -1046,6 +1044,7 @@ func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {
 			result := frontendSubmitInvalidPayloadResult(invocation, batch.awaitingID, submitResult.Request.Params, normalizeErr)
 			invocation.queuedResult = &result
 		}
+		s.hitlPendingBatch = nil
 		return nil
 	}
 	if len(normalized) > 0 {
@@ -1060,6 +1059,7 @@ func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {
 			rejected := hitlRejectedToolResult(invocation)
 			invocation.queuedResult = &rejected
 		}
+		s.hitlPendingBatch = nil
 		return nil
 	}
 
@@ -1072,6 +1072,7 @@ func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {
 		}
 		invocation.approvalDecision = strings.TrimSpace(AnyStringNode(approvals[index]["decision"]))
 	}
+	s.hitlPendingBatch = nil
 	return nil
 }
 
@@ -1228,15 +1229,15 @@ func (s *llmRunStream) buildHITLArgs(invocation *preparedToolInvocation, result 
 	if strings.EqualFold(result.Rule.ViewportType, "html") {
 		return s.buildFormApprovalArgs(command, result)
 	}
-	return s.buildConfirmApprovalArgs(command, result.Rule.Level)
+	return s.buildConfirmApprovalArgs(invocation.toolID, command, result.Rule.Level)
 }
 
-func (s *llmRunStream) buildConfirmApprovalArgs(command string, level int) map[string]any {
+func (s *llmRunStream) buildConfirmApprovalArgs(approvalID string, command string, level int) map[string]any {
 	return map[string]any{
 		"mode": "approval",
 		"approvals": []any{
 			map[string]any{
-				"id":      "cmd-1",
+				"id":      approvalID,
 				"command": command,
 				"level":   level,
 			},
@@ -1336,8 +1337,8 @@ func buildHITLAwaitingID(toolID string) string {
 	return "await_" + strings.TrimSpace(toolID)
 }
 
-func buildHITLBatchAwaitingID(toolID string) string {
-	return "await_batch_" + strings.TrimSpace(toolID)
+func buildHITLBatchAwaitingID(runID string, turnStep int) string {
+	return fmt.Sprintf("await_batch_%s_%d", strings.TrimSpace(runID), turnStep)
 }
 
 func hitlTimeoutAnswer(mode string) map[string]any {

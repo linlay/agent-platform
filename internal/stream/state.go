@@ -19,6 +19,7 @@ type StreamEventStateData struct {
 	contentBuffer     map[string]string
 	toolArgsBuffer    map[string]string
 	actionArgsBuffer  map[string]string
+	emittedAwaitings  map[string]bool
 	runFinishReason   string
 	runError          map[string]any
 	runUsage          *runUsageState
@@ -61,5 +62,6 @@ func NewStateData() *StreamEventStateData {
 		contentBuffer:    map[string]string{},
 		toolArgsBuffer:   map[string]string{},
 		actionArgsBuffer: map[string]string{},
+		emittedAwaitings: map[string]bool{},
 	}
 }

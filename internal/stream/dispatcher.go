@@ -1,6 +1,9 @@
 package stream
 
-import "strings"
+import (
+	"log"
+	"strings"
+)
 
 type StreamEventDispatcher struct {
 	request StreamRequest
@@ -60,7 +63,11 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 			"artifact":   value.Artifact,
 		})}
 	case AwaitAsk:
-		return []StreamEvent{d.newAwaitAskEvent(value)}
+		event := d.newAwaitAskEvent(value)
+		if event.Type == "" {
+			return nil
+		}
+		return []StreamEvent{event}
 	case RequestSubmit:
 		return []StreamEvent{NewEvent("request.submit", map[string]any{
 			"requestId":  value.RequestID,
@@ -463,7 +470,9 @@ func (d *StreamEventDispatcher) handleToolArgs(input ToolArgs) []StreamEvent {
 			"toolDescription": input.ToolDescription,
 		}))
 		if input.AwaitAsk != nil {
-			events = append(events, d.newAwaitAskEvent(*input.AwaitAsk))
+			if event := d.newAwaitAskEvent(*input.AwaitAsk); event.Type != "" {
+				events = append(events, event)
+			}
 		}
 	}
 	d.state.toolArgsBuffer[input.ToolID] += input.Delta
@@ -476,8 +485,17 @@ func (d *StreamEventDispatcher) handleToolArgs(input ToolArgs) []StreamEvent {
 }
 
 func (d *StreamEventDispatcher) newAwaitAskEvent(input AwaitAsk) StreamEvent {
+	awaitingID := strings.TrimSpace(input.AwaitingID)
+	if awaitingID == "" {
+		return StreamEvent{}
+	}
+	if d.state.emittedAwaitings[awaitingID] {
+		log.Printf("[stream][run:%s][warn] duplicate awaiting.ask ignored awaitingId=%s", d.request.RunID, awaitingID)
+		return StreamEvent{}
+	}
+	d.state.emittedAwaitings[awaitingID] = true
 	payload := map[string]any{
-		"awaitingId": input.AwaitingID,
+		"awaitingId": awaitingID,
 		"mode":       input.Mode,
 		"timeout":    input.Timeout,
 		"runId":      input.RunID,

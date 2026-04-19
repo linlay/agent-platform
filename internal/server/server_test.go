@@ -2317,17 +2317,17 @@ func TestBashHITLDockerRMIApproveFlow(t *testing.T) {
 	if !strings.Contains(body, `"mode":"approval"`) ||
 		!strings.Contains(body, `"approvals":[`) ||
 		!strings.Contains(body, `"command":"docker rmi nginx:latest"`) ||
-		!strings.Contains(body, `"id":"cmd-1"`) ||
+		!strings.Contains(body, `"id":"tool_bash"`) ||
 		!strings.Contains(body, `"level":1`) {
 		t.Fatalf("expected approval awaiting.ask payload in stream, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"request.submit"`) ||
-		!strings.Contains(body, `"params":[{"id":"cmd-1","decision":"approve"}]`) {
+		!strings.Contains(body, `"params":[{"id":"tool_bash","decision":"approve"}]`) {
 		t.Fatalf("expected approval request.submit payload in stream, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
 		!strings.Contains(body, `"decision":"approve"`) ||
-		!strings.Contains(body, `"id":"cmd-1"`) ||
+		!strings.Contains(body, `"id":"tool_bash"`) ||
 		!strings.Contains(body, `"command":"docker rmi nginx:latest"`) {
 		t.Fatalf("expected normalized approval awaiting.answer payload in stream, got %s", body)
 	}
@@ -2362,7 +2362,7 @@ func TestBashHITLDockerImageRMRejectFlow(t *testing.T) {
 		t.Fatalf("did not expect confirm_dialog viewport in stream, got %s", body)
 	}
 	if !strings.Contains(body, `"decision":"reject"`) ||
-		!strings.Contains(body, `"id":"cmd-1"`) ||
+		!strings.Contains(body, `"id":"tool_bash"`) ||
 		!strings.Contains(body, `"command":"docker image rm nginx:latest"`) {
 		t.Fatalf("expected reject approval answer in stream, got %s", body)
 	}
@@ -2464,6 +2464,7 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 	var streamBody strings.Builder
 	originalToolID := ""
 	awaitingID := ""
+	approvalID := ""
 	var awaitAskPayload map[string]any
 	for {
 		line, readErr := reader.ReadString('\n')
@@ -2481,6 +2482,11 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 			case "awaiting.ask":
 				awaitAskPayload = payload
 				awaitingID, _ = payload["awaitingId"].(string)
+				if approvals, ok := payload["approvals"].([]any); ok && len(approvals) > 0 {
+					if firstApproval, ok := approvals[0].(map[string]any); ok {
+						approvalID, _ = firstApproval["id"].(string)
+					}
+				}
 				goto submit
 			}
 		}
@@ -2510,7 +2516,10 @@ submit:
 				submitPayload = string(payloadJSON)
 			}
 		} else {
-			submitPayload = `[{"id":"cmd-1","decision":"` + options.action + `"}]`
+			if strings.TrimSpace(approvalID) == "" {
+				t.Fatalf("expected approval id in awaiting.ask payload, got %#v", awaitAskPayload)
+			}
+			submitPayload = `[{"id":"` + approvalID + `","decision":"` + options.action + `"}]`
 		}
 		submitRec := httptest.NewRecorder()
 		fixture.server.ServeHTTP(submitRec, httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+extractRunIDFromStream(t, streamBody.String())+`","awaitingId":"`+awaitingID+`","params":`+submitPayload+`}`)))
