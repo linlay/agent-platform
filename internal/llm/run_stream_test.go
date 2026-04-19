@@ -12,6 +12,15 @@ import (
 	"agent-platform-runner-go/internal/hitl"
 )
 
+func encodedSubmitParams(t *testing.T, value any) api.SubmitParams {
+	t.Helper()
+	params, err := api.EncodeSubmitParams(value)
+	if err != nil {
+		t.Fatalf("encode submit params: %v", err)
+	}
+	return params
+}
+
 type stubToolExecutor struct {
 	defs []api.ToolDetailResponse
 }
@@ -67,11 +76,11 @@ func (s stubChecker) Tools() []api.ToolDetailResponse {
 	return items
 }
 
-func approvalToolDefinition() api.ToolDetailResponse {
+func bashToolDefinition() api.ToolDetailResponse {
 	return api.ToolDetailResponse{
-		Name: "_ask_user_approval_",
+		Name: "_sandbox_bash_",
 		Meta: map[string]any{
-			"kind":          "frontend",
+			"kind":          "backend",
 			"sourceType":    "local",
 			"viewportType":  "builtin",
 			"viewportKey":   "confirm_dialog",
@@ -80,7 +89,7 @@ func approvalToolDefinition() api.ToolDetailResponse {
 	}
 }
 
-func TestPreToolInvocationDeltas_QuestionUsesFrontendHandlerPayload(t *testing.T) {
+func TestPreToolInvocationDeltas_QuestionRegistersAwaitingContext(t *testing.T) {
 	tool := api.ToolDetailResponse{
 		Name: "_ask_user_question_",
 		Meta: map[string]any{
@@ -118,19 +127,18 @@ func TestPreToolInvocationDeltas_QuestionUsesFrontendHandlerPayload(t *testing.T
 			},
 		},
 	})
-	if len(deltas) != 1 {
-		t.Fatalf("expected 1 delta, got %#v", deltas)
+	if len(deltas) != 0 {
+		t.Fatalf("expected no prelude deltas, got %#v", deltas)
 	}
-	payload, ok := deltas[0].(contracts.DeltaAwaitPayload)
+	awaiting, ok := runControl.LookupAwaiting("tool_1")
 	if !ok {
-		t.Fatalf("expected DeltaAwaitPayload, got %#v", deltas[0])
+		t.Fatal("expected awaiting context to be registered")
 	}
-	if payload.AwaitingID != "tool_1" || len(payload.Questions) != 1 {
-		t.Fatalf("unexpected payload %#v", payload)
+	if awaiting.Mode != "question" {
+		t.Fatalf("unexpected awaiting context %#v", awaiting)
 	}
-	question := payload.Questions[0].(map[string]any)
-	if _, ok := question["allowFreeText"]; ok {
-		t.Fatalf("expected non-select question to be sanitized, got %#v", question)
+	if _, ok := awaiting.ItemIDs["q1"]; !ok {
+		t.Fatalf("expected question id q1 to be registered, got %#v", awaiting)
 	}
 }
 
@@ -181,66 +189,18 @@ func TestPrepareToolCall_InvalidAskUserQuestionArgsReturnToolError(t *testing.T)
 	}
 }
 
-func TestPreToolInvocationDeltas_ApprovalUsesFrontendHandlerAwaitAsk(t *testing.T) {
-	tool := approvalToolDefinition()
-	stream := &llmRunStream{
-		engine: &LLMAgentEngine{
-			tools:    stubToolExecutor{defs: []api.ToolDetailResponse{tool}},
-			frontend: frontendtools.NewDefaultRegistry(),
-		},
-		session: contracts.QuerySession{RunID: "run_1"},
-		execCtx: &contracts.ExecutionContext{
-			Budget: contracts.Budget{Tool: contracts.RetryPolicy{TimeoutMs: 50}},
-		},
-		runControl: contracts.NewRunControl(context.Background(), "run_1"),
-	}
-
-	deltas := stream.preToolInvocationDeltas("tool_1", "_ask_user_approval_", map[string]any{
-		"mode": "approval",
-		"questions": []any{
-			map[string]any{
-				"question": "Need confirmation",
-				"options": []any{
-					map[string]any{"label": "Approve", "value": "approve"},
-				},
-			},
-		},
-	})
-	if len(deltas) != 1 {
-		t.Fatalf("expected 1 delta, got %#v", deltas)
-	}
-	awaitAsk, ok := deltas[0].(contracts.DeltaAwaitAsk)
-	if !ok {
-		t.Fatalf("expected DeltaAwaitAsk, got %#v", deltas[0])
-	}
-	if awaitAsk.Mode != "approval" || awaitAsk.AwaitingID != "tool_1" {
-		t.Fatalf("unexpected await ask %#v", awaitAsk)
-	}
-	expectedQuestions := []any{
-		map[string]any{
-			"question": "Need confirmation",
-			"options": []any{
-				map[string]any{"label": "Approve", "value": "approve"},
-			},
-		},
-	}
-	if !reflect.DeepEqual(awaitAsk.Questions, expectedQuestions) {
-		t.Fatalf("unexpected approval questions %#v", awaitAsk.Questions)
-	}
-}
-
 func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 	tests := []struct {
-		name                 string
-		rule                 hitl.FlatRule
-		initialCommand       string
-		parsedCommand        hitl.CommandComponents
-		submitParams         any
-		expectedCommand      string
-		expectedView         string
-		expectedKey          string
-		expectedAwaitPayload map[string]any
-		expectedAnswerAction string
+		name                   string
+		rule                   hitl.FlatRule
+		initialCommand         string
+		parsedCommand          hitl.CommandComponents
+		submitParams           api.SubmitParams
+		expectedCommand        string
+		expectedView           string
+		expectedKey            string
+		expectedInitialPayload map[string]any
+		expectedAnswerAction   string
 	}{
 		{
 			name: "builtin confirm dialog",
@@ -255,16 +215,15 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 				BaseCommand: "git",
 				Tokens:      []string{"push", "origin", "main"},
 			},
-			submitParams: []any{
+			submitParams: encodedSubmitParams(t, []map[string]any{
 				map[string]any{
-					"question": "git push origin main",
-					"answer":   "Approve",
-					"value":    "approve",
+					"id":       "cmd-1",
+					"decision": "approve",
 				},
-			},
+			}),
 			expectedCommand: "git push origin main",
-			expectedView:    "builtin",
-			expectedKey:     "confirm_dialog",
+			expectedView:    "",
+			expectedKey:     "",
 		},
 		{
 			name: "leave html viewport override",
@@ -279,18 +238,20 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 				BaseCommand: "mock",
 				Tokens:      []string{"create-leave", "--payload", `{"employee_id":"E1001","days":3}`},
 			},
-			submitParams: map[string]any{
-				"action": "submit",
-				"payload": map[string]any{
-					"employee_id": "E1001",
-					"days":        2,
+			submitParams: encodedSubmitParams(t, []map[string]any{
+				{
+					"id": "form-1",
+					"payload": map[string]any{
+						"employee_id": "E1001",
+						"days":        2,
+					},
 				},
-			},
-			expectedCommand:      `mock create-leave --payload '{"days":2,"employee_id":"E1001"}'`,
-			expectedView:         "html",
-			expectedKey:          "leave_form",
-			expectedAwaitPayload: map[string]any{"employee_id": "E1001", "days": float64(3)},
-			expectedAnswerAction: "submit",
+			}),
+			expectedCommand:        `mock create-leave --payload '{"days":2,"employee_id":"E1001"}'`,
+			expectedView:           "html",
+			expectedKey:            "leave_form",
+			expectedInitialPayload: map[string]any{"employee_id": "E1001", "days": float64(3)},
+			expectedAnswerAction:   "submit",
 		},
 		{
 			name: "expense html viewport override",
@@ -305,18 +266,20 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 				BaseCommand: "mock",
 				Tokens:      []string{"create-expense", "--payload", `{"employee_id":"E1001","total_amount":1280.5}`},
 			},
-			submitParams: map[string]any{
-				"action": "submit",
-				"payload": map[string]any{
-					"employee_id":  "E1001",
-					"total_amount": 640.25,
+			submitParams: encodedSubmitParams(t, []map[string]any{
+				{
+					"id": "form-1",
+					"payload": map[string]any{
+						"employee_id":  "E1001",
+						"total_amount": 640.25,
+					},
 				},
-			},
-			expectedCommand:      `mock create-expense --payload '{"employee_id":"E1001","total_amount":640.25}'`,
-			expectedView:         "html",
-			expectedKey:          "expense_form",
-			expectedAwaitPayload: map[string]any{"employee_id": "E1001", "total_amount": 1280.5},
-			expectedAnswerAction: "submit",
+			}),
+			expectedCommand:        `mock create-expense --payload '{"employee_id":"E1001","total_amount":640.25}'`,
+			expectedView:           "html",
+			expectedKey:            "expense_form",
+			expectedInitialPayload: map[string]any{"employee_id": "E1001", "total_amount": 1280.5},
+			expectedAnswerAction:   "submit",
 		},
 		{
 			name: "procurement html viewport override",
@@ -331,25 +294,27 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 				BaseCommand: "mock",
 				Tokens:      []string{"create-procurement", "--payload", `{"delivery_city":"Shanghai","requester_id":"E1001"}`},
 			},
-			submitParams: map[string]any{
-				"action": "submit",
-				"payload": map[string]any{
-					"delivery_city": "Hangzhou",
-					"requester_id":  "E1001",
+			submitParams: encodedSubmitParams(t, []map[string]any{
+				{
+					"id": "form-1",
+					"payload": map[string]any{
+						"delivery_city": "Hangzhou",
+						"requester_id":  "E1001",
+					},
 				},
-			},
-			expectedCommand:      `mock create-procurement --payload '{"delivery_city":"Hangzhou","requester_id":"E1001"}'`,
-			expectedView:         "html",
-			expectedKey:          "procurement_form",
-			expectedAwaitPayload: map[string]any{"delivery_city": "Shanghai", "requester_id": "E1001"},
-			expectedAnswerAction: "submit",
+			}),
+			expectedCommand:        `mock create-procurement --payload '{"delivery_city":"Hangzhou","requester_id":"E1001"}'`,
+			expectedView:           "html",
+			expectedKey:            "procurement_form",
+			expectedInitialPayload: map[string]any{"delivery_city": "Shanghai", "requester_id": "E1001"},
+			expectedAnswerAction:   "submit",
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			executor := &recordingToolExecutor{
-				defs: []api.ToolDetailResponse{approvalToolDefinition()},
+				defs: []api.ToolDetailResponse{bashToolDefinition()},
 				result: contracts.ToolExecutionResult{
 					Output:   "executed",
 					ExitCode: 0,
@@ -406,27 +371,36 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 			if !foundAwaitAsk {
 				t.Fatalf("expected awaiting.ask delta, got %#v", stream.pending)
 			}
-			if awaitAsk.Mode != "approval" || awaitAsk.ViewportType != tc.expectedView || awaitAsk.ViewportKey != tc.expectedKey {
+			expectedMode := "approval"
+			if tc.expectedInitialPayload != nil {
+				expectedMode = "form"
+			}
+			if awaitAsk.Mode != expectedMode || awaitAsk.ViewportType != tc.expectedView || awaitAsk.ViewportKey != tc.expectedKey {
 				t.Fatalf("unexpected await ask %#v", awaitAsk)
 			}
-			if tc.expectedAwaitPayload != nil {
-				if !reflect.DeepEqual(awaitAsk.Payload, tc.expectedAwaitPayload) {
-					t.Fatalf("expected approval form payload %#v, got %#v", tc.expectedAwaitPayload, awaitAsk)
+			if tc.expectedInitialPayload != nil {
+				if len(awaitAsk.Forms) != 1 {
+					t.Fatalf("expected one form awaiting item, got %#v", awaitAsk)
 				}
-				if len(awaitAsk.Questions) != 0 {
-					t.Fatalf("expected form approval to omit questions, got %#v", awaitAsk.Questions)
+				form := awaitAsk.Forms[0].(map[string]any)
+				initialPayload, _ := form["initialPayload"].(map[string]any)
+				if !reflect.DeepEqual(initialPayload, tc.expectedInitialPayload) {
+					t.Fatalf("expected form payload %#v, got %#v", tc.expectedInitialPayload, awaitAsk)
+				}
+				if len(awaitAsk.Approvals) != 0 {
+					t.Fatalf("expected form await to omit approvals, got %#v", awaitAsk.Approvals)
 				}
 			} else {
-				questions := awaitAsk.Questions
-				if len(questions) != 1 {
-					t.Fatalf("expected one approval question, got %#v", awaitAsk.Questions)
+				approvals := awaitAsk.Approvals
+				if len(approvals) != 1 {
+					t.Fatalf("expected one approval item, got %#v", awaitAsk.Approvals)
 				}
-				firstQuestion, ok := questions[0].(map[string]any)
+				firstApproval, ok := approvals[0].(map[string]any)
 				if !ok {
-					t.Fatalf("expected approval question object, got %#v", questions[0])
+					t.Fatalf("expected approval object, got %#v", approvals[0])
 				}
-				if firstQuestion["question"] != tc.submitParams.([]any)[0].(map[string]any)["question"] {
-					t.Fatalf("expected approval question to use original command, got %#v", firstQuestion)
+				if firstApproval["command"] != tc.initialCommand || firstApproval["id"] != "cmd-1" {
+					t.Fatalf("expected approval item to use original command, got %#v", firstApproval)
 				}
 			}
 
@@ -463,8 +437,11 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 				case contracts.DeltaAwaitingAnswer:
 					if typed.AwaitingID == buildHITLAwaitingID("tool_1") {
 						foundAwaitingAnswer = true
-						if tc.expectedAnswerAction != "" && typed.Answer["action"] != tc.expectedAnswerAction {
-							t.Fatalf("expected awaiting.answer action %q, got %#v", tc.expectedAnswerAction, typed.Answer)
+						if tc.expectedAnswerAction != "" {
+							forms, _ := typed.Answer["forms"].([]map[string]any)
+							if len(forms) == 0 || forms[0]["action"] != tc.expectedAnswerAction {
+								t.Fatalf("expected awaiting.answer action %q, got %#v", tc.expectedAnswerAction, typed.Answer)
+							}
 						}
 					}
 				case contracts.DeltaToolResult:
@@ -485,7 +462,7 @@ func TestAwaitHITLSubmitAndExecute_RejectEmitsCancelledAnswer(t *testing.T) {
 	stream := &llmRunStream{
 		ctx: context.Background(),
 		engine: &LLMAgentEngine{
-			tools:    &recordingToolExecutor{defs: []api.ToolDetailResponse{approvalToolDefinition()}},
+			tools:    &recordingToolExecutor{defs: []api.ToolDetailResponse{bashToolDefinition()}},
 			frontend: frontendtools.NewDefaultRegistry(),
 		},
 		session: contracts.QuerySession{
@@ -516,29 +493,24 @@ func TestAwaitHITLSubmitAndExecute_RejectEmitsCancelledAnswer(t *testing.T) {
 		hitlAwaitingID: buildHITLAwaitingID("tool_1"),
 		hitlAwaitArgs: map[string]any{
 			"mode": "approval",
-			"questions": []any{
+			"approvals": []any{
 				map[string]any{
-					"question": "docker rmi nginx:latest",
-					"header":   "Bash Approval",
-					"options": []any{
-						map[string]any{"label": "Approve", "value": "approve"},
-						map[string]any{"label": "Reject", "value": "reject"},
-					},
+					"id":      "cmd-1",
+					"command": "docker rmi nginx:latest",
+					"level":   1,
 				},
 			},
 		},
 	}
-	runControl.ExpectSubmit(stream.hitlAwaitingID)
+	runControl.ExpectSubmit(contracts.AwaitingSubmitContext{
+		AwaitingID: stream.hitlAwaitingID,
+		Mode:       "approval",
+		ItemIDs:    map[string]struct{}{"cmd-1": {}},
+	})
 	ack := runControl.ResolveSubmit(api.SubmitRequest{
 		RunID:      "run_1",
 		AwaitingID: stream.hitlAwaitingID,
-		Params: []any{
-			map[string]any{
-				"question": "docker rmi nginx:latest",
-				"answer":   "Reject",
-				"value":    "reject",
-			},
-		},
+		Params:     encodedSubmitParams(t, []map[string]any{{"id": "cmd-1", "decision": "reject"}}),
 	})
 	if !ack.Accepted {
 		t.Fatalf("expected submit to be accepted, got %#v", ack)
@@ -558,9 +530,9 @@ func TestAwaitHITLSubmitAndExecute_RejectEmitsCancelledAnswer(t *testing.T) {
 				if typed.Answer["mode"] != "approval" {
 					t.Fatalf("unexpected reject answer %#v", typed.Answer)
 				}
-				questions, ok := typed.Answer["questions"].([]map[string]any)
-				if !ok || len(questions) != 1 || questions[0]["value"] != "reject" {
-					t.Fatalf("unexpected reject questions %#v", typed.Answer)
+				approvals, ok := typed.Answer["approvals"].([]map[string]any)
+				if !ok || len(approvals) != 1 || approvals[0]["decision"] != "reject" {
+					t.Fatalf("unexpected reject approvals %#v", typed.Answer)
 				}
 			}
 		case contracts.DeltaToolResult:
@@ -581,7 +553,7 @@ func TestAwaitHITLSubmitAndExecute_TimeoutEmitsTerminalAnswer(t *testing.T) {
 	stream := &llmRunStream{
 		ctx: context.Background(),
 		engine: &LLMAgentEngine{
-			tools:    &recordingToolExecutor{defs: []api.ToolDetailResponse{approvalToolDefinition()}},
+			tools:    &recordingToolExecutor{defs: []api.ToolDetailResponse{bashToolDefinition()}},
 			frontend: frontendtools.NewDefaultRegistry(),
 		},
 		session: contracts.QuerySession{
@@ -614,7 +586,10 @@ func TestAwaitHITLSubmitAndExecute_TimeoutEmitsTerminalAnswer(t *testing.T) {
 			"mode": "approval",
 		},
 	}
-	stream.runControl.ExpectSubmit(stream.hitlAwaitingID)
+	stream.runControl.ExpectSubmit(contracts.AwaitingSubmitContext{
+		AwaitingID: stream.hitlAwaitingID,
+		Mode:       "approval",
+	})
 
 	if err := stream.awaitHITLSubmitAndExecute(); err != nil {
 		t.Fatalf("awaitHITLSubmitAndExecute returned error: %v", err)
@@ -647,7 +622,7 @@ func TestAwaitHITLSubmitAndExecute_TimeoutEmitsTerminalAnswer(t *testing.T) {
 
 func TestInvokeActiveToolCallUsesSkillScopedChecker(t *testing.T) {
 	executor := &recordingToolExecutor{
-		defs: []api.ToolDetailResponse{approvalToolDefinition()},
+		defs: []api.ToolDetailResponse{bashToolDefinition()},
 		result: contracts.ToolExecutionResult{
 			Output:   "executed",
 			ExitCode: 0,
@@ -752,7 +727,7 @@ func TestBuildFormApprovalArgsFallsBackToOriginalCommandPayload(t *testing.T) {
 	stream := &llmRunStream{
 		session: contracts.QuerySession{RunID: "run_1"},
 	}
-	args := stream.buildFormApprovalArgs(hitl.InterceptResult{
+	args := stream.buildFormApprovalArgs(`mock create-leave --payload {"employee_id":"E1001","days":3}`, hitl.InterceptResult{
 		Rule: hitl.FlatRule{
 			ViewportType: "html",
 			ViewportKey:  "leave_form",
@@ -763,9 +738,14 @@ func TestBuildFormApprovalArgsFallsBackToOriginalCommandPayload(t *testing.T) {
 		},
 		OriginalCommand: `mock create-leave --payload {"employee_id":"E1001","days":3}`,
 	})
-	payload, ok := args["payload"].(map[string]any)
+	forms, ok := args["forms"].([]any)
+	if !ok || len(forms) != 1 {
+		t.Fatalf("expected forms in form approval args, got %#v", args)
+	}
+	form := forms[0].(map[string]any)
+	payload, ok := form["initialPayload"].(map[string]any)
 	if !ok {
-		t.Fatalf("expected payload in form approval args, got %#v", args)
+		t.Fatalf("expected initialPayload in form approval args, got %#v", args)
 	}
 	expected := map[string]any{"employee_id": "E1001", "days": float64(3)}
 	if !reflect.DeepEqual(payload, expected) {
@@ -827,7 +807,7 @@ func TestReconstructCommandWithPayload(t *testing.T) {
 
 func TestInvokeActiveToolCallAutoApprovesBuiltinLevelInCurrentRun(t *testing.T) {
 	executor := &recordingToolExecutor{
-		defs: []api.ToolDetailResponse{approvalToolDefinition()},
+		defs: []api.ToolDetailResponse{bashToolDefinition()},
 		result: contracts.ToolExecutionResult{
 			Output:   "executed",
 			ExitCode: 0,
@@ -883,7 +863,7 @@ func TestInvokeActiveToolCallAutoApprovesBuiltinLevelInCurrentRun(t *testing.T) 
 
 func TestInvokeActiveToolCallDoesNotAutoApproveHTMLViewport(t *testing.T) {
 	executor := &recordingToolExecutor{
-		defs: []api.ToolDetailResponse{approvalToolDefinition()},
+		defs: []api.ToolDetailResponse{bashToolDefinition()},
 		result: contracts.ToolExecutionResult{
 			Output:   "executed",
 			ExitCode: 0,

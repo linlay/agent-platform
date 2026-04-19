@@ -20,9 +20,6 @@ func TestLoadEmbeddedToolDefinitionsIncludesAskUserBuiltins(t *testing.T) {
 	if !byName["_ask_user_question_"] {
 		t.Fatal("expected _ask_user_question_ builtin tool definition")
 	}
-	if !byName["_ask_user_approval_"] {
-		t.Fatal("expected _ask_user_approval_ builtin tool definition")
-	}
 	if byName["confirm_dialog"] {
 		t.Fatal("did not expect confirm_dialog to remain a tool name")
 	}
@@ -34,18 +31,13 @@ func TestAskUserToolSchemasMatchContract(t *testing.T) {
 		t.Fatalf("load embedded tool definitions: %v", err)
 	}
 
-	var questionDef, approvalDef map[string]any
+	var questionDef map[string]any
 	for _, def := range defs {
 		switch def.Name {
 		case "_ask_user_question_":
 			questionDef = def.Parameters
-			if def.Meta["viewportType"] != "builtin" || def.Meta["viewportKey"] != "confirm_dialog" {
+			if def.Meta["kind"] != "frontend" {
 				t.Fatalf("unexpected question tool metadata: %#v", def.Meta)
-			}
-		case "_ask_user_approval_":
-			approvalDef = def.Parameters
-			if def.Meta["viewportType"] != "builtin" || def.Meta["viewportKey"] != "confirm_dialog" {
-				t.Fatalf("unexpected approval tool metadata: %#v", def.Meta)
 			}
 		}
 	}
@@ -79,24 +71,6 @@ func TestAskUserToolSchemasMatchContract(t *testing.T) {
 	questionOptionProperties := mapChild(t, questionOptions, "properties")
 	if _, ok := questionOptionProperties["value"]; ok {
 		t.Fatal("did not expect value on ask user question options")
-	}
-
-	approvalProperties := mapChild(t, approvalDef, "properties")
-	if !enumContains(t, approvalProperties["mode"], "approval") {
-		t.Fatal("expected ask user approval mode=approval")
-	}
-	approvalQuestions := mapChild(t, approvalProperties, "questions")
-	approvalItem := mapChild(t, mapChild(t, approvalQuestions, "items"), "properties")
-	if _, ok := approvalItem["allowFreeText"]; !ok {
-		t.Fatal("expected allowFreeText on ask user approval items")
-	}
-	if _, ok := approvalItem["freeTextPlaceholder"]; !ok {
-		t.Fatal("expected freeTextPlaceholder on ask user approval items")
-	}
-	approvalOptions := mapChild(t, mapChild(t, approvalItem, "options"), "items")
-	approvalOptionProperties := mapChild(t, approvalOptions, "properties")
-	if _, ok := approvalOptionProperties["value"]; !ok {
-		t.Fatal("expected value on ask user approval options")
 	}
 }
 

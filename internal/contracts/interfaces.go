@@ -20,6 +20,7 @@ type AgentStream interface {
 
 type ActiveRunService interface {
 	Register(parent context.Context, session QuerySession) (context.Context, *RunControl, ActiveRun)
+	LookupAwaiting(runID string, awaitingID string) (AwaitingSubmitContext, bool)
 	Submit(req api.SubmitRequest) SubmitAck
 	Steer(req api.SteerRequest) SteerAck
 	Interrupt(req api.InterruptRequest) InterruptAck
@@ -150,6 +151,26 @@ type SubmitInfo struct {
 	RunID      string
 	AwaitingID string
 	Params     any
+}
+
+type AwaitingSubmitContext struct {
+	AwaitingID string
+	Mode       string
+	ItemIDs    map[string]struct{}
+}
+
+func (c AwaitingSubmitContext) Clone() AwaitingSubmitContext {
+	cloned := AwaitingSubmitContext{
+		AwaitingID: c.AwaitingID,
+		Mode:       c.Mode,
+	}
+	if len(c.ItemIDs) > 0 {
+		cloned.ItemIDs = make(map[string]struct{}, len(c.ItemIDs))
+		for id := range c.ItemIDs {
+			cloned.ItemIDs[id] = struct{}{}
+		}
+	}
+	return cloned
 }
 
 type SandboxExecutionResult struct {

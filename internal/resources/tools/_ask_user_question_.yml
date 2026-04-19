@@ -3,7 +3,7 @@ label: 向用户提问
 description: Show multiple questions to the user, supporting text, number, password, and select-style answers. Each question can use either option selection or free text, and the tool blocks until the user submits a response.
 type: function
 viewportType: builtin
-viewportKey: confirm_dialog
+viewportKey: question_dialog
 clientVisible: true
 submitResultFormat: qa
 inputSchema:
@@ -11,7 +11,7 @@ inputSchema:
   properties:
     mode:
       type: string
-      description: Required. Render mode for the shared confirm_dialog viewport.
+      description: Required. Render mode for the built-in question dialog.
       enum:
         - question
     questions:

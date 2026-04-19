@@ -17,6 +17,7 @@ import (
 	. "agent-platform-runner-go/internal/contracts"
 	"agent-platform-runner-go/internal/hitl"
 	. "agent-platform-runner-go/internal/models"
+	"agent-platform-runner-go/internal/stream"
 )
 
 type llmRunStream struct {
@@ -848,7 +849,8 @@ func (s *llmRunStream) emitHITLConfirmDeltas(invocation *preparedToolInvocation,
 	s.pending = append(s.pending, s.buildHITLAwaitDelta(s.hitlAwaitingID, args))
 
 	if s.runControl != nil {
-		s.runControl.ExpectSubmit(s.hitlAwaitingID)
+		awaitDelta, _ := s.pending[len(s.pending)-1].(DeltaAwaitAsk)
+		s.runControl.ExpectSubmit(awaitingContextFromDeltaAsk(awaitDelta))
 	}
 	s.activeToolCall = nil
 	s.execCtx.CurrentToolID = ""
@@ -897,7 +899,7 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 		}
 		s.pending = append(s.pending, DeltaAwaitingAnswer{
 			AwaitingID: awaitingID,
-			Answer:     hitlTimeoutAnswer(),
+			Answer:     hitlTimeoutAnswer(strings.TrimSpace(AnyStringNode(awaitArgs["mode"]))),
 		})
 		rejected := ToolExecutionResult{
 			Output: marshalJSON(NewErrorPayload(
@@ -998,38 +1000,36 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 		return nil
 	}
 
-	if strings.EqualFold(AnyStringNode(normalized["action"]), "submit") {
-		formPayload := AnyMapNode(normalized["payload"])
-		rebuiltCommand, rebuildErr := reconstructCommandWithPayload(mapStringArg(invocation.args, "command"), formPayload)
-		if rebuildErr != nil {
-			payload := NewErrorPayload(
-				"frontend_submit_invalid_payload",
-				rebuildErr.Error(),
-				ErrorScopeFrontendSubmit,
-				ErrorCategoryTool,
-				map[string]any{
-					"awaitingId": awaitingID,
-					"toolName":   invocation.toolName,
-					"payload":    formPayload,
-				},
-			)
-			result := ToolExecutionResult{
-				Output:     marshalJSON(payload),
-				Structured: payload,
-				Error:      "frontend_submit_invalid_payload",
-				ExitCode:   -1,
+	if strings.EqualFold(AnyStringNode(normalized["mode"]), "form") {
+		selectedForm := firstAwaitItem(normalized["forms"])
+		action := strings.ToLower(strings.TrimSpace(AnyStringNode(selectedForm["action"])))
+		if action == "submit" {
+			formPayload := AnyMapNode(selectedForm["payload"])
+			rebuiltCommand, rebuildErr := reconstructCommandWithPayload(mapStringArg(invocation.args, "command"), formPayload)
+			if rebuildErr != nil {
+				payload := NewErrorPayload(
+					"frontend_submit_invalid_payload",
+					rebuildErr.Error(),
+					ErrorScopeFrontendSubmit,
+					ErrorCategoryTool,
+					map[string]any{
+						"awaitingId": awaitingID,
+						"toolName":   invocation.toolName,
+						"payload":    formPayload,
+					},
+				)
+				result := ToolExecutionResult{
+					Output:     marshalJSON(payload),
+					Structured: payload,
+					Error:      "frontend_submit_invalid_payload",
+					ExitCode:   -1,
+				}
+				s.appendOriginalToolResult(invocation, result)
+				return nil
 			}
-			s.appendOriginalToolResult(invocation, result)
-			return nil
+			invocation.args["command"] = rebuiltCommand
+			return s.executeOriginalBash(invocation)
 		}
-		invocation.args["command"] = rebuiltCommand
-		return s.executeOriginalBash(invocation)
-	}
-
-	selectedApproval := firstApprovalQuestion(normalized["questions"])
-	selectedValue := strings.TrimSpace(AnyStringNode(selectedApproval["value"]))
-	selectedAnswer := strings.TrimSpace(AnyStringNode(selectedApproval["answer"]))
-	if strings.EqualFold(selectedValue, "reject") {
 		rejected := ToolExecutionResult{
 			Output: marshalJSON(NewErrorPayload(
 				"hitl_rejected",
@@ -1058,14 +1058,42 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 		return nil
 	}
 
-	if strings.EqualFold(selectedValue, "approve_always") && s.execCtx != nil {
+	selectedApproval := firstAwaitItem(normalized["approvals"])
+	selectedDecision := strings.TrimSpace(AnyStringNode(selectedApproval["decision"]))
+	if strings.EqualFold(selectedDecision, "reject") {
+		rejected := ToolExecutionResult{
+			Output: marshalJSON(NewErrorPayload(
+				"hitl_rejected",
+				"command execution rejected by user",
+				ErrorScopeTool,
+				ErrorCategorySystem,
+				map[string]any{
+					"toolId":   invocation.toolID,
+					"toolName": invocation.toolName,
+				},
+			)),
+			Structured: NewErrorPayload(
+				"hitl_rejected",
+				"command execution rejected by user",
+				ErrorScopeTool,
+				ErrorCategorySystem,
+				map[string]any{
+					"toolId":   invocation.toolID,
+					"toolName": invocation.toolName,
+				},
+			),
+			Error:    "user_rejected",
+			ExitCode: -1,
+		}
+		s.appendOriginalToolResult(invocation, rejected)
+		return nil
+	}
+
+	if strings.EqualFold(selectedDecision, "approve_always") && s.execCtx != nil {
 		if s.execCtx.AutoApproveLevels == nil {
 			s.execCtx.AutoApproveLevels = map[int]bool{}
 		}
 		s.execCtx.AutoApproveLevels[match.Rule.Level] = true
-	}
-	if modifiedCommand := resolveApprovedCommand(selectedValue, selectedAnswer); modifiedCommand != "" {
-		invocation.args["command"] = modifiedCommand
 	}
 	return s.executeOriginalBash(invocation)
 }
@@ -1094,54 +1122,45 @@ func (s *llmRunStream) executeOriginalBash(invocation *preparedToolInvocation) e
 func (s *llmRunStream) buildHITLArgs(invocation *preparedToolInvocation, result hitl.InterceptResult) map[string]any {
 	command := mapStringArg(invocation.args, "command")
 	if strings.EqualFold(result.Rule.ViewportType, "html") {
-		return s.buildFormApprovalArgs(result)
+		return s.buildFormApprovalArgs(command, result)
 	}
-	return s.buildConfirmApprovalArgs(command)
+	return s.buildConfirmApprovalArgs(command, result.Rule.Level)
 }
 
-func (s *llmRunStream) buildConfirmApprovalArgs(command string) map[string]any {
+func (s *llmRunStream) buildConfirmApprovalArgs(command string, level int) map[string]any {
 	return map[string]any{
 		"mode": "approval",
-		"questions": []any{
+		"approvals": []any{
 			map[string]any{
-				"question": command,
-				"header":   "Bash Approval",
-				"options": []any{
-					map[string]any{
-						"label":       "Approve",
-						"value":       "approve",
-						"description": "Execute the command as-is.",
-					},
-					map[string]any{
-						"label":       "Always Approve",
-						"value":       "approve_always",
-						"description": "Always approve this command level in this run.",
-					},
-					map[string]any{
-						"label":       "Reject",
-						"value":       "reject",
-						"description": "Do not execute the command.",
-					},
-				},
+				"id":      "cmd-1",
+				"command": command,
+				"level":   level,
 			},
 		},
 	}
 }
 
-func (s *llmRunStream) buildFormApprovalArgs(result hitl.InterceptResult) map[string]any {
+func (s *llmRunStream) buildFormApprovalArgs(command string, result hitl.InterceptResult) map[string]any {
 	args := map[string]any{
-		"mode":         "approval",
+		"mode":         "form",
 		"viewportType": result.Rule.ViewportType,
 		"viewportKey":  result.Rule.ViewportKey,
 	}
+	form := map[string]any{
+		"id":      "form-1",
+		"command": command,
+	}
 	if payload := extractCommandPayload(result.ParsedCommand); len(payload) > 0 {
-		args["payload"] = payload
+		form["initialPayload"] = payload
+		args["forms"] = []any{form}
 		return args
 	}
 	if payload := extractPayloadFromOriginalCommand(result.OriginalCommand); len(payload) > 0 {
-		args["payload"] = payload
+		form["initialPayload"] = payload
+		args["forms"] = []any{form}
 		return args
 	}
+	args["forms"] = []any{form}
 	log.Printf("[llm][run:%s][hitl][warning] missing html approval payload viewportKey=%s command=%q",
 		s.session.RunID,
 		result.Rule.ViewportKey,
@@ -1213,9 +1232,13 @@ func buildHITLAwaitingID(toolID string) string {
 	return "await_" + strings.TrimSpace(toolID)
 }
 
-func hitlTimeoutAnswer() map[string]any {
+func hitlTimeoutAnswer(mode string) map[string]any {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if mode == "" {
+		mode = "approval"
+	}
 	return map[string]any{
-		"mode":      "approval",
+		"mode":      mode,
 		"cancelled": true,
 		"reason":    "timeout",
 		"status":    "timeout",
@@ -1225,24 +1248,23 @@ func hitlTimeoutAnswer() map[string]any {
 
 func (s *llmRunStream) buildHITLAwaitDelta(awaitingID string, args map[string]any) DeltaAwaitAsk {
 	await := DeltaAwaitAsk{
-		AwaitingID:   awaitingID,
-		ViewportType: "builtin",
-		ViewportKey:  "confirm_dialog",
-		Mode:         "approval",
-		Timeout:      s.resolveHITLTimeout(),
-		RunID:        s.session.RunID,
+		AwaitingID: awaitingID,
+		Mode:       strings.ToLower(strings.TrimSpace(AnyStringNode(args["mode"]))),
+		Timeout:    s.resolveHITLTimeout(),
+		RunID:      s.session.RunID,
 	}
-	if viewportType := strings.TrimSpace(AnyStringNode(args["viewportType"])); viewportType != "" {
-		await.ViewportType = viewportType
-	}
-	if viewportKey := strings.TrimSpace(AnyStringNode(args["viewportKey"])); viewportKey != "" {
-		await.ViewportKey = viewportKey
-	}
-	if payload := AnyMapNode(args["payload"]); len(payload) > 0 {
-		await.Payload = CloneMap(payload)
+	if await.Mode == "form" {
+		await.ViewportType = strings.TrimSpace(AnyStringNode(args["viewportType"]))
+		await.ViewportKey = strings.TrimSpace(AnyStringNode(args["viewportKey"]))
 	}
 	if questions := cloneAnySlice(args["questions"]); len(questions) > 0 {
 		await.Questions = questions
+	}
+	if approvals := cloneAnySlice(args["approvals"]); len(approvals) > 0 {
+		await.Approvals = approvals
+	}
+	if forms := cloneAnySlice(args["forms"]); len(forms) > 0 {
+		await.Forms = forms
 	}
 	return await
 }
@@ -1264,19 +1286,19 @@ func cloneAnySlice(raw any) []any {
 	return cloned
 }
 
-func firstApprovalQuestion(raw any) map[string]any {
+func firstAwaitItem(raw any) map[string]any {
 	switch typed := raw.(type) {
 	case []map[string]any:
-		for _, question := range typed {
-			if len(question) > 0 {
-				return question
+		for _, item := range typed {
+			if len(item) > 0 {
+				return item
 			}
 		}
 	case []any:
 		for _, item := range typed {
-			question := AnyMapNode(item)
-			if len(question) > 0 {
-				return question
+			entry := AnyMapNode(item)
+			if len(entry) > 0 {
+				return entry
 			}
 		}
 	}
@@ -1610,14 +1632,15 @@ func (s *llmRunStream) preToolInvocationDeltas(toolID string, toolName string, p
 	if !ok {
 		return nil
 	}
-	if s.runControl != nil {
-		s.runControl.ExpectSubmit(toolID)
-	}
 	toolTimeout := int64(0)
 	if budget := NormalizeBudget(s.execCtx.Budget); budget.Tool.TimeoutMs > 0 {
 		toolTimeout = int64(budget.Tool.TimeoutMs)
 	}
-	return cloneAgentDeltas(handler.BuildDeferredAwait(toolID, s.session.RunID, tool, payload, toolTimeout))
+	awaitAsk := handler.BuildInitialAwaitAsk(toolID, s.session.RunID, tool, payload, 0, toolTimeout)
+	if s.runControl != nil && awaitAsk != nil {
+		s.runControl.ExpectSubmit(awaitingContextFromStreamAsk(awaitAsk))
+	}
+	return nil
 }
 
 func cloneAgentDeltas(input []AgentDelta) []AgentDelta {
@@ -1630,16 +1653,65 @@ func cloneAgentDeltas(input []AgentDelta) []AgentDelta {
 		case DeltaAwaitAsk:
 			cloned := value
 			cloned.Questions = append([]any(nil), value.Questions...)
-			out = append(out, cloned)
-		case DeltaAwaitPayload:
-			cloned := value
-			cloned.Questions = append([]any(nil), value.Questions...)
+			cloned.Approvals = append([]any(nil), value.Approvals...)
+			cloned.Forms = append([]any(nil), value.Forms...)
 			out = append(out, cloned)
 		default:
 			out = append(out, delta)
 		}
 	}
 	return out
+}
+
+func awaitingContextFromStreamAsk(awaitAsk *stream.AwaitAsk) AwaitingSubmitContext {
+	if awaitAsk == nil {
+		return AwaitingSubmitContext{}
+	}
+	itemIDs := map[string]struct{}{}
+	for _, id := range collectAwaitItemIDs(awaitAsk.Mode, awaitAsk.Questions, awaitAsk.Approvals, awaitAsk.Forms) {
+		itemIDs[id] = struct{}{}
+	}
+	return AwaitingSubmitContext{
+		AwaitingID: awaitAsk.AwaitingID,
+		Mode:       awaitAsk.Mode,
+		ItemIDs:    itemIDs,
+	}
+}
+
+func awaitingContextFromDeltaAsk(awaitAsk DeltaAwaitAsk) AwaitingSubmitContext {
+	itemIDs := map[string]struct{}{}
+	for _, id := range collectAwaitItemIDs(awaitAsk.Mode, awaitAsk.Questions, awaitAsk.Approvals, awaitAsk.Forms) {
+		itemIDs[id] = struct{}{}
+	}
+	return AwaitingSubmitContext{
+		AwaitingID: awaitAsk.AwaitingID,
+		Mode:       awaitAsk.Mode,
+		ItemIDs:    itemIDs,
+	}
+}
+
+func collectAwaitItemIDs(mode string, questions []any, approvals []any, forms []any) []string {
+	var source []any
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "question":
+		source = questions
+	case "approval":
+		source = approvals
+	case "form":
+		source = forms
+	default:
+		return nil
+	}
+	ids := make([]string, 0, len(source))
+	for _, raw := range source {
+		item := AnyMapNode(raw)
+		id := strings.TrimSpace(AnyStringNode(item["id"]))
+		if id == "" {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	return ids
 }
 
 func (s *llmRunStream) lookupToolDefinition(toolName string) (api.ToolDetailResponse, bool) {

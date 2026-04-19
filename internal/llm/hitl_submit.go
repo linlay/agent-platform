@@ -1,59 +1,32 @@
 package llm
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
+	"agent-platform-runner-go/internal/api"
 	contracts "agent-platform-runner-go/internal/contracts"
 )
 
 func normalizeHITLSubmit(args map[string]any, params any) (map[string]any, error) {
-	if isHITLFormApprovalArgs(args) {
-		return normalizeHITLFormSubmit(params)
-	}
-	return normalizeHITLConfirmSubmit(args, params)
-}
-
-func isHITLFormApprovalArgs(args map[string]any) bool {
-	return strings.EqualFold(strings.TrimSpace(contracts.AnyStringNode(args["viewportType"])), "html") &&
-		contracts.AnyMapNode(args["payload"]) != nil
-}
-
-func normalizeHITLFormSubmit(params any) (map[string]any, error) {
-	payload := contracts.AnyMapNode(params)
-	if len(payload) == 0 {
-		return nil, fmt.Errorf("bash HITL form submit params must be an object")
-	}
-
-	action := strings.ToLower(strings.TrimSpace(contracts.AnyStringNode(payload["action"])))
-	switch action {
-	case "cancel":
-		return map[string]any{
-			"mode":      "approval",
-			"cancelled": true,
-			"reason":    "user_cancelled",
-		}, nil
-	case "submit":
-		formPayload := contracts.AnyMapNode(payload["payload"])
-		if formPayload == nil {
-			return nil, fmt.Errorf("bash HITL form submit payload must be an object")
-		}
-		return map[string]any{
-			"mode":    "approval",
-			"action":  "submit",
-			"payload": formPayload,
-		}, nil
+	mode := strings.ToLower(strings.TrimSpace(contracts.AnyStringNode(args["mode"])))
+	switch mode {
+	case "approval":
+		return normalizeHITLApprovalSubmit(args, params)
+	case "form":
+		return normalizeHITLFormSubmit(args, params)
 	default:
-		return nil, fmt.Errorf("bash HITL form action must be submit or cancel")
+		return nil, fmt.Errorf("unsupported bash HITL mode: %s", mode)
 	}
 }
 
-func normalizeHITLConfirmSubmit(args map[string]any, params any) (map[string]any, error) {
-	rawAnswers, ok := params.([]any)
-	if !ok {
-		return nil, fmt.Errorf("bash HITL confirm submit params must be an array")
+func normalizeHITLApprovalSubmit(args map[string]any, params any) (map[string]any, error) {
+	items, err := decodeHITLSubmitItems(params)
+	if err != nil {
+		return nil, fmt.Errorf("bash HITL approval submit params must be an array")
 	}
-	if len(rawAnswers) == 0 {
+	if len(items) == 0 {
 		return map[string]any{
 			"mode":      "approval",
 			"cancelled": true,
@@ -61,135 +34,144 @@ func normalizeHITLConfirmSubmit(args map[string]any, params any) (map[string]any
 		}, nil
 	}
 
-	questionDefs := map[string]map[string]any{}
-	for _, rawQuestion := range cloneAnySlice(args["questions"]) {
-		question := contracts.AnyMapNode(rawQuestion)
-		text := contracts.AnyStringNode(question["question"])
-		if text == "" {
+	definitions := make(map[string]map[string]any)
+	for _, rawApproval := range cloneAnySlice(args["approvals"]) {
+		approval := contracts.AnyMapNode(rawApproval)
+		id := strings.TrimSpace(contracts.AnyStringNode(approval["id"]))
+		if id == "" {
 			continue
 		}
-		questionDefs[text] = question
+		definitions[id] = approval
 	}
 
-	seenQuestions := map[string]bool{}
-	questions := make([]map[string]any, 0, len(rawAnswers))
-	for _, rawAnswer := range rawAnswers {
-		answerMap := contracts.AnyMapNode(rawAnswer)
-		if len(answerMap) == 0 {
-			return nil, fmt.Errorf("bash HITL confirm answers must contain objects")
+	approvals := make([]map[string]any, 0, len(items))
+	seenIDs := map[string]bool{}
+	for _, item := range items {
+		id := strings.TrimSpace(contracts.AnyStringNode(item["id"]))
+		if id == "" {
+			return nil, fmt.Errorf("bash HITL approval answers.id is required")
 		}
-		questionText := contracts.AnyStringNode(answerMap["question"])
-		if questionText == "" {
-			return nil, fmt.Errorf("bash HITL confirm answers.question is required")
+		if seenIDs[id] {
+			return nil, fmt.Errorf("duplicate approval id: %s", id)
 		}
-		if seenQuestions[questionText] {
-			return nil, fmt.Errorf("duplicate question: %s", questionText)
-		}
-		definition, ok := questionDefs[questionText]
+		definition, ok := definitions[id]
 		if !ok {
-			return nil, fmt.Errorf("unknown question: %s", questionText)
+			return nil, fmt.Errorf("unknown approval id: %s", id)
 		}
-		answerText := contracts.AnyStringNode(answerMap["answer"])
-		if answerText == "" {
-			return nil, fmt.Errorf("%s: answer is required", questionText)
+		decision := strings.ToLower(strings.TrimSpace(contracts.AnyStringNode(item["decision"])))
+		switch decision {
+		case "approve", "reject", "approve_always":
+		default:
+			return nil, fmt.Errorf("%s: decision must be approve, reject, or approve_always", id)
 		}
-		normalizedQuestion, err := normalizeHITLApprovalQuestion(definition, answerText, answerMap)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", questionText, err)
+		entry := map[string]any{
+			"id":       id,
+			"command":  contracts.AnyStringNode(definition["command"]),
+			"decision": decision,
 		}
-		questions = append(questions, normalizedQuestion)
-		seenQuestions[questionText] = true
+		if reason := strings.TrimSpace(contracts.AnyStringNode(item["reason"])); reason != "" {
+			entry["reason"] = reason
+		}
+		approvals = append(approvals, entry)
+		seenIDs[id] = true
+	}
+	if len(approvals) != len(definitions) {
+		return nil, fmt.Errorf("expected %d approvals, got %d", len(definitions), len(approvals))
 	}
 
 	return map[string]any{
 		"mode":      "approval",
-		"questions": questions,
+		"approvals": approvals,
 	}, nil
 }
 
-func normalizeHITLApprovalQuestion(definition map[string]any, answerText string, answerMap map[string]any) (map[string]any, error) {
-	questionText := contracts.AnyStringNode(definition["question"])
-	entry := map[string]any{
-		"question": questionText,
-		"header":   contracts.AnyStringNode(definition["header"]),
-		"answer":   answerText,
+func normalizeHITLFormSubmit(args map[string]any, params any) (map[string]any, error) {
+	items, err := decodeHITLSubmitItems(params)
+	if err != nil {
+		return nil, fmt.Errorf("bash HITL form submit params must be an array")
+	}
+	if len(items) == 0 {
+		return map[string]any{
+			"mode":      "form",
+			"cancelled": true,
+			"reason":    "user_dismissed",
+		}, nil
 	}
 
-	if option, ok := hitlApprovalOptionByLabel(definition, answerText); ok {
-		submittedValue := contracts.AnyStringNode(answerMap["value"])
-		if submittedValue == "" {
-			return nil, fmt.Errorf("value is required for preset options")
-		}
-		if submittedValue != option.Value {
-			return nil, fmt.Errorf("value does not match selected option")
-		}
-		entry["answer"] = option.Label
-		entry["value"] = option.Value
-		return entry, nil
-	}
-
-	if option, ok := hitlApprovalOptionByValue(definition, answerText); ok {
-		submittedValue := contracts.AnyStringNode(answerMap["value"])
-		if submittedValue == "" {
-			submittedValue = option.Value
-		}
-		if submittedValue != option.Value {
-			return nil, fmt.Errorf("value does not match selected option")
-		}
-		entry["answer"] = option.Label
-		entry["value"] = option.Value
-		return entry, nil
-	}
-
-	if !contracts.AnyBoolNode(definition["allowFreeText"]) {
-		return nil, fmt.Errorf("answer is not an allowed option")
-	}
-	submittedValue := contracts.AnyStringNode(answerMap["value"])
-	if submittedValue == "" {
-		submittedValue = answerText
-	}
-	if submittedValue != answerText {
-		return nil, fmt.Errorf("value must match answer for free-text approval")
-	}
-	entry["value"] = submittedValue
-	return entry, nil
-}
-
-type hitlApprovalOption struct {
-	Label string
-	Value string
-}
-
-func hitlApprovalOptionByLabel(definition map[string]any, label string) (hitlApprovalOption, bool) {
-	for _, rawOption := range cloneAnySlice(definition["options"]) {
-		option := contracts.AnyMapNode(rawOption)
-		candidate := hitlApprovalOption{
-			Label: contracts.AnyStringNode(option["label"]),
-			Value: contracts.AnyStringNode(option["value"]),
-		}
-		if candidate.Label == "" || candidate.Value == "" {
+	definitions := make(map[string]map[string]any)
+	for _, rawForm := range cloneAnySlice(args["forms"]) {
+		form := contracts.AnyMapNode(rawForm)
+		id := strings.TrimSpace(contracts.AnyStringNode(form["id"]))
+		if id == "" {
 			continue
 		}
-		if candidate.Label == label {
-			return candidate, true
-		}
+		definitions[id] = form
 	}
-	return hitlApprovalOption{}, false
+
+	forms := make([]map[string]any, 0, len(items))
+	seenIDs := map[string]bool{}
+	for _, item := range items {
+		id := strings.TrimSpace(contracts.AnyStringNode(item["id"]))
+		if id == "" {
+			return nil, fmt.Errorf("bash HITL form answers.id is required")
+		}
+		if seenIDs[id] {
+			return nil, fmt.Errorf("duplicate form id: %s", id)
+		}
+		definition, ok := definitions[id]
+		if !ok {
+			return nil, fmt.Errorf("unknown form id: %s", id)
+		}
+		entry := map[string]any{
+			"id":      id,
+			"command": contracts.AnyStringNode(definition["command"]),
+		}
+		if rawPayload, exists := item["payload"]; exists {
+			payload := contracts.AnyMapNode(rawPayload)
+			if payload == nil {
+				return nil, fmt.Errorf("%s: payload must be an object", id)
+			}
+			if _, hasReason := item["reason"]; hasReason {
+				return nil, fmt.Errorf("%s: payload and reason cannot both be provided", id)
+			}
+			entry["action"] = "submit"
+			entry["payload"] = payload
+		} else if reason := strings.TrimSpace(contracts.AnyStringNode(item["reason"])); reason != "" {
+			entry["action"] = "reject"
+			entry["reason"] = reason
+		} else {
+			entry["action"] = "cancel"
+		}
+		forms = append(forms, entry)
+		seenIDs[id] = true
+	}
+	if len(forms) != len(definitions) {
+		return nil, fmt.Errorf("expected %d forms, got %d", len(definitions), len(forms))
+	}
+
+	return map[string]any{
+		"mode":  "form",
+		"forms": forms,
+	}, nil
 }
 
-func hitlApprovalOptionByValue(definition map[string]any, value string) (hitlApprovalOption, bool) {
-	for _, rawOption := range cloneAnySlice(definition["options"]) {
-		option := contracts.AnyMapNode(rawOption)
-		candidate := hitlApprovalOption{
-			Label: contracts.AnyStringNode(option["label"]),
-			Value: contracts.AnyStringNode(option["value"]),
+func decodeHITLSubmitItems(params any) ([]map[string]any, error) {
+	switch typed := params.(type) {
+	case api.SubmitParams:
+		return api.DecodeSubmitParams(typed)
+	case []json.RawMessage:
+		return api.DecodeSubmitParams(api.SubmitParams(typed))
+	case []any:
+		items := make([]map[string]any, 0, len(typed))
+		for _, raw := range typed {
+			item := contracts.AnyMapNode(raw)
+			if len(item) == 0 {
+				return nil, fmt.Errorf("submit items must be objects")
+			}
+			items = append(items, item)
 		}
-		if candidate.Label == "" || candidate.Value == "" {
-			continue
-		}
-		if candidate.Value == value {
-			return candidate, true
-		}
+		return items, nil
+	default:
+		return nil, fmt.Errorf("submit params must be an array")
 	}
-	return hitlApprovalOption{}, false
 }

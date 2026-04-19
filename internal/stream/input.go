@@ -130,23 +130,17 @@ func (ArtifactPublish) streamInputTag() {}
 
 type AwaitAsk struct {
 	AwaitingID   string
-	ViewportType string
-	ViewportKey  string
 	Mode         string
 	Timeout      int64
 	RunID        string
-	Payload      map[string]any
+	ViewportType string
+	ViewportKey  string
 	Questions    []any
+	Approvals    []any
+	Forms        []any
 }
 
 func (AwaitAsk) streamInputTag() {}
-
-type AwaitPayload struct {
-	AwaitingID string
-	Questions  []any
-}
-
-func (AwaitPayload) streamInputTag() {}
 
 type RequestSubmit struct {
 	RequestID  string

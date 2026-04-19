@@ -61,11 +61,6 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 		})}
 	case AwaitAsk:
 		return []StreamEvent{d.newAwaitAskEvent(value)}
-	case AwaitPayload:
-		return []StreamEvent{NewEvent("awaiting.payload", map[string]any{
-			"awaitingId": value.AwaitingID,
-			"questions":  value.Questions,
-		})}
 	case RequestSubmit:
 		return []StreamEvent{NewEvent("request.submit", map[string]any{
 			"requestId":  value.RequestID,
@@ -197,21 +192,19 @@ func newAwaitingAnswerEvent(input AwaitingAnswer) StreamEvent {
 	}
 	switch mode {
 	case "question":
-		formatted := formatAwaitingQuestions(answer["answers"])
+		formatted := formatAwaitingAnswers(answer["answers"])
 		if len(formatted) > 0 {
-			payload["questions"] = formatted
+			payload["answers"] = formatted
 		}
 	case "approval":
-		if action := strings.ToLower(strings.TrimSpace(anyString(answer["action"]))); action == "submit" {
-			payload["action"] = action
-			if rawPayload, ok := answer["payload"].(map[string]any); ok && len(rawPayload) > 0 {
-				payload["payload"] = clonePayload(rawPayload)
-			}
-			return NewEvent("awaiting.answer", payload)
-		}
-		formatted := formatAwaitingQuestions(answer["questions"])
+		formatted := formatAwaitingApprovals(answer["approvals"])
 		if len(formatted) > 0 {
-			payload["questions"] = formatted
+			payload["approvals"] = formatted
+		}
+	case "form":
+		formatted := formatAwaitingForms(answer["forms"])
+		if len(formatted) > 0 {
+			payload["forms"] = formatted
 		}
 	default:
 		return StreamEvent{}
@@ -219,14 +212,14 @@ func newAwaitingAnswerEvent(input AwaitingAnswer) StreamEvent {
 	return NewEvent("awaiting.answer", payload)
 }
 
-func formatAwaitingQuestions(raw any) []map[string]any {
+func formatAwaitingAnswers(raw any) []map[string]any {
 	switch typed := raw.(type) {
 	case []map[string]any:
 		items := make([]any, 0, len(typed))
 		for _, item := range typed {
 			items = append(items, item)
 		}
-		return formatAwaitingQuestions(items)
+		return formatAwaitingAnswers(items)
 	case []any:
 		formatted := make([]map[string]any, 0, len(typed))
 		for _, item := range typed {
@@ -234,12 +227,15 @@ func formatAwaitingQuestions(raw any) []map[string]any {
 			if !ok {
 				continue
 			}
-			question := strings.TrimSpace(anyString(answer["question"]))
-			if question == "" {
+			id := strings.TrimSpace(anyString(answer["id"]))
+			if id == "" {
 				continue
 			}
 			entry := map[string]any{
-				"question": question,
+				"id": id,
+			}
+			if question := strings.TrimSpace(anyString(answer["question"])); question != "" {
+				entry["question"] = question
 			}
 			if header := strings.TrimSpace(anyString(answer["header"])); header != "" {
 				entry["header"] = header
@@ -247,6 +243,79 @@ func formatAwaitingQuestions(raw any) []map[string]any {
 			appendAwaitingQuestionValue(entry, answer["answer"])
 			if value := strings.TrimSpace(anyString(answer["value"])); value != "" {
 				entry["value"] = value
+			}
+			formatted = append(formatted, entry)
+		}
+		return formatted
+	default:
+		return nil
+	}
+}
+
+func formatAwaitingApprovals(raw any) []map[string]any {
+	switch typed := raw.(type) {
+	case []map[string]any:
+		items := make([]any, 0, len(typed))
+		for _, item := range typed {
+			items = append(items, item)
+		}
+		return formatAwaitingApprovals(items)
+	case []any:
+		formatted := make([]map[string]any, 0, len(typed))
+		for _, item := range typed {
+			approval := anyMap(item)
+			id := strings.TrimSpace(anyString(approval["id"]))
+			decision := strings.ToLower(strings.TrimSpace(anyString(approval["decision"])))
+			if id == "" || decision == "" {
+				continue
+			}
+			entry := map[string]any{
+				"id":       id,
+				"decision": decision,
+			}
+			if command := strings.TrimSpace(anyString(approval["command"])); command != "" {
+				entry["command"] = command
+			}
+			if reason := strings.TrimSpace(anyString(approval["reason"])); reason != "" {
+				entry["reason"] = reason
+			}
+			formatted = append(formatted, entry)
+		}
+		return formatted
+	default:
+		return nil
+	}
+}
+
+func formatAwaitingForms(raw any) []map[string]any {
+	switch typed := raw.(type) {
+	case []map[string]any:
+		items := make([]any, 0, len(typed))
+		for _, item := range typed {
+			items = append(items, item)
+		}
+		return formatAwaitingForms(items)
+	case []any:
+		formatted := make([]map[string]any, 0, len(typed))
+		for _, item := range typed {
+			form := anyMap(item)
+			id := strings.TrimSpace(anyString(form["id"]))
+			action := strings.ToLower(strings.TrimSpace(anyString(form["action"])))
+			if id == "" || action == "" {
+				continue
+			}
+			entry := map[string]any{
+				"id":     id,
+				"action": action,
+			}
+			if payload, ok := form["payload"].(map[string]any); ok && len(payload) > 0 {
+				entry["payload"] = clonePayload(payload)
+			}
+			if reason := strings.TrimSpace(anyString(form["reason"])); reason != "" {
+				entry["reason"] = reason
+			}
+			if command := strings.TrimSpace(anyString(form["command"])); command != "" {
+				entry["command"] = command
 			}
 			formatted = append(formatted, entry)
 		}
@@ -270,6 +339,11 @@ func appendAwaitingQuestionValue(entry map[string]any, value any) {
 func anyString(value any) string {
 	text, _ := value.(string)
 	return text
+}
+
+func anyMap(value any) map[string]any {
+	item, _ := value.(map[string]any)
+	return item
 }
 
 func (d *StreamEventDispatcher) Complete() []StreamEvent {
@@ -403,18 +477,27 @@ func (d *StreamEventDispatcher) handleToolArgs(input ToolArgs) []StreamEvent {
 
 func (d *StreamEventDispatcher) newAwaitAskEvent(input AwaitAsk) StreamEvent {
 	payload := map[string]any{
-		"awaitingId":   input.AwaitingID,
-		"viewportType": input.ViewportType,
-		"viewportKey":  input.ViewportKey,
-		"mode":         input.Mode,
-		"timeout":      input.Timeout,
-		"runId":        input.RunID,
+		"awaitingId": input.AwaitingID,
+		"mode":       input.Mode,
+		"timeout":    input.Timeout,
+		"runId":      input.RunID,
 	}
-	if len(input.Payload) > 0 {
-		payload["payload"] = clonePayload(input.Payload)
+	if strings.EqualFold(strings.TrimSpace(input.Mode), "form") {
+		if strings.TrimSpace(input.ViewportType) != "" {
+			payload["viewportType"] = input.ViewportType
+		}
+		if strings.TrimSpace(input.ViewportKey) != "" {
+			payload["viewportKey"] = input.ViewportKey
+		}
 	}
 	if len(input.Questions) > 0 {
 		payload["questions"] = input.Questions
+	}
+	if len(input.Approvals) > 0 {
+		payload["approvals"] = input.Approvals
+	}
+	if len(input.Forms) > 0 {
+		payload["forms"] = input.Forms
 	}
 	return NewEvent("awaiting.ask", payload)
 }

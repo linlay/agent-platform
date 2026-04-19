@@ -376,8 +376,13 @@ func (s *Server) wsRunStatus(_ context.Context, conn *ws.Conn, req ws.RequestFra
 
 func (s *Server) wsSubmit(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
 	payload, err := ws.DecodePayload[api.SubmitRequest](req)
-	if err != nil || strings.TrimSpace(payload.RunID) == "" || strings.TrimSpace(payload.AwaitingID) == "" {
-		conn.SendError(req.ID, "invalid_request", 400, "runId and awaitingId are required", nil)
+	if err != nil {
+		conn.SendError(req.ID, "invalid_request", 400, "invalid submit payload", nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	if _, err := s.validateSubmitRequest(payload); err != nil {
+		conn.SendError(req.ID, "invalid_request", 400, err.Error(), nil)
 		conn.CompleteRequest(req.ID)
 		return
 	}

@@ -1,6 +1,12 @@
 package api
 
-import "agent-platform-runner-go/internal/stream"
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+
+	"agent-platform-runner-go/internal/stream"
+)
 
 type ApiResponse[T any] struct {
 	Code int    `json:"code"`
@@ -57,9 +63,73 @@ type Reference struct {
 }
 
 type SubmitRequest struct {
-	RunID      string `json:"runId"`
-	AwaitingID string `json:"awaitingId"`
-	Params     any    `json:"params"`
+	RunID      string       `json:"runId"`
+	AwaitingID string       `json:"awaitingId"`
+	Params     SubmitParams `json:"params"`
+}
+
+type SubmitParams []json.RawMessage
+
+func (p *SubmitParams) UnmarshalJSON(data []byte) error {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 {
+		return fmt.Errorf("params must be an array")
+	}
+	if bytes.Equal(trimmed, []byte("null")) {
+		return fmt.Errorf("params must be an array")
+	}
+	var raw []json.RawMessage
+	if err := json.Unmarshal(trimmed, &raw); err != nil {
+		return fmt.Errorf("params must be an array")
+	}
+	*p = SubmitParams(raw)
+	return nil
+}
+
+func (p SubmitParams) MarshalJSON() ([]byte, error) {
+	return json.Marshal([]json.RawMessage(p))
+}
+
+func (p SubmitParams) Empty() bool {
+	return len(p) == 0
+}
+
+func DecodeSubmitParam(raw json.RawMessage) (map[string]any, error) {
+	var item map[string]any
+	if err := json.Unmarshal(raw, &item); err != nil {
+		return nil, fmt.Errorf("submit items must be objects")
+	}
+	if len(item) == 0 {
+		return nil, fmt.Errorf("submit items must be objects")
+	}
+	return item, nil
+}
+
+func DecodeSubmitParams(params SubmitParams) ([]map[string]any, error) {
+	if len(params) == 0 {
+		return nil, nil
+	}
+	items := make([]map[string]any, 0, len(params))
+	for _, raw := range params {
+		item, err := DecodeSubmitParam(raw)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, nil
+}
+
+func EncodeSubmitParams(value any) (SubmitParams, error) {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	var params SubmitParams
+	if err := json.Unmarshal(data, &params); err != nil {
+		return nil, err
+	}
+	return params, nil
 }
 
 type SubmitResponse struct {

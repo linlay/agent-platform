@@ -1,6 +1,7 @@
 package frontendtools
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -60,40 +61,26 @@ func (h *AskUserQuestionHandler) ValidateArgs(args map[string]any) error {
 	return nil
 }
 
-func (h *AskUserQuestionHandler) BuildInitialAwaitAsk(toolID string, runID string, tool api.ToolDetailResponse, chunkIndex int, timeoutMs int64) *stream.AwaitAsk {
+func (h *AskUserQuestionHandler) BuildInitialAwaitAsk(toolID string, runID string, _ api.ToolDetailResponse, args map[string]any, chunkIndex int, timeoutMs int64) *stream.AwaitAsk {
 	if chunkIndex != 0 {
 		return nil
 	}
-	viewportType, _ := tool.Meta["viewportType"].(string)
-	viewportKey, _ := tool.Meta["viewportKey"].(string)
-	return &stream.AwaitAsk{
-		AwaitingID:   toolID,
-		ViewportType: strings.TrimSpace(viewportType),
-		ViewportKey:  strings.TrimSpace(viewportKey),
-		Mode:         "question",
-		Timeout:      timeoutMs,
-		RunID:        runID,
-	}
-}
-
-func (h *AskUserQuestionHandler) BuildDeferredAwait(toolID string, _ string, _ api.ToolDetailResponse, args map[string]any, _ int64) []contracts.AgentDelta {
-	if !strings.EqualFold(strings.TrimSpace(contracts.AnyStringNode(args["mode"])), "question") {
-		return nil
-	}
-	rawQuestions, _ := args["questions"].([]any)
-	questions := sanitizeQuestionFields(cloneAwaitQuestions(rawQuestions))
+	questions := buildAwaitQuestions(args)
 	if len(questions) == 0 {
 		return nil
 	}
-	return []contracts.AgentDelta{contracts.DeltaAwaitPayload{
+	return &stream.AwaitAsk{
 		AwaitingID: toolID,
+		Mode:       "question",
+		Timeout:    timeoutMs,
+		RunID:      runID,
 		Questions:  questions,
-	}}
+	}
 }
 
 func (h *AskUserQuestionHandler) NormalizeSubmit(args map[string]any, params any) (map[string]any, error) {
-	rawAnswers, ok := params.([]any)
-	if !ok {
+	rawAnswers, err := decodeSubmitItems(params)
+	if err != nil {
 		return nil, fmt.Errorf("ask_user_question submit params must be an array")
 	}
 	if len(rawAnswers) == 0 {
@@ -104,30 +91,23 @@ func (h *AskUserQuestionHandler) NormalizeSubmit(args map[string]any, params any
 		}, nil
 	}
 
-	questionDefs := map[string]map[string]any{}
-	for _, rawQuestion := range asAnySlice(args["questions"]) {
-		question := contracts.AnyMapNode(rawQuestion)
-		text := contracts.AnyStringNode(question["question"])
-		if text == "" {
-			continue
-		}
-		questionDefs[text] = question
-	}
+	questionDefs := questionDefinitionsByID(args)
 
 	answers := make([]map[string]any, 0, len(rawAnswers))
-	for _, rawAnswer := range rawAnswers {
-		answerMap := contracts.AnyMapNode(rawAnswer)
-		if len(answerMap) == 0 {
-			return nil, fmt.Errorf("ask_user_question answers must contain objects")
+	seenIDs := map[string]bool{}
+	for _, answerMap := range rawAnswers {
+		answerID := strings.TrimSpace(contracts.AnyStringNode(answerMap["id"]))
+		if answerID == "" {
+			return nil, fmt.Errorf("ask_user_question answers.id is required")
 		}
-		questionText := contracts.AnyStringNode(answerMap["question"])
-		if questionText == "" {
-			return nil, fmt.Errorf("ask_user_question answers.question is required")
+		if seenIDs[answerID] {
+			return nil, fmt.Errorf("duplicate question id: %s", answerID)
 		}
-		definition, ok := questionDefs[questionText]
+		definition, ok := questionDefs[answerID]
 		if !ok {
-			return nil, fmt.Errorf("unknown question: %s", questionText)
+			return nil, fmt.Errorf("unknown question id: %s", answerID)
 		}
+		questionText := contracts.AnyStringNode(definition["question"])
 		rawValue, err := normalizeQuestionSubmitValue(definition, answerMap)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", questionText, err)
@@ -137,10 +117,15 @@ func (h *AskUserQuestionHandler) NormalizeSubmit(args map[string]any, params any
 			return nil, fmt.Errorf("%s: %w", questionText, err)
 		}
 		answers = append(answers, map[string]any{
+			"id":       answerID,
 			"question": questionText,
 			"header":   contracts.AnyStringNode(definition["header"]),
 			"answer":   normalizedAnswer,
 		})
+		seenIDs[answerID] = true
+	}
+	if len(answers) != len(questionDefs) {
+		return nil, fmt.Errorf("expected %d answers, got %d", len(questionDefs), len(answers))
 	}
 
 	return map[string]any{
@@ -159,6 +144,66 @@ func (h *AskUserQuestionHandler) FormatSubmitResult(format string, result contra
 		return formatQuestionQA(result), true
 	default:
 		return "", false
+	}
+}
+
+func buildAwaitQuestions(args map[string]any) []any {
+	rawQuestions := asAnySlice(args["questions"])
+	if len(rawQuestions) == 0 {
+		return nil
+	}
+	questions := make([]any, 0, len(rawQuestions))
+	for index, rawQuestion := range rawQuestions {
+		question, ok := deepCloneAny(rawQuestion).(map[string]any)
+		if !ok || len(question) == 0 {
+			continue
+		}
+		question["id"] = questionDefinitionID(question, index)
+		questions = append(questions, sanitizeQuestionFields([]any{question})[0])
+	}
+	return questions
+}
+
+func questionDefinitionsByID(args map[string]any) map[string]map[string]any {
+	rawQuestions := asAnySlice(args["questions"])
+	definitions := make(map[string]map[string]any, len(rawQuestions))
+	for index, rawQuestion := range rawQuestions {
+		question, ok := deepCloneAny(rawQuestion).(map[string]any)
+		if !ok || len(question) == 0 {
+			continue
+		}
+		id := questionDefinitionID(question, index)
+		question["id"] = id
+		definitions[id] = question
+	}
+	return definitions
+}
+
+func questionDefinitionID(question map[string]any, index int) string {
+	if id := strings.TrimSpace(contracts.AnyStringNode(question["id"])); id != "" {
+		return id
+	}
+	return fmt.Sprintf("q%d", index+1)
+}
+
+func decodeSubmitItems(params any) ([]map[string]any, error) {
+	switch typed := params.(type) {
+	case api.SubmitParams:
+		return api.DecodeSubmitParams(typed)
+	case []json.RawMessage:
+		return api.DecodeSubmitParams(api.SubmitParams(typed))
+	case []any:
+		items := make([]map[string]any, 0, len(typed))
+		for _, raw := range typed {
+			item, ok := raw.(map[string]any)
+			if !ok || len(item) == 0 {
+				return nil, fmt.Errorf("submit items must be objects")
+			}
+			items = append(items, item)
+		}
+		return items, nil
+	default:
+		return nil, fmt.Errorf("submit params must be an array")
 	}
 }
 

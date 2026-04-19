@@ -55,9 +55,6 @@ func (n *SseEventNormalizer) shouldDrop(event StreamEvent) bool {
 	if eventType == "awaiting.ask" {
 		return awaitID != "" && n.hiddenToolIDs[awaitID]
 	}
-	if eventType == "awaiting.payload" {
-		return awaitID != "" && n.hiddenToolIDs[awaitID]
-	}
 	if eventType == "request.submit" {
 		return awaitID != "" && n.hiddenToolIDs[awaitID]
 	}

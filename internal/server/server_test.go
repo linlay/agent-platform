@@ -23,7 +23,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -644,11 +643,10 @@ func TestAgentEndpointReturnsDetail(t *testing.T) {
 	if response.Data.Mode != "REACT" {
 		t.Fatalf("expected REACT mode, got %#v", response.Data)
 	}
-	if len(response.Data.Tools) != 4 ||
+	if len(response.Data.Tools) != 3 ||
 		response.Data.Tools[0] != "_datetime_" ||
 		response.Data.Tools[1] != "_ask_user_question_" ||
-		response.Data.Tools[2] != "_ask_user_approval_" ||
-		response.Data.Tools[3] != "_sandbox_bash_" {
+		response.Data.Tools[2] != "_sandbox_bash_" {
 		t.Fatalf("expected tools in detail response, got %#v", response.Data.Tools)
 	}
 	if len(response.Data.Skills) != 1 || response.Data.Skills[0] != "mock-skill" {
@@ -1239,7 +1237,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 		switch call {
 		case 1:
 			writeProviderSSE(t, w,
-				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_confirm","type":"function","function":{"name":"_ask_user_approval_","arguments":"{\"mode\":\"approval\",\"questions\":[{\"question\":\"Need confirmation\",\"options\":[{\"label\":\"Approve\",\"value\":\"approve\",\"description\":\"Continue with the request\"}],\"allowFreeText\":true,\"freeTextPlaceholder\":\"Type your own answer\"}]}"}}]},"finish_reason":"tool_calls"}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Need confirmation\",\"type\":\"select\",\"options\":[{\"label\":\"Approve\",\"description\":\"Continue with the request\"}],\"allowFreeText\":false,\"multiSelect\":false}]}"}}]},"finish_reason":"tool_calls"}]}`,
 				`[DONE]`,
 			)
 		case 2:
@@ -1277,7 +1275,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 		streamBody.WriteString(line)
 		if strings.HasPrefix(line, "data: {") {
 			payload := decodeSSELine(t, line)
-			if payload["type"] == "tool.start" && payload["toolName"] == "_ask_user_approval_" {
+			if payload["type"] == "tool.start" && payload["toolName"] == "_ask_user_question_" {
 				toolStartPayload = payload
 				toolID, _ = payload["toolId"].(string)
 			}
@@ -1309,11 +1307,11 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	if awaitQuestionPayload["awaitingId"] != toolID {
 		t.Fatalf("expected awaitingId to match toolId, got %#v", awaitQuestionPayload)
 	}
-	if awaitQuestionPayload["viewportType"] != "builtin" {
-		t.Fatalf("expected viewportType builtin, got %#v", awaitQuestionPayload)
+	if _, exists := awaitQuestionPayload["viewportType"]; exists {
+		t.Fatalf("did not expect viewportType on question awaiting.ask, got %#v", awaitQuestionPayload)
 	}
-	if awaitQuestionPayload["viewportKey"] != "confirm_dialog" {
-		t.Fatalf("expected viewportKey confirm_dialog, got %#v", awaitQuestionPayload)
+	if _, exists := awaitQuestionPayload["viewportKey"]; exists {
+		t.Fatalf("did not expect viewportKey on question awaiting.ask, got %#v", awaitQuestionPayload)
 	}
 	if _, exists := awaitQuestionPayload["toolTimeout"]; exists {
 		t.Fatalf("did not expect toolTimeout on awaiting.ask, got %#v", awaitQuestionPayload)
@@ -1321,8 +1319,8 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	if awaitQuestionPayload["timeout"] != float64(210000) {
 		t.Fatalf("expected await question timeout 210000, got %#v", awaitQuestionPayload)
 	}
-	if awaitQuestionPayload["mode"] != "approval" {
-		t.Fatalf("expected await question mode approval, got %#v", awaitQuestionPayload)
+	if awaitQuestionPayload["mode"] != "question" {
+		t.Fatalf("expected await question mode question, got %#v", awaitQuestionPayload)
 	}
 	if _, exists := awaitQuestionPayload["awaitName"]; exists {
 		t.Fatalf("did not expect awaitName on awaiting.ask, got %#v", awaitQuestionPayload)
@@ -1330,9 +1328,13 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	if _, exists := awaitQuestionPayload["chatId"]; exists {
 		t.Fatalf("did not expect chatId on awaiting.ask, got %#v", awaitQuestionPayload)
 	}
-	approvalQuestions, _ := awaitQuestionPayload["questions"].([]any)
-	if len(approvalQuestions) != 1 {
-		t.Fatalf("expected approval awaiting.ask questions length 1, got %#v", awaitQuestionPayload)
+	questions, _ := awaitQuestionPayload["questions"].([]any)
+	if len(questions) != 1 {
+		t.Fatalf("expected question awaiting.ask questions length 1, got %#v", awaitQuestionPayload)
+	}
+	firstQuestion, _ := questions[0].(map[string]any)
+	if firstQuestion["id"] != "q1" || firstQuestion["question"] != "Need confirmation" {
+		t.Fatalf("unexpected inline question payload %#v", firstQuestion)
 	}
 
 	steerReq := httptest.NewRequest(http.MethodPost, "/api/steer", bytes.NewBufferString(`{"runId":"`+runID+`","message":"Please keep it short."}`))
@@ -1350,7 +1352,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 		t.Fatalf("expected accepted steer, got %#v", steerResp.Data)
 	}
 
-	submitReq := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+runID+`","awaitingId":"`+toolID+`","params":[{"question":"Need confirmation","answer":"Approve","value":"approve"}]}`))
+	submitReq := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+runID+`","awaitingId":"`+toolID+`","params":[{"id":"q1","answer":"Approve"}]}`))
 	submitReq.Header.Set("Content-Type", "application/json")
 	submitRec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(submitRec, submitReq)
@@ -1381,15 +1383,15 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 		t.Fatalf("expected awaiting.ask event, got %s", body)
 	}
 	if strings.Contains(body, `"type":"awaiting.payload"`) {
-		t.Fatalf("did not expect awaiting.payload event for approval mode, got %s", body)
+		t.Fatalf("did not expect awaiting.payload event for question mode, got %s", body)
 	}
 	if !strings.Contains(body, `"questions":[`) {
-		t.Fatalf("expected top-level questions in approval awaiting.ask event, got %s", body)
+		t.Fatalf("expected top-level questions in question awaiting.ask event, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"request.submit"`) {
 		t.Fatalf("expected request.submit event, got %s", body)
 	}
-	if !strings.Contains(body, `"params":[{"answer":"Approve","question":"Need confirmation","value":"approve"}]`) {
+	if !strings.Contains(body, `"params":[{"id":"q1","answer":"Approve"}]`) {
 		t.Fatalf("expected request.submit params, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"awaiting.answer"`) {
@@ -1401,13 +1403,16 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	if !strings.Contains(body, `"type":"tool.result"`) {
 		t.Fatalf("expected tool.result event, got %s", body)
 	}
-	if !strings.Contains(body, `"mode":"approval"`) || !strings.Contains(body, `"questions":[{"answer":"Approve","question":"Need confirmation","value":"approve"}]`) {
-		t.Fatalf("expected normalized approval tool.result, got %s", body)
+	if !strings.Contains(body, `"mode":"question"`) || !strings.Contains(body, `"answers":[{"answer":"Approve","id":"q1","question":"Need confirmation"}]`) {
+		t.Fatalf("expected normalized question awaiting.answer, got %s", body)
+	}
+	if !strings.Contains(body, `"result":[{"id":"q1","answer":"Approve"}]`) {
+		t.Fatalf("expected raw submit array in tool.result, got %s", body)
 	}
 	if !strings.Contains(body, "final answer") {
 		t.Fatalf("expected final answer in stream, got %s", body)
 	}
-	assertEventOrder(t, body, "tool.start", "tool.end", "awaiting.ask", "request.submit", "awaiting.answer", "tool.result")
+	assertEventOrder(t, body, "tool.start", "awaiting.ask", "tool.args", "tool.end", "request.submit", "awaiting.answer", "tool.result", "request.steer")
 
 	chatsRec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(chatsRec, httptest.NewRequest(http.MethodGet, "/api/chats", nil))
@@ -1432,7 +1437,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	for _, event := range chatResp.Data.Events {
 		switch event.Type {
 		case "tool.snapshot":
-			if event.String("toolName") != "_ask_user_approval_" {
+			if event.String("toolName") != "_ask_user_question_" {
 				continue
 			}
 			foundFrontendSnapshot = true
@@ -1447,7 +1452,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 			}
 		case "awaiting.ask":
 			foundAwaitAsk = true
-			if event.String("viewportKey") != "confirm_dialog" {
+			if event.String("mode") != "question" || event.Value("viewportKey") != nil || event.Value("viewportType") != nil {
 				t.Fatalf("unexpected awaiting.ask payload %#v", event)
 			}
 			if _, exists := event.Payload["awaitName"]; exists {
@@ -1458,7 +1463,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 			}
 			questions, _ := event.Payload["questions"].([]any)
 			if len(questions) != 1 {
-				t.Fatalf("expected approval awaiting.ask questions length 1, got %#v", event)
+				t.Fatalf("expected question awaiting.ask questions length 1, got %#v", event)
 			}
 		case "request.submit":
 			foundRequestSubmit = true
@@ -1467,14 +1472,14 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 			}
 		case "awaiting.answer":
 			foundAwaitingAnswer = true
-			questions, _ := event.Value("questions").([]any)
-			if event.String("mode") != "approval" || len(questions) != 1 {
+			answers, _ := event.Value("answers").([]any)
+			if event.String("mode") != "question" || len(answers) != 1 {
 				t.Fatalf("unexpected awaiting.answer in chat detail %#v", event)
 			}
 		}
 	}
 	if !foundFrontendSnapshot {
-		t.Fatalf("expected _ask_user_approval_ tool.snapshot in chat detail, got %#v", chatResp.Data.Events)
+		t.Fatalf("expected _ask_user_question_ tool.snapshot in chat detail, got %#v", chatResp.Data.Events)
 	}
 	if !foundAwaitAsk {
 		t.Fatalf("expected awaiting.ask in chat detail, got %#v", chatResp.Data.Events)
@@ -1554,7 +1559,6 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 	var awaitQuestionPayload map[string]any
 	var toolStartPayload map[string]any
 	var toolResultPayload map[string]any
-	var awaitPayloadSeen bool
 	for {
 		line, readErr := reader.ReadString('\n')
 		streamBody.WriteString(line)
@@ -1564,21 +1568,12 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 			case "awaiting.ask":
 				awaitQuestionPayload = payload
 				runID, _ = payload["runId"].(string)
+				goto questionSubmit
 			case "tool.start":
 				if payload["toolName"] == "_ask_user_question_" {
 					toolStartPayload = payload
 					toolID, _ = payload["toolId"].(string)
 				}
-			case "awaiting.payload":
-				questions, _ := payload["questions"].([]any)
-				if len(questions) != 2 {
-					t.Fatalf("expected question awaiting.payload questions length 2, got %#v", payload)
-				}
-				awaitPayloadSeen = true
-				break
-			}
-			if awaitPayloadSeen {
-				break
 			}
 		}
 		if readErr != nil {
@@ -1586,6 +1581,7 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 		}
 	}
 
+questionSubmit:
 	if awaitQuestionPayload == nil {
 		t.Fatalf("expected awaiting.ask after tool.start and before tool.args, got %s", streamBody.String())
 	}
@@ -1598,8 +1594,9 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 	if awaitQuestionPayload["mode"] != "question" {
 		t.Fatalf("expected question mode, got %#v", awaitQuestionPayload)
 	}
-	if _, exists := awaitQuestionPayload["questions"]; exists {
-		t.Fatalf("did not expect questions on question-mode awaiting.ask, got %#v", awaitQuestionPayload)
+	questions, _ := awaitQuestionPayload["questions"].([]any)
+	if len(questions) != 2 {
+		t.Fatalf("expected inline questions on question-mode awaiting.ask, got %#v", awaitQuestionPayload)
 	}
 	if _, exists := awaitQuestionPayload["awaitName"]; exists {
 		t.Fatalf("did not expect awaitName on question-mode awaiting.ask, got %#v", awaitQuestionPayload)
@@ -1607,11 +1604,8 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 	if _, exists := awaitQuestionPayload["chatId"]; exists {
 		t.Fatalf("did not expect chatId on question-mode awaiting.ask, got %#v", awaitQuestionPayload)
 	}
-	if !awaitPayloadSeen {
-		t.Fatalf("expected awaiting.payload before submit, got %s", streamBody.String())
-	}
 
-	submitReq := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+runID+`","awaitingId":"`+toolID+`","params":[{"question":"Notification topics","answers":["产品更新","使用教程"]},{"question":"How many people?","answer":2}]}`))
+	submitReq := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+runID+`","awaitingId":"`+toolID+`","params":[{"id":"q1","answers":["产品更新","使用教程"]},{"id":"q2","answer":2}]}`))
 	submitReq.Header.Set("Content-Type", "application/json")
 	submitRec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(submitRec, submitReq)
@@ -1640,26 +1634,20 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 	if !strings.Contains(body, `"type":"awaiting.ask"`) {
 		t.Fatalf("expected awaiting.ask event, got %s", body)
 	}
-	if !strings.Contains(body, `"type":"awaiting.payload"`) {
-		t.Fatalf("expected awaiting.payload event, got %s", body)
-	}
-	if !strings.Contains(body, `"questions":[`) {
-		t.Fatalf("expected top-level questions in awaiting.payload event, got %s", body)
-	}
-	if strings.Contains(body, `"payload":{"mode":"question"`) {
-		t.Fatalf("did not expect nested payload mode in question awaiting.payload event, got %s", body)
+	if strings.Contains(body, `"type":"awaiting.payload"`) {
+		t.Fatalf("did not expect awaiting.payload event, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"request.submit"`) {
 		t.Fatalf("expected request.submit event, got %s", body)
 	}
-	if !strings.Contains(body, `"params":[{"answers":["产品更新","使用教程"],"question":"Notification topics"},{"answer":2,"question":"How many people?"}]`) {
+	if !strings.Contains(body, `"params":[{"id":"q1","answers":["产品更新","使用教程"]},{"id":"q2","answer":2}]`) {
 		t.Fatalf("expected request.submit params array, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"awaiting.answer"`) {
 		t.Fatalf("expected awaiting.answer event, got %s", body)
 	}
-	if !strings.Contains(body, `"questions":[{"answers":["产品更新","使用教程"],"question":"Notification topics"},{"answer":2,"question":"How many people?"}]`) {
-		t.Fatalf("expected submit-shaped awaiting.answer questions, got %s", body)
+	if !strings.Contains(body, `"answers":[{"answers":["产品更新","使用教程"],"id":"q1","question":"Notification topics"},{"answer":2,"id":"q2","question":"How many people?"}]`) {
+		t.Fatalf("expected normalized awaiting.answer answers, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"tool.result"`) {
 		t.Fatalf("expected tool.result event, got %s", body)
@@ -1677,13 +1665,13 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 	firstItem, _ := resultItems[0].(map[string]any)
 	secondItem, _ := resultItems[1].(map[string]any)
 	firstAnswers, _ := firstItem["answers"].([]any)
-	if firstItem["question"] != "Notification topics" || len(firstAnswers) != 2 || firstAnswers[0] != "产品更新" || firstAnswers[1] != "使用教程" {
+	if firstItem["id"] != "q1" || len(firstAnswers) != 2 || firstAnswers[0] != "产品更新" || firstAnswers[1] != "使用教程" {
 		t.Fatalf("unexpected first tool.result item: %#v", firstItem)
 	}
-	if secondItem["question"] != "How many people?" || secondItem["answer"] != float64(2) {
+	if secondItem["id"] != "q2" || secondItem["answer"] != float64(2) {
 		t.Fatalf("unexpected second tool.result item: %#v", secondItem)
 	}
-	assertEventOrder(t, body, "tool.start", "awaiting.ask", "tool.args", "tool.end", "awaiting.payload", "request.submit", "awaiting.answer", "tool.result")
+	assertEventOrder(t, body, "tool.start", "awaiting.ask", "tool.args", "tool.end", "request.submit", "awaiting.answer", "tool.result")
 
 	select {
 	case messages := <-secondTurnMessages:
@@ -1749,7 +1737,6 @@ func TestQuestionChunkedArgsEmitAwaitAfterFirstToolArgs(t *testing.T) {
 	var awaitQuestionPayload map[string]any
 	var toolStartPayload map[string]any
 	var toolResultPayload map[string]any
-	var awaitPayloadSeen bool
 	for {
 		line, readErr := reader.ReadString('\n')
 		streamBody.WriteString(line)
@@ -1759,21 +1746,12 @@ func TestQuestionChunkedArgsEmitAwaitAfterFirstToolArgs(t *testing.T) {
 			case "awaiting.ask":
 				awaitQuestionPayload = payload
 				runID, _ = payload["runId"].(string)
+				goto chunkedQuestionSubmit
 			case "tool.start":
 				if payload["toolName"] == "_ask_user_question_" {
 					toolStartPayload = payload
 					toolID, _ = payload["toolId"].(string)
 				}
-			case "awaiting.payload":
-				questions, _ := payload["questions"].([]any)
-				if len(questions) != 2 {
-					t.Fatalf("expected question awaiting.payload questions length 2, got %#v", payload)
-				}
-				awaitPayloadSeen = true
-				break
-			}
-			if awaitPayloadSeen {
-				break
 			}
 		}
 		if readErr != nil {
@@ -1781,6 +1759,7 @@ func TestQuestionChunkedArgsEmitAwaitAfterFirstToolArgs(t *testing.T) {
 		}
 	}
 
+chunkedQuestionSubmit:
 	if awaitQuestionPayload == nil {
 		t.Fatalf("expected awaiting.ask after chunked tool args, got %s", streamBody.String())
 	}
@@ -1793,14 +1772,12 @@ func TestQuestionChunkedArgsEmitAwaitAfterFirstToolArgs(t *testing.T) {
 	if awaitQuestionPayload["mode"] != "question" {
 		t.Fatalf("expected question mode, got %#v", awaitQuestionPayload)
 	}
-	if _, exists := awaitQuestionPayload["questions"]; exists {
-		t.Fatalf("did not expect questions on question-mode awaiting.ask, got %#v", awaitQuestionPayload)
-	}
-	if !awaitPayloadSeen {
-		t.Fatalf("expected awaiting.payload before submit, got %s", streamBody.String())
+	questions, _ := awaitQuestionPayload["questions"].([]any)
+	if len(questions) != 2 {
+		t.Fatalf("expected inline questions on question-mode awaiting.ask, got %#v", awaitQuestionPayload)
 	}
 
-	submitReq := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+runID+`","awaitingId":"`+toolID+`","params":[{"question":"Notification topics","answers":["产品更新","使用教程"]},{"question":"How many people?","answer":2}]}`))
+	submitReq := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+runID+`","awaitingId":"`+toolID+`","params":[{"id":"q1","answers":["产品更新","使用教程"]},{"id":"q2","answer":2}]}`))
 	submitReq.Header.Set("Content-Type", "application/json")
 	submitRec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(submitRec, submitReq)
@@ -1829,8 +1806,8 @@ func TestQuestionChunkedArgsEmitAwaitAfterFirstToolArgs(t *testing.T) {
 	if !strings.Contains(body, `"type":"awaiting.ask"`) {
 		t.Fatalf("expected awaiting.ask event, got %s", body)
 	}
-	if !strings.Contains(body, `"type":"awaiting.payload"`) {
-		t.Fatalf("expected awaiting.payload event, got %s", body)
+	if strings.Contains(body, `"type":"awaiting.payload"`) {
+		t.Fatalf("did not expect awaiting.payload event, got %s", body)
 	}
 	if !strings.Contains(body, `"chunkIndex":0`) || !strings.Contains(body, `"chunkIndex":1`) {
 		t.Fatalf("expected tool.args chunks 0 and 1, got %s", body)
@@ -1839,12 +1816,11 @@ func TestQuestionChunkedArgsEmitAwaitAfterFirstToolArgs(t *testing.T) {
 	awaitAskIndex := strings.Index(body, `"type":"awaiting.ask"`)
 	secondToolArgsIndex := strings.Index(body, `"chunkIndex":1`)
 	toolEndIndex := strings.Index(body, `"type":"tool.end"`)
-	awaitPayloadIndex := strings.Index(body, `"type":"awaiting.payload"`)
-	if firstToolArgsIndex < 0 || awaitAskIndex < 0 || secondToolArgsIndex < 0 || toolEndIndex < 0 || awaitPayloadIndex < 0 {
+	if firstToolArgsIndex < 0 || awaitAskIndex < 0 || secondToolArgsIndex < 0 || toolEndIndex < 0 {
 		t.Fatalf("expected chunked question flow markers, got %s", body)
 	}
-	if !(firstToolArgsIndex < awaitAskIndex && awaitAskIndex < secondToolArgsIndex && secondToolArgsIndex < toolEndIndex && toolEndIndex < awaitPayloadIndex) {
-		t.Fatalf("expected chunked event order tool.args(0) -> awaiting.ask -> tool.args(1) -> tool.end -> awaiting.payload, got %s", body)
+	if !(firstToolArgsIndex < awaitAskIndex && awaitAskIndex < secondToolArgsIndex && secondToolArgsIndex < toolEndIndex) {
+		t.Fatalf("expected chunked event order tool.args(0) -> awaiting.ask -> tool.args(1) -> tool.end, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"request.submit"`) {
 		t.Fatalf("expected request.submit event, got %s", body)
@@ -2002,20 +1978,14 @@ func TestQuestionAwaitDismissReturnsCancelledStructuredResult(t *testing.T) {
 	var streamBody strings.Builder
 	runID := ""
 	toolID := ""
-	awaitPayloadSeen := false
 	for {
 		line, readErr := reader.ReadString('\n')
 		streamBody.WriteString(line)
 		if strings.HasPrefix(line, "data: {") {
 			payload := decodeSSELine(t, line)
-			switch payload["type"] {
-			case "awaiting.ask":
+			if payload["type"] == "awaiting.ask" {
 				runID, _ = payload["runId"].(string)
 				toolID, _ = payload["awaitingId"].(string)
-			case "awaiting.payload":
-				awaitPayloadSeen = true
-			}
-			if awaitPayloadSeen {
 				break
 			}
 		}
@@ -2060,14 +2030,10 @@ func TestQuestionAwaitDismissReturnsCancelledStructuredResult(t *testing.T) {
 	if toolResultPayload == nil {
 		t.Fatalf("expected tool.result payload, got %s", body)
 	}
-	resultMap, ok := toolResultPayload["result"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected structured tool.result object, got %#v", toolResultPayload)
+	if toolResultPayload["result"] != nil {
+		t.Fatalf("expected cancelled tool.result payload to be omitted, got %#v", toolResultPayload)
 	}
-	if resultMap["mode"] != "question" || resultMap["cancelled"] != true || resultMap["reason"] != "user_dismissed" {
-		t.Fatalf("unexpected cancelled tool.result payload %#v", resultMap)
-	}
-	assertEventOrder(t, body, "tool.start", "awaiting.ask", "tool.args", "tool.end", "awaiting.payload", "request.submit", "awaiting.answer", "tool.result")
+	assertEventOrder(t, body, "tool.start", "awaiting.ask", "tool.args", "tool.end", "request.submit", "awaiting.answer", "tool.result")
 
 	select {
 	case messages := <-secondTurnMessages:
@@ -2155,13 +2121,17 @@ func TestBashHITLApproveFlow(t *testing.T) {
 	if !strings.Contains(body, `"viewportKey":"leave_form"`) {
 		t.Fatalf("expected leave_form viewport in stream, got %s", body)
 	}
+	if !strings.Contains(body, `"mode":"form"`) || !strings.Contains(body, `"forms":[`) {
+		t.Fatalf("expected form awaiting.ask payload in stream, got %s", body)
+	}
 	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
 		!strings.Contains(body, `"action":"submit"`) ||
+		!strings.Contains(body, `"id":"form-1"`) ||
 		!strings.Contains(body, `"payload":{"days":3,"employee_id":"E1001","employee_name":"Lin","end_date":"2026-04-22","handover_to":"E2001","leave_type":"annual","reason":"family_trip","start_date":"2026-04-20","urgent_contact":"13800138000"}`) {
 		t.Fatalf("expected approve awaiting.answer in stream, got %s", body)
 	}
-	if !strings.Contains(body, `"payload":`+string(expectedAwaitPayload)) {
-		t.Fatalf("expected form awaiting.ask payload in stream, got %s", body)
+	if !strings.Contains(body, `"initialPayload":`+string(expectedAwaitPayload)) {
+		t.Fatalf("expected form awaiting.ask initialPayload in stream, got %s", body)
 	}
 	if strings.Contains(body, "map[") {
 		t.Fatalf("did not expect Go map string in stream, got %s", body)
@@ -2177,6 +2147,7 @@ func TestBashHITLModifyFlow(t *testing.T) {
 	}
 	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
 		!strings.Contains(body, `"action":"submit"`) ||
+		!strings.Contains(body, `"id":"form-1"`) ||
 		!strings.Contains(body, `"payload":{"days":2,"employee_id":"E1001","employee_name":"Lin","end_date":"2026-04-22","handover_to":"E2001","leave_type":"personal","reason":"family_trip","start_date":"2026-04-21","urgent_contact":"13800138000"}`) {
 		t.Fatalf("expected modify awaiting.answer in stream, got %s", body)
 	}
@@ -2194,7 +2165,8 @@ func TestBashHITLRejectFlow(t *testing.T) {
 		t.Fatalf("expected rejected original bash result, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
-		!strings.Contains(body, `"cancelled":true`) ||
+		!strings.Contains(body, `"action":"reject"`) ||
+		!strings.Contains(body, `"id":"form-1"`) ||
 		!strings.Contains(body, `"reason":"user_cancelled"`) {
 		t.Fatalf("expected reject awaiting.answer in stream, got %s", body)
 	}
@@ -2283,7 +2255,7 @@ func TestBashHITLApproveFlowForExpenseCreate(t *testing.T) {
 	if !strings.Contains(body, `"viewportKey":"expense_form"`) {
 		t.Fatalf("expected expense_form viewport in stream, got %s", body)
 	}
-	if !strings.Contains(body, `"payload":`+string(expectedAwaitPayload)) {
+	if !strings.Contains(body, `"initialPayload":`+string(expectedAwaitPayload)) {
 		t.Fatalf("expected expense approval payload in stream, got %s", body)
 	}
 }
@@ -2315,7 +2287,7 @@ func TestBashHITLApproveFlowForProcurementCreate(t *testing.T) {
 	if !strings.Contains(body, `"viewportKey":"procurement_form"`) {
 		t.Fatalf("expected procurement_form viewport in stream, got %s", body)
 	}
-	if !strings.Contains(body, `"payload":`+string(expectedAwaitPayload)) {
+	if !strings.Contains(body, `"initialPayload":`+string(expectedAwaitPayload)) {
 		t.Fatalf("expected procurement approval payload in stream, got %s", body)
 	}
 }
@@ -2335,27 +2307,29 @@ func TestBashHITLDockerRMIApproveFlow(t *testing.T) {
 		action:       "approve",
 		command:      command,
 		rulesContent: rules,
-		legacySubmit: true,
 	})
 	if len(executed) != 1 || executed[0] != command {
 		t.Fatalf("expected approved docker rmi to execute once, got %#v", executed)
 	}
-	if !strings.Contains(body, `"viewportKey":"confirm_dialog"`) {
-		t.Fatalf("expected confirm_dialog viewport in stream, got %s", body)
+	if strings.Contains(body, `"viewportKey":"confirm_dialog"`) {
+		t.Fatalf("did not expect confirm_dialog viewport in stream, got %s", body)
 	}
-	if !strings.Contains(body, `"value":"approve_always"`) {
-		t.Fatalf("expected approve_always option in stream, got %s", body)
+	if !strings.Contains(body, `"mode":"approval"`) ||
+		!strings.Contains(body, `"approvals":[`) ||
+		!strings.Contains(body, `"command":"docker rmi nginx:latest"`) ||
+		!strings.Contains(body, `"id":"cmd-1"`) ||
+		!strings.Contains(body, `"level":1`) {
+		t.Fatalf("expected approval awaiting.ask payload in stream, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"request.submit"`) ||
-		!strings.Contains(body, `"question":"docker rmi nginx:latest"`) ||
-		!strings.Contains(body, `"answer":"approve"`) {
-		t.Fatalf("expected legacy request.submit payload in stream, got %s", body)
+		!strings.Contains(body, `"params":[{"id":"cmd-1","decision":"approve"}]`) {
+		t.Fatalf("expected approval request.submit payload in stream, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
-		!strings.Contains(body, `"question":"docker rmi nginx:latest"`) ||
-		!strings.Contains(body, `"answer":"Approve"`) ||
-		!strings.Contains(body, `"value":"approve"`) {
-		t.Fatalf("expected normalized awaiting.answer payload in stream, got %s", body)
+		!strings.Contains(body, `"decision":"approve"`) ||
+		!strings.Contains(body, `"id":"cmd-1"`) ||
+		!strings.Contains(body, `"command":"docker rmi nginx:latest"`) {
+		t.Fatalf("expected normalized approval awaiting.answer payload in stream, got %s", body)
 	}
 	if strings.Contains(body, `"frontend_submit_invalid_payload"`) {
 		t.Fatalf("did not expect frontend_submit_invalid_payload, got %s", body)
@@ -2384,8 +2358,13 @@ func TestBashHITLDockerImageRMRejectFlow(t *testing.T) {
 	if !strings.Contains(body, `"code":"hitl_rejected"`) {
 		t.Fatalf("expected rejected original bash result, got %s", body)
 	}
-	if !strings.Contains(body, `"viewportKey":"confirm_dialog"`) {
-		t.Fatalf("expected confirm_dialog viewport in stream, got %s", body)
+	if strings.Contains(body, `"viewportKey":"confirm_dialog"`) {
+		t.Fatalf("did not expect confirm_dialog viewport in stream, got %s", body)
+	}
+	if !strings.Contains(body, `"decision":"reject"`) ||
+		!strings.Contains(body, `"id":"cmd-1"`) ||
+		!strings.Contains(body, `"command":"docker image rm nginx:latest"`) {
+		t.Fatalf("expected reject approval answer in stream, got %s", body)
 	}
 }
 
@@ -2395,7 +2374,6 @@ type bashHITLFlowOptions struct {
 	modifiedCommand string
 	command         string
 	rulesContent    string
-	legacySubmit    bool
 	skipSubmit      bool
 	timeoutMs       int
 	mcp             contracts.McpClient
@@ -2514,39 +2492,25 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 submit:
 	if !options.skipSubmit {
 		var submitPayload string
-		if strings.EqualFold(stringValue(awaitAskPayload["viewportType"]), "html") {
+		if strings.EqualFold(stringValue(awaitAskPayload["mode"]), "form") {
 			if options.action == "reject" {
-				submitPayload = `{"action":"cancel"}`
+				submitPayload = `[{"id":"form-1","reason":"user_cancelled"}]`
 			} else {
 				submitCommand := command
 				if options.action == "modify" {
 					submitCommand = options.modifiedCommand
 				}
-				payloadJSON, err := json.Marshal(map[string]any{
-					"action":  "submit",
+				payloadJSON, err := json.Marshal([]map[string]any{{
+					"id":      "form-1",
 					"payload": payloadFromCommandForTest(t, submitCommand),
-				})
+				}})
 				if err != nil {
 					t.Fatalf("marshal html submit payload: %v", err)
 				}
 				submitPayload = string(payloadJSON)
 			}
 		} else {
-			submitPayload = `[{"question":` + strconv.Quote(command) + `,`
-			if options.action == "modify" {
-				submitPayload += `"answer":` + strconv.Quote(options.modifiedCommand) + `,"value":` + strconv.Quote(options.modifiedCommand)
-			} else {
-				label := "Approve"
-				if options.action == "reject" {
-					label = "Reject"
-				}
-				if options.legacySubmit {
-					submitPayload += `"answer":"` + options.action + `"`
-				} else {
-					submitPayload += `"answer":"` + label + `","value":"` + options.action + `"`
-				}
-			}
-			submitPayload += `}]`
+			submitPayload = `[{"id":"cmd-1","decision":"` + options.action + `"}]`
 		}
 		submitRec := httptest.NewRecorder()
 		fixture.server.ServeHTTP(submitRec, httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+extractRunIDFromStream(t, streamBody.String())+`","awaitingId":"`+awaitingID+`","params":`+submitPayload+`}`)))
@@ -2686,23 +2650,15 @@ func assertSpecificEventOrder(t *testing.T, messages []map[string]any, originalT
 func TestSubmitReturnsUnmatchedWhenNoActiveWaiter(t *testing.T) {
 	fixture := newTestFixture(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"missing-run","awaitingId":"missing-awaiting","params":{"ok":true}}`))
+	req := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"missing-run","awaitingId":"missing-awaiting","params":[{"id":"q1","answer":"ok"}]}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(rec, req)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
-
-	var response api.ApiResponse[api.SubmitResponse]
-	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
-		t.Fatalf("decode submit response: %v", err)
-	}
-	if response.Data.Accepted {
-		t.Fatalf("expected unmatched submit to be rejected, got %#v", response.Data)
-	}
-	if response.Data.Status != "unmatched" {
-		t.Fatalf("expected unmatched status, got %#v", response.Data)
+	if !strings.Contains(rec.Body.String(), "unknown awaitingId") {
+		t.Fatalf("expected unknown awaitingId error, got %s", rec.Body.String())
 	}
 }
 
@@ -3001,7 +2957,6 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 		"  tools:",
 		"    - _datetime_",
 		"    - _ask_user_question_",
-		"    - _ask_user_approval_",
 		"skillConfig:",
 		"  skills:",
 		"    - mock-skill",

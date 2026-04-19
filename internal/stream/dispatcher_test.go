@@ -79,23 +79,23 @@ func TestDispatcherEmitsApprovalModeAwaitAskWithQuestions(t *testing.T) {
 	})
 
 	viewportEvents := dispatcher.Dispatch(AwaitAsk{
-		AwaitingID:   "tool_1",
-		ViewportType: "builtin",
-		ViewportKey:  "confirm_dialog",
-		Mode:         "approval",
-		Timeout:      120000,
-		RunID:        "run_1",
-		Questions: []any{
-			map[string]any{"question": "Proceed?", "options": []any{map[string]any{"label": "Yes", "value": "yes"}}},
+		AwaitingID: "tool_1",
+		Mode:       "approval",
+		Timeout:    120000,
+		RunID:      "run_1",
+		Approvals: []any{
+			map[string]any{"id": "cmd-1", "command": "git push origin main", "level": 1},
 		},
 	})
 	assertEventTypes(t, viewportEvents, "awaiting.ask")
-
-	payloadEvents := dispatcher.Dispatch(AwaitPayload{
-		AwaitingID: "tool_1",
-		Questions:  []any{map[string]any{"question": "How many?", "type": "number"}},
-	})
-	assertEventTypes(t, payloadEvents, "awaiting.payload")
+	payload := viewportEvents[0].ToData()
+	if _, exists := payload["viewportType"]; exists {
+		t.Fatalf("did not expect viewport metadata on approval ask, got %#v", payload)
+	}
+	approvals, _ := payload["approvals"].([]any)
+	if len(approvals) != 1 {
+		t.Fatalf("expected approvals in approval awaiting.ask, got %#v", payload)
+	}
 }
 
 func TestDispatcherEmitsApprovalModeAwaitAskWithPayloadOnlyForForm(t *testing.T) {
@@ -108,21 +108,27 @@ func TestDispatcherEmitsApprovalModeAwaitAskWithPayloadOnlyForForm(t *testing.T)
 		AwaitingID:   "tool_1",
 		ViewportType: "html",
 		ViewportKey:  "leave_form",
-		Mode:         "approval",
+		Mode:         "form",
 		Timeout:      120000,
 		RunID:        "run_1",
-		Payload: map[string]any{
-			"employee_id": "E1001",
+		Forms: []any{
+			map[string]any{
+				"id":             "form-1",
+				"command":        "mock create-leave",
+				"initialPayload": map[string]any{"employee_id": "E1001"},
+			},
 		},
 	})
 	assertEventTypes(t, events, "awaiting.ask")
 	payload := events[0].ToData()
-	formPayload, _ := payload["payload"].(map[string]any)
-	if formPayload == nil || formPayload["employee_id"] != "E1001" {
-		t.Fatalf("expected payload in approval awaiting.ask, got %#v", payload)
+	forms, _ := payload["forms"].([]any)
+	if len(forms) != 1 {
+		t.Fatalf("expected forms in form awaiting.ask, got %#v", payload)
 	}
-	if _, exists := payload["questions"]; exists {
-		t.Fatalf("did not expect questions in form awaiting.ask, got %#v", payload)
+	form := forms[0].(map[string]any)
+	initialPayload, _ := form["initialPayload"].(map[string]any)
+	if initialPayload == nil || initialPayload["employee_id"] != "E1001" {
+		t.Fatalf("expected initialPayload in form awaiting.ask, got %#v", payload)
 	}
 }
 
@@ -318,12 +324,10 @@ func TestEventDataMarshalsWithContractKeyOrder(t *testing.T) {
 
 func TestEventDataMarshalsAwaitAskWithContractKeyOrder(t *testing.T) {
 	event := NewEvent("awaiting.ask", map[string]any{
-		"timeout":      120000,
-		"runId":        "run_1",
-		"viewportKey":  "confirm_dialog",
-		"mode":         "approval",
-		"awaitingId":   "tool_1",
-		"viewportType": "builtin",
+		"timeout":    120000,
+		"runId":      "run_1",
+		"mode":       "approval",
+		"awaitingId": "tool_1",
 	})
 	event.Seq = 9
 	data, err := json.Marshal(event.Data())
@@ -335,8 +339,6 @@ func TestEventDataMarshalsAwaitAskWithContractKeyOrder(t *testing.T) {
 		`"seq":9`,
 		`"type":"awaiting.ask"`,
 		`"awaitingId":"tool_1"`,
-		`"viewportType":"builtin"`,
-		`"viewportKey":"confirm_dialog"`,
 		`"mode":"approval"`,
 		`"timeout":120000`,
 		`"runId":"run_1"`,
@@ -360,10 +362,15 @@ func TestEventDataMarshalsAwaitAskWithCommandBeforeQuestions(t *testing.T) {
 		"awaitingId":   "tool_1",
 		"viewportType": "html",
 		"viewportKey":  "leave_form",
-		"mode":         "approval",
+		"mode":         "form",
 		"timeout":      120000,
 		"runId":        "run_1",
-		"command":      `mock create-leave --payload '{"employee_id":"E1001"}'`,
+		"forms": []any{
+			map[string]any{
+				"id":      "form-1",
+				"command": `mock create-leave --payload '{"employee_id":"E1001"}'`,
+			},
+		},
 	})
 	data, err := json.Marshal(event.Data())
 	if err != nil {
@@ -379,47 +386,21 @@ func TestEventDataMarshalsAwaitAskWithCommandBeforeQuestions(t *testing.T) {
 
 func TestEventDataMarshalsApprovalAwaitAskWithQuestions(t *testing.T) {
 	event := NewEvent("awaiting.ask", map[string]any{
-		"awaitingId":   "tool_1",
-		"viewportType": "builtin",
-		"viewportKey":  "confirm_dialog",
-		"mode":         "approval",
-		"timeout":      120000,
-		"runId":        "run_1",
-		"questions": []any{
-			map[string]any{"question": "Proceed?"},
-		},
-	})
-	data, err := json.Marshal(event.Data())
-	if err != nil {
-		t.Fatalf("marshal event data: %v", err)
-	}
-	text := string(data)
-	if !strings.Contains(text, `"questions":[`) {
-		t.Fatalf("expected questions in approval awaiting.ask: %s", text)
-	}
-}
-
-func TestEventDataMarshalsAwaitPayloadWithQuestions(t *testing.T) {
-	event := NewEvent("awaiting.payload", map[string]any{
 		"awaitingId": "tool_1",
-		"questions": []any{
-			map[string]any{
-				"question": "Destination?",
-				"type":     "select",
-			},
+		"mode":       "approval",
+		"timeout":    120000,
+		"runId":      "run_1",
+		"approvals": []any{
+			map[string]any{"id": "cmd-1", "command": "Proceed?"},
 		},
 	})
-	event.Seq = 10
 	data, err := json.Marshal(event.Data())
 	if err != nil {
 		t.Fatalf("marshal event data: %v", err)
 	}
 	text := string(data)
-	if !strings.Contains(text, `"questions":[`) {
-		t.Fatalf("expected top-level questions in awaiting.payload: %s", text)
-	}
-	if strings.Contains(text, `"payload":`) {
-		t.Fatalf("did not expect payload wrapper in awaiting.payload: %s", text)
+	if !strings.Contains(text, `"approvals":[`) {
+		t.Fatalf("expected approvals in approval awaiting.ask: %s", text)
 	}
 }
 
@@ -430,7 +411,7 @@ func TestEventDataMarshalsRequestSubmitWithoutViewID(t *testing.T) {
 		"runId":      "run_1",
 		"awaitingId": "tool_1",
 		"params": []any{
-			map[string]any{"question": "Proceed?", "answer": "Approve", "value": "approve"},
+			map[string]any{"id": "cmd-1", "decision": "approve"},
 		},
 	})
 	event.Seq = 11
@@ -439,7 +420,7 @@ func TestEventDataMarshalsRequestSubmitWithoutViewID(t *testing.T) {
 		t.Fatalf("marshal event data: %v", err)
 	}
 	text := string(data)
-	if !strings.Contains(text, `"params":[{"answer":"Approve","question":"Proceed?","value":"approve"}]`) {
+	if !strings.Contains(text, `"params":[{"decision":"approve","id":"cmd-1"}]`) {
 		t.Fatalf("expected params in request.submit payload: %s", text)
 	}
 	if strings.Contains(text, `"viewId"`) {
@@ -457,12 +438,11 @@ func TestDispatcherEmitsAwaitingAnswerForApprovalMode(t *testing.T) {
 		AwaitingID: "tool_1",
 		Answer: map[string]any{
 			"mode": "approval",
-			"questions": []any{
+			"approvals": []any{
 				map[string]any{
-					"question": "Proceed?",
-					"header":   "审批",
-					"answer":   "Approve",
-					"value":    "approve",
+					"id":       "cmd-1",
+					"command":  "Proceed?",
+					"decision": "approve",
 				},
 			},
 		},
@@ -472,12 +452,12 @@ func TestDispatcherEmitsAwaitingAnswerForApprovalMode(t *testing.T) {
 	if payload["mode"] != "approval" {
 		t.Fatalf("expected approval mode, got %#v", payload)
 	}
-	questions, _ := payload["questions"].([]map[string]any)
-	if len(questions) != 1 {
-		t.Fatalf("expected formatted approval questions, got %#v", payload)
+	approvals, _ := payload["approvals"].([]map[string]any)
+	if len(approvals) != 1 {
+		t.Fatalf("expected formatted approvals, got %#v", payload)
 	}
-	if questions[0]["question"] != "Proceed?" || questions[0]["header"] != "审批" || questions[0]["answer"] != "Approve" || questions[0]["value"] != "approve" {
-		t.Fatalf("unexpected approval awaiting.answer payload %#v", questions[0])
+	if approvals[0]["id"] != "cmd-1" || approvals[0]["command"] != "Proceed?" || approvals[0]["decision"] != "approve" {
+		t.Fatalf("unexpected approval awaiting.answer payload %#v", approvals[0])
 	}
 }
 
@@ -490,25 +470,31 @@ func TestDispatcherEmitsAwaitingAnswerForApprovalFormSubmit(t *testing.T) {
 	events := dispatcher.Dispatch(AwaitingAnswer{
 		AwaitingID: "tool_1",
 		Answer: map[string]any{
-			"mode":   "approval",
-			"action": "submit",
-			"payload": map[string]any{
-				"employee_id": "E1001",
-				"days":        2,
+			"mode": "form",
+			"forms": []any{
+				map[string]any{
+					"id":     "form-1",
+					"action": "submit",
+					"payload": map[string]any{
+						"employee_id": "E1001",
+						"days":        2,
+					},
+				},
 			},
 		},
 	})
 	assertEventTypes(t, events, "awaiting.answer")
 	payload := events[0].ToData()
-	if payload["mode"] != "approval" || payload["action"] != "submit" {
-		t.Fatalf("unexpected approval form awaiting.answer payload %#v", payload)
+	if payload["mode"] != "form" {
+		t.Fatalf("unexpected form awaiting.answer payload %#v", payload)
 	}
-	formPayload, _ := payload["payload"].(map[string]any)
-	if formPayload["employee_id"] != "E1001" || formPayload["days"] != 2 {
+	forms, _ := payload["forms"].([]map[string]any)
+	if len(forms) != 1 {
+		t.Fatalf("expected one form answer, got %#v", payload)
+	}
+	formPayload, _ := forms[0]["payload"].(map[string]any)
+	if forms[0]["action"] != "submit" || formPayload["employee_id"] != "E1001" || formPayload["days"] != 2 {
 		t.Fatalf("unexpected approval form payload %#v", payload)
-	}
-	if _, exists := payload["questions"]; exists {
-		t.Fatalf("did not expect questions on form submit awaiting.answer, got %#v", payload)
 	}
 }
 
@@ -524,11 +510,13 @@ func TestDispatcherEmitsAwaitingAnswerForQuestionMode(t *testing.T) {
 			"mode": "question",
 			"answers": []any{
 				map[string]any{
+					"id":       "q1",
 					"question": "Destination?",
 					"header":   "Trip",
 					"answer":   []string{"Xitang", "Suzhou"},
 				},
 				map[string]any{
+					"id":       "q2",
 					"question": "How many people?",
 					"answer":   2,
 				},
@@ -540,16 +528,16 @@ func TestDispatcherEmitsAwaitingAnswerForQuestionMode(t *testing.T) {
 	if payload["mode"] != "question" {
 		t.Fatalf("expected question mode, got %#v", payload)
 	}
-	questions, _ := payload["questions"].([]map[string]any)
-	if len(questions) != 2 {
-		t.Fatalf("expected formatted questions, got %#v", payload)
+	answers, _ := payload["answers"].([]map[string]any)
+	if len(answers) != 2 {
+		t.Fatalf("expected formatted answers, got %#v", payload)
 	}
-	firstAnswers, _ := questions[0]["answers"].([]string)
-	if questions[0]["question"] != "Destination?" || questions[0]["header"] != "Trip" || !reflect.DeepEqual(firstAnswers, []string{"Xitang", "Suzhou"}) {
-		t.Fatalf("unexpected formatted questions %#v", questions)
+	firstAnswers, _ := answers[0]["answers"].([]string)
+	if answers[0]["id"] != "q1" || answers[0]["question"] != "Destination?" || answers[0]["header"] != "Trip" || !reflect.DeepEqual(firstAnswers, []string{"Xitang", "Suzhou"}) {
+		t.Fatalf("unexpected formatted answers %#v", answers)
 	}
-	if questions[1]["question"] != "How many people?" || questions[1]["answer"] != 2 {
-		t.Fatalf("unexpected scalar formatted question %#v", questions[1])
+	if answers[1]["id"] != "q2" || answers[1]["question"] != "How many people?" || answers[1]["answer"] != 2 {
+		t.Fatalf("unexpected scalar formatted answer %#v", answers[1])
 	}
 }
 
@@ -572,8 +560,8 @@ func TestDispatcherEmitsAwaitingAnswerCancelledFields(t *testing.T) {
 	if payload["mode"] != "question" || payload["cancelled"] != true || payload["reason"] != "user_dismissed" {
 		t.Fatalf("unexpected cancelled awaiting.answer payload %#v", payload)
 	}
-	if _, exists := payload["questions"]; exists {
-		t.Fatalf("did not expect questions on cancelled awaiting.answer, got %#v", payload)
+	if _, exists := payload["answers"]; exists {
+		t.Fatalf("did not expect answers on cancelled awaiting.answer, got %#v", payload)
 	}
 }
 
@@ -583,8 +571,9 @@ func TestEventDataMarshalsAwaitingAnswerWithContractKeyOrder(t *testing.T) {
 		"mode":       "question",
 		"cancelled":  true,
 		"reason":     "user_dismissed",
-		"questions": []any{
+		"answers": []any{
 			map[string]any{
+				"id":       "q1",
 				"question": "Destination?",
 				"answers":  []string{"Xitang", "Suzhou"},
 			},
@@ -603,7 +592,7 @@ func TestEventDataMarshalsAwaitingAnswerWithContractKeyOrder(t *testing.T) {
 		`"mode":"question"`,
 		`"cancelled":true`,
 		`"reason":"user_dismissed"`,
-		`"questions":[{"answers":["Xitang","Suzhou"],"question":"Destination?"}]`,
+		`"answers":[{"answers":["Xitang","Suzhou"],"id":"q1","question":"Destination?"}]`,
 		`"timestamp":`,
 	}
 	prev := -1
@@ -622,10 +611,15 @@ func TestEventDataMarshalsAwaitingAnswerWithContractKeyOrder(t *testing.T) {
 func TestEventDataMarshalsAwaitingAnswerFormSubmitWithContractKeyOrder(t *testing.T) {
 	event := NewEvent("awaiting.answer", map[string]any{
 		"awaitingId": "tool_1",
-		"mode":       "approval",
-		"action":     "submit",
-		"payload": map[string]any{
-			"employee_id": "E1001",
+		"mode":       "form",
+		"forms": []any{
+			map[string]any{
+				"id":     "form-1",
+				"action": "submit",
+				"payload": map[string]any{
+					"employee_id": "E1001",
+				},
+			},
 		},
 	})
 	event.Seq = 13
@@ -638,9 +632,8 @@ func TestEventDataMarshalsAwaitingAnswerFormSubmitWithContractKeyOrder(t *testin
 		`"seq":13`,
 		`"type":"awaiting.answer"`,
 		`"awaitingId":"tool_1"`,
-		`"mode":"approval"`,
-		`"action":"submit"`,
-		`"payload":{"employee_id":"E1001"}`,
+		`"mode":"form"`,
+		`"forms":[{"action":"submit","id":"form-1","payload":{"employee_id":"E1001"}}]`,
 		`"timestamp":`,
 	}
 	prev := -1

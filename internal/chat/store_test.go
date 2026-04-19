@@ -418,21 +418,13 @@ func TestStepWriterEmbedsAwaitingInStepLine(t *testing.T) {
 		Type:      "awaiting.ask",
 		Timestamp: 1002,
 		Payload: map[string]any{
-			"awaitingId":   "tool-1",
-			"viewportType": "builtin",
-			"viewportKey":  "confirm_dialog",
-			"mode":         "question",
-			"timeout":      120000,
-			"runId":        "run-awaiting-step",
-		},
-	})
-	writer.OnEvent(stream.EventData{
-		Type:      "awaiting.payload",
-		Timestamp: 1003,
-		Payload: map[string]any{
 			"awaitingId": "tool-1",
+			"mode":       "question",
+			"timeout":    120000,
+			"runId":      "run-awaiting-step",
 			"questions": []any{
 				map[string]any{
+					"id":       "q1",
 					"question": "How many?",
 					"type":     "number",
 				},
@@ -466,7 +458,7 @@ func TestStepWriterEmbedsAwaitingInStepLine(t *testing.T) {
 		t.Fatalf("expected first persisted line to be step, got %#v", lines[0])
 	}
 	awaiting, _ := lines[0]["awaiting"].([]any)
-	if len(awaiting) != 2 {
+	if len(awaiting) != 1 {
 		t.Fatalf("expected embedded awaiting events on step line, got %#v", lines[0])
 	}
 	for _, raw := range awaiting {
@@ -694,11 +686,9 @@ func TestStepWriterDropsAwaitingWithoutMessages(t *testing.T) {
 		Type:      "awaiting.ask",
 		Timestamp: 3001,
 		Payload: map[string]any{
-			"awaitingId":   "tool-1",
-			"viewportType": "builtin",
-			"viewportKey":  "confirm_dialog",
-			"mode":         "question",
-			"timeout":      120000,
+			"awaitingId": "tool-1",
+			"mode":       "question",
+			"timeout":    120000,
 		},
 	})
 	writer.Flush()
@@ -771,35 +761,26 @@ func TestLoadChatReplaysQuestionAwaitLifecycleLegacyEventLines(t *testing.T) {
 		UpdatedAt: 1001,
 		Type:      "event",
 		Event: map[string]any{
-			"type":         "awaiting.ask",
-			"awaitingId":   "tool-1",
-			"viewportType": "builtin",
-			"viewportKey":  "confirm_dialog",
-			"mode":         "question",
-			"timeout":      120000,
-			"runId":        "run-1",
-		},
-	}); err != nil {
-		t.Fatalf("append await ask line: %v", err)
-	}
-
-	if err := store.AppendEventLine("chat-1", EventLine{
-		ChatID:    "chat-1",
-		RunID:     "run-1",
-		UpdatedAt: 1002,
-		Type:      "event",
-		Event: map[string]any{
-			"type":       "awaiting.payload",
+			"type":       "awaiting.ask",
 			"awaitingId": "tool-1",
+			"mode":       "question",
+			"timeout":    120000,
+			"runId":      "run-1",
 			"questions": []any{
 				map[string]any{
+					"id":       "q1",
 					"question": "How many?",
 					"type":     "number",
+				},
+				map[string]any{
+					"id":       "q2",
+					"question": "Topics?",
+					"type":     "select",
 				},
 			},
 		},
 	}); err != nil {
-		t.Fatalf("append await payload line: %v", err)
+		t.Fatalf("append await ask line: %v", err)
 	}
 
 	if err := store.AppendEventLine("chat-1", EventLine{
@@ -815,12 +796,12 @@ func TestLoadChatReplaysQuestionAwaitLifecycleLegacyEventLines(t *testing.T) {
 			"awaitingId": "tool-1",
 			"params": []any{
 				map[string]any{
-					"question": "How many?",
-					"answer":   3,
+					"id":     "q1",
+					"answer": 3,
 				},
 				map[string]any{
-					"question": "Topics?",
-					"answers":  []any{"产品更新", "使用教程"},
+					"id":      "q2",
+					"answers": []any{"产品更新", "使用教程"},
 				},
 			},
 		},
@@ -837,12 +818,14 @@ func TestLoadChatReplaysQuestionAwaitLifecycleLegacyEventLines(t *testing.T) {
 			"type":       "awaiting.answer",
 			"awaitingId": "tool-1",
 			"mode":       "question",
-			"questions": []any{
+			"answers": []any{
 				map[string]any{
+					"id":       "q1",
 					"question": "How many?",
 					"answer":   3,
 				},
 				map[string]any{
+					"id":       "q2",
 					"question": "Topics?",
 					"answers":  []any{"产品更新", "使用教程"},
 				},
@@ -857,8 +840,8 @@ func TestLoadChatReplaysQuestionAwaitLifecycleLegacyEventLines(t *testing.T) {
 		t.Fatalf("load chat: %v", err)
 	}
 
-	if len(detail.Events) != 8 {
-		t.Fatalf("expected 8 replayed events, got %d: %#v", len(detail.Events), detail.Events)
+	if len(detail.Events) != 7 {
+		t.Fatalf("expected 7 replayed events, got %d: %#v", len(detail.Events), detail.Events)
 	}
 
 	expectedTypes := []string{
@@ -866,7 +849,6 @@ func TestLoadChatReplaysQuestionAwaitLifecycleLegacyEventLines(t *testing.T) {
 		"run.start",
 		"request.query",
 		"awaiting.ask",
-		"awaiting.payload",
 		"request.submit",
 		"awaiting.answer",
 		"run.complete",
@@ -878,9 +860,6 @@ func TestLoadChatReplaysQuestionAwaitLifecycleLegacyEventLines(t *testing.T) {
 	}
 
 	viewport := detail.Events[3]
-	if viewport.String("viewportKey") != "confirm_dialog" {
-		t.Fatalf("unexpected await ask replay %#v", viewport)
-	}
 	if _, exists := viewport.Payload["awaitName"]; exists {
 		t.Fatalf("did not expect awaitName on awaiting.ask replay %#v", viewport)
 	}
@@ -888,19 +867,18 @@ func TestLoadChatReplaysQuestionAwaitLifecycleLegacyEventLines(t *testing.T) {
 		t.Fatalf("did not expect chatId on awaiting.ask replay %#v", viewport)
 	}
 
-	payload := detail.Events[4]
-	questions, _ := payload.Value("questions").([]any)
-	if len(questions) != 1 {
-		t.Fatalf("expected await payload replay, got %#v", payload)
+	questions, _ := viewport.Value("questions").([]any)
+	if len(questions) != 2 {
+		t.Fatalf("expected inline await ask replay, got %#v", viewport)
 	}
 
-	submit := detail.Events[5]
+	submit := detail.Events[4]
 	submitParams, _ := submit.Value("params").([]any)
 	if submit.String("awaitingId") != "tool-1" || len(submitParams) != 2 {
 		t.Fatalf("unexpected request.submit replay %#v", submit)
 	}
-	answer := detail.Events[6]
-	answerQuestions, _ := answer.Value("questions").([]any)
+	answer := detail.Events[5]
+	answerQuestions, _ := answer.Value("answers").([]any)
 	if answer.String("awaitingId") != "tool-1" || len(answerQuestions) != 2 {
 		t.Fatalf("unexpected awaiting.answer replay %#v", answer)
 	}
@@ -1035,17 +1013,11 @@ func TestLoadChatReplaysAwaitingFromStepLine(t *testing.T) {
 				"type":         "awaiting.ask",
 				"timestamp":    1002,
 				"awaitingId":   "tool-1",
-				"viewportType": "builtin",
-				"viewportKey":  "confirm_dialog",
 				"mode":         "question",
 				"timeout":      120000,
-			},
-			{
-				"type":       "awaiting.payload",
-				"timestamp":  1003,
-				"awaitingId": "tool-1",
 				"questions": []any{
 					map[string]any{
+						"id":       "q1",
 						"question": "How many?",
 						"type":     "number",
 					},
@@ -1067,7 +1039,6 @@ func TestLoadChatReplaysAwaitingFromStepLine(t *testing.T) {
 		"request.query",
 		"tool.snapshot",
 		"awaiting.ask",
-		"awaiting.payload",
 		"run.complete",
 	}
 	if len(detail.Events) != len(expectedTypes) {
@@ -1266,19 +1237,16 @@ func TestLoadChatReplaysApprovalAwaitLifecycleLegacyEventLines(t *testing.T) {
 		UpdatedAt: 1001,
 		Type:      "event",
 		Event: map[string]any{
-			"type":         "awaiting.ask",
-			"awaitingId":   "tool-approval",
-			"viewportType": "builtin",
-			"viewportKey":  "confirm_dialog",
-			"mode":         "approval",
-			"timeout":      120000,
-			"runId":        "run-approval",
-			"questions": []any{
+			"type":       "awaiting.ask",
+			"awaitingId": "tool-approval",
+			"mode":       "approval",
+			"timeout":    120000,
+			"runId":      "run-approval",
+			"approvals": []any{
 				map[string]any{
-					"question": "Proceed?",
-					"options": []any{
-						map[string]any{"label": "Approve", "value": "approve"},
-					},
+					"id":      "cmd-1",
+					"command": "Proceed?",
+					"level":   1,
 				},
 			},
 		},
@@ -1298,7 +1266,7 @@ func TestLoadChatReplaysApprovalAwaitLifecycleLegacyEventLines(t *testing.T) {
 			"runId":      "run-approval",
 			"awaitingId": "tool-approval",
 			"params": []any{
-				map[string]any{"question": "Proceed?", "answer": "Approve", "value": "approve"},
+				map[string]any{"id": "cmd-1", "decision": "approve"},
 			},
 		},
 	}); err != nil {
@@ -1314,8 +1282,8 @@ func TestLoadChatReplaysApprovalAwaitLifecycleLegacyEventLines(t *testing.T) {
 			"type":       "awaiting.answer",
 			"awaitingId": "tool-approval",
 			"mode":       "approval",
-			"questions": []any{
-				map[string]any{"question": "Proceed?", "answer": "Approve", "value": "approve"},
+			"approvals": []any{
+				map[string]any{"id": "cmd-1", "command": "Proceed?", "decision": "approve"},
 			},
 		},
 	}); err != nil {
@@ -1328,31 +1296,25 @@ func TestLoadChatReplaysApprovalAwaitLifecycleLegacyEventLines(t *testing.T) {
 	}
 
 	foundAwaitAsk := false
-	foundAwaitPayload := false
 	foundAwaitAnswer := false
 	for _, event := range detail.Events {
 		switch event.Type {
 		case "awaiting.ask":
 			foundAwaitAsk = true
-			questions, _ := event.Value("questions").([]any)
-			if len(questions) != 1 {
-				t.Fatalf("expected approval awaiting.ask questions length 1, got %#v", event)
+			approvals, _ := event.Value("approvals").([]any)
+			if len(approvals) != 1 {
+				t.Fatalf("expected approval awaiting.ask approvals length 1, got %#v", event)
 			}
-		case "awaiting.payload":
-			foundAwaitPayload = true
 		case "awaiting.answer":
 			foundAwaitAnswer = true
-			questions, _ := event.Value("questions").([]any)
-			if event.String("mode") != "approval" || len(questions) != 1 {
+			approvals, _ := event.Value("approvals").([]any)
+			if event.String("mode") != "approval" || len(approvals) != 1 {
 				t.Fatalf("unexpected approval awaiting.answer %#v", event)
 			}
 		}
 	}
 	if !foundAwaitAsk {
 		t.Fatalf("expected approval awaiting.ask replay, got %#v", detail.Events)
-	}
-	if foundAwaitPayload {
-		t.Fatalf("did not expect approval awaiting.payload replay, got %#v", detail.Events)
 	}
 	if !foundAwaitAnswer {
 		t.Fatalf("expected approval awaiting.answer replay, got %#v", detail.Events)

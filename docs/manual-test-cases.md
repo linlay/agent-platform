@@ -89,14 +89,45 @@ curl -N -X POST "$BASE_URL/api/query" \
   -d '{"runId":"replace-me","message":"使用指定 runId 发起一次请求","agentKey":"go_runner"}'
 ```
 
-## Submit / Steer / Interrupt 占位测试
+## Submit / Steer / Interrupt
 
-这些接口当前返回最小 ack，主要用于校验 API 契约，而不是完整的人机协作能力。
+`/api/submit` 当前使用统一 HITL 协议：
+
+- 顶层固定是 `runId + awaitingId + params`
+- `params` 永远是数组
+- 不在 submit 里再传 `mode`
+- 后端按 `awaitingId` 反查当前是 `question / approval / form`
+
+question:
 
 ```bash
 curl -X POST "$BASE_URL/api/submit" \
   -H "Content-Type: application/json" \
-  -d '{"runId":"replace-me","awaitingId":"await_01","params":{"confirmed":true}}'
+  -d '{"runId":"replace-me","awaitingId":"tool_question","params":[{"id":"q1","answer":"Weekend"},{"id":"q2","answers":["产品更新","使用教程"]}]}'
+```
+
+approval:
+
+```bash
+curl -X POST "$BASE_URL/api/submit" \
+  -H "Content-Type: application/json" \
+  -d '{"runId":"replace-me","awaitingId":"await_tool_bash","params":[{"id":"cmd-1","decision":"approve"}]}'
+```
+
+form:
+
+```bash
+curl -X POST "$BASE_URL/api/submit" \
+  -H "Content-Type: application/json" \
+  -d '{"runId":"replace-me","awaitingId":"await_tool_bash","params":[{"id":"form-1","payload":{"days":2,"employee_id":"E1001"}}]}'
+```
+
+整批取消：
+
+```bash
+curl -X POST "$BASE_URL/api/submit" \
+  -H "Content-Type: application/json" \
+  -d '{"runId":"replace-me","awaitingId":"tool_question","params":[]}'
 ```
 
 ```bash
@@ -142,6 +173,8 @@ curl -X GET "$BASE_URL/api/resource?file=replace-me%2FREADME.md"
 
 ## Viewport
 
+question / approval 使用 builtin dialog，不必单独取 viewport；只有 `form` 需要 HTML viewport：
+
 ```bash
-curl -X GET "$BASE_URL/api/viewport?viewportKey=confirm_dialog"
+curl -X GET "$BASE_URL/api/viewport?viewportKey=leave_form"
 ```

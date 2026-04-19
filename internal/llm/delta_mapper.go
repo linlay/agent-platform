@@ -186,19 +186,15 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		}}
 	case DeltaAwaitAsk:
 		return []stream.StreamInput{stream.AwaitAsk{
-			AwaitingID:   value.AwaitingID,
+			AwaitingID: value.AwaitingID,
+			Mode:       value.Mode,
+			Timeout:    value.Timeout,
+			RunID:      value.RunID,
 			ViewportType: value.ViewportType,
 			ViewportKey:  value.ViewportKey,
-			Mode:         value.Mode,
-			Timeout:      value.Timeout,
-			RunID:        value.RunID,
-			Payload:      CloneMap(value.Payload),
 			Questions:    append([]any(nil), value.Questions...),
-		}}
-	case DeltaAwaitPayload:
-		return []stream.StreamInput{stream.AwaitPayload{
-			AwaitingID: value.AwaitingID,
-			Questions:  append([]any(nil), value.Questions...),
+			Approvals:    append([]any(nil), value.Approvals...),
+			Forms:        append([]any(nil), value.Forms...),
 		}}
 	case DeltaRequestSubmit:
 		return []stream.StreamInput{stream.RequestSubmit{
@@ -289,13 +285,13 @@ func (m *DeltaMapper) buildFrontendToolAwaitAsk(toolID string, toolName string, 
 			return nil, false
 		}
 		delete(m.toolArgBuffers, toolID)
-		return handler.BuildInitialAwaitAsk(toolID, m.runID, tool, 0, m.toolTimeoutMs), true
+		return handler.BuildInitialAwaitAsk(toolID, m.runID, tool, args, 0, m.toolTimeoutMs), true
 	}
 	if strings.TrimSpace(argsDelta) != "" {
 		var args map[string]any
 		if err := json.Unmarshal([]byte(argsDelta), &args); err == nil {
 			if err := handler.ValidateArgs(args); err == nil {
-				return handler.BuildInitialAwaitAsk(toolID, m.runID, tool, chunkIndex, m.toolTimeoutMs), false
+				return handler.BuildInitialAwaitAsk(toolID, m.runID, tool, args, chunkIndex, m.toolTimeoutMs), false
 			}
 			return nil, false
 		}
@@ -304,7 +300,7 @@ func (m *DeltaMapper) buildFrontendToolAwaitAsk(toolID string, toolName string, 
 		m.toolArgBuffers[toolID] = buffer
 		return nil, false
 	}
-	return handler.BuildInitialAwaitAsk(toolID, m.runID, tool, chunkIndex, m.toolTimeoutMs), false
+	return nil, false
 }
 
 func (m *DeltaMapper) resolveToolID(index int, candidate string, toolName string) string {

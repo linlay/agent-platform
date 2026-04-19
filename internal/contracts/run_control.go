@@ -74,7 +74,7 @@ type RunControl struct {
 	submitWaiters         map[string]*submitWaiter
 	pendingSubmits        map[string]SubmitResult
 	resolvedSubmits       map[string]SubmitResult
-	expectedSubmitAwaitID string
+	awaitingSubmits       map[string]AwaitingSubmitContext
 	state                 RunLoopState
 
 	maxDisconnectedWait time.Duration
@@ -93,6 +93,7 @@ func NewRunControl(parent context.Context, runID string) *RunControl {
 		submitWaiters:       map[string]*submitWaiter{},
 		pendingSubmits:      map[string]SubmitResult{},
 		resolvedSubmits:     map[string]SubmitResult{},
+		awaitingSubmits:     map[string]AwaitingSubmitContext{},
 		state:               RunLoopStateIdle,
 		maxDisconnectedWait: defaultRunMaxDisconnectedWait,
 		observerChanged:     make(chan struct{}, 1),
@@ -224,9 +225,6 @@ func (c *RunControl) AwaitSubmitWithTimeout(ctx context.Context, awaitingID stri
 	}
 	if pending, exists := c.pendingSubmits[awaitingID]; exists {
 		delete(c.pendingSubmits, awaitingID)
-		if c.expectedSubmitAwaitID == awaitingID {
-			c.expectedSubmitAwaitID = ""
-		}
 		c.mu.Unlock()
 		return pending, nil
 	}
@@ -318,16 +316,14 @@ func (c *RunControl) ResolveSubmit(req api.SubmitRequest) SubmitAck {
 	waiter, ok := c.submitWaiters[req.AwaitingID]
 	if ok {
 		delete(c.submitWaiters, req.AwaitingID)
-		if c.expectedSubmitAwaitID == req.AwaitingID {
-			c.expectedSubmitAwaitID = ""
-		}
+		delete(c.awaitingSubmits, req.AwaitingID)
 		c.resolvedSubmits[req.AwaitingID] = SubmitResult{
 			Request: req,
 			Status:  "accepted",
 			Detail:  "Frontend submit accepted",
 		}
 	}
-	if !ok && req.AwaitingID != "" && req.AwaitingID == c.expectedSubmitAwaitID && !c.interrupted.Load() && !c.finished.Load() {
+	if _, exists := c.awaitingSubmits[req.AwaitingID]; !ok && req.AwaitingID != "" && exists && !c.interrupted.Load() && !c.finished.Load() {
 		accepted := SubmitResult{
 			Request: req,
 			Status:  "accepted",
@@ -335,7 +331,7 @@ func (c *RunControl) ResolveSubmit(req api.SubmitRequest) SubmitAck {
 		}
 		c.pendingSubmits[req.AwaitingID] = accepted
 		c.resolvedSubmits[req.AwaitingID] = accepted
-		c.expectedSubmitAwaitID = ""
+		delete(c.awaitingSubmits, req.AwaitingID)
 		c.mu.Unlock()
 		return SubmitAck{Accepted: true, Status: "accepted", Detail: "Frontend submit accepted"}
 	}
@@ -353,12 +349,25 @@ func (c *RunControl) ResolveSubmit(req api.SubmitRequest) SubmitAck {
 	return SubmitAck{Accepted: true, Status: "accepted", Detail: "Frontend submit accepted"}
 }
 
-func (c *RunControl) ExpectSubmit(awaitingID string) {
+func (c *RunControl) LookupAwaiting(awaitingID string) (AwaitingSubmitContext, bool) {
 	if c == nil || awaitingID == "" {
+		return AwaitingSubmitContext{}, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	ctx, ok := c.awaitingSubmits[awaitingID]
+	if !ok {
+		return AwaitingSubmitContext{}, false
+	}
+	return ctx.Clone(), true
+}
+
+func (c *RunControl) ExpectSubmit(ctx AwaitingSubmitContext) {
+	if c == nil || ctx.AwaitingID == "" {
 		return
 	}
 	c.mu.Lock()
-	c.expectedSubmitAwaitID = awaitingID
+	c.awaitingSubmits[ctx.AwaitingID] = ctx.Clone()
 	c.mu.Unlock()
 }
 
@@ -367,9 +376,7 @@ func (c *RunControl) ClearExpectedSubmit(awaitingID string) {
 		return
 	}
 	c.mu.Lock()
-	if c.expectedSubmitAwaitID == awaitingID {
-		c.expectedSubmitAwaitID = ""
-	}
+	delete(c.awaitingSubmits, awaitingID)
 	c.mu.Unlock()
 }
 
@@ -420,6 +427,7 @@ func (c *RunControl) closeWaiters(status string, detail string) {
 	c.mu.Lock()
 	waiters := c.submitWaiters
 	c.submitWaiters = map[string]*submitWaiter{}
+	c.awaitingSubmits = map[string]AwaitingSubmitContext{}
 	c.mu.Unlock()
 	for _, waiter := range waiters {
 		waiter.deliver(SubmitResult{Status: status, Detail: detail})
@@ -590,6 +598,14 @@ func (m *InMemoryRunManager) Submit(req api.SubmitRequest) SubmitAck {
 		return SubmitAck{Accepted: false, Status: "unmatched", Detail: "No active run found"}
 	}
 	return control.ResolveSubmit(req)
+}
+
+func (m *InMemoryRunManager) LookupAwaiting(runID string, awaitingID string) (AwaitingSubmitContext, bool) {
+	control, ok := m.lookupControl(runID)
+	if !ok {
+		return AwaitingSubmitContext{}, false
+	}
+	return control.LookupAwaiting(awaitingID)
 }
 
 func (m *InMemoryRunManager) Steer(req api.SteerRequest) SteerAck {

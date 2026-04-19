@@ -235,64 +235,50 @@ sandboxConfig:
 - `GET /api/resource`：按 chat 目录中的相对路径回读静态资源，可结合 resource ticket 访问
 - `POST /api/upload`：写入 chat 目录并返回 upload ticket
 
-### `confirm_dialog` 共享 viewport 约定
+### HITL 协议
 
-- `_ask_user_question_` 与 `_ask_user_approval_` 都使用 `viewportType=builtin`、`viewportKey=confirm_dialog`。
-- `_ask_user_approval_` 现为 deprecated legacy tool，仅用于模型显式发起确认；Bash HITL 不再通过它中转。
-- 两个工具的输入里都必须带 `mode`：
-  - `mode=question`：对应 `_ask_user_question_`
-  - `mode=approval`：对应 `_ask_user_approval_`
-- 前端确认流 SSE 语义：
-  - `tool.start` / `tool.snapshot` 保持纯净，不再携带 `viewportKey` / `toolTimeout`
-  - `_ask_user_question_` 事件顺序：
-    `tool.start -> await.ask -> tool.args* -> tool.end -> await.payload -> [用户 /api/submit] -> request.submit -> awaiting.answer -> tool.result`
-  - `_ask_user_approval_`（deprecated，但仍兼容）事件顺序：
-    `tool.start -> tool.args* -> tool.end -> await.ask -> [用户 /api/submit] -> request.submit -> awaiting.answer -> tool.result`
-  - `request.submit` 是用户提交后的事件，不再表示“前端应该显示确认框”
-  - `awaiting.answer` 是用户提交后的结构化摘要事件，便于前端展示问答/审批结果
-  - `tool.result` 是工具规范化后的真实执行结果，不等同于原始 submit payload
-- `await.ask` 使用独立字段命名：
-  - `awaitingId`、`viewportType`、`viewportKey`、`mode`、`timeout`、`runId`
-- `await.payload` 只在 `question` 模式下出现：
-  - 顶层直接输出 `questions: []`
-  - 不再嵌套 `payload`
-  - 不再重复携带 `mode`
-- `question` 模式：
-  - `await.ask` 不带 `questions`
-  - `questions` 只出现在 `await.payload`
-  - 用户提交后额外发 `awaiting.answer`，结构为 `{"awaitingId":"...","mode":"question","questions":[{"question":"...","header":"...","answer":"..."},{"question":"...","header":"...","answers":[...]}]}`
-  - 若用户取消，不输出 `questions`，仅保留 `cancelled` / `reason`
-- `approval` 模式：
-  - 不再发 `await.payload`
-  - `builtin` confirm 使用 `questions` 直接内联在 `await.ask`
-  - `html` form 使用 `command` 直接内联在 `await.ask`，不再输出 `questions`
-  - 用户提交后额外发 `awaiting.answer`：
-    - confirm：`{"awaitingId":"...","mode":"approval","questions":[{"question":"...","header":"...","answer":"...","value":"..."}]}`
-    - form submit：`{"awaitingId":"...","mode":"approval","action":"submit","payload":{...}}`
-  - 若用户取消，不输出 `questions`，仅保留 `cancelled` / `reason`
-- `mode=question`：
-  - 顶层字段为 `questions`
-  - 每个问题支持 `type`、`header`、`placeholder`
-  - `select` 类型额外支持 `options`、`multiSelect`、`allowFreeText`、`freeTextPlaceholder`
-  - `allowFreeText` / `freeTextPlaceholder` 仅在 `select` 类型上生效，非 `select` 类型的这些字段会被后端自动剥离
-  - `select` 题的 `options` 结构是 `{ label, description? }`，不包含 `value`
-  - 单个问题里，选项回答与自由输入互斥；单值题使用 `answer`，`multiSelect=true` 的多选题使用 `answers`
-  - `/api/submit` 提交结构：
-    - 单值题：`{"runId":"...","awaitingId":"...","params":[{"question":"...","answer":...}]}`
-    - 多选题：`{"runId":"...","awaitingId":"...","params":[{"question":"...","answers":[...]}]}`
-  - `tool.result` 仍返回规范化 JSON：`{"mode":"question","answers":[{"question":"...","header":"...","answer":...}]}`
-- `mode=approval`：
-  - builtin confirm 的 `await.ask` 输出 `questions: [{ question, header?, description?, options }]`
-  - html form 的 `await.ask` 输出 `command: "..."`，HTML 自行从原始命令中读取并重组 payload
-  - Bash HITL 的 builtin `question` 直接使用被拦截的原始命令字符串，不再包装固定问句
-  - `options` 结构是 `{ label, value, description? }`
-  - 预设选项与自由输入互斥；提交项里的 `answer` 为展示文案，`value` 为机器值
-  - builtin confirm 额外支持 `approve_always`，作用域仅限当前 run 内相同 level 的 builtin confirm
-  - 预设选项提交必须同时带上 `answer` 与 `value`；`request.submit` 保留前端原始提交，`awaiting.answer` / `tool.result` 输出后端规范化后的结果
-  - builtin confirm `/api/submit`：`{"runId":"...","awaitingId":"...","params":[{"question":"...","answer":"确认删除","value":"yes"}]}`
-  - html form `/api/submit`：`{"runId":"...","awaitingId":"...","params":{"action":"submit","payload":{...}}}` 或 `{"runId":"...","awaitingId":"...","params":{"action":"cancel"}}`
-  - confirm `tool.result` 规范化结构：`{"mode":"approval","questions":[{"question":"...","header":"...","answer":"确认删除","value":"yes"}]}`
-  - form `tool.result` 规范化结构：`{"mode":"approval","action":"submit","payload":{...}}`
+- 人机协作统一保留 `mode` 字段，不引入 `kind`；当前三态是 `question` / `approval` / `form`。
+- `/api/submit` 固定形状为 `{"runId":"...","awaitingId":"...","params":[...]}`。
+- `params` 顶层永远是数组；前端不再提交 `mode`，后端按 `awaitingId` 反查当前等待态。
+- 数组里的每一项都必须带 `id`，用于和 `awaiting.ask.questions[] / approvals[] / forms[]` 对应。
+- `awaiting.payload` 已删除；问题、审批项、表单定义全部直接内联在 `awaiting.ask`。
+- `_ask_user_approval_` 已下线；审批流只来自 Bash HITL builtin confirm。
+
+三态契约：
+
+- `mode=question`
+  - 来源：`_ask_user_question_`
+  - `awaiting.ask`：`{"awaitingId":"...","mode":"question","timeout":...,"runId":"...","questions":[...]}`
+  - question 不再携带 `viewportType` / `viewportKey`
+  - `/api/submit.params`：`[{"id":"q1","answer":"..."},{"id":"q2","answers":[...]}]`
+  - `awaiting.answer`：`{"awaitingId":"...","mode":"question","answers":[...]}`
+  - 整批取消：`params: []`，后端归一化为 `{"mode":"question","cancelled":true,"reason":"user_dismissed"}`
+
+- `mode=approval`
+  - 来源：Bash HITL builtin confirm
+  - `awaiting.ask`：`{"awaitingId":"...","mode":"approval","timeout":...,"runId":"...","approvals":[{"id":"cmd-1","command":"...","level":1}]}`
+  - approval 不再携带 `viewportType` / `viewportKey`
+  - 用户只能批准或拒绝，不能改命令内容
+  - `/api/submit.params`：`[{"id":"cmd-1","decision":"approve|reject|approve_always","reason":"..."}]`
+  - `awaiting.answer`：`{"awaitingId":"...","mode":"approval","approvals":[{"id":"cmd-1","command":"...","decision":"approve"}]}`
+  - 整批取消：`params: []`
+
+- `mode=form`
+  - 来源：Bash HITL html form
+  - `awaiting.ask`：`{"awaitingId":"...","mode":"form","viewportType":"html","viewportKey":"leave_form","timeout":...,"runId":"...","forms":[{"id":"form-1","command":"...","html?":"...","initialPayload":{...}}]}`
+  - form 是唯一保留 `viewportType:"html"` + `viewportKey` 的形态
+  - `/api/submit.params`：
+    - submit：`[{"id":"form-1","payload":{...}}]`
+    - reject：`[{"id":"form-1","reason":"..."}]`
+    - cancel：`[{"id":"form-1"}]`
+  - `awaiting.answer`：`{"awaitingId":"...","mode":"form","forms":[{"id":"form-1","command":"...","action":"submit|reject|cancel","payload?":{...},"reason?":"..."}]}`
+  - 整批取消：`params: []`
+
+事件顺序约定：
+
+- question：`tool.start -> awaiting.ask -> tool.args* -> tool.end -> request.submit -> awaiting.answer -> tool.result`
+- approval / form：`tool.start -> tool.args* -> tool.end -> awaiting.ask -> request.submit -> awaiting.answer -> tool.result`
+- `request.submit` 透传前端原始数组，便于审计；`awaiting.answer` 才是后端归一化后的结构化结果。
 
 ## 7. 开发要点
 

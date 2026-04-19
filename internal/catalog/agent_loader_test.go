@@ -74,12 +74,13 @@ func TestParseAgentFileLoadsToolOverridesFromToolConfig(t *testing.T) {
 		"  modelKey: demo-model\n" +
 		"toolConfig:\n" +
 		"  tools:\n" +
-		"    - _ask_user_approval_\n" +
+		"    - _ask_user_question_\n" +
 		"  overrides:\n" +
-		"    _ask_user_approval_:\n" +
-		"      label: Approval\n" +
-		"      description: Request approval from the user\n" +
-		"      viewportType: confirm_dialog\n"
+		"    _ask_user_question_:\n" +
+		"      label: Ask\n" +
+		"      description: Ask the user a question\n" +
+		"      viewportType: builtin\n" +
+		"      viewportKey: question_dialog\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write agent file: %v", err)
 	}
@@ -88,18 +89,18 @@ func TestParseAgentFileLoadsToolOverridesFromToolConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	if len(def.Tools) != 1 || def.Tools[0] != "_ask_user_approval_" {
+	if len(def.Tools) != 1 || def.Tools[0] != "_ask_user_question_" {
 		t.Fatalf("expected flattened tools list, got %#v", def.Tools)
 	}
-	override, ok := def.ToolOverrides["_ask_user_approval_"]
+	override, ok := def.ToolOverrides["_ask_user_question_"]
 	if !ok {
 		t.Fatalf("expected tool override to load, got %#v", def.ToolOverrides)
 	}
-	if override.Label != "Approval" || override.Description != "Request approval from the user" {
+	if override.Label != "Ask" || override.Description != "Ask the user a question" {
 		t.Fatalf("expected tool override fields to load, got %#v", override)
 	}
-	if override.Meta["viewportType"] != "confirm_dialog" {
-		t.Fatalf("expected viewportType in tool override meta, got %#v", override.Meta)
+	if override.Meta["viewportType"] != "builtin" || override.Meta["viewportKey"] != "question_dialog" {
+		t.Fatalf("expected viewport metadata in tool override meta, got %#v", override.Meta)
 	}
 }
 

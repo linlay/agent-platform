@@ -11,8 +11,7 @@ import (
 type Handler interface {
 	ToolName() string
 	ValidateArgs(args map[string]any) error
-	BuildInitialAwaitAsk(toolID string, runID string, tool api.ToolDetailResponse, chunkIndex int, timeoutMs int64) *stream.AwaitAsk
-	BuildDeferredAwait(toolID string, runID string, tool api.ToolDetailResponse, args map[string]any, timeoutMs int64) []contracts.AgentDelta
+	BuildInitialAwaitAsk(toolID string, runID string, tool api.ToolDetailResponse, args map[string]any, chunkIndex int, timeoutMs int64) *stream.AwaitAsk
 	NormalizeSubmit(args map[string]any, params any) (map[string]any, error)
 	FormatSubmitResult(format string, result contracts.ToolExecutionResult) (string, bool)
 }
@@ -39,7 +38,6 @@ func NewRegistry(handlers ...Handler) *Registry {
 func NewDefaultRegistry() *Registry {
 	return NewRegistry(
 		NewAskUserQuestionHandler(),
-		NewAskUserApprovalHandler(),
 	)
 }
 

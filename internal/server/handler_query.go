@@ -507,8 +507,12 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 
 func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 	var req api.SubmitRequest
-	if err := decodeJSON(r, &req); err != nil || req.RunID == "" || req.AwaitingID == "" {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "runId and awaitingId are required"))
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid submit payload"))
+		return
+	}
+	if _, err := s.validateSubmitRequest(req); err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
 		return
 	}
 	ack := s.deps.Runs.Submit(req)
