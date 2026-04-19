@@ -52,28 +52,24 @@ func normalizeHITLApprovalSubmit(args map[string]any, params any) (map[string]an
 				submittedID,
 			)
 		}
-		rawDecision := strings.ToLower(strings.TrimSpace(contracts.AnyStringNode(item["decision"])))
-		if rawDecision == "" {
+		decision := strings.ToLower(strings.TrimSpace(contracts.AnyStringNode(item["decision"])))
+		if decision == "" {
 			return nil, fmt.Errorf("items[%d]: decision is required", index)
 		}
-		decision := rawDecision
-		switch rawDecision {
+		switch decision {
 		case "approve", "approve_prefix_run":
-			decision = "approve"
 		case "reject":
-			decision = "reject"
 		default:
 			log.Printf("[llm][hitl][warn] unknown approval decision index=%d decision=%s; normalizing to reject",
 				index,
-				rawDecision,
+				decision,
 			)
 			decision = "reject"
 		}
 		entry := map[string]any{
-			"id":          definitionID,
-			"command":     contracts.AnyStringNode(definition["command"]),
-			"decision":    decision,
-			"rawDecision": rawDecision,
+			"id":       definitionID,
+			"command":  contracts.AnyStringNode(definition["command"]),
+			"decision": decision,
 		}
 		if reason := strings.TrimSpace(contracts.AnyStringNode(item["reason"])); reason != "" {
 			entry["reason"] = reason

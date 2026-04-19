@@ -559,6 +559,9 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 				if len(options) != 3 {
 					t.Fatalf("expected 3 approval options, got %#v", firstApproval)
 				}
+				if option, ok := options[0].(map[string]any); !ok || option["decision"] != "approve" {
+					t.Fatalf("expected approval options to use decision field, got %#v", options)
+				}
 				if firstApproval["allowFreeText"] != true || firstApproval["freeTextPlaceholder"] == "" {
 					t.Fatalf("expected free text approval metadata, got %#v", firstApproval)
 				}
@@ -612,6 +615,21 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 			}
 			if !foundRequestSubmit || !foundAwaitingAnswer || !foundOriginalResult {
 				t.Fatalf("expected submit/answer/results deltas, got %#v", stream.pending)
+			}
+			if len(stream.messages) < 2 {
+				t.Fatalf("expected tool result and HITL notice messages, got %#v", stream.messages)
+			}
+			toolMsg := stream.messages[len(stream.messages)-2]
+			if toolMsg.Role != "tool" || toolMsg.ToolCallID != "tool_1" || toolMsg.Content != "executed" {
+				t.Fatalf("expected pure tool output before HITL notice, got %#v", toolMsg)
+			}
+			hitlNotice := stream.messages[len(stream.messages)-1]
+			if hitlNotice.Role != "user" {
+				t.Fatalf("expected HITL notice to be appended as user message, got %#v", hitlNotice)
+			}
+			noticeText, _ := hitlNotice.Content.(string)
+			if !strings.Contains(noticeText, "[HITL]") || !strings.Contains(noticeText, `tool=tool_1`) || !strings.Contains(noticeText, `decision=approve`) {
+				t.Fatalf("expected HITL notice content, got %#v", hitlNotice)
 			}
 		})
 	}
@@ -694,7 +712,7 @@ func TestAwaitHITLSubmitAndExecute_RejectEmitsCancelledAnswer(t *testing.T) {
 					t.Fatalf("unexpected reject answer %#v", typed.Answer)
 				}
 				approvals, ok := typed.Answer["approvals"].([]map[string]any)
-				if !ok || len(approvals) != 1 || approvals[0]["decision"] != "reject" || approvals[0]["rawDecision"] != "reject" || approvals[0]["reason"] != "风险过高" {
+				if !ok || len(approvals) != 1 || approvals[0]["decision"] != "reject" || approvals[0]["reason"] != "风险过高" {
 					t.Fatalf("unexpected reject approvals %#v", typed.Answer)
 				}
 			}
@@ -712,6 +730,18 @@ func TestAwaitHITLSubmitAndExecute_RejectEmitsCancelledAnswer(t *testing.T) {
 	}
 	if !foundAnswer || !foundResult {
 		t.Fatalf("expected reject answer and tool result, got %#v", stream.pending)
+	}
+	if len(stream.messages) < 2 {
+		t.Fatalf("expected reject flow to append tool result and HITL notice, got %#v", stream.messages)
+	}
+	toolMsg := stream.messages[len(stream.messages)-2]
+	if toolMsg.Role != "tool" || toolMsg.ToolCallID != "tool_1" {
+		t.Fatalf("expected reject tool result message before notice, got %#v", toolMsg)
+	}
+	hitlNotice := stream.messages[len(stream.messages)-1]
+	noticeText, _ := hitlNotice.Content.(string)
+	if hitlNotice.Role != "user" || !strings.Contains(noticeText, `decision=reject`) || !strings.Contains(noticeText, `reason="风险过高"`) {
+		t.Fatalf("expected reject HITL notice, got %#v", hitlNotice)
 	}
 }
 
@@ -852,7 +882,7 @@ func TestPrepareQueuedBashApprovalBatch_MergesAllBuiltinApprovalsInSingleAwait(t
 			}
 			if typed.ToolName == "_sandbox_bash_" {
 				approvedResults++
-				if typed.Result.HITL["decision"] != "approve" || typed.Result.HITL["rawDecision"] != "approve" || typed.Result.HITL["awaitingId"] != ask.AwaitingID {
+				if typed.Result.HITL["decision"] != "approve" || typed.Result.HITL["awaitingId"] != ask.AwaitingID {
 					t.Fatalf("expected approved tool result to include HITL metadata, got %#v", typed.Result)
 				}
 			}
@@ -867,9 +897,6 @@ func TestPrepareQueuedBashApprovalBatch_MergesAllBuiltinApprovalsInSingleAwait(t
 	}
 	if approvals[2]["decision"] != "reject" {
 		t.Fatalf("expected third approval decision to be reject, got %#v", approvals)
-	}
-	if approvals[2]["rawDecision"] != "reject" {
-		t.Fatalf("expected rawDecision to be preserved, got %#v", approvals)
 	}
 	if rejectedCount != 1 {
 		t.Fatalf("expected exactly one rejected tool result, got %#v", stream.pending)
@@ -1008,6 +1035,9 @@ func TestPrepareQueuedBashApprovalBatch_SkipsWhitelistedRuleWithinRun(t *testing
 	}
 	if stream.queuedToolCalls[0].hitlDecision == nil || stream.queuedToolCalls[0].hitlDecision.Scope != "run_rule" {
 		t.Fatalf("expected whitelisted invocation to record run_rule HITL metadata, got %#v", stream.queuedToolCalls[0])
+	}
+	if stream.queuedToolCalls[0].hitlDecision.Mode != "approval" {
+		t.Fatalf("expected whitelisted invocation to preserve approval mode, got %#v", stream.queuedToolCalls[0].hitlDecision)
 	}
 }
 

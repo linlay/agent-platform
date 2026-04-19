@@ -49,6 +49,33 @@ func TestDispatcherEmitsToolSnapshotAndResultLifecycle(t *testing.T) {
 	assertEventTypes(t, resultEvents, "tool.result")
 }
 
+func TestDispatcherEmitsApprovalAlongsideToolResult(t *testing.T) {
+	dispatcher := NewDispatcher(StreamRequest{
+		RunID:  "run_1",
+		ChatID: "chat_1",
+	})
+
+	events := dispatcher.Dispatch(ToolResult{
+		ToolID:   "tool_1",
+		ToolName: "_sandbox_bash_",
+		Result:   "",
+		Hitl: map[string]any{
+			"awaitingId": "await_1",
+			"decision":   "approve",
+			"ruleKey":    "dangerous-commands::chmod",
+		},
+	})
+	assertEventTypes(t, events, "tool.result")
+	payload := events[0].ToData()
+	approval, ok := payload["approval"].(map[string]any)
+	if !ok || approval["decision"] != "approve" || approval["awaitingId"] != "await_1" {
+		t.Fatalf("expected approval payload on tool.result, got %#v", payload)
+	}
+	if _, ok := payload["hitl"]; ok {
+		t.Fatalf("did not expect legacy hitl key, got %#v", payload)
+	}
+}
+
 func TestDispatcherEmitsQuestionModeAwaitAskAfterToolStart(t *testing.T) {
 	dispatcher := NewDispatcher(StreamRequest{
 		RunID:  "run_1",
@@ -88,7 +115,7 @@ func TestDispatcherEmitsApprovalModeAwaitAskWithQuestions(t *testing.T) {
 				"id":                  "cmd-1",
 				"command":             "git push origin main",
 				"description":         "推送主分支",
-				"options":             []any{map[string]any{"label": "同意", "value": "approve"}},
+				"options":             []any{map[string]any{"label": "同意", "decision": "approve"}},
 				"allowFreeText":       true,
 				"freeTextPlaceholder": "可选：填写理由",
 			},
@@ -121,7 +148,7 @@ func TestDispatcherSkipsDuplicateAwaitAskForSameAwaitingID(t *testing.T) {
 				"id":                  "tool_1",
 				"command":             "chmod 777 ~/a.sh",
 				"description":         "放开 a.sh 权限",
-				"options":             []any{map[string]any{"label": "同意", "value": "approve"}},
+				"options":             []any{map[string]any{"label": "同意", "decision": "approve"}},
 				"allowFreeText":       true,
 				"freeTextPlaceholder": "可选：填写理由",
 			},
@@ -139,7 +166,7 @@ func TestDispatcherSkipsDuplicateAwaitAskForSameAwaitingID(t *testing.T) {
 				"id":                  "tool_1",
 				"command":             "chmod 777 ~/a.sh",
 				"description":         "放开 a.sh 权限",
-				"options":             []any{map[string]any{"label": "同意", "value": "approve"}},
+				"options":             []any{map[string]any{"label": "同意", "decision": "approve"}},
 				"allowFreeText":       true,
 				"freeTextPlaceholder": "可选：填写理由",
 			},

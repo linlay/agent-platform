@@ -11,7 +11,7 @@ inputSchema:
       description: Required. Command string. Strict mode supports only a single command by default; when shell-features-enabled is enabled, advanced syntax such as pipes, redirection, and here-doc is also allowed.
     description:
       type: string
-      description: 这条命令的用途简述（一句话，中文），会在需要人工审批时展示给用户。
+      description: Required. 这条命令的用途简述（一句话，中文），会在需要人工审批时展示给用户。
   required:
     - command
     - description

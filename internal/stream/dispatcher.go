@@ -280,9 +280,6 @@ func formatAwaitingApprovals(raw any) []map[string]any {
 				"id":       id,
 				"decision": decision,
 			}
-			if rawDecision := strings.ToLower(strings.TrimSpace(anyString(approval["rawDecision"]))); rawDecision != "" {
-				entry["rawDecision"] = rawDecision
-			}
 			if command := strings.TrimSpace(anyString(approval["command"])); command != "" {
 				entry["command"] = command
 			}
@@ -537,7 +534,7 @@ func (d *StreamEventDispatcher) handleToolResult(input ToolResult) []StreamEvent
 		"result": buildToolResultValue(input),
 	}
 	if len(input.Hitl) > 0 {
-		payload["hitl"] = clonePayload(input.Hitl)
+		payload["approval"] = clonePayload(input.Hitl)
 	}
 	events = append(events, NewEvent("tool.result", payload))
 	return events

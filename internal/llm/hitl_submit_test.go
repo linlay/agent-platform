@@ -31,8 +31,8 @@ func TestNormalizeHITLApprovalSubmitSupportsApprovePrefixRun(t *testing.T) {
 	if !ok || len(approvals) != 1 {
 		t.Fatalf("expected one normalized approval, got %#v", normalized)
 	}
-	if approvals[0]["decision"] != "approve" || approvals[0]["rawDecision"] != "approve_prefix_run" {
-		t.Fatalf("expected approve_prefix_run to normalize to approve while preserving rawDecision, got %#v", approvals[0])
+	if approvals[0]["decision"] != "approve_prefix_run" {
+		t.Fatalf("expected approve_prefix_run decision to be preserved, got %#v", approvals[0])
 	}
 	if approvals[0]["reason"] != "同类命令本轮一并放行" {
 		t.Fatalf("expected reason to be preserved, got %#v", approvals[0])
@@ -68,7 +68,7 @@ func TestNormalizeHITLApprovalSubmitNormalizesUnknownDecisionToReject(t *testing
 	if !ok || len(approvals) != 1 {
 		t.Fatalf("expected one normalized approval, got %#v", normalized)
 	}
-	if approvals[0]["decision"] != "reject" || approvals[0]["rawDecision"] != "approve_always" {
+	if approvals[0]["decision"] != "reject" {
 		t.Fatalf("expected unknown decision to normalize to reject, got %#v", approvals[0])
 	}
 	if approvals[0]["reason"] != "历史回放" {

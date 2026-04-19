@@ -11,7 +11,7 @@ inputSchema:
       description: Required. Command string to execute inside the sandbox container via /bin/sh -lc.
     description:
       type: string
-      description: 这条命令的用途简述（一句话，中文），会在需要人工审批时展示给用户。
+      description: Required. 这条命令的用途简述（一句话，中文），会在需要人工审批时展示给用户。
     cwd:
       type: string
       description: Working directory for this execution. When empty, the current run's default sandbox cwd is used.

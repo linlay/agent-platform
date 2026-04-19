@@ -2353,23 +2353,15 @@ func TestSandboxBashResultShapeAcrossStreamBoundaries(t *testing.T) {
 		}
 	})
 
-	t.Run("hitl approved success remains structured", func(t *testing.T) {
+	t.Run("html hitl success keeps stdout in result without approval sidecar", func(t *testing.T) {
 		body, _ := runBashHITLFlow(t, bashHITLFlowOptions{action: "approve"})
 
 		resultPayload := findToolResultPayload(t, body, "tool_bash")
-		resultObject, ok := resultPayload["result"].(map[string]any)
-		if !ok {
-			t.Fatalf("expected object tool.result payload, got %#v", resultPayload["result"])
+		if got, ok := resultPayload["result"].(string); !ok || got == "" {
+			t.Fatalf("expected stdout string tool.result payload, got %#v", resultPayload["result"])
 		}
-		if resultObject["output"] == nil {
-			t.Fatalf("expected raw output to be wrapped under output, got %#v", resultObject)
-		}
-		hitlPayload, ok := resultObject["hitl"].(map[string]any)
-		if !ok {
-			t.Fatalf("expected hitl metadata, got %#v", resultObject)
-		}
-		if hitlPayload["decision"] != "approve" || resultObject["executed"] != true {
-			t.Fatalf("expected approved HITL metadata, got %#v", resultObject)
+		if _, ok := resultPayload["approval"]; ok {
+			t.Fatalf("did not expect approval sidecar for html form HITL, got %#v", resultPayload)
 		}
 	})
 }
@@ -2574,6 +2566,17 @@ func TestBashHITLDockerRMIApproveFlow(t *testing.T) {
 		!strings.Contains(body, `"id":"tool_bash"`) ||
 		!strings.Contains(body, `"command":"docker rmi nginx:latest"`) {
 		t.Fatalf("expected normalized approval awaiting.answer payload in stream, got %s", body)
+	}
+	resultPayload := findToolResultPayload(t, body, "tool_bash")
+	if got, ok := resultPayload["result"].(string); !ok || got == "" {
+		t.Fatalf("expected stdout string tool.result payload, got %#v", resultPayload["result"])
+	}
+	approvalPayload, ok := resultPayload["approval"].(map[string]any)
+	if !ok || approvalPayload["decision"] != "approve" {
+		t.Fatalf("expected approval sidecar on tool.result, got %#v", resultPayload)
+	}
+	if _, ok := resultPayload["hitl"]; ok {
+		t.Fatalf("did not expect legacy hitl key, got %#v", resultPayload)
 	}
 	if strings.Contains(body, `"frontend_submit_invalid_payload"`) {
 		t.Fatalf("did not expect frontend_submit_invalid_payload, got %s", body)
