@@ -2696,6 +2696,16 @@ func TestValidateSubmitParamsAllowsOrderedItemsWithoutIDs(t *testing.T) {
 			}),
 		},
 		{
+			name:      "approval batch",
+			mode:      "approval",
+			itemCount: 3,
+			params: mustEncodeSubmitParams(t, []map[string]any{
+				{"decision": "approve"},
+				{"decision": "approve_always"},
+				{"decision": "reject"},
+			}),
+		},
+		{
 			name:      "form",
 			mode:      "form",
 			itemCount: 1,

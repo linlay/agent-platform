@@ -113,11 +113,11 @@ func matchesPipelineTokens(command string, matchTokens []string) bool {
 	if len(matchTokens) == 0 {
 		return false
 	}
-	segments := splitShellLikeSegments(command)
+	segments := splitShellLikePipelineSegments(command)
 	if len(segments) < 2 {
 		return false
 	}
-	parsed := parseCommandTokens(segments[1])
+	parsed := parseCommandTokens(splitShellLikeTokens(segments[1]))
 	if strings.TrimSpace(parsed.BaseCommand) == "" {
 		return false
 	}

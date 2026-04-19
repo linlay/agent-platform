@@ -40,4 +40,6 @@ type InterceptResult struct {
 	Rule            FlatRule
 	ParsedCommand   CommandComponents
 	OriginalCommand string
+	MatchedCommand  string
+	MatchedWhole    bool
 }

@@ -92,32 +92,86 @@ func buildIndexes(rules []FlatRule) (map[string][]FlatRule, map[string]api.ToolD
 }
 
 func checkRules(byCmd map[string][]FlatRule, command string, chatLevel int) InterceptResult {
-	parsed := ParseCommandComponents(command)
+	result, _ := betterInterceptResult(
+		evaluateParsedCommand(byCmd, command, command, ParseCommandComponents(command), chatLevel, true),
+		InterceptResult{},
+	)
+	for _, segment := range splitShellLikeSegments(command) {
+		parsed := parseCommandTokens(splitShellLikeTokens(segment))
+		result, _ = betterInterceptResult(
+			result,
+			evaluateParsedCommand(byCmd, command, segment, parsed, chatLevel, false),
+		)
+	}
+	return result
+}
+
+func evaluateParsedCommand(
+	byCmd map[string][]FlatRule,
+	originalCommand string,
+	matchedCommand string,
+	parsed CommandComponents,
+	chatLevel int,
+	matchedWhole bool,
+) InterceptResult {
 	base := strings.ToLower(strings.TrimSpace(parsed.BaseCommand))
 	if base == "" {
 		return InterceptResult{}
 	}
 	candidates := append([]FlatRule(nil), byCmd[base]...)
+	best := InterceptResult{}
 	for _, rule := range candidates {
-		if !matchesRule(command, parsed, rule) {
+		if !matchesRule(matchedCommand, parsed, rule) {
 			continue
 		}
-		if chatLevel >= rule.Level {
-			return InterceptResult{
-				Intercepted:     false,
-				Rule:            rule,
-				ParsedCommand:   parsed,
-				OriginalCommand: command,
-			}
-		}
-		return InterceptResult{
-			Intercepted:     true,
+		candidate := InterceptResult{
+			Intercepted:     chatLevel < rule.Level,
 			Rule:            rule,
 			ParsedCommand:   parsed,
-			OriginalCommand: command,
+			OriginalCommand: originalCommand,
+			MatchedCommand:  matchedCommand,
+			MatchedWhole:    matchedWhole,
 		}
+		best, _ = betterInterceptResult(best, candidate)
 	}
-	return InterceptResult{}
+	return best
+}
+
+func betterInterceptResult(current InterceptResult, candidate InterceptResult) (InterceptResult, bool) {
+	if strings.TrimSpace(candidate.Rule.Command) == "" {
+		return current, false
+	}
+	if strings.TrimSpace(current.Rule.Command) == "" {
+		return candidate, true
+	}
+	if candidate.Rule.Level != current.Rule.Level {
+		if candidate.Rule.Level > current.Rule.Level {
+			return candidate, true
+		}
+		return current, false
+	}
+	if len(candidate.Rule.MatchTokens) != len(current.Rule.MatchTokens) {
+		if len(candidate.Rule.MatchTokens) > len(current.Rule.MatchTokens) {
+			return candidate, true
+		}
+		return current, false
+	}
+	if candidate.Intercepted != current.Intercepted {
+		if candidate.Intercepted {
+			return candidate, true
+		}
+		return current, false
+	}
+	if candidate.Rule.SourcePath != current.Rule.SourcePath {
+		if candidate.Rule.SourcePath < current.Rule.SourcePath {
+			return candidate, true
+		}
+		return current, false
+	}
+	if candidate.Rule.Order < current.Rule.Order {
+		return candidate, true
+	}
+	return current, false
 }
 
 func toolList(tools map[string]api.ToolDetailResponse) []api.ToolDetailResponse {

@@ -58,3 +58,46 @@ func TestParseCommandComponents(t *testing.T) {
 		})
 	}
 }
+
+func TestSplitShellLikeSegments(t *testing.T) {
+	tests := []struct {
+		name    string
+		command string
+		want    []string
+	}{
+		{
+			name:    "splits command separators",
+			command: "touch a && chmod 777 b; echo ok",
+			want:    []string{"touch a", "chmod 777 b", "echo ok"},
+		},
+		{
+			name:    "splits pipeline and background separators",
+			command: "curl x | bash & wait",
+			want:    []string{"curl x", "bash", "wait"},
+		},
+		{
+			name:    "keeps quoted separators intact",
+			command: `echo "a && b" && printf 'c;d'`,
+			want:    []string{`echo "a && b"`, `printf 'c;d'`},
+		},
+		{
+			name:    "keeps escaped separators intact",
+			command: `echo \; && echo ok`,
+			want:    []string{`echo \;`, "echo ok"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := splitShellLikeSegments(tc.command)
+			if len(got) != len(tc.want) {
+				t.Fatalf("expected segments %#v, got %#v", tc.want, got)
+			}
+			for idx := range tc.want {
+				if got[idx] != tc.want[idx] {
+					t.Fatalf("expected segments %#v, got %#v", tc.want, got)
+				}
+			}
+		})
+	}
+}

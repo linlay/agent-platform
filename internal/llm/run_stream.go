@@ -53,6 +53,7 @@ type llmRunStream struct {
 	previousToolResult any
 	queuedToolCalls    []*preparedToolInvocation
 	activeToolCall     *preparedToolInvocation
+	hitlPendingBatch   *pendingHITLApprovalBatch
 	hitlPendingCall    *preparedToolInvocation
 	hitlMatch          *hitl.InterceptResult
 	hitlAwaitingID     string
@@ -93,11 +94,21 @@ type toolCallAccumulator struct {
 }
 
 type preparedToolInvocation struct {
-	toolID          string
-	toolName        string
-	args            map[string]any
-	prelude         []AgentDelta
-	toolCallCounted bool
+	toolID           string
+	toolName         string
+	args             map[string]any
+	prelude          []AgentDelta
+	toolCallCounted  bool
+	precheckedHITL   *hitl.InterceptResult
+	approvalID       string
+	approvalDecision string
+	queuedResult     *ToolExecutionResult
+}
+
+type pendingHITLApprovalBatch struct {
+	awaitingID  string
+	awaitArgs   map[string]any
+	invocations []*preparedToolInvocation
 }
 
 // PostToolHookResult controls what happens after a tool call.
@@ -150,6 +161,12 @@ func (s *llmRunStream) fillPending() error {
 		if s.finished {
 			return io.EOF
 		}
+		if s.hitlPendingBatch != nil {
+			if err := s.awaitHITLApprovalBatchAndContinue(); err != nil {
+				return err
+			}
+			continue
+		}
 		if s.hitlPendingCall != nil {
 			if err := s.awaitHITLSubmitAndExecute(); err != nil {
 				return err
@@ -173,6 +190,9 @@ func (s *llmRunStream) fillPending() error {
 			continue
 		}
 		if len(s.queuedToolCalls) > 0 {
+			if s.prepareQueuedBashApprovalBatch() {
+				continue
+			}
 			s.activateNextToolCall()
 			continue
 		}
@@ -751,6 +771,24 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 		s.execCtx.CurrentToolName = ""
 		s.activeToolCall = nil
 	}()
+	if invocation.queuedResult != nil {
+		s.appendOriginalToolResult(invocation, *invocation.queuedResult)
+		invocation.queuedResult = nil
+		return nil
+	}
+	if invocation.precheckedHITL != nil && invocation.precheckedHITL.Intercepted {
+		result := *invocation.precheckedHITL
+		if strings.EqualFold(result.Rule.ViewportType, "builtin") {
+			if strings.TrimSpace(invocation.approvalDecision) != "" {
+				return s.executeApprovedBashInvocation(invocation, result)
+			}
+			if s.shouldAutoApproveHITL(result) {
+				return s.executeOriginalBash(invocation)
+			}
+		}
+		s.skipPostToolHook = true
+		return s.emitHITLConfirmDeltas(invocation, result)
+	}
 	if s.checker != nil && isBashTool(invocation.toolName) {
 		command := mapStringArg(invocation.args, "command")
 		if result := s.checker.Check(command, s.execCtx.HITLLevel); result.Intercepted {
@@ -829,6 +867,28 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 	return nil
 }
 
+func (s *llmRunStream) executeApprovedBashInvocation(invocation *preparedToolInvocation, result hitl.InterceptResult) error {
+	switch strings.ToLower(strings.TrimSpace(invocation.approvalDecision)) {
+	case "reject":
+		s.appendOriginalToolResult(invocation, hitlRejectedToolResult(invocation))
+		return nil
+	case "approve_always":
+		if s.execCtx != nil {
+			if s.execCtx.AutoApproveLevels == nil {
+				s.execCtx.AutoApproveLevels = map[int]bool{}
+			}
+			s.execCtx.AutoApproveLevels[result.Rule.Level] = true
+		}
+		invocation.approvalDecision = ""
+		return s.executeOriginalBash(invocation)
+	case "approve":
+		invocation.approvalDecision = ""
+		return s.executeOriginalBash(invocation)
+	default:
+		return s.executeOriginalBash(invocation)
+	}
+}
+
 func (s *llmRunStream) shouldAutoApproveHITL(result hitl.InterceptResult) bool {
 	if s.execCtx == nil || !strings.EqualFold(result.Rule.ViewportType, "builtin") {
 		return false
@@ -855,6 +915,163 @@ func (s *llmRunStream) emitHITLConfirmDeltas(invocation *preparedToolInvocation,
 	s.activeToolCall = nil
 	s.execCtx.CurrentToolID = ""
 	s.execCtx.CurrentToolName = ""
+	return nil
+}
+
+func (s *llmRunStream) prepareQueuedBashApprovalBatch() bool {
+	if s.checker == nil || len(s.queuedToolCalls) == 0 || s.hitlPendingBatch != nil || s.hitlPendingCall != nil {
+		return false
+	}
+
+	approvals := make([]any, 0)
+	invocations := make([]*preparedToolInvocation, 0)
+	for _, invocation := range s.queuedToolCalls {
+		if !isBashTool(invocation.toolName) {
+			continue
+		}
+		result := s.lookupPrecheckedHITL(invocation)
+		if !result.Intercepted {
+			continue
+		}
+		if !strings.EqualFold(result.Rule.ViewportType, "builtin") {
+			continue
+		}
+		if s.shouldAutoApproveHITL(result) {
+			continue
+		}
+		if invocation.approvalID == "" {
+			invocation.approvalID = fmt.Sprintf("cmd-%d", len(approvals)+1)
+		}
+		approvals = append(approvals, map[string]any{
+			"id":      invocation.approvalID,
+			"command": mapStringArg(invocation.args, "command"),
+			"level":   result.Rule.Level,
+		})
+		invocations = append(invocations, invocation)
+	}
+	if len(invocations) == 0 {
+		return false
+	}
+
+	awaitingID := buildHITLBatchAwaitingID(invocations[0].toolID)
+	args := map[string]any{
+		"mode":      "approval",
+		"approvals": approvals,
+	}
+	s.hitlPendingBatch = &pendingHITLApprovalBatch{
+		awaitingID:  awaitingID,
+		awaitArgs:   CloneMap(args),
+		invocations: invocations,
+	}
+	awaitDelta := s.buildHITLAwaitDelta(awaitingID, args)
+	s.pending = append(s.pending, awaitDelta)
+	if s.runControl != nil {
+		s.runControl.ExpectSubmit(awaitingContextFromDeltaAsk(awaitDelta))
+	}
+	return true
+}
+
+func (s *llmRunStream) lookupPrecheckedHITL(invocation *preparedToolInvocation) hitl.InterceptResult {
+	if invocation == nil {
+		return hitl.InterceptResult{}
+	}
+	if invocation.precheckedHITL != nil {
+		return *invocation.precheckedHITL
+	}
+	command := mapStringArg(invocation.args, "command")
+	result := s.checker.Check(command, s.execCtx.HITLLevel)
+	if result.Intercepted {
+		cloned := result
+		invocation.precheckedHITL = &cloned
+	}
+	return result
+}
+
+func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {
+	batch := s.hitlPendingBatch
+	if batch == nil || strings.TrimSpace(batch.awaitingID) == "" {
+		s.hitlPendingBatch = nil
+		return nil
+	}
+	defer func() {
+		if s.runControl != nil {
+			s.runControl.ClearExpectedSubmit(batch.awaitingID)
+		}
+		s.execCtx.CurrentToolID = ""
+		s.execCtx.CurrentToolName = ""
+		s.hitlPendingBatch = nil
+	}()
+	if s.runControl == nil {
+		return ErrRunControlUnavailable
+	}
+
+	s.execCtx.CurrentToolID = batch.awaitingID
+	s.execCtx.CurrentToolName = "_sandbox_bash_"
+	s.execCtx.RunLoopState = RunLoopStateWaitingSubmit
+	s.runControl.TransitionState(RunLoopStateWaitingSubmit)
+
+	submitResult, err := s.runControl.AwaitSubmitWithTimeout(
+		s.ctx,
+		batch.awaitingID,
+		time.Duration(s.resolveHITLTimeout())*time.Millisecond,
+	)
+	if err != nil {
+		if errors.Is(err, ErrRunInterrupted) {
+			return s.handleInterruptIfNeeded()
+		}
+		s.pending = append(s.pending, DeltaAwaitingAnswer{
+			AwaitingID: batch.awaitingID,
+			Answer:     hitlTimeoutAnswer("approval"),
+		})
+		for _, invocation := range batch.invocations {
+			timeoutResult := hitlTimeoutToolResult(invocation)
+			invocation.queuedResult = &timeoutResult
+		}
+		return nil
+	}
+
+	s.execCtx.RunLoopState = RunLoopStateToolExecuting
+	s.runControl.TransitionState(RunLoopStateToolExecuting)
+	s.pending = append(s.pending, DeltaRequestSubmit{
+		RequestID:  s.session.RequestID,
+		ChatID:     s.session.ChatID,
+		RunID:      s.session.RunID,
+		AwaitingID: batch.awaitingID,
+		Params:     submitResult.Request.Params,
+	})
+
+	normalized, normalizeErr := s.normalizeHITLSubmit(batch.awaitArgs, submitResult.Request.Params)
+	if normalizeErr != nil {
+		for _, invocation := range batch.invocations {
+			result := frontendSubmitInvalidPayloadResult(invocation, batch.awaitingID, submitResult.Request.Params, normalizeErr)
+			invocation.queuedResult = &result
+		}
+		return nil
+	}
+	if len(normalized) > 0 {
+		s.pending = append(s.pending, DeltaAwaitingAnswer{
+			AwaitingID: batch.awaitingID,
+			Answer:     CloneMap(normalized),
+		})
+	}
+
+	if normalized["cancelled"] == true {
+		for _, invocation := range batch.invocations {
+			rejected := hitlRejectedToolResult(invocation)
+			invocation.queuedResult = &rejected
+		}
+		return nil
+	}
+
+	approvals, _ := normalized["approvals"].([]map[string]any)
+	for index, invocation := range batch.invocations {
+		if index >= len(approvals) {
+			rejected := hitlRejectedToolResult(invocation)
+			invocation.queuedResult = &rejected
+			continue
+		}
+		invocation.approvalDecision = strings.TrimSpace(AnyStringNode(approvals[index]["decision"]))
+	}
 	return nil
 }
 
@@ -901,31 +1118,7 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 			AwaitingID: awaitingID,
 			Answer:     hitlTimeoutAnswer(strings.TrimSpace(AnyStringNode(awaitArgs["mode"]))),
 		})
-		rejected := ToolExecutionResult{
-			Output: marshalJSON(NewErrorPayload(
-				"hitl_timeout",
-				"command execution timed out while waiting for user approval",
-				ErrorScopeTool,
-				ErrorCategoryTimeout,
-				map[string]any{
-					"toolId":   invocation.toolID,
-					"toolName": invocation.toolName,
-				},
-			)),
-			Structured: NewErrorPayload(
-				"hitl_timeout",
-				"command execution timed out while waiting for user approval",
-				ErrorScopeTool,
-				ErrorCategoryTimeout,
-				map[string]any{
-					"toolId":   invocation.toolID,
-					"toolName": invocation.toolName,
-				},
-			),
-			Error:    "hitl_timeout",
-			ExitCode: -1,
-		}
-		s.appendOriginalToolResult(invocation, rejected)
+		s.appendOriginalToolResult(invocation, hitlTimeoutToolResult(invocation))
 		return nil
 	}
 
@@ -944,24 +1137,7 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 
 	normalized, normalizeErr := s.normalizeHITLSubmit(awaitArgs, submitResult.Request.Params)
 	if normalizeErr != nil {
-		payload := NewErrorPayload(
-			"frontend_submit_invalid_payload",
-			normalizeErr.Error(),
-			ErrorScopeFrontendSubmit,
-			ErrorCategoryTool,
-			map[string]any{
-				"awaitingId": awaitingID,
-				"toolName":   invocation.toolName,
-				"params":     submitResult.Request.Params,
-			},
-		)
-		result := ToolExecutionResult{
-			Output:     marshalJSON(payload),
-			Structured: payload,
-			Error:      "frontend_submit_invalid_payload",
-			ExitCode:   -1,
-		}
-		s.appendOriginalToolResult(invocation, result)
+		s.appendOriginalToolResult(invocation, frontendSubmitInvalidPayloadResult(invocation, awaitingID, submitResult.Request.Params, normalizeErr))
 		return nil
 	}
 	if len(normalized) > 0 {
@@ -972,31 +1148,7 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 	}
 
 	if normalized["cancelled"] == true {
-		rejected := ToolExecutionResult{
-			Output: marshalJSON(NewErrorPayload(
-				"hitl_rejected",
-				"command execution rejected by user",
-				ErrorScopeTool,
-				ErrorCategorySystem,
-				map[string]any{
-					"toolId":   invocation.toolID,
-					"toolName": invocation.toolName,
-				},
-			)),
-			Structured: NewErrorPayload(
-				"hitl_rejected",
-				"command execution rejected by user",
-				ErrorScopeTool,
-				ErrorCategorySystem,
-				map[string]any{
-					"toolId":   invocation.toolID,
-					"toolName": invocation.toolName,
-				},
-			),
-			Error:    "user_rejected",
-			ExitCode: -1,
-		}
-		s.appendOriginalToolResult(invocation, rejected)
+		s.appendOriginalToolResult(invocation, hitlRejectedToolResult(invocation))
 		return nil
 	}
 
@@ -1030,62 +1182,14 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 			invocation.args["command"] = rebuiltCommand
 			return s.executeOriginalBash(invocation)
 		}
-		rejected := ToolExecutionResult{
-			Output: marshalJSON(NewErrorPayload(
-				"hitl_rejected",
-				"command execution rejected by user",
-				ErrorScopeTool,
-				ErrorCategorySystem,
-				map[string]any{
-					"toolId":   invocation.toolID,
-					"toolName": invocation.toolName,
-				},
-			)),
-			Structured: NewErrorPayload(
-				"hitl_rejected",
-				"command execution rejected by user",
-				ErrorScopeTool,
-				ErrorCategorySystem,
-				map[string]any{
-					"toolId":   invocation.toolID,
-					"toolName": invocation.toolName,
-				},
-			),
-			Error:    "user_rejected",
-			ExitCode: -1,
-		}
-		s.appendOriginalToolResult(invocation, rejected)
+		s.appendOriginalToolResult(invocation, hitlRejectedToolResult(invocation))
 		return nil
 	}
 
 	selectedApproval := firstAwaitItem(normalized["approvals"])
 	selectedDecision := strings.TrimSpace(AnyStringNode(selectedApproval["decision"]))
 	if strings.EqualFold(selectedDecision, "reject") {
-		rejected := ToolExecutionResult{
-			Output: marshalJSON(NewErrorPayload(
-				"hitl_rejected",
-				"command execution rejected by user",
-				ErrorScopeTool,
-				ErrorCategorySystem,
-				map[string]any{
-					"toolId":   invocation.toolID,
-					"toolName": invocation.toolName,
-				},
-			)),
-			Structured: NewErrorPayload(
-				"hitl_rejected",
-				"command execution rejected by user",
-				ErrorScopeTool,
-				ErrorCategorySystem,
-				map[string]any{
-					"toolId":   invocation.toolID,
-					"toolName": invocation.toolName,
-				},
-			),
-			Error:    "user_rejected",
-			ExitCode: -1,
-		}
-		s.appendOriginalToolResult(invocation, rejected)
+		s.appendOriginalToolResult(invocation, hitlRejectedToolResult(invocation))
 		return nil
 	}
 
@@ -1232,6 +1336,10 @@ func buildHITLAwaitingID(toolID string) string {
 	return "await_" + strings.TrimSpace(toolID)
 }
 
+func buildHITLBatchAwaitingID(toolID string) string {
+	return "await_batch_" + strings.TrimSpace(toolID)
+}
+
 func hitlTimeoutAnswer(mode string) map[string]any {
 	mode = strings.ToLower(strings.TrimSpace(mode))
 	if mode == "" {
@@ -1243,6 +1351,64 @@ func hitlTimeoutAnswer(mode string) map[string]any {
 		"reason":    "timeout",
 		"status":    "timeout",
 		"code":      "hitl_timeout",
+	}
+}
+
+func hitlRejectedToolResult(invocation *preparedToolInvocation) ToolExecutionResult {
+	payload := NewErrorPayload(
+		"hitl_rejected",
+		"command execution rejected by user",
+		ErrorScopeTool,
+		ErrorCategorySystem,
+		map[string]any{
+			"toolId":   invocation.toolID,
+			"toolName": invocation.toolName,
+		},
+	)
+	return ToolExecutionResult{
+		Output:     marshalJSON(payload),
+		Structured: payload,
+		Error:      "user_rejected",
+		ExitCode:   -1,
+	}
+}
+
+func hitlTimeoutToolResult(invocation *preparedToolInvocation) ToolExecutionResult {
+	payload := NewErrorPayload(
+		"hitl_timeout",
+		"command execution timed out while waiting for user approval",
+		ErrorScopeTool,
+		ErrorCategoryTimeout,
+		map[string]any{
+			"toolId":   invocation.toolID,
+			"toolName": invocation.toolName,
+		},
+	)
+	return ToolExecutionResult{
+		Output:     marshalJSON(payload),
+		Structured: payload,
+		Error:      "hitl_timeout",
+		ExitCode:   -1,
+	}
+}
+
+func frontendSubmitInvalidPayloadResult(invocation *preparedToolInvocation, awaitingID string, params any, err error) ToolExecutionResult {
+	payload := NewErrorPayload(
+		"frontend_submit_invalid_payload",
+		err.Error(),
+		ErrorScopeFrontendSubmit,
+		ErrorCategoryTool,
+		map[string]any{
+			"awaitingId": awaitingID,
+			"toolName":   invocation.toolName,
+			"params":     params,
+		},
+	)
+	return ToolExecutionResult{
+		Output:     marshalJSON(payload),
+		Structured: payload,
+		Error:      "frontend_submit_invalid_payload",
+		ExitCode:   -1,
 	}
 }
 

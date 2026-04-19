@@ -13,7 +13,7 @@ func ParseCommandComponents(command string) CommandComponents {
 func splitMatchTokens(match string) []string {
 	trimmed := strings.TrimSpace(match)
 	if strings.HasPrefix(trimmed, "|") {
-		tokens := splitShellLikeFirstSegment(strings.TrimSpace(strings.TrimPrefix(trimmed, "|")))
+		tokens := splitShellLikeTokens(strings.TrimSpace(strings.TrimPrefix(trimmed, "|")))
 		out := make([]string, 0, len(tokens)+1)
 		out = append(out, "|")
 		for _, token := range tokens {
@@ -25,7 +25,7 @@ func splitMatchTokens(match string) []string {
 		}
 		return out
 	}
-	tokens := splitShellLikeFirstSegment(match)
+	tokens := splitShellLikeTokens(match)
 	out := make([]string, 0, len(tokens))
 	for _, token := range tokens {
 		token = strings.ToLower(strings.TrimSpace(token))
@@ -79,16 +79,146 @@ func splitShellLikeFirstSegment(command string) []string {
 	if len(segments) == 0 {
 		return nil
 	}
-	return segments[0]
+	return splitShellLikeTokens(segments[0])
 }
 
-func splitShellLikeSegments(command string) [][]string {
+func splitShellLikeSegments(command string) []string {
 	var (
-		tokens   []string
-		segments [][]string
+		segments []string
 		current  strings.Builder
 		quote    rune
 		escaped  bool
+	)
+
+	flushSegment := func() {
+		segment := strings.TrimSpace(current.String())
+		current.Reset()
+		if segment == "" {
+			return
+		}
+		segments = append(segments, segment)
+	}
+
+	runes := []rune(command)
+	for idx := 0; idx < len(runes); idx++ {
+		r := runes[idx]
+		switch {
+		case escaped:
+			current.WriteRune(r)
+			escaped = false
+		case quote == '\'':
+			current.WriteRune(r)
+			if r == '\'' {
+				quote = 0
+			}
+		case quote == '"':
+			current.WriteRune(r)
+			if r == '"' {
+				quote = 0
+				continue
+			}
+			if r == '\\' {
+				escaped = true
+			}
+		default:
+			switch r {
+			case '\'', '"':
+				quote = r
+				current.WriteRune(r)
+			case '\\':
+				escaped = true
+				current.WriteRune(r)
+			case ';':
+				flushSegment()
+			case '|', '&':
+				flushSegment()
+				if idx+1 < len(runes) && runes[idx+1] == r {
+					idx++
+				}
+			default:
+				current.WriteRune(r)
+			}
+		}
+	}
+	if escaped {
+		current.WriteRune('\\')
+	}
+	flushSegment()
+	return segments
+}
+
+func splitShellLikePipelineSegments(command string) []string {
+	var (
+		segments []string
+		current  strings.Builder
+		quote    rune
+		escaped  bool
+	)
+
+	flushSegment := func() {
+		segment := strings.TrimSpace(current.String())
+		current.Reset()
+		if segment == "" {
+			return
+		}
+		segments = append(segments, segment)
+	}
+
+	runes := []rune(command)
+	for idx := 0; idx < len(runes); idx++ {
+		r := runes[idx]
+		switch {
+		case escaped:
+			current.WriteRune(r)
+			escaped = false
+		case quote == '\'':
+			current.WriteRune(r)
+			if r == '\'' {
+				quote = 0
+			}
+		case quote == '"':
+			current.WriteRune(r)
+			if r == '"' {
+				quote = 0
+				continue
+			}
+			if r == '\\' {
+				escaped = true
+			}
+		default:
+			switch r {
+			case '\'', '"':
+				quote = r
+				current.WriteRune(r)
+			case '\\':
+				escaped = true
+				current.WriteRune(r)
+			case '|':
+				if idx+1 < len(runes) && runes[idx+1] == '|' {
+					current.WriteRune(r)
+					current.WriteRune(runes[idx+1])
+					idx++
+					continue
+				}
+				flushSegment()
+			default:
+				current.WriteRune(r)
+			}
+		}
+	}
+	if escaped {
+		current.WriteRune('\\')
+	}
+	flushSegment()
+	return segments
+}
+
+func splitShellLikeTokens(command string) []string {
+	var (
+		tokens  []string
+		current strings.Builder
+		quote   rune
+		escaped bool
 	)
 
 	flush := func() {
@@ -100,11 +230,6 @@ func splitShellLikeSegments(command string) [][]string {
 	}
 	flushSegment := func() {
 		flush()
-		if len(tokens) == 0 {
-			return
-		}
-		segments = append(segments, append([]string(nil), tokens...))
-		tokens = nil
 	}
 
 	for _, r := range command {
@@ -132,8 +257,6 @@ func splitShellLikeSegments(command string) [][]string {
 			switch {
 			case unicode.IsSpace(r):
 				flush()
-			case r == '|':
-				flushSegment()
 			case r == '\'' || r == '"':
 				quote = r
 			case r == '\\':
@@ -147,7 +270,7 @@ func splitShellLikeSegments(command string) [][]string {
 		current.WriteRune('\\')
 	}
 	flushSegment()
-	return segments
+	return tokens
 }
 
 func isEnvAssignment(token string) bool {

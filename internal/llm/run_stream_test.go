@@ -76,6 +76,28 @@ func (s stubChecker) Tools() []api.ToolDetailResponse {
 	return items
 }
 
+type commandResultChecker struct {
+	results map[string]hitl.InterceptResult
+	tools   map[string]api.ToolDetailResponse
+}
+
+func (c commandResultChecker) Check(command string, _ int) hitl.InterceptResult {
+	return c.results[command]
+}
+
+func (c commandResultChecker) Tool(name string) (api.ToolDetailResponse, bool) {
+	tool, ok := c.tools[strings.ToLower(strings.TrimSpace(name))]
+	return tool, ok
+}
+
+func (c commandResultChecker) Tools() []api.ToolDetailResponse {
+	items := make([]api.ToolDetailResponse, 0, len(c.tools))
+	for _, tool := range c.tools {
+		items = append(items, tool)
+	}
+	return items
+}
+
 func bashToolDefinition() api.ToolDetailResponse {
 	return api.ToolDetailResponse{
 		Name: "_sandbox_bash_",
@@ -84,6 +106,17 @@ func bashToolDefinition() api.ToolDetailResponse {
 			"sourceType":    "local",
 			"viewportType":  "builtin",
 			"viewportKey":   "confirm_dialog",
+			"clientVisible": true,
+		},
+	}
+}
+
+func backendToolDefinition(name string) api.ToolDetailResponse {
+	return api.ToolDetailResponse{
+		Name: name,
+		Meta: map[string]any{
+			"kind":          "backend",
+			"sourceType":    "local",
 			"clientVisible": true,
 		},
 	}
@@ -546,6 +579,229 @@ func TestAwaitHITLSubmitAndExecute_RejectEmitsCancelledAnswer(t *testing.T) {
 	}
 	if !foundAnswer || !foundResult {
 		t.Fatalf("expected reject answer and tool result, got %#v", stream.pending)
+	}
+}
+
+func TestPrepareQueuedBashApprovalBatch_MergesAllBuiltinApprovalsInSingleAwait(t *testing.T) {
+	executor := &recordingToolExecutor{
+		defs: []api.ToolDetailResponse{bashToolDefinition()},
+		result: contracts.ToolExecutionResult{
+			Output:   "ok",
+			ExitCode: 0,
+		},
+	}
+	stream := &llmRunStream{
+		ctx: context.Background(),
+		engine: &LLMAgentEngine{
+			tools: executor,
+		},
+		session: contracts.QuerySession{
+			RequestID: "req_1",
+			ChatID:    "chat_1",
+			RunID:     "run_1",
+		},
+		runControl: contracts.NewRunControl(context.Background(), "run_1"),
+		execCtx: &contracts.ExecutionContext{
+			Budget: contracts.Budget{Tool: contracts.RetryPolicy{TimeoutMs: 50}},
+		},
+		checker: commandResultChecker{
+			results: map[string]hitl.InterceptResult{
+				"chmod 777 ~/a.sh": {
+					Intercepted:     true,
+					Rule:            hitl.FlatRule{Level: 1, ViewportType: "builtin", ViewportKey: "confirm_dialog"},
+					OriginalCommand: "chmod 777 ~/a.sh",
+				},
+				"chmod 777 ~/b.sh": {
+					Intercepted:     true,
+					Rule:            hitl.FlatRule{Level: 2, ViewportType: "builtin", ViewportKey: "confirm_dialog"},
+					OriginalCommand: "chmod 777 ~/b.sh",
+				},
+				"chmod 777 ~/c.sh": {
+					Intercepted:     true,
+					Rule:            hitl.FlatRule{Level: 1, ViewportType: "builtin", ViewportKey: "confirm_dialog"},
+					OriginalCommand: "chmod 777 ~/c.sh",
+				},
+			},
+			tools: map[string]api.ToolDetailResponse{
+				strings.ToLower(bashToolDefinition().Name): bashToolDefinition(),
+			},
+		},
+		queuedToolCalls: []*preparedToolInvocation{
+			{toolID: "tool_1", toolName: "_sandbox_bash_", args: map[string]any{"command": "chmod 777 ~/a.sh"}},
+			{toolID: "tool_2", toolName: "_sandbox_bash_", args: map[string]any{"command": "chmod 777 ~/b.sh"}},
+			{toolID: "tool_3", toolName: "_sandbox_bash_", args: map[string]any{"command": "chmod 777 ~/c.sh"}},
+		},
+	}
+
+	if !stream.prepareQueuedBashApprovalBatch() {
+		t.Fatal("expected batch approval await to be prepared")
+	}
+	if stream.hitlPendingBatch == nil {
+		t.Fatal("expected hitlPendingBatch to be populated")
+	}
+
+	ask, ok := stream.pending[0].(contracts.DeltaAwaitAsk)
+	if !ok {
+		t.Fatalf("expected first pending delta to be await ask, got %#v", stream.pending)
+	}
+	if ask.Mode != "approval" || len(ask.Approvals) != 3 {
+		t.Fatalf("unexpected batch await ask %#v", ask)
+	}
+
+	ack := stream.runControl.ResolveSubmit(api.SubmitRequest{
+		RunID:      "run_1",
+		AwaitingID: ask.AwaitingID,
+		Params: encodedSubmitParams(t, []map[string]any{
+			{"id": "cmd-1", "decision": "approve"},
+			{"id": "cmd-2", "decision": "approve"},
+			{"id": "cmd-3", "decision": "reject"},
+		}),
+	})
+	if !ack.Accepted {
+		t.Fatalf("expected submit to be accepted, got %#v", ack)
+	}
+	if err := stream.awaitHITLApprovalBatchAndContinue(); err != nil {
+		t.Fatalf("awaitHITLApprovalBatchAndContinue returned error: %v", err)
+	}
+
+	for len(stream.queuedToolCalls) > 0 {
+		stream.activateNextToolCall()
+		if err := stream.invokeActiveToolCall(); err != nil {
+			t.Fatalf("invokeActiveToolCall returned error: %v", err)
+		}
+	}
+
+	if len(executor.invocations) != 2 {
+		t.Fatalf("expected 2 approved bash invocations, got %#v", executor.invocations)
+	}
+	if executor.invocations[0].args["command"] != "chmod 777 ~/a.sh" || executor.invocations[1].args["command"] != "chmod 777 ~/b.sh" {
+		t.Fatalf("unexpected executed commands %#v", executor.invocations)
+	}
+
+	var answer map[string]any
+	rejectedCount := 0
+	for _, delta := range stream.pending {
+		switch typed := delta.(type) {
+		case contracts.DeltaAwaitingAnswer:
+			if typed.AwaitingID == ask.AwaitingID {
+				answer = typed.Answer
+			}
+		case contracts.DeltaToolResult:
+			if typed.Result.Error == "user_rejected" {
+				rejectedCount++
+			}
+		}
+	}
+	if answer == nil {
+		t.Fatalf("expected awaiting.answer delta, got %#v", stream.pending)
+	}
+	approvals, ok := answer["approvals"].([]map[string]any)
+	if !ok || len(approvals) != 3 {
+		t.Fatalf("expected 3 approval answers, got %#v", answer)
+	}
+	if approvals[2]["decision"] != "reject" {
+		t.Fatalf("expected third approval decision to be reject, got %#v", approvals)
+	}
+	if rejectedCount != 1 {
+		t.Fatalf("expected exactly one rejected tool result, got %#v", stream.pending)
+	}
+}
+
+func TestPrepareQueuedBashApprovalBatch_LeavesHtmlViewportOutsideMergedApprovalAsk(t *testing.T) {
+	executor := &recordingToolExecutor{
+		defs: []api.ToolDetailResponse{
+			bashToolDefinition(),
+			backendToolDefinition("weather_tool"),
+		},
+		result: contracts.ToolExecutionResult{
+			Output:   "ok",
+			ExitCode: 0,
+		},
+	}
+	stream := &llmRunStream{
+		ctx: context.Background(),
+		engine: &LLMAgentEngine{
+			tools:    executor,
+			frontend: frontendtools.NewDefaultRegistry(),
+		},
+		session: contracts.QuerySession{
+			RequestID: "req_1",
+			ChatID:    "chat_1",
+			RunID:     "run_1",
+		},
+		runControl: contracts.NewRunControl(context.Background(), "run_1"),
+		execCtx: &contracts.ExecutionContext{
+			Budget: contracts.Budget{Tool: contracts.RetryPolicy{TimeoutMs: 50}},
+		},
+		checker: commandResultChecker{
+			results: map[string]hitl.InterceptResult{
+				"chmod 777 ~/a.sh": {
+					Intercepted:     true,
+					Rule:            hitl.FlatRule{Level: 1, ViewportType: "builtin", ViewportKey: "confirm_dialog"},
+					OriginalCommand: "chmod 777 ~/a.sh",
+				},
+				`mock create-leave --payload '{"employee_id":"E1001","days":3}'`: {
+					Intercepted:     true,
+					Rule:            hitl.FlatRule{Level: 1, ViewportType: "html", ViewportKey: "leave_form"},
+					OriginalCommand: `mock create-leave --payload '{"employee_id":"E1001","days":3}'`,
+					ParsedCommand: hitl.CommandComponents{
+						BaseCommand: "mock",
+						Tokens:      []string{"create-leave", "--payload", `{"employee_id":"E1001","days":3}`},
+					},
+				},
+			},
+			tools: map[string]api.ToolDetailResponse{
+				strings.ToLower(bashToolDefinition().Name): bashToolDefinition(),
+			},
+		},
+		queuedToolCalls: []*preparedToolInvocation{
+			{toolID: "tool_1", toolName: "_sandbox_bash_", args: map[string]any{"command": "chmod 777 ~/a.sh"}},
+			{toolID: "tool_2", toolName: "_sandbox_bash_", args: map[string]any{"command": `mock create-leave --payload '{"employee_id":"E1001","days":3}'`}},
+		},
+	}
+
+	if !stream.prepareQueuedBashApprovalBatch() {
+		t.Fatal("expected merged approval batch")
+	}
+	ask, ok := stream.pending[0].(contracts.DeltaAwaitAsk)
+	if !ok {
+		t.Fatalf("expected first pending delta to be await ask, got %#v", stream.pending)
+	}
+	if len(ask.Approvals) != 1 {
+		t.Fatalf("expected only builtin approval in merged ask, got %#v", ask)
+	}
+
+	ack := stream.runControl.ResolveSubmit(api.SubmitRequest{
+		RunID:      "run_1",
+		AwaitingID: ask.AwaitingID,
+		Params: encodedSubmitParams(t, []map[string]any{
+			{"id": "cmd-1", "decision": "approve"},
+		}),
+	})
+	if !ack.Accepted {
+		t.Fatalf("expected submit to be accepted, got %#v", ack)
+	}
+	if err := stream.awaitHITLApprovalBatchAndContinue(); err != nil {
+		t.Fatalf("awaitHITLApprovalBatchAndContinue returned error: %v", err)
+	}
+
+	stream.activateNextToolCall()
+	if err := stream.invokeActiveToolCall(); err != nil {
+		t.Fatalf("invokeActiveToolCall returned error: %v", err)
+	}
+	stream.activateNextToolCall()
+	if err := stream.invokeActiveToolCall(); err != nil {
+		t.Fatalf("invokeActiveToolCall returned error: %v", err)
+	}
+
+	foundFormAsk := false
+	for _, delta := range stream.pending {
+		if typed, ok := delta.(contracts.DeltaAwaitAsk); ok && typed.Mode == "form" && typed.ViewportKey == "leave_form" {
+			foundFormAsk = true
+		}
+	}
+	if !foundFormAsk {
+		t.Fatalf("expected html invocation to emit its own form await, got %#v", stream.pending)
 	}
 }
 
