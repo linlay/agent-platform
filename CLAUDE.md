@@ -257,16 +257,16 @@ sandboxConfig:
 
 - `mode=approval`
   - 来源：Bash HITL builtin confirm
-  - `awaiting.ask`：`{"awaitingId":"...","mode":"approval","timeout":...,"runId":"...","approvals":[{"id":"cmd-1","command":"...","level":1}]}`
+  - `awaiting.ask`：`{"awaitingId":"...","mode":"approval","timeout":...,"runId":"...","approvals":[{"id":"tool_bash","command":"chmod 777 ~/a.sh","description":"放开脚本权限","options":[{"label":"同意","value":"approve"},{"label":"同意（本次运行同前缀都放行）","value":"approve_prefix_run"},{"label":"拒绝","value":"reject"}],"allowFreeText":true,"freeTextPlaceholder":"可选：填写理由"}]}`
   - approval 不再携带 `viewportType` / `viewportKey`
   - 用户只能批准或拒绝，不能改命令内容
-  - `/api/submit.params`：`[{"id":"cmd-1","decision":"approve|reject|approve_always","reason":"..."}]`（`id` 可省略，仅作审计字段）
-  - `awaiting.answer`：`{"awaitingId":"...","mode":"approval","approvals":[{"id":"cmd-1","command":"...","decision":"approve"}]}`
+  - `/api/submit.params`：`[{"id":"tool_bash","decision":"approve|approve_prefix_run|reject","reason":"..."}]`（`id` 可省略，仅作审计字段）
+  - `awaiting.answer`：`{"awaitingId":"...","mode":"approval","approvals":[{"id":"tool_bash","command":"...","decision":"approve","rawDecision":"approve_prefix_run","reason":"..."}]}`
   - 整批取消：`params: []`
 
 - `mode=form`
   - 来源：Bash HITL html form
-  - `awaiting.ask`：`{"awaitingId":"...","mode":"form","viewportType":"html","viewportKey":"leave_form","timeout":...,"runId":"...","forms":[{"id":"form-1","command":"...","html?":"...","initialPayload":{...}}]}`
+  - `awaiting.ask`：`{"awaitingId":"...","mode":"form","viewportType":"html","viewportKey":"leave_form","timeout":...,"runId":"...","forms":[{"id":"form-1","html?":"...","initialPayload":{...}}],"viewportPayload":{"forms":[{"id":"form-1","command":"...","initialPayload":{...}}]}}`
   - form 是唯一保留 `viewportType:"html"` + `viewportKey` 的形态
   - `/api/submit.params`：
     - submit：`[{"id":"form-1","payload":{...}}]`（`id` 可省略，仅作审计字段）

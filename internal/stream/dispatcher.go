@@ -280,6 +280,9 @@ func formatAwaitingApprovals(raw any) []map[string]any {
 				"id":       id,
 				"decision": decision,
 			}
+			if rawDecision := strings.ToLower(strings.TrimSpace(anyString(approval["rawDecision"]))); rawDecision != "" {
+				entry["rawDecision"] = rawDecision
+			}
 			if command := strings.TrimSpace(anyString(approval["command"])); command != "" {
 				entry["command"] = command
 			}
@@ -517,6 +520,9 @@ func (d *StreamEventDispatcher) newAwaitAskEvent(input AwaitAsk) StreamEvent {
 	if len(input.Forms) > 0 {
 		payload["forms"] = input.Forms
 	}
+	if len(input.ViewportPayload) > 0 {
+		payload["viewportPayload"] = clonePayload(input.ViewportPayload)
+	}
 	return NewEvent("awaiting.ask", payload)
 }
 
@@ -529,6 +535,9 @@ func (d *StreamEventDispatcher) handleToolResult(input ToolResult) []StreamEvent
 	payload := map[string]any{
 		"toolId": input.ToolID,
 		"result": buildToolResultValue(input),
+	}
+	if len(input.Hitl) > 0 {
+		payload["hitl"] = clonePayload(input.Hitl)
 	}
 	events = append(events, NewEvent("tool.result", payload))
 	return events

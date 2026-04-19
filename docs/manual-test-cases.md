@@ -120,7 +120,7 @@ approval:
 ```bash
 curl -X POST "$BASE_URL/api/submit" \
   -H "Content-Type: application/json" \
-  -d '{"runId":"replace-me","awaitingId":"await_tool_bash","params":[{"id":"cmd-1","decision":"approve"}]}'
+  -d '{"runId":"replace-me","awaitingId":"await_tool_bash","params":[{"id":"tool_bash","decision":"approve_prefix_run","reason":"同类命令本轮一并放行"}]}'
 ```
 
 form:
@@ -128,7 +128,7 @@ form:
 ```bash
 curl -X POST "$BASE_URL/api/submit" \
   -H "Content-Type: application/json" \
-  -d '{"runId":"replace-me","awaitingId":"await_tool_bash","params":[{"id":"form-1","payload":{"days":2,"employee_id":"E1001"}}]}'
+  -d '{"runId":"replace-me","awaitingId":"await_tool_bash","params":[{"id":"form-1","payload":{"applicant":{"name":"Lin","department":"engineering","employee_id":"E1001"},"leave_type":"事假","start_date":"2026-04-21","end_date":"2026-04-22","duration_days":2,"reason":"family_trip","urgent_contact":"Amy","urgent_phone":"13800138000","backup_person":"E2001","notes":"请协助处理审批"}}]}'
 ```
 
 整批取消：

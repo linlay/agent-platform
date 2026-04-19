@@ -25,7 +25,7 @@ func normalizeQuestionAnswer(definition map[string]any, rawAnswer any) (any, err
 		}
 		return text, nil
 	case "select":
-		if contracts.AnyBoolNode(definition["multiSelect"]) {
+		if contracts.AnyBoolNode(definition["multiple"]) {
 			items, ok := rawAnswer.([]any)
 			if !ok {
 				return nil, fmt.Errorf("answer must be an array")
@@ -181,7 +181,7 @@ func sanitizeQuestionFields(questions []any) []any {
 		}
 		delete(item, "allowFreeText")
 		delete(item, "freeTextPlaceholder")
-		delete(item, "multiSelect")
+		delete(item, "multiple")
 		delete(item, "options")
 	}
 	return questions

@@ -22,6 +22,32 @@ func encodedSubmitParams(t *testing.T, value any) api.SubmitParams {
 	return params
 }
 
+func sampleLeavePayload(days float64) map[string]any {
+	return map[string]any{
+		"applicant": map[string]any{
+			"name":        "Lin",
+			"department":  "engineering",
+			"employee_id": "E1001",
+		},
+		"leave_type":     "年假",
+		"start_date":     "2026-04-20",
+		"end_date":       "2026-04-22",
+		"duration_days":  days,
+		"reason":         "family_trip",
+		"urgent_contact": "Amy",
+		"urgent_phone":   "13800138000",
+		"backup_person":  "E2001",
+		"notes":          "",
+	}
+}
+
+func sampleLeaveCommand(days float64) string {
+	if days == 2 {
+		return `mock create-leave --payload '{"applicant":{"department":"engineering","employee_id":"E1001","name":"Lin"},"backup_person":"E2001","duration_days":2,"end_date":"2026-04-22","leave_type":"年假","notes":"","reason":"family_trip","start_date":"2026-04-20","urgent_contact":"Amy","urgent_phone":"13800138000"}'`
+	}
+	return `mock create-leave --payload '{"applicant":{"department":"engineering","employee_id":"E1001","name":"Lin"},"backup_person":"E2001","duration_days":3,"end_date":"2026-04-22","leave_type":"年假","notes":"","reason":"family_trip","start_date":"2026-04-20","urgent_contact":"Amy","urgent_phone":"13800138000"}'`
+}
+
 type stubToolExecutor struct {
 	defs []api.ToolDetailResponse
 }
@@ -156,7 +182,7 @@ func TestPreToolInvocationDeltas_QuestionRegistersAwaitingContext(t *testing.T) 
 				"placeholder":         "3",
 				"allowFreeText":       false,
 				"freeTextPlaceholder": "removed",
-				"multiSelect":         false,
+				"multiple":            false,
 				"options":             []any{map[string]any{"label": "unused"}},
 			},
 		},
@@ -173,6 +199,53 @@ func TestPreToolInvocationDeltas_QuestionRegistersAwaitingContext(t *testing.T) 
 	}
 	if awaiting.ItemCount != 1 {
 		t.Fatalf("expected question item count 1, got %#v", awaiting)
+	}
+}
+
+func TestPrepareToolCall_LegacyMultiSelectReturnsToolError(t *testing.T) {
+	tool := api.ToolDetailResponse{
+		Name: "_ask_user_question_",
+		Meta: map[string]any{
+			"kind":          "frontend",
+			"sourceType":    "local",
+			"viewportType":  "builtin",
+			"viewportKey":   "confirm_dialog",
+			"clientVisible": true,
+		},
+	}
+	stream := &llmRunStream{
+		engine: &LLMAgentEngine{
+			tools:    stubToolExecutor{defs: []api.ToolDetailResponse{tool}},
+			frontend: frontendtools.NewDefaultRegistry(),
+		},
+		session: contracts.QuerySession{RunID: "run_1"},
+		execCtx: &contracts.ExecutionContext{},
+	}
+
+	invocation, deltas, toolMsg := stream.prepareToolCall(openAIToolCall{
+		ID:   "tool_1",
+		Type: "function",
+		Function: openAIFunctionCall{
+			Name:      "_ask_user_question_",
+			Arguments: `{"mode":"question","questions":[{"question":"Notification topics","type":"select","multiSelect":true,"options":[{"label":"产品更新"}]}]}`,
+		},
+	})
+	if invocation != nil {
+		t.Fatalf("expected no invocation, got %#v", invocation)
+	}
+	if len(deltas) != 1 {
+		t.Fatalf("expected one error delta, got %#v", deltas)
+	}
+	result, ok := deltas[0].(contracts.DeltaToolResult)
+	if !ok {
+		t.Fatalf("expected DeltaToolResult, got %#v", deltas[0])
+	}
+	if result.Result.Error != "invalid_tool_arguments" || !strings.Contains(result.Result.Output, "multiSelect is no longer supported; use multiple") {
+		t.Fatalf("unexpected tool result %#v", result)
+	}
+	toolContent, _ := toolMsg.Content.(string)
+	if toolMsg == nil || !strings.Contains(toolContent, "multiSelect is no longer supported; use multiple") {
+		t.Fatalf("unexpected tool message %#v", toolMsg)
 	}
 }
 
@@ -223,6 +296,41 @@ func TestPrepareToolCall_InvalidAskUserQuestionArgsReturnToolError(t *testing.T)
 	}
 }
 
+func TestPrepareToolCall_BashDescriptionIsRequired(t *testing.T) {
+	tool := bashToolDefinition()
+	stream := &llmRunStream{
+		engine: &LLMAgentEngine{
+			tools:    stubToolExecutor{defs: []api.ToolDetailResponse{tool}},
+			frontend: frontendtools.NewDefaultRegistry(),
+		},
+		session: contracts.QuerySession{RunID: "run_1"},
+		execCtx: &contracts.ExecutionContext{},
+	}
+
+	invocation, deltas, toolMsg := stream.prepareToolCall(openAIToolCall{
+		ID:   "tool_1",
+		Type: "function",
+		Function: openAIFunctionCall{
+			Name:      "_sandbox_bash_",
+			Arguments: `{"command":"chmod 777 ~/a.sh"}`,
+		},
+	})
+	if invocation != nil {
+		t.Fatalf("expected no invocation, got %#v", invocation)
+	}
+	if len(deltas) != 1 {
+		t.Fatalf("expected one tool error delta, got %#v", deltas)
+	}
+	result, ok := deltas[0].(contracts.DeltaToolResult)
+	if !ok || result.Result.Error != "invalid_tool_arguments" || !strings.Contains(result.Result.Output, "description is required") {
+		t.Fatalf("unexpected bash invalid-args result %#v", deltas)
+	}
+	toolContent, _ := toolMsg.Content.(string)
+	if toolMsg == nil || !strings.Contains(toolContent, "description is required") {
+		t.Fatalf("unexpected tool message %#v", toolMsg)
+	}
+}
+
 func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 	tests := []struct {
 		name                   string
@@ -267,24 +375,21 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 				ViewportType: "html",
 				ViewportKey:  "leave_form",
 			},
-			initialCommand: `mock create-leave --payload '{"employee_id":"E1001","days":3}'`,
+			initialCommand: sampleLeaveCommand(3),
 			parsedCommand: hitl.CommandComponents{
 				BaseCommand: "mock",
-				Tokens:      []string{"create-leave", "--payload", `{"employee_id":"E1001","days":3}`},
+				Tokens:      []string{"create-leave", "--payload", `{"applicant":{"department":"engineering","employee_id":"E1001","name":"Lin"},"backup_person":"E2001","duration_days":3,"end_date":"2026-04-22","leave_type":"年假","notes":"","reason":"family_trip","start_date":"2026-04-20","urgent_contact":"Amy","urgent_phone":"13800138000"}`},
 			},
 			submitParams: encodedSubmitParams(t, []map[string]any{
 				{
-					"id": "form-1",
-					"payload": map[string]any{
-						"employee_id": "E1001",
-						"days":        2,
-					},
+					"id":      "form-1",
+					"payload": sampleLeavePayload(2),
 				},
 			}),
-			expectedCommand:        `mock create-leave --payload '{"days":2,"employee_id":"E1001"}'`,
+			expectedCommand:        sampleLeaveCommand(2),
 			expectedView:           "html",
 			expectedKey:            "leave_form",
-			expectedInitialPayload: map[string]any{"employee_id": "E1001", "days": float64(3)},
+			expectedInitialPayload: sampleLeavePayload(3),
 			expectedAnswerAction:   "submit",
 		},
 		{
@@ -375,7 +480,8 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 				toolID:   "tool_1",
 				toolName: "_sandbox_bash_",
 				args: map[string]any{
-					"command": tc.initialCommand,
+					"command":     tc.initialCommand,
+					"description": "执行命令用途说明",
 				},
 			}
 			result := hitl.InterceptResult{
@@ -417,9 +523,16 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 					t.Fatalf("expected one form awaiting item, got %#v", awaitAsk)
 				}
 				form := awaitAsk.Forms[0].(map[string]any)
+				if _, ok := form["command"]; ok {
+					t.Fatalf("did not expect form command in awaiting.ask payload, got %#v", form)
+				}
 				initialPayload, _ := form["initialPayload"].(map[string]any)
 				if !reflect.DeepEqual(initialPayload, tc.expectedInitialPayload) {
 					t.Fatalf("expected form payload %#v, got %#v", tc.expectedInitialPayload, awaitAsk)
+				}
+				viewportForms, _ := awaitAsk.ViewportPayload["forms"].([]any)
+				if len(viewportForms) != 1 {
+					t.Fatalf("expected viewportPayload forms for iframe init, got %#v", awaitAsk.ViewportPayload)
 				}
 				if len(awaitAsk.Approvals) != 0 {
 					t.Fatalf("expected form await to omit approvals, got %#v", awaitAsk.Approvals)
@@ -435,6 +548,19 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 				}
 				if firstApproval["command"] != tc.initialCommand || firstApproval["id"] != "tool_1" {
 					t.Fatalf("expected approval item to use original command, got %#v", firstApproval)
+				}
+				if firstApproval["description"] != "执行命令用途说明" {
+					t.Fatalf("expected approval description from tool args, got %#v", firstApproval)
+				}
+				if _, ok := firstApproval["level"]; ok {
+					t.Fatalf("did not expect level in approval awaiting.ask payload, got %#v", firstApproval)
+				}
+				options, _ := firstApproval["options"].([]any)
+				if len(options) != 3 {
+					t.Fatalf("expected 3 approval options, got %#v", firstApproval)
+				}
+				if firstApproval["allowFreeText"] != true || firstApproval["freeTextPlaceholder"] == "" {
+					t.Fatalf("expected free text approval metadata, got %#v", firstApproval)
 				}
 			}
 
@@ -529,9 +655,12 @@ func TestAwaitHITLSubmitAndExecute_RejectEmitsCancelledAnswer(t *testing.T) {
 			"mode": "approval",
 			"approvals": []any{
 				map[string]any{
-					"id":      "tool_1",
-					"command": "docker rmi nginx:latest",
-					"level":   1,
+					"id":                  "tool_1",
+					"command":             "docker rmi nginx:latest",
+					"description":         "删除镜像",
+					"options":             buildApprovalOptions(),
+					"allowFreeText":       true,
+					"freeTextPlaceholder": "可选：填写理由",
 				},
 			},
 		},
@@ -544,7 +673,7 @@ func TestAwaitHITLSubmitAndExecute_RejectEmitsCancelledAnswer(t *testing.T) {
 	ack := runControl.ResolveSubmit(api.SubmitRequest{
 		RunID:      "run_1",
 		AwaitingID: stream.hitlAwaitingID,
-		Params:     encodedSubmitParams(t, []map[string]any{{"id": "tool_1", "decision": "reject"}}),
+		Params:     encodedSubmitParams(t, []map[string]any{{"id": "tool_1", "decision": "reject", "reason": "风险过高"}}),
 	})
 	if !ack.Accepted {
 		t.Fatalf("expected submit to be accepted, got %#v", ack)
@@ -565,7 +694,7 @@ func TestAwaitHITLSubmitAndExecute_RejectEmitsCancelledAnswer(t *testing.T) {
 					t.Fatalf("unexpected reject answer %#v", typed.Answer)
 				}
 				approvals, ok := typed.Answer["approvals"].([]map[string]any)
-				if !ok || len(approvals) != 1 || approvals[0]["decision"] != "reject" {
+				if !ok || len(approvals) != 1 || approvals[0]["decision"] != "reject" || approvals[0]["rawDecision"] != "reject" || approvals[0]["reason"] != "风险过高" {
 					t.Fatalf("unexpected reject approvals %#v", typed.Answer)
 				}
 			}
@@ -574,6 +703,9 @@ func TestAwaitHITLSubmitAndExecute_RejectEmitsCancelledAnswer(t *testing.T) {
 				foundResult = true
 				if typed.Result.Error != "user_rejected" {
 					t.Fatalf("expected user_rejected tool result, got %#v", typed.Result)
+				}
+				if typed.Result.HITL["decision"] != "reject" || typed.Result.HITL["reason"] != "风险过高" {
+					t.Fatalf("expected reject HITL metadata on tool result, got %#v", typed.Result)
 				}
 			}
 		}
@@ -628,9 +760,9 @@ func TestPrepareQueuedBashApprovalBatch_MergesAllBuiltinApprovalsInSingleAwait(t
 			},
 		},
 		queuedToolCalls: []*preparedToolInvocation{
-			{toolID: "tool_1", toolName: "_sandbox_bash_", args: map[string]any{"command": "chmod 777 ~/a.sh"}},
-			{toolID: "tool_2", toolName: "_sandbox_bash_", args: map[string]any{"command": "chmod 777 ~/b.sh"}},
-			{toolID: "tool_3", toolName: "_sandbox_bash_", args: map[string]any{"command": "chmod 777 ~/c.sh"}},
+			{toolID: "tool_1", toolName: "_sandbox_bash_", args: map[string]any{"command": "chmod 777 ~/a.sh", "description": "放开 a.sh 权限"}},
+			{toolID: "tool_2", toolName: "_sandbox_bash_", args: map[string]any{"command": "chmod 777 ~/b.sh", "description": "放开 b.sh 权限"}},
+			{toolID: "tool_3", toolName: "_sandbox_bash_", args: map[string]any{"command": "chmod 777 ~/c.sh", "description": "放开 c.sh 权限"}},
 		},
 	}
 
@@ -656,6 +788,16 @@ func TestPrepareQueuedBashApprovalBatch_MergesAllBuiltinApprovalsInSingleAwait(t
 		expectedID := fmt.Sprintf("tool_%d", index+1)
 		if approval["id"] != expectedID {
 			t.Fatalf("expected approval[%d] id %q, got %#v", index, expectedID, approval)
+		}
+		if _, ok := approval["level"]; ok {
+			t.Fatalf("did not expect level in batch approval payload, got %#v", approval)
+		}
+		if approval["description"] == "" {
+			t.Fatalf("expected approval description, got %#v", approval)
+		}
+		options, _ := approval["options"].([]any)
+		if len(options) != 3 || approval["allowFreeText"] != true {
+			t.Fatalf("expected approval options and free text metadata, got %#v", approval)
 		}
 	}
 
@@ -692,6 +834,7 @@ func TestPrepareQueuedBashApprovalBatch_MergesAllBuiltinApprovalsInSingleAwait(t
 	var answer map[string]any
 	approvalAskCount := 0
 	rejectedCount := 0
+	approvedResults := 0
 	for _, delta := range stream.pending {
 		switch typed := delta.(type) {
 		case contracts.DeltaAwaitAsk:
@@ -705,6 +848,13 @@ func TestPrepareQueuedBashApprovalBatch_MergesAllBuiltinApprovalsInSingleAwait(t
 		case contracts.DeltaToolResult:
 			if typed.Result.Error == "user_rejected" {
 				rejectedCount++
+				continue
+			}
+			if typed.ToolName == "_sandbox_bash_" {
+				approvedResults++
+				if typed.Result.HITL["decision"] != "approve" || typed.Result.HITL["rawDecision"] != "approve" || typed.Result.HITL["awaitingId"] != ask.AwaitingID {
+					t.Fatalf("expected approved tool result to include HITL metadata, got %#v", typed.Result)
+				}
 			}
 		}
 	}
@@ -718,8 +868,14 @@ func TestPrepareQueuedBashApprovalBatch_MergesAllBuiltinApprovalsInSingleAwait(t
 	if approvals[2]["decision"] != "reject" {
 		t.Fatalf("expected third approval decision to be reject, got %#v", approvals)
 	}
+	if approvals[2]["rawDecision"] != "reject" {
+		t.Fatalf("expected rawDecision to be preserved, got %#v", approvals)
+	}
 	if rejectedCount != 1 {
 		t.Fatalf("expected exactly one rejected tool result, got %#v", stream.pending)
+	}
+	if approvedResults != 2 {
+		t.Fatalf("expected exactly two approved tool results with HITL metadata, got %#v", stream.pending)
 	}
 	if approvalAskCount != 1 {
 		t.Fatalf("expected exactly one batch approval ask, got %#v", stream.pending)
@@ -759,13 +915,13 @@ func TestPrepareQueuedBashApprovalBatch_LeavesHtmlViewportOutsideMergedApprovalA
 					Rule:            hitl.FlatRule{Level: 1, ViewportType: "builtin", ViewportKey: "confirm_dialog"},
 					OriginalCommand: "chmod 777 ~/a.sh",
 				},
-				`mock create-leave --payload '{"employee_id":"E1001","days":3}'`: {
+				sampleLeaveCommand(3): {
 					Intercepted:     true,
 					Rule:            hitl.FlatRule{Level: 1, ViewportType: "html", ViewportKey: "leave_form"},
-					OriginalCommand: `mock create-leave --payload '{"employee_id":"E1001","days":3}'`,
+					OriginalCommand: sampleLeaveCommand(3),
 					ParsedCommand: hitl.CommandComponents{
 						BaseCommand: "mock",
-						Tokens:      []string{"create-leave", "--payload", `{"employee_id":"E1001","days":3}`},
+						Tokens:      []string{"create-leave", "--payload", `{"applicant":{"department":"engineering","employee_id":"E1001","name":"Lin"},"backup_person":"E2001","duration_days":3,"end_date":"2026-04-22","leave_type":"年假","notes":"","reason":"family_trip","start_date":"2026-04-20","urgent_contact":"Amy","urgent_phone":"13800138000"}`},
 					},
 				},
 			},
@@ -774,8 +930,8 @@ func TestPrepareQueuedBashApprovalBatch_LeavesHtmlViewportOutsideMergedApprovalA
 			},
 		},
 		queuedToolCalls: []*preparedToolInvocation{
-			{toolID: "tool_1", toolName: "_sandbox_bash_", args: map[string]any{"command": "chmod 777 ~/a.sh"}},
-			{toolID: "tool_2", toolName: "_sandbox_bash_", args: map[string]any{"command": `mock create-leave --payload '{"employee_id":"E1001","days":3}'`}},
+			{toolID: "tool_1", toolName: "_sandbox_bash_", args: map[string]any{"command": "chmod 777 ~/a.sh", "description": "放开 a.sh 权限"}},
+			{toolID: "tool_2", toolName: "_sandbox_bash_", args: map[string]any{"command": sampleLeaveCommand(3), "description": "创建请假单"}},
 		},
 	}
 
@@ -824,6 +980,37 @@ func TestPrepareQueuedBashApprovalBatch_LeavesHtmlViewportOutsideMergedApprovalA
 	}
 }
 
+func TestPrepareQueuedBashApprovalBatch_SkipsWhitelistedRuleWithinRun(t *testing.T) {
+	stream := &llmRunStream{
+		session: contracts.QuerySession{RunID: "run_1"},
+		hitlRuleWhitelist: map[string]struct{}{
+			"dangerous::chmod::777::1::builtin::confirm_dialog": {},
+		},
+		checker: commandResultChecker{
+			results: map[string]hitl.InterceptResult{
+				"chmod 777 ~/d.sh": {
+					Intercepted:     true,
+					Rule:            hitl.FlatRule{RuleKey: "dangerous::chmod::777::1::builtin::confirm_dialog", Level: 1, ViewportType: "builtin", ViewportKey: "confirm_dialog"},
+					OriginalCommand: "chmod 777 ~/d.sh",
+				},
+			},
+		},
+		queuedToolCalls: []*preparedToolInvocation{
+			{toolID: "tool_4", toolName: "_sandbox_bash_", args: map[string]any{"command": "chmod 777 ~/d.sh", "description": "放开 d.sh 权限"}},
+		},
+	}
+
+	if stream.prepareQueuedBashApprovalBatch() {
+		t.Fatalf("expected whitelisted rule to skip approval batch, got %#v", stream.pending)
+	}
+	if decision := stream.queuedToolCalls[0].approvalDecision; decision != "approve_prefix_run" {
+		t.Fatalf("expected invocation to inherit approve_prefix_run, got %#v", stream.queuedToolCalls[0])
+	}
+	if stream.queuedToolCalls[0].hitlDecision == nil || stream.queuedToolCalls[0].hitlDecision.Scope != "run_rule" {
+		t.Fatalf("expected whitelisted invocation to record run_rule HITL metadata, got %#v", stream.queuedToolCalls[0])
+	}
+}
+
 func TestPrepareQueuedBashApprovalBatch_BlocksEntireTurnAndResumesInOriginalOrder(t *testing.T) {
 	executor := &recordingToolExecutor{
 		defs: []api.ToolDetailResponse{
@@ -868,9 +1055,9 @@ func TestPrepareQueuedBashApprovalBatch_BlocksEntireTurnAndResumesInOriginalOrde
 			},
 		},
 		queuedToolCalls: []*preparedToolInvocation{
-			{toolID: "tool_1", toolName: "_sandbox_bash_", args: map[string]any{"command": "chmod 777 ~/a.sh"}},
+			{toolID: "tool_1", toolName: "_sandbox_bash_", args: map[string]any{"command": "chmod 777 ~/a.sh", "description": "放开 a.sh 权限"}},
 			{toolID: "tool_2", toolName: "weather_tool", args: map[string]any{"city": "Shanghai"}},
-			{toolID: "tool_3", toolName: "_sandbox_bash_", args: map[string]any{"command": "chmod 777 ~/b.sh"}},
+			{toolID: "tool_3", toolName: "_sandbox_bash_", args: map[string]any{"command": "chmod 777 ~/b.sh", "description": "放开 b.sh 权限"}},
 		},
 	}
 
@@ -1081,8 +1268,8 @@ func TestExtractCommandPayload(t *testing.T) {
 	}{
 		{
 			name:     "mock command payload",
-			command:  `mock create-leave --payload '{"employee_id":"E1001","days":3}'`,
-			expected: map[string]any{"employee_id": "E1001", "days": float64(3)},
+			command:  sampleLeaveCommand(3),
+			expected: sampleLeavePayload(3),
 		},
 		{
 			name:     "non mock command payload",
@@ -1121,16 +1308,16 @@ func TestBuildFormApprovalArgsFallsBackToOriginalCommandPayload(t *testing.T) {
 	stream := &llmRunStream{
 		session: contracts.QuerySession{RunID: "run_1"},
 	}
-	args := stream.buildFormApprovalArgs(`mock create-leave --payload {"employee_id":"E1001","days":3}`, hitl.InterceptResult{
+	args := stream.buildFormApprovalArgs(`mock create-leave --payload {"applicant":{"name":"Lin","department":"engineering","employee_id":"E1001"},"leave_type":"年假","start_date":"2026-04-20","end_date":"2026-04-22","duration_days":3,"reason":"family_trip","urgent_contact":"Amy","urgent_phone":"13800138000","backup_person":"E2001","notes":""}`, hitl.InterceptResult{
 		Rule: hitl.FlatRule{
 			ViewportType: "html",
 			ViewportKey:  "leave_form",
 		},
 		ParsedCommand: hitl.CommandComponents{
 			BaseCommand: "mock",
-			Tokens:      []string{"create-leave", "--payload", "{employee_id:E1001}"},
+			Tokens:      []string{"create-leave", "--payload", "{applicant:{employee_id:E1001}}"},
 		},
-		OriginalCommand: `mock create-leave --payload {"employee_id":"E1001","days":3}`,
+		OriginalCommand: `mock create-leave --payload {"applicant":{"name":"Lin","department":"engineering","employee_id":"E1001"},"leave_type":"年假","start_date":"2026-04-20","end_date":"2026-04-22","duration_days":3,"reason":"family_trip","urgent_contact":"Amy","urgent_phone":"13800138000","backup_person":"E2001","notes":""}`,
 	})
 	forms, ok := args["forms"].([]any)
 	if !ok || len(forms) != 1 {
@@ -1141,7 +1328,7 @@ func TestBuildFormApprovalArgsFallsBackToOriginalCommandPayload(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected initialPayload in form approval args, got %#v", args)
 	}
-	expected := map[string]any{"employee_id": "E1001", "days": float64(3)}
+	expected := sampleLeavePayload(3)
 	if !reflect.DeepEqual(payload, expected) {
 		t.Fatalf("expected payload %#v, got %#v", expected, payload)
 	}
@@ -1156,9 +1343,9 @@ func TestReconstructCommandWithPayload(t *testing.T) {
 	}{
 		{
 			name:     "leave",
-			command:  `mock create-leave --payload '{"employee_id":"E1001","days":3}'`,
-			payload:  map[string]any{"employee_id": "E1001", "days": 2},
-			expected: `mock create-leave --payload '{"days":2,"employee_id":"E1001"}'`,
+			command:  sampleLeaveCommand(3),
+			payload:  sampleLeavePayload(2),
+			expected: sampleLeaveCommand(2),
 		},
 		{
 			name:     "expense",
@@ -1186,7 +1373,7 @@ func TestReconstructCommandWithPayload(t *testing.T) {
 		})
 	}
 
-	if _, err := reconstructCommandWithPayload(`mock create-leave --payload-file ./leave.json`, map[string]any{"employee_id": "E1001"}); err == nil {
+	if _, err := reconstructCommandWithPayload(`mock create-leave --payload-file ./leave.json`, sampleLeavePayload(3)); err == nil {
 		t.Fatal("expected command without --payload to fail reconstruction")
 	}
 
@@ -1280,7 +1467,7 @@ func TestInvokeActiveToolCallDoesNotAutoApproveHTMLViewport(t *testing.T) {
 				},
 				ParsedCommand: hitl.CommandComponents{
 					BaseCommand: "mock",
-					Tokens:      []string{"create-leave", "--payload", `{"employee_id":"E1001"}`},
+					Tokens:      []string{"create-leave", "--payload", `{"applicant":{"department":"engineering","employee_id":"E1001","name":"Lin"},"backup_person":"E2001","duration_days":3,"end_date":"2026-04-22","leave_type":"年假","notes":"","reason":"family_trip","start_date":"2026-04-20","urgent_contact":"Amy","urgent_phone":"13800138000"}`},
 				},
 			},
 		},
@@ -1298,7 +1485,7 @@ func TestInvokeActiveToolCallDoesNotAutoApproveHTMLViewport(t *testing.T) {
 			toolID:   "tool_1",
 			toolName: "_sandbox_bash_",
 			args: map[string]any{
-				"command": `mock create-leave --payload '{"employee_id":"E1001"}'`,
+				"command": `mock create-leave --payload '{"applicant":{"department":"engineering","employee_id":"E1001","name":"Lin"},"backup_person":"E2001","duration_days":3,"end_date":"2026-04-22","leave_type":"年假","notes":"","reason":"family_trip","start_date":"2026-04-20","urgent_contact":"Amy","urgent_phone":"13800138000"}'`,
 			},
 		},
 	}

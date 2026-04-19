@@ -142,6 +142,7 @@ type ToolExecutionResult struct {
 	Output     string
 	Structured map[string]any
 	RawParams  any
+	HITL       map[string]any
 	Error      string
 	ExitCode   int
 	SubmitInfo *SubmitInfo

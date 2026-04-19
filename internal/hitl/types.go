@@ -19,6 +19,7 @@ type RuleFile struct {
 }
 
 type FlatRule struct {
+	RuleKey      string
 	FileKey      string
 	SourcePath   string
 	Order        int

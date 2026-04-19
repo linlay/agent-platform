@@ -240,6 +240,65 @@ func TestWebSocketChatReturnsActiveRunConflict(t *testing.T) {
 	}
 }
 
+func TestWebSocketQueryDebugVisibilityFollowsSSEConfig(t *testing.T) {
+	testCases := []struct {
+		name         string
+		includeDebug bool
+		wantDebug    bool
+	}{
+		{name: "hidden by default", includeDebug: false, wantDebug: false},
+		{name: "visible when enabled", includeDebug: true, wantDebug: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+				writeProviderSSE(t, w,
+					`{"choices":[{"delta":{"content":"hello"},"finish_reason":"stop"}]}`,
+					`{"choices":[],"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}}`,
+					`[DONE]`,
+				)
+			}, testFixtureOptions{
+				notifications: ws.NewHub(),
+				configure: func(cfg *config.Config) {
+					cfg.WebSocket.Enabled = true
+					cfg.WebSocket.WriteQueueSize = 8
+					cfg.WebSocket.PingIntervalMs = 30000
+					cfg.SSE.IncludeDebugEvents = tc.includeDebug
+				},
+			})
+
+			server := httptest.NewServer(fixture.server)
+			defer server.Close()
+
+			wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
+			conn, _, err := gws.DefaultDialer.Dial(wsURL, nil)
+			if err != nil {
+				t.Fatalf("dial websocket: %v", err)
+			}
+			defer conn.Close()
+
+			if err := conn.WriteJSON(ws.RequestFrame{
+				Frame: ws.FrameRequest,
+				Type:  "/api/query",
+				ID:    "req_query_debug",
+				Payload: ws.MarshalPayload(map[string]any{
+					"message": "websocket debug",
+				}),
+			}); err != nil {
+				t.Fatalf("write websocket query: %v", err)
+			}
+
+			eventTypes := collectWebSocketStreamEventTypes(t, conn, "req_query_debug")
+			if tc.wantDebug {
+				assertStringSliceContains(t, eventTypes, "debug.preCall", "debug.postCall")
+				return
+			}
+			assertStringSliceExcludes(t, eventTypes, "debug.preCall", "debug.postCall")
+		})
+	}
+}
+
 type hijackableResponseWriter struct {
 	header http.Header
 	conn   net.Conn
@@ -918,6 +977,93 @@ func TestQueryDecryptsAESProviderAPIKeyBeforeSendingAuthorizationHeader(t *testi
 	}
 }
 
+func TestQueryAndRunStreamHideDebugEventsByDefaultButPersistThem(t *testing.T) {
+	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"content":"hello"},"finish_reason":"stop"}]}`,
+			`{"choices":[],"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}}`,
+			`[DONE]`,
+		)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"hide debug"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	assertStringSliceExcludes(t, decodeEventTypesFromSSE(t, body), "debug.preCall", "debug.postCall")
+
+	messages := decodeSSEMessages(t, body)
+	if len(messages) == 0 {
+		t.Fatalf("expected sse messages, got %s", body)
+	}
+	runID, _ := messages[0]["runId"].(string)
+	chatID, _ := messages[0]["chatId"].(string)
+	if runID == "" || chatID == "" {
+		t.Fatalf("expected runId/chatId in first sse message, got %#v", messages[0])
+	}
+
+	runRec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(runRec, httptest.NewRequest(http.MethodGet, "/api/run/stream?runId="+runID, nil))
+	if runRec.Code != http.StatusOK {
+		t.Fatalf("expected run stream 200, got %d: %s", runRec.Code, runRec.Body.String())
+	}
+	assertStringSliceExcludes(t, decodeEventTypesFromSSE(t, runRec.Body.String()), "debug.preCall", "debug.postCall")
+
+	chatRec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatID, nil))
+	var chatResp api.ApiResponse[api.ChatDetailResponse]
+	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
+		t.Fatalf("decode chat detail: %v", err)
+	}
+	assertEventTypesInclude(t, chatResp.Data.Events, "debug.preCall", "debug.postCall")
+}
+
+func TestQueryAndRunStreamIncludeDebugEventsWhenEnabled(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"content":"hello"},"finish_reason":"stop"}]}`,
+			`{"choices":[],"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}}`,
+			`[DONE]`,
+		)
+	}, testFixtureOptions{
+		configure: func(cfg *config.Config) {
+			cfg.SSE.IncludeDebugEvents = true
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"show debug"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	assertStringSliceContains(t, decodeEventTypesFromSSE(t, body), "debug.preCall", "debug.postCall")
+
+	messages := decodeSSEMessages(t, body)
+	if len(messages) == 0 {
+		t.Fatalf("expected sse messages, got %s", body)
+	}
+	runID, _ := messages[0]["runId"].(string)
+	if runID == "" {
+		t.Fatalf("expected runId in first sse message, got %#v", messages[0])
+	}
+
+	runRec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(runRec, httptest.NewRequest(http.MethodGet, "/api/run/stream?runId="+runID, nil))
+	if runRec.Code != http.StatusOK {
+		t.Fatalf("expected run stream 200, got %d: %s", runRec.Code, runRec.Body.String())
+	}
+	assertStringSliceContains(t, decodeEventTypesFromSSE(t, runRec.Body.String()), "debug.preCall", "debug.postCall")
+}
+
 func TestQueryPersistsToolSnapshotWhenSSEPayloadEventsDisabled(t *testing.T) {
 	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
 		var payload map[string]any
@@ -1237,7 +1383,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 		switch call {
 		case 1:
 			writeProviderSSE(t, w,
-				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Need confirmation\",\"type\":\"select\",\"options\":[{\"label\":\"Approve\",\"description\":\"Continue with the request\"}],\"allowFreeText\":false,\"multiSelect\":false}]}"}}]},"finish_reason":"tool_calls"}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Need confirmation\",\"type\":\"select\",\"options\":[{\"label\":\"Approve\",\"description\":\"Continue with the request\"}],\"allowFreeText\":false,\"multiple\":false}]}"}}]},"finish_reason":"tool_calls"}]}`,
 				`[DONE]`,
 			)
 		case 2:
@@ -1525,7 +1671,7 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 		switch call {
 		case 1:
 			writeProviderSSE(t, w,
-				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Notification topics\",\"type\":\"select\",\"options\":[{\"label\":\"产品更新\",\"description\":\"Release notes and new features\"},{\"label\":\"使用教程\",\"description\":\"How-to guides and walkthroughs\"}],\"allowFreeText\":false,\"multiSelect\":true},{\"question\":\"How many people?\",\"type\":\"number\"}]}"}}]},"finish_reason":"tool_calls"}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Notification topics\",\"type\":\"select\",\"options\":[{\"label\":\"产品更新\",\"description\":\"Release notes and new features\"},{\"label\":\"使用教程\",\"description\":\"How-to guides and walkthroughs\"}],\"allowFreeText\":false,\"multiple\":true},{\"question\":\"How many people?\",\"type\":\"number\"}]}"}}]},"finish_reason":"tool_calls"}]}`,
 				`[DONE]`,
 			)
 		case 2:
@@ -1703,7 +1849,7 @@ func TestQuestionChunkedArgsEmitAwaitAfterFirstToolArgs(t *testing.T) {
 		case 1:
 			writeProviderSSE(t, w,
 				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Notification topics\",\"type\":\"select\","}}]}}]}`,
-				`{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"options\":[{\"label\":\"产品更新\",\"description\":\"Release notes and new features\"},{\"label\":\"使用教程\",\"description\":\"How-to guides and walkthroughs\"}],\"allowFreeText\":false,\"multiSelect\":true},{\"question\":\"How many people?\",\"type\":\"number\"}]}"}}]},"finish_reason":"tool_calls"}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"options\":[{\"label\":\"产品更新\",\"description\":\"Release notes and new features\"},{\"label\":\"使用教程\",\"description\":\"How-to guides and walkthroughs\"}],\"allowFreeText\":false,\"multiple\":true},{\"question\":\"How many people?\",\"type\":\"number\"}]}"}}]},"finish_reason":"tool_calls"}]}`,
 				`[DONE]`,
 			)
 		case 2:
@@ -1947,7 +2093,7 @@ func TestQuestionAwaitDismissReturnsCancelledStructuredResult(t *testing.T) {
 		switch call {
 		case 1:
 			writeProviderSSE(t, w,
-				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Pick a plan\",\"type\":\"select\",\"options\":[{\"label\":\"Weekend\",\"description\":\"2 days\"}],\"allowFreeText\":false,\"multiSelect\":false}]}"}}]},"finish_reason":"tool_calls"}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Pick a plan\",\"type\":\"select\",\"options\":[{\"label\":\"Weekend\",\"description\":\"2 days\"}],\"allowFreeText\":false,\"multiple\":false}]}"}}]},"finish_reason":"tool_calls"}]}`,
 				`[DONE]`,
 			)
 		case 2:
@@ -2115,6 +2261,7 @@ func TestBashHITLApproveFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal expected await payload: %v", err)
 	}
+	expectedSubmitPayload := string(expectedAwaitPayload)
 	if len(executed) != 1 || executed[0] != expectedCommand {
 		t.Fatalf("expected approved command to execute once, got %#v", executed)
 	}
@@ -2127,7 +2274,7 @@ func TestBashHITLApproveFlow(t *testing.T) {
 	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
 		!strings.Contains(body, `"action":"submit"`) ||
 		!strings.Contains(body, `"id":"form-1"`) ||
-		!strings.Contains(body, `"payload":{"days":3,"employee_id":"E1001","employee_name":"Lin","end_date":"2026-04-22","handover_to":"E2001","leave_type":"annual","reason":"family_trip","start_date":"2026-04-20","urgent_contact":"13800138000"}`) {
+		!strings.Contains(body, `"payload":`+expectedSubmitPayload) {
 		t.Fatalf("expected approve awaiting.answer in stream, got %s", body)
 	}
 	if !strings.Contains(body, `"initialPayload":`+string(expectedAwaitPayload)) {
@@ -2139,16 +2286,20 @@ func TestBashHITLApproveFlow(t *testing.T) {
 }
 
 func TestBashHITLModifyFlow(t *testing.T) {
-	modified := `mock create-leave --payload {"employee_id":"E1001","employee_name":"Lin","leave_type":"personal","start_date":"2026-04-21","end_date":"2026-04-22","days":2,"reason":"family_trip","handover_to":"E2001","urgent_contact":"13800138000"}`
+	modified := `mock create-leave --payload {"applicant":{"name":"Lin","department":"engineering","employee_id":"E1001"},"leave_type":"事假","start_date":"2026-04-21","end_date":"2026-04-22","duration_days":2,"reason":"family_trip","urgent_contact":"Amy","urgent_phone":"13800138000","backup_person":"E2001","notes":"请协助处理审批"}`
 	body, executed := runBashHITLFlow(t, bashHITLFlowOptions{action: "modify", modifiedCommand: modified})
 	expectedCommand := rebuildPayloadCommandForTest(t, defaultBashHITLCommand(), payloadFromCommandForTest(t, modified))
+	expectedSubmitPayload, err := json.Marshal(payloadFromCommandForTest(t, modified))
+	if err != nil {
+		t.Fatalf("marshal modified payload: %v", err)
+	}
 	if len(executed) != 1 || executed[0] != expectedCommand {
 		t.Fatalf("expected modified command to execute once, got %#v", executed)
 	}
 	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
 		!strings.Contains(body, `"action":"submit"`) ||
 		!strings.Contains(body, `"id":"form-1"`) ||
-		!strings.Contains(body, `"payload":{"days":2,"employee_id":"E1001","employee_name":"Lin","end_date":"2026-04-22","handover_to":"E2001","leave_type":"personal","reason":"family_trip","start_date":"2026-04-21","urgent_contact":"13800138000"}`) {
+		!strings.Contains(body, `"payload":`+string(expectedSubmitPayload)) {
 		t.Fatalf("expected modify awaiting.answer in stream, got %s", body)
 	}
 	if strings.Contains(body, "map[") {
@@ -2318,8 +2469,12 @@ func TestBashHITLDockerRMIApproveFlow(t *testing.T) {
 		!strings.Contains(body, `"approvals":[`) ||
 		!strings.Contains(body, `"command":"docker rmi nginx:latest"`) ||
 		!strings.Contains(body, `"id":"tool_bash"`) ||
-		!strings.Contains(body, `"level":1`) {
+		!strings.Contains(body, `"description":"`) ||
+		!strings.Contains(body, `"allowFreeText":true`) {
 		t.Fatalf("expected approval awaiting.ask payload in stream, got %s", body)
+	}
+	if strings.Contains(body, `"level":1`) {
+		t.Fatalf("did not expect level in approval awaiting.ask payload, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"request.submit"`) ||
 		!strings.Contains(body, `"params":[{"id":"tool_bash","decision":"approve"}]`) {
@@ -2412,8 +2567,9 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 		case 1:
 			writeProviderSSE(t, w,
 				providerToolCallFrame(t, "tool_bash", toolName, map[string]any{
-					"command": command,
-					"cwd":     "/workspace",
+					"command":     command,
+					"description": "执行测试命令",
+					"cwd":         "/workspace",
 				}),
 				`[DONE]`,
 			)
@@ -2568,7 +2724,7 @@ submit:
 }
 
 func defaultBashHITLCommand() string {
-	return `mock create-leave --payload {"employee_id":"E1001","employee_name":"Lin","leave_type":"annual","start_date":"2026-04-20","end_date":"2026-04-22","days":3,"reason":"family_trip","handover_to":"E2001","urgent_contact":"13800138000"}`
+	return `mock create-leave --payload {"applicant":{"name":"Lin","department":"engineering","employee_id":"E1001"},"leave_type":"年假","start_date":"2026-04-20","end_date":"2026-04-22","duration_days":3,"reason":"family_trip","urgent_contact":"Amy","urgent_phone":"13800138000","backup_person":"E2001","notes":""}`
 }
 
 func payloadFromCommandForTest(t *testing.T, command string) map[string]any {
@@ -2710,7 +2866,7 @@ func TestValidateSubmitParamsAllowsOrderedItemsWithoutIDs(t *testing.T) {
 			itemCount: 3,
 			params: mustEncodeSubmitParams(t, []map[string]any{
 				{"decision": "approve"},
-				{"decision": "approve_always"},
+				{"decision": "approve_prefix_run"},
 				{"decision": "reject"},
 			}),
 		},
@@ -3642,4 +3798,91 @@ func assertUUIDLike(t *testing.T, value string) {
 			t.Fatalf("expected uuid-like value, got %q", value)
 		}
 	}
+}
+
+func decodeEventTypesFromSSE(t *testing.T, body string) []string {
+	t.Helper()
+	messages := decodeSSEMessages(t, body)
+	types := make([]string, 0, len(messages))
+	for _, message := range messages {
+		eventType, _ := message["type"].(string)
+		if eventType != "" {
+			types = append(types, eventType)
+		}
+	}
+	return types
+}
+
+func assertEventTypesInclude(t *testing.T, events []stream.EventData, want ...string) {
+	t.Helper()
+	got := make([]string, 0, len(events))
+	for _, event := range events {
+		got = append(got, event.Type)
+	}
+	assertStringSliceContains(t, got, want...)
+}
+
+func assertStringSliceContains(t *testing.T, got []string, want ...string) {
+	t.Helper()
+	for _, target := range want {
+		found := false
+		for _, item := range got {
+			if item == target {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("expected %q in %#v", target, got)
+		}
+	}
+}
+
+func assertStringSliceExcludes(t *testing.T, got []string, blocked ...string) {
+	t.Helper()
+	for _, target := range blocked {
+		for _, item := range got {
+			if item == target {
+				t.Fatalf("did not expect %q in %#v", target, got)
+			}
+		}
+	}
+}
+
+func collectWebSocketStreamEventTypes(t *testing.T, conn *gws.Conn, requestID string) []string {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	types := make([]string, 0)
+	for time.Now().Before(deadline) {
+		if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+			t.Fatalf("set websocket read deadline: %v", err)
+		}
+		_, raw, err := conn.ReadMessage()
+		if err != nil {
+			t.Fatalf("read websocket message: %v", err)
+		}
+		var meta struct {
+			Frame  string `json:"frame"`
+			ID     string `json:"id"`
+			Reason string `json:"reason"`
+		}
+		if err := json.Unmarshal(raw, &meta); err != nil {
+			t.Fatalf("decode websocket frame: %v", err)
+		}
+		if meta.Frame != ws.FrameStream || meta.ID != requestID {
+			continue
+		}
+		var frame ws.StreamFrame
+		if err := json.Unmarshal(raw, &frame); err != nil {
+			t.Fatalf("decode websocket stream frame: %v", err)
+		}
+		if frame.Event != nil {
+			types = append(types, frame.Event.Type)
+		}
+		if frame.Reason != "" {
+			return types
+		}
+	}
+	t.Fatalf("timed out waiting for websocket stream completion for %s", requestID)
+	return nil
 }

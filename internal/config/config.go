@@ -114,6 +114,7 @@ type PlanExecuteDefaultsConfig struct {
 
 type SSEConfig struct {
 	IncludeToolPayloadEvents bool
+	IncludeDebugEvents       bool
 	HeartbeatIntervalMs      int64
 }
 
@@ -310,7 +311,8 @@ func defaultConfig() Config {
 			},
 		},
 		SSE: SSEConfig{
-			IncludeToolPayloadEvents: false,
+			IncludeToolPayloadEvents: true,
+			IncludeDebugEvents:       false,
 			HeartbeatIntervalMs:      15000,
 		},
 		H2A: H2AConfig{
@@ -391,7 +393,7 @@ func defaultConfig() Config {
 			MaxDisconnectedWaitMs:   600000,
 		},
 		WebSocket: WebSocketConfig{
-			Enabled:             false,
+			Enabled:             true,
 			MaxMessageSizeBytes: 1 << 20,
 			PingIntervalMs:      30000,
 			WriteTimeoutMs:      15000,
@@ -521,6 +523,7 @@ func (c *Config) applyEnv() {
 	c.Defaults.Plan.MaxWorkRoundsPerTask = intEnv("AGENT_DEFAULT_PLAN_EXECUTE_MAX_WORK_ROUNDS_PER_TASK", c.Defaults.Plan.MaxWorkRoundsPerTask)
 
 	c.SSE.IncludeToolPayloadEvents = boolEnv("AGENT_SSE_INCLUDE_TOOL_PAYLOAD_EVENTS", c.SSE.IncludeToolPayloadEvents)
+	c.SSE.IncludeDebugEvents = boolEnv("AGENT_SSE_INCLUDE_DEBUG_EVENTS", c.SSE.IncludeDebugEvents)
 	c.SSE.HeartbeatIntervalMs = int64Env("AGENT_SSE_HEARTBEAT_INTERVAL_MS", c.SSE.HeartbeatIntervalMs)
 	c.H2A.Render.FlushIntervalMs = int64Env("AGENT_H2A_RENDER_FLUSH_INTERVAL_MS", c.H2A.Render.FlushIntervalMs)
 	c.H2A.Render.MaxBufferedChars = intEnv("AGENT_H2A_RENDER_MAX_BUFFERED_CHARS", c.H2A.Render.MaxBufferedChars)

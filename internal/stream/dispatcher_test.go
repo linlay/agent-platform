@@ -84,7 +84,14 @@ func TestDispatcherEmitsApprovalModeAwaitAskWithQuestions(t *testing.T) {
 		Timeout:    120000,
 		RunID:      "run_1",
 		Approvals: []any{
-			map[string]any{"id": "cmd-1", "command": "git push origin main", "level": 1},
+			map[string]any{
+				"id":                  "cmd-1",
+				"command":             "git push origin main",
+				"description":         "推送主分支",
+				"options":             []any{map[string]any{"label": "同意", "value": "approve"}},
+				"allowFreeText":       true,
+				"freeTextPlaceholder": "可选：填写理由",
+			},
 		},
 	})
 	assertEventTypes(t, viewportEvents, "awaiting.ask")
@@ -110,7 +117,14 @@ func TestDispatcherSkipsDuplicateAwaitAskForSameAwaitingID(t *testing.T) {
 		Timeout:    120000,
 		RunID:      "run_1",
 		Approvals: []any{
-			map[string]any{"id": "tool_1", "command": "chmod 777 ~/a.sh", "level": 1},
+			map[string]any{
+				"id":                  "tool_1",
+				"command":             "chmod 777 ~/a.sh",
+				"description":         "放开 a.sh 权限",
+				"options":             []any{map[string]any{"label": "同意", "value": "approve"}},
+				"allowFreeText":       true,
+				"freeTextPlaceholder": "可选：填写理由",
+			},
 		},
 	})
 	assertEventTypes(t, first, "awaiting.ask")
@@ -121,7 +135,14 @@ func TestDispatcherSkipsDuplicateAwaitAskForSameAwaitingID(t *testing.T) {
 		Timeout:    120000,
 		RunID:      "run_1",
 		Approvals: []any{
-			map[string]any{"id": "tool_1", "command": "chmod 777 ~/a.sh", "level": 1},
+			map[string]any{
+				"id":                  "tool_1",
+				"command":             "chmod 777 ~/a.sh",
+				"description":         "放开 a.sh 权限",
+				"options":             []any{map[string]any{"label": "同意", "value": "approve"}},
+				"allowFreeText":       true,
+				"freeTextPlaceholder": "可选：填写理由",
+			},
 		},
 	})
 	if len(second) != 0 {
@@ -144,9 +165,29 @@ func TestDispatcherEmitsApprovalModeAwaitAskWithPayloadOnlyForForm(t *testing.T)
 		RunID:        "run_1",
 		Forms: []any{
 			map[string]any{
-				"id":             "form-1",
-				"command":        "mock create-leave",
-				"initialPayload": map[string]any{"employee_id": "E1001"},
+				"id": "form-1",
+				"initialPayload": map[string]any{
+					"applicant": map[string]any{
+						"employee_id": "E1001",
+					},
+					"duration_days": 3,
+					"leave_type":    "年假",
+				},
+			},
+		},
+		ViewportPayload: map[string]any{
+			"forms": []any{
+				map[string]any{
+					"id":      "form-1",
+					"command": "mock create-leave",
+					"initialPayload": map[string]any{
+						"applicant": map[string]any{
+							"employee_id": "E1001",
+						},
+						"duration_days": 3,
+						"leave_type":    "年假",
+					},
+				},
 			},
 		},
 	})
@@ -157,9 +198,18 @@ func TestDispatcherEmitsApprovalModeAwaitAskWithPayloadOnlyForForm(t *testing.T)
 		t.Fatalf("expected forms in form awaiting.ask, got %#v", payload)
 	}
 	form := forms[0].(map[string]any)
+	if _, exists := form["command"]; exists {
+		t.Fatalf("did not expect form command in awaiting.ask payload, got %#v", payload)
+	}
 	initialPayload, _ := form["initialPayload"].(map[string]any)
-	if initialPayload == nil || initialPayload["employee_id"] != "E1001" {
+	applicant, _ := initialPayload["applicant"].(map[string]any)
+	if initialPayload == nil || applicant["employee_id"] != "E1001" || initialPayload["duration_days"] != 3 {
 		t.Fatalf("expected initialPayload in form awaiting.ask, got %#v", payload)
+	}
+	viewportPayload, _ := payload["viewportPayload"].(map[string]any)
+	viewportForms, _ := viewportPayload["forms"].([]any)
+	if len(viewportForms) != 1 {
+		t.Fatalf("expected viewportPayload forms, got %#v", payload)
 	}
 }
 
@@ -398,8 +448,15 @@ func TestEventDataMarshalsAwaitAskWithCommandBeforeQuestions(t *testing.T) {
 		"runId":        "run_1",
 		"forms": []any{
 			map[string]any{
-				"id":      "form-1",
-				"command": `mock create-leave --payload '{"employee_id":"E1001"}'`,
+				"id": "form-1",
+			},
+		},
+		"viewportPayload": map[string]any{
+			"forms": []any{
+				map[string]any{
+					"id":      "form-1",
+					"command": `mock create-leave --payload '{"applicant":{"employee_id":"E1001"}}'`,
+				},
 			},
 		},
 	})
@@ -408,7 +465,7 @@ func TestEventDataMarshalsAwaitAskWithCommandBeforeQuestions(t *testing.T) {
 		t.Fatalf("marshal event data: %v", err)
 	}
 	text := string(data)
-	commandIndex := strings.Index(text, `"command":"mock create-leave --payload '{\"employee_id\":\"E1001\"}'"`)
+	commandIndex := strings.Index(text, `"command":"mock create-leave --payload '{\"applicant\":{\"employee_id\":\"E1001\"}}'"`)
 	timestampIndex := strings.Index(text, `"timestamp":`)
 	if commandIndex < 0 || timestampIndex < 0 || commandIndex >= timestampIndex {
 		t.Fatalf("expected command before timestamp in %s", text)
@@ -507,8 +564,10 @@ func TestDispatcherEmitsAwaitingAnswerForApprovalFormSubmit(t *testing.T) {
 					"id":     "form-1",
 					"action": "submit",
 					"payload": map[string]any{
-						"employee_id": "E1001",
-						"days":        2,
+						"applicant": map[string]any{
+							"employee_id": "E1001",
+						},
+						"duration_days": 2,
 					},
 				},
 			},
@@ -524,7 +583,8 @@ func TestDispatcherEmitsAwaitingAnswerForApprovalFormSubmit(t *testing.T) {
 		t.Fatalf("expected one form answer, got %#v", payload)
 	}
 	formPayload, _ := forms[0]["payload"].(map[string]any)
-	if forms[0]["action"] != "submit" || formPayload["employee_id"] != "E1001" || formPayload["days"] != 2 {
+	applicant, _ := formPayload["applicant"].(map[string]any)
+	if forms[0]["action"] != "submit" || applicant["employee_id"] != "E1001" || formPayload["duration_days"] != 2 {
 		t.Fatalf("unexpected approval form payload %#v", payload)
 	}
 }
@@ -648,7 +708,9 @@ func TestEventDataMarshalsAwaitingAnswerFormSubmitWithContractKeyOrder(t *testin
 				"id":     "form-1",
 				"action": "submit",
 				"payload": map[string]any{
-					"employee_id": "E1001",
+					"applicant": map[string]any{
+						"employee_id": "E1001",
+					},
 				},
 			},
 		},
@@ -664,7 +726,7 @@ func TestEventDataMarshalsAwaitingAnswerFormSubmitWithContractKeyOrder(t *testin
 		`"type":"awaiting.answer"`,
 		`"awaitingId":"tool_1"`,
 		`"mode":"form"`,
-		`"forms":[{"action":"submit","id":"form-1","payload":{"employee_id":"E1001"}}]`,
+		`"forms":[{"action":"submit","id":"form-1","payload":{"applicant":{"employee_id":"E1001"}}}]`,
 		`"timestamp":`,
 	}
 	prev := -1

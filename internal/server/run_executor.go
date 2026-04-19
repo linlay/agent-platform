@@ -9,6 +9,7 @@ import (
 
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/chat"
+	"agent-platform-runner-go/internal/config"
 	"agent-platform-runner-go/internal/contracts"
 	"agent-platform-runner-go/internal/llm"
 	"agent-platform-runner-go/internal/stream"
@@ -22,6 +23,7 @@ type RunExecutorParams struct {
 	Agent         contracts.AgentEngine
 	Assembler     *stream.StreamEventAssembler
 	Mapper        *llm.DeltaMapper
+	SSE           config.SSEConfig
 	StepWriter    *chat.StepWriter
 	EventBus      *stream.RunEventBus
 	Chats         chat.Store
@@ -33,6 +35,7 @@ type RunExecutorParams struct {
 type runEventProcessor struct {
 	assistantText *strings.Builder
 	stepWriter    *chat.StepWriter
+	sse           config.SSEConfig
 	chatUsage     chat.UsageData
 	runUsage      *chat.UsageData
 }
@@ -43,7 +46,7 @@ func (p *runEventProcessor) Consume(event stream.StreamEvent) (stream.EventData,
 	if p.stepWriter != nil {
 		p.stepWriter.OnEvent(data)
 	}
-	return data, isClientVisibleEvent(event.Type)
+	return data, isClientVisibleEvent(event.Type, p.sse)
 }
 
 func (p *runEventProcessor) decorate(data *stream.EventData) {
@@ -105,8 +108,11 @@ func (p *runEventProcessor) decorate(data *stream.EventData) {
 	}
 }
 
-func isClientVisibleEvent(eventType string) bool {
+func isClientVisibleEvent(eventType string, sse config.SSEConfig) bool {
 	if eventType == "stage.marker" {
+		return false
+	}
+	if (eventType == "debug.preCall" || eventType == "debug.postCall") && !sse.IncludeDebugEvents {
 		return false
 	}
 	return !strings.HasSuffix(eventType, ".snapshot")
@@ -140,6 +146,7 @@ func runExecutor(params RunExecutorParams) {
 	processor := &runEventProcessor{
 		assistantText: &assistantText,
 		stepWriter:    params.StepWriter,
+		sse:           params.SSE,
 		chatUsage:     chatUsage,
 		runUsage:      &runUsage,
 	}

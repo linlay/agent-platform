@@ -58,9 +58,7 @@ func validateSubmitItem(mode string, index int, item map[string]any) error {
 		}
 	case "approval":
 		decision := strings.ToLower(strings.TrimSpace(stringValue(item["decision"])))
-		switch decision {
-		case "approve", "reject", "approve_always":
-		default:
+		if decision == "" {
 			return fmt.Errorf("%s: approval items require decision", itemLabel)
 		}
 		if _, hasPayload := item["payload"]; hasPayload {

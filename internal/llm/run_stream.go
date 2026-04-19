@@ -58,6 +58,7 @@ type llmRunStream struct {
 	hitlMatch          *hitl.InterceptResult
 	hitlAwaitingID     string
 	hitlAwaitArgs      map[string]any
+	hitlRuleWhitelist  map[string]struct{}
 	skipPostToolHook   bool
 
 	lastCallPromptTokens     int
@@ -102,6 +103,7 @@ type preparedToolInvocation struct {
 	precheckedHITL   *hitl.InterceptResult
 	approvalID       string
 	approvalDecision string
+	hitlDecision     *hitlDecisionState
 	queuedResult     *ToolExecutionResult
 }
 
@@ -109,6 +111,16 @@ type pendingHITLApprovalBatch struct {
 	awaitingID  string
 	awaitArgs   map[string]any
 	invocations []*preparedToolInvocation
+}
+
+type hitlDecisionState struct {
+	AwaitingID  string
+	Decision    string
+	RawDecision string
+	Reason      string
+	RuleKey     string
+	Scope       string
+	Executed    bool
 }
 
 // PostToolHookResult controls what happens after a tool call.
@@ -707,6 +719,22 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 				Content:    "invalid tool arguments: " + validationErr.Error(),
 			}
 	}
+	if validationErr := validateBashToolArgs(toolCall.Function.Name, args); validationErr != nil {
+		return nil, []AgentDelta{DeltaToolResult{
+				ToolID:   toolID,
+				ToolName: toolCall.Function.Name,
+				Result: ToolExecutionResult{
+					Output:   "invalid tool arguments: " + validationErr.Error(),
+					Error:    "invalid_tool_arguments",
+					ExitCode: -1,
+				},
+			}}, &openAIMessage{
+				Role:       "tool",
+				ToolCallID: toolID,
+				Name:       toolCall.Function.Name,
+				Content:    "invalid tool arguments: " + validationErr.Error(),
+			}
+	}
 
 	return &preparedToolInvocation{
 		toolID:   toolID,
@@ -733,6 +761,19 @@ func (s *llmRunStream) validateFrontendToolArgs(toolName string, args map[string
 		return nil
 	}
 	return handler.ValidateArgs(args)
+}
+
+func validateBashToolArgs(toolName string, args map[string]any) error {
+	if !isBashTool(toolName) {
+		return nil
+	}
+	if strings.TrimSpace(mapStringArg(args, "command")) == "" {
+		return nil
+	}
+	if strings.TrimSpace(mapStringArg(args, "description")) == "" {
+		return fmt.Errorf("description is required for bash tools")
+	}
+	return nil
 }
 
 func (s *llmRunStream) activateNextToolCall() {
@@ -782,6 +823,10 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 			if strings.TrimSpace(invocation.approvalDecision) != "" {
 				return s.executeApprovedBashInvocation(invocation, result)
 			}
+			if s.isRuleWhitelisted(result.Rule.RuleKey) {
+				s.applyHITLDecision(invocation, result, "", "approve", "approve_prefix_run", "", true)
+				return s.executeApprovedBashInvocation(invocation, result)
+			}
 			if s.shouldAutoApproveHITL(result) {
 				return s.executeOriginalBash(invocation)
 			}
@@ -793,6 +838,10 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 		command := mapStringArg(invocation.args, "command")
 		if result := s.checker.Check(command, s.execCtx.HITLLevel); result.Intercepted {
 			s.skipPostToolHook = true
+			if strings.EqualFold(result.Rule.ViewportType, "builtin") && s.isRuleWhitelisted(result.Rule.RuleKey) {
+				s.applyHITLDecision(invocation, result, "", "approve", "approve_prefix_run", "", true)
+				return s.executeApprovedBashInvocation(invocation, result)
+			}
 			if s.shouldAutoApproveHITL(result) {
 				return s.executeOriginalBash(invocation)
 			}
@@ -872,13 +921,8 @@ func (s *llmRunStream) executeApprovedBashInvocation(invocation *preparedToolInv
 	case "reject":
 		s.appendOriginalToolResult(invocation, hitlRejectedToolResult(invocation))
 		return nil
-	case "approve_always":
-		if s.execCtx != nil {
-			if s.execCtx.AutoApproveLevels == nil {
-				s.execCtx.AutoApproveLevels = map[int]bool{}
-			}
-			s.execCtx.AutoApproveLevels[result.Rule.Level] = true
-		}
+	case "approve_prefix_run":
+		s.registerRuleWhitelist(result.Rule.RuleKey)
 		invocation.approvalDecision = ""
 		return s.executeOriginalBash(invocation)
 	case "approve":
@@ -936,14 +980,14 @@ func (s *llmRunStream) prepareQueuedBashApprovalBatch() bool {
 		if !strings.EqualFold(result.Rule.ViewportType, "builtin") {
 			continue
 		}
+		if s.isRuleWhitelisted(result.Rule.RuleKey) {
+			s.applyHITLDecision(invocation, result, "", "approve", "approve_prefix_run", "", true)
+			continue
+		}
 		if s.shouldAutoApproveHITL(result) {
 			continue
 		}
-		approvals = append(approvals, map[string]any{
-			"id":      invocation.toolID,
-			"command": mapStringArg(invocation.args, "command"),
-			"level":   result.Rule.Level,
-		})
+		approvals = append(approvals, s.buildApprovalAskItem(invocation))
 		invocations = append(invocations, invocation)
 	}
 	if len(invocations) == 0 {
@@ -976,7 +1020,11 @@ func (s *llmRunStream) lookupPrecheckedHITL(invocation *preparedToolInvocation) 
 		return *invocation.precheckedHITL
 	}
 	command := mapStringArg(invocation.args, "command")
-	result := s.checker.Check(command, s.execCtx.HITLLevel)
+	hitlLevel := 0
+	if s.execCtx != nil {
+		hitlLevel = s.execCtx.HITLLevel
+	}
+	result := s.checker.Check(command, hitlLevel)
 	if result.Intercepted {
 		cloned := result
 		invocation.precheckedHITL = &cloned
@@ -1021,6 +1069,7 @@ func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {
 			Answer:     hitlTimeoutAnswer("approval"),
 		})
 		for _, invocation := range batch.invocations {
+			s.applyHITLDecision(invocation, s.lookupPrecheckedHITL(invocation), batch.awaitingID, "reject", "timeout", "timeout", false)
 			timeoutResult := hitlTimeoutToolResult(invocation)
 			invocation.queuedResult = &timeoutResult
 		}
@@ -1041,6 +1090,7 @@ func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {
 	normalized, normalizeErr := s.normalizeHITLSubmit(batch.awaitArgs, submitResult.Request.Params)
 	if normalizeErr != nil {
 		for _, invocation := range batch.invocations {
+			s.applyHITLDecision(invocation, s.lookupPrecheckedHITL(invocation), batch.awaitingID, "reject", "invalid_payload", normalizeErr.Error(), false)
 			result := frontendSubmitInvalidPayloadResult(invocation, batch.awaitingID, submitResult.Request.Params, normalizeErr)
 			invocation.queuedResult = &result
 		}
@@ -1056,6 +1106,7 @@ func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {
 
 	if normalized["cancelled"] == true {
 		for _, invocation := range batch.invocations {
+			s.applyHITLDecision(invocation, s.lookupPrecheckedHITL(invocation), batch.awaitingID, "reject", "reject", "user_dismissed", false)
 			rejected := hitlRejectedToolResult(invocation)
 			invocation.queuedResult = &rejected
 		}
@@ -1066,11 +1117,15 @@ func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {
 	approvals, _ := normalized["approvals"].([]map[string]any)
 	for index, invocation := range batch.invocations {
 		if index >= len(approvals) {
+			s.applyHITLDecision(invocation, s.lookupPrecheckedHITL(invocation), batch.awaitingID, "reject", "reject", "", false)
 			rejected := hitlRejectedToolResult(invocation)
 			invocation.queuedResult = &rejected
 			continue
 		}
-		invocation.approvalDecision = strings.TrimSpace(AnyStringNode(approvals[index]["decision"]))
+		normalizedDecision := strings.TrimSpace(AnyStringNode(approvals[index]["decision"]))
+		rawDecision := strings.TrimSpace(AnyStringNode(approvals[index]["rawDecision"]))
+		reason := strings.TrimSpace(AnyStringNode(approvals[index]["reason"]))
+		s.applyHITLDecision(invocation, s.lookupPrecheckedHITL(invocation), batch.awaitingID, normalizedDecision, rawDecision, reason, normalizedDecision != "reject")
 	}
 	s.hitlPendingBatch = nil
 	return nil
@@ -1119,6 +1174,7 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 			AwaitingID: awaitingID,
 			Answer:     hitlTimeoutAnswer(strings.TrimSpace(AnyStringNode(awaitArgs["mode"]))),
 		})
+		s.applyHITLDecision(invocation, *match, awaitingID, "reject", "timeout", "timeout", false)
 		s.appendOriginalToolResult(invocation, hitlTimeoutToolResult(invocation))
 		return nil
 	}
@@ -1138,6 +1194,7 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 
 	normalized, normalizeErr := s.normalizeHITLSubmit(awaitArgs, submitResult.Request.Params)
 	if normalizeErr != nil {
+		s.applyHITLDecision(invocation, *match, awaitingID, "reject", "invalid_payload", normalizeErr.Error(), false)
 		s.appendOriginalToolResult(invocation, frontendSubmitInvalidPayloadResult(invocation, awaitingID, submitResult.Request.Params, normalizeErr))
 		return nil
 	}
@@ -1149,6 +1206,7 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 	}
 
 	if normalized["cancelled"] == true {
+		s.applyHITLDecision(invocation, *match, awaitingID, "reject", "reject", "user_dismissed", false)
 		s.appendOriginalToolResult(invocation, hitlRejectedToolResult(invocation))
 		return nil
 	}
@@ -1177,29 +1235,29 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 					Error:      "frontend_submit_invalid_payload",
 					ExitCode:   -1,
 				}
+				s.applyHITLDecision(invocation, *match, awaitingID, "reject", "invalid_payload", rebuildErr.Error(), false)
 				s.appendOriginalToolResult(invocation, result)
 				return nil
 			}
 			invocation.args["command"] = rebuiltCommand
+			s.applyHITLDecision(invocation, *match, awaitingID, "approve", "submit", "", true)
 			return s.executeOriginalBash(invocation)
 		}
+		s.applyHITLDecision(invocation, *match, awaitingID, "reject", action, strings.TrimSpace(AnyStringNode(selectedForm["reason"])), false)
 		s.appendOriginalToolResult(invocation, hitlRejectedToolResult(invocation))
 		return nil
 	}
 
 	selectedApproval := firstAwaitItem(normalized["approvals"])
 	selectedDecision := strings.TrimSpace(AnyStringNode(selectedApproval["decision"]))
+	rawDecision := strings.TrimSpace(AnyStringNode(selectedApproval["rawDecision"]))
+	reason := strings.TrimSpace(AnyStringNode(selectedApproval["reason"]))
+	s.applyHITLDecision(invocation, *match, awaitingID, selectedDecision, rawDecision, reason, selectedDecision != "reject")
 	if strings.EqualFold(selectedDecision, "reject") {
 		s.appendOriginalToolResult(invocation, hitlRejectedToolResult(invocation))
 		return nil
 	}
-
-	if strings.EqualFold(selectedDecision, "approve_always") && s.execCtx != nil {
-		if s.execCtx.AutoApproveLevels == nil {
-			s.execCtx.AutoApproveLevels = map[int]bool{}
-		}
-		s.execCtx.AutoApproveLevels[match.Rule.Level] = true
-	}
+	invocation.approvalDecision = rawDecision
 	return s.executeOriginalBash(invocation)
 }
 
@@ -1229,18 +1287,14 @@ func (s *llmRunStream) buildHITLArgs(invocation *preparedToolInvocation, result 
 	if strings.EqualFold(result.Rule.ViewportType, "html") {
 		return s.buildFormApprovalArgs(command, result)
 	}
-	return s.buildConfirmApprovalArgs(invocation.toolID, command, result.Rule.Level)
+	return s.buildConfirmApprovalArgs(invocation)
 }
 
-func (s *llmRunStream) buildConfirmApprovalArgs(approvalID string, command string, level int) map[string]any {
+func (s *llmRunStream) buildConfirmApprovalArgs(invocation *preparedToolInvocation) map[string]any {
 	return map[string]any{
 		"mode": "approval",
 		"approvals": []any{
-			map[string]any{
-				"id":      approvalID,
-				"command": command,
-				"level":   level,
-			},
+			s.buildApprovalAskItem(invocation),
 		},
 	}
 }
@@ -1274,6 +1328,49 @@ func (s *llmRunStream) buildFormApprovalArgs(command string, result hitl.Interce
 	return args
 }
 
+func (s *llmRunStream) buildApprovalAskItem(invocation *preparedToolInvocation) map[string]any {
+	return map[string]any{
+		"id":                  invocation.toolID,
+		"command":             mapStringArg(invocation.args, "command"),
+		"description":         approvalDescription(invocation),
+		"options":             buildApprovalOptions(),
+		"allowFreeText":       true,
+		"freeTextPlaceholder": "可选：填写理由",
+	}
+}
+
+func buildApprovalOptions() []any {
+	return []any{
+		map[string]any{
+			"label":       "同意",
+			"value":       "approve",
+			"description": "只本次放行这条命令",
+		},
+		map[string]any{
+			"label":       "同意（本次运行同前缀都放行）",
+			"value":       "approve_prefix_run",
+			"description": "本次 run 内所有同一拦截规则命中的命令自动放行，不再询问",
+		},
+		map[string]any{
+			"label":       "拒绝",
+			"value":       "reject",
+			"description": "终止这条命令",
+		},
+	}
+}
+
+func approvalDescription(invocation *preparedToolInvocation) string {
+	description := strings.TrimSpace(mapStringArg(invocation.args, "description"))
+	if description != "" {
+		return description
+	}
+	command := strings.TrimSpace(mapStringArg(invocation.args, "command"))
+	if len(command) <= 60 {
+		return command
+	}
+	return command[:60]
+}
+
 func (s *llmRunStream) resolveHITLTimeout() int64 {
 	if s.engine.cfg.BashHITL.DefaultTimeoutMs > 0 {
 		return int64(s.engine.cfg.BashHITL.DefaultTimeoutMs)
@@ -1286,6 +1383,7 @@ func (s *llmRunStream) resolveHITLTimeout() int64 {
 }
 
 func (s *llmRunStream) appendOriginalToolResult(invocation *preparedToolInvocation, result ToolExecutionResult) {
+	result = applyHITLMetadata(result, invocation)
 	s.previousToolResult = structuredOrOutput(result)
 	s.pending = append(s.pending, DeltaToolResult{
 		ToolID:   invocation.toolID,
@@ -1298,6 +1396,94 @@ func (s *llmRunStream) appendOriginalToolResult(invocation *preparedToolInvocati
 		Name:       invocation.toolName,
 		Content:    s.toolResultContent(invocation.toolName, result),
 	})
+}
+
+func applyHITLMetadata(result ToolExecutionResult, invocation *preparedToolInvocation) ToolExecutionResult {
+	if invocation == nil || invocation.hitlDecision == nil {
+		return result
+	}
+	hitlPayload := map[string]any{
+		"decision":    invocation.hitlDecision.Decision,
+		"rawDecision": invocation.hitlDecision.RawDecision,
+	}
+	if awaitingID := strings.TrimSpace(invocation.hitlDecision.AwaitingID); awaitingID != "" {
+		hitlPayload["awaitingId"] = awaitingID
+	}
+	if reason := strings.TrimSpace(invocation.hitlDecision.Reason); reason != "" {
+		hitlPayload["reason"] = reason
+	}
+	if ruleKey := strings.TrimSpace(invocation.hitlDecision.RuleKey); ruleKey != "" {
+		hitlPayload["ruleKey"] = ruleKey
+	}
+	if scope := strings.TrimSpace(invocation.hitlDecision.Scope); scope != "" {
+		hitlPayload["scope"] = scope
+	}
+	payload := CloneMap(result.Structured)
+	if len(payload) == 0 {
+		payload = map[string]any{}
+		if strings.TrimSpace(result.Output) != "" {
+			payload["output"] = result.Output
+		}
+	}
+	payload["executed"] = invocation.hitlDecision.Executed
+	payload["hitl"] = hitlPayload
+	result.Structured = payload
+	result.HITL = CloneMap(hitlPayload)
+	result.Output = marshalJSON(payload)
+	return result
+}
+
+func (s *llmRunStream) applyHITLDecision(invocation *preparedToolInvocation, result hitl.InterceptResult, awaitingID string, decision string, rawDecision string, reason string, executed bool) {
+	if invocation == nil {
+		return
+	}
+	normalizedDecision := strings.ToLower(strings.TrimSpace(decision))
+	if normalizedDecision == "" {
+		normalizedDecision = "reject"
+	}
+	normalizedRawDecision := strings.ToLower(strings.TrimSpace(rawDecision))
+	if normalizedRawDecision == "" {
+		normalizedRawDecision = normalizedDecision
+	}
+	invocation.approvalDecision = normalizedRawDecision
+	invocation.hitlDecision = &hitlDecisionState{
+		AwaitingID:  strings.TrimSpace(awaitingID),
+		Decision:    normalizedDecision,
+		RawDecision: normalizedRawDecision,
+		Reason:      strings.TrimSpace(reason),
+		RuleKey:     strings.TrimSpace(result.Rule.RuleKey),
+		Scope:       hitlDecisionScope(normalizedRawDecision),
+		Executed:    executed,
+	}
+	if normalizedRawDecision == "approve_prefix_run" {
+		s.registerRuleWhitelist(result.Rule.RuleKey)
+	}
+}
+
+func hitlDecisionScope(rawDecision string) string {
+	if strings.EqualFold(strings.TrimSpace(rawDecision), "approve_prefix_run") {
+		return "run_rule"
+	}
+	return ""
+}
+
+func (s *llmRunStream) isRuleWhitelisted(ruleKey string) bool {
+	if strings.TrimSpace(ruleKey) == "" || len(s.hitlRuleWhitelist) == 0 {
+		return false
+	}
+	_, ok := s.hitlRuleWhitelist[strings.TrimSpace(ruleKey)]
+	return ok
+}
+
+func (s *llmRunStream) registerRuleWhitelist(ruleKey string) {
+	ruleKey = strings.TrimSpace(ruleKey)
+	if ruleKey == "" {
+		return
+	}
+	if s.hitlRuleWhitelist == nil {
+		s.hitlRuleWhitelist = map[string]struct{}{}
+	}
+	s.hitlRuleWhitelist[ruleKey] = struct{}{}
 }
 
 func (s *llmRunStream) toolResultContent(toolName string, result ToolExecutionResult) string {
@@ -1431,9 +1617,26 @@ func (s *llmRunStream) buildHITLAwaitDelta(awaitingID string, args map[string]an
 		await.Approvals = approvals
 	}
 	if forms := cloneAnySlice(args["forms"]); len(forms) > 0 {
-		await.Forms = forms
+		await.ViewportPayload = map[string]any{
+			"forms": forms,
+		}
+		await.Forms = sanitizeAwaitAskForms(forms)
 	}
 	return await
+}
+
+func sanitizeAwaitAskForms(forms []any) []any {
+	cloned := make([]any, 0, len(forms))
+	for _, item := range forms {
+		form := AnyMapNode(item)
+		if len(form) == 0 {
+			continue
+		}
+		entry := CloneMap(form)
+		delete(entry, "command")
+		cloned = append(cloned, entry)
+	}
+	return cloned
 }
 
 func cloneAnySlice(raw any) []any {
@@ -1474,7 +1677,7 @@ func firstAwaitItem(raw any) map[string]any {
 
 func resolveApprovedCommand(value string, answer string) string {
 	switch {
-	case strings.EqualFold(value, "approve"), strings.EqualFold(value, "approve_always"), strings.EqualFold(value, "reject"):
+	case strings.EqualFold(value, "approve"), strings.EqualFold(value, "approve_prefix_run"), strings.EqualFold(value, "reject"):
 		return ""
 	case value != "":
 		return value

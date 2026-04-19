@@ -91,7 +91,7 @@ func TestAskUserQuestionHandlerNormalizeSubmit(t *testing.T) {
 				"question":    "Notification topics",
 				"type":        "select",
 				"header":      "通知内容",
-				"multiSelect": true,
+				"multiple":    true,
 				"options": []any{
 					map[string]any{"label": "产品更新"},
 					map[string]any{"label": "使用教程"},
@@ -116,6 +116,24 @@ func TestAskUserQuestionHandlerNormalizeSubmit(t *testing.T) {
 	}
 	if !reflect.DeepEqual(answers[1]["answer"], []string{"产品更新", "使用教程"}) {
 		t.Fatalf("expected multi-select slice, got %#v", answers[1]["answer"])
+	}
+}
+
+func TestAskUserQuestionHandlerValidateArgsRejectsLegacyMultiSelect(t *testing.T) {
+	handler := NewAskUserQuestionHandler()
+	err := handler.ValidateArgs(map[string]any{
+		"mode": "question",
+		"questions": []any{
+			map[string]any{
+				"question":    "Notification topics",
+				"type":        "select",
+				"multiSelect": true,
+				"options":     []any{map[string]any{"label": "产品更新"}},
+			},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "multiSelect is no longer supported; use multiple") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
@@ -164,12 +182,12 @@ func TestAskUserQuestionHandlerRejectsInvalidAnswerFields(t *testing.T) {
 	handler := NewAskUserQuestionHandler()
 	_, err := handler.NormalizeSubmit(map[string]any{
 		"questions": []any{
-			map[string]any{"question": "Notification topics", "type": "select", "multiSelect": true},
+			map[string]any{"question": "Notification topics", "type": "select", "multiple": true},
 		},
 	}, mustSubmitParams(t, []map[string]any{
 		{"id": "q1", "answer": "产品更新"},
 	}))
-	if err == nil || !strings.Contains(err.Error(), "answers is required for multi-select questions") {
+	if err == nil || !strings.Contains(err.Error(), "answers is required for multiple questions") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

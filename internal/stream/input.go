@@ -46,6 +46,7 @@ type ToolResult struct {
 	ToolLabel       string
 	ToolDescription string
 	Result          any
+	Hitl            map[string]any
 	Error           string
 	ExitCode        int
 }
@@ -129,15 +130,16 @@ type ArtifactPublish struct {
 func (ArtifactPublish) streamInputTag() {}
 
 type AwaitAsk struct {
-	AwaitingID   string
-	Mode         string
-	Timeout      int64
-	RunID        string
-	ViewportType string
-	ViewportKey  string
-	Questions    []any
-	Approvals    []any
-	Forms        []any
+	AwaitingID      string
+	Mode            string
+	Timeout         int64
+	RunID           string
+	ViewportType    string
+	ViewportKey     string
+	ViewportPayload map[string]any
+	Questions       []any
+	Approvals       []any
+	Forms           []any
 }
 
 func (AwaitAsk) streamInputTag() {}

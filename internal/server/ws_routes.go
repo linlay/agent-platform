@@ -297,6 +297,7 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 		Agent:         s.deps.Agent,
 		Assembler:     assembler,
 		Mapper:        mapper,
+		SSE:           s.deps.Config.SSE,
 		StepWriter:    stepWriter,
 		EventBus:      eventBus,
 		Chats:         s.deps.Chats,

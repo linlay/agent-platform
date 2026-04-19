@@ -16,7 +16,7 @@ inputSchema:
         - question
     questions:
       type: array
-      description: Required. List of questions to present to the user in a single prompt. Every item must include `question` and `type`. For free-input prompts, use `type=text`, `number`, or `password`; do not send a free-input question that only sets `allowFreeText`.
+      description: Required. List of questions to present to the user in a single prompt. Every item must include `question` and `type`. For free-input prompts, use `type=text`, `number`, or `password`; do not send a free-input question that only sets `allowFreeText`. Select questions must still use `type=select` even when `multiple=true`.
       items:
         type: object
         properties:
@@ -25,7 +25,7 @@ inputSchema:
             description: Required. Main question text.
           type:
             type: string
-            description: Required. Every question must provide a type. Use text, number, or password for free input. Use select for option picking; select questions may additionally allow free input through allowFreeText.
+            description: Required. Every question must provide a type. Use text, number, or password for free input. Use select for option picking; select questions may additionally allow free input through allowFreeText. `multiple` does not replace `type`.
             enum:
               - text
               - number
@@ -53,7 +53,7 @@ inputSchema:
               required:
                 - label
               additionalProperties: false
-          multiSelect:
+          multiple:
             type: boolean
             description: Whether a select question allows multiple selections.
           allowFreeText:

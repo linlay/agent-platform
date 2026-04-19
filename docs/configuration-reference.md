@@ -166,11 +166,12 @@ Container Hub 默认基础挂载为：
 
 ### SSE / H2A Render
 
-`AGENT_SSE_INCLUDE_TOOL_PAYLOAD_EVENTS` 会出现在 `.env.example` 中，方便最终用户发现和启用 tool payload SSE 透传；其余 `AGENT_SSE_*` / `AGENT_H2A_RENDER_*` 调优项仍只保留在本参考文档中。
+`AGENT_SSE_INCLUDE_TOOL_PAYLOAD_EVENTS` 和 `AGENT_SSE_INCLUDE_DEBUG_EVENTS` 会出现在 `.env.example` 中，方便最终用户发现和按需启用 payload/debug 实时事件；其余 `AGENT_SSE_*` / `AGENT_H2A_RENDER_*` 调优项仍只保留在本参考文档中。
 
 | 环境变量 | 默认值 | 标签 | 说明 |
 |---|---|---|---|
-| `AGENT_SSE_INCLUDE_TOOL_PAYLOAD_EVENTS` | `false` | `Debug / troubleshooting` | 是否把工具 payload 事件直接透传到 SSE |
+| `AGENT_SSE_INCLUDE_TOOL_PAYLOAD_EVENTS` | `true` | `Debug / troubleshooting` | 是否把工具 payload 事件直接透传到 SSE |
+| `AGENT_SSE_INCLUDE_DEBUG_EVENTS` | `false` | `Debug / troubleshooting` | 是否把 `debug.preCall` / `debug.postCall` 暴露给实时流客户端 |
 | `AGENT_SSE_HEARTBEAT_INTERVAL_MS` | `15000` | `Debug / troubleshooting` | SSE heartbeat 间隔 |
 | `AGENT_H2A_RENDER_FLUSH_INTERVAL_MS` | `0` | `Debug / troubleshooting` | H2A render 定时 flush 间隔；`0` 表示逐事件 flush |
 | `AGENT_H2A_RENDER_MAX_BUFFERED_CHARS` | `0` | `Debug / troubleshooting` | H2A render 最大缓冲字符数 |
@@ -201,11 +202,11 @@ Container Hub 默认基础挂载为：
 
 ### WebSocket
 
-`AGENT_WS_ENABLED` 会出现在 `.env.example` 中，方便最终用户发现和启用 WebSocket 能力；其余 `AGENT_WS_*` 调优项仍只保留在本参考文档中。
+`AGENT_WS_ENABLED` 默认开启，因此不再出现在 `.env.example` 中；其余 `AGENT_WS_*` 调优项仍只保留在本参考文档中。
 
 | 环境变量 | 默认值 | 标签 | 说明 |
 |---|---|---|---|
-| `AGENT_WS_ENABLED` | `false` | `Advanced / operator` | 是否启用 WebSocket 接口与 `/ws` 路由 |
+| `AGENT_WS_ENABLED` | `true` | `Advanced / operator` | 是否启用 WebSocket 接口与 `/ws` 路由 |
 | `AGENT_WS_MAX_MESSAGE_SIZE` | `1048576` | `Advanced / operator` | 单条消息最大字节数 |
 | `AGENT_WS_PING_INTERVAL_MS` | `30000` | `Advanced / operator` | ping 心跳间隔 |
 | `AGENT_WS_WRITE_TIMEOUT_MS` | `15000` | `Advanced / operator` | 写超时 |
@@ -214,7 +215,7 @@ Container Hub 默认基础挂载为：
 
 说明：
 
-- 仅当 `AGENT_WS_ENABLED=true` 时才会注册 `/ws`
+- 默认会注册 `/ws`；仅当 `AGENT_WS_ENABLED=false` 时关闭
 - WebSocket handler 会复用当前 catalog、chat、query、run stream 等接口能力
 - 鉴权开启时，WebSocket 也会走相同的 token 校验链路
 

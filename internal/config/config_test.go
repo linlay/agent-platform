@@ -27,8 +27,17 @@ func TestLoadDefaults(t *testing.T) {
 		if !cfg.ChatImage.ResourceTicketEnabled {
 			t.Fatalf("expected resource ticket enabled by default")
 		}
+		if !cfg.SSE.IncludeToolPayloadEvents {
+			t.Fatalf("expected sse tool payload events enabled by default")
+		}
+		if cfg.SSE.IncludeDebugEvents {
+			t.Fatalf("expected sse debug events disabled by default")
+		}
 		if cfg.SSE.HeartbeatIntervalMs != 15000 {
 			t.Fatalf("expected default heartbeat interval 15000, got %d", cfg.SSE.HeartbeatIntervalMs)
+		}
+		if !cfg.WebSocket.Enabled {
+			t.Fatalf("expected websocket enabled by default")
 		}
 		if cfg.H2A.Render.HeartbeatPassThrough != true {
 			t.Fatalf("expected heartbeat pass-through enabled by default")
@@ -165,6 +174,7 @@ func TestLoadAcceptsJavaEnvContract(t *testing.T) {
 		"CHAT_IMAGE_TOKEN_SECRET":                 "secret",
 		"CHAT_RESOURCE_TICKET_ENABLED":            "true",
 		"AGENT_SSE_INCLUDE_TOOL_PAYLOAD_EVENTS":   "true",
+		"AGENT_SSE_INCLUDE_DEBUG_EVENTS":          "true",
 		"AGENT_SSE_HEARTBEAT_INTERVAL_MS":         "3000",
 		"AGENT_H2A_RENDER_FLUSH_INTERVAL_MS":      "25",
 		"AGENT_H2A_RENDER_MAX_BUFFERED_CHARS":     "256",
@@ -176,6 +186,7 @@ func TestLoadAcceptsJavaEnvContract(t *testing.T) {
 		"AGENT_SCHEDULE_DEFAULT_ZONE_ID":          "Asia/Shanghai",
 		"AGENT_SCHEDULE_POOL_SIZE":                "7",
 		"LOGGING_AGENT_REQUEST_ENABLED":           "false",
+		"AGENT_WS_ENABLED":                        "false",
 	}, func() {
 		cfg, err := Load()
 		if err != nil {
@@ -190,8 +201,14 @@ func TestLoadAcceptsJavaEnvContract(t *testing.T) {
 		if !cfg.SSE.IncludeToolPayloadEvents {
 			t.Fatalf("expected sse tool payload flag enabled")
 		}
+		if !cfg.SSE.IncludeDebugEvents {
+			t.Fatalf("expected sse debug event flag enabled")
+		}
 		if cfg.SSE.HeartbeatIntervalMs != 3000 {
 			t.Fatalf("unexpected heartbeat interval: %d", cfg.SSE.HeartbeatIntervalMs)
+		}
+		if cfg.WebSocket.Enabled {
+			t.Fatalf("expected websocket disabled from env")
 		}
 		if cfg.H2A.Render.FlushIntervalMs != 25 {
 			t.Fatalf("unexpected flush interval: %d", cfg.H2A.Render.FlushIntervalMs)
@@ -343,6 +360,7 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 		"CHAT_IMAGE_TOKEN_TTL_SECONDS",
 		"CHAT_RESOURCE_TICKET_ENABLED",
 		"AGENT_SSE_INCLUDE_TOOL_PAYLOAD_EVENTS",
+		"AGENT_SSE_INCLUDE_DEBUG_EVENTS",
 		"AGENT_SSE_HEARTBEAT_INTERVAL_MS",
 		"AGENT_H2A_RENDER_FLUSH_INTERVAL_MS",
 		"AGENT_H2A_RENDER_MAX_BUFFERED_CHARS",
@@ -390,6 +408,7 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 		"LOGGING_AGENT_SSE_ENABLED",
 		"LOGGING_AGENT_LLM_INTERACTION_ENABLED",
 		"LOGGING_AGENT_LLM_INTERACTION_MASK_SENSITIVE",
+		"AGENT_WS_ENABLED",
 	)
 
 	previous := map[string]*string{}

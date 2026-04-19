@@ -70,7 +70,9 @@ func loadRulesFromDir(root string) ([]FlatRule, error) {
 				}
 				viewportTypes[viewportTypeKey] = viewportType
 				seen[key] = true
+				ruleKey := buildRuleKey(file.Key, command, match, sub.Level, viewportType, viewportKey)
 				rules = append(rules, FlatRule{
+					RuleKey:      ruleKey,
 					FileKey:      file.Key,
 					SourcePath:   path,
 					Order:        order,
@@ -86,6 +88,18 @@ func loadRulesFromDir(root string) ([]FlatRule, error) {
 		}
 	}
 	return rules, nil
+}
+
+func buildRuleKey(fileKey string, command string, match string, level int, viewportType string, viewportKey string) string {
+	return fmt.Sprintf(
+		"%s::%s::%s::%d::%s::%s",
+		strings.TrimSpace(fileKey),
+		strings.TrimSpace(command),
+		strings.TrimSpace(match),
+		level,
+		strings.TrimSpace(viewportType),
+		strings.TrimSpace(viewportKey),
+	)
 }
 
 func parseRuleFile(path string) (RuleFile, bool, error) {
