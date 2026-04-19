@@ -97,6 +97,7 @@ curl -N -X POST "$BASE_URL/api/query" \
 - `params` 永远是数组
 - 不在 submit 里再传 `mode`
 - 后端按 `awaitingId` 反查当前是 `question / approval / form`
+- `params[i]` 固定对应 `awaiting.ask` 下发数组的第 `i` 项；`id` 可省略，即使携带也只作审计用途
 
 question:
 
@@ -104,6 +105,14 @@ question:
 curl -X POST "$BASE_URL/api/submit" \
   -H "Content-Type: application/json" \
   -d '{"runId":"replace-me","awaitingId":"tool_question","params":[{"id":"q1","answer":"Weekend"},{"id":"q2","answers":["产品更新","使用教程"]}]}'
+```
+
+也可以省略 `id`，只要顺序与 `awaiting.ask.questions` 一致：
+
+```bash
+curl -X POST "$BASE_URL/api/submit" \
+  -H "Content-Type: application/json" \
+  -d '{"runId":"replace-me","awaitingId":"tool_question","params":[{"answer":"Weekend"},{"answers":["产品更新","使用教程"]}]}'
 ```
 
 approval:

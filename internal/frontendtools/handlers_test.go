@@ -101,8 +101,8 @@ func TestAskUserQuestionHandlerNormalizeSubmit(t *testing.T) {
 	}
 
 	result, err := handler.NormalizeSubmit(args, mustSubmitParams(t, []map[string]any{
-		{"id": "q1", "answer": "Weekend"},
-		{"id": "q2", "answers": []string{"产品更新", "使用教程"}},
+		{"answer": "Weekend"},
+		{"answers": []string{"产品更新", "使用教程"}},
 	}))
 	if err != nil {
 		t.Fatalf("NormalizeSubmit returned error: %v", err)
@@ -116,6 +116,29 @@ func TestAskUserQuestionHandlerNormalizeSubmit(t *testing.T) {
 	}
 	if !reflect.DeepEqual(answers[1]["answer"], []string{"产品更新", "使用教程"}) {
 		t.Fatalf("expected multi-select slice, got %#v", answers[1]["answer"])
+	}
+}
+
+func TestAskUserQuestionHandlerNormalizeSubmitIgnoresSubmittedIDs(t *testing.T) {
+	handler := NewAskUserQuestionHandler()
+	result, err := handler.NormalizeSubmit(map[string]any{
+		"questions": []any{
+			map[string]any{"question": "Pick a plan", "type": "select", "options": []any{map[string]any{"label": "Weekend"}}},
+			map[string]any{"question": "How many people?", "type": "number"},
+		},
+	}, mustSubmitParams(t, []map[string]any{
+		{"id": "wrong-1", "answer": "Weekend"},
+		{"id": "wrong-2", "answer": 2},
+	}))
+	if err != nil {
+		t.Fatalf("NormalizeSubmit returned error: %v", err)
+	}
+	answers, ok := result["answers"].([]map[string]any)
+	if !ok || len(answers) != 2 {
+		t.Fatalf("expected normalized answers, got %#v", result["answers"])
+	}
+	if answers[0]["id"] != "q1" || answers[1]["id"] != "q2" {
+		t.Fatalf("expected ids from question definitions, got %#v", answers)
 	}
 }
 
@@ -147,6 +170,21 @@ func TestAskUserQuestionHandlerRejectsInvalidAnswerFields(t *testing.T) {
 		{"id": "q1", "answer": "产品更新"},
 	}))
 	if err == nil || !strings.Contains(err.Error(), "answers is required for multi-select questions") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestAskUserQuestionHandlerRejectsAnswerCountMismatch(t *testing.T) {
+	handler := NewAskUserQuestionHandler()
+	_, err := handler.NormalizeSubmit(map[string]any{
+		"questions": []any{
+			map[string]any{"question": "Pick a plan", "type": "select", "options": []any{map[string]any{"label": "Weekend"}}},
+			map[string]any{"question": "How many people?", "type": "number"},
+		},
+	}, mustSubmitParams(t, []map[string]any{
+		{"answer": "Weekend"},
+	}))
+	if err == nil || !strings.Contains(err.Error(), "expected 2 answers, got 1") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

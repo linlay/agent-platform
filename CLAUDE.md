@@ -240,7 +240,8 @@ sandboxConfig:
 - 人机协作统一保留 `mode` 字段，不引入 `kind`；当前三态是 `question` / `approval` / `form`。
 - `/api/submit` 固定形状为 `{"runId":"...","awaitingId":"...","params":[...]}`。
 - `params` 顶层永远是数组；前端不再提交 `mode`，后端按 `awaitingId` 反查当前等待态。
-- 数组里的每一项都必须带 `id`，用于和 `awaiting.ask.questions[] / approvals[] / forms[]` 对应。
+- `/api/submit.params` 与 `awaiting.ask.{questions|approvals|forms}` 固定按下标对应：`params[i] -> ask.items[i]`。
+- `params` 每项允许携带 `id`，但 `id` 只作审计/日志用途；服务端不会据此分发，只校验数量和字段形状。
 - `awaiting.payload` 已删除；问题、审批项、表单定义全部直接内联在 `awaiting.ask`。
 - `_ask_user_approval_` 已下线；审批流只来自 Bash HITL builtin confirm。
 
@@ -250,7 +251,7 @@ sandboxConfig:
   - 来源：`_ask_user_question_`
   - `awaiting.ask`：`{"awaitingId":"...","mode":"question","timeout":...,"runId":"...","questions":[...]}`
   - question 不再携带 `viewportType` / `viewportKey`
-  - `/api/submit.params`：`[{"id":"q1","answer":"..."},{"id":"q2","answers":[...]}]`
+  - `/api/submit.params`：`[{"id":"q1","answer":"..."},{"id":"q2","answers":[...]}]`（`id` 可省略，仅作审计字段）
   - `awaiting.answer`：`{"awaitingId":"...","mode":"question","answers":[...]}`
   - 整批取消：`params: []`，后端归一化为 `{"mode":"question","cancelled":true,"reason":"user_dismissed"}`
 
@@ -259,7 +260,7 @@ sandboxConfig:
   - `awaiting.ask`：`{"awaitingId":"...","mode":"approval","timeout":...,"runId":"...","approvals":[{"id":"cmd-1","command":"...","level":1}]}`
   - approval 不再携带 `viewportType` / `viewportKey`
   - 用户只能批准或拒绝，不能改命令内容
-  - `/api/submit.params`：`[{"id":"cmd-1","decision":"approve|reject|approve_always","reason":"..."}]`
+  - `/api/submit.params`：`[{"id":"cmd-1","decision":"approve|reject|approve_always","reason":"..."}]`（`id` 可省略，仅作审计字段）
   - `awaiting.answer`：`{"awaitingId":"...","mode":"approval","approvals":[{"id":"cmd-1","command":"...","decision":"approve"}]}`
   - 整批取消：`params: []`
 
@@ -268,9 +269,9 @@ sandboxConfig:
   - `awaiting.ask`：`{"awaitingId":"...","mode":"form","viewportType":"html","viewportKey":"leave_form","timeout":...,"runId":"...","forms":[{"id":"form-1","command":"...","html?":"...","initialPayload":{...}}]}`
   - form 是唯一保留 `viewportType:"html"` + `viewportKey` 的形态
   - `/api/submit.params`：
-    - submit：`[{"id":"form-1","payload":{...}}]`
-    - reject：`[{"id":"form-1","reason":"..."}]`
-    - cancel：`[{"id":"form-1"}]`
+    - submit：`[{"id":"form-1","payload":{...}}]`（`id` 可省略，仅作审计字段）
+    - reject：`[{"id":"form-1","reason":"..."}]`（`id` 可省略，仅作审计字段）
+    - cancel：`[{"id":"form-1"}]`（`id` 可省略，仅作审计字段）
   - `awaiting.answer`：`{"awaitingId":"...","mode":"form","forms":[{"id":"form-1","command":"...","action":"submit|reject|cancel","payload?":{...},"reason?":"..."}]}`
   - 整批取消：`params: []`
 

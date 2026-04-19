@@ -30,78 +30,67 @@ func validateSubmitParams(ctx contracts.AwaitingSubmitContext, params api.Submit
 	if err != nil {
 		return err
 	}
-	if len(items) != len(ctx.ItemIDs) {
-		return fmt.Errorf("expected %d submit items, got %d", len(ctx.ItemIDs), len(items))
+	if len(items) != ctx.ItemCount {
+		return fmt.Errorf("expected %d submit items, got %d", ctx.ItemCount, len(items))
 	}
-	seenIDs := map[string]bool{}
-	for _, item := range items {
-		id := strings.TrimSpace(stringValue(item["id"]))
-		if id == "" {
-			return fmt.Errorf("submit items.id is required")
-		}
-		if seenIDs[id] {
-			return fmt.Errorf("duplicate submit item id: %s", id)
-		}
-		if _, ok := ctx.ItemIDs[id]; !ok {
-			return fmt.Errorf("unknown submit item id: %s", id)
-		}
-		if err := validateSubmitItem(ctx.Mode, id, item); err != nil {
+	for index, item := range items {
+		if err := validateSubmitItem(ctx.Mode, index, item); err != nil {
 			return err
 		}
-		seenIDs[id] = true
 	}
 	return nil
 }
 
-func validateSubmitItem(mode string, id string, item map[string]any) error {
+func validateSubmitItem(mode string, index int, item map[string]any) error {
+	itemLabel := fmt.Sprintf("items[%d]", index)
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case "question":
 		_, hasAnswer := item["answer"]
 		_, hasAnswers := item["answers"]
 		if hasAnswer == hasAnswers {
-			return fmt.Errorf("%s: question items require exactly one of answer or answers", id)
+			return fmt.Errorf("%s: question items require exactly one of answer or answers", itemLabel)
 		}
 		if _, hasDecision := item["decision"]; hasDecision {
-			return fmt.Errorf("%s: question items do not allow decision", id)
+			return fmt.Errorf("%s: question items do not allow decision", itemLabel)
 		}
 		if _, hasPayload := item["payload"]; hasPayload {
-			return fmt.Errorf("%s: question items do not allow payload", id)
+			return fmt.Errorf("%s: question items do not allow payload", itemLabel)
 		}
 	case "approval":
 		decision := strings.ToLower(strings.TrimSpace(stringValue(item["decision"])))
 		switch decision {
 		case "approve", "reject", "approve_always":
 		default:
-			return fmt.Errorf("%s: approval items require decision", id)
+			return fmt.Errorf("%s: approval items require decision", itemLabel)
 		}
 		if _, hasPayload := item["payload"]; hasPayload {
-			return fmt.Errorf("%s: approval items do not allow payload", id)
+			return fmt.Errorf("%s: approval items do not allow payload", itemLabel)
 		}
 		if _, hasAnswer := item["answer"]; hasAnswer {
-			return fmt.Errorf("%s: approval items do not allow answer", id)
+			return fmt.Errorf("%s: approval items do not allow answer", itemLabel)
 		}
 		if _, hasAnswers := item["answers"]; hasAnswers {
-			return fmt.Errorf("%s: approval items do not allow answers", id)
+			return fmt.Errorf("%s: approval items do not allow answers", itemLabel)
 		}
 	case "form":
 		if _, hasDecision := item["decision"]; hasDecision {
-			return fmt.Errorf("%s: form items do not allow decision", id)
+			return fmt.Errorf("%s: form items do not allow decision", itemLabel)
 		}
 		if _, hasAnswer := item["answer"]; hasAnswer {
-			return fmt.Errorf("%s: form items do not allow answer", id)
+			return fmt.Errorf("%s: form items do not allow answer", itemLabel)
 		}
 		if _, hasAnswers := item["answers"]; hasAnswers {
-			return fmt.Errorf("%s: form items do not allow answers", id)
+			return fmt.Errorf("%s: form items do not allow answers", itemLabel)
 		}
 		_, hasPayload := item["payload"]
 		reason := strings.TrimSpace(stringValue(item["reason"]))
 		if hasPayload {
 			payload, ok := item["payload"].(map[string]any)
 			if !ok || payload == nil {
-				return fmt.Errorf("%s: form payload must be an object", id)
+				return fmt.Errorf("%s: form payload must be an object", itemLabel)
 			}
 			if reason != "" {
-				return fmt.Errorf("%s: form items cannot include both payload and reason", id)
+				return fmt.Errorf("%s: form items cannot include both payload and reason", itemLabel)
 			}
 		}
 	default:

@@ -34,38 +34,22 @@ func normalizeHITLApprovalSubmit(args map[string]any, params any) (map[string]an
 		}, nil
 	}
 
-	definitions := make(map[string]map[string]any)
-	for _, rawApproval := range cloneAnySlice(args["approvals"]) {
-		approval := contracts.AnyMapNode(rawApproval)
-		id := strings.TrimSpace(contracts.AnyStringNode(approval["id"]))
-		if id == "" {
-			continue
-		}
-		definitions[id] = approval
+	definitions := cloneAnySlice(args["approvals"])
+	if len(items) != len(definitions) {
+		return nil, fmt.Errorf("expected %d approvals, got %d", len(definitions), len(items))
 	}
 
 	approvals := make([]map[string]any, 0, len(items))
-	seenIDs := map[string]bool{}
-	for _, item := range items {
-		id := strings.TrimSpace(contracts.AnyStringNode(item["id"]))
-		if id == "" {
-			return nil, fmt.Errorf("bash HITL approval answers.id is required")
-		}
-		if seenIDs[id] {
-			return nil, fmt.Errorf("duplicate approval id: %s", id)
-		}
-		definition, ok := definitions[id]
-		if !ok {
-			return nil, fmt.Errorf("unknown approval id: %s", id)
-		}
+	for index, item := range items {
+		definition := contracts.AnyMapNode(definitions[index])
 		decision := strings.ToLower(strings.TrimSpace(contracts.AnyStringNode(item["decision"])))
 		switch decision {
 		case "approve", "reject", "approve_always":
 		default:
-			return nil, fmt.Errorf("%s: decision must be approve, reject, or approve_always", id)
+			return nil, fmt.Errorf("items[%d]: decision must be approve, reject, or approve_always", index)
 		}
 		entry := map[string]any{
-			"id":       id,
+			"id":       contracts.AnyStringNode(definition["id"]),
 			"command":  contracts.AnyStringNode(definition["command"]),
 			"decision": decision,
 		}
@@ -73,10 +57,6 @@ func normalizeHITLApprovalSubmit(args map[string]any, params any) (map[string]an
 			entry["reason"] = reason
 		}
 		approvals = append(approvals, entry)
-		seenIDs[id] = true
-	}
-	if len(approvals) != len(definitions) {
-		return nil, fmt.Errorf("expected %d approvals, got %d", len(definitions), len(approvals))
 	}
 
 	return map[string]any{
@@ -98,41 +78,26 @@ func normalizeHITLFormSubmit(args map[string]any, params any) (map[string]any, e
 		}, nil
 	}
 
-	definitions := make(map[string]map[string]any)
-	for _, rawForm := range cloneAnySlice(args["forms"]) {
-		form := contracts.AnyMapNode(rawForm)
-		id := strings.TrimSpace(contracts.AnyStringNode(form["id"]))
-		if id == "" {
-			continue
-		}
-		definitions[id] = form
+	definitions := cloneAnySlice(args["forms"])
+	if len(items) != len(definitions) {
+		return nil, fmt.Errorf("expected %d forms, got %d", len(definitions), len(items))
 	}
 
 	forms := make([]map[string]any, 0, len(items))
-	seenIDs := map[string]bool{}
-	for _, item := range items {
-		id := strings.TrimSpace(contracts.AnyStringNode(item["id"]))
-		if id == "" {
-			return nil, fmt.Errorf("bash HITL form answers.id is required")
-		}
-		if seenIDs[id] {
-			return nil, fmt.Errorf("duplicate form id: %s", id)
-		}
-		definition, ok := definitions[id]
-		if !ok {
-			return nil, fmt.Errorf("unknown form id: %s", id)
-		}
+	for index, item := range items {
+		definition := contracts.AnyMapNode(definitions[index])
+		entryID := contracts.AnyStringNode(definition["id"])
 		entry := map[string]any{
-			"id":      id,
+			"id":      entryID,
 			"command": contracts.AnyStringNode(definition["command"]),
 		}
 		if rawPayload, exists := item["payload"]; exists {
 			payload := contracts.AnyMapNode(rawPayload)
 			if payload == nil {
-				return nil, fmt.Errorf("%s: payload must be an object", id)
+				return nil, fmt.Errorf("items[%d]: payload must be an object", index)
 			}
 			if _, hasReason := item["reason"]; hasReason {
-				return nil, fmt.Errorf("%s: payload and reason cannot both be provided", id)
+				return nil, fmt.Errorf("items[%d]: payload and reason cannot both be provided", index)
 			}
 			entry["action"] = "submit"
 			entry["payload"] = payload
@@ -143,10 +108,6 @@ func normalizeHITLFormSubmit(args map[string]any, params any) (map[string]any, e
 			entry["action"] = "cancel"
 		}
 		forms = append(forms, entry)
-		seenIDs[id] = true
-	}
-	if len(forms) != len(definitions) {
-		return nil, fmt.Errorf("expected %d forms, got %d", len(definitions), len(forms))
 	}
 
 	return map[string]any{

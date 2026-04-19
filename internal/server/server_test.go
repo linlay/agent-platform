@@ -2662,6 +2662,165 @@ func TestSubmitReturnsUnmatchedWhenNoActiveWaiter(t *testing.T) {
 	}
 }
 
+func mustEncodeSubmitParams(t *testing.T, value any) api.SubmitParams {
+	t.Helper()
+	params, err := api.EncodeSubmitParams(value)
+	if err != nil {
+		t.Fatalf("encode submit params: %v", err)
+	}
+	return params
+}
+
+func TestValidateSubmitParamsAllowsOrderedItemsWithoutIDs(t *testing.T) {
+	tests := []struct {
+		name      string
+		mode      string
+		itemCount int
+		params    api.SubmitParams
+	}{
+		{
+			name:      "question",
+			mode:      "question",
+			itemCount: 2,
+			params: mustEncodeSubmitParams(t, []map[string]any{
+				{"answer": "Weekend"},
+				{"answers": []string{"产品更新", "使用教程"}},
+			}),
+		},
+		{
+			name:      "approval",
+			mode:      "approval",
+			itemCount: 1,
+			params: mustEncodeSubmitParams(t, []map[string]any{
+				{"decision": "approve"},
+			}),
+		},
+		{
+			name:      "form",
+			mode:      "form",
+			itemCount: 1,
+			params: mustEncodeSubmitParams(t, []map[string]any{
+				{"payload": map[string]any{"days": 2}},
+			}),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateSubmitParams(contracts.AwaitingSubmitContext{
+				AwaitingID: "await_1",
+				Mode:       tt.mode,
+				ItemCount:  tt.itemCount,
+			}, tt.params)
+			if err != nil {
+				t.Fatalf("validateSubmitParams returned error: %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateSubmitParamsIgnoresSubmittedIDsWhenCountMatches(t *testing.T) {
+	tests := []struct {
+		name      string
+		mode      string
+		itemCount int
+		params    api.SubmitParams
+	}{
+		{
+			name:      "question",
+			mode:      "question",
+			itemCount: 2,
+			params: mustEncodeSubmitParams(t, []map[string]any{
+				{"id": "wrong-1", "answer": "Weekend"},
+				{"id": "wrong-2", "answer": 2},
+			}),
+		},
+		{
+			name:      "approval",
+			mode:      "approval",
+			itemCount: 1,
+			params: mustEncodeSubmitParams(t, []map[string]any{
+				{"id": "wrong-cmd", "decision": "approve"},
+			}),
+		},
+		{
+			name:      "form",
+			mode:      "form",
+			itemCount: 1,
+			params: mustEncodeSubmitParams(t, []map[string]any{
+				{"id": "wrong-form", "reason": "user_cancelled"},
+			}),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateSubmitParams(contracts.AwaitingSubmitContext{
+				AwaitingID: "await_1",
+				Mode:       tt.mode,
+				ItemCount:  tt.itemCount,
+			}, tt.params)
+			if err != nil {
+				t.Fatalf("validateSubmitParams returned error: %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateSubmitParamsRejectsCountMismatch(t *testing.T) {
+	err := validateSubmitParams(contracts.AwaitingSubmitContext{
+		AwaitingID: "await_1",
+		Mode:       "question",
+		ItemCount:  2,
+	}, mustEncodeSubmitParams(t, []map[string]any{
+		{"answer": "Weekend"},
+	}))
+	if err == nil || !strings.Contains(err.Error(), "expected 2 submit items, got 1") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateSubmitParamsRejectsInvalidShape(t *testing.T) {
+	tests := []struct {
+		name       string
+		mode       string
+		item       map[string]any
+		wantSubstr string
+	}{
+		{
+			name:       "question decision",
+			mode:       "question",
+			item:       map[string]any{"decision": "approve"},
+			wantSubstr: "items[0]: question items require exactly one of answer or answers",
+		},
+		{
+			name:       "approval missing decision",
+			mode:       "approval",
+			item:       map[string]any{"reason": "nope"},
+			wantSubstr: "items[0]: approval items require decision",
+		},
+		{
+			name:       "form payload not object",
+			mode:       "form",
+			item:       map[string]any{"payload": "bad"},
+			wantSubstr: "items[0]: form payload must be an object",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateSubmitParams(contracts.AwaitingSubmitContext{
+				AwaitingID: "await_1",
+				Mode:       tt.mode,
+				ItemCount:  1,
+			}, mustEncodeSubmitParams(t, []map[string]any{tt.item}))
+			if err == nil || !strings.Contains(err.Error(), tt.wantSubstr) {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 func assertEventOrder(t *testing.T, body string, eventTypes ...string) {
 	t.Helper()
 	prev := -1

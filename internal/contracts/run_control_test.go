@@ -14,7 +14,7 @@ func testAwaitingContext(awaitingID string) AwaitingSubmitContext {
 	return AwaitingSubmitContext{
 		AwaitingID: awaitingID,
 		Mode:       "question",
-		ItemIDs:    map[string]struct{}{"q1": {}},
+		ItemCount:  1,
 	}
 }
 

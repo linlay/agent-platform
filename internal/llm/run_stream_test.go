@@ -137,8 +137,8 @@ func TestPreToolInvocationDeltas_QuestionRegistersAwaitingContext(t *testing.T) 
 	if awaiting.Mode != "question" {
 		t.Fatalf("unexpected awaiting context %#v", awaiting)
 	}
-	if _, ok := awaiting.ItemIDs["q1"]; !ok {
-		t.Fatalf("expected question id q1 to be registered, got %#v", awaiting)
+	if awaiting.ItemCount != 1 {
+		t.Fatalf("expected question item count 1, got %#v", awaiting)
 	}
 }
 
@@ -505,7 +505,7 @@ func TestAwaitHITLSubmitAndExecute_RejectEmitsCancelledAnswer(t *testing.T) {
 	runControl.ExpectSubmit(contracts.AwaitingSubmitContext{
 		AwaitingID: stream.hitlAwaitingID,
 		Mode:       "approval",
-		ItemIDs:    map[string]struct{}{"cmd-1": {}},
+		ItemCount:  1,
 	})
 	ack := runControl.ResolveSubmit(api.SubmitRequest{
 		RunID:      "run_1",

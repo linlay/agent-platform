@@ -156,21 +156,15 @@ type SubmitInfo struct {
 type AwaitingSubmitContext struct {
 	AwaitingID string
 	Mode       string
-	ItemIDs    map[string]struct{}
+	ItemCount  int
 }
 
 func (c AwaitingSubmitContext) Clone() AwaitingSubmitContext {
-	cloned := AwaitingSubmitContext{
+	return AwaitingSubmitContext{
 		AwaitingID: c.AwaitingID,
 		Mode:       c.Mode,
+		ItemCount:  c.ItemCount,
 	}
-	if len(c.ItemIDs) > 0 {
-		cloned.ItemIDs = make(map[string]struct{}, len(c.ItemIDs))
-		for id := range c.ItemIDs {
-			cloned.ItemIDs[id] = struct{}{}
-		}
-	}
-	return cloned
 }
 
 type SandboxExecutionResult struct {

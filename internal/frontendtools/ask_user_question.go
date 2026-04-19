@@ -91,22 +91,14 @@ func (h *AskUserQuestionHandler) NormalizeSubmit(args map[string]any, params any
 		}, nil
 	}
 
-	questionDefs := questionDefinitionsByID(args)
+	questionDefs := questionDefinitionsInOrder(args)
+	if len(rawAnswers) != len(questionDefs) {
+		return nil, fmt.Errorf("expected %d answers, got %d", len(questionDefs), len(rawAnswers))
+	}
 
 	answers := make([]map[string]any, 0, len(rawAnswers))
-	seenIDs := map[string]bool{}
-	for _, answerMap := range rawAnswers {
-		answerID := strings.TrimSpace(contracts.AnyStringNode(answerMap["id"]))
-		if answerID == "" {
-			return nil, fmt.Errorf("ask_user_question answers.id is required")
-		}
-		if seenIDs[answerID] {
-			return nil, fmt.Errorf("duplicate question id: %s", answerID)
-		}
-		definition, ok := questionDefs[answerID]
-		if !ok {
-			return nil, fmt.Errorf("unknown question id: %s", answerID)
-		}
+	for index, answerMap := range rawAnswers {
+		definition := questionDefs[index]
 		questionText := contracts.AnyStringNode(definition["question"])
 		rawValue, err := normalizeQuestionSubmitValue(definition, answerMap)
 		if err != nil {
@@ -117,15 +109,11 @@ func (h *AskUserQuestionHandler) NormalizeSubmit(args map[string]any, params any
 			return nil, fmt.Errorf("%s: %w", questionText, err)
 		}
 		answers = append(answers, map[string]any{
-			"id":       answerID,
+			"id":       contracts.AnyStringNode(definition["id"]),
 			"question": questionText,
 			"header":   contracts.AnyStringNode(definition["header"]),
 			"answer":   normalizedAnswer,
 		})
-		seenIDs[answerID] = true
-	}
-	if len(answers) != len(questionDefs) {
-		return nil, fmt.Errorf("expected %d answers, got %d", len(questionDefs), len(answers))
 	}
 
 	return map[string]any{
@@ -164,9 +152,9 @@ func buildAwaitQuestions(args map[string]any) []any {
 	return questions
 }
 
-func questionDefinitionsByID(args map[string]any) map[string]map[string]any {
+func questionDefinitionsInOrder(args map[string]any) []map[string]any {
 	rawQuestions := asAnySlice(args["questions"])
-	definitions := make(map[string]map[string]any, len(rawQuestions))
+	definitions := make([]map[string]any, 0, len(rawQuestions))
 	for index, rawQuestion := range rawQuestions {
 		question, ok := deepCloneAny(rawQuestion).(map[string]any)
 		if !ok || len(question) == 0 {
@@ -174,7 +162,7 @@ func questionDefinitionsByID(args map[string]any) map[string]map[string]any {
 		}
 		id := questionDefinitionID(question, index)
 		question["id"] = id
-		definitions[id] = question
+		definitions = append(definitions, question)
 	}
 	return definitions
 }

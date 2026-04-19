@@ -1667,51 +1667,32 @@ func awaitingContextFromStreamAsk(awaitAsk *stream.AwaitAsk) AwaitingSubmitConte
 	if awaitAsk == nil {
 		return AwaitingSubmitContext{}
 	}
-	itemIDs := map[string]struct{}{}
-	for _, id := range collectAwaitItemIDs(awaitAsk.Mode, awaitAsk.Questions, awaitAsk.Approvals, awaitAsk.Forms) {
-		itemIDs[id] = struct{}{}
-	}
 	return AwaitingSubmitContext{
 		AwaitingID: awaitAsk.AwaitingID,
 		Mode:       awaitAsk.Mode,
-		ItemIDs:    itemIDs,
+		ItemCount:  awaitItemCount(awaitAsk.Mode, awaitAsk.Questions, awaitAsk.Approvals, awaitAsk.Forms),
 	}
 }
 
 func awaitingContextFromDeltaAsk(awaitAsk DeltaAwaitAsk) AwaitingSubmitContext {
-	itemIDs := map[string]struct{}{}
-	for _, id := range collectAwaitItemIDs(awaitAsk.Mode, awaitAsk.Questions, awaitAsk.Approvals, awaitAsk.Forms) {
-		itemIDs[id] = struct{}{}
-	}
 	return AwaitingSubmitContext{
 		AwaitingID: awaitAsk.AwaitingID,
 		Mode:       awaitAsk.Mode,
-		ItemIDs:    itemIDs,
+		ItemCount:  awaitItemCount(awaitAsk.Mode, awaitAsk.Questions, awaitAsk.Approvals, awaitAsk.Forms),
 	}
 }
 
-func collectAwaitItemIDs(mode string, questions []any, approvals []any, forms []any) []string {
-	var source []any
+func awaitItemCount(mode string, questions []any, approvals []any, forms []any) int {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case "question":
-		source = questions
+		return len(questions)
 	case "approval":
-		source = approvals
+		return len(approvals)
 	case "form":
-		source = forms
+		return len(forms)
 	default:
-		return nil
+		return 0
 	}
-	ids := make([]string, 0, len(source))
-	for _, raw := range source {
-		item := AnyMapNode(raw)
-		id := strings.TrimSpace(AnyStringNode(item["id"]))
-		if id == "" {
-			continue
-		}
-		ids = append(ids, id)
-	}
-	return ids
 }
 
 func (s *llmRunStream) lookupToolDefinition(toolName string) (api.ToolDetailResponse, bool) {
