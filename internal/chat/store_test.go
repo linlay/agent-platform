@@ -986,6 +986,7 @@ func TestLoadChatReplaysAwaitingFromStepLine(t *testing.T) {
 	}
 
 	toolTs := int64(1001)
+	resultTs := int64(1003)
 	if err := store.AppendStepLine("chat-awaiting-replay", StepLine{
 		ChatID:    "chat-awaiting-replay",
 		RunID:     "run-awaiting-replay",
@@ -1007,14 +1008,22 @@ func TestLoadChatReplaysAwaitingFromStepLine(t *testing.T) {
 				MsgID:  "msg-1",
 				Ts:     &toolTs,
 			},
+			{
+				Role:       "tool",
+				Name:       "ask_user",
+				ToolCallID: "tool-1",
+				Content:    []ContentPart{{Type: "text", Text: "{\"ok\":true}"}},
+				ToolID:     "tool-1",
+				Ts:         &resultTs,
+			},
 		},
 		Awaiting: []map[string]any{
 			{
-				"type":         "awaiting.ask",
-				"timestamp":    1002,
-				"awaitingId":   "tool-1",
-				"mode":         "question",
-				"timeout":      120000,
+				"type":       "awaiting.ask",
+				"timestamp":  1002,
+				"awaitingId": "tool-1",
+				"mode":       "question",
+				"timeout":    120000,
 				"questions": []any{
 					map[string]any{
 						"id":       "q1",
@@ -1039,6 +1048,7 @@ func TestLoadChatReplaysAwaitingFromStepLine(t *testing.T) {
 		"request.query",
 		"tool.snapshot",
 		"awaiting.ask",
+		"tool.result",
 		"run.complete",
 	}
 	if len(detail.Events) != len(expectedTypes) {
@@ -1051,6 +1061,202 @@ func TestLoadChatReplaysAwaitingFromStepLine(t *testing.T) {
 	}
 	if detail.Events[4].String("runId") != "run-awaiting-replay" {
 		t.Fatalf("expected runId to be backfilled on awaiting.ask, got %#v", detail.Events[4])
+	}
+	if detail.Events[3].String("toolId") != "tool-1" || detail.Events[4].String("awaitingId") != "tool-1" || detail.Events[5].String("toolId") != "tool-1" {
+		t.Fatalf("expected awaiting.ask to be replayed between matching tool snapshot and result, got %#v", detail.Events)
+	}
+}
+
+func TestLoadChatReplaysAwaitingAfterMatchingToolSnapshotInMultiToolStep(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	if _, _, err := store.EnsureChat("chat-awaiting-multi", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	assistantTs := int64(1001)
+	toolATs := int64(1002)
+	toolBTs := int64(1003)
+	if err := store.AppendStepLine("chat-awaiting-multi", StepLine{
+		ChatID:    "chat-awaiting-multi",
+		RunID:     "run-awaiting-multi",
+		UpdatedAt: 1005,
+		Type:      "react",
+		Seq:       1,
+		Messages: []StoredMessage{
+			{
+				Role: "assistant",
+				ToolCalls: []StoredToolCall{
+					{
+						ID:   "tool-a",
+						Type: "function",
+						Function: StoredFunction{
+							Name:      "ask_a",
+							Arguments: "{\"question\":\"A?\"}",
+						},
+					},
+					{
+						ID:   "tool-b",
+						Type: "function",
+						Function: StoredFunction{
+							Name:      "ask_b",
+							Arguments: "{\"question\":\"B?\"}",
+						},
+					},
+				},
+				MsgID: "msg-1",
+				Ts:    &assistantTs,
+			},
+			{
+				Role:       "tool",
+				Name:       "ask_a",
+				ToolCallID: "tool-a",
+				Content:    []ContentPart{{Type: "text", Text: "done-a"}},
+				ToolID:     "tool-a",
+				Ts:         &toolATs,
+			},
+			{
+				Role:       "tool",
+				Name:       "ask_b",
+				ToolCallID: "tool-b",
+				Content:    []ContentPart{{Type: "text", Text: "done-b"}},
+				ToolID:     "tool-b",
+				Ts:         &toolBTs,
+			},
+		},
+		Awaiting: []map[string]any{
+			{
+				"type":       "awaiting.ask",
+				"timestamp":  1001,
+				"awaitingId": "tool-b",
+				"mode":       "question",
+				"questions":  []any{map[string]any{"id": "qb", "question": "B?"}},
+			},
+			{
+				"type":       "awaiting.ask",
+				"timestamp":  1001,
+				"awaitingId": "tool-a",
+				"mode":       "question",
+				"questions":  []any{map[string]any{"id": "qa", "question": "A?"}},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("append step line: %v", err)
+	}
+
+	detail, err := store.LoadChat("chat-awaiting-multi")
+	if err != nil {
+		t.Fatalf("load chat: %v", err)
+	}
+
+	expectedTypes := []string{
+		"chat.start",
+		"run.start",
+		"tool.snapshot",
+		"awaiting.ask",
+		"tool.snapshot",
+		"awaiting.ask",
+		"tool.result",
+		"tool.result",
+		"run.complete",
+	}
+	if len(detail.Events) != len(expectedTypes) {
+		t.Fatalf("expected %d replayed events, got %d: %#v", len(expectedTypes), len(detail.Events), detail.Events)
+	}
+	for i, eventType := range expectedTypes {
+		if detail.Events[i].Type != eventType {
+			t.Fatalf("expected event %d to be %s, got %#v", i, eventType, detail.Events[i])
+		}
+	}
+	if detail.Events[2].String("toolId") != "tool-a" || detail.Events[3].String("awaitingId") != "tool-a" {
+		t.Fatalf("expected tool-a awaiting.ask immediately after snapshot, got %#v", detail.Events)
+	}
+	if detail.Events[4].String("toolId") != "tool-b" || detail.Events[5].String("awaitingId") != "tool-b" {
+		t.Fatalf("expected tool-b awaiting.ask immediately after snapshot, got %#v", detail.Events)
+	}
+}
+
+func TestLoadChatReplaysUnmatchedAwaitingAtStepEnd(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	if _, _, err := store.EnsureChat("chat-awaiting-fallback", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	toolTs := int64(1001)
+	resultTs := int64(1002)
+	if err := store.AppendStepLine("chat-awaiting-fallback", StepLine{
+		ChatID:    "chat-awaiting-fallback",
+		RunID:     "run-awaiting-fallback",
+		UpdatedAt: 1004,
+		Type:      "react",
+		Seq:       1,
+		Messages: []StoredMessage{
+			{
+				Role: "assistant",
+				ToolCalls: []StoredToolCall{{
+					ID:   "tool-1",
+					Type: "function",
+					Function: StoredFunction{
+						Name:      "ask_user",
+						Arguments: "{\"question\":\"How many?\"}",
+					},
+				}},
+				ToolID: "tool-1",
+				MsgID:  "msg-1",
+				Ts:     &toolTs,
+			},
+			{
+				Role:       "tool",
+				Name:       "ask_user",
+				ToolCallID: "tool-1",
+				Content:    []ContentPart{{Type: "text", Text: "done"}},
+				ToolID:     "tool-1",
+				Ts:         &resultTs,
+			},
+		},
+		Awaiting: []map[string]any{
+			{
+				"type":       "awaiting.ask",
+				"timestamp":  1003,
+				"awaitingId": "tool-missing",
+				"mode":       "question",
+				"questions":  []any{map[string]any{"id": "q1", "question": "How many?"}},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("append step line: %v", err)
+	}
+
+	detail, err := store.LoadChat("chat-awaiting-fallback")
+	if err != nil {
+		t.Fatalf("load chat: %v", err)
+	}
+
+	expectedTypes := []string{
+		"chat.start",
+		"run.start",
+		"tool.snapshot",
+		"tool.result",
+		"awaiting.ask",
+		"run.complete",
+	}
+	if len(detail.Events) != len(expectedTypes) {
+		t.Fatalf("expected %d replayed events, got %d: %#v", len(expectedTypes), len(detail.Events), detail.Events)
+	}
+	for i, eventType := range expectedTypes {
+		if detail.Events[i].Type != eventType {
+			t.Fatalf("expected event %d to be %s, got %#v", i, eventType, detail.Events[i])
+		}
+	}
+	if detail.Events[4].String("awaitingId") != "tool-missing" {
+		t.Fatalf("expected unmatched awaiting.ask to be preserved at step end, got %#v", detail.Events[4])
 	}
 }
 
