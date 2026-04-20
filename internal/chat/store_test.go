@@ -350,7 +350,7 @@ func TestStepWriterActionSnapshotPersistsTsAndReplaysTimestamp(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-action-ts", "run-action-ts", "react")
+	writer := NewStepWriter(store, "chat-action-ts", "run-action-ts", "react", false)
 	writer.OnEvent(stream.EventData{
 		Type:      "action.snapshot",
 		Timestamp: 3456,
@@ -404,7 +404,7 @@ func TestStepWriterEmbedsAwaitingInStepLine(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-awaiting-step", "run-awaiting-step", "react")
+	writer := NewStepWriter(store, "chat-awaiting-step", "run-awaiting-step", "react", false)
 	writer.OnEvent(stream.EventData{
 		Type:      "tool.snapshot",
 		Timestamp: 1001,
@@ -493,7 +493,7 @@ func TestStepWriterMergesSubmitAndAnswer(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-submit-merge", "run-submit-merge", "react")
+	writer := NewStepWriter(store, "chat-submit-merge", "run-submit-merge", "react", false)
 	writer.OnEvent(stream.EventData{
 		Type:      "request.submit",
 		Timestamp: 1001,
@@ -552,7 +552,7 @@ func TestStepWriterFormatsStructuredToolResultAsJSON(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-tool-result-json", "run-tool-result-json", "react")
+	writer := NewStepWriter(store, "chat-tool-result-json", "run-tool-result-json", "react", false)
 	writer.OnEvent(stream.EventData{
 		Type:      "tool.snapshot",
 		Timestamp: 1001,
@@ -615,7 +615,7 @@ func TestStepWriterEmbedsUsageAtStepLevel(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-usage-step", "run-usage-step", "react")
+	writer := NewStepWriter(store, "chat-usage-step", "run-usage-step", "react", false)
 	writer.OnEvent(stream.EventData{
 		Type:      "content.snapshot",
 		Timestamp: 2001,
@@ -681,7 +681,7 @@ func TestStepWriterDropsAwaitingWithoutMessages(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-awaiting-drop", "run-awaiting-drop", "react")
+	writer := NewStepWriter(store, "chat-awaiting-drop", "run-awaiting-drop", "react", false)
 	writer.OnEvent(stream.EventData{
 		Type:      "awaiting.ask",
 		Timestamp: 3001,
@@ -712,7 +712,7 @@ func TestStepWriterPersistsApprovalSidecarOnStepLine(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-approval-step", "run-approval-step", "react")
+	writer := NewStepWriter(store, "chat-approval-step", "run-approval-step", "react", false)
 	writer.OnEvent(stream.EventData{
 		Type:      "tool.snapshot",
 		Timestamp: 4001,

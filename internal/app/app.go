@@ -207,6 +207,11 @@ func New() (*App, error) {
 	if cfg.Schedule.Enabled {
 		scheduleRegistry := schedule.NewRegistry(cfg.Paths.SchedulesDir, registry)
 		dispatcher := schedule.NewDispatcher(func(ctx context.Context, req api.QueryRequest) error {
+			// schedule 触发的 run 标记为 hidden：
+			// chat 不记录伪造的"用户发消息"，chat.created 也不广播，
+			// webclient 仍能看到 assistant 侧输出，但不会渲染成"用户→agent"对话。
+			hiddenTrue := true
+			req.Hidden = &hiddenTrue
 			status, body, err := srv.ExecuteInternalQuery(ctx, req)
 			if err != nil {
 				return err

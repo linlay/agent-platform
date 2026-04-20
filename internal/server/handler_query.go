@@ -18,6 +18,14 @@ import (
 	"agent-platform-runner-go/internal/stream"
 )
 
+// isHiddenRequest 判断请求是否标记为"系统自发触发"：
+// 这类 run 不会在 chat 里留下用户回合（QueryLine 不写），
+// 也不会广播 chat.created（避免 webclient 把它渲染成用户→agent 对话）。
+// 典型来源：schedule 触发的定时任务。
+func isHiddenRequest(req api.QueryRequest) bool {
+	return req.Hidden != nil && *req.Hidden
+}
+
 type preparedQuery struct {
 	req      api.QueryRequest
 	summary  chat.Summary
@@ -113,7 +121,7 @@ func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
 	if err != nil {
 		return preparedQuery{}, err
 	}
-	if created {
+	if created && !isHiddenRequest(req) {
 		s.broadcast("chat.created", map[string]any{
 			"chatId":    chatID,
 			"chatName":  summary.ChatName,
@@ -341,7 +349,7 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 	defer s.deps.Runs.DetachObserver(prepared.req.RunID, observer.ID)
 
 	assembler, mapper := s.newAssemblerAndMapper(prepared)
-	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode)
+	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode, isHiddenRequest(prepared.req))
 
 	StartRunExecutor(RunExecutorParams{
 		RunCtx:        runCtx,
@@ -411,7 +419,7 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 	}
 	processor := &runEventProcessor{
 		assistantText: &assistantText,
-		stepWriter:    chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode),
+		stepWriter:    chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode, isHiddenRequest(prepared.req)),
 		sse:           s.deps.Config.SSE,
 		chatUsage:     chatUsage,
 		runUsage:      &runUsage,
