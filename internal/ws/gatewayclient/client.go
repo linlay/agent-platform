@@ -85,15 +85,19 @@ func (c *Client) Stop() error {
 		return nil
 	}
 	c.stopOnce.Do(func() {
+		started := true
+		c.startOnce.Do(func() {
+			started = false
+		})
+		if !started {
+			close(c.done)
+			return
+		}
 		if c.cancel != nil {
 			c.cancel()
 		}
 		if sock := c.curSocket.Load(); sock != nil {
 			_ = sock.Close()
-		}
-		if c.ctx == nil {
-			close(c.done)
-			return
 		}
 		<-c.done
 	})
@@ -133,6 +137,12 @@ func (c *Client) run() {
 		}
 
 		c.curSocket.Store(socket)
+		if c.ctx.Err() != nil {
+			c.curSocket.Store(nil)
+			_ = socket.Close()
+			log.Printf("gateway websocket client stopped: url=%s", c.cfg.URL)
+			return
+		}
 		connCtx, connCancel := context.WithCancel(c.ctx)
 		log.Printf("gateway websocket connected: url=%s", c.cfg.URL)
 		startedAt := time.Now()

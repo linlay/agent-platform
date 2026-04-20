@@ -174,6 +174,67 @@ func TestClientStopClosesActiveConnection(t *testing.T) {
 	}
 }
 
+func TestClientStopBeforeStartMakesStartNoOp(t *testing.T) {
+	accepted := make(chan acceptedGatewayConn, 1)
+	upgrader := gws.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade gateway connection: %v", err)
+			return
+		}
+		defer conn.Close()
+		accepted <- acceptedGatewayConn{conn: conn, authorization: r.Header.Get("Authorization")}
+	}))
+	defer server.Close()
+
+	hub := ws.NewHub()
+	wsCfg := config.WebSocketConfig{
+		Enabled:             true,
+		MaxMessageSizeBytes: 1 << 20,
+		PingIntervalMs:      200,
+		WriteTimeoutMs:      1000,
+		WriteQueueSize:      8,
+		MaxObservesPerConn:  4,
+	}
+	handler := ws.NewHandler(wsCfg, 50*time.Millisecond, hub, testAuthenticator{})
+	client := New(Config{
+		URL:              wsURL(server.URL),
+		Token:            "dev-token",
+		HandshakeTimeout: 500 * time.Millisecond,
+		ReconnectMin:     30 * time.Millisecond,
+		ReconnectMax:     80 * time.Millisecond,
+	}, wsCfg, 50*time.Millisecond, hub, handler.Dispatch)
+
+	stopped := make(chan struct{})
+	go func() {
+		_ = client.Stop()
+		close(stopped)
+	}()
+
+	select {
+	case <-stopped:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timed out waiting for Stop before Start to return")
+	}
+
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("Start panicked after Stop: %v", r)
+			}
+		}()
+		client.Start(context.Background())
+	}()
+
+	select {
+	case extra := <-accepted:
+		extra.conn.Close()
+		t.Fatalf("expected Start to be a no-op after Stop, got connection with auth %q", extra.authorization)
+	case <-time.After(150 * time.Millisecond):
+	}
+}
+
 func waitAcceptedConn(t *testing.T, accepted <-chan acceptedGatewayConn) acceptedGatewayConn {
 	t.Helper()
 	select {
