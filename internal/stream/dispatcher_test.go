@@ -192,28 +192,12 @@ func TestDispatcherEmitsApprovalModeAwaitAskWithPayloadOnlyForForm(t *testing.T)
 		RunID:        "run_1",
 		Forms: []any{
 			map[string]any{
-				"id": "form-1",
-				"initialPayload": map[string]any{
-					"applicant": map[string]any{
-						"employee_id": "E1001",
-					},
-					"duration_days": 3,
-					"leave_type":    "年假",
-				},
-			},
-		},
-		ViewportPayload: map[string]any{
-			"forms": []any{
-				map[string]any{
-					"id":      "form-1",
-					"command": "mock create-leave",
-					"initialPayload": map[string]any{
-						"applicant": map[string]any{
-							"employee_id": "E1001",
-						},
-						"duration_days": 3,
-						"leave_type":    "年假",
-					},
+				"id":    "form-1",
+				"title": "mock 请假申请",
+				"payload": map[string]any{
+					"applicant":  "Lin",
+					"days":       3,
+					"leave_type": "年假",
 				},
 			},
 		},
@@ -228,15 +212,16 @@ func TestDispatcherEmitsApprovalModeAwaitAskWithPayloadOnlyForForm(t *testing.T)
 	if _, exists := form["command"]; exists {
 		t.Fatalf("did not expect form command in awaiting.ask payload, got %#v", payload)
 	}
-	initialPayload, _ := form["initialPayload"].(map[string]any)
-	applicant, _ := initialPayload["applicant"].(map[string]any)
-	if initialPayload == nil || applicant["employee_id"] != "E1001" || initialPayload["duration_days"] != 3 {
-		t.Fatalf("expected initialPayload in form awaiting.ask, got %#v", payload)
+	formPayload, _ := form["payload"].(map[string]any)
+	applicant, _ := formPayload["applicant"].(string)
+	if formPayload == nil || applicant != "Lin" || formPayload["days"] != 3 {
+		t.Fatalf("expected payload in form awaiting.ask, got %#v", payload)
 	}
-	viewportPayload, _ := payload["viewportPayload"].(map[string]any)
-	viewportForms, _ := viewportPayload["forms"].([]any)
-	if len(viewportForms) != 1 {
-		t.Fatalf("expected viewportPayload forms, got %#v", payload)
+	if form["title"] != "mock 请假申请" {
+		t.Fatalf("expected title in form awaiting.ask, got %#v", payload)
+	}
+	if _, exists := payload["viewportPayload"]; exists {
+		t.Fatalf("did not expect viewportPayload forms, got %#v", payload)
 	}
 }
 
@@ -465,7 +450,7 @@ func TestEventDataMarshalsAwaitAskWithContractKeyOrder(t *testing.T) {
 	}
 }
 
-func TestEventDataMarshalsAwaitAskWithCommandBeforeQuestions(t *testing.T) {
+func TestEventDataMarshalsAwaitAskWithFormsBeforeTimestamp(t *testing.T) {
 	event := NewEvent("awaiting.ask", map[string]any{
 		"awaitingId":   "tool_1",
 		"viewportType": "html",
@@ -475,14 +460,10 @@ func TestEventDataMarshalsAwaitAskWithCommandBeforeQuestions(t *testing.T) {
 		"runId":        "run_1",
 		"forms": []any{
 			map[string]any{
-				"id": "form-1",
-			},
-		},
-		"viewportPayload": map[string]any{
-			"forms": []any{
-				map[string]any{
-					"id":      "form-1",
-					"command": `mock create-leave --payload '{"applicant":{"employee_id":"E1001"}}'`,
+				"id":    "form-1",
+				"title": "mock 请假申请",
+				"payload": map[string]any{
+					"applicant": "Lin",
 				},
 			},
 		},
@@ -492,10 +473,13 @@ func TestEventDataMarshalsAwaitAskWithCommandBeforeQuestions(t *testing.T) {
 		t.Fatalf("marshal event data: %v", err)
 	}
 	text := string(data)
-	commandIndex := strings.Index(text, `"command":"mock create-leave --payload '{\"applicant\":{\"employee_id\":\"E1001\"}}'"`)
+	formsIndex := strings.Index(text, `"forms":[{"id":"form-1","payload":{"applicant":"Lin"},"title":"mock 请假申请"}]`)
 	timestampIndex := strings.Index(text, `"timestamp":`)
-	if commandIndex < 0 || timestampIndex < 0 || commandIndex >= timestampIndex {
-		t.Fatalf("expected command before timestamp in %s", text)
+	if formsIndex < 0 || timestampIndex < 0 || formsIndex >= timestampIndex {
+		t.Fatalf("expected forms before timestamp in %s", text)
+	}
+	if strings.Contains(text, `"viewportPayload":`) {
+		t.Fatalf("did not expect viewportPayload in %s", text)
 	}
 }
 

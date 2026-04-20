@@ -2302,8 +2302,14 @@ func TestBashHITLApproveFlow(t *testing.T) {
 		!strings.Contains(body, `"payload":`+expectedSubmitPayload) {
 		t.Fatalf("expected approve awaiting.answer in stream, got %s", body)
 	}
-	if !strings.Contains(body, `"initialPayload":`+string(expectedAwaitPayload)) {
-		t.Fatalf("expected form awaiting.ask initialPayload in stream, got %s", body)
+	if !strings.Contains(body, `"payload":`+string(expectedAwaitPayload)) {
+		t.Fatalf("expected form awaiting.ask payload in stream, got %s", body)
+	}
+	if !strings.Contains(body, `"title":"mock 请假申请"`) {
+		t.Fatalf("expected form awaiting.ask title in stream, got %s", body)
+	}
+	if strings.Contains(body, `"initialPayload":`) || strings.Contains(body, `"viewportPayload":`) {
+		t.Fatalf("did not expect legacy form payload fields in stream, got %s", body)
 	}
 	if strings.Contains(body, "map[") {
 		t.Fatalf("did not expect Go map string in stream, got %s", body)
@@ -2633,7 +2639,7 @@ func TestBashHITLApproveFlowForExpenseCreate(t *testing.T) {
 	if !strings.Contains(body, `"viewportKey":"expense_form"`) {
 		t.Fatalf("expected expense_form viewport in stream, got %s", body)
 	}
-	if !strings.Contains(body, `"initialPayload":`+string(expectedAwaitPayload)) {
+	if !strings.Contains(body, `"payload":`+string(expectedAwaitPayload)) {
 		t.Fatalf("expected expense approval payload in stream, got %s", body)
 	}
 }
@@ -2665,7 +2671,7 @@ func TestBashHITLApproveFlowForProcurementCreate(t *testing.T) {
 	if !strings.Contains(body, `"viewportKey":"procurement_form"`) {
 		t.Fatalf("expected procurement_form viewport in stream, got %s", body)
 	}
-	if !strings.Contains(body, `"initialPayload":`+string(expectedAwaitPayload)) {
+	if !strings.Contains(body, `"payload":`+string(expectedAwaitPayload)) {
 		t.Fatalf("expected procurement approval payload in stream, got %s", body)
 	}
 }
@@ -2790,6 +2796,7 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 		"    subcommands:",
 		"      - match: create-leave",
 		"        level: 1",
+		"        title: mock 请假申请",
 		"        viewportType: html",
 		"        viewportKey: leave_form",
 	}, "\n")

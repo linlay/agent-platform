@@ -373,6 +373,7 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 			rule: hitl.FlatRule{
 				Match:        "create-leave",
 				Level:        1,
+				Title:        "mock 请假申请",
 				ViewportType: "html",
 				ViewportKey:  "leave_form",
 			},
@@ -527,13 +528,17 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 				if _, ok := form["command"]; ok {
 					t.Fatalf("did not expect form command in awaiting.ask payload, got %#v", form)
 				}
-				initialPayload, _ := form["initialPayload"].(map[string]any)
-				if !reflect.DeepEqual(initialPayload, tc.expectedInitialPayload) {
+				formPayload, _ := form["payload"].(map[string]any)
+				if !reflect.DeepEqual(formPayload, tc.expectedInitialPayload) {
 					t.Fatalf("expected form payload %#v, got %#v", tc.expectedInitialPayload, awaitAsk)
 				}
-				viewportForms, _ := awaitAsk.ViewportPayload["forms"].([]any)
-				if len(viewportForms) != 1 {
-					t.Fatalf("expected viewportPayload forms for iframe init, got %#v", awaitAsk.ViewportPayload)
+				if title, _ := form["title"].(string); tc.expectedKey == "leave_form" && title != "mock 请假申请" {
+					t.Fatalf("expected form title in awaiting.ask payload, got %#v", form)
+				}
+				if tc.expectedKey != "leave_form" {
+					if _, ok := form["title"]; ok {
+						t.Fatalf("did not expect title for non-leave form, got %#v", form)
+					}
 				}
 				if len(awaitAsk.Approvals) != 0 {
 					t.Fatalf("expected form await to omit approvals, got %#v", awaitAsk.Approvals)
@@ -1510,6 +1515,7 @@ func TestBuildFormApprovalArgsFallsBackToOriginalCommandPayload(t *testing.T) {
 		Rule: hitl.FlatRule{
 			ViewportType: "html",
 			ViewportKey:  "leave_form",
+			Title:        "mock 请假申请",
 		},
 		ParsedCommand: hitl.CommandComponents{
 			BaseCommand: "mock",
@@ -1522,13 +1528,16 @@ func TestBuildFormApprovalArgsFallsBackToOriginalCommandPayload(t *testing.T) {
 		t.Fatalf("expected forms in form approval args, got %#v", args)
 	}
 	form := forms[0].(map[string]any)
-	payload, ok := form["initialPayload"].(map[string]any)
+	payload, ok := form["payload"].(map[string]any)
 	if !ok {
-		t.Fatalf("expected initialPayload in form approval args, got %#v", args)
+		t.Fatalf("expected payload in form approval args, got %#v", args)
 	}
 	expected := sampleLeavePayload(3)
 	if !reflect.DeepEqual(payload, expected) {
 		t.Fatalf("expected payload %#v, got %#v", expected, payload)
+	}
+	if form["title"] != "mock 请假申请" {
+		t.Fatalf("expected title in form approval args, got %#v", args)
 	}
 }
 

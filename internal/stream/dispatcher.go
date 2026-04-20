@@ -523,9 +523,6 @@ func (d *StreamEventDispatcher) newAwaitAskEvent(input AwaitAsk) StreamEvent {
 	if len(input.Forms) > 0 {
 		payload["forms"] = input.Forms
 	}
-	if len(input.ViewportPayload) > 0 {
-		payload["viewportPayload"] = clonePayload(input.ViewportPayload)
-	}
 	return NewEvent("awaiting.ask", payload)
 }
 

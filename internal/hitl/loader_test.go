@@ -15,6 +15,7 @@ commands:
     subcommands:
       - match: push
         level: 2
+        title: Git Push Approval
         viewportType: builtin
         viewportKey: confirm_dialog
       - match: push --force
@@ -35,6 +36,9 @@ commands:
 	}
 	if rules[0].FileKey != "dangerous-ops" {
 		t.Fatalf("unexpected file key: %#v", rules[0])
+	}
+	if rules[0].Title != "Git Push Approval" {
+		t.Fatalf("expected title to be flattened, got %#v", rules[0])
 	}
 	if rules[1].Match != "push --force" || len(rules[1].MatchTokens) != 2 {
 		t.Fatalf("unexpected flattened rule: %#v", rules[1])

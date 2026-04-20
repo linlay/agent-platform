@@ -89,16 +89,15 @@ type DeltaArtifactPublish struct {
 func (DeltaArtifactPublish) agentDeltaTag() {}
 
 type DeltaAwaitAsk struct {
-	AwaitingID      string
-	Mode            string
-	Timeout         int64
-	RunID           string
-	ViewportType    string
-	ViewportKey     string
-	ViewportPayload map[string]any
-	Questions       []any
-	Approvals       []any
-	Forms           []any
+	AwaitingID   string
+	Mode         string
+	Timeout      int64
+	RunID        string
+	ViewportType string
+	ViewportKey  string
+	Questions    []any
+	Approvals    []any
+	Forms        []any
 }
 
 func (DeltaAwaitAsk) agentDeltaTag() {}

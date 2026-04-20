@@ -80,6 +80,7 @@ func loadRulesFromDir(root string) ([]FlatRule, error) {
 					Match:        match,
 					MatchTokens:  matchTokens,
 					Level:        sub.Level,
+					Title:        strings.TrimSpace(sub.Title),
 					ViewportType: viewportType,
 					ViewportKey:  viewportKey,
 				})
@@ -132,6 +133,7 @@ func parseRuleFile(path string) (RuleFile, bool, error) {
 			block.Subcommands = append(block.Subcommands, SubcommandRule{
 				Match:        strings.TrimSpace(stringValue(rawSub["match"])),
 				Level:        intValue(rawSub["level"]),
+				Title:        strings.TrimSpace(stringValue(rawSub["title"])),
 				ViewportType: strings.TrimSpace(firstString(rawSub, "viewportType", "toolType")),
 				ViewportKey:  strings.TrimSpace(stringValue(rawSub["viewportKey"])),
 			})

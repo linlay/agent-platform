@@ -1307,13 +1307,16 @@ func (s *llmRunStream) buildFormApprovalArgs(command string, result hitl.Interce
 		"id":      "form-1",
 		"command": command,
 	}
+	if title := strings.TrimSpace(result.Rule.Title); title != "" {
+		form["title"] = title
+	}
 	if payload := extractCommandPayload(result.ParsedCommand); len(payload) > 0 {
-		form["initialPayload"] = payload
+		form["payload"] = payload
 		args["forms"] = []any{form}
 		return args
 	}
 	if payload := extractPayloadFromOriginalCommand(result.OriginalCommand); len(payload) > 0 {
-		form["initialPayload"] = payload
+		form["payload"] = payload
 		args["forms"] = []any{form}
 		return args
 	}
@@ -1697,9 +1700,6 @@ func (s *llmRunStream) buildHITLAwaitDelta(awaitingID string, args map[string]an
 		await.Approvals = approvals
 	}
 	if forms := cloneAnySlice(args["forms"]); len(forms) > 0 {
-		await.ViewportPayload = map[string]any{
-			"forms": forms,
-		}
 		await.Forms = sanitizeAwaitAskForms(forms)
 	}
 	return await
