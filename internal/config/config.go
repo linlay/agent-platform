@@ -30,6 +30,7 @@ type Config struct {
 	BashHITL     BashHITLConfig
 	Run          RunConfig
 	WebSocket    WebSocketConfig
+	GatewayWS    GatewayWSConfig
 }
 
 type ServerConfig struct {
@@ -229,6 +230,14 @@ type WebSocketConfig struct {
 	MaxObservesPerConn  int
 }
 
+type GatewayWSConfig struct {
+	URL                string
+	Token              string
+	HandshakeTimeoutMs int64
+	ReconnectMinMs     int64
+	ReconnectMaxMs     int64
+}
+
 func Load() (Config, error) {
 	cfg := defaultConfig()
 	cfg.applyStructuredConfig()
@@ -399,6 +408,11 @@ func defaultConfig() Config {
 			WriteTimeoutMs:      15000,
 			WriteQueueSize:      256,
 			MaxObservesPerConn:  8,
+		},
+		GatewayWS: GatewayWSConfig{
+			HandshakeTimeoutMs: 10000,
+			ReconnectMinMs:     1000,
+			ReconnectMaxMs:     30000,
 		},
 	}
 }
@@ -588,6 +602,11 @@ func (c *Config) applyEnv() {
 	c.WebSocket.WriteTimeoutMs = int64Env("AGENT_WS_WRITE_TIMEOUT_MS", c.WebSocket.WriteTimeoutMs)
 	c.WebSocket.WriteQueueSize = intEnv("AGENT_WS_WRITE_QUEUE_SIZE", c.WebSocket.WriteQueueSize)
 	c.WebSocket.MaxObservesPerConn = intEnv("AGENT_WS_MAX_OBSERVES_PER_CONN", c.WebSocket.MaxObservesPerConn)
+	c.GatewayWS.URL = stringEnv("AGENT_GATEWAY_WS_URL", c.GatewayWS.URL)
+	c.GatewayWS.Token = stringEnv("AGENT_GATEWAY_WS_TOKEN", c.GatewayWS.Token)
+	c.GatewayWS.HandshakeTimeoutMs = int64Env("AGENT_GATEWAY_WS_HANDSHAKE_TIMEOUT_MS", c.GatewayWS.HandshakeTimeoutMs)
+	c.GatewayWS.ReconnectMinMs = int64Env("AGENT_GATEWAY_WS_RECONNECT_MIN_MS", c.GatewayWS.ReconnectMinMs)
+	c.GatewayWS.ReconnectMaxMs = int64Env("AGENT_GATEWAY_WS_RECONNECT_MAX_MS", c.GatewayWS.ReconnectMaxMs)
 }
 
 func (c *Config) normalize() {

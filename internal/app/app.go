@@ -27,6 +27,7 @@ import (
 	"agent-platform-runner-go/internal/tools"
 	"agent-platform-runner-go/internal/viewport"
 	"agent-platform-runner-go/internal/ws"
+	"agent-platform-runner-go/internal/ws/gatewayclient"
 )
 
 type App struct {
@@ -34,6 +35,7 @@ type App struct {
 	Router           *server.Server
 	backgroundCancel context.CancelFunc
 	scheduler        *schedule.Orchestrator
+	gwClient         *gatewayclient.Client
 }
 
 func New() (*App, error) {
@@ -177,6 +179,30 @@ func New() (*App, error) {
 	}
 	log.Printf("server dependencies wired in %s", startupElapsed(serverStartedAt))
 
+	var gwClient *gatewayclient.Client
+	if cfg.WebSocket.Enabled && strings.TrimSpace(cfg.GatewayWS.URL) != "" {
+		if strings.TrimSpace(cfg.GatewayWS.Token) == "" {
+			log.Printf("gateway websocket disabled: AGENT_GATEWAY_WS_URL is set but AGENT_GATEWAY_WS_TOKEN is empty")
+		} else if hub, ok := notifications.(*ws.Hub); ok {
+			if handler := srv.WSHandler(); handler != nil {
+				gwClient = gatewayclient.New(
+					gatewayclient.Config{
+						URL:              strings.TrimSpace(cfg.GatewayWS.URL),
+						Token:            strings.TrimSpace(cfg.GatewayWS.Token),
+						HandshakeTimeout: time.Duration(cfg.GatewayWS.HandshakeTimeoutMs) * time.Millisecond,
+						ReconnectMin:     time.Duration(cfg.GatewayWS.ReconnectMinMs) * time.Millisecond,
+						ReconnectMax:     time.Duration(cfg.GatewayWS.ReconnectMaxMs) * time.Millisecond,
+					},
+					cfg.WebSocket,
+					time.Duration(cfg.SSE.HeartbeatIntervalMs)*time.Millisecond,
+					hub,
+					handler.Dispatch,
+				)
+				gwClient.Start(backgroundCtx)
+			}
+		}
+	}
+
 	var scheduler *schedule.Orchestrator
 	if cfg.Schedule.Enabled {
 		scheduleRegistry := schedule.NewRegistry(cfg.Paths.SchedulesDir, registry)
@@ -207,6 +233,7 @@ func New() (*App, error) {
 		Router:           srv,
 		backgroundCancel: backgroundCancel,
 		scheduler:        scheduler,
+		gwClient:         gwClient,
 	}, nil
 }
 
@@ -216,6 +243,9 @@ func (a *App) Close() error {
 	}
 	if a.backgroundCancel != nil {
 		a.backgroundCancel()
+	}
+	if a.gwClient != nil {
+		_ = a.gwClient.Stop()
 	}
 	if a.scheduler != nil {
 		done := a.scheduler.Stop()

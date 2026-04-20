@@ -219,6 +219,26 @@ Container Hub 默认基础挂载为：
 - WebSocket handler 会复用当前 catalog、chat、query、run stream 等接口能力
 - 鉴权开启时，WebSocket 也会走相同的 token 校验链路
 
+### Reverse WebSocket Gateway
+
+反向 WebSocket 用于让 `agent-platform` 主动连出到一个上游智能体网关；连接建立后，网关会像普通 `/ws` client 一样发送 `request` 帧，`agent-platform` 继续返回 `response` / `stream`，并复用当前 `broadcast()` 推送 `push` 事件。
+
+| 环境变量 | 默认值 | 标签 | 说明 |
+|---|---|---|---|
+| `AGENT_GATEWAY_WS_URL` | 空 | `Advanced / operator` | 反向 WebSocket 网关地址；空字符串表示禁用 |
+| `AGENT_GATEWAY_WS_TOKEN` | 空 | `Advanced / operator` | 握手时写入 `Authorization: Bearer <token>` 的凭据 |
+| `AGENT_GATEWAY_WS_HANDSHAKE_TIMEOUT_MS` | `10000` | `Advanced / operator` | 反向连接握手超时 |
+| `AGENT_GATEWAY_WS_RECONNECT_MIN_MS` | `1000` | `Advanced / operator` | 最小重连退避 |
+| `AGENT_GATEWAY_WS_RECONNECT_MAX_MS` | `30000` | `Advanced / operator` | 最大重连退避 |
+
+说明：
+
+- 反向连接同样受 `AGENT_WS_ENABLED` 总开关影响；只有 `AGENT_WS_ENABLED=true` 且 `AGENT_GATEWAY_WS_URL` 非空时才会启动
+- 握手只使用 `Authorization` header 传递 Bearer token，不会把凭据放进 URL query
+- 建连成功后，网关端会先收到一条 `push.connected`
+- 断线重连期间的 `broadcast` 为有损投递，当前不提供离线缓冲
+- `AGENT_WS_WRITE_TIMEOUT_MS`、`AGENT_WS_WRITE_QUEUE_SIZE`、`AGENT_WS_MAX_MESSAGE_SIZE`、`AGENT_WS_MAX_OBSERVES_PER_CONN` 这些现有 `AGENT_WS_*` 参数同样适用于反向连接
+
 ## 不建议公开暴露的变量
 
 ### Memory: 已接线但不建议作为公开能力
