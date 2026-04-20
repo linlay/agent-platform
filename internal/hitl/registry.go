@@ -105,26 +105,28 @@ func matchesTokens(commandTokens []string, matchTokens []string) bool {
 func matchesRule(command string, parsed CommandComponents, rule FlatRule) bool {
 	var (
 		hit       bool
-		argTokens []string
+		remaining []string
 	)
 	if len(rule.MatchTokens) > 0 && rule.MatchTokens[0] == "|" {
-		hit, argTokens = matchesPipelineTokensWithArgs(command, rule.MatchTokens[1:])
+		hit, remaining = matchesPipelineTokensWithRemaining(command, rule.MatchTokens[1:])
 	} else {
 		hit = matchesTokens(parsed.Tokens, rule.MatchTokens)
-		argTokens = parsed.Tokens
+		if hit {
+			remaining = parsed.Tokens[len(rule.MatchTokens):]
+		}
 	}
 	if !hit {
 		return false
 	}
-	return !hasPassThroughFlag(argTokens, rule.PassThroughFlags)
+	return !hasPassThroughFlag(remaining, rule.PassThroughFlags)
 }
 
 func matchesPipelineTokens(command string, matchTokens []string) bool {
-	hit, _ := matchesPipelineTokensWithArgs(command, matchTokens)
+	hit, _ := matchesPipelineTokensWithRemaining(command, matchTokens)
 	return hit
 }
 
-func matchesPipelineTokensWithArgs(command string, matchTokens []string) (bool, []string) {
+func matchesPipelineTokensWithRemaining(command string, matchTokens []string) (bool, []string) {
 	if len(matchTokens) == 0 {
 		return false, nil
 	}
@@ -148,7 +150,7 @@ func matchesPipelineTokensWithArgs(command string, matchTokens []string) (bool, 
 	if !matchesTokens(commandTokens, matchTokens) {
 		return false, nil
 	}
-	return true, parsed.Tokens
+	return true, commandTokens[len(matchTokens):]
 }
 
 func hasPassThroughFlag(argTokens []string, flags []string) bool {

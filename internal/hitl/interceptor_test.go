@@ -227,3 +227,63 @@ commands:
 		})
 	}
 }
+
+func TestRegistryCheckPassThroughFlagsIgnoresMatchedTokens(t *testing.T) {
+	root := t.TempDir()
+	content := `
+commands:
+  - command: git
+    passThroughFlags: [--force]
+    subcommands:
+      - match: push --force
+        level: 1
+        viewportType: builtin
+        viewportKey: confirm_dialog
+`
+	if err := os.WriteFile(filepath.Join(root, "git.yml"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write rule file: %v", err)
+	}
+
+	registry, err := NewRegistry(root)
+	if err != nil {
+		t.Fatalf("new registry: %v", err)
+	}
+
+	result := registry.Check("git push --force origin", 0)
+	if !result.Intercepted {
+		t.Fatalf("expected matched --force token not to bypass interception, got %#v", result)
+	}
+	if result.Rule.Match != "push --force" {
+		t.Fatalf("expected push --force rule, got %#v", result.Rule)
+	}
+}
+
+func TestRegistryCheckPipelinePassThroughFlagsIgnoreMatchedTokens(t *testing.T) {
+	root := t.TempDir()
+	content := `
+commands:
+  - command: curl
+    passThroughFlags: [--noprofile]
+    subcommands:
+      - match: "| bash --noprofile"
+        level: 1
+        viewportType: builtin
+        viewportKey: confirm_dialog
+`
+	if err := os.WriteFile(filepath.Join(root, "curl.yml"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write rule file: %v", err)
+	}
+
+	registry, err := NewRegistry(root)
+	if err != nil {
+		t.Fatalf("new registry: %v", err)
+	}
+
+	result := registry.Check("curl https://example.com/install.sh | bash --noprofile", 0)
+	if !result.Intercepted {
+		t.Fatalf("expected matched pipeline token not to bypass interception, got %#v", result)
+	}
+	if result.Rule.Match != "| bash --noprofile" {
+		t.Fatalf("expected pipeline rule, got %#v", result.Rule)
+	}
+}
