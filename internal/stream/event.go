@@ -183,6 +183,7 @@ func IsPersistedEventType(eventType string) bool {
 		"run.start", "run.complete", "run.cancel", "run.error", "run.expired",
 		"reasoning.snapshot", "content.snapshot",
 		"tool.snapshot", "tool.result",
+		"source.publish",
 		"action.snapshot", "action.result",
 		"plan.create", "plan.update",
 		"task.start", "task.complete", "task.cancel", "task.fail",
@@ -244,6 +245,8 @@ func shouldOmitPayloadField(eventType string, key string, value any) bool {
 		return key == "taskId" || key == "reasoningLabel" || key == "toolName" || key == "toolLabel" ||
 			key == "toolDescription" || key == "viewportKey" || key == "actionName" ||
 			key == "description" || key == "arguments"
+	case "source.publish":
+		return key == "taskId" || key == "toolId" || key == "query"
 	default:
 		return false
 	}
@@ -301,6 +304,8 @@ func eventPayloadKeyOrder(eventType string) []string {
 		return []string{"toolId", "runId", "toolName", "taskId", "toolLabel", "toolDescription", "arguments"}
 	case "tool.result":
 		return []string{"toolId", "result", "hitl"}
+	case "source.publish":
+		return []string{"publishId", "runId", "taskId", "toolId", "kind", "query", "sourceCount", "chunkCount", "sources"}
 	case "action.start":
 		return []string{"actionId", "runId", "taskId", "actionName", "description"}
 	case "action.args":

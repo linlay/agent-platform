@@ -1743,3 +1743,120 @@ func TestLoadChatReplaysLegacyConfirmLifecycleEvents(t *testing.T) {
 		t.Fatalf("expected legacy confirm lifecycle events to replay, got %#v", detail.Events)
 	}
 }
+
+func TestLoadChatReplaysLegacySourcePublishEvent(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	if _, _, err := store.EnsureChat("chat-source-legacy", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	legacyEvents := []stream.EventData{
+		{
+			Type:      "chat.start",
+			Timestamp: 1000,
+			Payload: map[string]any{
+				"chatId":   "chat-source-legacy",
+				"chatName": "hello",
+			},
+		},
+		{
+			Type:      "request.query",
+			Timestamp: 1001,
+			Payload: map[string]any{
+				"chatId":  "chat-source-legacy",
+				"runId":   "run-source-legacy",
+				"message": "where is the policy?",
+			},
+		},
+		{
+			Type:      "run.start",
+			Timestamp: 1002,
+			Payload: map[string]any{
+				"chatId": "chat-source-legacy",
+				"runId":  "run-source-legacy",
+			},
+		},
+		{
+			Type:      "source.publish",
+			Timestamp: 1003,
+			Payload: map[string]any{
+				"publishId":   "src-legacy",
+				"runId":       "run-source-legacy",
+				"kind":        "ragflow",
+				"sourceCount": 1,
+				"chunkCount":  1,
+				"sources": []map[string]any{
+					{
+						"id":           "doc_1",
+						"name":         "policy.pdf",
+						"chunkIndexes": []int{2},
+						"minIndex":     2,
+						"chunks": []map[string]any{
+							{
+								"chunkId": "chunk_2",
+								"index":   2,
+								"content": "policy content",
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			Type:      "content.snapshot",
+			Timestamp: 1004,
+			Payload: map[string]any{
+				"contentId": "run-source-legacy_c_1",
+				"runId":     "run-source-legacy",
+				"text":      "answer",
+			},
+		},
+		{
+			Type:      "run.complete",
+			Timestamp: 1005,
+			Payload: map[string]any{
+				"runId": "run-source-legacy",
+			},
+		},
+	}
+
+	for idx := range legacyEvents {
+		legacyEvents[idx].Seq = int64(idx + 1)
+		if err := store.AppendEvent("chat-source-legacy", legacyEvents[idx]); err != nil {
+			t.Fatalf("append legacy event: %v", err)
+		}
+	}
+
+	detail, err := store.LoadChat("chat-source-legacy")
+	if err != nil {
+		t.Fatalf("load chat: %v", err)
+	}
+
+	foundSourcePublish := false
+	foundContentSnapshot := false
+	for _, event := range detail.Events {
+		switch event.Type {
+		case "source.publish":
+			foundSourcePublish = true
+			if event.String("publishId") != "src-legacy" || event.String("runId") != "run-source-legacy" {
+				t.Fatalf("unexpected source.publish replay %#v", event)
+			}
+			sources, ok := event.Value("sources").([]any)
+			if !ok || len(sources) != 1 {
+				t.Fatalf("expected source.publish sources to replay, got %#v", event.Value("sources"))
+			}
+		case "content.snapshot":
+			foundContentSnapshot = true
+		}
+	}
+	if !foundSourcePublish {
+		t.Fatalf("expected source.publish to replay, got %#v", detail.Events)
+	}
+	if !foundContentSnapshot {
+		t.Fatalf("expected content.snapshot to remain intact, got %#v", detail.Events)
+	}
+}

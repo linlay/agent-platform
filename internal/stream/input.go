@@ -129,6 +129,42 @@ type ArtifactPublish struct {
 
 func (ArtifactPublish) streamInputTag() {}
 
+type SourcePublish struct {
+	PublishID   string
+	RunID       string
+	TaskID      string
+	ToolID      string
+	Kind        string
+	Query       string
+	SourceCount int
+	ChunkCount  int
+	Sources     []Source
+}
+
+func (SourcePublish) streamInputTag() {}
+
+type Source struct {
+	ID             string        `json:"id"`
+	Name           string        `json:"name"`
+	Title          string        `json:"title,omitempty"`
+	Icon           string        `json:"icon,omitempty"`
+	URL            string        `json:"url,omitempty"`
+	Link           string        `json:"link,omitempty"`
+	CollectionID   string        `json:"collectionId,omitempty"`
+	CollectionName string        `json:"collectionName,omitempty"`
+	ChunkIndexes   []int         `json:"chunkIndexes"`
+	MinIndex       int           `json:"minIndex"`
+	Chunks         []SourceChunk `json:"chunks"`
+}
+
+type SourceChunk struct {
+	ChunkID   string  `json:"chunkId"`
+	Index     int     `json:"index"`
+	Content   string  `json:"content"`
+	Score     float64 `json:"score,omitempty"`
+	Timestamp *int64  `json:"timestamp,omitempty"`
+}
+
 type AwaitAsk struct {
 	AwaitingID      string
 	Mode            string

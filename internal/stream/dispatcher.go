@@ -1,8 +1,12 @@
 package stream
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"log"
+	"sort"
 	"strings"
+	"time"
 )
 
 type StreamEventDispatcher struct {
@@ -62,6 +66,8 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 			"runId":      value.RunID,
 			"artifact":   value.Artifact,
 		})}
+	case SourcePublish:
+		return d.handleSourcePublish(value)
 	case AwaitAsk:
 		event := d.newAwaitAskEvent(value)
 		if event.Type == "" {
@@ -625,6 +631,34 @@ func (d *StreamEventDispatcher) handleTaskFail(input TaskFail) []StreamEvent {
 	})}
 }
 
+func (d *StreamEventDispatcher) handleSourcePublish(input SourcePublish) []StreamEvent {
+	runID := strings.TrimSpace(input.RunID)
+	if runID == "" {
+		runID = d.request.RunID
+	}
+
+	sources, chunkCount := normalizeSources(input.Sources)
+	payload := map[string]any{
+		"publishId":   sourcePublishID(input.PublishID),
+		"runId":       runID,
+		"kind":        input.Kind,
+		"sourceCount": len(sources),
+		"chunkCount":  chunkCount,
+		"sources":     sources,
+	}
+	if taskID := strings.TrimSpace(input.TaskID); taskID != "" {
+		payload["taskId"] = taskID
+	}
+	if toolID := strings.TrimSpace(input.ToolID); toolID != "" {
+		payload["toolId"] = toolID
+	}
+	if query := strings.TrimSpace(input.Query); query != "" {
+		payload["query"] = query
+	}
+
+	return []StreamEvent{NewEvent("source.publish", payload)}
+}
+
 func (d *StreamEventDispatcher) closeForSwitch(next string) []StreamEvent {
 	switch next {
 	case "reasoning":
@@ -802,4 +836,76 @@ func buildToolResultValue(input ToolResult) any {
 		result["error"] = input.Error
 	}
 	return result
+}
+
+func normalizeSources(input []Source) ([]Source, int) {
+	if len(input) == 0 {
+		return []Source{}, 0
+	}
+
+	sources := make([]Source, 0, len(input))
+	chunkCount := 0
+	for _, source := range input {
+		chunks := make([]SourceChunk, len(source.Chunks))
+		copy(chunks, source.Chunks)
+		sort.SliceStable(chunks, func(i, j int) bool {
+			return chunks[i].Index < chunks[j].Index
+		})
+
+		chunkIndexes := make([]int, 0, len(chunks))
+		minIndex := 0
+		if len(chunks) > 0 {
+			minIndex = chunks[0].Index
+		}
+		for _, chunk := range chunks {
+			chunkIndexes = append(chunkIndexes, chunk.Index)
+		}
+
+		sources = append(sources, Source{
+			ID:             source.ID,
+			Name:           source.Name,
+			Title:          source.Title,
+			Icon:           source.Icon,
+			URL:            source.URL,
+			Link:           source.Link,
+			CollectionID:   source.CollectionID,
+			CollectionName: source.CollectionName,
+			ChunkIndexes:   chunkIndexes,
+			MinIndex:       minIndex,
+			Chunks:         chunks,
+		})
+		chunkCount += len(chunks)
+	}
+
+	return sources, chunkCount
+}
+
+func sourcePublishID(input string) string {
+	if id := strings.TrimSpace(input); id != "" {
+		return id
+	}
+	buf := make([]byte, 6)
+	if _, err := rand.Read(buf); err == nil {
+		return "src-" + hex.EncodeToString(buf)
+	}
+	return "src-" + strconvBase16(time.Now().UnixNano())
+}
+
+func strconvBase16(value int64) string {
+	const digits = "0123456789abcdef"
+	if value == 0 {
+		return "0"
+	}
+	if value < 0 {
+		value = -value
+	}
+	out := make([]byte, 0, 16)
+	for value > 0 {
+		out = append(out, digits[value%16])
+		value /= 16
+	}
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return string(out)
 }
