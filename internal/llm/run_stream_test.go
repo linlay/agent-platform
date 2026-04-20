@@ -1408,7 +1408,8 @@ func TestAwaitHITLSubmitAndExecute_TimeoutEmitsTerminalAnswer(t *testing.T) {
 		case contracts.DeltaAwaitingAnswer:
 			if typed.AwaitingID == buildHITLAwaitingID("tool_1") {
 				foundAnswer = true
-				if typed.Answer["reason"] != "timeout" || typed.Answer["code"] != "hitl_timeout" {
+				errPayload, _ := typed.Answer["error"].(map[string]any)
+				if typed.Answer["status"] != "error" || errPayload["code"] != "timeout" {
 					t.Fatalf("unexpected timeout answer %#v", typed.Answer)
 				}
 			}

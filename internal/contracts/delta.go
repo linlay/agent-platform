@@ -114,7 +114,8 @@ func (DeltaRequestSubmit) agentDeltaTag() {}
 
 type DeltaAwaitingAnswer struct {
 	AwaitingID string
-	Answer     map[string]any
+	// Answer carries the normalized awaiting.answer payload shape, which varies by mode/status.
+	Answer map[string]any
 }
 
 func (DeltaAwaitingAnswer) agentDeltaTag() {}

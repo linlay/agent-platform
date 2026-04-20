@@ -87,11 +87,7 @@ func (h *AskUserQuestionHandler) NormalizeSubmit(args map[string]any, params any
 		return nil, fmt.Errorf("ask_user_question submit params must be an array")
 	}
 	if len(rawAnswers) == 0 {
-		return map[string]any{
-			"mode":      "question",
-			"cancelled": true,
-			"reason":    "user_dismissed",
-		}, nil
+		return contracts.AwaitingErrorAnswer("question", "user_dismissed", "用户关闭等待项"), nil
 	}
 
 	questionDefs := questionDefinitionsInOrder(args)
@@ -121,6 +117,7 @@ func (h *AskUserQuestionHandler) NormalizeSubmit(args map[string]any, params any
 
 	return map[string]any{
 		"mode":    "question",
+		"status":  "answered",
 		"answers": answers,
 	}, nil
 }

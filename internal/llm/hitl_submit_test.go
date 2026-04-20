@@ -31,6 +31,9 @@ func TestNormalizeHITLApprovalSubmitSupportsApprovePrefixRun(t *testing.T) {
 	if !ok || len(approvals) != 1 {
 		t.Fatalf("expected one normalized approval, got %#v", normalized)
 	}
+	if normalized["status"] != "answered" {
+		t.Fatalf("expected answered status, got %#v", normalized)
+	}
 	if approvals[0]["decision"] != "approve_prefix_run" {
 		t.Fatalf("expected approve_prefix_run decision to be preserved, got %#v", approvals[0])
 	}
@@ -67,6 +70,9 @@ func TestNormalizeHITLApprovalSubmitNormalizesUnknownDecisionToReject(t *testing
 	approvals, ok := normalized["approvals"].([]map[string]any)
 	if !ok || len(approvals) != 1 {
 		t.Fatalf("expected one normalized approval, got %#v", normalized)
+	}
+	if normalized["status"] != "answered" {
+		t.Fatalf("expected answered status, got %#v", normalized)
 	}
 	if approvals[0]["decision"] != "reject" {
 		t.Fatalf("expected unknown decision to normalize to reject, got %#v", approvals[0])

@@ -875,10 +875,17 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 			AwaitingID: result.SubmitInfo.AwaitingID,
 			Params:     result.SubmitInfo.Params,
 		})
-		if result.Error == "" && len(result.Structured) > 0 {
+		if answer := frontendSubmitAwaitingAnswer(invocation, result); len(answer) > 0 {
 			s.pending = append(s.pending, DeltaAwaitingAnswer{
 				AwaitingID: result.SubmitInfo.AwaitingID,
-				Answer:     CloneMap(result.Structured),
+				Answer:     CloneMap(answer),
+			})
+		}
+	} else if len(result.Structured) > 0 {
+		if answer := frontendSubmitAwaitingAnswer(invocation, result); len(answer) > 0 {
+			s.pending = append(s.pending, DeltaAwaitingAnswer{
+				AwaitingID: invocation.toolID,
+				Answer:     CloneMap(answer),
 			})
 		}
 	}
@@ -1089,6 +1096,10 @@ func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {
 
 	normalized, normalizeErr := s.normalizeHITLSubmit(batch.awaitArgs, submitResult.Request.Params)
 	if normalizeErr != nil {
+		s.pending = append(s.pending, DeltaAwaitingAnswer{
+			AwaitingID: batch.awaitingID,
+			Answer:     AwaitingErrorAnswer(strings.TrimSpace(AnyStringNode(batch.awaitArgs["mode"])), "invalid_submit", normalizeErr.Error()),
+		})
 		for _, invocation := range batch.invocations {
 			s.applyHITLDecision(invocation, s.lookupPrecheckedHITL(invocation), batch.awaitingID, "reject", normalizeErr.Error(), false)
 			result := frontendSubmitInvalidPayloadResult(invocation, batch.awaitingID, submitResult.Request.Params, normalizeErr)
@@ -1104,7 +1115,7 @@ func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {
 		})
 	}
 
-	if normalized["cancelled"] == true {
+	if strings.EqualFold(AnyStringNode(normalized["status"]), "error") {
 		for _, invocation := range batch.invocations {
 			s.applyHITLDecision(invocation, s.lookupPrecheckedHITL(invocation), batch.awaitingID, "reject", "user_dismissed", false)
 			rejected := hitlRejectedToolResult(invocation)
@@ -1193,6 +1204,10 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 
 	normalized, normalizeErr := s.normalizeHITLSubmit(awaitArgs, submitResult.Request.Params)
 	if normalizeErr != nil {
+		s.pending = append(s.pending, DeltaAwaitingAnswer{
+			AwaitingID: awaitingID,
+			Answer:     AwaitingErrorAnswer(strings.TrimSpace(AnyStringNode(awaitArgs["mode"])), "invalid_submit", normalizeErr.Error()),
+		})
 		s.applyHITLDecision(invocation, *match, awaitingID, "reject", normalizeErr.Error(), false)
 		s.appendOriginalToolResult(invocation, frontendSubmitInvalidPayloadResult(invocation, awaitingID, submitResult.Request.Params, normalizeErr))
 		return nil
@@ -1204,7 +1219,7 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 		})
 	}
 
-	if normalized["cancelled"] == true {
+	if strings.EqualFold(AnyStringNode(normalized["status"]), "error") {
 		s.applyHITLDecision(invocation, *match, awaitingID, "reject", "user_dismissed", false)
 		s.appendOriginalToolResult(invocation, hitlRejectedToolResult(invocation))
 		return nil
@@ -1611,16 +1626,24 @@ func buildHITLBatchAwaitingID(runID string, turnStep int) string {
 }
 
 func hitlTimeoutAnswer(mode string) map[string]any {
-	mode = strings.ToLower(strings.TrimSpace(mode))
-	if mode == "" {
-		mode = "approval"
+	return AwaitingErrorAnswer(mode, "timeout", "等待项已超时")
+}
+
+func frontendSubmitAwaitingAnswer(invocation *preparedToolInvocation, result ToolExecutionResult) map[string]any {
+	if len(result.Structured) == 0 {
+		return nil
 	}
-	return map[string]any{
-		"mode":      mode,
-		"cancelled": true,
-		"reason":    "timeout",
-		"status":    "timeout",
-		"code":      "hitl_timeout",
+	if result.Error == "" {
+		return result.Structured
+	}
+	mode := strings.TrimSpace(AnyStringNode(invocation.args["mode"]))
+	switch result.Error {
+	case "frontend_submit_timeout":
+		return AwaitingErrorAnswer(mode, "timeout", AnyStringNode(AnyMapNode(result.Structured["error"])["message"]))
+	case "frontend_submit_invalid_payload":
+		return AwaitingErrorAnswer(mode, "invalid_submit", AnyStringNode(result.Structured["message"]))
+	default:
+		return nil
 	}
 }
 

@@ -1557,7 +1557,9 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	if !strings.Contains(body, `"type":"tool.result"`) {
 		t.Fatalf("expected tool.result event, got %s", body)
 	}
-	if !strings.Contains(body, `"mode":"question"`) || !strings.Contains(body, `"answers":[{"answer":"Approve","id":"q1","question":"Need confirmation"}]`) {
+	if !strings.Contains(body, `"mode":"question"`) ||
+		!strings.Contains(body, `"status":"answered"`) ||
+		!strings.Contains(body, `"answers":[{"answer":"Approve","id":"q1","question":"Need confirmation"}]`) {
 		t.Fatalf("expected normalized question awaiting.answer, got %s", body)
 	}
 	if !strings.Contains(body, `"result":[{"id":"q1","answer":"Approve"}]`) {
@@ -1627,7 +1629,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 		case "awaiting.answer":
 			foundAwaitingAnswer = true
 			answers, _ := event.Value("answers").([]any)
-			if event.String("mode") != "question" || len(answers) != 1 {
+			if event.String("mode") != "question" || event.String("status") != "answered" || len(answers) != 1 {
 				t.Fatalf("unexpected awaiting.answer in chat detail %#v", event)
 			}
 		}
@@ -1800,7 +1802,8 @@ questionSubmit:
 	if !strings.Contains(body, `"type":"awaiting.answer"`) {
 		t.Fatalf("expected awaiting.answer event, got %s", body)
 	}
-	if !strings.Contains(body, `"answers":[{"answers":["产品更新","使用教程"],"id":"q1","question":"Notification topics"},{"answer":2,"id":"q2","question":"How many people?"}]`) {
+	if !strings.Contains(body, `"status":"answered"`) ||
+		!strings.Contains(body, `"answers":[{"answers":["产品更新","使用教程"],"id":"q1","question":"Notification topics"},{"answer":2,"id":"q2","question":"How many people?"}]`) {
 		t.Fatalf("expected normalized awaiting.answer answers, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"tool.result"`) {
@@ -2178,14 +2181,16 @@ func TestQuestionAwaitDismissReturnsCancelledStructuredResult(t *testing.T) {
 	if !strings.Contains(body, `"type":"request.submit"`) || !strings.Contains(body, `"params":[]`) {
 		t.Fatalf("expected request.submit with empty params array, got %s", body)
 	}
-	if !strings.Contains(body, `"type":"awaiting.answer"`) || !strings.Contains(body, `"cancelled":true`) || !strings.Contains(body, `"reason":"user_dismissed"`) {
-		t.Fatalf("expected cancelled awaiting.answer in stream, got %s", body)
+	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
+		!strings.Contains(body, `"status":"error"`) ||
+		!strings.Contains(body, `"code":"user_dismissed"`) {
+		t.Fatalf("expected dismissed awaiting.answer in stream, got %s", body)
 	}
 	if toolResultPayload == nil {
 		t.Fatalf("expected tool.result payload, got %s", body)
 	}
 	if toolResultPayload["result"] != nil {
-		t.Fatalf("expected cancelled tool.result payload to be omitted, got %#v", toolResultPayload)
+		t.Fatalf("expected dismissed tool.result payload to be omitted, got %#v", toolResultPayload)
 	}
 	assertEventOrder(t, body, "tool.start", "awaiting.ask", "tool.args", "tool.end", "request.submit", "awaiting.answer", "tool.result")
 
@@ -2201,8 +2206,8 @@ func TestQuestionAwaitDismissReturnsCancelledStructuredResult(t *testing.T) {
 		if toolContent == "" {
 			t.Fatalf("expected second turn to include tool message, got %#v", messages)
 		}
-		if !strings.Contains(toolContent, `"cancelled":true`) || !strings.Contains(toolContent, `"mode":"question"`) || !strings.Contains(toolContent, `"reason":"user_dismissed"`) {
-			t.Fatalf("expected cancelled JSON tool content, got %#v", messages)
+		if !strings.Contains(toolContent, `"status":"error"`) || !strings.Contains(toolContent, `"mode":"question"`) || !strings.Contains(toolContent, `"code":"user_dismissed"`) {
+			t.Fatalf("expected dismissed JSON tool content, got %#v", messages)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for second provider request")
@@ -2297,6 +2302,7 @@ func TestBashHITLApproveFlow(t *testing.T) {
 		t.Fatalf("expected form awaiting.ask payload in stream, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
+		!strings.Contains(body, `"status":"answered"`) ||
 		!strings.Contains(body, `"action":"submit"`) ||
 		!strings.Contains(body, `"id":"form-1"`) ||
 		!strings.Contains(body, `"payload":`+expectedSubmitPayload) {
@@ -2530,6 +2536,7 @@ func TestBashHITLModifyFlow(t *testing.T) {
 		t.Fatalf("expected modified command to execute once, got %#v", executed)
 	}
 	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
+		!strings.Contains(body, `"status":"answered"`) ||
 		!strings.Contains(body, `"action":"submit"`) ||
 		!strings.Contains(body, `"id":"form-1"`) ||
 		!strings.Contains(body, `"payload":`+string(expectedSubmitPayload)) {
@@ -2553,6 +2560,7 @@ func TestBashHITLRejectFlow(t *testing.T) {
 		t.Fatalf("expected hard-stop rejected tool result, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
+		!strings.Contains(body, `"status":"answered"`) ||
 		!strings.Contains(body, `"action":"reject"`) ||
 		!strings.Contains(body, `"id":"form-1"`) ||
 		!strings.Contains(body, `"reason":"user_cancelled"`) {
@@ -2572,8 +2580,8 @@ func TestBashHITLTimeoutFlow(t *testing.T) {
 		t.Fatalf("expected timed out command not to execute, got %#v", executed)
 	}
 	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
-		!strings.Contains(body, `"cancelled":true`) ||
-		!strings.Contains(body, `"reason":"timeout"`) {
+		!strings.Contains(body, `"status":"error"`) ||
+		!strings.Contains(body, `"code":"timeout"`) {
 		t.Fatalf("expected timeout awaiting.answer in stream, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"tool.result"`) || !strings.Contains(body, `"code":"hitl_timeout"`) {
@@ -2719,6 +2727,7 @@ func TestBashHITLDockerRMIApproveFlow(t *testing.T) {
 		t.Fatalf("expected approval request.submit payload in stream, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
+		!strings.Contains(body, `"status":"answered"`) ||
 		!strings.Contains(body, `"decision":"approve"`) ||
 		!strings.Contains(body, `"id":"tool_bash"`) ||
 		!strings.Contains(body, `"command":"docker rmi nginx:latest"`) {
