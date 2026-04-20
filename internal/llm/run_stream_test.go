@@ -143,6 +143,17 @@ func backendToolDefinition(name string) api.ToolDetailResponse {
 	}
 }
 
+func invokeAgentToolDefinition() api.ToolDetailResponse {
+	return api.ToolDetailResponse{
+		Name: contracts.InvokeAgentToolName,
+		Meta: map[string]any{
+			"kind":          "backend",
+			"sourceType":    "local",
+			"clientVisible": true,
+		},
+	}
+}
+
 func TestPreToolInvocationDeltas_QuestionRegistersAwaitingContext(t *testing.T) {
 	tool := api.ToolDetailResponse{
 		Name: "_ask_user_question_",
@@ -240,6 +251,95 @@ func TestPrepareToolCall_LegacyMultiSelectReturnsToolError(t *testing.T) {
 	toolContent, _ := toolMsg.Content.(string)
 	if toolMsg == nil || !strings.Contains(toolContent, "multiSelect is no longer supported; use multiple") {
 		t.Fatalf("unexpected tool message %#v", toolMsg)
+	}
+}
+
+func TestPrepareToolCall_InvokeAgentReturnsSubAgentDelta(t *testing.T) {
+	stream := &llmRunStream{
+		engine: &LLMAgentEngine{
+			tools:    stubToolExecutor{defs: []api.ToolDetailResponse{invokeAgentToolDefinition()}},
+			frontend: frontendtools.NewDefaultRegistry(),
+		},
+		session: contracts.QuerySession{RunID: "run_1"},
+		execCtx: &contracts.ExecutionContext{},
+	}
+
+	invocation, deltas, toolMsg := stream.prepareToolCall(openAIToolCall{
+		ID:   "tool_1",
+		Type: "function",
+		Function: openAIFunctionCall{
+			Name:      contracts.InvokeAgentToolName,
+			Arguments: `{"subAgentKey":"writer","task":"Write a short summary","taskName":"总结"}`,
+		},
+	})
+	if toolMsg != nil {
+		t.Fatalf("expected no immediate tool message, got %#v", toolMsg)
+	}
+	if len(deltas) != 0 {
+		t.Fatalf("expected no immediate error deltas, got %#v", deltas)
+	}
+	if invocation == nil || !invocation.awaitExternalResult {
+		t.Fatalf("expected external-result invocation, got %#v", invocation)
+	}
+	if len(invocation.prelude) != 1 {
+		t.Fatalf("expected one prelude delta, got %#v", invocation.prelude)
+	}
+	invoke, ok := invocation.prelude[0].(contracts.DeltaInvokeSubAgent)
+	if !ok {
+		t.Fatalf("expected DeltaInvokeSubAgent prelude, got %#v", invocation.prelude[0])
+	}
+	if invoke.MainToolID != "tool_1" || invoke.SubAgentKey != "writer" || invoke.TaskText != "Write a short summary" || invoke.TaskName != "总结" {
+		t.Fatalf("unexpected invoke delta %#v", invoke)
+	}
+}
+
+func TestInjectToolResultAppendsToolMessageAndFinalAssistantContent(t *testing.T) {
+	stream := &llmRunStream{
+		engine: &LLMAgentEngine{
+			tools:    stubToolExecutor{defs: []api.ToolDetailResponse{invokeAgentToolDefinition()}},
+			frontend: frontendtools.NewDefaultRegistry(),
+		},
+		session: contracts.QuerySession{RunID: "run_1"},
+		execCtx: &contracts.ExecutionContext{},
+		messages: []openAIMessage{
+			{Role: "assistant", Content: "final child answer"},
+		},
+	}
+
+	invocation, _, _ := stream.prepareToolCall(openAIToolCall{
+		ID:   "tool_1",
+		Type: "function",
+		Function: openAIFunctionCall{
+			Name:      contracts.InvokeAgentToolName,
+			Arguments: `{"subAgentKey":"writer","task":"Write a short summary"}`,
+		},
+	})
+	stream.queuedToolCalls = []*preparedToolInvocation{invocation}
+	stream.activateNextToolCall()
+	stream.pending = nil
+
+	if !stream.InjectToolResult("tool_1", "done", false) {
+		t.Fatal("expected InjectToolResult to match active invoke_agent tool")
+	}
+	if err := stream.invokeActiveToolCall(); err != nil {
+		t.Fatalf("invokeActiveToolCall returned error: %v", err)
+	}
+	if len(stream.pending) != 1 {
+		t.Fatalf("expected one pending tool result delta, got %#v", stream.pending)
+	}
+	result, ok := stream.pending[0].(contracts.DeltaToolResult)
+	if !ok || result.ToolID != "tool_1" || result.Result.Output != "done" {
+		t.Fatalf("unexpected pending tool result %#v", stream.pending)
+	}
+	if len(stream.messages) < 2 {
+		t.Fatalf("expected tool message to be appended, got %#v", stream.messages)
+	}
+	last := stream.messages[len(stream.messages)-1]
+	if last.Role != "tool" || last.ToolCallID != "tool_1" || last.Content != "done" {
+		t.Fatalf("unexpected tool message %#v", last)
+	}
+	if content, ok := stream.FinalAssistantContent(); !ok || content != "final child answer" {
+		t.Fatalf("expected FinalAssistantContent to return last assistant text, got %q %v", content, ok)
 	}
 }
 

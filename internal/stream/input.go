@@ -97,24 +97,29 @@ type TaskStart struct {
 	RunID       string
 	TaskName    string
 	Description string
+	SubAgentKey string
+	MainToolID  string
 }
 
 func (TaskStart) streamInputTag() {}
 
 type TaskComplete struct {
 	TaskID string
+	Status string
 }
 
 func (TaskComplete) streamInputTag() {}
 
 type TaskCancel struct {
 	TaskID string
+	Status string
 }
 
 func (TaskCancel) streamInputTag() {}
 
 type TaskFail struct {
 	TaskID string
+	Status string
 	Error  map[string]any
 }
 

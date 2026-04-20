@@ -2,12 +2,11 @@ package server
 
 import (
 	"context"
-	"errors"
-	"io"
 	"strings"
 	"time"
 
 	"agent-platform-runner-go/internal/api"
+	"agent-platform-runner-go/internal/catalog"
 	"agent-platform-runner-go/internal/chat"
 	"agent-platform-runner-go/internal/config"
 	"agent-platform-runner-go/internal/contracts"
@@ -16,20 +15,22 @@ import (
 )
 
 type RunExecutorParams struct {
-	RunCtx        context.Context
-	Request       api.QueryRequest
-	Session       contracts.QuerySession
-	Summary       chat.Summary
-	Agent         contracts.AgentEngine
-	Assembler     *stream.StreamEventAssembler
-	Mapper        *llm.DeltaMapper
-	SSE           config.SSEConfig
-	StepWriter    *chat.StepWriter
-	EventBus      *stream.RunEventBus
-	Chats         chat.Store
-	RunControl    *contracts.RunControl
-	Notifications contracts.NotificationSink
-	OnComplete    func(string)
+	RunCtx            context.Context
+	Request           api.QueryRequest
+	Session           contracts.QuerySession
+	Summary           chat.Summary
+	Agent             contracts.AgentEngine
+	Registry          catalog.Registry
+	Assembler         *stream.StreamEventAssembler
+	Mapper            *llm.DeltaMapper
+	SSE               config.SSEConfig
+	StepWriter        *chat.StepWriter
+	EventBus          *stream.RunEventBus
+	Chats             chat.Store
+	RunControl        *contracts.RunControl
+	BuildQuerySession func(context.Context, api.QueryRequest, chat.Summary, catalog.AgentDefinition, querySessionBuildOptions) (contracts.QuerySession, error)
+	Notifications     contracts.NotificationSink
+	OnComplete        func(string)
 }
 
 type runEventProcessor struct {
@@ -180,32 +181,35 @@ func runExecutor(params RunExecutorParams) {
 	}
 	defer agentStream.Close()
 
-	streamFailed := false
-	streamInterrupted := false
-	for {
-		delta, nextErr := agentStream.Next()
-		if errors.Is(nextErr, io.EOF) {
-			break
-		}
-		if contracts.IsRunInterrupted(nextErr) {
-			streamInterrupted = true
-			break
-		}
-		if nextErr != nil {
-			streamFailed = true
-			if params.RunControl != nil {
-				params.RunControl.TransitionState(contracts.RunLoopStateFailed)
-			}
-			for _, event := range params.Assembler.Fail(nextErr) {
-				publish(event)
-			}
-			break
-		}
+	emitDelta := func(delta contracts.AgentDelta) {
 		inputs := params.Mapper.Map(delta)
 		for _, input := range inputs {
 			for _, event := range params.Assembler.Consume(input) {
 				publish(event)
 			}
+		}
+	}
+
+	orchestrator := &frameOrchestrator{
+		runCtx:            runCtx,
+		request:           params.Request,
+		session:           params.Session,
+		summary:           params.Summary,
+		agent:             params.Agent,
+		registry:          params.Registry,
+		buildQuerySession: params.BuildQuerySession,
+		mapper:            params.Mapper,
+		emitDelta:         emitDelta,
+	}
+
+	streamFailed, streamInterrupted, orchestrateErr := orchestrator.Run(agentStream)
+	if orchestrateErr != nil {
+		streamFailed = true
+		if params.RunControl != nil {
+			params.RunControl.TransitionState(contracts.RunLoopStateFailed)
+		}
+		for _, event := range params.Assembler.Fail(orchestrateErr) {
+			publish(event)
 		}
 	}
 

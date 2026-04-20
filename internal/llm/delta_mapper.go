@@ -25,6 +25,17 @@ type DeltaMapper struct {
 	actionToolIDs        map[string]bool
 	toolRegistry         ToolDefinitionLookup
 	frontend             *frontendtools.Registry
+	savedActive          *DeltaMapperActiveState
+}
+
+type DeltaMapperActiveState struct {
+	ActiveReasoningID    string
+	ActiveContentID      string
+	LastKind             string
+	IndexedToolIDs       map[int]string
+	ToolArgChunkCounters map[string]int
+	ToolArgBuffers       map[string]*strings.Builder
+	ActionToolIDs        map[string]bool
 }
 
 func NewDeltaMapper(runID string, chatID string, toolTimeoutMs int64, toolRegistry ToolDefinitionLookup, frontend *frontendtools.Registry) *DeltaMapper {
@@ -175,13 +186,15 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 				RunID:       value.RunID,
 				TaskName:    value.TaskName,
 				Description: value.Description,
+				SubAgentKey: value.SubAgentKey,
+				MainToolID:  value.MainToolID,
 			}}
 		case "complete":
-			return []stream.StreamInput{stream.TaskComplete{TaskID: value.TaskID}}
+			return []stream.StreamInput{stream.TaskComplete{TaskID: value.TaskID, Status: value.Status}}
 		case "cancel":
-			return []stream.StreamInput{stream.TaskCancel{TaskID: value.TaskID}}
+			return []stream.StreamInput{stream.TaskCancel{TaskID: value.TaskID, Status: value.Status}}
 		case "fail":
-			return []stream.StreamInput{stream.TaskFail{TaskID: value.TaskID, Error: value.Error}}
+			return []stream.StreamInput{stream.TaskFail{TaskID: value.TaskID, Status: value.Status, Error: value.Error}}
 		default:
 			return nil
 		}
@@ -257,6 +270,83 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 	default:
 		return nil
 	}
+}
+
+func (m *DeltaMapper) Snapshot() {
+	if m == nil {
+		return
+	}
+	m.savedActive = &DeltaMapperActiveState{
+		ActiveReasoningID:    m.activeReasoningID,
+		ActiveContentID:      m.activeContentID,
+		LastKind:             m.lastKind,
+		IndexedToolIDs:       cloneIndexedToolIDs(m.indexedToolIDs),
+		ToolArgChunkCounters: cloneToolArgChunkCounters(m.toolArgChunkCounters),
+		ToolArgBuffers:       cloneToolArgBuffers(m.toolArgBuffers),
+		ActionToolIDs:        cloneActionToolIDs(m.actionToolIDs),
+	}
+}
+
+func (m *DeltaMapper) RestoreActive() {
+	if m == nil || m.savedActive == nil {
+		return
+	}
+	m.activeReasoningID = m.savedActive.ActiveReasoningID
+	m.activeContentID = m.savedActive.ActiveContentID
+	m.lastKind = m.savedActive.LastKind
+	m.indexedToolIDs = cloneIndexedToolIDs(m.savedActive.IndexedToolIDs)
+	m.toolArgChunkCounters = cloneToolArgChunkCounters(m.savedActive.ToolArgChunkCounters)
+	m.toolArgBuffers = cloneToolArgBuffers(m.savedActive.ToolArgBuffers)
+	m.actionToolIDs = cloneActionToolIDs(m.savedActive.ActionToolIDs)
+	m.savedActive = nil
+}
+
+func cloneIndexedToolIDs(src map[int]string) map[int]string {
+	if len(src) == 0 {
+		return map[int]string{}
+	}
+	dst := make(map[int]string, len(src))
+	for key, value := range src {
+		dst[key] = value
+	}
+	return dst
+}
+
+func cloneToolArgChunkCounters(src map[string]int) map[string]int {
+	if len(src) == 0 {
+		return map[string]int{}
+	}
+	dst := make(map[string]int, len(src))
+	for key, value := range src {
+		dst[key] = value
+	}
+	return dst
+}
+
+func cloneToolArgBuffers(src map[string]*strings.Builder) map[string]*strings.Builder {
+	if len(src) == 0 {
+		return map[string]*strings.Builder{}
+	}
+	dst := make(map[string]*strings.Builder, len(src))
+	for key, value := range src {
+		builder := &strings.Builder{}
+		if value != nil {
+			builder.WriteString(value.String())
+		}
+		dst[key] = builder
+	}
+	return dst
+}
+
+func cloneActionToolIDs(src map[string]bool) map[string]bool {
+	if len(src) == 0 {
+		return map[string]bool{}
+	}
+	dst := make(map[string]bool, len(src))
+	for key, value := range src {
+		dst[key] = value
+	}
+	return dst
 }
 
 func (m *DeltaMapper) buildFrontendToolAwaitAsk(toolID string, toolName string, argsDelta string, chunkIndex int) (*stream.AwaitAsk, bool) {

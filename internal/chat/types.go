@@ -55,21 +55,26 @@ type QueryLine struct {
 //	{ _type: "plan-execute", stage: "execute", seq: N, messages: [...] }
 //	{ _type: "plan-execute", stage: "summary", messages: [...] }
 type StepLine struct {
-	ChatID        string           `json:"chatId"`
-	RunID         string           `json:"runId"`
-	UpdatedAt     int64            `json:"updatedAt"`
-	TaskID        string           `json:"taskId,omitempty"`
-	System        map[string]any   `json:"system,omitempty"`
-	Messages      []StoredMessage  `json:"messages"`
-	Approval      *StepApproval    `json:"approval,omitempty"`
-	Awaiting      []map[string]any `json:"awaiting,omitempty"`
-	Usage         map[string]any   `json:"usage,omitempty"`
-	ContextWindow map[string]any   `json:"contextWindow,omitempty"`
-	Type          string           `json:"_type"`
-	Stage         string           `json:"stage,omitempty"`
-	Seq           int              `json:"seq,omitempty"`
-	Plan          *PlanState       `json:"plan,omitempty"`
-	Artifacts     *ArtifactState   `json:"artifacts,omitempty"`
+	ChatID          string           `json:"chatId"`
+	RunID           string           `json:"runId"`
+	UpdatedAt       int64            `json:"updatedAt"`
+	TaskID          string           `json:"taskId,omitempty"`
+	TaskName        string           `json:"taskName,omitempty"`
+	TaskDescription string           `json:"taskDescription,omitempty"`
+	TaskStatus      string           `json:"taskStatus,omitempty"`
+	TaskSubAgentKey string           `json:"taskSubAgentKey,omitempty"`
+	TaskMainToolID  string           `json:"taskMainToolId,omitempty"`
+	System          map[string]any   `json:"system,omitempty"`
+	Messages        []StoredMessage  `json:"messages"`
+	Approval        *StepApproval    `json:"approval,omitempty"`
+	Awaiting        []map[string]any `json:"awaiting,omitempty"`
+	Usage           map[string]any   `json:"usage,omitempty"`
+	ContextWindow   map[string]any   `json:"contextWindow,omitempty"`
+	Type            string           `json:"_type"`
+	Stage           string           `json:"stage,omitempty"`
+	Seq             int              `json:"seq,omitempty"`
+	Plan            *PlanState       `json:"plan,omitempty"`
+	Artifacts       *ArtifactState   `json:"artifacts,omitempty"`
 }
 
 type StepApproval struct {

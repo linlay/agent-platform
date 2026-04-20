@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -121,100 +120,14 @@ func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
 			"timestamp": summary.CreatedAt,
 		})
 	}
-
-	var historyMessages []map[string]any
-	if !created {
-		historyMessages, _ = s.deps.Chats.LoadRawMessages(chatID, s.deps.Config.ChatStorage.K)
-	}
-
-	var memoryContext string
-	if s.deps.Memory != nil && req.Message != "" {
-		topN := s.deps.Config.Memory.ContextTopN
-		if topN <= 0 {
-			topN = 5
-		}
-		maxChars := s.deps.Config.Memory.ContextMaxChars
-		if maxChars <= 0 {
-			maxChars = 4000
-		}
-		memories, _ := s.deps.Memory.Search(req.Message, topN)
-		if len(memories) > 0 {
-			var sb strings.Builder
-			for _, mem := range memories {
-				entry := fmt.Sprintf("id: %s\nsubjectKey: %s\nsourceType: %s\ncategory: %s\nimportance: %d\ntags: %s\ncontent: %s\n---\n",
-					mem.ID, mem.SubjectKey, mem.SourceType, mem.Category, mem.Importance,
-					strings.Join(mem.Tags, ","), mem.Summary)
-				if sb.Len()+len(entry) > maxChars {
-					break
-				}
-				sb.WriteString(entry)
-			}
-			memoryContext = sb.String()
-		}
-	}
-
-	principal := PrincipalFromContext(r.Context())
-	runtimeContext, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
-		agentKey:   agentKey,
-		teamID:     req.TeamID,
-		role:       defaultRole(req.Role),
-		chatID:     chatID,
-		chatName:   summary.ChatName,
-		scene:      req.Scene,
-		references: req.References,
-		principal:  principal,
-		definition: agentDef,
+	session, err := s.BuildQuerySession(r.Context(), req, summary, agentDef, querySessionBuildOptions{
+		Created:          created,
+		IncludeHistory:   !created,
+		IncludeMemory:    true,
+		AllowInvokeAgent: canUseInvokeAgentTool(agentDef.Mode),
 	})
 	if err != nil {
 		return preparedQuery{}, err
-	}
-
-	promptAppend := buildPromptAppendConfig(agentDef)
-	skillHookDirs, sandboxEnvOverrides := resolveSkillRuntimeSettings(sandboxAgentEnv(agentDef.Sandbox["env"]), agentDef.Skills, s.deps.Registry)
-	log.Printf("[server][skill-runtime] agent=%s skills=%v hookDirs=%v sandboxEnvKeys=%v",
-		agentDef.Key,
-		agentDef.Skills,
-		skillHookDirs,
-		sortedStringKeys(sandboxEnvOverrides),
-	)
-	session := contracts.QuerySession{
-		RequestID:             requestID,
-		RunID:                 runID,
-		ChatID:                chatID,
-		ChatName:              summary.ChatName,
-		AgentKey:              agentKey,
-		AgentName:             agentDef.Name,
-		ModelKey:              agentDef.ModelKey,
-		ToolNames:             append([]string(nil), agentDef.Tools...),
-		Mode:                  agentDef.Mode,
-		TeamID:                req.TeamID,
-		Created:               created,
-		SkillKeys:             append([]string(nil), agentDef.Skills...),
-		ContextTags:           append([]string(nil), agentDef.ContextTags...),
-		Budget:                contracts.CloneMap(agentDef.Budget),
-		StageSettings:         contracts.CloneMap(agentDef.StageSettings),
-		ToolOverrides:         cloneToolOverrides(agentDef.ToolOverrides),
-		ResolvedBudget:        contracts.ResolveBudget(s.deps.Config, agentDef.Budget),
-		ResolvedStageSettings: contracts.ResolvePlanExecuteSettings(agentDef.StageSettings, s.deps.Config.Defaults.Plan.MaxSteps, s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask),
-		HistoryMessages:       historyMessages,
-		MemoryContext:         memoryContext,
-		RuntimeContext:        runtimeContext,
-		PromptAppend:          promptAppend,
-		MemoryPrompt:          agentDef.MemoryPrompt,
-		SkillCatalogPrompt:    buildSkillCatalogPrompt(agentDef, s.deps.Registry, promptAppend),
-		SoulPrompt:            agentDef.SoulPrompt,
-		AgentsPrompt:          agentDef.AgentsPrompt,
-		PlanPrompt:            agentDef.PlanPrompt,
-		ExecutePrompt:         agentDef.ExecutePrompt,
-		SummaryPrompt:         agentDef.SummaryPrompt,
-		SandboxEnvironmentID:  extractSandboxField(agentDef.Sandbox, "environmentId"),
-		SandboxLevel:          extractSandboxField(agentDef.Sandbox, "level"),
-		SandboxExtraMounts:    sandboxExtraMounts(agentDef.Sandbox["extraMounts"]),
-		SkillHookDirs:         skillHookDirs,
-		SandboxEnvOverrides:   sandboxEnvOverrides,
-	}
-	if principal != nil {
-		session.Subject = principal.Subject
 	}
 
 	return preparedQuery{
@@ -344,19 +257,21 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode)
 
 	StartRunExecutor(RunExecutorParams{
-		RunCtx:        runCtx,
-		Request:       prepared.req,
-		Session:       prepared.session,
-		Summary:       prepared.summary,
-		Agent:         s.deps.Agent,
-		Assembler:     assembler,
-		Mapper:        mapper,
-		SSE:           s.deps.Config.SSE,
-		StepWriter:    stepWriter,
-		EventBus:      eventBus,
-		Chats:         s.deps.Chats,
-		RunControl:    control,
-		Notifications: s.deps.Notifications,
+		RunCtx:            runCtx,
+		Request:           prepared.req,
+		Session:           prepared.session,
+		Summary:           prepared.summary,
+		Agent:             s.deps.Agent,
+		Registry:          s.deps.Registry,
+		Assembler:         assembler,
+		Mapper:            mapper,
+		SSE:               s.deps.Config.SSE,
+		StepWriter:        stepWriter,
+		EventBus:          eventBus,
+		Chats:             s.deps.Chats,
+		RunControl:        control,
+		BuildQuerySession: s.BuildQuerySession,
+		Notifications:     s.deps.Notifications,
 		OnComplete: func(runID string) {
 			s.deps.Runs.Finish(runID)
 			s.broadcast("run.finished", map[string]any{

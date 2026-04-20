@@ -290,19 +290,21 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 	assembler, mapper := s.newAssemblerAndMapper(prepared)
 	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode)
 	StartRunExecutor(RunExecutorParams{
-		RunCtx:        runCtx,
-		Request:       prepared.req,
-		Session:       prepared.session,
-		Summary:       prepared.summary,
-		Agent:         s.deps.Agent,
-		Assembler:     assembler,
-		Mapper:        mapper,
-		SSE:           s.deps.Config.SSE,
-		StepWriter:    stepWriter,
-		EventBus:      eventBus,
-		Chats:         s.deps.Chats,
-		RunControl:    control,
-		Notifications: s.deps.Notifications,
+		RunCtx:            runCtx,
+		Request:           prepared.req,
+		Session:           prepared.session,
+		Summary:           prepared.summary,
+		Agent:             s.deps.Agent,
+		Registry:          s.deps.Registry,
+		Assembler:         assembler,
+		Mapper:            mapper,
+		SSE:               s.deps.Config.SSE,
+		StepWriter:        stepWriter,
+		EventBus:          eventBus,
+		Chats:             s.deps.Chats,
+		RunControl:        control,
+		BuildQuerySession: s.BuildQuerySession,
+		Notifications:     s.deps.Notifications,
 		OnComplete: func(runID string) {
 			s.deps.Runs.Finish(runID)
 			s.broadcast("run.finished", map[string]any{"runId": runID, "chatId": prepared.req.ChatID})

@@ -430,14 +430,18 @@ func (d *StreamEventDispatcher) Fail(err error) []StreamEvent {
 
 func (d *StreamEventDispatcher) handleReasoningDelta(input ReasoningDelta) []StreamEvent {
 	events := d.closeForSwitch("reasoning")
+	taskID := input.TaskID
+	if strings.TrimSpace(taskID) == "" && d.state.activeTaskID != "" {
+		taskID = d.state.activeTaskID
+	}
 	reasoningLabel := ReasoningLabelForID(input.ReasoningID)
 	if d.state.activeReasoningID == "" || d.state.activeReasoningID != input.ReasoningID {
 		d.state.activeReasoningID = input.ReasoningID
-		d.state.activeReasoning = reasoningBlockState{TaskID: input.TaskID, Label: reasoningLabel}
+		d.state.activeReasoning = reasoningBlockState{TaskID: taskID, Label: reasoningLabel}
 		events = append(events, NewEvent("reasoning.start", map[string]any{
 			"runId":          d.request.RunID,
 			"reasoningId":    input.ReasoningID,
-			"taskId":         input.TaskID,
+			"taskId":         taskID,
 			"reasoningLabel": reasoningLabel,
 		}))
 	}
@@ -454,14 +458,18 @@ func (d *StreamEventDispatcher) handleReasoningDelta(input ReasoningDelta) []Str
 
 func (d *StreamEventDispatcher) handleContentDelta(input ContentDelta) []StreamEvent {
 	events := d.closeForSwitch("content")
+	taskID := input.TaskID
+	if strings.TrimSpace(taskID) == "" && d.state.activeTaskID != "" {
+		taskID = d.state.activeTaskID
+	}
 	if d.state.activeContentID == "" || d.state.activeContentID != input.ContentID {
 		d.state.activeContentID = input.ContentID
-		d.state.activeContent = contentBlockState{TaskID: input.TaskID}
+		d.state.activeContent = contentBlockState{TaskID: taskID}
 		d.state.lastContentID = input.ContentID
 		events = append(events, NewEvent("content.start", map[string]any{
 			"contentId": input.ContentID,
 			"runId":     d.request.RunID,
-			"taskId":    input.TaskID,
+			"taskId":    taskID,
 		}))
 	}
 	d.state.contentSeen = true
@@ -477,9 +485,13 @@ func (d *StreamEventDispatcher) handleContentDelta(input ContentDelta) []StreamE
 
 func (d *StreamEventDispatcher) handleToolArgs(input ToolArgs) []StreamEvent {
 	events := d.closeForSwitch("tool")
+	taskID := input.TaskID
+	if strings.TrimSpace(taskID) == "" && d.state.activeTaskID != "" {
+		taskID = d.state.activeTaskID
+	}
 	if _, ok := d.state.openTools[input.ToolID]; !ok {
 		d.state.openTools[input.ToolID] = toolBlockState{
-			TaskID:      input.TaskID,
+			TaskID:      taskID,
 			Name:        input.ToolName,
 			Label:       input.ToolLabel,
 			Description: input.ToolDescription,
@@ -487,7 +499,7 @@ func (d *StreamEventDispatcher) handleToolArgs(input ToolArgs) []StreamEvent {
 		events = append(events, NewEvent("tool.start", map[string]any{
 			"toolId":          input.ToolID,
 			"runId":           d.request.RunID,
-			"taskId":          input.TaskID,
+			"taskId":          taskID,
 			"toolName":        input.ToolName,
 			"toolLabel":       input.ToolLabel,
 			"toolDescription": input.ToolDescription,
@@ -562,16 +574,20 @@ func (d *StreamEventDispatcher) handleToolResult(input ToolResult) []StreamEvent
 
 func (d *StreamEventDispatcher) handleActionArgs(input ActionArgs) []StreamEvent {
 	events := d.closeForSwitch("action")
+	taskID := input.TaskID
+	if strings.TrimSpace(taskID) == "" && d.state.activeTaskID != "" {
+		taskID = d.state.activeTaskID
+	}
 	if _, ok := d.state.openActions[input.ActionID]; !ok {
 		d.state.openActions[input.ActionID] = actionBlockState{
-			TaskID:      input.TaskID,
+			TaskID:      taskID,
 			Name:        input.ActionName,
 			Description: input.Description,
 		}
 		events = append(events, NewEvent("action.start", map[string]any{
 			"actionId":    input.ActionID,
 			"runId":       d.request.RunID,
-			"taskId":      input.TaskID,
+			"taskId":      taskID,
 			"actionName":  input.ActionName,
 			"description": input.Description,
 		}))
@@ -609,12 +625,15 @@ func (d *StreamEventDispatcher) handlePlanUpdate(input PlanUpdate) []StreamEvent
 
 func (d *StreamEventDispatcher) handleTaskStart(input TaskStart) []StreamEvent {
 	d.state.activeTaskID = input.TaskID
-	return []StreamEvent{NewEvent("task.start", map[string]any{
+	payload := map[string]any{
 		"taskId":      input.TaskID,
 		"runId":       input.RunID,
 		"taskName":    input.TaskName,
 		"description": input.Description,
-	})}
+		"subAgentKey": input.SubAgentKey,
+		"mainToolId":  input.MainToolID,
+	}
+	return []StreamEvent{NewEvent("task.start", payload)}
 }
 
 func (d *StreamEventDispatcher) handleTaskComplete(input TaskComplete) []StreamEvent {
@@ -623,6 +642,7 @@ func (d *StreamEventDispatcher) handleTaskComplete(input TaskComplete) []StreamE
 	}
 	return []StreamEvent{NewEvent("task.complete", map[string]any{
 		"taskId": input.TaskID,
+		"status": input.Status,
 	})}
 }
 
@@ -632,6 +652,7 @@ func (d *StreamEventDispatcher) handleTaskCancel(input TaskCancel) []StreamEvent
 	}
 	return []StreamEvent{NewEvent("task.cancel", map[string]any{
 		"taskId": input.TaskID,
+		"status": input.Status,
 	})}
 }
 
@@ -641,6 +662,7 @@ func (d *StreamEventDispatcher) handleTaskFail(input TaskFail) []StreamEvent {
 	}
 	return []StreamEvent{NewEvent("task.fail", map[string]any{
 		"taskId": input.TaskID,
+		"status": input.Status,
 		"error":  normalizeErrorMap(input.Error, "task_failed", "task", "runtime"),
 	})}
 }

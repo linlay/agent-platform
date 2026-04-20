@@ -31,8 +31,14 @@ type StepWriter struct {
 	queryWritten bool
 	seqCounter   int
 
-	currentStage  string
-	currentTaskID string
+	currentStage           string
+	currentTaskID          string
+	currentTaskName        string
+	currentTaskDescription string
+	currentTaskStatus      string
+	currentTaskSubAgentKey string
+	currentTaskMainToolID  string
+	currentTaskIsSubAgent  bool
 
 	messages       []StoredMessage
 	latestPlan     *PlanState
@@ -199,9 +205,34 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		w.updatePlan(event)
 
 	case "task.start":
+		w.flushCurrentStep()
 		w.currentTaskID = event.String("taskId")
+		w.currentTaskName = event.String("taskName")
+		w.currentTaskDescription = event.String("description")
+		w.currentTaskStatus = ""
+		w.currentTaskSubAgentKey = event.String("subAgentKey")
+		w.currentTaskMainToolID = event.String("mainToolId")
+		w.currentTaskIsSubAgent = strings.TrimSpace(w.currentTaskSubAgentKey) != ""
 	case "task.complete", "task.cancel", "task.fail":
+		w.currentTaskStatus = event.String("status")
+		if w.currentTaskStatus == "" {
+			switch event.Type {
+			case "task.cancel":
+				w.currentTaskStatus = "cancelled"
+			case "task.fail":
+				w.currentTaskStatus = "error"
+			default:
+				w.currentTaskStatus = "completed"
+			}
+		}
+		w.flushCurrentStep()
 		w.currentTaskID = ""
+		w.currentTaskName = ""
+		w.currentTaskDescription = ""
+		w.currentTaskStatus = ""
+		w.currentTaskSubAgentKey = ""
+		w.currentTaskMainToolID = ""
+		w.currentTaskIsSubAgent = false
 
 	case "artifact.publish":
 		w.updateArtifact(event)
@@ -279,12 +310,13 @@ func (w *StepWriter) ensureStep() {
 }
 
 func (w *StepWriter) flushCurrentStep() {
-	if len(w.messages) == 0 && len(w.pendingAwaiting) == 0 {
+	allowEmptySubAgentStep := w.currentTaskIsSubAgent && strings.TrimSpace(w.currentTaskID) != "" && strings.TrimSpace(w.currentTaskStatus) != ""
+	if len(w.messages) == 0 && len(w.pendingAwaiting) == 0 && !allowEmptySubAgentStep {
 		w.pendingApproval = nil
 		return
 	}
 
-	if len(w.messages) == 0 && len(w.pendingAwaiting) > 0 {
+	if len(w.messages) == 0 && len(w.pendingAwaiting) > 0 && !allowEmptySubAgentStep {
 		log.Printf("[chat] dropping pending awaiting without messages (chatId=%s runId=%s count=%d)", w.chatID, w.runID, len(w.pendingAwaiting))
 		w.pendingAwaiting = nil
 		w.pendingApproval = nil
@@ -332,6 +364,11 @@ func (w *StepWriter) flushCurrentStep() {
 	}
 	if w.currentTaskID != "" {
 		line.TaskID = w.currentTaskID
+		line.TaskName = w.currentTaskName
+		line.TaskDescription = w.currentTaskDescription
+		line.TaskStatus = w.currentTaskStatus
+		line.TaskSubAgentKey = w.currentTaskSubAgentKey
+		line.TaskMainToolID = w.currentTaskMainToolID
 	}
 	if w.latestPlan != nil {
 		line.Plan = w.latestPlan
@@ -355,6 +392,7 @@ func (w *StepWriter) flushCurrentStep() {
 		line.Seq = w.seqCounter
 	}
 
+	line.Messages = append([]StoredMessage(nil), w.messages...)
 	_ = w.store.AppendStepLine(w.chatID, line)
 	w.messages = nil
 }

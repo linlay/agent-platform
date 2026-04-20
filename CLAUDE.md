@@ -288,6 +288,15 @@ sandboxConfig:
 - `request.submit` 透传前端原始数组，便于审计；`awaiting.answer` 才是后端归一化后的结构化结果。
 - 历史 `events.jsonl` 中旧的 `cancelled/reason` 形状不再兼容；新前端会按未知旧态回退展示。
 
+### Agent 调度 task
+
+- `_invoke_agent_` 是编排原语，不走 `ToolExecutor.Invoke`；主 agent 识别到该 tool call 后，会先保留主时间线上的 `tool.start/args/end/snapshot`，再由 server 侧编排层启动子 agent。
+- 子 agent 复用现有 `task.start / task.complete / task.cancel / task.fail` 协议；`task.start` 额外携带 `subAgentKey` 和 `mainToolId`，终态 task 事件额外携带 `status`。
+- `runId` 始终保持主 RunID；前端通过 `taskId` 把子流事件归到子面板，通过 `mainToolId` 把主时间线上的 `_invoke_agent_` 节点和子面板关联起来。
+- 当前版本严格禁止嵌套：`_invoke_agent_` 只对主 `REACT/ONESHOT` agent 可用，子 agent 也只能是 `REACT/ONESHOT`，且子 agent 的可用工具集中会滤掉 `_invoke_agent_`。
+- 三流分离是硬约束：子 agent 中间的 reasoning、tool 调用、content delta 只进入 SSE/events replay，不进入主 `llmRunStream.messages`，也不进入 `raw_messages`；主上下文只消费子 agent 的最终 `tool.result` 文本。
+- `dispatcher.activeTaskID` 仍然是单值；子流的 `content.start / reasoning.start / tool.start / action.start` 如果输入 `taskId` 为空，会自动兜底为当前活跃 taskId，因此不需要引入 task 栈。
+
 ## 7. 开发要点
 
 - 配置事实源以 `internal/config/config.go` 和 `configs/*.example.yml` 为准，`README.md` 只解释，不重复维护默认值。

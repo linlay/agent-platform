@@ -161,3 +161,29 @@ func newQuestionDeltaMapper() *DeltaMapper {
 	}
 	return NewDeltaMapper("run_1", "chat_1", 5000, tools, frontendtools.NewDefaultRegistry())
 }
+
+func TestDeltaMapperSnapshotRestorePreservesActiveStateWithoutRollingBackSeq(t *testing.T) {
+	mapper := NewDeltaMapper("run_1", "chat_1", 5000, stubToolLookup{}, frontendtools.NewDefaultRegistry())
+
+	first := mapper.Map(contracts.DeltaContent{Text: "root"})
+	content, ok := first[0].(stream.ContentDelta)
+	if !ok || content.ContentID != "run_1_c_1" {
+		t.Fatalf("expected first content id run_1_c_1, got %#v", first)
+	}
+
+	mapper.Snapshot()
+	mapper.Map(contracts.DeltaReasoning{Text: "child reasoning"})
+	second := mapper.Map(contracts.DeltaContent{Text: "child"})
+	content, ok = second[0].(stream.ContentDelta)
+	if !ok || content.ContentID != "run_1_c_2" {
+		t.Fatalf("expected child content id run_1_c_2, got %#v", second)
+	}
+
+	mapper.RestoreActive()
+	mapper.Map(contracts.DeltaReasoning{Text: "back to root"})
+	third := mapper.Map(contracts.DeltaContent{Text: "root again"})
+	content, ok = third[0].(stream.ContentDelta)
+	if !ok || content.ContentID != "run_1_c_3" {
+		t.Fatalf("expected restored mapper to keep incrementing content seq, got %#v", third)
+	}
+}

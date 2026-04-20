@@ -49,6 +49,42 @@ func TestDispatcherEmitsToolSnapshotAndResultLifecycle(t *testing.T) {
 	assertEventTypes(t, resultEvents, "tool.result")
 }
 
+func TestDispatcherFallsBackToActiveTaskIDForSubAgentBlocks(t *testing.T) {
+	dispatcher := NewDispatcher(StreamRequest{
+		RunID:  "run_1",
+		ChatID: "chat_1",
+	})
+
+	startEvents := dispatcher.Dispatch(TaskStart{
+		TaskID:      "task_sub_1",
+		RunID:       "run_1",
+		TaskName:    "分析",
+		SubAgentKey: "analyzer",
+		MainToolID:  "tool_main_1",
+	})
+	assertEventTypes(t, startEvents, "task.start")
+
+	contentEvents := dispatcher.Dispatch(ContentDelta{
+		ContentID: "run_1_c_1",
+		Delta:     "child output",
+	})
+	assertEventTypes(t, contentEvents, "content.start", "content.delta")
+	if got := contentEvents[0].Data().String("taskId"); got != "task_sub_1" {
+		t.Fatalf("expected content.start taskId fallback to active task, got %#v", contentEvents[0].ToData())
+	}
+
+	toolEvents := dispatcher.Dispatch(ToolArgs{
+		ToolID:     "tool_sub_1",
+		ToolName:   "_datetime_",
+		Delta:      "{",
+		ChunkIndex: 0,
+	})
+	assertEventTypes(t, toolEvents, "content.end", "content.snapshot", "tool.start", "tool.args")
+	if got := toolEvents[2].Data().String("taskId"); got != "task_sub_1" {
+		t.Fatalf("expected tool.start taskId fallback to active task, got %#v", toolEvents[2].ToData())
+	}
+}
+
 func TestDispatcherEmitsApprovalAlongsideToolResult(t *testing.T) {
 	dispatcher := NewDispatcher(StreamRequest{
 		RunID:  "run_1",

@@ -865,6 +865,167 @@ func TestLoadRawMessagesFallsBackToLegacyFile(t *testing.T) {
 	}
 }
 
+func TestStepWriterSubAgentStepsAreExcludedFromRawMessages(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-subagent-raw", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	writer := NewStepWriter(store, "chat-subagent-raw", "run-subagent-raw", "react")
+	writer.OnEvent(stream.EventData{
+		Type:      "content.snapshot",
+		Timestamp: 1001,
+		Payload: map[string]any{
+			"contentId": "root_1",
+			"text":      "root",
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "task.start",
+		Timestamp: 1002,
+		Payload: map[string]any{
+			"taskId":      "task_1",
+			"runId":       "run-subagent-raw",
+			"taskName":    "分析",
+			"description": "run analysis",
+			"subAgentKey": "analyzer",
+			"mainToolId":  "tool_main_1",
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "content.snapshot",
+		Timestamp: 1003,
+		Payload: map[string]any{
+			"contentId": "child_1",
+			"text":      "child",
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "task.complete",
+		Timestamp: 1004,
+		Payload: map[string]any{
+			"taskId": "task_1",
+			"status": "completed",
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "content.snapshot",
+		Timestamp: 1005,
+		Payload: map[string]any{
+			"contentId": "root_2",
+			"text":      "root again",
+		},
+	})
+	writer.Flush()
+
+	rawMessages, err := store.LoadRawMessages("chat-subagent-raw", 5)
+	if err != nil {
+		t.Fatalf("load raw messages: %v", err)
+	}
+	if len(rawMessages) != 2 {
+		t.Fatalf("expected only root messages in raw history, got %#v", rawMessages)
+	}
+	for _, msg := range rawMessages {
+		if msg["content"] == "child" {
+			t.Fatalf("did not expect sub-agent content in raw messages, got %#v", rawMessages)
+		}
+	}
+
+	lines, err := readJSONLines(store.chatJSONLPath("chat-subagent-raw"))
+	if err != nil {
+		t.Fatalf("read chat jsonl: %v", err)
+	}
+	if len(lines) != 3 {
+		t.Fatalf("expected three step lines, got %#v", lines)
+	}
+	if lines[1]["taskSubAgentKey"] != "analyzer" || lines[1]["taskMainToolId"] != "tool_main_1" || lines[1]["taskStatus"] != "completed" {
+		t.Fatalf("expected sub-agent task metadata on middle step, got %#v", lines[1])
+	}
+}
+
+func TestLoadChatSynthesizesTaskLifecycleFromSubAgentSteps(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-subagent-replay", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	contentTs := int64(2001)
+	if err := store.AppendStepLine("chat-subagent-replay", StepLine{
+		ChatID:          "chat-subagent-replay",
+		RunID:           "run-subagent-replay",
+		UpdatedAt:       2002,
+		Type:            "react",
+		Seq:             1,
+		TaskID:          "task_1",
+		TaskName:        "分析",
+		TaskDescription: "run analysis",
+		TaskStatus:      "completed",
+		TaskSubAgentKey: "analyzer",
+		TaskMainToolID:  "tool_main_1",
+		Messages: []StoredMessage{{
+			Role:      "assistant",
+			Content:   []ContentPart{{Type: "text", Text: "child result"}},
+			ContentID: "child_1",
+			MsgID:     "msg-1",
+			Ts:        &contentTs,
+		}},
+	}); err != nil {
+		t.Fatalf("append sub-agent step line: %v", err)
+	}
+	if err := store.AppendStepLine("chat-subagent-replay", StepLine{
+		ChatID:    "chat-subagent-replay",
+		RunID:     "run-subagent-replay",
+		UpdatedAt: 2003,
+		Type:      "react",
+		Seq:       2,
+		Messages: []StoredMessage{{
+			Role:      "assistant",
+			Content:   []ContentPart{{Type: "text", Text: "root result"}},
+			ContentID: "root_1",
+			MsgID:     "msg-2",
+			Ts:        &contentTs,
+		}},
+	}); err != nil {
+		t.Fatalf("append root step line: %v", err)
+	}
+
+	detail, err := store.LoadChat("chat-subagent-replay")
+	if err != nil {
+		t.Fatalf("load chat: %v", err)
+	}
+	var eventTypes []string
+	for _, event := range detail.Events {
+		eventTypes = append(eventTypes, event.Type)
+	}
+	joined := strings.Join(eventTypes, ",")
+	if !strings.Contains(joined, "task.start") || !strings.Contains(joined, "task.complete") {
+		t.Fatalf("expected synthesized task lifecycle events, got %v", eventTypes)
+	}
+
+	var sawStart, sawComplete bool
+	for _, event := range detail.Events {
+		switch event.Type {
+		case "task.start":
+			if event.String("subAgentKey") == "analyzer" && event.String("mainToolId") == "tool_main_1" && event.String("taskName") == "分析" {
+				sawStart = true
+			}
+		case "task.complete":
+			if event.String("taskId") == "task_1" && event.String("status") == "completed" {
+				sawComplete = true
+			}
+		}
+	}
+	if !sawStart || !sawComplete {
+		t.Fatalf("expected synthesized start and complete payloads, got %#v", detail.Events)
+	}
+}
+
 func TestLoadChatReplaysQuestionAwaitLifecycleLegacyEventLines(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {

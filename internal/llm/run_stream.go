@@ -98,16 +98,17 @@ type toolCallAccumulator struct {
 }
 
 type preparedToolInvocation struct {
-	toolID           string
-	toolName         string
-	args             map[string]any
-	prelude          []AgentDelta
-	toolCallCounted  bool
-	precheckedHITL   *hitl.InterceptResult
-	approvalID       string
-	approvalDecision string
-	hitlDecision     *hitlDecisionState
-	queuedResult     *ToolExecutionResult
+	toolID              string
+	toolName            string
+	args                map[string]any
+	prelude             []AgentDelta
+	awaitExternalResult bool
+	toolCallCounted     bool
+	precheckedHITL      *hitl.InterceptResult
+	approvalID          string
+	approvalDecision    string
+	hitlDecision        *hitlDecisionState
+	queuedResult        *ToolExecutionResult
 }
 
 type pendingHITLApprovalBatch struct {
@@ -747,6 +748,44 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 			}
 	}
 
+	if strings.EqualFold(strings.TrimSpace(toolCall.Function.Name), InvokeAgentToolName) {
+		subAgentKey := strings.TrimSpace(mapStringArg(args, "subAgentKey"))
+		taskText := strings.TrimSpace(mapStringArg(args, "task"))
+		taskName := strings.TrimSpace(mapStringArg(args, "taskName"))
+		if taskName == "" {
+			taskName = subAgentKey
+		}
+		if subAgentKey == "" || taskText == "" {
+			message := "invalid tool arguments: subAgentKey and task are required"
+			return nil, []AgentDelta{DeltaToolResult{
+					ToolID:   toolID,
+					ToolName: toolCall.Function.Name,
+					Result: ToolExecutionResult{
+						Output:   message,
+						Error:    "invalid_tool_arguments",
+						ExitCode: -1,
+					},
+				}}, &openAIMessage{
+					Role:       "tool",
+					ToolCallID: toolID,
+					Name:       toolCall.Function.Name,
+					Content:    message,
+				}
+		}
+		return &preparedToolInvocation{
+			toolID:              toolID,
+			toolName:            toolCall.Function.Name,
+			args:                args,
+			awaitExternalResult: true,
+			prelude: []AgentDelta{DeltaInvokeSubAgent{
+				MainToolID:  toolID,
+				SubAgentKey: subAgentKey,
+				TaskText:    taskText,
+				TaskName:    taskName,
+			}},
+		}, nil, nil
+	}
+
 	return &preparedToolInvocation{
 		toolID:   toolID,
 		toolName: toolCall.Function.Name,
@@ -815,7 +854,11 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 		s.execCtx.ToolCalls++
 		invocation.toolCallCounted = true
 	}
+	keepActive := false
 	defer func() {
+		if keepActive {
+			return
+		}
 		if s.runControl != nil {
 			s.runControl.ClearExpectedSubmit(invocation.toolID)
 		}
@@ -826,6 +869,10 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 	if invocation.queuedResult != nil {
 		s.appendOriginalToolResult(invocation, *invocation.queuedResult)
 		invocation.queuedResult = nil
+		return nil
+	}
+	if invocation.awaitExternalResult {
+		keepActive = true
 		return nil
 	}
 	if invocation.precheckedHITL != nil && invocation.precheckedHITL.Intercepted {
@@ -2038,6 +2085,50 @@ func (s *llmRunStream) newContentDeltaEvent(delta string) AgentDelta {
 // tool results. Used by plan_execute to carry context into the summary stage.
 func (s *llmRunStream) AccumulatedMessages() []openAIMessage {
 	return append([]openAIMessage(nil), s.messages...)
+}
+
+func (s *llmRunStream) InjectToolResult(toolID string, text string, isError bool) bool {
+	if s == nil {
+		return false
+	}
+	result := ToolExecutionResult{
+		Output:   text,
+		ExitCode: 0,
+	}
+	if isError {
+		result.Error = "sub_agent_failed"
+		result.ExitCode = -1
+	}
+	if s.activeToolCall != nil && s.activeToolCall.awaitExternalResult && s.activeToolCall.toolID == strings.TrimSpace(toolID) {
+		s.activeToolCall.queuedResult = &result
+		return true
+	}
+	for _, invocation := range s.queuedToolCalls {
+		if invocation == nil || !invocation.awaitExternalResult || invocation.toolID != strings.TrimSpace(toolID) {
+			continue
+		}
+		invocation.queuedResult = &result
+		return true
+	}
+	return false
+}
+
+func (s *llmRunStream) FinalAssistantContent() (string, bool) {
+	if s == nil {
+		return "", false
+	}
+	for i := len(s.messages) - 1; i >= 0; i-- {
+		msg := s.messages[i]
+		if msg.Role != "assistant" {
+			continue
+		}
+		text, _ := msg.Content.(string)
+		if strings.TrimSpace(text) == "" {
+			continue
+		}
+		return text, true
+	}
+	return "", false
 }
 
 func isPlanTool(name string) bool {

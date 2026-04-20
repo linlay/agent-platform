@@ -1,0 +1,21 @@
+name: _invoke_agent_
+label: 调度子 Agent
+description: Dispatch a sub-agent to work on a focused task, stream the sub-agent's activity live, and continue after its final answer is returned as the tool result.
+type: function
+clientVisible: true
+inputSchema:
+  type: object
+  properties:
+    subAgentKey:
+      type: string
+      description: Required. Catalog key of the sub-agent to run.
+    task:
+      type: string
+      description: Required. The exact task prompt to send to the sub-agent.
+    taskName:
+      type: string
+      description: Optional. Short title shown in the task panel while the sub-agent is active.
+  required:
+    - subAgentKey
+    - task
+  additionalProperties: false
