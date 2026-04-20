@@ -2443,8 +2443,7 @@ func TestBashHITLApproveFlowReplaysApprovalSummaryInChatRawMessages(t *testing.T
 	if hitlIndex == 0 || chatResp.Data.RawMessages[hitlIndex-1]["role"] != "tool" {
 		t.Fatalf("expected HITL raw message to follow tool result, got %#v", chatResp.Data.RawMessages)
 	}
-	if !strings.Contains(stringValue(chatResp.Data.RawMessages[hitlIndex]["content"]), `[HITL] batch summary`) &&
-		!strings.Contains(stringValue(chatResp.Data.RawMessages[hitlIndex]["content"]), `[HITL] all approved`) {
+	if !strings.Contains(stringValue(chatResp.Data.RawMessages[hitlIndex]["content"]), `[HITL] docker rmi nginx:latest → approve`) {
 		t.Fatalf("expected replayed HITL summary content, got %#v", chatResp.Data.RawMessages[hitlIndex])
 	}
 }
@@ -2696,6 +2695,7 @@ func TestBashHITLDockerRMIApproveFlow(t *testing.T) {
 	if !strings.Contains(body, `"mode":"approval"`) ||
 		!strings.Contains(body, `"approvals":[`) ||
 		!strings.Contains(body, `"command":"docker rmi nginx:latest"`) ||
+		!strings.Contains(body, `"ruleKey":"dangerous::docker::rmi::1::builtin::confirm_dialog"`) ||
 		!strings.Contains(body, `"id":"tool_bash"`) ||
 		!strings.Contains(body, `"description":"`) ||
 		!strings.Contains(body, `"allowFreeText":true`) {

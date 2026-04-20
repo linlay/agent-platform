@@ -731,12 +731,12 @@ func TestStepWriterPersistsApprovalSidecarOnStepLine(t *testing.T) {
 		},
 	})
 	writer.RecordApproval(StepApproval{
-		RuleKey: "dangerous-commands::chmod",
-		Summary: `[HITL] all approved (rule=dangerous-commands::chmod): "chmod 777 ~/a.sh"`,
+		Summary: `[HITL] chmod 777 ~/a.sh → approve`,
 		Decisions: []StepApprovalDecision{{
 			ToolID:   "tool-1",
 			Command:  "chmod 777 ~/a.sh",
 			Decision: "approve",
+			RuleKey:  "dangerous-commands::chmod",
 		}},
 	})
 	writer.Flush()
@@ -750,6 +750,10 @@ func TestStepWriterPersistsApprovalSidecarOnStepLine(t *testing.T) {
 	}
 	if _, ok := lines[0]["approval"].(map[string]any); !ok {
 		t.Fatalf("expected approval sidecar on step line, got %#v", lines[0])
+	}
+	approval, _ := lines[0]["approval"].(map[string]any)
+	if _, ok := approval["ruleKey"]; ok {
+		t.Fatalf("did not expect top-level approval.ruleKey, got %#v", approval)
 	}
 	messages, _ := lines[0]["messages"].([]any)
 	if len(messages) != 2 {
@@ -800,12 +804,12 @@ func TestLoadRawMessagesReplaysApprovalSummaryFromStepLine(t *testing.T) {
 			},
 		},
 		Approval: &StepApproval{
-			RuleKey: "dangerous-commands::chmod",
-			Summary: `[HITL] all approved (rule=dangerous-commands::chmod): "chmod 777 ~/a.sh"`,
+			Summary: `[HITL] chmod 777 ~/a.sh → approve`,
 			Decisions: []StepApprovalDecision{{
 				ToolID:   "tool-1",
 				Command:  "chmod 777 ~/a.sh",
 				Decision: "approve",
+				RuleKey:  "dangerous-commands::chmod",
 			}},
 		},
 	}); err != nil {
@@ -819,7 +823,7 @@ func TestLoadRawMessagesReplaysApprovalSummaryFromStepLine(t *testing.T) {
 	if len(rawMessages) != 3 {
 		t.Fatalf("expected assistant, tool, synthetic user messages, got %#v", rawMessages)
 	}
-	if rawMessages[2]["role"] != "user" || rawMessages[2]["content"] != `[HITL] all approved (rule=dangerous-commands::chmod): "chmod 777 ~/a.sh"` {
+	if rawMessages[2]["role"] != "user" || rawMessages[2]["content"] != `[HITL] chmod 777 ~/a.sh → approve` {
 		t.Fatalf("expected approval summary replayed as user raw message, got %#v", rawMessages[2])
 	}
 

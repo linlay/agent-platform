@@ -630,7 +630,7 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 					t.Fatalf("expected HITL summary to be appended as user message, got %#v", hitlNotice)
 				}
 				noticeText, _ := hitlNotice.Content.(string)
-				if !strings.Contains(noticeText, "[HITL] batch summary") || !strings.Contains(noticeText, `"git push origin main"`) || !strings.Contains(noticeText, `decision=approve`) {
+				if !strings.Contains(noticeText, "[HITL] git push origin main → approve") {
 					t.Fatalf("expected HITL summary content, got %#v", hitlNotice)
 				}
 			} else if len(stream.messages) != 1 || stream.messages[0].Role != "tool" {
@@ -745,7 +745,7 @@ func TestAwaitHITLSubmitAndExecute_RejectEmitsCancelledAnswer(t *testing.T) {
 	}
 	hitlNotice := stream.messages[len(stream.messages)-1]
 	noticeText, _ := hitlNotice.Content.(string)
-	if hitlNotice.Role != "user" || !strings.Contains(noticeText, `[HITL] batch summary`) || !strings.Contains(noticeText, `decision=reject`) || !strings.Contains(noticeText, `reason="风险过高"`) {
+	if hitlNotice.Role != "user" || !strings.Contains(noticeText, `[HITL] docker rmi nginx:latest → reject（风险过高）`) {
 		t.Fatalf("expected reject HITL summary, got %#v", hitlNotice)
 	}
 }
@@ -811,6 +811,10 @@ func TestPrepareQueuedBashApprovalBatch_AppendsSingleSummaryAfterAllApprovedResu
 		t.Fatal("expected batch approval await to be prepared")
 	}
 	ask := stream.pending[0].(contracts.DeltaAwaitAsk)
+	approvalItems, _ := ask.Approvals[0].(map[string]any)
+	if approvalItems["ruleKey"] != "dangerous-commands::chmod" {
+		t.Fatalf("expected approval ask item to include ruleKey, got %#v", ask.Approvals)
+	}
 	ack := stream.runControl.ResolveSubmit(api.SubmitRequest{
 		RunID:      "run_1",
 		AwaitingID: ask.AwaitingID,
@@ -846,23 +850,23 @@ func TestPrepareQueuedBashApprovalBatch_AppendsSingleSummaryAfterAllApprovedResu
 		t.Fatalf("expected final message to be user summary, got %#v", summary)
 	}
 	text, _ := summary.Content.(string)
-	if !strings.Contains(text, `[HITL] all approved (rule=dangerous-commands::chmod):`) ||
-		!strings.Contains(text, `"chmod 777 ~/a.sh"`) ||
-		!strings.Contains(text, `"chmod 777 ~/b.sh"`) ||
-		!strings.Contains(text, `"chmod 777 ~/c.sh"`) {
+	if !strings.Contains(text, `[HITL] 审批结果：`) ||
+		!strings.Contains(text, `1. chmod 777 ~/a.sh → approve`) ||
+		!strings.Contains(text, `2. chmod 777 ~/b.sh → approve`) ||
+		!strings.Contains(text, `3. chmod 777 ~/c.sh → approve`) {
 		t.Fatalf("unexpected all-approved summary %#v", summary)
 	}
 	if recordedApproval == nil {
 		t.Fatal("expected approval batch to be recorded")
-	}
-	if recordedApproval.RuleKey != "dangerous-commands::chmod" {
-		t.Fatalf("expected shared rule key on recorded approval, got %#v", recordedApproval)
 	}
 	if recordedApproval.Summary != text {
 		t.Fatalf("expected recorded approval summary to match user message, got %#v", recordedApproval)
 	}
 	if len(recordedApproval.Decisions) != 3 || recordedApproval.Decisions[2].Decision != "approve" {
 		t.Fatalf("expected recorded approval decisions, got %#v", recordedApproval)
+	}
+	if recordedApproval.Decisions[0].RuleKey != "dangerous-commands::chmod" {
+		t.Fatalf("expected recorded approval decisions to include ruleKey, got %#v", recordedApproval)
 	}
 }
 
@@ -958,7 +962,7 @@ func TestPrepareQueuedBashApprovalBatch_MergesAllBuiltinApprovalsInSingleAwait(t
 		Params: encodedSubmitParams(t, []map[string]any{
 			{"id": "tool_1", "decision": "approve"},
 			{"id": "tool_2", "decision": "approve"},
-			{"id": "tool_3", "decision": "reject"},
+			{"id": "tool_3", "decision": "reject", "reason": "风险过高"},
 		}),
 	})
 	if !ack.Accepted {
@@ -1019,6 +1023,9 @@ func TestPrepareQueuedBashApprovalBatch_MergesAllBuiltinApprovalsInSingleAwait(t
 	if approvals[2]["decision"] != "reject" {
 		t.Fatalf("expected third approval decision to be reject, got %#v", approvals)
 	}
+	if approvals[2]["reason"] != "风险过高" {
+		t.Fatalf("expected third approval reason to be preserved, got %#v", approvals)
+	}
 	if rejectedCount != 1 {
 		t.Fatalf("expected exactly one rejected tool result, got %#v", stream.pending)
 	}
@@ -1041,10 +1048,10 @@ func TestPrepareQueuedBashApprovalBatch_MergesAllBuiltinApprovalsInSingleAwait(t
 		t.Fatalf("expected final mixed-batch message to be user summary, got %#v", summary)
 	}
 	text, _ := summary.Content.(string)
-	if !strings.Contains(text, `[HITL] batch summary:`) ||
-		!strings.Contains(text, `- tool_1 cmd="chmod 777 ~/a.sh" decision=approve`) ||
-		!strings.Contains(text, `- tool_2 cmd="chmod 777 ~/b.sh" decision=approve`) ||
-		!strings.Contains(text, `- tool_3 cmd="chmod 777 ~/c.sh" decision=reject`) {
+	if !strings.Contains(text, `[HITL] 审批结果：`) ||
+		!strings.Contains(text, `1. chmod 777 ~/a.sh → approve`) ||
+		!strings.Contains(text, `2. chmod 777 ~/b.sh → approve`) ||
+		!strings.Contains(text, `3. chmod 777 ~/c.sh → reject（风险过高）`) {
 		t.Fatalf("unexpected mixed summary %#v", summary)
 	}
 }

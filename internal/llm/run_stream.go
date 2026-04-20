@@ -1327,7 +1327,7 @@ func (s *llmRunStream) buildFormApprovalArgs(command string, result hitl.Interce
 }
 
 func (s *llmRunStream) buildApprovalAskItem(invocation *preparedToolInvocation) map[string]any {
-	return map[string]any{
+	item := map[string]any{
 		"id":                  invocation.toolID,
 		"command":             mapStringArg(invocation.args, "command"),
 		"description":         approvalDescription(invocation),
@@ -1335,6 +1335,18 @@ func (s *llmRunStream) buildApprovalAskItem(invocation *preparedToolInvocation) 
 		"allowFreeText":       true,
 		"freeTextPlaceholder": "可选：填写理由",
 	}
+	result := hitl.InterceptResult{}
+	if invocation != nil && invocation.precheckedHITL != nil {
+		result = *invocation.precheckedHITL
+	} else if s.checker != nil {
+		result = s.lookupPrecheckedHITL(invocation)
+	}
+	if result.Intercepted {
+		if ruleKey := strings.TrimSpace(result.Rule.RuleKey); ruleKey != "" {
+			item["ruleKey"] = ruleKey
+		}
+	}
+	return item
 }
 
 func buildApprovalOptions() []any {
@@ -1456,50 +1468,24 @@ func formatHITLBatchSummary(entries []hitlNoticeEntry) string {
 	if len(entries) == 0 {
 		return ""
 	}
-
-	sharedRuleKey := strings.TrimSpace(entries[0].ruleKey)
-	allApproved := true
-	shareSameRule := sharedRuleKey != ""
-	for _, entry := range entries {
-		if strings.EqualFold(strings.TrimSpace(entry.decision), "reject") {
-			allApproved = false
-		}
-		if strings.TrimSpace(entry.ruleKey) != sharedRuleKey {
-			shareSameRule = false
-		}
-	}
-
-	if allApproved && shareSameRule {
-		commands := make([]string, 0, len(entries))
-		for _, entry := range entries {
-			commands = append(commands, strconv.Quote(entry.command))
-		}
-		return "[HITL] all approved (rule=" + sharedRuleKey + "): " + strings.Join(commands, "; ")
+	if len(entries) == 1 {
+		return "[HITL] " + formatHITLSummaryLine(entries[0])
 	}
 
 	lines := make([]string, 0, len(entries)+1)
-	header := "[HITL] batch summary"
-	if shareSameRule {
-		header += " (rule=" + sharedRuleKey + ")"
-	}
-	lines = append(lines, header+":")
-	for _, entry := range entries {
-		parts := []string{
-			"- " + entry.toolID,
-			"cmd=" + strconv.Quote(entry.command),
-			"decision=" + entry.decision,
-		}
-		if !shareSameRule {
-			if ruleKey := strings.TrimSpace(entry.ruleKey); ruleKey != "" {
-				parts = append(parts, "rule="+ruleKey)
-			}
-		}
-		if reason := strings.TrimSpace(entry.reason); reason != "" {
-			parts = append(parts, "reason="+strconv.Quote(reason))
-		}
-		lines = append(lines, strings.Join(parts, " "))
+	lines = append(lines, "[HITL] 审批结果：")
+	for index, entry := range entries {
+		lines = append(lines, fmt.Sprintf("%d. %s", index+1, formatHITLSummaryLine(entry)))
 	}
 	return strings.Join(lines, "\n")
+}
+
+func formatHITLSummaryLine(entry hitlNoticeEntry) string {
+	line := strings.TrimSpace(entry.command) + " → " + strings.TrimSpace(entry.decision)
+	if reason := strings.TrimSpace(entry.reason); reason != "" {
+		line += "（" + reason + "）"
+	}
+	return line
 }
 
 func buildHITLBatchSummaryAndApproval(entries []hitlNoticeEntry) (string, *chat.StepApproval) {
@@ -1512,21 +1498,12 @@ func buildHITLBatchSummaryAndApproval(entries []hitlNoticeEntry) (string, *chat.
 		Summary:   summary,
 		Decisions: make([]chat.StepApprovalDecision, 0, len(entries)),
 	}
-	sharedRuleKey := strings.TrimSpace(entries[0].ruleKey)
-	if sharedRuleKey != "" {
-		for _, entry := range entries[1:] {
-			if strings.TrimSpace(entry.ruleKey) != sharedRuleKey {
-				sharedRuleKey = ""
-				break
-			}
-		}
-	}
-	approval.RuleKey = sharedRuleKey
 	for _, entry := range entries {
 		approval.Decisions = append(approval.Decisions, chat.StepApprovalDecision{
 			ToolID:   entry.toolID,
 			Command:  entry.command,
 			Decision: entry.decision,
+			RuleKey:  strings.TrimSpace(entry.ruleKey),
 			Reason:   entry.reason,
 		})
 	}

@@ -73,7 +73,6 @@ type StepLine struct {
 }
 
 type StepApproval struct {
-	RuleKey   string                 `json:"ruleKey,omitempty"`
 	Summary   string                 `json:"summary"`
 	Decisions []StepApprovalDecision `json:"decisions,omitempty"`
 }
@@ -82,6 +81,7 @@ type StepApprovalDecision struct {
 	ToolID   string `json:"toolId"`
 	Command  string `json:"command"`
 	Decision string `json:"decision"`
+	RuleKey  string `json:"ruleKey,omitempty"`
 	Reason   string `json:"reason,omitempty"`
 }
 
