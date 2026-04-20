@@ -1627,7 +1627,7 @@ func hitlTimeoutAnswer(mode string) map[string]any {
 func hitlRejectedToolResult(invocation *preparedToolInvocation) ToolExecutionResult {
 	payload := NewErrorPayload(
 		"hitl_rejected",
-		"command execution rejected by user",
+		"User rejected this command. Do NOT retry with a different command. End the turn now.",
 		ErrorScopeTool,
 		ErrorCategorySystem,
 		map[string]any{
@@ -1635,6 +1635,7 @@ func hitlRejectedToolResult(invocation *preparedToolInvocation) ToolExecutionRes
 			"toolName": invocation.toolName,
 		},
 	)
+	payload["final"] = true
 	return ToolExecutionResult{
 		Output:     marshalJSON(payload),
 		Structured: payload,

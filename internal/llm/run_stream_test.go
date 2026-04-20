@@ -25,28 +25,21 @@ func encodedSubmitParams(t *testing.T, value any) api.SubmitParams {
 
 func sampleLeavePayload(days float64) map[string]any {
 	return map[string]any{
-		"applicant": map[string]any{
-			"name":        "Lin",
-			"department":  "engineering",
-			"employee_id": "E1001",
-		},
-		"leave_type":     "年假",
-		"start_date":     "2026-04-20",
-		"end_date":       "2026-04-22",
-		"duration_days":  days,
-		"reason":         "family_trip",
-		"urgent_contact": "Amy",
-		"urgent_phone":   "13800138000",
-		"backup_person":  "E2001",
-		"notes":          "",
+		"applicant_id":  "E1001",
+		"department_id": "engineering",
+		"leave_type":    "annual",
+		"start_date":    "2026-04-20",
+		"end_date":      "2026-04-22",
+		"days":          days,
+		"reason":        "family_trip",
 	}
 }
 
 func sampleLeaveCommand(days float64) string {
 	if days == 2 {
-		return `mock create-leave --payload '{"applicant":{"department":"engineering","employee_id":"E1001","name":"Lin"},"backup_person":"E2001","duration_days":2,"end_date":"2026-04-22","leave_type":"年假","notes":"","reason":"family_trip","start_date":"2026-04-20","urgent_contact":"Amy","urgent_phone":"13800138000"}'`
+		return `mock create-leave --payload '{"applicant_id":"E1001","days":2,"department_id":"engineering","end_date":"2026-04-22","leave_type":"annual","reason":"family_trip","start_date":"2026-04-20"}'`
 	}
-	return `mock create-leave --payload '{"applicant":{"department":"engineering","employee_id":"E1001","name":"Lin"},"backup_person":"E2001","duration_days":3,"end_date":"2026-04-22","leave_type":"年假","notes":"","reason":"family_trip","start_date":"2026-04-20","urgent_contact":"Amy","urgent_phone":"13800138000"}'`
+	return `mock create-leave --payload '{"applicant_id":"E1001","days":3,"department_id":"engineering","end_date":"2026-04-22","leave_type":"annual","reason":"family_trip","start_date":"2026-04-20"}'`
 }
 
 type stubToolExecutor struct {
@@ -380,7 +373,7 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 			initialCommand: sampleLeaveCommand(3),
 			parsedCommand: hitl.CommandComponents{
 				BaseCommand: "mock",
-				Tokens:      []string{"create-leave", "--payload", `{"applicant":{"department":"engineering","employee_id":"E1001","name":"Lin"},"backup_person":"E2001","duration_days":3,"end_date":"2026-04-22","leave_type":"年假","notes":"","reason":"family_trip","start_date":"2026-04-20","urgent_contact":"Amy","urgent_phone":"13800138000"}`},
+				Tokens:      []string{"create-leave", "--payload", `{"applicant_id":"E1001","days":3,"department_id":"engineering","end_date":"2026-04-22","leave_type":"annual","reason":"family_trip","start_date":"2026-04-20"}`},
 			},
 			submitParams: encodedSubmitParams(t, []map[string]any{
 				{
@@ -402,25 +395,54 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 				ViewportType: "html",
 				ViewportKey:  "expense_form",
 			},
-			initialCommand: `mock create-expense --payload '{"employee_id":"E1001","total_amount":1280.5}'`,
+			initialCommand: `mock create-expense --payload '{"employee":{"id":"E1001","name":"张三"},"department":{"code":"engineering","name":"工程部"},"expense_type":"travel","currency":"CNY","items":[{"amount":1280.5,"category":"transport","description":"flight","invoice_id":"INV-001","occurred_on":"2026-04-10"}],"submitted_at":"2026-04-14T10:30:00+08:00","total_amount":1280.5}'`,
 			parsedCommand: hitl.CommandComponents{
 				BaseCommand: "mock",
-				Tokens:      []string{"create-expense", "--payload", `{"employee_id":"E1001","total_amount":1280.5}`},
+				Tokens:      []string{"create-expense", "--payload", `{"employee":{"id":"E1001","name":"张三"},"department":{"code":"engineering","name":"工程部"},"expense_type":"travel","currency":"CNY","items":[{"amount":1280.5,"category":"transport","description":"flight","invoice_id":"INV-001","occurred_on":"2026-04-10"}],"submitted_at":"2026-04-14T10:30:00+08:00","total_amount":1280.5}`},
 			},
 			submitParams: encodedSubmitParams(t, []map[string]any{
 				{
 					"id": "form-1",
 					"payload": map[string]any{
-						"employee_id":  "E1001",
+						"employee":     map[string]any{"id": "E1001", "name": "张三"},
+						"department":   map[string]any{"code": "engineering", "name": "工程部"},
+						"expense_type": "travel",
+						"currency":     "CNY",
+						"items": []any{
+							map[string]any{
+								"amount":      640.25,
+								"category":    "transport",
+								"description": "flight",
+								"invoice_id":  "INV-001",
+								"occurred_on": "2026-04-10",
+							},
+						},
+						"submitted_at": "2026-04-14T10:30:00+08:00",
 						"total_amount": 640.25,
 					},
 				},
 			}),
-			expectedCommand:        `mock create-expense --payload '{"employee_id":"E1001","total_amount":640.25}'`,
-			expectedView:           "html",
-			expectedKey:            "expense_form",
-			expectedInitialPayload: map[string]any{"employee_id": "E1001", "total_amount": 1280.5},
-			expectedAnswerAction:   "submit",
+			expectedCommand: `mock create-expense --payload '{"currency":"CNY","department":{"code":"engineering","name":"工程部"},"employee":{"id":"E1001","name":"张三"},"expense_type":"travel","items":[{"amount":640.25,"category":"transport","description":"flight","invoice_id":"INV-001","occurred_on":"2026-04-10"}],"submitted_at":"2026-04-14T10:30:00+08:00","total_amount":640.25}'`,
+			expectedView:    "html",
+			expectedKey:     "expense_form",
+			expectedInitialPayload: map[string]any{
+				"employee":     map[string]any{"id": "E1001", "name": "张三"},
+				"department":   map[string]any{"code": "engineering", "name": "工程部"},
+				"expense_type": "travel",
+				"currency":     "CNY",
+				"items": []any{
+					map[string]any{
+						"amount":      1280.5,
+						"category":    "transport",
+						"description": "flight",
+						"invoice_id":  "INV-001",
+						"occurred_on": "2026-04-10",
+					},
+				},
+				"submitted_at": "2026-04-14T10:30:00+08:00",
+				"total_amount": 1280.5,
+			},
+			expectedAnswerAction: "submit",
 		},
 		{
 			name: "procurement html viewport override",
@@ -1100,7 +1122,7 @@ func TestPrepareQueuedBashApprovalBatch_LeavesHtmlViewportOutsideMergedApprovalA
 					OriginalCommand: sampleLeaveCommand(3),
 					ParsedCommand: hitl.CommandComponents{
 						BaseCommand: "mock",
-						Tokens:      []string{"create-leave", "--payload", `{"applicant":{"department":"engineering","employee_id":"E1001","name":"Lin"},"backup_person":"E2001","duration_days":3,"end_date":"2026-04-22","leave_type":"年假","notes":"","reason":"family_trip","start_date":"2026-04-20","urgent_contact":"Amy","urgent_phone":"13800138000"}`},
+						Tokens:      []string{"create-leave", "--payload", `{"applicant_id":"E1001","days":3,"department_id":"engineering","end_date":"2026-04-22","leave_type":"annual","reason":"family_trip","start_date":"2026-04-20"}`},
 					},
 				},
 			},
@@ -1511,7 +1533,7 @@ func TestBuildFormApprovalArgsFallsBackToOriginalCommandPayload(t *testing.T) {
 	stream := &llmRunStream{
 		session: contracts.QuerySession{RunID: "run_1"},
 	}
-	args := stream.buildFormApprovalArgs(`mock create-leave --payload {"applicant":{"name":"Lin","department":"engineering","employee_id":"E1001"},"leave_type":"年假","start_date":"2026-04-20","end_date":"2026-04-22","duration_days":3,"reason":"family_trip","urgent_contact":"Amy","urgent_phone":"13800138000","backup_person":"E2001","notes":""}`, hitl.InterceptResult{
+	args := stream.buildFormApprovalArgs(`mock create-leave --payload {"applicant_id":"E1001","department_id":"engineering","leave_type":"annual","start_date":"2026-04-20","end_date":"2026-04-22","days":3,"reason":"family_trip"}`, hitl.InterceptResult{
 		Rule: hitl.FlatRule{
 			ViewportType: "html",
 			ViewportKey:  "leave_form",
@@ -1519,9 +1541,9 @@ func TestBuildFormApprovalArgsFallsBackToOriginalCommandPayload(t *testing.T) {
 		},
 		ParsedCommand: hitl.CommandComponents{
 			BaseCommand: "mock",
-			Tokens:      []string{"create-leave", "--payload", "{applicant:{employee_id:E1001}}"},
+			Tokens:      []string{"create-leave", "--payload", "{applicant_id:E1001}"},
 		},
-		OriginalCommand: `mock create-leave --payload {"applicant":{"name":"Lin","department":"engineering","employee_id":"E1001"},"leave_type":"年假","start_date":"2026-04-20","end_date":"2026-04-22","duration_days":3,"reason":"family_trip","urgent_contact":"Amy","urgent_phone":"13800138000","backup_person":"E2001","notes":""}`,
+		OriginalCommand: `mock create-leave --payload {"applicant_id":"E1001","department_id":"engineering","leave_type":"annual","start_date":"2026-04-20","end_date":"2026-04-22","days":3,"reason":"family_trip"}`,
 	})
 	forms, ok := args["forms"].([]any)
 	if !ok || len(forms) != 1 {
@@ -1556,9 +1578,9 @@ func TestReconstructCommandWithPayload(t *testing.T) {
 		},
 		{
 			name:     "expense",
-			command:  `mock create-expense --payload '{"employee_id":"E1001","total_amount":1280.5}'`,
-			payload:  map[string]any{"employee_id": "E1001", "total_amount": 1280.5},
-			expected: `mock create-expense --payload '{"employee_id":"E1001","total_amount":1280.5}'`,
+			command:  `mock create-expense --payload '{"employee":{"id":"E1001","name":"张三"},"department":{"code":"engineering","name":"工程部"},"expense_type":"travel","currency":"CNY","items":[{"amount":1280.5,"category":"transport","description":"flight","invoice_id":"INV-001","occurred_on":"2026-04-10"}],"submitted_at":"2026-04-14T10:30:00+08:00","total_amount":1280.5}'`,
+			payload:  map[string]any{"employee": map[string]any{"id": "E1001", "name": "张三"}, "department": map[string]any{"code": "engineering", "name": "工程部"}, "expense_type": "travel", "currency": "CNY", "items": []any{map[string]any{"amount": 1280.5, "category": "transport", "description": "flight", "invoice_id": "INV-001", "occurred_on": "2026-04-10"}}, "submitted_at": "2026-04-14T10:30:00+08:00", "total_amount": 1280.5},
+			expected: `mock create-expense --payload '{"currency":"CNY","department":{"code":"engineering","name":"工程部"},"employee":{"id":"E1001","name":"张三"},"expense_type":"travel","items":[{"amount":1280.5,"category":"transport","description":"flight","invoice_id":"INV-001","occurred_on":"2026-04-10"}],"submitted_at":"2026-04-14T10:30:00+08:00","total_amount":1280.5}'`,
 		},
 		{
 			name:     "procurement",
@@ -1590,6 +1612,26 @@ func TestReconstructCommandWithPayload(t *testing.T) {
 	}
 	if withQuote != `mock create-leave --payload '{"reason":"o'"'"'hara"}'` {
 		t.Fatalf("expected shell-safe quoted payload, got %q", withQuote)
+	}
+}
+
+func TestHITLRejectedToolResultMarksResultFinal(t *testing.T) {
+	result := hitlRejectedToolResult(&preparedToolInvocation{
+		toolID:   "tool_1",
+		toolName: "_sandbox_bash_",
+	})
+
+	if result.Error != "user_rejected" || result.ExitCode != -1 {
+		t.Fatalf("unexpected rejected tool result %#v", result)
+	}
+	if result.Structured["code"] != "hitl_rejected" {
+		t.Fatalf("expected hitl_rejected code, got %#v", result.Structured)
+	}
+	if result.Structured["final"] != true {
+		t.Fatalf("expected final=true, got %#v", result.Structured)
+	}
+	if result.Structured["message"] != "User rejected this command. Do NOT retry with a different command. End the turn now." {
+		t.Fatalf("unexpected reject message %#v", result.Structured)
 	}
 }
 
@@ -1674,7 +1716,7 @@ func TestInvokeActiveToolCallDoesNotAutoApproveHTMLViewport(t *testing.T) {
 				},
 				ParsedCommand: hitl.CommandComponents{
 					BaseCommand: "mock",
-					Tokens:      []string{"create-leave", "--payload", `{"applicant":{"department":"engineering","employee_id":"E1001","name":"Lin"},"backup_person":"E2001","duration_days":3,"end_date":"2026-04-22","leave_type":"年假","notes":"","reason":"family_trip","start_date":"2026-04-20","urgent_contact":"Amy","urgent_phone":"13800138000"}`},
+					Tokens:      []string{"create-leave", "--payload", `{"applicant_id":"E1001","days":3,"department_id":"engineering","end_date":"2026-04-22","leave_type":"annual","reason":"family_trip","start_date":"2026-04-20"}`},
 				},
 			},
 		},
@@ -1692,7 +1734,7 @@ func TestInvokeActiveToolCallDoesNotAutoApproveHTMLViewport(t *testing.T) {
 			toolID:   "tool_1",
 			toolName: "_sandbox_bash_",
 			args: map[string]any{
-				"command": `mock create-leave --payload '{"applicant":{"department":"engineering","employee_id":"E1001","name":"Lin"},"backup_person":"E2001","duration_days":3,"end_date":"2026-04-22","leave_type":"年假","notes":"","reason":"family_trip","start_date":"2026-04-20","urgent_contact":"Amy","urgent_phone":"13800138000"}'`,
+				"command": sampleLeaveCommand(3),
 			},
 		},
 	}

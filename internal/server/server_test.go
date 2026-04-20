@@ -2519,7 +2519,7 @@ func TestSandboxBashResultShapeAcrossStreamBoundaries(t *testing.T) {
 }
 
 func TestBashHITLModifyFlow(t *testing.T) {
-	modified := `mock create-leave --payload {"applicant":{"name":"Lin","department":"engineering","employee_id":"E1001"},"leave_type":"事假","start_date":"2026-04-21","end_date":"2026-04-22","duration_days":2,"reason":"family_trip","urgent_contact":"Amy","urgent_phone":"13800138000","backup_person":"E2001","notes":"请协助处理审批"}`
+	modified := `mock create-leave --payload {"applicant_id":"E1001","department_id":"engineering","leave_type":"personal","start_date":"2026-04-21","end_date":"2026-04-22","days":2,"reason":"family_trip"}`
 	body, executed := runBashHITLFlow(t, bashHITLFlowOptions{action: "modify", modifiedCommand: modified})
 	expectedCommand := rebuildPayloadCommandForTest(t, defaultBashHITLCommand(), payloadFromCommandForTest(t, modified))
 	expectedSubmitPayload, err := json.Marshal(payloadFromCommandForTest(t, modified))
@@ -2547,6 +2547,10 @@ func TestBashHITLRejectFlow(t *testing.T) {
 	}
 	if !strings.Contains(body, `"code":"hitl_rejected"`) {
 		t.Fatalf("expected rejected original bash result, got %s", body)
+	}
+	if !strings.Contains(body, `"final":true`) ||
+		!strings.Contains(body, `User rejected this command. Do NOT retry with a different command. End the turn now.`) {
+		t.Fatalf("expected hard-stop rejected tool result, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
 		!strings.Contains(body, `"action":"reject"`) ||
@@ -2613,7 +2617,7 @@ func TestBashHITLSimpleBashApproveFlow(t *testing.T) {
 }
 
 func TestBashHITLApproveFlowForExpenseCreate(t *testing.T) {
-	command := `mock create-expense --payload {"employee_id":"E1001","department":"engineering","expense_type":"travel","currency":"CNY","total_amount":1280.5,"items":[{"category":"transport","amount":800,"invoice_id":"INV-001","occurred_on":"2026-04-10","description":"flight"},{"category":"hotel","amount":480.5,"invoice_id":"INV-002","occurred_on":"2026-04-11","description":"hotel"}],"submitted_at":"2026-04-14T10:30:00+08:00"}`
+	command := `mock create-expense --payload {"employee":{"id":"E1001","name":"张三"},"department":{"code":"engineering","name":"工程部"},"expense_type":"travel","currency":"CNY","total_amount":1280.5,"items":[{"category":"transport","amount":800,"invoice_id":"INV-001","occurred_on":"2026-04-10","description":"flight"},{"category":"hotel","amount":480.5,"invoice_id":"INV-002","occurred_on":"2026-04-11","description":"hotel"}],"submitted_at":"2026-04-14T10:30:00+08:00"}`
 	rules := strings.Join([]string{
 		"commands:",
 		"  - command: mock",
@@ -2757,6 +2761,10 @@ func TestBashHITLDockerImageRMRejectFlow(t *testing.T) {
 	}
 	if !strings.Contains(body, `"code":"hitl_rejected"`) {
 		t.Fatalf("expected rejected original bash result, got %s", body)
+	}
+	if !strings.Contains(body, `"final":true`) ||
+		!strings.Contains(body, `User rejected this command. Do NOT retry with a different command. End the turn now.`) {
+		t.Fatalf("expected hard-stop rejected tool result, got %s", body)
 	}
 	if strings.Contains(body, `"viewportKey":"confirm_dialog"`) {
 		t.Fatalf("did not expect confirm_dialog viewport in stream, got %s", body)
@@ -3041,7 +3049,7 @@ func runSandboxBashQueryForResultShape(t *testing.T, sandbox contracts.SandboxCl
 }
 
 func defaultBashHITLCommand() string {
-	return `mock create-leave --payload {"applicant":{"name":"Lin","department":"engineering","employee_id":"E1001"},"leave_type":"年假","start_date":"2026-04-20","end_date":"2026-04-22","duration_days":3,"reason":"family_trip","urgent_contact":"Amy","urgent_phone":"13800138000","backup_person":"E2001","notes":""}`
+	return `mock create-leave --payload {"applicant_id":"E1001","department_id":"engineering","leave_type":"annual","start_date":"2026-04-20","end_date":"2026-04-22","days":3,"reason":"family_trip"}`
 }
 
 func payloadFromCommandForTest(t *testing.T, command string) map[string]any {
