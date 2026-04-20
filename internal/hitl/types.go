@@ -9,8 +9,9 @@ type SubcommandRule struct {
 }
 
 type CommandBlock struct {
-	Command     string           `yaml:"command"`
-	Subcommands []SubcommandRule `yaml:"subcommands"`
+	Command          string           `yaml:"command"`
+	PassThroughFlags []string         `yaml:"passThroughFlags"`
+	Subcommands      []SubcommandRule `yaml:"subcommands"`
 }
 
 type RuleFile struct {
@@ -20,17 +21,18 @@ type RuleFile struct {
 }
 
 type FlatRule struct {
-	RuleKey      string
-	FileKey      string
-	SourcePath   string
-	Order        int
-	Command      string
-	Match        string
-	MatchTokens  []string
-	Level        int
-	Title        string
-	ViewportType string
-	ViewportKey  string
+	RuleKey          string
+	FileKey          string
+	SourcePath       string
+	Order            int
+	Command          string
+	Match            string
+	MatchTokens      []string
+	PassThroughFlags []string
+	Level            int
+	Title            string
+	ViewportType     string
+	ViewportKey      string
 }
 
 type CommandComponents struct {

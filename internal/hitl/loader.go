@@ -53,6 +53,7 @@ func loadRulesFromDir(root string) ([]FlatRule, error) {
 		}
 		for _, block := range file.Commands {
 			command := strings.ToLower(strings.TrimSpace(block.Command))
+			passFlags := normalizePassThroughFlags(block.PassThroughFlags)
 			for _, sub := range block.Subcommands {
 				match := strings.TrimSpace(sub.Match)
 				key := command + "\x00" + strings.ToLower(match)
@@ -72,17 +73,18 @@ func loadRulesFromDir(root string) ([]FlatRule, error) {
 				seen[key] = true
 				ruleKey := buildRuleKey(file.Key, command, match, sub.Level, viewportType, viewportKey)
 				rules = append(rules, FlatRule{
-					RuleKey:      ruleKey,
-					FileKey:      file.Key,
-					SourcePath:   path,
-					Order:        order,
-					Command:      command,
-					Match:        match,
-					MatchTokens:  matchTokens,
-					Level:        sub.Level,
-					Title:        strings.TrimSpace(sub.Title),
-					ViewportType: viewportType,
-					ViewportKey:  viewportKey,
+					RuleKey:          ruleKey,
+					FileKey:          file.Key,
+					SourcePath:       path,
+					Order:            order,
+					Command:          command,
+					Match:            match,
+					MatchTokens:      matchTokens,
+					PassThroughFlags: append([]string(nil), passFlags...),
+					Level:            sub.Level,
+					Title:            strings.TrimSpace(sub.Title),
+					ViewportType:     viewportType,
+					ViewportKey:      viewportKey,
 				})
 				order++
 			}
@@ -127,7 +129,8 @@ func parseRuleFile(path string) (RuleFile, bool, error) {
 	}
 	for _, rawCommand := range listMaps(root["commands"]) {
 		block := CommandBlock{
-			Command: strings.TrimSpace(stringValue(rawCommand["command"])),
+			Command:          strings.TrimSpace(stringValue(rawCommand["command"])),
+			PassThroughFlags: stringList(rawCommand["passThroughFlags"]),
 		}
 		for _, rawSub := range listMaps(rawCommand["subcommands"]) {
 			block.Subcommands = append(block.Subcommands, SubcommandRule{
@@ -180,6 +183,26 @@ func normalizeViewport(sub SubcommandRule) (string, string) {
 	return viewportType, viewportKey
 }
 
+func normalizePassThroughFlags(flags []string) []string {
+	if len(flags) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(flags))
+	out := make([]string, 0, len(flags))
+	for _, flag := range flags {
+		flag = strings.ToLower(strings.TrimSpace(flag))
+		if flag == "" {
+			continue
+		}
+		if _, exists := seen[flag]; exists {
+			continue
+		}
+		seen[flag] = struct{}{}
+		out = append(out, flag)
+	}
+	return out
+}
+
 func listMaps(value any) []map[string]any {
 	items, ok := value.([]any)
 	if !ok {
@@ -192,6 +215,85 @@ func listMaps(value any) []map[string]any {
 			out = append(out, mapped)
 		}
 	}
+	return out
+}
+
+func stringList(value any) []string {
+	switch typed := value.(type) {
+	case []any:
+		out := make([]string, 0, len(typed))
+		for _, item := range typed {
+			text, ok := item.(string)
+			if !ok {
+				continue
+			}
+			text = strings.TrimSpace(text)
+			if text == "" {
+				continue
+			}
+			out = append(out, text)
+		}
+		return out
+	case string:
+		return parseFlowStringList(typed)
+	default:
+		return nil
+	}
+}
+
+func parseFlowStringList(value string) []string {
+	value = strings.TrimSpace(value)
+	if len(value) < 2 || !strings.HasPrefix(value, "[") || !strings.HasSuffix(value, "]") {
+		return nil
+	}
+	value = strings.TrimSpace(value[1 : len(value)-1])
+	if value == "" {
+		return nil
+	}
+
+	var (
+		out      []string
+		current  strings.Builder
+		inSingle bool
+		inDouble bool
+	)
+
+	flush := func() {
+		text := strings.TrimSpace(current.String())
+		current.Reset()
+		if text == "" {
+			return
+		}
+		text = strings.Trim(strings.TrimSpace(text), `"'`)
+		if text == "" {
+			return
+		}
+		out = append(out, text)
+	}
+
+	for _, ch := range value {
+		switch ch {
+		case '\'':
+			if !inDouble {
+				inSingle = !inSingle
+			}
+			current.WriteRune(ch)
+		case '"':
+			if !inSingle {
+				inDouble = !inDouble
+			}
+			current.WriteRune(ch)
+		case ',':
+			if inSingle || inDouble {
+				current.WriteRune(ch)
+				continue
+			}
+			flush()
+		default:
+			current.WriteRune(ch)
+		}
+	}
+	flush()
 	return out
 }
 

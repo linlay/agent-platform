@@ -179,3 +179,51 @@ commands:
 		t.Fatalf("did not expect plain curl to be intercepted: %#v", passthrough)
 	}
 }
+
+func TestRegistryCheckPassThroughFlags(t *testing.T) {
+	root := t.TempDir()
+	content := `
+commands:
+  - command: mock
+    passThroughFlags: [--help, -h, --version]
+    subcommands:
+      - match: create-leave
+        level: 1
+        viewportType: html
+        viewportKey: leave_form
+`
+	if err := os.WriteFile(filepath.Join(root, "mock.yml"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write rule file: %v", err)
+	}
+
+	registry, err := NewRegistry(root)
+	if err != nil {
+		t.Fatalf("new registry: %v", err)
+	}
+
+	tests := []struct {
+		name        string
+		command     string
+		intercepted bool
+	}{
+		{name: "base create", command: "mock create-leave", intercepted: true},
+		{name: "payload create", command: `mock create-leave --payload '{"days":1}'`, intercepted: true},
+		{name: "help", command: "mock create-leave --help"},
+		{name: "short help", command: "mock create-leave -h"},
+		{name: "version", command: "mock create-leave --version"},
+		{name: "upper help", command: "mock create-leave --HELP"},
+		{name: "pipeline help segment", command: "echo x | mock create-leave --help"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := registry.Check(tc.command, 0)
+			if result.Intercepted != tc.intercepted {
+				t.Fatalf("intercepted=%v, want %v, result=%#v", result.Intercepted, tc.intercepted, result)
+			}
+			if tc.intercepted && result.Rule.Match != "create-leave" {
+				t.Fatalf("expected create-leave rule, got %#v", result.Rule)
+			}
+		})
+	}
+}
