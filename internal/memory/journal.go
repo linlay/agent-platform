@@ -39,6 +39,11 @@ func buildJournalEntry(created time.Time, item api.StoredMemoryResponse) string 
 	builder.WriteString("- id: ")
 	builder.WriteString(item.ID)
 	builder.WriteString("\n")
+	if item.Kind != "" {
+		builder.WriteString("- kind: ")
+		builder.WriteString(item.Kind)
+		builder.WriteString("\n")
+	}
 	if item.ChatID != "" {
 		builder.WriteString("- chatId: ")
 		builder.WriteString(item.ChatID)
@@ -54,12 +59,27 @@ func buildJournalEntry(created time.Time, item api.StoredMemoryResponse) string 
 		builder.WriteString(item.SubjectKey)
 		builder.WriteString("\n")
 	}
+	if item.ScopeType != "" {
+		builder.WriteString("- scopeType: ")
+		builder.WriteString(item.ScopeType)
+		builder.WriteString("\n")
+	}
+	if item.ScopeKey != "" {
+		builder.WriteString("- scopeKey: ")
+		builder.WriteString(item.ScopeKey)
+		builder.WriteString("\n")
+	}
 	builder.WriteString("- sourceType: ")
 	builder.WriteString(item.SourceType)
 	builder.WriteString("\n")
 	builder.WriteString("- category: ")
 	builder.WriteString(item.Category)
 	builder.WriteString("\n")
+	if item.Title != "" {
+		builder.WriteString("- title: ")
+		builder.WriteString(item.Title)
+		builder.WriteString("\n")
+	}
 	builder.WriteString("- importance: ")
 	builder.WriteString(fmt.Sprintf("%d", item.Importance))
 	builder.WriteString("\n\n")

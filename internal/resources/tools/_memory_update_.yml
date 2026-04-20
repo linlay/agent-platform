@@ -1,0 +1,43 @@
+name: _memory_update_
+label: 更新记忆
+description: Update an existing memory's title, content, category, scope, tags, status, or confidence.
+type: function
+clientVisible: false
+inputSchema:
+  type: object
+  properties:
+    id:
+      type: string
+      description: Required. Memory ID to update.
+    title:
+      type: string
+      description: Optional new title.
+    content:
+      type: string
+      description: Optional new content.
+    category:
+      type: string
+      description: Optional new category.
+    scopeType:
+      type: string
+      description: Optional new scope type. Supports user, agent, team, chat, or global.
+    scopeKey:
+      type: string
+      description: Optional new scope key.
+    status:
+      type: string
+      description: Optional new status, such as active, open, superseded, archived, or contested.
+    importance:
+      type: integer
+      description: Optional importance from 1 to 10.
+    confidence:
+      type: number
+      description: Optional confidence from 0 to 1.
+    tags:
+      type: array
+      description: Optional full tag list. When provided, it replaces the existing tags.
+      items:
+        type: string
+  required:
+    - id
+  additionalProperties: false

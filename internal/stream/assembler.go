@@ -3,14 +3,15 @@ package stream
 import "sync/atomic"
 
 type StreamRequest struct {
-	RequestID string
-	RunID     string
-	ChatID    string
-	ChatName  string
-	AgentKey  string
-	Message   string
-	Role      string
-	Created   bool
+	RequestID          string
+	RunID              string
+	ChatID             string
+	ChatName           string
+	AgentKey           string
+	Message            string
+	Role               string
+	Created            bool
+	MemoryUsageSummary map[string]any
 }
 
 type StreamEventAssembler struct {
@@ -49,6 +50,9 @@ func (a *StreamEventAssembler) Bootstrap() []StreamEvent {
 			"chatId":   a.request.ChatID,
 			"chatName": a.request.ChatName,
 		}))
+	}
+	if len(a.request.MemoryUsageSummary) > 0 {
+		events = append(events, NewEvent("memory.context", a.request.MemoryUsageSummary))
 	}
 	events = append(events, NewEvent("run.start", map[string]any{
 		"runId":    a.request.RunID,

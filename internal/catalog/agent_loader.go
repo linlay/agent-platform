@@ -81,7 +81,8 @@ func loadAgentPrompts(agentDir string, def *AgentDefinition, root map[string]any
 	}
 
 	def.SoulPrompt = readOptionalMarkdown(filepath.Join(agentDir, "SOUL.md"))
-	def.MemoryPrompt = readOptionalMarkdown(filepath.Join(agentDir, "memory", "memory.md"))
+	def.StaticMemoryPrompt = readOptionalMarkdown(filepath.Join(agentDir, "memory", "memory.md"))
+	def.MemoryPrompt = def.StaticMemoryPrompt
 
 	topPromptFiles := parsePromptFileField(root["promptFile"])
 
@@ -336,10 +337,21 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 		def.Tools = append(def.Tools, "_sandbox_bash_")
 	}
 	memoryConfig := mapNode(root["memoryConfig"])
-	if enabled, ok := memoryConfig["enabled"].(bool); ok && enabled {
+	memoryToolsEnabled := true
+	if enabled, ok := memoryConfig["enabled"].(bool); ok {
+		memoryToolsEnabled = enabled
+	}
+	if memoryToolsEnabled {
 		for _, memTool := range []string{"_memory_write_", "_memory_read_", "_memory_search_"} {
 			if !containsString(def.Tools, memTool) {
 				def.Tools = append(def.Tools, memTool)
+			}
+		}
+		if managementTools, ok := memoryConfig["managementTools"].(bool); ok && managementTools {
+			for _, memTool := range []string{"_memory_update_", "_memory_forget_", "_memory_timeline_", "_memory_promote_", "_memory_consolidate_"} {
+				if !containsString(def.Tools, memTool) {
+					def.Tools = append(def.Tools, memTool)
+				}
 			}
 		}
 	}

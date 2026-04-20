@@ -24,6 +24,7 @@ import (
 	"agent-platform-runner-go/internal/memory"
 	"agent-platform-runner-go/internal/models"
 	"agent-platform-runner-go/internal/observability"
+	"agent-platform-runner-go/internal/skills"
 	"agent-platform-runner-go/internal/stream"
 	"agent-platform-runner-go/internal/ws"
 )
@@ -43,6 +44,7 @@ type Dependencies struct {
 	FrontendTools   *frontendtools.Registry
 	CatalogReloader contracts.CatalogReloader
 	Notifications   contracts.NotificationSink
+	SkillCandidates skills.CandidateStore
 }
 
 type Server struct {
@@ -256,10 +258,12 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/agent", s.method(http.MethodGet, s.handleAgent))
 	s.router.HandleFunc("/api/teams", s.method(http.MethodGet, s.handleTeams))
 	s.router.HandleFunc("/api/skills", s.method(http.MethodGet, s.handleSkills))
+	s.router.HandleFunc("/api/skill-candidates", s.method(http.MethodGet, s.handleSkillCandidates))
 	s.router.HandleFunc("/api/tools", s.method(http.MethodGet, s.handleTools))
 	s.router.HandleFunc("/api/tool", s.method(http.MethodGet, s.handleTool))
 	s.router.HandleFunc("/api/chats", s.method(http.MethodGet, s.handleChats))
 	s.router.HandleFunc("/api/chat", s.method(http.MethodGet, s.handleChat))
+	s.router.HandleFunc("/api/session-search", s.method(http.MethodPost, s.handleSessionSearch))
 	s.router.HandleFunc("/api/read", s.method(http.MethodPost, s.handleRead))
 	s.router.HandleFunc("/api/query", s.method(http.MethodPost, s.handleQuery))
 	s.router.HandleFunc("/api/run/stream", s.method(http.MethodGet, s.handleRunStream))

@@ -1,0 +1,13 @@
+key: _skill_candidate_list_
+name: _skill_candidate_list_
+label: Skill Candidate List
+description: List stored skill candidates for the current agent.
+parameters:
+  type: object
+  properties:
+    agentKey:
+      type: string
+      description: Optional. Target agent key. Defaults to the current agent.
+    limit:
+      type: integer
+      description: Optional. Maximum results to return. Default 20.

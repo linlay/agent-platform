@@ -56,6 +56,29 @@ func TestAssemblerBootstrapSkipsChatStartForExistingChat(t *testing.T) {
 	assertStampedTypes(t, bootstrap, "request.query", "run.start")
 }
 
+func TestAssemblerBootstrapIncludesMemoryContextWhenPresent(t *testing.T) {
+	assembler := NewAssembler(StreamRequest{
+		RequestID: "req_3",
+		RunID:     "run_3",
+		ChatID:    "chat_3",
+		AgentKey:  "agent_3",
+		Message:   "hello",
+		Role:      "user",
+		MemoryUsageSummary: map[string]any{
+			"hasStaticMemory":  true,
+			"stableCount":      2,
+			"observationCount": 1,
+		},
+	})
+
+	bootstrap := assembler.Bootstrap()
+	assertStampedTypes(t, bootstrap, "request.query", "memory.context", "run.start")
+	payload := bootstrap[1].ToData()
+	if payload["stableCount"] != 2 || payload["observationCount"] != 1 {
+		t.Fatalf("unexpected memory.context payload: %#v", payload)
+	}
+}
+
 func TestAssemblerFailNormalizesRunError(t *testing.T) {
 	assembler := NewAssembler(StreamRequest{
 		RunID:  "run_1",

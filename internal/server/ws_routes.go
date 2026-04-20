@@ -289,6 +289,10 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 
 	assembler, mapper := s.newAssemblerAndMapper(prepared)
 	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode)
+	principal := &Principal{Subject: prepared.session.Subject}
+	if strings.TrimSpace(principal.Subject) == "" {
+		principal = nil
+	}
 	StartRunExecutor(RunExecutorParams{
 		RunCtx:        runCtx,
 		Request:       prepared.req,
@@ -303,6 +307,9 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 		Chats:         s.deps.Chats,
 		RunControl:    control,
 		Notifications: s.deps.Notifications,
+		OnPersisted: func(completion chat.RunCompletion) {
+			s.autoLearnIfEnabled(completion.ChatID, completion.RunID, prepared.session.AgentKey, prepared.session.TeamID, principal, prepared.req.RequestID)
+		},
 		OnComplete: func(runID string) {
 			s.deps.Runs.Finish(runID)
 			s.broadcast("run.finished", map[string]any{"runId": runID, "chatId": prepared.req.ChatID})

@@ -10,10 +10,17 @@ type ToolRecord struct {
 	ID             string
 	AgentKey       string
 	SubjectKey     string
+	Kind           string
+	RefID          string
+	ScopeType      string
+	ScopeKey       string
+	Title          string
 	Content        string
 	SourceType     string
 	Category       string
 	Importance     int
+	Confidence     float64
+	Status         string
 	Tags           []string
 	HasEmbedding   bool
 	EmbeddingModel *string
@@ -121,13 +128,28 @@ func toolRecordFromStored(item api.StoredMemoryResponse) ToolRecord {
 		ID:         item.ID,
 		AgentKey:   item.AgentKey,
 		SubjectKey: item.SubjectKey,
+		Kind:       item.Kind,
+		RefID:      item.RefID,
+		ScopeType:  item.ScopeType,
+		ScopeKey:   item.ScopeKey,
+		Title:      item.Title,
 		Content:    item.Summary,
 		SourceType: item.SourceType,
 		Category:   item.Category,
 		Importance: item.Importance,
+		Confidence: item.Confidence,
+		Status:     item.Status,
 		Tags:       append([]string(nil), item.Tags...),
 		CreatedAt:  item.CreatedAt,
 		UpdatedAt:  item.UpdatedAt,
+	}
+	record.Kind = normalizeMemoryKind(record.Kind)
+	record.ScopeType = normalizeScopeType(record.ScopeType)
+	record.Title = normalizeMemoryTitle(record.Title, record.Content)
+	record.Status = normalizeMemoryStatus(record.Status, record.Kind)
+	record.Confidence = normalizeMemoryConfidence(record.Confidence, record.Kind)
+	if strings.TrimSpace(record.RefID) == "" {
+		record.RefID = record.ID
 	}
 	return record
 }

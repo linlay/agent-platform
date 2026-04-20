@@ -5,6 +5,8 @@ import (
 	"log"
 	"strings"
 
+	"agent-platform-runner-go/internal/api"
+	. "agent-platform-runner-go/internal/contracts"
 	. "agent-platform-runner-go/internal/models"
 	"agent-platform-runner-go/internal/observability"
 )
@@ -85,4 +87,34 @@ func (e *LLMAgentEngine) formatLogText(text string) string {
 		return fmt.Sprintf("[masked chars=%d]", len(normalized))
 	}
 	return normalized
+}
+
+func (e *LLMAgentEngine) logPromptMemory(runID string, stage string, req api.QueryRequest, session QuerySession) {
+	memorySection := strings.TrimSpace(buildMemorySection(session, req))
+	if memorySection == "" {
+		return
+	}
+	payload := map[string]any{
+		"source":                 "llm",
+		"status":                 "ok",
+		"runId":                  strings.TrimSpace(runID),
+		"requestId":              strings.TrimSpace(session.RequestID),
+		"chatId":                 strings.TrimSpace(session.ChatID),
+		"agentKey":               strings.TrimSpace(session.AgentKey),
+		"teamId":                 strings.TrimSpace(session.TeamID),
+		"userKey":                strings.TrimSpace(session.Subject),
+		"stage":                  strings.TrimSpace(stage),
+		"memoryPromptChars":      len(memorySection),
+		"memoryPrompt":           e.formatLogText(memorySection),
+		"stableMemoryChars":      len(strings.TrimSpace(session.StableMemoryContext)),
+		"observationMemoryChars": len(strings.TrimSpace(session.ObservationContext)),
+		"stableMemoryCount":      strings.Count("\n"+strings.TrimSpace(session.StableMemoryContext), "\n- "),
+		"observationCount":       strings.Count("\n"+strings.TrimSpace(session.ObservationContext), "\n- "),
+		"hasMemoryContext":       strings.TrimSpace(session.MemoryContext) != "",
+		"hasStaticMemoryPrompt":  strings.TrimSpace(firstNonBlank(session.StaticMemoryPrompt, session.MemoryPrompt)) != "",
+		"hasStableMemory":        strings.TrimSpace(session.StableMemoryContext) != "",
+		"hasObservations":        strings.TrimSpace(session.ObservationContext) != "",
+		"contextTags":            append([]string(nil), session.ContextTags...),
+	}
+	observability.LogMemoryOperation("llm_prompt_memory", payload)
 }

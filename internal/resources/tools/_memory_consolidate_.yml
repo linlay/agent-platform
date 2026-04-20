@@ -1,0 +1,7 @@
+key: _memory_consolidate_
+name: _memory_consolidate_
+label: Memory Consolidate
+description: Consolidate learned observations by archiving stale entries, merging duplicates, and promoting strong observations into stable facts.
+parameters:
+  type: object
+  properties: {}

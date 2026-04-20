@@ -10,6 +10,7 @@ import (
 
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/chat"
+	"agent-platform-runner-go/internal/skills"
 	"agent-platform-runner-go/internal/stream"
 )
 
@@ -21,6 +22,9 @@ type Store interface {
 	ReadDetail(agentKey string, id string) (*ToolRecord, error)
 	List(agentKey string, category string, limit int, sort string) ([]ToolRecord, error)
 	Write(item api.StoredMemoryResponse) error
+	BuildContextBundle(request ContextRequest) (ContextBundle, error)
+	Learn(input LearnInput) (api.LearnResponse, error)
+	Consolidate(agentKey string) (ConsolidationResult, error)
 }
 
 type FileStore struct {
@@ -47,17 +51,32 @@ func (s *FileStore) Remember(chatDetail chat.Detail, request api.RememberRequest
 		ChatID:     request.ChatID,
 		AgentKey:   agentKey,
 		SubjectKey: chatDetail.ChatID,
+		Kind:       KindFact,
+		RefID:      request.ChatID,
+		ScopeType:  ScopeAgent,
+		ScopeKey:   normalizeScopeKey(ScopeAgent, "", agentKey, "", request.ChatID, ""),
+		Title:      normalizeMemoryTitle("", summary),
 		Summary:    summary,
 		SourceType: "remember",
 		Category:   "remember",
 		Importance: rememberImportance,
+		Confidence: 0.9,
+		Status:     StatusActive,
 		Tags:       []string{"remember"},
 		CreatedAt:  now,
 		UpdatedAt:  now,
 	}
+	stored = normalizeStoredItem(stored)
 	if err := s.Write(stored); err != nil {
 		return api.RememberResponse{}, err
 	}
+	logMemoryOperation("remember", map[string]any{
+		"agentKey":    agentKey,
+		"chatId":      request.ChatID,
+		"requestId":   request.RequestID,
+		"memoryCount": 1,
+		"memoryId":    stored.ID,
+	})
 
 	memoryPath := filepath.Join(s.root, request.ChatID+".json")
 	payload := map[string]any{
@@ -176,6 +195,7 @@ func (s *FileStore) Search(query string, limit int) ([]api.StoredMemoryResponse,
 			break
 		}
 	}
+	logMemoryOperation("search", map[string]any{"query": query, "limit": limit, "count": len(out)})
 	return out, nil
 }
 
@@ -187,9 +207,11 @@ func (s *FileStore) Read(id string) (*api.StoredMemoryResponse, error) {
 	for _, item := range items {
 		if item.ID == id {
 			copy := item
+			logMemoryRead("read", "", id, true)
 			return &copy, nil
 		}
 	}
+	logMemoryRead("read", "", id, false)
 	return nil, nil
 }
 
@@ -199,9 +221,11 @@ func (s *FileStore) ReadDetail(agentKey string, id string) (*ToolRecord, error) 
 		return nil, err
 	}
 	if strings.TrimSpace(agentKey) != "" && strings.TrimSpace(item.AgentKey) != strings.TrimSpace(agentKey) {
+		logMemoryRead("read_detail", agentKey, id, false)
 		return nil, nil
 	}
 	record := toolRecordFromStored(*item)
+	logMemoryRead("read_detail", agentKey, id, true)
 	return &record, nil
 }
 
@@ -227,6 +251,7 @@ func (s *FileStore) List(agentKey string, category string, limit int, sortBy str
 	if len(filtered) > limit {
 		filtered = filtered[:limit]
 	}
+	logMemoryOperation("list", map[string]any{"agentKey": agentKey, "category": category, "limit": limit, "sort": sortBy, "count": len(filtered)})
 	return filtered, nil
 }
 
@@ -262,6 +287,7 @@ func (s *FileStore) SearchDetailed(agentKey string, query string, category strin
 	if len(results) > limit {
 		results = results[:limit]
 	}
+	logMemoryOperation("search_detailed", map[string]any{"agentKey": agentKey, "query": query, "category": category, "limit": limit, "count": len(results)})
 	return results, nil
 }
 
@@ -269,11 +295,29 @@ func (s *FileStore) Write(item api.StoredMemoryResponse) error {
 	if err := os.MkdirAll(s.root, 0o755); err != nil {
 		return err
 	}
+	item = normalizeStoredItem(item)
+	if err := validateStoredMemoryItem(item); err != nil {
+		logMemoryWriteRejected("write_rejected", item, err)
+		return err
+	}
+	if strings.TrimSpace(item.ScopeKey) == "" {
+		item.ScopeKey = normalizeScopeKey(item.ScopeType, "", item.AgentKey, "", item.ChatID, "")
+	}
 	payload, err := json.MarshalIndent(item, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(s.root, item.ID+".stored.json"), payload, 0o644)
+	if err := os.WriteFile(filepath.Join(s.root, item.ID+".stored.json"), payload, 0o644); err != nil {
+		return err
+	}
+	logMemoryWrite("write", item)
+	if s.root != "" && strings.TrimSpace(item.AgentKey) != "" {
+		items, err := s.readAllStored()
+		if err == nil {
+			_ = refreshSnapshots(s.root, item.AgentKey, items)
+		}
+	}
+	return nil
 }
 
 func (s *FileStore) readAllStored() ([]api.StoredMemoryResponse, error) {
@@ -294,7 +338,7 @@ func (s *FileStore) readAllStored() ([]api.StoredMemoryResponse, error) {
 		if err := json.Unmarshal(data, &item); err != nil {
 			return nil, err
 		}
-		items = append(items, item)
+		items = append(items, normalizeStoredItem(item))
 	}
 	return items, nil
 }
@@ -303,7 +347,8 @@ func matchesMemoryNeedle(item api.StoredMemoryResponse, needle string) bool {
 	if needle == "" {
 		return true
 	}
-	if strings.Contains(strings.ToLower(item.Summary), needle) ||
+	if strings.Contains(strings.ToLower(item.Title), needle) ||
+		strings.Contains(strings.ToLower(item.Summary), needle) ||
 		strings.Contains(strings.ToLower(item.SubjectKey), needle) ||
 		strings.Contains(strings.ToLower(item.Category), needle) {
 		return true
@@ -329,6 +374,305 @@ func sortToolRecords(items []ToolRecord, sortBy string) {
 		}
 		return items[i].Importance > items[j].Importance
 	})
+}
+
+func (s *FileStore) BuildContextBundle(request ContextRequest) (ContextBundle, error) {
+	items, err := s.readAllStored()
+	if err != nil {
+		return ContextBundle{}, err
+	}
+	bundle := buildContextBundleFromStored(request, items)
+	logMemoryOperation("build_context_bundle", map[string]any{
+		"agentKey":       request.AgentKey,
+		"teamId":         request.TeamID,
+		"chatId":         request.ChatID,
+		"userKey":        request.UserKey,
+		"query":          request.Query,
+		"stableFacts":    len(bundle.StableFacts),
+		"observations":   len(bundle.RelevantObservations),
+		"stableChars":    len(bundle.StablePrompt),
+		"observationLen": len(bundle.ObservationPrompt),
+	})
+	return bundle, nil
+}
+
+func (s *FileStore) Learn(input LearnInput) (api.LearnResponse, error) {
+	stored := extractLearnedMemories(input)
+	for _, item := range stored {
+		if err := s.Write(item); err != nil {
+			return api.LearnResponse{}, err
+		}
+	}
+	response := buildLearnResponse(input, stored)
+	if len(stored) == 0 {
+		response.Accepted = false
+	}
+	autoConsolidation := ConsolidationResult{}
+	candidateCount := 0
+	if input.SkillCandidates != nil {
+		if candidate, ok := skills.CandidateFromRunTrace(input.Trace, input.AgentKey, input.Request.ChatID); ok {
+			if _, err := input.SkillCandidates.Write(candidate); err != nil {
+				return api.LearnResponse{}, err
+			}
+			candidateCount = 1
+		}
+	}
+	if strings.TrimSpace(input.AgentKey) != "" && len(stored) > 0 {
+		items, err := s.readAllStored()
+		if err != nil {
+			return api.LearnResponse{}, err
+		}
+		autoConsolidation, err = s.applyConsolidationPlan(input.AgentKey, buildObservationConsolidationPlanWithMode(input.AgentKey, items, time.Now(), false))
+		if err != nil {
+			return api.LearnResponse{}, err
+		}
+	}
+	logMemoryOperation("learn", map[string]any{
+		"agentKey":            input.AgentKey,
+		"chatId":              input.Request.ChatID,
+		"requestId":           input.Request.RequestID,
+		"observationCount":    len(stored),
+		"skillCandidateCount": candidateCount,
+		"archivedCount":       autoConsolidation.ArchivedCount,
+		"mergedCount":         autoConsolidation.MergedCount,
+		"promotedCount":       autoConsolidation.PromotedCount,
+		"accepted":            response.Accepted,
+	})
+	return response, nil
+}
+
+func (s *FileStore) Consolidate(agentKey string) (ConsolidationResult, error) {
+	items, err := s.readAllStored()
+	if err != nil {
+		return ConsolidationResult{}, err
+	}
+	return s.applyConsolidationPlan(agentKey, buildObservationConsolidationPlan(agentKey, items, time.Now()))
+}
+
+func (s *FileStore) applyConsolidationPlan(agentKey string, plan consolidationPlan) (ConsolidationResult, error) {
+	result := ConsolidationResult{}
+	for id := range plan.archiveIDs {
+		status := StatusArchived
+		record, err := s.Update(agentKey, MutationInput{ID: id, Status: &status})
+		if err != nil {
+			return result, err
+		}
+		if record != nil {
+			result.ArchivedCount++
+			if _, merged := plan.mergeIDs[id]; merged {
+				result.MergedCount++
+			}
+		}
+	}
+	for _, id := range plan.promoteIDs {
+		record, err := s.Promote(agentKey, PromoteInput{
+			SourceID:      id,
+			ScopeType:     ScopeAgent,
+			ArchiveSource: true,
+		})
+		if err != nil {
+			return result, err
+		}
+		if record != nil {
+			result.PromotedCount++
+			result.ArchivedCount++
+		}
+	}
+	logMemoryOperation("consolidate", map[string]any{
+		"agentKey":      agentKey,
+		"archivedCount": result.ArchivedCount,
+		"mergedCount":   result.MergedCount,
+		"promotedCount": result.PromotedCount,
+	})
+	return result, nil
+}
+
+func (s *FileStore) Update(agentKey string, input MutationInput) (*ToolRecord, error) {
+	item, err := s.Read(strings.TrimSpace(input.ID))
+	if err != nil || item == nil {
+		return nil, err
+	}
+	if strings.TrimSpace(agentKey) != "" && strings.TrimSpace(item.AgentKey) != strings.TrimSpace(agentKey) {
+		return nil, nil
+	}
+	if input.Title != nil {
+		item.Title = strings.TrimSpace(*input.Title)
+	}
+	if input.Summary != nil {
+		item.Summary = strings.TrimSpace(*input.Summary)
+	}
+	if input.Category != nil {
+		item.Category = normalizeCategory(*input.Category)
+	}
+	if input.ScopeType != nil {
+		item.ScopeType = normalizeScopeType(*input.ScopeType)
+	}
+	if input.ScopeKey != nil {
+		item.ScopeKey = strings.TrimSpace(*input.ScopeKey)
+	}
+	if input.Status != nil {
+		item.Status = normalizeMemoryStatus(*input.Status, item.Kind)
+	}
+	if input.Importance != nil {
+		item.Importance = normalizeImportance(*input.Importance)
+	}
+	if input.Confidence != nil {
+		item.Confidence = normalizeMemoryConfidence(*input.Confidence, item.Kind)
+	}
+	if input.ReplaceTags {
+		item.Tags = normalizeTags(input.Tags)
+	}
+	item.UpdatedAt = time.Now().UnixMilli()
+	if err := s.Write(*item); err != nil {
+		return nil, err
+	}
+	record := toolRecordFromStored(*item)
+	logMemoryOperation("update", map[string]any{"agentKey": agentKey, "id": input.ID, "status": record.Status})
+	return &record, nil
+}
+
+func (s *FileStore) Forget(agentKey string, id string, status string) (*ToolRecord, error) {
+	status = strings.TrimSpace(status)
+	if status == "" {
+		status = StatusArchived
+	}
+	record, err := s.Update(agentKey, MutationInput{
+		ID:     strings.TrimSpace(id),
+		Status: &status,
+	})
+	if err == nil && record != nil {
+		logMemoryOperation("forget", map[string]any{"agentKey": agentKey, "id": id, "status": record.Status})
+	}
+	return record, err
+}
+
+func (s *FileStore) Timeline(agentKey string, id string, limit int) ([]TimelineEntry, error) {
+	record, err := s.ReadDetail(agentKey, id)
+	if err != nil || record == nil {
+		return nil, err
+	}
+	limit = normalizeLimit(limit, 10)
+	out := []TimelineEntry{{
+		Memory:       *record,
+		RelationType: "self",
+		Direction:    "self",
+	}}
+	items, err := s.readAllStored()
+	if err != nil {
+		return out, nil
+	}
+	for _, item := range items {
+		if strings.TrimSpace(item.ID) == strings.TrimSpace(id) {
+			continue
+		}
+		if strings.TrimSpace(agentKey) != "" && strings.TrimSpace(item.AgentKey) != strings.TrimSpace(agentKey) {
+			continue
+		}
+		if strings.TrimSpace(item.RefID) == strings.TrimSpace(id) ||
+			strings.TrimSpace(record.RefID) == strings.TrimSpace(item.ID) ||
+			strings.TrimSpace(item.RefID) == strings.TrimSpace(record.RefID) ||
+			factDedupeKey(item) == factDedupeKey(api.StoredMemoryResponse{
+				ID:        record.ID,
+				ScopeType: record.ScopeType,
+				ScopeKey:  record.ScopeKey,
+				Title:     record.Title,
+				Summary:   record.Content,
+			}) {
+			out = append(out, TimelineEntry{
+				Memory:       toolRecordFromStored(item),
+				RelationType: "related",
+				Direction:    "peer",
+			})
+		}
+		if len(out) >= limit {
+			break
+		}
+	}
+	logMemoryOperation("timeline", map[string]any{"agentKey": agentKey, "id": id, "limit": limit, "count": len(out)})
+	return out, nil
+}
+
+func (s *FileStore) Promote(agentKey string, input PromoteInput) (*ToolRecord, error) {
+	source, err := s.Read(strings.TrimSpace(input.SourceID))
+	if err != nil || source == nil {
+		return nil, err
+	}
+	if strings.TrimSpace(agentKey) != "" && strings.TrimSpace(source.AgentKey) != strings.TrimSpace(agentKey) {
+		return nil, nil
+	}
+	if normalizeMemoryKind(source.Kind) != KindObservation {
+		return nil, nil
+	}
+	now := time.Now().UnixMilli()
+	item := api.StoredMemoryResponse{
+		ID:         generateMemoryID(),
+		RequestID:  source.RequestID,
+		ChatID:     source.ChatID,
+		AgentKey:   source.AgentKey,
+		SubjectKey: normalizeSubjectKey("", source.ChatID, source.AgentKey),
+		Kind:       KindFact,
+		RefID:      source.ID,
+		ScopeType:  normalizeScopeType(input.ScopeType),
+		ScopeKey:   strings.TrimSpace(input.ScopeKey),
+		Title:      normalizeMemoryTitle(input.Title, firstNonBlank(input.Summary, source.Title, source.Summary)),
+		Summary:    firstNonBlank(input.Summary, source.Summary),
+		SourceType: "promote",
+		Category:   normalizeCategory(firstNonBlank(input.Category, source.Category)),
+		Importance: normalizeImportance(firstPositive(input.Importance, source.Importance)),
+		Confidence: normalizeMemoryConfidence(firstPositiveFloat(input.Confidence, source.Confidence), KindFact),
+		Status:     StatusActive,
+		Tags:       normalizeTags(append([]string{"promoted"}, chooseTags(input.Tags, source.Tags)...)),
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+	if item.ScopeType == "" || item.ScopeType == ScopeChat {
+		item.ScopeType = ScopeAgent
+	}
+	item.ScopeKey = normalizeScopeKey(item.ScopeType, item.ScopeKey, item.AgentKey, "", item.ChatID, "")
+	if err := s.Write(item); err != nil {
+		return nil, err
+	}
+	if input.ArchiveSource {
+		status := StatusArchived
+		_, _ = s.Update(agentKey, MutationInput{ID: source.ID, Status: &status})
+	}
+	record := toolRecordFromStored(item)
+	logMemoryOperation("promote", map[string]any{"agentKey": agentKey, "sourceId": input.SourceID, "id": item.ID, "archiveSource": input.ArchiveSource})
+	return &record, nil
+}
+
+func firstNonBlank(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func firstPositive(values ...int) int {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
+}
+
+func firstPositiveFloat(values ...float64) float64 {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
+}
+
+func chooseTags(input []string, fallback []string) []string {
+	if len(input) > 0 {
+		return input
+	}
+	return fallback
 }
 
 func sortScoredRecords(items []ScoredRecord) {
