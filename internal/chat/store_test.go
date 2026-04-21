@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"database/sql"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -10,6 +11,180 @@ import (
 
 	"agent-platform-runner-go/internal/stream"
 )
+
+func TestFileStoreSetPendingAwaitingPersistsIntoSummaryAndListChats(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-pending", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	pending := PendingAwaiting{
+		AwaitingID: "await_1",
+		RunID:      "run_1",
+		Mode:       "question",
+		CreatedAt:  12345,
+	}
+	if err := store.SetPendingAwaiting("chat-pending", pending); err != nil {
+		t.Fatalf("set pending awaiting: %v", err)
+	}
+
+	summary, err := store.Summary("chat-pending")
+	if err != nil {
+		t.Fatalf("load summary: %v", err)
+	}
+	if summary == nil || summary.PendingAwaiting == nil || *summary.PendingAwaiting != pending {
+		t.Fatalf("unexpected summary pending awaiting %#v", summary)
+	}
+
+	items, err := store.ListChats("", "")
+	if err != nil {
+		t.Fatalf("list chats: %v", err)
+	}
+	if len(items) != 1 || items[0].PendingAwaiting == nil || *items[0].PendingAwaiting != pending {
+		t.Fatalf("unexpected listed pending awaiting %#v", items)
+	}
+}
+
+func TestFileStoreClearPendingAwaitingClearsMatchingAwaitingID(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-clear", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	if err := store.SetPendingAwaiting("chat-clear", PendingAwaiting{
+		AwaitingID: "await_1",
+		RunID:      "run_1",
+		Mode:       "approval",
+		CreatedAt:  45678,
+	}); err != nil {
+		t.Fatalf("set pending awaiting: %v", err)
+	}
+
+	if err := store.ClearPendingAwaiting("chat-clear", "await_1"); err != nil {
+		t.Fatalf("clear pending awaiting: %v", err)
+	}
+
+	summary, err := store.Summary("chat-clear")
+	if err != nil {
+		t.Fatalf("load summary: %v", err)
+	}
+	if summary == nil || summary.PendingAwaiting != nil {
+		t.Fatalf("expected cleared pending awaiting, got %#v", summary)
+	}
+}
+
+func TestFileStoreClearPendingAwaitingIgnoresStaleAwaitingID(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-stale", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	pending := PendingAwaiting{
+		AwaitingID: "await_latest",
+		RunID:      "run_latest",
+		Mode:       "form",
+		CreatedAt:  78901,
+	}
+	if err := store.SetPendingAwaiting("chat-stale", pending); err != nil {
+		t.Fatalf("set pending awaiting: %v", err)
+	}
+
+	if err := store.ClearPendingAwaiting("chat-stale", "await_old"); err != nil {
+		t.Fatalf("clear stale pending awaiting: %v", err)
+	}
+
+	summary, err := store.Summary("chat-stale")
+	if err != nil {
+		t.Fatalf("load summary: %v", err)
+	}
+	if summary == nil || summary.PendingAwaiting == nil || *summary.PendingAwaiting != pending {
+		t.Fatalf("expected pending awaiting to remain after stale clear, got %#v", summary)
+	}
+}
+
+func TestFileStoreMigratesLegacyDBAndRoundTripsPendingAwaiting(t *testing.T) {
+	root := t.TempDir()
+	db, err := sql.Open("sqlite", filepath.Join(root, "chats.db"))
+	if err != nil {
+		t.Fatalf("open legacy chats db: %v", err)
+	}
+	_, err = db.Exec(`
+		CREATE TABLE CHATS (
+			CHAT_ID_ TEXT PRIMARY KEY,
+			CHAT_NAME_ TEXT NOT NULL,
+			AGENT_KEY_ TEXT NOT NULL DEFAULT '',
+			TEAM_ID_ TEXT,
+			CREATED_AT_ INTEGER NOT NULL,
+			UPDATED_AT_ INTEGER NOT NULL,
+			LAST_RUN_ID_ TEXT NOT NULL DEFAULT '',
+			LAST_RUN_CONTENT_ TEXT NOT NULL DEFAULT '',
+			READ_STATUS_ INTEGER NOT NULL DEFAULT 1,
+			READ_AT_ INTEGER,
+			USAGE_PROMPT_TOKENS_ INTEGER NOT NULL DEFAULT 0,
+			USAGE_COMPLETION_TOKENS_ INTEGER NOT NULL DEFAULT 0,
+			USAGE_TOTAL_TOKENS_ INTEGER NOT NULL DEFAULT 0
+		);
+	`)
+	if err != nil {
+		t.Fatalf("create legacy chats table: %v", err)
+	}
+	_, err = db.Exec(`INSERT INTO CHATS (CHAT_ID_, CHAT_NAME_, AGENT_KEY_, CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_STATUS_) VALUES (?, ?, ?, ?, ?, '', '', 1)`,
+		"chat-legacy", "legacy", "agent", 100, 200)
+	if err != nil {
+		t.Fatalf("insert legacy chat: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close legacy chats db: %v", err)
+	}
+
+	store, err := NewFileStore(root)
+	if err != nil {
+		t.Fatalf("new file store from legacy db: %v", err)
+	}
+
+	summary, err := store.Summary("chat-legacy")
+	if err != nil {
+		t.Fatalf("load migrated summary: %v", err)
+	}
+	if summary == nil || summary.PendingAwaiting != nil {
+		t.Fatalf("expected migrated summary without pending awaiting, got %#v", summary)
+	}
+
+	pending := PendingAwaiting{
+		AwaitingID: "await_legacy",
+		RunID:      "run_legacy",
+		Mode:       "question",
+		CreatedAt:  24680,
+	}
+	if err := store.SetPendingAwaiting("chat-legacy", pending); err != nil {
+		t.Fatalf("set pending awaiting after migration: %v", err)
+	}
+	summary, err = store.Summary("chat-legacy")
+	if err != nil {
+		t.Fatalf("reload migrated summary after set: %v", err)
+	}
+	if summary == nil || summary.PendingAwaiting == nil || *summary.PendingAwaiting != pending {
+		t.Fatalf("expected migrated summary pending awaiting, got %#v", summary)
+	}
+	if err := store.ClearPendingAwaiting("chat-legacy", "await_legacy"); err != nil {
+		t.Fatalf("clear pending awaiting after migration: %v", err)
+	}
+	summary, err = store.Summary("chat-legacy")
+	if err != nil {
+		t.Fatalf("reload migrated summary after clear: %v", err)
+	}
+	if summary == nil || summary.PendingAwaiting != nil {
+		t.Fatalf("expected pending awaiting cleared after migration round trip, got %#v", summary)
+	}
+}
 
 func TestFileStoreListChatsUsesParsedRunIDCursor(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())

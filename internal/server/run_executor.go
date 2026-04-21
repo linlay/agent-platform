@@ -42,6 +42,11 @@ type runEventProcessor struct {
 	runUsage      *chat.UsageData
 }
 
+type awaitingTracker struct {
+	pendingAwaitingID string
+	pendingMode       string
+}
+
 func (p *runEventProcessor) Consume(event stream.StreamEvent) (stream.EventData, bool) {
 	data := event.Data()
 	p.decorate(&data)
@@ -125,7 +130,9 @@ func StartRunExecutor(params RunExecutorParams) {
 }
 
 func runExecutor(params RunExecutorParams) {
+	tracker := &awaitingTracker{}
 	defer func() {
+		maybeBroadcastInterruptedAwaiting(params, tracker)
 		if params.StepWriter != nil {
 			params.StepWriter.Flush()
 		}
@@ -160,6 +167,7 @@ func runExecutor(params RunExecutorParams) {
 
 	publish := func(event stream.StreamEvent) {
 		data, visible := processor.Consume(event)
+		handleAwaitingLifecycle(params, data, tracker)
 		if visible && params.EventBus != nil {
 			params.EventBus.Publish(data)
 		}
@@ -231,6 +239,103 @@ func runExecutor(params RunExecutorParams) {
 		publish(event)
 	}
 	persistRunCompletionIfNeeded(params, assistantText.String(), runUsage, true)
+}
+
+func handleAwaitingLifecycle(params RunExecutorParams, data stream.EventData, tracker *awaitingTracker) {
+	switch data.Type {
+	case "awaiting.ask":
+		awaitingID := strings.TrimSpace(data.String("awaitingId"))
+		if awaitingID == "" {
+			return
+		}
+		runID := strings.TrimSpace(data.String("runId"))
+		if runID == "" {
+			runID = params.Session.RunID
+		}
+		mode := strings.TrimSpace(data.String("mode"))
+		pending := chat.PendingAwaiting{
+			AwaitingID: awaitingID,
+			RunID:      runID,
+			Mode:       mode,
+			CreatedAt:  data.Timestamp,
+		}
+		if params.Chats != nil {
+			_ = params.Chats.SetPendingAwaiting(params.Session.ChatID, pending)
+		}
+		tracker.pendingAwaitingID = awaitingID
+		tracker.pendingMode = mode
+		if params.Notifications != nil {
+			params.Notifications.Broadcast("awaiting.ask", map[string]any{
+				"chatId":     params.Session.ChatID,
+				"runId":      runID,
+				"agentKey":   params.Session.AgentKey,
+				"awaitingId": awaitingID,
+				"mode":       mode,
+				"timeout":    contracts.AnyIntNode(data.Value("timeout")),
+				"createdAt":  data.Timestamp,
+			})
+		}
+	case "awaiting.answer":
+		awaitingID := strings.TrimSpace(data.String("awaitingId"))
+		if awaitingID == "" {
+			return
+		}
+		if params.Chats != nil {
+			_ = params.Chats.ClearPendingAwaiting(params.Session.ChatID, awaitingID)
+		}
+		if tracker.pendingAwaitingID == awaitingID {
+			tracker.pendingAwaitingID = ""
+			tracker.pendingMode = ""
+		}
+		runID := strings.TrimSpace(data.String("runId"))
+		if runID == "" {
+			runID = params.Session.RunID
+		}
+		payload := map[string]any{
+			"chatId":     params.Session.ChatID,
+			"runId":      runID,
+			"awaitingId": awaitingID,
+			"mode":       strings.TrimSpace(data.String("mode")),
+			"status":     strings.TrimSpace(data.String("status")),
+			"resolvedAt": data.Timestamp,
+		}
+		if errorCode := awaitingAnswerErrorCode(data); errorCode != "" {
+			payload["errorCode"] = errorCode
+		}
+		if params.Notifications != nil {
+			params.Notifications.Broadcast("awaiting.answer", payload)
+		}
+	}
+}
+
+func awaitingAnswerErrorCode(data stream.EventData) string {
+	errPayload := contracts.AnyMapNode(data.Value("error"))
+	if len(errPayload) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(contracts.AnyStringNode(errPayload["code"]))
+}
+
+func maybeBroadcastInterruptedAwaiting(params RunExecutorParams, tracker *awaitingTracker) {
+	if tracker == nil || strings.TrimSpace(tracker.pendingAwaitingID) == "" {
+		return
+	}
+	if params.Chats != nil {
+		_ = params.Chats.ClearPendingAwaiting(params.Session.ChatID, tracker.pendingAwaitingID)
+	}
+	if params.Notifications != nil {
+		params.Notifications.Broadcast("awaiting.answer", map[string]any{
+			"chatId":     params.Session.ChatID,
+			"runId":      params.Session.RunID,
+			"awaitingId": tracker.pendingAwaitingID,
+			"mode":       tracker.pendingMode,
+			"status":     "error",
+			"errorCode":  "run_interrupted",
+			"resolvedAt": time.Now().UnixMilli(),
+		})
+	}
+	tracker.pendingAwaitingID = ""
+	tracker.pendingMode = ""
 }
 
 func persistRunCompletionIfNeeded(params RunExecutorParams, assistantText string, runUsage chat.UsageData, always bool) {

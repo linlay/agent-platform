@@ -23,7 +23,7 @@ func (p *anthropicProtocol) PrepareRequest(params protocolStreamParams) (prepare
 		return preparedProviderRequest{}, err
 	}
 
-	requestBody, effectiveToolChoice, err := p.buildRequestBody(params.model, params.stageSettings, params.messages, params.toolSpecs, params.toolChoice, params.protocolConfig)
+	requestBody, _, err := p.buildRequestBody(params.model, params.stageSettings, params.messages, params.toolSpecs, params.toolChoice, params.protocolConfig)
 	if err != nil {
 		return preparedProviderRequest{}, err
 	}

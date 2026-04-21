@@ -30,6 +30,14 @@ func (s *Server) listChatSummaries(lastRunID string, agentKey string) ([]api.Cha
 			ReadStatus:     item.ReadStatus,
 			ReadAt:         item.ReadAt,
 		}
+		if item.PendingAwaiting != nil {
+			resp.PendingAwaiting = &api.PendingAwaiting{
+				AwaitingID: item.PendingAwaiting.AwaitingID,
+				RunID:      item.PendingAwaiting.RunID,
+				Mode:       item.PendingAwaiting.Mode,
+				CreatedAt:  item.PendingAwaiting.CreatedAt,
+			}
+		}
 		if item.Usage != nil && item.Usage.TotalTokens > 0 {
 			resp.Usage = &api.ChatUsageData{
 				PromptTokens:     item.Usage.PromptTokens,

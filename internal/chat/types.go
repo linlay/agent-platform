@@ -148,17 +148,25 @@ type StoredFunction struct {
 // ---------------------------------------------------------------------------
 
 type Summary struct {
-	ChatID         string     `json:"chatId"`
-	ChatName       string     `json:"chatName"`
-	AgentKey       string     `json:"agentKey,omitempty"`
-	TeamID         string     `json:"teamId,omitempty"`
-	CreatedAt      int64      `json:"createdAt"`
-	UpdatedAt      int64      `json:"updatedAt"`
-	LastRunID      string     `json:"lastRunId,omitempty"`
-	LastRunContent string     `json:"lastRunContent,omitempty"`
-	ReadStatus     int        `json:"readStatus"`
-	ReadAt         *int64     `json:"readAt,omitempty"`
-	Usage          *UsageData `json:"usage,omitempty"`
+	ChatID          string           `json:"chatId"`
+	ChatName        string           `json:"chatName"`
+	AgentKey        string           `json:"agentKey,omitempty"`
+	TeamID          string           `json:"teamId,omitempty"`
+	CreatedAt       int64            `json:"createdAt"`
+	UpdatedAt       int64            `json:"updatedAt"`
+	LastRunID       string           `json:"lastRunId,omitempty"`
+	LastRunContent  string           `json:"lastRunContent,omitempty"`
+	ReadStatus      int              `json:"readStatus"`
+	ReadAt          *int64           `json:"readAt,omitempty"`
+	PendingAwaiting *PendingAwaiting `json:"pendingAwaiting,omitempty"`
+	Usage           *UsageData       `json:"usage,omitempty"`
+}
+
+type PendingAwaiting struct {
+	AwaitingID string `json:"awaitingId"`
+	RunID      string `json:"runId"`
+	Mode       string `json:"mode"`
+	CreatedAt  int64  `json:"createdAt"`
 }
 
 type Detail struct {
