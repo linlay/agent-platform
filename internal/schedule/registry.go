@@ -22,8 +22,9 @@ import (
 )
 
 var (
-	cronParser  = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-	uuidPattern = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+	cronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
+	// chatId 不再强制 UUID：放宽为字母/数字/_-.:@ 组合，兼容企微网关拼接的 base36 id。
+	chatIDPattern = regexp.MustCompile(`^[A-Za-z0-9_\-.:@]+$`)
 )
 
 type TeamLookup interface {
@@ -179,6 +180,7 @@ func (r *Registry) parseDefinition(path string) (Definition, error) {
 		Query:         query,
 		PushURL:       stringNode(root["pushUrl"]),
 		PushTargetID:  stringNode(root["pushTargetId"]),
+		PushMessage:   stringNode(root["pushMessage"]),
 		SourceFile:    path,
 	}, nil
 }
@@ -213,7 +215,7 @@ func parseQuery(node map[string]any) (Query, error) {
 	if err != nil {
 		return Query{}, err
 	}
-	if chatID != "" && !uuidPattern.MatchString(chatID) {
+	if chatID != "" && !chatIDPattern.MatchString(chatID) {
 		return Query{}, fmt.Errorf("invalid query.chatId %q", chatID)
 	}
 	role, err := optionalStringNode(node, "role")

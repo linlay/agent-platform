@@ -75,10 +75,7 @@ func TestClientConnectDispatchBroadcastAndReconnect(t *testing.T) {
 	if first.authorization != "Bearer dev-token" {
 		t.Fatalf("expected Authorization header to be forwarded, got %q", first.authorization)
 	}
-	connected := waitForPush(t, first.conn, "connected")
-	if connected.Frame != ws.FramePush {
-		t.Fatalf("expected push frame, got %#v", connected)
-	}
+	// 反向 WS 模式下 client 不再主动发 push.connected —— 让网关按自己的节奏发注册 ACK。
 
 	if err := first.conn.WriteJSON(ws.RequestFrame{
 		Frame:   ws.FrameRequest,
@@ -105,7 +102,16 @@ func TestClientConnectDispatchBroadcastAndReconnect(t *testing.T) {
 
 	second := waitAcceptedConn(t, accepted)
 	defer second.conn.Close()
-	waitForPush(t, second.conn, "connected")
+	// 重连后仍然 silent，不发 push.connected；用一次请求往返验证连接已经恢复。
+	if err := second.conn.WriteJSON(ws.RequestFrame{
+		Frame:   ws.FrameRequest,
+		Type:    "/api/agents",
+		ID:      "req_agents_2",
+		Payload: ws.MarshalPayload(map[string]any{}),
+	}); err != nil {
+		t.Fatalf("write agents request after reconnect: %v", err)
+	}
+	waitForResponse(t, second.conn, "req_agents_2")
 }
 
 func TestClientStopClosesActiveConnection(t *testing.T) {
@@ -142,7 +148,6 @@ func TestClientStopClosesActiveConnection(t *testing.T) {
 
 	first := waitAcceptedConn(t, accepted)
 	defer first.conn.Close()
-	waitForPush(t, first.conn, "connected")
 
 	stopped := make(chan struct{})
 	go func() {

@@ -193,7 +193,7 @@ func TestRegistrySkipsInvalidSchedules(t *testing.T) {
 	root := t.TempDir()
 	files := map[string]string{
 		"missing-message.yml":       "name: Missing Message\ndescription: bad\ncron: \"17 9 * * *\"\nagentKey: demo-agent\nquery:\n  hidden: true\n",
-		"invalid-chat.yml":          "name: Invalid Chat\ndescription: bad\ncron: \"17 9 * * *\"\nagentKey: demo-agent\nquery:\n  message: hi\n  chatId: not-a-uuid\n",
+		"invalid-chat.yml":          "name: Invalid Chat\ndescription: bad\ncron: \"17 9 * * *\"\nagentKey: demo-agent\nquery:\n  message: hi\n  chatId: \"bad chat id!\"\n",
 		"invalid-zone.yml":          "name: Invalid Zone\ndescription: bad\ncron: \"17 9 * * *\"\nagentKey: demo-agent\nenvironment:\n  zoneId: Mars/Base\nquery:\n  message: hi\n",
 		"invalid-cron.yml":          "name: Invalid Cron\ndescription: bad\ncron: \"0 0 9 * * *\"\nagentKey: demo-agent\nquery:\n  message: hi\n",
 		"invalid-text-cron.yml":     "name: Invalid Text Cron\ndescription: bad\ncron: \"nope\"\nagentKey: demo-agent\nquery:\n  message: hi\n",
@@ -298,7 +298,7 @@ func TestOrchestratorRegistersEnabledCronSchedule(t *testing.T) {
 
 	orchestrator := NewOrchestrator(NewRegistry(root, nil), NewDispatcher(func(_ context.Context, _ api.QueryRequest) error {
 		return nil
-	}), config.ScheduleConfig{})
+	}, nil), config.ScheduleConfig{})
 	if err := orchestrator.Start(context.Background()); err != nil {
 		t.Fatalf("start orchestrator: %v", err)
 	}
@@ -320,7 +320,7 @@ func TestOrchestratorConsumesRemainingRunsAndDeletesFile(t *testing.T) {
 	orchestrator := NewOrchestrator(NewRegistry(root, nil), NewDispatcher(func(_ context.Context, req api.QueryRequest) error {
 		dispatched <- req
 		return nil
-	}), config.ScheduleConfig{})
+	}, nil), config.ScheduleConfig{})
 	if err := orchestrator.Start(context.Background()); err != nil {
 		t.Fatalf("start orchestrator: %v", err)
 	}
@@ -373,7 +373,7 @@ func TestOrchestratorConsumesRunOnDispatchFailure(t *testing.T) {
 	orchestrator := NewOrchestrator(NewRegistry(root, nil), NewDispatcher(func(_ context.Context, req api.QueryRequest) error {
 		attempts <- req
 		return expectedErr
-	}), config.ScheduleConfig{})
+	}, nil), config.ScheduleConfig{})
 	if err := orchestrator.Start(context.Background()); err != nil {
 		t.Fatalf("start orchestrator: %v", err)
 	}
@@ -398,7 +398,7 @@ func TestOrchestratorWatchesScheduleDirectory(t *testing.T) {
 	root := t.TempDir()
 	orchestrator := NewOrchestrator(NewRegistry(root, nil), NewDispatcher(func(_ context.Context, _ api.QueryRequest) error {
 		return nil
-	}), config.ScheduleConfig{})
+	}, nil), config.ScheduleConfig{})
 	if err := orchestrator.Start(context.Background()); err != nil {
 		t.Fatalf("start orchestrator: %v", err)
 	}
@@ -450,7 +450,7 @@ func TestOrchestratorUsesDefaultZoneIDWhenScheduleZoneMissing(t *testing.T) {
 
 	orchestrator := NewOrchestrator(
 		NewRegistry(root, nil),
-		NewDispatcher(func(_ context.Context, _ api.QueryRequest) error { return nil }),
+		NewDispatcher(func(_ context.Context, _ api.QueryRequest) error { return nil }, nil),
 		config.ScheduleConfig{DefaultZoneID: "Asia/Shanghai"},
 	)
 	if err := orchestrator.Start(context.Background()); err != nil {
@@ -468,7 +468,7 @@ func TestOrchestratorLimitsDispatchConcurrency(t *testing.T) {
 	root := t.TempDir()
 	orchestrator := NewOrchestrator(
 		NewRegistry(root, nil),
-		NewDispatcher(func(_ context.Context, _ api.QueryRequest) error { return nil }),
+		NewDispatcher(func(_ context.Context, _ api.QueryRequest) error { return nil }, nil),
 		config.ScheduleConfig{PoolSize: 1},
 	)
 
@@ -507,7 +507,7 @@ func TestOrchestratorLimitsDispatchConcurrency(t *testing.T) {
 		<-release
 		atomic.AddInt32(&current, -1)
 		return nil
-	})
+	}, nil)
 
 	done := make(chan error, 2)
 	go func() {
@@ -555,7 +555,7 @@ func TestOrchestratorReleasesDispatchSlotAfterDispatchFailure(t *testing.T) {
 	root := t.TempDir()
 	orchestrator := NewOrchestrator(
 		NewRegistry(root, nil),
-		NewDispatcher(func(_ context.Context, _ api.QueryRequest) error { return nil }),
+		NewDispatcher(func(_ context.Context, _ api.QueryRequest) error { return nil }, nil),
 		config.ScheduleConfig{PoolSize: 1},
 	)
 
@@ -574,7 +574,7 @@ func TestOrchestratorReleasesDispatchSlotAfterDispatchFailure(t *testing.T) {
 			return errors.New("dispatch failed")
 		}
 		return nil
-	})
+	}, nil)
 
 	done1 := make(chan error, 1)
 	done2 := make(chan error, 1)

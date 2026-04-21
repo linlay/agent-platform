@@ -220,14 +220,16 @@ func New(rootCtx context.Context) (*App, error) {
 
 	var gwClient *gatewayclient.Client
 	if cfg.WebSocket.Enabled && strings.TrimSpace(cfg.GatewayWS.URL) != "" {
-		if strings.TrimSpace(cfg.GatewayWS.Token) == "" {
-			log.Printf("gateway websocket disabled: AGENT_GATEWAY_WS_URL is set but AGENT_GATEWAY_WS_TOKEN is empty")
-		} else if hub, ok := notifications.(*ws.Hub); ok {
+		if hub, ok := notifications.(*ws.Hub); ok {
 			if handler := srv.WSHandler(); handler != nil {
 				gwClient = gatewayclient.New(
 					gatewayclient.Config{
 						URL:              strings.TrimSpace(cfg.GatewayWS.URL),
 						Token:            strings.TrimSpace(cfg.GatewayWS.Token),
+						UserID:           strings.TrimSpace(cfg.GatewayWS.UserID),
+						Ticket:           strings.TrimSpace(cfg.GatewayWS.Ticket),
+						AgentKey:         strings.TrimSpace(cfg.GatewayWS.AgentKey),
+						Channel:          strings.TrimSpace(cfg.GatewayWS.Channel),
 						HandshakeTimeout: time.Duration(cfg.GatewayWS.HandshakeTimeoutMs) * time.Millisecond,
 						ReconnectMin:     time.Duration(cfg.GatewayWS.ReconnectMinMs) * time.Millisecond,
 						ReconnectMax:     time.Duration(cfg.GatewayWS.ReconnectMaxMs) * time.Millisecond,
@@ -245,6 +247,10 @@ func New(rootCtx context.Context) (*App, error) {
 	var scheduler *schedule.Orchestrator
 	if cfg.Schedule.Enabled {
 		scheduleRegistry := schedule.NewRegistry(cfg.Paths.SchedulesDir, registry)
+		var scheduleBroadcaster schedule.Broadcaster
+		if hub, ok := notifications.(*ws.Hub); ok {
+			scheduleBroadcaster = hub
+		}
 		dispatcher := schedule.NewDispatcher(func(ctx context.Context, req api.QueryRequest) error {
 			// schedule 触发的 run 标记为 hidden：
 			// chat 不记录伪造的"用户发消息"，chat.created 也不广播，
@@ -259,7 +265,7 @@ func New(rootCtx context.Context) (*App, error) {
 				return fmt.Errorf("scheduled query failed with status %d: %s", status, summarizeScheduleErrorBody(body))
 			}
 			return nil
-		})
+		}, scheduleBroadcaster)
 		scheduler = schedule.NewOrchestrator(scheduleRegistry, dispatcher, cfg.Schedule)
 		if err := scheduler.Start(backgroundCtx); err != nil {
 			backgroundCancel()
