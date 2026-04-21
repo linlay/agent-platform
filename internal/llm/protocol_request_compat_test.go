@@ -9,12 +9,6 @@ import (
 	. "agent-platform-runner-go/internal/models"
 )
 
-type roundTripperFunc func(*http.Request) (*http.Response, error)
-
-func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
-	return f(req)
-}
-
 func TestCompatRequestOverridesMergeAlwaysAndReasoningScopedEntries(t *testing.T) {
 	provider := ProviderDefinition{
 		Protocols: map[string]ProtocolDefinition{
@@ -222,7 +216,7 @@ func TestAnthropicPrepareRequestExposesDebugPayload(t *testing.T) {
 			}
 			if tc.wantScoped {
 				thinking, _ := prepared.RequestBody["thinking"].(map[string]any)
-				if thinking["budget_tokens"] != 8192 {
+				if AnyIntNode(thinking["budget_tokens"]) != 8192 {
 					t.Fatalf("expected compat thinking override to win, got %#v", prepared.RequestBody)
 				}
 			}

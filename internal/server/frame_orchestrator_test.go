@@ -28,18 +28,27 @@ func (r orchestratorRegistry) AgentDefinition(key string) (catalog.AgentDefiniti
 }
 
 type orchestratorAgentEngine struct {
-	streams []contracts.AgentStream
-	err     error
-	index   int
-	mu      sync.Mutex
+	streams           []contracts.AgentStream
+	streamsByAgentKey map[string]contracts.AgentStream
+	err               error
+	index             int
+	mu                sync.Mutex
 }
 
-func (e *orchestratorAgentEngine) Stream(context.Context, api.QueryRequest, contracts.QuerySession) (contracts.AgentStream, error) {
+func (e *orchestratorAgentEngine) Stream(_ context.Context, req api.QueryRequest, _ contracts.QuerySession) (contracts.AgentStream, error) {
 	if e.err != nil {
 		return nil, e.err
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if len(e.streamsByAgentKey) > 0 {
+		stream, ok := e.streamsByAgentKey[req.AgentKey]
+		if !ok {
+			return nil, io.EOF
+		}
+		delete(e.streamsByAgentKey, req.AgentKey)
+		return stream, nil
+	}
 	if e.index >= len(e.streams) {
 		return nil, io.EOF
 	}
@@ -274,7 +283,11 @@ func TestFrameOrchestratorPartialFailureAggregation(t *testing.T) {
 	childTwo := &stubOrchestratableStream{}
 	childThree := &stubOrchestratableStream{finalText: "published"}
 	var emitted []contracts.AgentDelta
-	orchestrator := newTestFrameOrchestrator(&orchestratorAgentEngine{streams: []contracts.AgentStream{childOne, childTwo, childThree}}, map[string]catalog.AgentDefinition{
+	orchestrator := newTestFrameOrchestrator(&orchestratorAgentEngine{streamsByAgentKey: map[string]contracts.AgentStream{
+		"writer":    childOne,
+		"reviewer":  childTwo,
+		"publisher": childThree,
+	}}, map[string]catalog.AgentDefinition{
 		"writer":    {Key: "writer", Name: "Writer", Mode: "REACT"},
 		"reviewer":  {Key: "reviewer", Name: "Reviewer", Mode: "REACT"},
 		"publisher": {Key: "publisher", Name: "Publisher", Mode: "REACT"},
@@ -311,9 +324,17 @@ func TestFrameOrchestratorPartialFailureAggregation(t *testing.T) {
 	if len(emitted) != 6 {
 		t.Fatalf("expected three starts and three terminal lifecycle deltas, got %#v", emitted)
 	}
-	failedLifecycle, ok := emitted[4].(contracts.DeltaTaskLifecycle)
-	if !ok || failedLifecycle.Kind != "fail" || failedLifecycle.Error == nil {
-		t.Fatalf("expected failed lifecycle delta for middle task, got %#v", emitted[4])
+	var failedLifecycle *contracts.DeltaTaskLifecycle
+	for _, delta := range emitted[3:] {
+		lifecycle, ok := delta.(contracts.DeltaTaskLifecycle)
+		if !ok || lifecycle.Kind != "fail" {
+			continue
+		}
+		failedLifecycle = &lifecycle
+		break
+	}
+	if failedLifecycle == nil || failedLifecycle.Status != "failed" || failedLifecycle.Error == nil {
+		t.Fatalf("expected one failed lifecycle delta in terminal events, got %#v", emitted)
 	}
 }
 

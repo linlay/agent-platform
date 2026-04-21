@@ -1351,7 +1351,7 @@ func TestQueryAndRunStreamIncludeDebugEventsWhenEnabled(t *testing.T) {
 	if provider["key"] != "mock" {
 		t.Fatalf("expected provider key mock, got %#v", provider)
 	}
-	if provider["endpoint"] != "https://example.com/v1/chat/completions" {
+	if !strings.HasSuffix(stringValue(provider["endpoint"]), "/v1/chat/completions") {
 		t.Fatalf("unexpected provider endpoint %#v", provider)
 	}
 	if model["key"] != "mock-model" || model["id"] != "mock-model-id" {
@@ -2166,7 +2166,7 @@ func TestQuestionChunkedArgsEmitAwaitAfterFirstToolArgs(t *testing.T) {
 		switch call {
 		case 1:
 			writeProviderSSE(t, w,
-				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Notification topics\",\"type\":\"select\","}}]}}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Notification topics\",\"type\":\"multi-select\","}}]}}]}`,
 				`{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"options\":[{\"label\":\"产品更新\",\"description\":\"Release notes and new features\"},{\"label\":\"使用教程\",\"description\":\"How-to guides and walkthroughs\"}],\"allowFreeText\":false},{\"question\":\"How many people?\",\"type\":\"number\"}]}"}}]},"finish_reason":"tool_calls"}]}`,
 				`[DONE]`,
 			)
@@ -3883,6 +3883,14 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 	t.Helper()
 	root := t.TempDir()
 	providerServer := newLoopbackServer(t, modelHandler)
+	containerHubServer := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/environments/") && strings.HasSuffix(r.URL.Path, "/agent-prompt") {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"environmentName":"shell","hasPrompt":true,"prompt":"Mock sandbox prompt"}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
 
 	registriesDir := filepath.Join(root, "registries")
 	agentsDir := filepath.Join(root, "agents")
@@ -4023,7 +4031,10 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 			MaxCommandChars:         16000,
 		},
 		ContainerHub: config.ContainerHubConfig{
-			Enabled: false,
+			Enabled:          true,
+			BaseURL:          containerHubServer.URL,
+			RequestTimeoutMs: 1000,
+			ResolvedEngine:   "local",
 		},
 	}
 	if options.configure != nil {
