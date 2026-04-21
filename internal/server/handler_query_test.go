@@ -255,6 +255,15 @@ func TestPrepareQueryBuildsLayeredMemoryContexts(t *testing.T) {
 	if len(prepared.memoryUsageSummary.SessionItems) != 1 || prepared.memoryUsageSummary.SessionItems[0].Summary != "上次已经调整过下周工时安排，继续安排下周工时时要参考这个结果。" {
 		t.Fatalf("unexpected session memory items: %#v", prepared.memoryUsageSummary.SessionItems)
 	}
+	if len(prepared.memoryUsageSummary.HitItems) != 2 {
+		t.Fatalf("expected 2 memory hit items, got %#v", prepared.memoryUsageSummary.HitItems)
+	}
+	if prepared.memoryUsageSummary.HitItems[0].Layer != "stable" || prepared.memoryUsageSummary.HitItems[1].Layer != "session" {
+		t.Fatalf("unexpected memory hit item layers: %#v", prepared.memoryUsageSummary.HitItems)
+	}
+	if got := prepared.memoryUsageSummary.UserHint; !containsAll(got, []string{"本次回答借鉴了历史记忆", "Work hours preference", "Recent schedule adjustme"}) {
+		t.Fatalf("unexpected memory user hint: %q", got)
+	}
 	if prepared.session.MemoryUsageSummary == nil {
 		t.Fatalf("expected session memory usage summary, got nil")
 	}
