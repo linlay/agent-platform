@@ -2021,3 +2021,156 @@ func TestLoadChatReplaysLegacySourcePublishEvent(t *testing.T) {
 		t.Fatalf("expected content.snapshot to remain intact, got %#v", detail.Events)
 	}
 }
+
+func TestStepWriterBatchedArtifactPublishUpdatesArtifactState(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	if _, _, err := store.EnsureChat("chat-artifact-batch", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	writer := NewStepWriter(store, "chat-artifact-batch", "run-artifact-batch", "REACT", false)
+	writer.OnEvent(stream.EventData{
+		Type:      "run.start",
+		Timestamp: 1000,
+		Payload:   map[string]any{"chatId": "chat-artifact-batch", "runId": "run-artifact-batch"},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "artifact.publish",
+		Timestamp: 1001,
+		Payload: map[string]any{
+			"chatId":        "chat-artifact-batch",
+			"runId":         "run-artifact-batch",
+			"artifactCount": 2,
+			"artifacts": []map[string]any{
+				{
+					"artifactId": "artifact_1",
+					"type":       "file",
+					"name":       "report.md",
+					"mimeType":   "text/markdown",
+					"sizeBytes":  123,
+					"url":        "/api/resource?file=chat-artifact-batch%2Freport.md",
+					"sha256":     "abc123",
+				},
+				{
+					"artifactId": "artifact_2",
+					"type":       "file",
+					"name":       "summary.txt",
+					"mimeType":   "text/plain",
+					"sizeBytes":  45,
+					"url":        "/api/resource?file=chat-artifact-batch%2Fsummary.txt",
+					"sha256":     "def456",
+				},
+			},
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "content.snapshot",
+		Timestamp: 1002,
+		Payload: map[string]any{
+			"contentId": "run-artifact-batch_c_1",
+			"runId":     "run-artifact-batch",
+			"text":      "done",
+		},
+	})
+	writer.Flush()
+
+	detail, err := store.LoadChat("chat-artifact-batch")
+	if err != nil {
+		t.Fatalf("load chat: %v", err)
+	}
+	if detail.Artifact == nil || len(detail.Artifact.Items) != 2 {
+		t.Fatalf("expected two artifacts in detail state, got %#v", detail.Artifact)
+	}
+	if detail.Artifact.Items[0].ArtifactID != "artifact_1" || detail.Artifact.Items[0].SizeBytes != 123 {
+		t.Fatalf("unexpected first artifact %#v", detail.Artifact.Items[0])
+	}
+	if detail.Artifact.Items[1].ArtifactID != "artifact_2" || detail.Artifact.Items[1].SHA256 != "def456" {
+		t.Fatalf("unexpected second artifact %#v", detail.Artifact.Items[1])
+	}
+}
+
+func TestLoadChatReplaysLegacyArtifactPublishEvent(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	if _, _, err := store.EnsureChat("chat-artifact-legacy", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	legacyEvents := []stream.EventData{
+		{
+			Type:      "chat.start",
+			Timestamp: 1000,
+			Payload: map[string]any{
+				"chatId":   "chat-artifact-legacy",
+				"chatName": "hello",
+			},
+		},
+		{
+			Type:      "request.query",
+			Timestamp: 1001,
+			Payload: map[string]any{
+				"chatId":  "chat-artifact-legacy",
+				"runId":   "run-artifact-legacy",
+				"message": "publish files",
+			},
+		},
+		{
+			Type:      "run.start",
+			Timestamp: 1002,
+			Payload: map[string]any{
+				"chatId": "chat-artifact-legacy",
+				"runId":  "run-artifact-legacy",
+			},
+		},
+		{
+			Type:      "artifact.publish",
+			Timestamp: 1003,
+			Payload: map[string]any{
+				"artifactId": "artifact_legacy",
+				"chatId":     "chat-artifact-legacy",
+				"runId":      "run-artifact-legacy",
+				"artifact": map[string]any{
+					"type":      "file",
+					"name":      "legacy.txt",
+					"mimeType":  "text/plain",
+					"sizeBytes": 21,
+					"url":       "/api/resource?file=chat-artifact-legacy%2Flegacy.txt",
+					"sha256":    "legacyhash",
+				},
+			},
+		},
+		{
+			Type:      "run.complete",
+			Timestamp: 1004,
+			Payload: map[string]any{
+				"runId": "run-artifact-legacy",
+			},
+		},
+	}
+
+	for idx := range legacyEvents {
+		legacyEvents[idx].Seq = int64(idx + 1)
+		if err := store.AppendEvent("chat-artifact-legacy", legacyEvents[idx]); err != nil {
+			t.Fatalf("append legacy event: %v", err)
+		}
+	}
+
+	detail, err := store.LoadChat("chat-artifact-legacy")
+	if err != nil {
+		t.Fatalf("load chat: %v", err)
+	}
+	if detail.Artifact == nil || len(detail.Artifact.Items) != 1 {
+		t.Fatalf("expected one legacy artifact, got %#v", detail.Artifact)
+	}
+	item := detail.Artifact.Items[0]
+	if item.ArtifactID != "artifact_legacy" || item.Name != "legacy.txt" || item.MimeType != "text/plain" || item.SizeBytes != 21 || item.SHA256 != "legacyhash" {
+		t.Fatalf("unexpected legacy artifact %#v", item)
+	}
+}

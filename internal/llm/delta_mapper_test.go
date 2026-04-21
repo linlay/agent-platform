@@ -187,3 +187,27 @@ func TestDeltaMapperCloneIsolatedStartsFreshState(t *testing.T) {
 		t.Fatalf("expected original mapper state to remain unchanged, got %#v", third)
 	}
 }
+
+func TestDeltaMapper_ArtifactPublishPreservesBatchPayload(t *testing.T) {
+	mapper := NewDeltaMapper("run_1", "chat_1", 5000, stubToolLookup{}, frontendtools.NewDefaultRegistry())
+
+	inputs := mapper.Map(contracts.DeltaArtifactPublish{
+		ChatID:        "chat_1",
+		RunID:         "run_1",
+		ArtifactCount: 2,
+		Artifacts: []map[string]any{
+			{"artifactId": "artifact_1", "name": "report.md"},
+			{"artifactId": "artifact_2", "name": "summary.txt"},
+		},
+	})
+	if len(inputs) != 1 {
+		t.Fatalf("expected one mapped input, got %#v", inputs)
+	}
+	event, ok := inputs[0].(stream.ArtifactPublish)
+	if !ok {
+		t.Fatalf("expected ArtifactPublish input, got %#v", inputs[0])
+	}
+	if event.ArtifactCount != 2 || len(event.Artifacts) != 2 {
+		t.Fatalf("unexpected artifact batch %#v", event)
+	}
+}

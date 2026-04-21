@@ -331,7 +331,7 @@ func eventPayloadKeyOrder(eventType string) []string {
 	case "stage.marker":
 		return []string{"runId", "chatId", "stage"}
 	case "artifact.publish":
-		return []string{"artifactId", "chatId", "runId", "artifact"}
+		return []string{"chatId", "runId", "artifactCount", "artifacts"}
 	default:
 		return nil
 	}

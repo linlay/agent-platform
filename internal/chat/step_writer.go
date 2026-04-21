@@ -609,18 +609,7 @@ func (w *StepWriter) updateArtifact(event stream.EventData) {
 	if w.latestArtifact == nil {
 		w.latestArtifact = &ArtifactState{}
 	}
-	item, _ := event.Value("artifact").(map[string]any)
-	if item == nil {
-		return
-	}
-	w.latestArtifact.Items = append(w.latestArtifact.Items, ArtifactItemState{
-		ArtifactID: stringVal(event.Value("artifactId")),
-		Type:       stringVal(item["type"]),
-		Name:       stringVal(item["name"]),
-		MimeType:   stringVal(item["mimeType"]),
-		URL:        stringVal(item["url"]),
-		SHA256:     stringVal(item["sha256"]),
-	})
+	w.latestArtifact.Items = append(w.latestArtifact.Items, artifactItemsFromEventPayload(event.Payload)...)
 }
 
 func (w *StepWriter) ensureMsgID() {

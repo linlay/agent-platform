@@ -197,10 +197,10 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		}
 	case DeltaArtifactPublish:
 		return []stream.StreamInput{stream.ArtifactPublish{
-			ArtifactID: value.ArtifactID,
-			ChatID:     value.ChatID,
-			RunID:      value.RunID,
-			Artifact:   value.Artifact,
+			ChatID:        value.ChatID,
+			RunID:         value.RunID,
+			ArtifactCount: value.ArtifactCount,
+			Artifacts:     append([]map[string]any(nil), value.Artifacts...),
 		}}
 	case DeltaAwaitAsk:
 		return []stream.StreamInput{stream.AwaitAsk{

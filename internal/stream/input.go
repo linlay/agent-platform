@@ -127,10 +127,10 @@ type TaskFail struct {
 func (TaskFail) streamInputTag() {}
 
 type ArtifactPublish struct {
-	ArtifactID string
-	ChatID     string
-	RunID      string
-	Artifact   any
+	ChatID        string
+	RunID         string
+	ArtifactCount int
+	Artifacts     []map[string]any
 }
 
 func (ArtifactPublish) streamInputTag() {}

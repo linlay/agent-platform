@@ -971,30 +971,47 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 			Plan:   PlanTasksArray(s.execCtx.PlanState),
 		})
 	}
-	if published, ok := result.Structured["publishedArtifacts"].([]map[string]any); ok {
-		for _, item := range published {
-			s.pending = append(s.pending, DeltaArtifactPublish{
-				ArtifactID: AnyStringNode(item["artifactId"]),
-				ChatID:     s.session.ChatID,
-				RunID:      s.session.RunID,
-				Artifact:   item,
-			})
-		}
-	} else if published, ok := result.Structured["publishedArtifacts"].([]any); ok {
-		for _, raw := range published {
-			item, _ := raw.(map[string]any)
+	appendPublishedArtifactDelta(&s.pending, s.session, result.Structured["publishedArtifacts"])
+	return nil
+}
+
+func appendPublishedArtifactDelta(pending *[]AgentDelta, session QuerySession, raw any) {
+	published := publishedArtifactMaps(raw)
+	if len(published) == 0 {
+		return
+	}
+	*pending = append(*pending, DeltaArtifactPublish{
+		ChatID:        session.ChatID,
+		RunID:         session.RunID,
+		ArtifactCount: len(published),
+		Artifacts:     published,
+	})
+}
+
+func publishedArtifactMaps(raw any) []map[string]any {
+	switch typed := raw.(type) {
+	case []map[string]any:
+		items := make([]map[string]any, 0, len(typed))
+		for _, item := range typed {
 			if len(item) == 0 {
 				continue
 			}
-			s.pending = append(s.pending, DeltaArtifactPublish{
-				ArtifactID: AnyStringNode(item["artifactId"]),
-				ChatID:     s.session.ChatID,
-				RunID:      s.session.RunID,
-				Artifact:   item,
-			})
+			items = append(items, CloneMap(item))
 		}
+		return items
+	case []any:
+		items := make([]map[string]any, 0, len(typed))
+		for _, rawItem := range typed {
+			item, _ := rawItem.(map[string]any)
+			if len(item) == 0 {
+				continue
+			}
+			items = append(items, CloneMap(item))
+		}
+		return items
+	default:
+		return nil
 	}
-	return nil
 }
 
 func (s *llmRunStream) executeApprovedBashInvocation(invocation *preparedToolInvocation, result hitl.InterceptResult) error {

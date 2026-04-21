@@ -254,6 +254,68 @@ func TestPrepareToolCall_LegacyMultiSelectReturnsToolError(t *testing.T) {
 	}
 }
 
+func TestAppendPublishedArtifactDeltaBatchesMultipleArtifacts(t *testing.T) {
+	var pending []contracts.AgentDelta
+
+	appendPublishedArtifactDelta(&pending, contracts.QuerySession{
+		ChatID: "chat_1",
+		RunID:  "run_1",
+	}, []map[string]any{
+		{"artifactId": "artifact_1", "name": "report.md"},
+		{"artifactId": "artifact_2", "name": "summary.txt"},
+	})
+
+	if len(pending) != 1 {
+		t.Fatalf("expected one delta, got %#v", pending)
+	}
+	delta, ok := pending[0].(contracts.DeltaArtifactPublish)
+	if !ok {
+		t.Fatalf("expected DeltaArtifactPublish, got %#v", pending[0])
+	}
+	if delta.ArtifactCount != 2 || len(delta.Artifacts) != 2 {
+		t.Fatalf("unexpected batched delta %#v", delta)
+	}
+}
+
+func TestAppendPublishedArtifactDeltaSkipsEmptyArtifacts(t *testing.T) {
+	var pending []contracts.AgentDelta
+
+	appendPublishedArtifactDelta(&pending, contracts.QuerySession{
+		ChatID: "chat_1",
+		RunID:  "run_1",
+	}, []any{
+		map[string]any{},
+	})
+
+	if len(pending) != 0 {
+		t.Fatalf("expected no delta for empty artifacts, got %#v", pending)
+	}
+}
+
+func TestAppendPublishedArtifactDeltaUsesOnlyPublishedArtifacts(t *testing.T) {
+	var pending []contracts.AgentDelta
+
+	appendPublishedArtifactDelta(&pending, contracts.QuerySession{
+		ChatID: "chat_1",
+		RunID:  "run_1",
+	}, []any{
+		map[string]any{"artifactId": "artifact_1", "name": "report.md"},
+		map[string]any{},
+		map[string]any{"artifactId": "artifact_2", "name": "summary.txt"},
+	})
+
+	if len(pending) != 1 {
+		t.Fatalf("expected one delta, got %#v", pending)
+	}
+	delta := pending[0].(contracts.DeltaArtifactPublish)
+	if delta.ArtifactCount != 2 || len(delta.Artifacts) != 2 {
+		t.Fatalf("expected only successful artifacts in delta, got %#v", delta)
+	}
+	if delta.Artifacts[0]["artifactId"] != "artifact_1" || delta.Artifacts[1]["artifactId"] != "artifact_2" {
+		t.Fatalf("unexpected artifacts %#v", delta.Artifacts)
+	}
+}
+
 func TestPrepareToolCall_InvokeAgentsReturnsBatchPrelude(t *testing.T) {
 	stream := &llmRunStream{
 		engine: &LLMAgentEngine{

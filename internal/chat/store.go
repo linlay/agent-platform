@@ -1117,21 +1117,7 @@ func parsePlanFromStep(raw map[string]any) *PlanState {
 }
 
 func parseArtifactFromStep(raw map[string]any) *ArtifactState {
-	art := &ArtifactState{}
-	items, _ := raw["items"].([]any)
-	for _, item := range items {
-		iMap, _ := item.(map[string]any)
-		if iMap == nil {
-			continue
-		}
-		art.Items = append(art.Items, ArtifactItemState{
-			ArtifactID: stringValue(iMap["artifactId"]),
-			Type:       stringValue(iMap["type"]),
-			Name:       stringValue(iMap["name"]),
-			URL:        stringValue(iMap["url"]),
-		})
-	}
-	return art
+	return &ArtifactState{Items: artifactItemsFromValue(raw["items"])}
 }
 
 type chatRunData struct {
@@ -1375,16 +1361,7 @@ func deriveRunState(events []map[string]any) (*PlanState, *ArtifactState) {
 			if artifact == nil {
 				artifact = &ArtifactState{}
 			}
-			item, _ := event["artifact"].(map[string]any)
-			if item == nil {
-				continue
-			}
-			artifact.Items = append(artifact.Items, ArtifactItemState{
-				ArtifactID: stringValue(event["artifactId"]),
-				Type:       stringValue(item["type"]),
-				Name:       stringValue(item["name"]),
-				URL:        stringValue(item["url"]),
-			})
+			artifact.Items = append(artifact.Items, artifactItemsFromEventPayload(event)...)
 		}
 	}
 	return plan, artifact

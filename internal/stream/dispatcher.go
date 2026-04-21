@@ -60,11 +60,16 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 	case TaskFail:
 		return d.handleTaskFail(value)
 	case ArtifactPublish:
+		artifactCount := value.ArtifactCount
+		if artifactCount <= 0 {
+			artifactCount = len(value.Artifacts)
+		}
+		artifacts := append([]map[string]any(nil), value.Artifacts...)
 		return []StreamEvent{NewEvent("artifact.publish", map[string]any{
-			"artifactId": value.ArtifactID,
-			"chatId":     value.ChatID,
-			"runId":      value.RunID,
-			"artifact":   value.Artifact,
+			"chatId":        value.ChatID,
+			"runId":         value.RunID,
+			"artifactCount": artifactCount,
+			"artifacts":     artifacts,
 		})}
 	case SourcePublish:
 		return d.handleSourcePublish(value)

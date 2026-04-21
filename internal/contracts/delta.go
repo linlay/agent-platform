@@ -98,10 +98,10 @@ type DeltaInvokeSubAgents struct {
 func (DeltaInvokeSubAgents) agentDeltaTag() {}
 
 type DeltaArtifactPublish struct {
-	ArtifactID string
-	ChatID     string
-	RunID      string
-	Artifact   any
+	ChatID        string
+	RunID         string
+	ArtifactCount int
+	Artifacts     []map[string]any
 }
 
 func (DeltaArtifactPublish) agentDeltaTag() {}
