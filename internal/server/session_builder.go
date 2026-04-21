@@ -87,7 +87,12 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 	}
 
 	promptAppend := buildPromptAppendConfig(agentDef)
-	skillHookDirs, sandboxEnvOverrides := resolveSkillRuntimeSettings(sandboxAgentEnv(agentDef.Sandbox["env"]), agentDef.Skills, s.deps.Registry)
+	skillHookDirs, sandboxEnvOverrides := resolveSkillRuntimeSettings(
+		sandboxAgentEnv(agentDef.Sandbox["env"]),
+		agentDef.AgentDir,
+		s.deps.Config.Paths.SkillsMarketDir,
+		agentDef.Skills,
+	)
 	log.Printf("[server][skill-runtime] agent=%s skills=%v hookDirs=%v sandboxEnvKeys=%v",
 		agentDef.Key,
 		agentDef.Skills,
@@ -123,7 +128,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		PromptAppend:          promptAppend,
 		StaticMemoryPrompt:    strings.TrimSpace(agentDef.StaticMemoryPrompt),
 		MemoryPrompt:          agentDef.MemoryPrompt,
-		SkillCatalogPrompt:    buildSkillCatalogPrompt(agentDef, s.deps.Registry, promptAppend),
+		SkillCatalogPrompt:    buildSkillCatalogPrompt(agentDef, s.deps.Config.Paths.SkillsMarketDir, promptAppend),
 		SoulPrompt:            agentDef.SoulPrompt,
 		AgentsPrompt:          agentDef.AgentsPrompt,
 		PlanPrompt:            agentDef.PlanPrompt,

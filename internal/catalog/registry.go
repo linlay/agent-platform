@@ -601,24 +601,12 @@ func defaultString(value string, fallback string) string {
 	return value
 }
 
-func firstNonEmptyMarkdownLine(content string) string {
-	for _, line := range strings.Split(content, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		line = strings.TrimPrefix(line, "#")
-		line = strings.TrimSpace(line)
-		if line != "" {
-			return line
-		}
+func skillDisplayName(name string, description string, fallback string) string {
+	if strings.TrimSpace(name) != "" {
+		return strings.TrimSpace(name)
 	}
-	return ""
-}
-
-func skillDisplayName(description string, fallback string) string {
-	if description != "" {
-		return description
+	if strings.TrimSpace(description) != "" {
+		return strings.TrimSpace(description)
 	}
 	return fallback
 }

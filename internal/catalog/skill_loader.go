@@ -15,6 +15,21 @@ import (
 
 const manifestFile = ".market-synced-skills"
 
+// ResolveSkillDefinition loads a declared skill from real host paths.
+// Agent-local skills win; the skills market is used as a fallback.
+func ResolveSkillDefinition(agentDir, marketDir, skillID string) (SkillDefinition, bool, error) {
+	for _, skillDir := range candidateSkillDirs(agentDir, marketDir, skillID) {
+		def, ok, err := loadSkillDefinitionFromDir(skillDir, skillID, 0)
+		if err != nil {
+			return SkillDefinition{}, false, err
+		}
+		if ok {
+			return def, true, nil
+		}
+	}
+	return SkillDefinition{}, false, nil
+}
+
 func loadSkills(root string, maxPromptChars int) (map[string]SkillDefinition, error) {
 	items := map[string]SkillDefinition{}
 	var loadErr error
@@ -29,37 +44,16 @@ func loadSkills(root string, maxPromptChars int) (map[string]SkillDefinition, er
 				return
 			}
 			skillDir := filepath.Join(root, name)
-			skillPath := filepath.Join(skillDir, "SKILL.md")
-			content, err := os.ReadFile(skillPath)
+			definition, ok, err := loadSkillDefinitionFromDir(skillDir, name, maxPromptChars)
 			if err != nil {
+				loadErr = err
+				return
+			}
+			if !ok {
 				log.Printf("[catalog][skills] skip directory %s: no SKILL.md found", name)
 				return
 			}
-			prompt := strings.TrimSpace(string(content))
-			description := firstNonEmptyMarkdownLine(prompt)
-			truncated := false
-			if maxPromptChars > 0 && len(prompt) > maxPromptChars {
-				truncated = true
-			}
-			bashHooksDir, err := resolveSkillBashHooksDir(skillDir)
-			if err != nil {
-				loadErr = fmt.Errorf("skill %s .bash-hooks: %w", name, err)
-				return
-			}
-			sandboxEnv, err := loadSkillSandboxEnv(skillDir)
-			if err != nil {
-				loadErr = fmt.Errorf("skill %s .sandbox-env.json: %w", name, err)
-				return
-			}
-			items[name] = SkillDefinition{
-				Key:             name,
-				Name:            skillDisplayName(description, name),
-				Description:     description,
-				Prompt:          prompt,
-				PromptTruncated: truncated,
-				BashHooksDir:    bashHooksDir,
-				SandboxEnv:      sandboxEnv,
-			}
+			items[name] = definition
 		},
 	)
 	if err != nil {
@@ -69,6 +63,54 @@ func loadSkills(root string, maxPromptChars int) (map[string]SkillDefinition, er
 		return nil, loadErr
 	}
 	return items, nil
+}
+
+func candidateSkillDirs(agentDir, marketDir, skillID string) []string {
+	dirs := make([]string, 0, 2)
+	if strings.TrimSpace(agentDir) != "" {
+		dirs = append(dirs, filepath.Join(agentDir, "skills", skillID))
+	}
+	if strings.TrimSpace(marketDir) != "" {
+		dirs = append(dirs, filepath.Join(marketDir, skillID))
+	}
+	return dirs
+}
+
+func loadSkillDefinitionFromDir(skillDir, skillID string, maxPromptChars int) (SkillDefinition, bool, error) {
+	if strings.TrimSpace(skillDir) == "" {
+		return SkillDefinition{}, false, nil
+	}
+	skillPath := filepath.Join(skillDir, "SKILL.md")
+	content, err := os.ReadFile(skillPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return SkillDefinition{}, false, nil
+	}
+	if err != nil {
+		return SkillDefinition{}, false, fmt.Errorf("skill %s SKILL.md: %w", skillID, err)
+	}
+
+	prompt := strings.TrimSpace(string(content))
+	name, description := parseSkillPromptMetadata(prompt)
+	truncated := maxPromptChars > 0 && len(prompt) > maxPromptChars
+
+	bashHooksDir, err := resolveSkillBashHooksDir(skillDir)
+	if err != nil {
+		return SkillDefinition{}, false, fmt.Errorf("skill %s .bash-hooks: %w", skillID, err)
+	}
+	sandboxEnv, err := loadSkillSandboxEnv(skillDir)
+	if err != nil {
+		return SkillDefinition{}, false, fmt.Errorf("skill %s .sandbox-env.json: %w", skillID, err)
+	}
+
+	return SkillDefinition{
+		Key:             skillID,
+		Name:            skillDisplayName(name, description, skillID),
+		Description:     description,
+		Prompt:          prompt,
+		PromptTruncated: truncated,
+		BashHooksDir:    bashHooksDir,
+		SandboxEnv:      sandboxEnv,
+	}, true, nil
 }
 
 func resolveSkillBashHooksDir(skillDir string) (string, error) {
@@ -100,6 +142,114 @@ func loadSkillSandboxEnv(skillDir string) (map[string]string, error) {
 		return nil, err
 	}
 	return env, nil
+}
+
+func parseSkillPromptMetadata(prompt string) (string, string) {
+	name, description, body := parseSkillFrontMatter(prompt)
+	heading := firstMarkdownHeading(body)
+	firstLine := firstNonEmptyMarkdownLine(body)
+	if strings.TrimSpace(description) == "" {
+		description = firstLine
+	}
+	if strings.TrimSpace(name) == "" {
+		if strings.TrimSpace(heading) != "" {
+			name = heading
+		} else {
+			name = description
+		}
+	}
+	return strings.TrimSpace(name), strings.TrimSpace(description)
+}
+
+func parseSkillFrontMatter(prompt string) (string, string, string) {
+	lines := strings.Split(prompt, "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
+		return "", "", prompt
+	}
+	end := -1
+	for i := 1; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == "---" {
+			end = i
+			break
+		}
+	}
+	if end < 0 {
+		return "", "", prompt
+	}
+
+	var name string
+	var description string
+	for _, line := range lines[1:end] {
+		key, value, ok := parseFrontMatterLine(line)
+		if !ok {
+			continue
+		}
+		switch strings.ToLower(key) {
+		case "name":
+			name = value
+		case "description":
+			description = value
+		}
+	}
+	return name, description, strings.Join(lines[end+1:], "\n")
+}
+
+func parseFrontMatterLine(line string) (string, string, bool) {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+		return "", "", false
+	}
+	key, value, ok := strings.Cut(trimmed, ":")
+	if !ok {
+		return "", "", false
+	}
+	key = strings.TrimSpace(key)
+	value = strings.TrimSpace(value)
+	if key == "" {
+		return "", "", false
+	}
+	return key, unquoteFrontMatterValue(value), true
+}
+
+func unquoteFrontMatterValue(value string) string {
+	if len(value) >= 2 {
+		if (value[0] == '"' && value[len(value)-1] == '"') || (value[0] == '\'' && value[len(value)-1] == '\'') {
+			return value[1 : len(value)-1]
+		}
+	}
+	return value
+}
+
+func firstMarkdownHeading(content string) string {
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		if !strings.HasPrefix(trimmed, "#") {
+			return ""
+		}
+		trimmed = strings.TrimSpace(strings.TrimLeft(trimmed, "#"))
+		if trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func firstNonEmptyMarkdownLine(content string) string {
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" {
+			continue
+		}
+		trimmed = strings.TrimLeft(trimmed, "#-* ")
+		if trimmed == "" {
+			continue
+		}
+		return trimmed
+	}
+	return ""
 }
 
 func reconcileDeclaredSkills(agentDir string, declaredSkills []string, marketDir string) error {

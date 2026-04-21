@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/catalog"
 	"agent-platform-runner-go/internal/config"
+	"agent-platform-runner-go/internal/contracts"
 )
 
 func TestResolveSandboxPathsLocalModeDisabledHub(t *testing.T) {
@@ -282,6 +284,58 @@ func TestBuildRuntimeContextKeepsLocalPathsWithoutSandboxConfigInContainerMode(t
 	}
 	if context.SandboxPaths.WorkspaceDir != "/workspace" {
 		t.Fatalf("sandbox workspace dir = %q", context.SandboxPaths.WorkspaceDir)
+	}
+}
+
+func TestBuildSkillCatalogPromptPrefersAgentLocalSkillAndParsesFrontMatter(t *testing.T) {
+	t.Parallel()
+
+	agentDir := t.TempDir()
+	marketDir := t.TempDir()
+	localSkillDir := filepath.Join(agentDir, "skills", "demo")
+	marketSkillDir := filepath.Join(marketDir, "demo")
+	if err := os.MkdirAll(localSkillDir, 0o755); err != nil {
+		t.Fatalf("mkdir local skill: %v", err)
+	}
+	if err := os.MkdirAll(marketSkillDir, 0o755); err != nil {
+		t.Fatalf("mkdir market skill: %v", err)
+	}
+	localSkill := strings.Join([]string{
+		"---",
+		`name: "Local Skill"`,
+		`description: "Local description"`,
+		"---",
+		"",
+		"# Ignored Heading",
+		"",
+		"body",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(localSkillDir, "SKILL.md"), []byte(localSkill), 0o644); err != nil {
+		t.Fatalf("write local skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(marketSkillDir, "SKILL.md"), []byte("# Market Skill\n\nMarket description"), 0o644); err != nil {
+		t.Fatalf("write market skill: %v", err)
+	}
+
+	prompt := buildSkillCatalogPrompt(catalog.AgentDefinition{
+		AgentDir: agentDir,
+		Skills:   []string{"demo"},
+	}, marketDir, contracts.DefaultPromptAppendConfig())
+
+	if !strings.Contains(prompt, "skillId: demo") {
+		t.Fatalf("expected skill block, got %q", prompt)
+	}
+	if !strings.Contains(prompt, "name: Local Skill") {
+		t.Fatalf("expected local front matter name, got %q", prompt)
+	}
+	if !strings.Contains(prompt, "description: Local description") {
+		t.Fatalf("expected local front matter description, got %q", prompt)
+	}
+	if strings.Contains(prompt, `name: name: "Local Skill"`) {
+		t.Fatalf("expected front matter to be parsed, got %q", prompt)
+	}
+	if strings.Contains(prompt, "Market Skill") {
+		t.Fatalf("expected local skill to win over market fallback, got %q", prompt)
 	}
 }
 

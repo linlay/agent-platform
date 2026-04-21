@@ -2,8 +2,9 @@ package server
 
 import (
 	"bytes"
-	"context"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -15,44 +16,39 @@ import (
 	"agent-platform-runner-go/internal/memory"
 )
 
-type skillRuntimeRegistry struct {
-	testCatalogRegistry
-	skills map[string]catalog.SkillDefinition
-}
+func writeSkillRuntimeFixture(t *testing.T, root string, skillID string, env string) string {
+	t.Helper()
 
-func (r skillRuntimeRegistry) SkillDefinition(key string) (catalog.SkillDefinition, bool) {
-	def, ok := r.skills[key]
-	return def, ok
+	skillDir := filepath.Join(root, skillID)
+	if err := os.MkdirAll(filepath.Join(skillDir, ".bash-hooks"), 0o755); err != nil {
+		t.Fatalf("mkdir skill hooks: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# "+skillID+"\n\nskill"), 0o644); err != nil {
+		t.Fatalf("write SKILL.md: %v", err)
+	}
+	if strings.TrimSpace(env) != "" {
+		if err := os.WriteFile(filepath.Join(skillDir, ".sandbox-env.json"), []byte(env), 0o644); err != nil {
+			t.Fatalf("write sandbox env: %v", err)
+		}
+	}
+	return skillDir
 }
 
 func TestResolveSkillRuntimeSettingsMergesEnvAndHookDirsInOrder(t *testing.T) {
-	registry := skillRuntimeRegistry{
-		skills: map[string]catalog.SkillDefinition{
-			"alpha": {
-				Key:          "alpha",
-				BashHooksDir: "/skills/alpha/.bash-hooks",
-				SandboxEnv: map[string]string{
-					"NODE_ENV": "development",
-					"DEBUG":    "1",
-				},
-			},
-			"beta": {
-				Key:          "beta",
-				BashHooksDir: "/skills/beta/.bash-hooks",
-				SandboxEnv: map[string]string{
-					"NODE_ENV": "production",
-					"TZ":       "UTC",
-				},
-			},
-		},
-	}
+	agentDir := t.TempDir()
+	marketDir := t.TempDir()
+	alphaDir := writeSkillRuntimeFixture(t, filepath.Join(agentDir, "skills"), "alpha", `{"NODE_ENV":"development","DEBUG":"1"}`)
+	betaDir := writeSkillRuntimeFixture(t, marketDir, "beta", `{"NODE_ENV":"production","TZ":"UTC"}`)
 
 	agentEnv := map[string]string{
 		"NODE_ENV": "test",
 		"BASE":     "1",
 	}
-	hookDirs, env := resolveSkillRuntimeSettings(agentEnv, []string{"alpha", "beta", "alpha"}, registry)
-	if !reflect.DeepEqual(hookDirs, []string{"/skills/alpha/.bash-hooks", "/skills/beta/.bash-hooks"}) {
+	hookDirs, env := resolveSkillRuntimeSettings(agentEnv, agentDir, marketDir, []string{"alpha", "beta", "alpha"})
+	if !reflect.DeepEqual(hookDirs, []string{
+		filepath.Join(alphaDir, ".bash-hooks"),
+		filepath.Join(betaDir, ".bash-hooks"),
+	}) {
 		t.Fatalf("hookDirs = %#v", hookDirs)
 	}
 	wantEnv := map[string]string{
@@ -67,23 +63,14 @@ func TestResolveSkillRuntimeSettingsMergesEnvAndHookDirsInOrder(t *testing.T) {
 }
 
 func TestResolveSkillRuntimeSettingsSkipsMissingSkills(t *testing.T) {
-	registry := skillRuntimeRegistry{
-		skills: map[string]catalog.SkillDefinition{
-			"beta": {
-				Key:          "beta",
-				BashHooksDir: "/skills/beta/.bash-hooks",
-				SandboxEnv: map[string]string{
-					"TZ": "UTC",
-				},
-			},
-		},
-	}
+	marketDir := t.TempDir()
+	betaDir := writeSkillRuntimeFixture(t, marketDir, "beta", `{"TZ":"UTC"}`)
 
 	agentEnv := map[string]string{
 		"HTTP_PROXY": "http://agent",
 	}
-	hookDirs, env := resolveSkillRuntimeSettings(agentEnv, []string{"missing", "beta"}, registry)
-	if !reflect.DeepEqual(hookDirs, []string{"/skills/beta/.bash-hooks"}) {
+	hookDirs, env := resolveSkillRuntimeSettings(agentEnv, "", marketDir, []string{"missing", "beta"})
+	if !reflect.DeepEqual(hookDirs, []string{filepath.Join(betaDir, ".bash-hooks")}) {
 		t.Fatalf("hookDirs = %#v", hookDirs)
 	}
 	if !reflect.DeepEqual(env, map[string]string{"HTTP_PROXY": "http://agent", "TZ": "UTC"}) {
@@ -96,7 +83,7 @@ func TestResolveSkillRuntimeSettingsReturnsAgentEnvWithoutSkills(t *testing.T) {
 		"HTTP_PROXY": "http://agent",
 	}
 
-	hookDirs, env := resolveSkillRuntimeSettings(agentEnv, nil, nil)
+	hookDirs, env := resolveSkillRuntimeSettings(agentEnv, "", "", nil)
 	if hookDirs != nil {
 		t.Fatalf("hookDirs = %#v, want nil", hookDirs)
 	}
@@ -107,22 +94,6 @@ func TestResolveSkillRuntimeSettingsReturnsAgentEnvWithoutSkills(t *testing.T) {
 		t.Fatalf("expected cloned env to preserve values, got %#v", env)
 	}
 }
-
-func (skillRuntimeRegistry) Agents(string) []api.AgentSummary       { return nil }
-func (skillRuntimeRegistry) Teams() []api.TeamSummary               { return nil }
-func (skillRuntimeRegistry) Skills(string) []api.SkillSummary       { return nil }
-func (skillRuntimeRegistry) Tools(string, string) []api.ToolSummary { return nil }
-func (skillRuntimeRegistry) Tool(string) (api.ToolDetailResponse, bool) {
-	return api.ToolDetailResponse{}, false
-}
-func (skillRuntimeRegistry) DefaultAgentKey() string { return "" }
-func (skillRuntimeRegistry) AgentDefinition(string) (catalog.AgentDefinition, bool) {
-	return catalog.AgentDefinition{}, false
-}
-func (skillRuntimeRegistry) TeamDefinition(string) (catalog.TeamDefinition, bool) {
-	return catalog.TeamDefinition{}, false
-}
-func (skillRuntimeRegistry) Reload(context.Context, string) error { return nil }
 
 type queryMemoryRegistry struct {
 	testCatalogRegistry

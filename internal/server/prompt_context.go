@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -72,7 +73,7 @@ func (s *Server) buildRuntimeRequestContext(input runtimeRequestContextInput) (c
 	return context, nil
 }
 
-func buildSkillCatalogPrompt(def catalog.AgentDefinition, registry catalog.Registry, appendConfig contracts.PromptAppendConfig) string {
+func buildSkillCatalogPrompt(def catalog.AgentDefinition, marketDir string, appendConfig contracts.PromptAppendConfig) string {
 	if len(def.Skills) == 0 {
 		return ""
 	}
@@ -87,7 +88,11 @@ func buildSkillCatalogPrompt(def catalog.AgentDefinition, registry catalog.Regis
 			continue
 		}
 		seen[skillID] = struct{}{}
-		definition, ok := resolveSkillDefinition(def, registry, skillID)
+		definition, ok, err := catalog.ResolveSkillDefinition(def.AgentDir, marketDir, skillID)
+		if err != nil {
+			log.Printf("[server][skill-catalog][warn] resolve skill %s failed: %v", skillID, err)
+			continue
+		}
 		if !ok {
 			continue
 		}
@@ -104,45 +109,6 @@ func buildSkillCatalogPrompt(def catalog.AgentDefinition, registry catalog.Regis
 		return ""
 	}
 	return strings.TrimSpace(appendConfig.Skill.CatalogHeader) + "\n\n" + strings.Join(blocks, "\n\n---\n\n")
-}
-
-func resolveSkillDefinition(def catalog.AgentDefinition, registry catalog.Registry, skillID string) (catalog.SkillDefinition, bool) {
-	if def.AgentDir != "" {
-		skillPath := filepath.Join(def.AgentDir, "skills", skillID, "SKILL.md")
-		if content, err := os.ReadFile(skillPath); err == nil {
-			prompt := strings.TrimSpace(string(content))
-			description := firstNonEmptyMarkdownLine(prompt)
-			return catalog.SkillDefinition{
-				Key:         skillID,
-				Name:        localSkillDisplayName(description, skillID),
-				Description: description,
-				Prompt:      prompt,
-			}, true
-		}
-	}
-	return registry.SkillDefinition(skillID)
-}
-
-func firstNonEmptyMarkdownLine(content string) string {
-	for _, line := range strings.Split(content, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
-		trimmed = strings.TrimLeft(trimmed, "#-* ")
-		if trimmed == "" {
-			continue
-		}
-		return trimmed
-	}
-	return ""
-}
-
-func localSkillDisplayName(description string, fallback string) string {
-	if strings.TrimSpace(description) != "" {
-		return strings.TrimSpace(description)
-	}
-	return fallback
 }
 
 func resolveLocalPaths(paths config.PathsConfig, chatID string, agentDir string) contracts.LocalPaths {

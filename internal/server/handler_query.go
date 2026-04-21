@@ -255,9 +255,9 @@ func sandboxAgentEnv(value any) map[string]string {
 	}
 }
 
-func resolveSkillRuntimeSettings(agentEnv map[string]string, skillKeys []string, registry catalog.Registry) ([]string, map[string]string) {
+func resolveSkillRuntimeSettings(agentEnv map[string]string, agentDir string, marketDir string, skillKeys []string) ([]string, map[string]string) {
 	sandboxEnv := contracts.CloneStringMap(agentEnv)
-	if len(skillKeys) == 0 || registry == nil {
+	if len(skillKeys) == 0 {
 		return nil, sandboxEnv
 	}
 	seen := map[string]struct{}{}
@@ -271,7 +271,11 @@ func resolveSkillRuntimeSettings(agentEnv map[string]string, skillKeys []string,
 			continue
 		}
 		seen[skillKey] = struct{}{}
-		def, ok := registry.SkillDefinition(skillKey)
+		def, ok, err := catalog.ResolveSkillDefinition(agentDir, marketDir, skillKey)
+		if err != nil {
+			log.Printf("[server][skill-runtime][warn] skill resolution failed key=%s err=%v", skillKey, err)
+			continue
+		}
 		if !ok {
 			log.Printf("[server][skill-runtime][warn] skill definition not found key=%s", skillKey)
 			continue

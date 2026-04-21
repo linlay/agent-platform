@@ -433,6 +433,109 @@ func TestLoadSkillsLoadsBashHooksAndSandboxEnv(t *testing.T) {
 	}
 }
 
+func TestLoadSkillsParsesFrontMatterNameAndDescription(t *testing.T) {
+	root := t.TempDir()
+	skillDir := filepath.Join(root, "mock-skill")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("mkdir skill: %v", err)
+	}
+	content := strings.Join([]string{
+		"---",
+		`name: "Front Matter Name"`,
+		`description: "Front Matter Description"`,
+		"---",
+		"",
+		"# Heading Should Not Leak",
+		"",
+		"Body line",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write skill: %v", err)
+	}
+
+	skills, err := loadSkills(root, 0)
+	if err != nil {
+		t.Fatalf("load skills: %v", err)
+	}
+	got := skills["mock-skill"]
+	if got.Name != "Front Matter Name" {
+		t.Fatalf("Name = %q", got.Name)
+	}
+	if got.Description != "Front Matter Description" {
+		t.Fatalf("Description = %q", got.Description)
+	}
+	if strings.Contains(got.Name, "name:") || strings.Contains(got.Description, "description:") {
+		t.Fatalf("unexpected front matter leakage: %#v", got)
+	}
+}
+
+func TestResolveSkillDefinitionPrefersAgentLocalSkillBeforeMarket(t *testing.T) {
+	agentDir := t.TempDir()
+	marketDir := t.TempDir()
+	localSkillDir := filepath.Join(agentDir, "skills", "mock-skill")
+	marketSkillDir := filepath.Join(marketDir, "mock-skill")
+	if err := os.MkdirAll(filepath.Join(localSkillDir, ".bash-hooks"), 0o755); err != nil {
+		t.Fatalf("mkdir local hooks: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(marketSkillDir, ".bash-hooks"), 0o755); err != nil {
+		t.Fatalf("mkdir market hooks: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(localSkillDir, "SKILL.md"), []byte("---\nname: Local Skill\ndescription: Local Description\n---\n"), 0o644); err != nil {
+		t.Fatalf("write local skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(localSkillDir, ".sandbox-env.json"), []byte(`{"SOURCE":"local"}`), 0o644); err != nil {
+		t.Fatalf("write local env: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(marketSkillDir, "SKILL.md"), []byte("---\nname: Market Skill\ndescription: Market Description\n---\n"), 0o644); err != nil {
+		t.Fatalf("write market skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(marketSkillDir, ".sandbox-env.json"), []byte(`{"SOURCE":"market"}`), 0o644); err != nil {
+		t.Fatalf("write market env: %v", err)
+	}
+
+	got, ok, err := ResolveSkillDefinition(agentDir, marketDir, "mock-skill")
+	if err != nil {
+		t.Fatalf("ResolveSkillDefinition() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("expected skill definition to resolve")
+	}
+	if got.Name != "Local Skill" || got.Description != "Local Description" {
+		t.Fatalf("resolved local metadata = %#v", got)
+	}
+	if got.SandboxEnv["SOURCE"] != "local" {
+		t.Fatalf("SandboxEnv = %#v", got.SandboxEnv)
+	}
+	if got.BashHooksDir != filepath.Join(localSkillDir, ".bash-hooks") {
+		t.Fatalf("BashHooksDir = %q", got.BashHooksDir)
+	}
+}
+
+func TestResolveSkillDefinitionFallsBackToMarketSkill(t *testing.T) {
+	marketDir := t.TempDir()
+	marketSkillDir := filepath.Join(marketDir, "mock-skill")
+	if err := os.MkdirAll(marketSkillDir, 0o755); err != nil {
+		t.Fatalf("mkdir market skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(marketSkillDir, "SKILL.md"), []byte("# Market Skill\n\nMarket Description"), 0o644); err != nil {
+		t.Fatalf("write market skill: %v", err)
+	}
+
+	got, ok, err := ResolveSkillDefinition(t.TempDir(), marketDir, "mock-skill")
+	if err != nil {
+		t.Fatalf("ResolveSkillDefinition() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("expected market fallback to resolve")
+	}
+	if got.Name != "Market Skill" {
+		t.Fatalf("Name = %q", got.Name)
+	}
+	if got.Description != "Market Skill" {
+		t.Fatalf("Description = %q", got.Description)
+	}
+}
+
 func TestLoadSkillsRejectsInvalidSandboxEnvJSON(t *testing.T) {
 	root := t.TempDir()
 	skillDir := filepath.Join(root, "mock-skill")
