@@ -13,11 +13,11 @@ import (
 )
 
 type querySessionBuildOptions struct {
-	Created          bool
-	IncludeHistory   bool
-	IncludeMemory    bool
-	AllowInvokeAgent bool
-	Principal        *Principal
+	Created           bool
+	IncludeHistory    bool
+	IncludeMemory     bool
+	AllowInvokeAgents bool
+	Principal         *Principal
 }
 
 func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, summary chat.Summary, agentDef catalog.AgentDefinition, options querySessionBuildOptions) (contracts.QuerySession, error) {
@@ -88,7 +88,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		AgentKey:              req.AgentKey,
 		AgentName:             agentDef.Name,
 		ModelKey:              agentDef.ModelKey,
-		ToolNames:             buildSessionToolNames(agentDef.Tools, options.AllowInvokeAgent),
+		ToolNames:             buildSessionToolNames(agentDef.Tools, options.AllowInvokeAgents),
 		Mode:                  agentDef.Mode,
 		TeamID:                req.TeamID,
 		Created:               options.Created,
@@ -122,7 +122,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 	return session, nil
 }
 
-func buildSessionToolNames(base []string, allowInvokeAgent bool) []string {
+func buildSessionToolNames(base []string, allowInvokeAgents bool) []string {
 	tools := make([]string, 0, len(base)+1)
 	seen := map[string]struct{}{}
 	for _, tool := range base {
@@ -134,22 +134,22 @@ func buildSessionToolNames(base []string, allowInvokeAgent bool) []string {
 		if _, ok := seen[key]; ok {
 			continue
 		}
-		if !allowInvokeAgent && key == strings.ToLower(contracts.InvokeAgentToolName) {
+		if !allowInvokeAgents && key == strings.ToLower(contracts.InvokeAgentsToolName) {
 			continue
 		}
 		seen[key] = struct{}{}
 		tools = append(tools, name)
 	}
-	if allowInvokeAgent {
-		key := strings.ToLower(contracts.InvokeAgentToolName)
+	if allowInvokeAgents {
+		key := strings.ToLower(contracts.InvokeAgentsToolName)
 		if _, ok := seen[key]; !ok {
-			tools = append(tools, contracts.InvokeAgentToolName)
+			tools = append(tools, contracts.InvokeAgentsToolName)
 		}
 	}
 	return tools
 }
 
-func canUseInvokeAgentTool(mode string) bool {
+func canUseInvokeAgentsTool(mode string) bool {
 	switch strings.ToUpper(strings.TrimSpace(mode)) {
 	case "REACT", "ONESHOT":
 		return true

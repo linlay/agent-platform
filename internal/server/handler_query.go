@@ -121,10 +121,10 @@ func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
 		})
 	}
 	session, err := s.BuildQuerySession(r.Context(), req, summary, agentDef, querySessionBuildOptions{
-		Created:          created,
-		IncludeHistory:   !created,
-		IncludeMemory:    true,
-		AllowInvokeAgent: canUseInvokeAgentTool(agentDef.Mode),
+		Created:           created,
+		IncludeHistory:    !created,
+		IncludeMemory:     true,
+		AllowInvokeAgents: canUseInvokeAgentsTool(agentDef.Mode),
 	})
 	if err != nil {
 		return preparedQuery{}, err

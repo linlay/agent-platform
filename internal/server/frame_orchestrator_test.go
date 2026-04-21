@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"testing"
 
@@ -9,7 +10,9 @@ import (
 	"agent-platform-runner-go/internal/catalog"
 	"agent-platform-runner-go/internal/chat"
 	"agent-platform-runner-go/internal/contracts"
+	"agent-platform-runner-go/internal/frontendtools"
 	"agent-platform-runner-go/internal/llm"
+	"agent-platform-runner-go/internal/stream"
 )
 
 type orchestratorRegistry struct {
@@ -23,15 +26,21 @@ func (r orchestratorRegistry) AgentDefinition(key string) (catalog.AgentDefiniti
 }
 
 type orchestratorAgentEngine struct {
-	stream contracts.AgentStream
-	err    error
+	streams []contracts.AgentStream
+	err     error
+	index   int
 }
 
-func (e orchestratorAgentEngine) Stream(context.Context, api.QueryRequest, contracts.QuerySession) (contracts.AgentStream, error) {
+func (e *orchestratorAgentEngine) Stream(context.Context, api.QueryRequest, contracts.QuerySession) (contracts.AgentStream, error) {
 	if e.err != nil {
 		return nil, e.err
 	}
-	return e.stream, nil
+	if e.index >= len(e.streams) {
+		return nil, io.EOF
+	}
+	stream := e.streams[e.index]
+	e.index++
+	return stream, nil
 }
 
 type injectedToolResult struct {
@@ -72,34 +81,64 @@ func (s *stubOrchestratableStream) FinalAssistantContent() (string, bool) {
 
 var _ llm.OrchestratableAgentStream = (*stubOrchestratableStream)(nil)
 
+func newInvokeAgentsDelta(tasks ...contracts.SubAgentTaskSpec) contracts.DeltaInvokeSubAgents {
+	return contracts.DeltaInvokeSubAgents{
+		MainToolID: "tool_main_1",
+		GroupID:    "group_tool_main_1",
+		Tasks:      tasks,
+	}
+}
+
+func newTestFrameOrchestrator(agent contracts.AgentEngine, registry map[string]catalog.AgentDefinition, emitted *[]contracts.AgentDelta, routed *[]stream.StreamInput) *frameOrchestrator {
+	return &frameOrchestrator{
+		runCtx:  context.Background(),
+		request: api.QueryRequest{RunID: "run_1", ChatID: "chat_1", TeamID: "team_1"},
+		session: contracts.QuerySession{RunID: "run_1", ChatID: "chat_1", Mode: "REACT"},
+		summary: chat.Summary{ChatID: "chat_1", ChatName: "demo"},
+		agent:   agent,
+		registry: orchestratorRegistry{
+			agents: registry,
+		},
+		buildQuerySession: func(_ context.Context, req api.QueryRequest, _ chat.Summary, agentDef catalog.AgentDefinition, options querySessionBuildOptions) (contracts.QuerySession, error) {
+			if options.IncludeHistory || options.IncludeMemory || options.AllowInvokeAgents {
+				t := "unexpected sub-agent session build options"
+				panic(t)
+			}
+			return contracts.QuerySession{
+				RunID:    req.RunID,
+				ChatID:   req.ChatID,
+				AgentKey: agentDef.Key,
+				Mode:     agentDef.Mode,
+			}, nil
+		},
+		mapper: llm.NewDeltaMapper("run_1", "chat_1", 5000, nil, frontendtools.NewDefaultRegistry()),
+		emitDelta: func(delta contracts.AgentDelta) {
+			if emitted != nil {
+				*emitted = append(*emitted, delta)
+			}
+		},
+		emitInputs: func(inputs ...stream.StreamInput) {
+			if routed != nil {
+				*routed = append(*routed, inputs...)
+			}
+		},
+	}
+}
+
 func TestFrameOrchestratorRejectsInvalidSubAgentMode(t *testing.T) {
 	mainStream := &stubOrchestratableStream{
 		deltas: []contracts.AgentDelta{
-			contracts.DeltaInvokeSubAgent{
-				MainToolID:  "tool_main_1",
+			newInvokeAgentsDelta(contracts.SubAgentTaskSpec{
 				SubAgentKey: "planner",
 				TaskText:    "make a plan",
 				TaskName:    "规划",
-			},
+			}),
 		},
 	}
 	var emitted []contracts.AgentDelta
-	orchestrator := &frameOrchestrator{
-		runCtx:  context.Background(),
-		request: api.QueryRequest{RunID: "run_1", ChatID: "chat_1"},
-		session: contracts.QuerySession{RunID: "run_1", Mode: "REACT"},
-		summary: chat.Summary{ChatID: "chat_1", ChatName: "demo"},
-		registry: orchestratorRegistry{agents: map[string]catalog.AgentDefinition{
-			"planner": {
-				Key:  "planner",
-				Mode: "PLAN_EXECUTE",
-			},
-		}},
-		buildQuerySession: func(context.Context, api.QueryRequest, chat.Summary, catalog.AgentDefinition, querySessionBuildOptions) (contracts.QuerySession, error) {
-			return contracts.QuerySession{}, nil
-		},
-		emitDelta: func(delta contracts.AgentDelta) { emitted = append(emitted, delta) },
-	}
+	orchestrator := newTestFrameOrchestrator(&orchestratorAgentEngine{}, map[string]catalog.AgentDefinition{
+		"planner": {Key: "planner", Mode: "PLAN_EXECUTE"},
+	}, &emitted, nil)
 
 	streamFailed, streamInterrupted, err := orchestrator.Run(mainStream)
 	if err != nil || streamFailed || streamInterrupted {
@@ -113,101 +152,76 @@ func TestFrameOrchestratorRejectsInvalidSubAgentMode(t *testing.T) {
 	}
 }
 
-func TestFrameOrchestratorRunsSubAgentAndCompletesTask(t *testing.T) {
+func TestFrameOrchestratorRunsBatchedSubAgentsAndAggregatesResult(t *testing.T) {
 	mainStream := &stubOrchestratableStream{
 		deltas: []contracts.AgentDelta{
-			contracts.DeltaInvokeSubAgent{
-				MainToolID:  "tool_main_1",
-				SubAgentKey: "writer",
-				TaskText:    "write a summary",
-				TaskName:    "写作",
-			},
+			newInvokeAgentsDelta(
+				contracts.SubAgentTaskSpec{SubAgentKey: "writer", TaskText: "write a summary", TaskName: "写作"},
+				contracts.SubAgentTaskSpec{SubAgentKey: "reviewer", TaskText: "review it", TaskName: "审查"},
+			),
 		},
 	}
-	subStream := &stubOrchestratableStream{
-		deltas: []contracts.AgentDelta{
-			contracts.DeltaContent{Text: "child output"},
-		},
+	childOne := &stubOrchestratableStream{
+		deltas:    []contracts.AgentDelta{contracts.DeltaContent{Text: "child output"}},
 		finalText: "final child answer",
 	}
-	var emitted []contracts.AgentDelta
-	orchestrator := &frameOrchestrator{
-		runCtx:  context.Background(),
-		request: api.QueryRequest{RunID: "run_1", ChatID: "chat_1", TeamID: "team_1"},
-		session: contracts.QuerySession{RunID: "run_1", ChatID: "chat_1", Mode: "REACT"},
-		summary: chat.Summary{ChatID: "chat_1", ChatName: "demo"},
-		agent:   orchestratorAgentEngine{stream: subStream},
-		registry: orchestratorRegistry{agents: map[string]catalog.AgentDefinition{
-			"writer": {
-				Key:  "writer",
-				Name: "Writer",
-				Mode: "REACT",
-			},
-		}},
-		buildQuerySession: func(_ context.Context, req api.QueryRequest, _ chat.Summary, agentDef catalog.AgentDefinition, options querySessionBuildOptions) (contracts.QuerySession, error) {
-			if req.Message != "write a summary" || req.AgentKey != "writer" || options.IncludeHistory || options.IncludeMemory || options.AllowInvokeAgent {
-				t.Fatalf("unexpected sub-agent session build request: req=%#v options=%#v", req, options)
-			}
-			return contracts.QuerySession{
-				RunID:    req.RunID,
-				ChatID:   req.ChatID,
-				AgentKey: agentDef.Key,
-				Mode:     agentDef.Mode,
-			}, nil
-		},
-		emitDelta: func(delta contracts.AgentDelta) { emitted = append(emitted, delta) },
+	childTwo := &stubOrchestratableStream{
+		deltas:    []contracts.AgentDelta{contracts.DeltaReasoning{Text: "inspect"}},
+		finalText: "reviewed",
 	}
+	var emitted []contracts.AgentDelta
+	var routed []stream.StreamInput
+	orchestrator := newTestFrameOrchestrator(&orchestratorAgentEngine{streams: []contracts.AgentStream{childOne, childTwo}}, map[string]catalog.AgentDefinition{
+		"writer":   {Key: "writer", Name: "Writer", Mode: "REACT"},
+		"reviewer": {Key: "reviewer", Name: "Reviewer", Mode: "REACT"},
+	}, &emitted, &routed)
 
 	streamFailed, streamInterrupted, err := orchestrator.Run(mainStream)
 	if err != nil || streamFailed || streamInterrupted {
 		t.Fatalf("unexpected orchestrator result err=%v failed=%v interrupted=%v", err, streamFailed, streamInterrupted)
 	}
-	if len(mainStream.injected) != 1 || mainStream.injected[0].isError || mainStream.injected[0].text != "final child answer" {
-		t.Fatalf("expected successful tool result injected into main stream, got %#v", mainStream.injected)
+	if len(mainStream.injected) != 1 || mainStream.injected[0].isError {
+		t.Fatalf("expected successful aggregated tool result, got %#v", mainStream.injected)
 	}
-	if len(emitted) < 3 {
-		t.Fatalf("expected task start, child delta, and task complete, got %#v", emitted)
+	var results []map[string]any
+	if err := json.Unmarshal([]byte(mainStream.injected[0].text), &results); err != nil {
+		t.Fatalf("expected JSON aggregate result: %v", err)
 	}
-	start, ok := emitted[0].(contracts.DeltaTaskLifecycle)
-	if !ok || start.Kind != "start" || start.SubAgentKey != "writer" || start.MainToolID != "tool_main_1" || start.TaskName != "写作" {
-		t.Fatalf("unexpected task.start delta %#v", emitted[0])
+	if len(results) != 2 || results[0]["taskName"] != "写作" || results[1]["taskName"] != "审查" {
+		t.Fatalf("unexpected aggregated results %#v", results)
 	}
-	if _, ok := emitted[1].(contracts.DeltaContent); !ok {
-		t.Fatalf("expected child content delta in middle, got %#v", emitted[1])
+	if len(emitted) != 4 {
+		t.Fatalf("expected start/start/terminal/terminal lifecycle deltas, got %#v", emitted)
 	}
-	complete, ok := emitted[len(emitted)-1].(contracts.DeltaTaskLifecycle)
-	if !ok || complete.Kind != "complete" || complete.Status != "completed" {
-		t.Fatalf("unexpected task completion delta %#v", emitted[len(emitted)-1])
+	startOne, ok := emitted[0].(contracts.DeltaTaskLifecycle)
+	if !ok || startOne.Kind != "start" || startOne.TaskName != "写作" || startOne.GroupID != "group_tool_main_1" {
+		t.Fatalf("unexpected first task.start %#v", emitted[0])
+	}
+	startTwo, ok := emitted[1].(contracts.DeltaTaskLifecycle)
+	if !ok || startTwo.Kind != "start" || startTwo.TaskName != "审查" {
+		t.Fatalf("unexpected second task.start %#v", emitted[1])
+	}
+	if len(routed) == 0 {
+		t.Fatal("expected child inputs to be routed through emitInputs")
 	}
 }
 
-func TestFrameOrchestratorRejectsNestedInvokeAgentTool(t *testing.T) {
+func TestFrameOrchestratorRejectsNestedInvokeAgentsTool(t *testing.T) {
 	mainStream := &stubOrchestratableStream{
 		deltas: []contracts.AgentDelta{
-			contracts.DeltaInvokeSubAgent{
-				MainToolID:  "tool_main_1",
+			newInvokeAgentsDelta(contracts.SubAgentTaskSpec{
 				SubAgentKey: "writer",
 				TaskText:    "write a summary",
-			},
+			}),
 		},
 	}
-	orchestrator := &frameOrchestrator{
-		runCtx:  context.Background(),
-		request: api.QueryRequest{RunID: "run_1", ChatID: "chat_1"},
-		session: contracts.QuerySession{RunID: "run_1", Mode: "REACT"},
-		summary: chat.Summary{ChatID: "chat_1", ChatName: "demo"},
-		registry: orchestratorRegistry{agents: map[string]catalog.AgentDefinition{
-			"writer": {
-				Key:   "writer",
-				Mode:  "REACT",
-				Tools: []string{contracts.InvokeAgentToolName},
-			},
-		}},
-		buildQuerySession: func(context.Context, api.QueryRequest, chat.Summary, catalog.AgentDefinition, querySessionBuildOptions) (contracts.QuerySession, error) {
-			return contracts.QuerySession{}, nil
+	orchestrator := newTestFrameOrchestrator(&orchestratorAgentEngine{}, map[string]catalog.AgentDefinition{
+		"writer": {
+			Key:   "writer",
+			Mode:  "REACT",
+			Tools: []string{contracts.InvokeAgentsToolName},
 		},
-		emitDelta: func(delta contracts.AgentDelta) {},
-	}
+	}, nil, nil)
 
 	if _, _, err := orchestrator.Run(mainStream); err != nil {
 		t.Fatalf("unexpected orchestrator error: %v", err)

@@ -72,6 +72,7 @@ type DeltaTaskLifecycle struct {
 	Kind        string
 	TaskID      string
 	RunID       string
+	GroupID     string
 	TaskName    string
 	Description string
 	SubAgentKey string
@@ -82,14 +83,19 @@ type DeltaTaskLifecycle struct {
 
 func (DeltaTaskLifecycle) agentDeltaTag() {}
 
-type DeltaInvokeSubAgent struct {
-	MainToolID  string
+type SubAgentTaskSpec struct {
 	SubAgentKey string
 	TaskText    string
 	TaskName    string
 }
 
-func (DeltaInvokeSubAgent) agentDeltaTag() {}
+type DeltaInvokeSubAgents struct {
+	MainToolID string
+	GroupID    string
+	Tasks      []SubAgentTaskSpec
+}
+
+func (DeltaInvokeSubAgents) agentDeltaTag() {}
 
 type DeltaArtifactPublish struct {
 	ArtifactID string

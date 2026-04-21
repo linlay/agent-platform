@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"time"
 
@@ -31,22 +32,18 @@ type StepWriter struct {
 	queryWritten bool
 	seqCounter   int
 
-	currentStage           string
-	currentTaskID          string
-	currentTaskName        string
-	currentTaskDescription string
-	currentTaskStatus      string
-	currentTaskSubAgentKey string
-	currentTaskMainToolID  string
-	currentTaskIsSubAgent  bool
+	currentStage string
 
 	messages       []StoredMessage
 	latestPlan     *PlanState
 	latestArtifact *ArtifactState
+	taskBuffers    map[string]*taskStepBuffer
 
 	// tool/action name tracking (for tool.result → StoredMessage.Name)
-	toolNames   map[string]string
-	actionNames map[string]string
+	toolNames     map[string]string
+	actionNames   map[string]string
+	toolTaskIDs   map[string]string
+	actionTaskIDs map[string]string
 
 	// msgId generation
 	currentMsgID string
@@ -61,15 +58,29 @@ type StepWriter struct {
 	pendingEstimated        int
 }
 
+type taskStepBuffer struct {
+	taskID          string
+	taskName        string
+	taskGroupID     string
+	taskDescription string
+	taskStatus      string
+	taskSubAgentKey string
+	taskMainToolID  string
+	messages        []StoredMessage
+}
+
 // NewStepWriter creates a StepWriter for a single run.
 func NewStepWriter(store Store, chatID, runID, mode string) *StepWriter {
 	return &StepWriter{
-		store:       store,
-		chatID:      chatID,
-		runID:       runID,
-		mode:        strings.ToUpper(strings.TrimSpace(mode)),
-		toolNames:   map[string]string{},
-		actionNames: map[string]string{},
+		store:         store,
+		chatID:        chatID,
+		runID:         runID,
+		mode:          strings.ToUpper(strings.TrimSpace(mode)),
+		taskBuffers:   map[string]*taskStepBuffer{},
+		toolNames:     map[string]string{},
+		actionNames:   map[string]string{},
+		toolTaskIDs:   map[string]string{},
+		actionTaskIDs: map[string]string{},
 	}
 }
 
@@ -88,13 +99,14 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 
 	case "stage.marker":
 		w.flushCurrentStep()
+		w.flushAllTaskSteps()
 		w.currentStage = parseStage(event.String("stage"))
 
 	case "reasoning.snapshot":
 		w.ensureStep()
 		w.ensureMsgID()
 		ts := event.Timestamp
-		w.messages = append(w.messages, StoredMessage{
+		w.appendStoredMessage(event, StoredMessage{
 			Role:             "assistant",
 			ReasoningContent: textContent(event.String("text")),
 			ReasoningID:      event.String("reasoningId"),
@@ -106,7 +118,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		w.ensureStep()
 		w.ensureMsgID()
 		ts := event.Timestamp
-		w.messages = append(w.messages, StoredMessage{
+		w.appendStoredMessage(event, StoredMessage{
 			Role:      "assistant",
 			Content:   textContent(event.String("text")),
 			ContentID: event.String("contentId"),
@@ -119,9 +131,13 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		w.ensureMsgID()
 		toolID := event.String("toolId")
 		toolName := event.String("toolName")
+		taskID := event.String("taskId")
 		ts := event.Timestamp
 		w.toolNames[toolID] = toolName
-		w.messages = append(w.messages, StoredMessage{
+		if strings.TrimSpace(taskID) != "" {
+			w.toolTaskIDs[toolID] = taskID
+		}
+		w.appendStoredMessage(event, StoredMessage{
 			Role: "assistant",
 			ToolCalls: []StoredToolCall{{
 				ID:   toolID,
@@ -140,7 +156,13 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		w.ensureStep()
 		toolID := event.String("toolId")
 		ts := event.Timestamp
-		w.messages = append(w.messages, StoredMessage{
+		w.appendStoredMessage(stream.EventData{
+			Type:      event.Type,
+			Timestamp: event.Timestamp,
+			Payload: map[string]any{
+				"taskId": w.toolTaskIDs[toolID],
+			},
+		}, StoredMessage{
 			Role:       "tool",
 			Name:       w.toolNames[toolID],
 			ToolCallID: toolID,
@@ -170,9 +192,13 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		w.ensureMsgID()
 		actionID := event.String("actionId")
 		actionName := event.String("actionName")
+		taskID := event.String("taskId")
 		ts := event.Timestamp
 		w.actionNames[actionID] = actionName
-		w.messages = append(w.messages, StoredMessage{
+		if strings.TrimSpace(taskID) != "" {
+			w.actionTaskIDs[actionID] = taskID
+		}
+		w.appendStoredMessage(event, StoredMessage{
 			Role: "assistant",
 			ToolCalls: []StoredToolCall{{
 				ID:   actionID,
@@ -191,7 +217,13 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		w.ensureStep()
 		actionID := event.String("actionId")
 		ts := event.Timestamp
-		w.messages = append(w.messages, StoredMessage{
+		w.appendStoredMessage(stream.EventData{
+			Type:      event.Type,
+			Timestamp: event.Timestamp,
+			Payload: map[string]any{
+				"taskId": w.actionTaskIDs[actionID],
+			},
+		}, StoredMessage{
 			Role:       "tool",
 			Name:       w.actionNames[actionID],
 			ToolCallID: actionID,
@@ -206,33 +238,36 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 
 	case "task.start":
 		w.flushCurrentStep()
-		w.currentTaskID = event.String("taskId")
-		w.currentTaskName = event.String("taskName")
-		w.currentTaskDescription = event.String("description")
-		w.currentTaskStatus = ""
-		w.currentTaskSubAgentKey = event.String("subAgentKey")
-		w.currentTaskMainToolID = event.String("mainToolId")
-		w.currentTaskIsSubAgent = strings.TrimSpace(w.currentTaskSubAgentKey) != ""
+		taskID := event.String("taskId")
+		if strings.TrimSpace(taskID) == "" {
+			break
+		}
+		buffer := w.ensureTaskBuffer(taskID)
+		buffer.taskName = event.String("taskName")
+		buffer.taskGroupID = event.String("groupId")
+		buffer.taskDescription = event.String("description")
+		buffer.taskStatus = ""
+		buffer.taskSubAgentKey = event.String("subAgentKey")
+		buffer.taskMainToolID = event.String("mainToolId")
 	case "task.complete", "task.cancel", "task.fail":
-		w.currentTaskStatus = event.String("status")
-		if w.currentTaskStatus == "" {
+		taskID := event.String("taskId")
+		if strings.TrimSpace(taskID) == "" {
+			break
+		}
+		buffer := w.ensureTaskBuffer(taskID)
+		buffer.taskStatus = event.String("status")
+		if buffer.taskStatus == "" {
 			switch event.Type {
 			case "task.cancel":
-				w.currentTaskStatus = "cancelled"
+				buffer.taskStatus = "cancelled"
 			case "task.fail":
-				w.currentTaskStatus = "error"
+				buffer.taskStatus = "error"
 			default:
-				w.currentTaskStatus = "completed"
+				buffer.taskStatus = "completed"
 			}
 		}
-		w.flushCurrentStep()
-		w.currentTaskID = ""
-		w.currentTaskName = ""
-		w.currentTaskDescription = ""
-		w.currentTaskStatus = ""
-		w.currentTaskSubAgentKey = ""
-		w.currentTaskMainToolID = ""
-		w.currentTaskIsSubAgent = false
+		w.flushTaskStep(taskID)
+		delete(w.taskBuffers, taskID)
 
 	case "artifact.publish":
 		w.updateArtifact(event)
@@ -256,6 +291,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 
 	case "run.complete", "run.cancel", "run.error":
 		w.flushCurrentStep()
+		w.flushAllTaskSteps()
 		w.flushPendingSubmit()
 	}
 }
@@ -263,6 +299,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 // Flush writes any remaining accumulated step. Call at end of stream.
 func (w *StepWriter) Flush() {
 	w.flushCurrentStep()
+	w.flushAllTaskSteps()
 	w.flushPendingSubmit()
 }
 
@@ -309,14 +346,50 @@ func (w *StepWriter) ensureStep() {
 	}
 }
 
+func (w *StepWriter) ensureTaskBuffer(taskID string) *taskStepBuffer {
+	buffer, ok := w.taskBuffers[taskID]
+	if ok {
+		return buffer
+	}
+	buffer = &taskStepBuffer{taskID: taskID}
+	w.taskBuffers[taskID] = buffer
+	return buffer
+}
+
+func (w *StepWriter) taskIDForEvent(event stream.EventData) string {
+	if taskID := strings.TrimSpace(event.String("taskId")); taskID != "" {
+		return taskID
+	}
+	if toolID := strings.TrimSpace(event.String("toolId")); toolID != "" {
+		return strings.TrimSpace(w.toolTaskIDs[toolID])
+	}
+	if actionID := strings.TrimSpace(event.String("actionId")); actionID != "" {
+		return strings.TrimSpace(w.actionTaskIDs[actionID])
+	}
+	if len(w.taskBuffers) == 1 {
+		for taskID := range w.taskBuffers {
+			return taskID
+		}
+	}
+	return ""
+}
+
+func (w *StepWriter) appendStoredMessage(event stream.EventData, message StoredMessage) {
+	if taskID := w.taskIDForEvent(event); taskID != "" {
+		buffer := w.ensureTaskBuffer(taskID)
+		buffer.messages = append(buffer.messages, message)
+		return
+	}
+	w.messages = append(w.messages, message)
+}
+
 func (w *StepWriter) flushCurrentStep() {
-	allowEmptySubAgentStep := w.currentTaskIsSubAgent && strings.TrimSpace(w.currentTaskID) != "" && strings.TrimSpace(w.currentTaskStatus) != ""
-	if len(w.messages) == 0 && len(w.pendingAwaiting) == 0 && !allowEmptySubAgentStep {
+	if len(w.messages) == 0 && len(w.pendingAwaiting) == 0 {
 		w.pendingApproval = nil
 		return
 	}
 
-	if len(w.messages) == 0 && len(w.pendingAwaiting) > 0 && !allowEmptySubAgentStep {
+	if len(w.messages) == 0 && len(w.pendingAwaiting) > 0 {
 		log.Printf("[chat] dropping pending awaiting without messages (chatId=%s runId=%s count=%d)", w.chatID, w.runID, len(w.pendingAwaiting))
 		w.pendingAwaiting = nil
 		w.pendingApproval = nil
@@ -362,14 +435,6 @@ func (w *StepWriter) flushCurrentStep() {
 		w.pendingContextWindowMax = 0
 		w.pendingEstimated = 0
 	}
-	if w.currentTaskID != "" {
-		line.TaskID = w.currentTaskID
-		line.TaskName = w.currentTaskName
-		line.TaskDescription = w.currentTaskDescription
-		line.TaskStatus = w.currentTaskStatus
-		line.TaskSubAgentKey = w.currentTaskSubAgentKey
-		line.TaskMainToolID = w.currentTaskMainToolID
-	}
 	if w.latestPlan != nil {
 		line.Plan = w.latestPlan
 	}
@@ -395,6 +460,65 @@ func (w *StepWriter) flushCurrentStep() {
 	line.Messages = append([]StoredMessage(nil), w.messages...)
 	_ = w.store.AppendStepLine(w.chatID, line)
 	w.messages = nil
+}
+
+func (w *StepWriter) flushTaskStep(taskID string) {
+	buffer, ok := w.taskBuffers[taskID]
+	if !ok || buffer == nil {
+		return
+	}
+	allowEmptySubAgentStep := strings.TrimSpace(buffer.taskSubAgentKey) != "" && strings.TrimSpace(buffer.taskStatus) != ""
+	if len(buffer.messages) == 0 && !allowEmptySubAgentStep {
+		return
+	}
+
+	line := StepLine{
+		ChatID:          w.chatID,
+		RunID:           w.runID,
+		UpdatedAt:       time.Now().UnixMilli(),
+		TaskID:          buffer.taskID,
+		TaskName:        buffer.taskName,
+		TaskGroupID:     buffer.taskGroupID,
+		TaskDescription: buffer.taskDescription,
+		TaskStatus:      buffer.taskStatus,
+		TaskSubAgentKey: buffer.taskSubAgentKey,
+		TaskMainToolID:  buffer.taskMainToolID,
+		Messages:        append([]StoredMessage(nil), buffer.messages...),
+	}
+	if w.latestPlan != nil {
+		line.Plan = w.latestPlan
+	}
+	if w.latestArtifact != nil {
+		line.Artifacts = w.latestArtifact
+	}
+
+	if w.mode == "PLAN_EXECUTE" {
+		line.Type = "plan-execute"
+		line.Stage = w.currentStage
+		if w.currentStage == "execute" {
+			w.seqCounter++
+			line.Seq = w.seqCounter
+		}
+	} else {
+		line.Type = "react"
+		w.seqCounter++
+		line.Seq = w.seqCounter
+	}
+
+	_ = w.store.AppendStepLine(w.chatID, line)
+	buffer.messages = nil
+}
+
+func (w *StepWriter) flushAllTaskSteps() {
+	taskIDs := make([]string, 0, len(w.taskBuffers))
+	for taskID := range w.taskBuffers {
+		taskIDs = append(taskIDs, taskID)
+	}
+	sort.Strings(taskIDs)
+	for _, taskID := range taskIDs {
+		w.flushTaskStep(taskID)
+		delete(w.taskBuffers, taskID)
+	}
 }
 
 func (w *StepWriter) bufferAwaitingEvent(event stream.EventData) {

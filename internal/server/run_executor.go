@@ -189,6 +189,13 @@ func runExecutor(params RunExecutorParams) {
 			}
 		}
 	}
+	emitInputs := func(inputs ...stream.StreamInput) {
+		for _, input := range inputs {
+			for _, event := range params.Assembler.Consume(input) {
+				publish(event)
+			}
+		}
+	}
 
 	orchestrator := &frameOrchestrator{
 		runCtx:            runCtx,
@@ -200,6 +207,7 @@ func runExecutor(params RunExecutorParams) {
 		buildQuerySession: params.BuildQuerySession,
 		mapper:            params.Mapper,
 		emitDelta:         emitDelta,
+		emitInputs:        emitInputs,
 	}
 
 	streamFailed, streamInterrupted, orchestrateErr := orchestrator.Run(agentStream)

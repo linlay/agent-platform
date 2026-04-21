@@ -60,6 +60,7 @@ type StepLine struct {
 	UpdatedAt       int64            `json:"updatedAt"`
 	TaskID          string           `json:"taskId,omitempty"`
 	TaskName        string           `json:"taskName,omitempty"`
+	TaskGroupID     string           `json:"taskGroupId,omitempty"`
 	TaskDescription string           `json:"taskDescription,omitempty"`
 	TaskStatus      string           `json:"taskStatus,omitempty"`
 	TaskSubAgentKey string           `json:"taskSubAgentKey,omitempty"`

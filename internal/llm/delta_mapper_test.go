@@ -162,7 +162,7 @@ func newQuestionDeltaMapper() *DeltaMapper {
 	return NewDeltaMapper("run_1", "chat_1", 5000, tools, frontendtools.NewDefaultRegistry())
 }
 
-func TestDeltaMapperSnapshotRestorePreservesActiveStateWithoutRollingBackSeq(t *testing.T) {
+func TestDeltaMapperCloneIsolatedStartsFreshState(t *testing.T) {
 	mapper := NewDeltaMapper("run_1", "chat_1", 5000, stubToolLookup{}, frontendtools.NewDefaultRegistry())
 
 	first := mapper.Map(contracts.DeltaContent{Text: "root"})
@@ -171,19 +171,19 @@ func TestDeltaMapperSnapshotRestorePreservesActiveStateWithoutRollingBackSeq(t *
 		t.Fatalf("expected first content id run_1_c_1, got %#v", first)
 	}
 
-	mapper.Snapshot()
-	mapper.Map(contracts.DeltaReasoning{Text: "child reasoning"})
-	second := mapper.Map(contracts.DeltaContent{Text: "child"})
+	child := mapper.CloneIsolated("task_1", "chat_1")
+	if child == nil {
+		t.Fatal("expected isolated mapper clone")
+	}
+	second := child.Map(contracts.DeltaContent{Text: "child"})
 	content, ok = second[0].(stream.ContentDelta)
-	if !ok || content.ContentID != "run_1_c_2" {
-		t.Fatalf("expected child content id run_1_c_2, got %#v", second)
+	if !ok || content.ContentID != "task_1_c_1" {
+		t.Fatalf("expected child content id task_1_c_1, got %#v", second)
 	}
 
-	mapper.RestoreActive()
-	mapper.Map(contracts.DeltaReasoning{Text: "back to root"})
 	third := mapper.Map(contracts.DeltaContent{Text: "root again"})
 	content, ok = third[0].(stream.ContentDelta)
-	if !ok || content.ContentID != "run_1_c_3" {
-		t.Fatalf("expected restored mapper to keep incrementing content seq, got %#v", third)
+	if !ok || content.ContentID != "run_1_c_1" {
+		t.Fatalf("expected original mapper state to remain unchanged, got %#v", third)
 	}
 }

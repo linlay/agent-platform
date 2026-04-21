@@ -748,15 +748,10 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 			}
 	}
 
-	if strings.EqualFold(strings.TrimSpace(toolCall.Function.Name), InvokeAgentToolName) {
-		subAgentKey := strings.TrimSpace(mapStringArg(args, "subAgentKey"))
-		taskText := strings.TrimSpace(mapStringArg(args, "task"))
-		taskName := strings.TrimSpace(mapStringArg(args, "taskName"))
-		if taskName == "" {
-			taskName = subAgentKey
-		}
-		if subAgentKey == "" || taskText == "" {
-			message := "invalid tool arguments: subAgentKey and task are required"
+	if strings.EqualFold(strings.TrimSpace(toolCall.Function.Name), InvokeAgentsToolName) {
+		rawTasks, _ := args["tasks"].([]any)
+		if len(rawTasks) < 1 || len(rawTasks) > 3 {
+			message := "invalid tool arguments: tasks must contain between 1 and 3 items"
 			return nil, []AgentDelta{DeltaToolResult{
 					ToolID:   toolID,
 					ToolName: toolCall.Function.Name,
@@ -772,16 +767,48 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 					Content:    message,
 				}
 		}
+		tasks := make([]SubAgentTaskSpec, 0, len(rawTasks))
+		for _, rawTask := range rawTasks {
+			taskMap, _ := rawTask.(map[string]any)
+			subAgentKey := strings.TrimSpace(mapStringArg(taskMap, "subAgentKey"))
+			taskText := strings.TrimSpace(mapStringArg(taskMap, "task"))
+			taskName := strings.TrimSpace(mapStringArg(taskMap, "taskName"))
+			if taskName == "" {
+				taskName = subAgentKey
+			}
+			if subAgentKey == "" || taskText == "" {
+				message := "invalid tool arguments: every task requires subAgentKey and task"
+				return nil, []AgentDelta{DeltaToolResult{
+						ToolID:   toolID,
+						ToolName: toolCall.Function.Name,
+						Result: ToolExecutionResult{
+							Output:   message,
+							Error:    "invalid_tool_arguments",
+							ExitCode: -1,
+						},
+					}}, &openAIMessage{
+						Role:       "tool",
+						ToolCallID: toolID,
+						Name:       toolCall.Function.Name,
+						Content:    message,
+					}
+			}
+			tasks = append(tasks, SubAgentTaskSpec{
+				SubAgentKey: subAgentKey,
+				TaskText:    taskText,
+				TaskName:    taskName,
+			})
+		}
+		groupID := "group_" + toolID
 		return &preparedToolInvocation{
 			toolID:              toolID,
 			toolName:            toolCall.Function.Name,
 			args:                args,
 			awaitExternalResult: true,
-			prelude: []AgentDelta{DeltaInvokeSubAgent{
-				MainToolID:  toolID,
-				SubAgentKey: subAgentKey,
-				TaskText:    taskText,
-				TaskName:    taskName,
+			prelude: []AgentDelta{DeltaInvokeSubAgents{
+				MainToolID: toolID,
+				GroupID:    groupID,
+				Tasks:      tasks,
 			}},
 		}, nil, nil
 	}

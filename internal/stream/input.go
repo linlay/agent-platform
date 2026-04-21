@@ -95,6 +95,7 @@ func (PlanUpdate) streamInputTag() {}
 type TaskStart struct {
 	TaskID      string
 	RunID       string
+	GroupID     string
 	TaskName    string
 	Description string
 	SubAgentKey string

@@ -2,16 +2,19 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/catalog"
 	"agent-platform-runner-go/internal/chat"
 	"agent-platform-runner-go/internal/contracts"
 	"agent-platform-runner-go/internal/llm"
+	"agent-platform-runner-go/internal/stream"
 )
 
 type frameOrchestrator struct {
@@ -24,6 +27,7 @@ type frameOrchestrator struct {
 	buildQuerySession func(context.Context, api.QueryRequest, chat.Summary, catalog.AgentDefinition, querySessionBuildOptions) (contracts.QuerySession, error)
 	mapper            *llm.DeltaMapper
 	emitDelta         func(contracts.AgentDelta)
+	emitInputs        func(...stream.StreamInput)
 	taskCounter       int
 }
 
@@ -40,94 +44,220 @@ func (o *frameOrchestrator) Run(mainStream contracts.AgentStream) (bool, bool, e
 			return true, false, nextErr
 		}
 
-		invoke, ok := delta.(contracts.DeltaInvokeSubAgent)
+		invoke, ok := delta.(contracts.DeltaInvokeSubAgents)
 		if !ok {
 			o.emitDelta(delta)
 			continue
 		}
-		if err := o.handleSubAgent(mainStream, invoke); err != nil {
+		if err := o.handleSubAgentBatch(mainStream, invoke); err != nil {
 			return true, false, err
 		}
 	}
 }
 
-func (o *frameOrchestrator) handleSubAgent(mainStream contracts.AgentStream, invoke contracts.DeltaInvokeSubAgent) error {
+type childTaskResult struct {
+	Index       int    `json:"-"`
+	TaskID      string `json:"taskId"`
+	TaskName    string `json:"taskName"`
+	SubAgentKey string `json:"subAgentKey"`
+	Status      string `json:"status"`
+	Text        string `json:"text"`
+	Error       string `json:"error,omitempty"`
+}
+
+type childRouteEvent struct {
+	input  stream.StreamInput
+	result *childTaskResult
+}
+
+type preparedSubTask struct {
+	spec     contracts.SubAgentTaskSpec
+	agentDef catalog.AgentDefinition
+	taskID   string
+}
+
+func (o *frameOrchestrator) handleSubAgentBatch(mainStream contracts.AgentStream, invoke contracts.DeltaInvokeSubAgents) error {
 	main, ok := mainStream.(llm.OrchestratableAgentStream)
 	if !ok {
 		return fmt.Errorf("main agent stream does not support sub-agent orchestration")
 	}
-	if o.registry == nil || o.buildQuerySession == nil {
+	if o.registry == nil || o.buildQuerySession == nil || o.mapper == nil {
 		o.injectMainToolError(main, invoke.MainToolID, "sub-agent orchestration is not configured")
 		return nil
 	}
-
-	subAgentKey := strings.TrimSpace(invoke.SubAgentKey)
-	agentDef, found := o.registry.AgentDefinition(subAgentKey)
-	if !found {
-		o.injectMainToolError(main, invoke.MainToolID, fmt.Sprintf("sub-agent not found: %s", subAgentKey))
-		return nil
-	}
-	if !canUseInvokeAgentTool(o.session.Mode) {
+	if !canUseInvokeAgentsTool(o.session.Mode) {
 		o.injectMainToolError(main, invoke.MainToolID, "sub-agent orchestration is only supported for REACT/ONESHOT main agents")
 		return nil
 	}
-	if !canUseInvokeAgentTool(agentDef.Mode) {
-		o.injectMainToolError(main, invoke.MainToolID, "sub-agent must be REACT/ONESHOT")
+	if len(invoke.Tasks) < 1 || len(invoke.Tasks) > 3 {
+		o.injectMainToolError(main, invoke.MainToolID, "invalid invoke_agents call: tasks must contain between 1 and 3 items")
 		return nil
 	}
-	if containsInvokeAgentTool(agentDef.Tools) {
-		o.injectMainToolError(main, invoke.MainToolID, "nested sub-agent invocation is not allowed")
-		return nil
+	prepared := make([]preparedSubTask, 0, len(invoke.Tasks))
+	for _, task := range invoke.Tasks {
+		subAgentKey := strings.TrimSpace(task.SubAgentKey)
+		taskText := strings.TrimSpace(task.TaskText)
+		taskName := strings.TrimSpace(task.TaskName)
+		if taskName == "" {
+			taskName = subAgentKey
+		}
+		if subAgentKey == "" || taskText == "" {
+			o.injectMainToolError(main, invoke.MainToolID, "invalid invoke_agents call: every task requires subAgentKey and task")
+			return nil
+		}
+		agentDef, found := o.registry.AgentDefinition(subAgentKey)
+		if !found {
+			o.injectMainToolError(main, invoke.MainToolID, fmt.Sprintf("sub-agent not found: %s", subAgentKey))
+			return nil
+		}
+		if !canUseInvokeAgentsTool(agentDef.Mode) {
+			o.injectMainToolError(main, invoke.MainToolID, "sub-agent must be REACT/ONESHOT")
+			return nil
+		}
+		if containsInvokeAgentsTool(agentDef.Tools) {
+			o.injectMainToolError(main, invoke.MainToolID, "nested sub-agent invocation is not allowed")
+			return nil
+		}
+		o.taskCounter++
+		prepared = append(prepared, preparedSubTask{
+			spec: contracts.SubAgentTaskSpec{
+				SubAgentKey: subAgentKey,
+				TaskText:    taskText,
+				TaskName:    taskName,
+			},
+			agentDef: agentDef,
+			taskID:   fmt.Sprintf("t_%s_%d", strings.TrimSpace(o.session.RunID), o.taskCounter),
+		})
 	}
 
-	o.taskCounter++
-	taskID := fmt.Sprintf("t_%s_%d", strings.TrimSpace(o.session.RunID), o.taskCounter)
-	if o.mapper != nil {
-		o.mapper.Snapshot()
+	groupID := strings.TrimSpace(invoke.GroupID)
+	if groupID == "" {
+		groupID = "group_" + strings.TrimSpace(invoke.MainToolID)
 	}
-	o.emitDelta(contracts.DeltaTaskLifecycle{
-		Kind:        "start",
-		TaskID:      taskID,
-		RunID:       o.session.RunID,
-		TaskName:    invoke.TaskName,
-		Description: invoke.TaskText,
-		SubAgentKey: subAgentKey,
-		MainToolID:  invoke.MainToolID,
-	})
 
-	subReq := o.request
-	subReq.RequestID = newRunID()
-	subReq.RunID = o.session.RunID
-	subReq.AgentKey = subAgentKey
-	subReq.Message = invoke.TaskText
+	for _, task := range prepared {
+		o.emitDelta(contracts.DeltaTaskLifecycle{
+			Kind:        "start",
+			TaskID:      task.taskID,
+			RunID:       o.session.RunID,
+			GroupID:     groupID,
+			TaskName:    task.spec.TaskName,
+			Description: task.spec.TaskText,
+			SubAgentKey: task.spec.SubAgentKey,
+			MainToolID:  invoke.MainToolID,
+		})
+	}
 
 	var principal *Principal
 	if strings.TrimSpace(o.session.Subject) != "" {
 		principal = &Principal{Subject: o.session.Subject}
 	}
-	subSession, err := o.buildQuerySession(o.runCtx, subReq, o.summary, agentDef, querySessionBuildOptions{
-		Created:          false,
-		IncludeHistory:   false,
-		IncludeMemory:    false,
-		AllowInvokeAgent: false,
-		Principal:        principal,
+
+	results := make([]childTaskResult, len(prepared))
+	routedCh := make(chan childRouteEvent, 32)
+	var wg sync.WaitGroup
+
+	for index, task := range prepared {
+		wg.Add(1)
+		go func(index int, task preparedSubTask) {
+			defer wg.Done()
+			routedCh <- childRouteEvent{result: o.runChildTask(index, task, principal, func(input stream.StreamInput) {
+				routedCh <- childRouteEvent{input: input}
+			})}
+		}(index, task)
+	}
+	go func() {
+		wg.Wait()
+		close(routedCh)
+	}()
+
+	for routed := range routedCh {
+		if routed.input != nil && o.emitInputs != nil {
+			o.emitInputs(routed.input)
+		}
+		if routed.result == nil {
+			continue
+		}
+		results[routed.result.Index] = *routed.result
+		terminalKind := "complete"
+		if routed.result.Status == "failed" {
+			terminalKind = "fail"
+		} else if routed.result.Status == "cancelled" {
+			terminalKind = "cancel"
+		}
+		lifecycle := contracts.DeltaTaskLifecycle{
+			Kind:    terminalKind,
+			TaskID:  routed.result.TaskID,
+			GroupID: groupID,
+			Status:  routed.result.Status,
+		}
+		if terminalKind == "fail" {
+			lifecycle.Error = contracts.NewErrorPayload("sub_agent_failed", firstNonEmpty(routed.result.Error, routed.result.Text), contracts.ErrorScopeTask, contracts.ErrorCategorySystem, nil)
+		}
+		o.emitDelta(lifecycle)
+	}
+
+	aggregated, err := json.Marshal(results)
+	if err != nil {
+		o.injectMainToolError(main, invoke.MainToolID, err.Error())
+		return nil
+	}
+	anyFailed := false
+	for _, result := range results {
+		if result.Status != "completed" {
+			anyFailed = true
+			break
+		}
+	}
+	_ = main.InjectToolResult(invoke.MainToolID, string(aggregated), anyFailed)
+	return nil
+}
+
+func (o *frameOrchestrator) runChildTask(index int, task preparedSubTask, principal *Principal, route func(stream.StreamInput)) *childTaskResult {
+	result := &childTaskResult{
+		Index:       index,
+		TaskID:      task.taskID,
+		TaskName:    task.spec.TaskName,
+		SubAgentKey: task.spec.SubAgentKey,
+		Status:      "completed",
+	}
+
+	subReq := o.request
+	subReq.RequestID = newRunID()
+	subReq.RunID = o.session.RunID
+	subReq.AgentKey = task.spec.SubAgentKey
+	subReq.Message = task.spec.TaskText
+
+	subSession, err := o.buildQuerySession(o.runCtx, subReq, o.summary, task.agentDef, querySessionBuildOptions{
+		Created:           false,
+		IncludeHistory:    false,
+		IncludeMemory:     false,
+		AllowInvokeAgents: false,
+		Principal:         principal,
 	})
 	if err != nil {
-		o.finishSubTask(main, taskID, invoke.MainToolID, "fail", "error", err.Error())
-		return nil
+		result.Status = "failed"
+		result.Text = err.Error()
+		result.Error = err.Error()
+		return result
 	}
 
 	subStream, err := o.agent.Stream(o.runCtx, subReq, subSession)
 	if err != nil {
-		o.finishSubTask(main, taskID, invoke.MainToolID, "fail", "error", err.Error())
-		return nil
+		result.Status = "failed"
+		result.Text = err.Error()
+		result.Error = err.Error()
+		return result
 	}
 	defer subStream.Close()
 
-	terminalKind := "complete"
-	terminalStatus := "completed"
-	finalText := ""
-	finalErrText := ""
+	childMapper := o.mapper.CloneIsolated(task.taskID, o.session.ChatID)
+	if childMapper == nil {
+		result.Status = "failed"
+		result.Text = "sub-agent delta mapper is unavailable"
+		result.Error = result.Text
+		return result
+	}
 
 	for {
 		delta, nextErr := subStream.Next()
@@ -135,86 +265,135 @@ func (o *frameOrchestrator) handleSubAgent(mainStream contracts.AgentStream, inv
 			break
 		}
 		if contracts.IsRunInterrupted(nextErr) {
-			terminalKind = "cancel"
-			terminalStatus = "cancelled"
-			finalErrText = "sub-agent interrupted"
-			break
+			result.Status = "cancelled"
+			result.Text = "sub-agent interrupted"
+			return result
 		}
 		if nextErr != nil {
-			terminalKind = "fail"
-			terminalStatus = "error"
-			finalErrText = nextErr.Error()
-			break
+			result.Status = "failed"
+			result.Text = nextErr.Error()
+			result.Error = nextErr.Error()
+			return result
 		}
 
 		switch value := delta.(type) {
-		case contracts.DeltaInvokeSubAgent:
-			terminalKind = "fail"
-			terminalStatus = "error"
-			finalErrText = "nested sub-agent invocation is not allowed"
+		case contracts.DeltaInvokeSubAgents:
+			result.Status = "failed"
+			result.Text = "nested sub-agent invocation is not allowed"
+			result.Error = result.Text
+			return result
 		case contracts.DeltaFinishReason, contracts.DeltaRunCancel:
 			continue
 		case contracts.DeltaError:
-			terminalKind = "fail"
-			terminalStatus = "error"
-			finalErrText = errorMessage(value.Error)
+			result.Status = "failed"
+			result.Text = errorMessage(value.Error)
+			result.Error = result.Text
+			return result
 		default:
-			o.emitDelta(delta)
-			continue
-		}
-		break
-	}
-
-	if terminalKind == "complete" {
-		child, ok := subStream.(llm.OrchestratableAgentStream)
-		if !ok {
-			terminalKind = "fail"
-			terminalStatus = "error"
-			finalErrText = "sub-agent stream does not expose final assistant content"
-		} else if text, ok := child.FinalAssistantContent(); ok && strings.TrimSpace(text) != "" {
-			finalText = text
-		} else {
-			terminalKind = "fail"
-			terminalStatus = "error"
-			finalErrText = "sub-agent produced no final assistant content"
+			for _, input := range childMapper.Map(delta) {
+				route(routeChildStreamInput(task.taskID, input))
+			}
 		}
 	}
 
-	if terminalKind == "complete" {
-		o.finishSubTask(main, taskID, invoke.MainToolID, terminalKind, terminalStatus, finalText)
-		return nil
+	child, ok := subStream.(llm.OrchestratableAgentStream)
+	if !ok {
+		result.Status = "failed"
+		result.Text = "sub-agent stream does not expose final assistant content"
+		result.Error = result.Text
+		return result
 	}
-	o.finishSubTask(main, taskID, invoke.MainToolID, terminalKind, terminalStatus, finalErrText)
-	return nil
-}
-
-func (o *frameOrchestrator) finishSubTask(main llm.OrchestratableAgentStream, taskID string, mainToolID string, terminalKind string, status string, text string) {
-	lifecycle := contracts.DeltaTaskLifecycle{
-		Kind:   terminalKind,
-		TaskID: taskID,
-		Status: status,
+	text, ok := child.FinalAssistantContent()
+	if !ok || strings.TrimSpace(text) == "" {
+		result.Status = "failed"
+		result.Text = "sub-agent produced no final assistant content"
+		result.Error = result.Text
+		return result
 	}
-	if terminalKind == "fail" {
-		lifecycle.Error = contracts.NewErrorPayload("sub_agent_failed", text, contracts.ErrorScopeTask, contracts.ErrorCategorySystem, nil)
-	}
-	o.emitDelta(lifecycle)
-	if o.mapper != nil {
-		o.mapper.RestoreActive()
-	}
-	_ = main.InjectToolResult(mainToolID, text, terminalKind != "complete")
+	result.Text = text
+	return result
 }
 
 func (o *frameOrchestrator) injectMainToolError(main llm.OrchestratableAgentStream, toolID string, message string) {
 	_ = main.InjectToolResult(toolID, message, true)
 }
 
-func containsInvokeAgentTool(toolNames []string) bool {
+func containsInvokeAgentsTool(toolNames []string) bool {
 	for _, toolName := range toolNames {
-		if strings.EqualFold(strings.TrimSpace(toolName), contracts.InvokeAgentToolName) {
+		if strings.EqualFold(strings.TrimSpace(toolName), contracts.InvokeAgentsToolName) {
 			return true
 		}
 	}
 	return false
+}
+
+func routeChildStreamInput(taskID string, input stream.StreamInput) stream.StreamInput {
+	switch value := input.(type) {
+	case stream.ReasoningDelta:
+		value.TaskID = taskID
+		return value
+	case stream.ContentDelta:
+		value.TaskID = taskID
+		return value
+	case stream.ToolArgs:
+		value.TaskID = taskID
+		value.ToolID = namespaceChildID(taskID, value.ToolID)
+		if value.AwaitAsk != nil {
+			awaitCopy := *value.AwaitAsk
+			awaitCopy.AwaitingID = namespaceChildID(taskID, awaitCopy.AwaitingID)
+			value.AwaitAsk = &awaitCopy
+		}
+		return value
+	case stream.ToolEnd:
+		value.ToolID = namespaceChildID(taskID, value.ToolID)
+		return value
+	case stream.ToolResult:
+		value.ToolID = namespaceChildID(taskID, value.ToolID)
+		return value
+	case stream.ActionArgs:
+		value.TaskID = taskID
+		value.ActionID = namespaceChildID(taskID, value.ActionID)
+		return value
+	case stream.ActionEnd:
+		value.ActionID = namespaceChildID(taskID, value.ActionID)
+		return value
+	case stream.ActionResult:
+		value.ActionID = namespaceChildID(taskID, value.ActionID)
+		return value
+	case stream.SourcePublish:
+		value.TaskID = taskID
+		value.PublishID = namespaceChildID(taskID, value.PublishID)
+		value.ToolID = namespaceChildID(taskID, value.ToolID)
+		return value
+	case stream.AwaitAsk:
+		value.AwaitingID = namespaceChildID(taskID, value.AwaitingID)
+		return value
+	case stream.RequestSubmit:
+		value.AwaitingID = namespaceChildID(taskID, value.AwaitingID)
+		return value
+	case stream.AwaitingAnswer:
+		value.AwaitingID = namespaceChildID(taskID, value.AwaitingID)
+		return value
+	default:
+		return input
+	}
+}
+
+func namespaceChildID(taskID string, rawID string) string {
+	rawID = strings.TrimSpace(rawID)
+	if rawID == "" {
+		return ""
+	}
+	return taskID + ":" + rawID
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func errorMessage(payload map[string]any) string {

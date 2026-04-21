@@ -628,6 +628,7 @@ func (d *StreamEventDispatcher) handleTaskStart(input TaskStart) []StreamEvent {
 	payload := map[string]any{
 		"taskId":      input.TaskID,
 		"runId":       input.RunID,
+		"groupId":     input.GroupID,
 		"taskName":    input.TaskName,
 		"description": input.Description,
 		"subAgentKey": input.SubAgentKey,

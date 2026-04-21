@@ -143,9 +143,9 @@ func backendToolDefinition(name string) api.ToolDetailResponse {
 	}
 }
 
-func invokeAgentToolDefinition() api.ToolDetailResponse {
+func invokeAgentsToolDefinition() api.ToolDetailResponse {
 	return api.ToolDetailResponse{
-		Name: contracts.InvokeAgentToolName,
+		Name: contracts.InvokeAgentsToolName,
 		Meta: map[string]any{
 			"kind":          "backend",
 			"sourceType":    "local",
@@ -254,10 +254,10 @@ func TestPrepareToolCall_LegacyMultiSelectReturnsToolError(t *testing.T) {
 	}
 }
 
-func TestPrepareToolCall_InvokeAgentReturnsSubAgentDelta(t *testing.T) {
+func TestPrepareToolCall_InvokeAgentsReturnsBatchPrelude(t *testing.T) {
 	stream := &llmRunStream{
 		engine: &LLMAgentEngine{
-			tools:    stubToolExecutor{defs: []api.ToolDetailResponse{invokeAgentToolDefinition()}},
+			tools:    stubToolExecutor{defs: []api.ToolDetailResponse{invokeAgentsToolDefinition()}},
 			frontend: frontendtools.NewDefaultRegistry(),
 		},
 		session: contracts.QuerySession{RunID: "run_1"},
@@ -268,8 +268,8 @@ func TestPrepareToolCall_InvokeAgentReturnsSubAgentDelta(t *testing.T) {
 		ID:   "tool_1",
 		Type: "function",
 		Function: openAIFunctionCall{
-			Name:      contracts.InvokeAgentToolName,
-			Arguments: `{"subAgentKey":"writer","task":"Write a short summary","taskName":"总结"}`,
+			Name:      contracts.InvokeAgentsToolName,
+			Arguments: `{"tasks":[{"subAgentKey":"writer","task":"Write a short summary","taskName":"总结"}]}`,
 		},
 	})
 	if toolMsg != nil {
@@ -284,19 +284,52 @@ func TestPrepareToolCall_InvokeAgentReturnsSubAgentDelta(t *testing.T) {
 	if len(invocation.prelude) != 1 {
 		t.Fatalf("expected one prelude delta, got %#v", invocation.prelude)
 	}
-	invoke, ok := invocation.prelude[0].(contracts.DeltaInvokeSubAgent)
+	invoke, ok := invocation.prelude[0].(contracts.DeltaInvokeSubAgents)
 	if !ok {
-		t.Fatalf("expected DeltaInvokeSubAgent prelude, got %#v", invocation.prelude[0])
+		t.Fatalf("expected DeltaInvokeSubAgents prelude, got %#v", invocation.prelude[0])
 	}
-	if invoke.MainToolID != "tool_1" || invoke.SubAgentKey != "writer" || invoke.TaskText != "Write a short summary" || invoke.TaskName != "总结" {
+	if invoke.MainToolID != "tool_1" || len(invoke.Tasks) != 1 || invoke.Tasks[0].SubAgentKey != "writer" || invoke.Tasks[0].TaskText != "Write a short summary" || invoke.Tasks[0].TaskName != "总结" || invoke.GroupID == "" {
 		t.Fatalf("unexpected invoke delta %#v", invoke)
+	}
+}
+
+func TestPrepareToolCall_InvokeAgentsRejectsTooManyTasks(t *testing.T) {
+	stream := &llmRunStream{
+		engine: &LLMAgentEngine{
+			tools:    stubToolExecutor{defs: []api.ToolDetailResponse{invokeAgentsToolDefinition()}},
+			frontend: frontendtools.NewDefaultRegistry(),
+		},
+		session: contracts.QuerySession{RunID: "run_1"},
+		execCtx: &contracts.ExecutionContext{},
+	}
+
+	invocation, deltas, toolMsg := stream.prepareToolCall(openAIToolCall{
+		ID:   "tool_1",
+		Type: "function",
+		Function: openAIFunctionCall{
+			Name:      contracts.InvokeAgentsToolName,
+			Arguments: `{"tasks":[{"subAgentKey":"a","task":"1"},{"subAgentKey":"b","task":"2"},{"subAgentKey":"c","task":"3"},{"subAgentKey":"d","task":"4"}]}`,
+		},
+	})
+	if invocation != nil {
+		t.Fatalf("expected no invocation, got %#v", invocation)
+	}
+	if len(deltas) != 1 {
+		t.Fatalf("expected one tool error delta, got %#v", deltas)
+	}
+	result, ok := deltas[0].(contracts.DeltaToolResult)
+	if !ok || result.Result.Error != "invalid_tool_arguments" {
+		t.Fatalf("unexpected tool error %#v", deltas)
+	}
+	if toolMsg == nil {
+		t.Fatal("expected tool message")
 	}
 }
 
 func TestInjectToolResultAppendsToolMessageAndFinalAssistantContent(t *testing.T) {
 	stream := &llmRunStream{
 		engine: &LLMAgentEngine{
-			tools:    stubToolExecutor{defs: []api.ToolDetailResponse{invokeAgentToolDefinition()}},
+			tools:    stubToolExecutor{defs: []api.ToolDetailResponse{invokeAgentsToolDefinition()}},
 			frontend: frontendtools.NewDefaultRegistry(),
 		},
 		session: contracts.QuerySession{RunID: "run_1"},
@@ -310,8 +343,8 @@ func TestInjectToolResultAppendsToolMessageAndFinalAssistantContent(t *testing.T
 		ID:   "tool_1",
 		Type: "function",
 		Function: openAIFunctionCall{
-			Name:      contracts.InvokeAgentToolName,
-			Arguments: `{"subAgentKey":"writer","task":"Write a short summary"}`,
+			Name:      contracts.InvokeAgentsToolName,
+			Arguments: `{"tasks":[{"subAgentKey":"writer","task":"Write a short summary"}]}`,
 		},
 	})
 	stream.queuedToolCalls = []*preparedToolInvocation{invocation}
@@ -319,7 +352,7 @@ func TestInjectToolResultAppendsToolMessageAndFinalAssistantContent(t *testing.T
 	stream.pending = nil
 
 	if !stream.InjectToolResult("tool_1", "done", false) {
-		t.Fatal("expected InjectToolResult to match active invoke_agent tool")
+		t.Fatal("expected InjectToolResult to match active invoke_agents tool")
 	}
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invokeActiveToolCall returned error: %v", err)
