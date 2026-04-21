@@ -33,13 +33,30 @@ func (h *Hub) Broadcast(eventType string, data map[string]any) {
 	if h == nil {
 		return
 	}
+	conns := h.snapshotConnections()
+	for _, conn := range conns {
+		conn.SendPush(eventType, data)
+	}
+}
+
+func (h *Hub) CloseAll(code int, text string) {
+	if h == nil {
+		return
+	}
+	for _, conn := range h.snapshotConnections() {
+		conn.close(code, text)
+	}
+}
+
+func (h *Hub) snapshotConnections() []*Conn {
+	if h == nil {
+		return nil
+	}
 	h.mu.RLock()
+	defer h.mu.RUnlock()
 	conns := make([]*Conn, 0, len(h.conns))
 	for conn := range h.conns {
 		conns = append(conns, conn)
 	}
-	h.mu.RUnlock()
-	for _, conn := range conns {
-		conn.SendPush(eventType, data)
-	}
+	return conns
 }

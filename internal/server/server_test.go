@@ -241,6 +241,106 @@ func TestWebSocketChatReturnsActiveRunConflict(t *testing.T) {
 	}
 }
 
+func TestWebSocketRunStreamClosesDuringShutdown(t *testing.T) {
+	hub := ws.NewHub()
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		notifications: hub,
+		configure: func(cfg *config.Config) {
+			cfg.WebSocket.Enabled = true
+			cfg.WebSocket.WriteQueueSize = 4
+			cfg.WebSocket.PingIntervalMs = 30000
+		},
+	})
+
+	runs := fixture.runs.(*runctl.InMemoryRunManager)
+	runID := "run_ws_shutdown"
+	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
+		RunID:    runID,
+		ChatID:   "chat_ws_shutdown",
+		AgentKey: "mock-runner",
+	})
+
+	server := newLoopbackServer(t, fixture.server)
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
+	conn, _, err := gws.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer conn.Close()
+
+	if _, raw, err := conn.ReadMessage(); err != nil {
+		t.Fatalf("read initial push: %v", err)
+	} else {
+		var connected ws.PushFrame
+		if err := json.Unmarshal(raw, &connected); err != nil {
+			t.Fatalf("decode initial frame: %v", err)
+		}
+		if connected.Frame != ws.FramePush || connected.Type != "connected" {
+			t.Fatalf("unexpected initial websocket frame: %s", string(raw))
+		}
+	}
+
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame: ws.FrameRequest,
+		Type:  "/api/run/stream",
+		ID:    "req_shutdown_stream",
+		Payload: ws.MarshalPayload(map[string]any{
+			"runId": runID,
+		}),
+	}); err != nil {
+		t.Fatalf("write run stream request: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		status, ok := runs.RunStatus(runID)
+		if ok && status.ObserverCount == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("observer was not attached before shutdown")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	shutdownDone := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		shutdownDone <- server.server.Shutdown(ctx)
+	}()
+
+	select {
+	case err := <-shutdownDone:
+		if err != nil {
+			t.Fatalf("shutdown failed: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("server shutdown timed out")
+	}
+
+	hub.CloseAll(gws.CloseNormalClosure, "server shutting down")
+
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, _, err = conn.ReadMessage()
+	if err == nil {
+		t.Fatalf("expected websocket to close after hub shutdown")
+	}
+	if !gws.IsCloseError(err, gws.CloseNormalClosure) && !gws.IsUnexpectedCloseError(err) {
+		t.Fatalf("expected websocket close error, got %v", err)
+	}
+
+	status, ok := runs.RunStatus(runID)
+	if !ok {
+		t.Fatalf("expected run status to remain available")
+	}
+	if status.ObserverCount != 0 {
+		t.Fatalf("expected observer to detach after shutdown, got %d", status.ObserverCount)
+	}
+}
+
 func TestWebSocketQueryDebugVisibilityFollowsSSEConfig(t *testing.T) {
 	testCases := []struct {
 		name         string

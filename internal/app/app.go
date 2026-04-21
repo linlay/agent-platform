@@ -30,6 +30,8 @@ import (
 	"agent-platform-runner-go/internal/viewport"
 	"agent-platform-runner-go/internal/ws"
 	"agent-platform-runner-go/internal/ws/gatewayclient"
+
+	gws "github.com/gorilla/websocket"
 )
 
 type App struct {
@@ -38,6 +40,7 @@ type App struct {
 	backgroundCancel context.CancelFunc
 	scheduler        *schedule.Orchestrator
 	gwClient         *gatewayclient.Client
+	wsHub            *ws.Hub
 }
 
 func New() (*App, error) {
@@ -158,8 +161,10 @@ func New() (*App, error) {
 
 	agentEngine := llm.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, frontendRegistry, sandboxClient)
 	notifications := contracts.NewNoopNotificationSink()
+	var wsHub *ws.Hub
 	if cfg.WebSocket.Enabled {
-		notifications = ws.NewHub()
+		wsHub = ws.NewHub()
+		notifications = wsHub
 	}
 	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, mcp.NewRegistryReloader(mcpRegistry, mcpToolSync), notifications)
 	backgroundCtx, backgroundCancel := context.WithCancel(context.Background())
@@ -264,6 +269,7 @@ func New() (*App, error) {
 		backgroundCancel: backgroundCancel,
 		scheduler:        scheduler,
 		gwClient:         gwClient,
+		wsHub:            wsHub,
 	}, nil
 }
 
@@ -277,12 +283,15 @@ func (a *App) Close() error {
 	if a.gwClient != nil {
 		_ = a.gwClient.Stop()
 	}
-	if err := observability.CloseMemoryLogger(); err != nil {
-		log.Printf("close memory logger: %v", err)
+	if a.wsHub != nil {
+		a.wsHub.CloseAll(gws.CloseNormalClosure, "server shutting down")
 	}
 	if a.scheduler != nil {
 		done := a.scheduler.Stop()
 		<-done.Done()
+	}
+	if err := observability.CloseMemoryLogger(); err != nil {
+		log.Printf("close memory logger: %v", err)
 	}
 	return nil
 }
