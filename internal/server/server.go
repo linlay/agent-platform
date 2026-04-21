@@ -158,6 +158,84 @@ func (s *Server) ExecuteInternalQuery(ctx context.Context, req api.QueryRequest)
 	return rec.Code, strings.TrimSpace(rec.Body.String()), nil
 }
 
+// ExecuteInternalQueryStream reuses the normal query pipeline for in-process
+// callers that need to react to each SSE event as it is emitted (e.g. the
+// gateway bridge). onEvent receives the raw JSON payload of each `data:` line
+// except the `[DONE]` sentinel. Returning an error from onEvent aborts further
+// streaming but does not cancel the underlying run.
+func (s *Server) ExecuteInternalQueryStream(
+	ctx context.Context,
+	req api.QueryRequest,
+	onEvent func(eventJSON []byte) error,
+) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	httpReq := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewReader(body)).WithContext(ctx)
+	httpReq.Header.Set("Content-Type", "application/json")
+	rw := newSSEInterceptor(onEvent)
+	s.handleQuery(rw, httpReq)
+	return rw.err
+}
+
+type sseInterceptor struct {
+	header  http.Header
+	buf     bytes.Buffer
+	onEvent func([]byte) error
+	err     error
+}
+
+func newSSEInterceptor(onEvent func([]byte) error) *sseInterceptor {
+	return &sseInterceptor{header: http.Header{}, onEvent: onEvent}
+}
+
+func (w *sseInterceptor) Header() http.Header { return w.header }
+
+func (w *sseInterceptor) WriteHeader(int) {}
+
+func (w *sseInterceptor) Write(p []byte) (int, error) {
+	n := len(p)
+	w.buf.Write(p)
+	for {
+		idx := bytes.Index(w.buf.Bytes(), []byte("\n\n"))
+		if idx < 0 {
+			break
+		}
+		frame := make([]byte, idx)
+		copy(frame, w.buf.Bytes()[:idx])
+		w.buf.Next(idx + 2)
+		var payload []byte
+		for _, line := range bytes.Split(frame, []byte("\n")) {
+			if bytes.HasPrefix(line, []byte("data:")) {
+				chunk := bytes.TrimPrefix(line, []byte("data:"))
+				chunk = bytes.TrimPrefix(chunk, []byte(" "))
+				if len(payload) > 0 {
+					payload = append(payload, '\n')
+				}
+				payload = append(payload, chunk...)
+			}
+		}
+		if len(payload) == 0 {
+			continue
+		}
+		if bytes.Equal(bytes.TrimSpace(payload), []byte(stream.DoneSentinel)) {
+			continue
+		}
+		if w.err == nil && w.onEvent != nil {
+			if err := w.onEvent(payload); err != nil {
+				w.err = err
+			}
+		}
+	}
+	return n, nil
+}
+
+func (w *sseInterceptor) Flush() {}
+
 func withSyncQueryContext(ctx context.Context) context.Context {
 	return context.WithValue(ctx, syncQueryContextKey{}, true)
 }

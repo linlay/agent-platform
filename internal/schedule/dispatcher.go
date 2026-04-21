@@ -14,12 +14,19 @@ import (
 
 type DispatchFunc func(ctx context.Context, req api.QueryRequest) error
 
+// Broadcaster 是历史接口占位——当前 schedule 不再主动 broadcast 自定义 push，
+// 触发后的 run 按普通对话走 request/stream/response 协议，由网关按 run.started
+// 自行 attach 消费 stream 事件。保留入参只为避免破坏老的 NewDispatcher 调用点。
+type Broadcaster interface {
+	Broadcast(eventType string, data map[string]any)
+}
+
 type Dispatcher struct {
 	dispatch   DispatchFunc
 	httpClient *http.Client
 }
 
-func NewDispatcher(dispatch DispatchFunc) *Dispatcher {
+func NewDispatcher(dispatch DispatchFunc, _ Broadcaster) *Dispatcher {
 	return &Dispatcher{
 		dispatch: dispatch,
 		httpClient: &http.Client{
@@ -72,21 +79,28 @@ func (d *Dispatcher) Dispatch(ctx context.Context, def Definition) error {
 		time.Since(startedAt).Round(time.Millisecond),
 	)
 
-	// Push results to external URL if configured
+	// Legacy bridge-era 路径：若 YAML 显式配了 pushUrl，仍然 HTTP POST 一条静态 markdown
+	// 给那个 URL（bridge /api/push）。不配就跳过——正常用法是不配。
 	if strings.TrimSpace(def.PushURL) != "" {
-		targetID := def.PushTargetID
+		targetID := strings.TrimSpace(def.PushTargetID)
 		if targetID == "" {
-			targetID = def.Query.ChatID
+			targetID = strings.TrimSpace(def.Query.ChatID)
 		}
-		d.push(def.PushURL, targetID, def.ID)
+		markdown := strings.TrimSpace(def.PushMessage)
+		if markdown == "" {
+			markdown = "Schedule " + def.ID + " completed"
+		}
+		d.push(def.PushURL, targetID, strings.TrimSpace(def.Query.ChatID), def.ID, markdown)
 	}
 	return nil
 }
 
-func (d *Dispatcher) push(pushURL string, targetID string, scheduleID string) {
+func (d *Dispatcher) push(pushURL string, targetID string, chatID string, scheduleID string, markdown string) {
 	payload, err := json.Marshal(map[string]any{
-		"targetId": targetID,
-		"markdown": "Schedule " + scheduleID + " completed",
+		"scheduleId": scheduleID,
+		"chatId":     chatID,
+		"targetId":   targetID,
+		"markdown":   markdown,
 	})
 	if err != nil {
 		log.Printf("[schedule] push marshal failed: %v", err)

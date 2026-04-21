@@ -122,7 +122,10 @@ func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
 	if err != nil {
 		return preparedQuery{}, err
 	}
-	if created && !isHiddenRequest(req) {
+	if created {
+		// hidden run（schedule 等自发触发）也照常广播 chat.created —— 否则 webclient
+		// 要刷新整个列表才能看到新建的 schedule 会话。隐藏语义只影响 chat 内部消息记录
+		// （不写伪造的"用户发消息"），不影响会话在列表里的可见性。
 		s.broadcast("chat.created", map[string]any{
 			"chatId":    chatID,
 			"chatName":  summary.ChatName,
