@@ -62,7 +62,7 @@ func (s *Server) buildRuntimeRequestContext(input runtimeRequestContextInput) (c
 	if input.principal != nil {
 		context.AuthIdentity = buildAuthIdentity(input.principal)
 	}
-	if containsContextTag(input.definition.ContextTags, "sandbox") && s.deps.Config.ContainerHub.Enabled {
+	if hasSandboxConfig(input.definition.Sandbox) && s.deps.Config.ContainerHub.Enabled {
 		sandboxContext, err := buildSandboxContext(s.deps.Config, input.definition)
 		if err != nil {
 			return contracts.RuntimeRequestContext{}, err
@@ -428,15 +428,6 @@ func summarizeExtraMounts(def catalog.AgentDefinition) []string {
 		}
 	}
 	return out
-}
-
-func containsContextTag(tags []string, needle string) bool {
-	for _, tag := range tags {
-		if strings.EqualFold(strings.TrimSpace(tag), needle) {
-			return true
-		}
-	}
-	return false
 }
 
 func firstStringClaim(claims map[string]any, keys ...string) string {

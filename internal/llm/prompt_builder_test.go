@@ -39,3 +39,23 @@ func TestBuildMemorySectionAvoidsDuplicatingLayeredHeaders(t *testing.T) {
 		t.Fatalf("expected one observation header, got %q", section)
 	}
 }
+
+func TestBuildRuntimeContextPromptAutoIncludesSandboxSection(t *testing.T) {
+	prompt := buildRuntimeContextPrompt(QuerySession{
+		AgentHasSandboxConfig: true,
+		RuntimeContext: RuntimeRequestContext{
+			SandboxContext: &SandboxContext{
+				EnvironmentID:     "browser",
+				Level:             "RUN",
+				EnvironmentPrompt: "Use the browser sandbox carefully.",
+			},
+		},
+	}, api.QueryRequest{})
+
+	if !strings.Contains(prompt, "Runtime Context: Sandbox") {
+		t.Fatalf("expected sandbox section in prompt, got %q", prompt)
+	}
+	if !strings.Contains(prompt, "environmentId: browser") {
+		t.Fatalf("expected sandbox environment details in prompt, got %q", prompt)
+	}
+}

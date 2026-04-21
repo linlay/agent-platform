@@ -76,7 +76,6 @@ plain:
 - `context`
 - `owner`
 - `auth`
-- `sandbox`
 - `all-agents`
 - `memory`
 
@@ -90,6 +89,7 @@ plain:
 - `context` 会暴露运行时上下文与 sandbox 路径
 - `owner` 会注入 `OWNER_DIR` 下的 markdown 内容
 - `memory` 会注入运行期 memory context
+- `sandbox` 不再通过 `context tags` 控制；只要 agent 声明了 `sandboxConfig`，运行时会自动注入 sandbox context
 
 ## Static Memory 与 Runtime Memory
 
@@ -159,6 +159,7 @@ sandboxConfig:
 - key 必须非空，且不能包含空白字符或 `=`
 - value 必须是字面量字符串；空字符串允许并原样下发
 - 不支持 `${VAR}` 或其他宿主环境变量展开
+- `sandboxConfig` 是 sandbox context 的唯一入口；不需要再在 `contextConfig.tags` / `contextTags` 中声明 `sandbox`
 - agent `sandboxConfig.env` 作为基础值，skill 目录下的 `.sandbox-env.json` 会按 agent 声明顺序叠加并覆盖同名键
 - `/api/agents` 与 `/api/agent` 的 `sandbox` meta 不会回显 `env`，避免暴露代理地址、凭据或私有 endpoint；`extraMounts` 仍可对外暴露，因为它描述的是白名单路径而非敏感值
 

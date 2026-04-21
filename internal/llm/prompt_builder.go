@@ -97,9 +97,6 @@ func resolveStageSystemPrompt(session QuerySession, stage string) string {
 }
 
 func buildRuntimeContextPrompt(session QuerySession, req api.QueryRequest) string {
-	if len(session.ContextTags) == 0 {
-		return ""
-	}
 	var sections []string
 	for _, tag := range session.ContextTags {
 		switch strings.ToLower(strings.TrimSpace(tag)) {
@@ -111,14 +108,15 @@ func buildRuntimeContextPrompt(session QuerySession, req api.QueryRequest) strin
 			appendIfPresent(&sections, buildOwnerSection(session.RuntimeContext.LocalPaths))
 		case "auth":
 			appendIfPresent(&sections, buildAuthIdentitySection(session.RuntimeContext.AuthIdentity))
-		case "sandbox":
-			appendIfPresent(&sections, buildSandboxSection(session.RuntimeContext.SandboxContext))
 		case "all-agents":
 			appendIfPresent(&sections, buildAllAgentsSection(session.RuntimeContext.AgentDigests))
 		case "memory":
 			appendIfPresent(&sections, buildMemorySection(session, req))
 		default:
 		}
+	}
+	if session.AgentHasSandboxConfig || session.RuntimeContext.SandboxContext != nil {
+		appendIfPresent(&sections, buildSandboxSection(session.RuntimeContext.SandboxContext))
 	}
 	return strings.Join(sections, "\n\n")
 }

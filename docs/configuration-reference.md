@@ -390,7 +390,6 @@ provider registry 中的 `apiKey` 支持以下两种形态：
 - `context`
 - `owner`
 - `auth`
-- `sandbox`
 - `all-agents`
 - `memory`
 
@@ -404,3 +403,4 @@ provider registry 中的 `apiKey` 支持以下两种形态：
 - `context` 负责暴露运行上下文与 sandbox 路径，例如 `sandbox_owner_dir=/owner`、`sandbox_memory_dir=/memory`
 - `owner` 负责注入 `OWNER_DIR` 下的 markdown 内容
 - `memory` 负责注入运行期 memory context
+- `sandbox` 不再属于 `context tags`；只要 agent 配置了 `sandboxConfig`，运行时就会自动注入 sandbox context

@@ -169,8 +169,10 @@ func normalizeContextTags(tags []string) []string {
 func normalizeContextTag(raw string) string {
 	tag := strings.ToLower(strings.TrimSpace(raw))
 	switch tag {
-	case "system", "context", "owner", "auth", "sandbox", "all-agents", "memory":
+	case "system", "context", "owner", "auth", "all-agents", "memory":
 		return tag
+	case "sandbox":
+		return ""
 	case "agent_identity", "run_session", "scene", "references", "execution_policy":
 		return "context"
 	case "memory_context":

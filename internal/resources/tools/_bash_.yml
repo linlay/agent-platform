@@ -1,5 +1,5 @@
 name: _bash_
-label: 执行命令（宿主机）
+label: 执行命令
 description: Run allowlisted bash commands on the host. Strict mode is used by default, with optional support for advanced shell syntax such as pipes, redirection, and here-doc. When calling this tool, always include a short Chinese description explaining the command purpose.
 submitResultFormat: json-compact
 type: function

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"agent-platform-runner-go/internal/api"
@@ -110,9 +111,8 @@ func TestBuildRuntimeContextSkipsSandboxContextWhenHubDisabled(t *testing.T) {
 		chatName: "Chat 1",
 		scene:    &api.Scene{URL: "https://example.com"},
 		definition: catalog.AgentDefinition{
-			Key:         "demo-agent",
-			AgentDir:    filepath.Join(cfg.Paths.AgentsDir, "demo-agent"),
-			ContextTags: []string{"sandbox"},
+			Key:      "demo-agent",
+			AgentDir: filepath.Join(cfg.Paths.AgentsDir, "demo-agent"),
 			Sandbox: map[string]any{
 				"environmentId": "shell",
 			},
@@ -126,6 +126,72 @@ func TestBuildRuntimeContextSkipsSandboxContextWhenHubDisabled(t *testing.T) {
 	}
 	if context.SandboxContext != nil {
 		t.Fatalf("expected sandbox context to be skipped, got %#v", context.SandboxContext)
+	}
+}
+
+func TestBuildRuntimeContextIncludesSandboxContextWhenSandboxConfigured(t *testing.T) {
+	t.Parallel()
+
+	cfg := testPromptContextConfig(t)
+	cfg.ContainerHub.BaseURL = "://bad-url"
+	s := &Server{
+		deps: Dependencies{
+			Config:   cfg,
+			Registry: testCatalogRegistry{},
+		},
+	}
+
+	_, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
+		agentKey: "demo-agent",
+		teamID:   "team-1",
+		role:     "assistant",
+		chatID:   "chat-1",
+		chatName: "Chat 1",
+		definition: catalog.AgentDefinition{
+			Key:      "demo-agent",
+			AgentDir: filepath.Join(cfg.Paths.AgentsDir, "demo-agent"),
+			Sandbox: map[string]any{
+				"environmentId": "browser",
+				"level":         "run",
+			},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected sandbox-configured agent to attempt sandbox context loading")
+	}
+	if !strings.Contains(err.Error(), `sandbox context failed to load environment prompt for "browser"`) {
+		t.Fatalf("expected sandbox context load error, got %v", err)
+	}
+}
+
+func TestBuildRuntimeContextIgnoresLegacySandboxTagWithoutSandboxConfig(t *testing.T) {
+	t.Parallel()
+
+	cfg := testPromptContextConfig(t)
+	s := &Server{
+		deps: Dependencies{
+			Config:   cfg,
+			Registry: testCatalogRegistry{},
+		},
+	}
+
+	context, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
+		agentKey: "demo-agent",
+		teamID:   "team-1",
+		role:     "assistant",
+		chatID:   "chat-1",
+		chatName: "Chat 1",
+		definition: catalog.AgentDefinition{
+			Key:         "demo-agent",
+			AgentDir:    filepath.Join(cfg.Paths.AgentsDir, "demo-agent"),
+			ContextTags: []string{"sandbox"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildRuntimeRequestContext() error = %v", err)
+	}
+	if context.SandboxContext != nil {
+		t.Fatalf("expected legacy sandbox tag to have no effect, got %#v", context.SandboxContext)
 	}
 }
 

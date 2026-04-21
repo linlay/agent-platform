@@ -213,6 +213,69 @@ func TestParseAgentFilePrefersContextConfigTags(t *testing.T) {
 	}
 }
 
+func TestParseAgentFileDropsSandboxContextTag(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	if err := os.WriteFile(path, []byte(
+		"key: zenmi\n"+
+			"name: 小宅\n"+
+			"mode: REACT\n"+
+			"modelConfig:\n"+
+			"  modelKey: demo-model\n"+
+			"contextConfig:\n"+
+			"  tags:\n"+
+			"    - system\n"+
+			"    - sandbox\n"+
+			"    - memory\n",
+	), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	if got := strings.Join(def.ContextTags, ","); got != "system,memory" {
+		t.Fatalf("expected sandbox tag to be dropped, got %q", got)
+	}
+}
+
+func TestLoadAgentsDoesNotExposeSandboxInContextTagsMeta(t *testing.T) {
+	root := t.TempDir()
+	agentsDir := filepath.Join(root, "agents")
+	marketDir := filepath.Join(root, "skills-market")
+	agentDir := filepath.Join(agentsDir, "zenmi")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatalf("mkdir agent dir: %v", err)
+	}
+	if err := os.MkdirAll(marketDir, 0o755); err != nil {
+		t.Fatalf("mkdir skills market dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte(
+		"key: zenmi\n"+
+			"name: 小宅\n"+
+			"mode: REACT\n"+
+			"modelConfig:\n"+
+			"  modelKey: demo-model\n"+
+			"contextTags:\n"+
+			"  - sandbox\n"+
+			"  - memory\n"+
+			"sandboxConfig:\n"+
+			"  environmentId: shell\n",
+	), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	agents, err := loadAgents(agentsDir, marketDir)
+	if err != nil {
+		t.Fatalf("loadAgents: %v", err)
+	}
+	def := agents["zenmi"]
+	if got := strings.Join(def.ContextTags, ","); got != "memory" {
+		t.Fatalf("expected sandbox tag to be removed from loaded agent, got %q", got)
+	}
+}
+
 func TestParseAgentFileMapsModelReasoningIntoStageSettings(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
