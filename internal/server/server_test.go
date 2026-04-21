@@ -284,7 +284,7 @@ func TestWebSocketRunStreamClosesDuringShutdown(t *testing.T) {
 
 	if err := conn.WriteJSON(ws.RequestFrame{
 		Frame: ws.FrameRequest,
-		Type:  "/api/run/stream",
+		Type:  "/api/attach",
 		ID:    "req_shutdown_stream",
 		Payload: ws.MarshalPayload(map[string]any{
 			"runId": runID,
@@ -1119,7 +1119,7 @@ func TestQueryAndRunStreamHideDebugEventsByDefaultButPersistThem(t *testing.T) {
 	}
 
 	runRec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(runRec, httptest.NewRequest(http.MethodGet, "/api/run/stream?runId="+runID, nil))
+	fixture.server.ServeHTTP(runRec, httptest.NewRequest(http.MethodGet, "/api/attach?runId="+runID, nil))
 	if runRec.Code != http.StatusOK {
 		t.Fatalf("expected run stream 200, got %d: %s", runRec.Code, runRec.Body.String())
 	}
@@ -1162,13 +1162,46 @@ func TestQueryAndRunStreamIncludeDebugEventsWhenEnabled(t *testing.T) {
 	if len(messages) == 0 {
 		t.Fatalf("expected sse messages, got %s", body)
 	}
+	var preCall map[string]any
+	for _, message := range messages {
+		if eventType, _ := message["type"].(string); eventType == "debug.preCall" {
+			preCall = message
+			break
+		}
+	}
+	if preCall == nil {
+		t.Fatalf("expected debug.preCall in sse stream, got %#v", messages)
+	}
+	preCallData, _ := preCall["data"].(map[string]any)
+	provider, _ := preCallData["provider"].(map[string]any)
+	model, _ := preCallData["model"].(map[string]any)
+	requestBody, _ := preCallData["requestBody"].(map[string]any)
+	tools, _ := preCallData["tools"].([]any)
+	if provider["key"] != "mock" {
+		t.Fatalf("expected provider key mock, got %#v", provider)
+	}
+	if provider["endpoint"] != "https://example.com/v1/chat/completions" {
+		t.Fatalf("unexpected provider endpoint %#v", provider)
+	}
+	if model["key"] != "mock-model" || model["id"] != "mock-model-id" {
+		t.Fatalf("unexpected model payload %#v", model)
+	}
+	if preCallData["systemPrompt"] == "" {
+		t.Fatalf("expected non-empty systemPrompt, got %#v", preCallData)
+	}
+	if len(requestBody) == 0 {
+		t.Fatalf("expected requestBody payload, got %#v", preCallData)
+	}
+	if len(tools) == 0 {
+		t.Fatalf("expected tools payload, got %#v", preCallData)
+	}
 	runID, _ := messages[0]["runId"].(string)
 	if runID == "" {
 		t.Fatalf("expected runId in first sse message, got %#v", messages[0])
 	}
 
 	runRec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(runRec, httptest.NewRequest(http.MethodGet, "/api/run/stream?runId="+runID, nil))
+	fixture.server.ServeHTTP(runRec, httptest.NewRequest(http.MethodGet, "/api/attach?runId="+runID, nil))
 	if runRec.Code != http.StatusOK {
 		t.Fatalf("expected run stream 200, got %d: %s", runRec.Code, runRec.Body.String())
 	}

@@ -214,7 +214,13 @@ func (RequestSteer) streamInputTag() {}
 
 type InputDebugPreCall struct {
 	ChatID                string
+	ProviderKey           string
+	ProviderEndpoint      string
 	ModelKey              string
+	ModelID               string
+	RequestBody           map[string]any
+	SystemPrompt          string
+	Tools                 []any
 	ContextWindow         int
 	CurrentContextSize    int
 	EstimatedNextCallSize int

@@ -101,7 +101,7 @@ func TestHTTPRunStreamDetachesObserverDuringRootContextShutdown(t *testing.T) {
 	httpServer := newLoopbackServerWithBaseContext(t, fixture.server, rootCtx)
 	defer httpServer.Close()
 
-	resp, err := http.Get(httpServer.URL + "/api/run/stream?runId=" + runID)
+	resp, err := http.Get(httpServer.URL + "/api/attach?runId=" + runID)
 	if err != nil {
 		t.Fatalf("get run stream: %v", err)
 	}

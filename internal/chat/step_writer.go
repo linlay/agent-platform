@@ -57,6 +57,7 @@ type StepWriter struct {
 	pendingUsage            map[string]any
 	pendingContextWindowMax int
 	pendingEstimated        int
+	pendingPreCallData      map[string]any
 }
 
 type taskStepBuffer struct {
@@ -278,6 +279,9 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 
 	case "debug.preCall", "debug.postCall":
 		if inner, ok := event.Value("data").(map[string]any); ok {
+			if event.Type == "debug.preCall" {
+				w.pendingPreCallData = cloneStepSystemPayload(inner)
+			}
 			if cw, ok := inner["contextWindow"].(map[string]any); ok {
 				w.pendingContextWindowMax = toInt(cw["max_size"])
 				w.pendingEstimated = toInt(cw["estimated_size"])
@@ -395,6 +399,10 @@ func (w *StepWriter) appendStoredMessage(event stream.EventData, message StoredM
 func (w *StepWriter) flushCurrentStep() {
 	if len(w.messages) == 0 && len(w.pendingAwaiting) == 0 {
 		w.pendingApproval = nil
+		w.pendingUsage = nil
+		w.pendingContextWindowMax = 0
+		w.pendingEstimated = 0
+		w.pendingPreCallData = nil
 		return
 	}
 
@@ -402,6 +410,10 @@ func (w *StepWriter) flushCurrentStep() {
 		log.Printf("[chat] dropping pending awaiting without messages (chatId=%s runId=%s count=%d)", w.chatID, w.runID, len(w.pendingAwaiting))
 		w.pendingAwaiting = nil
 		w.pendingApproval = nil
+		w.pendingUsage = nil
+		w.pendingContextWindowMax = 0
+		w.pendingEstimated = 0
+		w.pendingPreCallData = nil
 		return
 	}
 
@@ -421,6 +433,11 @@ func (w *StepWriter) flushCurrentStep() {
 	}
 	if w.pendingUsage != nil {
 		line.Usage = w.pendingUsage
+	}
+	if w.pendingPreCallData != nil {
+		line.System = map[string]any{
+			"debugPreCall": cloneStepSystemPayload(w.pendingPreCallData),
+		}
 	}
 	if w.pendingUsage != nil || w.pendingContextWindowMax > 0 || w.pendingEstimated > 0 {
 		actual := 0
@@ -443,6 +460,7 @@ func (w *StepWriter) flushCurrentStep() {
 		w.pendingUsage = nil
 		w.pendingContextWindowMax = 0
 		w.pendingEstimated = 0
+		w.pendingPreCallData = nil
 	}
 	if w.latestPlan != nil {
 		line.Plan = w.latestPlan
@@ -469,6 +487,10 @@ func (w *StepWriter) flushCurrentStep() {
 	line.Messages = append([]StoredMessage(nil), w.messages...)
 	_ = w.store.AppendStepLine(w.chatID, line)
 	w.messages = nil
+	w.pendingUsage = nil
+	w.pendingContextWindowMax = 0
+	w.pendingEstimated = 0
+	w.pendingPreCallData = nil
 }
 
 func (w *StepWriter) flushTaskStep(taskID string) {
@@ -680,6 +702,21 @@ func generateMsgID() string {
 	b := make([]byte, 4)
 	_, _ = rand.Read(b)
 	return "m_" + hex.EncodeToString(b)
+}
+
+func cloneStepSystemPayload(value map[string]any) map[string]any {
+	if len(value) == 0 {
+		return nil
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return cloneStringAnyMap(value)
+	}
+	var cloned map[string]any
+	if err := json.Unmarshal(data, &cloned); err != nil {
+		return cloneStringAnyMap(value)
+	}
+	return cloned
 }
 
 // parseStage normalises a stage marker string to a stage name, matching Java's

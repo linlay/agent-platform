@@ -574,8 +574,10 @@ func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, r
 			awaitingReplay := newStepAwaitingReplay(line["awaiting"], runID)
 			stepUsage, _ := line["usage"].(map[string]any)
 			stepContextWindow, _ := line["contextWindow"].(map[string]any)
+			stepSystem, _ := line["system"].(map[string]any)
+			stepPreCallData := debugPreCallDataFromStepSystem(stepSystem)
 			ts := int64FromAny(line["updatedAt"])
-			if stepUsage != nil || len(stepContextWindow) > 0 {
+			if stepUsage != nil || len(stepContextWindow) > 0 || len(stepPreCallData) > 0 {
 				runCumulativePre := map[string]int{
 					"promptTokens":     rd.totalPromptTokens,
 					"completionTokens": rd.totalCompletionTokens,
@@ -586,7 +588,7 @@ func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, r
 					"completionTokens": chatTotalCompletionTokens,
 					"totalTokens":      chatTotalTotalTokens,
 				}
-				if ev := synthesizePreCallEvent(runID, chatID, runCumulativePre, chatCumulativePre, stepContextWindow, ts, nextSeq); ev != nil {
+				if ev := synthesizePreCallEvent(runID, chatID, runCumulativePre, chatCumulativePre, stepContextWindow, stepPreCallData, ts, nextSeq); ev != nil {
 					rd.events = append(rd.events, *ev)
 				}
 			}
@@ -802,8 +804,11 @@ func cumulativeUsagePayload(cumulative map[string]int) map[string]any {
 	}
 }
 
-func synthesizePreCallEvent(runID, chatID string, runCumulative, chatCumulative map[string]int, contextWindow map[string]any, ts int64, nextSeq func() int64) *stream.EventData {
-	data := map[string]any{}
+func synthesizePreCallEvent(runID, chatID string, runCumulative, chatCumulative map[string]int, contextWindow map[string]any, preCallData map[string]any, ts int64, nextSeq func() int64) *stream.EventData {
+	data := cloneStringAnyMap(preCallData)
+	if data == nil {
+		data = map[string]any{}
+	}
 	if cw := synthesizedContextWindow(contextWindow); len(cw) > 0 {
 		data["contextWindow"] = cw
 	}
@@ -821,6 +826,14 @@ func synthesizePreCallEvent(runID, chatID string, runCumulative, chatCumulative 
 			"data":   data,
 		},
 	}
+}
+
+func debugPreCallDataFromStepSystem(system map[string]any) map[string]any {
+	if len(system) == 0 {
+		return nil
+	}
+	data, _ := system["debugPreCall"].(map[string]any)
+	return cloneStringAnyMap(data)
 }
 
 func synthesizePostCallEvent(runID, chatID string, usage map[string]any, runCumulative, chatCumulative map[string]int, contextWindow map[string]any, ts int64, nextSeq func() int64) *stream.EventData {

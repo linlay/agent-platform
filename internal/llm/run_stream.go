@@ -274,9 +274,28 @@ func (s *llmRunStream) prepareNextTurn() error {
 	if s.protocol == nil {
 		return fmt.Errorf("streaming protocol %s is not supported", s.model.Protocol)
 	}
+	preparedRequest, err := s.protocol.PrepareRequest(protocolStreamParams{
+		runID:          s.session.RunID,
+		provider:       s.provider,
+		model:          s.model,
+		protocolConfig: s.protocolConfig,
+		stageSettings:  s.stageSettings,
+		messages:       s.messages,
+		toolSpecs:      s.toolSpecs,
+		toolChoice:     s.toolChoice,
+	})
+	if err != nil {
+		return err
+	}
 	s.pending = append(s.pending, DeltaDebugPreCall{
 		ChatID:                s.session.ChatID,
+		ProviderKey:           s.provider.Key,
+		ProviderEndpoint:      preparedRequest.Endpoint,
 		ModelKey:              s.model.Key,
+		ModelID:               s.model.ModelID,
+		RequestBody:           preparedRequest.RequestBody,
+		SystemPrompt:          preparedRequest.SystemPrompt,
+		Tools:                 preparedRequest.Tools,
 		ContextWindow:         s.effectiveContextWindow(),
 		CurrentContextSize:    s.currentContextSize(),
 		EstimatedNextCallSize: s.estimatedNextCallSize(),
@@ -293,7 +312,7 @@ func (s *llmRunStream) prepareNextTurn() error {
 		messages:       s.messages,
 		toolSpecs:      s.toolSpecs,
 		toolChoice:     s.toolChoice,
-	})
+	}, preparedRequest)
 	if err != nil {
 		return err
 	}

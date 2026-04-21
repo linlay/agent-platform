@@ -3,6 +3,7 @@ package llm
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,8 +14,18 @@ import (
 )
 
 type providerProtocol interface {
-	OpenStream(ctx context.Context, params protocolStreamParams) (*providerTurnStream, error)
+	PrepareRequest(params protocolStreamParams) (preparedProviderRequest, error)
+	OpenStream(ctx context.Context, params protocolStreamParams, prepared preparedProviderRequest) (*providerTurnStream, error)
 	ConsumeChunk(s *llmRunStream, eventName string, rawChunk string) (turnDone bool, err error)
+}
+
+type preparedProviderRequest struct {
+	Endpoint        string
+	RequestBody     map[string]any
+	RequestBodyJSON []byte
+	SystemPrompt    string
+	Tools           []any
+	Headers         map[string]string
 }
 
 type protocolStreamParams struct {
@@ -47,6 +58,18 @@ func resolveProviderEndpoint(params protocolStreamParams) (string, error) {
 		return "", fmt.Errorf("provider %s has empty apiKey", params.provider.Key)
 	}
 	return strings.TrimRight(params.provider.BaseURL, "/") + params.protocolConfig.EndpointPath, nil
+}
+
+func normalizePreparedRequestBody(body []byte) (map[string]any, []any, error) {
+	var requestBody map[string]any
+	if err := json.Unmarshal(body, &requestBody); err != nil {
+		return nil, nil, err
+	}
+	tools, _ := requestBody["tools"].([]any)
+	if tools == nil {
+		tools = []any{}
+	}
+	return requestBody, tools, nil
 }
 
 func (e *LLMAgentEngine) executeProviderRequest(req *http.Request) (*providerTurnStream, error) {

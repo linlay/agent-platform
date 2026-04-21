@@ -1662,6 +1662,25 @@ func TestLoadChatReadsUsageFromStepLevel(t *testing.T) {
 			"completion_tokens": 50,
 			"total_tokens":      150,
 		},
+		System: map[string]any{
+			"debugPreCall": map[string]any{
+				"provider": map[string]any{
+					"key":      "minimax",
+					"endpoint": "https://api.minimaxi.com/v1/chat/completions",
+				},
+				"model": map[string]any{
+					"key": "mock-model",
+					"id":  "mock-model-id",
+				},
+				"requestBody": map[string]any{
+					"model": "mock-model-id",
+				},
+				"systemPrompt": "system prompt",
+				"tools": []map[string]any{
+					{"name": "search"},
+				},
+			},
+		},
 		ContextWindow: map[string]any{
 			"max_size":       128000,
 			"actual_size":    100,
@@ -1695,9 +1714,22 @@ func TestLoadChatReadsUsageFromStepLevel(t *testing.T) {
 	}
 
 	preCallData, _ := detail.Events[3].Value("data").(map[string]any)
+	preCallProvider, _ := preCallData["provider"].(map[string]any)
+	preCallModel, _ := preCallData["model"].(map[string]any)
 	preCallCW, _ := preCallData["contextWindow"].(map[string]any)
+	preCallRequestBody, _ := preCallData["requestBody"].(map[string]any)
+	preCallTools, _ := preCallData["tools"].([]any)
 	if toIntValue(preCallCW["max_size"]) != 128000 || toIntValue(preCallCW["actual_size"]) != 100 || toIntValue(preCallCW["estimated_size"]) != 200 {
 		t.Fatalf("unexpected debug.preCall context window %#v", detail.Events[3])
+	}
+	if preCallProvider["key"] != "minimax" || preCallProvider["endpoint"] != "https://api.minimaxi.com/v1/chat/completions" {
+		t.Fatalf("unexpected debug.preCall provider %#v", detail.Events[3])
+	}
+	if preCallModel["key"] != "mock-model" || preCallModel["id"] != "mock-model-id" {
+		t.Fatalf("unexpected debug.preCall model %#v", detail.Events[3])
+	}
+	if preCallRequestBody["model"] != "mock-model-id" || preCallData["systemPrompt"] != "system prompt" || len(preCallTools) != 1 {
+		t.Fatalf("unexpected debug.preCall payload %#v", detail.Events[3])
 	}
 
 	postCallData, _ := detail.Events[5].Value("data").(map[string]any)

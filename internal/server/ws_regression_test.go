@@ -184,7 +184,6 @@ func TestBroadcastDefinitionsStayAlignedAcrossHTTPAndWS(t *testing.T) {
 	assertContains(t, handlerQuery, `s.broadcast("chat.created"`)
 	assertContains(t, handlerChat, `s.broadcast("chat.read"`)
 	assertContains(t, wsRoutes, `handler.RegisterRoute("/api/attach"`)
-	assertContains(t, wsRoutes, `handler.RegisterRoute("/api/runstatus"`)
 	assertContains(t, wsRoutes, `s.broadcast("run.started"`)
 	assertContains(t, wsRoutes, `s.broadcast("run.finished"`)
 	assertContains(t, wsRoutes, `s.broadcast("chat.read"`)

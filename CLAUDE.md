@@ -227,6 +227,7 @@ sandboxConfig:
 - `GET /api/chat?chatId=...`：返回 chat 详情，`includeRawMessages=true` 时附带 `rawMessages`
 - `POST /api/read`：将 chat 标记为已读
 - `POST /api/query`：返回 SSE；支持可选 `runId` 透传；缺失 `runId` 时服务端按 `base36(epochMillis)` 生成，缺失 `requestId` / `chatId` 时服务端自动生成，缺失 `agentKey` 时回退到默认 agent
+- `GET /api/attach?runId=...&lastSeq=...`：续接已注册 run 的 SSE 事件流；run 超过 retention 时返回 `SEQ_EXPIRED`
 - `POST /api/submit`：当前返回最小 ack，占位 awaiting 提交链路；请求体要求 `runId + awaitingId`
 - `POST /api/steer`：当前返回最小 ack，占位运行中 steer 链路
 - `POST /api/interrupt`：中断活跃 run 并返回 ack

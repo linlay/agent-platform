@@ -10,7 +10,7 @@ import (
 	"agent-platform-runner-go/internal/stream"
 )
 
-func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 	runID := strings.TrimSpace(r.URL.Query().Get("runId"))
 	if runID == "" {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "runId is required"))

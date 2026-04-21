@@ -90,10 +90,10 @@ type openAIStreamFunctionDelta struct {
 	Arguments string `json:"arguments"`
 }
 
-func (p *openAIProtocol) OpenStream(ctx context.Context, params protocolStreamParams) (*providerTurnStream, error) {
+func (p *openAIProtocol) PrepareRequest(params protocolStreamParams) (preparedProviderRequest, error) {
 	endpoint, err := resolveProviderEndpoint(params)
 	if err != nil {
-		return nil, err
+		return preparedProviderRequest{}, err
 	}
 
 	effectiveToolChoice := "auto"
@@ -121,18 +121,44 @@ func (p *openAIProtocol) OpenStream(ctx context.Context, params protocolStreamPa
 	}
 	body, err := json.Marshal(requestBody)
 	if err != nil {
-		return nil, err
+		return preparedProviderRequest{}, err
 	}
+	normalizedBody, tools, err := normalizePreparedRequestBody(body)
+	if err != nil {
+		return preparedProviderRequest{}, err
+	}
+	headers := map[string]string{
+		"Content-Type": "application/json",
+		"Accept":       "text/event-stream",
+		"Authorization": "Bearer " + params.provider.APIKey,
+	}
+	for key, value := range params.protocolConfig.Headers {
+		headers[key] = value
+	}
+	return preparedProviderRequest{
+		Endpoint:        endpoint,
+		RequestBody:     normalizedBody,
+		RequestBodyJSON: body,
+		SystemPrompt:    extractOpenAISystemPrompt(params.messages),
+		Tools:           tools,
+		Headers:         headers,
+	}, nil
+}
 
-	p.engine.logOutgoingRequest(params.runID, params.provider, params.model, endpoint, params.messages, params.toolSpecs, effectiveToolChoice, body)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+func (p *openAIProtocol) OpenStream(ctx context.Context, params protocolStreamParams, prepared preparedProviderRequest) (*providerTurnStream, error) {
+	effectiveToolChoice := "auto"
+	if params.toolChoice != "" {
+		effectiveToolChoice = params.toolChoice
+	}
+	if len(params.toolSpecs) == 0 {
+		effectiveToolChoice = ""
+	}
+	p.engine.logOutgoingRequest(params.runID, params.provider, params.model, prepared.Endpoint, params.messages, params.toolSpecs, effectiveToolChoice, prepared.RequestBodyJSON)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, prepared.Endpoint, bytes.NewReader(prepared.RequestBodyJSON))
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "text/event-stream")
-	req.Header.Set("Authorization", "Bearer "+params.provider.APIKey)
-	for key, value := range params.protocolConfig.Headers {
+	for key, value := range prepared.Headers {
 		req.Header.Set(key, value)
 	}
 
@@ -196,6 +222,20 @@ func toOpenAIToolSpecs(defs []api.ToolDetailResponse) []openAIToolSpec {
 		})
 	}
 	return out
+}
+
+func extractOpenAISystemPrompt(messages []openAIMessage) string {
+	parts := make([]string, 0, len(messages))
+	for _, message := range messages {
+		if strings.TrimSpace(message.Role) != "system" {
+			continue
+		}
+		text := strings.TrimSpace(anthropicTextFromContent(message.Content))
+		if text != "" {
+			parts = append(parts, text)
+		}
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 // rawMessageToOpenAI converts a raw_messages.jsonl entry to an openAIMessage.

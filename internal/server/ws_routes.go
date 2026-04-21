@@ -60,10 +60,7 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/chat", s.wsChat)
 	handler.RegisterRoute("/api/read", s.wsRead)
 	handler.RegisterRoute("/api/query", s.wsQuery)
-	handler.RegisterRoute("/api/attach", s.wsRunStream)
-	handler.RegisterRoute("/api/run/stream", s.wsRunStream)
-	handler.RegisterRoute("/api/runstatus", s.wsRunStatus)
-	handler.RegisterRoute("/api/run/status", s.wsRunStatus)
+	handler.RegisterRoute("/api/attach", s.wsAttach)
 	handler.RegisterRoute("/api/submit", s.wsSubmit)
 	handler.RegisterRoute("/api/steer", s.wsSteer)
 	handler.RegisterRoute("/api/interrupt", s.wsInterrupt)
@@ -320,7 +317,7 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 	conn.StartStreamForward(req.ID, observer)
 }
 
-func (s *Server) wsRunStream(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
+func (s *Server) wsAttach(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
 	payload, err := ws.DecodePayload[struct {
 		RunID   string `json:"runId"`
 		LastSeq int64  `json:"lastSeq"`
@@ -353,35 +350,6 @@ func (s *Server) wsRunStream(_ context.Context, conn *ws.Conn, req ws.RequestFra
 		s.deps.Runs.DetachObserver(payload.RunID, observer.ID)
 	})
 	conn.StartStreamForward(req.ID, observer)
-}
-
-func (s *Server) wsRunStatus(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
-	payload, err := ws.DecodePayload[struct {
-		RunID string `json:"runId"`
-	}](req)
-	if err != nil || strings.TrimSpace(payload.RunID) == "" {
-		conn.SendError(req.ID, "invalid_request", 400, "runId is required", nil)
-		conn.CompleteRequest(req.ID)
-		return
-	}
-	status, ok := s.deps.Runs.RunStatus(payload.RunID)
-	if !ok {
-		conn.SendError(req.ID, "run_not_found", 404, "run not found", nil)
-		conn.CompleteRequest(req.ID)
-		return
-	}
-	conn.SendResponse(req.Type, req.ID, 0, "success", api.RunStatusResponse{
-		RunID:         status.RunID,
-		ChatID:        status.ChatID,
-		AgentKey:      status.AgentKey,
-		State:         string(status.State),
-		LastSeq:       status.LastSeq,
-		OldestSeq:     status.OldestSeq,
-		ObserverCount: status.ObserverCount,
-		StartedAt:     status.StartedAt,
-		CompletedAt:   status.CompletedAt,
-	})
-	conn.CompleteRequest(req.ID)
 }
 
 func (s *Server) wsSubmit(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {

@@ -118,9 +118,17 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 			"runId":  d.request.RunID,
 			"chatId": value.ChatID,
 			"data": map[string]any{
+				"provider": map[string]any{
+					"key":      value.ProviderKey,
+					"endpoint": value.ProviderEndpoint,
+				},
 				"model": map[string]any{
 					"key": value.ModelKey,
+					"id":  value.ModelID,
 				},
+				"requestBody":  clonePayload(value.RequestBody),
+				"systemPrompt": value.SystemPrompt,
+				"tools":        append([]any{}, value.Tools...),
 				"contextWindow": map[string]any{
 					"max_size":       value.ContextWindow,
 					"actual_size":    value.CurrentContextSize,
