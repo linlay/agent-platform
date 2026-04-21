@@ -1,4 +1,4 @@
-name: _invoke_agents_
+name: _agent_invoke_
 label: 调度智能体
 description: Dispatch 1 to 3 sub-agents in parallel, stream each sub-agent's activity live, and continue after all final answers are returned as one aggregated tool result.
 type: function

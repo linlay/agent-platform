@@ -415,7 +415,7 @@ func TestInjectToolResultAppendsToolMessageAndFinalAssistantContent(t *testing.T
 	stream.pending = nil
 
 	if !stream.InjectToolResult("tool_1", "done", false) {
-		t.Fatal("expected InjectToolResult to match active invoke_agents tool")
+		t.Fatal("expected InjectToolResult to match active agent_invoke tool")
 	}
 	if err := stream.invokeActiveToolCall(); err != nil {
 		t.Fatalf("invokeActiveToolCall returned error: %v", err)

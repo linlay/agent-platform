@@ -99,10 +99,16 @@ func waitForShutdown(server shutdownServer, cancelRoot context.CancelFunc, signa
 		cancelRoot()
 	}
 	if exit != nil {
+		done := make(chan struct{})
+		defer close(done)
 		go func() {
-			secondSig := <-signals
-			log.Printf("second shutdown signal received: %s, forcing exit", secondSig)
-			exit(1)
+			select {
+			case secondSig := <-signals:
+				log.Printf("second shutdown signal received: %s, forcing exit", secondSig)
+				// This is an intentional hard exit that skips deferred cleanup.
+				exit(1)
+			case <-done:
+			}
 		}()
 	}
 	return shutdownHTTPServer(server, timeout)

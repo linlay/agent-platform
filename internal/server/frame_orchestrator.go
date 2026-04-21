@@ -90,7 +90,7 @@ func (o *frameOrchestrator) handleSubAgentBatch(mainStream contracts.AgentStream
 		return nil
 	}
 	if len(invoke.Tasks) < 1 || len(invoke.Tasks) > 3 {
-		o.injectMainToolError(main, invoke.MainToolID, "invalid invoke_agents call: tasks must contain between 1 and 3 items")
+		o.injectMainToolError(main, invoke.MainToolID, "invalid agent_invoke call: tasks must contain between 1 and 3 items")
 		return nil
 	}
 	prepared := make([]preparedSubTask, 0, len(invoke.Tasks))
@@ -102,7 +102,7 @@ func (o *frameOrchestrator) handleSubAgentBatch(mainStream contracts.AgentStream
 			taskName = subAgentKey
 		}
 		if subAgentKey == "" || taskText == "" {
-			o.injectMainToolError(main, invoke.MainToolID, "invalid invoke_agents call: every task requires subAgentKey and task")
+			o.injectMainToolError(main, invoke.MainToolID, "invalid agent_invoke call: every task requires subAgentKey and task")
 			return nil
 		}
 		agentDef, found := o.registry.AgentDefinition(subAgentKey)

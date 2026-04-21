@@ -121,3 +121,49 @@ func TestWaitForShutdownCancelsRootAndExitsOnSecondSignal(t *testing.T) {
 		t.Fatalf("waitForShutdown did not return")
 	}
 }
+
+func TestWaitForShutdownDisarmsSecondSignalWatcherAfterNormalReturn(t *testing.T) {
+	signals := make(chan os.Signal, 2)
+	cancelCalled := make(chan struct{}, 1)
+	exitCodes := make(chan int, 1)
+
+	server := stubShutdownServer{
+		shutdownFn: func(ctx context.Context) error {
+			return nil
+		},
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- waitForShutdown(server, func() {
+			cancelCalled <- struct{}{}
+		}, signals, time.Second, func(code int) {
+			exitCodes <- code
+		})
+	}()
+
+	signals <- syscall.SIGTERM
+
+	select {
+	case <-cancelCalled:
+	case <-time.After(time.Second):
+		t.Fatalf("expected root context cancel to be called")
+	}
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("waitForShutdown returned error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("waitForShutdown did not return")
+	}
+
+	signals <- os.Interrupt
+
+	select {
+	case code := <-exitCodes:
+		t.Fatalf("did not expect exit after normal return, got code %d", code)
+	case <-time.After(100 * time.Millisecond):
+	}
+}

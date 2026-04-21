@@ -1,3 +1,3 @@
 package contracts
 
-const InvokeAgentsToolName = "_invoke_agents_"
+const InvokeAgentsToolName = "_agent_invoke_"
