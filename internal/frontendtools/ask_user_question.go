@@ -40,18 +40,21 @@ func (h *AskUserQuestionHandler) ValidateArgs(args map[string]any) error {
 			return fmt.Errorf("question %d: question is required", index+1)
 		}
 		if _, hasLegacyField := question["multiSelect"]; hasLegacyField {
-			return fmt.Errorf("%s: multiSelect is no longer supported; use multiple", questionText)
+			return fmt.Errorf("%s: multiSelect is no longer supported; use type=multi-select", questionText)
+		}
+		if _, hasMultipleField := question["multiple"]; hasMultipleField {
+			return fmt.Errorf("%s: multiple is no longer supported; use type=multi-select", questionText)
 		}
 		questionType := strings.ToLower(strings.TrimSpace(contracts.AnyStringNode(question["type"])))
 		if questionType == "" {
 			return fmt.Errorf("%s: type is required", questionText)
 		}
-		if questionType != "select" {
+		if questionType != "select" && questionType != "multi-select" {
 			continue
 		}
 		options, ok := question["options"].([]any)
 		if !ok || len(options) == 0 {
-			return fmt.Errorf("%s: options is required for select questions", questionText)
+			return fmt.Errorf("%s: options is required for select and multi-select questions", questionText)
 		}
 		for optionIndex, rawOption := range options {
 			option := contracts.AnyMapNode(rawOption)
@@ -200,18 +203,18 @@ func normalizeQuestionSubmitValue(definition map[string]any, answerMap map[strin
 	_, hasAnswer := answerMap["answer"]
 	rawAnswers, hasAnswers := answerMap["answers"]
 
-	if questionType == "select" && contracts.AnyBoolNode(definition["multiple"]) {
+	if questionType == "multi-select" {
 		if hasAnswer && hasAnswers {
 			return nil, fmt.Errorf("answer and answers cannot both be provided")
 		}
 		if !hasAnswers {
-			return nil, fmt.Errorf("answers is required for multiple questions")
+			return nil, fmt.Errorf("answers is required for multi-select questions")
 		}
 		return rawAnswers, nil
 	}
 
 	if hasAnswers {
-		return nil, fmt.Errorf("answers is only allowed for multiple questions")
+		return nil, fmt.Errorf("answers is only allowed for multi-select questions")
 	}
 	if !hasAnswer {
 		return nil, fmt.Errorf("answer is required")

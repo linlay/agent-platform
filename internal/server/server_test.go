@@ -1494,7 +1494,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 		switch call {
 		case 1:
 			writeProviderSSE(t, w,
-				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Need confirmation\",\"type\":\"select\",\"options\":[{\"label\":\"Approve\",\"description\":\"Continue with the request\"}],\"allowFreeText\":false,\"multiple\":false}]}"}}]},"finish_reason":"tool_calls"}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Need confirmation\",\"type\":\"select\",\"options\":[{\"label\":\"Approve\",\"description\":\"Continue with the request\"}],\"allowFreeText\":false}]}"}}]},"finish_reason":"tool_calls"}]}`,
 				`[DONE]`,
 			)
 		case 2:
@@ -1784,7 +1784,7 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 		switch call {
 		case 1:
 			writeProviderSSE(t, w,
-				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Notification topics\",\"type\":\"select\",\"options\":[{\"label\":\"产品更新\",\"description\":\"Release notes and new features\"},{\"label\":\"使用教程\",\"description\":\"How-to guides and walkthroughs\"}],\"allowFreeText\":false,\"multiple\":true},{\"question\":\"How many people?\",\"type\":\"number\"}]}"}}]},"finish_reason":"tool_calls"}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Notification topics\",\"type\":\"multi-select\",\"options\":[{\"label\":\"产品更新\",\"description\":\"Release notes and new features\"},{\"label\":\"使用教程\",\"description\":\"How-to guides and walkthroughs\"}],\"allowFreeText\":false},{\"question\":\"How many people?\",\"type\":\"number\"}]}"}}]},"finish_reason":"tool_calls"}]}`,
 				`[DONE]`,
 			)
 		case 2:
@@ -1963,7 +1963,7 @@ func TestQuestionChunkedArgsEmitAwaitAfterFirstToolArgs(t *testing.T) {
 		case 1:
 			writeProviderSSE(t, w,
 				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Notification topics\",\"type\":\"select\","}}]}}]}`,
-				`{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"options\":[{\"label\":\"产品更新\",\"description\":\"Release notes and new features\"},{\"label\":\"使用教程\",\"description\":\"How-to guides and walkthroughs\"}],\"allowFreeText\":false,\"multiple\":true},{\"question\":\"How many people?\",\"type\":\"number\"}]}"}}]},"finish_reason":"tool_calls"}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"options\":[{\"label\":\"产品更新\",\"description\":\"Release notes and new features\"},{\"label\":\"使用教程\",\"description\":\"How-to guides and walkthroughs\"}],\"allowFreeText\":false},{\"question\":\"How many people?\",\"type\":\"number\"}]}"}}]},"finish_reason":"tool_calls"}]}`,
 				`[DONE]`,
 			)
 		case 2:
@@ -2177,7 +2177,7 @@ func TestQuestionInvalidSelectOptionsFailsBeforeAwait(t *testing.T) {
 	if strings.Contains(body, `"type":"awaiting.payload"`) {
 		t.Fatalf("did not expect awaiting.payload for invalid question args, got %s", body)
 	}
-	if !strings.Contains(body, `"type":"tool.result"`) || !strings.Contains(body, `invalid tool arguments: Pick a plan: options is required for select questions`) {
+	if !strings.Contains(body, `"type":"tool.result"`) || !strings.Contains(body, `invalid tool arguments: Pick a plan: options is required for select and multi-select questions`) {
 		t.Fatalf("expected invalid tool arguments tool.result, got %s", body)
 	}
 
@@ -2190,7 +2190,7 @@ func TestQuestionInvalidSelectOptionsFailsBeforeAwait(t *testing.T) {
 				break
 			}
 		}
-		if !strings.Contains(toolContent, "invalid tool arguments: Pick a plan: options is required for select questions") {
+		if !strings.Contains(toolContent, "invalid tool arguments: Pick a plan: options is required for select and multi-select questions") {
 			t.Fatalf("expected invalid tool arguments in second turn tool message, got %#v", messages)
 		}
 	case <-time.After(2 * time.Second):
@@ -2207,7 +2207,7 @@ func TestQuestionAwaitDismissReturnsCancelledStructuredResult(t *testing.T) {
 		switch call {
 		case 1:
 			writeProviderSSE(t, w,
-				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Pick a plan\",\"type\":\"select\",\"options\":[{\"label\":\"Weekend\",\"description\":\"2 days\"}],\"allowFreeText\":false,\"multiple\":false}]}"}}]},"finish_reason":"tool_calls"}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Pick a plan\",\"type\":\"select\",\"options\":[{\"label\":\"Weekend\",\"description\":\"2 days\"}],\"allowFreeText\":false}]}"}}]},"finish_reason":"tool_calls"}]}`,
 				`[DONE]`,
 			)
 		case 2:

@@ -188,7 +188,6 @@ func TestPreToolInvocationDeltas_QuestionRegistersAwaitingContext(t *testing.T) 
 				"placeholder":         "3",
 				"allowFreeText":       false,
 				"freeTextPlaceholder": "removed",
-				"multiple":            false,
 				"options":             []any{map[string]any{"label": "unused"}},
 			},
 		},
@@ -208,7 +207,7 @@ func TestPreToolInvocationDeltas_QuestionRegistersAwaitingContext(t *testing.T) 
 	}
 }
 
-func TestPrepareToolCall_LegacyMultiSelectReturnsToolError(t *testing.T) {
+func TestPrepareToolCall_LegacyMultipleReturnsToolError(t *testing.T) {
 	tool := api.ToolDetailResponse{
 		Name: "_ask_user_question_",
 		Meta: map[string]any{
@@ -233,7 +232,7 @@ func TestPrepareToolCall_LegacyMultiSelectReturnsToolError(t *testing.T) {
 		Type: "function",
 		Function: openAIFunctionCall{
 			Name:      "_ask_user_question_",
-			Arguments: `{"mode":"question","questions":[{"question":"Notification topics","type":"select","multiSelect":true,"options":[{"label":"产品更新"}]}]}`,
+			Arguments: `{"mode":"question","questions":[{"question":"Notification topics","type":"select","multiple":true,"options":[{"label":"产品更新"}]}]}`,
 		},
 	})
 	if invocation != nil {
@@ -246,11 +245,11 @@ func TestPrepareToolCall_LegacyMultiSelectReturnsToolError(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected DeltaToolResult, got %#v", deltas[0])
 	}
-	if result.Result.Error != "invalid_tool_arguments" || !strings.Contains(result.Result.Output, "multiSelect is no longer supported; use multiple") {
+	if result.Result.Error != "invalid_tool_arguments" || !strings.Contains(result.Result.Output, "multiple is no longer supported; use type=multi-select") {
 		t.Fatalf("unexpected tool result %#v", result)
 	}
 	toolContent, _ := toolMsg.Content.(string)
-	if toolMsg == nil || !strings.Contains(toolContent, "multiSelect is no longer supported; use multiple") {
+	if toolMsg == nil || !strings.Contains(toolContent, "multiple is no longer supported; use type=multi-select") {
 		t.Fatalf("unexpected tool message %#v", toolMsg)
 	}
 }
@@ -477,11 +476,11 @@ func TestPrepareToolCall_InvalidAskUserQuestionArgsReturnToolError(t *testing.T)
 	if !ok {
 		t.Fatalf("expected DeltaToolResult, got %#v", deltas[0])
 	}
-	if result.Result.Error != "invalid_tool_arguments" || !strings.Contains(result.Result.Output, "options is required for select questions") {
+	if result.Result.Error != "invalid_tool_arguments" || !strings.Contains(result.Result.Output, "options is required for select and multi-select questions") {
 		t.Fatalf("unexpected tool result %#v", result)
 	}
 	toolContent, _ := toolMsg.Content.(string)
-	if toolMsg == nil || !strings.Contains(toolContent, "options is required for select questions") {
+	if toolMsg == nil || !strings.Contains(toolContent, "options is required for select and multi-select questions") {
 		t.Fatalf("unexpected tool message %#v", toolMsg)
 	}
 }
