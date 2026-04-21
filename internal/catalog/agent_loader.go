@@ -82,6 +82,7 @@ func loadAgentPrompts(agentDir string, def *AgentDefinition, root map[string]any
 	}
 
 	def.SoulPrompt = readOptionalMarkdown(filepath.Join(agentDir, "SOUL.md"))
+	warnLegacySoulPrompt(agentDir, def.Key, def.SoulPrompt)
 	def.StaticMemoryPrompt = readOptionalMarkdown(filepath.Join(agentDir, "memory", "memory.md"))
 	def.MemoryPrompt = def.StaticMemoryPrompt
 
@@ -101,6 +102,32 @@ func loadAgentPrompts(agentDir string, def *AgentDefinition, root map[string]any
 			def.AgentsPrompt = readOptionalMarkdown(filepath.Join(agentDir, "AGENTS.md"))
 		}
 	}
+}
+
+func warnLegacySoulPrompt(agentDir string, agentKey string, soulPrompt string) {
+	if strings.TrimSpace(soulPrompt) == "" {
+		return
+	}
+	var legacy []string
+	if hasMarkdownHeading(soulPrompt, "# Identity") {
+		legacy = append(legacy, "# Identity")
+	}
+	if hasMarkdownHeading(soulPrompt, "## Mission") {
+		legacy = append(legacy, "## Mission")
+	}
+	if len(legacy) == 0 {
+		return
+	}
+	log.Printf("[catalog][agents] legacy SOUL.md headings in %s (%s): %s; move identity fields to agent.yml and rewrite SOUL.md as behavior-only prompt", agentKey, filepath.Join(agentDir, "SOUL.md"), strings.Join(legacy, ", "))
+}
+
+func hasMarkdownHeading(content string, heading string) bool {
+	for _, line := range strings.Split(content, "\n") {
+		if strings.TrimSpace(line) == heading {
+			return true
+		}
+	}
+	return false
 }
 
 func resolveStagePrompt(agentDir string, stageConfig map[string]any, topPromptFiles []string, root map[string]any) string {

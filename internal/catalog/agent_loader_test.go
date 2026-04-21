@@ -1,6 +1,8 @@
 package catalog
 
 import (
+	"bytes"
+	"log"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -312,5 +314,72 @@ func TestParseAgentFileAllowsOptingOutOfBaseMemoryTools(t *testing.T) {
 		if containsString(def.Tools, tool) {
 			t.Fatalf("expected %s to stay disabled, got %#v", tool, def.Tools)
 		}
+	}
+}
+
+func TestParseAgentFileWithPromptsWarnsOnLegacySoulSections(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	soulPath := filepath.Join(root, "SOUL.md")
+	content := "" +
+		"key: demo\n" +
+		"name: Demo\n" +
+		"role: Demo role\n" +
+		"description: Demo description\n" +
+		"mode: REACT\n" +
+		"modelConfig:\n" +
+		"  modelKey: demo-model\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+	if err := os.WriteFile(soulPath, []byte("# Identity\n\n- key: demo\n\n## Mission\n\nLegacy mission"), 0o644); err != nil {
+		t.Fatalf("write soul file: %v", err)
+	}
+
+	var buf bytes.Buffer
+	previous := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(previous)
+
+	def, err := parseAgentFileWithPrompts(path, root)
+	if err != nil {
+		t.Fatalf("parse agent file with prompts: %v", err)
+	}
+	if !strings.Contains(def.SoulPrompt, "Legacy mission") {
+		t.Fatalf("expected soul prompt to load, got %q", def.SoulPrompt)
+	}
+	logOutput := buf.String()
+	if !strings.Contains(logOutput, "legacy SOUL.md headings") {
+		t.Fatalf("expected legacy SOUL warning, got %q", logOutput)
+	}
+	if !strings.Contains(logOutput, "# Identity, ## Mission") {
+		t.Fatalf("expected warning to mention legacy headings, got %q", logOutput)
+	}
+}
+
+func TestParseAgentFileWithPromptsLoadsWithoutSoulFile(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	content := "" +
+		"key: demo\n" +
+		"name: Demo\n" +
+		"role: Demo role\n" +
+		"description: Demo description\n" +
+		"mode: REACT\n" +
+		"modelConfig:\n" +
+		"  modelKey: demo-model\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFileWithPrompts(path, root)
+	if err != nil {
+		t.Fatalf("parse agent file with prompts: %v", err)
+	}
+	if def.SoulPrompt != "" {
+		t.Fatalf("expected empty soul prompt when SOUL.md is missing, got %q", def.SoulPrompt)
+	}
+	if def.Key != "demo" || def.Name != "Demo" || def.Role != "Demo role" || def.Description != "Demo description" {
+		t.Fatalf("expected identity fields from agent.yml, got %#v", def)
 	}
 }

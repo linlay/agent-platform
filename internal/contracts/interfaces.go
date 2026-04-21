@@ -68,6 +68,8 @@ type QuerySession struct {
 	ChatName              string
 	AgentKey              string
 	AgentName             string
+	AgentRole             string
+	AgentDescription      string
 	ModelKey              string
 	ToolNames             []string
 	Mode                  string

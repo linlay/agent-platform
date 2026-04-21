@@ -10,6 +10,11 @@ import (
 
 func TestBuildSystemPromptPlacesStaticMemoryBeforeRuntimeMemory(t *testing.T) {
 	prompt := buildSystemPrompt(QuerySession{
+		AgentKey:            "demo",
+		AgentName:           "Demo",
+		AgentRole:           "Prompt Tester",
+		AgentDescription:    "Verifies prompt ordering",
+		Mode:                "REACT",
 		SoulPrompt:          "soul",
 		StaticMemoryPrompt:  "static-memory",
 		ContextTags:         []string{"memory"},
@@ -23,6 +28,75 @@ func TestBuildSystemPromptPlacesStaticMemoryBeforeRuntimeMemory(t *testing.T) {
 	}
 	if staticIndex > runtimeIndex {
 		t.Fatalf("expected static memory before runtime memory, got %q", prompt)
+	}
+}
+
+func TestBuildSystemPromptInjectsAgentIdentityWithoutSoulIdentity(t *testing.T) {
+	prompt := buildSystemPrompt(QuerySession{
+		AgentKey:         "demo",
+		AgentName:        "Demo",
+		AgentRole:        "Prompt Tester",
+		AgentDescription: "Verifies identity injection",
+		Mode:             "REACT",
+		SoulPrompt:       "# Soul\n\n## Persona\n\nOnly behavior lives here.",
+	}, api.QueryRequest{}, "", PromptBuildOptions{})
+
+	for _, expected := range []string{
+		"Agent Identity",
+		"key: demo",
+		"name: Demo",
+		"role: Prompt Tester",
+		"description: Verifies identity injection",
+		"mode: REACT",
+	} {
+		if !strings.Contains(prompt, expected) {
+			t.Fatalf("expected %q in prompt, got %q", expected, prompt)
+		}
+	}
+	if strings.Count(prompt, "Agent Identity") != 1 {
+		t.Fatalf("expected a single agent identity section, got %q", prompt)
+	}
+}
+
+func TestBuildSystemPromptPlacesAgentIdentityBeforeSoul(t *testing.T) {
+	prompt := buildSystemPrompt(QuerySession{
+		AgentKey:   "demo",
+		AgentName:  "Demo",
+		AgentRole:  "Prompt Tester",
+		Mode:       "REACT",
+		SoulPrompt: "# Soul\n\n## Persona\n\nStay calm.",
+	}, api.QueryRequest{}, "", PromptBuildOptions{})
+
+	identityIndex := strings.Index(prompt, "Agent Identity")
+	soulIndex := strings.Index(prompt, "# Soul")
+	if identityIndex < 0 || soulIndex < 0 {
+		t.Fatalf("expected both agent identity and soul sections, got %q", prompt)
+	}
+	if identityIndex > soulIndex {
+		t.Fatalf("expected agent identity before soul, got %q", prompt)
+	}
+}
+
+func TestBuildSystemPromptKeepsIdentityWhenSoulIsMissing(t *testing.T) {
+	prompt := buildSystemPrompt(QuerySession{
+		AgentKey:         "demo",
+		AgentName:        "Demo",
+		AgentRole:        "Prompt Tester",
+		AgentDescription: "No soul file present",
+		Mode:             "REACT",
+	}, api.QueryRequest{}, "", PromptBuildOptions{})
+
+	for _, expected := range []string{
+		"Agent Identity",
+		"key: demo",
+		"name: Demo",
+		"role: Prompt Tester",
+		"description: No soul file present",
+		"mode: REACT",
+	} {
+		if !strings.Contains(prompt, expected) {
+			t.Fatalf("expected %q in prompt, got %q", expected, prompt)
+		}
 	}
 }
 

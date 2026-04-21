@@ -43,6 +43,44 @@ plain:
 - `toolConfig` 直接声明工具名列表
 - `mode` 决定 agent 执行模式
 
+## Agent Identity 与 SOUL.md 边界
+
+`agent.yml` 是 agent 身份与能力元数据的唯一事实源：
+
+- `key`
+- `name`
+- `role`
+- `description`
+- `mode`
+- `toolConfig`
+- `skillConfig`
+- `sandboxConfig`
+
+运行时会先根据 `agent.yml` 生成统一的 `Agent Identity` prompt section，再拼接其他 prompt 层。
+
+`SOUL.md` 的职责是长期行为提示，不是配置副本：
+
+- 允许写人格、协作方式、风险姿态、硬边界、非目标
+- 允许写长期稳定的行为约束
+- 不应重复 `key/name/role/description/mode`
+- 不应复制 tools、skills、sandbox、环境路径或一次性任务说明
+
+推荐结构：
+
+```md
+# Soul
+
+## Persona
+
+## Boundaries
+
+## Working Style
+
+## Long-Term Notes
+```
+
+兼容期内，旧格式中的 `# Identity`、`## Mission` 仍会被加载，但运行时会打印 warning，提示迁移到 `agent.yml` 或改写为行为边界段落。
+
 ## Go 版已落地能力
 
 - agent YAML 文件解析
@@ -96,7 +134,7 @@ plain:
 agent 目录下的 `memory/memory.md` 当前作为静态背景提示装载：
 
 - 语义：agent 的长期固定背景，不是运行时记忆库
-- 注入顺序：静态 `memory/memory.md` 先于 runtime memory bundle
+- 注入顺序：`Agent Identity` 与 `SOUL.md` 之后、runtime memory bundle 之前
 - 存储位置：随 agent 文件存在，不进入 SQLite memory store
 
 运行时记忆来自 memory store：

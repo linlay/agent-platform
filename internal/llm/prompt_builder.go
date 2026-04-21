@@ -35,6 +35,7 @@ func buildSystemPrompt(session QuerySession, req api.QueryRequest, _ string, opt
 	}
 
 	sections := []string{
+		buildAgentIdentitySection(session),
 		strings.TrimSpace(session.SoulPrompt),
 		strings.TrimSpace(firstNonBlank(session.StaticMemoryPrompt, session.MemoryPrompt)),
 		buildRuntimeContextPrompt(session, req),
@@ -44,6 +45,19 @@ func buildSystemPrompt(session QuerySession, req api.QueryRequest, _ string, opt
 		buildToolAppendix(options.ToolDefinitions, appendConfig, options.IncludeAfterCallHints),
 	}
 	return joinPromptSections(sections...)
+}
+
+func buildAgentIdentitySection(session QuerySession) string {
+	lines := []string{"Agent Identity"}
+	appendKeyValue(&lines, "key", session.AgentKey)
+	appendKeyValue(&lines, "name", session.AgentName)
+	appendKeyValue(&lines, "role", session.AgentRole)
+	appendKeyValue(&lines, "description", session.AgentDescription)
+	appendKeyValue(&lines, "mode", session.Mode)
+	if len(lines) == 1 {
+		return ""
+	}
+	return strings.Join(lines, "\n")
 }
 
 func effectivePromptAppendConfig(config PromptAppendConfig) PromptAppendConfig {
