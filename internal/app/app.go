@@ -38,13 +38,22 @@ type App struct {
 	Config           config.Config
 	Router           *server.Server
 	backgroundCancel context.CancelFunc
-	scheduler        *schedule.Orchestrator
+	scheduler        schedulerStopper
 	gwClient         *gatewayclient.Client
 	wsHub            *ws.Hub
 }
 
-func New() (*App, error) {
+type schedulerStopper interface {
+	Stop() context.Context
+}
+
+var schedulerStopTimeout = 3 * time.Second
+
+func New(rootCtx context.Context) (*App, error) {
 	appInitStartedAt := time.Now()
+	if rootCtx == nil {
+		rootCtx = context.Background()
+	}
 
 	configStartedAt := time.Now()
 	log.Printf("loading config")
@@ -167,7 +176,7 @@ func New() (*App, error) {
 		notifications = wsHub
 	}
 	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, mcp.NewRegistryReloader(mcpRegistry, mcpToolSync), notifications)
-	backgroundCtx, backgroundCancel := context.WithCancel(context.Background())
+	backgroundCtx, backgroundCancel := context.WithCancel(rootCtx)
 	cleanupBackground := true
 	defer func() {
 		if cleanupBackground {
@@ -288,7 +297,11 @@ func (a *App) Close() error {
 	}
 	if a.scheduler != nil {
 		done := a.scheduler.Stop()
-		<-done.Done()
+		select {
+		case <-done.Done():
+		case <-time.After(schedulerStopTimeout):
+			log.Printf("scheduler stop timed out after %s", schedulerStopTimeout)
+		}
 	}
 	if err := observability.CloseMemoryLogger(); err != nil {
 		log.Printf("close memory logger: %v", err)
