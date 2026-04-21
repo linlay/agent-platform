@@ -102,7 +102,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		AgentKey:              req.AgentKey,
 		AgentName:             agentDef.Name,
 		ModelKey:              agentDef.ModelKey,
-		ToolNames:             buildSessionToolNames(agentDef.Tools, options.AllowInvokeAgents),
+		ToolNames:             buildSessionToolNames(effectiveAgentTools(agentDef), options.AllowInvokeAgents),
 		Mode:                  agentDef.Mode,
 		TeamID:                req.TeamID,
 		Created:               options.Created,
@@ -110,7 +110,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		ContextTags:           append([]string(nil), agentDef.ContextTags...),
 		Budget:                contracts.CloneMap(agentDef.Budget),
 		StageSettings:         contracts.CloneMap(agentDef.StageSettings),
-		ToolOverrides:         cloneToolOverrides(agentDef.ToolOverrides),
+		ToolOverrides:         s.buildSessionToolOverrides(agentDef),
 		ResolvedBudget:        contracts.ResolveBudget(s.deps.Config, agentDef.Budget),
 		ResolvedStageSettings: contracts.ResolvePlanExecuteSettings(agentDef.StageSettings, s.deps.Config.Defaults.Plan.MaxSteps, s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask),
 		HistoryMessages:       historyMessages,
@@ -131,6 +131,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		SandboxEnvironmentID:  extractSandboxField(agentDef.Sandbox, "environmentId"),
 		SandboxLevel:          extractSandboxField(agentDef.Sandbox, "level"),
 		SandboxExtraMounts:    sandboxExtraMounts(agentDef.Sandbox["extraMounts"]),
+		AgentHasSandboxConfig: hasSandboxConfig(agentDef.Sandbox),
 		SkillHookDirs:         skillHookDirs,
 		SandboxEnvOverrides:   sandboxEnvOverrides,
 	}
@@ -138,6 +139,28 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		session.Subject = principal.Subject
 	}
 	return session, nil
+}
+
+func (s *Server) buildSessionToolOverrides(agentDef catalog.AgentDefinition) map[string]api.ToolDetailResponse {
+	overrides := cloneToolOverrides(agentDef.ToolOverrides)
+	if !hasSandboxConfig(agentDef.Sandbox) {
+		return overrides
+	}
+	tool, ok := s.lookupInternalTool("_bash_container_")
+	if !ok {
+		return overrides
+	}
+	override := cloneToolDetailResponse(tool)
+	override.Name = "_bash_"
+	override.Key = "_bash_"
+	if overrides == nil {
+		overrides = map[string]api.ToolDetailResponse{}
+	}
+	if existing, ok := overrides["_bash_"]; ok {
+		override = applyToolOverride(override, map[string]api.ToolDetailResponse{"_bash_": existing})
+	}
+	overrides["_bash_"] = override
+	return overrides
 }
 
 func buildSessionToolNames(base []string, allowInvokeAgents bool) []string {

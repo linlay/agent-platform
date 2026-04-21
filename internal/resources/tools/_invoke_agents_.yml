@@ -8,6 +8,7 @@ inputSchema:
   properties:
     tasks:
       type: array
+      description: Required. Up to 3 sub-agent tasks to execute in parallel.
       minItems: 1
       maxItems: 3
       items:

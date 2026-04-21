@@ -45,7 +45,7 @@ type ActionInvoker interface {
 
 type SandboxClient interface {
 	OpenIfNeeded(ctx context.Context, execCtx *ExecutionContext) error
-	Execute(ctx context.Context, execCtx *ExecutionContext, command string, cwd string, timeoutMs int64) (SandboxExecutionResult, error)
+	Execute(ctx context.Context, execCtx *ExecutionContext, command string, cwd string, timeoutMs int64, env map[string]string) (SandboxExecutionResult, error)
 	CloseQuietly(execCtx *ExecutionContext)
 }
 
@@ -100,11 +100,12 @@ type QuerySession struct {
 	ExecutePrompt string
 	SummaryPrompt string
 
-	SandboxEnvironmentID string
-	SandboxLevel         string
-	SandboxExtraMounts   []SandboxExtraMount
-	SkillHookDirs        []string
-	SandboxEnvOverrides  map[string]string
+	SandboxEnvironmentID  string
+	SandboxLevel          string
+	SandboxExtraMounts    []SandboxExtraMount
+	AgentHasSandboxConfig bool
+	SkillHookDirs         []string
+	SandboxEnvOverrides   map[string]string
 }
 
 type SandboxExtraMount struct {
@@ -281,7 +282,7 @@ func NewNoopSandboxClient() *NoopSandboxClient { return &NoopSandboxClient{} }
 
 func (n *NoopSandboxClient) OpenIfNeeded(_ context.Context, _ *ExecutionContext) error { return nil }
 
-func (n *NoopSandboxClient) Execute(_ context.Context, _ *ExecutionContext, command string, cwd string, _ int64) (SandboxExecutionResult, error) {
+func (n *NoopSandboxClient) Execute(_ context.Context, _ *ExecutionContext, command string, cwd string, _ int64, _ map[string]string) (SandboxExecutionResult, error) {
 	result := SandboxExecutionResult{
 		ExitCode:         -1,
 		Stdout:           "",

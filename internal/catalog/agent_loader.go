@@ -8,6 +8,7 @@ import (
 	"strings"
 	"unicode"
 
+	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/config"
 	"agent-platform-runner-go/internal/contracts"
 )
@@ -333,8 +334,14 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	}
 	def.ReactMaxSteps = intNode(mapNode(root["react"])["maxSteps"])
 
-	if len(def.Skills) > 0 && !containsString(def.Tools, "_sandbox_bash_") {
-		def.Tools = append(def.Tools, "_sandbox_bash_")
+	if err := validateReservedBashToolNames(def.Tools, def.ToolOverrides); err != nil {
+		return AgentDefinition{}, nil, err
+	}
+	if len(def.Skills) > 0 && !containsString(def.Tools, "_bash_") {
+		def.Tools = append(def.Tools, "_bash_")
+	}
+	if len(def.Sandbox) > 0 && !containsString(def.Tools, "_bash_") {
+		def.Tools = append(def.Tools, "_bash_")
 	}
 	memoryConfig := mapNode(root["memoryConfig"])
 	memoryToolsEnabled := true
@@ -369,6 +376,35 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 		def.Role = def.Name
 	}
 	return def, root, nil
+}
+
+func validateReservedBashToolNames(tools []string, overrides map[string]api.ToolDetailResponse) error {
+	for _, tool := range tools {
+		if err := validateReservedBashToolName(tool, "toolConfig.tools"); err != nil {
+			return err
+		}
+	}
+	for rawName, override := range overrides {
+		if err := validateReservedBashToolName(rawName, "toolConfig.overrides"); err != nil {
+			return err
+		}
+		if err := validateReservedBashToolName(override.Name, "toolConfig.overrides.*.name"); err != nil {
+			return err
+		}
+		if err := validateReservedBashToolName(override.Key, "toolConfig.overrides.*.key"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateReservedBashToolName(value string, field string) error {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "_sandbox_bash_", "_bash_container_":
+		return fmt.Errorf("%s must use _bash_ instead of %s", field, strings.TrimSpace(value))
+	default:
+		return nil
+	}
 }
 
 func normalizeWonderStrings(value any) []string {

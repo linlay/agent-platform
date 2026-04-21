@@ -29,7 +29,7 @@ func NewRuntimeToolExecutor(cfg config.Config, sandbox SandboxClient, chats chat
 	}
 	filtered := make([]api.ToolDetailResponse, 0, len(defs))
 	for _, def := range defs {
-		if !cfg.ContainerHub.Enabled && strings.EqualFold(strings.TrimSpace(def.Name), "_sandbox_bash_") {
+		if !cfg.ContainerHub.Enabled && strings.EqualFold(strings.TrimSpace(def.Name), "_bash_container_") {
 			continue
 		}
 		filtered = append(filtered, def)
@@ -61,8 +61,18 @@ func (t *RuntimeToolExecutor) Invoke(ctx context.Context, toolName string, args 
 	case "_plan_update_task_":
 		return t.invokePlanUpdateTask(args, execCtx)
 	case "_bash_":
-		return t.invokeHostBash(ctx, args)
-	case "_sandbox_bash_":
+		if execCtx != nil && hasSandboxConfig(execCtx.Session) {
+			if !t.cfg.ContainerHub.Enabled {
+				return ToolExecutionResult{
+					Output:   "sandbox execution is required by agent sandboxConfig but container-hub is unavailable",
+					Error:    "sandbox_not_available",
+					ExitCode: -1,
+				}, nil
+			}
+			return t.invokeSandboxBash(ctx, args, execCtx)
+		}
+		return t.invokeHostBash(ctx, args, execCtx)
+	case "_bash_container_":
 		return t.invokeSandboxBash(ctx, args, execCtx)
 	case "_memory_search_", "memory_search":
 		return t.invokeMemorySearch(toolName, args, execCtx)
@@ -93,6 +103,10 @@ func (t *RuntimeToolExecutor) Invoke(ctx context.Context, toolName string, args 
 			ExitCode: -1,
 		}, nil
 	}
+}
+
+func hasSandboxConfig(session QuerySession) bool {
+	return session.AgentHasSandboxConfig
 }
 
 func stringArg(args map[string]any, key string) string {

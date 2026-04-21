@@ -322,7 +322,7 @@ func (s *Server) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamEv
 		}
 	}
 	toolTimeoutMs := int64(contracts.NormalizeBudget(prepared.session.ResolvedBudget).Tool.TimeoutMs)
-	mapper := llm.NewDeltaMapper(prepared.req.RunID, prepared.req.ChatID, toolTimeoutMs, s.toolLookup(), s.deps.FrontendTools)
+	mapper := llm.NewDeltaMapper(prepared.req.RunID, prepared.req.ChatID, toolTimeoutMs, s.toolLookupWithOverrides(prepared.session.ToolOverrides), s.deps.FrontendTools)
 	return assembler, mapper
 }
 

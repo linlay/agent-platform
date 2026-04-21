@@ -3,10 +3,13 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"agent-platform-runner-go/internal/config"
+	contracts "agent-platform-runner-go/internal/contracts"
 )
 
 func TestInvokeHostBashSuccessReturnsPlainStdout(t *testing.T) {
@@ -26,7 +29,7 @@ func TestInvokeHostBashSuccessReturnsPlainStdout(t *testing.T) {
 		},
 	}
 
-	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": "echo hello"})
+	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": "echo hello"}, nil)
 	if err != nil {
 		t.Fatalf("invokeHostBash returned error: %v", err)
 	}
@@ -61,7 +64,7 @@ func TestInvokeHostBashFailureReturnsStructuredJSON(t *testing.T) {
 		},
 	}
 
-	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": "ls missing"})
+	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": "ls missing"}, nil)
 	if err != nil {
 		t.Fatalf("invokeHostBash returned error: %v", err)
 	}
@@ -104,7 +107,7 @@ func TestInvokeHostBashEarlyReturnStaysHumanReadable(t *testing.T) {
 		},
 	}
 
-	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": "cat secret.txt"})
+	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": "cat secret.txt"}, nil)
 	if err != nil {
 		t.Fatalf("invokeHostBash returned error: %v", err)
 	}
@@ -116,6 +119,56 @@ func TestInvokeHostBashEarlyReturnStaysHumanReadable(t *testing.T) {
 	}
 	if !strings.Contains(result.Output, "Command not allowed: cat") {
 		t.Fatalf("expected human-readable rejection, got %q", result.Output)
+	}
+}
+
+func TestInvokeHostBashSupportsPerCallCwdAndEnv(t *testing.T) {
+	root := t.TempDir()
+	nested := filepath.Join(root, "nested")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatalf("mkdir nested: %v", err)
+	}
+	executor := &RuntimeToolExecutor{
+		cfg: config.Config{
+			Bash: config.BashConfig{
+				WorkingDirectory:        root,
+				AllowedPaths:            []string{root},
+				AllowedCommands:         []string{"bash"},
+				PathCheckedCommands:     []string{},
+				PathCheckBypassCommands: []string{},
+				ShellFeaturesEnabled:    true,
+				ShellExecutable:         "bash",
+				ShellTimeoutMs:          30000,
+				MaxCommandChars:         16000,
+			},
+		},
+	}
+
+	result, err := executor.invokeHostBash(
+		context.Background(),
+		map[string]any{
+			"command": "pwd; echo \"$TEST_HOST_ENV\"",
+			"cwd":     nested,
+			"env":     map[string]any{"TEST_HOST_ENV": "call-value"},
+		},
+		&contracts.ExecutionContext{SandboxEnvOverrides: map[string]string{"TEST_HOST_ENV": "session-value"}},
+	)
+	if err != nil {
+		t.Fatalf("invokeHostBash returned error: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(result.Output), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected two output lines, got %q", result.Output)
+	}
+	resolvedNested, err := filepath.EvalSymlinks(nested)
+	if err != nil {
+		t.Fatalf("eval symlinks: %v", err)
+	}
+	if lines[0] != nested && lines[0] != resolvedNested {
+		t.Fatalf("expected cwd line to match %q or %q, got %q", nested, resolvedNested, lines[0])
+	}
+	if lines[1] != "call-value" {
+		t.Fatalf("expected env override to apply, got %q", result.Output)
 	}
 }
 

@@ -558,7 +558,7 @@ func TestStepWriterFormatsStructuredToolResultAsJSON(t *testing.T) {
 		Timestamp: 1001,
 		Payload: map[string]any{
 			"toolId":    "tool-1",
-			"toolName":  "_sandbox_bash_",
+			"toolName":  "_bash_",
 			"arguments": `{"command":"echo hi"}`,
 		},
 	})
@@ -718,7 +718,7 @@ func TestStepWriterPersistsApprovalSidecarOnStepLine(t *testing.T) {
 		Timestamp: 4001,
 		Payload: map[string]any{
 			"toolId":    "tool-1",
-			"toolName":  "_sandbox_bash_",
+			"toolName":  "_bash_",
 			"arguments": `{"command":"chmod 777 ~/a.sh"}`,
 		},
 	})
@@ -786,7 +786,7 @@ func TestLoadRawMessagesReplaysApprovalSummaryFromStepLine(t *testing.T) {
 					ID:   "tool-1",
 					Type: "function",
 					Function: StoredFunction{
-						Name:      "_sandbox_bash_",
+						Name:      "_bash_",
 						Arguments: `{"command":"chmod 777 ~/a.sh"}`,
 					},
 				}},
@@ -796,7 +796,7 @@ func TestLoadRawMessagesReplaysApprovalSummaryFromStepLine(t *testing.T) {
 			},
 			{
 				Role:       "tool",
-				Name:       "_sandbox_bash_",
+				Name:       "_bash_",
 				ToolCallID: "tool-1",
 				Content:    []ContentPart{{Type: "text", Text: ""}},
 				ToolID:     "tool-1",

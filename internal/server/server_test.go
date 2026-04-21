@@ -713,7 +713,7 @@ func TestAgentEndpointReturnsDetail(t *testing.T) {
 	if len(response.Data.Tools) != 6 ||
 		response.Data.Tools[0] != "_datetime_" ||
 		response.Data.Tools[1] != "_ask_user_question_" ||
-		response.Data.Tools[2] != "_sandbox_bash_" ||
+		response.Data.Tools[2] != "_bash_" ||
 		response.Data.Tools[3] != "_memory_write_" ||
 		response.Data.Tools[4] != "_memory_read_" ||
 		response.Data.Tools[5] != "_memory_search_" {
@@ -2219,10 +2219,11 @@ func TestQuestionAwaitDismissReturnsCancelledStructuredResult(t *testing.T) {
 
 type recordingSandbox struct {
 	commands []string
+	envs     []map[string]string
 }
 
 type scriptedSandbox struct {
-	execute func(command string, cwd string) contracts.SandboxExecutionResult
+	execute func(command string, cwd string, env map[string]string) contracts.SandboxExecutionResult
 }
 
 type recordingMCPClient struct {
@@ -2237,8 +2238,9 @@ func (s *recordingSandbox) OpenIfNeeded(_ context.Context, _ *contracts.Executio
 	return nil
 }
 
-func (s *recordingSandbox) Execute(_ context.Context, _ *contracts.ExecutionContext, command string, cwd string, _ int64) (contracts.SandboxExecutionResult, error) {
+func (s *recordingSandbox) Execute(_ context.Context, _ *contracts.ExecutionContext, command string, cwd string, _ int64, env map[string]string) (contracts.SandboxExecutionResult, error) {
 	s.commands = append(s.commands, command)
+	s.envs = append(s.envs, contracts.CloneStringMap(env))
 	return contracts.SandboxExecutionResult{
 		ExitCode:         0,
 		Stdout:           "executed: " + command,
@@ -2253,11 +2255,11 @@ func (s *scriptedSandbox) OpenIfNeeded(_ context.Context, _ *contracts.Execution
 	return nil
 }
 
-func (s *scriptedSandbox) Execute(_ context.Context, _ *contracts.ExecutionContext, command string, cwd string, _ int64) (contracts.SandboxExecutionResult, error) {
+func (s *scriptedSandbox) Execute(_ context.Context, _ *contracts.ExecutionContext, command string, cwd string, _ int64, env map[string]string) (contracts.SandboxExecutionResult, error) {
 	if s.execute == nil {
 		return contracts.SandboxExecutionResult{ExitCode: 0, WorkingDirectory: cwd}, nil
 	}
-	return s.execute(command, cwd), nil
+	return s.execute(command, cwd, env), nil
 }
 
 func (s *scriptedSandbox) CloseQuietly(_ *contracts.ExecutionContext) {}
@@ -2333,7 +2335,7 @@ func TestBashHITLApproveFlowReplaysApprovalSummaryInChatRawMessages(t *testing.T
 		switch call {
 		case 1:
 			writeProviderSSE(t, w,
-				providerToolCallFrame(t, "tool_bash", "_sandbox_bash_", map[string]any{
+				providerToolCallFrame(t, "tool_bash", "_bash_", map[string]any{
 					"command":     command,
 					"description": "执行测试命令",
 					"cwd":         "/workspace",
@@ -2466,7 +2468,7 @@ func TestBashHITLApproveFlowReplaysApprovalSummaryInChatRawMessages(t *testing.T
 func TestSandboxBashResultShapeAcrossStreamBoundaries(t *testing.T) {
 	t.Run("success uses plain stdout for sse and tool message", func(t *testing.T) {
 		body, secondTurn := runSandboxBashQueryForResultShape(t, &scriptedSandbox{
-			execute: func(command string, cwd string) contracts.SandboxExecutionResult {
+			execute: func(command string, cwd string, _ map[string]string) contracts.SandboxExecutionResult {
 				return contracts.SandboxExecutionResult{
 					ExitCode:         0,
 					Stdout:           "listed from " + cwd + ": " + command + "\n",
@@ -2479,7 +2481,7 @@ func TestSandboxBashResultShapeAcrossStreamBoundaries(t *testing.T) {
 		if got, ok := resultPayload["result"].(string); !ok || got != "listed from /workspace: ls sample\n" {
 			t.Fatalf("expected string tool.result payload, got %#v", resultPayload["result"])
 		}
-		toolContent := findToolMessageContent(t, secondTurn, "_sandbox_bash_")
+		toolContent := findToolMessageContent(t, secondTurn, "_bash_")
 		if toolContent != "listed from /workspace: ls sample\n" {
 			t.Fatalf("expected plain stdout tool message, got %q", toolContent)
 		}
@@ -2487,7 +2489,7 @@ func TestSandboxBashResultShapeAcrossStreamBoundaries(t *testing.T) {
 
 	t.Run("failure uses structured object for sse and json for tool message", func(t *testing.T) {
 		body, secondTurn := runSandboxBashQueryForResultShape(t, &scriptedSandbox{
-			execute: func(_ string, cwd string) contracts.SandboxExecutionResult {
+			execute: func(_ string, cwd string, _ map[string]string) contracts.SandboxExecutionResult {
 				return contracts.SandboxExecutionResult{
 					ExitCode:         2,
 					Stdout:           "",
@@ -2508,7 +2510,7 @@ func TestSandboxBashResultShapeAcrossStreamBoundaries(t *testing.T) {
 		if resultObject["stderr"] != "ls: sample: No such file or directory\n" {
 			t.Fatalf("expected stderr in result payload, got %#v", resultObject)
 		}
-		toolContent := findToolMessageContent(t, secondTurn, "_sandbox_bash_")
+		toolContent := findToolMessageContent(t, secondTurn, "_bash_")
 		if !strings.HasPrefix(toolContent, "{") || !strings.Contains(toolContent, `"exitCode":2`) || !strings.Contains(toolContent, `"stderr":"ls: sample: No such file or directory\n"`) {
 			t.Fatalf("expected JSON tool message for failure, got %q", toolContent)
 		}
@@ -2804,7 +2806,7 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 	t.Helper()
 	toolName := options.toolName
 	if toolName == "" {
-		toolName = "_sandbox_bash_"
+		toolName = "_bash_"
 	}
 	command := defaultBashHITLCommand()
 	if strings.TrimSpace(options.command) != "" {
@@ -2896,7 +2898,7 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 			switch payload["type"] {
 			case "tool.start":
 				switch payload["toolName"] {
-				case "_sandbox_bash_":
+				case "_bash_":
 					originalToolID, _ = payload["toolId"].(string)
 				case "simple-bash":
 					originalToolID, _ = payload["toolId"].(string)
@@ -3019,7 +3021,7 @@ func runSandboxBashQueryForResultShape(t *testing.T, sandbox contracts.SandboxCl
 		switch call {
 		case 1:
 			writeProviderSSE(t, w,
-				providerToolCallFrame(t, "tool_bash", "_sandbox_bash_", map[string]any{
+				providerToolCallFrame(t, "tool_bash", "_bash_", map[string]any{
 					"command":     "ls sample",
 					"description": "列出 sample",
 					"cwd":         "/workspace",

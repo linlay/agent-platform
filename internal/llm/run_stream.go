@@ -1149,7 +1149,7 @@ func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {
 	}
 
 	s.execCtx.CurrentToolID = batch.awaitingID
-	s.execCtx.CurrentToolName = "_sandbox_bash_"
+	s.execCtx.CurrentToolName = "_bash_"
 	s.execCtx.RunLoopState = RunLoopStateWaitingSubmit
 	s.runControl.TransitionState(RunLoopStateWaitingSubmit)
 
@@ -1685,7 +1685,7 @@ func (s *llmRunStream) toolResultContent(toolName string, result ToolExecutionRe
 
 func isBashTool(name string) bool {
 	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "_bash_", "_sandbox_bash_", "simple-bash":
+	case "_bash_", "simple-bash":
 		return true
 	default:
 		return false

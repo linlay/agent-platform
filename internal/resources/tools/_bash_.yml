@@ -12,6 +12,17 @@ inputSchema:
     description:
       type: string
       description: Required. 这条命令的用途简述（一句话，中文），会在需要人工审批时展示给用户。
+    cwd:
+      type: string
+      description: Working directory for this execution. When empty, the host bash working directory default is used.
+    timeout_ms:
+      type: integer
+      description: Execution timeout in milliseconds.
+    env:
+      type: object
+      description: 本次命令追加的环境变量（合并到 session/host 默认 env 之上）。
+      additionalProperties:
+        type: string
   required:
     - command
     - description

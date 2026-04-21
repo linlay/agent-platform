@@ -11,13 +11,15 @@ import (
 type stubSandboxClient struct {
 	result contracts.SandboxExecutionResult
 	err    error
+	env    map[string]string
 }
 
 func (s stubSandboxClient) OpenIfNeeded(_ context.Context, _ *contracts.ExecutionContext) error {
 	return nil
 }
 
-func (s stubSandboxClient) Execute(_ context.Context, _ *contracts.ExecutionContext, _ string, _ string, _ int64) (contracts.SandboxExecutionResult, error) {
+func (s stubSandboxClient) Execute(_ context.Context, _ *contracts.ExecutionContext, _ string, _ string, _ int64, env map[string]string) (contracts.SandboxExecutionResult, error) {
+	s.env = env
 	return s.result, s.err
 }
 

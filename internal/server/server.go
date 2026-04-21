@@ -335,12 +335,38 @@ func (s *Server) toolLookup() contracts.ToolDefinitionLookup {
 	return s.deps.Registry
 }
 
+func (s *Server) toolLookupWithOverrides(overrides map[string]api.ToolDetailResponse) contracts.ToolDefinitionLookup {
+	base := s.toolLookup()
+	if len(overrides) == 0 {
+		return base
+	}
+	return overrideToolLookup{
+		base:      base,
+		overrides: cloneToolOverrides(overrides),
+	}
+}
+
+func (s *Server) lookupInternalTool(toolName string) (api.ToolDetailResponse, bool) {
+	if tl, ok := s.deps.Tools.(contracts.ToolDefinitionLookup); ok {
+		if tool, exists := tl.Tool(toolName); exists {
+			return tool, true
+		}
+	}
+	return s.deps.Registry.Tool(toolName)
+}
+
 func (s *Server) listTools(kind string, tag string) []api.ToolSummary {
 	needleKind := strings.ToLower(strings.TrimSpace(kind))
 	needleTag := strings.ToLower(strings.TrimSpace(tag))
 	defs := s.deps.Tools.Definitions()
 	items := make([]api.ToolSummary, 0, len(defs))
+	seen := map[string]struct{}{}
 	for _, tool := range defs {
+		canonical, ok := canonicalizePublicToolDefinition(tool)
+		if !ok {
+			continue
+		}
+		tool = canonical
 		metaKind, _ := tool.Meta["kind"].(string)
 		if needleKind != "" && strings.ToLower(strings.TrimSpace(metaKind)) != needleKind {
 			continue
@@ -348,6 +374,11 @@ func (s *Server) listTools(kind string, tag string) []api.ToolSummary {
 		if needleTag != "" && !matchesToolTag(tool, needleTag) {
 			continue
 		}
+		normalized := strings.ToLower(strings.TrimSpace(tool.Name))
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		seen[normalized] = struct{}{}
 		items = append(items, api.ToolSummary{
 			Key:         tool.Key,
 			Name:        tool.Name,
@@ -360,12 +391,20 @@ func (s *Server) listTools(kind string, tag string) []api.ToolSummary {
 }
 
 func (s *Server) lookupTool(toolName string) (api.ToolDetailResponse, bool) {
+	switch strings.ToLower(strings.TrimSpace(toolName)) {
+	case "_sandbox_bash_", "_bash_container_":
+		return api.ToolDetailResponse{}, false
+	}
 	if tl, ok := s.deps.Tools.(contracts.ToolDefinitionLookup); ok {
 		if tool, exists := tl.Tool(toolName); exists {
-			return tool, true
+			return canonicalizePublicToolDefinition(tool)
 		}
 	}
-	return s.deps.Registry.Tool(toolName)
+	tool, ok := s.deps.Registry.Tool(toolName)
+	if !ok {
+		return api.ToolDetailResponse{}, false
+	}
+	return canonicalizePublicToolDefinition(tool)
 }
 
 func matchesToolTag(tool api.ToolDetailResponse, needle string) bool {
@@ -465,7 +504,7 @@ func (s *Server) buildAgentDetailResponse(def catalog.AgentDefinition) api.Agent
 		Wonders:     append([]string(nil), def.Wonders...),
 		Model:       modelName,
 		Mode:        def.Mode,
-		Tools:       normalizedAgentTools(def),
+		Tools:       effectiveAgentTools(def),
 		Skills:      append([]string{}, def.Skills...),
 		Controls:    cloneListMaps(def.Controls),
 		Meta:        meta,
@@ -524,26 +563,26 @@ func normalizedAgentTools(def catalog.AgentDefinition) []string {
 		seen[key] = struct{}{}
 		tools = append(tools, name)
 	}
+	if len(def.Skills) > 0 {
+		if _, ok := seen["_bash_"]; !ok {
+			tools = append(tools, "_bash_")
+			seen["_bash_"] = struct{}{}
+		}
+	}
 	if hasSandboxConfig(def.Sandbox) {
-		if _, ok := seen["_sandbox_bash_"]; !ok {
-			tools = append(tools, "_sandbox_bash_")
+		if _, ok := seen["_bash_"]; !ok {
+			tools = append(tools, "_bash_")
 		}
 	}
 	return tools
 }
 
+func effectiveAgentTools(def catalog.AgentDefinition) []string {
+	return normalizedAgentTools(def)
+}
+
 func hasSandboxConfig(sandbox map[string]any) bool {
-	if len(sandbox) == 0 {
-		return false
-	}
-	if strings.TrimSpace(stringValue(sandbox["environmentId"])) != "" {
-		return true
-	}
-	if strings.TrimSpace(stringValue(sandbox["level"])) != "" {
-		return true
-	}
-	mounts, _ := sandbox["extraMounts"].([]map[string]any)
-	return len(mounts) > 0
+	return len(sandbox) > 0
 }
 
 func normalizedSandboxMeta(sandbox map[string]any) map[string]any {
@@ -668,6 +707,50 @@ func cloneToolOverrides(src map[string]api.ToolDetailResponse) map[string]api.To
 		}
 	}
 	return out
+}
+
+func cloneToolDetailResponse(value api.ToolDetailResponse) api.ToolDetailResponse {
+	return api.ToolDetailResponse{
+		Key:           value.Key,
+		Name:          value.Name,
+		Label:         value.Label,
+		Description:   value.Description,
+		AfterCallHint: value.AfterCallHint,
+		Parameters:    contracts.CloneMap(value.Parameters),
+		Meta:          contracts.CloneMap(value.Meta),
+	}
+}
+
+type overrideToolLookup struct {
+	base      contracts.ToolDefinitionLookup
+	overrides map[string]api.ToolDetailResponse
+}
+
+func (o overrideToolLookup) Tool(name string) (api.ToolDetailResponse, bool) {
+	if o.base == nil {
+		return api.ToolDetailResponse{}, false
+	}
+	tool, ok := o.base.Tool(name)
+	if !ok {
+		return api.ToolDetailResponse{}, false
+	}
+	return applyToolOverride(tool, o.overrides), true
+}
+
+func canonicalizePublicToolDefinition(tool api.ToolDetailResponse) (api.ToolDetailResponse, bool) {
+	switch strings.ToLower(strings.TrimSpace(tool.Name)) {
+	case "_sandbox_bash_", "_bash_container_":
+		return api.ToolDetailResponse{}, false
+	case "_bash_":
+		canonical := cloneToolDetailResponse(tool)
+		canonical.Key = "_bash_"
+		canonical.Name = "_bash_"
+		canonical.Label = "执行命令"
+		canonical.Description = "Run a command. Runtime decides whether to execute on the host or inside the sandbox based on the agent's sandboxConfig. Always include a short Chinese description explaining the command purpose."
+		return canonical, true
+	default:
+		return cloneToolDetailResponse(tool), true
+	}
 }
 
 func newRunID() string {

@@ -93,7 +93,7 @@ func TestDispatcherEmitsApprovalAlongsideToolResult(t *testing.T) {
 
 	events := dispatcher.Dispatch(ToolResult{
 		ToolID:   "tool_1",
-		ToolName: "_sandbox_bash_",
+		ToolName: "_bash_",
 		Result:   "",
 		Hitl: map[string]any{
 			"awaitingId": "await_1",

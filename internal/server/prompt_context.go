@@ -381,7 +381,7 @@ func buildSandboxContext(cfg config.Config, def catalog.AgentDefinition) (*contr
 		DefaultEnvironmentID:    defaultEnvironmentID,
 		Level:                   level,
 		ContainerHubEnabled:     cfg.ContainerHub.Enabled,
-		UsesSandboxBash:         containsString(def.Tools, "_sandbox_bash_"),
+		UsesSandboxBash:         hasSandboxConfig(def.Sandbox),
 		ExtraMounts:             summarizeExtraMounts(def),
 		EnvironmentPrompt:       prompt,
 	}, nil

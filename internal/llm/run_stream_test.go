@@ -121,7 +121,7 @@ func (c commandResultChecker) Tools() []api.ToolDetailResponse {
 
 func bashToolDefinition() api.ToolDetailResponse {
 	return api.ToolDetailResponse{
-		Name: "_sandbox_bash_",
+		Name: "_bash_",
 		Meta: map[string]any{
 			"kind":          "backend",
 			"sourceType":    "local",
@@ -500,7 +500,7 @@ func TestPrepareToolCall_BashDescriptionIsRequired(t *testing.T) {
 		ID:   "tool_1",
 		Type: "function",
 		Function: openAIFunctionCall{
-			Name:      "_sandbox_bash_",
+			Name:      "_bash_",
 			Arguments: `{"command":"chmod 777 ~/a.sh"}`,
 		},
 	})
@@ -697,7 +697,7 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 			}
 			invocation := &preparedToolInvocation{
 				toolID:   "tool_1",
-				toolName: "_sandbox_bash_",
+				toolName: "_bash_",
 				args: map[string]any{
 					"command":     tc.initialCommand,
 					"description": "执行命令用途说明",
@@ -804,7 +804,7 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 			if len(executor.invocations) != 1 {
 				t.Fatalf("expected original bash tool to run once, got %#v", executor.invocations)
 			}
-			if executor.invocations[0].name != "_sandbox_bash_" {
+			if executor.invocations[0].name != "_bash_" {
 				t.Fatalf("expected original bash tool to execute, got %#v", executor.invocations[0])
 			}
 			if got := executor.invocations[0].args["command"]; got != tc.expectedCommand {
@@ -831,7 +831,7 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 						}
 					}
 				case contracts.DeltaToolResult:
-					if typed.ToolName == "_sandbox_bash_" {
+					if typed.ToolName == "_bash_" {
 						foundOriginalResult = true
 					}
 				}
@@ -881,7 +881,7 @@ func TestAwaitHITLSubmitAndExecute_RejectEmitsCancelledAnswer(t *testing.T) {
 		},
 		hitlPendingCall: &preparedToolInvocation{
 			toolID:   "tool_1",
-			toolName: "_sandbox_bash_",
+			toolName: "_bash_",
 			args: map[string]any{
 				"command": "docker rmi nginx:latest",
 			},
@@ -944,7 +944,7 @@ func TestAwaitHITLSubmitAndExecute_RejectEmitsCancelledAnswer(t *testing.T) {
 				}
 			}
 		case contracts.DeltaToolResult:
-			if typed.ToolName == "_sandbox_bash_" {
+			if typed.ToolName == "_bash_" {
 				foundResult = true
 				if typed.Result.Error != "user_rejected" {
 					t.Fatalf("expected user_rejected tool result, got %#v", typed.Result)
@@ -1017,9 +1017,9 @@ func TestPrepareQueuedBashApprovalBatch_AppendsSingleSummaryAfterAllApprovedResu
 			},
 		},
 		queuedToolCalls: []*preparedToolInvocation{
-			{toolID: "tool_1", toolName: "_sandbox_bash_", args: map[string]any{"command": "chmod 777 ~/a.sh", "description": "放开 a.sh 权限"}},
-			{toolID: "tool_2", toolName: "_sandbox_bash_", args: map[string]any{"command": "chmod 777 ~/b.sh", "description": "放开 b.sh 权限"}},
-			{toolID: "tool_3", toolName: "_sandbox_bash_", args: map[string]any{"command": "chmod 777 ~/c.sh", "description": "放开 c.sh 权限"}},
+			{toolID: "tool_1", toolName: "_bash_", args: map[string]any{"command": "chmod 777 ~/a.sh", "description": "放开 a.sh 权限"}},
+			{toolID: "tool_2", toolName: "_bash_", args: map[string]any{"command": "chmod 777 ~/b.sh", "description": "放开 b.sh 权限"}},
+			{toolID: "tool_3", toolName: "_bash_", args: map[string]any{"command": "chmod 777 ~/c.sh", "description": "放开 c.sh 权限"}},
 		},
 	}
 	var recordedApproval *chat.StepApproval
@@ -1137,9 +1137,9 @@ func TestPrepareQueuedBashApprovalBatch_MergesAllBuiltinApprovalsInSingleAwait(t
 			},
 		},
 		queuedToolCalls: []*preparedToolInvocation{
-			{toolID: "tool_1", toolName: "_sandbox_bash_", args: map[string]any{"command": "chmod 777 ~/a.sh", "description": "放开 a.sh 权限"}},
-			{toolID: "tool_2", toolName: "_sandbox_bash_", args: map[string]any{"command": "chmod 777 ~/b.sh", "description": "放开 b.sh 权限"}},
-			{toolID: "tool_3", toolName: "_sandbox_bash_", args: map[string]any{"command": "chmod 777 ~/c.sh", "description": "放开 c.sh 权限"}},
+			{toolID: "tool_1", toolName: "_bash_", args: map[string]any{"command": "chmod 777 ~/a.sh", "description": "放开 a.sh 权限"}},
+			{toolID: "tool_2", toolName: "_bash_", args: map[string]any{"command": "chmod 777 ~/b.sh", "description": "放开 b.sh 权限"}},
+			{toolID: "tool_3", toolName: "_bash_", args: map[string]any{"command": "chmod 777 ~/c.sh", "description": "放开 c.sh 权限"}},
 		},
 	}
 
@@ -1227,7 +1227,7 @@ func TestPrepareQueuedBashApprovalBatch_MergesAllBuiltinApprovalsInSingleAwait(t
 				rejectedCount++
 				continue
 			}
-			if typed.ToolName == "_sandbox_bash_" {
+			if typed.ToolName == "_bash_" {
 				approvedResults++
 				if typed.Result.HITL["decision"] != "approve" || typed.Result.HITL["awaitingId"] != ask.AwaitingID {
 					t.Fatalf("expected approved tool result to include HITL metadata, got %#v", typed.Result)
@@ -1326,8 +1326,8 @@ func TestPrepareQueuedBashApprovalBatch_LeavesHtmlViewportOutsideMergedApprovalA
 			},
 		},
 		queuedToolCalls: []*preparedToolInvocation{
-			{toolID: "tool_1", toolName: "_sandbox_bash_", args: map[string]any{"command": "chmod 777 ~/a.sh", "description": "放开 a.sh 权限"}},
-			{toolID: "tool_2", toolName: "_sandbox_bash_", args: map[string]any{"command": sampleLeaveCommand(3), "description": "创建请假单"}},
+			{toolID: "tool_1", toolName: "_bash_", args: map[string]any{"command": "chmod 777 ~/a.sh", "description": "放开 a.sh 权限"}},
+			{toolID: "tool_2", toolName: "_bash_", args: map[string]any{"command": sampleLeaveCommand(3), "description": "创建请假单"}},
 		},
 	}
 
@@ -1385,7 +1385,7 @@ func TestAppendOriginalToolResult_DoesNotAppendHITLSummaryWithoutApprovalEntries
 	}
 	invocation := &preparedToolInvocation{
 		toolID:   "tool_1",
-		toolName: "_sandbox_bash_",
+		toolName: "_bash_",
 		args:     map[string]any{"command": "ls"},
 	}
 	stream.appendOriginalToolResult(invocation, contracts.ToolExecutionResult{
@@ -1413,7 +1413,7 @@ func TestPrepareQueuedBashApprovalBatch_SkipsWhitelistedRuleWithinRun(t *testing
 			},
 		},
 		queuedToolCalls: []*preparedToolInvocation{
-			{toolID: "tool_4", toolName: "_sandbox_bash_", args: map[string]any{"command": "chmod 777 ~/d.sh", "description": "放开 d.sh 权限"}},
+			{toolID: "tool_4", toolName: "_bash_", args: map[string]any{"command": "chmod 777 ~/d.sh", "description": "放开 d.sh 权限"}},
 		},
 	}
 
@@ -1475,9 +1475,9 @@ func TestPrepareQueuedBashApprovalBatch_BlocksEntireTurnAndResumesInOriginalOrde
 			},
 		},
 		queuedToolCalls: []*preparedToolInvocation{
-			{toolID: "tool_1", toolName: "_sandbox_bash_", args: map[string]any{"command": "chmod 777 ~/a.sh", "description": "放开 a.sh 权限"}},
+			{toolID: "tool_1", toolName: "_bash_", args: map[string]any{"command": "chmod 777 ~/a.sh", "description": "放开 a.sh 权限"}},
 			{toolID: "tool_2", toolName: "weather_tool", args: map[string]any{"city": "Shanghai"}},
-			{toolID: "tool_3", toolName: "_sandbox_bash_", args: map[string]any{"command": "chmod 777 ~/b.sh", "description": "放开 b.sh 权限"}},
+			{toolID: "tool_3", toolName: "_bash_", args: map[string]any{"command": "chmod 777 ~/b.sh", "description": "放开 b.sh 权限"}},
 		},
 	}
 
@@ -1521,7 +1521,7 @@ func TestPrepareQueuedBashApprovalBatch_BlocksEntireTurnAndResumesInOriginalOrde
 	if len(executor.invocations) != 2 {
 		t.Fatalf("expected approved bash plus unblocked tool to execute, got %#v", executor.invocations)
 	}
-	if executor.invocations[0].name != "_sandbox_bash_" || executor.invocations[0].args["command"] != "chmod 777 ~/a.sh" {
+	if executor.invocations[0].name != "_bash_" || executor.invocations[0].args["command"] != "chmod 777 ~/a.sh" {
 		t.Fatalf("expected first execution to be approved first bash, got %#v", executor.invocations)
 	}
 	if executor.invocations[1].name != "weather_tool" || executor.invocations[1].args["city"] != "Shanghai" {
@@ -1568,7 +1568,7 @@ func TestAwaitHITLSubmitAndExecute_TimeoutEmitsTerminalAnswer(t *testing.T) {
 		},
 		hitlPendingCall: &preparedToolInvocation{
 			toolID:   "tool_1",
-			toolName: "_sandbox_bash_",
+			toolName: "_bash_",
 			args: map[string]any{
 				"command": "docker rmi nginx:latest",
 			},
@@ -1609,7 +1609,7 @@ func TestAwaitHITLSubmitAndExecute_TimeoutEmitsTerminalAnswer(t *testing.T) {
 				}
 			}
 		case contracts.DeltaToolResult:
-			if typed.ToolName == "_sandbox_bash_" {
+			if typed.ToolName == "_bash_" {
 				foundResult = true
 				if typed.Result.Error != "hitl_timeout" {
 					t.Fatalf("expected hitl_timeout tool result, got %#v", typed.Result)
@@ -1663,7 +1663,7 @@ func TestInvokeActiveToolCallUsesSkillScopedChecker(t *testing.T) {
 		},
 		activeToolCall: &preparedToolInvocation{
 			toolID:   "tool_1",
-			toolName: "_sandbox_bash_",
+			toolName: "_bash_",
 			args: map[string]any{
 				"command": "git push origin main",
 			},
@@ -1814,7 +1814,7 @@ func TestReconstructCommandWithPayload(t *testing.T) {
 func TestHITLRejectedToolResultMarksResultFinal(t *testing.T) {
 	result := hitlRejectedToolResult(&preparedToolInvocation{
 		toolID:   "tool_1",
-		toolName: "_sandbox_bash_",
+		toolName: "_bash_",
 	})
 
 	if result.Error != "user_rejected" || result.ExitCode != -1 {
@@ -1867,7 +1867,7 @@ func TestInvokeActiveToolCallAutoApprovesBuiltinLevelInCurrentRun(t *testing.T) 
 		},
 		activeToolCall: &preparedToolInvocation{
 			toolID:   "tool_1",
-			toolName: "_sandbox_bash_",
+			toolName: "_bash_",
 			args: map[string]any{
 				"command": "git push origin main",
 			},
@@ -1928,7 +1928,7 @@ func TestInvokeActiveToolCallDoesNotAutoApproveHTMLViewport(t *testing.T) {
 		},
 		activeToolCall: &preparedToolInvocation{
 			toolID:   "tool_1",
-			toolName: "_sandbox_bash_",
+			toolName: "_bash_",
 			args: map[string]any{
 				"command": sampleLeaveCommand(3),
 			},
