@@ -101,9 +101,9 @@ func buildRuntimeContextPrompt(session QuerySession, req api.QueryRequest) strin
 	for _, tag := range session.ContextTags {
 		switch strings.ToLower(strings.TrimSpace(tag)) {
 		case "system":
-			appendIfPresent(&sections, buildSystemEnvironmentSection())
+			appendIfPresent(&sections, buildSystemEnvironmentSection(session))
 		case "context":
-			appendIfPresent(&sections, buildContextSection(session, req))
+			appendIfPresent(&sections, buildSessionContextSection(session, req))
 		case "owner":
 			appendIfPresent(&sections, buildOwnerSection(session.RuntimeContext.LocalPaths))
 		case "auth":
@@ -121,7 +121,7 @@ func buildRuntimeContextPrompt(session QuerySession, req api.QueryRequest) strin
 	return strings.Join(sections, "\n\n")
 }
 
-func buildSystemEnvironmentSection() string {
+func buildSystemEnvironmentSection(session QuerySession) string {
 	now := time.Now()
 	tz := now.Location().String()
 	if tz == "Local" {
@@ -139,6 +139,7 @@ func buildSystemEnvironmentSection() string {
 		"datetime: " + now.Format(time.RFC3339),
 		"language: 中文",
 	}
+	appendContextPaths(&lines, session)
 	return strings.Join(lines, "\n")
 }
 
@@ -157,15 +158,13 @@ func resolveLocale() string {
 	return "unknown"
 }
 
-func buildContextSection(session QuerySession, req api.QueryRequest) string {
-	lines := []string{"Runtime Context: Context"}
+func buildSessionContextSection(session QuerySession, req api.QueryRequest) string {
+	lines := []string{"Runtime Context: Session Context"}
 	// chatId / runId / requestId first
 	appendKeyValue(&lines, "chatId", session.ChatID)
 	appendKeyValue(&lines, "runId", session.RunID)
 	appendKeyValue(&lines, "requestId", session.RequestID)
 	appendKeyValue(&lines, "teamId", session.RuntimeContext.TeamID)
-
-	appendContextPaths(&lines, session)
 
 	if summary := summarizeScene(session.RuntimeContext.Scene); summary != "" {
 		lines = append(lines, "scene: "+summary)
