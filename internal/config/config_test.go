@@ -39,6 +39,15 @@ func TestLoadDefaults(t *testing.T) {
 		if !cfg.WebSocket.Enabled {
 			t.Fatalf("expected websocket enabled by default")
 		}
+		if cfg.GatewayWS.HandshakeTimeoutMs != 10000 {
+			t.Fatalf("expected default gateway ws handshake timeout 10000, got %d", cfg.GatewayWS.HandshakeTimeoutMs)
+		}
+		if cfg.GatewayWS.ReconnectMinMs != 1000 {
+			t.Fatalf("expected default gateway ws reconnect min 1000, got %d", cfg.GatewayWS.ReconnectMinMs)
+		}
+		if cfg.GatewayWS.ReconnectMaxMs != 30000 {
+			t.Fatalf("expected default gateway ws reconnect max 30000, got %d", cfg.GatewayWS.ReconnectMaxMs)
+		}
 		if cfg.H2A.Render.HeartbeatPassThrough != true {
 			t.Fatalf("expected heartbeat pass-through enabled by default")
 		}
@@ -319,6 +328,55 @@ func TestLoadLLMInteractionMaskSensitiveFromEnv(t *testing.T) {
 	})
 }
 
+func TestLoadGatewayWSConfigFromEnv(t *testing.T) {
+	withIsolatedEnv(t, map[string]string{
+		"AGENT_GATEWAY_WS_URL":                  "ws://127.0.0.1:17999/gw",
+		"AGENT_GATEWAY_WS_TOKEN":                "dev-token",
+		"AGENT_GATEWAY_WS_HANDSHAKE_TIMEOUT_MS": "3210",
+		"AGENT_GATEWAY_WS_RECONNECT_MIN_MS":     "45",
+		"AGENT_GATEWAY_WS_RECONNECT_MAX_MS":     "6789",
+	}, func() {
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		if cfg.GatewayWS.URL != "ws://127.0.0.1:17999/gw" {
+			t.Fatalf("unexpected gateway ws url: %q", cfg.GatewayWS.URL)
+		}
+		if cfg.GatewayWS.Token != "dev-token" {
+			t.Fatalf("unexpected gateway ws token: %q", cfg.GatewayWS.Token)
+		}
+		if cfg.GatewayWS.HandshakeTimeoutMs != 3210 {
+			t.Fatalf("unexpected gateway ws handshake timeout: %d", cfg.GatewayWS.HandshakeTimeoutMs)
+		}
+		if cfg.GatewayWS.ReconnectMinMs != 45 {
+			t.Fatalf("unexpected gateway ws reconnect min: %d", cfg.GatewayWS.ReconnectMinMs)
+		}
+		if cfg.GatewayWS.ReconnectMaxMs != 6789 {
+			t.Fatalf("unexpected gateway ws reconnect max: %d", cfg.GatewayWS.ReconnectMaxMs)
+		}
+	})
+}
+
+func TestLoadGatewayWSConfigWhenWebSocketDisabled(t *testing.T) {
+	withIsolatedEnv(t, map[string]string{
+		"AGENT_WS_ENABLED":       "false",
+		"AGENT_GATEWAY_WS_URL":   "ws://127.0.0.1:17999/gw",
+		"AGENT_GATEWAY_WS_TOKEN": "dev-token",
+	}, func() {
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		if cfg.WebSocket.Enabled {
+			t.Fatalf("expected websocket disabled from env")
+		}
+		if cfg.GatewayWS.URL != "ws://127.0.0.1:17999/gw" {
+			t.Fatalf("unexpected gateway ws url: %q", cfg.GatewayWS.URL)
+		}
+	})
+}
+
 func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 	t.Helper()
 
@@ -412,6 +470,11 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 		"LOGGING_AGENT_LLM_INTERACTION_ENABLED",
 		"LOGGING_AGENT_LLM_INTERACTION_MASK_SENSITIVE",
 		"AGENT_WS_ENABLED",
+		"AGENT_GATEWAY_WS_URL",
+		"AGENT_GATEWAY_WS_TOKEN",
+		"AGENT_GATEWAY_WS_HANDSHAKE_TIMEOUT_MS",
+		"AGENT_GATEWAY_WS_RECONNECT_MIN_MS",
+		"AGENT_GATEWAY_WS_RECONNECT_MAX_MS",
 	)
 
 	previous := map[string]*string{}

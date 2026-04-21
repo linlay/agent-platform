@@ -68,9 +68,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	conn := NewConn(socket, h.hub, h.cfg, h.heartbeatInterval, auth)
-	conn.Run(func(ctx context.Context, conn *Conn, req RequestFrame) {
-		h.routeRequest(ctx, conn, req)
-	})
+	conn.Run(h.Dispatch)
+}
+
+func (h *Handler) Dispatch(ctx context.Context, conn *Conn, req RequestFrame) {
+	if h == nil {
+		return
+	}
+	h.routeRequest(ctx, conn, req)
 }
 
 func (h *Handler) routeRequest(ctx context.Context, conn *Conn, req RequestFrame) {

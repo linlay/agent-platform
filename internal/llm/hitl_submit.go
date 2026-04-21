@@ -28,11 +28,7 @@ func normalizeHITLApprovalSubmit(args map[string]any, params any) (map[string]an
 		return nil, fmt.Errorf("bash HITL approval submit params must be an array")
 	}
 	if len(items) == 0 {
-		return map[string]any{
-			"mode":      "approval",
-			"cancelled": true,
-			"reason":    "user_dismissed",
-		}, nil
+		return contracts.AwaitingErrorAnswer("approval", "user_dismissed", "用户关闭等待项"), nil
 	}
 
 	definitions := cloneAnySlice(args["approvals"])
@@ -79,6 +75,7 @@ func normalizeHITLApprovalSubmit(args map[string]any, params any) (map[string]an
 
 	return map[string]any{
 		"mode":      "approval",
+		"status":    "answered",
 		"approvals": approvals,
 	}, nil
 }
@@ -89,11 +86,7 @@ func normalizeHITLFormSubmit(args map[string]any, params any) (map[string]any, e
 		return nil, fmt.Errorf("bash HITL form submit params must be an array")
 	}
 	if len(items) == 0 {
-		return map[string]any{
-			"mode":      "form",
-			"cancelled": true,
-			"reason":    "user_dismissed",
-		}, nil
+		return contracts.AwaitingErrorAnswer("form", "user_dismissed", "用户关闭等待项"), nil
 	}
 
 	definitions := cloneAnySlice(args["forms"])
@@ -129,8 +122,9 @@ func normalizeHITLFormSubmit(args map[string]any, params any) (map[string]any, e
 	}
 
 	return map[string]any{
-		"mode":  "form",
-		"forms": forms,
+		"mode":   "form",
+		"status": "answered",
+		"forms":  forms,
 	}, nil
 }
 

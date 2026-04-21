@@ -27,6 +27,7 @@ type StepWriter struct {
 	chatID string
 	runID  string
 	mode   string // "REACT" / "PLAN_EXECUTE" / "ONESHOT"
+	hidden bool   // true 时跳过 QueryLine 持久化，用于系统自发触发的 run（如 schedule）
 
 	queryWritten bool
 	seqCounter   int
@@ -56,12 +57,15 @@ type StepWriter struct {
 }
 
 // NewStepWriter creates a StepWriter for a single run.
-func NewStepWriter(store Store, chatID, runID, mode string) *StepWriter {
+// hidden=true 时跳过 QueryLine 持久化，用于 schedule 等系统自发触发的 run：
+// 避免在 chat 里伪造一条"用户说的"消息、导致 webclient 显示成用户→agent 对话。
+func NewStepWriter(store Store, chatID, runID, mode string, hidden bool) *StepWriter {
 	return &StepWriter{
 		store:       store,
 		chatID:      chatID,
 		runID:       runID,
 		mode:        strings.ToUpper(strings.TrimSpace(mode)),
+		hidden:      hidden,
 		toolNames:   map[string]string{},
 		actionNames: map[string]string{},
 	}
@@ -256,6 +260,11 @@ func (w *StepWriter) handleRequestQuery(event stream.EventData) {
 		return
 	}
 	w.queryWritten = true
+
+	// hidden run 不写 QueryLine，避免 webclient 显示成"用户→agent"对话
+	if w.hidden {
+		return
+	}
 
 	query := map[string]any{}
 	// Copy all payload fields into query, excluding seq/type/timestamp

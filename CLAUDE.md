@@ -253,8 +253,10 @@ sandboxConfig:
   - `awaiting.ask`：`{"awaitingId":"...","mode":"question","timeout":...,"runId":"...","questions":[...]}`
   - question 不再携带 `viewportType` / `viewportKey`
   - `/api/submit.params`：`[{"id":"q1","answer":"..."},{"id":"q2","answers":[...]}]`（`id` 可省略，仅作审计字段）
-  - `awaiting.answer`：`{"awaitingId":"...","mode":"question","answers":[...]}`
-  - 整批取消：`params: []`，后端归一化为 `{"mode":"question","cancelled":true,"reason":"user_dismissed"}`
+  - `awaiting.answer`：
+    - answered：`{"awaitingId":"...","mode":"question","status":"answered","answers":[...]}`
+    - error：`{"awaitingId":"...","mode":"question","status":"error","error":{"code":"user_dismissed|timeout|invalid_submit","message":"..."}}`
+  - 整批取消：`params: []`，后端归一化为 `status:"error" + error.code:"user_dismissed"`
 
 - `mode=approval`
   - 来源：Bash HITL builtin confirm
@@ -262,8 +264,10 @@ sandboxConfig:
   - approval 不再携带 `viewportType` / `viewportKey`
   - 用户只能批准或拒绝，不能改命令内容
   - `/api/submit.params`：`[{"id":"tool_bash","decision":"approve|approve_prefix_run|reject","reason":"..."}]`（`id` 可省略，仅作审计字段）
-  - `awaiting.answer`：`{"awaitingId":"...","mode":"approval","approvals":[{"id":"tool_bash","command":"...","decision":"approve","rawDecision":"approve_prefix_run","reason":"..."}]}`
-  - 整批取消：`params: []`
+  - `awaiting.answer`：
+    - answered：`{"awaitingId":"...","mode":"approval","status":"answered","approvals":[{"id":"tool_bash","command":"...","decision":"approve","rawDecision":"approve_prefix_run","reason":"..."}]}`
+    - error：`{"awaitingId":"...","mode":"approval","status":"error","error":{"code":"user_dismissed|timeout|invalid_submit","message":"..."}}`
+  - 整批取消：`params: []`，归一化为 `status:"error" + error.code:"user_dismissed"`
 
 - `mode=form`
   - 来源：Bash HITL html form
@@ -273,14 +277,17 @@ sandboxConfig:
     - submit：`[{"id":"form-1","payload":{...}}]`（`id` 可省略，仅作审计字段）
     - reject：`[{"id":"form-1","reason":"..."}]`（`id` 可省略，仅作审计字段）
     - cancel：`[{"id":"form-1"}]`（`id` 可省略，仅作审计字段）
-  - `awaiting.answer`：`{"awaitingId":"...","mode":"form","forms":[{"id":"form-1","command":"...","action":"submit|reject|cancel","payload?":{...},"reason?":"..."}]}`
-  - 整批取消：`params: []`
+  - `awaiting.answer`：
+    - answered：`{"awaitingId":"...","mode":"form","status":"answered","forms":[{"id":"form-1","command":"...","action":"submit|reject|cancel","payload?":{...},"reason?":"..."}]}`
+    - error：`{"awaitingId":"...","mode":"form","status":"error","error":{"code":"user_dismissed|timeout|invalid_submit","message":"..."}}`
+  - 整批取消：`params: []`，归一化为 `status:"error" + error.code:"user_dismissed"`
 
 事件顺序约定：
 
 - question：`tool.start -> awaiting.ask -> tool.args* -> tool.end -> request.submit -> awaiting.answer -> tool.result`
 - approval / form：`tool.start -> tool.args* -> tool.end -> awaiting.ask -> request.submit -> awaiting.answer -> tool.result`
 - `request.submit` 透传前端原始数组，便于审计；`awaiting.answer` 才是后端归一化后的结构化结果。
+- 历史 `events.jsonl` 中旧的 `cancelled/reason` 形状不再兼容；新前端会按未知旧态回退展示。
 
 ## 7. 开发要点
 

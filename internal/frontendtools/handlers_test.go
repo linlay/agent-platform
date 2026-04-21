@@ -88,10 +88,10 @@ func TestAskUserQuestionHandlerNormalizeSubmit(t *testing.T) {
 				"options":  []any{map[string]any{"label": "Weekend"}},
 			},
 			map[string]any{
-				"question":    "Notification topics",
-				"type":        "select",
-				"header":      "通知内容",
-				"multiple":    true,
+				"question": "Notification topics",
+				"type":     "select",
+				"header":   "通知内容",
+				"multiple": true,
 				"options": []any{
 					map[string]any{"label": "产品更新"},
 					map[string]any{"label": "使用教程"},
@@ -110,6 +110,9 @@ func TestAskUserQuestionHandlerNormalizeSubmit(t *testing.T) {
 	answers, ok := result["answers"].([]map[string]any)
 	if !ok || len(answers) != 2 {
 		t.Fatalf("expected normalized answers, got %#v", result["answers"])
+	}
+	if result["status"] != "answered" {
+		t.Fatalf("expected answered status, got %#v", result)
 	}
 	if answers[0]["id"] != "q1" || answers[0]["header"] != "行程安排" {
 		t.Fatalf("unexpected first answer %#v", answers[0])
@@ -169,9 +172,12 @@ func TestAskUserQuestionHandlerNormalizeSubmitCancel(t *testing.T) {
 		t.Fatalf("NormalizeSubmit returned error: %v", err)
 	}
 	expected := map[string]any{
-		"mode":      "question",
-		"cancelled": true,
-		"reason":    "user_dismissed",
+		"mode":   "question",
+		"status": "error",
+		"error": map[string]any{
+			"code":    "user_dismissed",
+			"message": "用户关闭等待项",
+		},
 	}
 	if !reflect.DeepEqual(result, expected) {
 		t.Fatalf("unexpected cancel result %#v", result)

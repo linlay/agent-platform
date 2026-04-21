@@ -133,6 +133,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.logRequest(r, rec.status, time.Since(startedAt))
 }
 
+func (s *Server) WSHandler() *ws.Handler {
+	if s == nil {
+		return nil
+	}
+	return s.wsHandler
+}
+
 // ExecuteInternalQuery reuses the normal query handling pipeline for
 // in-process callers such as the scheduler, while intentionally bypassing the
 // outer HTTP auth gate enforced by ServeHTTP.

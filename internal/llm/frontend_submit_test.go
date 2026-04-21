@@ -70,6 +70,9 @@ func TestFrontendSubmitCoordinatorAwait_AskUserQuestionPreservesRawParams(t *tes
 	if !ok || len(answers) != 2 {
 		t.Fatalf("expected normalized answers in Structured, got %#v", result.Structured)
 	}
+	if result.Structured["status"] != "answered" {
+		t.Fatalf("expected answered status in Structured, got %#v", result.Structured)
+	}
 	if answers[0]["id"] != "q1" || answers[1]["id"] != "q2" {
 		t.Fatalf("expected normalized ids from question definitions, got %#v", answers)
 	}
@@ -111,6 +114,9 @@ func TestFrontendSubmitCoordinatorAwait_AskUserQuestionIgnoresSubmittedIDs(t *te
 	if !ok || len(answers) != 2 {
 		t.Fatalf("expected normalized answers in Structured, got %#v", result.Structured)
 	}
+	if result.Structured["status"] != "answered" {
+		t.Fatalf("expected answered status in Structured, got %#v", result.Structured)
+	}
 	if answers[0]["id"] != "q1" || answers[1]["id"] != "q2" {
 		t.Fatalf("expected ids from question definitions, got %#v", answers)
 	}
@@ -149,7 +155,14 @@ func TestFrontendSubmitCoordinatorAwait_AskUserQuestionCancelClearsRawParams(t *
 	if result.RawParams != nil && !reflect.DeepEqual(result.RawParams, api.SubmitParams(nil)) {
 		t.Fatalf("expected RawParams to be cleared for cancelled submit, got %#v", result.RawParams)
 	}
-	expected := map[string]any{"mode": "question", "cancelled": true, "reason": "user_dismissed"}
+	expected := map[string]any{
+		"mode":   "question",
+		"status": "error",
+		"error": map[string]any{
+			"code":    "user_dismissed",
+			"message": "用户关闭等待项",
+		},
+	}
 	if !reflect.DeepEqual(result.Structured, expected) {
 		t.Fatalf("expected cancelled Structured payload, got %#v", result.Structured)
 	}
@@ -193,7 +206,15 @@ func TestFrontendSubmitCoordinatorAwait_TimeoutReturnsCompactStructuredError(t *
 	if result.Error != "frontend_submit_timeout" {
 		t.Fatalf("expected timeout error code, got %#v", result)
 	}
-	if len(result.Structured) != 2 {
-		t.Fatalf("expected compact Structured timeout payload, got %#v", result.Structured)
+	expected := map[string]any{
+		"mode":   "question",
+		"status": "error",
+		"error": map[string]any{
+			"code":    "timeout",
+			"message": "等待项已超时",
+		},
+	}
+	if !reflect.DeepEqual(result.Structured, expected) {
+		t.Fatalf("expected timeout awaiting.error payload, got %#v", result.Structured)
 	}
 }

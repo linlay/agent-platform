@@ -1560,7 +1560,9 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	if !strings.Contains(body, `"type":"tool.result"`) {
 		t.Fatalf("expected tool.result event, got %s", body)
 	}
-	if !strings.Contains(body, `"mode":"question"`) || !strings.Contains(body, `"answers":[{"answer":"Approve","id":"q1","question":"Need confirmation"}]`) {
+	if !strings.Contains(body, `"mode":"question"`) ||
+		!strings.Contains(body, `"status":"answered"`) ||
+		!strings.Contains(body, `"answers":[{"answer":"Approve","id":"q1","question":"Need confirmation"}]`) {
 		t.Fatalf("expected normalized question awaiting.answer, got %s", body)
 	}
 	if !strings.Contains(body, `"result":[{"id":"q1","answer":"Approve"}]`) {
@@ -1630,7 +1632,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 		case "awaiting.answer":
 			foundAwaitingAnswer = true
 			answers, _ := event.Value("answers").([]any)
-			if event.String("mode") != "question" || len(answers) != 1 {
+			if event.String("mode") != "question" || event.String("status") != "answered" || len(answers) != 1 {
 				t.Fatalf("unexpected awaiting.answer in chat detail %#v", event)
 			}
 		}
@@ -1803,7 +1805,8 @@ questionSubmit:
 	if !strings.Contains(body, `"type":"awaiting.answer"`) {
 		t.Fatalf("expected awaiting.answer event, got %s", body)
 	}
-	if !strings.Contains(body, `"answers":[{"answers":["产品更新","使用教程"],"id":"q1","question":"Notification topics"},{"answer":2,"id":"q2","question":"How many people?"}]`) {
+	if !strings.Contains(body, `"status":"answered"`) ||
+		!strings.Contains(body, `"answers":[{"answers":["产品更新","使用教程"],"id":"q1","question":"Notification topics"},{"answer":2,"id":"q2","question":"How many people?"}]`) {
 		t.Fatalf("expected normalized awaiting.answer answers, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"tool.result"`) {
@@ -2181,14 +2184,16 @@ func TestQuestionAwaitDismissReturnsCancelledStructuredResult(t *testing.T) {
 	if !strings.Contains(body, `"type":"request.submit"`) || !strings.Contains(body, `"params":[]`) {
 		t.Fatalf("expected request.submit with empty params array, got %s", body)
 	}
-	if !strings.Contains(body, `"type":"awaiting.answer"`) || !strings.Contains(body, `"cancelled":true`) || !strings.Contains(body, `"reason":"user_dismissed"`) {
-		t.Fatalf("expected cancelled awaiting.answer in stream, got %s", body)
+	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
+		!strings.Contains(body, `"status":"error"`) ||
+		!strings.Contains(body, `"code":"user_dismissed"`) {
+		t.Fatalf("expected dismissed awaiting.answer in stream, got %s", body)
 	}
 	if toolResultPayload == nil {
 		t.Fatalf("expected tool.result payload, got %s", body)
 	}
 	if toolResultPayload["result"] != nil {
-		t.Fatalf("expected cancelled tool.result payload to be omitted, got %#v", toolResultPayload)
+		t.Fatalf("expected dismissed tool.result payload to be omitted, got %#v", toolResultPayload)
 	}
 	assertEventOrder(t, body, "tool.start", "awaiting.ask", "tool.args", "tool.end", "request.submit", "awaiting.answer", "tool.result")
 
@@ -2204,8 +2209,8 @@ func TestQuestionAwaitDismissReturnsCancelledStructuredResult(t *testing.T) {
 		if toolContent == "" {
 			t.Fatalf("expected second turn to include tool message, got %#v", messages)
 		}
-		if !strings.Contains(toolContent, `"cancelled":true`) || !strings.Contains(toolContent, `"mode":"question"`) || !strings.Contains(toolContent, `"reason":"user_dismissed"`) {
-			t.Fatalf("expected cancelled JSON tool content, got %#v", messages)
+		if !strings.Contains(toolContent, `"status":"error"`) || !strings.Contains(toolContent, `"mode":"question"`) || !strings.Contains(toolContent, `"code":"user_dismissed"`) {
+			t.Fatalf("expected dismissed JSON tool content, got %#v", messages)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for second provider request")
@@ -2300,6 +2305,7 @@ func TestBashHITLApproveFlow(t *testing.T) {
 		t.Fatalf("expected form awaiting.ask payload in stream, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
+		!strings.Contains(body, `"status":"answered"`) ||
 		!strings.Contains(body, `"action":"submit"`) ||
 		!strings.Contains(body, `"id":"form-1"`) ||
 		!strings.Contains(body, `"payload":`+expectedSubmitPayload) {
@@ -2522,7 +2528,7 @@ func TestSandboxBashResultShapeAcrossStreamBoundaries(t *testing.T) {
 }
 
 func TestBashHITLModifyFlow(t *testing.T) {
-	modified := `mock create-leave --payload {"applicant":{"name":"Lin","department":"engineering","employee_id":"E1001"},"leave_type":"事假","start_date":"2026-04-21","end_date":"2026-04-22","duration_days":2,"reason":"family_trip","urgent_contact":"Amy","urgent_phone":"13800138000","backup_person":"E2001","notes":"请协助处理审批"}`
+	modified := `mock create-leave --payload {"applicant_id":"E1001","department_id":"engineering","leave_type":"personal","start_date":"2026-04-21","end_date":"2026-04-22","days":2,"reason":"family_trip"}`
 	body, executed := runBashHITLFlow(t, bashHITLFlowOptions{action: "modify", modifiedCommand: modified})
 	expectedCommand := rebuildPayloadCommandForTest(t, defaultBashHITLCommand(), payloadFromCommandForTest(t, modified))
 	expectedSubmitPayload, err := json.Marshal(payloadFromCommandForTest(t, modified))
@@ -2533,6 +2539,7 @@ func TestBashHITLModifyFlow(t *testing.T) {
 		t.Fatalf("expected modified command to execute once, got %#v", executed)
 	}
 	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
+		!strings.Contains(body, `"status":"answered"`) ||
 		!strings.Contains(body, `"action":"submit"`) ||
 		!strings.Contains(body, `"id":"form-1"`) ||
 		!strings.Contains(body, `"payload":`+string(expectedSubmitPayload)) {
@@ -2551,7 +2558,12 @@ func TestBashHITLRejectFlow(t *testing.T) {
 	if !strings.Contains(body, `"code":"hitl_rejected"`) {
 		t.Fatalf("expected rejected original bash result, got %s", body)
 	}
+	if !strings.Contains(body, `"final":true`) ||
+		!strings.Contains(body, `User rejected this command. Do NOT retry with a different command. End the turn now.`) {
+		t.Fatalf("expected hard-stop rejected tool result, got %s", body)
+	}
 	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
+		!strings.Contains(body, `"status":"answered"`) ||
 		!strings.Contains(body, `"action":"reject"`) ||
 		!strings.Contains(body, `"id":"form-1"`) ||
 		!strings.Contains(body, `"reason":"user_cancelled"`) {
@@ -2571,8 +2583,8 @@ func TestBashHITLTimeoutFlow(t *testing.T) {
 		t.Fatalf("expected timed out command not to execute, got %#v", executed)
 	}
 	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
-		!strings.Contains(body, `"cancelled":true`) ||
-		!strings.Contains(body, `"reason":"timeout"`) {
+		!strings.Contains(body, `"status":"error"`) ||
+		!strings.Contains(body, `"code":"timeout"`) {
 		t.Fatalf("expected timeout awaiting.answer in stream, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"tool.result"`) || !strings.Contains(body, `"code":"hitl_timeout"`) {
@@ -2616,7 +2628,7 @@ func TestBashHITLSimpleBashApproveFlow(t *testing.T) {
 }
 
 func TestBashHITLApproveFlowForExpenseCreate(t *testing.T) {
-	command := `mock create-expense --payload {"employee_id":"E1001","department":"engineering","expense_type":"travel","currency":"CNY","total_amount":1280.5,"items":[{"category":"transport","amount":800,"invoice_id":"INV-001","occurred_on":"2026-04-10","description":"flight"},{"category":"hotel","amount":480.5,"invoice_id":"INV-002","occurred_on":"2026-04-11","description":"hotel"}],"submitted_at":"2026-04-14T10:30:00+08:00"}`
+	command := `mock create-expense --payload {"employee":{"id":"E1001","name":"张三"},"department":{"code":"engineering","name":"工程部"},"expense_type":"travel","currency":"CNY","total_amount":1280.5,"items":[{"category":"transport","amount":800,"invoice_id":"INV-001","occurred_on":"2026-04-10","description":"flight"},{"category":"hotel","amount":480.5,"invoice_id":"INV-002","occurred_on":"2026-04-11","description":"hotel"}],"submitted_at":"2026-04-14T10:30:00+08:00"}`
 	rules := strings.Join([]string{
 		"commands:",
 		"  - command: mock",
@@ -2718,6 +2730,7 @@ func TestBashHITLDockerRMIApproveFlow(t *testing.T) {
 		t.Fatalf("expected approval request.submit payload in stream, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
+		!strings.Contains(body, `"status":"answered"`) ||
 		!strings.Contains(body, `"decision":"approve"`) ||
 		!strings.Contains(body, `"id":"tool_bash"`) ||
 		!strings.Contains(body, `"command":"docker rmi nginx:latest"`) {
@@ -2760,6 +2773,10 @@ func TestBashHITLDockerImageRMRejectFlow(t *testing.T) {
 	}
 	if !strings.Contains(body, `"code":"hitl_rejected"`) {
 		t.Fatalf("expected rejected original bash result, got %s", body)
+	}
+	if !strings.Contains(body, `"final":true`) ||
+		!strings.Contains(body, `User rejected this command. Do NOT retry with a different command. End the turn now.`) {
+		t.Fatalf("expected hard-stop rejected tool result, got %s", body)
 	}
 	if strings.Contains(body, `"viewportKey":"confirm_dialog"`) {
 		t.Fatalf("did not expect confirm_dialog viewport in stream, got %s", body)
@@ -3044,7 +3061,7 @@ func runSandboxBashQueryForResultShape(t *testing.T, sandbox contracts.SandboxCl
 }
 
 func defaultBashHITLCommand() string {
-	return `mock create-leave --payload {"applicant":{"name":"Lin","department":"engineering","employee_id":"E1001"},"leave_type":"年假","start_date":"2026-04-20","end_date":"2026-04-22","duration_days":3,"reason":"family_trip","urgent_contact":"Amy","urgent_phone":"13800138000","backup_person":"E2001","notes":""}`
+	return `mock create-leave --payload {"applicant_id":"E1001","department_id":"engineering","leave_type":"annual","start_date":"2026-04-20","end_date":"2026-04-22","days":3,"reason":"family_trip"}`
 }
 
 func payloadFromCommandForTest(t *testing.T, command string) map[string]any {

@@ -197,11 +197,28 @@ func newAwaitingAnswerEvent(input AwaitingAnswer) StreamEvent {
 		"awaitingId": input.AwaitingID,
 		"mode":       mode,
 	}
-	if cancelled, ok := answer["cancelled"].(bool); ok && cancelled {
-		payload["cancelled"] = true
-		if reason := strings.TrimSpace(anyString(answer["reason"])); reason != "" {
-			payload["reason"] = reason
+	status := strings.ToLower(strings.TrimSpace(anyString(answer["status"])))
+	if status == "" {
+		return StreamEvent{}
+	}
+	payload["status"] = status
+	if status == "error" {
+		if errPayload := anyMap(answer["error"]); len(errPayload) > 0 {
+			entry := map[string]any{}
+			if code := strings.TrimSpace(anyString(errPayload["code"])); code != "" {
+				entry["code"] = code
+			}
+			if message := strings.TrimSpace(anyString(errPayload["message"])); message != "" {
+				entry["message"] = message
+			}
+			if len(entry) > 0 {
+				payload["error"] = entry
+			}
 		}
+		return NewEvent("awaiting.answer", payload)
+	}
+	if status != "answered" {
+		return StreamEvent{}
 	}
 	switch mode {
 	case "question":

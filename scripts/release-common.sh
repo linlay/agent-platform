@@ -256,8 +256,41 @@ ${error_log_json}
     "defaultPort": 11949
   },
   "desktop": {
+    "displayOrder": 2,
+    "autoStart": true,
     "assetFileName": "$asset_file_name",
-    "bundleTopLevelDir": "$APP_NAME"
+    "bundleTopLevelDir": "$APP_NAME",
+    "envBindings": [
+      {
+        "key": "AGENT_CONTAINER_HUB_BASE_URL",
+        "fromService": "agent-container-hub",
+        "template": "http://127.0.0.1:{{port}}",
+        "onlyIfDefault": true,
+        "defaults": [
+          "",
+          "http://127.0.0.1:11960",
+          "http://localhost:11960",
+          "http://host.docker.internal:11960"
+        ]
+      },
+      {
+        "key": "SERVER_PORT",
+        "value": "{{serviceDefaultPort}}",
+        "onlyIfDefault": true
+      },
+      {
+        "key": "AGENT_WS_ENABLED",
+        "value": "true"
+      },
+      {
+        "key": "AGENT_AUTH_ENABLED",
+        "value": "true"
+      },
+      {
+        "key": "AGENT_AUTH_LOCAL_PUBLIC_KEY_FILE",
+        "value": "configs/local-public-key.pem"
+      }
+    ]
   }
 }
 EOF

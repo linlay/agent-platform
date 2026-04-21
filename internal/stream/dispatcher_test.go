@@ -536,7 +536,8 @@ func TestDispatcherEmitsAwaitingAnswerForApprovalMode(t *testing.T) {
 	events := dispatcher.Dispatch(AwaitingAnswer{
 		AwaitingID: "tool_1",
 		Answer: map[string]any{
-			"mode": "approval",
+			"mode":   "approval",
+			"status": "answered",
 			"approvals": []any{
 				map[string]any{
 					"id":       "cmd-1",
@@ -550,6 +551,9 @@ func TestDispatcherEmitsAwaitingAnswerForApprovalMode(t *testing.T) {
 	payload := events[0].ToData()
 	if payload["mode"] != "approval" {
 		t.Fatalf("expected approval mode, got %#v", payload)
+	}
+	if payload["status"] != "answered" {
+		t.Fatalf("expected answered status, got %#v", payload)
 	}
 	approvals, _ := payload["approvals"].([]map[string]any)
 	if len(approvals) != 1 {
@@ -569,16 +573,16 @@ func TestDispatcherEmitsAwaitingAnswerForApprovalFormSubmit(t *testing.T) {
 	events := dispatcher.Dispatch(AwaitingAnswer{
 		AwaitingID: "tool_1",
 		Answer: map[string]any{
-			"mode": "form",
+			"mode":   "form",
+			"status": "answered",
 			"forms": []any{
 				map[string]any{
 					"id":     "form-1",
 					"action": "submit",
 					"payload": map[string]any{
-						"applicant": map[string]any{
-							"employee_id": "E1001",
-						},
-						"duration_days": 2,
+						"applicant_id":  "E1001",
+						"department_id": "engineering",
+						"days":          2,
 					},
 				},
 			},
@@ -589,13 +593,15 @@ func TestDispatcherEmitsAwaitingAnswerForApprovalFormSubmit(t *testing.T) {
 	if payload["mode"] != "form" {
 		t.Fatalf("unexpected form awaiting.answer payload %#v", payload)
 	}
+	if payload["status"] != "answered" {
+		t.Fatalf("expected answered status, got %#v", payload)
+	}
 	forms, _ := payload["forms"].([]map[string]any)
 	if len(forms) != 1 {
 		t.Fatalf("expected one form answer, got %#v", payload)
 	}
 	formPayload, _ := forms[0]["payload"].(map[string]any)
-	applicant, _ := formPayload["applicant"].(map[string]any)
-	if forms[0]["action"] != "submit" || applicant["employee_id"] != "E1001" || formPayload["duration_days"] != 2 {
+	if forms[0]["action"] != "submit" || formPayload["applicant_id"] != "E1001" || formPayload["days"] != 2 {
 		t.Fatalf("unexpected approval form payload %#v", payload)
 	}
 }
@@ -609,7 +615,8 @@ func TestDispatcherEmitsAwaitingAnswerForQuestionMode(t *testing.T) {
 	events := dispatcher.Dispatch(AwaitingAnswer{
 		AwaitingID: "tool_1",
 		Answer: map[string]any{
-			"mode": "question",
+			"mode":   "question",
+			"status": "answered",
 			"answers": []any{
 				map[string]any{
 					"id":       "q1",
@@ -630,6 +637,9 @@ func TestDispatcherEmitsAwaitingAnswerForQuestionMode(t *testing.T) {
 	if payload["mode"] != "question" {
 		t.Fatalf("expected question mode, got %#v", payload)
 	}
+	if payload["status"] != "answered" {
+		t.Fatalf("expected answered status, got %#v", payload)
+	}
 	answers, _ := payload["answers"].([]map[string]any)
 	if len(answers) != 2 {
 		t.Fatalf("expected formatted answers, got %#v", payload)
@@ -643,7 +653,7 @@ func TestDispatcherEmitsAwaitingAnswerForQuestionMode(t *testing.T) {
 	}
 }
 
-func TestDispatcherEmitsAwaitingAnswerCancelledFields(t *testing.T) {
+func TestDispatcherEmitsAwaitingAnswerErrorFields(t *testing.T) {
 	dispatcher := NewDispatcher(StreamRequest{
 		RunID:  "run_1",
 		ChatID: "chat_1",
@@ -652,18 +662,25 @@ func TestDispatcherEmitsAwaitingAnswerCancelledFields(t *testing.T) {
 	events := dispatcher.Dispatch(AwaitingAnswer{
 		AwaitingID: "tool_1",
 		Answer: map[string]any{
-			"mode":      "question",
-			"cancelled": true,
-			"reason":    "user_dismissed",
+			"mode":   "question",
+			"status": "error",
+			"error": map[string]any{
+				"code":    "user_dismissed",
+				"message": "用户关闭等待项",
+			},
 		},
 	})
 	assertEventTypes(t, events, "awaiting.answer")
 	payload := events[0].ToData()
-	if payload["mode"] != "question" || payload["cancelled"] != true || payload["reason"] != "user_dismissed" {
-		t.Fatalf("unexpected cancelled awaiting.answer payload %#v", payload)
+	if payload["mode"] != "question" || payload["status"] != "error" {
+		t.Fatalf("unexpected error awaiting.answer payload %#v", payload)
+	}
+	errPayload, _ := payload["error"].(map[string]any)
+	if errPayload["code"] != "user_dismissed" || errPayload["message"] != "用户关闭等待项" {
+		t.Fatalf("unexpected error payload %#v", payload)
 	}
 	if _, exists := payload["answers"]; exists {
-		t.Fatalf("did not expect answers on cancelled awaiting.answer, got %#v", payload)
+		t.Fatalf("did not expect answers on error awaiting.answer, got %#v", payload)
 	}
 }
 
@@ -671,14 +688,10 @@ func TestEventDataMarshalsAwaitingAnswerWithContractKeyOrder(t *testing.T) {
 	event := NewEvent("awaiting.answer", map[string]any{
 		"awaitingId": "tool_1",
 		"mode":       "question",
-		"cancelled":  true,
-		"reason":     "user_dismissed",
-		"answers": []any{
-			map[string]any{
-				"id":       "q1",
-				"question": "Destination?",
-				"answers":  []string{"Xitang", "Suzhou"},
-			},
+		"status":     "error",
+		"error": map[string]any{
+			"code":    "user_dismissed",
+			"message": "用户关闭等待项",
 		},
 	})
 	event.Seq = 12
@@ -692,9 +705,8 @@ func TestEventDataMarshalsAwaitingAnswerWithContractKeyOrder(t *testing.T) {
 		`"type":"awaiting.answer"`,
 		`"awaitingId":"tool_1"`,
 		`"mode":"question"`,
-		`"cancelled":true`,
-		`"reason":"user_dismissed"`,
-		`"answers":[{"answers":["Xitang","Suzhou"],"id":"q1","question":"Destination?"}]`,
+		`"status":"error"`,
+		`"error":{"code":"user_dismissed","message":"用户关闭等待项"}`,
 		`"timestamp":`,
 	}
 	prev := -1
@@ -714,14 +726,13 @@ func TestEventDataMarshalsAwaitingAnswerFormSubmitWithContractKeyOrder(t *testin
 	event := NewEvent("awaiting.answer", map[string]any{
 		"awaitingId": "tool_1",
 		"mode":       "form",
+		"status":     "answered",
 		"forms": []any{
 			map[string]any{
 				"id":     "form-1",
 				"action": "submit",
 				"payload": map[string]any{
-					"applicant": map[string]any{
-						"employee_id": "E1001",
-					},
+					"applicant_id": "E1001",
 				},
 			},
 		},
@@ -737,7 +748,8 @@ func TestEventDataMarshalsAwaitingAnswerFormSubmitWithContractKeyOrder(t *testin
 		`"type":"awaiting.answer"`,
 		`"awaitingId":"tool_1"`,
 		`"mode":"form"`,
-		`"forms":[{"action":"submit","id":"form-1","payload":{"applicant":{"employee_id":"E1001"}}}]`,
+		`"status":"answered"`,
+		`"forms":[{"action":"submit","id":"form-1","payload":{"applicant_id":"E1001"}}]`,
 		`"timestamp":`,
 	}
 	prev := -1

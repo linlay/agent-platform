@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
+	"strings"
 	"time"
 
 	"agent-platform-runner-go/internal/api"
@@ -64,13 +65,10 @@ func (c *FrontendSubmitCoordinator) Await(ctx context.Context, execCtx *Executio
 			timeoutMs := timeout.Milliseconds()
 			detailedMsg := resolveFrontendTimeoutMessage(toolName, awaitingID, timeoutMs, elapsedMs)
 			return ToolExecutionResult{
-				Output: detailedMsg,
-				Structured: map[string]any{
-					"code":    "frontend_submit_timeout",
-					"message": "用户未在规定时间内回答",
-				},
-				Error:    "frontend_submit_timeout",
-				ExitCode: -1,
+				Output:     detailedMsg,
+				Structured: AwaitingErrorAnswer(strings.TrimSpace(AnyStringNode(args["mode"])), "timeout", "等待项已超时"),
+				Error:      "frontend_submit_timeout",
+				ExitCode:   -1,
 			}, nil
 		}
 		return ToolExecutionResult{}, err
@@ -105,7 +103,7 @@ func (c *FrontendSubmitCoordinator) Await(ctx context.Context, execCtx *Executio
 	}
 	data, _ := json.Marshal(normalized)
 	rawParams := result.Request.Params
-	if normalized["cancelled"] == true {
+	if strings.EqualFold(AnyStringNode(normalized["status"]), "error") {
 		rawParams = nil
 	}
 	return ToolExecutionResult{

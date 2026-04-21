@@ -400,8 +400,21 @@ func optionalStringNode(node map[string]any, key string) (string, error) {
 }
 
 func stringNode(value any) string {
-	text, _ := value.(string)
-	return strings.TrimSpace(text)
+	switch v := value.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	case int:
+		return strconv.Itoa(v)
+	case int64:
+		return strconv.FormatInt(v, 10)
+	case float64:
+		if v == float64(int64(v)) {
+			return strconv.FormatInt(int64(v), 10)
+		}
+		return strconv.FormatFloat(v, 'f', -1, 64)
+	default:
+		return ""
+	}
 }
 
 func boolNode(value any, fallback bool) bool {
