@@ -563,15 +563,10 @@ func normalizedAgentTools(def catalog.AgentDefinition) []string {
 		seen[key] = struct{}{}
 		tools = append(tools, name)
 	}
-	if len(def.Skills) > 0 {
+	if len(def.Skills) > 0 || hasSandboxConfig(def.Sandbox) {
 		if _, ok := seen["_bash_"]; !ok {
 			tools = append(tools, "_bash_")
 			seen["_bash_"] = struct{}{}
-		}
-	}
-	if hasSandboxConfig(def.Sandbox) {
-		if _, ok := seen["_bash_"]; !ok {
-			tools = append(tools, "_bash_")
 		}
 	}
 	return tools

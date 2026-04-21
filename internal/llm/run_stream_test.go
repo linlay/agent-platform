@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/chat"
@@ -969,6 +970,109 @@ func TestAwaitHITLSubmitAndExecute_RejectEmitsCancelledAnswer(t *testing.T) {
 	noticeText, _ := hitlNotice.Content.(string)
 	if hitlNotice.Role != "user" || !strings.Contains(noticeText, `[HITL] docker rmi nginx:latest → reject（风险过高）`) {
 		t.Fatalf("expected reject HITL summary, got %#v", hitlNotice)
+	}
+}
+
+func TestAwaitHITLApprovalBatchAndContinue_HostUsesUnifiedBashToolName(t *testing.T) {
+	runControl := contracts.NewRunControl(context.Background(), "run_1")
+	executor := &recordingToolExecutor{
+		defs:   []api.ToolDetailResponse{bashToolDefinition()},
+		result: contracts.ToolExecutionResult{Output: "approved", ExitCode: 0},
+	}
+	stream := &llmRunStream{
+		ctx: context.Background(),
+		engine: &LLMAgentEngine{
+			tools:    executor,
+			frontend: frontendtools.NewDefaultRegistry(),
+		},
+		session: contracts.QuerySession{
+			RequestID:             "req_1",
+			ChatID:                "chat_1",
+			RunID:                 "run_1",
+			AgentHasSandboxConfig: false,
+		},
+		runControl: runControl,
+		execCtx: &contracts.ExecutionContext{
+			Budget: contracts.Budget{Tool: contracts.RetryPolicy{TimeoutMs: 100}},
+			Session: contracts.QuerySession{
+				RunID:                 "run_1",
+				AgentHasSandboxConfig: false,
+			},
+		},
+		checker: commandResultChecker{
+			results: map[string]hitl.InterceptResult{
+				"git status": {
+					Intercepted:     true,
+					Rule:            hitl.FlatRule{Level: 1, ViewportType: "builtin", ViewportKey: "confirm_dialog", RuleKey: "repo::git"},
+					OriginalCommand: "git status",
+				},
+			},
+			tools: map[string]api.ToolDetailResponse{
+				strings.ToLower(bashToolDefinition().Name): bashToolDefinition(),
+			},
+		},
+		queuedToolCalls: []*preparedToolInvocation{{
+			toolID:   "tool_1",
+			toolName: "_bash_",
+			args: map[string]any{
+				"command":     "git status",
+				"description": "查看仓库状态",
+			},
+		}},
+	}
+	if !stream.prepareQueuedBashApprovalBatch() {
+		t.Fatal("expected host bash HITL batch to be prepared")
+	}
+	ask := stream.pending[0].(contracts.DeltaAwaitAsk)
+	runControl.ExpectSubmit(contracts.AwaitingSubmitContext{
+		AwaitingID: ask.AwaitingID,
+		Mode:       "approval",
+		ItemCount:  1,
+	})
+
+	done := make(chan error, 1)
+	go func() {
+		done <- stream.awaitHITLApprovalBatchAndContinue()
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if stream.execCtx.CurrentToolName == "_bash_" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if stream.execCtx.CurrentToolName != "_bash_" {
+		t.Fatalf("expected CurrentToolName to be _bash_ while awaiting approval, got %q", stream.execCtx.CurrentToolName)
+	}
+	ack := runControl.ResolveSubmit(api.SubmitRequest{
+		RunID:      "run_1",
+		AwaitingID: ask.AwaitingID,
+		Params:     encodedSubmitParams(t, []map[string]any{{"id": "tool_1", "decision": "approve"}}),
+	})
+	if !ack.Accepted {
+		t.Fatalf("expected submit to be accepted, got %#v", ack)
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("awaitHITLApprovalBatchAndContinue returned error: %v", err)
+	}
+	for len(stream.queuedToolCalls) > 0 {
+		stream.activateNextToolCall()
+		if err := stream.invokeActiveToolCall(); err != nil {
+			t.Fatalf("invokeActiveToolCall returned error: %v", err)
+		}
+	}
+	if len(executor.invocations) != 1 || executor.invocations[0].name != "_bash_" {
+		t.Fatalf("expected host HITL flow to invoke unified _bash_, got %#v", executor.invocations)
+	}
+	foundResult := false
+	for _, delta := range stream.pending {
+		if typed, ok := delta.(contracts.DeltaToolResult); ok && typed.ToolName == "_bash_" {
+			foundResult = true
+		}
+	}
+	if !foundResult {
+		t.Fatalf("expected approved host HITL flow to emit _bash_ tool result, got %#v", stream.pending)
 	}
 }
 

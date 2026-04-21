@@ -122,12 +122,93 @@ func TestInvokeHostBashEarlyReturnStaysHumanReadable(t *testing.T) {
 	}
 }
 
-func TestInvokeHostBashSupportsPerCallCwdAndEnv(t *testing.T) {
+func TestInvokeHostBashSupportsPerCallCwd(t *testing.T) {
 	root := t.TempDir()
 	nested := filepath.Join(root, "nested")
 	if err := os.MkdirAll(nested, 0o755); err != nil {
 		t.Fatalf("mkdir nested: %v", err)
 	}
+	executor := &RuntimeToolExecutor{
+		cfg: config.Config{
+			Bash: config.BashConfig{
+				WorkingDirectory:        root,
+				AllowedPaths:            []string{root},
+				AllowedCommands:         []string{"env"},
+				PathCheckedCommands:     []string{},
+				PathCheckBypassCommands: []string{},
+				ShellFeaturesEnabled:    true,
+				ShellExecutable:         "bash",
+				ShellTimeoutMs:          30000,
+				MaxCommandChars:         16000,
+			},
+		},
+	}
+
+	result, err := executor.invokeHostBash(
+		context.Background(),
+		map[string]any{
+			"command": "pwd",
+			"cwd":     nested,
+		},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("invokeHostBash returned error: %v", err)
+	}
+	resolvedNested, err := filepath.EvalSymlinks(nested)
+	if err != nil {
+		t.Fatalf("eval symlinks: %v", err)
+	}
+	got := strings.TrimSpace(result.Output)
+	if got != nested && got != resolvedNested {
+		t.Fatalf("expected cwd line to match %q or %q, got %q", nested, resolvedNested, got)
+	}
+}
+
+func TestInvokeHostBashAllowsShellSyntaxByDefault(t *testing.T) {
+	root := t.TempDir()
+	nested := filepath.Join(root, "nested")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatalf("mkdir nested: %v", err)
+	}
+	executor := &RuntimeToolExecutor{
+		cfg: config.Config{
+			Bash: config.BashConfig{
+				WorkingDirectory:        root,
+				AllowedPaths:            []string{root},
+				AllowedCommands:         []string{"pwd", "cd"},
+				PathCheckedCommands:     []string{},
+				PathCheckBypassCommands: []string{},
+				ShellFeaturesEnabled:    true,
+				ShellExecutable:         "bash",
+				ShellTimeoutMs:          30000,
+				MaxCommandChars:         16000,
+			},
+		},
+	}
+
+	result, err := executor.invokeHostBash(
+		context.Background(),
+		map[string]any{
+			"command": "cd nested && pwd",
+		},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("invokeHostBash returned error: %v", err)
+	}
+	resolvedNested, err := filepath.EvalSymlinks(nested)
+	if err != nil {
+		t.Fatalf("eval symlinks: %v", err)
+	}
+	got := strings.TrimSpace(result.Output)
+	if got != nested && got != resolvedNested {
+		t.Fatalf("expected shell syntax command to resolve nested cwd, got %q", got)
+	}
+}
+
+func TestInvokeHostBashIgnoresPerCallEnv(t *testing.T) {
+	root := t.TempDir()
 	executor := &RuntimeToolExecutor{
 		cfg: config.Config{
 			Bash: config.BashConfig{
@@ -147,28 +228,51 @@ func TestInvokeHostBashSupportsPerCallCwdAndEnv(t *testing.T) {
 	result, err := executor.invokeHostBash(
 		context.Background(),
 		map[string]any{
-			"command": "pwd; echo \"$TEST_HOST_ENV\"",
-			"cwd":     nested,
+			"command": "env",
 			"env":     map[string]any{"TEST_HOST_ENV": "call-value"},
 		},
-		&contracts.ExecutionContext{SandboxEnvOverrides: map[string]string{"TEST_HOST_ENV": "session-value"}},
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("invokeHostBash returned error: %v", err)
 	}
-	lines := strings.Split(strings.TrimSpace(result.Output), "\n")
-	if len(lines) != 2 {
-		t.Fatalf("expected two output lines, got %q", result.Output)
+	if strings.Contains(result.Output, "TEST_HOST_ENV=call-value") {
+		t.Fatalf("expected host per-call env to be ignored, got %q", result.Output)
 	}
-	resolvedNested, err := filepath.EvalSymlinks(nested)
+}
+
+func TestInvokeHostBashAppliesAgentEnvOverrides(t *testing.T) {
+	root := t.TempDir()
+	executor := &RuntimeToolExecutor{
+		cfg: config.Config{
+			Bash: config.BashConfig{
+				WorkingDirectory:        root,
+				AllowedPaths:            []string{root},
+				AllowedCommands:         []string{"bash"},
+				PathCheckedCommands:     []string{},
+				PathCheckBypassCommands: []string{},
+				ShellFeaturesEnabled:    true,
+				ShellExecutable:         "bash",
+				ShellTimeoutMs:          30000,
+				MaxCommandChars:         16000,
+			},
+		},
+	}
+
+	result, err := executor.invokeHostBash(
+		context.Background(),
+		map[string]any{
+			"command": "echo \"$TEST_HOST_ENV\"",
+		},
+		&contracts.ExecutionContext{
+			SandboxEnvOverrides: map[string]string{"TEST_HOST_ENV": "agent-value"},
+		},
+	)
 	if err != nil {
-		t.Fatalf("eval symlinks: %v", err)
+		t.Fatalf("invokeHostBash returned error: %v", err)
 	}
-	if lines[0] != nested && lines[0] != resolvedNested {
-		t.Fatalf("expected cwd line to match %q or %q, got %q", nested, resolvedNested, lines[0])
-	}
-	if lines[1] != "call-value" {
-		t.Fatalf("expected env override to apply, got %q", result.Output)
+	if strings.TrimSpace(result.Output) != "agent-value" {
+		t.Fatalf("expected agent env override to apply, got %q", result.Output)
 	}
 }
 

@@ -339,10 +339,7 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	if err := validateReservedBashToolNames(def.Tools, def.ToolOverrides); err != nil {
 		return AgentDefinition{}, nil, err
 	}
-	if len(def.Skills) > 0 && !containsString(def.Tools, "_bash_") {
-		def.Tools = append(def.Tools, "_bash_")
-	}
-	if len(def.Sandbox) > 0 && !containsString(def.Tools, "_bash_") {
+	if (len(def.Skills) > 0 || len(def.Sandbox) > 0) && !containsString(def.Tools, "_bash_") {
 		def.Tools = append(def.Tools, "_bash_")
 	}
 	memoryConfig := mapNode(root["memoryConfig"])

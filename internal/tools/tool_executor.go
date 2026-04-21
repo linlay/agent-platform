@@ -72,8 +72,6 @@ func (t *RuntimeToolExecutor) Invoke(ctx context.Context, toolName string, args 
 			return t.invokeSandboxBash(ctx, args, execCtx)
 		}
 		return t.invokeHostBash(ctx, args, execCtx)
-	case "_bash_container_":
-		return t.invokeSandboxBash(ctx, args, execCtx)
 	case "_memory_search_", "memory_search":
 		return t.invokeMemorySearch(toolName, args, execCtx)
 	case "_memory_read_", "memory_read":

@@ -105,7 +105,8 @@ type QuerySession struct {
 	SandboxExtraMounts    []SandboxExtraMount
 	AgentHasSandboxConfig bool
 	SkillHookDirs         []string
-	SandboxEnvOverrides   map[string]string
+	// SandboxEnvOverrides carries agent/skill-level env defaults for both sandbox and host bash execution.
+	SandboxEnvOverrides map[string]string
 }
 
 type SandboxExtraMount struct {
@@ -116,19 +117,20 @@ type SandboxExtraMount struct {
 }
 
 type ExecutionContext struct {
-	Request             api.QueryRequest
-	Session             QuerySession
-	RunControl          *RunControl
-	CurrentToolID       string
-	CurrentToolName     string
-	HITLLevel           int
-	AutoApproveLevels   map[int]bool
-	SandboxSession      *SandboxSession
-	Budget              Budget
-	StageSettings       PlanExecuteSettings
-	RunLoopState        RunLoopState
-	PlanState           *PlanRuntimeState
-	ToolOverrides       map[string]api.ToolDetailResponse
+	Request           api.QueryRequest
+	Session           QuerySession
+	RunControl        *RunControl
+	CurrentToolID     string
+	CurrentToolName   string
+	HITLLevel         int
+	AutoApproveLevels map[int]bool
+	SandboxSession    *SandboxSession
+	Budget            Budget
+	StageSettings     PlanExecuteSettings
+	RunLoopState      RunLoopState
+	PlanState         *PlanRuntimeState
+	ToolOverrides     map[string]api.ToolDetailResponse
+	// SandboxEnvOverrides is reused by host bash as agent/skill-level env defaults.
 	SandboxEnvOverrides map[string]string
 	StartedAt           time.Time
 	ModelCalls          int

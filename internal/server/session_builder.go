@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"strings"
 
@@ -134,6 +135,9 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		AgentHasSandboxConfig: hasSandboxConfig(agentDef.Sandbox),
 		SkillHookDirs:         skillHookDirs,
 		SandboxEnvOverrides:   sandboxEnvOverrides,
+	}
+	if session.AgentHasSandboxConfig && !s.deps.Config.ContainerHub.Enabled {
+		return contracts.QuerySession{}, fmt.Errorf("agent %q requires sandbox but container-hub is disabled", req.AgentKey)
 	}
 	if principal != nil {
 		session.Subject = principal.Subject

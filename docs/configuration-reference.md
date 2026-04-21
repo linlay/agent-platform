@@ -137,7 +137,7 @@ Container Hub 默认基础挂载为：
 | `AGENT_BASH_ALLOWED_COMMANDS` | `ls,pwd,cat,head,tail,top,free,df,git,rg,find` | `Advanced / operator` | 允许执行的命令白名单 |
 | `AGENT_BASH_PATH_CHECKED_COMMANDS` | `ls,cat,head,tail,git,rg,find` | `Advanced / operator` | 开启路径校验的命令 |
 | `AGENT_BASH_PATH_CHECK_BYPASS_COMMANDS` | 空 | `Internal / compatibility` | 跳过路径校验的命令 |
-| `AGENT_BASH_SHELL_FEATURES_ENABLED` | `false` | `Advanced / operator` | shell 高级语法开关 |
+| `AGENT_BASH_SHELL_FEATURES_ENABLED` | `true` | `Advanced / operator` | shell 高级语法开关 |
 | `AGENT_BASH_SHELL_EXECUTABLE` | `bash` | `Advanced / operator` | shell 可执行文件 |
 | `AGENT_BASH_SHELL_TIMEOUT_MS` | `10000` | `Advanced / operator` | shell 模式超时 |
 | `AGENT_BASH_MAX_COMMAND_CHARS` | `16000` | `Advanced / operator` | 最大命令长度 |

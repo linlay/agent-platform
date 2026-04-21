@@ -260,6 +260,39 @@ func TestPrepareQueryBuildsLayeredMemoryContexts(t *testing.T) {
 	}
 }
 
+func TestPrepareQueryFailsFastWhenSandboxAgentRequiresDisabledContainerHub(t *testing.T) {
+	chats, err := chat.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new chat store: %v", err)
+	}
+
+	server := &Server{deps: Dependencies{
+		Config: config.Config{
+			ContainerHub: config.ContainerHubConfig{Enabled: false},
+		},
+		Chats: chats,
+		Registry: queryMemoryRegistry{
+			def: catalog.AgentDefinition{
+				Key:      "agent-a",
+				Name:     "Agent A",
+				ModelKey: "mock-model",
+				Sandbox: map[string]any{
+					"environmentId": "shell",
+				},
+			},
+		},
+	}}
+
+	req := httptest.NewRequest("POST", "/api/query", bytes.NewBufferString(`{"agentKey":"agent-a","chatId":"chat-1","message":"列出目录"}`))
+	_, err = server.prepareQuery(req)
+	if err == nil {
+		t.Fatal("expected prepareQuery to fail when sandbox agent requires disabled container-hub")
+	}
+	if !strings.Contains(err.Error(), `agent "agent-a" requires sandbox but container-hub is disabled`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func containsAll(text string, needles []string) bool {
 	for _, needle := range needles {
 		if !strings.Contains(text, needle) {

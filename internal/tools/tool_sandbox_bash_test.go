@@ -14,20 +14,20 @@ type stubSandboxClient struct {
 	env    map[string]string
 }
 
-func (s stubSandboxClient) OpenIfNeeded(_ context.Context, _ *contracts.ExecutionContext) error {
+func (s *stubSandboxClient) OpenIfNeeded(_ context.Context, _ *contracts.ExecutionContext) error {
 	return nil
 }
 
-func (s stubSandboxClient) Execute(_ context.Context, _ *contracts.ExecutionContext, _ string, _ string, _ int64, env map[string]string) (contracts.SandboxExecutionResult, error) {
+func (s *stubSandboxClient) Execute(_ context.Context, _ *contracts.ExecutionContext, _ string, _ string, _ int64, env map[string]string) (contracts.SandboxExecutionResult, error) {
 	s.env = env
 	return s.result, s.err
 }
 
-func (s stubSandboxClient) CloseQuietly(_ *contracts.ExecutionContext) {}
+func (s *stubSandboxClient) CloseQuietly(_ *contracts.ExecutionContext) {}
 
 func TestInvokeSandboxBashSuccessReturnsPlainStdout(t *testing.T) {
 	executor := &RuntimeToolExecutor{
-		sandbox: stubSandboxClient{
+		sandbox: &stubSandboxClient{
 			result: contracts.SandboxExecutionResult{
 				ExitCode:         0,
 				Stdout:           "alpha\nbeta\n",
@@ -54,7 +54,7 @@ func TestInvokeSandboxBashSuccessReturnsPlainStdout(t *testing.T) {
 
 func TestInvokeSandboxBashFailureReturnsStructuredJSON(t *testing.T) {
 	executor := &RuntimeToolExecutor{
-		sandbox: stubSandboxClient{
+		sandbox: &stubSandboxClient{
 			result: contracts.SandboxExecutionResult{
 				ExitCode:         2,
 				Stdout:           "",
@@ -86,5 +86,27 @@ func TestInvokeSandboxBashFailureReturnsStructuredJSON(t *testing.T) {
 	}
 	if payload["stderr"] != "ls: cannot access missing: No such file or directory\n" {
 		t.Fatalf("unexpected marshaled payload %#v", payload)
+	}
+}
+
+func TestInvokeSandboxBashForwardsEnv(t *testing.T) {
+	sandbox := &stubSandboxClient{
+		result: contracts.SandboxExecutionResult{
+			ExitCode:         0,
+			Stdout:           "ok\n",
+			WorkingDirectory: "/workspace",
+		},
+	}
+	executor := &RuntimeToolExecutor{sandbox: sandbox}
+
+	_, err := executor.invokeSandboxBash(context.Background(), map[string]any{
+		"command": "echo ok",
+		"env":     map[string]any{"FOO": "bar"},
+	}, &contracts.ExecutionContext{})
+	if err != nil {
+		t.Fatalf("invokeSandboxBash returned error: %v", err)
+	}
+	if sandbox.env["FOO"] != "bar" {
+		t.Fatalf("expected env to be forwarded, got %#v", sandbox.env)
 	}
 }

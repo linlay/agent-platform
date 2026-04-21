@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -54,7 +53,7 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	}
 	cmd := exec.CommandContext(runCtx, shellExecutable, "-lc", command)
 	cmd.Dir = workingDir
-	cmd.Env = mergeCommandEnv(execCtx, stringMapArg(args, "env"))
+	cmd.Env = mergeCommandEnv(execCtx)
 	output, err := cmd.CombinedOutput()
 	exitCode := 0
 	stderr := ""
@@ -169,35 +168,26 @@ func stringMapArg(args map[string]any, key string) map[string]string {
 	}
 }
 
-func mergeCommandEnv(execCtx *ExecutionContext, callEnv map[string]string) []string {
-	envMap := make(map[string]string, len(os.Environ()))
-	for _, item := range os.Environ() {
-		parts := strings.SplitN(item, "=", 2)
-		key := parts[0]
-		value := ""
-		if len(parts) == 2 {
-			value = parts[1]
+func mergeCommandEnv(execCtx *ExecutionContext) []string {
+	env := append([]string(nil), os.Environ()...)
+	if execCtx == nil || len(execCtx.SandboxEnvOverrides) == 0 {
+		return env
+	}
+	for key, value := range execCtx.SandboxEnvOverrides {
+		found := false
+		prefix := key + "="
+		for idx, item := range env {
+			if strings.HasPrefix(item, prefix) {
+				env[idx] = prefix + value
+				found = true
+				break
+			}
 		}
-		envMap[key] = value
-	}
-	if execCtx != nil {
-		for key, value := range execCtx.SandboxEnvOverrides {
-			envMap[key] = value
+		if !found {
+			env = append(env, prefix+value)
 		}
 	}
-	for key, value := range callEnv {
-		envMap[key] = value
-	}
-	keys := make([]string, 0, len(envMap))
-	for key := range envMap {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	out := make([]string, 0, len(keys))
-	for _, key := range keys {
-		out = append(out, key+"="+envMap[key])
-	}
-	return out
+	return env
 }
 
 func containsString(values []string, needle string) bool {
