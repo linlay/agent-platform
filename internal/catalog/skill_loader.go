@@ -90,7 +90,7 @@ func loadSkillDefinitionFromDir(skillDir, skillID string, maxPromptChars int) (S
 	}
 
 	prompt := strings.TrimSpace(string(content))
-	name, description := parseSkillPromptMetadata(prompt)
+	name, description, triggers, metadata := parseSkillPromptMetadata(prompt)
 	truncated := maxPromptChars > 0 && len(prompt) > maxPromptChars
 
 	bashHooksDir, err := resolveSkillBashHooksDir(skillDir)
@@ -106,6 +106,8 @@ func loadSkillDefinitionFromDir(skillDir, skillID string, maxPromptChars int) (S
 		Key:             skillID,
 		Name:            skillDisplayName(name, description, skillID),
 		Description:     description,
+		Triggers:        triggers,
+		Metadata:        metadata,
 		Prompt:          prompt,
 		PromptTruncated: truncated,
 		BashHooksDir:    bashHooksDir,
@@ -142,114 +144,6 @@ func loadSkillSandboxEnv(skillDir string) (map[string]string, error) {
 		return nil, err
 	}
 	return env, nil
-}
-
-func parseSkillPromptMetadata(prompt string) (string, string) {
-	name, description, body := parseSkillFrontMatter(prompt)
-	heading := firstMarkdownHeading(body)
-	firstLine := firstNonEmptyMarkdownLine(body)
-	if strings.TrimSpace(description) == "" {
-		description = firstLine
-	}
-	if strings.TrimSpace(name) == "" {
-		if strings.TrimSpace(heading) != "" {
-			name = heading
-		} else {
-			name = description
-		}
-	}
-	return strings.TrimSpace(name), strings.TrimSpace(description)
-}
-
-func parseSkillFrontMatter(prompt string) (string, string, string) {
-	lines := strings.Split(prompt, "\n")
-	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
-		return "", "", prompt
-	}
-	end := -1
-	for i := 1; i < len(lines); i++ {
-		if strings.TrimSpace(lines[i]) == "---" {
-			end = i
-			break
-		}
-	}
-	if end < 0 {
-		return "", "", prompt
-	}
-
-	var name string
-	var description string
-	for _, line := range lines[1:end] {
-		key, value, ok := parseFrontMatterLine(line)
-		if !ok {
-			continue
-		}
-		switch strings.ToLower(key) {
-		case "name":
-			name = value
-		case "description":
-			description = value
-		}
-	}
-	return name, description, strings.Join(lines[end+1:], "\n")
-}
-
-func parseFrontMatterLine(line string) (string, string, bool) {
-	trimmed := strings.TrimSpace(line)
-	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-		return "", "", false
-	}
-	key, value, ok := strings.Cut(trimmed, ":")
-	if !ok {
-		return "", "", false
-	}
-	key = strings.TrimSpace(key)
-	value = strings.TrimSpace(value)
-	if key == "" {
-		return "", "", false
-	}
-	return key, unquoteFrontMatterValue(value), true
-}
-
-func unquoteFrontMatterValue(value string) string {
-	if len(value) >= 2 {
-		if (value[0] == '"' && value[len(value)-1] == '"') || (value[0] == '\'' && value[len(value)-1] == '\'') {
-			return value[1 : len(value)-1]
-		}
-	}
-	return value
-}
-
-func firstMarkdownHeading(content string) string {
-	for _, line := range strings.Split(content, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
-		if !strings.HasPrefix(trimmed, "#") {
-			return ""
-		}
-		trimmed = strings.TrimSpace(strings.TrimLeft(trimmed, "#"))
-		if trimmed != "" {
-			return trimmed
-		}
-	}
-	return ""
-}
-
-func firstNonEmptyMarkdownLine(content string) string {
-	for _, line := range strings.Split(content, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
-		trimmed = strings.TrimLeft(trimmed, "#-* ")
-		if trimmed == "" {
-			continue
-		}
-		return trimmed
-	}
-	return ""
 }
 
 func reconcileDeclaredSkills(agentDir string, declaredSkills []string, marketDir string) error {

@@ -433,7 +433,7 @@ func TestLoadSkillsLoadsBashHooksAndSandboxEnv(t *testing.T) {
 	}
 }
 
-func TestLoadSkillsParsesFrontMatterNameAndDescription(t *testing.T) {
+func TestLoadSkillsParsesFullFrontMatterMetadata(t *testing.T) {
 	root := t.TempDir()
 	skillDir := filepath.Join(root, "mock-skill")
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
@@ -442,12 +442,31 @@ func TestLoadSkillsParsesFrontMatterNameAndDescription(t *testing.T) {
 	content := strings.Join([]string{
 		"---",
 		`name: "Front Matter Name"`,
-		`description: "Front Matter Description"`,
+		`license: MIT`,
+		"metadata:",
+		`  version: "1.0.0"`,
+		"  category: document-processing",
+		"  author: MiniMaxAI",
+		"  sources:",
+		`    - "Spec A"`,
+		`    - "Spec B"`,
+		"description: >",
+		"  Front matter description line 1.",
+		"  Line 2 should fold into the same paragraph.",
+		"",
+		"  Line 4 should become a new paragraph.",
+		"triggers:",
+		"  - 报告",
+		"  - docx",
 		"---",
 		"",
 		"# Heading Should Not Leak",
 		"",
 		"Body line",
+		"",
+		"---",
+		"",
+		"Another section",
 	}, "\n")
 	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(content), 0o644); err != nil {
 		t.Fatalf("write skill: %v", err)
@@ -461,11 +480,27 @@ func TestLoadSkillsParsesFrontMatterNameAndDescription(t *testing.T) {
 	if got.Name != "Front Matter Name" {
 		t.Fatalf("Name = %q", got.Name)
 	}
-	if got.Description != "Front Matter Description" {
+	wantDescription := "Front matter description line 1. Line 2 should fold into the same paragraph.\n\nLine 4 should become a new paragraph."
+	if got.Description != wantDescription {
 		t.Fatalf("Description = %q", got.Description)
 	}
 	if strings.Contains(got.Name, "name:") || strings.Contains(got.Description, "description:") {
 		t.Fatalf("unexpected front matter leakage: %#v", got)
+	}
+	if !reflect.DeepEqual(got.Triggers, []string{"报告", "docx"}) {
+		t.Fatalf("Triggers = %#v", got.Triggers)
+	}
+	wantMetadata := map[string]any{
+		"version":  "1.0.0",
+		"category": "document-processing",
+		"author":   "MiniMaxAI",
+		"sources":  []any{"Spec A", "Spec B"},
+	}
+	if !reflect.DeepEqual(got.Metadata, wantMetadata) {
+		t.Fatalf("Metadata = %#v", got.Metadata)
+	}
+	if !strings.Contains(got.Prompt, "\n---\n\nAnother section") {
+		t.Fatalf("expected body separators to remain in prompt, got %q", got.Prompt)
 	}
 }
 
@@ -533,6 +568,41 @@ func TestResolveSkillDefinitionFallsBackToMarketSkill(t *testing.T) {
 	}
 	if got.Description != "Market Skill" {
 		t.Fatalf("Description = %q", got.Description)
+	}
+}
+
+func TestSkillsSummaryIncludesSafeMetadataAndTagMatchesTriggers(t *testing.T) {
+	registry := &FileRegistry{
+		skills: map[string]SkillDefinition{
+			"minimax-docx": {
+				Key:             "minimax-docx",
+				Name:            "minimax-docx",
+				Description:     "DOCX processor",
+				Triggers:        []string{"报告", "docx"},
+				Metadata:        map[string]any{"version": "1.0.0", "category": "document-processing", "author": "MiniMaxAI", "sources": []any{"Spec A"}},
+				PromptTruncated: true,
+			},
+		},
+	}
+
+	items := registry.Skills("报告")
+	if len(items) != 1 {
+		t.Fatalf("expected trigger match, got %#v", items)
+	}
+	meta := items[0].Meta
+	if meta["promptTruncated"] != true {
+		t.Fatalf("promptTruncated = %#v", meta["promptTruncated"])
+	}
+	if !reflect.DeepEqual(meta["triggers"], []string{"报告", "docx"}) {
+		t.Fatalf("triggers = %#v", meta["triggers"])
+	}
+	wantMetadata := map[string]any{
+		"version":  "1.0.0",
+		"category": "document-processing",
+		"author":   "MiniMaxAI",
+	}
+	if !reflect.DeepEqual(meta["metadata"], wantMetadata) {
+		t.Fatalf("metadata = %#v", meta["metadata"])
 	}
 }
 
