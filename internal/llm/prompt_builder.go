@@ -194,10 +194,9 @@ func appendSandboxContextPaths(lines *[]string, paths SandboxPaths, localMode bo
 	appendContextDir(lines, "workspace_dir", paths.WorkspaceDir, "当前工作目录")
 	appendContextDir(lines, "root_dir", paths.RootDir, rootDirDesc)
 	appendContextDir(lines, "skills_dir", paths.SkillsDir, "当前 agent 私有技能目录")
-	appendContextDir(lines, "skills_market_dir", paths.SkillsMarketDir, "共享技能市场目录")
-	appendContextDir(lines, "pan_dir", paths.PanDir, panDirDesc)
 	appendContextDir(lines, "agent_dir", paths.AgentDir, "当前 agent 定义目录")
 	appendContextDir(lines, "owner_dir", paths.OwnerDir, "owner 用户档案目录")
+	appendContextDir(lines, "skills_market_dir", paths.SkillsMarketDir, "共享技能市场目录")
 	appendContextDir(lines, "agents_dir", paths.AgentsDir, "全部 agent 定义目录")
 	appendContextDir(lines, "teams_dir", paths.TeamsDir, "团队配置目录")
 	appendContextDir(lines, "schedules_dir", paths.SchedulesDir, "计划任务配置目录")
@@ -207,18 +206,17 @@ func appendSandboxContextPaths(lines *[]string, paths SandboxPaths, localMode bo
 	appendContextDir(lines, "providers_dir", paths.ProvidersDir, "供应商注册配置目录")
 	appendContextDir(lines, "mcp_servers_dir", paths.MCPServersDir, "MCP 服务注册目录")
 	appendContextDir(lines, "viewport_servers_dir", paths.ViewportServersDir, "Viewport 服务注册目录")
-	appendContextDir(lines, "tools_dir", paths.ToolsDir, "工具定义目录")
-	appendContextDir(lines, "viewports_dir", paths.ViewportsDir, "Viewport 模板目录")
+	appendContextDir(lines, "pan_dir", paths.PanDir, panDirDesc)
 }
 
 func appendLocalContextPaths(lines *[]string, paths LocalPaths) {
-	appendContextDir(lines, "workspace_dir", paths.WorkingDirectory, "当前工作目录")
+	workspaceDir := firstNonBlank(paths.ChatAttachmentsDir, paths.WorkingDirectory)
+	appendContextDir(lines, "workspace_dir", workspaceDir, "当前工作目录")
 	appendContextDir(lines, "root_dir", paths.RootDir, "root 目录")
 	appendContextDir(lines, "skills_dir", paths.SkillsDir, "当前 agent 私有技能目录")
-	appendContextDir(lines, "skills_market_dir", paths.SkillsMarketDir, "共享技能市场目录")
-	appendContextDir(lines, "pan_dir", paths.PanDir, "用户网盘目录")
 	appendContextDir(lines, "agent_dir", paths.AgentDir, "当前 agent 定义目录")
 	appendContextDir(lines, "owner_dir", paths.OwnerDir, "owner 用户档案目录")
+	appendContextDir(lines, "skills_market_dir", paths.SkillsMarketDir, "共享技能市场目录")
 	appendContextDir(lines, "agents_dir", paths.AgentsDir, "全部 agent 定义目录")
 	appendContextDir(lines, "teams_dir", paths.TeamsDir, "团队配置目录")
 	appendContextDir(lines, "schedules_dir", paths.SchedulesDir, "计划任务配置目录")
@@ -228,8 +226,7 @@ func appendLocalContextPaths(lines *[]string, paths LocalPaths) {
 	appendContextDir(lines, "providers_dir", paths.ProvidersDir, "供应商注册配置目录")
 	appendContextDir(lines, "mcp_servers_dir", paths.MCPServersDir, "MCP 服务注册目录")
 	appendContextDir(lines, "viewport_servers_dir", paths.ViewportServersDir, "Viewport 服务注册目录")
-	appendContextDir(lines, "tools_dir", paths.ToolsDir, "工具定义目录")
-	appendContextDir(lines, "viewports_dir", paths.ViewportsDir, "Viewport 模板目录")
+	appendContextDir(lines, "pan_dir", paths.PanDir, "用户网盘目录")
 }
 
 // appendContextDir adds a dir entry only if mounted (non-empty), with a description.

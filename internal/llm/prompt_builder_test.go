@@ -119,9 +119,25 @@ func TestBuildSystemEnvironmentSectionUsesLocalPathsWithoutSandbox(t *testing.T)
 		RuntimeContext: RuntimeRequestContext{
 			LocalMode: false,
 			LocalPaths: LocalPaths{
-				WorkingDirectory: "/Users/linlay/Project/zenmind/agent-platform",
-				RootDir:          "/Users/linlay/Project/zenmind/zenmind-env/root",
-				AgentDir:         "/Users/linlay/Project/zenmind/zenmind-env/agents/zenmi",
+				WorkingDirectory:   "/Users/linlay/Project/zenmind/agent-platform",
+				ChatAttachmentsDir: "/Users/linlay/Project/zenmind/zenmind-env/chats/chat-1",
+				RootDir:            "/Users/linlay/Project/zenmind/zenmind-env/root",
+				SkillsDir:          "/Users/linlay/Project/zenmind/zenmind-env/agents/zenmi/skills",
+				AgentDir:           "/Users/linlay/Project/zenmind/zenmind-env/agents/zenmi",
+				OwnerDir:           "/Users/linlay/Project/zenmind/zenmind-env/owner",
+				SkillsMarketDir:    "/Users/linlay/Project/zenmind/zenmind-env/skills-market",
+				AgentsDir:          "/Users/linlay/Project/zenmind/zenmind-env/agents",
+				TeamsDir:           "/Users/linlay/Project/zenmind/zenmind-env/teams",
+				SchedulesDir:       "/Users/linlay/Project/zenmind/zenmind-env/schedules",
+				ChatsDir:           "/Users/linlay/Project/zenmind/zenmind-env/chats",
+				MemoryDir:          "/Users/linlay/Project/zenmind/zenmind-env/memory",
+				ModelsDir:          "/Users/linlay/Project/zenmind/zenmind-env/registries/models",
+				ProvidersDir:       "/Users/linlay/Project/zenmind/zenmind-env/registries/providers",
+				MCPServersDir:      "/Users/linlay/Project/zenmind/zenmind-env/registries/mcp-servers",
+				ViewportServersDir: "/Users/linlay/Project/zenmind/zenmind-env/registries/viewport-servers",
+				ToolsDir:           "/Users/linlay/Project/zenmind/zenmind-env/registries/tools",
+				ViewportsDir:       "/Users/linlay/Project/zenmind/zenmind-env/registries/viewports",
+				PanDir:             "/Users/linlay/Server/zenmind-pan",
 			},
 			SandboxPaths: SandboxPaths{
 				WorkspaceDir: "/workspace",
@@ -134,15 +150,26 @@ func TestBuildSystemEnvironmentSectionUsesLocalPathsWithoutSandbox(t *testing.T)
 	if !strings.Contains(section, "Runtime Context: System Environment") {
 		t.Fatalf("expected system environment header, got %q", section)
 	}
-	if !strings.Contains(section, "workspace_dir: /Users/linlay/Project/zenmind/agent-platform") {
-		t.Fatalf("expected local workspace path in system environment, got %q", section)
+	if !strings.Contains(section, "workspace_dir: /Users/linlay/Project/zenmind/zenmind-env/chats/chat-1") {
+		t.Fatalf("expected chat workspace path in system environment, got %q", section)
 	}
 	if strings.Contains(section, "workspace_dir: /workspace") {
 		t.Fatalf("expected local paths instead of sandbox paths, got %q", section)
 	}
+	if strings.Contains(section, "tools_dir:") || strings.Contains(section, "viewports_dir:") {
+		t.Fatalf("expected tools_dir and viewports_dir to be removed, got %q", section)
+	}
 	if strings.Contains(section, "chatId:") || strings.Contains(section, "runId:") || strings.Contains(section, "requestId:") {
 		t.Fatalf("expected system environment to exclude session identifiers, got %q", section)
 	}
+	assertOrderedSubstrings(t, section, []string{
+		"workspace_dir:",
+		"root_dir:",
+		"skills_dir:",
+		"agent_dir:",
+		"owner_dir:",
+	})
+	assertLastField(t, section, "pan_dir:")
 }
 
 func TestBuildSystemEnvironmentSectionUsesSandboxPathsWhenSandboxEnabled(t *testing.T) {
@@ -151,16 +178,28 @@ func TestBuildSystemEnvironmentSectionUsesSandboxPathsWhenSandboxEnabled(t *test
 		RuntimeContext: RuntimeRequestContext{
 			LocalMode: false,
 			LocalPaths: LocalPaths{
-				WorkingDirectory: "/Users/linlay/Project/zenmind/agent-platform",
-				AgentDir:         "/Users/linlay/Project/zenmind/zenmind-env/agents/zenmi",
+				ChatAttachmentsDir: "/Users/linlay/Project/zenmind/zenmind-env/chats/chat-1",
+				AgentDir:           "/Users/linlay/Project/zenmind/zenmind-env/agents/zenmi",
 			},
 			SandboxPaths: SandboxPaths{
-				WorkspaceDir: "/workspace",
-				RootDir:      "/root",
-				PanDir:       "/pan",
-				AgentDir:     "/agent",
-				OwnerDir:     "/owner",
-				MemoryDir:    "/memory",
+				WorkspaceDir:       "/workspace",
+				RootDir:            "/root",
+				SkillsDir:          "/skills",
+				AgentDir:           "/agent",
+				OwnerDir:           "/owner",
+				SkillsMarketDir:    "/skills-market",
+				AgentsDir:          "/agents",
+				TeamsDir:           "/teams",
+				SchedulesDir:       "/schedules",
+				ChatsDir:           "/chats",
+				MemoryDir:          "/memory",
+				ModelsDir:          "/models",
+				ProvidersDir:       "/providers",
+				MCPServersDir:      "/mcp-servers",
+				ViewportServersDir: "/viewport-servers",
+				ToolsDir:           "/tools",
+				ViewportsDir:       "/viewports",
+				PanDir:             "/pan",
 			},
 		},
 	})
@@ -171,9 +210,20 @@ func TestBuildSystemEnvironmentSectionUsesSandboxPathsWhenSandboxEnabled(t *test
 	if strings.Contains(section, "/Users/linlay/Project/zenmind/agent-platform") {
 		t.Fatalf("expected sandbox paths to win when sandbox is enabled, got %q", section)
 	}
+	if strings.Contains(section, "tools_dir:") || strings.Contains(section, "viewports_dir:") {
+		t.Fatalf("expected tools_dir and viewports_dir to be removed, got %q", section)
+	}
 	if strings.Contains(section, "chatId:") {
 		t.Fatalf("expected system environment to exclude session identifiers, got %q", section)
 	}
+	assertOrderedSubstrings(t, section, []string{
+		"workspace_dir:",
+		"root_dir:",
+		"skills_dir:",
+		"agent_dir:",
+		"owner_dir:",
+	})
+	assertLastField(t, section, "pan_dir:")
 }
 
 func TestBuildSystemPromptSeparatesSystemEnvironmentAndSessionContext(t *testing.T) {
@@ -186,8 +236,9 @@ func TestBuildSystemPromptSeparatesSystemEnvironmentAndSessionContext(t *testing
 			LocalMode: false,
 			TeamID:    "team-1",
 			LocalPaths: LocalPaths{
-				WorkingDirectory: "/Users/linlay/Project/zenmind/agent-platform",
-				AgentDir:         "/Users/linlay/Project/zenmind/zenmind-env/agents/zenmi",
+				WorkingDirectory:   "/Users/linlay/Project/zenmind/agent-platform",
+				ChatAttachmentsDir: "/Users/linlay/Project/zenmind/zenmind-env/chats/chat-1",
+				AgentDir:           "/Users/linlay/Project/zenmind/zenmind-env/agents/zenmi",
 			},
 			SandboxPaths: SandboxPaths{
 				WorkspaceDir: "/workspace",
@@ -204,8 +255,8 @@ func TestBuildSystemPromptSeparatesSystemEnvironmentAndSessionContext(t *testing
 	if strings.Contains(prompt, "Runtime Context: Context") {
 		t.Fatalf("expected old context header to be removed, got %q", prompt)
 	}
-	if !strings.Contains(prompt, "workspace_dir: /Users/linlay/Project/zenmind/agent-platform") {
-		t.Fatalf("expected final prompt to include local workspace dir, got %q", prompt)
+	if !strings.Contains(prompt, "workspace_dir: /Users/linlay/Project/zenmind/zenmind-env/chats/chat-1") {
+		t.Fatalf("expected final prompt to include chat workspace dir, got %q", prompt)
 	}
 	if !strings.Contains(prompt, "chatId: chat-1") || !strings.Contains(prompt, "runId: run-1") || !strings.Contains(prompt, "requestId: req-1") {
 		t.Fatalf("expected final prompt to include session identifiers, got %q", prompt)
@@ -217,5 +268,36 @@ func TestBuildSystemPromptSeparatesSystemEnvironmentAndSessionContext(t *testing
 	systemSection := prompt[systemIndex:sessionIndex]
 	if strings.Contains(systemSection, "chatId:") || strings.Contains(systemSection, "runId:") || strings.Contains(systemSection, "requestId:") {
 		t.Fatalf("expected system environment to exclude session identifiers, got %q", systemSection)
+	}
+	if strings.Contains(systemSection, "tools_dir:") || strings.Contains(systemSection, "viewports_dir:") {
+		t.Fatalf("expected system environment to exclude tools_dir and viewports_dir, got %q", systemSection)
+	}
+}
+
+func assertOrderedSubstrings(t *testing.T, s string, items []string) {
+	t.Helper()
+
+	last := -1
+	for _, item := range items {
+		idx := strings.Index(s, item)
+		if idx < 0 {
+			t.Fatalf("expected %q in %q", item, s)
+		}
+		if idx <= last {
+			t.Fatalf("expected %q after prior fields in %q", item, s)
+		}
+		last = idx
+	}
+}
+
+func assertLastField(t *testing.T, s string, field string) {
+	t.Helper()
+
+	idx := strings.LastIndex(s, field)
+	if idx < 0 {
+		t.Fatalf("expected %q in %q", field, s)
+	}
+	if strings.Contains(s[idx+len(field):], "_dir:") {
+		t.Fatalf("expected %q to be the last directory field in %q", field, s)
 	}
 }

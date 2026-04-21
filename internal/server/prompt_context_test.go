@@ -138,6 +138,17 @@ func TestResolveLocalPathsIncludesAgentAndRegistryPaths(t *testing.T) {
 	}
 }
 
+func TestResolveLocalWorkspaceDirUsesChatDirWhenChatIDProvided(t *testing.T) {
+	t.Parallel()
+
+	cfg := testPromptContextConfig(t)
+
+	workspaceDir := resolveLocalWorkspaceDir(cfg.Paths, "chat-1")
+	if workspaceDir != absTestPath(t, filepath.Join(cfg.Paths.ChatsDir, "chat-1")) {
+		t.Fatalf("workspace dir = %q", workspaceDir)
+	}
+}
+
 func TestBuildRuntimeContextSkipsSandboxContextWhenHubDisabled(t *testing.T) {
 	t.Parallel()
 
