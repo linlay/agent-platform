@@ -19,11 +19,13 @@ import (
 	"agent-platform-runner-go/internal/mcp"
 	"agent-platform-runner-go/internal/memory"
 	"agent-platform-runner-go/internal/models"
+	"agent-platform-runner-go/internal/observability"
 	"agent-platform-runner-go/internal/reload"
 	"agent-platform-runner-go/internal/runctl"
 	"agent-platform-runner-go/internal/sandbox"
 	"agent-platform-runner-go/internal/schedule"
 	"agent-platform-runner-go/internal/server"
+	"agent-platform-runner-go/internal/skills"
 	"agent-platform-runner-go/internal/tools"
 	"agent-platform-runner-go/internal/viewport"
 	"agent-platform-runner-go/internal/ws"
@@ -66,6 +68,9 @@ func New() (*App, error) {
 		cfg.Paths.ChatsDir,
 		cfg.Paths.MemoryDir,
 	)
+	if err := observability.InitMemoryLogger(cfg.Logging.Memory.Enabled, cfg.Logging.Memory.File); err != nil {
+		return nil, fmt.Errorf("init memory logger (%s): %w", cfg.Logging.Memory.File, err)
+	}
 	log.Printf("initializing stores/registries")
 
 	chatStoreStartedAt := time.Now()
@@ -81,6 +86,10 @@ func New() (*App, error) {
 		return nil, fmt.Errorf("init memory store (%s): %w", cfg.Paths.MemoryDir, err)
 	}
 	log.Printf("memory store ready in %s (root=%s)", startupElapsed(memoryStoreStartedAt), cfg.Paths.MemoryDir)
+	skillCandidateStore, err := skills.NewFileCandidateStore(filepath.Join(cfg.Paths.MemoryDir, "skill-candidates"))
+	if err != nil {
+		return nil, fmt.Errorf("init skill candidate store (%s): %w", filepath.Join(cfg.Paths.MemoryDir, "skill-candidates"), err)
+	}
 
 	modelRegistryStartedAt := time.Now()
 	modelRegistry, err := models.LoadModelRegistry(cfg.Paths.RegistriesDir)
@@ -89,9 +98,24 @@ func New() (*App, error) {
 	}
 	log.Printf("model registry ready in %s (root=%s)", startupElapsed(modelRegistryStartedAt), cfg.Paths.RegistriesDir)
 
+	if providerKey := strings.TrimSpace(cfg.Memory.EmbeddingProviderKey); providerKey != "" {
+		if provider, err := modelRegistry.GetProvider(providerKey); err == nil {
+			baseURL := strings.TrimRight(provider.BaseURL, "/")
+			model := cfg.Memory.EmbeddingModel
+			if model == "" {
+				model = "text-embedding-3-small"
+			}
+			ep := memory.NewEmbeddingProvider(baseURL, provider.APIKey, model, cfg.Memory.EmbeddingDimension, cfg.Memory.EmbeddingTimeoutMs)
+			memoryStore.SetEmbedder(ep)
+			log.Printf("memory embedding provider ready (provider=%s model=%s dim=%d)", providerKey, model, ep.Dimension)
+		} else {
+			log.Printf("[memory][embedding] provider %q not found in model registry, hybrid search disabled: %v", providerKey, err)
+		}
+	}
+
 	runManager := runctl.NewInMemoryRunManager()
 	sandboxClient := sandbox.NewContainerHubSandboxService(cfg.ContainerHub, cfg.Paths)
-	backendTools, err := tools.NewRuntimeToolExecutor(cfg, sandboxClient, memoryStore)
+	backendTools, err := tools.NewRuntimeToolExecutor(cfg, sandboxClient, chatStore, memoryStore, skillCandidateStore)
 	if err != nil {
 		return nil, fmt.Errorf("init runtime tools: %w", err)
 	}
@@ -173,6 +197,7 @@ func New() (*App, error) {
 		),
 		CatalogReloader: reloader,
 		Notifications:   notifications,
+		SkillCandidates: skillCandidateStore,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("init server: %w", err)
@@ -207,6 +232,11 @@ func New() (*App, error) {
 	if cfg.Schedule.Enabled {
 		scheduleRegistry := schedule.NewRegistry(cfg.Paths.SchedulesDir, registry)
 		dispatcher := schedule.NewDispatcher(func(ctx context.Context, req api.QueryRequest) error {
+			// schedule 触发的 run 标记为 hidden：
+			// chat 不记录伪造的"用户发消息"，chat.created 也不广播，
+			// webclient 仍能看到 assistant 侧输出，但不会渲染成"用户→agent"对话。
+			hiddenTrue := true
+			req.Hidden = &hiddenTrue
 			status, body, err := srv.ExecuteInternalQuery(ctx, req)
 			if err != nil {
 				return err
@@ -246,6 +276,9 @@ func (a *App) Close() error {
 	}
 	if a.gwClient != nil {
 		_ = a.gwClient.Stop()
+	}
+	if err := observability.CloseMemoryLogger(); err != nil {
+		log.Printf("close memory logger: %v", err)
 	}
 	if a.scheduler != nil {
 		done := a.scheduler.Stop()

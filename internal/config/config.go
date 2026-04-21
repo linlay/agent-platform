@@ -161,11 +161,17 @@ type LoggingConfig struct {
 	Action         ToggleConfig
 	Viewport       ToggleConfig
 	SSE            ToggleConfig
+	Memory         MemoryLoggingConfig
 	LLMInteraction LLMInteractionLoggingConfig
 }
 
 type ToggleConfig struct {
 	Enabled bool
+}
+
+type MemoryLoggingConfig struct {
+	Enabled bool
+	File    string
 }
 
 type LLMInteractionLoggingConfig struct {
@@ -294,7 +300,7 @@ func defaultConfig() Config {
 			EmbeddingDimension:  1024,
 			EmbeddingTimeoutMs:  15000,
 			StorageDir:          paths.MemoryDir,
-			AutoRememberEnabled: false,
+			AutoRememberEnabled: true,
 			RememberModelKey:    "",
 			RememberTimeoutMs:   60000,
 		},
@@ -357,6 +363,10 @@ func defaultConfig() Config {
 			Action:    ToggleConfig{Enabled: true},
 			Viewport:  ToggleConfig{Enabled: true},
 			SSE:       ToggleConfig{Enabled: false},
+			Memory: MemoryLoggingConfig{
+				Enabled: true,
+				File:    filepath.Join("runtime", "logs", "memory.log"),
+			},
 			LLMInteraction: LLMInteractionLoggingConfig{
 				Enabled:       true,
 				MaskSensitive: false,
@@ -568,6 +578,8 @@ func (c *Config) applyEnv() {
 	c.Logging.Action.Enabled = boolEnv("LOGGING_AGENT_ACTION_ENABLED", c.Logging.Action.Enabled)
 	c.Logging.Viewport.Enabled = boolEnv("LOGGING_AGENT_VIEWPORT_ENABLED", c.Logging.Viewport.Enabled)
 	c.Logging.SSE.Enabled = boolEnv("LOGGING_AGENT_SSE_ENABLED", c.Logging.SSE.Enabled)
+	c.Logging.Memory.Enabled = boolEnv("LOGGING_AGENT_MEMORY_ENABLED", c.Logging.Memory.Enabled)
+	c.Logging.Memory.File = pathEnv("LOGGING_AGENT_MEMORY_FILE", c.Logging.Memory.File)
 	c.Logging.LLMInteraction.Enabled = boolEnv("LOGGING_AGENT_LLM_INTERACTION_ENABLED", c.Logging.LLMInteraction.Enabled)
 	c.Logging.LLMInteraction.MaskSensitive = boolEnv("LOGGING_AGENT_LLM_INTERACTION_MASK_SENSITIVE", c.Logging.LLMInteraction.MaskSensitive)
 
@@ -630,6 +642,9 @@ func (c *Config) normalize() {
 	c.ChatStorage.Dir = filepath.Clean(c.Paths.ChatsDir)
 	c.Providers.ExternalDir = filepath.Clean(filepath.Join(c.Paths.RegistriesDir, "providers"))
 	c.Models.ExternalDir = filepath.Clean(filepath.Join(c.Paths.RegistriesDir, "models"))
+	if strings.TrimSpace(c.Logging.Memory.File) != "" {
+		c.Logging.Memory.File = filepath.Clean(c.Logging.Memory.File)
+	}
 
 	c.Auth.LocalPublicKeyFile = resolveAuthLocalPublicKeyFile(c.Auth.LocalPublicKeyFile)
 	if c.ContainerHub.DefaultSandboxLevel == "" {

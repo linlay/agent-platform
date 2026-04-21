@@ -710,10 +710,13 @@ func TestAgentEndpointReturnsDetail(t *testing.T) {
 	if !reflect.DeepEqual(response.Data.Wonders, wantWonders) {
 		t.Fatalf("expected wonders in detail response, got %#v", response.Data.Wonders)
 	}
-	if len(response.Data.Tools) != 3 ||
+	if len(response.Data.Tools) != 6 ||
 		response.Data.Tools[0] != "_datetime_" ||
 		response.Data.Tools[1] != "_ask_user_question_" ||
-		response.Data.Tools[2] != "_sandbox_bash_" {
+		response.Data.Tools[2] != "_sandbox_bash_" ||
+		response.Data.Tools[3] != "_memory_write_" ||
+		response.Data.Tools[4] != "_memory_read_" ||
+		response.Data.Tools[5] != "_memory_search_" {
 		t.Fatalf("expected tools in detail response, got %#v", response.Data.Tools)
 	}
 	if len(response.Data.Skills) != 1 || response.Data.Skills[0] != "mock-skill" {
@@ -3740,7 +3743,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 	if sandboxClient == nil {
 		sandboxClient = contracts.NewNoopSandboxClient()
 	}
-	backendTools, err := tools.NewRuntimeToolExecutor(cfg, sandboxClient, memories)
+	backendTools, err := tools.NewRuntimeToolExecutor(cfg, sandboxClient, chats, memories, nil)
 	if err != nil {
 		t.Fatalf("new runtime tool executor: %v", err)
 	}

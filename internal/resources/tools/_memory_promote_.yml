@@ -1,0 +1,43 @@
+name: _memory_promote_
+label: 提升记忆
+description: Promote an observation memory into a fact.
+type: function
+clientVisible: false
+inputSchema:
+  type: object
+  properties:
+    id:
+      type: string
+      description: Required. Observation memory ID to promote.
+    title:
+      type: string
+      description: Optional new title.
+    content:
+      type: string
+      description: Optional new content for the promoted fact.
+    category:
+      type: string
+      description: Optional new category.
+    scopeType:
+      type: string
+      description: Optional target scope type. Supports user, agent, team, or global.
+    scopeKey:
+      type: string
+      description: Optional target scope key.
+    importance:
+      type: integer
+      description: Optional importance from 1 to 10.
+    confidence:
+      type: number
+      description: Optional confidence from 0 to 1.
+    archiveSource:
+      type: boolean
+      description: Optional flag to archive the source observation after promotion.
+    tags:
+      type: array
+      description: Optional tags to set on the promoted fact.
+      items:
+        type: string
+  required:
+    - id
+  additionalProperties: false

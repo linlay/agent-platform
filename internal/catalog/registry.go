@@ -56,10 +56,11 @@ type AgentDefinition struct {
 	AgentsPrompt string // resolved from promptFile or AGENTS.md fallback
 
 	// PLAN_EXECUTE stage prompts (stage-scoped promptFile).
-	PlanPrompt    string
-	ExecutePrompt string
-	SummaryPrompt string
-	MemoryPrompt  string
+	PlanPrompt         string
+	ExecutePrompt      string
+	SummaryPrompt      string
+	StaticMemoryPrompt string
+	MemoryPrompt       string // Deprecated: use StaticMemoryPrompt.
 }
 
 type AgentRuntimePrompts struct {

@@ -83,9 +83,14 @@ type QuerySession struct {
 	ResolvedStageSettings PlanExecuteSettings
 	HistoryMessages       []map[string]any
 	MemoryContext         string
+	StableMemoryContext   string
+	SessionMemoryContext  string
+	ObservationContext    string
+	MemoryUsageSummary    *api.MemoryUsageSummary
 	RuntimeContext        RuntimeRequestContext
 	PromptAppend          PromptAppendConfig
-	MemoryPrompt          string
+	StaticMemoryPrompt    string
+	MemoryPrompt          string // Deprecated: use StaticMemoryPrompt.
 	SkillCatalogPrompt    string
 
 	// Prompt files loaded from agent directory.

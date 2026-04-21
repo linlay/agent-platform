@@ -288,7 +288,11 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 	s.broadcast("run.started", map[string]any{"runId": prepared.req.RunID, "chatId": prepared.req.ChatID, "agentKey": prepared.req.AgentKey})
 
 	assembler, mapper := s.newAssemblerAndMapper(prepared)
-	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode)
+	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode, isHiddenRequest(prepared.req))
+	principal := &Principal{Subject: prepared.session.Subject}
+	if strings.TrimSpace(principal.Subject) == "" {
+		principal = nil
+	}
 	StartRunExecutor(RunExecutorParams{
 		RunCtx:            runCtx,
 		Request:           prepared.req,
@@ -305,6 +309,9 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 		RunControl:        control,
 		BuildQuerySession: s.BuildQuerySession,
 		Notifications:     s.deps.Notifications,
+		OnPersisted: func(completion chat.RunCompletion) {
+			s.autoLearnIfEnabled(completion.ChatID, completion.RunID, prepared.session.AgentKey, prepared.session.TeamID, principal, prepared.req.RequestID)
+		},
 		OnComplete: func(runID string) {
 			s.deps.Runs.Finish(runID)
 			s.broadcast("run.finished", map[string]any{"runId": runID, "chatId": prepared.req.ChatID})

@@ -1,0 +1,17 @@
+name: _memory_timeline_
+label: 记忆时间线
+description: Inspect the relationship timeline around a memory and its linked items.
+type: function
+clientVisible: false
+inputSchema:
+  type: object
+  properties:
+    id:
+      type: string
+      description: Required. Memory ID to inspect.
+    limit:
+      type: integer
+      description: Maximum number of timeline entries to return. Defaults to 10.
+  required:
+    - id
+  additionalProperties: false

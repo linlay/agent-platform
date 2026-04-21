@@ -2,7 +2,6 @@ package server
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"strings"
 
@@ -10,6 +9,7 @@ import (
 	"agent-platform-runner-go/internal/catalog"
 	"agent-platform-runner-go/internal/chat"
 	"agent-platform-runner-go/internal/contracts"
+	"agent-platform-runner-go/internal/memory"
 )
 
 type querySessionBuildOptions struct {
@@ -26,7 +26,10 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		historyMessages, _ = s.deps.Chats.LoadRawMessages(req.ChatID, s.deps.Config.ChatStorage.K)
 	}
 
-	var memoryContext string
+	var stableMemoryContext string
+	var sessionMemoryContext string
+	var observationContext string
+	var memoryUsageSummary *api.MemoryUsageSummary
 	if options.IncludeMemory && s.deps.Memory != nil && req.Message != "" {
 		topN := s.deps.Config.Memory.ContextTopN
 		if topN <= 0 {
@@ -36,19 +39,30 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		if maxChars <= 0 {
 			maxChars = 4000
 		}
-		memories, _ := s.deps.Memory.Search(req.Message, topN)
-		if len(memories) > 0 {
-			var sb strings.Builder
-			for _, mem := range memories {
-				entry := fmt.Sprintf("id: %s\nsubjectKey: %s\nsourceType: %s\ncategory: %s\nimportance: %d\ntags: %s\ncontent: %s\n---\n",
-					mem.ID, mem.SubjectKey, mem.SourceType, mem.Category, mem.Importance,
-					strings.Join(mem.Tags, ","), mem.Summary)
-				if sb.Len()+len(entry) > maxChars {
-					break
-				}
-				sb.WriteString(entry)
-			}
-			memoryContext = sb.String()
+		userKey := ""
+		principal := options.Principal
+		if principal == nil {
+			principal = PrincipalFromContext(ctx)
+		}
+		if principal != nil {
+			userKey = strings.TrimSpace(principal.Subject)
+		}
+		if bundle, err := s.deps.Memory.BuildContextBundle(memory.ContextRequest{
+			AgentKey: req.AgentKey,
+			TeamID:   req.TeamID,
+			ChatID:   req.ChatID,
+			UserKey:  userKey,
+			Query:    req.Message,
+			TopFacts: topN,
+			TopObs:   topN,
+			MaxChars: maxChars,
+		}); err != nil {
+			log.Printf("[memory][context] build context bundle failed (chatId=%s agentKey=%s): %v", req.ChatID, req.AgentKey, err)
+		} else {
+			stableMemoryContext = strings.TrimSpace(bundle.StablePrompt)
+			sessionMemoryContext = strings.TrimSpace(bundle.SessionPrompt)
+			observationContext = strings.TrimSpace(bundle.ObservationPrompt)
+			memoryUsageSummary = buildMemoryUsageSummary(strings.TrimSpace(agentDef.StaticMemoryPrompt), bundle)
 		}
 	}
 
@@ -100,9 +114,13 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		ResolvedBudget:        contracts.ResolveBudget(s.deps.Config, agentDef.Budget),
 		ResolvedStageSettings: contracts.ResolvePlanExecuteSettings(agentDef.StageSettings, s.deps.Config.Defaults.Plan.MaxSteps, s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask),
 		HistoryMessages:       historyMessages,
-		MemoryContext:         memoryContext,
+		StableMemoryContext:   stableMemoryContext,
+		SessionMemoryContext:  sessionMemoryContext,
+		ObservationContext:    observationContext,
+		MemoryUsageSummary:    memoryUsageSummary,
 		RuntimeContext:        runtimeContext,
 		PromptAppend:          promptAppend,
+		StaticMemoryPrompt:    strings.TrimSpace(agentDef.StaticMemoryPrompt),
 		MemoryPrompt:          agentDef.MemoryPrompt,
 		SkillCatalogPrompt:    buildSkillCatalogPrompt(agentDef, s.deps.Registry, promptAppend),
 		SoulPrompt:            agentDef.SoulPrompt,

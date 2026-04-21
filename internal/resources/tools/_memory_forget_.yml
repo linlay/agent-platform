@@ -1,0 +1,17 @@
+name: _memory_forget_
+label: 归档记忆
+description: Mark a memory as archived, superseded, or contested. Defaults to archived.
+type: function
+clientVisible: false
+inputSchema:
+  type: object
+  properties:
+    id:
+      type: string
+      description: Required. Memory ID to archive or mark as superseded/contested.
+    status:
+      type: string
+      description: Optional status. Supports archived, superseded, or contested. Defaults to archived.
+  required:
+    - id
+  additionalProperties: false

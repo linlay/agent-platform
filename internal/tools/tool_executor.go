@@ -6,19 +6,23 @@ import (
 	"strings"
 
 	"agent-platform-runner-go/internal/api"
+	"agent-platform-runner-go/internal/chat"
 	"agent-platform-runner-go/internal/config"
 	. "agent-platform-runner-go/internal/contracts"
 	"agent-platform-runner-go/internal/memory"
+	"agent-platform-runner-go/internal/skills"
 )
 
 type RuntimeToolExecutor struct {
-	cfg     config.Config
-	sandbox SandboxClient
-	memory  memory.Store
-	defs    []api.ToolDetailResponse
+	cfg             config.Config
+	sandbox         SandboxClient
+	chats           chat.Store
+	memory          memory.Store
+	skillCandidates skills.CandidateStore
+	defs            []api.ToolDetailResponse
 }
 
-func NewRuntimeToolExecutor(cfg config.Config, sandbox SandboxClient, memoryStore memory.Store) (*RuntimeToolExecutor, error) {
+func NewRuntimeToolExecutor(cfg config.Config, sandbox SandboxClient, chats chat.Store, memoryStore memory.Store, skillCandidates skills.CandidateStore) (*RuntimeToolExecutor, error) {
 	defs, err := LoadEmbeddedToolDefinitions()
 	if err != nil {
 		return nil, err
@@ -31,10 +35,12 @@ func NewRuntimeToolExecutor(cfg config.Config, sandbox SandboxClient, memoryStor
 		filtered = append(filtered, def)
 	}
 	return &RuntimeToolExecutor{
-		cfg:     cfg,
-		sandbox: sandbox,
-		memory:  memoryStore,
-		defs:    filtered,
+		cfg:             cfg,
+		sandbox:         sandbox,
+		chats:           chats,
+		memory:          memoryStore,
+		skillCandidates: skillCandidates,
+		defs:            filtered,
 	}, nil
 }
 
@@ -64,6 +70,22 @@ func (t *RuntimeToolExecutor) Invoke(ctx context.Context, toolName string, args 
 		return t.invokeMemoryRead(toolName, args, execCtx)
 	case "_memory_write_", "memory_write":
 		return t.invokeMemoryWrite(toolName, args, execCtx)
+	case "_memory_update_", "memory_update":
+		return t.invokeMemoryUpdate(toolName, args, execCtx)
+	case "_memory_forget_", "memory_forget":
+		return t.invokeMemoryForget(toolName, args, execCtx)
+	case "_memory_timeline_", "memory_timeline":
+		return t.invokeMemoryTimeline(toolName, args, execCtx)
+	case "_memory_promote_", "memory_promote":
+		return t.invokeMemoryPromote(toolName, args, execCtx)
+	case "_memory_consolidate_", "memory_consolidate":
+		return t.invokeMemoryConsolidate(toolName, args, execCtx)
+	case "_session_search_", "session_search":
+		return t.invokeSessionSearch(toolName, args, execCtx)
+	case "_skill_candidate_write_", "skill_candidate_write":
+		return t.invokeSkillCandidateWrite(toolName, args, execCtx)
+	case "_skill_candidate_list_", "skill_candidate_list":
+		return t.invokeSkillCandidateList(toolName, args, execCtx)
 	default:
 		return ToolExecutionResult{
 			Output:   "tool not registered: " + toolName,

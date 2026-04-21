@@ -32,6 +32,8 @@ type Store interface {
 	OnRunCompleted(completion RunCompletion) error
 	ListChats(lastRunID string, agentKey string) ([]Summary, error)
 	LoadChat(chatID string) (Detail, error)
+	LoadRunTrace(chatID string, runID string) (RunTrace, error)
+	SearchSession(chatID string, query string, limit int) ([]SearchHit, error)
 	MarkRead(chatID string) (Summary, error)
 	ResolveResource(file string) (string, error)
 	ChatDir(chatID string) string
@@ -427,6 +429,76 @@ func (s *FileStore) LoadChat(chatID string) (Detail, error) {
 		return s.loadChatNewFormat(*sum, lines, rawMessages)
 	}
 	return s.loadChatLegacyFormat(*sum, lines, rawMessages)
+}
+
+func (s *FileStore) LoadRunTrace(chatID string, runID string) (RunTrace, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	sum, err := s.loadSummary(chatID)
+	if err != nil {
+		return RunTrace{}, err
+	}
+	if sum == nil {
+		return RunTrace{}, ErrChatNotFound
+	}
+	lines, err := readJSONLines(s.chatJSONLPath(chatID))
+	if err != nil {
+		return RunTrace{}, err
+	}
+	trace := RunTrace{
+		ChatID:   chatID,
+		ChatName: sum.ChatName,
+		AgentKey: sum.AgentKey,
+		TeamID:   sum.TeamID,
+		RunID:    runID,
+	}
+	for _, line := range lines {
+		lineRunID, _ := line["runId"].(string)
+		if strings.TrimSpace(lineRunID) != strings.TrimSpace(runID) {
+			continue
+		}
+		lineType, _ := line["_type"].(string)
+		switch lineType {
+		case "query":
+			data, _ := json.Marshal(line)
+			var query QueryLine
+			if err := json.Unmarshal(data, &query); err == nil {
+				trace.Query = &query
+			}
+		case "react", "plan-execute", "step":
+			data, _ := json.Marshal(line)
+			var step StepLine
+			if err := json.Unmarshal(data, &step); err == nil {
+				trace.Steps = append(trace.Steps, step)
+				for _, message := range step.Messages {
+					if strings.EqualFold(strings.TrimSpace(message.Role), "assistant") {
+						text := extractStoredMessageText(message)
+						if strings.TrimSpace(text) != "" {
+							trace.AssistantText = text
+						}
+					}
+				}
+			}
+		}
+	}
+	if trace.Query == nil && len(trace.Steps) == 0 {
+		return RunTrace{}, ErrChatNotFound
+	}
+	if strings.TrimSpace(trace.AssistantText) == "" {
+		trace.AssistantText = sum.LastRunContent
+	}
+	return trace, nil
+}
+
+func extractStoredMessageText(message StoredMessage) string {
+	parts := make([]string, 0, len(message.Content))
+	for _, part := range message.Content {
+		if strings.TrimSpace(part.Text) != "" {
+			parts = append(parts, strings.TrimSpace(part.Text))
+		}
+	}
+	return strings.TrimSpace(strings.Join(parts, "\n"))
 }
 
 // ---------------------------------------------------------------------------

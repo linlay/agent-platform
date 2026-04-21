@@ -29,8 +29,10 @@ func TestParseAgentFileSupportsFlattenedToolConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	if len(def.Tools) != 2 || def.Tools[0] != "_datetime_" || def.Tools[1] != "_ask_user_question_" {
-		t.Fatalf("expected flattened tools list, got %#v", def.Tools)
+	for _, tool := range []string{"_datetime_", "_ask_user_question_", "_memory_write_", "_memory_read_", "_memory_search_"} {
+		if !containsString(def.Tools, tool) {
+			t.Fatalf("expected %s in flattened tools list, got %#v", tool, def.Tools)
+		}
 	}
 }
 
@@ -58,8 +60,15 @@ func TestParseAgentFileIgnoresLegacyToolConfigBuckets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	if len(def.Tools) != 0 {
-		t.Fatalf("expected legacy tool buckets to be ignored, got %#v", def.Tools)
+	for _, tool := range []string{"_memory_write_", "_memory_read_", "_memory_search_"} {
+		if !containsString(def.Tools, tool) {
+			t.Fatalf("expected default memory tool %s, got %#v", tool, def.Tools)
+		}
+	}
+	for _, tool := range []string{"_datetime_", "_ask_user_question_", "_plan_update_task_"} {
+		if containsString(def.Tools, tool) {
+			t.Fatalf("expected legacy tool bucket entry %s to stay ignored, got %#v", tool, def.Tools)
+		}
 	}
 }
 
@@ -89,8 +98,10 @@ func TestParseAgentFileLoadsToolOverridesFromToolConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	if len(def.Tools) != 1 || def.Tools[0] != "_ask_user_question_" {
-		t.Fatalf("expected flattened tools list, got %#v", def.Tools)
+	for _, tool := range []string{"_ask_user_question_", "_memory_write_", "_memory_read_", "_memory_search_"} {
+		if !containsString(def.Tools, tool) {
+			t.Fatalf("expected %s in flattened tools list, got %#v", tool, def.Tools)
+		}
 	}
 	override, ok := def.ToolOverrides["_ask_user_question_"]
 	if !ok {
@@ -188,5 +199,118 @@ func TestParseAgentFileRejectsInvalidSandboxEnv(t *testing.T) {
 				t.Fatalf("error = %q, want substring %q", err.Error(), tt.errContains)
 			}
 		})
+	}
+}
+
+func TestParseAgentFileInjectsMemoryManagementToolsOnlyWhenEnabled(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	content := "" +
+		"key: demo\n" +
+		"name: Demo\n" +
+		"mode: REACT\n" +
+		"modelConfig:\n" +
+		"  modelKey: demo-model\n" +
+		"memoryConfig:\n" +
+		"  enabled: true\n" +
+		"  managementTools: true\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	want := []string{
+		"_memory_write_",
+		"_memory_read_",
+		"_memory_search_",
+		"_memory_update_",
+		"_memory_forget_",
+		"_memory_timeline_",
+		"_memory_promote_",
+		"_memory_consolidate_",
+	}
+	for _, tool := range want {
+		if !containsString(def.Tools, tool) {
+			t.Fatalf("expected %s in tools, got %#v", tool, def.Tools)
+		}
+	}
+}
+
+func TestParseAgentFileInjectsBaseMemoryToolsByDefault(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	content := "" +
+		"key: demo\n" +
+		"name: Demo\n" +
+		"mode: REACT\n" +
+		"modelConfig:\n" +
+		"  modelKey: demo-model\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	for _, tool := range []string{"_memory_write_", "_memory_read_", "_memory_search_"} {
+		if !containsString(def.Tools, tool) {
+			t.Fatalf("expected %s in tools by default, got %#v", tool, def.Tools)
+		}
+	}
+}
+
+func TestParseAgentFileKeepsMemoryManagementToolsOptIn(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	content := "" +
+		"key: demo\n" +
+		"name: Demo\n" +
+		"mode: REACT\n" +
+		"modelConfig:\n" +
+		"  modelKey: demo-model\n" +
+		"memoryConfig:\n" +
+		"  enabled: true\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	for _, tool := range []string{"_memory_update_", "_memory_forget_", "_memory_timeline_", "_memory_promote_"} {
+		if containsString(def.Tools, tool) {
+			t.Fatalf("expected %s to stay opt-in, got %#v", tool, def.Tools)
+		}
+	}
+}
+
+func TestParseAgentFileAllowsOptingOutOfBaseMemoryTools(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	content := "" +
+		"key: demo\n" +
+		"name: Demo\n" +
+		"mode: REACT\n" +
+		"modelConfig:\n" +
+		"  modelKey: demo-model\n" +
+		"memoryConfig:\n" +
+		"  enabled: false\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	for _, tool := range []string{"_memory_write_", "_memory_read_", "_memory_search_"} {
+		if containsString(def.Tools, tool) {
+			t.Fatalf("expected %s to stay disabled, got %#v", tool, def.Tools)
+		}
 	}
 }

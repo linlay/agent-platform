@@ -30,6 +30,7 @@ type RunExecutorParams struct {
 	RunControl        *contracts.RunControl
 	BuildQuerySession func(context.Context, api.QueryRequest, chat.Summary, catalog.AgentDefinition, querySessionBuildOptions) (contracts.QuerySession, error)
 	Notifications     contracts.NotificationSink
+	OnPersisted       func(chat.RunCompletion)
 	OnComplete        func(string)
 }
 
@@ -249,6 +250,9 @@ func persistRunCompletionIfNeeded(params RunExecutorParams, assistantText string
 	}
 	if err := params.Chats.OnRunCompleted(completion); err != nil {
 		return
+	}
+	if always && params.OnPersisted != nil {
+		params.OnPersisted(completion)
 	}
 	if params.Notifications != nil {
 		params.Notifications.Broadcast("chat.updated", map[string]any{

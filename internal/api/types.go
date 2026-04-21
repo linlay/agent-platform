@@ -195,10 +195,12 @@ type LearnRequest struct {
 }
 
 type LearnResponse struct {
-	Accepted  bool   `json:"accepted"`
-	Status    string `json:"status"`
-	RequestID string `json:"requestId,omitempty"`
-	ChatID    string `json:"chatId"`
+	Accepted         bool                   `json:"accepted"`
+	Status           string                 `json:"status"`
+	RequestID        string                 `json:"requestId,omitempty"`
+	ChatID           string                 `json:"chatId"`
+	ObservationCount int                    `json:"observationCount"`
+	Stored           []StoredMemoryResponse `json:"stored,omitempty"`
 }
 
 type RememberRequest struct {
@@ -226,18 +228,27 @@ type RememberItemResponse struct {
 }
 
 type StoredMemoryResponse struct {
-	ID         string   `json:"id"`
-	RequestID  string   `json:"requestId,omitempty"`
-	ChatID     string   `json:"chatId"`
-	AgentKey   string   `json:"agentKey,omitempty"`
-	SubjectKey string   `json:"subjectKey,omitempty"`
-	Summary    string   `json:"summary"`
-	SourceType string   `json:"sourceType"`
-	Category   string   `json:"category"`
-	Importance int      `json:"importance"`
-	Tags       []string `json:"tags,omitempty"`
-	CreatedAt  int64    `json:"createdAt"`
-	UpdatedAt  int64    `json:"updatedAt"`
+	ID             string   `json:"id"`
+	RequestID      string   `json:"requestId,omitempty"`
+	ChatID         string   `json:"chatId"`
+	AgentKey       string   `json:"agentKey,omitempty"`
+	SubjectKey     string   `json:"subjectKey,omitempty"`
+	Kind           string   `json:"kind,omitempty"`
+	RefID          string   `json:"refId,omitempty"`
+	ScopeType      string   `json:"scopeType,omitempty"`
+	ScopeKey       string   `json:"scopeKey,omitempty"`
+	Title          string   `json:"title,omitempty"`
+	Summary        string   `json:"summary"`
+	SourceType     string   `json:"sourceType"`
+	Category       string   `json:"category"`
+	Importance     int      `json:"importance"`
+	Confidence     float64  `json:"confidence,omitempty"`
+	Status         string   `json:"status,omitempty"`
+	Tags           []string `json:"tags,omitempty"`
+	CreatedAt      int64    `json:"createdAt"`
+	UpdatedAt      int64    `json:"updatedAt"`
+	AccessCount    int      `json:"accessCount,omitempty"`
+	LastAccessedAt *int64   `json:"lastAccessedAt,omitempty"`
 }
 
 type PromptPreviewResponse struct {
@@ -250,6 +261,33 @@ type PromptPreviewResponse struct {
 	RawMessageSamples []string `json:"rawMessageSamples,omitempty"`
 	EventSamples      []string `json:"eventSamples,omitempty"`
 	ReferenceSamples  []string `json:"referenceSamples,omitempty"`
+}
+
+type MemoryUsageItem struct {
+	ID        string `json:"id,omitempty"`
+	Kind      string `json:"kind,omitempty"`
+	ScopeType string `json:"scopeType,omitempty"`
+	Title     string `json:"title,omitempty"`
+	Summary   string `json:"summary,omitempty"`
+	Category  string `json:"category,omitempty"`
+}
+
+type MemoryUsageSummary struct {
+	HasStaticMemory  bool              `json:"hasStaticMemory"`
+	StableCount      int               `json:"stableCount"`
+	SessionCount     int               `json:"sessionCount"`
+	ObservationCount int               `json:"observationCount"`
+	StableItems      []MemoryUsageItem `json:"stableItems,omitempty"`
+	SessionItems     []MemoryUsageItem `json:"sessionItems,omitempty"`
+	ObservationItems []MemoryUsageItem `json:"observationItems,omitempty"`
+	StableChars      int               `json:"stableChars"`
+	SessionChars     int               `json:"sessionChars"`
+	ObservationChars int               `json:"observationChars"`
+	DisclosedLayers  []string          `json:"disclosedLayers,omitempty"`
+	SnapshotID       string            `json:"snapshotId,omitempty"`
+	StopReason       string            `json:"stopReason,omitempty"`
+	CandidateCounts  map[string]int    `json:"candidateCounts,omitempty"`
+	SelectedCounts   map[string]int    `json:"selectedCounts,omitempty"`
 }
 
 type AgentSummary struct {
@@ -358,6 +396,31 @@ type ActiveRunInfo struct {
 	LastSeq   int64  `json:"lastSeq"`
 	OldestSeq int64  `json:"oldestSeq"`
 	StartedAt int64  `json:"startedAt"`
+}
+
+type SessionSearchRequest struct {
+	ChatID string `json:"chatId"`
+	Query  string `json:"query"`
+	Limit  int    `json:"limit,omitempty"`
+}
+
+type SessionSearchResult struct {
+	Kind      string         `json:"kind"`
+	ChatID    string         `json:"chatId"`
+	RunID     string         `json:"runId,omitempty"`
+	Stage     string         `json:"stage,omitempty"`
+	Role      string         `json:"role,omitempty"`
+	Timestamp int64          `json:"timestamp"`
+	Snippet   string         `json:"snippet"`
+	Score     int            `json:"score"`
+	Meta      map[string]any `json:"meta,omitempty"`
+}
+
+type SessionSearchResponse struct {
+	ChatID  string                `json:"chatId"`
+	Query   string                `json:"query"`
+	Count   int                   `json:"count"`
+	Results []SessionSearchResult `json:"results"`
 }
 
 type UploadResponse struct {

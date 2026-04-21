@@ -156,6 +156,14 @@ Container Hub 默认基础挂载为：
 | `AGENT_MEMORY_CONTEXT_MAX_CHARS` | `4000` | `Advanced / operator` | 注入 prompt 的 memory context 最大字符数 |
 | `AGENT_MEMORY_SEARCH_DEFAULT_LIMIT` | `10` | `Advanced / operator` | `_memory_*` 工具默认 limit |
 
+agent definition 侧另有 `memoryConfig`：
+
+- 默认会给 agent 注入基础 memory tools：`_memory_write_`、`_memory_read_`、`_memory_search_`
+- `memoryConfig.enabled: false` 可以显式关闭基础 memory tools 注入
+- `memoryConfig.managementTools: true` 会额外注入管理类 tools：`_memory_update_`、`_memory_forget_`、`_memory_timeline_`、`_memory_promote_`、`_memory_consolidate_`
+- `memory/memory.md` 属于 agent 静态背景提示，不受这些环境变量控制，也不等同于 runtime memory store
+- `Learn(...)` 成功后会自动执行一轮轻量 observation consolidate；显式 `_memory_consolidate_` 仍用于人工触发完整整理
+
 ### Chat Storage 行为调优
 
 | 环境变量 | 默认值 | 标签 | 说明 |
@@ -191,6 +199,8 @@ Container Hub 默认基础挂载为：
 | `LOGGING_AGENT_ACTION_ENABLED` | `true` | `Debug / troubleshooting` | 是否记录 action 日志 |
 | `LOGGING_AGENT_VIEWPORT_ENABLED` | `true` | `Debug / troubleshooting` | 是否记录 viewport 日志 |
 | `LOGGING_AGENT_SSE_ENABLED` | `false` | `Debug / troubleshooting` | 是否记录 SSE 事件日志 |
+| `LOGGING_AGENT_MEMORY_ENABLED` | `true` | `Debug / troubleshooting` | 是否启用 memory 独立操作日志 |
+| `LOGGING_AGENT_MEMORY_FILE` | `runtime/logs/memory.log` | `Debug / troubleshooting` | memory 独立日志文件路径 |
 | `LOGGING_AGENT_LLM_INTERACTION_ENABLED` | `true` | `Debug / troubleshooting` | 是否记录 LLM provider 原始 chunk 与解析后的 delta 日志 |
 | `LOGGING_AGENT_LLM_INTERACTION_MASK_SENSITIVE` | `false` | `Debug / troubleshooting` | 是否把 LLM 交互日志替换为 `[masked chars=N]` |
 
@@ -199,6 +209,7 @@ Container Hub 默认基础挂载为：
 - 默认日志会直接打印真实 `raw_chunk`、`parsed_content`、`parsed_finish_reason` 和 `parsed_tool_call` 内容
 - Bearer token / `apiKey` / `secret` 一类敏感串仍会被替换为 `[redacted]`
 - 日志保持单行格式，换行会被转义为 `\n`
+- memory 操作日志会单独写入 `LOGGING_AGENT_MEMORY_FILE`，默认不混入主 stdout/stderr
 
 ### WebSocket
 
@@ -254,7 +265,7 @@ Container Hub 默认基础挂载为：
 | `AGENT_MEMORY_EMBEDDING_MODEL` | 空 | `Wired but not recommended for public use` | 当前主要是配置预留，不建议作为产品开关公开 |
 | `AGENT_MEMORY_EMBEDDING_DIMENSION` | `1024` | `Wired but not recommended for public use` | 当前主要是配置预留，不建议作为产品开关公开 |
 | `AGENT_MEMORY_EMBEDDING_TIMEOUT_MS` | `15000` | `Wired but not recommended for public use` | 当前主要是配置预留，不建议作为产品开关公开 |
-| `AGENT_MEMORY_AUTO_REMEMBER_ENABLED` | `false` | `Wired but not recommended for public use` | 当前主要是配置预留，不建议作为产品开关公开 |
+| `AGENT_MEMORY_AUTO_REMEMBER_ENABLED` | `true` | `Wired but not recommended for public use` | 当前主要作为运行时默认开关；如需禁用自动学习可显式设为 `false` |
 | `AGENT_MEMORY_REMEMBER_MODEL_KEY` | 空 | `Wired but not recommended for public use` | 当前主要是配置预留，不建议作为产品开关公开 |
 | `AGENT_MEMORY_REMEMBER_TIMEOUT_MS` | `60000` | `Wired but not recommended for public use` | 当前主要是配置预留，不建议作为产品开关公开 |
 

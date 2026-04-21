@@ -1,0 +1,29 @@
+key: _skill_candidate_write_
+name: _skill_candidate_write_
+label: Skill Candidate Write
+description: Store a reusable workflow or procedure candidate for later promotion into a real skill.
+parameters:
+  type: object
+  properties:
+    title:
+      type: string
+      description: Optional. Short title for the candidate.
+    summary:
+      type: string
+      description: Optional. Concise summary of the reusable workflow.
+    procedure:
+      type: string
+      description: Required. The reusable workflow or procedure.
+    category:
+      type: string
+      description: Optional. Candidate category such as workflow or debugging.
+    confidence:
+      type: number
+      description: Optional. Confidence score between 0 and 1.
+    tags:
+      type: array
+      description: Optional. Tags for retrieval and grouping.
+      items:
+        type: string
+  required:
+    - procedure

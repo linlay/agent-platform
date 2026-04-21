@@ -36,9 +36,9 @@ func buildSystemPrompt(session QuerySession, req api.QueryRequest, _ string, opt
 
 	sections := []string{
 		strings.TrimSpace(session.SoulPrompt),
+		strings.TrimSpace(firstNonBlank(session.StaticMemoryPrompt, session.MemoryPrompt)),
 		buildRuntimeContextPrompt(session, req),
 		stageInstructionsPrompt,
-		strings.TrimSpace(session.MemoryPrompt),
 		stageSystemPrompt,
 		strings.TrimSpace(session.SkillCatalogPrompt),
 		buildToolAppendix(options.ToolDefinitions, appendConfig, options.IncludeAfterCallHints),
@@ -351,6 +351,19 @@ func formatAgentDigest(digest AgentDigest) string {
 }
 
 func buildMemorySection(session QuerySession, req api.QueryRequest) string {
+	sections := make([]string, 0, 3)
+	if strings.TrimSpace(session.StableMemoryContext) != "" {
+		sections = append(sections, strings.TrimSpace(session.StableMemoryContext))
+	}
+	if strings.TrimSpace(session.SessionMemoryContext) != "" {
+		sections = append(sections, strings.TrimSpace(session.SessionMemoryContext))
+	}
+	if strings.TrimSpace(session.ObservationContext) != "" {
+		sections = append(sections, strings.TrimSpace(session.ObservationContext))
+	}
+	if len(sections) > 0 {
+		return strings.Join(sections, "\n\n")
+	}
 	if strings.TrimSpace(session.MemoryContext) != "" {
 		return "Runtime Context: Agent Memory\n" + strings.TrimSpace(session.MemoryContext)
 	}
@@ -408,6 +421,15 @@ func sanitizeYAMLScalar(value string) string {
 	value = strings.ReplaceAll(value, "\r", "")
 	value = strings.ReplaceAll(value, "\n", "\\n")
 	return value
+}
+
+func firstNonBlank(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func buildToolAppendix(definitions []api.ToolDetailResponse, appendConfig PromptAppendConfig, includeAfterCallHints bool) string {

@@ -120,6 +120,21 @@ func (r *ModelRegistry) Get(key string) (ModelDefinition, ProviderDefinition, er
 	return model, provider, nil
 }
 
+func (r *ModelRegistry) GetProvider(key string) (ProviderDefinition, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return ProviderDefinition{}, fmt.Errorf("empty provider key")
+	}
+	provider, ok := r.providers[key]
+	if !ok {
+		return ProviderDefinition{}, fmt.Errorf("provider %s not found", key)
+	}
+	return provider, nil
+}
+
 func (r *ModelRegistry) Default() (ModelDefinition, ProviderDefinition, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

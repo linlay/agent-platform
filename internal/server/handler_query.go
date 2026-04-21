@@ -14,15 +14,25 @@ import (
 	"agent-platform-runner-go/internal/chat"
 	"agent-platform-runner-go/internal/contracts"
 	"agent-platform-runner-go/internal/llm"
+	"agent-platform-runner-go/internal/memory"
 	"agent-platform-runner-go/internal/stream"
 )
 
+// isHiddenRequest 判断请求是否标记为"系统自发触发"：
+// 这类 run 不会在 chat 里留下用户回合（QueryLine 不写），
+// 也不会广播 chat.created（避免 webclient 把它渲染成用户→agent 对话）。
+// 典型来源：schedule 触发的定时任务。
+func isHiddenRequest(req api.QueryRequest) bool {
+	return req.Hidden != nil && *req.Hidden
+}
+
 type preparedQuery struct {
-	req      api.QueryRequest
-	summary  chat.Summary
-	created  bool
-	agentDef catalog.AgentDefinition
-	session  contracts.QuerySession
+	req                api.QueryRequest
+	summary            chat.Summary
+	created            bool
+	agentDef           catalog.AgentDefinition
+	session            contracts.QuerySession
+	memoryUsageSummary *api.MemoryUsageSummary
 }
 
 func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
@@ -112,7 +122,7 @@ func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
 	if err != nil {
 		return preparedQuery{}, err
 	}
-	if created {
+	if created && !isHiddenRequest(req) {
 		s.broadcast("chat.created", map[string]any{
 			"chatId":    chatID,
 			"chatName":  summary.ChatName,
@@ -131,12 +141,109 @@ func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
 	}
 
 	return preparedQuery{
-		req:      req,
-		summary:  summary,
-		created:  created,
-		agentDef: agentDef,
-		session:  session,
+		req:                req,
+		summary:            summary,
+		created:            created,
+		agentDef:           agentDef,
+		session:            session,
+		memoryUsageSummary: session.MemoryUsageSummary,
 	}, nil
+}
+
+func buildMemoryUsageSummary(staticMemoryPrompt string, bundle memory.ContextBundle) *api.MemoryUsageSummary {
+	summary := &api.MemoryUsageSummary{
+		HasStaticMemory:  strings.TrimSpace(staticMemoryPrompt) != "",
+		StableCount:      len(bundle.StableFacts),
+		SessionCount:     len(bundle.SessionSummaries),
+		ObservationCount: len(bundle.RelevantObservations),
+		StableChars:      len(strings.TrimSpace(bundle.StablePrompt)),
+		SessionChars:     len(strings.TrimSpace(bundle.SessionPrompt)),
+		ObservationChars: len(strings.TrimSpace(bundle.ObservationPrompt)),
+		StableItems:      buildMemoryUsageItems(bundle.StableFacts),
+		SessionItems:     buildMemoryUsageItems(bundle.SessionSummaries),
+		ObservationItems: buildMemoryUsageItems(bundle.RelevantObservations),
+		DisclosedLayers:  append([]string(nil), bundle.DisclosedLayers...),
+		SnapshotID:       strings.TrimSpace(bundle.SnapshotID),
+		StopReason:       strings.TrimSpace(bundle.StopReason),
+		CandidateCounts:  cloneIntMap(bundle.CandidateCounts),
+		SelectedCounts:   cloneIntMap(bundle.SelectedCounts),
+	}
+	if !summary.HasStaticMemory && summary.StableCount == 0 && summary.SessionCount == 0 && summary.ObservationCount == 0 {
+		return nil
+	}
+	return summary
+}
+
+func buildMemoryUsageItems(items []api.StoredMemoryResponse) []api.MemoryUsageItem {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]api.MemoryUsageItem, 0, len(items))
+	for _, item := range items {
+		out = append(out, api.MemoryUsageItem{
+			ID:        strings.TrimSpace(item.ID),
+			Kind:      strings.TrimSpace(item.Kind),
+			ScopeType: strings.TrimSpace(item.ScopeType),
+			Title:     strings.TrimSpace(item.Title),
+			Summary:   strings.TrimSpace(item.Summary),
+			Category:  strings.TrimSpace(item.Category),
+		})
+	}
+	return out
+}
+
+func memoryUsageEventPayload(summary *api.MemoryUsageSummary, chatID string, runID string, agentKey string) map[string]any {
+	if summary == nil {
+		return nil
+	}
+	payload := map[string]any{
+		"chatId":           strings.TrimSpace(chatID),
+		"runId":            strings.TrimSpace(runID),
+		"agentKey":         strings.TrimSpace(agentKey),
+		"hasStaticMemory":  summary.HasStaticMemory,
+		"stableCount":      summary.StableCount,
+		"sessionCount":     summary.SessionCount,
+		"observationCount": summary.ObservationCount,
+		"stableChars":      summary.StableChars,
+		"sessionChars":     summary.SessionChars,
+		"observationChars": summary.ObservationChars,
+	}
+	if len(summary.StableItems) > 0 {
+		payload["stableItems"] = summary.StableItems
+	}
+	if len(summary.SessionItems) > 0 {
+		payload["sessionItems"] = summary.SessionItems
+	}
+	if len(summary.ObservationItems) > 0 {
+		payload["observationItems"] = summary.ObservationItems
+	}
+	if len(summary.DisclosedLayers) > 0 {
+		payload["disclosedLayers"] = append([]string(nil), summary.DisclosedLayers...)
+	}
+	if strings.TrimSpace(summary.SnapshotID) != "" {
+		payload["snapshotId"] = strings.TrimSpace(summary.SnapshotID)
+	}
+	if strings.TrimSpace(summary.StopReason) != "" {
+		payload["stopReason"] = strings.TrimSpace(summary.StopReason)
+	}
+	if len(summary.CandidateCounts) > 0 {
+		payload["candidateCounts"] = cloneIntMap(summary.CandidateCounts)
+	}
+	if len(summary.SelectedCounts) > 0 {
+		payload["selectedCounts"] = cloneIntMap(summary.SelectedCounts)
+	}
+	return payload
+}
+
+func cloneIntMap(input map[string]int) map[string]int {
+	if len(input) == 0 {
+		return nil
+	}
+	out := make(map[string]int, len(input))
+	for key, value := range input {
+		out[key] = value
+	}
+	return out
 }
 
 func sandboxAgentEnv(value any) map[string]string {
@@ -196,14 +303,15 @@ func sortedStringKeys(values map[string]string) []string {
 
 func (s *Server) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamEventAssembler, *llm.DeltaMapper) {
 	assembler := stream.NewAssembler(stream.StreamRequest{
-		RequestID: prepared.req.RequestID,
-		RunID:     prepared.req.RunID,
-		ChatID:    prepared.req.ChatID,
-		ChatName:  prepared.summary.ChatName,
-		AgentKey:  prepared.req.AgentKey,
-		Message:   prepared.req.Message,
-		Role:      defaultRole(prepared.req.Role),
-		Created:   prepared.created,
+		RequestID:          prepared.req.RequestID,
+		RunID:              prepared.req.RunID,
+		ChatID:             prepared.req.ChatID,
+		ChatName:           prepared.summary.ChatName,
+		AgentKey:           prepared.req.AgentKey,
+		Message:            prepared.req.Message,
+		Role:               defaultRole(prepared.req.Role),
+		Created:            prepared.created,
+		MemoryUsageSummary: memoryUsageEventPayload(prepared.memoryUsageSummary, prepared.req.ChatID, prepared.req.RunID, prepared.req.AgentKey),
 	})
 	if s.deps.Tools != nil {
 		for _, toolDef := range s.deps.Tools.Definitions() {
@@ -220,6 +328,7 @@ func (s *Server) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamEv
 
 func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepared preparedQuery) {
 	runCtx, control, _ := s.deps.Runs.Register(r.Context(), prepared.session)
+	principal := PrincipalFromContext(r.Context())
 	eventBus, ok := s.deps.Runs.EventBus(prepared.req.RunID)
 	if !ok {
 		s.deps.Runs.Interrupt(api.InterruptRequest{RunID: prepared.req.RunID})
@@ -254,7 +363,7 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 	defer s.deps.Runs.DetachObserver(prepared.req.RunID, observer.ID)
 
 	assembler, mapper := s.newAssemblerAndMapper(prepared)
-	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode)
+	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode, isHiddenRequest(prepared.req))
 
 	StartRunExecutor(RunExecutorParams{
 		RunCtx:            runCtx,
@@ -272,6 +381,9 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 		RunControl:        control,
 		BuildQuerySession: s.BuildQuerySession,
 		Notifications:     s.deps.Notifications,
+		OnPersisted: func(completion chat.RunCompletion) {
+			s.autoLearnIfEnabled(completion.ChatID, completion.RunID, prepared.session.AgentKey, prepared.session.TeamID, principal, prepared.req.RequestID)
+		},
 		OnComplete: func(runID string) {
 			s.deps.Runs.Finish(runID)
 			s.broadcast("run.finished", map[string]any{
@@ -304,6 +416,10 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 	defer control.SetObserverCount(0)
 
 	assembler, mapper := s.newAssemblerAndMapper(prepared)
+	principal := &Principal{Subject: prepared.session.Subject}
+	if strings.TrimSpace(principal.Subject) == "" {
+		principal = nil
+	}
 	sseWriter, err := stream.NewWriter(w, stream.Options{
 		SSE:            s.deps.Config.SSE,
 		Render:         s.deps.Config.H2A.Render,
@@ -326,7 +442,7 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 	}
 	processor := &runEventProcessor{
 		assistantText: &assistantText,
-		stepWriter:    chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode),
+		stepWriter:    chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode, isHiddenRequest(prepared.req)),
 		sse:           s.deps.Config.SSE,
 		chatUsage:     chatUsage,
 		runUsage:      &runUsage,
@@ -357,6 +473,9 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 			Chats:         s.deps.Chats,
 			RunControl:    control,
 			Notifications: s.deps.Notifications,
+			OnPersisted: func(completion chat.RunCompletion) {
+				s.autoLearnIfEnabled(completion.ChatID, completion.RunID, prepared.session.AgentKey, prepared.session.TeamID, principal, prepared.req.RequestID)
+			},
 		}, assistantText.String(), runUsage, false)
 		_ = sseWriter.WriteDone()
 		return
@@ -402,6 +521,9 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 			Chats:         s.deps.Chats,
 			RunControl:    control,
 			Notifications: s.deps.Notifications,
+			OnPersisted: func(completion chat.RunCompletion) {
+				s.autoLearnIfEnabled(completion.ChatID, completion.RunID, prepared.session.AgentKey, prepared.session.TeamID, principal, prepared.req.RequestID)
+			},
 		}, assistantText.String(), runUsage, false)
 		_ = sseWriter.WriteDone()
 		return
@@ -418,6 +540,9 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 		Chats:         s.deps.Chats,
 		RunControl:    control,
 		Notifications: s.deps.Notifications,
+		OnPersisted: func(completion chat.RunCompletion) {
+			s.autoLearnIfEnabled(completion.ChatID, completion.RunID, prepared.session.AgentKey, prepared.session.TeamID, principal, prepared.req.RequestID)
+		},
 	}, assistantText.String(), runUsage, true)
 	_ = sseWriter.WriteDone()
 }

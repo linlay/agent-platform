@@ -7,6 +7,7 @@ import (
 
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/chat"
+	"agent-platform-runner-go/internal/memory"
 )
 
 func (s *Server) executeRemember(req api.RememberRequest) (api.RememberResponse, error) {
@@ -52,10 +53,48 @@ func (s *Server) handleLearn(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "chatId is required"))
 		return
 	}
-	writeJSON(w, http.StatusOK, api.Success(api.LearnResponse{
-		Accepted:  false,
-		Status:    "not_connected",
-		RequestID: req.RequestID,
-		ChatID:    req.ChatID,
-	}))
+	if s.deps.Chats == nil {
+		writeJSON(w, http.StatusServiceUnavailable, api.Failure(http.StatusServiceUnavailable, "chat store is not configured"))
+		return
+	}
+	if s.deps.Memory == nil {
+		writeJSON(w, http.StatusServiceUnavailable, api.Failure(http.StatusServiceUnavailable, "memory store is not configured"))
+		return
+	}
+	summary, err := s.deps.Chats.Summary(req.ChatID)
+	if errors.Is(err, chat.ErrChatNotFound) || summary == nil {
+		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "chat not found"))
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
+		return
+	}
+	trace, err := s.deps.Chats.LoadRunTrace(req.ChatID, summary.LastRunID)
+	if errors.Is(err, chat.ErrChatNotFound) {
+		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "chat not found"))
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
+		return
+	}
+	principal := PrincipalFromContext(r.Context())
+	userKey := "_local_default"
+	if principal != nil && principal.Subject != "" {
+		userKey = principal.Subject
+	}
+	response, err := s.deps.Memory.Learn(memory.LearnInput{
+		Request:         req,
+		Trace:           trace,
+		AgentKey:        summary.AgentKey,
+		TeamID:          summary.TeamID,
+		UserKey:         userKey,
+		SkillCandidates: s.deps.SkillCandidates,
+	})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
+		return
+	}
+	writeJSON(w, http.StatusOK, api.Success(response))
 }

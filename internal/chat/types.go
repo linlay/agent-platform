@@ -185,3 +185,14 @@ type RunCompletion struct {
 	UpdatedAtMillis int64
 	Usage           UsageData
 }
+
+type RunTrace struct {
+	ChatID        string
+	ChatName      string
+	AgentKey      string
+	TeamID        string
+	RunID         string
+	Query         *QueryLine
+	Steps         []StepLine
+	AssistantText string
+}

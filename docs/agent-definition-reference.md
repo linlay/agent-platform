@@ -91,6 +91,54 @@ plain:
 - `owner` 会注入 `OWNER_DIR` 下的 markdown 内容
 - `memory` 会注入运行期 memory context
 
+## Static Memory 与 Runtime Memory
+
+agent 目录下的 `memory/memory.md` 当前作为静态背景提示装载：
+
+- 语义：agent 的长期固定背景，不是运行时记忆库
+- 注入顺序：静态 `memory/memory.md` 先于 runtime memory bundle
+- 存储位置：随 agent 文件存在，不进入 SQLite memory store
+
+运行时记忆来自 memory store：
+
+- `Stable Memory`：长期稳定、可复用的 `fact`
+- `Relevant Observations`：近期观察类 `observation`
+
+`snapshot/*.md` 仅作为导出/审阅视图：
+
+- 不参与 prompt 主链路
+- 不作为 runtime memory 的事实源
+
+## Memory Tool 注入
+
+agent definition 可通过 `memoryConfig` 控制默认注入的 memory 工具：
+
+```yaml
+memoryConfig:
+  enabled: true
+  managementTools: true
+```
+
+规则：
+
+- 未配置 `memoryConfig.enabled` 时，默认注入基础集：
+  - `_memory_write_`
+  - `_memory_read_`
+  - `_memory_search_`
+- `enabled: false` 时关闭基础 memory tools 注入
+- `managementTools: true` 时额外注入管理集：
+  - `_memory_update_`
+  - `_memory_forget_`
+  - `_memory_timeline_`
+  - `_memory_promote_`
+  - `_memory_consolidate_`
+
+运行时策略：
+
+- `Learn(...)` 成功后会自动执行一轮轻量 observation 整理
+- 自动整理默认只做 stale/duplicate 收口，以及“重复出现 observation”的晋升
+- 更激进的生命周期治理仍建议通过显式 `_memory_consolidate_` 触发
+
 ## Sandbox Config
 
 Go runner 当前支持在 `agent.yml -> sandboxConfig` 下声明：

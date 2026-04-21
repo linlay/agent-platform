@@ -57,6 +57,9 @@ func TestLoadDefaults(t *testing.T) {
 		if cfg.BashHITL.DefaultTimeoutMs != 120000 {
 			t.Fatalf("expected default bash HITL timeout 120000, got %d", cfg.BashHITL.DefaultTimeoutMs)
 		}
+		if !cfg.Memory.AutoRememberEnabled {
+			t.Fatalf("expected memory auto remember enabled by default")
+		}
 	})
 }
 

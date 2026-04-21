@@ -1,0 +1,18 @@
+key: _session_search_
+name: _session_search_
+label: Session Search
+description: Search the current chat/session history for prior messages, events, and run outputs without promoting them into long-term memory.
+parameters:
+  type: object
+  properties:
+    chatId:
+      type: string
+      description: Optional. Target chat ID. Defaults to the current chat.
+    query:
+      type: string
+      description: Required. Search query.
+    limit:
+      type: integer
+      description: Optional. Maximum results to return. Default 10.
+  required:
+    - query
