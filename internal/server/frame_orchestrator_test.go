@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"sync"
 	"testing"
+	"time"
 
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/catalog"
@@ -29,12 +31,15 @@ type orchestratorAgentEngine struct {
 	streams []contracts.AgentStream
 	err     error
 	index   int
+	mu      sync.Mutex
 }
 
 func (e *orchestratorAgentEngine) Stream(context.Context, api.QueryRequest, contracts.QuerySession) (contracts.AgentStream, error) {
 	if e.err != nil {
 		return nil, e.err
 	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	if e.index >= len(e.streams) {
 		return nil, io.EOF
 	}
@@ -79,7 +84,27 @@ func (s *stubOrchestratableStream) FinalAssistantContent() (string, bool) {
 	return s.finalText, true
 }
 
+type blockingOrchestratableStream struct {
+	ctx context.Context
+}
+
+func (s *blockingOrchestratableStream) Next() (contracts.AgentDelta, error) {
+	<-s.ctx.Done()
+	return nil, contracts.ErrRunInterrupted
+}
+
+func (s *blockingOrchestratableStream) Close() error { return nil }
+
+func (s *blockingOrchestratableStream) InjectToolResult(toolID string, text string, isError bool) bool {
+	return false
+}
+
+func (s *blockingOrchestratableStream) FinalAssistantContent() (string, bool) {
+	return "", false
+}
+
 var _ llm.OrchestratableAgentStream = (*stubOrchestratableStream)(nil)
+var _ llm.OrchestratableAgentStream = (*blockingOrchestratableStream)(nil)
 
 func newInvokeAgentsDelta(tasks ...contracts.SubAgentTaskSpec) contracts.DeltaInvokeSubAgents {
 	return contracts.DeltaInvokeSubAgents{
@@ -90,8 +115,12 @@ func newInvokeAgentsDelta(tasks ...contracts.SubAgentTaskSpec) contracts.DeltaIn
 }
 
 func newTestFrameOrchestrator(agent contracts.AgentEngine, registry map[string]catalog.AgentDefinition, emitted *[]contracts.AgentDelta, routed *[]stream.StreamInput) *frameOrchestrator {
+	return newTestFrameOrchestratorWithContext(context.Background(), agent, registry, emitted, routed)
+}
+
+func newTestFrameOrchestratorWithContext(runCtx context.Context, agent contracts.AgentEngine, registry map[string]catalog.AgentDefinition, emitted *[]contracts.AgentDelta, routed *[]stream.StreamInput) *frameOrchestrator {
 	return &frameOrchestrator{
-		runCtx:  context.Background(),
+		runCtx:  runCtx,
 		request: api.QueryRequest{RunID: "run_1", ChatID: "chat_1", TeamID: "team_1"},
 		session: contracts.QuerySession{RunID: "run_1", ChatID: "chat_1", Mode: "REACT"},
 		summary: chat.Summary{ChatID: "chat_1", ChatName: "demo"},
@@ -228,5 +257,129 @@ func TestFrameOrchestratorRejectsNestedInvokeAgentsTool(t *testing.T) {
 	}
 	if len(mainStream.injected) != 1 || !mainStream.injected[0].isError || mainStream.injected[0].text != "nested sub-agent invocation is not allowed" {
 		t.Fatalf("expected nested-invoke rejection, got %#v", mainStream.injected)
+	}
+}
+
+func TestFrameOrchestratorPartialFailureAggregation(t *testing.T) {
+	mainStream := &stubOrchestratableStream{
+		deltas: []contracts.AgentDelta{
+			newInvokeAgentsDelta(
+				contracts.SubAgentTaskSpec{SubAgentKey: "writer", TaskText: "write a summary", TaskName: "写作"},
+				contracts.SubAgentTaskSpec{SubAgentKey: "reviewer", TaskText: "review it", TaskName: "审查"},
+				contracts.SubAgentTaskSpec{SubAgentKey: "publisher", TaskText: "publish it", TaskName: "发布"},
+			),
+		},
+	}
+	childOne := &stubOrchestratableStream{finalText: "draft ready"}
+	childTwo := &stubOrchestratableStream{}
+	childThree := &stubOrchestratableStream{finalText: "published"}
+	var emitted []contracts.AgentDelta
+	orchestrator := newTestFrameOrchestrator(&orchestratorAgentEngine{streams: []contracts.AgentStream{childOne, childTwo, childThree}}, map[string]catalog.AgentDefinition{
+		"writer":    {Key: "writer", Name: "Writer", Mode: "REACT"},
+		"reviewer":  {Key: "reviewer", Name: "Reviewer", Mode: "REACT"},
+		"publisher": {Key: "publisher", Name: "Publisher", Mode: "REACT"},
+	}, &emitted, nil)
+
+	streamFailed, streamInterrupted, err := orchestrator.Run(mainStream)
+	if err != nil || streamFailed || streamInterrupted {
+		t.Fatalf("unexpected orchestrator result err=%v failed=%v interrupted=%v", err, streamFailed, streamInterrupted)
+	}
+	if len(mainStream.injected) != 1 {
+		t.Fatalf("expected one aggregated tool result, got %#v", mainStream.injected)
+	}
+	if !mainStream.injected[0].isError {
+		t.Fatalf("expected partial failure to mark injected result as error, got %#v", mainStream.injected[0])
+	}
+
+	var results []childTaskResult
+	if err := json.Unmarshal([]byte(mainStream.injected[0].text), &results); err != nil {
+		t.Fatalf("expected JSON aggregate result: %v", err)
+	}
+	if len(results) != 3 {
+		t.Fatalf("expected three aggregated results, got %#v", results)
+	}
+	if results[0].TaskName != "写作" || results[0].Status != "completed" || results[0].Text != "draft ready" {
+		t.Fatalf("unexpected first aggregate result %#v", results[0])
+	}
+	if results[1].TaskName != "审查" || results[1].Status != "failed" || results[1].Error == "" {
+		t.Fatalf("unexpected failed aggregate result %#v", results[1])
+	}
+	if results[2].TaskName != "发布" || results[2].Status != "completed" || results[2].Text != "published" {
+		t.Fatalf("unexpected third aggregate result %#v", results[2])
+	}
+
+	if len(emitted) != 6 {
+		t.Fatalf("expected three starts and three terminal lifecycle deltas, got %#v", emitted)
+	}
+	failedLifecycle, ok := emitted[4].(contracts.DeltaTaskLifecycle)
+	if !ok || failedLifecycle.Kind != "fail" || failedLifecycle.Error == nil {
+		t.Fatalf("expected failed lifecycle delta for middle task, got %#v", emitted[4])
+	}
+}
+
+func TestFrameOrchestratorInterruptionMidExecution(t *testing.T) {
+	runCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	mainStream := &stubOrchestratableStream{
+		deltas: []contracts.AgentDelta{
+			newInvokeAgentsDelta(
+				contracts.SubAgentTaskSpec{SubAgentKey: "writer", TaskText: "write a summary", TaskName: "写作"},
+				contracts.SubAgentTaskSpec{SubAgentKey: "reviewer", TaskText: "review it", TaskName: "审查"},
+				contracts.SubAgentTaskSpec{SubAgentKey: "publisher", TaskText: "publish it", TaskName: "发布"},
+			),
+		},
+	}
+	childOne := &blockingOrchestratableStream{ctx: runCtx}
+	childTwo := &blockingOrchestratableStream{ctx: runCtx}
+	childThree := &blockingOrchestratableStream{ctx: runCtx}
+	var emitted []contracts.AgentDelta
+	orchestrator := newTestFrameOrchestratorWithContext(runCtx, &orchestratorAgentEngine{streams: []contracts.AgentStream{childOne, childTwo, childThree}}, map[string]catalog.AgentDefinition{
+		"writer":    {Key: "writer", Name: "Writer", Mode: "REACT"},
+		"reviewer":  {Key: "reviewer", Name: "Reviewer", Mode: "REACT"},
+		"publisher": {Key: "publisher", Name: "Publisher", Mode: "REACT"},
+	}, &emitted, nil)
+
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		cancel()
+	}()
+
+	streamFailed, streamInterrupted, err := orchestrator.Run(mainStream)
+	if err != nil || streamFailed || streamInterrupted {
+		t.Fatalf("unexpected orchestrator result err=%v failed=%v interrupted=%v", err, streamFailed, streamInterrupted)
+	}
+	if len(mainStream.injected) != 1 || !mainStream.injected[0].isError {
+		t.Fatalf("expected interrupted aggregate tool result marked as error, got %#v", mainStream.injected)
+	}
+
+	var results []childTaskResult
+	if err := json.Unmarshal([]byte(mainStream.injected[0].text), &results); err != nil {
+		t.Fatalf("expected JSON aggregate result: %v", err)
+	}
+	if len(results) != 3 {
+		t.Fatalf("expected three aggregated results, got %#v", results)
+	}
+	for _, result := range results {
+		if result.Status != "cancelled" || result.Text != "sub-agent interrupted" {
+			t.Fatalf("expected cancelled aggregate result, got %#v", result)
+		}
+	}
+
+	if len(emitted) != 6 {
+		t.Fatalf("expected three starts and three cancel lifecycle deltas, got %#v", emitted)
+	}
+	cancelCount := 0
+	for _, delta := range emitted {
+		lifecycle, ok := delta.(contracts.DeltaTaskLifecycle)
+		if !ok {
+			continue
+		}
+		if lifecycle.Kind == "cancel" {
+			cancelCount++
+		}
+	}
+	if cancelCount != 3 {
+		t.Fatalf("expected three cancel lifecycle deltas, got %#v", emitted)
 	}
 }
