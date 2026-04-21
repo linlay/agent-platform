@@ -87,13 +87,23 @@ type LocalPaths struct {
 	RuntimeHome        string
 	WorkingDirectory   string
 	RootDir            string
+	PanDir             string
+	AgentDir           string
 	AgentsDir          string
+	TeamsDir           string
 	ChatsDir           string
 	MemoryDir          string
 	DataDir            string
 	SkillsDir          string
+	SkillsMarketDir    string
 	SchedulesDir       string
 	OwnerDir           string
+	ModelsDir          string
+	ProvidersDir       string
+	MCPServersDir      string
+	ViewportServersDir string
+	ToolsDir           string
+	ViewportsDir       string
 	ChatAttachmentsDir string
 }
 

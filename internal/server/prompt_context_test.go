@@ -91,6 +91,51 @@ func TestResolveSandboxPathsContainerMode(t *testing.T) {
 	}
 }
 
+func TestResolveLocalPathsIncludesAgentAndRegistryPaths(t *testing.T) {
+	t.Parallel()
+
+	cfg := testPromptContextConfig(t)
+	agentDir := filepath.Join(cfg.Paths.AgentsDir, "demo-agent")
+
+	paths := resolveLocalPaths(cfg.Paths, "chat-1", agentDir)
+	if paths.AgentDir != agentDir {
+		t.Fatalf("agent dir = %q", paths.AgentDir)
+	}
+	if paths.SkillsDir != filepath.Join(agentDir, "skills") {
+		t.Fatalf("skills dir = %q", paths.SkillsDir)
+	}
+	if paths.SkillsMarketDir != cfg.Paths.SkillsMarketDir {
+		t.Fatalf("skills market dir = %q", paths.SkillsMarketDir)
+	}
+	if paths.TeamsDir != cfg.Paths.TeamsDir {
+		t.Fatalf("teams dir = %q", paths.TeamsDir)
+	}
+	if paths.ModelsDir != filepath.Join(cfg.Paths.RegistriesDir, "models") {
+		t.Fatalf("models dir = %q", paths.ModelsDir)
+	}
+	if paths.ProvidersDir != filepath.Join(cfg.Paths.RegistriesDir, "providers") {
+		t.Fatalf("providers dir = %q", paths.ProvidersDir)
+	}
+	if paths.MCPServersDir != filepath.Join(cfg.Paths.RegistriesDir, "mcp-servers") {
+		t.Fatalf("mcp servers dir = %q", paths.MCPServersDir)
+	}
+	if paths.ViewportServersDir != filepath.Join(cfg.Paths.RegistriesDir, "viewport-servers") {
+		t.Fatalf("viewport servers dir = %q", paths.ViewportServersDir)
+	}
+	if paths.ToolsDir != cfg.Paths.ToolsDir {
+		t.Fatalf("tools dir = %q", paths.ToolsDir)
+	}
+	if paths.ViewportsDir != filepath.Join(cfg.Paths.RegistriesDir, "viewports") {
+		t.Fatalf("viewports dir = %q", paths.ViewportsDir)
+	}
+	if paths.ChatAttachmentsDir != filepath.Join(cfg.Paths.ChatsDir, "chat-1") {
+		t.Fatalf("chat attachments dir = %q", paths.ChatAttachmentsDir)
+	}
+	if paths.WorkingDirectory == "" {
+		t.Fatal("expected working directory to be populated")
+	}
+}
+
 func TestBuildRuntimeContextSkipsSandboxContextWhenHubDisabled(t *testing.T) {
 	t.Parallel()
 
@@ -192,6 +237,51 @@ func TestBuildRuntimeContextIgnoresLegacySandboxTagWithoutSandboxConfig(t *testi
 	}
 	if context.SandboxContext != nil {
 		t.Fatalf("expected legacy sandbox tag to have no effect, got %#v", context.SandboxContext)
+	}
+}
+
+func TestBuildRuntimeContextKeepsLocalPathsWithoutSandboxConfigInContainerMode(t *testing.T) {
+	t.Parallel()
+
+	cfg := testPromptContextConfig(t)
+	cfg.ContainerHub.Enabled = true
+	cfg.ContainerHub.ResolvedEngine = "docker"
+	s := &Server{
+		deps: Dependencies{
+			Config:   cfg,
+			Registry: testCatalogRegistry{},
+		},
+	}
+
+	agentDir := filepath.Join(cfg.Paths.AgentsDir, "demo-agent")
+	context, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
+		agentKey: "demo-agent",
+		teamID:   "team-1",
+		role:     "assistant",
+		chatID:   "chat-1",
+		chatName: "Chat 1",
+		definition: catalog.AgentDefinition{
+			Key:      "demo-agent",
+			AgentDir: agentDir,
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildRuntimeRequestContext() error = %v", err)
+	}
+	if context.LocalMode {
+		t.Fatal("expected container mode to remain non-local")
+	}
+	if context.SandboxContext != nil {
+		t.Fatalf("expected no sandbox context, got %#v", context.SandboxContext)
+	}
+	if context.LocalPaths.AgentDir != agentDir {
+		t.Fatalf("local agent dir = %q", context.LocalPaths.AgentDir)
+	}
+	if context.LocalPaths.SkillsDir != filepath.Join(agentDir, "skills") {
+		t.Fatalf("local skills dir = %q", context.LocalPaths.SkillsDir)
+	}
+	if context.SandboxPaths.WorkspaceDir != "/workspace" {
+		t.Fatalf("sandbox workspace dir = %q", context.SandboxPaths.WorkspaceDir)
 	}
 }
 

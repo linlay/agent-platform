@@ -55,7 +55,7 @@ func (s *Server) buildRuntimeRequestContext(input runtimeRequestContextInput) (c
 		LocalMode:    s.deps.Config.IsLocalMode(),
 		Scene:        input.scene,
 		References:   append([]api.Reference(nil), input.references...),
-		LocalPaths:   resolveLocalPaths(s.deps.Config.Paths, input.chatID),
+		LocalPaths:   resolveLocalPaths(s.deps.Config.Paths, input.chatID, input.definition.AgentDir),
 		SandboxPaths: resolveSandboxPaths(s.deps.Config, input.definition, input.chatID),
 		AgentDigests: buildAgentDigests(s.deps.Registry),
 	}
@@ -145,21 +145,36 @@ func localSkillDisplayName(description string, fallback string) string {
 	return fallback
 }
 
-func resolveLocalPaths(paths config.PathsConfig, chatID string) contracts.LocalPaths {
+func resolveLocalPaths(paths config.PathsConfig, chatID string, agentDir string) contracts.LocalPaths {
 	runtimeHome := filepath.Dir(filepath.Clean(paths.AgentsDir))
 	workingDirectory, _ := os.Getwd()
 	attachmentsDir := cleanOrEmpty(filepath.Join(paths.ChatsDir, strings.TrimSpace(chatID)))
+	agentDir = cleanOrEmpty(agentDir)
+	agentSkillsDir := ""
+	if agentDir != "" {
+		agentSkillsDir = cleanOrEmpty(filepath.Join(agentDir, "skills"))
+	}
 	return contracts.LocalPaths{
 		RuntimeHome:        runtimeHome,
 		WorkingDirectory:   cleanOrEmpty(workingDirectory),
 		RootDir:            cleanOrEmpty(paths.RootDir),
+		PanDir:             cleanOrEmpty(paths.PanDir),
+		AgentDir:           agentDir,
 		AgentsDir:          cleanOrEmpty(paths.AgentsDir),
+		TeamsDir:           cleanOrEmpty(paths.TeamsDir),
 		ChatsDir:           cleanOrEmpty(paths.ChatsDir),
 		MemoryDir:          cleanOrEmpty(paths.MemoryDir),
 		DataDir:            cleanOrEmpty(paths.ChatsDir),
-		SkillsDir:          cleanOrEmpty(paths.SkillsMarketDir),
+		SkillsDir:          agentSkillsDir,
+		SkillsMarketDir:    cleanOrEmpty(paths.SkillsMarketDir),
 		SchedulesDir:       cleanOrEmpty(paths.SchedulesDir),
 		OwnerDir:           cleanOrEmpty(paths.OwnerDir),
+		ModelsDir:          cleanOrEmpty(filepath.Join(paths.RegistriesDir, "models")),
+		ProvidersDir:       cleanOrEmpty(filepath.Join(paths.RegistriesDir, "providers")),
+		MCPServersDir:      cleanOrEmpty(filepath.Join(paths.RegistriesDir, "mcp-servers")),
+		ViewportServersDir: cleanOrEmpty(filepath.Join(paths.RegistriesDir, "viewport-servers")),
+		ToolsDir:           cleanOrEmpty(paths.ToolsDir),
+		ViewportsDir:       cleanOrEmpty(filepath.Join(paths.RegistriesDir, "viewports")),
 		ChatAttachmentsDir: attachmentsDir,
 	}
 }
