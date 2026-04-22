@@ -236,6 +236,7 @@ sandboxConfig:
 - `GET /api/viewport`：先查 `registries/viewports` 本地模板，再查 `registries/viewport-servers` 里的远端 viewport server，最后才回退 noop viewport client
 - `GET /api/resource`：按 chat 目录中的相对路径回读静态资源，可结合 resource ticket 访问
 - `POST /api/upload`：写入 chat 目录并返回 upload ticket
+- `/ws`：只复用控制帧、事件流和文件引用；浏览器/普通客户端的文件字节仍走 `/api/upload` + `/api/resource`。当前 WebSocket `/api/upload` 仅接收网关提供的 `url + metadata`，由 platform 自己下载并校验 `sizeBytes` / `sha256` 后再复用内部上传链路
 
 ### HITL 协议
 

@@ -32,7 +32,7 @@ type QueryRunner interface {
 		onEvent func(eventJSON []byte) error,
 	) error
 	ExecuteInternalSubmit(ctx context.Context, req api.SubmitRequest) (int, []byte, error)
-	ExecuteInternalUpload(ctx context.Context, chatID, requestID, fileName string, fileData []byte) (int, []byte, error)
+	ExecuteInternalUpload(ctx context.Context, chatID, requestID, fileName, mimeType string, fileData []byte) (int, []byte, error)
 	ResolveResourcePath(fileParam string) (string, error)
 }
 
@@ -478,7 +478,7 @@ func (c *Client) handleUpload(socket *gws.Conn, body json.RawMessage) {
 	}
 	log.Printf("gatewaybridge upload downloaded fileName=%s bytes=%d", ub.Upload.Name, len(fileData))
 
-	status, respBody, err := c.runner.ExecuteInternalUpload(c.ctx, ub.ChatID, ub.RequestID, ub.Upload.Name, fileData)
+	status, respBody, err := c.runner.ExecuteInternalUpload(c.ctx, ub.ChatID, ub.RequestID, ub.Upload.Name, ub.Upload.MimeType, fileData)
 	if err != nil {
 		log.Printf("gatewaybridge upload runner failed chatId=%s err=%v", ub.ChatID, err)
 		c.sendError(socket, ub.RequestID, "upload to runner failed: "+err.Error())

@@ -229,6 +229,7 @@ agent definition 侧另有 `memoryConfig`：
 - 默认会注册 `/ws`；仅当 `AGENT_WS_ENABLED=false` 时关闭
 - WebSocket handler 会复用当前 catalog、chat、query、run stream 等接口能力
 - 鉴权开启时，WebSocket 也会走相同的 token 校验链路
+- WebSocket 是控制面：普通上传/下载仍走 `POST /api/upload` 与 `GET /api/resource`；当前 `/ws` 上的 `/api/upload` 只接受网关发送的 `url + metadata`，platform 会通过 HTTP 旁路下载文件，不支持把文件字节直接塞进 WS JSON frame
 
 ### Reverse WebSocket Gateway
 

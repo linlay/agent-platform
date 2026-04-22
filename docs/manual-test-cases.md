@@ -180,6 +180,17 @@ curl -X POST "$BASE_URL/api/upload" \
 curl -X GET "$BASE_URL/api/resource?file=replace-me%2FREADME.md"
 ```
 
+如果部署开启了 resource ticket，需要把 chat 详情或其他接口返回的 ticket 透传到 `t` 参数：
+
+```bash
+curl -X GET "$BASE_URL/api/resource?file=replace-me%2FREADME.md&t=replace-me-ticket"
+```
+
+说明：
+
+- 浏览器/普通客户端的文件字节始终走 `POST /api/upload` 与 `GET /api/resource`
+- WebSocket `/api/upload` 仅用于网关中转 `url + metadata`，由 platform 自己下载文件，不支持直接在 WS payload 中放 base64/二进制内容
+
 ## Viewport
 
 question / approval 使用 builtin dialog，不必单独取 viewport；只有 `form` 需要 HTML viewport：

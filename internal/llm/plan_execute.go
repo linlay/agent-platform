@@ -145,11 +145,6 @@ func (s *planExecuteStream) advanceTaskExecution() error {
 	s.execCtx.PlanState.ActiveTaskID = task.TaskID
 	s.pending = append(s.pending,
 		DeltaStageMarker{Stage: fmt.Sprintf("execute-task-%d", s.taskIndex+1)},
-		DeltaPlanUpdate{
-			PlanID: s.execCtx.PlanState.PlanID,
-			ChatID: s.session.ChatID,
-			Plan:   PlanTasksArray(s.execCtx.PlanState),
-		},
 		DeltaTaskLifecycle{
 			Kind:        "start",
 			TaskID:      task.TaskID,

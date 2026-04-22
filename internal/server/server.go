@@ -7,11 +7,13 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"mime/multipart"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -207,7 +209,7 @@ func (s *Server) ExecuteInternalSubmit(ctx context.Context, req api.SubmitReques
 
 // ExecuteInternalUpload reuses /api/upload for in-process callers. Accepts raw
 // file bytes and metadata, returns the raw JSON response body.
-func (s *Server) ExecuteInternalUpload(ctx context.Context, chatID, requestID, fileName string, fileData []byte) (int, []byte, error) {
+func (s *Server) ExecuteInternalUpload(ctx context.Context, chatID, requestID, fileName, mimeType string, fileData []byte) (int, []byte, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -219,7 +221,7 @@ func (s *Server) ExecuteInternalUpload(ctx context.Context, chatID, requestID, f
 	if chatID != "" {
 		_ = writer.WriteField("chatId", chatID)
 	}
-	part, err := writer.CreateFormFile("file", fileName)
+	part, err := createMultipartFilePart(writer, "file", fileName, mimeType)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -234,6 +236,16 @@ func (s *Server) ExecuteInternalUpload(ctx context.Context, chatID, requestID, f
 	rec := httptest.NewRecorder()
 	s.handleUpload(rec, httpReq)
 	return rec.Code, rec.Body.Bytes(), nil
+}
+
+func createMultipartFilePart(writer *multipart.Writer, fieldName, fileName, mimeType string) (io.Writer, error) {
+	header := make(textproto.MIMEHeader)
+	header.Set("Content-Disposition", fmt.Sprintf(`form-data; name=%q; filename=%q`, fieldName, fileName))
+	if strings.TrimSpace(mimeType) == "" {
+		mimeType = "application/octet-stream"
+	}
+	header.Set("Content-Type", mimeType)
+	return writer.CreatePart(header)
 }
 
 // ResolveResourcePath returns the absolute local path for a `file` param in the

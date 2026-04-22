@@ -3,6 +3,8 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -113,8 +115,20 @@ func (s *Server) wsUpload(ctx context.Context, conn *ws.Conn, req ws.RequestFram
 	chatID := strings.TrimSpace(payload.ChatID)
 	requestID := strings.TrimSpace(payload.RequestID)
 	fileName := strings.TrimSpace(payload.FileName)
+	mimeType := strings.TrimSpace(payload.MimeType)
+	sizeBytes := payload.SizeBytes
+	sha256Value := strings.TrimSpace(payload.SHA256)
 	if fileName == "" {
 		fileName = strings.TrimSpace(payload.Upload.Name)
+	}
+	if mimeType == "" {
+		mimeType = strings.TrimSpace(payload.Upload.MimeType)
+	}
+	if sizeBytes == 0 {
+		sizeBytes = payload.Upload.SizeBytes
+	}
+	if sha256Value == "" {
+		sha256Value = strings.TrimSpace(payload.Upload.SHA256)
 	}
 	// 严格对齐 wecom-ws-bridge handleUpload：只认 upload.url（或 top-level url）。
 	// 网关若不发 url 字段，这里直接报错，不做 sha256/requestId 的猜测，避免把
@@ -131,7 +145,7 @@ func (s *Server) wsUpload(ctx context.Context, conn *ws.Conn, req ws.RequestFram
 		return
 	}
 	log.Printf("[ws-upload] recv chatId=%s requestId=%s fileName=%s url=%s size=%d",
-		chatID, requestID, fileName, rawURL, payload.Upload.SizeBytes)
+		chatID, requestID, fileName, rawURL, sizeBytes)
 
 	data, err := s.fetchGatewayUpload(ctx, rawURL)
 	if err != nil {
@@ -140,9 +154,15 @@ func (s *Server) wsUpload(ctx context.Context, conn *ws.Conn, req ws.RequestFram
 		conn.CompleteRequest(req.ID)
 		return
 	}
+	if err := validateDownloadedUpload(data, sizeBytes, sha256Value); err != nil {
+		log.Printf("[ws-upload] invalid metadata chatId=%s fileName=%s err=%v", chatID, fileName, err)
+		conn.SendError(req.ID, "invalid_upload_metadata", 400, err.Error(), nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
 	log.Printf("[ws-upload] downloaded chatId=%s fileName=%s bytes=%d", chatID, fileName, len(data))
 
-	status, body, err := s.ExecuteInternalUpload(ctx, chatID, requestID, fileName, data)
+	status, body, err := s.ExecuteInternalUpload(ctx, chatID, requestID, fileName, mimeType, data)
 	if err != nil {
 		conn.SendError(req.ID, "internal_error", 500, err.Error(), nil)
 		conn.CompleteRequest(req.ID)
@@ -215,6 +235,25 @@ func (s *Server) buildGatewayURL(raw string) string {
 		return base + "/" + raw
 	}
 	return base + "/" + downloadPath + "/" + raw
+}
+
+func validateDownloadedUpload(data []byte, expectedSize int64, expectedSHA256 string) error {
+	if expectedSize < 0 {
+		return fmt.Errorf("sizeBytes must be >= 0")
+	}
+	if expectedSize > 0 && int64(len(data)) != expectedSize {
+		return fmt.Errorf("sizeBytes mismatch: expected %d got %d", expectedSize, len(data))
+	}
+	expectedSHA256 = strings.TrimSpace(expectedSHA256)
+	if expectedSHA256 == "" {
+		return nil
+	}
+	sum := sha256.Sum256(data)
+	actual := hex.EncodeToString(sum[:])
+	if !strings.EqualFold(actual, expectedSHA256) {
+		return fmt.Errorf("sha256 mismatch: expected %s got %s", strings.ToLower(expectedSHA256), actual)
+	}
+	return nil
 }
 
 func (s *Server) wsAgents(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
