@@ -1587,6 +1587,178 @@ func TestQueryAndRunStreamIncludeDebugEventsWhenEnabled(t *testing.T) {
 	assertStringSliceContains(t, decodeEventTypesFromSSE(t, runRec.Body.String()), "debug.preCall", "debug.postCall")
 }
 
+func TestPlanExecutePlanStageOnlyUsesPlanAddTasksBeforeSequentialTaskExecution(t *testing.T) {
+	var providerCallCount atomic.Int32
+
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode model request: %v", err)
+		}
+		toolNames := providerRequestToolNames(payload["tools"])
+
+		switch call := providerCallCount.Add(1); call {
+		case 1:
+			if !reflect.DeepEqual(toolNames, []string{"_plan_add_tasks_"}) {
+				t.Fatalf("plan stage tools=%#v want only _plan_add_tasks_", toolNames)
+			}
+			writeProviderSSE(t, w,
+				providerToolCallFrame(t, "tool_plan", "_plan_add_tasks_", map[string]any{
+					"tasks": []map[string]any{
+						{"taskId": "task_alpha", "description": "查询当前时间"},
+						{"taskId": "task_beta", "description": "再次查询当前时间"},
+					},
+				}),
+				`[DONE]`,
+			)
+		case 2:
+			assertStringSliceContains(t, toolNames, "_datetime_", "_memory_search_", "_plan_update_task_")
+			assertStringSliceExcludes(t, toolNames, "_plan_add_tasks_")
+			writeProviderSSE(t, w,
+				providerToolCallFrame(t, "tool_time_alpha", "_datetime_", map[string]any{}),
+				`[DONE]`,
+			)
+		case 3:
+			assertStringSliceContains(t, toolNames, "_datetime_", "_memory_search_", "_plan_update_task_")
+			assertStringSliceExcludes(t, toolNames, "_plan_add_tasks_")
+			writeProviderSSE(t, w,
+				providerToolCallFrame(t, "tool_done_alpha", "_plan_update_task_", map[string]any{
+					"taskId": "task_alpha",
+					"status": "completed",
+				}),
+				`[DONE]`,
+			)
+		case 4:
+			assertStringSliceContains(t, toolNames, "_datetime_", "_memory_search_", "_plan_update_task_")
+			assertStringSliceExcludes(t, toolNames, "_plan_add_tasks_")
+			writeProviderSSE(t, w,
+				providerToolCallFrame(t, "tool_time_beta", "_datetime_", map[string]any{}),
+				`[DONE]`,
+			)
+		case 5:
+			assertStringSliceContains(t, toolNames, "_datetime_", "_memory_search_", "_plan_update_task_")
+			assertStringSliceExcludes(t, toolNames, "_plan_add_tasks_")
+			writeProviderSSE(t, w,
+				providerToolCallFrame(t, "tool_done_beta", "_plan_update_task_", map[string]any{
+					"taskId": "task_beta",
+					"status": "completed",
+				}),
+				`[DONE]`,
+			)
+		case 6:
+			if len(toolNames) != 0 {
+				t.Fatalf("summary stage should not expose tools, got %#v", toolNames)
+			}
+			writeProviderSSE(t, w,
+				`{"choices":[{"delta":{"content":"任务已按顺序完成"},"finish_reason":"stop"}]}`,
+				`[DONE]`,
+			)
+		default:
+			t.Fatalf("unexpected provider call %d", call)
+		}
+	}, testFixtureOptions{
+		configure: func(cfg *config.Config) {
+			cfg.SSE.IncludeDebugEvents = true
+		},
+		setupRuntime: func(_ string, cfg *config.Config) {
+			agentPath := filepath.Join(cfg.Paths.AgentsDir, "mock-runner", "agent.yml")
+			if err := os.WriteFile(agentPath, []byte(strings.Join([]string{
+				"key: mock-runner",
+				"name: Mock Runner",
+				"role: 测试代理",
+				"description: plan execute test agent",
+				"modelConfig:",
+				"  modelKey: mock-model",
+				"toolConfig:",
+				"  tools:",
+				"    - _datetime_",
+				"    - _memory_search_",
+				"mode: PLAN_EXECUTE",
+				"stageSettings:",
+				"  maxWorkRoundsPerTask: 4",
+			}, "\n")), 0o644); err != nil {
+				t.Fatalf("write plan-execute agent config: %v", err)
+			}
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"请先规划再按顺序执行两个任务","agentKey":"mock-runner"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := providerCallCount.Load(); got != 6 {
+		t.Fatalf("expected 6 provider calls, got %d", got)
+	}
+
+	messages := decodeSSEMessages(t, rec.Body.String())
+	var preCallTools [][]string
+	preTaskToolNames := make([]string, 0)
+	firstTaskStartIndex := -1
+	taskStarts := map[string]int{}
+	taskCompletes := map[string]int{}
+
+	for index, message := range messages {
+		switch stringValue(message["type"]) {
+		case "debug.preCall":
+			data, _ := message["data"].(map[string]any)
+			requestBody, _ := data["requestBody"].(map[string]any)
+			preCallTools = append(preCallTools, providerRequestToolNames(requestBody["tools"]))
+		case "tool.start":
+			if firstTaskStartIndex < 0 {
+				preTaskToolNames = append(preTaskToolNames, stringValue(message["toolName"]))
+			}
+		case "task.start":
+			if firstTaskStartIndex < 0 {
+				firstTaskStartIndex = index
+			}
+			taskStarts[stringValue(message["taskId"])] = index
+		case "task.complete":
+			taskCompletes[stringValue(message["taskId"])] = index
+		}
+	}
+
+	if !reflect.DeepEqual(preTaskToolNames, []string{"_plan_add_tasks_"}) {
+		t.Fatalf("expected only _plan_add_tasks_ before first task.start, got %#v", preTaskToolNames)
+	}
+	if len(preCallTools) != 6 {
+		t.Fatalf("expected 6 debug.preCall events, got %#v", preCallTools)
+	}
+	if !reflect.DeepEqual(preCallTools[0], []string{"_plan_add_tasks_"}) {
+		t.Fatalf("plan debug.preCall tools=%#v want only _plan_add_tasks_", preCallTools[0])
+	}
+	for callIndex := 1; callIndex <= 4; callIndex++ {
+		assertStringSliceContains(t, preCallTools[callIndex], "_datetime_", "_memory_search_", "_plan_update_task_")
+		assertStringSliceExcludes(t, preCallTools[callIndex], "_plan_add_tasks_")
+	}
+	if len(preCallTools[5]) != 0 {
+		t.Fatalf("summary debug.preCall tools=%#v want none", preCallTools[5])
+	}
+
+	alphaStart, ok := taskStarts["task_alpha"]
+	if !ok {
+		t.Fatalf("missing task.start for task_alpha in %#v", messages)
+	}
+	alphaComplete, ok := taskCompletes["task_alpha"]
+	if !ok {
+		t.Fatalf("missing task.complete for task_alpha in %#v", messages)
+	}
+	betaStart, ok := taskStarts["task_beta"]
+	if !ok {
+		t.Fatalf("missing task.start for task_beta in %#v", messages)
+	}
+	betaComplete, ok := taskCompletes["task_beta"]
+	if !ok {
+		t.Fatalf("missing task.complete for task_beta in %#v", messages)
+	}
+	if !(alphaStart < alphaComplete && alphaComplete < betaStart && betaStart < betaComplete) {
+		t.Fatalf("expected sequential task execution, got alphaStart=%d alphaComplete=%d betaStart=%d betaComplete=%d", alphaStart, alphaComplete, betaStart, betaComplete)
+	}
+}
+
 func TestQueryPersistsToolSnapshotWhenSSEPayloadEventsDisabled(t *testing.T) {
 	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
 		var payload map[string]any
@@ -4699,6 +4871,20 @@ func decodeEventTypesFromSSE(t *testing.T, body string) []string {
 		}
 	}
 	return types
+}
+
+func providerRequestToolNames(value any) []string {
+	items, _ := value.([]any)
+	names := make([]string, 0, len(items))
+	for _, item := range items {
+		spec, _ := item.(map[string]any)
+		function, _ := spec["function"].(map[string]any)
+		name := stringValue(function["name"])
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 func assertEventTypesInclude(t *testing.T, events []stream.EventData, want ...string) {
