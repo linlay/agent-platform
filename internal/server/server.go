@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -180,6 +181,62 @@ func (s *Server) ExecuteInternalQueryStream(
 	rw := newSSEInterceptor(onEvent)
 	s.handleQuery(rw, httpReq)
 	return rw.err
+}
+
+// ExecuteInternalSubmit reuses /api/submit for in-process callers (gateway
+// bridge HITL submit). Returns the full JSON response body so callers can
+// forward it verbatim.
+func (s *Server) ExecuteInternalSubmit(ctx context.Context, req api.SubmitRequest) (int, []byte, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	httpReq := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewReader(body)).WithContext(ctx)
+	httpReq.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	s.handleSubmit(rec, httpReq)
+	return rec.Code, rec.Body.Bytes(), nil
+}
+
+// ExecuteInternalUpload reuses /api/upload for in-process callers. Accepts raw
+// file bytes and metadata, returns the raw JSON response body.
+func (s *Server) ExecuteInternalUpload(ctx context.Context, chatID, requestID, fileName string, fileData []byte) (int, []byte, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	if requestID != "" {
+		_ = writer.WriteField("requestId", requestID)
+	}
+	if chatID != "" {
+		_ = writer.WriteField("chatId", chatID)
+	}
+	part, err := writer.CreateFormFile("file", fileName)
+	if err != nil {
+		return 0, nil, err
+	}
+	if _, err := part.Write(fileData); err != nil {
+		return 0, nil, err
+	}
+	if err := writer.Close(); err != nil {
+		return 0, nil, err
+	}
+	httpReq := httptest.NewRequest(http.MethodPost, "/api/upload", &buf).WithContext(ctx)
+	httpReq.Header.Set("Content-Type", writer.FormDataContentType())
+	rec := httptest.NewRecorder()
+	s.handleUpload(rec, httpReq)
+	return rec.Code, rec.Body.Bytes(), nil
+}
+
+// ResolveResourcePath returns the absolute local path for a `file` param in the
+// /api/resource URL (e.g. "chatId/artifacts/runId/foo.docx"). Used by the
+// gateway bridge to read artifact bytes off local disk without re-downloading.
+func (s *Server) ResolveResourcePath(fileParam string) (string, error) {
+	return s.deps.Chats.ResolveResource(fileParam)
 }
 
 type sseInterceptor struct {
