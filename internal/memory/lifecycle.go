@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"sort"
 	"strings"
 	"time"
 
@@ -66,9 +67,10 @@ type Consolidator interface {
 const observationTTL = 30 * 24 * time.Hour
 
 type consolidationPlan struct {
-	archiveIDs map[string]struct{}
-	mergeIDs   map[string]struct{}
-	promoteIDs []string
+	archiveIDs   map[string]struct{}
+	mergeIDs     map[string]struct{}
+	supersedeIDs map[string]string
+	promoteIDs   []string
 }
 
 func buildObservationConsolidationPlan(agentKey string, items []api.StoredMemoryResponse, now time.Time) consolidationPlan {
@@ -77,8 +79,9 @@ func buildObservationConsolidationPlan(agentKey string, items []api.StoredMemory
 
 func buildObservationConsolidationPlanWithMode(agentKey string, items []api.StoredMemoryResponse, now time.Time, allowHeuristicPromotion bool) consolidationPlan {
 	plan := consolidationPlan{
-		archiveIDs: map[string]struct{}{},
-		mergeIDs:   map[string]struct{}{},
+		archiveIDs:   map[string]struct{}{},
+		mergeIDs:     map[string]struct{}{},
+		supersedeIDs: map[string]string{},
 	}
 	duplicateCount := map[string]int{}
 	keepers := map[string]api.StoredMemoryResponse{}
@@ -126,6 +129,64 @@ func buildObservationConsolidationPlanWithMode(agentKey string, items []api.Stor
 	return plan
 }
 
+func buildConsolidationPlan(agentKey string, items []api.StoredMemoryResponse, now time.Time) consolidationPlan {
+	plan := buildObservationConsolidationPlan(agentKey, items, now)
+	mergeFactConsolidationPlan(&plan, agentKey, items)
+	return plan
+}
+
+func mergeFactConsolidationPlan(plan *consolidationPlan, agentKey string, items []api.StoredMemoryResponse) {
+	if plan == nil {
+		return
+	}
+	if plan.archiveIDs == nil {
+		plan.archiveIDs = map[string]struct{}{}
+	}
+	if plan.mergeIDs == nil {
+		plan.mergeIDs = map[string]struct{}{}
+	}
+	if plan.supersedeIDs == nil {
+		plan.supersedeIDs = map[string]string{}
+	}
+	facts := make([]api.StoredMemoryResponse, 0, len(items))
+	for _, raw := range items {
+		item := normalizeStoredItem(raw)
+		if normalizeMemoryKind(item.Kind) != KindFact {
+			continue
+		}
+		if strings.TrimSpace(agentKey) != "" && strings.TrimSpace(item.AgentKey) != strings.TrimSpace(agentKey) {
+			continue
+		}
+		if normalizeMemoryStatus(item.Status, item.Kind) != StatusActive {
+			continue
+		}
+		facts = append(facts, item)
+	}
+	sort.SliceStable(facts, func(i, j int) bool {
+		return preferMemoryRecord(facts[i], facts[j])
+	})
+	keepers := make([]api.StoredMemoryResponse, 0, len(facts))
+	for _, item := range facts {
+		duplicateIdx := -1
+		for idx := range keepers {
+			if memoryNearDuplicate(keepers[idx], item, "stable") {
+				duplicateIdx = idx
+				break
+			}
+		}
+		if duplicateIdx < 0 {
+			keepers = append(keepers, item)
+			continue
+		}
+		keeper := keepers[duplicateIdx]
+		if strings.TrimSpace(keeper.ID) == "" || strings.TrimSpace(item.ID) == "" || keeper.ID == item.ID {
+			continue
+		}
+		plan.supersedeIDs[item.ID] = keeper.ID
+		plan.mergeIDs[item.ID] = struct{}{}
+	}
+}
+
 func observationFingerprint(item api.StoredMemoryResponse) string {
 	return strings.ToLower(strings.TrimSpace(item.Category)) + "|" + normalizeLifecycleText(item.Summary)
 }
@@ -156,4 +217,17 @@ func shouldPromoteObservation(item api.StoredMemoryResponse, duplicateCount int,
 	default:
 		return false
 	}
+}
+
+func preferMemoryRecord(left api.StoredMemoryResponse, right api.StoredMemoryResponse) bool {
+	if left.Importance != right.Importance {
+		return left.Importance > right.Importance
+	}
+	if left.Confidence != right.Confidence {
+		return left.Confidence > right.Confidence
+	}
+	if left.UpdatedAt != right.UpdatedAt {
+		return left.UpdatedAt > right.UpdatedAt
+	}
+	return len([]rune(strings.TrimSpace(left.Summary))) >= len([]rune(strings.TrimSpace(right.Summary)))
 }

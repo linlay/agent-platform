@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"regexp"
 	"strings"
 
 	"agent-platform-runner-go/internal/chat"
@@ -31,16 +32,21 @@ func CandidateFromRunTrace(trace chat.RunTrace, agentKey string, chatID string) 
 		return CandidateInput{}, false
 	}
 	return CandidateInput{
-		AgentKey:   strings.TrimSpace(agentKey),
-		ChatID:     strings.TrimSpace(chatID),
-		RunID:      strings.TrimSpace(trace.RunID),
-		SourceKind: "learn",
-		Title:      summarizeProcedureTitle(text),
-		Summary:    summarizeProcedureSummary(text),
-		Procedure:  text,
-		Category:   classifyProcedureCategory(text),
-		Confidence: 0.72,
-		Tags:       procedureTags(text),
+		AgentKey:        strings.TrimSpace(agentKey),
+		ChatID:          strings.TrimSpace(chatID),
+		RunID:           strings.TrimSpace(trace.RunID),
+		SourceKind:      "learn",
+		Title:           summarizeProcedureTitle(text),
+		Summary:         summarizeProcedureSummary(text),
+		Procedure:       text,
+		Intent:          summarizeWorkflowIntent(trace, text),
+		Preconditions:   extractWorkflowPreconditions(text),
+		Steps:           extractWorkflowSteps(text),
+		FailurePatterns: extractWorkflowFailurePatterns(text),
+		SuccessCriteria: extractWorkflowSuccessCriteria(text),
+		Category:        classifyProcedureCategory(text),
+		Confidence:      0.72,
+		Tags:            procedureTags(text),
 	}, true
 }
 
@@ -49,15 +55,20 @@ func CandidateFromObservation(agentKey string, sourceMemoryID string, summary st
 		return CandidateInput{}, false
 	}
 	return CandidateInput{
-		AgentKey:       strings.TrimSpace(agentKey),
-		SourceKind:     "consolidate",
-		SourceMemoryID: strings.TrimSpace(sourceMemoryID),
-		Title:          summarizeProcedureTitle(summary),
-		Summary:        summarizeProcedureSummary(summary),
-		Procedure:      strings.TrimSpace(summary),
-		Category:       normalizeText(category, "workflow"),
-		Confidence:     normalizeConfidence(confidence),
-		Tags:           procedureTags(summary),
+		AgentKey:        strings.TrimSpace(agentKey),
+		SourceKind:      "consolidate",
+		SourceMemoryID:  strings.TrimSpace(sourceMemoryID),
+		Title:           summarizeProcedureTitle(summary),
+		Summary:         summarizeProcedureSummary(summary),
+		Procedure:       strings.TrimSpace(summary),
+		Intent:          summarizeProcedureSummary(summary),
+		Preconditions:   extractWorkflowPreconditions(summary),
+		Steps:           extractWorkflowSteps(summary),
+		FailurePatterns: extractWorkflowFailurePatterns(summary),
+		SuccessCriteria: extractWorkflowSuccessCriteria(summary),
+		Category:        normalizeText(category, "workflow"),
+		Confidence:      normalizeConfidence(confidence),
+		Tags:            procedureTags(summary),
 	}, true
 }
 
@@ -121,4 +132,100 @@ func procedureTags(text string) []string {
 		tags = append(tags, "debugging")
 	}
 	return normalizeTags(tags)
+}
+
+func summarizeWorkflowIntent(trace chat.RunTrace, text string) string {
+	if trace.Query != nil {
+		if message, ok := trace.Query.Query["message"].(string); ok && strings.TrimSpace(message) != "" {
+			return strings.TrimSpace(message)
+		}
+	}
+	return summarizeProcedureSummary(text)
+}
+
+var sentenceSplitPattern = regexp.MustCompile(`[。\n]+`)
+
+func extractWorkflowSteps(text string) []string {
+	parts := splitWorkflowText(text)
+	steps := make([]string, 0, len(parts))
+	for _, part := range parts {
+		lower := strings.ToLower(part)
+		if strings.Contains(lower, "first") || strings.Contains(lower, "then") || strings.Contains(lower, "finally") ||
+			strings.Contains(lower, "step") || strings.Contains(lower, "verify") || strings.Contains(lower, "check") ||
+			strings.Contains(lower, "rollback") || strings.Contains(lower, "retry") {
+			steps = append(steps, part)
+		}
+	}
+	if len(steps) == 0 {
+		steps = parts
+	}
+	if len(steps) > 6 {
+		steps = steps[:6]
+	}
+	return normalizeTextList(steps)
+}
+
+func extractWorkflowPreconditions(text string) []string {
+	parts := splitWorkflowText(text)
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		lower := strings.ToLower(part)
+		if strings.Contains(lower, "before") || strings.Contains(lower, "ensure") || strings.Contains(lower, "confirm") || strings.Contains(lower, "verify") {
+			out = append(out, part)
+		}
+	}
+	if len(out) > 4 {
+		out = out[:4]
+	}
+	return normalizeTextList(out)
+}
+
+func extractWorkflowFailurePatterns(text string) []string {
+	parts := splitWorkflowText(text)
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		lower := strings.ToLower(part)
+		if strings.Contains(lower, "fail") || strings.Contains(lower, "error") || strings.Contains(lower, "timeout") ||
+			strings.Contains(lower, "rollback") || strings.Contains(lower, "retry") || strings.Contains(lower, "if ") {
+			out = append(out, part)
+		}
+	}
+	if len(out) > 4 {
+		out = out[:4]
+	}
+	return normalizeTextList(out)
+}
+
+func extractWorkflowSuccessCriteria(text string) []string {
+	parts := splitWorkflowText(text)
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		lower := strings.ToLower(part)
+		if strings.Contains(lower, "success") || strings.Contains(lower, "done") || strings.Contains(lower, "verified") ||
+			strings.Contains(lower, "healthy") || strings.Contains(lower, "pass") {
+			out = append(out, part)
+		}
+	}
+	return normalizeTextList(out)
+}
+
+func splitWorkflowText(text string) []string {
+	parts := sentenceSplitPattern.Split(strings.TrimSpace(text), -1)
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		trimmed := strings.TrimSpace(strings.Trim(trimmedBullet(part), "-*0123456789. "))
+		if trimmed == "" {
+			continue
+		}
+		out = append(out, trimmed)
+	}
+	return normalizeTextList(out)
+}
+
+func trimmedBullet(value string) string {
+	value = strings.TrimSpace(value)
+	for strings.HasPrefix(value, "-") || strings.HasPrefix(value, "*") {
+		value = strings.TrimSpace(value[1:])
+	}
+	return value
 }

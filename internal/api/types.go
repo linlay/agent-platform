@@ -278,7 +278,6 @@ type MemoryUsageSummary struct {
 	StableItems      []MemoryUsageItem `json:"stableItems,omitempty"`
 	SessionItems     []MemoryUsageItem `json:"sessionItems,omitempty"`
 	ObservationItems []MemoryUsageItem `json:"observationItems,omitempty"`
-	HitItems         []MemoryHitItem   `json:"hitItems,omitempty"`
 	UserHint         string            `json:"userHint,omitempty"`
 	StableChars      int               `json:"stableChars"`
 	SessionChars     int               `json:"sessionChars"`

@@ -11,35 +11,45 @@ import (
 )
 
 type Candidate struct {
-	ID             string   `json:"id"`
-	AgentKey       string   `json:"agentKey,omitempty"`
-	ChatID         string   `json:"chatId,omitempty"`
-	RunID          string   `json:"runId,omitempty"`
-	SourceKind     string   `json:"sourceKind,omitempty"`
-	SourceMemoryID string   `json:"sourceMemoryId,omitempty"`
-	Title          string   `json:"title"`
-	Summary        string   `json:"summary"`
-	Procedure      string   `json:"procedure"`
-	Category       string   `json:"category,omitempty"`
-	Confidence     float64  `json:"confidence,omitempty"`
-	Tags           []string `json:"tags,omitempty"`
-	Status         string   `json:"status,omitempty"`
-	CreatedAt      int64    `json:"createdAt"`
-	UpdatedAt      int64    `json:"updatedAt"`
+	ID              string   `json:"id"`
+	AgentKey        string   `json:"agentKey,omitempty"`
+	ChatID          string   `json:"chatId,omitempty"`
+	RunID           string   `json:"runId,omitempty"`
+	SourceKind      string   `json:"sourceKind,omitempty"`
+	SourceMemoryID  string   `json:"sourceMemoryId,omitempty"`
+	Title           string   `json:"title"`
+	Summary         string   `json:"summary"`
+	Procedure       string   `json:"procedure"`
+	Intent          string   `json:"intent,omitempty"`
+	Preconditions   []string `json:"preconditions,omitempty"`
+	Steps           []string `json:"steps,omitempty"`
+	FailurePatterns []string `json:"failurePatterns,omitempty"`
+	SuccessCriteria []string `json:"successCriteria,omitempty"`
+	Category        string   `json:"category,omitempty"`
+	Confidence      float64  `json:"confidence,omitempty"`
+	Tags            []string `json:"tags,omitempty"`
+	Status          string   `json:"status,omitempty"`
+	CreatedAt       int64    `json:"createdAt"`
+	UpdatedAt       int64    `json:"updatedAt"`
 }
 
 type CandidateInput struct {
-	AgentKey       string
-	ChatID         string
-	RunID          string
-	SourceKind     string
-	SourceMemoryID string
-	Title          string
-	Summary        string
-	Procedure      string
-	Category       string
-	Confidence     float64
-	Tags           []string
+	AgentKey        string
+	ChatID          string
+	RunID           string
+	SourceKind      string
+	SourceMemoryID  string
+	Title           string
+	Summary         string
+	Procedure       string
+	Intent          string
+	Preconditions   []string
+	Steps           []string
+	FailurePatterns []string
+	SuccessCriteria []string
+	Category        string
+	Confidence      float64
+	Tags            []string
 }
 
 type CandidateStore interface {
@@ -65,21 +75,26 @@ func (s *FileCandidateStore) Write(input CandidateInput) (Candidate, error) {
 
 	now := time.Now().UnixMilli()
 	candidate := Candidate{
-		ID:             "skillc_" + strings.ReplaceAll(strings.ToLower(strings.TrimSpace(input.AgentKey))+"_"+time.Now().Format("20060102150405.000000000"), ".", ""),
-		AgentKey:       strings.TrimSpace(input.AgentKey),
-		ChatID:         strings.TrimSpace(input.ChatID),
-		RunID:          strings.TrimSpace(input.RunID),
-		SourceKind:     normalizeText(input.SourceKind, "learn"),
-		SourceMemoryID: strings.TrimSpace(input.SourceMemoryID),
-		Title:          normalizeText(input.Title, "Untitled Skill Candidate"),
-		Summary:        strings.TrimSpace(input.Summary),
-		Procedure:      strings.TrimSpace(input.Procedure),
-		Category:       normalizeText(input.Category, "workflow"),
-		Confidence:     normalizeConfidence(input.Confidence),
-		Tags:           normalizeTags(input.Tags),
-		Status:         "candidate",
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		ID:              "skillc_" + strings.ReplaceAll(strings.ToLower(strings.TrimSpace(input.AgentKey))+"_"+time.Now().Format("20060102150405.000000000"), ".", ""),
+		AgentKey:        strings.TrimSpace(input.AgentKey),
+		ChatID:          strings.TrimSpace(input.ChatID),
+		RunID:           strings.TrimSpace(input.RunID),
+		SourceKind:      normalizeText(input.SourceKind, "learn"),
+		SourceMemoryID:  strings.TrimSpace(input.SourceMemoryID),
+		Title:           normalizeText(input.Title, "Untitled Skill Candidate"),
+		Summary:         strings.TrimSpace(input.Summary),
+		Procedure:       strings.TrimSpace(input.Procedure),
+		Intent:          strings.TrimSpace(input.Intent),
+		Preconditions:   normalizeTextList(input.Preconditions),
+		Steps:           normalizeTextList(input.Steps),
+		FailurePatterns: normalizeTextList(input.FailurePatterns),
+		SuccessCriteria: normalizeTextList(input.SuccessCriteria),
+		Category:        normalizeText(input.Category, "workflow"),
+		Confidence:      normalizeConfidence(input.Confidence),
+		Tags:            normalizeTags(input.Tags),
+		Status:          "candidate",
+		CreatedAt:       now,
+		UpdatedAt:       now,
 	}
 	if strings.TrimSpace(candidate.Procedure) == "" {
 		candidate.Procedure = candidate.Summary
@@ -166,6 +181,27 @@ func normalizeTags(tags []string) []string {
 		}
 		seen[normalized] = struct{}{}
 		out = append(out, normalized)
+	}
+	return out
+}
+
+func normalizeTextList(items []string) []string {
+	if len(items) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		trimmed := strings.TrimSpace(item)
+		if trimmed == "" {
+			continue
+		}
+		key := strings.ToLower(trimmed)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, trimmed)
 	}
 	return out
 }

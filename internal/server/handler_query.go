@@ -154,6 +154,7 @@ func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
 }
 
 func buildMemoryUsageSummary(staticMemoryPrompt string, bundle memory.ContextBundle) *api.MemoryUsageSummary {
+	hitItems := buildMemoryHitItems(bundle)
 	summary := &api.MemoryUsageSummary{
 		HasStaticMemory:  strings.TrimSpace(staticMemoryPrompt) != "",
 		StableCount:      len(bundle.StableFacts),
@@ -165,14 +166,13 @@ func buildMemoryUsageSummary(staticMemoryPrompt string, bundle memory.ContextBun
 		StableItems:      buildMemoryUsageItems(bundle.StableFacts),
 		SessionItems:     buildMemoryUsageItems(bundle.SessionSummaries),
 		ObservationItems: buildMemoryUsageItems(bundle.RelevantObservations),
-		HitItems:         buildMemoryHitItems(bundle),
 		DisclosedLayers:  append([]string(nil), bundle.DisclosedLayers...),
 		SnapshotID:       strings.TrimSpace(bundle.SnapshotID),
 		StopReason:       strings.TrimSpace(bundle.StopReason),
 		CandidateCounts:  cloneIntMap(bundle.CandidateCounts),
 		SelectedCounts:   cloneIntMap(bundle.SelectedCounts),
 	}
-	summary.UserHint = buildMemoryUserHint(summary.HitItems)
+	summary.UserHint = buildMemoryUserHint(hitItems)
 	if !summary.HasStaticMemory && summary.StableCount == 0 && summary.SessionCount == 0 && summary.ObservationCount == 0 {
 		return nil
 	}
@@ -277,9 +277,6 @@ func memoryUsageEventPayload(summary *api.MemoryUsageSummary, chatID string, run
 	}
 	if len(summary.ObservationItems) > 0 {
 		payload["observationItems"] = summary.ObservationItems
-	}
-	if len(summary.HitItems) > 0 {
-		payload["hitItems"] = summary.HitItems
 	}
 	if strings.TrimSpace(summary.UserHint) != "" {
 		payload["userHint"] = strings.TrimSpace(summary.UserHint)
