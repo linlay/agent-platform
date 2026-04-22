@@ -376,6 +376,81 @@ func TestWebSocketPushesChatUnreadAfterRunCompletion(t *testing.T) {
 	}
 }
 
+func TestWebSocketRunCompletionPushOrdering(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"content":"hello"},"finish_reason":"stop"}]}`,
+			`{"choices":[],"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}}`,
+			`[DONE]`,
+		)
+	}, testFixtureOptions{
+		notifications: ws.NewHub(),
+		configure: func(cfg *config.Config) {
+			cfg.WebSocket.Enabled = true
+			cfg.WebSocket.WriteQueueSize = 8
+			cfg.WebSocket.PingIntervalMs = 30000
+		},
+	})
+
+	server := httptest.NewServer(fixture.server)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
+	conn, _, err := gws.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer conn.Close()
+
+	waitForPushFrameType(t, conn, "connected")
+
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame: ws.FrameRequest,
+		Type:  "/api/query",
+		ID:    "req_query_order",
+		Payload: ws.MarshalPayload(map[string]any{
+			"chatId":   "chat_ws_order",
+			"runId":    "run_ws_order",
+			"agentKey": "mock-runner",
+			"message":  "hello ordering",
+		}),
+	}); err != nil {
+		t.Fatalf("write websocket query: %v", err)
+	}
+
+	sequence := make([]string, 0, 4)
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && len(sequence) < 4 {
+		if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+			t.Fatalf("set websocket read deadline: %v", err)
+		}
+		_, raw, err := conn.ReadMessage()
+		if err != nil {
+			t.Fatalf("read websocket message: %v", err)
+		}
+		var meta struct {
+			Frame  string `json:"frame"`
+			ID     string `json:"id"`
+			Type   string `json:"type"`
+			Reason string `json:"reason"`
+		}
+		if err := json.Unmarshal(raw, &meta); err != nil {
+			t.Fatalf("decode websocket frame: %v", err)
+		}
+		switch {
+		case meta.Frame == ws.FrameStream && meta.ID == "req_query_order" && meta.Reason != "":
+			sequence = append(sequence, "stream.done")
+		case meta.Frame == ws.FramePush && (meta.Type == "run.finished" || meta.Type == "chat.unread" || meta.Type == "chat.updated"):
+			sequence = append(sequence, meta.Type)
+		}
+	}
+
+	want := []string{"stream.done", "run.finished", "chat.unread", "chat.updated"}
+	if !reflect.DeepEqual(sequence, want) {
+		t.Fatalf("unexpected websocket completion order: got %v want %v", sequence, want)
+	}
+}
+
 func TestWebSocketRunStreamClosesDuringShutdown(t *testing.T) {
 	hub := ws.NewHub()
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {

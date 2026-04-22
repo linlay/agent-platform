@@ -132,16 +132,23 @@ func StartRunExecutor(params RunExecutorParams) {
 
 func runExecutor(params RunExecutorParams) {
 	tracker := &awaitingTracker{}
+	var (
+		persisted  bool
+		completion chat.RunCompletion
+	)
 	defer func() {
 		maybeBroadcastInterruptedAwaiting(params, tracker)
 		if params.StepWriter != nil {
 			params.StepWriter.Flush()
 		}
 		if params.EventBus != nil {
-			params.EventBus.Freeze()
+			params.EventBus.FreezeAndWait()
 		}
 		if params.OnComplete != nil {
 			params.OnComplete(params.Session.RunID)
+		}
+		if persisted {
+			broadcastRunCompletion(params, completion)
 		}
 	}()
 
@@ -186,7 +193,7 @@ func runExecutor(params RunExecutorParams) {
 		for _, event := range params.Assembler.Fail(err) {
 			publish(event)
 		}
-		persistRunCompletionIfNeeded(params, assistantText.String(), runUsage, false)
+		persisted, completion = persistRunCompletionIfNeeded(params, assistantText.String(), runUsage, false)
 		return
 	}
 	defer agentStream.Close()
@@ -232,14 +239,14 @@ func runExecutor(params RunExecutorParams) {
 	}
 
 	if streamFailed || streamInterrupted {
-		persistRunCompletionIfNeeded(params, assistantText.String(), runUsage, false)
+		persisted, completion = persistRunCompletionIfNeeded(params, assistantText.String(), runUsage, false)
 		return
 	}
 
 	for _, event := range params.Assembler.Complete() {
 		publish(event)
 	}
-	persistRunCompletionIfNeeded(params, assistantText.String(), runUsage, true)
+	persisted, completion = persistRunCompletionIfNeeded(params, assistantText.String(), runUsage, true)
 }
 
 func handleAwaitingLifecycle(params RunExecutorParams, data stream.EventData, tracker *awaitingTracker) {
@@ -339,12 +346,12 @@ func maybeBroadcastInterruptedAwaiting(params RunExecutorParams, tracker *awaiti
 	tracker.pendingMode = ""
 }
 
-func persistRunCompletionIfNeeded(params RunExecutorParams, assistantText string, runUsage chat.UsageData, always bool) {
+func persistRunCompletionIfNeeded(params RunExecutorParams, assistantText string, runUsage chat.UsageData, always bool) (bool, chat.RunCompletion) {
 	if params.Chats == nil {
-		return
+		return false, chat.RunCompletion{}
 	}
 	if !always && runUsage.TotalTokens == 0 {
-		return
+		return false, chat.RunCompletion{}
 	}
 	completion := chat.RunCompletion{
 		ChatID:          params.Session.ChatID,
@@ -355,15 +362,22 @@ func persistRunCompletionIfNeeded(params RunExecutorParams, assistantText string
 		Usage:           runUsage,
 	}
 	if err := params.Chats.OnRunCompleted(completion); err != nil {
+		return false, chat.RunCompletion{}
+	}
+	if always && params.OnPersisted != nil {
+		params.OnPersisted(completion)
+	}
+	return true, completion
+}
+
+func broadcastRunCompletion(params RunExecutorParams, completion chat.RunCompletion) {
+	if params.Chats == nil {
 		return
 	}
 	if params.OnUnreadChanged != nil {
 		if sum, err := params.Chats.Summary(completion.ChatID); err == nil && sum != nil {
 			params.OnUnreadChanged(*sum)
 		}
-	}
-	if always && params.OnPersisted != nil {
-		params.OnPersisted(completion)
 	}
 	if params.Notifications != nil {
 		params.Notifications.Broadcast("chat.updated", map[string]any{

@@ -36,9 +36,11 @@ type Observer struct {
 	ID     string
 	Events <-chan EventData
 
-	live bool
-	ch   chan EventData
-	once sync.Once
+	live     bool
+	ch       chan EventData
+	once     sync.Once
+	done     chan struct{}
+	doneOnce sync.Once
 }
 
 func (o *Observer) closeCh() {
@@ -48,6 +50,24 @@ func (o *Observer) closeCh() {
 	o.once.Do(func() {
 		close(o.ch)
 	})
+}
+
+func (o *Observer) MarkDone() {
+	if o == nil || o.done == nil {
+		return
+	}
+	o.doneOnce.Do(func() {
+		close(o.done)
+	})
+}
+
+func (o *Observer) Done() <-chan struct{} {
+	if o == nil || o.done == nil {
+		ch := make(chan struct{})
+		close(ch)
+		return ch
+	}
+	return o.done
 }
 
 type RunEventBus struct {
@@ -124,6 +144,7 @@ func (b *RunEventBus) Publish(event EventData) {
 
 	for _, observer := range droppedObs {
 		observer.closeCh()
+		observer.MarkDone()
 	}
 	if onCountChange != nil {
 		onCountChange(observerCount)
@@ -168,6 +189,7 @@ func (b *RunEventBus) Subscribe(afterSeq int64) (*Observer, error) {
 		ID:   id,
 		ch:   make(chan EventData, bufferSize),
 		live: !b.frozen,
+		done: make(chan struct{}),
 	}
 	observer.Events = observer.ch
 	for _, event := range replay {
@@ -188,6 +210,7 @@ func (b *RunEventBus) Subscribe(afterSeq int64) (*Observer, error) {
 	}
 	if frozen {
 		observer.closeCh()
+		observer.MarkDone()
 	}
 	return observer, nil
 }
@@ -216,6 +239,7 @@ func (b *RunEventBus) Unsubscribe(observerID string) {
 		return
 	}
 	observer.closeCh()
+	observer.MarkDone()
 	if onCountChange != nil {
 		onCountChange(observerCount)
 	}
@@ -247,6 +271,41 @@ func (b *RunEventBus) Freeze() {
 
 	for _, observer := range observers {
 		observer.closeCh()
+	}
+	if onCountChange != nil {
+		onCountChange(0)
+	}
+}
+
+func (b *RunEventBus) FreezeAndWait() {
+	if b == nil {
+		return
+	}
+
+	var (
+		observers     []*Observer
+		onCountChange func(int)
+	)
+
+	b.mu.Lock()
+	if b.frozen {
+		b.mu.Unlock()
+		return
+	}
+	b.frozen = true
+	observers = make([]*Observer, 0, len(b.observers))
+	for _, observer := range b.observers {
+		observers = append(observers, observer)
+	}
+	b.observers = map[string]*Observer{}
+	onCountChange = b.onObserverCountChange
+	b.mu.Unlock()
+
+	for _, observer := range observers {
+		observer.closeCh()
+	}
+	for _, observer := range observers {
+		<-observer.Done()
 	}
 	if onCountChange != nil {
 		onCountChange(0)

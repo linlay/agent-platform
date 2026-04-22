@@ -85,6 +85,33 @@ func TestHTTPQueryStreamClosesDuringRootContextShutdown(t *testing.T) {
 	}
 }
 
+func TestHTTPAsyncQueryWritesDoneSentinel(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"content":"async hello"},"finish_reason":"stop"}]}`,
+			`{"choices":[],"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}}`,
+			`[DONE]`,
+		)
+	}, testFixtureOptions{})
+
+	httpServer := newLoopbackServer(t, fixture.server)
+	defer httpServer.Close()
+
+	resp, err := http.Post(httpServer.URL+"/api/query?async=1", "application/json", bytes.NewBufferString(`{"message":"stream async"}`))
+	if err != nil {
+		t.Fatalf("post async query: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, readBodyString(t, resp.Body))
+	}
+
+	body := readBodyString(t, resp.Body)
+	if !strings.Contains(body, "data: [DONE]") {
+		t.Fatalf("expected async SSE done sentinel, got %s", body)
+	}
+}
+
 func TestHTTPRunStreamDetachesObserverDuringRootContextShutdown(t *testing.T) {
 	rootCtx, cancelRoot := context.WithCancel(context.Background())
 	defer cancelRoot()

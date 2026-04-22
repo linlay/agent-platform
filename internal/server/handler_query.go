@@ -368,6 +368,7 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 		return
 	}
 	defer s.deps.Runs.DetachObserver(prepared.req.RunID, observer.ID)
+	defer observer.MarkDone()
 
 	assembler, mapper := s.newAssemblerAndMapper(prepared)
 	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode, isHiddenRequest(prepared.req))
@@ -481,7 +482,7 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 		for _, event := range assembler.Fail(err) {
 			_ = writeEvent(event)
 		}
-		persistRunCompletionIfNeeded(RunExecutorParams{
+		_, _ = persistRunCompletionIfNeeded(RunExecutorParams{
 			Request:       prepared.req,
 			Session:       prepared.session,
 			Chats:         s.deps.Chats,
@@ -536,7 +537,7 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 
 	processor.stepWriter.Flush()
 	if streamFailed || streamInterrupted {
-		persistRunCompletionIfNeeded(RunExecutorParams{
+		_, _ = persistRunCompletionIfNeeded(RunExecutorParams{
 			Request:       prepared.req,
 			Session:       prepared.session,
 			Chats:         s.deps.Chats,
@@ -562,7 +563,7 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 			return
 		}
 	}
-	persistRunCompletionIfNeeded(RunExecutorParams{
+	_, _ = persistRunCompletionIfNeeded(RunExecutorParams{
 		Request:       prepared.req,
 		Session:       prepared.session,
 		Chats:         s.deps.Chats,
