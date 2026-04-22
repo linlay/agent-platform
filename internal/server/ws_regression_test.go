@@ -289,7 +289,11 @@ func newServerForHelperTests(t *testing.T) (*Server, *chat.FileStore, *memory.Fi
 	}
 	server := &Server{
 		deps: Dependencies{
-			Config: config.Config{},
+			Config: config.Config{
+				Memory: config.MemoryConfig{
+					AutoRememberEnabled: true,
+				},
+			},
 			Chats:  chats,
 			Memory: memories,
 		},
