@@ -123,13 +123,13 @@ func (p *openAIProtocol) PrepareRequest(params protocolStreamParams) (preparedPr
 	if err != nil {
 		return preparedProviderRequest{}, err
 	}
-	normalizedBody, tools, err := normalizePreparedRequestBody(body)
+	normalizedBody, err := normalizePreparedRequestBody(body)
 	if err != nil {
 		return preparedProviderRequest{}, err
 	}
 	headers := map[string]string{
-		"Content-Type": "application/json",
-		"Accept":       "text/event-stream",
+		"Content-Type":  "application/json",
+		"Accept":        "text/event-stream",
 		"Authorization": "Bearer " + params.provider.APIKey,
 	}
 	for key, value := range params.protocolConfig.Headers {
@@ -139,8 +139,6 @@ func (p *openAIProtocol) PrepareRequest(params protocolStreamParams) (preparedPr
 		Endpoint:        endpoint,
 		RequestBody:     normalizedBody,
 		RequestBodyJSON: body,
-		SystemPrompt:    extractOpenAISystemPrompt(params.messages),
-		Tools:           tools,
 		Headers:         headers,
 	}, nil
 }
@@ -222,20 +220,6 @@ func toOpenAIToolSpecs(defs []api.ToolDetailResponse) []openAIToolSpec {
 		})
 	}
 	return out
-}
-
-func extractOpenAISystemPrompt(messages []openAIMessage) string {
-	parts := make([]string, 0, len(messages))
-	for _, message := range messages {
-		if strings.TrimSpace(message.Role) != "system" {
-			continue
-		}
-		text := strings.TrimSpace(anthropicTextFromContent(message.Content))
-		if text != "" {
-			parts = append(parts, text)
-		}
-	}
-	return strings.Join(parts, "\n\n")
 }
 
 // rawMessageToOpenAI converts a raw_messages.jsonl entry to an openAIMessage.

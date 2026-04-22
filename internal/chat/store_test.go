@@ -1850,10 +1850,6 @@ func TestLoadChatReadsUsageFromStepLevel(t *testing.T) {
 				"requestBody": map[string]any{
 					"model": "mock-model-id",
 				},
-				"systemPrompt": "system prompt",
-				"tools": []map[string]any{
-					{"name": "search"},
-				},
 			},
 		},
 		ContextWindow: map[string]any{
@@ -1893,7 +1889,6 @@ func TestLoadChatReadsUsageFromStepLevel(t *testing.T) {
 	preCallModel, _ := preCallData["model"].(map[string]any)
 	preCallCW, _ := preCallData["contextWindow"].(map[string]any)
 	preCallRequestBody, _ := preCallData["requestBody"].(map[string]any)
-	preCallTools, _ := preCallData["tools"].([]any)
 	if toIntValue(preCallCW["max_size"]) != 128000 || toIntValue(preCallCW["actual_size"]) != 100 || toIntValue(preCallCW["estimated_size"]) != 200 {
 		t.Fatalf("unexpected debug.preCall context window %#v", detail.Events[3])
 	}
@@ -1903,8 +1898,14 @@ func TestLoadChatReadsUsageFromStepLevel(t *testing.T) {
 	if preCallModel["key"] != "mock-model" || preCallModel["id"] != "mock-model-id" {
 		t.Fatalf("unexpected debug.preCall model %#v", detail.Events[3])
 	}
-	if preCallRequestBody["model"] != "mock-model-id" || preCallData["systemPrompt"] != "system prompt" || len(preCallTools) != 1 {
+	if preCallRequestBody["model"] != "mock-model-id" {
 		t.Fatalf("unexpected debug.preCall payload %#v", detail.Events[3])
+	}
+	if _, exists := preCallData["systemPrompt"]; exists {
+		t.Fatalf("did not expect legacy systemPrompt in debug.preCall payload %#v", detail.Events[3])
+	}
+	if _, exists := preCallData["tools"]; exists {
+		t.Fatalf("did not expect legacy tools in debug.preCall payload %#v", detail.Events[3])
 	}
 
 	postCallData, _ := detail.Events[5].Value("data").(map[string]any)

@@ -1347,7 +1347,6 @@ func TestQueryAndRunStreamIncludeDebugEventsWhenEnabled(t *testing.T) {
 	provider, _ := preCallData["provider"].(map[string]any)
 	model, _ := preCallData["model"].(map[string]any)
 	requestBody, _ := preCallData["requestBody"].(map[string]any)
-	tools, _ := preCallData["tools"].([]any)
 	if provider["key"] != "mock" {
 		t.Fatalf("expected provider key mock, got %#v", provider)
 	}
@@ -1357,14 +1356,14 @@ func TestQueryAndRunStreamIncludeDebugEventsWhenEnabled(t *testing.T) {
 	if model["key"] != "mock-model" || model["id"] != "mock-model-id" {
 		t.Fatalf("unexpected model payload %#v", model)
 	}
-	if preCallData["systemPrompt"] == "" {
-		t.Fatalf("expected non-empty systemPrompt, got %#v", preCallData)
-	}
 	if len(requestBody) == 0 {
 		t.Fatalf("expected requestBody payload, got %#v", preCallData)
 	}
-	if len(tools) == 0 {
-		t.Fatalf("expected tools payload, got %#v", preCallData)
+	if _, exists := preCallData["systemPrompt"]; exists {
+		t.Fatalf("did not expect systemPrompt in debug.preCall payload, got %#v", preCallData)
+	}
+	if _, exists := preCallData["tools"]; exists {
+		t.Fatalf("did not expect tools in debug.preCall payload, got %#v", preCallData)
 	}
 	runID, _ := messages[0]["runId"].(string)
 	if runID == "" {

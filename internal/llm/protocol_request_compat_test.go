@@ -137,14 +137,11 @@ func TestOpenAIProtocolPrepareRequestExposesDebugPayload(t *testing.T) {
 			if hasScoped != tc.wantScoped {
 				t.Fatalf("expected reasoning_mode present=%v, got body %#v", tc.wantScoped, prepared.RequestBody)
 			}
-			if prepared.SystemPrompt != "system prompt" {
-				t.Fatalf("unexpected system prompt %q", prepared.SystemPrompt)
-			}
-			if len(prepared.Tools) != 1 {
-				t.Fatalf("expected one tool in debug payload, got %#v", prepared.Tools)
-			}
 			if _, ok := prepared.RequestBody["messages"].([]any); !ok {
 				t.Fatalf("expected normalized messages array, got %#v", prepared.RequestBody["messages"])
+			}
+			if tools, _ := prepared.RequestBody["tools"].([]any); len(tools) != 1 {
+				t.Fatalf("expected one tool in request body, got %#v", prepared.RequestBody)
 			}
 		})
 	}
@@ -170,7 +167,7 @@ func TestAnthropicPrepareRequestExposesDebugPayload(t *testing.T) {
 					BaseURL: "https://example.com",
 					APIKey:  "token",
 				},
-				model: ModelDefinition{ModelID: "claude-test"},
+				model:         ModelDefinition{ModelID: "claude-test"},
 				stageSettings: StageSettings{ReasoningEnabled: tc.reasoningEnabled},
 				messages: []openAIMessage{
 					{Role: "system", Content: "anthropic system"},
@@ -204,9 +201,6 @@ func TestAnthropicPrepareRequestExposesDebugPayload(t *testing.T) {
 				t.Fatalf("PrepareRequest returned error: %v", err)
 			}
 
-			if prepared.SystemPrompt != "anthropic system" {
-				t.Fatalf("unexpected system prompt %q", prepared.SystemPrompt)
-			}
 			if prepared.RequestBody["anthropic-beta"] != "tools-2024-04-04" {
 				t.Fatalf("expected unconditional anthropic override, got %#v", prepared.RequestBody)
 			}
@@ -220,8 +214,8 @@ func TestAnthropicPrepareRequestExposesDebugPayload(t *testing.T) {
 					t.Fatalf("expected compat thinking override to win, got %#v", prepared.RequestBody)
 				}
 			}
-			if len(prepared.Tools) != 1 {
-				t.Fatalf("expected one tool in debug payload, got %#v", prepared.Tools)
+			if tools, _ := prepared.RequestBody["tools"].([]any); len(tools) != 1 {
+				t.Fatalf("expected one tool in request body, got %#v", prepared.RequestBody)
 			}
 		})
 	}

@@ -23,8 +23,6 @@ type preparedProviderRequest struct {
 	Endpoint        string
 	RequestBody     map[string]any
 	RequestBodyJSON []byte
-	SystemPrompt    string
-	Tools           []any
 	Headers         map[string]string
 }
 
@@ -60,16 +58,12 @@ func resolveProviderEndpoint(params protocolStreamParams) (string, error) {
 	return strings.TrimRight(params.provider.BaseURL, "/") + params.protocolConfig.EndpointPath, nil
 }
 
-func normalizePreparedRequestBody(body []byte) (map[string]any, []any, error) {
+func normalizePreparedRequestBody(body []byte) (map[string]any, error) {
 	var requestBody map[string]any
 	if err := json.Unmarshal(body, &requestBody); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	tools, _ := requestBody["tools"].([]any)
-	if tools == nil {
-		tools = []any{}
-	}
-	return requestBody, tools, nil
+	return requestBody, nil
 }
 
 func (e *LLMAgentEngine) executeProviderRequest(req *http.Request) (*providerTurnStream, error) {

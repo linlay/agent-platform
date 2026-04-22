@@ -294,8 +294,6 @@ func (s *llmRunStream) prepareNextTurn() error {
 		ModelKey:              s.model.Key,
 		ModelID:               s.model.ModelID,
 		RequestBody:           preparedRequest.RequestBody,
-		SystemPrompt:          preparedRequest.SystemPrompt,
-		Tools:                 preparedRequest.Tools,
 		ContextWindow:         s.effectiveContextWindow(),
 		CurrentContextSize:    s.currentContextSize(),
 		EstimatedNextCallSize: s.estimatedNextCallSize(),
