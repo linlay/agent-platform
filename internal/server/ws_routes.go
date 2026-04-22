@@ -78,7 +78,13 @@ func (s *Server) wsAgents(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	conn.SendResponse(req.Type, req.ID, 0, "success", s.deps.Registry.Agents(payload.Tag))
+	items, listErr := s.listAgentSummaries(payload.Tag)
+	if listErr != nil {
+		conn.SendError(req.ID, "internal_error", 500, listErr.Error(), nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	conn.SendResponse(req.Type, req.ID, 0, "success", items)
 	conn.CompleteRequest(req.ID)
 }
 
@@ -214,7 +220,7 @@ func (s *Server) wsRead(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	summary, markErr := s.deps.Chats.MarkRead(payload.ChatID)
+	summary, markErr := s.deps.Chats.MarkRead(payload.ChatID, payload.RunID)
 	if errors.Is(markErr, chat.ErrChatNotFound) {
 		conn.SendError(req.ID, "not_found", 404, "chat not found", nil)
 		conn.CompleteRequest(req.ID)
@@ -225,16 +231,14 @@ func (s *Server) wsRead(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	readAt := int64(0)
-	if summary.ReadAt != nil {
-		readAt = *summary.ReadAt
+	agentUnreadCount, err := s.agentUnreadCount(summary.AgentKey)
+	if err != nil {
+		conn.SendError(req.ID, "internal_error", 500, err.Error(), nil)
+		conn.CompleteRequest(req.ID)
+		return
 	}
-	s.broadcast("chat.read", map[string]any{"chatId": summary.ChatID, "readStatus": summary.ReadStatus, "readAt": readAt})
-	conn.SendResponse(req.Type, req.ID, 0, "success", api.MarkChatReadResponse{
-		ChatID:     summary.ChatID,
-		ReadStatus: summary.ReadStatus,
-		ReadAt:     readAt,
-	})
+	s.broadcastChatReadState("chat.read", summary, agentUnreadCount)
+	conn.SendResponse(req.Type, req.ID, 0, "success", s.buildMarkReadResponse(summary, agentUnreadCount))
 	conn.CompleteRequest(req.ID)
 }
 
@@ -306,6 +310,13 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 		RunControl:        control,
 		BuildQuerySession: s.BuildQuerySession,
 		Notifications:     s.deps.Notifications,
+		OnUnreadChanged: func(summary chat.Summary) {
+			agentUnreadCount, err := s.agentUnreadCount(summary.AgentKey)
+			if err != nil {
+				return
+			}
+			s.broadcastChatReadState("chat.unread", summary, agentUnreadCount)
+		},
 		OnPersisted: func(completion chat.RunCompletion) {
 			s.autoLearnIfEnabled(completion.ChatID, completion.RunID, prepared.session.AgentKey, prepared.session.TeamID, principal, prepared.req.RequestID)
 		},

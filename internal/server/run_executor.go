@@ -30,6 +30,7 @@ type RunExecutorParams struct {
 	RunControl        *contracts.RunControl
 	BuildQuerySession func(context.Context, api.QueryRequest, chat.Summary, catalog.AgentDefinition, querySessionBuildOptions) (contracts.QuerySession, error)
 	Notifications     contracts.NotificationSink
+	OnUnreadChanged   func(chat.Summary)
 	OnPersisted       func(chat.RunCompletion)
 	OnComplete        func(string)
 }
@@ -355,6 +356,11 @@ func persistRunCompletionIfNeeded(params RunExecutorParams, assistantText string
 	}
 	if err := params.Chats.OnRunCompleted(completion); err != nil {
 		return
+	}
+	if params.OnUnreadChanged != nil {
+		if sum, err := params.Chats.Summary(completion.ChatID); err == nil && sum != nil {
+			params.OnUnreadChanged(*sum)
+		}
 	}
 	if always && params.OnPersisted != nil {
 		params.OnPersisted(completion)

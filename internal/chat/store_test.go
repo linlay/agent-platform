@@ -157,6 +157,9 @@ func TestFileStoreMigratesLegacyDBAndRoundTripsPendingAwaiting(t *testing.T) {
 	if summary == nil || summary.PendingAwaiting != nil {
 		t.Fatalf("expected migrated summary without pending awaiting, got %#v", summary)
 	}
+	if summary.Read.ReadRunID != "" || !summary.Read.IsRead {
+		t.Fatalf("expected migrated summary to preserve read state, got %#v", summary.Read)
+	}
 
 	pending := PendingAwaiting{
 		AwaitingID: "await_legacy",
@@ -183,6 +186,124 @@ func TestFileStoreMigratesLegacyDBAndRoundTripsPendingAwaiting(t *testing.T) {
 	}
 	if summary == nil || summary.PendingAwaiting != nil {
 		t.Fatalf("expected pending awaiting cleared after migration round trip, got %#v", summary)
+	}
+
+	db, err = sql.Open("sqlite", filepath.Join(root, "chats.db"))
+	if err != nil {
+		t.Fatalf("reopen migrated chats db: %v", err)
+	}
+	defer db.Close()
+	rows, err := db.Query(`PRAGMA table_info(CHATS)`)
+	if err != nil {
+		t.Fatalf("pragma table_info: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, dataType string
+		var notNull, pk int
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &pk); err != nil {
+			t.Fatalf("scan table info: %v", err)
+		}
+		if name == "READ_STATUS_" {
+			t.Fatal("expected READ_STATUS_ column to be removed during migration")
+		}
+	}
+}
+
+func TestFileStoreMarkReadAdvancesWatermarkAndClampsFutureRunID(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-read", "agent-a", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	run1 := "loyw3v28"
+	run2 := "loyw3v2s"
+	if err := store.OnRunCompleted(RunCompletion{
+		ChatID:          "chat-read",
+		RunID:           run1,
+		AssistantText:   "first",
+		UpdatedAtMillis: time.Now().UnixMilli(),
+	}); err != nil {
+		t.Fatalf("complete first run: %v", err)
+	}
+	if err := store.OnRunCompleted(RunCompletion{
+		ChatID:          "chat-read",
+		RunID:           run2,
+		AssistantText:   "second",
+		UpdatedAtMillis: time.Now().UnixMilli(),
+	}); err != nil {
+		t.Fatalf("complete second run: %v", err)
+	}
+
+	sum, err := store.MarkRead("chat-read", run1)
+	if err != nil {
+		t.Fatalf("mark read run1: %v", err)
+	}
+	if sum.Read.ReadRunID != run1 || sum.Read.IsRead {
+		t.Fatalf("expected partial read watermark at run1, got %#v", sum.Read)
+	}
+	firstReadAt := sum.Read.ReadAt
+
+	sum, err = store.MarkRead("chat-read", "zzzzzzzz")
+	if err != nil {
+		t.Fatalf("mark read future run: %v", err)
+	}
+	if sum.Read.ReadRunID != run2 || !sum.Read.IsRead {
+		t.Fatalf("expected future run to clamp to last run, got %#v", sum.Read)
+	}
+	if sum.Read.ReadAt == nil || firstReadAt == nil || *sum.Read.ReadAt < *firstReadAt {
+		t.Fatalf("expected readAt to refresh monotonically, got old=%v new=%v", firstReadAt, sum.Read.ReadAt)
+	}
+
+	sum, err = store.MarkRead("chat-read", run1)
+	if err != nil {
+		t.Fatalf("mark read stale run: %v", err)
+	}
+	if sum.Read.ReadRunID != run2 {
+		t.Fatalf("expected read watermark not to roll back, got %#v", sum.Read)
+	}
+}
+
+func TestFileStoreAgentChatStatsAggregatesUnreadCounts(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-a1", "agent-a", "", "hello"); err != nil {
+		t.Fatalf("ensure chat-a1: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-a2", "agent-a", "", "hello"); err != nil {
+		t.Fatalf("ensure chat-a2: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-b1", "agent-b", "", "hello"); err != nil {
+		t.Fatalf("ensure chat-b1: %v", err)
+	}
+	if err := store.OnRunCompleted(RunCompletion{ChatID: "chat-a1", RunID: "loyw3v28", UpdatedAtMillis: time.Now().UnixMilli()}); err != nil {
+		t.Fatalf("complete chat-a1: %v", err)
+	}
+	if err := store.OnRunCompleted(RunCompletion{ChatID: "chat-a2", RunID: "loyw3v2s", UpdatedAtMillis: time.Now().UnixMilli()}); err != nil {
+		t.Fatalf("complete chat-a2: %v", err)
+	}
+	if err := store.OnRunCompleted(RunCompletion{ChatID: "chat-b1", RunID: "loyw3v34", UpdatedAtMillis: time.Now().UnixMilli()}); err != nil {
+		t.Fatalf("complete chat-b1: %v", err)
+	}
+	if _, err := store.MarkRead("chat-a1", "loyw3v28"); err != nil {
+		t.Fatalf("mark chat-a1 read: %v", err)
+	}
+
+	stats, err := store.AgentChatStats()
+	if err != nil {
+		t.Fatalf("agent chat stats: %v", err)
+	}
+	if got := stats["agent-a"]; got.TotalCount != 2 || got.UnreadCount != 1 {
+		t.Fatalf("unexpected agent-a stats: %#v", got)
+	}
+	if got := stats["agent-b"]; got.TotalCount != 1 || got.UnreadCount != 1 {
+		t.Fatalf("unexpected agent-b stats: %#v", got)
 	}
 }
 

@@ -156,10 +156,20 @@ type Summary struct {
 	UpdatedAt       int64            `json:"updatedAt"`
 	LastRunID       string           `json:"lastRunId,omitempty"`
 	LastRunContent  string           `json:"lastRunContent,omitempty"`
-	ReadStatus      int              `json:"readStatus"`
-	ReadAt          *int64           `json:"readAt,omitempty"`
+	Read            ChatReadState    `json:"read"`
 	PendingAwaiting *PendingAwaiting `json:"pendingAwaiting,omitempty"`
 	Usage           *UsageData       `json:"usage,omitempty"`
+}
+
+type ChatReadState struct {
+	IsRead    bool   `json:"isRead"`
+	ReadAt    *int64 `json:"readAt,omitempty"`
+	ReadRunID string `json:"readRunId,omitempty"`
+}
+
+type AgentChatStats struct {
+	TotalCount  int `json:"totalCount"`
+	UnreadCount int `json:"unreadCount"`
 }
 
 type PendingAwaiting struct {

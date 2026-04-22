@@ -281,6 +281,10 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, req ap
 			UpdatedAtMillis: time.Now().UnixMilli(),
 		}); err != nil {
 			log.Printf("[proxy] OnRunCompleted failed: %v", err)
+		} else if sum, err := chatStore.Summary(req.ChatID); err == nil && sum != nil {
+			if agentUnreadCount, err := s.agentUnreadCount(sum.AgentKey); err == nil {
+				s.broadcastChatReadState("chat.unread", *sum, agentUnreadCount)
+			}
 		}
 	}
 

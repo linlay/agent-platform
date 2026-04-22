@@ -8,7 +8,12 @@ import (
 )
 
 func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, api.Success(s.deps.Registry.Agents(r.URL.Query().Get("tag"))))
+	items, err := s.listAgentSummaries(r.URL.Query().Get("tag"))
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
+		return
+	}
+	writeJSON(w, http.StatusOK, api.Success(items))
 }
 
 func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {

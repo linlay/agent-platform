@@ -388,6 +388,13 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 		RunControl:        control,
 		BuildQuerySession: s.BuildQuerySession,
 		Notifications:     s.deps.Notifications,
+		OnUnreadChanged: func(summary chat.Summary) {
+			agentUnreadCount, err := s.agentUnreadCount(summary.AgentKey)
+			if err != nil {
+				return
+			}
+			s.broadcastChatReadState("chat.unread", summary, agentUnreadCount)
+		},
 		OnPersisted: func(completion chat.RunCompletion) {
 			s.autoLearnIfEnabled(completion.ChatID, completion.RunID, prepared.session.AgentKey, prepared.session.TeamID, principal, prepared.req.RequestID)
 		},
@@ -480,6 +487,13 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 			Chats:         s.deps.Chats,
 			RunControl:    control,
 			Notifications: s.deps.Notifications,
+			OnUnreadChanged: func(summary chat.Summary) {
+				agentUnreadCount, err := s.agentUnreadCount(summary.AgentKey)
+				if err != nil {
+					return
+				}
+				s.broadcastChatReadState("chat.unread", summary, agentUnreadCount)
+			},
 			OnPersisted: func(completion chat.RunCompletion) {
 				s.autoLearnIfEnabled(completion.ChatID, completion.RunID, prepared.session.AgentKey, prepared.session.TeamID, principal, prepared.req.RequestID)
 			},
@@ -528,6 +542,13 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 			Chats:         s.deps.Chats,
 			RunControl:    control,
 			Notifications: s.deps.Notifications,
+			OnUnreadChanged: func(summary chat.Summary) {
+				agentUnreadCount, err := s.agentUnreadCount(summary.AgentKey)
+				if err != nil {
+					return
+				}
+				s.broadcastChatReadState("chat.unread", summary, agentUnreadCount)
+			},
 			OnPersisted: func(completion chat.RunCompletion) {
 				s.autoLearnIfEnabled(completion.ChatID, completion.RunID, prepared.session.AgentKey, prepared.session.TeamID, principal, prepared.req.RequestID)
 			},
@@ -547,6 +568,13 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 		Chats:         s.deps.Chats,
 		RunControl:    control,
 		Notifications: s.deps.Notifications,
+		OnUnreadChanged: func(summary chat.Summary) {
+			agentUnreadCount, err := s.agentUnreadCount(summary.AgentKey)
+			if err != nil {
+				return
+			}
+			s.broadcastChatReadState("chat.unread", summary, agentUnreadCount)
+		},
 		OnPersisted: func(completion chat.RunCompletion) {
 			s.autoLearnIfEnabled(completion.ChatID, completion.RunID, prepared.session.AgentKey, prepared.session.TeamID, principal, prepared.req.RequestID)
 		},
