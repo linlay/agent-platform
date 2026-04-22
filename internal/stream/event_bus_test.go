@@ -3,6 +3,7 @@ package stream
 import (
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestRunEventBusReplaysAndFreezes(t *testing.T) {
@@ -88,6 +89,89 @@ func TestRunEventBusCloseIsIdempotent(t *testing.T) {
 	bus.Freeze()
 	bus.Unsubscribe(observer.ID)
 	observer.closeCh()
+}
+
+func TestRunEventBusFreezeAndWaitBlocksUntilObserverDone(t *testing.T) {
+	bus := NewRunEventBus(16, 0, nil)
+	observer, err := bus.Subscribe(0)
+	if err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+
+	release := make(chan struct{})
+	go func() {
+		for range observer.Events {
+		}
+		<-release
+		observer.MarkDone()
+	}()
+
+	freezeDone := make(chan struct{})
+	go func() {
+		bus.FreezeAndWait()
+		close(freezeDone)
+	}()
+
+	select {
+	case <-freezeDone:
+		t.Fatalf("expected FreezeAndWait to block until observer completion")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(release)
+
+	select {
+	case <-freezeDone:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for FreezeAndWait to return")
+	}
+}
+
+func TestRunEventBusFreezeAndWaitIgnoresUnsubscribedObserver(t *testing.T) {
+	bus := NewRunEventBus(16, 0, nil)
+	observer, err := bus.Subscribe(0)
+	if err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+
+	bus.Unsubscribe(observer.ID)
+
+	done := make(chan struct{})
+	go func() {
+		bus.FreezeAndWait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for FreezeAndWait after unsubscribe")
+	}
+}
+
+func TestRunEventBusFreezeAndWaitIgnoresDroppedObserver(t *testing.T) {
+	bus := NewRunEventBus(256, 0, nil)
+	observer, err := bus.Subscribe(0)
+	if err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+	_ = observer
+
+	for seq := int64(1); seq <= int64(defaultObserverBuffer)+1; seq++ {
+		bus.Publish(EventData{Seq: seq, Type: "content.delta"})
+	}
+
+	done := make(chan struct{})
+	go func() {
+		bus.FreezeAndWait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for FreezeAndWait after slow observer drop")
+	}
 }
 
 func TestRunEventBusReplayWindowExceeded(t *testing.T) {

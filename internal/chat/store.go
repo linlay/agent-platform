@@ -36,7 +36,8 @@ type Store interface {
 	LoadChat(chatID string) (Detail, error)
 	LoadRunTrace(chatID string, runID string) (RunTrace, error)
 	SearchSession(chatID string, query string, limit int) ([]SearchHit, error)
-	MarkRead(chatID string) (Summary, error)
+	MarkRead(chatID string, runID string) (Summary, error)
+	AgentChatStats() (map[string]AgentChatStats, error)
 	ResolveResource(file string) (string, error)
 	ChatDir(chatID string) string
 }
@@ -80,14 +81,18 @@ func (s *FileStore) initDB() error {
 			UPDATED_AT_       INTEGER NOT NULL,
 			LAST_RUN_ID_      TEXT NOT NULL DEFAULT '',
 			LAST_RUN_CONTENT_ TEXT NOT NULL DEFAULT '',
-			READ_STATUS_      INTEGER NOT NULL DEFAULT 1,
+			READ_RUN_ID_      TEXT NOT NULL DEFAULT '',
 			READ_AT_          INTEGER,
+			USAGE_PROMPT_TOKENS_ INTEGER NOT NULL DEFAULT 0,
+			USAGE_COMPLETION_TOKENS_ INTEGER NOT NULL DEFAULT 0,
+			USAGE_TOTAL_TOKENS_ INTEGER NOT NULL DEFAULT 0,
 			PENDING_AWAITING_ID_ TEXT NOT NULL DEFAULT '',
 			PENDING_AWAITING_RUN_ID_ TEXT NOT NULL DEFAULT '',
 			PENDING_AWAITING_MODE_ TEXT NOT NULL DEFAULT '',
 			PENDING_AWAITING_CREATED_AT_ INTEGER NOT NULL DEFAULT 0
 		);
 		CREATE INDEX IF NOT EXISTS IDX_CHATS_LAST_RUN_ID_ ON CHATS(LAST_RUN_ID_);
+		CREATE INDEX IF NOT EXISTS IDX_CHATS_AGENT_KEY_ ON CHATS(AGENT_KEY_);
 	`)
 	if err != nil {
 		return fmt.Errorf("create chats table: %w", err)
@@ -95,6 +100,9 @@ func (s *FileStore) initDB() error {
 
 	s.migrateAddUsageColumns()
 	s.migrateAddPendingAwaitingColumns()
+	if err := s.migrateReadStateColumns(); err != nil {
+		return err
+	}
 
 	// Migrate from index.json if it exists and DB is empty
 	s.migrateFromIndexJSON()
@@ -118,6 +126,113 @@ func (s *FileStore) migrateAddPendingAwaitingColumns() {
 	}
 }
 
+func (s *FileStore) migrateReadStateColumns() error {
+	_, _ = s.db.Exec("ALTER TABLE CHATS ADD COLUMN READ_RUN_ID_ TEXT NOT NULL DEFAULT ''")
+	hasReadStatus, err := s.tableHasColumn("CHATS", "READ_STATUS_")
+	if err != nil {
+		return err
+	}
+	if hasReadStatus {
+		if _, err := s.db.Exec(`UPDATE CHATS
+			SET READ_RUN_ID_ = LAST_RUN_ID_
+			WHERE READ_RUN_ID_ = ''
+				AND READ_STATUS_ = 1
+				AND LAST_RUN_ID_ != ''`); err != nil {
+			return err
+		}
+		return s.rebuildChatsTableWithoutReadStatus()
+	}
+	_, err = s.db.Exec("CREATE INDEX IF NOT EXISTS IDX_CHATS_AGENT_KEY_ ON CHATS(AGENT_KEY_)")
+	return err
+}
+
+func (s *FileStore) rebuildChatsTableWithoutReadStatus() error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	if _, err = tx.Exec(`DROP TABLE IF EXISTS CHATS_V2`); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`
+		CREATE TABLE CHATS_V2 (
+			CHAT_ID_          TEXT PRIMARY KEY,
+			CHAT_NAME_        TEXT NOT NULL,
+			AGENT_KEY_        TEXT NOT NULL DEFAULT '',
+			TEAM_ID_          TEXT,
+			CREATED_AT_       INTEGER NOT NULL,
+			UPDATED_AT_       INTEGER NOT NULL,
+			LAST_RUN_ID_      TEXT NOT NULL DEFAULT '',
+			LAST_RUN_CONTENT_ TEXT NOT NULL DEFAULT '',
+			READ_RUN_ID_      TEXT NOT NULL DEFAULT '',
+			READ_AT_          INTEGER,
+			USAGE_PROMPT_TOKENS_ INTEGER NOT NULL DEFAULT 0,
+			USAGE_COMPLETION_TOKENS_ INTEGER NOT NULL DEFAULT 0,
+			USAGE_TOTAL_TOKENS_ INTEGER NOT NULL DEFAULT 0,
+			PENDING_AWAITING_ID_ TEXT NOT NULL DEFAULT '',
+			PENDING_AWAITING_RUN_ID_ TEXT NOT NULL DEFAULT '',
+			PENDING_AWAITING_MODE_ TEXT NOT NULL DEFAULT '',
+			PENDING_AWAITING_CREATED_AT_ INTEGER NOT NULL DEFAULT 0
+		)`); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`INSERT INTO CHATS_V2 (
+			CHAT_ID_, CHAT_NAME_, AGENT_KEY_, TEAM_ID_, CREATED_AT_, UPDATED_AT_,
+			LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_RUN_ID_, READ_AT_,
+			USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_,
+			PENDING_AWAITING_ID_, PENDING_AWAITING_RUN_ID_, PENDING_AWAITING_MODE_, PENDING_AWAITING_CREATED_AT_
+		)
+		SELECT
+			CHAT_ID_, CHAT_NAME_, AGENT_KEY_, TEAM_ID_, CREATED_AT_, UPDATED_AT_,
+			LAST_RUN_ID_, LAST_RUN_CONTENT_, COALESCE(READ_RUN_ID_, ''), READ_AT_,
+			USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_,
+			PENDING_AWAITING_ID_, PENDING_AWAITING_RUN_ID_, PENDING_AWAITING_MODE_, PENDING_AWAITING_CREATED_AT_
+		FROM CHATS`); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`DROP TABLE CHATS`); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`ALTER TABLE CHATS_V2 RENAME TO CHATS`); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`CREATE INDEX IF NOT EXISTS IDX_CHATS_LAST_RUN_ID_ ON CHATS(LAST_RUN_ID_)`); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`CREATE INDEX IF NOT EXISTS IDX_CHATS_AGENT_KEY_ ON CHATS(AGENT_KEY_)`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *FileStore) tableHasColumn(table string, column string) (bool, error) {
+	rows, err := s.db.Query(fmt.Sprintf("PRAGMA table_info(%s)", table))
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name, dataType string
+		var notNull, pk int
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &pk); err != nil {
+			return false, err
+		}
+		if strings.EqualFold(name, column) {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
+}
+
 func (s *FileStore) migrateFromIndexJSON() {
 	path := filepath.Join(s.root, "index.json")
 	file, err := os.Open(path)
@@ -132,16 +247,32 @@ func (s *FileStore) migrateFromIndexJSON() {
 		return // DB already has data
 	}
 
-	var summaries map[string]Summary
+	type legacySummary struct {
+		ChatID         string `json:"chatId"`
+		ChatName       string `json:"chatName"`
+		AgentKey       string `json:"agentKey"`
+		TeamID         string `json:"teamId"`
+		CreatedAt      int64  `json:"createdAt"`
+		UpdatedAt      int64  `json:"updatedAt"`
+		LastRunID      string `json:"lastRunId"`
+		LastRunContent string `json:"lastRunContent"`
+		ReadStatus     int    `json:"readStatus"`
+		ReadAt         *int64 `json:"readAt"`
+	}
+	var summaries map[string]legacySummary
 	if err := json.NewDecoder(file).Decode(&summaries); err != nil || len(summaries) == 0 {
 		return
 	}
 	for _, sum := range summaries {
-		_, _ = s.db.Exec(`INSERT OR IGNORE INTO CHATS (CHAT_ID_, CHAT_NAME_, AGENT_KEY_, TEAM_ID_, CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_STATUS_, READ_AT_)
+		readRunID := ""
+		if sum.ReadStatus == 1 {
+			readRunID = sum.LastRunID
+		}
+		_, _ = s.db.Exec(`INSERT OR IGNORE INTO CHATS (CHAT_ID_, CHAT_NAME_, AGENT_KEY_, TEAM_ID_, CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_RUN_ID_, READ_AT_)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			sum.ChatID, sum.ChatName, sum.AgentKey, nilIfEmpty(sum.TeamID),
 			sum.CreatedAt, sum.UpdatedAt, sum.LastRunID, sum.LastRunContent,
-			sum.ReadStatus, sum.ReadAt)
+			readRunID, sum.ReadAt)
 	}
 }
 
@@ -161,9 +292,10 @@ func (s *FileStore) EnsureChat(chatID string, agentKey string, teamID string, fi
 	var usage UsageData
 	var pendingAwaitingID, pendingRunID, pendingMode string
 	var pendingCreatedAt int64
-	err := s.db.QueryRow("SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_, COALESCE(TEAM_ID_,''), CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_STATUS_, READ_AT_, USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_, PENDING_AWAITING_ID_, PENDING_AWAITING_RUN_ID_, PENDING_AWAITING_MODE_, PENDING_AWAITING_CREATED_AT_ FROM CHATS WHERE CHAT_ID_=?", chatID).
-		Scan(&existing.ChatID, &existing.ChatName, &existing.AgentKey, &existing.TeamID, &existing.CreatedAt, &existing.UpdatedAt, &existing.LastRunID, &existing.LastRunContent, &existing.ReadStatus, &existing.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &pendingAwaitingID, &pendingRunID, &pendingMode, &pendingCreatedAt)
+	err := s.db.QueryRow("SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_, COALESCE(TEAM_ID_,''), CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_RUN_ID_, READ_AT_, USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_, PENDING_AWAITING_ID_, PENDING_AWAITING_RUN_ID_, PENDING_AWAITING_MODE_, PENDING_AWAITING_CREATED_AT_ FROM CHATS WHERE CHAT_ID_=?", chatID).
+		Scan(&existing.ChatID, &existing.ChatName, &existing.AgentKey, &existing.TeamID, &existing.CreatedAt, &existing.UpdatedAt, &existing.LastRunID, &existing.LastRunContent, &existing.Read.ReadRunID, &existing.Read.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &pendingAwaitingID, &pendingRunID, &pendingMode, &pendingCreatedAt)
 	if err == nil {
+		applyDerivedReadState(&existing)
 		if usage.TotalTokens > 0 {
 			existing.Usage = &usage
 		}
@@ -173,16 +305,18 @@ func (s *FileStore) EnsureChat(chatID string, agentKey string, teamID string, fi
 
 	now := time.Now().UnixMilli()
 	summary := Summary{
-		ChatID:     chatID,
-		ChatName:   defaultChatName(firstMessage),
-		AgentKey:   agentKey,
-		TeamID:     teamID,
-		CreatedAt:  now,
-		UpdatedAt:  now,
-		ReadStatus: 1,
+		ChatID:    chatID,
+		ChatName:  defaultChatName(firstMessage),
+		AgentKey:  agentKey,
+		TeamID:    teamID,
+		CreatedAt: now,
+		UpdatedAt: now,
+		Read: ChatReadState{
+			IsRead: true,
+		},
 	}
-	_, err = s.db.Exec(`INSERT INTO CHATS (CHAT_ID_, CHAT_NAME_, AGENT_KEY_, TEAM_ID_, CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_STATUS_)
-		VALUES (?, ?, ?, ?, ?, ?, '', '', 1)`,
+	_, err = s.db.Exec(`INSERT INTO CHATS (CHAT_ID_, CHAT_NAME_, AGENT_KEY_, TEAM_ID_, CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_RUN_ID_)
+		VALUES (?, ?, ?, ?, ?, ?, '', '', '')`,
 		chatID, summary.ChatName, agentKey, nilIfEmpty(teamID), now, now)
 	if err != nil {
 		return Summary{}, false, err
@@ -229,8 +363,8 @@ func (s *FileStore) loadSummary(chatID string) (*Summary, error) {
 	var usage UsageData
 	var pendingAwaitingID, pendingRunID, pendingMode string
 	var pendingCreatedAt int64
-	err := s.db.QueryRow("SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_, COALESCE(TEAM_ID_,''), CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_STATUS_, READ_AT_, USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_, PENDING_AWAITING_ID_, PENDING_AWAITING_RUN_ID_, PENDING_AWAITING_MODE_, PENDING_AWAITING_CREATED_AT_ FROM CHATS WHERE CHAT_ID_=?", chatID).
-		Scan(&sum.ChatID, &sum.ChatName, &sum.AgentKey, &sum.TeamID, &sum.CreatedAt, &sum.UpdatedAt, &sum.LastRunID, &sum.LastRunContent, &sum.ReadStatus, &sum.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &pendingAwaitingID, &pendingRunID, &pendingMode, &pendingCreatedAt)
+	err := s.db.QueryRow("SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_, COALESCE(TEAM_ID_,''), CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_RUN_ID_, READ_AT_, USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_, PENDING_AWAITING_ID_, PENDING_AWAITING_RUN_ID_, PENDING_AWAITING_MODE_, PENDING_AWAITING_CREATED_AT_ FROM CHATS WHERE CHAT_ID_=?", chatID).
+		Scan(&sum.ChatID, &sum.ChatName, &sum.AgentKey, &sum.TeamID, &sum.CreatedAt, &sum.UpdatedAt, &sum.LastRunID, &sum.LastRunContent, &sum.Read.ReadRunID, &sum.Read.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &pendingAwaitingID, &pendingRunID, &pendingMode, &pendingCreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -240,8 +374,16 @@ func (s *FileStore) loadSummary(chatID string) (*Summary, error) {
 	if usage.TotalTokens > 0 {
 		sum.Usage = &usage
 	}
+	applyDerivedReadState(&sum)
 	sum.PendingAwaiting = pendingAwaitingFromRow(pendingAwaitingID, pendingRunID, pendingMode, pendingCreatedAt)
 	return &sum, nil
+}
+
+func applyDerivedReadState(sum *Summary) {
+	if sum == nil {
+		return
+	}
+	sum.Read.IsRead = !RunIDAfter(sum.LastRunID, sum.Read.ReadRunID)
 }
 
 func pendingAwaitingFromRow(awaitingID string, runID string, mode string, createdAt int64) *PendingAwaiting {
@@ -407,7 +549,7 @@ func (s *FileStore) OnRunCompleted(completion RunCompletion) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	_, err := s.db.Exec(`UPDATE CHATS SET LAST_RUN_ID_=?, LAST_RUN_CONTENT_=?, UPDATED_AT_=?, READ_STATUS_=0, READ_AT_=NULL,
+	_, err := s.db.Exec(`UPDATE CHATS SET LAST_RUN_ID_=?, LAST_RUN_CONTENT_=?, UPDATED_AT_=?,
 		USAGE_PROMPT_TOKENS_=USAGE_PROMPT_TOKENS_+?, USAGE_COMPLETION_TOKENS_=USAGE_COMPLETION_TOKENS_+?, USAGE_TOTAL_TOKENS_=USAGE_TOTAL_TOKENS_+?
 		WHERE CHAT_ID_=?`,
 		completion.RunID, completion.AssistantText, completion.UpdatedAtMillis,
@@ -420,7 +562,7 @@ func (s *FileStore) ListChats(lastRunID string, agentKey string) ([]Summary, err
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	query := "SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_, COALESCE(TEAM_ID_,''), CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_STATUS_, READ_AT_, USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_, PENDING_AWAITING_ID_, PENDING_AWAITING_RUN_ID_, PENDING_AWAITING_MODE_, PENDING_AWAITING_CREATED_AT_ FROM CHATS WHERE 1=1"
+	query := "SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_, COALESCE(TEAM_ID_,''), CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_RUN_ID_, READ_AT_, USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_, PENDING_AWAITING_ID_, PENDING_AWAITING_RUN_ID_, PENDING_AWAITING_MODE_, PENDING_AWAITING_CREATED_AT_ FROM CHATS WHERE 1=1"
 	var args []any
 	if agentKey != "" {
 		query += " AND AGENT_KEY_=?"
@@ -440,12 +582,13 @@ func (s *FileStore) ListChats(lastRunID string, agentKey string) ([]Summary, err
 		var usage UsageData
 		var pendingAwaitingID, pendingRunID, pendingMode string
 		var pendingCreatedAt int64
-		if err := rows.Scan(&sum.ChatID, &sum.ChatName, &sum.AgentKey, &sum.TeamID, &sum.CreatedAt, &sum.UpdatedAt, &sum.LastRunID, &sum.LastRunContent, &sum.ReadStatus, &sum.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &pendingAwaitingID, &pendingRunID, &pendingMode, &pendingCreatedAt); err != nil {
+		if err := rows.Scan(&sum.ChatID, &sum.ChatName, &sum.AgentKey, &sum.TeamID, &sum.CreatedAt, &sum.UpdatedAt, &sum.LastRunID, &sum.LastRunContent, &sum.Read.ReadRunID, &sum.Read.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &pendingAwaitingID, &pendingRunID, &pendingMode, &pendingCreatedAt); err != nil {
 			return nil, err
 		}
 		if usage.TotalTokens > 0 {
 			sum.Usage = &usage
 		}
+		applyDerivedReadState(&sum)
 		sum.PendingAwaiting = pendingAwaitingFromRow(pendingAwaitingID, pendingRunID, pendingMode, pendingCreatedAt)
 		if lastRunID != "" && !RunIDAfter(sum.LastRunID, lastRunID) {
 			continue
@@ -1446,12 +1589,31 @@ func stringValue(value any) string {
 	return strings.TrimSpace(text)
 }
 
-func (s *FileStore) MarkRead(chatID string) (Summary, error) {
+func (s *FileStore) MarkRead(chatID string, runID string) (Summary, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	sum, err := s.loadSummary(chatID)
+	if err != nil {
+		return Summary{}, err
+	}
+	if sum == nil {
+		return Summary{}, ErrChatNotFound
+	}
+
+	nextReadRunID := strings.TrimSpace(runID)
+	if nextReadRunID == "" {
+		nextReadRunID = sum.LastRunID
+	}
+	if sum.LastRunID != "" && RunIDAfter(nextReadRunID, sum.LastRunID) {
+		nextReadRunID = sum.LastRunID
+	}
+	if !RunIDAfter(nextReadRunID, sum.Read.ReadRunID) {
+		nextReadRunID = sum.Read.ReadRunID
+	}
+
 	now := time.Now().UnixMilli()
-	result, err := s.db.Exec("UPDATE CHATS SET READ_STATUS_=1, READ_AT_=? WHERE CHAT_ID_=?", now, chatID)
+	result, err := s.db.Exec("UPDATE CHATS SET READ_RUN_ID_=?, READ_AT_=? WHERE CHAT_ID_=?", nextReadRunID, now, chatID)
 	if err != nil {
 		return Summary{}, err
 	}
@@ -1459,11 +1621,37 @@ func (s *FileStore) MarkRead(chatID string) (Summary, error) {
 	if n == 0 {
 		return Summary{}, ErrChatNotFound
 	}
-	sum, err := s.loadSummary(chatID)
+	sum, err = s.loadSummary(chatID)
 	if err != nil || sum == nil {
 		return Summary{}, ErrChatNotFound
 	}
 	return *sum, nil
+}
+
+func (s *FileStore) AgentChatStats() (map[string]AgentChatStats, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	rows, err := s.db.Query(`SELECT AGENT_KEY_, LAST_RUN_ID_, READ_RUN_ID_ FROM CHATS`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	stats := map[string]AgentChatStats{}
+	for rows.Next() {
+		var agentKey, lastRunID, readRunID string
+		if err := rows.Scan(&agentKey, &lastRunID, &readRunID); err != nil {
+			return nil, err
+		}
+		item := stats[agentKey]
+		item.TotalCount++
+		if lastRunID != "" && RunIDAfter(lastRunID, readRunID) {
+			item.UnreadCount++
+		}
+		stats[agentKey] = item
+	}
+	return stats, rows.Err()
 }
 
 func (s *FileStore) ResolveResource(file string) (string, error) {

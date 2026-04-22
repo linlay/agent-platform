@@ -105,6 +105,54 @@ func TestConnStartStreamForwardMapsRunExpiredToExpiredReason(t *testing.T) {
 	}
 }
 
+func TestConnStartStreamForwardMarksObserverDoneAfterTerminalFrame(t *testing.T) {
+	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 8, MaxObservesPerConn: 2}, time.Second, AuthSession{})
+	if _, err := conn.ReserveStream("req_1", "run_1"); err != nil {
+		t.Fatalf("reserve stream: %v", err)
+	}
+
+	bus := stream.NewRunEventBus(16, 0, nil)
+	observer, err := bus.Subscribe(0)
+	if err != nil {
+		t.Fatalf("subscribe observer: %v", err)
+	}
+
+	conn.StartStreamForward("req_1", observer)
+	bus.Publish(stream.EventData{
+		Seq:       1,
+		Type:      "run.complete",
+		Timestamp: time.Now().UnixMilli(),
+		Payload:   map[string]any{"runId": "run_1"},
+	})
+
+	done := make(chan struct{})
+	go func() {
+		bus.FreezeAndWait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for stream forward to drain")
+	}
+
+	msg := mustReadQueuedMessage(t, conn.writeQueue)
+	frame, ok := msg.frame.(StreamFrame)
+	if !ok || frame.Event == nil || frame.Event.Type != "run.complete" {
+		t.Fatalf("expected queued run.complete event, got %#v", msg.frame)
+	}
+
+	msg = mustReadQueuedMessage(t, conn.writeQueue)
+	frame, ok = msg.frame.(StreamFrame)
+	if !ok {
+		t.Fatalf("expected terminal stream frame, got %#v", msg.frame)
+	}
+	if frame.Reason != "done" || frame.LastSeq != 1 {
+		t.Fatalf("expected done terminal frame, got %#v", frame)
+	}
+}
+
 func TestConnConnectedPushPayload(t *testing.T) {
 	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{})
 	if !conn.SendPush("connected", map[string]any{"sessionId": conn.SessionID()}) {

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"agent-platform-runner-go/internal/api"
+	"agent-platform-runner-go/internal/catalog"
 	"agent-platform-runner-go/internal/chat"
 	"agent-platform-runner-go/internal/config"
 	"agent-platform-runner-go/internal/contracts"
@@ -74,6 +75,9 @@ func TestServerSharedHelpersUseCommonChatAndMemoryStores(t *testing.T) {
 	}
 	if summaries[0].LastRunID != "run-1" || summaries[0].Usage == nil || summaries[0].Usage.TotalTokens != 8 {
 		t.Fatalf("unexpected chat summary %#v", summaries[0])
+	}
+	if summaries[0].Read.IsRead {
+		t.Fatalf("expected completed chat to be unread, got %#v", summaries[0].Read)
 	}
 
 	detail, err := server.loadChatDetail(context.Background(), "chat-1", true)
@@ -182,12 +186,95 @@ func TestBroadcastDefinitionsStayAlignedAcrossHTTPAndWS(t *testing.T) {
 	assertContains(t, handlerQuery, `s.broadcast("run.started"`)
 	assertContains(t, handlerQuery, `s.broadcast("run.finished"`)
 	assertContains(t, handlerQuery, `s.broadcast("chat.created"`)
-	assertContains(t, handlerChat, `s.broadcast("chat.read"`)
+	assertContains(t, handlerChat, `s.broadcastChatReadState("chat.read"`)
+	assertContains(t, handlerQuery, `s.broadcastChatReadState("chat.unread"`)
 	assertContains(t, wsRoutes, `handler.RegisterRoute("/api/attach"`)
 	assertContains(t, wsRoutes, `s.broadcast("run.started"`)
 	assertContains(t, wsRoutes, `s.broadcast("run.finished"`)
-	assertContains(t, wsRoutes, `s.broadcast("chat.read"`)
+	assertContains(t, wsRoutes, `s.broadcastChatReadState("chat.read"`)
+	assertContains(t, wsRoutes, `s.broadcastChatReadState("chat.unread"`)
 }
+
+func TestListAgentSummariesIncludesChatStats(t *testing.T) {
+	server, chats, _ := newServerForHelperTests(t)
+	server.deps.Registry = wsRegressionCatalogRegistry{
+		items: []api.AgentSummary{
+			{Key: "agent-a", Name: "Agent A"},
+			{Key: "agent-b", Name: "Agent B"},
+		},
+	}
+
+	if _, _, err := chats.EnsureChat("chat-a1", "agent-a", "", "hello"); err != nil {
+		t.Fatalf("ensure chat-a1: %v", err)
+	}
+	if _, _, err := chats.EnsureChat("chat-a2", "agent-a", "", "hello"); err != nil {
+		t.Fatalf("ensure chat-a2: %v", err)
+	}
+	if _, _, err := chats.EnsureChat("chat-b1", "agent-b", "", "hello"); err != nil {
+		t.Fatalf("ensure chat-b1: %v", err)
+	}
+	if err := chats.OnRunCompleted(chat.RunCompletion{ChatID: "chat-a1", RunID: "loyw3v28", UpdatedAtMillis: time.Now().UnixMilli()}); err != nil {
+		t.Fatalf("complete chat-a1: %v", err)
+	}
+	if err := chats.OnRunCompleted(chat.RunCompletion{ChatID: "chat-b1", RunID: "loyw3v2s", UpdatedAtMillis: time.Now().UnixMilli()}); err != nil {
+		t.Fatalf("complete chat-b1: %v", err)
+	}
+	if _, err := chats.MarkRead("chat-b1", "loyw3v2s"); err != nil {
+		t.Fatalf("mark chat-b1 read: %v", err)
+	}
+
+	items, err := server.listAgentSummaries("")
+	if err != nil {
+		t.Fatalf("list agent summaries: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected two agent summaries, got %#v", items)
+	}
+	statsByKey := map[string]api.AgentChatStats{}
+	for _, item := range items {
+		statsByKey[item.Key] = item.Stats
+	}
+	if got := statsByKey["agent-a"]; got.TotalCount != 2 || got.UnreadCount != 1 {
+		t.Fatalf("unexpected agent-a stats: %#v", got)
+	}
+	if got := statsByKey["agent-b"]; got.TotalCount != 1 || got.UnreadCount != 0 {
+		t.Fatalf("unexpected agent-b stats: %#v", got)
+	}
+}
+
+type wsRegressionCatalogRegistry struct {
+	items []api.AgentSummary
+}
+
+func (r wsRegressionCatalogRegistry) Agents(string) []api.AgentSummary {
+	return append([]api.AgentSummary(nil), r.items...)
+}
+
+func (wsRegressionCatalogRegistry) Teams() []api.TeamSummary { return nil }
+
+func (wsRegressionCatalogRegistry) Skills(string) []api.SkillSummary { return nil }
+
+func (wsRegressionCatalogRegistry) SkillDefinition(string) (catalog.SkillDefinition, bool) {
+	return catalog.SkillDefinition{}, false
+}
+
+func (wsRegressionCatalogRegistry) Tools(string, string) []api.ToolSummary { return nil }
+
+func (wsRegressionCatalogRegistry) Tool(string) (api.ToolDetailResponse, bool) {
+	return api.ToolDetailResponse{}, false
+}
+
+func (wsRegressionCatalogRegistry) DefaultAgentKey() string { return "" }
+
+func (wsRegressionCatalogRegistry) AgentDefinition(string) (catalog.AgentDefinition, bool) {
+	return catalog.AgentDefinition{}, false
+}
+
+func (wsRegressionCatalogRegistry) TeamDefinition(string) (catalog.TeamDefinition, bool) {
+	return catalog.TeamDefinition{}, false
+}
+
+func (wsRegressionCatalogRegistry) Reload(context.Context, string) error { return nil }
 
 func newServerForHelperTests(t *testing.T) (*Server, *chat.FileStore, *memory.FileStore) {
 	t.Helper()

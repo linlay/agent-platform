@@ -219,8 +219,6 @@ type InputDebugPreCall struct {
 	ModelKey              string
 	ModelID               string
 	RequestBody           map[string]any
-	SystemPrompt          string
-	Tools                 []any
 	ContextWindow         int
 	CurrentContextSize    int
 	EstimatedNextCallSize int

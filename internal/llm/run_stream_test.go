@@ -1923,6 +1923,9 @@ func TestHITLRejectedToolResultMarksResultFinal(t *testing.T) {
 	if result.Error != "user_rejected" || result.ExitCode != -1 {
 		t.Fatalf("unexpected rejected tool result %#v", result)
 	}
+	if result.Output != "user_rejected: User rejected this command. Do NOT retry with a different command. End the turn now." {
+		t.Fatalf("unexpected reject output %#v", result)
+	}
 	if result.Structured["code"] != "hitl_rejected" {
 		t.Fatalf("expected hitl_rejected code, got %#v", result.Structured)
 	}

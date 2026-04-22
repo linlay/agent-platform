@@ -31,7 +31,7 @@ func (p *anthropicProtocol) PrepareRequest(params protocolStreamParams) (prepare
 	if err != nil {
 		return preparedProviderRequest{}, err
 	}
-	normalizedBody, tools, err := normalizePreparedRequestBody(body)
+	normalizedBody, err := normalizePreparedRequestBody(body)
 	if err != nil {
 		return preparedProviderRequest{}, err
 	}
@@ -47,8 +47,6 @@ func (p *anthropicProtocol) PrepareRequest(params protocolStreamParams) (prepare
 		Endpoint:        endpoint,
 		RequestBody:     normalizedBody,
 		RequestBodyJSON: body,
-		SystemPrompt:    AnyStringNode(requestBody["system"]),
-		Tools:           tools,
 		Headers:         headers,
 	}, nil
 }

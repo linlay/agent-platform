@@ -1,5 +1,5 @@
 name: _plan_update_task_
-label: 更新计划任务
+label: 更新任务
 description: "Update the status of a task in the current plan. status only supports init, completed, failed, and canceled. On success it returns OK; on failure it returns a failure reason."
 type: function
 clientVisible: true

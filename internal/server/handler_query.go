@@ -368,6 +368,7 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 		return
 	}
 	defer s.deps.Runs.DetachObserver(prepared.req.RunID, observer.ID)
+	defer observer.MarkDone()
 
 	assembler, mapper := s.newAssemblerAndMapper(prepared)
 	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode, isHiddenRequest(prepared.req))
@@ -388,6 +389,13 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 		RunControl:        control,
 		BuildQuerySession: s.BuildQuerySession,
 		Notifications:     s.deps.Notifications,
+		OnUnreadChanged: func(summary chat.Summary) {
+			agentUnreadCount, err := s.agentUnreadCount(summary.AgentKey)
+			if err != nil {
+				return
+			}
+			s.broadcastChatReadState("chat.unread", summary, agentUnreadCount)
+		},
 		OnPersisted: func(completion chat.RunCompletion) {
 			s.autoLearnIfEnabled(completion.ChatID, completion.RunID, prepared.session.AgentKey, prepared.session.TeamID, principal, prepared.req.RequestID)
 		},
@@ -421,6 +429,16 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 	control.SetObserverCount(1)
 	runCtx := contracts.WithRunControl(control.Context(), control)
 	defer control.SetObserverCount(0)
+
+	s.broadcast("run.started", map[string]any{
+		"runId":    prepared.req.RunID,
+		"chatId":   prepared.req.ChatID,
+		"agentKey": prepared.req.AgentKey,
+	})
+	defer s.broadcast("run.finished", map[string]any{
+		"runId":  prepared.req.RunID,
+		"chatId": prepared.req.ChatID,
+	})
 
 	assembler, mapper := s.newAssemblerAndMapper(prepared)
 	principal := &Principal{Subject: prepared.session.Subject}
@@ -474,16 +492,10 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 		for _, event := range assembler.Fail(err) {
 			_ = writeEvent(event)
 		}
-		persistRunCompletionIfNeeded(RunExecutorParams{
-			Request:       prepared.req,
-			Session:       prepared.session,
-			Chats:         s.deps.Chats,
-			RunControl:    control,
-			Notifications: s.deps.Notifications,
-			OnPersisted: func(completion chat.RunCompletion) {
-				s.autoLearnIfEnabled(completion.ChatID, completion.RunID, prepared.session.AgentKey, prepared.session.TeamID, principal, prepared.req.RequestID)
-			},
-		}, assistantText.String(), runUsage, false)
+		persisted, completion := persistRunCompletionIfNeeded(syncRunExecutorParams(s, prepared, control, principal), assistantText.String(), runUsage, false)
+		if persisted {
+			syncBroadcastChatUpdated(s.deps.Notifications, completion)
+		}
 		_ = sseWriter.WriteDone()
 		return
 	}
@@ -522,16 +534,10 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 
 	processor.stepWriter.Flush()
 	if streamFailed || streamInterrupted {
-		persistRunCompletionIfNeeded(RunExecutorParams{
-			Request:       prepared.req,
-			Session:       prepared.session,
-			Chats:         s.deps.Chats,
-			RunControl:    control,
-			Notifications: s.deps.Notifications,
-			OnPersisted: func(completion chat.RunCompletion) {
-				s.autoLearnIfEnabled(completion.ChatID, completion.RunID, prepared.session.AgentKey, prepared.session.TeamID, principal, prepared.req.RequestID)
-			},
-		}, assistantText.String(), runUsage, false)
+		persisted, completion := persistRunCompletionIfNeeded(syncRunExecutorParams(s, prepared, control, principal), assistantText.String(), runUsage, false)
+		if persisted {
+			syncBroadcastChatUpdated(s.deps.Notifications, completion)
+		}
 		_ = sseWriter.WriteDone()
 		return
 	}
@@ -541,17 +547,48 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 			return
 		}
 	}
-	persistRunCompletionIfNeeded(RunExecutorParams{
+	persisted, completion := persistRunCompletionIfNeeded(syncRunExecutorParams(s, prepared, control, principal), assistantText.String(), runUsage, true)
+	if persisted {
+		syncBroadcastChatUpdated(s.deps.Notifications, completion)
+	}
+	_ = sseWriter.WriteDone()
+}
+
+// syncRunExecutorParams 构造 handleQuerySync 三次 persistRunCompletionIfNeeded
+// 调用共用的 RunExecutorParams，避免重复拼装三份 callback。
+func syncRunExecutorParams(s *Server, prepared preparedQuery, control *contracts.RunControl, principal *Principal) RunExecutorParams {
+	return RunExecutorParams{
 		Request:       prepared.req,
 		Session:       prepared.session,
 		Chats:         s.deps.Chats,
 		RunControl:    control,
 		Notifications: s.deps.Notifications,
+		OnUnreadChanged: func(summary chat.Summary) {
+			agentUnreadCount, err := s.agentUnreadCount(summary.AgentKey)
+			if err != nil {
+				return
+			}
+			s.broadcastChatReadState("chat.unread", summary, agentUnreadCount)
+		},
 		OnPersisted: func(completion chat.RunCompletion) {
 			s.autoLearnIfEnabled(completion.ChatID, completion.RunID, prepared.session.AgentKey, prepared.session.TeamID, principal, prepared.req.RequestID)
 		},
-	}, assistantText.String(), runUsage, true)
-	_ = sseWriter.WriteDone()
+	}
+}
+
+// syncBroadcastChatUpdated 复刻 run_executor.broadcastRunCompletion 的 chat.updated
+// 广播语义。async 路径在 StartRunExecutor 内部走那条；sync 路径没经过 StartRunExecutor，
+// 这里手动补上，让 schedule 触发的 run 也能通知 hub（进而透传到 gateway / webclient）。
+func syncBroadcastChatUpdated(notifications contracts.NotificationSink, completion chat.RunCompletion) {
+	if notifications == nil {
+		return
+	}
+	notifications.Broadcast("chat.updated", map[string]any{
+		"chatId":         completion.ChatID,
+		"lastRunId":      completion.RunID,
+		"lastRunContent": completion.AssistantText,
+		"updatedAt":      completion.UpdatedAtMillis,
+	})
 }
 
 func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {

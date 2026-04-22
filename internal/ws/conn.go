@@ -246,6 +246,7 @@ func (c *Conn) StartStreamForward(requestID string, observer *stream.Observer) {
 		return
 	}
 	go func() {
+		defer observer.MarkDone()
 		var (
 			lastSeq int64
 			reason  = "detached"

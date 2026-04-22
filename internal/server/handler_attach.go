@@ -55,6 +55,7 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.deps.Runs.DetachObserver(runID, observer.ID)
+	defer observer.MarkDone()
 
 	sseWriter, err := stream.NewWriter(w, stream.Options{
 		SSE:            s.deps.Config.SSE,

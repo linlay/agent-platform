@@ -1,0 +1,30 @@
+name: _schedule_create_
+label: 创建定时任务
+description: Create a scheduled task that will automatically replay the given prompt to the current agent on a cron schedule. Bind automatically to the current chatId and agentKey so each chat session owns its own schedules. Use this when the user asks to set up reminders, periodic summaries, recurring announcements, or any cron-driven message.
+type: function
+clientVisible: false
+inputSchema:
+  type: object
+  properties:
+    cron:
+      type: string
+      description: Required. Standard 5-field cron expression (minute hour day-of-month month day-of-week). Examples: `0 9 * * *` for daily 9am, `*/15 * * * *` every 15 minutes, `0 9 * * 1` every Monday 9am.
+    message:
+      type: string
+      description: Required. Prompt that will be sent to the agent when the schedule fires.
+    name:
+      type: string
+      description: Short human-readable name. Falls back to message prefix when omitted.
+    description:
+      type: string
+      description: Optional longer description.
+    zoneId:
+      type: string
+      description: Optional IANA timezone such as `Asia/Shanghai`; defaults to server timezone.
+    enabled:
+      type: boolean
+      description: Whether to enable immediately. Defaults to true.
+  required:
+    - cron
+    - message
+  additionalProperties: false
