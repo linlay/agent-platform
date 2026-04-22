@@ -40,6 +40,7 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, req ap
 
 	body, err := json.Marshal(map[string]any{
 		"requestId":  req.RequestID,
+		"runId":      req.RunID,
 		"chatId":     req.ChatID,
 		"agentKey":   req.AgentKey,
 		"role":       req.Role,
@@ -263,7 +264,8 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, req ap
 
 		case "tool.result", "run.complete", "run.cancel", "run.error",
 			"task.start", "task.complete", "task.cancel", "task.fail",
-			"plan.create", "plan.update", "artifact.publish":
+			"plan.create", "plan.update", "artifact.publish",
+			"awaiting.ask", "request.submit", "awaiting.answer", "request.steer":
 			stepWriter.OnEvent(event)
 		}
 	}

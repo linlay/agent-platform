@@ -1,8 +1,6 @@
 package catalog
 
 import (
-	"bytes"
-	"log"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -317,7 +315,7 @@ func TestParseAgentFileAllowsOptingOutOfBaseMemoryTools(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileWithPromptsWarnsOnLegacySoulSections(t *testing.T) {
+func TestParseAgentFileWithPromptsLoadsLegacySoulSections(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
 	soulPath := filepath.Join(root, "SOUL.md")
@@ -336,11 +334,6 @@ func TestParseAgentFileWithPromptsWarnsOnLegacySoulSections(t *testing.T) {
 		t.Fatalf("write soul file: %v", err)
 	}
 
-	var buf bytes.Buffer
-	previous := log.Writer()
-	log.SetOutput(&buf)
-	defer log.SetOutput(previous)
-
 	def, err := parseAgentFileWithPrompts(path, root)
 	if err != nil {
 		t.Fatalf("parse agent file with prompts: %v", err)
@@ -348,12 +341,8 @@ func TestParseAgentFileWithPromptsWarnsOnLegacySoulSections(t *testing.T) {
 	if !strings.Contains(def.SoulPrompt, "Legacy mission") {
 		t.Fatalf("expected soul prompt to load, got %q", def.SoulPrompt)
 	}
-	logOutput := buf.String()
-	if !strings.Contains(logOutput, "legacy SOUL.md headings") {
-		t.Fatalf("expected legacy SOUL warning, got %q", logOutput)
-	}
-	if !strings.Contains(logOutput, "# Identity, ## Mission") {
-		t.Fatalf("expected warning to mention legacy headings, got %q", logOutput)
+	if !strings.Contains(def.SoulPrompt, "# Identity") || !strings.Contains(def.SoulPrompt, "## Mission") {
+		t.Fatalf("expected legacy headings to remain in soul prompt, got %q", def.SoulPrompt)
 	}
 }
 

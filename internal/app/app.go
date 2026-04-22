@@ -125,6 +125,12 @@ func New(rootCtx context.Context) (*App, error) {
 			log.Printf("[memory][embedding] provider %q not found in model registry, hybrid search disabled: %v", providerKey, err)
 		}
 	}
+	if modelKey := strings.TrimSpace(cfg.Memory.RememberModelKey); modelKey != "" {
+		if summarizer := memory.NewLLMMemorySummarizer(modelRegistry, modelKey, cfg.Memory.RememberTimeoutMs); summarizer != nil {
+			memoryStore.SetRememberSummarizer(summarizer)
+			log.Printf("memory remember summarizer ready (model=%s timeout=%dms)", modelKey, cfg.Memory.RememberTimeoutMs)
+		}
+	}
 
 	runManager := runctl.NewInMemoryRunManager()
 	sandboxClient := sandbox.NewContainerHubSandboxService(cfg.ContainerHub, cfg.Paths)
@@ -307,6 +313,9 @@ func (a *App) Close() error {
 	}
 	if a.wsHub != nil {
 		a.wsHub.CloseAll(gws.CloseNormalClosure, "server shutting down")
+	}
+	if err := observability.CloseMemoryLogger(); err != nil {
+		log.Printf("close memory logger: %v", err)
 	}
 	if a.scheduler != nil {
 		done := a.scheduler.Stop()
