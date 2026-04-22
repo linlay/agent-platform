@@ -3,7 +3,10 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -67,6 +70,120 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/remember", s.wsRemember)
 	handler.RegisterRoute("/api/learn", s.wsLearn)
 	handler.RegisterRoute("/api/viewport", s.wsViewport)
+	handler.RegisterRoute("/api/upload", s.wsUpload)
+}
+
+// wsUpload lets the gateway deliver a user-uploaded file to the platform without
+// spawning a second HTTP connection. The gateway sends
+// {chatId, requestId, fileName, url, mimeType?, sizeBytes?} where `url` points
+// to a gateway-hosted resource; the platform downloads it (optionally with the
+// configured gateway auth token) and persists it via the shared internal upload
+// pipeline so chat-side tickets stay identical to the HTTP multipart path.
+func (s *Server) wsUpload(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {
+	payload, err := ws.DecodePayload[struct {
+		ChatID    string `json:"chatId"`
+		RequestID string `json:"requestId"`
+		FileName  string `json:"fileName"`
+		URL       string `json:"url"`
+		MimeType  string `json:"mimeType"`
+		SizeBytes int64  `json:"sizeBytes"`
+	}](req)
+	if err != nil {
+		conn.SendError(req.ID, "invalid_request", 400, "invalid upload payload", nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+
+	chatID := strings.TrimSpace(payload.ChatID)
+	requestID := strings.TrimSpace(payload.RequestID)
+	fileName := strings.TrimSpace(payload.FileName)
+	rawURL := strings.TrimSpace(payload.URL)
+	if chatID == "" || fileName == "" || rawURL == "" {
+		conn.SendError(req.ID, "invalid_request", 400, "chatId, fileName and url are required", nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+
+	data, err := s.fetchGatewayUpload(ctx, rawURL)
+	if err != nil {
+		conn.SendError(req.ID, "download_failed", 502, err.Error(), nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+
+	status, body, err := s.ExecuteInternalUpload(ctx, chatID, requestID, fileName, data)
+	if err != nil {
+		conn.SendError(req.ID, "internal_error", 500, err.Error(), nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	if status < 200 || status >= 300 {
+		conn.SendError(req.ID, "upload_failed", status, strings.TrimSpace(string(body)), nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+
+	var parsed api.ApiResponse[api.UploadResponse]
+	if err := json.Unmarshal(body, &parsed); err != nil || parsed.Data.Upload.Name == "" {
+		conn.SendResponse(req.Type, req.ID, 0, "success", map[string]any{"raw": string(body)})
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	conn.SendResponse(req.Type, req.ID, 0, "success", parsed.Data)
+	conn.CompleteRequest(req.ID)
+}
+
+// fetchGatewayUpload resolves the gateway-side URL (absolute or relative to the
+// configured GATEWAY_BASE_URL) and downloads the bytes, attaching the optional
+// GATEWAY_AUTH_TOKEN bearer.
+func (s *Server) fetchGatewayUpload(ctx context.Context, rawURL string) ([]byte, error) {
+	downloadURL := s.buildGatewayURL(rawURL)
+	if downloadURL == "" {
+		return nil, fmt.Errorf("empty download url")
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	if token := strings.TrimSpace(s.deps.Config.GatewayWS.AuthToken); token != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("http get: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("download status=%d", resp.StatusCode)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 100*1024*1024))
+	if err != nil {
+		return nil, fmt.Errorf("read body: %w", err)
+	}
+	return data, nil
+}
+
+func (s *Server) buildGatewayURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	lower := strings.ToLower(raw)
+	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
+		return raw
+	}
+	base := strings.TrimRight(strings.TrimSpace(s.deps.Config.GatewayWS.BaseURL), "/")
+	if base == "" {
+		return raw
+	}
+	if strings.HasPrefix(raw, "/") {
+		return base + raw
+	}
+	downloadPath := strings.Trim(strings.TrimSpace(s.deps.Config.GatewayWS.DownloadPath), "/")
+	if downloadPath == "" {
+		return base + "/" + raw
+	}
+	return base + "/" + downloadPath + "/" + raw
 }
 
 func (s *Server) wsAgents(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {

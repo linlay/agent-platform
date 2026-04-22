@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"agent-platform-runner-go/internal/api"
+	"agent-platform-runner-go/internal/artifactpusher"
 	"agent-platform-runner-go/internal/catalog"
 	"agent-platform-runner-go/internal/chat"
 	"agent-platform-runner-go/internal/config"
@@ -131,6 +132,12 @@ func New(rootCtx context.Context) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("init runtime tools: %w", err)
 	}
+	backendTools.WithArtifactPusher(artifactpusher.New(artifactpusher.Config{
+		BaseURL:    cfg.GatewayWS.BaseURL,
+		UploadPath: cfg.GatewayWS.UploadPath,
+		AuthToken:  cfg.GatewayWS.AuthToken,
+		ChatsDir:   cfg.Paths.ChatsDir,
+	}))
 	mcpRegistry, err := mcp.NewRegistry(filepath.Join(cfg.Paths.RegistriesDir, "mcp-servers"))
 	if err != nil {
 		return nil, fmt.Errorf("load mcp registry: %w", err)

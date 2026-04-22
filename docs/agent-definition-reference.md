@@ -79,8 +79,6 @@ plain:
 ## Long-Term Notes
 ```
 
-兼容期内，旧格式中的 `# Identity`、`## Mission` 仍会被加载，但运行时会打印 warning，提示迁移到 `agent.yml` 或改写为行为边界段落。
-
 ## Go 版已落地能力
 
 - agent YAML 文件解析

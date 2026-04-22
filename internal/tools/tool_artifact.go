@@ -21,6 +21,11 @@ func (t *RuntimeToolExecutor) invokeArtifactPublish(args map[string]any, execCtx
 			t.cfg.Paths.ChatsDir, execCtx.Session.ChatID, execCtx.Session.RunID, artifacts)
 		published = publishArtifacts(t.cfg.Paths.ChatsDir, execCtx.Session.ChatID, execCtx.Session.RunID, artifacts)
 		log.Printf("[artifact-publish] published=%d items=%v", len(published), published)
+		if t.artifactPusher != nil {
+			for _, item := range published {
+				t.artifactPusher.Push(execCtx.Session.ChatID, item)
+			}
+		}
 	}
 	payload := map[string]any{
 		"status":             "published",
