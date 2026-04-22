@@ -30,7 +30,7 @@ func (s *Server) listChatSummaries(lastRunID string, agentKey string) ([]api.Cha
 			Read:           toAPIReadState(item.Read),
 		}
 		if item.PendingAwaiting != nil {
-			resp.PendingAwaiting = &api.PendingAwaiting{
+			resp.Awaiting = &api.Awaiting{
 				AwaitingID: item.PendingAwaiting.AwaitingID,
 				RunID:      item.PendingAwaiting.RunID,
 				Mode:       item.PendingAwaiting.Mode,

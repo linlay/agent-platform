@@ -492,11 +492,18 @@ func TestWebSocketPushAwaitingAskAndAnswerSyncPendingChatSummary(t *testing.T) {
 	if len(summaries) != 1 {
 		t.Fatalf("expected one chat summary, got %#v", summaries)
 	}
-	if summaries[0].PendingAwaiting == nil {
-		t.Fatalf("expected pendingAwaiting in chat summary, got %#v", summaries[0])
+	if summaries[0].Awaiting == nil {
+		t.Fatalf("expected awaiting in chat summary, got %#v", summaries[0])
 	}
-	if summaries[0].PendingAwaiting.AwaitingID != flow.awaitingID || summaries[0].PendingAwaiting.RunID != flow.runID || summaries[0].PendingAwaiting.Mode != "question" || summaries[0].PendingAwaiting.CreatedAt <= 0 {
-		t.Fatalf("unexpected pendingAwaiting summary %#v", summaries[0].PendingAwaiting)
+	if summaries[0].Awaiting.AwaitingID != flow.awaitingID || summaries[0].Awaiting.RunID != flow.runID || summaries[0].Awaiting.Mode != "question" || summaries[0].Awaiting.CreatedAt <= 0 {
+		t.Fatalf("unexpected awaiting summary %#v", summaries[0].Awaiting)
+	}
+	rawChatSummaries := loadChatSummariesRawForTest(t, flow.fixture.server)
+	if !strings.Contains(rawChatSummaries, `"awaiting"`) {
+		t.Fatalf("expected /api/chats response to serialize awaiting, got %s", rawChatSummaries)
+	}
+	if strings.Contains(rawChatSummaries, `"pendingAwaiting"`) {
+		t.Fatalf("did not expect /api/chats response to serialize pendingAwaiting, got %s", rawChatSummaries)
 	}
 
 	submitRec := httptest.NewRecorder()
@@ -528,8 +535,8 @@ func TestWebSocketPushAwaitingAskAndAnswerSyncPendingChatSummary(t *testing.T) {
 	if len(summaries) != 1 {
 		t.Fatalf("expected one chat summary after answer, got %#v", summaries)
 	}
-	if summaries[0].PendingAwaiting != nil {
-		t.Fatalf("expected pendingAwaiting to clear after answer, got %#v", summaries[0].PendingAwaiting)
+	if summaries[0].Awaiting != nil {
+		t.Fatalf("expected awaiting to clear after answer, got %#v", summaries[0].Awaiting)
 	}
 }
 
@@ -599,8 +606,8 @@ func TestWebSocketPushAwaitingAnswerRunInterruptedClearsPendingChatSummary(t *te
 	waitForPushFrameType(t, flow.conn, "awaiting.ask")
 
 	summaries := loadChatSummariesForTest(t, flow.fixture.server)
-	if len(summaries) != 1 || summaries[0].PendingAwaiting == nil {
-		t.Fatalf("expected pendingAwaiting before interrupt, got %#v", summaries)
+	if len(summaries) != 1 || summaries[0].Awaiting == nil {
+		t.Fatalf("expected awaiting before interrupt, got %#v", summaries)
 	}
 
 	interruptRec := httptest.NewRecorder()
@@ -626,8 +633,8 @@ func TestWebSocketPushAwaitingAnswerRunInterruptedClearsPendingChatSummary(t *te
 	if len(summaries) != 1 {
 		t.Fatalf("expected one chat summary after interrupt, got %#v", summaries)
 	}
-	if summaries[0].PendingAwaiting != nil {
-		t.Fatalf("expected pendingAwaiting cleared after interrupt, got %#v", summaries[0].PendingAwaiting)
+	if summaries[0].Awaiting != nil {
+		t.Fatalf("expected awaiting cleared after interrupt, got %#v", summaries[0].Awaiting)
 	}
 }
 
@@ -877,6 +884,16 @@ func loadChatSummariesForTest(t *testing.T, handler http.Handler) []api.ChatSumm
 		t.Fatalf("decode chats response: %v", err)
 	}
 	return response.Data
+}
+
+func loadChatSummariesRawForTest(t *testing.T, handler http.Handler) string {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chats", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list chats expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	return rec.Body.String()
 }
 
 func collectWebSocketStreamEventTypes(t *testing.T, conn *gws.Conn, requestID string) []string {

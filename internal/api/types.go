@@ -353,17 +353,17 @@ type ToolDetailResponse struct {
 }
 
 type ChatSummaryResponse struct {
-	ChatID          string           `json:"chatId"`
-	ChatName        string           `json:"chatName"`
-	AgentKey        string           `json:"agentKey,omitempty"`
-	TeamID          string           `json:"teamId,omitempty"`
-	CreatedAt       int64            `json:"createdAt"`
-	UpdatedAt       int64            `json:"updatedAt"`
-	LastRunID       string           `json:"lastRunId,omitempty"`
-	LastRunContent  string           `json:"lastRunContent,omitempty"`
-	Read            ChatReadState    `json:"read"`
-	PendingAwaiting *PendingAwaiting `json:"pendingAwaiting,omitempty"`
-	Usage           *ChatUsageData   `json:"usage,omitempty"`
+	ChatID         string         `json:"chatId"`
+	ChatName       string         `json:"chatName"`
+	AgentKey       string         `json:"agentKey,omitempty"`
+	TeamID         string         `json:"teamId,omitempty"`
+	CreatedAt      int64          `json:"createdAt"`
+	UpdatedAt      int64          `json:"updatedAt"`
+	LastRunID      string         `json:"lastRunId,omitempty"`
+	LastRunContent string         `json:"lastRunContent,omitempty"`
+	Read           ChatReadState  `json:"read"`
+	Awaiting       *Awaiting      `json:"awaiting,omitempty"`
+	Usage          *ChatUsageData `json:"usage,omitempty"`
 }
 
 type ChatReadState struct {
@@ -372,7 +372,7 @@ type ChatReadState struct {
 	ReadRunID string `json:"readRunId,omitempty"`
 }
 
-type PendingAwaiting struct {
+type Awaiting struct {
 	AwaitingID string `json:"awaitingId"`
 	RunID      string `json:"runId"`
 	Mode       string `json:"mode"`
