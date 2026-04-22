@@ -560,6 +560,10 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid submit payload"))
 		return
 	}
+	if response, ok := s.forwardProxySubmit(req); ok {
+		writeJSON(w, http.StatusOK, api.Success(response))
+		return
+	}
 	if _, err := s.validateSubmitRequest(req); err != nil {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
 		return
@@ -594,6 +598,10 @@ func (s *Server) handleInterrupt(w http.ResponseWriter, r *http.Request) {
 	var req api.InterruptRequest
 	if err := decodeJSON(r, &req); err != nil || req.RunID == "" {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "runId is required"))
+		return
+	}
+	if response, ok := s.forwardProxyInterrupt(req); ok {
+		writeJSON(w, http.StatusOK, api.Success(response))
 		return
 	}
 	ack := s.deps.Runs.Interrupt(req)

@@ -263,6 +263,10 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 		conn.CompleteRequest(req.ID)
 		return
 	}
+	if strings.EqualFold(prepared.agentDef.Mode, "PROXY") {
+		s.wsProxyQuery(ctx, conn, req, prepared)
+		return
+	}
 
 	runCtx, control, _ := s.deps.Runs.Register(ctx, prepared.session)
 	eventBus, ok := s.deps.Runs.EventBus(prepared.req.RunID)
@@ -359,6 +363,11 @@ func (s *Server) wsSubmit(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 		conn.CompleteRequest(req.ID)
 		return
 	}
+	if response, ok := s.forwardProxySubmit(payload); ok {
+		conn.SendResponse(req.Type, req.ID, 0, "success", response)
+		conn.CompleteRequest(req.ID)
+		return
+	}
 	if _, err := s.validateSubmitRequest(payload); err != nil {
 		conn.SendError(req.ID, "invalid_request", 400, err.Error(), nil)
 		conn.CompleteRequest(req.ID)
@@ -403,6 +412,11 @@ func (s *Server) wsInterrupt(_ context.Context, conn *ws.Conn, req ws.RequestFra
 	payload, err := ws.DecodePayload[api.InterruptRequest](req)
 	if err != nil || strings.TrimSpace(payload.RunID) == "" {
 		conn.SendError(req.ID, "invalid_request", 400, "runId is required", nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	if response, ok := s.forwardProxyInterrupt(payload); ok {
+		conn.SendResponse(req.Type, req.ID, 0, "success", response)
 		conn.CompleteRequest(req.ID)
 		return
 	}
