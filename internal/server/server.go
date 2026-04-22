@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"agent-platform-runner-go/internal/api"
@@ -54,6 +55,8 @@ type Server struct {
 	authVerifier  *JWTVerifier
 	ticketService *ResourceTicketService
 	wsHandler     *ws.Handler
+	proxyMu       sync.RWMutex
+	proxyRuns     map[string]*proxyRunRoute
 }
 
 type syncQueryContextKey struct{}
@@ -107,6 +110,7 @@ func New(deps Dependencies) (*Server, error) {
 		deps:          deps,
 		authVerifier:  authVerifier,
 		ticketService: NewResourceTicketService(deps.Config.ChatImage),
+		proxyRuns:     map[string]*proxyRunRoute{},
 	}
 	if deps.Config.WebSocket.Enabled {
 		if hub, ok := deps.Notifications.(*ws.Hub); ok {

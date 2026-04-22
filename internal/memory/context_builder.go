@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"agent-platform-runner-go/internal/api"
 )
@@ -124,6 +125,8 @@ func buildContextBundleWithHybrid(request ContextRequest, items []api.StoredMemo
 	if len(crossChatObs) > topObs {
 		crossChatObs = crossChatObs[:topObs]
 	}
+
+	facts, sessionObs, crossChatObs = dedupeDisclosedMemoryLayers(facts, sessionObs, crossChatObs)
 
 	// Dynamic budget allocation: render untruncated, then allocate proportionally
 	stableRaw := renderPromptSection("Stable Memory", facts)
@@ -302,4 +305,310 @@ func truncatePrompt(text string, limit int) string {
 		return text
 	}
 	return strings.TrimSpace(text[:limit])
+}
+
+func dedupeDisclosedMemoryLayers(
+	facts []api.StoredMemoryResponse,
+	sessionObs []api.StoredMemoryResponse,
+	crossChatObs []api.StoredMemoryResponse,
+) ([]api.StoredMemoryResponse, []api.StoredMemoryResponse, []api.StoredMemoryResponse) {
+	stableSeen := map[string]struct{}{}
+	disclosedSeen := map[string]struct{}{}
+	facts = dedupeMemoryItems(facts, stableSeen, "stable")
+	facts = collapseNearDuplicateMemoryItems(facts, "stable")
+	for _, item := range facts {
+		for _, key := range memoryItemDedupeKeys(item, "disclosed") {
+			disclosedSeen[key] = struct{}{}
+		}
+	}
+	sessionObs = dedupeMemoryItems(sessionObs, disclosedSeen, "disclosed")
+	sessionObs = collapseNearDuplicateMemoryItems(sessionObs, "disclosed")
+	for _, item := range sessionObs {
+		for _, key := range memoryItemDedupeKeys(item, "disclosed") {
+			disclosedSeen[key] = struct{}{}
+		}
+	}
+	crossChatObs = dedupeMemoryItems(crossChatObs, disclosedSeen, "disclosed")
+	crossChatObs = collapseNearDuplicateMemoryItems(crossChatObs, "disclosed")
+	return facts, sessionObs, crossChatObs
+}
+
+func dedupeMemoryItems(items []api.StoredMemoryResponse, seen map[string]struct{}, mode string) []api.StoredMemoryResponse {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]api.StoredMemoryResponse, 0, len(items))
+	for _, item := range items {
+		if memoryItemSeen(item, seen, mode) {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func memoryItemSeen(item api.StoredMemoryResponse, seen map[string]struct{}, mode string) bool {
+	keys := memoryItemDedupeKeys(item, mode)
+	if len(keys) == 0 {
+		return false
+	}
+	for _, key := range keys {
+		if _, ok := seen[key]; ok {
+			return true
+		}
+	}
+	for _, key := range keys {
+		seen[key] = struct{}{}
+	}
+	return false
+}
+
+func memoryItemDedupeKeys(item api.StoredMemoryResponse, mode string) []string {
+	keys := make([]string, 0, 3)
+	push := func(prefix string, value string) {
+		normalized := normalizeMemoryDedupeText(value)
+		if normalized == "" {
+			return
+		}
+		keys = append(keys, prefix+":"+normalized)
+	}
+	category := strings.TrimSpace(item.Category)
+	scopeType := strings.TrimSpace(item.ScopeType)
+	scopeKey := strings.TrimSpace(item.ScopeKey)
+	if mode == "stable" {
+		push("stable-title:"+category+":"+scopeType+":"+scopeKey, item.Title)
+		push("stable-summary:"+category+":"+scopeType+":"+scopeKey, item.Summary)
+	} else {
+		push("disclosed-title:"+category, item.Title)
+		push("disclosed-summary:"+category, item.Summary)
+		if value := strings.TrimSpace(firstNonBlankText(item.Title, item.Summary)); value != "" {
+			push("disclosed-cross:"+category, value)
+		}
+	}
+	return keys
+}
+
+func normalizeMemoryDedupeText(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return ""
+	}
+	value = strings.Join(strings.Fields(value), " ")
+	runes := []rune(value)
+	if len(runes) > 48 {
+		value = strings.TrimSpace(string(runes[:48]))
+	}
+	return value
+}
+
+func collapseNearDuplicateMemoryItems(items []api.StoredMemoryResponse, mode string) []api.StoredMemoryResponse {
+	if len(items) <= 1 {
+		return items
+	}
+	out := make([]api.StoredMemoryResponse, 0, len(items))
+	for _, item := range items {
+		replaced := false
+		for idx := range out {
+			if !memoryNearDuplicate(out[idx], item, mode) {
+				continue
+			}
+			out[idx] = pickPreferredMemoryItem(out[idx], item)
+			replaced = true
+			break
+		}
+		if !replaced {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func memoryNearDuplicate(left api.StoredMemoryResponse, right api.StoredMemoryResponse, mode string) bool {
+	if strings.TrimSpace(left.Category) != strings.TrimSpace(right.Category) {
+		return false
+	}
+	if mode == "stable" {
+		if strings.TrimSpace(left.ScopeType) != strings.TrimSpace(right.ScopeType) || strings.TrimSpace(left.ScopeKey) != strings.TrimSpace(right.ScopeKey) {
+			return false
+		}
+	}
+	leftText := memoryComparableText(left)
+	rightText := memoryComparableText(right)
+	if leftText == "" || rightText == "" {
+		return false
+	}
+	leftNorm := normalizeMemoryComparableText(leftText)
+	rightNorm := normalizeMemoryComparableText(rightText)
+	if leftNorm == "" || rightNorm == "" {
+		return false
+	}
+	if leftNorm == rightNorm {
+		return true
+	}
+	shorter, longer := leftNorm, rightNorm
+	if len(shorter) > len(longer) {
+		shorter, longer = longer, shorter
+	}
+	if shorter != "" && strings.Contains(longer, shorter) && len([]rune(shorter))*4 >= len([]rune(longer))*3 {
+		return true
+	}
+	return memorySimilarity(leftNorm, rightNorm) >= 0.78
+}
+
+func memoryComparableText(item api.StoredMemoryResponse) string {
+	return firstNonBlankText(item.Summary, item.Title)
+}
+
+func normalizeMemoryComparableText(text string) string {
+	text = strings.ToLower(strings.TrimSpace(text))
+	if text == "" {
+		return ""
+	}
+	replacer := strings.NewReplacer(
+		"默认", " ",
+		"优先", " ",
+		"即", " ",
+		"按照", " ",
+		"按", " ",
+		"要", " ",
+		"的", " ",
+		"需要", " ",
+		"保证", " ",
+		"保持", " ",
+		"工作时间", "工时",
+		"小时", "h",
+		"小時", "h",
+	)
+	text = replacer.Replace(text)
+	var b strings.Builder
+	lastSpace := false
+	for _, r := range text {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.Is(unicode.Han, r) {
+			b.WriteRune(r)
+			lastSpace = false
+			continue
+		}
+		if !lastSpace {
+			b.WriteByte(' ')
+			lastSpace = true
+		}
+	}
+	return strings.Join(strings.Fields(b.String()), " ")
+}
+
+func memoryTokenSet(text string) map[string]struct{} {
+	text = normalizeMemoryComparableText(text)
+	if text == "" {
+		return nil
+	}
+	fields := strings.Fields(text)
+	if len(fields) == 0 {
+		return nil
+	}
+	stopWords := map[string]struct{}{
+		"default": {}, "prefer": {}, "preferred": {}, "should": {}, "need": {}, "needs": {},
+	}
+	tokens := make(map[string]struct{}, len(fields))
+	for _, field := range fields {
+		if _, ok := stopWords[field]; ok {
+			continue
+		}
+		if len([]rune(field)) > 1 {
+			tokens[field] = struct{}{}
+		}
+		for _, fragment := range hanFragments(field) {
+			tokens[fragment] = struct{}{}
+		}
+	}
+	if len(tokens) == 0 {
+		return nil
+	}
+	return tokens
+}
+
+func memorySimilarity(left string, right string) float64 {
+	leftTokens := memoryTokenSet(left)
+	rightTokens := memoryTokenSet(right)
+	if len(leftTokens) == 0 || len(rightTokens) == 0 {
+		return 0
+	}
+	overlap := 0
+	for token := range leftTokens {
+		if _, ok := rightTokens[token]; ok {
+			overlap++
+		}
+	}
+	union := len(leftTokens) + len(rightTokens) - overlap
+	if union <= 0 {
+		return 0
+	}
+	jaccard := float64(overlap) / float64(union)
+	overlapCoeff := float64(overlap) / float64(minInt(len(leftTokens), len(rightTokens)))
+	score := math.Max(jaccard, overlapCoeff)
+	shorter, longer := left, right
+	if len([]rune(shorter)) > len([]rune(longer)) {
+		shorter, longer = longer, shorter
+	}
+	if shorter != "" && strings.Contains(longer, shorter) {
+		score += 0.1
+	}
+	if score > 1 {
+		score = 1
+	}
+	return score
+}
+
+func pickPreferredMemoryItem(left api.StoredMemoryResponse, right api.StoredMemoryResponse) api.StoredMemoryResponse {
+	if left.Importance != right.Importance {
+		if right.Importance > left.Importance {
+			return right
+		}
+		return left
+	}
+	if left.Confidence != right.Confidence {
+		if right.Confidence > left.Confidence {
+			return right
+		}
+		return left
+	}
+	if left.UpdatedAt != right.UpdatedAt {
+		if right.UpdatedAt > left.UpdatedAt {
+			return right
+		}
+		return left
+	}
+	if len([]rune(strings.TrimSpace(right.Summary))) > len([]rune(strings.TrimSpace(left.Summary))) {
+		return right
+	}
+	return left
+}
+
+func hanFragments(text string) []string {
+	runes := []rune(strings.TrimSpace(text))
+	if len(runes) < 2 {
+		return nil
+	}
+	fragments := make([]string, 0, len(runes)-1)
+	for i := 0; i < len(runes)-1; i++ {
+		if unicode.Is(unicode.Han, runes[i]) && unicode.Is(unicode.Han, runes[i+1]) {
+			fragments = append(fragments, string(runes[i:i+2]))
+		}
+	}
+	return fragments
+}
+
+func minInt(a int, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func firstNonBlankText(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }

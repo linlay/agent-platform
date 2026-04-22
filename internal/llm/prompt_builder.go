@@ -399,6 +399,9 @@ func buildMemorySection(session QuerySession, req api.QueryRequest) string {
 	if strings.TrimSpace(session.ObservationContext) != "" {
 		sections = append(sections, strings.TrimSpace(session.ObservationContext))
 	}
+	if strings.TrimSpace(session.WorkflowContext) != "" {
+		sections = append(sections, strings.TrimSpace(session.WorkflowContext))
+	}
 	if len(sections) > 0 {
 		return strings.Join(sections, "\n\n")
 	}

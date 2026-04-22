@@ -226,8 +226,234 @@ func TestPrepareQueryBuildsLayeredMemoryContexts(t *testing.T) {
 	if len(prepared.memoryUsageSummary.SessionItems) != 1 || prepared.memoryUsageSummary.SessionItems[0].Summary != "上次已经调整过下周工时安排，继续安排下周工时时要参考这个结果。" {
 		t.Fatalf("unexpected session memory items: %#v", prepared.memoryUsageSummary.SessionItems)
 	}
+	if got := prepared.memoryUsageSummary.UserHint; !containsAll(got, []string{"本次回答借鉴了历史记忆", "Work hours preference", "Recent schedule adjustme"}) {
+		t.Fatalf("unexpected memory user hint: %q", got)
+	}
 	if prepared.session.MemoryUsageSummary == nil {
 		t.Fatalf("expected session memory usage summary, got nil")
+	}
+}
+
+func TestBuildMemoryHitItemsReflectsPromptInjectedRecords(t *testing.T) {
+	bundle := memory.ContextBundle{
+		StableFacts: []api.StoredMemoryResponse{
+			{
+				ID:       "fact-1",
+				Kind:     memory.KindFact,
+				Title:    "Schedule rules summary",
+				Summary:  "Schedule rules summary",
+				Category: "platform_rules",
+			},
+			{
+				ID:       "fact-2",
+				Kind:     memory.KindFact,
+				Title:    "Schedule rules summary",
+				Summary:  "Schedule rules summary for current agent",
+				Category: "platform_rules",
+			},
+		},
+		SessionSummaries: []api.StoredMemoryResponse{
+			{
+				ID:       "obs-1",
+				Kind:     memory.KindObservation,
+				Title:    "Recent schedule adjustment",
+				Summary:  "Recent schedule adjustment",
+				Category: "general",
+			},
+		},
+	}
+
+	items := buildMemoryHitItems(bundle)
+	if len(items) != 3 {
+		t.Fatalf("expected memory hits to reflect bundle items, got %#v", items)
+	}
+	if items[0].ID != "fact-1" || items[1].ID != "fact-2" || items[2].ID != "obs-1" {
+		t.Fatalf("unexpected memory hit ordering: %#v", items)
+	}
+}
+
+func TestPrepareQueryDedupesNearDuplicateStableFacts(t *testing.T) {
+	chats, err := chat.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new chat store: %v", err)
+	}
+	memories, err := memory.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new memory store: %v", err)
+	}
+	now := int64(1_700_000_000_000)
+	items := []api.StoredMemoryResponse{
+		{
+			ID:         "fact-1",
+			AgentKey:   "agent-a",
+			ChatID:     "chat-1",
+			Kind:       memory.KindFact,
+			ScopeType:  memory.ScopeAgent,
+			ScopeKey:   "agent:agent-a",
+			Title:      "Work hours baseline",
+			Summary:    "用户每周需要保证 40 小时的工作时间。",
+			SourceType: "tool-write",
+			Category:   "user_preference",
+			Importance: 9,
+			Status:     memory.StatusActive,
+			CreatedAt:  now,
+			UpdatedAt:  now,
+		},
+		{
+			ID:         "fact-2",
+			AgentKey:   "agent-a",
+			ChatID:     "chat-2",
+			Kind:       memory.KindFact,
+			ScopeType:  memory.ScopeAgent,
+			ScopeKey:   "agent:agent-a",
+			Title:      "Work hours baseline expanded",
+			Summary:    "用户每周要保证40小时的工作时间，默认优先按工作日均摊（即每天8小时，按5个工作日计算）。",
+			SourceType: "tool-write",
+			Category:   "user_preference",
+			Importance: 9,
+			Status:     memory.StatusActive,
+			CreatedAt:  now + 1,
+			UpdatedAt:  now + 1,
+		},
+		{
+			ID:         "fact-3",
+			AgentKey:   "agent-a",
+			ChatID:     "chat-3",
+			Kind:       memory.KindFact,
+			ScopeType:  memory.ScopeAgent,
+			ScopeKey:   "agent:agent-a",
+			Title:      "Break time rule",
+			Summary:    "午休时间不计入工时。",
+			SourceType: "tool-write",
+			Category:   "user_preference",
+			Importance: 8,
+			Status:     memory.StatusActive,
+			CreatedAt:  now + 2,
+			UpdatedAt:  now + 2,
+		},
+	}
+	for _, item := range items {
+		if err := memories.Write(item); err != nil {
+			t.Fatalf("write memory %s: %v", item.ID, err)
+		}
+	}
+
+	server := &Server{deps: Dependencies{
+		Config: config.Config{
+			Memory: config.MemoryConfig{
+				ContextTopN:     5,
+				ContextMaxChars: 4000,
+			},
+		},
+		Chats:  chats,
+		Memory: memories,
+		Registry: queryMemoryRegistry{
+			def: catalog.AgentDefinition{
+				Key:         "agent-a",
+				Name:        "Agent A",
+				ModelKey:    "mock-model",
+				ContextTags: []string{"memory"},
+			},
+		},
+	}}
+
+	req := httptest.NewRequest("POST", "/api/query", bytes.NewBufferString(`{"agentKey":"agent-a","chatId":"chat-1","message":"帮我安排本周工时"}`))
+	prepared, err := server.prepareQuery(req)
+	if err != nil {
+		t.Fatalf("prepareQuery: %v", err)
+	}
+
+	if strings.Count(prepared.session.StableMemoryContext, "- ") != 2 {
+		t.Fatalf("expected 2 stable bullets after dedupe, got %q", prepared.session.StableMemoryContext)
+	}
+	if !strings.Contains(prepared.session.StableMemoryContext, "每天8小时") {
+		t.Fatalf("expected richer duplicate winner to survive, got %q", prepared.session.StableMemoryContext)
+	}
+	if prepared.memoryUsageSummary == nil || prepared.memoryUsageSummary.SelectedCounts["stable"] != 2 {
+		t.Fatalf("expected stable selected count 2, got %#v", prepared.memoryUsageSummary)
+	}
+}
+
+func TestPrepareQueryDedupesNearDuplicateAcrossStableAndSession(t *testing.T) {
+	chats, err := chat.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new chat store: %v", err)
+	}
+	memories, err := memory.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new memory store: %v", err)
+	}
+	now := int64(1_700_000_000_000)
+	stored := []api.StoredMemoryResponse{
+		{
+			ID:         "fact-1",
+			AgentKey:   "agent-a",
+			ChatID:     "chat-1",
+			Kind:       memory.KindFact,
+			ScopeType:  memory.ScopeAgent,
+			ScopeKey:   "agent:agent-a",
+			Title:      "Work hours baseline",
+			Summary:    "用户每周要保证40小时的工作时间，默认优先按工作日均摊（即每天8小时，按5个工作日计算）。",
+			SourceType: "tool-write",
+			Category:   "user_preference",
+			Importance: 9,
+			Status:     memory.StatusActive,
+			CreatedAt:  now,
+			UpdatedAt:  now,
+		},
+		{
+			ID:         "obs-1",
+			AgentKey:   "agent-a",
+			ChatID:     "chat-1",
+			Kind:       memory.KindObservation,
+			ScopeType:  memory.ScopeChat,
+			ScopeKey:   "chat:chat-1",
+			Title:      "Current schedule rule",
+			Summary:    "本周仍按每周40小时、5个工作日每天8小时来记录工时。",
+			SourceType: "learn",
+			Category:   "user_preference",
+			Importance: 8,
+			Status:     memory.StatusOpen,
+			CreatedAt:  now + 1,
+			UpdatedAt:  now + 1,
+		},
+	}
+	for _, item := range stored {
+		if err := memories.Write(item); err != nil {
+			t.Fatalf("write memory %s: %v", item.ID, err)
+		}
+	}
+
+	server := &Server{deps: Dependencies{
+		Config: config.Config{
+			Memory: config.MemoryConfig{
+				ContextTopN:     5,
+				ContextMaxChars: 4000,
+			},
+		},
+		Chats:  chats,
+		Memory: memories,
+		Registry: queryMemoryRegistry{
+			def: catalog.AgentDefinition{
+				Key:         "agent-a",
+				Name:        "Agent A",
+				ModelKey:    "mock-model",
+				ContextTags: []string{"memory"},
+			},
+		},
+	}}
+
+	req := httptest.NewRequest("POST", "/api/query", bytes.NewBufferString(`{"agentKey":"agent-a","chatId":"chat-1","message":"帮我记录本周工时"}`))
+	prepared, err := server.prepareQuery(req)
+	if err != nil {
+		t.Fatalf("prepareQuery: %v", err)
+	}
+
+	if prepared.session.SessionMemoryContext != "" {
+		t.Fatalf("expected duplicate session memory to be removed, got %q", prepared.session.SessionMemoryContext)
+	}
+	if prepared.memoryUsageSummary == nil || prepared.memoryUsageSummary.SelectedCounts["session"] != 0 {
+		t.Fatalf("expected session selected count 0, got %#v", prepared.memoryUsageSummary)
 	}
 }
 

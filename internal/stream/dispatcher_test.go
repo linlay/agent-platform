@@ -49,6 +49,31 @@ func TestDispatcherEmitsToolSnapshotAndResultLifecycle(t *testing.T) {
 	assertEventTypes(t, resultEvents, "tool.result")
 }
 
+func TestDispatcherEmitsDedicatedMemoryEventAlongsideToolResult(t *testing.T) {
+	dispatcher := NewDispatcher(StreamRequest{
+		RunID:  "run_1",
+		ChatID: "chat_1",
+	})
+
+	events := dispatcher.Dispatch(ToolResult{
+		ToolID:   "tool_mem_1",
+		ToolName: "_memory_write_",
+		Result: map[string]any{
+			"status": "stored",
+			"memory": map[string]any{"id": "mem_1"},
+		},
+	})
+	assertEventTypes(t, events, "tool.result", "memory.write")
+	payload := events[1].ToData()
+	if payload["runId"] != "run_1" || payload["chatId"] != "chat_1" {
+		t.Fatalf("unexpected memory.write envelope: %#v", payload)
+	}
+	data, _ := payload["data"].(map[string]any)
+	if data["toolName"] != "_memory_write_" {
+		t.Fatalf("unexpected memory.write toolName: %#v", data)
+	}
+}
+
 func TestDispatcherFallsBackToActiveTaskIDForSubAgentBlocks(t *testing.T) {
 	dispatcher := NewDispatcher(StreamRequest{
 		RunID:  "run_1",

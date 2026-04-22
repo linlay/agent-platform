@@ -104,6 +104,7 @@ func TestBuildMemorySectionAvoidsDuplicatingLayeredHeaders(t *testing.T) {
 	section := buildMemorySection(QuerySession{
 		StableMemoryContext: "Runtime Context: Stable Memory\n- stable-fact",
 		ObservationContext:  "Runtime Context: Relevant Observations\n- recent-observation",
+		WorkflowContext:     "Runtime Context: Related Workflows\nworkflow: deploy schedule",
 	}, api.QueryRequest{})
 
 	if strings.Count(section, "Runtime Context: Stable Memory") != 1 {

@@ -31,6 +31,7 @@ type SQLiteStore struct {
 	ftsVectorWeight float64
 	ftsFTSWeight    float64
 	embedder        *EmbeddingProvider
+	summarizer      RememberSummarizer
 }
 
 func NewSQLiteStore(root string, dbFileName string) (*SQLiteStore, error) {
@@ -57,6 +58,12 @@ func (s *SQLiteStore) SetEmbedder(ep *EmbeddingProvider) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.embedder = ep
+}
+
+func (s *SQLiteStore) SetRememberSummarizer(summarizer RememberSummarizer) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.summarizer = summarizer
 }
 
 func (s *SQLiteStore) ApplyFeedback(signals []FeedbackSignal) error {
@@ -198,53 +205,46 @@ func (s *SQLiteStore) initDB() error {
 }
 
 func (s *SQLiteStore) Remember(chatDetail chat.Detail, request api.RememberRequest, agentKey string) (api.RememberResponse, error) {
-	now := time.Now().UnixMilli()
-	summary := extractRememberSummary(chatDetail)
-	item := api.RememberItemResponse{
-		Summary:    summary,
-		SubjectKey: chatDetail.ChatID,
-	}
-	id := generateMemoryID()
-	stored := api.StoredMemoryResponse{
-		ID:         id,
-		RequestID:  request.RequestID,
-		ChatID:     request.ChatID,
-		AgentKey:   agentKey,
-		SubjectKey: chatDetail.ChatID,
-		Kind:       KindFact,
-		RefID:      id,
-		ScopeType:  ScopeAgent,
-		ScopeKey:   normalizeScopeKey(ScopeAgent, "", agentKey, "", request.ChatID, ""),
-		Title:      normalizeMemoryTitle("", summary),
-		Summary:    summary,
-		SourceType: "remember",
-		Category:   "remember",
-		Importance: rememberImportance,
-		Confidence: 0.9,
-		Status:     StatusActive,
-		Tags:       []string{"remember"},
-		CreatedAt:  now,
-		UpdatedAt:  now,
-	}
-	stored = normalizeStoredItem(stored)
-	if err := s.Write(stored); err != nil {
+	s.mu.Lock()
+	history, err := s.listProjectionItemsLocked(agentKey)
+	summarizer := s.summarizer
+	s.mu.Unlock()
+	if err != nil {
 		return api.RememberResponse{}, err
+	}
+	drafts := summarizeRememberWithFallback(summarizer, RememberSynthesisInput{
+		Request:  request,
+		Chat:     chatDetail,
+		AgentKey: agentKey,
+		History:  history,
+	})
+	stored := buildRememberStoredItems(request, chatDetail, agentKey, drafts)
+	for _, item := range stored {
+		if err := s.Write(item); err != nil {
+			return api.RememberResponse{}, err
+		}
 	}
 	logMemoryOperation("remember", map[string]any{
 		"agentKey":    agentKey,
 		"chatId":      request.ChatID,
 		"requestId":   request.RequestID,
-		"memoryCount": 1,
-		"memoryId":    stored.ID,
+		"memoryCount": len(stored),
 	})
 
 	memoryPath := filepath.Join(s.root, request.ChatID+".json")
+	items := make([]api.RememberItemResponse, 0, len(stored))
+	for _, item := range stored {
+		items = append(items, api.RememberItemResponse{
+			Summary:    item.Summary,
+			SubjectKey: chatDetail.ChatID,
+		})
+	}
 	payload := map[string]any{
 		"requestId": request.RequestID,
 		"chatId":    request.ChatID,
 		"chatName":  chatDetail.ChatName,
-		"items":     []api.RememberItemResponse{item},
-		"stored":    []api.StoredMemoryResponse{stored},
+		"items":     items,
+		"stored":    stored,
 	}
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
@@ -265,17 +265,17 @@ func (s *SQLiteStore) Remember(chatDetail chat.Detail, request api.RememberReque
 	}
 
 	return api.RememberResponse{
-		Accepted:      true,
-		Status:        "stored",
+		Accepted:      len(stored) > 0,
+		Status:        rememberStatus(stored),
 		RequestID:     request.RequestID,
 		ChatID:        request.ChatID,
 		MemoryPath:    memoryPath,
 		MemoryRoot:    s.root,
-		MemoryCount:   1,
+		MemoryCount:   len(stored),
 		Detail:        "remember request captured; memory root=" + s.root,
 		PromptPreview: preview,
-		Items:         []api.RememberItemResponse{item},
-		Stored:        []api.StoredMemoryResponse{stored},
+		Items:         items,
+		Stored:        stored,
 	}, nil
 }
 
@@ -950,9 +950,24 @@ func (s *SQLiteStore) loadEmbeddingsLocked(items []api.StoredMemoryResponse) map
 
 func (s *SQLiteStore) Learn(input LearnInput) (api.LearnResponse, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
+	history, err := s.listProjectionItemsLocked(input.AgentKey)
+	summarizer := s.summarizer
+	s.mu.Unlock()
+	if err != nil {
+		return api.LearnResponse{}, err
+	}
+	drafts := summarizeLearnWithFallback(summarizer, LearnSynthesisInput{
+		Request:  input.Request,
+		Trace:    input.Trace,
+		AgentKey: input.AgentKey,
+		TeamID:   input.TeamID,
+		UserKey:  input.UserKey,
+		History:  history,
+	})
+	stored := buildLearnedMemoriesFromDrafts(input, drafts)
 
-	stored := extractLearnedMemories(input)
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	for _, item := range stored {
 		if err := s.writeLocked(item); err != nil {
 			return api.LearnResponse{}, err
@@ -1003,7 +1018,7 @@ func (s *SQLiteStore) Consolidate(agentKey string) (ConsolidationResult, error) 
 		s.mu.Unlock()
 		return ConsolidationResult{}, err
 	}
-	result, err := s.applyConsolidationPlanLocked(agentKey, buildObservationConsolidationPlan(agentKey, items, time.Now()))
+	result, err := s.applyConsolidationPlanLocked(agentKey, buildConsolidationPlan(agentKey, items, time.Now()))
 	s.mu.Unlock()
 	return result, err
 }
@@ -1019,6 +1034,18 @@ func (s *SQLiteStore) applyConsolidationPlanLocked(agentKey string, plan consoli
 			result.ArchivedCount++
 			if _, merged := plan.mergeIDs[id]; merged {
 				result.MergedCount++
+			}
+		}
+	}
+	for id, keeperID := range plan.supersedeIDs {
+		record, err := s.updateLocked(agentKey, MutationInput{ID: id, Status: ptrString(StatusSuperseded)})
+		if err != nil {
+			return result, err
+		}
+		if record != nil {
+			result.MergedCount++
+			if err := s.insertMemoryLinkLocked(keeperID, id, "supersedes", 1.0); err != nil {
+				return result, err
 			}
 		}
 	}
@@ -1260,6 +1287,16 @@ func (s *SQLiteStore) writeLocked(item api.StoredMemoryResponse) error {
 	if strings.TrimSpace(item.ScopeKey) == "" {
 		item.ScopeKey = normalizeScopeKey(item.ScopeType, "", item.AgentKey, "", item.ChatID, "")
 	}
+	if existing, err := s.findExactDuplicateLocked(item); err != nil {
+		return err
+	} else if existing != nil {
+		return s.bumpDuplicateMemoryLocked(*existing, item, now)
+	}
+	if existing, err := s.findNearDuplicateFactLocked(item); err != nil {
+		return err
+	} else if existing != nil {
+		return s.mergeNearDuplicateFactLocked(*existing, item, now)
+	}
 	if normalizeMemoryKind(item.Kind) == KindFact {
 		if err := s.supersedeMatchingFactsLocked(item); err != nil {
 			return err
@@ -1295,6 +1332,155 @@ func (s *SQLiteStore) writeLocked(item api.StoredMemoryResponse) error {
 	}
 	_ = s.refreshSnapshotsLocked(item.AgentKey)
 	return nil
+}
+
+func (s *SQLiteStore) findExactDuplicateLocked(item api.StoredMemoryResponse) (*api.StoredMemoryResponse, error) {
+	rows, err := s.db.Query(
+		`SELECT ID_, TS_, REQUEST_ID_, CHAT_ID_, AGENT_KEY_, SUBJECT_KEY_,
+			KIND_, REF_ID_, SCOPE_TYPE_, SCOPE_KEY_, TITLE_,
+			SOURCE_TYPE_, SUMMARY_, CATEGORY_, IMPORTANCE_, CONFIDENCE_, STATUS_, TAGS_,
+			UPDATED_AT_, ACCESS_COUNT_, LAST_ACCESSED_AT_
+		FROM MEMORIES
+		WHERE ID_ != ?
+			AND AGENT_KEY_ = ?
+			AND KIND_ = ?
+			AND SCOPE_TYPE_ = ?
+			AND SCOPE_KEY_ = ?
+			AND CATEGORY_ = ?
+			AND TITLE_ = ?
+			AND SUMMARY_ = ?
+			AND STATUS_ = ?
+			AND ((? = '' AND CHAT_ID_ = '') OR CHAT_ID_ = ?)
+		ORDER BY UPDATED_AT_ DESC
+		LIMIT 1`,
+		item.ID,
+		item.AgentKey,
+		item.Kind,
+		item.ScopeType,
+		item.ScopeKey,
+		item.Category,
+		item.Title,
+		item.Summary,
+		item.Status,
+		item.ChatID, item.ChatID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return nil, rows.Err()
+	}
+	existing, err := scanMemoryRow(rows)
+	if err != nil {
+		return nil, err
+	}
+	return &existing, rows.Err()
+}
+
+func (s *SQLiteStore) bumpDuplicateMemoryLocked(existing api.StoredMemoryResponse, incoming api.StoredMemoryResponse, now int64) error {
+	existing.Importance = max(existing.Importance, incoming.Importance)
+	existing.Confidence = maxFloat(existing.Confidence, incoming.Confidence)
+	existing.Tags = normalizeTags(append(existing.Tags, incoming.Tags...))
+	existing.UpdatedAt = now
+	existing.AccessCount++
+	existing.LastAccessedAt = &now
+	if err := s.upsertProjectionLocked(existing); err != nil {
+		return err
+	}
+	if normalizeMemoryKind(existing.Kind) == KindObservation {
+		if err := s.upsertObservationSourceLocked(existing); err != nil {
+			return err
+		}
+	} else {
+		if err := s.upsertFactSourceLocked(existing); err != nil {
+			return err
+		}
+	}
+	_ = s.refreshSnapshotsLocked(existing.AgentKey)
+	logMemoryOperation("write_duplicate", map[string]any{
+		"id":          existing.ID,
+		"incomingId":  incoming.ID,
+		"agentKey":    existing.AgentKey,
+		"kind":        existing.Kind,
+		"scopeType":   existing.ScopeType,
+		"scopeKey":    existing.ScopeKey,
+		"category":    existing.Category,
+		"accessCount": existing.AccessCount,
+	})
+	return nil
+}
+
+func (s *SQLiteStore) findNearDuplicateFactLocked(item api.StoredMemoryResponse) (*api.StoredMemoryResponse, error) {
+	if normalizeMemoryKind(item.Kind) != KindFact {
+		return nil, nil
+	}
+	if normalizeMemoryStatus(item.Status, item.Kind) != StatusActive {
+		return nil, nil
+	}
+	rows, err := s.db.Query(
+		`SELECT ID_, TS_, REQUEST_ID_, CHAT_ID_, AGENT_KEY_, SUBJECT_KEY_,
+			KIND_, REF_ID_, SCOPE_TYPE_, SCOPE_KEY_, TITLE_,
+			SOURCE_TYPE_, SUMMARY_, CATEGORY_, IMPORTANCE_, CONFIDENCE_, STATUS_, TAGS_,
+			UPDATED_AT_, ACCESS_COUNT_, LAST_ACCESSED_AT_
+		FROM MEMORIES
+		WHERE ID_ != ?
+			AND AGENT_KEY_ = ?
+			AND KIND_ = ?
+			AND SCOPE_TYPE_ = ?
+			AND SCOPE_KEY_ = ?
+			AND CATEGORY_ = ?
+			AND STATUS_ = ?
+		ORDER BY IMPORTANCE_ DESC, CONFIDENCE_ DESC, UPDATED_AT_ DESC`,
+		item.ID,
+		item.AgentKey,
+		KindFact,
+		item.ScopeType,
+		item.ScopeKey,
+		item.Category,
+		StatusActive,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		existing, err := scanMemoryRow(rows)
+		if err != nil {
+			return nil, err
+		}
+		if isNearDuplicateFactMemory(existing, item) {
+			return &existing, nil
+		}
+	}
+	return nil, rows.Err()
+}
+
+func (s *SQLiteStore) mergeNearDuplicateFactLocked(existing api.StoredMemoryResponse, incoming api.StoredMemoryResponse, now int64) error {
+	merged := mergeNearDuplicateFactMemory(existing, incoming, now)
+	if err := s.upsertProjectionLocked(merged); err != nil {
+		return err
+	}
+	if err := s.upsertFactSourceLocked(merged); err != nil {
+		return err
+	}
+	_ = s.refreshSnapshotsLocked(existing.AgentKey)
+	logMemoryOperation("write_near_duplicate_fact", map[string]any{
+		"id":         existing.ID,
+		"incomingId": incoming.ID,
+		"agentKey":   existing.AgentKey,
+		"scopeType":  existing.ScopeType,
+		"scopeKey":   existing.ScopeKey,
+		"category":   existing.Category,
+	})
+	return nil
+}
+
+func maxFloat(a float64, b float64) float64 {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func (s *SQLiteStore) readProjectionByIDLocked(id string) (*api.StoredMemoryResponse, error) {
@@ -1417,8 +1603,8 @@ func (s *SQLiteStore) upsertProjectionLocked(item api.StoredMemoryResponse) erro
 	_, err := s.db.Exec(
 		`INSERT INTO MEMORIES (ID_, TS_, REQUEST_ID_, CHAT_ID_, AGENT_KEY_, SUBJECT_KEY_,
 			KIND_, REF_ID_, SCOPE_TYPE_, SCOPE_KEY_, TITLE_,
-			SOURCE_TYPE_, SUMMARY_, CATEGORY_, IMPORTANCE_, CONFIDENCE_, STATUS_, TAGS_, UPDATED_AT_)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			SOURCE_TYPE_, SUMMARY_, CATEGORY_, IMPORTANCE_, CONFIDENCE_, STATUS_, TAGS_, UPDATED_AT_, ACCESS_COUNT_, LAST_ACCESSED_AT_)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(ID_) DO UPDATE SET
 			CHAT_ID_ = excluded.CHAT_ID_,
 			AGENT_KEY_ = excluded.AGENT_KEY_,
@@ -1435,10 +1621,12 @@ func (s *SQLiteStore) upsertProjectionLocked(item api.StoredMemoryResponse) erro
 			CONFIDENCE_ = excluded.CONFIDENCE_,
 			STATUS_ = excluded.STATUS_,
 			TAGS_ = excluded.TAGS_,
-			UPDATED_AT_ = excluded.UPDATED_AT_`,
+			UPDATED_AT_ = excluded.UPDATED_AT_,
+			ACCESS_COUNT_ = excluded.ACCESS_COUNT_,
+			LAST_ACCESSED_AT_ = excluded.LAST_ACCESSED_AT_`,
 		item.ID, item.CreatedAt, item.RequestID, item.ChatID,
 		item.AgentKey, item.SubjectKey, item.Kind, item.RefID, item.ScopeType, item.ScopeKey, item.Title,
-		item.SourceType, item.Summary, item.Category, item.Importance, item.Confidence, item.Status, tagsStr, item.UpdatedAt,
+		item.SourceType, item.Summary, item.Category, item.Importance, item.Confidence, item.Status, tagsStr, item.UpdatedAt, item.AccessCount, item.LastAccessedAt,
 	)
 	return err
 }

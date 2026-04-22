@@ -154,6 +154,7 @@ func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
 }
 
 func buildMemoryUsageSummary(staticMemoryPrompt string, bundle memory.ContextBundle) *api.MemoryUsageSummary {
+	hitItems := buildMemoryHitItems(bundle)
 	summary := &api.MemoryUsageSummary{
 		HasStaticMemory:  strings.TrimSpace(staticMemoryPrompt) != "",
 		StableCount:      len(bundle.StableFacts),
@@ -171,6 +172,7 @@ func buildMemoryUsageSummary(staticMemoryPrompt string, bundle memory.ContextBun
 		CandidateCounts:  cloneIntMap(bundle.CandidateCounts),
 		SelectedCounts:   cloneIntMap(bundle.SelectedCounts),
 	}
+	summary.UserHint = buildMemoryUserHint(hitItems)
 	if !summary.HasStaticMemory && summary.StableCount == 0 && summary.SessionCount == 0 && summary.ObservationCount == 0 {
 		return nil
 	}
@@ -193,6 +195,62 @@ func buildMemoryUsageItems(items []api.StoredMemoryResponse) []api.MemoryUsageIt
 		})
 	}
 	return out
+}
+
+func buildMemoryHitItems(bundle memory.ContextBundle) []api.MemoryHitItem {
+	out := make([]api.MemoryHitItem, 0, 3)
+	appendHits := func(layer string, items []api.StoredMemoryResponse, limit int) {
+		for _, item := range items {
+			if limit > 0 && len(out) >= limit {
+				return
+			}
+			out = append(out, api.MemoryHitItem{
+				ID:        strings.TrimSpace(item.ID),
+				Layer:     strings.TrimSpace(layer),
+				Kind:      strings.TrimSpace(item.Kind),
+				ScopeType: strings.TrimSpace(item.ScopeType),
+				Title:     strings.TrimSpace(item.Title),
+				Summary:   strings.TrimSpace(item.Summary),
+				Category:  strings.TrimSpace(item.Category),
+			})
+		}
+	}
+
+	appendHits("stable", bundle.StableFacts, 3)
+	appendHits("session", bundle.SessionSummaries, 3)
+	appendHits("observation", bundle.RelevantObservations, 3)
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func buildMemoryUserHint(items []api.MemoryHitItem) string {
+	if len(items) == 0 {
+		return ""
+	}
+	labels := make([]string, 0, minInt(len(items), 3))
+	for idx, item := range items {
+		if idx >= 3 {
+			break
+		}
+		label := strings.TrimSpace(item.Title)
+		if label == "" {
+			label = strings.TrimSpace(item.Summary)
+		}
+		if label == "" {
+			continue
+		}
+		runes := []rune(label)
+		if len(runes) > 24 {
+			label = strings.TrimSpace(string(runes[:24])) + "..."
+		}
+		labels = append(labels, "《"+label+"》")
+	}
+	if len(labels) == 0 {
+		return ""
+	}
+	return "本次回答借鉴了历史记忆：" + strings.Join(labels, "、")
 }
 
 func memoryUsageEventPayload(summary *api.MemoryUsageSummary, chatID string, runID string, agentKey string) map[string]any {
@@ -219,6 +277,9 @@ func memoryUsageEventPayload(summary *api.MemoryUsageSummary, chatID string, run
 	}
 	if len(summary.ObservationItems) > 0 {
 		payload["observationItems"] = summary.ObservationItems
+	}
+	if strings.TrimSpace(summary.UserHint) != "" {
+		payload["userHint"] = strings.TrimSpace(summary.UserHint)
 	}
 	if len(summary.DisclosedLayers) > 0 {
 		payload["disclosedLayers"] = append([]string(nil), summary.DisclosedLayers...)
@@ -247,6 +308,13 @@ func cloneIntMap(input map[string]int) map[string]int {
 		out[key] = value
 	}
 	return out
+}
+
+func minInt(a int, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func sandboxAgentEnv(value any) map[string]string {
@@ -597,6 +665,10 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid submit payload"))
 		return
 	}
+	if response, ok := s.forwardProxySubmit(req); ok {
+		writeJSON(w, http.StatusOK, api.Success(response))
+		return
+	}
 	if _, err := s.validateSubmitRequest(req); err != nil {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
 		return
@@ -631,6 +703,10 @@ func (s *Server) handleInterrupt(w http.ResponseWriter, r *http.Request) {
 	var req api.InterruptRequest
 	if err := decodeJSON(r, &req); err != nil || req.RunID == "" {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "runId is required"))
+		return
+	}
+	if response, ok := s.forwardProxyInterrupt(req); ok {
+		writeJSON(w, http.StatusOK, api.Success(response))
 		return
 	}
 	ack := s.deps.Runs.Interrupt(req)

@@ -28,7 +28,8 @@ type Store interface {
 }
 
 type FileStore struct {
-	root string
+	root       string
+	summarizer RememberSummarizer
 }
 
 func NewFileStore(root string) (*FileStore, error) {
@@ -38,53 +39,51 @@ func NewFileStore(root string) (*FileStore, error) {
 	return &FileStore{root: root}, nil
 }
 
+func (s *FileStore) SetRememberSummarizer(summarizer RememberSummarizer) {
+	if s == nil {
+		return
+	}
+	s.summarizer = summarizer
+}
+
 func (s *FileStore) Remember(chatDetail chat.Detail, request api.RememberRequest, agentKey string) (api.RememberResponse, error) {
-	now := time.Now().UnixMilli()
-	summary := extractRememberSummary(chatDetail)
-	item := api.RememberItemResponse{
-		Summary:    summary,
-		SubjectKey: chatDetail.ChatID,
-	}
-	stored := api.StoredMemoryResponse{
-		ID:         "mem_" + strings.ReplaceAll(request.ChatID, "-", "")[:min(12, len(strings.ReplaceAll(request.ChatID, "-", "")))],
-		RequestID:  request.RequestID,
-		ChatID:     request.ChatID,
-		AgentKey:   agentKey,
-		SubjectKey: chatDetail.ChatID,
-		Kind:       KindFact,
-		RefID:      request.ChatID,
-		ScopeType:  ScopeAgent,
-		ScopeKey:   normalizeScopeKey(ScopeAgent, "", agentKey, "", request.ChatID, ""),
-		Title:      normalizeMemoryTitle("", summary),
-		Summary:    summary,
-		SourceType: "remember",
-		Category:   "remember",
-		Importance: rememberImportance,
-		Confidence: 0.9,
-		Status:     StatusActive,
-		Tags:       []string{"remember"},
-		CreatedAt:  now,
-		UpdatedAt:  now,
-	}
-	stored = normalizeStoredItem(stored)
-	if err := s.Write(stored); err != nil {
+	history, err := s.readAllStored()
+	if err != nil {
 		return api.RememberResponse{}, err
+	}
+	drafts := summarizeRememberWithFallback(s.summarizer, RememberSynthesisInput{
+		Request:  request,
+		Chat:     chatDetail,
+		AgentKey: agentKey,
+		History:  filterHistoryByAgent(history, agentKey),
+	})
+	stored := buildRememberStoredItems(request, chatDetail, agentKey, drafts)
+	for _, item := range stored {
+		if err := s.Write(item); err != nil {
+			return api.RememberResponse{}, err
+		}
 	}
 	logMemoryOperation("remember", map[string]any{
 		"agentKey":    agentKey,
 		"chatId":      request.ChatID,
 		"requestId":   request.RequestID,
-		"memoryCount": 1,
-		"memoryId":    stored.ID,
+		"memoryCount": len(stored),
 	})
 
 	memoryPath := filepath.Join(s.root, request.ChatID+".json")
+	items := make([]api.RememberItemResponse, 0, len(stored))
+	for _, item := range stored {
+		items = append(items, api.RememberItemResponse{
+			Summary:    item.Summary,
+			SubjectKey: chatDetail.ChatID,
+		})
+	}
 	payload := map[string]any{
 		"requestId": request.RequestID,
 		"chatId":    request.ChatID,
 		"chatName":  chatDetail.ChatName,
-		"items":     []api.RememberItemResponse{item},
-		"stored":    []api.StoredMemoryResponse{stored},
+		"items":     items,
+		"stored":    stored,
 	}
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
@@ -105,17 +104,17 @@ func (s *FileStore) Remember(chatDetail chat.Detail, request api.RememberRequest
 	}
 
 	return api.RememberResponse{
-		Accepted:      true,
-		Status:        "stored",
+		Accepted:      len(stored) > 0,
+		Status:        rememberStatus(stored),
 		RequestID:     request.RequestID,
 		ChatID:        request.ChatID,
 		MemoryPath:    memoryPath,
 		MemoryRoot:    s.root,
-		MemoryCount:   1,
+		MemoryCount:   len(stored),
 		Detail:        "remember request captured; memory root=" + s.root,
 		PromptPreview: preview,
-		Items:         []api.RememberItemResponse{item},
-		Stored:        []api.StoredMemoryResponse{stored},
+		Items:         items,
+		Stored:        stored,
 	}, nil
 }
 
@@ -303,6 +302,76 @@ func (s *FileStore) Write(item api.StoredMemoryResponse) error {
 	if strings.TrimSpace(item.ScopeKey) == "" {
 		item.ScopeKey = normalizeScopeKey(item.ScopeType, "", item.AgentKey, "", item.ChatID, "")
 	}
+	items, err := s.readAllStored()
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	now := time.Now().UnixMilli()
+	for _, existing := range items {
+		if !isExactDuplicateMemory(existing, item) {
+			continue
+		}
+		existing.Importance = max(existing.Importance, item.Importance)
+		existing.Confidence = maxFloat(existing.Confidence, item.Confidence)
+		existing.Tags = normalizeTags(append(existing.Tags, item.Tags...))
+		existing.UpdatedAt = now
+		existing.AccessCount++
+		existing.LastAccessedAt = &now
+		payload, err := json.MarshalIndent(existing, "", "  ")
+		if err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(s.root, existing.ID+".stored.json"), payload, 0o644); err != nil {
+			return err
+		}
+		logMemoryOperation("write_duplicate", map[string]any{
+			"id":          existing.ID,
+			"incomingId":  item.ID,
+			"agentKey":    existing.AgentKey,
+			"kind":        existing.Kind,
+			"scopeType":   existing.ScopeType,
+			"scopeKey":    existing.ScopeKey,
+			"category":    existing.Category,
+			"accessCount": existing.AccessCount,
+		})
+		if s.root != "" && strings.TrimSpace(existing.AgentKey) != "" {
+			updatedItems, err := s.readAllStored()
+			if err == nil {
+				_ = refreshSnapshots(s.root, existing.AgentKey, updatedItems)
+			}
+		}
+		return nil
+	}
+	if normalizeMemoryKind(item.Kind) == KindFact && normalizeMemoryStatus(item.Status, item.Kind) == StatusActive {
+		for _, existing := range items {
+			if !isNearDuplicateFactMemory(existing, item) {
+				continue
+			}
+			merged := mergeNearDuplicateFactMemory(existing, item, now)
+			payload, err := json.MarshalIndent(merged, "", "  ")
+			if err != nil {
+				return err
+			}
+			if err := os.WriteFile(filepath.Join(s.root, existing.ID+".stored.json"), payload, 0o644); err != nil {
+				return err
+			}
+			logMemoryOperation("write_near_duplicate_fact", map[string]any{
+				"id":         existing.ID,
+				"incomingId": item.ID,
+				"agentKey":   existing.AgentKey,
+				"scopeType":  existing.ScopeType,
+				"scopeKey":   existing.ScopeKey,
+				"category":   existing.Category,
+			})
+			if s.root != "" && strings.TrimSpace(existing.AgentKey) != "" {
+				updatedItems, err := s.readAllStored()
+				if err == nil {
+					_ = refreshSnapshots(s.root, existing.AgentKey, updatedItems)
+				}
+			}
+			return nil
+		}
+	}
 	payload, err := json.MarshalIndent(item, "", "  ")
 	if err != nil {
 		return err
@@ -318,6 +387,76 @@ func (s *FileStore) Write(item api.StoredMemoryResponse) error {
 		}
 	}
 	return nil
+}
+
+func isExactDuplicateMemory(existing api.StoredMemoryResponse, incoming api.StoredMemoryResponse) bool {
+	return strings.TrimSpace(existing.ID) != strings.TrimSpace(incoming.ID) &&
+		strings.TrimSpace(existing.AgentKey) == strings.TrimSpace(incoming.AgentKey) &&
+		strings.TrimSpace(existing.Kind) == strings.TrimSpace(incoming.Kind) &&
+		strings.TrimSpace(existing.ScopeType) == strings.TrimSpace(incoming.ScopeType) &&
+		strings.TrimSpace(existing.ScopeKey) == strings.TrimSpace(incoming.ScopeKey) &&
+		strings.TrimSpace(existing.Category) == strings.TrimSpace(incoming.Category) &&
+		strings.TrimSpace(existing.Title) == strings.TrimSpace(incoming.Title) &&
+		strings.TrimSpace(existing.Summary) == strings.TrimSpace(incoming.Summary) &&
+		strings.TrimSpace(existing.Status) == strings.TrimSpace(incoming.Status) &&
+		strings.TrimSpace(existing.ChatID) == strings.TrimSpace(incoming.ChatID)
+}
+
+func isNearDuplicateFactMemory(existing api.StoredMemoryResponse, incoming api.StoredMemoryResponse) bool {
+	if strings.TrimSpace(existing.ID) == strings.TrimSpace(incoming.ID) {
+		return false
+	}
+	if normalizeMemoryKind(existing.Kind) != KindFact || normalizeMemoryKind(incoming.Kind) != KindFact {
+		return false
+	}
+	if normalizeMemoryStatus(existing.Status, existing.Kind) != StatusActive || normalizeMemoryStatus(incoming.Status, incoming.Kind) != StatusActive {
+		return false
+	}
+	if strings.TrimSpace(existing.AgentKey) != strings.TrimSpace(incoming.AgentKey) {
+		return false
+	}
+	return memoryNearDuplicate(existing, incoming, "stable")
+}
+
+func mergeNearDuplicateFactMemory(existing api.StoredMemoryResponse, incoming api.StoredMemoryResponse, now int64) api.StoredMemoryResponse {
+	merged := existing
+	merged.Title = mergeNearDuplicateFactText(existing.Title, incoming.Title)
+	merged.Summary = mergeNearDuplicateFactText(existing.Summary, incoming.Summary)
+	merged.Importance = max(existing.Importance, incoming.Importance)
+	merged.Confidence = maxFloat(existing.Confidence, incoming.Confidence)
+	merged.Tags = normalizeTags(append(existing.Tags, incoming.Tags...))
+	merged.UpdatedAt = now
+	merged.AccessCount++
+	merged.LastAccessedAt = &now
+	return normalizeStoredItem(merged)
+}
+
+func mergeNearDuplicateFactText(existing string, incoming string) string {
+	existing = strings.TrimSpace(existing)
+	incoming = strings.TrimSpace(incoming)
+	if existing == "" {
+		return incoming
+	}
+	if incoming == "" {
+		return existing
+	}
+	existingNorm := normalizeMemoryComparableText(existing)
+	incomingNorm := normalizeMemoryComparableText(incoming)
+	if existingNorm == incomingNorm {
+		if len([]rune(incoming)) > len([]rune(existing)) {
+			return incoming
+		}
+		return existing
+	}
+	if existingNorm != "" && incomingNorm != "" {
+		if strings.Contains(incomingNorm, existingNorm) {
+			return incoming
+		}
+		if strings.Contains(existingNorm, incomingNorm) {
+			return existing
+		}
+	}
+	return strings.TrimSpace(existing + "\n" + incoming)
 }
 
 func (s *FileStore) readAllStored() ([]api.StoredMemoryResponse, error) {
@@ -397,7 +536,19 @@ func (s *FileStore) BuildContextBundle(request ContextRequest) (ContextBundle, e
 }
 
 func (s *FileStore) Learn(input LearnInput) (api.LearnResponse, error) {
-	stored := extractLearnedMemories(input)
+	history, err := s.readAllStored()
+	if err != nil {
+		return api.LearnResponse{}, err
+	}
+	drafts := summarizeLearnWithFallback(s.summarizer, LearnSynthesisInput{
+		Request:  input.Request,
+		Trace:    input.Trace,
+		AgentKey: input.AgentKey,
+		TeamID:   input.TeamID,
+		UserKey:  input.UserKey,
+		History:  filterHistoryByAgent(history, input.AgentKey),
+	})
+	stored := buildLearnedMemoriesFromDrafts(input, drafts)
 	for _, item := range stored {
 		if err := s.Write(item); err != nil {
 			return api.LearnResponse{}, err
@@ -446,7 +597,7 @@ func (s *FileStore) Consolidate(agentKey string) (ConsolidationResult, error) {
 	if err != nil {
 		return ConsolidationResult{}, err
 	}
-	return s.applyConsolidationPlan(agentKey, buildObservationConsolidationPlan(agentKey, items, time.Now()))
+	return s.applyConsolidationPlan(agentKey, buildConsolidationPlan(agentKey, items, time.Now()))
 }
 
 func (s *FileStore) applyConsolidationPlan(agentKey string, plan consolidationPlan) (ConsolidationResult, error) {
@@ -462,6 +613,21 @@ func (s *FileStore) applyConsolidationPlan(agentKey string, plan consolidationPl
 			if _, merged := plan.mergeIDs[id]; merged {
 				result.MergedCount++
 			}
+		}
+	}
+	for id, keeperID := range plan.supersedeIDs {
+		status := StatusSuperseded
+		record, err := s.Update(agentKey, MutationInput{ID: id, Status: &status})
+		if err != nil {
+			return result, err
+		}
+		if record != nil {
+			result.MergedCount++
+			logMemoryOperation("consolidate.supersede", map[string]any{
+				"agentKey": agentKey,
+				"id":       id,
+				"keeperId": keeperID,
+			})
 		}
 	}
 	for _, id := range plan.promoteIDs {
@@ -485,6 +651,26 @@ func (s *FileStore) applyConsolidationPlan(agentKey string, plan consolidationPl
 		"promotedCount": result.PromotedCount,
 	})
 	return result, nil
+}
+
+func rememberStatus(stored []api.StoredMemoryResponse) string {
+	if len(stored) == 0 {
+		return "no_memory_extracted"
+	}
+	return "stored"
+}
+
+func filterHistoryByAgent(items []api.StoredMemoryResponse, agentKey string) []api.StoredMemoryResponse {
+	if strings.TrimSpace(agentKey) == "" {
+		return append([]api.StoredMemoryResponse(nil), items...)
+	}
+	filtered := make([]api.StoredMemoryResponse, 0, len(items))
+	for _, item := range items {
+		if strings.TrimSpace(item.AgentKey) == strings.TrimSpace(agentKey) || strings.TrimSpace(item.AgentKey) == "" {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
 }
 
 func (s *FileStore) Update(agentKey string, input MutationInput) (*ToolRecord, error) {

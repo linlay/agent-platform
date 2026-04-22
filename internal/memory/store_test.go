@@ -13,6 +13,25 @@ import (
 	"agent-platform-runner-go/internal/skills"
 )
 
+type mockRememberSummarizer struct {
+	remember func(input RememberSynthesisInput) ([]MemoryDraft, error)
+	learn    func(input LearnSynthesisInput) ([]MemoryDraft, error)
+}
+
+func (m mockRememberSummarizer) SummarizeRemember(input RememberSynthesisInput) ([]MemoryDraft, error) {
+	if m.remember == nil {
+		return nil, nil
+	}
+	return m.remember(input)
+}
+
+func (m mockRememberSummarizer) SummarizeLearn(input LearnSynthesisInput) ([]MemoryDraft, error) {
+	if m.learn == nil {
+		return nil, nil
+	}
+	return m.learn(input)
+}
+
 func TestFileStoreToolQueries(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
@@ -27,6 +46,126 @@ func TestSQLiteStoreToolQueries(t *testing.T) {
 		t.Fatalf("new sqlite store: %v", err)
 	}
 	assertStoreToolQueries(t, store, "fts")
+}
+
+func TestConsolidateSupersedesNearDuplicateFactsAcrossStores(t *testing.T) {
+	tests := []struct {
+		name  string
+		build func(t *testing.T) Store
+	}{
+		{
+			name: "file",
+			build: func(t *testing.T) Store {
+				store, err := NewFileStore(t.TempDir())
+				if err != nil {
+					t.Fatalf("new file store: %v", err)
+				}
+				return store
+			},
+		},
+		{
+			name: "sqlite",
+			build: func(t *testing.T) Store {
+				store, err := NewSQLiteStore(t.TempDir(), "memory.db")
+				if err != nil {
+					t.Fatalf("new sqlite store: %v", err)
+				}
+				return store
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := tt.build(t)
+			now := time.Now().UnixMilli()
+			items := []api.StoredMemoryResponse{
+				{
+					ID:         "fact-short",
+					AgentKey:   "agent-a",
+					Kind:       KindFact,
+					ScopeType:  ScopeAgent,
+					ScopeKey:   "agent:agent-a",
+					Title:      "Work hours baseline",
+					Summary:    "用户每周需要保证 40 小时的工作时间。",
+					SourceType: "tool-write",
+					Category:   "user_preference",
+					Importance: 8,
+					Confidence: 0.8,
+					Status:     StatusActive,
+					CreatedAt:  now - 1000,
+					UpdatedAt:  now - 1000,
+				},
+				{
+					ID:         "fact-rich",
+					AgentKey:   "agent-a",
+					Kind:       KindFact,
+					ScopeType:  ScopeAgent,
+					ScopeKey:   "agent:agent-a",
+					Title:      "Work hours baseline expanded",
+					Summary:    "用户每周要保证40小时的工作时间，默认优先按工作日均摊（即每天8小时，按5个工作日计算）。",
+					SourceType: "tool-write",
+					Category:   "user_preference",
+					Importance: 9,
+					Confidence: 0.85,
+					Status:     StatusActive,
+					CreatedAt:  now,
+					UpdatedAt:  now,
+				},
+				{
+					ID:         "fact-distinct",
+					AgentKey:   "agent-a",
+					Kind:       KindFact,
+					ScopeType:  ScopeAgent,
+					ScopeKey:   "agent:agent-a",
+					Title:      "Break time rule",
+					Summary:    "午休时间不计入工时。",
+					SourceType: "tool-write",
+					Category:   "user_preference",
+					Importance: 7,
+					Confidence: 0.75,
+					Status:     StatusActive,
+					CreatedAt:  now + 1000,
+					UpdatedAt:  now + 1000,
+				},
+			}
+			for _, item := range items {
+				if err := store.Write(item); err != nil {
+					t.Fatalf("write %s: %v", item.ID, err)
+				}
+			}
+
+			result, err := store.Consolidate("agent-a")
+			if err != nil {
+				t.Fatalf("consolidate: %v", err)
+			}
+			if result.MergedCount != 1 {
+				t.Fatalf("expected one merged fact, got %#v", result)
+			}
+
+			shortRecord, err := store.ReadDetail("agent-a", "fact-short")
+			if err != nil {
+				t.Fatalf("read old fact: %v", err)
+			}
+			if shortRecord == nil || shortRecord.Status != StatusSuperseded {
+				t.Fatalf("expected near-duplicate fact superseded, got %#v", shortRecord)
+			}
+			richRecord, err := store.ReadDetail("agent-a", "fact-rich")
+			if err != nil {
+				t.Fatalf("read keeper fact: %v", err)
+			}
+			if richRecord == nil || richRecord.Status != StatusActive {
+				t.Fatalf("expected richer fact to remain active, got %#v", richRecord)
+			}
+			distinctRecord, err := store.ReadDetail("agent-a", "fact-distinct")
+			if err != nil {
+				t.Fatalf("read distinct fact: %v", err)
+			}
+			if distinctRecord == nil || distinctRecord.Status != StatusActive {
+				t.Fatalf("expected distinct fact to remain active, got %#v", distinctRecord)
+			}
+		})
+	}
 }
 
 func TestRememberUsesConsistentImportanceAcrossStores(t *testing.T) {
@@ -76,6 +215,182 @@ func TestRememberUsesConsistentImportanceAcrossStores(t *testing.T) {
 			}
 			if resp.Stored[0].Importance != rememberImportance {
 				t.Fatalf("expected importance %d, got %#v", rememberImportance, resp.Stored[0])
+			}
+		})
+	}
+}
+
+func TestRememberUsesSummarizerAcrossStores(t *testing.T) {
+	tests := []struct {
+		name  string
+		build func(t *testing.T) Store
+	}{
+		{
+			name: "file",
+			build: func(t *testing.T) Store {
+				store, err := NewFileStore(t.TempDir())
+				if err != nil {
+					t.Fatalf("new file store: %v", err)
+				}
+				store.SetRememberSummarizer(mockRememberSummarizer{
+					remember: func(input RememberSynthesisInput) ([]MemoryDraft, error) {
+						if len(input.History) != 1 {
+							t.Fatalf("expected one historical memory, got %d", len(input.History))
+						}
+						return []MemoryDraft{{
+							Title:      "Merged preference",
+							Summary:    "用户默认按每天 8 小时、每周 40 小时来安排工作。",
+							Category:   "preference",
+							Importance: 9,
+							Confidence: 0.92,
+							Tags:       []string{"schedule"},
+						}}, nil
+					},
+				})
+				return store
+			},
+		},
+		{
+			name: "sqlite",
+			build: func(t *testing.T) Store {
+				store, err := NewSQLiteStore(t.TempDir(), "memory.db")
+				if err != nil {
+					t.Fatalf("new sqlite store: %v", err)
+				}
+				store.SetRememberSummarizer(mockRememberSummarizer{
+					remember: func(input RememberSynthesisInput) ([]MemoryDraft, error) {
+						if len(input.History) != 1 {
+							t.Fatalf("expected one historical memory, got %d", len(input.History))
+						}
+						return []MemoryDraft{{
+							Title:      "Merged preference",
+							Summary:    "用户默认按每天 8 小时、每周 40 小时来安排工作。",
+							Category:   "preference",
+							Importance: 9,
+							Confidence: 0.92,
+							Tags:       []string{"schedule"},
+						}}, nil
+					},
+				})
+				return store
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := tt.build(t)
+			now := time.Now().UnixMilli()
+			if err := store.Write(api.StoredMemoryResponse{
+				ID:         "hist-1",
+				AgentKey:   "agent-a",
+				ChatID:     "chat-old",
+				SubjectKey: "chat:chat-old",
+				Kind:       KindFact,
+				ScopeType:  ScopeAgent,
+				ScopeKey:   "agent:agent-a",
+				Title:      "Working hours",
+				Summary:    "用户每周工作 40 小时。",
+				SourceType: "tool-write",
+				Category:   "preference",
+				Importance: 8,
+				Confidence: 0.9,
+				Status:     StatusActive,
+				CreatedAt:  now - 1000,
+				UpdatedAt:  now - 1000,
+			}); err != nil {
+				t.Fatalf("seed history: %v", err)
+			}
+			resp, err := store.Remember(chat.Detail{
+				ChatID:   "chat-1",
+				ChatName: "Demo Chat",
+				RawMessages: []map[string]any{
+					{"role": "user", "content": "记住我每周工作 40 小时，默认按每天 8 小时安排"},
+					{"role": "assistant", "content": "好的，我会按你每周 40 小时、每天 8 小时来安排。"},
+				},
+			}, api.RememberRequest{
+				RequestID: "req-1",
+				ChatID:    "chat-1",
+			}, "agent-a")
+			if err != nil {
+				t.Fatalf("remember: %v", err)
+			}
+			if !resp.Accepted || len(resp.Stored) != 1 {
+				t.Fatalf("unexpected remember response: %#v", resp)
+			}
+			if got := resp.Stored[0].Summary; got != "用户默认按每天 8 小时、每周 40 小时来安排工作。" {
+				t.Fatalf("expected summarizer output, got %q", got)
+			}
+		})
+	}
+}
+
+func TestLearnCanSkipStorageViaSummarizerAcrossStores(t *testing.T) {
+	tests := []struct {
+		name  string
+		build func(t *testing.T) Store
+	}{
+		{
+			name: "file",
+			build: func(t *testing.T) Store {
+				store, err := NewFileStore(t.TempDir())
+				if err != nil {
+					t.Fatalf("new file store: %v", err)
+				}
+				store.SetRememberSummarizer(mockRememberSummarizer{
+					learn: func(input LearnSynthesisInput) ([]MemoryDraft, error) {
+						return nil, nil
+					},
+				})
+				return store
+			},
+		},
+		{
+			name: "sqlite",
+			build: func(t *testing.T) Store {
+				store, err := NewSQLiteStore(t.TempDir(), "memory.db")
+				if err != nil {
+					t.Fatalf("new sqlite store: %v", err)
+				}
+				store.SetRememberSummarizer(mockRememberSummarizer{
+					learn: func(input LearnSynthesisInput) ([]MemoryDraft, error) {
+						return nil, nil
+					},
+				})
+				return store
+			},
+		},
+	}
+
+	trace := chat.RunTrace{
+		ChatID:   "chat-1",
+		ChatName: "Demo",
+		AgentKey: "agent-a",
+		TeamID:   "team-1",
+		RunID:    "run-1",
+		Steps: []chat.StepLine{{
+			Messages: []chat.StoredMessage{{
+				Role:    "assistant",
+				Content: []chat.ContentPart{{Type: "text", Text: "只是一次性状态同步，没有长期价值。"}},
+			}},
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := tt.build(t)
+			resp, err := store.Learn(LearnInput{
+				Request:  api.LearnRequest{RequestID: "learn-1", ChatID: "chat-1"},
+				Trace:    trace,
+				AgentKey: "agent-a",
+				TeamID:   "team-1",
+				UserKey:  "user-1",
+			})
+			if err != nil {
+				t.Fatalf("learn: %v", err)
+			}
+			if resp.Accepted || resp.ObservationCount != 0 || len(resp.Stored) != 0 {
+				t.Fatalf("expected skipped learn response, got %#v", resp)
 			}
 		})
 	}
@@ -320,6 +635,149 @@ func TestBuildContextBundleSeparatesFactsAndObservations(t *testing.T) {
 				t.Fatalf("session prompt missing observation id: %q", bundle.SessionPrompt)
 			}
 		})
+	}
+}
+
+func TestBuildContextBundleDeduplicatesBeforePromptDisclosure(t *testing.T) {
+	items := []api.StoredMemoryResponse{
+		{
+			ID:         "fact-1",
+			AgentKey:   "agent-a",
+			Kind:       KindFact,
+			ScopeType:  ScopeAgent,
+			ScopeKey:   "agent:agent-a",
+			Title:      "Schedule rules summary",
+			Summary:    "Schedule rules summary",
+			SourceType: "tool-write",
+			Category:   "platform_rules",
+			Importance: 9,
+			Status:     StatusActive,
+			CreatedAt:  100,
+			UpdatedAt:  100,
+		},
+		{
+			ID:         "fact-2",
+			AgentKey:   "agent-a",
+			Kind:       KindFact,
+			ScopeType:  ScopeAgent,
+			ScopeKey:   "agent:agent-a",
+			Title:      "Schedule rules summary",
+			Summary:    "Schedule rules summary for current agent",
+			SourceType: "tool-write",
+			Category:   "platform_rules",
+			Importance: 8,
+			Status:     StatusActive,
+			CreatedAt:  101,
+			UpdatedAt:  101,
+		},
+		{
+			ID:         "obs-1",
+			AgentKey:   "agent-a",
+			ChatID:     "chat-1",
+			Kind:       KindObservation,
+			ScopeType:  ScopeChat,
+			ScopeKey:   "chat:chat-1",
+			Title:      "Recent schedule adjustment",
+			Summary:    "Recent schedule adjustment",
+			SourceType: "learn",
+			Category:   "general",
+			Importance: 7,
+			Status:     StatusOpen,
+			CreatedAt:  102,
+			UpdatedAt:  102,
+		},
+		{
+			ID:         "obs-2",
+			AgentKey:   "agent-a",
+			ChatID:     "chat-2",
+			Kind:       KindObservation,
+			ScopeType:  ScopeChat,
+			ScopeKey:   "chat:chat-2",
+			Title:      "",
+			Summary:    "Recent schedule adjustment",
+			SourceType: "learn",
+			Category:   "general",
+			Importance: 6,
+			Status:     StatusOpen,
+			CreatedAt:  103,
+			UpdatedAt:  103,
+		},
+	}
+
+	bundle := buildContextBundleFromStored(ContextRequest{
+		AgentKey: "agent-a",
+		ChatID:   "chat-1",
+		Query:    "schedule",
+		TopFacts: 5,
+		TopObs:   5,
+		MaxChars: 4000,
+	}, items)
+
+	if len(bundle.StableFacts) != 1 {
+		t.Fatalf("expected deduplicated stable facts, got %#v", bundle.StableFacts)
+	}
+	if len(bundle.SessionSummaries) != 1 {
+		t.Fatalf("expected one session summary, got %#v", bundle.SessionSummaries)
+	}
+	if len(bundle.RelevantObservations) != 0 {
+		t.Fatalf("expected cross-chat duplicate observation to be removed before disclosure, got %#v", bundle.RelevantObservations)
+	}
+	if !strings.Contains(bundle.StablePrompt, "[fact-1]") || strings.Contains(bundle.StablePrompt, "[fact-2]") {
+		t.Fatalf("expected stable prompt to contain only the surviving fact, got %q", bundle.StablePrompt)
+	}
+	if !strings.Contains(bundle.SessionPrompt, "[obs-1]") || strings.Contains(bundle.SessionPrompt, "[obs-2]") {
+		t.Fatalf("expected session prompt to contain only the surviving observation, got %q", bundle.SessionPrompt)
+	}
+}
+
+func TestBuildContextBundleKeepsDistinctStableFactsAcrossCategories(t *testing.T) {
+	items := []api.StoredMemoryResponse{
+		{
+			ID:         "fact-1",
+			AgentKey:   "agent-a",
+			Kind:       KindFact,
+			ScopeType:  ScopeAgent,
+			ScopeKey:   "agent:agent-a",
+			Title:      "Schedule rules summary",
+			Summary:    "Schedule rules summary",
+			SourceType: "tool-write",
+			Category:   "platform_rules",
+			Importance: 9,
+			Status:     StatusActive,
+			CreatedAt:  100,
+			UpdatedAt:  100,
+		},
+		{
+			ID:         "fact-2",
+			AgentKey:   "agent-a",
+			Kind:       KindFact,
+			ScopeType:  ScopeAgent,
+			ScopeKey:   "agent:agent-a",
+			Title:      "Schedule rules summary",
+			Summary:    "Schedule rules summary",
+			SourceType: "tool-write",
+			Category:   "ops_checklist",
+			Importance: 8,
+			Status:     StatusActive,
+			CreatedAt:  101,
+			UpdatedAt:  101,
+		},
+	}
+
+	bundle := buildContextBundleFromStored(ContextRequest{
+		AgentKey: "agent-a",
+		ChatID:   "chat-1",
+		Query:    "schedule",
+		TopFacts: 5,
+		TopObs:   5,
+		MaxChars: 4000,
+	}, items)
+
+	if len(bundle.StableFacts) != 2 {
+		t.Fatalf("expected category-distinct stable facts to survive, got %#v", bundle.StableFacts)
+	}
+	if !strings.Contains(bundle.StablePrompt, "[fact-1]") || !strings.Contains(bundle.StablePrompt, "[fact-2]") {
+		t.Fatalf("expected both stable facts in prompt, got %q", bundle.StablePrompt)
 	}
 }
 
@@ -665,6 +1123,276 @@ func TestSQLiteStoreSupersedesOlderFactAndCreatesLink(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatalf("expected one supersedes link, got %d", count)
+	}
+}
+
+func TestSQLiteStoreConsolidateLinksKeeperToSupersededFact(t *testing.T) {
+	store, err := NewSQLiteStore(t.TempDir(), "memory.db")
+	if err != nil {
+		t.Fatalf("new sqlite store: %v", err)
+	}
+	now := time.Now().UnixMilli()
+	for _, item := range []api.StoredMemoryResponse{
+		{
+			ID:         "fact-short",
+			AgentKey:   "agent-a",
+			Kind:       KindFact,
+			ScopeType:  ScopeAgent,
+			ScopeKey:   "agent:agent-a",
+			Title:      "Work hours baseline",
+			Summary:    "用户每周需要保证 40 小时的工作时间。",
+			SourceType: "tool-write",
+			Category:   "user_preference",
+			Importance: 8,
+			Confidence: 0.8,
+			Status:     StatusActive,
+			CreatedAt:  now - 1000,
+			UpdatedAt:  now - 1000,
+		},
+		{
+			ID:         "fact-rich",
+			AgentKey:   "agent-a",
+			Kind:       KindFact,
+			ScopeType:  ScopeAgent,
+			ScopeKey:   "agent:agent-a",
+			Title:      "Work hours baseline expanded",
+			Summary:    "用户每周要保证40小时的工作时间，默认优先按工作日均摊（即每天8小时，按5个工作日计算）。",
+			SourceType: "tool-write",
+			Category:   "user_preference",
+			Importance: 9,
+			Confidence: 0.85,
+			Status:     StatusActive,
+			CreatedAt:  now,
+			UpdatedAt:  now,
+		},
+	} {
+		if err := store.Write(item); err != nil {
+			t.Fatalf("write %s: %v", item.ID, err)
+		}
+	}
+
+	result, err := store.Consolidate("agent-a")
+	if err != nil {
+		t.Fatalf("consolidate: %v", err)
+	}
+	if result.MergedCount != 1 {
+		t.Fatalf("expected one merged fact, got %#v", result)
+	}
+
+	var count int
+	if err := store.db.QueryRow(
+		`SELECT COUNT(*) FROM MEMORY_LINKS WHERE FROM_ID_ = ? AND TO_ID_ = ? AND RELATION_TYPE_ = 'supersedes'`,
+		"fact-rich", "fact-short",
+	).Scan(&count); err != nil {
+		t.Fatalf("count memory links: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected one supersedes link after consolidate, got %d", count)
+	}
+}
+
+func TestWriteExactDuplicateBumpsExistingRecordInsteadOfCreatingNewOne(t *testing.T) {
+	tests := []struct {
+		name  string
+		build func(t *testing.T) Store
+	}{
+		{
+			name: "file",
+			build: func(t *testing.T) Store {
+				store, err := NewFileStore(t.TempDir())
+				if err != nil {
+					t.Fatalf("new file store: %v", err)
+				}
+				return store
+			},
+		},
+		{
+			name: "sqlite",
+			build: func(t *testing.T) Store {
+				store, err := NewSQLiteStore(t.TempDir(), "memory.db")
+				if err != nil {
+					t.Fatalf("new sqlite store: %v", err)
+				}
+				return store
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := tt.build(t)
+			first := api.StoredMemoryResponse{
+				ID:         "mem-1",
+				AgentKey:   "agent-a",
+				ChatID:     "chat-1",
+				Kind:       KindObservation,
+				ScopeType:  ScopeChat,
+				ScopeKey:   "chat:chat-1",
+				Title:      "Repeated finding",
+				Summary:    "same duplicated content",
+				SourceType: "learn",
+				Category:   "general",
+				Importance: 5,
+				Confidence: 0.7,
+				Status:     StatusOpen,
+				Tags:       []string{"first"},
+				CreatedAt:  100,
+				UpdatedAt:  100,
+			}
+			second := api.StoredMemoryResponse{
+				ID:         "mem-2",
+				AgentKey:   "agent-a",
+				ChatID:     "chat-1",
+				Kind:       KindObservation,
+				ScopeType:  ScopeChat,
+				ScopeKey:   "chat:chat-1",
+				Title:      "Repeated finding",
+				Summary:    "same duplicated content",
+				SourceType: "tool-write",
+				Category:   "general",
+				Importance: 8,
+				Confidence: 0.9,
+				Status:     StatusOpen,
+				Tags:       []string{"second"},
+				CreatedAt:  200,
+				UpdatedAt:  200,
+			}
+
+			if err := store.Write(first); err != nil {
+				t.Fatalf("write first: %v", err)
+			}
+			if err := store.Write(second); err != nil {
+				t.Fatalf("write second: %v", err)
+			}
+
+			items, err := store.List("agent-a", "", 20, "recent")
+			if err != nil {
+				t.Fatalf("list memories: %v", err)
+			}
+			if len(items) != 1 {
+				t.Fatalf("expected duplicate writes to keep one record, got %#v", items)
+			}
+			got := items[0]
+			if got.ID != "mem-1" {
+				t.Fatalf("expected original record to survive, got %#v", got)
+			}
+			if got.AccessCount < 1 {
+				t.Fatalf("expected duplicate write to bump access count, got %#v", got)
+			}
+			if got.Importance != 8 {
+				t.Fatalf("expected duplicate write to preserve higher importance, got %#v", got)
+			}
+			if got.Confidence < 0.9 {
+				t.Fatalf("expected duplicate write to preserve higher confidence, got %#v", got)
+			}
+			if !reflect.DeepEqual(got.Tags, []string{"first", "second"}) && !reflect.DeepEqual(got.Tags, []string{"second", "first"}) {
+				t.Fatalf("expected duplicate write to merge tags, got %#v", got.Tags)
+			}
+		})
+	}
+}
+
+func TestWriteNearDuplicateFactMergesIntoExistingRecordInsteadOfCreatingNewOne(t *testing.T) {
+	tests := []struct {
+		name  string
+		build func(t *testing.T) Store
+	}{
+		{
+			name: "file",
+			build: func(t *testing.T) Store {
+				store, err := NewFileStore(t.TempDir())
+				if err != nil {
+					t.Fatalf("new file store: %v", err)
+				}
+				return store
+			},
+		},
+		{
+			name: "sqlite",
+			build: func(t *testing.T) Store {
+				store, err := NewSQLiteStore(t.TempDir(), "memory.db")
+				if err != nil {
+					t.Fatalf("new sqlite store: %v", err)
+				}
+				return store
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := tt.build(t)
+			first := api.StoredMemoryResponse{
+				ID:         "fact-1",
+				AgentKey:   "agent-a",
+				ChatID:     "chat-1",
+				Kind:       KindFact,
+				ScopeType:  ScopeAgent,
+				ScopeKey:   "agent:agent-a",
+				Title:      "Work hours baseline",
+				Summary:    "用户每周需要保证40小时工作时间。",
+				SourceType: "tool-write",
+				Category:   "user_preference",
+				Importance: 7,
+				Confidence: 0.8,
+				Status:     StatusActive,
+				Tags:       []string{"hours"},
+				CreatedAt:  100,
+				UpdatedAt:  100,
+			}
+			second := api.StoredMemoryResponse{
+				ID:         "fact-2",
+				AgentKey:   "agent-a",
+				ChatID:     "chat-2",
+				Kind:       KindFact,
+				ScopeType:  ScopeAgent,
+				ScopeKey:   "agent:agent-a",
+				Title:      "Work hours baseline expanded",
+				Summary:    "用户每周需要保证40小时工作时间，默认按5个工作日均摊，即每天8小时。",
+				SourceType: "tool-write",
+				Category:   "user_preference",
+				Importance: 9,
+				Confidence: 0.9,
+				Status:     StatusActive,
+				Tags:       []string{"schedule"},
+				CreatedAt:  200,
+				UpdatedAt:  200,
+			}
+
+			if err := store.Write(first); err != nil {
+				t.Fatalf("write first fact: %v", err)
+			}
+			if err := store.Write(second); err != nil {
+				t.Fatalf("write second fact: %v", err)
+			}
+
+			items, err := store.List("agent-a", "user_preference", 20, "recent")
+			if err != nil {
+				t.Fatalf("list memories: %v", err)
+			}
+			if len(items) != 1 {
+				t.Fatalf("expected one merged fact, got %#v", items)
+			}
+			got := items[0]
+			if got.ID != "fact-1" {
+				t.Fatalf("expected original fact to be updated in place, got %#v", got)
+			}
+			if got.Content != second.Summary {
+				t.Fatalf("expected merged fact content to keep richer summary, got %#v", got)
+			}
+			if got.Title != second.Title {
+				t.Fatalf("expected merged fact title to keep richer title, got %#v", got)
+			}
+			if got.Importance != 9 || got.Confidence < 0.9 {
+				t.Fatalf("expected merged fact to preserve higher rank, got %#v", got)
+			}
+			if !reflect.DeepEqual(got.Tags, []string{"hours", "schedule"}) && !reflect.DeepEqual(got.Tags, []string{"schedule", "hours"}) {
+				t.Fatalf("expected merged fact to combine tags, got %#v", got.Tags)
+			}
+			if got.AccessCount < 1 {
+				t.Fatalf("expected merged fact to bump access count, got %#v", got)
+			}
+		})
 	}
 }
 

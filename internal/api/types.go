@@ -260,6 +260,16 @@ type MemoryUsageItem struct {
 	Category  string `json:"category,omitempty"`
 }
 
+type MemoryHitItem struct {
+	ID        string `json:"id,omitempty"`
+	Layer     string `json:"layer,omitempty"`
+	Kind      string `json:"kind,omitempty"`
+	ScopeType string `json:"scopeType,omitempty"`
+	Title     string `json:"title,omitempty"`
+	Summary   string `json:"summary,omitempty"`
+	Category  string `json:"category,omitempty"`
+}
+
 type MemoryUsageSummary struct {
 	HasStaticMemory  bool              `json:"hasStaticMemory"`
 	StableCount      int               `json:"stableCount"`
@@ -268,6 +278,7 @@ type MemoryUsageSummary struct {
 	StableItems      []MemoryUsageItem `json:"stableItems,omitempty"`
 	SessionItems     []MemoryUsageItem `json:"sessionItems,omitempty"`
 	ObservationItems []MemoryUsageItem `json:"observationItems,omitempty"`
+	UserHint         string            `json:"userHint,omitempty"`
 	StableChars      int               `json:"stableChars"`
 	SessionChars     int               `json:"sessionChars"`
 	ObservationChars int               `json:"observationChars"`
