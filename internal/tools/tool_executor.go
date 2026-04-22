@@ -13,12 +13,19 @@ import (
 	"agent-platform-runner-go/internal/skills"
 )
 
+// ArtifactPusher 是 tool_artifact 产物外发的最小依赖面：由应用层注入（通常是
+// artifactpusher.Pusher），nil 时外发自动跳过。
+type ArtifactPusher interface {
+	Push(chatID string, artifact map[string]any)
+}
+
 type RuntimeToolExecutor struct {
 	cfg             config.Config
 	sandbox         SandboxClient
 	chats           chat.Store
 	memory          memory.Store
 	skillCandidates skills.CandidateStore
+	artifactPusher  ArtifactPusher
 	defs            []api.ToolDetailResponse
 }
 
@@ -46,6 +53,14 @@ func NewRuntimeToolExecutor(cfg config.Config, sandbox SandboxClient, chats chat
 
 func (t *RuntimeToolExecutor) Definitions() []api.ToolDetailResponse {
 	return append([]api.ToolDetailResponse(nil), t.defs...)
+}
+
+// WithArtifactPusher 注入产物外发实现；不调用时 tool_artifact 只改本地盘不推网关。
+func (t *RuntimeToolExecutor) WithArtifactPusher(pusher ArtifactPusher) *RuntimeToolExecutor {
+	if t != nil {
+		t.artifactPusher = pusher
+	}
+	return t
 }
 
 func (t *RuntimeToolExecutor) Invoke(ctx context.Context, toolName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {

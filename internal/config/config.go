@@ -246,6 +246,12 @@ type GatewayWSConfig struct {
 	HandshakeTimeoutMs int64
 	ReconnectMinMs     int64
 	ReconnectMaxMs     int64
+	// BaseURL / UploadPath / DownloadPath / AuthToken 用于 artifact 外发
+	// 和 userUpload 下载等 HTTP 旁路操作；为空时对应功能跳过。
+	BaseURL      string
+	UploadPath   string
+	DownloadPath string
+	AuthToken    string
 }
 
 func Load() (Config, error) {
@@ -635,6 +641,10 @@ func (c *Config) applyEnv() {
 	c.GatewayWS.HandshakeTimeoutMs = int64Env("AGENT_GATEWAY_WS_HANDSHAKE_TIMEOUT_MS", c.GatewayWS.HandshakeTimeoutMs)
 	c.GatewayWS.ReconnectMinMs = int64Env("AGENT_GATEWAY_WS_RECONNECT_MIN_MS", c.GatewayWS.ReconnectMinMs)
 	c.GatewayWS.ReconnectMaxMs = int64Env("AGENT_GATEWAY_WS_RECONNECT_MAX_MS", c.GatewayWS.ReconnectMaxMs)
+	c.GatewayWS.BaseURL = stringEnv("GATEWAY_BASE_URL", c.GatewayWS.BaseURL)
+	c.GatewayWS.UploadPath = stringEnv("GATEWAY_UPLOAD_PATH", c.GatewayWS.UploadPath)
+	c.GatewayWS.DownloadPath = stringEnv("GATEWAY_DOWNLOAD_PATH", c.GatewayWS.DownloadPath)
+	c.GatewayWS.AuthToken = stringEnv("GATEWAY_AUTH_TOKEN", c.GatewayWS.AuthToken)
 }
 
 func (c *Config) normalize() {
