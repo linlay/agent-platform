@@ -322,6 +322,7 @@ func (s *planExecuteStream) startPlanStage() error {
 		MaxSteps:     minPositive(s.settings.MaxSteps, 6),
 		SystemPrompt: planPrompt,
 		Stage:        "plan",
+		PostToolHook: s.planStagePostToolHook,
 	})
 	if err != nil {
 		return err
@@ -429,9 +430,20 @@ func (s *planExecuteStream) resolveStageModelKey(stage StageSettings) string {
 }
 
 func (s *planExecuteStream) planStageTools() []string {
-	tools := stageToolsOrDefault(s.settings.Plan, s.session.ToolNames)
-	// Only _plan_add_tasks_ is callable in plan stage (Java: selectPlanCallableTools)
-	return appendUniqueTools(tools, "_plan_add_tasks_")
+	if len(s.settings.Plan.Tools) > 0 {
+		return appendUniqueTools(s.settings.Plan.Tools, "_plan_add_tasks_")
+	}
+	return []string{"_plan_add_tasks_"}
+}
+
+func (s *planExecuteStream) planStagePostToolHook(toolName string, _ string) PostToolHookResult {
+	if !isPlanTool(toolName) {
+		return PostToolContinue
+	}
+	if s.execCtx != nil && s.execCtx.PlanState != nil && len(s.execCtx.PlanState.Tasks) > 0 {
+		return PostToolStop
+	}
+	return PostToolContinue
 }
 
 func (s *planExecuteStream) executeStageTools() []string {
