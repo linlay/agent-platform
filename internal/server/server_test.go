@@ -172,6 +172,7 @@ func TestWebSocketChatReturnsActiveRunConflict(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
+		sandbox:       &recordingSandbox{},
 		notifications: ws.NewHub(),
 		configure: func(cfg *config.Config) {
 			cfg.WebSocket.Enabled = true
@@ -238,6 +239,485 @@ func TestWebSocketChatReturnsActiveRunConflict(t *testing.T) {
 	}
 	if frame.Frame != ws.FrameError || frame.Type != "active_run_conflict" || frame.Code != http.StatusConflict {
 		t.Fatalf("unexpected websocket error frame: %s", string(raw))
+	}
+}
+
+func TestWebSocketPushesChatReadAfterMarkRead(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		notifications: ws.NewHub(),
+		configure: func(cfg *config.Config) {
+			cfg.WebSocket.Enabled = true
+			cfg.WebSocket.WriteQueueSize = 4
+			cfg.WebSocket.PingIntervalMs = 30000
+		},
+	})
+
+	if _, _, err := fixture.chats.EnsureChat("chat_ws_read", "mock-runner", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	if err := fixture.chats.OnRunCompleted(chat.RunCompletion{
+		ChatID:          "chat_ws_read",
+		RunID:           "loyw3v28",
+		AssistantText:   "answer",
+		UpdatedAtMillis: time.Now().UnixMilli(),
+	}); err != nil {
+		t.Fatalf("persist run completion: %v", err)
+	}
+
+	server := newLoopbackServer(t, fixture.server)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
+	conn, _, err := gws.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer conn.Close()
+
+	waitForPushFrameType(t, conn, "connected")
+
+	reqBody := bytes.NewBufferString(`{"chatId":"chat_ws_read","runId":"loyw3v28"}`)
+	resp, err := http.Post(server.URL+"/api/read", "application/json", reqBody)
+	if err != nil {
+		t.Fatalf("post read: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 from /api/read, got %d: %s", resp.StatusCode, readBodyString(t, resp.Body))
+	}
+
+	frame := waitForPushFrameType(t, conn, "chat.read")
+	if frame.Frame != ws.FramePush {
+		t.Fatalf("expected push frame, got %#v", frame)
+	}
+	data := pushFrameDataMap(t, frame)
+	if data["chatId"] != "chat_ws_read" {
+		t.Fatalf("expected chatId chat_ws_read, got %#v", data)
+	}
+	if data["agentKey"] != "mock-runner" {
+		t.Fatalf("expected agentKey mock-runner, got %#v", data)
+	}
+	if data["lastRunId"] != "loyw3v28" {
+		t.Fatalf("expected lastRunId loyw3v28, got %#v", data)
+	}
+	if data["readRunId"] != "loyw3v28" {
+		t.Fatalf("expected readRunId loyw3v28, got %#v", data)
+	}
+	if got, ok := data["agentUnreadCount"].(float64); !ok || got != 0 {
+		t.Fatalf("expected agentUnreadCount 0, got %#v", data)
+	}
+	if got, ok := data["readAt"].(float64); !ok || got <= 0 {
+		t.Fatalf("expected positive readAt, got %#v", data)
+	}
+}
+
+func TestWebSocketPushesChatUnreadAfterRunCompletion(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"content":"Go runner test response"},"finish_reason":"stop"}]}`,
+			`[DONE]`,
+		)
+	}, testFixtureOptions{
+		notifications: ws.NewHub(),
+		configure: func(cfg *config.Config) {
+			cfg.WebSocket.Enabled = true
+			cfg.WebSocket.WriteQueueSize = 4
+			cfg.WebSocket.PingIntervalMs = 30000
+		},
+	})
+
+	server := newLoopbackServer(t, fixture.server)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
+	conn, _, err := gws.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer conn.Close()
+
+	waitForPushFrameType(t, conn, "connected")
+
+	reqBody := bytes.NewBufferString(`{"chatId":"chat_ws_unread","runId":"loyw3v2s","agentKey":"mock-runner","message":"hello unread"}`)
+	resp, err := http.Post(server.URL+"/api/query", "application/json", reqBody)
+	if err != nil {
+		t.Fatalf("post query: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 from /api/query, got %d: %s", resp.StatusCode, readBodyString(t, resp.Body))
+	}
+	_, _ = io.ReadAll(resp.Body)
+
+	frame := waitForPushFrameType(t, conn, "chat.unread")
+	if frame.Frame != ws.FramePush {
+		t.Fatalf("expected push frame, got %#v", frame)
+	}
+	data := pushFrameDataMap(t, frame)
+	if data["chatId"] != "chat_ws_unread" {
+		t.Fatalf("expected chatId chat_ws_unread, got %#v", data)
+	}
+	if data["agentKey"] != "mock-runner" {
+		t.Fatalf("expected agentKey mock-runner, got %#v", data)
+	}
+	if data["lastRunId"] != "loyw3v2s" {
+		t.Fatalf("expected lastRunId loyw3v2s, got %#v", data)
+	}
+	if data["readRunId"] != "" {
+		t.Fatalf("expected empty readRunId for fresh unread chat, got %#v", data)
+	}
+	if got, ok := data["agentUnreadCount"].(float64); !ok || got != 1 {
+		t.Fatalf("expected agentUnreadCount 1, got %#v", data)
+	}
+	if got, ok := data["readAt"].(float64); !ok || got != 0 {
+		t.Fatalf("expected readAt 0 for unread chat, got %#v", data)
+	}
+}
+
+func TestWebSocketRunCompletionPushOrdering(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"content":"hello"},"finish_reason":"stop"}]}`,
+			`{"choices":[],"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}}`,
+			`[DONE]`,
+		)
+	}, testFixtureOptions{
+		notifications: ws.NewHub(),
+		configure: func(cfg *config.Config) {
+			cfg.WebSocket.Enabled = true
+			cfg.WebSocket.WriteQueueSize = 8
+			cfg.WebSocket.PingIntervalMs = 30000
+		},
+	})
+
+	server := httptest.NewServer(fixture.server)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
+	conn, _, err := gws.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer conn.Close()
+
+	waitForPushFrameType(t, conn, "connected")
+
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame: ws.FrameRequest,
+		Type:  "/api/query",
+		ID:    "req_query_order",
+		Payload: ws.MarshalPayload(map[string]any{
+			"chatId":   "chat_ws_order",
+			"runId":    "run_ws_order",
+			"agentKey": "mock-runner",
+			"message":  "hello ordering",
+		}),
+	}); err != nil {
+		t.Fatalf("write websocket query: %v", err)
+	}
+
+	sequence := make([]string, 0, 4)
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && len(sequence) < 4 {
+		if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+			t.Fatalf("set websocket read deadline: %v", err)
+		}
+		_, raw, err := conn.ReadMessage()
+		if err != nil {
+			t.Fatalf("read websocket message: %v", err)
+		}
+		var meta struct {
+			Frame  string `json:"frame"`
+			ID     string `json:"id"`
+			Type   string `json:"type"`
+			Reason string `json:"reason"`
+		}
+		if err := json.Unmarshal(raw, &meta); err != nil {
+			t.Fatalf("decode websocket frame: %v", err)
+		}
+		switch {
+		case meta.Frame == ws.FrameStream && meta.ID == "req_query_order" && meta.Reason != "":
+			sequence = append(sequence, "stream.done")
+		case meta.Frame == ws.FramePush && (meta.Type == "run.finished" || meta.Type == "chat.unread" || meta.Type == "chat.updated"):
+			sequence = append(sequence, meta.Type)
+		}
+	}
+
+	want := []string{"stream.done", "run.finished", "chat.unread", "chat.updated"}
+	if !reflect.DeepEqual(sequence, want) {
+		t.Fatalf("unexpected websocket completion order: got %v want %v", sequence, want)
+	}
+}
+
+func TestWebSocketRunStreamClosesDuringShutdown(t *testing.T) {
+	hub := ws.NewHub()
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		notifications: hub,
+		configure: func(cfg *config.Config) {
+			cfg.WebSocket.Enabled = true
+			cfg.WebSocket.WriteQueueSize = 4
+			cfg.WebSocket.PingIntervalMs = 30000
+		},
+	})
+
+	runs := fixture.runs.(*runctl.InMemoryRunManager)
+	runID := "run_ws_shutdown"
+	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
+		RunID:    runID,
+		ChatID:   "chat_ws_shutdown",
+		AgentKey: "mock-runner",
+	})
+
+	server := newLoopbackServer(t, fixture.server)
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
+	conn, _, err := gws.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer conn.Close()
+
+	if _, raw, err := conn.ReadMessage(); err != nil {
+		t.Fatalf("read initial push: %v", err)
+	} else {
+		var connected ws.PushFrame
+		if err := json.Unmarshal(raw, &connected); err != nil {
+			t.Fatalf("decode initial frame: %v", err)
+		}
+		if connected.Frame != ws.FramePush || connected.Type != "connected" {
+			t.Fatalf("unexpected initial websocket frame: %s", string(raw))
+		}
+	}
+
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame: ws.FrameRequest,
+		Type:  "/api/attach",
+		ID:    "req_shutdown_stream",
+		Payload: ws.MarshalPayload(map[string]any{
+			"runId": runID,
+		}),
+	}); err != nil {
+		t.Fatalf("write run stream request: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		status, ok := runs.RunStatus(runID)
+		if ok && status.ObserverCount == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("observer was not attached before shutdown")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	shutdownDone := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		shutdownDone <- server.server.Shutdown(ctx)
+	}()
+
+	select {
+	case err := <-shutdownDone:
+		if err != nil {
+			t.Fatalf("shutdown failed: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("server shutdown timed out")
+	}
+
+	hub.CloseAll(gws.CloseNormalClosure, "server shutting down")
+
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	_, _, err = conn.ReadMessage()
+	if err == nil {
+		t.Fatalf("expected websocket to close after hub shutdown")
+	}
+	if !gws.IsCloseError(err, gws.CloseNormalClosure) && !gws.IsUnexpectedCloseError(err) {
+		t.Fatalf("expected websocket close error, got %v", err)
+	}
+
+	status, ok := runs.RunStatus(runID)
+	if !ok {
+		t.Fatalf("expected run status to remain available")
+	}
+	if status.ObserverCount != 0 {
+		t.Fatalf("expected observer to detach after shutdown, got %d", status.ObserverCount)
+	}
+}
+
+func TestWebSocketPushAwaitingAskAndAnswerSyncPendingChatSummary(t *testing.T) {
+	flow := startAwaitingPushQuestionFlow(t, nil)
+	defer flow.conn.Close()
+	defer flow.resp.Body.Close()
+	defer flow.server.Close()
+
+	awaitAsk := waitForPushFrameType(t, flow.conn, "awaiting.ask")
+	awaitAskData := pushFrameDataMap(t, awaitAsk)
+	if awaitAskData["chatId"] != flow.chatID {
+		t.Fatalf("expected chatId=%s in awaiting.ask push, got %#v", flow.chatID, awaitAskData)
+	}
+	if awaitAskData["runId"] != flow.runID {
+		t.Fatalf("expected runId=%s in awaiting.ask push, got %#v", flow.runID, awaitAskData)
+	}
+	if awaitAskData["agentKey"] != "mock-runner" {
+		t.Fatalf("expected agentKey in awaiting.ask push, got %#v", awaitAskData)
+	}
+	if awaitAskData["awaitingId"] != flow.awaitingID || awaitAskData["mode"] != "question" {
+		t.Fatalf("unexpected awaiting.ask push payload %#v", awaitAskData)
+	}
+	if timeout, ok := awaitAskData["timeout"].(float64); !ok || timeout <= 0 {
+		t.Fatalf("expected positive timeout in awaiting.ask push, got %#v", awaitAskData)
+	}
+	if createdAt, ok := awaitAskData["createdAt"].(float64); !ok || createdAt <= 0 {
+		t.Fatalf("expected createdAt in awaiting.ask push, got %#v", awaitAskData)
+	}
+
+	summaries := loadChatSummariesForTest(t, flow.fixture.server)
+	if len(summaries) != 1 {
+		t.Fatalf("expected one chat summary, got %#v", summaries)
+	}
+	if summaries[0].PendingAwaiting == nil {
+		t.Fatalf("expected pendingAwaiting in chat summary, got %#v", summaries[0])
+	}
+	if summaries[0].PendingAwaiting.AwaitingID != flow.awaitingID || summaries[0].PendingAwaiting.RunID != flow.runID || summaries[0].PendingAwaiting.Mode != "question" || summaries[0].PendingAwaiting.CreatedAt <= 0 {
+		t.Fatalf("unexpected pendingAwaiting summary %#v", summaries[0].PendingAwaiting)
+	}
+
+	submitRec := httptest.NewRecorder()
+	submitReq := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+flow.runID+`","awaitingId":"`+flow.awaitingID+`","params":[{"id":"q1","answer":"Approve"}]}`))
+	submitReq.Header.Set("Content-Type", "application/json")
+	flow.fixture.server.ServeHTTP(submitRec, submitReq)
+	if submitRec.Code != http.StatusOK {
+		t.Fatalf("submit expected 200, got %d: %s", submitRec.Code, submitRec.Body.String())
+	}
+
+	awaitAnswer := waitForPushFrameType(t, flow.conn, "awaiting.answer")
+	awaitAnswerData := pushFrameDataMap(t, awaitAnswer)
+	if awaitAnswerData["chatId"] != flow.chatID || awaitAnswerData["runId"] != flow.runID || awaitAnswerData["awaitingId"] != flow.awaitingID {
+		t.Fatalf("unexpected awaiting.answer push identity %#v", awaitAnswerData)
+	}
+	if awaitAnswerData["mode"] != "question" || awaitAnswerData["status"] != "answered" {
+		t.Fatalf("unexpected awaiting.answer push payload %#v", awaitAnswerData)
+	}
+	if _, exists := awaitAnswerData["errorCode"]; exists {
+		t.Fatalf("did not expect errorCode on answered awaiting.answer push, got %#v", awaitAnswerData)
+	}
+	if resolvedAt, ok := awaitAnswerData["resolvedAt"].(float64); !ok || resolvedAt <= 0 {
+		t.Fatalf("expected resolvedAt in awaiting.answer push, got %#v", awaitAnswerData)
+	}
+
+	drainAwaitingPushQuestionStream(t, flow.reader, flow.streamBody)
+
+	summaries = loadChatSummariesForTest(t, flow.fixture.server)
+	if len(summaries) != 1 {
+		t.Fatalf("expected one chat summary after answer, got %#v", summaries)
+	}
+	if summaries[0].PendingAwaiting != nil {
+		t.Fatalf("expected pendingAwaiting to clear after answer, got %#v", summaries[0].PendingAwaiting)
+	}
+}
+
+func TestWebSocketPushAwaitingAnswerEmitsErrorStatuses(t *testing.T) {
+	testCases := []struct {
+		name      string
+		configure func(*config.Config)
+		act       func(t *testing.T, flow *awaitingPushQuestionFlow)
+		errorCode string
+	}{
+		{
+			name: "user dismissed",
+			act: func(t *testing.T, flow *awaitingPushQuestionFlow) {
+				t.Helper()
+				submitRec := httptest.NewRecorder()
+				submitReq := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+flow.runID+`","awaitingId":"`+flow.awaitingID+`","params":[]}`))
+				submitReq.Header.Set("Content-Type", "application/json")
+				flow.fixture.server.ServeHTTP(submitRec, submitReq)
+				if submitRec.Code != http.StatusOK {
+					t.Fatalf("submit expected 200, got %d: %s", submitRec.Code, submitRec.Body.String())
+				}
+			},
+			errorCode: "user_dismissed",
+		},
+		{
+			name: "timeout",
+			configure: func(cfg *config.Config) {
+				cfg.Defaults.Budget.Tool.TimeoutMs = 20
+			},
+			act: func(t *testing.T, flow *awaitingPushQuestionFlow) {
+				t.Helper()
+			},
+			errorCode: "timeout",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			flow := startAwaitingPushQuestionFlow(t, tc.configure)
+			defer flow.conn.Close()
+			defer flow.resp.Body.Close()
+			defer flow.server.Close()
+
+			waitForPushFrameType(t, flow.conn, "awaiting.ask")
+			tc.act(t, &flow)
+
+			awaitAnswer := waitForPushFrameType(t, flow.conn, "awaiting.answer")
+			awaitAnswerData := pushFrameDataMap(t, awaitAnswer)
+			if awaitAnswerData["chatId"] != flow.chatID || awaitAnswerData["runId"] != flow.runID || awaitAnswerData["awaitingId"] != flow.awaitingID {
+				t.Fatalf("unexpected awaiting.answer push identity %#v", awaitAnswerData)
+			}
+			if awaitAnswerData["status"] != "error" || awaitAnswerData["errorCode"] != tc.errorCode {
+				t.Fatalf("unexpected awaiting.answer error payload %#v", awaitAnswerData)
+			}
+
+			drainAwaitingPushQuestionStream(t, flow.reader, flow.streamBody)
+		})
+	}
+}
+
+func TestWebSocketPushAwaitingAnswerRunInterruptedClearsPendingChatSummary(t *testing.T) {
+	flow := startAwaitingPushQuestionFlow(t, nil)
+	defer flow.conn.Close()
+	defer flow.resp.Body.Close()
+	defer flow.server.Close()
+
+	waitForPushFrameType(t, flow.conn, "awaiting.ask")
+
+	summaries := loadChatSummariesForTest(t, flow.fixture.server)
+	if len(summaries) != 1 || summaries[0].PendingAwaiting == nil {
+		t.Fatalf("expected pendingAwaiting before interrupt, got %#v", summaries)
+	}
+
+	interruptRec := httptest.NewRecorder()
+	interruptReq := httptest.NewRequest(http.MethodPost, "/api/interrupt", bytes.NewBufferString(`{"runId":"`+flow.runID+`"}`))
+	interruptReq.Header.Set("Content-Type", "application/json")
+	flow.fixture.server.ServeHTTP(interruptRec, interruptReq)
+	if interruptRec.Code != http.StatusOK {
+		t.Fatalf("interrupt expected 200, got %d: %s", interruptRec.Code, interruptRec.Body.String())
+	}
+
+	awaitAnswer := waitForPushFrameType(t, flow.conn, "awaiting.answer")
+	awaitAnswerData := pushFrameDataMap(t, awaitAnswer)
+	if awaitAnswerData["chatId"] != flow.chatID || awaitAnswerData["runId"] != flow.runID || awaitAnswerData["awaitingId"] != flow.awaitingID {
+		t.Fatalf("unexpected interrupt awaiting.answer push identity %#v", awaitAnswerData)
+	}
+	if awaitAnswerData["status"] != "error" || awaitAnswerData["errorCode"] != "run_interrupted" {
+		t.Fatalf("unexpected interrupt awaiting.answer push payload %#v", awaitAnswerData)
+	}
+
+	drainAwaitingPushQuestionStream(t, flow.reader, flow.streamBody)
+
+	summaries = loadChatSummariesForTest(t, flow.fixture.server)
+	if len(summaries) != 1 {
+		t.Fatalf("expected one chat summary after interrupt, got %#v", summaries)
+	}
+	if summaries[0].PendingAwaiting != nil {
+		t.Fatalf("expected pendingAwaiting cleared after interrupt, got %#v", summaries[0].PendingAwaiting)
 	}
 }
 
@@ -713,7 +1193,7 @@ func TestAgentEndpointReturnsDetail(t *testing.T) {
 	if len(response.Data.Tools) != 6 ||
 		response.Data.Tools[0] != "_datetime_" ||
 		response.Data.Tools[1] != "_ask_user_question_" ||
-		response.Data.Tools[2] != "_sandbox_bash_" ||
+		response.Data.Tools[2] != "_bash_" ||
 		response.Data.Tools[3] != "_memory_write_" ||
 		response.Data.Tools[4] != "_memory_read_" ||
 		response.Data.Tools[5] != "_memory_search_" {
@@ -1019,7 +1499,7 @@ func TestQueryAndRunStreamHideDebugEventsByDefaultButPersistThem(t *testing.T) {
 	}
 
 	runRec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(runRec, httptest.NewRequest(http.MethodGet, "/api/run/stream?runId="+runID, nil))
+	fixture.server.ServeHTTP(runRec, httptest.NewRequest(http.MethodGet, "/api/attach?runId="+runID, nil))
 	if runRec.Code != http.StatusOK {
 		t.Fatalf("expected run stream 200, got %d: %s", runRec.Code, runRec.Body.String())
 	}
@@ -1062,13 +1542,45 @@ func TestQueryAndRunStreamIncludeDebugEventsWhenEnabled(t *testing.T) {
 	if len(messages) == 0 {
 		t.Fatalf("expected sse messages, got %s", body)
 	}
+	var preCall map[string]any
+	for _, message := range messages {
+		if eventType, _ := message["type"].(string); eventType == "debug.preCall" {
+			preCall = message
+			break
+		}
+	}
+	if preCall == nil {
+		t.Fatalf("expected debug.preCall in sse stream, got %#v", messages)
+	}
+	preCallData, _ := preCall["data"].(map[string]any)
+	provider, _ := preCallData["provider"].(map[string]any)
+	model, _ := preCallData["model"].(map[string]any)
+	requestBody, _ := preCallData["requestBody"].(map[string]any)
+	if provider["key"] != "mock" {
+		t.Fatalf("expected provider key mock, got %#v", provider)
+	}
+	if !strings.HasSuffix(stringValue(provider["endpoint"]), "/v1/chat/completions") {
+		t.Fatalf("unexpected provider endpoint %#v", provider)
+	}
+	if model["key"] != "mock-model" || model["id"] != "mock-model-id" {
+		t.Fatalf("unexpected model payload %#v", model)
+	}
+	if len(requestBody) == 0 {
+		t.Fatalf("expected requestBody payload, got %#v", preCallData)
+	}
+	if _, exists := preCallData["systemPrompt"]; exists {
+		t.Fatalf("did not expect systemPrompt in debug.preCall payload, got %#v", preCallData)
+	}
+	if _, exists := preCallData["tools"]; exists {
+		t.Fatalf("did not expect tools in debug.preCall payload, got %#v", preCallData)
+	}
 	runID, _ := messages[0]["runId"].(string)
 	if runID == "" {
 		t.Fatalf("expected runId in first sse message, got %#v", messages[0])
 	}
 
 	runRec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(runRec, httptest.NewRequest(http.MethodGet, "/api/run/stream?runId="+runID, nil))
+	fixture.server.ServeHTTP(runRec, httptest.NewRequest(http.MethodGet, "/api/attach?runId="+runID, nil))
 	if runRec.Code != http.StatusOK {
 		t.Fatalf("expected run stream 200, got %d: %s", runRec.Code, runRec.Body.String())
 	}
@@ -1394,7 +1906,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 		switch call {
 		case 1:
 			writeProviderSSE(t, w,
-				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Need confirmation\",\"type\":\"select\",\"options\":[{\"label\":\"Approve\",\"description\":\"Continue with the request\"}],\"allowFreeText\":false,\"multiple\":false}]}"}}]},"finish_reason":"tool_calls"}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Need confirmation\",\"type\":\"select\",\"options\":[{\"label\":\"Approve\",\"description\":\"Continue with the request\"}],\"allowFreeText\":false}]}"}}]},"finish_reason":"tool_calls"}]}`,
 				`[DONE]`,
 			)
 		case 2:
@@ -1684,7 +2196,7 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 		switch call {
 		case 1:
 			writeProviderSSE(t, w,
-				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Notification topics\",\"type\":\"select\",\"options\":[{\"label\":\"产品更新\",\"description\":\"Release notes and new features\"},{\"label\":\"使用教程\",\"description\":\"How-to guides and walkthroughs\"}],\"allowFreeText\":false,\"multiple\":true},{\"question\":\"How many people?\",\"type\":\"number\"}]}"}}]},"finish_reason":"tool_calls"}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Notification topics\",\"type\":\"multi-select\",\"options\":[{\"label\":\"产品更新\",\"description\":\"Release notes and new features\"},{\"label\":\"使用教程\",\"description\":\"How-to guides and walkthroughs\"}],\"allowFreeText\":false},{\"question\":\"How many people?\",\"type\":\"number\"}]}"}}]},"finish_reason":"tool_calls"}]}`,
 				`[DONE]`,
 			)
 		case 2:
@@ -1862,8 +2374,8 @@ func TestQuestionChunkedArgsEmitAwaitAfterFirstToolArgs(t *testing.T) {
 		switch call {
 		case 1:
 			writeProviderSSE(t, w,
-				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Notification topics\",\"type\":\"select\","}}]}}]}`,
-				`{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"options\":[{\"label\":\"产品更新\",\"description\":\"Release notes and new features\"},{\"label\":\"使用教程\",\"description\":\"How-to guides and walkthroughs\"}],\"allowFreeText\":false,\"multiple\":true},{\"question\":\"How many people?\",\"type\":\"number\"}]}"}}]},"finish_reason":"tool_calls"}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Notification topics\",\"type\":\"multi-select\","}}]}}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"options\":[{\"label\":\"产品更新\",\"description\":\"Release notes and new features\"},{\"label\":\"使用教程\",\"description\":\"How-to guides and walkthroughs\"}],\"allowFreeText\":false},{\"question\":\"How many people?\",\"type\":\"number\"}]}"}}]},"finish_reason":"tool_calls"}]}`,
 				`[DONE]`,
 			)
 		case 2:
@@ -2077,7 +2589,7 @@ func TestQuestionInvalidSelectOptionsFailsBeforeAwait(t *testing.T) {
 	if strings.Contains(body, `"type":"awaiting.payload"`) {
 		t.Fatalf("did not expect awaiting.payload for invalid question args, got %s", body)
 	}
-	if !strings.Contains(body, `"type":"tool.result"`) || !strings.Contains(body, `invalid tool arguments: Pick a plan: options is required for select questions`) {
+	if !strings.Contains(body, `"type":"tool.result"`) || !strings.Contains(body, `invalid tool arguments: Pick a plan: options is required for select and multi-select questions`) {
 		t.Fatalf("expected invalid tool arguments tool.result, got %s", body)
 	}
 
@@ -2090,7 +2602,7 @@ func TestQuestionInvalidSelectOptionsFailsBeforeAwait(t *testing.T) {
 				break
 			}
 		}
-		if !strings.Contains(toolContent, "invalid tool arguments: Pick a plan: options is required for select questions") {
+		if !strings.Contains(toolContent, "invalid tool arguments: Pick a plan: options is required for select and multi-select questions") {
 			t.Fatalf("expected invalid tool arguments in second turn tool message, got %#v", messages)
 		}
 	case <-time.After(2 * time.Second):
@@ -2107,7 +2619,7 @@ func TestQuestionAwaitDismissReturnsCancelledStructuredResult(t *testing.T) {
 		switch call {
 		case 1:
 			writeProviderSSE(t, w,
-				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Pick a plan\",\"type\":\"select\",\"options\":[{\"label\":\"Weekend\",\"description\":\"2 days\"}],\"allowFreeText\":false,\"multiple\":false}]}"}}]},"finish_reason":"tool_calls"}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Pick a plan\",\"type\":\"select\",\"options\":[{\"label\":\"Weekend\",\"description\":\"2 days\"}],\"allowFreeText\":false}]}"}}]},"finish_reason":"tool_calls"}]}`,
 				`[DONE]`,
 			)
 		case 2:
@@ -2219,10 +2731,11 @@ func TestQuestionAwaitDismissReturnsCancelledStructuredResult(t *testing.T) {
 
 type recordingSandbox struct {
 	commands []string
+	envs     []map[string]string
 }
 
 type scriptedSandbox struct {
-	execute func(command string, cwd string) contracts.SandboxExecutionResult
+	execute func(command string, cwd string, env map[string]string) contracts.SandboxExecutionResult
 }
 
 type recordingMCPClient struct {
@@ -2237,8 +2750,9 @@ func (s *recordingSandbox) OpenIfNeeded(_ context.Context, _ *contracts.Executio
 	return nil
 }
 
-func (s *recordingSandbox) Execute(_ context.Context, _ *contracts.ExecutionContext, command string, cwd string, _ int64) (contracts.SandboxExecutionResult, error) {
+func (s *recordingSandbox) Execute(_ context.Context, _ *contracts.ExecutionContext, command string, cwd string, _ int64, env map[string]string) (contracts.SandboxExecutionResult, error) {
 	s.commands = append(s.commands, command)
+	s.envs = append(s.envs, contracts.CloneStringMap(env))
 	return contracts.SandboxExecutionResult{
 		ExitCode:         0,
 		Stdout:           "executed: " + command,
@@ -2253,11 +2767,11 @@ func (s *scriptedSandbox) OpenIfNeeded(_ context.Context, _ *contracts.Execution
 	return nil
 }
 
-func (s *scriptedSandbox) Execute(_ context.Context, _ *contracts.ExecutionContext, command string, cwd string, _ int64) (contracts.SandboxExecutionResult, error) {
+func (s *scriptedSandbox) Execute(_ context.Context, _ *contracts.ExecutionContext, command string, cwd string, _ int64, env map[string]string) (contracts.SandboxExecutionResult, error) {
 	if s.execute == nil {
 		return contracts.SandboxExecutionResult{ExitCode: 0, WorkingDirectory: cwd}, nil
 	}
-	return s.execute(command, cwd), nil
+	return s.execute(command, cwd, env), nil
 }
 
 func (s *scriptedSandbox) CloseQuietly(_ *contracts.ExecutionContext) {}
@@ -2333,7 +2847,7 @@ func TestBashHITLApproveFlowReplaysApprovalSummaryInChatRawMessages(t *testing.T
 		switch call {
 		case 1:
 			writeProviderSSE(t, w,
-				providerToolCallFrame(t, "tool_bash", "_sandbox_bash_", map[string]any{
+				providerToolCallFrame(t, "tool_bash", "_bash_", map[string]any{
 					"command":     command,
 					"description": "执行测试命令",
 					"cwd":         "/workspace",
@@ -2466,7 +2980,7 @@ func TestBashHITLApproveFlowReplaysApprovalSummaryInChatRawMessages(t *testing.T
 func TestSandboxBashResultShapeAcrossStreamBoundaries(t *testing.T) {
 	t.Run("success uses plain stdout for sse and tool message", func(t *testing.T) {
 		body, secondTurn := runSandboxBashQueryForResultShape(t, &scriptedSandbox{
-			execute: func(command string, cwd string) contracts.SandboxExecutionResult {
+			execute: func(command string, cwd string, _ map[string]string) contracts.SandboxExecutionResult {
 				return contracts.SandboxExecutionResult{
 					ExitCode:         0,
 					Stdout:           "listed from " + cwd + ": " + command + "\n",
@@ -2479,7 +2993,7 @@ func TestSandboxBashResultShapeAcrossStreamBoundaries(t *testing.T) {
 		if got, ok := resultPayload["result"].(string); !ok || got != "listed from /workspace: ls sample\n" {
 			t.Fatalf("expected string tool.result payload, got %#v", resultPayload["result"])
 		}
-		toolContent := findToolMessageContent(t, secondTurn, "_sandbox_bash_")
+		toolContent := findToolMessageContent(t, secondTurn, "_bash_")
 		if toolContent != "listed from /workspace: ls sample\n" {
 			t.Fatalf("expected plain stdout tool message, got %q", toolContent)
 		}
@@ -2487,7 +3001,7 @@ func TestSandboxBashResultShapeAcrossStreamBoundaries(t *testing.T) {
 
 	t.Run("failure uses structured object for sse and json for tool message", func(t *testing.T) {
 		body, secondTurn := runSandboxBashQueryForResultShape(t, &scriptedSandbox{
-			execute: func(_ string, cwd string) contracts.SandboxExecutionResult {
+			execute: func(_ string, cwd string, _ map[string]string) contracts.SandboxExecutionResult {
 				return contracts.SandboxExecutionResult{
 					ExitCode:         2,
 					Stdout:           "",
@@ -2508,7 +3022,7 @@ func TestSandboxBashResultShapeAcrossStreamBoundaries(t *testing.T) {
 		if resultObject["stderr"] != "ls: sample: No such file or directory\n" {
 			t.Fatalf("expected stderr in result payload, got %#v", resultObject)
 		}
-		toolContent := findToolMessageContent(t, secondTurn, "_sandbox_bash_")
+		toolContent := findToolMessageContent(t, secondTurn, "_bash_")
 		if !strings.HasPrefix(toolContent, "{") || !strings.Contains(toolContent, `"exitCode":2`) || !strings.Contains(toolContent, `"stderr":"ls: sample: No such file or directory\n"`) {
 			t.Fatalf("expected JSON tool message for failure, got %q", toolContent)
 		}
@@ -2555,11 +3069,8 @@ func TestBashHITLRejectFlow(t *testing.T) {
 	if len(executed) != 0 {
 		t.Fatalf("expected rejected command not to execute, got %#v", executed)
 	}
-	if !strings.Contains(body, `"code":"hitl_rejected"`) {
-		t.Fatalf("expected rejected original bash result, got %s", body)
-	}
-	if !strings.Contains(body, `"final":true`) ||
-		!strings.Contains(body, `User rejected this command. Do NOT retry with a different command. End the turn now.`) {
+	resultPayload := findToolResultPayload(t, body, "tool_bash")
+	if got, ok := resultPayload["result"].(string); !ok || got != "user_rejected: User rejected this command. Do NOT retry with a different command. End the turn now." {
 		t.Fatalf("expected hard-stop rejected tool result, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
@@ -2587,7 +3098,8 @@ func TestBashHITLTimeoutFlow(t *testing.T) {
 		!strings.Contains(body, `"code":"timeout"`) {
 		t.Fatalf("expected timeout awaiting.answer in stream, got %s", body)
 	}
-	if !strings.Contains(body, `"type":"tool.result"`) || !strings.Contains(body, `"code":"hitl_timeout"`) {
+	resultPayload := findToolResultPayload(t, body, "tool_bash")
+	if got, ok := resultPayload["result"].(string); !ok || got != "hitl_timeout: command execution timed out while waiting for user approval" {
 		t.Fatalf("expected timeout tool.result in stream, got %s", body)
 	}
 	if strings.Contains(body, "map[") {
@@ -2771,11 +3283,8 @@ func TestBashHITLDockerImageRMRejectFlow(t *testing.T) {
 	if len(executed) != 0 {
 		t.Fatalf("expected rejected docker image rm not to execute, got %#v", executed)
 	}
-	if !strings.Contains(body, `"code":"hitl_rejected"`) {
-		t.Fatalf("expected rejected original bash result, got %s", body)
-	}
-	if !strings.Contains(body, `"final":true`) ||
-		!strings.Contains(body, `User rejected this command. Do NOT retry with a different command. End the turn now.`) {
+	resultPayload := findToolResultPayload(t, body, "tool_bash")
+	if got, ok := resultPayload["result"].(string); !ok || got != "user_rejected: User rejected this command. Do NOT retry with a different command. End the turn now." {
 		t.Fatalf("expected hard-stop rejected tool result, got %s", body)
 	}
 	if strings.Contains(body, `"viewportKey":"confirm_dialog"`) {
@@ -2804,7 +3313,7 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 	t.Helper()
 	toolName := options.toolName
 	if toolName == "" {
-		toolName = "_sandbox_bash_"
+		toolName = "_bash_"
 	}
 	command := defaultBashHITLCommand()
 	if strings.TrimSpace(options.command) != "" {
@@ -2896,7 +3405,7 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 			switch payload["type"] {
 			case "tool.start":
 				switch payload["toolName"] {
-				case "_sandbox_bash_":
+				case "_bash_":
 					originalToolID, _ = payload["toolId"].(string)
 				case "simple-bash":
 					originalToolID, _ = payload["toolId"].(string)
@@ -3019,7 +3528,7 @@ func runSandboxBashQueryForResultShape(t *testing.T, sandbox contracts.SandboxCl
 		switch call {
 		case 1:
 			writeProviderSSE(t, w,
-				providerToolCallFrame(t, "tool_bash", "_sandbox_bash_", map[string]any{
+				providerToolCallFrame(t, "tool_bash", "_bash_", map[string]any{
 					"command":     "ls sample",
 					"description": "列出 sample",
 					"cwd":         "/workspace",
@@ -3577,6 +4086,14 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 	t.Helper()
 	root := t.TempDir()
 	providerServer := newLoopbackServer(t, modelHandler)
+	containerHubServer := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/environments/") && strings.HasSuffix(r.URL.Path, "/agent-prompt") {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"environmentName":"shell","hasPrompt":true,"prompt":"Mock sandbox prompt"}`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
 
 	registriesDir := filepath.Join(root, "registries")
 	agentsDir := filepath.Join(root, "agents")
@@ -3717,7 +4234,10 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 			MaxCommandChars:         16000,
 		},
 		ContainerHub: config.ContainerHubConfig{
-			Enabled: false,
+			Enabled:          true,
+			BaseURL:          containerHubServer.URL,
+			RequestTimeoutMs: 1000,
+			ResolvedEngine:   "local",
 		},
 	}
 	if options.configure != nil {
@@ -4215,6 +4735,195 @@ func assertStringSliceExcludes(t *testing.T, got []string, blocked ...string) {
 			}
 		}
 	}
+}
+
+type awaitingPushQuestionFlow struct {
+	fixture    testFixture
+	server     *loopbackServer
+	conn       *gws.Conn
+	resp       *http.Response
+	reader     *bufio.Reader
+	streamBody *strings.Builder
+	chatID     string
+	runID      string
+	awaitingID string
+}
+
+func startAwaitingPushQuestionFlow(t *testing.T, configure func(*config.Config)) awaitingPushQuestionFlow {
+	t.Helper()
+
+	var providerCallCount atomic.Int32
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		call := providerCallCount.Add(1)
+		switch call {
+		case 1:
+			writeProviderSSE(t, w,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Need confirmation\",\"type\":\"select\",\"options\":[{\"label\":\"Approve\",\"description\":\"Continue with the request\"}],\"allowFreeText\":false}]}"}}]},"finish_reason":"tool_calls"}]}`,
+				`[DONE]`,
+			)
+		case 2:
+			writeProviderSSE(t, w,
+				`{"choices":[{"delta":{"content":"final answer"},"finish_reason":"stop"}]}`,
+				`[DONE]`,
+			)
+		default:
+			t.Fatalf("unexpected provider call %d", call)
+		}
+	}, testFixtureOptions{
+		sandbox:       &recordingSandbox{},
+		notifications: ws.NewHub(),
+		configure: func(cfg *config.Config) {
+			cfg.WebSocket.Enabled = true
+			cfg.WebSocket.WriteQueueSize = 8
+			cfg.WebSocket.PingIntervalMs = 30000
+			if configure != nil {
+				configure(cfg)
+			}
+		},
+		setupRuntime: func(_ string, cfg *config.Config) {
+			agentPath := filepath.Join(cfg.Paths.AgentsDir, "mock-runner", "agent.yml")
+			if err := os.WriteFile(agentPath, []byte(strings.Join([]string{
+				"key: mock-runner",
+				"name: Mock Runner",
+				"role: 测试代理",
+				"description: test agent",
+				"modelConfig:",
+				"  modelKey: mock-model",
+				"toolConfig:",
+				"  tools:",
+				"    - _ask_user_question_",
+				"mode: REACT",
+			}, "\n")), 0o644); err != nil {
+				t.Fatalf("write helper agent config: %v", err)
+			}
+		},
+	})
+
+	server := newLoopbackServer(t, fixture.server)
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
+	conn, _, err := gws.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		server.Close()
+		t.Fatalf("dial websocket: %v", err)
+	}
+	connected := waitForPushFrameType(t, conn, "connected")
+	if connected.Frame != ws.FramePush {
+		conn.Close()
+		server.Close()
+		t.Fatalf("unexpected initial websocket frame %#v", connected)
+	}
+
+	chatID := "chat_ws_awaiting"
+	resp, err := http.Post(server.URL+"/api/query", "application/json", bytes.NewBufferString(`{"chatId":"`+chatID+`","agentKey":"mock-runner","message":"please confirm first"}`))
+	if err != nil {
+		conn.Close()
+		server.Close()
+		t.Fatalf("post query: %v", err)
+	}
+
+	flow := awaitingPushQuestionFlow{
+		fixture:    fixture,
+		server:     server,
+		conn:       conn,
+		resp:       resp,
+		reader:     bufio.NewReader(resp.Body),
+		streamBody: &strings.Builder{},
+		chatID:     chatID,
+	}
+	for {
+		line, readErr := flow.reader.ReadString('\n')
+		flow.streamBody.WriteString(line)
+		if strings.HasPrefix(line, "data: {") {
+			payload := decodeSSELine(t, line)
+			if payload["type"] == "awaiting.ask" {
+				flow.runID, _ = payload["runId"].(string)
+				flow.awaitingID, _ = payload["awaitingId"].(string)
+				break
+			}
+		}
+		if readErr != nil {
+			flow.conn.Close()
+			flow.resp.Body.Close()
+			flow.server.Close()
+			t.Fatalf("read query stream before awaiting.ask: %v", readErr)
+		}
+	}
+	if flow.runID == "" || flow.awaitingID == "" {
+		flow.conn.Close()
+		flow.resp.Body.Close()
+		flow.server.Close()
+		t.Fatalf("expected awaiting.ask identifiers, got stream %s", flow.streamBody.String())
+	}
+	return flow
+}
+
+func drainAwaitingPushQuestionStream(t *testing.T, reader *bufio.Reader, body *strings.Builder) {
+	t.Helper()
+	for {
+		line, err := reader.ReadString('\n')
+		body.WriteString(line)
+		if err == io.EOF {
+			return
+		}
+		if err != nil {
+			t.Fatalf("read query stream: %v", err)
+		}
+	}
+}
+
+func waitForPushFrameType(t *testing.T, conn *gws.Conn, eventType string) ws.PushFrame {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+			t.Fatalf("set websocket read deadline: %v", err)
+		}
+		_, raw, err := conn.ReadMessage()
+		if err != nil {
+			t.Fatalf("read websocket message: %v", err)
+		}
+		var frame ws.PushFrame
+		if err := json.Unmarshal(raw, &frame); err != nil {
+			t.Fatalf("decode websocket push frame: %v", err)
+		}
+		if frame.Frame == ws.FramePush && frame.Type == eventType {
+			return frame
+		}
+	}
+	t.Fatalf("timed out waiting for websocket push frame %s", eventType)
+	return ws.PushFrame{}
+}
+
+func pushFrameDataMap(t *testing.T, frame ws.PushFrame) map[string]any {
+	t.Helper()
+	data, ok := frame.Data.(map[string]any)
+	if !ok {
+		t.Fatalf("expected push frame data object, got %#v", frame.Data)
+	}
+	return data
+}
+
+func readBodyString(t *testing.T, body io.Reader) string {
+	t.Helper()
+	data, err := io.ReadAll(body)
+	if err != nil {
+		return err.Error()
+	}
+	return string(data)
+}
+
+func loadChatSummariesForTest(t *testing.T, handler http.Handler) []api.ChatSummaryResponse {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chats", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("list chats expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var response api.ApiResponse[[]api.ChatSummaryResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode chats response: %v", err)
+	}
+	return response.Data
 }
 
 func collectWebSocketStreamEventTypes(t *testing.T, conn *gws.Conn, requestID string) []string {

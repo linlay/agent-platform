@@ -39,7 +39,7 @@ func TestDispatcherBuildsStructuredQueryRequest(t *testing.T) {
 	dispatcher := NewDispatcher(func(_ context.Context, req api.QueryRequest) error {
 		got = req
 		return nil
-	})
+	}, nil)
 	if err := dispatcher.Dispatch(context.Background(), def); err != nil {
 		t.Fatalf("dispatch: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestDispatcherLogsDispatchLifecycle(t *testing.T) {
 	}
 
 	successLogs := captureDispatcherLogs(t, func() {
-		dispatcher := NewDispatcher(func(_ context.Context, _ api.QueryRequest) error { return nil })
+		dispatcher := NewDispatcher(func(_ context.Context, _ api.QueryRequest) error { return nil }, nil)
 		if err := dispatcher.Dispatch(context.Background(), def); err != nil {
 			t.Fatalf("dispatch success: %v", err)
 		}
@@ -101,7 +101,7 @@ func TestDispatcherLogsDispatchLifecycle(t *testing.T) {
 	}
 
 	failureLogs := captureDispatcherLogs(t, func() {
-		dispatcher := NewDispatcher(func(_ context.Context, _ api.QueryRequest) error { return errors.New("boom") })
+		dispatcher := NewDispatcher(func(_ context.Context, _ api.QueryRequest) error { return errors.New("boom") }, nil)
 		err := dispatcher.Dispatch(context.Background(), def)
 		if err == nil {
 			t.Fatal("expected dispatch failure")

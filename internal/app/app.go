@@ -30,18 +30,30 @@ import (
 	"agent-platform-runner-go/internal/viewport"
 	"agent-platform-runner-go/internal/ws"
 	"agent-platform-runner-go/internal/ws/gatewayclient"
+
+	gws "github.com/gorilla/websocket"
 )
 
 type App struct {
 	Config           config.Config
 	Router           *server.Server
 	backgroundCancel context.CancelFunc
-	scheduler        *schedule.Orchestrator
+	scheduler        schedulerStopper
 	gwClient         *gatewayclient.Client
+	wsHub            *ws.Hub
 }
 
-func New() (*App, error) {
+type schedulerStopper interface {
+	Stop() context.Context
+}
+
+var schedulerStopTimeout = 3 * time.Second
+
+func New(rootCtx context.Context) (*App, error) {
 	appInitStartedAt := time.Now()
+	if rootCtx == nil {
+		rootCtx = context.Background()
+	}
 
 	configStartedAt := time.Now()
 	log.Printf("loading config")
@@ -158,11 +170,13 @@ func New() (*App, error) {
 
 	agentEngine := llm.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, frontendRegistry, sandboxClient)
 	notifications := contracts.NewNoopNotificationSink()
+	var wsHub *ws.Hub
 	if cfg.WebSocket.Enabled {
-		notifications = ws.NewHub()
+		wsHub = ws.NewHub()
+		notifications = wsHub
 	}
 	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, mcp.NewRegistryReloader(mcpRegistry, mcpToolSync), notifications)
-	backgroundCtx, backgroundCancel := context.WithCancel(context.Background())
+	backgroundCtx, backgroundCancel := context.WithCancel(rootCtx)
 	cleanupBackground := true
 	defer func() {
 		if cleanupBackground {
@@ -206,14 +220,16 @@ func New() (*App, error) {
 
 	var gwClient *gatewayclient.Client
 	if cfg.WebSocket.Enabled && strings.TrimSpace(cfg.GatewayWS.URL) != "" {
-		if strings.TrimSpace(cfg.GatewayWS.Token) == "" {
-			log.Printf("gateway websocket disabled: AGENT_GATEWAY_WS_URL is set but AGENT_GATEWAY_WS_TOKEN is empty")
-		} else if hub, ok := notifications.(*ws.Hub); ok {
+		if hub, ok := notifications.(*ws.Hub); ok {
 			if handler := srv.WSHandler(); handler != nil {
 				gwClient = gatewayclient.New(
 					gatewayclient.Config{
 						URL:              strings.TrimSpace(cfg.GatewayWS.URL),
 						Token:            strings.TrimSpace(cfg.GatewayWS.Token),
+						UserID:           strings.TrimSpace(cfg.GatewayWS.UserID),
+						Ticket:           strings.TrimSpace(cfg.GatewayWS.Ticket),
+						AgentKey:         strings.TrimSpace(cfg.GatewayWS.AgentKey),
+						Channel:          strings.TrimSpace(cfg.GatewayWS.Channel),
 						HandshakeTimeout: time.Duration(cfg.GatewayWS.HandshakeTimeoutMs) * time.Millisecond,
 						ReconnectMin:     time.Duration(cfg.GatewayWS.ReconnectMinMs) * time.Millisecond,
 						ReconnectMax:     time.Duration(cfg.GatewayWS.ReconnectMaxMs) * time.Millisecond,
@@ -231,6 +247,10 @@ func New() (*App, error) {
 	var scheduler *schedule.Orchestrator
 	if cfg.Schedule.Enabled {
 		scheduleRegistry := schedule.NewRegistry(cfg.Paths.SchedulesDir, registry)
+		var scheduleBroadcaster schedule.Broadcaster
+		if hub, ok := notifications.(*ws.Hub); ok {
+			scheduleBroadcaster = hub
+		}
 		dispatcher := schedule.NewDispatcher(func(ctx context.Context, req api.QueryRequest) error {
 			// schedule 触发的 run 标记为 hidden：
 			// chat 不记录伪造的"用户发消息"，chat.created 也不广播，
@@ -245,7 +265,7 @@ func New() (*App, error) {
 				return fmt.Errorf("scheduled query failed with status %d: %s", status, summarizeScheduleErrorBody(body))
 			}
 			return nil
-		})
+		}, scheduleBroadcaster)
 		scheduler = schedule.NewOrchestrator(scheduleRegistry, dispatcher, cfg.Schedule)
 		if err := scheduler.Start(backgroundCtx); err != nil {
 			backgroundCancel()
@@ -264,6 +284,7 @@ func New() (*App, error) {
 		backgroundCancel: backgroundCancel,
 		scheduler:        scheduler,
 		gwClient:         gwClient,
+		wsHub:            wsHub,
 	}, nil
 }
 
@@ -277,12 +298,19 @@ func (a *App) Close() error {
 	if a.gwClient != nil {
 		_ = a.gwClient.Stop()
 	}
-	if err := observability.CloseMemoryLogger(); err != nil {
-		log.Printf("close memory logger: %v", err)
+	if a.wsHub != nil {
+		a.wsHub.CloseAll(gws.CloseNormalClosure, "server shutting down")
 	}
 	if a.scheduler != nil {
 		done := a.scheduler.Stop()
-		<-done.Done()
+		select {
+		case <-done.Done():
+		case <-time.After(schedulerStopTimeout):
+			log.Printf("scheduler stop timed out after %s", schedulerStopTimeout)
+		}
+	}
+	if err := observability.CloseMemoryLogger(); err != nil {
+		log.Printf("close memory logger: %v", err)
 	}
 	return nil
 }

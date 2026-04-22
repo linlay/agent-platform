@@ -43,6 +43,44 @@ plain:
 - `toolConfig` 直接声明工具名列表
 - `mode` 决定 agent 执行模式
 
+## Agent Identity 与 SOUL.md 边界
+
+`agent.yml` 是 agent 身份与能力元数据的唯一事实源：
+
+- `key`
+- `name`
+- `role`
+- `description`
+- `mode`
+- `toolConfig`
+- `skillConfig`
+- `sandboxConfig`
+
+运行时会先根据 `agent.yml` 生成统一的 `Agent Identity` prompt section，再拼接其他 prompt 层。
+
+`SOUL.md` 的职责是长期行为提示，不是配置副本：
+
+- 允许写人格、协作方式、风险姿态、硬边界、非目标
+- 允许写长期稳定的行为约束
+- 不应重复 `key/name/role/description/mode`
+- 不应复制 tools、skills、sandbox、环境路径或一次性任务说明
+
+推荐结构：
+
+```md
+# Soul
+
+## Persona
+
+## Boundaries
+
+## Working Style
+
+## Long-Term Notes
+```
+
+兼容期内，旧格式中的 `# Identity`、`## Mission` 仍会被加载，但运行时会打印 warning，提示迁移到 `agent.yml` 或改写为行为边界段落。
+
 ## Go 版已落地能力
 
 - agent YAML 文件解析
@@ -76,7 +114,6 @@ plain:
 - `context`
 - `owner`
 - `auth`
-- `sandbox`
 - `all-agents`
 - `memory`
 
@@ -90,13 +127,14 @@ plain:
 - `context` 会暴露运行时上下文与 sandbox 路径
 - `owner` 会注入 `OWNER_DIR` 下的 markdown 内容
 - `memory` 会注入运行期 memory context
+- `sandbox` 不再通过 `context tags` 控制；只要 agent 声明了 `sandboxConfig`，运行时会自动注入 sandbox context
 
 ## Static Memory 与 Runtime Memory
 
 agent 目录下的 `memory/memory.md` 当前作为静态背景提示装载：
 
 - 语义：agent 的长期固定背景，不是运行时记忆库
-- 注入顺序：静态 `memory/memory.md` 先于 runtime memory bundle
+- 注入顺序：`Agent Identity` 与 `SOUL.md` 之后、runtime memory bundle 之前
 - 存储位置：随 agent 文件存在，不进入 SQLite memory store
 
 运行时记忆来自 memory store：
@@ -159,6 +197,7 @@ sandboxConfig:
 - key 必须非空，且不能包含空白字符或 `=`
 - value 必须是字面量字符串；空字符串允许并原样下发
 - 不支持 `${VAR}` 或其他宿主环境变量展开
+- `sandboxConfig` 是 sandbox context 的唯一入口；不需要再在 `contextConfig.tags` / `contextTags` 中声明 `sandbox`
 - agent `sandboxConfig.env` 作为基础值，skill 目录下的 `.sandbox-env.json` 会按 agent 声明顺序叠加并覆盖同名键
 - `/api/agents` 与 `/api/agent` 的 `sandbox` meta 不会回显 `env`，避免暴露代理地址、凭据或私有 endpoint；`extraMounts` 仍可对外暴露，因为它描述的是白名单路径而非敏感值
 

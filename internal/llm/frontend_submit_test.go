@@ -206,6 +206,9 @@ func TestFrontendSubmitCoordinatorAwait_TimeoutReturnsCompactStructuredError(t *
 	if result.Error != "frontend_submit_timeout" {
 		t.Fatalf("expected timeout error code, got %#v", result)
 	}
+	if !strings.Contains(result.Output, "Frontend tool submit timeout:") {
+		t.Fatalf("expected readable timeout output, got %q", result.Output)
+	}
 	expected := map[string]any{
 		"mode":   "question",
 		"status": "error",

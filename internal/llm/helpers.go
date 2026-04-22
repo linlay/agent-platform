@@ -30,7 +30,23 @@ func sseResultValue(result contracts.ToolExecutionResult) any {
 	if result.RawParams != nil {
 		return result.RawParams
 	}
+	if result.Error != "" {
+		return result.Output
+	}
 	return structuredOrOutput(result)
+}
+
+func formatToolErrorOutput(code string, message string) string {
+	code = strings.TrimSpace(code)
+	message = strings.TrimSpace(message)
+	switch {
+	case code == "":
+		return message
+	case message == "":
+		return code
+	default:
+		return code + ": " + message
+	}
 }
 
 func maxInt(value int, fallback int) int {

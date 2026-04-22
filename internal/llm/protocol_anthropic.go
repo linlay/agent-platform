@@ -17,30 +17,54 @@ type anthropicProtocol struct {
 	engine *LLMAgentEngine
 }
 
-func (p *anthropicProtocol) OpenStream(ctx context.Context, params protocolStreamParams) (*providerTurnStream, error) {
+func (p *anthropicProtocol) PrepareRequest(params protocolStreamParams) (preparedProviderRequest, error) {
 	endpoint, err := resolveProviderEndpoint(params)
 	if err != nil {
-		return nil, err
+		return preparedProviderRequest{}, err
 	}
 
-	requestBody, effectiveToolChoice, err := p.buildRequestBody(params.model, params.stageSettings, params.messages, params.toolSpecs, params.toolChoice, params.protocolConfig)
+	requestBody, _, err := p.buildRequestBody(params.model, params.stageSettings, params.messages, params.toolSpecs, params.toolChoice, params.protocolConfig)
 	if err != nil {
-		return nil, err
+		return preparedProviderRequest{}, err
 	}
 	body, err := json.Marshal(requestBody)
 	if err != nil {
-		return nil, err
+		return preparedProviderRequest{}, err
 	}
+	normalizedBody, err := normalizePreparedRequestBody(body)
+	if err != nil {
+		return preparedProviderRequest{}, err
+	}
+	headers := map[string]string{
+		"Content-Type": "application/json",
+		"Accept":       "text/event-stream",
+		"X-Api-Key":    params.provider.APIKey,
+	}
+	for key, value := range params.protocolConfig.Headers {
+		headers[key] = value
+	}
+	return preparedProviderRequest{
+		Endpoint:        endpoint,
+		RequestBody:     normalizedBody,
+		RequestBodyJSON: body,
+		Headers:         headers,
+	}, nil
+}
 
-	p.engine.logOutgoingRequest(params.runID, params.provider, params.model, endpoint, params.messages, params.toolSpecs, effectiveToolChoice, body)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+func (p *anthropicProtocol) OpenStream(ctx context.Context, params protocolStreamParams, prepared preparedProviderRequest) (*providerTurnStream, error) {
+	effectiveToolChoice := strings.TrimSpace(strings.ToLower(params.toolChoice))
+	if effectiveToolChoice == "" {
+		effectiveToolChoice = "auto"
+	}
+	if len(params.toolSpecs) == 0 || effectiveToolChoice == "none" {
+		effectiveToolChoice = ""
+	}
+	p.engine.logOutgoingRequest(params.runID, params.provider, params.model, prepared.Endpoint, params.messages, params.toolSpecs, effectiveToolChoice, prepared.RequestBodyJSON)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, prepared.Endpoint, bytes.NewReader(prepared.RequestBodyJSON))
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "text/event-stream")
-	req.Header.Set("X-Api-Key", params.provider.APIKey)
-	for key, value := range params.protocolConfig.Headers {
+	for key, value := range prepared.Headers {
 		req.Header.Set(key, value)
 	}
 

@@ -1,6 +1,6 @@
 name: _artifact_publish_
 label: 发布产物
-description: Publish multiple artifacts generated during the current run, emitting a separate artifact.publish SSE event for each one. Use this when files are created first and then explicitly declared as outputs of the run.
+description: Publish multiple artifacts generated during the current run, emitting a single batched artifact.publish SSE event for all successfully published outputs from this invocation. Use this when files are created first and then explicitly declared as outputs of the run.
 type: function
 clientVisible: false
 inputSchema:

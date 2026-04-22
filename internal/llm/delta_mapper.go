@@ -41,6 +41,13 @@ func NewDeltaMapper(runID string, chatID string, toolTimeoutMs int64, toolRegist
 	}
 }
 
+func (m *DeltaMapper) CloneIsolated(runID string, chatID string) *DeltaMapper {
+	if m == nil {
+		return nil
+	}
+	return NewDeltaMapper(runID, chatID, m.toolTimeoutMs, m.toolRegistry, m.frontend)
+}
+
 func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 	switch value := delta.(type) {
 	case DeltaContent:
@@ -173,24 +180,27 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			return []stream.StreamInput{stream.TaskStart{
 				TaskID:      value.TaskID,
 				RunID:       value.RunID,
+				GroupID:     value.GroupID,
 				TaskName:    value.TaskName,
 				Description: value.Description,
+				SubAgentKey: value.SubAgentKey,
+				MainToolID:  value.MainToolID,
 			}}
 		case "complete":
-			return []stream.StreamInput{stream.TaskComplete{TaskID: value.TaskID}}
+			return []stream.StreamInput{stream.TaskComplete{TaskID: value.TaskID, Status: value.Status}}
 		case "cancel":
-			return []stream.StreamInput{stream.TaskCancel{TaskID: value.TaskID}}
+			return []stream.StreamInput{stream.TaskCancel{TaskID: value.TaskID, Status: value.Status}}
 		case "fail":
-			return []stream.StreamInput{stream.TaskFail{TaskID: value.TaskID, Error: value.Error}}
+			return []stream.StreamInput{stream.TaskFail{TaskID: value.TaskID, Status: value.Status, Error: value.Error}}
 		default:
 			return nil
 		}
 	case DeltaArtifactPublish:
 		return []stream.StreamInput{stream.ArtifactPublish{
-			ArtifactID: value.ArtifactID,
-			ChatID:     value.ChatID,
-			RunID:      value.RunID,
-			Artifact:   value.Artifact,
+			ChatID:        value.ChatID,
+			RunID:         value.RunID,
+			ArtifactCount: value.ArtifactCount,
+			Artifacts:     append([]map[string]any(nil), value.Artifacts...),
 		}}
 	case DeltaAwaitAsk:
 		return []stream.StreamInput{stream.AwaitAsk{
@@ -229,7 +239,11 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		m.lastKind = ""
 		return []stream.StreamInput{stream.InputDebugPreCall{
 			ChatID:                value.ChatID,
+			ProviderKey:           value.ProviderKey,
+			ProviderEndpoint:      value.ProviderEndpoint,
 			ModelKey:              value.ModelKey,
+			ModelID:               value.ModelID,
+			RequestBody:           CloneMap(value.RequestBody),
 			ContextWindow:         value.ContextWindow,
 			CurrentContextSize:    value.CurrentContextSize,
 			EstimatedNextCallSize: value.EstimatedNextCallSize,

@@ -16,7 +16,7 @@ inputSchema:
         - question
     questions:
       type: array
-      description: Required. List of questions to present to the user in a single prompt. Every item must include `question` and `type`. For free-input prompts, use `type=text`, `number`, or `password`; do not send a free-input question that only sets `allowFreeText`. Select questions must still use `type=select` even when `multiple=true`.
+      description: Required. List of questions to present to the user in a single prompt. Every item must include `question` and `type`. For free-input prompts, use `type=text`, `number`, or `password`; do not send a free-input question that only sets `allowFreeText`. Use `type=select` for single-choice option picking and `type=multi-select` for multiple selections.
       items:
         type: object
         properties:
@@ -25,11 +25,12 @@ inputSchema:
             description: Required. Main question text.
           type:
             type: string
-            description: Required. Every question must provide a type. Use text, number, or password for free input. Use select for option picking; select questions may additionally allow free input through allowFreeText. `multiple` does not replace `type`.
+            description: Required. Every question must provide a type. Use text, number, or password for free input. Use select for single-choice option picking and multi-select for multiple selections. Select-style questions may additionally allow free input through allowFreeText.
             enum:
               - text
               - number
               - select
+              - multi-select
               - password
           header:
             type: string
@@ -39,7 +40,7 @@ inputSchema:
             description: Placeholder shown in the input field.
           options:
             type: array
-            description: Required for select questions. Option list used only when type is select.
+            description: Required for select and multi-select questions. Option list used only when type is select or multi-select.
             minItems: 1
             items:
               type: object
@@ -53,15 +54,12 @@ inputSchema:
               required:
                 - label
               additionalProperties: false
-          multiple:
-            type: boolean
-            description: Whether a select question allows multiple selections.
           allowFreeText:
             type: boolean
-            description: Only applies when `type=select`. When enabled, the user may answer with free text instead of selecting an option. This is mutually exclusive with option selection and should not be used on text, number, or password questions.
+            description: Only applies when `type=select` or `type=multi-select`. When enabled, the user may answer with free text instead of selecting an option. This is mutually exclusive with option selection and should not be used on text, number, or password questions.
           freeTextPlaceholder:
             type: string
-            description: Only applies when `type=select` and `allowFreeText=true`. Placeholder for the free-text input shown in that select question.
+            description: Only applies when `type=select` or `type=multi-select` with `allowFreeText=true`. Placeholder for the free-text input shown in that select-style question.
         required:
           - question
           - type
@@ -70,7 +68,9 @@ inputSchema:
             if:
               properties:
                 type:
-                  const: select
+                  enum:
+                    - select
+                    - multi-select
             then:
               required:
                 - options

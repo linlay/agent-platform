@@ -20,6 +20,7 @@ type Definition struct {
 	Query         Query
 	PushURL       string
 	PushTargetID  string
+	PushMessage   string
 	SourceFile    string
 }
 

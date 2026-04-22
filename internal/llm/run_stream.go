@@ -98,16 +98,17 @@ type toolCallAccumulator struct {
 }
 
 type preparedToolInvocation struct {
-	toolID           string
-	toolName         string
-	args             map[string]any
-	prelude          []AgentDelta
-	toolCallCounted  bool
-	precheckedHITL   *hitl.InterceptResult
-	approvalID       string
-	approvalDecision string
-	hitlDecision     *hitlDecisionState
-	queuedResult     *ToolExecutionResult
+	toolID              string
+	toolName            string
+	args                map[string]any
+	prelude             []AgentDelta
+	awaitExternalResult bool
+	toolCallCounted     bool
+	precheckedHITL      *hitl.InterceptResult
+	approvalID          string
+	approvalDecision    string
+	hitlDecision        *hitlDecisionState
+	queuedResult        *ToolExecutionResult
 }
 
 type pendingHITLApprovalBatch struct {
@@ -273,9 +274,26 @@ func (s *llmRunStream) prepareNextTurn() error {
 	if s.protocol == nil {
 		return fmt.Errorf("streaming protocol %s is not supported", s.model.Protocol)
 	}
+	preparedRequest, err := s.protocol.PrepareRequest(protocolStreamParams{
+		runID:          s.session.RunID,
+		provider:       s.provider,
+		model:          s.model,
+		protocolConfig: s.protocolConfig,
+		stageSettings:  s.stageSettings,
+		messages:       s.messages,
+		toolSpecs:      s.toolSpecs,
+		toolChoice:     s.toolChoice,
+	})
+	if err != nil {
+		return err
+	}
 	s.pending = append(s.pending, DeltaDebugPreCall{
 		ChatID:                s.session.ChatID,
+		ProviderKey:           s.provider.Key,
+		ProviderEndpoint:      preparedRequest.Endpoint,
 		ModelKey:              s.model.Key,
+		ModelID:               s.model.ModelID,
+		RequestBody:           preparedRequest.RequestBody,
 		ContextWindow:         s.effectiveContextWindow(),
 		CurrentContextSize:    s.currentContextSize(),
 		EstimatedNextCallSize: s.estimatedNextCallSize(),
@@ -292,7 +310,7 @@ func (s *llmRunStream) prepareNextTurn() error {
 		messages:       s.messages,
 		toolSpecs:      s.toolSpecs,
 		toolChoice:     s.toolChoice,
-	})
+	}, preparedRequest)
 	if err != nil {
 		return err
 	}
@@ -747,6 +765,71 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 			}
 	}
 
+	if strings.EqualFold(strings.TrimSpace(toolCall.Function.Name), InvokeAgentsToolName) {
+		rawTasks, _ := args["tasks"].([]any)
+		if len(rawTasks) < 1 || len(rawTasks) > 3 {
+			message := "invalid tool arguments: tasks must contain between 1 and 3 items"
+			return nil, []AgentDelta{DeltaToolResult{
+					ToolID:   toolID,
+					ToolName: toolCall.Function.Name,
+					Result: ToolExecutionResult{
+						Output:   message,
+						Error:    "invalid_tool_arguments",
+						ExitCode: -1,
+					},
+				}}, &openAIMessage{
+					Role:       "tool",
+					ToolCallID: toolID,
+					Name:       toolCall.Function.Name,
+					Content:    message,
+				}
+		}
+		tasks := make([]SubAgentTaskSpec, 0, len(rawTasks))
+		for _, rawTask := range rawTasks {
+			taskMap, _ := rawTask.(map[string]any)
+			subAgentKey := strings.TrimSpace(mapStringArg(taskMap, "subAgentKey"))
+			taskText := strings.TrimSpace(mapStringArg(taskMap, "task"))
+			taskName := strings.TrimSpace(mapStringArg(taskMap, "taskName"))
+			if taskName == "" {
+				taskName = subAgentKey
+			}
+			if subAgentKey == "" || taskText == "" {
+				message := "invalid tool arguments: every task requires subAgentKey and task"
+				return nil, []AgentDelta{DeltaToolResult{
+						ToolID:   toolID,
+						ToolName: toolCall.Function.Name,
+						Result: ToolExecutionResult{
+							Output:   message,
+							Error:    "invalid_tool_arguments",
+							ExitCode: -1,
+						},
+					}}, &openAIMessage{
+						Role:       "tool",
+						ToolCallID: toolID,
+						Name:       toolCall.Function.Name,
+						Content:    message,
+					}
+			}
+			tasks = append(tasks, SubAgentTaskSpec{
+				SubAgentKey: subAgentKey,
+				TaskText:    taskText,
+				TaskName:    taskName,
+			})
+		}
+		groupID := "group_" + toolID
+		return &preparedToolInvocation{
+			toolID:              toolID,
+			toolName:            toolCall.Function.Name,
+			args:                args,
+			awaitExternalResult: true,
+			prelude: []AgentDelta{DeltaInvokeSubAgents{
+				MainToolID: toolID,
+				GroupID:    groupID,
+				Tasks:      tasks,
+			}},
+		}, nil, nil
+	}
+
 	return &preparedToolInvocation{
 		toolID:   toolID,
 		toolName: toolCall.Function.Name,
@@ -815,7 +898,11 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 		s.execCtx.ToolCalls++
 		invocation.toolCallCounted = true
 	}
+	keepActive := false
 	defer func() {
+		if keepActive {
+			return
+		}
 		if s.runControl != nil {
 			s.runControl.ClearExpectedSubmit(invocation.toolID)
 		}
@@ -826,6 +913,10 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 	if invocation.queuedResult != nil {
 		s.appendOriginalToolResult(invocation, *invocation.queuedResult)
 		invocation.queuedResult = nil
+		return nil
+	}
+	if invocation.awaitExternalResult {
+		keepActive = true
 		return nil
 	}
 	if invocation.precheckedHITL != nil && invocation.precheckedHITL.Intercepted {
@@ -897,30 +988,47 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 			Plan:   PlanTasksArray(s.execCtx.PlanState),
 		})
 	}
-	if published, ok := result.Structured["publishedArtifacts"].([]map[string]any); ok {
-		for _, item := range published {
-			s.pending = append(s.pending, DeltaArtifactPublish{
-				ArtifactID: AnyStringNode(item["artifactId"]),
-				ChatID:     s.session.ChatID,
-				RunID:      s.session.RunID,
-				Artifact:   item,
-			})
-		}
-	} else if published, ok := result.Structured["publishedArtifacts"].([]any); ok {
-		for _, raw := range published {
-			item, _ := raw.(map[string]any)
+	appendPublishedArtifactDelta(&s.pending, s.session, result.Structured["publishedArtifacts"])
+	return nil
+}
+
+func appendPublishedArtifactDelta(pending *[]AgentDelta, session QuerySession, raw any) {
+	published := publishedArtifactMaps(raw)
+	if len(published) == 0 {
+		return
+	}
+	*pending = append(*pending, DeltaArtifactPublish{
+		ChatID:        session.ChatID,
+		RunID:         session.RunID,
+		ArtifactCount: len(published),
+		Artifacts:     published,
+	})
+}
+
+func publishedArtifactMaps(raw any) []map[string]any {
+	switch typed := raw.(type) {
+	case []map[string]any:
+		items := make([]map[string]any, 0, len(typed))
+		for _, item := range typed {
 			if len(item) == 0 {
 				continue
 			}
-			s.pending = append(s.pending, DeltaArtifactPublish{
-				ArtifactID: AnyStringNode(item["artifactId"]),
-				ChatID:     s.session.ChatID,
-				RunID:      s.session.RunID,
-				Artifact:   item,
-			})
+			items = append(items, CloneMap(item))
 		}
+		return items
+	case []any:
+		items := make([]map[string]any, 0, len(typed))
+		for _, rawItem := range typed {
+			item, _ := rawItem.(map[string]any)
+			if len(item) == 0 {
+				continue
+			}
+			items = append(items, CloneMap(item))
+		}
+		return items
+	default:
+		return nil
 	}
-	return nil
 }
 
 func (s *llmRunStream) executeApprovedBashInvocation(invocation *preparedToolInvocation, result hitl.InterceptResult) error {
@@ -1058,7 +1166,7 @@ func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {
 	}
 
 	s.execCtx.CurrentToolID = batch.awaitingID
-	s.execCtx.CurrentToolName = "_sandbox_bash_"
+	s.execCtx.CurrentToolName = "_bash_"
 	s.execCtx.RunLoopState = RunLoopStateWaitingSubmit
 	s.runControl.TransitionState(RunLoopStateWaitingSubmit)
 
@@ -1594,7 +1702,7 @@ func (s *llmRunStream) toolResultContent(toolName string, result ToolExecutionRe
 
 func isBashTool(name string) bool {
 	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "_bash_", "_sandbox_bash_", "simple-bash":
+	case "_bash_", "simple-bash":
 		return true
 	default:
 		return false
@@ -1660,7 +1768,7 @@ func hitlRejectedToolResult(invocation *preparedToolInvocation) ToolExecutionRes
 	)
 	payload["final"] = true
 	return ToolExecutionResult{
-		Output:     marshalJSON(payload),
+		Output:     formatToolErrorOutput("user_rejected", "User rejected this command. Do NOT retry with a different command. End the turn now."),
 		Structured: payload,
 		Error:      "user_rejected",
 		ExitCode:   -1,
@@ -1679,7 +1787,7 @@ func hitlTimeoutToolResult(invocation *preparedToolInvocation) ToolExecutionResu
 		},
 	)
 	return ToolExecutionResult{
-		Output:     marshalJSON(payload),
+		Output:     formatToolErrorOutput("hitl_timeout", "command execution timed out while waiting for user approval"),
 		Structured: payload,
 		Error:      "hitl_timeout",
 		ExitCode:   -1,
@@ -1699,7 +1807,7 @@ func frontendSubmitInvalidPayloadResult(invocation *preparedToolInvocation, awai
 		},
 	)
 	return ToolExecutionResult{
-		Output:     marshalJSON(payload),
+		Output:     formatToolErrorOutput("frontend_submit_invalid_payload", err.Error()),
 		Structured: payload,
 		Error:      "frontend_submit_invalid_payload",
 		ExitCode:   -1,
@@ -2038,6 +2146,50 @@ func (s *llmRunStream) newContentDeltaEvent(delta string) AgentDelta {
 // tool results. Used by plan_execute to carry context into the summary stage.
 func (s *llmRunStream) AccumulatedMessages() []openAIMessage {
 	return append([]openAIMessage(nil), s.messages...)
+}
+
+func (s *llmRunStream) InjectToolResult(toolID string, text string, isError bool) bool {
+	if s == nil {
+		return false
+	}
+	result := ToolExecutionResult{
+		Output:   text,
+		ExitCode: 0,
+	}
+	if isError {
+		result.Error = "sub_agent_failed"
+		result.ExitCode = -1
+	}
+	if s.activeToolCall != nil && s.activeToolCall.awaitExternalResult && s.activeToolCall.toolID == strings.TrimSpace(toolID) {
+		s.activeToolCall.queuedResult = &result
+		return true
+	}
+	for _, invocation := range s.queuedToolCalls {
+		if invocation == nil || !invocation.awaitExternalResult || invocation.toolID != strings.TrimSpace(toolID) {
+			continue
+		}
+		invocation.queuedResult = &result
+		return true
+	}
+	return false
+}
+
+func (s *llmRunStream) FinalAssistantContent() (string, bool) {
+	if s == nil {
+		return "", false
+	}
+	for i := len(s.messages) - 1; i >= 0; i-- {
+		msg := s.messages[i]
+		if msg.Role != "assistant" {
+			continue
+		}
+		text, _ := msg.Content.(string)
+		if strings.TrimSpace(text) == "" {
+			continue
+		}
+		return text, true
+	}
+	return "", false
 }
 
 func isPlanTool(name string) bool {

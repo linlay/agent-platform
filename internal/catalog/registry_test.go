@@ -213,6 +213,69 @@ func TestParseAgentFilePrefersContextConfigTags(t *testing.T) {
 	}
 }
 
+func TestParseAgentFileDropsSandboxContextTag(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	if err := os.WriteFile(path, []byte(
+		"key: zenmi\n"+
+			"name: 小宅\n"+
+			"mode: REACT\n"+
+			"modelConfig:\n"+
+			"  modelKey: demo-model\n"+
+			"contextConfig:\n"+
+			"  tags:\n"+
+			"    - system\n"+
+			"    - sandbox\n"+
+			"    - memory\n",
+	), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	if got := strings.Join(def.ContextTags, ","); got != "system,memory" {
+		t.Fatalf("expected sandbox tag to be dropped, got %q", got)
+	}
+}
+
+func TestLoadAgentsDoesNotExposeSandboxInContextTagsMeta(t *testing.T) {
+	root := t.TempDir()
+	agentsDir := filepath.Join(root, "agents")
+	marketDir := filepath.Join(root, "skills-market")
+	agentDir := filepath.Join(agentsDir, "zenmi")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatalf("mkdir agent dir: %v", err)
+	}
+	if err := os.MkdirAll(marketDir, 0o755); err != nil {
+		t.Fatalf("mkdir skills market dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte(
+		"key: zenmi\n"+
+			"name: 小宅\n"+
+			"mode: REACT\n"+
+			"modelConfig:\n"+
+			"  modelKey: demo-model\n"+
+			"contextTags:\n"+
+			"  - sandbox\n"+
+			"  - memory\n"+
+			"sandboxConfig:\n"+
+			"  environmentId: shell\n",
+	), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	agents, err := loadAgents(agentsDir, marketDir)
+	if err != nil {
+		t.Fatalf("loadAgents: %v", err)
+	}
+	def := agents["zenmi"]
+	if got := strings.Join(def.ContextTags, ","); got != "memory" {
+		t.Fatalf("expected sandbox tag to be removed from loaded agent, got %q", got)
+	}
+}
+
 func TestParseAgentFileMapsModelReasoningIntoStageSettings(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
@@ -367,6 +430,179 @@ func TestLoadSkillsLoadsBashHooksAndSandboxEnv(t *testing.T) {
 	}
 	if got.SandboxEnv["NODE_ENV"] != "production" || got.SandboxEnv["DEBUG"] != "0" {
 		t.Fatalf("SandboxEnv = %#v", got.SandboxEnv)
+	}
+}
+
+func TestLoadSkillsParsesFullFrontMatterMetadata(t *testing.T) {
+	root := t.TempDir()
+	skillDir := filepath.Join(root, "mock-skill")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("mkdir skill: %v", err)
+	}
+	content := strings.Join([]string{
+		"---",
+		`name: "Front Matter Name"`,
+		`license: MIT`,
+		"metadata:",
+		`  version: "1.0.0"`,
+		"  category: document-processing",
+		"  author: MiniMaxAI",
+		"  sources:",
+		`    - "Spec A"`,
+		`    - "Spec B"`,
+		"description: >",
+		"  Front matter description line 1.",
+		"  Line 2 should fold into the same paragraph.",
+		"",
+		"  Line 4 should become a new paragraph.",
+		"triggers:",
+		"  - 报告",
+		"  - docx",
+		"---",
+		"",
+		"# Heading Should Not Leak",
+		"",
+		"Body line",
+		"",
+		"---",
+		"",
+		"Another section",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write skill: %v", err)
+	}
+
+	skills, err := loadSkills(root, 0)
+	if err != nil {
+		t.Fatalf("load skills: %v", err)
+	}
+	got := skills["mock-skill"]
+	if got.Name != "Front Matter Name" {
+		t.Fatalf("Name = %q", got.Name)
+	}
+	wantDescription := "Front matter description line 1. Line 2 should fold into the same paragraph.\n\nLine 4 should become a new paragraph."
+	if got.Description != wantDescription {
+		t.Fatalf("Description = %q", got.Description)
+	}
+	if strings.Contains(got.Name, "name:") || strings.Contains(got.Description, "description:") {
+		t.Fatalf("unexpected front matter leakage: %#v", got)
+	}
+	if !reflect.DeepEqual(got.Triggers, []string{"报告", "docx"}) {
+		t.Fatalf("Triggers = %#v", got.Triggers)
+	}
+	wantMetadata := map[string]any{
+		"version":  "1.0.0",
+		"category": "document-processing",
+		"author":   "MiniMaxAI",
+		"sources":  []any{"Spec A", "Spec B"},
+	}
+	if !reflect.DeepEqual(got.Metadata, wantMetadata) {
+		t.Fatalf("Metadata = %#v", got.Metadata)
+	}
+	if !strings.Contains(got.Prompt, "\n---\n\nAnother section") {
+		t.Fatalf("expected body separators to remain in prompt, got %q", got.Prompt)
+	}
+}
+
+func TestResolveSkillDefinitionPrefersAgentLocalSkillBeforeMarket(t *testing.T) {
+	agentDir := t.TempDir()
+	marketDir := t.TempDir()
+	localSkillDir := filepath.Join(agentDir, "skills", "mock-skill")
+	marketSkillDir := filepath.Join(marketDir, "mock-skill")
+	if err := os.MkdirAll(filepath.Join(localSkillDir, ".bash-hooks"), 0o755); err != nil {
+		t.Fatalf("mkdir local hooks: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(marketSkillDir, ".bash-hooks"), 0o755); err != nil {
+		t.Fatalf("mkdir market hooks: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(localSkillDir, "SKILL.md"), []byte("---\nname: Local Skill\ndescription: Local Description\n---\n"), 0o644); err != nil {
+		t.Fatalf("write local skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(localSkillDir, ".sandbox-env.json"), []byte(`{"SOURCE":"local"}`), 0o644); err != nil {
+		t.Fatalf("write local env: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(marketSkillDir, "SKILL.md"), []byte("---\nname: Market Skill\ndescription: Market Description\n---\n"), 0o644); err != nil {
+		t.Fatalf("write market skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(marketSkillDir, ".sandbox-env.json"), []byte(`{"SOURCE":"market"}`), 0o644); err != nil {
+		t.Fatalf("write market env: %v", err)
+	}
+
+	got, ok, err := ResolveSkillDefinition(agentDir, marketDir, "mock-skill")
+	if err != nil {
+		t.Fatalf("ResolveSkillDefinition() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("expected skill definition to resolve")
+	}
+	if got.Name != "Local Skill" || got.Description != "Local Description" {
+		t.Fatalf("resolved local metadata = %#v", got)
+	}
+	if got.SandboxEnv["SOURCE"] != "local" {
+		t.Fatalf("SandboxEnv = %#v", got.SandboxEnv)
+	}
+	if got.BashHooksDir != filepath.Join(localSkillDir, ".bash-hooks") {
+		t.Fatalf("BashHooksDir = %q", got.BashHooksDir)
+	}
+}
+
+func TestResolveSkillDefinitionFallsBackToMarketSkill(t *testing.T) {
+	marketDir := t.TempDir()
+	marketSkillDir := filepath.Join(marketDir, "mock-skill")
+	if err := os.MkdirAll(marketSkillDir, 0o755); err != nil {
+		t.Fatalf("mkdir market skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(marketSkillDir, "SKILL.md"), []byte("# Market Skill\n\nMarket Description"), 0o644); err != nil {
+		t.Fatalf("write market skill: %v", err)
+	}
+
+	got, ok, err := ResolveSkillDefinition(t.TempDir(), marketDir, "mock-skill")
+	if err != nil {
+		t.Fatalf("ResolveSkillDefinition() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("expected market fallback to resolve")
+	}
+	if got.Name != "Market Skill" {
+		t.Fatalf("Name = %q", got.Name)
+	}
+	if got.Description != "Market Skill" {
+		t.Fatalf("Description = %q", got.Description)
+	}
+}
+
+func TestSkillsSummaryIncludesSafeMetadataAndTagMatchesTriggers(t *testing.T) {
+	registry := &FileRegistry{
+		skills: map[string]SkillDefinition{
+			"minimax-docx": {
+				Key:             "minimax-docx",
+				Name:            "minimax-docx",
+				Description:     "DOCX processor",
+				Triggers:        []string{"报告", "docx"},
+				Metadata:        map[string]any{"version": "1.0.0", "category": "document-processing", "author": "MiniMaxAI", "sources": []any{"Spec A"}},
+				PromptTruncated: true,
+			},
+		},
+	}
+
+	items := registry.Skills("报告")
+	if len(items) != 1 {
+		t.Fatalf("expected trigger match, got %#v", items)
+	}
+	meta := items[0].Meta
+	if meta["promptTruncated"] != true {
+		t.Fatalf("promptTruncated = %#v", meta["promptTruncated"])
+	}
+	if !reflect.DeepEqual(meta["triggers"], []string{"报告", "docx"}) {
+		t.Fatalf("triggers = %#v", meta["triggers"])
+	}
+	wantMetadata := map[string]any{
+		"version":  "1.0.0",
+		"category": "document-processing",
+		"author":   "MiniMaxAI",
+	}
+	if !reflect.DeepEqual(meta["metadata"], wantMetadata) {
+		t.Fatalf("metadata = %#v", meta["metadata"])
 	}
 }
 

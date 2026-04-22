@@ -5,6 +5,7 @@ import (
 	"log"
 	"math/rand"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -18,9 +19,44 @@ import (
 type Config struct {
 	URL              string
 	Token            string
+	UserID           string
+	Ticket           string
+	AgentKey         string
+	Channel          string
 	HandshakeTimeout time.Duration
 	ReconnectMin     time.Duration
 	ReconnectMax     time.Duration
+}
+
+// buildDialURL 在基础 URL 上拼接 bridge 兼容的握手 query 参数。
+// 保持和 agent-wecom-ws-bridge BuildGatewayURL 完全一致的字面写法：
+// 不对 channel 等值做 URL encode，并按 userId/ticket/agentKey/channel 顺序拼接。
+func (c Config) buildDialURL() string {
+	base := strings.TrimRight(c.URL, "/")
+	if base == "" {
+		return base
+	}
+	sep := "?"
+	if strings.Contains(base, "?") {
+		sep = "&"
+	}
+	var b strings.Builder
+	b.WriteString(base)
+	appendParam := func(key, value string) {
+		if value == "" {
+			return
+		}
+		b.WriteString(sep)
+		b.WriteString(key)
+		b.WriteString("=")
+		b.WriteString(value)
+		sep = "&"
+	}
+	appendParam("userId", c.UserID)
+	appendParam("ticket", c.Ticket)
+	appendParam("agentKey", c.AgentKey)
+	appendParam("channel", c.Channel)
+	return b.String()
 }
 
 type Client struct {
@@ -115,10 +151,13 @@ func (c *Client) run() {
 		}
 
 		header := http.Header{}
-		header.Set("Authorization", "Bearer "+c.cfg.Token)
+		if strings.TrimSpace(c.cfg.Token) != "" {
+			header.Set("Authorization", "Bearer "+c.cfg.Token)
+		}
 		dialer := &gws.Dialer{HandshakeTimeout: c.cfg.HandshakeTimeout}
 		dialCtx, cancel := context.WithTimeout(c.ctx, c.cfg.HandshakeTimeout)
-		socket, resp, err := dialer.DialContext(dialCtx, c.cfg.URL, header)
+		dialURL := c.cfg.buildDialURL()
+		socket, resp, err := dialer.DialContext(dialCtx, dialURL, header)
 		cancel()
 		if err != nil {
 			if resp != nil {
@@ -146,7 +185,7 @@ func (c *Client) run() {
 		connCtx, connCancel := context.WithCancel(c.ctx)
 		log.Printf("gateway websocket connected: url=%s", c.cfg.URL)
 		startedAt := time.Now()
-		ws.NewConn(socket, c.hub, c.wsCfg, c.heartbeat, ws.AuthSession{Context: connCtx}).Run(c.dispatch)
+		ws.NewSilentConn(socket, c.hub, c.wsCfg, c.heartbeat, ws.AuthSession{Context: connCtx}).Run(c.dispatch)
 		connCancel()
 		c.curSocket.Store(nil)
 		_ = socket.Close()

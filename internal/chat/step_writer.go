@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"time"
 
@@ -32,16 +33,18 @@ type StepWriter struct {
 	queryWritten bool
 	seqCounter   int
 
-	currentStage  string
-	currentTaskID string
+	currentStage string
 
 	messages       []StoredMessage
 	latestPlan     *PlanState
 	latestArtifact *ArtifactState
+	taskBuffers    map[string]*taskStepBuffer
 
 	// tool/action name tracking (for tool.result → StoredMessage.Name)
-	toolNames   map[string]string
-	actionNames map[string]string
+	toolNames     map[string]string
+	actionNames   map[string]string
+	toolTaskIDs   map[string]string
+	actionTaskIDs map[string]string
 
 	// msgId generation
 	currentMsgID string
@@ -54,6 +57,18 @@ type StepWriter struct {
 	pendingUsage            map[string]any
 	pendingContextWindowMax int
 	pendingEstimated        int
+	pendingPreCallData      map[string]any
+}
+
+type taskStepBuffer struct {
+	taskID          string
+	taskName        string
+	taskGroupID     string
+	taskDescription string
+	taskStatus      string
+	taskSubAgentKey string
+	taskMainToolID  string
+	messages        []StoredMessage
 }
 
 // NewStepWriter creates a StepWriter for a single run.
@@ -61,13 +76,16 @@ type StepWriter struct {
 // 避免在 chat 里伪造一条"用户说的"消息、导致 webclient 显示成用户→agent 对话。
 func NewStepWriter(store Store, chatID, runID, mode string, hidden bool) *StepWriter {
 	return &StepWriter{
-		store:       store,
-		chatID:      chatID,
-		runID:       runID,
-		mode:        strings.ToUpper(strings.TrimSpace(mode)),
-		hidden:      hidden,
-		toolNames:   map[string]string{},
-		actionNames: map[string]string{},
+		store:         store,
+		chatID:        chatID,
+		runID:         runID,
+		mode:          strings.ToUpper(strings.TrimSpace(mode)),
+		hidden:        hidden,
+		taskBuffers:   map[string]*taskStepBuffer{},
+		toolNames:     map[string]string{},
+		actionNames:   map[string]string{},
+		toolTaskIDs:   map[string]string{},
+		actionTaskIDs: map[string]string{},
 	}
 }
 
@@ -86,13 +104,14 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 
 	case "stage.marker":
 		w.flushCurrentStep()
+		w.flushAllTaskSteps()
 		w.currentStage = parseStage(event.String("stage"))
 
 	case "reasoning.snapshot":
 		w.ensureStep()
 		w.ensureMsgID()
 		ts := event.Timestamp
-		w.messages = append(w.messages, StoredMessage{
+		w.appendStoredMessage(event, StoredMessage{
 			Role:             "assistant",
 			ReasoningContent: textContent(event.String("text")),
 			ReasoningID:      event.String("reasoningId"),
@@ -104,7 +123,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		w.ensureStep()
 		w.ensureMsgID()
 		ts := event.Timestamp
-		w.messages = append(w.messages, StoredMessage{
+		w.appendStoredMessage(event, StoredMessage{
 			Role:      "assistant",
 			Content:   textContent(event.String("text")),
 			ContentID: event.String("contentId"),
@@ -117,9 +136,13 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		w.ensureMsgID()
 		toolID := event.String("toolId")
 		toolName := event.String("toolName")
+		taskID := event.String("taskId")
 		ts := event.Timestamp
 		w.toolNames[toolID] = toolName
-		w.messages = append(w.messages, StoredMessage{
+		if strings.TrimSpace(taskID) != "" {
+			w.toolTaskIDs[toolID] = taskID
+		}
+		w.appendStoredMessage(event, StoredMessage{
 			Role: "assistant",
 			ToolCalls: []StoredToolCall{{
 				ID:   toolID,
@@ -138,7 +161,13 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		w.ensureStep()
 		toolID := event.String("toolId")
 		ts := event.Timestamp
-		w.messages = append(w.messages, StoredMessage{
+		w.appendStoredMessage(stream.EventData{
+			Type:      event.Type,
+			Timestamp: event.Timestamp,
+			Payload: map[string]any{
+				"taskId": w.toolTaskIDs[toolID],
+			},
+		}, StoredMessage{
 			Role:       "tool",
 			Name:       w.toolNames[toolID],
 			ToolCallID: toolID,
@@ -168,9 +197,13 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		w.ensureMsgID()
 		actionID := event.String("actionId")
 		actionName := event.String("actionName")
+		taskID := event.String("taskId")
 		ts := event.Timestamp
 		w.actionNames[actionID] = actionName
-		w.messages = append(w.messages, StoredMessage{
+		if strings.TrimSpace(taskID) != "" {
+			w.actionTaskIDs[actionID] = taskID
+		}
+		w.appendStoredMessage(event, StoredMessage{
 			Role: "assistant",
 			ToolCalls: []StoredToolCall{{
 				ID:   actionID,
@@ -189,7 +222,13 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		w.ensureStep()
 		actionID := event.String("actionId")
 		ts := event.Timestamp
-		w.messages = append(w.messages, StoredMessage{
+		w.appendStoredMessage(stream.EventData{
+			Type:      event.Type,
+			Timestamp: event.Timestamp,
+			Payload: map[string]any{
+				"taskId": w.actionTaskIDs[actionID],
+			},
+		}, StoredMessage{
 			Role:       "tool",
 			Name:       w.actionNames[actionID],
 			ToolCallID: actionID,
@@ -203,15 +242,46 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		w.updatePlan(event)
 
 	case "task.start":
-		w.currentTaskID = event.String("taskId")
+		w.flushCurrentStep()
+		taskID := event.String("taskId")
+		if strings.TrimSpace(taskID) == "" {
+			break
+		}
+		buffer := w.ensureTaskBuffer(taskID)
+		buffer.taskName = event.String("taskName")
+		buffer.taskGroupID = event.String("groupId")
+		buffer.taskDescription = event.String("description")
+		buffer.taskStatus = ""
+		buffer.taskSubAgentKey = event.String("subAgentKey")
+		buffer.taskMainToolID = event.String("mainToolId")
 	case "task.complete", "task.cancel", "task.fail":
-		w.currentTaskID = ""
+		taskID := event.String("taskId")
+		if strings.TrimSpace(taskID) == "" {
+			break
+		}
+		buffer := w.ensureTaskBuffer(taskID)
+		buffer.taskStatus = event.String("status")
+		if buffer.taskStatus == "" {
+			switch event.Type {
+			case "task.cancel":
+				buffer.taskStatus = "cancelled"
+			case "task.fail":
+				buffer.taskStatus = "error"
+			default:
+				buffer.taskStatus = "completed"
+			}
+		}
+		w.flushTaskStep(taskID)
+		delete(w.taskBuffers, taskID)
 
 	case "artifact.publish":
 		w.updateArtifact(event)
 
 	case "debug.preCall", "debug.postCall":
 		if inner, ok := event.Value("data").(map[string]any); ok {
+			if event.Type == "debug.preCall" {
+				w.pendingPreCallData = cloneStepSystemPayload(inner)
+			}
 			if cw, ok := inner["contextWindow"].(map[string]any); ok {
 				w.pendingContextWindowMax = toInt(cw["max_size"])
 				w.pendingEstimated = toInt(cw["estimated_size"])
@@ -229,6 +299,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 
 	case "run.complete", "run.cancel", "run.error":
 		w.flushCurrentStep()
+		w.flushAllTaskSteps()
 		w.flushPendingSubmit()
 	}
 }
@@ -236,6 +307,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 // Flush writes any remaining accumulated step. Call at end of stream.
 func (w *StepWriter) Flush() {
 	w.flushCurrentStep()
+	w.flushAllTaskSteps()
 	w.flushPendingSubmit()
 }
 
@@ -287,9 +359,50 @@ func (w *StepWriter) ensureStep() {
 	}
 }
 
+func (w *StepWriter) ensureTaskBuffer(taskID string) *taskStepBuffer {
+	buffer, ok := w.taskBuffers[taskID]
+	if ok {
+		return buffer
+	}
+	buffer = &taskStepBuffer{taskID: taskID}
+	w.taskBuffers[taskID] = buffer
+	return buffer
+}
+
+func (w *StepWriter) taskIDForEvent(event stream.EventData) string {
+	if taskID := strings.TrimSpace(event.String("taskId")); taskID != "" {
+		return taskID
+	}
+	if toolID := strings.TrimSpace(event.String("toolId")); toolID != "" {
+		return strings.TrimSpace(w.toolTaskIDs[toolID])
+	}
+	if actionID := strings.TrimSpace(event.String("actionId")); actionID != "" {
+		return strings.TrimSpace(w.actionTaskIDs[actionID])
+	}
+	if len(w.taskBuffers) == 1 {
+		for taskID := range w.taskBuffers {
+			return taskID
+		}
+	}
+	return ""
+}
+
+func (w *StepWriter) appendStoredMessage(event stream.EventData, message StoredMessage) {
+	if taskID := w.taskIDForEvent(event); taskID != "" {
+		buffer := w.ensureTaskBuffer(taskID)
+		buffer.messages = append(buffer.messages, message)
+		return
+	}
+	w.messages = append(w.messages, message)
+}
+
 func (w *StepWriter) flushCurrentStep() {
 	if len(w.messages) == 0 && len(w.pendingAwaiting) == 0 {
 		w.pendingApproval = nil
+		w.pendingUsage = nil
+		w.pendingContextWindowMax = 0
+		w.pendingEstimated = 0
+		w.pendingPreCallData = nil
 		return
 	}
 
@@ -297,6 +410,10 @@ func (w *StepWriter) flushCurrentStep() {
 		log.Printf("[chat] dropping pending awaiting without messages (chatId=%s runId=%s count=%d)", w.chatID, w.runID, len(w.pendingAwaiting))
 		w.pendingAwaiting = nil
 		w.pendingApproval = nil
+		w.pendingUsage = nil
+		w.pendingContextWindowMax = 0
+		w.pendingEstimated = 0
+		w.pendingPreCallData = nil
 		return
 	}
 
@@ -316,6 +433,11 @@ func (w *StepWriter) flushCurrentStep() {
 	}
 	if w.pendingUsage != nil {
 		line.Usage = w.pendingUsage
+	}
+	if w.pendingPreCallData != nil {
+		line.System = map[string]any{
+			"debugPreCall": cloneStepSystemPayload(w.pendingPreCallData),
+		}
 	}
 	if w.pendingUsage != nil || w.pendingContextWindowMax > 0 || w.pendingEstimated > 0 {
 		actual := 0
@@ -338,9 +460,7 @@ func (w *StepWriter) flushCurrentStep() {
 		w.pendingUsage = nil
 		w.pendingContextWindowMax = 0
 		w.pendingEstimated = 0
-	}
-	if w.currentTaskID != "" {
-		line.TaskID = w.currentTaskID
+		w.pendingPreCallData = nil
 	}
 	if w.latestPlan != nil {
 		line.Plan = w.latestPlan
@@ -364,8 +484,72 @@ func (w *StepWriter) flushCurrentStep() {
 		line.Seq = w.seqCounter
 	}
 
+	line.Messages = append([]StoredMessage(nil), w.messages...)
 	_ = w.store.AppendStepLine(w.chatID, line)
 	w.messages = nil
+	w.pendingUsage = nil
+	w.pendingContextWindowMax = 0
+	w.pendingEstimated = 0
+	w.pendingPreCallData = nil
+}
+
+func (w *StepWriter) flushTaskStep(taskID string) {
+	buffer, ok := w.taskBuffers[taskID]
+	if !ok || buffer == nil {
+		return
+	}
+	allowEmptySubAgentStep := strings.TrimSpace(buffer.taskSubAgentKey) != "" && strings.TrimSpace(buffer.taskStatus) != ""
+	if len(buffer.messages) == 0 && !allowEmptySubAgentStep {
+		return
+	}
+
+	line := StepLine{
+		ChatID:          w.chatID,
+		RunID:           w.runID,
+		UpdatedAt:       time.Now().UnixMilli(),
+		TaskID:          buffer.taskID,
+		TaskName:        buffer.taskName,
+		TaskGroupID:     buffer.taskGroupID,
+		TaskDescription: buffer.taskDescription,
+		TaskStatus:      buffer.taskStatus,
+		TaskSubAgentKey: buffer.taskSubAgentKey,
+		TaskMainToolID:  buffer.taskMainToolID,
+		Messages:        append([]StoredMessage(nil), buffer.messages...),
+	}
+	if w.latestPlan != nil {
+		line.Plan = w.latestPlan
+	}
+	if w.latestArtifact != nil {
+		line.Artifacts = w.latestArtifact
+	}
+
+	if w.mode == "PLAN_EXECUTE" {
+		line.Type = "plan-execute"
+		line.Stage = w.currentStage
+		if w.currentStage == "execute" {
+			w.seqCounter++
+			line.Seq = w.seqCounter
+		}
+	} else {
+		line.Type = "react"
+		w.seqCounter++
+		line.Seq = w.seqCounter
+	}
+
+	_ = w.store.AppendStepLine(w.chatID, line)
+	buffer.messages = nil
+}
+
+func (w *StepWriter) flushAllTaskSteps() {
+	taskIDs := make([]string, 0, len(w.taskBuffers))
+	for taskID := range w.taskBuffers {
+		taskIDs = append(taskIDs, taskID)
+	}
+	sort.Strings(taskIDs)
+	for _, taskID := range taskIDs {
+		w.flushTaskStep(taskID)
+		delete(w.taskBuffers, taskID)
+	}
 }
 
 func (w *StepWriter) bufferAwaitingEvent(event stream.EventData) {
@@ -447,18 +631,7 @@ func (w *StepWriter) updateArtifact(event stream.EventData) {
 	if w.latestArtifact == nil {
 		w.latestArtifact = &ArtifactState{}
 	}
-	item, _ := event.Value("artifact").(map[string]any)
-	if item == nil {
-		return
-	}
-	w.latestArtifact.Items = append(w.latestArtifact.Items, ArtifactItemState{
-		ArtifactID: stringVal(event.Value("artifactId")),
-		Type:       stringVal(item["type"]),
-		Name:       stringVal(item["name"]),
-		MimeType:   stringVal(item["mimeType"]),
-		URL:        stringVal(item["url"]),
-		SHA256:     stringVal(item["sha256"]),
-	})
+	w.latestArtifact.Items = append(w.latestArtifact.Items, artifactItemsFromEventPayload(event.Payload)...)
 }
 
 func (w *StepWriter) ensureMsgID() {
@@ -529,6 +702,21 @@ func generateMsgID() string {
 	b := make([]byte, 4)
 	_, _ = rand.Read(b)
 	return "m_" + hex.EncodeToString(b)
+}
+
+func cloneStepSystemPayload(value map[string]any) map[string]any {
+	if len(value) == 0 {
+		return nil
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return cloneStringAnyMap(value)
+	}
+	var cloned map[string]any
+	if err := json.Unmarshal(data, &cloned); err != nil {
+		return cloneStringAnyMap(value)
+	}
+	return cloned
 }
 
 // parseStage normalises a stage marker string to a stage name, matching Java's

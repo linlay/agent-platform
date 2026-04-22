@@ -27,7 +27,7 @@ func TestNoopActionInvokerReturnsErrNotImplemented(t *testing.T) {
 }
 
 func TestNoopSandboxClientReturnsErrNotImplemented(t *testing.T) {
-	result, err := NewNoopSandboxClient().Execute(context.Background(), nil, "pwd", "/tmp", 1000)
+	result, err := NewNoopSandboxClient().Execute(context.Background(), nil, "pwd", "/tmp", 1000, nil)
 	if !errors.Is(err, ErrNotImplemented) {
 		t.Fatalf("expected ErrNotImplemented, got %v", err)
 	}

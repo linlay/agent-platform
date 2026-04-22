@@ -35,6 +35,7 @@ func buildSystemPrompt(session QuerySession, req api.QueryRequest, _ string, opt
 	}
 
 	sections := []string{
+		buildAgentIdentitySection(session),
 		strings.TrimSpace(session.SoulPrompt),
 		strings.TrimSpace(firstNonBlank(session.StaticMemoryPrompt, session.MemoryPrompt)),
 		buildRuntimeContextPrompt(session, req),
@@ -44,6 +45,19 @@ func buildSystemPrompt(session QuerySession, req api.QueryRequest, _ string, opt
 		buildToolAppendix(options.ToolDefinitions, appendConfig, options.IncludeAfterCallHints),
 	}
 	return joinPromptSections(sections...)
+}
+
+func buildAgentIdentitySection(session QuerySession) string {
+	lines := []string{"Agent Identity"}
+	appendKeyValue(&lines, "key", session.AgentKey)
+	appendKeyValue(&lines, "name", session.AgentName)
+	appendKeyValue(&lines, "role", session.AgentRole)
+	appendKeyValue(&lines, "description", session.AgentDescription)
+	appendKeyValue(&lines, "mode", session.Mode)
+	if len(lines) == 1 {
+		return ""
+	}
+	return strings.Join(lines, "\n")
 }
 
 func effectivePromptAppendConfig(config PromptAppendConfig) PromptAppendConfig {
@@ -97,22 +111,17 @@ func resolveStageSystemPrompt(session QuerySession, stage string) string {
 }
 
 func buildRuntimeContextPrompt(session QuerySession, req api.QueryRequest) string {
-	if len(session.ContextTags) == 0 {
-		return ""
-	}
 	var sections []string
 	for _, tag := range session.ContextTags {
 		switch strings.ToLower(strings.TrimSpace(tag)) {
 		case "system":
-			appendIfPresent(&sections, buildSystemEnvironmentSection())
+			appendIfPresent(&sections, buildSystemEnvironmentSection(session))
 		case "context":
-			appendIfPresent(&sections, buildContextSection(session, req))
+			appendIfPresent(&sections, buildSessionContextSection(session, req))
 		case "owner":
 			appendIfPresent(&sections, buildOwnerSection(session.RuntimeContext.LocalPaths))
 		case "auth":
 			appendIfPresent(&sections, buildAuthIdentitySection(session.RuntimeContext.AuthIdentity))
-		case "sandbox":
-			appendIfPresent(&sections, buildSandboxSection(session.RuntimeContext.SandboxContext))
 		case "all-agents":
 			appendIfPresent(&sections, buildAllAgentsSection(session.RuntimeContext.AgentDigests))
 		case "memory":
@@ -120,10 +129,13 @@ func buildRuntimeContextPrompt(session QuerySession, req api.QueryRequest) strin
 		default:
 		}
 	}
+	if session.AgentHasSandboxConfig || session.RuntimeContext.SandboxContext != nil {
+		appendIfPresent(&sections, buildSandboxSection(session.RuntimeContext.SandboxContext))
+	}
 	return strings.Join(sections, "\n\n")
 }
 
-func buildSystemEnvironmentSection() string {
+func buildSystemEnvironmentSection(session QuerySession) string {
 	now := time.Now()
 	tz := now.Location().String()
 	if tz == "Local" {
@@ -141,6 +153,7 @@ func buildSystemEnvironmentSection() string {
 		"datetime: " + now.Format(time.RFC3339),
 		"language: 中文",
 	}
+	appendContextPaths(&lines, session)
 	return strings.Join(lines, "\n")
 }
 
@@ -159,41 +172,13 @@ func resolveLocale() string {
 	return "unknown"
 }
 
-func buildContextSection(session QuerySession, req api.QueryRequest) string {
-	lines := []string{"Runtime Context: Context"}
+func buildSessionContextSection(session QuerySession, req api.QueryRequest) string {
+	lines := []string{"Runtime Context: Session Context"}
 	// chatId / runId / requestId first
 	appendKeyValue(&lines, "chatId", session.ChatID)
 	appendKeyValue(&lines, "runId", session.RunID)
 	appendKeyValue(&lines, "requestId", session.RequestID)
 	appendKeyValue(&lines, "teamId", session.RuntimeContext.TeamID)
-
-	// Sandbox paths — no "sandbox_" prefix; only include dirs that have a mount.
-	// Each entry has a brief description so the model knows what the dir is for.
-	paths := session.RuntimeContext.SandboxPaths
-	rootDirDesc := "容器家目录"
-	panDirDesc := "用户网盘挂载目录"
-	if session.RuntimeContext.LocalMode {
-		rootDirDesc = "root 目录"
-		panDirDesc = "用户网盘目录"
-	}
-	appendContextDir(&lines, "workspace_dir", paths.WorkspaceDir, "当前工作目录")
-	appendContextDir(&lines, "root_dir", paths.RootDir, rootDirDesc)
-	appendContextDir(&lines, "skills_dir", paths.SkillsDir, "当前 agent 私有技能目录")
-	appendContextDir(&lines, "skills_market_dir", paths.SkillsMarketDir, "共享技能市场目录")
-	appendContextDir(&lines, "pan_dir", paths.PanDir, panDirDesc)
-	appendContextDir(&lines, "agent_dir", paths.AgentDir, "当前 agent 定义目录")
-	appendContextDir(&lines, "owner_dir", paths.OwnerDir, "owner 用户档案目录")
-	appendContextDir(&lines, "agents_dir", paths.AgentsDir, "全部 agent 定义目录")
-	appendContextDir(&lines, "teams_dir", paths.TeamsDir, "团队配置目录")
-	appendContextDir(&lines, "schedules_dir", paths.SchedulesDir, "计划任务配置目录")
-	appendContextDir(&lines, "chats_dir", paths.ChatsDir, "会话记录目录")
-	appendContextDir(&lines, "memory_dir", paths.MemoryDir, "记忆存储目录")
-	appendContextDir(&lines, "models_dir", paths.ModelsDir, "模型注册配置目录")
-	appendContextDir(&lines, "providers_dir", paths.ProvidersDir, "供应商注册配置目录")
-	appendContextDir(&lines, "mcp_servers_dir", paths.MCPServersDir, "MCP 服务注册目录")
-	appendContextDir(&lines, "viewport_servers_dir", paths.ViewportServersDir, "Viewport 服务注册目录")
-	appendContextDir(&lines, "tools_dir", paths.ToolsDir, "工具定义目录")
-	appendContextDir(&lines, "viewports_dir", paths.ViewportsDir, "Viewport 模板目录")
 
 	if summary := summarizeScene(session.RuntimeContext.Scene); summary != "" {
 		lines = append(lines, "scene: "+summary)
@@ -203,6 +188,59 @@ func buildContextSection(session QuerySession, req api.QueryRequest) string {
 		return ""
 	}
 	return strings.Join(lines, "\n")
+}
+
+func appendContextPaths(lines *[]string, session QuerySession) {
+	if session.AgentHasSandboxConfig || session.RuntimeContext.SandboxContext != nil {
+		appendSandboxContextPaths(lines, session.RuntimeContext.SandboxPaths, session.RuntimeContext.LocalMode)
+		return
+	}
+	appendLocalContextPaths(lines, session.RuntimeContext.LocalPaths)
+}
+
+func appendSandboxContextPaths(lines *[]string, paths SandboxPaths, localMode bool) {
+	rootDirDesc := "容器家目录"
+	panDirDesc := "用户网盘挂载目录"
+	if localMode {
+		rootDirDesc = "root 目录"
+		panDirDesc = "用户网盘目录"
+	}
+	appendContextDir(lines, "workspace_dir", paths.WorkspaceDir, "当前工作目录")
+	appendContextDir(lines, "root_dir", paths.RootDir, rootDirDesc)
+	appendContextDir(lines, "skills_dir", paths.SkillsDir, "当前 agent 私有技能目录")
+	appendContextDir(lines, "agent_dir", paths.AgentDir, "当前 agent 定义目录")
+	appendContextDir(lines, "owner_dir", paths.OwnerDir, "owner 用户档案目录")
+	appendContextDir(lines, "skills_market_dir", paths.SkillsMarketDir, "共享技能市场目录")
+	appendContextDir(lines, "agents_dir", paths.AgentsDir, "全部 agent 定义目录")
+	appendContextDir(lines, "teams_dir", paths.TeamsDir, "团队配置目录")
+	appendContextDir(lines, "schedules_dir", paths.SchedulesDir, "计划任务配置目录")
+	appendContextDir(lines, "chats_dir", paths.ChatsDir, "会话记录目录")
+	appendContextDir(lines, "memory_dir", paths.MemoryDir, "记忆存储目录")
+	appendContextDir(lines, "models_dir", paths.ModelsDir, "模型注册配置目录")
+	appendContextDir(lines, "providers_dir", paths.ProvidersDir, "供应商注册配置目录")
+	appendContextDir(lines, "mcp_servers_dir", paths.MCPServersDir, "MCP 服务注册目录")
+	appendContextDir(lines, "viewport_servers_dir", paths.ViewportServersDir, "Viewport 服务注册目录")
+	appendContextDir(lines, "pan_dir", paths.PanDir, panDirDesc)
+}
+
+func appendLocalContextPaths(lines *[]string, paths LocalPaths) {
+	workspaceDir := firstNonBlank(paths.ChatAttachmentsDir, paths.WorkingDirectory)
+	appendContextDir(lines, "workspace_dir", workspaceDir, "当前工作目录")
+	appendContextDir(lines, "root_dir", paths.RootDir, "root 目录")
+	appendContextDir(lines, "skills_dir", paths.SkillsDir, "当前 agent 私有技能目录")
+	appendContextDir(lines, "agent_dir", paths.AgentDir, "当前 agent 定义目录")
+	appendContextDir(lines, "owner_dir", paths.OwnerDir, "owner 用户档案目录")
+	appendContextDir(lines, "skills_market_dir", paths.SkillsMarketDir, "共享技能市场目录")
+	appendContextDir(lines, "agents_dir", paths.AgentsDir, "全部 agent 定义目录")
+	appendContextDir(lines, "teams_dir", paths.TeamsDir, "团队配置目录")
+	appendContextDir(lines, "schedules_dir", paths.SchedulesDir, "计划任务配置目录")
+	appendContextDir(lines, "chats_dir", paths.ChatsDir, "会话记录目录")
+	appendContextDir(lines, "memory_dir", paths.MemoryDir, "记忆存储目录")
+	appendContextDir(lines, "models_dir", paths.ModelsDir, "模型注册配置目录")
+	appendContextDir(lines, "providers_dir", paths.ProvidersDir, "供应商注册配置目录")
+	appendContextDir(lines, "mcp_servers_dir", paths.MCPServersDir, "MCP 服务注册目录")
+	appendContextDir(lines, "viewport_servers_dir", paths.ViewportServersDir, "Viewport 服务注册目录")
+	appendContextDir(lines, "pan_dir", paths.PanDir, "用户网盘目录")
 }
 
 // appendContextDir adds a dir entry only if mounted (non-empty), with a description.

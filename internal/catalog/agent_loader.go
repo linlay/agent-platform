@@ -8,6 +8,7 @@ import (
 	"strings"
 	"unicode"
 
+	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/config"
 	"agent-platform-runner-go/internal/contracts"
 )
@@ -81,6 +82,7 @@ func loadAgentPrompts(agentDir string, def *AgentDefinition, root map[string]any
 	}
 
 	def.SoulPrompt = readOptionalMarkdown(filepath.Join(agentDir, "SOUL.md"))
+	warnLegacySoulPrompt(agentDir, def.Key, def.SoulPrompt)
 	def.StaticMemoryPrompt = readOptionalMarkdown(filepath.Join(agentDir, "memory", "memory.md"))
 	def.MemoryPrompt = def.StaticMemoryPrompt
 
@@ -100,6 +102,32 @@ func loadAgentPrompts(agentDir string, def *AgentDefinition, root map[string]any
 			def.AgentsPrompt = readOptionalMarkdown(filepath.Join(agentDir, "AGENTS.md"))
 		}
 	}
+}
+
+func warnLegacySoulPrompt(agentDir string, agentKey string, soulPrompt string) {
+	if strings.TrimSpace(soulPrompt) == "" {
+		return
+	}
+	var legacy []string
+	if hasMarkdownHeading(soulPrompt, "# Identity") {
+		legacy = append(legacy, "# Identity")
+	}
+	if hasMarkdownHeading(soulPrompt, "## Mission") {
+		legacy = append(legacy, "## Mission")
+	}
+	if len(legacy) == 0 {
+		return
+	}
+	log.Printf("[catalog][agents] legacy SOUL.md headings in %s (%s): %s; move identity fields to agent.yml and rewrite SOUL.md as behavior-only prompt", agentKey, filepath.Join(agentDir, "SOUL.md"), strings.Join(legacy, ", "))
+}
+
+func hasMarkdownHeading(content string, heading string) bool {
+	for _, line := range strings.Split(content, "\n") {
+		if strings.TrimSpace(line) == heading {
+			return true
+		}
+	}
+	return false
 }
 
 func resolveStagePrompt(agentDir string, stageConfig map[string]any, topPromptFiles []string, root map[string]any) string {
@@ -168,8 +196,10 @@ func normalizeContextTags(tags []string) []string {
 func normalizeContextTag(raw string) string {
 	tag := strings.ToLower(strings.TrimSpace(raw))
 	switch tag {
-	case "system", "context", "owner", "auth", "sandbox", "all-agents", "memory":
+	case "system", "context", "owner", "auth", "all-agents", "memory":
 		return tag
+	case "sandbox":
+		return ""
 	case "agent_identity", "run_session", "scene", "references", "execution_policy":
 		return "context"
 	case "memory_context":
@@ -333,8 +363,11 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	}
 	def.ReactMaxSteps = intNode(mapNode(root["react"])["maxSteps"])
 
-	if len(def.Skills) > 0 && !containsString(def.Tools, "_sandbox_bash_") {
-		def.Tools = append(def.Tools, "_sandbox_bash_")
+	if err := validateReservedBashToolNames(def.Tools, def.ToolOverrides); err != nil {
+		return AgentDefinition{}, nil, err
+	}
+	if (len(def.Skills) > 0 || len(def.Sandbox) > 0) && !containsString(def.Tools, "_bash_") {
+		def.Tools = append(def.Tools, "_bash_")
 	}
 	memoryConfig := mapNode(root["memoryConfig"])
 	memoryToolsEnabled := true
@@ -369,6 +402,35 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 		def.Role = def.Name
 	}
 	return def, root, nil
+}
+
+func validateReservedBashToolNames(tools []string, overrides map[string]api.ToolDetailResponse) error {
+	for _, tool := range tools {
+		if err := validateReservedBashToolName(tool, "toolConfig.tools"); err != nil {
+			return err
+		}
+	}
+	for rawName, override := range overrides {
+		if err := validateReservedBashToolName(rawName, "toolConfig.overrides"); err != nil {
+			return err
+		}
+		if err := validateReservedBashToolName(override.Name, "toolConfig.overrides.*.name"); err != nil {
+			return err
+		}
+		if err := validateReservedBashToolName(override.Key, "toolConfig.overrides.*.key"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateReservedBashToolName(value string, field string) error {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "_sandbox_bash_", "_bash_container_":
+		return fmt.Errorf("%s must use _bash_ instead of %s", field, strings.TrimSpace(value))
+	default:
+		return nil
+	}
 }
 
 func normalizeWonderStrings(value any) []string {

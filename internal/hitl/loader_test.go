@@ -3,6 +3,7 @@ package hitl
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -256,5 +257,69 @@ commands:
 	}
 	if rules[0].Level != 1 {
 		t.Fatalf("expected inline map level 1, got %#v", rules[0])
+	}
+}
+
+func TestLoadRulesPassThroughFlags(t *testing.T) {
+	root := t.TempDir()
+	content := `
+commands:
+  - command: mock
+    passThroughFlags:
+      - --help
+      - " -h "
+      - --version
+      - --HELP
+      - 1
+    subcommands:
+      - match: create-leave
+        level: 1
+      - match: create-expense
+        level: 2
+`
+	if err := os.WriteFile(filepath.Join(root, "mock.yml"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write rule file: %v", err)
+	}
+
+	rules, err := loadRulesFromDir(root)
+	if err != nil {
+		t.Fatalf("load rules: %v", err)
+	}
+	if len(rules) != 2 {
+		t.Fatalf("expected 2 rules, got %#v", rules)
+	}
+
+	want := []string{"--help", "-h", "--version"}
+	for _, rule := range rules {
+		if !reflect.DeepEqual(rule.PassThroughFlags, want) {
+			t.Fatalf("expected normalized pass-through flags %v, got %#v", want, rule.PassThroughFlags)
+		}
+	}
+}
+
+func TestLoadRulesSupportsFlowStylePassThroughFlags(t *testing.T) {
+	root := t.TempDir()
+	content := `
+commands:
+  - command: mock
+    passThroughFlags: [--help, " -h ", --version]
+    subcommands:
+      - match: create-leave
+        level: 1
+`
+	if err := os.WriteFile(filepath.Join(root, "mock.yml"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write rule file: %v", err)
+	}
+
+	rules, err := loadRulesFromDir(root)
+	if err != nil {
+		t.Fatalf("load rules: %v", err)
+	}
+	if len(rules) != 1 {
+		t.Fatalf("expected 1 rule, got %#v", rules)
+	}
+	want := []string{"--help", "-h", "--version"}
+	if !reflect.DeepEqual(rules[0].PassThroughFlags, want) {
+		t.Fatalf("expected flow-style pass-through flags %v, got %#v", want, rules[0].PassThroughFlags)
 	}
 }

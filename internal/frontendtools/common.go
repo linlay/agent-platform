@@ -24,33 +24,32 @@ func normalizeQuestionAnswer(definition map[string]any, rawAnswer any) (any, err
 			return nil, fmt.Errorf("answer must be a non-empty string")
 		}
 		return text, nil
-	case "select":
-		if contracts.AnyBoolNode(definition["multiple"]) {
-			items, ok := rawAnswer.([]any)
-			if !ok {
-				return nil, fmt.Errorf("answer must be an array")
-			}
-			values := make([]string, 0, len(items))
-			for _, item := range items {
-				text := contracts.AnyStringNode(item)
-				if text == "" {
-					return nil, fmt.Errorf("answer items must be non-empty strings")
-				}
-				values = append(values, text)
-			}
-			if len(values) == 0 {
-				return nil, fmt.Errorf("answer must not be empty")
-			}
-			if !contracts.AnyBoolNode(definition["allowFreeText"]) {
-				allowed := allowedQuestionOptions(definition)
-				for _, value := range values {
-					if !allowed[value] {
-						return nil, fmt.Errorf("answer item %q is not an allowed option", value)
-					}
-				}
-			}
-			return values, nil
+	case "multi-select":
+		items, ok := rawAnswer.([]any)
+		if !ok {
+			return nil, fmt.Errorf("answer must be an array")
 		}
+		values := make([]string, 0, len(items))
+		for _, item := range items {
+			text := contracts.AnyStringNode(item)
+			if text == "" {
+				return nil, fmt.Errorf("answer items must be non-empty strings")
+			}
+			values = append(values, text)
+		}
+		if len(values) == 0 {
+			return nil, fmt.Errorf("answer must not be empty")
+		}
+		if !contracts.AnyBoolNode(definition["allowFreeText"]) {
+			allowed := allowedQuestionOptions(definition)
+			for _, value := range values {
+				if !allowed[value] {
+					return nil, fmt.Errorf("answer item %q is not an allowed option", value)
+				}
+			}
+		}
+		return values, nil
+	case "select":
 		if items, ok := rawAnswer.([]any); ok && len(items) == 1 {
 			rawAnswer = items[0]
 		}
@@ -176,7 +175,7 @@ func sanitizeQuestionFields(questions []any) []any {
 			continue
 		}
 		questionType := strings.ToLower(strings.TrimSpace(contracts.AnyStringNode(item["type"])))
-		if questionType == "select" {
+		if questionType == "select" || questionType == "multi-select" {
 			continue
 		}
 		delete(item, "allowFreeText")

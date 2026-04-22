@@ -104,6 +104,8 @@ type SkillDefinition struct {
 	Key             string
 	Name            string
 	Description     string
+	Triggers        []string
+	Metadata        map[string]any
 	Prompt          string
 	PromptTruncated bool
 	BashHooksDir    string
@@ -298,9 +300,7 @@ func (r *FileRegistry) Skills(tag string) []api.SkillSummary {
 			Key:         skill.Key,
 			Name:        skill.Name,
 			Description: skill.Description,
-			Meta: map[string]any{
-				"promptTruncated": skill.PromptTruncated,
-			},
+			Meta:        skillSummaryMeta(skill),
 		})
 	}
 	return items
@@ -433,10 +433,48 @@ func matchesAgentTag(agent api.AgentSummary, needle string) bool {
 }
 
 func matchesSkillTag(skill SkillDefinition, needle string) bool {
+	for _, trigger := range skill.Triggers {
+		if strings.Contains(strings.ToLower(trigger), needle) {
+			return true
+		}
+	}
 	return strings.Contains(strings.ToLower(skill.Key), needle) ||
 		strings.Contains(strings.ToLower(skill.Name), needle) ||
 		strings.Contains(strings.ToLower(skill.Description), needle) ||
 		strings.Contains(strings.ToLower(skill.Prompt), needle)
+}
+
+func skillSummaryMeta(skill SkillDefinition) map[string]any {
+	meta := map[string]any{
+		"promptTruncated": skill.PromptTruncated,
+	}
+	if len(skill.Triggers) > 0 {
+		triggers := make([]string, len(skill.Triggers))
+		copy(triggers, skill.Triggers)
+		meta["triggers"] = triggers
+	}
+	if safeMetadata := safeSkillSummaryMetadata(skill.Metadata); len(safeMetadata) > 0 {
+		meta["metadata"] = safeMetadata
+	}
+	return meta
+}
+
+func safeSkillSummaryMetadata(values map[string]any) map[string]any {
+	if len(values) == 0 {
+		return nil
+	}
+	out := map[string]any{}
+	for _, key := range []string{"version", "category", "author"} {
+		if value, ok := values[key]; ok {
+			if text, ok := value.(string); ok && strings.TrimSpace(text) != "" {
+				out[key] = strings.TrimSpace(text)
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func matchesToolTag(tool api.ToolDetailResponse, needle string) bool {
@@ -601,24 +639,12 @@ func defaultString(value string, fallback string) string {
 	return value
 }
 
-func firstNonEmptyMarkdownLine(content string) string {
-	for _, line := range strings.Split(content, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		line = strings.TrimPrefix(line, "#")
-		line = strings.TrimSpace(line)
-		if line != "" {
-			return line
-		}
+func skillDisplayName(name string, description string, fallback string) string {
+	if strings.TrimSpace(name) != "" {
+		return strings.TrimSpace(name)
 	}
-	return ""
-}
-
-func skillDisplayName(description string, fallback string) string {
-	if description != "" {
-		return description
+	if strings.TrimSpace(description) != "" {
+		return strings.TrimSpace(description)
 	}
 	return fallback
 }

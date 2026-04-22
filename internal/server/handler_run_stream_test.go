@@ -13,7 +13,7 @@ import (
 	"agent-platform-runner-go/internal/stream"
 )
 
-func TestHandleRunStreamDefaultsMissingLastSeqToZero(t *testing.T) {
+func TestHandleAttachDefaultsMissingLastSeqToZero(t *testing.T) {
 	runs := runctl.NewInMemoryRunManager()
 	session := contracts.QuerySession{
 		RunID:    "run_1",
@@ -49,10 +49,10 @@ func TestHandleRunStreamDefaultsMissingLastSeqToZero(t *testing.T) {
 		},
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/run/stream?runId="+session.RunID, nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/attach?runId="+session.RunID, nil)
 	rec := httptest.NewRecorder()
 
-	server.handleRunStream(rec, req)
+	server.handleAttach(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())

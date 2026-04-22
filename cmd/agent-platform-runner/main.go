@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -15,12 +17,22 @@ import (
 	"agent-platform-runner-go/internal/config"
 )
 
+const gracefulShutdownTimeout = 3 * time.Second
+
+type shutdownServer interface {
+	Shutdown(context.Context) error
+	Close() error
+}
+
 func main() {
 	startedAt := time.Now()
 	log.Printf("starting runner: pid=%d", os.Getpid())
 
+	rootCtx, cancelRoot := context.WithCancel(context.Background())
+	defer cancelRoot()
+
 	appInitStartedAt := time.Now()
-	application, err := app.New()
+	application, err := app.New(rootCtx)
 	if err != nil {
 		log.Fatalf("startup failed during app init after %s: %v", startupElapsed(appInitStartedAt), err)
 	}
@@ -33,6 +45,7 @@ func main() {
 	server := &http.Server{
 		Addr:              application.Config.ServerAddress(),
 		Handler:           application.Router,
+		BaseContext:       func(net.Listener) context.Context { return rootCtx },
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	runtimeDescription := resolvedRuntimeDescription(application.Config)
@@ -54,15 +67,11 @@ func main() {
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-	sig := <-stop
-	log.Printf("shutdown signal received: %s", sig)
+	defer signal.Stop(stop)
 
 	shutdownStartedAt := time.Now()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := server.Shutdown(ctx); err != nil {
+	if err := waitForShutdown(server, cancelRoot, stop, gracefulShutdownTimeout, os.Exit); err != nil {
 		log.Printf("shutdown: %v", err)
-		return
 	}
 	log.Printf("shutdown complete in %s", startupElapsed(shutdownStartedAt))
 }
@@ -81,4 +90,38 @@ func resolvedRuntimeDescription(cfg config.Config) string {
 		return fmt.Sprintf("mode=local host_port=%s", strings.TrimSpace(hostPort))
 	}
 	return "mode=local"
+}
+
+func waitForShutdown(server shutdownServer, cancelRoot context.CancelFunc, signals <-chan os.Signal, timeout time.Duration, exit func(int)) error {
+	sig := <-signals
+	log.Printf("shutdown signal received: %s", sig)
+	if cancelRoot != nil {
+		cancelRoot()
+	}
+	if exit != nil {
+		done := make(chan struct{})
+		defer close(done)
+		go func() {
+			select {
+			case secondSig := <-signals:
+				log.Printf("second shutdown signal received: %s, forcing exit", secondSig)
+				// This is an intentional hard exit that skips deferred cleanup.
+				exit(1)
+			case <-done:
+			}
+		}()
+	}
+	return shutdownHTTPServer(server, timeout)
+}
+
+func shutdownHTTPServer(server shutdownServer, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	if err := server.Shutdown(ctx); err != nil {
+		if closeErr := server.Close(); closeErr != nil && !errors.Is(closeErr, http.ErrServerClosed) {
+			return fmt.Errorf("graceful shutdown failed: %w (force close: %v)", err, closeErr)
+		}
+		return fmt.Errorf("graceful shutdown failed: %w", err)
+	}
+	return nil
 }

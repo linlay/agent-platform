@@ -1,6 +1,6 @@
-name: _sandbox_bash_
-label: 执行命令
-description: Execute a command inside the sandbox container. When calling this tool, always include a short Chinese description explaining the command purpose.
+name: _bash_container_
+label: 执行沙箱命令
+description: Execute a command inside the sandbox container. Runtime routes to this internal implementation when the agent declares sandboxConfig. When calling this tool, always include a short Chinese description explaining the command purpose.
 submitResultFormat: json-compact
 type: builtin
 inputSchema:
@@ -18,6 +18,11 @@ inputSchema:
     timeout_ms:
       type: integer
       description: Execution timeout in milliseconds.
+    env:
+      type: object
+      description: 本次命令追加的环境变量（合并到 session 默认 env 之上）。
+      additionalProperties:
+        type: string
   required:
     - command
     - description

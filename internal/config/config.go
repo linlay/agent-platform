@@ -239,6 +239,10 @@ type WebSocketConfig struct {
 type GatewayWSConfig struct {
 	URL                string
 	Token              string
+	UserID             string
+	Ticket             string
+	AgentKey           string
+	Channel            string
 	HandshakeTimeoutMs int64
 	ReconnectMinMs     int64
 	ReconnectMaxMs     int64
@@ -391,12 +395,19 @@ func defaultConfig() Config {
 			DestroyQueueDelayMs: 5000,
 		},
 		Bash: BashConfig{
-			WorkingDirectory:        "",
-			AllowedPaths:            []string{".", "/tmp"},
-			AllowedCommands:         []string{"ls", "pwd", "cat", "head", "tail", "top", "free", "df", "git", "rg", "find"},
+			WorkingDirectory: "",
+			AllowedPaths:     []string{".", "/tmp"},
+			AllowedCommands: []string{
+				"ls", "pwd", "cat", "head", "tail", "top", "free", "df", "git", "rg", "find",
+				"echo", "printf", "sed", "awk", "grep", "wc", "sort", "uniq", "tr", "cut", "xargs",
+				"cd", "stat", "file", "du", "test", "which", "mkdir", "touch", "cp", "mv", "rm", "ln", "chmod",
+				"env", "date", "bash", "sh",
+				"make", "go", "npm", "yarn", "pnpm", "node", "python", "python3", "pip",
+				"curl", "wget",
+			},
 			PathCheckedCommands:     []string{"ls", "cat", "head", "tail", "git", "rg", "find"},
 			PathCheckBypassCommands: nil,
-			ShellFeaturesEnabled:    false,
+			ShellFeaturesEnabled:    true,
 			ShellExecutable:         "bash",
 			ShellTimeoutMs:          10000,
 			MaxCommandChars:         16000,
@@ -614,8 +625,13 @@ func (c *Config) applyEnv() {
 	c.WebSocket.WriteTimeoutMs = int64Env("AGENT_WS_WRITE_TIMEOUT_MS", c.WebSocket.WriteTimeoutMs)
 	c.WebSocket.WriteQueueSize = intEnv("AGENT_WS_WRITE_QUEUE_SIZE", c.WebSocket.WriteQueueSize)
 	c.WebSocket.MaxObservesPerConn = intEnv("AGENT_WS_MAX_OBSERVES_PER_CONN", c.WebSocket.MaxObservesPerConn)
-	c.GatewayWS.URL = stringEnv("AGENT_GATEWAY_WS_URL", c.GatewayWS.URL)
+	// 优先读 bridge 合并过来的 GATEWAY_* 变量；若未设置再回退 AGENT_GATEWAY_WS_*。
+	c.GatewayWS.URL = stringEnv("GATEWAY_WS_URL", stringEnv("AGENT_GATEWAY_WS_URL", c.GatewayWS.URL))
 	c.GatewayWS.Token = stringEnv("AGENT_GATEWAY_WS_TOKEN", c.GatewayWS.Token)
+	c.GatewayWS.UserID = stringEnv("GATEWAY_USER_ID", c.GatewayWS.UserID)
+	c.GatewayWS.Ticket = stringEnv("GATEWAY_TICKET", c.GatewayWS.Ticket)
+	c.GatewayWS.AgentKey = stringEnv("GATEWAY_AGENT_KEY", c.GatewayWS.AgentKey)
+	c.GatewayWS.Channel = stringEnv("GATEWAY_CHANNEL", c.GatewayWS.Channel)
 	c.GatewayWS.HandshakeTimeoutMs = int64Env("AGENT_GATEWAY_WS_HANDSHAKE_TIMEOUT_MS", c.GatewayWS.HandshakeTimeoutMs)
 	c.GatewayWS.ReconnectMinMs = int64Env("AGENT_GATEWAY_WS_RECONNECT_MIN_MS", c.GatewayWS.ReconnectMinMs)
 	c.GatewayWS.ReconnectMaxMs = int64Env("AGENT_GATEWAY_WS_RECONNECT_MAX_MS", c.GatewayWS.ReconnectMaxMs)

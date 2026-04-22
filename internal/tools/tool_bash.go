@@ -15,7 +15,7 @@ import (
 	. "agent-platform-runner-go/internal/contracts"
 )
 
-func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[string]any) (ToolExecutionResult, error) {
+func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	command := strings.TrimSpace(stringArg(args, "command"))
 	if command == "" {
 		return ToolExecutionResult{Output: "Missing argument: command", Error: "missing_command", ExitCode: -1}, nil
@@ -29,13 +29,21 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	if len(t.cfg.Bash.AllowedCommands) == 0 {
 		return ToolExecutionResult{Output: "Bash command whitelist is empty", Error: "command_whitelist_empty", ExitCode: -1}, nil
 	}
+	workingDir := defaultStringArg(args, "cwd", t.cfg.Bash.WorkingDirectory)
+	if workingDir == "" {
+		workingDir = "."
+	}
 	if !t.cfg.Bash.ShellFeaturesEnabled {
-		if err := validateStrictCommand(command, t.cfg.Bash); err != nil {
+		if err := validateStrictCommand(command, t.cfg.Bash, workingDir); err != nil {
 			return ToolExecutionResult{Output: err.Error(), Error: "command_not_allowed", ExitCode: -1}, nil
 		}
 	}
 
-	timeout := time.Duration(maxInt(t.cfg.Bash.ShellTimeoutMs, 30000)) * time.Millisecond
+	timeoutMs := int64Arg(args, "timeout_ms")
+	if timeoutMs <= 0 {
+		timeoutMs = int64(maxInt(t.cfg.Bash.ShellTimeoutMs, 30000))
+	}
+	timeout := time.Duration(timeoutMs) * time.Millisecond
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -44,11 +52,8 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 		shellExecutable = "bash"
 	}
 	cmd := exec.CommandContext(runCtx, shellExecutable, "-lc", command)
-	workingDir := t.cfg.Bash.WorkingDirectory
-	if workingDir == "" {
-		workingDir = "."
-	}
 	cmd.Dir = workingDir
+	cmd.Env = mergeCommandEnv(execCtx)
 	output, err := cmd.CombinedOutput()
 	exitCode := 0
 	stderr := ""
@@ -76,7 +81,7 @@ var unsupportedBashCommands = map[string]bool{
 
 const maxBashOutputChars = 8000
 
-func validateStrictCommand(command string, cfg config.BashConfig) error {
+func validateStrictCommand(command string, cfg config.BashConfig, workingDirectory string) error {
 	if strings.ContainsAny(command, "\n;&|<>(){}") {
 		return fmt.Errorf("Unsupported syntax for _bash_")
 	}
@@ -93,10 +98,6 @@ func validateStrictCommand(command string, cfg config.BashConfig) error {
 	}
 	if !containsString(cfg.PathCheckedCommands, base) || containsString(cfg.PathCheckBypassCommands, base) {
 		return nil
-	}
-	workingDirectory := cfg.WorkingDirectory
-	if workingDirectory == "" {
-		workingDirectory = "."
 	}
 	for _, field := range fields[1:] {
 		if strings.HasPrefix(field, "-") {
@@ -139,6 +140,54 @@ func pathAllowed(resolved string, allowed []string, workingDirectory string) boo
 		}
 	}
 	return false
+}
+
+func stringMapArg(args map[string]any, key string) map[string]string {
+	raw, ok := args[key]
+	if !ok || raw == nil {
+		return nil
+	}
+	switch value := raw.(type) {
+	case map[string]string:
+		return CloneStringMap(value)
+	case map[string]any:
+		result := make(map[string]string, len(value))
+		for envKey, envValue := range value {
+			text, ok := envValue.(string)
+			if !ok {
+				continue
+			}
+			result[envKey] = text
+		}
+		if len(result) == 0 {
+			return nil
+		}
+		return result
+	default:
+		return nil
+	}
+}
+
+func mergeCommandEnv(execCtx *ExecutionContext) []string {
+	env := append([]string(nil), os.Environ()...)
+	if execCtx == nil || len(execCtx.SandboxEnvOverrides) == 0 {
+		return env
+	}
+	for key, value := range execCtx.SandboxEnvOverrides {
+		found := false
+		prefix := key + "="
+		for idx, item := range env {
+			if strings.HasPrefix(item, prefix) {
+				env[idx] = prefix + value
+				found = true
+				break
+			}
+		}
+		if !found {
+			env = append(env, prefix+value)
+		}
+	}
+	return env
 }
 
 func containsString(values []string, needle string) bool {

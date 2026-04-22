@@ -55,21 +55,27 @@ type QueryLine struct {
 //	{ _type: "plan-execute", stage: "execute", seq: N, messages: [...] }
 //	{ _type: "plan-execute", stage: "summary", messages: [...] }
 type StepLine struct {
-	ChatID        string           `json:"chatId"`
-	RunID         string           `json:"runId"`
-	UpdatedAt     int64            `json:"updatedAt"`
-	TaskID        string           `json:"taskId,omitempty"`
-	System        map[string]any   `json:"system,omitempty"`
-	Messages      []StoredMessage  `json:"messages"`
-	Approval      *StepApproval    `json:"approval,omitempty"`
-	Awaiting      []map[string]any `json:"awaiting,omitempty"`
-	Usage         map[string]any   `json:"usage,omitempty"`
-	ContextWindow map[string]any   `json:"contextWindow,omitempty"`
-	Type          string           `json:"_type"`
-	Stage         string           `json:"stage,omitempty"`
-	Seq           int              `json:"seq,omitempty"`
-	Plan          *PlanState       `json:"plan,omitempty"`
-	Artifacts     *ArtifactState   `json:"artifacts,omitempty"`
+	ChatID          string           `json:"chatId"`
+	RunID           string           `json:"runId"`
+	UpdatedAt       int64            `json:"updatedAt"`
+	TaskID          string           `json:"taskId,omitempty"`
+	TaskName        string           `json:"taskName,omitempty"`
+	TaskGroupID     string           `json:"taskGroupId,omitempty"`
+	TaskDescription string           `json:"taskDescription,omitempty"`
+	TaskStatus      string           `json:"taskStatus,omitempty"`
+	TaskSubAgentKey string           `json:"taskSubAgentKey,omitempty"`
+	TaskMainToolID  string           `json:"taskMainToolId,omitempty"`
+	System          map[string]any   `json:"system,omitempty"`
+	Messages        []StoredMessage  `json:"messages"`
+	Approval        *StepApproval    `json:"approval,omitempty"`
+	Awaiting        []map[string]any `json:"awaiting,omitempty"`
+	Usage           map[string]any   `json:"usage,omitempty"`
+	ContextWindow   map[string]any   `json:"contextWindow,omitempty"`
+	Type            string           `json:"_type"`
+	Stage           string           `json:"stage,omitempty"`
+	Seq             int              `json:"seq,omitempty"`
+	Plan            *PlanState       `json:"plan,omitempty"`
+	Artifacts       *ArtifactState   `json:"artifacts,omitempty"`
 }
 
 type StepApproval struct {
@@ -142,17 +148,35 @@ type StoredFunction struct {
 // ---------------------------------------------------------------------------
 
 type Summary struct {
-	ChatID         string     `json:"chatId"`
-	ChatName       string     `json:"chatName"`
-	AgentKey       string     `json:"agentKey,omitempty"`
-	TeamID         string     `json:"teamId,omitempty"`
-	CreatedAt      int64      `json:"createdAt"`
-	UpdatedAt      int64      `json:"updatedAt"`
-	LastRunID      string     `json:"lastRunId,omitempty"`
-	LastRunContent string     `json:"lastRunContent,omitempty"`
-	ReadStatus     int        `json:"readStatus"`
-	ReadAt         *int64     `json:"readAt,omitempty"`
-	Usage          *UsageData `json:"usage,omitempty"`
+	ChatID          string           `json:"chatId"`
+	ChatName        string           `json:"chatName"`
+	AgentKey        string           `json:"agentKey,omitempty"`
+	TeamID          string           `json:"teamId,omitempty"`
+	CreatedAt       int64            `json:"createdAt"`
+	UpdatedAt       int64            `json:"updatedAt"`
+	LastRunID       string           `json:"lastRunId,omitempty"`
+	LastRunContent  string           `json:"lastRunContent,omitempty"`
+	Read            ChatReadState    `json:"read"`
+	PendingAwaiting *PendingAwaiting `json:"pendingAwaiting,omitempty"`
+	Usage           *UsageData       `json:"usage,omitempty"`
+}
+
+type ChatReadState struct {
+	IsRead    bool   `json:"isRead"`
+	ReadAt    *int64 `json:"readAt,omitempty"`
+	ReadRunID string `json:"readRunId,omitempty"`
+}
+
+type AgentChatStats struct {
+	TotalCount  int `json:"totalCount"`
+	UnreadCount int `json:"unreadCount"`
+}
+
+type PendingAwaiting struct {
+	AwaitingID string `json:"awaitingId"`
+	RunID      string `json:"runId"`
+	Mode       string `json:"mode"`
+	CreatedAt  int64  `json:"createdAt"`
 }
 
 type Detail struct {

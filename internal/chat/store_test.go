@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"database/sql"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -10,6 +11,301 @@ import (
 
 	"agent-platform-runner-go/internal/stream"
 )
+
+func TestFileStoreSetPendingAwaitingPersistsIntoSummaryAndListChats(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-pending", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	pending := PendingAwaiting{
+		AwaitingID: "await_1",
+		RunID:      "run_1",
+		Mode:       "question",
+		CreatedAt:  12345,
+	}
+	if err := store.SetPendingAwaiting("chat-pending", pending); err != nil {
+		t.Fatalf("set pending awaiting: %v", err)
+	}
+
+	summary, err := store.Summary("chat-pending")
+	if err != nil {
+		t.Fatalf("load summary: %v", err)
+	}
+	if summary == nil || summary.PendingAwaiting == nil || *summary.PendingAwaiting != pending {
+		t.Fatalf("unexpected summary pending awaiting %#v", summary)
+	}
+
+	items, err := store.ListChats("", "")
+	if err != nil {
+		t.Fatalf("list chats: %v", err)
+	}
+	if len(items) != 1 || items[0].PendingAwaiting == nil || *items[0].PendingAwaiting != pending {
+		t.Fatalf("unexpected listed pending awaiting %#v", items)
+	}
+}
+
+func TestFileStoreClearPendingAwaitingClearsMatchingAwaitingID(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-clear", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	if err := store.SetPendingAwaiting("chat-clear", PendingAwaiting{
+		AwaitingID: "await_1",
+		RunID:      "run_1",
+		Mode:       "approval",
+		CreatedAt:  45678,
+	}); err != nil {
+		t.Fatalf("set pending awaiting: %v", err)
+	}
+
+	if err := store.ClearPendingAwaiting("chat-clear", "await_1"); err != nil {
+		t.Fatalf("clear pending awaiting: %v", err)
+	}
+
+	summary, err := store.Summary("chat-clear")
+	if err != nil {
+		t.Fatalf("load summary: %v", err)
+	}
+	if summary == nil || summary.PendingAwaiting != nil {
+		t.Fatalf("expected cleared pending awaiting, got %#v", summary)
+	}
+}
+
+func TestFileStoreClearPendingAwaitingIgnoresStaleAwaitingID(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-stale", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	pending := PendingAwaiting{
+		AwaitingID: "await_latest",
+		RunID:      "run_latest",
+		Mode:       "form",
+		CreatedAt:  78901,
+	}
+	if err := store.SetPendingAwaiting("chat-stale", pending); err != nil {
+		t.Fatalf("set pending awaiting: %v", err)
+	}
+
+	if err := store.ClearPendingAwaiting("chat-stale", "await_old"); err != nil {
+		t.Fatalf("clear stale pending awaiting: %v", err)
+	}
+
+	summary, err := store.Summary("chat-stale")
+	if err != nil {
+		t.Fatalf("load summary: %v", err)
+	}
+	if summary == nil || summary.PendingAwaiting == nil || *summary.PendingAwaiting != pending {
+		t.Fatalf("expected pending awaiting to remain after stale clear, got %#v", summary)
+	}
+}
+
+func TestFileStoreMigratesLegacyDBAndRoundTripsPendingAwaiting(t *testing.T) {
+	root := t.TempDir()
+	db, err := sql.Open("sqlite", filepath.Join(root, "chats.db"))
+	if err != nil {
+		t.Fatalf("open legacy chats db: %v", err)
+	}
+	_, err = db.Exec(`
+		CREATE TABLE CHATS (
+			CHAT_ID_ TEXT PRIMARY KEY,
+			CHAT_NAME_ TEXT NOT NULL,
+			AGENT_KEY_ TEXT NOT NULL DEFAULT '',
+			TEAM_ID_ TEXT,
+			CREATED_AT_ INTEGER NOT NULL,
+			UPDATED_AT_ INTEGER NOT NULL,
+			LAST_RUN_ID_ TEXT NOT NULL DEFAULT '',
+			LAST_RUN_CONTENT_ TEXT NOT NULL DEFAULT '',
+			READ_STATUS_ INTEGER NOT NULL DEFAULT 1,
+			READ_AT_ INTEGER,
+			USAGE_PROMPT_TOKENS_ INTEGER NOT NULL DEFAULT 0,
+			USAGE_COMPLETION_TOKENS_ INTEGER NOT NULL DEFAULT 0,
+			USAGE_TOTAL_TOKENS_ INTEGER NOT NULL DEFAULT 0
+		);
+	`)
+	if err != nil {
+		t.Fatalf("create legacy chats table: %v", err)
+	}
+	_, err = db.Exec(`INSERT INTO CHATS (CHAT_ID_, CHAT_NAME_, AGENT_KEY_, CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_STATUS_) VALUES (?, ?, ?, ?, ?, '', '', 1)`,
+		"chat-legacy", "legacy", "agent", 100, 200)
+	if err != nil {
+		t.Fatalf("insert legacy chat: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close legacy chats db: %v", err)
+	}
+
+	store, err := NewFileStore(root)
+	if err != nil {
+		t.Fatalf("new file store from legacy db: %v", err)
+	}
+
+	summary, err := store.Summary("chat-legacy")
+	if err != nil {
+		t.Fatalf("load migrated summary: %v", err)
+	}
+	if summary == nil || summary.PendingAwaiting != nil {
+		t.Fatalf("expected migrated summary without pending awaiting, got %#v", summary)
+	}
+	if summary.Read.ReadRunID != "" || !summary.Read.IsRead {
+		t.Fatalf("expected migrated summary to preserve read state, got %#v", summary.Read)
+	}
+
+	pending := PendingAwaiting{
+		AwaitingID: "await_legacy",
+		RunID:      "run_legacy",
+		Mode:       "question",
+		CreatedAt:  24680,
+	}
+	if err := store.SetPendingAwaiting("chat-legacy", pending); err != nil {
+		t.Fatalf("set pending awaiting after migration: %v", err)
+	}
+	summary, err = store.Summary("chat-legacy")
+	if err != nil {
+		t.Fatalf("reload migrated summary after set: %v", err)
+	}
+	if summary == nil || summary.PendingAwaiting == nil || *summary.PendingAwaiting != pending {
+		t.Fatalf("expected migrated summary pending awaiting, got %#v", summary)
+	}
+	if err := store.ClearPendingAwaiting("chat-legacy", "await_legacy"); err != nil {
+		t.Fatalf("clear pending awaiting after migration: %v", err)
+	}
+	summary, err = store.Summary("chat-legacy")
+	if err != nil {
+		t.Fatalf("reload migrated summary after clear: %v", err)
+	}
+	if summary == nil || summary.PendingAwaiting != nil {
+		t.Fatalf("expected pending awaiting cleared after migration round trip, got %#v", summary)
+	}
+
+	db, err = sql.Open("sqlite", filepath.Join(root, "chats.db"))
+	if err != nil {
+		t.Fatalf("reopen migrated chats db: %v", err)
+	}
+	defer db.Close()
+	rows, err := db.Query(`PRAGMA table_info(CHATS)`)
+	if err != nil {
+		t.Fatalf("pragma table_info: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, dataType string
+		var notNull, pk int
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &pk); err != nil {
+			t.Fatalf("scan table info: %v", err)
+		}
+		if name == "READ_STATUS_" {
+			t.Fatal("expected READ_STATUS_ column to be removed during migration")
+		}
+	}
+}
+
+func TestFileStoreMarkReadAdvancesWatermarkAndClampsFutureRunID(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-read", "agent-a", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	run1 := "loyw3v28"
+	run2 := "loyw3v2s"
+	if err := store.OnRunCompleted(RunCompletion{
+		ChatID:          "chat-read",
+		RunID:           run1,
+		AssistantText:   "first",
+		UpdatedAtMillis: time.Now().UnixMilli(),
+	}); err != nil {
+		t.Fatalf("complete first run: %v", err)
+	}
+	if err := store.OnRunCompleted(RunCompletion{
+		ChatID:          "chat-read",
+		RunID:           run2,
+		AssistantText:   "second",
+		UpdatedAtMillis: time.Now().UnixMilli(),
+	}); err != nil {
+		t.Fatalf("complete second run: %v", err)
+	}
+
+	sum, err := store.MarkRead("chat-read", run1)
+	if err != nil {
+		t.Fatalf("mark read run1: %v", err)
+	}
+	if sum.Read.ReadRunID != run1 || sum.Read.IsRead {
+		t.Fatalf("expected partial read watermark at run1, got %#v", sum.Read)
+	}
+	firstReadAt := sum.Read.ReadAt
+
+	sum, err = store.MarkRead("chat-read", "zzzzzzzz")
+	if err != nil {
+		t.Fatalf("mark read future run: %v", err)
+	}
+	if sum.Read.ReadRunID != run2 || !sum.Read.IsRead {
+		t.Fatalf("expected future run to clamp to last run, got %#v", sum.Read)
+	}
+	if sum.Read.ReadAt == nil || firstReadAt == nil || *sum.Read.ReadAt < *firstReadAt {
+		t.Fatalf("expected readAt to refresh monotonically, got old=%v new=%v", firstReadAt, sum.Read.ReadAt)
+	}
+
+	sum, err = store.MarkRead("chat-read", run1)
+	if err != nil {
+		t.Fatalf("mark read stale run: %v", err)
+	}
+	if sum.Read.ReadRunID != run2 {
+		t.Fatalf("expected read watermark not to roll back, got %#v", sum.Read)
+	}
+}
+
+func TestFileStoreAgentChatStatsAggregatesUnreadCounts(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-a1", "agent-a", "", "hello"); err != nil {
+		t.Fatalf("ensure chat-a1: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-a2", "agent-a", "", "hello"); err != nil {
+		t.Fatalf("ensure chat-a2: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-b1", "agent-b", "", "hello"); err != nil {
+		t.Fatalf("ensure chat-b1: %v", err)
+	}
+	if err := store.OnRunCompleted(RunCompletion{ChatID: "chat-a1", RunID: "loyw3v28", UpdatedAtMillis: time.Now().UnixMilli()}); err != nil {
+		t.Fatalf("complete chat-a1: %v", err)
+	}
+	if err := store.OnRunCompleted(RunCompletion{ChatID: "chat-a2", RunID: "loyw3v2s", UpdatedAtMillis: time.Now().UnixMilli()}); err != nil {
+		t.Fatalf("complete chat-a2: %v", err)
+	}
+	if err := store.OnRunCompleted(RunCompletion{ChatID: "chat-b1", RunID: "loyw3v34", UpdatedAtMillis: time.Now().UnixMilli()}); err != nil {
+		t.Fatalf("complete chat-b1: %v", err)
+	}
+	if _, err := store.MarkRead("chat-a1", "loyw3v28"); err != nil {
+		t.Fatalf("mark chat-a1 read: %v", err)
+	}
+
+	stats, err := store.AgentChatStats()
+	if err != nil {
+		t.Fatalf("agent chat stats: %v", err)
+	}
+	if got := stats["agent-a"]; got.TotalCount != 2 || got.UnreadCount != 1 {
+		t.Fatalf("unexpected agent-a stats: %#v", got)
+	}
+	if got := stats["agent-b"]; got.TotalCount != 1 || got.UnreadCount != 1 {
+		t.Fatalf("unexpected agent-b stats: %#v", got)
+	}
+}
 
 func TestFileStoreListChatsUsesParsedRunIDCursor(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
@@ -558,7 +854,7 @@ func TestStepWriterFormatsStructuredToolResultAsJSON(t *testing.T) {
 		Timestamp: 1001,
 		Payload: map[string]any{
 			"toolId":    "tool-1",
-			"toolName":  "_sandbox_bash_",
+			"toolName":  "_bash_",
 			"arguments": `{"command":"echo hi"}`,
 		},
 	})
@@ -570,10 +866,7 @@ func TestStepWriterFormatsStructuredToolResultAsJSON(t *testing.T) {
 			"result": map[string]any{
 				"error":    "hitl_timeout",
 				"exitCode": -1,
-				"output": map[string]any{
-					"code":   "hitl_timeout",
-					"status": "timeout",
-				},
+				"output":   "hitl_timeout: command execution timed out while waiting for user approval",
 			},
 		},
 	})
@@ -606,6 +899,9 @@ func TestStepWriterFormatsStructuredToolResultAsJSON(t *testing.T) {
 	}
 	if decoded["error"] != "hitl_timeout" {
 		t.Fatalf("unexpected decoded tool result %#v", decoded)
+	}
+	if decoded["output"] != "hitl_timeout: command execution timed out while waiting for user approval" {
+		t.Fatalf("unexpected decoded tool output %#v", decoded)
 	}
 }
 
@@ -718,7 +1014,7 @@ func TestStepWriterPersistsApprovalSidecarOnStepLine(t *testing.T) {
 		Timestamp: 4001,
 		Payload: map[string]any{
 			"toolId":    "tool-1",
-			"toolName":  "_sandbox_bash_",
+			"toolName":  "_bash_",
 			"arguments": `{"command":"chmod 777 ~/a.sh"}`,
 		},
 	})
@@ -786,7 +1082,7 @@ func TestLoadRawMessagesReplaysApprovalSummaryFromStepLine(t *testing.T) {
 					ID:   "tool-1",
 					Type: "function",
 					Function: StoredFunction{
-						Name:      "_sandbox_bash_",
+						Name:      "_bash_",
 						Arguments: `{"command":"chmod 777 ~/a.sh"}`,
 					},
 				}},
@@ -796,7 +1092,7 @@ func TestLoadRawMessagesReplaysApprovalSummaryFromStepLine(t *testing.T) {
 			},
 			{
 				Role:       "tool",
-				Name:       "_sandbox_bash_",
+				Name:       "_bash_",
 				ToolCallID: "tool-1",
 				Content:    []ContentPart{{Type: "text", Text: ""}},
 				ToolID:     "tool-1",
@@ -862,6 +1158,167 @@ func TestLoadRawMessagesFallsBackToLegacyFile(t *testing.T) {
 	}
 	if messages[1]["content"] != "world" {
 		t.Fatalf("expected assistant message from legacy fallback, got %#v", messages)
+	}
+}
+
+func TestStepWriterSubAgentStepsAreExcludedFromRawMessages(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-subagent-raw", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	writer := NewStepWriter(store, "chat-subagent-raw", "run-subagent-raw", "react", false)
+	writer.OnEvent(stream.EventData{
+		Type:      "content.snapshot",
+		Timestamp: 1001,
+		Payload: map[string]any{
+			"contentId": "root_1",
+			"text":      "root",
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "task.start",
+		Timestamp: 1002,
+		Payload: map[string]any{
+			"taskId":      "task_1",
+			"runId":       "run-subagent-raw",
+			"taskName":    "分析",
+			"description": "run analysis",
+			"subAgentKey": "analyzer",
+			"mainToolId":  "tool_main_1",
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "content.snapshot",
+		Timestamp: 1003,
+		Payload: map[string]any{
+			"contentId": "child_1",
+			"text":      "child",
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "task.complete",
+		Timestamp: 1004,
+		Payload: map[string]any{
+			"taskId": "task_1",
+			"status": "completed",
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "content.snapshot",
+		Timestamp: 1005,
+		Payload: map[string]any{
+			"contentId": "root_2",
+			"text":      "root again",
+		},
+	})
+	writer.Flush()
+
+	rawMessages, err := store.LoadRawMessages("chat-subagent-raw", 5)
+	if err != nil {
+		t.Fatalf("load raw messages: %v", err)
+	}
+	if len(rawMessages) != 2 {
+		t.Fatalf("expected only root messages in raw history, got %#v", rawMessages)
+	}
+	for _, msg := range rawMessages {
+		if msg["content"] == "child" {
+			t.Fatalf("did not expect sub-agent content in raw messages, got %#v", rawMessages)
+		}
+	}
+
+	lines, err := readJSONLines(store.chatJSONLPath("chat-subagent-raw"))
+	if err != nil {
+		t.Fatalf("read chat jsonl: %v", err)
+	}
+	if len(lines) != 3 {
+		t.Fatalf("expected three step lines, got %#v", lines)
+	}
+	if lines[1]["taskSubAgentKey"] != "analyzer" || lines[1]["taskMainToolId"] != "tool_main_1" || lines[1]["taskStatus"] != "completed" {
+		t.Fatalf("expected sub-agent task metadata on middle step, got %#v", lines[1])
+	}
+}
+
+func TestLoadChatSynthesizesTaskLifecycleFromSubAgentSteps(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-subagent-replay", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	contentTs := int64(2001)
+	if err := store.AppendStepLine("chat-subagent-replay", StepLine{
+		ChatID:          "chat-subagent-replay",
+		RunID:           "run-subagent-replay",
+		UpdatedAt:       2002,
+		Type:            "react",
+		Seq:             1,
+		TaskID:          "task_1",
+		TaskName:        "分析",
+		TaskDescription: "run analysis",
+		TaskStatus:      "completed",
+		TaskSubAgentKey: "analyzer",
+		TaskMainToolID:  "tool_main_1",
+		Messages: []StoredMessage{{
+			Role:      "assistant",
+			Content:   []ContentPart{{Type: "text", Text: "child result"}},
+			ContentID: "child_1",
+			MsgID:     "msg-1",
+			Ts:        &contentTs,
+		}},
+	}); err != nil {
+		t.Fatalf("append sub-agent step line: %v", err)
+	}
+	if err := store.AppendStepLine("chat-subagent-replay", StepLine{
+		ChatID:    "chat-subagent-replay",
+		RunID:     "run-subagent-replay",
+		UpdatedAt: 2003,
+		Type:      "react",
+		Seq:       2,
+		Messages: []StoredMessage{{
+			Role:      "assistant",
+			Content:   []ContentPart{{Type: "text", Text: "root result"}},
+			ContentID: "root_1",
+			MsgID:     "msg-2",
+			Ts:        &contentTs,
+		}},
+	}); err != nil {
+		t.Fatalf("append root step line: %v", err)
+	}
+
+	detail, err := store.LoadChat("chat-subagent-replay")
+	if err != nil {
+		t.Fatalf("load chat: %v", err)
+	}
+	var eventTypes []string
+	for _, event := range detail.Events {
+		eventTypes = append(eventTypes, event.Type)
+	}
+	joined := strings.Join(eventTypes, ",")
+	if !strings.Contains(joined, "task.start") || !strings.Contains(joined, "task.complete") {
+		t.Fatalf("expected synthesized task lifecycle events, got %v", eventTypes)
+	}
+
+	var sawStart, sawComplete bool
+	for _, event := range detail.Events {
+		switch event.Type {
+		case "task.start":
+			if event.String("subAgentKey") == "analyzer" && event.String("mainToolId") == "tool_main_1" && event.String("taskName") == "分析" {
+				sawStart = true
+			}
+		case "task.complete":
+			if event.String("taskId") == "task_1" && event.String("status") == "completed" {
+				sawComplete = true
+			}
+		}
+	}
+	if !sawStart || !sawComplete {
+		t.Fatalf("expected synthesized start and complete payloads, got %#v", detail.Events)
 	}
 }
 
@@ -1501,6 +1958,21 @@ func TestLoadChatReadsUsageFromStepLevel(t *testing.T) {
 			"completion_tokens": 50,
 			"total_tokens":      150,
 		},
+		System: map[string]any{
+			"debugPreCall": map[string]any{
+				"provider": map[string]any{
+					"key":      "minimax",
+					"endpoint": "https://api.minimaxi.com/v1/chat/completions",
+				},
+				"model": map[string]any{
+					"key": "mock-model",
+					"id":  "mock-model-id",
+				},
+				"requestBody": map[string]any{
+					"model": "mock-model-id",
+				},
+			},
+		},
 		ContextWindow: map[string]any{
 			"max_size":       128000,
 			"actual_size":    100,
@@ -1534,9 +2006,27 @@ func TestLoadChatReadsUsageFromStepLevel(t *testing.T) {
 	}
 
 	preCallData, _ := detail.Events[3].Value("data").(map[string]any)
+	preCallProvider, _ := preCallData["provider"].(map[string]any)
+	preCallModel, _ := preCallData["model"].(map[string]any)
 	preCallCW, _ := preCallData["contextWindow"].(map[string]any)
+	preCallRequestBody, _ := preCallData["requestBody"].(map[string]any)
 	if toIntValue(preCallCW["max_size"]) != 128000 || toIntValue(preCallCW["actual_size"]) != 100 || toIntValue(preCallCW["estimated_size"]) != 200 {
 		t.Fatalf("unexpected debug.preCall context window %#v", detail.Events[3])
+	}
+	if preCallProvider["key"] != "minimax" || preCallProvider["endpoint"] != "https://api.minimaxi.com/v1/chat/completions" {
+		t.Fatalf("unexpected debug.preCall provider %#v", detail.Events[3])
+	}
+	if preCallModel["key"] != "mock-model" || preCallModel["id"] != "mock-model-id" {
+		t.Fatalf("unexpected debug.preCall model %#v", detail.Events[3])
+	}
+	if preCallRequestBody["model"] != "mock-model-id" {
+		t.Fatalf("unexpected debug.preCall payload %#v", detail.Events[3])
+	}
+	if _, exists := preCallData["systemPrompt"]; exists {
+		t.Fatalf("did not expect legacy systemPrompt in debug.preCall payload %#v", detail.Events[3])
+	}
+	if _, exists := preCallData["tools"]; exists {
+		t.Fatalf("did not expect legacy tools in debug.preCall payload %#v", detail.Events[3])
 	}
 
 	postCallData, _ := detail.Events[5].Value("data").(map[string]any)
@@ -1858,5 +2348,158 @@ func TestLoadChatReplaysLegacySourcePublishEvent(t *testing.T) {
 	}
 	if !foundContentSnapshot {
 		t.Fatalf("expected content.snapshot to remain intact, got %#v", detail.Events)
+	}
+}
+
+func TestStepWriterBatchedArtifactPublishUpdatesArtifactState(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	if _, _, err := store.EnsureChat("chat-artifact-batch", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	writer := NewStepWriter(store, "chat-artifact-batch", "run-artifact-batch", "REACT", false)
+	writer.OnEvent(stream.EventData{
+		Type:      "run.start",
+		Timestamp: 1000,
+		Payload:   map[string]any{"chatId": "chat-artifact-batch", "runId": "run-artifact-batch"},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "artifact.publish",
+		Timestamp: 1001,
+		Payload: map[string]any{
+			"chatId":        "chat-artifact-batch",
+			"runId":         "run-artifact-batch",
+			"artifactCount": 2,
+			"artifacts": []map[string]any{
+				{
+					"artifactId": "artifact_1",
+					"type":       "file",
+					"name":       "report.md",
+					"mimeType":   "text/markdown",
+					"sizeBytes":  123,
+					"url":        "/api/resource?file=chat-artifact-batch%2Freport.md",
+					"sha256":     "abc123",
+				},
+				{
+					"artifactId": "artifact_2",
+					"type":       "file",
+					"name":       "summary.txt",
+					"mimeType":   "text/plain",
+					"sizeBytes":  45,
+					"url":        "/api/resource?file=chat-artifact-batch%2Fsummary.txt",
+					"sha256":     "def456",
+				},
+			},
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "content.snapshot",
+		Timestamp: 1002,
+		Payload: map[string]any{
+			"contentId": "run-artifact-batch_c_1",
+			"runId":     "run-artifact-batch",
+			"text":      "done",
+		},
+	})
+	writer.Flush()
+
+	detail, err := store.LoadChat("chat-artifact-batch")
+	if err != nil {
+		t.Fatalf("load chat: %v", err)
+	}
+	if detail.Artifact == nil || len(detail.Artifact.Items) != 2 {
+		t.Fatalf("expected two artifacts in detail state, got %#v", detail.Artifact)
+	}
+	if detail.Artifact.Items[0].ArtifactID != "artifact_1" || detail.Artifact.Items[0].SizeBytes != 123 {
+		t.Fatalf("unexpected first artifact %#v", detail.Artifact.Items[0])
+	}
+	if detail.Artifact.Items[1].ArtifactID != "artifact_2" || detail.Artifact.Items[1].SHA256 != "def456" {
+		t.Fatalf("unexpected second artifact %#v", detail.Artifact.Items[1])
+	}
+}
+
+func TestLoadChatReplaysLegacyArtifactPublishEvent(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	if _, _, err := store.EnsureChat("chat-artifact-legacy", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	legacyEvents := []stream.EventData{
+		{
+			Type:      "chat.start",
+			Timestamp: 1000,
+			Payload: map[string]any{
+				"chatId":   "chat-artifact-legacy",
+				"chatName": "hello",
+			},
+		},
+		{
+			Type:      "request.query",
+			Timestamp: 1001,
+			Payload: map[string]any{
+				"chatId":  "chat-artifact-legacy",
+				"runId":   "run-artifact-legacy",
+				"message": "publish files",
+			},
+		},
+		{
+			Type:      "run.start",
+			Timestamp: 1002,
+			Payload: map[string]any{
+				"chatId": "chat-artifact-legacy",
+				"runId":  "run-artifact-legacy",
+			},
+		},
+		{
+			Type:      "artifact.publish",
+			Timestamp: 1003,
+			Payload: map[string]any{
+				"artifactId": "artifact_legacy",
+				"chatId":     "chat-artifact-legacy",
+				"runId":      "run-artifact-legacy",
+				"artifact": map[string]any{
+					"type":      "file",
+					"name":      "legacy.txt",
+					"mimeType":  "text/plain",
+					"sizeBytes": 21,
+					"url":       "/api/resource?file=chat-artifact-legacy%2Flegacy.txt",
+					"sha256":    "legacyhash",
+				},
+			},
+		},
+		{
+			Type:      "run.complete",
+			Timestamp: 1004,
+			Payload: map[string]any{
+				"runId": "run-artifact-legacy",
+			},
+		},
+	}
+
+	for idx := range legacyEvents {
+		legacyEvents[idx].Seq = int64(idx + 1)
+		if err := store.AppendEvent("chat-artifact-legacy", legacyEvents[idx]); err != nil {
+			t.Fatalf("append legacy event: %v", err)
+		}
+	}
+
+	detail, err := store.LoadChat("chat-artifact-legacy")
+	if err != nil {
+		t.Fatalf("load chat: %v", err)
+	}
+	if detail.Artifact == nil || len(detail.Artifact.Items) != 1 {
+		t.Fatalf("expected one legacy artifact, got %#v", detail.Artifact)
+	}
+	item := detail.Artifact.Items[0]
+	if item.ArtifactID != "artifact_legacy" || item.Name != "legacy.txt" || item.MimeType != "text/plain" || item.SizeBytes != 21 || item.SHA256 != "legacyhash" {
+		t.Fatalf("unexpected legacy artifact %#v", item)
 	}
 }

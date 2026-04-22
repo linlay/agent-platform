@@ -2,6 +2,7 @@ package server
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,14 +56,14 @@ func (s *Server) buildRuntimeRequestContext(input runtimeRequestContextInput) (c
 		LocalMode:    s.deps.Config.IsLocalMode(),
 		Scene:        input.scene,
 		References:   append([]api.Reference(nil), input.references...),
-		LocalPaths:   resolveLocalPaths(s.deps.Config.Paths, input.chatID),
+		LocalPaths:   resolveLocalPaths(s.deps.Config.Paths, input.chatID, input.definition.AgentDir),
 		SandboxPaths: resolveSandboxPaths(s.deps.Config, input.definition, input.chatID),
 		AgentDigests: buildAgentDigests(s.deps.Registry),
 	}
 	if input.principal != nil {
 		context.AuthIdentity = buildAuthIdentity(input.principal)
 	}
-	if containsContextTag(input.definition.ContextTags, "sandbox") && s.deps.Config.ContainerHub.Enabled {
+	if hasSandboxConfig(input.definition.Sandbox) && s.deps.Config.ContainerHub.Enabled {
 		sandboxContext, err := buildSandboxContext(s.deps.Config, input.definition)
 		if err != nil {
 			return contracts.RuntimeRequestContext{}, err
@@ -72,7 +73,7 @@ func (s *Server) buildRuntimeRequestContext(input runtimeRequestContextInput) (c
 	return context, nil
 }
 
-func buildSkillCatalogPrompt(def catalog.AgentDefinition, registry catalog.Registry, appendConfig contracts.PromptAppendConfig) string {
+func buildSkillCatalogPrompt(def catalog.AgentDefinition, marketDir string, appendConfig contracts.PromptAppendConfig) string {
 	if len(def.Skills) == 0 {
 		return ""
 	}
@@ -87,7 +88,11 @@ func buildSkillCatalogPrompt(def catalog.AgentDefinition, registry catalog.Regis
 			continue
 		}
 		seen[skillID] = struct{}{}
-		definition, ok := resolveSkillDefinition(def, registry, skillID)
+		definition, ok, err := catalog.ResolveSkillDefinition(def.AgentDir, marketDir, skillID)
+		if err != nil {
+			log.Printf("[server][skill-catalog][warn] resolve skill %s failed: %v", skillID, err)
+			continue
+		}
 		if !ok {
 			continue
 		}
@@ -106,60 +111,36 @@ func buildSkillCatalogPrompt(def catalog.AgentDefinition, registry catalog.Regis
 	return strings.TrimSpace(appendConfig.Skill.CatalogHeader) + "\n\n" + strings.Join(blocks, "\n\n---\n\n")
 }
 
-func resolveSkillDefinition(def catalog.AgentDefinition, registry catalog.Registry, skillID string) (catalog.SkillDefinition, bool) {
-	if def.AgentDir != "" {
-		skillPath := filepath.Join(def.AgentDir, "skills", skillID, "SKILL.md")
-		if content, err := os.ReadFile(skillPath); err == nil {
-			prompt := strings.TrimSpace(string(content))
-			description := firstNonEmptyMarkdownLine(prompt)
-			return catalog.SkillDefinition{
-				Key:         skillID,
-				Name:        localSkillDisplayName(description, skillID),
-				Description: description,
-				Prompt:      prompt,
-			}, true
-		}
-	}
-	return registry.SkillDefinition(skillID)
-}
-
-func firstNonEmptyMarkdownLine(content string) string {
-	for _, line := range strings.Split(content, "\n") {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
-		trimmed = strings.TrimLeft(trimmed, "#-* ")
-		if trimmed == "" {
-			continue
-		}
-		return trimmed
-	}
-	return ""
-}
-
-func localSkillDisplayName(description string, fallback string) string {
-	if strings.TrimSpace(description) != "" {
-		return strings.TrimSpace(description)
-	}
-	return fallback
-}
-
-func resolveLocalPaths(paths config.PathsConfig, chatID string) contracts.LocalPaths {
+func resolveLocalPaths(paths config.PathsConfig, chatID string, agentDir string) contracts.LocalPaths {
 	runtimeHome := filepath.Dir(filepath.Clean(paths.AgentsDir))
 	workingDirectory, _ := os.Getwd()
 	attachmentsDir := cleanOrEmpty(filepath.Join(paths.ChatsDir, strings.TrimSpace(chatID)))
+	agentDir = cleanOrEmpty(agentDir)
+	agentSkillsDir := ""
+	if agentDir != "" {
+		agentSkillsDir = cleanOrEmpty(filepath.Join(agentDir, "skills"))
+	}
 	return contracts.LocalPaths{
 		RuntimeHome:        runtimeHome,
 		WorkingDirectory:   cleanOrEmpty(workingDirectory),
 		RootDir:            cleanOrEmpty(paths.RootDir),
+		PanDir:             cleanOrEmpty(paths.PanDir),
+		AgentDir:           agentDir,
 		AgentsDir:          cleanOrEmpty(paths.AgentsDir),
+		TeamsDir:           cleanOrEmpty(paths.TeamsDir),
 		ChatsDir:           cleanOrEmpty(paths.ChatsDir),
 		MemoryDir:          cleanOrEmpty(paths.MemoryDir),
 		DataDir:            cleanOrEmpty(paths.ChatsDir),
-		SkillsDir:          cleanOrEmpty(paths.SkillsMarketDir),
+		SkillsDir:          agentSkillsDir,
+		SkillsMarketDir:    cleanOrEmpty(paths.SkillsMarketDir),
 		SchedulesDir:       cleanOrEmpty(paths.SchedulesDir),
 		OwnerDir:           cleanOrEmpty(paths.OwnerDir),
+		ModelsDir:          cleanOrEmpty(filepath.Join(paths.RegistriesDir, "models")),
+		ProvidersDir:       cleanOrEmpty(filepath.Join(paths.RegistriesDir, "providers")),
+		MCPServersDir:      cleanOrEmpty(filepath.Join(paths.RegistriesDir, "mcp-servers")),
+		ViewportServersDir: cleanOrEmpty(filepath.Join(paths.RegistriesDir, "viewport-servers")),
+		ToolsDir:           cleanOrEmpty(paths.ToolsDir),
+		ViewportsDir:       cleanOrEmpty(filepath.Join(paths.RegistriesDir, "viewports")),
 		ChatAttachmentsDir: attachmentsDir,
 	}
 }
@@ -381,7 +362,7 @@ func buildSandboxContext(cfg config.Config, def catalog.AgentDefinition) (*contr
 		DefaultEnvironmentID:    defaultEnvironmentID,
 		Level:                   level,
 		ContainerHubEnabled:     cfg.ContainerHub.Enabled,
-		UsesSandboxBash:         containsString(def.Tools, "_sandbox_bash_"),
+		UsesSandboxBash:         hasSandboxConfig(def.Sandbox),
 		ExtraMounts:             summarizeExtraMounts(def),
 		EnvironmentPrompt:       prompt,
 	}, nil
@@ -428,15 +409,6 @@ func summarizeExtraMounts(def catalog.AgentDefinition) []string {
 		}
 	}
 	return out
-}
-
-func containsContextTag(tags []string, needle string) bool {
-	for _, tag := range tags {
-		if strings.EqualFold(strings.TrimSpace(tag), needle) {
-			return true
-		}
-	}
-	return false
 }
 
 func firstStringClaim(claims map[string]any, keys ...string) string {

@@ -27,8 +27,15 @@ func (s *Server) listChatSummaries(lastRunID string, agentKey string) ([]api.Cha
 			UpdatedAt:      item.UpdatedAt,
 			LastRunID:      item.LastRunID,
 			LastRunContent: item.LastRunContent,
-			ReadStatus:     item.ReadStatus,
-			ReadAt:         item.ReadAt,
+			Read:           toAPIReadState(item.Read),
+		}
+		if item.PendingAwaiting != nil {
+			resp.PendingAwaiting = &api.PendingAwaiting{
+				AwaitingID: item.PendingAwaiting.AwaitingID,
+				RunID:      item.PendingAwaiting.RunID,
+				Mode:       item.PendingAwaiting.Mode,
+				CreatedAt:  item.PendingAwaiting.CreatedAt,
+			}
 		}
 		if item.Usage != nil && item.Usage.TotalTokens > 0 {
 			resp.Usage = &api.ChatUsageData{
@@ -147,7 +154,7 @@ func (s *Server) handleRead(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "chatId is required"))
 		return
 	}
-	summary, err := s.deps.Chats.MarkRead(req.ChatID)
+	summary, err := s.deps.Chats.MarkRead(req.ChatID, req.RunID)
 	if errors.Is(err, chat.ErrChatNotFound) {
 		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "chat not found"))
 		return
@@ -156,18 +163,11 @@ func (s *Server) handleRead(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
-	readAt := int64(0)
-	if summary.ReadAt != nil {
-		readAt = *summary.ReadAt
+	agentUnreadCount, err := s.agentUnreadCount(summary.AgentKey)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
+		return
 	}
-	writeJSON(w, http.StatusOK, api.Success(api.MarkChatReadResponse{
-		ChatID:     summary.ChatID,
-		ReadStatus: summary.ReadStatus,
-		ReadAt:     readAt,
-	}))
-	s.broadcast("chat.read", map[string]any{
-		"chatId":     summary.ChatID,
-		"readStatus": summary.ReadStatus,
-		"readAt":     readAt,
-	})
+	writeJSON(w, http.StatusOK, api.Success(s.buildMarkReadResponse(summary, agentUnreadCount)))
+	s.broadcastChatReadState("chat.read", summary, agentUnreadCount)
 }

@@ -39,6 +39,10 @@ type Conn struct {
 	cfg               config.WebSocketConfig
 	heartbeatInterval time.Duration
 
+	// silent=true 时：Run 不主动发 push.connected，writeLoop 不发 push.heartbeat / auth.expiring。
+	// 用于 agent-platform 反向连出到网关的场景——网关按自己的节奏发注册 ACK，我们只做被动应答。
+	silent bool
+
 	authMu sync.RWMutex
 	auth   AuthSession
 
@@ -54,6 +58,15 @@ type Conn struct {
 }
 
 var nextSessionID atomic.Int64
+
+// NewSilentConn 是 NewConn 的变体，用于 agent-platform 反向连出到网关的场景：
+// 不主动发 push.connected / heartbeat / auth.expiring，其他行为（读 request frame、
+// hub 广播、stream/response 等）完全复用。
+func NewSilentConn(socket *gws.Conn, hub *Hub, cfg config.WebSocketConfig, heartbeatInterval time.Duration, auth AuthSession) *Conn {
+	c := NewConn(socket, hub, cfg, heartbeatInterval, auth)
+	c.silent = true
+	return c
+}
 
 func NewConn(socket *gws.Conn, hub *Hub, cfg config.WebSocketConfig, heartbeatInterval time.Duration, auth AuthSession) *Conn {
 	if cfg.MaxMessageSizeBytes <= 0 {
@@ -131,7 +144,9 @@ func (c *Conn) Run(dispatch RouteHandler) {
 	})
 
 	go c.writeLoop()
-	c.SendPush("connected", map[string]any{"sessionId": c.sessionID})
+	if !c.silent {
+		c.SendPush("connected", map[string]any{"sessionId": c.sessionID})
+	}
 
 	for {
 		_, data, err := c.socket.ReadMessage()
@@ -231,6 +246,7 @@ func (c *Conn) StartStreamForward(requestID string, observer *stream.Observer) {
 		return
 	}
 	go func() {
+		defer observer.MarkDone()
 		var (
 			lastSeq int64
 			reason  = "detached"
@@ -377,13 +393,13 @@ func (c *Conn) writeLoop() {
 		case <-c.closed:
 			return
 		case <-heartbeatTicker.C:
-			if !c.isClosed() {
+			if !c.silent && !c.isClosed() {
 				c.SendPush("heartbeat", map[string]any{"timestamp": time.Now().UnixMilli()})
 			}
 			expiresAt := c.expiresAt()
 			if expiresAt > 0 {
 				now := time.Now().UnixMilli()
-				if !authWarningSent && expiresAt-now <= 30000 && expiresAt > now {
+				if !c.silent && !authWarningSent && expiresAt-now <= 30000 && expiresAt > now {
 					authWarningSent = true
 					c.SendPush("auth.expiring", map[string]any{"expiresAt": expiresAt})
 				}

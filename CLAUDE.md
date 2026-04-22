@@ -227,6 +227,7 @@ sandboxConfig:
 - `GET /api/chat?chatId=...`：返回 chat 详情，`includeRawMessages=true` 时附带 `rawMessages`
 - `POST /api/read`：将 chat 标记为已读
 - `POST /api/query`：返回 SSE；支持可选 `runId` 透传；缺失 `runId` 时服务端按 `base36(epochMillis)` 生成，缺失 `requestId` / `chatId` 时服务端自动生成，缺失 `agentKey` 时回退到默认 agent
+- `GET /api/attach?runId=...&lastSeq=...`：续接已注册 run 的 SSE 事件流；run 超过 retention 时返回 `SEQ_EXPIRED`
 - `POST /api/submit`：当前返回最小 ack，占位 awaiting 提交链路；请求体要求 `runId + awaitingId`
 - `POST /api/steer`：当前返回最小 ack，占位运行中 steer 链路
 - `POST /api/interrupt`：中断活跃 run 并返回 ack
@@ -288,6 +289,17 @@ sandboxConfig:
 - approval / form：`tool.start -> tool.args* -> tool.end -> awaiting.ask -> request.submit -> awaiting.answer -> tool.result`
 - `request.submit` 透传前端原始数组，便于审计；`awaiting.answer` 才是后端归一化后的结构化结果。
 - 历史 `events.jsonl` 中旧的 `cancelled/reason` 形状不再兼容；新前端会按未知旧态回退展示。
+
+### Agent 调度 task
+
+- `_agent_invoke_` 是批量调度原语，不走 `ToolExecutor.Invoke`；主 agent 识别到该 tool call 后，会先保留主时间线上的 `tool.start/args/end/snapshot`，再由 server 侧编排层并发启动 `1~3` 个子 agent。
+- 编排层会先顺序 emit 每个 `task.start`，并为同一批任务附上相同 `groupId`；随后由多个 goroutine 并发消费子 stream，再汇聚回主 goroutine 发出带精确 `taskId` 的子流 delta。
+- 子 agent 复用现有 `task.start / task.complete / task.cancel / task.fail` 协议；`task.start` 额外携带 `groupId`、`subAgentKey` 和 `mainToolId`，终态 task 事件额外携带 `status`。
+- `runId` 始终保持主 RunID；前端通过 `taskId` 把子流事件归到子面板，通过 `mainToolId` 把主时间线上的 `_agent_invoke_` 节点和聚合卡片关联起来。
+- 全部子任务结束后，编排层会按输入顺序聚合子结果，并仅向主 `mainToolID` 单次 `InjectToolResult`；主上下文只消费这份聚合后的 `tool.result` 文本。
+- 当前版本严格禁止嵌套：`_agent_invoke_` 只对主 `REACT/ONESHOT` agent 可用，子 agent 也只能是 `REACT/ONESHOT`，且子 agent 的可用工具集中会滤掉 `_agent_invoke_`；`tasks` 长度必须满足 `1 ≤ n ≤ 3`。
+- 三流分离是硬约束：子 agent 中间的 reasoning、tool 调用、content delta 只进入 SSE/events replay，不进入主 `llmRunStream.messages`，也不进入 `raw_messages`；主上下文只消费子 agent 的最终 `tool.result` 文本。
+- `dispatcher.activeTaskID` 仍然是单值；子流的 `content.start / reasoning.start / tool.start / action.start` 如果输入 `taskId` 为空，会自动兜底为当前活跃 taskId，因此不需要引入 task 栈。
 
 ## 7. 开发要点
 

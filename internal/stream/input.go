@@ -95,36 +95,42 @@ func (PlanUpdate) streamInputTag() {}
 type TaskStart struct {
 	TaskID      string
 	RunID       string
+	GroupID     string
 	TaskName    string
 	Description string
+	SubAgentKey string
+	MainToolID  string
 }
 
 func (TaskStart) streamInputTag() {}
 
 type TaskComplete struct {
 	TaskID string
+	Status string
 }
 
 func (TaskComplete) streamInputTag() {}
 
 type TaskCancel struct {
 	TaskID string
+	Status string
 }
 
 func (TaskCancel) streamInputTag() {}
 
 type TaskFail struct {
 	TaskID string
+	Status string
 	Error  map[string]any
 }
 
 func (TaskFail) streamInputTag() {}
 
 type ArtifactPublish struct {
-	ArtifactID string
-	ChatID     string
-	RunID      string
-	Artifact   any
+	ChatID        string
+	RunID         string
+	ArtifactCount int
+	Artifacts     []map[string]any
 }
 
 func (ArtifactPublish) streamInputTag() {}
@@ -208,7 +214,11 @@ func (RequestSteer) streamInputTag() {}
 
 type InputDebugPreCall struct {
 	ChatID                string
+	ProviderKey           string
+	ProviderEndpoint      string
 	ModelKey              string
+	ModelID               string
+	RequestBody           map[string]any
 	ContextWindow         int
 	CurrentContextSize    int
 	EstimatedNextCallSize int

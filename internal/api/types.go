@@ -176,18 +176,6 @@ type InterruptResponse struct {
 	Detail   string `json:"detail"`
 }
 
-type RunStatusResponse struct {
-	RunID         string `json:"runId"`
-	ChatID        string `json:"chatId"`
-	AgentKey      string `json:"agentKey"`
-	State         string `json:"state"`
-	LastSeq       int64  `json:"lastSeq"`
-	OldestSeq     int64  `json:"oldestSeq"`
-	ObserverCount int    `json:"observerCount"`
-	StartedAt     int64  `json:"startedAt"`
-	CompletedAt   int64  `json:"completedAt,omitempty"`
-}
-
 type LearnRequest struct {
 	RequestID  string `json:"requestId,omitempty"`
 	ChatID     string `json:"chatId"`
@@ -308,7 +296,13 @@ type AgentSummary struct {
 	Icon        any            `json:"icon,omitempty"`
 	Description string         `json:"description,omitempty"`
 	Role        string         `json:"role,omitempty"`
+	Stats       AgentChatStats `json:"stats"`
 	Meta        map[string]any `json:"meta,omitempty"`
+}
+
+type AgentChatStats struct {
+	TotalCount  int `json:"totalCount"`
+	UnreadCount int `json:"unreadCount"`
 }
 
 type AgentDetailResponse struct {
@@ -360,17 +354,30 @@ type ToolDetailResponse struct {
 }
 
 type ChatSummaryResponse struct {
-	ChatID         string         `json:"chatId"`
-	ChatName       string         `json:"chatName"`
-	AgentKey       string         `json:"agentKey,omitempty"`
-	TeamID         string         `json:"teamId,omitempty"`
-	CreatedAt      int64          `json:"createdAt"`
-	UpdatedAt      int64          `json:"updatedAt"`
-	LastRunID      string         `json:"lastRunId,omitempty"`
-	LastRunContent string         `json:"lastRunContent,omitempty"`
-	ReadStatus     int            `json:"readStatus"`
-	ReadAt         *int64         `json:"readAt,omitempty"`
-	Usage          *ChatUsageData `json:"usage,omitempty"`
+	ChatID          string           `json:"chatId"`
+	ChatName        string           `json:"chatName"`
+	AgentKey        string           `json:"agentKey,omitempty"`
+	TeamID          string           `json:"teamId,omitempty"`
+	CreatedAt       int64            `json:"createdAt"`
+	UpdatedAt       int64            `json:"updatedAt"`
+	LastRunID       string           `json:"lastRunId,omitempty"`
+	LastRunContent  string           `json:"lastRunContent,omitempty"`
+	Read            ChatReadState    `json:"read"`
+	PendingAwaiting *PendingAwaiting `json:"pendingAwaiting,omitempty"`
+	Usage           *ChatUsageData   `json:"usage,omitempty"`
+}
+
+type ChatReadState struct {
+	IsRead    bool   `json:"isRead"`
+	ReadAt    *int64 `json:"readAt,omitempty"`
+	ReadRunID string `json:"readRunId,omitempty"`
+}
+
+type PendingAwaiting struct {
+	AwaitingID string `json:"awaitingId"`
+	RunID      string `json:"runId"`
+	Mode       string `json:"mode"`
+	CreatedAt  int64  `json:"createdAt"`
 }
 
 type ChatUsageData struct {
@@ -381,12 +388,15 @@ type ChatUsageData struct {
 
 type MarkChatReadRequest struct {
 	ChatID string `json:"chatId"`
+	RunID  string `json:"runId,omitempty"`
 }
 
 type MarkChatReadResponse struct {
-	ChatID     string `json:"chatId"`
-	ReadStatus int    `json:"readStatus"`
-	ReadAt     int64  `json:"readAt"`
+	ChatID           string        `json:"chatId"`
+	AgentKey         string        `json:"agentKey,omitempty"`
+	LastRunID        string        `json:"lastRunId,omitempty"`
+	Read             ChatReadState `json:"read"`
+	AgentUnreadCount int           `json:"agentUnreadCount"`
 }
 
 type ChatDetailResponse struct {

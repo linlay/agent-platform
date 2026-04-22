@@ -1,23 +1,13 @@
 package llm
 
 import (
-	"context"
-	"encoding/json"
-	"io"
 	"net/http"
-	"strings"
 	"testing"
 
 	"agent-platform-runner-go/internal/config"
 	. "agent-platform-runner-go/internal/contracts"
 	. "agent-platform-runner-go/internal/models"
 )
-
-type roundTripperFunc func(*http.Request) (*http.Response, error)
-
-func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
-	return f(req)
-}
 
 func TestCompatRequestOverridesMergeAlwaysAndReasoningScopedEntries(t *testing.T) {
 	provider := ProviderDefinition{
@@ -79,7 +69,7 @@ func TestCompatRequestOverridesMergeAlwaysAndReasoningScopedEntries(t *testing.T
 	}
 }
 
-func TestOpenAIProtocolOpenStreamAlwaysRequestOverridesApplyWithoutReasoning(t *testing.T) {
+func TestOpenAIProtocolPrepareRequestExposesDebugPayload(t *testing.T) {
 	tests := []struct {
 		name             string
 		reasoningEnabled bool
@@ -91,25 +81,10 @@ func TestOpenAIProtocolOpenStreamAlwaysRequestOverridesApplyWithoutReasoning(t *
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			var captured map[string]any
-			httpClient := &http.Client{
-				Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
-					defer r.Body.Close()
-					if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
-						t.Fatalf("decode request body: %v", err)
-					}
-					return &http.Response{
-						StatusCode: http.StatusOK,
-						Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
-						Body:       io.NopCloser(strings.NewReader("data: [DONE]\n\n")),
-					}, nil
-				}),
-			}
-
-			engine := NewLLMAgentEngineWithHTTPClient(config.Config{}, nil, nil, nil, nil, httpClient)
+			engine := NewLLMAgentEngineWithHTTPClient(config.Config{}, nil, nil, nil, nil, &http.Client{})
 			protocol := &openAIProtocol{engine: engine}
 
-			stream, err := protocol.OpenStream(context.Background(), protocolStreamParams{
+			prepared, err := protocol.PrepareRequest(protocolStreamParams{
 				provider: ProviderDefinition{
 					Key:     "mock",
 					BaseURL: "https://example.com",
@@ -134,28 +109,45 @@ func TestOpenAIProtocolOpenStreamAlwaysRequestOverridesApplyWithoutReasoning(t *
 				},
 				stageSettings: StageSettings{ReasoningEnabled: tc.reasoningEnabled},
 				messages: []openAIMessage{
+					{Role: "system", Content: "system prompt"},
 					{Role: "user", Content: "hi"},
 				},
+				toolSpecs: []openAIToolSpec{{
+					Type: "function",
+					Function: openAIToolDefinition{
+						Name:        "search",
+						Description: "search docs",
+						Parameters: map[string]any{
+							"type": "object",
+						},
+					},
+				}},
 			})
 			if err != nil {
-				t.Fatalf("OpenStream returned error: %v", err)
-			}
-			if stream != nil && stream.body != nil {
-				_ = stream.body.Close()
+				t.Fatalf("PrepareRequest returned error: %v", err)
 			}
 
-			if captured["reasoning_split"] != true {
-				t.Fatalf("expected reasoning_split=true in request body, got %#v", captured)
+			if prepared.Endpoint != "https://example.com/v1/chat/completions" {
+				t.Fatalf("unexpected endpoint %q", prepared.Endpoint)
 			}
-			_, hasScoped := captured["reasoning_mode"]
+			if prepared.RequestBody["reasoning_split"] != true {
+				t.Fatalf("expected reasoning_split=true in request body, got %#v", prepared.RequestBody)
+			}
+			_, hasScoped := prepared.RequestBody["reasoning_mode"]
 			if hasScoped != tc.wantScoped {
-				t.Fatalf("expected reasoning_mode present=%v, got body %#v", tc.wantScoped, captured)
+				t.Fatalf("expected reasoning_mode present=%v, got body %#v", tc.wantScoped, prepared.RequestBody)
+			}
+			if _, ok := prepared.RequestBody["messages"].([]any); !ok {
+				t.Fatalf("expected normalized messages array, got %#v", prepared.RequestBody["messages"])
+			}
+			if tools, _ := prepared.RequestBody["tools"].([]any); len(tools) != 1 {
+				t.Fatalf("expected one tool in request body, got %#v", prepared.RequestBody)
 			}
 		})
 	}
 }
 
-func TestAnthropicBuildRequestBodyAlwaysRequestOverridesApplyWithoutReasoning(t *testing.T) {
+func TestAnthropicPrepareRequestExposesDebugPayload(t *testing.T) {
 	tests := []struct {
 		name             string
 		reasoningEnabled bool
@@ -169,13 +161,28 @@ func TestAnthropicBuildRequestBodyAlwaysRequestOverridesApplyWithoutReasoning(t 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			protocol := &anthropicProtocol{engine: &LLMAgentEngine{}}
-			body, _, err := protocol.buildRequestBody(
-				ModelDefinition{ModelID: "claude-test"},
-				StageSettings{ReasoningEnabled: tc.reasoningEnabled},
-				[]openAIMessage{{Role: "user", Content: "hi"}},
-				nil,
-				"",
-				protocolRuntimeConfig{
+			prepared, err := protocol.PrepareRequest(protocolStreamParams{
+				provider: ProviderDefinition{
+					Key:     "anthropic",
+					BaseURL: "https://example.com",
+					APIKey:  "token",
+				},
+				model:         ModelDefinition{ModelID: "claude-test"},
+				stageSettings: StageSettings{ReasoningEnabled: tc.reasoningEnabled},
+				messages: []openAIMessage{
+					{Role: "system", Content: "anthropic system"},
+					{Role: "user", Content: "hi"},
+				},
+				toolSpecs: []openAIToolSpec{{
+					Type: "function",
+					Function: openAIToolDefinition{
+						Name: "search",
+						Parameters: map[string]any{
+							"type": "object",
+						},
+					},
+				}},
+				protocolConfig: protocolRuntimeConfig{
 					Compat: map[string]any{
 						"request": map[string]any{
 							"always": map[string]any{
@@ -189,23 +196,26 @@ func TestAnthropicBuildRequestBodyAlwaysRequestOverridesApplyWithoutReasoning(t 
 						},
 					},
 				},
-			)
+			})
 			if err != nil {
-				t.Fatalf("buildRequestBody returned error: %v", err)
+				t.Fatalf("PrepareRequest returned error: %v", err)
 			}
 
-			if body["anthropic-beta"] != "tools-2024-04-04" {
-				t.Fatalf("expected unconditional anthropic override, got %#v", body)
+			if prepared.RequestBody["anthropic-beta"] != "tools-2024-04-04" {
+				t.Fatalf("expected unconditional anthropic override, got %#v", prepared.RequestBody)
 			}
-			_, hasThinking := body["thinking"]
+			_, hasThinking := prepared.RequestBody["thinking"]
 			if hasThinking != tc.wantThinking {
-				t.Fatalf("expected thinking present=%v, got %#v", tc.wantThinking, body)
+				t.Fatalf("expected thinking present=%v, got %#v", tc.wantThinking, prepared.RequestBody)
 			}
 			if tc.wantScoped {
-				thinking, _ := body["thinking"].(map[string]any)
-				if thinking["budget_tokens"] != 8192 {
-					t.Fatalf("expected compat thinking override to win, got %#v", body)
+				thinking, _ := prepared.RequestBody["thinking"].(map[string]any)
+				if AnyIntNode(thinking["budget_tokens"]) != 8192 {
+					t.Fatalf("expected compat thinking override to win, got %#v", prepared.RequestBody)
 				}
+			}
+			if tools, _ := prepared.RequestBody["tools"].([]any); len(tools) != 1 {
+				t.Fatalf("expected one tool in request body, got %#v", prepared.RequestBody)
 			}
 		})
 	}

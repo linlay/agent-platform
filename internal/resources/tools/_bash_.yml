@@ -1,6 +1,6 @@
 name: _bash_
-label: 执行命令（宿主机）
-description: Run allowlisted bash commands on the host. Strict mode is used by default, with optional support for advanced shell syntax such as pipes, redirection, and here-doc. When calling this tool, always include a short Chinese description explaining the command purpose.
+label: 执行命令
+description: Run allowlisted bash commands on the host. Full shell syntax is enabled by default, and callers should prefer cwd over inline directory changes when they need to run in another directory. When calling this tool, always include a short Chinese description explaining the command purpose.
 submitResultFormat: json-compact
 type: function
 inputSchema:
@@ -8,10 +8,16 @@ inputSchema:
   properties:
     command:
       type: string
-      description: Required. Command string. Strict mode supports only a single command by default; when shell-features-enabled is enabled, advanced syntax such as pipes, redirection, and here-doc is also allowed.
+      description: Required. Shell command. 支持 pipes、redirection、&&/||；若需在子进程内切目录，优先使用 cwd 参数。
     description:
       type: string
       description: Required. 这条命令的用途简述（一句话，中文），会在需要人工审批时展示给用户。
+    cwd:
+      type: string
+      description: Working directory for this execution. When empty, the host bash working directory default is used.
+    timeout_ms:
+      type: integer
+      description: Execution timeout in milliseconds.
   required:
     - command
     - description

@@ -158,6 +158,84 @@ func (s *Server) ExecuteInternalQuery(ctx context.Context, req api.QueryRequest)
 	return rec.Code, strings.TrimSpace(rec.Body.String()), nil
 }
 
+// ExecuteInternalQueryStream reuses the normal query pipeline for in-process
+// callers that need to react to each SSE event as it is emitted (e.g. the
+// gateway bridge). onEvent receives the raw JSON payload of each `data:` line
+// except the `[DONE]` sentinel. Returning an error from onEvent aborts further
+// streaming but does not cancel the underlying run.
+func (s *Server) ExecuteInternalQueryStream(
+	ctx context.Context,
+	req api.QueryRequest,
+	onEvent func(eventJSON []byte) error,
+) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	body, err := json.Marshal(req)
+	if err != nil {
+		return err
+	}
+	httpReq := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewReader(body)).WithContext(ctx)
+	httpReq.Header.Set("Content-Type", "application/json")
+	rw := newSSEInterceptor(onEvent)
+	s.handleQuery(rw, httpReq)
+	return rw.err
+}
+
+type sseInterceptor struct {
+	header  http.Header
+	buf     bytes.Buffer
+	onEvent func([]byte) error
+	err     error
+}
+
+func newSSEInterceptor(onEvent func([]byte) error) *sseInterceptor {
+	return &sseInterceptor{header: http.Header{}, onEvent: onEvent}
+}
+
+func (w *sseInterceptor) Header() http.Header { return w.header }
+
+func (w *sseInterceptor) WriteHeader(int) {}
+
+func (w *sseInterceptor) Write(p []byte) (int, error) {
+	n := len(p)
+	w.buf.Write(p)
+	for {
+		idx := bytes.Index(w.buf.Bytes(), []byte("\n\n"))
+		if idx < 0 {
+			break
+		}
+		frame := make([]byte, idx)
+		copy(frame, w.buf.Bytes()[:idx])
+		w.buf.Next(idx + 2)
+		var payload []byte
+		for _, line := range bytes.Split(frame, []byte("\n")) {
+			if bytes.HasPrefix(line, []byte("data:")) {
+				chunk := bytes.TrimPrefix(line, []byte("data:"))
+				chunk = bytes.TrimPrefix(chunk, []byte(" "))
+				if len(payload) > 0 {
+					payload = append(payload, '\n')
+				}
+				payload = append(payload, chunk...)
+			}
+		}
+		if len(payload) == 0 {
+			continue
+		}
+		if bytes.Equal(bytes.TrimSpace(payload), []byte(stream.DoneSentinel)) {
+			continue
+		}
+		if w.err == nil && w.onEvent != nil {
+			if err := w.onEvent(payload); err != nil {
+				w.err = err
+			}
+		}
+	}
+	return n, nil
+}
+
+func (w *sseInterceptor) Flush() {}
+
 func withSyncQueryContext(ctx context.Context) context.Context {
 	return context.WithValue(ctx, syncQueryContextKey{}, true)
 }
@@ -273,8 +351,7 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/session-search", s.method(http.MethodPost, s.handleSessionSearch))
 	s.router.HandleFunc("/api/read", s.method(http.MethodPost, s.handleRead))
 	s.router.HandleFunc("/api/query", s.method(http.MethodPost, s.handleQuery))
-	s.router.HandleFunc("/api/run/stream", s.method(http.MethodGet, s.handleRunStream))
-	s.router.HandleFunc("/api/run/status", s.method(http.MethodGet, s.handleRunStatus))
+	s.router.HandleFunc("/api/attach", s.method(http.MethodGet, s.handleAttach))
 	s.router.HandleFunc("/api/submit", s.method(http.MethodPost, s.handleSubmit))
 	s.router.HandleFunc("/api/steer", s.method(http.MethodPost, s.handleSteer))
 	s.router.HandleFunc("/api/interrupt", s.method(http.MethodPost, s.handleInterrupt))
@@ -335,12 +412,38 @@ func (s *Server) toolLookup() contracts.ToolDefinitionLookup {
 	return s.deps.Registry
 }
 
+func (s *Server) toolLookupWithOverrides(overrides map[string]api.ToolDetailResponse) contracts.ToolDefinitionLookup {
+	base := s.toolLookup()
+	if len(overrides) == 0 {
+		return base
+	}
+	return overrideToolLookup{
+		base:      base,
+		overrides: cloneToolOverrides(overrides),
+	}
+}
+
+func (s *Server) lookupInternalTool(toolName string) (api.ToolDetailResponse, bool) {
+	if tl, ok := s.deps.Tools.(contracts.ToolDefinitionLookup); ok {
+		if tool, exists := tl.Tool(toolName); exists {
+			return tool, true
+		}
+	}
+	return s.deps.Registry.Tool(toolName)
+}
+
 func (s *Server) listTools(kind string, tag string) []api.ToolSummary {
 	needleKind := strings.ToLower(strings.TrimSpace(kind))
 	needleTag := strings.ToLower(strings.TrimSpace(tag))
 	defs := s.deps.Tools.Definitions()
 	items := make([]api.ToolSummary, 0, len(defs))
+	seen := map[string]struct{}{}
 	for _, tool := range defs {
+		canonical, ok := canonicalizePublicToolDefinition(tool)
+		if !ok {
+			continue
+		}
+		tool = canonical
 		metaKind, _ := tool.Meta["kind"].(string)
 		if needleKind != "" && strings.ToLower(strings.TrimSpace(metaKind)) != needleKind {
 			continue
@@ -348,6 +451,11 @@ func (s *Server) listTools(kind string, tag string) []api.ToolSummary {
 		if needleTag != "" && !matchesToolTag(tool, needleTag) {
 			continue
 		}
+		normalized := strings.ToLower(strings.TrimSpace(tool.Name))
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		seen[normalized] = struct{}{}
 		items = append(items, api.ToolSummary{
 			Key:         tool.Key,
 			Name:        tool.Name,
@@ -360,12 +468,20 @@ func (s *Server) listTools(kind string, tag string) []api.ToolSummary {
 }
 
 func (s *Server) lookupTool(toolName string) (api.ToolDetailResponse, bool) {
+	switch strings.ToLower(strings.TrimSpace(toolName)) {
+	case "_sandbox_bash_", "_bash_container_":
+		return api.ToolDetailResponse{}, false
+	}
 	if tl, ok := s.deps.Tools.(contracts.ToolDefinitionLookup); ok {
 		if tool, exists := tl.Tool(toolName); exists {
-			return tool, true
+			return canonicalizePublicToolDefinition(tool)
 		}
 	}
-	return s.deps.Registry.Tool(toolName)
+	tool, ok := s.deps.Registry.Tool(toolName)
+	if !ok {
+		return api.ToolDetailResponse{}, false
+	}
+	return canonicalizePublicToolDefinition(tool)
 }
 
 func matchesToolTag(tool api.ToolDetailResponse, needle string) bool {
@@ -465,7 +581,7 @@ func (s *Server) buildAgentDetailResponse(def catalog.AgentDefinition) api.Agent
 		Wonders:     append([]string(nil), def.Wonders...),
 		Model:       modelName,
 		Mode:        def.Mode,
-		Tools:       normalizedAgentTools(def),
+		Tools:       effectiveAgentTools(def),
 		Skills:      append([]string{}, def.Skills...),
 		Controls:    cloneListMaps(def.Controls),
 		Meta:        meta,
@@ -524,26 +640,21 @@ func normalizedAgentTools(def catalog.AgentDefinition) []string {
 		seen[key] = struct{}{}
 		tools = append(tools, name)
 	}
-	if hasSandboxConfig(def.Sandbox) {
-		if _, ok := seen["_sandbox_bash_"]; !ok {
-			tools = append(tools, "_sandbox_bash_")
+	if len(def.Skills) > 0 || hasSandboxConfig(def.Sandbox) {
+		if _, ok := seen["_bash_"]; !ok {
+			tools = append(tools, "_bash_")
+			seen["_bash_"] = struct{}{}
 		}
 	}
 	return tools
 }
 
+func effectiveAgentTools(def catalog.AgentDefinition) []string {
+	return normalizedAgentTools(def)
+}
+
 func hasSandboxConfig(sandbox map[string]any) bool {
-	if len(sandbox) == 0 {
-		return false
-	}
-	if strings.TrimSpace(stringValue(sandbox["environmentId"])) != "" {
-		return true
-	}
-	if strings.TrimSpace(stringValue(sandbox["level"])) != "" {
-		return true
-	}
-	mounts, _ := sandbox["extraMounts"].([]map[string]any)
-	return len(mounts) > 0
+	return len(sandbox) > 0
 }
 
 func normalizedSandboxMeta(sandbox map[string]any) map[string]any {
@@ -668,6 +779,50 @@ func cloneToolOverrides(src map[string]api.ToolDetailResponse) map[string]api.To
 		}
 	}
 	return out
+}
+
+func cloneToolDetailResponse(value api.ToolDetailResponse) api.ToolDetailResponse {
+	return api.ToolDetailResponse{
+		Key:           value.Key,
+		Name:          value.Name,
+		Label:         value.Label,
+		Description:   value.Description,
+		AfterCallHint: value.AfterCallHint,
+		Parameters:    contracts.CloneMap(value.Parameters),
+		Meta:          contracts.CloneMap(value.Meta),
+	}
+}
+
+type overrideToolLookup struct {
+	base      contracts.ToolDefinitionLookup
+	overrides map[string]api.ToolDetailResponse
+}
+
+func (o overrideToolLookup) Tool(name string) (api.ToolDetailResponse, bool) {
+	if o.base == nil {
+		return api.ToolDetailResponse{}, false
+	}
+	tool, ok := o.base.Tool(name)
+	if !ok {
+		return api.ToolDetailResponse{}, false
+	}
+	return applyToolOverride(tool, o.overrides), true
+}
+
+func canonicalizePublicToolDefinition(tool api.ToolDetailResponse) (api.ToolDetailResponse, bool) {
+	switch strings.ToLower(strings.TrimSpace(tool.Name)) {
+	case "_sandbox_bash_", "_bash_container_":
+		return api.ToolDetailResponse{}, false
+	case "_bash_":
+		canonical := cloneToolDetailResponse(tool)
+		canonical.Key = "_bash_"
+		canonical.Name = "_bash_"
+		canonical.Label = "执行命令"
+		canonical.Description = "Run a command. Runtime decides whether to execute on the host or inside the sandbox based on the agent's sandboxConfig. Always include a short Chinese description explaining the command purpose."
+		return canonical, true
+	default:
+		return cloneToolDetailResponse(tool), true
+	}
 }
 
 func newRunID() string {

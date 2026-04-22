@@ -122,7 +122,10 @@ func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
 	if err != nil {
 		return preparedQuery{}, err
 	}
-	if created && !isHiddenRequest(req) {
+	if created {
+		// hidden run（schedule 等自发触发）也照常广播 chat.created —— 否则 webclient
+		// 要刷新整个列表才能看到新建的 schedule 会话。隐藏语义只影响 chat 内部消息记录
+		// （不写伪造的"用户发消息"），不影响会话在列表里的可见性。
 		s.broadcast("chat.created", map[string]any{
 			"chatId":    chatID,
 			"chatName":  summary.ChatName,
@@ -130,113 +133,14 @@ func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
 			"timestamp": summary.CreatedAt,
 		})
 	}
-
-	var historyMessages []map[string]any
-	if !created {
-		historyMessages, _ = s.deps.Chats.LoadRawMessages(chatID, s.deps.Config.ChatStorage.K)
-	}
-
-	principal := PrincipalFromContext(r.Context())
-	var stableMemoryContext string
-	var sessionMemoryContext string
-	var observationContext string
-	var memoryUsageSummary *api.MemoryUsageSummary
-	if s.deps.Memory != nil && req.Message != "" {
-		topN := s.deps.Config.Memory.ContextTopN
-		if topN <= 0 {
-			topN = 5
-		}
-		maxChars := s.deps.Config.Memory.ContextMaxChars
-		if maxChars <= 0 {
-			maxChars = 4000
-		}
-		userKey := ""
-		if principal != nil {
-			userKey = strings.TrimSpace(principal.Subject)
-		}
-		if bundle, err := s.deps.Memory.BuildContextBundle(memory.ContextRequest{
-			AgentKey: agentKey,
-			TeamID:   req.TeamID,
-			ChatID:   chatID,
-			UserKey:  userKey,
-			Query:    req.Message,
-			TopFacts: topN,
-			TopObs:   topN,
-			MaxChars: maxChars,
-		}); err != nil {
-			log.Printf("[memory][context] build context bundle failed (chatId=%s agentKey=%s): %v", chatID, agentKey, err)
-		} else {
-			stableMemoryContext = strings.TrimSpace(bundle.StablePrompt)
-			sessionMemoryContext = strings.TrimSpace(bundle.SessionPrompt)
-			observationContext = strings.TrimSpace(bundle.ObservationPrompt)
-			memoryUsageSummary = buildMemoryUsageSummary(strings.TrimSpace(agentDef.StaticMemoryPrompt), bundle)
-		}
-	}
-	runtimeContext, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
-		agentKey:   agentKey,
-		teamID:     req.TeamID,
-		role:       defaultRole(req.Role),
-		chatID:     chatID,
-		chatName:   summary.ChatName,
-		scene:      req.Scene,
-		references: req.References,
-		principal:  principal,
-		definition: agentDef,
+	session, err := s.BuildQuerySession(r.Context(), req, summary, agentDef, querySessionBuildOptions{
+		Created:           created,
+		IncludeHistory:    !created,
+		IncludeMemory:     true,
+		AllowInvokeAgents: canUseInvokeAgentsTool(agentDef.Mode),
 	})
 	if err != nil {
 		return preparedQuery{}, err
-	}
-
-	promptAppend := buildPromptAppendConfig(agentDef)
-	skillHookDirs, sandboxEnvOverrides := resolveSkillRuntimeSettings(sandboxAgentEnv(agentDef.Sandbox["env"]), agentDef.Skills, s.deps.Registry)
-	log.Printf("[server][skill-runtime] agent=%s skills=%v hookDirs=%v sandboxEnvKeys=%v",
-		agentDef.Key,
-		agentDef.Skills,
-		skillHookDirs,
-		sortedStringKeys(sandboxEnvOverrides),
-	)
-	session := contracts.QuerySession{
-		RequestID:             requestID,
-		RunID:                 runID,
-		ChatID:                chatID,
-		ChatName:              summary.ChatName,
-		AgentKey:              agentKey,
-		AgentName:             agentDef.Name,
-		ModelKey:              agentDef.ModelKey,
-		ToolNames:             append([]string(nil), agentDef.Tools...),
-		Mode:                  agentDef.Mode,
-		TeamID:                req.TeamID,
-		Created:               created,
-		SkillKeys:             append([]string(nil), agentDef.Skills...),
-		ContextTags:           append([]string(nil), agentDef.ContextTags...),
-		Budget:                contracts.CloneMap(agentDef.Budget),
-		StageSettings:         contracts.CloneMap(agentDef.StageSettings),
-		ToolOverrides:         cloneToolOverrides(agentDef.ToolOverrides),
-		ResolvedBudget:        contracts.ResolveBudget(s.deps.Config, agentDef.Budget),
-		ResolvedStageSettings: contracts.ResolvePlanExecuteSettings(agentDef.StageSettings, s.deps.Config.Defaults.Plan.MaxSteps, s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask),
-		HistoryMessages:       historyMessages,
-		StableMemoryContext:   stableMemoryContext,
-		SessionMemoryContext:  sessionMemoryContext,
-		ObservationContext:    observationContext,
-		MemoryUsageSummary:    memoryUsageSummary,
-		RuntimeContext:        runtimeContext,
-		PromptAppend:          promptAppend,
-		StaticMemoryPrompt:    strings.TrimSpace(agentDef.StaticMemoryPrompt),
-		MemoryPrompt:          agentDef.MemoryPrompt,
-		SkillCatalogPrompt:    buildSkillCatalogPrompt(agentDef, s.deps.Registry, promptAppend),
-		SoulPrompt:            agentDef.SoulPrompt,
-		AgentsPrompt:          agentDef.AgentsPrompt,
-		PlanPrompt:            agentDef.PlanPrompt,
-		ExecutePrompt:         agentDef.ExecutePrompt,
-		SummaryPrompt:         agentDef.SummaryPrompt,
-		SandboxEnvironmentID:  extractSandboxField(agentDef.Sandbox, "environmentId"),
-		SandboxLevel:          extractSandboxField(agentDef.Sandbox, "level"),
-		SandboxExtraMounts:    sandboxExtraMounts(agentDef.Sandbox["extraMounts"]),
-		SkillHookDirs:         skillHookDirs,
-		SandboxEnvOverrides:   sandboxEnvOverrides,
-	}
-	if principal != nil {
-		session.Subject = principal.Subject
 	}
 
 	return preparedQuery{
@@ -245,7 +149,7 @@ func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
 		created:            created,
 		agentDef:           agentDef,
 		session:            session,
-		memoryUsageSummary: memoryUsageSummary,
+		memoryUsageSummary: session.MemoryUsageSummary,
 	}, nil
 }
 
@@ -425,9 +329,9 @@ func sandboxAgentEnv(value any) map[string]string {
 	}
 }
 
-func resolveSkillRuntimeSettings(agentEnv map[string]string, skillKeys []string, registry catalog.Registry) ([]string, map[string]string) {
+func resolveSkillRuntimeSettings(agentEnv map[string]string, agentDir string, marketDir string, skillKeys []string) ([]string, map[string]string) {
 	sandboxEnv := contracts.CloneStringMap(agentEnv)
-	if len(skillKeys) == 0 || registry == nil {
+	if len(skillKeys) == 0 {
 		return nil, sandboxEnv
 	}
 	seen := map[string]struct{}{}
@@ -441,7 +345,11 @@ func resolveSkillRuntimeSettings(agentEnv map[string]string, skillKeys []string,
 			continue
 		}
 		seen[skillKey] = struct{}{}
-		def, ok := registry.SkillDefinition(skillKey)
+		def, ok, err := catalog.ResolveSkillDefinition(agentDir, marketDir, skillKey)
+		if err != nil {
+			log.Printf("[server][skill-runtime][warn] skill resolution failed key=%s err=%v", skillKey, err)
+			continue
+		}
 		if !ok {
 			log.Printf("[server][skill-runtime][warn] skill definition not found key=%s", skillKey)
 			continue
@@ -492,7 +400,7 @@ func (s *Server) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamEv
 		}
 	}
 	toolTimeoutMs := int64(contracts.NormalizeBudget(prepared.session.ResolvedBudget).Tool.TimeoutMs)
-	mapper := llm.NewDeltaMapper(prepared.req.RunID, prepared.req.ChatID, toolTimeoutMs, s.toolLookup(), s.deps.FrontendTools)
+	mapper := llm.NewDeltaMapper(prepared.req.RunID, prepared.req.ChatID, toolTimeoutMs, s.toolLookupWithOverrides(prepared.session.ToolOverrides), s.deps.FrontendTools)
 	return assembler, mapper
 }
 
@@ -531,24 +439,34 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 		return
 	}
 	defer s.deps.Runs.DetachObserver(prepared.req.RunID, observer.ID)
+	defer observer.MarkDone()
 
 	assembler, mapper := s.newAssemblerAndMapper(prepared)
 	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode, isHiddenRequest(prepared.req))
 
 	StartRunExecutor(RunExecutorParams{
-		RunCtx:        runCtx,
-		Request:       prepared.req,
-		Session:       prepared.session,
-		Summary:       prepared.summary,
-		Agent:         s.deps.Agent,
-		Assembler:     assembler,
-		Mapper:        mapper,
-		SSE:           s.deps.Config.SSE,
-		StepWriter:    stepWriter,
-		EventBus:      eventBus,
-		Chats:         s.deps.Chats,
-		RunControl:    control,
-		Notifications: s.deps.Notifications,
+		RunCtx:            runCtx,
+		Request:           prepared.req,
+		Session:           prepared.session,
+		Summary:           prepared.summary,
+		Agent:             s.deps.Agent,
+		Registry:          s.deps.Registry,
+		Assembler:         assembler,
+		Mapper:            mapper,
+		SSE:               s.deps.Config.SSE,
+		StepWriter:        stepWriter,
+		EventBus:          eventBus,
+		Chats:             s.deps.Chats,
+		RunControl:        control,
+		BuildQuerySession: s.BuildQuerySession,
+		Notifications:     s.deps.Notifications,
+		OnUnreadChanged: func(summary chat.Summary) {
+			agentUnreadCount, err := s.agentUnreadCount(summary.AgentKey)
+			if err != nil {
+				return
+			}
+			s.broadcastChatReadState("chat.unread", summary, agentUnreadCount)
+		},
 		OnPersisted: func(completion chat.RunCompletion) {
 			s.autoLearnIfEnabled(completion.ChatID, completion.RunID, prepared.session.AgentKey, prepared.session.TeamID, principal, prepared.req.RequestID)
 		},
@@ -635,12 +553,19 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 		for _, event := range assembler.Fail(err) {
 			_ = writeEvent(event)
 		}
-		persistRunCompletionIfNeeded(RunExecutorParams{
+		_, _ = persistRunCompletionIfNeeded(RunExecutorParams{
 			Request:       prepared.req,
 			Session:       prepared.session,
 			Chats:         s.deps.Chats,
 			RunControl:    control,
 			Notifications: s.deps.Notifications,
+			OnUnreadChanged: func(summary chat.Summary) {
+				agentUnreadCount, err := s.agentUnreadCount(summary.AgentKey)
+				if err != nil {
+					return
+				}
+				s.broadcastChatReadState("chat.unread", summary, agentUnreadCount)
+			},
 			OnPersisted: func(completion chat.RunCompletion) {
 				s.autoLearnIfEnabled(completion.ChatID, completion.RunID, prepared.session.AgentKey, prepared.session.TeamID, principal, prepared.req.RequestID)
 			},
@@ -683,12 +608,19 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 
 	processor.stepWriter.Flush()
 	if streamFailed || streamInterrupted {
-		persistRunCompletionIfNeeded(RunExecutorParams{
+		_, _ = persistRunCompletionIfNeeded(RunExecutorParams{
 			Request:       prepared.req,
 			Session:       prepared.session,
 			Chats:         s.deps.Chats,
 			RunControl:    control,
 			Notifications: s.deps.Notifications,
+			OnUnreadChanged: func(summary chat.Summary) {
+				agentUnreadCount, err := s.agentUnreadCount(summary.AgentKey)
+				if err != nil {
+					return
+				}
+				s.broadcastChatReadState("chat.unread", summary, agentUnreadCount)
+			},
 			OnPersisted: func(completion chat.RunCompletion) {
 				s.autoLearnIfEnabled(completion.ChatID, completion.RunID, prepared.session.AgentKey, prepared.session.TeamID, principal, prepared.req.RequestID)
 			},
@@ -702,12 +634,19 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 			return
 		}
 	}
-	persistRunCompletionIfNeeded(RunExecutorParams{
+	_, _ = persistRunCompletionIfNeeded(RunExecutorParams{
 		Request:       prepared.req,
 		Session:       prepared.session,
 		Chats:         s.deps.Chats,
 		RunControl:    control,
 		Notifications: s.deps.Notifications,
+		OnUnreadChanged: func(summary chat.Summary) {
+			agentUnreadCount, err := s.agentUnreadCount(summary.AgentKey)
+			if err != nil {
+				return
+			}
+			s.broadcastChatReadState("chat.unread", summary, agentUnreadCount)
+		},
 		OnPersisted: func(completion chat.RunCompletion) {
 			s.autoLearnIfEnabled(completion.ChatID, completion.RunID, prepared.session.AgentKey, prepared.session.TeamID, principal, prepared.req.RequestID)
 		},

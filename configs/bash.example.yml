@@ -1,23 +1,23 @@
-# Bash 低权限预设：适合本地联调，限制路径、命令和 shell 特性。
-# Low-privilege bash preset: suitable for local debugging with restricted paths, commands, and shell features.
+# Bash 默认预设：适合本地联调，默认启用完整 shell 语法；如需收紧可显式关闭 shell-features-enabled。
+# Default bash preset: suitable for local debugging with full shell syntax enabled by default; turn shell-features-enabled off to return to strict mode.
 working-directory: .
 allowed-paths: ., /tmp
-allowed-commands: ls,pwd,cat,head,tail,top,free,df,git,rg,find
+allowed-commands: ls,pwd,cat,head,tail,top,free,df,git,rg,find,echo,printf,sed,awk,grep,wc,sort,uniq,tr,cut,xargs,cd,stat,file,du,test,which,mkdir,touch,cp,mv,rm,ln,chmod,env,date,bash,sh,make,go,npm,yarn,pnpm,node,python,python3,pip,curl,wget
 path-checked-commands: ls,cat,head,tail,git,rg,find
 path-check-bypass-commands: git
-shell-features-enabled: false
+shell-features-enabled: true
 shell-executable: bash
 shell-timeout-ms: 30000
 max-command-chars: 16000
 
-# Bash 高权限预设：扩大命令与路径范围，但仍保持显式白名单与可控边界。
-# High-privilege bash preset: broader command/path coverage while keeping explicit allowlists and guardrails.
+# Bash 收紧预设：如需回到 strict mode，可保留完整白名单但关闭 shell features。
+# Strict-mode preset: keep a broader allowlist but disable shell features when operators need tighter control.
 # working-directory: .
 # allowed-paths: ., /tmp, /Users/you/Project, /Users/you/Server
-# allowed-commands: ls,pwd,cat,head,tail,top,free,df,du,ps,git,rg,find,grep,wc,sed,awk,cut,sort,uniq,tr,xargs,env,printenv,echo,tee,curl,mkdir,cp,mv,touch
+# allowed-commands: ls,pwd,cat,head,tail,top,free,df,git,rg,find,echo,printf,sed,awk,grep,wc,sort,uniq,tr,cut,xargs,cd,stat,file,du,test,which,mkdir,touch,cp,mv,rm,ln,chmod,env,date,bash,sh,make,go,npm,yarn,pnpm,node,python,python3,pip,curl,wget
 # path-checked-commands: ls,cat,head,tail,du,git,rg,find,grep,wc,sed,awk,cut,sort,uniq,tr,xargs,mkdir,cp,mv,touch,echo
 # path-check-bypass-commands: git,curl
-# shell-features-enabled: true
+# shell-features-enabled: false
 # shell-executable: bash
 # shell-timeout-ms: 20000
 # max-command-chars: 24000

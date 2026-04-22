@@ -2,12 +2,15 @@ package server
 
 import (
 	"context"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/catalog"
 	"agent-platform-runner-go/internal/config"
+	"agent-platform-runner-go/internal/contracts"
 )
 
 func TestResolveSandboxPathsLocalModeDisabledHub(t *testing.T) {
@@ -90,6 +93,62 @@ func TestResolveSandboxPathsContainerMode(t *testing.T) {
 	}
 }
 
+func TestResolveLocalPathsIncludesAgentAndRegistryPaths(t *testing.T) {
+	t.Parallel()
+
+	cfg := testPromptContextConfig(t)
+	agentDir := filepath.Join(cfg.Paths.AgentsDir, "demo-agent")
+
+	paths := resolveLocalPaths(cfg.Paths, "chat-1", agentDir)
+	if paths.AgentDir != agentDir {
+		t.Fatalf("agent dir = %q", paths.AgentDir)
+	}
+	if paths.SkillsDir != filepath.Join(agentDir, "skills") {
+		t.Fatalf("skills dir = %q", paths.SkillsDir)
+	}
+	if paths.SkillsMarketDir != cfg.Paths.SkillsMarketDir {
+		t.Fatalf("skills market dir = %q", paths.SkillsMarketDir)
+	}
+	if paths.TeamsDir != cfg.Paths.TeamsDir {
+		t.Fatalf("teams dir = %q", paths.TeamsDir)
+	}
+	if paths.ModelsDir != filepath.Join(cfg.Paths.RegistriesDir, "models") {
+		t.Fatalf("models dir = %q", paths.ModelsDir)
+	}
+	if paths.ProvidersDir != filepath.Join(cfg.Paths.RegistriesDir, "providers") {
+		t.Fatalf("providers dir = %q", paths.ProvidersDir)
+	}
+	if paths.MCPServersDir != filepath.Join(cfg.Paths.RegistriesDir, "mcp-servers") {
+		t.Fatalf("mcp servers dir = %q", paths.MCPServersDir)
+	}
+	if paths.ViewportServersDir != filepath.Join(cfg.Paths.RegistriesDir, "viewport-servers") {
+		t.Fatalf("viewport servers dir = %q", paths.ViewportServersDir)
+	}
+	if paths.ToolsDir != cfg.Paths.ToolsDir {
+		t.Fatalf("tools dir = %q", paths.ToolsDir)
+	}
+	if paths.ViewportsDir != filepath.Join(cfg.Paths.RegistriesDir, "viewports") {
+		t.Fatalf("viewports dir = %q", paths.ViewportsDir)
+	}
+	if paths.ChatAttachmentsDir != filepath.Join(cfg.Paths.ChatsDir, "chat-1") {
+		t.Fatalf("chat attachments dir = %q", paths.ChatAttachmentsDir)
+	}
+	if paths.WorkingDirectory == "" {
+		t.Fatal("expected working directory to be populated")
+	}
+}
+
+func TestResolveLocalWorkspaceDirUsesChatDirWhenChatIDProvided(t *testing.T) {
+	t.Parallel()
+
+	cfg := testPromptContextConfig(t)
+
+	workspaceDir := resolveLocalWorkspaceDir(cfg.Paths, "chat-1")
+	if workspaceDir != absTestPath(t, filepath.Join(cfg.Paths.ChatsDir, "chat-1")) {
+		t.Fatalf("workspace dir = %q", workspaceDir)
+	}
+}
+
 func TestBuildRuntimeContextSkipsSandboxContextWhenHubDisabled(t *testing.T) {
 	t.Parallel()
 
@@ -110,9 +169,8 @@ func TestBuildRuntimeContextSkipsSandboxContextWhenHubDisabled(t *testing.T) {
 		chatName: "Chat 1",
 		scene:    &api.Scene{URL: "https://example.com"},
 		definition: catalog.AgentDefinition{
-			Key:         "demo-agent",
-			AgentDir:    filepath.Join(cfg.Paths.AgentsDir, "demo-agent"),
-			ContextTags: []string{"sandbox"},
+			Key:      "demo-agent",
+			AgentDir: filepath.Join(cfg.Paths.AgentsDir, "demo-agent"),
 			Sandbox: map[string]any{
 				"environmentId": "shell",
 			},
@@ -126,6 +184,169 @@ func TestBuildRuntimeContextSkipsSandboxContextWhenHubDisabled(t *testing.T) {
 	}
 	if context.SandboxContext != nil {
 		t.Fatalf("expected sandbox context to be skipped, got %#v", context.SandboxContext)
+	}
+}
+
+func TestBuildRuntimeContextIncludesSandboxContextWhenSandboxConfigured(t *testing.T) {
+	t.Parallel()
+
+	cfg := testPromptContextConfig(t)
+	cfg.ContainerHub.BaseURL = "://bad-url"
+	s := &Server{
+		deps: Dependencies{
+			Config:   cfg,
+			Registry: testCatalogRegistry{},
+		},
+	}
+
+	_, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
+		agentKey: "demo-agent",
+		teamID:   "team-1",
+		role:     "assistant",
+		chatID:   "chat-1",
+		chatName: "Chat 1",
+		definition: catalog.AgentDefinition{
+			Key:      "demo-agent",
+			AgentDir: filepath.Join(cfg.Paths.AgentsDir, "demo-agent"),
+			Sandbox: map[string]any{
+				"environmentId": "browser",
+				"level":         "run",
+			},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected sandbox-configured agent to attempt sandbox context loading")
+	}
+	if !strings.Contains(err.Error(), `sandbox context failed to load environment prompt for "browser"`) {
+		t.Fatalf("expected sandbox context load error, got %v", err)
+	}
+}
+
+func TestBuildRuntimeContextIgnoresLegacySandboxTagWithoutSandboxConfig(t *testing.T) {
+	t.Parallel()
+
+	cfg := testPromptContextConfig(t)
+	s := &Server{
+		deps: Dependencies{
+			Config:   cfg,
+			Registry: testCatalogRegistry{},
+		},
+	}
+
+	context, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
+		agentKey: "demo-agent",
+		teamID:   "team-1",
+		role:     "assistant",
+		chatID:   "chat-1",
+		chatName: "Chat 1",
+		definition: catalog.AgentDefinition{
+			Key:         "demo-agent",
+			AgentDir:    filepath.Join(cfg.Paths.AgentsDir, "demo-agent"),
+			ContextTags: []string{"sandbox"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildRuntimeRequestContext() error = %v", err)
+	}
+	if context.SandboxContext != nil {
+		t.Fatalf("expected legacy sandbox tag to have no effect, got %#v", context.SandboxContext)
+	}
+}
+
+func TestBuildRuntimeContextKeepsLocalPathsWithoutSandboxConfigInContainerMode(t *testing.T) {
+	t.Parallel()
+
+	cfg := testPromptContextConfig(t)
+	cfg.ContainerHub.Enabled = true
+	cfg.ContainerHub.ResolvedEngine = "docker"
+	s := &Server{
+		deps: Dependencies{
+			Config:   cfg,
+			Registry: testCatalogRegistry{},
+		},
+	}
+
+	agentDir := filepath.Join(cfg.Paths.AgentsDir, "demo-agent")
+	context, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
+		agentKey: "demo-agent",
+		teamID:   "team-1",
+		role:     "assistant",
+		chatID:   "chat-1",
+		chatName: "Chat 1",
+		definition: catalog.AgentDefinition{
+			Key:      "demo-agent",
+			AgentDir: agentDir,
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildRuntimeRequestContext() error = %v", err)
+	}
+	if context.LocalMode {
+		t.Fatal("expected container mode to remain non-local")
+	}
+	if context.SandboxContext != nil {
+		t.Fatalf("expected no sandbox context, got %#v", context.SandboxContext)
+	}
+	if context.LocalPaths.AgentDir != agentDir {
+		t.Fatalf("local agent dir = %q", context.LocalPaths.AgentDir)
+	}
+	if context.LocalPaths.SkillsDir != filepath.Join(agentDir, "skills") {
+		t.Fatalf("local skills dir = %q", context.LocalPaths.SkillsDir)
+	}
+	if context.SandboxPaths.WorkspaceDir != "/workspace" {
+		t.Fatalf("sandbox workspace dir = %q", context.SandboxPaths.WorkspaceDir)
+	}
+}
+
+func TestBuildSkillCatalogPromptPrefersAgentLocalSkillAndParsesFrontMatter(t *testing.T) {
+	t.Parallel()
+
+	agentDir := t.TempDir()
+	marketDir := t.TempDir()
+	localSkillDir := filepath.Join(agentDir, "skills", "demo")
+	marketSkillDir := filepath.Join(marketDir, "demo")
+	if err := os.MkdirAll(localSkillDir, 0o755); err != nil {
+		t.Fatalf("mkdir local skill: %v", err)
+	}
+	if err := os.MkdirAll(marketSkillDir, 0o755); err != nil {
+		t.Fatalf("mkdir market skill: %v", err)
+	}
+	localSkill := strings.Join([]string{
+		"---",
+		`name: "Local Skill"`,
+		`description: "Local description"`,
+		"---",
+		"",
+		"# Ignored Heading",
+		"",
+		"body",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(localSkillDir, "SKILL.md"), []byte(localSkill), 0o644); err != nil {
+		t.Fatalf("write local skill: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(marketSkillDir, "SKILL.md"), []byte("# Market Skill\n\nMarket description"), 0o644); err != nil {
+		t.Fatalf("write market skill: %v", err)
+	}
+
+	prompt := buildSkillCatalogPrompt(catalog.AgentDefinition{
+		AgentDir: agentDir,
+		Skills:   []string{"demo"},
+	}, marketDir, contracts.DefaultPromptAppendConfig())
+
+	if !strings.Contains(prompt, "skillId: demo") {
+		t.Fatalf("expected skill block, got %q", prompt)
+	}
+	if !strings.Contains(prompt, "name: Local Skill") {
+		t.Fatalf("expected local front matter name, got %q", prompt)
+	}
+	if !strings.Contains(prompt, "description: Local description") {
+		t.Fatalf("expected local front matter description, got %q", prompt)
+	}
+	if strings.Contains(prompt, `name: name: "Local Skill"`) {
+		t.Fatalf("expected front matter to be parsed, got %q", prompt)
+	}
+	if strings.Contains(prompt, "Market Skill") {
+		t.Fatalf("expected local skill to win over market fallback, got %q", prompt)
 	}
 }
 

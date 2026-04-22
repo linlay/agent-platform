@@ -72,18 +72,36 @@ type DeltaTaskLifecycle struct {
 	Kind        string
 	TaskID      string
 	RunID       string
+	GroupID     string
 	TaskName    string
 	Description string
+	SubAgentKey string
+	MainToolID  string
+	Status      string
 	Error       map[string]any
 }
 
 func (DeltaTaskLifecycle) agentDeltaTag() {}
 
+type SubAgentTaskSpec struct {
+	SubAgentKey string
+	TaskText    string
+	TaskName    string
+}
+
+type DeltaInvokeSubAgents struct {
+	MainToolID string
+	GroupID    string
+	Tasks      []SubAgentTaskSpec
+}
+
+func (DeltaInvokeSubAgents) agentDeltaTag() {}
+
 type DeltaArtifactPublish struct {
-	ArtifactID string
-	ChatID     string
-	RunID      string
-	Artifact   any
+	ChatID        string
+	RunID         string
+	ArtifactCount int
+	Artifacts     []map[string]any
 }
 
 func (DeltaArtifactPublish) agentDeltaTag() {}
@@ -132,7 +150,11 @@ func (DeltaRequestSteer) agentDeltaTag() {}
 
 type DeltaDebugPreCall struct {
 	ChatID                string
+	ProviderKey           string
+	ProviderEndpoint      string
 	ModelKey              string
+	ModelID               string
+	RequestBody           map[string]any
 	ContextWindow         int
 	CurrentContextSize    int
 	EstimatedNextCallSize int

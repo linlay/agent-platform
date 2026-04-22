@@ -72,7 +72,7 @@ func TestAskUserQuestionHandlerValidateArgs(t *testing.T) {
 			map[string]any{"question": "Pick a plan", "type": "select"},
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "options is required for select questions") {
+	if err == nil || !strings.Contains(err.Error(), "options is required for select and multi-select questions") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -89,9 +89,8 @@ func TestAskUserQuestionHandlerNormalizeSubmit(t *testing.T) {
 			},
 			map[string]any{
 				"question": "Notification topics",
-				"type":     "select",
+				"type":     "multi-select",
 				"header":   "通知内容",
-				"multiple": true,
 				"options": []any{
 					map[string]any{"label": "产品更新"},
 					map[string]any{"label": "使用教程"},
@@ -135,7 +134,25 @@ func TestAskUserQuestionHandlerValidateArgsRejectsLegacyMultiSelect(t *testing.T
 			},
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), "multiSelect is no longer supported; use multiple") {
+	if err == nil || !strings.Contains(err.Error(), "multiSelect is no longer supported; use type=multi-select") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestAskUserQuestionHandlerValidateArgsRejectsLegacyMultipleFlag(t *testing.T) {
+	handler := NewAskUserQuestionHandler()
+	err := handler.ValidateArgs(map[string]any{
+		"mode": "question",
+		"questions": []any{
+			map[string]any{
+				"question": "Notification topics",
+				"type":     "select",
+				"multiple": true,
+				"options":  []any{map[string]any{"label": "产品更新"}},
+			},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "multiple is no longer supported; use type=multi-select") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -188,12 +205,12 @@ func TestAskUserQuestionHandlerRejectsInvalidAnswerFields(t *testing.T) {
 	handler := NewAskUserQuestionHandler()
 	_, err := handler.NormalizeSubmit(map[string]any{
 		"questions": []any{
-			map[string]any{"question": "Notification topics", "type": "select", "multiple": true},
+			map[string]any{"question": "Notification topics", "type": "multi-select"},
 		},
 	}, mustSubmitParams(t, []map[string]any{
 		{"id": "q1", "answer": "产品更新"},
 	}))
-	if err == nil || !strings.Contains(err.Error(), "answers is required for multiple questions") {
+	if err == nil || !strings.Contains(err.Error(), "answers is required for multi-select questions") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

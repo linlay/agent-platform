@@ -45,7 +45,7 @@ type ActionInvoker interface {
 
 type SandboxClient interface {
 	OpenIfNeeded(ctx context.Context, execCtx *ExecutionContext) error
-	Execute(ctx context.Context, execCtx *ExecutionContext, command string, cwd string, timeoutMs int64) (SandboxExecutionResult, error)
+	Execute(ctx context.Context, execCtx *ExecutionContext, command string, cwd string, timeoutMs int64, env map[string]string) (SandboxExecutionResult, error)
 	CloseQuietly(execCtx *ExecutionContext)
 }
 
@@ -68,6 +68,8 @@ type QuerySession struct {
 	ChatName              string
 	AgentKey              string
 	AgentName             string
+	AgentRole             string
+	AgentDescription      string
 	ModelKey              string
 	ToolNames             []string
 	Mode                  string
@@ -100,11 +102,13 @@ type QuerySession struct {
 	ExecutePrompt string
 	SummaryPrompt string
 
-	SandboxEnvironmentID string
-	SandboxLevel         string
-	SandboxExtraMounts   []SandboxExtraMount
-	SkillHookDirs        []string
-	SandboxEnvOverrides  map[string]string
+	SandboxEnvironmentID  string
+	SandboxLevel          string
+	SandboxExtraMounts    []SandboxExtraMount
+	AgentHasSandboxConfig bool
+	SkillHookDirs         []string
+	// SandboxEnvOverrides carries agent/skill-level env defaults for both sandbox and host bash execution.
+	SandboxEnvOverrides map[string]string
 }
 
 type SandboxExtraMount struct {
@@ -115,19 +119,20 @@ type SandboxExtraMount struct {
 }
 
 type ExecutionContext struct {
-	Request             api.QueryRequest
-	Session             QuerySession
-	RunControl          *RunControl
-	CurrentToolID       string
-	CurrentToolName     string
-	HITLLevel           int
-	AutoApproveLevels   map[int]bool
-	SandboxSession      *SandboxSession
-	Budget              Budget
-	StageSettings       PlanExecuteSettings
-	RunLoopState        RunLoopState
-	PlanState           *PlanRuntimeState
-	ToolOverrides       map[string]api.ToolDetailResponse
+	Request           api.QueryRequest
+	Session           QuerySession
+	RunControl        *RunControl
+	CurrentToolID     string
+	CurrentToolName   string
+	HITLLevel         int
+	AutoApproveLevels map[int]bool
+	SandboxSession    *SandboxSession
+	Budget            Budget
+	StageSettings     PlanExecuteSettings
+	RunLoopState      RunLoopState
+	PlanState         *PlanRuntimeState
+	ToolOverrides     map[string]api.ToolDetailResponse
+	// SandboxEnvOverrides is reused by host bash as agent/skill-level env defaults.
 	SandboxEnvOverrides map[string]string
 	StartedAt           time.Time
 	ModelCalls          int
@@ -281,7 +286,7 @@ func NewNoopSandboxClient() *NoopSandboxClient { return &NoopSandboxClient{} }
 
 func (n *NoopSandboxClient) OpenIfNeeded(_ context.Context, _ *ExecutionContext) error { return nil }
 
-func (n *NoopSandboxClient) Execute(_ context.Context, _ *ExecutionContext, command string, cwd string, _ int64) (SandboxExecutionResult, error) {
+func (n *NoopSandboxClient) Execute(_ context.Context, _ *ExecutionContext, command string, cwd string, _ int64, _ map[string]string) (SandboxExecutionResult, error) {
 	result := SandboxExecutionResult{
 		ExitCode:         -1,
 		Stdout:           "",

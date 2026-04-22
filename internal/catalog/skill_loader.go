@@ -15,6 +15,21 @@ import (
 
 const manifestFile = ".market-synced-skills"
 
+// ResolveSkillDefinition loads a declared skill from real host paths.
+// Agent-local skills win; the skills market is used as a fallback.
+func ResolveSkillDefinition(agentDir, marketDir, skillID string) (SkillDefinition, bool, error) {
+	for _, skillDir := range candidateSkillDirs(agentDir, marketDir, skillID) {
+		def, ok, err := loadSkillDefinitionFromDir(skillDir, skillID, 0)
+		if err != nil {
+			return SkillDefinition{}, false, err
+		}
+		if ok {
+			return def, true, nil
+		}
+	}
+	return SkillDefinition{}, false, nil
+}
+
 func loadSkills(root string, maxPromptChars int) (map[string]SkillDefinition, error) {
 	items := map[string]SkillDefinition{}
 	var loadErr error
@@ -29,37 +44,16 @@ func loadSkills(root string, maxPromptChars int) (map[string]SkillDefinition, er
 				return
 			}
 			skillDir := filepath.Join(root, name)
-			skillPath := filepath.Join(skillDir, "SKILL.md")
-			content, err := os.ReadFile(skillPath)
+			definition, ok, err := loadSkillDefinitionFromDir(skillDir, name, maxPromptChars)
 			if err != nil {
+				loadErr = err
+				return
+			}
+			if !ok {
 				log.Printf("[catalog][skills] skip directory %s: no SKILL.md found", name)
 				return
 			}
-			prompt := strings.TrimSpace(string(content))
-			description := firstNonEmptyMarkdownLine(prompt)
-			truncated := false
-			if maxPromptChars > 0 && len(prompt) > maxPromptChars {
-				truncated = true
-			}
-			bashHooksDir, err := resolveSkillBashHooksDir(skillDir)
-			if err != nil {
-				loadErr = fmt.Errorf("skill %s .bash-hooks: %w", name, err)
-				return
-			}
-			sandboxEnv, err := loadSkillSandboxEnv(skillDir)
-			if err != nil {
-				loadErr = fmt.Errorf("skill %s .sandbox-env.json: %w", name, err)
-				return
-			}
-			items[name] = SkillDefinition{
-				Key:             name,
-				Name:            skillDisplayName(description, name),
-				Description:     description,
-				Prompt:          prompt,
-				PromptTruncated: truncated,
-				BashHooksDir:    bashHooksDir,
-				SandboxEnv:      sandboxEnv,
-			}
+			items[name] = definition
 		},
 	)
 	if err != nil {
@@ -69,6 +63,56 @@ func loadSkills(root string, maxPromptChars int) (map[string]SkillDefinition, er
 		return nil, loadErr
 	}
 	return items, nil
+}
+
+func candidateSkillDirs(agentDir, marketDir, skillID string) []string {
+	dirs := make([]string, 0, 2)
+	if strings.TrimSpace(agentDir) != "" {
+		dirs = append(dirs, filepath.Join(agentDir, "skills", skillID))
+	}
+	if strings.TrimSpace(marketDir) != "" {
+		dirs = append(dirs, filepath.Join(marketDir, skillID))
+	}
+	return dirs
+}
+
+func loadSkillDefinitionFromDir(skillDir, skillID string, maxPromptChars int) (SkillDefinition, bool, error) {
+	if strings.TrimSpace(skillDir) == "" {
+		return SkillDefinition{}, false, nil
+	}
+	skillPath := filepath.Join(skillDir, "SKILL.md")
+	content, err := os.ReadFile(skillPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return SkillDefinition{}, false, nil
+	}
+	if err != nil {
+		return SkillDefinition{}, false, fmt.Errorf("skill %s SKILL.md: %w", skillID, err)
+	}
+
+	prompt := strings.TrimSpace(string(content))
+	name, description, triggers, metadata := parseSkillPromptMetadata(prompt)
+	truncated := maxPromptChars > 0 && len(prompt) > maxPromptChars
+
+	bashHooksDir, err := resolveSkillBashHooksDir(skillDir)
+	if err != nil {
+		return SkillDefinition{}, false, fmt.Errorf("skill %s .bash-hooks: %w", skillID, err)
+	}
+	sandboxEnv, err := loadSkillSandboxEnv(skillDir)
+	if err != nil {
+		return SkillDefinition{}, false, fmt.Errorf("skill %s .sandbox-env.json: %w", skillID, err)
+	}
+
+	return SkillDefinition{
+		Key:             skillID,
+		Name:            skillDisplayName(name, description, skillID),
+		Description:     description,
+		Triggers:        triggers,
+		Metadata:        metadata,
+		Prompt:          prompt,
+		PromptTruncated: truncated,
+		BashHooksDir:    bashHooksDir,
+		SandboxEnv:      sandboxEnv,
+	}, true, nil
 }
 
 func resolveSkillBashHooksDir(skillDir string) (string, error) {

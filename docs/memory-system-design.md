@@ -230,15 +230,17 @@
 
 实际注入 prompt 的顺序是：
 
-1. `SOUL.md`
-2. agent 静态 `memory/memory.md`
-3. `Runtime Context: Stable Memory`（稳定层）
-4. `Runtime Context: Current Session`（会话层）
-5. `Runtime Context: Relevant Observations`（观察层）
-6. stage prompt / tools appendix
+1. 由 `agent.yml` 生成的 `Agent Identity`
+2. `SOUL.md`
+3. agent 静态 `memory/memory.md`
+4. `Runtime Context: Stable Memory`（稳定层）
+5. `Runtime Context: Current Session`（会话层）
+6. `Runtime Context: Relevant Observations`（观察层）
+7. stage prompt / tools appendix
 
 也就是说：
 
+- `Agent Identity` 负责提供当前 agent 的正式身份事实源
 - 静态记忆负责给 agent 定底色
 - stable memory 负责告诉它"长期应该记住什么"
 - session memory 负责补充"当前会话里发生了什么"

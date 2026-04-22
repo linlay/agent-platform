@@ -207,7 +207,9 @@ Container Hub 默认基础挂载当前固定为 7 个：
 - `destination + mode`：覆盖默认基础挂载模式
 - `source + destination + mode`：新增自定义挂载，不能拿来覆盖默认基础挂载路径
 
-`context tags` 不是全局默认集合，而是每个 agent 从 `contextConfig.tags` 或 `contextTags` 读取。当前支持/归一化后的标签有 `system`、`context`、`owner`、`auth`、`sandbox`、`all-agents`、`memory`；其中 `agent_identity`、`run_session`、`scene`、`references`、`execution_policy`、`skills` 会归一化为 `context`，`memory_context` 会归一化为 `memory`。
+`context tags` 不是全局默认集合，而是每个 agent 从 `contextConfig.tags` 或 `contextTags` 读取。当前支持/归一化后的标签有 `system`、`context`、`owner`、`auth`、`all-agents`、`memory`；其中 `agent_identity`、`run_session`、`scene`、`references`、`execution_policy`、`skills` 会归一化为 `context`，`memory_context` 会归一化为 `memory`。
+
+`sandbox` 不再属于 `context tags`。只要 agent 声明了 `sandboxConfig`，运行时就会自动注入 sandbox context。
 
 部署时的敏感信息应通过环境变量或 Secret 注入，不要写入仓库文件。
 
@@ -231,7 +233,7 @@ docker compose logs -f
 - 若 provider 使用 `apiKey: AES(...)`：确认 `.env` 或进程环境中已提供 `PROVIDER_APIKEY_KEY_PART`，且与当前密文匹配；旧 `AES(v1:...)` 需先重生成。
 - Schedule 看起来没有触发：先确认服务进程本身正在运行；如果是本地 `make run`，日志不会出现在 `docker compose logs` 里。随后检查 stdout 中是否有 `schedule orchestrator started`、`[schedule] registered ...`、`[schedule] dispatch ...`。
 - Query 看起来不像真流式：先检查是否启用了 `AGENT_H2A_RENDER_FLUSH_INTERVAL_MS`、`AGENT_H2A_RENDER_MAX_BUFFERED_CHARS` 或 `AGENT_H2A_RENDER_MAX_BUFFERED_EVENTS` 这类传输层缓冲参数；默认 SSE writer 会逐事件 flush。
-- `_sandbox_bash_` 执行失败：检查 `AGENT_CONTAINER_HUB_BASE_URL`、`default-environment-id`，以及 `.env` 中的目录变量是否为宿主机真实路径。
+- `_bash_` 执行失败：检查 `AGENT_CONTAINER_HUB_BASE_URL`、`default-environment-id`，以及 `.env` 中的目录变量是否为宿主机真实路径。
 - chat 没有持久化：检查 `CHATS_DIR` 是否可写。
 - remember 没有输出文件：确认请求体里同时传了 `requestId` 和 `chatId`。
 - 上传后无法下载：确认文件已落到 `CHATS_DIR/<chatId>/`，并检查 `/api/resource?file=...` 是否原样使用。

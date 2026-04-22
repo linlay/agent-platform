@@ -161,3 +161,53 @@ func newQuestionDeltaMapper() *DeltaMapper {
 	}
 	return NewDeltaMapper("run_1", "chat_1", 5000, tools, frontendtools.NewDefaultRegistry())
 }
+
+func TestDeltaMapperCloneIsolatedStartsFreshState(t *testing.T) {
+	mapper := NewDeltaMapper("run_1", "chat_1", 5000, stubToolLookup{}, frontendtools.NewDefaultRegistry())
+
+	first := mapper.Map(contracts.DeltaContent{Text: "root"})
+	content, ok := first[0].(stream.ContentDelta)
+	if !ok || content.ContentID != "run_1_c_1" {
+		t.Fatalf("expected first content id run_1_c_1, got %#v", first)
+	}
+
+	child := mapper.CloneIsolated("task_1", "chat_1")
+	if child == nil {
+		t.Fatal("expected isolated mapper clone")
+	}
+	second := child.Map(contracts.DeltaContent{Text: "child"})
+	content, ok = second[0].(stream.ContentDelta)
+	if !ok || content.ContentID != "task_1_c_1" {
+		t.Fatalf("expected child content id task_1_c_1, got %#v", second)
+	}
+
+	third := mapper.Map(contracts.DeltaContent{Text: "root again"})
+	content, ok = third[0].(stream.ContentDelta)
+	if !ok || content.ContentID != "run_1_c_1" {
+		t.Fatalf("expected original mapper state to remain unchanged, got %#v", third)
+	}
+}
+
+func TestDeltaMapper_ArtifactPublishPreservesBatchPayload(t *testing.T) {
+	mapper := NewDeltaMapper("run_1", "chat_1", 5000, stubToolLookup{}, frontendtools.NewDefaultRegistry())
+
+	inputs := mapper.Map(contracts.DeltaArtifactPublish{
+		ChatID:        "chat_1",
+		RunID:         "run_1",
+		ArtifactCount: 2,
+		Artifacts: []map[string]any{
+			{"artifactId": "artifact_1", "name": "report.md"},
+			{"artifactId": "artifact_2", "name": "summary.txt"},
+		},
+	})
+	if len(inputs) != 1 {
+		t.Fatalf("expected one mapped input, got %#v", inputs)
+	}
+	event, ok := inputs[0].(stream.ArtifactPublish)
+	if !ok {
+		t.Fatalf("expected ArtifactPublish input, got %#v", inputs[0])
+	}
+	if event.ArtifactCount != 2 || len(event.Artifacts) != 2 {
+		t.Fatalf("unexpected artifact batch %#v", event)
+	}
+}
