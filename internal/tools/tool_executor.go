@@ -109,12 +109,6 @@ func (t *RuntimeToolExecutor) Invoke(ctx context.Context, toolName string, args 
 		return t.invokeSkillCandidateWrite(toolName, args, execCtx)
 	case "_skill_candidate_list_", "skill_candidate_list":
 		return t.invokeSkillCandidateList(toolName, args, execCtx)
-	case "_schedule_create_":
-		return t.invokeScheduleCreate(args, execCtx)
-	case "_schedule_list_":
-		return t.invokeScheduleList(execCtx)
-	case "_schedule_delete_":
-		return t.invokeScheduleDelete(args, execCtx)
 	default:
 		return ToolExecutionResult{
 			Output:   "tool not registered: " + toolName,
