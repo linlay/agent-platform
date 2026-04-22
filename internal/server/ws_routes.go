@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -74,11 +75,16 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 }
 
 // wsUpload lets the gateway deliver a user-uploaded file to the platform without
-// spawning a second HTTP connection. The gateway sends
-// {chatId, requestId, fileName, url, mimeType?, sizeBytes?} where `url` points
-// to a gateway-hosted resource; the platform downloads it (optionally with the
-// configured gateway auth token) and persists it via the shared internal upload
-// pipeline so chat-side tickets stay identical to the HTTP multipart path.
+// spawning a second HTTP connection. Accepts both payload shapes:
+//
+//   - nested (wecom-bridge shape, preferred for gateway compatibility):
+//     {requestId, chatId, upload:{id,type,name,mimeType,sizeBytes,url}}
+//   - flat: {chatId, requestId, fileName, url, mimeType?, sizeBytes?}
+//
+// `url` points to a gateway-hosted resource; the platform downloads it
+// (optionally with the configured gateway auth token) and persists it via
+// the shared internal upload pipeline so chat-side tickets stay identical
+// to the HTTP multipart path.
 func (s *Server) wsUpload(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {
 	payload, err := ws.DecodePayload[struct {
 		ChatID    string `json:"chatId"`
@@ -87,6 +93,16 @@ func (s *Server) wsUpload(ctx context.Context, conn *ws.Conn, req ws.RequestFram
 		URL       string `json:"url"`
 		MimeType  string `json:"mimeType"`
 		SizeBytes int64  `json:"sizeBytes"`
+		SHA256    string `json:"sha256"`
+		Upload    struct {
+			ID        string `json:"id"`
+			Type      string `json:"type"`
+			Name      string `json:"name"`
+			MimeType  string `json:"mimeType"`
+			SizeBytes int64  `json:"sizeBytes"`
+			URL       string `json:"url"`
+			SHA256    string `json:"sha256"`
+		} `json:"upload"`
 	}](req)
 	if err != nil {
 		conn.SendError(req.ID, "invalid_request", 400, "invalid upload payload", nil)
@@ -97,19 +113,34 @@ func (s *Server) wsUpload(ctx context.Context, conn *ws.Conn, req ws.RequestFram
 	chatID := strings.TrimSpace(payload.ChatID)
 	requestID := strings.TrimSpace(payload.RequestID)
 	fileName := strings.TrimSpace(payload.FileName)
+	if fileName == "" {
+		fileName = strings.TrimSpace(payload.Upload.Name)
+	}
+	// 严格对齐 wecom-ws-bridge handleUpload：只认 upload.url（或 top-level url）。
+	// 网关若不发 url 字段，这里直接报错，不做 sha256/requestId 的猜测，避免把
+	// 问题藏到 platform 侧。
 	rawURL := strings.TrimSpace(payload.URL)
+	if rawURL == "" {
+		rawURL = strings.TrimSpace(payload.Upload.URL)
+	}
 	if chatID == "" || fileName == "" || rawURL == "" {
-		conn.SendError(req.ID, "invalid_request", 400, "chatId, fileName and url are required", nil)
+		log.Printf("[ws-upload] reject: missing fields chatId=%q fileName=%q url=%q rawPayload=%s",
+			chatID, fileName, rawURL, string(req.Payload))
+		conn.SendError(req.ID, "invalid_request", 400, "chatId, fileName and url are required (gateway should send upload.url)", nil)
 		conn.CompleteRequest(req.ID)
 		return
 	}
+	log.Printf("[ws-upload] recv chatId=%s requestId=%s fileName=%s url=%s size=%d",
+		chatID, requestID, fileName, rawURL, payload.Upload.SizeBytes)
 
 	data, err := s.fetchGatewayUpload(ctx, rawURL)
 	if err != nil {
+		log.Printf("[ws-upload] download failed chatId=%s url=%s err=%v", chatID, rawURL, err)
 		conn.SendError(req.ID, "download_failed", 502, err.Error(), nil)
 		conn.CompleteRequest(req.ID)
 		return
 	}
+	log.Printf("[ws-upload] downloaded chatId=%s fileName=%s bytes=%d", chatID, fileName, len(data))
 
 	status, body, err := s.ExecuteInternalUpload(ctx, chatID, requestID, fileName, data)
 	if err != nil {

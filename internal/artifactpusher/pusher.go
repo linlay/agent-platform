@@ -38,13 +38,30 @@ type Config struct {
 }
 
 func New(cfg Config) *Pusher {
-	return &Pusher{
+	p := &Pusher{
 		baseURL:    strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/"),
 		uploadPath: strings.TrimSpace(cfg.UploadPath),
 		authToken:  strings.TrimSpace(cfg.AuthToken),
 		chatsDir:   strings.TrimSpace(cfg.ChatsDir),
 		http:       &http.Client{Timeout: 60 * time.Second},
 	}
+	if p.baseURL == "" || p.uploadPath == "" {
+		log.Printf("[artifact-pusher] disabled: gateway upload endpoint not configured (GATEWAY_BASE_URL=%q GATEWAY_UPLOAD_PATH=%q); produced artifacts will stay local", p.baseURL, p.uploadPath)
+	} else {
+		log.Printf("[artifact-pusher] enabled: baseURL=%s uploadPath=%s chatsDir=%s authToken=%s",
+			p.baseURL, p.uploadPath, p.chatsDir, maskToken(p.authToken))
+	}
+	return p
+}
+
+func maskToken(token string) string {
+	if token == "" {
+		return "(empty)"
+	}
+	if len(token) <= 4 {
+		return "***"
+	}
+	return token[:2] + "***" + token[len(token)-2:]
 }
 
 // Push forwards one published artifact to the gateway. The artifact map uses
@@ -52,12 +69,21 @@ func New(cfg Config) *Pusher {
 // {artifactId, name, mimeType, sizeBytes, sha256, url, type}. Best-effort —
 // errors are logged only.
 func (p *Pusher) Push(chatID string, artifact map[string]any) {
-	if p == nil || p.baseURL == "" || p.uploadPath == "" {
+	if p == nil {
+		log.Printf("[artifact-pusher] skip: pusher instance is nil")
+		return
+	}
+	artifactID, _ := artifact["artifactId"].(string)
+	name, _ := artifact["name"].(string)
+	if p.baseURL == "" || p.uploadPath == "" {
+		log.Printf("[artifact-pusher] skip: endpoint not configured chatId=%s artifactId=%s name=%s", chatID, artifactID, name)
 		return
 	}
 	if chatID == "" || artifact == nil {
+		log.Printf("[artifact-pusher] skip: empty chatId or artifact artifactId=%s name=%s", artifactID, name)
 		return
 	}
+	log.Printf("[artifact-pusher] queue chatId=%s artifactId=%s name=%s", chatID, artifactID, name)
 	go p.pushOne(chatID, artifact)
 }
 

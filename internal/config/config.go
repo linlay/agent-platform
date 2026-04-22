@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	neturl "net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -440,6 +441,10 @@ func defaultConfig() Config {
 			HandshakeTimeoutMs: 10000,
 			ReconnectMinMs:     1000,
 			ReconnectMaxMs:     30000,
+			// 和 agent-wecom-ws-bridge 一致的默认值：若 deployment 未显式覆盖，
+			// 直接指向网关约定好的 /api/download 与 /api/upload 端点。
+			DownloadPath: "/api/download",
+			UploadPath:   "/api/upload",
 		},
 	}
 }
@@ -645,6 +650,17 @@ func (c *Config) applyEnv() {
 	c.GatewayWS.UploadPath = stringEnv("GATEWAY_UPLOAD_PATH", c.GatewayWS.UploadPath)
 	c.GatewayWS.DownloadPath = stringEnv("GATEWAY_DOWNLOAD_PATH", c.GatewayWS.DownloadPath)
 	c.GatewayWS.AuthToken = stringEnv("GATEWAY_AUTH_TOKEN", c.GatewayWS.AuthToken)
+	// 若 BaseURL 未显式配置，从 GATEWAY_WS_URL 按 bridge 老规则派生：
+	// ws://host/path -> http://host，wss://host/path -> https://host。
+	if strings.TrimSpace(c.GatewayWS.BaseURL) == "" && strings.TrimSpace(c.GatewayWS.URL) != "" {
+		if parsed, err := neturl.Parse(strings.TrimSpace(c.GatewayWS.URL)); err == nil && parsed.Host != "" {
+			scheme := "http"
+			if parsed.Scheme == "wss" {
+				scheme = "https"
+			}
+			c.GatewayWS.BaseURL = scheme + "://" + parsed.Host
+		}
+	}
 }
 
 func (c *Config) normalize() {
