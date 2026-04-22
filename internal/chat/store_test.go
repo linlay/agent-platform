@@ -866,10 +866,7 @@ func TestStepWriterFormatsStructuredToolResultAsJSON(t *testing.T) {
 			"result": map[string]any{
 				"error":    "hitl_timeout",
 				"exitCode": -1,
-				"output": map[string]any{
-					"code":   "hitl_timeout",
-					"status": "timeout",
-				},
+				"output":   "hitl_timeout: command execution timed out while waiting for user approval",
 			},
 		},
 	})
@@ -902,6 +899,9 @@ func TestStepWriterFormatsStructuredToolResultAsJSON(t *testing.T) {
 	}
 	if decoded["error"] != "hitl_timeout" {
 		t.Fatalf("unexpected decoded tool result %#v", decoded)
+	}
+	if decoded["output"] != "hitl_timeout: command execution timed out while waiting for user approval" {
+		t.Fatalf("unexpected decoded tool output %#v", decoded)
 	}
 }
 

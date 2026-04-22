@@ -3069,11 +3069,8 @@ func TestBashHITLRejectFlow(t *testing.T) {
 	if len(executed) != 0 {
 		t.Fatalf("expected rejected command not to execute, got %#v", executed)
 	}
-	if !strings.Contains(body, `"code":"hitl_rejected"`) {
-		t.Fatalf("expected rejected original bash result, got %s", body)
-	}
-	if !strings.Contains(body, `"final":true`) ||
-		!strings.Contains(body, `User rejected this command. Do NOT retry with a different command. End the turn now.`) {
+	resultPayload := findToolResultPayload(t, body, "tool_bash")
+	if got, ok := resultPayload["result"].(string); !ok || got != "user_rejected: User rejected this command. Do NOT retry with a different command. End the turn now." {
 		t.Fatalf("expected hard-stop rejected tool result, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
@@ -3101,7 +3098,8 @@ func TestBashHITLTimeoutFlow(t *testing.T) {
 		!strings.Contains(body, `"code":"timeout"`) {
 		t.Fatalf("expected timeout awaiting.answer in stream, got %s", body)
 	}
-	if !strings.Contains(body, `"type":"tool.result"`) || !strings.Contains(body, `"code":"hitl_timeout"`) {
+	resultPayload := findToolResultPayload(t, body, "tool_bash")
+	if got, ok := resultPayload["result"].(string); !ok || got != "hitl_timeout: command execution timed out while waiting for user approval" {
 		t.Fatalf("expected timeout tool.result in stream, got %s", body)
 	}
 	if strings.Contains(body, "map[") {
@@ -3285,11 +3283,8 @@ func TestBashHITLDockerImageRMRejectFlow(t *testing.T) {
 	if len(executed) != 0 {
 		t.Fatalf("expected rejected docker image rm not to execute, got %#v", executed)
 	}
-	if !strings.Contains(body, `"code":"hitl_rejected"`) {
-		t.Fatalf("expected rejected original bash result, got %s", body)
-	}
-	if !strings.Contains(body, `"final":true`) ||
-		!strings.Contains(body, `User rejected this command. Do NOT retry with a different command. End the turn now.`) {
+	resultPayload := findToolResultPayload(t, body, "tool_bash")
+	if got, ok := resultPayload["result"].(string); !ok || got != "user_rejected: User rejected this command. Do NOT retry with a different command. End the turn now." {
 		t.Fatalf("expected hard-stop rejected tool result, got %s", body)
 	}
 	if strings.Contains(body, `"viewportKey":"confirm_dialog"`) {

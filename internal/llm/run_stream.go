@@ -1768,7 +1768,7 @@ func hitlRejectedToolResult(invocation *preparedToolInvocation) ToolExecutionRes
 	)
 	payload["final"] = true
 	return ToolExecutionResult{
-		Output:     marshalJSON(payload),
+		Output:     formatToolErrorOutput("user_rejected", "User rejected this command. Do NOT retry with a different command. End the turn now."),
 		Structured: payload,
 		Error:      "user_rejected",
 		ExitCode:   -1,
@@ -1787,7 +1787,7 @@ func hitlTimeoutToolResult(invocation *preparedToolInvocation) ToolExecutionResu
 		},
 	)
 	return ToolExecutionResult{
-		Output:     marshalJSON(payload),
+		Output:     formatToolErrorOutput("hitl_timeout", "command execution timed out while waiting for user approval"),
 		Structured: payload,
 		Error:      "hitl_timeout",
 		ExitCode:   -1,
@@ -1807,7 +1807,7 @@ func frontendSubmitInvalidPayloadResult(invocation *preparedToolInvocation, awai
 		},
 	)
 	return ToolExecutionResult{
-		Output:     marshalJSON(payload),
+		Output:     formatToolErrorOutput("frontend_submit_invalid_payload", err.Error()),
 		Structured: payload,
 		Error:      "frontend_submit_invalid_payload",
 		ExitCode:   -1,

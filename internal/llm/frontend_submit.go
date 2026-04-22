@@ -90,7 +90,7 @@ func (c *FrontendSubmitCoordinator) Await(ctx context.Context, execCtx *Executio
 			},
 		)
 		return ToolExecutionResult{
-			Output:     marshalJSON(payload),
+			Output:     formatToolErrorOutput("frontend_submit_invalid_payload", normalizeErr.Error()),
 			Structured: payload,
 			Error:      "frontend_submit_invalid_payload",
 			ExitCode:   -1,
