@@ -51,7 +51,7 @@ func TestParseAgentFileIgnoresLegacyToolConfigBuckets(t *testing.T) {
 		"  frontends:\n" +
 		"    - _ask_user_question_\n" +
 		"  actions:\n" +
-		"    - _plan_update_task_\n"
+		"    - plan_update_task\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write agent file: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestParseAgentFileIgnoresLegacyToolConfigBuckets(t *testing.T) {
 			t.Fatalf("expected default memory tool %s, got %#v", tool, def.Tools)
 		}
 	}
-	for _, tool := range []string{"_datetime_", "_ask_user_question_", "_plan_update_task_"} {
+	for _, tool := range []string{"_datetime_", "_ask_user_question_", "plan_update_task"} {
 		if containsString(def.Tools, tool) {
 			t.Fatalf("expected legacy tool bucket entry %s to stay ignored, got %#v", tool, def.Tools)
 		}

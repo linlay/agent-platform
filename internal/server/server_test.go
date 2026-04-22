@@ -1878,11 +1878,11 @@ func TestPlanExecutePlanStageOnlyUsesPlanAddTasksBeforeSequentialTaskExecution(t
 
 		switch call := providerCallCount.Add(1); call {
 		case 1:
-			if !reflect.DeepEqual(toolNames, []string{"_plan_add_tasks_"}) {
-				t.Fatalf("plan stage tools=%#v want only _plan_add_tasks_", toolNames)
+			if !reflect.DeepEqual(toolNames, []string{"plan_add_tasks"}) {
+				t.Fatalf("plan stage tools=%#v want only plan_add_tasks", toolNames)
 			}
 			writeProviderSSE(t, w,
-				providerToolCallFrame(t, "tool_plan", "_plan_add_tasks_", map[string]any{
+				providerToolCallFrame(t, "tool_plan", "plan_add_tasks", map[string]any{
 					"tasks": []map[string]any{
 						{"taskId": "task_alpha", "description": "查询当前时间"},
 						{"taskId": "task_beta", "description": "再次查询当前时间"},
@@ -1891,34 +1891,34 @@ func TestPlanExecutePlanStageOnlyUsesPlanAddTasksBeforeSequentialTaskExecution(t
 				`[DONE]`,
 			)
 		case 2:
-			assertStringSliceContains(t, toolNames, "_datetime_", "_memory_search_", "_plan_update_task_")
-			assertStringSliceExcludes(t, toolNames, "_plan_add_tasks_")
+			assertStringSliceContains(t, toolNames, "_datetime_", "_memory_search_", "plan_update_task")
+			assertStringSliceExcludes(t, toolNames, "plan_add_tasks")
 			writeProviderSSE(t, w,
 				providerToolCallFrame(t, "tool_time_alpha", "_datetime_", map[string]any{}),
 				`[DONE]`,
 			)
 		case 3:
-			assertStringSliceContains(t, toolNames, "_datetime_", "_memory_search_", "_plan_update_task_")
-			assertStringSliceExcludes(t, toolNames, "_plan_add_tasks_")
+			assertStringSliceContains(t, toolNames, "_datetime_", "_memory_search_", "plan_update_task")
+			assertStringSliceExcludes(t, toolNames, "plan_add_tasks")
 			writeProviderSSE(t, w,
-				providerToolCallFrame(t, "tool_done_alpha", "_plan_update_task_", map[string]any{
+				providerToolCallFrame(t, "tool_done_alpha", "plan_update_task", map[string]any{
 					"taskId": "task_alpha",
 					"status": "completed",
 				}),
 				`[DONE]`,
 			)
 		case 4:
-			assertStringSliceContains(t, toolNames, "_datetime_", "_memory_search_", "_plan_update_task_")
-			assertStringSliceExcludes(t, toolNames, "_plan_add_tasks_")
+			assertStringSliceContains(t, toolNames, "_datetime_", "_memory_search_", "plan_update_task")
+			assertStringSliceExcludes(t, toolNames, "plan_add_tasks")
 			writeProviderSSE(t, w,
 				providerToolCallFrame(t, "tool_time_beta", "_datetime_", map[string]any{}),
 				`[DONE]`,
 			)
 		case 5:
-			assertStringSliceContains(t, toolNames, "_datetime_", "_memory_search_", "_plan_update_task_")
-			assertStringSliceExcludes(t, toolNames, "_plan_add_tasks_")
+			assertStringSliceContains(t, toolNames, "_datetime_", "_memory_search_", "plan_update_task")
+			assertStringSliceExcludes(t, toolNames, "plan_add_tasks")
 			writeProviderSSE(t, w,
-				providerToolCallFrame(t, "tool_done_beta", "_plan_update_task_", map[string]any{
+				providerToolCallFrame(t, "tool_done_beta", "plan_update_task", map[string]any{
 					"taskId": "task_beta",
 					"status": "completed",
 				}),
@@ -2000,18 +2000,18 @@ func TestPlanExecutePlanStageOnlyUsesPlanAddTasksBeforeSequentialTaskExecution(t
 		}
 	}
 
-	if !reflect.DeepEqual(preTaskToolNames, []string{"_plan_add_tasks_"}) {
-		t.Fatalf("expected only _plan_add_tasks_ before first task.start, got %#v", preTaskToolNames)
+	if !reflect.DeepEqual(preTaskToolNames, []string{"plan_add_tasks"}) {
+		t.Fatalf("expected only plan_add_tasks before first task.start, got %#v", preTaskToolNames)
 	}
 	if len(preCallTools) != 6 {
 		t.Fatalf("expected 6 debug.preCall events, got %#v", preCallTools)
 	}
-	if !reflect.DeepEqual(preCallTools[0], []string{"_plan_add_tasks_"}) {
-		t.Fatalf("plan debug.preCall tools=%#v want only _plan_add_tasks_", preCallTools[0])
+	if !reflect.DeepEqual(preCallTools[0], []string{"plan_add_tasks"}) {
+		t.Fatalf("plan debug.preCall tools=%#v want only plan_add_tasks", preCallTools[0])
 	}
 	for callIndex := 1; callIndex <= 4; callIndex++ {
-		assertStringSliceContains(t, preCallTools[callIndex], "_datetime_", "_memory_search_", "_plan_update_task_")
-		assertStringSliceExcludes(t, preCallTools[callIndex], "_plan_add_tasks_")
+		assertStringSliceContains(t, preCallTools[callIndex], "_datetime_", "_memory_search_", "plan_update_task")
+		assertStringSliceExcludes(t, preCallTools[callIndex], "plan_add_tasks")
 	}
 	if len(preCallTools[5]) != 0 {
 		t.Fatalf("summary debug.preCall tools=%#v want none", preCallTools[5])

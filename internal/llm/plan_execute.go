@@ -17,7 +17,7 @@ Current task description: {{task_description}}
 Execution rules:
 1) Call at most one tool per round.
 2) You may call any available tool as needed.
-3) Before finishing this task, you MUST call _plan_update_task_ to update its status.`
+3) Before finishing this task, you MUST call plan_update_task to update its status.`
 
 type planExecuteStream struct {
 	engine  *LLMAgentEngine
@@ -62,7 +62,7 @@ func newPlanExecuteStream(engine *LLMAgentEngine, ctx context.Context, req api.Q
 			DeltaStageMarker{Stage: "plan"},
 			// Java parity: do NOT emit an empty plan.update at initialization.
 			// The first plan.update is emitted in afterStageEOF after
-			// _plan_add_tasks_ has populated PlanState.Tasks.
+			// plan_add_tasks has populated PlanState.Tasks.
 		},
 	}
 	if stream.settings.MaxSteps <= 0 || stream.settings.MaxWorkRoundsPerTask <= 0 {
@@ -213,7 +213,7 @@ func (s *planExecuteStream) afterStageEOF() error {
 			s.pending = append(s.pending, DeltaError{
 				Error: NewErrorPayload(
 					"plan_not_created",
-					"planning stage did not create any tasks via _plan_add_tasks_",
+					"planning stage did not create any tasks via plan_add_tasks",
 					ErrorScopeRun,
 					ErrorCategorySystem,
 					nil,
@@ -299,7 +299,7 @@ func (s *planExecuteStream) startPlanStage() error {
 	}
 
 	req := s.req
-	req.Message = strings.TrimSpace(planPrompt) + "\n\nCreate an execution plan for the user's request. You MUST call _plan_add_tasks_ before the stage finishes.\n\nUser request:\n" + s.req.Message
+	req.Message = strings.TrimSpace(planPrompt) + "\n\nCreate an execution plan for the user's request. You MUST call plan_add_tasks before the stage finishes.\n\nUser request:\n" + s.req.Message
 	stream, err := s.engine.newRunStreamWithOptions(s.ctx, req, s.sessionForStage(s.settings.Plan, s.planStageTools()), true, runStreamOptions{
 		ExecCtx:      s.execCtx,
 		ToolNames:    s.planStageTools(),
@@ -359,7 +359,7 @@ func (s *planExecuteStream) buildExecuteToolDescriptions() string {
 	descByName := s.toolDescriptionsByName()
 	var lines []string
 	for _, toolName := range tools {
-		if strings.HasPrefix(toolName, "_plan_") {
+		if isPlanTool(toolName) || strings.HasPrefix(strings.ToLower(strings.TrimSpace(toolName)), "plan_") {
 			continue // skip plan tools in reference section
 		}
 		desc := strings.TrimSpace(descByName[strings.ToLower(toolName)])
@@ -376,11 +376,11 @@ func (s *planExecuteStream) buildExecuteToolDescriptions() string {
 
 func (s *planExecuteStream) buildPlanCallableToolDescriptions() string {
 	descByName := s.toolDescriptionsByName()
-	desc := strings.TrimSpace(descByName["_plan_add_tasks_"])
+	desc := strings.TrimSpace(descByName["plan_add_tasks"])
 	if desc == "" {
-		return "当前规划阶段可调用工具（必须调用 _plan_add_tasks_ 创建计划）:\n- _plan_add_tasks_"
+		return "当前规划阶段可调用工具（必须调用 plan_add_tasks 创建计划）:\n- plan_add_tasks"
 	}
-	return "当前规划阶段可调用工具（必须调用 _plan_add_tasks_ 创建计划）:\n- _plan_add_tasks_: " + desc
+	return "当前规划阶段可调用工具（必须调用 plan_add_tasks 创建计划）:\n- plan_add_tasks: " + desc
 }
 
 func (s *planExecuteStream) toolDescriptionsByName() map[string]string {
@@ -416,9 +416,9 @@ func (s *planExecuteStream) resolveStageModelKey(stage StageSettings) string {
 
 func (s *planExecuteStream) planStageTools() []string {
 	if len(s.settings.Plan.Tools) > 0 {
-		return appendUniqueTools(s.settings.Plan.Tools, "_plan_add_tasks_")
+		return appendUniqueTools(s.settings.Plan.Tools, "plan_add_tasks")
 	}
-	return []string{"_plan_add_tasks_"}
+	return []string{"plan_add_tasks"}
 }
 
 func (s *planExecuteStream) planStagePostToolHook(toolName string, _ string) PostToolHookResult {
@@ -433,8 +433,8 @@ func (s *planExecuteStream) planStagePostToolHook(toolName string, _ string) Pos
 
 func (s *planExecuteStream) executeStageTools() []string {
 	tools := stageToolsOrDefault(s.settings.Execute, s.session.ToolNames)
-	// _plan_update_task_ for status updates, no _plan_get_tasks_ (per Zhang Qian's feedback)
-	return appendUniqueTools(tools, "_plan_update_task_")
+	// plan_update_task for status updates, no plan_get_tasks (per Zhang Qian's feedback)
+	return appendUniqueTools(tools, "plan_update_task")
 }
 
 func isTerminalPlanStatus(status string) bool {

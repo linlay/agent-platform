@@ -1,4 +1,4 @@
-name: _plan_add_tasks_
+name: plan_add_tasks
 label: 创建任务
 description: Create plan tasks in append mode, supporting multiple tasks in a single call. Each task must include a description, and success returns multi-line text in the format taskId | status | description.
 type: function

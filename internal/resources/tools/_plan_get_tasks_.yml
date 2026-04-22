@@ -1,9 +1,0 @@
-name: _plan_get_tasks_
-label: 读取任务
-description: Get the current plan snapshot, returning a plain-text task list and the current taskId to execute.
-type: function
-clientVisible: true
-inputSchema:
-  type: object
-  properties: {}
-  additionalProperties: false

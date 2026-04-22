@@ -14,7 +14,7 @@ func TestPlanStageToolsDefaultsToPlanAddTasksOnly(t *testing.T) {
 		},
 	}
 
-	if got, want := stream.planStageTools(), []string{"_plan_add_tasks_"}; !reflect.DeepEqual(got, want) {
+	if got, want := stream.planStageTools(), []string{"plan_add_tasks"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("planStageTools()=%#v want %#v", got, want)
 	}
 }
@@ -31,7 +31,7 @@ func TestPlanStageToolsPreservesExplicitPlanToolsWithoutSessionFallback(t *testi
 		},
 	}
 
-	if got, want := stream.planStageTools(), []string{"mock.plan.inspect", "_datetime_", "_plan_add_tasks_"}; !reflect.DeepEqual(got, want) {
+	if got, want := stream.planStageTools(), []string{"mock.plan.inspect", "_datetime_", "plan_add_tasks"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("planStageTools()=%#v want %#v", got, want)
 	}
 }
@@ -46,12 +46,12 @@ func TestPlanStagePostToolHookStopsAfterTasksCreated(t *testing.T) {
 	if got := stream.planStagePostToolHook("_datetime_", "tool_1"); got != PostToolContinue {
 		t.Fatalf("non-plan tool hook=%v want %v", got, PostToolContinue)
 	}
-	if got := stream.planStagePostToolHook("_plan_add_tasks_", "tool_1"); got != PostToolContinue {
+	if got := stream.planStagePostToolHook("plan_add_tasks", "tool_1"); got != PostToolContinue {
 		t.Fatalf("empty plan hook=%v want %v", got, PostToolContinue)
 	}
 
 	stream.execCtx.PlanState.Tasks = []contracts.PlanTask{{TaskID: "task_1", Description: "first task"}}
-	if got := stream.planStagePostToolHook("_plan_add_tasks_", "tool_1"); got != PostToolStop {
+	if got := stream.planStagePostToolHook("plan_add_tasks", "tool_1"); got != PostToolStop {
 		t.Fatalf("created-plan hook=%v want %v", got, PostToolStop)
 	}
 }

@@ -69,11 +69,11 @@ func (t *RuntimeToolExecutor) Invoke(ctx context.Context, toolName string, args 
 		return t.invokeDateTime(args), nil
 	case "_artifact_publish_":
 		return t.invokeArtifactPublish(args, execCtx)
-	case "_plan_add_tasks_":
+	case "plan_add_tasks":
 		return t.invokePlanAddTasks(args, execCtx)
-	case "_plan_get_tasks_":
+	case "plan_get_tasks":
 		return t.invokePlanGetTasks(execCtx)
-	case "_plan_update_task_":
+	case "plan_update_task":
 		return t.invokePlanUpdateTask(args, execCtx)
 	case "_bash_":
 		if execCtx != nil && hasSandboxConfig(execCtx.Session) {

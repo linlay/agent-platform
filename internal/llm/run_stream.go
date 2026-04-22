@@ -2194,7 +2194,7 @@ func (s *llmRunStream) FinalAssistantContent() (string, bool) {
 
 func isPlanTool(name string) bool {
 	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "_plan_add_tasks_", "_plan_update_task_":
+	case "plan_add_tasks", "plan_update_task":
 		return true
 	default:
 		return false
