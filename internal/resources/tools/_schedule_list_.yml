@@ -1,0 +1,9 @@
+name: _schedule_list_
+label: 查询定时任务
+description: List all scheduled tasks bound to the current chat. Returns id, cron expression, message and enabled flag for each task.
+type: function
+clientVisible: false
+inputSchema:
+  type: object
+  properties: {}
+  additionalProperties: false
