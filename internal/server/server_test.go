@@ -242,6 +242,140 @@ func TestWebSocketChatReturnsActiveRunConflict(t *testing.T) {
 	}
 }
 
+func TestWebSocketPushesChatReadAfterMarkRead(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		notifications: ws.NewHub(),
+		configure: func(cfg *config.Config) {
+			cfg.WebSocket.Enabled = true
+			cfg.WebSocket.WriteQueueSize = 4
+			cfg.WebSocket.PingIntervalMs = 30000
+		},
+	})
+
+	if _, _, err := fixture.chats.EnsureChat("chat_ws_read", "mock-runner", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	if err := fixture.chats.OnRunCompleted(chat.RunCompletion{
+		ChatID:          "chat_ws_read",
+		RunID:           "loyw3v28",
+		AssistantText:   "answer",
+		UpdatedAtMillis: time.Now().UnixMilli(),
+	}); err != nil {
+		t.Fatalf("persist run completion: %v", err)
+	}
+
+	server := newLoopbackServer(t, fixture.server)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
+	conn, _, err := gws.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer conn.Close()
+
+	waitForPushFrameType(t, conn, "connected")
+
+	reqBody := bytes.NewBufferString(`{"chatId":"chat_ws_read","runId":"loyw3v28"}`)
+	resp, err := http.Post(server.URL+"/api/read", "application/json", reqBody)
+	if err != nil {
+		t.Fatalf("post read: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 from /api/read, got %d: %s", resp.StatusCode, readBodyString(t, resp.Body))
+	}
+
+	frame := waitForPushFrameType(t, conn, "chat.read")
+	if frame.Frame != ws.FramePush {
+		t.Fatalf("expected push frame, got %#v", frame)
+	}
+	data := pushFrameDataMap(t, frame)
+	if data["chatId"] != "chat_ws_read" {
+		t.Fatalf("expected chatId chat_ws_read, got %#v", data)
+	}
+	if data["agentKey"] != "mock-runner" {
+		t.Fatalf("expected agentKey mock-runner, got %#v", data)
+	}
+	if data["lastRunId"] != "loyw3v28" {
+		t.Fatalf("expected lastRunId loyw3v28, got %#v", data)
+	}
+	if data["readRunId"] != "loyw3v28" {
+		t.Fatalf("expected readRunId loyw3v28, got %#v", data)
+	}
+	if got, ok := data["agentUnreadCount"].(float64); !ok || got != 0 {
+		t.Fatalf("expected agentUnreadCount 0, got %#v", data)
+	}
+	if got, ok := data["readAt"].(float64); !ok || got <= 0 {
+		t.Fatalf("expected positive readAt, got %#v", data)
+	}
+}
+
+func TestWebSocketPushesChatUnreadAfterRunCompletion(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"content":"Go runner test response"},"finish_reason":"stop"}]}`,
+			`[DONE]`,
+		)
+	}, testFixtureOptions{
+		notifications: ws.NewHub(),
+		configure: func(cfg *config.Config) {
+			cfg.WebSocket.Enabled = true
+			cfg.WebSocket.WriteQueueSize = 4
+			cfg.WebSocket.PingIntervalMs = 30000
+		},
+	})
+
+	server := newLoopbackServer(t, fixture.server)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
+	conn, _, err := gws.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer conn.Close()
+
+	waitForPushFrameType(t, conn, "connected")
+
+	reqBody := bytes.NewBufferString(`{"chatId":"chat_ws_unread","runId":"loyw3v2s","agentKey":"mock-runner","message":"hello unread"}`)
+	resp, err := http.Post(server.URL+"/api/query", "application/json", reqBody)
+	if err != nil {
+		t.Fatalf("post query: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 from /api/query, got %d: %s", resp.StatusCode, readBodyString(t, resp.Body))
+	}
+	_, _ = io.ReadAll(resp.Body)
+
+	frame := waitForPushFrameType(t, conn, "chat.unread")
+	if frame.Frame != ws.FramePush {
+		t.Fatalf("expected push frame, got %#v", frame)
+	}
+	data := pushFrameDataMap(t, frame)
+	if data["chatId"] != "chat_ws_unread" {
+		t.Fatalf("expected chatId chat_ws_unread, got %#v", data)
+	}
+	if data["agentKey"] != "mock-runner" {
+		t.Fatalf("expected agentKey mock-runner, got %#v", data)
+	}
+	if data["lastRunId"] != "loyw3v2s" {
+		t.Fatalf("expected lastRunId loyw3v2s, got %#v", data)
+	}
+	if data["readRunId"] != "" {
+		t.Fatalf("expected empty readRunId for fresh unread chat, got %#v", data)
+	}
+	if got, ok := data["agentUnreadCount"].(float64); !ok || got != 1 {
+		t.Fatalf("expected agentUnreadCount 1, got %#v", data)
+	}
+	if got, ok := data["readAt"].(float64); !ok || got != 0 {
+		t.Fatalf("expected readAt 0 for unread chat, got %#v", data)
+	}
+}
+
 func TestWebSocketRunStreamClosesDuringShutdown(t *testing.T) {
 	hub := ws.NewHub()
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
@@ -4697,6 +4831,15 @@ func pushFrameDataMap(t *testing.T, frame ws.PushFrame) map[string]any {
 		t.Fatalf("expected push frame data object, got %#v", frame.Data)
 	}
 	return data
+}
+
+func readBodyString(t *testing.T, body io.Reader) string {
+	t.Helper()
+	data, err := io.ReadAll(body)
+	if err != nil {
+		return err.Error()
+	}
+	return string(data)
 }
 
 func loadChatSummariesForTest(t *testing.T, handler http.Handler) []api.ChatSummaryResponse {
