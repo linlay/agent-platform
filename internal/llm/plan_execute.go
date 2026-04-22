@@ -228,11 +228,6 @@ func (s *planExecuteStream) afterStageEOF() error {
 			s.completed = true
 			return nil
 		}
-		s.pending = append(s.pending, DeltaPlanUpdate{
-			PlanID: s.execCtx.PlanState.PlanID,
-			ChatID: s.session.ChatID,
-			Plan:   PlanTasksArray(s.execCtx.PlanState),
-		})
 		return nil
 	}
 
@@ -262,11 +257,6 @@ func (s *planExecuteStream) afterStageEOF() error {
 }
 
 func (s *planExecuteStream) emitTaskTerminal(task *PlanTask, status string) {
-	s.pending = append(s.pending, DeltaPlanUpdate{
-		PlanID: s.execCtx.PlanState.PlanID,
-		ChatID: s.session.ChatID,
-		Plan:   PlanTasksArray(s.execCtx.PlanState),
-	})
 	switch status {
 	case "completed":
 		s.pending = append(s.pending, DeltaTaskLifecycle{Kind: "complete", TaskID: task.TaskID})
