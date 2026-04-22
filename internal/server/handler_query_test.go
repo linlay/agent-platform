@@ -159,8 +159,9 @@ func TestPrepareQueryBuildsLayeredMemoryContexts(t *testing.T) {
 	server := &Server{deps: Dependencies{
 		Config: config.Config{
 			Memory: config.MemoryConfig{
-				ContextTopN:     5,
-				ContextMaxChars: 4000,
+				AutoRememberEnabled: true,
+				ContextTopN:         5,
+				ContextMaxChars:     4000,
 			},
 		},
 		Chats:  chats,
@@ -341,8 +342,9 @@ func TestPrepareQueryDedupesNearDuplicateStableFacts(t *testing.T) {
 	server := &Server{deps: Dependencies{
 		Config: config.Config{
 			Memory: config.MemoryConfig{
-				ContextTopN:     5,
-				ContextMaxChars: 4000,
+				AutoRememberEnabled: true,
+				ContextTopN:         5,
+				ContextMaxChars:     4000,
 			},
 		},
 		Chats:  chats,
@@ -427,8 +429,9 @@ func TestPrepareQueryDedupesNearDuplicateAcrossStableAndSession(t *testing.T) {
 	server := &Server{deps: Dependencies{
 		Config: config.Config{
 			Memory: config.MemoryConfig{
-				ContextTopN:     5,
-				ContextMaxChars: 4000,
+				AutoRememberEnabled: true,
+				ContextTopN:         5,
+				ContextMaxChars:     4000,
 			},
 		},
 		Chats:  chats,
@@ -454,6 +457,67 @@ func TestPrepareQueryDedupesNearDuplicateAcrossStableAndSession(t *testing.T) {
 	}
 	if prepared.memoryUsageSummary == nil || prepared.memoryUsageSummary.SelectedCounts["session"] != 0 {
 		t.Fatalf("expected session selected count 0, got %#v", prepared.memoryUsageSummary)
+	}
+}
+
+func TestPrepareQuerySkipsMemoryContextWhenMemorySystemDisabled(t *testing.T) {
+	chats, err := chat.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new chat store: %v", err)
+	}
+	memories, err := memory.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new memory store: %v", err)
+	}
+	now := int64(1_700_000_000_000)
+	if err := memories.Write(api.StoredMemoryResponse{
+		ID:         "fact-1",
+		AgentKey:   "agent-a",
+		ChatID:     "chat-1",
+		Kind:       memory.KindFact,
+		ScopeType:  memory.ScopeAgent,
+		ScopeKey:   "agent:agent-a",
+		Title:      "Work hours preference",
+		Summary:    "每周工作时间保持 40h。",
+		SourceType: "tool-write",
+		Category:   "preference",
+		Importance: 9,
+		Status:     memory.StatusActive,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}); err != nil {
+		t.Fatalf("write fact memory: %v", err)
+	}
+
+	server := &Server{deps: Dependencies{
+		Config: config.Config{
+			Memory: config.MemoryConfig{
+				AutoRememberEnabled: false,
+				ContextTopN:         5,
+				ContextMaxChars:     4000,
+			},
+		},
+		Chats:  chats,
+		Memory: memories,
+		Registry: queryMemoryRegistry{
+			def: catalog.AgentDefinition{
+				Key:      "agent-a",
+				Name:     "Agent A",
+				ModelKey: "mock-model",
+			},
+		},
+	}}
+
+	req := httptest.NewRequest("POST", "/api/query", bytes.NewBufferString(`{"agentKey":"agent-a","chatId":"chat-1","message":"安排下周工时"}`))
+	prepared, err := server.prepareQuery(req)
+	if err != nil {
+		t.Fatalf("prepareQuery: %v", err)
+	}
+	if prepared.session.StableMemoryContext != "" || prepared.session.SessionMemoryContext != "" || prepared.session.ObservationContext != "" {
+		t.Fatalf("expected no memory context when memory system disabled, got stable=%q session=%q obs=%q", prepared.session.StableMemoryContext, prepared.session.SessionMemoryContext, prepared.session.ObservationContext)
+	}
+	if prepared.memoryUsageSummary != nil || prepared.session.MemoryUsageSummary != nil {
+		t.Fatalf("expected no memory usage summary when memory system disabled, got %#v %#v", prepared.memoryUsageSummary, prepared.session.MemoryUsageSummary)
 	}
 }
 

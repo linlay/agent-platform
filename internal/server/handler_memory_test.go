@@ -9,6 +9,7 @@ import (
 
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/chat"
+	"agent-platform-runner-go/internal/config"
 	"agent-platform-runner-go/internal/memory"
 )
 
@@ -70,6 +71,9 @@ func TestHandleLearnStoresObservationFromLatestRun(t *testing.T) {
 	}
 
 	server := &Server{deps: Dependencies{
+		Config: config.Config{
+			Memory: config.MemoryConfig{AutoRememberEnabled: true},
+		},
 		Chats:  chats,
 		Memory: memories,
 	}}
@@ -146,6 +150,9 @@ func TestHandleRememberReturnsStoredMemoryFromChatStore(t *testing.T) {
 	}
 
 	server := &Server{deps: Dependencies{
+		Config: config.Config{
+			Memory: config.MemoryConfig{AutoRememberEnabled: true},
+		},
 		Chats:  chats,
 		Memory: memories,
 	}}
@@ -171,5 +178,39 @@ func TestHandleRememberReturnsStoredMemoryFromChatStore(t *testing.T) {
 	}
 	if record == nil || record.Kind != memory.KindFact || record.Category != "remember" {
 		t.Fatalf("unexpected remembered memory: %#v", record)
+	}
+}
+
+func TestHandleLearnReturnsDisabledWhenMemorySystemDisabled(t *testing.T) {
+	server := &Server{deps: Dependencies{
+		Config: config.Config{
+			Memory: config.MemoryConfig{AutoRememberEnabled: false},
+		},
+	}}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/learn", bytes.NewBufferString(`{"requestId":"learn-1","chatId":"chat-1"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	server.handleLearn(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestHandleRememberReturnsDisabledWhenMemorySystemDisabled(t *testing.T) {
+	server := &Server{deps: Dependencies{
+		Config: config.Config{
+			Memory: config.MemoryConfig{AutoRememberEnabled: false},
+		},
+	}}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/remember", bytes.NewBufferString(`{"requestId":"remember-1","chatId":"chat-1"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	server.handleRemember(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected 503, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
