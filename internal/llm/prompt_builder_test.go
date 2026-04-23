@@ -349,6 +349,60 @@ func TestBuildSystemPromptSeparatesSystemEnvironmentAndSessionContext(t *testing
 	}
 }
 
+func TestBuildToolAppendixIncludesOnlyAfterCallHints(t *testing.T) {
+	appendix := buildToolAppendix([]api.ToolDetailResponse{
+		{
+			Name:          "z_tool",
+			Description:   "z description",
+			AfterCallHint: "z hint",
+			Meta:          map[string]any{"kind": "frontend"},
+		},
+		{
+			Name:          "a_tool",
+			Description:   "a description",
+			AfterCallHint: "a hint",
+			Meta:          map[string]any{"kind": "mcp"},
+		},
+	}, DefaultPromptAppendConfig(), true)
+
+	if !strings.Contains(appendix, "工具调用后推荐指令:") {
+		t.Fatalf("expected after-call hint title, got %q", appendix)
+	}
+	if !strings.Contains(appendix, "- a_tool: a hint") || !strings.Contains(appendix, "- z_tool: z hint") {
+		t.Fatalf("expected hint lines, got %q", appendix)
+	}
+	if strings.Contains(appendix, "工具说明:") || strings.Contains(appendix, "a description") || strings.Contains(appendix, "[frontend]") || strings.Contains(appendix, "[mcp]") {
+		t.Fatalf("expected descriptions and kinds to be omitted, got %q", appendix)
+	}
+	if strings.Index(appendix, "- a_tool: a hint") > strings.Index(appendix, "- z_tool: z hint") {
+		t.Fatalf("expected appendix lines sorted by tool name, got %q", appendix)
+	}
+}
+
+func TestBuildToolAppendixReturnsEmptyWithoutHints(t *testing.T) {
+	appendix := buildToolAppendix([]api.ToolDetailResponse{
+		{
+			Name:        "demo",
+			Description: "demo description",
+		},
+	}, DefaultPromptAppendConfig(), true)
+	if appendix != "" {
+		t.Fatalf("expected empty appendix when no hints exist, got %q", appendix)
+	}
+}
+
+func TestBuildToolAppendixReturnsEmptyWhenAfterCallHintsDisabled(t *testing.T) {
+	appendix := buildToolAppendix([]api.ToolDetailResponse{
+		{
+			Name:          "demo",
+			AfterCallHint: "demo hint",
+		},
+	}, DefaultPromptAppendConfig(), false)
+	if appendix != "" {
+		t.Fatalf("expected empty appendix when hints are disabled, got %q", appendix)
+	}
+}
+
 func assertOrderedSubstrings(t *testing.T, s string, items []string) {
 	t.Helper()
 

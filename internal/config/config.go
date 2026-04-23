@@ -14,6 +14,7 @@ type Config struct {
 	Agents       CatalogConfig
 	Teams        CatalogConfig
 	Skills       SkillCatalogConfig
+	Prompts      PromptsConfig
 	Providers    CatalogConfig
 	Models       CatalogConfig
 	Schedule     ScheduleConfig
@@ -59,6 +60,14 @@ type CatalogConfig struct {
 type SkillCatalogConfig struct {
 	CatalogConfig
 	MaxPromptChars int
+}
+
+type PromptsConfig struct {
+	Skill PromptSkillConfig
+}
+
+type PromptSkillConfig struct {
+	InstructionsPrompt string
 }
 
 type ScheduleConfig struct {
@@ -455,6 +464,7 @@ func (c *Config) applyStructuredConfig() {
 	c.applyContainerHubFile(ProjectFile("configs/container-hub.yml"))
 	c.applyBashFile(ProjectFile("configs/bash.yml"))
 	c.applyCORSFile(ProjectFile("configs/cors.yml"))
+	c.applyPromptsFile(ProjectFile("configs/prompts.yml"))
 }
 
 func (c *Config) applyContainerHubFile(path string) {
@@ -513,6 +523,22 @@ func (c *Config) applyCORSFile(path string) {
 	c.CORS.ExposedHeaders = listValue(anyValue(values["exposed-headers"], c.CORS.ExposedHeaders), c.CORS.ExposedHeaders)
 	c.CORS.AllowCredentials = boolValue(anyValue(values["allow-credentials"], c.CORS.AllowCredentials), c.CORS.AllowCredentials)
 	c.CORS.MaxAgeSeconds = intValue(anyValue(values["max-age-seconds"], c.CORS.MaxAgeSeconds), c.CORS.MaxAgeSeconds)
+}
+
+func (c *Config) applyPromptsFile(path string) {
+	tree, err := LoadYAMLTree(path)
+	if err != nil {
+		return
+	}
+	values, _ := tree.(map[string]any)
+	if len(values) == 0 {
+		return
+	}
+	skill, _ := values["skill"].(map[string]any)
+	if len(skill) == 0 {
+		return
+	}
+	c.Prompts.Skill.InstructionsPrompt = stringValue(anyValue(skill["instructions-prompt"], c.Prompts.Skill.InstructionsPrompt), c.Prompts.Skill.InstructionsPrompt)
 }
 
 func (c *Config) applyEnv() {

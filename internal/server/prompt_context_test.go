@@ -350,6 +350,67 @@ func TestBuildSkillCatalogPromptPrefersAgentLocalSkillAndParsesFrontMatter(t *te
 	}
 }
 
+func TestBuildPromptAppendConfigUsesGlobalSkillInstructionsPrompt(t *testing.T) {
+	t.Parallel()
+
+	appendConfig := buildPromptAppendConfig(config.PromptsConfig{
+		Skill: config.PromptSkillConfig{
+			InstructionsPrompt: "global skill instructions",
+		},
+	}, catalog.AgentDefinition{})
+	if appendConfig.Skill.InstructionsPrompt != "global skill instructions" {
+		t.Fatalf("expected global instructions prompt override, got %q", appendConfig.Skill.InstructionsPrompt)
+	}
+}
+
+func TestBuildSkillCatalogPromptPrependsInstructionsBeforeCatalogHeader(t *testing.T) {
+	t.Parallel()
+
+	agentDir := t.TempDir()
+	marketDir := t.TempDir()
+	skillDir := filepath.Join(marketDir, "demo")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("mkdir skill dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# Demo Skill\n\nDemo description"), 0o644); err != nil {
+		t.Fatalf("write skill file: %v", err)
+	}
+
+	appendConfig := contracts.DefaultPromptAppendConfig()
+	appendConfig.Skill.InstructionsPrompt = "global skill instructions"
+	appendConfig.Skill.CatalogHeader = "skills header"
+
+	prompt := buildSkillCatalogPrompt(catalog.AgentDefinition{
+		AgentDir: agentDir,
+		Skills:   []string{"demo"},
+	}, marketDir, appendConfig)
+
+	instructionsIdx := strings.Index(prompt, "global skill instructions")
+	headerIdx := strings.Index(prompt, "skills header")
+	skillIdx := strings.Index(prompt, "skillId: demo")
+	if instructionsIdx < 0 || headerIdx < 0 || skillIdx < 0 {
+		t.Fatalf("expected instructions, header, and skill block in prompt, got %q", prompt)
+	}
+	if !(instructionsIdx < headerIdx && headerIdx < skillIdx) {
+		t.Fatalf("expected instructions before header before skill block, got %q", prompt)
+	}
+}
+
+func TestBuildSkillCatalogPromptReturnsEmptyWhenNoSkillsResolve(t *testing.T) {
+	t.Parallel()
+
+	appendConfig := contracts.DefaultPromptAppendConfig()
+	appendConfig.Skill.InstructionsPrompt = "global skill instructions"
+
+	prompt := buildSkillCatalogPrompt(catalog.AgentDefinition{
+		AgentDir: t.TempDir(),
+		Skills:   []string{"missing"},
+	}, t.TempDir(), appendConfig)
+	if prompt != "" {
+		t.Fatalf("expected empty prompt when no skills resolve, got %q", prompt)
+	}
+}
+
 func testPromptContextConfig(t *testing.T) config.Config {
 	t.Helper()
 

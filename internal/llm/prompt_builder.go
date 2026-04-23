@@ -62,6 +62,9 @@ func buildAgentIdentitySection(session QuerySession) string {
 
 func effectivePromptAppendConfig(config PromptAppendConfig) PromptAppendConfig {
 	defaults := DefaultPromptAppendConfig()
+	if strings.TrimSpace(config.Skill.InstructionsPrompt) != "" {
+		defaults.Skill.InstructionsPrompt = strings.TrimSpace(config.Skill.InstructionsPrompt)
+	}
 	if strings.TrimSpace(config.Skill.CatalogHeader) != "" {
 		defaults.Skill.CatalogHeader = strings.TrimSpace(config.Skill.CatalogHeader)
 	}
@@ -474,7 +477,7 @@ func firstNonBlank(values ...string) string {
 }
 
 func buildToolAppendix(definitions []api.ToolDetailResponse, appendConfig PromptAppendConfig, includeAfterCallHints bool) string {
-	if len(definitions) == 0 {
+	if !includeAfterCallHints || len(definitions) == 0 {
 		return ""
 	}
 	appendConfig = effectivePromptAppendConfig(appendConfig)
@@ -483,46 +486,26 @@ func buildToolAppendix(definitions []api.ToolDetailResponse, appendConfig Prompt
 		return normalizePromptToolName(sortedDefs[i]) < normalizePromptToolName(sortedDefs[j])
 	})
 
-	descriptionLines := make([]string, 0, len(sortedDefs))
 	afterCallLines := make([]string, 0, len(sortedDefs))
-	seenDescriptions := map[string]struct{}{}
 	seenAfterHints := map[string]struct{}{}
 	for _, tool := range sortedDefs {
-		kind, _ := tool.Meta["kind"].(string)
 		name := normalizePromptToolName(tool)
 		if name == "" {
 			continue
 		}
-		displayName := name
-		if normalizedKind := strings.ToLower(strings.TrimSpace(kind)); normalizedKind != "" && normalizedKind != "backend" {
-			displayName = name + " [" + normalizedKind + "]"
-		}
-		if description := strings.TrimSpace(tool.Description); description != "" {
-			line := "- " + displayName + ": " + description
-			if _, ok := seenDescriptions[line]; !ok {
-				seenDescriptions[line] = struct{}{}
-				descriptionLines = append(descriptionLines, line)
-			}
-		}
-		if includeAfterCallHints {
-			if hint := strings.TrimSpace(tool.AfterCallHint); hint != "" {
-				line := "- " + displayName + ": " + hint
-				if _, ok := seenAfterHints[line]; !ok {
-					seenAfterHints[line] = struct{}{}
-					afterCallLines = append(afterCallLines, line)
-				}
+		if hint := strings.TrimSpace(tool.AfterCallHint); hint != "" {
+			line := "- " + name + ": " + hint
+			if _, ok := seenAfterHints[line]; !ok {
+				seenAfterHints[line] = struct{}{}
+				afterCallLines = append(afterCallLines, line)
 			}
 		}
 	}
 
-	var sections []string
-	if len(descriptionLines) > 0 {
-		sections = append(sections, strings.TrimSpace(appendConfig.Tool.ToolDescriptionTitle)+"\n"+strings.Join(descriptionLines, "\n"))
+	if len(afterCallLines) > 0 {
+		return strings.TrimSpace(appendConfig.Tool.AfterCallHintTitle) + "\n" + strings.Join(afterCallLines, "\n")
 	}
-	if includeAfterCallHints && len(afterCallLines) > 0 {
-		sections = append(sections, strings.TrimSpace(appendConfig.Tool.AfterCallHintTitle)+"\n"+strings.Join(afterCallLines, "\n"))
-	}
-	return strings.Join(sections, "\n\n")
+	return ""
 }
 
 func normalizePromptToolName(tool api.ToolDetailResponse) string {
