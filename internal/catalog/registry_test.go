@@ -266,7 +266,7 @@ func TestLoadAgentsDoesNotExposeSandboxInContextTagsMeta(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	agents, err := loadAgents(agentsDir, marketDir)
+	agents, err := loadAgents(agentsDir, marketDir, true)
 	if err != nil {
 		t.Fatalf("loadAgents: %v", err)
 	}

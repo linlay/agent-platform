@@ -31,7 +31,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 	var sessionMemoryContext string
 	var observationContext string
 	var memoryUsageSummary *api.MemoryUsageSummary
-	if options.IncludeMemory && s.memorySystemEnabled() && s.deps.Memory != nil && req.Message != "" {
+	if options.IncludeMemory && s.memoryEnabledForAgent(agentDef) && s.deps.Memory != nil && req.Message != "" {
 		topN := s.deps.Config.Memory.ContextTopN
 		if topN <= 0 {
 			topN = 5

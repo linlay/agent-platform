@@ -2,9 +2,12 @@ package artifactpusher
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -13,40 +16,45 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"agent-platform-runner-go/internal/contracts"
 )
 
 // Pusher forwards platform-hosted artifact files to the gateway's upload
-// endpoint over plain HTTP multipart. It mirrors the side-channel wecom-bridge
-// used to run: stream events keep travelling through WS, but the binary bytes
-// go out-of-band so they never block the WS connection.
+// endpoint over plain HTTP multipart. Stream events keep travelling through
+// WS, but the binary bytes go out-of-band so they never block the WS
+// connection.
 //
 // A zero-value or nil-configured Pusher is safe; Push is a no-op when the
 // gateway upload URL is not configured (e.g. webclient-only deployments).
 type Pusher struct {
-	baseURL    string
-	uploadPath string
-	authToken  string
-	chatsDir   string
-	http       *http.Client
+	baseURL       string
+	uploadPath    string
+	authToken     string
+	chatsDir      string
+	http          *http.Client
+	notifications contracts.NotificationSink
 }
 
 type Config struct {
-	BaseURL    string
-	UploadPath string
-	AuthToken  string
-	ChatsDir   string
+	BaseURL       string
+	UploadPath    string
+	AuthToken     string
+	ChatsDir      string
+	Notifications contracts.NotificationSink
 }
 
 func New(cfg Config) *Pusher {
 	p := &Pusher{
-		baseURL:    strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/"),
-		uploadPath: strings.TrimSpace(cfg.UploadPath),
-		authToken:  strings.TrimSpace(cfg.AuthToken),
-		chatsDir:   strings.TrimSpace(cfg.ChatsDir),
-		http:       &http.Client{Timeout: 60 * time.Second},
+		baseURL:       strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/"),
+		uploadPath:    strings.TrimSpace(cfg.UploadPath),
+		authToken:     strings.TrimSpace(cfg.AuthToken),
+		chatsDir:      strings.TrimSpace(cfg.ChatsDir),
+		http:          &http.Client{Timeout: 60 * time.Second},
+		notifications: cfg.Notifications,
 	}
 	if p.baseURL == "" || p.uploadPath == "" {
-		log.Printf("[artifact-pusher] disabled: gateway upload endpoint not configured (GATEWAY_BASE_URL=%q GATEWAY_UPLOAD_PATH=%q); produced artifacts will stay local", p.baseURL, p.uploadPath)
+		log.Printf("[artifact-pusher] disabled: gateway upload endpoint not configured (GATEWAY_BASE_URL=%q uploadPath=%q); produced artifacts will stay local", p.baseURL, p.uploadPath)
 	} else {
 		log.Printf("[artifact-pusher] enabled: baseURL=%s uploadPath=%s chatsDir=%s authToken=%s",
 			p.baseURL, p.uploadPath, p.chatsDir, maskToken(p.authToken))
@@ -118,6 +126,16 @@ func (p *Pusher) pushOne(chatID string, artifact map[string]any) {
 		return
 	}
 
+	mimeType, _ := artifact["mimeType"].(string)
+	if mimeType == "" {
+		mimeType = guessMimeType(fileName)
+	}
+	sha := sha256Hex(data)
+
+	// 先发 push frame 给网关做预告（纯 metadata，字节走 HTTP POST）。
+	// push 失败不阻塞 POST —— Broadcast 是 best-effort 的 fan-out。
+	p.notifyArtifactOutgoing(chatID, artifactID, fileName, mimeType, sha, len(data))
+
 	uploadURL := p.baseURL + "/" + strings.TrimLeft(path.Clean("/"+p.uploadPath), "/")
 	respBody, err := p.postMultipart(uploadURL, chatID, fileName, fileType, artifactID, data)
 	if err != nil {
@@ -126,6 +144,38 @@ func (p *Pusher) pushOne(chatID string, artifact map[string]any) {
 	}
 	log.Printf("[artifact-pusher] upload ok chatId=%s artifactId=%s name=%s bytes=%d response=%s",
 		chatID, artifactID, fileName, len(data), truncate(string(respBody), 256))
+}
+
+func (p *Pusher) notifyArtifactOutgoing(chatID, artifactID, name, mimeType, sha string, sizeBytes int) {
+	if p.notifications == nil {
+		return
+	}
+	p.notifications.Broadcast("/api/push", map[string]any{
+		"chatId":     chatID,
+		"artifactId": artifactID,
+		"name":       name,
+		"mimeType":   mimeType,
+		"sha256":     sha,
+		"sizeBytes":  sizeBytes,
+		"timestamp":  time.Now().UnixMilli(),
+	})
+	log.Printf("[artifact-pusher] push sent chatId=%s artifactId=%s name=%s", chatID, artifactID, name)
+}
+
+func sha256Hex(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func guessMimeType(fileName string) string {
+	ext := strings.ToLower(filepath.Ext(fileName))
+	if ext == "" {
+		return "application/octet-stream"
+	}
+	if t := mime.TypeByExtension(ext); t != "" {
+		return t
+	}
+	return "application/octet-stream"
 }
 
 func (p *Pusher) postMultipart(uploadURL, chatID, fileName, fileType, requestID string, data []byte) ([]byte, error) {

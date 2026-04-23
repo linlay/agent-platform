@@ -57,8 +57,8 @@ func TestLoadDefaults(t *testing.T) {
 		if cfg.BashHITL.DefaultTimeoutMs != 120000 {
 			t.Fatalf("expected default bash HITL timeout 120000, got %d", cfg.BashHITL.DefaultTimeoutMs)
 		}
-		if !cfg.Memory.AutoRememberEnabled {
-			t.Fatalf("expected memory auto remember enabled by default")
+		if cfg.Memory.Enabled {
+			t.Fatalf("expected memory disabled by default")
 		}
 	})
 }
@@ -330,8 +330,8 @@ func TestLoadLLMInteractionMaskSensitiveFromEnv(t *testing.T) {
 
 func TestLoadGatewayWSConfigFromEnv(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
-		"AGENT_GATEWAY_WS_URL":                  "ws://127.0.0.1:17999/gw",
-		"AGENT_GATEWAY_WS_TOKEN":                "dev-token",
+		"GATEWAY_WS_URL":                        "wss://gw.example.com/ws/agent?key=zenmi&channel=wecom:xiaozhai",
+		"GATEWAY_JWT_TOKEN":                     "jwt-abc",
 		"AGENT_GATEWAY_WS_HANDSHAKE_TIMEOUT_MS": "3210",
 		"AGENT_GATEWAY_WS_RECONNECT_MIN_MS":     "45",
 		"AGENT_GATEWAY_WS_RECONNECT_MAX_MS":     "6789",
@@ -340,11 +340,11 @@ func TestLoadGatewayWSConfigFromEnv(t *testing.T) {
 		if err != nil {
 			t.Fatalf("load config: %v", err)
 		}
-		if cfg.GatewayWS.URL != "ws://127.0.0.1:17999/gw" {
+		if cfg.GatewayWS.URL != "wss://gw.example.com/ws/agent?key=zenmi&channel=wecom:xiaozhai" {
 			t.Fatalf("unexpected gateway ws url: %q", cfg.GatewayWS.URL)
 		}
-		if cfg.GatewayWS.Token != "dev-token" {
-			t.Fatalf("unexpected gateway ws token: %q", cfg.GatewayWS.Token)
+		if cfg.GatewayWS.JwtToken != "jwt-abc" {
+			t.Fatalf("unexpected gateway jwt token: %q", cfg.GatewayWS.JwtToken)
 		}
 		if cfg.GatewayWS.HandshakeTimeoutMs != 3210 {
 			t.Fatalf("unexpected gateway ws handshake timeout: %d", cfg.GatewayWS.HandshakeTimeoutMs)
@@ -360,9 +360,9 @@ func TestLoadGatewayWSConfigFromEnv(t *testing.T) {
 
 func TestLoadGatewayWSConfigWhenWebSocketDisabled(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
-		"AGENT_WS_ENABLED":       "false",
-		"AGENT_GATEWAY_WS_URL":   "ws://127.0.0.1:17999/gw",
-		"AGENT_GATEWAY_WS_TOKEN": "dev-token",
+		"AGENT_WS_ENABLED":  "false",
+		"GATEWAY_WS_URL":    "ws://127.0.0.1:17999/gw",
+		"GATEWAY_JWT_TOKEN": "jwt-abc",
 	}, func() {
 		cfg, err := Load()
 		if err != nil {
@@ -471,7 +471,9 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 		"LOGGING_AGENT_LLM_INTERACTION_MASK_SENSITIVE",
 		"AGENT_WS_ENABLED",
 		"AGENT_GATEWAY_WS_URL",
-		"AGENT_GATEWAY_WS_TOKEN",
+		"GATEWAY_WS_URL",
+		"GATEWAY_JWT_TOKEN",
+		"GATEWAY_BASE_URL",
 		"AGENT_GATEWAY_WS_HANDSHAKE_TIMEOUT_MS",
 		"AGENT_GATEWAY_WS_RECONNECT_MIN_MS",
 		"AGENT_GATEWAY_WS_RECONNECT_MAX_MS",

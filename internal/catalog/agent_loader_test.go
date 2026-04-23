@@ -29,10 +29,13 @@ func TestParseAgentFileSupportsFlattenedToolConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	for _, tool := range []string{"_datetime_", "_ask_user_question_", "_memory_write_", "_memory_read_", "_memory_search_"} {
+	for _, tool := range []string{"_datetime_", "_ask_user_question_"} {
 		if !containsString(def.Tools, tool) {
 			t.Fatalf("expected %s in flattened tools list, got %#v", tool, def.Tools)
 		}
+	}
+	if def.MemoryEnabled {
+		t.Fatalf("expected memory to stay disabled by default, got %#v", def)
 	}
 }
 
@@ -70,6 +73,9 @@ func TestParseAgentFileIgnoresLegacyToolConfigBuckets(t *testing.T) {
 			t.Fatalf("expected legacy tool bucket entry %s to stay ignored, got %#v", tool, def.Tools)
 		}
 	}
+	if def.MemoryEnabled {
+		t.Fatalf("expected memory to stay disabled by default, got %#v", def)
+	}
 }
 
 func TestParseAgentFileLoadsToolOverridesFromToolConfig(t *testing.T) {
@@ -98,10 +104,13 @@ func TestParseAgentFileLoadsToolOverridesFromToolConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	for _, tool := range []string{"_ask_user_question_", "_memory_write_", "_memory_read_", "_memory_search_"} {
+	for _, tool := range []string{"_ask_user_question_"} {
 		if !containsString(def.Tools, tool) {
 			t.Fatalf("expected %s in flattened tools list, got %#v", tool, def.Tools)
 		}
+	}
+	if def.MemoryEnabled {
+		t.Fatalf("expected memory to stay disabled by default, got %#v", def)
 	}
 	override, ok := def.ToolOverrides["_ask_user_question_"]
 	if !ok {
@@ -239,7 +248,7 @@ func TestParseAgentFileInjectsMemoryManagementToolsOnlyWhenEnabled(t *testing.T)
 	}
 }
 
-func TestParseAgentFileInjectsBaseMemoryToolsByDefault(t *testing.T) {
+func TestParseAgentFileKeepsBaseMemoryToolsDisabledByDefault(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
 	content := "" +
@@ -257,9 +266,12 @@ func TestParseAgentFileInjectsBaseMemoryToolsByDefault(t *testing.T) {
 		t.Fatalf("parse agent file: %v", err)
 	}
 	for _, tool := range []string{"_memory_write_", "_memory_read_", "_memory_search_"} {
-		if !containsString(def.Tools, tool) {
-			t.Fatalf("expected %s in tools by default, got %#v", tool, def.Tools)
+		if containsString(def.Tools, tool) {
+			t.Fatalf("expected %s to stay disabled by default, got %#v", tool, def.Tools)
 		}
+	}
+	if def.MemoryEnabled {
+		t.Fatalf("expected memory disabled by default, got %#v", def)
 	}
 }
 

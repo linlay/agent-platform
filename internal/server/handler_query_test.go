@@ -172,6 +172,7 @@ func TestPrepareQueryBuildsLayeredMemoryContexts(t *testing.T) {
 	server := &Server{deps: Dependencies{
 		Config: config.Config{
 			Memory: config.MemoryConfig{
+				Enabled:             true,
 				AutoRememberEnabled: true,
 				ContextTopN:         5,
 				ContextMaxChars:     4000,
@@ -181,10 +182,11 @@ func TestPrepareQueryBuildsLayeredMemoryContexts(t *testing.T) {
 		Memory: memories,
 		Registry: queryMemoryRegistry{
 			def: catalog.AgentDefinition{
-				Key:         "agent-a",
-				Name:        "Agent A",
-				ModelKey:    "mock-model",
-				ContextTags: []string{"memory"},
+				Key:           "agent-a",
+				Name:          "Agent A",
+				ModelKey:      "mock-model",
+				MemoryEnabled: true,
+				ContextTags:   []string{"memory"},
 			},
 		},
 	}}
@@ -355,6 +357,7 @@ func TestPrepareQueryDedupesNearDuplicateStableFacts(t *testing.T) {
 	server := &Server{deps: Dependencies{
 		Config: config.Config{
 			Memory: config.MemoryConfig{
+				Enabled:             true,
 				AutoRememberEnabled: true,
 				ContextTopN:         5,
 				ContextMaxChars:     4000,
@@ -364,10 +367,11 @@ func TestPrepareQueryDedupesNearDuplicateStableFacts(t *testing.T) {
 		Memory: memories,
 		Registry: queryMemoryRegistry{
 			def: catalog.AgentDefinition{
-				Key:         "agent-a",
-				Name:        "Agent A",
-				ModelKey:    "mock-model",
-				ContextTags: []string{"memory"},
+				Key:           "agent-a",
+				Name:          "Agent A",
+				ModelKey:      "mock-model",
+				MemoryEnabled: true,
+				ContextTags:   []string{"memory"},
 			},
 		},
 	}}
@@ -442,6 +446,7 @@ func TestPrepareQueryDedupesNearDuplicateAcrossStableAndSession(t *testing.T) {
 	server := &Server{deps: Dependencies{
 		Config: config.Config{
 			Memory: config.MemoryConfig{
+				Enabled:             true,
 				AutoRememberEnabled: true,
 				ContextTopN:         5,
 				ContextMaxChars:     4000,
@@ -451,10 +456,11 @@ func TestPrepareQueryDedupesNearDuplicateAcrossStableAndSession(t *testing.T) {
 		Memory: memories,
 		Registry: queryMemoryRegistry{
 			def: catalog.AgentDefinition{
-				Key:         "agent-a",
-				Name:        "Agent A",
-				ModelKey:    "mock-model",
-				ContextTags: []string{"memory"},
+				Key:           "agent-a",
+				Name:          "Agent A",
+				ModelKey:      "mock-model",
+				MemoryEnabled: true,
+				ContextTags:   []string{"memory"},
 			},
 		},
 	}}

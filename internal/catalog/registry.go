@@ -61,6 +61,7 @@ type AgentDefinition struct {
 	SummaryPrompt      string
 	StaticMemoryPrompt string
 	MemoryPrompt       string // Deprecated: use StaticMemoryPrompt.
+	MemoryEnabled      bool
 }
 
 type AgentRuntimePrompts struct {
@@ -147,7 +148,7 @@ func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*Fil
 func (r *FileRegistry) Reload(_ context.Context, reason string) error {
 	switch reason {
 	case "agents":
-		agents, err := loadAgents(r.cfg.Paths.AgentsDir, r.cfg.Paths.SkillsMarketDir)
+		agents, err := loadAgents(r.cfg.Paths.AgentsDir, r.cfg.Paths.SkillsMarketDir, r.cfg.Memory.Enabled)
 		if err != nil {
 			return err
 		}
@@ -176,7 +177,7 @@ func (r *FileRegistry) Reload(_ context.Context, reason string) error {
 	}
 
 	// Full reload (startup, config, or unknown reason)
-	agents, err := loadAgents(r.cfg.Paths.AgentsDir, r.cfg.Paths.SkillsMarketDir)
+	agents, err := loadAgents(r.cfg.Paths.AgentsDir, r.cfg.Paths.SkillsMarketDir, r.cfg.Memory.Enabled)
 	if err != nil {
 		return err
 	}

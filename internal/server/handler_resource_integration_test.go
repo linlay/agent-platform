@@ -154,7 +154,7 @@ func TestWebSocketUploadDownloadsGatewayURLAndReturnsUploadTicket(t *testing.T) 
 			cfg.WebSocket.Enabled = true
 			cfg.WebSocket.WriteQueueSize = 4
 			cfg.WebSocket.PingIntervalMs = 30000
-			cfg.GatewayWS.AuthToken = "gateway-upload-token"
+			cfg.GatewayWS.JwtToken = "gateway-upload-token"
 		},
 	})
 

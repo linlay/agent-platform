@@ -93,15 +93,23 @@ func New(rootCtx context.Context) (*App, error) {
 	}
 	log.Printf("chat store ready in %s (root=%s)", startupElapsed(chatStoreStartedAt), cfg.Paths.ChatsDir)
 
-	memoryStoreStartedAt := time.Now()
-	memoryStore, err := memory.NewSQLiteStore(cfg.Paths.MemoryDir, cfg.Memory.DBFileName)
-	if err != nil {
-		return nil, fmt.Errorf("init memory store (%s): %w", cfg.Paths.MemoryDir, err)
-	}
-	log.Printf("memory store ready in %s (root=%s)", startupElapsed(memoryStoreStartedAt), cfg.Paths.MemoryDir)
-	skillCandidateStore, err := skills.NewFileCandidateStore(filepath.Join(cfg.Paths.MemoryDir, "skill-candidates"))
-	if err != nil {
-		return nil, fmt.Errorf("init skill candidate store (%s): %w", filepath.Join(cfg.Paths.MemoryDir, "skill-candidates"), err)
+	var memoryStore memory.Store
+	var sqliteMemoryStore *memory.SQLiteStore
+	var skillCandidateStore skills.CandidateStore
+	if cfg.Memory.Enabled {
+		memoryStoreStartedAt := time.Now()
+		sqliteMemoryStore, err = memory.NewSQLiteStore(cfg.Paths.MemoryDir, cfg.Memory.DBFileName)
+		if err != nil {
+			return nil, fmt.Errorf("init memory store (%s): %w", cfg.Paths.MemoryDir, err)
+		}
+		memoryStore = sqliteMemoryStore
+		log.Printf("memory store ready in %s (root=%s)", startupElapsed(memoryStoreStartedAt), cfg.Paths.MemoryDir)
+		skillCandidateStore, err = skills.NewFileCandidateStore(filepath.Join(cfg.Paths.MemoryDir, "skill-candidates"))
+		if err != nil {
+			return nil, fmt.Errorf("init skill candidate store (%s): %w", filepath.Join(cfg.Paths.MemoryDir, "skill-candidates"), err)
+		}
+	} else {
+		log.Printf("memory system disabled by config")
 	}
 
 	modelRegistryStartedAt := time.Now()
@@ -111,24 +119,26 @@ func New(rootCtx context.Context) (*App, error) {
 	}
 	log.Printf("model registry ready in %s (root=%s)", startupElapsed(modelRegistryStartedAt), cfg.Paths.RegistriesDir)
 
-	if providerKey := strings.TrimSpace(cfg.Memory.EmbeddingProviderKey); providerKey != "" {
-		if provider, err := modelRegistry.GetProvider(providerKey); err == nil {
-			baseURL := strings.TrimRight(provider.BaseURL, "/")
-			model := cfg.Memory.EmbeddingModel
-			if model == "" {
-				model = "text-embedding-3-small"
+	if cfg.Memory.Enabled {
+		if providerKey := strings.TrimSpace(cfg.Memory.EmbeddingProviderKey); providerKey != "" {
+			if provider, err := modelRegistry.GetProvider(providerKey); err == nil {
+				baseURL := strings.TrimRight(provider.BaseURL, "/")
+				model := cfg.Memory.EmbeddingModel
+				if model == "" {
+					model = "text-embedding-3-small"
+				}
+				ep := memory.NewEmbeddingProvider(baseURL, provider.APIKey, model, cfg.Memory.EmbeddingDimension, cfg.Memory.EmbeddingTimeoutMs)
+				sqliteMemoryStore.SetEmbedder(ep)
+				log.Printf("memory embedding provider ready (provider=%s model=%s dim=%d)", providerKey, model, ep.Dimension)
+			} else {
+				log.Printf("[memory][embedding] provider %q not found in model registry, hybrid search disabled: %v", providerKey, err)
 			}
-			ep := memory.NewEmbeddingProvider(baseURL, provider.APIKey, model, cfg.Memory.EmbeddingDimension, cfg.Memory.EmbeddingTimeoutMs)
-			memoryStore.SetEmbedder(ep)
-			log.Printf("memory embedding provider ready (provider=%s model=%s dim=%d)", providerKey, model, ep.Dimension)
-		} else {
-			log.Printf("[memory][embedding] provider %q not found in model registry, hybrid search disabled: %v", providerKey, err)
 		}
-	}
-	if modelKey := strings.TrimSpace(cfg.Memory.RememberModelKey); modelKey != "" {
-		if summarizer := memory.NewLLMMemorySummarizer(modelRegistry, modelKey, cfg.Memory.RememberTimeoutMs); summarizer != nil {
-			memoryStore.SetRememberSummarizer(summarizer)
-			log.Printf("memory remember summarizer ready (model=%s timeout=%dms)", modelKey, cfg.Memory.RememberTimeoutMs)
+		if modelKey := strings.TrimSpace(cfg.Memory.RememberModelKey); modelKey != "" {
+			if summarizer := memory.NewLLMMemorySummarizer(modelRegistry, modelKey, cfg.Memory.RememberTimeoutMs); summarizer != nil {
+				sqliteMemoryStore.SetRememberSummarizer(summarizer)
+				log.Printf("memory remember summarizer ready (model=%s timeout=%dms)", modelKey, cfg.Memory.RememberTimeoutMs)
+			}
 		}
 	}
 
@@ -138,12 +148,8 @@ func New(rootCtx context.Context) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("init runtime tools: %w", err)
 	}
-	backendTools.WithArtifactPusher(artifactpusher.New(artifactpusher.Config{
-		BaseURL:    cfg.GatewayWS.BaseURL,
-		UploadPath: cfg.GatewayWS.UploadPath,
-		AuthToken:  cfg.GatewayWS.AuthToken,
-		ChatsDir:   cfg.Paths.ChatsDir,
-	}))
+	// artifactPusher 在下面 notifications 就绪后再接入 backendTools，
+	// 这样它发出的 push frame 能走到 WS hub，转给网关做 artifact 预告。
 	mcpRegistry, err := mcp.NewRegistry(filepath.Join(cfg.Paths.RegistriesDir, "mcp-servers"))
 	if err != nil {
 		return nil, fmt.Errorf("load mcp registry: %w", err)
@@ -188,6 +194,13 @@ func New(rootCtx context.Context) (*App, error) {
 		wsHub = ws.NewHub()
 		notifications = wsHub
 	}
+	backendTools.WithArtifactPusher(artifactpusher.New(artifactpusher.Config{
+		BaseURL:       cfg.GatewayWS.BaseURL,
+		UploadPath:    config.GatewayUploadPath,
+		AuthToken:     cfg.GatewayWS.JwtToken,
+		ChatsDir:      cfg.Paths.ChatsDir,
+		Notifications: notifications,
+	}))
 	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, mcp.NewRegistryReloader(mcpRegistry, mcpToolSync), notifications)
 	backgroundCtx, backgroundCancel := context.WithCancel(rootCtx)
 	cleanupBackground := true
@@ -238,11 +251,7 @@ func New(rootCtx context.Context) (*App, error) {
 				gwClient = gatewayclient.New(
 					gatewayclient.Config{
 						URL:              strings.TrimSpace(cfg.GatewayWS.URL),
-						Token:            strings.TrimSpace(cfg.GatewayWS.Token),
-						UserID:           strings.TrimSpace(cfg.GatewayWS.UserID),
-						Ticket:           strings.TrimSpace(cfg.GatewayWS.Ticket),
-						AgentKey:         strings.TrimSpace(cfg.GatewayWS.AgentKey),
-						Channel:          strings.TrimSpace(cfg.GatewayWS.Channel),
+						Token:            strings.TrimSpace(cfg.GatewayWS.JwtToken),
 						HandshakeTimeout: time.Duration(cfg.GatewayWS.HandshakeTimeoutMs) * time.Millisecond,
 						ReconnectMin:     time.Duration(cfg.GatewayWS.ReconnectMinMs) * time.Millisecond,
 						ReconnectMax:     time.Duration(cfg.GatewayWS.ReconnectMaxMs) * time.Millisecond,

@@ -17,46 +17,13 @@ import (
 )
 
 type Config struct {
-	URL              string
+	// URL 已由部署侧提供完整入口（含 key/channel 等 query 参数），client 原样使用。
+	URL string
+	// Token 是握手使用的 Bearer JWT，由 GATEWAY_JWT_TOKEN 注入。
 	Token            string
-	UserID           string
-	Ticket           string
-	AgentKey         string
-	Channel          string
 	HandshakeTimeout time.Duration
 	ReconnectMin     time.Duration
 	ReconnectMax     time.Duration
-}
-
-// buildDialURL 在基础 URL 上拼接 bridge 兼容的握手 query 参数。
-// 保持和 agent-wecom-ws-bridge BuildGatewayURL 完全一致的字面写法：
-// 不对 channel 等值做 URL encode，并按 userId/ticket/agentKey/channel 顺序拼接。
-func (c Config) buildDialURL() string {
-	base := strings.TrimRight(c.URL, "/")
-	if base == "" {
-		return base
-	}
-	sep := "?"
-	if strings.Contains(base, "?") {
-		sep = "&"
-	}
-	var b strings.Builder
-	b.WriteString(base)
-	appendParam := func(key, value string) {
-		if value == "" {
-			return
-		}
-		b.WriteString(sep)
-		b.WriteString(key)
-		b.WriteString("=")
-		b.WriteString(value)
-		sep = "&"
-	}
-	appendParam("userId", c.UserID)
-	appendParam("ticket", c.Ticket)
-	appendParam("agentKey", c.AgentKey)
-	appendParam("channel", c.Channel)
-	return b.String()
 }
 
 type Client struct {
@@ -156,7 +123,7 @@ func (c *Client) run() {
 		}
 		dialer := &gws.Dialer{HandshakeTimeout: c.cfg.HandshakeTimeout}
 		dialCtx, cancel := context.WithTimeout(c.ctx, c.cfg.HandshakeTimeout)
-		dialURL := c.cfg.buildDialURL()
+		dialURL := strings.TrimRight(c.cfg.URL, "/")
 		socket, resp, err := dialer.DialContext(dialCtx, dialURL, header)
 		cancel()
 		if err != nil {
