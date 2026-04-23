@@ -68,6 +68,7 @@ type PromptsConfig struct {
 
 type PromptSkillConfig struct {
 	InstructionsPrompt string
+	CatalogHeader      string
 }
 
 type ScheduleConfig struct {
@@ -539,6 +540,7 @@ func (c *Config) applyPromptsFile(path string) {
 		return
 	}
 	c.Prompts.Skill.InstructionsPrompt = stringValue(anyValue(skill["instructions-prompt"], c.Prompts.Skill.InstructionsPrompt), c.Prompts.Skill.InstructionsPrompt)
+	c.Prompts.Skill.CatalogHeader = stringValue(anyValue(skill["catalog-header"], c.Prompts.Skill.CatalogHeader), c.Prompts.Skill.CatalogHeader)
 }
 
 func (c *Config) applyEnv() {

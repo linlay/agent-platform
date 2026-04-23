@@ -119,12 +119,10 @@ func buildRuntimeContextPrompt(session QuerySession, req api.QueryRequest) strin
 		switch strings.ToLower(strings.TrimSpace(tag)) {
 		case "system":
 			appendIfPresent(&sections, buildSystemEnvironmentSection(session))
-		case "context":
-			appendIfPresent(&sections, buildSessionContextSection(session, req))
+		case "session":
+			appendIfPresent(&sections, buildSessionSection(session, req))
 		case "owner":
 			appendIfPresent(&sections, buildOwnerSection(session.RuntimeContext.LocalPaths))
-		case "auth":
-			appendIfPresent(&sections, buildAuthIdentitySection(session.RuntimeContext.AuthIdentity))
 		case "all-agents":
 			appendIfPresent(&sections, buildAllAgentsSection(session.RuntimeContext.AgentDigests))
 		case "memory":
@@ -175,16 +173,21 @@ func resolveLocale() string {
 	return "unknown"
 }
 
-func buildSessionContextSection(session QuerySession, req api.QueryRequest) string {
-	lines := []string{"Runtime Context: Session Context"}
-	// chatId / runId / requestId first
+func buildSessionSection(session QuerySession, req api.QueryRequest) string {
+	lines := []string{"Runtime Context: Session"}
 	appendKeyValue(&lines, "chatId", session.ChatID)
 	appendKeyValue(&lines, "runId", session.RunID)
 	appendKeyValue(&lines, "requestId", session.RequestID)
 	appendKeyValue(&lines, "teamId", session.RuntimeContext.TeamID)
-
 	if summary := summarizeScene(session.RuntimeContext.Scene); summary != "" {
 		lines = append(lines, "scene: "+summary)
+	}
+	if identity := session.RuntimeContext.AuthIdentity; identity != nil {
+		appendKeyValue(&lines, "subject", identity.Subject)
+		appendKeyValue(&lines, "deviceId", identity.DeviceID)
+		appendKeyValue(&lines, "scope", identity.Scope)
+		appendKeyValue(&lines, "issuedAt", identity.IssuedAt)
+		appendKeyValue(&lines, "expiresAt", identity.ExpiresAt)
 	}
 	appendReferences(&lines, session.RuntimeContext.References)
 	if len(lines) == 1 {
@@ -298,22 +301,6 @@ func collectOwnerMarkdownFiles(ownerDir string) []string {
 		return filepath.ToSlash(ri) < filepath.ToSlash(rj)
 	})
 	return files
-}
-
-func buildAuthIdentitySection(identity *AuthIdentity) string {
-	if identity == nil {
-		return ""
-	}
-	lines := []string{"Runtime Context: Auth Identity"}
-	appendKeyValue(&lines, "subject", identity.Subject)
-	appendKeyValue(&lines, "deviceId", identity.DeviceID)
-	appendKeyValue(&lines, "scope", identity.Scope)
-	appendKeyValue(&lines, "issuedAt", identity.IssuedAt)
-	appendKeyValue(&lines, "expiresAt", identity.ExpiresAt)
-	if len(lines) == 1 {
-		return ""
-	}
-	return strings.Join(lines, "\n")
 }
 
 func buildSandboxSection(context *SandboxContext) string {

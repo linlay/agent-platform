@@ -22,7 +22,7 @@ type ToolAppendConfig struct {
 func DefaultPromptAppendConfig() PromptAppendConfig {
 	return PromptAppendConfig{
 		Skill: SkillAppendConfig{
-			CatalogHeader:    "可用 skills（目录摘要，按需使用，不要虚构不存在的 skill 或脚本）:",
+			CatalogHeader:    "Available skills (catalog summary, use on demand, do not fabricate non-existent skills or scripts):",
 			DisclosureHeader: "以下是你刚刚调用到的 skill 完整说明（仅本轮补充，不要忽略）:",
 			InstructionsPrompt: `You are a skill-driven assistant. The system provides a set of installed skills listed in the catalog below.
 

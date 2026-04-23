@@ -135,8 +135,8 @@ func TestBuildRuntimeContextPromptAutoIncludesSandboxSection(t *testing.T) {
 	}
 }
 
-func TestBuildSessionContextSectionUsesSessionFieldsWithoutPaths(t *testing.T) {
-	section := buildSessionContextSection(QuerySession{
+func TestBuildSessionSectionMergesContextAndAuth(t *testing.T) {
+	section := buildSessionSection(QuerySession{
 		ChatID:    "chat-1",
 		RunID:     "run-1",
 		RequestID: "req-1",
@@ -144,6 +144,13 @@ func TestBuildSessionContextSectionUsesSessionFieldsWithoutPaths(t *testing.T) {
 			TeamID:    "team-1",
 			LocalMode: false,
 			Scene:     &api.Scene{Title: "ZenMind", URL: "https://example.com"},
+			AuthIdentity: &AuthIdentity{
+				Subject:   "user-1",
+				DeviceID:  "device-1",
+				Scope:     "chat:write",
+				IssuedAt:  "2026-04-23T09:00:00Z",
+				ExpiresAt: "2026-04-23T10:00:00Z",
+			},
 			References: []api.Reference{
 				{ID: "ref-1", Name: "doc.md", SandboxPath: "/workspace/doc.md"},
 			},
@@ -169,21 +176,45 @@ func TestBuildSessionContextSectionUsesSessionFieldsWithoutPaths(t *testing.T) {
 		},
 	}, api.QueryRequest{})
 
-	if !strings.Contains(section, "Runtime Context: Session Context") {
-		t.Fatalf("expected session context header, got %q", section)
+	if !strings.Contains(section, "Runtime Context: Session") {
+		t.Fatalf("expected session header, got %q", section)
 	}
 	if !strings.Contains(section, "chatId: chat-1") || !strings.Contains(section, "runId: run-1") || !strings.Contains(section, "requestId: req-1") {
-		t.Fatalf("expected session identifiers in session context, got %q", section)
+		t.Fatalf("expected session identifiers in session section, got %q", section)
 	}
 	if !strings.Contains(section, "teamId: team-1") || !strings.Contains(section, "scene: title=ZenMind, url=https://example.com") {
-		t.Fatalf("expected team and scene in session context, got %q", section)
+		t.Fatalf("expected team and scene in session section, got %q", section)
+	}
+	for _, expected := range []string{
+		"subject: user-1",
+		"deviceId: device-1",
+		"scope: chat:write",
+		"issuedAt: 2026-04-23T09:00:00Z",
+		"expiresAt: 2026-04-23T10:00:00Z",
+	} {
+		if !strings.Contains(section, expected) {
+			t.Fatalf("expected auth identity field %q in session section, got %q", expected, section)
+		}
 	}
 	if !strings.Contains(section, "references:") || !strings.Contains(section, "id: ref-1") {
-		t.Fatalf("expected references in session context, got %q", section)
+		t.Fatalf("expected references in session section, got %q", section)
 	}
 	if strings.Contains(section, "workspace_dir:") || strings.Contains(section, "agent_dir:") {
-		t.Fatalf("expected session context to exclude path fields, got %q", section)
+		t.Fatalf("expected session section to exclude path fields, got %q", section)
 	}
+	assertOrderedSubstrings(t, section, []string{
+		"chatId:",
+		"runId:",
+		"requestId:",
+		"teamId:",
+		"scene:",
+		"subject:",
+		"deviceId:",
+		"scope:",
+		"issuedAt:",
+		"expiresAt:",
+		"references:",
+	})
 }
 
 func TestBuildSystemEnvironmentSectionUsesLocalPathsWithoutSandbox(t *testing.T) {
@@ -306,7 +337,7 @@ func TestBuildSystemPromptSeparatesSystemEnvironmentAndSessionContext(t *testing
 		ChatID:      "chat-1",
 		RunID:       "run-1",
 		RequestID:   "req-1",
-		ContextTags: []string{"system", "context"},
+		ContextTags: []string{"system", "session"},
 		RuntimeContext: RuntimeRequestContext{
 			LocalMode: false,
 			TeamID:    "team-1",
@@ -323,9 +354,9 @@ func TestBuildSystemPromptSeparatesSystemEnvironmentAndSessionContext(t *testing
 	}, api.QueryRequest{}, "", PromptBuildOptions{})
 
 	systemIndex := strings.Index(prompt, "Runtime Context: System Environment")
-	sessionIndex := strings.Index(prompt, "Runtime Context: Session Context")
+	sessionIndex := strings.Index(prompt, "Runtime Context: Session")
 	if systemIndex < 0 || sessionIndex < 0 {
-		t.Fatalf("expected both system environment and session context sections, got %q", prompt)
+		t.Fatalf("expected both system environment and session sections, got %q", prompt)
 	}
 	if strings.Contains(prompt, "Runtime Context: Context") {
 		t.Fatalf("expected old context header to be removed, got %q", prompt)
@@ -338,7 +369,7 @@ func TestBuildSystemPromptSeparatesSystemEnvironmentAndSessionContext(t *testing
 	}
 	sessionSection := prompt[sessionIndex:]
 	if strings.Contains(sessionSection, "workspace_dir:") {
-		t.Fatalf("expected session context to exclude workspace paths, got %q", sessionSection)
+		t.Fatalf("expected session section to exclude workspace paths, got %q", sessionSection)
 	}
 	systemSection := prompt[systemIndex:sessionIndex]
 	if strings.Contains(systemSection, "chatId:") || strings.Contains(systemSection, "runId:") || strings.Contains(systemSection, "requestId:") {

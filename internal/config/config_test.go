@@ -81,6 +81,7 @@ func TestLoadPromptsConfigFromFile(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
 		content := "" +
 			"skill:\n" +
+			"  catalog-header: custom skills header\n" +
 			"  instructions-prompt: |\n" +
 			"    custom skill instructions\n" +
 			"    second line\n"
@@ -92,6 +93,9 @@ func TestLoadPromptsConfigFromFile(t *testing.T) {
 			want := "custom skill instructions\nsecond line"
 			if cfg.Prompts.Skill.InstructionsPrompt != want {
 				t.Fatalf("expected prompts override %q, got %q", want, cfg.Prompts.Skill.InstructionsPrompt)
+			}
+			if cfg.Prompts.Skill.CatalogHeader != "custom skills header" {
+				t.Fatalf("expected catalog header override, got %q", cfg.Prompts.Skill.CatalogHeader)
 			}
 		})
 	})

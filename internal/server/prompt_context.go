@@ -20,6 +20,9 @@ func buildPromptAppendConfig(global config.PromptsConfig, def catalog.AgentDefin
 	if strings.TrimSpace(global.Skill.InstructionsPrompt) != "" {
 		config.Skill.InstructionsPrompt = strings.TrimSpace(global.Skill.InstructionsPrompt)
 	}
+	if strings.TrimSpace(global.Skill.CatalogHeader) != "" {
+		config.Skill.CatalogHeader = strings.TrimSpace(global.Skill.CatalogHeader)
+	}
 	if strings.TrimSpace(def.RuntimePrompts.Skill.CatalogHeader) != "" {
 		config.Skill.CatalogHeader = strings.TrimSpace(def.RuntimePrompts.Skill.CatalogHeader)
 	}
@@ -113,7 +116,12 @@ func buildSkillCatalogPrompt(def catalog.AgentDefinition, marketDir string, appe
 	}
 	sections := make([]string, 0, 3)
 	if instructionsPrompt := strings.TrimSpace(appendConfig.Skill.InstructionsPrompt); instructionsPrompt != "" {
-		sections = append(sections, instructionsPrompt)
+		label := strings.TrimSpace(appendConfig.Skill.InstructionsLabel)
+		if label != "" {
+			sections = append(sections, "Skill "+label+":\n"+instructionsPrompt)
+		} else {
+			sections = append(sections, instructionsPrompt)
+		}
 	}
 	sections = append(sections, strings.TrimSpace(appendConfig.Skill.CatalogHeader))
 	sections = append(sections, strings.Join(blocks, "\n\n---\n\n"))

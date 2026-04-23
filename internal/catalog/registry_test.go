@@ -98,7 +98,7 @@ func TestParseAgentFileReadsContextTagsBudgetStageSettingsAndControls(t *testing
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	if len(def.ContextTags) != 1 || def.ContextTags[0] != "context" || def.Budget["runTimeoutMs"] != int64(1000) && def.Budget["runTimeoutMs"] != 1000 {
+	if len(def.ContextTags) != 1 || def.ContextTags[0] != "session" || def.Budget["runTimeoutMs"] != int64(1000) && def.Budget["runTimeoutMs"] != 1000 {
 		t.Fatalf("expected parsed context tags and budget, got %#v", def)
 	}
 	if def.StageSettings["stage"] != "alpha" {
@@ -169,7 +169,7 @@ func TestParseAgentFileNormalizesJavaContextTagsAndRuntimePrompts(t *testing.T) 
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	if got := strings.Join(def.ContextTags, ","); got != "context,memory" {
+	if got := strings.Join(def.ContextTags, ","); got != "session,memory" {
 		t.Fatalf("expected normalized context tags, got %q", got)
 	}
 	if def.RuntimePrompts.Skill.CatalogHeader != "skills-header-override" {
@@ -208,8 +208,36 @@ func TestParseAgentFilePrefersContextConfigTags(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	if got := strings.Join(def.ContextTags, ","); got != "system,context,owner,auth" {
+	if got := strings.Join(def.ContextTags, ","); got != "system,session,owner" {
 		t.Fatalf("expected contextConfig tags to win, got %q", got)
+	}
+}
+
+func TestNormalizeContextTagMapsLegacySessionTags(t *testing.T) {
+	cases := map[string]string{
+		"context":          "session",
+		"auth":             "session",
+		"session":          "session",
+		"agent_identity":   "session",
+		"run_session":      "session",
+		"scene":            "session",
+		"references":       "session",
+		"execution_policy": "session",
+		"skills":           "session",
+		"memory_context":   "memory",
+		"sandbox":          "",
+	}
+	for input, want := range cases {
+		if got := normalizeContextTag(input); got != want {
+			t.Fatalf("normalizeContextTag(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestNormalizeContextTagsDeduplicatesLegacySessionAliases(t *testing.T) {
+	got := normalizeContextTags([]string{"context", "auth", "session"})
+	if !reflect.DeepEqual(got, []string{"session"}) {
+		t.Fatalf("normalizeContextTags() = %#v, want %#v", got, []string{"session"})
 	}
 }
 
