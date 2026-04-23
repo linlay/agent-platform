@@ -239,22 +239,26 @@ type WebSocketConfig struct {
 }
 
 type GatewayWSConfig struct {
-	URL                string
-	Token              string
-	UserID             string
-	Ticket             string
-	AgentKey           string
-	Channel            string
+	// URL 是完整的网关入口，包含 key / channel 等 query 参数，由 deploy 侧直接填写。
+	// platform 不再二次拼接 query。
+	URL string
+	// JwtToken 是统一的鉴权凭据：既用于反向 WS 握手的 Authorization header，
+	// 也用于 /api/push（artifact 外发）和 /api/download（用户上传文件拉取）
+	// 等 HTTP 旁路请求的 Bearer token。由用户在首次企微会话后从网关复制进 .env。
+	JwtToken           string
 	HandshakeTimeoutMs int64
 	ReconnectMinMs     int64
 	ReconnectMaxMs     int64
-	// BaseURL / UploadPath / DownloadPath / AuthToken 用于 artifact 外发
-	// 和 userUpload 下载等 HTTP 旁路操作；为空时对应功能跳过。
-	BaseURL      string
-	UploadPath   string
-	DownloadPath string
-	AuthToken    string
+	// BaseURL 用于 artifact 外发和 userUpload 下载等 HTTP 旁路操作；
+	// 未显式配置时从 URL 自动派生。
+	BaseURL string
 }
+
+// 网关 HTTP 旁路的路径约定，由网关侧固定，不再做成可配置。
+const (
+	GatewayUploadPath   = "/api/push"
+	GatewayDownloadPath = "/api/download"
+)
 
 func Load() (Config, error) {
 	cfg := defaultConfig()
@@ -443,10 +447,6 @@ func defaultConfig() Config {
 			HandshakeTimeoutMs: 10000,
 			ReconnectMinMs:     1000,
 			ReconnectMaxMs:     30000,
-			// 和 agent-wecom-ws-bridge 一致的默认值：若 deployment 未显式覆盖，
-			// 直接指向网关约定好的 /api/download 与 /api/upload 端点。
-			DownloadPath: "/api/download",
-			UploadPath:   "/api/upload",
 		},
 	}
 }
@@ -639,20 +639,14 @@ func (c *Config) applyEnv() {
 	c.WebSocket.WriteTimeoutMs = int64Env("AGENT_WS_WRITE_TIMEOUT_MS", c.WebSocket.WriteTimeoutMs)
 	c.WebSocket.WriteQueueSize = intEnv("AGENT_WS_WRITE_QUEUE_SIZE", c.WebSocket.WriteQueueSize)
 	c.WebSocket.MaxObservesPerConn = intEnv("AGENT_WS_MAX_OBSERVES_PER_CONN", c.WebSocket.MaxObservesPerConn)
-	// 优先读 bridge 合并过来的 GATEWAY_* 变量；若未设置再回退 AGENT_GATEWAY_WS_*。
+	// 只保留 GATEWAY_WS_URL + GATEWAY_JWT_TOKEN 两个需要部署侧维护的 env；
+	// 其他握手参数（key/channel/userId）走 URL 内联，鉴权统一由 JWT 承担。
 	c.GatewayWS.URL = stringEnv("GATEWAY_WS_URL", stringEnv("AGENT_GATEWAY_WS_URL", c.GatewayWS.URL))
-	c.GatewayWS.Token = stringEnv("AGENT_GATEWAY_WS_TOKEN", c.GatewayWS.Token)
-	c.GatewayWS.UserID = stringEnv("GATEWAY_USER_ID", c.GatewayWS.UserID)
-	c.GatewayWS.Ticket = stringEnv("GATEWAY_TICKET", c.GatewayWS.Ticket)
-	c.GatewayWS.AgentKey = stringEnv("GATEWAY_AGENT_KEY", c.GatewayWS.AgentKey)
-	c.GatewayWS.Channel = stringEnv("GATEWAY_CHANNEL", c.GatewayWS.Channel)
+	c.GatewayWS.JwtToken = stringEnv("GATEWAY_JWT_TOKEN", c.GatewayWS.JwtToken)
 	c.GatewayWS.HandshakeTimeoutMs = int64Env("AGENT_GATEWAY_WS_HANDSHAKE_TIMEOUT_MS", c.GatewayWS.HandshakeTimeoutMs)
 	c.GatewayWS.ReconnectMinMs = int64Env("AGENT_GATEWAY_WS_RECONNECT_MIN_MS", c.GatewayWS.ReconnectMinMs)
 	c.GatewayWS.ReconnectMaxMs = int64Env("AGENT_GATEWAY_WS_RECONNECT_MAX_MS", c.GatewayWS.ReconnectMaxMs)
 	c.GatewayWS.BaseURL = stringEnv("GATEWAY_BASE_URL", c.GatewayWS.BaseURL)
-	c.GatewayWS.UploadPath = stringEnv("GATEWAY_UPLOAD_PATH", c.GatewayWS.UploadPath)
-	c.GatewayWS.DownloadPath = stringEnv("GATEWAY_DOWNLOAD_PATH", c.GatewayWS.DownloadPath)
-	c.GatewayWS.AuthToken = stringEnv("GATEWAY_AUTH_TOKEN", c.GatewayWS.AuthToken)
 	// 若 BaseURL 未显式配置，从 GATEWAY_WS_URL 按 bridge 老规则派生：
 	// ws://host/path -> http://host，wss://host/path -> https://host。
 	if strings.TrimSpace(c.GatewayWS.BaseURL) == "" && strings.TrimSpace(c.GatewayWS.URL) != "" {
@@ -948,6 +942,16 @@ func csvOrList(value any, fallback []string) []string {
 }
 
 var deprecatedEnvVars = []string{
+	// Gateway WS 老变量：统一替换为 GATEWAY_WS_URL（内联 key/channel）+ GATEWAY_JWT_TOKEN。
+	// /api/deliver 与 /api/download 已写死在代码中。
+	"GATEWAY_USER_ID",
+	"GATEWAY_TICKET",
+	"GATEWAY_AGENT_KEY",
+	"GATEWAY_CHANNEL",
+	"GATEWAY_UPLOAD_PATH",
+	"GATEWAY_DOWNLOAD_PATH",
+	"GATEWAY_AUTH_TOKEN",
+	"AGENT_GATEWAY_WS_TOKEN",
 	"RUNTIME_DIR",
 	"AGENT_CONFIG_DIR",
 	"AGENT_AGENTS_EXTERNAL_DIR",

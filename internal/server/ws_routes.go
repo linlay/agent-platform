@@ -11,11 +11,13 @@ import (
 	"io"
 	"log"
 	"net/http"
+	neturl "net/url"
 	"strings"
 	"time"
 
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/chat"
+	"agent-platform-runner-go/internal/config"
 	"agent-platform-runner-go/internal/contracts"
 	"agent-platform-runner-go/internal/stream"
 	"agent-platform-runner-go/internal/ws"
@@ -73,21 +75,23 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/remember", s.wsRemember)
 	handler.RegisterRoute("/api/learn", s.wsLearn)
 	handler.RegisterRoute("/api/viewport", s.wsViewport)
-	handler.RegisterRoute("/api/upload", s.wsUpload)
+	// agent 视角下这是一次 "去网关下载" 动作，所以主路由名是 /api/download；
+	// 为过渡期兼容网关旧 type 字段，额外注册 /api/upload 作为 alias，等网关切完再删。
+	handler.RegisterRoute("/api/download", s.wsDownload)
+	handler.RegisterRoute("/api/upload", s.wsDownload)
 }
 
-// wsUpload lets the gateway deliver a user-uploaded file to the platform without
-// spawning a second HTTP connection. Accepts both payload shapes:
+// wsDownload 处理网关通过 WS 通知 platform "有一份用户传到企微仓库的文件、
+// 请来 /api/download/{sha256} 取" 的场景。接受两种 payload 形状：
 //
-//   - nested (wecom-bridge shape, preferred for gateway compatibility):
-//     {requestId, chatId, upload:{id,type,name,mimeType,sizeBytes,url}}
-//   - flat: {chatId, requestId, fileName, url, mimeType?, sizeBytes?}
+//   - nested（网关当前使用的形状）：
+//     {requestId, chatId, upload:{id,type,name,mimeType,sizeBytes,sha256,url?}}
+//   - flat：{chatId, requestId, fileName, sha256?, url?, mimeType?, sizeBytes?}
 //
-// `url` points to a gateway-hosted resource; the platform downloads it
-// (optionally with the configured gateway auth token) and persists it via
-// the shared internal upload pipeline so chat-side tickets stay identical
-// to the HTTP multipart path.
-func (s *Server) wsUpload(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {
+// 下载 key 优先级：`url`（历史字段）非空时直接用；否则用 `sha256` 拼
+// {GATEWAY_BASE_URL}/api/download/{sha256}。下载完的字节复用 /api/upload
+// 内部管线落盘到 {ChatsDir}/{chatId}/，sandbox 会把该目录挂进容器 /workspace。
+func (s *Server) wsDownload(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {
 	payload, err := ws.DecodePayload[struct {
 		ChatID    string `json:"chatId"`
 		RequestID string `json:"requestId"`
@@ -130,37 +134,36 @@ func (s *Server) wsUpload(ctx context.Context, conn *ws.Conn, req ws.RequestFram
 	if sha256Value == "" {
 		sha256Value = strings.TrimSpace(payload.Upload.SHA256)
 	}
-	// 严格对齐 wecom-ws-bridge handleUpload：只认 upload.url（或 top-level url）。
-	// 网关若不发 url 字段，这里直接报错，不做 sha256/requestId 的猜测，避免把
-	// 问题藏到 platform 侧。
+	// 契约：网关在 upload.url 里下发完整 https://.../api/download/...?ticket=... URL。
+	// platform 直接用它发 HTTP GET，不做路径拼接、不做猜测。
 	rawURL := strings.TrimSpace(payload.URL)
 	if rawURL == "" {
 		rawURL = strings.TrimSpace(payload.Upload.URL)
 	}
 	if chatID == "" || fileName == "" || rawURL == "" {
-		log.Printf("[ws-upload] reject: missing fields chatId=%q fileName=%q url=%q rawPayload=%s",
+		log.Printf("[ws-download] reject: missing fields chatId=%q fileName=%q url=%q rawPayload=%s",
 			chatID, fileName, rawURL, string(req.Payload))
-		conn.SendError(req.ID, "invalid_request", 400, "chatId, fileName and url are required (gateway should send upload.url)", nil)
+		conn.SendError(req.ID, "invalid_request", 400, "chatId, fileName and upload.url are required", nil)
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	log.Printf("[ws-upload] recv chatId=%s requestId=%s fileName=%s url=%s size=%d",
-		chatID, requestID, fileName, rawURL, sizeBytes)
+	log.Printf("[ws-download] recv chatId=%s requestId=%s fileName=%s size=%d",
+		chatID, requestID, fileName, sizeBytes)
 
-	data, err := s.fetchGatewayUpload(ctx, rawURL)
+	data, err := s.fetchGatewayDownload(ctx, rawURL)
 	if err != nil {
-		log.Printf("[ws-upload] download failed chatId=%s url=%s err=%v", chatID, rawURL, err)
+		log.Printf("[ws-download] fetch failed chatId=%s url=%s err=%v", chatID, rawURL, err)
 		conn.SendError(req.ID, "download_failed", 502, err.Error(), nil)
 		conn.CompleteRequest(req.ID)
 		return
 	}
 	if err := validateDownloadedUpload(data, sizeBytes, sha256Value); err != nil {
-		log.Printf("[ws-upload] invalid metadata chatId=%s fileName=%s err=%v", chatID, fileName, err)
+		log.Printf("[ws-download] invalid metadata chatId=%s fileName=%s err=%v", chatID, fileName, err)
 		conn.SendError(req.ID, "invalid_upload_metadata", 400, err.Error(), nil)
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	log.Printf("[ws-upload] downloaded chatId=%s fileName=%s bytes=%d", chatID, fileName, len(data))
+	log.Printf("[ws-download] ok chatId=%s fileName=%s bytes=%d", chatID, fileName, len(data))
 
 	status, body, err := s.ExecuteInternalUpload(ctx, chatID, requestID, fileName, mimeType, data)
 	if err != nil {
@@ -184,10 +187,9 @@ func (s *Server) wsUpload(ctx context.Context, conn *ws.Conn, req ws.RequestFram
 	conn.CompleteRequest(req.ID)
 }
 
-// fetchGatewayUpload resolves the gateway-side URL (absolute or relative to the
-// configured GATEWAY_BASE_URL) and downloads the bytes, attaching the optional
-// GATEWAY_AUTH_TOKEN bearer.
-func (s *Server) fetchGatewayUpload(ctx context.Context, rawURL string) ([]byte, error) {
+// fetchGatewayDownload 把下载 key（绝对 URL 或仅 sha256）解析成完整的
+// GATEWAY_BASE_URL/api/download/... 路径，带 GATEWAY_JWT_TOKEN Bearer 做 GET。
+func (s *Server) fetchGatewayDownload(ctx context.Context, rawURL string) ([]byte, error) {
 	downloadURL := s.buildGatewayURL(rawURL)
 	if downloadURL == "" {
 		return nil, fmt.Errorf("empty download url")
@@ -196,7 +198,7 @@ func (s *Server) fetchGatewayUpload(ctx context.Context, rawURL string) ([]byte,
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
-	if token := strings.TrimSpace(s.deps.Config.GatewayWS.AuthToken); token != "" {
+	if token := strings.TrimSpace(s.deps.Config.GatewayWS.JwtToken); token != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+token)
 	}
 	resp, err := http.DefaultClient.Do(httpReq)
@@ -214,27 +216,39 @@ func (s *Server) fetchGatewayUpload(ctx context.Context, rawURL string) ([]byte,
 	return data, nil
 }
 
+// buildGatewayURL 把网关下发的下载地址规范化到 GATEWAY_BASE_URL。
+// 不管网关填什么 host（空 / localhost / 外网 IP），platform 都**强制**
+// 改用 GATEWAY_BASE_URL 作为 scheme+host，只保留 path + query。
+// 这样跨机部署时不会因为网关那端写死 localhost 而打不到。
 func (s *Server) buildGatewayURL(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return ""
 	}
-	lower := strings.ToLower(raw)
-	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
-		return raw
-	}
 	base := strings.TrimRight(strings.TrimSpace(s.deps.Config.GatewayWS.BaseURL), "/")
 	if base == "" {
 		return raw
 	}
-	if strings.HasPrefix(raw, "/") {
-		return base + raw
+
+	// 解析出 path + query（raw 可能是完整 URL、也可能只是 "/api/download/..." 的相对路径）
+	var pathAndQuery string
+	if parsed, err := neturl.Parse(raw); err == nil && parsed.Path != "" {
+		pathAndQuery = parsed.EscapedPath()
+		if parsed.RawQuery != "" {
+			pathAndQuery += "?" + parsed.RawQuery
+		}
+	} else {
+		pathAndQuery = raw
 	}
-	downloadPath := strings.Trim(strings.TrimSpace(s.deps.Config.GatewayWS.DownloadPath), "/")
+
+	if strings.HasPrefix(pathAndQuery, "/") {
+		return base + pathAndQuery
+	}
+	downloadPath := strings.Trim(config.GatewayDownloadPath, "/")
 	if downloadPath == "" {
-		return base + "/" + raw
+		return base + "/" + pathAndQuery
 	}
-	return base + "/" + downloadPath + "/" + raw
+	return base + "/" + downloadPath + "/" + pathAndQuery
 }
 
 func validateDownloadedUpload(data []byte, expectedSize int64, expectedSHA256 string) error {
