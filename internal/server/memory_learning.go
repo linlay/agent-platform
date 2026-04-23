@@ -14,7 +14,7 @@ func (s *Server) autoLearnIfEnabled(chatID string, runID string, agentKey string
 	if s == nil {
 		return
 	}
-	if !s.deps.Config.Memory.AutoRememberEnabled {
+	if !s.deps.Config.Memory.Enabled || !s.deps.Config.Memory.AutoRememberEnabled || !s.memoryEnabledForAgentKey(agentKey) {
 		return
 	}
 	if s.deps.Memory == nil || s.deps.Chats == nil {

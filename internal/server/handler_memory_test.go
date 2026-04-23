@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"agent-platform-runner-go/internal/api"
+	"agent-platform-runner-go/internal/catalog"
 	"agent-platform-runner-go/internal/chat"
 	"agent-platform-runner-go/internal/config"
 	"agent-platform-runner-go/internal/memory"
@@ -72,10 +73,16 @@ func TestHandleLearnStoresObservationFromLatestRun(t *testing.T) {
 
 	server := &Server{deps: Dependencies{
 		Config: config.Config{
-			Memory: config.MemoryConfig{AutoRememberEnabled: true},
+			Memory: config.MemoryConfig{Enabled: true, AutoRememberEnabled: true},
 		},
 		Chats:  chats,
 		Memory: memories,
+		Registry: queryMemoryRegistry{def: catalog.AgentDefinition{
+			Key:           "agent-a",
+			Name:          "Agent A",
+			ModelKey:      "mock-model",
+			MemoryEnabled: true,
+		}},
 	}}
 
 	req := httptest.NewRequest(http.MethodPost, "/api/learn", bytes.NewBufferString(`{"requestId":"learn-1","chatId":"chat-1"}`))
@@ -151,10 +158,16 @@ func TestHandleRememberReturnsStoredMemoryFromChatStore(t *testing.T) {
 
 	server := &Server{deps: Dependencies{
 		Config: config.Config{
-			Memory: config.MemoryConfig{AutoRememberEnabled: true},
+			Memory: config.MemoryConfig{Enabled: true, AutoRememberEnabled: true},
 		},
 		Chats:  chats,
 		Memory: memories,
+		Registry: queryMemoryRegistry{def: catalog.AgentDefinition{
+			Key:           "agent-a",
+			Name:          "Agent A",
+			ModelKey:      "mock-model",
+			MemoryEnabled: true,
+		}},
 	}}
 
 	req := httptest.NewRequest(http.MethodPost, "/api/remember", bytes.NewBufferString(`{"requestId":"remember-1","chatId":"chat-remember"}`))

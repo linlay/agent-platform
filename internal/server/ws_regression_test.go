@@ -266,8 +266,16 @@ func (wsRegressionCatalogRegistry) Tool(string) (api.ToolDetailResponse, bool) {
 
 func (wsRegressionCatalogRegistry) DefaultAgentKey() string { return "" }
 
-func (wsRegressionCatalogRegistry) AgentDefinition(string) (catalog.AgentDefinition, bool) {
-	return catalog.AgentDefinition{}, false
+func (wsRegressionCatalogRegistry) AgentDefinition(key string) (catalog.AgentDefinition, bool) {
+	if strings.TrimSpace(key) == "" {
+		return catalog.AgentDefinition{}, false
+	}
+	return catalog.AgentDefinition{
+		Key:           key,
+		Name:          key,
+		ModelKey:      "mock-model",
+		MemoryEnabled: true,
+	}, true
 }
 
 func (wsRegressionCatalogRegistry) TeamDefinition(string) (catalog.TeamDefinition, bool) {
@@ -291,11 +299,13 @@ func newServerForHelperTests(t *testing.T) (*Server, *chat.FileStore, *memory.Fi
 		deps: Dependencies{
 			Config: config.Config{
 				Memory: config.MemoryConfig{
+					Enabled:             true,
 					AutoRememberEnabled: true,
 				},
 			},
-			Chats:  chats,
-			Memory: memories,
+			Chats:    chats,
+			Memory:   memories,
+			Registry: wsRegressionCatalogRegistry{},
 		},
 		ticketService: NewResourceTicketService(config.ChatImageTokenConfig{}),
 	}

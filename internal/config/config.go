@@ -69,6 +69,7 @@ type ScheduleConfig struct {
 }
 
 type MemoryConfig struct {
+	Enabled              bool
 	DBFileName           string
 	ContextTopN          int
 	ContextMaxChars      int
@@ -301,6 +302,7 @@ func defaultConfig() Config {
 			PoolSize:    4,
 		},
 		Memory: MemoryConfig{
+			Enabled:             false,
 			DBFileName:          "memory.db",
 			ContextTopN:         5,
 			ContextMaxChars:     4000,
@@ -541,6 +543,7 @@ func (c *Config) applyEnv() {
 	c.Schedule.PoolSize = intEnv("AGENT_SCHEDULE_POOL_SIZE", c.Schedule.PoolSize)
 
 	c.Memory.DBFileName = stringEnv("AGENT_MEMORY_DB_FILE_NAME", c.Memory.DBFileName)
+	c.Memory.Enabled = boolEnv("AGENT_MEMORY_ENABLED", c.Memory.Enabled)
 	c.Memory.ContextTopN = intEnv("AGENT_MEMORY_CONTEXT_TOP_N", c.Memory.ContextTopN)
 	c.Memory.ContextMaxChars = intEnv("AGENT_MEMORY_CONTEXT_MAX_CHARS", c.Memory.ContextMaxChars)
 	c.Memory.SearchDefaultLimit = intEnv("AGENT_MEMORY_SEARCH_DEFAULT_LIMIT", c.Memory.SearchDefaultLimit)

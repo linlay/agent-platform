@@ -23,7 +23,7 @@ func resolveDirectoryAgentConfig(dirPath string) string {
 	return ""
 }
 
-func loadAgents(root, marketDir string) (map[string]AgentDefinition, error) {
+func loadAgents(root, marketDir string, globalMemoryEnabled bool) (map[string]AgentDefinition, error) {
 	items := map[string]AgentDefinition{}
 	err := visitRuntimeEntries(
 		root,
@@ -56,7 +56,7 @@ func loadAgents(root, marketDir string) (map[string]AgentDefinition, error) {
 						log.Printf("[catalog][skills] sync %s: %v", def.Key, err)
 					}
 				}
-				items[def.Key] = def
+				items[def.Key] = applyGlobalAgentFlags(def, globalMemoryEnabled)
 				return
 			}
 			if !strings.HasSuffix(name, ".yml") && !strings.HasSuffix(name, ".yaml") {
@@ -67,7 +67,7 @@ func loadAgents(root, marketDir string) (map[string]AgentDefinition, error) {
 				log.Printf("[catalog][agents] skip file %s: parse error: %v", name, err)
 				return
 			}
-			items[def.Key] = def
+			items[def.Key] = applyGlobalAgentFlags(def, globalMemoryEnabled)
 		},
 	)
 	if err != nil {
@@ -343,10 +343,11 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 		def.Tools = append(def.Tools, "_bash_")
 	}
 	memoryConfig := mapNode(root["memoryConfig"])
-	memoryToolsEnabled := true
+	memoryToolsEnabled := false
 	if enabled, ok := memoryConfig["enabled"].(bool); ok {
 		memoryToolsEnabled = enabled
 	}
+	def.MemoryEnabled = memoryToolsEnabled
 	if memoryToolsEnabled {
 		for _, memTool := range []string{"_memory_write_", "_memory_read_", "_memory_search_"} {
 			if !containsString(def.Tools, memTool) {
@@ -375,6 +376,36 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 		def.Role = def.Name
 	}
 	return def, root, nil
+}
+
+func applyGlobalAgentFlags(def AgentDefinition, globalMemoryEnabled bool) AgentDefinition {
+	if globalMemoryEnabled {
+		return def
+	}
+	def.MemoryEnabled = false
+	if len(def.Tools) == 0 {
+		return def
+	}
+	filtered := make([]string, 0, len(def.Tools))
+	for _, tool := range def.Tools {
+		if isMemoryTool(tool) {
+			continue
+		}
+		filtered = append(filtered, tool)
+	}
+	def.Tools = filtered
+	return def
+}
+
+func isMemoryTool(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "_memory_write_", "_memory_read_", "_memory_search_",
+		"_memory_update_", "_memory_forget_", "_memory_timeline_",
+		"_memory_promote_", "_memory_consolidate_":
+		return true
+	default:
+		return false
+	}
 }
 
 func validateReservedBashToolNames(tools []string, overrides map[string]api.ToolDetailResponse) error {

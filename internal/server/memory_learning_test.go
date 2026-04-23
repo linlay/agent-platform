@@ -3,6 +3,7 @@ package server
 import (
 	"testing"
 
+	"agent-platform-runner-go/internal/catalog"
 	"agent-platform-runner-go/internal/chat"
 	"agent-platform-runner-go/internal/config"
 	"agent-platform-runner-go/internal/memory"
@@ -14,11 +15,18 @@ func TestAutoLearnIfEnabledStoresObservation(t *testing.T) {
 		deps: Dependencies{
 			Config: config.Config{
 				Memory: config.MemoryConfig{
+					Enabled:             true,
 					AutoRememberEnabled: true,
 				},
 			},
 			Chats:  chats,
 			Memory: memories,
+			Registry: queryMemoryRegistry{def: catalog.AgentDefinition{
+				Key:           "agent-a",
+				Name:          "Agent A",
+				ModelKey:      "mock-model",
+				MemoryEnabled: true,
+			}},
 		},
 	}
 
@@ -42,11 +50,18 @@ func TestAutoLearnIfEnabledRespectsConfigFlag(t *testing.T) {
 		deps: Dependencies{
 			Config: config.Config{
 				Memory: config.MemoryConfig{
+					Enabled:             true,
 					AutoRememberEnabled: false,
 				},
 			},
 			Chats:  chats,
 			Memory: memories,
+			Registry: queryMemoryRegistry{def: catalog.AgentDefinition{
+				Key:           "agent-a",
+				Name:          "Agent A",
+				ModelKey:      "mock-model",
+				MemoryEnabled: true,
+			}},
 		},
 	}
 

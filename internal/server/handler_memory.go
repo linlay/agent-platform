@@ -6,34 +6,46 @@ import (
 	"strings"
 
 	"agent-platform-runner-go/internal/api"
+	"agent-platform-runner-go/internal/catalog"
 	"agent-platform-runner-go/internal/chat"
 	"agent-platform-runner-go/internal/memory"
 )
 
 func (s *Server) memorySystemEnabled() bool {
-	return s != nil && s.deps.Config.Memory.AutoRememberEnabled
+	return s != nil && s.deps.Config.Memory.Enabled
+}
+
+func (s *Server) memoryEnabledForAgent(agentDef catalog.AgentDefinition) bool {
+	return s.memorySystemEnabled() && agentDef.MemoryEnabled
+}
+
+func (s *Server) memoryEnabledForAgentKey(agentKey string) bool {
+	if !s.memorySystemEnabled() || s == nil || s.deps.Registry == nil {
+		return false
+	}
+	def, ok := s.deps.Registry.AgentDefinition(strings.TrimSpace(agentKey))
+	return ok && def.MemoryEnabled
 }
 
 func (s *Server) executeRemember(req api.RememberRequest) (api.RememberResponse, error) {
 	if !s.memorySystemEnabled() {
 		return api.RememberResponse{}, errors.New("memory system is disabled")
 	}
+	summary, err := s.deps.Chats.Summary(req.ChatID)
+	if err != nil {
+		return api.RememberResponse{}, err
+	}
+	if summary == nil {
+		return api.RememberResponse{}, chat.ErrChatNotFound
+	}
+	if !s.memoryEnabledForAgentKey(summary.AgentKey) {
+		return api.RememberResponse{}, errors.New("memory system is disabled")
+	}
 	detail, err := s.deps.Chats.LoadChat(req.ChatID)
 	if err != nil {
 		return api.RememberResponse{}, err
 	}
-	items, err := s.deps.Chats.ListChats("", "")
-	if err != nil {
-		return api.RememberResponse{}, err
-	}
-	agentKey := ""
-	for _, item := range items {
-		if item.ChatID == req.ChatID {
-			agentKey = item.AgentKey
-			break
-		}
-	}
-	return s.deps.Memory.Remember(detail, req, agentKey)
+	return s.deps.Memory.Remember(detail, req, summary.AgentKey)
 }
 
 func (s *Server) handleRemember(w http.ResponseWriter, r *http.Request) {
@@ -83,6 +95,10 @@ func (s *Server) handleLearn(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
+		return
+	}
+	if !s.memoryEnabledForAgentKey(summary.AgentKey) {
+		writeJSON(w, http.StatusServiceUnavailable, api.Failure(http.StatusServiceUnavailable, "memory system is disabled"))
 		return
 	}
 	trace, err := s.deps.Chats.LoadRunTrace(req.ChatID, summary.LastRunID)
