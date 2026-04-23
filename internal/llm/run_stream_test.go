@@ -43,6 +43,21 @@ func sampleLeaveCommand(days float64) string {
 	return `mock create-leave --payload '{"applicant_id":"E1001","days":3,"department_id":"engineering","end_date":"2026-04-22","leave_type":"annual","reason":"family_trip","start_date":"2026-04-20"}'`
 }
 
+func sampleExpenseCommand(amount float64) string {
+	return fmt.Sprintf(`mock expense add --payload '{"employee":{"id":"E1001","name":"张三"},"department":{"code":"engineering","name":"工程部"},"expense_type":"travel","currency":"CNY","items":[{"amount":%v,"category":"transport","description":"flight","invoice_id":"INV-001","occurred_on":"2026-04-10"}],"submitted_at":"2026-04-14T10:30:00+08:00","total_amount":%v}'`, amount, amount)
+}
+
+func canonicalExpenseCommand(amount float64) string {
+	return fmt.Sprintf(`mock expense add --payload '{"currency":"CNY","department":{"code":"engineering","name":"工程部"},"employee":{"id":"E1001","name":"张三"},"expense_type":"travel","items":[{"amount":%v,"category":"transport","description":"flight","invoice_id":"INV-001","occurred_on":"2026-04-10"}],"submitted_at":"2026-04-14T10:30:00+08:00","total_amount":%v}'`, amount, amount)
+}
+
+func sampleProcurementCommand(city string) string {
+	if city == "Hangzhou" {
+		return `mock procurement create --payload '{"delivery_city":"Hangzhou","requester_id":"E1001"}'`
+	}
+	return `mock procurement create --payload '{"delivery_city":"Shanghai","requester_id":"E1001"}'`
+}
+
 type stubToolExecutor struct {
 	defs []api.ToolDetailResponse
 }
@@ -585,15 +600,15 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 		{
 			name: "expense html viewport override",
 			rule: hitl.FlatRule{
-				Match:        "create-expense",
+				Match:        "expense add",
 				Level:        1,
 				ViewportType: "html",
 				ViewportKey:  "expense_form",
 			},
-			initialCommand: `mock create-expense --payload '{"employee":{"id":"E1001","name":"张三"},"department":{"code":"engineering","name":"工程部"},"expense_type":"travel","currency":"CNY","items":[{"amount":1280.5,"category":"transport","description":"flight","invoice_id":"INV-001","occurred_on":"2026-04-10"}],"submitted_at":"2026-04-14T10:30:00+08:00","total_amount":1280.5}'`,
+			initialCommand: sampleExpenseCommand(1280.5),
 			parsedCommand: hitl.CommandComponents{
 				BaseCommand: "mock",
-				Tokens:      []string{"create-expense", "--payload", `{"employee":{"id":"E1001","name":"张三"},"department":{"code":"engineering","name":"工程部"},"expense_type":"travel","currency":"CNY","items":[{"amount":1280.5,"category":"transport","description":"flight","invoice_id":"INV-001","occurred_on":"2026-04-10"}],"submitted_at":"2026-04-14T10:30:00+08:00","total_amount":1280.5}`},
+				Tokens:      []string{"expense", "add", "--payload", `{"employee":{"id":"E1001","name":"张三"},"department":{"code":"engineering","name":"工程部"},"expense_type":"travel","currency":"CNY","items":[{"amount":1280.5,"category":"transport","description":"flight","invoice_id":"INV-001","occurred_on":"2026-04-10"}],"submitted_at":"2026-04-14T10:30:00+08:00","total_amount":1280.5}`},
 			},
 			submitParams: encodedSubmitParams(t, []map[string]any{
 				{
@@ -617,7 +632,7 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 					},
 				},
 			}),
-			expectedCommand: `mock create-expense --payload '{"currency":"CNY","department":{"code":"engineering","name":"工程部"},"employee":{"id":"E1001","name":"张三"},"expense_type":"travel","items":[{"amount":640.25,"category":"transport","description":"flight","invoice_id":"INV-001","occurred_on":"2026-04-10"}],"submitted_at":"2026-04-14T10:30:00+08:00","total_amount":640.25}'`,
+			expectedCommand: canonicalExpenseCommand(640.25),
 			expectedView:    "html",
 			expectedKey:     "expense_form",
 			expectedInitialPayload: map[string]any{
@@ -642,15 +657,15 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 		{
 			name: "procurement html viewport override",
 			rule: hitl.FlatRule{
-				Match:        "create-procurement",
+				Match:        "procurement create",
 				Level:        1,
 				ViewportType: "html",
 				ViewportKey:  "procurement_form",
 			},
-			initialCommand: `mock create-procurement --payload '{"delivery_city":"Shanghai","requester_id":"E1001"}'`,
+			initialCommand: sampleProcurementCommand("Shanghai"),
 			parsedCommand: hitl.CommandComponents{
 				BaseCommand: "mock",
-				Tokens:      []string{"create-procurement", "--payload", `{"delivery_city":"Shanghai","requester_id":"E1001"}`},
+				Tokens:      []string{"procurement", "create", "--payload", `{"delivery_city":"Shanghai","requester_id":"E1001"}`},
 			},
 			submitParams: encodedSubmitParams(t, []map[string]any{
 				{
@@ -661,7 +676,7 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 					},
 				},
 			}),
-			expectedCommand:        `mock create-procurement --payload '{"delivery_city":"Hangzhou","requester_id":"E1001"}'`,
+			expectedCommand:        sampleProcurementCommand("Hangzhou"),
 			expectedView:           "html",
 			expectedKey:            "procurement_form",
 			expectedInitialPayload: map[string]any{"delivery_city": "Shanghai", "requester_id": "E1001"},
@@ -1877,15 +1892,15 @@ func TestReconstructCommandWithPayload(t *testing.T) {
 		},
 		{
 			name:     "expense",
-			command:  `mock create-expense --payload '{"employee":{"id":"E1001","name":"张三"},"department":{"code":"engineering","name":"工程部"},"expense_type":"travel","currency":"CNY","items":[{"amount":1280.5,"category":"transport","description":"flight","invoice_id":"INV-001","occurred_on":"2026-04-10"}],"submitted_at":"2026-04-14T10:30:00+08:00","total_amount":1280.5}'`,
+			command:  sampleExpenseCommand(1280.5),
 			payload:  map[string]any{"employee": map[string]any{"id": "E1001", "name": "张三"}, "department": map[string]any{"code": "engineering", "name": "工程部"}, "expense_type": "travel", "currency": "CNY", "items": []any{map[string]any{"amount": 1280.5, "category": "transport", "description": "flight", "invoice_id": "INV-001", "occurred_on": "2026-04-10"}}, "submitted_at": "2026-04-14T10:30:00+08:00", "total_amount": 1280.5},
-			expected: `mock create-expense --payload '{"currency":"CNY","department":{"code":"engineering","name":"工程部"},"employee":{"id":"E1001","name":"张三"},"expense_type":"travel","items":[{"amount":1280.5,"category":"transport","description":"flight","invoice_id":"INV-001","occurred_on":"2026-04-10"}],"submitted_at":"2026-04-14T10:30:00+08:00","total_amount":1280.5}'`,
+			expected: canonicalExpenseCommand(1280.5),
 		},
 		{
 			name:     "procurement",
-			command:  `mock create-procurement --payload '{"requester_id":"E1001","delivery_city":"Shanghai"}'`,
+			command:  sampleProcurementCommand("Shanghai"),
 			payload:  map[string]any{"requester_id": "E1001", "delivery_city": "Shanghai"},
-			expected: `mock create-procurement --payload '{"delivery_city":"Shanghai","requester_id":"E1001"}'`,
+			expected: sampleProcurementCommand("Shanghai"),
 		},
 	}
 

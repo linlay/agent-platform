@@ -1263,12 +1263,12 @@ func TestBashHITLSimpleBashApproveFlow(t *testing.T) {
 }
 
 func TestBashHITLApproveFlowForExpenseCreate(t *testing.T) {
-	command := `mock create-expense --payload {"employee":{"id":"E1001","name":"张三"},"department":{"code":"engineering","name":"工程部"},"expense_type":"travel","currency":"CNY","total_amount":1280.5,"items":[{"category":"transport","amount":800,"invoice_id":"INV-001","occurred_on":"2026-04-10","description":"flight"},{"category":"hotel","amount":480.5,"invoice_id":"INV-002","occurred_on":"2026-04-11","description":"hotel"}],"submitted_at":"2026-04-14T10:30:00+08:00"}`
+	command := `mock expense add --payload {"employee":{"id":"E1001","name":"张三"},"department":{"code":"engineering","name":"工程部"},"expense_type":"travel","currency":"CNY","total_amount":1280.5,"items":[{"category":"transport","amount":800,"invoice_id":"INV-001","occurred_on":"2026-04-10","description":"flight"},{"category":"hotel","amount":480.5,"invoice_id":"INV-002","occurred_on":"2026-04-11","description":"hotel"}],"submitted_at":"2026-04-14T10:30:00+08:00"}`
 	rules := strings.Join([]string{
 		"commands:",
 		"  - command: mock",
 		"    subcommands:",
-		"      - match: create-expense",
+		"      - match: expense add",
 		"        level: 1",
 		"        viewportType: html",
 		"        viewportKey: expense_form",
@@ -1295,12 +1295,12 @@ func TestBashHITLApproveFlowForExpenseCreate(t *testing.T) {
 }
 
 func TestBashHITLApproveFlowForProcurementCreate(t *testing.T) {
-	command := `mock create-procurement --payload {"requester_id":"E1001","department":"engineering","budget_code":"RD-2026-001","reason":"team expansion","delivery_city":"Shanghai","items":[{"name":"MacBook Pro","quantity":2,"unit_price":18999,"vendor":"Apple"}],"approvers":["MGR100","FIN200"],"requested_at":"2026-04-14T11:00:00+08:00"}`
+	command := `mock procurement create --payload {"requester_id":"E1001","department":"engineering","budget_code":"RD-2026-001","reason":"team expansion","delivery_city":"Shanghai","items":[{"name":"MacBook Pro","quantity":2,"unit_price":18999,"vendor":"Apple"}],"approvers":["MGR100","FIN200"],"requested_at":"2026-04-14T11:00:00+08:00"}`
 	rules := strings.Join([]string{
 		"commands:",
 		"  - command: mock",
 		"    subcommands:",
-		"      - match: create-procurement",
+		"      - match: procurement create",
 		"        level: 1",
 		"        viewportType: html",
 		"        viewportKey: procurement_form",

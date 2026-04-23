@@ -99,6 +99,18 @@ func (s *Server) loadChatDetail(ctx context.Context, chatID string, includeRawMe
 				OldestSeq: activeRun.OldestSeq,
 				StartedAt: activeRun.StartedAt,
 			}
+
+			// Drop synthesized run.complete for the still-active run so events stay
+			// consistent with the live run state reported from memory.
+			activeRunID := activeRun.RunID
+			filtered := response.Events[:0]
+			for _, ev := range response.Events {
+				if ev.Type == "run.complete" && ev.String("runId") == activeRunID {
+					continue
+				}
+				filtered = append(filtered, ev)
+			}
+			response.Events = filtered
 		}
 	}
 	return response, nil
