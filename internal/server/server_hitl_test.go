@@ -954,6 +954,16 @@ func TestBashHITLApproveFlow(t *testing.T) {
 	if !strings.Contains(body, `"title":"mock 请假申请"`) {
 		t.Fatalf("expected form awaiting.ask title in stream, got %s", body)
 	}
+	if !strings.Contains(body, `"leave_type":"annual"`) ||
+		!strings.Contains(body, `"start_date":"2026-04-20"`) ||
+		!strings.Contains(body, `"end_date":"2026-04-22"`) {
+		t.Fatalf("expected canonical snake_case leave payload in stream, got %s", body)
+	}
+	if strings.Contains(body, `"type":"annual"`) ||
+		strings.Contains(body, `"startDate":"2026-04-20"`) ||
+		strings.Contains(body, `"endDate":"2026-04-22"`) {
+		t.Fatalf("did not expect camelCase leave payload aliases in stream, got %s", body)
+	}
 	if strings.Contains(body, `"initialPayload":`) || strings.Contains(body, `"viewportPayload":`) {
 		t.Fatalf("did not expect legacy form payload fields in stream, got %s", body)
 	}

@@ -1872,6 +1872,15 @@ func TestBuildFormApprovalArgsFallsBackToOriginalCommandPayload(t *testing.T) {
 	if !reflect.DeepEqual(payload, expected) {
 		t.Fatalf("expected payload %#v, got %#v", expected, payload)
 	}
+	if _, exists := payload["type"]; exists {
+		t.Fatalf("did not expect leave payload alias type, got %#v", payload)
+	}
+	if _, exists := payload["startDate"]; exists {
+		t.Fatalf("did not expect leave payload alias startDate, got %#v", payload)
+	}
+	if _, exists := payload["endDate"]; exists {
+		t.Fatalf("did not expect leave payload alias endDate, got %#v", payload)
+	}
 	if form["title"] != "mock 请假申请" {
 		t.Fatalf("expected title in form approval args, got %#v", args)
 	}
