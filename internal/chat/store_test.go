@@ -636,6 +636,74 @@ func TestLoadChatSynthesizesRunBoundaryTimestamps(t *testing.T) {
 	}
 }
 
+func TestLoadChatSynthesizedRunStartContainsAgentKey(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	if _, _, err := store.EnsureChat("chat-ak", "my-agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	if err := store.AppendQueryLine("chat-ak", QueryLine{
+		ChatID:    "chat-ak",
+		RunID:     "run-ak",
+		UpdatedAt: 1001,
+		Query: map[string]any{
+			"chatId":  "chat-ak",
+			"message": "hello",
+		},
+		Type: "query",
+	}); err != nil {
+		t.Fatalf("append query line: %v", err)
+	}
+
+	if err := store.AppendStepLine("chat-ak", StepLine{
+		ChatID:    "chat-ak",
+		RunID:     "run-ak",
+		UpdatedAt: 1002,
+		Type:      "react",
+		Seq:       1,
+		Messages: []StoredMessage{
+			{
+				Role:      "assistant",
+				Content:   textContent("answer"),
+				ContentID: "run-ak_c_1",
+				MsgID:     "msg-1",
+				Ts:        func() *int64 { v := int64(2002); return &v }(),
+			},
+		},
+	}); err != nil {
+		t.Fatalf("append step line: %v", err)
+	}
+
+	detail, err := store.LoadChat("chat-ak")
+	if err != nil {
+		t.Fatalf("load chat: %v", err)
+	}
+
+	var runStart *stream.EventData
+	for i := range detail.Events {
+		if detail.Events[i].Type == "run.start" {
+			runStart = &detail.Events[i]
+			break
+		}
+	}
+	if runStart == nil {
+		t.Fatalf("expected synthesized run.start, got %#v", detail.Events)
+	}
+	if runStart.String("runId") != "run-ak" {
+		t.Fatalf("expected run.start runId run-ak, got %#v", runStart)
+	}
+	if runStart.String("chatId") != "chat-ak" {
+		t.Fatalf("expected run.start chatId chat-ak, got %#v", runStart)
+	}
+	if runStart.String("agentKey") != "my-agent" {
+		t.Fatalf("expected run.start agentKey my-agent, got %#v", runStart)
+	}
+}
+
 func TestStepWriterActionSnapshotPersistsTsAndReplaysTimestamp(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {

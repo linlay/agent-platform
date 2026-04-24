@@ -49,6 +49,37 @@ type Dependencies struct {
 	CatalogReloader contracts.CatalogReloader
 	Notifications   contracts.NotificationSink
 	SkillCandidates skills.CandidateStore
+	// GatewayResolver 按 chatId 查对应 gateway 的 BaseURL/Token，ws_routes 的文件下载
+	// 路径用它替代旧的 cfg.GatewayWS.BaseURL/JwtToken。nil 时 /api/download 走 legacy 单 gateway 的 cfg 字段（兼容老部署）。
+	GatewayResolver GatewayResolver
+	// GatewayAdmin 提供 Admin API（/api/admin/gateways）动态增删 gateway。
+	// nil 时 Admin 路由返回 404（桌面部署以外的场景不暴露管理面）。
+	GatewayAdmin GatewayAdmin
+}
+
+// GatewayResolver 是 ws_routes 下载时用来按 chatId 选对应 gateway 的只读视图，
+// 由 internal/gateway.Registry 提供实现；放在 server 包避免 server → gateway 的直接 import。
+type GatewayResolver interface {
+	Resolve(chatID string) (baseURL string, token string, ok bool)
+}
+
+// GatewayAdmin 是 Admin API 依赖的管理接口；internal/gateway.Registry 实现之。
+type GatewayAdmin interface {
+	AdminRegister(entry GatewayAdminEntry) error
+	AdminUnregister(id string) error
+	AdminList() []GatewayAdminEntry
+}
+
+// GatewayAdminEntry 是 Admin API 的请求 / 响应 DTO。Token 在 List 响应里留空（不回显）。
+type GatewayAdminEntry struct {
+	ID                 string `json:"id"`
+	Channel            string `json:"channel"`
+	URL                string `json:"url"`
+	BaseURL            string `json:"baseUrl,omitempty"`
+	Token              string `json:"token,omitempty"`
+	HandshakeTimeoutMs int64  `json:"handshakeTimeoutMs,omitempty"`
+	ReconnectMinMs     int64  `json:"reconnectMinMs,omitempty"`
+	ReconnectMaxMs     int64  `json:"reconnectMaxMs,omitempty"`
 }
 
 type Server struct {
@@ -436,6 +467,9 @@ func (s *Server) routes() {
 	if s.wsHandler != nil {
 		s.router.Handle("/ws", s.wsHandler)
 	}
+	// Admin API：desktop 在本机动态注册 gateway 时用。loopback-only，deps.GatewayAdmin 未注入时所有端点返回 404。
+	s.router.HandleFunc("/api/admin/gateways", s.adminOnly(s.handleAdminGateways))
+	s.router.HandleFunc("/api/admin/gateways/", s.adminOnly(s.handleAdminGatewayByID))
 }
 
 func (s *Server) method(expected string, handler http.HandlerFunc) http.HandlerFunc {

@@ -895,7 +895,7 @@ func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, r
 				Seq:       nextSeq(),
 				Type:      "run.start",
 				Timestamp: runStartTimestamp,
-				Payload:   map[string]any{"runId": runID, "chatId": summary.ChatID, "agentKey": rd.agentKey},
+				Payload:   map[string]any{"runId": runID, "chatId": summary.ChatID, "agentKey": summary.AgentKey},
 			})
 		}
 		allEvents = append(allEvents, rd.events...)

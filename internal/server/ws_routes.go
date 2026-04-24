@@ -150,7 +150,7 @@ func (s *Server) wsDownload(ctx context.Context, conn *ws.Conn, req ws.RequestFr
 	log.Printf("[ws-download] recv chatId=%s requestId=%s fileName=%s size=%d",
 		chatID, requestID, fileName, sizeBytes)
 
-	data, err := s.fetchGatewayDownload(ctx, rawURL)
+	data, err := s.fetchGatewayDownload(ctx, chatID, rawURL)
 	if err != nil {
 		log.Printf("[ws-download] fetch failed chatId=%s url=%s err=%v", chatID, rawURL, err)
 		conn.SendError(req.ID, "download_failed", 502, err.Error(), nil)
@@ -188,9 +188,11 @@ func (s *Server) wsDownload(ctx context.Context, conn *ws.Conn, req ws.RequestFr
 }
 
 // fetchGatewayDownload 把下载 key（绝对 URL 或仅 sha256）解析成完整的
-// GATEWAY_BASE_URL/api/download/... 路径，带 GATEWAY_JWT_TOKEN Bearer 做 GET。
-func (s *Server) fetchGatewayDownload(ctx context.Context, rawURL string) ([]byte, error) {
-	downloadURL := s.buildGatewayURL(rawURL)
+// gateway BaseURL/api/download/... 路径，带对应 gateway 的 JWT Bearer 做 GET。
+// chatID 用于按前缀路由到正确的 gateway（多 channel 部署下必需）。
+func (s *Server) fetchGatewayDownload(ctx context.Context, chatID string, rawURL string) ([]byte, error) {
+	baseURL, token := s.resolveGatewayForChat(chatID)
+	downloadURL := s.buildGatewayURL(baseURL, rawURL)
 	if downloadURL == "" {
 		return nil, fmt.Errorf("empty download url")
 	}
@@ -198,7 +200,7 @@ func (s *Server) fetchGatewayDownload(ctx context.Context, rawURL string) ([]byt
 	if err != nil {
 		return nil, fmt.Errorf("build request: %w", err)
 	}
-	if token := strings.TrimSpace(s.deps.Config.GatewayWS.JwtToken); token != "" {
+	if token != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+token)
 	}
 	resp, err := http.DefaultClient.Do(httpReq)
@@ -216,16 +218,28 @@ func (s *Server) fetchGatewayDownload(ctx context.Context, rawURL string) ([]byt
 	return data, nil
 }
 
-// buildGatewayURL 把网关下发的下载地址规范化到 GATEWAY_BASE_URL。
+// resolveGatewayForChat 按 chatId 查对应 gateway 的 BaseURL/Token。
+// 没设 Resolver 时退化为 legacy 单 gateway 模式（从 cfg.GatewayWS 读），
+// 保证老部署行为不变。
+func (s *Server) resolveGatewayForChat(chatID string) (baseURL string, token string) {
+	if s.deps.GatewayResolver != nil {
+		if b, t, ok := s.deps.GatewayResolver.Resolve(chatID); ok {
+			return b, t
+		}
+	}
+	return strings.TrimSpace(s.deps.Config.GatewayWS.BaseURL), strings.TrimSpace(s.deps.Config.GatewayWS.JwtToken)
+}
+
+// buildGatewayURL 把网关下发的下载地址规范化到指定 baseURL。
 // 不管网关填什么 host（空 / localhost / 外网 IP），platform 都**强制**
-// 改用 GATEWAY_BASE_URL 作为 scheme+host，只保留 path + query。
+// 改用 baseURL 作为 scheme+host，只保留 path + query。
 // 这样跨机部署时不会因为网关那端写死 localhost 而打不到。
-func (s *Server) buildGatewayURL(raw string) string {
+func (s *Server) buildGatewayURL(base string, raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return ""
 	}
-	base := strings.TrimRight(strings.TrimSpace(s.deps.Config.GatewayWS.BaseURL), "/")
+	base = strings.TrimRight(strings.TrimSpace(base), "/")
 	if base == "" {
 		return raw
 	}

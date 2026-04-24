@@ -63,6 +63,44 @@ func TestLoadDefaults(t *testing.T) {
 	})
 }
 
+func TestLoadPromptsConfigLeavesSkillInstructionsEmptyWhenFileMissing(t *testing.T) {
+	withIsolatedEnv(t, nil, func() {
+		withProjectFileContents(t, filepath.Join("configs", "prompts.yml"), nil, func() {
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			if cfg.Prompts.Skill.InstructionsPrompt != "" {
+				t.Fatalf("expected empty prompts override when file is missing, got %q", cfg.Prompts.Skill.InstructionsPrompt)
+			}
+		})
+	})
+}
+
+func TestLoadPromptsConfigFromFile(t *testing.T) {
+	withIsolatedEnv(t, nil, func() {
+		content := "" +
+			"skill:\n" +
+			"  catalog-header: custom skills header\n" +
+			"  instructions-prompt: |\n" +
+			"    custom skill instructions\n" +
+			"    second line\n"
+		withProjectFileContents(t, filepath.Join("configs", "prompts.yml"), &content, func() {
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			want := "custom skill instructions\nsecond line"
+			if cfg.Prompts.Skill.InstructionsPrompt != want {
+				t.Fatalf("expected prompts override %q, got %q", want, cfg.Prompts.Skill.InstructionsPrompt)
+			}
+			if cfg.Prompts.Skill.CatalogHeader != "custom skills header" {
+				t.Fatalf("expected catalog header override, got %q", cfg.Prompts.Skill.CatalogHeader)
+			}
+		})
+	})
+}
+
 func TestLoadAuthLocalPublicKeyPathUnderConfigs(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"AGENT_AUTH_LOCAL_PUBLIC_KEY_FILE": "local-public-key.pem",
@@ -358,6 +396,49 @@ func TestLoadGatewayWSConfigFromEnv(t *testing.T) {
 	})
 }
 
+func TestGatewaysSynthesizedFromLegacyURL(t *testing.T) {
+	withIsolatedEnv(t, map[string]string{
+		"GATEWAY_WS_URL":    "wss://gw.example.com/ws/agent?key=zenmi&channel=wecom:xiaozhai",
+		"GATEWAY_JWT_TOKEN": "jwt-abc",
+	}, func() {
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		if len(cfg.Gateways) != 1 {
+			t.Fatalf("expected legacy URL to synthesize 1 gateway entry, got %d", len(cfg.Gateways))
+		}
+		g := cfg.Gateways[0]
+		if g.ID != "default" {
+			t.Fatalf("synthesized gateway id = %q, want default", g.ID)
+		}
+		if g.Channel != "wecom" {
+			t.Fatalf("channel derived from URL = %q, want wecom", g.Channel)
+		}
+		if g.URL != "wss://gw.example.com/ws/agent?key=zenmi&channel=wecom:xiaozhai" {
+			t.Fatalf("URL not propagated: %q", g.URL)
+		}
+		if g.JwtToken != "jwt-abc" {
+			t.Fatalf("token not propagated: %q", g.JwtToken)
+		}
+		if g.BaseURL != "https://gw.example.com" {
+			t.Fatalf("baseURL not derived: %q", g.BaseURL)
+		}
+	})
+}
+
+func TestGatewaysEmptyWhenNoLegacyConfig(t *testing.T) {
+	withIsolatedEnv(t, map[string]string{}, func() {
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		if len(cfg.Gateways) != 0 {
+			t.Fatalf("expected empty Gateways when no legacy config, got %d", len(cfg.Gateways))
+		}
+	})
+}
+
 func TestLoadGatewayWSConfigWhenWebSocketDisabled(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"AGENT_WS_ENABLED":  "false",
@@ -509,5 +590,40 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 			t.Fatalf("set %s: %v", key, err)
 		}
 	}
+	fn()
+}
+
+func withProjectFileContents(t *testing.T, relativePath string, content *string, fn func()) {
+	t.Helper()
+
+	path := ProjectFile(relativePath)
+	original, err := os.ReadFile(path)
+	originalExists := err == nil
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("read %s: %v", path, err)
+	}
+
+	if content == nil {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			t.Fatalf("remove %s: %v", path, err)
+		}
+	} else {
+		if err := os.WriteFile(path, []byte(*content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+
+	t.Cleanup(func() {
+		if originalExists {
+			if err := os.WriteFile(path, original, 0o644); err != nil {
+				t.Fatalf("restore %s: %v", path, err)
+			}
+			return
+		}
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			t.Fatalf("cleanup %s: %v", path, err)
+		}
+	})
+
 	fn()
 }

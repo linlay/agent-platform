@@ -27,49 +27,41 @@ import (
 //
 // A zero-value or nil-configured Pusher is safe; Push is a no-op when the
 // gateway upload URL is not configured (e.g. webclient-only deployments).
+// Resolver 按 chatId 查 gateway 的 BaseURL + Token；由 internal/gateway.Registry 提供实现。
+// 接口拆到这里避免 artifactpusher → gateway 的直接 import（gateway 已 import artifactpusher 间接依赖）。
+type Resolver interface {
+	Resolve(chatID string) (baseURL string, token string, ok bool)
+}
+
 type Pusher struct {
-	baseURL       string
+	resolver      Resolver
 	uploadPath    string
-	authToken     string
 	chatsDir      string
 	http          *http.Client
 	notifications contracts.NotificationSink
 }
 
 type Config struct {
-	BaseURL       string
+	Resolver      Resolver
 	UploadPath    string
-	AuthToken     string
 	ChatsDir      string
 	Notifications contracts.NotificationSink
 }
 
 func New(cfg Config) *Pusher {
 	p := &Pusher{
-		baseURL:       strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/"),
+		resolver:      cfg.Resolver,
 		uploadPath:    strings.TrimSpace(cfg.UploadPath),
-		authToken:     strings.TrimSpace(cfg.AuthToken),
 		chatsDir:      strings.TrimSpace(cfg.ChatsDir),
 		http:          &http.Client{Timeout: 60 * time.Second},
 		notifications: cfg.Notifications,
 	}
-	if p.baseURL == "" || p.uploadPath == "" {
-		log.Printf("[artifact-pusher] disabled: gateway upload endpoint not configured (GATEWAY_BASE_URL=%q uploadPath=%q); produced artifacts will stay local", p.baseURL, p.uploadPath)
+	if p.resolver == nil || p.uploadPath == "" {
+		log.Printf("[artifact-pusher] disabled: no gateway resolver or upload path (uploadPath=%q); produced artifacts will stay local", p.uploadPath)
 	} else {
-		log.Printf("[artifact-pusher] enabled: baseURL=%s uploadPath=%s chatsDir=%s authToken=%s",
-			p.baseURL, p.uploadPath, p.chatsDir, maskToken(p.authToken))
+		log.Printf("[artifact-pusher] enabled: uploadPath=%s chatsDir=%s (gateway routed per chatId)", p.uploadPath, p.chatsDir)
 	}
 	return p
-}
-
-func maskToken(token string) string {
-	if token == "" {
-		return "(empty)"
-	}
-	if len(token) <= 4 {
-		return "***"
-	}
-	return token[:2] + "***" + token[len(token)-2:]
 }
 
 // Push forwards one published artifact to the gateway. The artifact map uses
@@ -83,8 +75,8 @@ func (p *Pusher) Push(chatID string, artifact map[string]any) {
 	}
 	artifactID, _ := artifact["artifactId"].(string)
 	name, _ := artifact["name"].(string)
-	if p.baseURL == "" || p.uploadPath == "" {
-		log.Printf("[artifact-pusher] skip: endpoint not configured chatId=%s artifactId=%s name=%s", chatID, artifactID, name)
+	if p.resolver == nil || p.uploadPath == "" {
+		log.Printf("[artifact-pusher] skip: no resolver or upload path chatId=%s artifactId=%s name=%s", chatID, artifactID, name)
 		return
 	}
 	if chatID == "" || artifact == nil {
@@ -136,8 +128,14 @@ func (p *Pusher) pushOne(chatID string, artifact map[string]any) {
 	// push 失败不阻塞 POST —— Broadcast 是 best-effort 的 fan-out。
 	p.notifyArtifactOutgoing(chatID, artifactID, fileName, mimeType, sha, len(data))
 
-	uploadURL := p.baseURL + "/" + strings.TrimLeft(path.Clean("/"+p.uploadPath), "/")
-	respBody, err := p.postMultipart(uploadURL, chatID, fileName, fileType, artifactID, data)
+	baseURL, token, ok := p.resolver.Resolve(chatID)
+	if !ok || strings.TrimSpace(baseURL) == "" {
+		log.Printf("[artifact-pusher] skip: no gateway route for chatId=%s artifactId=%s", chatID, artifactID)
+		return
+	}
+	baseURL = strings.TrimRight(baseURL, "/")
+	uploadURL := baseURL + "/" + strings.TrimLeft(path.Clean("/"+p.uploadPath), "/")
+	respBody, err := p.postMultipart(uploadURL, token, chatID, fileName, fileType, artifactID, data)
 	if err != nil {
 		log.Printf("[artifact-pusher] upload failed chatId=%s artifactId=%s url=%s err=%v", chatID, artifactID, uploadURL, err)
 		return
@@ -178,7 +176,7 @@ func guessMimeType(fileName string) string {
 	return "application/octet-stream"
 }
 
-func (p *Pusher) postMultipart(uploadURL, chatID, fileName, fileType, requestID string, data []byte) ([]byte, error) {
+func (p *Pusher) postMultipart(uploadURL, authToken, chatID, fileName, fileType, requestID string, data []byte) ([]byte, error) {
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
 	_ = writer.WriteField("chatId", chatID)
@@ -206,8 +204,8 @@ func (p *Pusher) postMultipart(uploadURL, chatID, fileName, fileType, requestID 
 		return nil, fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Content-Type", writer.FormDataContentType())
-	if p.authToken != "" {
-		req.Header.Set("Authorization", "Bearer "+p.authToken)
+	if authToken != "" {
+		req.Header.Set("Authorization", "Bearer "+authToken)
 	}
 	resp, err := p.http.Do(req)
 	if err != nil {

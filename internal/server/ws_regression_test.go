@@ -140,6 +140,63 @@ func TestLoadChatDetailIncludesActiveRunAndConflictReturnsHTTP409(t *testing.T) 
 	if _, _, err := chats.EnsureChat("chat-live", "agent-1", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
+	if err := chats.AppendQueryLine("chat-live", chat.QueryLine{
+		ChatID:    "chat-live",
+		RunID:     "run-done",
+		UpdatedAt: 1001,
+		Query: map[string]any{
+			"chatId":  "chat-live",
+			"message": "completed",
+		},
+		Type: "query",
+	}); err != nil {
+		t.Fatalf("append completed query line: %v", err)
+	}
+	if err := chats.AppendStepLine("chat-live", chat.StepLine{
+		ChatID:    "chat-live",
+		RunID:     "run-done",
+		UpdatedAt: 1002,
+		Type:      "react",
+		Seq:       1,
+		Messages: []chat.StoredMessage{
+			{Role: "assistant", Content: []chat.ContentPart{{Type: "text", Text: "done"}}},
+		},
+	}); err != nil {
+		t.Fatalf("append completed step line: %v", err)
+	}
+	if err := chats.OnRunCompleted(chat.RunCompletion{
+		ChatID:          "chat-live",
+		RunID:           "run-done",
+		AssistantText:   "done",
+		InitialMessage:  "completed",
+		UpdatedAtMillis: time.Now().UnixMilli(),
+	}); err != nil {
+		t.Fatalf("complete run-done: %v", err)
+	}
+	if err := chats.AppendQueryLine("chat-live", chat.QueryLine{
+		ChatID:    "chat-live",
+		RunID:     "run-live",
+		UpdatedAt: 1003,
+		Query: map[string]any{
+			"chatId":  "chat-live",
+			"message": "still running",
+		},
+		Type: "query",
+	}); err != nil {
+		t.Fatalf("append live query line: %v", err)
+	}
+	if err := chats.AppendStepLine("chat-live", chat.StepLine{
+		ChatID:    "chat-live",
+		RunID:     "run-live",
+		UpdatedAt: 1004,
+		Type:      "react",
+		Seq:       1,
+		Messages: []chat.StoredMessage{
+			{Role: "assistant", Content: []chat.ContentPart{{Type: "text", Text: "partial"}}},
+		},
+	}); err != nil {
+		t.Fatalf("append live step line: %v", err)
+	}
 	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
 		RunID:    "run-live",
 		ChatID:   "chat-live",
@@ -152,6 +209,19 @@ func TestLoadChatDetailIncludesActiveRunAndConflictReturnsHTTP409(t *testing.T) 
 	}
 	if detail.ActiveRun == nil || detail.ActiveRun.RunID != "run-live" {
 		t.Fatalf("expected active run in chat detail, got %#v", detail.ActiveRun)
+	}
+	runCompleteCounts := map[string]int{}
+	for _, event := range detail.Events {
+		if event.Type != "run.complete" {
+			continue
+		}
+		runCompleteCounts[event.String("runId")]++
+	}
+	if runCompleteCounts["run-live"] != 0 {
+		t.Fatalf("expected active run.complete to be removed, got %#v", detail.Events)
+	}
+	if runCompleteCounts["run-done"] != 1 {
+		t.Fatalf("expected completed run.complete to remain, got %#v", detail.Events)
 	}
 
 	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
