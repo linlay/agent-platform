@@ -223,7 +223,7 @@
 
 #### `internal/resources/tools/`
 
-- `internal/resources/tools/_agent_invoke_.yml` (32 行): 内置工具定义：agentinvoke
+- `internal/resources/tools/agent_invoke.yml` (32 行): 内置工具定义：agentinvoke
 - `internal/resources/tools/_artifact_publish_.yml` (30 行): 内置工具定义：artifactpublish
 - `internal/resources/tools/_ask_user_question_.yml` (81 行): 内置工具定义：askuserquestion
 - `internal/resources/tools/_bash_.yml` (24 行): 内置工具定义：bash

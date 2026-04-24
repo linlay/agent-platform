@@ -28,7 +28,7 @@ var requiredBuiltinToolNames = []string{
 	"plan_update_task",
 	"_bash_container_",
 	"_ask_user_question_",
-	"_agent_invoke_",
+	"agent_invoke",
 }
 
 func LoadEmbeddedToolDefinitions() ([]api.ToolDetailResponse, error) {

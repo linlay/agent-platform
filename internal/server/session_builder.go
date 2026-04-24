@@ -175,7 +175,7 @@ func (s *Server) buildSessionToolOverrides(agentDef catalog.AgentDefinition) map
 }
 
 func buildSessionToolNames(base []string, allowInvokeAgents bool) []string {
-	tools := make([]string, 0, len(base)+1)
+	tools := make([]string, 0, len(base))
 	seen := map[string]struct{}{}
 	for _, tool := range base {
 		name := strings.TrimSpace(tool)
@@ -191,12 +191,6 @@ func buildSessionToolNames(base []string, allowInvokeAgents bool) []string {
 		}
 		seen[key] = struct{}{}
 		tools = append(tools, name)
-	}
-	if allowInvokeAgents {
-		key := strings.ToLower(contracts.InvokeAgentsToolName)
-		if _, ok := seen[key]; !ok {
-			tools = append(tools, contracts.InvokeAgentsToolName)
-		}
 	}
 	return tools
 }
