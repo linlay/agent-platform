@@ -118,21 +118,24 @@ type pendingHITLApprovalBatch struct {
 }
 
 type hitlDecisionState struct {
-	AwaitingID string
-	Decision   string
-	Reason     string
-	RuleKey    string
-	Scope      string
-	Executed   bool
-	Mode       string
+	AwaitingID  string
+	Decision    string
+	Reason      string
+	RuleKey     string
+	Scope       string
+	Executed    bool
+	Mode        string
+	FormPayload map[string]any
 }
 
 type hitlNoticeEntry struct {
-	toolID   string
-	command  string
-	decision string
-	ruleKey  string
-	reason   string
+	toolID      string
+	command     string
+	decision    string
+	ruleKey     string
+	reason      string
+	mode        string
+	formPayload map[string]any
 }
 
 // PostToolHookResult controls what happens after a tool call.
@@ -1363,6 +1366,7 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 			}
 			invocation.args["command"] = rebuiltCommand
 			s.applyHITLDecision(invocation, *match, awaitingID, "approve", "", true)
+			invocation.hitlDecision.FormPayload = formPayload
 			return s.executeOriginalBash(invocation)
 		}
 		s.applyHITLDecision(invocation, *match, awaitingID, "reject", strings.TrimSpace(AnyStringNode(selectedForm["reason"])), false)
@@ -1519,7 +1523,7 @@ func (s *llmRunStream) resolveHITLTimeout() int64 {
 }
 
 func (s *llmRunStream) appendOriginalToolResult(invocation *preparedToolInvocation, result ToolExecutionResult) {
-	result = applyHITLApproval(result, invocation)
+	result = applyHITLMetadata(result, invocation)
 	s.previousToolResult = structuredOrOutput(result)
 	s.pending = append(s.pending, DeltaToolResult{
 		ToolID:   invocation.toolID,
@@ -1550,11 +1554,16 @@ func (s *llmRunStream) appendOriginalToolResult(invocation *preparedToolInvocati
 	}
 }
 
-func applyHITLApproval(result ToolExecutionResult, invocation *preparedToolInvocation) ToolExecutionResult {
-	if invocation == nil || invocation.hitlDecision == nil || !strings.EqualFold(invocation.hitlDecision.Mode, "approval") {
+func applyHITLMetadata(result ToolExecutionResult, invocation *preparedToolInvocation) ToolExecutionResult {
+	if invocation == nil || invocation.hitlDecision == nil {
 		return result
 	}
-	result.HITL = buildHITLApprovalPayload(invocation.hitlDecision)
+	switch strings.ToLower(strings.TrimSpace(invocation.hitlDecision.Mode)) {
+	case "approval":
+		result.HITL = buildHITLApprovalPayload(invocation.hitlDecision)
+	case "form":
+		result.HITL = buildHITLFormPayload(invocation.hitlDecision)
+	}
 	return result
 }
 
@@ -1577,16 +1586,45 @@ func buildHITLApprovalPayload(decision *hitlDecisionState) map[string]any {
 	return payload
 }
 
+func buildHITLFormPayload(decision *hitlDecisionState) map[string]any {
+	if decision == nil {
+		return nil
+	}
+	payload := map[string]any{
+		"mode":     "form",
+		"decision": decision.Decision,
+	}
+	if awaitingID := strings.TrimSpace(decision.AwaitingID); awaitingID != "" {
+		payload["awaitingId"] = awaitingID
+	}
+	if ruleKey := strings.TrimSpace(decision.RuleKey); ruleKey != "" {
+		payload["ruleKey"] = ruleKey
+	}
+	if reason := strings.TrimSpace(decision.Reason); reason != "" {
+		payload["reason"] = reason
+	}
+	if decision.FormPayload != nil {
+		payload["submittedPayload"] = decision.FormPayload
+	}
+	return payload
+}
+
 func buildHITLNoticeEntry(invocation *preparedToolInvocation) (hitlNoticeEntry, bool) {
-	if invocation == nil || invocation.hitlDecision == nil || !strings.EqualFold(invocation.hitlDecision.Mode, "approval") {
+	if invocation == nil || invocation.hitlDecision == nil {
+		return hitlNoticeEntry{}, false
+	}
+	mode := strings.ToLower(strings.TrimSpace(invocation.hitlDecision.Mode))
+	if mode != "approval" && mode != "form" {
 		return hitlNoticeEntry{}, false
 	}
 	return hitlNoticeEntry{
-		toolID:   invocation.toolID,
-		command:  mapStringArg(invocation.args, "command"),
-		decision: invocation.hitlDecision.Decision,
-		ruleKey:  invocation.hitlDecision.RuleKey,
-		reason:   invocation.hitlDecision.Reason,
+		toolID:      invocation.toolID,
+		command:     mapStringArg(invocation.args, "command"),
+		decision:    invocation.hitlDecision.Decision,
+		ruleKey:     invocation.hitlDecision.RuleKey,
+		reason:      invocation.hitlDecision.Reason,
+		mode:        mode,
+		formPayload: invocation.hitlDecision.FormPayload,
 	}, true
 }
 
@@ -1607,9 +1645,25 @@ func formatHITLBatchSummary(entries []hitlNoticeEntry) string {
 }
 
 func formatHITLSummaryLine(entry hitlNoticeEntry) string {
+	if entry.mode == "form" {
+		return formatHITLFormSummaryLine(entry)
+	}
 	line := strings.TrimSpace(entry.command) + " → " + strings.TrimSpace(entry.decision)
 	if reason := strings.TrimSpace(entry.reason); reason != "" {
 		line += "（" + reason + "）"
+	}
+	return line
+}
+
+func formatHITLFormSummaryLine(entry hitlNoticeEntry) string {
+	line := strings.TrimSpace(entry.command) + " → " + strings.TrimSpace(entry.decision)
+	if reason := strings.TrimSpace(entry.reason); reason != "" {
+		line += "（" + reason + "）"
+	}
+	if strings.EqualFold(entry.decision, "approve") && entry.formPayload != nil {
+		if payloadJSON, err := json.Marshal(entry.formPayload); err == nil {
+			line += "\n  提交参数: " + string(payloadJSON)
+		}
 	}
 	return line
 }
@@ -1631,6 +1685,8 @@ func buildHITLBatchSummaryAndApproval(entries []hitlNoticeEntry) (string, *chat.
 			Decision: entry.decision,
 			RuleKey:  strings.TrimSpace(entry.ruleKey),
 			Reason:   entry.reason,
+			Mode:     entry.mode,
+			Payload:  entry.formPayload,
 		})
 	}
 	return summary, approval

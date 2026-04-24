@@ -1125,6 +1125,76 @@ func TestStepWriterPersistsApprovalSidecarOnStepLine(t *testing.T) {
 	}
 }
 
+func TestStepWriterPersistsFormApprovalDecisionPayload(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	payload := map[string]any{
+		"applicant_id": "E1001",
+		"days":         2.0,
+		"leave_type":   "annual",
+	}
+	writer := NewStepWriter(store, "chat-form-approval-step", "run-form-approval-step", "react", false)
+	writer.OnEvent(stream.EventData{
+		Type:      "tool.snapshot",
+		Timestamp: 4101,
+		Payload: map[string]any{
+			"toolId":    "tool-1",
+			"toolName":  "_bash_",
+			"arguments": `{"command":"mock create-leave --payload '{...}'"}`,
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "tool.result",
+		Timestamp: 4102,
+		Payload: map[string]any{
+			"toolId": "tool-1",
+			"result": "executed",
+		},
+	})
+	writer.RecordApproval(StepApproval{
+		Summary: "[HITL] mock create-leave --payload '{...}' → approve\n  提交参数: {\"applicant_id\":\"E1001\",\"days\":2,\"leave_type\":\"annual\"}",
+		Decisions: []StepApprovalDecision{{
+			ToolID:   "tool-1",
+			Command:  "mock create-leave --payload '{...}'",
+			Decision: "approve",
+			RuleKey:  "leave::create",
+			Mode:     "form",
+			Payload:  payload,
+		}},
+	})
+	writer.Flush()
+
+	lines, err := readJSONLines(store.chatJSONLPath("chat-form-approval-step"))
+	if err != nil {
+		t.Fatalf("read chat jsonl: %v", err)
+	}
+	if len(lines) != 1 {
+		t.Fatalf("expected one step line, got %#v", lines)
+	}
+	approval, ok := lines[0]["approval"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected approval sidecar on step line, got %#v", lines[0])
+	}
+	decisions, ok := approval["decisions"].([]any)
+	if !ok || len(decisions) != 1 {
+		t.Fatalf("expected one approval decision, got %#v", approval)
+	}
+	decision, ok := decisions[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected decision object, got %#v", decisions[0])
+	}
+	if decision["mode"] != "form" {
+		t.Fatalf("expected form decision mode, got %#v", decision)
+	}
+	gotPayload, ok := decision["payload"].(map[string]any)
+	if !ok || gotPayload["applicant_id"] != "E1001" || gotPayload["days"] != 2.0 || gotPayload["leave_type"] != "annual" {
+		t.Fatalf("expected persisted form payload, got %#v", decision)
+	}
+}
+
 func TestLoadRawMessagesReplaysApprovalSummaryFromStepLine(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {

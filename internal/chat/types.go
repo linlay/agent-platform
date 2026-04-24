@@ -84,11 +84,13 @@ type StepApproval struct {
 }
 
 type StepApprovalDecision struct {
-	ToolID   string `json:"toolId"`
-	Command  string `json:"command"`
-	Decision string `json:"decision"`
-	RuleKey  string `json:"ruleKey,omitempty"`
-	Reason   string `json:"reason,omitempty"`
+	ToolID   string         `json:"toolId"`
+	Command  string         `json:"command"`
+	Decision string         `json:"decision"`
+	RuleKey  string         `json:"ruleKey,omitempty"`
+	Reason   string         `json:"reason,omitempty"`
+	Mode     string         `json:"mode,omitempty"`
+	Payload  map[string]any `json:"payload,omitempty"`
 }
 
 type EventLine struct {

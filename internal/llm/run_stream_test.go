@@ -537,16 +537,17 @@ func TestPrepareToolCall_BashDescriptionIsRequired(t *testing.T) {
 
 func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 	tests := []struct {
-		name                   string
-		rule                   hitl.FlatRule
-		initialCommand         string
-		parsedCommand          hitl.CommandComponents
-		submitParams           api.SubmitParams
-		expectedCommand        string
-		expectedView           string
-		expectedKey            string
-		expectedInitialPayload map[string]any
-		expectedAnswerAction   string
+		name                     string
+		rule                     hitl.FlatRule
+		initialCommand           string
+		parsedCommand            hitl.CommandComponents
+		submitParams             api.SubmitParams
+		expectedCommand          string
+		expectedView             string
+		expectedKey              string
+		expectedInitialPayload   map[string]any
+		expectedSubmittedPayload map[string]any
+		expectedAnswerAction     string
 	}{
 		{
 			name: "builtin confirm dialog",
@@ -591,11 +592,12 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 					"payload": sampleLeavePayload(2),
 				},
 			}),
-			expectedCommand:        sampleLeaveCommand(2),
-			expectedView:           "html",
-			expectedKey:            "leave_form",
-			expectedInitialPayload: sampleLeavePayload(3),
-			expectedAnswerAction:   "submit",
+			expectedCommand:          sampleLeaveCommand(2),
+			expectedView:             "html",
+			expectedKey:              "leave_form",
+			expectedInitialPayload:   sampleLeavePayload(3),
+			expectedSubmittedPayload: sampleLeavePayload(2),
+			expectedAnswerAction:     "submit",
 		},
 		{
 			name: "expense html viewport override",
@@ -635,6 +637,23 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 			expectedCommand: canonicalExpenseCommand(640.25),
 			expectedView:    "html",
 			expectedKey:     "expense_form",
+			expectedSubmittedPayload: map[string]any{
+				"employee":     map[string]any{"id": "E1001", "name": "张三"},
+				"department":   map[string]any{"code": "engineering", "name": "工程部"},
+				"expense_type": "travel",
+				"currency":     "CNY",
+				"items": []any{
+					map[string]any{
+						"amount":      640.25,
+						"category":    "transport",
+						"description": "flight",
+						"invoice_id":  "INV-001",
+						"occurred_on": "2026-04-10",
+					},
+				},
+				"submitted_at": "2026-04-14T10:30:00+08:00",
+				"total_amount": 640.25,
+			},
 			expectedInitialPayload: map[string]any{
 				"employee":     map[string]any{"id": "E1001", "name": "张三"},
 				"department":   map[string]any{"code": "engineering", "name": "工程部"},
@@ -676,11 +695,12 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 					},
 				},
 			}),
-			expectedCommand:        sampleProcurementCommand("Hangzhou"),
-			expectedView:           "html",
-			expectedKey:            "procurement_form",
-			expectedInitialPayload: map[string]any{"delivery_city": "Shanghai", "requester_id": "E1001"},
-			expectedAnswerAction:   "submit",
+			expectedCommand:          sampleProcurementCommand("Hangzhou"),
+			expectedView:             "html",
+			expectedKey:              "procurement_form",
+			expectedInitialPayload:   map[string]any{"delivery_city": "Shanghai", "requester_id": "E1001"},
+			expectedSubmittedPayload: map[string]any{"delivery_city": "Hangzhou", "requester_id": "E1001"},
+			expectedAnswerAction:     "submit",
 		},
 	}
 
@@ -848,30 +868,38 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 				case contracts.DeltaToolResult:
 					if typed.ToolName == "_bash_" {
 						foundOriginalResult = true
+						if tc.expectedSubmittedPayload != nil {
+							if typed.Result.HITL["mode"] != "form" || typed.Result.HITL["decision"] != "approve" {
+								t.Fatalf("expected form approve HITL metadata, got %#v", typed.Result.HITL)
+							}
+							if !reflect.DeepEqual(typed.Result.HITL["submittedPayload"], tc.expectedSubmittedPayload) {
+								t.Fatalf("expected submitted payload %#v, got %#v", tc.expectedSubmittedPayload, typed.Result.HITL["submittedPayload"])
+							}
+						}
 					}
 				}
 			}
 			if !foundRequestSubmit || !foundAwaitingAnswer || !foundOriginalResult {
 				t.Fatalf("expected submit/answer/results deltas, got %#v", stream.pending)
 			}
-			if tc.expectedInitialPayload == nil {
-				if len(stream.messages) < 2 {
-					t.Fatalf("expected tool result and HITL summary messages, got %#v", stream.messages)
+			if len(stream.messages) < 2 {
+				t.Fatalf("expected tool result and HITL summary messages, got %#v", stream.messages)
+			}
+			toolMsg := stream.messages[len(stream.messages)-2]
+			if toolMsg.Role != "tool" || toolMsg.ToolCallID != "tool_1" || toolMsg.Content != "executed" {
+				t.Fatalf("expected pure tool output before HITL summary, got %#v", toolMsg)
+			}
+			hitlNotice := stream.messages[len(stream.messages)-1]
+			if hitlNotice.Role != "user" {
+				t.Fatalf("expected HITL summary to be appended as user message, got %#v", hitlNotice)
+			}
+			noticeText, _ := hitlNotice.Content.(string)
+			if tc.expectedSubmittedPayload != nil {
+				if !strings.Contains(noticeText, "[HITL] ") || !strings.Contains(noticeText, " → approve") || !strings.Contains(noticeText, "\n  提交参数: ") {
+					t.Fatalf("expected form HITL summary content, got %#v", hitlNotice)
 				}
-				toolMsg := stream.messages[len(stream.messages)-2]
-				if toolMsg.Role != "tool" || toolMsg.ToolCallID != "tool_1" || toolMsg.Content != "executed" {
-					t.Fatalf("expected pure tool output before HITL summary, got %#v", toolMsg)
-				}
-				hitlNotice := stream.messages[len(stream.messages)-1]
-				if hitlNotice.Role != "user" {
-					t.Fatalf("expected HITL summary to be appended as user message, got %#v", hitlNotice)
-				}
-				noticeText, _ := hitlNotice.Content.(string)
-				if !strings.Contains(noticeText, "[HITL] git push origin main → approve") {
-					t.Fatalf("expected HITL summary content, got %#v", hitlNotice)
-				}
-			} else if len(stream.messages) != 1 || stream.messages[0].Role != "tool" {
-				t.Fatalf("expected form HITL flow to keep only tool result message, got %#v", stream.messages)
+			} else if !strings.Contains(noticeText, "[HITL] git push origin main → approve") {
+				t.Fatalf("expected HITL summary content, got %#v", hitlNotice)
 			}
 		})
 	}
@@ -984,6 +1012,186 @@ func TestAwaitHITLSubmitAndExecute_RejectEmitsCancelledAnswer(t *testing.T) {
 	noticeText, _ := hitlNotice.Content.(string)
 	if hitlNotice.Role != "user" || !strings.Contains(noticeText, `[HITL] docker rmi nginx:latest → reject（风险过高）`) {
 		t.Fatalf("expected reject HITL summary, got %#v", hitlNotice)
+	}
+}
+
+func TestAwaitHITLSubmitAndExecute_FormRejectEmitsHITLMetadataAndSummary(t *testing.T) {
+	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{bashToolDefinition()}}
+	runControl := contracts.NewRunControl(context.Background(), "run_1")
+	stream := &llmRunStream{
+		ctx: context.Background(),
+		engine: &LLMAgentEngine{
+			tools:    executor,
+			frontend: frontendtools.NewDefaultRegistry(),
+		},
+		session: contracts.QuerySession{
+			RequestID: "req_1",
+			ChatID:    "chat_1",
+			RunID:     "run_1",
+		},
+		runControl: runControl,
+		execCtx: &contracts.ExecutionContext{
+			Budget: contracts.Budget{Tool: contracts.RetryPolicy{TimeoutMs: 50}},
+		},
+	}
+	invocation := &preparedToolInvocation{
+		toolID:   "tool_1",
+		toolName: "_bash_",
+		args: map[string]any{
+			"command": sampleLeaveCommand(3),
+		},
+	}
+	result := hitl.InterceptResult{
+		Intercepted: true,
+		Rule: hitl.FlatRule{
+			Match:        "create-leave",
+			Level:        1,
+			ViewportType: "html",
+			ViewportKey:  "leave_form",
+		},
+		ParsedCommand: hitl.CommandComponents{
+			BaseCommand: "mock",
+			Tokens:      []string{"create-leave", "--payload", `{"applicant_id":"E1001","days":3,"department_id":"engineering","end_date":"2026-04-22","leave_type":"annual","reason":"family_trip","start_date":"2026-04-20"}`},
+		},
+	}
+	if err := stream.emitHITLConfirmDeltas(invocation, result); err != nil {
+		t.Fatalf("emitHITLConfirmDeltas returned error: %v", err)
+	}
+	ack := runControl.ResolveSubmit(api.SubmitRequest{
+		RunID:      "run_1",
+		AwaitingID: stream.hitlAwaitingID,
+		Params: encodedSubmitParams(t, []map[string]any{
+			{"id": "form-1", "reason": "用户取消"},
+		}),
+	})
+	if !ack.Accepted {
+		t.Fatalf("expected submit to be accepted, got %#v", ack)
+	}
+	if err := stream.awaitHITLSubmitAndExecute(); err != nil {
+		t.Fatalf("awaitHITLSubmitAndExecute returned error: %v", err)
+	}
+	if len(executor.invocations) != 0 {
+		t.Fatalf("did not expect rejected form command to execute, got %#v", executor.invocations)
+	}
+
+	foundResult := false
+	for _, delta := range stream.pending {
+		typed, ok := delta.(contracts.DeltaToolResult)
+		if !ok || typed.ToolName != "_bash_" {
+			continue
+		}
+		foundResult = true
+		if typed.Result.Error != "user_rejected" {
+			t.Fatalf("expected user_rejected result, got %#v", typed.Result)
+		}
+		if typed.Result.HITL["mode"] != "form" || typed.Result.HITL["decision"] != "reject" || typed.Result.HITL["reason"] != "用户取消" {
+			t.Fatalf("expected form reject HITL metadata, got %#v", typed.Result.HITL)
+		}
+		if _, ok := typed.Result.HITL["submittedPayload"]; ok {
+			t.Fatalf("did not expect submitted payload for form reject, got %#v", typed.Result.HITL)
+		}
+	}
+	if !foundResult {
+		t.Fatalf("expected rejected tool result, got %#v", stream.pending)
+	}
+	if len(stream.messages) < 2 {
+		t.Fatalf("expected form reject tool message and HITL summary, got %#v", stream.messages)
+	}
+	noticeText, _ := stream.messages[len(stream.messages)-1].Content.(string)
+	if !strings.Contains(noticeText, `[HITL] `) || !strings.Contains(noticeText, ` → reject（用户取消）`) || strings.Contains(noticeText, "提交参数:") {
+		t.Fatalf("expected form reject HITL summary without submitted payload, got %#v", stream.messages[len(stream.messages)-1])
+	}
+}
+
+func TestAwaitHITLSubmitAndExecute_FormPayloadRebuildFailureEmitsRejectHITLMetadata(t *testing.T) {
+	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{bashToolDefinition()}}
+	runControl := contracts.NewRunControl(context.Background(), "run_1")
+	stream := &llmRunStream{
+		ctx: context.Background(),
+		engine: &LLMAgentEngine{
+			tools:    executor,
+			frontend: frontendtools.NewDefaultRegistry(),
+		},
+		session: contracts.QuerySession{
+			RequestID: "req_1",
+			ChatID:    "chat_1",
+			RunID:     "run_1",
+		},
+		runControl: runControl,
+		execCtx: &contracts.ExecutionContext{
+			Budget: contracts.Budget{Tool: contracts.RetryPolicy{TimeoutMs: 50}},
+		},
+	}
+	invocation := &preparedToolInvocation{
+		toolID:   "tool_1",
+		toolName: "_bash_",
+		args: map[string]any{
+			"command": "mock create-leave",
+		},
+	}
+	result := hitl.InterceptResult{
+		Intercepted: true,
+		Rule: hitl.FlatRule{
+			Match:        "create-leave",
+			Level:        1,
+			ViewportType: "html",
+			ViewportKey:  "leave_form",
+		},
+		ParsedCommand: hitl.CommandComponents{
+			BaseCommand: "mock",
+			Tokens:      []string{"create-leave"},
+		},
+	}
+	if err := stream.emitHITLConfirmDeltas(invocation, result); err != nil {
+		t.Fatalf("emitHITLConfirmDeltas returned error: %v", err)
+	}
+	ack := runControl.ResolveSubmit(api.SubmitRequest{
+		RunID:      "run_1",
+		AwaitingID: stream.hitlAwaitingID,
+		Params: encodedSubmitParams(t, []map[string]any{
+			{"id": "form-1", "payload": sampleLeavePayload(2)},
+		}),
+	})
+	if !ack.Accepted {
+		t.Fatalf("expected submit to be accepted, got %#v", ack)
+	}
+	if err := stream.awaitHITLSubmitAndExecute(); err != nil {
+		t.Fatalf("awaitHITLSubmitAndExecute returned error: %v", err)
+	}
+	if len(executor.invocations) != 0 {
+		t.Fatalf("did not expect invalid form payload command to execute, got %#v", executor.invocations)
+	}
+
+	foundResult := false
+	for _, delta := range stream.pending {
+		typed, ok := delta.(contracts.DeltaToolResult)
+		if !ok || typed.ToolName != "_bash_" {
+			continue
+		}
+		foundResult = true
+		if typed.Result.Error != "frontend_submit_invalid_payload" {
+			t.Fatalf("expected invalid payload result, got %#v", typed.Result)
+		}
+		if typed.Result.HITL["mode"] != "form" || typed.Result.HITL["decision"] != "reject" {
+			t.Fatalf("expected form reject HITL metadata, got %#v", typed.Result.HITL)
+		}
+		reason, _ := typed.Result.HITL["reason"].(string)
+		if !strings.Contains(reason, "original command does not contain --payload") {
+			t.Fatalf("expected rebuild error reason, got %#v", typed.Result.HITL)
+		}
+		if _, ok := typed.Result.HITL["submittedPayload"]; ok {
+			t.Fatalf("did not expect submitted payload for rebuild failure, got %#v", typed.Result.HITL)
+		}
+	}
+	if !foundResult {
+		t.Fatalf("expected invalid payload tool result, got %#v", stream.pending)
+	}
+	if len(stream.messages) < 2 {
+		t.Fatalf("expected rebuild failure tool message and HITL summary, got %#v", stream.messages)
+	}
+	noticeText, _ := stream.messages[len(stream.messages)-1].Content.(string)
+	if !strings.Contains(noticeText, `mock create-leave → reject（original command does not contain --payload）`) || strings.Contains(noticeText, "提交参数:") {
+		t.Fatalf("expected rebuild failure HITL summary without submitted payload, got %#v", stream.messages[len(stream.messages)-1])
 	}
 }
 
@@ -1737,6 +1945,81 @@ func TestAwaitHITLSubmitAndExecute_TimeoutEmitsTerminalAnswer(t *testing.T) {
 	}
 	if !foundAnswer || !foundResult {
 		t.Fatalf("expected timeout answer and tool result, got %#v", stream.pending)
+	}
+}
+
+func TestAwaitHITLSubmitAndExecute_FormTimeoutEmitsHITLMetadataAndSummary(t *testing.T) {
+	stream := &llmRunStream{
+		ctx: context.Background(),
+		engine: &LLMAgentEngine{
+			tools:    &recordingToolExecutor{defs: []api.ToolDetailResponse{bashToolDefinition()}},
+			frontend: frontendtools.NewDefaultRegistry(),
+		},
+		session: contracts.QuerySession{
+			RequestID: "req_1",
+			ChatID:    "chat_1",
+			RunID:     "run_1",
+		},
+		runControl: contracts.NewRunControl(context.Background(), "run_1"),
+		execCtx: &contracts.ExecutionContext{
+			Budget: contracts.Budget{Tool: contracts.RetryPolicy{TimeoutMs: 1}},
+		},
+		hitlPendingCall: &preparedToolInvocation{
+			toolID:   "tool_1",
+			toolName: "_bash_",
+			args: map[string]any{
+				"command": sampleLeaveCommand(3),
+			},
+		},
+		hitlMatch: &hitl.InterceptResult{
+			Intercepted: true,
+			Rule: hitl.FlatRule{
+				Match:        "create-leave",
+				Level:        1,
+				ViewportType: "html",
+				ViewportKey:  "leave_form",
+			},
+		},
+		hitlAwaitingID: buildHITLAwaitingID("tool_1"),
+		hitlAwaitArgs: map[string]any{
+			"mode": "form",
+		},
+	}
+	stream.runControl.ExpectSubmit(contracts.AwaitingSubmitContext{
+		AwaitingID: stream.hitlAwaitingID,
+		Mode:       "form",
+	})
+
+	if err := stream.awaitHITLSubmitAndExecute(); err != nil {
+		t.Fatalf("awaitHITLSubmitAndExecute returned error: %v", err)
+	}
+
+	foundResult := false
+	for _, delta := range stream.pending {
+		typed, ok := delta.(contracts.DeltaToolResult)
+		if !ok || typed.ToolName != "_bash_" {
+			continue
+		}
+		foundResult = true
+		if typed.Result.Error != "hitl_timeout" {
+			t.Fatalf("expected hitl_timeout tool result, got %#v", typed.Result)
+		}
+		if typed.Result.HITL["mode"] != "form" || typed.Result.HITL["decision"] != "reject" || typed.Result.HITL["reason"] != "timeout" {
+			t.Fatalf("expected form timeout HITL metadata, got %#v", typed.Result.HITL)
+		}
+		if _, ok := typed.Result.HITL["submittedPayload"]; ok {
+			t.Fatalf("did not expect submitted payload for form timeout, got %#v", typed.Result.HITL)
+		}
+	}
+	if !foundResult {
+		t.Fatalf("expected timeout tool result, got %#v", stream.pending)
+	}
+	if len(stream.messages) < 2 {
+		t.Fatalf("expected timeout tool message and HITL summary, got %#v", stream.messages)
+	}
+	noticeText, _ := stream.messages[len(stream.messages)-1].Content.(string)
+	if !strings.Contains(noticeText, ` → reject（timeout）`) || strings.Contains(noticeText, "提交参数:") {
+		t.Fatalf("expected form timeout HITL summary without submitted payload, got %#v", stream.messages[len(stream.messages)-1])
 	}
 }
 
