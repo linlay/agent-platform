@@ -63,6 +63,44 @@ func TestLoadDefaults(t *testing.T) {
 	})
 }
 
+func TestLoadPromptsConfigLeavesSkillInstructionsEmptyWhenFileMissing(t *testing.T) {
+	withIsolatedEnv(t, nil, func() {
+		withProjectFileContents(t, filepath.Join("configs", "prompts.yml"), nil, func() {
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			if cfg.Prompts.Skill.InstructionsPrompt != "" {
+				t.Fatalf("expected empty prompts override when file is missing, got %q", cfg.Prompts.Skill.InstructionsPrompt)
+			}
+		})
+	})
+}
+
+func TestLoadPromptsConfigFromFile(t *testing.T) {
+	withIsolatedEnv(t, nil, func() {
+		content := "" +
+			"skill:\n" +
+			"  catalog-header: custom skills header\n" +
+			"  instructions-prompt: |\n" +
+			"    custom skill instructions\n" +
+			"    second line\n"
+		withProjectFileContents(t, filepath.Join("configs", "prompts.yml"), &content, func() {
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			want := "custom skill instructions\nsecond line"
+			if cfg.Prompts.Skill.InstructionsPrompt != want {
+				t.Fatalf("expected prompts override %q, got %q", want, cfg.Prompts.Skill.InstructionsPrompt)
+			}
+			if cfg.Prompts.Skill.CatalogHeader != "custom skills header" {
+				t.Fatalf("expected catalog header override, got %q", cfg.Prompts.Skill.CatalogHeader)
+			}
+		})
+	})
+}
+
 func TestLoadAuthLocalPublicKeyPathUnderConfigs(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"AGENT_AUTH_LOCAL_PUBLIC_KEY_FILE": "local-public-key.pem",
@@ -330,8 +368,8 @@ func TestLoadLLMInteractionMaskSensitiveFromEnv(t *testing.T) {
 
 func TestLoadGatewayWSConfigFromEnv(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
-		"AGENT_GATEWAY_WS_URL":                  "ws://127.0.0.1:17999/gw",
-		"AGENT_GATEWAY_WS_TOKEN":                "dev-token",
+		"GATEWAY_WS_URL":                        "wss://gw.example.com/ws/agent?key=zenmi&channel=wecom:xiaozhai",
+		"GATEWAY_JWT_TOKEN":                     "jwt-abc",
 		"AGENT_GATEWAY_WS_HANDSHAKE_TIMEOUT_MS": "3210",
 		"AGENT_GATEWAY_WS_RECONNECT_MIN_MS":     "45",
 		"AGENT_GATEWAY_WS_RECONNECT_MAX_MS":     "6789",
@@ -340,11 +378,11 @@ func TestLoadGatewayWSConfigFromEnv(t *testing.T) {
 		if err != nil {
 			t.Fatalf("load config: %v", err)
 		}
-		if cfg.GatewayWS.URL != "ws://127.0.0.1:17999/gw" {
+		if cfg.GatewayWS.URL != "wss://gw.example.com/ws/agent?key=zenmi&channel=wecom:xiaozhai" {
 			t.Fatalf("unexpected gateway ws url: %q", cfg.GatewayWS.URL)
 		}
-		if cfg.GatewayWS.Token != "dev-token" {
-			t.Fatalf("unexpected gateway ws token: %q", cfg.GatewayWS.Token)
+		if cfg.GatewayWS.JwtToken != "jwt-abc" {
+			t.Fatalf("unexpected gateway jwt token: %q", cfg.GatewayWS.JwtToken)
 		}
 		if cfg.GatewayWS.HandshakeTimeoutMs != 3210 {
 			t.Fatalf("unexpected gateway ws handshake timeout: %d", cfg.GatewayWS.HandshakeTimeoutMs)
@@ -360,9 +398,9 @@ func TestLoadGatewayWSConfigFromEnv(t *testing.T) {
 
 func TestLoadGatewayWSConfigWhenWebSocketDisabled(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
-		"AGENT_WS_ENABLED":       "false",
-		"AGENT_GATEWAY_WS_URL":   "ws://127.0.0.1:17999/gw",
-		"AGENT_GATEWAY_WS_TOKEN": "dev-token",
+		"AGENT_WS_ENABLED":  "false",
+		"GATEWAY_WS_URL":    "ws://127.0.0.1:17999/gw",
+		"GATEWAY_JWT_TOKEN": "jwt-abc",
 	}, func() {
 		cfg, err := Load()
 		if err != nil {
@@ -471,7 +509,9 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 		"LOGGING_AGENT_LLM_INTERACTION_MASK_SENSITIVE",
 		"AGENT_WS_ENABLED",
 		"AGENT_GATEWAY_WS_URL",
-		"AGENT_GATEWAY_WS_TOKEN",
+		"GATEWAY_WS_URL",
+		"GATEWAY_JWT_TOKEN",
+		"GATEWAY_BASE_URL",
 		"AGENT_GATEWAY_WS_HANDSHAKE_TIMEOUT_MS",
 		"AGENT_GATEWAY_WS_RECONNECT_MIN_MS",
 		"AGENT_GATEWAY_WS_RECONNECT_MAX_MS",
@@ -507,5 +547,40 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 			t.Fatalf("set %s: %v", key, err)
 		}
 	}
+	fn()
+}
+
+func withProjectFileContents(t *testing.T, relativePath string, content *string, fn func()) {
+	t.Helper()
+
+	path := ProjectFile(relativePath)
+	original, err := os.ReadFile(path)
+	originalExists := err == nil
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("read %s: %v", path, err)
+	}
+
+	if content == nil {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			t.Fatalf("remove %s: %v", path, err)
+		}
+	} else {
+		if err := os.WriteFile(path, []byte(*content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+
+	t.Cleanup(func() {
+		if originalExists {
+			if err := os.WriteFile(path, original, 0o644); err != nil {
+				t.Fatalf("restore %s: %v", path, err)
+			}
+			return
+		}
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			t.Fatalf("cleanup %s: %v", path, err)
+		}
+	})
+
 	fn()
 }

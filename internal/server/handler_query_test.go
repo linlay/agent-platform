@@ -78,6 +78,19 @@ func TestResolveSkillRuntimeSettingsSkipsMissingSkills(t *testing.T) {
 	}
 }
 
+func TestResolveSkillRuntimeSettingsSupportsHyphenatedSkillIDs(t *testing.T) {
+	marketDir := t.TempDir()
+	platformAdminDir := writeSkillRuntimeFixture(t, marketDir, "platform-admin", `{"DANGEROUS_COMMANDS":"1"}`)
+
+	hookDirs, env := resolveSkillRuntimeSettings(nil, "", marketDir, []string{"platform-admin"})
+	if !reflect.DeepEqual(hookDirs, []string{filepath.Join(platformAdminDir, ".bash-hooks")}) {
+		t.Fatalf("hookDirs = %#v", hookDirs)
+	}
+	if !reflect.DeepEqual(env, map[string]string{"DANGEROUS_COMMANDS": "1"}) {
+		t.Fatalf("env = %#v", env)
+	}
+}
+
 func TestResolveSkillRuntimeSettingsReturnsAgentEnvWithoutSkills(t *testing.T) {
 	agentEnv := map[string]string{
 		"HTTP_PROXY": "http://agent",

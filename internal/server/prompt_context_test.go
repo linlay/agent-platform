@@ -350,6 +350,113 @@ func TestBuildSkillCatalogPromptPrefersAgentLocalSkillAndParsesFrontMatter(t *te
 	}
 }
 
+func TestBuildPromptAppendConfigUsesGlobalSkillInstructionsPrompt(t *testing.T) {
+	t.Parallel()
+
+	appendConfig := buildPromptAppendConfig(config.PromptsConfig{
+		Skill: config.PromptSkillConfig{
+			InstructionsPrompt: "global skill instructions",
+		},
+	}, catalog.AgentDefinition{})
+	if appendConfig.Skill.InstructionsPrompt != "global skill instructions" {
+		t.Fatalf("expected global instructions prompt override, got %q", appendConfig.Skill.InstructionsPrompt)
+	}
+}
+
+func TestBuildPromptAppendConfigUsesGlobalSkillCatalogHeader(t *testing.T) {
+	t.Parallel()
+
+	appendConfig := buildPromptAppendConfig(config.PromptsConfig{
+		Skill: config.PromptSkillConfig{
+			CatalogHeader: "global skills header",
+		},
+	}, catalog.AgentDefinition{})
+	if appendConfig.Skill.CatalogHeader != "global skills header" {
+		t.Fatalf("expected global catalog header override, got %q", appendConfig.Skill.CatalogHeader)
+	}
+}
+
+func TestBuildSkillCatalogPromptPrependsInstructionsBeforeCatalogHeader(t *testing.T) {
+	t.Parallel()
+
+	agentDir := t.TempDir()
+	marketDir := t.TempDir()
+	skillDir := filepath.Join(marketDir, "demo")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("mkdir skill dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# Demo Skill\n\nDemo description"), 0o644); err != nil {
+		t.Fatalf("write skill file: %v", err)
+	}
+
+	appendConfig := contracts.DefaultPromptAppendConfig()
+	appendConfig.Skill.InstructionsPrompt = "global skill instructions"
+	appendConfig.Skill.InstructionsLabel = "instructions"
+	appendConfig.Skill.CatalogHeader = "skills header"
+
+	prompt := buildSkillCatalogPrompt(catalog.AgentDefinition{
+		AgentDir: agentDir,
+		Skills:   []string{"demo"},
+	}, marketDir, appendConfig)
+
+	labelIdx := strings.Index(prompt, "Skill instructions:\n")
+	instructionsIdx := strings.Index(prompt, "global skill instructions")
+	headerIdx := strings.Index(prompt, "skills header")
+	skillIdx := strings.Index(prompt, "skillId: demo")
+	if labelIdx < 0 || instructionsIdx < 0 || headerIdx < 0 || skillIdx < 0 {
+		t.Fatalf("expected label, instructions, header, and skill block in prompt, got %q", prompt)
+	}
+	if !(labelIdx < instructionsIdx && instructionsIdx < headerIdx && headerIdx < skillIdx) {
+		t.Fatalf("expected labeled instructions before header before skill block, got %q", prompt)
+	}
+}
+
+func TestBuildSkillCatalogPromptLeavesInstructionsUnlabeledWhenLabelEmpty(t *testing.T) {
+	t.Parallel()
+
+	agentDir := t.TempDir()
+	marketDir := t.TempDir()
+	skillDir := filepath.Join(marketDir, "demo")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("mkdir skill dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# Demo Skill\n\nDemo description"), 0o644); err != nil {
+		t.Fatalf("write skill file: %v", err)
+	}
+
+	appendConfig := contracts.DefaultPromptAppendConfig()
+	appendConfig.Skill.InstructionsPrompt = "global skill instructions"
+	appendConfig.Skill.InstructionsLabel = ""
+	appendConfig.Skill.CatalogHeader = "skills header"
+
+	prompt := buildSkillCatalogPrompt(catalog.AgentDefinition{
+		AgentDir: agentDir,
+		Skills:   []string{"demo"},
+	}, marketDir, appendConfig)
+
+	if !strings.Contains(prompt, "global skill instructions") {
+		t.Fatalf("expected instructions in prompt, got %q", prompt)
+	}
+	if strings.Contains(prompt, "Skill instructions:\n") {
+		t.Fatalf("expected prompt to omit label prefix when label is empty, got %q", prompt)
+	}
+}
+
+func TestBuildSkillCatalogPromptReturnsEmptyWhenNoSkillsResolve(t *testing.T) {
+	t.Parallel()
+
+	appendConfig := contracts.DefaultPromptAppendConfig()
+	appendConfig.Skill.InstructionsPrompt = "global skill instructions"
+
+	prompt := buildSkillCatalogPrompt(catalog.AgentDefinition{
+		AgentDir: t.TempDir(),
+		Skills:   []string{"missing"},
+	}, t.TempDir(), appendConfig)
+	if prompt != "" {
+		t.Fatalf("expected empty prompt when no skills resolve, got %q", prompt)
+	}
+}
+
 func testPromptContextConfig(t *testing.T) config.Config {
 	t.Helper()
 

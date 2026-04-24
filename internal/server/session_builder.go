@@ -86,7 +86,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		return contracts.QuerySession{}, err
 	}
 
-	promptAppend := buildPromptAppendConfig(agentDef)
+	promptAppend := buildPromptAppendConfig(s.deps.Config.Prompts, agentDef)
 	skillHookDirs, sandboxEnvOverrides := resolveSkillRuntimeSettings(
 		sandboxAgentEnv(agentDef.Sandbox["env"]),
 		agentDef.AgentDir,

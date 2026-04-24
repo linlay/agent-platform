@@ -62,6 +62,9 @@ func buildAgentIdentitySection(session QuerySession) string {
 
 func effectivePromptAppendConfig(config PromptAppendConfig) PromptAppendConfig {
 	defaults := DefaultPromptAppendConfig()
+	if strings.TrimSpace(config.Skill.InstructionsPrompt) != "" {
+		defaults.Skill.InstructionsPrompt = strings.TrimSpace(config.Skill.InstructionsPrompt)
+	}
 	if strings.TrimSpace(config.Skill.CatalogHeader) != "" {
 		defaults.Skill.CatalogHeader = strings.TrimSpace(config.Skill.CatalogHeader)
 	}
@@ -116,12 +119,10 @@ func buildRuntimeContextPrompt(session QuerySession, req api.QueryRequest) strin
 		switch strings.ToLower(strings.TrimSpace(tag)) {
 		case "system":
 			appendIfPresent(&sections, buildSystemEnvironmentSection(session))
-		case "context":
-			appendIfPresent(&sections, buildSessionContextSection(session, req))
+		case "session":
+			appendIfPresent(&sections, buildSessionSection(session, req))
 		case "owner":
 			appendIfPresent(&sections, buildOwnerSection(session.RuntimeContext.LocalPaths))
-		case "auth":
-			appendIfPresent(&sections, buildAuthIdentitySection(session.RuntimeContext.AuthIdentity))
 		case "all-agents":
 			appendIfPresent(&sections, buildAllAgentsSection(session.RuntimeContext.AgentDigests))
 		case "memory":
@@ -172,16 +173,21 @@ func resolveLocale() string {
 	return "unknown"
 }
 
-func buildSessionContextSection(session QuerySession, req api.QueryRequest) string {
-	lines := []string{"Runtime Context: Session Context"}
-	// chatId / runId / requestId first
+func buildSessionSection(session QuerySession, req api.QueryRequest) string {
+	lines := []string{"Runtime Context: Session"}
 	appendKeyValue(&lines, "chatId", session.ChatID)
 	appendKeyValue(&lines, "runId", session.RunID)
 	appendKeyValue(&lines, "requestId", session.RequestID)
 	appendKeyValue(&lines, "teamId", session.RuntimeContext.TeamID)
-
 	if summary := summarizeScene(session.RuntimeContext.Scene); summary != "" {
 		lines = append(lines, "scene: "+summary)
+	}
+	if identity := session.RuntimeContext.AuthIdentity; identity != nil {
+		appendKeyValue(&lines, "subject", identity.Subject)
+		appendKeyValue(&lines, "deviceId", identity.DeviceID)
+		appendKeyValue(&lines, "scope", identity.Scope)
+		appendKeyValue(&lines, "issuedAt", identity.IssuedAt)
+		appendKeyValue(&lines, "expiresAt", identity.ExpiresAt)
 	}
 	appendReferences(&lines, session.RuntimeContext.References)
 	if len(lines) == 1 {
@@ -295,22 +301,6 @@ func collectOwnerMarkdownFiles(ownerDir string) []string {
 		return filepath.ToSlash(ri) < filepath.ToSlash(rj)
 	})
 	return files
-}
-
-func buildAuthIdentitySection(identity *AuthIdentity) string {
-	if identity == nil {
-		return ""
-	}
-	lines := []string{"Runtime Context: Auth Identity"}
-	appendKeyValue(&lines, "subject", identity.Subject)
-	appendKeyValue(&lines, "deviceId", identity.DeviceID)
-	appendKeyValue(&lines, "scope", identity.Scope)
-	appendKeyValue(&lines, "issuedAt", identity.IssuedAt)
-	appendKeyValue(&lines, "expiresAt", identity.ExpiresAt)
-	if len(lines) == 1 {
-		return ""
-	}
-	return strings.Join(lines, "\n")
 }
 
 func buildSandboxSection(context *SandboxContext) string {
@@ -474,7 +464,7 @@ func firstNonBlank(values ...string) string {
 }
 
 func buildToolAppendix(definitions []api.ToolDetailResponse, appendConfig PromptAppendConfig, includeAfterCallHints bool) string {
-	if len(definitions) == 0 {
+	if !includeAfterCallHints || len(definitions) == 0 {
 		return ""
 	}
 	appendConfig = effectivePromptAppendConfig(appendConfig)
@@ -483,46 +473,26 @@ func buildToolAppendix(definitions []api.ToolDetailResponse, appendConfig Prompt
 		return normalizePromptToolName(sortedDefs[i]) < normalizePromptToolName(sortedDefs[j])
 	})
 
-	descriptionLines := make([]string, 0, len(sortedDefs))
 	afterCallLines := make([]string, 0, len(sortedDefs))
-	seenDescriptions := map[string]struct{}{}
 	seenAfterHints := map[string]struct{}{}
 	for _, tool := range sortedDefs {
-		kind, _ := tool.Meta["kind"].(string)
 		name := normalizePromptToolName(tool)
 		if name == "" {
 			continue
 		}
-		displayName := name
-		if normalizedKind := strings.ToLower(strings.TrimSpace(kind)); normalizedKind != "" && normalizedKind != "backend" {
-			displayName = name + " [" + normalizedKind + "]"
-		}
-		if description := strings.TrimSpace(tool.Description); description != "" {
-			line := "- " + displayName + ": " + description
-			if _, ok := seenDescriptions[line]; !ok {
-				seenDescriptions[line] = struct{}{}
-				descriptionLines = append(descriptionLines, line)
-			}
-		}
-		if includeAfterCallHints {
-			if hint := strings.TrimSpace(tool.AfterCallHint); hint != "" {
-				line := "- " + displayName + ": " + hint
-				if _, ok := seenAfterHints[line]; !ok {
-					seenAfterHints[line] = struct{}{}
-					afterCallLines = append(afterCallLines, line)
-				}
+		if hint := strings.TrimSpace(tool.AfterCallHint); hint != "" {
+			line := "- " + name + ": " + hint
+			if _, ok := seenAfterHints[line]; !ok {
+				seenAfterHints[line] = struct{}{}
+				afterCallLines = append(afterCallLines, line)
 			}
 		}
 	}
 
-	var sections []string
-	if len(descriptionLines) > 0 {
-		sections = append(sections, strings.TrimSpace(appendConfig.Tool.ToolDescriptionTitle)+"\n"+strings.Join(descriptionLines, "\n"))
+	if len(afterCallLines) > 0 {
+		return strings.TrimSpace(appendConfig.Tool.AfterCallHintTitle) + "\n" + strings.Join(afterCallLines, "\n")
 	}
-	if includeAfterCallHints && len(afterCallLines) > 0 {
-		sections = append(sections, strings.TrimSpace(appendConfig.Tool.AfterCallHintTitle)+"\n"+strings.Join(afterCallLines, "\n"))
-	}
-	return strings.Join(sections, "\n\n")
+	return ""
 }
 
 func normalizePromptToolName(tool api.ToolDetailResponse) string {
