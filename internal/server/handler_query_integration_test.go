@@ -492,7 +492,7 @@ func TestQueryAndRunStreamIncludeDebugEventsWhenEnabled(t *testing.T) {
 		)
 	}, testFixtureOptions{
 		configure: func(cfg *config.Config) {
-			cfg.SSE.IncludeDebugEvents = true
+			cfg.Stream.IncludeDebugEvents = true
 		},
 	})
 
@@ -627,7 +627,7 @@ func TestPlanExecutePlanStageOnlyUsesPlanAddTasksBeforeSequentialTaskExecution(t
 		}
 	}, testFixtureOptions{
 		configure: func(cfg *config.Config) {
-			cfg.SSE.IncludeDebugEvents = true
+			cfg.Stream.IncludeDebugEvents = true
 		},
 		setupRuntime: func(_ string, cfg *config.Config) {
 			agentPath := filepath.Join(cfg.Paths.AgentsDir, "mock-runner", "agent.yml")
@@ -728,7 +728,7 @@ func TestPlanExecutePlanStageOnlyUsesPlanAddTasksBeforeSequentialTaskExecution(t
 	}
 }
 
-func TestQueryPersistsToolSnapshotWhenSSEPayloadEventsDisabled(t *testing.T) {
+func TestQueryPersistsToolSnapshotWhenStreamToolPayloadEventsDisabled(t *testing.T) {
 	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
 		var payload map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -757,7 +757,7 @@ func TestQueryPersistsToolSnapshotWhenSSEPayloadEventsDisabled(t *testing.T) {
 			`[DONE]`,
 		)
 	})
-	fixture.cfg.SSE.IncludeToolPayloadEvents = false
+	fixture.cfg.Stream.IncludeToolPayloadEvents = false
 	server, err := New(Dependencies{
 		Config:          fixture.cfg,
 		Chats:           fixture.chats,
@@ -788,8 +788,11 @@ func TestQueryPersistsToolSnapshotWhenSSEPayloadEventsDisabled(t *testing.T) {
 	if strings.Contains(body, `.snapshot"`) {
 		t.Fatalf("expected live sse to exclude snapshot events, got %s", body)
 	}
-	if !strings.Contains(body, `"type":"tool.start"`) || !strings.Contains(body, `"type":"tool.result"`) {
-		t.Fatalf("expected tool lifecycle to remain in sse, got %s", body)
+	if !strings.Contains(body, `"type":"tool.start"`) || !strings.Contains(body, `"type":"tool.end"`) {
+		t.Fatalf("expected tool lifecycle to remain in stream, got %s", body)
+	}
+	if strings.Contains(body, `"type":"tool.args"`) || strings.Contains(body, `"type":"tool.result"`) {
+		t.Fatalf("expected live stream to exclude tool payload events, got %s", body)
 	}
 
 	chatsRec := httptest.NewRecorder()

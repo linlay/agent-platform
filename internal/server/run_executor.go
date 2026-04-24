@@ -23,7 +23,7 @@ type RunExecutorParams struct {
 	Registry          catalog.Registry
 	Assembler         *stream.StreamEventAssembler
 	Mapper            *llm.DeltaMapper
-	SSE               config.SSEConfig
+	Stream            config.StreamConfig
 	StepWriter        *chat.StepWriter
 	EventBus          *stream.RunEventBus
 	Chats             chat.Store
@@ -38,7 +38,7 @@ type RunExecutorParams struct {
 type runEventProcessor struct {
 	assistantText *strings.Builder
 	stepWriter    *chat.StepWriter
-	sse           config.SSEConfig
+	stream        config.StreamConfig
 	chatUsage     chat.UsageData
 	runUsage      *chat.UsageData
 }
@@ -54,7 +54,7 @@ func (p *runEventProcessor) Consume(event stream.StreamEvent) (stream.EventData,
 	if p.stepWriter != nil {
 		p.stepWriter.OnEvent(data)
 	}
-	return data, isClientVisibleEvent(event.Type, p.sse)
+	return data, isClientVisibleEvent(event.Type, p.stream)
 }
 
 func (p *runEventProcessor) decorate(data *stream.EventData) {
@@ -116,11 +116,14 @@ func (p *runEventProcessor) decorate(data *stream.EventData) {
 	}
 }
 
-func isClientVisibleEvent(eventType string, sse config.SSEConfig) bool {
+func isClientVisibleEvent(eventType string, streamCfg config.StreamConfig) bool {
 	if eventType == "stage.marker" {
 		return false
 	}
-	if (eventType == "debug.preCall" || eventType == "debug.postCall") && !sse.IncludeDebugEvents {
+	if (eventType == "debug.preCall" || eventType == "debug.postCall") && !streamCfg.IncludeDebugEvents {
+		return false
+	}
+	if (eventType == "tool.args" || eventType == "tool.result") && !streamCfg.IncludeToolPayloadEvents {
 		return false
 	}
 	return !strings.HasSuffix(eventType, ".snapshot")
@@ -163,7 +166,7 @@ func runExecutor(params RunExecutorParams) {
 	processor := &runEventProcessor{
 		assistantText: &assistantText,
 		stepWriter:    params.StepWriter,
-		sse:           params.SSE,
+		stream:        params.Stream,
 		chatUsage:     chatUsage,
 		runUsage:      &runUsage,
 	}

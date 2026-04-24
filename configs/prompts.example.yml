@@ -12,4 +12,4 @@ skill:
     4. Gather missing inputs: If a skill requires parameters the user has not provided, ask the user to supply them before invoking the skill.
     5. Multi-skill coordination: When a task requires multiple skills, invoke them in dependency order - complete prerequisites before dependents - then synthesize a unified response.
     6. Graceful fallback: If no skill matches the request, respond using your general capabilities. Do not force a skill invocation when none is appropriate.
-  # catalog-header: "Available skills (catalog summary, use on demand, do not fabricate non-existent skills or scripts):"
+  catalog-header: "Available skills (catalog summary, use on demand, do not fabricate non-existent skills or scripts):"

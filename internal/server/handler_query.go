@@ -450,7 +450,7 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 		Registry:          s.deps.Registry,
 		Assembler:         assembler,
 		Mapper:            mapper,
-		SSE:               s.deps.Config.SSE,
+		Stream:            s.deps.Config.Stream,
 		StepWriter:        stepWriter,
 		EventBus:          eventBus,
 		Chats:             s.deps.Chats,
@@ -536,7 +536,7 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 	processor := &runEventProcessor{
 		assistantText: &assistantText,
 		stepWriter:    chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode, isHiddenRequest(prepared.req)),
-		sse:           s.deps.Config.SSE,
+		stream:        s.deps.Config.Stream,
 		chatUsage:     chatUsage,
 		runUsage:      &runUsage,
 	}

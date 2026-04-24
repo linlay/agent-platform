@@ -20,6 +20,7 @@ type Config struct {
 	Schedule     ScheduleConfig
 	Memory       MemoryConfig
 	Defaults     DefaultsConfig
+	Stream       StreamConfig
 	SSE          SSEConfig
 	H2A          H2AConfig
 	Auth         AuthConfig
@@ -128,10 +129,13 @@ type PlanExecuteDefaultsConfig struct {
 	MaxWorkRoundsPerTask int
 }
 
-type SSEConfig struct {
+type StreamConfig struct {
 	IncludeToolPayloadEvents bool
 	IncludeDebugEvents       bool
-	HeartbeatIntervalMs      int64
+}
+
+type SSEConfig struct {
+	HeartbeatIntervalMs int64
 }
 
 type H2AConfig struct {
@@ -379,10 +383,12 @@ func defaultConfig() Config {
 				MaxWorkRoundsPerTask: 6,
 			},
 		},
-		SSE: SSEConfig{
+		Stream: StreamConfig{
 			IncludeToolPayloadEvents: true,
 			IncludeDebugEvents:       false,
-			HeartbeatIntervalMs:      15000,
+		},
+		SSE: SSEConfig{
+			HeartbeatIntervalMs: 15000,
 		},
 		H2A: H2AConfig{
 			Render: H2ARenderConfig{
@@ -626,8 +632,8 @@ func (c *Config) applyEnv() {
 	c.Defaults.Plan.MaxSteps = intEnv("AGENT_DEFAULT_PLAN_EXECUTE_MAX_STEPS", c.Defaults.Plan.MaxSteps)
 	c.Defaults.Plan.MaxWorkRoundsPerTask = intEnv("AGENT_DEFAULT_PLAN_EXECUTE_MAX_WORK_ROUNDS_PER_TASK", c.Defaults.Plan.MaxWorkRoundsPerTask)
 
-	c.SSE.IncludeToolPayloadEvents = boolEnv("AGENT_SSE_INCLUDE_TOOL_PAYLOAD_EVENTS", c.SSE.IncludeToolPayloadEvents)
-	c.SSE.IncludeDebugEvents = boolEnv("AGENT_SSE_INCLUDE_DEBUG_EVENTS", c.SSE.IncludeDebugEvents)
+	c.Stream.IncludeToolPayloadEvents = boolEnv("AGENT_STREAM_INCLUDE_TOOL_PAYLOAD_EVENTS", c.Stream.IncludeToolPayloadEvents)
+	c.Stream.IncludeDebugEvents = boolEnv("AGENT_STREAM_INCLUDE_DEBUG_EVENTS", c.Stream.IncludeDebugEvents)
 	c.SSE.HeartbeatIntervalMs = int64Env("AGENT_SSE_HEARTBEAT_INTERVAL_MS", c.SSE.HeartbeatIntervalMs)
 	c.H2A.Render.FlushIntervalMs = int64Env("AGENT_H2A_RENDER_FLUSH_INTERVAL_MS", c.H2A.Render.FlushIntervalMs)
 	c.H2A.Render.MaxBufferedChars = intEnv("AGENT_H2A_RENDER_MAX_BUFFERED_CHARS", c.H2A.Render.MaxBufferedChars)

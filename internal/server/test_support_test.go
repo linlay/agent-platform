@@ -240,7 +240,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 		Memory: config.MemoryConfig{
 			AutoRememberEnabled: true,
 		},
-		SSE: config.SSEConfig{
+		Stream: config.StreamConfig{
 			IncludeToolPayloadEvents: true,
 		},
 		Defaults: config.DefaultsConfig{

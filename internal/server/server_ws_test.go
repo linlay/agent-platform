@@ -638,7 +638,7 @@ func TestWebSocketPushAwaitingAnswerRunInterruptedClearsPendingChatSummary(t *te
 	}
 }
 
-func TestWebSocketQueryDebugVisibilityFollowsSSEConfig(t *testing.T) {
+func TestWebSocketQueryDebugVisibilityFollowsStreamConfig(t *testing.T) {
 	testCases := []struct {
 		name         string
 		includeDebug bool
@@ -662,7 +662,7 @@ func TestWebSocketQueryDebugVisibilityFollowsSSEConfig(t *testing.T) {
 					cfg.WebSocket.Enabled = true
 					cfg.WebSocket.WriteQueueSize = 8
 					cfg.WebSocket.PingIntervalMs = 30000
-					cfg.SSE.IncludeDebugEvents = tc.includeDebug
+					cfg.Stream.IncludeDebugEvents = tc.includeDebug
 				},
 			})
 
@@ -693,6 +693,78 @@ func TestWebSocketQueryDebugVisibilityFollowsSSEConfig(t *testing.T) {
 				return
 			}
 			assertStringSliceExcludes(t, eventTypes, "debug.preCall", "debug.postCall")
+		})
+	}
+}
+
+func TestWebSocketQueryToolPayloadVisibilityFollowsStreamConfig(t *testing.T) {
+	testCases := []struct {
+		name           string
+		includePayload bool
+		wantPayload    bool
+	}{
+		{name: "hidden when disabled", includePayload: false, wantPayload: false},
+		{name: "visible when enabled", includePayload: true, wantPayload: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var providerCallCount atomic.Int32
+			fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+				call := providerCallCount.Add(1)
+				switch call {
+				case 1:
+					writeProviderSSE(t, w,
+						`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_datetime","type":"function","function":{"name":"_datetime_","arguments":"{"}}]}}]}`,
+						`{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"}"}}]},"finish_reason":"tool_calls"}]}`,
+						`[DONE]`,
+					)
+				case 2:
+					writeProviderSSE(t, w,
+						`{"choices":[{"delta":{"content":"done"},"finish_reason":"stop"}]}`,
+						`[DONE]`,
+					)
+				default:
+					t.Fatalf("unexpected provider call %d", call)
+				}
+			}, testFixtureOptions{
+				notifications: ws.NewHub(),
+				configure: func(cfg *config.Config) {
+					cfg.WebSocket.Enabled = true
+					cfg.WebSocket.WriteQueueSize = 8
+					cfg.WebSocket.PingIntervalMs = 30000
+					cfg.Stream.IncludeToolPayloadEvents = tc.includePayload
+				},
+			})
+
+			server := httptest.NewServer(fixture.server)
+			defer server.Close()
+
+			wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
+			conn, _, err := gws.DefaultDialer.Dial(wsURL, nil)
+			if err != nil {
+				t.Fatalf("dial websocket: %v", err)
+			}
+			defer conn.Close()
+
+			if err := conn.WriteJSON(ws.RequestFrame{
+				Frame: ws.FrameRequest,
+				Type:  "/api/query",
+				ID:    "req_query_payload",
+				Payload: ws.MarshalPayload(map[string]any{
+					"message": "websocket tool payload",
+				}),
+			}); err != nil {
+				t.Fatalf("write websocket query: %v", err)
+			}
+
+			eventTypes := collectWebSocketStreamEventTypes(t, conn, "req_query_payload")
+			assertStringSliceContains(t, eventTypes, "tool.start", "tool.end")
+			if tc.wantPayload {
+				assertStringSliceContains(t, eventTypes, "tool.args", "tool.result")
+				return
+			}
+			assertStringSliceExcludes(t, eventTypes, "tool.args", "tool.result")
 		})
 	}
 }

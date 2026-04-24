@@ -522,7 +522,7 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 		Registry:          s.deps.Registry,
 		Assembler:         assembler,
 		Mapper:            mapper,
-		SSE:               s.deps.Config.SSE,
+		Stream:            s.deps.Config.Stream,
 		StepWriter:        stepWriter,
 		EventBus:          eventBus,
 		Chats:             s.deps.Chats,
