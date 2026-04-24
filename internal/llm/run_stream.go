@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"agent-platform-runner-go/internal/api"
+	"agent-platform-runner-go/internal/bashsec"
 	"agent-platform-runner-go/internal/chat"
 	. "agent-platform-runner-go/internal/contracts"
 	"agent-platform-runner-go/internal/hitl"
@@ -105,6 +106,7 @@ type preparedToolInvocation struct {
 	awaitExternalResult bool
 	toolCallCounted     bool
 	precheckedHITL      *hitl.InterceptResult
+	bashSecurityReview  *bashsec.ReviewResult
 	approvalID          string
 	approvalDecision    string
 	hitlDecision        *hitlDecisionState
@@ -833,12 +835,19 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 		}, nil, nil
 	}
 
-	return &preparedToolInvocation{
+	invocation := &preparedToolInvocation{
 		toolID:   toolID,
 		toolName: toolCall.Function.Name,
 		args:     args,
 		prelude:  s.preToolInvocationDeltas(toolID, toolCall.Function.Name, args),
-	}, nil, nil
+	}
+	if isBashTool(invocation.toolName) {
+		review := bashsec.ReviewBashSecurity(strings.TrimSpace(mapStringArg(invocation.args, "command")))
+		if review.Decision == bashsec.ReviewRequiresApproval {
+			invocation.bashSecurityReview = &review
+		}
+	}
+	return invocation, nil, nil
 }
 
 func (s *llmRunStream) validateFrontendToolArgs(toolName string, args map[string]any) error {
@@ -921,6 +930,13 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 	if invocation.awaitExternalResult {
 		keepActive = true
 		return nil
+	}
+	if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewRequiresApproval {
+		if strings.TrimSpace(invocation.approvalDecision) != "" {
+			return s.executeApprovedBashSecurityInvocation(invocation, review)
+		}
+		s.skipPostToolHook = true
+		return s.emitBashSecurityApprovalDeltas(invocation, review)
 	}
 	if invocation.precheckedHITL != nil && invocation.precheckedHITL.Intercepted {
 		result := *invocation.precheckedHITL
@@ -1034,6 +1050,94 @@ func publishedArtifactMaps(raw any) []map[string]any {
 	}
 }
 
+func (s *llmRunStream) lookupBashSecurityReview(invocation *preparedToolInvocation) bashsec.ReviewResult {
+	if invocation == nil || !isBashTool(invocation.toolName) {
+		return bashsec.ReviewResult{Decision: bashsec.ReviewAllow}
+	}
+	if invocation.bashSecurityReview != nil {
+		return *invocation.bashSecurityReview
+	}
+	review := bashsec.ReviewBashSecurity(strings.TrimSpace(mapStringArg(invocation.args, "command")))
+	if review.Decision == bashsec.ReviewRequiresApproval {
+		cloned := review
+		invocation.bashSecurityReview = &cloned
+	}
+	return review
+}
+
+func (s *llmRunStream) emitBashSecurityApprovalDeltas(invocation *preparedToolInvocation, review bashsec.ReviewResult) error {
+	result := bashSecurityInterceptResult(invocation, review)
+	s.hitlPendingCall = invocation
+	s.hitlMatch = &result
+	s.hitlAwaitingID = buildHITLAwaitingID(invocation.toolID)
+
+	args := s.buildConfirmApprovalArgs(invocation)
+	s.hitlAwaitArgs = CloneMap(args)
+	s.pending = append(s.pending, s.buildHITLAwaitDelta(s.hitlAwaitingID, args))
+
+	if s.runControl != nil {
+		awaitDelta, _ := s.pending[len(s.pending)-1].(DeltaAwaitAsk)
+		s.runControl.ExpectSubmit(awaitingContextFromDeltaAsk(awaitDelta))
+	}
+	s.activeToolCall = nil
+	if s.execCtx != nil {
+		s.execCtx.CurrentToolID = ""
+		s.execCtx.CurrentToolName = ""
+	}
+	return nil
+}
+
+func (s *llmRunStream) executeApprovedBashSecurityInvocation(invocation *preparedToolInvocation, review bashsec.ReviewResult) error {
+	switch strings.ToLower(strings.TrimSpace(invocation.approvalDecision)) {
+	case "reject":
+		s.appendOriginalToolResult(invocation, hitlRejectedToolResult(invocation))
+		return nil
+	case "approve", "approve_prefix_run":
+		invocation.approvalDecision = ""
+		s.registerBashSecurityApproval(review.Fingerprint)
+		return s.executeOriginalBash(invocation)
+	default:
+		return s.emitBashSecurityApprovalDeltas(invocation, review)
+	}
+}
+
+func (s *llmRunStream) registerBashSecurityApproval(fingerprint string) {
+	if s.execCtx == nil || strings.TrimSpace(fingerprint) == "" {
+		return
+	}
+	if s.execCtx.BashSecurityApprovals == nil {
+		s.execCtx.BashSecurityApprovals = map[string]int{}
+	}
+	s.execCtx.BashSecurityApprovals[fingerprint]++
+}
+
+func bashSecurityInterceptResult(invocation *preparedToolInvocation, review bashsec.ReviewResult) hitl.InterceptResult {
+	command := ""
+	if invocation != nil {
+		command = strings.TrimSpace(mapStringArg(invocation.args, "command"))
+	}
+	return hitl.InterceptResult{
+		Intercepted: true,
+		Rule: hitl.FlatRule{
+			RuleKey:      "bash-security::" + review.Fingerprint,
+			Level:        1,
+			Title:        "Bash security approval",
+			ViewportType: "builtin",
+			ViewportKey:  "confirm_dialog",
+		},
+		OriginalCommand: command,
+		MatchedCommand:  command,
+		MatchedWhole:    true,
+	}
+}
+
+func (s *llmRunStream) approvalHITLResult(invocation *preparedToolInvocation) hitl.InterceptResult {
+	if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewRequiresApproval {
+		return bashSecurityInterceptResult(invocation, review)
+	}
+	return s.lookupPrecheckedHITL(invocation)
+}
+
 func (s *llmRunStream) executeApprovedBashInvocation(invocation *preparedToolInvocation, result hitl.InterceptResult) error {
 	switch strings.ToLower(strings.TrimSpace(invocation.approvalDecision)) {
 	case "reject":
@@ -1081,7 +1185,7 @@ func (s *llmRunStream) emitHITLConfirmDeltas(invocation *preparedToolInvocation,
 }
 
 func (s *llmRunStream) prepareQueuedBashApprovalBatch() bool {
-	if s.checker == nil || len(s.queuedToolCalls) == 0 || s.hitlPendingBatch != nil || s.hitlPendingCall != nil {
+	if len(s.queuedToolCalls) == 0 || s.hitlPendingBatch != nil || s.hitlPendingCall != nil {
 		return false
 	}
 
@@ -1089,6 +1193,14 @@ func (s *llmRunStream) prepareQueuedBashApprovalBatch() bool {
 	invocations := make([]*preparedToolInvocation, 0)
 	for _, invocation := range s.queuedToolCalls {
 		if !isBashTool(invocation.toolName) {
+			continue
+		}
+		if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewRequiresApproval {
+			approvals = append(approvals, s.buildApprovalAskItem(invocation))
+			invocations = append(invocations, invocation)
+			continue
+		}
+		if s.checker == nil {
 			continue
 		}
 		result := s.lookupPrecheckedHITL(invocation)
@@ -1187,7 +1299,7 @@ func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {
 			Answer:     hitlTimeoutAnswer("approval"),
 		})
 		for _, invocation := range batch.invocations {
-			s.applyHITLDecision(invocation, s.lookupPrecheckedHITL(invocation), batch.awaitingID, "reject", "timeout", false)
+			s.applyHITLDecision(invocation, s.approvalHITLResult(invocation), batch.awaitingID, "reject", "timeout", false)
 			timeoutResult := hitlTimeoutToolResult(invocation)
 			invocation.queuedResult = &timeoutResult
 		}
@@ -1212,7 +1324,7 @@ func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {
 			Answer:     AwaitingErrorAnswer(strings.TrimSpace(AnyStringNode(batch.awaitArgs["mode"])), "invalid_submit", normalizeErr.Error()),
 		})
 		for _, invocation := range batch.invocations {
-			s.applyHITLDecision(invocation, s.lookupPrecheckedHITL(invocation), batch.awaitingID, "reject", normalizeErr.Error(), false)
+			s.applyHITLDecision(invocation, s.approvalHITLResult(invocation), batch.awaitingID, "reject", normalizeErr.Error(), false)
 			result := frontendSubmitInvalidPayloadResult(invocation, batch.awaitingID, submitResult.Request.Params, normalizeErr)
 			invocation.queuedResult = &result
 		}
@@ -1228,7 +1340,7 @@ func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {
 
 	if strings.EqualFold(AnyStringNode(normalized["status"]), "error") {
 		for _, invocation := range batch.invocations {
-			s.applyHITLDecision(invocation, s.lookupPrecheckedHITL(invocation), batch.awaitingID, "reject", "user_dismissed", false)
+			s.applyHITLDecision(invocation, s.approvalHITLResult(invocation), batch.awaitingID, "reject", "user_dismissed", false)
 			rejected := hitlRejectedToolResult(invocation)
 			invocation.queuedResult = &rejected
 		}
@@ -1239,14 +1351,19 @@ func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {
 	approvals, _ := normalized["approvals"].([]map[string]any)
 	for index, invocation := range batch.invocations {
 		if index >= len(approvals) {
-			s.applyHITLDecision(invocation, s.lookupPrecheckedHITL(invocation), batch.awaitingID, "reject", "", false)
+			s.applyHITLDecision(invocation, s.approvalHITLResult(invocation), batch.awaitingID, "reject", "", false)
 			rejected := hitlRejectedToolResult(invocation)
 			invocation.queuedResult = &rejected
 			continue
 		}
 		normalizedDecision := strings.TrimSpace(AnyStringNode(approvals[index]["decision"]))
 		reason := strings.TrimSpace(AnyStringNode(approvals[index]["reason"]))
-		s.applyHITLDecision(invocation, s.lookupPrecheckedHITL(invocation), batch.awaitingID, normalizedDecision, reason, normalizedDecision != "reject")
+		s.applyHITLDecision(invocation, s.approvalHITLResult(invocation), batch.awaitingID, normalizedDecision, reason, normalizedDecision != "reject")
+		invocation.approvalDecision = normalizedDecision
+		if strings.EqualFold(normalizedDecision, "reject") {
+			rejected := hitlRejectedToolResult(invocation)
+			invocation.queuedResult = &rejected
+		}
 	}
 	s.hitlPendingBatch = nil
 	return nil
@@ -1383,6 +1500,9 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 		return nil
 	}
 	invocation.approvalDecision = selectedDecision
+	if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewRequiresApproval {
+		return s.executeApprovedBashSecurityInvocation(invocation, review)
+	}
 	return s.executeOriginalBash(invocation)
 }
 
@@ -1461,12 +1581,14 @@ func (s *llmRunStream) buildApprovalAskItem(invocation *preparedToolInvocation) 
 		"id":                  invocation.toolID,
 		"command":             mapStringArg(invocation.args, "command"),
 		"description":         approvalDescription(invocation),
-		"options":             buildApprovalOptions(),
+		"options":             s.approvalOptionsForInvocation(invocation),
 		"allowFreeText":       true,
 		"freeTextPlaceholder": "可选：填写理由",
 	}
 	result := hitl.InterceptResult{}
-	if invocation != nil && invocation.precheckedHITL != nil {
+	if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewRequiresApproval {
+		result = bashSecurityInterceptResult(invocation, review)
+	} else if invocation != nil && invocation.precheckedHITL != nil {
 		result = *invocation.precheckedHITL
 	} else if s.checker != nil {
 		result = s.lookupPrecheckedHITL(invocation)
@@ -1477,6 +1599,28 @@ func (s *llmRunStream) buildApprovalAskItem(invocation *preparedToolInvocation) 
 		}
 	}
 	return item
+}
+
+func (s *llmRunStream) approvalOptionsForInvocation(invocation *preparedToolInvocation) []any {
+	if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewRequiresApproval {
+		return buildSingleUseApprovalOptions()
+	}
+	return buildApprovalOptions()
+}
+
+func buildSingleUseApprovalOptions() []any {
+	return []any{
+		map[string]any{
+			"label":       "同意",
+			"decision":    "approve",
+			"description": "只本次放行这条命令",
+		},
+		map[string]any{
+			"label":       "拒绝",
+			"decision":    "reject",
+			"description": "终止这条命令",
+		},
+	}
 }
 
 func buildApprovalOptions() []any {

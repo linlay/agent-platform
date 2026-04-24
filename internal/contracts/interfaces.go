@@ -135,9 +135,11 @@ type ExecutionContext struct {
 	ToolOverrides     map[string]api.ToolDetailResponse
 	// SandboxEnvOverrides is reused by host bash as agent/skill-level env defaults.
 	SandboxEnvOverrides map[string]string
-	StartedAt           time.Time
-	ModelCalls          int
-	ToolCalls           int
+	// BashSecurityApprovals stores one-shot approvals for exact host bash command fingerprints.
+	BashSecurityApprovals map[string]int
+	StartedAt             time.Time
+	ModelCalls            int
+	ToolCalls             int
 
 	resolvedEnvironmentID string // set by OpenIfNeeded, used by acquire methods
 }

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"agent-platform-runner-go/internal/bashsec"
 	"agent-platform-runner-go/internal/config"
 	contracts "agent-platform-runner-go/internal/contracts"
 )
@@ -273,6 +274,108 @@ func TestInvokeHostBashAppliesAgentEnvOverrides(t *testing.T) {
 	}
 	if strings.TrimSpace(result.Output) != "agent-value" {
 		t.Fatalf("expected agent env override to apply, got %q", result.Output)
+	}
+}
+
+func TestInvokeHostBashSoftSecurityRequiresApproval(t *testing.T) {
+	root := t.TempDir()
+	executor := &RuntimeToolExecutor{
+		cfg: config.Config{
+			Bash: config.BashConfig{
+				WorkingDirectory:        root,
+				AllowedPaths:            []string{root},
+				AllowedCommands:         []string{"printf"},
+				PathCheckedCommands:     []string{},
+				PathCheckBypassCommands: []string{},
+				ShellFeaturesEnabled:    true,
+				ShellExecutable:         "bash",
+				ShellTimeoutMs:          30000,
+				MaxCommandChars:         16000,
+			},
+		},
+	}
+
+	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": "printf ok > owner.md"}, &contracts.ExecutionContext{})
+	if err != nil {
+		t.Fatalf("invokeHostBash returned error: %v", err)
+	}
+	if result.Error != "bash_security_approval_required" {
+		t.Fatalf("expected bash_security_approval_required, got %#v", result)
+	}
+}
+
+func TestInvokeHostBashConsumesMatchingSoftSecurityApproval(t *testing.T) {
+	root := t.TempDir()
+	command := "printf ok > owner.md"
+	executor := &RuntimeToolExecutor{
+		cfg: config.Config{
+			Bash: config.BashConfig{
+				WorkingDirectory:        root,
+				AllowedPaths:            []string{root},
+				AllowedCommands:         []string{"printf"},
+				PathCheckedCommands:     []string{},
+				PathCheckBypassCommands: []string{},
+				ShellFeaturesEnabled:    true,
+				ShellExecutable:         "bash",
+				ShellTimeoutMs:          30000,
+				MaxCommandChars:         16000,
+			},
+		},
+	}
+	execCtx := &contracts.ExecutionContext{
+		BashSecurityApprovals: map[string]int{
+			bashsec.ApprovalFingerprint(command): 1,
+		},
+	}
+
+	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": command}, execCtx)
+	if err != nil {
+		t.Fatalf("invokeHostBash returned error: %v", err)
+	}
+	if result.Error != "" || result.ExitCode != 0 {
+		t.Fatalf("expected approved command to execute, got %#v", result)
+	}
+	if _, ok := execCtx.BashSecurityApprovals[bashsec.ApprovalFingerprint(command)]; ok {
+		t.Fatalf("expected approval to be consumed, got %#v", execCtx.BashSecurityApprovals)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "owner.md"))
+	if err != nil {
+		t.Fatalf("read owner.md: %v", err)
+	}
+	if string(data) != "ok" {
+		t.Fatalf("expected written content, got %q", string(data))
+	}
+}
+
+func TestInvokeHostBashRejectsMismatchedSoftSecurityApproval(t *testing.T) {
+	root := t.TempDir()
+	executor := &RuntimeToolExecutor{
+		cfg: config.Config{
+			Bash: config.BashConfig{
+				WorkingDirectory:        root,
+				AllowedPaths:            []string{root},
+				AllowedCommands:         []string{"printf"},
+				PathCheckedCommands:     []string{},
+				PathCheckBypassCommands: []string{},
+				ShellFeaturesEnabled:    true,
+				ShellExecutable:         "bash",
+				ShellTimeoutMs:          30000,
+				MaxCommandChars:         16000,
+			},
+		},
+	}
+	execCtx := &contracts.ExecutionContext{
+		BashSecurityApprovals: map[string]int{
+			bashsec.ApprovalFingerprint("printf ok > other.md"): 1,
+		},
+	}
+
+	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": "printf ok > owner.md"}, execCtx)
+	if err != nil {
+		t.Fatalf("invokeHostBash returned error: %v", err)
+	}
+	if result.Error != "bash_security_approval_required" {
+		t.Fatalf("expected bash_security_approval_required, got %#v", result)
 	}
 }
 

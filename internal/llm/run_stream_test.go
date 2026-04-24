@@ -905,6 +905,140 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 	}
 }
 
+func TestBashSecuritySoftBlockEmitsApprovalWithoutChecker(t *testing.T) {
+	stream := &llmRunStream{
+		ctx: context.Background(),
+		engine: &LLMAgentEngine{
+			tools:    &recordingToolExecutor{defs: []api.ToolDetailResponse{bashToolDefinition()}},
+			frontend: frontendtools.NewDefaultRegistry(),
+		},
+		session:    contracts.QuerySession{RunID: "run_1"},
+		runControl: contracts.NewRunControl(context.Background(), "run_1"),
+		execCtx:    &contracts.ExecutionContext{},
+		queuedToolCalls: []*preparedToolInvocation{
+			{toolID: "tool_1", toolName: "_bash_", args: map[string]any{"command": "printf ok > owner.md", "description": "创建 owner"}},
+		},
+	}
+
+	if !stream.prepareQueuedBashApprovalBatch() {
+		t.Fatal("expected bash security approval await to be prepared")
+	}
+	if len(stream.pending) != 1 {
+		t.Fatalf("expected one pending approval, got %#v", stream.pending)
+	}
+	ask, ok := stream.pending[0].(contracts.DeltaAwaitAsk)
+	if !ok {
+		t.Fatalf("expected await ask, got %#v", stream.pending[0])
+	}
+	if ask.Mode != "approval" || len(ask.Approvals) != 1 {
+		t.Fatalf("expected one approval item, got %#v", ask)
+	}
+	approval, _ := ask.Approvals[0].(map[string]any)
+	options, _ := approval["options"].([]any)
+	if len(options) != 2 {
+		t.Fatalf("expected bash security approval to omit prefix option, got %#v", options)
+	}
+	for _, option := range options {
+		item, _ := option.(map[string]any)
+		if item["decision"] == "approve_prefix_run" {
+			t.Fatalf("did not expect prefix approval option, got %#v", options)
+		}
+	}
+}
+
+func TestBashSecuritySoftBlockApproveExecutesOriginalCommand(t *testing.T) {
+	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{bashToolDefinition()}}
+	runControl := contracts.NewRunControl(context.Background(), "run_1")
+	stream := &llmRunStream{
+		ctx: context.Background(),
+		engine: &LLMAgentEngine{
+			tools:    executor,
+			frontend: frontendtools.NewDefaultRegistry(),
+		},
+		session: contracts.QuerySession{
+			RequestID: "req_1",
+			ChatID:    "chat_1",
+			RunID:     "run_1",
+		},
+		runControl: runControl,
+		execCtx:    &contracts.ExecutionContext{Budget: contracts.Budget{Tool: contracts.RetryPolicy{TimeoutMs: 50}}},
+		activeToolCall: &preparedToolInvocation{
+			toolID:   "tool_1",
+			toolName: "_bash_",
+			args:     map[string]any{"command": "printf ok > owner.md", "description": "创建 owner"},
+		},
+	}
+
+	if err := stream.invokeActiveToolCall(); err != nil {
+		t.Fatalf("invokeActiveToolCall returned error: %v", err)
+	}
+	if stream.hitlPendingCall == nil {
+		t.Fatal("expected bash security soft block to wait for approval")
+	}
+	ack := runControl.ResolveSubmit(api.SubmitRequest{
+		RunID:      "run_1",
+		AwaitingID: stream.hitlAwaitingID,
+		Params:     encodedSubmitParams(t, []map[string]any{{"id": "tool_1", "decision": "approve"}}),
+	})
+	if !ack.Accepted {
+		t.Fatalf("expected submit to be accepted, got %#v", ack)
+	}
+	if err := stream.awaitHITLSubmitAndExecute(); err != nil {
+		t.Fatalf("awaitHITLSubmitAndExecute returned error: %v", err)
+	}
+	if len(executor.invocations) != 1 {
+		t.Fatalf("expected approved command to execute, got %#v", executor.invocations)
+	}
+	if executor.invocations[0].args["command"] != "printf ok > owner.md" {
+		t.Fatalf("expected original command execution, got %#v", executor.invocations[0])
+	}
+	if len(stream.hitlRuleWhitelist) != 0 {
+		t.Fatalf("did not expect bash security approval to whitelist a prefix, got %#v", stream.hitlRuleWhitelist)
+	}
+}
+
+func TestBashSecuritySoftBlockRejectDoesNotExecute(t *testing.T) {
+	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{bashToolDefinition()}}
+	runControl := contracts.NewRunControl(context.Background(), "run_1")
+	stream := &llmRunStream{
+		ctx: context.Background(),
+		engine: &LLMAgentEngine{
+			tools:    executor,
+			frontend: frontendtools.NewDefaultRegistry(),
+		},
+		session: contracts.QuerySession{
+			RequestID: "req_1",
+			ChatID:    "chat_1",
+			RunID:     "run_1",
+		},
+		runControl: runControl,
+		execCtx:    &contracts.ExecutionContext{Budget: contracts.Budget{Tool: contracts.RetryPolicy{TimeoutMs: 50}}},
+		activeToolCall: &preparedToolInvocation{
+			toolID:   "tool_1",
+			toolName: "_bash_",
+			args:     map[string]any{"command": "printf ok > owner.md", "description": "创建 owner"},
+		},
+	}
+
+	if err := stream.invokeActiveToolCall(); err != nil {
+		t.Fatalf("invokeActiveToolCall returned error: %v", err)
+	}
+	ack := runControl.ResolveSubmit(api.SubmitRequest{
+		RunID:      "run_1",
+		AwaitingID: stream.hitlAwaitingID,
+		Params:     encodedSubmitParams(t, []map[string]any{{"id": "tool_1", "decision": "reject"}}),
+	})
+	if !ack.Accepted {
+		t.Fatalf("expected submit to be accepted, got %#v", ack)
+	}
+	if err := stream.awaitHITLSubmitAndExecute(); err != nil {
+		t.Fatalf("awaitHITLSubmitAndExecute returned error: %v", err)
+	}
+	if len(executor.invocations) != 0 {
+		t.Fatalf("expected rejected command not to execute, got %#v", executor.invocations)
+	}
+}
+
 func TestAwaitHITLSubmitAndExecute_RejectEmitsCancelledAnswer(t *testing.T) {
 	runControl := contracts.NewRunControl(context.Background(), "run_1")
 	stream := &llmRunStream{

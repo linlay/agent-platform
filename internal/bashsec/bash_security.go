@@ -1,10 +1,26 @@
 package bashsec
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"regexp"
 	"strings"
 )
+
+type ReviewDecision string
+
+const (
+	ReviewAllow            ReviewDecision = "allow"
+	ReviewRequiresApproval ReviewDecision = "requires_approval"
+	ReviewBlock            ReviewDecision = "block"
+)
+
+type ReviewResult struct {
+	Decision    ReviewDecision
+	Reason      string
+	Fingerprint string
+}
 
 // checkBashSecurity validates a bash command against a comprehensive set of
 // security checks ported from Claude Code's bashSecurity.ts.
@@ -12,9 +28,17 @@ import (
 // if any check fails.
 // This should be called BEFORE whitelist/path checks in invokeHostBash.
 func CheckBashSecurity(command string) (ok bool, reason string) {
+	result := ReviewBashSecurity(command)
+	if result.Decision == ReviewAllow {
+		return true, ""
+	}
+	return false, result.Reason
+}
+
+func ReviewBashSecurity(command string) ReviewResult {
 	// 1. Control characters — must run first since null bytes confuse all other checks.
 	if controlCharRe.MatchString(command) {
-		return false, "Command contains non-printable control characters that could bypass security checks"
+		return blockReview("Command contains non-printable control characters that could bypass security checks")
 	}
 
 	// 2. Build validation context: extract quoted/unquoted content.
@@ -96,15 +120,47 @@ func CheckBashSecurity(command string) (ok bool, reason string) {
 
 	for _, v := range validators {
 		if ok, reason := v.fn(); !ok {
-			return false, reason
+			if canApproveBashSecurityFailure(v.name, command, baseCommand, fullyUnquotedContent, reason) {
+				return ReviewResult{
+					Decision:    ReviewRequiresApproval,
+					Reason:      reason,
+					Fingerprint: ApprovalFingerprint(command),
+				}
+			}
+			return blockReview(reason)
 		}
 	}
 
-	return true, ""
+	return ReviewResult{Decision: ReviewAllow}
 }
 
 func checkBashSecurity(command string) (bool, string) {
 	return CheckBashSecurity(command)
+}
+
+func blockReview(reason string) ReviewResult {
+	return ReviewResult{Decision: ReviewBlock, Reason: reason}
+}
+
+func ApprovalFingerprint(command string) string {
+	sum := sha256.Sum256([]byte(command))
+	return hex.EncodeToString(sum[:])
+}
+
+func canApproveBashSecurityFailure(name, command, baseCommand, fullyUnquotedContent, reason string) bool {
+	switch name {
+	case "redirections":
+		return reason == outputRedirectionReason &&
+			hasOutputRedirection(fullyUnquotedContent) &&
+			!hasInputRedirection(fullyUnquotedContent)
+	case "quoted_newline":
+		return hasOutputRedirection(fullyUnquotedContent) &&
+			!hasInputRedirection(fullyUnquotedContent)
+	case "obfuscated_flags":
+		return reason == tripleQuoteReason && isPythonInlineCommandWithTripleQuotes(command, baseCommand)
+	default:
+		return false
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -284,6 +340,8 @@ var (
 
 	// Quoted brace patterns (attack primitive for brace expansion obfuscation).
 	quotedBraceRe = regexp.MustCompile(`['"][{}]['"]`)
+
+	pythonInlineCommandRe = regexp.MustCompile(`(?s)(?:^|\s)(?:python|python3)\s+(?:[^\s]+\s+)*-c(?:\s|=)`)
 )
 
 // Command substitution patterns — each has a regex and a description.
@@ -402,7 +460,7 @@ func validateObfuscatedFlags(command, baseCommand, fullyUnquotedContent string) 
 
 	// 4c. 3+ consecutive quotes at word start.
 	if threeConsecQuotesRe.MatchString(command) {
-		return false, "Command contains consecutive quote characters at word start (potential obfuscation)"
+		return false, tripleQuoteReason
 	}
 
 	// 5. Scan for quoted characters inside flag names (simplified from TS).
@@ -604,13 +662,37 @@ func validateDangerousPatterns(unquotedContent string) (bool, string) {
 // unquoted content (after safe redirections like 2>&1 and >/dev/null have
 // been stripped).
 func validateRedirections(fullyUnquotedContent string) (bool, string) {
-	if strings.Contains(fullyUnquotedContent, "<") {
+	if hasInputRedirection(fullyUnquotedContent) {
 		return false, "Command contains input redirection (<) which could read sensitive files"
 	}
-	if strings.Contains(fullyUnquotedContent, ">") {
-		return false, "Command contains output redirection (>) which could write to arbitrary files"
+	if hasOutputRedirection(fullyUnquotedContent) {
+		return false, outputRedirectionReason
 	}
 	return true, ""
+}
+
+const (
+	outputRedirectionReason = "Command contains output redirection (>) which could write to arbitrary files"
+	tripleQuoteReason       = "Command contains consecutive quote characters at word start (potential obfuscation)"
+)
+
+func hasInputRedirection(content string) bool {
+	return strings.Contains(content, "<")
+}
+
+func hasOutputRedirection(content string) bool {
+	return strings.Contains(content, ">")
+}
+
+func isPythonInlineCommandWithTripleQuotes(command, baseCommand string) bool {
+	base := strings.TrimSpace(baseCommand)
+	if base != "python" && base != "python3" {
+		return false
+	}
+	if !pythonInlineCommandRe.MatchString(command) {
+		return false
+	}
+	return strings.Contains(command, "'''") || strings.Contains(command, `"""`)
 }
 
 // validateIFSInjection detects usage of the IFS variable ($IFS, ${...IFS...})

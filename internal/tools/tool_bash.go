@@ -23,8 +23,15 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	if len(command) > maxInt(t.cfg.Bash.MaxCommandChars, 16000) {
 		return ToolExecutionResult{Output: "Command is too long", Error: "command_too_long", ExitCode: -1}, nil
 	}
-	if ok, reason := bashsec.CheckBashSecurity(command); !ok {
-		return ToolExecutionResult{Output: reason, Error: "bash_security_blocked", ExitCode: -1}, nil
+	securityReview := bashsec.ReviewBashSecurity(command)
+	switch securityReview.Decision {
+	case bashsec.ReviewAllow:
+	case bashsec.ReviewRequiresApproval:
+		if !consumeBashSecurityApproval(execCtx, securityReview.Fingerprint) {
+			return ToolExecutionResult{Output: securityReview.Reason, Error: "bash_security_approval_required", ExitCode: -1}, nil
+		}
+	default:
+		return ToolExecutionResult{Output: securityReview.Reason, Error: "bash_security_blocked", ExitCode: -1}, nil
 	}
 	if len(t.cfg.Bash.AllowedCommands) == 0 {
 		return ToolExecutionResult{Output: "Bash command whitelist is empty", Error: "command_whitelist_empty", ExitCode: -1}, nil
@@ -72,6 +79,22 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 		}
 	}
 	return bashResult(stdout, stderr, "host", workingDir, exitCode, ""), nil
+}
+
+func consumeBashSecurityApproval(execCtx *ExecutionContext, fingerprint string) bool {
+	if execCtx == nil || strings.TrimSpace(fingerprint) == "" || len(execCtx.BashSecurityApprovals) == 0 {
+		return false
+	}
+	remaining := execCtx.BashSecurityApprovals[fingerprint]
+	if remaining <= 0 {
+		return false
+	}
+	if remaining == 1 {
+		delete(execCtx.BashSecurityApprovals, fingerprint)
+		return true
+	}
+	execCtx.BashSecurityApprovals[fingerprint] = remaining - 1
+	return true
 }
 
 var unsupportedBashCommands = map[string]bool{
