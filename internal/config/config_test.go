@@ -396,6 +396,49 @@ func TestLoadGatewayWSConfigFromEnv(t *testing.T) {
 	})
 }
 
+func TestGatewaysSynthesizedFromLegacyURL(t *testing.T) {
+	withIsolatedEnv(t, map[string]string{
+		"GATEWAY_WS_URL":    "wss://gw.example.com/ws/agent?key=zenmi&channel=wecom:xiaozhai",
+		"GATEWAY_JWT_TOKEN": "jwt-abc",
+	}, func() {
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		if len(cfg.Gateways) != 1 {
+			t.Fatalf("expected legacy URL to synthesize 1 gateway entry, got %d", len(cfg.Gateways))
+		}
+		g := cfg.Gateways[0]
+		if g.ID != "default" {
+			t.Fatalf("synthesized gateway id = %q, want default", g.ID)
+		}
+		if g.Channel != "wecom" {
+			t.Fatalf("channel derived from URL = %q, want wecom", g.Channel)
+		}
+		if g.URL != "wss://gw.example.com/ws/agent?key=zenmi&channel=wecom:xiaozhai" {
+			t.Fatalf("URL not propagated: %q", g.URL)
+		}
+		if g.JwtToken != "jwt-abc" {
+			t.Fatalf("token not propagated: %q", g.JwtToken)
+		}
+		if g.BaseURL != "https://gw.example.com" {
+			t.Fatalf("baseURL not derived: %q", g.BaseURL)
+		}
+	})
+}
+
+func TestGatewaysEmptyWhenNoLegacyConfig(t *testing.T) {
+	withIsolatedEnv(t, map[string]string{}, func() {
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		if len(cfg.Gateways) != 0 {
+			t.Fatalf("expected empty Gateways when no legacy config, got %d", len(cfg.Gateways))
+		}
+	})
+}
+
 func TestLoadGatewayWSConfigWhenWebSocketDisabled(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"AGENT_WS_ENABLED":  "false",

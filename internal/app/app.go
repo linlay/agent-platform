@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"agent-platform-runner-go/internal/api"
@@ -16,6 +17,7 @@ import (
 	"agent-platform-runner-go/internal/config"
 	"agent-platform-runner-go/internal/contracts"
 	"agent-platform-runner-go/internal/frontendtools"
+	"agent-platform-runner-go/internal/gateway"
 	"agent-platform-runner-go/internal/llm"
 	"agent-platform-runner-go/internal/mcp"
 	"agent-platform-runner-go/internal/memory"
@@ -30,7 +32,6 @@ import (
 	"agent-platform-runner-go/internal/tools"
 	"agent-platform-runner-go/internal/viewport"
 	"agent-platform-runner-go/internal/ws"
-	"agent-platform-runner-go/internal/ws/gatewayclient"
 
 	gws "github.com/gorilla/websocket"
 )
@@ -40,7 +41,7 @@ type App struct {
 	Router           *server.Server
 	backgroundCancel context.CancelFunc
 	scheduler        schedulerStopper
-	gwClient         *gatewayclient.Client
+	gateways         *gateway.Registry
 	wsHub            *ws.Hub
 }
 
@@ -194,10 +195,12 @@ func New(rootCtx context.Context) (*App, error) {
 		wsHub = ws.NewHub()
 		notifications = wsHub
 	}
+	// gatewayResolver 在 Registry 构建完成后（server 依赖就绪之后）绑定。
+	// pusher 先拿到 resolver 指针，Registry 构建完调用 SetRegistry 就能工作。
+	gatewayResolver := &lazyGatewayResolver{}
 	backendTools.WithArtifactPusher(artifactpusher.New(artifactpusher.Config{
-		BaseURL:       cfg.GatewayWS.BaseURL,
+		Resolver:      gatewayResolver,
 		UploadPath:    config.GatewayUploadPath,
-		AuthToken:     cfg.GatewayWS.JwtToken,
 		ChatsDir:      cfg.Paths.ChatsDir,
 		Notifications: notifications,
 	}))
@@ -238,30 +241,35 @@ func New(rootCtx context.Context) (*App, error) {
 		CatalogReloader: reloader,
 		Notifications:   notifications,
 		SkillCandidates: skillCandidateStore,
+		GatewayResolver: gatewayResolver,
+		GatewayAdmin:    &gatewayAdminAdapter{resolver: gatewayResolver},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("init server: %w", err)
 	}
 	log.Printf("server dependencies wired in %s", startupElapsed(serverStartedAt))
 
-	var gwClient *gatewayclient.Client
-	if cfg.WebSocket.Enabled && strings.TrimSpace(cfg.GatewayWS.URL) != "" {
+	// Gateway Registry 支持多条反向 WS 连接。legacy 单 gateway 部署在 config.normalize()
+	// 阶段被合成为 Gateways[0]，这里只需按列表启动即可；行为与单 gateway 模式一致。
+	var gwRegistry *gateway.Registry
+	if cfg.WebSocket.Enabled && len(cfg.Gateways) > 0 {
 		if hub, ok := notifications.(*ws.Hub); ok {
 			if handler := srv.WSHandler(); handler != nil {
-				gwClient = gatewayclient.New(
-					gatewayclient.Config{
-						URL:              strings.TrimSpace(cfg.GatewayWS.URL),
-						Token:            strings.TrimSpace(cfg.GatewayWS.JwtToken),
-						HandshakeTimeout: time.Duration(cfg.GatewayWS.HandshakeTimeoutMs) * time.Millisecond,
-						ReconnectMin:     time.Duration(cfg.GatewayWS.ReconnectMinMs) * time.Millisecond,
-						ReconnectMax:     time.Duration(cfg.GatewayWS.ReconnectMaxMs) * time.Millisecond,
-					},
+				gwRegistry = gateway.New(
+					backgroundCtx,
 					cfg.WebSocket,
 					time.Duration(cfg.SSE.HeartbeatIntervalMs)*time.Millisecond,
 					hub,
 					handler.Dispatch,
 				)
-				gwClient.Start(backgroundCtx)
+				for _, entry := range cfg.Gateways {
+					if err := gwRegistry.Register(entry); err != nil {
+						log.Printf("gateway register %q failed: %v", entry.ID, err)
+					} else {
+						log.Printf("gateway registered: id=%s channel=%s url=%s", entry.ID, entry.Channel, entry.URL)
+					}
+				}
+				gatewayResolver.SetRegistry(gwRegistry)
 			}
 		}
 	}
@@ -305,7 +313,7 @@ func New(rootCtx context.Context) (*App, error) {
 		Router:           srv,
 		backgroundCancel: backgroundCancel,
 		scheduler:        scheduler,
-		gwClient:         gwClient,
+		gateways:         gwRegistry,
 		wsHub:            wsHub,
 	}, nil
 }
@@ -317,8 +325,8 @@ func (a *App) Close() error {
 	if a.backgroundCancel != nil {
 		a.backgroundCancel()
 	}
-	if a.gwClient != nil {
-		_ = a.gwClient.Stop()
+	if a.gateways != nil {
+		a.gateways.StopAll()
 	}
 	if a.wsHub != nil {
 		a.wsHub.CloseAll(gws.CloseNormalClosure, "server shutting down")
@@ -342,6 +350,85 @@ func (a *App) Close() error {
 
 func startupElapsed(startedAt time.Time) time.Duration {
 	return time.Since(startedAt).Round(time.Millisecond)
+}
+
+// gatewayAdminAdapter 把 gateway.Registry 桥接到 server.GatewayAdmin 接口，
+// 避免 server 包直接 import gateway 包。Registry nil 时 List 返回空、增删返回 ErrNotConfigured。
+type gatewayAdminAdapter struct {
+	resolver *lazyGatewayResolver
+}
+
+func (a *gatewayAdminAdapter) AdminRegister(entry server.GatewayAdminEntry) error {
+	reg := a.resolver.Registry()
+	if reg == nil {
+		return fmt.Errorf("gateway registry not initialized")
+	}
+	return reg.Register(config.GatewayEntry{
+		ID:                 entry.ID,
+		Channel:            entry.Channel,
+		URL:                entry.URL,
+		JwtToken:           entry.Token,
+		BaseURL:            entry.BaseURL,
+		HandshakeTimeoutMs: entry.HandshakeTimeoutMs,
+		ReconnectMinMs:     entry.ReconnectMinMs,
+		ReconnectMaxMs:     entry.ReconnectMaxMs,
+	})
+}
+
+func (a *gatewayAdminAdapter) AdminUnregister(id string) error {
+	reg := a.resolver.Registry()
+	if reg == nil {
+		return fmt.Errorf("gateway registry not initialized")
+	}
+	return reg.Unregister(id)
+}
+
+func (a *gatewayAdminAdapter) AdminList() []server.GatewayAdminEntry {
+	reg := a.resolver.Registry()
+	if reg == nil {
+		return nil
+	}
+	entries := reg.All()
+	out := make([]server.GatewayAdminEntry, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, server.GatewayAdminEntry{
+			ID:      e.ID,
+			Channel: e.Channel,
+			URL:     e.URL,
+			BaseURL: e.BaseURL,
+		})
+	}
+	return out
+}
+
+// lazyGatewayResolver 把 artifactpusher 的 resolver 和 Registry 构建解耦。
+// pusher 在 Registry 就绪前先创建；Registry 就绪后 SetRegistry 绑定实际实现。
+// Registry 未绑定时 Resolve 返回 ok=false（等同于 gateway 未配置），pusher 会跳过上传。
+type lazyGatewayResolver struct {
+	mu  sync.RWMutex
+	reg *gateway.Registry
+}
+
+func (l *lazyGatewayResolver) SetRegistry(r *gateway.Registry) {
+	l.mu.Lock()
+	l.reg = r
+	l.mu.Unlock()
+}
+
+func (l *lazyGatewayResolver) Registry() *gateway.Registry {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.reg
+}
+
+func (l *lazyGatewayResolver) Resolve(chatID string) (string, string, bool) {
+	l.mu.RLock()
+	r := l.reg
+	l.mu.RUnlock()
+	if r == nil {
+		return "", "", false
+	}
+	return r.Resolve(chatID)
 }
 
 func summarizeScheduleErrorBody(body string) string {

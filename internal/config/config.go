@@ -33,6 +33,9 @@ type Config struct {
 	Run          RunConfig
 	WebSocket    WebSocketConfig
 	GatewayWS    GatewayWSConfig
+	// Gateways 是多 gateway 反向连接列表（wecom / feishu / ding / ...）。
+	// legacy 单 gateway 配置 (GatewayWS) 在 normalize() 阶段合成为 Gateways[0]。
+	Gateways []GatewayEntry
 }
 
 type ServerConfig struct {
@@ -262,6 +265,30 @@ type GatewayWSConfig struct {
 	// BaseURL 用于 artifact 外发和 userUpload 下载等 HTTP 旁路操作；
 	// 未显式配置时从 URL 自动派生。
 	BaseURL string
+
+	// Gateways 支持多插件并存。每条 entry 独立反向连接、独立 reconnect。
+	// entry 的 Channel 字段作为 chatId 前缀的路由键（chatId="wecom#..." → Channel="wecom"）。
+	//
+	// 兼容策略：部署侧只配置 legacy URL/JwtToken 时，normalize() 会把这条合成为
+	// Gateways[0]（ID="default", Channel=""），路由层在"单条无 channel"场景下跳过前缀
+	// 匹配，行为与未引入多 gateway 前字节一致。
+	//
+	// 运行时可通过 Admin API (POST /api/admin/gateways) 动态增删，desktop 管理插件生命周期。
+}
+
+// GatewayEntry 描述单个 gateway 反向连接条目。
+type GatewayEntry struct {
+	// ID 是 gateway 在 Registry 里的唯一键，Admin API 按 ID 增删。
+	ID string
+	// Channel 是路由键，对应 chatId 前缀（"wecom" / "feishu" / ...）。
+	// 空串表示 "默认 / 捕获未匹配的"，单 gateway 部署下总会命中。
+	Channel            string
+	URL                string
+	JwtToken           string
+	BaseURL            string
+	HandshakeTimeoutMs int64
+	ReconnectMinMs     int64
+	ReconnectMaxMs     int64
 }
 
 // 网关 HTTP 旁路的路径约定，由网关侧固定，不再做成可配置。
@@ -720,6 +747,70 @@ func (c *Config) normalize() {
 	if c.Bash.WorkingDirectory == "" {
 		c.Bash.WorkingDirectory = "."
 	}
+
+	c.normalizeGateways()
+}
+
+// normalizeGateways 把 legacy 单 gateway 配置（GATEWAY_WS_URL/TOKEN）合成为 Gateways[0]。
+// 已有 Gateways 列表时补缺省字段（ID、reconnect 参数），不覆盖已显式设置的值。
+func (c *Config) normalizeGateways() {
+	if len(c.Gateways) == 0 && strings.TrimSpace(c.GatewayWS.URL) != "" {
+		c.Gateways = append(c.Gateways, GatewayEntry{
+			ID:                 "default",
+			Channel:            deriveChannelFromURL(c.GatewayWS.URL),
+			URL:                strings.TrimSpace(c.GatewayWS.URL),
+			JwtToken:           strings.TrimSpace(c.GatewayWS.JwtToken),
+			BaseURL:            strings.TrimSpace(c.GatewayWS.BaseURL),
+			HandshakeTimeoutMs: c.GatewayWS.HandshakeTimeoutMs,
+			ReconnectMinMs:     c.GatewayWS.ReconnectMinMs,
+			ReconnectMaxMs:     c.GatewayWS.ReconnectMaxMs,
+		})
+	}
+	for i := range c.Gateways {
+		g := &c.Gateways[i]
+		if strings.TrimSpace(g.ID) == "" {
+			g.ID = fmt.Sprintf("gateway-%d", i)
+		}
+		if g.HandshakeTimeoutMs == 0 {
+			g.HandshakeTimeoutMs = c.GatewayWS.HandshakeTimeoutMs
+		}
+		if g.ReconnectMinMs == 0 {
+			g.ReconnectMinMs = c.GatewayWS.ReconnectMinMs
+		}
+		if g.ReconnectMaxMs == 0 {
+			g.ReconnectMaxMs = c.GatewayWS.ReconnectMaxMs
+		}
+		if strings.TrimSpace(g.BaseURL) == "" && strings.TrimSpace(g.URL) != "" {
+			if parsed, err := neturl.Parse(strings.TrimSpace(g.URL)); err == nil && parsed.Host != "" {
+				scheme := "http"
+				if parsed.Scheme == "wss" {
+					scheme = "https"
+				}
+				g.BaseURL = scheme + "://" + parsed.Host
+			}
+		}
+		if strings.TrimSpace(g.Channel) == "" {
+			g.Channel = deriveChannelFromURL(g.URL)
+		}
+	}
+}
+
+// deriveChannelFromURL 从 gateway URL 的 ?channel=xxx 参数提取 channel 名；
+// channel 值形如 "wecom:xiaozhai" 时只取冒号前的 "wecom" 作为路由键。
+// 解析失败或缺失时返回空串（= 默认条目，命中所有未匹配前缀的 chatId）。
+func deriveChannelFromURL(raw string) string {
+	parsed, err := neturl.Parse(strings.TrimSpace(raw))
+	if err != nil || parsed == nil {
+		return ""
+	}
+	ch := strings.TrimSpace(parsed.Query().Get("channel"))
+	if ch == "" {
+		return ""
+	}
+	if idx := strings.Index(ch, ":"); idx > 0 {
+		return ch[:idx]
+	}
+	return ch
 }
 
 func (c Config) ServerAddress() string {
