@@ -23,6 +23,8 @@ var ErrChatNotFound = errors.New("chat not found")
 type Store interface {
 	EnsureChat(chatID string, agentKey string, teamID string, firstMessage string) (Summary, bool, error)
 	Summary(chatID string) (*Summary, error)
+	LoadAllPendingAwaitings() ([]PendingAwaitingWithChat, error)
+	LoadAwaitingAsk(chatID string, awaitingID string) (*PersistedAwaitingAsk, error)
 	SetPendingAwaiting(chatID string, pending PendingAwaiting) error
 	ClearPendingAwaiting(chatID string, awaitingID string) error
 	AppendEvent(chatID string, event stream.EventData) error
@@ -86,10 +88,10 @@ func (s *FileStore) initDB() error {
 			USAGE_PROMPT_TOKENS_ INTEGER NOT NULL DEFAULT 0,
 			USAGE_COMPLETION_TOKENS_ INTEGER NOT NULL DEFAULT 0,
 			USAGE_TOTAL_TOKENS_ INTEGER NOT NULL DEFAULT 0,
-			PENDING_AWAITING_ID_ TEXT NOT NULL DEFAULT '',
-			PENDING_AWAITING_RUN_ID_ TEXT NOT NULL DEFAULT '',
-			PENDING_AWAITING_MODE_ TEXT NOT NULL DEFAULT '',
-			PENDING_AWAITING_CREATED_AT_ INTEGER NOT NULL DEFAULT 0
+			AWAITING_ID_ TEXT NOT NULL DEFAULT '',
+			AWAITING_RUN_ID_ TEXT NOT NULL DEFAULT '',
+			AWAITING_MODE_ TEXT NOT NULL DEFAULT '',
+			AWAITING_CREATED_AT_ INTEGER NOT NULL DEFAULT 0
 		);
 		CREATE INDEX IF NOT EXISTS IDX_CHATS_LAST_RUN_ID_ ON CHATS(LAST_RUN_ID_);
 		CREATE INDEX IF NOT EXISTS IDX_CHATS_AGENT_KEY_ ON CHATS(AGENT_KEY_);
@@ -99,7 +101,9 @@ func (s *FileStore) initDB() error {
 	}
 
 	s.migrateAddUsageColumns()
-	s.migrateAddPendingAwaitingColumns()
+	if err := s.migrateAwaitingColumns(); err != nil {
+		return err
+	}
 	if err := s.migrateReadStateColumns(); err != nil {
 		return err
 	}
@@ -115,15 +119,131 @@ func (s *FileStore) migrateAddUsageColumns() {
 	}
 }
 
-func (s *FileStore) migrateAddPendingAwaitingColumns() {
+func (s *FileStore) migrateAwaitingColumns() error {
+	hasLegacyAwaiting, err := s.tableHasColumn("CHATS", "PENDING_AWAITING_ID_")
+	if err != nil {
+		return err
+	}
+	if hasLegacyAwaiting {
+		hasReadStatus, err := s.tableHasColumn("CHATS", "READ_STATUS_")
+		if err != nil {
+			return err
+		}
+		return s.rebuildChatsTableAwaitingColumns(hasReadStatus)
+	}
 	for _, stmt := range []string{
-		"ALTER TABLE CHATS ADD COLUMN PENDING_AWAITING_ID_ TEXT NOT NULL DEFAULT ''",
-		"ALTER TABLE CHATS ADD COLUMN PENDING_AWAITING_RUN_ID_ TEXT NOT NULL DEFAULT ''",
-		"ALTER TABLE CHATS ADD COLUMN PENDING_AWAITING_MODE_ TEXT NOT NULL DEFAULT ''",
-		"ALTER TABLE CHATS ADD COLUMN PENDING_AWAITING_CREATED_AT_ INTEGER NOT NULL DEFAULT 0",
+		"ALTER TABLE CHATS ADD COLUMN AWAITING_ID_ TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE CHATS ADD COLUMN AWAITING_RUN_ID_ TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE CHATS ADD COLUMN AWAITING_MODE_ TEXT NOT NULL DEFAULT ''",
+		"ALTER TABLE CHATS ADD COLUMN AWAITING_CREATED_AT_ INTEGER NOT NULL DEFAULT 0",
 	} {
 		_, _ = s.db.Exec(stmt)
 	}
+	return nil
+}
+
+func (s *FileStore) rebuildChatsTableAwaitingColumns(includeReadStatus bool) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	if _, err = tx.Exec(`DROP TABLE IF EXISTS CHATS_V2`); err != nil {
+		return err
+	}
+	if includeReadStatus {
+		if _, err = tx.Exec(`
+			CREATE TABLE CHATS_V2 (
+				CHAT_ID_          TEXT PRIMARY KEY,
+				CHAT_NAME_        TEXT NOT NULL,
+				AGENT_KEY_        TEXT NOT NULL DEFAULT '',
+				TEAM_ID_          TEXT,
+				CREATED_AT_       INTEGER NOT NULL,
+				UPDATED_AT_       INTEGER NOT NULL,
+				LAST_RUN_ID_      TEXT NOT NULL DEFAULT '',
+				LAST_RUN_CONTENT_ TEXT NOT NULL DEFAULT '',
+				READ_STATUS_      INTEGER NOT NULL DEFAULT 0,
+				READ_AT_          INTEGER,
+				USAGE_PROMPT_TOKENS_ INTEGER NOT NULL DEFAULT 0,
+				USAGE_COMPLETION_TOKENS_ INTEGER NOT NULL DEFAULT 0,
+				USAGE_TOTAL_TOKENS_ INTEGER NOT NULL DEFAULT 0,
+				AWAITING_ID_ TEXT NOT NULL DEFAULT '',
+				AWAITING_RUN_ID_ TEXT NOT NULL DEFAULT '',
+				AWAITING_MODE_ TEXT NOT NULL DEFAULT '',
+				AWAITING_CREATED_AT_ INTEGER NOT NULL DEFAULT 0
+			)`); err != nil {
+			return err
+		}
+		if _, err = tx.Exec(`INSERT INTO CHATS_V2 (
+				CHAT_ID_, CHAT_NAME_, AGENT_KEY_, TEAM_ID_, CREATED_AT_, UPDATED_AT_,
+				LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_STATUS_, READ_AT_,
+				USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_,
+				AWAITING_ID_, AWAITING_RUN_ID_, AWAITING_MODE_, AWAITING_CREATED_AT_
+			)
+			SELECT
+				CHAT_ID_, CHAT_NAME_, AGENT_KEY_, TEAM_ID_, CREATED_AT_, UPDATED_AT_,
+				LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_STATUS_, READ_AT_,
+				USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_,
+				PENDING_AWAITING_ID_, PENDING_AWAITING_RUN_ID_, PENDING_AWAITING_MODE_, PENDING_AWAITING_CREATED_AT_
+			FROM CHATS`); err != nil {
+			return err
+		}
+	} else {
+		if _, err = tx.Exec(`
+			CREATE TABLE CHATS_V2 (
+				CHAT_ID_          TEXT PRIMARY KEY,
+				CHAT_NAME_        TEXT NOT NULL,
+				AGENT_KEY_        TEXT NOT NULL DEFAULT '',
+				TEAM_ID_          TEXT,
+				CREATED_AT_       INTEGER NOT NULL,
+				UPDATED_AT_       INTEGER NOT NULL,
+				LAST_RUN_ID_      TEXT NOT NULL DEFAULT '',
+				LAST_RUN_CONTENT_ TEXT NOT NULL DEFAULT '',
+				READ_RUN_ID_      TEXT NOT NULL DEFAULT '',
+				READ_AT_          INTEGER,
+				USAGE_PROMPT_TOKENS_ INTEGER NOT NULL DEFAULT 0,
+				USAGE_COMPLETION_TOKENS_ INTEGER NOT NULL DEFAULT 0,
+				USAGE_TOTAL_TOKENS_ INTEGER NOT NULL DEFAULT 0,
+				AWAITING_ID_ TEXT NOT NULL DEFAULT '',
+				AWAITING_RUN_ID_ TEXT NOT NULL DEFAULT '',
+				AWAITING_MODE_ TEXT NOT NULL DEFAULT '',
+				AWAITING_CREATED_AT_ INTEGER NOT NULL DEFAULT 0
+			)`); err != nil {
+			return err
+		}
+		if _, err = tx.Exec(`INSERT INTO CHATS_V2 (
+				CHAT_ID_, CHAT_NAME_, AGENT_KEY_, TEAM_ID_, CREATED_AT_, UPDATED_AT_,
+				LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_RUN_ID_, READ_AT_,
+				USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_,
+				AWAITING_ID_, AWAITING_RUN_ID_, AWAITING_MODE_, AWAITING_CREATED_AT_
+			)
+			SELECT
+				CHAT_ID_, CHAT_NAME_, AGENT_KEY_, TEAM_ID_, CREATED_AT_, UPDATED_AT_,
+				LAST_RUN_ID_, LAST_RUN_CONTENT_, COALESCE(READ_RUN_ID_, ''), READ_AT_,
+				USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_,
+				PENDING_AWAITING_ID_, PENDING_AWAITING_RUN_ID_, PENDING_AWAITING_MODE_, PENDING_AWAITING_CREATED_AT_
+			FROM CHATS`); err != nil {
+			return err
+		}
+	}
+	if _, err = tx.Exec(`DROP TABLE CHATS`); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`ALTER TABLE CHATS_V2 RENAME TO CHATS`); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`CREATE INDEX IF NOT EXISTS IDX_CHATS_LAST_RUN_ID_ ON CHATS(LAST_RUN_ID_)`); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`CREATE INDEX IF NOT EXISTS IDX_CHATS_AGENT_KEY_ ON CHATS(AGENT_KEY_)`); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *FileStore) migrateReadStateColumns() error {
@@ -175,10 +295,10 @@ func (s *FileStore) rebuildChatsTableWithoutReadStatus() error {
 			USAGE_PROMPT_TOKENS_ INTEGER NOT NULL DEFAULT 0,
 			USAGE_COMPLETION_TOKENS_ INTEGER NOT NULL DEFAULT 0,
 			USAGE_TOTAL_TOKENS_ INTEGER NOT NULL DEFAULT 0,
-			PENDING_AWAITING_ID_ TEXT NOT NULL DEFAULT '',
-			PENDING_AWAITING_RUN_ID_ TEXT NOT NULL DEFAULT '',
-			PENDING_AWAITING_MODE_ TEXT NOT NULL DEFAULT '',
-			PENDING_AWAITING_CREATED_AT_ INTEGER NOT NULL DEFAULT 0
+			AWAITING_ID_ TEXT NOT NULL DEFAULT '',
+			AWAITING_RUN_ID_ TEXT NOT NULL DEFAULT '',
+			AWAITING_MODE_ TEXT NOT NULL DEFAULT '',
+			AWAITING_CREATED_AT_ INTEGER NOT NULL DEFAULT 0
 		)`); err != nil {
 		return err
 	}
@@ -186,13 +306,13 @@ func (s *FileStore) rebuildChatsTableWithoutReadStatus() error {
 			CHAT_ID_, CHAT_NAME_, AGENT_KEY_, TEAM_ID_, CREATED_AT_, UPDATED_AT_,
 			LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_RUN_ID_, READ_AT_,
 			USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_,
-			PENDING_AWAITING_ID_, PENDING_AWAITING_RUN_ID_, PENDING_AWAITING_MODE_, PENDING_AWAITING_CREATED_AT_
+			AWAITING_ID_, AWAITING_RUN_ID_, AWAITING_MODE_, AWAITING_CREATED_AT_
 		)
 		SELECT
 			CHAT_ID_, CHAT_NAME_, AGENT_KEY_, TEAM_ID_, CREATED_AT_, UPDATED_AT_,
 			LAST_RUN_ID_, LAST_RUN_CONTENT_, COALESCE(READ_RUN_ID_, ''), READ_AT_,
 			USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_,
-			PENDING_AWAITING_ID_, PENDING_AWAITING_RUN_ID_, PENDING_AWAITING_MODE_, PENDING_AWAITING_CREATED_AT_
+			AWAITING_ID_, AWAITING_RUN_ID_, AWAITING_MODE_, AWAITING_CREATED_AT_
 		FROM CHATS`); err != nil {
 		return err
 	}
@@ -292,7 +412,7 @@ func (s *FileStore) EnsureChat(chatID string, agentKey string, teamID string, fi
 	var usage UsageData
 	var pendingAwaitingID, pendingRunID, pendingMode string
 	var pendingCreatedAt int64
-	err := s.db.QueryRow("SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_, COALESCE(TEAM_ID_,''), CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_RUN_ID_, READ_AT_, USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_, PENDING_AWAITING_ID_, PENDING_AWAITING_RUN_ID_, PENDING_AWAITING_MODE_, PENDING_AWAITING_CREATED_AT_ FROM CHATS WHERE CHAT_ID_=?", chatID).
+	err := s.db.QueryRow("SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_, COALESCE(TEAM_ID_,''), CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_RUN_ID_, READ_AT_, USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_, AWAITING_ID_, AWAITING_RUN_ID_, AWAITING_MODE_, AWAITING_CREATED_AT_ FROM CHATS WHERE CHAT_ID_=?", chatID).
 		Scan(&existing.ChatID, &existing.ChatName, &existing.AgentKey, &existing.TeamID, &existing.CreatedAt, &existing.UpdatedAt, &existing.LastRunID, &existing.LastRunContent, &existing.Read.ReadRunID, &existing.Read.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &pendingAwaitingID, &pendingRunID, &pendingMode, &pendingCreatedAt)
 	if err == nil {
 		applyDerivedReadState(&existing)
@@ -358,12 +478,59 @@ func (s *FileStore) Summary(chatID string) (*Summary, error) {
 	return s.loadSummary(chatID)
 }
 
+func (s *FileStore) LoadAllPendingAwaitings() ([]PendingAwaitingWithChat, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	rows, err := s.db.Query(`SELECT CHAT_ID_, AWAITING_ID_, AWAITING_RUN_ID_, AWAITING_MODE_, AWAITING_CREATED_AT_
+		FROM CHATS
+		WHERE AWAITING_ID_ != ''
+		ORDER BY CHAT_ID_`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []PendingAwaitingWithChat
+	for rows.Next() {
+		var item PendingAwaitingWithChat
+		if err := rows.Scan(&item.ChatID, &item.AwaitingID, &item.RunID, &item.Mode, &item.CreatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (s *FileStore) LoadAwaitingAsk(chatID string, awaitingID string) (*PersistedAwaitingAsk, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	lines, err := readJSONLines(s.chatJSONLPath(chatID))
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return nil, err
+		}
+		lines = nil
+	}
+	if len(lines) == 0 {
+		lines, err = readJSONLines(filepath.Join(s.ChatDir(chatID), "events.jsonl"))
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil, nil
+			}
+			return nil, err
+		}
+	}
+	return loadPersistedAwaitingAskFromLines(lines, awaitingID), nil
+}
+
 func (s *FileStore) loadSummary(chatID string) (*Summary, error) {
 	var sum Summary
 	var usage UsageData
 	var pendingAwaitingID, pendingRunID, pendingMode string
 	var pendingCreatedAt int64
-	err := s.db.QueryRow("SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_, COALESCE(TEAM_ID_,''), CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_RUN_ID_, READ_AT_, USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_, PENDING_AWAITING_ID_, PENDING_AWAITING_RUN_ID_, PENDING_AWAITING_MODE_, PENDING_AWAITING_CREATED_AT_ FROM CHATS WHERE CHAT_ID_=?", chatID).
+	err := s.db.QueryRow("SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_, COALESCE(TEAM_ID_,''), CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_RUN_ID_, READ_AT_, USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_, AWAITING_ID_, AWAITING_RUN_ID_, AWAITING_MODE_, AWAITING_CREATED_AT_ FROM CHATS WHERE CHAT_ID_=?", chatID).
 		Scan(&sum.ChatID, &sum.ChatName, &sum.AgentKey, &sum.TeamID, &sum.CreatedAt, &sum.UpdatedAt, &sum.LastRunID, &sum.LastRunContent, &sum.Read.ReadRunID, &sum.Read.ReadAt, &usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens, &pendingAwaitingID, &pendingRunID, &pendingMode, &pendingCreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -398,12 +565,71 @@ func pendingAwaitingFromRow(awaitingID string, runID string, mode string, create
 	}
 }
 
+func loadPersistedAwaitingAskFromLines(lines []map[string]any, awaitingID string) *PersistedAwaitingAsk {
+	awaitingID = strings.TrimSpace(awaitingID)
+	if awaitingID == "" {
+		return nil
+	}
+
+	var latest *PersistedAwaitingAsk
+	for _, line := range lines {
+		lineType, _ := line["_type"].(string)
+		runID, _ := line["runId"].(string)
+		switch lineType {
+		case "react", "plan-execute", "step":
+			awaitingItems, _ := line["awaiting"].([]any)
+			for _, raw := range awaitingItems {
+				item, _ := raw.(map[string]any)
+				if item == nil {
+					continue
+				}
+				candidate := persistedAwaitingAskFromMap(item, runID)
+				if candidate != nil && candidate.AwaitingID == awaitingID {
+					latest = candidate
+				}
+			}
+		case "event", "steer":
+			event, _ := line["event"].(map[string]any)
+			candidate := persistedAwaitingAskFromMap(event, runID)
+			if candidate != nil && candidate.AwaitingID == awaitingID {
+				latest = candidate
+			}
+		default:
+			candidate := persistedAwaitingAskFromMap(line, runID)
+			if candidate != nil && candidate.AwaitingID == awaitingID {
+				latest = candidate
+			}
+		}
+	}
+	return latest
+}
+
+func persistedAwaitingAskFromMap(item map[string]any, fallbackRunID string) *PersistedAwaitingAsk {
+	if item == nil || strings.TrimSpace(stringValue(item["type"])) != "awaiting.ask" {
+		return nil
+	}
+	payload := cloneStringAnyMap(item)
+	if _, ok := payload["runId"]; !ok && strings.TrimSpace(fallbackRunID) != "" {
+		payload["runId"] = fallbackRunID
+	}
+	awaitingID := strings.TrimSpace(stringValue(payload["awaitingId"]))
+	if awaitingID == "" {
+		return nil
+	}
+	return &PersistedAwaitingAsk{
+		AwaitingID: awaitingID,
+		RunID:      strings.TrimSpace(stringValue(payload["runId"])),
+		Mode:       strings.TrimSpace(stringValue(payload["mode"])),
+		Payload:    payload,
+	}
+}
+
 func (s *FileStore) SetPendingAwaiting(chatID string, pending PendingAwaiting) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	_, err := s.db.Exec(`UPDATE CHATS
-		SET PENDING_AWAITING_ID_=?, PENDING_AWAITING_RUN_ID_=?, PENDING_AWAITING_MODE_=?, PENDING_AWAITING_CREATED_AT_=?
+		SET AWAITING_ID_=?, AWAITING_RUN_ID_=?, AWAITING_MODE_=?, AWAITING_CREATED_AT_=?
 		WHERE CHAT_ID_=?`,
 		pending.AwaitingID, pending.RunID, pending.Mode, pending.CreatedAt, chatID)
 	return err
@@ -414,8 +640,8 @@ func (s *FileStore) ClearPendingAwaiting(chatID string, awaitingID string) error
 	defer s.mu.Unlock()
 
 	_, err := s.db.Exec(`UPDATE CHATS
-		SET PENDING_AWAITING_ID_='', PENDING_AWAITING_RUN_ID_='', PENDING_AWAITING_MODE_='', PENDING_AWAITING_CREATED_AT_=0
-		WHERE CHAT_ID_=? AND PENDING_AWAITING_ID_=?`,
+		SET AWAITING_ID_='', AWAITING_RUN_ID_='', AWAITING_MODE_='', AWAITING_CREATED_AT_=0
+		WHERE CHAT_ID_=? AND AWAITING_ID_=?`,
 		chatID, awaitingID)
 	return err
 }
@@ -562,7 +788,7 @@ func (s *FileStore) ListChats(lastRunID string, agentKey string) ([]Summary, err
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	query := "SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_, COALESCE(TEAM_ID_,''), CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_RUN_ID_, READ_AT_, USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_, PENDING_AWAITING_ID_, PENDING_AWAITING_RUN_ID_, PENDING_AWAITING_MODE_, PENDING_AWAITING_CREATED_AT_ FROM CHATS WHERE 1=1"
+	query := "SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_, COALESCE(TEAM_ID_,''), CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_RUN_ID_, READ_AT_, USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_, AWAITING_ID_, AWAITING_RUN_ID_, AWAITING_MODE_, AWAITING_CREATED_AT_ FROM CHATS WHERE 1=1"
 	var args []any
 	if agentKey != "" {
 		query += " AND AGENT_KEY_=?"

@@ -669,18 +669,12 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, api.Success(response))
 		return
 	}
-	if _, err := s.validateSubmitRequest(req); err != nil {
+	response, _, _, err := s.resolveSubmit(req)
+	if err != nil {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
 		return
 	}
-	ack := s.deps.Runs.Submit(req)
-	writeJSON(w, http.StatusOK, api.Success(api.SubmitResponse{
-		Accepted:   ack.Accepted,
-		Status:     ack.Status,
-		RunID:      req.RunID,
-		AwaitingID: req.AwaitingID,
-		Detail:     ack.Detail,
-	}))
+	writeJSON(w, http.StatusOK, api.Success(response))
 }
 
 func (s *Server) handleSteer(w http.ResponseWriter, r *http.Request) {

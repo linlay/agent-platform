@@ -594,25 +594,13 @@ func (s *Server) wsSubmit(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	if _, err := s.validateSubmitRequest(payload); err != nil {
+	response, code, msg, err := s.resolveSubmit(payload)
+	if err != nil {
 		conn.SendError(req.ID, "invalid_request", 400, err.Error(), nil)
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	ack := s.deps.Runs.Submit(payload)
-	code := 0
-	msg := "success"
-	if ack.Status == "already_resolved" {
-		code = 409
-		msg = "already_resolved"
-	}
-	conn.SendResponse(req.Type, req.ID, code, msg, api.SubmitResponse{
-		Accepted:   ack.Accepted,
-		Status:     ack.Status,
-		RunID:      payload.RunID,
-		AwaitingID: payload.AwaitingID,
-		Detail:     ack.Detail,
-	})
+	conn.SendResponse(req.Type, req.ID, code, msg, response)
 	conn.CompleteRequest(req.ID)
 }
 

@@ -83,13 +83,14 @@ type GatewayAdminEntry struct {
 }
 
 type Server struct {
-	router        *http.ServeMux
-	deps          Dependencies
-	authVerifier  *JWTVerifier
-	ticketService *ResourceTicketService
-	wsHandler     *ws.Handler
-	proxyMu       sync.RWMutex
-	proxyRuns     map[string]*proxyRunRoute
+	router            *http.ServeMux
+	deps              Dependencies
+	authVerifier      *JWTVerifier
+	ticketService     *ResourceTicketService
+	wsHandler         *ws.Handler
+	deferredAwaitings *DeferredAwaitingStore
+	proxyMu           sync.RWMutex
+	proxyRuns         map[string]*proxyRunRoute
 }
 
 type syncQueryContextKey struct{}
@@ -139,12 +140,14 @@ func New(deps Dependencies) (*Server, error) {
 		deps.Notifications = contracts.NewNoopNotificationSink()
 	}
 	s := &Server{
-		router:        http.NewServeMux(),
-		deps:          deps,
-		authVerifier:  authVerifier,
-		ticketService: NewResourceTicketService(deps.Config.ChatImage),
-		proxyRuns:     map[string]*proxyRunRoute{},
+		router:            http.NewServeMux(),
+		deps:              deps,
+		authVerifier:      authVerifier,
+		ticketService:     NewResourceTicketService(deps.Config.ChatImage),
+		deferredAwaitings: NewDeferredAwaitingStore(),
+		proxyRuns:         map[string]*proxyRunRoute{},
 	}
+	s.hydrateDeferredAwaitings()
 	if deps.Config.WebSocket.Enabled {
 		if hub, ok := deps.Notifications.(*ws.Hub); ok {
 			s.wsHandler = s.newWSHandler(hub)

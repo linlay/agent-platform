@@ -181,6 +181,21 @@ type PendingAwaiting struct {
 	CreatedAt  int64  `json:"createdAt"`
 }
 
+type PendingAwaitingWithChat struct {
+	ChatID     string
+	AwaitingID string
+	RunID      string
+	Mode       string
+	CreatedAt  int64
+}
+
+type PersistedAwaitingAsk struct {
+	AwaitingID string
+	RunID      string
+	Mode       string
+	Payload    map[string]any
+}
+
 type Detail struct {
 	ChatID      string
 	ChatName    string
