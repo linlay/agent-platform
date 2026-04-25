@@ -8,7 +8,7 @@ import (
 )
 
 func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
-	items, err := s.listAgentSummaries(r.URL.Query().Get("tag"))
+	items, err := s.listAgentSummaries(r.URL.Query().Get("tag"), r.URL.Query().Get("channel"))
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return

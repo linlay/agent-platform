@@ -319,6 +319,15 @@ type AgentDetailResponse struct {
 	Meta        map[string]any   `json:"meta"`
 }
 
+type ChannelSummary struct {
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Type         string   `json:"type"`
+	DefaultAgent string   `json:"defaultAgent,omitempty"`
+	Agents       []string `json:"agents"`
+	Connected    bool     `json:"connected"`
+}
+
 type TeamSummary struct {
 	TeamID    string         `json:"teamId"`
 	Name      string         `json:"name"`

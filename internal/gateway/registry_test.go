@@ -1,20 +1,24 @@
 package gateway
 
-import "testing"
+import (
+	"testing"
+
+	"agent-platform-runner-go/internal/channel"
+)
 
 func TestChannelFromChatID(t *testing.T) {
 	cases := map[string]string{
-		"wecom#single#user1#abc":    "wecom",
-		"feishu#p2p#ou_xxx#def":     "feishu",
-		"ding#group#conv#ghi":       "ding",
-		"":                          "",
-		"noPrefix":                  "",
-		"#leading":                  "",
-		"wecom#group#team#site#zz":  "wecom",
+		"wecom#single#user1#abc":   "wecom",
+		"feishu#p2p#ou_xxx#def":    "feishu",
+		"ding#group#conv#ghi":      "ding",
+		"":                         "",
+		"noPrefix":                 "",
+		"#leading":                 "",
+		"wecom#group#team#site#zz": "wecom",
 	}
 	for in, want := range cases {
-		if got := channelFromChatID(in); got != want {
-			t.Errorf("channelFromChatID(%q) = %q, want %q", in, got, want)
+		if got := channel.ChannelForChatID(in); got != want {
+			t.Errorf("ChannelForChatID(%q) = %q, want %q", in, got, want)
 		}
 	}
 }

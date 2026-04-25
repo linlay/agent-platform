@@ -13,6 +13,7 @@ import (
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/artifactpusher"
 	"agent-platform-runner-go/internal/catalog"
+	"agent-platform-runner-go/internal/channel"
 	"agent-platform-runner-go/internal/chat"
 	"agent-platform-runner-go/internal/config"
 	"agent-platform-runner-go/internal/contracts"
@@ -220,6 +221,12 @@ func New(rootCtx context.Context) (*App, error) {
 		cfg.Paths.SkillsMarketDir,
 	)
 
+	var channelReg *channel.Registry
+	if len(cfg.Channels) > 0 {
+		channelReg = channel.NewRegistry(cfg.Channels)
+		log.Printf("channel registry ready (%d channels)", len(cfg.Channels))
+	}
+
 	serverStartedAt := time.Now()
 	srv, err := server.New(server.Dependencies{
 		Config:        cfg,
@@ -241,6 +248,7 @@ func New(rootCtx context.Context) (*App, error) {
 		CatalogReloader: reloader,
 		Notifications:   notifications,
 		SkillCandidates: skillCandidateStore,
+		Channels:        channelReg,
 		GatewayResolver: gatewayResolver,
 		GatewayAdmin:    &gatewayAdminAdapter{resolver: gatewayResolver},
 	})
@@ -270,6 +278,7 @@ func New(rootCtx context.Context) (*App, error) {
 					}
 				}
 				gatewayResolver.SetRegistry(gwRegistry)
+				srv.SetChannelStatusProvider(gwRegistry)
 			}
 		}
 	}

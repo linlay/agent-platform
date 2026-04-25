@@ -38,6 +38,7 @@ type Client struct {
 	done   chan struct{}
 
 	curSocket atomic.Pointer[gws.Conn]
+	connected atomic.Bool
 
 	startOnce sync.Once
 	stopOnce  sync.Once
@@ -109,6 +110,7 @@ func (c *Client) Stop() error {
 
 func (c *Client) run() {
 	defer close(c.done)
+	defer c.connected.Store(false)
 
 	backoff := c.cfg.ReconnectMin
 	for {
@@ -143,7 +145,9 @@ func (c *Client) run() {
 		}
 
 		c.curSocket.Store(socket)
+		c.connected.Store(true)
 		if c.ctx.Err() != nil {
+			c.connected.Store(false)
 			c.curSocket.Store(nil)
 			_ = socket.Close()
 			log.Printf("gateway websocket client stopped: url=%s", c.cfg.URL)
@@ -154,6 +158,7 @@ func (c *Client) run() {
 		startedAt := time.Now()
 		ws.NewSilentConn(socket, c.hub, c.wsCfg, c.heartbeat, ws.AuthSession{Context: connCtx}).Run(c.dispatch)
 		connCancel()
+		c.connected.Store(false)
 		c.curSocket.Store(nil)
 		_ = socket.Close()
 
@@ -175,6 +180,13 @@ func (c *Client) run() {
 		}
 		backoff = c.nextBackoff(backoff)
 	}
+}
+
+func (c *Client) Connected() bool {
+	if c == nil {
+		return false
+	}
+	return c.connected.Load()
 }
 
 func (c *Client) sleep(delay time.Duration) bool {

@@ -251,6 +251,29 @@ agent definition 侧另有 `memoryConfig`：
 - 断线重连期间的 `broadcast` 为有损投递，当前不提供离线缓冲
 - `AGENT_WS_WRITE_TIMEOUT_MS`、`AGENT_WS_WRITE_QUEUE_SIZE`、`AGENT_WS_MAX_MESSAGE_SIZE`、`AGENT_WS_MAX_OBSERVES_PER_CONN` 这些现有 `AGENT_WS_*` 参数同样适用于反向连接
 
+### Channel 配置
+
+多渠道部署优先使用 `configs/channels.yml`。这个文件只描述 platform 侧关心的 channel 元数据、反向 WS 入口和 agent 准入，不存放 bridge 的外部平台凭证，也不存放 gateway 的客户端认证策略。
+
+字段约定：
+
+- `channels.<id>`：channel ID，同时也是 `chatId` 前缀路由键，例如 `wecom#user123` 的 channel 是 `wecom`
+- `name`：展示名称
+- `type`：`bridge` 或 `gateway`
+- `default-agent`：仅在请求最终回退到全局默认 agent 时，才会被这个 channel 默认值覆盖
+- `agents`：`"*"` 表示允许全部 agent；数组表示白名单
+- `gateway.url`：platform 主动连出的完整反向 WS 地址
+- `gateway.jwt-token`：用于反向 WS 握手和旁路 HTTP 请求的 Bearer token
+- `gateway.base-url`：可选；未配置时从 `gateway.url` 自动派生
+- `gateway.handshake-timeout-ms`、`gateway.reconnect-min-ms`、`gateway.reconnect-max-ms`：可选；未配置时复用全局 gateway 默认值
+
+行为说明：
+
+- `configs/channels.yml` 缺失时，仍保持 legacy 单 gateway 配置兼容
+- `channels.yml` 中的 gateway entry 会在启动时合成为 `config.Gateways`
+- 若 `channels.yml` 与现有 gateway 配置出现重复 channel 或重复 gateway ID，启动会直接失败
+- `configs/channels.example.yml` 提供了 bridge 与 gateway 两种 channel 形态示例
+
 ## 不建议公开暴露的变量
 
 ### Memory: 已接线但不建议作为公开能力

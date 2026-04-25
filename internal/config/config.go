@@ -37,6 +37,8 @@ type Config struct {
 	// Gateways 是多 gateway 反向连接列表（wecom / feishu / ding / ...）。
 	// legacy 单 gateway 配置 (GatewayWS) 在 normalize() 阶段合成为 Gateways[0]。
 	Gateways []GatewayEntry
+	// Channels 是 channel 元数据与 agent 准入配置；每条可合成一条 gateway entry。
+	Channels []ChannelConfig
 }
 
 type ServerConfig struct {
@@ -300,6 +302,32 @@ type GatewayEntry struct {
 	ReconnectMaxMs     int64
 }
 
+type ChannelType string
+
+const (
+	ChannelTypeBridge  ChannelType = "bridge"
+	ChannelTypeGateway ChannelType = "gateway"
+)
+
+type ChannelConfig struct {
+	ID           string
+	Name         string
+	Type         ChannelType
+	DefaultAgent string
+	Agents       []string
+	AllAgents    bool
+	Gateway      ChannelGatewayConfig
+}
+
+type ChannelGatewayConfig struct {
+	URL                string
+	JwtToken           string
+	BaseURL            string
+	HandshakeTimeoutMs int64
+	ReconnectMinMs     int64
+	ReconnectMaxMs     int64
+}
+
 // 网关 HTTP 旁路的路径约定，由网关侧固定，不再做成可配置。
 const (
 	GatewayUploadPath   = "/api/push"
@@ -308,9 +336,13 @@ const (
 
 func Load() (Config, error) {
 	cfg := defaultConfig()
-	cfg.applyStructuredConfig()
+	if err := cfg.applyStructuredConfig(); err != nil {
+		return Config{}, err
+	}
 	cfg.applyEnv()
-	cfg.normalize()
+	if err := cfg.normalize(); err != nil {
+		return Config{}, err
+	}
 
 	if strings.TrimSpace(cfg.Server.Port) == "" {
 		return Config{}, fmt.Errorf("SERVER_PORT must not be empty")
@@ -502,11 +534,15 @@ func defaultConfig() Config {
 	}
 }
 
-func (c *Config) applyStructuredConfig() {
+func (c *Config) applyStructuredConfig() error {
 	c.applyContainerHubFile(ProjectFile("configs/container-hub.yml"))
 	c.applyBashFile(ProjectFile("configs/bash.yml"))
 	c.applyCORSFile(ProjectFile("configs/cors.yml"))
 	c.applyPromptsFile(ProjectFile("configs/prompts.yml"))
+	if err := c.applyChannelsFile(ProjectFile("configs/channels.yml")); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (c *Config) applyContainerHubFile(path string) {
@@ -582,6 +618,111 @@ func (c *Config) applyPromptsFile(path string) {
 	}
 	c.Prompts.Skill.InstructionsPrompt = stringValue(anyValue(skill["instructions-prompt"], c.Prompts.Skill.InstructionsPrompt), c.Prompts.Skill.InstructionsPrompt)
 	c.Prompts.Skill.CatalogHeader = stringValue(anyValue(skill["catalog-header"], c.Prompts.Skill.CatalogHeader), c.Prompts.Skill.CatalogHeader)
+}
+
+func (c *Config) applyChannelsFile(path string) error {
+	tree, err := LoadYAMLTree(path)
+	if err != nil {
+		return err
+	}
+	values, _ := tree.(map[string]any)
+	if len(values) == 0 {
+		return nil
+	}
+	rawChannels, ok := values["channels"]
+	if !ok {
+		return nil
+	}
+	channelMap, ok := rawChannels.(map[string]any)
+	if !ok {
+		return fmt.Errorf("channels config: channels must be a map")
+	}
+	configs := make([]ChannelConfig, 0, len(channelMap))
+	for rawID, rawValue := range channelMap {
+		channelID := strings.TrimSpace(rawID)
+		if channelID == "" {
+			return fmt.Errorf("channels config: channel id must not be empty")
+		}
+		entry, ok := rawValue.(map[string]any)
+		if !ok {
+			return fmt.Errorf("channels config: channel %q must be an object", channelID)
+		}
+		channelCfg, err := parseChannelConfig(channelID, entry)
+		if err != nil {
+			return err
+		}
+		configs = append(configs, channelCfg)
+	}
+	c.Channels = configs
+	return nil
+}
+
+func parseChannelConfig(channelID string, values map[string]any) (ChannelConfig, error) {
+	cfg := ChannelConfig{
+		ID:   channelID,
+		Name: stringValue(anyValue(values["name"], channelID), channelID),
+	}
+	rawType := strings.ToLower(strings.TrimSpace(stringValue(anyValue(values["type"], ""), "")))
+	switch ChannelType(rawType) {
+	case ChannelTypeBridge, ChannelTypeGateway:
+		cfg.Type = ChannelType(rawType)
+	default:
+		return ChannelConfig{}, fmt.Errorf("channels config: channel %q has invalid type %q", channelID, rawType)
+	}
+	cfg.DefaultAgent = stringValue(anyValue(values["default-agent"], ""), "")
+	allAgents, agents, err := parseChannelAgents(values["agents"])
+	if err != nil {
+		return ChannelConfig{}, fmt.Errorf("channels config: channel %q agents: %w", channelID, err)
+	}
+	cfg.AllAgents = allAgents
+	cfg.Agents = agents
+	gatewayMap, ok := values["gateway"].(map[string]any)
+	if !ok || len(gatewayMap) == 0 {
+		return ChannelConfig{}, fmt.Errorf("channels config: channel %q gateway is required", channelID)
+	}
+	cfg.Gateway = ChannelGatewayConfig{
+		URL:                stringValue(anyValue(gatewayMap["url"], ""), ""),
+		JwtToken:           stringValue(anyValue(gatewayMap["jwt-token"], ""), ""),
+		BaseURL:            stringValue(anyValue(gatewayMap["base-url"], ""), ""),
+		HandshakeTimeoutMs: int64Value(anyValue(gatewayMap["handshake-timeout-ms"], 0), 0),
+		ReconnectMinMs:     int64Value(anyValue(gatewayMap["reconnect-min-ms"], 0), 0),
+		ReconnectMaxMs:     int64Value(anyValue(gatewayMap["reconnect-max-ms"], 0), 0),
+	}
+	return cfg, nil
+}
+
+func parseChannelAgents(value any) (bool, []string, error) {
+	if value == nil {
+		return true, nil, nil
+	}
+	switch typed := value.(type) {
+	case string:
+		typed = strings.TrimSpace(typed)
+		if typed == "" || typed == "*" {
+			return true, nil, nil
+		}
+		return false, []string{typed}, nil
+	case []any:
+		agents := make([]string, 0, len(typed))
+		seen := map[string]struct{}{}
+		for _, item := range typed {
+			agentKey := strings.TrimSpace(stringValue(item, ""))
+			if agentKey == "" {
+				return false, nil, fmt.Errorf("agent key must not be empty")
+			}
+			if agentKey == "*" {
+				return false, nil, fmt.Errorf(`"*" must be used as a scalar, not inside a list`)
+			}
+			if _, exists := seen[agentKey]; exists {
+				continue
+			}
+			seen[agentKey] = struct{}{}
+			agents = append(agents, agentKey)
+		}
+		return false, agents, nil
+	default:
+		return false, nil, fmt.Errorf("must be \"*\" or a list of agent keys")
+	}
 }
 
 func (c *Config) applyEnv() {
@@ -730,7 +871,7 @@ func (c *Config) applyEnv() {
 	}
 }
 
-func (c *Config) normalize() {
+func (c *Config) normalize() error {
 	c.Paths.RegistriesDir = filepath.Clean(c.Paths.RegistriesDir)
 	c.Paths.ToolsDir = filepath.Clean(c.Paths.ToolsDir)
 	c.Paths.OwnerDir = filepath.Clean(c.Paths.OwnerDir)
@@ -763,12 +904,76 @@ func (c *Config) normalize() {
 		c.Bash.WorkingDirectory = "."
 	}
 
-	c.normalizeGateways()
+	if err := c.normalizeChannels(); err != nil {
+		return err
+	}
+	if err := c.normalizeGateways(); err != nil {
+		return err
+	}
+	return nil
 }
 
 // normalizeGateways 把 legacy 单 gateway 配置（GATEWAY_WS_URL/TOKEN）合成为 Gateways[0]。
 // 已有 Gateways 列表时补缺省字段（ID、reconnect 参数），不覆盖已显式设置的值。
-func (c *Config) normalizeGateways() {
+func (c *Config) normalizeChannels() error {
+	if len(c.Channels) == 0 {
+		return nil
+	}
+	seenChannelIDs := map[string]struct{}{}
+	existingGatewayIDs := map[string]struct{}{}
+	existingGatewayChannels := map[string]struct{}{}
+	for _, gateway := range c.Gateways {
+		id := strings.TrimSpace(gateway.ID)
+		if id != "" {
+			existingGatewayIDs[id] = struct{}{}
+		}
+		channel := strings.TrimSpace(gateway.Channel)
+		if channel != "" {
+			existingGatewayChannels[channel] = struct{}{}
+		}
+	}
+	if strings.TrimSpace(c.GatewayWS.URL) != "" {
+		existingGatewayIDs["default"] = struct{}{}
+		if legacyChannel := deriveChannelFromURL(c.GatewayWS.URL); legacyChannel != "" {
+			existingGatewayChannels[legacyChannel] = struct{}{}
+		}
+	}
+
+	for _, channelCfg := range c.Channels {
+		channelID := strings.TrimSpace(channelCfg.ID)
+		if channelID == "" {
+			return fmt.Errorf("channels config: channel id must not be empty")
+		}
+		if _, exists := seenChannelIDs[channelID]; exists {
+			return fmt.Errorf("channels config: duplicate channel id %q", channelID)
+		}
+		seenChannelIDs[channelID] = struct{}{}
+		if _, exists := existingGatewayChannels[channelID]; exists {
+			return fmt.Errorf("channels config: channel %q conflicts with an existing gateway channel", channelID)
+		}
+		if _, exists := existingGatewayIDs[channelID]; exists {
+			return fmt.Errorf("channels config: channel %q conflicts with an existing gateway id", channelID)
+		}
+		if strings.TrimSpace(channelCfg.Gateway.URL) == "" {
+			return fmt.Errorf("channels config: channel %q gateway.url is required", channelID)
+		}
+		c.Gateways = append(c.Gateways, GatewayEntry{
+			ID:                 channelID,
+			Channel:            channelID,
+			URL:                strings.TrimSpace(channelCfg.Gateway.URL),
+			JwtToken:           strings.TrimSpace(channelCfg.Gateway.JwtToken),
+			BaseURL:            strings.TrimSpace(channelCfg.Gateway.BaseURL),
+			HandshakeTimeoutMs: channelCfg.Gateway.HandshakeTimeoutMs,
+			ReconnectMinMs:     channelCfg.Gateway.ReconnectMinMs,
+			ReconnectMaxMs:     channelCfg.Gateway.ReconnectMaxMs,
+		})
+		existingGatewayIDs[channelID] = struct{}{}
+		existingGatewayChannels[channelID] = struct{}{}
+	}
+	return nil
+}
+
+func (c *Config) normalizeGateways() error {
 	if len(c.Gateways) == 0 && strings.TrimSpace(c.GatewayWS.URL) != "" {
 		c.Gateways = append(c.Gateways, GatewayEntry{
 			ID:                 "default",
@@ -808,6 +1013,24 @@ func (c *Config) normalizeGateways() {
 			g.Channel = deriveChannelFromURL(g.URL)
 		}
 	}
+	seenIDs := map[string]struct{}{}
+	seenChannels := map[string]struct{}{}
+	for _, gateway := range c.Gateways {
+		id := strings.TrimSpace(gateway.ID)
+		if _, exists := seenIDs[id]; exists {
+			return fmt.Errorf("gateway config: duplicate id %q", id)
+		}
+		seenIDs[id] = struct{}{}
+		channel := strings.TrimSpace(gateway.Channel)
+		if channel == "" {
+			continue
+		}
+		if _, exists := seenChannels[channel]; exists {
+			return fmt.Errorf("gateway config: duplicate channel %q", channel)
+		}
+		seenChannels[channel] = struct{}{}
+	}
+	return nil
 }
 
 // deriveChannelFromURL 从 gateway URL 的 ?channel=xxx 参数提取 channel 名；

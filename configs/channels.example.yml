@@ -1,0 +1,29 @@
+channels:
+  wecom:
+    name: 企业微信
+    type: bridge
+    default-agent: customer-service
+    agents: "*"
+    gateway:
+      url: ${WECOM_BRIDGE_WS_URL}
+      jwt-token: ${WECOM_BRIDGE_JWT_TOKEN}
+
+  feishu:
+    name: 飞书
+    type: bridge
+    default-agent: assistant
+    agents:
+      - assistant
+      - code-helper
+    gateway:
+      url: ${FEISHU_BRIDGE_WS_URL}
+      jwt-token: ${FEISHU_BRIDGE_JWT_TOKEN}
+
+  mobile:
+    name: 手机 App
+    type: gateway
+    default-agent: assistant
+    agents: "*"
+    gateway:
+      url: ${MOBILE_GATEWAY_WS_URL}
+      jwt-token: ${MOBILE_GATEWAY_JWT_TOKEN}
