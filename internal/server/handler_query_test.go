@@ -186,7 +186,6 @@ func TestPrepareQueryBuildsLayeredMemoryContexts(t *testing.T) {
 				Name:          "Agent A",
 				ModelKey:      "mock-model",
 				MemoryEnabled: true,
-				ContextTags:   []string{"memory"},
 			},
 		},
 	}}
@@ -371,7 +370,6 @@ func TestPrepareQueryDedupesNearDuplicateStableFacts(t *testing.T) {
 				Name:          "Agent A",
 				ModelKey:      "mock-model",
 				MemoryEnabled: true,
-				ContextTags:   []string{"memory"},
 			},
 		},
 	}}
@@ -460,7 +458,6 @@ func TestPrepareQueryDedupesNearDuplicateAcrossStableAndSession(t *testing.T) {
 				Name:          "Agent A",
 				ModelKey:      "mock-model",
 				MemoryEnabled: true,
-				ContextTags:   []string{"memory"},
 			},
 		},
 	}}

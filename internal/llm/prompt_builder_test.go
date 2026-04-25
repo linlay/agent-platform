@@ -10,15 +10,15 @@ import (
 
 func TestBuildSystemPromptPlacesStaticMemoryBeforeRuntimeMemory(t *testing.T) {
 	prompt := buildSystemPrompt(QuerySession{
-		AgentKey:            "demo",
-		AgentName:           "Demo",
-		AgentRole:           "Prompt Tester",
-		AgentDescription:    "Verifies prompt ordering",
-		Mode:                "REACT",
-		SoulPrompt:          "soul",
-		StaticMemoryPrompt:  "static-memory",
-		ContextTags:         []string{"memory"},
-		StableMemoryContext: "Runtime Context: Stable Memory\n- stable-fact",
+		AgentKey:             "demo",
+		AgentName:            "Demo",
+		AgentRole:            "Prompt Tester",
+		AgentDescription:     "Verifies prompt ordering",
+		Mode:                 "REACT",
+		SoulPrompt:           "soul",
+		StaticMemoryPrompt:   "static-memory",
+		AgentHasMemoryConfig: true,
+		StableMemoryContext:  "Runtime Context: Stable Memory\n- stable-fact",
 	}, api.QueryRequest{}, "", PromptBuildOptions{})
 
 	staticIndex := strings.Index(prompt, "static-memory")
@@ -132,6 +132,29 @@ func TestBuildRuntimeContextPromptAutoIncludesSandboxSection(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "environmentId: browser") {
 		t.Fatalf("expected sandbox environment details in prompt, got %q", prompt)
+	}
+}
+
+func TestBuildRuntimeContextPromptAutoIncludesMemorySection(t *testing.T) {
+	prompt := buildRuntimeContextPrompt(QuerySession{
+		AgentHasMemoryConfig: true,
+		StableMemoryContext:  "Runtime Context: Stable Memory\n- stable-fact",
+	}, api.QueryRequest{})
+
+	if !strings.Contains(prompt, "Runtime Context: Stable Memory") {
+		t.Fatalf("expected memory section in prompt, got %q", prompt)
+	}
+}
+
+func TestBuildRuntimeContextPromptSkipsMemoryFallbackWithoutMemoryConfig(t *testing.T) {
+	prompt := buildRuntimeContextPrompt(QuerySession{}, api.QueryRequest{
+		Params: map[string]any{
+			"memoryContext": "legacy-memory",
+		},
+	})
+
+	if strings.Contains(prompt, "Runtime Context: Agent Memory") {
+		t.Fatalf("expected memory fallback to stay gated by memory config, got %q", prompt)
 	}
 }
 

@@ -140,6 +140,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		SandboxLevel:          extractSandboxField(agentDef.Sandbox, "level"),
 		SandboxExtraMounts:    sandboxExtraMounts(agentDef.Sandbox["extraMounts"]),
 		AgentHasSandboxConfig: hasSandboxConfig(agentDef.Sandbox),
+		AgentHasMemoryConfig:  agentDef.MemoryEnabled,
 		SkillHookDirs:         skillHookDirs,
 		SandboxEnvOverrides:   sandboxEnvOverrides,
 	}

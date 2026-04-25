@@ -109,23 +109,21 @@ plain:
 支持/归一化后的标签：
 
 - `system`
-- `context`
+- `session`
 - `owner`
-- `auth`
 - `all-agents`
-- `memory`
 
 兼容别名映射：
 
-- `agent_identity` / `run_session` / `scene` / `references` / `execution_policy` / `skills` -> `context`
-- `memory_context` -> `memory`
+- `context` / `auth` / `agent_identity` / `run_session` / `scene` / `references` / `execution_policy` / `skills` -> `session`
+- `sandbox` / `memory` / `memory_context` -> 丢弃（不再作为 context tag 生效）
 
 其中：
 
-- `context` 会暴露运行时上下文与 sandbox 路径
+- `session` 会暴露运行时上下文
 - `owner` 会注入 `OWNER_DIR` 下的 markdown 内容
-- `memory` 会注入运行期 memory context
 - `sandbox` 不再通过 `context tags` 控制；只要 agent 声明了 `sandboxConfig`，运行时会自动注入 sandbox context
+- runtime memory context 不再通过 `context tags` 控制；只要 agent 开启 `memoryConfig.enabled`（或使用默认开启行为），运行时就会自动注入 memory context
 
 ## Static Memory 与 Runtime Memory
 

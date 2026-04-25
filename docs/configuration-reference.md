@@ -389,20 +389,18 @@ provider registry 中的 `apiKey` 支持以下两种形态：
 当前支持/归一化后的标签：
 
 - `system`
-- `context`
+- `session`
 - `owner`
-- `auth`
 - `all-agents`
-- `memory`
 
 兼容别名映射：
 
-- `agent_identity` / `run_session` / `scene` / `references` / `execution_policy` / `skills` -> `context`
-- `memory_context` -> `memory`
+- `context` / `auth` / `agent_identity` / `run_session` / `scene` / `references` / `execution_policy` / `skills` -> `session`
+- `sandbox` / `memory` / `memory_context` -> 丢弃（不再作为 context tag 生效）
 
 说明：
 
-- `context` 负责暴露运行上下文与 sandbox 路径，例如 `sandbox_owner_dir=/owner`、`sandbox_memory_dir=/memory`
+- `session` 负责暴露运行上下文
 - `owner` 负责注入 `OWNER_DIR` 下的 markdown 内容
-- `memory` 负责注入运行期 memory context
 - `sandbox` 不再属于 `context tags`；只要 agent 配置了 `sandboxConfig`，运行时就会自动注入 sandbox context
+- runtime memory context 不再属于 `context tags`；只要 agent 开启 `memoryConfig.enabled`（或使用默认开启行为），运行时就会自动注入 memory context

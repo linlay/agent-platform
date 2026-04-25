@@ -16,7 +16,7 @@ import (
 )
 
 func TestAgentEndpointReturnsDetail(t *testing.T) {
-	fixture := newTestFixture(t)
+	fixture := newMemoryEnabledTestFixture(t)
 	rec := httptest.NewRecorder()
 
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agent?agentKey=mock-runner", nil))
@@ -115,7 +115,7 @@ func TestAgentEndpointRequiresAgentKey(t *testing.T) {
 }
 
 func TestToolEndpointReturnsCanonicalJavaBuiltinSchemas(t *testing.T) {
-	fixture := newTestFixture(t)
+	fixture := newMemoryEnabledTestFixture(t)
 
 	for _, tc := range []struct {
 		toolName         string

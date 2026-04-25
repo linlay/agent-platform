@@ -64,8 +64,8 @@ func TestParseAgentFileIgnoresLegacyToolConfigBuckets(t *testing.T) {
 		t.Fatalf("parse agent file: %v", err)
 	}
 	for _, tool := range []string{"_memory_write_", "_memory_read_", "_memory_search_"} {
-		if !containsString(def.Tools, tool) {
-			t.Fatalf("expected default memory tool %s, got %#v", tool, def.Tools)
+		if containsString(def.Tools, tool) {
+			t.Fatalf("expected default memory tool %s to stay disabled, got %#v", tool, def.Tools)
 		}
 	}
 	for _, tool := range []string{"datetime", "ask_user_question", "plan_update_task"} {

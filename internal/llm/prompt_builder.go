@@ -125,13 +125,14 @@ func buildRuntimeContextPrompt(session QuerySession, req api.QueryRequest) strin
 			appendIfPresent(&sections, buildOwnerSection(session.RuntimeContext.LocalPaths))
 		case "all-agents":
 			appendIfPresent(&sections, buildAllAgentsSection(session.RuntimeContext.AgentDigests))
-		case "memory":
-			appendIfPresent(&sections, buildMemorySection(session, req))
 		default:
 		}
 	}
 	if session.AgentHasSandboxConfig || session.RuntimeContext.SandboxContext != nil {
 		appendIfPresent(&sections, buildSandboxSection(session.RuntimeContext.SandboxContext))
+	}
+	if session.AgentHasMemoryConfig {
+		appendIfPresent(&sections, buildMemorySection(session, req))
 	}
 	return strings.Join(sections, "\n\n")
 }

@@ -107,6 +107,7 @@ type QuerySession struct {
 	SandboxLevel          string
 	SandboxExtraMounts    []SandboxExtraMount
 	AgentHasSandboxConfig bool
+	AgentHasMemoryConfig  bool
 	SkillHookDirs         []string
 	// SandboxEnvOverrides carries agent/skill-level env defaults for both sandbox and host bash execution.
 	SandboxEnvOverrides map[string]string

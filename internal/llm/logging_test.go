@@ -34,11 +34,11 @@ func TestLogPromptMemoryWritesDedicatedMemoryLog(t *testing.T) {
 		},
 	}
 	engine.logPromptMemory("run-1", "react", api.QueryRequest{}, QuerySession{
-		RequestID:           "req-1",
-		ChatID:              "chat-1",
-		AgentKey:            "agent-a",
-		ContextTags:         []string{"memory"},
-		StableMemoryContext: "偏好：每周工时要保证 40h",
+		RequestID:            "req-1",
+		ChatID:               "chat-1",
+		AgentKey:             "agent-a",
+		AgentHasMemoryConfig: true,
+		StableMemoryContext:  "偏好：每周工时要保证 40h",
 	})
 
 	data, err := os.ReadFile(logPath)

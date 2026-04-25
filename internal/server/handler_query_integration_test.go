@@ -181,7 +181,7 @@ func TestQueryGeneratesBase36RunIDWhenMissing(t *testing.T) {
 }
 
 func TestRememberEndpointReturnsStoredMemory(t *testing.T) {
-	fixture := newTestFixture(t)
+	fixture := newMemoryEnabledTestFixture(t)
 	server := fixture.server
 
 	queryReq := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"记住这个答案"}`))

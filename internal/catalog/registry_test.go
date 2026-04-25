@@ -169,7 +169,7 @@ func TestParseAgentFileNormalizesJavaContextTagsAndRuntimePrompts(t *testing.T) 
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	if got := strings.Join(def.ContextTags, ","); got != "session,memory" {
+	if got := strings.Join(def.ContextTags, ","); got != "session" {
 		t.Fatalf("expected normalized context tags, got %q", got)
 	}
 	if def.RuntimePrompts.Skill.CatalogHeader != "skills-header-override" {
@@ -224,7 +224,8 @@ func TestNormalizeContextTagMapsLegacySessionTags(t *testing.T) {
 		"references":       "session",
 		"execution_policy": "session",
 		"skills":           "session",
-		"memory_context":   "memory",
+		"memory":           "",
+		"memory_context":   "",
 		"sandbox":          "",
 	}
 	for input, want := range cases {
@@ -263,7 +264,7 @@ func TestParseAgentFileDropsSandboxContextTag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	if got := strings.Join(def.ContextTags, ","); got != "system,memory" {
+	if got := strings.Join(def.ContextTags, ","); got != "system" {
 		t.Fatalf("expected sandbox tag to be dropped, got %q", got)
 	}
 }
@@ -299,7 +300,7 @@ func TestLoadAgentsDoesNotExposeSandboxInContextTagsMeta(t *testing.T) {
 		t.Fatalf("loadAgents: %v", err)
 	}
 	def := agents["zenmi"]
-	if got := strings.Join(def.ContextTags, ","); got != "memory" {
+	if got := strings.Join(def.ContextTags, ","); got != "" {
 		t.Fatalf("expected sandbox tag to be removed from loaded agent, got %q", got)
 	}
 }
