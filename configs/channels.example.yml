@@ -22,8 +22,8 @@ channels:
   mobile:
     name: 手机 App
     type: gateway
-    default-agent: assistant
+    default-agent: ""
     agents: "*"
     gateway:
-      url: ${MOBILE_GATEWAY_WS_URL}
+      url: ws://127.0.0.1:11945/ws/agent?userId=local&agentKey=personal&channel=mobile
       jwt-token: ${MOBILE_GATEWAY_JWT_TOKEN}

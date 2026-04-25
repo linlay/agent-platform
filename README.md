@@ -73,6 +73,45 @@ curl "http://127.0.0.1:11949/api/agent?agentKey=go_runner"
 curl http://127.0.0.1:11949/api/chats
 ```
 
+### Mobile Gateway 本地联调
+
+`agent-platform` 不会自行签发 gateway JWT。本地 mobile channel 联调时，需要先生成一对 RSA 密钥，并把预签名 token 写进 `.env`。
+
+```bash
+# 1. 在 agent-platform 根目录生成开发用密钥
+openssl genrsa -out configs/gateway-private-key.pem 2048
+openssl rsa -in configs/gateway-private-key.pem -pubout -out configs/gateway-public-key.pem
+
+# 2. 生成 platform -> gateway 使用的 RS256 JWT
+go run ./scripts/gen-gateway-token.go -key configs/gateway-private-key.pem -sub local
+```
+
+把输出的 token 填到 `.env`：
+
+```bash
+MOBILE_GATEWAY_JWT_TOKEN=<paste-token-here>
+```
+
+然后在本地忽略文件 `configs/channels.yml` 中加入 mobile channel：
+
+```yaml
+channels:
+  mobile:
+    name: 手机 App
+    type: gateway
+    default-agent: ""
+    agents: "*"
+    gateway:
+      url: ws://127.0.0.1:11945/ws/agent?userId=local&agentKey=personal&channel=mobile
+      jwt-token: ${MOBILE_GATEWAY_JWT_TOKEN}
+```
+
+注意事项：
+
+- `JWT.sub` 必须和 `gateway.url` 中的 `userId` 完全一致；上例要求 `sub=local`
+- `configs/gateway-private-key.pem` 和真实 `configs/channels.yml` 都是本地文件，不提交
+- `zenmind-gateway-server` 本地联调时请使用 `make run`，它会自动加载 `.env`
+
 ### 测试
 
 ```bash
@@ -133,10 +172,12 @@ Provider `apiKey` 支持两种写法：
 - `configs/container-hub.example.yml`
 - `configs/cors.example.yml`
 - `configs/local-public-key.example.pem`
+- `configs/channels.example.yml`
 
 当前 Go runner 实际会读取：
 
 - `configs/bash.yml`
+- `configs/channels.yml`
 - `configs/container-hub.yml`
 - `configs/cors.yml`
 - `configs/local-public-key.pem`
