@@ -945,10 +945,10 @@ func TestBashHITLApproveFlow(t *testing.T) {
 		!strings.Contains(body, `"status":"answered"`) ||
 		!strings.Contains(body, `"action":"submit"`) ||
 		!strings.Contains(body, `"id":"form-1"`) ||
-		!strings.Contains(body, `"payload":`+expectedSubmitPayload) {
+		!strings.Contains(body, `"form":`+expectedSubmitPayload) {
 		t.Fatalf("expected approve awaiting.answer in stream, got %s", body)
 	}
-	if !strings.Contains(body, `"payload":`+string(expectedAwaitPayload)) {
+	if !strings.Contains(body, `"form":`+string(expectedAwaitPayload)) {
 		t.Fatalf("expected form awaiting.ask payload in stream, got %s", body)
 	}
 	if !strings.Contains(body, `"title":"mock 请假申请"`) {
@@ -1102,8 +1102,14 @@ func TestBashHITLApproveFlowReplaysApprovalSummaryInChatRawMessages(t *testing.T
 	if hitlCount != 1 {
 		t.Fatalf("expected exactly one replayed HITL summary raw message, got %#v", chatResp.Data.RawMessages)
 	}
-	if hitlIndex == 0 || chatResp.Data.RawMessages[hitlIndex-1]["role"] != "tool" {
-		t.Fatalf("expected HITL raw message to follow tool result, got %#v", chatResp.Data.RawMessages)
+	toolIndex := -1
+	for i, message := range chatResp.Data.RawMessages {
+		if message["role"] == "tool" {
+			toolIndex = i
+		}
+	}
+	if toolIndex < 0 || toolIndex >= hitlIndex {
+		t.Fatalf("expected HITL raw message to appear after tool result, got %#v", chatResp.Data.RawMessages)
 	}
 	if !strings.Contains(stringValue(chatResp.Data.RawMessages[hitlIndex]["content"]), `[HITL] docker rmi nginx:latest → approve`) {
 		t.Fatalf("expected replayed HITL summary content, got %#v", chatResp.Data.RawMessages[hitlIndex])
@@ -1189,7 +1195,7 @@ func TestBashHITLModifyFlow(t *testing.T) {
 		!strings.Contains(body, `"status":"answered"`) ||
 		!strings.Contains(body, `"action":"submit"`) ||
 		!strings.Contains(body, `"id":"form-1"`) ||
-		!strings.Contains(body, `"payload":`+string(expectedSubmitPayload)) {
+		!strings.Contains(body, `"form":`+string(expectedSubmitPayload)) {
 		t.Fatalf("expected modify awaiting.answer in stream, got %s", body)
 	}
 	if strings.Contains(body, "map[") {
@@ -1209,12 +1215,31 @@ func TestBashHITLRejectFlow(t *testing.T) {
 	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
 		!strings.Contains(body, `"status":"answered"`) ||
 		!strings.Contains(body, `"action":"reject"`) ||
-		!strings.Contains(body, `"id":"form-1"`) ||
-		!strings.Contains(body, `"reason":"user_cancelled"`) {
+		!strings.Contains(body, `"id":"form-1"`) {
 		t.Fatalf("expected reject awaiting.answer in stream, got %s", body)
 	}
 	if strings.Contains(body, "map[") {
 		t.Fatalf("did not expect Go map string in stream, got %s", body)
+	}
+}
+
+func TestBashHITLCancelFlow(t *testing.T) {
+	body, executed := runBashHITLFlow(t, bashHITLFlowOptions{action: "cancel"})
+	if len(executed) != 0 {
+		t.Fatalf("expected cancelled command not to execute, got %#v", executed)
+	}
+	resultPayload := findToolResultPayload(t, body, "tool_bash")
+	if got, ok := resultPayload["result"].(string); !ok || got != "user_rejected: User rejected this command. Do NOT retry with a different command. End the turn now." {
+		t.Fatalf("expected hard-stop cancelled tool result, got %s", body)
+	}
+	if !strings.Contains(body, `"type":"request.submit"`) || !strings.Contains(body, `"action":"cancel"`) {
+		t.Fatalf("expected cancel request.submit payload in stream, got %s", body)
+	}
+	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
+		!strings.Contains(body, `"status":"answered"`) ||
+		!strings.Contains(body, `"action":"cancel"`) ||
+		!strings.Contains(body, `"id":"form-1"`) {
+		t.Fatalf("expected cancel awaiting.answer in stream, got %s", body)
 	}
 }
 
@@ -1299,7 +1324,7 @@ func TestBashHITLApproveFlowForExpenseCreate(t *testing.T) {
 	if !strings.Contains(body, `"viewportKey":"expense_form"`) {
 		t.Fatalf("expected expense_form viewport in stream, got %s", body)
 	}
-	if !strings.Contains(body, `"payload":`+string(expectedAwaitPayload)) {
+	if !strings.Contains(body, `"form":`+string(expectedAwaitPayload)) {
 		t.Fatalf("expected expense approval payload in stream, got %s", body)
 	}
 }
@@ -1331,7 +1356,7 @@ func TestBashHITLApproveFlowForProcurementCreate(t *testing.T) {
 	if !strings.Contains(body, `"viewportKey":"procurement_form"`) {
 		t.Fatalf("expected procurement_form viewport in stream, got %s", body)
 	}
-	if !strings.Contains(body, `"payload":`+string(expectedAwaitPayload)) {
+	if !strings.Contains(body, `"form":`+string(expectedAwaitPayload)) {
 		t.Fatalf("expected procurement approval payload in stream, got %s", body)
 	}
 }
@@ -1564,15 +1589,18 @@ submit:
 		var submitPayload string
 		if strings.EqualFold(stringValue(awaitAskPayload["mode"]), "form") {
 			if options.action == "reject" {
-				submitPayload = `[{"id":"form-1","reason":"user_cancelled"}]`
+				submitPayload = `[{"id":"form-1","action":"reject"}]`
+			} else if options.action == "cancel" {
+				submitPayload = `[{"id":"form-1","action":"cancel"}]`
 			} else {
 				submitCommand := command
 				if options.action == "modify" {
 					submitCommand = options.modifiedCommand
 				}
 				payloadJSON, err := json.Marshal([]map[string]any{{
-					"id":      "form-1",
-					"payload": payloadFromCommandForTest(t, submitCommand),
+					"id":     "form-1",
+					"action": "submit",
+					"form":   payloadFromCommandForTest(t, submitCommand),
 				}})
 				if err != nil {
 					t.Fatalf("marshal html submit payload: %v", err)
@@ -1630,12 +1658,8 @@ submit:
 		if toolMessages < 1 {
 			t.Fatalf("expected second turn to receive original bash tool result, got %#v", secondTurn)
 		}
-		if strings.EqualFold(stringValue(awaitAskPayload["mode"]), "approval") {
-			if hitlSummaries != 1 {
-				t.Fatalf("expected one HITL summary user message for approval flow, got %#v", secondTurn)
-			}
-		} else if hitlSummaries != 0 {
-			t.Fatalf("did not expect HITL summary user message for form flow, got %#v", secondTurn)
+		if hitlSummaries != 1 {
+			t.Fatalf("expected one HITL summary user message, got %#v", secondTurn)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timed out waiting for second provider request")
@@ -1854,7 +1878,7 @@ func TestValidateSubmitParamsAllowsOrderedItemsWithoutIDs(t *testing.T) {
 			mode:      "form",
 			itemCount: 1,
 			params: mustEncodeSubmitParams(t, []map[string]any{
-				{"payload": map[string]any{"days": 2}},
+				{"action": "submit", "form": map[string]any{"days": 2}},
 			}),
 		},
 	}
@@ -1902,7 +1926,7 @@ func TestValidateSubmitParamsIgnoresSubmittedIDsWhenCountMatches(t *testing.T) {
 			mode:      "form",
 			itemCount: 1,
 			params: mustEncodeSubmitParams(t, []map[string]any{
-				{"id": "wrong-form", "reason": "user_cancelled"},
+				{"id": "wrong-form", "action": "cancel"},
 			}),
 		},
 	}
@@ -1954,10 +1978,28 @@ func TestValidateSubmitParamsRejectsInvalidShape(t *testing.T) {
 			wantSubstr: "items[0]: approval items require decision",
 		},
 		{
-			name:       "form payload not object",
+			name:       "form missing action",
 			mode:       "form",
-			item:       map[string]any{"payload": "bad"},
-			wantSubstr: "items[0]: form payload must be an object",
+			item:       map[string]any{"form": map[string]any{"days": 2}},
+			wantSubstr: "items[0]: form items require action",
+		},
+		{
+			name:       "form invalid action",
+			mode:       "form",
+			item:       map[string]any{"action": "approve"},
+			wantSubstr: `items[0]: unsupported form action "approve"`,
+		},
+		{
+			name:       "form submit missing form",
+			mode:       "form",
+			item:       map[string]any{"action": "submit"},
+			wantSubstr: "items[0]: submit action requires form",
+		},
+		{
+			name:       "form field not object",
+			mode:       "form",
+			item:       map[string]any{"action": "submit", "form": "bad"},
+			wantSubstr: "items[0]: form field must be an object",
 		},
 	}
 

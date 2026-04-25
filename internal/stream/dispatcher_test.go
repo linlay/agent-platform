@@ -255,7 +255,7 @@ func TestDispatcherEmitsApprovalModeAwaitAskWithPayloadOnlyForForm(t *testing.T)
 			map[string]any{
 				"id":    "form-1",
 				"title": "mock 请假申请",
-				"payload": map[string]any{
+				"form": map[string]any{
 					"applicant":  "Lin",
 					"days":       3,
 					"leave_type": "年假",
@@ -273,10 +273,10 @@ func TestDispatcherEmitsApprovalModeAwaitAskWithPayloadOnlyForForm(t *testing.T)
 	if _, exists := form["command"]; exists {
 		t.Fatalf("did not expect form command in awaiting.ask payload, got %#v", payload)
 	}
-	formPayload, _ := form["payload"].(map[string]any)
+	formPayload, _ := form["form"].(map[string]any)
 	applicant, _ := formPayload["applicant"].(string)
 	if formPayload == nil || applicant != "Lin" || formPayload["days"] != 3 {
-		t.Fatalf("expected payload in form awaiting.ask, got %#v", payload)
+		t.Fatalf("expected form data in form awaiting.ask, got %#v", payload)
 	}
 	if form["title"] != "mock 请假申请" {
 		t.Fatalf("expected title in form awaiting.ask, got %#v", payload)
@@ -523,7 +523,7 @@ func TestEventDataMarshalsAwaitAskWithFormsBeforeTimestamp(t *testing.T) {
 			map[string]any{
 				"id":    "form-1",
 				"title": "mock 请假申请",
-				"payload": map[string]any{
+				"form": map[string]any{
 					"applicant": "Lin",
 				},
 			},
@@ -534,7 +534,7 @@ func TestEventDataMarshalsAwaitAskWithFormsBeforeTimestamp(t *testing.T) {
 		t.Fatalf("marshal event data: %v", err)
 	}
 	text := string(data)
-	formsIndex := strings.Index(text, `"forms":[{"id":"form-1","payload":{"applicant":"Lin"},"title":"mock 请假申请"}]`)
+	formsIndex := strings.Index(text, `"forms":[{"form":{"applicant":"Lin"},"id":"form-1","title":"mock 请假申请"}]`)
 	timestampIndex := strings.Index(text, `"timestamp":`)
 	if formsIndex < 0 || timestampIndex < 0 || formsIndex >= timestampIndex {
 		t.Fatalf("expected forms before timestamp in %s", text)
@@ -640,7 +640,7 @@ func TestDispatcherEmitsAwaitingAnswerForApprovalFormSubmit(t *testing.T) {
 				map[string]any{
 					"id":     "form-1",
 					"action": "submit",
-					"payload": map[string]any{
+					"form": map[string]any{
 						"applicant_id":  "E1001",
 						"department_id": "engineering",
 						"days":          2,
@@ -661,7 +661,7 @@ func TestDispatcherEmitsAwaitingAnswerForApprovalFormSubmit(t *testing.T) {
 	if len(forms) != 1 {
 		t.Fatalf("expected one form answer, got %#v", payload)
 	}
-	formPayload, _ := forms[0]["payload"].(map[string]any)
+	formPayload, _ := forms[0]["form"].(map[string]any)
 	if forms[0]["action"] != "submit" || formPayload["applicant_id"] != "E1001" || formPayload["days"] != 2 {
 		t.Fatalf("unexpected approval form payload %#v", payload)
 	}
@@ -792,7 +792,7 @@ func TestEventDataMarshalsAwaitingAnswerFormSubmitWithContractKeyOrder(t *testin
 			map[string]any{
 				"id":     "form-1",
 				"action": "submit",
-				"payload": map[string]any{
+				"form": map[string]any{
 					"applicant_id": "E1001",
 				},
 			},
@@ -810,7 +810,7 @@ func TestEventDataMarshalsAwaitingAnswerFormSubmitWithContractKeyOrder(t *testin
 		`"awaitingId":"tool_1"`,
 		`"mode":"form"`,
 		`"status":"answered"`,
-		`"forms":[{"action":"submit","id":"form-1","payload":{"applicant_id":"E1001"}}]`,
+		`"forms":[{"action":"submit","form":{"applicant_id":"E1001"},"id":"form-1"}]`,
 		`"timestamp":`,
 	}
 	prev := -1

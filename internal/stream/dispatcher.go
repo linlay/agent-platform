@@ -349,11 +349,8 @@ func formatAwaitingForms(raw any) []map[string]any {
 				"id":     id,
 				"action": action,
 			}
-			if payload, ok := form["payload"].(map[string]any); ok && len(payload) > 0 {
-				entry["payload"] = clonePayload(payload)
-			}
-			if reason := strings.TrimSpace(anyString(form["reason"])); reason != "" {
-				entry["reason"] = reason
+			if submittedForm, ok := form["form"].(map[string]any); ok && len(submittedForm) > 0 {
+				entry["form"] = clonePayload(submittedForm)
 			}
 			if command := strings.TrimSpace(anyString(form["command"])); command != "" {
 				entry["command"] = command

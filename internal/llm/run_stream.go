@@ -1466,7 +1466,7 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 		selectedForm := firstAwaitItem(normalized["forms"])
 		action := strings.ToLower(strings.TrimSpace(AnyStringNode(selectedForm["action"])))
 		if action == "submit" {
-			formPayload := AnyMapNode(selectedForm["payload"])
+			formPayload := AnyMapNode(selectedForm["form"])
 			rebuiltCommand, rebuildErr := reconstructCommandWithPayload(mapStringArg(invocation.args, "command"), formPayload)
 			if rebuildErr != nil {
 				payload := NewErrorPayload(
@@ -1495,7 +1495,7 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 			invocation.hitlDecision.FormPayload = formPayload
 			return s.executeOriginalBash(invocation)
 		}
-		s.applyHITLDecision(invocation, *match, awaitingID, "reject", strings.TrimSpace(AnyStringNode(selectedForm["reason"])), false)
+		s.applyHITLDecision(invocation, *match, awaitingID, "reject", "", false)
 		s.appendOriginalToolResult(invocation, hitlRejectedToolResult(invocation))
 		return nil
 	}
@@ -1567,12 +1567,12 @@ func (s *llmRunStream) buildFormApprovalArgs(command string, result hitl.Interce
 		form["title"] = title
 	}
 	if payload := extractCommandPayload(result.ParsedCommand); len(payload) > 0 {
-		form["payload"] = payload
+		form["form"] = payload
 		args["forms"] = []any{form}
 		return args
 	}
 	if payload := extractPayloadFromOriginalCommand(result.OriginalCommand); len(payload) > 0 {
-		form["payload"] = payload
+		form["form"] = payload
 		args["forms"] = []any{form}
 		return args
 	}

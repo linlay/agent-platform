@@ -96,16 +96,30 @@ func validateSubmitItem(mode string, index int, item map[string]any) error {
 		if _, hasAnswers := item["answers"]; hasAnswers {
 			return fmt.Errorf("%s: form items do not allow answers", itemLabel)
 		}
-		_, hasPayload := item["payload"]
-		reason := strings.TrimSpace(stringValue(item["reason"]))
-		if hasPayload {
-			payload, ok := item["payload"].(map[string]any)
-			if !ok || payload == nil {
-				return fmt.Errorf("%s: form payload must be an object", itemLabel)
+		if _, hasPayload := item["payload"]; hasPayload {
+			return fmt.Errorf("%s: form items do not allow payload", itemLabel)
+		}
+		if _, hasReason := item["reason"]; hasReason {
+			return fmt.Errorf("%s: form items do not allow reason", itemLabel)
+		}
+		action := strings.ToLower(strings.TrimSpace(stringValue(item["action"])))
+		if action == "" {
+			return fmt.Errorf("%s: form items require action", itemLabel)
+		}
+		if rawForm, hasForm := item["form"]; hasForm {
+			form, ok := rawForm.(map[string]any)
+			if !ok || form == nil {
+				return fmt.Errorf("%s: form field must be an object", itemLabel)
 			}
-			if reason != "" {
-				return fmt.Errorf("%s: form items cannot include both payload and reason", itemLabel)
+		}
+		switch action {
+		case "submit":
+			if _, hasForm := item["form"]; !hasForm {
+				return fmt.Errorf("%s: submit action requires form", itemLabel)
 			}
+		case "reject", "cancel":
+		default:
+			return fmt.Errorf("%s: unsupported form action %q", itemLabel, action)
 		}
 	default:
 		return fmt.Errorf("unsupported awaiting mode: %s", mode)

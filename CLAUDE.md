@@ -273,14 +273,14 @@ sandboxConfig:
 
 - `mode=form`
   - 来源：Bash HITL html form
-  - `awaiting.ask`：`{"awaitingId":"...","mode":"form","viewportType":"html","viewportKey":"leave_form","timeout":...,"runId":"...","forms":[{"id":"form-1","html?":"...","initialPayload":{...}}],"viewportPayload":{"forms":[{"id":"form-1","command":"...","initialPayload":{...}}]}}`
+  - `awaiting.ask`：`{"awaitingId":"...","mode":"form","viewportType":"html","viewportKey":"leave_form","timeout":...,"runId":"...","forms":[{"id":"form-1","html?":"...","form":{...}}]}`
   - form 是唯一保留 `viewportType:"html"` + `viewportKey` 的形态
   - `/api/submit.params`：
-    - submit：`[{"id":"form-1","payload":{...}}]`（`id` 可省略，仅作审计字段）
-    - reject：`[{"id":"form-1","reason":"..."}]`（`id` 可省略，仅作审计字段）
-    - cancel：`[{"id":"form-1"}]`（`id` 可省略，仅作审计字段）
+    - submit：`[{"id":"form-1","action":"submit","form":{...}}]`（`id` 可省略，仅作审计字段）
+    - reject：`[{"id":"form-1","action":"reject"}]`（`id` 可省略，仅作审计字段）
+    - cancel：`[{"id":"form-1","action":"cancel"}]`（`id` 可省略，仅作审计字段）
   - `awaiting.answer`：
-    - answered：`{"awaitingId":"...","mode":"form","status":"answered","forms":[{"id":"form-1","command":"...","action":"submit|reject|cancel","payload?":{...},"reason?":"..."}]}`
+    - answered：`{"awaitingId":"...","mode":"form","status":"answered","forms":[{"id":"form-1","command":"...","action":"submit|reject|cancel","form?":{...}}]}`
     - error：`{"awaitingId":"...","mode":"form","status":"error","error":{"code":"user_dismissed|timeout|invalid_submit","message":"..."}}`
   - 整批取消：`params: []`，归一化为 `status:"error" + error.code:"user_dismissed"`
 

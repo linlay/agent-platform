@@ -102,21 +102,22 @@ func NormalizeForm(args map[string]any, params any) (map[string]any, error) {
 			"id":      entryID,
 			"command": contracts.AnyStringNode(definition["command"]),
 		}
-		if rawPayload, exists := item["payload"]; exists {
-			payload := contracts.AnyMapNode(rawPayload)
-			if payload == nil {
-				return nil, fmt.Errorf("items[%d]: payload must be an object", index)
-			}
-			if _, hasReason := item["reason"]; hasReason {
-				return nil, fmt.Errorf("items[%d]: payload and reason cannot both be provided", index)
+		action := strings.ToLower(strings.TrimSpace(contracts.AnyStringNode(item["action"])))
+		if action == "" {
+			return nil, fmt.Errorf("items[%d]: action is required", index)
+		}
+		switch action {
+		case "submit":
+			form := contracts.AnyMapNode(item["form"])
+			if form == nil {
+				return nil, fmt.Errorf("items[%d]: form is required for submit", index)
 			}
 			entry["action"] = "submit"
-			entry["payload"] = payload
-		} else if reason := strings.TrimSpace(contracts.AnyStringNode(item["reason"])); reason != "" {
-			entry["action"] = "reject"
-			entry["reason"] = reason
-		} else {
-			entry["action"] = "cancel"
+			entry["form"] = form
+		case "reject", "cancel":
+			entry["action"] = action
+		default:
+			return nil, fmt.Errorf("items[%d]: unsupported action %q", index, action)
 		}
 		forms = append(forms, entry)
 	}

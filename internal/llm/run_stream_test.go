@@ -752,8 +752,9 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 			},
 			submitParams: encodedSubmitParams(t, []map[string]any{
 				{
-					"id":      "form-1",
-					"payload": sampleLeavePayload(2),
+					"id":     "form-1",
+					"action": "submit",
+					"form":   sampleLeavePayload(2),
 				},
 			}),
 			expectedCommand:          sampleLeaveCommand(2),
@@ -778,8 +779,9 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 			},
 			submitParams: encodedSubmitParams(t, []map[string]any{
 				{
-					"id": "form-1",
-					"payload": map[string]any{
+					"id":     "form-1",
+					"action": "submit",
+					"form": map[string]any{
 						"employee":     map[string]any{"id": "E1001", "name": "张三"},
 						"department":   map[string]any{"code": "engineering", "name": "工程部"},
 						"expense_type": "travel",
@@ -852,8 +854,9 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 			},
 			submitParams: encodedSubmitParams(t, []map[string]any{
 				{
-					"id": "form-1",
-					"payload": map[string]any{
+					"id":     "form-1",
+					"action": "submit",
+					"form": map[string]any{
 						"delivery_city": "Hangzhou",
 						"requester_id":  "E1001",
 					},
@@ -944,7 +947,7 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 				if _, ok := form["command"]; ok {
 					t.Fatalf("did not expect form command in awaiting.ask payload, got %#v", form)
 				}
-				formPayload, _ := form["payload"].(map[string]any)
+				formPayload, _ := form["form"].(map[string]any)
 				if !reflect.DeepEqual(formPayload, tc.expectedInitialPayload) {
 					t.Fatalf("expected form payload %#v, got %#v", tc.expectedInitialPayload, awaitAsk)
 				}
@@ -1359,7 +1362,7 @@ func TestAwaitHITLSubmitAndExecute_FormRejectEmitsHITLMetadataAndSummary(t *test
 		RunID:      "run_1",
 		AwaitingID: stream.hitlAwaitingID,
 		Params: encodedSubmitParams(t, []map[string]any{
-			{"id": "form-1", "reason": "用户取消"},
+			{"id": "form-1", "action": "reject"},
 		}),
 	})
 	if !ack.Accepted {
@@ -1382,8 +1385,11 @@ func TestAwaitHITLSubmitAndExecute_FormRejectEmitsHITLMetadataAndSummary(t *test
 		if typed.Result.Error != "user_rejected" {
 			t.Fatalf("expected user_rejected result, got %#v", typed.Result)
 		}
-		if typed.Result.HITL["mode"] != "form" || typed.Result.HITL["decision"] != "reject" || typed.Result.HITL["reason"] != "用户取消" {
+		if typed.Result.HITL["mode"] != "form" || typed.Result.HITL["decision"] != "reject" {
 			t.Fatalf("expected form reject HITL metadata, got %#v", typed.Result.HITL)
+		}
+		if _, ok := typed.Result.HITL["reason"]; ok {
+			t.Fatalf("did not expect reject reason for form reject, got %#v", typed.Result.HITL)
 		}
 		if _, ok := typed.Result.HITL["submittedPayload"]; ok {
 			t.Fatalf("did not expect submitted payload for form reject, got %#v", typed.Result.HITL)
@@ -1396,7 +1402,7 @@ func TestAwaitHITLSubmitAndExecute_FormRejectEmitsHITLMetadataAndSummary(t *test
 		t.Fatalf("expected form reject tool message and HITL summary, got %#v", stream.messages)
 	}
 	noticeText, _ := stream.messages[len(stream.messages)-1].Content.(string)
-	if !strings.Contains(noticeText, `[HITL] `) || !strings.Contains(noticeText, ` → reject（用户取消）`) || strings.Contains(noticeText, "提交参数:") {
+	if !strings.Contains(noticeText, `[HITL] `) || !strings.Contains(noticeText, ` → reject`) || strings.Contains(noticeText, "用户取消") || strings.Contains(noticeText, "提交参数:") {
 		t.Fatalf("expected form reject HITL summary without submitted payload, got %#v", stream.messages[len(stream.messages)-1])
 	}
 }
@@ -1447,7 +1453,7 @@ func TestAwaitHITLSubmitAndExecute_FormPayloadRebuildFailureEmitsRejectHITLMetad
 		RunID:      "run_1",
 		AwaitingID: stream.hitlAwaitingID,
 		Params: encodedSubmitParams(t, []map[string]any{
-			{"id": "form-1", "payload": sampleLeavePayload(2)},
+			{"id": "form-1", "action": "submit", "form": sampleLeavePayload(2)},
 		}),
 	})
 	if !ack.Accepted {
@@ -2239,7 +2245,7 @@ func TestAwaitHITLSubmitAndExecute_TimeoutEmitsTerminalAnswer(t *testing.T) {
 		},
 		runControl: contracts.NewRunControl(context.Background(), "run_1"),
 		execCtx: &contracts.ExecutionContext{
-			Budget: contracts.Budget{Tool: contracts.RetryPolicy{TimeoutMs: 1}},
+			Budget: contracts.Budget{Hitl: contracts.HitlPolicy{TimeoutMs: 1}},
 		},
 		hitlPendingCall: &preparedToolInvocation{
 			toolID:   "tool_1",
@@ -2311,7 +2317,7 @@ func TestAwaitHITLSubmitAndExecute_FormTimeoutEmitsHITLMetadataAndSummary(t *tes
 		},
 		runControl: contracts.NewRunControl(context.Background(), "run_1"),
 		execCtx: &contracts.ExecutionContext{
-			Budget: contracts.Budget{Tool: contracts.RetryPolicy{TimeoutMs: 1}},
+			Budget: contracts.Budget{Hitl: contracts.HitlPolicy{TimeoutMs: 1}},
 		},
 		hitlPendingCall: &preparedToolInvocation{
 			toolID:   "tool_1",
@@ -2496,9 +2502,9 @@ func TestBuildFormApprovalArgsFallsBackToOriginalCommandPayload(t *testing.T) {
 		t.Fatalf("expected forms in form approval args, got %#v", args)
 	}
 	form := forms[0].(map[string]any)
-	payload, ok := form["payload"].(map[string]any)
+	payload, ok := form["form"].(map[string]any)
 	if !ok {
-		t.Fatalf("expected payload in form approval args, got %#v", args)
+		t.Fatalf("expected form in form approval args, got %#v", args)
 	}
 	expected := sampleLeavePayload(3)
 	if !reflect.DeepEqual(payload, expected) {
