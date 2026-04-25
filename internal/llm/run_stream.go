@@ -1073,7 +1073,7 @@ func (s *llmRunStream) emitBashSecurityApprovalDeltas(invocation *preparedToolIn
 
 	args := s.buildConfirmApprovalArgs(invocation)
 	s.hitlAwaitArgs = CloneMap(args)
-	s.pending = append(s.pending, s.buildHITLAwaitDelta(s.hitlAwaitingID, args))
+	s.pending = append(s.pending, s.buildHITLAwaitDelta(s.hitlAwaitingID, args, 0))
 
 	if s.runControl != nil {
 		awaitDelta, _ := s.pending[len(s.pending)-1].(DeltaAwaitAsk)
@@ -1172,7 +1172,7 @@ func (s *llmRunStream) emitHITLConfirmDeltas(invocation *preparedToolInvocation,
 
 	args := s.buildHITLArgs(invocation, result)
 	s.hitlAwaitArgs = CloneMap(args)
-	s.pending = append(s.pending, s.buildHITLAwaitDelta(s.hitlAwaitingID, args))
+	s.pending = append(s.pending, s.buildHITLAwaitDelta(s.hitlAwaitingID, args, result.Rule.TimeoutMs))
 
 	if s.runControl != nil {
 		awaitDelta, _ := s.pending[len(s.pending)-1].(DeltaAwaitAsk)
@@ -1229,12 +1229,21 @@ func (s *llmRunStream) prepareQueuedBashApprovalBatch() bool {
 		"mode":      "approval",
 		"approvals": approvals,
 	}
+	maxRuleTimeout := 0
+	for _, invocation := range invocations {
+		if invocation == nil || invocation.precheckedHITL == nil {
+			continue
+		}
+		if invocation.precheckedHITL.Rule.TimeoutMs > maxRuleTimeout {
+			maxRuleTimeout = invocation.precheckedHITL.Rule.TimeoutMs
+		}
+	}
 	s.hitlPendingBatch = &pendingHITLApprovalBatch{
 		awaitingID:  awaitingID,
 		awaitArgs:   CloneMap(args),
 		invocations: invocations,
 	}
-	awaitDelta := s.buildHITLAwaitDelta(awaitingID, args)
+	awaitDelta := s.buildHITLAwaitDelta(awaitingID, args, maxRuleTimeout)
 	s.pending = append(s.pending, awaitDelta)
 	if s.runControl != nil {
 		s.runControl.ExpectSubmit(awaitingContextFromDeltaAsk(awaitDelta))
@@ -1656,12 +1665,14 @@ func approvalDescription(invocation *preparedToolInvocation) string {
 }
 
 func (s *llmRunStream) resolveHITLTimeout() int64 {
+	if s != nil && s.execCtx != nil {
+		budget := NormalizeBudget(s.execCtx.Budget)
+		if budget.Hitl.TimeoutMs > 0 {
+			return int64(budget.Hitl.TimeoutMs)
+		}
+	}
 	if s.engine.cfg.BashHITL.DefaultTimeoutMs > 0 {
 		return int64(s.engine.cfg.BashHITL.DefaultTimeoutMs)
-	}
-	budget := NormalizeBudget(s.execCtx.Budget)
-	if budget.Tool.TimeoutMs > 0 {
-		return int64(budget.Tool.TimeoutMs)
 	}
 	return 120000
 }
@@ -2014,11 +2025,15 @@ func frontendSubmitInvalidPayloadResult(invocation *preparedToolInvocation, awai
 	}
 }
 
-func (s *llmRunStream) buildHITLAwaitDelta(awaitingID string, args map[string]any) DeltaAwaitAsk {
+func (s *llmRunStream) buildHITLAwaitDelta(awaitingID string, args map[string]any, ruleTimeoutMs int) DeltaAwaitAsk {
+	timeout := s.resolveHITLTimeout()
+	if ruleTimeoutMs > 0 {
+		timeout = int64(ruleTimeoutMs)
+	}
 	await := DeltaAwaitAsk{
 		AwaitingID: awaitingID,
 		Mode:       strings.ToLower(strings.TrimSpace(AnyStringNode(args["mode"]))),
-		Timeout:    s.resolveHITLTimeout(),
+		Timeout:    timeout,
 		RunID:      s.session.RunID,
 	}
 	if await.Mode == "form" {
@@ -2458,10 +2473,7 @@ func (s *llmRunStream) preToolInvocationDeltas(toolID string, toolName string, p
 	if !ok {
 		return nil
 	}
-	toolTimeout := int64(0)
-	if budget := NormalizeBudget(s.execCtx.Budget); budget.Tool.TimeoutMs > 0 {
-		toolTimeout = int64(budget.Tool.TimeoutMs)
-	}
+	toolTimeout := s.resolveHITLTimeout()
 	awaitAsk := handler.BuildInitialAwaitAsk(toolID, s.session.RunID, tool, payload, 0, toolTimeout)
 	if s.runControl != nil && awaitAsk != nil {
 		s.runControl.ExpectSubmit(awaitingContextFromStreamAsk(awaitAsk))

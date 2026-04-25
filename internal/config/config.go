@@ -112,12 +112,17 @@ type BudgetDefaultsConfig struct {
 	RunTimeoutMs int
 	Model        RetryBudgetConfig
 	Tool         RetryBudgetConfig
+	Hitl         HitlBudgetConfig
 }
 
 type RetryBudgetConfig struct {
 	MaxCalls   int
 	TimeoutMs  int
 	RetryCount int
+}
+
+type HitlBudgetConfig struct {
+	TimeoutMs int
 }
 
 type ReactDefaultsConfig struct {
@@ -376,6 +381,9 @@ func defaultConfig() Config {
 					TimeoutMs:  120000,
 					RetryCount: 0,
 				},
+				Hitl: HitlBudgetConfig{
+					TimeoutMs: 0,
+				},
 			},
 			React: ReactDefaultsConfig{MaxSteps: 60},
 			Plan: PlanExecuteDefaultsConfig{
@@ -628,6 +636,7 @@ func (c *Config) applyEnv() {
 	c.Defaults.Budget.Tool.MaxCalls = intEnv("AGENT_DEFAULT_BUDGET_TOOL_MAX_CALLS", c.Defaults.Budget.Tool.MaxCalls)
 	c.Defaults.Budget.Tool.TimeoutMs = intEnv("AGENT_DEFAULT_BUDGET_TOOL_TIMEOUT_MS", c.Defaults.Budget.Tool.TimeoutMs)
 	c.Defaults.Budget.Tool.RetryCount = intEnv("AGENT_DEFAULT_BUDGET_TOOL_RETRY_COUNT", c.Defaults.Budget.Tool.RetryCount)
+	c.Defaults.Budget.Hitl.TimeoutMs = intEnv("AGENT_DEFAULT_BUDGET_HITL_TIMEOUT_MS", c.Defaults.Budget.Hitl.TimeoutMs)
 	c.Defaults.React.MaxSteps = intEnv("AGENT_DEFAULT_REACT_MAX_STEPS", c.Defaults.React.MaxSteps)
 	c.Defaults.Plan.MaxSteps = intEnv("AGENT_DEFAULT_PLAN_EXECUTE_MAX_STEPS", c.Defaults.Plan.MaxSteps)
 	c.Defaults.Plan.MaxWorkRoundsPerTask = intEnv("AGENT_DEFAULT_PLAN_EXECUTE_MAX_WORK_ROUNDS_PER_TASK", c.Defaults.Plan.MaxWorkRoundsPerTask)

@@ -229,6 +229,8 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 		"budget:",
 		"  tool:",
 		"    timeoutMs: 210000",
+		"  hitl:",
+		"    timeoutMs: 210000",
 		"react:",
 		"  maxSteps: 6",
 	}, "\n")), 0o644); err != nil {

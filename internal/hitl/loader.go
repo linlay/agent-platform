@@ -85,6 +85,7 @@ func loadRulesFromDir(root string) ([]FlatRule, error) {
 					Title:            strings.TrimSpace(sub.Title),
 					ViewportType:     viewportType,
 					ViewportKey:      viewportKey,
+					TimeoutMs:        sub.TimeoutMs,
 				})
 				order++
 			}
@@ -139,6 +140,7 @@ func parseRuleFile(path string) (RuleFile, bool, error) {
 				Title:        strings.TrimSpace(stringValue(rawSub["title"])),
 				ViewportType: strings.TrimSpace(firstString(rawSub, "viewportType", "toolType")),
 				ViewportKey:  strings.TrimSpace(stringValue(rawSub["viewportKey"])),
+				TimeoutMs:    intValue(rawSub["timeoutMs"]),
 			})
 		}
 		file.Commands = append(file.Commands, block)

@@ -6,6 +6,7 @@ type SubcommandRule struct {
 	Title        string `yaml:"title"`
 	ViewportType string `yaml:"viewportType"`
 	ViewportKey  string `yaml:"viewportKey"`
+	TimeoutMs    int    `yaml:"timeoutMs"`
 }
 
 type CommandBlock struct {
@@ -33,6 +34,7 @@ type FlatRule struct {
 	Title            string
 	ViewportType     string
 	ViewportKey      string
+	TimeoutMs        int
 }
 
 type CommandComponents struct {

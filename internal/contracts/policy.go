@@ -12,10 +12,15 @@ type RetryPolicy struct {
 	RetryCount int `json:"retryCount,omitempty"`
 }
 
+type HitlPolicy struct {
+	TimeoutMs int `json:"timeoutMs,omitempty"`
+}
+
 type Budget struct {
 	RunTimeoutMs int         `json:"runTimeoutMs,omitempty"`
 	Model        RetryPolicy `json:"model,omitempty"`
 	Tool         RetryPolicy `json:"tool,omitempty"`
+	Hitl         HitlPolicy  `json:"hitl,omitempty"`
 }
 
 func DefaultBudget(cfg config.Config) Budget {
@@ -30,6 +35,9 @@ func DefaultBudget(cfg config.Config) Budget {
 			MaxCalls:   cfg.Defaults.Budget.Tool.MaxCalls,
 			TimeoutMs:  cfg.Defaults.Budget.Tool.TimeoutMs,
 			RetryCount: cfg.Defaults.Budget.Tool.RetryCount,
+		},
+		Hitl: HitlPolicy{
+			TimeoutMs: cfg.Defaults.Budget.Hitl.TimeoutMs,
 		},
 	}
 }
@@ -47,6 +55,11 @@ func ResolveBudget(cfg config.Config, overrides map[string]any) Budget {
 	}
 	if tool := anyMapNode(overrides["tool"]); len(tool) > 0 {
 		budget.Tool = mergeRetryPolicy(budget.Tool, tool)
+	}
+	if hitl := anyMapNode(overrides["hitl"]); len(hitl) > 0 {
+		if value := anyIntNode(hitl["timeoutMs"]); value > 0 {
+			budget.Hitl.TimeoutMs = value
+		}
 	}
 	return NormalizeBudget(budget)
 }

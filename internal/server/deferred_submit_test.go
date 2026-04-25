@@ -25,7 +25,7 @@ func TestDeferredSubmitHTTPRestoresPendingAwaitingAfterRestart(t *testing.T) {
 		notifications: notifications,
 	})
 
-	seedDeferredAwaiting(t, fixture.chats, "chat-http", "run-http", "await-http", "question")
+	seedDeferredAwaiting(t, fixture.chats, "chat-http", "run-http", "await-http", "question", 0, time.Now().UnixMilli())
 
 	restarted, err := New(Dependencies{
 		Config:          fixture.cfg,
@@ -108,7 +108,7 @@ func TestDeferredSubmitWSRestoresPendingAwaitingAfterRestart(t *testing.T) {
 		},
 	})
 
-	seedDeferredAwaiting(t, fixture.chats, "chat-ws", "run-ws", "await-ws", "question")
+	seedDeferredAwaiting(t, fixture.chats, "chat-ws", "run-ws", "await-ws", "question", 0, time.Now().UnixMilli())
 
 	restarted, err := New(Dependencies{
 		Config:          fixture.cfg,
@@ -212,7 +212,148 @@ func TestDeferredSubmitWSRestoresPendingAwaitingAfterRestart(t *testing.T) {
 	}
 }
 
-func seedDeferredAwaiting(t *testing.T, store chat.Store, chatID string, runID string, awaitingID string, mode string) {
+func TestDeferredSubmitRejectsExpiredAwaiting(t *testing.T) {
+	notifications := &recordingNotificationSink{}
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		notifications: notifications,
+	})
+
+	seedDeferredAwaiting(t, fixture.chats, "chat-expired", "run-expired", "await-expired", "question", 1, time.Now().UnixMilli())
+
+	restarted, err := New(Dependencies{
+		Config:          fixture.cfg,
+		Chats:           fixture.chats,
+		Memory:          fixture.memories,
+		Registry:        fixture.registry,
+		Runs:            fixture.runs,
+		Agent:           fixture.agent,
+		Tools:           fixture.tools,
+		Sandbox:         fixture.sandbox,
+		MCP:             fixture.mcp,
+		Viewport:        fixture.viewport,
+		CatalogReloader: fixture.catalogReloader,
+		Notifications:   notifications,
+	})
+	if err != nil {
+		t.Fatalf("new restarted server: %v", err)
+	}
+	time.Sleep(20 * time.Millisecond)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"run-expired","awaitingId":"await-expired","params":[{"id":"q1","answer":"Approve"}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	restarted.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("submit expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "awaiting has expired") {
+		t.Fatalf("expected expired submit error, got %s", rec.Body.String())
+	}
+
+	summary, err := fixture.chats.Summary("chat-expired")
+	if err != nil {
+		t.Fatalf("load summary after expired submit: %v", err)
+	}
+	if summary == nil || summary.PendingAwaiting != nil {
+		t.Fatalf("expected pending awaiting cleared after expired submit, got %#v", summary)
+	}
+}
+
+func TestHydrationSkipsExpiredAwaitings(t *testing.T) {
+	notifications := &recordingNotificationSink{}
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		notifications: notifications,
+	})
+
+	nowMs := time.Now().UnixMilli()
+	seedDeferredAwaiting(t, fixture.chats, "chat-stale", "run-stale", "await-stale", "question", 1000, nowMs-5000)
+	seedDeferredAwaiting(t, fixture.chats, "chat-fresh", "run-fresh", "await-fresh", "question", 60000, nowMs-1000)
+
+	restarted, err := New(Dependencies{
+		Config:          fixture.cfg,
+		Chats:           fixture.chats,
+		Memory:          fixture.memories,
+		Registry:        fixture.registry,
+		Runs:            fixture.runs,
+		Agent:           fixture.agent,
+		Tools:           fixture.tools,
+		Sandbox:         fixture.sandbox,
+		MCP:             fixture.mcp,
+		Viewport:        fixture.viewport,
+		CatalogReloader: fixture.catalogReloader,
+		Notifications:   notifications,
+	})
+	if err != nil {
+		t.Fatalf("new restarted server: %v", err)
+	}
+
+	staleSummary, err := fixture.chats.Summary("chat-stale")
+	if err != nil {
+		t.Fatalf("load stale summary: %v", err)
+	}
+	if staleSummary == nil || staleSummary.PendingAwaiting != nil {
+		t.Fatalf("expected stale pending awaiting cleared during hydration, got %#v", staleSummary)
+	}
+
+	freshSummary, err := fixture.chats.Summary("chat-fresh")
+	if err != nil {
+		t.Fatalf("load fresh summary: %v", err)
+	}
+	if freshSummary == nil || freshSummary.PendingAwaiting == nil {
+		t.Fatalf("expected fresh pending awaiting kept during hydration, got %#v", freshSummary)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"run-fresh","awaitingId":"await-fresh","params":[{"id":"q1","answer":"Approve"}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	restarted.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("submit fresh expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestDeferredSubmitAcceptsWithinTimeout(t *testing.T) {
+	notifications := &recordingNotificationSink{}
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		notifications: notifications,
+	})
+
+	seedDeferredAwaiting(t, fixture.chats, "chat-within", "run-within", "await-within", "question", 60000, time.Now().UnixMilli()-1000)
+
+	restarted, err := New(Dependencies{
+		Config:          fixture.cfg,
+		Chats:           fixture.chats,
+		Memory:          fixture.memories,
+		Registry:        fixture.registry,
+		Runs:            fixture.runs,
+		Agent:           fixture.agent,
+		Tools:           fixture.tools,
+		Sandbox:         fixture.sandbox,
+		MCP:             fixture.mcp,
+		Viewport:        fixture.viewport,
+		CatalogReloader: fixture.catalogReloader,
+		Notifications:   notifications,
+	})
+	if err != nil {
+		t.Fatalf("new restarted server: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"run-within","awaitingId":"await-within","params":[{"id":"q1","answer":"Approve"}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	restarted.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("submit expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func seedDeferredAwaiting(t *testing.T, store chat.Store, chatID string, runID string, awaitingID string, mode string, timeoutMs int, createdAt int64) {
 	t.Helper()
 	if _, _, err := store.EnsureChat(chatID, "mock-runner", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
@@ -220,13 +361,14 @@ func seedDeferredAwaiting(t *testing.T, store chat.Store, chatID string, runID s
 	if err := store.AppendStepLine(chatID, chat.StepLine{
 		ChatID:    chatID,
 		RunID:     runID,
-		UpdatedAt: 100,
+		UpdatedAt: createdAt,
 		Type:      "react",
 		Awaiting: []map[string]any{
 			{
 				"type":       "awaiting.ask",
 				"awaitingId": awaitingID,
 				"mode":       mode,
+				"timeout":    timeoutMs,
 				"questions": []any{
 					map[string]any{"id": "q1", "question": "Need confirmation", "type": "text"},
 				},
@@ -239,7 +381,7 @@ func seedDeferredAwaiting(t *testing.T, store chat.Store, chatID string, runID s
 		AwaitingID: awaitingID,
 		RunID:      runID,
 		Mode:       mode,
-		CreatedAt:  100,
+		CreatedAt:  createdAt,
 	}); err != nil {
 		t.Fatalf("set pending awaiting: %v", err)
 	}

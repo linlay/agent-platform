@@ -297,6 +297,32 @@ commands:
 	}
 }
 
+func TestLoadRulesFlattensTimeoutMs(t *testing.T) {
+	root := t.TempDir()
+	content := `
+commands:
+  - command: mock
+    subcommands:
+      - match: create-leave
+        level: 1
+        timeoutMs: 600000
+`
+	if err := os.WriteFile(filepath.Join(root, "mock.yml"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write rule file: %v", err)
+	}
+
+	rules, err := loadRulesFromDir(root)
+	if err != nil {
+		t.Fatalf("load rules: %v", err)
+	}
+	if len(rules) != 1 {
+		t.Fatalf("expected 1 rule, got %#v", rules)
+	}
+	if rules[0].TimeoutMs != 600000 {
+		t.Fatalf("expected flattened timeout 600000, got %#v", rules[0])
+	}
+}
+
 func TestLoadRulesSupportsFlowStylePassThroughFlags(t *testing.T) {
 	root := t.TempDir()
 	content := `

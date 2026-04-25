@@ -24,6 +24,7 @@ func (s *Server) hydrateDeferredAwaitings() {
 		return
 	}
 	for _, item := range items {
+		nowMs := time.Now().UnixMilli()
 		ask, err := s.deps.Chats.LoadAwaitingAsk(item.ChatID, item.AwaitingID)
 		if err != nil {
 			log.Printf("[server][awaiting] load awaiting ask failed chatId=%s awaitingId=%s err=%v", item.ChatID, item.AwaitingID, err)
@@ -48,6 +49,12 @@ func (s *Server) hydrateDeferredAwaitings() {
 		}
 		if strings.TrimSpace(stringValue(ask.Payload["mode"])) == "" && strings.TrimSpace(item.Mode) != "" {
 			ask.Payload["mode"] = item.Mode
+		}
+		timeoutMs := contracts.AnyIntNode(ask.Payload["timeout"])
+		if timeoutMs > 0 && nowMs-item.CreatedAt > int64(timeoutMs) {
+			log.Printf("[server][awaiting] clearing expired deferred awaiting chatId=%s awaitingId=%s age=%dms timeout=%dms", item.ChatID, item.AwaitingID, nowMs-item.CreatedAt, timeoutMs)
+			_ = s.deps.Chats.ClearPendingAwaiting(item.ChatID, item.AwaitingID)
+			continue
 		}
 		s.deferredAwaitings.Register(DeferredAwaiting{
 			ChatID:     item.ChatID,
@@ -103,6 +110,12 @@ func (s *Server) resolveDeferredSubmit(req api.SubmitRequest) (api.SubmitRespons
 	}
 	if deferred.Ask == nil || deferred.Ask.Payload == nil {
 		return api.SubmitResponse{}, fmt.Errorf("unknown awaitingId")
+	}
+	timeoutMs := contracts.AnyIntNode(deferred.Ask.Payload["timeout"])
+	if timeoutMs > 0 && time.Now().UnixMilli()-deferred.CreatedAt > int64(timeoutMs) {
+		s.deferredAwaitings.Remove(req.AwaitingID)
+		_ = s.deps.Chats.ClearPendingAwaiting(deferred.ChatID, req.AwaitingID)
+		return api.SubmitResponse{}, fmt.Errorf("awaiting has expired")
 	}
 	if err := validateDeferredSubmitParams(deferred.Mode, req.Params); err != nil {
 		return api.SubmitResponse{}, err

@@ -10,9 +10,11 @@ import (
 
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/chat"
+	"agent-platform-runner-go/internal/config"
 	contracts "agent-platform-runner-go/internal/contracts"
 	"agent-platform-runner-go/internal/frontendtools"
 	"agent-platform-runner-go/internal/hitl"
+	streampkg "agent-platform-runner-go/internal/stream"
 )
 
 func encodedSubmitParams(t *testing.T, value any) api.SubmitParams {
@@ -49,6 +51,35 @@ func sampleExpenseCommand(amount float64) string {
 
 func canonicalExpenseCommand(amount float64) string {
 	return fmt.Sprintf(`mock expense add --payload '{"currency":"CNY","department":{"code":"engineering","name":"工程部"},"employee":{"id":"E1001","name":"张三"},"expense_type":"travel","items":[{"amount":%v,"category":"transport","description":"flight","invoice_id":"INV-001","occurred_on":"2026-04-10"}],"submitted_at":"2026-04-14T10:30:00+08:00","total_amount":%v}'`, amount, amount)
+}
+
+type captureFrontendHandler struct {
+	timeoutMs int64
+}
+
+func (h *captureFrontendHandler) ToolName() string { return "ask_user_question" }
+
+func (h *captureFrontendHandler) ValidateArgs(args map[string]any) error { return nil }
+
+func (h *captureFrontendHandler) BuildInitialAwaitAsk(toolID string, runID string, tool api.ToolDetailResponse, args map[string]any, chunkIndex int, timeoutMs int64) *streampkg.AwaitAsk {
+	h.timeoutMs = timeoutMs
+	return &streampkg.AwaitAsk{
+		AwaitingID: toolID,
+		RunID:      runID,
+		Mode:       "question",
+		Timeout:    timeoutMs,
+		Questions: []any{
+			map[string]any{"id": "q1", "question": "Need confirmation", "type": "text"},
+		},
+	}
+}
+
+func (h *captureFrontendHandler) NormalizeSubmit(args map[string]any, params any) (map[string]any, error) {
+	return map[string]any{}, nil
+}
+
+func (h *captureFrontendHandler) FormatSubmitResult(format string, result contracts.ToolExecutionResult) (string, bool) {
+	return "", false
 }
 
 func sampleProcurementCommand(city string) string {
@@ -266,6 +297,139 @@ func TestPrepareToolCall_LegacyMultipleReturnsToolError(t *testing.T) {
 	toolContent, _ := toolMsg.Content.(string)
 	if toolMsg == nil || !strings.Contains(toolContent, "multiple is no longer supported; use type=multi-select") {
 		t.Fatalf("unexpected tool message %#v", toolMsg)
+	}
+}
+
+func TestResolveHITLTimeoutUsesHitlBudgetGlobalAndFallback(t *testing.T) {
+	tests := []struct {
+		name   string
+		budget contracts.Budget
+		global int
+		want   int64
+	}{
+		{
+			name:   "agent hitl budget wins",
+			budget: contracts.Budget{Hitl: contracts.HitlPolicy{TimeoutMs: 600000}, Tool: contracts.RetryPolicy{TimeoutMs: 5000}},
+			global: 300000,
+			want:   600000,
+		},
+		{
+			name:   "global wins when hitl budget unset",
+			budget: contracts.Budget{Tool: contracts.RetryPolicy{TimeoutMs: 5000}},
+			global: 300000,
+			want:   300000,
+		},
+		{
+			name:   "tool timeout no longer affects hitl timeout",
+			budget: contracts.Budget{Tool: contracts.RetryPolicy{TimeoutMs: 5000}},
+			global: 0,
+			want:   120000,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			stream := &llmRunStream{
+				engine: &LLMAgentEngine{cfg: config.Config{BashHITL: config.BashHITLConfig{DefaultTimeoutMs: tc.global}}},
+				execCtx: &contracts.ExecutionContext{
+					Budget: tc.budget,
+				},
+			}
+			if got := stream.resolveHITLTimeout(); got != tc.want {
+				t.Fatalf("expected timeout %d, got %d", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestPreToolInvocationDeltasUsesHitlTimeoutForFrontendAwaiting(t *testing.T) {
+	handler := &captureFrontendHandler{}
+	tool := api.ToolDetailResponse{
+		Name: "ask_user_question",
+		Meta: map[string]any{
+			"kind":          "frontend",
+			"sourceType":    "local",
+			"clientVisible": true,
+		},
+	}
+	stream := &llmRunStream{
+		engine: &LLMAgentEngine{
+			tools:    stubToolExecutor{defs: []api.ToolDetailResponse{tool}},
+			frontend: frontendtools.NewRegistry(handler),
+			cfg: config.Config{
+				BashHITL: config.BashHITLConfig{DefaultTimeoutMs: 300000},
+			},
+		},
+		session:    contracts.QuerySession{RunID: "run_1"},
+		runControl: contracts.NewRunControl(context.Background(), "run_1"),
+		execCtx: &contracts.ExecutionContext{
+			Budget: contracts.Budget{
+				Tool: contracts.RetryPolicy{TimeoutMs: 5000},
+				Hitl: contracts.HitlPolicy{TimeoutMs: 600000},
+			},
+		},
+	}
+
+	deltas := stream.preToolInvocationDeltas("tool_1", "ask_user_question", map[string]any{
+		"mode": "question",
+		"questions": []any{
+			map[string]any{"question": "Need confirmation", "type": "text"},
+		},
+	})
+	if len(deltas) != 0 {
+		t.Fatalf("expected no prelude deltas, got %#v", deltas)
+	}
+	if handler.timeoutMs != 600000 {
+		t.Fatalf("expected frontend await timeout 600000 from hitl budget, got %d", handler.timeoutMs)
+	}
+}
+
+func TestEmitHITLConfirmDeltasUsesRuleTimeoutOverride(t *testing.T) {
+	stream := &llmRunStream{
+		ctx: context.Background(),
+		engine: &LLMAgentEngine{
+			cfg: config.Config{BashHITL: config.BashHITLConfig{DefaultTimeoutMs: 15000}},
+		},
+		session: contracts.QuerySession{
+			RunID: "run_1",
+		},
+		runControl: contracts.NewRunControl(context.Background(), "run_1"),
+		execCtx: &contracts.ExecutionContext{
+			Budget: contracts.Budget{Hitl: contracts.HitlPolicy{TimeoutMs: 30000}},
+		},
+	}
+	invocation := &preparedToolInvocation{
+		toolID:   "tool_1",
+		toolName: "bash",
+		args: map[string]any{
+			"command":     "mock create-leave --payload '{}'",
+			"description": "执行命令用途说明",
+		},
+	}
+	result := hitl.InterceptResult{
+		Intercepted: true,
+		Rule: hitl.FlatRule{
+			Match:        "create-leave",
+			Level:        1,
+			ViewportType: "html",
+			ViewportKey:  "leave_form",
+			TimeoutMs:    60000,
+		},
+		ParsedCommand: hitl.CommandComponents{
+			BaseCommand: "mock",
+			Tokens:      []string{"create-leave", "--payload", `{}`},
+		},
+	}
+
+	if err := stream.emitHITLConfirmDeltas(invocation, result); err != nil {
+		t.Fatalf("emitHITLConfirmDeltas returned error: %v", err)
+	}
+	ask, ok := stream.pending[0].(contracts.DeltaAwaitAsk)
+	if !ok {
+		t.Fatalf("expected await ask delta, got %#v", stream.pending)
+	}
+	if ask.Timeout != 60000 {
+		t.Fatalf("expected rule timeout 60000, got %#v", ask)
 	}
 }
 
@@ -1735,6 +1899,57 @@ func TestPrepareQueuedBashApprovalBatch_MergesAllBuiltinApprovalsInSingleAwait(t
 		!strings.Contains(text, `2. chmod 777 ~/b.sh → approve`) ||
 		!strings.Contains(text, `3. chmod 777 ~/c.sh → reject（风险过高）`) {
 		t.Fatalf("unexpected mixed summary %#v", summary)
+	}
+}
+
+func TestPrepareQueuedBashApprovalBatch_UsesLargestRuleTimeout(t *testing.T) {
+	stream := &llmRunStream{
+		ctx: context.Background(),
+		engine: &LLMAgentEngine{
+			tools: stubToolExecutor{defs: []api.ToolDetailResponse{bashToolDefinition()}},
+			cfg:   config.Config{BashHITL: config.BashHITLConfig{DefaultTimeoutMs: 15000}},
+		},
+		session: contracts.QuerySession{
+			RequestID: "req_1",
+			ChatID:    "chat_1",
+			RunID:     "run_1",
+		},
+		runControl: contracts.NewRunControl(context.Background(), "run_1"),
+		execCtx: &contracts.ExecutionContext{
+			Budget: contracts.Budget{Hitl: contracts.HitlPolicy{TimeoutMs: 30000}},
+		},
+		checker: commandResultChecker{
+			results: map[string]hitl.InterceptResult{
+				"chmod 777 ~/a.sh": {
+					Intercepted:     true,
+					Rule:            hitl.FlatRule{Level: 1, ViewportType: "builtin", ViewportKey: "confirm_dialog", TimeoutMs: 40000},
+					OriginalCommand: "chmod 777 ~/a.sh",
+				},
+				"chmod 777 ~/b.sh": {
+					Intercepted:     true,
+					Rule:            hitl.FlatRule{Level: 2, ViewportType: "builtin", ViewportKey: "confirm_dialog", TimeoutMs: 60000},
+					OriginalCommand: "chmod 777 ~/b.sh",
+				},
+			},
+			tools: map[string]api.ToolDetailResponse{
+				strings.ToLower(bashToolDefinition().Name): bashToolDefinition(),
+			},
+		},
+		queuedToolCalls: []*preparedToolInvocation{
+			{toolID: "tool_1", toolName: "bash", args: map[string]any{"command": "chmod 777 ~/a.sh", "description": "a"}},
+			{toolID: "tool_2", toolName: "bash", args: map[string]any{"command": "chmod 777 ~/b.sh", "description": "b"}},
+		},
+	}
+
+	if !stream.prepareQueuedBashApprovalBatch() {
+		t.Fatal("expected batch approval await to be prepared")
+	}
+	ask, ok := stream.pending[0].(contracts.DeltaAwaitAsk)
+	if !ok {
+		t.Fatalf("expected await ask delta, got %#v", stream.pending)
+	}
+	if ask.Timeout != 60000 {
+		t.Fatalf("expected largest rule timeout 60000, got %#v", ask)
 	}
 }
 

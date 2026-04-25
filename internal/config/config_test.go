@@ -57,6 +57,9 @@ func TestLoadDefaults(t *testing.T) {
 		if cfg.BashHITL.DefaultTimeoutMs != 120000 {
 			t.Fatalf("expected default bash HITL timeout 120000, got %d", cfg.BashHITL.DefaultTimeoutMs)
 		}
+		if cfg.Defaults.Budget.Hitl.TimeoutMs != 0 {
+			t.Fatalf("expected default HITL budget timeout 0, got %d", cfg.Defaults.Budget.Hitl.TimeoutMs)
+		}
 		if cfg.Memory.Enabled {
 			t.Fatalf("expected memory disabled by default")
 		}
@@ -323,6 +326,7 @@ func TestLoadEnvOverridesStructuredConfig(t *testing.T) {
 		"AGENT_BASH_WORKING_DIRECTORY":          filepath.Join("var", "runner"),
 		"AGENT_BASH_PATH_CHECK_BYPASS_COMMANDS": "echo",
 		"AGENT_BASH_HITL_DEFAULT_TIMEOUT_MS":    "45000",
+		"AGENT_DEFAULT_BUDGET_HITL_TIMEOUT_MS":  "60000",
 	}, func() {
 		cfg, err := Load()
 		if err != nil {
@@ -348,6 +352,9 @@ func TestLoadEnvOverridesStructuredConfig(t *testing.T) {
 		}
 		if cfg.BashHITL.DefaultTimeoutMs != 45000 {
 			t.Fatalf("unexpected bash HITL timeout: %d", cfg.BashHITL.DefaultTimeoutMs)
+		}
+		if cfg.Defaults.Budget.Hitl.TimeoutMs != 60000 {
+			t.Fatalf("unexpected default HITL budget timeout: %d", cfg.Defaults.Budget.Hitl.TimeoutMs)
 		}
 	})
 }
@@ -538,6 +545,7 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 		"AGENT_DEFAULT_BUDGET_TOOL_MAX_CALLS",
 		"AGENT_DEFAULT_BUDGET_TOOL_TIMEOUT_MS",
 		"AGENT_DEFAULT_BUDGET_TOOL_RETRY_COUNT",
+		"AGENT_DEFAULT_BUDGET_HITL_TIMEOUT_MS",
 		"AGENT_DEFAULT_REACT_MAX_STEPS",
 		"AGENT_DEFAULT_PLAN_EXECUTE_MAX_STEPS",
 		"AGENT_DEFAULT_PLAN_EXECUTE_MAX_WORK_ROUNDS_PER_TASK",
