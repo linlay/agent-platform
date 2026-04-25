@@ -318,6 +318,9 @@ func Load() (Config, error) {
 	if strings.TrimSpace(cfg.Paths.RegistriesDir) == "" {
 		return Config{}, fmt.Errorf("REGISTRIES_DIR must not be empty")
 	}
+	if err := validateExplicitDirEnv("PAN_DIR", cfg.Paths.PanDir); err != nil {
+		return Config{}, err
+	}
 	return cfg, nil
 }
 
@@ -873,6 +876,24 @@ func pathEnv(key string, fallback string) string {
 		return ""
 	}
 	return filepath.Clean(value)
+}
+
+func validateExplicitDirEnv(key string, path string) error {
+	raw, ok := os.LookupEnv(key)
+	if !ok || strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	stat, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("%s does not exist: %s", key, path)
+		}
+		return fmt.Errorf("stat %s (%s): %w", key, path, err)
+	}
+	if !stat.IsDir() {
+		return fmt.Errorf("%s is not a directory: %s", key, path)
+	}
+	return nil
 }
 
 func boolEnv(key string, fallback bool) bool {

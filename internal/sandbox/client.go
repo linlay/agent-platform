@@ -83,7 +83,7 @@ func (c *ContainerHubClient) ExecuteSessionRaw(ctx context.Context, sessionID st
 		return "", false, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", false, fmt.Errorf("/api/sessions/execute returned status %d", resp.StatusCode)
+		return "", false, containerHubStatusError("/api/sessions/execute", resp.StatusCode, rawBody)
 	}
 	isJSON := strings.HasPrefix(strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Type"))), "application/json")
 	return string(rawBody), isJSON, nil
@@ -193,14 +193,55 @@ func (c *ContainerHubClient) post(ctx context.Context, path string, payload map[
 		return nil, err
 	}
 	defer resp.Body.Close()
-	var decoded map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+	rawBody, err := io.ReadAll(resp.Body)
+	if err != nil {
 		return nil, err
+	}
+	var decoded map[string]any
+	if len(rawBody) > 0 {
+		if err := json.Unmarshal(rawBody, &decoded); err != nil {
+			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+				log.Printf("[container-hub] %s %d request=%s response=%s", path, resp.StatusCode, string(body), string(rawBody))
+				return nil, containerHubStatusError(path, resp.StatusCode, rawBody)
+			}
+			return nil, err
+		}
+	}
+	if decoded == nil {
+		decoded = map[string]any{}
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		detail, _ := json.Marshal(decoded)
 		log.Printf("[container-hub] %s %d request=%s response=%s", path, resp.StatusCode, string(body), string(detail))
-		return nil, fmt.Errorf("%s returned status %d", path, resp.StatusCode)
+		return nil, containerHubStatusError(path, resp.StatusCode, rawBody)
 	}
 	return decoded, nil
+}
+
+func containerHubStatusError(path string, statusCode int, rawBody []byte) error {
+	detail := containerHubErrorDetail(rawBody)
+	if detail == "" {
+		return fmt.Errorf("%s returned status %d", path, statusCode)
+	}
+	return fmt.Errorf("%s returned status %d: %s", path, statusCode, detail)
+}
+
+func containerHubErrorDetail(rawBody []byte) string {
+	trimmed := strings.TrimSpace(string(rawBody))
+	if trimmed == "" {
+		return ""
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(rawBody, &decoded); err == nil {
+		if message := firstStringValue(decoded, "error", "message", "msg", "detail"); message != "" {
+			return message
+		}
+		if detail, err := json.Marshal(decoded); err == nil {
+			return string(detail)
+		}
+	}
+	if len(trimmed) > 2048 {
+		return trimmed[:2048] + "...(truncated)"
+	}
+	return trimmed
 }

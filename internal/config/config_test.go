@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -461,6 +462,39 @@ func TestLoadGatewayWSConfigWhenWebSocketDisabled(t *testing.T) {
 		}
 		if cfg.GatewayWS.URL != "ws://127.0.0.1:17999/gw" {
 			t.Fatalf("unexpected gateway ws url: %q", cfg.GatewayWS.URL)
+		}
+	})
+}
+
+func TestLoadFailsWhenExplicitPanDirDoesNotExist(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "missing-pan")
+	withIsolatedEnv(t, map[string]string{
+		"PAN_DIR": missing,
+	}, func() {
+		_, err := Load()
+		if err == nil {
+			t.Fatal("expected Load() to fail for missing PAN_DIR")
+		}
+		if !strings.Contains(err.Error(), "PAN_DIR does not exist: "+missing) {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+
+func TestLoadFailsWhenExplicitPanDirIsFile(t *testing.T) {
+	panFile := filepath.Join(t.TempDir(), "pan-file")
+	if err := os.WriteFile(panFile, []byte("not a directory"), 0o644); err != nil {
+		t.Fatalf("write pan file: %v", err)
+	}
+	withIsolatedEnv(t, map[string]string{
+		"PAN_DIR": panFile,
+	}, func() {
+		_, err := Load()
+		if err == nil {
+			t.Fatal("expected Load() to fail for file PAN_DIR")
+		}
+		if !strings.Contains(err.Error(), "PAN_DIR is not a directory: "+panFile) {
+			t.Fatalf("unexpected error: %v", err)
 		}
 	})
 }
