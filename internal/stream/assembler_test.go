@@ -16,6 +16,10 @@ func TestAssemblerBootstrapAndComplete(t *testing.T) {
 
 	bootstrap := assembler.Bootstrap()
 	assertStampedTypes(t, bootstrap, "request.query", "chat.start", "run.start")
+	requestQuery := bootstrap[0].ToData()
+	if requestQuery["agentKey"] != "agent_1" {
+		t.Fatalf("expected request.query agentKey agent_1, got %#v", requestQuery)
+	}
 
 	events := assembler.Consume(ContentDelta{ContentID: "run_1_c_1", Delta: "hello"})
 	assertStampedTypes(t, events, "content.start", "content.delta")

@@ -41,6 +41,7 @@ func (a *StreamEventAssembler) Bootstrap() []StreamEvent {
 			"requestId": a.request.RequestID,
 			"runId":     a.request.RunID,
 			"chatId":    a.request.ChatID,
+			"agentKey":  a.request.AgentKey,
 			"role":      a.request.Role,
 			"message":   a.request.Message,
 		}),
