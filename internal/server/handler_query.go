@@ -11,6 +11,7 @@ import (
 
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/catalog"
+	"agent-platform-runner-go/internal/channel"
 	"agent-platform-runner-go/internal/chat"
 	"agent-platform-runner-go/internal/config"
 	"agent-platform-runner-go/internal/contracts"
@@ -97,6 +98,7 @@ func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
 		teamID = existingSummary.TeamID
 	}
 	agentKey := strings.TrimSpace(req.AgentKey)
+	usedGlobalDefault := false
 	if agentKey == "" && existingSummary != nil {
 		agentKey = existingSummary.AgentKey
 	}
@@ -107,10 +109,23 @@ func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
 	}
 	if agentKey == "" {
 		agentKey = s.deps.Registry.DefaultAgentKey()
+		usedGlobalDefault = agentKey != ""
+	}
+	channelID := channel.ChannelForChatID(chatID)
+	if usedGlobalDefault && channelID != "" && s.deps.Channels != nil {
+		if channelDefault := s.deps.Channels.DefaultAgent(channelID); channelDefault != "" {
+			agentKey = channelDefault
+		}
 	}
 	agentDef, ok := s.deps.Registry.AgentDefinition(agentKey)
 	if !ok {
 		return preparedQuery{}, &statusError{status: http.StatusBadRequest, message: "agent not found"}
+	}
+	if channelID != "" && s.deps.Channels != nil && !s.deps.Channels.IsAgentAllowed(channelID, agentKey) {
+		return preparedQuery{}, &statusError{
+			status:  http.StatusForbidden,
+			message: "agent " + `"` + agentKey + `" is not allowed on channel "` + channelID + `"`,
+		}
 	}
 
 	req.ChatID = chatID

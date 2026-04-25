@@ -21,6 +21,7 @@ import (
 
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/catalog"
+	"agent-platform-runner-go/internal/channel"
 	"agent-platform-runner-go/internal/chat"
 	"agent-platform-runner-go/internal/config"
 	"agent-platform-runner-go/internal/contracts"
@@ -49,6 +50,8 @@ type Dependencies struct {
 	CatalogReloader contracts.CatalogReloader
 	Notifications   contracts.NotificationSink
 	SkillCandidates skills.CandidateStore
+	Channels        ChannelRegistry
+	ChannelStatus   ChannelStatusProvider
 	// GatewayResolver 按 chatId 查对应 gateway 的 BaseURL/Token，ws_routes 的文件下载
 	// 路径用它替代旧的 cfg.GatewayWS.BaseURL/JwtToken。nil 时 /api/download 走 legacy 单 gateway 的 cfg 字段（兼容老部署）。
 	GatewayResolver GatewayResolver
@@ -61,6 +64,18 @@ type Dependencies struct {
 // 由 internal/gateway.Registry 提供实现；放在 server 包避免 server → gateway 的直接 import。
 type GatewayResolver interface {
 	Resolve(chatID string) (baseURL string, token string, ok bool)
+}
+
+type ChannelRegistry interface {
+	Lookup(channelID string) (*channel.Definition, bool)
+	IsAgentAllowed(channelID, agentKey string) bool
+	DefaultAgent(channelID string) string
+	AllowedAgentKeys(channelID string) []string
+	All() []*channel.Definition
+}
+
+type ChannelStatusProvider interface {
+	Connected(channelID string) bool
 }
 
 // GatewayAdmin 是 Admin API 依赖的管理接口；internal/gateway.Registry 实现之。
@@ -179,6 +194,13 @@ func (s *Server) WSHandler() *ws.Handler {
 		return nil
 	}
 	return s.wsHandler
+}
+
+func (s *Server) SetChannelStatusProvider(provider ChannelStatusProvider) {
+	if s == nil {
+		return
+	}
+	s.deps.ChannelStatus = provider
 }
 
 // ExecuteInternalQuery reuses the normal query handling pipeline for
@@ -447,6 +469,7 @@ func resourceBelongsToChat(fileParam string, chatID string) bool {
 
 func (s *Server) routes() {
 	s.router.HandleFunc("/api/agents", s.method(http.MethodGet, s.handleAgents))
+	s.router.HandleFunc("/api/channels", s.method(http.MethodGet, s.handleChannels))
 	s.router.HandleFunc("/api/agent", s.method(http.MethodGet, s.handleAgent))
 	s.router.HandleFunc("/api/teams", s.method(http.MethodGet, s.handleTeams))
 	s.router.HandleFunc("/api/skills", s.method(http.MethodGet, s.handleSkills))

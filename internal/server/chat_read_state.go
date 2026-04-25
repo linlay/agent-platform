@@ -20,8 +20,9 @@ func toAPIAgentStats(state chat.AgentChatStats) api.AgentChatStats {
 	}
 }
 
-func (s *Server) listAgentSummaries(tag string) ([]api.AgentSummary, error) {
+func (s *Server) listAgentSummaries(tag string, channelID string) ([]api.AgentSummary, error) {
 	items := s.deps.Registry.Agents(tag)
+	items = s.filterAgentSummariesByChannel(items, channelID)
 	if s.deps.Chats == nil {
 		return items, nil
 	}
@@ -33,6 +34,22 @@ func (s *Server) listAgentSummaries(tag string) ([]api.AgentSummary, error) {
 		items[i].Stats = toAPIAgentStats(stats[items[i].Key])
 	}
 	return items, nil
+}
+
+func (s *Server) filterAgentSummariesByChannel(items []api.AgentSummary, channelID string) []api.AgentSummary {
+	if s.deps.Channels == nil {
+		return items
+	}
+	if _, ok := s.deps.Channels.Lookup(channelID); !ok {
+		return items
+	}
+	filtered := make([]api.AgentSummary, 0, len(items))
+	for _, item := range items {
+		if s.deps.Channels.IsAgentAllowed(channelID, item.Key) {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
 }
 
 func (s *Server) agentUnreadCount(agentKey string) (int, error) {

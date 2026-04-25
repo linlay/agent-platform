@@ -447,6 +447,124 @@ func TestGatewaysEmptyWhenNoLegacyConfig(t *testing.T) {
 	})
 }
 
+func TestLoadChannelsConfigFromFile(t *testing.T) {
+	withIsolatedEnv(t, map[string]string{
+		"WECOM_BRIDGE_WS_URL":    "wss://bridge.example.com/ws/agent?channel=wecom:corp1",
+		"WECOM_BRIDGE_JWT_TOKEN": "jwt-wecom",
+	}, func() {
+		content := "" +
+			"channels:\n" +
+			"  wecom:\n" +
+			"    name: 企业微信\n" +
+			"    type: bridge\n" +
+			"    default-agent: customer-service\n" +
+			"    agents: \"*\"\n" +
+			"    gateway:\n" +
+			"      url: ${WECOM_BRIDGE_WS_URL}\n" +
+			"      jwt-token: ${WECOM_BRIDGE_JWT_TOKEN}\n" +
+			"  feishu:\n" +
+			"    name: 飞书\n" +
+			"    type: gateway\n" +
+			"    agents:\n" +
+			"      - assistant\n" +
+			"      - code-helper\n" +
+			"    gateway:\n" +
+			"      url: ws://gateway.example.com/ws/agent?channel=feishu\n" +
+			"      base-url: ${FEISHU_BASE_URL:http://gateway.example.com}\n"
+		withProjectFileContents(t, filepath.Join("configs", "channels.yml"), &content, func() {
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			if len(cfg.Channels) != 2 {
+				t.Fatalf("expected 2 channels, got %d", len(cfg.Channels))
+			}
+			byID := map[string]ChannelConfig{}
+			for _, ch := range cfg.Channels {
+				byID[ch.ID] = ch
+			}
+			if !byID["wecom"].AllAgents || byID["wecom"].DefaultAgent != "customer-service" {
+				t.Fatalf("unexpected wecom channel: %#v", byID["wecom"])
+			}
+			if byID["wecom"].Gateway.URL != "wss://bridge.example.com/ws/agent?channel=wecom:corp1" {
+				t.Fatalf("unexpected wecom gateway url: %q", byID["wecom"].Gateway.URL)
+			}
+			if byID["wecom"].Gateway.JwtToken != "jwt-wecom" {
+				t.Fatalf("unexpected wecom gateway token: %q", byID["wecom"].Gateway.JwtToken)
+			}
+			if byID["feishu"].AllAgents {
+				t.Fatalf("expected feishu to use whitelist: %#v", byID["feishu"])
+			}
+			if len(byID["feishu"].Agents) != 2 || byID["feishu"].Agents[0] != "assistant" || byID["feishu"].Agents[1] != "code-helper" {
+				t.Fatalf("unexpected feishu agents: %#v", byID["feishu"].Agents)
+			}
+			if len(cfg.Gateways) != 2 {
+				t.Fatalf("expected 2 synthesized gateways, got %d", len(cfg.Gateways))
+			}
+			gatewaysByID := map[string]GatewayEntry{}
+			for _, gateway := range cfg.Gateways {
+				gatewaysByID[gateway.ID] = gateway
+			}
+			if gatewaysByID["wecom"].Channel != "wecom" {
+				t.Fatalf("unexpected synthesized wecom channel: %#v", gatewaysByID["wecom"])
+			}
+			if gatewaysByID["feishu"].BaseURL != "http://gateway.example.com" {
+				t.Fatalf("expected feishu baseURL from fallback interpolation, got %q", gatewaysByID["feishu"].BaseURL)
+			}
+		})
+	})
+}
+
+func TestLoadChannelsConfigRejectsInvalidType(t *testing.T) {
+	withIsolatedEnv(t, nil, func() {
+		content := "" +
+			"channels:\n" +
+			"  wecom:\n" +
+			"    type: invalid\n" +
+			"    gateway:\n" +
+			"      url: ws://gateway.example.com/ws/agent?channel=wecom\n"
+		withProjectFileContents(t, filepath.Join("configs", "channels.yml"), &content, func() {
+			if _, err := Load(); err == nil {
+				t.Fatalf("expected invalid channel type to fail")
+			}
+		})
+	})
+}
+
+func TestLoadChannelsConfigRejectsGatewayConflicts(t *testing.T) {
+	withIsolatedEnv(t, map[string]string{
+		"GATEWAY_WS_URL": "ws://legacy.example.com/ws/agent?channel=wecom:corp1",
+	}, func() {
+		content := "" +
+			"channels:\n" +
+			"  wecom:\n" +
+			"    type: bridge\n" +
+			"    gateway:\n" +
+			"      url: ws://bridge.example.com/ws/agent?channel=wecom:corp1\n"
+		withProjectFileContents(t, filepath.Join("configs", "channels.yml"), &content, func() {
+			if _, err := Load(); err == nil {
+				t.Fatalf("expected duplicate legacy/channel gateway conflict to fail")
+			}
+		})
+	})
+}
+
+func TestLoadChannelsConfigRejectsMissingGatewayURL(t *testing.T) {
+	withIsolatedEnv(t, nil, func() {
+		content := "" +
+			"channels:\n" +
+			"  mobile:\n" +
+			"    type: gateway\n" +
+			"    gateway:\n" +
+			"      jwt-token: token\n"
+		withProjectFileContents(t, filepath.Join("configs", "channels.yml"), &content, func() {
+			if _, err := Load(); err == nil {
+				t.Fatalf("expected missing gateway url to fail")
+			}
+		})
+	})
+}
+
 func TestLoadGatewayWSConfigWhenWebSocketDisabled(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"AGENT_WS_ENABLED":  "false",

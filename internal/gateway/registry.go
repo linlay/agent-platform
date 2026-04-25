@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"agent-platform-runner-go/internal/channel"
 	"agent-platform-runner-go/internal/config"
 	"agent-platform-runner-go/internal/ws"
 	"agent-platform-runner-go/internal/ws/gatewayclient"
@@ -23,12 +24,12 @@ import (
 
 // Entry 是 Registry 里一条 gateway 的运行态快照，给 Admin API List 用。
 type Entry struct {
-	ID       string
-	Channel  string
-	URL      string
-	BaseURL  string
-	Token    string // 返回给调用方时一般不暴露，仅内部使用
-	client   *gatewayclient.Client
+	ID      string
+	Channel string
+	URL     string
+	BaseURL string
+	Token   string // 返回给调用方时一般不暴露，仅内部使用
+	client  *gatewayclient.Client
 }
 
 // Registry 线程安全。
@@ -76,6 +77,12 @@ func (r *Registry) Register(entry config.GatewayEntry) error {
 	if _, exists := r.entries[id]; exists {
 		return ErrDuplicateID
 	}
+	channelKey := strings.TrimSpace(entry.Channel)
+	if channelKey != "" {
+		if _, exists := r.byChannel[channelKey]; exists {
+			return ErrDuplicateChannel
+		}
+	}
 
 	client := gatewayclient.New(
 		gatewayclient.Config{
@@ -94,7 +101,7 @@ func (r *Registry) Register(entry config.GatewayEntry) error {
 
 	e := &Entry{
 		ID:      id,
-		Channel: strings.TrimSpace(entry.Channel),
+		Channel: channelKey,
 		URL:     strings.TrimSpace(entry.URL),
 		BaseURL: strings.TrimSpace(entry.BaseURL),
 		Token:   strings.TrimSpace(entry.JwtToken),
@@ -102,7 +109,6 @@ func (r *Registry) Register(entry config.GatewayEntry) error {
 	}
 	r.entries[id] = e
 	if e.Channel != "" {
-		// 同 channel 重复注册允许但后者覆盖；真实场景里 admin 层面应拦
 		r.byChannel[e.Channel] = id
 	}
 	return nil
@@ -140,11 +146,11 @@ func (r *Registry) LookupByID(id string) (*Entry, bool) {
 //  3. 没匹配到时，若 Registry 只有一条 entry（典型 legacy 单 gateway），返回它作为兜底
 //  4. 多条 entry 且无匹配则返回 nil，false
 func (r *Registry) LookupByChatID(chatID string) (*Entry, bool) {
-	channel := channelFromChatID(chatID)
+	channelID := channel.ChannelForChatID(chatID)
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	if channel != "" {
-		if id, ok := r.byChannel[channel]; ok {
+	if channelID != "" {
+		if id, ok := r.byChannel[channelID]; ok {
 			return r.entries[id], true
 		}
 	}
@@ -171,6 +177,21 @@ func (r *Registry) Resolve(chatID string) (string, string, bool) {
 	return entry.BaseURL, entry.Token, true
 }
 
+// Connected 返回指定 channel 当前对应的 gateway 反向 WS 是否在线。
+func (r *Registry) Connected(channelID string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	id, ok := r.byChannel[strings.TrimSpace(channelID)]
+	if !ok {
+		return false
+	}
+	entry, ok := r.entries[id]
+	if !ok || entry == nil || entry.client == nil {
+		return false
+	}
+	return entry.client.Connected()
+}
+
 // All 返回当前所有 entries 的快照。调用方不应修改 slice 元素。
 func (r *Registry) All() []*Entry {
 	r.mu.RLock()
@@ -194,19 +215,9 @@ func (r *Registry) StopAll() {
 	}
 }
 
-func channelFromChatID(chatID string) string {
-	chatID = strings.TrimSpace(chatID)
-	if chatID == "" {
-		return ""
-	}
-	if idx := strings.Index(chatID, "#"); idx > 0 {
-		return chatID[:idx]
-	}
-	return ""
-}
-
 var (
-	ErrDuplicateID   = fmt.Errorf("gateway: duplicate id")
-	ErrNotFound      = fmt.Errorf("gateway: id not found")
-	ErrInvalidConfig = fmt.Errorf("gateway: invalid config (id/url required)")
+	ErrDuplicateID      = fmt.Errorf("gateway: duplicate id")
+	ErrDuplicateChannel = fmt.Errorf("gateway: duplicate channel")
+	ErrNotFound         = fmt.Errorf("gateway: id not found")
+	ErrInvalidConfig    = fmt.Errorf("gateway: invalid config (id/url required)")
 )
