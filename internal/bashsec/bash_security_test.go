@@ -12,6 +12,9 @@ func TestReviewBashSecurityRequiresApprovalForOutputRedirection(t *testing.T) {
 	if result.Fingerprint != ApprovalFingerprint(command) {
 		t.Fatalf("expected stable approval fingerprint, got %#v", result)
 	}
+	if result.RuleKey != RuleKeyRedirections || result.Level != LevelRedirections {
+		t.Fatalf("expected redirection rule metadata, got %#v", result)
+	}
 }
 
 func TestReviewBashSecurityRequiresApprovalForQuotedNewlineWithOutputRedirection(t *testing.T) {
@@ -21,6 +24,9 @@ func TestReviewBashSecurityRequiresApprovalForQuotedNewlineWithOutputRedirection
 	if result.Decision != ReviewRequiresApproval {
 		t.Fatalf("expected requires_approval, got %#v", result)
 	}
+	if result.RuleKey != RuleKeyQuotedNewline || result.Level != LevelQuotedNewline {
+		t.Fatalf("expected quoted newline rule metadata, got %#v", result)
+	}
 }
 
 func TestReviewBashSecurityRequiresApprovalForPythonInlineTripleQuotes(t *testing.T) {
@@ -29,6 +35,9 @@ func TestReviewBashSecurityRequiresApprovalForPythonInlineTripleQuotes(t *testin
 	result := ReviewBashSecurity(command)
 	if result.Decision != ReviewRequiresApproval {
 		t.Fatalf("expected requires_approval, got %#v", result)
+	}
+	if result.RuleKey != RuleKeyObfuscatedFlagsTripleQuote || result.Level != LevelObfuscatedFlagsTripleQuote {
+		t.Fatalf("expected triple quote rule metadata, got %#v", result)
 	}
 }
 
@@ -72,6 +81,9 @@ func TestReviewBashSecurityRequiresApprovalForTooComplexEvenWhenLegacyClean(t *t
 	if result.Fingerprint != ApprovalFingerprint(command) {
 		t.Fatalf("expected fingerprint, got %#v", result)
 	}
+	if result.RuleKey != RuleKeyTooComplex || result.Level != LevelTooComplex {
+		t.Fatalf("expected too complex rule metadata, got %#v", result)
+	}
 }
 
 func TestReviewBashSecurityBlocksDangerousEmbeddedScriptFromAST(t *testing.T) {
@@ -95,6 +107,9 @@ func TestReviewBashSecurityCommandSubstitutionPlaceholderPolicy(t *testing.T) {
 			result := ReviewBashSecurity(command)
 			if result.Decision != ReviewRequiresApproval {
 				t.Fatalf("expected requires approval for unknown redirect target, got %#v", result)
+			}
+			if result.RuleKey != RuleKeyRedirections || result.Level != LevelRedirections {
+				t.Fatalf("expected redirection rule metadata, got %#v", result)
 			}
 		})
 	}
@@ -188,6 +203,16 @@ func TestReviewBashSecurityWrapperCommands(t *testing.T) {
 			result := ReviewBashSecurity(command)
 			if result.Decision != ReviewRequiresApproval {
 				t.Fatalf("expected requires approval, got %#v", result)
+			}
+			switch command {
+			case `find . -exec rm {} \;`:
+				if result.RuleKey != RuleKeyRuntimeWrapperFindExec || result.Level != LevelRuntimeWrapper {
+					t.Fatalf("expected find wrapper rule metadata, got %#v", result)
+				}
+			case `xargs cat`:
+				if result.RuleKey != RuleKeyRuntimeWrapperXargs || result.Level != LevelRuntimeWrapper {
+					t.Fatalf("expected xargs wrapper rule metadata, got %#v", result)
+				}
 			}
 		})
 	}

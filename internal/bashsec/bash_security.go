@@ -23,7 +23,24 @@ type ReviewResult struct {
 	Decision    ReviewDecision
 	Reason      string
 	Fingerprint string
+	RuleKey     string
+	Level       int
 }
+
+const (
+	RuleKeyRedirections               = "bashsec:redirections"
+	RuleKeyQuotedNewline              = "bashsec:quoted_newline"
+	RuleKeyObfuscatedFlagsTripleQuote = "bashsec:obfuscated_flags:triple_quote"
+	RuleKeyTooComplex                 = "bashast:too_complex"
+	RuleKeyRuntimeWrapperXargs        = "bashsec:runtime_wrapper:xargs"
+	RuleKeyRuntimeWrapperFindExec     = "bashsec:runtime_wrapper:find_exec"
+
+	LevelRedirections               = 2
+	LevelQuotedNewline              = 2
+	LevelObfuscatedFlagsTripleQuote = 3
+	LevelTooComplex                 = 4
+	LevelRuntimeWrapper             = 3
+)
 
 // checkBashSecurity validates a bash command against a comprehensive set of
 // security checks ported from Claude Code's bashSecurity.ts.
@@ -39,7 +56,11 @@ func CheckBashSecurity(command string) (ok bool, reason string) {
 }
 
 func ReviewBashSecurity(command string) ReviewResult {
-	astResult, embeddedScripts := bashast.ParseWithEmbeddedDetection(command)
+	return ReviewBashSecurityWithKnownVariables(command, nil)
+}
+
+func ReviewBashSecurityWithKnownVariables(command string, variables map[string]string) ReviewResult {
+	astResult, embeddedScripts := bashast.ParseWithEmbeddedDetectionAndKnownVariables(command, variables)
 	switch astResult.Kind {
 	case bashast.Simple:
 		return reviewFromAST(command, astResult, embeddedScripts)
@@ -59,6 +80,8 @@ func ReviewBashSecurity(command string) ReviewResult {
 			Decision:    ReviewRequiresApproval,
 			Reason:      reason,
 			Fingerprint: ApprovalFingerprint(command),
+			RuleKey:     RuleKeyTooComplex,
+			Level:       LevelTooComplex,
 		}
 	case bashast.ParseUnavailable:
 		return reviewBashSecurityLegacy(command)
@@ -67,6 +90,8 @@ func ReviewBashSecurity(command string) ReviewResult {
 			Decision:    ReviewRequiresApproval,
 			Reason:      "Command could not be classified by AST security analysis",
 			Fingerprint: ApprovalFingerprint(command),
+			RuleKey:     RuleKeyTooComplex,
+			Level:       LevelTooComplex,
 		}
 	}
 }
@@ -157,11 +182,7 @@ func reviewBashSecurityLegacy(command string) ReviewResult {
 	for _, v := range validators {
 		if ok, reason := v.fn(); !ok {
 			if canApproveBashSecurityFailure(v.name, command, baseCommand, fullyUnquotedContent, reason) {
-				return ReviewResult{
-					Decision:    ReviewRequiresApproval,
-					Reason:      reason,
-					Fingerprint: ApprovalFingerprint(command),
-				}
+				return approvalReviewForValidator(command, reason, v.name)
 			}
 			return blockReview(reason)
 		}
@@ -256,11 +277,7 @@ func reviewLegacyCompatibleWithAST(command string) ReviewResult {
 	for _, v := range validators {
 		if ok, reason := v.fn(); !ok {
 			if canApproveBashSecurityFailure(v.name, command, baseCommand, fullyUnquotedContent, reason) {
-				return ReviewResult{
-					Decision:    ReviewRequiresApproval,
-					Reason:      reason,
-					Fingerprint: ApprovalFingerprint(command),
-				}
+				return approvalReviewForValidator(command, reason, v.name)
 			}
 			return blockReview(reason)
 		}
@@ -305,7 +322,7 @@ func reviewASTRedirect(command string, redir bashast.Redirect) ReviewResult {
 	op := strings.TrimSpace(redir.Op)
 	target := strings.TrimSpace(redir.Target)
 	if containsASTPlaceholder(target) {
-		return approvalReview(command, "Command contains redirection target that cannot be resolved statically")
+		return approvalReview(command, "Command contains redirection target that cannot be resolved statically", RuleKeyRedirections, LevelRedirections)
 	}
 	if strings.Contains(target, "/proc/") && strings.Contains(target, "/environ") {
 		return blockReview("Command accesses /proc/*/environ which could expose sensitive environment variables")
@@ -317,31 +334,38 @@ func reviewASTRedirect(command string, redir bashast.Redirect) ReviewResult {
 	case "<", "<&", "<>", "<<<":
 		return blockReview("Command contains input redirection (<) which could read sensitive files")
 	case ">", ">>", ">|", ">&", "&>", "&>>":
-		return ReviewResult{
-			Decision:    ReviewRequiresApproval,
-			Reason:      outputRedirectionReason,
-			Fingerprint: ApprovalFingerprint(command),
-		}
+		return approvalReview(command, outputRedirectionReason, RuleKeyRedirections, LevelRedirections)
 	default:
 		if strings.Contains(op, "<") {
 			return blockReview("Command contains input redirection (<) which could read sensitive files")
 		}
 		if strings.Contains(op, ">") {
-			return ReviewResult{
-				Decision:    ReviewRequiresApproval,
-				Reason:      outputRedirectionReason,
-				Fingerprint: ApprovalFingerprint(command),
-			}
+			return approvalReview(command, outputRedirectionReason, RuleKeyRedirections, LevelRedirections)
 		}
 	}
 	return ReviewResult{Decision: ReviewAllow}
 }
 
-func approvalReview(command, reason string) ReviewResult {
+func approvalReviewForValidator(command, reason, validatorName string) ReviewResult {
+	switch validatorName {
+	case "redirections":
+		return approvalReview(command, reason, RuleKeyRedirections, LevelRedirections)
+	case "quoted_newline":
+		return approvalReview(command, reason, RuleKeyQuotedNewline, LevelQuotedNewline)
+	case "obfuscated_flags":
+		return approvalReview(command, reason, RuleKeyObfuscatedFlagsTripleQuote, LevelObfuscatedFlagsTripleQuote)
+	default:
+		return approvalReview(command, reason, RuleKeyTooComplex, LevelTooComplex)
+	}
+}
+
+func approvalReview(command, reason, ruleKey string, level int) ReviewResult {
 	return ReviewResult{
 		Decision:    ReviewRequiresApproval,
 		Reason:      reason,
 		Fingerprint: ApprovalFingerprint(command),
+		RuleKey:     ruleKey,
+		Level:       level,
 	}
 }
 
@@ -585,7 +609,7 @@ func reviewRuntimeWrapperCommand(command string, argv []string) ReviewResult {
 		if inner, ok := xargsInnerArgv(argv); ok && len(inner) > 0 && isDangerousASTCommand(normalizedCommandBase(inner[0])) {
 			return blockReview(fmt.Sprintf("Command uses unsupported shell builtin: %s", normalizedCommandBase(inner[0])))
 		}
-		return approvalReview(command, "Command uses xargs with runtime-provided arguments")
+		return approvalReview(command, "Command uses xargs with runtime-provided arguments", RuleKeyRuntimeWrapperXargs, LevelRuntimeWrapper)
 	case "find":
 		foundExec := false
 		for idx := 1; idx < len(argv); idx++ {
@@ -598,7 +622,7 @@ func reviewRuntimeWrapperCommand(command string, argv []string) ReviewResult {
 			}
 		}
 		if foundExec {
-			return approvalReview(command, "Command uses find -exec with runtime-selected paths")
+			return approvalReview(command, "Command uses find -exec with runtime-selected paths", RuleKeyRuntimeWrapperFindExec, LevelRuntimeWrapper)
 		}
 	}
 	return ReviewResult{Decision: ReviewAllow}

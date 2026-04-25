@@ -23,7 +23,7 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	if len(command) > maxInt(t.cfg.Bash.MaxCommandChars, 16000) {
 		return ToolExecutionResult{Output: "Command is too long", Error: "command_too_long", ExitCode: -1}, nil
 	}
-	securityReview := bashsec.ReviewBashSecurity(command)
+	securityReview := bashsec.ReviewBashSecurityWithKnownVariables(command, bashSecurityKnownVariables(execCtx))
 	switch securityReview.Decision {
 	case bashsec.ReviewAllow:
 	case bashsec.ReviewRequiresApproval:
@@ -95,6 +95,13 @@ func consumeBashSecurityApproval(execCtx *ExecutionContext, fingerprint string) 
 	}
 	execCtx.BashSecurityApprovals[fingerprint] = remaining - 1
 	return true
+}
+
+func bashSecurityKnownVariables(execCtx *ExecutionContext) map[string]string {
+	if execCtx == nil || len(execCtx.SandboxEnvOverrides) == 0 {
+		return nil
+	}
+	return execCtx.SandboxEnvOverrides
 }
 
 var unsupportedBashCommands = map[string]bool{

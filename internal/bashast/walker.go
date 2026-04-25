@@ -32,6 +32,16 @@ func newVarScope() *varScope {
 	return scope
 }
 
+func newVarScopeWithKnownVariables(variables map[string]string) *varScope {
+	scope := newVarScope()
+	for name, value := range variables {
+		if isShellIdentifier(name) {
+			scope.vars[name] = value
+		}
+	}
+	return scope
+}
+
 func (s *varScope) snapshot() *varScope {
 	next := &varScope{vars: make(map[string]string, len(s.vars))}
 	for key, value := range s.vars {
@@ -69,6 +79,10 @@ const maxExtractedCommands = 256
 
 func newWalker(source string) *walker {
 	return &walker{source: source, scope: newVarScope()}
+}
+
+func newWalkerWithKnownVariables(source string, variables map[string]string) *walker {
+	return &walker{source: source, scope: newVarScopeWithKnownVariables(variables)}
 }
 
 func (w *walker) walkFile(file *syntax.File) *walkError {
@@ -457,6 +471,24 @@ func (w *walker) parseWordPart(part syntax.WordPart, scope *varScope, insideDoub
 
 func hasBareVarUnsafeChars(value string) bool {
 	return strings.ContainsAny(value, " \t\n*?[]")
+}
+
+func isShellIdentifier(name string) bool {
+	if name == "" {
+		return false
+	}
+	for idx, r := range name {
+		if idx == 0 {
+			if r != '_' && (r < 'A' || r > 'Z') && (r < 'a' || r > 'z') {
+				return false
+			}
+			continue
+		}
+		if r != '_' && (r < 'A' || r > 'Z') && (r < 'a' || r > 'z') && (r < '0' || r > '9') {
+			return false
+		}
+	}
+	return true
 }
 
 func isSimpleParamExp(exp *syntax.ParamExp) bool {

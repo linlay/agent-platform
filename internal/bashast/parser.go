@@ -12,6 +12,10 @@ import (
 const parseTimeout = 50 * time.Millisecond
 
 func ParseForSecurity(command string) ParseResult {
+	return ParseForSecurityWithKnownVariables(command, nil)
+}
+
+func ParseForSecurityWithKnownVariables(command string, variables map[string]string) ParseResult {
 	if ok, reason := runPrechecks(command); !ok {
 		return ParseResult{Kind: TooComplex, Reason: reason, NodeType: "precheck"}
 	}
@@ -44,7 +48,7 @@ func ParseForSecurity(command string) ParseResult {
 		return ParseResult{Kind: ParseUnavailable, Reason: "parser returned nil file", NodeType: "parser"}
 	}
 
-	w := newWalker(command)
+	w := newWalkerWithKnownVariables(command, variables)
 	if err := w.walkFile(response.file); err != nil {
 		return ParseResult{Kind: TooComplex, Reason: err.reason, NodeType: err.nodeType}
 	}
@@ -52,7 +56,11 @@ func ParseForSecurity(command string) ParseResult {
 }
 
 func ParseWithEmbeddedDetection(command string) (ParseResult, []EmbeddedScript) {
-	result := ParseForSecurity(command)
+	return ParseWithEmbeddedDetectionAndKnownVariables(command, nil)
+}
+
+func ParseWithEmbeddedDetectionAndKnownVariables(command string, variables map[string]string) (ParseResult, []EmbeddedScript) {
+	result := ParseForSecurityWithKnownVariables(command, variables)
 	if result.Kind != Simple {
 		return result, nil
 	}

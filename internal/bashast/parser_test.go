@@ -61,6 +61,21 @@ func TestParseForSecurityVariablesAndRedirects(t *testing.T) {
 	}
 }
 
+func TestParseForSecurityKnownVariables(t *testing.T) {
+	result := ParseForSecurityWithKnownVariables(`echo "$TEST_HOST_ENV"`, map[string]string{"TEST_HOST_ENV": "agent-value"})
+	if result.Kind != Simple {
+		t.Fatalf("expected known quoted variable to be simple, got %#v", result)
+	}
+	if len(result.Commands) != 1 || len(result.Commands[0].Argv) != 2 || result.Commands[0].Argv[1] != "agent-value" {
+		t.Fatalf("unexpected argv for known variable, got %#v", result.Commands)
+	}
+
+	result = ParseForSecurityWithKnownVariables(`rm $TEST_HOST_ENV`, map[string]string{"TEST_HOST_ENV": "-rf /"})
+	if result.Kind != TooComplex {
+		t.Fatalf("expected unsafe bare known variable to be too complex, got %#v", result)
+	}
+}
+
 func TestParseForSecurityCommandSubstitutionExtractsInnerCommand(t *testing.T) {
 	result := ParseForSecurity(`echo $(date)`)
 	if result.Kind != Simple {

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"agent-platform-runner-go/internal/api"
+	"agent-platform-runner-go/internal/bashsec"
 	"agent-platform-runner-go/internal/chat"
 	"agent-platform-runner-go/internal/config"
 	contracts "agent-platform-runner-go/internal/contracts"
@@ -1101,15 +1102,22 @@ func TestBashSecuritySoftBlockEmitsApprovalWithoutChecker(t *testing.T) {
 		t.Fatalf("expected one approval item, got %#v", ask)
 	}
 	approval, _ := ask.Approvals[0].(map[string]any)
-	options, _ := approval["options"].([]any)
-	if len(options) != 2 {
-		t.Fatalf("expected bash security approval to omit prefix option, got %#v", options)
+	if approval["ruleKey"] != bashsec.RuleKeyRedirections {
+		t.Fatalf("expected stable bash security rule key, got %#v", approval)
 	}
+	options, _ := approval["options"].([]any)
+	if len(options) != 3 {
+		t.Fatalf("expected bash security approval to include prefix option, got %#v", options)
+	}
+	foundPrefix := false
 	for _, option := range options {
 		item, _ := option.(map[string]any)
 		if item["decision"] == "approve_prefix_run" {
-			t.Fatalf("did not expect prefix approval option, got %#v", options)
+			foundPrefix = true
 		}
+	}
+	if !foundPrefix {
+		t.Fatalf("expected prefix approval option, got %#v", options)
 	}
 }
 
@@ -1161,6 +1169,130 @@ func TestBashSecuritySoftBlockApproveExecutesOriginalCommand(t *testing.T) {
 	}
 	if len(stream.hitlRuleWhitelist) != 0 {
 		t.Fatalf("did not expect bash security approval to whitelist a prefix, got %#v", stream.hitlRuleWhitelist)
+	}
+}
+
+func TestBashSecuritySoftBlockPrefixApprovalWhitelistsRule(t *testing.T) {
+	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{bashToolDefinition()}}
+	runControl := contracts.NewRunControl(context.Background(), "run_1")
+	stream := &llmRunStream{
+		ctx: context.Background(),
+		engine: &LLMAgentEngine{
+			tools:    executor,
+			frontend: frontendtools.NewDefaultRegistry(),
+		},
+		session: contracts.QuerySession{
+			RequestID: "req_1",
+			ChatID:    "chat_1",
+			RunID:     "run_1",
+		},
+		runControl: runControl,
+		execCtx:    &contracts.ExecutionContext{Budget: contracts.Budget{Tool: contracts.RetryPolicy{TimeoutMs: 50}}},
+		activeToolCall: &preparedToolInvocation{
+			toolID:   "tool_1",
+			toolName: "bash",
+			args:     map[string]any{"command": "printf ok > owner.md", "description": "创建 owner"},
+		},
+	}
+
+	if err := stream.invokeActiveToolCall(); err != nil {
+		t.Fatalf("invokeActiveToolCall returned error: %v", err)
+	}
+	ack := runControl.ResolveSubmit(api.SubmitRequest{
+		RunID:      "run_1",
+		AwaitingID: stream.hitlAwaitingID,
+		Params:     encodedSubmitParams(t, []map[string]any{{"id": "tool_1", "decision": "approve_prefix_run"}}),
+	})
+	if !ack.Accepted {
+		t.Fatalf("expected submit to be accepted, got %#v", ack)
+	}
+	if err := stream.awaitHITLSubmitAndExecute(); err != nil {
+		t.Fatalf("awaitHITLSubmitAndExecute returned error: %v", err)
+	}
+	if !stream.isRuleWhitelisted(bashsec.RuleKeyRedirections) {
+		t.Fatalf("expected bash security rule whitelist, got %#v", stream.hitlRuleWhitelist)
+	}
+
+	stream.activeToolCall = &preparedToolInvocation{
+		toolID:   "tool_2",
+		toolName: "bash",
+		args:     map[string]any{"command": "printf again > other.md", "description": "创建 other"},
+	}
+	if err := stream.invokeActiveToolCall(); err != nil {
+		t.Fatalf("second invokeActiveToolCall returned error: %v", err)
+	}
+	if len(executor.invocations) != 2 {
+		t.Fatalf("expected both commands to execute, got %#v", executor.invocations)
+	}
+	if stream.hitlPendingCall != nil {
+		t.Fatalf("expected whitelisted bash security command to skip approval, got %#v", stream.hitlPendingCall)
+	}
+}
+
+func TestBashSecuritySoftBlockAutoApprovesByHITLLevel(t *testing.T) {
+	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{bashToolDefinition()}}
+	command := "printf ok > owner.md"
+	stream := &llmRunStream{
+		ctx: context.Background(),
+		engine: &LLMAgentEngine{
+			tools:    executor,
+			frontend: frontendtools.NewDefaultRegistry(),
+		},
+		session: contracts.QuerySession{RunID: "run_1"},
+		execCtx: &contracts.ExecutionContext{
+			HITLLevel: bashsec.LevelRedirections,
+		},
+		activeToolCall: &preparedToolInvocation{
+			toolID:   "tool_1",
+			toolName: "bash",
+			args:     map[string]any{"command": command, "description": "创建 owner"},
+		},
+	}
+
+	if err := stream.invokeActiveToolCall(); err != nil {
+		t.Fatalf("invokeActiveToolCall returned error: %v", err)
+	}
+	if len(executor.invocations) != 1 {
+		t.Fatalf("expected command to execute without approval UI, got %#v", executor.invocations)
+	}
+	if stream.hitlPendingCall != nil || len(stream.pending) != 1 {
+		t.Fatalf("expected no approval ask and one tool result, pending=%#v hitlPending=%#v", stream.pending, stream.hitlPendingCall)
+	}
+	if got := stream.execCtx.BashSecurityApprovals[bashsec.ApprovalFingerprint(command)]; got != 1 {
+		t.Fatalf("expected fingerprint approval registered before host bash execution, got %d in %#v", got, stream.execCtx.BashSecurityApprovals)
+	}
+}
+
+func TestBashSecuritySoftBlockUsesExistingFingerprintApproval(t *testing.T) {
+	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{bashToolDefinition()}}
+	command := "printf ok > owner.md"
+	stream := &llmRunStream{
+		ctx: context.Background(),
+		engine: &LLMAgentEngine{
+			tools:    executor,
+			frontend: frontendtools.NewDefaultRegistry(),
+		},
+		session: contracts.QuerySession{RunID: "run_1"},
+		execCtx: &contracts.ExecutionContext{
+			BashSecurityApprovals: map[string]int{
+				bashsec.ApprovalFingerprint(command): 1,
+			},
+		},
+		activeToolCall: &preparedToolInvocation{
+			toolID:   "tool_1",
+			toolName: "bash",
+			args:     map[string]any{"command": command, "description": "创建 owner"},
+		},
+	}
+
+	if err := stream.invokeActiveToolCall(); err != nil {
+		t.Fatalf("invokeActiveToolCall returned error: %v", err)
+	}
+	if len(executor.invocations) != 1 {
+		t.Fatalf("expected command to execute with existing fingerprint approval, got %#v", executor.invocations)
+	}
+	if stream.hitlPendingCall != nil {
+		t.Fatalf("expected existing fingerprint approval to skip UI, got %#v", stream.hitlPendingCall)
 	}
 }
 

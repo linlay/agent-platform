@@ -842,7 +842,7 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 		prelude:  s.preToolInvocationDeltas(toolID, toolCall.Function.Name, args),
 	}
 	if isBashTool(invocation.toolName) {
-		review := bashsec.ReviewBashSecurity(strings.TrimSpace(mapStringArg(invocation.args, "command")))
+		review := s.reviewBashSecurity(strings.TrimSpace(mapStringArg(invocation.args, "command")))
 		if review.Decision == bashsec.ReviewRequiresApproval {
 			invocation.bashSecurityReview = &review
 		}
@@ -934,6 +934,18 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 	if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewRequiresApproval {
 		if strings.TrimSpace(invocation.approvalDecision) != "" {
 			return s.executeApprovedBashSecurityInvocation(invocation, review)
+		}
+		if s.isRuleWhitelisted(review.RuleKey) {
+			s.applyHITLDecision(invocation, bashSecurityInterceptResult(invocation, review), "", "approve_prefix_run", "", true)
+			s.registerBashSecurityApproval(review.Fingerprint)
+			return s.executeOriginalBash(invocation)
+		}
+		if s.shouldAutoApproveBashSecurity(review) {
+			s.registerBashSecurityApproval(review.Fingerprint)
+			return s.executeOriginalBash(invocation)
+		}
+		if s.hasBashSecurityApproval(review.Fingerprint) {
+			return s.executeOriginalBash(invocation)
 		}
 		s.skipPostToolHook = true
 		return s.emitBashSecurityApprovalDeltas(invocation, review)
@@ -1057,12 +1069,19 @@ func (s *llmRunStream) lookupBashSecurityReview(invocation *preparedToolInvocati
 	if invocation.bashSecurityReview != nil {
 		return *invocation.bashSecurityReview
 	}
-	review := bashsec.ReviewBashSecurity(strings.TrimSpace(mapStringArg(invocation.args, "command")))
+	review := s.reviewBashSecurity(strings.TrimSpace(mapStringArg(invocation.args, "command")))
 	if review.Decision == bashsec.ReviewRequiresApproval {
 		cloned := review
 		invocation.bashSecurityReview = &cloned
 	}
 	return review
+}
+
+func (s *llmRunStream) reviewBashSecurity(command string) bashsec.ReviewResult {
+	if s == nil || s.execCtx == nil || len(s.execCtx.SandboxEnvOverrides) == 0 {
+		return bashsec.ReviewBashSecurity(command)
+	}
+	return bashsec.ReviewBashSecurityWithKnownVariables(command, s.execCtx.SandboxEnvOverrides)
 }
 
 func (s *llmRunStream) emitBashSecurityApprovalDeltas(invocation *preparedToolInvocation, review bashsec.ReviewResult) error {
@@ -1092,7 +1111,12 @@ func (s *llmRunStream) executeApprovedBashSecurityInvocation(invocation *prepare
 	case "reject":
 		s.appendOriginalToolResult(invocation, hitlRejectedToolResult(invocation))
 		return nil
-	case "approve", "approve_prefix_run":
+	case "approve_prefix_run":
+		s.registerRuleWhitelist(review.RuleKey)
+		invocation.approvalDecision = ""
+		s.registerBashSecurityApproval(review.Fingerprint)
+		return s.executeOriginalBash(invocation)
+	case "approve":
 		invocation.approvalDecision = ""
 		s.registerBashSecurityApproval(review.Fingerprint)
 		return s.executeOriginalBash(invocation)
@@ -1111,16 +1135,38 @@ func (s *llmRunStream) registerBashSecurityApproval(fingerprint string) {
 	s.execCtx.BashSecurityApprovals[fingerprint]++
 }
 
+func (s *llmRunStream) hasBashSecurityApproval(fingerprint string) bool {
+	if s == nil || s.execCtx == nil || strings.TrimSpace(fingerprint) == "" || len(s.execCtx.BashSecurityApprovals) == 0 {
+		return false
+	}
+	return s.execCtx.BashSecurityApprovals[fingerprint] > 0
+}
+
+func (s *llmRunStream) shouldAutoApproveBashSecurity(review bashsec.ReviewResult) bool {
+	if s == nil || s.execCtx == nil || review.Level <= 0 {
+		return false
+	}
+	return s.execCtx.HITLLevel >= review.Level
+}
+
 func bashSecurityInterceptResult(invocation *preparedToolInvocation, review bashsec.ReviewResult) hitl.InterceptResult {
 	command := ""
 	if invocation != nil {
 		command = strings.TrimSpace(mapStringArg(invocation.args, "command"))
 	}
+	ruleKey := strings.TrimSpace(review.RuleKey)
+	if ruleKey == "" {
+		ruleKey = "bash-security::" + review.Fingerprint
+	}
+	level := review.Level
+	if level <= 0 {
+		level = 1
+	}
 	return hitl.InterceptResult{
 		Intercepted: true,
 		Rule: hitl.FlatRule{
-			RuleKey:      "bash-security::" + review.Fingerprint,
-			Level:        1,
+			RuleKey:      ruleKey,
+			Level:        level,
 			Title:        "Bash security approval",
 			ViewportType: "builtin",
 			ViewportKey:  "confirm_dialog",
@@ -1196,6 +1242,13 @@ func (s *llmRunStream) prepareQueuedBashApprovalBatch() bool {
 			continue
 		}
 		if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewRequiresApproval {
+			if s.isRuleWhitelisted(review.RuleKey) {
+				s.applyHITLDecision(invocation, bashSecurityInterceptResult(invocation, review), "", "approve_prefix_run", "", true)
+				continue
+			}
+			if s.shouldAutoApproveBashSecurity(review) || s.hasBashSecurityApproval(review.Fingerprint) {
+				continue
+			}
 			approvals = append(approvals, s.buildApprovalAskItem(invocation))
 			invocations = append(invocations, invocation)
 			continue
@@ -1611,25 +1664,7 @@ func (s *llmRunStream) buildApprovalAskItem(invocation *preparedToolInvocation) 
 }
 
 func (s *llmRunStream) approvalOptionsForInvocation(invocation *preparedToolInvocation) []any {
-	if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewRequiresApproval {
-		return buildSingleUseApprovalOptions()
-	}
 	return buildApprovalOptions()
-}
-
-func buildSingleUseApprovalOptions() []any {
-	return []any{
-		map[string]any{
-			"label":       "同意",
-			"decision":    "approve",
-			"description": "只本次放行这条命令",
-		},
-		map[string]any{
-			"label":       "拒绝",
-			"decision":    "reject",
-			"description": "终止这条命令",
-		},
-	}
 }
 
 func buildApprovalOptions() []any {
