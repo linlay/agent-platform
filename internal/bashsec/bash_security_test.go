@@ -48,3 +48,36 @@ func TestReviewBashSecurityStillBlocksHardFailures(t *testing.T) {
 		})
 	}
 }
+
+func TestReviewBashSecurityAllowsASTSimpleSafeCommand(t *testing.T) {
+	tests := []string{
+		`VAR=x && echo "$VAR" | wc -c`,
+		`VAR=x && echo ${VAR}`,
+	}
+	for _, command := range tests {
+		t.Run(command, func(t *testing.T) {
+			result := ReviewBashSecurity(command)
+			if result.Decision != ReviewAllow {
+				t.Fatalf("expected allow, got %#v", result)
+			}
+		})
+	}
+}
+
+func TestReviewBashSecurityRequiresApprovalForTooComplexEvenWhenLegacyClean(t *testing.T) {
+	command := `(echo hi)`
+	result := ReviewBashSecurity(command)
+	if result.Decision != ReviewRequiresApproval {
+		t.Fatalf("expected requires approval, got %#v", result)
+	}
+	if result.Fingerprint != ApprovalFingerprint(command) {
+		t.Fatalf("expected fingerprint, got %#v", result)
+	}
+}
+
+func TestReviewBashSecurityBlocksDangerousEmbeddedScriptFromAST(t *testing.T) {
+	result := ReviewBashSecurity(`python3 -c 'import os; os.system("evil")'`)
+	if result.Decision != ReviewBlock {
+		t.Fatalf("expected block, got %#v", result)
+	}
+}

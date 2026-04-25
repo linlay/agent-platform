@@ -1,6 +1,10 @@
 package hitl
 
-import "testing"
+import (
+	"testing"
+
+	"agent-platform-runner-go/internal/bashast"
+)
 
 func TestParseCommandComponents(t *testing.T) {
 	tests := []struct {
@@ -56,6 +60,22 @@ func TestParseCommandComponents(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestParseCommandComponentsFromAST(t *testing.T) {
+	components := ParseCommandComponentsFromAST([]bashast.SimpleCommand{
+		{Argv: []string{"/usr/bin/git", "commit", "-m", "hello world"}},
+		{Argv: []string{"grep", "foo"}},
+	})
+	if len(components) != 2 {
+		t.Fatalf("expected two components, got %#v", components)
+	}
+	if components[0].BaseCommand != "git" || len(components[0].Tokens) != 3 {
+		t.Fatalf("unexpected first component %#v", components[0])
+	}
+	if components[1].BaseCommand != "grep" || components[1].Tokens[0] != "foo" {
+		t.Fatalf("unexpected second component %#v", components[1])
 	}
 }
 

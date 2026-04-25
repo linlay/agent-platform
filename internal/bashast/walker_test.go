@@ -1,0 +1,48 @@
+package bashast
+
+import "testing"
+
+func TestParseForSecurityScopeIsolationAcrossOr(t *testing.T) {
+	result := ParseForSecurity(`true || FLAG=--dry-run && cmd $FLAG`)
+	if result.Kind != TooComplex {
+		t.Fatalf("expected too complex for flag omission pattern, got %#v", result)
+	}
+}
+
+func TestParseForSecurityExportAndLoops(t *testing.T) {
+	result := ParseForSecurity(`export FOO=bar; for item in a b; do echo "$item"; done`)
+	if result.Kind != Simple {
+		t.Fatalf("expected simple, got %#v", result)
+	}
+	if len(result.Commands) != 2 {
+		t.Fatalf("expected export and echo commands, got %#v", result.Commands)
+	}
+	if result.Commands[0].Argv[0] != "export" || result.Commands[0].EnvVars[0].Name != "FOO" {
+		t.Fatalf("unexpected export command %#v", result.Commands[0])
+	}
+	if result.Commands[1].Argv[0] != "echo" || result.Commands[1].Argv[1] != TrackedVariablePlaceholder {
+		t.Fatalf("unexpected loop echo command %#v", result.Commands[1])
+	}
+}
+
+func TestParseForSecurityIfAndWhileExtractBodies(t *testing.T) {
+	result := ParseForSecurity(`if test -f x; then echo yes; else echo no; fi; while test -f y; do echo loop; done`)
+	if result.Kind != Simple {
+		t.Fatalf("expected simple, got %#v", result)
+	}
+	var bases []string
+	for _, cmd := range result.Commands {
+		if len(cmd.Argv) > 0 {
+			bases = append(bases, cmd.Argv[0])
+		}
+	}
+	want := []string{"test", "echo", "echo", "test", "echo"}
+	if len(bases) != len(want) {
+		t.Fatalf("expected bases %#v, got %#v", want, bases)
+	}
+	for idx := range want {
+		if bases[idx] != want[idx] {
+			t.Fatalf("expected bases %#v, got %#v", want, bases)
+		}
+	}
+}

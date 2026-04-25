@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"agent-platform-runner-go/internal/api"
+	"agent-platform-runner-go/internal/bashast"
 )
 
 type SkillChecker struct {
@@ -92,6 +93,9 @@ func buildIndexes(rules []FlatRule) (map[string][]FlatRule, map[string]api.ToolD
 }
 
 func checkRules(byCmd map[string][]FlatRule, command string, chatLevel int) InterceptResult {
+	if result, ok := checkRulesFromAST(byCmd, command, chatLevel); ok {
+		return result
+	}
 	result, _ := betterInterceptResult(
 		evaluateParsedCommand(byCmd, command, command, ParseCommandComponents(command), chatLevel, true),
 		InterceptResult{},
@@ -104,6 +108,32 @@ func checkRules(byCmd map[string][]FlatRule, command string, chatLevel int) Inte
 		)
 	}
 	return result
+}
+
+func checkRulesFromAST(byCmd map[string][]FlatRule, command string, chatLevel int) (InterceptResult, bool) {
+	astResult := bashast.ParseForSecurity(command)
+	if astResult.Kind != bashast.Simple {
+		return InterceptResult{}, false
+	}
+	components := ParseCommandComponentsFromAST(astResult.Commands)
+	if len(components) == 0 {
+		return InterceptResult{}, true
+	}
+	result, _ := betterInterceptResult(
+		evaluateParsedCommand(byCmd, command, command, components[0], chatLevel, true),
+		InterceptResult{},
+	)
+	for idx, parsed := range components {
+		matchedCommand := command
+		if idx < len(astResult.Commands) && strings.TrimSpace(astResult.Commands[idx].Text) != "" {
+			matchedCommand = astResult.Commands[idx].Text
+		}
+		result, _ = betterInterceptResult(
+			result,
+			evaluateParsedCommand(byCmd, command, matchedCommand, parsed, chatLevel, len(components) == 1),
+		)
+	}
+	return result, true
 }
 
 func evaluateParsedCommand(

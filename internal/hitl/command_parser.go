@@ -4,10 +4,37 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode"
+
+	"agent-platform-runner-go/internal/bashast"
 )
 
 func ParseCommandComponents(command string) CommandComponents {
 	return parseCommandTokens(splitShellLikeFirstSegment(command))
+}
+
+func ParseCommandComponentsFromAST(cmds []bashast.SimpleCommand) []CommandComponents {
+	components := make([]CommandComponents, 0, len(cmds))
+	for _, cmd := range cmds {
+		if len(cmd.Argv) == 0 {
+			components = append(components, CommandComponents{})
+			continue
+		}
+		base := strings.TrimSpace(filepath.Base(cmd.Argv[0]))
+		if base == "" || base == "." || base == string(filepath.Separator) {
+			components = append(components, CommandComponents{})
+			continue
+		}
+		tokens := make([]string, 0, len(cmd.Argv)-1)
+		for _, token := range cmd.Argv[1:] {
+			token = strings.TrimSpace(token)
+			if token == "" {
+				continue
+			}
+			tokens = append(tokens, token)
+		}
+		components = append(components, CommandComponents{BaseCommand: base, Tokens: tokens})
+	}
+	return components
 }
 
 func splitMatchTokens(match string) []string {
