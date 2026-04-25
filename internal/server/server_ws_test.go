@@ -544,12 +544,12 @@ func TestWebSocketPushAwaitingAnswerEmitsErrorStatuses(t *testing.T) {
 	testCases := []struct {
 		name      string
 		configure func(*config.Config)
-		act       func(t *testing.T, flow *awaitingPushQuestionFlow)
+		act       func(t *testing.T, flow *awaitingPushQuestionFlow, awaitAskData map[string]any)
 		errorCode string
 	}{
 		{
 			name: "user dismissed",
-			act: func(t *testing.T, flow *awaitingPushQuestionFlow) {
+			act: func(t *testing.T, flow *awaitingPushQuestionFlow, awaitAskData map[string]any) {
 				t.Helper()
 				submitRec := httptest.NewRecorder()
 				submitReq := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"`+flow.runID+`","awaitingId":"`+flow.awaitingID+`","params":[]}`))
@@ -564,10 +564,14 @@ func TestWebSocketPushAwaitingAnswerEmitsErrorStatuses(t *testing.T) {
 		{
 			name: "timeout",
 			configure: func(cfg *config.Config) {
+				cfg.BashHITL.DefaultTimeoutMs = 20
 				cfg.Defaults.Budget.Tool.TimeoutMs = 20
 			},
-			act: func(t *testing.T, flow *awaitingPushQuestionFlow) {
+			act: func(t *testing.T, flow *awaitingPushQuestionFlow, awaitAskData map[string]any) {
 				t.Helper()
+				if timeout, ok := awaitAskData["timeout"].(float64); !ok || timeout != 20 {
+					t.Fatalf("expected awaiting.ask timeout 20, got %#v", awaitAskData)
+				}
 			},
 			errorCode: "timeout",
 		},
@@ -580,8 +584,8 @@ func TestWebSocketPushAwaitingAnswerEmitsErrorStatuses(t *testing.T) {
 			defer flow.resp.Body.Close()
 			defer flow.server.Close()
 
-			waitForPushFrameType(t, flow.conn, "awaiting.ask")
-			tc.act(t, &flow)
+			awaitAsk := waitForPushFrameType(t, flow.conn, "awaiting.ask")
+			tc.act(t, &flow, pushFrameDataMap(t, awaitAsk))
 
 			awaitAnswer := waitForPushFrameType(t, flow.conn, "awaiting.answer")
 			awaitAnswerData := pushFrameDataMap(t, awaitAnswer)

@@ -12,6 +12,7 @@ import (
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/catalog"
 	"agent-platform-runner-go/internal/chat"
+	"agent-platform-runner-go/internal/config"
 	"agent-platform-runner-go/internal/contracts"
 	"agent-platform-runner-go/internal/llm"
 	"agent-platform-runner-go/internal/memory"
@@ -396,9 +397,20 @@ func (s *Server) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamEv
 			}
 		}
 	}
-	toolTimeoutMs := int64(contracts.NormalizeBudget(prepared.session.ResolvedBudget).Tool.TimeoutMs)
+	toolTimeoutMs := resolveHITLTimeoutFromBudget(prepared.session.ResolvedBudget, &s.deps.Config)
 	mapper := llm.NewDeltaMapper(prepared.req.RunID, prepared.req.ChatID, toolTimeoutMs, s.toolLookupWithOverrides(prepared.session.ToolOverrides), s.deps.FrontendTools)
 	return assembler, mapper
+}
+
+func resolveHITLTimeoutFromBudget(budget contracts.Budget, cfg *config.Config) int64 {
+	normalized := contracts.NormalizeBudget(budget)
+	if normalized.Hitl.TimeoutMs > 0 {
+		return int64(normalized.Hitl.TimeoutMs)
+	}
+	if cfg != nil && cfg.BashHITL.DefaultTimeoutMs > 0 {
+		return int64(cfg.BashHITL.DefaultTimeoutMs)
+	}
+	return 120000
 }
 
 func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepared preparedQuery) {
