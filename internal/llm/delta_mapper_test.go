@@ -22,7 +22,7 @@ func TestDeltaMapper_QuestionInitialAwaitAskComesFromFrontendHandler(t *testing.
 	inputs := mapper.Map(contracts.DeltaToolCall{
 		Index:     0,
 		ID:        "tool_1",
-		Name:      "_ask_user_question_",
+		Name:      "ask_user_question",
 		ArgsDelta: `{"mode":"question","questions":[{"question":"Pick a plan","type":"select","options":[{"label":"Weekend"}]}]}`,
 	})
 	if len(inputs) != 1 {
@@ -46,7 +46,7 @@ func TestDeltaMapper_InvalidQuestionArgsDoNotEmitInitialAwaitAsk(t *testing.T) {
 	inputs := mapper.Map(contracts.DeltaToolCall{
 		Index:     0,
 		ID:        "tool_1",
-		Name:      "_ask_user_question_",
+		Name:      "ask_user_question",
 		ArgsDelta: `{"mode":"question","questions":[{"question":"Pick a plan","type":"select"}]}`,
 	})
 	if len(inputs) != 1 {
@@ -67,7 +67,7 @@ func TestDeltaMapper_QuestionChunkedArgsEmitStandaloneAwaitAskWhenPayloadBecomes
 	firstInputs := mapper.Map(contracts.DeltaToolCall{
 		Index:     0,
 		ID:        "tool_1",
-		Name:      "_ask_user_question_",
+		Name:      "ask_user_question",
 		ArgsDelta: `{"mode":"question","questions":[{"question":"Pick a plan","type":"select",`,
 	})
 	if len(firstInputs) != 1 {
@@ -87,7 +87,7 @@ func TestDeltaMapper_QuestionChunkedArgsEmitStandaloneAwaitAskWhenPayloadBecomes
 	secondInputs := mapper.Map(contracts.DeltaToolCall{
 		Index:     0,
 		ID:        "tool_1",
-		Name:      "_ask_user_question_",
+		Name:      "ask_user_question",
 		ArgsDelta: `"options":[{"label":"Weekend"}]}]}`,
 	})
 	if len(secondInputs) != 2 {
@@ -121,7 +121,7 @@ func TestDeltaMapper_InvalidChunkedQuestionArgsDoNotEmitStandaloneAwaitAsk(t *te
 	firstInputs := mapper.Map(contracts.DeltaToolCall{
 		Index:     0,
 		ID:        "tool_1",
-		Name:      "_ask_user_question_",
+		Name:      "ask_user_question",
 		ArgsDelta: `{"mode":"question","questions":[{"question":"Pick a plan","type":"select"`,
 	})
 	if len(firstInputs) != 1 {
@@ -131,7 +131,7 @@ func TestDeltaMapper_InvalidChunkedQuestionArgsDoNotEmitStandaloneAwaitAsk(t *te
 	secondInputs := mapper.Map(contracts.DeltaToolCall{
 		Index:     0,
 		ID:        "tool_1",
-		Name:      "_ask_user_question_",
+		Name:      "ask_user_question",
 		ArgsDelta: `}]}`,
 	})
 	if len(secondInputs) != 1 {
@@ -151,8 +151,8 @@ func TestDeltaMapper_InvalidChunkedQuestionArgsDoNotEmitStandaloneAwaitAsk(t *te
 
 func newQuestionDeltaMapper() *DeltaMapper {
 	tools := stubToolLookup{
-		"_ask_user_question_": {
-			Name: "_ask_user_question_",
+		"ask_user_question": {
+			Name: "ask_user_question",
 			Meta: map[string]any{
 				"kind":          "frontend",
 				"clientVisible": true,

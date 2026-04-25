@@ -65,7 +65,7 @@ func New(cfg Config) *Pusher {
 }
 
 // Push forwards one published artifact to the gateway. The artifact map uses
-// the same fields `_artifact_publish_` emits on the event payload:
+// the same fields `artifact_publish` emits on the event payload:
 // {artifactId, name, mimeType, sizeBytes, sha256, url, type}. Best-effort —
 // errors are logged only.
 func (p *Pusher) Push(chatID string, artifact map[string]any) {

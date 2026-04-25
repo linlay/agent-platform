@@ -19,7 +19,7 @@ func TestDispatcherClosesContentWhenSwitchingToTool(t *testing.T) {
 
 	events = dispatcher.Dispatch(ToolArgs{
 		ToolID:     "tool_1",
-		ToolName:   "_datetime_",
+		ToolName:   "datetime",
 		Delta:      "{",
 		ChunkIndex: 0,
 	})
@@ -34,7 +34,7 @@ func TestDispatcherEmitsToolSnapshotAndResultLifecycle(t *testing.T) {
 
 	_ = dispatcher.Dispatch(ToolArgs{
 		ToolID:     "tool_1",
-		ToolName:   "_datetime_",
+		ToolName:   "datetime",
 		Delta:      "{",
 		ChunkIndex: 0,
 	})
@@ -43,7 +43,7 @@ func TestDispatcherEmitsToolSnapshotAndResultLifecycle(t *testing.T) {
 
 	resultEvents := dispatcher.Dispatch(ToolResult{
 		ToolID:   "tool_1",
-		ToolName: "_datetime_",
+		ToolName: "datetime",
 		Result:   map[string]any{"iso8601": "2026-01-01T00:00:00Z"},
 	})
 	assertEventTypes(t, resultEvents, "tool.result")
@@ -100,7 +100,7 @@ func TestDispatcherFallsBackToActiveTaskIDForSubAgentBlocks(t *testing.T) {
 
 	toolEvents := dispatcher.Dispatch(ToolArgs{
 		ToolID:     "tool_sub_1",
-		ToolName:   "_datetime_",
+		ToolName:   "datetime",
 		Delta:      "{",
 		ChunkIndex: 0,
 	})
@@ -118,7 +118,7 @@ func TestDispatcherEmitsApprovalAlongsideToolResult(t *testing.T) {
 
 	events := dispatcher.Dispatch(ToolResult{
 		ToolID:   "tool_1",
-		ToolName: "_bash_",
+		ToolName: "bash",
 		Result:   "",
 		Hitl: map[string]any{
 			"awaitingId": "await_1",
@@ -145,7 +145,7 @@ func TestDispatcherEmitsQuestionModeAwaitAskAfterToolStart(t *testing.T) {
 
 	events := dispatcher.Dispatch(ToolArgs{
 		ToolID:     "tool_1",
-		ToolName:   "_ask_user_question_",
+		ToolName:   "ask_user_question",
 		Delta:      "{",
 		ChunkIndex: 0,
 		AwaitAsk: &AwaitAsk{
@@ -442,7 +442,7 @@ func TestEventDataMarshalsWithContractKeyOrder(t *testing.T) {
 		"taskId":          "task_1",
 		"toolLabel":       "Datetime",
 		"runId":           "run_1",
-		"toolName":        "_datetime_",
+		"toolName":        "datetime",
 		"toolId":          "tool_1",
 	})
 	event.Seq = 7
@@ -456,7 +456,7 @@ func TestEventDataMarshalsWithContractKeyOrder(t *testing.T) {
 		`"type":"tool.snapshot"`,
 		`"toolId":"tool_1"`,
 		`"runId":"run_1"`,
-		`"toolName":"_datetime_"`,
+		`"toolName":"datetime"`,
 		`"taskId":"task_1"`,
 		`"toolLabel":"Datetime"`,
 		`"toolDescription":"desc"`,

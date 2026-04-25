@@ -29,7 +29,7 @@ func mustSubmitParams(t *testing.T, value any) api.SubmitParams {
 
 func TestAskUserQuestionHandlerBuildInitialAwaitAsk(t *testing.T) {
 	handler := NewAskUserQuestionHandler()
-	awaitAsk := handler.BuildInitialAwaitAsk("tool_1", "run_1", frontendTool("_ask_user_question_"), map[string]any{
+	awaitAsk := handler.BuildInitialAwaitAsk("tool_1", "run_1", frontendTool("ask_user_question"), map[string]any{
 		"mode": "question",
 		"questions": []any{
 			map[string]any{"question": "Pick a plan", "type": "select", "options": []any{map[string]any{"label": "Weekend"}}},

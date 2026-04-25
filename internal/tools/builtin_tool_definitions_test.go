@@ -17,8 +17,8 @@ func TestLoadEmbeddedToolDefinitionsIncludesAskUserBuiltins(t *testing.T) {
 		byName[def.Name] = true
 	}
 
-	if !byName["_ask_user_question_"] {
-		t.Fatal("expected _ask_user_question_ builtin tool definition")
+	if !byName["ask_user_question"] {
+		t.Fatal("expected ask_user_question builtin tool definition")
 	}
 	if byName["confirm_dialog"] {
 		t.Fatal("did not expect confirm_dialog to remain a tool name")
@@ -40,7 +40,7 @@ func TestAskUserToolSchemasMatchContract(t *testing.T) {
 	var questionDef map[string]any
 	for _, def := range defs {
 		switch def.Name {
-		case "_ask_user_question_":
+		case "ask_user_question":
 			questionDef = def.Parameters
 			if def.Meta["kind"] != "frontend" {
 				t.Fatalf("unexpected question tool metadata: %#v", def.Meta)

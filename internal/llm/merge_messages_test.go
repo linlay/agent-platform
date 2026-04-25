@@ -141,15 +141,15 @@ func TestMergeRawMessagesByMsgID_FullBugScenario(t *testing.T) {
 		// Turn 1: content
 		{"role": "assistant", "content": "\n", "_msgId": "m_de287661", "_contentId": "c_1"},
 		// Turn 1: 4 parallel tool_calls
-		{"role": "assistant", "tool_calls": []any{map[string]any{"id": "call_1", "type": "function", "function": map[string]any{"name": "_bash_", "arguments": `{"command":"cd /a && git config --local user.name"}`}}}, "_msgId": "m_de287661", "_toolId": "call_1"},
-		{"role": "assistant", "tool_calls": []any{map[string]any{"id": "call_2", "type": "function", "function": map[string]any{"name": "_bash_", "arguments": `{"command":"cd /b && git config --local user.name"}`}}}, "_msgId": "m_de287661", "_toolId": "call_2"},
-		{"role": "assistant", "tool_calls": []any{map[string]any{"id": "call_3", "type": "function", "function": map[string]any{"name": "_bash_", "arguments": `{"command":"cd /c && git config --local user.name"}`}}}, "_msgId": "m_de287661", "_toolId": "call_3"},
-		{"role": "assistant", "tool_calls": []any{map[string]any{"id": "call_4", "type": "function", "function": map[string]any{"name": "_bash_", "arguments": `{"command":"cd /d && git config --local user.name"}`}}}, "_msgId": "m_de287661", "_toolId": "call_4"},
+		{"role": "assistant", "tool_calls": []any{map[string]any{"id": "call_1", "type": "function", "function": map[string]any{"name": "bash", "arguments": `{"command":"cd /a && git config --local user.name"}`}}}, "_msgId": "m_de287661", "_toolId": "call_1"},
+		{"role": "assistant", "tool_calls": []any{map[string]any{"id": "call_2", "type": "function", "function": map[string]any{"name": "bash", "arguments": `{"command":"cd /b && git config --local user.name"}`}}}, "_msgId": "m_de287661", "_toolId": "call_2"},
+		{"role": "assistant", "tool_calls": []any{map[string]any{"id": "call_3", "type": "function", "function": map[string]any{"name": "bash", "arguments": `{"command":"cd /c && git config --local user.name"}`}}}, "_msgId": "m_de287661", "_toolId": "call_3"},
+		{"role": "assistant", "tool_calls": []any{map[string]any{"id": "call_4", "type": "function", "function": map[string]any{"name": "bash", "arguments": `{"command":"cd /d && git config --local user.name"}`}}}, "_msgId": "m_de287661", "_toolId": "call_4"},
 		// 4 tool results
-		{"role": "tool", "tool_call_id": "call_1", "name": "_bash_", "content": "exit:1"},
-		{"role": "tool", "tool_call_id": "call_2", "name": "_bash_", "content": "exit:1"},
-		{"role": "tool", "tool_call_id": "call_3", "name": "_bash_", "content": "linlay\nexit:0"},
-		{"role": "tool", "tool_call_id": "call_4", "name": "_bash_", "content": "exit:1"},
+		{"role": "tool", "tool_call_id": "call_1", "name": "bash", "content": "exit:1"},
+		{"role": "tool", "tool_call_id": "call_2", "name": "bash", "content": "exit:1"},
+		{"role": "tool", "tool_call_id": "call_3", "name": "bash", "content": "linlay\nexit:0"},
+		{"role": "tool", "tool_call_id": "call_4", "name": "bash", "content": "exit:1"},
 	}
 
 	result := mergeRawMessagesByMsgID(raw)

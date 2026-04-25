@@ -715,7 +715,7 @@ func TestWebSocketQueryToolPayloadVisibilityFollowsStreamConfig(t *testing.T) {
 				switch call {
 				case 1:
 					writeProviderSSE(t, w,
-						`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_datetime","type":"function","function":{"name":"_datetime_","arguments":"{"}}]}}]}`,
+						`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_datetime","type":"function","function":{"name":"datetime","arguments":"{"}}]}}]}`,
 						`{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"}"}}]},"finish_reason":"tool_calls"}]}`,
 						`[DONE]`,
 					)
@@ -790,7 +790,7 @@ func startAwaitingPushQuestionFlow(t *testing.T, configure func(*config.Config))
 		switch call {
 		case 1:
 			writeProviderSSE(t, w,
-				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Need confirmation\",\"type\":\"select\",\"options\":[{\"label\":\"Approve\",\"description\":\"Continue with the request\"}],\"allowFreeText\":false}]}"}}]},"finish_reason":"tool_calls"}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"ask_user_question","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Need confirmation\",\"type\":\"select\",\"options\":[{\"label\":\"Approve\",\"description\":\"Continue with the request\"}],\"allowFreeText\":false}]}"}}]},"finish_reason":"tool_calls"}]}`,
 				`[DONE]`,
 			)
 		case 2:
@@ -823,7 +823,7 @@ func startAwaitingPushQuestionFlow(t *testing.T, configure func(*config.Config))
 				"  modelKey: mock-model",
 				"toolConfig:",
 				"  tools:",
-				"    - _ask_user_question_",
+				"    - ask_user_question",
 				"mode: REACT",
 			}, "\n")), 0o644); err != nil {
 				t.Fatalf("write helper agent config: %v", err)

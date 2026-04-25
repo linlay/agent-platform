@@ -132,7 +132,7 @@ Container Hub 默认基础挂载为：
 
 | 环境变量 | 默认值 | 标签 | 说明 |
 |---|---|---|---|
-| `AGENT_BASH_WORKING_DIRECTORY` | `.` | `Advanced / operator` | `_bash_` 默认工作目录 |
+| `AGENT_BASH_WORKING_DIRECTORY` | `.` | `Advanced / operator` | `bash` 默认工作目录 |
 | `AGENT_BASH_ALLOWED_PATHS` | `.,/tmp` | `Advanced / operator` | 允许访问的路径白名单 |
 | `AGENT_BASH_ALLOWED_COMMANDS` | `ls,pwd,cat,head,tail,top,free,df,git,rg,find` | `Advanced / operator` | 允许执行的命令白名单 |
 | `AGENT_BASH_PATH_CHECKED_COMMANDS` | `ls,cat,head,tail,git,rg,find` | `Advanced / operator` | 开启路径校验的命令 |

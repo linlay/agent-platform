@@ -372,7 +372,7 @@ func TestRebuildSnapshotEventsGroupsByRunAndBackfillsLegacyIDs(t *testing.T) {
 		{"type": "request.query", "chatId": "chat_1", "message": "second"},
 		{"type": "chat.start", "chatId": "chat_1", "chatName": "demo"},
 		{"type": "run.start", "chatId": "chat_1", "runId": run2},
-		{"type": "tool.start", "chatId": "chat_1", "runId": run2, "toolName": "_datetime_"},
+		{"type": "tool.start", "chatId": "chat_1", "runId": run2, "toolName": "datetime"},
 		{"type": "tool.end", "chatId": "chat_1", "runId": run2},
 		{"type": "tool.snapshot", "chatId": "chat_1", "runId": run2, "arguments": "{}"},
 		{"type": "tool.result", "chatId": "chat_1", "runId": run2, "output": map[string]any{"ok": true}},
@@ -521,7 +521,7 @@ func TestStoredMessageToEventsPreservesTimestamp(t *testing.T) {
 					map[string]any{
 						"id": "tool-call-1",
 						"function": map[string]any{
-							"name":      "_datetime_",
+							"name":      "datetime",
 							"arguments": "{}",
 						},
 					},
@@ -922,7 +922,7 @@ func TestStepWriterFormatsStructuredToolResultAsJSON(t *testing.T) {
 		Timestamp: 1001,
 		Payload: map[string]any{
 			"toolId":    "tool-1",
-			"toolName":  "_bash_",
+			"toolName":  "bash",
 			"arguments": `{"command":"echo hi"}`,
 		},
 	})
@@ -1082,7 +1082,7 @@ func TestStepWriterPersistsApprovalSidecarOnStepLine(t *testing.T) {
 		Timestamp: 4001,
 		Payload: map[string]any{
 			"toolId":    "tool-1",
-			"toolName":  "_bash_",
+			"toolName":  "bash",
 			"arguments": `{"command":"chmod 777 ~/a.sh"}`,
 		},
 	})
@@ -1142,7 +1142,7 @@ func TestStepWriterPersistsFormApprovalDecisionPayload(t *testing.T) {
 		Timestamp: 4101,
 		Payload: map[string]any{
 			"toolId":    "tool-1",
-			"toolName":  "_bash_",
+			"toolName":  "bash",
 			"arguments": `{"command":"mock create-leave --payload '{...}'"}`,
 		},
 	})
@@ -1220,7 +1220,7 @@ func TestLoadRawMessagesReplaysApprovalSummaryFromStepLine(t *testing.T) {
 					ID:   "tool-1",
 					Type: "function",
 					Function: StoredFunction{
-						Name:      "_bash_",
+						Name:      "bash",
 						Arguments: `{"command":"chmod 777 ~/a.sh"}`,
 					},
 				}},
@@ -1230,7 +1230,7 @@ func TestLoadRawMessagesReplaysApprovalSummaryFromStepLine(t *testing.T) {
 			},
 			{
 				Role:       "tool",
-				Name:       "_bash_",
+				Name:       "bash",
 				ToolCallID: "tool-1",
 				Content:    []ContentPart{{Type: "text", Text: ""}},
 				ToolID:     "tool-1",

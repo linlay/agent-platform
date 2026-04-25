@@ -19,8 +19,8 @@ func TestParseAgentFileSupportsFlattenedToolConfig(t *testing.T) {
 		"  modelKey: demo-model\n" +
 		"toolConfig:\n" +
 		"  tools:\n" +
-		"    - _datetime_\n" +
-		"    - _ask_user_question_\n"
+		"    - datetime\n" +
+		"    - ask_user_question\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write agent file: %v", err)
 	}
@@ -29,7 +29,7 @@ func TestParseAgentFileSupportsFlattenedToolConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	for _, tool := range []string{"_datetime_", "_ask_user_question_"} {
+	for _, tool := range []string{"datetime", "ask_user_question"} {
 		if !containsString(def.Tools, tool) {
 			t.Fatalf("expected %s in flattened tools list, got %#v", tool, def.Tools)
 		}
@@ -50,9 +50,9 @@ func TestParseAgentFileIgnoresLegacyToolConfigBuckets(t *testing.T) {
 		"  modelKey: demo-model\n" +
 		"toolConfig:\n" +
 		"  backends:\n" +
-		"    - _datetime_\n" +
+		"    - datetime\n" +
 		"  frontends:\n" +
-		"    - _ask_user_question_\n" +
+		"    - ask_user_question\n" +
 		"  actions:\n" +
 		"    - plan_update_task\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -68,7 +68,7 @@ func TestParseAgentFileIgnoresLegacyToolConfigBuckets(t *testing.T) {
 			t.Fatalf("expected default memory tool %s, got %#v", tool, def.Tools)
 		}
 	}
-	for _, tool := range []string{"_datetime_", "_ask_user_question_", "plan_update_task"} {
+	for _, tool := range []string{"datetime", "ask_user_question", "plan_update_task"} {
 		if containsString(def.Tools, tool) {
 			t.Fatalf("expected legacy tool bucket entry %s to stay ignored, got %#v", tool, def.Tools)
 		}
@@ -89,9 +89,9 @@ func TestParseAgentFileLoadsToolOverridesFromToolConfig(t *testing.T) {
 		"  modelKey: demo-model\n" +
 		"toolConfig:\n" +
 		"  tools:\n" +
-		"    - _ask_user_question_\n" +
+		"    - ask_user_question\n" +
 		"  overrides:\n" +
-		"    _ask_user_question_:\n" +
+		"    ask_user_question:\n" +
 		"      label: Ask\n" +
 		"      description: Ask the user a question\n" +
 		"      viewportType: builtin\n" +
@@ -104,7 +104,7 @@ func TestParseAgentFileLoadsToolOverridesFromToolConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	for _, tool := range []string{"_ask_user_question_"} {
+	for _, tool := range []string{"ask_user_question"} {
 		if !containsString(def.Tools, tool) {
 			t.Fatalf("expected %s in flattened tools list, got %#v", tool, def.Tools)
 		}
@@ -112,7 +112,7 @@ func TestParseAgentFileLoadsToolOverridesFromToolConfig(t *testing.T) {
 	if def.MemoryEnabled {
 		t.Fatalf("expected memory to stay disabled by default, got %#v", def)
 	}
-	override, ok := def.ToolOverrides["_ask_user_question_"]
+	override, ok := def.ToolOverrides["ask_user_question"]
 	if !ok {
 		t.Fatalf("expected tool override to load, got %#v", def.ToolOverrides)
 	}

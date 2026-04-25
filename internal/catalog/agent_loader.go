@@ -341,8 +341,8 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	if err := validateReservedBashToolNames(def.Tools, def.ToolOverrides); err != nil {
 		return AgentDefinition{}, nil, err
 	}
-	if (len(def.Skills) > 0 || len(def.Sandbox) > 0) && !containsString(def.Tools, "_bash_") {
-		def.Tools = append(def.Tools, "_bash_")
+	if (len(def.Skills) > 0 || len(def.Sandbox) > 0) && !containsString(def.Tools, "bash") {
+		def.Tools = append(def.Tools, "bash")
 	}
 	memoryConfig := mapNode(root["memoryConfig"])
 	memoryToolsEnabled := false
@@ -432,8 +432,8 @@ func validateReservedBashToolNames(tools []string, overrides map[string]api.Tool
 
 func validateReservedBashToolName(value string, field string) error {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "_sandbox_bash_", "_bash_container_":
-		return fmt.Errorf("%s must use _bash_ instead of %s", field, strings.TrimSpace(value))
+	case "_sandbox_bash_", "bash_sandbox":
+		return fmt.Errorf("%s must use bash instead of %s", field, strings.TrimSpace(value))
 	default:
 		return nil
 	}

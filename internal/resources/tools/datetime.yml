@@ -1,4 +1,4 @@
-name: _datetime_
+name: datetime
 label: 日期时间
 description: Get the current or offset date and time with optional timezone and chained offset support. The output also includes the lunar calendar.
 type: function

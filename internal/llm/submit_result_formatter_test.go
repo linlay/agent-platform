@@ -10,7 +10,7 @@ import (
 
 func TestFormatSubmitResultForLLM_DelegatesToFrontendHandler(t *testing.T) {
 	tool := api.ToolDetailResponse{
-		Name: "_ask_user_question_",
+		Name: "ask_user_question",
 		Meta: map[string]any{
 			"kind":               "frontend",
 			"submitResultFormat": "qa",
@@ -35,7 +35,7 @@ func TestFormatSubmitResultForLLM_DelegatesToFrontendHandler(t *testing.T) {
 
 func TestFormatSubmitResultForLLM_JSONCompact(t *testing.T) {
 	tool := api.ToolDetailResponse{
-		Name: "_ask_user_question_",
+		Name: "ask_user_question",
 		Meta: map[string]any{
 			"kind":               "frontend",
 			"submitResultFormat": "json-compact",

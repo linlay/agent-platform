@@ -157,20 +157,20 @@ func (s *Server) buildSessionToolOverrides(agentDef catalog.AgentDefinition) map
 	if !hasSandboxConfig(agentDef.Sandbox) {
 		return overrides
 	}
-	tool, ok := s.lookupInternalTool("_bash_container_")
+	tool, ok := s.lookupInternalTool("bash_sandbox")
 	if !ok {
 		return overrides
 	}
 	override := cloneToolDetailResponse(tool)
-	override.Name = "_bash_"
-	override.Key = "_bash_"
+	override.Name = "bash"
+	override.Key = "bash"
 	if overrides == nil {
 		overrides = map[string]api.ToolDetailResponse{}
 	}
-	if existing, ok := overrides["_bash_"]; ok {
-		override = applyToolOverride(override, map[string]api.ToolDetailResponse{"_bash_": existing})
+	if existing, ok := overrides["bash"]; ok {
+		override = applyToolOverride(override, map[string]api.ToolDetailResponse{"bash": existing})
 	}
-	overrides["_bash_"] = override
+	overrides["bash"] = override
 	return overrides
 }
 

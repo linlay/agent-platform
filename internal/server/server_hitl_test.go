@@ -29,7 +29,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 		switch call {
 		case 1:
 			writeProviderSSE(t, w,
-				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Need confirmation\",\"type\":\"select\",\"options\":[{\"label\":\"Approve\",\"description\":\"Continue with the request\"}],\"allowFreeText\":false}]}"}}]},"finish_reason":"tool_calls"}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"ask_user_question","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Need confirmation\",\"type\":\"select\",\"options\":[{\"label\":\"Approve\",\"description\":\"Continue with the request\"}],\"allowFreeText\":false}]}"}}]},"finish_reason":"tool_calls"}]}`,
 				`[DONE]`,
 			)
 		case 2:
@@ -67,7 +67,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 		streamBody.WriteString(line)
 		if strings.HasPrefix(line, "data: {") {
 			payload := decodeSSELine(t, line)
-			if payload["type"] == "tool.start" && payload["toolName"] == "_ask_user_question_" {
+			if payload["type"] == "tool.start" && payload["toolName"] == "ask_user_question" {
 				toolStartPayload = payload
 				toolID, _ = payload["toolId"].(string)
 			}
@@ -231,7 +231,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	for _, event := range chatResp.Data.Events {
 		switch event.Type {
 		case "tool.snapshot":
-			if event.String("toolName") != "_ask_user_question_" {
+			if event.String("toolName") != "ask_user_question" {
 				continue
 			}
 			foundFrontendSnapshot = true
@@ -273,7 +273,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 		}
 	}
 	if !foundFrontendSnapshot {
-		t.Fatalf("expected _ask_user_question_ tool.snapshot in chat detail, got %#v", chatResp.Data.Events)
+		t.Fatalf("expected ask_user_question tool.snapshot in chat detail, got %#v", chatResp.Data.Events)
 	}
 	if !foundAwaitAsk {
 		t.Fatalf("expected awaiting.ask in chat detail, got %#v", chatResp.Data.Events)
@@ -319,7 +319,7 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 		switch call {
 		case 1:
 			writeProviderSSE(t, w,
-				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Notification topics\",\"type\":\"multi-select\",\"options\":[{\"label\":\"产品更新\",\"description\":\"Release notes and new features\"},{\"label\":\"使用教程\",\"description\":\"How-to guides and walkthroughs\"}],\"allowFreeText\":false},{\"question\":\"How many people?\",\"type\":\"number\"}]}"}}]},"finish_reason":"tool_calls"}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"ask_user_question","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Notification topics\",\"type\":\"multi-select\",\"options\":[{\"label\":\"产品更新\",\"description\":\"Release notes and new features\"},{\"label\":\"使用教程\",\"description\":\"How-to guides and walkthroughs\"}],\"allowFreeText\":false},{\"question\":\"How many people?\",\"type\":\"number\"}]}"}}]},"finish_reason":"tool_calls"}]}`,
 				`[DONE]`,
 			)
 		case 2:
@@ -364,7 +364,7 @@ func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
 				runID, _ = payload["runId"].(string)
 				goto questionSubmit
 			case "tool.start":
-				if payload["toolName"] == "_ask_user_question_" {
+				if payload["toolName"] == "ask_user_question" {
 					toolStartPayload = payload
 					toolID, _ = payload["toolId"].(string)
 				}
@@ -380,7 +380,7 @@ questionSubmit:
 		t.Fatalf("expected awaiting.ask after tool.start and before tool.args, got %s", streamBody.String())
 	}
 	if toolStartPayload == nil {
-		t.Fatalf("expected tool.start for _ask_user_question_, got %s", streamBody.String())
+		t.Fatalf("expected tool.start for ask_user_question, got %s", streamBody.String())
 	}
 	if awaitQuestionPayload["awaitingId"] != toolID {
 		t.Fatalf("expected awaitingId to match toolId, got %#v", awaitQuestionPayload)
@@ -497,7 +497,7 @@ func TestQuestionChunkedArgsEmitAwaitAfterFirstToolArgs(t *testing.T) {
 		switch call {
 		case 1:
 			writeProviderSSE(t, w,
-				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Notification topics\",\"type\":\"multi-select\","}}]}}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"ask_user_question","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Notification topics\",\"type\":\"multi-select\","}}]}}]}`,
 				`{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"options\":[{\"label\":\"产品更新\",\"description\":\"Release notes and new features\"},{\"label\":\"使用教程\",\"description\":\"How-to guides and walkthroughs\"}],\"allowFreeText\":false},{\"question\":\"How many people?\",\"type\":\"number\"}]}"}}]},"finish_reason":"tool_calls"}]}`,
 				`[DONE]`,
 			)
@@ -543,7 +543,7 @@ func TestQuestionChunkedArgsEmitAwaitAfterFirstToolArgs(t *testing.T) {
 				runID, _ = payload["runId"].(string)
 				goto chunkedQuestionSubmit
 			case "tool.start":
-				if payload["toolName"] == "_ask_user_question_" {
+				if payload["toolName"] == "ask_user_question" {
 					toolStartPayload = payload
 					toolID, _ = payload["toolId"].(string)
 				}
@@ -559,7 +559,7 @@ chunkedQuestionSubmit:
 		t.Fatalf("expected awaiting.ask after chunked tool args, got %s", streamBody.String())
 	}
 	if toolStartPayload == nil {
-		t.Fatalf("expected tool.start for _ask_user_question_, got %s", streamBody.String())
+		t.Fatalf("expected tool.start for ask_user_question, got %s", streamBody.String())
 	}
 	if awaitQuestionPayload["awaitingId"] != toolID {
 		t.Fatalf("expected awaitingId to match toolId, got %#v", awaitQuestionPayload)
@@ -656,7 +656,7 @@ func TestQuestionInvalidSelectOptionsFailsBeforeAwait(t *testing.T) {
 		switch call {
 		case 1:
 			writeProviderSSE(t, w,
-				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Pick a plan\",\"type\":\"select\"}]}"}}]},"finish_reason":"tool_calls"}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"ask_user_question","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Pick a plan\",\"type\":\"select\"}]}"}}]},"finish_reason":"tool_calls"}]}`,
 				`[DONE]`,
 			)
 		case 2:
@@ -742,7 +742,7 @@ func TestQuestionAwaitDismissReturnsCancelledStructuredResult(t *testing.T) {
 		switch call {
 		case 1:
 			writeProviderSSE(t, w,
-				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"_ask_user_question_","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Pick a plan\",\"type\":\"select\",\"options\":[{\"label\":\"Weekend\",\"description\":\"2 days\"}],\"allowFreeText\":false}]}"}}]},"finish_reason":"tool_calls"}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"ask_user_question","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Pick a plan\",\"type\":\"select\",\"options\":[{\"label\":\"Weekend\",\"description\":\"2 days\"}],\"allowFreeText\":false}]}"}}]},"finish_reason":"tool_calls"}]}`,
 				`[DONE]`,
 			)
 		case 2:
@@ -980,7 +980,7 @@ func TestBashHITLApproveFlowReplaysApprovalSummaryInChatRawMessages(t *testing.T
 		switch call {
 		case 1:
 			writeProviderSSE(t, w,
-				providerToolCallFrame(t, "tool_bash", "_bash_", map[string]any{
+				providerToolCallFrame(t, "tool_bash", "bash", map[string]any{
 					"command":     command,
 					"description": "执行测试命令",
 					"cwd":         "/workspace",
@@ -1126,7 +1126,7 @@ func TestSandboxBashResultShapeAcrossStreamBoundaries(t *testing.T) {
 		if got, ok := resultPayload["result"].(string); !ok || got != "listed from /workspace: ls sample\n" {
 			t.Fatalf("expected string tool.result payload, got %#v", resultPayload["result"])
 		}
-		toolContent := findToolMessageContent(t, secondTurn, "_bash_")
+		toolContent := findToolMessageContent(t, secondTurn, "bash")
 		if toolContent != "listed from /workspace: ls sample\n" {
 			t.Fatalf("expected plain stdout tool message, got %q", toolContent)
 		}
@@ -1155,7 +1155,7 @@ func TestSandboxBashResultShapeAcrossStreamBoundaries(t *testing.T) {
 		if resultObject["stderr"] != "ls: sample: No such file or directory\n" {
 			t.Fatalf("expected stderr in result payload, got %#v", resultObject)
 		}
-		toolContent := findToolMessageContent(t, secondTurn, "_bash_")
+		toolContent := findToolMessageContent(t, secondTurn, "bash")
 		if !strings.HasPrefix(toolContent, "{") || !strings.Contains(toolContent, `"exitCode":2`) || !strings.Contains(toolContent, `"stderr":"ls: sample: No such file or directory\n"`) {
 			t.Fatalf("expected JSON tool message for failure, got %q", toolContent)
 		}
@@ -1446,7 +1446,7 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 	t.Helper()
 	toolName := options.toolName
 	if toolName == "" {
-		toolName = "_bash_"
+		toolName = "bash"
 	}
 	command := defaultBashHITLCommand()
 	if strings.TrimSpace(options.command) != "" {
@@ -1538,7 +1538,7 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 			switch payload["type"] {
 			case "tool.start":
 				switch payload["toolName"] {
-				case "_bash_":
+				case "bash":
 					originalToolID, _ = payload["toolId"].(string)
 				case "simple-bash":
 					originalToolID, _ = payload["toolId"].(string)
@@ -1661,7 +1661,7 @@ func runSandboxBashQueryForResultShape(t *testing.T, sandbox contracts.SandboxCl
 		switch call {
 		case 1:
 			writeProviderSSE(t, w,
-				providerToolCallFrame(t, "tool_bash", "_bash_", map[string]any{
+				providerToolCallFrame(t, "tool_bash", "bash", map[string]any{
 					"command":     "ls sample",
 					"description": "列出 sample",
 					"cwd":         "/workspace",

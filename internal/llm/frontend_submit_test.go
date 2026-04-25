@@ -47,7 +47,7 @@ func TestFrontendSubmitCoordinatorAwait_AskUserQuestionPreservesRawParams(t *tes
 	result, err := NewFrontendSubmitCoordinator(frontendtools.NewDefaultRegistry()).Await(context.Background(), &contracts.ExecutionContext{
 		RunControl:      control,
 		CurrentToolID:   "tool_1",
-		CurrentToolName: "_ask_user_question_",
+		CurrentToolName: "ask_user_question",
 		Budget: contracts.Budget{
 			Tool: contracts.RetryPolicy{TimeoutMs: 50},
 		},
@@ -97,7 +97,7 @@ func TestFrontendSubmitCoordinatorAwait_AskUserQuestionIgnoresSubmittedIDs(t *te
 	result, err := NewFrontendSubmitCoordinator(frontendtools.NewDefaultRegistry()).Await(context.Background(), &contracts.ExecutionContext{
 		RunControl:      control,
 		CurrentToolID:   "tool_1",
-		CurrentToolName: "_ask_user_question_",
+		CurrentToolName: "ask_user_question",
 		Budget: contracts.Budget{
 			Tool: contracts.RetryPolicy{TimeoutMs: 50},
 		},
@@ -142,7 +142,7 @@ func TestFrontendSubmitCoordinatorAwait_AskUserQuestionCancelClearsRawParams(t *
 	result, err := NewFrontendSubmitCoordinator(frontendtools.NewDefaultRegistry()).Await(context.Background(), &contracts.ExecutionContext{
 		RunControl:      control,
 		CurrentToolID:   "tool_1",
-		CurrentToolName: "_ask_user_question_",
+		CurrentToolName: "ask_user_question",
 		Budget: contracts.Budget{
 			Tool: contracts.RetryPolicy{TimeoutMs: 50},
 		},
@@ -195,7 +195,7 @@ func TestFrontendSubmitCoordinatorAwait_TimeoutReturnsCompactStructuredError(t *
 	result, err := NewFrontendSubmitCoordinator(frontendtools.NewDefaultRegistry()).Await(context.Background(), &contracts.ExecutionContext{
 		RunControl:      contracts.NewRunControl(context.Background(), "run_1"),
 		CurrentToolID:   "tool_1",
-		CurrentToolName: "_ask_user_question_",
+		CurrentToolName: "ask_user_question",
 		Budget: contracts.Budget{
 			Tool: contracts.RetryPolicy{TimeoutMs: 1},
 		},

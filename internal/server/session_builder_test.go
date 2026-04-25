@@ -8,24 +8,24 @@ import (
 )
 
 func TestBuildSessionToolNamesDoesNotAutoAddInvokeAgents(t *testing.T) {
-	got := buildSessionToolNames([]string{"_datetime_"}, true)
-	want := []string{"_datetime_"}
+	got := buildSessionToolNames([]string{"datetime"}, true)
+	want := []string{"datetime"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("buildSessionToolNames() = %#v, want %#v", got, want)
 	}
 }
 
 func TestBuildSessionToolNamesKeepsExplicitInvokeAgents(t *testing.T) {
-	got := buildSessionToolNames([]string{"_datetime_", contracts.InvokeAgentsToolName}, true)
-	want := []string{"_datetime_", contracts.InvokeAgentsToolName}
+	got := buildSessionToolNames([]string{"datetime", contracts.InvokeAgentsToolName}, true)
+	want := []string{"datetime", contracts.InvokeAgentsToolName}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("buildSessionToolNames() = %#v, want %#v", got, want)
 	}
 }
 
 func TestBuildSessionToolNamesFiltersInvokeAgentsWhenDisallowed(t *testing.T) {
-	got := buildSessionToolNames([]string{"_datetime_", contracts.InvokeAgentsToolName}, false)
-	want := []string{"_datetime_"}
+	got := buildSessionToolNames([]string{"datetime", contracts.InvokeAgentsToolName}, false)
+	want := []string{"datetime"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("buildSessionToolNames() = %#v, want %#v", got, want)
 	}

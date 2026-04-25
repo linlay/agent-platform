@@ -311,7 +311,7 @@ func TestQueryCanExecuteBackendToolLoop(t *testing.T) {
 		}
 		if !hasToolMessage {
 			writeProviderSSE(t, w,
-				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_datetime","type":"function","function":{"name":"_datetime_","arguments":"{"}}]}}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_datetime","type":"function","function":{"name":"datetime","arguments":"{"}}]}}]}`,
 				`{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"}"}}]},"finish_reason":"tool_calls"}]}`,
 				`[DONE]`,
 			)
@@ -581,14 +581,14 @@ func TestPlanExecutePlanStageOnlyUsesPlanAddTasksBeforeSequentialTaskExecution(t
 				`[DONE]`,
 			)
 		case 2:
-			assertStringSliceContains(t, toolNames, "_datetime_", "_memory_search_", "plan_update_task")
+			assertStringSliceContains(t, toolNames, "datetime", "_memory_search_", "plan_update_task")
 			assertStringSliceExcludes(t, toolNames, "plan_add_tasks")
 			writeProviderSSE(t, w,
-				providerToolCallFrame(t, "tool_time_alpha", "_datetime_", map[string]any{}),
+				providerToolCallFrame(t, "tool_time_alpha", "datetime", map[string]any{}),
 				`[DONE]`,
 			)
 		case 3:
-			assertStringSliceContains(t, toolNames, "_datetime_", "_memory_search_", "plan_update_task")
+			assertStringSliceContains(t, toolNames, "datetime", "_memory_search_", "plan_update_task")
 			assertStringSliceExcludes(t, toolNames, "plan_add_tasks")
 			writeProviderSSE(t, w,
 				providerToolCallFrame(t, "tool_done_alpha", "plan_update_task", map[string]any{
@@ -598,14 +598,14 @@ func TestPlanExecutePlanStageOnlyUsesPlanAddTasksBeforeSequentialTaskExecution(t
 				`[DONE]`,
 			)
 		case 4:
-			assertStringSliceContains(t, toolNames, "_datetime_", "_memory_search_", "plan_update_task")
+			assertStringSliceContains(t, toolNames, "datetime", "_memory_search_", "plan_update_task")
 			assertStringSliceExcludes(t, toolNames, "plan_add_tasks")
 			writeProviderSSE(t, w,
-				providerToolCallFrame(t, "tool_time_beta", "_datetime_", map[string]any{}),
+				providerToolCallFrame(t, "tool_time_beta", "datetime", map[string]any{}),
 				`[DONE]`,
 			)
 		case 5:
-			assertStringSliceContains(t, toolNames, "_datetime_", "_memory_search_", "plan_update_task")
+			assertStringSliceContains(t, toolNames, "datetime", "_memory_search_", "plan_update_task")
 			assertStringSliceExcludes(t, toolNames, "plan_add_tasks")
 			writeProviderSSE(t, w,
 				providerToolCallFrame(t, "tool_done_beta", "plan_update_task", map[string]any{
@@ -640,7 +640,7 @@ func TestPlanExecutePlanStageOnlyUsesPlanAddTasksBeforeSequentialTaskExecution(t
 				"  modelKey: mock-model",
 				"toolConfig:",
 				"  tools:",
-				"    - _datetime_",
+				"    - datetime",
 				"    - _memory_search_",
 				"mode: PLAN_EXECUTE",
 				"stageSettings:",
@@ -700,7 +700,7 @@ func TestPlanExecutePlanStageOnlyUsesPlanAddTasksBeforeSequentialTaskExecution(t
 		t.Fatalf("plan debug.preCall tools=%#v want only plan_add_tasks", preCallTools[0])
 	}
 	for callIndex := 1; callIndex <= 4; callIndex++ {
-		assertStringSliceContains(t, preCallTools[callIndex], "_datetime_", "_memory_search_", "plan_update_task")
+		assertStringSliceContains(t, preCallTools[callIndex], "datetime", "_memory_search_", "plan_update_task")
 		assertStringSliceExcludes(t, preCallTools[callIndex], "plan_add_tasks")
 	}
 	if len(preCallTools[5]) != 0 {
@@ -745,7 +745,7 @@ func TestQueryPersistsToolSnapshotWhenStreamToolPayloadEventsDisabled(t *testing
 		}
 		if !hasToolMessage {
 			writeProviderSSE(t, w,
-				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_datetime","type":"function","function":{"name":"_datetime_","arguments":"{"}}]}}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_datetime","type":"function","function":{"name":"datetime","arguments":"{"}}]}}]}`,
 				`{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"}"}}]},"finish_reason":"tool_calls"}]}`,
 				`[DONE]`,
 			)
@@ -825,7 +825,7 @@ func TestQueryPersistsToolSnapshotWhenStreamToolPayloadEventsDisabled(t *testing
 func TestQueryFailsRunWhenProviderOmitsToolCallID(t *testing.T) {
 	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w,
-			`{"choices":[{"delta":{"tool_calls":[{"index":0,"type":"function","function":{"name":"_datetime_","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}`,
+			`{"choices":[{"delta":{"tool_calls":[{"index":0,"type":"function","function":{"name":"datetime","arguments":"{}"}}]},"finish_reason":"tool_calls"}]}`,
 			`[DONE]`,
 		)
 	})

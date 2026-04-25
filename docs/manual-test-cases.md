@@ -32,7 +32,7 @@ curl -X GET "$BASE_URL/api/tools"
 ```
 
 ```bash
-curl -X GET "$BASE_URL/api/tool?toolName=_bash_"
+curl -X GET "$BASE_URL/api/tool?toolName=bash"
 ```
 
 ## 会话接口

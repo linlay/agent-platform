@@ -1,4 +1,4 @@
-name: _ask_user_question_
+name: ask_user_question
 label: 向用户提问
 description: Show multiple questions to the user, supporting text, number, password, and select-style answers. Each question can use either option selection or free text, and the tool blocks until the user submits a response.
 type: function

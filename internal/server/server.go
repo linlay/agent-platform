@@ -576,7 +576,7 @@ func (s *Server) listTools(kind string, tag string) []api.ToolSummary {
 
 func (s *Server) lookupTool(toolName string) (api.ToolDetailResponse, bool) {
 	switch strings.ToLower(strings.TrimSpace(toolName)) {
-	case "_sandbox_bash_", "_bash_container_":
+	case "_sandbox_bash_", "bash_sandbox":
 		return api.ToolDetailResponse{}, false
 	}
 	if tl, ok := s.deps.Tools.(contracts.ToolDefinitionLookup); ok {
@@ -748,9 +748,9 @@ func normalizedAgentTools(def catalog.AgentDefinition) []string {
 		tools = append(tools, name)
 	}
 	if len(def.Skills) > 0 || hasSandboxConfig(def.Sandbox) {
-		if _, ok := seen["_bash_"]; !ok {
-			tools = append(tools, "_bash_")
-			seen["_bash_"] = struct{}{}
+		if _, ok := seen["bash"]; !ok {
+			tools = append(tools, "bash")
+			seen["bash"] = struct{}{}
 		}
 	}
 	return tools
@@ -918,12 +918,12 @@ func (o overrideToolLookup) Tool(name string) (api.ToolDetailResponse, bool) {
 
 func canonicalizePublicToolDefinition(tool api.ToolDetailResponse) (api.ToolDetailResponse, bool) {
 	switch strings.ToLower(strings.TrimSpace(tool.Name)) {
-	case "_sandbox_bash_", "_bash_container_":
+	case "_sandbox_bash_", "bash_sandbox":
 		return api.ToolDetailResponse{}, false
-	case "_bash_":
+	case "bash":
 		canonical := cloneToolDetailResponse(tool)
-		canonical.Key = "_bash_"
-		canonical.Name = "_bash_"
+		canonical.Key = "bash"
+		canonical.Name = "bash"
 		canonical.Label = "执行命令"
 		canonical.Description = "Run a command. Runtime decides whether to execute on the host or inside the sandbox based on the agent's sandboxConfig. Always include a short Chinese description explaining the command purpose."
 		return canonical, true

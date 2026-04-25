@@ -14,14 +14,14 @@ func TestBashYAMLParity(t *testing.T) {
 	var hostDef, containerDef map[string]any
 	for _, def := range defs {
 		switch def.Name {
-		case "_bash_":
+		case "bash":
 			hostDef = contracts.CloneMap(def.Parameters)
-		case "_bash_container_":
+		case "bash_sandbox":
 			containerDef = contracts.CloneMap(def.Parameters)
 		}
 	}
 	if hostDef == nil || containerDef == nil {
-		t.Fatalf("expected both _bash_ and _bash_container_ definitions, got host=%v container=%v", hostDef != nil, containerDef != nil)
+		t.Fatalf("expected both bash and bash_sandbox definitions, got host=%v container=%v", hostDef != nil, containerDef != nil)
 	}
 
 	hostProps := propertyKeys(hostDef)

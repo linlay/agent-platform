@@ -1,4 +1,4 @@
-name: _bash_
+name: bash
 label: 执行命令
 description: Run allowlisted bash commands on the host. Full shell syntax is enabled by default, and callers should prefer cwd over inline directory changes when they need to run in another directory. When calling this tool, always include a short Chinese description explaining the command purpose.
 submitResultFormat: json-compact

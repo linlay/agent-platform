@@ -36,7 +36,7 @@ func NewRuntimeToolExecutor(cfg config.Config, sandbox SandboxClient, chats chat
 	}
 	filtered := make([]api.ToolDetailResponse, 0, len(defs))
 	for _, def := range defs {
-		if !cfg.ContainerHub.Enabled && strings.EqualFold(strings.TrimSpace(def.Name), "_bash_container_") {
+		if !cfg.ContainerHub.Enabled && strings.EqualFold(strings.TrimSpace(def.Name), "bash_sandbox") {
 			continue
 		}
 		filtered = append(filtered, def)
@@ -65,9 +65,9 @@ func (t *RuntimeToolExecutor) WithArtifactPusher(pusher ArtifactPusher) *Runtime
 
 func (t *RuntimeToolExecutor) Invoke(ctx context.Context, toolName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	switch strings.TrimSpace(toolName) {
-	case "_datetime_":
+	case "datetime":
 		return t.invokeDateTime(args), nil
-	case "_artifact_publish_":
+	case "artifact_publish":
 		return t.invokeArtifactPublish(args, execCtx)
 	case "plan_add_tasks":
 		return t.invokePlanAddTasks(args, execCtx)
@@ -75,7 +75,7 @@ func (t *RuntimeToolExecutor) Invoke(ctx context.Context, toolName string, args 
 		return t.invokePlanGetTasks(execCtx)
 	case "plan_update_task":
 		return t.invokePlanUpdateTask(args, execCtx)
-	case "_bash_":
+	case "bash":
 		if execCtx != nil && hasSandboxConfig(execCtx.Session) {
 			if !t.cfg.ContainerHub.Enabled {
 				return ToolExecutionResult{

@@ -1,4 +1,4 @@
-name: _artifact_publish_
+name: artifact_publish
 label: 发布产物
 description: Publish multiple artifacts generated during the current run, emitting a single batched artifact.publish SSE event for all successfully published outputs from this invocation. Use this when files are created first and then explicitly declared as outputs of the run.
 type: function

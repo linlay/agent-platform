@@ -29,7 +29,7 @@ icon: "emoji:🤖"
 modelConfig:
   modelKey: qwen3-max
 toolConfig:
-  tools: ["_bash_", "_datetime_"]
+  tools: ["bash", "datetime"]
 mode: ONESHOT
 plain:
   systemPrompt: |

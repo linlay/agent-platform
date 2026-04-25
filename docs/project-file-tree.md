@@ -224,11 +224,11 @@
 #### `internal/resources/tools/`
 
 - `internal/resources/tools/agent_invoke.yml` (32 行): 内置工具定义：agentinvoke
-- `internal/resources/tools/_artifact_publish_.yml` (30 行): 内置工具定义：artifactpublish
-- `internal/resources/tools/_ask_user_question_.yml` (81 行): 内置工具定义：askuserquestion
-- `internal/resources/tools/_bash_.yml` (24 行): 内置工具定义：bash
-- `internal/resources/tools/_bash_container_.yml` (29 行): 内置工具定义：bashcontainer
-- `internal/resources/tools/_datetime_.yml` (14 行): 内置工具定义：datetime
+- `internal/resources/tools/artifact_publish.yml` (30 行): 内置工具定义：artifactpublish
+- `internal/resources/tools/ask_user_question.yml` (81 行): 内置工具定义：askuserquestion
+- `internal/resources/tools/bash.yml` (24 行): 内置工具定义：bash
+- `internal/resources/tools/bash_sandbox.yml` (29 行): 内置工具定义：bashsandbox
+- `internal/resources/tools/datetime.yml` (14 行): 内置工具定义：datetime
 - `internal/resources/tools/_memory_consolidate_.yml` (7 行): 内置工具定义：memoryconsolidate
 - `internal/resources/tools/_memory_forget_.yml` (17 行): 内置工具定义：memoryforget
 - `internal/resources/tools/_memory_promote_.yml` (43 行): 内置工具定义：memorypromote
@@ -342,7 +342,7 @@
 - `internal/tools/tool_args.go` (87 行): 工具参数解析与校验
 - `internal/tools/tool_artifact.go` (284 行): artifact 发布工具实现
 - `internal/tools/tool_bash.go` (216 行): bash 执行工具实现
-- `internal/tools/tool_bash_test.go` (298 行): 对应模块的测试与回归验证
+- `internal/tools/toolbashtest.go` (298 行): 对应模块的测试与回归验证
 - `internal/tools/tool_datetime.go` (15 行): 日期时间工具实现
 - `internal/tools/tool_definition_loader.go` (107 行): 工具定义文件加载
 - `internal/tools/tool_executor.go` (173 行): 运行时工具执行器
@@ -353,7 +353,7 @@
 - `internal/tools/tool_registry.go` (144 行): 运行时/MCP/内置工具定义合并与注册
 - `internal/tools/tool_router.go` (291 行): 工具路由器；分发到 backend、frontend、MCP
 - `internal/tools/tool_sandbox_bash.go` (21 行): 沙箱 bash 工具实现
-- `internal/tools/tool_sandbox_bash_test.go` (112 行): 对应模块的测试与回归验证
+- `internal/tools/tool_sandboxbashtest.go` (112 行): 对应模块的测试与回归验证
 - `internal/tools/tool_session_search.go` (52 行): session 搜索工具实现
 - `internal/tools/tool_session_search_test.go` (43 行): 对应模块的测试与回归验证
 - `internal/tools/tool_skill_candidate.go` (53 行): skill candidate 工具实现

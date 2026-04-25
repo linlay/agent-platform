@@ -17,7 +17,7 @@ func NewAskUserQuestionHandler() *AskUserQuestionHandler {
 }
 
 func (h *AskUserQuestionHandler) ToolName() string {
-	return "_ask_user_question_"
+	return "ask_user_question"
 }
 
 func (h *AskUserQuestionHandler) ValidateArgs(args map[string]any) error {

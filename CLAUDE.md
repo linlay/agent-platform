@@ -251,7 +251,7 @@ sandboxConfig:
 三态契约：
 
 - `mode=question`
-  - 来源：`_ask_user_question_`
+  - 来源：`ask_user_question`
   - `awaiting.ask`：`{"awaitingId":"...","mode":"question","timeout":...,"runId":"...","questions":[...]}`
   - question 不再携带 `viewportType` / `viewportKey`
   - `/api/submit.params`：`[{"id":"q1","answer":"..."},{"id":"q2","answers":[...]}]`（`id` 可省略，仅作审计字段）

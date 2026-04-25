@@ -106,7 +106,7 @@ const maxBashOutputChars = 8000
 
 func validateStrictCommand(command string, cfg config.BashConfig, workingDirectory string) error {
 	if strings.ContainsAny(command, "\n;&|<>(){}") {
-		return fmt.Errorf("Unsupported syntax for _bash_")
+		return fmt.Errorf("Unsupported syntax for bash")
 	}
 	fields := strings.Fields(command)
 	if len(fields) == 0 {

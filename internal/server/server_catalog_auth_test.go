@@ -46,9 +46,9 @@ func TestAgentEndpointReturnsDetail(t *testing.T) {
 		t.Fatalf("expected wonders in detail response, got %#v", response.Data.Wonders)
 	}
 	if len(response.Data.Tools) != 6 ||
-		response.Data.Tools[0] != "_datetime_" ||
-		response.Data.Tools[1] != "_ask_user_question_" ||
-		response.Data.Tools[2] != "_bash_" ||
+		response.Data.Tools[0] != "datetime" ||
+		response.Data.Tools[1] != "ask_user_question" ||
+		response.Data.Tools[2] != "bash" ||
 		response.Data.Tools[3] != "_memory_write_" ||
 		response.Data.Tools[4] != "_memory_read_" ||
 		response.Data.Tools[5] != "_memory_search_" {
@@ -122,7 +122,7 @@ func TestToolEndpointReturnsCanonicalJavaBuiltinSchemas(t *testing.T) {
 		requiredProperty string
 	}{
 		{toolName: "_memory_read_", requiredProperty: "sort"},
-		{toolName: "_datetime_", requiredProperty: "timezone"},
+		{toolName: "datetime", requiredProperty: "timezone"},
 	} {
 		rec := httptest.NewRecorder()
 		fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/tool?toolName="+tc.toolName, nil))
@@ -171,7 +171,7 @@ func TestCatalogEndpoints(t *testing.T) {
 	fixture := newTestFixture(t)
 	server := fixture.server
 
-	for _, path := range []string{"/api/agents", "/api/agent?agentKey=mock-runner", "/api/teams", "/api/skills", "/api/tools", "/api/tool?toolName=_bash_"} {
+	for _, path := range []string{"/api/agents", "/api/agent?agentKey=mock-runner", "/api/teams", "/api/skills", "/api/tools", "/api/tool?toolName=bash"} {
 		rec := httptest.NewRecorder()
 		server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 		if rec.Code != http.StatusOK {
