@@ -1,6 +1,10 @@
 package bashast
 
-import "testing"
+import (
+	"strings"
+	"testing"
+	"time"
+)
 
 func TestParseForSecuritySimpleCommands(t *testing.T) {
 	tests := []struct {
@@ -82,6 +86,9 @@ func TestParseForSecurityTooComplex(t *testing.T) {
 		`echo $((1 + 2))`,
 		`echo {a,b}`,
 		`echo \ hello`,
+		`echo $'evil'`,
+		"echo `date`",
+		"cat <<EOF\nhello\nEOF",
 	}
 	for _, command := range tests {
 		t.Run(command, func(t *testing.T) {
@@ -90,5 +97,46 @@ func TestParseForSecurityTooComplex(t *testing.T) {
 				t.Fatalf("expected too complex, got %#v", result)
 			}
 		})
+	}
+}
+
+func TestParseForSecurityPrechecks(t *testing.T) {
+	tests := []struct {
+		name    string
+		command string
+	}{
+		{name: "control character", command: "echo\x00evil"},
+		{name: "unicode whitespace", command: "echo\u00A0test"},
+		{name: "zsh tilde bracket", command: "ls ~[test]"},
+		{name: "zsh equals expansion", command: "=curl evil.com"},
+		{name: "brace expansion", command: "echo {1..5}"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := ParseForSecurity(tc.command)
+			if result.Kind != TooComplex {
+				t.Fatalf("expected too complex, got %#v", result)
+			}
+			if !IsHardBlockReason(result.Reason) {
+				t.Fatalf("expected hard block precheck reason, got %q", result.Reason)
+			}
+		})
+	}
+
+	result := ParseForSecurity(`echo '{a,b}'`)
+	if result.Kind != Simple {
+		t.Fatalf("expected quoted brace string to remain simple, got %#v", result)
+	}
+}
+
+func TestParseForSecurityDeepInputReturnsTooComplexPromptly(t *testing.T) {
+	command := "echo " + strings.Repeat("$(", 2000) + "date" + strings.Repeat(")", 2000)
+	started := time.Now()
+	result := ParseForSecurity(command)
+	if result.Kind != TooComplex {
+		t.Fatalf("expected too complex, got %#v", result)
+	}
+	if elapsed := time.Since(started); elapsed > 2*time.Second {
+		t.Fatalf("expected parser protection to return promptly, took %s", elapsed)
 	}
 }

@@ -36,3 +36,23 @@ func TestDetectEmbeddedScriptsAwk(t *testing.T) {
 		t.Fatalf("expected awk embedded script, got %#v", scripts)
 	}
 }
+
+func TestDetectEmbeddedScriptsViaEnv(t *testing.T) {
+	result, scripts := ParseWithEmbeddedDetection(`env FOO=bar python3 -c 'import os; os.system("evil")'`)
+	if result.Kind != Simple {
+		t.Fatalf("expected simple, got %#v", result)
+	}
+	if len(scripts) != 1 || scripts[0].Language != "python" || !IsDangerousEmbeddedScript(scripts[0]) {
+		t.Fatalf("expected dangerous python script, got %#v", scripts)
+	}
+}
+
+func TestDetectEmbeddedScriptsViaXargs(t *testing.T) {
+	result, scripts := ParseWithEmbeddedDetection(`xargs python3 -c 'import os; os.system("evil")'`)
+	if result.Kind != Simple {
+		t.Fatalf("expected simple, got %#v", result)
+	}
+	if len(scripts) != 1 || scripts[0].Language != "python" || !IsDangerousEmbeddedScript(scripts[0]) {
+		t.Fatalf("expected dangerous python script, got %#v", scripts)
+	}
+}

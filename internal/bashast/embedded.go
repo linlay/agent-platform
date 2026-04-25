@@ -11,40 +11,125 @@ func DetectEmbeddedScripts(cmds []SimpleCommand) []EmbeddedScript {
 		if len(cmd.Argv) == 0 {
 			continue
 		}
-		base := strings.ToLower(filepath.Base(cmd.Argv[0]))
+		scripts = append(scripts, detectEmbeddedScriptsInArgv(cmd.Argv, 0)...)
+		if unwrapped, offset, ok := unwrapEnvArgv(cmd.Argv); ok {
+			scripts = append(scripts, detectEmbeddedScriptsInArgv(unwrapped, offset)...)
+		}
+	}
+	return dedupeEmbeddedScripts(scripts)
+}
+
+func detectEmbeddedScriptsInArgv(argv []string, offset int) []EmbeddedScript {
+	var scripts []EmbeddedScript
+	for idx := range argv {
+		base := strings.ToLower(filepath.Base(argv[idx]))
 		switch base {
 		case "python", "python3":
-			scripts = appendFlagScript(scripts, cmd.Argv, "python", []string{"-c"})
+			scripts = appendFlagScriptFrom(scripts, argv, idx, offset, "python", []string{"-c"})
 		case "node":
-			scripts = appendFlagScript(scripts, cmd.Argv, "javascript", []string{"-e", "--eval"})
+			scripts = appendFlagScriptFrom(scripts, argv, idx, offset, "javascript", []string{"-e", "--eval"})
 		case "ruby":
-			scripts = appendFlagScript(scripts, cmd.Argv, "ruby", []string{"-e"})
+			scripts = appendFlagScriptFrom(scripts, argv, idx, offset, "ruby", []string{"-e"})
 		case "perl":
-			scripts = appendFlagScript(scripts, cmd.Argv, "perl", []string{"-e", "-E"})
+			scripts = appendFlagScriptFrom(scripts, argv, idx, offset, "perl", []string{"-e", "-E"})
 		case "jq":
-			if filter, idx, ok := firstNonFlagArg(cmd.Argv[1:]); ok && strings.Contains(filter, "system(") {
-				scripts = append(scripts, EmbeddedScript{Language: "jq", Code: filter, ArgIndex: idx + 1})
+			if filter, filterIdx, ok := firstNonFlagArg(argv[idx+1:]); ok && strings.Contains(filter, "system(") {
+				scripts = append(scripts, EmbeddedScript{Language: "jq", Code: filter, ArgIndex: offset + idx + 1 + filterIdx})
 			}
 		case "awk", "gawk":
-			if program, idx, ok := firstNonFlagArg(cmd.Argv[1:]); ok && isDangerousAWK(program) {
-				scripts = append(scripts, EmbeddedScript{Language: "awk", Code: program, ArgIndex: idx + 1})
+			if program, programIdx, ok := firstNonFlagArg(argv[idx+1:]); ok && isDangerousAWK(program) {
+				scripts = append(scripts, EmbeddedScript{Language: "awk", Code: program, ArgIndex: offset + idx + 1 + programIdx})
 			}
 		}
 	}
 	return scripts
 }
 
-func appendFlagScript(out []EmbeddedScript, argv []string, language string, flags []string) []EmbeddedScript {
-	for idx := 1; idx < len(argv); idx++ {
+func appendFlagScriptFrom(out []EmbeddedScript, argv []string, commandIndex int, offset int, language string, flags []string) []EmbeddedScript {
+	for idx := commandIndex + 1; idx < len(argv); idx++ {
 		arg := argv[idx]
 		for _, flag := range flags {
 			if arg == flag && idx+1 < len(argv) {
-				return append(out, EmbeddedScript{Language: language, Code: argv[idx+1], ArgIndex: idx + 1})
+				return append(out, EmbeddedScript{Language: language, Code: argv[idx+1], ArgIndex: offset + idx + 1})
 			}
 			if strings.HasPrefix(arg, flag+"=") {
-				return append(out, EmbeddedScript{Language: language, Code: strings.TrimPrefix(arg, flag+"="), ArgIndex: idx})
+				return append(out, EmbeddedScript{Language: language, Code: strings.TrimPrefix(arg, flag+"="), ArgIndex: offset + idx})
 			}
 		}
+	}
+	return out
+}
+
+func unwrapEnvArgv(argv []string) ([]string, int, bool) {
+	if len(argv) == 0 || strings.ToLower(filepath.Base(argv[0])) != "env" {
+		return nil, 0, false
+	}
+	idx := 1
+	for idx < len(argv) {
+		arg := argv[idx]
+		if arg == "--" {
+			idx++
+			break
+		}
+		if isEnvAssignmentArg(arg) {
+			idx++
+			continue
+		}
+		if arg == "-u" || arg == "--unset" || arg == "-C" || arg == "--chdir" {
+			idx += 2
+			continue
+		}
+		if strings.HasPrefix(arg, "-u") && len(arg) > 2 {
+			idx++
+			continue
+		}
+		if strings.HasPrefix(arg, "--unset=") || strings.HasPrefix(arg, "--chdir=") {
+			idx++
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			idx++
+			continue
+		}
+		break
+	}
+	if idx >= len(argv) {
+		return nil, 0, false
+	}
+	return argv[idx:], idx, true
+}
+
+func isEnvAssignmentArg(arg string) bool {
+	idx := strings.IndexRune(arg, '=')
+	if idx <= 0 {
+		return false
+	}
+	for pos, r := range arg[:idx] {
+		if pos == 0 {
+			if r != '_' && (r < 'A' || r > 'Z') && (r < 'a' || r > 'z') {
+				return false
+			}
+			continue
+		}
+		if r != '_' && (r < 'A' || r > 'Z') && (r < 'a' || r > 'z') && (r < '0' || r > '9') {
+			return false
+		}
+	}
+	return true
+}
+
+func dedupeEmbeddedScripts(scripts []EmbeddedScript) []EmbeddedScript {
+	if len(scripts) < 2 {
+		return scripts
+	}
+	seen := make(map[EmbeddedScript]struct{}, len(scripts))
+	out := make([]EmbeddedScript, 0, len(scripts))
+	for _, script := range scripts {
+		if _, ok := seen[script]; ok {
+			continue
+		}
+		seen[script] = struct{}{}
+		out = append(out, script)
 	}
 	return out
 }

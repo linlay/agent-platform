@@ -2,6 +2,7 @@ package bashast
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -56,11 +57,15 @@ var safeEnvironmentVariables = []string{
 	"TERM", "TMPDIR", "LANG", "LC_ALL", "BASH_VERSION",
 }
 
+var unsafeDeclFlagRe = regexp.MustCompile(`^[+-][A-Za-z]*[niaA]`)
+
 type walker struct {
 	source   string
 	scope    *varScope
 	commands []SimpleCommand
 }
+
+const maxExtractedCommands = 256
 
 func newWalker(source string) *walker {
 	return &walker{source: source, scope: newVarScope()}
@@ -190,12 +195,14 @@ func (w *walker) walkCallExpr(call *syntax.CallExpr, redirs []*syntax.Redirect, 
 	if err != nil {
 		return scope, err
 	}
-	w.commands = append(w.commands, SimpleCommand{
+	if err := w.appendCommand(SimpleCommand{
 		Argv:      argv,
 		EnvVars:   envVars,
 		Redirects: redirects,
 		Text:      w.sourceForNode(stmt),
-	})
+	}); err != nil {
+		return scope, err
+	}
 	return scope, nil
 }
 
@@ -206,6 +213,7 @@ func (w *walker) walkDeclClause(decl *syntax.DeclClause, redirs []*syntax.Redire
 	next := scope.snapshot()
 	argv := []string{decl.Variant.Value}
 	envVars := make([]EnvVar, 0, len(decl.Args))
+	restrictedDecl := isRestrictedDeclVariant(decl.Variant.Value)
 	for _, assign := range decl.Args {
 		if assign == nil {
 			continue
@@ -228,6 +236,14 @@ func (w *walker) walkDeclClause(decl *syntax.DeclClause, redirs []*syntax.Redire
 			if err != nil {
 				return scope, err
 			}
+			if restrictedDecl {
+				if unsafeDeclFlagRe.MatchString(value) {
+					return scope, tooComplex("syntax.DeclClause", "unsupported declaration flag %s", value)
+				}
+				if strings.Contains(value, "[") {
+					return scope, tooComplex("syntax.DeclClause", "unsupported declaration argument with array subscript")
+				}
+			}
 			argv = append(argv, value)
 			continue
 		}
@@ -241,13 +257,32 @@ func (w *walker) walkDeclClause(decl *syntax.DeclClause, redirs []*syntax.Redire
 	if err != nil {
 		return scope, err
 	}
-	w.commands = append(w.commands, SimpleCommand{
+	if err := w.appendCommand(SimpleCommand{
 		Argv:      argv,
 		EnvVars:   envVars,
 		Redirects: redirects,
 		Text:      w.sourceForNode(stmt),
-	})
+	}); err != nil {
+		return scope, err
+	}
 	return next, nil
+}
+
+func (w *walker) appendCommand(cmd SimpleCommand) *walkError {
+	if len(w.commands) >= maxExtractedCommands {
+		return tooComplex("syntax.File", "too many commands to analyze")
+	}
+	w.commands = append(w.commands, cmd)
+	return nil
+}
+
+func isRestrictedDeclVariant(variant string) bool {
+	switch strings.TrimSpace(variant) {
+	case "declare", "typeset", "local":
+		return true
+	default:
+		return false
+	}
 }
 
 func (w *walker) walkIfClause(clause *syntax.IfClause, scope *varScope) (*varScope, *walkError) {
@@ -353,7 +388,7 @@ func (w *walker) parseWord(word *syntax.Word, scope *varScope) (string, *walkErr
 	}
 	var b strings.Builder
 	for _, part := range word.Parts {
-		value, err := w.parseWordPart(part, scope)
+		value, err := w.parseWordPart(part, scope, false)
 		if err != nil {
 			return "", err
 		}
@@ -362,7 +397,7 @@ func (w *walker) parseWord(word *syntax.Word, scope *varScope) (string, *walkErr
 	return b.String(), nil
 }
 
-func (w *walker) parseWordPart(part syntax.WordPart, scope *varScope) (string, *walkError) {
+func (w *walker) parseWordPart(part syntax.WordPart, scope *varScope, insideDoubleQuote bool) (string, *walkError) {
 	switch node := part.(type) {
 	case *syntax.Lit:
 		return node.Value, nil
@@ -377,7 +412,7 @@ func (w *walker) parseWordPart(part syntax.WordPart, scope *varScope) (string, *
 		}
 		var b strings.Builder
 		for _, child := range node.Parts {
-			value, err := w.parseWordPart(child, scope)
+			value, err := w.parseWordPart(child, scope, true)
 			if err != nil {
 				return "", err
 			}
@@ -392,8 +427,14 @@ func (w *walker) parseWordPart(part syntax.WordPart, scope *varScope) (string, *
 		if !ok {
 			return "", tooComplex("syntax.ParamExp", "unknown variable %s", node.Param.Value)
 		}
+		if !insideDoubleQuote && hasBareVarUnsafeChars(value) {
+			return "", tooComplex("syntax.ParamExp", "variable %s expands to unsafe unquoted value", node.Param.Value)
+		}
 		return value, nil
 	case *syntax.CmdSubst:
+		if node.Backquotes {
+			return "", tooComplex("syntax.CmdSubst", "unsupported backtick command substitution")
+		}
 		if node.TempFile || node.ReplyVar {
 			return "", tooComplex("syntax.CmdSubst", "unsupported command substitution form")
 		}
@@ -412,6 +453,10 @@ func (w *walker) parseWordPart(part syntax.WordPart, scope *varScope) (string, *
 	default:
 		return "", tooComplex(fmt.Sprintf("%T", part), "unsupported word part %T", part)
 	}
+}
+
+func hasBareVarUnsafeChars(value string) bool {
+	return strings.ContainsAny(value, " \t\n*?[]")
 }
 
 func isSimpleParamExp(exp *syntax.ParamExp) bool {

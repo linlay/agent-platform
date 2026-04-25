@@ -13,20 +13,28 @@ var (
 	backslashWhitespaceMsg = "Command contains backslash-escaped whitespace that could alter command parsing"
 )
 
+const (
+	controlCharacterReason       = "Command contains non-printable control characters that could bypass security checks"
+	unicodeWhitespaceReason      = "Command contains Unicode whitespace characters that could cause parsing inconsistencies"
+	zshTildeBracketReason        = "Command contains Zsh-style parameter expansion"
+	zshEqualsExpansionReason     = "Command contains Zsh equals expansion"
+	braceExpansionPrecheckReason = "Command contains brace expansion that could alter command parsing"
+)
+
 func runPrechecks(command string) (bool, string) {
 	switch {
 	case controlCharRe.MatchString(command):
-		return false, "Command contains non-printable control characters that could bypass security checks"
+		return false, controlCharacterReason
 	case unicodeWhitespaceRe.MatchString(command):
-		return false, "Command contains Unicode whitespace characters that could cause parsing inconsistencies"
+		return false, unicodeWhitespaceReason
 	case hasBackslashEscapedWhitespace(command):
 		return false, backslashWhitespaceMsg
 	case zshTildeBracketRe.MatchString(command):
-		return false, "Command contains Zsh-style parameter expansion"
+		return false, zshTildeBracketReason
 	case zshEqualsExpansionRe.MatchString(command):
-		return false, "Command contains Zsh equals expansion"
+		return false, zshEqualsExpansionReason
 	case hasUnquotedBraceExpansion(command):
-		return false, "Command contains brace expansion that could alter command parsing"
+		return false, braceExpansionPrecheckReason
 	default:
 		return true, ""
 	}
@@ -102,5 +110,15 @@ func braceContainsExpansionOperator(rest []rune) bool {
 
 func IsHardBlockReason(reason string) bool {
 	reason = strings.TrimSpace(reason)
-	return reason == "Command contains non-printable control characters that could bypass security checks"
+	switch reason {
+	case controlCharacterReason,
+		unicodeWhitespaceReason,
+		backslashWhitespaceMsg,
+		zshTildeBracketReason,
+		zshEqualsExpansionReason,
+		braceExpansionPrecheckReason:
+		return true
+	default:
+		return false
+	}
 }

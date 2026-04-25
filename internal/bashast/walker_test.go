@@ -9,6 +9,13 @@ func TestParseForSecurityScopeIsolationAcrossOr(t *testing.T) {
 	}
 }
 
+func TestParseForSecurityScopeIsolationAcrossPipe(t *testing.T) {
+	result := ParseForSecurity(`VAR=secret | cmd $VAR`)
+	if result.Kind != TooComplex {
+		t.Fatalf("expected too complex for pipeline-scoped variable, got %#v", result)
+	}
+}
+
 func TestParseForSecurityExportAndLoops(t *testing.T) {
 	result := ParseForSecurity(`export FOO=bar; for item in a b; do echo "$item"; done`)
 	if result.Kind != Simple {
@@ -22,6 +29,48 @@ func TestParseForSecurityExportAndLoops(t *testing.T) {
 	}
 	if result.Commands[1].Argv[0] != "echo" || result.Commands[1].Argv[1] != TrackedVariablePlaceholder {
 		t.Fatalf("unexpected loop echo command %#v", result.Commands[1])
+	}
+}
+
+func TestParseForSecurityDeclareSafety(t *testing.T) {
+	tooComplex := []string{
+		`declare -n ref=PATH`,
+		`declare -i x='a[$(id)]'`,
+		`declare -a items`,
+		`declare 'x[$(id)]=val'`,
+	}
+	for _, command := range tooComplex {
+		t.Run(command, func(t *testing.T) {
+			result := ParseForSecurity(command)
+			if result.Kind != TooComplex {
+				t.Fatalf("expected too complex, got %#v", result)
+			}
+		})
+	}
+
+	simple := []string{
+		`declare -r FOO=bar`,
+		`export FOO=bar`,
+	}
+	for _, command := range simple {
+		t.Run(command, func(t *testing.T) {
+			result := ParseForSecurity(command)
+			if result.Kind != Simple {
+				t.Fatalf("expected simple, got %#v", result)
+			}
+		})
+	}
+}
+
+func TestParseForSecurityBareVarUnsafeCharacters(t *testing.T) {
+	result := ParseForSecurity(`VAR="-rf /" && rm $VAR`)
+	if result.Kind != TooComplex {
+		t.Fatalf("expected unsafe bare variable to be too complex, got %#v", result)
+	}
+
+	result = ParseForSecurity(`VAR="-rf /" && rm "$VAR"`)
+	if result.Kind != Simple {
+		t.Fatalf("expected quoted unsafe variable to remain simple, got %#v", result)
 	}
 }
 
