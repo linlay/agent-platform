@@ -1014,6 +1014,91 @@ func TestStepWriterMergesSubmitAndAnswer(t *testing.T) {
 	}
 }
 
+func TestStepWriterTimeoutAnswerDoesNotSplitToolStep(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	writer := NewStepWriter(store, "chat-timeout-submit", "run-timeout-submit", "react", false)
+	writer.OnEvent(stream.EventData{
+		Type:      "tool.snapshot",
+		Timestamp: 1001,
+		Payload: map[string]any{
+			"toolId":    "tool-1",
+			"toolName":  "bash",
+			"arguments": `{"command":"mock create-leave"}`,
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "awaiting.ask",
+		Timestamp: 1002,
+		Payload: map[string]any{
+			"awaitingId": "tool-1",
+			"mode":       "approval",
+			"timeout":    120000,
+			"runId":      "run-timeout-submit",
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "awaiting.answer",
+		Seq:       12,
+		Timestamp: 1003,
+		Payload: map[string]any{
+			"type":       "awaiting.answer",
+			"awaitingId": "tool-1",
+			"mode":       "approval",
+			"status":     "error",
+			"error": map[string]any{
+				"code": "timeout",
+			},
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "tool.result",
+		Timestamp: 1004,
+		Payload: map[string]any{
+			"toolId": "tool-1",
+			"result": map[string]any{
+				"error": "hitl_timeout",
+			},
+		},
+	})
+	writer.Flush()
+
+	lines, err := readJSONLines(store.chatJSONLPath("chat-timeout-submit"))
+	if err != nil {
+		t.Fatalf("read chat jsonl: %v", err)
+	}
+	if len(lines) != 2 {
+		t.Fatalf("expected one step line and one submit line, got %#v", lines)
+	}
+	var stepLine map[string]any
+	var submitLine map[string]any
+	for _, line := range lines {
+		switch line["_type"] {
+		case "react":
+			stepLine = line
+		case "submit":
+			submitLine = line
+		}
+	}
+	if stepLine == nil || submitLine == nil {
+		t.Fatalf("expected both step and submit lines, got %#v", lines)
+	}
+	messages, _ := stepLine["messages"].([]any)
+	if len(messages) != 2 {
+		t.Fatalf("expected tool snapshot and tool result in same step line, got %#v", stepLine)
+	}
+	answer, _ := submitLine["answer"].(map[string]any)
+	if answer == nil || answer["type"] != "awaiting.answer" {
+		t.Fatalf("expected awaiting.answer on submit line, got %#v", submitLine)
+	}
+	if _, ok := answer["seq"]; ok {
+		t.Fatalf("did not expect seq on submit answer payload, got %#v", answer)
+	}
+}
+
 func TestStepWriterFormatsStructuredToolResultAsJSON(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
@@ -1361,6 +1446,9 @@ func TestLoadRawMessagesReplaysApprovalSummaryFromStepLine(t *testing.T) {
 	if len(rawMessages) != 3 {
 		t.Fatalf("expected assistant, tool, synthetic user messages, got %#v", rawMessages)
 	}
+	if rawMessages[1]["role"] != "tool" {
+		t.Fatalf("expected tool result before approval summary, got %#v", rawMessages)
+	}
 	if rawMessages[2]["role"] != "user" || rawMessages[2]["content"] != `[HITL] chmod 777 ~/a.sh → approve` {
 		t.Fatalf("expected approval summary replayed as user raw message, got %#v", rawMessages[2])
 	}
@@ -1374,6 +1462,162 @@ func TestLoadRawMessagesReplaysApprovalSummaryFromStepLine(t *testing.T) {
 	}
 	if detail.RawMessages[2]["role"] != "user" {
 		t.Fatalf("expected synthetic approval summary at end of raw messages, got %#v", detail.RawMessages)
+	}
+}
+
+func TestLoadRawMessagesReplaysSplitApprovalSummaryAfterToolResult(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	if _, _, err := store.EnsureChat("chat-approval-split", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	toolTs := int64(5001)
+	resultTs := int64(5002)
+	if err := store.AppendStepLine("chat-approval-split", StepLine{
+		ChatID:    "chat-approval-split",
+		RunID:     "run-approval-split",
+		UpdatedAt: 5003,
+		Type:      "react",
+		Seq:       1,
+		Messages: []StoredMessage{{
+			Role: "assistant",
+			ToolCalls: []StoredToolCall{{
+				ID:   "tool-1",
+				Type: "function",
+				Function: StoredFunction{
+					Name:      "bash",
+					Arguments: `{"command":"mock create-leave"}`,
+				},
+			}},
+			ToolID: "tool-1",
+			MsgID:  "msg-1",
+			Ts:     &toolTs,
+		}},
+		Approval: &StepApproval{
+			Summary: `[HITL] mock create-leave → reject（timeout）`,
+			Decisions: []StepApprovalDecision{{
+				ToolID:   "tool-1",
+				Command:  "mock create-leave",
+				Decision: "reject",
+				RuleKey:  "leave::create",
+			}},
+		},
+	}); err != nil {
+		t.Fatalf("append split approval step line: %v", err)
+	}
+	if err := store.AppendStepLine("chat-approval-split", StepLine{
+		ChatID:    "chat-approval-split",
+		RunID:     "run-approval-split",
+		UpdatedAt: 5004,
+		Type:      "react",
+		Seq:       2,
+		Messages: []StoredMessage{{
+			Role:       "tool",
+			Name:       "bash",
+			ToolCallID: "tool-1",
+			Content:    []ContentPart{{Type: "text", Text: `{"error":"hitl_timeout"}`}},
+			ToolID:     "tool-1",
+			Ts:         &resultTs,
+		}},
+	}); err != nil {
+		t.Fatalf("append tool result step line: %v", err)
+	}
+
+	rawMessages, err := store.LoadRawMessages("chat-approval-split", 10)
+	if err != nil {
+		t.Fatalf("load raw messages: %v", err)
+	}
+	if len(rawMessages) != 3 {
+		t.Fatalf("expected assistant, tool, synthetic user messages, got %#v", rawMessages)
+	}
+	if rawMessages[0]["role"] != "assistant" || rawMessages[1]["role"] != "tool" || rawMessages[2]["role"] != "user" {
+		t.Fatalf("expected assistant -> tool -> user ordering, got %#v", rawMessages)
+	}
+	if rawMessages[2]["content"] != `[HITL] mock create-leave → reject（timeout）` {
+		t.Fatalf("expected approval summary at end, got %#v", rawMessages[2])
+	}
+}
+
+func TestLoadRawMessagesFlushesApprovalSummaryBeforeNextRun(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	if _, _, err := store.EnsureChat("chat-approval-multirun", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	if err := store.AppendQueryLine("chat-approval-multirun", QueryLine{
+		ChatID:    "chat-approval-multirun",
+		RunID:     "run-1",
+		UpdatedAt: 1000,
+		Query: map[string]any{
+			"role":    "user",
+			"message": "first",
+		},
+		Type: "query",
+	}); err != nil {
+		t.Fatalf("append first query line: %v", err)
+	}
+	if err := store.AppendStepLine("chat-approval-multirun", StepLine{
+		ChatID:    "chat-approval-multirun",
+		RunID:     "run-1",
+		UpdatedAt: 1001,
+		Type:      "react",
+		Seq:       1,
+		Messages: []StoredMessage{{
+			Role:    "assistant",
+			Content: []ContentPart{{Type: "text", Text: "first reply"}},
+			MsgID:   "msg-1",
+		}},
+		Approval: &StepApproval{Summary: "[HITL] first approval"},
+	}); err != nil {
+		t.Fatalf("append first step line: %v", err)
+	}
+	if err := store.AppendQueryLine("chat-approval-multirun", QueryLine{
+		ChatID:    "chat-approval-multirun",
+		RunID:     "run-2",
+		UpdatedAt: 1002,
+		Query: map[string]any{
+			"role":    "user",
+			"message": "second",
+		},
+		Type: "query",
+	}); err != nil {
+		t.Fatalf("append second query line: %v", err)
+	}
+	if err := store.AppendStepLine("chat-approval-multirun", StepLine{
+		ChatID:    "chat-approval-multirun",
+		RunID:     "run-2",
+		UpdatedAt: 1003,
+		Type:      "react",
+		Seq:       1,
+		Messages: []StoredMessage{{
+			Role:    "assistant",
+			Content: []ContentPart{{Type: "text", Text: "second reply"}},
+			MsgID:   "msg-2",
+		}},
+	}); err != nil {
+		t.Fatalf("append second step line: %v", err)
+	}
+
+	rawMessages, err := store.LoadRawMessages("chat-approval-multirun", 10)
+	if err != nil {
+		t.Fatalf("load raw messages: %v", err)
+	}
+	if len(rawMessages) != 5 {
+		t.Fatalf("expected first query, first reply, summary, second query, second reply; got %#v", rawMessages)
+	}
+	if rawMessages[2]["role"] != "user" || rawMessages[2]["content"] != "[HITL] first approval" {
+		t.Fatalf("expected first run approval summary before next run query, got %#v", rawMessages)
+	}
+	if rawMessages[3]["runId"] != "run-2" || rawMessages[3]["content"] != "second" {
+		t.Fatalf("expected second run query after first summary, got %#v", rawMessages)
 	}
 }
 

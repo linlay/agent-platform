@@ -707,12 +707,31 @@ func (s *FileStore) loadRawMessagesFromJSONL(chatID string) []map[string]any {
 	}
 
 	var messages []map[string]any
+	var pendingApprovalSummaries []map[string]any
+	currentRunID := ""
+	flushPendingApprovalSummaries := func() {
+		if len(pendingApprovalSummaries) == 0 {
+			return
+		}
+		messages = append(messages, pendingApprovalSummaries...)
+		pendingApprovalSummaries = nil
+	}
+
 	for _, line := range lines {
 		lineType, _ := line["_type"].(string)
 		runID, _ := line["runId"].(string)
 
+		if currentRunID == "" {
+			currentRunID = runID
+		} else if runID != "" && runID != currentRunID {
+			flushPendingApprovalSummaries()
+			currentRunID = runID
+		}
+
 		switch lineType {
 		case "query":
+			flushPendingApprovalSummaries()
+			currentRunID = runID
 			query, _ := line["query"].(map[string]any)
 			if query == nil {
 				continue
@@ -758,7 +777,7 @@ func (s *FileStore) loadRawMessagesFromJSONL(chatID string) []map[string]any {
 			}
 			if approval, ok := line["approval"].(map[string]any); ok {
 				if summary := stringValue(approval["summary"]); summary != "" {
-					messages = append(messages, map[string]any{
+					pendingApprovalSummaries = append(pendingApprovalSummaries, map[string]any{
 						"runId":   runID,
 						"role":    "user",
 						"content": summary,
@@ -768,6 +787,7 @@ func (s *FileStore) loadRawMessagesFromJSONL(chatID string) []map[string]any {
 			}
 		}
 	}
+	flushPendingApprovalSummaries()
 	return messages
 }
 

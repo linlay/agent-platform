@@ -185,7 +185,6 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		w.bufferSubmitEvent(event)
 
 	case "awaiting.answer":
-		w.flushCurrentStep()
 		w.writeSubmitLine(event)
 
 	case "request.steer":
