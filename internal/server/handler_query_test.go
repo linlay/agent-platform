@@ -553,7 +553,7 @@ func TestPrepareQueryFailsFastWhenSandboxAgentRequiresDisabledContainerHub(t *te
 				Key:      "agent-a",
 				Name:     "Agent A",
 				ModelKey: "mock-model",
-				Sandbox: map[string]any{
+				Runtime: map[string]any{
 					"environmentId": "shell",
 				},
 			},
@@ -567,6 +567,47 @@ func TestPrepareQueryFailsFastWhenSandboxAgentRequiresDisabledContainerHub(t *te
 	}
 	if !strings.Contains(err.Error(), `agent "agent-a" requires sandbox but container-hub is disabled`) {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestPrepareQueryAllowsRuntimeEnvWithoutContainerHub(t *testing.T) {
+	chats, err := chat.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new chat store: %v", err)
+	}
+
+	server := &Server{deps: Dependencies{
+		Config: config.Config{
+			ContainerHub: config.ContainerHubConfig{Enabled: false},
+		},
+		Chats: chats,
+		Registry: queryMemoryRegistry{
+			def: catalog.AgentDefinition{
+				Key:      "agent-a",
+				Name:     "Agent A",
+				ModelKey: "mock-model",
+				Runtime: map[string]any{
+					"env": map[string]string{
+						"HTTP_PROXY": "http://127.0.0.1:8001",
+					},
+				},
+			},
+		},
+	}}
+
+	req := httptest.NewRequest("POST", "/api/query", bytes.NewBufferString(`{"agentKey":"agent-a","chatId":"chat-1","message":"列出目录"}`))
+	prepared, err := server.prepareQuery(req)
+	if err != nil {
+		t.Fatalf("prepareQuery: %v", err)
+	}
+	if prepared.session.AgentHasRuntimeSandbox {
+		t.Fatal("expected env-only runtime config to avoid sandbox routing")
+	}
+	if got := prepared.session.RuntimeEnvOverrides["HTTP_PROXY"]; got != "http://127.0.0.1:8001" {
+		t.Fatalf("RuntimeEnvOverrides[HTTP_PROXY] = %q", got)
+	}
+	if !containsString(prepared.session.ToolNames, "bash") {
+		t.Fatalf("expected bash tool for runtime env overrides, got %#v", prepared.session.ToolNames)
 	}
 }
 

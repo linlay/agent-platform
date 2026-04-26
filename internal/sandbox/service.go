@@ -53,7 +53,7 @@ func (s *ContainerHubSandboxService) OpenIfNeeded(ctx context.Context, execCtx *
 	if environmentID == "" {
 		return fmt.Errorf("container-hub environment id is required")
 	}
-	level := s.resolveSandboxLevel(execCtx)
+	level := s.resolveRuntimeLevel(execCtx)
 	if level == "" {
 		level = "run"
 	}
@@ -69,17 +69,17 @@ func (s *ContainerHubSandboxService) OpenIfNeeded(ctx context.Context, execCtx *
 }
 
 // resolveEnvironmentID mirrors Java's ContainerHubSandboxService.resolveEnvironmentId:
-// agent sandboxConfig.environmentId > global default.
+// agent runtimeConfig.environmentId > global default.
 func (s *ContainerHubSandboxService) resolveEnvironmentID(execCtx *contracts.ExecutionContext) string {
-	if execCtx != nil && execCtx.Session.SandboxEnvironmentID != "" {
-		return strings.TrimSpace(execCtx.Session.SandboxEnvironmentID)
+	if execCtx != nil && execCtx.Session.RuntimeEnvironmentID != "" {
+		return strings.TrimSpace(execCtx.Session.RuntimeEnvironmentID)
 	}
 	return strings.TrimSpace(s.cfg.DefaultEnvironmentID)
 }
 
-func (s *ContainerHubSandboxService) resolveSandboxLevel(execCtx *contracts.ExecutionContext) string {
-	if execCtx != nil && execCtx.Session.SandboxLevel != "" {
-		return strings.ToLower(strings.TrimSpace(execCtx.Session.SandboxLevel))
+func (s *ContainerHubSandboxService) resolveRuntimeLevel(execCtx *contracts.ExecutionContext) string {
+	if execCtx != nil && execCtx.Session.RuntimeLevel != "" {
+		return strings.ToLower(strings.TrimSpace(execCtx.Session.RuntimeLevel))
 	}
 	level := strings.ToLower(strings.TrimSpace(s.cfg.DefaultSandboxLevel))
 	if level == "" {
@@ -251,7 +251,7 @@ func (s *ContainerHubSandboxService) releaseAgentSession(agentKey string) {
 }
 
 func (s *ContainerHubSandboxService) createAndBind(ctx context.Context, execCtx *contracts.ExecutionContext, level string, sessionID string) error {
-	mounts, err := s.mounts.Resolve(execCtx.Session.ChatID, execCtx.Session.AgentKey, level, execCtx.Session.SandboxExtraMounts)
+	mounts, err := s.mounts.Resolve(execCtx.Session.ChatID, execCtx.Session.AgentKey, level, execCtx.Session.RuntimeExtraMounts)
 	if err != nil {
 		return err
 	}
@@ -278,8 +278,8 @@ func (s *ContainerHubSandboxService) createAndBind(ctx context.Context, execCtx 
 			"agentKey": execCtx.Session.AgentKey,
 		},
 	}
-	if len(execCtx.SandboxEnvOverrides) > 0 {
-		payload["env"] = contracts.CloneStringMap(execCtx.SandboxEnvOverrides)
+	if len(execCtx.RuntimeEnvOverrides) > 0 {
+		payload["env"] = contracts.CloneStringMap(execCtx.RuntimeEnvOverrides)
 	}
 	response, err := s.client.CreateSession(ctx, payload)
 	if err != nil {

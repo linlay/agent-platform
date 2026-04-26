@@ -87,64 +87,64 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 	}
 
 	promptAppend := buildPromptAppendConfig(s.deps.Config.Prompts, agentDef)
-	skillHookDirs, sandboxEnvOverrides := resolveSkillRuntimeSettings(
-		sandboxAgentEnv(agentDef.Sandbox["env"]),
+	skillHookDirs, runtimeEnvOverrides := resolveSkillRuntimeSettings(
+		runtimeAgentEnv(agentDef.Runtime["env"]),
 		agentDef.AgentDir,
 		s.deps.Config.Paths.SkillsMarketDir,
 		agentDef.Skills,
 	)
-	log.Printf("[server][skill-runtime] agent=%s skills=%v hookDirs=%v sandboxEnvKeys=%v",
+	log.Printf("[server][skill-runtime] agent=%s skills=%v hookDirs=%v runtimeEnvKeys=%v",
 		agentDef.Key,
 		agentDef.Skills,
 		skillHookDirs,
-		sortedStringKeys(sandboxEnvOverrides),
+		sortedStringKeys(runtimeEnvOverrides),
 	)
 
 	session := contracts.QuerySession{
-		RequestID:             req.RequestID,
-		RunID:                 req.RunID,
-		ChatID:                req.ChatID,
-		ChatName:              summary.ChatName,
-		AgentKey:              req.AgentKey,
-		AgentName:             agentDef.Name,
-		AgentRole:             agentDef.Role,
-		AgentDescription:      agentDef.Description,
-		ModelKey:              agentDef.ModelKey,
-		ToolNames:             buildSessionToolNames(effectiveAgentTools(agentDef), options.AllowInvokeAgents),
-		Mode:                  agentDef.Mode,
-		TeamID:                req.TeamID,
-		Created:               options.Created,
-		SkillKeys:             append([]string(nil), agentDef.Skills...),
-		ContextTags:           append([]string(nil), agentDef.ContextTags...),
-		Budget:                contracts.CloneMap(agentDef.Budget),
-		StageSettings:         contracts.CloneMap(agentDef.StageSettings),
-		ToolOverrides:         s.buildSessionToolOverrides(agentDef),
-		ResolvedBudget:        contracts.ResolveBudget(s.deps.Config, agentDef.Budget),
-		ResolvedStageSettings: contracts.ResolvePlanExecuteSettings(agentDef.StageSettings, s.deps.Config.Defaults.Plan.MaxSteps, s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask),
-		HistoryMessages:       historyMessages,
-		StableMemoryContext:   stableMemoryContext,
-		SessionMemoryContext:  sessionMemoryContext,
-		ObservationContext:    observationContext,
-		MemoryUsageSummary:    memoryUsageSummary,
-		RuntimeContext:        runtimeContext,
-		PromptAppend:          promptAppend,
-		StaticMemoryPrompt:    strings.TrimSpace(agentDef.StaticMemoryPrompt),
-		MemoryPrompt:          agentDef.MemoryPrompt,
-		SkillCatalogPrompt:    buildSkillCatalogPrompt(agentDef, s.deps.Config.Paths.SkillsMarketDir, promptAppend),
-		SoulPrompt:            agentDef.SoulPrompt,
-		AgentsPrompt:          agentDef.AgentsPrompt,
-		PlanPrompt:            agentDef.PlanPrompt,
-		ExecutePrompt:         agentDef.ExecutePrompt,
-		SummaryPrompt:         agentDef.SummaryPrompt,
-		SandboxEnvironmentID:  extractSandboxField(agentDef.Sandbox, "environmentId"),
-		SandboxLevel:          extractSandboxField(agentDef.Sandbox, "level"),
-		SandboxExtraMounts:    sandboxExtraMounts(agentDef.Sandbox["extraMounts"]),
-		AgentHasSandboxConfig: hasSandboxConfig(agentDef.Sandbox),
-		AgentHasMemoryConfig:  agentDef.MemoryEnabled,
-		SkillHookDirs:         skillHookDirs,
-		SandboxEnvOverrides:   sandboxEnvOverrides,
+		RequestID:              req.RequestID,
+		RunID:                  req.RunID,
+		ChatID:                 req.ChatID,
+		ChatName:               summary.ChatName,
+		AgentKey:               req.AgentKey,
+		AgentName:              agentDef.Name,
+		AgentRole:              agentDef.Role,
+		AgentDescription:       agentDef.Description,
+		ModelKey:               agentDef.ModelKey,
+		ToolNames:              buildSessionToolNames(effectiveAgentTools(agentDef), options.AllowInvokeAgents),
+		Mode:                   agentDef.Mode,
+		TeamID:                 req.TeamID,
+		Created:                options.Created,
+		SkillKeys:              append([]string(nil), agentDef.Skills...),
+		ContextTags:            append([]string(nil), agentDef.ContextTags...),
+		Budget:                 contracts.CloneMap(agentDef.Budget),
+		StageSettings:          contracts.CloneMap(agentDef.StageSettings),
+		ToolOverrides:          s.buildSessionToolOverrides(agentDef),
+		ResolvedBudget:         contracts.ResolveBudget(s.deps.Config, agentDef.Budget),
+		ResolvedStageSettings:  contracts.ResolvePlanExecuteSettings(agentDef.StageSettings, s.deps.Config.Defaults.Plan.MaxSteps, s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask),
+		HistoryMessages:        historyMessages,
+		StableMemoryContext:    stableMemoryContext,
+		SessionMemoryContext:   sessionMemoryContext,
+		ObservationContext:     observationContext,
+		MemoryUsageSummary:     memoryUsageSummary,
+		RuntimeContext:         runtimeContext,
+		PromptAppend:           promptAppend,
+		StaticMemoryPrompt:     strings.TrimSpace(agentDef.StaticMemoryPrompt),
+		MemoryPrompt:           agentDef.MemoryPrompt,
+		SkillCatalogPrompt:     buildSkillCatalogPrompt(agentDef, s.deps.Config.Paths.SkillsMarketDir, promptAppend),
+		SoulPrompt:             agentDef.SoulPrompt,
+		AgentsPrompt:           agentDef.AgentsPrompt,
+		PlanPrompt:             agentDef.PlanPrompt,
+		ExecutePrompt:          agentDef.ExecutePrompt,
+		SummaryPrompt:          agentDef.SummaryPrompt,
+		RuntimeEnvironmentID:   extractRuntimeField(agentDef.Runtime, "environmentId"),
+		RuntimeLevel:           extractRuntimeField(agentDef.Runtime, "level"),
+		RuntimeExtraMounts:     runtimeExtraMounts(agentDef.Runtime["extraMounts"]),
+		AgentHasRuntimeSandbox: hasRuntimeSandbox(agentDef.Runtime),
+		AgentHasMemoryConfig:   agentDef.MemoryEnabled,
+		SkillHookDirs:          skillHookDirs,
+		RuntimeEnvOverrides:    runtimeEnvOverrides,
 	}
-	if session.AgentHasSandboxConfig && !s.deps.Config.ContainerHub.Enabled {
+	if session.AgentHasRuntimeSandbox && !s.deps.Config.ContainerHub.Enabled {
 		return contracts.QuerySession{}, fmt.Errorf("agent %q requires sandbox but container-hub is disabled", req.AgentKey)
 	}
 	if principal != nil {
@@ -155,7 +155,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 
 func (s *Server) buildSessionToolOverrides(agentDef catalog.AgentDefinition) map[string]api.ToolDetailResponse {
 	overrides := cloneToolOverrides(agentDef.ToolOverrides)
-	if !hasSandboxConfig(agentDef.Sandbox) {
+	if !hasRuntimeSandbox(agentDef.Runtime) {
 		return overrides
 	}
 	tool, ok := s.lookupInternalTool("bash_sandbox")

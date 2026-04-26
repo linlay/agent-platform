@@ -1,6 +1,6 @@
 name: bash_sandbox
 label: 执行沙箱命令
-description: Execute a command inside the sandbox container. Runtime routes to this internal implementation when the agent declares sandboxConfig. When calling this tool, always include a short Chinese description explaining the command purpose.
+description: Execute a command inside the sandbox container. Runtime routes to this internal implementation when the agent declares runtimeConfig.environmentId. When calling this tool, always include a short Chinese description explaining the command purpose.
 submitResultFormat: json-compact
 type: builtin
 inputSchema:

@@ -128,7 +128,7 @@ func buildRuntimeContextPrompt(session QuerySession, req api.QueryRequest) strin
 		default:
 		}
 	}
-	if session.AgentHasSandboxConfig || session.RuntimeContext.SandboxContext != nil {
+	if session.AgentHasRuntimeSandbox || session.RuntimeContext.SandboxContext != nil {
 		appendIfPresent(&sections, buildSandboxSection(session.RuntimeContext.SandboxContext))
 	}
 	if session.AgentHasMemoryConfig {
@@ -198,7 +198,7 @@ func buildSessionSection(session QuerySession, req api.QueryRequest) string {
 }
 
 func appendContextPaths(lines *[]string, session QuerySession) {
-	if session.AgentHasSandboxConfig || session.RuntimeContext.SandboxContext != nil {
+	if session.AgentHasRuntimeSandbox || session.RuntimeContext.SandboxContext != nil {
 		appendSandboxContextPaths(lines, session.RuntimeContext.SandboxPaths, session.RuntimeContext.LocalMode)
 		return
 	}

@@ -752,8 +752,8 @@ func (s *Server) buildAgentDetailMeta(def catalog.AgentDefinition) (string, map[
 	if len(def.Skills) > 0 {
 		meta["perAgentSkills"] = append([]string(nil), def.Skills...)
 	}
-	if def.Sandbox != nil {
-		meta["sandbox"] = normalizedSandboxMeta(def.Sandbox)
+	if hasRuntimeSandbox(def.Runtime) {
+		meta["sandbox"] = normalizedRuntimeMeta(def.Runtime)
 	}
 	return modelName, meta
 }
@@ -773,7 +773,7 @@ func normalizedAgentTools(def catalog.AgentDefinition) []string {
 		seen[key] = struct{}{}
 		tools = append(tools, name)
 	}
-	if len(def.Skills) > 0 || hasSandboxConfig(def.Sandbox) {
+	if len(def.Skills) > 0 || hasRuntimeSandbox(def.Runtime) || hasRuntimeEnvOverrides(def.Runtime) {
 		if _, ok := seen["bash"]; !ok {
 			tools = append(tools, "bash")
 			seen["bash"] = struct{}{}
@@ -786,31 +786,42 @@ func effectiveAgentTools(def catalog.AgentDefinition) []string {
 	return normalizedAgentTools(def)
 }
 
-func hasSandboxConfig(sandbox map[string]any) bool {
-	return len(sandbox) > 0
+func hasRuntimeSandbox(runtime map[string]any) bool {
+	if len(runtime) == 0 {
+		return false
+	}
+	return strings.TrimSpace(stringValue(runtime["environmentId"])) != ""
 }
 
-func normalizedSandboxMeta(sandbox map[string]any) map[string]any {
-	if sandbox == nil {
+func hasRuntimeEnvOverrides(runtime map[string]any) bool {
+	if len(runtime) == 0 {
+		return false
+	}
+	env, ok := runtime["env"].(map[string]string)
+	return ok && len(env) > 0
+}
+
+func normalizedRuntimeMeta(runtime map[string]any) map[string]any {
+	if runtime == nil {
 		return nil
 	}
 	out := map[string]any{
-		"environmentId": stringValue(sandbox["environmentId"]),
-		"level":         strings.ToUpper(stringValue(sandbox["level"])),
+		"environmentId": stringValue(runtime["environmentId"]),
+		"level":         strings.ToUpper(stringValue(runtime["level"])),
 	}
 	// Intentionally do not expose sandbox env values via API metadata.
-	if mounts := normalizeSandboxMounts(sandbox["extraMounts"]); len(mounts) > 0 {
+	if mounts := normalizeRuntimeMounts(runtime["extraMounts"]); len(mounts) > 0 {
 		out["extraMounts"] = mounts
 	}
 	return out
 }
 
-func normalizeSandboxMounts(value any) []map[string]any {
+func normalizeRuntimeMounts(value any) []map[string]any {
 	switch mounts := value.(type) {
 	case []map[string]any:
 		out := make([]map[string]any, 0, len(mounts))
 		for _, mount := range mounts {
-			out = append(out, normalizeSandboxMount(mount))
+			out = append(out, normalizeRuntimeMount(mount))
 		}
 		return out
 	case []any:
@@ -820,7 +831,7 @@ func normalizeSandboxMounts(value any) []map[string]any {
 			if !ok {
 				continue
 			}
-			out = append(out, normalizeSandboxMount(mount))
+			out = append(out, normalizeRuntimeMount(mount))
 		}
 		return out
 	default:
@@ -828,7 +839,7 @@ func normalizeSandboxMounts(value any) []map[string]any {
 	}
 }
 
-func normalizeSandboxMount(mount map[string]any) map[string]any {
+func normalizeRuntimeMount(mount map[string]any) map[string]any {
 	return map[string]any{
 		"platform":    stringValue(mount["platform"]),
 		"source":      nullableStringValue(mount["source"]),
@@ -837,8 +848,8 @@ func normalizeSandboxMount(mount map[string]any) map[string]any {
 	}
 }
 
-func sandboxExtraMounts(value any) []contracts.SandboxExtraMount {
-	mounts := normalizeSandboxMounts(value)
+func runtimeExtraMounts(value any) []contracts.SandboxExtraMount {
+	mounts := normalizeRuntimeMounts(value)
 	if len(mounts) == 0 {
 		return nil
 	}
@@ -876,11 +887,11 @@ func nullableStringValue(value any) any {
 	return text
 }
 
-func extractSandboxField(sandbox map[string]any, key string) string {
-	if sandbox == nil {
+func extractRuntimeField(runtime map[string]any, key string) string {
+	if runtime == nil {
 		return ""
 	}
-	v, _ := sandbox[key].(string)
+	v, _ := runtime[key].(string)
 	return strings.TrimSpace(v)
 }
 
@@ -951,7 +962,7 @@ func canonicalizePublicToolDefinition(tool api.ToolDetailResponse) (api.ToolDeta
 		canonical.Key = "bash"
 		canonical.Name = "bash"
 		canonical.Label = "执行命令"
-		canonical.Description = "Run a command. Runtime decides whether to execute on the host or inside the sandbox based on the agent's sandboxConfig. Always include a short Chinese description explaining the command purpose."
+		canonical.Description = "Run a command. Runtime decides whether to execute on the host or inside the sandbox based on the agent's runtimeConfig.environmentId. Always include a short Chinese description explaining the command purpose."
 		return canonical, true
 	default:
 		return cloneToolDetailResponse(tool), true

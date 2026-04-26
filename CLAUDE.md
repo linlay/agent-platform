@@ -181,12 +181,12 @@ remember 根目录由 `MEMORY_DIR` 控制：
 - `ChatDetailResponse`
 - `UploadResponse` / `UploadTicket`
 
-### Agent sandboxConfig
+### Agent runtimeConfig
 
-`agent.yml` 当前可在 `sandboxConfig` 下声明 agent 级沙箱基础配置：
+`agent.yml` 当前可在 `runtimeConfig` 下声明 agent 级运行配置：
 
 ```yaml
-sandboxConfig:
+runtimeConfig:
   environmentId: shell
   level: RUN
   env:
@@ -199,8 +199,8 @@ sandboxConfig:
 
 - `env` 只接受字面量字符串 map；不支持 `${VAR}` 展开
 - key 必须非空，且不能包含空白字符或 `=`
-- value 必须是字符串；空字符串允许并原样传给 Container Hub
-- 最终合并顺序是 `agent.sandboxConfig.env < skill[i].SandboxEnv`，后声明的 skill 继续覆盖前者
+- value 必须是字符串；空字符串允许并原样注入 host bash 或 Container Hub
+- 最终合并顺序是 `agent.runtimeConfig.env < skill[i].RuntimeEnv`，后声明的 skill 继续覆盖前者
 - `/api/agents` 和 `/api/agent` 的 sandbox meta 不暴露 `env`，因为其中可能包含代理地址、凭据或私有 endpoint；`extraMounts` 仍继续对外暴露
 
 ## 6. API 定义

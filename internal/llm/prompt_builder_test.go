@@ -117,7 +117,7 @@ func TestBuildMemorySectionAvoidsDuplicatingLayeredHeaders(t *testing.T) {
 
 func TestBuildRuntimeContextPromptAutoIncludesSandboxSection(t *testing.T) {
 	prompt := buildRuntimeContextPrompt(QuerySession{
-		AgentHasSandboxConfig: true,
+		AgentHasRuntimeSandbox: true,
 		RuntimeContext: RuntimeRequestContext{
 			SandboxContext: &SandboxContext{
 				EnvironmentID:     "browser",
@@ -303,7 +303,7 @@ func TestBuildSystemEnvironmentSectionUsesLocalPathsWithoutSandbox(t *testing.T)
 
 func TestBuildSystemEnvironmentSectionUsesSandboxPathsWhenSandboxEnabled(t *testing.T) {
 	section := buildSystemEnvironmentSection(QuerySession{
-		AgentHasSandboxConfig: true,
+		AgentHasRuntimeSandbox: true,
 		RuntimeContext: RuntimeRequestContext{
 			LocalMode: false,
 			LocalPaths: LocalPaths{

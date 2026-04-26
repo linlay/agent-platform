@@ -69,7 +69,7 @@ func (s *Server) buildRuntimeRequestContext(input runtimeRequestContextInput) (c
 	if input.principal != nil {
 		context.AuthIdentity = buildAuthIdentity(input.principal)
 	}
-	if hasSandboxConfig(input.definition.Sandbox) && s.deps.Config.ContainerHub.Enabled {
+	if hasRuntimeSandbox(input.definition.Runtime) && s.deps.Config.ContainerHub.Enabled {
 		sandboxContext, err := buildSandboxContext(s.deps.Config, input.definition)
 		if err != nil {
 			return contracts.RuntimeRequestContext{}, err
@@ -170,7 +170,7 @@ func resolveSandboxPaths(cfg config.Config, def catalog.AgentDefinition, chatID 
 }
 
 func resolveContainerSandboxPaths(cfg config.Config, def catalog.AgentDefinition, chatID string) contracts.SandboxPaths {
-	level := strings.ToLower(strings.TrimSpace(anyString(def.Sandbox["level"])))
+	level := strings.ToLower(strings.TrimSpace(anyString(def.Runtime["level"])))
 	if level == "" {
 		level = strings.ToLower(strings.TrimSpace(cfg.ContainerHub.DefaultSandboxLevel))
 	}
@@ -197,7 +197,7 @@ func resolveContainerSandboxPaths(cfg config.Config, def catalog.AgentDefinition
 	var viewportServersDir string
 	var toolsDir string
 	var viewportsDir string
-	for _, mount := range promptContextSandboxMounts(def.Sandbox["extraMounts"]) {
+	for _, mount := range promptContextSandboxMounts(def.Runtime["extraMounts"]) {
 		switch strings.ToLower(strings.TrimSpace(anyString(mount["platform"]))) {
 		case "skills-market":
 			skillsMarketDir = "/skills-market"
@@ -248,7 +248,7 @@ func resolveContainerSandboxPaths(cfg config.Config, def catalog.AgentDefinition
 }
 
 func resolveLocalSandboxPaths(cfg config.Config, def catalog.AgentDefinition, chatID string) contracts.SandboxPaths {
-	level := strings.ToLower(strings.TrimSpace(anyString(def.Sandbox["level"])))
+	level := strings.ToLower(strings.TrimSpace(anyString(def.Runtime["level"])))
 	if level == "" {
 		level = strings.ToLower(strings.TrimSpace(cfg.ContainerHub.DefaultSandboxLevel))
 	}
@@ -273,7 +273,7 @@ func resolveLocalSandboxPaths(cfg config.Config, def catalog.AgentDefinition, ch
 		OwnerDir:     absOrEmpty(cfg.Paths.OwnerDir),
 		MemoryDir:    absOrEmpty(cfg.Paths.MemoryDir),
 	}
-	for _, mount := range promptContextSandboxMounts(def.Sandbox["extraMounts"]) {
+	for _, mount := range promptContextSandboxMounts(def.Runtime["extraMounts"]) {
 		switch strings.ToLower(strings.TrimSpace(anyString(mount["platform"]))) {
 		case "skills-market":
 			paths.SkillsMarketDir = absOrEmpty(cfg.Paths.SkillsMarketDir)
@@ -351,7 +351,7 @@ func buildAuthIdentity(principal *Principal) *contracts.AuthIdentity {
 }
 
 func buildSandboxContext(cfg config.Config, def catalog.AgentDefinition) (*contracts.SandboxContext, error) {
-	configuredEnvironmentID := strings.TrimSpace(anyString(def.Sandbox["environmentId"]))
+	configuredEnvironmentID := strings.TrimSpace(anyString(def.Runtime["environmentId"]))
 	defaultEnvironmentID := strings.TrimSpace(cfg.ContainerHub.DefaultEnvironmentID)
 	environmentID := configuredEnvironmentID
 	if environmentID == "" {
@@ -361,7 +361,7 @@ func buildSandboxContext(cfg config.Config, def catalog.AgentDefinition) (*contr
 		return nil, fmt.Errorf("sandbox context requires a non-blank environmentId")
 	}
 
-	level := strings.ToUpper(strings.TrimSpace(anyString(def.Sandbox["level"])))
+	level := strings.ToUpper(strings.TrimSpace(anyString(def.Runtime["level"])))
 	if level == "" {
 		level = strings.ToUpper(strings.TrimSpace(cfg.ContainerHub.DefaultSandboxLevel))
 	}
@@ -379,7 +379,7 @@ func buildSandboxContext(cfg config.Config, def catalog.AgentDefinition) (*contr
 		DefaultEnvironmentID:    defaultEnvironmentID,
 		Level:                   level,
 		ContainerHubEnabled:     cfg.ContainerHub.Enabled,
-		UsesSandboxBash:         hasSandboxConfig(def.Sandbox),
+		UsesSandboxBash:         hasRuntimeSandbox(def.Runtime),
 		ExtraMounts:             summarizeExtraMounts(def),
 		EnvironmentPrompt:       prompt,
 	}, nil
@@ -406,7 +406,7 @@ func fetchSandboxPrompt(cfg config.ContainerHubConfig, environmentID string) (st
 }
 
 func summarizeExtraMounts(def catalog.AgentDefinition) []string {
-	mounts := promptContextSandboxMounts(def.Sandbox["extraMounts"])
+	mounts := promptContextSandboxMounts(def.Runtime["extraMounts"])
 	out := make([]string, 0, len(mounts))
 	for _, mount := range mounts {
 		mode := strings.ToLower(strings.TrimSpace(anyString(mount["mode"])))

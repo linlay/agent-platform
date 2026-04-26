@@ -124,7 +124,7 @@ func TestParseAgentFileLoadsToolOverridesFromToolConfig(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileLoadsSandboxEnv(t *testing.T) {
+func TestParseAgentFileLoadsRuntimeEnv(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
 	content := "" +
@@ -132,7 +132,7 @@ func TestParseAgentFileLoadsSandboxEnv(t *testing.T) {
 		"name: Demo\n" +
 		"modelConfig:\n" +
 		"  modelKey: demo-model\n" +
-		"sandboxConfig:\n" +
+		"runtimeConfig:\n" +
 		"  env:\n" +
 		"    HTTP_PROXY: http://127.0.0.1:7890\n" +
 		"    EMPTY: \"\"\n"
@@ -144,20 +144,82 @@ func TestParseAgentFileLoadsSandboxEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	got, ok := def.Sandbox["env"].(map[string]string)
+	got, ok := def.Runtime["env"].(map[string]string)
 	if !ok {
-		t.Fatalf("expected sandbox env map[string]string, got %#v", def.Sandbox["env"])
+		t.Fatalf("expected runtime env map[string]string, got %#v", def.Runtime["env"])
 	}
 	want := map[string]string{
 		"HTTP_PROXY": "http://127.0.0.1:7890",
 		"EMPTY":      "",
 	}
 	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("sandbox env = %#v, want %#v", got, want)
+		t.Fatalf("runtime env = %#v, want %#v", got, want)
 	}
 }
 
-func TestParseAgentFileRejectsInvalidSandboxEnv(t *testing.T) {
+func TestParseAgentFileFallsBackToLegacySandboxConfig(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	content := "" +
+		"key: demo\n" +
+		"name: Demo\n" +
+		"modelConfig:\n" +
+		"  modelKey: demo-model\n" +
+		"sandboxConfig:\n" +
+		"  environmentId: shell\n" +
+		"  env:\n" +
+		"    HTTP_PROXY: legacy\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	if got := def.Runtime["environmentId"]; got != "shell" {
+		t.Fatalf("environmentId = %#v, want shell", got)
+	}
+	got, ok := def.Runtime["env"].(map[string]string)
+	if !ok || got["HTTP_PROXY"] != "legacy" {
+		t.Fatalf("runtime env = %#v, want legacy HTTP_PROXY", def.Runtime["env"])
+	}
+}
+
+func TestParseAgentFileRuntimeConfigWinsOverSandboxConfig(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	content := "" +
+		"key: demo\n" +
+		"name: Demo\n" +
+		"modelConfig:\n" +
+		"  modelKey: demo-model\n" +
+		"runtimeConfig:\n" +
+		"  environmentId: runtime\n" +
+		"  env:\n" +
+		"    HTTP_PROXY: runtime\n" +
+		"sandboxConfig:\n" +
+		"  environmentId: legacy\n" +
+		"  env:\n" +
+		"    HTTP_PROXY: legacy\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	if got := def.Runtime["environmentId"]; got != "runtime" {
+		t.Fatalf("environmentId = %#v, want runtime", got)
+	}
+	got, ok := def.Runtime["env"].(map[string]string)
+	if !ok || got["HTTP_PROXY"] != "runtime" {
+		t.Fatalf("runtime env = %#v, want runtime HTTP_PROXY", def.Runtime["env"])
+	}
+}
+
+func TestParseAgentFileRejectsInvalidRuntimeEnv(t *testing.T) {
 	tests := []struct {
 		name        string
 		envValue    any
@@ -166,43 +228,43 @@ func TestParseAgentFileRejectsInvalidSandboxEnv(t *testing.T) {
 		{
 			name:        "env must be map",
 			envValue:    []any{"HTTP_PROXY"},
-			errContains: "sandboxConfig.env must be a map[string]string",
+			errContains: "runtimeConfig.env must be a map[string]string",
 		},
 		{
 			name: "value must be string",
 			envValue: map[string]any{
 				"HTTP_PROXY": int64(7890),
 			},
-			errContains: `sandboxConfig.env["HTTP_PROXY"] must be a string`,
+			errContains: `runtimeConfig.env["HTTP_PROXY"] must be a string`,
 		},
 		{
 			name: "key must not be empty",
 			envValue: map[string]any{
 				"": "value",
 			},
-			errContains: "sandboxConfig.env contains an empty key",
+			errContains: "runtimeConfig.env contains an empty key",
 		},
 		{
 			name: "key must not contain whitespace",
 			envValue: map[string]any{
 				"BAD KEY": "value",
 			},
-			errContains: `sandboxConfig.env key "BAD KEY" must not contain whitespace`,
+			errContains: `runtimeConfig.env key "BAD KEY" must not contain whitespace`,
 		},
 		{
 			name: "key must not contain equals",
 			envValue: map[string]any{
 				"BAD=KEY": "value",
 			},
-			errContains: `sandboxConfig.env key "BAD=KEY" must not contain '='`,
+			errContains: `runtimeConfig.env key "BAD=KEY" must not contain '='`,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := parseSandboxEnv(tt.envValue)
+			_, err := parseRuntimeEnv(tt.envValue)
 			if err == nil {
-				t.Fatal("expected parseSandboxEnv error")
+				t.Fatal("expected parseRuntimeEnv error")
 			}
 			if !strings.Contains(err.Error(), tt.errContains) {
 				t.Fatalf("error = %q, want substring %q", err.Error(), tt.errContains)

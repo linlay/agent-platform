@@ -95,7 +95,7 @@ Container Hub 默认基础挂载为：
 说明：
 
 - `/memory` 当前只影响沙箱挂载与 prompt 中的路径暴露；runner 自身 memory store 仍保持现有 `MEMORY_DIR` 存储布局
-- `sandboxConfig.extraMounts` 会真实影响 Container Hub session payload，并在基础挂载生成后应用覆盖规则
+- `runtimeConfig.extraMounts` 会真实影响 Container Hub session payload，并在基础挂载生成后应用覆盖规则
 - `platform: agent` / `platform: owner` / `platform: memory` 主要用于覆盖默认 `/agent` / `/owner` / `/memory` 的只读模式，不会新增第二个挂载
 - `destination + mode` 是覆盖默认基础挂载模式的唯一合法写法
 - `source + destination + mode` 只能新增非默认目标路径挂载；若目标是默认基础挂载路径会直接报错
@@ -425,5 +425,5 @@ provider registry 中的 `apiKey` 支持以下两种形态：
 
 - `session` 负责暴露运行上下文
 - `owner` 负责注入 `OWNER_DIR` 下的 markdown 内容
-- `sandbox` 不再属于 `context tags`；只要 agent 配置了 `sandboxConfig`，运行时就会自动注入 sandbox context
+- `sandbox` 不再属于 `context tags`；只要 agent 配置了 `runtimeConfig.environmentId`，运行时就会自动注入 sandbox context
 - runtime memory context 不再属于 `context tags`；只要 agent 开启 `memoryConfig.enabled`（或使用默认开启行为），运行时就会自动注入 memory context

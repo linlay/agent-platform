@@ -54,7 +54,7 @@ plain:
 - `mode`
 - `toolConfig`
 - `skillConfig`
-- `sandboxConfig`
+- `runtimeConfig`
 
 运行时会先根据 `agent.yml` 生成统一的 `Agent Identity` prompt section，再拼接其他 prompt 层。
 
@@ -122,7 +122,7 @@ plain:
 
 - `session` 会暴露运行时上下文
 - `owner` 会注入 `OWNER_DIR` 下的 markdown 内容
-- `sandbox` 不再通过 `context tags` 控制；只要 agent 声明了 `sandboxConfig`，运行时会自动注入 sandbox context
+- `sandbox` 不再通过 `context tags` 控制；只要 agent 声明了 `runtimeConfig.environmentId`，运行时会自动注入 sandbox context
 - runtime memory context 不再通过 `context tags` 控制；只要 agent 开启 `memoryConfig.enabled`（或使用默认开启行为），运行时就会自动注入 memory context
 
 ## Static Memory 与 Runtime Memory
@@ -173,12 +173,12 @@ memoryConfig:
 - 自动整理默认只做 stale/duplicate 收口，以及“重复出现 observation”的晋升
 - 更激进的生命周期治理仍建议通过显式 `_memory_consolidate_` 触发
 
-## Sandbox Config
+## Runtime Config
 
-Go runner 当前支持在 `agent.yml -> sandboxConfig` 下声明：
+Go runner 当前支持在 `agent.yml -> runtimeConfig` 下声明：
 
 ```yaml
-sandboxConfig:
+runtimeConfig:
   environmentId: shell
   level: RUN
   env:
@@ -191,10 +191,10 @@ sandboxConfig:
 
 - `env` 只接受 `map[string]string`
 - key 必须非空，且不能包含空白字符或 `=`
-- value 必须是字面量字符串；空字符串允许并原样下发
+- value 必须是字面量字符串；空字符串允许并原样注入 host bash 或下发到 Container Hub
 - 不支持 `${VAR}` 或其他宿主环境变量展开
-- `sandboxConfig` 是 sandbox context 的唯一入口；不需要再在 `contextConfig.tags` / `contextTags` 中声明 `sandbox`
-- agent `sandboxConfig.env` 作为基础值，skill 目录下的 `.sandbox-env.json` 会按 agent 声明顺序叠加并覆盖同名键
+- `runtimeConfig.environmentId` 是 sandbox context 的唯一入口；不需要再在 `contextConfig.tags` / `contextTags` 中声明 `sandbox`
+- agent `runtimeConfig.env` 作为基础值，skill 目录下的 `.sandbox-env.json` 会按 agent 声明顺序叠加并覆盖同名键
 - `/api/agents` 与 `/api/agent` 的 `sandbox` meta 不会回显 `env`，避免暴露代理地址、凭据或私有 endpoint；`extraMounts` 仍可对外暴露，因为它描述的是白名单路径而非敏感值
 
 ## 当前建议

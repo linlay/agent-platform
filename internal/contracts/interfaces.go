@@ -103,14 +103,14 @@ type QuerySession struct {
 	ExecutePrompt string
 	SummaryPrompt string
 
-	SandboxEnvironmentID  string
-	SandboxLevel          string
-	SandboxExtraMounts    []SandboxExtraMount
-	AgentHasSandboxConfig bool
-	AgentHasMemoryConfig  bool
-	SkillHookDirs         []string
-	// SandboxEnvOverrides carries agent/skill-level env defaults for both sandbox and host bash execution.
-	SandboxEnvOverrides map[string]string
+	RuntimeEnvironmentID   string
+	RuntimeLevel           string
+	RuntimeExtraMounts     []SandboxExtraMount
+	AgentHasRuntimeSandbox bool
+	AgentHasMemoryConfig   bool
+	SkillHookDirs          []string
+	// RuntimeEnvOverrides carries agent/skill-level env defaults for both sandbox and host bash execution.
+	RuntimeEnvOverrides map[string]string
 }
 
 type SandboxExtraMount struct {
@@ -134,8 +134,8 @@ type ExecutionContext struct {
 	RunLoopState      RunLoopState
 	PlanState         *PlanRuntimeState
 	ToolOverrides     map[string]api.ToolDetailResponse
-	// SandboxEnvOverrides is reused by host bash as agent/skill-level env defaults.
-	SandboxEnvOverrides map[string]string
+	// RuntimeEnvOverrides is reused by host bash as agent/skill-level env defaults.
+	RuntimeEnvOverrides map[string]string
 	// BashSecurityApprovals stores one-shot approvals for exact host bash command fingerprints.
 	BashSecurityApprovals map[string]int
 	StartedAt             time.Time

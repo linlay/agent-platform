@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"agent-platform-runner-go/internal/api"
+	"agent-platform-runner-go/internal/catalog"
 	"agent-platform-runner-go/internal/config"
 )
 
@@ -100,6 +101,41 @@ func TestAgentEndpointReturnsDetail(t *testing.T) {
 	}
 	if firstMount["destination"] != "/skills" {
 		t.Fatalf("expected sandbox mount destination /skills, got %#v", firstMount)
+	}
+}
+
+func TestBuildAgentDetailMetaOmitsSandboxForRuntimeEnvOnly(t *testing.T) {
+	s := &Server{}
+	_, meta := s.buildAgentDetailMeta(catalog.AgentDefinition{
+		ModelKey: "mock-model",
+		Runtime: map[string]any{
+			"env": map[string]string{"HTTP_PROXY": "http://127.0.0.1:8001"},
+		},
+	})
+	if _, ok := meta["sandbox"]; ok {
+		t.Fatalf("expected env-only runtime config to omit sandbox meta, got %#v", meta)
+	}
+}
+
+func TestBuildAgentDetailMetaIncludesSandboxForRuntimeEnvironment(t *testing.T) {
+	s := &Server{}
+	_, meta := s.buildAgentDetailMeta(catalog.AgentDefinition{
+		ModelKey: "mock-model",
+		Runtime: map[string]any{
+			"environmentId": "shell",
+			"level":         "run",
+			"env":           map[string]string{"HTTP_PROXY": "http://127.0.0.1:8001"},
+		},
+	})
+	sandbox, ok := meta["sandbox"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected sandbox meta, got %#v", meta)
+	}
+	if sandbox["environmentId"] != "shell" || sandbox["level"] != "RUN" {
+		t.Fatalf("unexpected sandbox meta: %#v", sandbox)
+	}
+	if _, ok := sandbox["env"]; ok {
+		t.Fatalf("expected runtime env to stay private, got %#v", sandbox)
 	}
 }
 

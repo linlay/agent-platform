@@ -305,6 +305,20 @@ func TestLoadAgentsDoesNotExposeSandboxInContextTagsMeta(t *testing.T) {
 	}
 }
 
+func TestRuntimeSandboxSummaryMetaOmitsEnv(t *testing.T) {
+	meta := runtimeSandboxSummaryMeta(map[string]any{
+		"environmentId": "shell",
+		"level":         "run",
+		"env":           map[string]string{"HTTP_PROXY": "secret"},
+	})
+	if meta["environmentId"] != "shell" || meta["level"] != "RUN" {
+		t.Fatalf("unexpected sandbox summary meta: %#v", meta)
+	}
+	if _, ok := meta["env"]; ok {
+		t.Fatalf("expected runtime env to stay private, got %#v", meta)
+	}
+}
+
 func TestParseAgentFileMapsModelReasoningIntoStageSettings(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
@@ -429,7 +443,7 @@ func TestLoadSkillsSkipsExampleDirectories(t *testing.T) {
 	}
 }
 
-func TestLoadSkillsLoadsBashHooksAndSandboxEnv(t *testing.T) {
+func TestLoadSkillsLoadsBashHooksAndRuntimeEnv(t *testing.T) {
 	root := t.TempDir()
 	skillDir := filepath.Join(root, "mock-skill")
 	if err := os.MkdirAll(filepath.Join(skillDir, ".bash-hooks"), 0o755); err != nil {
@@ -457,8 +471,8 @@ func TestLoadSkillsLoadsBashHooksAndSandboxEnv(t *testing.T) {
 	if got.BashHooksDir != wantHooksDir {
 		t.Fatalf("BashHooksDir = %q, want %q", got.BashHooksDir, wantHooksDir)
 	}
-	if got.SandboxEnv["NODE_ENV"] != "production" || got.SandboxEnv["DEBUG"] != "0" {
-		t.Fatalf("SandboxEnv = %#v", got.SandboxEnv)
+	if got.RuntimeEnv["NODE_ENV"] != "production" || got.RuntimeEnv["DEBUG"] != "0" {
+		t.Fatalf("RuntimeEnv = %#v", got.RuntimeEnv)
 	}
 }
 
@@ -567,8 +581,8 @@ func TestResolveSkillDefinitionPrefersAgentLocalSkillBeforeMarket(t *testing.T) 
 	if got.Name != "Local Skill" || got.Description != "Local Description" {
 		t.Fatalf("resolved local metadata = %#v", got)
 	}
-	if got.SandboxEnv["SOURCE"] != "local" {
-		t.Fatalf("SandboxEnv = %#v", got.SandboxEnv)
+	if got.RuntimeEnv["SOURCE"] != "local" {
+		t.Fatalf("RuntimeEnv = %#v", got.RuntimeEnv)
 	}
 	if got.BashHooksDir != filepath.Join(localSkillDir, ".bash-hooks") {
 		t.Fatalf("BashHooksDir = %q", got.BashHooksDir)

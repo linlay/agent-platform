@@ -171,7 +171,7 @@ func TestBuildRuntimeContextSkipsSandboxContextWhenHubDisabled(t *testing.T) {
 		definition: catalog.AgentDefinition{
 			Key:      "demo-agent",
 			AgentDir: filepath.Join(cfg.Paths.AgentsDir, "demo-agent"),
-			Sandbox: map[string]any{
+			Runtime: map[string]any{
 				"environmentId": "shell",
 			},
 		},
@@ -208,7 +208,7 @@ func TestBuildRuntimeContextIncludesSandboxContextWhenSandboxConfigured(t *testi
 		definition: catalog.AgentDefinition{
 			Key:      "demo-agent",
 			AgentDir: filepath.Join(cfg.Paths.AgentsDir, "demo-agent"),
-			Sandbox: map[string]any{
+			Runtime: map[string]any{
 				"environmentId": "browser",
 				"level":         "run",
 			},
@@ -487,7 +487,7 @@ func testPromptContextDefinition(paths config.PathsConfig) catalog.AgentDefiniti
 	return catalog.AgentDefinition{
 		Key:      "demo-agent",
 		AgentDir: filepath.Join(paths.AgentsDir, "demo-agent"),
-		Sandbox: map[string]any{
+		Runtime: map[string]any{
 			"level": "run",
 			"extraMounts": []map[string]any{
 				{"platform": "skills-market"},

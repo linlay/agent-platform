@@ -157,7 +157,7 @@ func (r *ContainerHubMountResolver) resolvePlatformMount(mounts *[]MountSpec, ag
 	platform := strings.ToLower(strings.TrimSpace(extraMount.Platform))
 	def, ok := r.platformMountDef(platform, agentKey)
 	if !ok {
-		log.Printf("[container-hub] skip unknown sandboxConfig.extraMounts platform %q", extraMount.Platform)
+		log.Printf("[container-hub] skip unknown runtimeConfig.extraMounts platform %q", extraMount.Platform)
 		return nil
 	}
 	readOnly, err := parseMountMode(extraMount.Mode, "extra-mount:"+platform, def.destination)

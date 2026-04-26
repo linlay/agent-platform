@@ -215,7 +215,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 		"    options:",
 		"      - value: concise",
 		"        label: 简洁",
-		"sandboxConfig:",
+		"runtimeConfig:",
 		"  environmentId: shell",
 		"  level: RUN",
 		"  env:",

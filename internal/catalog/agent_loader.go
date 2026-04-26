@@ -317,21 +317,27 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 			def.StageSettings["taskExecutionPromptTemplate"] = def.RuntimePrompts.PlanExecute.TaskExecutionPromptTemplate
 		}
 	}
-	sandboxConfig := mapNode(root["sandboxConfig"])
-	if len(sandboxConfig) > 0 {
-		def.Sandbox = map[string]any{
-			"environmentId": stringNode(sandboxConfig["environmentId"]),
-			"level":         strings.ToLower(stringNode(sandboxConfig["level"])),
+	runtimeConfig, hasRuntimeConfig := mapNode(root["runtimeConfig"]), false
+	if _, ok := root["runtimeConfig"]; ok {
+		hasRuntimeConfig = true
+	}
+	if !hasRuntimeConfig {
+		runtimeConfig = mapNode(root["sandboxConfig"])
+	}
+	if len(runtimeConfig) > 0 {
+		def.Runtime = map[string]any{
+			"environmentId": stringNode(runtimeConfig["environmentId"]),
+			"level":         strings.ToLower(stringNode(runtimeConfig["level"])),
 		}
-		sandboxEnv, err := parseSandboxEnv(sandboxConfig["env"])
+		runtimeEnv, err := parseRuntimeEnv(runtimeConfig["env"])
 		if err != nil {
 			return AgentDefinition{}, nil, err
 		}
-		if len(sandboxEnv) > 0 {
-			def.Sandbox["env"] = sandboxEnv
+		if len(runtimeEnv) > 0 {
+			def.Runtime["env"] = runtimeEnv
 		}
-		if mounts := listMaps(sandboxConfig["extraMounts"]); len(mounts) > 0 {
-			def.Sandbox["extraMounts"] = cloneListMaps(mounts)
+		if mounts := listMaps(runtimeConfig["extraMounts"]); len(mounts) > 0 {
+			def.Runtime["extraMounts"] = cloneListMaps(mounts)
 		}
 	}
 	def.ReactMaxSteps = intNode(mapNode(root["react"])["maxSteps"])
@@ -339,7 +345,7 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	if err := validateReservedBashToolNames(def.Tools, def.ToolOverrides); err != nil {
 		return AgentDefinition{}, nil, err
 	}
-	if (len(def.Skills) > 0 || len(def.Sandbox) > 0) && !containsString(def.Tools, "bash") {
+	if (len(def.Skills) > 0 || runtimeRequiresBash(def.Runtime)) && !containsString(def.Tools, "bash") {
 		def.Tools = append(def.Tools, "bash")
 	}
 	memoryConfig := mapNode(root["memoryConfig"])
@@ -437,6 +443,17 @@ func validateReservedBashToolName(value string, field string) error {
 	}
 }
 
+func runtimeRequiresBash(runtime map[string]any) bool {
+	if len(runtime) == 0 {
+		return false
+	}
+	if strings.TrimSpace(stringNode(runtime["environmentId"])) != "" {
+		return true
+	}
+	env, ok := runtime["env"].(map[string]string)
+	return ok && len(env) > 0
+}
+
 func normalizeWonderStrings(value any) []string {
 	raw := listStrings(value)
 	if len(raw) == 0 {
@@ -456,41 +473,41 @@ func normalizeWonderStrings(value any) []string {
 	return items
 }
 
-func parseSandboxEnv(value any) (map[string]string, error) {
+func parseRuntimeEnv(value any) (map[string]string, error) {
 	if value == nil {
 		return nil, nil
 	}
 	root, ok := value.(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("sandboxConfig.env must be a map[string]string")
+		return nil, fmt.Errorf("runtimeConfig.env must be a map[string]string")
 	}
 	if len(root) == 0 {
 		return nil, nil
 	}
 	result := make(map[string]string, len(root))
 	for key, rawValue := range root {
-		if err := validateSandboxEnvKey(key); err != nil {
+		if err := validateRuntimeEnvKey(key); err != nil {
 			return nil, err
 		}
 		stringValue, ok := rawValue.(string)
 		if !ok {
-			return nil, fmt.Errorf("sandboxConfig.env[%q] must be a string", key)
+			return nil, fmt.Errorf("runtimeConfig.env[%q] must be a string", key)
 		}
 		result[key] = stringValue
 	}
 	return result, nil
 }
 
-func validateSandboxEnvKey(key string) error {
+func validateRuntimeEnvKey(key string) error {
 	if key == "" {
-		return fmt.Errorf("sandboxConfig.env contains an empty key")
+		return fmt.Errorf("runtimeConfig.env contains an empty key")
 	}
 	if strings.ContainsRune(key, '=') {
-		return fmt.Errorf("sandboxConfig.env key %q must not contain '='", key)
+		return fmt.Errorf("runtimeConfig.env key %q must not contain '='", key)
 	}
 	for _, r := range key {
 		if unicode.IsSpace(r) {
-			return fmt.Errorf("sandboxConfig.env key %q must not contain whitespace", key)
+			return fmt.Errorf("runtimeConfig.env key %q must not contain whitespace", key)
 		}
 	}
 	return nil

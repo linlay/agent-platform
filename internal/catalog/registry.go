@@ -39,7 +39,7 @@ type AgentDefinition struct {
 	Tools          []string
 	Skills         []string
 	Controls       []map[string]any
-	Sandbox        map[string]any
+	Runtime        map[string]any
 	ReactMaxSteps  int
 	ContextTags    []string
 	Budget         map[string]any
@@ -110,7 +110,7 @@ type SkillDefinition struct {
 	Prompt          string
 	PromptTruncated bool
 	BashHooksDir    string
-	SandboxEnv      map[string]string
+	RuntimeEnv      map[string]string
 }
 
 type FileRegistry struct {
@@ -229,8 +229,8 @@ func (r *FileRegistry) Agents(tag string) []api.AgentSummary {
 		if def.StageSettings != nil {
 			summary.Meta["stageSettings"] = contracts.CloneMap(def.StageSettings)
 		}
-		if def.Sandbox != nil {
-			summary.Meta["sandbox"] = def.Sandbox
+		if hasRuntimeSandboxDefinition(def.Runtime) {
+			summary.Meta["sandbox"] = runtimeSandboxSummaryMeta(def.Runtime)
 		}
 		if needle != "" && !matchesAgentTag(summary, needle) {
 			continue
@@ -238,6 +238,25 @@ func (r *FileRegistry) Agents(tag string) []api.AgentSummary {
 		items = append(items, summary)
 	}
 	return items
+}
+
+func hasRuntimeSandboxDefinition(runtime map[string]any) bool {
+	if len(runtime) == 0 {
+		return false
+	}
+	environmentID, _ := runtime["environmentId"].(string)
+	return strings.TrimSpace(environmentID) != ""
+}
+
+func runtimeSandboxSummaryMeta(runtime map[string]any) map[string]any {
+	out := map[string]any{
+		"environmentId": strings.TrimSpace(stringNode(runtime["environmentId"])),
+		"level":         strings.ToUpper(strings.TrimSpace(stringNode(runtime["level"]))),
+	}
+	if mounts := listMaps(runtime["extraMounts"]); len(mounts) > 0 {
+		out["extraMounts"] = cloneListMaps(mounts)
+	}
+	return out
 }
 
 func (r *FileRegistry) Teams() []api.TeamSummary {

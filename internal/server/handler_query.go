@@ -333,7 +333,7 @@ func minInt(a int, b int) int {
 	return b
 }
 
-func sandboxAgentEnv(value any) map[string]string {
+func runtimeAgentEnv(value any) map[string]string {
 	switch env := value.(type) {
 	case map[string]string:
 		return contracts.CloneStringMap(env)
@@ -343,9 +343,9 @@ func sandboxAgentEnv(value any) map[string]string {
 }
 
 func resolveSkillRuntimeSettings(agentEnv map[string]string, agentDir string, marketDir string, skillKeys []string) ([]string, map[string]string) {
-	sandboxEnv := contracts.CloneStringMap(agentEnv)
+	runtimeEnv := contracts.CloneStringMap(agentEnv)
 	if len(skillKeys) == 0 {
-		return nil, sandboxEnv
+		return nil, runtimeEnv
 	}
 	seen := map[string]struct{}{}
 	var hookDirs []string
@@ -370,14 +370,14 @@ func resolveSkillRuntimeSettings(agentEnv map[string]string, agentDir string, ma
 		if strings.TrimSpace(def.BashHooksDir) != "" {
 			hookDirs = append(hookDirs, def.BashHooksDir)
 		}
-		for key, value := range def.SandboxEnv {
-			if sandboxEnv == nil {
-				sandboxEnv = make(map[string]string, len(agentEnv)+len(def.SandboxEnv))
+		for key, value := range def.RuntimeEnv {
+			if runtimeEnv == nil {
+				runtimeEnv = make(map[string]string, len(agentEnv)+len(def.RuntimeEnv))
 			}
-			sandboxEnv[key] = value
+			runtimeEnv[key] = value
 		}
 	}
-	return hookDirs, sandboxEnv
+	return hookDirs, runtimeEnv
 }
 
 func sortedStringKeys(values map[string]string) []string {

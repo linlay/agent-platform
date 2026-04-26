@@ -76,10 +76,10 @@ func (t *RuntimeToolExecutor) Invoke(ctx context.Context, toolName string, args 
 	case "plan_update_task":
 		return t.invokePlanUpdateTask(args, execCtx)
 	case "bash":
-		if execCtx != nil && hasSandboxConfig(execCtx.Session) {
+		if execCtx != nil && hasRuntimeSandbox(execCtx.Session) {
 			if !t.cfg.ContainerHub.Enabled {
 				return ToolExecutionResult{
-					Output:   "sandbox execution is required by agent sandboxConfig but container-hub is unavailable",
+					Output:   "sandbox execution is required by agent runtimeConfig.environmentId but container-hub is unavailable",
 					Error:    "sandbox_not_available",
 					ExitCode: -1,
 				}, nil
@@ -118,8 +118,8 @@ func (t *RuntimeToolExecutor) Invoke(ctx context.Context, toolName string, args 
 	}
 }
 
-func hasSandboxConfig(session QuerySession) bool {
-	return session.AgentHasSandboxConfig
+func hasRuntimeSandbox(session QuerySession) bool {
+	return session.AgentHasRuntimeSandbox
 }
 
 func stringArg(args map[string]any, key string) string {

@@ -266,7 +266,7 @@ func TestInvokeHostBashAppliesAgentEnvOverrides(t *testing.T) {
 			"command": "echo \"$TEST_HOST_ENV\"",
 		},
 		&contracts.ExecutionContext{
-			SandboxEnvOverrides: map[string]string{"TEST_HOST_ENV": "agent-value"},
+			RuntimeEnvOverrides: map[string]string{"TEST_HOST_ENV": "agent-value"},
 		},
 	)
 	if err != nil {

@@ -1078,10 +1078,10 @@ func (s *llmRunStream) lookupBashSecurityReview(invocation *preparedToolInvocati
 }
 
 func (s *llmRunStream) reviewBashSecurity(command string) bashsec.ReviewResult {
-	if s == nil || s.execCtx == nil || len(s.execCtx.SandboxEnvOverrides) == 0 {
+	if s == nil || s.execCtx == nil || len(s.execCtx.RuntimeEnvOverrides) == 0 {
 		return bashsec.ReviewBashSecurity(command)
 	}
-	return bashsec.ReviewBashSecurityWithKnownVariables(command, s.execCtx.SandboxEnvOverrides)
+	return bashsec.ReviewBashSecurityWithKnownVariables(command, s.execCtx.RuntimeEnvOverrides)
 }
 
 func (s *llmRunStream) emitBashSecurityApprovalDeltas(invocation *preparedToolInvocation, review bashsec.ReviewResult) error {

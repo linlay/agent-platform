@@ -98,8 +98,8 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	execCtx.Request = req
 	execCtx.Session = session
 	execCtx.HITLLevel = AnyIntNode(req.Params["hitlLevel"])
-	if len(execCtx.SandboxEnvOverrides) == 0 {
-		execCtx.SandboxEnvOverrides = CloneStringMap(session.SandboxEnvOverrides)
+	if len(execCtx.RuntimeEnvOverrides) == 0 {
+		execCtx.RuntimeEnvOverrides = CloneStringMap(session.RuntimeEnvOverrides)
 	}
 	if execCtx.RunControl == nil {
 		execCtx.RunControl = RunControlFromContext(ctx)

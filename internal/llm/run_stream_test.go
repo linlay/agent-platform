@@ -1644,17 +1644,17 @@ func TestAwaitHITLApprovalBatchAndContinue_HostUsesUnifiedBashToolName(t *testin
 			frontend: frontendtools.NewDefaultRegistry(),
 		},
 		session: contracts.QuerySession{
-			RequestID:             "req_1",
-			ChatID:                "chat_1",
-			RunID:                 "run_1",
-			AgentHasSandboxConfig: false,
+			RequestID:              "req_1",
+			ChatID:                 "chat_1",
+			RunID:                  "run_1",
+			AgentHasRuntimeSandbox: false,
 		},
 		runControl: runControl,
 		execCtx: &contracts.ExecutionContext{
 			Budget: contracts.Budget{Tool: contracts.RetryPolicy{TimeoutMs: 100}},
 			Session: contracts.QuerySession{
-				RunID:                 "run_1",
-				AgentHasSandboxConfig: false,
+				RunID:                  "run_1",
+				AgentHasRuntimeSandbox: false,
 			},
 		},
 		checker: commandResultChecker{

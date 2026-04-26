@@ -98,10 +98,10 @@ func consumeBashSecurityApproval(execCtx *ExecutionContext, fingerprint string) 
 }
 
 func bashSecurityKnownVariables(execCtx *ExecutionContext) map[string]string {
-	if execCtx == nil || len(execCtx.SandboxEnvOverrides) == 0 {
+	if execCtx == nil || len(execCtx.RuntimeEnvOverrides) == 0 {
 		return nil
 	}
-	return execCtx.SandboxEnvOverrides
+	return execCtx.RuntimeEnvOverrides
 }
 
 var unsupportedBashCommands = map[string]bool{
@@ -200,10 +200,10 @@ func stringMapArg(args map[string]any, key string) map[string]string {
 
 func mergeCommandEnv(execCtx *ExecutionContext) []string {
 	env := append([]string(nil), os.Environ()...)
-	if execCtx == nil || len(execCtx.SandboxEnvOverrides) == 0 {
+	if execCtx == nil || len(execCtx.RuntimeEnvOverrides) == 0 {
 		return env
 	}
-	for key, value := range execCtx.SandboxEnvOverrides {
+	for key, value := range execCtx.RuntimeEnvOverrides {
 		found := false
 		prefix := key + "="
 		for idx, item := range env {
