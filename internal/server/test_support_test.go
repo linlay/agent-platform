@@ -263,9 +263,6 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 		Auth: config.AuthConfig{
 			Enabled: false,
 		},
-		ChatImage: config.ChatImageTokenConfig{
-			ResourceTicketEnabled: false,
-		},
 		Memory: config.MemoryConfig{
 			AutoRememberEnabled: true,
 		},

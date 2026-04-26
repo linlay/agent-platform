@@ -410,7 +410,7 @@ type MarkChatReadResponse struct {
 type ChatDetailResponse struct {
 	ChatID         string             `json:"chatId"`
 	ChatName       string             `json:"chatName"`
-	ChatImageToken string             `json:"chatImageToken,omitempty"`
+	ResourceTicket string             `json:"resourceTicket,omitempty"`
 	RawMessages    []map[string]any   `json:"rawMessages,omitempty"`
 	Events         []stream.EventData `json:"events"`
 	ActiveRun      *ActiveRunInfo     `json:"activeRun,omitempty"`

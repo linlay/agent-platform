@@ -236,7 +236,7 @@ func newServerForChannelTests(t *testing.T) (*Server, *chat.FileStore) {
 			Chats:    chats,
 			Registry: registry,
 		},
-		ticketService: NewResourceTicketService(config.ChatImageTokenConfig{}),
+		ticketService: NewResourceTicketService(config.ResourceTicketConfig{}),
 	}
 	return server, chats
 }

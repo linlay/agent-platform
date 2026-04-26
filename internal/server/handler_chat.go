@@ -68,7 +68,7 @@ func (s *Server) loadChatDetail(ctx context.Context, chatID string, includeRawMe
 		References: nil,
 	}
 	if principal := PrincipalFromContext(ctx); principal != nil {
-		response.ChatImageToken = s.ticketService.Issue(principal.Subject, detail.ChatID)
+		response.ResourceTicket = s.ticketService.Issue(principal.Subject, detail.ChatID)
 	}
 	if includeRawMessages {
 		response.RawMessages = detail.RawMessages

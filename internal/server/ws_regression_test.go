@@ -377,7 +377,7 @@ func newServerForHelperTests(t *testing.T) (*Server, *chat.FileStore, *memory.Fi
 			Memory:   memories,
 			Registry: wsRegressionCatalogRegistry{},
 		},
-		ticketService: NewResourceTicketService(config.ChatImageTokenConfig{}),
+		ticketService: NewResourceTicketService(config.ResourceTicketConfig{}),
 	}
 	return server, chats, memories
 }

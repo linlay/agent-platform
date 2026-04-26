@@ -25,8 +25,8 @@ func TestLoadDefaults(t *testing.T) {
 		if cfg.Auth.LocalPublicKeyFile != ProjectFile(filepath.Join("configs", "local-public-key.pem")) {
 			t.Fatalf("unexpected default auth public key path: %q", cfg.Auth.LocalPublicKeyFile)
 		}
-		if !cfg.ChatImage.ResourceTicketEnabled {
-			t.Fatalf("expected resource ticket enabled by default")
+		if cfg.ResourceTicket.Enabled() {
+			t.Fatalf("expected resource ticket disabled by default")
 		}
 		if !cfg.Stream.IncludeToolPayloadEvents {
 			t.Fatalf("expected stream tool payload events enabled by default")
@@ -225,8 +225,8 @@ func TestLoadIgnoresDeprecatedEnv(t *testing.T) {
 func TestLoadAcceptsJavaEnvContract(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"AGENT_AUTH_ENABLED":                       "false",
-		"CHAT_IMAGE_TOKEN_SECRET":                  "secret",
-		"CHAT_RESOURCE_TICKET_ENABLED":             "true",
+		"CHAT_RESOURCE_TICKET_SECRET":              "secret",
+		"CHAT_RESOURCE_TICKET_TTL_SECONDS":         "300",
 		"AGENT_STREAM_INCLUDE_TOOL_PAYLOAD_EVENTS": "true",
 		"AGENT_STREAM_INCLUDE_DEBUG_EVENTS":        "true",
 		"AGENT_SSE_HEARTBEAT_INTERVAL_MS":          "3000",
@@ -249,8 +249,11 @@ func TestLoadAcceptsJavaEnvContract(t *testing.T) {
 		if cfg.Auth.Enabled {
 			t.Fatalf("expected auth disabled from env")
 		}
-		if cfg.ChatImage.Secret != "secret" {
-			t.Fatalf("unexpected chat image secret: %q", cfg.ChatImage.Secret)
+		if cfg.ResourceTicket.Secret != "secret" {
+			t.Fatalf("unexpected resource ticket secret: %q", cfg.ResourceTicket.Secret)
+		}
+		if cfg.ResourceTicket.TTLSeconds != 300 {
+			t.Fatalf("unexpected resource ticket ttl: %d", cfg.ResourceTicket.TTLSeconds)
 		}
 		if !cfg.Stream.IncludeToolPayloadEvents {
 			t.Fatalf("expected stream tool payload flag enabled")
@@ -657,9 +660,8 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 		"AGENT_AUTH_JWKS_URI",
 		"AGENT_AUTH_ISSUER",
 		"AGENT_AUTH_JWKS_CACHE_SECONDS",
-		"CHAT_IMAGE_TOKEN_SECRET",
-		"CHAT_IMAGE_TOKEN_TTL_SECONDS",
-		"CHAT_RESOURCE_TICKET_ENABLED",
+		"CHAT_RESOURCE_TICKET_SECRET",
+		"CHAT_RESOURCE_TICKET_TTL_SECONDS",
 		"AGENT_STREAM_INCLUDE_TOOL_PAYLOAD_EVENTS",
 		"AGENT_STREAM_INCLUDE_DEBUG_EVENTS",
 		"AGENT_SSE_HEARTBEAT_INTERVAL_MS",

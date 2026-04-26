@@ -42,9 +42,8 @@
 | `AGENT_AUTH_JWKS_URI` | 空 | `End user` | JWKS 模式的公钥地址 |
 | `AGENT_AUTH_ISSUER` | 空 | `End user` | JWT issuer 校验值 |
 | `AGENT_AUTH_JWKS_CACHE_SECONDS` | `0` | `Advanced / operator` | JWKS 缓存秒数，仅在 JWKS 模式下生效 |
-| `CHAT_IMAGE_TOKEN_SECRET` | 空 | `End user` | chat image token 的签名密钥 |
-| `CHAT_IMAGE_TOKEN_TTL_SECONDS` | `86400` | `Advanced / operator` | token 过期时间 |
-| `CHAT_RESOURCE_TICKET_ENABLED` | `true` | `End user` | `/api/resource` 是否允许 resource ticket 访问 |
+| `CHAT_RESOURCE_TICKET_SECRET` | 空 | `End user` | resource ticket 签名密钥；设置后启用 `/api/resource` ticket 校验 |
+| `CHAT_RESOURCE_TICKET_TTL_SECONDS` | `86400` | `Advanced / operator` | resource ticket 过期时间；未设置 secret 时不生效 |
 
 本地 JWT 公钥规则：
 
@@ -361,7 +360,7 @@ provider registry 中的 `apiKey` 支持以下两种形态：
 以下变量族当前都已接入 Go runner；其中只有一部分会默认出现在 `.env.example` 中：
 
 - `AGENT_AUTH_*`
-- `CHAT_IMAGE_TOKEN_*`
+- `CHAT_RESOURCE_TICKET_*`
 - `AGENT_CONTAINER_HUB_*`
 - `AGENT_DEFAULT_*`
 - `AGENT_SCHEDULE_*`

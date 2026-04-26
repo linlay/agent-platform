@@ -35,7 +35,7 @@ func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "file is required"))
 		return
 	}
-	if s.deps.Config.ChatImage.ResourceTicketEnabled {
+	if s.deps.Config.ResourceTicket.Enabled() {
 		principal := PrincipalFromContext(r.Context())
 		ticket := strings.TrimSpace(r.URL.Query().Get("t"))
 		if principal == nil {

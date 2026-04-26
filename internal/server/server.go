@@ -158,7 +158,7 @@ func New(deps Dependencies) (*Server, error) {
 		router:            http.NewServeMux(),
 		deps:              deps,
 		authVerifier:      authVerifier,
-		ticketService:     NewResourceTicketService(deps.Config.ChatImage),
+		ticketService:     NewResourceTicketService(deps.Config.ResourceTicket),
 		deferredAwaitings: NewDeferredAwaitingStore(),
 		proxyRuns:         map[string]*proxyRunRoute{},
 	}
@@ -416,7 +416,7 @@ func (s *Server) withPrincipal(r *http.Request, w http.ResponseWriter) *http.Req
 		return r
 	}
 	if r.Method == http.MethodGet && r.URL.Path == "/api/resource" {
-		if !s.deps.Config.ChatImage.ResourceTicketEnabled {
+		if !s.deps.Config.ResourceTicket.Enabled() {
 			return r
 		}
 		if strings.TrimSpace(r.URL.Query().Get("t")) != "" {

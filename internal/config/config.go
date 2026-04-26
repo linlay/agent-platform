@@ -9,31 +9,31 @@ import (
 )
 
 type Config struct {
-	Server       ServerConfig
-	Paths        PathsConfig
-	Agents       CatalogConfig
-	Teams        CatalogConfig
-	Skills       SkillCatalogConfig
-	Prompts      PromptsConfig
-	Providers    CatalogConfig
-	Models       CatalogConfig
-	Schedule     ScheduleConfig
-	Memory       MemoryConfig
-	Defaults     DefaultsConfig
-	Stream       StreamConfig
-	SSE          SSEConfig
-	H2A          H2AConfig
-	Auth         AuthConfig
-	ChatImage    ChatImageTokenConfig
-	ChatStorage  ChatStorageConfig
-	Logging      LoggingConfig
-	CORS         CORSConfig
-	ContainerHub ContainerHubConfig
-	Bash         BashConfig
-	BashHITL     BashHITLConfig
-	Run          RunConfig
-	WebSocket    WebSocketConfig
-	GatewayWS    GatewayWSConfig
+	Server         ServerConfig
+	Paths          PathsConfig
+	Agents         CatalogConfig
+	Teams          CatalogConfig
+	Skills         SkillCatalogConfig
+	Prompts        PromptsConfig
+	Providers      CatalogConfig
+	Models         CatalogConfig
+	Schedule       ScheduleConfig
+	Memory         MemoryConfig
+	Defaults       DefaultsConfig
+	Stream         StreamConfig
+	SSE            SSEConfig
+	H2A            H2AConfig
+	Auth           AuthConfig
+	ResourceTicket ResourceTicketConfig
+	ChatStorage    ChatStorageConfig
+	Logging        LoggingConfig
+	CORS           CORSConfig
+	ContainerHub   ContainerHubConfig
+	Bash           BashConfig
+	BashHITL       BashHITLConfig
+	Run            RunConfig
+	WebSocket      WebSocketConfig
+	GatewayWS      GatewayWSConfig
 	// Gateways 是多 gateway 反向连接列表（wecom / feishu / ding / ...）。
 	// legacy 单 gateway 配置 (GatewayWS) 在 normalize() 阶段合成为 Gateways[0]。
 	Gateways []GatewayEntry
@@ -164,10 +164,13 @@ type AuthConfig struct {
 	LocalPublicKeyFile string
 }
 
-type ChatImageTokenConfig struct {
-	Secret                string
-	TTLSeconds            int64
-	ResourceTicketEnabled bool
+type ResourceTicketConfig struct {
+	Secret     string
+	TTLSeconds int64
+}
+
+func (c ResourceTicketConfig) Enabled() bool {
+	return strings.TrimSpace(c.Secret) != ""
 }
 
 type ChatStorageConfig struct {
@@ -445,10 +448,9 @@ func defaultConfig() Config {
 			Enabled:            true,
 			LocalPublicKeyFile: filepath.Join("configs", "local-public-key.pem"),
 		},
-		ChatImage: ChatImageTokenConfig{
-			Secret:                "",
-			TTLSeconds:            86400,
-			ResourceTicketEnabled: true,
+		ResourceTicket: ResourceTicketConfig{
+			Secret:     "",
+			TTLSeconds: 86400,
 		},
 		ChatStorage: ChatStorageConfig{
 			Dir:                                  paths.ChatsDir,
@@ -799,9 +801,8 @@ func (c *Config) applyEnv() {
 	c.Auth.JWKSCacheSeconds = intEnv("AGENT_AUTH_JWKS_CACHE_SECONDS", c.Auth.JWKSCacheSeconds)
 	c.Auth.LocalPublicKeyFile = stringEnv("AGENT_AUTH_LOCAL_PUBLIC_KEY_FILE", c.Auth.LocalPublicKeyFile)
 
-	c.ChatImage.Secret = stringEnv("CHAT_IMAGE_TOKEN_SECRET", c.ChatImage.Secret)
-	c.ChatImage.TTLSeconds = int64Env("CHAT_IMAGE_TOKEN_TTL_SECONDS", c.ChatImage.TTLSeconds)
-	c.ChatImage.ResourceTicketEnabled = boolEnv("CHAT_RESOURCE_TICKET_ENABLED", c.ChatImage.ResourceTicketEnabled)
+	c.ResourceTicket.Secret = stringEnv("CHAT_RESOURCE_TICKET_SECRET", c.ResourceTicket.Secret)
+	c.ResourceTicket.TTLSeconds = int64Env("CHAT_RESOURCE_TICKET_TTL_SECONDS", c.ResourceTicket.TTLSeconds)
 
 	c.ChatStorage.Dir = pathEnv("CHATS_DIR", c.ChatStorage.Dir)
 	c.ChatStorage.K = intEnv("CHAT_STORAGE_K", c.ChatStorage.K)
@@ -1344,6 +1345,9 @@ var deprecatedEnvVars = []string{
 	"AGENT_SCHEDULE_EXTERNAL_DIR",
 	"AGENT_DATA_EXTERNAL_DIR",
 	"AGENT_MEMORY_STORAGE_DIR",
+	"CHAT_IMAGE_TOKEN_SECRET",
+	"CHAT_IMAGE_TOKEN_TTL_SECONDS",
+	"CHAT_RESOURCE_TICKET_ENABLED",
 	"MEMORY_CHATS_DIR",
 	"MEMORY_CHATS_K",
 	"MEMORY_CHATS_CHARSET",

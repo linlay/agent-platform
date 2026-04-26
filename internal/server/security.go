@@ -41,7 +41,7 @@ type JWTVerifier struct {
 }
 
 type ResourceTicketService struct {
-	cfg config.ChatImageTokenConfig
+	cfg config.ResourceTicketConfig
 }
 
 func NewJWTVerifier(cfg config.AuthConfig) *JWTVerifier {
@@ -77,7 +77,7 @@ func (v *JWTVerifier) ValidateConfiguration() error {
 	}
 }
 
-func NewResourceTicketService(cfg config.ChatImageTokenConfig) *ResourceTicketService {
+func NewResourceTicketService(cfg config.ResourceTicketConfig) *ResourceTicketService {
 	return &ResourceTicketService{cfg: cfg}
 }
 
@@ -260,6 +260,9 @@ func (s *ResourceTicketService) Issue(uid string, chatID string) string {
 }
 
 func (s *ResourceTicketService) Verify(token string) (string, error) {
+	if !s.cfg.Enabled() {
+		return "", fmt.Errorf("resource ticket disabled")
+	}
 	header, payload, signature, signingInput, err := parseJWT(token)
 	if err != nil {
 		return "", err

@@ -80,10 +80,9 @@ func TestResourceRoundTripRequiresValidTicketWhenEnabled(t *testing.T) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
 		configure: func(cfg *config.Config) {
-			cfg.ChatImage = config.ChatImageTokenConfig{
-				ResourceTicketEnabled: true,
-				Secret:                "ticket-secret",
-				TTLSeconds:            300,
+			cfg.ResourceTicket = config.ResourceTicketConfig{
+				Secret:     "ticket-secret",
+				TTLSeconds: 300,
 			}
 		},
 	})
