@@ -2,6 +2,7 @@ package tools
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/url"
@@ -39,11 +40,38 @@ func (t *RuntimeToolExecutor) invokeArtifactPublish(args map[string]any, execCtx
 // local chat directory. Files already inside the current chat stay in place;
 // files outside the chat but inside the server workspace are materialized into
 // artifacts/<runId>/. Mirrors Java ArtifactPublishService.publish().
+// coerceArtifactList 容错：部分 LLM（Qwen3.5 等）在 tool_call 里会把 array 参数
+// 错误地序列化成 JSON 字符串（`"[{...}]"` 而不是 `[{...}]`）。这里先按原生数组
+// 断言，失败则尝试 json.Unmarshal 字符串。单个对象也兼容（包装成单元素数组）。
+func coerceArtifactList(raw any) []any {
+	switch v := raw.(type) {
+	case []any:
+		return v
+	case string:
+		trimmed := strings.TrimSpace(v)
+		if trimmed == "" {
+			return nil
+		}
+		var arr []any
+		if err := json.Unmarshal([]byte(trimmed), &arr); err == nil {
+			return arr
+		}
+		var single map[string]any
+		if err := json.Unmarshal([]byte(trimmed), &single); err == nil {
+			return []any{single}
+		}
+		return nil
+	case map[string]any:
+		return []any{v}
+	}
+	return nil
+}
+
 func publishArtifacts(chatsRoot string, chatID string, runID string, raw any) []map[string]any {
 	if strings.TrimSpace(chatsRoot) == "" || strings.TrimSpace(chatID) == "" {
 		return nil
 	}
-	items, _ := raw.([]any)
+	items := coerceArtifactList(raw)
 	if len(items) == 0 {
 		return nil
 	}

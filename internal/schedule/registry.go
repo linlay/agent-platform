@@ -23,8 +23,11 @@ import (
 
 var (
 	cronParser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
-	// chatId 不再强制 UUID：放宽为字母/数字/_-.:@ 组合，兼容企微网关拼接的 base36 id。
-	chatIDPattern = regexp.MustCompile(`^[A-Za-z0-9_\-.:@]+$`)
+	// chatId 不做结构性校验——platform 只是透传。真正的格式由对端 channel bridge
+	// 定义并在自己那头解析（wecom#..., feishu#..., wxmp#..., 等等）。
+	// 这里仅用宽口径允许列表过滤 YAML 注入 / 控制字符 / 空白等危险字符。
+	chatIDPattern    = regexp.MustCompile(`^[A-Za-z0-9_\-.:@#/~+]+$`)
+	chatIDMaxLength  = 256
 )
 
 type TeamLookup interface {
@@ -215,8 +218,13 @@ func parseQuery(node map[string]any) (Query, error) {
 	if err != nil {
 		return Query{}, err
 	}
-	if chatID != "" && !chatIDPattern.MatchString(chatID) {
-		return Query{}, fmt.Errorf("invalid query.chatId %q", chatID)
+	if chatID != "" {
+		if len(chatID) > chatIDMaxLength {
+			return Query{}, fmt.Errorf("invalid query.chatId: length %d exceeds %d", len(chatID), chatIDMaxLength)
+		}
+		if !chatIDPattern.MatchString(chatID) {
+			return Query{}, fmt.Errorf("invalid query.chatId %q", chatID)
+		}
 	}
 	role, err := optionalStringNode(node, "role")
 	if err != nil {

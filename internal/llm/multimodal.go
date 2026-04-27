@@ -17,8 +17,8 @@ import (
 
 const (
 	maxInlineImageBytes    = 20 * 1024 * 1024
-	reencodeThresholdBytes = 400 * 1024 // 超过此体积才重编码
-	reencodeJPEGQuality    = 92         // 接近无损，对手写文字影响可忽略
+	reencodeThresholdBytes = 400 * 1024
+	reencodeJPEGQuality    = 92
 )
 
 // buildUserMessageContent assembles the user message payload for the LLM.
@@ -69,8 +69,7 @@ func collectImageBlocks(chatsDir string, chatID string, references []api.Referen
 			continue
 		}
 		outMime := mime
-		// 高质量 JPEG 重编码——对大于阈值的图减小传输体积，但保持接近无损的视觉质量，
-		// 确保 VL 模型对手写/细节的识别不受影响。
+		// Re-encode large images to reduce payload size while preserving visual detail.
 		if len(data) > reencodeThresholdBytes {
 			if shrunk, shrunkMime, ok := shrinkImage(data); ok {
 				log.Printf("[llm][multimodal] reencoded image name=%q %d->%d bytes (q=%d)",
@@ -118,21 +117,12 @@ func shrinkImage(data []byte) ([]byte, string, bool) {
 }
 
 func readBoundedFile(path string, limit int64) ([]byte, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	info, err := f.Stat()
+	info, err := os.Stat(path)
 	if err != nil {
 		return nil, err
 	}
 	if info.Size() > limit {
 		return nil, os.ErrInvalid
 	}
-	buf := make([]byte, info.Size())
-	if _, err := f.Read(buf); err != nil {
-		return nil, err
-	}
-	return buf, nil
+	return os.ReadFile(path)
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -159,6 +160,16 @@ func (c *Conn) Run(dispatch RouteHandler) {
 			continue
 		}
 		if req.Frame != FrameRequest {
+			// silent 模式（反向连到网关）下，网关会按 Java DownstreamAgentPush 协议
+			// 主动发 push.connected / push.heartbeat 等 server-push 帧。platform 只是
+			// 反向被动端，不需要主动消费 push，但也不应回 invalid_request 污染连接。
+			// 对 push 帧静默放行，其他未知帧仍记录日志便于排查（不回 error 帧）。
+			if c.silent {
+				if req.Frame != FramePush {
+					log.Printf("gateway-reverse: unexpected frame dropped: frame=%s type=%s id=%s", req.Frame, req.Type, req.ID)
+				}
+				continue
+			}
 			c.SendError(req.ID, "invalid_request", 400, "frame must be request", nil)
 			continue
 		}

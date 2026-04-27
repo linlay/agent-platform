@@ -198,7 +198,7 @@ func convertMessagesToAnthropic(messages []openAIMessage) (string, []map[string]
 				systemParts = append(systemParts, text)
 			}
 		case "user":
-			blocks := anthropicTextBlocks(msg.Content)
+			blocks := anthropicContentBlocks(msg.Content)
 			if len(blocks) > 0 {
 				out = append(out, map[string]any{"role": "user", "content": blocks})
 			}
@@ -222,7 +222,7 @@ func convertMessagesToAnthropic(messages []openAIMessage) (string, []map[string]
 				index++
 			}
 			if index < len(messages) && strings.TrimSpace(messages[index].Role) == "user" {
-				blocks = append(blocks, anthropicTextBlocks(messages[index].Content)...)
+				blocks = append(blocks, anthropicContentBlocks(messages[index].Content)...)
 			} else {
 				index--
 			}
@@ -235,7 +235,7 @@ func convertMessagesToAnthropic(messages []openAIMessage) (string, []map[string]
 }
 
 func anthropicAssistantBlocks(msg openAIMessage) ([]map[string]any, error) {
-	blocks := anthropicTextBlocks(msg.Content)
+	blocks := anthropicContentBlocks(msg.Content)
 	for _, toolCall := range msg.ToolCalls {
 		input := map[string]any{}
 		if strings.TrimSpace(toolCall.Function.Arguments) != "" {
@@ -251,6 +251,38 @@ func anthropicAssistantBlocks(msg openAIMessage) ([]map[string]any, error) {
 		})
 	}
 	return blocks, nil
+}
+
+func anthropicContentBlocks(content any) []map[string]any {
+	switch value := content.(type) {
+	case []map[string]any:
+		blocks := make([]map[string]any, 0, len(value))
+		for _, block := range value {
+			switch AnyStringNode(block["type"]) {
+			case "text":
+				text := strings.TrimSpace(AnyStringNode(block["text"]))
+				if text != "" {
+					blocks = append(blocks, map[string]any{"type": "text", "text": text})
+				}
+			case "image_url":
+				imageURL := AnyMapNode(block["image_url"])
+				mediaType, data, ok := parseDataImageURL(AnyStringNode(imageURL["url"]))
+				if ok {
+					blocks = append(blocks, map[string]any{
+						"type": "image",
+						"source": map[string]any{
+							"type":       "base64",
+							"media_type": mediaType,
+							"data":       data,
+						},
+					})
+				}
+			}
+		}
+		return blocks
+	default:
+		return anthropicTextBlocks(content)
+	}
 }
 
 func anthropicTextBlocks(content any) []map[string]any {
@@ -270,6 +302,26 @@ func anthropicTextFromContent(content any) string {
 	default:
 		return strings.TrimSpace(fmt.Sprintf("%v", value))
 	}
+}
+
+func parseDataImageURL(url string) (string, string, bool) {
+	const prefix = "data:"
+	if !strings.HasPrefix(url, prefix) {
+		return "", "", false
+	}
+	header, data, ok := strings.Cut(strings.TrimPrefix(url, prefix), ",")
+	if !ok || strings.TrimSpace(data) == "" {
+		return "", "", false
+	}
+	mediaType, encoding, ok := strings.Cut(header, ";")
+	if !ok || strings.ToLower(strings.TrimSpace(encoding)) != "base64" {
+		return "", "", false
+	}
+	mediaType = strings.ToLower(strings.TrimSpace(mediaType))
+	if !isSupportedImageMime(mediaType) {
+		return "", "", false
+	}
+	return mediaType, data, true
 }
 
 func toAnthropicToolSpecs(specs []openAIToolSpec) []map[string]any {
