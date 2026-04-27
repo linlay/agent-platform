@@ -76,4 +76,46 @@ func TestSearchSessionFindsQueryMessageAndEvent(t *testing.T) {
 	}
 }
 
+func TestSearchGlobalFiltersAgentAndIncludesChatMetadata(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	for _, item := range []struct {
+		chatID   string
+		agentKey string
+		message  string
+	}{
+		{"chat-a", "agent-a", "rollback deploy"},
+		{"chat-b", "agent-b", "rollback billing"},
+	} {
+		if _, _, err := store.EnsureChat(item.chatID, item.agentKey, "", item.message); err != nil {
+			t.Fatalf("ensure %s: %v", item.chatID, err)
+		}
+		if err := store.AppendQueryLine(item.chatID, QueryLine{
+			ChatID:    item.chatID,
+			RunID:     item.chatID + "-run",
+			UpdatedAt: 100,
+			Query:     map[string]any{"message": item.message, "role": "user"},
+			Type:      "query",
+		}); err != nil {
+			t.Fatalf("append query %s: %v", item.chatID, err)
+		}
+		if err := store.OnRunCompleted(RunCompletion{ChatID: item.chatID, RunID: item.chatID + "-run", UpdatedAtMillis: 100}); err != nil {
+			t.Fatalf("complete %s: %v", item.chatID, err)
+		}
+	}
+
+	hits, err := store.SearchGlobal("rollback", "agent-a", 20)
+	if err != nil {
+		t.Fatalf("search global: %v", err)
+	}
+	if len(hits) != 1 {
+		t.Fatalf("expected one agent-a hit, got %#v", hits)
+	}
+	if hits[0].ChatID != "chat-a" || hits[0].ChatName == "" || hits[0].AgentKey != "agent-a" {
+		t.Fatalf("expected chat metadata on hit, got %#v", hits[0])
+	}
+}
+
 func int64Ptr(v int64) *int64 { return &v }

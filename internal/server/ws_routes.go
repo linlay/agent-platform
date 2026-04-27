@@ -68,6 +68,9 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/chats", s.wsChats)
 	handler.RegisterRoute("/api/chat", s.wsChat)
 	handler.RegisterRoute("/api/read", s.wsRead)
+	handler.RegisterRoute("/api/feedback", s.wsFeedback)
+	handler.RegisterRoute("/api/chat-delete", s.wsChatDelete)
+	handler.RegisterRoute("/api/search", s.wsGlobalSearch)
 	handler.RegisterRoute("/api/query", s.wsQuery)
 	handler.RegisterRoute("/api/attach", s.wsAttach)
 	handler.RegisterRoute("/api/submit", s.wsSubmit)
@@ -437,8 +440,31 @@ func (s *Server) wsChat(ctx context.Context, conn *ws.Conn, req ws.RequestFrame)
 
 func (s *Server) wsRead(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
 	payload, err := ws.DecodePayload[api.MarkChatReadRequest](req)
-	if err != nil || strings.TrimSpace(payload.ChatID) == "" {
-		conn.SendError(req.ID, "invalid_request", 400, "chatId is required", nil)
+	if err != nil {
+		conn.SendError(req.ID, "invalid_request", 400, "invalid payload", nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	if strings.TrimSpace(payload.ChatID) == "" {
+		agentKey := strings.TrimSpace(payload.AgentKey)
+		if agentKey == "" {
+			conn.SendError(req.ID, "invalid_request", 400, "chatId or agentKey is required", nil)
+			conn.CompleteRequest(req.ID)
+			return
+		}
+		updatedCount, markAllErr := s.deps.Chats.MarkAllRead(agentKey)
+		if markAllErr != nil {
+			conn.SendError(req.ID, "internal_error", 500, markAllErr.Error(), nil)
+			conn.CompleteRequest(req.ID)
+			return
+		}
+		response := api.MarkChatReadResponse{AgentKey: agentKey, AgentUnreadCount: 0, UpdatedCount: updatedCount}
+		s.broadcast("chat.read_all", map[string]any{
+			"agentKey":         agentKey,
+			"updatedCount":     updatedCount,
+			"agentUnreadCount": 0,
+		})
+		conn.SendResponse(req.Type, req.ID, 0, "success", response)
 		conn.CompleteRequest(req.ID)
 		return
 	}
@@ -461,6 +487,134 @@ func (s *Server) wsRead(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
 	}
 	s.broadcastChatReadState("chat.read", summary, agentUnreadCount)
 	conn.SendResponse(req.Type, req.ID, 0, "success", s.buildMarkReadResponse(summary, agentUnreadCount))
+	conn.CompleteRequest(req.ID)
+}
+
+func (s *Server) wsFeedback(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
+	payload, err := ws.DecodePayload[api.FeedbackRequest](req)
+	if err != nil {
+		conn.SendError(req.ID, "invalid_request", 400, "invalid payload", nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	chatID := strings.TrimSpace(payload.ChatID)
+	runID := strings.TrimSpace(payload.RunID)
+	feedbackType := strings.TrimSpace(payload.Type)
+	if chatID == "" || runID == "" {
+		conn.SendError(req.ID, "invalid_request", 400, "chatId and runId are required", nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	if feedbackType != "thumbs_down" {
+		conn.SendError(req.ID, "invalid_request", 400, "type must be thumbs_down", nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	setAt, setErr := s.deps.Chats.SetFeedback(chatID, runID, feedbackType, payload.Comment)
+	if errors.Is(setErr, chat.ErrRunNotFound) {
+		conn.SendError(req.ID, "not_found", 404, "run not found", nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	if setErr != nil {
+		conn.SendError(req.ID, "internal_error", 500, setErr.Error(), nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	conn.SendResponse(req.Type, req.ID, 0, "success", api.FeedbackResponse{ChatID: chatID, RunID: runID, Type: feedbackType, SetAt: setAt})
+	conn.CompleteRequest(req.ID)
+}
+
+func (s *Server) wsChatDelete(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
+	payload, err := ws.DecodePayload[api.DeleteChatRequest](req)
+	if err != nil {
+		conn.SendError(req.ID, "invalid_request", 400, "invalid payload", nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	chatID := strings.TrimSpace(payload.ChatID)
+	if !validDeleteChatID(chatID) {
+		conn.SendError(req.ID, "invalid_request", 400, "invalid chatId", nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	if s.deps.Runs != nil {
+		activeRun, ok, activeErr := s.deps.Runs.ActiveRunForChat(chatID)
+		var conflictErr *contracts.ActiveRunConflictError
+		if errors.As(activeErr, &conflictErr) {
+			conn.SendError(req.ID, "active_run_conflict", 409, "multiple active runs found for chat", map[string]any{
+				"code":   "active_run_conflict",
+				"chatId": conflictErr.ChatID,
+				"runIds": append([]string(nil), conflictErr.RunIDs...),
+			})
+			conn.CompleteRequest(req.ID)
+			return
+		}
+		if activeErr != nil {
+			conn.SendError(req.ID, "internal_error", 500, activeErr.Error(), nil)
+			conn.CompleteRequest(req.ID)
+			return
+		}
+		if ok {
+			conn.SendError(req.ID, "active_run_conflict", 409, "active run found for chat", map[string]any{
+				"code":   "active_run_conflict",
+				"chatId": chatID,
+				"runIds": []string{activeRun.RunID},
+			})
+			conn.CompleteRequest(req.ID)
+			return
+		}
+	}
+	if err := s.deps.Chats.DeleteChat(chatID); errors.Is(err, chat.ErrChatNotFound) {
+		conn.SendError(req.ID, "not_found", 404, "chat not found", nil)
+		conn.CompleteRequest(req.ID)
+		return
+	} else if err != nil {
+		conn.SendError(req.ID, "internal_error", 500, err.Error(), nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	s.broadcast("chat.deleted", map[string]any{"chatId": chatID})
+	conn.SendResponse(req.Type, req.ID, 0, "success", api.DeleteChatResponse{ChatID: chatID, Deleted: true})
+	conn.CompleteRequest(req.ID)
+}
+
+func (s *Server) wsGlobalSearch(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
+	payload, err := ws.DecodePayload[api.GlobalSearchRequest](req)
+	if err != nil || strings.TrimSpace(payload.Query) == "" {
+		conn.SendError(req.ID, "invalid_request", 400, "query is required", nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	limit := payload.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	hits, searchErr := s.deps.Chats.SearchGlobal(payload.Query, payload.AgentKey, limit)
+	if searchErr != nil {
+		conn.SendError(req.ID, "internal_error", 500, searchErr.Error(), nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	results := make([]api.GlobalSearchResult, 0, len(hits))
+	for _, hit := range hits {
+		results = append(results, api.GlobalSearchResult{
+			ChatID:    hit.ChatID,
+			ChatName:  hit.ChatName,
+			AgentKey:  hit.AgentKey,
+			RunID:     hit.RunID,
+			Kind:      hit.Kind,
+			Role:      hit.Role,
+			Timestamp: hit.Timestamp,
+			Snippet:   hit.Snippet,
+			Score:     hit.Score,
+		})
+	}
+	conn.SendResponse(req.Type, req.ID, 0, "success", api.GlobalSearchResponse{
+		Query:   strings.TrimSpace(payload.Query),
+		Count:   len(results),
+		Results: results,
+	})
 	conn.CompleteRequest(req.ID)
 }
 

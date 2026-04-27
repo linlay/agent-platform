@@ -591,7 +591,7 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 		for _, event := range assembler.Fail(err) {
 			_ = writeEvent(event)
 		}
-		persisted, completion := persistRunCompletionIfNeeded(syncRunExecutorParams(s, prepared, control, principal), assistantText.String(), runUsage, false)
+		persisted, completion := persistRunCompletionWithReason(syncRunExecutorParams(s, prepared, control, principal), assistantText.String(), runUsage, "error", false)
 		if persisted {
 			syncBroadcastChatUpdated(s.deps.Notifications, completion)
 		}
@@ -633,7 +633,11 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 
 	processor.stepWriter.Flush()
 	if streamFailed || streamInterrupted {
-		persisted, completion := persistRunCompletionIfNeeded(syncRunExecutorParams(s, prepared, control, principal), assistantText.String(), runUsage, false)
+		finishReason := "error"
+		if streamInterrupted {
+			finishReason = "cancel"
+		}
+		persisted, completion := persistRunCompletionWithReason(syncRunExecutorParams(s, prepared, control, principal), assistantText.String(), runUsage, finishReason, false)
 		if persisted {
 			syncBroadcastChatUpdated(s.deps.Notifications, completion)
 		}
@@ -646,7 +650,7 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 			return
 		}
 	}
-	persisted, completion := persistRunCompletionIfNeeded(syncRunExecutorParams(s, prepared, control, principal), assistantText.String(), runUsage, true)
+	persisted, completion := persistRunCompletionWithReason(syncRunExecutorParams(s, prepared, control, principal), assistantText.String(), runUsage, "complete", true)
 	if persisted {
 		syncBroadcastChatUpdated(s.deps.Notifications, completion)
 	}

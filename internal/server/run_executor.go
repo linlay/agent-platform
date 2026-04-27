@@ -18,6 +18,7 @@ type RunExecutorParams struct {
 	RunCtx            context.Context
 	Request           api.QueryRequest
 	Session           contracts.QuerySession
+	StartedAtMillis   int64
 	Summary           chat.Summary
 	Agent             contracts.AgentEngine
 	Registry          catalog.Registry
@@ -134,6 +135,9 @@ func StartRunExecutor(params RunExecutorParams) {
 }
 
 func runExecutor(params RunExecutorParams) {
+	if params.StartedAtMillis <= 0 {
+		params.StartedAtMillis = time.Now().UnixMilli()
+	}
 	tracker := &awaitingTracker{}
 	var (
 		persisted  bool
@@ -196,7 +200,7 @@ func runExecutor(params RunExecutorParams) {
 		for _, event := range params.Assembler.Fail(err) {
 			publish(event)
 		}
-		persisted, completion = persistRunCompletionIfNeeded(params, assistantText.String(), runUsage, false)
+		persisted, completion = persistRunCompletionWithReason(params, assistantText.String(), runUsage, "error", false)
 		return
 	}
 	defer agentStream.Close()
@@ -242,14 +246,18 @@ func runExecutor(params RunExecutorParams) {
 	}
 
 	if streamFailed || streamInterrupted {
-		persisted, completion = persistRunCompletionIfNeeded(params, assistantText.String(), runUsage, false)
+		finishReason := "error"
+		if streamInterrupted {
+			finishReason = "cancel"
+		}
+		persisted, completion = persistRunCompletionWithReason(params, assistantText.String(), runUsage, finishReason, false)
 		return
 	}
 
 	for _, event := range params.Assembler.Complete() {
 		publish(event)
 	}
-	persisted, completion = persistRunCompletionIfNeeded(params, assistantText.String(), runUsage, true)
+	persisted, completion = persistRunCompletionWithReason(params, assistantText.String(), runUsage, "complete", true)
 }
 
 func handleAwaitingLifecycle(params RunExecutorParams, data stream.EventData, tracker *awaitingTracker) {
@@ -350,24 +358,40 @@ func maybeBroadcastInterruptedAwaiting(params RunExecutorParams, tracker *awaiti
 }
 
 func persistRunCompletionIfNeeded(params RunExecutorParams, assistantText string, runUsage chat.UsageData, always bool) (bool, chat.RunCompletion) {
+	finishReason := "error"
+	if always {
+		finishReason = "complete"
+	}
+	return persistRunCompletionWithReason(params, assistantText, runUsage, finishReason, always)
+}
+
+func persistRunCompletionWithReason(params RunExecutorParams, assistantText string, runUsage chat.UsageData, finishReason string, notifyPersisted bool) (bool, chat.RunCompletion) {
 	if params.Chats == nil {
 		return false, chat.RunCompletion{}
 	}
-	if !always && runUsage.TotalTokens == 0 {
-		return false, chat.RunCompletion{}
+	now := time.Now().UnixMilli()
+	if params.StartedAtMillis <= 0 {
+		if startedAt, ok := chat.ParseRunIDMillis(params.Session.RunID); ok {
+			params.StartedAtMillis = startedAt
+		} else {
+			params.StartedAtMillis = now
+		}
 	}
 	completion := chat.RunCompletion{
 		ChatID:          params.Session.ChatID,
 		RunID:           params.Session.RunID,
+		AgentKey:        params.Session.AgentKey,
 		AssistantText:   assistantText,
 		InitialMessage:  params.Request.Message,
-		UpdatedAtMillis: time.Now().UnixMilli(),
+		FinishReason:    finishReason,
+		StartedAtMillis: params.StartedAtMillis,
+		UpdatedAtMillis: now,
 		Usage:           runUsage,
 	}
 	if err := params.Chats.OnRunCompleted(completion); err != nil {
 		return false, chat.RunCompletion{}
 	}
-	if always && params.OnPersisted != nil {
+	if notifyPersisted && finishReason == "complete" && params.OnPersisted != nil {
 		params.OnPersisted(completion)
 	}
 	return true, completion

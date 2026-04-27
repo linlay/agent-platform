@@ -2,6 +2,7 @@ package chat
 
 import (
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -17,6 +18,87 @@ type SearchHit struct {
 	Snippet   string         `json:"snippet"`
 	Score     int            `json:"score"`
 	Meta      map[string]any `json:"meta,omitempty"`
+}
+
+func (s *FileStore) SearchGlobal(query string, agentKey string, limit int) ([]GlobalSearchHit, error) {
+	needle := strings.TrimSpace(query)
+	if needle == "" {
+		return nil, nil
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+
+	type chatIndexRow struct {
+		chatID   string
+		chatName string
+		agentKey string
+	}
+	rows, err := func() ([]chatIndexRow, error) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+
+		sqlQuery := `SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_ FROM CHATS WHERE 1=1`
+		var args []any
+		if strings.TrimSpace(agentKey) != "" {
+			sqlQuery += ` AND AGENT_KEY_=?`
+			args = append(args, strings.TrimSpace(agentKey))
+		}
+		sqlQuery += ` ORDER BY UPDATED_AT_ DESC, CHAT_ID_ DESC LIMIT 100`
+		dbRows, err := s.db.Query(sqlQuery, args...)
+		if err != nil {
+			return nil, err
+		}
+		defer dbRows.Close()
+
+		items := []chatIndexRow{}
+		for dbRows.Next() {
+			var item chatIndexRow
+			if err := dbRows.Scan(&item.chatID, &item.chatName, &item.agentKey); err != nil {
+				return nil, err
+			}
+			items = append(items, item)
+		}
+		return items, dbRows.Err()
+	}()
+	if err != nil {
+		return nil, err
+	}
+
+	results := make([]GlobalSearchHit, 0, limit)
+	for _, item := range rows {
+		hits, err := s.SearchSession(item.chatID, needle, 3)
+		if errors.Is(err, ErrChatNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		for _, hit := range hits {
+			results = append(results, GlobalSearchHit{
+				Kind:      hit.Kind,
+				ChatID:    item.chatID,
+				ChatName:  item.chatName,
+				AgentKey:  item.agentKey,
+				RunID:     hit.RunID,
+				Stage:     hit.Stage,
+				Role:      hit.Role,
+				Timestamp: hit.Timestamp,
+				Snippet:   hit.Snippet,
+				Score:     hit.Score,
+			})
+		}
+	}
+	sort.SliceStable(results, func(i, j int) bool {
+		if results[i].Score != results[j].Score {
+			return results[i].Score > results[j].Score
+		}
+		return results[i].Timestamp > results[j].Timestamp
+	})
+	if len(results) > limit {
+		results = results[:limit]
+	}
+	return results, nil
 }
 
 func (s *FileStore) SearchSession(chatID string, query string, limit int) ([]SearchHit, error) {

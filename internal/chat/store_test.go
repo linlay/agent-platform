@@ -3,6 +3,7 @@ package chat
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -391,6 +392,143 @@ func TestFileStoreMarkReadAdvancesWatermarkAndClampsFutureRunID(t *testing.T) {
 	}
 	if sum.Read.ReadRunID != run2 {
 		t.Fatalf("expected read watermark not to roll back, got %#v", sum.Read)
+	}
+}
+
+func TestFileStoreRunMetadataTruncatesAndFeedbackUpdates(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-runs", "agent-a", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	longText := strings.Repeat("界", 250)
+	if err := store.OnRunCompleted(RunCompletion{
+		ChatID:          "chat-runs",
+		RunID:           "loyw3v28",
+		AgentKey:        "agent-a",
+		AssistantText:   longText,
+		InitialMessage:  "hello",
+		FinishReason:    "complete",
+		StartedAtMillis: 100,
+		UpdatedAtMillis: 200,
+		Usage:           UsageData{PromptTokens: 1, CompletionTokens: 2, TotalTokens: 3},
+	}); err != nil {
+		t.Fatalf("complete run: %v", err)
+	}
+
+	sum, err := store.Summary("chat-runs")
+	if err != nil {
+		t.Fatalf("summary: %v", err)
+	}
+	if got := len([]rune(sum.LastRunContent)); got != 200 {
+		t.Fatalf("expected truncated lastRunContent, got %d runes", got)
+	}
+
+	runs, err := store.ListRuns("chat-runs")
+	if err != nil {
+		t.Fatalf("list runs: %v", err)
+	}
+	if len(runs) != 1 {
+		t.Fatalf("expected one run, got %#v", runs)
+	}
+	if got := len([]rune(runs[0].AssistantText)); got != 200 {
+		t.Fatalf("expected truncated assistant text, got %d runes", got)
+	}
+	if runs[0].AgentKey != "agent-a" || runs[0].FinishReason != "complete" || runs[0].Usage.TotalTokens != 3 {
+		t.Fatalf("unexpected run summary: %#v", runs[0])
+	}
+
+	setAt, err := store.SetFeedback("chat-runs", "loyw3v28", "thumbs_down", "not useful")
+	if err != nil {
+		t.Fatalf("set feedback: %v", err)
+	}
+	runs, err = store.ListRuns("chat-runs")
+	if err != nil {
+		t.Fatalf("list runs after feedback: %v", err)
+	}
+	if runs[0].FeedbackType != "thumbs_down" || runs[0].FeedbackComment != "not useful" || runs[0].FeedbackAt != setAt {
+		t.Fatalf("expected feedback in run summary, got %#v", runs[0])
+	}
+}
+
+func TestFileStoreMarkAllReadFiltersAgent(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	for _, item := range []struct {
+		chatID   string
+		agentKey string
+		runID    string
+	}{
+		{"chat-a1", "agent-a", "loyw3v28"},
+		{"chat-a2", "agent-a", "loyw3v2s"},
+		{"chat-b1", "agent-b", "loyw3v34"},
+	} {
+		if _, _, err := store.EnsureChat(item.chatID, item.agentKey, "", "hello"); err != nil {
+			t.Fatalf("ensure %s: %v", item.chatID, err)
+		}
+		if err := store.OnRunCompleted(RunCompletion{ChatID: item.chatID, RunID: item.runID, UpdatedAtMillis: time.Now().UnixMilli()}); err != nil {
+			t.Fatalf("complete %s: %v", item.chatID, err)
+		}
+	}
+	updated, err := store.MarkAllRead("agent-a")
+	if err != nil {
+		t.Fatalf("mark all read: %v", err)
+	}
+	if updated != 2 {
+		t.Fatalf("expected 2 updated chats, got %d", updated)
+	}
+	stats, err := store.AgentChatStats()
+	if err != nil {
+		t.Fatalf("stats: %v", err)
+	}
+	if stats["agent-a"].UnreadCount != 0 || stats["agent-b"].UnreadCount != 1 {
+		t.Fatalf("unexpected stats after mark all read: %#v", stats)
+	}
+}
+
+func TestFileStoreDeleteChatRemovesRowsAndFiles(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewFileStore(root)
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-delete", "agent-a", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	if err := store.AppendQueryLine("chat-delete", QueryLine{
+		ChatID: "chat-delete",
+		RunID:  "loyw3v28",
+		Query:  map[string]any{"message": "hello"},
+		Type:   "query",
+	}); err != nil {
+		t.Fatalf("append query: %v", err)
+	}
+	if err := os.MkdirAll(store.ChatDir("chat-delete"), 0o755); err != nil {
+		t.Fatalf("mkdir chat dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(store.ChatDir("chat-delete"), "artifact.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatalf("write artifact: %v", err)
+	}
+	if err := store.OnRunCompleted(RunCompletion{ChatID: "chat-delete", RunID: "loyw3v28", UpdatedAtMillis: time.Now().UnixMilli()}); err != nil {
+		t.Fatalf("complete run: %v", err)
+	}
+	if err := store.DeleteChat("chat-delete"); err != nil {
+		t.Fatalf("delete chat: %v", err)
+	}
+	if sum, err := store.Summary("chat-delete"); err != nil {
+		t.Fatalf("summary after delete: %v", err)
+	} else if sum != nil {
+		t.Fatal("expected deleted summary to be nil")
+	}
+	if _, err := os.Stat(filepath.Join(root, "chat-delete.jsonl")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected jsonl removed, got %v", err)
+	}
+	if _, err := os.Stat(store.ChatDir("chat-delete")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected chat dir removed, got %v", err)
 	}
 }
 

@@ -215,10 +215,41 @@ type UsageData struct {
 type RunCompletion struct {
 	ChatID          string
 	RunID           string
+	AgentKey        string
 	AssistantText   string
 	InitialMessage  string
+	FinishReason    string
+	StartedAtMillis int64
 	UpdatedAtMillis int64
 	Usage           UsageData
+}
+
+type RunSummary struct {
+	RunID           string
+	ChatID          string
+	AgentKey        string
+	InitialMessage  string
+	AssistantText   string
+	FinishReason    string
+	StartedAt       int64
+	CompletedAt     int64
+	Usage           UsageData
+	FeedbackType    string
+	FeedbackComment string
+	FeedbackAt      int64
+}
+
+type GlobalSearchHit struct {
+	Kind      string
+	ChatID    string
+	ChatName  string
+	AgentKey  string
+	RunID     string
+	Stage     string
+	Role      string
+	Timestamp int64
+	Snippet   string
+	Score     int
 }
 
 type RunTrace struct {

@@ -371,6 +371,8 @@ type proxyEventRecorder struct {
 	stepWriter    *chat.StepWriter
 	control       *contracts.RunControl
 	assistantText strings.Builder
+	startedAt     int64
+	finishReason  string
 	contents      map[string]*proxyContentBucket
 	reasonings    map[string]*proxyContentBucket
 	tools         map[string]*proxyToolBucket
@@ -415,6 +417,7 @@ func newProxyEventRecorder(
 		chatStore:  chatStore,
 		stepWriter: stepWriter,
 		control:    control,
+		startedAt:  time.Now().UnixMilli(),
 		contents:   map[string]*proxyContentBucket{},
 		reasonings: map[string]*proxyContentBucket{},
 		tools:      map[string]*proxyToolBucket{},
@@ -533,7 +536,16 @@ func (r *proxyEventRecorder) OnEvent(event stream.EventData) {
 			r.control.ExpectSubmit(awaitingContextFromProxyEvent(event))
 		}
 		r.stepWriter.OnEvent(event)
-	case "tool.result", "run.complete", "run.cancel", "run.error",
+	case "run.complete":
+		r.finishReason = "complete"
+		r.stepWriter.OnEvent(event)
+	case "run.cancel":
+		r.finishReason = "cancel"
+		r.stepWriter.OnEvent(event)
+	case "run.error":
+		r.finishReason = "error"
+		r.stepWriter.OnEvent(event)
+	case "tool.result",
 		"task.start", "task.complete", "task.cancel", "task.fail",
 		"plan.create", "plan.update", "artifact.publish",
 		"request.submit", "awaiting.answer", "request.steer":
@@ -552,11 +564,18 @@ func (r *proxyEventRecorder) Finish() {
 	if r.chatStore == nil {
 		return
 	}
+	finishReason := r.finishReason
+	if strings.TrimSpace(finishReason) == "" {
+		finishReason = "complete"
+	}
 	if err := r.chatStore.OnRunCompleted(chat.RunCompletion{
 		ChatID:          r.req.ChatID,
 		RunID:           r.req.RunID,
+		AgentKey:        r.req.AgentKey,
 		AssistantText:   r.assistantText.String(),
 		InitialMessage:  r.req.Message,
+		FinishReason:    finishReason,
+		StartedAtMillis: r.startedAt,
 		UpdatedAtMillis: time.Now().UnixMilli(),
 	}); err != nil {
 		log.Printf("[proxy][ws] OnRunCompleted failed: %v", err)

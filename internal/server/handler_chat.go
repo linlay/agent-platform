@@ -162,8 +162,32 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleRead(w http.ResponseWriter, r *http.Request) {
 	var req api.MarkChatReadRequest
-	if err := decodeJSON(r, &req); err != nil || strings.TrimSpace(req.ChatID) == "" {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "chatId is required"))
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid payload"))
+		return
+	}
+	if strings.TrimSpace(req.ChatID) == "" {
+		agentKey := strings.TrimSpace(req.AgentKey)
+		if agentKey == "" {
+			writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "chatId or agentKey is required"))
+			return
+		}
+		updatedCount, err := s.deps.Chats.MarkAllRead(agentKey)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
+			return
+		}
+		response := api.MarkChatReadResponse{
+			AgentKey:         agentKey,
+			AgentUnreadCount: 0,
+			UpdatedCount:     updatedCount,
+		}
+		writeJSON(w, http.StatusOK, api.Success(response))
+		s.broadcast("chat.read_all", map[string]any{
+			"agentKey":         agentKey,
+			"updatedCount":     updatedCount,
+			"agentUnreadCount": 0,
+		})
 		return
 	}
 	summary, err := s.deps.Chats.MarkRead(req.ChatID, req.RunID)

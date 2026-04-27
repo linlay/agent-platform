@@ -395,8 +395,9 @@ type ChatUsageData struct {
 }
 
 type MarkChatReadRequest struct {
-	ChatID string `json:"chatId"`
-	RunID  string `json:"runId,omitempty"`
+	ChatID   string `json:"chatId"`
+	RunID    string `json:"runId,omitempty"`
+	AgentKey string `json:"agentKey,omitempty"`
 }
 
 type MarkChatReadResponse struct {
@@ -405,6 +406,7 @@ type MarkChatReadResponse struct {
 	LastRunID        string        `json:"lastRunId,omitempty"`
 	Read             ChatReadState `json:"read"`
 	AgentUnreadCount int           `json:"agentUnreadCount"`
+	UpdatedCount     int           `json:"updatedCount"`
 }
 
 type ChatDetailResponse struct {
@@ -451,6 +453,53 @@ type SessionSearchResponse struct {
 	Query   string                `json:"query"`
 	Count   int                   `json:"count"`
 	Results []SessionSearchResult `json:"results"`
+}
+
+type FeedbackRequest struct {
+	ChatID  string `json:"chatId"`
+	RunID   string `json:"runId"`
+	Type    string `json:"type"`
+	Comment string `json:"comment,omitempty"`
+}
+
+type FeedbackResponse struct {
+	ChatID string `json:"chatId"`
+	RunID  string `json:"runId"`
+	Type   string `json:"type"`
+	SetAt  int64  `json:"setAt"`
+}
+
+type DeleteChatRequest struct {
+	ChatID string `json:"chatId"`
+}
+
+type DeleteChatResponse struct {
+	ChatID  string `json:"chatId"`
+	Deleted bool   `json:"deleted"`
+}
+
+type GlobalSearchRequest struct {
+	Query    string `json:"query"`
+	AgentKey string `json:"agentKey,omitempty"`
+	Limit    int    `json:"limit,omitempty"`
+}
+
+type GlobalSearchResult struct {
+	ChatID    string `json:"chatId"`
+	ChatName  string `json:"chatName"`
+	AgentKey  string `json:"agentKey,omitempty"`
+	RunID     string `json:"runId,omitempty"`
+	Kind      string `json:"kind"`
+	Role      string `json:"role,omitempty"`
+	Timestamp int64  `json:"timestamp"`
+	Snippet   string `json:"snippet"`
+	Score     int    `json:"score"`
+}
+
+type GlobalSearchResponse struct {
+	Query   string               `json:"query"`
+	Count   int                  `json:"count"`
+	Results []GlobalSearchResult `json:"results"`
 }
 
 type UploadResponse struct {

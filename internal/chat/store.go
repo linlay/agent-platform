@@ -19,6 +19,7 @@ import (
 )
 
 var ErrChatNotFound = errors.New("chat not found")
+var ErrRunNotFound = errors.New("run not found")
 
 type Store interface {
 	EnsureChat(chatID string, agentKey string, teamID string, firstMessage string) (Summary, bool, error)
@@ -36,10 +37,15 @@ type Store interface {
 	LoadRawMessages(chatID string, k int) ([]map[string]any, error)
 	OnRunCompleted(completion RunCompletion) error
 	ListChats(lastRunID string, agentKey string) ([]Summary, error)
+	ListRuns(chatID string) ([]RunSummary, error)
 	LoadChat(chatID string) (Detail, error)
 	LoadRunTrace(chatID string, runID string) (RunTrace, error)
 	SearchSession(chatID string, query string, limit int) ([]SearchHit, error)
+	SearchGlobal(query string, agentKey string, limit int) ([]GlobalSearchHit, error)
 	MarkRead(chatID string, runID string) (Summary, error)
+	MarkAllRead(agentKey string) (int, error)
+	SetFeedback(chatID, runID, feedbackType, comment string) (int64, error)
+	DeleteChat(chatID string) error
 	AgentChatStats() (map[string]AgentChatStats, error)
 	ResolveResource(file string) (string, error)
 	ChatDir(chatID string) string
@@ -96,6 +102,23 @@ func (s *FileStore) initDB() error {
 		);
 		CREATE INDEX IF NOT EXISTS IDX_CHATS_LAST_RUN_ID_ ON CHATS(LAST_RUN_ID_);
 		CREATE INDEX IF NOT EXISTS IDX_CHATS_AGENT_KEY_ ON CHATS(AGENT_KEY_);
+		CREATE TABLE IF NOT EXISTS RUNS (
+			RUN_ID_                  TEXT PRIMARY KEY,
+			CHAT_ID_                 TEXT NOT NULL,
+			AGENT_KEY_               TEXT NOT NULL DEFAULT '',
+			INITIAL_MESSAGE_         TEXT NOT NULL DEFAULT '',
+			ASSISTANT_TEXT_          TEXT NOT NULL DEFAULT '',
+			FINISH_REASON_           TEXT NOT NULL DEFAULT '',
+			STARTED_AT_              INTEGER NOT NULL DEFAULT 0,
+			COMPLETED_AT_            INTEGER NOT NULL,
+			USAGE_PROMPT_TOKENS_     INTEGER NOT NULL DEFAULT 0,
+			USAGE_COMPLETION_TOKENS_ INTEGER NOT NULL DEFAULT 0,
+			USAGE_TOTAL_TOKENS_      INTEGER NOT NULL DEFAULT 0,
+			FEEDBACK_TYPE_           TEXT NOT NULL DEFAULT '',
+			FEEDBACK_COMMENT_        TEXT NOT NULL DEFAULT '',
+			FEEDBACK_AT_             INTEGER NOT NULL DEFAULT 0
+		);
+		CREATE INDEX IF NOT EXISTS IDX_RUNS_CHAT_ID_ ON RUNS(CHAT_ID_);
 	`)
 	if err != nil {
 		return fmt.Errorf("create chats table: %w", err)
@@ -804,13 +827,95 @@ func (s *FileStore) OnRunCompleted(completion RunCompletion) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	completion.ChatID = strings.TrimSpace(completion.ChatID)
+	completion.RunID = strings.TrimSpace(completion.RunID)
+	if completion.ChatID == "" || completion.RunID == "" {
+		return nil
+	}
+	now := time.Now().UnixMilli()
+	if completion.UpdatedAtMillis <= 0 {
+		completion.UpdatedAtMillis = now
+	}
+	if completion.StartedAtMillis <= 0 {
+		if startedAt, ok := ParseRunIDMillis(completion.RunID); ok {
+			completion.StartedAtMillis = startedAt
+		} else {
+			completion.StartedAtMillis = completion.UpdatedAtMillis
+		}
+	}
+	if strings.TrimSpace(completion.FinishReason) == "" {
+		completion.FinishReason = "complete"
+	}
+	assistantText := truncateRunes(completion.AssistantText, 200)
+	agentKey := strings.TrimSpace(completion.AgentKey)
+	if agentKey == "" {
+		_ = s.db.QueryRow("SELECT AGENT_KEY_ FROM CHATS WHERE CHAT_ID_=?", completion.ChatID).Scan(&agentKey)
+	}
+
 	_, err := s.db.Exec(`UPDATE CHATS SET LAST_RUN_ID_=?, LAST_RUN_CONTENT_=?, UPDATED_AT_=?,
 		USAGE_PROMPT_TOKENS_=USAGE_PROMPT_TOKENS_+?, USAGE_COMPLETION_TOKENS_=USAGE_COMPLETION_TOKENS_+?, USAGE_TOTAL_TOKENS_=USAGE_TOTAL_TOKENS_+?
 		WHERE CHAT_ID_=?`,
-		completion.RunID, completion.AssistantText, completion.UpdatedAtMillis,
+		completion.RunID, assistantText, completion.UpdatedAtMillis,
 		completion.Usage.PromptTokens, completion.Usage.CompletionTokens, completion.Usage.TotalTokens,
 		completion.ChatID)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`INSERT INTO RUNS (
+			RUN_ID_, CHAT_ID_, AGENT_KEY_, INITIAL_MESSAGE_, ASSISTANT_TEXT_, FINISH_REASON_,
+			STARTED_AT_, COMPLETED_AT_,
+			USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(RUN_ID_) DO UPDATE SET
+			CHAT_ID_=excluded.CHAT_ID_,
+			AGENT_KEY_=excluded.AGENT_KEY_,
+			INITIAL_MESSAGE_=excluded.INITIAL_MESSAGE_,
+			ASSISTANT_TEXT_=excluded.ASSISTANT_TEXT_,
+			FINISH_REASON_=excluded.FINISH_REASON_,
+			STARTED_AT_=excluded.STARTED_AT_,
+			COMPLETED_AT_=excluded.COMPLETED_AT_,
+			USAGE_PROMPT_TOKENS_=excluded.USAGE_PROMPT_TOKENS_,
+			USAGE_COMPLETION_TOKENS_=excluded.USAGE_COMPLETION_TOKENS_,
+			USAGE_TOTAL_TOKENS_=excluded.USAGE_TOTAL_TOKENS_`,
+		completion.RunID, completion.ChatID, agentKey, completion.InitialMessage, assistantText, completion.FinishReason,
+		completion.StartedAtMillis, completion.UpdatedAtMillis,
+		completion.Usage.PromptTokens, completion.Usage.CompletionTokens, completion.Usage.TotalTokens)
 	return err
+}
+
+func (s *FileStore) ListRuns(chatID string) ([]RunSummary, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if sum, err := s.loadSummary(chatID); err != nil {
+		return nil, err
+	} else if sum == nil {
+		return nil, ErrChatNotFound
+	}
+	rows, err := s.db.Query(`SELECT RUN_ID_, CHAT_ID_, AGENT_KEY_, INITIAL_MESSAGE_, ASSISTANT_TEXT_, FINISH_REASON_,
+		STARTED_AT_, COMPLETED_AT_,
+		USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_,
+		FEEDBACK_TYPE_, FEEDBACK_COMMENT_, FEEDBACK_AT_
+		FROM RUNS WHERE CHAT_ID_=? ORDER BY COMPLETED_AT_ DESC, RUN_ID_ DESC`, chatID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []RunSummary
+	for rows.Next() {
+		var item RunSummary
+		if err := rows.Scan(
+			&item.RunID, &item.ChatID, &item.AgentKey, &item.InitialMessage, &item.AssistantText, &item.FinishReason,
+			&item.StartedAt, &item.CompletedAt,
+			&item.Usage.PromptTokens, &item.Usage.CompletionTokens, &item.Usage.TotalTokens,
+			&item.FeedbackType, &item.FeedbackComment, &item.FeedbackAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
 }
 
 func (s *FileStore) ListChats(lastRunID string, agentKey string) ([]Summary, error) {
@@ -1883,6 +1988,119 @@ func (s *FileStore) MarkRead(chatID string, runID string) (Summary, error) {
 	return *sum, nil
 }
 
+func (s *FileStore) MarkAllRead(agentKey string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	query := `SELECT CHAT_ID_, LAST_RUN_ID_, READ_RUN_ID_ FROM CHATS WHERE LAST_RUN_ID_ != ''`
+	var args []any
+	if strings.TrimSpace(agentKey) != "" {
+		query += ` AND AGENT_KEY_=?`
+		args = append(args, strings.TrimSpace(agentKey))
+	}
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	type unreadChat struct {
+		chatID    string
+		lastRunID string
+	}
+	var unread []unreadChat
+	for rows.Next() {
+		var chatID, lastRunID, readRunID string
+		if err := rows.Scan(&chatID, &lastRunID, &readRunID); err != nil {
+			return 0, err
+		}
+		if RunIDAfter(lastRunID, readRunID) {
+			unread = append(unread, unreadChat{chatID: chatID, lastRunID: lastRunID})
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	if err := rows.Close(); err != nil {
+		return 0, err
+	}
+	if len(unread) == 0 {
+		return 0, nil
+	}
+	now := time.Now().UnixMilli()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	updated := 0
+	for _, item := range unread {
+		result, execErr := tx.Exec("UPDATE CHATS SET READ_RUN_ID_=?, READ_AT_=? WHERE CHAT_ID_=?", item.lastRunID, now, item.chatID)
+		if execErr != nil {
+			err = execErr
+			return 0, err
+		}
+		n, _ := result.RowsAffected()
+		updated += int(n)
+	}
+	if err = tx.Commit(); err != nil {
+		return 0, err
+	}
+	return updated, nil
+}
+
+func (s *FileStore) SetFeedback(chatID, runID, feedbackType, comment string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	setAt := time.Now().UnixMilli()
+	result, err := s.db.Exec(`UPDATE RUNS
+		SET FEEDBACK_TYPE_=?, FEEDBACK_COMMENT_=?, FEEDBACK_AT_=?
+		WHERE RUN_ID_=? AND CHAT_ID_=?`,
+		strings.TrimSpace(feedbackType), strings.TrimSpace(comment), setAt,
+		strings.TrimSpace(runID), strings.TrimSpace(chatID))
+	if err != nil {
+		return 0, err
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return 0, ErrRunNotFound
+	}
+	return setAt, nil
+}
+
+func (s *FileStore) DeleteChat(chatID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	chatID = strings.TrimSpace(chatID)
+	if !validFlatChatID(chatID) {
+		return os.ErrPermission
+	}
+	result, err := s.db.Exec("DELETE FROM CHATS WHERE CHAT_ID_=?", chatID)
+	if err != nil {
+		return err
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return ErrChatNotFound
+	}
+	if _, err := s.db.Exec("DELETE FROM RUNS WHERE CHAT_ID_=?", chatID); err != nil {
+		return err
+	}
+	if err := os.Remove(s.chatJSONLPath(chatID)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err := os.RemoveAll(s.ChatDir(chatID)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
 func (s *FileStore) AgentChatStats() (map[string]AgentChatStats, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1977,11 +2195,29 @@ func defaultChatName(message string) string {
 	if message == "" {
 		return "default"
 	}
-	runes := []rune(message)
-	if len(runes) > 24 {
-		return string(runes[:24])
+	return truncateRunes(message, 24)
+}
+
+func truncateRunes(text string, max int) string {
+	if max <= 0 {
+		return ""
 	}
-	return message
+	runes := []rune(text)
+	if len(runes) > max {
+		return string(runes[:max])
+	}
+	return text
+}
+
+func validFlatChatID(chatID string) bool {
+	if strings.TrimSpace(chatID) == "" {
+		return false
+	}
+	if strings.Contains(chatID, "..") || strings.Contains(chatID, "/") || strings.Contains(chatID, `\`) {
+		return false
+	}
+	clean := filepath.Clean(chatID)
+	return clean == chatID && clean != "." && clean != string(filepath.Separator)
 }
 
 // RunIDAfter and related helpers are in run_id.go
