@@ -41,7 +41,7 @@ func TestPersistRunCompletionInvokesOnPersisted(t *testing.T) {
 
 	var seen chat.RunCompletion
 	called := false
-	persisted, completion := persistRunCompletionIfNeeded(RunExecutorParams{
+	persisted, completion := persistRunCompletionWithReason(RunExecutorParams{
 		Request: api.QueryRequest{
 			ChatID:   "chat-1",
 			RunID:    "run-1",
@@ -60,7 +60,7 @@ func TestPersistRunCompletionInvokesOnPersisted(t *testing.T) {
 			called = true
 			seen = completion
 		},
-	}, "assistant reply", chat.UsageData{}, true)
+	}, "assistant reply", chat.UsageData{}, "complete", true)
 
 	if !persisted {
 		t.Fatalf("expected completion to persist")
@@ -86,7 +86,7 @@ func TestPersistRunCompletionSkipsOnPersistedWhenNotSuccessful(t *testing.T) {
 	}
 
 	called := false
-	persisted, completion := persistRunCompletionIfNeeded(RunExecutorParams{
+	persisted, completion := persistRunCompletionWithReason(RunExecutorParams{
 		Request: api.QueryRequest{
 			ChatID:   "chat-1",
 			RunID:    "run-1",
@@ -104,7 +104,7 @@ func TestPersistRunCompletionSkipsOnPersistedWhenNotSuccessful(t *testing.T) {
 		OnPersisted: func(completion chat.RunCompletion) {
 			called = true
 		},
-	}, "partial assistant reply", chat.UsageData{TotalTokens: 10}, false)
+	}, "partial assistant reply", chat.UsageData{TotalTokens: 10}, "error", false)
 
 	if !persisted {
 		t.Fatal("expected partial completion to persist")
@@ -126,7 +126,7 @@ func TestBroadcastRunCompletionEmitsUnreadBeforeChatUpdated(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
-	persisted, completion := persistRunCompletionIfNeeded(RunExecutorParams{
+	persisted, completion := persistRunCompletionWithReason(RunExecutorParams{
 		Request: api.QueryRequest{
 			ChatID:   "chat-1",
 			RunID:    "run-1",
@@ -141,7 +141,7 @@ func TestBroadcastRunCompletionEmitsUnreadBeforeChatUpdated(t *testing.T) {
 			TeamID:   "team-1",
 		},
 		Chats: chats,
-	}, "assistant reply", chat.UsageData{}, true)
+	}, "assistant reply", chat.UsageData{}, "complete", true)
 
 	if !persisted {
 		t.Fatalf("expected completion to persist")

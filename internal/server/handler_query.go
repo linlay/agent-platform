@@ -657,7 +657,7 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 	_ = sseWriter.WriteDone()
 }
 
-// syncRunExecutorParams 构造 handleQuerySync 三次 persistRunCompletionIfNeeded
+// syncRunExecutorParams 构造 handleQuerySync 三次持久化完成态调用所需参数
 // 调用共用的 RunExecutorParams，避免重复拼装三份 callback。
 func syncRunExecutorParams(s *Server, prepared preparedQuery, control *contracts.RunControl, principal *Principal) RunExecutorParams {
 	return RunExecutorParams{

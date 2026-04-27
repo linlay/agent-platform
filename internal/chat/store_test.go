@@ -404,12 +404,13 @@ func TestFileStoreRunMetadataTruncatesAndFeedbackUpdates(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 	longText := strings.Repeat("界", 250)
+	longInitialMessage := strings.Repeat("问", 250)
 	if err := store.OnRunCompleted(RunCompletion{
 		ChatID:          "chat-runs",
 		RunID:           "loyw3v28",
 		AgentKey:        "agent-a",
 		AssistantText:   longText,
-		InitialMessage:  "hello",
+		InitialMessage:  longInitialMessage,
 		FinishReason:    "complete",
 		StartedAtMillis: 100,
 		UpdatedAtMillis: 200,
@@ -436,6 +437,9 @@ func TestFileStoreRunMetadataTruncatesAndFeedbackUpdates(t *testing.T) {
 	if got := len([]rune(runs[0].AssistantText)); got != 200 {
 		t.Fatalf("expected truncated assistant text, got %d runes", got)
 	}
+	if got := len([]rune(runs[0].InitialMessage)); got != 200 {
+		t.Fatalf("expected truncated initial message, got %d runes", got)
+	}
 	if runs[0].AgentKey != "agent-a" || runs[0].FinishReason != "complete" || runs[0].Usage.TotalTokens != 3 {
 		t.Fatalf("unexpected run summary: %#v", runs[0])
 	}
@@ -450,6 +454,16 @@ func TestFileStoreRunMetadataTruncatesAndFeedbackUpdates(t *testing.T) {
 	}
 	if runs[0].FeedbackType != "thumbs_down" || runs[0].FeedbackComment != "not useful" || runs[0].FeedbackAt != setAt {
 		t.Fatalf("expected feedback in run summary, got %#v", runs[0])
+	}
+	if _, err := store.SetFeedback("chat-runs", "loyw3v28", "clear", "ignored"); err != nil {
+		t.Fatalf("clear feedback: %v", err)
+	}
+	runs, err = store.ListRuns("chat-runs")
+	if err != nil {
+		t.Fatalf("list runs after clearing feedback: %v", err)
+	}
+	if runs[0].FeedbackType != "" || runs[0].FeedbackComment != "" || runs[0].FeedbackAt != 0 {
+		t.Fatalf("expected cleared feedback in run summary, got %#v", runs[0])
 	}
 }
 

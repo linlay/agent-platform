@@ -357,14 +357,6 @@ func maybeBroadcastInterruptedAwaiting(params RunExecutorParams, tracker *awaiti
 	tracker.pendingMode = ""
 }
 
-func persistRunCompletionIfNeeded(params RunExecutorParams, assistantText string, runUsage chat.UsageData, always bool) (bool, chat.RunCompletion) {
-	finishReason := "error"
-	if always {
-		finishReason = "complete"
-	}
-	return persistRunCompletionWithReason(params, assistantText, runUsage, finishReason, always)
-}
-
 func persistRunCompletionWithReason(params RunExecutorParams, assistantText string, runUsage chat.UsageData, finishReason string, notifyPersisted bool) (bool, chat.RunCompletion) {
 	if params.Chats == nil {
 		return false, chat.RunCompletion{}

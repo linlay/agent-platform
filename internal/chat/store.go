@@ -41,7 +41,7 @@ type Store interface {
 	LoadChat(chatID string) (Detail, error)
 	LoadRunTrace(chatID string, runID string) (RunTrace, error)
 	SearchSession(chatID string, query string, limit int) ([]SearchHit, error)
-	SearchGlobal(query string, agentKey string, limit int) ([]GlobalSearchHit, error)
+	SearchGlobal(query string, agentKey string, teamID string, limit int) ([]GlobalSearchHit, error)
 	MarkRead(chatID string, runID string) (Summary, error)
 	MarkAllRead(agentKey string) (int, error)
 	SetFeedback(chatID, runID, feedbackType, comment string) (int64, error)
@@ -847,6 +847,7 @@ func (s *FileStore) OnRunCompleted(completion RunCompletion) error {
 		completion.FinishReason = "complete"
 	}
 	assistantText := truncateRunes(completion.AssistantText, 200)
+	initialMessage := truncateRunes(completion.InitialMessage, 200)
 	agentKey := strings.TrimSpace(completion.AgentKey)
 	if agentKey == "" {
 		_ = s.db.QueryRow("SELECT AGENT_KEY_ FROM CHATS WHERE CHAT_ID_=?", completion.ChatID).Scan(&agentKey)
@@ -877,7 +878,7 @@ func (s *FileStore) OnRunCompleted(completion RunCompletion) error {
 			USAGE_PROMPT_TOKENS_=excluded.USAGE_PROMPT_TOKENS_,
 			USAGE_COMPLETION_TOKENS_=excluded.USAGE_COMPLETION_TOKENS_,
 			USAGE_TOTAL_TOKENS_=excluded.USAGE_TOTAL_TOKENS_`,
-		completion.RunID, completion.ChatID, agentKey, completion.InitialMessage, assistantText, completion.FinishReason,
+		completion.RunID, completion.ChatID, agentKey, initialMessage, assistantText, completion.FinishReason,
 		completion.StartedAtMillis, completion.UpdatedAtMillis,
 		completion.Usage.PromptTokens, completion.Usage.CompletionTokens, completion.Usage.TotalTokens)
 	return err
@@ -2058,6 +2059,11 @@ func (s *FileStore) SetFeedback(chatID, runID, feedbackType, comment string) (in
 	defer s.mu.Unlock()
 
 	setAt := time.Now().UnixMilli()
+	if strings.TrimSpace(feedbackType) == "clear" {
+		setAt = 0
+		feedbackType = ""
+		comment = ""
+	}
 	result, err := s.db.Exec(`UPDATE RUNS
 		SET FEEDBACK_TYPE_=?, FEEDBACK_COMMENT_=?, FEEDBACK_AT_=?
 		WHERE RUN_ID_=? AND CHAT_ID_=?`,
@@ -2078,7 +2084,7 @@ func (s *FileStore) DeleteChat(chatID string) error {
 	defer s.mu.Unlock()
 
 	chatID = strings.TrimSpace(chatID)
-	if !validFlatChatID(chatID) {
+	if !ValidChatID(chatID) {
 		return os.ErrPermission
 	}
 	result, err := s.db.Exec("DELETE FROM CHATS WHERE CHAT_ID_=?", chatID)
@@ -2209,7 +2215,7 @@ func truncateRunes(text string, max int) string {
 	return text
 }
 
-func validFlatChatID(chatID string) bool {
+func ValidChatID(chatID string) bool {
 	if strings.TrimSpace(chatID) == "" {
 		return false
 	}
@@ -2218,6 +2224,10 @@ func validFlatChatID(chatID string) bool {
 	}
 	clean := filepath.Clean(chatID)
 	return clean == chatID && clean != "." && clean != string(filepath.Separator)
+}
+
+func validFlatChatID(chatID string) bool {
+	return ValidChatID(chatID)
 }
 
 // RunIDAfter and related helpers are in run_id.go

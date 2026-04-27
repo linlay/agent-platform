@@ -505,8 +505,8 @@ func (s *Server) wsFeedback(_ context.Context, conn *ws.Conn, req ws.RequestFram
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	if feedbackType != "thumbs_down" {
-		conn.SendError(req.ID, "invalid_request", 400, "type must be thumbs_down", nil)
+	if feedbackType != "thumbs_down" && feedbackType != "clear" {
+		conn.SendError(req.ID, "invalid_request", 400, "type must be thumbs_down or clear", nil)
 		conn.CompleteRequest(req.ID)
 		return
 	}
@@ -533,7 +533,7 @@ func (s *Server) wsChatDelete(_ context.Context, conn *ws.Conn, req ws.RequestFr
 		return
 	}
 	chatID := strings.TrimSpace(payload.ChatID)
-	if !validDeleteChatID(chatID) {
+	if !chat.ValidChatID(chatID) {
 		conn.SendError(req.ID, "invalid_request", 400, "invalid chatId", nil)
 		conn.CompleteRequest(req.ID)
 		return
@@ -590,7 +590,7 @@ func (s *Server) wsGlobalSearch(_ context.Context, conn *ws.Conn, req ws.Request
 	if limit <= 0 {
 		limit = 20
 	}
-	hits, searchErr := s.deps.Chats.SearchGlobal(payload.Query, payload.AgentKey, limit)
+	hits, searchErr := s.deps.Chats.SearchGlobal(payload.Query, payload.AgentKey, payload.TeamID, limit)
 	if searchErr != nil {
 		conn.SendError(req.ID, "internal_error", 500, searchErr.Error(), nil)
 		conn.CompleteRequest(req.ID)
@@ -602,6 +602,7 @@ func (s *Server) wsGlobalSearch(_ context.Context, conn *ws.Conn, req ws.Request
 			ChatID:    hit.ChatID,
 			ChatName:  hit.ChatName,
 			AgentKey:  hit.AgentKey,
+			TeamID:    hit.TeamID,
 			RunID:     hit.RunID,
 			Kind:      hit.Kind,
 			Role:      hit.Role,

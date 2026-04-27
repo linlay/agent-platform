@@ -17,7 +17,7 @@ func (s *Server) handleGlobalSearch(w http.ResponseWriter, r *http.Request) {
 	if limit <= 0 {
 		limit = 20
 	}
-	hits, err := s.deps.Chats.SearchGlobal(req.Query, req.AgentKey, limit)
+	hits, err := s.deps.Chats.SearchGlobal(req.Query, req.AgentKey, req.TeamID, limit)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
@@ -28,6 +28,7 @@ func (s *Server) handleGlobalSearch(w http.ResponseWriter, r *http.Request) {
 			ChatID:    hit.ChatID,
 			ChatName:  hit.ChatName,
 			AgentKey:  hit.AgentKey,
+			TeamID:    hit.TeamID,
 			RunID:     hit.RunID,
 			Kind:      hit.Kind,
 			Role:      hit.Role,

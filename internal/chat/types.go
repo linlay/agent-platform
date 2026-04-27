@@ -244,6 +244,7 @@ type GlobalSearchHit struct {
 	ChatID    string
 	ChatName  string
 	AgentKey  string
+	TeamID    string
 	RunID     string
 	Stage     string
 	Role      string

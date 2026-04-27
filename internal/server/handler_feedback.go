@@ -22,8 +22,8 @@ func (s *Server) handleFeedback(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "chatId and runId are required"))
 		return
 	}
-	if feedbackType != "thumbs_down" {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "type must be thumbs_down"))
+	if feedbackType != "thumbs_down" && feedbackType != "clear" {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "type must be thumbs_down or clear"))
 		return
 	}
 	setAt, err := s.deps.Chats.SetFeedback(chatID, runID, feedbackType, req.Comment)

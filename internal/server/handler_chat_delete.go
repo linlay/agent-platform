@@ -3,7 +3,6 @@ package server
 import (
 	"errors"
 	"net/http"
-	"path/filepath"
 	"strings"
 
 	"agent-platform-runner-go/internal/api"
@@ -18,7 +17,7 @@ func (s *Server) handleChatDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	chatID := strings.TrimSpace(req.ChatID)
-	if !validDeleteChatID(chatID) {
+	if !chat.ValidChatID(chatID) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid chatId"))
 		return
 	}
@@ -55,14 +54,4 @@ func (s *Server) handleChatDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, api.Success(api.DeleteChatResponse{ChatID: chatID, Deleted: true}))
 	s.broadcast("chat.deleted", map[string]any{"chatId": chatID})
-}
-
-func validDeleteChatID(chatID string) bool {
-	if strings.TrimSpace(chatID) == "" {
-		return false
-	}
-	if strings.Contains(chatID, "..") || strings.Contains(chatID, "/") || strings.Contains(chatID, `\`) {
-		return false
-	}
-	return filepath.Clean(chatID) == chatID && chatID != "."
 }

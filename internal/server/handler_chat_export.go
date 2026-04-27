@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/chat"
 	"agent-platform-runner-go/internal/stream"
 )
@@ -14,25 +15,25 @@ import (
 func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 	chatID := strings.TrimSpace(r.URL.Query().Get("chatId"))
 	if chatID == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"code": http.StatusBadRequest, "msg": "chatId is required", "data": map[string]any{}})
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "chatId is required"))
 		return
 	}
 	summary, err := s.deps.Chats.Summary(chatID)
 	if errors.Is(err, chat.ErrChatNotFound) || summary == nil {
-		writeJSON(w, http.StatusNotFound, map[string]any{"code": http.StatusNotFound, "msg": "chat not found", "data": map[string]any{}})
+		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "chat not found"))
 		return
 	}
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"code": http.StatusInternalServerError, "msg": err.Error(), "data": map[string]any{}})
+		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
 	detail, err := s.deps.Chats.LoadChat(chatID)
 	if errors.Is(err, chat.ErrChatNotFound) {
-		writeJSON(w, http.StatusNotFound, map[string]any{"code": http.StatusNotFound, "msg": "chat not found", "data": map[string]any{}})
+		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "chat not found"))
 		return
 	}
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]any{"code": http.StatusInternalServerError, "msg": err.Error(), "data": map[string]any{}})
+		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
 

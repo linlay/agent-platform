@@ -415,11 +415,27 @@ type ChatDetailResponse struct {
 	ResourceTicket string             `json:"resourceTicket,omitempty"`
 	RawMessages    []map[string]any   `json:"rawMessages,omitempty"`
 	Events         []stream.EventData `json:"events"`
+	Runs           []RunSummary       `json:"runs,omitempty"`
 	ActiveRun      *ActiveRunInfo     `json:"activeRun,omitempty"`
 	Plan           any                `json:"plan,omitempty"`
 	Artifact       any                `json:"artifact,omitempty"`
 	References     []Reference        `json:"references,omitempty"`
 	Usage          *ChatUsageData     `json:"usage,omitempty"`
+}
+
+type RunSummary struct {
+	RunID           string        `json:"runId"`
+	ChatID          string        `json:"chatId"`
+	AgentKey        string        `json:"agentKey,omitempty"`
+	InitialMessage  string        `json:"initialMessage,omitempty"`
+	AssistantText   string        `json:"assistantText,omitempty"`
+	FinishReason    string        `json:"finishReason,omitempty"`
+	StartedAt       int64         `json:"startedAt"`
+	CompletedAt     int64         `json:"completedAt"`
+	Usage           ChatUsageData `json:"usage"`
+	FeedbackType    string        `json:"feedbackType,omitempty"`
+	FeedbackComment string        `json:"feedbackComment,omitempty"`
+	FeedbackAt      int64         `json:"feedbackAt,omitempty"`
 }
 
 type ActiveRunInfo struct {
@@ -481,6 +497,7 @@ type DeleteChatResponse struct {
 type GlobalSearchRequest struct {
 	Query    string `json:"query"`
 	AgentKey string `json:"agentKey,omitempty"`
+	TeamID   string `json:"teamId,omitempty"`
 	Limit    int    `json:"limit,omitempty"`
 }
 
@@ -488,6 +505,7 @@ type GlobalSearchResult struct {
 	ChatID    string `json:"chatId"`
 	ChatName  string `json:"chatName"`
 	AgentKey  string `json:"agentKey,omitempty"`
+	TeamID    string `json:"teamId,omitempty"`
 	RunID     string `json:"runId,omitempty"`
 	Kind      string `json:"kind"`
 	Role      string `json:"role,omitempty"`
