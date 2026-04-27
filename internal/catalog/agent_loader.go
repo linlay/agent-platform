@@ -348,19 +348,15 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	if (len(def.Skills) > 0 || runtimeRequiresBash(def.Runtime)) && !containsString(def.Tools, "bash") {
 		def.Tools = append(def.Tools, "bash")
 	}
-	memoryConfig := mapNode(root["memoryConfig"])
-	memoryToolsEnabled := false
-	if enabled, ok := memoryConfig["enabled"].(bool); ok {
-		memoryToolsEnabled = enabled
-	}
-	def.MemoryEnabled = memoryToolsEnabled
-	if memoryToolsEnabled {
+	def.MemoryConfig = parseAgentMemoryConfig(root["memoryConfig"])
+	def.MemoryEnabled = def.MemoryConfig.Enabled
+	if def.MemoryConfig.Enabled {
 		for _, memTool := range []string{"_memory_write_", "_memory_read_", "_memory_search_"} {
 			if !containsString(def.Tools, memTool) {
 				def.Tools = append(def.Tools, memTool)
 			}
 		}
-		if managementTools, ok := memoryConfig["managementTools"].(bool); ok && managementTools {
+		if def.MemoryConfig.ManagementTools {
 			for _, memTool := range []string{"_memory_update_", "_memory_forget_", "_memory_timeline_", "_memory_promote_", "_memory_consolidate_"} {
 				if !containsString(def.Tools, memTool) {
 					def.Tools = append(def.Tools, memTool)
@@ -384,11 +380,37 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	return def, root, nil
 }
 
+func parseAgentMemoryConfig(value any) AgentMemoryConfig {
+	node := mapNode(value)
+	cfg := AgentMemoryConfig{}
+	if enabled, ok := node["enabled"].(bool); ok {
+		cfg.Enabled = enabled
+	}
+	if managementTools, ok := node["managementTools"].(bool); ok {
+		cfg.ManagementTools = managementTools
+	}
+	embedding := mapNode(node["embedding"])
+	cfg.Embedding = AgentMemoryEmbeddingConfig{
+		ProviderKey: stringNode(embedding["providerKey"]),
+		Model:       stringNode(embedding["model"]),
+		Dimension:   intNode(embedding["dimension"]),
+		TimeoutMs:   intNode(embedding["timeoutMs"]),
+	}
+	autoRemember := mapNode(node["autoRemember"])
+	if enabled, ok := autoRemember["enabled"].(bool); ok {
+		cfg.AutoRemember.Enabled = enabled
+	}
+	cfg.AutoRemember.ModelKey = stringNode(autoRemember["modelKey"])
+	cfg.AutoRemember.TimeoutMs = int64(intNode(autoRemember["timeoutMs"]))
+	return cfg
+}
+
 func applyGlobalAgentFlags(def AgentDefinition, globalMemoryEnabled bool) AgentDefinition {
 	if globalMemoryEnabled {
 		return def
 	}
 	def.MemoryEnabled = false
+	def.MemoryConfig.Enabled = false
 	if len(def.Tools) == 0 {
 		return def
 	}

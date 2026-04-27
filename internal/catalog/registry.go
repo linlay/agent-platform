@@ -62,6 +62,27 @@ type AgentDefinition struct {
 	StaticMemoryPrompt string
 	MemoryPrompt       string // Deprecated: use StaticMemoryPrompt.
 	MemoryEnabled      bool
+	MemoryConfig       AgentMemoryConfig
+}
+
+type AgentMemoryConfig struct {
+	Enabled         bool
+	ManagementTools bool
+	Embedding       AgentMemoryEmbeddingConfig
+	AutoRemember    AgentMemoryAutoRememberConfig
+}
+
+type AgentMemoryEmbeddingConfig struct {
+	ProviderKey string
+	Model       string
+	Dimension   int
+	TimeoutMs   int
+}
+
+type AgentMemoryAutoRememberConfig struct {
+	Enabled   bool
+	ModelKey  string
+	TimeoutMs int64
 }
 
 type AgentRuntimePrompts struct {

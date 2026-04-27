@@ -73,7 +73,7 @@ func TestHandleLearnStoresObservationFromLatestRun(t *testing.T) {
 
 	server := &Server{deps: Dependencies{
 		Config: config.Config{
-			Memory: config.MemoryConfig{Enabled: true, AutoRememberEnabled: true},
+			Memory: config.MemoryConfig{Enabled: true},
 		},
 		Chats:  chats,
 		Memory: memories,
@@ -158,7 +158,7 @@ func TestHandleRememberReturnsStoredMemoryFromChatStore(t *testing.T) {
 
 	server := &Server{deps: Dependencies{
 		Config: config.Config{
-			Memory: config.MemoryConfig{Enabled: true, AutoRememberEnabled: true},
+			Memory: config.MemoryConfig{Enabled: true},
 		},
 		Chats:  chats,
 		Memory: memories,
@@ -197,7 +197,7 @@ func TestHandleRememberReturnsStoredMemoryFromChatStore(t *testing.T) {
 func TestHandleLearnReturnsDisabledWhenMemorySystemDisabled(t *testing.T) {
 	server := &Server{deps: Dependencies{
 		Config: config.Config{
-			Memory: config.MemoryConfig{AutoRememberEnabled: false},
+			Memory: config.MemoryConfig{},
 		},
 	}}
 
@@ -214,7 +214,7 @@ func TestHandleLearnReturnsDisabledWhenMemorySystemDisabled(t *testing.T) {
 func TestHandleRememberReturnsDisabledWhenMemorySystemDisabled(t *testing.T) {
 	server := &Server{deps: Dependencies{
 		Config: config.Config{
-			Memory: config.MemoryConfig{AutoRememberEnabled: false},
+			Memory: config.MemoryConfig{},
 		},
 	}}
 

@@ -123,7 +123,7 @@ plain:
 - `session` 会暴露运行时上下文
 - `owner` 会注入 `OWNER_DIR` 下的 markdown 内容
 - `sandbox` 不再通过 `context tags` 控制；只要 agent 声明了 `runtimeConfig.environmentId`，运行时会自动注入 sandbox context
-- runtime memory context 不再通过 `context tags` 控制；只要 agent 开启 `memoryConfig.enabled`（或使用默认开启行为），运行时就会自动注入 memory context
+- runtime memory context 不再通过 `context tags` 控制；只有 agent 显式开启 `memoryConfig.enabled: true` 时，运行时才会自动注入 memory context
 
 ## Static Memory 与 Runtime Memory
 
@@ -151,21 +151,30 @@ agent definition 可通过 `memoryConfig` 控制默认注入的 memory 工具：
 memoryConfig:
   enabled: true
   managementTools: true
+  embedding:
+    providerKey: babelark
+  autoRemember:
+    enabled: true
+    modelKey: minimax-m2_7-anthropic
+    timeoutMs: 60000
 ```
 
 规则：
 
-- 未配置 `memoryConfig.enabled` 时，默认注入基础集：
+- 未配置 `memoryConfig.enabled` 或配置为 `false` 时，不启用 runtime memory，也不注入 memory tools
+- `enabled: true` 时注入基础集：
   - `_memory_write_`
   - `_memory_read_`
   - `_memory_search_`
-- `enabled: false` 时关闭基础 memory tools 注入
 - `managementTools: true` 时额外注入管理集：
   - `_memory_update_`
   - `_memory_forget_`
   - `_memory_timeline_`
   - `_memory_promote_`
   - `_memory_consolidate_`
+- `autoRemember.enabled: true` 时，run 完成后自动执行 learn / auto-remember
+- `autoRemember.modelKey` 填 `REGISTRIES_DIR/models/*.yml` 中的 model key，用于记忆筛选、总结、合并
+- `embedding.providerKey` 填 `REGISTRIES_DIR/providers/*.yml` 中的 provider key；embedding 模型、维度和超时优先来自 provider 的 `memory.embedding`，agent 侧也可覆盖
 
 运行时策略：
 

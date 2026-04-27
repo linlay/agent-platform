@@ -27,6 +27,13 @@ type Store interface {
 	Consolidate(agentKey string) (ConsolidationResult, error)
 }
 
+type RuntimeConfig struct {
+	Embedder   *EmbeddingProvider
+	Summarizer RememberSummarizer
+}
+
+type RuntimeResolver func(agentKey string) RuntimeConfig
+
 type FileStore struct {
 	root       string
 	summarizer RememberSummarizer

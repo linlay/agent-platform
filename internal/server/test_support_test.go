@@ -124,7 +124,9 @@ func newMemoryEnabledTestFixture(t *testing.T) testFixture {
 			}
 			content := strings.TrimSpace(string(data)) + "\n" +
 				"memoryConfig:\n" +
-				"  enabled: true\n"
+				"  enabled: true\n" +
+				"  autoRemember:\n" +
+				"    enabled: true\n"
 			if err := os.WriteFile(agentPath, []byte(content), 0o644); err != nil {
 				t.Fatalf("write agent config: %v", err)
 			}
@@ -262,9 +264,6 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 		},
 		Auth: config.AuthConfig{
 			Enabled: false,
-		},
-		Memory: config.MemoryConfig{
-			AutoRememberEnabled: true,
 		},
 		Stream: config.StreamConfig{
 			IncludeToolPayloadEvents: true,

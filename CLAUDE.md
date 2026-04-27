@@ -10,7 +10,7 @@
 - 已具备 `POST /api/query` 真流式 SSE 输出、heartbeat 与 `[DONE]` 结束帧
 - 已具备 chat 摘要、事件流、原始消息、上传资源落盘
 - 已具备 remember 落盘、memory learn/consolidate/feedback 能力
-- 已具备可选的 embedding 向量语义检索（需配置 `AGENT_MEMORY_EMBEDDING_PROVIDER_KEY`）
+- 已具备可选的 embedding 向量语义检索（需配置 `MEMORY_EMBEDDING_PROVIDER_KEY`）
 - 已具备 OpenAI 兼容模型调用、backend tool 执行与 Container Hub sandbox 接入
 - 已具备 `VERSION + scripts/release*.sh + dist/release` 的 program bundle 发布链路，可作为 `zenmind-desktop` builtin 分发
 - 尚未对齐 Java 版的 frontend tool 完整链路、热重载、MCP 实接、鉴权、memory 检索、schedule 编排等高级能力
@@ -353,6 +353,6 @@ npm run sync:assets
 - `skills`、`teams`、`agents` 已支持定时轮询式目录热刷新。
 - `submit` / `steer` / `interrupt` 还没有形成 Java 版那样的运行中双向编排控制面。
 - `viewport` 已支持本地模板和远端 `viewports/get` 拉取；协议能力仍是最小子集，未完全对齐 Java 版前端协议。
-- `remember` 已升级为完整 memory 系统；embedding 语义检索需配置 `AGENT_MEMORY_EMBEDDING_PROVIDER_KEY`，未配置时降级为 FTS + importance 排序。详见 [docs/memory-system-design.md](docs/memory-system-design.md)。
+- `remember` 已升级为完整 memory 系统；embedding 语义检索需配置 `MEMORY_EMBEDDING_PROVIDER_KEY`，未配置时降级为 FTS + importance 排序。详见 [docs/memory-system-design.md](docs/memory-system-design.md)。
 - program bundle 当前默认产出 `darwin-arm64` 目标，供 `zenmind-desktop` builtin 直接消费。
 - 若环境中显式设置了废弃旧变量，应用会直接启动失败。

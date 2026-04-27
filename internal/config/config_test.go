@@ -61,8 +61,8 @@ func TestLoadDefaults(t *testing.T) {
 		if cfg.Defaults.Budget.Hitl.TimeoutMs != 0 {
 			t.Fatalf("expected default HITL budget timeout 0, got %d", cfg.Defaults.Budget.Hitl.TimeoutMs)
 		}
-		if cfg.Memory.Enabled {
-			t.Fatalf("expected memory disabled by default")
+		if !cfg.Memory.Enabled {
+			t.Fatalf("expected memory runtime enabled by default")
 		}
 	})
 }
@@ -273,7 +273,6 @@ func TestLoadAcceptsJavaEnvContract(t *testing.T) {
 		"AGENT_H2A_RENDER_MAX_BUFFERED_EVENTS":    "3",
 		"AGENT_H2A_RENDER_HEARTBEAT_PASS_THROUGH": "false",
 		"AGENT_DEFAULT_REACT_MAX_STEPS":           "12",
-		"AGENT_MEMORY_REMEMBER_MODEL_KEY":         "demo-model",
 		"AGENT_SCHEDULE_ENABLED":                  "false",
 		"AGENT_SCHEDULE_DEFAULT_ZONE_ID":          "Asia/Shanghai",
 		"AGENT_SCHEDULE_POOL_SIZE":                "7",
@@ -319,9 +318,6 @@ func TestLoadAcceptsJavaEnvContract(t *testing.T) {
 		}
 		if cfg.Defaults.React.MaxSteps != 12 {
 			t.Fatalf("unexpected react max steps: %d", cfg.Defaults.React.MaxSteps)
-		}
-		if cfg.Memory.RememberModelKey != "demo-model" {
-			t.Fatalf("unexpected remember model key: %q", cfg.Memory.RememberModelKey)
 		}
 		if cfg.Schedule.Enabled {
 			t.Fatalf("expected schedule disabled")
@@ -747,13 +743,6 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 		"AGENT_MEMORY_HYBRID_VECTOR_WEIGHT",
 		"AGENT_MEMORY_HYBRID_FTS_WEIGHT",
 		"AGENT_MEMORY_DUAL_WRITE_MARKDOWN",
-		"AGENT_MEMORY_EMBEDDING_PROVIDER_KEY",
-		"AGENT_MEMORY_EMBEDDING_MODEL",
-		"AGENT_MEMORY_EMBEDDING_DIMENSION",
-		"AGENT_MEMORY_EMBEDDING_TIMEOUT_MS",
-		"AGENT_MEMORY_AUTO_REMEMBER_ENABLED",
-		"AGENT_MEMORY_REMEMBER_MODEL_KEY",
-		"AGENT_MEMORY_REMEMBER_TIMEOUT_MS",
 		"AGENT_DEFAULT_MAX_TOKENS",
 		"AGENT_DEFAULT_BUDGET_RUN_TIMEOUT_MS",
 		"AGENT_DEFAULT_BUDGET_MODEL_MAX_CALLS",

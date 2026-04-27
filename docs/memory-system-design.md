@@ -495,18 +495,30 @@ AccessCount, LastAccessedAt
 
 **配置方式**：
 
-```bash
-# .env — provider key 对应 REGISTRIES_DIR/providers/*.yml 中的 key 字段
-AGENT_MEMORY_EMBEDDING_PROVIDER_KEY=openai
-AGENT_MEMORY_EMBEDDING_MODEL=text-embedding-3-small
-AGENT_MEMORY_EMBEDDING_DIMENSION=1536
-AGENT_MEMORY_EMBEDDING_TIMEOUT_MS=15000
+provider 侧定义 embedding 默认值：
+
+```yaml
+memory:
+  embedding:
+    model: text-embedding-3-small
+    dimension: 1536
+    timeoutMs: 15000
 ```
 
-启动时 `app.go` 会：
-1. 从 `modelRegistry.GetProvider(providerKey)` 获取 `BaseURL` 和 `APIKey`
-2. 创建 `EmbeddingProvider` 并通过 `SetEmbedder()` 注入 `SQLiteStore`
-3. 如果 provider key 未设置或查找失败，混合检索自动降级为 FTS + importance 排序
+agent 侧引用 provider：
+
+```yaml
+memoryConfig:
+  embedding:
+    providerKey: babelark
+```
+
+运行时 `app.go` 会按 agentKey：
+1. 从 agent 的 `memoryConfig.embedding.providerKey` 获取 provider key
+2. 从 `modelRegistry.GetProvider(providerKey)` 获取 `BaseURL` 和 `APIKey`
+3. 合并 provider 的 `memory.embedding` 默认值和 agent 侧覆盖值
+4. 为该 agent 创建 `EmbeddingProvider`
+5. 如果 agent 未设置 providerKey、provider key 不存在，或 embedding 参数不完整，混合检索自动降级为 FTS + importance 排序
 
 **如果 embedding 未配置**：系统仍然正常工作，只是 observation 的选取基于子串匹配和静态重要度排序，无法做语义相似度检索。所有已写入记忆的 `EMBEDDING_` 列为 NULL。
 
@@ -898,33 +910,29 @@ observation 不是永久记忆，系统会自动整理它。
 | `AGENT_MEMORY_HYBRID_VECTOR_WEIGHT` | 混合检索向量权重 | `0.7` |
 | `AGENT_MEMORY_HYBRID_FTS_WEIGHT` | 混合检索 FTS 权重 | `0.3` |
 | `AGENT_MEMORY_DUAL_WRITE_MARKDOWN` | 是否同时写 markdown 快照 | `true` |
-| `AGENT_MEMORY_EMBEDDING_PROVIDER_KEY` | embedding 服务的 provider key | 空（不启用） |
-| `AGENT_MEMORY_EMBEDDING_MODEL` | embedding 模型 ID | `text-embedding-3-small` |
-| `AGENT_MEMORY_EMBEDDING_DIMENSION` | 向量维度 | `1024` |
-| `AGENT_MEMORY_EMBEDDING_TIMEOUT_MS` | embedding 请求超时 | `15000` |
-| `AGENT_MEMORY_AUTO_REMEMBER_ENABLED` | 是否启用 auto-learn | `false` |
+| agent `memoryConfig.enabled` | 是否启用该 agent 的 runtime memory | `false` |
+| agent `memoryConfig.autoRemember.enabled` | 是否启用该 agent 的 auto-learn | `false` |
+| agent `memoryConfig.autoRemember.modelKey` | 记忆总结 model key | 空 |
+| agent `memoryConfig.embedding.providerKey` | embedding provider key | 空（不启用） |
+| provider `memory.embedding.model` | embedding 模型 ID | 空 |
+| provider `memory.embedding.dimension` | 向量维度 | `0` |
+| provider `memory.embedding.timeoutMs` | embedding 请求超时 | `0` |
 
 ### 启用 Embedding 的前置条件
 
-1. `REGISTRIES_DIR/providers/` 下有对应的 provider 配置文件（如 `openai.yml`），包含 `key`、`baseURL`、`apiKey`
-2. `.env` 中设置 `AGENT_MEMORY_EMBEDDING_PROVIDER_KEY` 为该 provider 的 `key` 值
-3. `.env` 中设置 `AGENT_MEMORY_EMBEDDING_MODEL` 为支持 embedding 的模型 ID
+1. `REGISTRIES_DIR/providers/` 下有对应的 provider 配置文件，包含 `key`、`baseURL`、`apiKey`
+2. provider 配置中有 `memory.embedding.model` 和 `memory.embedding.dimension`
+3. agent 的 `memoryConfig.embedding.providerKey` 指向该 provider 的 `key`
 
 ### 启动日志验证
-
-如果 embedding 配置成功，启动日志会输出：
-
-```
-memory embedding provider ready (provider=openai model=text-embedding-3-small dim=1536)
-```
 
 如果 provider key 不存在，会输出：
 
 ```
-[memory][embedding] provider "xxx" not found in model registry, hybrid search disabled: ...
+[memory][embedding] provider "xxx" not found for agent agent-a, hybrid search disabled: ...
 ```
 
-如果 `AGENT_MEMORY_EMBEDDING_PROVIDER_KEY` 未设置，不会有任何 embedding 相关日志，系统静默回退到 FTS + importance 排序。
+如果 agent 未设置 `memoryConfig.embedding.providerKey`，不会有 embedding 相关日志，系统静默回退到 FTS + importance 排序。
 
 ## 日志与观测
 

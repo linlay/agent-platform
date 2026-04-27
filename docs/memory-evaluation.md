@@ -11,16 +11,19 @@
 默认已开启，日志路径 `runtime/logs/memory.log`。可通过环境变量覆盖：
 
 ```bash
-LOGGING_AGENT_MEMORY_ENABLED=true
+LOGGING_MEMORY_ENABLED=true
 LOGGING_AGENT_MEMORY_FILE=runtime/logs/memory.log
 ```
 
 ### 2. 确认 auto-learn 已开启
 
-反馈循环依赖 auto-learn 触发。确保 `.env` 中：
+反馈循环依赖 auto-learn 触发。确保目标 agent 配置了：
 
-```bash
-AGENT_MEMORY_AUTO_REMEMBER_ENABLED=true
+```yaml
+memoryConfig:
+  enabled: true
+  autoRemember:
+    enabled: true
 ```
 
 ### 3. 日志格式
@@ -241,13 +244,13 @@ cat "$LOG" \
 
 ### 第一阶段：采集基线（1-2 周）
 
-1. 确认 `LOGGING_AGENT_MEMORY_ENABLED=true` 和 `AGENT_MEMORY_AUTO_REMEMBER_ENABLED=true`
+1. 确认 `LOGGING_MEMORY_ENABLED=true`，且目标 agent 配置了 `memoryConfig.autoRemember.enabled: true`
 2. 正常使用系统，不做任何调整
 3. 运行综合仪表盘命令，记录基线数据
 
 ### 第二阶段：配置 embedding 后对比
 
-1. 配置 `AGENT_MEMORY_EMBEDDING_PROVIDER_KEY` 启用语义检索
+1. 在 provider 中配置 `memory.embedding`，并在目标 agent 的 `memoryConfig.embedding.providerKey` 中引用该 provider
 2. 运行一段时间后，再次执行综合仪表盘命令
 3. 对比 `hybrid=true` vs `hybrid=false` 的引用率差异：
 

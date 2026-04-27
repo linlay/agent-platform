@@ -172,10 +172,9 @@ func TestPrepareQueryBuildsLayeredMemoryContexts(t *testing.T) {
 	server := &Server{deps: Dependencies{
 		Config: config.Config{
 			Memory: config.MemoryConfig{
-				Enabled:             true,
-				AutoRememberEnabled: true,
-				ContextTopN:         5,
-				ContextMaxChars:     4000,
+				Enabled:         true,
+				ContextTopN:     5,
+				ContextMaxChars: 4000,
 			},
 		},
 		Chats:  chats,
@@ -356,10 +355,9 @@ func TestPrepareQueryDedupesNearDuplicateStableFacts(t *testing.T) {
 	server := &Server{deps: Dependencies{
 		Config: config.Config{
 			Memory: config.MemoryConfig{
-				Enabled:             true,
-				AutoRememberEnabled: true,
-				ContextTopN:         5,
-				ContextMaxChars:     4000,
+				Enabled:         true,
+				ContextTopN:     5,
+				ContextMaxChars: 4000,
 			},
 		},
 		Chats:  chats,
@@ -444,10 +442,9 @@ func TestPrepareQueryDedupesNearDuplicateAcrossStableAndSession(t *testing.T) {
 	server := &Server{deps: Dependencies{
 		Config: config.Config{
 			Memory: config.MemoryConfig{
-				Enabled:             true,
-				AutoRememberEnabled: true,
-				ContextTopN:         5,
-				ContextMaxChars:     4000,
+				Enabled:         true,
+				ContextTopN:     5,
+				ContextMaxChars: 4000,
 			},
 		},
 		Chats:  chats,
@@ -508,9 +505,8 @@ func TestPrepareQuerySkipsMemoryContextWhenMemorySystemDisabled(t *testing.T) {
 	server := &Server{deps: Dependencies{
 		Config: config.Config{
 			Memory: config.MemoryConfig{
-				AutoRememberEnabled: false,
-				ContextTopN:         5,
-				ContextMaxChars:     4000,
+				ContextTopN:     5,
+				ContextMaxChars: 4000,
 			},
 		},
 		Chats:  chats,

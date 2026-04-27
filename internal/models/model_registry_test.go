@@ -57,6 +57,37 @@ func TestLoadModelRegistryReturnsDecryptErrorForInvalidAESProviderAPIKey(t *test
 	}
 }
 
+func TestLoadModelRegistryParsesProviderMemoryEmbedding(t *testing.T) {
+	root := t.TempDir()
+	writeTestProviderAndModel(t, root, strings.Join([]string{
+		"apiKey: plain-text",
+		"memory:",
+		"  embedding:",
+		"    model: text-embedding-3-small",
+		"    dimension: 1536",
+		"    timeoutMs: 15000",
+	}, "\n"))
+
+	registry, err := LoadModelRegistry(root)
+	if err != nil {
+		t.Fatalf("LoadModelRegistry returned error: %v", err)
+	}
+
+	provider, err := registry.GetProvider("mock")
+	if err != nil {
+		t.Fatalf("GetProvider returned error: %v", err)
+	}
+	if provider.Memory.Embedding.Model != "text-embedding-3-small" {
+		t.Fatalf("unexpected embedding model: %q", provider.Memory.Embedding.Model)
+	}
+	if provider.Memory.Embedding.Dimension != 1536 {
+		t.Fatalf("unexpected embedding dimension: %d", provider.Memory.Embedding.Dimension)
+	}
+	if provider.Memory.Embedding.TimeoutMs != 15000 {
+		t.Fatalf("unexpected embedding timeout: %d", provider.Memory.Embedding.TimeoutMs)
+	}
+}
+
 func writeTestProviderAndModel(t *testing.T, root string, apiKeyLine string) {
 	t.Helper()
 

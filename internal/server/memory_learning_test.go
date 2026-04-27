@@ -15,8 +15,7 @@ func TestAutoLearnIfEnabledStoresObservation(t *testing.T) {
 		deps: Dependencies{
 			Config: config.Config{
 				Memory: config.MemoryConfig{
-					Enabled:             true,
-					AutoRememberEnabled: true,
+					Enabled: true,
 				},
 			},
 			Chats:  chats,
@@ -26,6 +25,12 @@ func TestAutoLearnIfEnabledStoresObservation(t *testing.T) {
 				Name:          "Agent A",
 				ModelKey:      "mock-model",
 				MemoryEnabled: true,
+				MemoryConfig: catalog.AgentMemoryConfig{
+					Enabled: true,
+					AutoRemember: catalog.AgentMemoryAutoRememberConfig{
+						Enabled: true,
+					},
+				},
 			}},
 		},
 	}
@@ -44,14 +49,13 @@ func TestAutoLearnIfEnabledStoresObservation(t *testing.T) {
 	}
 }
 
-func TestAutoLearnIfEnabledRespectsConfigFlag(t *testing.T) {
+func TestAutoLearnIfEnabledRespectsAgentFlag(t *testing.T) {
 	chats, memories := seedAutoLearnTestStores(t)
 	s := &Server{
 		deps: Dependencies{
 			Config: config.Config{
 				Memory: config.MemoryConfig{
-					Enabled:             true,
-					AutoRememberEnabled: false,
+					Enabled: true,
 				},
 			},
 			Chats:  chats,
@@ -61,6 +65,9 @@ func TestAutoLearnIfEnabledRespectsConfigFlag(t *testing.T) {
 				Name:          "Agent A",
 				ModelKey:      "mock-model",
 				MemoryEnabled: true,
+				MemoryConfig: catalog.AgentMemoryConfig{
+					Enabled: true,
+				},
 			}},
 		},
 	}

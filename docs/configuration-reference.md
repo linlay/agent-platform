@@ -156,9 +156,12 @@ Container Hub 默认基础挂载为：
 
 agent definition 侧另有 `memoryConfig`：
 
-- 默认会给 agent 注入基础 memory tools：`_memory_write_`、`_memory_read_`、`_memory_search_`
-- `memoryConfig.enabled: false` 可以显式关闭基础 memory tools 注入
+- 未配置 `memoryConfig.enabled` 时，不启用 runtime memory，也不注入基础 memory tools
+- `memoryConfig.enabled: true` 会注入基础 memory tools：`_memory_write_`、`_memory_read_`、`_memory_search_`
 - `memoryConfig.managementTools: true` 会额外注入管理类 tools：`_memory_update_`、`_memory_forget_`、`_memory_timeline_`、`_memory_promote_`、`_memory_consolidate_`
+- `memoryConfig.autoRemember.enabled: true` 会在 run 完成后自动 learn / auto-remember
+- `memoryConfig.autoRemember.modelKey` 指向 `REGISTRIES_DIR/models/*.yml` 中的 model key，用于记忆筛选、总结、合并
+- `memoryConfig.embedding.providerKey` 指向 `REGISTRIES_DIR/providers/*.yml` 中的 provider key；embedding 模型、维度和超时优先来自 provider 的 `memory.embedding`，也可在 agent 侧覆盖
 - `memory/memory.md` 属于 agent 静态背景提示，不受这些环境变量控制，也不等同于 runtime memory store
 - `Learn(...)` 成功后会自动执行一轮轻量 observation consolidate；显式 `_memory_consolidate_` 仍用于人工触发完整整理
 
@@ -197,7 +200,7 @@ agent definition 侧另有 `memoryConfig`：
 | `LOGGING_AGENT_ACTION_ENABLED` | `true` | `Debug / troubleshooting` | 是否记录 action 日志 |
 | `LOGGING_AGENT_VIEWPORT_ENABLED` | `true` | `Debug / troubleshooting` | 是否记录 viewport 日志 |
 | `LOGGING_AGENT_SSE_ENABLED` | `false` | `Debug / troubleshooting` | 是否记录 SSE 事件日志 |
-| `LOGGING_AGENT_MEMORY_ENABLED` | `true` | `Debug / troubleshooting` | 是否启用 memory 独立操作日志 |
+| `LOGGING_MEMORY_ENABLED` | `true` | `Debug / troubleshooting` | 是否启用 memory 独立操作日志 |
 | `LOGGING_AGENT_MEMORY_FILE` | `runtime/logs/memory.log` | `Debug / troubleshooting` | memory 独立日志文件路径 |
 | `LOGGING_AGENT_LLM_INTERACTION_ENABLED` | `true` | `Debug / troubleshooting` | 是否记录 LLM provider 原始 chunk 与解析后的 delta 日志 |
 | `LOGGING_AGENT_LLM_INTERACTION_MASK_SENSITIVE` | `false` | `Debug / troubleshooting` | 是否把 LLM 交互日志替换为 `[masked chars=N]` |
@@ -274,13 +277,8 @@ agent definition 侧另有 `memoryConfig`：
 | `AGENT_MEMORY_HYBRID_VECTOR_WEIGHT` | `0.7` | `Wired but not recommended for public use` | 当前 Go runner 尚未把该权重稳定接入可感知的向量/FTS 混合检索结果 |
 | `AGENT_MEMORY_HYBRID_FTS_WEIGHT` | `0.3` | `Wired but not recommended for public use` | 同上 |
 | `AGENT_MEMORY_DUAL_WRITE_MARKDOWN` | `true` | `Wired but not recommended for public use` | 当前主要是配置预留，不建议作为产品开关公开 |
-| `AGENT_MEMORY_EMBEDDING_PROVIDER_KEY` | 空 | `Wired but not recommended for public use` | 当前主要是配置预留，不建议作为产品开关公开 |
-| `AGENT_MEMORY_EMBEDDING_MODEL` | 空 | `Wired but not recommended for public use` | 当前主要是配置预留，不建议作为产品开关公开 |
-| `AGENT_MEMORY_EMBEDDING_DIMENSION` | `1024` | `Wired but not recommended for public use` | 当前主要是配置预留，不建议作为产品开关公开 |
-| `AGENT_MEMORY_EMBEDDING_TIMEOUT_MS` | `15000` | `Wired but not recommended for public use` | 当前主要是配置预留，不建议作为产品开关公开 |
-| `AGENT_MEMORY_AUTO_REMEMBER_ENABLED` | `true` | `Wired but not recommended for public use` | 当前主要作为运行时默认开关；如需禁用自动学习可显式设为 `false` |
-| `AGENT_MEMORY_REMEMBER_MODEL_KEY` | 空 | `Wired but not recommended for public use` | 当前主要是配置预留，不建议作为产品开关公开 |
-| `AGENT_MEMORY_REMEMBER_TIMEOUT_MS` | `60000` | `Wired but not recommended for public use` | 当前主要是配置预留，不建议作为产品开关公开 |
+
+旧的 `MEMORY_ENABLED`、`MEMORY_AUTO_REMEMBER_ENABLED`、`MEMORY_REMEMBER_*`、`MEMORY_EMBEDDING_*` 已删除，不再作为环境变量读取。对应能力改由 agent 的 `memoryConfig` 和 provider 的 `memory.embedding` 配置。
 
 ### Chat Storage: 实现细节变量
 
@@ -418,4 +416,4 @@ provider registry 中的 `apiKey` 支持以下两种形态：
 - `session` 负责暴露运行上下文
 - `owner` 负责注入 `OWNER_DIR` 下的 markdown 内容
 - `sandbox` 不再属于 `context tags`；只要 agent 配置了 `runtimeConfig.environmentId`，运行时就会自动注入 sandbox context
-- runtime memory context 不再属于 `context tags`；只要 agent 开启 `memoryConfig.enabled`（或使用默认开启行为），运行时就会自动注入 memory context
+- runtime memory context 不再属于 `context tags`；只有 agent 显式开启 `memoryConfig.enabled: true` 时，运行时才会注入 memory context

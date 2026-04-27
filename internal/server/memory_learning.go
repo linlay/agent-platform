@@ -14,7 +14,7 @@ func (s *Server) autoLearnIfEnabled(chatID string, runID string, agentKey string
 	if s == nil {
 		return
 	}
-	if !s.deps.Config.Memory.Enabled || !s.deps.Config.Memory.AutoRememberEnabled || !s.memoryEnabledForAgentKey(agentKey) {
+	if !s.memoryAutoRememberEnabledForAgentKey(agentKey) {
 		return
 	}
 	if s.deps.Memory == nil || s.deps.Chats == nil {
@@ -81,6 +81,20 @@ func (s *Server) autoLearnIfEnabled(chatID string, runID string, agentKey string
 		chatID, runID, response.Accepted, response.ObservationCount, response.Status)
 
 	s.applyMemoryFeedback(chatID, agentKey, trace)
+}
+
+func (s *Server) memoryAutoRememberEnabledForAgentKey(agentKey string) bool {
+	if s == nil || !s.deps.Config.Memory.Enabled || !s.memoryEnabledForAgentKey(agentKey) {
+		return false
+	}
+	if s.deps.Registry == nil {
+		return false
+	}
+	def, ok := s.deps.Registry.AgentDefinition(strings.TrimSpace(agentKey))
+	if !ok {
+		return false
+	}
+	return def.MemoryConfig.AutoRemember.Enabled
 }
 
 func (s *Server) applyMemoryFeedback(chatID string, agentKey string, trace chat.RunTrace) {

@@ -363,6 +363,50 @@ func TestParseAgentFileKeepsMemoryManagementToolsOptIn(t *testing.T) {
 	}
 }
 
+func TestParseAgentFileParsesMemoryRuntimeConfig(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	content := "" +
+		"key: demo\n" +
+		"name: Demo\n" +
+		"mode: REACT\n" +
+		"modelConfig:\n" +
+		"  modelKey: demo-model\n" +
+		"memoryConfig:\n" +
+		"  enabled: true\n" +
+		"  embedding:\n" +
+		"    providerKey: openai\n" +
+		"    model: text-embedding-3-small\n" +
+		"    dimension: 1536\n" +
+		"    timeoutMs: 15000\n" +
+		"  autoRemember:\n" +
+		"    enabled: true\n" +
+		"    modelKey: minimax-m2_7-anthropic\n" +
+		"    timeoutMs: 60000\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	if !def.MemoryConfig.Enabled || !def.MemoryEnabled {
+		t.Fatalf("expected memory enabled, got %#v", def.MemoryConfig)
+	}
+	if def.MemoryConfig.Embedding.ProviderKey != "openai" ||
+		def.MemoryConfig.Embedding.Model != "text-embedding-3-small" ||
+		def.MemoryConfig.Embedding.Dimension != 1536 ||
+		def.MemoryConfig.Embedding.TimeoutMs != 15000 {
+		t.Fatalf("unexpected embedding config: %#v", def.MemoryConfig.Embedding)
+	}
+	if !def.MemoryConfig.AutoRemember.Enabled ||
+		def.MemoryConfig.AutoRemember.ModelKey != "minimax-m2_7-anthropic" ||
+		def.MemoryConfig.AutoRemember.TimeoutMs != 60000 {
+		t.Fatalf("unexpected auto remember config: %#v", def.MemoryConfig.AutoRemember)
+	}
+}
+
 func TestParseAgentFileAllowsOptingOutOfBaseMemoryTools(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")

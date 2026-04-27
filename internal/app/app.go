@@ -121,29 +121,6 @@ func New(rootCtx context.Context) (*App, error) {
 	}
 	log.Printf("model registry ready in %s (root=%s)", startupElapsed(modelRegistryStartedAt), cfg.Paths.RegistriesDir)
 
-	if cfg.Memory.Enabled {
-		if providerKey := strings.TrimSpace(cfg.Memory.EmbeddingProviderKey); providerKey != "" {
-			if provider, err := modelRegistry.GetProvider(providerKey); err == nil {
-				baseURL := strings.TrimRight(provider.BaseURL, "/")
-				model := cfg.Memory.EmbeddingModel
-				if model == "" {
-					model = "text-embedding-3-small"
-				}
-				ep := memory.NewEmbeddingProvider(baseURL, provider.APIKey, model, cfg.Memory.EmbeddingDimension, cfg.Memory.EmbeddingTimeoutMs)
-				sqliteMemoryStore.SetEmbedder(ep)
-				log.Printf("memory embedding provider ready (provider=%s model=%s dim=%d)", providerKey, model, ep.Dimension)
-			} else {
-				log.Printf("[memory][embedding] provider %q not found in model registry, hybrid search disabled: %v", providerKey, err)
-			}
-		}
-		if modelKey := strings.TrimSpace(cfg.Memory.RememberModelKey); modelKey != "" {
-			if summarizer := memory.NewLLMMemorySummarizer(modelRegistry, modelKey, cfg.Memory.RememberTimeoutMs); summarizer != nil {
-				sqliteMemoryStore.SetRememberSummarizer(summarizer)
-				log.Printf("memory remember summarizer ready (model=%s timeout=%dms)", modelKey, cfg.Memory.RememberTimeoutMs)
-			}
-		}
-	}
-
 	runManager := runctl.NewInMemoryRunManager()
 	sandboxClient := sandbox.NewContainerHubSandboxService(cfg.ContainerHub, cfg.Paths)
 	backendTools, err := tools.NewRuntimeToolExecutor(cfg, sandboxClient, chatStore, memoryStore, skillCandidateStore)
@@ -188,6 +165,9 @@ func New(rootCtx context.Context) (*App, error) {
 		len(registry.Skills("")),
 		len(toolExecutor.Definitions()),
 	)
+	if cfg.Memory.Enabled && sqliteMemoryStore != nil {
+		sqliteMemoryStore.SetRuntimeResolver(memoryRuntimeResolver(cfg, registry, modelRegistry))
+	}
 
 	agentEngine := llm.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, frontendRegistry, sandboxClient)
 	notifications := contracts.NewNoopNotificationSink()
@@ -359,6 +339,83 @@ func (a *App) Close() error {
 
 func startupElapsed(startedAt time.Time) time.Duration {
 	return time.Since(startedAt).Round(time.Millisecond)
+}
+
+func memoryRuntimeResolver(cfg config.Config, registry catalog.Registry, modelRegistry *models.ModelRegistry) memory.RuntimeResolver {
+	var logOnce sync.Map
+	return func(agentKey string) memory.RuntimeConfig {
+		agent, ok := registry.AgentDefinition(strings.TrimSpace(agentKey))
+		if !ok || !agent.MemoryConfig.Enabled {
+			return memory.RuntimeConfig{}
+		}
+		return memory.RuntimeConfig{
+			Embedder:   resolveMemoryEmbedder(cfg, agent, modelRegistry, &logOnce),
+			Summarizer: resolveMemorySummarizer(cfg, agent, modelRegistry),
+		}
+	}
+}
+
+func resolveMemorySummarizer(cfg config.Config, agent catalog.AgentDefinition, modelRegistry *models.ModelRegistry) memory.RememberSummarizer {
+	modelKey := strings.TrimSpace(agent.MemoryConfig.AutoRemember.ModelKey)
+	if modelKey == "" {
+		return nil
+	}
+	timeoutMs := agent.MemoryConfig.AutoRemember.TimeoutMs
+	if timeoutMs <= 0 {
+		timeoutMs = 60000
+	}
+	return memory.NewLLMMemorySummarizer(modelRegistry, modelKey, timeoutMs)
+}
+
+func resolveMemoryEmbedder(_ config.Config, agent catalog.AgentDefinition, modelRegistry *models.ModelRegistry, logOnce *sync.Map) *memory.EmbeddingProvider {
+	embeddingCfg := agent.MemoryConfig.Embedding
+	providerKey := strings.TrimSpace(embeddingCfg.ProviderKey)
+	if providerKey == "" {
+		return nil
+	}
+	provider, err := modelRegistry.GetProvider(providerKey)
+	if err != nil {
+		logMemoryEmbeddingOnce(logOnce, agent.Key, providerKey, "missing-provider", fmt.Sprintf("[memory][embedding] provider %q not found for agent %s, hybrid search disabled: %v", providerKey, agent.Key, err))
+		return nil
+	}
+	model := firstNonBlank(embeddingCfg.Model, provider.Memory.Embedding.Model)
+	dimension := firstPositiveInt(embeddingCfg.Dimension, provider.Memory.Embedding.Dimension)
+	timeoutMs := firstPositiveInt(embeddingCfg.TimeoutMs, provider.Memory.Embedding.TimeoutMs, 15000)
+	baseURL := strings.TrimRight(strings.TrimSpace(provider.BaseURL), "/")
+	if baseURL == "" || model == "" || dimension <= 0 {
+		logMemoryEmbeddingOnce(logOnce, agent.Key, providerKey, "incomplete", fmt.Sprintf("[memory][embedding] disabled for agent %s: provider %s missing baseURL/model/dimension", agent.Key, providerKey))
+		return nil
+	}
+	return memory.NewEmbeddingProvider(baseURL, provider.APIKey, model, dimension, timeoutMs)
+}
+
+func logMemoryEmbeddingOnce(logOnce *sync.Map, agentKey string, providerKey string, reason string, message string) {
+	if logOnce == nil {
+		log.Print(message)
+		return
+	}
+	key := strings.TrimSpace(agentKey) + "|" + strings.TrimSpace(providerKey) + "|" + strings.TrimSpace(reason)
+	if _, loaded := logOnce.LoadOrStore(key, struct{}{}); !loaded {
+		log.Print(message)
+	}
+}
+
+func firstNonBlank(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func firstPositiveInt(values ...int) int {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
 }
 
 // gatewayAdminAdapter 把 gateway.Registry 桥接到 server.GatewayAdmin 接口，

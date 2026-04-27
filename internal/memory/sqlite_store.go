@@ -32,6 +32,7 @@ type SQLiteStore struct {
 	ftsFTSWeight    float64
 	embedder        *EmbeddingProvider
 	summarizer      RememberSummarizer
+	runtimeResolver RuntimeResolver
 }
 
 func NewSQLiteStore(root string, dbFileName string) (*SQLiteStore, error) {
@@ -64,6 +65,38 @@ func (s *SQLiteStore) SetRememberSummarizer(summarizer RememberSummarizer) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.summarizer = summarizer
+}
+
+func (s *SQLiteStore) SetRuntimeResolver(resolver RuntimeResolver) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.runtimeResolver = resolver
+}
+
+func (s *SQLiteStore) runtimeForAgent(agentKey string) RuntimeConfig {
+	if s == nil {
+		return RuntimeConfig{}
+	}
+	s.mu.Lock()
+	resolver := s.runtimeResolver
+	embedder := s.embedder
+	summarizer := s.summarizer
+	s.mu.Unlock()
+	runtime := RuntimeConfig{
+		Embedder:   embedder,
+		Summarizer: summarizer,
+	}
+	if resolver == nil {
+		return runtime
+	}
+	resolved := resolver(agentKey)
+	if resolved.Embedder != nil {
+		runtime.Embedder = resolved.Embedder
+	}
+	if resolved.Summarizer != nil {
+		runtime.Summarizer = resolved.Summarizer
+	}
+	return runtime
 }
 
 func (s *SQLiteStore) ApplyFeedback(signals []FeedbackSignal) error {
@@ -205,14 +238,14 @@ func (s *SQLiteStore) initDB() error {
 }
 
 func (s *SQLiteStore) Remember(chatDetail chat.Detail, request api.RememberRequest, agentKey string) (api.RememberResponse, error) {
+	runtime := s.runtimeForAgent(agentKey)
 	s.mu.Lock()
 	history, err := s.listProjectionItemsLocked(agentKey)
-	summarizer := s.summarizer
 	s.mu.Unlock()
 	if err != nil {
 		return api.RememberResponse{}, err
 	}
-	drafts := summarizeRememberWithFallback(summarizer, RememberSynthesisInput{
+	drafts := summarizeRememberWithFallback(runtime.Summarizer, RememberSynthesisInput{
 		Request:  request,
 		Chat:     chatDetail,
 		AgentKey: agentKey,
@@ -855,9 +888,10 @@ func (s *SQLiteStore) Read(id string) (*api.StoredMemoryResponse, error) {
 }
 
 func (s *SQLiteStore) Write(item api.StoredMemoryResponse) error {
+	embedder := s.runtimeForAgent(item.AgentKey).Embedder
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	err := s.writeLocked(item)
+	err := s.writeLocked(item, embedder)
 	if err == nil {
 		logMemoryWrite("write", normalizeStoredItem(item))
 	}
@@ -865,6 +899,7 @@ func (s *SQLiteStore) Write(item api.StoredMemoryResponse) error {
 }
 
 func (s *SQLiteStore) BuildContextBundle(request ContextRequest) (ContextBundle, error) {
+	runtime := s.runtimeForAgent(request.AgentKey)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -878,8 +913,8 @@ func (s *SQLiteStore) BuildContextBundle(request ContextRequest) (ContextBundle,
 		ftsWeight:    s.ftsFTSWeight,
 	}
 	query := strings.TrimSpace(request.Query)
-	if s.embedder != nil && query != "" {
-		if qvec, err := s.embedder.EmbedSingle(context.Background(), query); err == nil {
+	if runtime.Embedder != nil && query != "" {
+		if qvec, err := runtime.Embedder.EmbedSingle(context.Background(), query); err == nil {
 			hp.queryEmbedding = qvec
 			hp.itemEmbeddings = s.loadEmbeddingsLocked(items)
 		}
@@ -949,14 +984,14 @@ func (s *SQLiteStore) loadEmbeddingsLocked(items []api.StoredMemoryResponse) map
 }
 
 func (s *SQLiteStore) Learn(input LearnInput) (api.LearnResponse, error) {
+	runtime := s.runtimeForAgent(input.AgentKey)
 	s.mu.Lock()
 	history, err := s.listProjectionItemsLocked(input.AgentKey)
-	summarizer := s.summarizer
 	s.mu.Unlock()
 	if err != nil {
 		return api.LearnResponse{}, err
 	}
-	drafts := summarizeLearnWithFallback(summarizer, LearnSynthesisInput{
+	drafts := summarizeLearnWithFallback(runtime.Summarizer, LearnSynthesisInput{
 		Request:  input.Request,
 		Trace:    input.Trace,
 		AgentKey: input.AgentKey,
@@ -969,7 +1004,7 @@ func (s *SQLiteStore) Learn(input LearnInput) (api.LearnResponse, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, item := range stored {
-		if err := s.writeLocked(item); err != nil {
+		if err := s.writeLocked(item, runtime.Embedder); err != nil {
 			return api.LearnResponse{}, err
 		}
 	}
@@ -992,7 +1027,7 @@ func (s *SQLiteStore) Learn(input LearnInput) (api.LearnResponse, error) {
 		if err != nil {
 			return api.LearnResponse{}, err
 		}
-		autoConsolidation, err = s.applyConsolidationPlanLocked(input.AgentKey, buildObservationConsolidationPlanWithMode(input.AgentKey, items, time.Now(), false))
+		autoConsolidation, err = s.applyConsolidationPlanLocked(input.AgentKey, buildObservationConsolidationPlanWithMode(input.AgentKey, items, time.Now(), false), runtime.Embedder)
 		if err != nil {
 			return api.LearnResponse{}, err
 		}
@@ -1012,21 +1047,22 @@ func (s *SQLiteStore) Learn(input LearnInput) (api.LearnResponse, error) {
 }
 
 func (s *SQLiteStore) Consolidate(agentKey string) (ConsolidationResult, error) {
+	embedder := s.runtimeForAgent(agentKey).Embedder
 	s.mu.Lock()
 	items, err := s.listProjectionItemsLocked(agentKey)
 	if err != nil {
 		s.mu.Unlock()
 		return ConsolidationResult{}, err
 	}
-	result, err := s.applyConsolidationPlanLocked(agentKey, buildConsolidationPlan(agentKey, items, time.Now()))
+	result, err := s.applyConsolidationPlanLocked(agentKey, buildConsolidationPlan(agentKey, items, time.Now()), embedder)
 	s.mu.Unlock()
 	return result, err
 }
 
-func (s *SQLiteStore) applyConsolidationPlanLocked(agentKey string, plan consolidationPlan) (ConsolidationResult, error) {
+func (s *SQLiteStore) applyConsolidationPlanLocked(agentKey string, plan consolidationPlan, embedder *EmbeddingProvider) (ConsolidationResult, error) {
 	result := ConsolidationResult{}
 	for id := range plan.archiveIDs {
-		record, err := s.updateLocked(agentKey, MutationInput{ID: id, Status: ptrString(StatusArchived)})
+		record, err := s.updateLocked(agentKey, MutationInput{ID: id, Status: ptrString(StatusArchived)}, embedder)
 		if err != nil {
 			return result, err
 		}
@@ -1038,7 +1074,7 @@ func (s *SQLiteStore) applyConsolidationPlanLocked(agentKey string, plan consoli
 		}
 	}
 	for id, keeperID := range plan.supersedeIDs {
-		record, err := s.updateLocked(agentKey, MutationInput{ID: id, Status: ptrString(StatusSuperseded)})
+		record, err := s.updateLocked(agentKey, MutationInput{ID: id, Status: ptrString(StatusSuperseded)}, embedder)
 		if err != nil {
 			return result, err
 		}
@@ -1054,7 +1090,7 @@ func (s *SQLiteStore) applyConsolidationPlanLocked(agentKey string, plan consoli
 			SourceID:      id,
 			ScopeType:     ScopeAgent,
 			ArchiveSource: true,
-		})
+		}, embedder)
 		if err != nil {
 			return result, err
 		}
@@ -1073,13 +1109,14 @@ func (s *SQLiteStore) applyConsolidationPlanLocked(agentKey string, plan consoli
 }
 
 func (s *SQLiteStore) Update(agentKey string, input MutationInput) (*ToolRecord, error) {
+	embedder := s.runtimeForAgent(agentKey).Embedder
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return s.updateLocked(agentKey, input)
+	return s.updateLocked(agentKey, input, embedder)
 }
 
-func (s *SQLiteStore) updateLocked(agentKey string, input MutationInput) (*ToolRecord, error) {
+func (s *SQLiteStore) updateLocked(agentKey string, input MutationInput, embedder *EmbeddingProvider) (*ToolRecord, error) {
 
 	current, err := s.readProjectionByIDLocked(strings.TrimSpace(input.ID))
 	if err != nil || current == nil {
@@ -1116,7 +1153,7 @@ func (s *SQLiteStore) updateLocked(agentKey string, input MutationInput) (*ToolR
 		current.Tags = normalizeTags(input.Tags)
 	}
 	current.UpdatedAt = time.Now().UnixMilli()
-	if err := s.writeLocked(*current); err != nil {
+	if err := s.writeLocked(*current, embedder); err != nil {
 		return nil, err
 	}
 	record := toolRecordFromStored(*current)
@@ -1202,13 +1239,14 @@ func (s *SQLiteStore) Timeline(agentKey string, id string, limit int) ([]Timelin
 }
 
 func (s *SQLiteStore) Promote(agentKey string, input PromoteInput) (*ToolRecord, error) {
+	embedder := s.runtimeForAgent(agentKey).Embedder
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return s.promoteLocked(agentKey, input)
+	return s.promoteLocked(agentKey, input, embedder)
 }
 
-func (s *SQLiteStore) promoteLocked(agentKey string, input PromoteInput) (*ToolRecord, error) {
+func (s *SQLiteStore) promoteLocked(agentKey string, input PromoteInput, embedder *EmbeddingProvider) (*ToolRecord, error) {
 
 	source, err := s.readProjectionByIDLocked(strings.TrimSpace(input.SourceID))
 	if err != nil || source == nil {
@@ -1246,7 +1284,7 @@ func (s *SQLiteStore) promoteLocked(agentKey string, input PromoteInput) (*ToolR
 		item.ScopeType = ScopeAgent
 	}
 	item.ScopeKey = normalizeScopeKey(item.ScopeType, item.ScopeKey, item.AgentKey, "", item.ChatID, "")
-	if err := s.writeLocked(item); err != nil {
+	if err := s.writeLocked(item, embedder); err != nil {
 		return nil, err
 	}
 	if err := s.insertMemoryLinkLocked(item.ID, source.ID, "derived_from", 1.0); err != nil {
@@ -1255,7 +1293,7 @@ func (s *SQLiteStore) promoteLocked(agentKey string, input PromoteInput) (*ToolR
 	if input.ArchiveSource {
 		source.Status = StatusArchived
 		source.UpdatedAt = time.Now().UnixMilli()
-		if err := s.writeLocked(*source); err != nil {
+		if err := s.writeLocked(*source, embedder); err != nil {
 			return nil, err
 		}
 	}
@@ -1268,7 +1306,7 @@ func ptrString(value string) *string {
 	return &value
 }
 
-func (s *SQLiteStore) writeLocked(item api.StoredMemoryResponse) error {
+func (s *SQLiteStore) writeLocked(item api.StoredMemoryResponse, embedder *EmbeddingProvider) error {
 	if item.ID == "" {
 		item.ID = generateMemoryID()
 	}
@@ -1317,14 +1355,14 @@ func (s *SQLiteStore) writeLocked(item api.StoredMemoryResponse) error {
 	if s.dualWriteMD {
 		_ = AppendJournal(s.root, item)
 	}
-	if s.embedder != nil {
+	if embedder != nil {
 		text := strings.TrimSpace(item.Title + " " + item.Summary)
 		if text != "" {
-			if vec, err := s.embedder.EmbedSingle(context.Background(), text); err == nil {
+			if vec, err := embedder.EmbedSingle(context.Background(), text); err == nil {
 				if blob, err := json.Marshal(vec); err == nil {
 					_, _ = s.db.Exec(
 						`UPDATE MEMORIES SET EMBEDDING_ = ?, EMBEDDING_MODEL_ = ? WHERE ID_ = ?`,
-						blob, s.embedder.Model, item.ID,
+						blob, embedder.Model, item.ID,
 					)
 				}
 			}

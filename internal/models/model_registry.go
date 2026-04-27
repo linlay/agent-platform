@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -20,12 +21,23 @@ type ProviderDefinition struct {
 	DefaultModel string
 	EndpointPath string
 	Protocols    map[string]ProtocolDefinition
+	Memory       ProviderMemoryConfig
 }
 
 type ProtocolDefinition struct {
 	EndpointPath string
 	Headers      map[string]string
 	Compat       map[string]any
+}
+
+type ProviderMemoryConfig struct {
+	Embedding ProviderMemoryEmbeddingConfig
+}
+
+type ProviderMemoryEmbeddingConfig struct {
+	Model     string
+	Dimension int
+	TimeoutMs int
 }
 
 type ModelDefinition struct {
@@ -218,9 +230,24 @@ func loadProviders(dir string) (map[string]ProviderDefinition, error) {
 			DefaultModel: strings.TrimSpace(stringNode(values["defaultModel"])),
 			EndpointPath: resolveProviderEndpointPath(values, baseURL, "OPENAI"),
 			Protocols:    protocols,
+			Memory:       loadProviderMemory(values),
 		}
 	}
 	return result, nil
+}
+
+func loadProviderMemory(values map[string]any) ProviderMemoryConfig {
+	embedding := nestedMap(values, "memory", "embedding")
+	if embedding == nil {
+		return ProviderMemoryConfig{}
+	}
+	return ProviderMemoryConfig{
+		Embedding: ProviderMemoryEmbeddingConfig{
+			Model:     strings.TrimSpace(stringNode(embedding["model"])),
+			Dimension: intNode(embedding["dimension"]),
+			TimeoutMs: intNode(embedding["timeoutMs"]),
+		},
+	}
 }
 
 func resolveProviderBaseURL(key string, values map[string]any) string {
@@ -420,6 +447,22 @@ func stringNode(value any) string {
 		return fmt.Sprintf("%d", v)
 	default:
 		return ""
+	}
+}
+
+func intNode(value any) int {
+	switch v := value.(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	case string:
+		n, _ := strconv.Atoi(strings.TrimSpace(v))
+		return n
+	default:
+		return 0
 	}
 }
 

@@ -253,7 +253,7 @@ s.deps.Memory.BuildContextBundle(memory.ContextRequest{...})
 
 自动学习入口在 [internal/server/memory_learning.go](internal/server/memory_learning.go)。
 
-run 完成后，只要 `AGENT_MEMORY_AUTO_REMEMBER_ENABLED=true`，系统就会：
+run 完成后，只要当前 agent 配置了 `memoryConfig.enabled: true` 和 `memoryConfig.autoRemember.enabled: true`，系统就会：
 
 1. 从 chat store 加载本次 run trace。
 2. 调用 `Memory.Learn(...)`。

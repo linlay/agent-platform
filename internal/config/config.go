@@ -85,22 +85,15 @@ type ScheduleConfig struct {
 }
 
 type MemoryConfig struct {
-	Enabled              bool
-	DBFileName           string
-	ContextTopN          int
-	ContextMaxChars      int
-	SearchDefaultLimit   int
-	HybridVectorWeight   float64
-	HybridFTSWeight      float64
-	DualWriteMarkdown    bool
-	EmbeddingProviderKey string
-	EmbeddingModel       string
-	EmbeddingDimension   int
-	EmbeddingTimeoutMs   int
-	StorageDir           string
-	AutoRememberEnabled  bool
-	RememberModelKey     string
-	RememberTimeoutMs    int64
+	Enabled            bool
+	DBFileName         string
+	ContextTopN        int
+	ContextMaxChars    int
+	SearchDefaultLimit int
+	HybridVectorWeight float64
+	HybridFTSWeight    float64
+	DualWriteMarkdown  bool
+	StorageDir         string
 }
 
 type DefaultsConfig struct {
@@ -406,20 +399,15 @@ func defaultConfig() Config {
 			PoolSize:    4,
 		},
 		Memory: MemoryConfig{
-			Enabled:             false,
-			DBFileName:          "memory.db",
-			ContextTopN:         5,
-			ContextMaxChars:     4000,
-			SearchDefaultLimit:  10,
-			HybridVectorWeight:  0.7,
-			HybridFTSWeight:     0.3,
-			DualWriteMarkdown:   true,
-			EmbeddingDimension:  1024,
-			EmbeddingTimeoutMs:  15000,
-			StorageDir:          paths.MemoryDir,
-			AutoRememberEnabled: true,
-			RememberModelKey:    "",
-			RememberTimeoutMs:   60000,
+			Enabled:            true,
+			DBFileName:         "memory.db",
+			ContextTopN:        5,
+			ContextMaxChars:    4000,
+			SearchDefaultLimit: 10,
+			HybridVectorWeight: 0.7,
+			HybridFTSWeight:    0.3,
+			DualWriteMarkdown:  true,
+			StorageDir:         paths.MemoryDir,
 		},
 		Defaults: DefaultsConfig{
 			MaxTokens: 4096,
@@ -772,21 +760,13 @@ func (c *Config) applyEnv() {
 	c.Schedule.PoolSize = intEnv("AGENT_SCHEDULE_POOL_SIZE", c.Schedule.PoolSize)
 
 	c.Memory.DBFileName = stringEnv("AGENT_MEMORY_DB_FILE_NAME", c.Memory.DBFileName)
-	c.Memory.Enabled = boolEnv("AGENT_MEMORY_ENABLED", c.Memory.Enabled)
 	c.Memory.ContextTopN = intEnv("AGENT_MEMORY_CONTEXT_TOP_N", c.Memory.ContextTopN)
 	c.Memory.ContextMaxChars = intEnv("AGENT_MEMORY_CONTEXT_MAX_CHARS", c.Memory.ContextMaxChars)
 	c.Memory.SearchDefaultLimit = intEnv("AGENT_MEMORY_SEARCH_DEFAULT_LIMIT", c.Memory.SearchDefaultLimit)
 	c.Memory.HybridVectorWeight = floatEnv("AGENT_MEMORY_HYBRID_VECTOR_WEIGHT", c.Memory.HybridVectorWeight)
 	c.Memory.HybridFTSWeight = floatEnv("AGENT_MEMORY_HYBRID_FTS_WEIGHT", c.Memory.HybridFTSWeight)
 	c.Memory.DualWriteMarkdown = boolEnv("AGENT_MEMORY_DUAL_WRITE_MARKDOWN", c.Memory.DualWriteMarkdown)
-	c.Memory.EmbeddingProviderKey = stringEnv("AGENT_MEMORY_EMBEDDING_PROVIDER_KEY", c.Memory.EmbeddingProviderKey)
-	c.Memory.EmbeddingModel = stringEnv("AGENT_MEMORY_EMBEDDING_MODEL", c.Memory.EmbeddingModel)
-	c.Memory.EmbeddingDimension = intEnv("AGENT_MEMORY_EMBEDDING_DIMENSION", c.Memory.EmbeddingDimension)
-	c.Memory.EmbeddingTimeoutMs = intEnv("AGENT_MEMORY_EMBEDDING_TIMEOUT_MS", c.Memory.EmbeddingTimeoutMs)
 	c.Memory.StorageDir = pathEnv("MEMORY_DIR", c.Memory.StorageDir)
-	c.Memory.AutoRememberEnabled = boolEnv("AGENT_MEMORY_AUTO_REMEMBER_ENABLED", c.Memory.AutoRememberEnabled)
-	c.Memory.RememberModelKey = stringEnv("AGENT_MEMORY_REMEMBER_MODEL_KEY", c.Memory.RememberModelKey)
-	c.Memory.RememberTimeoutMs = int64Env("AGENT_MEMORY_REMEMBER_TIMEOUT_MS", c.Memory.RememberTimeoutMs)
 
 	c.Defaults.MaxTokens = intEnv("AGENT_DEFAULT_MAX_TOKENS", c.Defaults.MaxTokens)
 	c.Defaults.Budget.RunTimeoutMs = intEnv("AGENT_DEFAULT_BUDGET_RUN_TIMEOUT_MS", c.Defaults.Budget.RunTimeoutMs)
@@ -832,7 +812,7 @@ func (c *Config) applyEnv() {
 	c.Logging.Action.Enabled = boolEnv("LOGGING_AGENT_ACTION_ENABLED", c.Logging.Action.Enabled)
 	c.Logging.Viewport.Enabled = boolEnv("LOGGING_AGENT_VIEWPORT_ENABLED", c.Logging.Viewport.Enabled)
 	c.Logging.SSE.Enabled = boolEnv("LOGGING_AGENT_SSE_ENABLED", c.Logging.SSE.Enabled)
-	c.Logging.Memory.Enabled = boolEnv("LOGGING_AGENT_MEMORY_ENABLED", c.Logging.Memory.Enabled)
+	c.Logging.Memory.Enabled = boolEnv("LOGGING_MEMORY_ENABLED", c.Logging.Memory.Enabled)
 	c.Logging.Memory.File = pathEnv("LOGGING_AGENT_MEMORY_FILE", c.Logging.Memory.File)
 	c.Logging.LLMInteraction.Enabled = boolEnv("LOGGING_AGENT_LLM_INTERACTION_ENABLED", c.Logging.LLMInteraction.Enabled)
 	c.Logging.LLMInteraction.MaskSensitive = boolEnv("LOGGING_AGENT_LLM_INTERACTION_MASK_SENSITIVE", c.Logging.LLMInteraction.MaskSensitive)
