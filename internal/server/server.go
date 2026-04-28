@@ -37,6 +37,8 @@ import (
 type Dependencies struct {
 	Config          config.Config
 	Chats           chat.Store
+	Archives        *chat.ArchiveStore
+	Archiver        *chat.Archiver
 	Memory          memory.Store
 	Registry        catalog.Registry
 	Models          *models.ModelRegistry
@@ -483,6 +485,11 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/read", s.method(http.MethodPost, s.handleRead))
 	s.router.HandleFunc("/api/feedback", s.method(http.MethodPost, s.handleFeedback))
 	s.router.HandleFunc("/api/chat-delete", s.method(http.MethodPost, s.handleChatDelete))
+	s.router.HandleFunc("/api/chat-archive", s.method(http.MethodPost, s.handleChatArchive))
+	s.router.HandleFunc("/api/archives", s.method(http.MethodGet, s.handleArchives))
+	s.router.HandleFunc("/api/archive", s.method(http.MethodGet, s.handleArchive))
+	s.router.HandleFunc("/api/archive-search", s.method(http.MethodPost, s.handleArchiveSearch))
+	s.router.HandleFunc("/api/archive-delete", s.method(http.MethodPost, s.handleArchiveDelete))
 	s.router.HandleFunc("/api/chat-export", s.method(http.MethodGet, s.handleChatExport))
 	s.router.HandleFunc("/api/query", s.method(http.MethodPost, s.handleQuery))
 	s.router.HandleFunc("/api/attach", s.method(http.MethodGet, s.handleAttach))
@@ -498,6 +505,7 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/memory/record", s.method(http.MethodGet, s.handleMemoryRecord))
 	s.router.HandleFunc("/api/viewport", s.method(http.MethodGet, s.handleViewport))
 	s.router.HandleFunc("/api/resource", s.method(http.MethodGet, s.handleResource))
+	s.router.HandleFunc("/api/archive-resource", s.method(http.MethodGet, s.handleArchiveResource))
 	s.router.HandleFunc("/api/upload", s.method(http.MethodPost, s.handleUpload))
 	if s.wsHandler != nil {
 		s.router.Handle("/ws", s.wsHandler)

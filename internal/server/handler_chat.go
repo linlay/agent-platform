@@ -73,24 +73,7 @@ func (s *Server) loadChatDetail(ctx context.Context, chatID string, includeRawMe
 	}
 	response.Runs = make([]api.RunSummary, 0, len(runs))
 	for _, run := range runs {
-		response.Runs = append(response.Runs, api.RunSummary{
-			RunID:          run.RunID,
-			ChatID:         run.ChatID,
-			AgentKey:       run.AgentKey,
-			InitialMessage: run.InitialMessage,
-			AssistantText:  run.AssistantText,
-			FinishReason:   run.FinishReason,
-			StartedAt:      run.StartedAt,
-			CompletedAt:    run.CompletedAt,
-			Usage: api.ChatUsageData{
-				PromptTokens:     run.Usage.PromptTokens,
-				CompletionTokens: run.Usage.CompletionTokens,
-				TotalTokens:      run.Usage.TotalTokens,
-			},
-			FeedbackType:    run.FeedbackType,
-			FeedbackComment: run.FeedbackComment,
-			FeedbackAt:      run.FeedbackAt,
-		})
+		response.Runs = append(response.Runs, mapRunSummary(run))
 	}
 	if principal := PrincipalFromContext(ctx); principal != nil {
 		response.ResourceTicket = s.ticketService.Issue(principal.Subject, detail.ChatID)

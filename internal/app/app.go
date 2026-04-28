@@ -95,6 +95,13 @@ func New(rootCtx context.Context) (*App, error) {
 		return nil, fmt.Errorf("init chat store (%s): %w", cfg.Paths.ChatsDir, err)
 	}
 	log.Printf("chat store ready in %s (root=%s)", startupElapsed(chatStoreStartedAt), cfg.Paths.ChatsDir)
+	archiveStoreStartedAt := time.Now()
+	archiveStore, err := chat.NewArchiveStore(cfg.Paths.ChatsDir)
+	if err != nil {
+		return nil, fmt.Errorf("init archive store (%s): %w", cfg.Paths.ChatsDir, err)
+	}
+	archiver := chat.NewArchiver(chatStore, archiveStore)
+	log.Printf("archive store ready in %s (root=%s)", startupElapsed(archiveStoreStartedAt), filepath.Join(cfg.Paths.ChatsDir, "archive"))
 
 	var memoryStore memory.Store
 	var sqliteMemoryStore *memory.SQLiteStore
@@ -212,6 +219,8 @@ func New(rootCtx context.Context) (*App, error) {
 	srv, err := server.New(server.Dependencies{
 		Config:        cfg,
 		Chats:         chatStore,
+		Archives:      archiveStore,
+		Archiver:      archiver,
 		Memory:        memoryStore,
 		Registry:      registry,
 		Models:        modelRegistry,
