@@ -1,0 +1,293 @@
+package server
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"agent-platform-runner-go/internal/api"
+	"agent-platform-runner-go/internal/memory"
+)
+
+func TestHandleMemoryScopesReturnsEditableScopes(t *testing.T) {
+	fixture := newMemoryEnabledTestFixture(t)
+	server := fixture.server
+
+	writeTestMemory(t, fixture.memories, api.StoredMemoryResponse{
+		ID:         "mem_user_1",
+		AgentKey:   "mock-runner",
+		Kind:       memory.KindFact,
+		ScopeType:  memory.ScopeUser,
+		ScopeKey:   "user:alice",
+		Title:      "偏好中文输出",
+		Summary:    "偏好中文输出，术语保持准确。",
+		SourceType: "tool-write",
+		Category:   "general",
+		Importance: 8,
+		Confidence: 0.95,
+		Status:     memory.StatusActive,
+		CreatedAt:  100,
+		UpdatedAt:  200,
+	})
+	writeTestMemory(t, fixture.memories, api.StoredMemoryResponse{
+		ID:         "mem_team_1",
+		AgentKey:   "mock-runner",
+		Kind:       memory.KindFact,
+		ScopeType:  memory.ScopeTeam,
+		ScopeKey:   "team:platform",
+		Title:      "周会固定周三",
+		Summary:    "团队周会固定在周三上午。",
+		SourceType: "tool-write",
+		Category:   "workflow",
+		Importance: 7,
+		Confidence: 0.9,
+		Status:     memory.StatusActive,
+		CreatedAt:  110,
+		UpdatedAt:  210,
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/memory/scopes?agentKey=mock-runner&userKey=alice", nil)
+	rec := httptest.NewRecorder()
+	server.handleMemoryScopes(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp api.ApiResponse[api.MemoryScopesResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(resp.Data.Scopes) != 4 {
+		t.Fatalf("expected 4 scopes, got %#v", resp.Data.Scopes)
+	}
+	if resp.Data.Scopes[0].ScopeType != memory.ScopeUser || resp.Data.Scopes[0].RecordCount != 1 {
+		t.Fatalf("unexpected user scope: %#v", resp.Data.Scopes[0])
+	}
+}
+
+func TestHandleMemoryScopeReturnsMarkdownAndRecords(t *testing.T) {
+	fixture := newMemoryEnabledTestFixture(t)
+	server := fixture.server
+
+	writeTestMemory(t, fixture.memories, api.StoredMemoryResponse{
+		ID:         "mem_user_1",
+		AgentKey:   "mock-runner",
+		Kind:       memory.KindFact,
+		ScopeType:  memory.ScopeUser,
+		ScopeKey:   "user:alice",
+		Title:      "偏好中文输出",
+		Summary:    "偏好中文输出，术语保持准确。",
+		SourceType: "tool-write",
+		Category:   "general",
+		Importance: 8,
+		Confidence: 0.95,
+		Status:     memory.StatusActive,
+		CreatedAt:  100,
+		UpdatedAt:  200,
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/memory/scope?agentKey=mock-runner&scopeType=user&scopeKey=user:alice", nil)
+	rec := httptest.NewRecorder()
+	server.handleMemoryScope(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp api.ApiResponse[api.MemoryScopeDetailResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !strings.Contains(resp.Data.Markdown, "[mem_user_1] 偏好中文输出") {
+		t.Fatalf("unexpected markdown: %q", resp.Data.Markdown)
+	}
+	if len(resp.Data.Records) != 1 || resp.Data.Records[0].ID != "mem_user_1" {
+		t.Fatalf("unexpected records: %#v", resp.Data.Records)
+	}
+}
+
+func TestHandleMemoryScopeValidateRejectsBadImportance(t *testing.T) {
+	fixture := newMemoryEnabledTestFixture(t)
+	server := fixture.server
+
+	reqBody := `{"agentKey":"mock-runner","scopeType":"user","markdown":"# USER\n\n- [new] 偏好中文输出\n  importance: 99\n  content: xxx"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/memory/scope/validate", bytes.NewBufferString(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	server.handleMemoryScopeValidate(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp api.ApiResponse[api.MemoryScopeValidateResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Data.Valid || len(resp.Data.Errors) == 0 {
+		t.Fatalf("expected validation errors, got %#v", resp.Data)
+	}
+}
+
+func TestHandleMemoryScopeSaveUpdatesAndCreatesFacts(t *testing.T) {
+	fixture := newMemoryEnabledTestFixture(t)
+	server := fixture.server
+
+	writeTestMemory(t, fixture.memories, api.StoredMemoryResponse{
+		ID:         "mem_user_1",
+		AgentKey:   "mock-runner",
+		Kind:       memory.KindFact,
+		ScopeType:  memory.ScopeUser,
+		ScopeKey:   "user:alice",
+		Title:      "偏好中文输出",
+		Summary:    "偏好中文输出。",
+		SourceType: "tool-write",
+		Category:   "general",
+		Importance: 8,
+		Confidence: 0.95,
+		Status:     memory.StatusActive,
+		CreatedAt:  100,
+		UpdatedAt:  200,
+	})
+
+	reqBody := `{
+	  "agentKey":"mock-runner",
+	  "scopeType":"user",
+	  "scopeKey":"user:alice",
+	  "mode":"markdown",
+	  "markdown":"# USER\n\n- [mem_user_1] 偏好中文输出\n  category: general\n  importance: 9\n  confidence: 0.95\n  tags: preference\n  content: 偏好中文输出，术语保持准确。\n\n- [new] 默认先给结论再解释\n  category: response_style\n  importance: 7\n  confidence: 0.9\n  tags: style\n  content: 回答时先给结论，再展开解释。\n",
+	  "archiveMissing":true
+	}`
+	req := httptest.NewRequest(http.MethodPut, "/api/memory/scope", bytes.NewBufferString(reqBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	server.handleMemoryScopeSave(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp api.ApiResponse[api.MemoryScopeSaveResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Data.Summary.Created != 1 || resp.Data.Summary.Updated != 1 {
+		t.Fatalf("unexpected save summary: %#v", resp.Data.Summary)
+	}
+	record, err := fixture.memories.ReadDetail("mock-runner", "mem_user_1")
+	if err != nil {
+		t.Fatalf("read updated detail: %v", err)
+	}
+	if record == nil || record.Importance != 9 {
+		t.Fatalf("unexpected updated record: %#v", record)
+	}
+	results, err := memory.ListConsoleRecords(fixture.memories, memory.RecordFilter{AgentKey: "mock-runner", ScopeType: memory.ScopeUser, Limit: 20})
+	if err != nil {
+		t.Fatalf("list records: %v", err)
+	}
+	if results.Count != 2 {
+		t.Fatalf("expected two user records after save, got %#v", results)
+	}
+}
+
+func TestHandleMemoryRecordsFiltersResults(t *testing.T) {
+	fixture := newMemoryEnabledTestFixture(t)
+	server := fixture.server
+
+	writeTestMemory(t, fixture.memories, api.StoredMemoryResponse{
+		ID:         "mem_fact_1",
+		AgentKey:   "mock-runner",
+		Kind:       memory.KindFact,
+		ScopeType:  memory.ScopeUser,
+		ScopeKey:   "user:alice",
+		Title:      "偏好中文输出",
+		Summary:    "偏好中文输出。",
+		SourceType: "tool-write",
+		Category:   "general",
+		Importance: 8,
+		Confidence: 0.95,
+		Status:     memory.StatusActive,
+		CreatedAt:  100,
+		UpdatedAt:  200,
+	})
+	writeTestMemory(t, fixture.memories, api.StoredMemoryResponse{
+		ID:         "mem_obs_1",
+		AgentKey:   "mock-runner",
+		ChatID:     "chat-1",
+		Kind:       memory.KindObservation,
+		ScopeType:  memory.ScopeChat,
+		ScopeKey:   "chat:chat-1",
+		Title:      "修复权限问题",
+		Summary:    "修复了权限问题。",
+		SourceType: "learn",
+		Category:   "bugfix",
+		Importance: 8,
+		Confidence: 0.75,
+		Status:     memory.StatusOpen,
+		CreatedAt:  110,
+		UpdatedAt:  210,
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/memory/records?agentKey=mock-runner&kind=observation", nil)
+	rec := httptest.NewRecorder()
+	server.handleMemoryRecords(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp api.ApiResponse[api.MemoryRecordsResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Data.Count != 1 || len(resp.Data.Results) != 1 || resp.Data.Results[0].ID != "mem_obs_1" {
+		t.Fatalf("unexpected records response: %#v", resp.Data)
+	}
+}
+
+func TestHandleMemoryRecordReturnsRawFields(t *testing.T) {
+	fixture := newMemoryEnabledTestFixture(t)
+	server := fixture.server
+
+	writeTestMemory(t, fixture.memories, api.StoredMemoryResponse{
+		ID:         "mem_obs_1",
+		AgentKey:   "mock-runner",
+		ChatID:     "chat-1",
+		Kind:       memory.KindObservation,
+		ScopeType:  memory.ScopeChat,
+		ScopeKey:   "chat:chat-1",
+		Title:      "修复权限问题",
+		Summary:    "修复了权限问题。",
+		SourceType: "learn",
+		Category:   "bugfix",
+		Importance: 8,
+		Confidence: 0.75,
+		Status:     memory.StatusOpen,
+		CreatedAt:  110,
+		UpdatedAt:  210,
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/memory/record?agentKey=mock-runner&id=mem_obs_1", nil)
+	rec := httptest.NewRecorder()
+	server.handleMemoryRecord(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp api.ApiResponse[api.MemoryRecordDetailResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Data.SourceTable != "MEMORY_OBSERVATIONS" {
+		t.Fatalf("unexpected source table: %#v", resp.Data)
+	}
+	if _, ok := resp.Data.RawFields["runId"]; !ok {
+		t.Fatalf("expected runId in rawFields, got %#v", resp.Data.RawFields)
+	}
+}
+
+func writeTestMemory(t *testing.T, store memory.Store, item api.StoredMemoryResponse) {
+	t.Helper()
+	if err := store.Write(item); err != nil {
+		t.Fatalf("write memory %s: %v", item.ID, err)
+	}
+}
