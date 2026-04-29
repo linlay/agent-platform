@@ -1784,6 +1784,48 @@ func TestBuildContextBundleHybridScoring(t *testing.T) {
 	}
 }
 
+func TestBuildContextBundleSelectionTracesOnlyInPreview(t *testing.T) {
+	items := []api.StoredMemoryResponse{
+		{
+			ID: "obs-high-sim", AgentKey: "a", Kind: KindObservation,
+			ScopeType: ScopeAgent, ScopeKey: "agent:a",
+			Title: "deployment fix", Summary: "CI pipeline timeout on staging",
+			Importance: 3, Status: StatusOpen, UpdatedAt: 50,
+		},
+	}
+	hp := hybridParams{
+		queryEmbedding: []float64{1, 0, 0},
+		itemEmbeddings: map[string][]float64{
+			"obs-high-sim": {0.95, 0.05, 0},
+		},
+		vectorWeight: 0.7,
+		ftsWeight:    0.3,
+	}
+	normalBundle := buildContextBundleWithHybrid(ContextRequest{
+		AgentKey: "a", Query: "deployment", TopObs: 5, MaxChars: 4000,
+	}, items, hp)
+	if len(normalBundle.Decisions) == 0 {
+		t.Fatalf("expected normal bundle decisions")
+	}
+	if len(normalBundle.Decisions[0].Traces) != 0 {
+		t.Fatalf("expected no traces outside preview, got %#v", normalBundle.Decisions[0].Traces)
+	}
+
+	previewBundle := buildContextBundleWithHybrid(ContextRequest{
+		AgentKey: "a", Query: "deployment", TopObs: 5, MaxChars: 4000, PreviewOnly: true,
+	}, items, hp)
+	if len(previewBundle.Decisions) == 0 || len(previewBundle.Decisions[0].Traces) != 1 {
+		t.Fatalf("expected one preview selection trace, got %#v", previewBundle.Decisions)
+	}
+	trace := previewBundle.Decisions[0].Traces[0]
+	if trace.ID != "obs-high-sim" || trace.Layer != LayerObservation || !trace.Selected {
+		t.Fatalf("unexpected trace identity: %#v", trace)
+	}
+	if trace.ScoreParts.VectorScore <= 0 || trace.ScoreParts.HybridCombined <= 0 || trace.Score != trace.ScoreParts.HybridCombined {
+		t.Fatalf("expected hybrid score details, got %#v", trace)
+	}
+}
+
 func TestBuildContextBundleFallbackWithoutEmbedder(t *testing.T) {
 	items := []api.StoredMemoryResponse{
 		{

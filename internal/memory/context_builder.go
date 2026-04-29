@@ -17,6 +17,12 @@ type hybridParams struct {
 	ftsWeight      float64
 }
 
+type hybridScoreDetails struct {
+	vectorScore    float64
+	importanceNorm float64
+	combined       float64
+}
+
 func buildContextBundleFromStored(request ContextRequest, items []api.StoredMemoryResponse) ContextBundle {
 	return buildContextBundleWithHybrid(request, items, hybridParams{})
 }
@@ -74,11 +80,12 @@ func buildContextBundleWithHybrid(request ContextRequest, items []api.StoredMemo
 		return facts[i].UpdatedAt > facts[j].UpdatedAt
 	})
 
+	hybridScores := map[string]hybridScoreDetails{}
 	if useHybrid {
-		scoreMap := computeHybridScores(observations, hp)
+		hybridScores = computeHybridScores(observations, hp)
 		sort.SliceStable(observations, func(i, j int) bool {
-			si := scoreMap[observations[i].ID]
-			sj := scoreMap[observations[j].ID]
+			si := hybridScores[observations[i].ID].combined
+			sj := hybridScores[observations[j].ID].combined
 			if si != sj {
 				return si > sj
 			}
@@ -149,6 +156,7 @@ func buildContextBundleWithHybrid(request ContextRequest, items []api.StoredMemo
 			Layer:   LayerStable,
 			ItemIDs: memoryIDs(facts),
 			Reason:  string(SelectionReasonHighRank),
+			Traces:  buildPreviewSelectionTraces(request.PreviewOnly, LayerStable, facts, string(SelectionReasonHighRank), nowMs, queryNeedle, nil),
 		})
 	}
 	if strings.TrimSpace(sessionPrompt) != "" {
@@ -158,6 +166,7 @@ func buildContextBundleWithHybrid(request ContextRequest, items []api.StoredMemo
 			Layer:   LayerSession,
 			ItemIDs: memoryIDs(sessionObs),
 			Reason:  string(SelectionReasonScopeMatch),
+			Traces:  buildPreviewSelectionTraces(request.PreviewOnly, LayerSession, sessionObs, string(SelectionReasonScopeMatch), nowMs, queryNeedle, nil),
 		})
 	}
 	if len(crossChatObs) > 0 {
@@ -173,6 +182,7 @@ func buildContextBundleWithHybrid(request ContextRequest, items []api.StoredMemo
 				Layer:   LayerObservation,
 				ItemIDs: memoryIDs(crossChatObs),
 				Reason:  reason,
+				Traces:  buildPreviewSelectionTraces(request.PreviewOnly, LayerObservation, crossChatObs, reason, nowMs, queryNeedle, hybridScores),
 			})
 		}
 	}
@@ -199,8 +209,8 @@ func buildContextBundleWithHybrid(request ContextRequest, items []api.StoredMemo
 	}
 }
 
-func computeHybridScores(observations []api.StoredMemoryResponse, hp hybridParams) map[string]float64 {
-	scores := make(map[string]float64, len(observations))
+func computeHybridScores(observations []api.StoredMemoryResponse, hp hybridParams) map[string]hybridScoreDetails {
+	scores := make(map[string]hybridScoreDetails, len(observations))
 	maxImportance := 1.0
 	for _, obs := range observations {
 		if float64(obs.Importance) > maxImportance {
@@ -216,7 +226,11 @@ func computeHybridScores(observations []api.StoredMemoryResponse, hp hybridParam
 				vectorScore = 0
 			}
 		}
-		scores[obs.ID] = hp.vectorWeight*vectorScore + hp.ftsWeight*importanceNorm
+		scores[obs.ID] = hybridScoreDetails{
+			vectorScore:    vectorScore,
+			importanceNorm: importanceNorm,
+			combined:       hp.vectorWeight*vectorScore + hp.ftsWeight*importanceNorm,
+		}
 	}
 	return scores
 }
@@ -253,6 +267,10 @@ func clampBudget(needed, minimum, maximum int) int {
 }
 
 func computeEffectiveImportance(item api.StoredMemoryResponse, nowMs int64) float64 {
+	return computeEffectiveImportanceParts(item, nowMs).EffectiveImportance
+}
+
+func computeEffectiveImportanceParts(item api.StoredMemoryResponse, nowMs int64) SelectionScoreParts {
 	base := float64(item.Importance)
 
 	var daysSinceAccess float64
@@ -269,9 +287,52 @@ func computeEffectiveImportance(item api.StoredMemoryResponse, nowMs int64) floa
 
 	eff := base - decay + boost
 	if eff < 1 {
-		return 1
+		eff = 1
 	}
-	return eff
+	return SelectionScoreParts{
+		Importance:          base,
+		EffectiveImportance: eff,
+		Decay:               decay,
+		AccessBoost:         boost,
+		Recency:             computeRecencyScore(daysSinceAccess),
+	}
+}
+
+func computeRecencyScore(daysSinceAccess float64) float64 {
+	if daysSinceAccess < 0 {
+		daysSinceAccess = 0
+	}
+	return 1 / (1 + daysSinceAccess/30.0)
+}
+
+func buildPreviewSelectionTraces(previewOnly bool, layer Layer, items []api.StoredMemoryResponse, reason string, nowMs int64, queryNeedle string, hybridScores map[string]hybridScoreDetails) []ItemSelectionTrace {
+	if !previewOnly || len(items) == 0 {
+		return nil
+	}
+	traces := make([]ItemSelectionTrace, 0, len(items))
+	for _, item := range items {
+		parts := computeEffectiveImportanceParts(item, nowMs)
+		parts.ScopeMatch = 1
+		if queryNeedle != "" && matchesMemoryNeedle(item, queryNeedle) {
+			parts.QueryMatch = 1
+		}
+		score := parts.EffectiveImportance
+		if hybrid, ok := hybridScores[item.ID]; ok {
+			parts.VectorScore = hybrid.vectorScore
+			parts.ImportanceNorm = hybrid.importanceNorm
+			parts.HybridCombined = hybrid.combined
+			score = hybrid.combined
+		}
+		traces = append(traces, ItemSelectionTrace{
+			ID:         strings.TrimSpace(item.ID),
+			Layer:      layer,
+			Selected:   true,
+			Score:      score,
+			ScoreParts: parts,
+			Reason:     strings.TrimSpace(reason),
+		})
+	}
+	return traces
 }
 
 func memoryIDs(items []api.StoredMemoryResponse) []string {

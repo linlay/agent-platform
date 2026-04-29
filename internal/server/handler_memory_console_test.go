@@ -164,6 +164,22 @@ func TestHandleMemoryContextPreviewReturnsInjectedMemory(t *testing.T) {
 	if resp.Data.Layers[0].Items[0].ID == "" || resp.Data.Layers[0].Items[0].Importance == 0 {
 		t.Fatalf("expected memory item details, got %#v", resp.Data.Layers[0].Items)
 	}
+	if len(resp.Data.Decisions) == 0 || len(resp.Data.Decisions[0].Traces) == 0 {
+		t.Fatalf("expected preview decisions to include selection traces, got %#v", resp.Data.Decisions)
+	}
+	trace := resp.Data.Decisions[0].Traces[0]
+	if trace.ID == "" || trace.Layer == "" || !trace.Selected || trace.Score <= 0 {
+		t.Fatalf("expected selected trace with score, got %#v", trace)
+	}
+	if trace.ScoreParts.Importance == 0 || trace.ScoreParts.EffectiveImportance == 0 {
+		t.Fatalf("expected trace score parts, got %#v", trace.ScoreParts)
+	}
+	if !memoryPreviewHasContext(resp.Data.Contexts, "systemPrompt", "memory.stable", "make release-program") {
+		t.Fatalf("expected system memory context section, got %#v", resp.Data.Contexts)
+	}
+	if !memoryPreviewHasContext(resp.Data.Contexts, "userPrompt", "request.message", "desktop builtin 发布流程") {
+		t.Fatalf("expected user message context section, got %#v", resp.Data.Contexts)
+	}
 }
 
 func TestHandleMemoryScopeReturnsMarkdownAndRecords(t *testing.T) {
@@ -204,6 +220,15 @@ func TestHandleMemoryScopeReturnsMarkdownAndRecords(t *testing.T) {
 	if len(resp.Data.Records) != 1 || resp.Data.Records[0].ID != "mem_user_1" {
 		t.Fatalf("unexpected records: %#v", resp.Data.Records)
 	}
+}
+
+func memoryPreviewHasContext(sections []api.MemoryContextPreviewContextSection, promptType string, category string, contains string) bool {
+	for _, section := range sections {
+		if section.PromptType == promptType && section.Category == category && strings.Contains(section.Content, contains) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestHandleMemoryScopeValidateRejectsBadImportance(t *testing.T) {

@@ -1175,6 +1175,9 @@ func markStableSnapshotPinned(bundle *ContextBundle, stableIDs []string) {
 		for _, id := range decision.ItemIDs {
 			if _, ok := pinned[strings.TrimSpace(id)]; ok {
 				bundle.Decisions[i].Reason = string(SelectionReasonSnapshotPin)
+				for traceIdx := range bundle.Decisions[i].Traces {
+					bundle.Decisions[i].Traces[traceIdx].Reason = string(SelectionReasonSnapshotPin)
+				}
 				return
 			}
 		}

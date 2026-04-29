@@ -3,11 +3,15 @@ package server
 import (
 	"errors"
 	"net/http"
+	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"agent-platform-runner-go/internal/api"
+	"agent-platform-runner-go/internal/catalog"
 	"agent-platform-runner-go/internal/chat"
+	"agent-platform-runner-go/internal/contracts"
 	"agent-platform-runner-go/internal/memory"
 )
 
@@ -142,6 +146,7 @@ func (s *Server) handleMemoryContextPreview(w http.ResponseWriter, r *http.Reque
 		Observation: strings.TrimSpace(bundle.ObservationPrompt),
 	}
 	response.Layers = memoryContextPreviewLayers(bundle)
+	response.Contexts = s.memoryContextPreviewContexts(r, req, summary, agentDef, bundle)
 	response.Decisions = memoryContextPreviewDecisions(bundle)
 	writeJSON(w, http.StatusOK, api.Success(response))
 }
@@ -451,6 +456,308 @@ func memoryContextPreviewLayers(bundle memory.ContextBundle) []api.MemoryContext
 	return out
 }
 
+func (s *Server) memoryContextPreviewContexts(r *http.Request, req api.MemoryContextPreviewRequest, summary *chat.Summary, agentDef catalog.AgentDefinition, bundle memory.ContextBundle) []api.MemoryContextPreviewContextSection {
+	if summary == nil {
+		return nil
+	}
+	message := strings.TrimSpace(req.Message)
+	agentKey := strings.TrimSpace(agentDef.Key)
+	if agentKey == "" {
+		agentKey = strings.TrimSpace(summary.AgentKey)
+	}
+	teamID := strings.TrimSpace(summary.TeamID)
+	principal := PrincipalFromContext(r.Context())
+	runtimeContext, _ := s.buildRuntimeRequestContext(runtimeRequestContextInput{
+		agentKey:   agentKey,
+		teamID:     teamID,
+		role:       defaultRole(""),
+		chatID:     summary.ChatID,
+		chatName:   summary.ChatName,
+		principal:  principal,
+		definition: agentDef,
+	})
+	promptAppend := buildPromptAppendConfig(s.deps.Config.Prompts, agentDef)
+	stageSettings := contracts.ResolvePlanExecuteSettings(agentDef.StageSettings, s.deps.Config.Defaults.Plan.MaxSteps, s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask)
+	toolNames := buildSessionToolNames(effectiveAgentTools(agentDef), canUseInvokeAgentsTool(agentDef.Mode))
+	skillCatalogPrompt := buildSkillCatalogPrompt(agentDef, s.deps.Config.Paths.SkillsMarketDir, promptAppend)
+
+	sections := make([]api.MemoryContextPreviewContextSection, 0, 24)
+	appendSection := func(promptType string, role string, category string, source string, title string, content string) {
+		content = strings.TrimSpace(content)
+		if content == "" {
+			return
+		}
+		sections = append(sections, api.MemoryContextPreviewContextSection{
+			Order:      len(sections) + 1,
+			PromptType: promptType,
+			Role:       role,
+			Category:   category,
+			Source:     source,
+			Title:      title,
+			Content:    content,
+			Chars:      len(content),
+		})
+	}
+
+	appendSection("systemPrompt", "system", "agent.identity", "agent.yml", "Agent Identity", memoryPreviewAgentIdentity(agentDef))
+	appendSection("systemPrompt", "system", "agent.soul", "agent/soul prompt", "Soul Prompt", agentDef.SoulPrompt)
+	appendSection("systemPrompt", "system", "memory.static", "agent/memory/memory.md", "Static Memory Prompt", firstNonBlank(agentDef.StaticMemoryPrompt, agentDef.MemoryPrompt))
+	for _, section := range memoryPreviewRuntimeSections(runtimeContext, agentDef, summary.ChatID, "preview", "preview") {
+		appendSection("systemPrompt", "system", section.category, section.source, section.title, section.content)
+	}
+	appendSection("systemPrompt", "system", "memory.stable", "memory.context.stable", "Runtime Context: Stable Memory", bundle.StablePrompt)
+	appendSection("systemPrompt", "system", "memory.session", "memory.context.session", "Runtime Context: Current Session", bundle.SessionPrompt)
+	appendSection("systemPrompt", "system", "memory.observation", "memory.context.observation", "Runtime Context: Relevant Observations", bundle.ObservationPrompt)
+	appendSection("systemPrompt", "system", "stage.instructions", "agent prompt", "Stage Instructions Prompt", agentDef.AgentsPrompt)
+	appendSection("systemPrompt", "system", "stage.system", "stage settings", "Stage System Prompt", stageSettings.Execute.SystemPrompt)
+	appendSection("systemPrompt", "system", "skill.catalog", "skills", "Skill Catalog Prompt", skillCatalogPrompt)
+	appendSection("systemPrompt", "system", "tool.catalog", "toolConfig.tools", "Tool Names", strings.Join(toolNames, "\n"))
+
+	if s.deps.Chats != nil {
+		if rawMessages, err := s.deps.Chats.LoadRawMessages(summary.ChatID, s.deps.Config.ChatStorage.K); err == nil {
+			for idx, raw := range rawMessages {
+				role := strings.TrimSpace(memoryPreviewAnyString(raw["role"]))
+				content := strings.TrimSpace(memoryPreviewAnyString(raw["content"]))
+				if role == "" || content == "" {
+					continue
+				}
+				appendSection(memoryPreviewPromptTypeForRole(role), role, "history."+role, "raw_messages", "History Message #"+strconv.Itoa(idx+1), content)
+			}
+		}
+	}
+	appendSection("userPrompt", "user", "request.message", "preview.message", "Current User Message", message)
+	return sections
+}
+
+type memoryPreviewRuntimeSection struct {
+	category string
+	source   string
+	title    string
+	content  string
+}
+
+func memoryPreviewRuntimeSections(context contracts.RuntimeRequestContext, agentDef catalog.AgentDefinition, chatID string, runID string, requestID string) []memoryPreviewRuntimeSection {
+	sections := make([]memoryPreviewRuntimeSection, 0, 6)
+	hasTag := func(tag string) bool {
+		for _, configured := range agentDef.ContextTags {
+			if strings.EqualFold(strings.TrimSpace(configured), tag) {
+				return true
+			}
+		}
+		return false
+	}
+	if hasTag("system") {
+		sections = append(sections, memoryPreviewRuntimeSection{
+			category: "runtime.system_environment",
+			source:   "runtime.context",
+			title:    "Runtime Context: System Environment",
+			content:  memoryPreviewSystemEnvironment(context),
+		})
+	}
+	if hasTag("session") {
+		sections = append(sections, memoryPreviewRuntimeSection{
+			category: "runtime.session",
+			source:   "runtime.context",
+			title:    "Runtime Context: Session",
+			content:  memoryPreviewSessionContext(context, chatID, runID, requestID),
+		})
+	}
+	if hasTag("owner") {
+		sections = append(sections, memoryPreviewRuntimeSection{
+			category: "runtime.owner",
+			source:   "runtime.context",
+			title:    "Runtime Context: Owner",
+			content:  memoryPreviewOwnerContext(context.LocalPaths.OwnerDir),
+		})
+	}
+	if hasTag("all-agents") {
+		sections = append(sections, memoryPreviewRuntimeSection{
+			category: "runtime.all_agents",
+			source:   "runtime.context",
+			title:    "Runtime Context: All Agents",
+			content:  memoryPreviewAllAgentsContext(context.AgentDigests),
+		})
+	}
+	if hasRuntimeSandbox(agentDef.Runtime) || context.SandboxContext != nil {
+		sections = append(sections, memoryPreviewRuntimeSection{
+			category: "runtime.sandbox",
+			source:   "runtime.context",
+			title:    "Runtime Context: Sandbox",
+			content:  memoryPreviewSandboxContext(context.SandboxContext),
+		})
+	}
+	if hasTag("system") || hasRuntimeSandbox(agentDef.Runtime) || context.SandboxContext != nil {
+		sections = append(sections, memoryPreviewRuntimeSection{
+			category: "runtime.paths",
+			source:   "runtime.context",
+			title:    "Runtime Context: Paths",
+			content:  memoryPreviewPathsContext(context, hasRuntimeSandbox(agentDef.Runtime)),
+		})
+	}
+	return sections
+}
+
+func memoryPreviewAgentIdentity(agentDef catalog.AgentDefinition) string {
+	lines := []string{"Agent Identity"}
+	appendMemoryPreviewKeyValue(&lines, "key", agentDef.Key)
+	appendMemoryPreviewKeyValue(&lines, "name", agentDef.Name)
+	appendMemoryPreviewKeyValue(&lines, "role", agentDef.Role)
+	appendMemoryPreviewKeyValue(&lines, "description", agentDef.Description)
+	appendMemoryPreviewKeyValue(&lines, "mode", agentDef.Mode)
+	if len(lines) == 1 {
+		return ""
+	}
+	return strings.Join(lines, "\n")
+}
+
+func memoryPreviewSystemEnvironment(context contracts.RuntimeRequestContext) string {
+	now := time.Now()
+	lines := []string{
+		"Runtime Context: System Environment",
+		"os: " + runtime.GOOS,
+		"arch: " + runtime.GOARCH,
+		"timezone: " + now.Location().String(),
+		"datetime: " + now.Format(time.RFC3339),
+		"language: 中文",
+	}
+	if context.LocalMode {
+		lines = append(lines, "mode: local")
+	}
+	return strings.Join(lines, "\n")
+}
+
+func memoryPreviewSessionContext(context contracts.RuntimeRequestContext, chatID string, runID string, requestID string) string {
+	lines := []string{"Runtime Context: Session"}
+	appendMemoryPreviewKeyValue(&lines, "chatId", chatID)
+	appendMemoryPreviewKeyValue(&lines, "runId", runID)
+	appendMemoryPreviewKeyValue(&lines, "requestId", requestID)
+	appendMemoryPreviewKeyValue(&lines, "teamId", context.TeamID)
+	appendMemoryPreviewKeyValue(&lines, "chatName", context.ChatName)
+	if context.AuthIdentity != nil {
+		appendMemoryPreviewKeyValue(&lines, "subject", context.AuthIdentity.Subject)
+		appendMemoryPreviewKeyValue(&lines, "deviceId", context.AuthIdentity.DeviceID)
+		appendMemoryPreviewKeyValue(&lines, "scope", context.AuthIdentity.Scope)
+	}
+	if len(context.References) > 0 {
+		lines = append(lines, "references:")
+		for _, ref := range context.References {
+			appendMemoryPreviewKeyValue(&lines, "- id", ref.ID)
+		}
+	}
+	if len(lines) == 1 {
+		return ""
+	}
+	return strings.Join(lines, "\n")
+}
+
+func memoryPreviewOwnerContext(ownerDir string) string {
+	ownerDir = strings.TrimSpace(ownerDir)
+	if ownerDir == "" {
+		return ""
+	}
+	return "owner_dir: " + ownerDir
+}
+
+func memoryPreviewAllAgentsContext(digests []contracts.AgentDigest) string {
+	if len(digests) == 0 {
+		return ""
+	}
+	lines := []string{"Runtime Context: All Agents"}
+	for _, digest := range digests {
+		if strings.TrimSpace(digest.Key) == "" {
+			continue
+		}
+		lines = append(lines, "---")
+		appendMemoryPreviewKeyValue(&lines, "key", digest.Key)
+		appendMemoryPreviewKeyValue(&lines, "name", digest.Name)
+		appendMemoryPreviewKeyValue(&lines, "role", digest.Role)
+		appendMemoryPreviewKeyValue(&lines, "description", digest.Description)
+	}
+	if len(lines) == 1 {
+		return ""
+	}
+	return strings.Join(lines, "\n")
+}
+
+func memoryPreviewSandboxContext(context *contracts.SandboxContext) string {
+	if context == nil {
+		return ""
+	}
+	lines := []string{"Runtime Context: Sandbox"}
+	appendMemoryPreviewKeyValue(&lines, "environmentId", context.EnvironmentID)
+	appendMemoryPreviewKeyValue(&lines, "defaultEnvironmentId", context.DefaultEnvironmentID)
+	appendMemoryPreviewKeyValue(&lines, "level", context.Level)
+	if len(context.ExtraMounts) > 0 {
+		lines = append(lines, "extraMounts:")
+		for _, mount := range context.ExtraMounts {
+			if strings.TrimSpace(mount) != "" {
+				lines = append(lines, "- "+strings.TrimSpace(mount))
+			}
+		}
+	}
+	appendMemoryPreviewKeyValue(&lines, "environment_prompt", context.EnvironmentPrompt)
+	return strings.Join(lines, "\n")
+}
+
+func memoryPreviewPathsContext(context contracts.RuntimeRequestContext, sandbox bool) string {
+	lines := []string{"Runtime Context: Paths"}
+	if sandbox || context.SandboxContext != nil {
+		appendMemoryPreviewKeyValue(&lines, "workspace_dir", context.SandboxPaths.WorkspaceDir)
+		appendMemoryPreviewKeyValue(&lines, "root_dir", context.SandboxPaths.RootDir)
+		appendMemoryPreviewKeyValue(&lines, "skills_dir", context.SandboxPaths.SkillsDir)
+		appendMemoryPreviewKeyValue(&lines, "agent_dir", context.SandboxPaths.AgentDir)
+		appendMemoryPreviewKeyValue(&lines, "owner_dir", context.SandboxPaths.OwnerDir)
+		appendMemoryPreviewKeyValue(&lines, "chats_dir", context.SandboxPaths.ChatsDir)
+		appendMemoryPreviewKeyValue(&lines, "memory_dir", context.SandboxPaths.MemoryDir)
+	} else {
+		appendMemoryPreviewKeyValue(&lines, "workspace_dir", firstNonBlank(context.LocalPaths.ChatAttachmentsDir, context.LocalPaths.WorkingDirectory))
+		appendMemoryPreviewKeyValue(&lines, "root_dir", context.LocalPaths.RootDir)
+		appendMemoryPreviewKeyValue(&lines, "skills_dir", context.LocalPaths.SkillsDir)
+		appendMemoryPreviewKeyValue(&lines, "agent_dir", context.LocalPaths.AgentDir)
+		appendMemoryPreviewKeyValue(&lines, "owner_dir", context.LocalPaths.OwnerDir)
+		appendMemoryPreviewKeyValue(&lines, "chats_dir", context.LocalPaths.ChatsDir)
+		appendMemoryPreviewKeyValue(&lines, "memory_dir", context.LocalPaths.MemoryDir)
+	}
+	if len(lines) == 1 {
+		return ""
+	}
+	return strings.Join(lines, "\n")
+}
+
+func memoryPreviewPromptTypeForRole(role string) string {
+	switch strings.ToLower(strings.TrimSpace(role)) {
+	case "system":
+		return "systemPrompt"
+	case "user":
+		return "userPrompt"
+	case "assistant":
+		return "assistantPrompt"
+	case "tool":
+		return "toolPrompt"
+	default:
+		return "historyPrompt"
+	}
+}
+
+func appendMemoryPreviewKeyValue(lines *[]string, key string, value string) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return
+	}
+	*lines = append(*lines, key+": "+value)
+}
+
+func memoryPreviewAnyString(value any) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case []byte:
+		return string(v)
+	default:
+		return ""
+	}
+}
+
 func memoryContextPreviewLayer(layer string, items []api.StoredMemoryResponse, candidateCounts map[string]int, selectedCounts map[string]int, chars int) api.MemoryContextPreviewLayer {
 	return api.MemoryContextPreviewLayer{
 		Layer:          layer,
@@ -500,6 +807,36 @@ func memoryContextPreviewDecisions(bundle memory.ContextBundle) []api.MemoryCont
 			Layer:   string(decision.Layer),
 			Reason:  strings.TrimSpace(decision.Reason),
 			ItemIDs: append([]string(nil), decision.ItemIDs...),
+			Traces:  memoryContextPreviewSelectionTraces(decision.Traces),
+		})
+	}
+	return out
+}
+
+func memoryContextPreviewSelectionTraces(traces []memory.ItemSelectionTrace) []api.MemorySelectionTrace {
+	if len(traces) == 0 {
+		return nil
+	}
+	out := make([]api.MemorySelectionTrace, 0, len(traces))
+	for _, trace := range traces {
+		out = append(out, api.MemorySelectionTrace{
+			ID:       strings.TrimSpace(trace.ID),
+			Layer:    string(trace.Layer),
+			Selected: trace.Selected,
+			Score:    trace.Score,
+			Reason:   strings.TrimSpace(trace.Reason),
+			ScoreParts: api.MemorySelectionScoreParts{
+				Importance:          trace.ScoreParts.Importance,
+				EffectiveImportance: trace.ScoreParts.EffectiveImportance,
+				Decay:               trace.ScoreParts.Decay,
+				AccessBoost:         trace.ScoreParts.AccessBoost,
+				Recency:             trace.ScoreParts.Recency,
+				ScopeMatch:          trace.ScoreParts.ScopeMatch,
+				QueryMatch:          trace.ScoreParts.QueryMatch,
+				VectorScore:         trace.ScoreParts.VectorScore,
+				ImportanceNorm:      trace.ScoreParts.ImportanceNorm,
+				HybridCombined:      trace.ScoreParts.HybridCombined,
+			},
 		})
 	}
 	return out

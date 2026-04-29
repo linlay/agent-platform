@@ -47,6 +47,17 @@ type MemoryContextPreviewPrompts struct {
 	Observation string `json:"observation"`
 }
 
+type MemoryContextPreviewContextSection struct {
+	Order      int    `json:"order"`
+	PromptType string `json:"promptType"`
+	Role       string `json:"role"`
+	Category   string `json:"category"`
+	Source     string `json:"source"`
+	Title      string `json:"title"`
+	Content    string `json:"content"`
+	Chars      int    `json:"chars"`
+}
+
 type MemoryContextPreviewItem struct {
 	ID             string   `json:"id"`
 	Kind           string   `json:"kind"`
@@ -75,22 +86,46 @@ type MemoryContextPreviewLayer struct {
 	Items          []MemoryContextPreviewItem `json:"items"`
 }
 
+type MemorySelectionScoreParts struct {
+	Importance          float64 `json:"importance,omitempty"`
+	EffectiveImportance float64 `json:"effectiveImportance,omitempty"`
+	Decay               float64 `json:"decay,omitempty"`
+	AccessBoost         float64 `json:"accessBoost,omitempty"`
+	Recency             float64 `json:"recency,omitempty"`
+	ScopeMatch          float64 `json:"scopeMatch,omitempty"`
+	QueryMatch          float64 `json:"queryMatch,omitempty"`
+	VectorScore         float64 `json:"vectorScore,omitempty"`
+	ImportanceNorm      float64 `json:"importanceNorm,omitempty"`
+	HybridCombined      float64 `json:"hybridCombined,omitempty"`
+}
+
+type MemorySelectionTrace struct {
+	ID         string                    `json:"id"`
+	Layer      string                    `json:"layer"`
+	Selected   bool                      `json:"selected"`
+	Score      float64                   `json:"score"`
+	ScoreParts MemorySelectionScoreParts `json:"scoreParts"`
+	Reason     string                    `json:"reason"`
+}
+
 type MemoryContextPreviewDecision struct {
-	Layer   string   `json:"layer"`
-	Reason  string   `json:"reason"`
-	ItemIDs []string `json:"itemIds"`
+	Layer   string                 `json:"layer"`
+	Reason  string                 `json:"reason"`
+	ItemIDs []string               `json:"itemIds"`
+	Traces  []MemorySelectionTrace `json:"traces,omitempty"`
 }
 
 type MemoryContextPreviewResponse struct {
-	Message   string                         `json:"message"`
-	AgentKey  string                         `json:"agentKey"`
-	ChatID    string                         `json:"chatId"`
-	TeamID    string                         `json:"teamId,omitempty"`
-	Enabled   bool                           `json:"enabled"`
-	Summary   MemoryContextPreviewSummary    `json:"summary"`
-	Prompts   MemoryContextPreviewPrompts    `json:"prompts"`
-	Layers    []MemoryContextPreviewLayer    `json:"layers"`
-	Decisions []MemoryContextPreviewDecision `json:"decisions,omitempty"`
+	Message   string                               `json:"message"`
+	AgentKey  string                               `json:"agentKey"`
+	ChatID    string                               `json:"chatId"`
+	TeamID    string                               `json:"teamId,omitempty"`
+	Enabled   bool                                 `json:"enabled"`
+	Summary   MemoryContextPreviewSummary          `json:"summary"`
+	Prompts   MemoryContextPreviewPrompts          `json:"prompts"`
+	Layers    []MemoryContextPreviewLayer          `json:"layers"`
+	Contexts  []MemoryContextPreviewContextSection `json:"contextSections,omitempty"`
+	Decisions []MemoryContextPreviewDecision       `json:"decisions,omitempty"`
 }
 
 type MemoryScopeRecord struct {

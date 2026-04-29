@@ -96,6 +96,29 @@ type DisclosureDecision struct {
 	Layer   Layer
 	ItemIDs []string
 	Reason  string
+	Traces  []ItemSelectionTrace
+}
+
+type SelectionScoreParts struct {
+	Importance          float64
+	EffectiveImportance float64
+	Decay               float64
+	AccessBoost         float64
+	Recency             float64
+	ScopeMatch          float64
+	QueryMatch          float64
+	VectorScore         float64
+	ImportanceNorm      float64
+	HybridCombined      float64
+}
+
+type ItemSelectionTrace struct {
+	ID         string
+	Layer      Layer
+	Selected   bool
+	Score      float64
+	ScoreParts SelectionScoreParts
+	Reason     string
 }
 
 type MemorySnapshot struct {
