@@ -40,12 +40,13 @@ type planExecuteStream struct {
 }
 
 func newPlanExecuteStream(engine *LLMAgentEngine, ctx context.Context, req api.QueryRequest, session QuerySession) (AgentStream, error) {
+	settings := resolvePlanExecuteRuntimeSettings(session, engine.cfg.Defaults.Plan.MaxSteps, engine.cfg.Defaults.Plan.MaxWorkRoundsPerTask)
 	execCtx := &ExecutionContext{
 		Request:       req,
 		Session:       session,
 		RunControl:    RunControlFromContext(ctx),
 		Budget:        NormalizeBudget(session.ResolvedBudget),
-		StageSettings: session.ResolvedStageSettings,
+		StageSettings: settings,
 		RunLoopState:  RunLoopStateIdle,
 		PlanState: &PlanRuntimeState{
 			PlanID: session.RunID + "_plan",
@@ -57,16 +58,13 @@ func newPlanExecuteStream(engine *LLMAgentEngine, ctx context.Context, req api.Q
 		req:      req,
 		session:  session,
 		execCtx:  execCtx,
-		settings: session.ResolvedStageSettings,
+		settings: settings,
 		pending: []AgentDelta{
 			DeltaStageMarker{Stage: "plan"},
 			// Java parity: do NOT emit an empty plan.update at initialization.
 			// The first plan.update is emitted in afterStageEOF after
 			// plan_add_tasks has populated PlanState.Tasks.
 		},
-	}
-	if stream.settings.MaxSteps <= 0 || stream.settings.MaxWorkRoundsPerTask <= 0 {
-		stream.settings = ResolvePlanExecuteSettings(session.StageSettings, stream.engine.cfg.Defaults.Plan.MaxSteps, stream.engine.cfg.Defaults.Plan.MaxWorkRoundsPerTask)
 	}
 	return stream, nil
 }

@@ -63,7 +63,7 @@ func TestSystemInitFingerprintChangesWithPromptAndStage(t *testing.T) {
 func TestCachedSystemInitConversions(t *testing.T) {
 	profiles := BuildSystemInitProfiles(fingerprintTestSession(), api.QueryRequest{ChatID: "chat-1", Message: "hello"}, []api.ToolDetailResponse{
 		{Name: "bash", Description: "run shell", Parameters: map[string]any{"type": "object"}},
-	})
+	}, 12, 4)
 	if len(profiles) != 1 {
 		t.Fatalf("expected one profile, got %#v", profiles)
 	}
@@ -80,6 +80,65 @@ func TestCachedSystemInitConversions(t *testing.T) {
 	}
 	if !reflect.DeepEqual(openAIToolSpecsToAny(specs), profiles[0].Tools) {
 		t.Fatalf("expected tools to round trip, got %#v", openAIToolSpecsToAny(specs))
+	}
+}
+
+func TestPlanExecuteSystemInitProfilesUseRuntimeSettings(t *testing.T) {
+	session := fingerprintTestSession()
+	session.Mode = "PLAN_EXECUTE"
+	session.ToolNames = []string{"bash"}
+	session.ResolvedStageSettings = contracts.PlanExecuteSettings{}
+	session.StageSettings = map[string]any{
+		"plan": map[string]any{
+			"tools": []any{"custom_plan"},
+		},
+		"execute": map[string]any{
+			"tools":              []any{"bash", "custom_exec"},
+			"instructionsPrompt": "execute primary",
+		},
+		"summary": map[string]any{
+			"instructionsPrompt": "summary primary",
+		},
+	}
+	toolDefs := []api.ToolDetailResponse{
+		{Name: "custom_plan", Description: "plan"},
+		{Name: "plan_add_tasks", Description: "add tasks"},
+		{Name: "bash", Description: "run shell"},
+		{Name: "custom_exec", Description: "exec"},
+		{Name: "plan_update_task", Description: "update task"},
+	}
+
+	settings := resolvePlanExecuteRuntimeSettings(session, 12, 4)
+	if settings.MaxSteps != 12 || settings.MaxWorkRoundsPerTask != 4 {
+		t.Fatalf("expected runtime defaults to be applied, got %#v", settings)
+	}
+
+	profiles := BuildSystemInitProfiles(session, api.QueryRequest{ChatID: "chat-1", Message: "hello"}, toolDefs, 12, 4)
+	if len(profiles) != 3 {
+		t.Fatalf("expected plan/execute/summary profiles, got %#v", profiles)
+	}
+	byKey := map[string]SystemInitProfile{}
+	for _, profile := range profiles {
+		byKey[profile.CacheKey] = profile
+	}
+	if _, ok := byKey["plan-execute:plan"]; !ok {
+		t.Fatalf("missing plan profile %#v", byKey)
+	}
+	if _, ok := byKey["plan-execute:execute"]; !ok {
+		t.Fatalf("missing execute profile %#v", byKey)
+	}
+	if _, ok := byKey["plan-execute:summary"]; !ok {
+		t.Fatalf("missing summary profile %#v", byKey)
+	}
+
+	assertToolNames(t, byKey["plan-execute:plan"].Tools, []string{"custom_plan", "plan_add_tasks"})
+	assertToolNames(t, byKey["plan-execute:execute"].Tools, appendUniqueTools(stageToolsOrDefault(settings.Execute, session.ToolNames), "plan_update_task"))
+	assertToolNames(t, byKey["plan-execute:summary"].Tools, nil)
+	if byKey["plan-execute:execute"].SystemMessage["content"] != "execute primary" {
+		t.Fatalf("unexpected execute system message %#v", byKey["plan-execute:execute"].SystemMessage)
+	}
+	if byKey["plan-execute:summary"].SystemMessage["content"] != "summary primary" {
+		t.Fatalf("unexpected summary system message %#v", byKey["plan-execute:summary"].SystemMessage)
 	}
 }
 
@@ -109,5 +168,20 @@ func fingerprintTestSession() contracts.QuerySession {
 			Summary: contracts.StageSettings{SystemPrompt: "summary system"},
 		},
 		RuntimeEnvOverrides: map[string]string{"FOO": "bar"},
+	}
+}
+
+func assertToolNames(t *testing.T, raw []any, expected []string) {
+	t.Helper()
+	specs, err := cachedToolSpecsToOpenAI(raw)
+	if err != nil {
+		t.Fatalf("decode tool specs: %v", err)
+	}
+	var actual []string
+	for _, spec := range specs {
+		actual = append(actual, spec.Function.Name)
+	}
+	if !reflect.DeepEqual(actual, expected) {
+		t.Fatalf("tool names = %#v, want %#v", actual, expected)
 	}
 }

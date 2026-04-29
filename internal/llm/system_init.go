@@ -21,14 +21,16 @@ type SystemInitProfile struct {
 	Tools         []any
 }
 
-func BuildSystemInitProfiles(session QuerySession, req api.QueryRequest, toolDefs []api.ToolDetailResponse) []SystemInitProfile {
+func BuildSystemInitProfiles(session QuerySession, req api.QueryRequest, toolDefs []api.ToolDetailResponse, defaultPlanMaxSteps int, defaultPlanMaxWorkRoundsPerTask int) []SystemInitProfile {
 	mode := normalizedSystemInitMode(session.Mode)
 	switch mode {
 	case "plan-execute":
+		settings := resolvePlanExecuteRuntimeSettings(session, defaultPlanMaxSteps, defaultPlanMaxWorkRoundsPerTask)
+		session.ResolvedStageSettings = settings
 		return []SystemInitProfile{
-			buildPlanSystemInitProfile(session, req, toolDefs),
-			buildExecuteSystemInitProfile(session, toolDefs),
-			buildSummarySystemInitProfile(session),
+			buildPlanSystemInitProfile(session, req, settings, toolDefs),
+			buildExecuteSystemInitProfile(session, settings, toolDefs),
+			buildSummarySystemInitProfile(session, settings),
 		}
 	case "oneshot":
 		return []SystemInitProfile{buildDefaultSystemInitProfile(session, req, toolDefs, "oneshot")}
@@ -109,8 +111,8 @@ func buildDefaultSystemInitProfile(session QuerySession, req api.QueryRequest, t
 	}
 }
 
-func buildPlanSystemInitProfile(session QuerySession, req api.QueryRequest, toolDefs []api.ToolDetailResponse) SystemInitProfile {
-	tools := planSystemInitTools(session.ResolvedStageSettings.Plan)
+func buildPlanSystemInitProfile(session QuerySession, req api.QueryRequest, settings PlanExecuteSettings, toolDefs []api.ToolDetailResponse) SystemInitProfile {
+	tools := planSystemInitTools(settings.Plan)
 	effectiveDefs := applyToolOverrides(filterToolDefinitions(toolDefs, tools), session.ToolOverrides)
 	systemPrompt := buildSystemPrompt(session, req, session.ModelKey, PromptBuildOptions{
 		Stage:                 "plan",
@@ -128,10 +130,10 @@ func buildPlanSystemInitProfile(session QuerySession, req api.QueryRequest, tool
 	}
 }
 
-func buildExecuteSystemInitProfile(session QuerySession, toolDefs []api.ToolDetailResponse) SystemInitProfile {
-	tools := appendUniqueTools(stageToolsOrDefault(session.ResolvedStageSettings.Execute, session.ToolNames), "plan_update_task")
+func buildExecuteSystemInitProfile(session QuerySession, settings PlanExecuteSettings, toolDefs []api.ToolDetailResponse) SystemInitProfile {
+	tools := appendUniqueTools(stageToolsOrDefault(settings.Execute, session.ToolNames), "plan_update_task")
 	effectiveDefs := applyToolOverrides(filterToolDefinitions(toolDefs, tools), session.ToolOverrides)
-	systemPrompt := strings.TrimSpace(session.ResolvedStageSettings.Execute.PrimaryPrompt())
+	systemPrompt := strings.TrimSpace(settings.Execute.PrimaryPrompt())
 	if systemPrompt == "" {
 		systemPrompt = "Execute the current task."
 	}
@@ -146,8 +148,8 @@ func buildExecuteSystemInitProfile(session QuerySession, toolDefs []api.ToolDeta
 	}
 }
 
-func buildSummarySystemInitProfile(session QuerySession) SystemInitProfile {
-	systemPrompt := strings.TrimSpace(session.ResolvedStageSettings.Summary.PrimaryPrompt())
+func buildSummarySystemInitProfile(session QuerySession, settings PlanExecuteSettings) SystemInitProfile {
+	systemPrompt := strings.TrimSpace(settings.Summary.PrimaryPrompt())
 	if systemPrompt == "" {
 		systemPrompt = "Summarize the completed plan execution for the user."
 	}
@@ -159,6 +161,14 @@ func buildSummarySystemInitProfile(session QuerySession) SystemInitProfile {
 		SystemMessage: map[string]any{"role": "system", "content": systemPrompt},
 		Tools:         []any{},
 	}
+}
+
+func resolvePlanExecuteRuntimeSettings(session QuerySession, defaultMaxSteps int, defaultMaxWorkRoundsPerTask int) PlanExecuteSettings {
+	settings := session.ResolvedStageSettings
+	if settings.MaxSteps <= 0 || settings.MaxWorkRoundsPerTask <= 0 {
+		settings = ResolvePlanExecuteSettings(session.StageSettings, defaultMaxSteps, defaultMaxWorkRoundsPerTask)
+	}
+	return settings
 }
 
 func planSystemInitTools(stage StageSettings) []string {

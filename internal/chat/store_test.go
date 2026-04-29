@@ -1573,6 +1573,19 @@ func TestFileStoreLoadsLatestSystemInitByCacheKey(t *testing.T) {
 	if loaded.SystemMessage["content"] != "second" {
 		t.Fatalf("unexpected system message %#v", loaded.SystemMessage)
 	}
+	all, err := store.LoadAllSystemInits("chat-system-init")
+	if err != nil {
+		t.Fatalf("load all system inits: %v", err)
+	}
+	if len(all) != 2 {
+		t.Fatalf("expected two cache keys, got %#v", all)
+	}
+	if got := all["react:main"]; got == nil || got.Fingerprint != "sha256:second" {
+		t.Fatalf("expected latest react profile, got %#v", got)
+	}
+	if got := all["plan-execute:plan"]; got == nil || got.Fingerprint != "sha256:other" {
+		t.Fatalf("expected plan profile, got %#v", got)
+	}
 }
 
 func TestRawMessagesSkipSystemInitLines(t *testing.T) {

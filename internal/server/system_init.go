@@ -13,30 +13,33 @@ func (s *Server) prepareSystemInitCache(req api.QueryRequest, session *contracts
 	if session == nil || s.deps.Chats == nil || s.deps.Tools == nil {
 		return nil
 	}
-	profiles := llm.BuildSystemInitProfiles(*session, req, s.deps.Tools.Definitions())
+	profiles := llm.BuildSystemInitProfiles(
+		*session,
+		req,
+		s.deps.Tools.Definitions(),
+		s.deps.Config.Defaults.Plan.MaxSteps,
+		s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask,
+	)
 	if len(profiles) == 0 {
 		return nil
 	}
 
-	hasAnySystemInit := created
+	systemInits := map[string]*chat.SystemInitLine{}
 	if !created {
-		initLine, err := s.deps.Chats.LoadSystemInit(req.ChatID, "")
+		var err error
+		systemInits, err = s.deps.Chats.LoadAllSystemInits(req.ChatID)
 		if err != nil {
 			return err
 		}
-		hasAnySystemInit = initLine != nil
 	}
-	if !hasAnySystemInit {
+	if !created && len(systemInits) == 0 {
 		session.SystemInitLegacy = true
 		return nil
 	}
 
 	cache := make(map[string]contracts.SystemInitSnapshot, len(profiles))
 	for _, profile := range profiles {
-		initLine, err := s.deps.Chats.LoadSystemInit(req.ChatID, profile.CacheKey)
-		if err != nil {
-			return err
-		}
+		initLine := systemInits[profile.CacheKey]
 		if initLine != nil && initLine.Fingerprint == profile.Fingerprint {
 			cache[profile.CacheKey] = contracts.SystemInitSnapshot{
 				Fingerprint:   initLine.Fingerprint,
@@ -66,6 +69,7 @@ func (s *Server) prepareSystemInitCache(req api.QueryRequest, session *contracts
 			SystemMessage: cloneMap(profile.SystemMessage),
 			Tools:         cloneAnySlice(profile.Tools),
 		}
+		systemInits[profile.CacheKey] = &line
 	}
 	if len(cache) > 0 {
 		session.SystemInitCache = cache
