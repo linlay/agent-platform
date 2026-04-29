@@ -185,6 +185,68 @@ function shellQuote(value) {
   return "'" + String(value).replace(/'/g, "'\\''") + "'";
 }
 
+function getChildProcessPathKey(envObject = process.env) {
+  if (process.platform === "win32") {
+    return Object.keys(envObject).find((key) => key.toLowerCase() === "path") || "Path";
+  }
+  return "PATH";
+}
+
+function resolveAcpChildPathEntries() {
+  const entries = [];
+  const configuredNodeBin = nonEmptyText(pick("NODE_BIN"));
+  if (configuredNodeBin) {
+    entries.push(path.dirname(expandUserPath(configuredNodeBin)));
+  }
+
+  const execPath = nonEmptyText(process.execPath);
+  if (execPath) {
+    entries.push(path.dirname(execPath));
+  }
+
+  const configuredCommand = nonEmptyText(config.command);
+  if (path.isAbsolute(configuredCommand)) {
+    entries.push(path.dirname(configuredCommand));
+  }
+
+  return [...new Set(entries.map((entry) => path.resolve(entry)).filter((entry) => fs.existsSync(entry)))];
+}
+
+function buildAcpChildEnv() {
+  const nextEnv = {
+    ...process.env,
+    FORCE_COLOR: "0",
+    ZENMIND_DISABLE_CLAUDE_ISLAND_PERMISSION_HOOK: "1",
+  };
+  const pathKey = getChildProcessPathKey(nextEnv);
+  const currentPath = String(nextEnv[pathKey] ?? nextEnv.PATH ?? nextEnv.Path ?? "").trim();
+  const mergedPathEntries = [
+    ...resolveAcpChildPathEntries(),
+    ...currentPath.split(path.delimiter).filter(Boolean),
+  ];
+  const normalizedPath = [...new Set(mergedPathEntries)].join(path.delimiter);
+
+  // Desktop often launches the relay outside a login shell. Prepend the
+  // resolved Node runtime directory so `/usr/bin/env node` inside npx or
+  // claude-code-acp scripts can still resolve the interpreter on macOS/Windows.
+  if (normalizedPath) {
+    if (process.platform === "win32") {
+      nextEnv[pathKey] = normalizedPath;
+      nextEnv.PATH = normalizedPath;
+      nextEnv.Path = normalizedPath;
+    } else {
+      nextEnv.PATH = normalizedPath;
+    }
+  }
+
+  const configuredNodeBin = nonEmptyText(pick("NODE_BIN"));
+  if (configuredNodeBin) {
+    nextEnv.NODE_BIN = expandUserPath(configuredNodeBin);
+  }
+
+  return nextEnv;
+}
+
 class AcpConnection {
   constructor(options) {
     this.options = options;
@@ -202,11 +264,7 @@ class AcpConnection {
     this.child = spawn(this.options.command, this.options.commandArgs, {
       cwd: this.options.defaultCwd,
       stdio: ["pipe", "pipe", "pipe"],
-      env: {
-        ...process.env,
-        FORCE_COLOR: "0",
-        ZENMIND_DISABLE_CLAUDE_ISLAND_PERMISSION_HOOK: "1",
-      },
+      env: buildAcpChildEnv(),
     });
     this.child.on("exit", (code, signal) => {
       this.exited = true;
