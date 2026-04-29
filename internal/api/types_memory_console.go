@@ -14,6 +14,14 @@ type MemoryScopesResponse struct {
 	Scopes   []MemoryScopeSummary `json:"scopes"`
 }
 
+type MemoryMetaResponse struct {
+	Categories  []string `json:"categories"`
+	Types       []string `json:"types"`
+	ScopeTypes  []string `json:"scopeTypes"`
+	Statuses    []string `json:"statuses"`
+	SourceTypes []string `json:"sourceTypes"`
+}
+
 type MemoryScopeRecord struct {
 	ID         string   `json:"id"`
 	Title      string   `json:"title"`

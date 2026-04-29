@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -91,6 +92,42 @@ func (o *Orchestrator) Reload() error {
 	}
 	o.reconcile(defs)
 	return nil
+}
+
+func (o *Orchestrator) Schedules() []ScheduleInfo {
+	if o == nil {
+		return nil
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	ids := make([]string, 0, len(o.registrations))
+	for id := range o.registrations {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	now := time.Now()
+	items := make([]ScheduleInfo, 0, len(ids))
+	for _, id := range ids {
+		reg := o.registrations[id]
+		if reg == nil {
+			continue
+		}
+		next := time.Time{}
+		if reg.schedule != nil {
+			loc := reg.location
+			if loc == nil {
+				loc = time.Local
+			}
+			next = reg.schedule.Next(now.In(loc))
+		}
+		items = append(items, ScheduleInfo{
+			Definition:   reg.Definition,
+			NextFireTime: next,
+		})
+	}
+	return items
 }
 
 func (o *Orchestrator) reconcile(defs []Definition) {

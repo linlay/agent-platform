@@ -4,7 +4,7 @@ set -euo pipefail
 BASE_URL="${BASE_URL:-http://127.0.0.1:11949}"
 AGENT_KEY="${AGENT_KEY:-jiraWeeklyReportAssistant}"
 CHAT_ID="${CHAT_ID:-memory-verify-001}"
-MEMORY_DB="${MEMORY_DB:-/Users/joe/gtja/linlay/zenmind-env/memory/memory.db}"
+MEMORY_DB="${MEMORY_DB:-linlay/zenmind-env/memory/memory.db}"
 MEMORY_LOG="${MEMORY_LOG:-runtime/logs/memory.log}"
 ROUND1_OUT="/tmp/memory_verify_round1.json"
 ROUND2_OUT="/tmp/memory_verify_round2.json"

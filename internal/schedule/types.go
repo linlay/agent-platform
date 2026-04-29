@@ -24,6 +24,25 @@ type Definition struct {
 	SourceFile    string
 }
 
+type Execution struct {
+	ID           string
+	ScheduleID   string
+	ScheduleName string
+	SourceFile   string
+	AgentKey     string
+	TeamID       string
+	Status       string
+	Error        string
+	StartedAt    int64
+	CompletedAt  *int64
+	DurationMs   *int64
+}
+
+type ScheduleInfo struct {
+	Definition   Definition
+	NextFireTime time.Time
+}
+
 type Environment struct {
 	ZoneID string
 }

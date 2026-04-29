@@ -353,7 +353,30 @@
 
 ## 模块 2 接口设计
 
-### 5. 查询记录列表
+### 5. 查询 memory 元信息
+
+`GET /api/memory/meta`
+
+用途：
+返回前端筛选、编辑表单可直接使用的枚举值。
+
+响应示例：
+
+```json
+{
+  "code": 0,
+  "msg": "success",
+  "data": {
+    "categories": ["general", "preference", "constraint", "profile", "workflow", "decision", "glossary", "unresolved_issue", "bugfix", "todo", "project", "remember"],
+    "types": ["fact", "observation"],
+    "scopeTypes": ["user", "agent", "team", "chat", "global"],
+    "statuses": ["active", "open", "superseded", "archived", "contested"],
+    "sourceTypes": ["tool-write", "console-edit", "remember", "learn", "promote"]
+  }
+}
+```
+
+### 6. 查询记录列表
 
 `GET /api/memory/records?agentKey=go_runner&kind=fact&scopeType=user&status=active&limit=20&cursor=`
 
@@ -407,7 +430,7 @@
 }
 ```
 
-### 6. 获取单条记录详情
+### 7. 获取单条记录详情
 
 `GET /api/memory/record?agentKey=go_runner&id=mem_201`
 
@@ -635,6 +658,7 @@
 - `GET /api/memory/scopes`
 - `GET /api/memory/scope`
 - `PUT /api/memory/scope`
+- `GET /api/memory/meta`
 - `GET /api/memory/records`
 - `GET /api/memory/record`
 

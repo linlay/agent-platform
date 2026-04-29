@@ -29,29 +29,35 @@ import (
 	"agent-platform-runner-go/internal/memory"
 	"agent-platform-runner-go/internal/models"
 	"agent-platform-runner-go/internal/observability"
+	"agent-platform-runner-go/internal/schedule"
 	"agent-platform-runner-go/internal/skills"
 	"agent-platform-runner-go/internal/stream"
 	"agent-platform-runner-go/internal/ws"
 )
 
 type Dependencies struct {
-	Config          config.Config
-	Chats           chat.Store
-	Memory          memory.Store
-	Registry        catalog.Registry
-	Models          *models.ModelRegistry
-	Runs            contracts.RunManager
-	Agent           contracts.AgentEngine
-	Tools           contracts.ToolExecutor
-	Sandbox         contracts.SandboxClient
-	MCP             contracts.McpClient
-	Viewport        contracts.ViewportClient
-	FrontendTools   *frontendtools.Registry
-	CatalogReloader contracts.CatalogReloader
-	Notifications   contracts.NotificationSink
-	SkillCandidates skills.CandidateStore
-	Channels        ChannelRegistry
-	ChannelStatus   ChannelStatusProvider
+	Config               config.Config
+	Chats                chat.Store
+	Archives             *chat.ArchiveStore
+	Archiver             *chat.Archiver
+	Memory               memory.Store
+	Registry             catalog.Registry
+	Models               *models.ModelRegistry
+	Runs                 contracts.RunManager
+	Agent                contracts.AgentEngine
+	Tools                contracts.ToolExecutor
+	Sandbox              contracts.SandboxClient
+	MCP                  contracts.McpClient
+	Viewport             contracts.ViewportClient
+	FrontendTools        *frontendtools.Registry
+	CatalogReloader      contracts.CatalogReloader
+	Notifications        contracts.NotificationSink
+	SkillCandidates      skills.CandidateStore
+	Channels             ChannelRegistry
+	ChannelStatus        ChannelStatusProvider
+	ScheduleOrchestrator *schedule.Orchestrator
+	ScheduleRegistry     *schedule.Registry
+	ScheduleExecutions   *schedule.ExecutionStore
 	// GatewayResolver 按 chatId 查对应 gateway 的 BaseURL/Token，ws_routes 的文件下载
 	// 路径用它替代旧的 cfg.GatewayWS.BaseURL/JwtToken。nil 时 /api/pull 走 legacy 单 gateway 的 cfg 字段（兼容老部署）。
 	GatewayResolver GatewayResolver
@@ -483,7 +489,19 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/read", s.method(http.MethodPost, s.handleRead))
 	s.router.HandleFunc("/api/feedback", s.method(http.MethodPost, s.handleFeedback))
 	s.router.HandleFunc("/api/chat-delete", s.method(http.MethodPost, s.handleChatDelete))
+	s.router.HandleFunc("/api/chat-archive", s.method(http.MethodPost, s.handleChatArchive))
+	s.router.HandleFunc("/api/archives", s.method(http.MethodGet, s.handleArchives))
+	s.router.HandleFunc("/api/archive", s.method(http.MethodGet, s.handleArchive))
+	s.router.HandleFunc("/api/archive-search", s.method(http.MethodPost, s.handleArchiveSearch))
+	s.router.HandleFunc("/api/archive-delete", s.method(http.MethodPost, s.handleArchiveDelete))
 	s.router.HandleFunc("/api/chat-export", s.method(http.MethodGet, s.handleChatExport))
+	s.router.HandleFunc("/api/schedules", s.method(http.MethodPost, s.handleSchedules))
+	s.router.HandleFunc("/api/schedule", s.method(http.MethodPost, s.handleSchedule))
+	s.router.HandleFunc("/api/schedule-create", s.method(http.MethodPost, s.handleScheduleCreate))
+	s.router.HandleFunc("/api/schedule-update", s.method(http.MethodPost, s.handleScheduleUpdate))
+	s.router.HandleFunc("/api/schedule-delete", s.method(http.MethodPost, s.handleScheduleDelete))
+	s.router.HandleFunc("/api/schedule-toggle", s.method(http.MethodPost, s.handleScheduleToggle))
+	s.router.HandleFunc("/api/schedule-executions", s.method(http.MethodPost, s.handleScheduleExecutions))
 	s.router.HandleFunc("/api/query", s.method(http.MethodPost, s.handleQuery))
 	s.router.HandleFunc("/api/attach", s.method(http.MethodGet, s.handleAttach))
 	s.router.HandleFunc("/api/submit", s.method(http.MethodPost, s.handleSubmit))
@@ -491,6 +509,7 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/interrupt", s.method(http.MethodPost, s.handleInterrupt))
 	s.router.HandleFunc("/api/remember", s.method(http.MethodPost, s.handleRemember))
 	s.router.HandleFunc("/api/learn", s.method(http.MethodPost, s.handleLearn))
+	s.router.HandleFunc("/api/memory/meta", s.method(http.MethodGet, s.handleMemoryMeta))
 	s.router.HandleFunc("/api/memory/scopes", s.method(http.MethodGet, s.handleMemoryScopes))
 	s.router.HandleFunc("/api/memory/scope", s.handleMemoryScopeRoute)
 	s.router.HandleFunc("/api/memory/scope/validate", s.method(http.MethodPost, s.handleMemoryScopeValidate))
@@ -498,6 +517,7 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/memory/record", s.method(http.MethodGet, s.handleMemoryRecord))
 	s.router.HandleFunc("/api/viewport", s.method(http.MethodGet, s.handleViewport))
 	s.router.HandleFunc("/api/resource", s.method(http.MethodGet, s.handleResource))
+	s.router.HandleFunc("/api/archive-resource", s.method(http.MethodGet, s.handleArchiveResource))
 	s.router.HandleFunc("/api/upload", s.method(http.MethodPost, s.handleUpload))
 	if s.wsHandler != nil {
 		s.router.Handle("/ws", s.wsHandler)

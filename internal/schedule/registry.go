@@ -26,8 +26,8 @@ var (
 	// chatId 不做结构性校验——platform 只是透传。真正的格式由对端 channel bridge
 	// 定义并在自己那头解析（wecom#..., feishu#..., wxmp#..., 等等）。
 	// 这里仅用宽口径允许列表过滤 YAML 注入 / 控制字符 / 空白等危险字符。
-	chatIDPattern    = regexp.MustCompile(`^[A-Za-z0-9_\-.:@#/~+]+$`)
-	chatIDMaxLength  = 256
+	chatIDPattern   = regexp.MustCompile(`^[A-Za-z0-9_\-.:@#/~+]+$`)
+	chatIDMaxLength = 256
 )
 
 type TeamLookup interface {
@@ -41,6 +41,13 @@ type Registry struct {
 
 func NewRegistry(root string, teams TeamLookup) *Registry {
 	return &Registry{root: root, teams: teams}
+}
+
+func (r *Registry) Root() string {
+	if r == nil {
+		return ""
+	}
+	return r.root
 }
 
 func (r *Registry) Load() ([]Definition, error) {
@@ -297,12 +304,60 @@ func parseReferences(value any) ([]api.Reference, error) {
 }
 
 func (r *Registry) Persist(def Definition) error {
+	if err := r.Validate(def); err != nil {
+		return err
+	}
 	path, err := r.schedulePath(def)
 	if err != nil {
 		return err
 	}
 	data := renderDefinition(def)
 	return writeFileAtomic(path, data, 0o644)
+}
+
+func (r *Registry) Validate(def Definition) error {
+	if strings.TrimSpace(def.ID) == "" {
+		return fmt.Errorf("schedule id is required")
+	}
+	if strings.TrimSpace(def.Name) == "" {
+		return fmt.Errorf("name is required")
+	}
+	if strings.TrimSpace(def.Description) == "" {
+		return fmt.Errorf("description is required")
+	}
+	if strings.TrimSpace(def.Cron) == "" {
+		return fmt.Errorf("cron is required")
+	}
+	if _, err := parseCronSchedule(def.Cron); err != nil {
+		return fmt.Errorf("invalid cron %q: go schedule supports only traditional 5-field cron (minute hour day-of-month month day-of-week): %w", def.Cron, err)
+	}
+	if def.RemainingRuns != nil && *def.RemainingRuns <= 0 {
+		return fmt.Errorf("remainingRuns must be a positive integer")
+	}
+	if strings.TrimSpace(def.AgentKey) == "" {
+		return fmt.Errorf("agentKey is required")
+	}
+	if err := r.validateTeam(strings.TrimSpace(def.AgentKey), strings.TrimSpace(def.TeamID)); err != nil {
+		return err
+	}
+	if strings.TrimSpace(def.Environment.ZoneID) != "" {
+		if _, err := time.LoadLocation(strings.TrimSpace(def.Environment.ZoneID)); err != nil {
+			return fmt.Errorf("invalid environment.zoneId %q", def.Environment.ZoneID)
+		}
+	}
+	if strings.TrimSpace(def.Query.Message) == "" {
+		return fmt.Errorf("query.message is required")
+	}
+	chatID := strings.TrimSpace(def.Query.ChatID)
+	if chatID != "" {
+		if len(chatID) > chatIDMaxLength {
+			return fmt.Errorf("invalid query.chatId: length %d exceeds %d", len(chatID), chatIDMaxLength)
+		}
+		if !chatIDPattern.MatchString(chatID) {
+			return fmt.Errorf("invalid query.chatId %q", chatID)
+		}
+	}
+	return nil
 }
 
 func (r *Registry) Delete(def Definition) error {

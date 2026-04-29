@@ -38,6 +38,17 @@ func (s *Server) handleMemoryScopes(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, api.Success(response))
 }
 
+func (s *Server) handleMemoryMeta(w http.ResponseWriter, r *http.Request) {
+	response := api.MemoryMetaResponse{
+		Categories:  memory.StandardCategories(),
+		Types:       memory.StandardTypes(),
+		ScopeTypes:  memory.StandardScopeTypes(),
+		Statuses:    memory.StandardStatuses(),
+		SourceTypes: memory.StandardSourceTypes(),
+	}
+	writeJSON(w, http.StatusOK, api.Success(response))
+}
+
 func (s *Server) handleMemoryScopeRoute(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:

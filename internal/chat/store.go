@@ -734,6 +734,10 @@ func (s *FileStore) loadRawMessagesFromJSONL(chatID string) []map[string]any {
 	if err != nil || len(lines) == 0 {
 		return nil
 	}
+	return rawMessagesFromJSONLLines(lines)
+}
+
+func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
 	if !isNewFormat(lines) {
 		return nil
 	}
@@ -991,9 +995,9 @@ func (s *FileStore) LoadChat(chatID string) (Detail, error) {
 
 	// Detect format: new format has _type field, old format has type field.
 	if isNewFormat(lines) {
-		return s.loadChatNewFormat(*sum, lines, rawMessages)
+		return parseChatNewFormat(*sum, lines, rawMessages)
 	}
-	return s.loadChatLegacyFormat(*sum, lines, rawMessages)
+	return parseChatLegacyFormat(*sum, lines, rawMessages)
 }
 
 func (s *FileStore) LoadRunTrace(chatID string, runID string) (RunTrace, error) {
@@ -1070,7 +1074,7 @@ func extractStoredMessageText(message StoredMessage) string {
 // New format: _type = "query" / "step" / "event" (matching Java)
 // ---------------------------------------------------------------------------
 
-func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, rawMessages []map[string]any) (Detail, error) {
+func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []map[string]any) (Detail, error) {
 	var plan *PlanState
 	var artifact *ArtifactState
 
@@ -1298,7 +1302,7 @@ func (s *FileStore) loadChatNewFormat(summary Summary, lines []map[string]any, r
 // Legacy format: raw SSE events with "type" field (old Go format)
 // ---------------------------------------------------------------------------
 
-func (s *FileStore) loadChatLegacyFormat(summary Summary, events []map[string]any, rawMessages []map[string]any) (Detail, error) {
+func parseChatLegacyFormat(summary Summary, events []map[string]any, rawMessages []map[string]any) (Detail, error) {
 	events = rebuildSnapshotEvents(events)
 
 	plan, artifact := deriveRunState(events)

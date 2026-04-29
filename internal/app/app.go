@@ -38,13 +38,14 @@ import (
 )
 
 type App struct {
-	Config           config.Config
-	Router           *server.Server
-	backgroundCancel context.CancelFunc
-	scheduler        schedulerStopper
-	gateways         *gateway.Registry
-	wsHub            *ws.Hub
-	channelsReloader *reload.ChannelsReloader
+	Config             config.Config
+	Router             *server.Server
+	backgroundCancel   context.CancelFunc
+	scheduler          schedulerStopper
+	gateways           *gateway.Registry
+	wsHub              *ws.Hub
+	channelsReloader   *reload.ChannelsReloader
+	scheduleExecutions *schedule.ExecutionStore
 }
 
 type schedulerStopper interface {
@@ -95,6 +96,13 @@ func New(rootCtx context.Context) (*App, error) {
 		return nil, fmt.Errorf("init chat store (%s): %w", cfg.Paths.ChatsDir, err)
 	}
 	log.Printf("chat store ready in %s (root=%s)", startupElapsed(chatStoreStartedAt), cfg.Paths.ChatsDir)
+	archiveStoreStartedAt := time.Now()
+	archiveStore, err := chat.NewArchiveStore(cfg.Paths.ChatsDir)
+	if err != nil {
+		return nil, fmt.Errorf("init archive store (%s): %w", cfg.Paths.ChatsDir, err)
+	}
+	archiver := chat.NewArchiver(chatStore, archiveStore)
+	log.Printf("archive store ready in %s (root=%s)", startupElapsed(archiveStoreStartedAt), filepath.Join(cfg.Paths.ChatsDir, "archive"))
 
 	var memoryStore memory.Store
 	var sqliteMemoryStore *memory.SQLiteStore
@@ -208,10 +216,47 @@ func New(rootCtx context.Context) (*App, error) {
 		log.Printf("channel registry ready (%d channels)", len(cfg.Channels))
 	}
 
+	var srv *server.Server
+	var scheduler *schedule.Orchestrator
+	var scheduleRegistry *schedule.Registry
+	var scheduleExecutionStore *schedule.ExecutionStore
+	if cfg.Schedule.Enabled {
+		scheduleRegistry = schedule.NewRegistry(cfg.Schedule.ExternalDir, registry)
+		scheduleExecutionStore, err = schedule.NewExecutionStore(cfg.Schedule.ExternalDir, "executions.db")
+		if err != nil {
+			return nil, fmt.Errorf("init schedule execution store (%s): %w", cfg.Schedule.ExternalDir, err)
+		}
+		var scheduleBroadcaster schedule.Broadcaster
+		if hub, ok := notifications.(*ws.Hub); ok {
+			scheduleBroadcaster = hub
+		}
+		dispatcher := schedule.NewDispatcher(func(ctx context.Context, req api.QueryRequest) error {
+			if srv == nil {
+				return fmt.Errorf("server not initialized")
+			}
+			// schedule 触发的 run 标记为 hidden：
+			// chat 不记录伪造的"用户发消息"，chat.created 也不广播，
+			// webclient 仍能看到 assistant 侧输出，但不会渲染成"用户→agent"对话。
+			hiddenTrue := true
+			req.Hidden = &hiddenTrue
+			status, body, err := srv.ExecuteInternalQuery(ctx, req)
+			if err != nil {
+				return err
+			}
+			if status != http.StatusOK {
+				return fmt.Errorf("scheduled query failed with status %d: %s", status, summarizeScheduleErrorBody(body))
+			}
+			return nil
+		}, scheduleBroadcaster, scheduleExecutionStore)
+		scheduler = schedule.NewOrchestrator(scheduleRegistry, dispatcher, cfg.Schedule)
+	}
+
 	serverStartedAt := time.Now()
-	srv, err := server.New(server.Dependencies{
+	srv, err = server.New(server.Dependencies{
 		Config:        cfg,
 		Chats:         chatStore,
+		Archives:      archiveStore,
+		Archiver:      archiver,
 		Memory:        memoryStore,
 		Registry:      registry,
 		Models:        modelRegistry,
@@ -226,14 +271,20 @@ func New(rootCtx context.Context) (*App, error) {
 			viewport.NewSyncer(viewport.NewServerRegistry(viewport.DefaultServersRoot(cfg.Paths.RegistriesDir)), nil),
 			contracts.NewNoopViewportClient(),
 		),
-		CatalogReloader: reloader,
-		Notifications:   notifications,
-		SkillCandidates: skillCandidateStore,
-		Channels:        channelReg,
-		GatewayResolver: gatewayResolver,
-		GatewayAdmin:    &gatewayAdminAdapter{resolver: gatewayResolver},
+		CatalogReloader:      reloader,
+		Notifications:        notifications,
+		SkillCandidates:      skillCandidateStore,
+		Channels:             channelReg,
+		ScheduleOrchestrator: scheduler,
+		ScheduleRegistry:     scheduleRegistry,
+		ScheduleExecutions:   scheduleExecutionStore,
+		GatewayResolver:      gatewayResolver,
+		GatewayAdmin:         &gatewayAdminAdapter{resolver: gatewayResolver},
 	})
 	if err != nil {
+		if scheduleExecutionStore != nil {
+			_ = scheduleExecutionStore.Close()
+		}
 		return nil, fmt.Errorf("init server: %w", err)
 	}
 	log.Printf("server dependencies wired in %s", startupElapsed(serverStartedAt))
@@ -275,34 +326,15 @@ func New(rootCtx context.Context) (*App, error) {
 		log.Printf("channels watcher not started (WebSocket disabled)")
 	}
 
-	var scheduler *schedule.Orchestrator
-	if cfg.Schedule.Enabled {
-		scheduleRegistry := schedule.NewRegistry(cfg.Paths.SchedulesDir, registry)
-		var scheduleBroadcaster schedule.Broadcaster
-		if hub, ok := notifications.(*ws.Hub); ok {
-			scheduleBroadcaster = hub
-		}
-		dispatcher := schedule.NewDispatcher(func(ctx context.Context, req api.QueryRequest) error {
-			// schedule 触发的 run 标记为 hidden：
-			// chat 不记录伪造的"用户发消息"，chat.created 也不广播，
-			// webclient 仍能看到 assistant 侧输出，但不会渲染成"用户→agent"对话。
-			hiddenTrue := true
-			req.Hidden = &hiddenTrue
-			status, body, err := srv.ExecuteInternalQuery(ctx, req)
-			if err != nil {
-				return err
-			}
-			if status != http.StatusOK {
-				return fmt.Errorf("scheduled query failed with status %d: %s", status, summarizeScheduleErrorBody(body))
-			}
-			return nil
-		}, scheduleBroadcaster)
-		scheduler = schedule.NewOrchestrator(scheduleRegistry, dispatcher, cfg.Schedule)
+	if scheduler != nil {
 		if err := scheduler.Start(backgroundCtx); err != nil {
 			backgroundCancel()
+			if scheduleExecutionStore != nil {
+				_ = scheduleExecutionStore.Close()
+			}
 			return nil, fmt.Errorf("start schedule orchestrator: %w", err)
 		}
-		log.Printf("schedule orchestrator started in %s (dir=%s)", startupElapsed(serverStartedAt), cfg.Paths.SchedulesDir)
+		log.Printf("schedule orchestrator started in %s (dir=%s)", startupElapsed(serverStartedAt), cfg.Schedule.ExternalDir)
 	} else {
 		log.Printf("schedule orchestrator disabled")
 	}
@@ -310,13 +342,14 @@ func New(rootCtx context.Context) (*App, error) {
 	cleanupBackground = false
 
 	return &App{
-		Config:           cfg,
-		Router:           srv,
-		backgroundCancel: backgroundCancel,
-		scheduler:        scheduler,
-		gateways:         gwRegistry,
-		wsHub:            wsHub,
-		channelsReloader: channelsReloader,
+		Config:             cfg,
+		Router:             srv,
+		backgroundCancel:   backgroundCancel,
+		scheduler:          scheduler,
+		gateways:           gwRegistry,
+		wsHub:              wsHub,
+		channelsReloader:   channelsReloader,
+		scheduleExecutions: scheduleExecutionStore,
 	}, nil
 }
 
@@ -345,6 +378,11 @@ func (a *App) Close() error {
 		case <-done.Done():
 		case <-time.After(schedulerStopTimeout):
 			log.Printf("scheduler stop timed out after %s", schedulerStopTimeout)
+		}
+	}
+	if a.scheduleExecutions != nil {
+		if err := a.scheduleExecutions.Close(); err != nil {
+			log.Printf("close schedule execution store: %v", err)
 		}
 	}
 	if err := observability.CloseMemoryLogger(); err != nil {

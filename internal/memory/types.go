@@ -32,6 +32,33 @@ const (
 	defaultChatStatus = StatusOpen
 )
 
+func StandardTypes() []string {
+	return []string{
+		KindFact,
+		KindObservation,
+	}
+}
+
+func StandardScopeTypes() []string {
+	return []string{
+		ScopeUser,
+		ScopeAgent,
+		ScopeTeam,
+		ScopeChat,
+		ScopeGlobal,
+	}
+}
+
+func StandardStatuses() []string {
+	return []string{
+		StatusActive,
+		StatusOpen,
+		StatusSuperseded,
+		StatusArchived,
+		StatusContested,
+	}
+}
+
 type ContextRequest struct {
 	AgentKey        string
 	TeamID          string

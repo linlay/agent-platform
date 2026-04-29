@@ -23,12 +23,14 @@ type Broadcaster interface {
 
 type Dispatcher struct {
 	dispatch   DispatchFunc
+	executions *ExecutionStore
 	httpClient *http.Client
 }
 
-func NewDispatcher(dispatch DispatchFunc, _ Broadcaster) *Dispatcher {
+func NewDispatcher(dispatch DispatchFunc, _ Broadcaster, executions *ExecutionStore) *Dispatcher {
 	return &Dispatcher{
-		dispatch: dispatch,
+		dispatch:   dispatch,
+		executions: executions,
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
@@ -53,7 +55,21 @@ func (d *Dispatcher) Dispatch(ctx context.Context, def Definition) error {
 		def.SourceFile,
 		triggeredAt,
 	)
+	executionID := ""
+	if d.executions != nil {
+		id, recordErr := d.executions.RecordStart(def.ID, def.Name, def.SourceFile, def.AgentKey, def.TeamID)
+		if recordErr != nil {
+			log.Printf("[schedule] execution record start failed id=%s source=%s err=%v", def.ID, def.SourceFile, recordErr)
+		} else {
+			executionID = id
+		}
+	}
 	err := d.dispatch(ctx, def.ToQueryRequest())
+	if d.executions != nil && executionID != "" {
+		if recordErr := d.executions.RecordComplete(executionID, err); recordErr != nil {
+			log.Printf("[schedule] execution record complete failed id=%s executionID=%s source=%s err=%v", def.ID, executionID, def.SourceFile, recordErr)
+		}
+	}
 	if err != nil {
 		log.Printf(
 			"[schedule] dispatch failed id=%s name=%s agentKey=%s teamId=%s source=%s triggeredAt=%s duration=%s err=%v",

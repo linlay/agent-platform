@@ -68,6 +68,37 @@ func TestHandleMemoryScopesReturnsEditableScopes(t *testing.T) {
 	}
 }
 
+func TestHandleMemoryMetaReturnsFrontendEnums(t *testing.T) {
+	fixture := newMemoryEnabledTestFixture(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/memory/meta", nil)
+	rec := httptest.NewRecorder()
+
+	fixture.server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp api.ApiResponse[api.MemoryMetaResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !containsString(resp.Data.Categories, memory.CategoryPreference) || !containsString(resp.Data.Categories, memory.CategoryUnresolvedIssue) {
+		t.Fatalf("expected standard categories, got %#v", resp.Data.Categories)
+	}
+	if !containsString(resp.Data.Types, memory.KindFact) || !containsString(resp.Data.Types, memory.KindObservation) {
+		t.Fatalf("expected memory types, got %#v", resp.Data.Types)
+	}
+	if !containsString(resp.Data.ScopeTypes, memory.ScopeUser) || !containsString(resp.Data.ScopeTypes, memory.ScopeChat) {
+		t.Fatalf("expected scope types, got %#v", resp.Data.ScopeTypes)
+	}
+	if !containsString(resp.Data.Statuses, memory.StatusActive) || !containsString(resp.Data.Statuses, memory.StatusArchived) {
+		t.Fatalf("expected statuses, got %#v", resp.Data.Statuses)
+	}
+	if !containsString(resp.Data.SourceTypes, "tool-write") || !containsString(resp.Data.SourceTypes, "console-edit") {
+		t.Fatalf("expected source types, got %#v", resp.Data.SourceTypes)
+	}
+}
+
 func TestHandleMemoryScopeReturnsMarkdownAndRecords(t *testing.T) {
 	fixture := newMemoryEnabledTestFixture(t)
 	server := fixture.server

@@ -39,7 +39,7 @@ func TestDispatcherBuildsStructuredQueryRequest(t *testing.T) {
 	dispatcher := NewDispatcher(func(_ context.Context, req api.QueryRequest) error {
 		got = req
 		return nil
-	}, nil)
+	}, nil, nil)
 	if err := dispatcher.Dispatch(context.Background(), def); err != nil {
 		t.Fatalf("dispatch: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestDispatcherLogsDispatchLifecycle(t *testing.T) {
 	}
 
 	successLogs := captureDispatcherLogs(t, func() {
-		dispatcher := NewDispatcher(func(_ context.Context, _ api.QueryRequest) error { return nil }, nil)
+		dispatcher := NewDispatcher(func(_ context.Context, _ api.QueryRequest) error { return nil }, nil, nil)
 		if err := dispatcher.Dispatch(context.Background(), def); err != nil {
 			t.Fatalf("dispatch success: %v", err)
 		}
@@ -101,7 +101,7 @@ func TestDispatcherLogsDispatchLifecycle(t *testing.T) {
 	}
 
 	failureLogs := captureDispatcherLogs(t, func() {
-		dispatcher := NewDispatcher(func(_ context.Context, _ api.QueryRequest) error { return errors.New("boom") }, nil)
+		dispatcher := NewDispatcher(func(_ context.Context, _ api.QueryRequest) error { return errors.New("boom") }, nil, nil)
 		err := dispatcher.Dispatch(context.Background(), def)
 		if err == nil {
 			t.Fatal("expected dispatch failure")
@@ -112,6 +112,78 @@ func TestDispatcherLogsDispatchLifecycle(t *testing.T) {
 	}
 	if !strings.Contains(failureLogs, "err=boom") {
 		t.Fatalf("expected failure reason in logs, got %s", failureLogs)
+	}
+}
+
+func TestDispatcherRecordsExecutionLifecycle(t *testing.T) {
+	store, err := NewExecutionStore(t.TempDir(), "")
+	if err != nil {
+		t.Fatalf("new execution store: %v", err)
+	}
+	defer store.Close()
+
+	def := Definition{
+		ID:          "daily",
+		Name:        "Daily Summary",
+		Description: "Summarize the day",
+		Enabled:     true,
+		Cron:        "0 9 * * *",
+		AgentKey:    "demo-agent",
+		TeamID:      "team-a",
+		SourceFile:  "/tmp/daily.yml",
+		Query:       Query{Message: "hello"},
+	}
+
+	dispatcher := NewDispatcher(func(_ context.Context, _ api.QueryRequest) error { return nil }, nil, store)
+	if err := dispatcher.Dispatch(context.Background(), def); err != nil {
+		t.Fatalf("dispatch success: %v", err)
+	}
+	items, total, err := store.ListBySchedule("daily", 10, 0)
+	if err != nil {
+		t.Fatalf("list executions: %v", err)
+	}
+	if total != 1 || len(items) != 1 || items[0].Status != "success" || items[0].DurationMs == nil {
+		t.Fatalf("unexpected success execution total=%d items=%#v", total, items)
+	}
+
+	expectedErr := errors.New("boom")
+	dispatcher = NewDispatcher(func(_ context.Context, _ api.QueryRequest) error { return expectedErr }, nil, store)
+	if err := dispatcher.Dispatch(context.Background(), def); !errors.Is(err, expectedErr) {
+		t.Fatalf("expected dispatch error, got %v", err)
+	}
+	last, err := store.LastExecution("daily")
+	if err != nil {
+		t.Fatalf("last execution: %v", err)
+	}
+	if last == nil || last.Status != "failed" || last.Error != "boom" {
+		t.Fatalf("unexpected failed execution %#v", last)
+	}
+}
+
+func TestDispatcherDoesNotBlockWhenExecutionStoreFails(t *testing.T) {
+	store, err := NewExecutionStore(t.TempDir(), "")
+	if err != nil {
+		t.Fatalf("new execution store: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close store: %v", err)
+	}
+
+	called := false
+	dispatcher := NewDispatcher(func(_ context.Context, _ api.QueryRequest) error {
+		called = true
+		return nil
+	}, nil, store)
+	if err := dispatcher.Dispatch(context.Background(), Definition{
+		ID:       "daily",
+		Enabled:  true,
+		AgentKey: "demo-agent",
+		Query:    Query{Message: "hello"},
+	}); err != nil {
+		t.Fatalf("dispatch with closed store: %v", err)
+	}
+	if !called {
+		t.Fatal("expected dispatch to continue after execution store failure")
 	}
 }
 

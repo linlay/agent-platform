@@ -103,6 +103,16 @@ func StandardCategories() []string {
 	}
 }
 
+func StandardSourceTypes() []string {
+	return []string{
+		"tool-write",
+		"console-edit",
+		"remember",
+		"learn",
+		"promote",
+	}
+}
+
 func IsStandardCategory(category string) bool {
 	_, ok := standardMemoryCategories[normalizeCategory(category)]
 	return ok
