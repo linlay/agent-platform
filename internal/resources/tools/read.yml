@@ -1,0 +1,20 @@
+name: read
+label: 读取文件
+description: Read a single file from the host filesystem. Use this before editing or inspecting file contents; this tool is read-only and does not require approval.
+submitResultFormat: json-compact
+type: function
+inputSchema:
+  type: object
+  properties:
+    file_path:
+      type: string
+      description: Required. Absolute path, or a path relative to AGENT_FILE_WORKING_DIRECTORY, for the file to read.
+    offset:
+      type: integer
+      description: One-based line number to start reading from. Defaults to the beginning of the file.
+    limit:
+      type: integer
+      description: Maximum number of lines to return. When omitted, content is limited only by AGENT_FILE_MAX_READ_BYTES.
+  required:
+    - file_path
+  additionalProperties: false

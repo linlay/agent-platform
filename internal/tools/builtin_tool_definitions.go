@@ -16,6 +16,8 @@ var requiredBuiltinToolNames = []string{
 	"artifact_publish",
 	"bash",
 	"datetime",
+	"read",
+	"write",
 	"_memory_read_",
 	"_memory_forget_",
 	"_memory_promote_",

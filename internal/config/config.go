@@ -30,6 +30,7 @@ type Config struct {
 	CORS           CORSConfig
 	ContainerHub   ContainerHubConfig
 	Bash           BashConfig
+	FileTools      FileToolsConfig
 	BashHITL       BashHITLConfig
 	Run            RunConfig
 	WebSocket      WebSocketConfig
@@ -234,6 +235,16 @@ type BashConfig struct {
 	ShellExecutable         string
 	ShellTimeoutMs          int
 	MaxCommandChars         int
+}
+
+type FileToolsConfig struct {
+	WorkingDirectory     string
+	AllowedReadPaths     []string
+	AllowedWritePaths    []string
+	MaxReadBytes         int
+	MaxWriteBytes        int
+	MaxBatchOps          int
+	RequireWriteApproval bool
 }
 
 type BashHITLConfig struct {
@@ -515,6 +526,15 @@ func defaultConfig() Config {
 			ShellExecutable:         "bash",
 			ShellTimeoutMs:          10000,
 			MaxCommandChars:         16000,
+		},
+		FileTools: FileToolsConfig{
+			WorkingDirectory:     "",
+			AllowedReadPaths:     nil,
+			AllowedWritePaths:    nil,
+			MaxReadBytes:         1 << 20,
+			MaxWriteBytes:        1 << 20,
+			MaxBatchOps:          20,
+			RequireWriteApproval: true,
 		},
 		BashHITL: BashHITLConfig{
 			DefaultTimeoutMs: 120000,
@@ -910,6 +930,13 @@ func (c *Config) applyEnv() {
 	c.Bash.ShellExecutable = stringEnv("AGENT_BASH_SHELL_EXECUTABLE", c.Bash.ShellExecutable)
 	c.Bash.ShellTimeoutMs = intEnv("AGENT_BASH_SHELL_TIMEOUT_MS", c.Bash.ShellTimeoutMs)
 	c.Bash.MaxCommandChars = intEnv("AGENT_BASH_MAX_COMMAND_CHARS", c.Bash.MaxCommandChars)
+	c.FileTools.WorkingDirectory = pathEnv("AGENT_FILE_WORKING_DIRECTORY", c.FileTools.WorkingDirectory)
+	c.FileTools.AllowedReadPaths = csvEnv("AGENT_FILE_ALLOWED_READ_PATHS", c.FileTools.AllowedReadPaths)
+	c.FileTools.AllowedWritePaths = csvEnv("AGENT_FILE_ALLOWED_WRITE_PATHS", c.FileTools.AllowedWritePaths)
+	c.FileTools.MaxReadBytes = intEnv("AGENT_FILE_MAX_READ_BYTES", c.FileTools.MaxReadBytes)
+	c.FileTools.MaxWriteBytes = intEnv("AGENT_FILE_MAX_WRITE_BYTES", c.FileTools.MaxWriteBytes)
+	c.FileTools.MaxBatchOps = intEnv("AGENT_FILE_MAX_BATCH_OPS", c.FileTools.MaxBatchOps)
+	c.FileTools.RequireWriteApproval = boolEnv("AGENT_FILE_REQUIRE_WRITE_APPROVAL", c.FileTools.RequireWriteApproval)
 	c.BashHITL.DefaultTimeoutMs = intEnv("AGENT_BASH_HITL_DEFAULT_TIMEOUT_MS", c.BashHITL.DefaultTimeoutMs)
 	c.Run.ReaperIntervalMs = int64Env("AGENT_RUN_REAPER_INTERVAL_MS", c.Run.ReaperIntervalMs)
 	c.Run.MaxBackgroundDurationMs = int64Env("AGENT_RUN_MAX_BACKGROUND_DURATION_MS", c.Run.MaxBackgroundDurationMs)
@@ -957,6 +984,24 @@ func (c *Config) normalize() error {
 	c.ContainerHub.Enabled = strings.TrimSpace(c.ContainerHub.BaseURL) != ""
 	if c.Bash.WorkingDirectory == "" {
 		c.Bash.WorkingDirectory = "."
+	}
+	if c.FileTools.WorkingDirectory == "" {
+		c.FileTools.WorkingDirectory = c.Bash.WorkingDirectory
+	}
+	if len(c.FileTools.AllowedReadPaths) == 0 {
+		c.FileTools.AllowedReadPaths = append([]string(nil), c.Bash.AllowedPaths...)
+	}
+	if len(c.FileTools.AllowedWritePaths) == 0 {
+		c.FileTools.AllowedWritePaths = append([]string(nil), c.Bash.AllowedPaths...)
+	}
+	if c.FileTools.MaxReadBytes <= 0 {
+		c.FileTools.MaxReadBytes = 1 << 20
+	}
+	if c.FileTools.MaxWriteBytes <= 0 {
+		c.FileTools.MaxWriteBytes = 1 << 20
+	}
+	if c.FileTools.MaxBatchOps <= 0 {
+		c.FileTools.MaxBatchOps = 20
 	}
 
 	if err := c.normalizeChannels(); err != nil {

@@ -143,6 +143,20 @@ Container Hub 默认基础挂载为：
 
 `bash HITL` 不再有单独的 `.env` 开关。是否拦截 bash 命令完全由当前 agent 挂载的 skills 决定：规则来自 skill 目录下的 `.bash-hooks/`，未挂载任何 bash hooks 时不会触发拦截。`AGENT_BASH_HITL_DEFAULT_TIMEOUT_MS` 仍用于控制审批等待超时，但不再对应任何全局 `registries/bash-hitl` 目录。
 
+### Read / Write 文件工具
+
+`read` / `write` 是 Claude Code 风格的窄文件工具：`read` 只读取单个文件，不需要审批；`write` 只创建或覆盖单个文件，默认需要人工审批。它们用于替代 heredoc、重定向等容易触发 bash 安全拦截的文件读写场景，不改变 bash 安全策略。
+
+| 环境变量 | 默认值 | 标签 | 说明 |
+|---|---|---|---|
+| `AGENT_FILE_WORKING_DIRECTORY` | 继承 `AGENT_BASH_WORKING_DIRECTORY` | `Advanced / operator` | `read` / `write` 解析相对路径时使用的工作目录 |
+| `AGENT_FILE_ALLOWED_READ_PATHS` | 继承 `AGENT_BASH_ALLOWED_PATHS` | `Advanced / operator` | `read` 允许访问的路径白名单 |
+| `AGENT_FILE_ALLOWED_WRITE_PATHS` | 继承 `AGENT_BASH_ALLOWED_PATHS` | `Advanced / operator` | `write` 允许写入的路径白名单 |
+| `AGENT_FILE_MAX_READ_BYTES` | `1048576` | `Advanced / operator` | 单次 `read` 最多返回的文件字节数 |
+| `AGENT_FILE_MAX_WRITE_BYTES` | `1048576` | `Advanced / operator` | 单次 `write` 最多写入的字节数 |
+| `AGENT_FILE_MAX_BATCH_OPS` | `20` | `Internal / compatibility` | 预留批量文件工具上限；当前 `read` / `write` 都是单文件工具 |
+| `AGENT_FILE_REQUIRE_WRITE_APPROVAL` | `true` | `Advanced / operator` | 是否要求 `write` 先走人工审批 |
+
 ### Memory 行为调优
 
 以下变量会真实影响当前 Go runner 的 memory 召回行为，但仍属于高级调优项，不建议默认暴露给最终用户：

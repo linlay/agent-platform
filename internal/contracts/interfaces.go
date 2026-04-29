@@ -146,9 +146,13 @@ type ExecutionContext struct {
 	RuntimeEnvOverrides map[string]string
 	// BashSecurityApprovals stores one-shot approvals for exact host bash command fingerprints.
 	BashSecurityApprovals map[string]int
-	StartedAt             time.Time
-	ModelCalls            int
-	ToolCalls             int
+	// FileWriteApprovals stores one-shot approvals for exact structured write plans.
+	FileWriteApprovals map[string]int
+	// FileWriteRuleApprovals stores run-scoped approvals for write operation classes under allowed roots.
+	FileWriteRuleApprovals map[string]bool
+	StartedAt              time.Time
+	ModelCalls             int
+	ToolCalls              int
 
 	resolvedEnvironmentID string // set by OpenIfNeeded, used by acquire methods
 }

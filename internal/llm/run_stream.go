@@ -17,6 +17,7 @@ import (
 	"agent-platform-runner-go/internal/bashsec"
 	"agent-platform-runner-go/internal/chat"
 	. "agent-platform-runner-go/internal/contracts"
+	"agent-platform-runner-go/internal/filetools"
 	"agent-platform-runner-go/internal/hitl"
 	. "agent-platform-runner-go/internal/models"
 	"agent-platform-runner-go/internal/stream"
@@ -107,6 +108,7 @@ type preparedToolInvocation struct {
 	toolCallCounted     bool
 	precheckedHITL      *hitl.InterceptResult
 	bashSecurityReview  *bashsec.ReviewResult
+	fileWritePlan       *filetools.WritePlan
 	approvalID          string
 	approvalDecision    string
 	hitlDecision        *hitlDecisionState
@@ -770,6 +772,22 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 				Content:    "invalid tool arguments: " + validationErr.Error(),
 			}
 	}
+	if validationErr := validateWriteToolArgs(toolCall.Function.Name, args); validationErr != nil {
+		return nil, []AgentDelta{DeltaToolResult{
+				ToolID:   toolID,
+				ToolName: toolCall.Function.Name,
+				Result: ToolExecutionResult{
+					Output:   "invalid tool arguments: " + validationErr.Error(),
+					Error:    "invalid_tool_arguments",
+					ExitCode: -1,
+				},
+			}}, &openAIMessage{
+				Role:       "tool",
+				ToolCallID: toolID,
+				Name:       toolCall.Function.Name,
+				Content:    "invalid tool arguments: " + validationErr.Error(),
+			}
+	}
 
 	if strings.EqualFold(strings.TrimSpace(toolCall.Function.Name), InvokeAgentsToolName) {
 		rawTasks, _ := args["tasks"].([]any)
@@ -848,6 +866,11 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 			invocation.bashSecurityReview = &review
 		}
 	}
+	if isWriteTool(invocation.toolName) && s.engine.cfg.FileTools.RequireWriteApproval {
+		if plan, err := filetools.BuildWritePlan(s.engine.cfg.FileTools, invocation.args); err == nil {
+			invocation.fileWritePlan = &plan
+		}
+	}
 	return invocation, nil, nil
 }
 
@@ -879,6 +902,19 @@ func validateBashToolArgs(toolName string, args map[string]any) error {
 	}
 	if strings.TrimSpace(mapStringArg(args, "description")) == "" {
 		return fmt.Errorf("description is required for bash tools")
+	}
+	return nil
+}
+
+func validateWriteToolArgs(toolName string, args map[string]any) error {
+	if !isWriteTool(toolName) {
+		return nil
+	}
+	if strings.TrimSpace(mapStringArg(args, "file_path")) == "" {
+		return nil
+	}
+	if strings.TrimSpace(mapStringArg(args, "description")) == "" {
+		return fmt.Errorf("description is required for write tools")
 	}
 	return nil
 }
@@ -931,6 +967,16 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 	if invocation.awaitExternalResult {
 		keepActive = true
 		return nil
+	}
+	if plan := s.lookupFileWritePlan(invocation); plan != nil && s.engine.cfg.FileTools.RequireWriteApproval {
+		if strings.TrimSpace(invocation.approvalDecision) != "" {
+			return s.executeApprovedFileWriteInvocation(invocation, *plan)
+		}
+		if filetools.HasWriteApproval(s.execCtx, *plan) {
+			return s.executeOriginalBash(invocation)
+		}
+		s.skipPostToolHook = true
+		return s.emitFileWriteApprovalDeltas(invocation, *plan)
 	}
 	if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewRequiresApproval {
 		if strings.TrimSpace(invocation.approvalDecision) != "" {
@@ -1078,6 +1124,21 @@ func (s *llmRunStream) lookupBashSecurityReview(invocation *preparedToolInvocati
 	return review
 }
 
+func (s *llmRunStream) lookupFileWritePlan(invocation *preparedToolInvocation) *filetools.WritePlan {
+	if invocation == nil || !isWriteTool(invocation.toolName) {
+		return nil
+	}
+	if invocation.fileWritePlan != nil {
+		return invocation.fileWritePlan
+	}
+	plan, err := filetools.BuildWritePlan(s.engine.cfg.FileTools, invocation.args)
+	if err != nil {
+		return nil
+	}
+	invocation.fileWritePlan = &plan
+	return &plan
+}
+
 func (s *llmRunStream) reviewBashSecurity(command string) bashsec.ReviewResult {
 	if s == nil || s.execCtx == nil || len(s.execCtx.RuntimeEnvOverrides) == 0 {
 		return bashsec.ReviewBashSecurity(command)
@@ -1105,6 +1166,46 @@ func (s *llmRunStream) emitBashSecurityApprovalDeltas(invocation *preparedToolIn
 		s.execCtx.CurrentToolName = ""
 	}
 	return nil
+}
+
+func (s *llmRunStream) emitFileWriteApprovalDeltas(invocation *preparedToolInvocation, plan filetools.WritePlan) error {
+	result := fileWriteInterceptResult(plan)
+	s.hitlPendingCall = invocation
+	s.hitlMatch = &result
+	s.hitlAwaitingID = buildHITLAwaitingID(invocation.toolID)
+
+	args := s.buildConfirmApprovalArgs(invocation)
+	s.hitlAwaitArgs = CloneMap(args)
+	s.pending = append(s.pending, s.buildHITLAwaitDelta(s.hitlAwaitingID, args, 0))
+
+	if s.runControl != nil {
+		awaitDelta, _ := s.pending[len(s.pending)-1].(DeltaAwaitAsk)
+		s.runControl.ExpectSubmit(awaitingContextFromDeltaAsk(awaitDelta))
+	}
+	s.activeToolCall = nil
+	if s.execCtx != nil {
+		s.execCtx.CurrentToolID = ""
+		s.execCtx.CurrentToolName = ""
+	}
+	return nil
+}
+
+func (s *llmRunStream) executeApprovedFileWriteInvocation(invocation *preparedToolInvocation, plan filetools.WritePlan) error {
+	switch strings.ToLower(strings.TrimSpace(invocation.approvalDecision)) {
+	case "reject":
+		s.appendOriginalToolResult(invocation, hitlRejectedToolResult(invocation))
+		return nil
+	case "approve_prefix_run":
+		filetools.RegisterRuleWriteApproval(s.execCtx, plan.RuleKey)
+		invocation.approvalDecision = ""
+		return s.executeOriginalBash(invocation)
+	case "approve":
+		filetools.RegisterExactWriteApproval(s.execCtx, plan.Fingerprint)
+		invocation.approvalDecision = ""
+		return s.executeOriginalBash(invocation)
+	default:
+		return s.emitFileWriteApprovalDeltas(invocation, plan)
+	}
 }
 
 func (s *llmRunStream) executeApprovedBashSecurityInvocation(invocation *preparedToolInvocation, review bashsec.ReviewResult) error {
@@ -1178,7 +1279,26 @@ func bashSecurityInterceptResult(invocation *preparedToolInvocation, review bash
 	}
 }
 
+func fileWriteInterceptResult(plan filetools.WritePlan) hitl.InterceptResult {
+	return hitl.InterceptResult{
+		Intercepted: true,
+		Rule: hitl.FlatRule{
+			RuleKey:      plan.RuleKey,
+			Level:        2,
+			Title:        "File write approval",
+			ViewportType: "builtin",
+			ViewportKey:  "confirm_dialog",
+		},
+		OriginalCommand: plan.CommandText,
+		MatchedCommand:  plan.CommandText,
+		MatchedWhole:    true,
+	}
+}
+
 func (s *llmRunStream) approvalHITLResult(invocation *preparedToolInvocation) hitl.InterceptResult {
+	if plan := s.lookupFileWritePlan(invocation); plan != nil && s.engine.cfg.FileTools.RequireWriteApproval {
+		return fileWriteInterceptResult(*plan)
+	}
 	if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewRequiresApproval {
 		return bashSecurityInterceptResult(invocation, review)
 	}
@@ -1569,6 +1689,9 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 		return nil
 	}
 	invocation.approvalDecision = selectedDecision
+	if plan := s.lookupFileWritePlan(invocation); plan != nil && s.engine.cfg.FileTools.RequireWriteApproval {
+		return s.executeApprovedFileWriteInvocation(invocation, *plan)
+	}
 	if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewRequiresApproval {
 		return s.executeApprovedBashSecurityInvocation(invocation, review)
 	}
@@ -1646,16 +1769,22 @@ func (s *llmRunStream) buildFormApprovalArgs(command string, result hitl.Interce
 }
 
 func (s *llmRunStream) buildApprovalAskItem(invocation *preparedToolInvocation) map[string]any {
+	command := mapStringArg(invocation.args, "command")
+	if plan := s.lookupFileWritePlan(invocation); plan != nil {
+		command = plan.CommandText
+	}
 	item := map[string]any{
 		"id":                  invocation.toolID,
-		"command":             mapStringArg(invocation.args, "command"),
+		"command":             command,
 		"description":         approvalDescription(invocation),
 		"options":             s.approvalOptionsForInvocation(invocation),
 		"allowFreeText":       true,
 		"freeTextPlaceholder": "可选：填写理由",
 	}
 	result := hitl.InterceptResult{}
-	if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewRequiresApproval {
+	if plan := s.lookupFileWritePlan(invocation); plan != nil && s.engine.cfg.FileTools.RequireWriteApproval {
+		result = fileWriteInterceptResult(*plan)
+	} else if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewRequiresApproval {
 		result = bashSecurityInterceptResult(invocation, review)
 	} else if invocation != nil && invocation.precheckedHITL != nil {
 		result = *invocation.precheckedHITL
@@ -1971,6 +2100,10 @@ func isBashTool(name string) bool {
 	default:
 		return false
 	}
+}
+
+func isWriteTool(name string) bool {
+	return strings.EqualFold(strings.TrimSpace(name), "write")
 }
 
 func mapStringArg(args map[string]any, key string) string {

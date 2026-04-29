@@ -69,6 +69,10 @@ func (t *RuntimeToolExecutor) Invoke(ctx context.Context, toolName string, args 
 		return t.invokeDateTime(args), nil
 	case "artifact_publish":
 		return t.invokeArtifactPublish(args, execCtx)
+	case "read":
+		return t.invokeRead(args)
+	case "write":
+		return t.invokeWrite(args, execCtx)
 	case "plan_add_tasks":
 		return t.invokePlanAddTasks(args, execCtx)
 	case "plan_get_tasks":

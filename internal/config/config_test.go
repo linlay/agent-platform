@@ -398,6 +398,62 @@ func TestLoadEnvOverridesStructuredConfig(t *testing.T) {
 	})
 }
 
+func TestFileToolsConfigFallsBackToBashConfig(t *testing.T) {
+	withIsolatedEnv(t, map[string]string{
+		"AGENT_BASH_WORKING_DIRECTORY": filepath.Join("var", "runner"),
+		"AGENT_BASH_ALLOWED_PATHS":     ".,/tmp/example",
+	}, func() {
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		if cfg.FileTools.WorkingDirectory != filepath.Join("var", "runner") {
+			t.Fatalf("unexpected file working dir: %q", cfg.FileTools.WorkingDirectory)
+		}
+		if strings.Join(cfg.FileTools.AllowedReadPaths, ",") != ".,/tmp/example" {
+			t.Fatalf("unexpected read paths: %#v", cfg.FileTools.AllowedReadPaths)
+		}
+		if strings.Join(cfg.FileTools.AllowedWritePaths, ",") != ".,/tmp/example" {
+			t.Fatalf("unexpected write paths: %#v", cfg.FileTools.AllowedWritePaths)
+		}
+		if !cfg.FileTools.RequireWriteApproval {
+			t.Fatalf("expected write approval enabled by default")
+		}
+	})
+}
+
+func TestFileToolsConfigEnvOverrides(t *testing.T) {
+	withIsolatedEnv(t, map[string]string{
+		"AGENT_FILE_WORKING_DIRECTORY":      filepath.Join("tmp", "files"),
+		"AGENT_FILE_ALLOWED_READ_PATHS":     "/read/a,/read/b",
+		"AGENT_FILE_ALLOWED_WRITE_PATHS":    "/write/a",
+		"AGENT_FILE_MAX_READ_BYTES":         "1234",
+		"AGENT_FILE_MAX_WRITE_BYTES":        "5678",
+		"AGENT_FILE_MAX_BATCH_OPS":          "9",
+		"AGENT_FILE_REQUIRE_WRITE_APPROVAL": "false",
+	}, func() {
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		if cfg.FileTools.WorkingDirectory != filepath.Join("tmp", "files") {
+			t.Fatalf("unexpected file working dir: %q", cfg.FileTools.WorkingDirectory)
+		}
+		if strings.Join(cfg.FileTools.AllowedReadPaths, ",") != "/read/a,/read/b" {
+			t.Fatalf("unexpected read paths: %#v", cfg.FileTools.AllowedReadPaths)
+		}
+		if strings.Join(cfg.FileTools.AllowedWritePaths, ",") != "/write/a" {
+			t.Fatalf("unexpected write paths: %#v", cfg.FileTools.AllowedWritePaths)
+		}
+		if cfg.FileTools.MaxReadBytes != 1234 || cfg.FileTools.MaxWriteBytes != 5678 || cfg.FileTools.MaxBatchOps != 9 {
+			t.Fatalf("unexpected file limits: %#v", cfg.FileTools)
+		}
+		if cfg.FileTools.RequireWriteApproval {
+			t.Fatalf("expected write approval disabled from env")
+		}
+	})
+}
+
 func TestLoadContainerHubDisabledWhenBaseURLMissing(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
 		content := "" +
@@ -815,6 +871,13 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 		"AGENT_BASH_SHELL_TIMEOUT_MS",
 		"AGENT_BASH_MAX_COMMAND_CHARS",
 		"AGENT_BASH_HITL_DEFAULT_TIMEOUT_MS",
+		"AGENT_FILE_WORKING_DIRECTORY",
+		"AGENT_FILE_ALLOWED_READ_PATHS",
+		"AGENT_FILE_ALLOWED_WRITE_PATHS",
+		"AGENT_FILE_MAX_READ_BYTES",
+		"AGENT_FILE_MAX_WRITE_BYTES",
+		"AGENT_FILE_MAX_BATCH_OPS",
+		"AGENT_FILE_REQUIRE_WRITE_APPROVAL",
 		"AUTH_ENABLED",
 		"AUTH_LOCAL_PUBLIC_KEY_FILE",
 		"AUTH_JWKS_URI",

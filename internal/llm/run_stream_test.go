@@ -3,6 +3,8 @@ package llm
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -16,6 +18,7 @@ import (
 	"agent-platform-runner-go/internal/frontendtools"
 	"agent-platform-runner-go/internal/hitl"
 	streampkg "agent-platform-runner-go/internal/stream"
+	runtimetools "agent-platform-runner-go/internal/tools"
 )
 
 func encodedSubmitParams(t *testing.T, value any) api.SubmitParams {
@@ -189,6 +192,10 @@ func backendToolDefinition(name string) api.ToolDetailResponse {
 			"clientVisible": true,
 		},
 	}
+}
+
+func writeToolDefinition() api.ToolDetailResponse {
+	return backendToolDefinition("write")
 }
 
 func invokeAgentsToolDefinition() api.ToolDetailResponse {
@@ -1416,6 +1423,113 @@ func TestBashSecuritySoftBlockUsesExistingFingerprintApproval(t *testing.T) {
 	}
 	if stream.hitlPendingCall != nil {
 		t.Fatalf("expected existing fingerprint approval to skip UI, got %#v", stream.hitlPendingCall)
+	}
+}
+
+func TestWriteToolEmitsApprovalBeforeExecuting(t *testing.T) {
+	root := t.TempDir()
+	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{writeToolDefinition()}}
+	stream := &llmRunStream{
+		ctx:     context.Background(),
+		session: contracts.QuerySession{RunID: "run_1"},
+		engine: &LLMAgentEngine{
+			cfg: config.Config{
+				FileTools: config.FileToolsConfig{
+					WorkingDirectory:     root,
+					AllowedReadPaths:     []string{"."},
+					AllowedWritePaths:    []string{"."},
+					MaxReadBytes:         1024,
+					MaxWriteBytes:        1024,
+					MaxBatchOps:          20,
+					RequireWriteApproval: true,
+				},
+			},
+			tools: executor,
+		},
+		execCtx: &contracts.ExecutionContext{},
+		activeToolCall: &preparedToolInvocation{
+			toolID:   "tool_1",
+			toolName: "write",
+			args: map[string]any{
+				"file_path":   "owner.md",
+				"content":     "hello",
+				"description": "写入 owner 文档",
+			},
+		},
+	}
+
+	if err := stream.invokeActiveToolCall(); err != nil {
+		t.Fatalf("invoke active write: %v", err)
+	}
+	if len(executor.invocations) != 0 {
+		t.Fatalf("expected write not to execute before approval, got %#v", executor.invocations)
+	}
+	if len(stream.pending) != 1 {
+		t.Fatalf("expected one pending approval, got %#v", stream.pending)
+	}
+	ask, ok := stream.pending[0].(contracts.DeltaAwaitAsk)
+	if !ok || ask.Mode != "approval" || len(ask.Approvals) != 1 {
+		t.Fatalf("expected approval ask, got %#v", stream.pending)
+	}
+	item, _ := ask.Approvals[0].(map[string]any)
+	if !strings.Contains(fmt.Sprint(item["command"]), "write ") || !strings.Contains(fmt.Sprint(item["command"]), "(5 bytes)") {
+		t.Fatalf("unexpected write approval command: %#v", item)
+	}
+	if item["description"] != "写入 owner 文档" {
+		t.Fatalf("unexpected approval description: %#v", item)
+	}
+}
+
+func TestWriteToolApprovalExecutesAndWritesFile(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Config{
+		FileTools: config.FileToolsConfig{
+			WorkingDirectory:     root,
+			AllowedReadPaths:     []string{"."},
+			AllowedWritePaths:    []string{"."},
+			MaxReadBytes:         1024,
+			MaxWriteBytes:        1024,
+			MaxBatchOps:          20,
+			RequireWriteApproval: true,
+		},
+	}
+	executor, err := runtimetools.NewRuntimeToolExecutor(cfg, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("new executor: %v", err)
+	}
+	stream := &llmRunStream{
+		ctx:     context.Background(),
+		session: contracts.QuerySession{RunID: "run_1"},
+		engine:  &LLMAgentEngine{cfg: cfg, tools: executor},
+		execCtx: &contracts.ExecutionContext{},
+		activeToolCall: &preparedToolInvocation{
+			toolID:           "tool_1",
+			toolName:         "write",
+			approvalDecision: "approve",
+			args: map[string]any{
+				"file_path":   "owner.md",
+				"content":     "hello",
+				"description": "写入 owner 文档",
+			},
+		},
+	}
+
+	if err := stream.invokeActiveToolCall(); err != nil {
+		t.Fatalf("invoke active write: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "owner.md"))
+	if err != nil {
+		t.Fatalf("read written file: %v", err)
+	}
+	if string(data) != "hello" {
+		t.Fatalf("unexpected written content: %q", string(data))
+	}
+	if len(stream.pending) != 1 {
+		t.Fatalf("expected tool result pending, got %#v", stream.pending)
+	}
+	result, ok := stream.pending[0].(contracts.DeltaToolResult)
+	if !ok || result.Result.Error != "" || result.Result.ExitCode != 0 {
+		t.Fatalf("expected successful tool result, got %#v", stream.pending)
 	}
 }
 
