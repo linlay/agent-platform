@@ -70,6 +70,7 @@ type ContextRequest struct {
 	MaxChars        int
 	AvailableTokens int
 	FreezeStable    bool
+	PreviewOnly     bool
 }
 
 type Layer string

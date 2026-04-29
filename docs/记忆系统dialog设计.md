@@ -376,7 +376,98 @@
 }
 ```
 
-### 6. 查询记录列表
+### 6. 预览当前问题会注入的 memory context
+
+`POST /api/memory/context/preview`
+
+用途：
+输入当前对话框里的用户问题，返回如果发起真实 query 会注入上下文的 memory 文本、分层明细和选择决策。该接口用于排查 memory recall，不发起模型调用。
+
+请求体：
+
+```json
+{
+  "chatId": "chat-123",
+  "message": "怎么发布 desktop builtin？"
+}
+```
+
+约定：
+
+- `chatId` 用于定位当前对话，并从 chat summary 推导 `agentKey` / `teamId`。
+- `message` 使用和 `/api/query` 一致的字段名，作为 memory recall query。
+- `topN`、`maxChars` 不由前端传入，固定读取后端 memory 配置。
+- `userKey` 不由前端传入，来自鉴权 principal；本地无登录态时按默认用户处理。
+- preview 复用真实 memory context 选择逻辑，但不创建新的 stable snapshot。
+
+响应示例：
+
+```json
+{
+  "code": 0,
+  "msg": "success",
+  "data": {
+    "message": "怎么发布 desktop builtin？",
+    "agentKey": "go_runner",
+    "chatId": "chat-123",
+    "teamId": "team-1",
+    "enabled": true,
+    "summary": {
+      "stableCount": 2,
+      "sessionCount": 1,
+      "observationCount": 3,
+      "stableChars": 320,
+      "sessionChars": 120,
+      "observationChars": 580,
+      "disclosedLayers": ["stable", "session", "observation"],
+      "stopReason": "selected",
+      "snapshotId": "snap_xxx",
+      "candidateCounts": {"stable": 8, "session": 2, "observation": 5},
+      "selectedCounts": {"stable": 2, "session": 1, "observation": 3}
+    },
+    "prompts": {
+      "stable": "Runtime Context: Stable Memory\n- ...",
+      "session": "Runtime Context: Session Memory\n- ...",
+      "observation": "Runtime Context: Relevant Observations\n- ..."
+    },
+    "layers": [
+      {
+        "layer": "stable",
+        "candidateCount": 8,
+        "selectedCount": 2,
+        "chars": 320,
+        "items": [
+          {
+            "id": "mem_101",
+            "kind": "fact",
+            "scopeType": "agent",
+            "scopeKey": "agent:go_runner",
+            "title": "发布流程",
+            "summary": "先 make release-program，再同步 desktop assets。",
+            "category": "workflow",
+            "importance": 9,
+            "confidence": 0.95,
+            "status": "active",
+            "sourceType": "tool-write",
+            "createdAt": 1777344000000,
+            "updatedAt": 1777344200000,
+            "order": 1
+          }
+        ]
+      }
+    ],
+    "decisions": [
+      {
+        "layer": "stable",
+        "reason": "scope_match",
+        "itemIds": ["mem_101", "mem_102"]
+      }
+    ]
+  }
+}
+```
+
+### 7. 查询记录列表
 
 `GET /api/memory/records?agentKey=go_runner&kind=fact&scopeType=user&status=active&limit=20&cursor=`
 
@@ -430,7 +521,7 @@
 }
 ```
 
-### 7. 获取单条记录详情
+### 8. 获取单条记录详情
 
 `GET /api/memory/record?agentKey=go_runner&id=mem_201`
 
@@ -659,6 +750,7 @@
 - `GET /api/memory/scope`
 - `PUT /api/memory/scope`
 - `GET /api/memory/meta`
+- `POST /api/memory/context/preview`
 - `GET /api/memory/records`
 - `GET /api/memory/record`
 

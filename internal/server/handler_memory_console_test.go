@@ -99,6 +99,73 @@ func TestHandleMemoryMetaReturnsFrontendEnums(t *testing.T) {
 	}
 }
 
+func TestHandleMemoryContextPreviewReturnsInjectedMemory(t *testing.T) {
+	fixture := newMemoryEnabledTestFixture(t)
+	server := fixture.server
+
+	if _, _, err := fixture.chats.EnsureChat("chat-preview", "mock-runner", "team-1", "memory preview"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	writeTestMemory(t, fixture.memories, api.StoredMemoryResponse{
+		ID:         "mem_agent_release",
+		AgentKey:   "mock-runner",
+		Kind:       memory.KindFact,
+		ScopeType:  memory.ScopeAgent,
+		ScopeKey:   "agent:mock-runner",
+		Title:      "Desktop builtin release",
+		Summary:    "desktop builtin 发布流程是先 make release-program，再同步 desktop assets。",
+		SourceType: "tool-write",
+		Category:   memory.CategoryWorkflow,
+		Importance: 9,
+		Confidence: 0.95,
+		Status:     memory.StatusActive,
+		CreatedAt:  100,
+		UpdatedAt:  200,
+	})
+	writeTestMemory(t, fixture.memories, api.StoredMemoryResponse{
+		ID:         "mem_chat_release",
+		AgentKey:   "mock-runner",
+		Kind:       memory.KindObservation,
+		ScopeType:  memory.ScopeChat,
+		ScopeKey:   "chat:chat-preview",
+		ChatID:     "chat-preview",
+		Title:      "desktop builtin 发布排查",
+		Summary:    "desktop builtin 发布流程需要确认 VERSION 和 dist/release 输出。",
+		SourceType: "learn",
+		Category:   memory.CategoryWorkflow,
+		Importance: 8,
+		Confidence: 0.75,
+		Status:     memory.StatusOpen,
+		CreatedAt:  110,
+		UpdatedAt:  210,
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/memory/context/preview", bytes.NewBufferString(`{"chatId":"chat-preview","message":"desktop builtin 发布流程"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp api.ApiResponse[api.MemoryContextPreviewResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !resp.Data.Enabled || resp.Data.AgentKey != "mock-runner" || resp.Data.ChatID != "chat-preview" {
+		t.Fatalf("unexpected preview envelope: %#v", resp.Data)
+	}
+	if !strings.Contains(resp.Data.Prompts.Stable, "make release-program") {
+		t.Fatalf("expected stable prompt to include release memory, got %q", resp.Data.Prompts.Stable)
+	}
+	if len(resp.Data.Layers) == 0 || resp.Data.Summary.StableCount == 0 {
+		t.Fatalf("expected preview layers and stable summary, got %#v", resp.Data)
+	}
+	if resp.Data.Layers[0].Items[0].ID == "" || resp.Data.Layers[0].Items[0].Importance == 0 {
+		t.Fatalf("expected memory item details, got %#v", resp.Data.Layers[0].Items)
+	}
+}
+
 func TestHandleMemoryScopeReturnsMarkdownAndRecords(t *testing.T) {
 	fixture := newMemoryEnabledTestFixture(t)
 	server := fixture.server

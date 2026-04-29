@@ -1,11 +1,13 @@
 package server
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"agent-platform-runner-go/internal/api"
+	"agent-platform-runner-go/internal/chat"
 	"agent-platform-runner-go/internal/memory"
 )
 
@@ -46,6 +48,101 @@ func (s *Server) handleMemoryMeta(w http.ResponseWriter, r *http.Request) {
 		Statuses:    memory.StandardStatuses(),
 		SourceTypes: memory.StandardSourceTypes(),
 	}
+	writeJSON(w, http.StatusOK, api.Success(response))
+}
+
+func (s *Server) handleMemoryContextPreview(w http.ResponseWriter, r *http.Request) {
+	if !s.memorySystemEnabled() || s.deps.Memory == nil {
+		writeJSON(w, http.StatusServiceUnavailable, api.Failure(http.StatusServiceUnavailable, "memory system is disabled"))
+		return
+	}
+	var req api.MemoryContextPreviewRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid payload"))
+		return
+	}
+	chatID := strings.TrimSpace(req.ChatID)
+	message := strings.TrimSpace(req.Message)
+	if chatID == "" || message == "" {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "chatId and message are required"))
+		return
+	}
+	summary, err := s.deps.Chats.Summary(chatID)
+	if errors.Is(err, chat.ErrChatNotFound) || summary == nil {
+		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "chat not found"))
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
+		return
+	}
+
+	agentKey := strings.TrimSpace(summary.AgentKey)
+	teamID := strings.TrimSpace(summary.TeamID)
+	if agentKey == "" && teamID != "" && s.deps.Registry != nil {
+		if team, ok := s.deps.Registry.TeamDefinition(teamID); ok {
+			agentKey = strings.TrimSpace(team.DefaultAgentKey)
+		}
+	}
+	if agentKey == "" && s.deps.Registry != nil {
+		agentKey = strings.TrimSpace(s.deps.Registry.DefaultAgentKey())
+	}
+	if agentKey == "" || s.deps.Registry == nil {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "agent not found"))
+		return
+	}
+	agentDef, ok := s.deps.Registry.AgentDefinition(agentKey)
+	if !ok {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "agent not found"))
+		return
+	}
+
+	response := api.MemoryContextPreviewResponse{
+		Message:  message,
+		AgentKey: agentKey,
+		ChatID:   chatID,
+		TeamID:   teamID,
+		Enabled:  s.memoryEnabledForAgent(agentDef),
+		Layers:   []api.MemoryContextPreviewLayer{},
+	}
+	if !response.Enabled {
+		writeJSON(w, http.StatusOK, api.Success(response))
+		return
+	}
+
+	topN := s.deps.Config.Memory.ContextTopN
+	if topN <= 0 {
+		topN = 5
+	}
+	maxChars := s.deps.Config.Memory.ContextMaxChars
+	if maxChars <= 0 {
+		maxChars = 4000
+	}
+	userKey := scopeUserKey(r)
+	bundle, err := s.deps.Memory.BuildContextBundle(memory.ContextRequest{
+		AgentKey:     agentKey,
+		TeamID:       teamID,
+		ChatID:       chatID,
+		UserKey:      userKey,
+		Query:        message,
+		TopFacts:     topN,
+		TopObs:       topN,
+		MaxChars:     maxChars,
+		FreezeStable: true,
+		PreviewOnly:  true,
+	})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
+		return
+	}
+	response.Summary = memoryContextPreviewSummary(bundle)
+	response.Prompts = api.MemoryContextPreviewPrompts{
+		Stable:      strings.TrimSpace(bundle.StablePrompt),
+		Session:     strings.TrimSpace(bundle.SessionPrompt),
+		Observation: strings.TrimSpace(bundle.ObservationPrompt),
+	}
+	response.Layers = memoryContextPreviewLayers(bundle)
+	response.Decisions = memoryContextPreviewDecisions(bundle)
 	writeJSON(w, http.StatusOK, api.Success(response))
 }
 
@@ -263,6 +360,92 @@ func (s *Server) handleMemoryRecord(w http.ResponseWriter, r *http.Request) {
 		RawFields:   detail.RawFields,
 		Embedding:   embedding,
 	}))
+}
+
+func memoryContextPreviewSummary(bundle memory.ContextBundle) api.MemoryContextPreviewSummary {
+	return api.MemoryContextPreviewSummary{
+		StableCount:      len(bundle.StableFacts),
+		SessionCount:     len(bundle.SessionSummaries),
+		ObservationCount: len(bundle.RelevantObservations),
+		StableChars:      len(strings.TrimSpace(bundle.StablePrompt)),
+		SessionChars:     len(strings.TrimSpace(bundle.SessionPrompt)),
+		ObservationChars: len(strings.TrimSpace(bundle.ObservationPrompt)),
+		DisclosedLayers:  append([]string(nil), bundle.DisclosedLayers...),
+		StopReason:       strings.TrimSpace(bundle.StopReason),
+		SnapshotID:       strings.TrimSpace(bundle.SnapshotID),
+		CandidateCounts:  cloneIntMap(bundle.CandidateCounts),
+		SelectedCounts:   cloneIntMap(bundle.SelectedCounts),
+	}
+}
+
+func memoryContextPreviewLayers(bundle memory.ContextBundle) []api.MemoryContextPreviewLayer {
+	layers := []api.MemoryContextPreviewLayer{
+		memoryContextPreviewLayer("stable", bundle.StableFacts, bundle.CandidateCounts, bundle.SelectedCounts, len(strings.TrimSpace(bundle.StablePrompt))),
+		memoryContextPreviewLayer("session", bundle.SessionSummaries, bundle.CandidateCounts, bundle.SelectedCounts, len(strings.TrimSpace(bundle.SessionPrompt))),
+		memoryContextPreviewLayer("observation", bundle.RelevantObservations, bundle.CandidateCounts, bundle.SelectedCounts, len(strings.TrimSpace(bundle.ObservationPrompt))),
+	}
+	out := make([]api.MemoryContextPreviewLayer, 0, len(layers))
+	for _, layer := range layers {
+		if layer.CandidateCount == 0 && layer.SelectedCount == 0 && len(layer.Items) == 0 && layer.Chars == 0 {
+			continue
+		}
+		out = append(out, layer)
+	}
+	return out
+}
+
+func memoryContextPreviewLayer(layer string, items []api.StoredMemoryResponse, candidateCounts map[string]int, selectedCounts map[string]int, chars int) api.MemoryContextPreviewLayer {
+	return api.MemoryContextPreviewLayer{
+		Layer:          layer,
+		CandidateCount: candidateCounts[layer],
+		SelectedCount:  selectedCounts[layer],
+		Chars:          chars,
+		Items:          memoryContextPreviewItems(items),
+	}
+}
+
+func memoryContextPreviewItems(items []api.StoredMemoryResponse) []api.MemoryContextPreviewItem {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]api.MemoryContextPreviewItem, 0, len(items))
+	for idx, item := range items {
+		out = append(out, api.MemoryContextPreviewItem{
+			ID:             strings.TrimSpace(item.ID),
+			Kind:           strings.TrimSpace(item.Kind),
+			ScopeType:      strings.TrimSpace(item.ScopeType),
+			ScopeKey:       strings.TrimSpace(item.ScopeKey),
+			Title:          strings.TrimSpace(item.Title),
+			Summary:        strings.TrimSpace(item.Summary),
+			Category:       strings.TrimSpace(item.Category),
+			Importance:     item.Importance,
+			Confidence:     item.Confidence,
+			Status:         strings.TrimSpace(item.Status),
+			SourceType:     strings.TrimSpace(item.SourceType),
+			Tags:           append([]string(nil), item.Tags...),
+			CreatedAt:      item.CreatedAt,
+			UpdatedAt:      item.UpdatedAt,
+			AccessCount:    item.AccessCount,
+			LastAccessedAt: item.LastAccessedAt,
+			Order:          idx + 1,
+		})
+	}
+	return out
+}
+
+func memoryContextPreviewDecisions(bundle memory.ContextBundle) []api.MemoryContextPreviewDecision {
+	if len(bundle.Decisions) == 0 {
+		return nil
+	}
+	out := make([]api.MemoryContextPreviewDecision, 0, len(bundle.Decisions))
+	for _, decision := range bundle.Decisions {
+		out = append(out, api.MemoryContextPreviewDecision{
+			Layer:   string(decision.Layer),
+			Reason:  strings.TrimSpace(decision.Reason),
+			ItemIDs: append([]string(nil), decision.ItemIDs...),
+		})
+	}
+	return out
 }
 
 func scopeUserKey(r *http.Request) string {

@@ -22,6 +22,77 @@ type MemoryMetaResponse struct {
 	SourceTypes []string `json:"sourceTypes"`
 }
 
+type MemoryContextPreviewRequest struct {
+	ChatID  string `json:"chatId"`
+	Message string `json:"message"`
+}
+
+type MemoryContextPreviewSummary struct {
+	StableCount      int            `json:"stableCount"`
+	SessionCount     int            `json:"sessionCount"`
+	ObservationCount int            `json:"observationCount"`
+	StableChars      int            `json:"stableChars"`
+	SessionChars     int            `json:"sessionChars"`
+	ObservationChars int            `json:"observationChars"`
+	DisclosedLayers  []string       `json:"disclosedLayers,omitempty"`
+	StopReason       string         `json:"stopReason,omitempty"`
+	SnapshotID       string         `json:"snapshotId,omitempty"`
+	CandidateCounts  map[string]int `json:"candidateCounts,omitempty"`
+	SelectedCounts   map[string]int `json:"selectedCounts,omitempty"`
+}
+
+type MemoryContextPreviewPrompts struct {
+	Stable      string `json:"stable"`
+	Session     string `json:"session"`
+	Observation string `json:"observation"`
+}
+
+type MemoryContextPreviewItem struct {
+	ID             string   `json:"id"`
+	Kind           string   `json:"kind"`
+	ScopeType      string   `json:"scopeType"`
+	ScopeKey       string   `json:"scopeKey"`
+	Title          string   `json:"title"`
+	Summary        string   `json:"summary"`
+	Category       string   `json:"category"`
+	Importance     int      `json:"importance"`
+	Confidence     float64  `json:"confidence"`
+	Status         string   `json:"status"`
+	SourceType     string   `json:"sourceType"`
+	Tags           []string `json:"tags,omitempty"`
+	CreatedAt      int64    `json:"createdAt"`
+	UpdatedAt      int64    `json:"updatedAt"`
+	AccessCount    int      `json:"accessCount,omitempty"`
+	LastAccessedAt *int64   `json:"lastAccessedAt,omitempty"`
+	Order          int      `json:"order"`
+}
+
+type MemoryContextPreviewLayer struct {
+	Layer          string                     `json:"layer"`
+	CandidateCount int                        `json:"candidateCount"`
+	SelectedCount  int                        `json:"selectedCount"`
+	Chars          int                        `json:"chars"`
+	Items          []MemoryContextPreviewItem `json:"items"`
+}
+
+type MemoryContextPreviewDecision struct {
+	Layer   string   `json:"layer"`
+	Reason  string   `json:"reason"`
+	ItemIDs []string `json:"itemIds"`
+}
+
+type MemoryContextPreviewResponse struct {
+	Message   string                         `json:"message"`
+	AgentKey  string                         `json:"agentKey"`
+	ChatID    string                         `json:"chatId"`
+	TeamID    string                         `json:"teamId,omitempty"`
+	Enabled   bool                           `json:"enabled"`
+	Summary   MemoryContextPreviewSummary    `json:"summary"`
+	Prompts   MemoryContextPreviewPrompts    `json:"prompts"`
+	Layers    []MemoryContextPreviewLayer    `json:"layers"`
+	Decisions []MemoryContextPreviewDecision `json:"decisions,omitempty"`
+}
+
 type MemoryScopeRecord struct {
 	ID         string   `json:"id"`
 	Title      string   `json:"title"`

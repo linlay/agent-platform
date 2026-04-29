@@ -942,6 +942,7 @@ func (s *SQLiteStore) BuildContextBundle(request ContextRequest) (ContextBundle,
 
 	bundle := buildContextBundleWithHybrid(request, items, hp)
 	if request.FreezeStable && strings.TrimSpace(request.ChatID) != "" {
+		hadSnapshot := snapshot != nil
 		if snapshot == nil {
 			snapshot = &MemorySnapshot{
 				ID:              bundle.SnapshotID,
@@ -950,12 +951,18 @@ func (s *SQLiteStore) BuildContextBundle(request ContextRequest) (ContextBundle,
 				StableItemIDs:   memoryIDs(bundle.StableFacts),
 				ObservedItemIDs: memoryIDs(bundle.RelevantObservations),
 			}
-			if err := s.saveMemorySnapshotLocked(*snapshot); err != nil {
-				return ContextBundle{}, err
+			if !request.PreviewOnly {
+				if err := s.saveMemorySnapshotLocked(*snapshot); err != nil {
+					return ContextBundle{}, err
+				}
 			}
 		}
-		bundle.SnapshotID = snapshot.ID
-		markStableSnapshotPinned(&bundle, snapshot.StableItemIDs)
+		if snapshot != nil {
+			bundle.SnapshotID = snapshot.ID
+			if !request.PreviewOnly || hadSnapshot {
+				markStableSnapshotPinned(&bundle, snapshot.StableItemIDs)
+			}
+		}
 	}
 	logMemoryOperation("build_context_bundle", map[string]any{
 		"agentKey":         request.AgentKey,
