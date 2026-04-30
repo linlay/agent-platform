@@ -56,6 +56,7 @@ type llmRunStream struct {
 	previousToolResult any
 	queuedToolCalls    []*preparedToolInvocation
 	activeToolCall     *preparedToolInvocation
+	promptBuildOptions PromptBuildOptions
 	hitlPendingBatch   *pendingHITLApprovalBatch
 	hitlPendingCall    *preparedToolInvocation
 	hitlMatch          *hitl.InterceptResult
@@ -302,6 +303,7 @@ func (s *llmRunStream) prepareNextTurn() error {
 		ModelKey:              s.model.Key,
 		ModelID:               s.model.ModelID,
 		RequestBody:           preparedRequest.RequestBody,
+		InjectedPrompt:        buildInjectedPromptPayload(s.session, s.req, s.promptBuildOptions, s.messages),
 		ContextWindow:         s.effectiveContextWindow(),
 		CurrentContextSize:    s.currentContextSize(),
 		EstimatedNextCallSize: s.estimatedNextCallSize(),

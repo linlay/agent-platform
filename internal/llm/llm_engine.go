@@ -179,7 +179,14 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		maxToolCallsPerTurn: options.MaxToolCallsPerTurn,
 		postToolHook:        options.PostToolHook,
 		allowToolUse:        allowToolUse,
-		onApprovalSummary:   approvalSummarySinkFromContext(ctx),
+		promptBuildOptions: PromptBuildOptions{
+			Stage:                   options.Stage,
+			StageInstructionsPrompt: "",
+			StageSystemPrompt:       "",
+			ToolDefinitions:         effectiveDefs,
+			IncludeAfterCallHints:   true,
+		},
+		onApprovalSummary: approvalSummarySinkFromContext(ctx),
 	}
 	if len(session.SkillHookDirs) > 0 {
 		log.Printf("[llm][run:%s][hitl] creating SkillChecker hookDirs=%v", session.RunID, session.SkillHookDirs)

@@ -126,7 +126,8 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 					"key": value.ModelKey,
 					"id":  value.ModelID,
 				},
-				"requestBody": clonePayload(value.RequestBody),
+				"requestBody":    clonePayload(value.RequestBody),
+				"injectedPrompt": clonePayload(value.InjectedPrompt),
 				"contextWindow": map[string]any{
 					"max_size":       value.ContextWindow,
 					"actual_size":    value.CurrentContextSize,

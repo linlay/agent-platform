@@ -1564,6 +1564,7 @@ func TestQueryAndRunStreamIncludeDebugEventsWhenEnabled(t *testing.T) {
 	provider, _ := preCallData["provider"].(map[string]any)
 	model, _ := preCallData["model"].(map[string]any)
 	requestBody, _ := preCallData["requestBody"].(map[string]any)
+	injectedPrompt, _ := preCallData["injectedPrompt"].(map[string]any)
 	if provider["key"] != "mock" {
 		t.Fatalf("expected provider key mock, got %#v", provider)
 	}
@@ -1575,6 +1576,16 @@ func TestQueryAndRunStreamIncludeDebugEventsWhenEnabled(t *testing.T) {
 	}
 	if len(requestBody) == 0 {
 		t.Fatalf("expected requestBody payload, got %#v", preCallData)
+	}
+	if len(injectedPrompt) == 0 {
+		t.Fatalf("expected injectedPrompt payload, got %#v", preCallData)
+	}
+	if got := strings.TrimSpace(stringValue(injectedPrompt["systemPrompt"])); got == "" {
+		t.Fatalf("expected injectedPrompt.systemPrompt, got %#v", injectedPrompt)
+	}
+	providerMessages, _ := injectedPrompt["providerMessages"].([]any)
+	if len(providerMessages) == 0 {
+		t.Fatalf("expected injectedPrompt.providerMessages, got %#v", injectedPrompt)
 	}
 	if _, exists := preCallData["systemPrompt"]; exists {
 		t.Fatalf("did not expect systemPrompt in debug.preCall payload, got %#v", preCallData)

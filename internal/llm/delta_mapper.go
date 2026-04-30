@@ -244,6 +244,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			ModelKey:              value.ModelKey,
 			ModelID:               value.ModelID,
 			RequestBody:           CloneMap(value.RequestBody),
+			InjectedPrompt:        CloneMap(value.InjectedPrompt),
 			ContextWindow:         value.ContextWindow,
 			CurrentContextSize:    value.CurrentContextSize,
 			EstimatedNextCallSize: value.EstimatedNextCallSize,
