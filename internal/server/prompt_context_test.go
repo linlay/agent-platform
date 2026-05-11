@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -295,6 +297,58 @@ func TestBuildRuntimeContextKeepsLocalPathsWithoutSandboxConfigInContainerMode(t
 	}
 	if context.SandboxPaths.WorkspaceDir != "/workspace" {
 		t.Fatalf("sandbox workspace dir = %q", context.SandboxPaths.WorkspaceDir)
+	}
+}
+
+func TestBuildRuntimeContextBackfillsSandboxReferencePaths(t *testing.T) {
+	t.Parallel()
+
+	hub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"hasPrompt":false}`))
+	}))
+	defer hub.Close()
+
+	cfg := testPromptContextConfig(t)
+	cfg.ContainerHub.Enabled = true
+	cfg.ContainerHub.ResolvedEngine = "docker"
+	cfg.ContainerHub.BaseURL = hub.URL
+	s := &Server{
+		deps: Dependencies{
+			Config:   cfg,
+			Registry: testCatalogRegistry{},
+		},
+	}
+
+	context, err := s.buildRuntimeRequestContext(runtimeRequestContextInput{
+		agentKey: "demo-agent",
+		teamID:   "team-1",
+		chatID:   "chat-1",
+		references: []api.Reference{
+			{ID: "ref-name", Name: "report.docx"},
+			{ID: "ref-url", URL: "/api/resource?file=chat-1%2Ffrom-url.docx"},
+		},
+		definition: catalog.AgentDefinition{
+			Key:      "demo-agent",
+			AgentDir: filepath.Join(cfg.Paths.AgentsDir, "demo-agent"),
+			Runtime: map[string]any{
+				"environmentId": "shell",
+				"level":         "run",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildRuntimeRequestContext() error = %v", err)
+	}
+	if got := context.References[0].SandboxPath; got != "/workspace/report.docx" {
+		t.Fatalf("sandbox path from name = %q", got)
+	}
+	if got := context.References[1].SandboxPath; got != "/workspace/from-url.docx" {
+		t.Fatalf("sandbox path from URL = %q", got)
+	}
+	section := buildSessionSection(contracts.QuerySession{RuntimeContext: context}, api.QueryRequest{})
+	if !strings.Contains(section, "sandboxPath: /workspace/report.docx") || !strings.Contains(section, "sandboxPath: /workspace/from-url.docx") {
+		t.Fatalf("expected sandbox paths in session section, got %q", section)
 	}
 }
 

@@ -57,6 +57,9 @@ func TestUploadAndResourceRoundTrip(t *testing.T) {
 		t.Fatalf("decode upload response: %v", err)
 	}
 	assertUUIDLike(t, response.Data.ChatID)
+	if response.Data.Upload.SandboxPath != "/workspace/notes.txt" {
+		t.Fatalf("sandbox path = %q", response.Data.Upload.SandboxPath)
+	}
 	resourceReq := httptest.NewRequest(http.MethodGet, response.Data.Upload.URL, nil)
 	resourceRec := httptest.NewRecorder()
 	server.ServeHTTP(resourceRec, resourceReq)

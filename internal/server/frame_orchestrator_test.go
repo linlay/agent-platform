@@ -244,6 +244,108 @@ func TestFrameOrchestratorRunsBatchedSubAgentsAndAggregatesResult(t *testing.T) 
 	}
 }
 
+func TestFrameOrchestratorSubAgentRequestsShareRunIDWithUniqueRequestIDs(t *testing.T) {
+	mainStream := &stubOrchestratableStream{
+		deltas: []contracts.AgentDelta{
+			newInvokeAgentsDelta(
+				contracts.SubAgentTaskSpec{SubAgentKey: "writer", TaskText: "write a summary", TaskName: "写作"},
+				contracts.SubAgentTaskSpec{SubAgentKey: "reviewer", TaskText: "review it", TaskName: "审查"},
+			),
+		},
+	}
+	childOne := &stubOrchestratableStream{
+		deltas: []contracts.AgentDelta{
+			contracts.DeltaReasoning{Text: "thinking"},
+			contracts.DeltaContent{Text: "child answer"},
+		},
+		finalText: "final child answer",
+	}
+	childTwo := &stubOrchestratableStream{finalText: "reviewed"}
+
+	var mu sync.Mutex
+	var subRequests []api.QueryRequest
+	var emitted []contracts.AgentDelta
+	var routed []stream.StreamInput
+	orchestrator := newTestFrameOrchestrator(&orchestratorAgentEngine{streamsByAgentKey: map[string]contracts.AgentStream{
+		"writer":   childOne,
+		"reviewer": childTwo,
+	}}, map[string]catalog.AgentDefinition{
+		"writer":   {Key: "writer", Name: "Writer", Mode: "REACT"},
+		"reviewer": {Key: "reviewer", Name: "Reviewer", Mode: "REACT"},
+	}, &emitted, &routed)
+	orchestrator.buildQuerySession = func(_ context.Context, req api.QueryRequest, _ chat.Summary, agentDef catalog.AgentDefinition, _ querySessionBuildOptions) (contracts.QuerySession, error) {
+		mu.Lock()
+		subRequests = append(subRequests, req)
+		mu.Unlock()
+		return contracts.QuerySession{
+			RequestID: req.RequestID,
+			RunID:     req.RunID,
+			ChatID:    req.ChatID,
+			AgentKey:  agentDef.Key,
+			Mode:      agentDef.Mode,
+		}, nil
+	}
+
+	streamFailed, streamInterrupted, err := orchestrator.Run(mainStream)
+	if err != nil || streamFailed || streamInterrupted {
+		t.Fatalf("unexpected orchestrator result err=%v failed=%v interrupted=%v", err, streamFailed, streamInterrupted)
+	}
+
+	mu.Lock()
+	requests := append([]api.QueryRequest(nil), subRequests...)
+	mu.Unlock()
+	if len(requests) != 2 {
+		t.Fatalf("expected two sub-agent requests, got %#v", requests)
+	}
+	wantTaskIDs := []string{"run_1_t_1", "run_1_t_2"}
+	taskIDs := map[string]bool{}
+	for index, delta := range emitted[:2] {
+		lifecycle, ok := delta.(contracts.DeltaTaskLifecycle)
+		if !ok || lifecycle.Kind != "start" || lifecycle.TaskID == "" {
+			t.Fatalf("expected task.start lifecycle with task ID, got %#v", delta)
+		}
+		if lifecycle.TaskID != wantTaskIDs[index] {
+			t.Fatalf("task ID = %q, want %q", lifecycle.TaskID, wantTaskIDs[index])
+		}
+		taskIDs[lifecycle.TaskID] = true
+	}
+	seenRequestIDs := map[string]bool{}
+	for _, req := range requests {
+		if req.RunID != "run_1" {
+			t.Fatalf("expected sub-agent request to preserve parent run ID, got %#v", req)
+		}
+		if req.RequestID == "" {
+			t.Fatalf("expected sub-agent request to have a unique request ID, got %#v", req)
+		}
+		if seenRequestIDs[req.RequestID] {
+			t.Fatalf("expected unique sub-agent request IDs, got %#v", requests)
+		}
+		seenRequestIDs[req.RequestID] = true
+	}
+	for _, want := range []string{"sub_1", "sub_2"} {
+		if !seenRequestIDs[want] {
+			t.Fatalf("expected sub-agent request ID %q in %#v", want, requests)
+		}
+	}
+	foundReasoning := false
+	foundContent := false
+	for _, input := range routed {
+		switch value := input.(type) {
+		case stream.ReasoningDelta:
+			if value.TaskID == "run_1_t_1" && value.ReasoningID == "run_1_t_1_r_1" {
+				foundReasoning = true
+			}
+		case stream.ContentDelta:
+			if value.TaskID == "run_1_t_1" && value.ContentID == "run_1_t_1_c_1" {
+				foundContent = true
+			}
+		}
+	}
+	if !foundReasoning || !foundContent {
+		t.Fatalf("expected child reasoning/content IDs to use task prefix; reasoning=%v content=%v routed=%#v", foundReasoning, foundContent, routed)
+	}
+}
+
 func TestFrameOrchestratorRejectsNestedInvokeAgentsTool(t *testing.T) {
 	mainStream := &stubOrchestratableStream{
 		deltas: []contracts.AgentDelta{

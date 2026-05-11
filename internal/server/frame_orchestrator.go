@@ -71,9 +71,10 @@ type childRouteEvent struct {
 }
 
 type preparedSubTask struct {
-	spec     contracts.SubAgentTaskSpec
-	agentDef catalog.AgentDefinition
-	taskID   string
+	spec      contracts.SubAgentTaskSpec
+	agentDef  catalog.AgentDefinition
+	taskID    string
+	requestID string
 }
 
 func (o *frameOrchestrator) handleSubAgentBatch(mainStream contracts.AgentStream, invoke contracts.DeltaInvokeSubAgents) error {
@@ -119,14 +120,16 @@ func (o *frameOrchestrator) handleSubAgentBatch(mainStream contracts.AgentStream
 			return nil
 		}
 		o.taskCounter++
+		taskIndex := o.taskCounter
 		prepared = append(prepared, preparedSubTask{
 			spec: contracts.SubAgentTaskSpec{
 				SubAgentKey: subAgentKey,
 				TaskText:    taskText,
 				TaskName:    taskName,
 			},
-			agentDef: agentDef,
-			taskID:   fmt.Sprintf("t_%s_%d", strings.TrimSpace(o.session.RunID), o.taskCounter),
+			agentDef:  agentDef,
+			taskID:    fmt.Sprintf("%s_t_%d", strings.TrimSpace(o.session.RunID), taskIndex),
+			requestID: fmt.Sprintf("sub_%d", taskIndex),
 		})
 	}
 
@@ -223,7 +226,7 @@ func (o *frameOrchestrator) runChildTask(index int, task preparedSubTask, princi
 	}
 
 	subReq := o.request
-	subReq.RequestID = newRunID()
+	subReq.RequestID = task.requestID
 	subReq.RunID = o.session.RunID
 	subReq.AgentKey = task.spec.SubAgentKey
 	subReq.Message = task.spec.TaskText

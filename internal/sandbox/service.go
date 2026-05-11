@@ -157,7 +157,16 @@ func (s *ContainerHubSandboxService) CloseQuietly(execCtx *contracts.ExecutionCo
 }
 
 func (s *ContainerHubSandboxService) acquireRunSession(ctx context.Context, execCtx *contracts.ExecutionContext) error {
-	return s.createAndBind(ctx, execCtx, "run", "run-"+execCtx.Session.RunID)
+	return s.createAndBind(ctx, execCtx, "run", runSessionID(execCtx.Session))
+}
+
+func runSessionID(session contracts.QuerySession) string {
+	runID := strings.TrimSpace(session.RunID)
+	requestID := strings.TrimSpace(session.RequestID)
+	if requestID == "" {
+		return "run-" + runID
+	}
+	return "run-" + runID + "-" + requestID
 }
 
 func (s *ContainerHubSandboxService) acquireAgentSession(ctx context.Context, execCtx *contracts.ExecutionContext) error {

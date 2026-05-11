@@ -110,17 +110,19 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resourceURL := "/api/resource?file=" + url.QueryEscape(filepath.ToSlash(filepath.Join(chatID, targetName)))
+	sandboxPath := "/workspace/" + filepath.ToSlash(targetName)
 	writeJSON(w, http.StatusOK, api.Success(api.UploadResponse{
 		RequestID: requestID,
 		ChatID:    chatID,
 		Upload: api.UploadTicket{
-			ID:        uploadID,
-			Type:      "file",
-			Name:      targetName,
-			MimeType:  header.Header.Get("Content-Type"),
-			SizeBytes: size,
-			URL:       resourceURL,
-			SHA256:    sum,
+			ID:          uploadID,
+			Type:        "file",
+			Name:        targetName,
+			MimeType:    header.Header.Get("Content-Type"),
+			SizeBytes:   size,
+			URL:         resourceURL,
+			SHA256:      sum,
+			SandboxPath: sandboxPath,
 		},
 	}))
 }

@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -66,6 +67,9 @@ func (s *Server) buildRuntimeRequestContext(input runtimeRequestContextInput) (c
 		SandboxPaths: resolveSandboxPaths(s.deps.Config, input.definition, input.chatID),
 		AgentDigests: buildAgentDigests(s.deps.Registry),
 	}
+	if hasRuntimeSandbox(input.definition.Runtime) && s.deps.Config.ContainerHub.Enabled {
+		context.References = normalizeReferenceSandboxPaths(context.References, context.SandboxPaths.WorkspaceDir)
+	}
 	if input.principal != nil {
 		context.AuthIdentity = buildAuthIdentity(input.principal)
 	}
@@ -77,6 +81,56 @@ func (s *Server) buildRuntimeRequestContext(input runtimeRequestContextInput) (c
 		context.SandboxContext = sandboxContext
 	}
 	return context, nil
+}
+
+func normalizeReferenceSandboxPaths(references []api.Reference, workspaceDir string) []api.Reference {
+	if len(references) == 0 {
+		return references
+	}
+	workspaceDir = strings.TrimRight(strings.TrimSpace(workspaceDir), "/")
+	if workspaceDir == "" {
+		return references
+	}
+	normalized := append([]api.Reference(nil), references...)
+	for i := range normalized {
+		if strings.TrimSpace(normalized[i].SandboxPath) != "" {
+			continue
+		}
+		name := sandboxReferenceName(normalized[i])
+		if name == "" {
+			continue
+		}
+		normalized[i].SandboxPath = workspaceDir + "/" + name
+	}
+	return normalized
+}
+
+func sandboxReferenceName(reference api.Reference) string {
+	for _, candidate := range []string{
+		reference.Name,
+		resourceFileName(reference.URL),
+	} {
+		name := filepath.Base(filepath.ToSlash(strings.TrimSpace(candidate)))
+		if name != "" && name != "." && name != "/" {
+			return name
+		}
+	}
+	return ""
+}
+
+func resourceFileName(rawURL string) string {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return ""
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	if fileParam := strings.TrimSpace(parsed.Query().Get("file")); fileParam != "" {
+		return fileParam
+	}
+	return parsed.Path
 }
 
 func buildSkillCatalogPrompt(def catalog.AgentDefinition, marketDir string, appendConfig contracts.PromptAppendConfig) string {

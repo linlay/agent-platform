@@ -599,11 +599,12 @@ type UploadResponse struct {
 }
 
 type UploadTicket struct {
-	ID        string `json:"id"`
-	Type      string `json:"type"`
-	Name      string `json:"name"`
-	MimeType  string `json:"mimeType,omitempty"`
-	SizeBytes int64  `json:"sizeBytes"`
-	URL       string `json:"url"`
-	SHA256    string `json:"sha256,omitempty"`
+	ID          string `json:"id"`
+	Type        string `json:"type"`
+	Name        string `json:"name"`
+	MimeType    string `json:"mimeType,omitempty"`
+	SizeBytes   int64  `json:"sizeBytes"`
+	URL         string `json:"url"`
+	SHA256      string `json:"sha256,omitempty"`
+	SandboxPath string `json:"sandboxPath,omitempty"`
 }
