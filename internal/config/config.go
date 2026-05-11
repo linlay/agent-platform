@@ -233,6 +233,7 @@ type BashConfig struct {
 	PathCheckBypassCommands []string
 	ShellFeaturesEnabled    bool
 	ShellExecutable         string
+	ShellArgs               []string
 	ShellTimeoutMs          int
 	MaxCommandChars         int
 }
@@ -527,7 +528,8 @@ func defaultConfig() Config {
 			PathCheckedCommands:     []string{"ls", "cat", "head", "tail", "git", "rg", "find"},
 			PathCheckBypassCommands: nil,
 			ShellFeaturesEnabled:    true,
-			ShellExecutable:         "bash",
+			ShellExecutable:         "",
+			ShellArgs:               nil,
 			ShellTimeoutMs:          10000,
 			MaxCommandChars:         16000,
 		},
@@ -611,6 +613,7 @@ func (c *Config) applyBashFile(path string) {
 	c.Bash.PathCheckBypassCommands = csvOrList(anyValue(values["path-check-bypass-commands"], c.Bash.PathCheckBypassCommands), c.Bash.PathCheckBypassCommands)
 	c.Bash.ShellFeaturesEnabled = boolValue(anyValue(values["shell-features-enabled"], c.Bash.ShellFeaturesEnabled), c.Bash.ShellFeaturesEnabled)
 	c.Bash.ShellExecutable = stringValue(anyValue(values["shell-executable"], c.Bash.ShellExecutable), c.Bash.ShellExecutable)
+	c.Bash.ShellArgs = csvOrList(anyValue(values["shell-args"], c.Bash.ShellArgs), c.Bash.ShellArgs)
 	c.Bash.ShellTimeoutMs = intValue(anyValue(values["shell-timeout-ms"], c.Bash.ShellTimeoutMs), c.Bash.ShellTimeoutMs)
 	c.Bash.MaxCommandChars = intValue(anyValue(values["max-command-chars"], c.Bash.MaxCommandChars), c.Bash.MaxCommandChars)
 }
@@ -935,6 +938,7 @@ func (c *Config) applyEnv() {
 	c.Bash.PathCheckBypassCommands = csvEnv("AGENT_BASH_PATH_CHECK_BYPASS_COMMANDS", c.Bash.PathCheckBypassCommands)
 	c.Bash.ShellFeaturesEnabled = boolEnv("AGENT_BASH_SHELL_FEATURES_ENABLED", c.Bash.ShellFeaturesEnabled)
 	c.Bash.ShellExecutable = stringEnv("AGENT_BASH_SHELL_EXECUTABLE", c.Bash.ShellExecutable)
+	c.Bash.ShellArgs = csvEnv("AGENT_BASH_SHELL_ARGS", c.Bash.ShellArgs)
 	c.Bash.ShellTimeoutMs = intEnv("AGENT_BASH_SHELL_TIMEOUT_MS", c.Bash.ShellTimeoutMs)
 	c.Bash.MaxCommandChars = intEnv("AGENT_BASH_MAX_COMMAND_CHARS", c.Bash.MaxCommandChars)
 	c.FileTools.WorkingDirectory = pathEnv("AGENT_FILE_WORKING_DIRECTORY", c.FileTools.WorkingDirectory)

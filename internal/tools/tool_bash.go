@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -54,11 +55,8 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	shellExecutable := strings.TrimSpace(t.cfg.Bash.ShellExecutable)
-	if shellExecutable == "" {
-		shellExecutable = "bash"
-	}
-	cmd := exec.CommandContext(runCtx, shellExecutable, "-lc", command)
+	shellExecutable, shellArgs := resolveHostShellInvocation(t.cfg.Bash, command, runtime.GOOS)
+	cmd := exec.CommandContext(runCtx, shellExecutable, shellArgs...)
 	cmd.Dir = workingDir
 	cmd.Env = mergeCommandEnv(execCtx)
 	output, err := cmd.CombinedOutput()
@@ -79,6 +77,78 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 		}
 	}
 	return bashResult(stdout, stderr, "host", workingDir, exitCode, ""), nil
+}
+
+const hostShellCommandPlaceholder = "{{command}}"
+
+func resolveHostShellInvocation(cfg config.BashConfig, command string, goos string) (string, []string) {
+	shellExecutable := strings.TrimSpace(cfg.ShellExecutable)
+	shellArgs := compactShellArgs(cfg.ShellArgs)
+
+	if shellExecutable == "" {
+		shellExecutable = defaultHostShellExecutable(goos)
+	}
+	if len(shellArgs) == 0 {
+		shellArgs = defaultHostShellArgs(shellExecutable, goos)
+	}
+	return shellExecutable, expandHostShellArgs(shellArgs, command)
+}
+
+func defaultHostShellExecutable(goos string) string {
+	if goos == "windows" {
+		return "powershell.exe"
+	}
+	return "bash"
+}
+
+func defaultHostShellArgs(shellExecutable string, goos string) []string {
+	base := normalizedShellBase(shellExecutable)
+	if goos == "windows" {
+		switch base {
+		case "", "powershell", "pwsh":
+			return []string{"-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", hostShellCommandPlaceholder}
+		case "cmd":
+			return []string{"/d", "/s", "/c", hostShellCommandPlaceholder}
+		case "bash", "sh":
+			return []string{"-lc", hostShellCommandPlaceholder}
+		default:
+			return []string{hostShellCommandPlaceholder}
+		}
+	}
+	return []string{"-lc", hostShellCommandPlaceholder}
+}
+
+func normalizedShellBase(shellExecutable string) string {
+	base := strings.ToLower(filepath.Base(strings.TrimSpace(shellExecutable)))
+	return strings.TrimSuffix(base, ".exe")
+}
+
+func compactShellArgs(args []string) []string {
+	out := make([]string, 0, len(args))
+	for _, arg := range args {
+		trimmed := strings.TrimSpace(arg)
+		if trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return out
+}
+
+func expandHostShellArgs(args []string, command string) []string {
+	out := make([]string, 0, len(args)+1)
+	replaced := false
+	for _, arg := range args {
+		if strings.Contains(arg, hostShellCommandPlaceholder) {
+			out = append(out, strings.ReplaceAll(arg, hostShellCommandPlaceholder, command))
+			replaced = true
+			continue
+		}
+		out = append(out, arg)
+	}
+	if !replaced {
+		out = append(out, command)
+	}
+	return out
 }
 
 func consumeBashSecurityApproval(execCtx *ExecutionContext, fingerprint string) bool {

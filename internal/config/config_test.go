@@ -362,6 +362,7 @@ func TestLoadEnvOverridesStructuredConfig(t *testing.T) {
 		"CONTAINER_HUB_BASE_URL":                "http://127.0.0.1:18000",
 		"AGENT_BASH_ALLOWED_COMMANDS":           "pwd,echo",
 		"AGENT_BASH_SHELL_FEATURES_ENABLED":     "true",
+		"AGENT_BASH_SHELL_ARGS":                 "-NoProfile,-Command,{{command}}",
 		"AGENT_BASH_WORKING_DIRECTORY":          filepath.Join("var", "runner"),
 		"AGENT_BASH_PATH_CHECK_BYPASS_COMMANDS": "echo",
 		"AGENT_BASH_HITL_DEFAULT_TIMEOUT_MS":    "45000",
@@ -389,12 +390,40 @@ func TestLoadEnvOverridesStructuredConfig(t *testing.T) {
 		if len(cfg.Bash.PathCheckBypassCommands) != 1 || cfg.Bash.PathCheckBypassCommands[0] != "echo" {
 			t.Fatalf("unexpected path bypass commands: %#v", cfg.Bash.PathCheckBypassCommands)
 		}
+		if got := strings.Join(cfg.Bash.ShellArgs, "|"); got != "-NoProfile|-Command|{{command}}" {
+			t.Fatalf("unexpected shell args: %#v", cfg.Bash.ShellArgs)
+		}
 		if cfg.BashHITL.DefaultTimeoutMs != 45000 {
 			t.Fatalf("unexpected bash HITL timeout: %d", cfg.BashHITL.DefaultTimeoutMs)
 		}
 		if cfg.Defaults.Budget.Hitl.TimeoutMs != 60000 {
 			t.Fatalf("unexpected default HITL budget timeout: %d", cfg.Defaults.Budget.Hitl.TimeoutMs)
 		}
+	})
+}
+
+func TestLoadBashShellArgsFromFile(t *testing.T) {
+	withIsolatedEnv(t, nil, func() {
+		content := "" +
+			"shell-executable: powershell.exe\n" +
+			"shell-args:\n" +
+			"  - -NoProfile\n" +
+			"  - -ExecutionPolicy\n" +
+			"  - Bypass\n" +
+			"  - -Command\n" +
+			"  - \"{{command}}\"\n"
+		withProjectFileContents(t, filepath.Join("configs", "bash.yml"), &content, func() {
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			if cfg.Bash.ShellExecutable != "powershell.exe" {
+				t.Fatalf("unexpected shell executable: %q", cfg.Bash.ShellExecutable)
+			}
+			if got := strings.Join(cfg.Bash.ShellArgs, "|"); got != "-NoProfile|-ExecutionPolicy|Bypass|-Command|{{command}}" {
+				t.Fatalf("unexpected shell args: %#v", cfg.Bash.ShellArgs)
+			}
+		})
 	})
 }
 
@@ -901,6 +930,7 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 		"AGENT_BASH_PATH_CHECK_BYPASS_COMMANDS",
 		"AGENT_BASH_SHELL_FEATURES_ENABLED",
 		"AGENT_BASH_SHELL_EXECUTABLE",
+		"AGENT_BASH_SHELL_ARGS",
 		"AGENT_BASH_SHELL_TIMEOUT_MS",
 		"AGENT_BASH_MAX_COMMAND_CHARS",
 		"AGENT_BASH_HITL_DEFAULT_TIMEOUT_MS",

@@ -21,6 +21,7 @@ require_file "$PROGRAM_RELEASE_ASSETS_DIR/windows/deploy.ps1"
 require_file "$PROGRAM_RELEASE_ASSETS_DIR/windows/start.ps1"
 require_file "$PROGRAM_RELEASE_ASSETS_DIR/windows/stop.ps1"
 require_file "$PROGRAM_RELEASE_ASSETS_DIR/windows/program-common.ps1"
+require_file "$PROGRAM_RELEASE_ASSETS_DIR/windows/bash.example.yml"
 require_file "$REPO_ROOT/.env.example"
 require_dir "$REPO_ROOT/configs"
 cd "$REPO_ROOT"
@@ -98,6 +99,9 @@ build_program_bundle() {
   cp "$PROGRAM_RELEASE_ASSETS_DIR/README.txt" "$bundle_root/README.txt"
   write_program_manifest "$bundle_root/manifest.json" "$target_os" "$target_arch" "$backend_entry" "$(basename "$bundle_archive")"
   copy_config_templates "$bundle_root"
+  if [[ "$target_os" == "windows" ]]; then
+    cp "$PROGRAM_RELEASE_ASSETS_DIR/windows/bash.example.yml" "$bundle_root/configs/bash.example.yml"
+  fi
   create_runtime_tree "$bundle_root"
 
   if [[ "$target_os" == "windows" ]]; then

@@ -1,0 +1,25 @@
+# Windows host shell preset. The historical tool name remains `bash`, but host
+# commands run through Windows PowerShell by default.
+working-directory: .
+allowed-paths: ., C:\
+allowed-commands: '*'
+path-checked-commands: '*'
+path-check-bypass-commands: '*'
+shell-features-enabled: true
+shell-executable: powershell.exe
+shell-args:
+  - -NoProfile
+  - -ExecutionPolicy
+  - Bypass
+  - -Command
+  - "{{command}}"
+shell-timeout-ms: 30000
+max-command-chars: 16000
+
+# To force cmd.exe instead, use:
+# shell-executable: cmd.exe
+# shell-args:
+#   - /d
+#   - /s
+#   - /c
+#   - "{{command}}"

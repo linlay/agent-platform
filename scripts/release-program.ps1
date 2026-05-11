@@ -236,6 +236,9 @@ function Build-ProgramBundle {
         Write-ProgramManifest -Dest $manifestPath -TargetOs $TargetOs -TargetArch $TargetArch -BackendEntry $backendEntry -AssetFileName (Split-Path $bundleArchive -Leaf)
 
         Copy-ConfigTemplates -BundleRoot $bundleRoot
+        if ($TargetOs -eq "windows") {
+            Copy-Item "$PROGRAM_RELEASE_ASSETS_DIR/windows/bash.example.yml" (Join-Path (Join-Path $bundleRoot "configs") "bash.example.yml") -Force
+        }
         New-RuntimeTree -BundleRoot $bundleRoot
 
         if ($TargetOs -eq "windows") {

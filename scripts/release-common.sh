@@ -87,6 +87,7 @@ archive_bundle_dir() {
   local format="$4"
 
   mkdir -p "$(dirname "$output_path")"
+  rm -f "$output_path"
 
   case "$format" in
     tar.gz)

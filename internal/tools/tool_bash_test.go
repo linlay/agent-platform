@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -12,6 +13,57 @@ import (
 	"agent-platform-runner-go/internal/config"
 	contracts "agent-platform-runner-go/internal/contracts"
 )
+
+func TestResolveHostShellInvocationDefaultsToPowerShellOnWindows(t *testing.T) {
+	executable, args := resolveHostShellInvocation(config.BashConfig{}, "Get-Process", "windows")
+
+	if executable != "powershell.exe" {
+		t.Fatalf("expected powershell.exe, got %q", executable)
+	}
+	wantArgs := []string{"-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "Get-Process"}
+	if !reflect.DeepEqual(args, wantArgs) {
+		t.Fatalf("unexpected args: got %#v want %#v", args, wantArgs)
+	}
+}
+
+func TestResolveHostShellInvocationDefaultsToBashOnUnix(t *testing.T) {
+	executable, args := resolveHostShellInvocation(config.BashConfig{}, "pwd", "linux")
+
+	if executable != "bash" {
+		t.Fatalf("expected bash, got %q", executable)
+	}
+	wantArgs := []string{"-lc", "pwd"}
+	if !reflect.DeepEqual(args, wantArgs) {
+		t.Fatalf("unexpected args: got %#v want %#v", args, wantArgs)
+	}
+}
+
+func TestResolveHostShellInvocationSupportsCustomArgs(t *testing.T) {
+	executable, args := resolveHostShellInvocation(config.BashConfig{
+		ShellExecutable: "cmd.exe",
+		ShellArgs:       []string{"/d", "/s", "/c", "{{command}}"},
+	}, "dir", "windows")
+
+	if executable != "cmd.exe" {
+		t.Fatalf("expected cmd.exe, got %q", executable)
+	}
+	wantArgs := []string{"/d", "/s", "/c", "dir"}
+	if !reflect.DeepEqual(args, wantArgs) {
+		t.Fatalf("unexpected args: got %#v want %#v", args, wantArgs)
+	}
+}
+
+func TestResolveHostShellInvocationAppendsCommandWithoutPlaceholder(t *testing.T) {
+	_, args := resolveHostShellInvocation(config.BashConfig{
+		ShellExecutable: "pwsh.exe",
+		ShellArgs:       []string{"-NoProfile", "-Command"},
+	}, "node --version", "windows")
+
+	wantArgs := []string{"-NoProfile", "-Command", "node --version"}
+	if !reflect.DeepEqual(args, wantArgs) {
+		t.Fatalf("unexpected args: got %#v want %#v", args, wantArgs)
+	}
+}
 
 func TestInvokeHostBashSuccessReturnsPlainStdout(t *testing.T) {
 	root := t.TempDir()
