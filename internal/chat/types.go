@@ -80,6 +80,7 @@ type StepLine struct {
 	TaskSubAgentKey string           `json:"taskSubAgentKey,omitempty"`
 	TaskMainToolID  string           `json:"taskMainToolId,omitempty"`
 	System          map[string]any   `json:"system,omitempty"`
+	SystemRef       map[string]any   `json:"systemRef,omitempty"`
 	Debug           map[string]any   `json:"debug,omitempty"`
 	Messages        []StoredMessage  `json:"messages"`
 	Approval        *StepApproval    `json:"approval,omitempty"`

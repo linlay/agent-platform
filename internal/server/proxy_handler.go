@@ -28,7 +28,7 @@ import (
 // tool.result, run.complete). StepWriter only consumes snapshot-style events
 // (content.snapshot, reasoning.snapshot, tool.snapshot, tool.result, …), so
 // we accumulate per-id buffers and synthesise snapshot events at *.end.
-func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, req api.QueryRequest, agentDef catalog.AgentDefinition) {
+func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, req api.QueryRequest, agentDef catalog.AgentDefinition, systemInitLines []chat.SystemInitLine) {
 	proxy := agentDef.ProxyConfig
 	if proxy == nil || strings.TrimSpace(proxy.BaseURL) == "" {
 		writeJSON(w, http.StatusBadGateway, api.Failure(http.StatusBadGateway, "PROXY agent missing proxyConfig.baseUrl"))
@@ -100,6 +100,7 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, req ap
 	var assistantText strings.Builder
 	if chatStore != nil {
 		stepWriter = chat.NewStepWriter(chatStore, req.ChatID, req.RunID, agentDef.Mode, isHiddenRequest(req))
+		stepWriter.SetPendingSystemInits(systemInitLines)
 		stepWriter.OnEvent(stream.EventData{
 			Type:      "request.query",
 			Timestamp: time.Now().UnixMilli(),

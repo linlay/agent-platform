@@ -1437,13 +1437,14 @@ func TestStepWriterEmbedsUsageAtStepLevel(t *testing.T) {
 	}
 }
 
-func TestStepWriterPersistsSystemSnapshotWithDriftDetection(t *testing.T) {
+func TestStepWriterPersistsSystemRefAndSanitizedPreCall(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
 
 	writer := NewStepWriter(store, "chat-system-snapshot", "run-system-snapshot", "react", false)
+	systemRef := map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:first"}
 	requestBody := map[string]any{
 		"model": "gpt-5.2",
 		"messages": []any{
@@ -1460,28 +1461,25 @@ func TestStepWriterPersistsSystemSnapshotWithDriftDetection(t *testing.T) {
 		},
 		"stream": true,
 	}
-	changedRequestBody := map[string]any{
-		"model": "gpt-5.3",
-		"messages": []any{
-			map[string]any{"role": "system", "content": "你是另一个助手"},
-		},
-		"tools": []any{
-			map[string]any{
-				"type":        "function",
-				"name":        "bash",
-				"description": "run shell command safely",
-				"parameters":  map[string]any{"type": "object"},
-			},
-		},
-		"stream": false,
-	}
 
 	emitDebugPreCall := func(request map[string]any) {
 		writer.OnEvent(stream.EventData{
 			Type: "debug.preCall",
 			Payload: map[string]any{
 				"data": map[string]any{
-					"provider":    map[string]any{"key": "mock"},
+					"provider":  map[string]any{"key": "mock"},
+					"systemRef": systemRef,
+					"contextWindow": map[string]any{
+						"max_size":       128000,
+						"estimated_size": 200,
+					},
+					"usage": map[string]any{
+						"runUsage": map[string]any{
+							"promptTokens":     1,
+							"completionTokens": 2,
+							"totalTokens":      3,
+						},
+					},
 					"requestBody": request,
 				},
 			},
@@ -1499,61 +1497,40 @@ func TestStepWriterPersistsSystemSnapshotWithDriftDetection(t *testing.T) {
 
 	emitDebugPreCall(requestBody)
 	emitContent("content-1", "first")
-	writer.OnEvent(stream.EventData{Type: "stage.marker", Payload: map[string]any{"stage": "react-step-2"}})
-	emitDebugPreCall(requestBody)
-	emitContent("content-2", "second")
-	writer.OnEvent(stream.EventData{Type: "stage.marker", Payload: map[string]any{"stage": "react-step-3"}})
-	emitDebugPreCall(changedRequestBody)
-	emitContent("content-3", "third")
 	writer.OnEvent(stream.EventData{Type: "run.complete"})
 
 	lines, err := readJSONLines(store.chatJSONLPath("chat-system-snapshot"))
 	if err != nil {
 		t.Fatalf("read chat jsonl: %v", err)
 	}
-	if len(lines) != 3 {
-		t.Fatalf("expected three step lines, got %#v", lines)
+	if len(lines) != 1 {
+		t.Fatalf("expected one step line, got %#v", lines)
 	}
 
 	debug, _ := lines[0]["debug"].(map[string]any)
 	preCall, _ := debug["preCall"].(map[string]any)
+	if _, ok := preCall["usage"]; ok {
+		t.Fatalf("did not expect duplicate usage in debug.preCall, got %#v", preCall)
+	}
+	if _, ok := preCall["contextWindow"]; ok {
+		t.Fatalf("did not expect duplicate contextWindow in debug.preCall, got %#v", preCall)
+	}
 	preCallRequestBody, _ := preCall["requestBody"].(map[string]any)
 	if preCallRequestBody["model"] != "gpt-5.2" {
 		t.Fatalf("expected debug.preCall request body, got %#v", lines[0])
 	}
-	firstSystem, _ := lines[0]["system"].(map[string]any)
-	if firstSystem["model"] != "gpt-5.2" || firstSystem["stream"] != true {
-		t.Fatalf("expected first system snapshot, got %#v", lines[0])
+	if _, ok := preCallRequestBody["messages"]; ok {
+		t.Fatalf("did not expect full messages in debug.preCall requestBody, got %#v", preCallRequestBody)
 	}
-	firstMessages, _ := firstSystem["messages"].([]any)
-	if len(firstMessages) != 1 {
-		t.Fatalf("expected only system role messages in snapshot, got %#v", firstSystem)
+	if _, ok := preCallRequestBody["tools"]; ok {
+		t.Fatalf("did not expect full tools in debug.preCall requestBody, got %#v", preCallRequestBody)
 	}
-	firstSystemMessage, _ := firstMessages[0].(map[string]any)
-	if firstSystemMessage["role"] != "system" || firstSystemMessage["content"] != "你是一个有用的助手" {
-		t.Fatalf("unexpected system message snapshot %#v", firstSystem)
+	if _, ok := lines[0]["system"]; ok {
+		t.Fatalf("did not expect full system snapshot on step, got %#v", lines[0])
 	}
-	firstTools, _ := firstSystem["tools"].([]any)
-	if len(firstTools) != 1 {
-		t.Fatalf("expected tools snapshot, got %#v", firstSystem)
-	}
-
-	if _, ok := lines[1]["system"]; ok {
-		t.Fatalf("did not expect unchanged system snapshot on second step, got %#v", lines[1])
-	}
-	secondDebug, _ := lines[1]["debug"].(map[string]any)
-	if _, ok := secondDebug["preCall"]; !ok {
-		t.Fatalf("expected debug.preCall to persist even when system snapshot is unchanged, got %#v", lines[1])
-	}
-
-	thirdSystem, _ := lines[2]["system"].(map[string]any)
-	if thirdSystem["model"] != "gpt-5.3" || thirdSystem["stream"] != false {
-		t.Fatalf("expected changed system snapshot on third step, got %#v", lines[2])
-	}
-	thirdMessages, _ := thirdSystem["messages"].([]any)
-	thirdSystemMessage, _ := thirdMessages[0].(map[string]any)
-	if thirdSystemMessage["content"] != "你是另一个助手" {
-		t.Fatalf("unexpected changed system messages %#v", thirdSystem)
+	gotSystemRef, _ := lines[0]["systemRef"].(map[string]any)
+	if gotSystemRef["cacheKey"] != "react:main" || gotSystemRef["fingerprint"] != "sha256:first" {
+		t.Fatalf("expected systemRef on step, got %#v", lines[0])
 	}
 }
 
@@ -1659,6 +1636,51 @@ func TestRawMessagesSkipSystemInitLines(t *testing.T) {
 	}
 	if len(messages) != 1 || messages[0]["role"] != "user" || messages[0]["content"] != "hello" {
 		t.Fatalf("expected only query message, got %#v", messages)
+	}
+}
+
+func TestStepWriterWritesSystemInitAfterQuery(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-query-system-init", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	writer := NewStepWriter(store, "chat-query-system-init", "run-1", "react", false)
+	writer.SetPendingSystemInits([]SystemInitLine{{
+		Type:          "system-init",
+		ChatID:        "chat-query-system-init",
+		AgentKey:      "agent",
+		RunID:         "run-1",
+		CreatedAt:     1002,
+		Fingerprint:   "sha256:first",
+		CacheKey:      "react:main",
+		Mode:          "react",
+		Stage:         "main",
+		SystemMessage: map[string]any{"role": "system", "content": "system"},
+		Tools:         []any{map[string]any{"type": "function"}},
+	}})
+	writer.OnEvent(stream.EventData{
+		Type:      "request.query",
+		Timestamp: 1001,
+		Payload: map[string]any{
+			"chatId":  "chat-query-system-init",
+			"runId":   "run-1",
+			"message": "hello",
+		},
+	})
+
+	lines, err := readJSONLines(store.chatJSONLPath("chat-query-system-init"))
+	if err != nil {
+		t.Fatalf("read chat jsonl: %v", err)
+	}
+	if len(lines) != 2 {
+		t.Fatalf("expected query and system-init lines, got %#v", lines)
+	}
+	if lines[0]["_type"] != "query" || lines[1]["_type"] != "system-init" {
+		t.Fatalf("expected query before system-init, got %#v", lines)
 	}
 }
 
@@ -2116,6 +2138,7 @@ func TestStepWriterSubAgentStepsAreExcludedFromRawMessages(t *testing.T) {
 		Timestamp: 1003,
 		Payload: map[string]any{
 			"contentId": "child_1",
+			"taskId":    "task_1",
 			"text":      "child",
 		},
 	})
@@ -2159,6 +2182,72 @@ func TestStepWriterSubAgentStepsAreExcludedFromRawMessages(t *testing.T) {
 	}
 	if lines[1]["taskSubAgentKey"] != "analyzer" || lines[1]["taskMainToolId"] != "tool_main_1" || lines[1]["taskStatus"] != "completed" {
 		t.Fatalf("expected sub-agent task metadata on middle step, got %#v", lines[1])
+	}
+}
+
+func TestStepWriterDoesNotInferTaskForUntargetedContent(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-subagent-no-infer", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	writer := NewStepWriter(store, "chat-subagent-no-infer", "run-subagent-no-infer", "react", false)
+	writer.OnEvent(stream.EventData{
+		Type:      "task.start",
+		Timestamp: 1001,
+		Payload: map[string]any{
+			"taskId":      "task_1",
+			"taskName":    "分析",
+			"subAgentKey": "analyzer",
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "content.snapshot",
+		Timestamp: 1002,
+		Payload: map[string]any{
+			"contentId": "root_1",
+			"text":      "root final",
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "task.complete",
+		Timestamp: 1003,
+		Payload: map[string]any{
+			"taskId": "task_1",
+			"status": "completed",
+		},
+	})
+	writer.Flush()
+
+	lines, err := readJSONLines(store.chatJSONLPath("chat-subagent-no-infer"))
+	if err != nil {
+		t.Fatalf("read chat jsonl: %v", err)
+	}
+	var sawRootStep, sawTaskStep bool
+	for _, line := range lines {
+		messages, _ := line["messages"].([]any)
+		if len(messages) > 0 {
+			msg, _ := messages[0].(map[string]any)
+			parts, _ := msg["content"].([]any)
+			if len(parts) > 0 {
+				part, _ := parts[0].(map[string]any)
+				if part["text"] == "root final" {
+					sawRootStep = true
+					if _, hasTaskID := line["taskId"]; hasTaskID {
+						t.Fatalf("did not expect untargeted content to be assigned to task, got %#v", line)
+					}
+				}
+			}
+		}
+		if line["taskId"] == "task_1" && line["taskStatus"] == "completed" {
+			sawTaskStep = true
+		}
+	}
+	if !sawRootStep || !sawTaskStep {
+		t.Fatalf("expected separate root and task steps, got %#v", lines)
 	}
 }
 

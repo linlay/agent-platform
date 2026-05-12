@@ -58,8 +58,8 @@ type StepWriter struct {
 	pendingContextWindowMax int
 	pendingEstimated        int
 	pendingPreCallData      map[string]any
-	pendingSystemSnapshot   map[string]any
-	lastWrittenSystem       map[string]any
+	pendingSystemRef        map[string]any
+	pendingSystemInits      []SystemInitLine
 }
 
 type taskStepBuffer struct {
@@ -89,6 +89,13 @@ func NewStepWriter(store Store, chatID, runID, mode string, hidden bool) *StepWr
 		toolTaskIDs:   map[string]string{},
 		actionTaskIDs: map[string]string{},
 	}
+}
+
+func (w *StepWriter) SetPendingSystemInits(lines []SystemInitLine) {
+	if w == nil || len(lines) == 0 {
+		return
+	}
+	w.pendingSystemInits = append([]SystemInitLine(nil), lines...)
 }
 
 // OnEvent processes a single SSE event from the stream.
@@ -281,10 +288,8 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 	case "debug.preCall", "debug.postCall":
 		if inner, ok := event.Value("data").(map[string]any); ok {
 			if event.Type == "debug.preCall" {
-				w.pendingPreCallData = cloneStepSystemPayload(inner)
-				if requestBody, ok := inner["requestBody"].(map[string]any); ok {
-					w.pendingSystemSnapshot = extractSystemSnapshot(requestBody)
-				}
+				w.pendingPreCallData = sanitizePreCallData(inner)
+				w.pendingSystemRef = systemRefFromPreCall(inner)
 			}
 			if cw, ok := inner["contextWindow"].(map[string]any); ok {
 				w.pendingContextWindowMax = toInt(cw["max_size"])
@@ -355,6 +360,7 @@ func (w *StepWriter) handleRequestQuery(event stream.EventData) {
 		UpdatedAt: time.Now().UnixMilli(),
 		Query:     query,
 	})
+	w.flushPendingSystemInits()
 }
 
 func (w *StepWriter) ensureStep() {
@@ -383,12 +389,18 @@ func (w *StepWriter) taskIDForEvent(event stream.EventData) string {
 	if actionID := strings.TrimSpace(event.String("actionId")); actionID != "" {
 		return strings.TrimSpace(w.actionTaskIDs[actionID])
 	}
-	if len(w.taskBuffers) == 1 {
-		for taskID := range w.taskBuffers {
-			return taskID
-		}
-	}
 	return ""
+}
+
+func (w *StepWriter) flushPendingSystemInits() {
+	if w.store == nil || len(w.pendingSystemInits) == 0 {
+		w.pendingSystemInits = nil
+		return
+	}
+	for _, line := range w.pendingSystemInits {
+		_ = w.store.AppendSystemInitLine(w.chatID, line)
+	}
+	w.pendingSystemInits = nil
 }
 
 func (w *StepWriter) appendStoredMessage(event stream.EventData, message StoredMessage) {
@@ -407,7 +419,7 @@ func (w *StepWriter) flushCurrentStep() {
 		w.pendingContextWindowMax = 0
 		w.pendingEstimated = 0
 		w.pendingPreCallData = nil
-		w.pendingSystemSnapshot = nil
+		w.pendingSystemRef = nil
 		return
 	}
 
@@ -419,7 +431,7 @@ func (w *StepWriter) flushCurrentStep() {
 		w.pendingContextWindowMax = 0
 		w.pendingEstimated = 0
 		w.pendingPreCallData = nil
-		w.pendingSystemSnapshot = nil
+		w.pendingSystemRef = nil
 		return
 	}
 
@@ -445,9 +457,8 @@ func (w *StepWriter) flushCurrentStep() {
 			"preCall": cloneStepSystemPayload(w.pendingPreCallData),
 		}
 	}
-	if len(w.pendingSystemSnapshot) > 0 && (len(w.lastWrittenSystem) == 0 || !mapsEqual(w.lastWrittenSystem, w.pendingSystemSnapshot)) {
-		line.System = cloneStepSystemPayload(w.pendingSystemSnapshot)
-		w.lastWrittenSystem = cloneStepSystemPayload(w.pendingSystemSnapshot)
+	if len(w.pendingSystemRef) > 0 {
+		line.SystemRef = cloneStepSystemPayload(w.pendingSystemRef)
 	}
 	if w.pendingUsage != nil || w.pendingContextWindowMax > 0 || w.pendingEstimated > 0 {
 		actual := 0
@@ -471,7 +482,7 @@ func (w *StepWriter) flushCurrentStep() {
 		w.pendingContextWindowMax = 0
 		w.pendingEstimated = 0
 		w.pendingPreCallData = nil
-		w.pendingSystemSnapshot = nil
+		w.pendingSystemRef = nil
 	}
 	if w.latestPlan != nil {
 		line.Plan = w.latestPlan
@@ -502,7 +513,7 @@ func (w *StepWriter) flushCurrentStep() {
 	w.pendingContextWindowMax = 0
 	w.pendingEstimated = 0
 	w.pendingPreCallData = nil
-	w.pendingSystemSnapshot = nil
+	w.pendingSystemRef = nil
 }
 
 func (w *StepWriter) flushTaskStep(taskID string) {
@@ -729,6 +740,41 @@ func cloneStepSystemPayload(value map[string]any) map[string]any {
 		return cloneStringAnyMap(value)
 	}
 	return cloned
+}
+
+func sanitizePreCallData(value map[string]any) map[string]any {
+	if len(value) == 0 {
+		return nil
+	}
+	out := cloneStepSystemPayload(value)
+	delete(out, "usage")
+	delete(out, "contextWindow")
+	if requestBody, ok := out["requestBody"].(map[string]any); ok {
+		out["requestBody"] = sanitizeRequestBodyForStep(requestBody)
+	}
+	return out
+}
+
+func sanitizeRequestBodyForStep(requestBody map[string]any) map[string]any {
+	if len(requestBody) == 0 {
+		return nil
+	}
+	out := cloneStepSystemPayload(requestBody)
+	delete(out, "messages")
+	delete(out, "system")
+	delete(out, "tools")
+	return out
+}
+
+func systemRefFromPreCall(value map[string]any) map[string]any {
+	if len(value) == 0 {
+		return nil
+	}
+	raw, _ := value["systemRef"].(map[string]any)
+	if len(raw) == 0 {
+		return nil
+	}
+	return cloneStepSystemPayload(raw)
 }
 
 func extractSystemSnapshot(requestBody map[string]any) map[string]any {

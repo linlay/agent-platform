@@ -305,6 +305,7 @@ func (s *llmRunStream) prepareNextTurn() error {
 		ModelID:               s.model.ModelID,
 		RequestBody:           preparedRequest.RequestBody,
 		InjectedPrompt:        buildInjectedPromptPayload(s.session, s.req, s.promptBuildOptions, s.messages),
+		SystemRef:             s.currentSystemRef(),
 		ContextWindow:         s.effectiveContextWindow(),
 		CurrentContextSize:    s.currentContextSize(),
 		EstimatedNextCallSize: s.estimatedNextCallSize(),
@@ -698,6 +699,21 @@ func (s *llmRunStream) effectiveContextWindow() int {
 		return s.model.ContextWindow
 	}
 	return defaultContextWindow
+}
+
+func (s *llmRunStream) currentSystemRef() map[string]any {
+	if s == nil {
+		return nil
+	}
+	cacheKey := SystemInitCacheKey(s.session.Mode, s.promptBuildOptions.Stage)
+	snapshot, ok := s.session.SystemInitCache[cacheKey]
+	if !ok || strings.TrimSpace(snapshot.Fingerprint) == "" {
+		return nil
+	}
+	return map[string]any{
+		"cacheKey":    cacheKey,
+		"fingerprint": snapshot.Fingerprint,
+	}
 }
 
 func (s *llmRunStream) emitPendingUsageDelta() {

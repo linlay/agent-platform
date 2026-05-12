@@ -9,9 +9,9 @@ import (
 	"agent-platform-runner-go/internal/llm"
 )
 
-func (s *Server) prepareSystemInitCache(req api.QueryRequest, session *contracts.QuerySession, created bool) error {
+func (s *Server) prepareSystemInitCache(req api.QueryRequest, session *contracts.QuerySession, created bool) ([]chat.SystemInitLine, error) {
 	if session == nil || s.deps.Chats == nil || s.deps.Tools == nil {
-		return nil
+		return nil, nil
 	}
 	profiles := llm.BuildSystemInitProfiles(
 		*session,
@@ -21,7 +21,7 @@ func (s *Server) prepareSystemInitCache(req api.QueryRequest, session *contracts
 		s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask,
 	)
 	if len(profiles) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	systemInits := map[string]*chat.SystemInitLine{}
@@ -29,15 +29,16 @@ func (s *Server) prepareSystemInitCache(req api.QueryRequest, session *contracts
 		var err error
 		systemInits, err = s.deps.Chats.LoadAllSystemInits(req.ChatID)
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 	if !created && len(systemInits) == 0 {
 		session.SystemInitLegacy = true
-		return nil
+		return nil, nil
 	}
 
 	cache := make(map[string]contracts.SystemInitSnapshot, len(profiles))
+	pendingLines := make([]chat.SystemInitLine, 0, len(profiles))
 	for _, profile := range profiles {
 		initLine := systemInits[profile.CacheKey]
 		if initLine != nil && initLine.Fingerprint == profile.Fingerprint {
@@ -61,9 +62,7 @@ func (s *Server) prepareSystemInitCache(req api.QueryRequest, session *contracts
 			SystemMessage: cloneMap(profile.SystemMessage),
 			Tools:         cloneAnySlice(profile.Tools),
 		}
-		if err := s.deps.Chats.AppendSystemInitLine(req.ChatID, line); err != nil {
-			return err
-		}
+		pendingLines = append(pendingLines, line)
 		cache[profile.CacheKey] = contracts.SystemInitSnapshot{
 			Fingerprint:   profile.Fingerprint,
 			SystemMessage: cloneMap(profile.SystemMessage),
@@ -74,7 +73,7 @@ func (s *Server) prepareSystemInitCache(req api.QueryRequest, session *contracts
 	if len(cache) > 0 {
 		session.SystemInitCache = cache
 	}
-	return nil
+	return pendingLines, nil
 }
 
 func cloneMap(src map[string]any) map[string]any {

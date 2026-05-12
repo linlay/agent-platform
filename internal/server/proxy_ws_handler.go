@@ -101,6 +101,7 @@ func (s *Server) wsProxyQuery(
 	s.registerProxyRun(route)
 
 	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode, isHiddenRequest(prepared.req))
+	stepWriter.SetPendingSystemInits(prepared.systemInitLines)
 	recorder := newProxyEventRecorder(prepared.req, prepared.agentDef, s.deps.Chats, stepWriter, control)
 
 	go s.runProxyWebSocket(runCtx, prepared, route, eventBus, recorder)

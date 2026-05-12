@@ -35,6 +35,7 @@ type preparedQuery struct {
 	agentDef           catalog.AgentDefinition
 	session            contracts.QuerySession
 	memoryUsageSummary *api.MemoryUsageSummary
+	systemInitLines    []chat.SystemInitLine
 }
 
 func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
@@ -49,7 +50,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if strings.EqualFold(prepared.agentDef.Mode, "PROXY") {
-		s.handleProxyQuery(w, r, prepared.req, prepared.agentDef)
+		s.handleProxyQuery(w, r, prepared.req, prepared.agentDef, prepared.systemInitLines)
 		return
 	}
 	if isSyncQueryContext(r.Context()) {
@@ -168,7 +169,8 @@ func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
 	if err != nil {
 		return preparedQuery{}, err
 	}
-	if err := s.prepareSystemInitCache(req, &session, created); err != nil {
+	systemInitLines, err := s.prepareSystemInitCache(req, &session, created)
+	if err != nil {
 		return preparedQuery{}, err
 	}
 
@@ -179,6 +181,7 @@ func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
 		agentDef:           agentDef,
 		session:            session,
 		memoryUsageSummary: session.MemoryUsageSummary,
+		systemInitLines:    systemInitLines,
 	}, nil
 }
 
@@ -490,6 +493,7 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 
 	assembler, mapper := s.newAssemblerAndMapper(prepared)
 	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode, isHiddenRequest(prepared.req))
+	stepWriter.SetPendingSystemInits(prepared.systemInitLines)
 
 	StartRunExecutor(RunExecutorParams{
 		RunCtx:            runCtx,
@@ -590,6 +594,7 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 		chatUsage:     chatUsage,
 		runUsage:      &runUsage,
 	}
+	processor.stepWriter.SetPendingSystemInits(prepared.systemInitLines)
 	writeEvent := func(event stream.StreamEvent) error {
 		data, visible := processor.Consume(event)
 		if !visible {

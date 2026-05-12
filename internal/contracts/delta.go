@@ -156,6 +156,7 @@ type DeltaDebugPreCall struct {
 	ModelID               string
 	RequestBody           map[string]any
 	InjectedPrompt        map[string]any
+	SystemRef             map[string]any
 	ContextWindow         int
 	CurrentContextSize    int
 	EstimatedNextCallSize int

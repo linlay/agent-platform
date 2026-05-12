@@ -77,8 +77,12 @@ func TestPrepareSystemInitCacheUsesFreshSystemMessageOnFingerprintMatch(t *testi
 	newSession.SessionMemoryContext = "Runtime Context: Current Session\n- fresh session memory"
 	newSession.ObservationContext = "Runtime Context: Relevant Observations\n- fresh observation"
 
-	if err := server.prepareSystemInitCache(req, &newSession, false); err != nil {
+	pending, err := server.prepareSystemInitCache(req, &newSession, false)
+	if err != nil {
 		t.Fatalf("prepare system init cache: %v", err)
+	}
+	if len(pending) != 0 {
+		t.Fatalf("did not expect unchanged fingerprint to append system-init, got %#v", pending)
 	}
 	snapshot, ok := newSession.SystemInitCache["react:main"]
 	if !ok {
@@ -90,5 +94,53 @@ func TestPrepareSystemInitCacheUsesFreshSystemMessageOnFingerprintMatch(t *testi
 	}
 	if !reflect.DeepEqual(snapshot.Tools, cachedTools) {
 		t.Fatalf("expected cached tools %#v, got %#v", cachedTools, snapshot.Tools)
+	}
+}
+
+func TestPrepareSystemInitCacheReturnsPendingLineOnFingerprintChange(t *testing.T) {
+	store, err := chat.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new chat store: %v", err)
+	}
+
+	req := api.QueryRequest{ChatID: "chat-1", Message: "hello"}
+	toolDefs := []api.ToolDetailResponse{{Name: "datetime", Description: "get current time"}}
+	session := contracts.QuerySession{
+		RunID:                "run-1",
+		ChatID:               "chat-1",
+		AgentKey:             "agent",
+		ModelKey:             "mock-model",
+		ToolNames:            []string{"datetime"},
+		Mode:                 "REACT",
+		ContextTags:          []string{"system"},
+		PromptAppend:         contracts.DefaultPromptAppendConfig(),
+		AgentHasMemoryConfig: true,
+		SessionMemoryContext: "Runtime Context: Current Session\n- fresh",
+	}
+	server := &Server{deps: Dependencies{
+		Config: config.Config{},
+		Chats:  store,
+		Tools:  systemInitStaticToolExecutor{defs: toolDefs},
+	}}
+
+	pending, err := server.prepareSystemInitCache(req, &session, true)
+	if err != nil {
+		t.Fatalf("prepare system init cache: %v", err)
+	}
+	if len(pending) != 1 {
+		t.Fatalf("expected one pending system-init line, got %#v", pending)
+	}
+	if pending[0].CacheKey != "react:main" || pending[0].Fingerprint == "" {
+		t.Fatalf("unexpected pending system-init line %#v", pending[0])
+	}
+	if _, ok := session.SystemInitCache["react:main"]; !ok {
+		t.Fatalf("expected session cache to be populated, got %#v", session.SystemInitCache)
+	}
+	loaded, err := store.LoadSystemInit(req.ChatID, "react:main")
+	if err != nil {
+		t.Fatalf("load system init: %v", err)
+	}
+	if loaded != nil {
+		t.Fatalf("prepare should not append before query, got %#v", loaded)
 	}
 }
