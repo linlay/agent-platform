@@ -93,10 +93,11 @@ type QuerySession struct {
 	RuntimeContext        RuntimeRequestContext
 	PromptAppend          PromptAppendConfig
 	StaticMemoryPrompt    string
-	MemoryPrompt          string // Deprecated: use StaticMemoryPrompt.
-	SkillCatalogPrompt    string
-	SystemInitCache       map[string]SystemInitSnapshot
-	SystemInitLegacy      bool // true for pre-system-init historical chats that should keep rebuilding prompts.
+	// TODO(compat-cleanup): remove MemoryPrompt after all prompt builders and API previews use StaticMemoryPrompt.
+	MemoryPrompt       string // Deprecated: use StaticMemoryPrompt.
+	SkillCatalogPrompt string
+	SystemInitCache    map[string]SystemInitSnapshot
+	SystemInitLegacy   bool // true for pre-system-init historical chats that should keep rebuilding prompts.
 
 	// Prompt files loaded from agent directory.
 	SoulPrompt    string

@@ -135,9 +135,10 @@ func parseRuleFile(path string) (RuleFile, bool, error) {
 		}
 		for _, rawSub := range listMaps(rawCommand["subcommands"]) {
 			block.Subcommands = append(block.Subcommands, SubcommandRule{
-				Match:        strings.TrimSpace(stringValue(rawSub["match"])),
-				Level:        intValue(rawSub["level"]),
-				Title:        strings.TrimSpace(stringValue(rawSub["title"])),
+				Match: strings.TrimSpace(stringValue(rawSub["match"])),
+				Level: intValue(rawSub["level"]),
+				Title: strings.TrimSpace(stringValue(rawSub["title"])),
+				// TODO(compat-cleanup): drop toolType alias after HITL rules standardize on viewportType.
 				ViewportType: strings.TrimSpace(firstString(rawSub, "viewportType", "toolType")),
 				ViewportKey:  strings.TrimSpace(stringValue(rawSub["viewportKey"])),
 				TimeoutMs:    intValue(rawSub["timeoutMs"]),

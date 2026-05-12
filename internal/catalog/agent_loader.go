@@ -322,6 +322,7 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 		hasRuntimeConfig = true
 	}
 	if !hasRuntimeConfig {
+		// TODO(compat-cleanup): remove sandboxConfig fallback after all agent definitions use runtimeConfig.
 		runtimeConfig = mapNode(root["sandboxConfig"])
 	}
 	if len(runtimeConfig) > 0 {

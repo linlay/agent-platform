@@ -1,0 +1,61 @@
+package chat
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"agent-platform-runner-go/internal/stream"
+)
+
+// AppendEvent writes a raw SSE event to events.jsonl (legacy path).
+func (s *FileStore) AppendEvent(chatID string, event stream.EventData) error {
+	return s.appendJSONLine(filepath.Join(s.ChatDir(chatID), "events.jsonl"), event)
+}
+
+func (s *FileStore) AppendQueryLine(chatID string, line QueryLine) error {
+	return s.appendJSONLine(s.chatJSONLPath(chatID), line)
+}
+
+func (s *FileStore) AppendStepLine(chatID string, line StepLine) error {
+	return s.appendJSONLine(s.chatJSONLPath(chatID), line)
+}
+
+func (s *FileStore) AppendEventLine(chatID string, line EventLine) error {
+	return s.appendJSONLine(s.chatJSONLPath(chatID), line)
+}
+
+func (s *FileStore) AppendSubmitLine(chatID string, line SubmitLine) error {
+	return s.appendJSONLine(s.chatJSONLPath(chatID), line)
+}
+
+func (s *FileStore) AppendSystemInitLine(chatID string, line SystemInitLine) error {
+	line.Type = "system"
+	if strings.TrimSpace(line.ChatID) == "" {
+		line.ChatID = chatID
+	}
+	return s.appendJSONLine(s.chatJSONLPath(chatID), line)
+}
+
+// chatJSONLPath returns the path to {chatId}.jsonl (flat file, matching Java).
+func (s *FileStore) chatJSONLPath(chatID string) string {
+	return filepath.Join(s.root, chatID+".jsonl")
+}
+
+func (s *FileStore) appendJSONLine(path string, payload any) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	encoder := json.NewEncoder(file)
+	return encoder.Encode(payload)
+}

@@ -252,6 +252,7 @@ func TestBroadcastDefinitionsStayAlignedAcrossHTTPAndWS(t *testing.T) {
 	handlerQuery := mustReadFile(t, filepath.Join(root, "handler_query.go"))
 	handlerChat := mustReadFile(t, filepath.Join(root, "handler_chat.go"))
 	wsRoutes := mustReadFile(t, filepath.Join(root, "ws_routes.go"))
+	wsQueryRoutes := mustReadFile(t, filepath.Join(root, "ws_query_routes.go"))
 
 	assertContains(t, handlerQuery, `s.broadcast("run.started"`)
 	assertContains(t, handlerQuery, `s.broadcast("run.finished"`)
@@ -259,10 +260,10 @@ func TestBroadcastDefinitionsStayAlignedAcrossHTTPAndWS(t *testing.T) {
 	assertContains(t, handlerChat, `s.broadcastChatReadState("chat.read"`)
 	assertContains(t, handlerQuery, `s.broadcastChatReadState("chat.unread"`)
 	assertContains(t, wsRoutes, `handler.RegisterRoute("/api/attach"`)
-	assertContains(t, wsRoutes, `s.broadcast("run.started"`)
-	assertContains(t, wsRoutes, `s.broadcast("run.finished"`)
+	assertContains(t, wsQueryRoutes, `s.broadcast("run.started"`)
+	assertContains(t, wsQueryRoutes, `s.broadcast("run.finished"`)
 	assertContains(t, wsRoutes, `s.broadcastChatReadState("chat.read"`)
-	assertContains(t, wsRoutes, `s.broadcastChatReadState("chat.unread"`)
+	assertContains(t, wsQueryRoutes, `s.broadcastChatReadState("chat.unread"`)
 }
 
 func TestGatewayPullPathAndURLBuilderUsePullEndpoint(t *testing.T) {

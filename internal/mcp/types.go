@@ -57,10 +57,11 @@ func (t *ToolDefinition) UnmarshalJSON(data []byte) error {
 		Parameters    map[string]any `json:"parameters"`
 		ToolAction    bool           `json:"toolAction"`
 		ViewportType  string         `json:"viewportType"`
-		ToolType      string         `json:"toolType"`
-		ViewportKey   string         `json:"viewportKey"`
-		Aliases       []string       `json:"aliases"`
-		Meta          map[string]any `json:"meta"`
+		// TODO(compat-cleanup): remove toolType input alias once registries only emit viewportType.
+		ToolType    string         `json:"toolType"`
+		ViewportKey string         `json:"viewportKey"`
+		Aliases     []string       `json:"aliases"`
+		Meta        map[string]any `json:"meta"`
 	}
 	var raw rawToolDefinition
 	if err := json.Unmarshal(data, &raw); err != nil {
