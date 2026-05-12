@@ -112,6 +112,7 @@ type Server struct {
 	ticketService     *ResourceTicketService
 	wsHandler         *ws.Handler
 	deferredAwaitings *DeferredAwaitingStore
+	uploadMu          sync.Mutex
 	proxyMu           sync.RWMutex
 	proxyRuns         map[string]*proxyRunRoute
 }

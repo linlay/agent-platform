@@ -6,13 +6,17 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -77,6 +81,158 @@ func TestUploadAndResourceRoundTrip(t *testing.T) {
 	if len(matches) != 1 {
 		t.Fatalf("expected uploaded file under %s, got %v", fixture.cfg.Paths.ChatsDir, matches)
 	}
+}
+
+func TestUploadIDsIncrementWithinChat(t *testing.T) {
+	fixture := newTestFixture(t)
+	server := fixture.server
+
+	first := postTestUpload(t, server, "chat_upload_ids", "upload_1", "first.txt", "first")
+	second := postTestUpload(t, server, "chat_upload_ids", "upload_2", "second.txt", "second")
+	otherChat := postTestUpload(t, server, "chat_upload_ids_other", "upload_3", "other.txt", "other")
+
+	if first.Upload.ID != "r01" {
+		t.Fatalf("expected first upload id r01, got %#v", first.Upload)
+	}
+	if second.Upload.ID != "r02" {
+		t.Fatalf("expected second upload id r02, got %#v", second.Upload)
+	}
+	if otherChat.Upload.ID != "r01" {
+		t.Fatalf("expected other chat to start at r01, got %#v", otherChat.Upload)
+	}
+}
+
+func TestInternalUploadUsesNextChatUploadID(t *testing.T) {
+	fixture := newTestFixture(t)
+	server := fixture.server
+
+	first := postTestUpload(t, server, "chat_internal_upload_ids", "upload_1", "first.txt", "first")
+	if first.Upload.ID != "r01" {
+		t.Fatalf("expected first upload id r01, got %#v", first.Upload)
+	}
+
+	status, body, err := server.ExecuteInternalUpload(context.Background(), "chat_internal_upload_ids", "upload_internal", "internal.txt", "text/plain", []byte("internal"))
+	if err != nil {
+		t.Fatalf("internal upload: %v", err)
+	}
+	if status != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", status, string(body))
+	}
+	var response api.ApiResponse[api.UploadResponse]
+	if err := json.Unmarshal(body, &response); err != nil {
+		t.Fatalf("decode internal upload response: %v", err)
+	}
+	if response.Data.Upload.ID != "r02" {
+		t.Fatalf("expected internal upload id r02, got %#v", response.Data.Upload)
+	}
+}
+
+func TestUploadIDSeedsFromExistingRootUploadFiles(t *testing.T) {
+	fixture := newTestFixture(t)
+	server := fixture.server
+
+	_, _, err := fixture.chats.EnsureChat("chat_legacy_upload_ids", "", "", "")
+	if err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	chatDir := fixture.chats.ChatDir("chat_legacy_upload_ids")
+	for name, content := range map[string]string{
+		"legacy-one.txt":     "one",
+		"legacy-two.txt":     "two",
+		"events.jsonl":       "{}\n",
+		"raw_messages.jsonl": "{}\n",
+	} {
+		if err := os.WriteFile(filepath.Join(chatDir, name), []byte(content), 0o644); err != nil {
+			t.Fatalf("write fixture file %s: %v", name, err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(chatDir, "artifacts"), 0o755); err != nil {
+		t.Fatalf("write fixture directory: %v", err)
+	}
+
+	response := postTestUpload(t, server, "chat_legacy_upload_ids", "upload_legacy", "new.txt", "new")
+	if response.Upload.ID != "r03" {
+		t.Fatalf("expected legacy-seeded upload id r03, got %#v", response.Upload)
+	}
+}
+
+func TestConcurrentUploadsGetUniqueChatUploadIDs(t *testing.T) {
+	fixture := newTestFixture(t)
+	server := fixture.server
+
+	const total = 8
+	ids := make(chan string, total)
+	var wg sync.WaitGroup
+	for i := 0; i < total; i++ {
+		i := i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			name := "file-" + strconv.Itoa(i) + ".txt"
+			response := postTestUpload(t, server, "chat_concurrent_upload_ids", "upload_concurrent_"+strconv.Itoa(i), name, "body")
+			ids <- response.Upload.ID
+		}()
+	}
+	wg.Wait()
+	close(ids)
+
+	seen := map[string]bool{}
+	for id := range ids {
+		if seen[id] {
+			t.Fatalf("duplicate upload id %q", id)
+		}
+		seen[id] = true
+	}
+	if len(seen) != total {
+		t.Fatalf("expected %d ids, got %v", total, seen)
+	}
+	for i := 1; i <= total; i++ {
+		id := "r" + fmt.Sprintf("%02d", i)
+		if !seen[id] {
+			t.Fatalf("expected id %s in %v", id, seen)
+		}
+	}
+}
+
+func postTestUpload(t *testing.T, server *Server, chatID string, requestID string, fileName string, content string) api.UploadResponse {
+	t.Helper()
+
+	payload := &bytes.Buffer{}
+	writer := multipart.NewWriter(payload)
+	part, err := writer.CreateFormFile("file", fileName)
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	if _, err := io.Copy(part, strings.NewReader(content)); err != nil {
+		t.Fatalf("write upload body: %v", err)
+	}
+	if requestID != "" {
+		if err := writer.WriteField("requestId", requestID); err != nil {
+			t.Fatalf("write requestId: %v", err)
+		}
+	}
+	if chatID != "" {
+		if err := writer.WriteField("chatId", chatID); err != nil {
+			t.Fatalf("write chatId: %v", err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close multipart: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/upload", payload)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var response api.ApiResponse[api.UploadResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode upload response: %v", err)
+	}
+	return response.Data
 }
 
 func TestResourceRoundTripRequiresValidTicketWhenEnabled(t *testing.T) {
