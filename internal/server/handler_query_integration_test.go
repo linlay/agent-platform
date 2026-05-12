@@ -286,8 +286,8 @@ func TestChatSnapshotDeduplicatesChatStartAcrossMultipleQueries(t *testing.T) {
 	if runStartCount != 2 {
 		t.Fatalf("expected two run.start events, got %d events=%#v", runStartCount, chatResp.Data.Events)
 	}
-	if len(chatResp.Data.Events) != 13 {
-		t.Fatalf("expected 13 persisted events for two turns, got %d events=%#v", len(chatResp.Data.Events), chatResp.Data.Events)
+	if len(chatResp.Data.Events) != 9 {
+		t.Fatalf("expected 9 persisted events for two turns, got %d events=%#v", len(chatResp.Data.Events), chatResp.Data.Events)
 	}
 	if len(chatResp.Data.RawMessages) != 4 {
 		t.Fatalf("expected four raw messages for two turns, got %#v", chatResp.Data.RawMessages)
@@ -437,7 +437,7 @@ func TestQueryDecryptsAESProviderAPIKeyBeforeSendingAuthorizationHeader(t *testi
 	}
 }
 
-func TestQueryAndRunStreamHideDebugEventsByDefaultButPersistThem(t *testing.T) {
+func TestQueryAndRunDebugEventsDisabledByDefault(t *testing.T) {
 	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w,
 			`{"choices":[{"delta":{"content":"hello"},"finish_reason":"stop"}]}`,
@@ -480,10 +480,10 @@ func TestQueryAndRunStreamHideDebugEventsByDefaultButPersistThem(t *testing.T) {
 	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
 		t.Fatalf("decode chat detail: %v", err)
 	}
-	assertEventTypesInclude(t, chatResp.Data.Events, "debug.preCall", "debug.postCall")
+	assertEventTypesExclude(t, chatResp.Data.Events, "debug.preCall", "debug.postCall")
 }
 
-func TestQueryAndRunStreamIncludeDebugEventsWhenEnabled(t *testing.T) {
+func TestQueryAndRunDebugEventsEnabledWhenEnabled(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w,
 			`{"choices":[{"delta":{"content":"hello"},"finish_reason":"stop"}]}`,
@@ -492,7 +492,7 @@ func TestQueryAndRunStreamIncludeDebugEventsWhenEnabled(t *testing.T) {
 		)
 	}, testFixtureOptions{
 		configure: func(cfg *config.Config) {
-			cfg.Stream.IncludeDebugEvents = true
+			cfg.Stream.DebugEventsEnabled = true
 		},
 	})
 
@@ -555,8 +555,9 @@ func TestQueryAndRunStreamIncludeDebugEventsWhenEnabled(t *testing.T) {
 		t.Fatalf("did not expect tools in debug.preCall payload, got %#v", preCallData)
 	}
 	runID, _ := messages[0]["runId"].(string)
-	if runID == "" {
-		t.Fatalf("expected runId in first sse message, got %#v", messages[0])
+	chatID, _ := messages[0]["chatId"].(string)
+	if runID == "" || chatID == "" {
+		t.Fatalf("expected runId/chatId in first sse message, got %#v", messages[0])
 	}
 
 	runRec := httptest.NewRecorder()
@@ -565,6 +566,14 @@ func TestQueryAndRunStreamIncludeDebugEventsWhenEnabled(t *testing.T) {
 		t.Fatalf("expected run stream 200, got %d: %s", runRec.Code, runRec.Body.String())
 	}
 	assertStringSliceContains(t, decodeEventTypesFromSSE(t, runRec.Body.String()), "debug.preCall", "debug.postCall")
+
+	chatRec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatID, nil))
+	var chatResp api.ApiResponse[api.ChatDetailResponse]
+	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
+		t.Fatalf("decode chat detail: %v", err)
+	}
+	assertEventTypesInclude(t, chatResp.Data.Events, "debug.preCall", "debug.postCall")
 }
 
 func TestPlanExecutePlanStageOnlyUsesPlanAddTasksBeforeSequentialTaskExecution(t *testing.T) {
@@ -638,7 +647,7 @@ func TestPlanExecutePlanStageOnlyUsesPlanAddTasksBeforeSequentialTaskExecution(t
 		}
 	}, testFixtureOptions{
 		configure: func(cfg *config.Config) {
-			cfg.Stream.IncludeDebugEvents = true
+			cfg.Stream.DebugEventsEnabled = true
 		},
 		setupRuntime: func(_ string, cfg *config.Config) {
 			agentPath := filepath.Join(cfg.Paths.AgentsDir, "mock-runner", "agent.yml")

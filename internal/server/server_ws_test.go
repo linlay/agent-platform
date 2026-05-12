@@ -666,7 +666,7 @@ func TestWebSocketQueryDebugVisibilityFollowsStreamConfig(t *testing.T) {
 					cfg.WebSocket.Enabled = true
 					cfg.WebSocket.WriteQueueSize = 8
 					cfg.WebSocket.PingIntervalMs = 30000
-					cfg.Stream.IncludeDebugEvents = tc.includeDebug
+					cfg.Stream.DebugEventsEnabled = tc.includeDebug
 				},
 			})
 

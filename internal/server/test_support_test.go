@@ -774,6 +774,15 @@ func assertEventTypesInclude(t *testing.T, events []stream.EventData, want ...st
 	assertStringSliceContains(t, got, want...)
 }
 
+func assertEventTypesExclude(t *testing.T, events []stream.EventData, blocked ...string) {
+	t.Helper()
+	got := make([]string, 0, len(events))
+	for _, event := range events {
+		got = append(got, event.Type)
+	}
+	assertStringSliceExcludes(t, got, blocked...)
+}
+
 func assertStringSliceContains(t *testing.T, got []string, want ...string) {
 	t.Helper()
 	for _, target := range want {

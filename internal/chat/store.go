@@ -1246,8 +1246,9 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 			stepSystem, _ := line["system"].(map[string]any)
 			stepDebug, _ := line["debug"].(map[string]any)
 			stepPreCallData := debugPreCallData(stepDebug, stepSystem)
+			replayDebugEvents := len(stepPreCallData) > 0
 			ts := int64FromAny(line["updatedAt"])
-			if stepUsage != nil || len(stepContextWindow) > 0 || len(stepPreCallData) > 0 {
+			if replayDebugEvents {
 				runCumulativePre := map[string]int{
 					"promptTokens":     rd.totalPromptTokens,
 					"completionTokens": rd.totalCompletionTokens,
@@ -1286,7 +1287,7 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 				rd.chatTotalCompletionTokens = chatTotalCompletionTokens
 				rd.chatTotalTotalTokens = chatTotalTotalTokens
 			}
-			if stepUsage != nil || len(stepContextWindow) > 0 {
+			if replayDebugEvents && (stepUsage != nil || len(stepContextWindow) > 0) {
 				runCumulativePost := map[string]int{
 					"promptTokens":     rd.totalPromptTokens,
 					"completionTokens": rd.totalCompletionTokens,

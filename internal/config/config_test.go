@@ -31,7 +31,7 @@ func TestLoadDefaults(t *testing.T) {
 		if !cfg.Stream.IncludeToolPayloadEvents {
 			t.Fatalf("expected stream tool payload events enabled by default")
 		}
-		if cfg.Stream.IncludeDebugEvents {
+		if cfg.Stream.DebugEventsEnabled {
 			t.Fatalf("expected stream debug events disabled by default")
 		}
 		if cfg.SSE.HeartbeatIntervalMs != 15000 {
@@ -234,10 +234,10 @@ func TestLoadRejectsDeprecatedEnvVars(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"AGENT_CONTAINER_HUB_BASE_URL":           "http://127.0.0.1:18000",
 		"AGENT_STREAM_INCLUDE_DEBUG_EVENTS":      "true",
+		"STREAM_INCLUDE_DEBUG_EVENTS":            "true",
 		"GATEWAY_WS_URL":                         "wss://gw.example.com/ws/agent?channel=wecom",
 		"AGENT_GATEWAY_WS_RECONNECT_MAX_MS":      "6789",
 		"MEMORY_CHATS_INDEX_SQLITE_FILE":         "old.db",
-		"CHAT_RESOURCE_TICKET_ENABLED":           "true",
 		"AGENT_CONTAINER_HUB_REQUEST_TIMEOUT_MS": "1000",
 		"AGENT_AUTH_ENABLED":                     "false",
 	}, func() {
@@ -248,10 +248,10 @@ func TestLoadRejectsDeprecatedEnvVars(t *testing.T) {
 		for _, key := range []string{
 			"AGENT_CONTAINER_HUB_BASE_URL",
 			"AGENT_STREAM_INCLUDE_DEBUG_EVENTS",
+			"STREAM_INCLUDE_DEBUG_EVENTS",
 			"GATEWAY_WS_URL",
 			"AGENT_GATEWAY_WS_RECONNECT_MAX_MS",
 			"MEMORY_CHATS_INDEX_SQLITE_FILE",
-			"CHAT_RESOURCE_TICKET_ENABLED",
 			"AGENT_CONTAINER_HUB_REQUEST_TIMEOUT_MS",
 			"AGENT_AUTH_ENABLED",
 		} {
@@ -268,7 +268,7 @@ func TestLoadAcceptsJavaEnvContract(t *testing.T) {
 		"CHAT_RESOURCE_TICKET_SECRET":             "secret",
 		"CHAT_RESOURCE_TICKET_TTL_SECONDS":        "300",
 		"STREAM_INCLUDE_TOOL_PAYLOAD_EVENTS":      "true",
-		"STREAM_INCLUDE_DEBUG_EVENTS":             "true",
+		"DEBUG_EVENTS_ENABLED":                    "true",
 		"AGENT_SSE_HEARTBEAT_INTERVAL_MS":         "3000",
 		"AGENT_H2A_RENDER_FLUSH_INTERVAL_MS":      "25",
 		"AGENT_H2A_RENDER_MAX_BUFFERED_CHARS":     "256",
@@ -297,7 +297,7 @@ func TestLoadAcceptsJavaEnvContract(t *testing.T) {
 		if !cfg.Stream.IncludeToolPayloadEvents {
 			t.Fatalf("expected stream tool payload flag enabled")
 		}
-		if !cfg.Stream.IncludeDebugEvents {
+		if !cfg.Stream.DebugEventsEnabled {
 			t.Fatalf("expected stream debug event flag enabled")
 		}
 		if cfg.SSE.HeartbeatIntervalMs != 3000 {
@@ -949,7 +949,7 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 		"CHAT_RESOURCE_TICKET_SECRET",
 		"CHAT_RESOURCE_TICKET_TTL_SECONDS",
 		"STREAM_INCLUDE_TOOL_PAYLOAD_EVENTS",
-		"STREAM_INCLUDE_DEBUG_EVENTS",
+		"DEBUG_EVENTS_ENABLED",
 		"AGENT_SSE_HEARTBEAT_INTERVAL_MS",
 		"AGENT_H2A_RENDER_FLUSH_INTERVAL_MS",
 		"AGENT_H2A_RENDER_MAX_BUFFERED_CHARS",

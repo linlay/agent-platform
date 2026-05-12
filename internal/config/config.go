@@ -132,7 +132,7 @@ type PlanExecuteDefaultsConfig struct {
 
 type StreamConfig struct {
 	IncludeToolPayloadEvents bool
-	IncludeDebugEvents       bool
+	DebugEventsEnabled       bool
 }
 
 type SSEConfig struct {
@@ -451,7 +451,7 @@ func defaultConfig() Config {
 		},
 		Stream: StreamConfig{
 			IncludeToolPayloadEvents: true,
-			IncludeDebugEvents:       false,
+			DebugEventsEnabled:       false,
 		},
 		SSE: SSEConfig{
 			HeartbeatIntervalMs: 15000,
@@ -888,7 +888,7 @@ func (c *Config) applyEnv() {
 	c.Defaults.Plan.MaxWorkRoundsPerTask = intEnv("AGENT_DEFAULT_PLAN_EXECUTE_MAX_WORK_ROUNDS_PER_TASK", c.Defaults.Plan.MaxWorkRoundsPerTask)
 
 	c.Stream.IncludeToolPayloadEvents = boolEnv("STREAM_INCLUDE_TOOL_PAYLOAD_EVENTS", c.Stream.IncludeToolPayloadEvents)
-	c.Stream.IncludeDebugEvents = boolEnv("STREAM_INCLUDE_DEBUG_EVENTS", c.Stream.IncludeDebugEvents)
+	c.Stream.DebugEventsEnabled = boolEnv("DEBUG_EVENTS_ENABLED", c.Stream.DebugEventsEnabled)
 	c.SSE.HeartbeatIntervalMs = int64Env("AGENT_SSE_HEARTBEAT_INTERVAL_MS", c.SSE.HeartbeatIntervalMs)
 	c.H2A.Render.FlushIntervalMs = int64Env("AGENT_H2A_RENDER_FLUSH_INTERVAL_MS", c.H2A.Render.FlushIntervalMs)
 	c.H2A.Render.MaxBufferedChars = intEnv("AGENT_H2A_RENDER_MAX_BUFFERED_CHARS", c.H2A.Render.MaxBufferedChars)
@@ -1485,6 +1485,7 @@ var deprecatedEnvVars = []string{
 	"AGENT_CONTAINER_HUB_DESTROY_QUEUE_DELAY_MS",
 	"AGENT_STREAM_INCLUDE_TOOL_PAYLOAD_EVENTS",
 	"AGENT_STREAM_INCLUDE_DEBUG_EVENTS",
+	"STREAM_INCLUDE_DEBUG_EVENTS",
 	"RUNTIME_DIR",
 	"AGENT_CONFIG_DIR",
 	"AGENT_AGENTS_EXTERNAL_DIR",

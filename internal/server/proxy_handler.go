@@ -99,7 +99,7 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, req ap
 	var stepWriter *chat.StepWriter
 	var assistantText strings.Builder
 	if chatStore != nil {
-		stepWriter = chat.NewStepWriter(chatStore, req.ChatID, req.RunID, agentDef.Mode, isHiddenRequest(req))
+		stepWriter = chat.NewStepWriter(chatStore, req.ChatID, req.RunID, agentDef.Mode, isHiddenRequest(req), chat.WithDebugEventsEnabled(s.deps.Config.Stream.DebugEventsEnabled))
 		stepWriter.SetPendingSystemInits(systemInitLines)
 		stepWriter.OnEvent(stream.EventData{
 			Type:      "request.query",

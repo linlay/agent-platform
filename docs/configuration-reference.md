@@ -189,12 +189,12 @@ agent definition 侧另有 `memoryConfig`：
 
 ### Stream / SSE / H2A Render
 
-`STREAM_INCLUDE_TOOL_PAYLOAD_EVENTS` 和 `STREAM_INCLUDE_DEBUG_EVENTS` 会出现在 `.env.example` 中，方便最终用户发现和按需启用 payload/debug 实时事件；这些开关同时影响 SSE 与 WebSocket stream。其余 `AGENT_SSE_*` / `AGENT_H2A_RENDER_*` 调优项仍只保留在本参考文档中。
+`STREAM_INCLUDE_TOOL_PAYLOAD_EVENTS` 和 `DEBUG_EVENTS_ENABLED` 会出现在 `.env.example` 中，方便最终用户发现和按需调整 payload/debug 事件；`STREAM_INCLUDE_TOOL_PAYLOAD_EVENTS` 影响 SSE 与 WebSocket stream，`DEBUG_EVENTS_ENABLED` 同时影响实时 stream 与 chat 日志中的 `debug.preCall` / `debug.postCall`。其余 `AGENT_SSE_*` / `AGENT_H2A_RENDER_*` 调优项仍只保留在本参考文档中。
 
 | 环境变量 | 默认值 | 标签 | 说明 |
 |---|---|---|---|
 | `STREAM_INCLUDE_TOOL_PAYLOAD_EVENTS` | `true` | `Debug / troubleshooting` | 是否把工具 payload 事件直接透传到实时流客户端 |
-| `STREAM_INCLUDE_DEBUG_EVENTS` | `false` | `Debug / troubleshooting` | 是否把 `debug.preCall` / `debug.postCall` 暴露给实时流客户端 |
+| `DEBUG_EVENTS_ENABLED` | `false` | `Debug / troubleshooting` | 是否生成并暴露 `debug.preCall` / `debug.postCall` 调试事件 |
 | `AGENT_SSE_HEARTBEAT_INTERVAL_MS` | `15000` | `Debug / troubleshooting` | SSE heartbeat 间隔 |
 | `AGENT_H2A_RENDER_FLUSH_INTERVAL_MS` | `0` | `Debug / troubleshooting` | H2A render 定时 flush 间隔；`0` 表示逐事件 flush |
 | `AGENT_H2A_RENDER_MAX_BUFFERED_CHARS` | `0` | `Debug / troubleshooting` | H2A render 最大缓冲字符数 |

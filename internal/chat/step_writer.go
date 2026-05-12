@@ -30,6 +30,8 @@ type StepWriter struct {
 	mode   string // "REACT" / "PLAN_EXECUTE" / "ONESHOT"
 	hidden bool   // true 时跳过 QueryLine 持久化，用于系统自发触发的 run（如 schedule）
 
+	debugEventsEnabled bool
+
 	queryWritten bool
 	seqCounter   int
 
@@ -74,11 +76,19 @@ type taskStepBuffer struct {
 	messages        []StoredMessage
 }
 
+type StepWriterOption func(*StepWriter)
+
+func WithDebugEventsEnabled(enabled bool) StepWriterOption {
+	return func(w *StepWriter) {
+		w.debugEventsEnabled = enabled
+	}
+}
+
 // NewStepWriter creates a StepWriter for a single run.
 // hidden=true 时跳过 QueryLine 持久化，用于 schedule 等系统自发触发的 run：
 // 避免在 chat 里伪造一条"用户说的"消息、导致 webclient 显示成用户→agent 对话。
-func NewStepWriter(store Store, chatID, runID, mode string, hidden bool) *StepWriter {
-	return &StepWriter{
+func NewStepWriter(store Store, chatID, runID, mode string, hidden bool, opts ...StepWriterOption) *StepWriter {
+	w := &StepWriter{
 		store:         store,
 		chatID:        chatID,
 		runID:         runID,
@@ -90,6 +100,12 @@ func NewStepWriter(store Store, chatID, runID, mode string, hidden bool) *StepWr
 		toolTaskIDs:   map[string]string{},
 		actionTaskIDs: map[string]string{},
 	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(w)
+		}
+	}
+	return w
 }
 
 func (w *StepWriter) SetPendingSystemInits(lines []SystemInitLine) {
@@ -289,7 +305,9 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 	case "debug.preCall", "debug.postCall":
 		if inner, ok := event.Value("data").(map[string]any); ok {
 			if event.Type == "debug.preCall" {
-				w.pendingPreCallData = sanitizePreCallData(inner)
+				if w.debugEventsEnabled {
+					w.pendingPreCallData = sanitizePreCallData(inner)
+				}
 				w.pendingSystemRef = systemRefFromPreCall(inner)
 			}
 			if cw, ok := inner["contextWindow"].(map[string]any); ok {

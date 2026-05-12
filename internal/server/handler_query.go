@@ -492,7 +492,7 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 	defer observer.MarkDone()
 
 	assembler, mapper := s.newAssemblerAndMapper(prepared)
-	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode, isHiddenRequest(prepared.req))
+	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode, isHiddenRequest(prepared.req), chat.WithDebugEventsEnabled(s.deps.Config.Stream.DebugEventsEnabled))
 	stepWriter.SetPendingSystemInits(prepared.systemInitLines)
 
 	StartRunExecutor(RunExecutorParams{
@@ -589,7 +589,7 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 	}
 	processor := &runEventProcessor{
 		assistantText: &assistantText,
-		stepWriter:    chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode, isHiddenRequest(prepared.req)),
+		stepWriter:    chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode, isHiddenRequest(prepared.req), chat.WithDebugEventsEnabled(s.deps.Config.Stream.DebugEventsEnabled)),
 		stream:        s.deps.Config.Stream,
 		chatUsage:     chatUsage,
 		runUsage:      &runUsage,

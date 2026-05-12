@@ -137,7 +137,7 @@ func isClientVisibleEvent(eventType string, streamCfg config.StreamConfig) bool 
 	if eventType == "stage.marker" {
 		return false
 	}
-	if (eventType == "debug.preCall" || eventType == "debug.postCall") && !streamCfg.IncludeDebugEvents {
+	if (eventType == "debug.preCall" || eventType == "debug.postCall") && !streamCfg.DebugEventsEnabled {
 		return false
 	}
 	if (eventType == "tool.args" || eventType == "tool.result") && !streamCfg.IncludeToolPayloadEvents {

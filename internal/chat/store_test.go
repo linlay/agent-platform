@@ -1443,7 +1443,7 @@ func TestStepWriterPersistsSystemRefAndSanitizedPreCall(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-system-snapshot", "run-system-snapshot", "react", false)
+	writer := NewStepWriter(store, "chat-system-snapshot", "run-system-snapshot", "react", false, WithDebugEventsEnabled(true))
 	systemRef := map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:first"}
 	requestBody := map[string]any{
 		"model": "gpt-5.2",
@@ -1531,6 +1531,84 @@ func TestStepWriterPersistsSystemRefAndSanitizedPreCall(t *testing.T) {
 	gotSystemRef, _ := lines[0]["systemRef"].(map[string]any)
 	if gotSystemRef["cacheKey"] != "react:main" || gotSystemRef["fingerprint"] != "sha256:first" {
 		t.Fatalf("expected systemRef on step, got %#v", lines[0])
+	}
+}
+
+func TestStepWriterOmitsPreCallDebugWhenDebugEventsDisabled(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	writer := NewStepWriter(store, "chat-debug-disabled", "run-debug-disabled", "react", false)
+	writer.OnEvent(stream.EventData{
+		Type: "debug.preCall",
+		Payload: map[string]any{
+			"data": map[string]any{
+				"provider":    map[string]any{"key": "mock"},
+				"requestBody": map[string]any{"model": "gpt-5.2"},
+				"systemRef":   map[string]any{"cacheKey": "react:main"},
+				"contextWindow": map[string]any{
+					"maxSize":       128000,
+					"estimatedSize": 200,
+				},
+				"usage": map[string]any{
+					"runUsage": map[string]any{
+						"promptTokens":     100,
+						"completionTokens": 0,
+						"totalTokens":      100,
+					},
+				},
+			},
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type: "content.snapshot",
+		Payload: map[string]any{
+			"contentId": "content-1",
+			"text":      "hello",
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type: "debug.postCall",
+		Payload: map[string]any{
+			"data": map[string]any{
+				"contextWindow": map[string]any{
+					"maxSize":       128000,
+					"estimatedSize": 200,
+				},
+				"usage": map[string]any{
+					"llmReturnUsage": map[string]any{
+						"promptTokens":     100,
+						"completionTokens": 50,
+						"totalTokens":      150,
+					},
+				},
+			},
+		},
+	})
+	writer.OnEvent(stream.EventData{Type: "run.complete"})
+
+	lines, err := readJSONLines(store.chatJSONLPath("chat-debug-disabled"))
+	if err != nil {
+		t.Fatalf("read chat jsonl: %v", err)
+	}
+	if len(lines) != 1 {
+		t.Fatalf("expected one step line, got %#v", lines)
+	}
+	if _, ok := lines[0]["debug"]; ok {
+		t.Fatalf("did not expect debug payload when debug events are disabled, got %#v", lines[0])
+	}
+	if _, ok := lines[0]["systemRef"].(map[string]any); !ok {
+		t.Fatalf("expected non-debug systemRef to remain, got %#v", lines[0])
+	}
+	usage, _ := lines[0]["usage"].(map[string]any)
+	if toIntValue(usage["promptTokens"]) != 100 || toIntValue(usage["totalTokens"]) != 150 {
+		t.Fatalf("expected usage to remain, got %#v", lines[0])
+	}
+	contextWindow, _ := lines[0]["contextWindow"].(map[string]any)
+	if toIntValue(contextWindow["maxSize"]) != 128000 || toIntValue(contextWindow["actualSize"]) != 100 || toIntValue(contextWindow["estimatedSize"]) != 200 {
+		t.Fatalf("expected context window to remain, got %#v", lines[0])
 	}
 }
 
@@ -3244,19 +3322,18 @@ func TestLoadChatReadsLegacySnakeCaseUsageFromStepLevel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load chat: %v", err)
 	}
-	if len(detail.Events) != 7 {
+	if len(detail.Events) != 5 {
 		t.Fatalf("expected legacy usage replay events, got %#v", detail.Events)
 	}
-	preCallData, _ := detail.Events[3].Value("data").(map[string]any)
-	preCallCW, _ := preCallData["contextWindow"].(map[string]any)
-	if toIntValue(preCallCW["maxSize"]) != 128000 || toIntValue(preCallCW["actualSize"]) != 100 || toIntValue(preCallCW["estimatedSize"]) != 200 {
-		t.Fatalf("unexpected legacy debug.preCall context window %#v", detail.Events[3])
+	for _, event := range detail.Events {
+		if event.Type == "debug.preCall" || event.Type == "debug.postCall" {
+			t.Fatalf("did not expect usage-only legacy step to synthesize debug event, got %#v", detail.Events)
+		}
 	}
-	postCallData, _ := detail.Events[5].Value("data").(map[string]any)
-	postCallUsage, _ := postCallData["usage"].(map[string]any)
-	llmUsage, _ := postCallUsage["llmReturnUsage"].(map[string]any)
-	if toIntValue(llmUsage["promptTokens"]) != 100 || toIntValue(llmUsage["completionTokens"]) != 50 || toIntValue(llmUsage["totalTokens"]) != 150 {
-		t.Fatalf("unexpected legacy debug.postCall usage %#v", detail.Events[5])
+	terminalUsage, _ := detail.Events[4].Value("usage").(map[string]any)
+	terminalRunUsage, _ := terminalUsage["run"].(map[string]any)
+	if toIntValue(terminalRunUsage["promptTokens"]) != 100 || toIntValue(terminalRunUsage["completionTokens"]) != 50 || toIntValue(terminalRunUsage["totalTokens"]) != 150 {
+		t.Fatalf("unexpected synthesized run.complete run usage %#v", detail.Events[4])
 	}
 }
 
