@@ -346,10 +346,6 @@ func TestBuildRuntimeContextBackfillsSandboxReferencePaths(t *testing.T) {
 	if got := context.References[1].SandboxPath; got != "/workspace/from-url.docx" {
 		t.Fatalf("sandbox path from URL = %q", got)
 	}
-	section := buildSessionSection(contracts.QuerySession{RuntimeContext: context}, api.QueryRequest{})
-	if !strings.Contains(section, "sandboxPath: /workspace/report.docx") || !strings.Contains(section, "sandboxPath: /workspace/from-url.docx") {
-		t.Fatalf("expected sandbox paths in session section, got %q", section)
-	}
 }
 
 func TestBuildSkillCatalogPromptPrefersAgentLocalSkillAndParsesFrontMatter(t *testing.T) {

@@ -53,6 +53,7 @@ type llmRunStream struct {
 	cancelSent         bool
 	finalTurnAttempted bool
 	allowToolUse       bool
+	finalTurnSystem    string
 	previousToolResult any
 	queuedToolCalls    []*preparedToolInvocation
 	activeToolCall     *preparedToolInvocation
@@ -230,15 +231,7 @@ func (s *llmRunStream) fillPending() error {
 			if s.step >= s.maxSteps {
 				if !s.finalTurnAttempted {
 					s.finalTurnAttempted = true
-					s.toolSpecs = nil
-					newSystemPrompt := buildSystemPrompt(s.session, s.req, s.model.Key, PromptBuildOptions{
-						Stage:                 s.promptBuildOptions.Stage,
-						ToolDefinitions:       nil,
-						IncludeAfterCallHints: false,
-					})
-					if len(s.messages) > 0 && strings.TrimSpace(s.messages[0].Role) == "system" {
-						s.messages[0] = openAIMessage{Role: "system", Content: newSystemPrompt}
-					}
+					s.prepareFinalTurnWithoutTools()
 					if err := s.prepareNextTurn(); err != nil {
 						return err
 					}
@@ -336,6 +329,65 @@ func (s *llmRunStream) prepareNextTurn() error {
 	s.currentTurn = turn
 	s.step++
 	return nil
+}
+
+func (s *llmRunStream) prepareFinalTurnWithoutTools() {
+	s.toolSpecs = nil
+	s.promptBuildOptions.ToolDefinitions = nil
+	s.promptBuildOptions.IncludeAfterCallHints = false
+	systemPrompt := strings.TrimSpace(s.finalTurnSystem)
+	if systemPrompt == "" {
+		systemPrompt = buildSystemPrompt(s.session, s.req, s.model.Key, PromptBuildOptions{
+			Stage:                 s.promptBuildOptions.Stage,
+			ToolDefinitions:       nil,
+			IncludeAfterCallHints: false,
+		})
+	}
+	if strings.TrimSpace(systemPrompt) != "" {
+		s.messages = replaceSystemMessage(s.messages, openAIMessage{Role: "system", Content: systemPrompt})
+	}
+}
+
+func deriveFinalTurnSystemPrompt(messages []openAIMessage, session QuerySession, req api.QueryRequest, modelKey string, options PromptBuildOptions) string {
+	systemPrompt := firstSystemPromptContent(messages)
+	if stripped, ok := stripToolAppendixFromSystemPrompt(systemPrompt, session.PromptAppend, options.ToolDefinitions, options.IncludeAfterCallHints); ok {
+		return stripped
+	}
+	return buildSystemPrompt(session, req, modelKey, PromptBuildOptions{
+		Stage:                 options.Stage,
+		ToolDefinitions:       nil,
+		IncludeAfterCallHints: false,
+	})
+}
+
+func firstSystemPromptContent(messages []openAIMessage) string {
+	for _, msg := range messages {
+		if strings.TrimSpace(msg.Role) != "system" {
+			continue
+		}
+		content, _ := msg.Content.(string)
+		return content
+	}
+	return ""
+}
+
+func stripToolAppendixFromSystemPrompt(systemPrompt string, appendConfig PromptAppendConfig, toolDefs []api.ToolDetailResponse, includeAfterCallHints bool) (string, bool) {
+	prompt := strings.TrimSpace(systemPrompt)
+	if prompt == "" {
+		return "", false
+	}
+	appendix := strings.TrimSpace(buildToolAppendix(toolDefs, appendConfig, includeAfterCallHints))
+	if appendix == "" {
+		return prompt, true
+	}
+	if prompt == appendix {
+		return "", true
+	}
+	suffix := "\n\n" + appendix
+	if !strings.HasSuffix(prompt, suffix) {
+		return "", false
+	}
+	return strings.TrimSpace(strings.TrimSuffix(prompt, suffix)), true
 }
 
 func (s *llmRunStream) consumeCurrentTurn() (bool, error) {

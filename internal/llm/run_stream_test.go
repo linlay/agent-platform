@@ -17,7 +17,6 @@ import (
 	contracts "agent-platform-runner-go/internal/contracts"
 	"agent-platform-runner-go/internal/frontendtools"
 	"agent-platform-runner-go/internal/hitl"
-	"agent-platform-runner-go/internal/models"
 	streampkg "agent-platform-runner-go/internal/stream"
 	runtimetools "agent-platform-runner-go/internal/tools"
 )
@@ -210,11 +209,12 @@ func invokeAgentsToolDefinition() api.ToolDetailResponse {
 	}
 }
 
-func TestFinalTurnRebuildsSystemPromptWithoutToolAppendix(t *testing.T) {
+func TestFinalTurnUsesCachedSystemPromptWithoutToolAppendix(t *testing.T) {
 	req := api.QueryRequest{ChatID: "chat-1", Message: "hello"}
 	session := contracts.QuerySession{
 		RunID:        "run-1",
 		ChatID:       "chat-1",
+		SoulPrompt:   "Keep the original system content.",
 		PromptAppend: contracts.DefaultPromptAppendConfig(),
 	}
 	toolDefs := []api.ToolDetailResponse{{
@@ -229,11 +229,15 @@ func TestFinalTurnRebuildsSystemPromptWithoutToolAppendix(t *testing.T) {
 	if !strings.Contains(oldSystemPrompt, "danger_tool") {
 		t.Fatalf("expected initial system prompt to contain tool appendix, got %q", oldSystemPrompt)
 	}
+	finalSystem := deriveFinalTurnSystemPrompt([]openAIMessage{{Role: "system", Content: oldSystemPrompt}}, session, req, "mock-model", PromptBuildOptions{
+		Stage:                 "react",
+		ToolDefinitions:       toolDefs,
+		IncludeAfterCallHints: true,
+	})
 
 	stream := &llmRunStream{
 		req:     req,
 		session: session,
-		model:   models.ModelDefinition{Key: "mock-model"},
 		toolSpecs: []openAIToolSpec{{
 			Type:     "function",
 			Function: openAIToolDefinition{Name: "danger_tool"},
@@ -242,11 +246,7 @@ func TestFinalTurnRebuildsSystemPromptWithoutToolAppendix(t *testing.T) {
 			{Role: "system", Content: oldSystemPrompt},
 			{Role: "user", Content: "hello"},
 		},
-		execCtx: &contracts.ExecutionContext{
-			StartedAt: time.Now(),
-		},
-		maxSteps: 1,
-		step:     1,
+		finalTurnSystem: finalSystem,
 		promptBuildOptions: PromptBuildOptions{
 			Stage:                 "react",
 			ToolDefinitions:       toolDefs,
@@ -254,16 +254,36 @@ func TestFinalTurnRebuildsSystemPromptWithoutToolAppendix(t *testing.T) {
 		},
 	}
 
-	err := stream.fillPending()
-	if err == nil || !strings.Contains(err.Error(), "streaming protocol") {
-		t.Fatalf("expected unsupported protocol error after preparing final turn, got %v", err)
-	}
+	stream.prepareFinalTurnWithoutTools()
 	if len(stream.toolSpecs) != 0 {
 		t.Fatalf("expected final turn tool specs to be cleared, got %#v", stream.toolSpecs)
 	}
 	systemPrompt, _ := stream.messages[0].Content.(string)
 	if strings.Contains(systemPrompt, "danger_tool") {
 		t.Fatalf("expected rebuilt system prompt to omit tool appendix, got %q", systemPrompt)
+	}
+}
+
+func TestStripToolAppendixPreservesOriginalDynamicSystemPrompt(t *testing.T) {
+	toolDefs := []api.ToolDetailResponse{{
+		Name:          "danger_tool",
+		AfterCallHint: "Call danger_tool only when tools are available.",
+	}}
+	appendix := buildToolAppendix(toolDefs, contracts.DefaultPromptAppendConfig(), true)
+	basePrompt := "Runtime Context: System Environment\n" +
+		"datetime: 2026-05-12T10:20:30+08:00\n\n" +
+		"Agent instructions stay fixed"
+	systemPrompt := basePrompt + "\n\n" + appendix
+
+	got, ok := stripToolAppendixFromSystemPrompt(systemPrompt, contracts.DefaultPromptAppendConfig(), toolDefs, true)
+	if !ok {
+		t.Fatalf("expected tool appendix to be stripped")
+	}
+	if got != basePrompt {
+		t.Fatalf("stripped prompt = %q, want %q", got, basePrompt)
+	}
+	if strings.Contains(got, "danger_tool") {
+		t.Fatalf("expected stripped prompt to omit tool appendix, got %q", got)
 	}
 }
 

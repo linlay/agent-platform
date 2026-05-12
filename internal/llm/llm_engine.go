@@ -158,6 +158,13 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	if toolChoice == "" {
 		toolChoice = "auto"
 	}
+	promptBuildOptions := PromptBuildOptions{
+		Stage:                   options.Stage,
+		StageInstructionsPrompt: "",
+		StageSystemPrompt:       "",
+		ToolDefinitions:         effectiveDefs,
+		IncludeAfterCallHints:   true,
+	}
 	stream := &llmRunStream{
 		engine:              e,
 		protocol:            resolveProtocol(e, model),
@@ -178,14 +185,9 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		maxToolCallsPerTurn: options.MaxToolCallsPerTurn,
 		postToolHook:        options.PostToolHook,
 		allowToolUse:        allowToolUse,
-		promptBuildOptions: PromptBuildOptions{
-			Stage:                   options.Stage,
-			StageInstructionsPrompt: "",
-			StageSystemPrompt:       "",
-			ToolDefinitions:         effectiveDefs,
-			IncludeAfterCallHints:   true,
-		},
-		onApprovalSummary: approvalSummarySinkFromContext(ctx),
+		finalTurnSystem:     deriveFinalTurnSystemPrompt(messages, session, req, model.Key, promptBuildOptions),
+		promptBuildOptions:  promptBuildOptions,
+		onApprovalSummary:   approvalSummarySinkFromContext(ctx),
 	}
 	if len(session.SkillHookDirs) > 0 {
 		log.Printf("[llm][run:%s][hitl] creating SkillChecker hookDirs=%v", session.RunID, session.SkillHookDirs)
