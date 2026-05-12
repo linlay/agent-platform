@@ -32,7 +32,6 @@ type runStreamOptions struct {
 	ToolNames           []string
 	ModelKey            string
 	MaxSteps            int
-	SystemPrompt        string
 	Stage               string
 	ToolChoice          string
 	MaxToolCallsPerTurn int

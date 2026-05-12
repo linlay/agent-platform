@@ -17,6 +17,7 @@ import (
 	contracts "agent-platform-runner-go/internal/contracts"
 	"agent-platform-runner-go/internal/frontendtools"
 	"agent-platform-runner-go/internal/hitl"
+	"agent-platform-runner-go/internal/models"
 	streampkg "agent-platform-runner-go/internal/stream"
 	runtimetools "agent-platform-runner-go/internal/tools"
 )
@@ -206,6 +207,63 @@ func invokeAgentsToolDefinition() api.ToolDetailResponse {
 			"sourceType":    "local",
 			"clientVisible": true,
 		},
+	}
+}
+
+func TestFinalTurnRebuildsSystemPromptWithoutToolAppendix(t *testing.T) {
+	req := api.QueryRequest{ChatID: "chat-1", Message: "hello"}
+	session := contracts.QuerySession{
+		RunID:        "run-1",
+		ChatID:       "chat-1",
+		PromptAppend: contracts.DefaultPromptAppendConfig(),
+	}
+	toolDefs := []api.ToolDetailResponse{{
+		Name:          "danger_tool",
+		AfterCallHint: "Call danger_tool only when tools are available.",
+	}}
+	oldSystemPrompt := buildSystemPrompt(session, req, "mock-model", PromptBuildOptions{
+		Stage:                 "react",
+		ToolDefinitions:       toolDefs,
+		IncludeAfterCallHints: true,
+	})
+	if !strings.Contains(oldSystemPrompt, "danger_tool") {
+		t.Fatalf("expected initial system prompt to contain tool appendix, got %q", oldSystemPrompt)
+	}
+
+	stream := &llmRunStream{
+		req:     req,
+		session: session,
+		model:   models.ModelDefinition{Key: "mock-model"},
+		toolSpecs: []openAIToolSpec{{
+			Type:     "function",
+			Function: openAIToolDefinition{Name: "danger_tool"},
+		}},
+		messages: []openAIMessage{
+			{Role: "system", Content: oldSystemPrompt},
+			{Role: "user", Content: "hello"},
+		},
+		execCtx: &contracts.ExecutionContext{
+			StartedAt: time.Now(),
+		},
+		maxSteps: 1,
+		step:     1,
+		promptBuildOptions: PromptBuildOptions{
+			Stage:                 "react",
+			ToolDefinitions:       toolDefs,
+			IncludeAfterCallHints: true,
+		},
+	}
+
+	err := stream.fillPending()
+	if err == nil || !strings.Contains(err.Error(), "streaming protocol") {
+		t.Fatalf("expected unsupported protocol error after preparing final turn, got %v", err)
+	}
+	if len(stream.toolSpecs) != 0 {
+		t.Fatalf("expected final turn tool specs to be cleared, got %#v", stream.toolSpecs)
+	}
+	systemPrompt, _ := stream.messages[0].Content.(string)
+	if strings.Contains(systemPrompt, "danger_tool") {
+		t.Fatalf("expected rebuilt system prompt to omit tool appendix, got %q", systemPrompt)
 	}
 }
 

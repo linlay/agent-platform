@@ -43,7 +43,7 @@ func (s *Server) prepareSystemInitCache(req api.QueryRequest, session *contracts
 		if initLine != nil && initLine.Fingerprint == profile.Fingerprint {
 			cache[profile.CacheKey] = contracts.SystemInitSnapshot{
 				Fingerprint:   initLine.Fingerprint,
-				SystemMessage: cloneMap(initLine.SystemMessage),
+				SystemMessage: cloneMap(profile.SystemMessage),
 				Tools:         cloneAnySlice(initLine.Tools),
 			}
 			continue

@@ -231,6 +231,14 @@ func (s *llmRunStream) fillPending() error {
 				if !s.finalTurnAttempted {
 					s.finalTurnAttempted = true
 					s.toolSpecs = nil
+					newSystemPrompt := buildSystemPrompt(s.session, s.req, s.model.Key, PromptBuildOptions{
+						Stage:                 s.promptBuildOptions.Stage,
+						ToolDefinitions:       nil,
+						IncludeAfterCallHints: false,
+					})
+					if len(s.messages) > 0 && strings.TrimSpace(s.messages[0].Role) == "system" {
+						s.messages[0] = openAIMessage{Role: "system", Content: newSystemPrompt}
+					}
 					if err := s.prepareNextTurn(); err != nil {
 						return err
 					}

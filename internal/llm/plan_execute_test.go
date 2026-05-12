@@ -55,3 +55,23 @@ func TestPlanStagePostToolHookStopsAfterTasksCreated(t *testing.T) {
 		t.Fatalf("created-plan hook=%v want %v", got, PostToolStop)
 	}
 }
+
+func TestNonSystemMessagesFiltersSystemMessages(t *testing.T) {
+	messages := []openAIMessage{
+		{Role: "system", Content: "first system"},
+		{Role: "user", Content: "first user"},
+		{Role: " system ", Content: "spaced system"},
+		{Role: "assistant", Content: "assistant reply"},
+		{Role: "", Content: "empty role"},
+	}
+
+	got := nonSystemMessages(messages)
+	want := []openAIMessage{
+		{Role: "user", Content: "first user"},
+		{Role: "assistant", Content: "assistant reply"},
+		{Role: "", Content: "empty role"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("nonSystemMessages()=%#v want %#v", got, want)
+	}
+}

@@ -89,7 +89,7 @@ func (s *planExecuteStream) Next() (AgentDelta, error) {
 		if err == io.EOF {
 			// Capture accumulated messages before closing (for summary stage context)
 			if llmStream, ok := s.current.(*llmRunStream); ok && s.taskLifecycle {
-				s.executeMessages = append(s.executeMessages, llmStream.AccumulatedMessages()...)
+				s.executeMessages = append(s.executeMessages, nonSystemMessages(llmStream.AccumulatedMessages())...)
 			}
 			_ = s.current.Close()
 			s.current = nil
@@ -182,7 +182,6 @@ func (s *planExecuteStream) startTaskStream(task *PlanTask) error {
 		ToolNames:           s.executeStageTools(),
 		ModelKey:            s.resolveStageModelKey(s.settings.Execute),
 		MaxSteps:            s.settings.MaxWorkRoundsPerTask,
-		SystemPrompt:        s.settings.Execute.PrimaryPrompt(),
 		Stage:               fmt.Sprintf("execute-step-%d", s.taskIndex+1),
 		MaxToolCallsPerTurn: 1,
 		PostToolHook: func(toolName string, toolID string) PostToolHookResult {
@@ -303,7 +302,6 @@ func (s *planExecuteStream) startPlanStage() error {
 		ToolNames:    s.planStageTools(),
 		ModelKey:     s.resolveStageModelKey(s.settings.Plan),
 		MaxSteps:     minPositive(s.settings.MaxSteps, 6),
-		SystemPrompt: planPrompt,
 		Stage:        "plan",
 		PostToolHook: s.planStagePostToolHook,
 	})
@@ -331,13 +329,12 @@ func (s *planExecuteStream) startSummaryStage() error {
 	})
 
 	stream, err := s.engine.newRunStreamWithOptions(s.ctx, s.req, s.sessionForStage(s.settings.Summary, nil), false, runStreamOptions{
-		ExecCtx:      s.execCtx,
-		Messages:     summaryMessages,
-		ToolNames:    nil,
-		ModelKey:     s.resolveStageModelKey(s.settings.Summary),
-		MaxSteps:     1,
-		SystemPrompt: s.settings.Summary.PrimaryPrompt(),
-		Stage:        "summary",
+		ExecCtx:   s.execCtx,
+		Messages:  summaryMessages,
+		ToolNames: nil,
+		ModelKey:  s.resolveStageModelKey(s.settings.Summary),
+		MaxSteps:  1,
+		Stage:     "summary",
 	})
 	if err != nil {
 		return err
@@ -464,6 +461,16 @@ func appendUniqueTools(base []string, extra ...string) []string {
 		}
 		seen[key] = struct{}{}
 		out = append(out, key)
+	}
+	return out
+}
+
+func nonSystemMessages(msgs []openAIMessage) []openAIMessage {
+	out := make([]openAIMessage, 0, len(msgs))
+	for _, msg := range msgs {
+		if strings.TrimSpace(msg.Role) != "system" {
+			out = append(out, msg)
+		}
 	}
 	return out
 }
