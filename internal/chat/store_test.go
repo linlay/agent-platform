@@ -2180,8 +2180,118 @@ func TestStepWriterSubAgentStepsAreExcludedFromRawMessages(t *testing.T) {
 	if len(lines) != 3 {
 		t.Fatalf("expected three step lines, got %#v", lines)
 	}
-	if lines[1]["taskSubAgentKey"] != "analyzer" || lines[1]["taskMainToolId"] != "tool_main_1" || lines[1]["taskStatus"] != "completed" {
-		t.Fatalf("expected sub-agent task metadata on middle step, got %#v", lines[1])
+	if lines[2]["taskSubAgentKey"] != "analyzer" || lines[2]["taskMainToolId"] != "tool_main_1" || lines[2]["taskStatus"] != "completed" {
+		t.Fatalf("expected sub-agent task metadata on final task step, got %#v", lines[2])
+	}
+}
+
+func TestStepWriterTaskSnapshotsUpsertAfterComplete(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-task-upsert", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	writer := NewStepWriter(store, "chat-task-upsert", "run-task-upsert", "react", false)
+	writer.OnEvent(stream.EventData{
+		Type:      "task.start",
+		Timestamp: 1001,
+		Payload: map[string]any{
+			"taskId":      "task_1",
+			"taskName":    "讲故事",
+			"subAgentKey": "story-agent",
+			"mainToolId":  "tool_main_1",
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "content.snapshot",
+		Timestamp: 1002,
+		Payload: map[string]any{
+			"contentId": "content_1",
+			"taskId":    "task_1",
+			"text":      "标题",
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "task.complete",
+		Timestamp: 1003,
+		Payload: map[string]any{
+			"taskId": "task_1",
+			"status": "completed",
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "content.snapshot",
+		Timestamp: 1004,
+		Payload: map[string]any{
+			"contentId": "content_1",
+			"taskId":    "task_1",
+			"text":      "标题\n完整正文",
+		},
+	})
+	writer.Flush()
+
+	lines, err := readJSONLines(store.chatJSONLPath("chat-task-upsert"))
+	if err != nil {
+		t.Fatalf("read chat jsonl: %v", err)
+	}
+	if len(lines) != 1 {
+		t.Fatalf("expected one task step, got %#v", lines)
+	}
+	if lines[0]["taskId"] != "task_1" || lines[0]["taskStatus"] != "completed" || lines[0]["taskSubAgentKey"] != "story-agent" {
+		t.Fatalf("expected completed task metadata, got %#v", lines[0])
+	}
+	messages, _ := lines[0]["messages"].([]any)
+	if len(messages) != 1 {
+		t.Fatalf("expected one upserted message, got %#v", lines[0])
+	}
+	msg, _ := messages[0].(map[string]any)
+	if msg["_contentId"] != "content_1" || !strings.Contains(extractTextFromContent(msg["content"]), "完整正文") {
+		t.Fatalf("expected final content snapshot, got %#v", msg)
+	}
+}
+
+func TestStepWriterRootSnapshotsUpsertByContentID(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	writer := NewStepWriter(store, "chat-root-upsert", "run-root-upsert", "react", false)
+	writer.OnEvent(stream.EventData{
+		Type:      "content.snapshot",
+		Timestamp: 1001,
+		Payload: map[string]any{
+			"contentId": "content_1",
+			"text":      "short",
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "content.snapshot",
+		Timestamp: 1002,
+		Payload: map[string]any{
+			"contentId": "content_1",
+			"text":      "short and complete",
+		},
+	})
+	writer.Flush()
+
+	lines, err := readJSONLines(store.chatJSONLPath("chat-root-upsert"))
+	if err != nil {
+		t.Fatalf("read chat jsonl: %v", err)
+	}
+	if len(lines) != 1 {
+		t.Fatalf("expected one root step, got %#v", lines)
+	}
+	messages, _ := lines[0]["messages"].([]any)
+	if len(messages) != 1 {
+		t.Fatalf("expected one upserted root message, got %#v", lines[0])
+	}
+	msg, _ := messages[0].(map[string]any)
+	if got := extractTextFromContent(msg["content"]); got != "short and complete" {
+		t.Fatalf("expected latest root content, got %q from %#v", got, msg)
 	}
 }
 

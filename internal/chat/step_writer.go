@@ -64,6 +64,7 @@ type StepWriter struct {
 
 type taskStepBuffer struct {
 	taskID          string
+	taskStage       string
 	taskName        string
 	taskGroupID     string
 	taskDescription string
@@ -113,7 +114,6 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 
 	case "stage.marker":
 		w.flushCurrentStep()
-		w.flushAllTaskSteps()
 		w.currentStage = parseStage(event.String("stage"))
 
 	case "reasoning.snapshot":
@@ -256,6 +256,9 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 			break
 		}
 		buffer := w.ensureTaskBuffer(taskID)
+		if strings.TrimSpace(buffer.taskStage) == "" {
+			buffer.taskStage = w.currentStage
+		}
 		buffer.taskName = event.String("taskName")
 		buffer.taskGroupID = event.String("groupId")
 		buffer.taskDescription = event.String("description")
@@ -279,8 +282,6 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 				buffer.taskStatus = "completed"
 			}
 		}
-		w.flushTaskStep(taskID)
-		delete(w.taskBuffers, taskID)
 
 	case "artifact.publish":
 		w.updateArtifact(event)
@@ -406,10 +407,13 @@ func (w *StepWriter) flushPendingSystemInits() {
 func (w *StepWriter) appendStoredMessage(event stream.EventData, message StoredMessage) {
 	if taskID := w.taskIDForEvent(event); taskID != "" {
 		buffer := w.ensureTaskBuffer(taskID)
-		buffer.messages = append(buffer.messages, message)
+		if strings.TrimSpace(buffer.taskStage) == "" {
+			buffer.taskStage = w.currentStage
+		}
+		buffer.messages = upsertStoredMessage(buffer.messages, message)
 		return
 	}
-	w.messages = append(w.messages, message)
+	w.messages = upsertStoredMessage(w.messages, message)
 }
 
 func (w *StepWriter) flushCurrentStep() {
@@ -495,7 +499,7 @@ func (w *StepWriter) flushCurrentStep() {
 		line.Type = "plan-execute"
 		line.Stage = w.currentStage
 		// seq 只在 execute 阶段输出
-		if w.currentStage == "execute" {
+		if line.Stage == "execute" {
 			w.seqCounter++
 			line.Seq = w.seqCounter
 		}
@@ -548,8 +552,11 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 
 	if w.mode == "PLAN_EXECUTE" {
 		line.Type = "plan-execute"
-		line.Stage = w.currentStage
-		if w.currentStage == "execute" {
+		line.Stage = buffer.taskStage
+		if strings.TrimSpace(line.Stage) == "" {
+			line.Stage = w.currentStage
+		}
+		if line.Stage == "execute" {
 			w.seqCounter++
 			line.Seq = w.seqCounter
 		}
@@ -683,6 +690,60 @@ func formatResult(v any) string {
 		return string(data)
 	}
 	return fmt.Sprintf("%v", v)
+}
+
+func upsertStoredMessage(messages []StoredMessage, message StoredMessage) []StoredMessage {
+	key := storedMessageUpsertKey(message)
+	if key == "" {
+		return append(messages, message)
+	}
+	for index := range messages {
+		if storedMessageUpsertKey(messages[index]) == key {
+			messages[index] = mergeStoredMessageSnapshot(messages[index], message)
+			return messages
+		}
+	}
+	return append(messages, message)
+}
+
+func storedMessageUpsertKey(message StoredMessage) string {
+	if id := strings.TrimSpace(message.ContentID); id != "" {
+		return "content:" + id
+	}
+	if id := strings.TrimSpace(message.ReasoningID); id != "" {
+		return "reasoning:" + id
+	}
+	if id := strings.TrimSpace(message.ToolID); id != "" {
+		return strings.TrimSpace(message.Role) + ":tool:" + id
+	}
+	if id := strings.TrimSpace(message.ActionID); id != "" {
+		return strings.TrimSpace(message.Role) + ":action:" + id
+	}
+	if id := strings.TrimSpace(message.ToolCallID); id != "" {
+		return strings.TrimSpace(message.Role) + ":tool-call:" + id
+	}
+	return ""
+}
+
+func mergeStoredMessageSnapshot(existing StoredMessage, incoming StoredMessage) StoredMessage {
+	if storedMessageTextLen(incoming) < storedMessageTextLen(existing) {
+		return existing
+	}
+	return incoming
+}
+
+func storedMessageTextLen(message StoredMessage) int {
+	total := 0
+	for _, part := range message.Content {
+		total += len(part.Text)
+	}
+	for _, part := range message.ReasoningContent {
+		total += len(part.Text)
+	}
+	for _, call := range message.ToolCalls {
+		total += len(call.Function.Arguments)
+	}
+	return total
 }
 
 func stringVal(v any) string {
