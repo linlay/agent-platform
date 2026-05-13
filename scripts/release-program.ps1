@@ -230,7 +230,6 @@ function Build-ProgramBundle {
         Write-Host "[release] assembling program bundle for $TargetOs..."
 
         Copy-Item "$REPO_ROOT/.env.example" $bundleRoot
-        Copy-Item "$PROGRAM_RELEASE_ASSETS_DIR/README.txt" $bundleRoot
 
         $manifestPath = Join-Path $bundleRoot "manifest.json"
         Write-ProgramManifest -Dest $manifestPath -TargetOs $TargetOs -TargetArch $TargetArch -BackendEntry $backendEntry -AssetFileName (Split-Path $bundleArchive -Leaf)

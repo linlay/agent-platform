@@ -527,7 +527,6 @@
 
 目录作用：发布包模板与说明。
 
-- `scripts/release-assets/program/README.txt` (15 行): 文本说明文件
 - `scripts/release-assets/program/manifest.template.json` (111 行): JSON 模板/清单文件
 
 ## `scripts/release-assets/program/unix/`

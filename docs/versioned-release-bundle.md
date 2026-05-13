@@ -11,7 +11,7 @@
 - `scripts/release.sh`
 - `scripts/release-common.sh`
 - `scripts/release-program.sh`
-- `scripts/release-assets/program/{start.sh,stop.sh,README.txt}`
+- `scripts/release-assets/program/{unix,windows}`
 - `dist/release/` 版本化 bundle 输出
 
 当前默认产物命名：
@@ -42,7 +42,6 @@ VERSION=$(cat VERSION) ARCH=arm64 bash scripts/release.sh
 agent-platform/
   agent-platform-runner
   .env.example
-  README.txt
   start.sh
   stop.sh
   configs/
