@@ -1,15 +1,13 @@
 package server
 
 import (
-	"time"
-
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/chat"
 	"agent-platform-runner-go/internal/contracts"
 	"agent-platform-runner-go/internal/llm"
 )
 
-func (s *Server) prepareSystemInitCache(req api.QueryRequest, session *contracts.QuerySession, created bool) ([]chat.SystemInitLine, error) {
+func (s *Server) prepareSystemInitCache(req api.QueryRequest, session *contracts.QuerySession, created bool) ([]chat.QueryLineSystemInit, error) {
 	if session == nil || s.deps.Chats == nil || s.deps.Tools == nil {
 		return nil, nil
 	}
@@ -38,7 +36,7 @@ func (s *Server) prepareSystemInitCache(req api.QueryRequest, session *contracts
 	}
 
 	cache := make(map[string]contracts.SystemInitSnapshot, len(profiles))
-	pendingLines := make([]chat.SystemInitLine, 0, len(profiles))
+	pendingSystems := make([]chat.QueryLineSystemInit, 0, len(profiles))
 	for _, profile := range profiles {
 		initLine := systemInits[profile.CacheKey]
 		if initLine != nil && initLine.Fingerprint == profile.Fingerprint {
@@ -49,12 +47,8 @@ func (s *Server) prepareSystemInitCache(req api.QueryRequest, session *contracts
 			}
 			continue
 		}
-		line := chat.SystemInitLine{
-			Type:          "system",
-			ChatID:        req.ChatID,
+		system := chat.QueryLineSystemInit{
 			AgentKey:      session.AgentKey,
-			RunID:         session.RunID,
-			CreatedAt:     time.Now().UnixMilli(),
 			Fingerprint:   profile.Fingerprint,
 			CacheKey:      profile.CacheKey,
 			Mode:          profile.Mode,
@@ -62,18 +56,17 @@ func (s *Server) prepareSystemInitCache(req api.QueryRequest, session *contracts
 			SystemMessage: cloneMap(profile.SystemMessage),
 			Tools:         cloneAnySlice(profile.Tools),
 		}
-		pendingLines = append(pendingLines, line)
+		pendingSystems = append(pendingSystems, system)
 		cache[profile.CacheKey] = contracts.SystemInitSnapshot{
 			Fingerprint:   profile.Fingerprint,
 			SystemMessage: cloneMap(profile.SystemMessage),
 			Tools:         cloneAnySlice(profile.Tools),
 		}
-		systemInits[profile.CacheKey] = &line
 	}
 	if len(cache) > 0 {
 		session.SystemInitCache = cache
 	}
-	return pendingLines, nil
+	return pendingSystems, nil
 }
 
 func cloneMap(src map[string]any) map[string]any {

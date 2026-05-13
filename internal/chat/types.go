@@ -49,20 +49,31 @@ type SystemInitLine struct {
 	Tools         []any          `json:"tools"`
 }
 
+type QueryLineSystemInit struct {
+	CacheKey      string         `json:"cacheKey"`
+	Fingerprint   string         `json:"fingerprint"`
+	Mode          string         `json:"mode,omitempty"`
+	Stage         string         `json:"stage,omitempty"`
+	AgentKey      string         `json:"agentKey,omitempty"`
+	SystemMessage map[string]any `json:"systemMessage"`
+	Tools         []any          `json:"tools"`
+}
+
 // QueryLine represents a _type:"query" line in chatId.jsonl.
-// Field order matches Java: chatId, runId, updatedAt, hidden, query, _type.
+// Field order matches Java: chatId, runId, updatedAt, hidden, query, systems, _type.
 type QueryLine struct {
-	ChatID         string         `json:"chatId"`
-	RunID          string         `json:"runId"`
-	UpdatedAt      int64          `json:"updatedAt"`
-	Hidden         bool           `json:"hidden,omitempty"`
-	TaskID         string         `json:"taskId,omitempty"`
-	TaskName       string         `json:"taskName,omitempty"`
-	TaskGroupID    string         `json:"taskGroupId,omitempty"`
-	TaskMainToolID string         `json:"taskMainToolId,omitempty"`
-	SubAgentKey    string         `json:"subAgentKey,omitempty"`
-	Query          map[string]any `json:"query"`
-	Type           string         `json:"_type"`
+	ChatID         string                `json:"chatId"`
+	RunID          string                `json:"runId"`
+	UpdatedAt      int64                 `json:"updatedAt"`
+	Hidden         bool                  `json:"hidden,omitempty"`
+	TaskID         string                `json:"taskId,omitempty"`
+	TaskName       string                `json:"taskName,omitempty"`
+	TaskGroupID    string                `json:"taskGroupId,omitempty"`
+	TaskMainToolID string                `json:"taskMainToolId,omitempty"`
+	SubAgentKey    string                `json:"subAgentKey,omitempty"`
+	Query          map[string]any        `json:"query"`
+	Systems        []QueryLineSystemInit `json:"systems,omitempty"`
+	Type           string                `json:"_type"`
 }
 
 // StepLine represents a step line in chatId.jsonl.

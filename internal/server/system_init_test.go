@@ -5,7 +5,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/chat"
@@ -52,17 +51,21 @@ func TestPrepareSystemInitCacheUsesFreshSystemMessageOnFingerprintMatch(t *testi
 		t.Fatalf("expected one system init profile, got %#v", oldProfiles)
 	}
 	cachedTools := []any{map[string]any{"source": "disk-cache"}}
-	if err := store.AppendSystemInitLine(req.ChatID, chat.SystemInitLine{
-		ChatID:        req.ChatID,
-		AgentKey:      oldSession.AgentKey,
-		RunID:         oldSession.RunID,
-		CreatedAt:     time.Now().UnixMilli(),
-		Fingerprint:   oldProfiles[0].Fingerprint,
-		CacheKey:      oldProfiles[0].CacheKey,
-		Mode:          oldProfiles[0].Mode,
-		Stage:         oldProfiles[0].Stage,
-		SystemMessage: oldProfiles[0].SystemMessage,
-		Tools:         cachedTools,
+	if err := store.AppendQueryLine(req.ChatID, chat.QueryLine{
+		Type:      "query",
+		ChatID:    req.ChatID,
+		RunID:     oldSession.RunID,
+		UpdatedAt: 1001,
+		Query:     map[string]any{"role": "user", "message": "hello", "agentKey": oldSession.AgentKey},
+		Systems: []chat.QueryLineSystemInit{{
+			AgentKey:      oldSession.AgentKey,
+			Fingerprint:   oldProfiles[0].Fingerprint,
+			CacheKey:      oldProfiles[0].CacheKey,
+			Mode:          oldProfiles[0].Mode,
+			Stage:         oldProfiles[0].Stage,
+			SystemMessage: oldProfiles[0].SystemMessage,
+			Tools:         cachedTools,
+		}},
 	}); err != nil {
 		t.Fatalf("append system init: %v", err)
 	}
@@ -130,7 +133,7 @@ func TestPrepareSystemInitCacheReturnsPendingLineOnFingerprintChange(t *testing.
 	if len(pending) != 1 {
 		t.Fatalf("expected one pending system cache line, got %#v", pending)
 	}
-	if pending[0].Type != "system" || pending[0].CacheKey != "react:main" || pending[0].Fingerprint == "" {
+	if pending[0].AgentKey != "agent" || pending[0].CacheKey != "react:main" || pending[0].Fingerprint == "" {
 		t.Fatalf("unexpected pending system cache line %#v", pending[0])
 	}
 	if _, ok := session.SystemInitCache["react:main"]; !ok {

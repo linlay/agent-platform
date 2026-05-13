@@ -62,7 +62,7 @@ type StepWriter struct {
 	pendingEstimated        int
 	pendingPreCallData      map[string]any
 	pendingSystemRef        map[string]any
-	pendingSystemInits      []SystemInitLine
+	pendingSystemInits      []QueryLineSystemInit
 }
 
 type taskStepBuffer struct {
@@ -111,11 +111,11 @@ func NewStepWriter(store Store, chatID, runID, mode string, hidden bool, opts ..
 	return w
 }
 
-func (w *StepWriter) SetPendingSystemInits(lines []SystemInitLine) {
+func (w *StepWriter) SetPendingSystemInits(lines []QueryLineSystemInit) {
 	if w == nil || len(lines) == 0 {
 		return
 	}
-	w.pendingSystemInits = append([]SystemInitLine(nil), lines...)
+	w.pendingSystemInits = append([]QueryLineSystemInit(nil), lines...)
 }
 
 // OnEvent processes a single SSE event from the stream.
@@ -355,6 +355,7 @@ func (w *StepWriter) handleRequestQuery(event stream.EventData) {
 
 	// hidden run 不写 QueryLine，避免 webclient 显示成"用户→agent"对话
 	if w.hidden {
+		w.pendingSystemInits = nil
 		return
 	}
 
@@ -370,8 +371,9 @@ func (w *StepWriter) handleRequestQuery(event stream.EventData) {
 		RunID:     w.runID,
 		UpdatedAt: time.Now().UnixMilli(),
 		Query:     query,
+		Systems:   append([]QueryLineSystemInit(nil), w.pendingSystemInits...),
 	})
-	w.flushPendingSystemInits()
+	w.pendingSystemInits = nil
 }
 
 func (w *StepWriter) ensureStep() {
@@ -401,17 +403,6 @@ func (w *StepWriter) taskIDForEvent(event stream.EventData) string {
 		return strings.TrimSpace(w.actionTaskIDs[actionID])
 	}
 	return ""
-}
-
-func (w *StepWriter) flushPendingSystemInits() {
-	if w.store == nil || len(w.pendingSystemInits) == 0 {
-		w.pendingSystemInits = nil
-		return
-	}
-	for _, line := range w.pendingSystemInits {
-		_ = w.store.AppendSystemInitLine(w.chatID, line)
-	}
-	w.pendingSystemInits = nil
 }
 
 func (w *StepWriter) appendStoredMessage(event stream.EventData, message StoredMessage) {

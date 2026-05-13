@@ -27,7 +27,7 @@ type frameOrchestrator struct {
 	registry           catalog.Registry
 	buildQuerySession  func(context.Context, api.QueryRequest, chat.Summary, catalog.AgentDefinition, querySessionBuildOptions) (contracts.QuerySession, error)
 	chats              chat.Store
-	prepareSystemInits func(api.QueryRequest, *contracts.QuerySession, bool) ([]chat.SystemInitLine, error)
+	prepareSystemInits func(api.QueryRequest, *contracts.QuerySession, bool) ([]chat.QueryLineSystemInit, error)
 	systemInitMu       sync.Mutex
 	mapper             *llm.DeltaMapper
 	emitDelta          func(contracts.AgentDelta)
@@ -332,6 +332,15 @@ func (o *frameOrchestrator) writeChildTaskQueryAndSystem(subReq api.QueryRequest
 	if o.chats == nil {
 		return
 	}
+	var systems []chat.QueryLineSystemInit
+	if o.prepareSystemInits != nil && subSession != nil {
+		o.systemInitMu.Lock()
+		defer o.systemInitMu.Unlock()
+		pending, err := o.prepareSystemInits(subReq, subSession, false)
+		if err == nil {
+			systems = pending
+		}
+	}
 	_ = o.chats.AppendQueryLine(o.summary.ChatID, chat.QueryLine{
 		Type:           "query",
 		ChatID:         o.summary.ChatID,
@@ -350,19 +359,8 @@ func (o *frameOrchestrator) writeChildTaskQueryAndSystem(subReq api.QueryRequest
 			"requestId": task.requestID,
 			"role":      "user",
 		},
+		Systems: systems,
 	})
-	if o.prepareSystemInits == nil || subSession == nil {
-		return
-	}
-	o.systemInitMu.Lock()
-	defer o.systemInitMu.Unlock()
-	lines, err := o.prepareSystemInits(subReq, subSession, false)
-	if err != nil {
-		return
-	}
-	for _, line := range lines {
-		_ = o.chats.AppendSystemInitLine(o.summary.ChatID, line)
-	}
 }
 
 func (o *frameOrchestrator) injectMainToolError(main llm.OrchestratableAgentStream, toolID string, message string) {

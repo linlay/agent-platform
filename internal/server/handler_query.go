@@ -35,7 +35,7 @@ type preparedQuery struct {
 	agentDef           catalog.AgentDefinition
 	session            contracts.QuerySession
 	memoryUsageSummary *api.MemoryUsageSummary
-	systemInitLines    []chat.SystemInitLine
+	systemInitLines    []chat.QueryLineSystemInit
 }
 
 func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {

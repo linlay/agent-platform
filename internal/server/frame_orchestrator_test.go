@@ -396,7 +396,7 @@ func TestFrameOrchestratorWritesSubAgentQueryAndSystemLines(t *testing.T) {
 		"writer": {Key: "writer", Name: "Writer", Mode: "REACT"},
 	}, nil, nil)
 	orchestrator.chats = store
-	orchestrator.prepareSystemInits = func(req api.QueryRequest, session *contracts.QuerySession, _ bool) ([]chat.SystemInitLine, error) {
+	orchestrator.prepareSystemInits = func(req api.QueryRequest, session *contracts.QuerySession, _ bool) ([]chat.QueryLineSystemInit, error) {
 		existing, err := store.LoadAllSystemInits(req.ChatID)
 		if err != nil {
 			return nil, err
@@ -404,11 +404,8 @@ func TestFrameOrchestratorWritesSubAgentQueryAndSystemLines(t *testing.T) {
 		if existing["react:writer"] != nil {
 			return nil, nil
 		}
-		return []chat.SystemInitLine{{
-			Type:        "system",
-			ChatID:      req.ChatID,
+		return []chat.QueryLineSystemInit{{
 			AgentKey:    session.AgentKey,
-			RunID:       session.RunID,
 			CacheKey:    "react:writer",
 			Fingerprint: "sha256:writer",
 			SystemMessage: map[string]any{
@@ -427,23 +424,22 @@ func TestFrameOrchestratorWritesSubAgentQueryAndSystemLines(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read chat jsonl: %v", err)
 	}
-	var queryCount, systemCount int
+	var queryCount, embeddedSystemCount, standaloneSystemCount int
 	for _, line := range lines {
 		switch line["_type"] {
 		case "query":
 			if line["taskId"] == "" || line["subAgentKey"] != "writer" || line["taskMainToolId"] != "tool_main_1" {
 				t.Fatalf("unexpected child query line %#v", line)
 			}
+			systems, _ := line["systems"].([]any)
+			embeddedSystemCount += len(systems)
 			queryCount++
 		case "system":
-			if line["agentKey"] != "writer" || line["cacheKey"] != "react:writer" {
-				t.Fatalf("unexpected child system line %#v", line)
-			}
-			systemCount++
+			standaloneSystemCount++
 		}
 	}
-	if queryCount != 2 || systemCount != 1 {
-		t.Fatalf("expected two child query lines and one deduped system line, got queries=%d systems=%d lines=%#v", queryCount, systemCount, lines)
+	if queryCount != 2 || embeddedSystemCount != 1 || standaloneSystemCount != 0 {
+		t.Fatalf("expected two child query lines, one embedded system, and no standalone system lines; queries=%d embedded=%d standalone=%d lines=%#v", queryCount, embeddedSystemCount, standaloneSystemCount, lines)
 	}
 }
 

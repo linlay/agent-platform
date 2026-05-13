@@ -1892,12 +1892,8 @@ func TestFileStoreLoadsLatestSystemInitByCacheKey(t *testing.T) {
 	if _, _, err := store.EnsureChat("chat-system-init", "agent", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	first := SystemInitLine{
-		Type:          "system",
-		ChatID:        "chat-system-init",
+	first := QueryLineSystemInit{
 		AgentKey:      "agent",
-		RunID:         "run-1",
-		CreatedAt:     1,
 		Fingerprint:   "sha256:first",
 		CacheKey:      "react:main",
 		Mode:          "react",
@@ -1906,8 +1902,6 @@ func TestFileStoreLoadsLatestSystemInitByCacheKey(t *testing.T) {
 		Tools:         []any{map[string]any{"type": "function"}},
 	}
 	second := first
-	second.RunID = "run-2"
-	second.CreatedAt = 2
 	second.Fingerprint = "sha256:second"
 	second.SystemMessage = map[string]any{"role": "system", "content": "second"}
 	other := first
@@ -1915,14 +1909,27 @@ func TestFileStoreLoadsLatestSystemInitByCacheKey(t *testing.T) {
 	other.Fingerprint = "sha256:other"
 	other.SystemMessage = map[string]any{"role": "system", "content": "other"}
 
-	if err := store.AppendSystemInitLine("chat-system-init", first); err != nil {
-		t.Fatalf("append first: %v", err)
-	}
-	if err := store.AppendSystemInitLine("chat-system-init", other); err != nil {
-		t.Fatalf("append other: %v", err)
-	}
-	if err := store.AppendSystemInitLine("chat-system-init", second); err != nil {
-		t.Fatalf("append second: %v", err)
+	for _, line := range []QueryLine{
+		{
+			Type:      "query",
+			ChatID:    "chat-system-init",
+			RunID:     "run-1",
+			UpdatedAt: 1,
+			Query:     map[string]any{"role": "user", "message": "first"},
+			Systems:   []QueryLineSystemInit{first, other},
+		},
+		{
+			Type:      "query",
+			ChatID:    "chat-system-init",
+			RunID:     "run-2",
+			UpdatedAt: 2,
+			Query:     map[string]any{"role": "user", "message": "second"},
+			Systems:   []QueryLineSystemInit{second},
+		},
+	} {
+		if err := store.AppendQueryLine("chat-system-init", line); err != nil {
+			t.Fatalf("append query line: %v", err)
+		}
 	}
 
 	loaded, err := store.LoadSystemInit("chat-system-init", "react:main")
@@ -1934,6 +1941,9 @@ func TestFileStoreLoadsLatestSystemInitByCacheKey(t *testing.T) {
 	}
 	if loaded.SystemMessage["content"] != "second" {
 		t.Fatalf("unexpected system message %#v", loaded.SystemMessage)
+	}
+	if loaded.ChatID != "chat-system-init" || loaded.RunID != "run-2" || loaded.CreatedAt != 2 {
+		t.Fatalf("expected container query metadata on system init, got %#v", loaded)
 	}
 	all, err := store.LoadAllSystemInits("chat-system-init")
 	if err != nil {
@@ -1991,25 +2001,19 @@ func TestRawMessagesSkipSystemInitLines(t *testing.T) {
 	if _, _, err := store.EnsureChat("chat-system-init-raw", "agent", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	if err := store.AppendSystemInitLine("chat-system-init-raw", SystemInitLine{
-		Type:          "system",
-		ChatID:        "chat-system-init-raw",
-		AgentKey:      "agent",
-		RunID:         "run-1",
-		CreatedAt:     1,
-		Fingerprint:   "sha256:init",
-		CacheKey:      "react:main",
-		SystemMessage: map[string]any{"role": "system", "content": "frozen"},
-		Tools:         []any{},
-	}); err != nil {
-		t.Fatalf("append system cache line: %v", err)
-	}
 	if err := store.AppendQueryLine("chat-system-init-raw", QueryLine{
 		Type:      "query",
 		ChatID:    "chat-system-init-raw",
 		RunID:     "run-1",
 		UpdatedAt: 2,
 		Query:     map[string]any{"role": "user", "message": "hello"},
+		Systems: []QueryLineSystemInit{{
+			AgentKey:      "agent",
+			Fingerprint:   "sha256:init",
+			CacheKey:      "react:main",
+			SystemMessage: map[string]any{"role": "system", "content": "frozen"},
+			Tools:         []any{},
+		}},
 	}); err != nil {
 		t.Fatalf("append query: %v", err)
 	}
@@ -2032,12 +2036,8 @@ func TestStepWriterWritesSystemInitAfterQuery(t *testing.T) {
 	}
 
 	writer := NewStepWriter(store, "chat-query-system-init", "run-1", "react", false)
-	writer.SetPendingSystemInits([]SystemInitLine{{
-		Type:          "system",
-		ChatID:        "chat-query-system-init",
+	writer.SetPendingSystemInits([]QueryLineSystemInit{{
 		AgentKey:      "agent",
-		RunID:         "run-1",
-		CreatedAt:     1002,
 		Fingerprint:   "sha256:first",
 		CacheKey:      "react:main",
 		Mode:          "react",
@@ -2059,11 +2059,51 @@ func TestStepWriterWritesSystemInitAfterQuery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read chat jsonl: %v", err)
 	}
-	if len(lines) != 2 {
-		t.Fatalf("expected query and system cache lines, got %#v", lines)
+	if len(lines) != 1 {
+		t.Fatalf("expected one query line with inline systems, got %#v", lines)
 	}
-	if lines[0]["_type"] != "query" || lines[1]["_type"] != "system" {
-		t.Fatalf("expected query before system cache line, got %#v", lines)
+	if lines[0]["_type"] != "query" {
+		t.Fatalf("expected query line, got %#v", lines)
+	}
+	systems, _ := lines[0]["systems"].([]any)
+	if len(systems) != 1 {
+		t.Fatalf("expected inline system cache on query line, got %#v", lines[0])
+	}
+	system, _ := systems[0].(map[string]any)
+	if system["cacheKey"] != "react:main" || system["fingerprint"] != "sha256:first" {
+		t.Fatalf("unexpected inline system cache %#v", system)
+	}
+}
+
+func TestStepWriterOmitsSystemsWhenNoPendingSystemInits(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-query-no-system-init", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	writer := NewStepWriter(store, "chat-query-no-system-init", "run-1", "react", false)
+	writer.OnEvent(stream.EventData{
+		Type:      "request.query",
+		Timestamp: 1001,
+		Payload: map[string]any{
+			"chatId":  "chat-query-no-system-init",
+			"runId":   "run-1",
+			"message": "hello",
+		},
+	})
+
+	lines, err := readJSONLines(store.chatJSONLPath("chat-query-no-system-init"))
+	if err != nil {
+		t.Fatalf("read chat jsonl: %v", err)
+	}
+	if len(lines) != 1 || lines[0]["_type"] != "query" {
+		t.Fatalf("expected one query line, got %#v", lines)
+	}
+	if _, ok := lines[0]["systems"]; ok {
+		t.Fatalf("did not expect systems on cache-hit/no-pending query, got %#v", lines[0])
 	}
 }
 

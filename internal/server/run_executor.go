@@ -30,7 +30,7 @@ type RunExecutorParams struct {
 	Chats              chat.Store
 	RunControl         *contracts.RunControl
 	BuildQuerySession  func(context.Context, api.QueryRequest, chat.Summary, catalog.AgentDefinition, querySessionBuildOptions) (contracts.QuerySession, error)
-	PrepareSystemInits func(api.QueryRequest, *contracts.QuerySession, bool) ([]chat.SystemInitLine, error)
+	PrepareSystemInits func(api.QueryRequest, *contracts.QuerySession, bool) ([]chat.QueryLineSystemInit, error)
 	Notifications      contracts.NotificationSink
 	OnUnreadChanged    func(chat.Summary)
 	OnPersisted        func(chat.RunCompletion)

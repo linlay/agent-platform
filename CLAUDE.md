@@ -292,6 +292,7 @@ runtimeConfig:
 
 ### StepLine 快照
 
+- `_type:"query"` 可带 `systems` 数组，用于记录本次 query 新增或 fingerprint 变化的 system init 快照；缓存命中时省略 `systems`。每项包含 `cacheKey`、`fingerprint`、`mode`、`stage`、`agentKey`、`systemMessage` 和 `tools`，独立 `_type:"system"` 行仅作为旧数据兼容读取。
 - `debug.preCall`：存放后端调试 payload，例如 provider、model、requestBody、contextWindow；回放时优先读取 `debug.preCall`，并兼容旧数据 `system.debugPreCall`。
 - `system`：存放 LLM 请求快照，结构与 Java 版对齐：`{"model":"...","messages":[{"role":"system","content":"..."}],"tools":[...],"stream":true}`。
 - `system.messages` 只保留 system 角色消息；`system` 首次出现必写，后续仅当 model/messages/tools/stream 发生变化时写入。
@@ -302,6 +303,7 @@ runtimeConfig:
 - 主 agent 识别到该 tool call 后，会先保留主时间线上的 `tool.start/args/end/snapshot`，再由 server 侧编排层并发启动 `1~3` 个子 agent。
 - 编排层会先顺序 emit 每个 `task.start`，并为同一批任务附上相同 `groupId`；随后由多个 goroutine 并发消费子 stream，再汇聚回主 goroutine 发出带精确 `taskId` 的子流 delta。
 - 子 agent 复用现有 `task.start / task.complete / task.cancel / task.fail` 协议；`task.start` 额外携带 `groupId`、`subAgentKey` 和 `mainToolId`，终态 task 事件额外携带 `status`。
+- 子 agent 的 JSONL 与主 agent 同构：每次子任务调起先写带 `taskId` 的 `_type:"query"`，首次或 system fingerprint 变化时把子 agent system init 嵌入该 query 的 `systems`；终态 `_type:"react"` 只保留 `taskId`、`taskStatus`、`taskSubAgentKey`，其它任务元数据按 `taskId` 从 query 行关联。
 - `runId` 始终保持主 RunID；前端通过 `taskId` 把子流事件归到子面板，通过 `mainToolId` 把主时间线上的 `agent_invoke` 节点和聚合卡片关联起来。
 - 全部子任务结束后，编排层会按输入顺序聚合子结果，并仅向主 `mainToolID` 单次 `InjectToolResult`；主上下文只消费这份聚合后的 `tool.result` 文本。
 - 当前版本严格禁止嵌套：`agent_invoke` 只对显式配置该工具且 mode 为 `REACT/ONESHOT` 的主 agent 可用，子 agent 也只能是 `REACT/ONESHOT`，且子 agent 的可用工具集中会滤掉 `agent_invoke`；`tasks` 长度必须满足 `1 ≤ n ≤ 3`。
