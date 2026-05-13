@@ -44,9 +44,9 @@ if [[ -n "${config_root}" ]]; then
   echo "== legacy config fields =="
   if [[ -d "${config_root}" ]]; then
     if command -v rg >/dev/null 2>&1; then
-      rg -n 'sandboxConfig|toolType|MemoryPrompt|system\.debugPreCall' "${config_root}" || true
+      rg -n 'sandboxConfig' "${config_root}" || true
     else
-      grep -R -n -E 'sandboxConfig|toolType|MemoryPrompt|system\.debugPreCall' "${config_root}" || true
+      grep -R -n -E 'sandboxConfig' "${config_root}" || true
     fi
   else
     echo "CONFIG_ROOT does not exist: ${config_root}" >&2

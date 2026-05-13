@@ -60,7 +60,6 @@ type AgentDefinition struct {
 	ExecutePrompt      string
 	SummaryPrompt      string
 	StaticMemoryPrompt string
-	MemoryPrompt       string // Deprecated: use StaticMemoryPrompt.
 	MemoryEnabled      bool
 	MemoryConfig       AgentMemoryConfig
 }
@@ -627,7 +626,7 @@ func parseToolOverrides(value any) map[string]api.ToolDetailResponse {
 		name := defaultString(stringNode(override["name"]), toolName)
 		key := defaultString(stringNode(override["key"]), toolName)
 		meta := mapNode(override["meta"])
-		if viewportType := firstStringNode(override, "viewportType", "toolType"); viewportType != "" {
+		if viewportType := stringNode(override["viewportType"]); viewportType != "" {
 			if meta == nil {
 				meta = map[string]any{}
 			}

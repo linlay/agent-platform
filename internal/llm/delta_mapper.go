@@ -358,19 +358,6 @@ func (m *DeltaMapper) resolveToolMetadata(toolName string) (string, string, stri
 	}
 }
 
-func (m *DeltaMapper) resolveViewportMetadata(toolName string) (string, string) {
-	if m.toolRegistry == nil {
-		return "", ""
-	}
-	tool, ok := m.toolRegistry.Tool(toolName)
-	if !ok {
-		return "", ""
-	}
-	viewportType, _ := tool.Meta["viewportType"].(string)
-	viewportKey, _ := tool.Meta["viewportKey"].(string)
-	return strings.TrimSpace(viewportType), strings.TrimSpace(viewportKey)
-}
-
 func (m *DeltaMapper) isClientVisibleTool(toolName string) bool {
 	if m.toolRegistry == nil {
 		return true

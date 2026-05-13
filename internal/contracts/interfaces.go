@@ -93,11 +93,9 @@ type QuerySession struct {
 	RuntimeContext        RuntimeRequestContext
 	PromptAppend          PromptAppendConfig
 	StaticMemoryPrompt    string
-	// TODO(compat-cleanup): remove MemoryPrompt after all prompt builders and API previews use StaticMemoryPrompt.
-	MemoryPrompt       string // Deprecated: use StaticMemoryPrompt.
-	SkillCatalogPrompt string
-	SystemInitCache    map[string]SystemInitSnapshot
-	SystemInitLegacy   bool // true for pre-system-init historical chats that should keep rebuilding prompts.
+	SkillCatalogPrompt    string
+	SystemInitCache       map[string]SystemInitSnapshot
+	SystemInitLegacy      bool // true for pre-system-init historical chats that should keep rebuilding prompts.
 
 	// Prompt files loaded from agent directory.
 	SoulPrompt    string
@@ -173,8 +171,6 @@ type ExecutionContext struct {
 	StartedAt     time.Time
 	ModelCalls    int
 	ToolCalls     int
-
-	resolvedEnvironmentID string // set by OpenIfNeeded, used by acquire methods
 }
 
 type SandboxSession struct {
@@ -290,8 +286,6 @@ type NoopToolExecutor struct{}
 
 func NewNoopToolExecutor() *NoopToolExecutor { return &NoopToolExecutor{} }
 
-func (n *NoopToolExecutor) Definitions() []api.ToolDetailResponse { return nil }
-
 func (n *NoopToolExecutor) Invoke(_ context.Context, toolName string, args map[string]any, _ *ExecutionContext) (ToolExecutionResult, error) {
 	result := ToolExecutionResult{
 		Output:     "status: not_implemented",
@@ -348,15 +342,6 @@ func NewNoopViewportClient() *NoopViewportClient { return &NoopViewportClient{} 
 
 func (n *NoopViewportClient) Get(_ context.Context, viewportKey string) (map[string]any, error) {
 	return map[string]any{"viewportKey": viewportKey, "status": "not_implemented"}, nil
-}
-
-type NoopCatalogReloader struct{}
-
-func NewNoopCatalogReloader() *NoopCatalogReloader { return &NoopCatalogReloader{} }
-
-func (n *NoopCatalogReloader) Reload(_ context.Context, reason string) error {
-	_ = reason
-	return nil
 }
 
 func normalizeSteerID(steerID string) string {

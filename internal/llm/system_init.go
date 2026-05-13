@@ -51,10 +51,6 @@ func SystemInitCacheKey(mode string, stage string) string {
 	return normalizedMode + ":main"
 }
 
-func ComputeAgentFingerprint(session QuerySession, toolDefs []api.ToolDetailResponse) string {
-	return ComputeSystemInitFingerprint(session, "main", toolDefs)
-}
-
 func ComputeSystemInitFingerprint(session QuerySession, stage string, toolDefs []api.ToolDetailResponse) string {
 	payload := map[string]any{
 		"agentKey":               session.AgentKey,
@@ -72,7 +68,6 @@ func ComputeSystemInitFingerprint(session QuerySession, stage string, toolDefs [
 		"resolvedStageSettings":  session.ResolvedStageSettings,
 		"promptAppend":           session.PromptAppend,
 		"staticMemoryPrompt":     session.StaticMemoryPrompt,
-		"memoryPrompt":           session.MemoryPrompt,
 		"skillCatalogPrompt":     session.SkillCatalogPrompt,
 		"soulPrompt":             session.SoulPrompt,
 		"agentsPrompt":           session.AgentsPrompt,

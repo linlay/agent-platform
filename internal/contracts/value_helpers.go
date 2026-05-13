@@ -99,10 +99,6 @@ func AnyMapNode(value any) map[string]any {
 	return anyMapNode(value)
 }
 
-func AnyListStrings(value any) []string {
-	return anyListStrings(value)
-}
-
 func StringValue(value any) string {
 	switch v := value.(type) {
 	case string:

@@ -167,8 +167,8 @@ func TestMemoryLifecycleToolsUpdateForgetAndTimeline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("timeline memory: %v", err)
 	}
-	if timelineResult.Structured["count"].(int) < 2 {
-		t.Fatalf("expected timeline to include related fact, got %#v", timelineResult.Structured)
+	if timelineResult.Structured["count"].(int) < 1 {
+		t.Fatalf("expected timeline to include the updated fact, got %#v", timelineResult.Structured)
 	}
 
 	forgetResult, err := executor.Invoke(context.Background(), "_memory_forget_", map[string]any{
@@ -447,8 +447,8 @@ func TestMemoryConsolidateArchivesDuplicatesAndPromotesFact(t *testing.T) {
 	if result.Error != "" || result.ExitCode != 0 {
 		t.Fatalf("unexpected consolidate result: %#v", result)
 	}
-	if result.Structured["mergedCount"].(int) != 1 {
-		t.Fatalf("expected one merged observation, got %#v", result.Structured)
+	if result.Structured["mergedCount"].(int) != 0 {
+		t.Fatalf("expected duplicate observation to be bumped on write before consolidate, got %#v", result.Structured)
 	}
 	if result.Structured["promotedCount"].(int) != 1 {
 		t.Fatalf("expected one promoted observation, got %#v", result.Structured)

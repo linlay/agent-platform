@@ -743,26 +743,6 @@ func (s *llmRunStream) preToolInvocationDeltas(toolID string, toolName string, p
 	return nil
 }
 
-func cloneAgentDeltas(input []AgentDelta) []AgentDelta {
-	if len(input) == 0 {
-		return nil
-	}
-	out := make([]AgentDelta, 0, len(input))
-	for _, delta := range input {
-		switch value := delta.(type) {
-		case DeltaAwaitAsk:
-			cloned := value
-			cloned.Questions = append([]any(nil), value.Questions...)
-			cloned.Approvals = append([]any(nil), value.Approvals...)
-			cloned.Forms = append([]any(nil), value.Forms...)
-			out = append(out, cloned)
-		default:
-			out = append(out, delta)
-		}
-	}
-	return out
-}
-
 func (s *llmRunStream) lookupToolDefinition(toolName string) (api.ToolDetailResponse, bool) {
 	if s.checker != nil {
 		if tool, ok := s.checker.Tool(toolName); ok {

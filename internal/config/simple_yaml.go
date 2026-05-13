@@ -1,7 +1,6 @@
 package config
 
 import (
-	"bufio"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,43 +14,6 @@ var (
 
 func ProjectFile(relative string) string {
 	return filepath.Join(projectRoot(), filepath.Clean(relative))
-}
-
-func LoadTopLevelYAML(path string) (map[string]string, error) {
-	file, err := os.Open(path)
-	if os.IsNotExist(err) {
-		return map[string]string{}, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	result := map[string]string{}
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimRight(scanner.Text(), "\r\n")
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-		if strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t") {
-			continue
-		}
-		parts := strings.SplitN(line, ":", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		key := strings.TrimSpace(parts[0])
-		value := cleanConfigValue(parts[1])
-		if key != "" {
-			result[key] = interpolateEnvValue(value)
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
-	return result, nil
 }
 
 func projectRoot() string {
@@ -76,13 +38,6 @@ func projectRoot() string {
 		}
 	})
 	return projectRootDir
-}
-
-func cleanConfigValue(raw string) string {
-	value := stripInlineComment(raw)
-	value = strings.TrimSpace(value)
-	value = strings.Trim(value, `"'`)
-	return value
 }
 
 func stripInlineComment(raw string) string {

@@ -106,7 +106,7 @@ func buildInjectedSystemSections(session QuerySession, req api.QueryRequest, opt
 
 	appendSection("agent-identity", "Agent Identity", "agent.identity", buildAgentIdentitySection(session))
 	appendSection("agent-soul", "Soul Prompt", "agent.soul", strings.TrimSpace(session.SoulPrompt))
-	appendSection("static-memory", "Static Memory Prompt", "memory.static", strings.TrimSpace(firstNonBlank(session.StaticMemoryPrompt, session.MemoryPrompt)))
+	appendSection("static-memory", "Static Memory Prompt", "memory.static", strings.TrimSpace(session.StaticMemoryPrompt))
 
 	for _, tag := range session.ContextTags {
 		switch strings.ToLower(strings.TrimSpace(tag)) {

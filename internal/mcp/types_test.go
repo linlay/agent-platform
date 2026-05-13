@@ -15,16 +15,6 @@ func TestToolDefinitionUnmarshalJSONSupportsViewportType(t *testing.T) {
 	}
 }
 
-func TestToolDefinitionUnmarshalJSONSupportsLegacyToolType(t *testing.T) {
-	var tool ToolDefinition
-	if err := json.Unmarshal([]byte(`{"name":"ask","toolType":"builtin","viewportKey":"confirm_dialog"}`), &tool); err != nil {
-		t.Fatalf("unmarshal legacy tool definition: %v", err)
-	}
-	if tool.ViewportType != "builtin" {
-		t.Fatalf("expected legacy toolType to map to viewportType, got %#v", tool)
-	}
-}
-
 func TestToolDefinitionToAPIToolUsesViewportTypeMeta(t *testing.T) {
 	tool := ToolDefinition{
 		Name:         "ask",

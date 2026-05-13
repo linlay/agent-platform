@@ -9,17 +9,6 @@ import (
 	"agent-platform-runner-go/internal/hitl"
 )
 
-func resolveApprovedCommand(value string, answer string) string {
-	switch {
-	case strings.EqualFold(value, "approve"), strings.EqualFold(value, "approve_rule_run"), strings.EqualFold(value, "reject"):
-		return ""
-	case value != "":
-		return value
-	default:
-		return answer
-	}
-}
-
 func extractCommandPayload(parsed hitl.CommandComponents) map[string]any {
 	for idx := 0; idx < len(parsed.Tokens)-1; idx++ {
 		if strings.TrimSpace(parsed.Tokens[idx]) != "--payload" {

@@ -88,11 +88,7 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/memory/record", s.wsMemoryRecord)
 	handler.RegisterRoute("/api/viewport", s.wsViewport)
 	handler.RegisterRoute("/api/resource", s.wsResource)
-	// agent 视角下这是一次 "去网关拉取" 动作，所以主路由名是 /api/pull；
-	// 为过渡期兼容网关旧 type 字段，额外注册 /api/upload 作为 alias，等网关切完再删。
-	// TODO(compat-cleanup): remove the /api/upload alias after gateway route-type telemetry stays at zero for one release.
 	handler.RegisterRoute("/api/pull", s.wsDownload)
-	handler.RegisterRoute("/api/upload", s.wsDownload)
 }
 
 func (s *Server) wsAgents(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {

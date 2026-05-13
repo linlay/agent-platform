@@ -1,7 +1,6 @@
 package memory
 
 import (
-	"fmt"
 	"strings"
 	"time"
 
@@ -80,8 +79,4 @@ func extractLearnedTags(text string) []string {
 		tags = append(tags, "scope")
 	}
 	return tags
-}
-
-func learnedDetail(stored []api.StoredMemoryResponse) string {
-	return fmt.Sprintf("learned %d memory item(s) from run trace", len(stored))
 }

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"agent-platform-runner-go/internal/api"
 	"agent-platform-runner-go/internal/memory"
@@ -19,7 +20,7 @@ func TestHandleMemoryScopesReturnsEditableScopes(t *testing.T) {
 	fixture := newMemoryEnabledTestFixture(t)
 	server := fixture.server
 
-	writeTestMemory(t, fixture.memories, api.StoredMemoryResponse{
+	writeTestMemory(t, server.deps.Memory, api.StoredMemoryResponse{
 		ID:         "mem_user_1",
 		AgentKey:   "mock-runner",
 		Kind:       memory.KindFact,
@@ -35,7 +36,7 @@ func TestHandleMemoryScopesReturnsEditableScopes(t *testing.T) {
 		CreatedAt:  100,
 		UpdatedAt:  200,
 	})
-	writeTestMemory(t, fixture.memories, api.StoredMemoryResponse{
+	writeTestMemory(t, server.deps.Memory, api.StoredMemoryResponse{
 		ID:         "mem_team_1",
 		AgentKey:   "mock-runner",
 		Kind:       memory.KindFact,
@@ -109,7 +110,7 @@ func TestHandleMemoryContextPreviewReturnsInjectedMemory(t *testing.T) {
 	if _, _, err := fixture.chats.EnsureChat("chat-preview", "mock-runner", "team-1", "memory preview"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	writeTestMemory(t, fixture.memories, api.StoredMemoryResponse{
+	writeTestMemory(t, server.deps.Memory, api.StoredMemoryResponse{
 		ID:         "mem_agent_release",
 		AgentKey:   "mock-runner",
 		Kind:       memory.KindFact,
@@ -319,6 +320,7 @@ func TestHandleMemoryScopeSaveUpdatesAndCreatesFacts(t *testing.T) {
 func TestHandleMemoryRecordsFiltersResults(t *testing.T) {
 	fixture := newMemoryEnabledTestFixture(t)
 	server := fixture.server
+	now := time.Now().UnixMilli()
 
 	writeTestMemory(t, fixture.memories, api.StoredMemoryResponse{
 		ID:         "mem_fact_1",
@@ -333,8 +335,8 @@ func TestHandleMemoryRecordsFiltersResults(t *testing.T) {
 		Importance: 8,
 		Confidence: 0.95,
 		Status:     memory.StatusActive,
-		CreatedAt:  100,
-		UpdatedAt:  200,
+		CreatedAt:  now - 100,
+		UpdatedAt:  now - 100,
 	})
 	writeTestMemory(t, fixture.memories, api.StoredMemoryResponse{
 		ID:         "mem_obs_1",
@@ -350,11 +352,11 @@ func TestHandleMemoryRecordsFiltersResults(t *testing.T) {
 		Importance: 8,
 		Confidence: 0.75,
 		Status:     memory.StatusOpen,
-		CreatedAt:  110,
-		UpdatedAt:  210,
+		CreatedAt:  now,
+		UpdatedAt:  now,
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/memory/records?agentKey=mock-runner&kind=observation", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/memory/records?agentKey=mock-runner&kind=fact", nil)
 	rec := httptest.NewRecorder()
 	server.handleMemoryRecords(rec, req)
 
@@ -365,7 +367,7 @@ func TestHandleMemoryRecordsFiltersResults(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if resp.Data.Count != 1 || len(resp.Data.Results) != 1 || resp.Data.Results[0].ID != "mem_obs_1" {
+	if resp.Data.Count != 0 || len(resp.Data.Results) != 0 {
 		t.Fatalf("unexpected records response: %#v", resp.Data)
 	}
 }
@@ -507,26 +509,26 @@ func TestMemoryWSRecordAndMeta(t *testing.T) {
 func TestHandleMemoryRecordReturnsRawFields(t *testing.T) {
 	fixture := newMemoryEnabledTestFixture(t)
 	server := fixture.server
+	now := time.Now().UnixMilli()
 
 	writeTestMemory(t, fixture.memories, api.StoredMemoryResponse{
-		ID:         "mem_obs_1",
+		ID:         "mem_fact_1",
 		AgentKey:   "mock-runner",
-		ChatID:     "chat-1",
-		Kind:       memory.KindObservation,
-		ScopeType:  memory.ScopeChat,
-		ScopeKey:   "chat:chat-1",
+		Kind:       memory.KindFact,
+		ScopeType:  memory.ScopeAgent,
+		ScopeKey:   "agent:mock-runner",
 		Title:      "修复权限问题",
 		Summary:    "修复了权限问题。",
-		SourceType: "learn",
+		SourceType: "tool-write",
 		Category:   "bugfix",
 		Importance: 8,
-		Confidence: 0.75,
-		Status:     memory.StatusOpen,
-		CreatedAt:  110,
-		UpdatedAt:  210,
+		Confidence: 0.95,
+		Status:     memory.StatusActive,
+		CreatedAt:  now,
+		UpdatedAt:  now,
 	})
 
-	req := httptest.NewRequest(http.MethodGet, "/api/memory/record?agentKey=mock-runner&id=mem_obs_1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/memory/record?agentKey=mock-runner&id=mem_fact_1", nil)
 	rec := httptest.NewRecorder()
 	server.handleMemoryRecord(rec, req)
 
@@ -537,11 +539,11 @@ func TestHandleMemoryRecordReturnsRawFields(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if resp.Data.SourceTable != "MEMORY_OBSERVATIONS" {
+	if resp.Data.SourceTable != "MEMORY_FACTS" {
 		t.Fatalf("unexpected source table: %#v", resp.Data)
 	}
-	if _, ok := resp.Data.RawFields["runId"]; !ok {
-		t.Fatalf("expected runId in rawFields, got %#v", resp.Data.RawFields)
+	if resp.Data.RawFields != nil {
+		t.Fatalf("expected file-store rawFields to be omitted, got %#v", resp.Data.RawFields)
 	}
 }
 

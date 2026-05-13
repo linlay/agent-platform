@@ -69,7 +69,3 @@ func ValidChatID(chatID string) bool {
 	clean := filepath.Clean(chatID)
 	return clean == chatID && clean != "." && clean != string(filepath.Separator)
 }
-
-func validFlatChatID(chatID string) bool {
-	return ValidChatID(chatID)
-}

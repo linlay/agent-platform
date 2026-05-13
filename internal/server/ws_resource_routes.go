@@ -29,21 +29,12 @@ import (
 //     {requestId, chatId, upload:{id,type,name,mimeType,sizeBytes,sha256,url?}}
 //   - flat：{chatId, requestId, fileName, sha256?, url?, mimeType?, sizeBytes?}
 //
-// 下载 key 优先级：`url`（历史字段）非空时直接用；否则用 `sha256` 拼
-// channel gateway.base-url + /api/pull/{sha256}。下载完的字节复用 /api/upload
+// 下载 key 由网关在 upload.url 中下发。下载完的字节复用 /api/upload
 // 内部管线落盘到 {ChatsDir}/{chatId}/，sandbox 会把该目录挂进容器 /workspace。
 func (s *Server) wsDownload(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {
-	if strings.TrimSpace(req.Type) == "/api/upload" {
-		log.Printf("[compat-cleanup][ws-upload-alias] legacy route type used requestId=%s", req.ID)
-	}
 	payload, err := ws.DecodePayload[struct {
 		ChatID    string `json:"chatId"`
 		RequestID string `json:"requestId"`
-		FileName  string `json:"fileName"`
-		URL       string `json:"url"`
-		MimeType  string `json:"mimeType"`
-		SizeBytes int64  `json:"sizeBytes"`
-		SHA256    string `json:"sha256"`
 		Upload    struct {
 			ID        string `json:"id"`
 			Type      string `json:"type"`
@@ -62,31 +53,13 @@ func (s *Server) wsDownload(ctx context.Context, conn *ws.Conn, req ws.RequestFr
 
 	chatID := strings.TrimSpace(payload.ChatID)
 	requestID := strings.TrimSpace(payload.RequestID)
-	fileName := strings.TrimSpace(payload.FileName)
-	mimeType := strings.TrimSpace(payload.MimeType)
-	sizeBytes := payload.SizeBytes
-	sha256Value := strings.TrimSpace(payload.SHA256)
-	if fileName == "" {
-		fileName = strings.TrimSpace(payload.Upload.Name)
-	}
-	if mimeType == "" {
-		mimeType = strings.TrimSpace(payload.Upload.MimeType)
-	}
-	if sizeBytes == 0 {
-		sizeBytes = payload.Upload.SizeBytes
-	}
-	if sha256Value == "" {
-		sha256Value = strings.TrimSpace(payload.Upload.SHA256)
-	}
-	if strings.TrimSpace(payload.Upload.Name) == "" {
-		log.Printf("[compat-cleanup][ws-upload-flat-payload] legacy flat payload used requestId=%s chatId=%s", req.ID, chatID)
-	}
+	fileName := strings.TrimSpace(payload.Upload.Name)
+	mimeType := strings.TrimSpace(payload.Upload.MimeType)
+	sizeBytes := payload.Upload.SizeBytes
+	sha256Value := strings.TrimSpace(payload.Upload.SHA256)
 	// 契约：网关在 upload.url 里下发完整 https://.../api/pull/...?ticket=... URL。
 	// platform 直接用它发 HTTP GET，不做路径拼接、不做猜测。
-	rawURL := strings.TrimSpace(payload.URL)
-	if rawURL == "" {
-		rawURL = strings.TrimSpace(payload.Upload.URL)
-	}
+	rawURL := strings.TrimSpace(payload.Upload.URL)
 	if chatID == "" || fileName == "" || rawURL == "" {
 		log.Printf("[ws-download] reject: missing fields chatId=%q fileName=%q url=%q rawPayload=%s",
 			chatID, fileName, rawURL, string(req.Payload))

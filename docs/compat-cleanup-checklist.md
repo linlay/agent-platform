@@ -4,19 +4,12 @@ This document tracks the compatibility paths that are intentionally retained aft
 
 ## A1 removal candidates
 
-- WS `/api/upload` route alias: remove after gateways send `/api/pull` route types only.
-- WS flat upload payload: remove after gateways send only nested `upload` payloads.
 - Agent `sandboxConfig`: remove after catalog definitions use `runtimeConfig`.
-- `toolType` viewport alias: remove after MCP, HITL, and tool registries use `viewportType`.
-- `MemoryPrompt`: remove after prompt builders and preview code use `StaticMemoryPrompt` only.
-- `system.debugPreCall`: remove after historical chat traces are migrated to `debug.preCall`.
 
 ## Required checks before deletion
 
 - Run `scripts/audit-compat-data.sh <CHATS_DIR> [CONFIG_ROOT]` against representative local or production data.
-- Confirm logs contain no `[compat-cleanup][ws-upload-alias]` entries for one release.
-- Confirm logs contain no `[compat-cleanup][ws-upload-flat-payload]` entries for one release.
-- Confirm config scans have zero `sandboxConfig`, `toolType`, `MemoryPrompt`, or `system.debugPreCall` hits outside tests and docs.
+- Confirm config scans have zero `sandboxConfig` hits outside tests and docs.
 
 ## Keep for a separate cleanup decision
 

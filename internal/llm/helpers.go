@@ -11,10 +11,6 @@ import (
 	"agent-platform-runner-go/internal/contracts"
 )
 
-func runTimeout(b contracts.Budget) time.Duration {
-	return time.Duration(maxInt(b.RunTimeoutMs, 1)) * time.Millisecond
-}
-
 func toolTimeout(policy contracts.RetryPolicy) time.Duration {
 	return time.Duration(maxInt(policy.TimeoutMs, 1)) * time.Millisecond
 }

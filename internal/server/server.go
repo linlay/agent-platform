@@ -1024,7 +1024,3 @@ func newChatID() string {
 		data[10:16],
 	)
 }
-
-func withTimeout(parent context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(parent, 30*time.Second)
-}

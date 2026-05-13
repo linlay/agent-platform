@@ -50,28 +50,6 @@ func CandidateFromRunTrace(trace chat.RunTrace, agentKey string, chatID string) 
 	}, true
 }
 
-func CandidateFromObservation(agentKey string, sourceMemoryID string, summary string, category string, confidence float64) (CandidateInput, bool) {
-	if !looksProcedural(summary) {
-		return CandidateInput{}, false
-	}
-	return CandidateInput{
-		AgentKey:        strings.TrimSpace(agentKey),
-		SourceKind:      "consolidate",
-		SourceMemoryID:  strings.TrimSpace(sourceMemoryID),
-		Title:           summarizeProcedureTitle(summary),
-		Summary:         summarizeProcedureSummary(summary),
-		Procedure:       strings.TrimSpace(summary),
-		Intent:          summarizeProcedureSummary(summary),
-		Preconditions:   extractWorkflowPreconditions(summary),
-		Steps:           extractWorkflowSteps(summary),
-		FailurePatterns: extractWorkflowFailurePatterns(summary),
-		SuccessCriteria: extractWorkflowSuccessCriteria(summary),
-		Category:        normalizeText(category, "workflow"),
-		Confidence:      normalizeConfidence(confidence),
-		Tags:            procedureTags(summary),
-	}, true
-}
-
 func looksProcedural(text string) bool {
 	needle := strings.ToLower(strings.TrimSpace(text))
 	if needle == "" {

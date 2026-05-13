@@ -34,16 +34,6 @@ type openAIFunctionCall struct {
 	Arguments string `json:"arguments"`
 }
 
-type openAIChatRequest struct {
-	Model         string           `json:"model"`
-	Messages      []openAIMessage  `json:"messages"`
-	Tools         []openAIToolSpec `json:"tools,omitempty"`
-	ToolChoice    string           `json:"tool_choice,omitempty"`
-	Temperature   float64          `json:"temperature,omitempty"`
-	Stream        bool             `json:"stream,omitempty"`
-	StreamOptions *streamOptions   `json:"stream_options,omitempty"`
-}
-
 type streamOptions struct {
 	IncludeUsage bool `json:"include_usage"`
 }

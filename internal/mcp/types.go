@@ -57,11 +57,9 @@ func (t *ToolDefinition) UnmarshalJSON(data []byte) error {
 		Parameters    map[string]any `json:"parameters"`
 		ToolAction    bool           `json:"toolAction"`
 		ViewportType  string         `json:"viewportType"`
-		// TODO(compat-cleanup): remove toolType input alias once registries only emit viewportType.
-		ToolType    string         `json:"toolType"`
-		ViewportKey string         `json:"viewportKey"`
-		Aliases     []string       `json:"aliases"`
-		Meta        map[string]any `json:"meta"`
+		ViewportKey   string         `json:"viewportKey"`
+		Aliases       []string       `json:"aliases"`
+		Meta          map[string]any `json:"meta"`
 	}
 	var raw rawToolDefinition
 	if err := json.Unmarshal(data, &raw); err != nil {
@@ -79,7 +77,7 @@ func (t *ToolDefinition) UnmarshalJSON(data []byte) error {
 		AfterCallHint: raw.AfterCallHint,
 		Parameters:    contracts.CloneMap(parameters),
 		ToolAction:    raw.ToolAction,
-		ViewportType:  strings.TrimSpace(contracts.FirstNonEmptyString(raw.ViewportType, raw.ToolType)),
+		ViewportType:  strings.TrimSpace(raw.ViewportType),
 		ViewportKey:   raw.ViewportKey,
 		Aliases:       append([]string(nil), raw.Aliases...),
 		Meta:          contracts.CloneMap(raw.Meta),

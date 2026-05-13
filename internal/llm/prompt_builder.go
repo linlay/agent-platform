@@ -37,7 +37,7 @@ func buildSystemPrompt(session QuerySession, req api.QueryRequest, _ string, opt
 	sections := []string{
 		buildAgentIdentitySection(session),
 		strings.TrimSpace(session.SoulPrompt),
-		strings.TrimSpace(firstNonBlank(session.StaticMemoryPrompt, session.MemoryPrompt)),
+		strings.TrimSpace(session.StaticMemoryPrompt),
 		buildRuntimeContextPrompt(session, req),
 		stageInstructionsPrompt,
 		stageSystemPrompt,
@@ -157,21 +157,6 @@ func buildSystemEnvironmentSection(session QuerySession) string {
 	}
 	appendContextPaths(&lines, session)
 	return strings.Join(lines, "\n")
-}
-
-func resolveLocale() string {
-	for _, key := range []string{"LC_ALL", "LC_MESSAGES", "LANG"} {
-		value := strings.TrimSpace(os.Getenv(key))
-		if value == "" {
-			continue
-		}
-		value = strings.Split(value, ".")[0]
-		value = strings.ReplaceAll(value, "_", "-")
-		if value != "" {
-			return value
-		}
-	}
-	return "unknown"
 }
 
 func buildSessionSection(session QuerySession, req api.QueryRequest) string {
@@ -523,23 +508,5 @@ func appendIfPresent(sections *[]string, content string) {
 func appendKeyValue(lines *[]string, key string, value string) {
 	if strings.TrimSpace(value) != "" {
 		*lines = append(*lines, key+": "+strings.TrimSpace(value))
-	}
-}
-
-func appendIndentedKeyValue(lines *[]string, key string, value string) {
-	if strings.TrimSpace(value) != "" {
-		*lines = append(*lines, "  "+key+": "+strings.TrimSpace(value))
-	}
-}
-
-func appendInlineList(lines *[]string, key string, values []string) {
-	normalized := make([]string, 0, len(values))
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			normalized = append(normalized, strings.TrimSpace(value))
-		}
-	}
-	if len(normalized) > 0 {
-		*lines = append(*lines, key+": ["+strings.Join(normalized, ", ")+"]")
 	}
 }

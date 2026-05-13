@@ -45,10 +45,6 @@ func NewErrorPayload(code string, message string, scope string, category ErrorCa
 	return payload
 }
 
-func NewSystemErrorPayload(code string, message string, diagnostics map[string]any) map[string]any {
-	return NewErrorPayload(code, message, ErrorScopeRun, ErrorCategorySystem, diagnostics)
-}
-
 func cloneAnyMap(values map[string]any) map[string]any {
 	if values == nil {
 		return nil

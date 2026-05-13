@@ -21,7 +21,6 @@ type RouteHandler func(context.Context, *Conn, RequestFrame)
 type outboundMessage struct {
 	frame     any
 	msgType   int
-	closeCode int
 	closeText string
 }
 

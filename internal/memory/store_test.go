@@ -37,7 +37,7 @@ func TestFileStoreToolQueries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	assertStoreToolQueries(t, store, "like")
+	runToolQueriesTest(t, store, "like")
 }
 
 func TestSQLiteStoreToolQueries(t *testing.T) {
@@ -45,7 +45,7 @@ func TestSQLiteStoreToolQueries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new sqlite store: %v", err)
 	}
-	assertStoreToolQueries(t, store, "fts")
+	runToolQueriesTest(t, store, "fts")
 }
 
 func TestConsolidateSupersedesNearDuplicateFactsAcrossStores(t *testing.T) {
@@ -139,23 +139,23 @@ func TestConsolidateSupersedesNearDuplicateFactsAcrossStores(t *testing.T) {
 			if err != nil {
 				t.Fatalf("consolidate: %v", err)
 			}
-			if result.MergedCount != 1 {
-				t.Fatalf("expected one merged fact, got %#v", result)
+			if result.MergedCount != 0 {
+				t.Fatalf("expected write-time fact merge to leave nothing for consolidate, got %#v", result)
 			}
 
 			shortRecord, err := store.ReadDetail("agent-a", "fact-short")
 			if err != nil {
 				t.Fatalf("read old fact: %v", err)
 			}
-			if shortRecord == nil || shortRecord.Status != StatusSuperseded {
-				t.Fatalf("expected near-duplicate fact superseded, got %#v", shortRecord)
+			if shortRecord == nil || shortRecord.Status != StatusActive || !strings.Contains(shortRecord.Content, "8小时") {
+				t.Fatalf("expected near-duplicate fact merged into existing active record, got %#v", shortRecord)
 			}
 			richRecord, err := store.ReadDetail("agent-a", "fact-rich")
 			if err != nil {
 				t.Fatalf("read keeper fact: %v", err)
 			}
-			if richRecord == nil || richRecord.Status != StatusActive {
-				t.Fatalf("expected richer fact to remain active, got %#v", richRecord)
+			if richRecord != nil {
+				t.Fatalf("expected richer fact to be folded into existing record on write, got %#v", richRecord)
 			}
 			distinctRecord, err := store.ReadDetail("agent-a", "fact-distinct")
 			if err != nil {
@@ -498,7 +498,7 @@ func TestLearnCanSkipStorageViaSummarizerAcrossStores(t *testing.T) {
 	}
 }
 
-func assertStoreToolQueries(t *testing.T, store Store, expectedMatchType string) {
+func runToolQueriesTest(t *testing.T, store Store, expectedMatchType string) {
 	t.Helper()
 
 	items := []api.StoredMemoryResponse{
@@ -1146,11 +1146,11 @@ func TestLearnAutoConsolidatesDuplicateObservations(t *testing.T) {
 					archivedObservations++
 				}
 			}
-			if activeFacts == 0 {
-				t.Fatalf("expected duplicate learns to promote a fact, got %#v", items)
+			if activeFacts != 0 {
+				t.Fatalf("expected duplicate learns to bump the existing observation without heuristic promotion, got %#v", items)
 			}
-			if archivedObservations == 0 {
-				t.Fatalf("expected duplicate observation to be archived, got %#v", items)
+			if archivedObservations != 0 {
+				t.Fatalf("expected duplicate observation to be merged on write instead of archived, got %#v", items)
 			}
 		})
 	}
@@ -1287,15 +1287,15 @@ func TestSQLiteStoreSupersedesOlderFactAndCreatesLink(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read old fact: %v", err)
 	}
-	if oldRecord == nil || oldRecord.Status != StatusSuperseded {
-		t.Fatalf("expected old fact superseded, got %#v", oldRecord)
+	if oldRecord == nil || oldRecord.Status != StatusActive || !strings.Contains(oldRecord.Content, "go test") {
+		t.Fatalf("expected old fact to absorb near duplicate on write, got %#v", oldRecord)
 	}
 	newRecord, err := store.ReadDetail("agent-a", "fact-new")
 	if err != nil {
 		t.Fatalf("read new fact: %v", err)
 	}
-	if newRecord == nil || newRecord.Status != StatusActive {
-		t.Fatalf("expected new fact active, got %#v", newRecord)
+	if newRecord != nil {
+		t.Fatalf("expected new fact to be folded into old fact, got %#v", newRecord)
 	}
 
 	var count int
@@ -1305,8 +1305,8 @@ func TestSQLiteStoreSupersedesOlderFactAndCreatesLink(t *testing.T) {
 	).Scan(&count); err != nil {
 		t.Fatalf("count memory links: %v", err)
 	}
-	if count != 1 {
-		t.Fatalf("expected one supersedes link, got %d", count)
+	if count != 0 {
+		t.Fatalf("did not expect supersedes link for write-time merge, got %d", count)
 	}
 }
 
@@ -1359,8 +1359,8 @@ func TestSQLiteStoreConsolidateLinksKeeperToSupersededFact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("consolidate: %v", err)
 	}
-	if result.MergedCount != 1 {
-		t.Fatalf("expected one merged fact, got %#v", result)
+	if result.MergedCount != 0 {
+		t.Fatalf("expected write-time fact merge to leave nothing for consolidate, got %#v", result)
 	}
 
 	var count int
@@ -1370,8 +1370,8 @@ func TestSQLiteStoreConsolidateLinksKeeperToSupersededFact(t *testing.T) {
 	).Scan(&count); err != nil {
 		t.Fatalf("count memory links: %v", err)
 	}
-	if count != 1 {
-		t.Fatalf("expected one supersedes link after consolidate, got %d", count)
+	if count != 0 {
+		t.Fatalf("did not expect supersedes link after write-time merge, got %d", count)
 	}
 }
 
@@ -1705,8 +1705,8 @@ func TestSQLiteStoreConsolidateArchivesStaleAndPromotesStrongObservation(t *test
 	if result.ArchivedCount < 2 {
 		t.Fatalf("expected archived observations, got %#v", result)
 	}
-	if result.MergedCount != 1 {
-		t.Fatalf("expected one merged duplicate, got %#v", result)
+	if result.MergedCount != 0 {
+		t.Fatalf("expected duplicate observation to be bumped on write before consolidate, got %#v", result)
 	}
 	if result.PromotedCount != 1 {
 		t.Fatalf("expected one promoted observation, got %#v", result)
@@ -1727,11 +1727,11 @@ func TestSQLiteStoreConsolidateArchivesStaleAndPromotesStrongObservation(t *test
 		t.Fatalf("expected older duplicate archived, got %#v", duplicateOld)
 	}
 	duplicateNew, err := store.Read("obs-dup-new")
-	if err != nil || duplicateNew == nil {
-		t.Fatalf("read promoted observation source: %v %#v", err, duplicateNew)
+	if err != nil {
+		t.Fatalf("read folded duplicate observation: %v", err)
 	}
-	if duplicateNew.Status != StatusArchived {
-		t.Fatalf("expected promoted observation archived, got %#v", duplicateNew)
+	if duplicateNew != nil {
+		t.Fatalf("expected duplicate observation to be folded into the existing source on write, got %#v", duplicateNew)
 	}
 	results, err := store.List("agent-a", "", 20, "recent")
 	if err != nil {

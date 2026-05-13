@@ -42,19 +42,6 @@ const (
 	LevelRuntimeWrapper             = 3
 )
 
-// checkBashSecurity validates a bash command against a comprehensive set of
-// security checks ported from Claude Code's bashSecurity.ts.
-// Returns (true, "") if the command passes all checks, or (false, reason)
-// if any check fails.
-// This should be called BEFORE whitelist/path checks in invokeHostBash.
-func CheckBashSecurity(command string) (ok bool, reason string) {
-	result := ReviewBashSecurity(command)
-	if result.Decision == ReviewAllow {
-		return true, ""
-	}
-	return false, result.Reason
-}
-
 func ReviewBashSecurity(command string) ReviewResult {
 	return ReviewBashSecurityWithKnownVariables(command, nil)
 }
@@ -655,10 +642,6 @@ func xargsInnerArgv(argv []string) ([]string, bool) {
 		return nil, false
 	}
 	return argv[idx:], true
-}
-
-func checkBashSecurity(command string) (bool, string) {
-	return CheckBashSecurity(command)
 }
 
 func blockReview(reason string) ReviewResult {

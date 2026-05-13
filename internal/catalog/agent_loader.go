@@ -83,7 +83,6 @@ func loadAgentPrompts(agentDir string, def *AgentDefinition, root map[string]any
 
 	def.SoulPrompt = readOptionalMarkdown(filepath.Join(agentDir, "SOUL.md"))
 	def.StaticMemoryPrompt = readOptionalMarkdown(filepath.Join(agentDir, "memory", "memory.md"))
-	def.MemoryPrompt = def.StaticMemoryPrompt
 
 	topPromptFiles := parsePromptFileField(root["promptFile"])
 

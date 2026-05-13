@@ -100,26 +100,6 @@ func structuredAnswers(result contracts.ToolExecutionResult) ([]map[string]any, 
 	return answers, true
 }
 
-func structuredQuestions(result contracts.ToolExecutionResult) ([]map[string]any, bool) {
-	questions, ok := result.Structured["questions"].([]map[string]any)
-	if ok {
-		return questions, true
-	}
-	rawQuestions, ok := result.Structured["questions"].([]any)
-	if !ok {
-		return nil, false
-	}
-	questions = make([]map[string]any, 0, len(rawQuestions))
-	for _, rawQuestion := range rawQuestions {
-		question := contracts.AnyMapNode(rawQuestion)
-		if len(question) == 0 {
-			return nil, false
-		}
-		questions = append(questions, question)
-	}
-	return questions, true
-}
-
 func formatAnswerKey(answer map[string]any) string {
 	if header := strings.TrimSpace(contracts.AnyStringNode(answer["header"])); header != "" {
 		return header
@@ -189,15 +169,4 @@ func sanitizeQuestionFields(questions []any) []any {
 func asAnySlice(value any) []any {
 	items, _ := value.([]any)
 	return items
-}
-
-func cloneMap(input map[string]any) map[string]any {
-	if input == nil {
-		return nil
-	}
-	out := make(map[string]any, len(input))
-	for key, value := range input {
-		out[key] = value
-	}
-	return out
 }

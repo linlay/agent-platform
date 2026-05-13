@@ -104,7 +104,6 @@ type preparedToolInvocation struct {
 	bashSecurityReview  *bashsec.ReviewResult
 	fileAccessPlan      *filetools.AccessPlan
 	fileWritePlan       *filetools.WritePlan
-	approvalID          string
 	approvalDecision    string
 	hitlDecision        *hitlDecisionState
 	queuedResult        *ToolExecutionResult

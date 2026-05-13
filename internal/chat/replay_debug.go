@@ -90,13 +90,6 @@ func debugPreCallData(debug map[string]any, system map[string]any) map[string]an
 			return cloneStringAnyMap(data)
 		}
 	}
-	// TODO(compat-cleanup): remove system.debugPreCall fallback once old chat traces have been migrated.
-	if len(system) > 0 {
-		data, _ := system["debugPreCall"].(map[string]any)
-		if len(data) > 0 {
-			return cloneStringAnyMap(data)
-		}
-	}
 	return nil
 }
 

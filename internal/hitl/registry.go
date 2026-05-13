@@ -45,18 +45,6 @@ func (r *Registry) Reload() error {
 	return nil
 }
 
-func (r *Registry) Version() int64 {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.version
-}
-
-func (r *Registry) Rules() []FlatRule {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return append([]FlatRule(nil), r.rules...)
-}
-
 func (r *Registry) Tool(name string) (api.ToolDetailResponse, bool) {
 	if r == nil {
 		return api.ToolDetailResponse{}, false
@@ -65,15 +53,6 @@ func (r *Registry) Tool(name string) (api.ToolDetailResponse, bool) {
 	defer r.mu.RUnlock()
 	def, ok := r.tools[strings.ToLower(strings.TrimSpace(name))]
 	return def, ok
-}
-
-func (r *Registry) Tools() []api.ToolDetailResponse {
-	if r == nil {
-		return nil
-	}
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return toolList(r.tools)
 }
 
 func (r *Registry) Check(command string, chatLevel int) InterceptResult {
@@ -119,11 +98,6 @@ func matchesRule(command string, parsed CommandComponents, rule FlatRule) bool {
 		return false
 	}
 	return !hasPassThroughFlag(remaining, rule.PassThroughFlags)
-}
-
-func matchesPipelineTokens(command string, matchTokens []string) bool {
-	hit, _ := matchesPipelineTokensWithRemaining(command, matchTokens)
-	return hit
 }
 
 func matchesPipelineTokensWithRemaining(command string, matchTokens []string) (bool, []string) {

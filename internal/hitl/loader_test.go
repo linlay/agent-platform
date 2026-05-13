@@ -156,33 +156,6 @@ commands:
 	}
 }
 
-func TestLoadRulesSupportsLegacyToolTypeField(t *testing.T) {
-	root := t.TempDir()
-	content := `
-commands:
-  - command: git
-    subcommands:
-      - match: push
-        level: 2
-        toolType: builtin
-        viewportKey: confirm_dialog
-`
-	if err := os.WriteFile(filepath.Join(root, "legacy.yml"), []byte(content), 0o644); err != nil {
-		t.Fatalf("write legacy rule file: %v", err)
-	}
-
-	rules, err := loadRulesFromDir(root)
-	if err != nil {
-		t.Fatalf("load rules: %v", err)
-	}
-	if len(rules) != 1 {
-		t.Fatalf("expected 1 rule, got %#v", rules)
-	}
-	if rules[0].ViewportType != "builtin" {
-		t.Fatalf("expected legacy toolType to map to viewportType, got %#v", rules[0])
-	}
-}
-
 func TestLoadRulesDefaultsViewportToBuiltinConfirmDialog(t *testing.T) {
 	root := t.TempDir()
 	content := `

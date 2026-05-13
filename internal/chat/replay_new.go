@@ -396,8 +396,5 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 }
 
 func taskToolIDFromLine(line map[string]any) string {
-	if value := stringFromAny(line["taskToolId"]); strings.TrimSpace(value) != "" {
-		return value
-	}
-	return stringFromAny(line["taskMainToolId"])
+	return stringFromAny(line["taskToolId"])
 }

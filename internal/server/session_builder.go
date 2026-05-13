@@ -130,7 +130,6 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		RuntimeContext:         runtimeContext,
 		PromptAppend:           promptAppend,
 		StaticMemoryPrompt:     strings.TrimSpace(agentDef.StaticMemoryPrompt),
-		MemoryPrompt:           agentDef.MemoryPrompt,
 		SkillCatalogPrompt:     buildSkillCatalogPrompt(agentDef, s.deps.Config.Paths.SkillsMarketDir, promptAppend),
 		SoulPrompt:             agentDef.SoulPrompt,
 		AgentsPrompt:           agentDef.AgentsPrompt,

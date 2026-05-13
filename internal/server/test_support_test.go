@@ -14,7 +14,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -507,27 +506,6 @@ func assertPersistedEventTypes(t *testing.T, events []stream.EventData, want ...
 			t.Fatalf("did not expect persisted event type %q, got %#v", eventType, events)
 		}
 	}
-}
-
-type scriptedRoundTripper struct {
-	handler http.HandlerFunc
-}
-
-func (r scriptedRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	rec := httptest.NewRecorder()
-	r.handler(rec, req)
-	result := rec.Result()
-	return &http.Response{
-		StatusCode: result.StatusCode,
-		Status:     result.Status,
-		Header:     result.Header.Clone(),
-		Body:       result.Body,
-		Request:    req,
-	}, nil
-}
-
-func newScriptedHTTPClient(handler http.HandlerFunc) *http.Client {
-	return &http.Client{Transport: scriptedRoundTripper{handler: handler}}
 }
 
 func writeTestJWTKeyPair(t *testing.T, dir string) (*rsa.PrivateKey, string) {

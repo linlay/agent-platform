@@ -364,10 +364,6 @@ func defaultEndpointPath(protocol string, baseURL string) string {
 	}
 }
 
-func defaultOpenAIEndpointPath(baseURL string) string {
-	return defaultEndpointPath("OPENAI", baseURL)
-}
-
 func normalizedBasePath(rawBaseURL string) string {
 	parsed, err := url.Parse(strings.TrimSpace(rawBaseURL))
 	if err != nil {
@@ -471,13 +467,6 @@ func intNode(value any) int {
 	default:
 		return 0
 	}
-}
-
-func defaultString(value string, fallback string) string {
-	if value == "" {
-		return fallback
-	}
-	return value
 }
 
 func parseTruthy(raw string) bool {

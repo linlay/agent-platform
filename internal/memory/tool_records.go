@@ -113,11 +113,6 @@ func StandardSourceTypes() []string {
 	}
 }
 
-func IsStandardCategory(category string) bool {
-	_, ok := standardMemoryCategories[normalizeCategory(category)]
-	return ok
-}
-
 func normalizeCategory(category string) string {
 	normalized := normalizeCategoryToken(category)
 	if normalized == "" {

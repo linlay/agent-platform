@@ -111,7 +111,7 @@ func (e *LLMAgentEngine) logPromptMemory(runID string, stage string, req api.Que
 		"stableMemoryCount":      strings.Count("\n"+strings.TrimSpace(session.StableMemoryContext), "\n- "),
 		"observationCount":       strings.Count("\n"+strings.TrimSpace(session.ObservationContext), "\n- "),
 		"hasMemoryContext":       strings.TrimSpace(session.MemoryContext) != "",
-		"hasStaticMemoryPrompt":  strings.TrimSpace(firstNonBlank(session.StaticMemoryPrompt, session.MemoryPrompt)) != "",
+		"hasStaticMemoryPrompt":  strings.TrimSpace(session.StaticMemoryPrompt) != "",
 		"hasStableMemory":        strings.TrimSpace(session.StableMemoryContext) != "",
 		"hasObservations":        strings.TrimSpace(session.ObservationContext) != "",
 		"contextTags":            append([]string(nil), session.ContextTags...),

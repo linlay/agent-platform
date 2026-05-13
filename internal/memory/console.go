@@ -103,14 +103,6 @@ type RecordListResult struct {
 	Results    []api.StoredMemoryResponse
 }
 
-func ScopeLabel(scopeType string) string {
-	return formatScopeLabel(scopeType)
-}
-
-func DefaultScopeKey(scopeType string, agentKey string, teamID string, chatID string, userKey string) string {
-	return normalizeScopeKey(scopeType, "", agentKey, teamID, chatID, userKey)
-}
-
 func BuildScopeSummaries(store Store, agentKey string, userKey string, teamID string) ([]ScopeView, error) {
 	reader, ok := store.(ConsoleReader)
 	if !ok {
@@ -558,10 +550,14 @@ func parseScopeMarkdown(markdown string) ScopeValidationResult {
 		}
 	}
 	flush()
+	validation := validateScopeRecords(records)
+	if len(validation.Errors) > 0 {
+		errors = append(errors, validation.Errors...)
+	}
 	return ScopeValidationResult{
 		Valid:   len(errors) == 0,
 		Errors:  errors,
-		Records: records,
+		Records: validation.Records,
 	}
 }
 
@@ -661,9 +657,20 @@ func (e *markdownEntry) applyField(line string) error {
 }
 
 func validateMarkdownEntry(entry markdownEntry) []ScopeValidationIssue {
-	record := entry.toInput()
-	validation := validateScopeRecords([]ScopeRecordInput{record})
-	return validation.Errors
+	var errors []ScopeValidationIssue
+	if strings.TrimSpace(entry.Title) == "" {
+		errors = append(errors, ScopeValidationIssue{Field: "title", Message: "title is required"})
+	}
+	if strings.TrimSpace(entry.Summary) == "" {
+		errors = append(errors, ScopeValidationIssue{Field: "summary", Message: "summary is required"})
+	}
+	if entry.Importance < 1 || entry.Importance > 10 {
+		errors = append(errors, ScopeValidationIssue{Field: "importance", Message: "importance must be between 1 and 10"})
+	}
+	if entry.Confidence <= 0 || entry.Confidence > 1 {
+		errors = append(errors, ScopeValidationIssue{Field: "confidence", Message: "confidence must be between 0 and 1"})
+	}
+	return errors
 }
 
 func (e markdownEntry) toInput() ScopeRecordInput {

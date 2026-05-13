@@ -23,8 +23,7 @@ func parseToolDefinition(root map[string]any, options toolDefinitionParseOptions
 		parameters = AnyMapNode(root["parameters"])
 	}
 	typeValue := strings.ToLower(AnyStringNode(root["type"]))
-	// TODO(compat-cleanup): drop toolType alias after tool definitions standardize on viewportType.
-	viewportType := firstNonEmptyStringNode(root["viewportType"], root["toolType"])
+	viewportType := AnyStringNode(root["viewportType"])
 	viewportKey := AnyStringNode(root["viewportKey"])
 	kind := "backend"
 	switch typeValue {

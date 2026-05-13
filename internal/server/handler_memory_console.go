@@ -910,7 +910,7 @@ func (s *Server) memoryContextPreviewContexts(ctx context.Context, req api.Memor
 
 	appendSection("systemPrompt", "system", "agent.identity", "agent.yml", "Agent Identity", memoryPreviewAgentIdentity(agentDef))
 	appendSection("systemPrompt", "system", "agent.soul", "agent/soul prompt", "Soul Prompt", agentDef.SoulPrompt)
-	appendSection("systemPrompt", "system", "memory.static", "agent/memory/memory.md", "Static Memory Prompt", firstNonBlank(agentDef.StaticMemoryPrompt, agentDef.MemoryPrompt))
+	appendSection("systemPrompt", "system", "memory.static", "agent/memory/memory.md", "Static Memory Prompt", agentDef.StaticMemoryPrompt)
 	for _, section := range memoryPreviewRuntimeSections(runtimeContext, agentDef, summary.ChatID, "preview", "preview") {
 		appendSection("systemPrompt", "system", section.category, section.source, section.title, section.content)
 	}

@@ -14,8 +14,6 @@ type walkError struct {
 	nodeType string
 }
 
-func (e *walkError) Error() string { return e.reason }
-
 func tooComplex(nodeType, format string, args ...any) *walkError {
 	return &walkError{nodeType: nodeType, reason: fmt.Sprintf(format, args...)}
 }
@@ -76,10 +74,6 @@ type walker struct {
 }
 
 const maxExtractedCommands = 256
-
-func newWalker(source string) *walker {
-	return &walker{source: source, scope: newVarScope()}
-}
 
 func newWalkerWithKnownVariables(source string, variables map[string]string) *walker {
 	return &walker{source: source, scope: newVarScopeWithKnownVariables(variables)}

@@ -9,7 +9,6 @@ import (
 
 type chatRunData struct {
 	runID                     string
-	agentKey                  string
 	events                    []stream.EventData
 	totalPromptTokens         int
 	totalCompletionTokens     int

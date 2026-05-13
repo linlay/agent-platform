@@ -409,10 +409,6 @@ func observationScopeKey(input LearnInput) string {
 	return normalizeScopeKey(ScopeChat, "", input.AgentKey, "", input.Request.ChatID, "")
 }
 
-func factScopeKey(scopeType string, input LearnInput) string {
-	return normalizeScopeKey(scopeType, "", input.AgentKey, input.TeamID, input.Request.ChatID, input.UserKey)
-}
-
 func formatScopeLabel(scopeType string) string {
 	switch normalizeScopeType(scopeType) {
 	case ScopeUser:

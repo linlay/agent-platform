@@ -1,7 +1,6 @@
 package gateway
 
 import (
-	"context"
 	"sync"
 	"testing"
 
@@ -94,18 +93,6 @@ func TestLookupByChatIDLegacySingleGatewayFallback(t *testing.T) {
 		}
 	}
 }
-
-// fakeClient is a test double for gatewayclient.Client that tracks Start/Stop calls.
-type fakeClient struct {
-	id      string
-	started bool
-	stopped bool
-}
-
-func (f *fakeClient) Start(ctx context.Context)     { f.started = true }
-func (f *fakeClient) Stop() error                   { f.stopped = true; return nil }
-func (f *fakeClient) Connected() bool               { return f.started && !f.stopped }
-func (f *fakeClient) SetRouteHandler(h interface{}) {}
 
 // fakeRegistry is a Registry variant for testing that uses fakeClient.
 type fakeRegistry struct {

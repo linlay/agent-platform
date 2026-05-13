@@ -3,7 +3,6 @@ package stream
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -173,25 +172,6 @@ func (d EventData) Value(key string) any {
 func (d EventData) String(key string) string {
 	value, _ := d.Value(key).(string)
 	return value
-}
-
-func IsPersistedEventType(eventType string) bool {
-	switch eventType {
-	case "request.query", "request.submit", "request.steer",
-		"awaiting.ask", "awaiting.answer",
-		"chat.start",
-		"run.start", "run.complete", "run.cancel", "run.error", "run.expired",
-		"reasoning.snapshot", "content.snapshot",
-		"tool.snapshot", "tool.result",
-		"source.publish",
-		"action.snapshot", "action.result",
-		"plan.create", "plan.update",
-		"task.start", "task.complete", "task.cancel", "task.fail",
-		"artifact.publish":
-		return true
-	default:
-		return false
-	}
 }
 
 func clonePayload(payload map[string]any) map[string]any {
@@ -382,21 +362,4 @@ func int64Value(value any) (int64, bool) {
 	default:
 		return 0, false
 	}
-}
-
-func MarshalEventDataList(events []EventData) ([]byte, error) {
-	var buf bytes.Buffer
-	buf.WriteByte('[')
-	for idx, event := range events {
-		data, err := json.Marshal(event)
-		if err != nil {
-			return nil, fmt.Errorf("marshal event %d: %w", idx, err)
-		}
-		if idx > 0 {
-			buf.WriteByte(',')
-		}
-		buf.Write(data)
-	}
-	buf.WriteByte(']')
-	return buf.Bytes(), nil
 }

@@ -46,21 +46,6 @@ type WritePlan struct {
 	CommandText string
 }
 
-func ResolvePath(cfg config.FileToolsConfig, mode AccessMode, rawPath string) (ResolvedPath, error) {
-	plan, err := BuildAccessPlan(cfg, mode, rawPath)
-	if err != nil {
-		return ResolvedPath{}, err
-	}
-	if !plan.AllowedByWhitelist {
-		return ResolvedPath{}, fmt.Errorf("path not allowed: %s", rawPath)
-	}
-	return ResolvedPath{
-		Raw:  plan.RawPath,
-		Path: plan.Path,
-		Root: plan.Root,
-	}, nil
-}
-
 func BuildAccessPlan(cfg config.FileToolsConfig, mode AccessMode, rawPath string) (AccessPlan, error) {
 	rawPath = strings.TrimSpace(rawPath)
 	if rawPath == "" {
