@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -227,7 +228,10 @@ func TestNormalizeOpenAIMessages_ReordersToolResultsAheadOfSyntheticSummary(t *t
 				Arguments: `{"command":"pwd"}`,
 			},
 		}}},
-		{Role: "user", Content: "[HITL] pwd -> approve"},
+		{Role: "user", Content: `[System audit — HITL approval batch]
+The user reviewed the following tool call(s) and submitted decisions:
+1. tool=bash command="pwd" decision=approve reason=""
+The tool results above already reflect these decisions; do not re-prompt for approval and do not retry rejected calls.`},
 		{Role: "tool", ToolCallID: "tool-1", Name: "_bash_", Content: "ok"},
 		{Role: "user", Content: "next prompt"},
 	}
@@ -243,7 +247,8 @@ func TestNormalizeOpenAIMessages_ReordersToolResultsAheadOfSyntheticSummary(t *t
 	if normalized[2].Role != "tool" || normalized[2].ToolCallID != "tool-1" {
 		t.Fatalf("expected tool result immediately after assistant, got %#v", normalized[2])
 	}
-	if normalized[3].Role != "user" || normalized[3].Content != "[HITL] pwd -> approve" {
+	noticeText, _ := normalized[3].Content.(string)
+	if normalized[3].Role != "user" || !strings.Contains(noticeText, `[System audit — HITL approval batch]`) {
 		t.Fatalf("expected synthetic summary to move after tool result, got %#v", normalized[3])
 	}
 }

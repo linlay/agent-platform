@@ -274,7 +274,7 @@ func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {
 	return nil
 }
 
-func buildHITLNoticeEntry(invocation *preparedToolInvocation) (hitlNoticeEntry, bool) {
+func (s *llmRunStream) buildHITLNoticeEntry(invocation *preparedToolInvocation) (hitlNoticeEntry, bool) {
 	if invocation == nil || invocation.hitlDecision == nil {
 		return hitlNoticeEntry{}, false
 	}
@@ -282,9 +282,19 @@ func buildHITLNoticeEntry(invocation *preparedToolInvocation) (hitlNoticeEntry, 
 	if mode != "approval" && mode != "form" {
 		return hitlNoticeEntry{}, false
 	}
+	command := ""
+	if plan := s.lookupFileAccessPlan(invocation); plan != nil {
+		command = plan.CommandText
+	} else if plan := s.lookupFileWritePlan(invocation); plan != nil {
+		command = plan.CommandText
+	}
+	if strings.TrimSpace(command) == "" {
+		command = mapStringArg(invocation.args, "command")
+	}
 	return hitlNoticeEntry{
 		toolID:      invocation.toolID,
-		command:     mapStringArg(invocation.args, "command"),
+		toolName:    invocation.toolName,
+		command:     command,
 		decision:    invocation.hitlDecision.Decision,
 		ruleKey:     invocation.hitlDecision.RuleKey,
 		reason:      invocation.hitlDecision.Reason,
@@ -293,7 +303,7 @@ func buildHITLNoticeEntry(invocation *preparedToolInvocation) (hitlNoticeEntry, 
 	}, true
 }
 
-func formatHITLBatchSummary(entries []hitlNoticeEntry) string {
+func formatHITLFrontendSummary(entries []hitlNoticeEntry) string {
 	if len(entries) == 0 {
 		return ""
 	}
@@ -307,6 +317,53 @@ func formatHITLBatchSummary(entries []hitlNoticeEntry) string {
 		lines = append(lines, fmt.Sprintf("%d. %s", index+1, formatHITLSummaryLine(entry)))
 	}
 	return strings.Join(lines, "\n")
+}
+
+func formatHITLLLMNotice(entries []hitlNoticeEntry) string {
+	if len(entries) == 0 {
+		return ""
+	}
+	lines := make([]string, 0, len(entries)*2+3)
+	lines = append(lines, "[System audit — HITL approval batch]")
+	lines = append(lines, "The user reviewed the following tool call(s) and submitted decisions:")
+	for index, entry := range entries {
+		lines = append(lines, fmt.Sprintf(
+			"%d. tool=%s command=\"%s\" decision=%s reason=\"%s\"",
+			index+1,
+			formatHITLLLMNoticeValue(entry.toolName, "unknown"),
+			escapeHITLLLMQuotedValue(entry.command),
+			formatHITLLLMNoticeValue(entry.decision, "unknown"),
+			escapeHITLLLMQuotedValue(entry.reason),
+		))
+		if entry.mode == "form" && entry.formPayload != nil {
+			if payloadJSON, err := json.Marshal(entry.formPayload); err == nil {
+				payloadKey := "revised_payload"
+				if strings.EqualFold(entry.decision, "approve") {
+					payloadKey = "submitted_payload"
+				}
+				lines = append(lines, fmt.Sprintf("   %s=%s", payloadKey, string(payloadJSON)))
+			}
+		}
+	}
+	lines = append(lines, "The tool results above already reflect these decisions; do not re-prompt for approval and do not retry rejected calls.")
+	return strings.Join(lines, "\n")
+}
+
+func formatHITLLLMNoticeValue(value string, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func escapeHITLLLMQuotedValue(value string) string {
+	value = strings.ReplaceAll(value, `\`, `\\`)
+	value = strings.ReplaceAll(value, `"`, `\"`)
+	value = strings.ReplaceAll(value, "\n", `\n`)
+	value = strings.ReplaceAll(value, "\r", `\r`)
+	value = strings.ReplaceAll(value, "\t", `\t`)
+	return value
 }
 
 func formatHITLSummaryLine(entry hitlNoticeEntry) string {
@@ -338,13 +395,15 @@ func formatHITLFormSummaryLine(entry hitlNoticeEntry) string {
 }
 
 func buildHITLBatchSummaryAndApproval(entries []hitlNoticeEntry) (string, *chat.StepApproval) {
-	summary := formatHITLBatchSummary(entries)
-	if summary == "" {
+	frontendSummary := formatHITLFrontendSummary(entries)
+	llmNotice := formatHITLLLMNotice(entries)
+	if frontendSummary == "" || llmNotice == "" {
 		return "", nil
 	}
 
 	approval := &chat.StepApproval{
-		Summary:   summary,
+		Summary:   frontendSummary,
+		LLMNotice: llmNotice,
 		Decisions: make([]chat.StepApprovalDecision, 0, len(entries)),
 	}
 	for _, entry := range entries {
@@ -358,7 +417,7 @@ func buildHITLBatchSummaryAndApproval(entries []hitlNoticeEntry) (string, *chat.
 			Payload:  entry.formPayload,
 		})
 	}
-	return summary, approval
+	return llmNotice, approval
 }
 
 func (s *llmRunStream) applyHITLDecision(invocation *preparedToolInvocation, result hitl.InterceptResult, awaitingID string, decision string, reason string, executed bool) {

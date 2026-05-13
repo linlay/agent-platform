@@ -1094,7 +1094,7 @@ func TestBashHITLApproveFlowReplaysApprovalSummaryInChatRawMessages(t *testing.T
 	hitlIndex := -1
 	hitlCount := 0
 	for i, message := range chatResp.Data.RawMessages {
-		if message["role"] == "user" && strings.Contains(stringValue(message["content"]), "[HITL]") {
+		if message["role"] == "user" && strings.Contains(stringValue(message["content"]), "[System audit") {
 			hitlIndex = i
 			hitlCount++
 		}
@@ -1111,8 +1111,8 @@ func TestBashHITLApproveFlowReplaysApprovalSummaryInChatRawMessages(t *testing.T
 	if toolIndex < 0 || toolIndex >= hitlIndex {
 		t.Fatalf("expected HITL raw message to appear after tool result, got %#v", chatResp.Data.RawMessages)
 	}
-	if !strings.Contains(stringValue(chatResp.Data.RawMessages[hitlIndex]["content"]), `[HITL] docker rmi nginx:latest → approve`) {
-		t.Fatalf("expected replayed HITL summary content, got %#v", chatResp.Data.RawMessages[hitlIndex])
+	if !strings.Contains(stringValue(chatResp.Data.RawMessages[hitlIndex]["content"]), `tool=bash command="docker rmi nginx:latest" decision=approve`) {
+		t.Fatalf("expected replayed HITL audit notice content, got %#v", chatResp.Data.RawMessages[hitlIndex])
 	}
 }
 
@@ -1673,7 +1673,7 @@ submit:
 			}
 			if role == "user" {
 				content, _ := message["content"].(string)
-				if strings.Contains(content, "[HITL]") {
+				if strings.Contains(content, "[System audit") {
 					hitlSummaries++
 					seenUserAfterTool = true
 				}

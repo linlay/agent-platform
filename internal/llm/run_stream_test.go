@@ -1304,11 +1304,11 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 			}
 			noticeText, _ := hitlNotice.Content.(string)
 			if tc.expectedSubmittedPayload != nil {
-				if !strings.Contains(noticeText, "[HITL] ") || !strings.Contains(noticeText, " → approve") || !strings.Contains(noticeText, "\n  提交参数: ") {
-					t.Fatalf("expected form HITL summary content, got %#v", hitlNotice)
+				if !strings.Contains(noticeText, "[System audit — HITL approval batch]") || !strings.Contains(noticeText, `tool=bash`) || !strings.Contains(noticeText, `decision=approve`) || !strings.Contains(noticeText, "submitted_payload=") {
+					t.Fatalf("expected form HITL audit notice content, got %#v", hitlNotice)
 				}
-			} else if !strings.Contains(noticeText, "[HITL] git push origin main → approve") {
-				t.Fatalf("expected HITL summary content, got %#v", hitlNotice)
+			} else if !strings.Contains(noticeText, "[System audit — HITL approval batch]") || !strings.Contains(noticeText, `tool=bash command="git push origin main" decision=approve`) {
+				t.Fatalf("expected HITL audit notice content, got %#v", hitlNotice)
 			}
 		})
 	}
@@ -1798,6 +1798,50 @@ func TestFileReadAccessRejectDoesNotExecute(t *testing.T) {
 	}
 }
 
+func TestFileReadAccessApprovalNoticeUsesPlanCommand(t *testing.T) {
+	root := t.TempDir()
+	stream := &llmRunStream{
+		ctx: context.Background(),
+		engine: &LLMAgentEngine{
+			cfg: config.Config{
+				FileTools: config.FileToolsConfig{
+					WorkingDirectory:  root,
+					AllowedReadPaths:  []string{"."},
+					AllowedWritePaths: []string{"."},
+					MaxReadBytes:      1024,
+					MaxWriteBytes:     1024,
+				},
+			},
+			tools: stubToolExecutor{defs: []api.ToolDetailResponse{backendToolDefinition("read")}},
+		},
+		execCtx: &contracts.ExecutionContext{},
+	}
+	invocation := &preparedToolInvocation{
+		toolID:   "tool_1",
+		toolName: "read",
+		args: map[string]any{
+			"file_path": "/etc/passwd",
+		},
+		hitlDecision: &hitlDecisionState{
+			Decision: "approve",
+			Mode:     "approval",
+		},
+	}
+
+	stream.appendOriginalToolResult(invocation, contracts.ToolExecutionResult{Output: "root:x:0:0"})
+
+	if len(stream.messages) != 2 {
+		t.Fatalf("expected tool result and audit notice, got %#v", stream.messages)
+	}
+	noticeText, _ := stream.messages[1].Content.(string)
+	if !strings.Contains(noticeText, `[System audit — HITL approval batch]`) ||
+		!strings.Contains(noticeText, `tool=read command="read `) ||
+		!strings.Contains(noticeText, `passwd" decision=approve`) ||
+		strings.Contains(noticeText, `[HITL]  → approve`) {
+		t.Fatalf("expected file read HITL audit notice to use plan command, got %#v", stream.messages[1])
+	}
+}
+
 func TestWritePathApprovalPrecedesWriteApproval(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()
@@ -1999,8 +2043,8 @@ func TestAwaitHITLSubmitAndExecute_RejectEmitsCancelledAnswer(t *testing.T) {
 	}
 	hitlNotice := stream.messages[len(stream.messages)-1]
 	noticeText, _ := hitlNotice.Content.(string)
-	if hitlNotice.Role != "user" || !strings.Contains(noticeText, `[HITL] docker rmi nginx:latest → reject（风险过高）`) {
-		t.Fatalf("expected reject HITL summary, got %#v", hitlNotice)
+	if hitlNotice.Role != "user" || !strings.Contains(noticeText, `[System audit — HITL approval batch]`) || !strings.Contains(noticeText, `tool=bash command="docker rmi nginx:latest" decision=reject reason="风险过高"`) {
+		t.Fatalf("expected reject HITL audit notice, got %#v", hitlNotice)
 	}
 }
 
@@ -2097,8 +2141,8 @@ func TestAwaitHITLSubmitAndExecute_FormRejectWithFeedbackEmitsRetryableResultAnd
 		t.Fatalf("expected form reject tool message and HITL summary, got %#v", stream.messages)
 	}
 	noticeText, _ := stream.messages[len(stream.messages)-1].Content.(string)
-	if !strings.Contains(noticeText, `[HITL] `) || !strings.Contains(noticeText, ` → reject`) || !strings.Contains(noticeText, "风险过高") || !strings.Contains(noticeText, "修改参数:") || strings.Contains(noticeText, "用户取消") || strings.Contains(noticeText, "提交参数:") {
-		t.Fatalf("expected form reject HITL summary with revised payload, got %#v", stream.messages[len(stream.messages)-1])
+	if !strings.Contains(noticeText, `[System audit — HITL approval batch]`) || !strings.Contains(noticeText, `decision=reject`) || !strings.Contains(noticeText, `reason="风险过高"`) || !strings.Contains(noticeText, "revised_payload=") || strings.Contains(noticeText, "用户取消") || strings.Contains(noticeText, "submitted_payload=") {
+		t.Fatalf("expected form reject HITL audit notice with revised payload, got %#v", stream.messages[len(stream.messages)-1])
 	}
 }
 
@@ -2189,8 +2233,8 @@ func TestAwaitHITLSubmitAndExecute_FormPayloadRebuildFailureEmitsRejectHITLMetad
 		t.Fatalf("expected rebuild failure tool message and HITL summary, got %#v", stream.messages)
 	}
 	noticeText, _ := stream.messages[len(stream.messages)-1].Content.(string)
-	if !strings.Contains(noticeText, `mock create-leave → reject（original command does not contain --payload）`) || strings.Contains(noticeText, "提交参数:") {
-		t.Fatalf("expected rebuild failure HITL summary without submitted payload, got %#v", stream.messages[len(stream.messages)-1])
+	if !strings.Contains(noticeText, `[System audit — HITL approval batch]`) || !strings.Contains(noticeText, `command="mock create-leave" decision=reject reason="original command does not contain --payload"`) || strings.Contains(noticeText, "submitted_payload=") {
+		t.Fatalf("expected rebuild failure HITL audit notice without submitted payload, got %#v", stream.messages[len(stream.messages)-1])
 	}
 }
 
@@ -2397,17 +2441,20 @@ func TestPrepareQueuedBashApprovalBatch_AppendsSingleSummaryAfterAllApprovedResu
 		t.Fatalf("expected final message to be user summary, got %#v", summary)
 	}
 	text, _ := summary.Content.(string)
-	if !strings.Contains(text, `[HITL] 审批结果：`) ||
-		!strings.Contains(text, `1. chmod 777 ~/a.sh → approve`) ||
-		!strings.Contains(text, `2. chmod 777 ~/b.sh → approve`) ||
-		!strings.Contains(text, `3. chmod 777 ~/c.sh → approve`) {
-		t.Fatalf("unexpected all-approved summary %#v", summary)
+	if !strings.Contains(text, `[System audit — HITL approval batch]`) ||
+		!strings.Contains(text, `1. tool=bash command="chmod 777 ~/a.sh" decision=approve reason=""`) ||
+		!strings.Contains(text, `2. tool=bash command="chmod 777 ~/b.sh" decision=approve reason=""`) ||
+		!strings.Contains(text, `3. tool=bash command="chmod 777 ~/c.sh" decision=approve reason=""`) {
+		t.Fatalf("unexpected all-approved audit notice %#v", summary)
 	}
 	if recordedApproval == nil {
 		t.Fatal("expected approval batch to be recorded")
 	}
-	if recordedApproval.Summary != text {
-		t.Fatalf("expected recorded approval summary to match user message, got %#v", recordedApproval)
+	if recordedApproval.LLMNotice != text {
+		t.Fatalf("expected recorded approval LLM notice to match user message, got %#v", recordedApproval)
+	}
+	if !strings.Contains(recordedApproval.Summary, `[HITL] 审批结果：`) || !strings.Contains(recordedApproval.Summary, `1. chmod 777 ~/a.sh → approve`) {
+		t.Fatalf("expected recorded approval summary to remain frontend Chinese text, got %#v", recordedApproval)
 	}
 	if len(recordedApproval.Decisions) != 3 || recordedApproval.Decisions[2].Decision != "approve" {
 		t.Fatalf("expected recorded approval decisions, got %#v", recordedApproval)
@@ -2595,11 +2642,11 @@ func TestPrepareQueuedBashApprovalBatch_MergesAllBuiltinApprovalsInSingleAwait(t
 		t.Fatalf("expected final mixed-batch message to be user summary, got %#v", summary)
 	}
 	text, _ := summary.Content.(string)
-	if !strings.Contains(text, `[HITL] 审批结果：`) ||
-		!strings.Contains(text, `1. chmod 777 ~/a.sh → approve`) ||
-		!strings.Contains(text, `2. chmod 777 ~/b.sh → approve`) ||
-		!strings.Contains(text, `3. chmod 777 ~/c.sh → reject（风险过高）`) {
-		t.Fatalf("unexpected mixed summary %#v", summary)
+	if !strings.Contains(text, `[System audit — HITL approval batch]`) ||
+		!strings.Contains(text, `1. tool=bash command="chmod 777 ~/a.sh" decision=approve reason=""`) ||
+		!strings.Contains(text, `2. tool=bash command="chmod 777 ~/b.sh" decision=approve reason=""`) ||
+		!strings.Contains(text, `3. tool=bash command="chmod 777 ~/c.sh" decision=reject reason="风险过高"`) {
+		t.Fatalf("unexpected mixed audit notice %#v", summary)
 	}
 }
 
@@ -3164,8 +3211,8 @@ func TestAwaitHITLSubmitAndExecute_FormTimeoutEmitsHITLMetadataAndSummary(t *tes
 		t.Fatalf("expected timeout tool message and HITL summary, got %#v", stream.messages)
 	}
 	noticeText, _ := stream.messages[len(stream.messages)-1].Content.(string)
-	if !strings.Contains(noticeText, ` → reject（timeout）`) || strings.Contains(noticeText, "提交参数:") {
-		t.Fatalf("expected form timeout HITL summary without submitted payload, got %#v", stream.messages[len(stream.messages)-1])
+	if !strings.Contains(noticeText, `decision=reject reason="timeout"`) || strings.Contains(noticeText, "submitted_payload=") {
+		t.Fatalf("expected form timeout HITL audit notice without submitted payload, got %#v", stream.messages[len(stream.messages)-1])
 	}
 }
 
