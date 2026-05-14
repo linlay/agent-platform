@@ -50,6 +50,9 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/agents", s.wsAgents)
 	handler.RegisterRoute("/api/channels", s.wsChannels)
 	handler.RegisterRoute("/api/agent", s.wsAgent)
+	handler.RegisterRoute("/api/agent-create", s.wsAgentCreate)
+	handler.RegisterRoute("/api/agent-update", s.wsAgentUpdate)
+	handler.RegisterRoute("/api/agent-delete", s.wsAgentDelete)
 	handler.RegisterRoute("/api/teams", s.wsTeams)
 	handler.RegisterRoute("/api/skills", s.wsSkills)
 	handler.RegisterRoute("/api/tools", s.wsTools)
@@ -131,7 +134,13 @@ func (s *Server) wsAgent(_ context.Context, conn *ws.Conn, req ws.RequestFrame) 
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	conn.SendResponse(req.Type, req.ID, 0, "success", s.buildAgentDetailResponse(def))
+	response, detailErr := s.buildEditableAgentDetailResponse(def)
+	if detailErr != nil {
+		conn.SendError(req.ID, "internal_error", 500, detailErr.Error(), nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	conn.SendResponse(req.Type, req.ID, 0, "success", response)
 	conn.CompleteRequest(req.ID)
 }
 

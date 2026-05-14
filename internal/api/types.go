@@ -305,18 +305,46 @@ type AgentChatStats struct {
 }
 
 type AgentDetailResponse struct {
-	Key         string           `json:"key"`
-	Name        string           `json:"name"`
-	Icon        any              `json:"icon,omitempty"`
-	Description string           `json:"description,omitempty"`
-	Role        string           `json:"role,omitempty"`
-	Wonders     []string         `json:"wonders,omitempty"`
-	Model       string           `json:"model"`
-	Mode        string           `json:"mode"`
-	Tools       []string         `json:"tools"`
-	Skills      []string         `json:"skills"`
-	Controls    []map[string]any `json:"controls"`
-	Meta        map[string]any   `json:"meta"`
+	Key          string           `json:"key"`
+	Name         string           `json:"name"`
+	Icon         any              `json:"icon,omitempty"`
+	Description  string           `json:"description,omitempty"`
+	Role         string           `json:"role,omitempty"`
+	Wonders      []string         `json:"wonders,omitempty"`
+	Model        string           `json:"model"`
+	Mode         string           `json:"mode"`
+	Tools        []string         `json:"tools"`
+	Skills       []string         `json:"skills"`
+	Controls     []map[string]any `json:"controls"`
+	Meta         map[string]any   `json:"meta"`
+	Definition   map[string]any   `json:"definition,omitempty"`
+	SoulPrompt   string           `json:"soulPrompt"`
+	AgentsPrompt string           `json:"agentsPrompt"`
+	Source       *AgentSource     `json:"source,omitempty"`
+}
+
+type AgentSource struct {
+	Kind     string `json:"kind"`
+	Path     string `json:"path"`
+	AgentDir string `json:"agentDir,omitempty"`
+}
+
+type CreateAgentRequest struct {
+	Key          string         `json:"key"`
+	Definition   map[string]any `json:"definition"`
+	SoulPrompt   *string        `json:"soulPrompt,omitempty"`
+	AgentsPrompt *string        `json:"agentsPrompt,omitempty"`
+}
+
+type UpdateAgentRequest struct {
+	Key          string         `json:"key"`
+	Definition   map[string]any `json:"definition"`
+	SoulPrompt   *string        `json:"soulPrompt,omitempty"`
+	AgentsPrompt *string        `json:"agentsPrompt,omitempty"`
+}
+
+type DeleteAgentRequest struct {
+	Key string `json:"key"`
 }
 
 type ChannelSummary struct {
