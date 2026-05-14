@@ -62,8 +62,12 @@ type CatalogReloader interface {
 }
 
 type QuerySession struct {
-	RequestID             string
-	RunID                 string
+	RequestID string
+	RunID     string
+	// SubTaskID, when non-empty, isolates sandbox session for a sub-agent
+	// child task within the same run. Empty for main-agent sessions so they
+	// share the run-level sandbox.
+	SubTaskID             string
 	ChatID                string
 	ChatName              string
 	AgentKey              string

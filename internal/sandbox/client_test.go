@@ -59,7 +59,7 @@ func TestExecuteSessionIncludesContainerHubErrorDetail(t *testing.T) {
 	}
 }
 
-func TestRunLevelSandboxSessionIDIncludesRequestID(t *testing.T) {
+func TestRunLevelSandboxSessionIDReusesRunIDAcrossRequestIDs(t *testing.T) {
 	var sessionIDs []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/sessions/create" {
@@ -93,21 +93,16 @@ func TestRunLevelSandboxSessionIDIncludesRequestID(t *testing.T) {
 		t.Fatalf("second OpenIfNeeded() error = %v", err)
 	}
 
-	if len(sessionIDs) != 2 {
-		t.Fatalf("expected two create calls, got %#v", sessionIDs)
+	if len(sessionIDs) != 1 {
+		t.Fatalf("expected one create call reused by both contexts, got %#v", sessionIDs)
 	}
-	if sessionIDs[0] == sessionIDs[1] {
-		t.Fatalf("expected unique run-level session IDs, got %#v", sessionIDs)
+	if sessionIDs[0] != "run-run_shared" {
+		t.Fatalf("unexpected create session ID: %#v", sessionIDs)
 	}
-	for _, sessionID := range sessionIDs {
-		if !strings.Contains(sessionID, "run_shared") {
-			t.Fatalf("expected session ID to include parent run ID, got %q", sessionID)
-		}
-	}
-	if first.SandboxSession.SessionID != "run-run_shared-req_alpha" {
+	if first.SandboxSession.SessionID != "run-run_shared" {
 		t.Fatalf("unexpected first bound session ID: %#v", first.SandboxSession)
 	}
-	if second.SandboxSession.SessionID != "run-run_shared-req_beta" {
+	if second.SandboxSession.SessionID != "run-run_shared" {
 		t.Fatalf("unexpected second bound session ID: %#v", second.SandboxSession)
 	}
 }
@@ -119,18 +114,23 @@ func TestRunLevelSandboxSessionIDFallsBackToRunIDWithoutRequestID(t *testing.T) 
 	}
 }
 
-func TestRunLevelSandboxSessionIDCanUseShortSubTaskRequestID(t *testing.T) {
-	got := runSessionID(contracts.QuerySession{RunID: "run_1", RequestID: "sub_1"})
+func TestRunLevelSandboxSessionIDUsesSubTaskID(t *testing.T) {
+	got := runSessionID(contracts.QuerySession{RunID: "run_1", SubTaskID: "sub_1"})
 	if got != "run-run_1-sub_1" {
 		t.Fatalf("runSessionID() = %q, want %q", got, "run-run_1-sub_1")
 	}
 }
 
 func sandboxTestExecutionContext(runID string, requestID string) *contracts.ExecutionContext {
+	return sandboxTestExecutionContextWithSubTaskID(runID, requestID, "")
+}
+
+func sandboxTestExecutionContextWithSubTaskID(runID string, requestID string, subTaskID string) *contracts.ExecutionContext {
 	return &contracts.ExecutionContext{
 		Session: contracts.QuerySession{
 			RequestID:              requestID,
 			RunID:                  runID,
+			SubTaskID:              subTaskID,
 			ChatID:                 "chat_1",
 			AgentKey:               "reader",
 			RuntimeEnvironmentID:   "daily-office-pro",

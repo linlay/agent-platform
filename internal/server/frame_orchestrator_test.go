@@ -301,6 +301,7 @@ func TestFrameOrchestratorSubAgentRequestsShareRunIDWithUniqueRequestIDs(t *test
 
 	var mu sync.Mutex
 	var subRequests []api.QueryRequest
+	var subTaskIDs []string
 	var emitted []contracts.AgentDelta
 	var routed []stream.StreamInput
 	orchestrator := newTestFrameOrchestrator(&orchestratorAgentEngine{streamsByAgentKey: map[string]contracts.AgentStream{
@@ -311,13 +312,15 @@ func TestFrameOrchestratorSubAgentRequestsShareRunIDWithUniqueRequestIDs(t *test
 		"reviewer": {Key: "reviewer", Name: "Reviewer", Mode: "REACT"},
 	}, &emitted, &routed)
 	orchestrator.session.RequestID = "req_ABC"
-	orchestrator.buildQuerySession = func(_ context.Context, req api.QueryRequest, _ chat.Summary, agentDef catalog.AgentDefinition, _ querySessionBuildOptions) (contracts.QuerySession, error) {
+	orchestrator.buildQuerySession = func(_ context.Context, req api.QueryRequest, _ chat.Summary, agentDef catalog.AgentDefinition, options querySessionBuildOptions) (contracts.QuerySession, error) {
 		mu.Lock()
 		subRequests = append(subRequests, req)
+		subTaskIDs = append(subTaskIDs, options.SubTaskID)
 		mu.Unlock()
 		return contracts.QuerySession{
 			RequestID: req.RequestID,
 			RunID:     req.RunID,
+			SubTaskID: options.SubTaskID,
 			ChatID:    req.ChatID,
 			AgentKey:  agentDef.Key,
 			Mode:      agentDef.Mode,
@@ -331,9 +334,17 @@ func TestFrameOrchestratorSubAgentRequestsShareRunIDWithUniqueRequestIDs(t *test
 
 	mu.Lock()
 	requests := append([]api.QueryRequest(nil), subRequests...)
+	gotSubTaskIDs := append([]string(nil), subTaskIDs...)
 	mu.Unlock()
 	if len(requests) != 2 {
 		t.Fatalf("expected two sub-agent requests, got %#v", requests)
+	}
+	seenSubTaskIDs := map[string]bool{}
+	for _, subTaskID := range gotSubTaskIDs {
+		seenSubTaskIDs[subTaskID] = true
+	}
+	if len(gotSubTaskIDs) != 2 || !seenSubTaskIDs["sub_1"] || !seenSubTaskIDs["sub_2"] {
+		t.Fatalf("expected sub-agent sandbox subTaskIDs [sub_1 sub_2], got %#v", gotSubTaskIDs)
 	}
 	wantTaskIDs := []string{"run_1_t_1", "run_1_t_2"}
 	taskIDs := map[string]bool{}
@@ -405,6 +416,7 @@ func TestFrameOrchestratorSubAgentRequestIDsFallbackWhenParentMissing(t *testing
 
 	var mu sync.Mutex
 	var subRequests []api.QueryRequest
+	var subTaskIDs []string
 	var emitted []contracts.AgentDelta
 	var routed []stream.StreamInput
 	orchestrator := newTestFrameOrchestrator(&orchestratorAgentEngine{streamsByAgentKey: map[string]contracts.AgentStream{
@@ -414,13 +426,15 @@ func TestFrameOrchestratorSubAgentRequestIDsFallbackWhenParentMissing(t *testing
 		"writer":   {Key: "writer", Name: "Writer", Mode: "REACT"},
 		"reviewer": {Key: "reviewer", Name: "Reviewer", Mode: "REACT"},
 	}, &emitted, &routed)
-	orchestrator.buildQuerySession = func(_ context.Context, req api.QueryRequest, _ chat.Summary, agentDef catalog.AgentDefinition, _ querySessionBuildOptions) (contracts.QuerySession, error) {
+	orchestrator.buildQuerySession = func(_ context.Context, req api.QueryRequest, _ chat.Summary, agentDef catalog.AgentDefinition, options querySessionBuildOptions) (contracts.QuerySession, error) {
 		mu.Lock()
 		subRequests = append(subRequests, req)
+		subTaskIDs = append(subTaskIDs, options.SubTaskID)
 		mu.Unlock()
 		return contracts.QuerySession{
 			RequestID: req.RequestID,
 			RunID:     req.RunID,
+			SubTaskID: options.SubTaskID,
 			ChatID:    req.ChatID,
 			AgentKey:  agentDef.Key,
 			Mode:      agentDef.Mode,
@@ -434,9 +448,17 @@ func TestFrameOrchestratorSubAgentRequestIDsFallbackWhenParentMissing(t *testing
 
 	mu.Lock()
 	requests := append([]api.QueryRequest(nil), subRequests...)
+	gotSubTaskIDs := append([]string(nil), subTaskIDs...)
 	mu.Unlock()
 	if len(requests) != 2 {
 		t.Fatalf("expected two sub-agent requests, got %#v", requests)
+	}
+	seenSubTaskIDs := map[string]bool{}
+	for _, subTaskID := range gotSubTaskIDs {
+		seenSubTaskIDs[subTaskID] = true
+	}
+	if len(gotSubTaskIDs) != 2 || !seenSubTaskIDs["sub_1"] || !seenSubTaskIDs["sub_2"] {
+		t.Fatalf("expected sub-agent sandbox subTaskIDs [sub_1 sub_2], got %#v", gotSubTaskIDs)
 	}
 	seenRequestIDs := map[string]bool{}
 	for _, req := range requests {

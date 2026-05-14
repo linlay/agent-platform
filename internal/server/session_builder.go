@@ -15,6 +15,7 @@ import (
 
 type querySessionBuildOptions struct {
 	Created           bool
+	SubTaskID         string
 	IncludeHistory    bool
 	IncludeMemory     bool
 	AllowInvokeAgents bool
@@ -104,6 +105,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 	session := contracts.QuerySession{
 		RequestID:              req.RequestID,
 		RunID:                  req.RunID,
+		SubTaskID:              options.SubTaskID,
 		ChatID:                 req.ChatID,
 		ChatName:               summary.ChatName,
 		AgentKey:               req.AgentKey,

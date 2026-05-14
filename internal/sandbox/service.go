@@ -19,6 +19,7 @@ type ContainerHubSandboxService struct {
 	client        *ContainerHubClient
 	mounts        *ContainerHubMountResolver
 	mu            sync.Mutex
+	runSessions   map[string]*managedSandboxSession
 	agentSessions map[string]*managedSandboxSession
 	globalSession *managedSandboxSession
 }
@@ -34,6 +35,7 @@ func NewContainerHubSandboxService(cfg config.ContainerHubConfig, paths config.P
 		cfg:           cfg,
 		client:        NewContainerHubClient(cfg),
 		mounts:        NewContainerHubMountResolver(paths),
+		runSessions:   map[string]*managedSandboxSession{},
 		agentSessions: map[string]*managedSandboxSession{},
 	}
 }
@@ -144,29 +146,43 @@ func (s *ContainerHubSandboxService) CloseQuietly(execCtx *contracts.ExecutionCo
 		s.releaseAgentSession(execCtx.Session.AgentKey)
 	case "global":
 	default:
-		go func(sessionID string, delay time.Duration) {
-			timer := time.NewTimer(delay)
-			defer timer.Stop()
-			<-timer.C
-			if _, err := s.client.StopSession(context.Background(), sessionID); err != nil {
-				log.Printf("[sandbox] stop session failed id=%s: %v", sessionID, err)
-			}
-		}(session.SessionID, time.Duration(maxInt64(s.cfg.DestroyQueueDelayMs, 0))*time.Millisecond)
+		s.releaseRunSession(runSessionID(execCtx.Session))
 	}
 	execCtx.SandboxSession = nil
 }
 
 func (s *ContainerHubSandboxService) acquireRunSession(ctx context.Context, execCtx *contracts.ExecutionContext) error {
-	return s.createAndBind(ctx, execCtx, "run", runSessionID(execCtx.Session))
+	sessionKey := runSessionID(execCtx.Session)
+	s.mu.Lock()
+	if managed := s.runSessions[sessionKey]; managed != nil {
+		managed.activeUsers++
+		managed.lastUsed = time.Now()
+		execCtx.SandboxSession = &contracts.SandboxSession{
+			SessionID:     managed.session.SessionID,
+			EnvironmentID: managed.session.EnvironmentID,
+			DefaultCwd:    managed.session.DefaultCwd,
+			Level:         "run",
+		}
+		s.mu.Unlock()
+		return nil
+	}
+	s.mu.Unlock()
+	if err := s.createAndBind(ctx, execCtx, "run", sessionKey); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.runSessions[sessionKey] = &managedSandboxSession{session: execCtx.SandboxSession, activeUsers: 1, lastUsed: time.Now()}
+	s.mu.Unlock()
+	return nil
 }
 
 func runSessionID(session contracts.QuerySession) string {
 	runID := strings.TrimSpace(session.RunID)
-	requestID := strings.TrimSpace(session.RequestID)
-	if requestID == "" {
+	subTaskID := strings.TrimSpace(session.SubTaskID)
+	if subTaskID == "" {
 		return "run-" + runID
 	}
-	return "run-" + runID + "-" + requestID
+	return "run-" + runID + "-" + subTaskID
 }
 
 func (s *ContainerHubSandboxService) acquireAgentSession(ctx context.Context, execCtx *contracts.ExecutionContext) error {
@@ -255,6 +271,48 @@ func (s *ContainerHubSandboxService) releaseAgentSession(agentKey string) {
 		s.mu.Unlock()
 		if _, err := s.client.StopSession(context.Background(), sessionID); err != nil {
 			log.Printf("[sandbox] stop idle agent session failed id=%s agent=%s: %v", sessionID, agentKey, err)
+		}
+	}()
+}
+
+func (s *ContainerHubSandboxService) releaseRunSession(sessionKey string) {
+	if sessionKey == "" {
+		return
+	}
+	s.mu.Lock()
+	managed := s.runSessions[sessionKey]
+	if managed == nil {
+		s.mu.Unlock()
+		return
+	}
+	managed.activeUsers--
+	managed.lastUsed = time.Now()
+	sessionID := managed.session.SessionID
+	idle := time.Duration(maxInt64(s.cfg.DestroyQueueDelayMs, 0)) * time.Millisecond
+	s.mu.Unlock()
+	if idle <= 0 {
+		if _, err := s.client.StopSession(context.Background(), sessionID); err != nil {
+			log.Printf("[sandbox] stop run session failed id=%s key=%s: %v", sessionID, sessionKey, err)
+		}
+		s.mu.Lock()
+		delete(s.runSessions, sessionKey)
+		s.mu.Unlock()
+		return
+	}
+	go func() {
+		timer := time.NewTimer(idle)
+		defer timer.Stop()
+		<-timer.C
+		s.mu.Lock()
+		current := s.runSessions[sessionKey]
+		if current == nil || current.activeUsers > 0 || time.Since(current.lastUsed) < idle {
+			s.mu.Unlock()
+			return
+		}
+		delete(s.runSessions, sessionKey)
+		s.mu.Unlock()
+		if _, err := s.client.StopSession(context.Background(), sessionID); err != nil {
+			log.Printf("[sandbox] stop idle run session failed id=%s key=%s: %v", sessionID, sessionKey, err)
 		}
 	}()
 }

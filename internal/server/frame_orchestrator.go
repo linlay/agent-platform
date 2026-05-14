@@ -80,6 +80,7 @@ type preparedSubTask struct {
 	agentDef   catalog.AgentDefinition
 	taskID     string
 	requestID  string
+	subTaskID  string
 	mainToolID string
 }
 
@@ -132,6 +133,7 @@ func (o *frameOrchestrator) handleSubAgentBatch(mainStream contracts.AgentStream
 		if parentReqID != "" {
 			requestID = fmt.Sprintf("%s_sub_%d", parentReqID, taskIndex)
 		}
+		subTaskID := fmt.Sprintf("sub_%d", taskIndex)
 		prepared = append(prepared, preparedSubTask{
 			spec: contracts.SubAgentTaskSpec{
 				SubAgentKey: subAgentKey,
@@ -141,6 +143,7 @@ func (o *frameOrchestrator) handleSubAgentBatch(mainStream contracts.AgentStream
 			agentDef:  agentDef,
 			taskID:    fmt.Sprintf("%s_t_%d", strings.TrimSpace(o.session.RunID), taskIndex),
 			requestID: requestID,
+			subTaskID: subTaskID,
 		})
 	}
 
@@ -244,6 +247,7 @@ func (o *frameOrchestrator) runChildTask(index int, task preparedSubTask, princi
 		IncludeHistory:    false,
 		IncludeMemory:     false,
 		AllowInvokeAgents: false,
+		SubTaskID:         task.subTaskID,
 		Principal:         principal,
 	})
 	if err != nil {
