@@ -180,6 +180,61 @@ func TestAskUserQuestionHandlerNormalizeSubmitIgnoresSubmittedIDs(t *testing.T) 
 	}
 }
 
+func TestAskUserQuestionHandlerNormalizeSubmitDateAndDatetime(t *testing.T) {
+	handler := NewAskUserQuestionHandler()
+	result, err := handler.NormalizeSubmit(map[string]any{
+		"questions": []any{
+			map[string]any{"question": "Start date", "type": "date"},
+			map[string]any{"question": "Start time", "type": "datetime"},
+		},
+	}, mustSubmitParams(t, []map[string]any{
+		{"answer": "2026-05-15"},
+		{"answer": "2026-05-15T09:30"},
+	}))
+	if err != nil {
+		t.Fatalf("NormalizeSubmit returned error: %v", err)
+	}
+	answers, ok := result["answers"].([]map[string]any)
+	if !ok || len(answers) != 2 {
+		t.Fatalf("expected normalized answers, got %#v", result["answers"])
+	}
+	if answers[0]["answer"] != "2026-05-15" || answers[1]["answer"] != "2026-05-15T09:30" {
+		t.Fatalf("expected date and datetime strings to pass through, got %#v", answers)
+	}
+}
+
+func TestAskUserQuestionHandlerRejectsEmptyDateAndDatetime(t *testing.T) {
+	handler := NewAskUserQuestionHandler()
+	for _, questionType := range []string{"date", "datetime"} {
+		_, err := handler.NormalizeSubmit(map[string]any{
+			"questions": []any{
+				map[string]any{"question": "When?", "type": questionType},
+			},
+		}, mustSubmitParams(t, []map[string]any{
+			{"answer": ""},
+		}))
+		if err == nil || !strings.Contains(err.Error(), "answer must be a non-empty string") {
+			t.Fatalf("expected empty %s answer to be rejected, got %v", questionType, err)
+		}
+	}
+}
+
+func TestAskUserQuestionHandlerRejectsDateAndDatetimeAnswersField(t *testing.T) {
+	handler := NewAskUserQuestionHandler()
+	for _, questionType := range []string{"date", "datetime"} {
+		_, err := handler.NormalizeSubmit(map[string]any{
+			"questions": []any{
+				map[string]any{"question": "When?", "type": questionType},
+			},
+		}, mustSubmitParams(t, []map[string]any{
+			{"answers": []string{"2026-05-15"}},
+		}))
+		if err == nil || !strings.Contains(err.Error(), "answers is only allowed for multi-select questions") {
+			t.Fatalf("expected answers field for %s to be rejected, got %v", questionType, err)
+		}
+	}
+}
+
 func TestAskUserQuestionHandlerNormalizeSubmitCancel(t *testing.T) {
 	handler := NewAskUserQuestionHandler()
 	result, err := handler.NormalizeSubmit(map[string]any{

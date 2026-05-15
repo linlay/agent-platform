@@ -54,6 +54,13 @@ func TestAskUserToolSchemasMatchContract(t *testing.T) {
 	}
 	questionsField := mapChild(t, questionProperties, "questions")
 	questionItem := mapChild(t, mapChild(t, questionsField, "items"), "properties")
+	questionType := questionItem["type"]
+	if !enumContains(t, questionType, "date") {
+		t.Fatal("expected ask user question type enum to include date")
+	}
+	if !enumContains(t, questionType, "datetime") {
+		t.Fatal("expected ask user question type enum to include datetime")
+	}
 	if _, ok := questionItem["allowFreeText"]; !ok {
 		t.Fatal("expected allowFreeText on ask user question items")
 	}

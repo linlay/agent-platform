@@ -1,6 +1,6 @@
 name: ask_user_question
 label: 向用户提问
-description: Show multiple questions to the user, supporting text, number, password, and select-style answers. Each question can use either option selection or free text, and the tool blocks until the user submits a response.
+description: Show multiple questions to the user, supporting text, number, password, date, datetime, and select-style answers. Each question can use either option selection or free text, and the tool blocks until the user submits a response.
 type: function
 viewportType: builtin
 viewportKey: question_dialog
@@ -16,7 +16,7 @@ inputSchema:
         - question
     questions:
       type: array
-      description: Required. List of questions to present to the user in a single prompt. Every item must include `question` and `type`. For free-input prompts, use `type=text`, `number`, or `password`; do not send a free-input question that only sets `allowFreeText`. Use `type=select` for single-choice option picking and `type=multi-select` for multiple selections.
+      description: Required. List of questions to present to the user in a single prompt. Every item must include `question` and `type`. For free-input prompts, use `type=text`, `number`, `password`, `date`, or `datetime`; do not send a free-input question that only sets `allowFreeText`. Use `type=date` for a local date string such as `YYYY-MM-DD`, `type=datetime` for a local date/time string such as `YYYY-MM-DDTHH:mm`, `type=select` for single-choice option picking, and `type=multi-select` for multiple selections.
       items:
         type: object
         properties:
@@ -25,10 +25,12 @@ inputSchema:
             description: Required. Main question text.
           type:
             type: string
-            description: Required. Every question must provide a type. Use text, number, or password for free input. Use select for single-choice option picking and multi-select for multiple selections. Select-style questions may additionally allow free input through allowFreeText.
+            description: Required. Every question must provide a type. Use text, number, password, date, or datetime for free input. Date answers are submitted as local date text, preferably `YYYY-MM-DD`; datetime answers are submitted as local date/time text, preferably `YYYY-MM-DDTHH:mm`. Use select for single-choice option picking and multi-select for multiple selections. Select-style questions may additionally allow free input through allowFreeText.
             enum:
               - text
               - number
+              - date
+              - datetime
               - select
               - multi-select
               - password

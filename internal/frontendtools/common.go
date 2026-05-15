@@ -18,7 +18,7 @@ func normalizeQuestionAnswer(definition map[string]any, rawAnswer any) (any, err
 		default:
 			return nil, fmt.Errorf("answer must be a number")
 		}
-	case "text", "password":
+	case "text", "password", "date", "datetime":
 		text := contracts.AnyStringNode(rawAnswer)
 		if text == "" {
 			return nil, fmt.Errorf("answer must be a non-empty string")
