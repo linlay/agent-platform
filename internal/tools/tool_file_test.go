@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -115,6 +116,67 @@ func TestInvokeReadUsesRulePathApproval(t *testing.T) {
 	}
 	if result.Error != "" || result.Structured["content"] != "secret\n" {
 		t.Fatalf("expected approved read, got %#v", result)
+	}
+}
+
+func TestInvokeReadAllowsSessionAgentDir(t *testing.T) {
+	root := t.TempDir()
+	agentDir := filepath.Join(t.TempDir(), "agent-a")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatalf("mkdir agent dir: %v", err)
+	}
+	agentFile := filepath.Join(agentDir, "AGENTS.md")
+	if err := os.WriteFile(agentFile, []byte("agent notes\n"), 0o644); err != nil {
+		t.Fatalf("write agent fixture: %v", err)
+	}
+	executor := fileToolExecutor(root, true)
+	execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{
+		RuntimeContext: contracts.RuntimeRequestContext{
+			LocalPaths: contracts.LocalPaths{AgentDir: agentDir},
+		},
+	}}
+
+	result, err := executor.invokeRead(map[string]any{
+		"file_path":        agentFile,
+		"add_line_numbers": false,
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invokeRead: %v", err)
+	}
+	if result.Error != "" || result.ExitCode != 0 || result.Structured["content"] != "agent notes\n" {
+		t.Fatalf("expected session agent read success, got %#v", result)
+	}
+	if len(execCtx.FileReadApprovals) != 0 || len(execCtx.FileReadRuleApprovals) != 0 {
+		t.Fatalf("expected no read approvals consumed, exact=%#v rule=%#v", execCtx.FileReadApprovals, execCtx.FileReadRuleApprovals)
+	}
+}
+
+func TestInvokeReadAllowsSessionSkillsDir(t *testing.T) {
+	root := t.TempDir()
+	skillsDir := filepath.Join(t.TempDir(), "agent-a", "skills", "schedule")
+	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
+		t.Fatalf("mkdir skills dir: %v", err)
+	}
+	skillFile := filepath.Join(skillsDir, "SKILL.md")
+	if err := os.WriteFile(skillFile, []byte("# Schedule\n\nUse calendars.\n"), 0o644); err != nil {
+		t.Fatalf("write skill fixture: %v", err)
+	}
+	executor := fileToolExecutor(root, true)
+	execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{
+		RuntimeContext: contracts.RuntimeRequestContext{
+			LocalPaths: contracts.LocalPaths{SkillsDir: filepath.Dir(skillsDir)},
+		},
+	}}
+
+	result, err := executor.invokeRead(map[string]any{
+		"file_path":        skillFile,
+		"add_line_numbers": false,
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invokeRead: %v", err)
+	}
+	if result.Error != "" || result.ExitCode != 0 || !strings.Contains(fmt.Sprint(result.Structured["content"]), "# Schedule") {
+		t.Fatalf("expected session skills read success, got %#v", result)
 	}
 }
 
@@ -324,6 +386,32 @@ func TestInvokeWritePathEscapeRequiresApproval(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(outside); len(entries) != 0 {
 		t.Fatalf("expected outside dir to stay empty")
+	}
+}
+
+func TestInvokeWriteDoesNotUseSessionReadRootsForPathApproval(t *testing.T) {
+	root := t.TempDir()
+	agentDir := filepath.Join(t.TempDir(), "agent-a")
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatalf("mkdir agent dir: %v", err)
+	}
+	executor := fileToolExecutor(root, false)
+	execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{
+		RuntimeContext: contracts.RuntimeRequestContext{
+			LocalPaths: contracts.LocalPaths{AgentDir: agentDir, SkillsDir: filepath.Join(agentDir, "skills")},
+		},
+	}}
+
+	result, err := executor.invokeWrite(map[string]any{
+		"file_path":   filepath.Join(agentDir, "AGENTS.md"),
+		"content":     "new",
+		"description": "写入 agent 文档",
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invokeWrite: %v", err)
+	}
+	if result.ExitCode == 0 || result.Structured["error"] != "file_write_path_approval_required" {
+		t.Fatalf("expected session read root not to allow write path, got %#v", result)
 	}
 }
 

@@ -65,6 +65,38 @@ func TestBuildAccessPlanDeniedInfersNearestExistingAncestor(t *testing.T) {
 	}
 }
 
+func TestConfigWithSessionReadRootsOnlyExtendsReadAccess(t *testing.T) {
+	root := t.TempDir()
+	agentDir := filepath.Join(t.TempDir(), "agent-a")
+	skillsDir := filepath.Join(agentDir, "skills")
+	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
+		t.Fatalf("mkdir skills: %v", err)
+	}
+	cfg := config.FileToolsConfig{
+		WorkingDirectory:  root,
+		AllowedReadPaths:  []string{"."},
+		AllowedWritePaths: []string{"."},
+	}
+	session := contracts.QuerySession{RuntimeContext: contracts.RuntimeRequestContext{
+		LocalPaths: contracts.LocalPaths{
+			AgentDir:  agentDir,
+			SkillsDir: skillsDir,
+		},
+	}}
+
+	readCfg := ConfigWithSessionReadRoots(cfg, ReadAccess, session)
+	if len(readCfg.AllowedReadPaths) != 3 {
+		t.Fatalf("expected session read roots appended, got %#v", readCfg.AllowedReadPaths)
+	}
+	writeCfg := ConfigWithSessionReadRoots(cfg, WriteAccess, session)
+	if strings.Join(writeCfg.AllowedReadPaths, ",") != "." || strings.Join(writeCfg.AllowedWritePaths, ",") != "." {
+		t.Fatalf("expected write access config unchanged, got %#v", writeCfg)
+	}
+	if strings.Join(cfg.AllowedReadPaths, ",") != "." {
+		t.Fatalf("expected original config unchanged, got %#v", cfg.AllowedReadPaths)
+	}
+}
+
 func TestReadApprovalExactAndRule(t *testing.T) {
 	plan := AccessPlan{
 		Fingerprint: "fp-read",

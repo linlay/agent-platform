@@ -14,12 +14,14 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"agent-platform-runner-go/internal/config"
 	. "agent-platform-runner-go/internal/contracts"
 	"agent-platform-runner-go/internal/filetools"
 )
 
 func (t *RuntimeToolExecutor) invokeRead(args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
-	access, err := filetools.BuildAccessPlan(t.cfg.FileTools, filetools.ReadAccess, stringArg(args, "file_path"))
+	accessCfg := t.sessionFileToolsConfig(filetools.ReadAccess, execCtx)
+	access, err := filetools.BuildAccessPlan(accessCfg, filetools.ReadAccess, stringArg(args, "file_path"))
 	if err != nil {
 		return fileToolError("file_read_invalid_path", err.Error()), nil
 	}
@@ -197,6 +199,13 @@ func (t *RuntimeToolExecutor) invokeWrite(args map[string]any, execCtx *Executio
 		}
 	}
 	return structuredResult(payload), nil
+}
+
+func (t *RuntimeToolExecutor) sessionFileToolsConfig(mode filetools.AccessMode, execCtx *ExecutionContext) config.FileToolsConfig {
+	if execCtx == nil {
+		return t.cfg.FileTools
+	}
+	return filetools.ConfigWithSessionReadRoots(t.cfg.FileTools, mode, execCtx.Session)
 }
 
 func readImageFile(path string, info os.FileInfo) (map[string]any, bool, ToolExecutionResult) {

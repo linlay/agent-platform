@@ -140,6 +140,41 @@ func TestInvokeGrepPathEscapeRequiresApproval(t *testing.T) {
 	}
 }
 
+func TestInvokeGrepAllowsSessionSkillsDir(t *testing.T) {
+	requireRipgrep(t)
+	root := t.TempDir()
+	skillsRoot := filepath.Join(t.TempDir(), "agent-a", "skills")
+	skillDir := filepath.Join(skillsRoot, "schedule")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("mkdir skill dir: %v", err)
+	}
+	mustWriteFile(t, filepath.Join(skillDir, "SKILL.md"), "# Schedule\n\ncalendar needle\n")
+	executor := fileToolExecutor(root, false)
+	execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{
+		RuntimeContext: contracts.RuntimeRequestContext{
+			LocalPaths: contracts.LocalPaths{SkillsDir: skillsRoot},
+		},
+	}}
+
+	result, err := executor.invokeGrep(context.Background(), map[string]any{
+		"pattern":     "calendar needle",
+		"path":        skillsRoot,
+		"output_mode": "content",
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invokeGrep: %v", err)
+	}
+	if result.Error != "" || result.ExitCode != 0 {
+		t.Fatalf("expected session skills grep success, got %#v", result)
+	}
+	if !strings.Contains(strings.Join(stringSliceResult(t, result.Structured["results"]), "\n"), "SKILL.md") {
+		t.Fatalf("expected skill grep result, got %#v", result.Structured)
+	}
+	if len(execCtx.FileReadApprovals) != 0 || len(execCtx.FileReadRuleApprovals) != 0 {
+		t.Fatalf("expected no read approvals consumed, exact=%#v rule=%#v", execCtx.FileReadApprovals, execCtx.FileReadRuleApprovals)
+	}
+}
+
 func TestInvokeGrepConsumesReadPathApproval(t *testing.T) {
 	requireRipgrep(t)
 	root := t.TempDir()

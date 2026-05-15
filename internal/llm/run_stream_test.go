@@ -1710,6 +1710,67 @@ func TestFileReadAccessApprovalEmitsAwaitingAsk(t *testing.T) {
 	}
 }
 
+func TestFileReadAccessAllowsSessionSkillsDirBeforeApproval(t *testing.T) {
+	root := t.TempDir()
+	skillsRoot := filepath.Join(t.TempDir(), "agent-a", "skills")
+	skillDir := filepath.Join(skillsRoot, "schedule")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatalf("mkdir skill dir: %v", err)
+	}
+	skillFile := filepath.Join(skillDir, "SKILL.md")
+	if err := os.WriteFile(skillFile, []byte("# Schedule\n"), 0o644); err != nil {
+		t.Fatalf("write skill fixture: %v", err)
+	}
+	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{backendToolDefinition("read")}}
+	session := contracts.QuerySession{
+		RunID: "run_1",
+		RuntimeContext: contracts.RuntimeRequestContext{
+			LocalPaths: contracts.LocalPaths{SkillsDir: skillsRoot},
+		},
+	}
+	stream := &llmRunStream{
+		ctx:     context.Background(),
+		session: session,
+		engine: &LLMAgentEngine{
+			cfg: config.Config{
+				FileTools: config.FileToolsConfig{
+					WorkingDirectory:       root,
+					AllowedReadPaths:       []string{"."},
+					AllowedWritePaths:      []string{"."},
+					MaxReadBytes:           1024,
+					MaxWriteBytes:          1024,
+					RequireReadBeforeWrite: true,
+				},
+			},
+			tools: executor,
+		},
+		execCtx: &contracts.ExecutionContext{Session: session},
+		activeToolCall: &preparedToolInvocation{
+			toolID:   "tool_1",
+			toolName: "read",
+			args: map[string]any{
+				"file_path": skillFile,
+			},
+		},
+	}
+
+	if err := stream.invokeActiveToolCall(); err != nil {
+		t.Fatalf("invoke active read: %v", err)
+	}
+	if len(executor.invocations) != 1 {
+		t.Fatalf("expected session skill read to execute without approval, got %#v", executor.invocations)
+	}
+	if stream.hitlPendingCall != nil {
+		t.Fatalf("expected session skill read to skip approval, got %#v", stream.hitlPendingCall)
+	}
+	if len(stream.pending) != 1 {
+		t.Fatalf("expected tool result pending, got %#v", stream.pending)
+	}
+	if _, ok := stream.pending[0].(contracts.DeltaAwaitAsk); ok {
+		t.Fatalf("expected no awaiting ask for session skill read, got %#v", stream.pending)
+	}
+}
+
 func TestFileReadAccessApprovalDecisions(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()
@@ -1908,8 +1969,8 @@ func TestWriteOutsideAllowedPathsCombinedSubmitExecutesOriginalToolCall(t *testi
 	runControl := contracts.NewRunControl(context.Background(), "run_1")
 	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{writeToolDefinition()}}
 	stream := &llmRunStream{
-		ctx:     context.Background(),
-		session: contracts.QuerySession{RequestID: "req_1", ChatID: "chat_1", RunID: "run_1"},
+		ctx:        context.Background(),
+		session:    contracts.QuerySession{RequestID: "req_1", ChatID: "chat_1", RunID: "run_1"},
 		runControl: runControl,
 		engine: &LLMAgentEngine{
 			cfg: config.Config{
@@ -1944,8 +2005,6 @@ func TestWriteOutsideAllowedPathsCombinedSubmitExecutesOriginalToolCall(t *testi
 	ask := stream.pending[0].(contracts.DeltaAwaitAsk)
 	stream.pending = nil
 	ack := runControl.ResolveSubmit(api.SubmitRequest{
-		RequestID:  "req_1",
-		ChatID:     "chat_1",
 		RunID:      "run_1",
 		AwaitingID: ask.AwaitingID,
 		Params:     encodedSubmitParams(t, []map[string]any{{"id": "tool_1", "decision": "approve_rule_run"}}),

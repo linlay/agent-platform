@@ -477,11 +477,35 @@ func (s *llmRunStream) buildFileAccessPlan(invocation *preparedToolInvocation) (
 	if !ok {
 		return nil, false
 	}
-	plan, err := filetools.BuildAccessPlan(s.engine.cfg.FileTools, mode, rawPath)
+	cfg := s.engine.cfg.FileTools
+	if mode == filetools.ReadAccess {
+		cfg = filetools.ConfigWithSessionReadRoots(cfg, mode, s.fileAccessSession())
+	}
+	plan, err := filetools.BuildAccessPlan(cfg, mode, rawPath)
 	if err != nil {
 		return nil, false
 	}
 	return &plan, true
+}
+
+func (s *llmRunStream) fileAccessSession() QuerySession {
+	if s == nil {
+		return QuerySession{}
+	}
+	if hasLocalFileRoots(s.session) {
+		return s.session
+	}
+	if s.execCtx != nil {
+		return s.execCtx.Session
+	}
+	return s.session
+}
+
+func hasLocalFileRoots(session QuerySession) bool {
+	paths := session.RuntimeContext.LocalPaths
+	return strings.TrimSpace(paths.AgentDir) != "" ||
+		strings.TrimSpace(paths.SkillsDir) != "" ||
+		strings.TrimSpace(paths.SkillsMarketDir) != ""
 }
 
 func (s *llmRunStream) lookupFileAccessPlan(invocation *preparedToolInvocation) *filetools.AccessPlan {

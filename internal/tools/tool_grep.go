@@ -29,7 +29,8 @@ func (t *RuntimeToolExecutor) invokeGrep(ctx context.Context, args map[string]an
 	if rawPath == "" {
 		rawPath = "."
 	}
-	access, err := filetools.BuildAccessPlan(t.cfg.FileTools, filetools.ReadAccess, rawPath)
+	accessCfg := t.sessionFileToolsConfig(filetools.ReadAccess, execCtx)
+	access, err := filetools.BuildAccessPlan(accessCfg, filetools.ReadAccess, rawPath)
 	if err != nil {
 		return fileToolError("grep_invalid_path", err.Error()), nil
 	}

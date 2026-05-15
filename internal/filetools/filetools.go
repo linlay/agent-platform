@@ -89,6 +89,27 @@ func BuildAccessPlan(cfg config.FileToolsConfig, mode AccessMode, rawPath string
 	}, nil
 }
 
+func ConfigWithSessionReadRoots(cfg config.FileToolsConfig, mode AccessMode, session QuerySession) config.FileToolsConfig {
+	if mode != ReadAccess {
+		return cfg
+	}
+	local := session.RuntimeContext.LocalPaths
+	roots := append([]string(nil), cfg.AllowedReadPaths...)
+	for _, root := range []string{
+		local.AgentDir,
+		local.SkillsDir,
+		local.SkillsMarketDir,
+	} {
+		root = strings.TrimSpace(root)
+		if root == "" {
+			continue
+		}
+		roots = append(roots, filepath.Clean(expandHome(root)))
+	}
+	cfg.AllowedReadPaths = uniqueNonEmptyStrings(roots)
+	return cfg
+}
+
 func BuildWritePlan(cfg config.FileToolsConfig, args map[string]any) (WritePlan, error) {
 	access, err := BuildAccessPlan(cfg, WriteAccess, AnyStringNode(args["file_path"]))
 	if err != nil {
@@ -222,6 +243,23 @@ func consumeApproval(approvals map[string]int, fingerprint string) bool {
 	}
 	approvals[fingerprint] = remaining - 1
 	return true
+}
+
+func uniqueNonEmptyStrings(values []string) []string {
+	out := make([]string, 0, len(values))
+	seen := map[string]struct{}{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
 }
 
 func RegisterExactWriteApproval(execCtx *ExecutionContext, fingerprint string) {
