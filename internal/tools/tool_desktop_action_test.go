@@ -58,6 +58,38 @@ func TestInvokeDesktopActionCallsBridge(t *testing.T) {
 	}
 }
 
+func TestInvokeDesktopActionAllowsEmbeddedWebReadPageData(t *testing.T) {
+	var got desktopActionRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"action":"desktop.embeddedWeb.readPageData","result":{"title":"Bing"}}`))
+	}))
+	defer server.Close()
+	t.Setenv("DESKTOP_ACTION_BRIDGE_URL", server.URL)
+
+	result, err := (&RuntimeToolExecutor{}).invokeDesktopAction(context.Background(), map[string]any{
+		"action": "desktop.embeddedWeb.readPageData",
+		"args": map[string]any{
+			"include": []any{"links"},
+		},
+	}, &ExecutionContext{Session: QuerySession{RunID: "run-web", ChatID: "chat-web"}})
+	if err != nil {
+		t.Fatalf("invoke desktop action: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Fatalf("expected successful exit code, got %d: %s", result.ExitCode, result.Output)
+	}
+	if got.Action != "desktop.embeddedWeb.readPageData" {
+		t.Fatalf("unexpected action: %s", got.Action)
+	}
+	if got.Source.RunID != "run-web" || got.Source.ChatID != "chat-web" {
+		t.Fatalf("unexpected source: %#v", got.Source)
+	}
+}
+
 func TestInvokeDesktopActionRejectsUnknownAction(t *testing.T) {
 	result, err := (&RuntimeToolExecutor{}).invokeDesktopAction(context.Background(), map[string]any{
 		"action": "desktop.unlisted.anything",
