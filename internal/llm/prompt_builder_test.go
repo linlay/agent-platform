@@ -158,6 +158,33 @@ func TestBuildRuntimeContextPromptSkipsMemoryFallbackWithoutMemoryConfig(t *test
 	}
 }
 
+func TestBuildRuntimeContextPromptIncludesDesktopEmbeddedWebGuidance(t *testing.T) {
+	prompt := buildRuntimeContextPrompt(QuerySession{}, api.QueryRequest{
+		Params: map[string]any{
+			"desktop": map[string]any{
+				"source": "copilot",
+				"pageContext": map[string]any{
+					"title": "Bing",
+					"url":   "https://www.bing.com/",
+				},
+			},
+		},
+	})
+
+	for _, expected := range []string{
+		"Runtime Context: ZenMind Desktop",
+		"desktop_action",
+		"desktop.embeddedWeb.getPageContext",
+		"desktop.embeddedWeb.readPageData",
+		"currentPageTitle: Bing",
+		"currentPageUrl: https://www.bing.com/",
+	} {
+		if !strings.Contains(prompt, expected) {
+			t.Fatalf("expected desktop guidance %q in prompt, got %q", expected, prompt)
+		}
+	}
+}
+
 func TestBuildSessionSectionMergesContextAndAuth(t *testing.T) {
 	section := buildSessionSection(QuerySession{
 		ChatID:    "chat-1",

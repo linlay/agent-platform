@@ -77,6 +77,20 @@ var desktopActionAllowlist = map[string]bool{
 	"desktop.memory.previewItem":               true,
 	"desktop.memory.enableAutoLearn":           true,
 	"desktop.memory.disableAutoLearn":          true,
+	"desktop.embeddedWeb.listSurfaces":         true,
+	"desktop.embeddedWeb.getActiveSurface":     true,
+	"desktop.embeddedWeb.activateSurface":      true,
+	"desktop.embeddedWeb.getPageContext":       true,
+	"desktop.embeddedWeb.navigate":             true,
+	"desktop.embeddedWeb.reload":               true,
+	"desktop.embeddedWeb.goBack":               true,
+	"desktop.embeddedWeb.openTab":              true,
+	"desktop.embeddedWeb.closeTab":             true,
+	"desktop.embeddedWeb.switchTab":            true,
+	"desktop.embeddedWeb.readPageData":         true,
+	"desktop.embeddedWeb.extractStructured":    true,
+	"desktop.embeddedWeb.interactElement":      true,
+	"desktop.embeddedWeb.executeScript":        true,
 }
 
 type desktopActionRequest struct {

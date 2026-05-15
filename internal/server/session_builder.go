@@ -113,7 +113,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		AgentRole:              agentDef.Role,
 		AgentDescription:       agentDef.Description,
 		ModelKey:               agentDef.ModelKey,
-		ToolNames:              buildSessionToolNames(effectiveAgentTools(agentDef), options.AllowInvokeAgents),
+		ToolNames:              buildSessionToolNames(effectiveAgentToolsForRequest(agentDef, req), options.AllowInvokeAgents),
 		Mode:                   agentDef.Mode,
 		TeamID:                 req.TeamID,
 		Created:                options.Created,
@@ -196,6 +196,39 @@ func buildSessionToolNames(base []string, allowInvokeAgents bool) []string {
 		tools = append(tools, name)
 	}
 	return tools
+}
+
+func effectiveAgentToolsForRequest(def catalog.AgentDefinition, req api.QueryRequest) []string {
+	tools := effectiveAgentTools(def)
+	if !hasDesktopRuntimeContext(req.Params) {
+		return tools
+	}
+	for _, tool := range tools {
+		if strings.EqualFold(strings.TrimSpace(tool), "desktop_action") {
+			return tools
+		}
+	}
+	return append(append([]string(nil), tools...), "desktop_action")
+}
+
+func hasDesktopRuntimeContext(params map[string]any) bool {
+	if len(params) == 0 {
+		return false
+	}
+	desktop, ok := params["desktop"]
+	if !ok || desktop == nil {
+		return false
+	}
+	switch value := desktop.(type) {
+	case bool:
+		return value
+	case map[string]any:
+		return true
+	case string:
+		return strings.TrimSpace(value) != ""
+	default:
+		return true
+	}
 }
 
 func canUseInvokeAgentsTool(mode string) bool {

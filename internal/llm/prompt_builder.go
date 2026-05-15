@@ -128,6 +128,7 @@ func buildRuntimeContextPrompt(session QuerySession, req api.QueryRequest) strin
 		default:
 		}
 	}
+	appendIfPresent(&sections, buildDesktopSection(req.Params))
 	if session.AgentHasRuntimeSandbox || session.RuntimeContext.SandboxContext != nil {
 		appendIfPresent(&sections, buildSandboxSection(session.RuntimeContext.SandboxContext))
 	}
@@ -135,6 +136,41 @@ func buildRuntimeContextPrompt(session QuerySession, req api.QueryRequest) strin
 		appendIfPresent(&sections, buildMemorySection(session, req))
 	}
 	return strings.Join(sections, "\n\n")
+}
+
+func buildDesktopSection(params map[string]any) string {
+	desktop, ok := params["desktop"]
+	if !ok || desktop == nil {
+		return ""
+	}
+	lines := []string{
+		"Runtime Context: ZenMind Desktop",
+		"Desktop Action Bridge is available through the desktop_action tool.",
+		"Use desktop_action with action=desktop.embeddedWeb.getPageContext or action=desktop.embeddedWeb.readPageData before saying you cannot access the current embedded webview, sidebar website, browser surface, or plugin iframe.",
+		"Use desktop.embeddedWeb.extractStructured for tables, lists, forms, and links; use desktop.embeddedWeb.interactElement for click, fill, scroll, focus, or select.",
+	}
+	if node, ok := desktop.(map[string]any); ok {
+		appendDesktopField(&lines, node, "source")
+		appendDesktopField(&lines, node, "action")
+		appendDesktopField(&lines, node, "permissionMode")
+		if pageContext, ok := node["pageContext"].(map[string]any); ok {
+			if title := strings.TrimSpace(stringValue(pageContext["title"])); title != "" {
+				lines = append(lines, "currentPageTitle: "+sanitizeYAMLScalar(title))
+			}
+			if url := strings.TrimSpace(stringValue(pageContext["url"])); url != "" {
+				lines = append(lines, "currentPageUrl: "+sanitizeYAMLScalar(url))
+			}
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+func appendDesktopField(lines *[]string, node map[string]any, key string) {
+	value := strings.TrimSpace(stringValue(node[key]))
+	if value == "" {
+		return
+	}
+	*lines = append(*lines, key+": "+sanitizeYAMLScalar(value))
 }
 
 func buildSystemEnvironmentSection(session QuerySession) string {
