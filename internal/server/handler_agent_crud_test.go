@@ -93,7 +93,7 @@ func TestAgentProxyCRUDAllowsProxyConfigWithoutModelConfig(t *testing.T) {
 			"name":        "Proxy Agent",
 			"role":        "Proxy",
 			"description": "proxy test agent",
-			"mode":        "PROXY",
+			"mode":        "ACP-PROXY",
 			"proxyConfig": map[string]any{
 				"baseUrl":   "http://127.0.0.1:3210",
 				"token":     "proxy-token",
@@ -104,6 +104,35 @@ func TestAgentProxyCRUDAllowsProxyConfigWithoutModelConfig(t *testing.T) {
 	proxyConfig, _ := created.Definition["proxyConfig"].(map[string]any)
 	if created.Mode != "PROXY" || proxyConfig["token"] != "proxy-token" {
 		t.Fatalf("expected editable proxy detail with token, got %#v", created)
+	}
+	if created.Definition["mode"] != "PROXY" {
+		t.Fatalf("expected ACP-PROXY to persist as PROXY, got %#v", created.Definition)
+	}
+}
+
+func TestAgentEditorOptionsHTTP(t *testing.T) {
+	fixture := newTestFixture(t)
+
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agent-editor-options", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("options returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var response api.ApiResponse[api.AgentEditorOptionsResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode options response: %v", err)
+	}
+	if len(response.Data.Models) != 1 || response.Data.Models[0].Key != "mock-model" {
+		t.Fatalf("expected mock model option, got %#v", response.Data.Models)
+	}
+	if got := response.Data.Modes; len(got) != 3 || got[0].Label != "REACT" || got[1].Label != "PLAN-EXECUTE" || got[2].Label != "ACP-PROXY" {
+		t.Fatalf("unexpected modes %#v", got)
+	}
+	if len(response.Data.ContextTags) != 6 || response.Data.ContextTags[0].Key != "system" || response.Data.ContextTags[5].Key != "memory" {
+		t.Fatalf("unexpected context tags %#v", response.Data.ContextTags)
+	}
+	if response.Data.ProxyConfigSchema.DefaultTimeoutMs != 300000 || len(response.Data.ProxyConfigSchema.Fields) != 3 || !response.Data.ProxyConfigSchema.Fields[0].Required {
+		t.Fatalf("unexpected proxy schema %#v", response.Data.ProxyConfigSchema)
 	}
 }
 
@@ -222,6 +251,25 @@ func TestAgentWSCRUDMirrorHTTP(t *testing.T) {
 	}
 	defer conn.Close()
 	readScheduleConnectedPush(t, conn)
+
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame: ws.FrameRequest,
+		Type:  "/api/agent-editor-options",
+		ID:    "agent-options",
+	}); err != nil {
+		t.Fatalf("write options request: %v", err)
+	}
+	var optionsFrame ws.ResponseFrame
+	if err := conn.ReadJSON(&optionsFrame); err != nil {
+		t.Fatalf("read options response: %v", err)
+	}
+	options, err := marshalAgentResponseData[api.AgentEditorOptionsResponse](optionsFrame.Data)
+	if err != nil {
+		t.Fatalf("decode options data: %v", err)
+	}
+	if optionsFrame.Frame != ws.FrameResponse || optionsFrame.ID != "agent-options" || len(options.Modes) != 3 || options.Modes[2].Label != "ACP-PROXY" {
+		t.Fatalf("unexpected options frame %#v data=%#v", optionsFrame, options)
+	}
 
 	if err := conn.WriteJSON(ws.RequestFrame{
 		Frame: ws.FrameRequest,

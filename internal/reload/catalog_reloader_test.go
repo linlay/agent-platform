@@ -85,6 +85,29 @@ func TestBackgroundWatchEntriesExcludeConfigs(t *testing.T) {
 	}
 }
 
+func TestMergePendingReloadReasonEscalatesMixedChangesToConfig(t *testing.T) {
+	tests := []struct {
+		name    string
+		pending string
+		next    string
+		want    string
+	}{
+		{name: "empty pending", pending: "", next: "providers", want: "providers"},
+		{name: "same reason", pending: "models", next: "models", want: "models"},
+		{name: "models and providers", pending: "models", next: "providers", want: "config"},
+		{name: "providers and agents", pending: "providers", next: "agents", want: "config"},
+		{name: "keep config", pending: "config", next: "models", want: "config"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := mergePendingReloadReason(tc.pending, tc.next); got != tc.want {
+				t.Fatalf("mergePendingReloadReason(%q, %q) = %q, want %q", tc.pending, tc.next, got, tc.want)
+			}
+		})
+	}
+}
+
 func assertNoReloadReason(t *testing.T, reasons <-chan string, timeout time.Duration) {
 	t.Helper()
 	select {

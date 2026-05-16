@@ -8,11 +8,12 @@ $Script:EnvExampleFile = Join-Path $Script:BundleRoot '.env.example'
 $Script:EnvFile = Join-Path $(if ($env:SERVICE_CONFIG_DIR) { $env:SERVICE_CONFIG_DIR } else { $Script:BundleRoot }) '.env'
 $Script:BackendBin = Join-Path (Join-Path $Script:BundleRoot 'backend') 'agent-platform-runner.exe'
 $Script:ConfigDir = Join-Path $(if ($env:SERVICE_CONFIG_DIR) { $env:SERVICE_CONFIG_DIR } else { $Script:BundleRoot }) 'configs'
-$Script:RuntimeRoot = Join-Path $Script:BundleRoot 'runtime'
-$Script:RunDir = Join-Path $Script:BundleRoot 'run'
+$Script:RuntimeRoot = if ($env:SERVICE_DATA_DIR) { $env:SERVICE_DATA_DIR } else { Join-Path $Script:BundleRoot 'runtime' }
+$Script:RunDir = if ($env:SERVICE_STATE_DIR) { $env:SERVICE_STATE_DIR } else { Join-Path $Script:BundleRoot 'run' }
+$Script:LogDir = if ($env:SERVICE_LOG_DIR) { $env:SERVICE_LOG_DIR } else { $Script:RunDir }
 $Script:PidFile = Join-Path $Script:RunDir 'agent-platform-runner.pid'
-$Script:LogFile = Join-Path $Script:RunDir 'agent-platform-runner.log'
-$Script:ErrorLogFile = Join-Path $Script:RunDir 'agent-platform-runner.stderr.log'
+$Script:LogFile = Join-Path $Script:LogDir 'agent-platform-runner.log'
+$Script:ErrorLogFile = Join-Path $Script:LogDir 'agent-platform-runner.stderr.log'
 
 function Fail-Program([string]$Message) {
   throw "[program] $Message"
@@ -25,14 +26,39 @@ function Test-ProgramBundle {
   if (-not (Test-Path -LiteralPath $Script:EnvExampleFile -PathType Leaf)) {
     Fail-Program "required file not found: $Script:EnvExampleFile"
   }
-  if (-not (Test-Path -LiteralPath $Script:ConfigDir -PathType Container)) {
-    Fail-Program "required directory not found: $Script:ConfigDir"
-  }
-  if (-not (Test-Path -LiteralPath $Script:RuntimeRoot -PathType Container)) {
-    Fail-Program "required directory not found: $Script:RuntimeRoot"
-  }
   if (-not (Test-Path -LiteralPath $Script:BackendBin -PathType Leaf)) {
     Fail-Program "required file not found: $Script:BackendBin"
+  }
+}
+
+function Initialize-ProgramConfig {
+  New-Item -ItemType Directory -Force -Path $Script:ConfigDir | Out-Null
+  if (-not (Test-Path -LiteralPath $Script:EnvFile -PathType Leaf)) {
+    Copy-Item -LiteralPath $Script:EnvExampleFile -Destination $Script:EnvFile
+  }
+  $bundleConfigDir = Join-Path $Script:BundleRoot 'configs'
+  if (-not (Test-Path -LiteralPath $bundleConfigDir -PathType Container)) {
+    return
+  }
+  foreach ($example in Get-ChildItem -LiteralPath $bundleConfigDir -Filter '*.example.yml' -File) {
+    $name = $example.Name.Substring(0, $example.Name.Length - '.example.yml'.Length)
+    $target = Join-Path $Script:ConfigDir ($name + '.yml')
+    if ($name -eq 'channels') {
+      if (-not (Test-Path -LiteralPath $target -PathType Leaf)) {
+        New-Item -ItemType File -Path $target -Force | Out-Null
+      }
+      continue
+    }
+    if (-not (Test-Path -LiteralPath $target -PathType Leaf)) {
+      Copy-Item -LiteralPath $example.FullName -Destination $target
+    }
+  }
+  foreach ($example in Get-ChildItem -LiteralPath $bundleConfigDir -Filter '*.example.pem' -File) {
+    $name = $example.Name.Substring(0, $example.Name.Length - '.example.pem'.Length)
+    $target = Join-Path $Script:ConfigDir ($name + '.pem')
+    if (-not (Test-Path -LiteralPath $target -PathType Leaf)) {
+      Copy-Item -LiteralPath $example.FullName -Destination $target
+    }
   }
 }
 
@@ -58,6 +84,7 @@ function Import-ProgramEnv {
 function Initialize-ProgramRuntime {
   New-Item -ItemType Directory -Force -Path `
     $Script:RunDir, `
+    $Script:LogDir, `
     (Join-Path $Script:RuntimeRoot 'registries/providers'), `
     (Join-Path $Script:RuntimeRoot 'registries/models'), `
     (Join-Path $Script:RuntimeRoot 'registries/tools'), `

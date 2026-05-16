@@ -63,9 +63,21 @@ type openAIStreamResponse struct {
 }
 
 type openAIUsage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
-	TotalTokens      int `json:"total_tokens"`
+	PromptTokens            int                          `json:"prompt_tokens"`
+	CompletionTokens        int                          `json:"completion_tokens"`
+	TotalTokens             int                          `json:"total_tokens"`
+	PromptTokensDetails     openAIPromptTokenDetails     `json:"prompt_tokens_details"`
+	CompletionTokensDetails openAICompletionTokenDetails `json:"completion_tokens_details"`
+	PromptCacheHitTokens    int                          `json:"prompt_cache_hit_tokens"`
+	PromptCacheMissTokens   int                          `json:"prompt_cache_miss_tokens"`
+}
+
+type openAIPromptTokenDetails struct {
+	CachedTokens int `json:"cached_tokens"`
+}
+
+type openAICompletionTokenDetails struct {
+	ReasoningTokens int `json:"reasoning_tokens"`
 }
 
 type openAIStreamToolDelta struct {
@@ -162,14 +174,14 @@ func (p *openAIProtocol) ConsumeChunk(s *llmRunStream, _ string, rawChunk string
 	}
 	if len(decoded.Choices) == 0 {
 		if decoded.Usage != nil {
-			s.accumulateUsage(decoded.Usage.PromptTokens, decoded.Usage.CompletionTokens, decoded.Usage.TotalTokens)
+			s.accumulateUsage(decoded.Usage)
 			return false, nil
 		}
 		return false, fmt.Errorf("provider stream returned no choices")
 	}
 
 	if decoded.Usage != nil {
-		s.accumulateUsage(decoded.Usage.PromptTokens, decoded.Usage.CompletionTokens, decoded.Usage.TotalTokens)
+		s.accumulateUsage(decoded.Usage)
 	}
 
 	for _, choice := range decoded.Choices {

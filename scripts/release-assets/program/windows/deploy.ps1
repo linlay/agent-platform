@@ -4,6 +4,8 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 Set-Location $ScriptDir
 Test-ProgramBundle
+Initialize-ProgramConfig
+Import-ProgramEnv
 Initialize-ProgramRuntime
 
 Write-Host '[program-deploy] bundle validated'

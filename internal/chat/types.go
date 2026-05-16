@@ -233,9 +233,13 @@ type Detail struct {
 }
 
 type UsageData struct {
-	PromptTokens     int `json:"promptTokens"`
-	CompletionTokens int `json:"completionTokens"`
-	TotalTokens      int `json:"totalTokens"`
+	PromptTokens          int `json:"promptTokens"`
+	CompletionTokens      int `json:"completionTokens"`
+	TotalTokens           int `json:"totalTokens"`
+	CachedTokens          int `json:"-"`
+	ReasoningTokens       int `json:"-"`
+	PromptCacheHitTokens  int `json:"-"`
+	PromptCacheMissTokens int `json:"-"`
 }
 
 type RunCompletion struct {

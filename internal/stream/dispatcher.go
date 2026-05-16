@@ -105,6 +105,12 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 		d.state.terminated = true
 		return events
 	case InputDebugPreCall:
+		runUsage := map[string]any{
+			"promptTokens":     value.RunPromptTokens,
+			"completionTokens": value.RunCompletionTokens,
+			"totalTokens":      value.RunTotalTokens,
+		}
+		addDetailedUsage(runUsage, value.RunCachedTokens, value.RunReasoningTokens, value.RunPromptCacheHitTokens, value.RunPromptCacheMissTokens)
 		payload := map[string]any{
 			"runId":  d.request.RunID,
 			"chatId": value.ChatID,
@@ -126,11 +132,7 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 					"estimatedSize": value.EstimatedNextCallSize,
 				},
 				"usage": map[string]any{
-					"runUsage": map[string]any{
-						"promptTokens":     value.RunPromptTokens,
-						"completionTokens": value.RunCompletionTokens,
-						"totalTokens":      value.RunTotalTokens,
-					},
+					"runUsage": runUsage,
 				},
 			},
 		}
@@ -141,11 +143,27 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 	case InputDebugPostCall:
 		if value.RunTotalTokens > 0 {
 			d.state.runUsage = &runUsageState{
-				PromptTokens:     value.RunPromptTokens,
-				CompletionTokens: value.RunCompletionTokens,
-				TotalTokens:      value.RunTotalTokens,
+				PromptTokens:          value.RunPromptTokens,
+				CompletionTokens:      value.RunCompletionTokens,
+				TotalTokens:           value.RunTotalTokens,
+				CachedTokens:          value.RunCachedTokens,
+				ReasoningTokens:       value.RunReasoningTokens,
+				PromptCacheHitTokens:  value.RunPromptCacheHitTokens,
+				PromptCacheMissTokens: value.RunPromptCacheMissTokens,
 			}
 		}
+		llmReturnUsage := map[string]any{
+			"promptTokens":     value.LLMReturnPromptTokens,
+			"completionTokens": value.LLMReturnCompletionTokens,
+			"totalTokens":      value.LLMReturnTotalTokens,
+		}
+		addDetailedUsage(llmReturnUsage, value.LLMReturnCachedTokens, value.LLMReturnReasoningTokens, value.LLMReturnPromptCacheHitTokens, value.LLMReturnPromptCacheMissTokens)
+		runUsage := map[string]any{
+			"promptTokens":     value.RunPromptTokens,
+			"completionTokens": value.RunCompletionTokens,
+			"totalTokens":      value.RunTotalTokens,
+		}
+		addDetailedUsage(runUsage, value.RunCachedTokens, value.RunReasoningTokens, value.RunPromptCacheHitTokens, value.RunPromptCacheMissTokens)
 		payload := map[string]any{
 			"runId":  d.request.RunID,
 			"chatId": value.ChatID,
@@ -159,16 +177,8 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 					"estimatedSize": value.EstimatedNextCallSize,
 				},
 				"usage": map[string]any{
-					"llmReturnUsage": map[string]any{
-						"promptTokens":     value.LLMReturnPromptTokens,
-						"completionTokens": value.LLMReturnCompletionTokens,
-						"totalTokens":      value.LLMReturnTotalTokens,
-					},
-					"runUsage": map[string]any{
-						"promptTokens":     value.RunPromptTokens,
-						"completionTokens": value.RunCompletionTokens,
-						"totalTokens":      value.RunTotalTokens,
-					},
+					"llmReturnUsage": llmReturnUsage,
+					"runUsage":       runUsage,
 				},
 			},
 		}

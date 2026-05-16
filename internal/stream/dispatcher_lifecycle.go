@@ -71,10 +71,37 @@ func (d *StreamEventDispatcher) usagePayload() map[string]any {
 	if d.state.runUsage == nil || d.state.runUsage.TotalTokens == 0 {
 		return nil
 	}
-	return map[string]any{
-		"promptTokens":     d.state.runUsage.PromptTokens,
-		"completionTokens": d.state.runUsage.CompletionTokens,
-		"totalTokens":      d.state.runUsage.TotalTokens,
+	return usageMap(d.state.runUsage)
+}
+
+func usageMap(usage *runUsageState) map[string]any {
+	if usage == nil {
+		return nil
+	}
+	out := map[string]any{
+		"promptTokens":     usage.PromptTokens,
+		"completionTokens": usage.CompletionTokens,
+		"totalTokens":      usage.TotalTokens,
+	}
+	addDetailedUsage(out, usage.CachedTokens, usage.ReasoningTokens, usage.PromptCacheHitTokens, usage.PromptCacheMissTokens)
+	return out
+}
+
+func addDetailedUsage(out map[string]any, cachedTokens int, reasoningTokens int, promptCacheHitTokens int, promptCacheMissTokens int) {
+	if out == nil {
+		return
+	}
+	if cachedTokens > 0 {
+		out["promptTokensDetails"] = map[string]any{"cachedTokens": cachedTokens}
+	}
+	if reasoningTokens > 0 {
+		out["completionTokensDetails"] = map[string]any{"reasoningTokens": reasoningTokens}
+	}
+	if promptCacheHitTokens > 0 {
+		out["promptCacheHitTokens"] = promptCacheHitTokens
+	}
+	if promptCacheMissTokens > 0 {
+		out["promptCacheMissTokens"] = promptCacheMissTokens
 	}
 }
 

@@ -155,13 +155,36 @@ func TestDispatcherIncludesTaskIDOnDebugEvents(t *testing.T) {
 	}
 
 	postEvents := dispatcher.Dispatch(InputDebugPostCall{
-		TaskID:   "task_sub_1",
-		ChatID:   "chat_1",
-		ModelKey: "mock",
+		TaskID:                         "task_sub_1",
+		ChatID:                         "chat_1",
+		ModelKey:                       "mock",
+		LLMReturnPromptTokens:          100,
+		LLMReturnCompletionTokens:      50,
+		LLMReturnTotalTokens:           150,
+		LLMReturnCachedTokens:          64,
+		LLMReturnReasoningTokens:       12,
+		LLMReturnPromptCacheHitTokens:  64,
+		LLMReturnPromptCacheMissTokens: 36,
+		RunPromptTokens:                100,
+		RunCompletionTokens:            50,
+		RunTotalTokens:                 150,
+		RunCachedTokens:                64,
+		RunReasoningTokens:             12,
+		RunPromptCacheHitTokens:        64,
+		RunPromptCacheMissTokens:       36,
 	})
 	assertEventTypes(t, postEvents, "debug.postCall")
 	if got := postEvents[0].Data().String("taskId"); got != "task_sub_1" {
 		t.Fatalf("expected debug.postCall taskId, got %#v", postEvents[0].ToData())
+	}
+	postData, _ := postEvents[0].Data().Value("data").(map[string]any)
+	usage, _ := postData["usage"].(map[string]any)
+	llmUsage, _ := usage["llmReturnUsage"].(map[string]any)
+	promptDetails, _ := llmUsage["promptTokensDetails"].(map[string]any)
+	completionDetails, _ := llmUsage["completionTokensDetails"].(map[string]any)
+	if promptDetails["cachedTokens"] != 64 || completionDetails["reasoningTokens"] != 12 ||
+		llmUsage["promptCacheHitTokens"] != 64 || llmUsage["promptCacheMissTokens"] != 36 {
+		t.Fatalf("expected detailed llm usage, got %#v", usage)
 	}
 }
 

@@ -385,18 +385,22 @@ func checkDeprecatedEnvVars() error {
 }
 
 func defaultConfig() Config {
+	runtimeRoot := strings.TrimSpace(os.Getenv("SERVICE_DATA_DIR"))
+	if runtimeRoot == "" {
+		runtimeRoot = "runtime"
+	}
 	paths := PathsConfig{
-		RegistriesDir:   filepath.Join("runtime", "registries"),
-		ToolsDir:        filepath.Join("runtime", "registries", "tools"),
-		OwnerDir:        filepath.Join("runtime", "owner"),
-		AgentsDir:       filepath.Join("runtime", "agents"),
-		TeamsDir:        filepath.Join("runtime", "teams"),
-		RootDir:         filepath.Join("runtime", "root"),
-		SchedulesDir:    filepath.Join("runtime", "schedules"),
-		ChatsDir:        filepath.Join("runtime", "chats"),
-		MemoryDir:       filepath.Join("runtime", "memory"),
-		PanDir:          filepath.Join("runtime", "pan"),
-		SkillsMarketDir: filepath.Join("runtime", "skills-market"),
+		RegistriesDir:   filepath.Join(runtimeRoot, "registries"),
+		ToolsDir:        filepath.Join(runtimeRoot, "registries", "tools"),
+		OwnerDir:        filepath.Join(runtimeRoot, "owner"),
+		AgentsDir:       filepath.Join(runtimeRoot, "agents"),
+		TeamsDir:        filepath.Join(runtimeRoot, "teams"),
+		RootDir:         filepath.Join(runtimeRoot, "root"),
+		SchedulesDir:    filepath.Join(runtimeRoot, "schedules"),
+		ChatsDir:        filepath.Join(runtimeRoot, "chats"),
+		MemoryDir:       filepath.Join(runtimeRoot, "memory"),
+		PanDir:          filepath.Join(runtimeRoot, "pan"),
+		SkillsMarketDir: filepath.Join(runtimeRoot, "skills-market"),
 	}
 	return Config{
 		Server: ServerConfig{Port: "8080"},
@@ -490,7 +494,7 @@ func defaultConfig() Config {
 			SSE:       ToggleConfig{Enabled: false},
 			Memory: MemoryLoggingConfig{
 				Enabled: true,
-				File:    filepath.Join("runtime", "logs", "memory.log"),
+				File:    filepath.Join(runtimeRoot, "logs", "memory.log"),
 			},
 			LLMInteraction: LLMInteractionLoggingConfig{
 				Enabled:       true,

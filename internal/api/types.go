@@ -347,6 +347,39 @@ type DeleteAgentRequest struct {
 	Key string `json:"key"`
 }
 
+type AgentEditorOptionsResponse struct {
+	Models            []AgentEditorModelOption     `json:"models"`
+	ContextTags       []AgentEditorOption          `json:"contextTags"`
+	Modes             []AgentEditorOption          `json:"modes"`
+	ProxyConfigSchema AgentEditorProxyConfigSchema `json:"proxyConfigSchema"`
+}
+
+type AgentEditorModelOption struct {
+	Key           string `json:"key"`
+	Provider      string `json:"provider,omitempty"`
+	ModelID       string `json:"modelId,omitempty"`
+	Protocol      string `json:"protocol,omitempty"`
+	IsVision      bool   `json:"isVision"`
+	ContextWindow int    `json:"contextWindow,omitempty"`
+}
+
+type AgentEditorOption struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+}
+
+type AgentEditorProxyConfigSchema struct {
+	Fields           []AgentEditorProxyConfigField `json:"fields"`
+	DefaultTimeoutMs int                           `json:"defaultTimeoutMs"`
+}
+
+type AgentEditorProxyConfigField struct {
+	Key      string `json:"key"`
+	Label    string `json:"label"`
+	Type     string `json:"type"`
+	Required bool   `json:"required,omitempty"`
+}
+
 type ChannelSummary struct {
 	ID           string   `json:"id"`
 	Name         string   `json:"name"`
@@ -417,9 +450,21 @@ type Awaiting struct {
 }
 
 type ChatUsageData struct {
-	PromptTokens     int `json:"promptTokens"`
-	CompletionTokens int `json:"completionTokens"`
-	TotalTokens      int `json:"totalTokens"`
+	PromptTokens            int                     `json:"promptTokens"`
+	CompletionTokens        int                     `json:"completionTokens"`
+	TotalTokens             int                     `json:"totalTokens"`
+	PromptTokensDetails     *PromptTokenDetails     `json:"promptTokensDetails,omitempty"`
+	CompletionTokensDetails *CompletionTokenDetails `json:"completionTokensDetails,omitempty"`
+	PromptCacheHitTokens    int                     `json:"promptCacheHitTokens,omitempty"`
+	PromptCacheMissTokens   int                     `json:"promptCacheMissTokens,omitempty"`
+}
+
+type PromptTokenDetails struct {
+	CachedTokens int `json:"cachedTokens,omitempty"`
+}
+
+type CompletionTokenDetails struct {
+	ReasoningTokens int `json:"reasoningTokens,omitempty"`
 }
 
 type MarkChatReadRequest struct {

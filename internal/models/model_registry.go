@@ -133,6 +133,40 @@ func (r *ModelRegistry) Get(key string) (ModelDefinition, ProviderDefinition, er
 	return model, provider, nil
 }
 
+func (r *ModelRegistry) List() []ModelDefinition {
+	if r == nil {
+		return nil
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	keys := make([]string, 0, len(r.models))
+	for key := range r.models {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	items := make([]ModelDefinition, 0, len(keys))
+	for _, key := range keys {
+		model := r.models[key]
+		model.Headers = stringMapCopy(model.Headers)
+		model.Compat = cloneAnyMap(model.Compat)
+		items = append(items, model)
+	}
+	return items
+}
+
+func stringMapCopy(input map[string]string) map[string]string {
+	if input == nil {
+		return nil
+	}
+	output := make(map[string]string, len(input))
+	for key, value := range input {
+		output[key] = value
+	}
+	return output
+}
+
 func (r *ModelRegistry) GetProvider(key string) (ProviderDefinition, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

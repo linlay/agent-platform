@@ -433,11 +433,7 @@ func (w *StepWriter) captureRootDebugData(eventType string, inner map[string]any
 	}
 	if usage, ok := inner["usage"].(map[string]any); ok {
 		if llm, ok := usage["llmReturnUsage"].(map[string]any); ok {
-			w.pendingUsage = map[string]any{
-				"promptTokens":     toInt(llm["promptTokens"]),
-				"completionTokens": toInt(llm["completionTokens"]),
-				"totalTokens":      toInt(llm["totalTokens"]),
-			}
+			w.pendingUsage = usagePayloadFromMap(llm)
 		}
 	}
 }
@@ -458,11 +454,7 @@ func (w *StepWriter) captureTaskDebugData(buffer *taskStepBuffer, eventType stri
 	}
 	if usage, ok := inner["usage"].(map[string]any); ok {
 		if llm, ok := usage["llmReturnUsage"].(map[string]any); ok {
-			buffer.pendingUsage = map[string]any{
-				"promptTokens":     toInt(llm["promptTokens"]),
-				"completionTokens": toInt(llm["completionTokens"]),
-				"totalTokens":      toInt(llm["totalTokens"]),
-			}
+			buffer.pendingUsage = usagePayloadFromMap(llm)
 		}
 	}
 }

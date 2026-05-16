@@ -8,15 +8,23 @@ import (
 )
 
 type chatRunData struct {
-	runID                     string
-	events                    []stream.EventData
-	totalPromptTokens         int
-	totalCompletionTokens     int
-	totalTotalTokens          int
-	chatTotalPromptTokens     int
-	chatTotalCompletionTokens int
-	chatTotalTotalTokens      int
-	activeSubTasks            map[string]*replayedSubTask
+	runID                          string
+	events                         []stream.EventData
+	totalPromptTokens              int
+	totalCompletionTokens          int
+	totalTotalTokens               int
+	totalCachedTokens              int
+	totalReasoningTokens           int
+	totalPromptCacheHitTokens      int
+	totalPromptCacheMissTokens     int
+	chatTotalPromptTokens          int
+	chatTotalCompletionTokens      int
+	chatTotalTotalTokens           int
+	chatTotalCachedTokens          int
+	chatTotalReasoningTokens       int
+	chatTotalPromptCacheHitTokens  int
+	chatTotalPromptCacheMissTokens int
+	activeSubTasks                 map[string]*replayedSubTask
 }
 
 type replayedSubTask struct {

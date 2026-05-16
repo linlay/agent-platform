@@ -90,22 +90,14 @@ func (p *runEventProcessor) decorate(data *stream.EventData) {
 		}
 		if p.runUsage != nil {
 			if ru, ok := usage["runUsage"].(map[string]any); ok {
-				p.runUsage.PromptTokens = contracts.AnyIntNode(ru["promptTokens"])
-				p.runUsage.CompletionTokens = contracts.AnyIntNode(ru["completionTokens"])
-				p.runUsage.TotalTokens = contracts.AnyIntNode(ru["totalTokens"])
+				applyUsageMapToData(p.runUsage, ru)
 			}
 		}
-		usage["chatUsage"] = map[string]any{
-			"promptTokens":     p.chatUsage.PromptTokens + p.runUsage.PromptTokens,
-			"completionTokens": p.chatUsage.CompletionTokens + p.runUsage.CompletionTokens,
-			"totalTokens":      p.chatUsage.TotalTokens + p.runUsage.TotalTokens,
-		}
+		usage["chatUsage"] = usageDataMap(addUsageData(p.chatUsage, *p.runUsage))
 	case "run.complete", "run.error", "run.cancel":
 		if p.runUsage != nil {
 			if usage, ok := data.Payload["usage"].(map[string]any); ok {
-				p.runUsage.PromptTokens = contracts.AnyIntNode(usage["promptTokens"])
-				p.runUsage.CompletionTokens = contracts.AnyIntNode(usage["completionTokens"])
-				p.runUsage.TotalTokens = contracts.AnyIntNode(usage["totalTokens"])
+				applyUsageMapToData(p.runUsage, usage)
 			}
 		}
 		p.decorateTerminalUsage(data)
@@ -122,17 +114,60 @@ func (p *runEventProcessor) decorateTerminalUsage(data *stream.EventData) {
 		return
 	}
 	data.Payload["usage"] = map[string]any{
-		"chat": map[string]any{
-			"promptTokens":     p.chatUsage.PromptTokens + p.runUsage.PromptTokens,
-			"completionTokens": p.chatUsage.CompletionTokens + p.runUsage.CompletionTokens,
-			"totalTokens":      p.chatUsage.TotalTokens + p.runUsage.TotalTokens,
-		},
-		"run": map[string]any{
-			"promptTokens":     p.runUsage.PromptTokens,
-			"completionTokens": p.runUsage.CompletionTokens,
-			"totalTokens":      p.runUsage.TotalTokens,
-		},
+		"chat": usageDataMap(addUsageData(p.chatUsage, *p.runUsage)),
+		"run":  usageDataMap(*p.runUsage),
 	}
+}
+
+func applyUsageMapToData(target *chat.UsageData, usage map[string]any) {
+	if target == nil || usage == nil {
+		return
+	}
+	target.PromptTokens = contracts.AnyIntNode(usage["promptTokens"])
+	target.CompletionTokens = contracts.AnyIntNode(usage["completionTokens"])
+	target.TotalTokens = contracts.AnyIntNode(usage["totalTokens"])
+	target.CachedTokens = usageDetailInt(usage, "promptTokensDetails", "cachedTokens")
+	target.ReasoningTokens = usageDetailInt(usage, "completionTokensDetails", "reasoningTokens")
+	target.PromptCacheHitTokens = contracts.AnyIntNode(usage["promptCacheHitTokens"])
+	target.PromptCacheMissTokens = contracts.AnyIntNode(usage["promptCacheMissTokens"])
+}
+
+func usageDetailInt(usage map[string]any, detailKey string, valueKey string) int {
+	details, _ := usage[detailKey].(map[string]any)
+	return contracts.AnyIntNode(details[valueKey])
+}
+
+func addUsageData(base chat.UsageData, delta chat.UsageData) chat.UsageData {
+	return chat.UsageData{
+		PromptTokens:          base.PromptTokens + delta.PromptTokens,
+		CompletionTokens:      base.CompletionTokens + delta.CompletionTokens,
+		TotalTokens:           base.TotalTokens + delta.TotalTokens,
+		CachedTokens:          base.CachedTokens + delta.CachedTokens,
+		ReasoningTokens:       base.ReasoningTokens + delta.ReasoningTokens,
+		PromptCacheHitTokens:  base.PromptCacheHitTokens + delta.PromptCacheHitTokens,
+		PromptCacheMissTokens: base.PromptCacheMissTokens + delta.PromptCacheMissTokens,
+	}
+}
+
+func usageDataMap(usage chat.UsageData) map[string]any {
+	out := map[string]any{
+		"promptTokens":     usage.PromptTokens,
+		"completionTokens": usage.CompletionTokens,
+		"totalTokens":      usage.TotalTokens,
+	}
+	if usage.CachedTokens > 0 {
+		out["promptTokensDetails"] = map[string]any{"cachedTokens": usage.CachedTokens}
+	}
+	if usage.ReasoningTokens > 0 {
+		out["completionTokensDetails"] = map[string]any{"reasoningTokens": usage.ReasoningTokens}
+	}
+	if usage.PromptCacheHitTokens > 0 {
+		out["promptCacheHitTokens"] = usage.PromptCacheHitTokens
+	}
+	if usage.PromptCacheMissTokens > 0 {
+		out["promptCacheMissTokens"] = usage.PromptCacheMissTokens
+	}
+	return out
 }
 
 func isClientVisibleEvent(eventType string, streamCfg config.StreamConfig) bool {

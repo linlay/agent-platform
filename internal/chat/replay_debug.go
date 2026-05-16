@@ -48,11 +48,13 @@ func cumulativeUsagePayload(cumulative map[string]int) map[string]any {
 	if cumulative == nil {
 		return map[string]any{"promptTokens": 0, "completionTokens": 0, "totalTokens": 0}
 	}
-	return map[string]any{
+	out := map[string]any{
 		"promptTokens":     cumulative["promptTokens"],
 		"completionTokens": cumulative["completionTokens"],
 		"totalTokens":      cumulative["totalTokens"],
 	}
+	addUsageDetailsToMap(out, cumulative["cachedTokens"], cumulative["reasoningTokens"], cumulative["promptCacheHitTokens"], cumulative["promptCacheMissTokens"])
+	return out
 }
 
 func synthesizePreCallEvent(runID, chatID string, taskID string, runCumulative, chatCumulative map[string]int, contextWindow map[string]any, preCallData map[string]any, ts int64, nextSeq func() int64) *stream.EventData {
@@ -96,11 +98,7 @@ func debugPreCallData(debug map[string]any, system map[string]any) map[string]an
 func synthesizePostCallEvent(runID, chatID string, taskID string, usage map[string]any, runCumulative, chatCumulative map[string]int, contextWindow map[string]any, ts int64, nextSeq func() int64) *stream.EventData {
 	llm := map[string]any{"promptTokens": 0, "completionTokens": 0, "totalTokens": 0}
 	if usage != nil {
-		llm = map[string]any{
-			"promptTokens":     toIntFromKeys(usage, "promptTokens", "prompt_tokens"),
-			"completionTokens": toIntFromKeys(usage, "completionTokens", "completion_tokens"),
-			"totalTokens":      toIntFromKeys(usage, "totalTokens", "total_tokens"),
-		}
+		llm = usagePayloadFromMap(usage)
 	}
 	data := map[string]any{}
 	if cw := synthesizedContextWindow(contextWindow); len(cw) > 0 {
@@ -127,6 +125,37 @@ func synthesizePostCallEvent(runID, chatID string, taskID string, usage map[stri
 	}
 }
 
+func usagePayloadFromMap(usage map[string]any) map[string]any {
+	out := map[string]any{
+		"promptTokens":     toIntFromKeys(usage, "promptTokens", "prompt_tokens"),
+		"completionTokens": toIntFromKeys(usage, "completionTokens", "completion_tokens"),
+		"totalTokens":      toIntFromKeys(usage, "totalTokens", "total_tokens"),
+	}
+	addUsageDetailsToMap(
+		out,
+		toNestedIntFromKeys(usage, "promptTokensDetails", "prompt_tokens_details", "cachedTokens", "cached_tokens"),
+		toNestedIntFromKeys(usage, "completionTokensDetails", "completion_tokens_details", "reasoningTokens", "reasoning_tokens"),
+		toIntFromKeys(usage, "promptCacheHitTokens", "prompt_cache_hit_tokens"),
+		toIntFromKeys(usage, "promptCacheMissTokens", "prompt_cache_miss_tokens"),
+	)
+	return out
+}
+
+func addUsageDetailsToMap(out map[string]any, cachedTokens int, reasoningTokens int, promptCacheHitTokens int, promptCacheMissTokens int) {
+	if cachedTokens > 0 {
+		out["promptTokensDetails"] = map[string]any{"cachedTokens": cachedTokens}
+	}
+	if reasoningTokens > 0 {
+		out["completionTokensDetails"] = map[string]any{"reasoningTokens": reasoningTokens}
+	}
+	if promptCacheHitTokens > 0 {
+		out["promptCacheHitTokens"] = promptCacheHitTokens
+	}
+	if promptCacheMissTokens > 0 {
+		out["promptCacheMissTokens"] = promptCacheMissTokens
+	}
+}
+
 func toIntValue(v any) int {
 	switch n := v.(type) {
 	case int:
@@ -145,6 +174,19 @@ func toIntFromKeys(values map[string]any, keys ...string) int {
 	}
 	for _, key := range keys {
 		if v := toIntValue(values[key]); v > 0 {
+			return v
+		}
+	}
+	return 0
+}
+
+func toNestedIntFromKeys(values map[string]any, camelDetailKey string, snakeDetailKey string, camelValueKey string, snakeValueKey string) int {
+	if values == nil {
+		return 0
+	}
+	for _, detailKey := range []string{camelDetailKey, snakeDetailKey} {
+		details, _ := values[detailKey].(map[string]any)
+		if v := toIntFromKeys(details, camelValueKey, snakeValueKey); v > 0 {
 			return v
 		}
 	}

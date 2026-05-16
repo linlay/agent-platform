@@ -9,9 +9,10 @@ ENV_EXAMPLE_FILE="$BUNDLE_ROOT/.env.example"
 ENV_FILE="${SERVICE_CONFIG_DIR:-$BUNDLE_ROOT}/.env"
 BACKEND_BIN="$BUNDLE_ROOT/backend/$APP_NAME"
 CONFIG_DIR="${SERVICE_CONFIG_DIR:-$BUNDLE_ROOT}/configs"
-RUNTIME_ROOT="$BUNDLE_ROOT/runtime"
-RUN_DIR="$BUNDLE_ROOT/run"
-LOG_FILE="$RUN_DIR/$APP_NAME.log"
+RUNTIME_ROOT="${SERVICE_DATA_DIR:-$BUNDLE_ROOT/runtime}"
+RUN_DIR="${SERVICE_STATE_DIR:-$BUNDLE_ROOT/run}"
+LOG_DIR="${SERVICE_LOG_DIR:-$RUN_DIR}"
+LOG_FILE="$LOG_DIR/$APP_NAME.log"
 PID_FILE="$RUN_DIR/$APP_NAME.pid"
 
 program_die() {
@@ -32,9 +33,33 @@ program_require_dir() {
 program_validate_bundle() {
   program_require_file "$MANIFEST_FILE"
   program_require_file "$ENV_EXAMPLE_FILE"
-  program_require_dir "$CONFIG_DIR"
-  program_require_dir "$RUNTIME_ROOT"
   [[ -x "$BACKEND_BIN" ]] || program_die "backend binary is not executable: $BACKEND_BIN"
+}
+
+program_initialize_config() {
+  mkdir -p "$CONFIG_DIR"
+  if [[ ! -f "$ENV_FILE" ]]; then
+    cp "$ENV_EXAMPLE_FILE" "$ENV_FILE"
+  fi
+  if [[ -d "$BUNDLE_ROOT/configs" ]]; then
+    local example source target name
+    for example in "$BUNDLE_ROOT"/configs/*.example.yml; do
+      [[ -f "$example" ]] || continue
+      name="$(basename "$example" .example.yml)"
+      target="$CONFIG_DIR/$name.yml"
+      if [[ "$name" == "channels" ]]; then
+        [[ -f "$target" ]] || : >"$target"
+        continue
+      fi
+      [[ -f "$target" ]] || cp "$example" "$target"
+    done
+    for source in "$BUNDLE_ROOT"/configs/*.example.pem; do
+      [[ -f "$source" ]] || continue
+      name="$(basename "$source" .example.pem)"
+      target="$CONFIG_DIR/$name.pem"
+      [[ -f "$target" ]] || cp "$source" "$target"
+    done
+  fi
 }
 
 program_load_env() {
@@ -48,6 +73,7 @@ program_load_env() {
 program_prepare_runtime_dirs() {
   mkdir -p \
     "$RUN_DIR" \
+    "$LOG_DIR" \
     "$RUNTIME_ROOT/registries/providers" \
     "$RUNTIME_ROOT/registries/models" \
     "$RUNTIME_ROOT/registries/tools" \

@@ -53,6 +53,7 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/agent-create", s.wsAgentCreate)
 	handler.RegisterRoute("/api/agent-update", s.wsAgentUpdate)
 	handler.RegisterRoute("/api/agent-delete", s.wsAgentDelete)
+	handler.RegisterRoute("/api/agent-editor-options", s.wsAgentEditorOptions)
 	handler.RegisterRoute("/api/teams", s.wsTeams)
 	handler.RegisterRoute("/api/skills", s.wsSkills)
 	handler.RegisterRoute("/api/tools", s.wsTools)
@@ -142,6 +143,11 @@ func (s *Server) wsAgent(_ context.Context, conn *ws.Conn, req ws.RequestFrame) 
 		return
 	}
 	conn.SendResponse(req.Type, req.ID, 0, "success", response)
+	conn.CompleteRequest(req.ID)
+}
+
+func (s *Server) wsAgentEditorOptions(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
+	conn.SendResponse(req.Type, req.ID, 0, "success", s.buildAgentEditorOptions())
 	conn.CompleteRequest(req.ID)
 }
 

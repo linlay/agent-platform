@@ -481,6 +481,7 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/agent-create", s.method(http.MethodPost, s.handleAgentCreate))
 	s.router.HandleFunc("/api/agent-update", s.method(http.MethodPost, s.handleAgentUpdate))
 	s.router.HandleFunc("/api/agent-delete", s.method(http.MethodPost, s.handleAgentDelete))
+	s.router.HandleFunc("/api/agent-editor-options", s.method(http.MethodGet, s.handleAgentEditorOptions))
 	s.router.HandleFunc("/api/teams", s.method(http.MethodGet, s.handleTeams))
 	s.router.HandleFunc("/api/skills", s.method(http.MethodGet, s.handleSkills))
 	s.router.HandleFunc("/api/skill-candidates", s.method(http.MethodGet, s.handleSkillCandidates))

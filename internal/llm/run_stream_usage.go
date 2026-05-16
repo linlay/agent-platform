@@ -84,30 +84,49 @@ func (s *llmRunStream) emitPendingUsageDelta() {
 	}
 	s.pendingUsageEmit = false
 	s.pending = append(s.pending, DeltaDebugPostCall{
-		ChatID:                    s.session.ChatID,
-		ModelKey:                  s.model.Key,
-		ContextWindow:             s.effectiveContextWindow(),
-		CurrentContextSize:        s.currentContextSize(),
-		EstimatedNextCallSize:     s.estimatedNextCallSize(),
-		LLMReturnPromptTokens:     s.lastCallPromptTokens,
-		LLMReturnCompletionTokens: s.lastCallCompletionTokens,
-		LLMReturnTotalTokens:      s.lastCallTotalTokens,
-		RunPromptTokens:           s.runPromptTokens,
-		RunCompletionTokens:       s.runCompletionTokens,
-		RunTotalTokens:            s.runTotalTokens,
+		ChatID:                         s.session.ChatID,
+		ModelKey:                       s.model.Key,
+		ContextWindow:                  s.effectiveContextWindow(),
+		CurrentContextSize:             s.currentContextSize(),
+		EstimatedNextCallSize:          s.estimatedNextCallSize(),
+		LLMReturnPromptTokens:          s.lastCallPromptTokens,
+		LLMReturnCompletionTokens:      s.lastCallCompletionTokens,
+		LLMReturnTotalTokens:           s.lastCallTotalTokens,
+		LLMReturnCachedTokens:          s.lastCallCachedTokens,
+		LLMReturnReasoningTokens:       s.lastCallReasoningTokens,
+		LLMReturnPromptCacheHitTokens:  s.lastCallPromptCacheHitTokens,
+		LLMReturnPromptCacheMissTokens: s.lastCallPromptCacheMissTokens,
+		RunPromptTokens:                s.runPromptTokens,
+		RunCompletionTokens:            s.runCompletionTokens,
+		RunTotalTokens:                 s.runTotalTokens,
+		RunCachedTokens:                s.runCachedTokens,
+		RunReasoningTokens:             s.runReasoningTokens,
+		RunPromptCacheHitTokens:        s.runPromptCacheHitTokens,
+		RunPromptCacheMissTokens:       s.runPromptCacheMissTokens,
 	})
 }
 
-func (s *llmRunStream) accumulateUsage(prompt, completion, total int) {
-	s.lastCallPromptTokens = prompt
-	s.lastCallCompletionTokens = completion
-	s.lastCallTotalTokens = total
-	s.runPromptTokens += prompt
-	s.runCompletionTokens += completion
-	s.runTotalTokens += total
+func (s *llmRunStream) accumulateUsage(usage *openAIUsage) {
+	if usage == nil {
+		return
+	}
+	s.lastCallPromptTokens = usage.PromptTokens
+	s.lastCallCompletionTokens = usage.CompletionTokens
+	s.lastCallTotalTokens = usage.TotalTokens
+	s.lastCallCachedTokens = usage.PromptTokensDetails.CachedTokens
+	s.lastCallReasoningTokens = usage.CompletionTokensDetails.ReasoningTokens
+	s.lastCallPromptCacheHitTokens = usage.PromptCacheHitTokens
+	s.lastCallPromptCacheMissTokens = usage.PromptCacheMissTokens
+	s.runPromptTokens += usage.PromptTokens
+	s.runCompletionTokens += usage.CompletionTokens
+	s.runTotalTokens += usage.TotalTokens
+	s.runCachedTokens += usage.PromptTokensDetails.CachedTokens
+	s.runReasoningTokens += usage.CompletionTokensDetails.ReasoningTokens
+	s.runPromptCacheHitTokens += usage.PromptCacheHitTokens
+	s.runPromptCacheMissTokens += usage.PromptCacheMissTokens
 	s.pendingUsageEmit = true
 	log.Printf("[llm][run:%s][usage] last-call: prompt=%d completion=%d total=%d | run-cumulative: prompt=%d completion=%d total=%d",
-		s.session.RunID, prompt, completion, total, s.runPromptTokens, s.runCompletionTokens, s.runTotalTokens)
+		s.session.RunID, usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens, s.runPromptTokens, s.runCompletionTokens, s.runTotalTokens)
 }
 
 func (s *llmRunStream) drainUsageChunk() {
@@ -124,7 +143,7 @@ func (s *llmRunStream) drainUsageChunk() {
 		}
 		var decoded openAIStreamResponse
 		if json.Unmarshal([]byte(rawChunk), &decoded) == nil && decoded.Usage != nil {
-			s.accumulateUsage(decoded.Usage.PromptTokens, decoded.Usage.CompletionTokens, decoded.Usage.TotalTokens)
+			s.accumulateUsage(decoded.Usage)
 			break
 		}
 	}

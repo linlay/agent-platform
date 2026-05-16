@@ -212,38 +212,50 @@ type RequestSteer struct {
 func (RequestSteer) streamInputTag() {}
 
 type InputDebugPreCall struct {
-	TaskID                string
-	ChatID                string
-	ProviderKey           string
-	ProviderEndpoint      string
-	ModelKey              string
-	ModelID               string
-	RequestBody           map[string]any
-	InjectedPrompt        map[string]any
-	SystemRef             map[string]any
-	ContextWindow         int
-	CurrentContextSize    int
-	EstimatedNextCallSize int
-	RunPromptTokens       int
-	RunCompletionTokens   int
-	RunTotalTokens        int
+	TaskID                   string
+	ChatID                   string
+	ProviderKey              string
+	ProviderEndpoint         string
+	ModelKey                 string
+	ModelID                  string
+	RequestBody              map[string]any
+	InjectedPrompt           map[string]any
+	SystemRef                map[string]any
+	ContextWindow            int
+	CurrentContextSize       int
+	EstimatedNextCallSize    int
+	RunPromptTokens          int
+	RunCompletionTokens      int
+	RunTotalTokens           int
+	RunCachedTokens          int
+	RunReasoningTokens       int
+	RunPromptCacheHitTokens  int
+	RunPromptCacheMissTokens int
 }
 
 func (InputDebugPreCall) streamInputTag() {}
 
 type InputDebugPostCall struct {
-	TaskID                    string
-	ChatID                    string
-	ModelKey                  string
-	ContextWindow             int
-	CurrentContextSize        int
-	EstimatedNextCallSize     int
-	LLMReturnPromptTokens     int
-	LLMReturnCompletionTokens int
-	LLMReturnTotalTokens      int
-	RunPromptTokens           int
-	RunCompletionTokens       int
-	RunTotalTokens            int
+	TaskID                         string
+	ChatID                         string
+	ModelKey                       string
+	ContextWindow                  int
+	CurrentContextSize             int
+	EstimatedNextCallSize          int
+	LLMReturnPromptTokens          int
+	LLMReturnCompletionTokens      int
+	LLMReturnTotalTokens           int
+	LLMReturnCachedTokens          int
+	LLMReturnReasoningTokens       int
+	LLMReturnPromptCacheHitTokens  int
+	LLMReturnPromptCacheMissTokens int
+	RunPromptTokens                int
+	RunCompletionTokens            int
+	RunTotalTokens                 int
+	RunCachedTokens                int
+	RunReasoningTokens             int
+	RunPromptCacheHitTokens        int
+	RunPromptCacheMissTokens       int
 }
 
 func (InputDebugPostCall) streamInputTag() {}

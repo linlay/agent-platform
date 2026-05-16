@@ -1425,6 +1425,14 @@ func TestStepWriterEmbedsUsageAtStepLevel(t *testing.T) {
 						"promptTokens":     100,
 						"completionTokens": 50,
 						"totalTokens":      150,
+						"promptTokensDetails": map[string]any{
+							"cachedTokens": 64,
+						},
+						"completionTokensDetails": map[string]any{
+							"reasoningTokens": 12,
+						},
+						"promptCacheHitTokens":  64,
+						"promptCacheMissTokens": 36,
 					},
 				},
 			},
@@ -1443,6 +1451,12 @@ func TestStepWriterEmbedsUsageAtStepLevel(t *testing.T) {
 	usage, _ := lines[0]["usage"].(map[string]any)
 	if toIntValue(usage["promptTokens"]) != 100 || toIntValue(usage["totalTokens"]) != 150 {
 		t.Fatalf("expected step-level usage, got %#v", lines[0])
+	}
+	promptDetails, _ := usage["promptTokensDetails"].(map[string]any)
+	completionDetails, _ := usage["completionTokensDetails"].(map[string]any)
+	if toIntValue(promptDetails["cachedTokens"]) != 64 || toIntValue(completionDetails["reasoningTokens"]) != 12 ||
+		toIntValue(usage["promptCacheHitTokens"]) != 64 || toIntValue(usage["promptCacheMissTokens"]) != 36 {
+		t.Fatalf("expected detailed step-level usage, got %#v", lines[0])
 	}
 	contextWindow, _ := lines[0]["contextWindow"].(map[string]any)
 	if toIntValue(contextWindow["maxSize"]) != 128000 || toIntValue(contextWindow["actualSize"]) != 100 || toIntValue(contextWindow["estimatedSize"]) != 200 {
@@ -3950,9 +3964,13 @@ func TestLoadChatReadsLegacySnakeCaseUsageFromStepLevel(t *testing.T) {
 			ContentID: "content-1",
 		}},
 		Usage: map[string]any{
-			"prompt_tokens":     100,
-			"completion_tokens": 50,
-			"total_tokens":      150,
+			"prompt_tokens":             100,
+			"completion_tokens":         50,
+			"total_tokens":              150,
+			"prompt_tokens_details":     map[string]any{"cached_tokens": 32},
+			"completion_tokens_details": map[string]any{"reasoning_tokens": 8},
+			"prompt_cache_hit_tokens":   32,
+			"prompt_cache_miss_tokens":  68,
 		},
 		ContextWindow: map[string]any{
 			"max_size":       128000,
@@ -3979,6 +3997,12 @@ func TestLoadChatReadsLegacySnakeCaseUsageFromStepLevel(t *testing.T) {
 	terminalRunUsage, _ := terminalUsage["run"].(map[string]any)
 	if toIntValue(terminalRunUsage["promptTokens"]) != 100 || toIntValue(terminalRunUsage["completionTokens"]) != 50 || toIntValue(terminalRunUsage["totalTokens"]) != 150 {
 		t.Fatalf("unexpected synthesized run.complete run usage %#v", detail.Events[4])
+	}
+	terminalRunPromptDetails, _ := terminalRunUsage["promptTokensDetails"].(map[string]any)
+	terminalRunCompletionDetails, _ := terminalRunUsage["completionTokensDetails"].(map[string]any)
+	if toIntValue(terminalRunPromptDetails["cachedTokens"]) != 32 || toIntValue(terminalRunCompletionDetails["reasoningTokens"]) != 8 ||
+		toIntValue(terminalRunUsage["promptCacheHitTokens"]) != 32 || toIntValue(terminalRunUsage["promptCacheMissTokens"]) != 68 {
+		t.Fatalf("unexpected synthesized run.complete detailed run usage %#v", detail.Events[4])
 	}
 }
 

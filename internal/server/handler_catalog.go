@@ -88,6 +88,10 @@ func (s *Server) handleAgentDelete(w http.ResponseWriter, r *http.Request) {
 	s.writeAgentHTTPResponse(w, response, err)
 }
 
+func (s *Server) handleAgentEditorOptions(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, api.Success(s.buildAgentEditorOptions()))
+}
+
 func (s *Server) handleTeams(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, api.Success(s.deps.Registry.Teams()))
 }
@@ -161,6 +165,46 @@ func (s *Server) deleteAgent(ctx context.Context, req api.DeleteAgentRequest) (m
 		}
 	}
 	return map[string]any{"key": key, "deleted": true}, nil
+}
+
+func (s *Server) buildAgentEditorOptions() api.AgentEditorOptionsResponse {
+	models := []api.AgentEditorModelOption{}
+	if s.deps.Models != nil {
+		for _, model := range s.deps.Models.List() {
+			models = append(models, api.AgentEditorModelOption{
+				Key:           model.Key,
+				Provider:      model.Provider,
+				ModelID:       model.ModelID,
+				Protocol:      model.Protocol,
+				IsVision:      model.IsVision,
+				ContextWindow: model.ContextWindow,
+			})
+		}
+	}
+	return api.AgentEditorOptionsResponse{
+		Models: models,
+		ContextTags: []api.AgentEditorOption{
+			{Key: "system", Label: "system"},
+			{Key: "context", Label: "context"},
+			{Key: "owner", Label: "owner"},
+			{Key: "auth", Label: "auth"},
+			{Key: "all-agents", Label: "all-agents"},
+			{Key: "memory", Label: "memory"},
+		},
+		Modes: []api.AgentEditorOption{
+			{Key: "REACT", Label: "REACT"},
+			{Key: "PLAN_EXECUTE", Label: "PLAN-EXECUTE"},
+			{Key: "PROXY", Label: "ACP-PROXY"},
+		},
+		ProxyConfigSchema: api.AgentEditorProxyConfigSchema{
+			DefaultTimeoutMs: 300000,
+			Fields: []api.AgentEditorProxyConfigField{
+				{Key: "baseUrl", Label: "Base URL", Type: "string", Required: true},
+				{Key: "token", Label: "Token", Type: "password"},
+				{Key: "timeoutMs", Label: "Timeout (ms)", Type: "number"},
+			},
+		},
+	}
 }
 
 func (s *Server) reloadAndLoadAgent(ctx context.Context, key string) (api.AgentDetailResponse, error) {

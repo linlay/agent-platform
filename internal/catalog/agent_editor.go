@@ -45,6 +45,7 @@ func (r *FileRegistry) CreateEditableAgent(key string, definition map[string]any
 	if err := validateEditableDefinition(key, definition); err != nil {
 		return EditableAgentFiles{}, err
 	}
+	definition = normalizeEditableDefinition(definition)
 	agentDir := filepath.Join(r.cfg.Paths.AgentsDir, key)
 	source := EditableAgentSource{
 		Kind:     "directory",
@@ -71,6 +72,7 @@ func (r *FileRegistry) UpdateEditableAgent(key string, definition map[string]any
 	if err := validateEditableDefinition(key, definition); err != nil {
 		return EditableAgentFiles{}, err
 	}
+	definition = normalizeEditableDefinition(definition)
 	if soulPrompt == nil {
 		soulPrompt = &existing.SoulPrompt
 	}
@@ -214,7 +216,7 @@ func validateEditableDefinition(key string, definition map[string]any) error {
 	if strings.TrimSpace(stringNode(definition["key"])) != strings.TrimSpace(key) {
 		return fmt.Errorf("definition.key must match key")
 	}
-	data := renderYAMLMap(definition)
+	data := renderYAMLMap(normalizeEditableDefinition(definition))
 	path, err := writeValidationAgentFile(data)
 	if err != nil {
 		return err
@@ -230,6 +232,22 @@ func validateEditableDefinition(key string, definition map[string]any) error {
 		}
 	}
 	return nil
+}
+
+func normalizeEditableDefinition(definition map[string]any) map[string]any {
+	if definition == nil {
+		return nil
+	}
+	normalized := contracts.CloneMap(definition)
+	switch strings.ToUpper(strings.TrimSpace(stringNode(normalized["mode"]))) {
+	case "ACP-PROXY", "ACP_PROXY":
+		normalized["mode"] = "PROXY"
+	case "PLAN-EXECUTE":
+		normalized["mode"] = "PLAN_EXECUTE"
+	case "ONESHOT":
+		normalized["mode"] = "REACT"
+	}
+	return normalized
 }
 
 func writeValidationAgentFile(data []byte) (string, error) {

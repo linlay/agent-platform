@@ -60,13 +60,21 @@ type llmRunStream struct {
 	skipPostToolHook   bool
 	onApprovalSummary  func(chat.StepApproval)
 
-	lastCallPromptTokens     int
-	lastCallCompletionTokens int
-	lastCallTotalTokens      int
-	runPromptTokens          int
-	runCompletionTokens      int
-	runTotalTokens           int
-	pendingUsageEmit         bool
+	lastCallPromptTokens          int
+	lastCallCompletionTokens      int
+	lastCallTotalTokens           int
+	lastCallCachedTokens          int
+	lastCallReasoningTokens       int
+	lastCallPromptCacheHitTokens  int
+	lastCallPromptCacheMissTokens int
+	runPromptTokens               int
+	runCompletionTokens           int
+	runTotalTokens                int
+	runCachedTokens               int
+	runReasoningTokens            int
+	runPromptCacheHitTokens       int
+	runPromptCacheMissTokens      int
+	pendingUsageEmit              bool
 }
 
 type providerTurnStream struct {

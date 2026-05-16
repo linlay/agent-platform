@@ -123,6 +123,7 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 	nextSeq := func() int64 { seq++; return seq }
 
 	var chatTotalPromptTokens, chatTotalCompletionTokens, chatTotalTotalTokens int
+	var chatTotalCachedTokens, chatTotalReasoningTokens, chatTotalPromptCacheHitTokens, chatTotalPromptCacheMissTokens int
 	taskQueries := map[string]replayedSubTaskQuery{}
 	for _, line := range lines {
 		if lineType, _ := line["_type"].(string); lineType != "query" {
@@ -233,14 +234,22 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 			replayDebugEvents := len(stepPreCallData) > 0
 			if replayDebugEvents {
 				runCumulativePre := map[string]int{
-					"promptTokens":     rd.totalPromptTokens,
-					"completionTokens": rd.totalCompletionTokens,
-					"totalTokens":      rd.totalTotalTokens,
+					"promptTokens":          rd.totalPromptTokens,
+					"completionTokens":      rd.totalCompletionTokens,
+					"totalTokens":           rd.totalTotalTokens,
+					"cachedTokens":          rd.totalCachedTokens,
+					"reasoningTokens":       rd.totalReasoningTokens,
+					"promptCacheHitTokens":  rd.totalPromptCacheHitTokens,
+					"promptCacheMissTokens": rd.totalPromptCacheMissTokens,
 				}
 				chatCumulativePre := map[string]int{
-					"promptTokens":     chatTotalPromptTokens,
-					"completionTokens": chatTotalCompletionTokens,
-					"totalTokens":      chatTotalTotalTokens,
+					"promptTokens":          chatTotalPromptTokens,
+					"completionTokens":      chatTotalCompletionTokens,
+					"totalTokens":           chatTotalTotalTokens,
+					"cachedTokens":          chatTotalCachedTokens,
+					"reasoningTokens":       chatTotalReasoningTokens,
+					"promptCacheHitTokens":  chatTotalPromptCacheHitTokens,
+					"promptCacheMissTokens": chatTotalPromptCacheMissTokens,
 				}
 				if ev := synthesizePreCallEvent(runID, chatID, taskID, runCumulativePre, chatCumulativePre, stepContextWindow, stepPreCallData, ts, nextSeq); ev != nil {
 					rd.events = append(rd.events, *ev)
@@ -263,23 +272,43 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 				rd.totalPromptTokens += toIntFromKeys(stepUsage, "promptTokens", "prompt_tokens")
 				rd.totalCompletionTokens += toIntFromKeys(stepUsage, "completionTokens", "completion_tokens")
 				rd.totalTotalTokens += toIntFromKeys(stepUsage, "totalTokens", "total_tokens")
+				rd.totalCachedTokens += toNestedIntFromKeys(stepUsage, "promptTokensDetails", "prompt_tokens_details", "cachedTokens", "cached_tokens")
+				rd.totalReasoningTokens += toNestedIntFromKeys(stepUsage, "completionTokensDetails", "completion_tokens_details", "reasoningTokens", "reasoning_tokens")
+				rd.totalPromptCacheHitTokens += toIntFromKeys(stepUsage, "promptCacheHitTokens", "prompt_cache_hit_tokens")
+				rd.totalPromptCacheMissTokens += toIntFromKeys(stepUsage, "promptCacheMissTokens", "prompt_cache_miss_tokens")
 				chatTotalPromptTokens += toIntFromKeys(stepUsage, "promptTokens", "prompt_tokens")
 				chatTotalCompletionTokens += toIntFromKeys(stepUsage, "completionTokens", "completion_tokens")
 				chatTotalTotalTokens += toIntFromKeys(stepUsage, "totalTokens", "total_tokens")
+				chatTotalCachedTokens += toNestedIntFromKeys(stepUsage, "promptTokensDetails", "prompt_tokens_details", "cachedTokens", "cached_tokens")
+				chatTotalReasoningTokens += toNestedIntFromKeys(stepUsage, "completionTokensDetails", "completion_tokens_details", "reasoningTokens", "reasoning_tokens")
+				chatTotalPromptCacheHitTokens += toIntFromKeys(stepUsage, "promptCacheHitTokens", "prompt_cache_hit_tokens")
+				chatTotalPromptCacheMissTokens += toIntFromKeys(stepUsage, "promptCacheMissTokens", "prompt_cache_miss_tokens")
 				rd.chatTotalPromptTokens = chatTotalPromptTokens
 				rd.chatTotalCompletionTokens = chatTotalCompletionTokens
 				rd.chatTotalTotalTokens = chatTotalTotalTokens
+				rd.chatTotalCachedTokens = chatTotalCachedTokens
+				rd.chatTotalReasoningTokens = chatTotalReasoningTokens
+				rd.chatTotalPromptCacheHitTokens = chatTotalPromptCacheHitTokens
+				rd.chatTotalPromptCacheMissTokens = chatTotalPromptCacheMissTokens
 			}
 			if replayDebugEvents && (stepUsage != nil || len(stepContextWindow) > 0) {
 				runCumulativePost := map[string]int{
-					"promptTokens":     rd.totalPromptTokens,
-					"completionTokens": rd.totalCompletionTokens,
-					"totalTokens":      rd.totalTotalTokens,
+					"promptTokens":          rd.totalPromptTokens,
+					"completionTokens":      rd.totalCompletionTokens,
+					"totalTokens":           rd.totalTotalTokens,
+					"cachedTokens":          rd.totalCachedTokens,
+					"reasoningTokens":       rd.totalReasoningTokens,
+					"promptCacheHitTokens":  rd.totalPromptCacheHitTokens,
+					"promptCacheMissTokens": rd.totalPromptCacheMissTokens,
 				}
 				chatCumulativePost := map[string]int{
-					"promptTokens":     chatTotalPromptTokens,
-					"completionTokens": chatTotalCompletionTokens,
-					"totalTokens":      chatTotalTotalTokens,
+					"promptTokens":          chatTotalPromptTokens,
+					"completionTokens":      chatTotalCompletionTokens,
+					"totalTokens":           chatTotalTotalTokens,
+					"cachedTokens":          chatTotalCachedTokens,
+					"reasoningTokens":       chatTotalReasoningTokens,
+					"promptCacheHitTokens":  chatTotalPromptCacheHitTokens,
+					"promptCacheMissTokens": chatTotalPromptCacheMissTokens,
 				}
 				if ev := synthesizePostCallEvent(runID, chatID, taskID, stepUsage, runCumulativePost, chatCumulativePost, stepContextWindow, ts, nextSeq); ev != nil {
 					rd.events = append(rd.events, *ev)
@@ -359,17 +388,21 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 		if runID != "" {
 			payload := map[string]any{"runId": runID, "finishReason": "stop"}
 			if rd.totalTotalTokens > 0 {
+				chatUsage := map[string]any{
+					"promptTokens":     rd.chatTotalPromptTokens,
+					"completionTokens": rd.chatTotalCompletionTokens,
+					"totalTokens":      rd.chatTotalTotalTokens,
+				}
+				addUsageDetailsToMap(chatUsage, rd.chatTotalCachedTokens, rd.chatTotalReasoningTokens, rd.chatTotalPromptCacheHitTokens, rd.chatTotalPromptCacheMissTokens)
+				runUsage := map[string]any{
+					"promptTokens":     rd.totalPromptTokens,
+					"completionTokens": rd.totalCompletionTokens,
+					"totalTokens":      rd.totalTotalTokens,
+				}
+				addUsageDetailsToMap(runUsage, rd.totalCachedTokens, rd.totalReasoningTokens, rd.totalPromptCacheHitTokens, rd.totalPromptCacheMissTokens)
 				payload["usage"] = map[string]any{
-					"chat": map[string]any{
-						"promptTokens":     rd.chatTotalPromptTokens,
-						"completionTokens": rd.chatTotalCompletionTokens,
-						"totalTokens":      rd.chatTotalTotalTokens,
-					},
-					"run": map[string]any{
-						"promptTokens":     rd.totalPromptTokens,
-						"completionTokens": rd.totalCompletionTokens,
-						"totalTokens":      rd.totalTotalTokens,
-					},
+					"chat": chatUsage,
+					"run":  runUsage,
 				}
 			}
 			allEvents = append(allEvents, stream.EventData{

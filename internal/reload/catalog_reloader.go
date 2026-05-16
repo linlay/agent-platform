@@ -223,15 +223,17 @@ func StartBackgroundReloaders(ctx context.Context, cfg config.Config, reloader c
 					log.Printf("[reload] change detected: %s (%s)", filepath.Base(event.Name), reason)
 					pendingPath = event.Name
 				}
-				pendingReason = reason
+				pendingReason = mergePendingReloadReason(pendingReason, reason)
 				if timer != nil {
 					timer.Stop()
 				}
+				reloadReason := pendingReason
 				timer = time.AfterFunc(reloadDebounce, func() {
-					if err := reloader.Reload(ctx, pendingReason); err != nil {
-						log.Printf("[reload] %s reload failed: %v", pendingReason, err)
+					if err := reloader.Reload(ctx, reloadReason); err != nil {
+						log.Printf("[reload] %s reload failed: %v", reloadReason, err)
 					}
 					pendingPath = ""
+					pendingReason = ""
 				})
 
 			case watchErr, ok := <-fsw.Errors:
@@ -242,6 +244,18 @@ func StartBackgroundReloaders(ctx context.Context, cfg config.Config, reloader c
 			}
 		}
 	}()
+}
+
+func mergePendingReloadReason(pending string, next string) string {
+	pending = strings.TrimSpace(pending)
+	next = strings.TrimSpace(next)
+	if pending == "" {
+		return next
+	}
+	if next == "" || pending == next {
+		return pending
+	}
+	return "config"
 }
 
 func backgroundWatchEntries(cfg config.Config) []watchEntry {
