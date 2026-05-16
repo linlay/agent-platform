@@ -178,12 +178,8 @@ func New(rootCtx context.Context) (*App, error) {
 	}
 
 	agentEngine := llm.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, frontendRegistry, sandboxClient)
-	notifications := contracts.NewNoopNotificationSink()
-	var wsHub *ws.Hub
-	if cfg.WebSocket.Enabled {
-		wsHub = ws.NewHub()
-		notifications = wsHub
-	}
+	wsHub := ws.NewHub()
+	var notifications contracts.NotificationSink = wsHub
 	// gatewayResolver 在 Registry 构建完成后（server 依赖就绪之后）绑定。
 	// pusher 先拿到 resolver 指针，Registry 构建完调用 SetRegistry 就能工作。
 	gatewayResolver := &lazyGatewayResolver{chats: chatStore}
@@ -290,27 +286,23 @@ func New(rootCtx context.Context) (*App, error) {
 
 	// Gateway Registry 支持多条反向 WS 连接；configs/channels.yml 只在启动时读取。
 	var gwRegistry *gateway.Registry
-	if cfg.WebSocket.Enabled {
-		if hub, ok := notifications.(*ws.Hub); ok {
-			if handler := srv.WSHandler(); handler != nil {
-				gwRegistry = gateway.New(
-					backgroundCtx,
-					cfg.WebSocket,
-					time.Duration(cfg.SSE.HeartbeatIntervalMs)*time.Millisecond,
-					hub,
-					handler.Dispatch,
-				)
-				for _, entry := range cfg.Gateways {
-					if err := gwRegistry.Register(entry); err != nil {
-						log.Printf("gateway register %q failed: %v", entry.ID, err)
-					} else {
-						log.Printf("gateway registered: id=%s channel=%s url=%s", entry.ID, entry.Channel, entry.URL)
-					}
-				}
-				gatewayResolver.SetRegistry(gwRegistry)
-				srv.SetChannelStatusProvider(gwRegistry)
+	if handler := srv.WSHandler(); handler != nil {
+		gwRegistry = gateway.New(
+			backgroundCtx,
+			cfg.WebSocket,
+			time.Duration(cfg.SSE.HeartbeatIntervalMs)*time.Millisecond,
+			wsHub,
+			handler.Dispatch,
+		)
+		for _, entry := range cfg.Gateways {
+			if err := gwRegistry.Register(entry); err != nil {
+				log.Printf("gateway register %q failed: %v", entry.ID, err)
+			} else {
+				log.Printf("gateway registered: id=%s channel=%s url=%s", entry.ID, entry.Channel, entry.URL)
 			}
 		}
+		gatewayResolver.SetRegistry(gwRegistry)
+		srv.SetChannelStatusProvider(gwRegistry)
 	}
 
 	if scheduler != nil {

@@ -94,10 +94,6 @@
         "onlyIfDefault": true
       },
       {
-        "key": "AGENT_WS_ENABLED",
-        "value": "true"
-      },
-      {
         "key": "AGENT_AUTH_ENABLED",
         "value": "true"
       },

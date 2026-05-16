@@ -37,9 +37,6 @@ func TestLoadDefaults(t *testing.T) {
 		if cfg.SSE.HeartbeatIntervalMs != 15000 {
 			t.Fatalf("expected default heartbeat interval 15000, got %d", cfg.SSE.HeartbeatIntervalMs)
 		}
-		if !cfg.WebSocket.Enabled {
-			t.Fatalf("expected websocket enabled by default")
-		}
 		if cfg.GatewayWS.HandshakeTimeoutMs != 10000 {
 			t.Fatalf("expected default gateway ws handshake timeout 10000, got %d", cfg.GatewayWS.HandshakeTimeoutMs)
 		}
@@ -304,7 +301,6 @@ func TestLoadAcceptsJavaEnvContract(t *testing.T) {
 		"AGENT_SCHEDULE_DEFAULT_ZONE_ID":          "Asia/Shanghai",
 		"AGENT_SCHEDULE_POOL_SIZE":                "7",
 		"LOGGING_AGENT_REQUEST_ENABLED":           "false",
-		"AGENT_WS_ENABLED":                        "false",
 	}, func() {
 		cfg, err := Load()
 		if err != nil {
@@ -327,9 +323,6 @@ func TestLoadAcceptsJavaEnvContract(t *testing.T) {
 		}
 		if cfg.SSE.HeartbeatIntervalMs != 3000 {
 			t.Fatalf("unexpected heartbeat interval: %d", cfg.SSE.HeartbeatIntervalMs)
-		}
-		if cfg.WebSocket.Enabled {
-			t.Fatalf("expected websocket disabled from env")
 		}
 		if cfg.H2A.Render.FlushIntervalMs != 25 {
 			t.Fatalf("unexpected flush interval: %d", cfg.H2A.Render.FlushIntervalMs)
@@ -464,25 +457,27 @@ func TestFileToolsConfigDefaultsDoNotInheritBashPaths(t *testing.T) {
 			"working-directory: " + filepath.ToSlash(filepath.Join("var", "runner")) + "\n" +
 			"allowed-paths: [\".\", \"/tmp/example\"]\n"
 		withProjectFileContents(t, filepath.Join("configs", "bash.yml"), &content, func() {
-			cfg, err := Load()
-			if err != nil {
-				t.Fatalf("load config: %v", err)
-			}
-			if cfg.FileTools.WorkingDirectory != filepath.Join("var", "runner") {
-				t.Fatalf("unexpected file working dir: %q", cfg.FileTools.WorkingDirectory)
-			}
-			if strings.Join(cfg.FileTools.AllowedReadPaths, ",") != ".,/tmp" {
-				t.Fatalf("unexpected read paths: %#v", cfg.FileTools.AllowedReadPaths)
-			}
-			if strings.Join(cfg.FileTools.AllowedWritePaths, ",") != ".,/tmp" {
-				t.Fatalf("unexpected write paths: %#v", cfg.FileTools.AllowedWritePaths)
-			}
-			if !cfg.FileTools.RequireWriteApproval {
-				t.Fatalf("expected write approval enabled by default")
-			}
-			if !cfg.FileTools.RequireReadBeforeWrite {
-				t.Fatalf("expected read-before-write enabled by default")
-			}
+			withProjectFileContents(t, filepath.Join("configs", "file-tools.yml"), nil, func() {
+				cfg, err := Load()
+				if err != nil {
+					t.Fatalf("load config: %v", err)
+				}
+				if cfg.FileTools.WorkingDirectory != filepath.Join("var", "runner") {
+					t.Fatalf("unexpected file working dir: %q", cfg.FileTools.WorkingDirectory)
+				}
+				if strings.Join(cfg.FileTools.AllowedReadPaths, ",") != ".,/tmp" {
+					t.Fatalf("unexpected read paths: %#v", cfg.FileTools.AllowedReadPaths)
+				}
+				if strings.Join(cfg.FileTools.AllowedWritePaths, ",") != ".,/tmp" {
+					t.Fatalf("unexpected write paths: %#v", cfg.FileTools.AllowedWritePaths)
+				}
+				if !cfg.FileTools.RequireWriteApproval {
+					t.Fatalf("expected write approval enabled by default")
+				}
+				if !cfg.FileTools.RequireReadBeforeWrite {
+					t.Fatalf("expected read-before-write enabled by default")
+				}
+			})
 		})
 	})
 }
@@ -781,10 +776,8 @@ func TestLoadChannelsConfigRejectsMissingGatewayURL(t *testing.T) {
 	})
 }
 
-func TestLoadGatewayWSConfigWhenWebSocketDisabled(t *testing.T) {
-	withIsolatedEnv(t, map[string]string{
-		"AGENT_WS_ENABLED": "false",
-	}, func() {
+func TestLoadGatewayWSConfig(t *testing.T) {
+	withIsolatedEnv(t, nil, func() {
 		content := "" +
 			"channels:\n" +
 			"  mobile:\n" +
@@ -797,9 +790,6 @@ func TestLoadGatewayWSConfigWhenWebSocketDisabled(t *testing.T) {
 			cfg, err := Load()
 			if err != nil {
 				t.Fatalf("load config: %v", err)
-			}
-			if cfg.WebSocket.Enabled {
-				t.Fatalf("expected websocket disabled from env")
 			}
 			if len(cfg.Gateways) != 1 {
 				t.Fatalf("expected one gateway from channels config, got %d", len(cfg.Gateways))
@@ -937,7 +927,6 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 		"LOGGING_AGENT_SSE_ENABLED",
 		"LOGGING_AGENT_LLM_INTERACTION_ENABLED",
 		"LOGGING_AGENT_LLM_INTERACTION_MASK_SENSITIVE",
-		"AGENT_WS_ENABLED",
 		"AGENT_GATEWAY_WS_URL",
 		"GATEWAY_WS_URL",
 		"GATEWAY_JWT_TOKEN",

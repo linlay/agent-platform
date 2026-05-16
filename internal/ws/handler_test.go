@@ -45,7 +45,7 @@ func TestWSIntegrationGated(t *testing.T) {
 	if os.Getenv("RUN_SOCKET_TESTS") == "" {
 		t.Skip("set RUN_SOCKET_TESTS=1 to run websocket integration tests")
 	}
-	handler := NewHandler(config.WebSocketConfig{Enabled: true, WriteQueueSize: 4, PingIntervalMs: 30000}, time.Second, NewHub(), testAuthenticator{})
+	handler := NewHandler(config.WebSocketConfig{WriteQueueSize: 4, PingIntervalMs: 30000}, time.Second, NewHub(), testAuthenticator{})
 	if handler == nil {
 		t.Fatalf("expected handler")
 	}

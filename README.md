@@ -152,12 +152,11 @@ RUN_SOCKET_TESTS=1 make test-integration
 以下环境变量仍受 Go runner 支持，但为了降低最终用户理解成本，默认不再出现在 `.env.example` 中：
 
 - 传输与渲染调试：`AGENT_SSE_HEARTBEAT_INTERVAL_MS`、`AGENT_H2A_RENDER_*`
-- WebSocket 主开关：`AGENT_WS_ENABLED`（默认开启；仅在需要关闭时设置）
 - WebSocket 深度调优：`AGENT_WS_MAX_MESSAGE_SIZE`、`AGENT_WS_PING_INTERVAL_MS`、`AGENT_WS_WRITE_TIMEOUT_MS`、`AGENT_WS_WRITE_QUEUE_SIZE`、`AGENT_WS_MAX_OBSERVES_PER_CONN`
 - 日志排障：`LOGGING_AGENT_*`
 - memory / chat storage 深度调优：`AGENT_MEMORY_*`、`CHAT_STORAGE_*`
 
-LLM 交互日志、SSE/H2A 传输参数、WebSocket 开关和 memory/chat storage 细粒度参数的默认值、适用人群和注意事项统一见 [docs/configuration-reference.md](./docs/configuration-reference.md)。
+LLM 交互日志、SSE/H2A 传输参数、WebSocket 调优项和 memory/chat storage 细粒度参数的默认值、适用人群和注意事项统一见 [docs/configuration-reference.md](./docs/configuration-reference.md)。
 
 Provider `apiKey` 支持两种写法：
 

@@ -45,7 +45,6 @@ func TestClientConnectDispatchBroadcastAndReconnect(t *testing.T) {
 
 	hub := ws.NewHub()
 	wsCfg := config.WebSocketConfig{
-		Enabled:             true,
 		MaxMessageSizeBytes: 1 << 20,
 		PingIntervalMs:      200,
 		WriteTimeoutMs:      1000,
@@ -129,7 +128,6 @@ func TestClientStopClosesActiveConnection(t *testing.T) {
 
 	hub := ws.NewHub()
 	wsCfg := config.WebSocketConfig{
-		Enabled:             true,
 		MaxMessageSizeBytes: 1 << 20,
 		PingIntervalMs:      200,
 		WriteTimeoutMs:      1000,
@@ -195,7 +193,6 @@ func TestClientStopBeforeStartMakesStartNoOp(t *testing.T) {
 
 	hub := ws.NewHub()
 	wsCfg := config.WebSocketConfig{
-		Enabled:             true,
 		MaxMessageSizeBytes: 1 << 20,
 		PingIntervalMs:      200,
 		WriteTimeoutMs:      1000,

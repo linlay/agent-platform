@@ -35,6 +35,11 @@ func (s *Server) wsDownload(ctx context.Context, conn *ws.Conn, req ws.RequestFr
 	payload, err := ws.DecodePayload[struct {
 		ChatID    string `json:"chatId"`
 		RequestID string `json:"requestId"`
+		FileName  string `json:"fileName"`
+		MimeType  string `json:"mimeType"`
+		SizeBytes int64  `json:"sizeBytes"`
+		URL       string `json:"url"`
+		SHA256    string `json:"sha256"`
 		Upload    struct {
 			ID        string `json:"id"`
 			Type      string `json:"type"`
@@ -60,6 +65,21 @@ func (s *Server) wsDownload(ctx context.Context, conn *ws.Conn, req ws.RequestFr
 	// 契约：网关在 upload.url 里下发完整 https://.../api/pull/...?ticket=... URL。
 	// platform 直接用它发 HTTP GET，不做路径拼接、不做猜测。
 	rawURL := strings.TrimSpace(payload.Upload.URL)
+	if fileName == "" {
+		fileName = strings.TrimSpace(payload.FileName)
+	}
+	if mimeType == "" {
+		mimeType = strings.TrimSpace(payload.MimeType)
+	}
+	if sizeBytes == 0 {
+		sizeBytes = payload.SizeBytes
+	}
+	if sha256Value == "" {
+		sha256Value = strings.TrimSpace(payload.SHA256)
+	}
+	if rawURL == "" {
+		rawURL = strings.TrimSpace(payload.URL)
+	}
 	if chatID == "" || fileName == "" || rawURL == "" {
 		log.Printf("[ws-download] reject: missing fields chatId=%q fileName=%q url=%q rawPayload=%s",
 			chatID, fileName, rawURL, string(req.Payload))

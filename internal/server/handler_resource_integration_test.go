@@ -313,7 +313,6 @@ func TestWebSocketUploadDownloadsGatewayURLAndReturnsUploadTicket(t *testing.T) 
 	}, testFixtureOptions{
 		notifications: ws.NewHub(),
 		configure: func(cfg *config.Config) {
-			cfg.WebSocket.Enabled = true
 			cfg.WebSocket.WriteQueueSize = 4
 			cfg.WebSocket.PingIntervalMs = 30000
 			cfg.GatewayWS.JwtToken = "gateway-upload-token"
@@ -427,7 +426,6 @@ func TestWebSocketResourcePushesLocalFileToGateway(t *testing.T) {
 	}, testFixtureOptions{
 		notifications: ws.NewHub(),
 		configure: func(cfg *config.Config) {
-			cfg.WebSocket.Enabled = true
 			cfg.WebSocket.WriteQueueSize = 4
 			cfg.WebSocket.PingIntervalMs = 30000
 			cfg.GatewayWS.JwtToken = "gateway-resource-token"
@@ -508,7 +506,6 @@ func TestWebSocketResourceRejectsMissingLocalFile(t *testing.T) {
 	}, testFixtureOptions{
 		notifications: ws.NewHub(),
 		configure: func(cfg *config.Config) {
-			cfg.WebSocket.Enabled = true
 			cfg.WebSocket.WriteQueueSize = 4
 			cfg.WebSocket.PingIntervalMs = 30000
 		},
@@ -591,7 +588,6 @@ func TestWebSocketUploadRejectsInvalidUploadMetadata(t *testing.T) {
 			}, testFixtureOptions{
 				notifications: ws.NewHub(),
 				configure: func(cfg *config.Config) {
-					cfg.WebSocket.Enabled = true
 					cfg.WebSocket.WriteQueueSize = 4
 					cfg.WebSocket.PingIntervalMs = 30000
 					cfg.GatewayWS.BaseURL = ""

@@ -47,7 +47,6 @@ func newScheduleTestServer(t *testing.T, websocket bool) scheduleTestServer {
 	cfg := config.Config{Auth: config.AuthConfig{Enabled: false}}
 	var hub *ws.Hub
 	if websocket {
-		cfg.WebSocket.Enabled = true
 		cfg.WebSocket.WriteQueueSize = 4
 		cfg.WebSocket.PingIntervalMs = 30000
 		hub = ws.NewHub()

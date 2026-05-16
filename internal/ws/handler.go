@@ -44,7 +44,7 @@ func (h *Handler) RegisterRoute(frameType string, route RouteHandler) {
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if h == nil || !h.cfg.Enabled {
+	if h == nil {
 		http.NotFound(w, r)
 		return
 	}

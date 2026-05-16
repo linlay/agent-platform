@@ -172,10 +172,8 @@ func New(deps Dependencies) (*Server, error) {
 		proxyRuns:         map[string]*proxyRunRoute{},
 	}
 	s.hydrateDeferredAwaitings()
-	if deps.Config.WebSocket.Enabled {
-		if hub, ok := deps.Notifications.(*ws.Hub); ok {
-			s.wsHandler = s.newWSHandler(hub)
-		}
+	if hub, ok := deps.Notifications.(*ws.Hub); ok {
+		s.wsHandler = s.newWSHandler(hub)
 	}
 	s.routes()
 	return s, nil

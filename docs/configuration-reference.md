@@ -234,11 +234,10 @@ agent definition 侧另有 `memoryConfig`：
 
 ### WebSocket
 
-`AGENT_WS_ENABLED` 默认开启，因此不再出现在 `.env.example` 中；其余 `AGENT_WS_*` 调优项仍只保留在本参考文档中。
+WebSocket 控制面常开，`/ws` 会随服务启动一起注册；普通 HTTP/SSE `/api/query` 继续支持。以下 `AGENT_WS_*` 仅用于深度调优，仍只保留在本参考文档中。
 
 | 环境变量 | 默认值 | 标签 | 说明 |
 |---|---|---|---|
-| `AGENT_WS_ENABLED` | `true` | `Advanced / operator` | 是否启用 WebSocket 接口与 `/ws` 路由 |
 | `AGENT_WS_MAX_MESSAGE_SIZE` | `1048576` | `Advanced / operator` | 单条消息最大字节数 |
 | `AGENT_WS_PING_INTERVAL_MS` | `30000` | `Advanced / operator` | ping 心跳间隔 |
 | `AGENT_WS_WRITE_TIMEOUT_MS` | `15000` | `Advanced / operator` | 写超时 |
@@ -247,7 +246,7 @@ agent definition 侧另有 `memoryConfig`：
 
 说明：
 
-- 默认会注册 `/ws`；仅当 `AGENT_WS_ENABLED=false` 时关闭
+- 默认会注册 `/ws`，不再提供环境变量关闭开关
 - WebSocket handler 会复用当前 catalog、chat、query、run stream 等接口能力
 - 鉴权开启时，WebSocket 也会走相同的 token 校验链路
 - WebSocket 是控制面：普通上传/下载仍走 `POST /api/upload` 与 `GET /api/resource`；当前 `/ws` 上的 `/api/upload` 只接受网关发送的 `url + metadata`，platform 会通过 HTTP 旁路下载文件，不支持把文件字节直接塞进 WS JSON frame
@@ -258,7 +257,7 @@ agent definition 侧另有 `memoryConfig`：
 
 说明：
 
-- 反向连接同样受 `AGENT_WS_ENABLED` 总开关影响
+- 反向连接随 WebSocket 控制面常开；具体连接条目由 `configs/channels.yml` 控制
 - 握手只使用 `Authorization` header 传递 Bearer token，不会把凭据放进 URL query
 - 建连成功后，网关端会先收到一条 `push.connected`
 - 断线重连期间的 `broadcast` 为有损投递，当前不提供离线缓冲

@@ -91,6 +91,7 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/memory/record", s.wsMemoryRecord)
 	handler.RegisterRoute("/api/viewport", s.wsViewport)
 	handler.RegisterRoute("/api/resource", s.wsResource)
+	handler.RegisterRoute("/api/upload", s.wsDownload)
 	handler.RegisterRoute("/api/pull", s.wsDownload)
 }
 

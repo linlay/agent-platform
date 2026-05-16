@@ -558,7 +558,6 @@ func enableMemoryFixtureWebSocket(t *testing.T, server *Server) {
 	t.Helper()
 	hub := ws.NewHub()
 	t.Cleanup(func() { hub.CloseAll(gws.CloseNormalClosure, "test done") })
-	server.deps.Config.WebSocket.Enabled = true
 	server.deps.Config.WebSocket.WriteQueueSize = 4
 	server.deps.Config.WebSocket.PingIntervalMs = 30000
 	server.wsHandler = server.newWSHandler(hub)

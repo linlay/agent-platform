@@ -280,10 +280,6 @@ ${error_log_json}
         "onlyIfDefault": true
       },
       {
-        "key": "AGENT_WS_ENABLED",
-        "value": "true"
-      },
-      {
         "key": "AUTH_ENABLED",
         "value": "true"
       },
