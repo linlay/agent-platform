@@ -80,6 +80,14 @@ func compatRequestOverrides(protocolConfig protocolRuntimeConfig, reasoningEnabl
 	return overrides
 }
 
+func preserveReasoningContent(protocolConfig protocolRuntimeConfig, stageSettings StageSettings) bool {
+	if !stageSettings.ReasoningEnabled {
+		return false
+	}
+	messagesCompat := AnyMapNode(protocolConfig.Compat["messages"])
+	return AnyBoolNode(messagesCompat["preserveReasoningContent"])
+}
+
 func mergeStringMaps(maps ...map[string]string) map[string]string {
 	var out map[string]string
 	for _, current := range maps {

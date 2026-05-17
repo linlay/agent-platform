@@ -1,7 +1,9 @@
 package llm
 
 import (
+	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"agent-platform/internal/config"
@@ -66,6 +68,141 @@ func TestCompatRequestOverridesMergeAlwaysAndReasoningScopedEntries(t *testing.T
 	}
 	if got["shared"] != "model-reasoning" {
 		t.Fatalf("expected reasoning-scoped model override to win when enabled, got %#v", got)
+	}
+}
+
+func TestPreserveReasoningContentRequiresCompatAndReasoningEnabled(t *testing.T) {
+	protocolConfig := protocolRuntimeConfig{
+		Compat: map[string]any{
+			"messages": map[string]any{
+				"preserveReasoningContent": true,
+			},
+		},
+	}
+	if preserveReasoningContent(protocolConfig, StageSettings{}) {
+		t.Fatal("expected disabled reasoning to suppress reasoning_content preservation")
+	}
+	if !preserveReasoningContent(protocolConfig, StageSettings{ReasoningEnabled: true}) {
+		t.Fatal("expected compat flag plus enabled reasoning to preserve reasoning_content")
+	}
+	if preserveReasoningContent(protocolRuntimeConfig{}, StageSettings{ReasoningEnabled: true}) {
+		t.Fatal("expected missing compat flag to suppress reasoning_content preservation")
+	}
+}
+
+func TestOpenAIProtocolPrepareRequestReasoningContentCompat(t *testing.T) {
+	tests := []struct {
+		name             string
+		reasoningEnabled bool
+		compat           map[string]any
+		wantReasoning    bool
+	}{
+		{name: "default strips reasoning", reasoningEnabled: true, wantReasoning: false},
+		{
+			name:             "compat preserves reasoning",
+			reasoningEnabled: true,
+			compat: map[string]any{
+				"messages": map[string]any{
+					"preserveReasoningContent": true,
+				},
+			},
+			wantReasoning: true,
+		},
+		{
+			name:             "compat does not preserve when reasoning disabled",
+			reasoningEnabled: false,
+			compat: map[string]any{
+				"messages": map[string]any{
+					"preserveReasoningContent": true,
+				},
+			},
+			wantReasoning: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			protocol := &openAIProtocol{engine: NewLLMAgentEngineWithHTTPClient(config.Config{}, nil, nil, nil, nil, &http.Client{})}
+			prepared, err := protocol.PrepareRequest(protocolStreamParams{
+				provider: ProviderDefinition{Key: "mock", BaseURL: "https://example.com", APIKey: "token"},
+				model:    ModelDefinition{Protocol: "OPENAI", ModelID: "mock-model"},
+				protocolConfig: protocolRuntimeConfig{
+					EndpointPath: "/v1/chat/completions",
+					Compat:       tc.compat,
+				},
+				stageSettings: StageSettings{ReasoningEnabled: tc.reasoningEnabled},
+				messages: []openAIMessage{
+					{Role: "system", Content: "system prompt"},
+					{
+						Role:             "assistant",
+						ReasoningContent: "thinking...",
+						ToolCalls: []openAIToolCall{{
+							ID:   "call_1",
+							Type: "function",
+							Function: openAIFunctionCall{
+								Name:      "datetime",
+								Arguments: "{}",
+							},
+						}},
+					},
+					{Role: "tool", ToolCallID: "call_1", Name: "datetime", Content: `{"time":"01:35:03"}`},
+				},
+				toolSpecs: []openAIToolSpec{{
+					Type:     "function",
+					Function: openAIToolDefinition{Name: "datetime"},
+				}},
+			})
+			if err != nil {
+				t.Fatalf("PrepareRequest returned error: %v", err)
+			}
+
+			rawMessages, err := json.Marshal(prepared.RequestBody["messages"])
+			if err != nil {
+				t.Fatalf("marshal messages: %v", err)
+			}
+			hasReasoning := strings.Contains(string(rawMessages), "reasoning_content")
+			if hasReasoning != tc.wantReasoning {
+				t.Fatalf("expected reasoning_content present=%v, got messages %s", tc.wantReasoning, rawMessages)
+			}
+		})
+	}
+}
+
+func TestNewAssistantTurnMessageReasoningContentCompat(t *testing.T) {
+	turn := &providerTurnStream{}
+	turn.reasoning.WriteString("thinking...")
+	toolCalls := []openAIToolCall{{
+		ID:   "call_1",
+		Type: "function",
+		Function: openAIFunctionCall{
+			Name:      "datetime",
+			Arguments: "{}",
+		},
+	}}
+
+	defaultStream := &llmRunStream{
+		stageSettings: StageSettings{ReasoningEnabled: true},
+	}
+	if got := defaultStream.newAssistantTurnMessage(turn, "", toolCalls); got.ReasoningContent != "" {
+		t.Fatalf("expected default stream to omit reasoning_content, got %q", got.ReasoningContent)
+	}
+
+	deepSeekStream := &llmRunStream{
+		protocolConfig: protocolRuntimeConfig{
+			Compat: map[string]any{
+				"messages": map[string]any{
+					"preserveReasoningContent": true,
+				},
+			},
+		},
+		stageSettings: StageSettings{ReasoningEnabled: true},
+	}
+	got := deepSeekStream.newAssistantTurnMessage(turn, "", toolCalls)
+	if got.ReasoningContent != "thinking..." {
+		t.Fatalf("expected reasoning_content to be preserved, got %#v", got)
+	}
+	if len(got.ToolCalls) != 1 {
+		t.Fatalf("expected tool call to be preserved, got %#v", got.ToolCalls)
 	}
 }
 

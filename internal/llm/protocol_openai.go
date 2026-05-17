@@ -16,11 +16,12 @@ type openAIProtocol struct {
 }
 
 type openAIMessage struct {
-	Role       string           `json:"role"`
-	Content    any              `json:"content,omitempty"`
-	Name       string           `json:"name,omitempty"`
-	ToolCallID string           `json:"tool_call_id,omitempty"`
-	ToolCalls  []openAIToolCall `json:"tool_calls,omitempty"`
+	Role             string           `json:"role"`
+	Content          any              `json:"content,omitempty"`
+	Name             string           `json:"name,omitempty"`
+	ToolCallID       string           `json:"tool_call_id,omitempty"`
+	ToolCalls        []openAIToolCall `json:"tool_calls,omitempty"`
+	ReasoningContent string           `json:"reasoning_content,omitempty"`
 }
 
 type openAIToolCall struct {
@@ -98,7 +99,8 @@ func (p *openAIProtocol) PrepareRequest(params protocolStreamParams) (preparedPr
 		return preparedProviderRequest{}, err
 	}
 
-	normalizedMessages := normalizeOpenAIMessages(params.messages)
+	preserveReasoning := preserveReasoningContent(params.protocolConfig, params.stageSettings)
+	normalizedMessages := normalizeOpenAIMessages(applyOpenAIMessageCompat(params.messages, preserveReasoning))
 
 	effectiveToolChoice := "auto"
 	if params.toolChoice != "" {
@@ -228,7 +230,7 @@ func toOpenAIToolSpecs(defs []api.ToolDetailResponse) []openAIToolSpec {
 
 // rawMessageToOpenAI converts a raw_messages.jsonl entry to an openAIMessage.
 // Format follows the Java version: role + content, with tool_calls for assistant messages.
-func rawMessageToOpenAI(raw map[string]any) openAIMessage {
+func rawMessageToOpenAI(raw map[string]any, preserveReasoning bool) openAIMessage {
 	role, _ := raw["role"].(string)
 	content, _ := raw["content"].(string)
 	if role == "" {
@@ -236,6 +238,9 @@ func rawMessageToOpenAI(raw map[string]any) openAIMessage {
 	}
 	msg := openAIMessage{Role: role, Content: content}
 	if role == "assistant" {
+		if preserveReasoning {
+			msg.ReasoningContent, _ = raw["reasoning_content"].(string)
+		}
 		if calls, ok := raw["tool_calls"].([]any); ok {
 			for _, c := range calls {
 				callMap, _ := c.(map[string]any)
@@ -274,6 +279,18 @@ func rawMessageToOpenAI(raw map[string]any) openAIMessage {
 		}
 	}
 	return msg
+}
+
+func applyOpenAIMessageCompat(messages []openAIMessage, preserveReasoning bool) []openAIMessage {
+	if preserveReasoning {
+		return messages
+	}
+	out := make([]openAIMessage, len(messages))
+	copy(out, messages)
+	for i := range out {
+		out[i].ReasoningContent = ""
+	}
+	return out
 }
 
 // mergeRawMessagesByMsgID merges multiple raw assistant messages that share the

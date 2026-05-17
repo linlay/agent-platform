@@ -318,13 +318,7 @@ func (s *llmRunStream) finishCurrentTurn() error {
 
 	content := turn.content.String()
 	if content != "" || len(toolCalls) > 0 {
-		msg := openAIMessage{Role: "assistant"}
-		if content != "" {
-			msg.Content = content
-		}
-		if len(toolCalls) > 0 {
-			msg.ToolCalls = toolCalls
-		}
+		msg := s.newAssistantTurnMessage(turn, content, toolCalls)
 		s.messages = append(s.messages, msg)
 	}
 
@@ -376,6 +370,20 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		s.activateNextToolCall()
 	}
 	return nil
+}
+
+func (s *llmRunStream) newAssistantTurnMessage(turn *providerTurnStream, content string, toolCalls []openAIToolCall) openAIMessage {
+	msg := openAIMessage{Role: "assistant"}
+	if content != "" {
+		msg.Content = content
+	}
+	if len(toolCalls) > 0 {
+		msg.ToolCalls = toolCalls
+	}
+	if turn != nil && preserveReasoningContent(s.protocolConfig, s.stageSettings) {
+		msg.ReasoningContent = turn.reasoning.String()
+	}
+	return msg
 }
 
 func (s *llmRunStream) checkBudgetBeforeModelCall() map[string]any {

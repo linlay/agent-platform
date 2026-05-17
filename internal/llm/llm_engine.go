@@ -77,6 +77,8 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	if err != nil {
 		return nil, err
 	}
+	protocolConfig := resolveProtocolRuntimeConfig(provider, model)
+	stageSettings := stageSettingsForName(session.ResolvedStageSettings, options.Stage)
 	allowedTools := session.ToolNames
 	if options.ToolNames != nil {
 		allowedTools = options.ToolNames
@@ -136,8 +138,9 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 				Content: systemPrompt,
 			}}
 		}
+		preserveReasoning := preserveReasoningContent(protocolConfig, stageSettings)
 		for _, raw := range mergeRawMessagesByMsgID(session.HistoryMessages) {
-			msg := rawMessageToOpenAI(raw)
+			msg := rawMessageToOpenAI(raw, preserveReasoning)
 			if msg.Role != "" {
 				messages = append(messages, msg)
 			}
@@ -177,8 +180,8 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		toolSpecs:           toolSpecs,
 		requestedToolNames:  append([]string(nil), allowedTools...),
 		messages:            append([]openAIMessage(nil), messages...),
-		protocolConfig:      resolveProtocolRuntimeConfig(provider, model),
-		stageSettings:       stageSettingsForName(session.ResolvedStageSettings, options.Stage),
+		protocolConfig:      protocolConfig,
+		stageSettings:       stageSettings,
 		execCtx:             execCtx,
 		maxSteps:            maxSteps,
 		toolChoice:          toolChoice,

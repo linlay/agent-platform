@@ -190,7 +190,7 @@ func TestRawMessageToOpenAI_EmptyAssistantFiltered(t *testing.T) {
 		"role":    "assistant",
 		"content": "",
 	}
-	msg := rawMessageToOpenAI(raw)
+	msg := rawMessageToOpenAI(raw, false)
 	if msg.Role != "" {
 		t.Errorf("expected empty Role for empty assistant, got %q", msg.Role)
 	}
@@ -200,7 +200,7 @@ func TestRawMessageToOpenAI_EmptyAssistantFiltered(t *testing.T) {
 		"role":    "assistant",
 		"content": "  \n  ",
 	}
-	msg2 := rawMessageToOpenAI(raw2)
+	msg2 := rawMessageToOpenAI(raw2, false)
 	if msg2.Role != "" {
 		t.Errorf("expected empty Role for whitespace-only assistant, got %q", msg2.Role)
 	}
@@ -211,9 +211,37 @@ func TestRawMessageToOpenAI_EmptyAssistantFiltered(t *testing.T) {
 		"content":    "",
 		"tool_calls": []any{map[string]any{"id": "t1", "type": "function", "function": map[string]any{"name": "bash", "arguments": "{}"}}},
 	}
-	msg3 := rawMessageToOpenAI(raw3)
+	msg3 := rawMessageToOpenAI(raw3, false)
 	if msg3.Role != "assistant" {
 		t.Errorf("expected assistant with tool_calls to pass, got Role=%q", msg3.Role)
+	}
+}
+
+func TestRawMessageToOpenAI_PreservesReasoningContentWhenEnabled(t *testing.T) {
+	raw := map[string]any{
+		"role":              "assistant",
+		"reasoning_content": "thinking...",
+		"tool_calls": []any{map[string]any{
+			"id":   "t1",
+			"type": "function",
+			"function": map[string]any{
+				"name":      "datetime",
+				"arguments": "{}",
+			},
+		}},
+	}
+
+	withoutReasoning := rawMessageToOpenAI(raw, false)
+	if withoutReasoning.ReasoningContent != "" {
+		t.Fatalf("expected reasoning_content to be stripped by default, got %q", withoutReasoning.ReasoningContent)
+	}
+
+	withReasoning := rawMessageToOpenAI(raw, true)
+	if withReasoning.ReasoningContent != "thinking..." {
+		t.Fatalf("expected reasoning_content to be preserved, got %q", withReasoning.ReasoningContent)
+	}
+	if len(withReasoning.ToolCalls) != 1 {
+		t.Fatalf("expected tool call to be preserved, got %#v", withReasoning.ToolCalls)
 	}
 }
 
