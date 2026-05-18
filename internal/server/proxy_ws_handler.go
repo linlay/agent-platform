@@ -1,9 +1,12 @@
 package server
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -91,18 +94,26 @@ func (s *Server) wsProxyQuery(
 		"agentKey": prepared.req.AgentKey,
 	})
 
-	route := &proxyRunRoute{
-		runID:    prepared.req.RunID,
-		chatID:   prepared.req.ChatID,
-		agentKey: prepared.req.AgentKey,
-		send:     make(chan map[string]any, 16),
-		done:     make(chan struct{}),
+	upstreamTransport := proxyUpstreamTransport(prepared.agentDef.ProxyConfig)
+	var route *proxyRunRoute
+	if upstreamTransport == "ws" {
+		route = &proxyRunRoute{
+			runID:    prepared.req.RunID,
+			chatID:   prepared.req.ChatID,
+			agentKey: prepared.req.AgentKey,
+			send:     make(chan map[string]any, 16),
+			done:     make(chan struct{}),
+		}
+		s.registerProxyRun(route)
 	}
-	s.registerProxyRun(route)
 
 	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode, isHiddenRequest(prepared.req), chat.WithDebugEventsEnabled(s.deps.Config.Stream.DebugEventsEnabled))
 	stepWriter.SetPendingSystemInits(prepared.systemInitLines)
-	recorder := newProxyEventRecorder(prepared.req, prepared.agentDef, s.deps.Chats, stepWriter, control)
+	var proxyControl *contracts.RunControl
+	if upstreamTransport == "ws" {
+		proxyControl = control
+	}
+	recorder := newProxyEventRecorder(prepared.req, prepared.agentDef, s.deps.Chats, stepWriter, proxyControl)
 
 	go s.runProxyWebSocket(runCtx, prepared, route, eventBus, recorder)
 	conn.StartStreamForward(req.ID, observer)
@@ -116,8 +127,10 @@ func (s *Server) runProxyWebSocket(
 	recorder *proxyEventRecorder,
 ) {
 	defer func() {
-		s.unregisterProxyRun(prepared.req.RunID, route)
-		close(route.done)
+		if route != nil {
+			s.unregisterProxyRun(prepared.req.RunID, route)
+			close(route.done)
+		}
 		if recorder != nil {
 			recorder.Finish()
 		}
@@ -127,6 +140,11 @@ func (s *Server) runProxyWebSocket(
 		s.deps.Runs.Finish(prepared.req.RunID)
 		s.broadcast("run.finished", map[string]any{"runId": prepared.req.RunID, "chatId": prepared.req.ChatID})
 	}()
+
+	if proxyUpstreamTransport(prepared.agentDef.ProxyConfig) == "sse" {
+		s.runProxySSE(runCtx, prepared, eventBus, recorder)
+		return
+	}
 
 	upstreamURL, header, err := proxyWebSocketTarget(prepared.agentDef.ProxyConfig)
 	if err != nil {
@@ -188,6 +206,7 @@ func (s *Server) runProxyWebSocket(
 		if !ok {
 			continue
 		}
+		event = normalizeProxyEventIdentity(event, prepared.req)
 		if event.Seq <= 0 {
 			seq++
 			event.Seq = seq
@@ -204,6 +223,106 @@ func (s *Server) runProxyWebSocket(
 			terminalSeen = true
 			return
 		}
+	}
+}
+
+func (s *Server) runProxySSE(
+	runCtx context.Context,
+	prepared preparedQuery,
+	eventBus *stream.RunEventBus,
+	recorder *proxyEventRecorder,
+) {
+	proxy := prepared.agentDef.ProxyConfig
+	if proxy == nil || strings.TrimSpace(proxy.BaseURL) == "" {
+		s.publishProxyError(eventBus, recorder, prepared.req, fmt.Errorf("PROXY agent missing proxyConfig.baseUrl"))
+		return
+	}
+
+	baseURL := strings.TrimRight(proxy.BaseURL, "/")
+	targetURL := baseURL + "/api/query"
+	body, err := json.Marshal(map[string]any{
+		"requestId":  prepared.req.RequestID,
+		"runId":      prepared.req.RunID,
+		"chatId":     prepared.req.ChatID,
+		"agentKey":   proxyAgentKey(proxy, prepared.req.AgentKey),
+		"role":       prepared.req.Role,
+		"message":    prepared.req.Message,
+		"references": prepared.req.References,
+		"params":     prepared.req.Params,
+		"scene":      prepared.req.Scene,
+		"stream":     true,
+	})
+	if err != nil {
+		s.publishProxyError(eventBus, recorder, prepared.req, err)
+		return
+	}
+
+	timeout := time.Duration(proxy.TimeoutMs) * time.Millisecond
+	client := &http.Client{Timeout: timeout}
+	proxyReq, err := http.NewRequestWithContext(runCtx, http.MethodPost, targetURL, bytes.NewReader(body))
+	if err != nil {
+		s.publishProxyError(eventBus, recorder, prepared.req, fmt.Errorf("failed to create proxy sse request: %w", err))
+		return
+	}
+	proxyReq.Header.Set("Content-Type", "application/json")
+	proxyReq.Header.Set("Accept", "text/event-stream")
+	if proxy.Token != "" {
+		proxyReq.Header.Set("Authorization", "Bearer "+proxy.Token)
+	}
+
+	log.Printf("[proxy][ws] bridging websocket client to upstream sse %s (agent=%s, chatId=%s)", targetURL, prepared.agentDef.Key, prepared.req.ChatID)
+	resp, err := client.Do(proxyReq)
+	if err != nil {
+		s.publishProxyError(eventBus, recorder, prepared.req, fmt.Errorf("proxy sse request failed: %w", err))
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		data, _ := io.ReadAll(resp.Body)
+		s.publishProxyError(eventBus, recorder, prepared.req, fmt.Errorf("proxy sse upstream returned %d: %s", resp.StatusCode, strings.TrimSpace(string(data))))
+		return
+	}
+
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 256*1024), 1024*1024)
+	var seq int64
+	terminalSeen := false
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload == "" || payload == stream.DoneSentinel {
+			continue
+		}
+		event, ok := decodeProxyEvent([]byte(payload))
+		if !ok {
+			continue
+		}
+		event = normalizeProxyEventIdentity(event, prepared.req)
+		if event.Seq <= 0 {
+			seq++
+			event.Seq = seq
+		}
+		if event.Timestamp <= 0 {
+			event.Timestamp = time.Now().UnixMilli()
+		}
+		if eventBus != nil {
+			eventBus.Publish(event)
+		}
+		if recorder != nil {
+			recorder.OnEvent(event)
+		}
+		switch event.Type {
+		case "run.complete", "run.error", "run.cancel":
+			terminalSeen = true
+			return
+		}
+	}
+	if err := scanner.Err(); err != nil && !terminalSeen {
+		s.publishProxyError(eventBus, recorder, prepared.req, fmt.Errorf("proxy sse read failed: %w", err))
 	}
 }
 
@@ -236,6 +355,18 @@ func proxyWebSocketTarget(proxy *catalog.ProxyConfig) (string, http.Header, erro
 		header.Set("Authorization", "Bearer "+proxy.Token)
 	}
 	return parsed.String(), header, nil
+}
+
+func proxyUpstreamTransport(proxy *catalog.ProxyConfig) string {
+	if proxy == nil {
+		return "sse"
+	}
+	switch strings.ToLower(strings.TrimSpace(proxy.Transport)) {
+	case "ws", "websocket":
+		return "ws"
+	default:
+		return "sse"
+	}
 }
 
 func proxyQueryPayload(req api.QueryRequest, proxy *catalog.ProxyConfig) map[string]any {
@@ -280,6 +411,25 @@ func decodeProxyEvent(data []byte) (stream.EventData, bool) {
 	}
 	event := stream.EventDataFromMap(raw)
 	return event, strings.TrimSpace(event.Type) != ""
+}
+
+func normalizeProxyEventIdentity(event stream.EventData, req api.QueryRequest) stream.EventData {
+	if event.Payload == nil {
+		event.Payload = map[string]any{}
+	}
+	if strings.TrimSpace(req.RequestID) != "" {
+		event.Payload["requestId"] = req.RequestID
+	}
+	if strings.TrimSpace(req.ChatID) != "" {
+		event.Payload["chatId"] = req.ChatID
+	}
+	if strings.TrimSpace(req.RunID) != "" {
+		event.Payload["runId"] = req.RunID
+	}
+	if strings.TrimSpace(req.AgentKey) != "" {
+		event.Payload["agentKey"] = req.AgentKey
+	}
+	return event
 }
 
 func (s *Server) publishProxyError(

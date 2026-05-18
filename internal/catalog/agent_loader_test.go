@@ -39,6 +39,29 @@ func TestParseAgentFileSupportsFlattenedToolConfig(t *testing.T) {
 	}
 }
 
+func TestParseAgentFileReadsProxyTransport(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	content := "" +
+		"key: proxy-demo\n" +
+		"name: Proxy Demo\n" +
+		"mode: PROXY\n" +
+		"proxyConfig:\n" +
+		"  baseUrl: http://127.0.0.1:3210\n" +
+		"  transport: ws\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	if def.ProxyConfig == nil || def.ProxyConfig.Transport != "ws" {
+		t.Fatalf("expected proxy transport ws, got %#v", def.ProxyConfig)
+	}
+}
+
 func TestParseAgentFileIgnoresLegacyToolConfigBuckets(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")

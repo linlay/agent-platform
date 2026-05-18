@@ -94,6 +94,7 @@ type AgentRuntimePrompts struct {
 // AGW-compatible service (e.g. claude-code relay-server on port 3210).
 type ProxyConfig struct {
 	BaseURL   string // e.g. http://127.0.0.1:3210
+	Transport string // sse or ws; defaults to sse for AGW platform-compatible proxy backends
 	AgentKey  string // optional upstream agentKey override
 	ChatID    string // optional upstream chatId override
 	Token     string // optional Bearer token
@@ -243,6 +244,12 @@ func (r *FileRegistry) Agents(tag string) []api.AgentSummary {
 				"skills": append([]string(nil), def.Skills...),
 			},
 		}
+		if def.ProxyConfig != nil {
+			summary.Meta["proxy"] = map[string]any{
+				"protocol":  "agw-platform",
+				"transport": normalizeProxyTransport(def.ProxyConfig.Transport),
+			}
+		}
 		if len(def.ContextTags) > 0 {
 			summary.Meta["contextTags"] = append([]string(nil), def.ContextTags...)
 		}
@@ -269,6 +276,15 @@ func hasRuntimeSandboxDefinition(runtime map[string]any) bool {
 	}
 	environmentID, _ := runtime["environmentId"].(string)
 	return strings.TrimSpace(environmentID) != ""
+}
+
+func normalizeProxyTransport(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "ws", "websocket":
+		return "ws"
+	default:
+		return "sse"
+	}
 }
 
 func runtimeSandboxSummaryMeta(runtime map[string]any) map[string]any {

@@ -300,6 +300,7 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	if proxyRaw := mapNode(root["proxyConfig"]); len(proxyRaw) > 0 {
 		def.ProxyConfig = &ProxyConfig{
 			BaseURL:   stringNode(proxyRaw["baseUrl"]),
+			Transport: normalizeProxyTransport(stringNode(proxyRaw["transport"])),
 			AgentKey:  stringNode(proxyRaw["agentKey"]),
 			ChatID:    stringNode(proxyRaw["chatId"]),
 			Token:     resolveProxyToken(proxyRaw),

@@ -131,7 +131,7 @@ func TestAgentEditorOptionsHTTP(t *testing.T) {
 	if len(response.Data.ContextTags) != 6 || response.Data.ContextTags[0].Key != "system" || response.Data.ContextTags[5].Key != "memory" {
 		t.Fatalf("unexpected context tags %#v", response.Data.ContextTags)
 	}
-	if response.Data.ProxyConfigSchema.DefaultTimeoutMs != 300000 || len(response.Data.ProxyConfigSchema.Fields) != 4 || !response.Data.ProxyConfigSchema.Fields[0].Required {
+	if response.Data.ProxyConfigSchema.DefaultTimeoutMs != 300000 || len(response.Data.ProxyConfigSchema.Fields) != 6 || !response.Data.ProxyConfigSchema.Fields[0].Required {
 		t.Fatalf("unexpected proxy schema %#v", response.Data.ProxyConfigSchema)
 	}
 }

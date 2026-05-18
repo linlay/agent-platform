@@ -1,0 +1,21 @@
+# Example PROXY agent definition for a remote AGW platform-compatible backend.
+# Place a copy under AGENTS_DIR, for example runtime/agents/cloud-contact-proxy/agent.yml.
+key: cloud-contact-proxy
+name: 云端通讯录助手
+role: 云端 AGW 后端代理智能体
+description: 通过同构 AGW platform 协议代理远端智能体
+icon:
+  name: network
+mode: PROXY
+proxyConfig:
+  baseUrl: http://127.0.0.1:8080
+  # sse: upstream POST /api/query returns text/event-stream.
+  # ws: upstream exposes the platform websocket entry at /ws.
+  transport: sse
+  agentKey: remote-agent-key
+  tokenEnv: AGW_PROXY_TOKEN
+  timeoutMs: 300000
+wonders:
+  - 帮我查询一位员工
+  - 查看部门成员
+  - 总结这个组织架构

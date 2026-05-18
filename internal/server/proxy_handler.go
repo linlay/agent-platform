@@ -134,23 +134,27 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, req ap
 	scanner.Buffer(make([]byte, 0, 256*1024), 1024*1024)
 	for scanner.Scan() {
 		line := scanner.Text()
-		fmt.Fprintf(w, "%s\n", line)
-		if line == "" || strings.HasPrefix(line, "data:") {
+		outLine := line
+		var event stream.EventData
+		hasEvent := false
+		if strings.HasPrefix(line, "data:") {
+			payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			if payload != "" && payload != stream.DoneSentinel {
+				if decoded, ok := decodeProxyEvent([]byte(payload)); ok {
+					event = normalizeProxyEventIdentity(decoded, req)
+					hasEvent = true
+					if data, err := json.Marshal(event); err == nil {
+						outLine = "data: " + string(data)
+					}
+				}
+			}
+		}
+		fmt.Fprintf(w, "%s\n", outLine)
+		if outLine == "" || strings.HasPrefix(outLine, "data:") {
 			flusher.Flush()
 		}
 
-		if stepWriter == nil || !strings.HasPrefix(line, "data:") {
-			continue
-		}
-		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if payload == "" || payload == stream.DoneSentinel {
-			continue
-		}
-		var event stream.EventData
-		if err := json.Unmarshal([]byte(payload), &event); err != nil {
-			continue
-		}
-		if event.Type == "" {
+		if stepWriter == nil || !hasEvent {
 			continue
 		}
 

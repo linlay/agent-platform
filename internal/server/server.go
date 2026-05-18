@@ -789,6 +789,12 @@ func (s *Server) buildAgentDetailMeta(def catalog.AgentDefinition) (string, map[
 	if len(def.Skills) > 0 {
 		meta["perAgentSkills"] = append([]string(nil), def.Skills...)
 	}
+	if def.ProxyConfig != nil {
+		meta["proxy"] = map[string]any{
+			"protocol":  "agw-platform",
+			"transport": proxyUpstreamTransport(def.ProxyConfig),
+		}
+	}
 	if hasRuntimeSandbox(def.Runtime) {
 		meta["sandbox"] = normalizedRuntimeMeta(def.Runtime)
 	}
