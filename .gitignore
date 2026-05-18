@@ -42,7 +42,6 @@ coverage.out
 !/configs/*.example.yml
 !/configs/*.example.yaml
 !/configs/*.example.pem
-!/configs/desktop.yml
 !/configs/**/*.example.yml
 !/configs/**/*.example.yaml
 !/configs/**/*.example.pem
