@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
-	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/stream"
 )
@@ -28,7 +27,9 @@ import (
 // tool.result, run.complete). StepWriter only consumes snapshot-style events
 // (content.snapshot, reasoning.snapshot, tool.snapshot, tool.result, …), so
 // we accumulate per-id buffers and synthesise snapshot events at *.end.
-func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, req api.QueryRequest, agentDef catalog.AgentDefinition, systemInitLines []chat.QueryLineSystemInit) {
+func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepared preparedQuery) {
+	req := prepared.req
+	agentDef := prepared.agentDef
 	proxy := agentDef.ProxyConfig
 	if proxy == nil || strings.TrimSpace(proxy.BaseURL) == "" {
 		writeJSON(w, http.StatusBadGateway, api.Failure(http.StatusBadGateway, "PROXY agent missing proxyConfig.baseUrl"))
@@ -37,6 +38,17 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, req ap
 
 	baseURL := strings.TrimRight(proxy.BaseURL, "/")
 	targetURL := baseURL + "/api/query"
+	proxyReferences, err := prepareProxyReferences(s.deps.Chats, s.ticketService, proxyReferenceOptions{
+		ChatID:          req.ChatID,
+		RunID:           req.RunID,
+		Subject:         prepared.session.Subject,
+		ResourceBaseURL: prepared.resourceBaseURL,
+		References:      req.References,
+	})
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
+		return
+	}
 
 	body, err := json.Marshal(map[string]any{
 		"requestId":  req.RequestID,
@@ -45,7 +57,7 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, req ap
 		"agentKey":   proxyAgentKey(proxy, req.AgentKey),
 		"role":       req.Role,
 		"message":    req.Message,
-		"references": req.References,
+		"references": proxyReferences,
 		"params":     req.Params,
 		"scene":      req.Scene,
 	})
@@ -99,7 +111,7 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, req ap
 	var assistantText strings.Builder
 	if chatStore != nil {
 		stepWriter = chat.NewStepWriter(chatStore, req.ChatID, req.RunID, agentDef.Mode, isHiddenRequest(req), chat.WithDebugEventsEnabled(s.deps.Config.Stream.DebugEventsEnabled))
-		stepWriter.SetPendingSystemInits(systemInitLines)
+		stepWriter.SetPendingSystemInits(prepared.systemInitLines)
 		stepWriter.OnEvent(stream.EventData{
 			Type:      "request.query",
 			Timestamp: time.Now().UnixMilli(),

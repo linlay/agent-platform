@@ -38,6 +38,7 @@ type Conn struct {
 	hub               *Hub
 	cfg               config.WebSocketConfig
 	heartbeatInterval time.Duration
+	requestBaseURL    string
 
 	// silent=true 时：Run 不主动发 push.connected，writeLoop 不发 push.heartbeat / auth.expiring。
 	// 用于 agent-platform 反向连出到网关的场景——网关按自己的节奏发注册 ACK，我们只做被动应答。
@@ -55,6 +56,20 @@ type Conn struct {
 	closeOnce        sync.Once
 	closing          atomic.Bool
 	nextStreamID     atomic.Int64
+}
+
+func (c *Conn) SetRequestBaseURL(baseURL string) {
+	if c == nil {
+		return
+	}
+	c.requestBaseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+}
+
+func (c *Conn) RequestBaseURL() string {
+	if c == nil {
+		return ""
+	}
+	return c.requestBaseURL
 }
 
 var nextSessionID atomic.Int64

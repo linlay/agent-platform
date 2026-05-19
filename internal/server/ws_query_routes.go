@@ -31,6 +31,7 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 		conn.CompleteRequest(req.ID)
 		return
 	}
+	prepared.resourceBaseURL = conn.RequestBaseURL()
 	if _, reserveErr := conn.ReserveStream(req.ID, prepared.req.RunID); reserveErr != nil {
 		if protoErr, ok := reserveErr.(*ws.ProtocolError); ok {
 			conn.SendProtocolError(req.ID, protoErr)
@@ -84,6 +85,8 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 		EventBus:           eventBus,
 		Chats:              s.deps.Chats,
 		RunControl:         control,
+		ResourceBaseURL:    prepared.resourceBaseURL,
+		ResourceTickets:    s.ticketService,
 		BuildQuerySession:  s.BuildQuerySession,
 		PrepareSystemInits: s.prepareSystemInitCache,
 		BuildChildSystems:  s.buildSystemInitsForChildTask,

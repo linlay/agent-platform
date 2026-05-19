@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
+	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/frontendtools"
 	"agent-platform/internal/llm"
@@ -305,6 +307,85 @@ func TestFrameOrchestratorRunsProxySubAgent(t *testing.T) {
 	}
 	if len(emitted) != 2 {
 		t.Fatalf("expected start and complete lifecycle events, got %#v", emitted)
+	}
+}
+
+func TestFrameOrchestratorMaterializesProxySubAgentFiles(t *testing.T) {
+	var upstreamPayload map[string]any
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&upstreamPayload); err != nil {
+			t.Fatalf("decode upstream payload: %v", err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, `data: {"type":"content.delta","payload":{"contentId":"remote_c_1","delta":"read file"}}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"type":"run.complete","payload":{}}`+"\n\n")
+	}))
+	defer upstream.Close()
+
+	store, err := chat.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new chat store: %v", err)
+	}
+	chatDir := store.ChatDir("chat_1")
+	if err := os.MkdirAll(chatDir, 0o755); err != nil {
+		t.Fatalf("create chat dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(chatDir, "draft.md"), []byte("hello proxy"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	mainStream := &stubOrchestratableStream{
+		deltas: []contracts.AgentDelta{
+			newInvokeAgentsDelta(contracts.SubAgentTaskSpec{
+				SubAgentKey: "remote",
+				TaskText:    "read the draft",
+				TaskName:    "远端阅读",
+				Files:       []string{"/workspace/draft.md"},
+			}),
+		},
+	}
+	var emitted []contracts.AgentDelta
+	var routed []stream.StreamInput
+	orchestrator := newTestFrameOrchestrator(&orchestratorAgentEngine{}, map[string]catalog.AgentDefinition{
+		"remote": {
+			Key:  "remote",
+			Name: "Remote",
+			Mode: "PROXY",
+			ProxyConfig: &catalog.ProxyConfig{
+				BaseURL: upstream.URL,
+			},
+		},
+	}, &emitted, &routed)
+	orchestrator.chats = store
+	orchestrator.resourceBaseURL = "https://platform.example"
+	orchestrator.resourceTickets = NewResourceTicketService(config.ResourceTicketConfig{Secret: "ticket-secret", TTLSeconds: 300})
+	orchestrator.session.Subject = "student-1"
+
+	streamFailed, streamInterrupted, err := orchestrator.Run(mainStream)
+	if err != nil || streamFailed || streamInterrupted {
+		t.Fatalf("unexpected orchestrator result err=%v failed=%v interrupted=%v", err, streamFailed, streamInterrupted)
+	}
+	refs, ok := upstreamPayload["references"].([]any)
+	if !ok || len(refs) != 1 {
+		t.Fatalf("expected one upstream reference, got %#v", upstreamPayload["references"])
+	}
+	ref, ok := refs[0].(map[string]any)
+	if !ok {
+		t.Fatalf("expected reference map, got %#v", refs[0])
+	}
+	if ref["sandboxPath"] != "/workspace/draft.md" || ref["name"] != "draft.md" {
+		t.Fatalf("unexpected reference metadata %#v", ref)
+	}
+	refURL, _ := ref["url"].(string)
+	if !strings.HasPrefix(refURL, "https://platform.example/api/resource?") || !strings.Contains(refURL, "t=") {
+		t.Fatalf("expected absolute ticketed resource url, got %q", refURL)
+	}
+	parsed, err := url.Parse(refURL)
+	if err != nil {
+		t.Fatalf("parse ref url: %v", err)
+	}
+	if got := parsed.Query().Get("file"); got != "chat_1/draft.md" {
+		t.Fatalf("unexpected file param %q", got)
 	}
 }
 

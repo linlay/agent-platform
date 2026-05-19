@@ -23,6 +23,12 @@ inputSchema:
           taskName:
             type: string
             description: Optional. Short title shown in the task panel while the sub-agent is active.
+          files:
+            type: array
+            description: Optional. Local files the sub-agent must inspect. Use explicit /workspace/... paths or current-chat resource URLs; PROXY sub-agents receive these as downloadable references.
+            items:
+              type: string
+            maxItems: 10
         required:
           - subAgentKey
           - task

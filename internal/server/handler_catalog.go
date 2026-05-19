@@ -194,7 +194,7 @@ func (s *Server) buildAgentEditorOptions() api.AgentEditorOptionsResponse {
 		Modes: []api.AgentEditorOption{
 			{Key: "REACT", Label: "REACT"},
 			{Key: "PLAN_EXECUTE", Label: "PLAN-EXECUTE"},
-			{Key: "PROXY", Label: "ACP-PROXY"},
+			{Key: "PROXY", Label: "PROXY"},
 		},
 		ProxyConfigSchema: api.AgentEditorProxyConfigSchema{
 			DefaultTimeoutMs: 300000,

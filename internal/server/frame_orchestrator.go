@@ -30,6 +30,8 @@ type frameOrchestrator struct {
 	registry           catalog.Registry
 	buildQuerySession  func(context.Context, api.QueryRequest, chat.Summary, catalog.AgentDefinition, querySessionBuildOptions) (contracts.QuerySession, error)
 	chats              chat.Store
+	resourceBaseURL    string
+	resourceTickets    *ResourceTicketService
 	prepareSystemInits func(api.QueryRequest, *contracts.QuerySession, bool) ([]chat.QueryLineSystemInit, error)
 	buildChildSystems  func(api.QueryRequest, *contracts.QuerySession) []chat.QueryLineSystemInit
 	systemInitMu       sync.Mutex
@@ -142,6 +144,7 @@ func (o *frameOrchestrator) handleSubAgentBatch(mainStream contracts.AgentStream
 				SubAgentKey: subAgentKey,
 				TaskText:    taskText,
 				TaskName:    taskName,
+				Files:       append([]string(nil), task.Files...),
 			},
 			agentDef:  agentDef,
 			taskID:    fmt.Sprintf("%s_t_%d", strings.TrimSpace(o.session.RunID), taskIndex),
@@ -247,6 +250,21 @@ func (o *frameOrchestrator) runChildTask(index int, task preparedSubTask, princi
 	if strings.TrimSpace(subReq.Role) == "" {
 		subReq.Role = "user"
 	}
+	references, err := prepareProxyReferences(o.chats, o.resourceTickets, proxyReferenceOptions{
+		ChatID:          subReq.ChatID,
+		RunID:           subReq.RunID,
+		Subject:         o.session.Subject,
+		ResourceBaseURL: o.resourceBaseURL,
+		References:      subReq.References,
+		Files:           task.spec.Files,
+	})
+	if err != nil {
+		result.Status = "failed"
+		result.Text = err.Error()
+		result.Error = err.Error()
+		return result
+	}
+	subReq.References = references
 
 	subSession, err := o.buildQuerySession(o.runCtx, subReq, o.summary, task.agentDef, querySessionBuildOptions{
 		Created:           false,

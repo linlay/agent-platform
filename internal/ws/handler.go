@@ -76,6 +76,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	conn := NewConn(socket, h.hub, h.cfg, h.heartbeatInterval, auth)
+	conn.SetRequestBaseURL(wsRequestBaseURL(r))
 	dispatch := h.Dispatch
 	if h.dispatch != nil {
 		dispatch = h.dispatch
@@ -138,6 +139,28 @@ func extractToken(r *http.Request) (string, string, error) {
 		return "", "", errors.New("missing token")
 	}
 	return token, "", nil
+}
+
+func wsRequestBaseURL(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	host := strings.TrimSpace(r.Header.Get("X-Forwarded-Host"))
+	if host == "" {
+		host = strings.TrimSpace(r.Host)
+	}
+	if host == "" {
+		return ""
+	}
+	proto := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))
+	if proto == "" {
+		if r.TLS != nil {
+			proto = "https"
+		} else {
+			proto = "http"
+		}
+	}
+	return strings.TrimRight(proto+"://"+host, "/")
 }
 
 func MarshalPayload(value any) json.RawMessage {

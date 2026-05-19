@@ -36,6 +36,7 @@ type preparedQuery struct {
 	session            contracts.QuerySession
 	memoryUsageSummary *api.MemoryUsageSummary
 	systemInitLines    []chat.QueryLineSystemInit
+	resourceBaseURL    string
 }
 
 func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
@@ -50,7 +51,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if strings.EqualFold(prepared.agentDef.Mode, "PROXY") {
-		s.handleProxyQuery(w, r, prepared.req, prepared.agentDef, prepared.systemInitLines)
+		s.handleProxyQuery(w, r, prepared)
 		return
 	}
 	if isSyncQueryContext(r.Context()) {
@@ -182,6 +183,7 @@ func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
 		session:            session,
 		memoryUsageSummary: session.MemoryUsageSummary,
 		systemInitLines:    systemInitLines,
+		resourceBaseURL:    requestBaseURL(r),
 	}, nil
 }
 
@@ -511,6 +513,8 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 		EventBus:           eventBus,
 		Chats:              s.deps.Chats,
 		RunControl:         control,
+		ResourceBaseURL:    prepared.resourceBaseURL,
+		ResourceTickets:    s.ticketService,
 		BuildQuerySession:  s.BuildQuerySession,
 		PrepareSystemInits: s.prepareSystemInitCache,
 		BuildChildSystems:  s.buildSystemInitsForChildTask,
@@ -693,6 +697,8 @@ func syncRunExecutorParams(s *Server, prepared preparedQuery, control *contracts
 		Session:            prepared.session,
 		Chats:              s.deps.Chats,
 		RunControl:         control,
+		ResourceBaseURL:    prepared.resourceBaseURL,
+		ResourceTickets:    s.ticketService,
 		PrepareSystemInits: s.prepareSystemInitCache,
 		BuildChildSystems:  s.buildSystemInitsForChildTask,
 		Notifications:      s.deps.Notifications,

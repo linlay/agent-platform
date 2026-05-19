@@ -178,7 +178,18 @@ func (s *Server) runProxyWebSocket(
 		}
 	}()
 
-	if err := upstream.WriteJSON(proxyQueryPayload(prepared.req, prepared.agentDef.ProxyConfig)); err != nil {
+	proxyReferences, err := prepareProxyReferences(s.deps.Chats, s.ticketService, proxyReferenceOptions{
+		ChatID:          prepared.req.ChatID,
+		RunID:           prepared.req.RunID,
+		Subject:         prepared.session.Subject,
+		ResourceBaseURL: prepared.resourceBaseURL,
+		References:      prepared.req.References,
+	})
+	if err != nil {
+		s.publishProxyError(eventBus, recorder, prepared.req, err)
+		return
+	}
+	if err := upstream.WriteJSON(proxyQueryPayload(prepared.req, prepared.agentDef.ProxyConfig, proxyReferences)); err != nil {
 		s.publishProxyError(eventBus, recorder, prepared.req, fmt.Errorf("proxy websocket write failed: %w", err))
 		return
 	}
@@ -240,6 +251,17 @@ func (s *Server) runProxySSE(
 
 	baseURL := strings.TrimRight(proxy.BaseURL, "/")
 	targetURL := baseURL + "/api/query"
+	proxyReferences, err := prepareProxyReferences(s.deps.Chats, s.ticketService, proxyReferenceOptions{
+		ChatID:          prepared.req.ChatID,
+		RunID:           prepared.req.RunID,
+		Subject:         prepared.session.Subject,
+		ResourceBaseURL: prepared.resourceBaseURL,
+		References:      prepared.req.References,
+	})
+	if err != nil {
+		s.publishProxyError(eventBus, recorder, prepared.req, err)
+		return
+	}
 	body, err := json.Marshal(map[string]any{
 		"requestId":  prepared.req.RequestID,
 		"runId":      prepared.req.RunID,
@@ -247,7 +269,7 @@ func (s *Server) runProxySSE(
 		"agentKey":   proxyAgentKey(proxy, prepared.req.AgentKey),
 		"role":       prepared.req.Role,
 		"message":    prepared.req.Message,
-		"references": prepared.req.References,
+		"references": proxyReferences,
 		"params":     prepared.req.Params,
 		"scene":      prepared.req.Scene,
 		"stream":     true,
@@ -369,7 +391,7 @@ func proxyUpstreamTransport(proxy *catalog.ProxyConfig) string {
 	}
 }
 
-func proxyQueryPayload(req api.QueryRequest, proxy *catalog.ProxyConfig) map[string]any {
+func proxyQueryPayload(req api.QueryRequest, proxy *catalog.ProxyConfig, references []api.Reference) map[string]any {
 	payload := map[string]any{
 		"requestId":  req.RequestID,
 		"runId":      req.RunID,
@@ -377,7 +399,7 @@ func proxyQueryPayload(req api.QueryRequest, proxy *catalog.ProxyConfig) map[str
 		"agentKey":   proxyAgentKey(proxy, req.AgentKey),
 		"role":       req.Role,
 		"message":    req.Message,
-		"references": req.References,
+		"references": references,
 		"params":     req.Params,
 		"scene":      req.Scene,
 		"stream":     true,

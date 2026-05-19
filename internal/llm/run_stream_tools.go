@@ -160,6 +160,7 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 				SubAgentKey: subAgentKey,
 				TaskText:    taskText,
 				TaskName:    taskName,
+				Files:       mapStringListArg(taskMap, "files"),
 			})
 		}
 		return &preparedToolInvocation{
@@ -743,6 +744,31 @@ func mapStringArg(args map[string]any, key string) string {
 		return value
 	}
 	return ""
+}
+
+func mapStringListArg(args map[string]any, key string) []string {
+	raw, ok := args[key].([]any)
+	if !ok || len(raw) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(raw))
+	seen := map[string]struct{}{}
+	for _, item := range raw {
+		text, ok := item.(string)
+		if !ok {
+			continue
+		}
+		text = strings.TrimSpace(text)
+		if text == "" {
+			continue
+		}
+		if _, exists := seen[text]; exists {
+			continue
+		}
+		seen[text] = struct{}{}
+		out = append(out, text)
+	}
+	return out
 }
 
 func structuredResult(payload map[string]any) ToolExecutionResult {

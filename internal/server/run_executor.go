@@ -29,6 +29,8 @@ type RunExecutorParams struct {
 	EventBus           *stream.RunEventBus
 	Chats              chat.Store
 	RunControl         *contracts.RunControl
+	ResourceBaseURL    string
+	ResourceTickets    *ResourceTicketService
 	BuildQuerySession  func(context.Context, api.QueryRequest, chat.Summary, catalog.AgentDefinition, querySessionBuildOptions) (contracts.QuerySession, error)
 	PrepareSystemInits func(api.QueryRequest, *contracts.QuerySession, bool) ([]chat.QueryLineSystemInit, error)
 	BuildChildSystems  func(api.QueryRequest, *contracts.QuerySession) []chat.QueryLineSystemInit
@@ -307,6 +309,8 @@ func runExecutor(params RunExecutorParams) {
 		registry:           params.Registry,
 		buildQuerySession:  params.BuildQuerySession,
 		chats:              params.Chats,
+		resourceBaseURL:    params.ResourceBaseURL,
+		resourceTickets:    params.ResourceTickets,
 		prepareSystemInits: params.PrepareSystemInits,
 		buildChildSystems:  params.BuildChildSystems,
 		mapper:             params.Mapper,
