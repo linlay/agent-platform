@@ -14,6 +14,10 @@ import (
 
 var desktopActionAllowlist = map[string]bool{
 	"desktop.navigate.toRoute":                 true,
+	"desktop.settings.getState":                true,
+	"desktop.settings.validatePatch":           true,
+	"desktop.settings.previewPatch":            true,
+	"desktop.settings.applyPatch":              true,
 	"desktop.controlCenter.listServices":       true,
 	"desktop.controlCenter.getServiceStatus":   true,
 	"desktop.controlCenter.getServiceDetail":   true,
@@ -36,6 +40,7 @@ var desktopActionAllowlist = map[string]bool{
 	"desktop.market.updateItem":                true,
 	"desktop.market.uninstallItem":             true,
 	"desktop.market.importSkill":               true,
+	"desktop.market.buildSandboxImage":         true,
 	"desktop.help.getCurrentTopic":             true,
 	"desktop.help.searchTopics":                true,
 	"desktop.help.openTopic":                   true,
@@ -63,13 +68,6 @@ var desktopActionAllowlist = map[string]bool{
 	"desktop.automations.resumeSchedule":       true,
 	"desktop.automations.deleteSchedule":       true,
 	"desktop.automations.explainNextRun":       true,
-	"desktop.memory.getSettings":               true,
-	"desktop.memory.getSummary":                true,
-	"desktop.memory.listRecentItems":           true,
-	"desktop.memory.searchItems":               true,
-	"desktop.memory.previewItem":               true,
-	"desktop.memory.enableAutoLearn":           true,
-	"desktop.memory.disableAutoLearn":          true,
 }
 
 type desktopActionRequest struct {

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"sort"
 	"testing"
 
 	"agent-platform/internal/config"
@@ -137,6 +139,110 @@ func TestInvokeDesktopActionRejectsPageActions(t *testing.T) {
 	}
 }
 
+func TestDesktopActionAllowlistMatchesToolSchema(t *testing.T) {
+	want := []string{
+		"desktop.agents.applyAgentConfigPatch",
+		"desktop.agents.cloneAgent",
+		"desktop.agents.createAgent",
+		"desktop.agents.createAgentDraft",
+		"desktop.agents.disableAgent",
+		"desktop.agents.getAgentDetail",
+		"desktop.agents.listAgents",
+		"desktop.agents.previewAgentConfigPatch",
+		"desktop.agents.reloadAgents",
+		"desktop.agents.updateAgent",
+		"desktop.agents.validateAgentConfig",
+		"desktop.automations.createSchedule",
+		"desktop.automations.deleteSchedule",
+		"desktop.automations.explainNextRun",
+		"desktop.automations.getScheduleDetail",
+		"desktop.automations.listSchedules",
+		"desktop.automations.pauseSchedule",
+		"desktop.automations.previewSchedule",
+		"desktop.automations.resumeSchedule",
+		"desktop.automations.updateSchedule",
+		"desktop.automations.validateSchedule",
+		"desktop.controlCenter.getServiceDetail",
+		"desktop.controlCenter.getServiceLogsMeta",
+		"desktop.controlCenter.getServiceStatus",
+		"desktop.controlCenter.initializeService",
+		"desktop.controlCenter.installService",
+		"desktop.controlCenter.listServices",
+		"desktop.controlCenter.openLogViewer",
+		"desktop.controlCenter.readServiceLog",
+		"desktop.controlCenter.restartService",
+		"desktop.controlCenter.startService",
+		"desktop.controlCenter.stopService",
+		"desktop.help.explainCurrentPage",
+		"desktop.help.getCurrentTopic",
+		"desktop.help.navigateToRelatedPage",
+		"desktop.help.openTopic",
+		"desktop.help.searchTopics",
+		"desktop.help.suggestNextAction",
+		"desktop.market.applySettingsPatch",
+		"desktop.market.buildSandboxImage",
+		"desktop.market.getItemDetail",
+		"desktop.market.getSettings",
+		"desktop.market.importSkill",
+		"desktop.market.installItem",
+		"desktop.market.listItems",
+		"desktop.market.previewSettingsPatch",
+		"desktop.market.refresh",
+		"desktop.market.uninstallItem",
+		"desktop.market.updateItem",
+		"desktop.market.validateSettings",
+		"desktop.navigate.toRoute",
+		"desktop.settings.applyPatch",
+		"desktop.settings.getState",
+		"desktop.settings.previewPatch",
+		"desktop.settings.validatePatch",
+	}
+	sort.Strings(want)
+
+	gotAllowlist := sortedDesktopActionAllowlist()
+	if !reflect.DeepEqual(gotAllowlist, want) {
+		t.Fatalf("desktop action allowlist mismatch\nwant: %#v\n got: %#v", want, gotAllowlist)
+	}
+
+	gotSchema := sortedToolPropertyEnum(t, "desktop_action", "action")
+	if !reflect.DeepEqual(gotSchema, want) {
+		t.Fatalf("desktop action schema enum mismatch\nwant: %#v\n got: %#v", want, gotSchema)
+	}
+}
+
+func TestDesktopCDPMethodSchemaUsesRecommendedEnum(t *testing.T) {
+	want := []string{
+		"DOM.getBoxModel",
+		"DOM.getDocument",
+		"DOM.getOuterHTML",
+		"DOM.querySelector",
+		"DOM.querySelectorAll",
+		"Input.dispatchKeyEvent",
+		"Input.dispatchMouseEvent",
+		"Input.insertText",
+		"Network.disable",
+		"Network.enable",
+		"Page.bringToFront",
+		"Page.captureScreenshot",
+		"Page.enable",
+		"Page.navigate",
+		"Page.reload",
+		"Runtime.evaluate",
+		"Target.getTargets",
+	}
+	sort.Strings(want)
+
+	got := sortedToolPropertyEnum(t, "desktop_cdp", "method")
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("desktop_cdp method enum mismatch\nwant: %#v\n got: %#v", want, got)
+	}
+	for _, endpoint := range []string{"/json/version", "/json", "/json/list"} {
+		if enumContainsString(got, endpoint) {
+			t.Fatalf("desktop_cdp method enum must not include HTTP endpoint %q", endpoint)
+		}
+	}
+}
+
 func TestInvokeDesktopActionRequiresConfiguredBridge(t *testing.T) {
 	result, err := (&RuntimeToolExecutor{}).invokeDesktopAction(context.Background(), map[string]any{
 		"action": "desktop.controlCenter.listServices",
@@ -147,6 +253,61 @@ func TestInvokeDesktopActionRequiresConfiguredBridge(t *testing.T) {
 	if result.ExitCode != -1 || result.Error != "desktop_action_bridge_not_configured" {
 		t.Fatalf("expected bridge not configured failure, got exit=%d error=%q output=%s", result.ExitCode, result.Error, result.Output)
 	}
+}
+
+func sortedDesktopActionAllowlist() []string {
+	values := make([]string, 0, len(desktopActionAllowlist))
+	for action := range desktopActionAllowlist {
+		values = append(values, action)
+	}
+	sort.Strings(values)
+	return values
+}
+
+func sortedToolPropertyEnum(t *testing.T, toolName string, propertyName string) []string {
+	t.Helper()
+	defs, err := LoadEmbeddedToolDefinitions()
+	if err != nil {
+		t.Fatalf("load embedded tools: %v", err)
+	}
+	for _, def := range defs {
+		if def.Name != toolName {
+			continue
+		}
+		properties, ok := def.Parameters["properties"].(map[string]any)
+		if !ok {
+			t.Fatalf("%s parameters missing properties: %#v", toolName, def.Parameters)
+		}
+		property, ok := properties[propertyName].(map[string]any)
+		if !ok {
+			t.Fatalf("%s property %s missing: %#v", toolName, propertyName, properties[propertyName])
+		}
+		enum, ok := property["enum"].([]any)
+		if !ok {
+			t.Fatalf("%s property %s missing enum: %#v", toolName, propertyName, property)
+		}
+		values := make([]string, 0, len(enum))
+		for _, item := range enum {
+			value, ok := item.(string)
+			if !ok {
+				t.Fatalf("%s property %s enum contains non-string: %#v", toolName, propertyName, item)
+			}
+			values = append(values, value)
+		}
+		sort.Strings(values)
+		return values
+	}
+	t.Fatalf("tool %s not found", toolName)
+	return nil
+}
+
+func enumContainsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 func newDesktopTestExecutor(actionURL string, cdpURL string) *RuntimeToolExecutor {

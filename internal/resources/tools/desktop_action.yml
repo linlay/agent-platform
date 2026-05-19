@@ -11,6 +11,10 @@ inputSchema:
       description: Required. Allowlisted Desktop action name to call through the local Desktop Action Bridge.
       enum:
         - desktop.navigate.toRoute
+        - desktop.settings.getState
+        - desktop.settings.validatePatch
+        - desktop.settings.previewPatch
+        - desktop.settings.applyPatch
         - desktop.controlCenter.listServices
         - desktop.controlCenter.getServiceStatus
         - desktop.controlCenter.getServiceDetail
@@ -33,6 +37,7 @@ inputSchema:
         - desktop.market.updateItem
         - desktop.market.uninstallItem
         - desktop.market.importSkill
+        - desktop.market.buildSandboxImage
         - desktop.help.getCurrentTopic
         - desktop.help.searchTopics
         - desktop.help.openTopic
@@ -60,13 +65,6 @@ inputSchema:
         - desktop.automations.resumeSchedule
         - desktop.automations.deleteSchedule
         - desktop.automations.explainNextRun
-        - desktop.memory.getSettings
-        - desktop.memory.getSummary
-        - desktop.memory.listRecentItems
-        - desktop.memory.searchItems
-        - desktop.memory.previewItem
-        - desktop.memory.enableAutoLearn
-        - desktop.memory.disableAutoLearn
     args:
       type: object
       description: JSON arguments for the selected action. Use only fields documented by the Desktop action catalog.
