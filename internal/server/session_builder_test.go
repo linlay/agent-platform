@@ -99,7 +99,7 @@ func TestBuildQuerySessionUsesCoderProfileDefaults(t *testing.T) {
 		t.Fatalf("build query session: %v", err)
 	}
 
-	wantTools := []string{"bash", "file_read", "file_write", "file_grep", "datetime", "ask_user_question", "desktop_cdp"}
+	wantTools := []string{"bash", "file_read", "file_write", "file_grep", "datetime"}
 	if !reflect.DeepEqual(session.ToolNames, wantTools) {
 		t.Fatalf("tool names = %#v, want %#v", session.ToolNames, wantTools)
 	}

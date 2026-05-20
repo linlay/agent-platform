@@ -15,8 +15,6 @@ var coderAgentProfile = agentTypeProfile{
 		"file_write",
 		"file_grep",
 		"datetime",
-		"ask_user_question",
-		"desktop_cdp",
 	},
 	ContextTags: []string{"system", "session", "owner"},
 	Budget: map[string]any{
