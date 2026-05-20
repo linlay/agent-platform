@@ -80,10 +80,7 @@ func compatRequestOverrides(protocolConfig protocolRuntimeConfig, reasoningEnabl
 	return overrides
 }
 
-func preserveReasoningContent(protocolConfig protocolRuntimeConfig, stageSettings StageSettings) bool {
-	if !stageSettings.ReasoningEnabled {
-		return false
-	}
+func preserveReasoningContent(protocolConfig protocolRuntimeConfig, _ StageSettings) bool {
 	messagesCompat := AnyMapNode(protocolConfig.Compat["messages"])
 	return AnyBoolNode(messagesCompat["preserveReasoningContent"])
 }

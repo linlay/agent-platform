@@ -71,7 +71,7 @@ func TestCompatRequestOverridesMergeAlwaysAndReasoningScopedEntries(t *testing.T
 	}
 }
 
-func TestPreserveReasoningContentRequiresCompatAndReasoningEnabled(t *testing.T) {
+func TestPreserveReasoningContentRequiresCompatOnly(t *testing.T) {
 	protocolConfig := protocolRuntimeConfig{
 		Compat: map[string]any{
 			"messages": map[string]any{
@@ -79,8 +79,8 @@ func TestPreserveReasoningContentRequiresCompatAndReasoningEnabled(t *testing.T)
 			},
 		},
 	}
-	if preserveReasoningContent(protocolConfig, StageSettings{}) {
-		t.Fatal("expected disabled reasoning to suppress reasoning_content preservation")
+	if !preserveReasoningContent(protocolConfig, StageSettings{}) {
+		t.Fatal("expected compat flag to preserve reasoning_content even when reasoning is disabled")
 	}
 	if !preserveReasoningContent(protocolConfig, StageSettings{ReasoningEnabled: true}) {
 		t.Fatal("expected compat flag plus enabled reasoning to preserve reasoning_content")
@@ -109,14 +109,14 @@ func TestOpenAIProtocolPrepareRequestReasoningContentCompat(t *testing.T) {
 			wantReasoning: true,
 		},
 		{
-			name:             "compat does not preserve when reasoning disabled",
+			name:             "compat preserves when reasoning disabled",
 			reasoningEnabled: false,
 			compat: map[string]any{
 				"messages": map[string]any{
 					"preserveReasoningContent": true,
 				},
 			},
-			wantReasoning: false,
+			wantReasoning: true,
 		},
 	}
 
@@ -195,7 +195,7 @@ func TestNewAssistantTurnMessageReasoningContentCompat(t *testing.T) {
 				},
 			},
 		},
-		stageSettings: StageSettings{ReasoningEnabled: true},
+		stageSettings: StageSettings{},
 	}
 	got := deepSeekStream.newAssistantTurnMessage(turn, "", toolCalls)
 	if got.ReasoningContent != "thinking..." {

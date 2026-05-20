@@ -239,7 +239,7 @@ func rawMessageToOpenAI(raw map[string]any, preserveReasoning bool) openAIMessag
 	msg := openAIMessage{Role: role, Content: content}
 	if role == "assistant" {
 		if preserveReasoning {
-			msg.ReasoningContent, _ = raw["reasoning_content"].(string)
+			msg.ReasoningContent = rawReasoningContentText(raw["reasoning_content"])
 		}
 		if calls, ok := raw["tool_calls"].([]any); ok {
 			for _, c := range calls {
@@ -279,6 +279,28 @@ func rawMessageToOpenAI(raw map[string]any, preserveReasoning bool) openAIMessag
 		}
 	}
 	return msg
+}
+
+func rawReasoningContentText(value any) string {
+	if text, ok := value.(string); ok {
+		return text
+	}
+	parts, ok := value.([]any)
+	if !ok {
+		return ""
+	}
+	texts := make([]string, 0, len(parts))
+	for _, part := range parts {
+		partMap, _ := part.(map[string]any)
+		if partMap == nil {
+			continue
+		}
+		text, _ := partMap["text"].(string)
+		if strings.TrimSpace(text) != "" {
+			texts = append(texts, strings.TrimSpace(text))
+		}
+	}
+	return strings.TrimSpace(strings.Join(texts, "\n"))
 }
 
 func applyOpenAIMessageCompat(messages []openAIMessage, preserveReasoning bool) []openAIMessage {

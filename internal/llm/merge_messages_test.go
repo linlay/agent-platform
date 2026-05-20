@@ -243,6 +243,15 @@ func TestRawMessageToOpenAI_PreservesReasoningContentWhenEnabled(t *testing.T) {
 	if len(withReasoning.ToolCalls) != 1 {
 		t.Fatalf("expected tool call to be preserved, got %#v", withReasoning.ToolCalls)
 	}
+
+	raw["reasoning_content"] = []any{
+		map[string]any{"type": "text", "text": "thinking..."},
+		map[string]any{"type": "text", "text": "more thinking..."},
+	}
+	withPartsReasoning := rawMessageToOpenAI(raw, true)
+	if withPartsReasoning.ReasoningContent != "thinking...\nmore thinking..." {
+		t.Fatalf("expected reasoning_content parts to be preserved, got %q", withPartsReasoning.ReasoningContent)
+	}
 }
 
 func TestNormalizeOpenAIMessages_ReordersToolResultsAheadOfSyntheticSummary(t *testing.T) {
