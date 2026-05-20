@@ -16,7 +16,12 @@
 - `GET /api/tool?toolName=...`
 - `GET /api/chats`
 - `GET /api/chat?chatId=...`
+- `POST /api/chats/search`
 - `POST /api/read`
+- `GET /api/chat/export?chatId=...`
+- `GET /api/archives`
+- `GET /api/archive?chatId=...`
+- `POST /api/archives/search`
 - `POST /api/query`
 - `POST /api/submit`
 - `POST /api/steer`

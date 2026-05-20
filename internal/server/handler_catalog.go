@@ -137,11 +137,11 @@ func (s *Server) handleTeams(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSkills(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, api.Success(s.deps.Registry.Skills(r.URL.Query().Get("tag"))))
+	writeJSON(w, http.StatusOK, api.Success(s.deps.Registry.Skills("")))
 }
 
 func (s *Server) handleTools(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, api.Success(s.listTools(r.URL.Query().Get("kind"), r.URL.Query().Get("tag"))))
+	writeJSON(w, http.StatusOK, api.Success(s.listTools(r.URL.Query().Get("kind"), "")))
 }
 
 func (s *Server) handleTool(w http.ResponseWriter, r *http.Request) {

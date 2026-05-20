@@ -220,12 +220,15 @@ runtimeConfig:
 - `GET /api/agents`：返回目录驱动的 agent 列表；可选 `includeChats=N` 为每个 agent 附带最近 N 条 active chat 摘要（最大 50，不包含 archived chats）
 - `GET /api/agent?agentKey=...`：返回单个 agent 详情，包含 model / tool / skill / sandbox 元数据
 - `GET /api/teams`：返回目录驱动的 team 列表
-- `GET /api/skills`：返回目录驱动的 skill 列表，支持 `tag`
+- `GET /api/skills`：返回目录驱动的 skill 列表
 - `GET /api/tools`：返回 tool 列表，支持 `kind` 过滤
 - `GET /api/tool?toolName=...`：返回单个 tool 详情
 - `GET /api/chats`：返回 chat 摘要列表，支持 `lastRunId`、`agentKey`，`lastRunId` 兼容 base36 毫秒 runId 与旧版 `run_YYYY...` 格式
 - `GET /api/chat?chatId=...`：返回 chat 详情，`includeRawMessages=true` 时附带 `rawMessages`
+- `POST /api/chats/search`：全局搜索 active chats，支持 `query`、`agentKey`、`teamId`、`limit`
 - `POST /api/read`：将 chat 标记为已读
+- `GET /api/chat/export?chatId=...`：将 active chat 导出为 Markdown
+- `GET /api/archives`、`GET /api/archive?chatId=...`、`POST /api/archives/search`：归档列表、归档详情与归档搜索
 - `POST /api/query`：返回 SSE；支持可选 `runId` 透传；缺失 `runId` 时服务端按 `base36(epochMillis)` 生成，缺失 `requestId` / `chatId` 时服务端自动生成，缺失 `agentKey` 时回退到默认 agent
 - `GET /api/attach?runId=...&lastSeq=...`：续接已注册 run 的 SSE 事件流；run 超过 retention 时返回 `SEQ_EXPIRED`
 - `POST /api/submit`：当前返回最小 ack，占位 awaiting 提交链路；请求体要求 `runId + awaitingId`

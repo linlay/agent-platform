@@ -113,48 +113,6 @@ func (s *Server) handleArchiveDelete(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, api.Success(response))
 }
 
-func (s *Server) handleArchiveResource(w http.ResponseWriter, r *http.Request) {
-	chatID := strings.TrimSpace(r.URL.Query().Get("chatId"))
-	fileParam := strings.TrimSpace(r.URL.Query().Get("file"))
-	if !chat.ValidChatID(chatID) || fileParam == "" {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "chatId and file are required"))
-		return
-	}
-	if s.deps.Archives == nil {
-		writeJSON(w, http.StatusServiceUnavailable, api.Failure(http.StatusServiceUnavailable, "archive store is not configured"))
-		return
-	}
-	if s.deps.Config.ResourceTicket.Enabled() {
-		principal := PrincipalFromContext(r.Context())
-		ticket := strings.TrimSpace(r.URL.Query().Get("t"))
-		if principal == nil {
-			if ticket == "" {
-				writeJSON(w, http.StatusUnauthorized, api.Failure(http.StatusUnauthorized, "resource ticket required"))
-				return
-			}
-			ticketChatID, err := s.ticketService.Verify(ticket)
-			if err != nil {
-				writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, err.Error()))
-				return
-			}
-			if ticketChatID != chatID {
-				writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "resource ticket chat mismatch"))
-				return
-			}
-		}
-	}
-	path, err := s.deps.Archives.ResolveResource(chatID, fileParam)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "resource not found"))
-			return
-		}
-		writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "resource access denied"))
-		return
-	}
-	http.ServeFile(w, r, path)
-}
-
 func (s *Server) archiveChats(chatIDs []string) (api.ArchiveChatResponse, error) {
 	if s.deps.Archiver == nil {
 		return api.ArchiveChatResponse{}, errors.New("archiver is not configured")

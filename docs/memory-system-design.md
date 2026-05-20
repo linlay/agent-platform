@@ -170,7 +170,6 @@
 
 - 当前不会在每次 query 自动注入 prompt
 - 只有当 agent 或用户明确要查历史时，才通过：
-  - `POST /api/session-search`
   - `_session_search_`
 - 检索当前 chat 里的 query、message、event、submit 等内容
 
@@ -381,7 +380,6 @@ observation 不等于永久记忆。
 实现位置：
 
 - [internal/chat/search.go](../internal/chat/search.go)
-- [internal/server/handler_chat_search.go](../internal/server/handler_chat_search.go)
 - [internal/tools/tool_session_search.go](../internal/tools/tool_session_search.go)
 
 职责：
@@ -815,12 +813,10 @@ observation 不是永久记忆，系统会自动整理它。
 实现位置：
 
 - [internal/chat/search.go](../internal/chat/search.go)
-- [internal/server/handler_chat_search.go](../internal/server/handler_chat_search.go)
 - [internal/tools/tool_session_search.go](../internal/tools/tool_session_search.go)
 
 当前提供：
 
-- `POST /api/session-search`
 - `_session_search_`
 
 可检索内容包括：
@@ -873,10 +869,6 @@ observation 不是永久记忆，系统会自动整理它。
 
 - `POST /api/remember`
 - `POST /api/learn`
-
-### Session API
-
-- `POST /api/session-search`
 
 ### Skill Candidate API
 

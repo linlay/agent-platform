@@ -94,7 +94,7 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/chat/archive", s.wsChatArchive)
 	handler.RegisterRoute("/api/archives", s.wsArchives)
 	handler.RegisterRoute("/api/archive", s.wsArchive)
-	handler.RegisterRoute("/api/archive/search", s.wsArchiveSearch)
+	handler.RegisterRoute("/api/archives/search", s.wsArchiveSearch)
 	handler.RegisterRoute("/api/archive/delete", s.wsArchiveDelete)
 	handler.RegisterRoute("/api/schedules", s.wsSchedules)
 	handler.RegisterRoute("/api/schedule", s.wsSchedule)
@@ -103,7 +103,7 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/schedule/delete", s.wsScheduleDelete)
 	handler.RegisterRoute("/api/schedule/toggle", s.wsScheduleToggle)
 	handler.RegisterRoute("/api/schedule/executions", s.wsScheduleExecutions)
-	handler.RegisterRoute("/api/search", s.wsGlobalSearch)
+	handler.RegisterRoute("/api/chats/search", s.wsGlobalSearch)
 	handler.RegisterRoute("/api/query", s.wsQuery)
 	handler.RegisterRoute("/api/attach", s.wsAttach)
 	handler.RegisterRoute("/api/submit", s.wsSubmit)
@@ -190,29 +190,25 @@ func (s *Server) wsTeams(_ context.Context, conn *ws.Conn, req ws.RequestFrame) 
 }
 
 func (s *Server) wsSkills(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
-	payload, err := ws.DecodePayload[struct {
-		Tag string `json:"tag"`
-	}](req)
-	if err != nil {
+	if _, err := ws.DecodePayload[struct{}](req); err != nil {
 		conn.SendError(req.ID, "invalid_request", 400, "invalid payload", nil)
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	conn.SendResponse(req.Type, req.ID, 0, "success", s.deps.Registry.Skills(payload.Tag))
+	conn.SendResponse(req.Type, req.ID, 0, "success", s.deps.Registry.Skills(""))
 	conn.CompleteRequest(req.ID)
 }
 
 func (s *Server) wsTools(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
 	payload, err := ws.DecodePayload[struct {
 		Kind string `json:"kind"`
-		Tag  string `json:"tag"`
 	}](req)
 	if err != nil {
 		conn.SendError(req.ID, "invalid_request", 400, "invalid payload", nil)
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	conn.SendResponse(req.Type, req.ID, 0, "success", s.listTools(payload.Kind, payload.Tag))
+	conn.SendResponse(req.Type, req.ID, 0, "success", s.listTools(payload.Kind, ""))
 	conn.CompleteRequest(req.ID)
 }
 

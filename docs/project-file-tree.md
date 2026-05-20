@@ -378,8 +378,6 @@
 - `internal/server/handler_chat.go` (234 行): HTTP/WebSocket 路由、Handler、查询和会话执行：handler chat
 - `internal/server/handler_chat_delete.go` (57 行): HTTP/WebSocket 路由、Handler、查询和会话执行：handler chat delete
 - `internal/server/handler_chat_export.go` (117 行): HTTP/WebSocket 路由、Handler、查询和会话执行：handler chat export
-- `internal/server/handler_chat_search.go` (55 行): HTTP/WebSocket 路由、Handler、查询和会话执行：handler chat search
-- `internal/server/handler_chat_search_test.go` (49 行): 测试与回归验证：handler chat search
 - `internal/server/handler_feedback.go` (44 行): HTTP/WebSocket 路由、Handler、查询和会话执行：handler feedback
 - `internal/server/handler_global_search.go` (45 行): HTTP/WebSocket 路由、Handler、查询和会话执行：handler global search
 - `internal/server/handler_memory.go` (131 行): HTTP/WebSocket 路由、Handler、查询和会话执行：handler memory

@@ -66,6 +66,30 @@ curl -X GET "$BASE_URL/api/chat?chatId=replace-me"
 curl -X GET "$BASE_URL/api/chat?chatId=replace-me&includeRawMessages=true"
 ```
 
+```bash
+curl -X POST "$BASE_URL/api/chats/search" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"replace-me","agentKey":"default_agent","limit":10}'
+```
+
+```bash
+curl -X GET "$BASE_URL/api/chat/export?chatId=replace-me"
+```
+
+```bash
+curl -X GET "$BASE_URL/api/archives?agentKey=default_agent"
+```
+
+```bash
+curl -X GET "$BASE_URL/api/archive?chatId=replace-me"
+```
+
+```bash
+curl -X POST "$BASE_URL/api/archives/search" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"replace-me","agentKey":"default_agent","limit":10}'
+```
+
 ## Query 回归测试
 
 ```bash
