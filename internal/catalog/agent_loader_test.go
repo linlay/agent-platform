@@ -268,6 +268,89 @@ func TestParseAgentFileSupportsCoderWorkspace(t *testing.T) {
 	}
 }
 
+func TestParseAgentFileAppliesCoderProfileDefaults(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "project")
+	path := filepath.Join(root, "agent.yml")
+	content := "" +
+		"key: coder\n" +
+		"type: CODER\n" +
+		"workspaceConfig:\n" +
+		"  root: " + filepath.ToSlash(workspace) + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	wantTools := []string{"bash", "file_read", "file_write", "file_grep", "datetime", "ask_user_question", "desktop_cdp"}
+	if !reflect.DeepEqual(def.Tools, wantTools) {
+		t.Fatalf("tools = %#v, want %#v", def.Tools, wantTools)
+	}
+	wantTags := []string{"system", "session", "owner"}
+	if !reflect.DeepEqual(def.ContextTags, wantTags) {
+		t.Fatalf("context tags = %#v, want %#v", def.ContextTags, wantTags)
+	}
+	if got := intNode(def.Budget["runTimeoutMs"]); got != 3600000 {
+		t.Fatalf("runTimeoutMs = %d, want 3600000", got)
+	}
+	if got := intNode(mapNode(def.Budget["model"])["maxCalls"]); got != 240 {
+		t.Fatalf("model.maxCalls = %d, want 240", got)
+	}
+	if got := intNode(mapNode(def.Budget["tool"])["maxCalls"]); got != 300 {
+		t.Fatalf("tool.maxCalls = %d, want 300", got)
+	}
+	if def.ReactMaxSteps != 160 {
+		t.Fatalf("react max steps = %d, want 160", def.ReactMaxSteps)
+	}
+	if def.Name != "coder" || def.Role != "coder" || def.Description != "coder" {
+		t.Fatalf("identity defaults = name:%q role:%q description:%q, want key fallback", def.Name, def.Role, def.Description)
+	}
+}
+
+func TestParseAgentFileAllowsCoderProfileOverrides(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "project")
+	path := filepath.Join(root, "agent.yml")
+	content := "" +
+		"key: coder\n" +
+		"type: CODER\n" +
+		"toolConfig:\n" +
+		"  tools:\n" +
+		"    - datetime\n" +
+		"contextConfig:\n" +
+		"  tags:\n" +
+		"    - owner\n" +
+		"budget:\n" +
+		"  runTimeoutMs: 1234\n" +
+		"react:\n" +
+		"  maxSteps: 12\n" +
+		"workspaceConfig:\n" +
+		"  root: " + filepath.ToSlash(workspace) + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	if !reflect.DeepEqual(def.Tools, []string{"datetime"}) {
+		t.Fatalf("tools = %#v, want explicit override", def.Tools)
+	}
+	if !reflect.DeepEqual(def.ContextTags, []string{"owner"}) {
+		t.Fatalf("context tags = %#v, want explicit override", def.ContextTags)
+	}
+	if got := intNode(def.Budget["runTimeoutMs"]); got != 1234 {
+		t.Fatalf("runTimeoutMs = %d, want explicit override", got)
+	}
+	if def.ReactMaxSteps != 12 {
+		t.Fatalf("react max steps = %d, want explicit override", def.ReactMaxSteps)
+	}
+}
+
 func TestParseAgentFileRejectsCoderWithoutWorkspace(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")

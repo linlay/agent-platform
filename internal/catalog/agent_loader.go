@@ -354,6 +354,7 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 		}
 	}
 	def.ReactMaxSteps = intNode(mapNode(root["react"])["maxSteps"])
+	def = applyAgentTypeProfileDefaults(def)
 
 	if err := validateReservedBashToolNames(def.Tools, def.ToolOverrides); err != nil {
 		return AgentDefinition{}, nil, err

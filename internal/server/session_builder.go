@@ -116,6 +116,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		ModelKey:               agentDef.ModelKey,
 		ToolNames:              buildSessionToolNames(effectiveAgentTools(agentDef), options.AllowInvokeAgents),
 		Mode:                   agentDef.Mode,
+		ReactMaxSteps:          agentDef.ReactMaxSteps,
 		TeamID:                 req.TeamID,
 		Created:                options.Created,
 		SkillKeys:              append([]string(nil), agentDef.Skills...),

@@ -78,6 +78,7 @@ type QuerySession struct {
 	ModelKey              string
 	ToolNames             []string
 	Mode                  string
+	ReactMaxSteps         int
 	TeamID                string
 	Created               bool
 	Subject               string

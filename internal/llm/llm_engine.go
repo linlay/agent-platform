@@ -154,7 +154,7 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	}
 	maxSteps := options.MaxSteps
 	if maxSteps <= 0 {
-		maxSteps = e.resolveMaxSteps()
+		maxSteps = e.resolveMaxSteps(session)
 	}
 
 	toolChoice := strings.TrimSpace(strings.ToLower(options.ToolChoice))
@@ -219,7 +219,10 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	return stream, nil
 }
 
-func (e *LLMAgentEngine) resolveMaxSteps() int {
+func (e *LLMAgentEngine) resolveMaxSteps(session QuerySession) int {
+	if session.ReactMaxSteps > 0 {
+		return session.ReactMaxSteps
+	}
 	maxSteps := e.cfg.Defaults.React.MaxSteps
 	if maxSteps <= 0 {
 		return 60
