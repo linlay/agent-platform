@@ -23,7 +23,10 @@ inputSchema:
       description: Ripgrep file type filter, such as 'go' or 'py'.
     output_mode:
       type: string
-      enum: ["content", "files_with_matches", "count"]
+      enum:
+        - content
+        - files_with_matches
+        - count
       default: files_with_matches
       description: Output mode. Use content for matching lines, files_with_matches for matching paths, or count for per-file counts.
     "-i":

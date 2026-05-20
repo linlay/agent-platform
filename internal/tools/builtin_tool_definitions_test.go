@@ -87,6 +87,32 @@ func TestAskUserToolSchemasMatchContract(t *testing.T) {
 	}
 }
 
+func TestFileGrepOutputModeEnumIsSchemaArray(t *testing.T) {
+	defs, err := LoadEmbeddedToolDefinitions()
+	if err != nil {
+		t.Fatalf("load embedded tool definitions: %v", err)
+	}
+
+	var fileGrepDef map[string]any
+	for _, def := range defs {
+		if def.Name == "file_grep" {
+			fileGrepDef = def.Parameters
+			break
+		}
+	}
+	if fileGrepDef == nil {
+		t.Fatal("expected file_grep builtin tool definition")
+	}
+
+	properties := mapChild(t, fileGrepDef, "properties")
+	outputMode := properties["output_mode"]
+	for _, want := range []string{"content", "files_with_matches", "count"} {
+		if !enumContains(t, outputMode, want) {
+			t.Fatalf("expected file_grep output_mode enum to include %q", want)
+		}
+	}
+}
+
 func TestEmbeddedToolDescriptionsAreEnglishFriendlyAndComplete(t *testing.T) {
 	defs, err := LoadEmbeddedToolDefinitions()
 	if err != nil {
