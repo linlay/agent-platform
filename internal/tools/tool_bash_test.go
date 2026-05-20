@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"agent-platform/internal/bashsec"
 	"agent-platform/internal/config"
@@ -97,6 +98,41 @@ func TestInvokeHostBashSuccessReturnsPlainStdout(t *testing.T) {
 	}
 	if result.Error != "" {
 		t.Fatalf("expected empty error, got %q", result.Error)
+	}
+}
+
+func TestInvokeHostBashDoesNotWaitForBackgroundProcessOutput(t *testing.T) {
+	root := t.TempDir()
+	executor := &RuntimeToolExecutor{
+		cfg: config.Config{
+			Bash: config.BashConfig{
+				WorkingDirectory:        root,
+				AllowedPaths:            []string{root},
+				AllowedCommands:         []string{"echo", "sleep"},
+				PathCheckedCommands:     []string{},
+				PathCheckBypassCommands: []string{},
+				ShellFeaturesEnabled:    true,
+				ShellExecutable:         "bash",
+				ShellTimeoutMs:          30000,
+				MaxCommandChars:         16000,
+			},
+		},
+	}
+
+	start := time.Now()
+	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": "sleep 2 & echo done"}, nil)
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("invokeHostBash returned error: %v", err)
+	}
+	if elapsed >= time.Second {
+		t.Fatalf("expected background command to return quickly, took %s", elapsed)
+	}
+	if result.Output != "done\n" {
+		t.Fatalf("expected raw stdout from shell command, got %q", result.Output)
+	}
+	if result.ExitCode != 0 || result.Error != "" {
+		t.Fatalf("expected successful result, got %#v", result)
 	}
 }
 

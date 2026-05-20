@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -65,7 +66,26 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	cmd := exec.CommandContext(runCtx, shellExecutable, shellArgs...)
 	cmd.Dir = workingDir
 	cmd.Env = mergeCommandEnv(execCtx)
-	output, err := cmd.CombinedOutput()
+
+	outputFile, err := os.CreateTemp("", "agent-platform-bash-*.log")
+	if err != nil {
+		return bashResult("", err.Error(), "host", workingDir, -1, "bash_output_capture_failed"), nil
+	}
+	defer func() {
+		_ = outputFile.Close()
+		_ = os.Remove(outputFile.Name())
+	}()
+	cmd.Stdout = outputFile
+	cmd.Stderr = outputFile
+
+	err = cmd.Run()
+	if _, seekErr := outputFile.Seek(0, 0); seekErr != nil {
+		return bashResult("", seekErr.Error(), "host", workingDir, -1, "bash_output_capture_failed"), nil
+	}
+	output, readErr := io.ReadAll(outputFile)
+	if readErr != nil {
+		return bashResult("", readErr.Error(), "host", workingDir, -1, "bash_output_capture_failed"), nil
+	}
 	exitCode := 0
 	stderr := ""
 	stdout := string(output)
