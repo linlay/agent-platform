@@ -113,3 +113,93 @@ func TestBuildQuerySessionUsesCoderProfileDefaults(t *testing.T) {
 		t.Fatalf("workspace root = %q, want %q", session.WorkspaceRoot, filepath.Clean(workspace))
 	}
 }
+
+func TestBuildQuerySessionPlanningModeOnlyAppliesToCoder(t *testing.T) {
+	root := t.TempDir()
+	agentsDir := filepath.Join(root, "agents")
+	workspace := filepath.Join(root, "workspace")
+	if err := os.MkdirAll(filepath.Join(agentsDir, "coder-app"), 0o755); err != nil {
+		t.Fatalf("mkdir coder dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(agentsDir, "coder-app", "agent.yml"), []byte(
+		"key: coder-app\n"+
+			"type: CODER\n"+
+			"mode: REACT\n"+
+			"modelConfig:\n"+
+			"  modelKey: mock-model\n"+
+			"workspaceConfig:\n"+
+			"  root: "+filepath.ToSlash(workspace)+"\n",
+	), 0o644); err != nil {
+		t.Fatalf("write coder config: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(agentsDir, "react-app"), 0o755); err != nil {
+		t.Fatalf("mkdir react dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(agentsDir, "react-app", "agent.yml"), []byte(
+		"key: react-app\n"+
+			"mode: REACT\n"+
+			"modelConfig:\n"+
+			"  modelKey: mock-model\n",
+	), 0o644); err != nil {
+		t.Fatalf("write react config: %v", err)
+	}
+	cfg := config.Config{
+		Paths: config.PathsConfig{
+			AgentsDir: agentsDir,
+			ChatsDir:  filepath.Join(root, "chats"),
+		},
+	}
+	registry, err := catalog.NewFileRegistry(cfg, nil)
+	if err != nil {
+		t.Fatalf("new registry: %v", err)
+	}
+	server := &Server{deps: Dependencies{Config: cfg, Registry: registry}}
+	enabled := true
+
+	coderDef, ok := registry.AgentDefinition("coder-app")
+	if !ok {
+		t.Fatal("expected coder definition")
+	}
+	coderSession, err := server.BuildQuerySession(context.Background(), api.QueryRequest{
+		AgentKey:     "coder-app",
+		ChatID:       "chat-coder",
+		RunID:        "run-coder",
+		PlanningMode: &enabled,
+	}, chat.Summary{ChatID: "chat-coder"}, coderDef, querySessionBuildOptions{})
+	if err != nil {
+		t.Fatalf("build coder session: %v", err)
+	}
+	if !coderSession.PlanningMode {
+		t.Fatalf("expected CODER planning mode to be enabled")
+	}
+
+	reactDef, ok := registry.AgentDefinition("react-app")
+	if !ok {
+		t.Fatal("expected react definition")
+	}
+	reactSession, err := server.BuildQuerySession(context.Background(), api.QueryRequest{
+		AgentKey:     "react-app",
+		ChatID:       "chat-react",
+		RunID:        "run-react",
+		PlanningMode: &enabled,
+	}, chat.Summary{ChatID: "chat-react"}, reactDef, querySessionBuildOptions{})
+	if err != nil {
+		t.Fatalf("build react session: %v", err)
+	}
+	if reactSession.PlanningMode {
+		t.Fatalf("did not expect non-CODER planning mode")
+	}
+
+	paramsSession, err := server.BuildQuerySession(context.Background(), api.QueryRequest{
+		AgentKey: "coder-app",
+		ChatID:   "chat-params",
+		RunID:    "run-params",
+		Params:   map[string]any{"planningMode": "true"},
+	}, chat.Summary{ChatID: "chat-params"}, coderDef, querySessionBuildOptions{})
+	if err != nil {
+		t.Fatalf("build params session: %v", err)
+	}
+	if !paramsSession.PlanningMode {
+		t.Fatalf("expected params.planningMode compatibility fallback")
+	}
+}

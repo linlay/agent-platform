@@ -254,6 +254,9 @@ func (r *FileRegistry) Agents(tag string) []api.AgentSummary {
 		if strings.TrimSpace(def.Type) != "" {
 			summary.Meta["type"] = def.Type
 		}
+		if strings.EqualFold(def.Type, AgentTypeCoder) {
+			summary.Meta["planningModeSupported"] = true
+		}
 		if strings.TrimSpace(def.Workspace.Root) != "" {
 			summary.Meta["workspace"] = map[string]any{
 				"root": def.Workspace.Root,

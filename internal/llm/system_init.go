@@ -22,6 +22,9 @@ type SystemInitProfile struct {
 }
 
 func BuildSystemInitProfiles(session QuerySession, req api.QueryRequest, toolDefs []api.ToolDetailResponse, defaultPlanMaxSteps int, defaultPlanMaxWorkRoundsPerTask int) []SystemInitProfile {
+	if session.PlanningMode {
+		return nil
+	}
 	mode := normalizedSystemInitMode(session.Mode)
 	switch mode {
 	case "plan-execute":

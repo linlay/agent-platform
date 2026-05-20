@@ -57,6 +57,9 @@ func NewLLMAgentEngineWithHTTPClient(cfg config.Config, models *ModelRegistry, t
 }
 
 func (e *LLMAgentEngine) Stream(ctx context.Context, req api.QueryRequest, session QuerySession) (AgentStream, error) {
+	if session.PlanningMode {
+		return newCoderPlanningStream(e, ctx, req, session)
+	}
 	return resolveAgentMode(session.Mode).Start(e, ctx, req, session)
 }
 
@@ -87,6 +90,9 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	toolSpecs := toOpenAIToolSpecs(effectiveDefs)
 	cacheKey := SystemInitCacheKey(session.Mode, options.Stage)
 	cachedSystem, cachedTools, cacheOK := resolveCachedSystemInit(session, cacheKey)
+	if session.PlanningMode {
+		cacheOK = false
+	}
 	if cacheOK {
 		toolSpecs = cachedTools
 	}

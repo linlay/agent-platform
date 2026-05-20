@@ -31,18 +31,19 @@ func Failure(code int, msg string) ApiResponse[map[string]any] {
 }
 
 type QueryRequest struct {
-	RequestID  string         `json:"requestId,omitempty"`
-	RunID      string         `json:"runId,omitempty"`
-	ChatID     string         `json:"chatId,omitempty"`
-	AgentKey   string         `json:"agentKey,omitempty"`
-	TeamID     string         `json:"teamId,omitempty"`
-	Role       string         `json:"role,omitempty"`
-	Message    string         `json:"message"`
-	References []Reference    `json:"references,omitempty"`
-	Params     map[string]any `json:"params,omitempty"`
-	Scene      *Scene         `json:"scene,omitempty"`
-	Stream     *bool          `json:"stream,omitempty"`
-	Hidden     *bool          `json:"hidden,omitempty"`
+	RequestID    string         `json:"requestId,omitempty"`
+	RunID        string         `json:"runId,omitempty"`
+	ChatID       string         `json:"chatId,omitempty"`
+	AgentKey     string         `json:"agentKey,omitempty"`
+	TeamID       string         `json:"teamId,omitempty"`
+	Role         string         `json:"role,omitempty"`
+	Message      string         `json:"message"`
+	References   []Reference    `json:"references,omitempty"`
+	Params       map[string]any `json:"params,omitempty"`
+	Scene        *Scene         `json:"scene,omitempty"`
+	Stream       *bool          `json:"stream,omitempty"`
+	Hidden       *bool          `json:"hidden,omitempty"`
+	PlanningMode *bool          `json:"planningMode,omitempty"`
 }
 
 type Scene struct {

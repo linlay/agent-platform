@@ -28,6 +28,16 @@ func isHiddenRequest(req api.QueryRequest) bool {
 	return req.Hidden != nil && *req.Hidden
 }
 
+func requestPlanningModeEnabled(req api.QueryRequest) bool {
+	if req.PlanningMode != nil {
+		return *req.PlanningMode
+	}
+	if req.Params == nil {
+		return false
+	}
+	return contracts.AnyBoolNode(req.Params["planningMode"])
+}
+
 type preparedQuery struct {
 	req                api.QueryRequest
 	summary            chat.Summary

@@ -157,6 +157,23 @@ func TestBuildAgentDetailResponseIncludesTypeAndWorkspace(t *testing.T) {
 	if !ok || workspaceMeta["root"] != workspace {
 		t.Fatalf("expected workspace meta root, got %#v", response.Meta)
 	}
+	if response.Meta["planningModeSupported"] != true {
+		t.Fatalf("expected planningModeSupported meta, got %#v", response.Meta)
+	}
+	if len(response.Controls) != 1 || response.Controls[0]["key"] != "planningMode" || response.Controls[0]["type"] != "toggle" {
+		t.Fatalf("expected default planningMode control, got %#v", response.Controls)
+	}
+	response = s.buildAgentDetailResponse(catalog.AgentDefinition{
+		Key:  "coder-custom",
+		Name: "Coder Custom",
+		Type: catalog.AgentTypeCoder,
+		Controls: []map[string]any{
+			{"key": "planningMode", "type": "custom"},
+		},
+	})
+	if len(response.Controls) != 1 || response.Controls[0]["type"] != "custom" {
+		t.Fatalf("expected explicit planningMode control to be preserved, got %#v", response.Controls)
+	}
 }
 
 func TestAgentEndpointRequiresAgentKey(t *testing.T) {

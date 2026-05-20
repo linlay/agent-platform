@@ -830,6 +830,309 @@ func TestPlanExecutePlanStageOnlyUsesPlanAddTasksBeforeSequentialTaskExecution(t
 	}
 }
 
+func TestCoderPlanningModeQuestionsConfirmThenExecutes(t *testing.T) {
+	var providerCallCount atomic.Int32
+
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode model request: %v", err)
+		}
+		toolNames := providerRequestToolNames(payload["tools"])
+		switch call := providerCallCount.Add(1); call {
+		case 1:
+			assertCoderPlanningToolSet(t, toolNames)
+			writeProviderSSE(t, w,
+				providerToolCallFrame(t, "tool_question_one", "ask_user_question", map[string]any{
+					"mode": "question",
+					"questions": []map[string]any{
+						{
+							"question": "Which file should I inspect?",
+							"type":     "select",
+							"options":  []map[string]any{{"label": "README.md"}},
+						},
+					},
+				}),
+				`[DONE]`,
+			)
+		case 2:
+			assertCoderPlanningToolSet(t, toolNames)
+			writeProviderSSE(t, w,
+				providerToolCallFrame(t, "tool_question_two", "ask_user_question", map[string]any{
+					"mode": "question",
+					"questions": []map[string]any{
+						{
+							"question": "How broad should the change be?",
+							"type":     "select",
+							"options":  []map[string]any{{"label": "Small"}},
+						},
+					},
+				}),
+				`[DONE]`,
+			)
+		case 3:
+			assertCoderPlanningToolSet(t, toolNames)
+			writeProviderSSE(t, w,
+				providerToolCallFrame(t, "tool_plan", "plan_add_tasks", map[string]any{
+					"tasks": []map[string]any{
+						{"taskId": "task_1", "description": "Check the current time before reporting"},
+					},
+				}),
+				`[DONE]`,
+			)
+		case 4:
+			assertStringSliceContains(t, toolNames, "bash", "file_read", "file_write", "file_grep", "datetime", "plan_update_task")
+			assertStringSliceExcludes(t, toolNames, "plan_add_tasks", "ask_user_question")
+			writeProviderSSE(t, w,
+				providerToolCallFrame(t, "tool_time", "datetime", map[string]any{}),
+				`[DONE]`,
+			)
+		case 5:
+			assertStringSliceContains(t, toolNames, "bash", "file_read", "file_write", "file_grep", "datetime", "plan_update_task")
+			assertStringSliceExcludes(t, toolNames, "plan_add_tasks", "ask_user_question")
+			writeProviderSSE(t, w,
+				providerToolCallFrame(t, "tool_done", "plan_update_task", map[string]any{
+					"taskId": "task_1",
+					"status": "completed",
+				}),
+				`[DONE]`,
+			)
+		case 6:
+			if len(toolNames) != 0 {
+				t.Fatalf("coder planning summary should not expose tools, got %#v", toolNames)
+			}
+			writeProviderSSE(t, w,
+				`{"choices":[{"delta":{"content":"confirmed plan completed"},"finish_reason":"stop"}]}`,
+				`[DONE]`,
+			)
+		default:
+			t.Fatalf("unexpected provider call %d", call)
+		}
+	}, testFixtureOptions{
+		setupRuntime: func(root string, cfg *config.Config) {
+			workspace := filepath.Join(root, "workspace")
+			agentDir := filepath.Join(cfg.Paths.AgentsDir, "coder-app")
+			if err := os.MkdirAll(agentDir, 0o755); err != nil {
+				t.Fatalf("mkdir coder agent: %v", err)
+			}
+			if err := os.MkdirAll(workspace, 0o755); err != nil {
+				t.Fatalf("mkdir workspace: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte(strings.Join([]string{
+				"key: coder-app",
+				"name: Coder App",
+				"type: CODER",
+				"mode: REACT",
+				"modelConfig:",
+				"  modelKey: mock-model",
+				"workspaceConfig:",
+				"  root: " + filepath.ToSlash(workspace),
+			}, "\n")), 0o644); err != nil {
+				t.Fatalf("write coder agent: %v", err)
+			}
+		},
+	})
+
+	httpServer := newLoopbackServer(t, fixture.server)
+	defer httpServer.Close()
+
+	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"please plan first","agentKey":"coder-app","planningMode":true}`))
+	if err != nil {
+		t.Fatalf("post query: %v", err)
+	}
+	defer resp.Body.Close()
+
+	reader := bufio.NewReader(resp.Body)
+	var streamBody strings.Builder
+	runID, firstAwaitingID := readAwaitingQuestion(t, reader, &streamBody, "Which file should I inspect?")
+	submitFrontendAnswer(t, fixture.server, runID, firstAwaitingID, "README.md")
+	_, secondAwaitingID := readAwaitingQuestion(t, reader, &streamBody, "How broad should the change be?")
+	submitFrontendAnswer(t, fixture.server, runID, secondAwaitingID, "Small")
+	_, confirmAwaitingID := readAwaitingQuestion(t, reader, &streamBody, "是否按此计划执行？")
+	if strings.Contains(streamBody.String(), `"type":"task.start"`) {
+		t.Fatalf("did not expect task.start before plan confirmation, got %s", streamBody.String())
+	}
+	if !strings.Contains(streamBody.String(), `"type":"plan.update"`) {
+		t.Fatalf("expected plan.update before confirmation, got %s", streamBody.String())
+	}
+	submitFrontendAnswer(t, fixture.server, runID, confirmAwaitingID, "执行计划")
+
+	for {
+		line, readErr := reader.ReadString('\n')
+		streamBody.WriteString(line)
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			t.Fatalf("read query stream after confirmation: %v", readErr)
+		}
+	}
+	body := streamBody.String()
+	planIndex := strings.Index(body, `"type":"plan.update"`)
+	confirmIndex := strings.Index(body, `是否按此计划执行？`)
+	taskStartIndex := strings.Index(body, `"type":"task.start"`)
+	if !(planIndex >= 0 && confirmIndex > planIndex && taskStartIndex > confirmIndex) {
+		t.Fatalf("expected plan.update before confirmation and task.start after confirmation, got %s", body)
+	}
+	if !strings.Contains(body, `"answer":"执行计划"`) {
+		t.Fatalf("expected confirmation answer in stream, got %s", body)
+	}
+	if !strings.Contains(body, `"type":"task.complete"`) || !strings.Contains(body, "confirmed plan completed") {
+		t.Fatalf("expected confirmed execution to complete, got %s", body)
+	}
+	if got := providerCallCount.Load(); got != 6 {
+		t.Fatalf("provider calls = %d, want 6", got)
+	}
+}
+
+func TestCoderPlanningModeCancelDoesNotExecuteTasks(t *testing.T) {
+	var providerCallCount atomic.Int32
+
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode model request: %v", err)
+		}
+		switch call := providerCallCount.Add(1); call {
+		case 1:
+			assertCoderPlanningToolSet(t, providerRequestToolNames(payload["tools"]))
+			writeProviderSSE(t, w,
+				providerToolCallFrame(t, "tool_plan", "plan_add_tasks", map[string]any{
+					"tasks": []map[string]any{
+						{"taskId": "task_1", "description": "This task must not start"},
+					},
+				}),
+				`[DONE]`,
+			)
+		default:
+			t.Fatalf("unexpected provider call after cancel: %d", call)
+		}
+	}, testFixtureOptions{
+		setupRuntime: func(root string, cfg *config.Config) {
+			workspace := filepath.Join(root, "workspace")
+			agentDir := filepath.Join(cfg.Paths.AgentsDir, "coder-app")
+			if err := os.MkdirAll(agentDir, 0o755); err != nil {
+				t.Fatalf("mkdir coder agent: %v", err)
+			}
+			if err := os.MkdirAll(workspace, 0o755); err != nil {
+				t.Fatalf("mkdir workspace: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte(strings.Join([]string{
+				"key: coder-app",
+				"name: Coder App",
+				"type: CODER",
+				"mode: REACT",
+				"modelConfig:",
+				"  modelKey: mock-model",
+				"workspaceConfig:",
+				"  root: " + filepath.ToSlash(workspace),
+			}, "\n")), 0o644); err != nil {
+				t.Fatalf("write coder agent: %v", err)
+			}
+		},
+	})
+
+	httpServer := newLoopbackServer(t, fixture.server)
+	defer httpServer.Close()
+
+	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"please plan but do not execute","agentKey":"coder-app","planningMode":true}`))
+	if err != nil {
+		t.Fatalf("post query: %v", err)
+	}
+	defer resp.Body.Close()
+
+	reader := bufio.NewReader(resp.Body)
+	var streamBody strings.Builder
+	runID, confirmAwaitingID := readAwaitingQuestion(t, reader, &streamBody, "是否按此计划执行？")
+	submitFrontendAnswer(t, fixture.server, runID, confirmAwaitingID, "取消执行")
+
+	for {
+		line, readErr := reader.ReadString('\n')
+		streamBody.WriteString(line)
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			t.Fatalf("read query stream after cancel: %v", readErr)
+		}
+	}
+	body := streamBody.String()
+	if strings.Contains(body, `"type":"task.start"`) {
+		t.Fatalf("did not expect task.start after cancel, got %s", body)
+	}
+	if strings.Contains(body, `"type":"tool.start","toolName":"bash"`) || strings.Contains(body, `"type":"tool.start","toolName":"file_write"`) {
+		t.Fatalf("did not expect mutating tool calls after cancel, got %s", body)
+	}
+	if !strings.Contains(body, `"status":"canceled"`) || !strings.Contains(body, "已取消执行计划。") {
+		t.Fatalf("expected canceled plan update and message, got %s", body)
+	}
+	if got := providerCallCount.Load(); got != 1 {
+		t.Fatalf("provider calls = %d, want 1", got)
+	}
+}
+
+func readAwaitingQuestion(t *testing.T, reader *bufio.Reader, streamBody *strings.Builder, expectedQuestion string) (string, string) {
+	t.Helper()
+	for {
+		line, readErr := reader.ReadString('\n')
+		streamBody.WriteString(line)
+		if strings.HasPrefix(line, "data: {") {
+			payload := decodeSSELine(t, line)
+			if payload["type"] == "awaiting.ask" && awaitingQuestionText(payload) == expectedQuestion {
+				runID, _ := payload["runId"].(string)
+				awaitingID, _ := payload["awaitingId"].(string)
+				if runID == "" || awaitingID == "" {
+					t.Fatalf("expected awaiting identifiers, got %#v", payload)
+				}
+				return runID, awaitingID
+			}
+		}
+		if readErr == io.EOF {
+			t.Fatalf("stream ended before awaiting question %q, got %s", expectedQuestion, streamBody.String())
+		}
+		if readErr != nil {
+			t.Fatalf("read stream before awaiting question %q: %v", expectedQuestion, readErr)
+		}
+	}
+}
+
+func assertCoderPlanningToolSet(t *testing.T, got []string) {
+	t.Helper()
+	if len(got) != 5 {
+		t.Fatalf("coder planning tools length=%d tools=%#v", len(got), got)
+	}
+	assertStringSliceContains(t, got, "file_read", "file_grep", "datetime", "ask_user_question", "plan_add_tasks")
+	assertStringSliceExcludes(t, got, "bash", "file_write", "desktop_action", "desktop_cdp", "agent_invoke", "plan_update_task")
+}
+
+func awaitingQuestionText(payload map[string]any) string {
+	questions, _ := payload["questions"].([]any)
+	if len(questions) == 0 {
+		return ""
+	}
+	first, _ := questions[0].(map[string]any)
+	return strings.TrimSpace(stringValue(first["question"]))
+}
+
+func submitFrontendAnswer(t *testing.T, server http.Handler, runID string, awaitingID string, answer string) {
+	t.Helper()
+	body := `{"runId":"` + runID + `","awaitingId":"` + awaitingID + `","params":[{"answer":"` + answer + `"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("submit expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var response api.ApiResponse[api.SubmitResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode submit response: %v", err)
+	}
+	if !response.Data.Accepted || response.Data.Status != "accepted" {
+		t.Fatalf("expected accepted submit, got %#v", response.Data)
+	}
+}
+
 func TestQueryPersistsToolSnapshotWhenStreamToolPayloadEventsDisabled(t *testing.T) {
 	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
 		var payload map[string]any
