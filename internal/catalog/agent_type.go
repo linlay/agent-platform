@@ -17,7 +17,7 @@ var coderAgentProfile = agentTypeProfile{
 		"file_grep",
 		"datetime",
 	},
-	ContextTags: []string{"system", "session", "owner"},
+	ContextTags: []string{"system", "session"},
 	Budget: map[string]any{
 		"runTimeoutMs": 3600000,
 		"model": map[string]any{

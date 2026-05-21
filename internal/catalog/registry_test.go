@@ -83,9 +83,9 @@ func TestParseAgentFileReadsContextTagsBudgetStageSettingsAndControls(t *testing
 			"    options:\n"+
 			"      - value: concise\n"+
 			"        label: 简洁\n"+
-			"contextTags:\n"+
-			"  - execution_policy\n"+
-			"  - agent_identity\n"+
+			"contextConfig:\n"+
+			"  tags:\n"+
+			"    - session\n"+
 			"budget:\n"+
 			"  runTimeoutMs: 1000\n"+
 			"stageSettings:\n"+
@@ -141,7 +141,7 @@ func TestParseAgentFilePreservesMultilineWonders(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileNormalizesJavaContextTagsAndRuntimePrompts(t *testing.T) {
+func TestParseAgentFileReadsRuntimePromptsWithoutLegacyContextTags(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
 	if err := os.WriteFile(path, []byte(
@@ -169,8 +169,8 @@ func TestParseAgentFileNormalizesJavaContextTagsAndRuntimePrompts(t *testing.T) 
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	if got := strings.Join(def.ContextTags, ","); got != "session" {
-		t.Fatalf("expected normalized context tags, got %q", got)
+	if got := strings.Join(def.ContextTags, ","); got != "" {
+		t.Fatalf("expected legacy contextTags to be ignored, got %q", got)
 	}
 	if def.RuntimePrompts.Skill.CatalogHeader != "skills-header-override" {
 		t.Fatalf("expected skill prompt override, got %#v", def.RuntimePrompts)
@@ -183,7 +183,7 @@ func TestParseAgentFileNormalizesJavaContextTagsAndRuntimePrompts(t *testing.T) 
 	}
 }
 
-func TestParseAgentFilePrefersContextConfigTags(t *testing.T) {
+func TestParseAgentFileReadsOnlyContextConfigTags(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
 	if err := os.WriteFile(path, []byte(
@@ -195,9 +195,8 @@ func TestParseAgentFilePrefersContextConfigTags(t *testing.T) {
 			"contextConfig:\n"+
 			"  tags:\n"+
 			"    - system\n"+
-			"    - context\n"+
+			"    - session\n"+
 			"    - owner\n"+
-			"    - auth\n"+
 			"contextTags:\n"+
 			"  - execution_policy\n",
 	), 0o644); err != nil {
@@ -209,21 +208,25 @@ func TestParseAgentFilePrefersContextConfigTags(t *testing.T) {
 		t.Fatalf("parse agent file: %v", err)
 	}
 	if got := strings.Join(def.ContextTags, ","); got != "system,session,owner" {
-		t.Fatalf("expected contextConfig tags to win, got %q", got)
+		t.Fatalf("expected contextConfig tags only, got %q", got)
 	}
 }
 
-func TestNormalizeContextTagMapsLegacySessionTags(t *testing.T) {
+func TestNormalizeContextTagOnlyAcceptsModernTags(t *testing.T) {
 	cases := map[string]string{
-		"context":          "session",
-		"auth":             "session",
+		"system":           "system",
 		"session":          "session",
-		"agent_identity":   "session",
-		"run_session":      "session",
-		"scene":            "session",
-		"references":       "session",
-		"execution_policy": "session",
-		"skills":           "session",
+		"owner":            "owner",
+		"all-agents":       "all-agents",
+		" SYSTEM ":         "system",
+		"context":          "",
+		"auth":             "",
+		"agent_identity":   "",
+		"run_session":      "",
+		"scene":            "",
+		"references":       "",
+		"execution_policy": "",
+		"skills":           "",
 		"memory":           "",
 		"memory_context":   "",
 		"sandbox":          "",
@@ -235,10 +238,10 @@ func TestNormalizeContextTagMapsLegacySessionTags(t *testing.T) {
 	}
 }
 
-func TestNormalizeContextTagsDeduplicatesLegacySessionAliases(t *testing.T) {
-	got := normalizeContextTags([]string{"context", "auth", "session"})
-	if !reflect.DeepEqual(got, []string{"session"}) {
-		t.Fatalf("normalizeContextTags() = %#v, want %#v", got, []string{"session"})
+func TestNormalizeContextTagsDeduplicatesModernTags(t *testing.T) {
+	got := normalizeContextTags([]string{"system", "SYSTEM", "session", "context"})
+	if !reflect.DeepEqual(got, []string{"system", "session"}) {
+		t.Fatalf("normalizeContextTags() = %#v, want %#v", got, []string{"system", "session"})
 	}
 }
 

@@ -101,29 +101,38 @@ plain:
 
 ## Context Tags
 
-当前 Go runtime 不会为所有 agent 自动附加一组全局默认 `context tags`；每个 agent 仍需在 definition 中显式声明：
+当前 Go runtime 不会为所有 agent 自动附加一组全局默认 `context tags`；每个 agent 只从 `contextConfig.tags` 读取声明：
 
-- 优先 `contextConfig.tags`
-- 回退 `contextTags`
+```yaml
+contextConfig:
+  tags:
+    - system
+    - session
+```
 
-支持/归一化后的标签：
+支持标签：
 
 - `system`
 - `session`
 - `owner`
 - `all-agents`
 
-兼容别名映射：
-
-- `context` / `auth` / `agent_identity` / `run_session` / `scene` / `references` / `execution_policy` / `skills` -> `session`
-- `sandbox` / `memory` / `memory_context` -> 丢弃（不再作为 context tag 生效）
-
 其中：
 
 - `session` 会暴露运行时上下文
-- `owner` 会注入 `OWNER_DIR` 下的 markdown 内容
+- `owner` 会注入 `OWNER_DIR` 下的 markdown 内容；`CODER` 不会默认启用，需要显式声明
 - `sandbox` 不再通过 `context tags` 控制；只要 agent 声明了 `runtimeConfig.environmentId`，运行时会自动注入 sandbox context
 - runtime memory context 不再通过 `context tags` 控制；只有 agent 显式开启 `memoryConfig.enabled: true` 时，运行时才会自动注入 memory context
+
+## Prompt Files
+
+目录式 agent 会按约定读取 prompt 文件：
+
+- 普通模式默认读取 `AGENTS.md`
+- 顶层 `promptFile` 可显式覆盖普通模式 prompt
+- `PLAN_EXECUTE` 默认读取 `AGENTS.plan.md`、`AGENTS.execute.md`、`AGENTS.summary.md`
+- `planExecute.<stage>.promptFile` 可显式覆盖对应阶段
+- `PLAN_EXECUTE` 阶段缺少约定文件时，先回退顶层 `promptFile`，再回退 `AGENTS.md`
 
 ## Static Memory 与 Runtime Memory
 
@@ -202,7 +211,7 @@ runtimeConfig:
 - key 必须非空，且不能包含空白字符或 `=`
 - value 必须是字面量字符串；空字符串允许并原样注入 host bash 或下发到 Container Hub
 - 不支持 `${VAR}` 或其他宿主环境变量展开
-- `runtimeConfig.environmentId` 是 sandbox context 的唯一入口；不需要再在 `contextConfig.tags` / `contextTags` 中声明 `sandbox`
+- `runtimeConfig.environmentId` 是 sandbox context 的唯一入口；不需要也不支持再在 `contextConfig.tags` 中声明 `sandbox`
 - agent `runtimeConfig.env` 作为基础值，skill 目录下的 `.sandbox-env.json` 会按 agent 声明顺序叠加并覆盖同名键
 - `/api/agents` 与 `/api/agent` 的 `sandbox` meta 不会回显 `env`，避免暴露代理地址、凭据或私有 endpoint；`extraMounts` 仍可对外暴露，因为它描述的是白名单路径而非敏感值
 

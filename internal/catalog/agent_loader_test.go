@@ -289,7 +289,7 @@ func TestParseAgentFileAppliesCoderProfileDefaults(t *testing.T) {
 	if !reflect.DeepEqual(def.Tools, wantTools) {
 		t.Fatalf("tools = %#v, want %#v", def.Tools, wantTools)
 	}
-	wantTags := []string{"system", "session", "owner"}
+	wantTags := []string{"system", "session"}
 	if !reflect.DeepEqual(def.ContextTags, wantTags) {
 		t.Fatalf("context tags = %#v, want %#v", def.ContextTags, wantTags)
 	}
@@ -588,6 +588,114 @@ func TestParseAgentFileAllowsOptingOutOfBaseMemoryTools(t *testing.T) {
 		if containsString(def.Tools, tool) {
 			t.Fatalf("expected %s to stay disabled, got %#v", tool, def.Tools)
 		}
+	}
+}
+
+func TestParseAgentFileWithPromptsLoadsPlanExecuteConventionFiles(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	content := "" +
+		"key: demo\n" +
+		"name: Demo\n" +
+		"mode: PLAN_EXECUTE\n" +
+		"modelConfig:\n" +
+		"  modelKey: demo-model\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+	for name, body := range map[string]string{
+		"AGENTS.plan.md":    "plan convention",
+		"AGENTS.execute.md": "execute convention",
+		"AGENTS.summary.md": "summary convention",
+	} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(body), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+
+	def, err := parseAgentFileWithPrompts(path, root)
+	if err != nil {
+		t.Fatalf("parse agent file with prompts: %v", err)
+	}
+	if def.PlanPrompt != "plan convention" || def.ExecutePrompt != "execute convention" || def.SummaryPrompt != "summary convention" {
+		t.Fatalf("unexpected stage prompts: plan=%q execute=%q summary=%q", def.PlanPrompt, def.ExecutePrompt, def.SummaryPrompt)
+	}
+}
+
+func TestParseAgentFileWithPromptsStagePromptFileOverridesConvention(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	content := "" +
+		"key: demo\n" +
+		"name: Demo\n" +
+		"mode: PLAN_EXECUTE\n" +
+		"modelConfig:\n" +
+		"  modelKey: demo-model\n" +
+		"planExecute:\n" +
+		"  plan:\n" +
+		"    promptFile: custom-plan.md\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.plan.md"), []byte("plan convention"), 0o644); err != nil {
+		t.Fatalf("write convention prompt: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "custom-plan.md"), []byte("custom plan"), 0o644); err != nil {
+		t.Fatalf("write custom prompt: %v", err)
+	}
+
+	def, err := parseAgentFileWithPrompts(path, root)
+	if err != nil {
+		t.Fatalf("parse agent file with prompts: %v", err)
+	}
+	if def.PlanPrompt != "custom plan" {
+		t.Fatalf("plan prompt = %q, want custom override", def.PlanPrompt)
+	}
+}
+
+func TestParseAgentFileWithPromptsPlanExecuteFallbackOrder(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	content := "" +
+		"key: demo\n" +
+		"name: Demo\n" +
+		"mode: PLAN_EXECUTE\n" +
+		"promptFile: shared.md\n" +
+		"modelConfig:\n" +
+		"  modelKey: demo-model\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.plan.md"), []byte("plan convention"), 0o644); err != nil {
+		t.Fatalf("write plan convention: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "shared.md"), []byte("shared fallback"), 0o644); err != nil {
+		t.Fatalf("write shared prompt: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("agents fallback"), 0o644); err != nil {
+		t.Fatalf("write agents prompt: %v", err)
+	}
+
+	def, err := parseAgentFileWithPrompts(path, root)
+	if err != nil {
+		t.Fatalf("parse agent file with prompts: %v", err)
+	}
+	if def.PlanPrompt != "plan convention" {
+		t.Fatalf("plan prompt = %q, want convention", def.PlanPrompt)
+	}
+	if def.ExecutePrompt != "shared fallback" || def.SummaryPrompt != "shared fallback" {
+		t.Fatalf("execute/summary prompts = %q/%q, want shared fallback", def.ExecutePrompt, def.SummaryPrompt)
+	}
+
+	if err := os.Remove(filepath.Join(root, "shared.md")); err != nil {
+		t.Fatalf("remove shared prompt: %v", err)
+	}
+	def, err = parseAgentFileWithPrompts(path, root)
+	if err != nil {
+		t.Fatalf("parse agent file with prompts after fallback removal: %v", err)
+	}
+	if def.ExecutePrompt != "agents fallback" || def.SummaryPrompt != "agents fallback" {
+		t.Fatalf("execute/summary prompts = %q/%q, want AGENTS.md fallback", def.ExecutePrompt, def.SummaryPrompt)
 	}
 }
 

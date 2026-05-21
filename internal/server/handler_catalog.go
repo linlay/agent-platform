@@ -225,11 +225,9 @@ func (s *Server) buildAgentEditorOptions() api.AgentEditorOptionsResponse {
 		Models: models,
 		ContextTags: []api.AgentEditorOption{
 			{Key: "system", Label: "system"},
-			{Key: "context", Label: "context"},
+			{Key: "session", Label: "session"},
 			{Key: "owner", Label: "owner"},
-			{Key: "auth", Label: "auth"},
 			{Key: "all-agents", Label: "all-agents"},
-			{Key: "memory", Label: "memory"},
 		},
 		Modes: []api.AgentEditorOption{
 			{Key: "REACT", Label: "REACT"},

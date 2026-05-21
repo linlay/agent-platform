@@ -1063,15 +1063,19 @@ func TestSandboxBashResultShapeAcrossStreamBoundaries(t *testing.T) {
 		}
 	})
 
-	t.Run("html hitl success keeps stdout in result without approval sidecar", func(t *testing.T) {
+	t.Run("html hitl success keeps stdout in result with approval sidecar", func(t *testing.T) {
 		body, _ := runBashHITLFlow(t, bashHITLFlowOptions{action: "approve"})
 
 		resultPayload := findToolResultPayload(t, body, "tool_bash")
 		if got, ok := resultPayload["result"].(string); !ok || got == "" {
 			t.Fatalf("expected stdout string tool.result payload, got %#v", resultPayload["result"])
 		}
-		if _, ok := resultPayload["approval"]; ok {
-			t.Fatalf("did not expect approval sidecar for html form HITL, got %#v", resultPayload)
+		approval, ok := resultPayload["approval"].(map[string]any)
+		if !ok {
+			t.Fatalf("expected approval sidecar for html form HITL, got %#v", resultPayload)
+		}
+		if approval["decision"] != "approve" || approval["mode"] != "form" {
+			t.Fatalf("unexpected approval sidecar %#v", approval)
 		}
 	})
 }
@@ -1143,9 +1147,16 @@ func TestBashHITLRejectWithReasonFlow(t *testing.T) {
 		!strings.Contains(body, `"form":{"days":1,"reason":"too_long"}`) {
 		t.Fatalf("expected reject awaiting.answer in stream, got %s", body)
 	}
-	if !strings.Contains(body, `"submittedPayload":{"days":1,"reason":"too_long"}`) ||
-		!strings.Contains(body, `"revisedForm":{"days":1,"reason":"too_long"}`) {
-		t.Fatalf("expected reject feedback payload in stream, got %s", body)
+	approval, ok := resultPayload["approval"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected approval payload in tool result, got %#v", resultPayload)
+	}
+	submittedPayload, ok := approval["submittedPayload"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected submittedPayload in approval, got %#v", approval)
+	}
+	if submittedPayload["days"] != float64(1) || submittedPayload["reason"] != "too_long" {
+		t.Fatalf("unexpected submittedPayload %#v", submittedPayload)
 	}
 }
 

@@ -89,9 +89,9 @@ func loadAgentPrompts(agentDir string, def *AgentDefinition, root map[string]any
 	switch def.Mode {
 	case "PLAN_EXECUTE":
 		pe := mapNode(root["planExecute"])
-		def.PlanPrompt = resolveStagePrompt(agentDir, mapNode(pe["plan"]), topPromptFiles, root)
-		def.ExecutePrompt = resolveStagePrompt(agentDir, mapNode(pe["execute"]), topPromptFiles, root)
-		def.SummaryPrompt = resolveStagePrompt(agentDir, mapNode(pe["summary"]), topPromptFiles, root)
+		def.PlanPrompt = resolveStagePrompt(agentDir, "plan", mapNode(pe["plan"]), topPromptFiles)
+		def.ExecutePrompt = resolveStagePrompt(agentDir, "execute", mapNode(pe["execute"]), topPromptFiles)
+		def.SummaryPrompt = resolveStagePrompt(agentDir, "summary", mapNode(pe["summary"]), topPromptFiles)
 	default:
 		if len(topPromptFiles) > 0 {
 			def.AgentsPrompt = loadPromptMarkdowns(agentDir, topPromptFiles)
@@ -102,12 +102,15 @@ func loadAgentPrompts(agentDir string, def *AgentDefinition, root map[string]any
 	}
 }
 
-func resolveStagePrompt(agentDir string, stageConfig map[string]any, topPromptFiles []string, root map[string]any) string {
+func resolveStagePrompt(agentDir string, stage string, stageConfig map[string]any, topPromptFiles []string) string {
 	stageFiles := parsePromptFileField(stageConfig["promptFile"])
 	if len(stageFiles) > 0 {
 		if content := loadPromptMarkdowns(agentDir, stageFiles); content != "" {
 			return content
 		}
+	}
+	if content := readOptionalMarkdown(filepath.Join(agentDir, "AGENTS."+stage+".md")); content != "" {
+		return content
 	}
 	if len(topPromptFiles) > 0 {
 		if content := loadPromptMarkdowns(agentDir, topPromptFiles); content != "" {
@@ -170,16 +173,8 @@ func normalizeContextTag(raw string) string {
 	switch tag {
 	case "system", "session", "owner", "all-agents":
 		return tag
-	case "context", "auth":
-		return "session"
-	case "sandbox", "memory", "memory_context":
-		return ""
-	case "agent_identity", "run_session", "scene", "references", "execution_policy":
-		return "session"
-	case "skills":
-		return "session"
 	default:
-		return tag
+		return ""
 	}
 }
 
@@ -295,9 +290,6 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	def.Controls = cloneListMaps(listMaps(root["controls"]))
 	contextConfig := mapNode(root["contextConfig"])
 	contextTags := listStrings(contextConfig["tags"])
-	if len(contextTags) == 0 {
-		contextTags = listStrings(root["contextTags"])
-	}
 	def.ContextTags = normalizeContextTags(contextTags)
 	if budget := mapNode(root["budget"]); len(budget) > 0 {
 		def.Budget = contracts.CloneMap(budget)

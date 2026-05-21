@@ -1471,7 +1471,7 @@ func TestInterruptCancelsActiveRunAndSkipsRunComplete(t *testing.T) {
 	if len(chatsResp.Data) != 1 {
 		t.Fatalf("expected one chat, got %#v", chatsResp.Data)
 	}
-	if chatsResp.Data[0].LastRunID != "" || chatsResp.Data[0].LastRunContent != "" {
-		t.Fatalf("expected interrupted run to skip completion summary, got %#v", chatsResp.Data[0])
+	if chatsResp.Data[0].LastRunID != runID || chatsResp.Data[0].LastRunContent != "partial" {
+		t.Fatalf("expected interrupted run to keep streamed partial summary, got %#v", chatsResp.Data[0])
 	}
 }

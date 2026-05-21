@@ -425,26 +425,35 @@ provider registry 中的 `apiKey` 支持以下两种形态：
 
 ## Agent Context Tags
 
-`context tags` 不是全局默认集合，而是每个 agent 从以下字段读取：
+`context tags` 不是全局默认集合，而是每个 agent 只从 `contextConfig.tags` 读取：
 
-- 优先 `contextConfig.tags`
-- 回退 `contextTags`
+```yaml
+contextConfig:
+  tags:
+    - system
+    - session
+```
 
-当前支持/归一化后的标签：
+当前支持标签：
 
 - `system`
 - `session`
 - `owner`
 - `all-agents`
 
-兼容别名映射：
-
-- `context` / `auth` / `agent_identity` / `run_session` / `scene` / `references` / `execution_policy` / `skills` -> `session`
-- `sandbox` / `memory` / `memory_context` -> 丢弃（不再作为 context tag 生效）
-
 说明：
 
 - `session` 负责暴露运行上下文
-- `owner` 负责注入 `OWNER_DIR` 下的 markdown 内容
+- `owner` 负责注入 `OWNER_DIR` 下的 markdown 内容；`CODER` 不会默认启用，需要显式声明
 - `sandbox` 不再属于 `context tags`；只要 agent 配置了 `runtimeConfig.environmentId`，运行时就会自动注入 sandbox context
 - runtime memory context 不再属于 `context tags`；只有 agent 显式开启 `memoryConfig.enabled: true` 时，运行时才会注入 memory context
+
+## Agent Prompt Files
+
+目录式 agent 的 prompt 文件约定：
+
+- 普通模式默认读取 `AGENTS.md`
+- 顶层 `promptFile` 可显式覆盖普通模式 prompt
+- `PLAN_EXECUTE` 默认读取 `AGENTS.plan.md`、`AGENTS.execute.md`、`AGENTS.summary.md`
+- `planExecute.<stage>.promptFile` 可显式覆盖对应阶段
+- `PLAN_EXECUTE` 阶段缺少约定文件时，先回退顶层 `promptFile`，再回退 `AGENTS.md`
