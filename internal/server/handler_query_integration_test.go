@@ -1132,6 +1132,9 @@ func readAwaitingApproval(t *testing.T, reader *bufio.Reader, streamBody *string
 				if payload["mode"] != "approval" || payload["viewportType"] != "builtin" || payload["viewportKey"] != "approval" {
 					t.Fatalf("expected approval awaiting.ask, got %#v", payload)
 				}
+				if timeout, ok := payload["timeout"].(float64); !ok || timeout != 0 {
+					t.Fatalf("expected planning approval timeout 0, got %#v", payload)
+				}
 				runID, _ := payload["runId"].(string)
 				awaitingID, _ := payload["awaitingId"].(string)
 				if runID == "" || awaitingID == "" {

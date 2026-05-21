@@ -211,7 +211,9 @@ func (s *coderPlanningStream) afterStageEOF() error {
 func (s *coderPlanningStream) emitPlanConfirmationAsk() {
 	awaitAsk := s.planConfirmationAsk()
 	if s.execCtx != nil && s.execCtx.RunControl != nil {
-		s.execCtx.RunControl.ExpectSubmit(awaitingContextFromDeltaAsk(awaitAsk))
+		awaitingCtx := awaitingContextFromDeltaAsk(awaitAsk)
+		awaitingCtx.NoTimeout = true
+		s.execCtx.RunControl.ExpectSubmit(awaitingCtx)
 	}
 	s.pending = append(s.pending, awaitAsk)
 	s.confirmationPending = true
@@ -221,7 +223,7 @@ func (s *coderPlanningStream) planConfirmationAsk() DeltaAwaitAsk {
 	return DeltaAwaitAsk{
 		AwaitingID:   s.session.RunID + "_coder_plan_confirm",
 		Mode:         "approval",
-		Timeout:      toolTimeout(NormalizeBudget(s.execCtx.Budget).Tool).Milliseconds(),
+		Timeout:      0,
 		RunID:        s.session.RunID,
 		ViewportType: "builtin",
 		ViewportKey:  "approval",
@@ -251,21 +253,16 @@ func (s *coderPlanningStream) awaitPlanConfirmation() error {
 
 	s.execCtx.RunLoopState = RunLoopStateWaitingSubmit
 	s.execCtx.RunControl.TransitionState(RunLoopStateWaitingSubmit)
-	timeout := toolTimeout(NormalizeBudget(s.execCtx.Budget).Tool)
-	submitResult, err := s.execCtx.RunControl.AwaitSubmitWithTimeout(s.ctx, awaitingID, timeout)
+	submitResult, err := s.execCtx.RunControl.AwaitSubmitWithTimeout(s.ctx, awaitingID, 0)
 	if err != nil {
 		if errors.Is(err, ErrRunInterrupted) {
 			s.pending = append(s.pending, DeltaRunCancel{RunID: s.session.RunID})
 			s.completed = true
 			return nil
 		}
-		answer := AwaitingErrorAnswer("approval", "timeout", "等待项已超时")
-		if !errors.Is(err, context.DeadlineExceeded) {
-			answer = AwaitingErrorAnswer("approval", "invalid_submit", err.Error())
-		}
 		s.pending = append(s.pending, DeltaAwaitingAnswer{
 			AwaitingID: awaitingID,
-			Answer:     answer,
+			Answer:     AwaitingErrorAnswer("approval", "invalid_submit", err.Error()),
 		})
 		s.cancelUnstartedPlan("已取消执行计划。")
 		return nil

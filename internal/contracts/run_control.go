@@ -223,6 +223,7 @@ func (c *RunControl) AwaitSubmitWithTimeout(ctx context.Context, awaitingID stri
 		c.mu.Unlock()
 		return SubmitResult{}, ErrFrontendSubmitAlreadyWaiting
 	}
+	awaitingCtx := c.awaitingSubmits[awaitingID]
 	if pending, exists := c.pendingSubmits[awaitingID]; exists {
 		delete(c.pendingSubmits, awaitingID)
 		c.mu.Unlock()
@@ -241,6 +242,10 @@ func (c *RunControl) AwaitSubmitWithTimeout(ctx context.Context, awaitingID stri
 
 	connectedRemaining := timeout
 	disconnectedRemaining := c.maxDisconnectedWaitValue()
+	if awaitingCtx.NoTimeout {
+		connectedRemaining = 0
+		disconnectedRemaining = 0
+	}
 	lastHasObserver := c.HasObserver()
 	lastTick := time.Now()
 	timer := newWaitTimer(lastHasObserver, connectedRemaining, disconnectedRemaining)

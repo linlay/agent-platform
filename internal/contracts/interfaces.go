@@ -209,6 +209,7 @@ type AwaitingSubmitContext struct {
 	AwaitingID string
 	Mode       string
 	ItemCount  int
+	NoTimeout  bool
 }
 
 func (c AwaitingSubmitContext) Clone() AwaitingSubmitContext {
@@ -216,6 +217,7 @@ func (c AwaitingSubmitContext) Clone() AwaitingSubmitContext {
 		AwaitingID: c.AwaitingID,
 		Mode:       c.Mode,
 		ItemCount:  c.ItemCount,
+		NoTimeout:  c.NoTimeout,
 	}
 }
 

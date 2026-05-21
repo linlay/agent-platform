@@ -1192,6 +1192,9 @@ func collectWebSocketEventsUntilPlanningApproval(t *testing.T, conn *gws.Conn, r
 		}
 		types = append(types, frame.Event.Type)
 		if frame.Event.Type == "awaiting.ask" && frame.Event.String("mode") == "approval" {
+			if timeout, ok := frame.Event.Payload["timeout"].(float64); !ok || timeout != 0 {
+				t.Fatalf("expected websocket planning approval timeout 0, got %#v", frame.Event.Payload)
+			}
 			return types, frame.Event.String("runId"), frame.Event.String("awaitingId")
 		}
 	}
