@@ -198,6 +198,10 @@ func writeToolDefinition() api.ToolDetailResponse {
 	return backendToolDefinition("file_write")
 }
 
+func editToolDefinition() api.ToolDetailResponse {
+	return backendToolDefinition("file_edit")
+}
+
 func invokeAgentsToolDefinition() api.ToolDetailResponse {
 	return api.ToolDetailResponse{
 		Name: contracts.InvokeAgentsToolName,
@@ -1654,6 +1658,113 @@ func TestWriteToolApprovalExecutesAndWritesFile(t *testing.T) {
 	}
 }
 
+func TestEditToolEmitsApprovalBeforeExecuting(t *testing.T) {
+	root := t.TempDir()
+	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{editToolDefinition()}}
+	stream := &llmRunStream{
+		ctx:     context.Background(),
+		session: contracts.QuerySession{RunID: "run_1"},
+		engine: &LLMAgentEngine{
+			cfg: config.Config{
+				FileTools: config.FileToolsConfig{
+					WorkingDirectory:     root,
+					AllowedReadPaths:     []string{"."},
+					AllowedWritePaths:    []string{"."},
+					MaxReadBytes:         1024,
+					MaxWriteBytes:        1024,
+					RequireWriteApproval: true,
+				},
+			},
+			tools: executor,
+		},
+		execCtx: &contracts.ExecutionContext{},
+		activeToolCall: &preparedToolInvocation{
+			toolID:   "tool_1",
+			toolName: "file_edit",
+			args: map[string]any{
+				"file_path":   "owner.md",
+				"old_string":  "hello",
+				"new_string":  "hi",
+				"description": "编辑 owner 文档",
+			},
+		},
+	}
+
+	if err := stream.invokeActiveToolCall(); err != nil {
+		t.Fatalf("invoke active edit: %v", err)
+	}
+	if len(executor.invocations) != 0 {
+		t.Fatalf("expected edit not to execute before approval, got %#v", executor.invocations)
+	}
+	if len(stream.pending) != 1 {
+		t.Fatalf("expected one pending approval, got %#v", stream.pending)
+	}
+	ask, ok := stream.pending[0].(contracts.DeltaAwaitAsk)
+	if !ok || ask.Mode != "approval" || len(ask.Approvals) != 1 {
+		t.Fatalf("expected approval ask, got %#v", stream.pending)
+	}
+	item, _ := ask.Approvals[0].(map[string]any)
+	if !strings.Contains(fmt.Sprint(item["command"]), "file_edit ") || !strings.Contains(fmt.Sprint(item["command"]), "(5 -> 2 bytes)") {
+		t.Fatalf("unexpected edit approval command: %#v", item)
+	}
+	if item["description"] != "编辑 owner 文档" {
+		t.Fatalf("unexpected approval description: %#v", item)
+	}
+}
+
+func TestEditToolApprovalExecutesAndEditsFile(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "owner.md"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	cfg := config.Config{
+		FileTools: config.FileToolsConfig{
+			WorkingDirectory:     root,
+			AllowedReadPaths:     []string{"."},
+			AllowedWritePaths:    []string{"."},
+			MaxReadBytes:         1024,
+			MaxWriteBytes:        1024,
+			RequireWriteApproval: true,
+		},
+	}
+	executor, err := runtimetools.NewRuntimeToolExecutor(cfg, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("new executor: %v", err)
+	}
+	stream := &llmRunStream{
+		ctx:     context.Background(),
+		session: contracts.QuerySession{RunID: "run_1"},
+		engine:  &LLMAgentEngine{cfg: cfg, tools: executor},
+		execCtx: &contracts.ExecutionContext{},
+		activeToolCall: &preparedToolInvocation{
+			toolID:           "tool_1",
+			toolName:         "file_edit",
+			approvalDecision: "approve",
+			args: map[string]any{
+				"file_path":   "owner.md",
+				"old_string":  "hello",
+				"new_string":  "hi",
+				"description": "编辑 owner 文档",
+			},
+		},
+	}
+
+	if err := stream.invokeActiveToolCall(); err != nil {
+		t.Fatalf("invoke active edit: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, "owner.md"))
+	if err != nil {
+		t.Fatalf("read edited file: %v", err)
+	}
+	if string(data) != "hi\n" {
+		t.Fatalf("unexpected edited content: %q", string(data))
+	}
+	result, ok := stream.pending[0].(contracts.DeltaToolResult)
+	if !ok || result.Result.Error != "" || result.Result.ExitCode != 0 {
+		t.Fatalf("expected successful tool result, got %#v", stream.pending)
+	}
+}
+
 func TestFileReadAccessApprovalEmitsAwaitingAsk(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()
@@ -1707,6 +1818,56 @@ func TestFileReadAccessApprovalEmitsAwaitingAsk(t *testing.T) {
 	options, _ := item["options"].([]any)
 	if !approvalOptionsContainDecision(options, "approve_rule_run") {
 		t.Fatalf("expected approve_rule_run option, got %#v", options)
+	}
+}
+
+func TestFileEditPathApprovalUsesEditCommand(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{editToolDefinition()}}
+	stream := &llmRunStream{
+		ctx:     context.Background(),
+		session: contracts.QuerySession{RunID: "run_1"},
+		engine: &LLMAgentEngine{
+			cfg: config.Config{
+				FileTools: config.FileToolsConfig{
+					WorkingDirectory:       root,
+					AllowedReadPaths:       []string{"."},
+					AllowedWritePaths:      []string{"."},
+					MaxReadBytes:           1024,
+					MaxWriteBytes:          1024,
+					RequireWriteApproval:   false,
+					RequireReadBeforeWrite: false,
+				},
+			},
+			tools: executor,
+		},
+		execCtx: &contracts.ExecutionContext{},
+		activeToolCall: &preparedToolInvocation{
+			toolID:   "tool_1",
+			toolName: "file_edit",
+			args: map[string]any{
+				"file_path":   filepath.Join(outside, "owner.md"),
+				"old_string":  "",
+				"new_string":  "hello",
+				"description": "编辑 owner 文档",
+			},
+		},
+	}
+
+	if err := stream.invokeActiveToolCall(); err != nil {
+		t.Fatalf("invoke active edit: %v", err)
+	}
+	if len(executor.invocations) != 0 {
+		t.Fatalf("expected edit not to execute before path approval, got %#v", executor.invocations)
+	}
+	ask, ok := stream.pending[0].(contracts.DeltaAwaitAsk)
+	if !ok || ask.Mode != "approval" || len(ask.Approvals) != 1 {
+		t.Fatalf("expected approval ask, got %#v", stream.pending)
+	}
+	item, _ := ask.Approvals[0].(map[string]any)
+	if item["description"] != "edit超出允许目录" || !strings.Contains(fmt.Sprint(item["command"]), "file_edit ") {
+		t.Fatalf("unexpected edit path approval item: %#v", item)
 	}
 }
 
@@ -2144,6 +2305,163 @@ func TestWriteOutsideAllowedPathsCombinedRejectDoesNotExecute(t *testing.T) {
 	result, ok := stream.pending[0].(contracts.DeltaToolResult)
 	if !ok || result.Result.Error != "file_write_denied" {
 		t.Fatalf("expected file_write_denied tool result, got %#v", stream.pending)
+	}
+}
+
+func TestEditOutsideAllowedPathsCombinedApprovalDecisions(t *testing.T) {
+	for _, decision := range []string{"approve", "approve_rule_run"} {
+		t.Run(decision, func(t *testing.T) {
+			root := t.TempDir()
+			outside := t.TempDir()
+			cfg := config.Config{
+				FileTools: config.FileToolsConfig{
+					WorkingDirectory:       root,
+					AllowedReadPaths:       []string{"."},
+					AllowedWritePaths:      []string{"."},
+					MaxReadBytes:           1024,
+					MaxWriteBytes:          1024,
+					RequireWriteApproval:   true,
+					RequireReadBeforeWrite: false,
+				},
+			}
+			executor, err := runtimetools.NewRuntimeToolExecutor(cfg, nil, nil, nil, nil)
+			if err != nil {
+				t.Fatalf("new executor: %v", err)
+			}
+			target := filepath.Join(outside, "owner.md")
+			stream := &llmRunStream{
+				ctx:     context.Background(),
+				session: contracts.QuerySession{RunID: "run_1"},
+				engine:  &LLMAgentEngine{cfg: cfg, tools: executor},
+				execCtx: &contracts.ExecutionContext{},
+				activeToolCall: &preparedToolInvocation{
+					toolID:           "tool_1",
+					toolName:         "file_edit",
+					approvalDecision: decision,
+					args: map[string]any{
+						"file_path":   target,
+						"old_string":  "",
+						"new_string":  "hello",
+						"description": "编辑 owner 文档",
+					},
+				},
+			}
+
+			if err := stream.invokeActiveToolCall(); err != nil {
+				t.Fatalf("invoke active edit: %v", err)
+			}
+			data, err := os.ReadFile(target)
+			if err != nil {
+				t.Fatalf("read edited file: %v", err)
+			}
+			if string(data) != "hello" {
+				t.Fatalf("unexpected edited content: %q", string(data))
+			}
+			if decision == "approve" {
+				if len(stream.execCtx.FileAccessApprovals) != 0 || len(stream.execCtx.FileWriteApprovals) != 0 {
+					t.Fatalf("expected exact approvals to be consumed, access=%#v write=%#v", stream.execCtx.FileAccessApprovals, stream.execCtx.FileWriteApprovals)
+				}
+			} else {
+				if len(stream.execCtx.FileAccessRuleApprovals) != 1 || len(stream.execCtx.FileWriteRuleApprovals) != 1 {
+					t.Fatalf("expected both rule approvals, access=%#v write=%#v", stream.execCtx.FileAccessRuleApprovals, stream.execCtx.FileWriteRuleApprovals)
+				}
+			}
+		})
+	}
+}
+
+func TestEditOutsideAllowedPathsCombinedRejectDoesNotExecute(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	target := filepath.Join(outside, "owner.md")
+	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{editToolDefinition()}}
+	stream := &llmRunStream{
+		ctx:     context.Background(),
+		session: contracts.QuerySession{RunID: "run_1"},
+		engine: &LLMAgentEngine{
+			cfg: config.Config{
+				FileTools: config.FileToolsConfig{
+					WorkingDirectory:     root,
+					AllowedReadPaths:     []string{"."},
+					AllowedWritePaths:    []string{"."},
+					MaxReadBytes:         1024,
+					MaxWriteBytes:        1024,
+					RequireWriteApproval: true,
+				},
+			},
+			tools: executor,
+		},
+		execCtx: &contracts.ExecutionContext{},
+		activeToolCall: &preparedToolInvocation{
+			toolID:           "tool_1",
+			toolName:         "file_edit",
+			approvalDecision: "reject",
+			args: map[string]any{
+				"file_path":   target,
+				"old_string":  "",
+				"new_string":  "hello",
+				"description": "编辑 owner 文档",
+			},
+		},
+	}
+	if err := stream.invokeActiveToolCall(); err != nil {
+		t.Fatalf("invoke active edit: %v", err)
+	}
+	if len(executor.invocations) != 0 {
+		t.Fatalf("expected rejected edit not to execute, got %#v", executor.invocations)
+	}
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Fatalf("expected target file not to exist, stat err=%v", err)
+	}
+	result, ok := stream.pending[0].(contracts.DeltaToolResult)
+	if !ok || result.Result.Error != "file_edit_denied" {
+		t.Fatalf("expected file_edit_denied tool result, got %#v", stream.pending)
+	}
+}
+
+func TestFileEditApprovalNoticeUsesPlanCommand(t *testing.T) {
+	root := t.TempDir()
+	stream := &llmRunStream{
+		ctx: context.Background(),
+		engine: &LLMAgentEngine{
+			cfg: config.Config{
+				FileTools: config.FileToolsConfig{
+					WorkingDirectory:  root,
+					AllowedReadPaths:  []string{"."},
+					AllowedWritePaths: []string{"."},
+					MaxReadBytes:      1024,
+					MaxWriteBytes:     1024,
+				},
+			},
+			tools: stubToolExecutor{defs: []api.ToolDetailResponse{editToolDefinition()}},
+		},
+		execCtx: &contracts.ExecutionContext{},
+	}
+	invocation := &preparedToolInvocation{
+		toolID:   "tool_1",
+		toolName: "file_edit",
+		args: map[string]any{
+			"file_path":   "owner.md",
+			"old_string":  "old",
+			"new_string":  "new",
+			"description": "编辑 owner 文档",
+		},
+		hitlDecision: &hitlDecisionState{
+			Decision: "approve",
+			Mode:     "approval",
+		},
+	}
+
+	stream.appendOriginalToolResult(invocation, contracts.ToolExecutionResult{Output: "edited"})
+
+	if len(stream.messages) != 2 {
+		t.Fatalf("expected tool result and audit notice, got %#v", stream.messages)
+	}
+	noticeText, _ := stream.messages[1].Content.(string)
+	if !strings.Contains(noticeText, `[System audit — HITL approval batch]`) ||
+		!strings.Contains(noticeText, `tool=file_edit command="file_edit `) ||
+		!strings.Contains(noticeText, `decision=approve`) {
+		t.Fatalf("expected file edit HITL audit notice to use plan command, got %#v", stream.messages[1])
 	}
 }
 

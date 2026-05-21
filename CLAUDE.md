@@ -368,5 +368,5 @@ npm run sync:assets
 - program bundle 当前默认产出 `darwin-arm64` 目标，供 `zenmind-desktop` builtin 直接消费。
 - 若环境中显式设置了废弃旧变量，应用会直接启动失败。
 - `configs/` 下所有配置文件都是启动时静态配置；运行中修改必须重启 runtime 才会生效。
-- 文件工具权限独立配置在 `configs/file-tools.yml`；`file_read` / `file_grep` 使用 `allowed-read-paths`，`file_write` 使用 `allowed-write-paths`，越权路径通过 HITL approval 兜底。
-- 文件工具新增 run-scoped 读写闭环：`file_read` 可能返回 `file_unchanged`，`file_write` 可能返回 `file_write_not_read` / `file_modified_since_read`，`file_grep` 可能返回 `grep_ripgrep_missing` / `grep_no_match` / `grep_invalid_type` 等结构化错误码。
+- 文件工具权限独立配置在 `configs/file-tools.yml`；`file_read` / `file_grep` 使用 `allowed-read-paths`，`file_write` / `file_edit` 使用 `allowed-write-paths`，越权路径通过 HITL approval 兜底。
+- 文件工具新增 run-scoped 读写闭环：`file_read` 可能返回 `file_unchanged`，`file_write` 可能返回 `file_write_not_read` / `file_modified_since_read`，`file_edit` 可能返回 `file_edit_not_read` / `file_edit_modified_since_read`，`file_grep` 可能返回 `grep_ripgrep_missing` / `grep_no_match` / `grep_invalid_type` 等结构化错误码。

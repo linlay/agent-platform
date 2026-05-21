@@ -261,12 +261,14 @@ func (s *llmRunStream) buildApprovalAskItem(invocation *preparedToolInvocation) 
 	if combinedWriteApproval {
 		description = strings.TrimSpace(description)
 		if description == "" {
-			description = "写入文件"
+			description = fileMutationApprovalFallback(combinedWritePlan)
 		}
 		description += "（路径超出允许目录）"
 	} else if plan := s.lookupFileAccessPlan(invocation); plan != nil && s.fileAccessPlanNeedsApproval(*plan) {
 		if plan.Mode == filetools.ReadAccess {
 			description = "read超出允许目录"
+		} else if strings.EqualFold(strings.TrimSpace(invocation.toolName), "file_edit") {
+			description = "edit超出允许目录"
 		} else {
 			description = "write超出允许目录"
 		}
@@ -303,6 +305,13 @@ func (s *llmRunStream) buildApprovalAskItem(invocation *preparedToolInvocation) 
 		}
 	}
 	return item
+}
+
+func fileMutationApprovalFallback(plan *filetools.WritePlan) string {
+	if plan != nil && (strings.EqualFold(strings.TrimSpace(plan.Operation), "edit") || strings.EqualFold(strings.TrimSpace(plan.ToolName), "file_edit")) {
+		return "编辑文件"
+	}
+	return "写入文件"
 }
 
 func (s *llmRunStream) approvalOptionsForInvocation(invocation *preparedToolInvocation) []any {

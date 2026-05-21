@@ -329,7 +329,8 @@ func (s *llmRunStream) buildHITLNoticeEntry(invocation *preparedToolInvocation) 
 	}
 	command := ""
 	writePlan := s.lookupFileWritePlan(invocation)
-	if writePlan != nil && strings.TrimSpace(invocation.hitlDecision.RuleKey) == writePlan.RuleKey {
+	decisionRuleKey := strings.TrimSpace(invocation.hitlDecision.RuleKey)
+	if writePlan != nil && (decisionRuleKey == "" || decisionRuleKey == writePlan.RuleKey) {
 		command = writePlan.CommandText
 	} else if plan := s.lookupFileAccessPlan(invocation); plan != nil {
 		command = plan.CommandText

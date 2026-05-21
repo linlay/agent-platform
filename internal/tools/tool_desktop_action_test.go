@@ -228,6 +228,7 @@ func TestDesktopCDPMethodSchemaUsesRecommendedEnum(t *testing.T) {
 		"Page.navigate",
 		"Page.reload",
 		"Runtime.evaluate",
+		"Target.getCurrentTarget",
 		"Target.getTargets",
 	}
 	sort.Strings(want)

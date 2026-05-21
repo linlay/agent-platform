@@ -1,0 +1,30 @@
+name: file_edit
+label: 编辑文件
+description: Edit a single UTF-8 text file on the host filesystem by replacing an exact string. Existing files must be read in the same run before editing; external changes after read return file_edit_modified_since_read. Use file_write for full overwrites.
+submitResultFormat: json-compact
+type: function
+inputSchema:
+  type: object
+  properties:
+    file_path:
+      type: string
+      description: Required. Absolute path, or a path relative to the working-directory in configs/file-tools.yml, for the file to edit.
+    old_string:
+      type: string
+      description: Required. Exact UTF-8 text to replace. Use an empty string only to create a new file or write an empty existing file.
+    new_string:
+      type: string
+      description: Required. Replacement UTF-8 text.
+    replace_all:
+      type: boolean
+      default: false
+      description: Replace every occurrence of old_string. Defaults to false; when false, old_string must match exactly once.
+    description:
+      type: string
+      description: Required. 这次编辑文件的用途简述（一句话，中文），会在需要人工审批时展示给用户。
+  required:
+    - file_path
+    - old_string
+    - new_string
+    - description
+  additionalProperties: false

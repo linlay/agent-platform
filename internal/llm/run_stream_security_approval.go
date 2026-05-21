@@ -131,12 +131,16 @@ func bashSecurityInterceptResult(invocation *preparedToolInvocation, review bash
 }
 
 func fileWriteInterceptResult(plan filetools.WritePlan) hitl.InterceptResult {
+	title := "File write approval"
+	if strings.EqualFold(strings.TrimSpace(plan.Operation), "edit") || strings.EqualFold(strings.TrimSpace(plan.ToolName), "file_edit") {
+		title = "File edit approval"
+	}
 	return hitl.InterceptResult{
 		Intercepted: true,
 		Rule: hitl.FlatRule{
 			RuleKey:      plan.RuleKey,
 			Level:        2,
-			Title:        "File write approval",
+			Title:        title,
 			ViewportType: "builtin",
 			ViewportKey:  "approval",
 		},

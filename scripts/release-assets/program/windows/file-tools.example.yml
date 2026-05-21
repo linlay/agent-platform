@@ -8,7 +8,7 @@ allowed-read-paths:
   - .
   - C:\
 
-# Keep write access narrower by default.
+# Keep file_write / file_edit access narrower by default.
 allowed-write-paths:
   - .
 

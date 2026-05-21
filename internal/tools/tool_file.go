@@ -203,6 +203,129 @@ func (t *RuntimeToolExecutor) invokeWrite(args map[string]any, execCtx *Executio
 	return structuredResult(payload), nil
 }
 
+func (t *RuntimeToolExecutor) invokeEdit(args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
+	accessCfg := t.sessionFileToolsConfig(filetools.WriteAccess, execCtx)
+	access, err := filetools.BuildAccessPlan(accessCfg, filetools.WriteAccess, stringArg(args, "file_path"))
+	if err != nil {
+		return fileToolError("file_edit_invalid_plan", err.Error()), nil
+	}
+	access.CommandText = "file_edit " + access.Path
+	if !access.AllowedByWhitelist && !filetools.ConsumeAccessApproval(execCtx, access) {
+		return fileAccessApprovalRequired("file_edit_path_approval_required", "edit超出允许目录", access), nil
+	}
+	plan, err := filetools.BuildEditPlan(accessCfg, args)
+	if err != nil {
+		return fileToolError("file_edit_invalid_plan", err.Error()), nil
+	}
+	requiresWriteApproval := t.cfg.FileTools.RequireWriteApproval && !writeAllowedBySessionWorkspace(execCtx, plan.FilePath)
+	if requiresWriteApproval && !filetools.ConsumeWriteApproval(execCtx, plan) {
+		result := structuredResultWithExit(map[string]any{
+			"error":       "file_edit_approval_required",
+			"message":     "file edit requires user approval",
+			"filePath":    plan.FilePath,
+			"command":     plan.CommandText,
+			"fingerprint": plan.Fingerprint,
+			"ruleKey":     plan.RuleKey,
+		}, -1)
+		result.Error = "file_edit_approval_required"
+		return result, nil
+	}
+	if t.cfg.FileTools.RequireReadBeforeWrite {
+		if result, ok := validateReadBeforeFileMutation(plan.FilePath, execCtx, "file_edit"); ok {
+			return result, nil
+		}
+	}
+
+	before, beforeExists := fileSHA256IfExists(plan.FilePath)
+	currentContent := ""
+	created := !beforeExists
+	if beforeExists {
+		info, err := os.Stat(plan.FilePath)
+		if err != nil {
+			return fileToolError("file_edit_failed", err.Error()), nil
+		}
+		if info.IsDir() {
+			return fileToolError("file_edit_is_directory", "path is a directory"), nil
+		}
+		if filetools.IsBinaryExtension(plan.FilePath) {
+			return fileToolError("file_edit_binary_unsupported", "binary file extension is not supported by edit"), nil
+		}
+		data, err := os.ReadFile(plan.FilePath)
+		if err != nil {
+			return fileToolError("file_edit_failed", err.Error()), nil
+		}
+		if !utf8.Valid(data) {
+			return fileToolError("file_edit_non_utf8_unsupported", "file content is not valid UTF-8"), nil
+		}
+		currentContent = string(data)
+	} else if plan.OldString != "" {
+		return fileToolError("file_edit_file_not_found", "file does not exist and old_string is not empty"), nil
+	}
+
+	normalizedContent, lineEndings := normalizeEditLineEndings(currentContent)
+	oldString := normalizeEditString(plan.OldString)
+	newString := normalizeEditString(plan.NewString)
+
+	updatedContent := ""
+	replacements := 0
+	if oldString == "" {
+		if beforeExists && normalizedContent != "" {
+			return fileToolError("file_edit_file_exists", "old_string is empty but file already has content"), nil
+		}
+		updatedContent = newString
+		replacements = 1
+	} else {
+		replacements = strings.Count(normalizedContent, oldString)
+		if replacements == 0 {
+			return fileToolError("file_edit_string_not_found", "old_string was not found in file"), nil
+		}
+		if replacements > 1 && !plan.ReplaceAll {
+			return fileToolError("file_edit_multiple_matches", fmt.Sprintf("old_string matched %d times; set replace_all=true or provide more context", replacements)), nil
+		}
+		if plan.ReplaceAll {
+			updatedContent = strings.ReplaceAll(normalizedContent, oldString, newString)
+		} else {
+			updatedContent = strings.Replace(normalizedContent, oldString, newString, 1)
+			replacements = 1
+		}
+	}
+
+	if lineEndings == "CRLF" {
+		updatedContent = strings.ReplaceAll(updatedContent, "\n", "\r\n")
+	}
+	updatedBytes := []byte(updatedContent)
+	if len(updatedBytes) > maxInt(t.cfg.FileTools.MaxWriteBytes, 1<<20) {
+		return fileToolError("file_edit_content_too_large", "edited content exceeds max write bytes"), nil
+	}
+	if err := os.MkdirAll(filepath.Dir(plan.FilePath), 0o755); err != nil {
+		return fileToolError("file_edit_failed", err.Error()), nil
+	}
+	if err := atomicWriteFile(plan.FilePath, updatedBytes); err != nil {
+		return fileToolError("file_edit_failed", err.Error()), nil
+	}
+	after := fileSHA256(plan.FilePath)
+	info, _ := os.Stat(plan.FilePath)
+	payload := map[string]any{
+		"status":       "edited",
+		"filePath":     plan.FilePath,
+		"replacements": replacements,
+		"replaceAll":   plan.ReplaceAll,
+		"created":      created,
+		"sha256":       after,
+	}
+	if beforeExists {
+		payload["previousSha256"] = before
+	}
+	if info != nil {
+		payload["sizeBytes"] = info.Size()
+		payload["modifiedUnixMs"] = info.ModTime().UnixMilli()
+		if execCtx != nil {
+			recordReadSnapshot(execCtx, plan.FilePath, info, after, 0, 0)
+		}
+	}
+	return structuredResult(payload), nil
+}
+
 func (t *RuntimeToolExecutor) sessionFileToolsConfig(mode filetools.AccessMode, execCtx *ExecutionContext) config.FileToolsConfig {
 	if execCtx == nil {
 		return t.cfg.FileTools
@@ -262,26 +385,46 @@ func readImageFile(path string, info os.FileInfo) (map[string]any, bool, ToolExe
 }
 
 func validateReadBeforeWrite(path string, execCtx *ExecutionContext) (ToolExecutionResult, bool) {
+	return validateReadBeforeFileMutation(path, execCtx, "file_write")
+}
+
+func validateReadBeforeFileMutation(path string, execCtx *ExecutionContext, errorPrefix string) (ToolExecutionResult, bool) {
+	notReadCode := errorPrefix + "_not_read"
+	modifiedCode := errorPrefix + "_modified_since_read"
+	if errorPrefix == "file_write" {
+		modifiedCode = "file_modified_since_read"
+	}
 	info, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return ToolExecutionResult{}, false
 		}
-		return fileToolError("file_write_failed", err.Error()), true
+		return fileToolError(errorPrefix+"_failed", err.Error()), true
 	}
 	if execCtx == nil || execCtx.ReadFileState == nil {
-		return fileToolError("file_write_not_read", "file exists but was not read in this run; call read first then retry"), true
+		return fileToolError(notReadCode, "file exists but was not read in this run; call read first then retry"), true
 	}
 	snap, ok := execCtx.ReadFileState[path]
 	if !ok {
-		return fileToolError("file_write_not_read", "file exists but was not read in this run; call read first then retry"), true
+		return fileToolError(notReadCode, "file exists but was not read in this run; call read first then retry"), true
 	}
 	if info.ModTime().UnixMilli() != snap.ModifiedUnixMs || info.Size() != snap.SizeBytes {
 		if currentSha := fileSHA256(path); currentSha != snap.SHA256 {
-			return fileToolError("file_modified_since_read", "file has been modified since last read; re-read before writing"), true
+			return fileToolError(modifiedCode, "file has been modified since last read; re-read before writing"), true
 		}
 	}
 	return ToolExecutionResult{}, false
+}
+
+func normalizeEditLineEndings(content string) (string, string) {
+	if strings.Contains(content, "\r\n") {
+		return strings.ReplaceAll(content, "\r\n", "\n"), "CRLF"
+	}
+	return content, "LF"
+}
+
+func normalizeEditString(content string) string {
+	return strings.ReplaceAll(content, "\r\n", "\n")
 }
 
 func recordReadSnapshot(execCtx *ExecutionContext, path string, info os.FileInfo, sha string, offset int64, limit int64) {

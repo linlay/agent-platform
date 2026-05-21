@@ -44,6 +44,11 @@ type WritePlan struct {
 	Fingerprint string
 	RuleKey     string
 	CommandText string
+	ToolName    string
+	Operation   string
+	OldString   string
+	NewString   string
+	ReplaceAll  bool
 }
 
 func BuildAccessPlan(cfg config.FileToolsConfig, mode AccessMode, rawPath string) (AccessPlan, error) {
@@ -206,6 +211,59 @@ func BuildWritePlan(cfg config.FileToolsConfig, args map[string]any) (WritePlan,
 		Fingerprint: fingerprint,
 		RuleKey:     ruleKey,
 		CommandText: fmt.Sprintf("file_write %s (%d bytes)", access.Path, len(contentBytes)),
+		ToolName:    "file_write",
+		Operation:   "write",
+	}, nil
+}
+
+func BuildEditPlan(cfg config.FileToolsConfig, args map[string]any) (WritePlan, error) {
+	access, err := BuildAccessPlan(cfg, WriteAccess, AnyStringNode(args["file_path"]))
+	if err != nil {
+		return WritePlan{}, err
+	}
+	oldString, ok := args["old_string"].(string)
+	if !ok {
+		return WritePlan{}, fmt.Errorf("old_string is required for edit")
+	}
+	newString, ok := args["new_string"].(string)
+	if !ok {
+		return WritePlan{}, fmt.Errorf("new_string is required for edit")
+	}
+	if oldString == newString {
+		return WritePlan{}, fmt.Errorf("old_string and new_string must be different")
+	}
+	description := strings.TrimSpace(AnyStringNode(args["description"]))
+	if description == "" {
+		return WritePlan{}, fmt.Errorf("description is required for edit")
+	}
+	if len([]byte(newString)) > maxPositive(cfg.MaxWriteBytes, 1<<20) {
+		return WritePlan{}, fmt.Errorf("new_string exceeds max write bytes")
+	}
+	replaceAll := AnyBoolNode(args["replace_all"])
+	fingerprintInput := strings.Join([]string{
+		access.Path,
+		oldString,
+		newString,
+		fmt.Sprintf("%t", replaceAll),
+	}, "\x00")
+	sum := sha256.Sum256([]byte(fingerprintInput))
+	rootHash := sha256.Sum256([]byte("file_edit\x00" + access.Root))
+	commandText := fmt.Sprintf("file_edit %s (%d -> %d bytes)", access.Path, len([]byte(oldString)), len([]byte(newString)))
+	if replaceAll {
+		commandText += " replace_all"
+	}
+	return WritePlan{
+		FilePath:    access.Path,
+		Root:        access.Root,
+		Description: description,
+		Fingerprint: hex.EncodeToString(sum[:]),
+		RuleKey:     "file-edit::" + hex.EncodeToString(rootHash[:8]),
+		CommandText: commandText,
+		ToolName:    "file_edit",
+		Operation:   "edit",
+		OldString:   oldString,
+		NewString:   newString,
+		ReplaceAll:  replaceAll,
 	}, nil
 }
 

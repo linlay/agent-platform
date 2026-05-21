@@ -689,6 +689,258 @@ func TestInvokeWriteMaxBytes(t *testing.T) {
 	}
 }
 
+func TestInvokeEditReplacesUniqueStringAndRefreshesSnapshot(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "owner.md")
+	if err := os.WriteFile(path, []byte("hello world\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	executor := fileToolExecutor(root, false)
+	execCtx := &contracts.ExecutionContext{}
+	if _, err := executor.invokeRead(map[string]any{"file_path": "owner.md", "add_line_numbers": false}, execCtx); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	result, err := executor.invokeEdit(map[string]any{
+		"file_path":   "owner.md",
+		"old_string":  "world",
+		"new_string":  "agent",
+		"description": "编辑 owner 文档",
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invokeEdit: %v", err)
+	}
+	if result.Error != "" || result.ExitCode != 0 || result.Structured["replacements"] != 1 {
+		t.Fatalf("expected edit success, got %#v", result)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != "hello agent\n" {
+		t.Fatalf("unexpected edited content %q err=%v", string(got), err)
+	}
+	resolvedPath := filepath.Join(realPath(t, root), "owner.md")
+	if snap := execCtx.ReadFileState[resolvedPath]; snap.SHA256 != fileSHA256(path) {
+		t.Fatalf("expected refreshed snapshot, got %#v", snap)
+	}
+}
+
+func TestInvokeEditReplaceAllAndMultipleMatchRejection(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "owner.md")
+	if err := os.WriteFile(path, []byte("one one\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	executor := fileToolExecutor(root, false)
+	execCtx := &contracts.ExecutionContext{}
+	if _, err := executor.invokeRead(map[string]any{"file_path": "owner.md", "add_line_numbers": false}, execCtx); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	rejected, err := executor.invokeEdit(map[string]any{
+		"file_path":   "owner.md",
+		"old_string":  "one",
+		"new_string":  "two",
+		"description": "编辑 owner 文档",
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invokeEdit reject: %v", err)
+	}
+	if rejected.ExitCode == 0 || rejected.Structured["error"] != "file_edit_multiple_matches" {
+		t.Fatalf("expected multiple match rejection, got %#v", rejected.Structured)
+	}
+
+	edited, err := executor.invokeEdit(map[string]any{
+		"file_path":   "owner.md",
+		"old_string":  "one",
+		"new_string":  "two",
+		"replace_all": true,
+		"description": "编辑 owner 文档",
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invokeEdit replace all: %v", err)
+	}
+	if edited.Error != "" || edited.Structured["replacements"] != 2 {
+		t.Fatalf("expected replace_all success, got %#v", edited)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != "two two\n" {
+		t.Fatalf("unexpected edited content %q err=%v", string(got), err)
+	}
+}
+
+func TestInvokeEditRejectsMissingStringAndIdenticalStrings(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "owner.md")
+	if err := os.WriteFile(path, []byte("hello\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	executor := fileToolExecutor(root, false)
+	execCtx := &contracts.ExecutionContext{}
+	if _, err := executor.invokeRead(map[string]any{"file_path": "owner.md", "add_line_numbers": false}, execCtx); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	missing, err := executor.invokeEdit(map[string]any{
+		"file_path":   "owner.md",
+		"old_string":  "absent",
+		"new_string":  "new",
+		"description": "编辑 owner 文档",
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invokeEdit missing: %v", err)
+	}
+	if missing.ExitCode == 0 || missing.Structured["error"] != "file_edit_string_not_found" {
+		t.Fatalf("expected missing string rejection, got %#v", missing.Structured)
+	}
+
+	same, err := executor.invokeEdit(map[string]any{
+		"file_path":   "owner.md",
+		"old_string":  "hello",
+		"new_string":  "hello",
+		"description": "编辑 owner 文档",
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invokeEdit same: %v", err)
+	}
+	if same.ExitCode == 0 || same.Structured["error"] != "file_edit_invalid_plan" {
+		t.Fatalf("expected identical string rejection, got %#v", same.Structured)
+	}
+}
+
+func TestInvokeEditCreatesNewFileWithEmptyOldString(t *testing.T) {
+	root := t.TempDir()
+	executor := fileToolExecutor(root, false)
+	execCtx := &contracts.ExecutionContext{}
+
+	result, err := executor.invokeEdit(map[string]any{
+		"file_path":   "new.md",
+		"old_string":  "",
+		"new_string":  "hello\n",
+		"description": "创建文件",
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invokeEdit create: %v", err)
+	}
+	if result.Error != "" || result.Structured["created"] != true || result.Structured["replacements"] != 1 {
+		t.Fatalf("expected create success, got %#v", result)
+	}
+	if got, err := os.ReadFile(filepath.Join(root, "new.md")); err != nil || string(got) != "hello\n" {
+		t.Fatalf("unexpected created content %q err=%v", string(got), err)
+	}
+}
+
+func TestInvokeEditRequiresReadForExistingFileAndRejectsExternalChanges(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "owner.md")
+	if err := os.WriteFile(path, []byte("old\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	executor := fileToolExecutor(root, false)
+	execCtx := &contracts.ExecutionContext{}
+
+	notRead, err := executor.invokeEdit(map[string]any{
+		"file_path":   "owner.md",
+		"old_string":  "old",
+		"new_string":  "new",
+		"description": "编辑 owner 文档",
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invokeEdit not read: %v", err)
+	}
+	if notRead.ExitCode == 0 || notRead.Structured["error"] != "file_edit_not_read" {
+		t.Fatalf("expected not-read rejection, got %#v", notRead.Structured)
+	}
+
+	if _, err := executor.invokeRead(map[string]any{"file_path": "owner.md", "add_line_numbers": false}, execCtx); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	time.Sleep(time.Millisecond)
+	if err := os.WriteFile(path, []byte("external\n"), 0o644); err != nil {
+		t.Fatalf("external write: %v", err)
+	}
+	modified, err := executor.invokeEdit(map[string]any{
+		"file_path":   "owner.md",
+		"old_string":  "external",
+		"new_string":  "new",
+		"description": "编辑 owner 文档",
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invokeEdit modified: %v", err)
+	}
+	if modified.ExitCode == 0 || modified.Structured["error"] != "file_edit_modified_since_read" {
+		t.Fatalf("expected modified-since-read rejection, got %#v", modified.Structured)
+	}
+}
+
+func TestInvokeEditConsumesApprovalAndPreservesCRLF(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "owner.md")
+	if err := os.WriteFile(path, []byte("hello\r\nworld\r\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	executor := fileToolExecutor(root, true)
+	execCtx := &contracts.ExecutionContext{}
+	if _, err := executor.invokeRead(map[string]any{"file_path": "owner.md", "add_line_numbers": false}, execCtx); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	args := map[string]any{
+		"file_path":   "owner.md",
+		"old_string":  "hello\nworld",
+		"new_string":  "hello\nagent",
+		"description": "编辑 owner 文档",
+	}
+	plan, err := filetools.BuildEditPlan(executor.cfg.FileTools, args)
+	if err != nil {
+		t.Fatalf("build edit plan: %v", err)
+	}
+	filetools.RegisterExactWriteApproval(execCtx, plan.Fingerprint)
+
+	result, err := executor.invokeEdit(args, execCtx)
+	if err != nil {
+		t.Fatalf("invokeEdit: %v", err)
+	}
+	if result.Error != "" || result.ExitCode != 0 {
+		t.Fatalf("expected approved edit success, got %#v", result)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != "hello\r\nagent\r\n" {
+		t.Fatalf("unexpected CRLF content %q err=%v", string(got), err)
+	}
+	if len(execCtx.FileWriteApprovals) != 0 {
+		t.Fatalf("expected exact edit approval consumed, got %#v", execCtx.FileWriteApprovals)
+	}
+}
+
+func TestInvokeEditInsideSessionWorkspaceBypassesWriteApproval(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "owner.md")
+	if err := os.WriteFile(path, []byte("old"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	executor := fileToolExecutor(root, true)
+	execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{
+		WorkspaceRoot: root,
+		RuntimeContext: contracts.RuntimeRequestContext{
+			LocalPaths: contracts.LocalPaths{WorkspaceDir: root},
+		},
+	}}
+	if _, err := executor.invokeRead(map[string]any{"file_path": "owner.md", "add_line_numbers": false}, execCtx); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	result, err := executor.invokeEdit(map[string]any{
+		"file_path":   "owner.md",
+		"old_string":  "old",
+		"new_string":  "new",
+		"description": "编辑 workspace 文件",
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invokeEdit: %v", err)
+	}
+	if result.Error != "" || result.ExitCode != 0 {
+		t.Fatalf("expected edit success, got %#v", result)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != "new" {
+		t.Fatalf("unexpected edited content %q err=%v", string(got), err)
+	}
+}
+
 func realPath(t *testing.T, path string) string {
 	t.Helper()
 	real, err := filepath.EvalSymlinks(path)

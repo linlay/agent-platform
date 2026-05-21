@@ -13,6 +13,7 @@ var coderAgentProfile = agentTypeProfile{
 		"bash",
 		"file_read",
 		"file_write",
+		"file_edit",
 		"file_grep",
 		"datetime",
 	},

@@ -65,6 +65,56 @@ func TestBuildAccessPlanDeniedInfersNearestExistingAncestor(t *testing.T) {
 	}
 }
 
+func TestBuildEditPlanUsesEditFingerprintAndRuleKey(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "notes.txt")
+	if err := os.WriteFile(path, []byte("hello"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	cfg := config.FileToolsConfig{
+		WorkingDirectory:  root,
+		AllowedReadPaths:  []string{"."},
+		AllowedWritePaths: []string{"."},
+		MaxWriteBytes:     1024,
+	}
+
+	plan, err := BuildEditPlan(cfg, map[string]any{
+		"file_path":   "notes.txt",
+		"old_string":  "hello",
+		"new_string":  "hi",
+		"replace_all": true,
+		"description": "编辑 notes",
+	})
+	if err != nil {
+		t.Fatalf("build edit plan: %v", err)
+	}
+	if plan.ToolName != "file_edit" || plan.Operation != "edit" || !plan.ReplaceAll {
+		t.Fatalf("unexpected edit plan metadata: %#v", plan)
+	}
+	if plan.FilePath != filepath.Join(realPathForTest(t, root), "notes.txt") || plan.OldString != "hello" || plan.NewString != "hi" {
+		t.Fatalf("unexpected edit plan fields: %#v", plan)
+	}
+	if !strings.HasPrefix(plan.RuleKey, "file-edit::") || plan.Fingerprint == "" || !strings.HasPrefix(plan.CommandText, "file_edit ") {
+		t.Fatalf("unexpected edit approval metadata: %#v", plan)
+	}
+
+	changed, err := BuildEditPlan(cfg, map[string]any{
+		"file_path":   "notes.txt",
+		"old_string":  "hello",
+		"new_string":  "hi!",
+		"description": "编辑 notes",
+	})
+	if err != nil {
+		t.Fatalf("build changed edit plan: %v", err)
+	}
+	if changed.Fingerprint == plan.Fingerprint {
+		t.Fatalf("expected fingerprint to include replacement content, got %#v and %#v", plan, changed)
+	}
+	if changed.RuleKey != plan.RuleKey {
+		t.Fatalf("expected same root rule key for same file root, got %q and %q", plan.RuleKey, changed.RuleKey)
+	}
+}
+
 func TestConfigWithSessionReadRootsOnlyExtendsReadAccess(t *testing.T) {
 	root := t.TempDir()
 	agentDir := filepath.Join(t.TempDir(), "agent-a")

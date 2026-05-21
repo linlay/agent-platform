@@ -192,7 +192,7 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 		invocation.fileAccessPlan = accessPlan
 	}
 	if isWriteTool(invocation.toolName) && s.engine.cfg.FileTools.RequireWriteApproval {
-		if plan, err := filetools.BuildWritePlan(s.sessionFileToolsConfig(filetools.WriteAccess), invocation.args); err == nil && s.fileWritePlanNeedsApproval(plan) {
+		if plan, err := s.buildFileWritePlan(invocation); err == nil && s.fileWritePlanNeedsApproval(plan) {
 			invocation.fileWritePlan = &plan
 		}
 	}
@@ -479,12 +479,19 @@ func (s *llmRunStream) lookupFileWritePlan(invocation *preparedToolInvocation) *
 	if invocation.fileWritePlan != nil {
 		return invocation.fileWritePlan
 	}
-	plan, err := filetools.BuildWritePlan(s.sessionFileToolsConfig(filetools.WriteAccess), invocation.args)
+	plan, err := s.buildFileWritePlan(invocation)
 	if err != nil {
 		return nil
 	}
 	invocation.fileWritePlan = &plan
 	return &plan
+}
+
+func (s *llmRunStream) buildFileWritePlan(invocation *preparedToolInvocation) (filetools.WritePlan, error) {
+	if strings.EqualFold(strings.TrimSpace(invocation.toolName), "file_edit") {
+		return filetools.BuildEditPlan(s.sessionFileToolsConfig(filetools.WriteAccess), invocation.args)
+	}
+	return filetools.BuildWritePlan(s.sessionFileToolsConfig(filetools.WriteAccess), invocation.args)
 }
 
 func (s *llmRunStream) buildFileAccessPlan(invocation *preparedToolInvocation) (*filetools.AccessPlan, bool) {
@@ -499,6 +506,9 @@ func (s *llmRunStream) buildFileAccessPlan(invocation *preparedToolInvocation) (
 	plan, err := filetools.BuildAccessPlan(cfg, mode, rawPath)
 	if err != nil {
 		return nil, false
+	}
+	if strings.EqualFold(strings.TrimSpace(invocation.toolName), "file_edit") && plan.Mode == filetools.WriteAccess {
+		plan.CommandText = "file_edit " + plan.Path
 	}
 	return &plan, true
 }
@@ -588,6 +598,8 @@ func fileAccessPlanInput(toolName string, args map[string]any) (filetools.Access
 		return filetools.ReadAccess, rawPath, true
 	case "file_write":
 		return filetools.WriteAccess, mapStringArg(args, "file_path"), strings.TrimSpace(mapStringArg(args, "file_path")) != ""
+	case "file_edit":
+		return filetools.WriteAccess, mapStringArg(args, "file_path"), strings.TrimSpace(mapStringArg(args, "file_path")) != ""
 	default:
 		return "", "", false
 	}
@@ -607,7 +619,7 @@ func (s *llmRunStream) executeApprovedFileAccessInvocation(invocation *preparedT
 			s.appendOriginalToolResult(invocation, fileAccessDeniedToolResult(invocation, "file_read_denied"))
 			return nil
 		}
-		s.appendOriginalToolResult(invocation, fileAccessDeniedToolResult(invocation, "file_write_denied"))
+		s.appendOriginalToolResult(invocation, fileAccessDeniedToolResult(invocation, fileMutationDeniedCode(invocation)))
 		return nil
 	case "approve_rule_run":
 		if accessPlan, writePlan, ok := s.combinedFileWriteApprovalPlans(invocation); ok {
@@ -671,6 +683,8 @@ func fileAccessDeniedToolResult(invocation *preparedToolInvocation, code string)
 	message := "file access rejected"
 	if invocation != nil && strings.EqualFold(strings.TrimSpace(invocation.toolName), "file_write") {
 		message = "file write access rejected"
+	} else if invocation != nil && strings.EqualFold(strings.TrimSpace(invocation.toolName), "file_edit") {
+		message = "file edit access rejected"
 	}
 	result := structuredResult(map[string]any{
 		"error":   code,
@@ -763,7 +777,19 @@ func isBashTool(name string) bool {
 }
 
 func isWriteTool(name string) bool {
-	return strings.EqualFold(strings.TrimSpace(name), "file_write")
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "file_write", "file_edit":
+		return true
+	default:
+		return false
+	}
+}
+
+func fileMutationDeniedCode(invocation *preparedToolInvocation) string {
+	if invocation != nil && strings.EqualFold(strings.TrimSpace(invocation.toolName), "file_edit") {
+		return "file_edit_denied"
+	}
+	return "file_write_denied"
 }
 
 func mapStringArg(args map[string]any, key string) string {

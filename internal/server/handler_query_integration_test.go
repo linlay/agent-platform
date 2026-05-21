@@ -881,14 +881,14 @@ func TestCoderPlanningModeQuestionsConfirmThenExecutes(t *testing.T) {
 				`[DONE]`,
 			)
 		case 4:
-			assertStringSliceContains(t, toolNames, "bash", "file_read", "file_write", "file_grep", "datetime", "plan_update_task")
+			assertStringSliceContains(t, toolNames, "bash", "file_read", "file_write", "file_edit", "file_grep", "datetime", "plan_update_task")
 			assertStringSliceExcludes(t, toolNames, "plan_add_tasks", "ask_user_question")
 			writeProviderSSE(t, w,
 				providerToolCallFrame(t, "tool_time", "datetime", map[string]any{}),
 				`[DONE]`,
 			)
 		case 5:
-			assertStringSliceContains(t, toolNames, "bash", "file_read", "file_write", "file_grep", "datetime", "plan_update_task")
+			assertStringSliceContains(t, toolNames, "bash", "file_read", "file_write", "file_edit", "file_grep", "datetime", "plan_update_task")
 			assertStringSliceExcludes(t, toolNames, "plan_add_tasks", "ask_user_question")
 			writeProviderSSE(t, w,
 				providerToolCallFrame(t, "tool_done", "plan_update_task", map[string]any{
@@ -1064,7 +1064,7 @@ func TestCoderPlanningModeCancelDoesNotExecuteTasks(t *testing.T) {
 	if strings.Contains(body, `"type":"task.start"`) {
 		t.Fatalf("did not expect task.start after cancel, got %s", body)
 	}
-	if strings.Contains(body, `"type":"tool.start","toolName":"bash"`) || strings.Contains(body, `"type":"tool.start","toolName":"file_write"`) {
+	if strings.Contains(body, `"type":"tool.start","toolName":"bash"`) || strings.Contains(body, `"type":"tool.start","toolName":"file_write"`) || strings.Contains(body, `"type":"tool.start","toolName":"file_edit"`) {
 		t.Fatalf("did not expect mutating tool calls after cancel, got %s", body)
 	}
 	if !strings.Contains(body, `"status":"canceled"`) || !strings.Contains(body, "已取消执行计划。") {
@@ -1106,7 +1106,7 @@ func assertCoderPlanningToolSet(t *testing.T, got []string) {
 		t.Fatalf("coder planning tools length=%d tools=%#v", len(got), got)
 	}
 	assertStringSliceContains(t, got, "file_read", "file_grep", "datetime", "ask_user_question", "plan_add_tasks")
-	assertStringSliceExcludes(t, got, "bash", "file_write", "desktop_action", "desktop_cdp", "agent_invoke", "plan_update_task")
+	assertStringSliceExcludes(t, got, "bash", "file_write", "file_edit", "desktop_action", "desktop_cdp", "agent_invoke", "plan_update_task")
 }
 
 func awaitingQuestionText(payload map[string]any) string {
