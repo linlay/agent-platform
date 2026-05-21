@@ -769,7 +769,7 @@ func (s *Server) buildAgentDetailResponse(def catalog.AgentDefinition) api.Agent
 		Mode:        def.Mode,
 		Tools:       effectiveAgentTools(def),
 		Skills:      append([]string{}, def.Skills...),
-		Controls:    agentControlsWithPlanningMode(def),
+		Controls:    cloneListMaps(def.Controls),
 		Meta:        meta,
 	}
 }
@@ -826,33 +826,6 @@ func (s *Server) buildAgentDetailMeta(def catalog.AgentDefinition) (string, map[
 		meta["sandbox"] = normalizedRuntimeMeta(def.Runtime)
 	}
 	return modelName, meta
-}
-
-func agentControlsWithPlanningMode(def catalog.AgentDefinition) []map[string]any {
-	controls := cloneListMaps(def.Controls)
-	if !strings.EqualFold(def.Type, catalog.AgentTypeCoder) || hasControlKey(controls, "planningMode") {
-		return controls
-	}
-	controls = append(controls, map[string]any{
-		"key":          "planningMode",
-		"type":         "toggle",
-		"label":        "计划模式",
-		"defaultValue": false,
-	})
-	return controls
-}
-
-func hasControlKey(controls []map[string]any, key string) bool {
-	key = strings.TrimSpace(key)
-	if key == "" {
-		return false
-	}
-	for _, control := range controls {
-		if strings.EqualFold(strings.TrimSpace(contracts.AnyStringNode(control["key"])), key) {
-			return true
-		}
-	}
-	return false
 }
 
 func normalizedAgentTools(def catalog.AgentDefinition) []string {
