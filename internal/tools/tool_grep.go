@@ -7,6 +7,8 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -41,9 +43,9 @@ func (t *RuntimeToolExecutor) invokeGrep(ctx context.Context, args map[string]an
 		return fileAccessApprovalRequired("file_read_approval_required", "grep超出允许目录", access), nil
 	}
 	resolved := filetools.ResolvedPath{Raw: access.RawPath, Path: access.Path, Root: access.Root}
-	rgPath, err := exec.LookPath("rg")
+	rgPath, err := resolveRipgrepPath()
 	if err != nil {
-		return fileToolError("grep_ripgrep_missing", "ripgrep (rg) is not installed or not on PATH"), nil
+		return fileToolError("grep_ripgrep_missing", "ripgrep (rg) is not installed or bundled with agent-platform"), nil
 	}
 
 	mode := strings.ToLower(strings.TrimSpace(stringArg(args, "output_mode")))
@@ -159,6 +161,41 @@ func (t *RuntimeToolExecutor) invokeGrep(ctx context.Context, args map[string]an
 		"results":    results,
 		"raw":        truncateStringBytes(out, maxGrepRawBytes),
 	}), nil
+}
+
+func resolveRipgrepPath() (string, error) {
+	if path, err := exec.LookPath("rg"); err == nil {
+		return path, nil
+	}
+	exePath, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	return findBundledRipgrep(filepath.Dir(exePath))
+}
+
+func findBundledRipgrep(binaryDir string) (string, error) {
+	name := "rg"
+	if runtime.GOOS == "windows" {
+		name = "rg.exe"
+	}
+	candidates := []string{
+		filepath.Join(binaryDir, name),
+		filepath.Join(binaryDir, "bin", name),
+		filepath.Join(filepath.Dir(binaryDir), "bin", name),
+		filepath.Join(filepath.Dir(binaryDir), "tools", name),
+	}
+	for _, candidate := range candidates {
+		info, err := os.Stat(candidate)
+		if err != nil || info.IsDir() {
+			continue
+		}
+		if runtime.GOOS != "windows" && info.Mode()&0o111 == 0 {
+			continue
+		}
+		return candidate, nil
+	}
+	return "", exec.ErrNotFound
 }
 
 func splitOutputLines(out string) []string {

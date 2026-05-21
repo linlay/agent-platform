@@ -14,6 +14,7 @@ $SCRIPT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
 $REPO_ROOT = Split-Path -Parent $SCRIPT_DIR
 $PROGRAM_RELEASE_ASSETS_DIR = Join-Path $SCRIPT_DIR "release-assets/program"
 $RELEASE_DIR = Join-Path $REPO_ROOT "dist/release"
+$BUNDLED_RIPGREP_VERSION = if ($env:BUNDLED_RIPGREP_VERSION) { $env:BUNDLED_RIPGREP_VERSION } else { "15.1.0" }
 
 function Get-DetectedArch {
     $arch = $env:PROCESSOR_ARCHITECTURE
@@ -117,6 +118,64 @@ function Copy-ConfigTemplates {
     foreach ($t in $templates) {
         Copy-Item $t.FullName (Join-Path $BundleRoot "configs") -Force
     }
+}
+
+function Get-BundledRgPath {
+    param(
+        [string]$TargetOs,
+        [string]$TargetArch
+    )
+
+    $rgName = if ($TargetOs -eq "windows") { "rg.exe" } else { "rg" }
+    $vendoredPath = Join-Path $REPO_ROOT "third_party/ripgrep/$BUNDLED_RIPGREP_VERSION/$TargetOs-$TargetArch/$rgName"
+    if (Test-Path $vendoredPath -PathType Leaf) {
+        return $vendoredPath
+    }
+
+    $envKey = "BUNDLED_RG_PATH_$($TargetOs.ToUpperInvariant())_$($TargetArch.ToUpperInvariant())"
+    $path = [Environment]::GetEnvironmentVariable($envKey)
+    if ($path) {
+        if (-not (Test-Path $path -PathType Leaf)) {
+            Write-Error "$envKey points to a missing file: $path"
+        }
+        return $path
+    }
+
+    $path = [Environment]::GetEnvironmentVariable("BUNDLED_RG_PATH")
+    if ($path) {
+        if (-not (Test-Path $path -PathType Leaf)) {
+            Write-Error "BUNDLED_RG_PATH points to a missing file: $path"
+        }
+        return $path
+    }
+
+    if ((Get-OsTag) -eq $TargetOs -and (Get-DetectedArch) -eq $TargetArch) {
+        $cmd = Get-Command rg -ErrorAction SilentlyContinue
+        if ($cmd) {
+            return $cmd.Source
+        }
+    }
+    return $null
+}
+
+function Copy-BundledRg {
+    param(
+        [string]$BundleRoot,
+        [string]$TargetOs,
+        [string]$TargetArch
+    )
+
+    $rgPath = Get-BundledRgPath -TargetOs $TargetOs -TargetArch $TargetArch
+    if (-not $rgPath) {
+        Write-Host "[release] warning: no bundled rg found for $TargetOs/$TargetArch; file_grep will require rg on PATH"
+        return
+    }
+
+    $rgName = if ($TargetOs -eq "windows") { "rg.exe" } else { "rg" }
+    $destDir = Join-Path (Join-Path $BundleRoot "backend") "bin"
+    New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+    Copy-Item $rgPath (Join-Path $destDir $rgName) -Force
+    Write-Host "[release] bundled rg: $rgPath"
 }
 
 function Compress-Directory {
@@ -238,6 +297,7 @@ function Build-ProgramBundle {
         if ($TargetOs -eq "windows") {
             Copy-Item "$PROGRAM_RELEASE_ASSETS_DIR/windows/bash.example.yml" (Join-Path (Join-Path $bundleRoot "configs") "bash.example.yml") -Force
         }
+        Copy-BundledRg -BundleRoot $bundleRoot -TargetOs $TargetOs -TargetArch $TargetArch
         New-RuntimeTree -BundleRoot $bundleRoot
 
         if ($TargetOs -eq "windows") {

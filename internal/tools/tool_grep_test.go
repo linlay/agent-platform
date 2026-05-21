@@ -219,6 +219,31 @@ func TestInvokeGrepRipgrepMissing(t *testing.T) {
 	}
 }
 
+func TestFindBundledRipgrep(t *testing.T) {
+	binaryDir := filepath.Join(t.TempDir(), "backend")
+	binDir := filepath.Join(binaryDir, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("mkdir bundled bin dir: %v", err)
+	}
+	name := "rg"
+	if filepath.Ext(os.Args[0]) == ".exe" {
+		name = "rg.exe"
+	}
+	rgPath := filepath.Join(binDir, name)
+	mustWriteFile(t, rgPath, "#!/bin/sh\n")
+	if err := os.Chmod(rgPath, 0o755); err != nil {
+		t.Fatalf("chmod bundled rg: %v", err)
+	}
+
+	got, err := findBundledRipgrep(binaryDir)
+	if err != nil {
+		t.Fatalf("findBundledRipgrep: %v", err)
+	}
+	if got != rgPath {
+		t.Fatalf("expected %s, got %s", rgPath, got)
+	}
+}
+
 func requireRipgrep(t *testing.T) {
 	t.Helper()
 	if _, err := exec.LookPath("rg"); err != nil {
