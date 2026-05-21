@@ -680,14 +680,14 @@ func TestPlanExecutePlanStageOnlyUsesPlanAddTasksBeforeSequentialTaskExecution(t
 				`[DONE]`,
 			)
 		case 2:
-			assertStringSliceContains(t, toolNames, "datetime", "_memory_search_", "plan_update_task")
+			assertStringSliceContains(t, toolNames, "datetime", "memory_search", "plan_update_task")
 			assertStringSliceExcludes(t, toolNames, "plan_add_tasks")
 			writeProviderSSE(t, w,
 				providerToolCallFrame(t, "tool_time_alpha", "datetime", map[string]any{}),
 				`[DONE]`,
 			)
 		case 3:
-			assertStringSliceContains(t, toolNames, "datetime", "_memory_search_", "plan_update_task")
+			assertStringSliceContains(t, toolNames, "datetime", "memory_search", "plan_update_task")
 			assertStringSliceExcludes(t, toolNames, "plan_add_tasks")
 			writeProviderSSE(t, w,
 				providerToolCallFrame(t, "tool_done_alpha", "plan_update_task", map[string]any{
@@ -697,14 +697,14 @@ func TestPlanExecutePlanStageOnlyUsesPlanAddTasksBeforeSequentialTaskExecution(t
 				`[DONE]`,
 			)
 		case 4:
-			assertStringSliceContains(t, toolNames, "datetime", "_memory_search_", "plan_update_task")
+			assertStringSliceContains(t, toolNames, "datetime", "memory_search", "plan_update_task")
 			assertStringSliceExcludes(t, toolNames, "plan_add_tasks")
 			writeProviderSSE(t, w,
 				providerToolCallFrame(t, "tool_time_beta", "datetime", map[string]any{}),
 				`[DONE]`,
 			)
 		case 5:
-			assertStringSliceContains(t, toolNames, "datetime", "_memory_search_", "plan_update_task")
+			assertStringSliceContains(t, toolNames, "datetime", "memory_search", "plan_update_task")
 			assertStringSliceExcludes(t, toolNames, "plan_add_tasks")
 			writeProviderSSE(t, w,
 				providerToolCallFrame(t, "tool_done_beta", "plan_update_task", map[string]any{
@@ -741,7 +741,7 @@ func TestPlanExecutePlanStageOnlyUsesPlanAddTasksBeforeSequentialTaskExecution(t
 				"toolConfig:",
 				"  tools:",
 				"    - datetime",
-				"    - _memory_search_",
+				"    - memory_search",
 				"memoryConfig:",
 				"  enabled: true",
 				"mode: PLAN_EXECUTE",
@@ -802,7 +802,7 @@ func TestPlanExecutePlanStageOnlyUsesPlanAddTasksBeforeSequentialTaskExecution(t
 		t.Fatalf("plan debug.preCall tools=%#v want only plan_add_tasks", preCallTools[0])
 	}
 	for callIndex := 1; callIndex <= 4; callIndex++ {
-		assertStringSliceContains(t, preCallTools[callIndex], "datetime", "_memory_search_", "plan_update_task")
+		assertStringSliceContains(t, preCallTools[callIndex], "datetime", "memory_search", "plan_update_task")
 		assertStringSliceExcludes(t, preCallTools[callIndex], "plan_add_tasks")
 	}
 	if len(preCallTools[5]) != 0 {

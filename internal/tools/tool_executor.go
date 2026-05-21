@@ -102,21 +102,21 @@ func (t *RuntimeToolExecutor) Invoke(ctx context.Context, toolName string, args 
 			return t.invokeSandboxBash(ctx, args, execCtx)
 		}
 		return t.invokeHostBash(ctx, args, execCtx)
-	case "_memory_search_", "memory_search":
+	case "memory_search":
 		return t.invokeMemorySearch(toolName, args, execCtx)
-	case "_memory_read_", "memory_read":
+	case "memory_read":
 		return t.invokeMemoryRead(toolName, args, execCtx)
-	case "_memory_write_", "memory_write":
+	case "memory_write":
 		return t.invokeMemoryWrite(toolName, args, execCtx)
-	case "_memory_update_", "memory_update":
+	case "memory_update":
 		return t.invokeMemoryUpdate(toolName, args, execCtx)
-	case "_memory_forget_", "memory_forget":
+	case "memory_forget":
 		return t.invokeMemoryForget(toolName, args, execCtx)
-	case "_memory_timeline_", "memory_timeline":
+	case "memory_timeline":
 		return t.invokeMemoryTimeline(toolName, args, execCtx)
-	case "_memory_promote_", "memory_promote":
+	case "memory_promote":
 		return t.invokeMemoryPromote(toolName, args, execCtx)
-	case "_memory_consolidate_", "memory_consolidate":
+	case "memory_consolidate":
 		return t.invokeMemoryConsolidate(toolName, args, execCtx)
 	case "_session_search_", "session_search":
 		return t.invokeSessionSearch(toolName, args, execCtx)

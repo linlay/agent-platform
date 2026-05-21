@@ -1,4 +1,4 @@
-name: _memory_read_
+name: memory_read
 label: 读取记忆
 description: Read persisted agent memory, with optional filtering by ID, category, limit, and sort order.
 type: function

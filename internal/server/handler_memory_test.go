@@ -52,7 +52,7 @@ func TestHandleLearnStoresObservationFromLatestRun(t *testing.T) {
 						ID:   "tool-1",
 						Type: "function",
 						Function: chat.StoredFunction{
-							Name:      "_memory_search_",
+							Name:      "memory_search",
 							Arguments: "{}",
 						},
 					},

@@ -86,7 +86,7 @@ func TestParseAgentFileIgnoresLegacyToolConfigBuckets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	for _, tool := range []string{"_memory_write_", "_memory_read_", "_memory_search_"} {
+	for _, tool := range []string{"memory_write", "memory_read", "memory_search"} {
 		if containsString(def.Tools, tool) {
 			t.Fatalf("expected default memory tool %s to stay disabled, got %#v", tool, def.Tools)
 		}
@@ -452,14 +452,14 @@ func TestParseAgentFileInjectsMemoryManagementToolsOnlyWhenEnabled(t *testing.T)
 		t.Fatalf("parse agent file: %v", err)
 	}
 	want := []string{
-		"_memory_write_",
-		"_memory_read_",
-		"_memory_search_",
-		"_memory_update_",
-		"_memory_forget_",
-		"_memory_timeline_",
-		"_memory_promote_",
-		"_memory_consolidate_",
+		"memory_write",
+		"memory_read",
+		"memory_search",
+		"memory_update",
+		"memory_forget",
+		"memory_timeline",
+		"memory_promote",
+		"memory_consolidate",
 	}
 	for _, tool := range want {
 		if !containsString(def.Tools, tool) {
@@ -485,7 +485,7 @@ func TestParseAgentFileKeepsBaseMemoryToolsDisabledByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	for _, tool := range []string{"_memory_write_", "_memory_read_", "_memory_search_"} {
+	for _, tool := range []string{"memory_write", "memory_read", "memory_search"} {
 		if containsString(def.Tools, tool) {
 			t.Fatalf("expected %s to stay disabled by default, got %#v", tool, def.Tools)
 		}
@@ -514,7 +514,7 @@ func TestParseAgentFileKeepsMemoryManagementToolsOptIn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	for _, tool := range []string{"_memory_update_", "_memory_forget_", "_memory_timeline_", "_memory_promote_"} {
+	for _, tool := range []string{"memory_update", "memory_forget", "memory_timeline", "memory_promote"} {
 		if containsString(def.Tools, tool) {
 			t.Fatalf("expected %s to stay opt-in, got %#v", tool, def.Tools)
 		}
@@ -584,7 +584,7 @@ func TestParseAgentFileAllowsOptingOutOfBaseMemoryTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	for _, tool := range []string{"_memory_write_", "_memory_read_", "_memory_search_"} {
+	for _, tool := range []string{"memory_write", "memory_read", "memory_search"} {
 		if containsString(def.Tools, tool) {
 			t.Fatalf("expected %s to stay disabled, got %#v", tool, def.Tools)
 		}

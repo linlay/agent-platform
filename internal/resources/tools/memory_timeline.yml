@@ -1,4 +1,4 @@
-name: _memory_timeline_
+name: memory_timeline
 label: 记忆时间线
 description: Inspect the relationship timeline around a memory and its linked items.
 type: function

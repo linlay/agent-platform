@@ -675,14 +675,14 @@ effectiveImportance = baseImportance - timeDecay + accessBoost
 
 | 工具 | 分类 | 用途 |
 |------|------|------|
-| `_memory_write_` | 基础集 | 写入新记忆 |
-| `_memory_read_` | 基础集 | 读取单条记忆 |
-| `_memory_search_` | 基础集 | 搜索记忆（FTS + 可选混合检索） |
-| `_memory_update_` | 管理集 | 更新记忆字段 |
-| `_memory_forget_` | 管理集 | 归档记忆 |
-| `_memory_timeline_` | 管理集 | 查看记忆关系时间线 |
-| `_memory_promote_` | 管理集 | 将 observation 晋升为 fact |
-| `_memory_consolidate_` | 管理集 | 触发整理（归档 + 去重 + 晋升） |
+| `memory_write` | 基础集 | 写入新记忆 |
+| `memory_read` | 基础集 | 读取单条记忆 |
+| `memory_search` | 基础集 | 搜索记忆（FTS + 可选混合检索） |
+| `memory_update` | 管理集 | 更新记忆字段 |
+| `memory_forget` | 管理集 | 归档记忆 |
+| `memory_timeline` | 管理集 | 查看记忆关系时间线 |
+| `memory_promote` | 管理集 | 将 observation 晋升为 fact |
+| `memory_consolidate` | 管理集 | 触发整理（归档 + 去重 + 晋升） |
 
 是否自动注入这些工具，由 `memoryConfig` 控制，见 [internal/catalog/agent_loader.go](../internal/catalog/agent_loader.go)。
 
@@ -778,7 +778,7 @@ observation 不是永久记忆，系统会自动整理它。
 
 显式晋升：
 
-- `_memory_promote_`
+- `memory_promote`
 
 行为：
 
@@ -806,7 +806,7 @@ observation 不是永久记忆，系统会自动整理它。
 - duplicate merge
 - duplicate-triggered promotion
 
-更重的整理仍然通过 `_memory_consolidate_` 手动触发。
+更重的整理仍然通过 `memory_consolidate` 手动触发。
 
 ## Session Search 设计
 
@@ -876,9 +876,9 @@ observation 不是永久记忆，系统会自动整理它。
 
 ### Memory Tools
 
-- `_memory_write_` / `_memory_read_` / `_memory_search_`
-- `_memory_update_` / `_memory_forget_` / `_memory_timeline_`
-- `_memory_promote_` / `_memory_consolidate_`
+- `memory_write` / `memory_read` / `memory_search`
+- `memory_update` / `memory_forget` / `memory_timeline`
+- `memory_promote` / `memory_consolidate`
 
 ### Session Tool
 

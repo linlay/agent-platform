@@ -1,6 +1,6 @@
-name: _memory_update_
-label: 更新记忆
-description: Update an existing memory's title, content, category, scope, tags, status, or confidence.
+name: memory_promote
+label: 提升记忆
+description: Promote an observation memory into a fact.
 type: function
 clientVisible: false
 inputSchema:
@@ -8,34 +8,34 @@ inputSchema:
   properties:
     id:
       type: string
-      description: Required. Memory ID to update.
+      description: Required. Observation memory ID to promote.
     title:
       type: string
       description: Optional new title.
     content:
       type: string
-      description: Optional new content.
+      description: Optional new content for the promoted fact.
     category:
       type: string
       description: Optional new category. Prefer preference, constraint, profile, workflow, decision, glossary, unresolved_issue, bugfix, todo, project, or remember.
     scopeType:
       type: string
-      description: Optional new scope type. Supports user, agent, team, chat, or global.
+      description: Optional target scope type. Supports user, agent, team, or global.
     scopeKey:
       type: string
-      description: Optional new scope key.
-    status:
-      type: string
-      description: Optional new status, such as active, open, superseded, archived, or contested.
+      description: Optional target scope key.
     importance:
       type: integer
       description: Optional importance from 1 to 10.
     confidence:
       type: number
       description: Optional confidence from 0 to 1.
+    archiveSource:
+      type: boolean
+      description: Optional flag to archive the source observation after promotion.
     tags:
       type: array
-      description: Optional full tag list. When provided, it replaces the existing tags.
+      description: Optional tags to set on the promoted fact.
       items:
         type: string
   required:

@@ -50,9 +50,9 @@ func TestAgentEndpointReturnsDetail(t *testing.T) {
 		response.Data.Tools[0] != "datetime" ||
 		response.Data.Tools[1] != "ask_user_question" ||
 		response.Data.Tools[2] != "bash" ||
-		response.Data.Tools[3] != "_memory_write_" ||
-		response.Data.Tools[4] != "_memory_read_" ||
-		response.Data.Tools[5] != "_memory_search_" {
+		response.Data.Tools[3] != "memory_write" ||
+		response.Data.Tools[4] != "memory_read" ||
+		response.Data.Tools[5] != "memory_search" {
 		t.Fatalf("expected tools in detail response, got %#v", response.Data.Tools)
 	}
 	if len(response.Data.Skills) != 1 || response.Data.Skills[0] != "mock-skill" {
@@ -194,7 +194,7 @@ func TestToolEndpointReturnsCanonicalJavaBuiltinSchemas(t *testing.T) {
 		toolName         string
 		requiredProperty string
 	}{
-		{toolName: "_memory_read_", requiredProperty: "sort"},
+		{toolName: "memory_read", requiredProperty: "sort"},
 		{toolName: "datetime", requiredProperty: "timezone"},
 	} {
 		rec := httptest.NewRecorder()

@@ -80,21 +80,21 @@ func (d *StreamEventDispatcher) memoryToolResultEvent(input ToolResult) (string,
 
 func memoryToolEventType(toolName string) string {
 	switch strings.TrimSpace(toolName) {
-	case "_memory_write_", "memory_write":
+	case "memory_write":
 		return "memory.write"
-	case "_memory_read_", "memory_read":
+	case "memory_read":
 		return "memory.read"
-	case "_memory_search_", "memory_search":
+	case "memory_search":
 		return "memory.search"
-	case "_memory_update_", "memory_update":
+	case "memory_update":
 		return "memory.update"
-	case "_memory_forget_", "memory_forget":
+	case "memory_forget":
 		return "memory.forget"
-	case "_memory_timeline_", "memory_timeline":
+	case "memory_timeline":
 		return "memory.timeline"
-	case "_memory_promote_", "memory_promote":
+	case "memory_promote":
 		return "memory.promote"
-	case "_memory_consolidate_", "memory_consolidate":
+	case "memory_consolidate":
 		return "memory.consolidate"
 	default:
 		return ""

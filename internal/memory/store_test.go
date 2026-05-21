@@ -1016,7 +1016,7 @@ func TestLearnStoresObservationAndRefreshesSnapshots(t *testing.T) {
 						Role:    "assistant",
 						Content: []chat.ContentPart{{Type: "text", Text: "Fixed the memory scope bug and tightened retrieval."}},
 						ToolCalls: []chat.StoredToolCall{
-							{ID: "tool-1", Type: "function", Function: chat.StoredFunction{Name: "_memory_search_", Arguments: "{}"}},
+							{ID: "tool-1", Type: "function", Function: chat.StoredFunction{Name: "memory_search", Arguments: "{}"}},
 						},
 					},
 				},

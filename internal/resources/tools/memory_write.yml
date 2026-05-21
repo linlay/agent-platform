@@ -1,4 +1,4 @@
-name: _memory_write_
+name: memory_write
 label: 写入记忆
 description: Write persisted agent memory with semantic category, importance, and tags.
 type: function

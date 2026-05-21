@@ -357,13 +357,13 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	def.MemoryConfig = parseAgentMemoryConfig(root["memoryConfig"])
 	def.MemoryEnabled = def.MemoryConfig.Enabled
 	if def.MemoryConfig.Enabled {
-		for _, memTool := range []string{"_memory_write_", "_memory_read_", "_memory_search_"} {
+		for _, memTool := range []string{"memory_write", "memory_read", "memory_search"} {
 			if !containsString(def.Tools, memTool) {
 				def.Tools = append(def.Tools, memTool)
 			}
 		}
 		if def.MemoryConfig.ManagementTools {
-			for _, memTool := range []string{"_memory_update_", "_memory_forget_", "_memory_timeline_", "_memory_promote_", "_memory_consolidate_"} {
+			for _, memTool := range []string{"memory_update", "memory_forget", "memory_timeline", "memory_promote", "memory_consolidate"} {
 				if !containsString(def.Tools, memTool) {
 					def.Tools = append(def.Tools, memTool)
 				}
@@ -447,9 +447,9 @@ func applyGlobalAgentFlags(def AgentDefinition, globalMemoryEnabled bool) AgentD
 
 func isMemoryTool(name string) bool {
 	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "_memory_write_", "_memory_read_", "_memory_search_",
-		"_memory_update_", "_memory_forget_", "_memory_timeline_",
-		"_memory_promote_", "_memory_consolidate_":
+	case "memory_write", "memory_read", "memory_search",
+		"memory_update", "memory_forget", "memory_timeline",
+		"memory_promote", "memory_consolidate":
 		return true
 	default:
 		return false

@@ -172,15 +172,15 @@ memoryConfig:
 
 - 未配置 `memoryConfig.enabled` 或配置为 `false` 时，不启用 runtime memory，也不注入 memory tools
 - `enabled: true` 时注入基础集：
-  - `_memory_write_`
-  - `_memory_read_`
-  - `_memory_search_`
+  - `memory_write`
+  - `memory_read`
+  - `memory_search`
 - `managementTools: true` 时额外注入管理集：
-  - `_memory_update_`
-  - `_memory_forget_`
-  - `_memory_timeline_`
-  - `_memory_promote_`
-  - `_memory_consolidate_`
+  - `memory_update`
+  - `memory_forget`
+  - `memory_timeline`
+  - `memory_promote`
+  - `memory_consolidate`
 - `autoRemember.enabled: true` 时，run 完成后自动执行 learn / auto-remember
 - `autoRemember.modelKey` 填 `REGISTRIES_DIR/models/*.yml` 中的 model key，用于记忆筛选、总结、合并
 - `embedding.providerKey` 填 `REGISTRIES_DIR/providers/*.yml` 中的 provider key；embedding 模型、维度和超时优先来自 provider 的 `memory.embedding`，agent 侧也可覆盖
@@ -189,7 +189,7 @@ memoryConfig:
 
 - `Learn(...)` 成功后会自动执行一轮轻量 observation 整理
 - 自动整理默认只做 stale/duplicate 收口，以及“重复出现 observation”的晋升
-- 更激进的生命周期治理仍建议通过显式 `_memory_consolidate_` 触发
+- 更激进的生命周期治理仍建议通过显式 `memory_consolidate` 触发
 
 ## Runtime Config
 

@@ -328,7 +328,7 @@
 | sourceType: learn                                                                              |
 | refId: run_abc                                                                                 |
 | filesJson: []                                                                                  |
-| toolsJson: ["_memory_search_"]                                                                 |
+| toolsJson: ["memory_search"]                                                                 |
 | confidence: 0.75                                                                               |
 | ...                                                                                            |
 +--------------------------------------------------------------------------------------------------+
@@ -564,7 +564,7 @@
       "runId": "run_abc",
       "detail": "修复了查询接口的权限校验问题。",
       "filesJson": [],
-      "toolsJson": ["_memory_search_"]
+      "toolsJson": ["memory_search"]
     },
     "embedding": {
       "hasEmbedding": false,

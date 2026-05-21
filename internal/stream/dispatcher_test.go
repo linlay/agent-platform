@@ -57,7 +57,7 @@ func TestDispatcherEmitsDedicatedMemoryEventAlongsideToolResult(t *testing.T) {
 
 	events := dispatcher.Dispatch(ToolResult{
 		ToolID:   "tool_mem_1",
-		ToolName: "_memory_write_",
+		ToolName: "memory_write",
 		Result: map[string]any{
 			"status": "stored",
 			"memory": map[string]any{"id": "mem_1"},
@@ -69,7 +69,7 @@ func TestDispatcherEmitsDedicatedMemoryEventAlongsideToolResult(t *testing.T) {
 		t.Fatalf("unexpected memory.write envelope: %#v", payload)
 	}
 	data, _ := payload["data"].(map[string]any)
-	if data["toolName"] != "_memory_write_" {
+	if data["toolName"] != "memory_write" {
 		t.Fatalf("unexpected memory.write toolName: %#v", data)
 	}
 }

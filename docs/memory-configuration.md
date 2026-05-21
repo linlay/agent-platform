@@ -63,7 +63,7 @@ provider 侧 `memory.embedding` 解析：
 | env | `AGENT_MEMORY_DB_FILE_NAME` | `memory.db` | SQLite 文件名 |
 | env | `AGENT_MEMORY_CONTEXT_TOP_N` | `5` | query 时每层最多选取多少条记忆 |
 | env | `AGENT_MEMORY_CONTEXT_MAX_CHARS` | `4000` | 注入 prompt 的 memory context 总字符预算 |
-| env | `AGENT_MEMORY_SEARCH_DEFAULT_LIMIT` | `10` | `_memory_*` 工具默认返回条数 |
+| env | `AGENT_MEMORY_SEARCH_DEFAULT_LIMIT` | `10` | `memory_*` 工具默认返回条数 |
 | env | `AGENT_MEMORY_HYBRID_VECTOR_WEIGHT` | `0.7` | 混合检索中向量分数权重 |
 | env | `AGENT_MEMORY_HYBRID_FTS_WEIGHT` | `0.3` | 混合检索中 FTS 分数权重 |
 | env | `AGENT_MEMORY_DUAL_WRITE_MARKDOWN` | `true` | 是否同时刷新 markdown 快照 |
@@ -106,12 +106,12 @@ provider 侧 `memory.embedding` 解析：
 `memoryConfig.enabled`
 
 - 每个 agent 的 runtime memory 总开关。
-- 不配置或为 `false` 时，不注入 memory context，也不注入 `_memory_*` 基础工具。
-- 为 `true` 时，注入 `_memory_write_`、`_memory_read_`、`_memory_search_`。
+- 不配置或为 `false` 时，不注入 memory context，也不注入 `memory_*` 基础工具。
+- 为 `true` 时，注入 `memory_write`、`memory_read`、`memory_search`。
 
 `memoryConfig.managementTools`
 
-- 为 `true` 时额外注入 `_memory_update_`、`_memory_forget_`、`_memory_timeline_`、`_memory_promote_`、`_memory_consolidate_`。
+- 为 `true` 时额外注入 `memory_update`、`memory_forget`、`memory_timeline`、`memory_promote`、`memory_consolidate`。
 
 ### 3. Query 时的记忆注入
 
@@ -127,7 +127,7 @@ provider 侧 `memory.embedding` 解析：
 
 `AGENT_MEMORY_SEARCH_DEFAULT_LIMIT`
 
-- `_memory_search_`、`_memory_read_` 等工具的默认 limit。
+- `memory_search`、`memory_read` 等工具的默认 limit。
 
 ### 4. embedding / 混合检索
 

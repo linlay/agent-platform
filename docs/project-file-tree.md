@@ -311,14 +311,14 @@
 
 目录作用：内置工具 YAML 定义。
 
-- `internal/resources/tools/_memory_consolidate_.yml` (7 行): 工具或服务 YAML 配置定义
-- `internal/resources/tools/_memory_forget_.yml` (17 行): 工具或服务 YAML 配置定义
-- `internal/resources/tools/_memory_promote_.yml` (43 行): 工具或服务 YAML 配置定义
-- `internal/resources/tools/_memory_read_.yml` (21 行): 工具或服务 YAML 配置定义
-- `internal/resources/tools/_memory_search_.yml` (20 行): 工具或服务 YAML 配置定义
-- `internal/resources/tools/_memory_timeline_.yml` (17 行): 工具或服务 YAML 配置定义
-- `internal/resources/tools/_memory_update_.yml` (43 行): 工具或服务 YAML 配置定义
-- `internal/resources/tools/_memory_write_.yml` (25 行): 工具或服务 YAML 配置定义
+- `internal/resources/tools/memory_consolidate.yml` (7 行): 工具或服务 YAML 配置定义
+- `internal/resources/tools/memory_forget.yml` (17 行): 工具或服务 YAML 配置定义
+- `internal/resources/tools/memory_promote.yml` (43 行): 工具或服务 YAML 配置定义
+- `internal/resources/tools/memory_read.yml` (21 行): 工具或服务 YAML 配置定义
+- `internal/resources/tools/memory_search.yml` (20 行): 工具或服务 YAML 配置定义
+- `internal/resources/tools/memory_timeline.yml` (17 行): 工具或服务 YAML 配置定义
+- `internal/resources/tools/memory_update.yml` (43 行): 工具或服务 YAML 配置定义
+- `internal/resources/tools/memory_write.yml` (25 行): 工具或服务 YAML 配置定义
 - `internal/resources/tools/_session_search_.yml` (18 行): 工具或服务 YAML 配置定义
 - `internal/resources/tools/_skill_candidate_list_.yml` (13 行): 工具或服务 YAML 配置定义
 - `internal/resources/tools/_skill_candidate_write_.yml` (29 行): 工具或服务 YAML 配置定义

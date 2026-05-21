@@ -10,7 +10,7 @@ import (
 func TestPlanStageToolsDefaultsToPlanAddTasksOnly(t *testing.T) {
 	stream := &planExecuteStream{
 		session: contracts.QuerySession{
-			ToolNames: []string{"datetime", "_memory_search_"},
+			ToolNames: []string{"datetime", "memory_search"},
 		},
 	}
 
@@ -22,7 +22,7 @@ func TestPlanStageToolsDefaultsToPlanAddTasksOnly(t *testing.T) {
 func TestPlanStageToolsPreservesExplicitPlanToolsWithoutSessionFallback(t *testing.T) {
 	stream := &planExecuteStream{
 		session: contracts.QuerySession{
-			ToolNames: []string{"_memory_search_", "datetime"},
+			ToolNames: []string{"memory_search", "datetime"},
 		},
 		settings: contracts.PlanExecuteSettings{
 			Plan: contracts.StageSettings{
