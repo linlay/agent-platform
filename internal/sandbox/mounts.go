@@ -232,12 +232,6 @@ func (r *ContainerHubMountResolver) platformMountDef(platform string, agentKey s
 		"skills-market": {destination: "/skills-market", source: func() (string, error) { return hostPath("SKILLS_MARKET_DIR", r.paths.SkillsMarketDir) }},
 		"teams":         {destination: "/teams", source: func() (string, error) { return hostPath("TEAMS_DIR", r.paths.TeamsDir) }},
 		"tools":         {destination: "/tools", source: func() (string, error) { return r.registryChildSource("tools") }},
-		"wecom-go-skill": {destination: "/opt/wecom-go-skill", source: func() (string, error) {
-			return hostPath("WECOM_GO_SKILL_DIR", r.paths.WecomGoSkillDir)
-		}},
-		"agw-cli": {destination: "/opt/agw-cli", source: func() (string, error) {
-			return hostPath("AGW_CLI_DIR", r.paths.AGWCLIDir)
-		}},
 	}
 	def, ok := defs[platform]
 	return def, ok

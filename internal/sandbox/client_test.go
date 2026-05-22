@@ -124,43 +124,6 @@ func TestRunLevelSandboxSessionIDUsesSubTaskID(t *testing.T) {
 	}
 }
 
-func TestMountResolverSupportsWeComPlatformMounts(t *testing.T) {
-	paths := sandboxTestPaths(t, "reader")
-	root := filepath.Dir(paths.AgentsDir)
-	paths.WecomGoSkillDir = filepath.Join(root, "wecom-go-skill")
-	paths.AGWCLIDir = filepath.Join(root, "agw-cli")
-	if err := os.MkdirAll(paths.WecomGoSkillDir, 0o755); err != nil {
-		t.Fatalf("create wecom dir: %v", err)
-	}
-	if err := os.MkdirAll(paths.AGWCLIDir, 0o755); err != nil {
-		t.Fatalf("create agw dir: %v", err)
-	}
-
-	mounts, err := NewContainerHubMountResolver(paths).Resolve("chat_1", "reader", "run", []contracts.SandboxExtraMount{
-		{Platform: "wecom-go-skill", Mode: "ro"},
-		{Platform: "agw-cli", Mode: "ro"},
-	})
-	if err != nil {
-		t.Fatalf("Resolve() error = %v", err)
-	}
-
-	if got := findTestMount(mounts, "/opt/wecom-go-skill"); got == nil || got.Source != paths.WecomGoSkillDir || !got.ReadOnly {
-		t.Fatalf("wecom-go-skill mount = %#v", got)
-	}
-	if got := findTestMount(mounts, "/opt/agw-cli"); got == nil || got.Source != paths.AGWCLIDir || !got.ReadOnly {
-		t.Fatalf("agw-cli mount = %#v", got)
-	}
-}
-
-func findTestMount(mounts []MountSpec, destination string) *MountSpec {
-	for i := range mounts {
-		if mounts[i].Destination == destination {
-			return &mounts[i]
-		}
-	}
-	return nil
-}
-
 func sandboxTestExecutionContext(runID string, requestID string) *contracts.ExecutionContext {
 	return sandboxTestExecutionContextWithSubTaskID(runID, requestID, "")
 }

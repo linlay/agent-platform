@@ -59,8 +59,6 @@ type PathsConfig struct {
 	MemoryDir       string
 	PanDir          string
 	SkillsMarketDir string
-	WecomGoSkillDir string
-	AGWCLIDir       string
 }
 
 type CatalogConfig struct {
@@ -441,8 +439,6 @@ func defaultConfig() Config {
 		MemoryDir:       filepath.Join(runtimeRoot, "memory"),
 		PanDir:          filepath.Join(runtimeRoot, "pan"),
 		SkillsMarketDir: filepath.Join(runtimeRoot, "skills-market"),
-		WecomGoSkillDir: filepath.Join("..", "wecom-go-skill"),
-		AGWCLIDir:       filepath.Join("..", "agw-cli"),
 	}
 	return Config{
 		Server: ServerConfig{Port: "11949"},
@@ -986,8 +982,6 @@ func (c *Config) applyEnv() {
 	c.Paths.MemoryDir = pathEnv("MEMORY_DIR", c.Paths.MemoryDir)
 	c.Paths.PanDir = pathEnv("PAN_DIR", c.Paths.PanDir)
 	c.Paths.SkillsMarketDir = pathEnv("SKILLS_MARKET_DIR", c.Paths.SkillsMarketDir)
-	c.Paths.WecomGoSkillDir = pathEnv("WECOM_GO_SKILL_DIR", c.Paths.WecomGoSkillDir)
-	c.Paths.AGWCLIDir = pathEnv("AGW_CLI_DIR", c.Paths.AGWCLIDir)
 
 	c.Agents.ExternalDir = pathEnv("AGENTS_DIR", c.Paths.AgentsDir)
 	c.Teams.ExternalDir = pathEnv("TEAMS_DIR", c.Paths.TeamsDir)
@@ -1093,8 +1087,6 @@ func (c *Config) normalize() error {
 	c.Paths.MemoryDir = filepath.Clean(c.Paths.MemoryDir)
 	c.Paths.PanDir = filepath.Clean(c.Paths.PanDir)
 	c.Paths.SkillsMarketDir = filepath.Clean(c.Paths.SkillsMarketDir)
-	c.Paths.WecomGoSkillDir = filepath.Clean(c.Paths.WecomGoSkillDir)
-	c.Paths.AGWCLIDir = filepath.Clean(c.Paths.AGWCLIDir)
 
 	c.Agents.ExternalDir = filepath.Clean(c.Paths.AgentsDir)
 	c.Teams.ExternalDir = filepath.Clean(c.Paths.TeamsDir)

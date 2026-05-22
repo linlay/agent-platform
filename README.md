@@ -152,7 +152,6 @@ RUN_SOCKET_TESTS=1 make test-integration
 - `DEBUG_EVENTS_ENABLED`
 - `AGENT_DEFAULT_*`
 - `RUNTIME_DIR` / `REGISTRIES_DIR` / `CHATS_DIR` / `MEMORY_DIR` / `PAN_DIR`
-- `WECOM_GO_SKILL_DIR` / `AGW_CLI_DIR`（用于 `runtimeConfig.extraMounts` 中的企微平台服务挂载）
 - `PROVIDER_APIKEY_KEY_PART`
 
 以下环境变量仍受 Go runtime 支持，但为了降低最终用户理解成本，默认不再出现在 `.env.example` 中：
@@ -265,7 +264,6 @@ Container Hub 默认基础挂载当前固定为 7 个：
 `runtimeConfig.extraMounts` 会真实影响 Container Hub session mounts：
 
 - `platform + mode`：恢复按需平台挂载，或覆盖默认 `/agent`、`/owner`、`/memory` 模式
-- `platform: wecom-go-skill` 与 `platform: agw-cli` 分别挂载到 `/opt/wecom-go-skill` 与 `/opt/agw-cli`，宿主目录由 `WECOM_GO_SKILL_DIR` / `AGW_CLI_DIR` 控制
 - `destination + mode`：覆盖默认基础挂载模式
 - `source + destination + mode`：新增自定义挂载，不能拿来覆盖默认基础挂载路径
 
