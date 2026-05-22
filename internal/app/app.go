@@ -196,7 +196,7 @@ func New(rootCtx context.Context) (*App, error) {
 		ChatsDir:      cfg.Paths.ChatsDir,
 		Notifications: notifications,
 	}))
-	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, mcp.NewRegistryReloader(mcpRegistry, mcpToolSync), notifications)
+	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, mcp.NewRegistryReloader(mcpRegistry, mcpToolSync), toolExecutor, cfg.Paths.ToolsDir, notifications)
 	backgroundCtx, backgroundCancel := context.WithCancel(rootCtx)
 	cleanupBackground := true
 	defer func() {

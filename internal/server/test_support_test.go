@@ -342,7 +342,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 	if notifications == nil {
 		notifications = contracts.NewNoopNotificationSink()
 	}
-	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, nil, notifications)
+	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, nil, nil, "", notifications)
 
 	runs := runctl.NewInMemoryRunManager()
 	sandbox := sandboxClient

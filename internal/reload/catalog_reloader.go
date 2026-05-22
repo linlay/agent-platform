@@ -25,19 +25,29 @@ type McpRegistryReloader interface {
 	Reload(ctx context.Context) error
 }
 
+// RuntimeToolReloader is implemented by the tool router so runtime tool YAML
+// changes can take effect without rebuilding the app graph.
+type RuntimeToolReloader interface {
+	ReloadRuntimeToolDefinitions(root string) error
+}
+
 type RuntimeCatalogReloader struct {
 	registry      catalog.Registry
 	models        *models.ModelRegistry
 	mcp           McpRegistryReloader
+	tools         RuntimeToolReloader
+	toolsDir      string
 	notifications contracts.NotificationSink
 	lastReloadNs  atomic.Int64
 }
 
-func NewRuntimeCatalogReloader(registry catalog.Registry, models *models.ModelRegistry, mcpRegistry McpRegistryReloader, notifications contracts.NotificationSink) *RuntimeCatalogReloader {
+func NewRuntimeCatalogReloader(registry catalog.Registry, models *models.ModelRegistry, mcpRegistry McpRegistryReloader, tools RuntimeToolReloader, toolsDir string, notifications contracts.NotificationSink) *RuntimeCatalogReloader {
 	return &RuntimeCatalogReloader{
 		registry:      registry,
 		models:        models,
 		mcp:           mcpRegistry,
+		tools:         tools,
+		toolsDir:      toolsDir,
 		notifications: notifications,
 	}
 }
@@ -49,9 +59,11 @@ func NewRuntimeCatalogReloader(registry catalog.Registry, models *models.ModelRe
 //	skills          → reload skills
 //	models          → reload models + reload agents (cascade for affected agents)
 //	providers       → reload providers only (independent)
+//	tools           → reload runtime tool definitions + reload agents (cascade)
 //	mcp-servers     → reload mcp registry + reload agents (cascade)
 //	viewport-servers → reload agents (cascade; viewport server registry reads
 //	                  on-demand and doesn't cache)
+//	viewports       → broadcast update only (local viewports are read on-demand)
 //	default / config → full reload
 func (r *RuntimeCatalogReloader) Reload(ctx context.Context, reason string) error {
 	start := time.Now()
@@ -87,6 +99,17 @@ func (r *RuntimeCatalogReloader) Reload(ctx context.Context, reason string) erro
 				return err
 			}
 		}
+	case "tools":
+		if r.tools != nil {
+			if err := r.tools.ReloadRuntimeToolDefinitions(r.toolsDir); err != nil {
+				log.Printf("[reload] tools reload failed: %v", err)
+				return err
+			}
+		}
+		log.Printf("[reload] cascade: tools → agents")
+		if err := r.reloadCatalog(ctx, "agents"); err != nil {
+			return err
+		}
 	case "mcp-servers":
 		if r.mcp != nil {
 			if err := r.mcp.Reload(ctx); err != nil {
@@ -103,8 +126,16 @@ func (r *RuntimeCatalogReloader) Reload(ctx context.Context, reason string) erro
 		if err := r.reloadCatalog(ctx, "agents"); err != nil {
 			return err
 		}
+	case "viewports":
+		log.Printf("[reload] local viewports changed; registry reads templates on demand")
 	default:
 		// startup / config / unknown — full reload
+		if r.tools != nil {
+			if err := r.tools.ReloadRuntimeToolDefinitions(r.toolsDir); err != nil {
+				log.Printf("[reload] %s tools reload failed: %v", reason, err)
+				return err
+			}
+		}
 		if err := r.reloadCatalog(ctx, reason); err != nil {
 			return err
 		}
@@ -265,6 +296,8 @@ func backgroundWatchEntries(cfg config.Config) []watchEntry {
 		{cfg.Paths.SkillsMarketDir, "skills"},
 		{filepath.Join(cfg.Paths.RegistriesDir, "models"), "models"},
 		{filepath.Join(cfg.Paths.RegistriesDir, "providers"), "providers"},
+		{cfg.Paths.ToolsDir, "tools"},
+		{filepath.Join(filepath.Dir(filepath.Clean(cfg.Paths.RegistriesDir)), "viewports"), "viewports"},
 		{filepath.Join(cfg.Paths.RegistriesDir, "mcp-servers"), "mcp-servers"},
 		{filepath.Join(cfg.Paths.RegistriesDir, "viewport-servers"), "viewport-servers"},
 	}

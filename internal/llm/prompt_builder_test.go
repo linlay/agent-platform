@@ -303,8 +303,8 @@ func TestBuildSystemEnvironmentSectionUsesLocalPathsWithoutSandbox(t *testing.T)
 				ProvidersDir:       "/Users/linlay/Project/zenmind/zenmind-env/registries/providers",
 				MCPServersDir:      "/Users/linlay/Project/zenmind/zenmind-env/registries/mcp-servers",
 				ViewportServersDir: "/Users/linlay/Project/zenmind/zenmind-env/registries/viewport-servers",
-				ToolsDir:           "/Users/linlay/Project/zenmind/zenmind-env/registries/tools",
-				ViewportsDir:       "/Users/linlay/Project/zenmind/zenmind-env/registries/viewports",
+				ToolsDir:           "/Users/linlay/Project/zenmind/zenmind-env/tools",
+				ViewportsDir:       "/Users/linlay/Project/zenmind/zenmind-env/viewports",
 				PanDir:             "/Users/linlay/Server/zenmind-pan",
 			},
 			SandboxPaths: SandboxPaths{

@@ -19,6 +19,9 @@ func TestLoadDefaults(t *testing.T) {
 		if cfg.Paths.RegistriesDir != filepath.Join("runtime", "registries") {
 			t.Fatalf("unexpected registries dir: %q", cfg.Paths.RegistriesDir)
 		}
+		if cfg.Paths.ToolsDir != filepath.Join("runtime", "tools") {
+			t.Fatalf("unexpected tools dir: %q", cfg.Paths.ToolsDir)
+		}
 		if !cfg.Auth.Enabled {
 			t.Fatalf("expected auth enabled by default")
 		}

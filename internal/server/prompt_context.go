@@ -217,7 +217,7 @@ func resolveLocalPaths(paths config.PathsConfig, chatID string, agentDir string,
 		MCPServersDir:      cleanOrEmpty(filepath.Join(paths.RegistriesDir, "mcp-servers")),
 		ViewportServersDir: cleanOrEmpty(filepath.Join(paths.RegistriesDir, "viewport-servers")),
 		ToolsDir:           cleanOrEmpty(paths.ToolsDir),
-		ViewportsDir:       cleanOrEmpty(filepath.Join(paths.RegistriesDir, "viewports")),
+		ViewportsDir:       cleanOrEmpty(filepath.Join(filepath.Dir(filepath.Clean(paths.RegistriesDir)), "viewports")),
 		ChatAttachmentsDir: attachmentsDir,
 	}
 }
@@ -369,7 +369,7 @@ func resolveLocalSandboxPaths(cfg config.Config, def catalog.AgentDefinition, ch
 		case "tools":
 			paths.ToolsDir = absOrEmpty(cfg.Paths.ToolsDir)
 		case "viewports":
-			paths.ViewportsDir = absOrEmpty(filepath.Join(cfg.Paths.RegistriesDir, "viewports"))
+			paths.ViewportsDir = absOrEmpty(filepath.Join(filepath.Dir(filepath.Clean(cfg.Paths.RegistriesDir)), "viewports"))
 		}
 	}
 	return paths

@@ -18,6 +18,7 @@ type Handler interface {
 
 type Registry struct {
 	handlers map[string]Handler
+	fallback Handler
 }
 
 func NewRegistry(handlers ...Handler) *Registry {
@@ -36,9 +37,11 @@ func NewRegistry(handlers ...Handler) *Registry {
 }
 
 func NewDefaultRegistry() *Registry {
-	return NewRegistry(
+	registry := NewRegistry(
 		NewAskUserQuestionHandler(),
 	)
+	registry.fallback = NewGenericFormHandler()
+	return registry
 }
 
 func (r *Registry) Handler(toolName string) (Handler, bool) {
@@ -46,7 +49,13 @@ func (r *Registry) Handler(toolName string) (Handler, bool) {
 		return nil, false
 	}
 	handler, ok := r.handlers[normalizeToolName(toolName)]
-	return handler, ok
+	if ok {
+		return handler, true
+	}
+	if r.fallback != nil {
+		return r.fallback, true
+	}
+	return nil, false
 }
 
 func normalizeToolName(value string) string {

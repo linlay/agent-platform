@@ -93,9 +93,10 @@ function Initialize-ProgramRuntime {
     $Script:LogDir, `
     (Join-Path $Script:RuntimeRoot 'registries/providers'), `
     (Join-Path $Script:RuntimeRoot 'registries/models'), `
-    (Join-Path $Script:RuntimeRoot 'registries/tools'), `
     (Join-Path $Script:RuntimeRoot 'registries/mcp-servers'), `
     (Join-Path $Script:RuntimeRoot 'registries/viewport-servers'), `
+    (Join-Path $Script:RuntimeRoot 'tools'), `
+    (Join-Path $Script:RuntimeRoot 'viewports'), `
     (Join-Path $Script:RuntimeRoot 'owner'), `
     (Join-Path $Script:RuntimeRoot 'agents'), `
     (Join-Path $Script:RuntimeRoot 'teams'), `

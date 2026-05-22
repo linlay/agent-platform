@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"strings"
+	"sync"
 	"time"
 
 	"agent-platform/internal/api"
@@ -20,6 +21,7 @@ type frontendSubmitter interface {
 }
 
 type ToolRouter struct {
+	mu          sync.RWMutex
 	backend     ToolExecutor
 	mcp         McpClient
 	mcpTools    toolCatalog
@@ -30,7 +32,20 @@ type ToolRouter struct {
 }
 
 func NewToolRouter(backend ToolExecutor, mcp McpClient, mcpTools toolCatalog, frontend frontendSubmitter, action ActionInvoker, extraDefs ...api.ToolDetailResponse) *ToolRouter {
-	baseDefs := append([]api.ToolDetailResponse(nil), backend.Definitions()...)
+	localDefs, localByName := buildLocalToolDefinitions(backend.Definitions(), extraDefs)
+	return &ToolRouter{
+		backend:     backend,
+		mcp:         mcp,
+		mcpTools:    mcpTools,
+		frontend:    frontend,
+		action:      action,
+		localDefs:   localDefs,
+		localByName: localByName,
+	}
+}
+
+func buildLocalToolDefinitions(base []api.ToolDetailResponse, extraDefs []api.ToolDetailResponse) ([]api.ToolDetailResponse, map[string]api.ToolDetailResponse) {
+	baseDefs := append([]api.ToolDetailResponse(nil), base...)
 	var runtimeDefs []api.ToolDetailResponse
 	for _, def := range extraDefs {
 		kind, _ := def.Meta["kind"].(string)
@@ -45,15 +60,24 @@ func NewToolRouter(backend ToolExecutor, mcp McpClient, mcpTools toolCatalog, fr
 		localByName[strings.ToLower(strings.TrimSpace(def.Name))] = def
 		localByName[strings.ToLower(strings.TrimSpace(def.Key))] = def
 	}
-	return &ToolRouter{
-		backend:     backend,
-		mcp:         mcp,
-		mcpTools:    mcpTools,
-		frontend:    frontend,
-		action:      action,
-		localDefs:   localDefs,
-		localByName: localByName,
+	return localDefs, localByName
+}
+
+func (r *ToolRouter) ReloadRuntimeToolDefinitions(root string) error {
+	if r == nil {
+		return nil
 	}
+	runtimeDefs, err := LoadRuntimeToolDefinitions(root)
+	if err != nil {
+		return err
+	}
+	baseDefs := r.backend.Definitions()
+	localDefs, localByName := buildLocalToolDefinitions(baseDefs, runtimeDefs)
+	r.mu.Lock()
+	r.localDefs = localDefs
+	r.localByName = localByName
+	r.mu.Unlock()
+	return nil
 }
 
 func (r *ToolRouter) Definitions() []api.ToolDetailResponse {
@@ -61,7 +85,10 @@ func (r *ToolRouter) Definitions() []api.ToolDetailResponse {
 	if r.mcpTools != nil {
 		mcpDefs = r.mcpTools.Definitions()
 	}
-	return MergeToolDefinitions(r.localDefs, nil, mcpDefs)
+	r.mu.RLock()
+	localDefs := append([]api.ToolDetailResponse(nil), r.localDefs...)
+	r.mu.RUnlock()
+	return MergeToolDefinitions(localDefs, nil, mcpDefs)
 }
 
 func (r *ToolRouter) Invoke(ctx context.Context, toolName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
@@ -80,6 +107,9 @@ func (r *ToolRouter) Invoke(ctx context.Context, toolName string, args map[strin
 		}
 		switch strings.ToLower(strings.TrimSpace(kind)) {
 		case "frontend":
+			if r.frontend == nil {
+				return ToolExecutionResult{Output: "frontend submitter not configured", Error: "frontend_not_configured", ExitCode: -1}, nil
+			}
 			return r.frontend.Await(callCtx, execCtx, args)
 		case "action":
 			if r.action == nil {
@@ -103,9 +133,12 @@ func (r *ToolRouter) lookup(toolName string) (api.ToolDetailResponse, bool) {
 		return api.ToolDetailResponse{}, false
 	}
 	normalized := strings.ToLower(strings.TrimSpace(toolName))
+	r.mu.RLock()
 	if def, ok := r.localByName[normalized]; ok {
+		r.mu.RUnlock()
 		return def, true
 	}
+	r.mu.RUnlock()
 	if r.mcpTools != nil {
 		return r.mcpTools.Tool(toolName)
 	}

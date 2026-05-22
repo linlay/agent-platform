@@ -31,9 +31,10 @@ create_runtime_tree() {
   mkdir -p \
     "$bundle_root/runtime/registries/providers" \
     "$bundle_root/runtime/registries/models" \
-    "$bundle_root/runtime/registries/tools" \
     "$bundle_root/runtime/registries/mcp-servers" \
     "$bundle_root/runtime/registries/viewport-servers" \
+    "$bundle_root/runtime/tools" \
+    "$bundle_root/runtime/viewports" \
     "$bundle_root/runtime/owner" \
     "$bundle_root/runtime/agents" \
     "$bundle_root/runtime/teams" \

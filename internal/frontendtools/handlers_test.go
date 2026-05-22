@@ -18,6 +18,33 @@ func frontendTool(name string) api.ToolDetailResponse {
 	}
 }
 
+func TestGenericFormHandlerNormalizesPayloadSubmit(t *testing.T) {
+	handler := NewGenericFormHandler()
+	normalized, err := handler.NormalizeSubmit(map[string]any{"seed": "value"}, []any{
+		map[string]any{
+			"id":      "form-1",
+			"payload": map[string]any{"name": "Lin"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("normalize generic submit: %v", err)
+	}
+	if normalized["mode"] != "form" || normalized["status"] != "answered" {
+		t.Fatalf("unexpected normalized payload %#v", normalized)
+	}
+	forms, ok := normalized["forms"].([]map[string]any)
+	if !ok || len(forms) != 1 {
+		t.Fatalf("expected one form, got %#v", normalized["forms"])
+	}
+	if forms[0]["decision"] != "submit" {
+		t.Fatalf("expected default submit decision, got %#v", forms[0])
+	}
+	form, _ := forms[0]["form"].(map[string]any)
+	if form["name"] != "Lin" {
+		t.Fatalf("unexpected form payload %#v", form)
+	}
+}
+
 func mustSubmitParams(t *testing.T, value any) api.SubmitParams {
 	t.Helper()
 	params, err := api.EncodeSubmitParams(value)

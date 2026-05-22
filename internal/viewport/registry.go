@@ -63,7 +63,7 @@ func (r *Registry) Get(viewportKey string) (map[string]any, bool, error) {
 }
 
 func DefaultRoot(registriesDir string) string {
-	return filepath.Join(registriesDir, "viewports")
+	return filepath.Join(filepath.Dir(filepath.Clean(registriesDir)), "viewports")
 }
 
 func DefaultServersRoot(registriesDir string) string {

@@ -429,7 +429,7 @@ func defaultConfig() Config {
 	}
 	paths := PathsConfig{
 		RegistriesDir:   filepath.Join(runtimeRoot, "registries"),
-		ToolsDir:        filepath.Join(runtimeRoot, "registries", "tools"),
+		ToolsDir:        filepath.Join(runtimeRoot, "tools"),
 		OwnerDir:        filepath.Join(runtimeRoot, "owner"),
 		AgentsDir:       filepath.Join(runtimeRoot, "agents"),
 		TeamsDir:        filepath.Join(runtimeRoot, "teams"),

@@ -149,6 +149,44 @@ func TestDeltaMapper_InvalidChunkedQuestionArgsDoNotEmitStandaloneAwaitAsk(t *te
 	}
 }
 
+func TestDeltaMapper_GenericFrontendToolEmitsFormAwaitAsk(t *testing.T) {
+	tools := stubToolLookup{
+		"leave_form": {
+			Name:  "leave_form",
+			Label: "Leave Form",
+			Meta: map[string]any{
+				"kind":         "frontend",
+				"viewportType": "html",
+				"viewportKey":  "leave_form",
+			},
+		},
+	}
+	mapper := NewDeltaMapper("run_1", "chat_1", 5000, tools, frontendtools.NewDefaultRegistry())
+
+	inputs := mapper.Map(contracts.DeltaToolCall{
+		Index:     0,
+		ID:        "tool_1",
+		Name:      "leave_form",
+		ArgsDelta: `{"employeeName":"Lin","reason":"family"}`,
+	})
+	if len(inputs) != 1 {
+		t.Fatalf("expected one mapped input, got %#v", inputs)
+	}
+	args, ok := inputs[0].(stream.ToolArgs)
+	if !ok {
+		t.Fatalf("expected ToolArgs input, got %#v", inputs[0])
+	}
+	if args.AwaitAsk == nil {
+		t.Fatalf("expected generic frontend await ask, got %#v", args)
+	}
+	if args.AwaitAsk.Mode != "form" || args.AwaitAsk.ViewportType != "html" || args.AwaitAsk.ViewportKey != "leave_form" {
+		t.Fatalf("unexpected await ask %#v", args.AwaitAsk)
+	}
+	if len(args.AwaitAsk.Forms) != 1 {
+		t.Fatalf("expected one form, got %#v", args.AwaitAsk.Forms)
+	}
+}
+
 func newQuestionDeltaMapper() *DeltaMapper {
 	tools := stubToolLookup{
 		"ask_user_question": {

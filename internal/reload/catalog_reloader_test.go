@@ -58,6 +58,7 @@ func TestBackgroundWatchEntriesExcludeConfigs(t *testing.T) {
 			TeamsDir:        filepath.Join("runtime", "teams"),
 			SkillsMarketDir: filepath.Join("runtime", "skills-market"),
 			RegistriesDir:   filepath.Join("runtime", "registries"),
+			ToolsDir:        filepath.Join("runtime", "tools"),
 		},
 	}
 
@@ -77,6 +78,8 @@ func TestBackgroundWatchEntriesExcludeConfigs(t *testing.T) {
 		"skills",
 		"models",
 		"providers",
+		"tools",
+		"viewports",
 		"mcp-servers",
 		"viewport-servers",
 	}

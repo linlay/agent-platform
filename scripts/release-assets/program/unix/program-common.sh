@@ -82,9 +82,10 @@ program_prepare_runtime_dirs() {
     "$LOG_DIR" \
     "$RUNTIME_ROOT/registries/providers" \
     "$RUNTIME_ROOT/registries/models" \
-    "$RUNTIME_ROOT/registries/tools" \
     "$RUNTIME_ROOT/registries/mcp-servers" \
     "$RUNTIME_ROOT/registries/viewport-servers" \
+    "$RUNTIME_ROOT/tools" \
+    "$RUNTIME_ROOT/viewports" \
     "$RUNTIME_ROOT/owner" \
     "$RUNTIME_ROOT/agents" \
     "$RUNTIME_ROOT/teams" \

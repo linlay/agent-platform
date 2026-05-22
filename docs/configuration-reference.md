@@ -66,6 +66,7 @@
 | `ROOT_DIR` | `${RUNTIME_DIR}/root` | `Advanced / operator` | runtime 根目录映射；运行时支持但不展示在 `.env.example` |
 | `SCHEDULES_DIR` | `${RUNTIME_DIR}/schedules` | `Advanced / operator` | schedules 定义目录；运行时支持但不展示在 `.env.example` |
 | `SKILLS_MARKET_DIR` | `${RUNTIME_DIR}/skills-market` | `Advanced / operator` | skills market 目录映射；运行时支持但不展示在 `.env.example` |
+| `TOOLS_DIR` | `${RUNTIME_DIR}/tools` | `Advanced / operator` | 自定义 frontend tool YAML 目录 |
 | `PROVIDER_APIKEY_KEY_PART` | 空 | `Advanced / operator` | provider `apiKey: AES(...)` 的环境变量半密钥 |
 
 目录解析优先级为：显式子目录变量（如 `CHATS_DIR`）> `RUNTIME_DIR` > `SERVICE_DATA_DIR` > `runtime`。

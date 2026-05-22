@@ -67,7 +67,7 @@ func TestResolveSandboxPathsLocalModeLocalEngine(t *testing.T) {
 	if paths.ViewportServersDir != absTestPath(t, filepath.Join(cfg.Paths.RegistriesDir, "viewport-servers")) {
 		t.Fatalf("viewport servers dir = %q", paths.ViewportServersDir)
 	}
-	if paths.ViewportsDir != absTestPath(t, filepath.Join(cfg.Paths.RegistriesDir, "viewports")) {
+	if paths.ViewportsDir != absTestPath(t, filepath.Join(filepath.Dir(filepath.Clean(cfg.Paths.RegistriesDir)), "viewports")) {
 		t.Fatalf("viewports dir = %q", paths.ViewportsDir)
 	}
 }
@@ -133,7 +133,7 @@ func TestResolveLocalPathsIncludesAgentAndRegistryPaths(t *testing.T) {
 	if paths.ToolsDir != cfg.Paths.ToolsDir {
 		t.Fatalf("tools dir = %q", paths.ToolsDir)
 	}
-	if paths.ViewportsDir != filepath.Join(cfg.Paths.RegistriesDir, "viewports") {
+	if paths.ViewportsDir != filepath.Join(filepath.Dir(filepath.Clean(cfg.Paths.RegistriesDir)), "viewports") {
 		t.Fatalf("viewports dir = %q", paths.ViewportsDir)
 	}
 	if paths.ChatAttachmentsDir != filepath.Join(cfg.Paths.ChatsDir, "chat-1") {
@@ -531,7 +531,7 @@ func testPromptContextConfig(t *testing.T) config.Config {
 	cfg := config.Config{
 		Paths: config.PathsConfig{
 			RegistriesDir:   filepath.Join(root, "runtime", "registries"),
-			ToolsDir:        filepath.Join(root, "runtime", "registries", "tools"),
+			ToolsDir:        filepath.Join(root, "runtime", "tools"),
 			OwnerDir:        filepath.Join(root, "runtime", "owner"),
 			AgentsDir:       filepath.Join(root, "runtime", "agents"),
 			TeamsDir:        filepath.Join(root, "runtime", "teams"),

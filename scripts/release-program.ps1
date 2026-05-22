@@ -90,9 +90,10 @@ function New-RuntimeTree {
     $dirs = @(
         "runtime/registries/providers",
         "runtime/registries/models",
-        "runtime/registries/tools",
         "runtime/registries/mcp-servers",
         "runtime/registries/viewport-servers",
+        "runtime/tools",
+        "runtime/viewports",
         "runtime/owner",
         "runtime/agents",
         "runtime/teams",
