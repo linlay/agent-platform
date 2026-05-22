@@ -1,0 +1,109 @@
+{
+  "kind": "builtin",
+  "id": "agent-platform",
+  "name": "智能体平台",
+  "version": "__VERSION__",
+  "description": "AI Agent 运行时，提供对话、工具执行和沙箱能力。",
+  "platform": {
+    "os": "__TARGET_OS__",
+    "arch": "__TARGET_ARCH__"
+  },
+  "frontend": {
+    "mode": "none"
+  },
+  "backend": {
+    "entry": "__BACKEND_ENTRY__"
+  },
+  "scripts": {
+    "start": ["__START_SCRIPT__", "--daemon"],
+    "stop": "__STOP_SCRIPT__",
+    "deploy": "__DEPLOY_SCRIPT__"
+  },
+  "configFiles": [
+    {
+      "key": "env",
+      "label": ".env",
+      "relativePath": ".env",
+      "templateRelativePath": ".env.example",
+      "required": true
+    },
+    {
+      "key": "container-hub",
+      "label": "configs/container-hub.yml",
+      "relativePath": "configs/container-hub.yml",
+      "templateRelativePath": "configs/container-hub.example.yml",
+      "required": false
+    },
+    {
+      "key": "desktop",
+      "label": "configs/desktop.yml",
+      "relativePath": "configs/desktop.yml",
+      "templateRelativePath": "configs/desktop.example.yml",
+      "required": false
+    },
+    {
+      "key": "bash",
+      "label": "configs/bash.yml",
+      "relativePath": "configs/bash.yml",
+      "templateRelativePath": "configs/bash.example.yml",
+      "required": false
+    },
+    {
+      "key": "cors",
+      "label": "configs/cors.yml",
+      "relativePath": "configs/cors.yml",
+      "templateRelativePath": "configs/cors.example.yml",
+      "required": false
+    }
+  ],
+  "runtime": {
+    "pidRelativePath": "run/agent-platform.pid",
+    "logRelativePath": "run/agent-platform.log",
+    "__ERROR_LOG_LINE__": "__ERROR_LOG_LINE__",
+    "requiredPaths": [
+      "__BACKEND_ENTRY__",
+      "__START_SCRIPT__",
+      "__STOP_SCRIPT__",
+      "__DEPLOY_SCRIPT__",
+      "__PROGRAM_COMMON__",
+      ".env.example",
+      "manifest.json",
+      "configs",
+      "runtime"
+    ]
+  },
+  "web": {
+    "routePath": "",
+    "portEnvKey": "SERVER_PORT",
+    "defaultPort": 11949
+  },
+  "desktop": {
+    "displayOrder": 2,
+    "autoStart": true,
+    "assetFileName": "__ASSET_FILENAME__",
+    "bundleTopLevelDir": "agent-platform",
+    "envBindings": [
+      {
+        "key": "CONTAINER_HUB_BASE_URL",
+        "fromService": "agent-container-hub",
+        "template": "http://127.0.0.1:{{port}}",
+        "onlyIfDefault": true,
+        "defaults": [
+          "",
+          "http://127.0.0.1:11960",
+          "http://localhost:11960",
+          "http://host.docker.internal:11960"
+        ]
+      },
+      {
+        "key": "SERVER_PORT",
+        "value": "{{serviceDefaultPort}}",
+        "onlyIfDefault": true
+      },
+      {
+        "key": "AUTH_ENABLED",
+        "value": "true"
+      }
+    ]
+  }
+}

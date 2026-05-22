@@ -198,7 +198,14 @@ function Compress-Directory {
         if (Test-Path -LiteralPath $OutputPath) {
             Remove-Item -LiteralPath $OutputPath -Force
         }
-        [System.IO.Compression.ZipFile]::CreateFromDirectory($bundlePath, $OutputPath, [System.IO.Compression.CompressionLevel]::Optimal, $false)
+        $zipStage = Join-Path ([System.IO.Path]::GetTempPath()) "agent-platform-zip.$([System.Guid]::NewGuid().ToString('N'))"
+        New-Item -ItemType Directory -Path $zipStage -Force | Out-Null
+        try {
+            Move-Item $bundlePath $zipStage
+            [System.IO.Compression.ZipFile]::CreateFromDirectory($zipStage, $OutputPath, [System.IO.Compression.CompressionLevel]::Optimal, $false)
+        } finally {
+            Remove-Item -Path $zipStage -Recurse -Force -ErrorAction SilentlyContinue
+        }
     } else {
         $oldPwd = $PWD
         Push-Location $StageRoot
