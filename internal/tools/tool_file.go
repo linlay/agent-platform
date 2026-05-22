@@ -175,6 +175,14 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 		}
 	}
 	before, beforeExists := fileSHA256IfExists(plan.FilePath)
+	beforeContent := ""
+	if beforeExists {
+		data, err := os.ReadFile(plan.FilePath)
+		if err != nil {
+			return fileToolError("file_write_failed", err.Error()), nil
+		}
+		beforeContent = string(data)
+	}
 	if err := os.MkdirAll(filepath.Dir(plan.FilePath), 0o755); err != nil {
 		return fileToolError("file_write_failed", err.Error()), nil
 	}
@@ -183,6 +191,7 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 	}
 	after := fileSHA256(plan.FilePath)
 	info, _ := os.Stat(plan.FilePath)
+	lineStats := computeLineDiffStats(beforeContent, string(plan.Content))
 	payload := map[string]any{
 		"status":       "written",
 		"filePath":     plan.FilePath,
@@ -190,6 +199,7 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 		"created":      !beforeExists,
 		"overwritten":  beforeExists,
 		"sha256":       after,
+		"lineStats":    lineStatsPayload(lineStats),
 	}
 	if beforeExists {
 		payload["previousSha256"] = before
@@ -207,6 +217,7 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 		Operation:     "write",
 		ContentSHA256: after,
 		Content:       append([]byte(nil), plan.Content...),
+		LineStats:     lineStats,
 	})
 	return structuredResult(payload), nil
 }
@@ -313,6 +324,7 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 	}
 	after := fileSHA256(plan.FilePath)
 	info, _ := os.Stat(plan.FilePath)
+	lineStats := computeLineDiffStats(currentContent, string(updatedBytes))
 	payload := map[string]any{
 		"status":       "edited",
 		"filePath":     plan.FilePath,
@@ -320,6 +332,7 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 		"replaceAll":   plan.ReplaceAll,
 		"created":      created,
 		"sha256":       after,
+		"lineStats":    lineStatsPayload(lineStats),
 	}
 	if beforeExists {
 		payload["previousSha256"] = before
@@ -337,6 +350,7 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 		Operation:     "edit",
 		ContentSHA256: after,
 		Content:       append([]byte(nil), updatedBytes...),
+		LineStats:     lineStats,
 	})
 	return structuredResult(payload), nil
 }

@@ -540,6 +540,24 @@ func fileToolExecutor(root string, requireApproval bool) *RuntimeToolExecutor {
 	}
 }
 
+func assertResultLineStats(t *testing.T, result contracts.ToolExecutionResult, added int, deleted int, edited int) {
+	t.Helper()
+	stats, ok := result.Structured["lineStats"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected lineStats payload, got %#v", result.Structured["lineStats"])
+	}
+	if stats["addedLines"] != added || stats["deletedLines"] != deleted || stats["editedLines"] != edited {
+		t.Fatalf("expected lineStats +%d -%d edited=%d, got %#v", added, deleted, edited, stats)
+	}
+}
+
+func assertLineStats(t *testing.T, stats contracts.LineDiffStats, added int, deleted int, edited int) {
+	t.Helper()
+	if stats.AddedLines != added || stats.DeletedLines != deleted || stats.EditedLines != edited {
+		t.Fatalf("expected line stats +%d -%d edited=%d, got %#v", added, deleted, edited, stats)
+	}
+}
+
 type recordingFileChangeHook struct {
 	events []contracts.FileChangeEvent
 	result contracts.FileChangeHookResult
@@ -586,6 +604,7 @@ func TestInvokeWriteRunsFileChangeHookForCoderWorkspace(t *testing.T) {
 	if event.Operation != "write" || event.WorkspaceRoot != root || filepath.Base(event.FilePath) != "main.go" || string(event.Content) != "package main" {
 		t.Fatalf("unexpected hook event: %#v", event)
 	}
+	assertLineStats(t, event.LineStats, 1, 0, 0)
 	hooks, ok := result.Structured["hooks"].([]contracts.FileChangeHookResult)
 	if !ok || len(hooks) != 1 || hooks[0].Status != "ok" || len(hooks[0].Diagnostics) != 1 {
 		t.Fatalf("unexpected hook payload: %#v", result.Structured["hooks"])
@@ -623,6 +642,7 @@ func TestInvokeEditRunsFileChangeHookForCoderWorkspace(t *testing.T) {
 	if len(hook.events) != 1 || hook.events[0].Operation != "edit" || string(hook.events[0].Content) != "package main\n" {
 		t.Fatalf("unexpected hook events: %#v", hook.events)
 	}
+	assertLineStats(t, hook.events[0].LineStats, 1, 1, 1)
 }
 
 func TestFileChangeHookSkipsNonCoderMissingWorkspaceAndFailedWrite(t *testing.T) {
@@ -751,6 +771,50 @@ func TestInvokeWriteAllowsReadThenWriteAndRefreshesSnapshot(t *testing.T) {
 	}
 }
 
+func TestInvokeWriteReportsLineStatsForNewFile(t *testing.T) {
+	root := t.TempDir()
+	executor := fileToolExecutor(root, false)
+
+	result, err := executor.invokeWrite(context.Background(), map[string]any{
+		"file_path":   "owner.md",
+		"content":     "one\ntwo",
+		"description": "写入 owner 文档",
+	}, &contracts.ExecutionContext{})
+	if err != nil {
+		t.Fatalf("invokeWrite: %v", err)
+	}
+	if result.Error != "" || result.ExitCode != 0 {
+		t.Fatalf("expected write success, got %#v", result)
+	}
+	assertResultLineStats(t, result, 2, 0, 0)
+}
+
+func TestInvokeWriteReportsLineStatsForOverwrite(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "owner.md")
+	if err := os.WriteFile(path, []byte("one\ntwo\nthree\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	executor := fileToolExecutor(root, false)
+	execCtx := &contracts.ExecutionContext{}
+	if _, err := executor.invokeRead(map[string]any{"file_path": "owner.md", "add_line_numbers": false}, execCtx); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	result, err := executor.invokeWrite(context.Background(), map[string]any{
+		"file_path":   "owner.md",
+		"content":     "one\nTWO\nthree\nfour\n",
+		"description": "写入 owner 文档",
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invokeWrite: %v", err)
+	}
+	if result.Error != "" || result.ExitCode != 0 {
+		t.Fatalf("expected write success, got %#v", result)
+	}
+	assertResultLineStats(t, result, 2, 1, 1)
+}
+
 func TestInvokeWriteAllowsConsecutiveWritesAfterSnapshotRefresh(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "owner.md")
@@ -844,6 +908,7 @@ func TestInvokeEditReplacesUniqueStringAndRefreshesSnapshot(t *testing.T) {
 	if result.Error != "" || result.ExitCode != 0 || result.Structured["replacements"] != 1 {
 		t.Fatalf("expected edit success, got %#v", result)
 	}
+	assertResultLineStats(t, result, 1, 1, 1)
 	if got, err := os.ReadFile(path); err != nil || string(got) != "hello agent\n" {
 		t.Fatalf("unexpected edited content %q err=%v", string(got), err)
 	}
@@ -853,10 +918,37 @@ func TestInvokeEditReplacesUniqueStringAndRefreshesSnapshot(t *testing.T) {
 	}
 }
 
+func TestInvokeEditLineStatsIgnoreUnchangedContext(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "owner.md")
+	if err := os.WriteFile(path, []byte("alpha\nold value\nomega\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	executor := fileToolExecutor(root, false)
+	execCtx := &contracts.ExecutionContext{}
+	if _, err := executor.invokeRead(map[string]any{"file_path": "owner.md", "add_line_numbers": false}, execCtx); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+
+	result, err := executor.invokeEdit(context.Background(), map[string]any{
+		"file_path":   "owner.md",
+		"old_string":  "alpha\nold value\nomega\n",
+		"new_string":  "alpha\nnew value\nomega\n",
+		"description": "编辑 owner 文档",
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invokeEdit: %v", err)
+	}
+	if result.Error != "" || result.ExitCode != 0 {
+		t.Fatalf("expected edit success, got %#v", result)
+	}
+	assertResultLineStats(t, result, 1, 1, 1)
+}
+
 func TestInvokeEditReplaceAllAndMultipleMatchRejection(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "owner.md")
-	if err := os.WriteFile(path, []byte("one one\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("one\nsame\none\n"), 0o644); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
 	executor := fileToolExecutor(root, false)
@@ -891,7 +983,8 @@ func TestInvokeEditReplaceAllAndMultipleMatchRejection(t *testing.T) {
 	if edited.Error != "" || edited.Structured["replacements"] != 2 {
 		t.Fatalf("expected replace_all success, got %#v", edited)
 	}
-	if got, err := os.ReadFile(path); err != nil || string(got) != "two two\n" {
+	assertResultLineStats(t, edited, 2, 2, 2)
+	if got, err := os.ReadFile(path); err != nil || string(got) != "two\nsame\ntwo\n" {
 		t.Fatalf("unexpected edited content %q err=%v", string(got), err)
 	}
 }
@@ -952,6 +1045,7 @@ func TestInvokeEditCreatesNewFileWithEmptyOldString(t *testing.T) {
 	if result.Error != "" || result.Structured["created"] != true || result.Structured["replacements"] != 1 {
 		t.Fatalf("expected create success, got %#v", result)
 	}
+	assertResultLineStats(t, result, 1, 0, 0)
 	if got, err := os.ReadFile(filepath.Join(root, "new.md")); err != nil || string(got) != "hello\n" {
 		t.Fatalf("unexpected created content %q err=%v", string(got), err)
 	}
@@ -1030,6 +1124,7 @@ func TestInvokeEditConsumesApprovalAndPreservesCRLF(t *testing.T) {
 	if result.Error != "" || result.ExitCode != 0 {
 		t.Fatalf("expected approved edit success, got %#v", result)
 	}
+	assertResultLineStats(t, result, 1, 1, 1)
 	if got, err := os.ReadFile(path); err != nil || string(got) != "hello\r\nagent\r\n" {
 		t.Fatalf("unexpected CRLF content %q err=%v", string(got), err)
 	}

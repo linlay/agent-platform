@@ -50,6 +50,13 @@ type FileChangeEvent struct {
 	LanguageID    string
 	ContentSHA256 string
 	Content       []byte
+	LineStats     LineDiffStats
+}
+
+type LineDiffStats struct {
+	AddedLines   int `json:"addedLines"`
+	DeletedLines int `json:"deletedLines"`
+	EditedLines  int `json:"editedLines"`
 }
 
 type FileChangeHookResult struct {

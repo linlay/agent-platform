@@ -25,7 +25,9 @@ require-write-approval: true
 # file_write / file_edit 前必须先 file_read，防止基于陈旧视图覆盖。
 require-read-before-write: true
 
-# 文件变更后自动 hook。v1 只收集 LSP diagnostics，不自动格式化或回滚写入。
+# 文件变更后自动 hook。file_write / file_edit 成功结果会返回 lineStats
+#（addedLines / deletedLines / editedLines），hook 事件也会携带这份统计。
+# v1 只收集 LSP diagnostics，不自动格式化或回滚写入。
 hooks:
   after-file-change:
     lsp-diagnostics:
