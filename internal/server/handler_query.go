@@ -604,6 +604,7 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 		runUsage:      &runUsage,
 	}
 	processor.stepWriter.SetPendingSystemInits(prepared.systemInitLines)
+	runCtx = llm.WithApprovalSummarySink(runCtx, processor.stepWriter.RecordApproval)
 	writeEvent := func(event stream.StreamEvent) error {
 		data, visible := processor.Consume(event)
 		if !visible {

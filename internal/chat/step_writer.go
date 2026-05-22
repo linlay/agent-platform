@@ -471,7 +471,6 @@ func (w *StepWriter) captureTaskDebugData(buffer *taskStepBuffer, eventType stri
 
 func (w *StepWriter) flushCurrentStep() {
 	if len(w.messages) == 0 && len(w.pendingAwaiting) == 0 {
-		w.pendingApproval = nil
 		w.pendingUsage = nil
 		w.pendingContextWindowMax = 0
 		w.pendingEstimated = 0
@@ -490,7 +489,7 @@ func (w *StepWriter) flushCurrentStep() {
 		line.Awaiting = w.pendingAwaiting
 		w.pendingAwaiting = nil
 	}
-	if w.pendingApproval != nil {
+	if w.pendingApproval != nil && approvalMatchesToolMessages(w.pendingApproval, w.messages) {
 		line.Approval = w.pendingApproval
 		w.pendingApproval = nil
 	}
@@ -531,10 +530,7 @@ func (w *StepWriter) flushCurrentStep() {
 			line.Seq = w.seqCounter
 		}
 	} else {
-		// REACT / ONESHOT / CODER 都用 react，每行都带 seq
-		line.Type = "react"
-		w.seqCounter++
-		line.Seq = w.seqCounter
+		w.assignReactSeq(&line)
 	}
 
 	line.Messages = append([]StoredMessage(nil), w.messages...)
@@ -600,9 +596,7 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 			line.Seq = w.seqCounter
 		}
 	} else {
-		line.Type = "react"
-		w.seqCounter++
-		line.Seq = w.seqCounter
+		w.assignReactSeq(&line)
 	}
 
 	_ = w.store.AppendStepLine(w.chatID, line)
@@ -624,6 +618,94 @@ func (w *StepWriter) flushAllTaskSteps() {
 		w.flushTaskStep(taskID)
 		delete(w.taskBuffers, taskID)
 	}
+}
+
+func (w *StepWriter) assignReactSeq(line *StepLine) {
+	if line == nil {
+		return
+	}
+	line.Type = "react"
+	if stepLineStartsModelCall(*line) {
+		w.seqCounter++
+		line.Seq = w.seqCounter
+		return
+	}
+	if stepLineCanReuseReactSeq(*line) && w.seqCounter > 0 {
+		line.Seq = w.seqCounter
+	}
+}
+
+func stepLineStartsModelCall(line StepLine) bool {
+	if usageHasLLMCall(line.Usage) {
+		return true
+	}
+	if debugHasPreCall(line.Debug) {
+		return true
+	}
+	return storedMessagesContainAssistant(line.Messages)
+}
+
+func usageHasLLMCall(usage map[string]any) bool {
+	if len(usage) == 0 {
+		return false
+	}
+	return toIntFromKeys(usage, "llmChatCompletionCount", "llm_chat_completion_count") > 0
+}
+
+func debugHasPreCall(debug map[string]any) bool {
+	if len(debug) == 0 {
+		return false
+	}
+	_, ok := debug["preCall"]
+	return ok
+}
+
+func storedMessagesContainAssistant(messages []StoredMessage) bool {
+	for _, message := range messages {
+		if strings.EqualFold(strings.TrimSpace(message.Role), "assistant") {
+			return true
+		}
+	}
+	return false
+}
+
+func stepLineCanReuseReactSeq(line StepLine) bool {
+	return len(line.Messages) > 0 || len(line.Awaiting) > 0 || line.Approval != nil
+}
+
+func approvalMatchesToolMessages(approval *StepApproval, messages []StoredMessage) bool {
+	if approval == nil {
+		return false
+	}
+	toolIDs := map[string]struct{}{}
+	hasToolMessage := false
+	for _, message := range messages {
+		if !strings.EqualFold(strings.TrimSpace(message.Role), "tool") {
+			continue
+		}
+		hasToolMessage = true
+		for _, id := range []string{message.ToolCallID, message.ToolID, message.ActionID} {
+			id = strings.TrimSpace(id)
+			if id != "" {
+				toolIDs[id] = struct{}{}
+			}
+		}
+	}
+	if !hasToolMessage {
+		return false
+	}
+	sawDecisionID := false
+	for _, decision := range approval.Decisions {
+		toolID := strings.TrimSpace(decision.ToolID)
+		if toolID == "" {
+			continue
+		}
+		sawDecisionID = true
+		if _, ok := toolIDs[toolID]; ok {
+			return true
+		}
+	}
+	return !sawDecisionID
 }
 
 func (w *StepWriter) bufferAwaitingEvent(event stream.EventData) {

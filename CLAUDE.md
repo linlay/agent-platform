@@ -296,6 +296,7 @@ runtimeConfig:
 ### StepLine 快照
 
 - `_type:"query"` 可带 `systems` 数组，用于记录本次 query 新增或 fingerprint 变化的 system init 快照；缓存命中时省略 `systems`。每项包含 `cacheKey`、`fingerprint`、`mode`、`stage`、`agentKey`、`systemMessage` 和 `tools`，独立 `_type:"system"` 行仅作为旧数据兼容读取。
+- `_type:"react".seq` 是 react mode 的模型调用分组 id，不是 JSONL 物理行号；HITL 导致 `role:"tool"` 独立成后续 react 行时，该行复用触发它的 assistant tool-call step 的 `seq`。需要唯一物理顺序时使用 JSONL 行顺序或 `updatedAt`。
 - `debug.preCall`：存放后端调试 payload，例如 provider、model、requestBody、contextWindow；回放时优先读取 `debug.preCall`，并兼容旧数据 `system.debugPreCall`。
 - `system`：存放 LLM 请求快照，结构与 Java 版对齐：`{"model":"...","messages":[{"role":"system","content":"..."}],"tools":[...],"stream":true}`。
 - `system.messages` 只保留 system 角色消息；`system` 首次出现必写，后续仅当 model/messages/tools/stream 发生变化时写入。

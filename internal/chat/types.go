@@ -84,6 +84,9 @@ type QueryLine struct {
 // StepLine represents a step line in chatId.jsonl.
 // _type is the persisted step shape: "react" or "plan-execute".
 // REACT/ONESHOT/CODER modes: { _type: "react", seq: N, messages: [...] }
+// In react lines, seq is the model-call grouping id, not a physical line
+// number. Continuation lines such as HITL-split tool results may reuse the
+// same seq as the assistant tool-call step that caused them.
 // PLAN_EXECUTE mode:
 //
 //	{ _type: "plan-execute", stage: "plan", messages: [...] }

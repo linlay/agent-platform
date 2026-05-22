@@ -1364,6 +1364,9 @@ func TestStepWriterTimeoutAnswerDoesNotSplitToolStep(t *testing.T) {
 	if stepLine == nil || submitLine == nil {
 		t.Fatalf("expected both step and submit lines, got %#v", lines)
 	}
+	if toIntValue(stepLine["seq"]) != 1 {
+		t.Fatalf("expected timeout tool step seq=1, got %#v", stepLine)
+	}
 	messages, _ := stepLine["messages"].([]any)
 	if len(messages) != 2 {
 		t.Fatalf("expected tool snapshot and tool result in same step line, got %#v", stepLine)
@@ -1374,6 +1377,141 @@ func TestStepWriterTimeoutAnswerDoesNotSplitToolStep(t *testing.T) {
 	}
 	if _, ok := answer["seq"]; ok {
 		t.Fatalf("did not expect seq on submit answer payload, got %#v", answer)
+	}
+}
+
+func TestStepWriterReusesReactSeqForSplitHITLToolResult(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	writer := NewStepWriter(store, "chat-hitl-seq", "run-hitl-seq", "react", false)
+	writer.OnEvent(stream.EventData{
+		Type:      "debug.preCall",
+		Timestamp: 1000,
+		Payload: map[string]any{
+			"data": map[string]any{
+				"usage": map[string]any{},
+			},
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "tool.snapshot",
+		Timestamp: 1001,
+		Payload: map[string]any{
+			"toolId":    "tool-1",
+			"toolName":  "bash",
+			"arguments": `{"command":"git push origin main"}`,
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "awaiting.ask",
+		Timestamp: 1002,
+		Payload: map[string]any{
+			"awaitingId": "tool-1",
+			"mode":       "approval",
+			"timeout":    120000,
+			"runId":      "run-hitl-seq",
+		},
+	})
+	writer.RecordApproval(StepApproval{
+		Summary:   `[HITL] git push origin main -> approve`,
+		LLMNotice: `[System audit - HITL approval batch]`,
+		Decisions: []StepApprovalDecision{{
+			ToolID:   "tool-1",
+			Command:  "git push origin main",
+			Decision: "approve",
+			RuleKey:  "git::push",
+		}},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "request.submit",
+		Timestamp: 1003,
+		Payload: map[string]any{
+			"requestId":  "req-1",
+			"chatId":     "chat-hitl-seq",
+			"runId":      "run-hitl-seq",
+			"awaitingId": "tool-1",
+			"params":     []any{map[string]any{"id": "tool-1", "decision": "approve"}},
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "awaiting.answer",
+		Timestamp: 1004,
+		Payload: map[string]any{
+			"awaitingId": "tool-1",
+			"mode":       "approval",
+			"status":     "answered",
+			"approvals":  []any{map[string]any{"id": "tool-1", "decision": "approve"}},
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "tool.result",
+		Timestamp: 1005,
+		Payload: map[string]any{
+			"toolId": "tool-1",
+			"result": "pushed",
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "stage.marker",
+		Timestamp: 1006,
+		Payload: map[string]any{
+			"stage": "react-step-2",
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "debug.preCall",
+		Timestamp: 1007,
+		Payload: map[string]any{
+			"data": map[string]any{
+				"usage": map[string]any{},
+			},
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type:      "content.snapshot",
+		Timestamp: 1008,
+		Payload: map[string]any{
+			"contentId": "run-hitl-seq_c_2",
+			"text":      "done",
+		},
+	})
+	writer.Flush()
+
+	lines, err := readJSONLines(store.chatJSONLPath("chat-hitl-seq"))
+	if err != nil {
+		t.Fatalf("read chat jsonl: %v", err)
+	}
+	if len(lines) != 4 {
+		t.Fatalf("expected assistant step, submit line, tool step, final assistant step; got %#v", lines)
+	}
+	firstStep := lines[0]
+	if firstStep["_type"] != "react" || toIntValue(firstStep["seq"]) != 1 {
+		t.Fatalf("expected first react step seq=1, got %#v", firstStep)
+	}
+	if _, ok := firstStep["approval"]; ok {
+		t.Fatalf("did not expect approval on assistant tool-call step, got %#v", firstStep)
+	}
+	toolStep := lines[2]
+	if toolStep["_type"] != "react" || toIntValue(toolStep["seq"]) != 1 {
+		t.Fatalf("expected split tool result step to reuse seq=1, got %#v", toolStep)
+	}
+	if _, ok := toolStep["approval"].(map[string]any); !ok {
+		t.Fatalf("expected approval sidecar on tool result step, got %#v", toolStep)
+	}
+	toolMessages, _ := toolStep["messages"].([]any)
+	if len(toolMessages) != 1 {
+		t.Fatalf("expected one tool message, got %#v", toolStep)
+	}
+	toolMessage, _ := toolMessages[0].(map[string]any)
+	if toolMessage["role"] != "tool" {
+		t.Fatalf("expected split step role=tool, got %#v", toolMessage)
+	}
+	finalStep := lines[3]
+	if finalStep["_type"] != "react" || toIntValue(finalStep["seq"]) != 2 {
+		t.Fatalf("expected next model step seq=2, got %#v", finalStep)
 	}
 }
 
@@ -1413,6 +1551,9 @@ func TestStepWriterFormatsStructuredToolResultAsJSON(t *testing.T) {
 	}
 	if len(lines) != 1 {
 		t.Fatalf("expected one step line, got %#v", lines)
+	}
+	if lines[0]["_type"] != "react" || toIntValue(lines[0]["seq"]) != 1 {
+		t.Fatalf("expected unsplit tool call step seq=1, got %#v", lines[0])
 	}
 	messages, _ := lines[0]["messages"].([]any)
 	if len(messages) != 2 {
