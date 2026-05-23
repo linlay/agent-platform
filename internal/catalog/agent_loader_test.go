@@ -251,7 +251,12 @@ func TestParseAgentFileSupportsCoderWorkspace(t *testing.T) {
 		"name: Coder\n" +
 		"mode: coder\n" +
 		"workspaceConfig:\n" +
-		"  root: " + filepath.ToSlash(workspace) + "\n"
+		"  root: " + filepath.ToSlash(workspace) + "\n" +
+		"  projectPromptFiles:\n" +
+		"    - AGENTS.md\n" +
+		"    - \"agent:project/AGENTS.md\"\n" +
+		"  git:\n" +
+		"    expectedBranch: main\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write agent file: %v", err)
 	}
@@ -265,6 +270,12 @@ func TestParseAgentFileSupportsCoderWorkspace(t *testing.T) {
 	}
 	if def.Workspace.Root != filepath.Clean(workspace) {
 		t.Fatalf("workspace root = %q, want %q", def.Workspace.Root, filepath.Clean(workspace))
+	}
+	if !reflect.DeepEqual(def.Workspace.ProjectPromptFiles, []string{"AGENTS.md", "agent:project/AGENTS.md"}) {
+		t.Fatalf("project prompt files = %#v", def.Workspace.ProjectPromptFiles)
+	}
+	if def.Workspace.Git.ExpectedBranch != "main" {
+		t.Fatalf("expected branch = %q, want main", def.Workspace.Git.ExpectedBranch)
 	}
 }
 

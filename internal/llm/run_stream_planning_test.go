@@ -28,8 +28,9 @@ func TestPlanningWriteArgumentsStreamPlanningDeltas(t *testing.T) {
 	chunks := []string{
 		`{"title":"Streaming Plan",`,
 		`"summary":"Stream the plan while the tool arguments arrive.",`,
-		`"keyChanges":["Emit planning start before completion"],`,
-		`"steps":["Parse arguments incrementally","Write the final markdown"],`,
+		`"publicEventsAndStorage":["Emit planning start before completion"],`,
+		`"implementationChanges":["Parse arguments incrementally","Write the final markdown"],`,
+		`"interfaces":["Use planning_write structured fields"],`,
 		`"testPlan":["Assert multiple deltas"],`,
 		`"assumptions":["The provider emits tool arguments in order"]}`,
 	}
@@ -42,12 +43,13 @@ func TestPlanningWriteArgumentsStreamPlanningDeltas(t *testing.T) {
 	}
 
 	markdown := planutil.RenderMarkdown(planutil.Spec{
-		Title:       "Streaming Plan",
-		Summary:     "Stream the plan while the tool arguments arrive.",
-		KeyChanges:  []string{"Emit planning start before completion"},
-		Steps:       []string{"Parse arguments incrementally", "Write the final markdown"},
-		TestPlan:    []string{"Assert multiple deltas"},
-		Assumptions: []string{"The provider emits tool arguments in order"},
+		Title:                  "Streaming Plan",
+		Summary:                "Stream the plan while the tool arguments arrive.",
+		PublicEventsAndStorage: []string{"Emit planning start before completion"},
+		ImplementationChanges:  []string{"Parse arguments incrementally", "Write the final markdown"},
+		Interfaces:             []string{"Use planning_write structured fields"},
+		TestPlan:               []string{"Assert multiple deltas"},
+		Assumptions:            []string{"The provider emits tool arguments in order"},
 	})
 	stream.appendFinalPlanningDeltas("tool_plan", contracts.ToolExecutionResult{
 		Structured: map[string]any{
@@ -111,7 +113,7 @@ func TestPlanningWriteStreamsPartialStringsAndDraftFile(t *testing.T) {
 	if !strings.Contains(combined, "Stream the plan while arguments arrive") {
 		t.Fatalf("expected partial summary in live markdown, got:\n%s", combined)
 	}
-	if strings.Contains(combined, "## Key Changes") {
+	if strings.Contains(combined, "## Public Events And Storage") {
 		t.Fatalf("did not expect later sections before summary closes, got:\n%s", combined)
 	}
 
@@ -125,9 +127,9 @@ func TestPlanningWriteStreamsPartialStringsAndDraftFile(t *testing.T) {
 	}
 
 	suffixChunks := []string{
-		`.","keyChanges":["Emit planning deltas before`,
-		` the string closes"],"steps":["Parse arguments incrementally",`,
-		`"Write the final markdown"],"testPlan":["Assert multiple deltas"],`,
+		`.","publicEventsAndStorage":["Emit planning deltas before`,
+		` the string closes"],"implementationChanges":["Parse arguments incrementally",`,
+		`"Write the final markdown"],"interfaces":["Use planning_write structured fields"],"testPlan":["Assert multiple deltas"],`,
 		`"assumptions":["The provider emits tool arguments in order"]}`,
 	}
 	for _, chunk := range suffixChunks {
@@ -139,12 +141,13 @@ func TestPlanningWriteStreamsPartialStringsAndDraftFile(t *testing.T) {
 	}
 
 	markdown := planutil.RenderMarkdown(planutil.Spec{
-		Title:       "Streaming Plan",
-		Summary:     "Stream the plan while arguments arrive.",
-		KeyChanges:  []string{"Emit planning deltas before the string closes"},
-		Steps:       []string{"Parse arguments incrementally", "Write the final markdown"},
-		TestPlan:    []string{"Assert multiple deltas"},
-		Assumptions: []string{"The provider emits tool arguments in order"},
+		Title:                  "Streaming Plan",
+		Summary:                "Stream the plan while arguments arrive.",
+		PublicEventsAndStorage: []string{"Emit planning deltas before the string closes"},
+		ImplementationChanges:  []string{"Parse arguments incrementally", "Write the final markdown"},
+		Interfaces:             []string{"Use planning_write structured fields"},
+		TestPlan:               []string{"Assert multiple deltas"},
+		Assumptions:            []string{"The provider emits tool arguments in order"},
 	})
 	stream.appendFinalPlanningDeltas("tool_plan", contracts.ToolExecutionResult{
 		Structured: map[string]any{
@@ -186,12 +189,13 @@ func TestPlanningWriteCompleteArgumentsSplitIntoMultipleDeltas(t *testing.T) {
 		},
 	}
 	args := map[string]any{
-		"title":       "One Shot Plan",
-		"summary":     "The provider returned full arguments in one chunk.",
-		"keyChanges":  []string{"Split rendered markdown by section"},
-		"steps":       []string{"Emit several planning delta events"},
-		"testPlan":    []string{"Check delta count"},
-		"assumptions": []string{"The final tool write succeeds"},
+		"title":                  "One Shot Plan",
+		"summary":                "The provider returned full arguments in one chunk.",
+		"publicEventsAndStorage": []string{"Split rendered markdown by section"},
+		"implementationChanges":  []string{"Emit several planning delta events"},
+		"interfaces":             []string{"Use the new planning_write schema"},
+		"testPlan":               []string{"Check delta count"},
+		"assumptions":            []string{"The final tool write succeeds"},
 	}
 	data, err := json.Marshal(args)
 	if err != nil {
@@ -209,17 +213,18 @@ func TestPlanningWriteCompleteArgumentsSplitIntoMultipleDeltas(t *testing.T) {
 		t.Fatalf("planning.delta count = %d, want multiple planning chunks; markdown %q", deltaCount, combined)
 	}
 	markdown := planutil.RenderMarkdown(planutil.Spec{
-		Title:       "One Shot Plan",
-		Summary:     "The provider returned full arguments in one chunk.",
-		KeyChanges:  []string{"Split rendered markdown by section"},
-		Steps:       []string{"Emit several planning delta events"},
-		TestPlan:    []string{"Check delta count"},
-		Assumptions: []string{"The final tool write succeeds"},
+		Title:                  "One Shot Plan",
+		Summary:                "The provider returned full arguments in one chunk.",
+		PublicEventsAndStorage: []string{"Split rendered markdown by section"},
+		ImplementationChanges:  []string{"Emit several planning delta events"},
+		Interfaces:             []string{"Use the new planning_write schema"},
+		TestPlan:               []string{"Check delta count"},
+		Assumptions:            []string{"The final tool write succeeds"},
 	})
 	if combined != markdown {
 		t.Fatalf("combined planning.delta markdown mismatch\nwant:\n%s\ngot:\n%s", markdown, combined)
 	}
-	for _, section := range []string{"# One Shot Plan", "## Summary", "## Key Changes", "## Plan", "## Test Plan", "## Assumptions"} {
+	for _, section := range []string{"# One Shot Plan", "## Summary", "## Public Events And Storage", "## Implementation Changes", "## Interfaces", "## Test Plan", "## Assumptions"} {
 		if !strings.Contains(combined, section) {
 			t.Fatalf("expected combined delta to contain %q, got:\n%s", section, combined)
 		}

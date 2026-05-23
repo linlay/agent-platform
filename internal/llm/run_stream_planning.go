@@ -38,12 +38,13 @@ type planningDraftArray struct {
 }
 
 type planningDraftArgs struct {
-	Title       planningDraftString
-	Summary     planningDraftString
-	KeyChanges  planningDraftArray
-	Steps       planningDraftArray
-	TestPlan    planningDraftArray
-	Assumptions planningDraftArray
+	Title                  planningDraftString
+	Summary                planningDraftString
+	PublicEventsAndStorage planningDraftArray
+	ImplementationChanges  planningDraftArray
+	Interfaces             planningDraftArray
+	TestPlan               planningDraftArray
+	Assumptions            planningDraftArray
 }
 
 func (s *llmRunStream) appendToolCallDeltas(deltas []AgentDelta) {
@@ -285,12 +286,13 @@ func (s *llmRunStream) planningChatsDir() string {
 
 func parsePlanningDraftArgs(buffer string) planningDraftArgs {
 	return planningDraftArgs{
-		Title:       parsePlanningStringField(buffer, "title"),
-		Summary:     parsePlanningStringField(buffer, "summary"),
-		KeyChanges:  parsePlanningArrayField(buffer, "keyChanges"),
-		Steps:       parsePlanningArrayField(buffer, "steps"),
-		TestPlan:    parsePlanningArrayField(buffer, "testPlan"),
-		Assumptions: parsePlanningArrayField(buffer, "assumptions"),
+		Title:                  parsePlanningStringField(buffer, "title"),
+		Summary:                parsePlanningStringField(buffer, "summary"),
+		PublicEventsAndStorage: parsePlanningArrayField(buffer, "publicEventsAndStorage"),
+		ImplementationChanges:  parsePlanningArrayField(buffer, "implementationChanges"),
+		Interfaces:             parsePlanningArrayField(buffer, "interfaces"),
+		TestPlan:               parsePlanningArrayField(buffer, "testPlan"),
+		Assumptions:            parsePlanningArrayField(buffer, "assumptions"),
 	}
 }
 
@@ -339,10 +341,13 @@ func renderPlanningDraftMarkdown(args planningDraftArgs) string {
 		return b.String()
 	}
 	b.WriteString("\n\n")
-	if !appendPlanningDraftSection(&b, "Key Changes", args.KeyChanges, false) {
+	if !appendPlanningDraftSection(&b, "Public Events And Storage", args.PublicEventsAndStorage, false) {
 		return b.String()
 	}
-	if !appendPlanningDraftSection(&b, "Plan", args.Steps, false) {
+	if !appendPlanningDraftSection(&b, "Implementation Changes", args.ImplementationChanges, false) {
+		return b.String()
+	}
+	if !appendPlanningDraftSection(&b, "Interfaces", args.Interfaces, false) {
 		return b.String()
 	}
 	if !appendPlanningDraftSection(&b, "Test Plan", args.TestPlan, false) {
@@ -405,11 +410,14 @@ func partialPlanningWriteArgs(buffer string) map[string]any {
 	if draft.Summary.Closed {
 		out["summary"] = draft.Summary.Value
 	}
-	if draft.KeyChanges.Closed {
-		out["keyChanges"] = closedPlanningDraftItems(draft.KeyChanges)
+	if draft.PublicEventsAndStorage.Closed {
+		out["publicEventsAndStorage"] = closedPlanningDraftItems(draft.PublicEventsAndStorage)
 	}
-	if draft.Steps.Closed {
-		out["steps"] = closedPlanningDraftItems(draft.Steps)
+	if draft.ImplementationChanges.Closed {
+		out["implementationChanges"] = closedPlanningDraftItems(draft.ImplementationChanges)
+	}
+	if draft.Interfaces.Closed {
+		out["interfaces"] = closedPlanningDraftItems(draft.Interfaces)
 	}
 	if draft.TestPlan.Closed {
 		out["testPlan"] = closedPlanningDraftItems(draft.TestPlan)

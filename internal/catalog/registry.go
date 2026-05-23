@@ -67,7 +67,13 @@ type AgentDefinition struct {
 }
 
 type AgentWorkspaceConfig struct {
-	Root string
+	Root               string
+	ProjectPromptFiles []string
+	Git                AgentWorkspaceGitConfig
+}
+
+type AgentWorkspaceGitConfig struct {
+	ExpectedBranch string
 }
 
 type AgentMemoryConfig struct {

@@ -35,12 +35,13 @@ func TestPlanningWriteCreatesMarkdownFile(t *testing.T) {
 	}
 
 	result, err := executor.Invoke(context.Background(), "planning_write", map[string]any{
-		"title":       "改造 CODER planningMode",
-		"summary":     "Write a standard planning document.",
-		"keyChanges":  []any{"Add planning_write"},
-		"steps":       []any{"Write the markdown file"},
-		"testPlan":    []any{"Run go test"},
-		"assumptions": []any{"Use CHATS_DIR/plans"},
+		"title":                  "改造 CODER planningMode",
+		"summary":                "Write a standard planning document.",
+		"publicEventsAndStorage": []any{"Keep planning lifecycle events unchanged"},
+		"implementationChanges":  []any{"Write the markdown file"},
+		"interfaces":             []any{"Use planning_write structured fields"},
+		"testPlan":               []any{"Run go test"},
+		"assumptions":            []any{"Use CHATS_DIR/plans"},
 	}, execCtx)
 	if err != nil {
 		t.Fatalf("invoke planning_write: %v", err)
@@ -62,17 +63,18 @@ func TestPlanningWriteCreatesMarkdownFile(t *testing.T) {
 	}
 	text := string(data)
 	expected := planutil.RenderMarkdown(planutil.Spec{
-		Title:       "改造 CODER planningMode",
-		Summary:     "Write a standard planning document.",
-		KeyChanges:  []string{"Add planning_write"},
-		Steps:       []string{"Write the markdown file"},
-		TestPlan:    []string{"Run go test"},
-		Assumptions: []string{"Use CHATS_DIR/plans"},
+		Title:                  "改造 CODER planningMode",
+		Summary:                "Write a standard planning document.",
+		PublicEventsAndStorage: []string{"Keep planning lifecycle events unchanged"},
+		ImplementationChanges:  []string{"Write the markdown file"},
+		Interfaces:             []string{"Use planning_write structured fields"},
+		TestPlan:               []string{"Run go test"},
+		Assumptions:            []string{"Use CHATS_DIR/plans"},
 	})
 	if text != expected {
 		t.Fatalf("planning file mismatch\nwant:\n%s\ngot:\n%s", expected, text)
 	}
-	for _, want := range []string{"# 改造 CODER planningMode", "## Summary", "## Key Changes", "## Plan", "## Test Plan", "## Assumptions"} {
+	for _, want := range []string{"# 改造 CODER planningMode", "## Summary", "## Public Events And Storage", "## Implementation Changes", "## Interfaces", "## Test Plan", "## Assumptions"} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("expected markdown to contain %q, got:\n%s", want, text)
 		}
@@ -93,12 +95,13 @@ func TestPlanningWriteRejectsSecondWrite(t *testing.T) {
 		PlanningState: &PlanningRuntimeState{Markdown: "# Existing\n"},
 	}
 	result, err := executor.Invoke(context.Background(), "planning_write", map[string]any{
-		"title":       "Plan",
-		"summary":     "Summary",
-		"keyChanges":  []any{"Change"},
-		"steps":       []any{"Step"},
-		"testPlan":    []any{"Test"},
-		"assumptions": []any{"Assumption"},
+		"title":                  "Plan",
+		"summary":                "Summary",
+		"publicEventsAndStorage": []any{"Event"},
+		"implementationChanges":  []any{"Change"},
+		"interfaces":             []any{"Interface"},
+		"testPlan":               []any{"Test"},
+		"assumptions":            []any{"Assumption"},
 	}, execCtx)
 	if err != nil {
 		t.Fatalf("invoke planning_write: %v", err)
@@ -118,12 +121,13 @@ func TestPlanningWriteRejectsNestedMarkdownPlan(t *testing.T) {
 		},
 	}
 	result, err := executor.Invoke(context.Background(), "planning_write", map[string]any{
-		"title":       "Plan",
-		"summary":     "First plan\n\n## Summary\nNested summary",
-		"keyChanges":  []any{"Change"},
-		"steps":       []any{"Step"},
-		"testPlan":    []any{"Test"},
-		"assumptions": []any{"Assumption"},
+		"title":                  "Plan",
+		"summary":                "First plan\n\n## Public Events And Storage\nNested section",
+		"publicEventsAndStorage": []any{"Event"},
+		"implementationChanges":  []any{"Change"},
+		"interfaces":             []any{"Interface"},
+		"testPlan":               []any{"Test"},
+		"assumptions":            []any{"Assumption"},
 	}, execCtx)
 	if err != nil {
 		t.Fatalf("invoke planning_write: %v", err)

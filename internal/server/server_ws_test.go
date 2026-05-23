@@ -866,12 +866,13 @@ func TestWebSocketCoderPlanningEmitsLifecycleEvents(t *testing.T) {
 		case 1:
 			writeProviderSSE(t, w,
 				providerToolCallFrame(t, "tool_plan", "planning_write", map[string]any{
-					"title":       "WebSocket Planning",
-					"summary":     "Plan should stream over websocket.",
-					"keyChanges":  []string{"Emit planning lifecycle events"},
-					"steps":       []string{"Confirm and execute the plan"},
-					"testPlan":    []string{"Assert websocket event types"},
-					"assumptions": []string{"The user approves the plan"},
+					"title":                  "WebSocket Planning",
+					"summary":                "Plan should stream over websocket.",
+					"publicEventsAndStorage": []string{"Emit planning lifecycle events"},
+					"implementationChanges":  []string{"Confirm and execute the plan"},
+					"interfaces":             []string{"Use websocket planning events"},
+					"testPlan":               []string{"Assert websocket event types"},
+					"assumptions":            []string{"The user approves the plan"},
 				}),
 				`[DONE]`,
 			)

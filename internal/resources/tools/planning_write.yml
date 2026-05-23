@@ -12,14 +12,19 @@ inputSchema:
     summary:
       type: string
       description: Required. One brief plain-text paragraph describing the goal and intended outcome. Do not include Markdown section headings or a complete plan.
-    keyChanges:
+    publicEventsAndStorage:
       type: array
-      description: Required. Important implementation changes or interface changes. Each item must be plain text without bullet prefixes or Markdown headings.
+      description: Required. Public event, storage, replay, persistence, or compatibility changes. Each item must be plain text without bullet prefixes or Markdown headings.
       items:
         type: string
-    steps:
+    implementationChanges:
       type: array
-      description: Required. Ordered implementation steps. Each item must be plain text without bullet prefixes or Markdown headings.
+      description: Required. Main internal implementation changes or execution steps. Each item must be plain text without bullet prefixes or Markdown headings.
+      items:
+        type: string
+    interfaces:
+      type: array
+      description: Required. API, schema, tool argument, config, type, or interface changes. Each item must be plain text without bullet prefixes or Markdown headings.
       items:
         type: string
     testPlan:
@@ -35,8 +40,9 @@ inputSchema:
   required:
     - title
     - summary
-    - keyChanges
-    - steps
+    - publicEventsAndStorage
+    - implementationChanges
+    - interfaces
     - testPlan
     - assumptions
   additionalProperties: false

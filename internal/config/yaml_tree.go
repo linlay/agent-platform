@@ -431,6 +431,6 @@ func splitYAMLFlowKeyValue(raw string) (string, string, bool) {
 }
 
 func looksLikeYAMLMapEntry(text string) bool {
-	key, _, _ := splitYAMLKeyValue(text)
-	return key != "" && strings.Contains(text, ":")
+	key, _, hasValue := splitYAMLKeyValue(text)
+	return key != "" && (hasValue || strings.HasSuffix(strings.TrimSpace(text), ":"))
 }

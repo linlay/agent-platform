@@ -103,6 +103,24 @@ func TestBuildSystemPromptIncludesAgentAndWorkspacePromptsInOrder(t *testing.T) 
 	}
 }
 
+func TestBuildSystemPromptPreservesConfiguredProjectPromptTitles(t *testing.T) {
+	prompt := buildSystemPrompt(QuerySession{
+		AgentKey: "demo",
+		ChatID:   "chat-1",
+		RunID:    "run-1",
+		Mode:     "CODER",
+		WorkspaceAgentsPrompt: "Workspace AGENTS.md\nworkspace rules\n\n" +
+			"Agent-managed Project project/AGENTS.md\nagent-managed rules",
+	}, api.QueryRequest{ChatID: "chat-1", RunID: "run-1"}, "", PromptBuildOptions{})
+
+	if strings.Count(prompt, "Workspace AGENTS.md") != 1 {
+		t.Fatalf("expected configured workspace title once, got %q", prompt)
+	}
+	if !strings.Contains(prompt, "Agent-managed Project project/AGENTS.md") {
+		t.Fatalf("expected agent-managed project title, got %q", prompt)
+	}
+}
+
 func TestBuildSystemPromptKeepsIdentityWhenSoulIsMissing(t *testing.T) {
 	prompt := buildSystemPrompt(QuerySession{
 		AgentKey:         "demo",

@@ -884,11 +884,12 @@ func TestCoderPlanningModeQuestionsConfirmThenExecutes(t *testing.T) {
 						ID:   "tool_plan",
 						Name: "planning_write",
 						Args: map[string]any{
-							"title":      "Confirm Coder Plan",
-							"summary":    "Plan first, then check the current time before reporting.",
-							"keyChanges": []string{"Use datetime after confirmation"},
-							"steps":      []string{"Check the current time before reporting"},
-							"testPlan":   []string{"Verify the stream completes"},
+							"title":                  "Confirm Coder Plan",
+							"summary":                "Plan first, then check the current time before reporting.",
+							"publicEventsAndStorage": []string{"Keep planning lifecycle events before confirmation"},
+							"implementationChanges":  []string{"Check the current time before reporting"},
+							"interfaces":             []string{"Use datetime after confirmation"},
+							"testPlan":               []string{"Verify the stream completes"},
 							"assumptions": []string{
 								"The user confirms before execution starts",
 							},
@@ -1048,12 +1049,13 @@ func TestCoderPlanningModeCancelDoesNotExecuteTasks(t *testing.T) {
 			assertCoderPlanningToolSet(t, providerRequestToolNames(payload["tools"]))
 			writeProviderSSE(t, w,
 				providerToolCallFrame(t, "tool_plan", "planning_write", map[string]any{
-					"title":       "Cancel Coder Plan",
-					"summary":     "Plan should be canceled before execution.",
-					"keyChanges":  []string{"No execution should start"},
-					"steps":       []string{"This task must not start"},
-					"testPlan":    []string{"Ensure no mutating tool is called"},
-					"assumptions": []string{"The user cancels at confirmation"},
+					"title":                  "Cancel Coder Plan",
+					"summary":                "Plan should be canceled before execution.",
+					"publicEventsAndStorage": []string{"No execution events should start"},
+					"implementationChanges":  []string{"This task must not start"},
+					"interfaces":             []string{"Use planning confirmation before execution"},
+					"testPlan":               []string{"Ensure no mutating tool is called"},
+					"assumptions":            []string{"The user cancels at confirmation"},
 				}),
 				`[DONE]`,
 			)

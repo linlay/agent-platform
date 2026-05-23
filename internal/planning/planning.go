@@ -7,12 +7,13 @@ import (
 )
 
 type Spec struct {
-	Title       string
-	Summary     string
-	KeyChanges  []string
-	Steps       []string
-	TestPlan    []string
-	Assumptions []string
+	Title                  string
+	Summary                string
+	PublicEventsAndStorage []string
+	ImplementationChanges  []string
+	Interfaces             []string
+	TestPlan               []string
+	Assumptions            []string
 }
 
 func SpecFromArgs(args map[string]any, requestMessage string) Spec {
@@ -28,12 +29,13 @@ func SpecFromArgs(args map[string]any, requestMessage string) Spec {
 		summary = "Create and confirm an execution plan for the user request."
 	}
 	return Spec{
-		Title:       title,
-		Summary:     summary,
-		KeyChanges:  StringList(args["keyChanges"]),
-		Steps:       StringList(args["steps"]),
-		TestPlan:    StringList(args["testPlan"]),
-		Assumptions: StringList(args["assumptions"]),
+		Title:                  title,
+		Summary:                summary,
+		PublicEventsAndStorage: StringList(args["publicEventsAndStorage"]),
+		ImplementationChanges:  StringList(args["implementationChanges"]),
+		Interfaces:             StringList(args["interfaces"]),
+		TestPlan:               StringList(args["testPlan"]),
+		Assumptions:            StringList(args["assumptions"]),
 	}
 }
 
@@ -81,8 +83,9 @@ func RenderMarkdown(spec Spec) string {
 	b.WriteString("\n\n## Summary\n")
 	b.WriteString(strings.TrimSpace(spec.Summary))
 	b.WriteString("\n\n")
-	writeSection(&b, "Key Changes", spec.KeyChanges)
-	writeSection(&b, "Plan", spec.Steps)
+	writeSection(&b, "Public Events And Storage", spec.PublicEventsAndStorage)
+	writeSection(&b, "Implementation Changes", spec.ImplementationChanges)
+	writeSection(&b, "Interfaces", spec.Interfaces)
 	writeSection(&b, "Test Plan", spec.TestPlan)
 	writeSection(&b, "Assumptions", spec.Assumptions)
 	return strings.TrimRight(b.String(), "\n") + "\n"
@@ -100,10 +103,13 @@ func RenderDraftMarkdown(args map[string]any) string {
 	if !appendDraftSummary(&b, args) {
 		return b.String()
 	}
-	if !appendDraftSection(&b, "Key Changes", args, "keyChanges") {
+	if !appendDraftSection(&b, "Public Events And Storage", args, "publicEventsAndStorage") {
 		return b.String()
 	}
-	if !appendDraftSection(&b, "Plan", args, "steps") {
+	if !appendDraftSection(&b, "Implementation Changes", args, "implementationChanges") {
+		return b.String()
+	}
+	if !appendDraftSection(&b, "Interfaces", args, "interfaces") {
 		return b.String()
 	}
 	if !appendDraftSection(&b, "Test Plan", args, "testPlan") {

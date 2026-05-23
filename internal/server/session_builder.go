@@ -91,6 +91,9 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 	}
 
 	promptAppend := buildPromptAppendConfig(s.deps.Config.Prompts, agentDef)
+	if err := validateWorkspaceGitConfig(agentDef); err != nil {
+		return contracts.QuerySession{}, err
+	}
 	workspaceAgentsPrompt, err := s.loadWorkspaceAgentsPrompt(agentDef)
 	if err != nil {
 		return contracts.QuerySession{}, err
@@ -170,6 +173,9 @@ func (s *Server) loadWorkspaceAgentsPrompt(agentDef catalog.AgentDefinition) (st
 	if !strings.EqualFold(strings.TrimSpace(agentDef.Mode), catalog.AgentModeCoder) {
 		return "", nil
 	}
+	if len(agentDef.Workspace.ProjectPromptFiles) > 0 {
+		return loadConfiguredProjectPrompts(agentDef)
+	}
 	settings := s.deps.Config.CoderSettings.WorkspaceAgents
 	if !settings.Enabled {
 		return "", nil
@@ -198,6 +204,127 @@ func (s *Server) loadWorkspaceAgentsPrompt(agentDef catalog.AgentDefinition) (st
 		return "", nil
 	}
 	return "", fmt.Errorf("read workspace AGENTS prompt %s: %w", agentsPath, err)
+}
+
+func loadConfiguredProjectPrompts(agentDef catalog.AgentDefinition) (string, error) {
+	workspaceRoot := strings.TrimSpace(agentDef.Workspace.Root)
+	sections := make([]string, 0, len(agentDef.Workspace.ProjectPromptFiles))
+	for _, promptFile := range agentDef.Workspace.ProjectPromptFiles {
+		source, displayPath, fullPath, err := resolveProjectPromptPath(agentDef, workspaceRoot, promptFile)
+		if err != nil {
+			return "", err
+		}
+		if fullPath == "" {
+			continue
+		}
+		data, err := os.ReadFile(fullPath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return "", fmt.Errorf("read %s project prompt %s: %w", source, fullPath, err)
+		}
+		content := strings.TrimSpace(string(data))
+		if content == "" {
+			continue
+		}
+		title := "Workspace " + displayPath
+		if source == "agent-managed" {
+			title = "Agent-managed Project " + displayPath
+		}
+		sections = append(sections, title+"\n"+content)
+	}
+	return strings.Join(sections, "\n\n"), nil
+}
+
+func resolveProjectPromptPath(agentDef catalog.AgentDefinition, workspaceRoot string, promptFile string) (string, string, string, error) {
+	raw := strings.TrimSpace(promptFile)
+	if raw == "" {
+		return "", "", "", nil
+	}
+	const agentPrefix = "agent:"
+	source := "workspace"
+	root := workspaceRoot
+	displayPath := raw
+	if strings.HasPrefix(raw, agentPrefix) {
+		source = "agent-managed"
+		root = strings.TrimSpace(agentDef.AgentDir)
+		displayPath = strings.TrimSpace(strings.TrimPrefix(raw, agentPrefix))
+	}
+	if root == "" {
+		return "", "", "", fmt.Errorf("%s project prompt root is empty for %q", source, raw)
+	}
+	if filepath.IsAbs(displayPath) {
+		displayPath = filepath.Base(displayPath)
+	}
+	cleanPath := filepath.Clean(displayPath)
+	if cleanPath == "." || cleanPath == ".." || strings.HasPrefix(cleanPath, ".."+string(os.PathSeparator)) {
+		return "", "", "", fmt.Errorf("invalid %s project prompt path %q", source, raw)
+	}
+	return source, filepath.ToSlash(cleanPath), filepath.Join(root, cleanPath), nil
+}
+
+func validateWorkspaceGitConfig(agentDef catalog.AgentDefinition) error {
+	if !strings.EqualFold(strings.TrimSpace(agentDef.Mode), catalog.AgentModeCoder) {
+		return nil
+	}
+	expectedBranch := strings.TrimSpace(agentDef.Workspace.Git.ExpectedBranch)
+	if expectedBranch == "" {
+		return nil
+	}
+	workspaceRoot := strings.TrimSpace(agentDef.Workspace.Root)
+	if workspaceRoot == "" {
+		return fmt.Errorf("workspaceConfig.root is required when git.expectedBranch is set")
+	}
+	currentBranch, err := readGitCurrentBranch(workspaceRoot)
+	if err != nil {
+		return fmt.Errorf("validate workspace git branch for %s: %w", workspaceRoot, err)
+	}
+	if currentBranch != expectedBranch {
+		return fmt.Errorf("workspace git branch mismatch for %s: current %q, expected %q", workspaceRoot, currentBranch, expectedBranch)
+	}
+	return nil
+}
+
+func readGitCurrentBranch(workspaceRoot string) (string, error) {
+	gitDirPath := filepath.Join(workspaceRoot, ".git")
+	info, err := os.Stat(gitDirPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("not a git repository")
+		}
+		return "", err
+	}
+	if !info.IsDir() {
+		data, err := os.ReadFile(gitDirPath)
+		if err != nil {
+			return "", err
+		}
+		line := strings.TrimSpace(string(data))
+		const gitdirPrefix = "gitdir:"
+		if !strings.HasPrefix(line, gitdirPrefix) {
+			return "", fmt.Errorf("unsupported .git file")
+		}
+		target := strings.TrimSpace(strings.TrimPrefix(line, gitdirPrefix))
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(workspaceRoot, target)
+		}
+		gitDirPath = filepath.Clean(target)
+	}
+	headPath := filepath.Join(gitDirPath, "HEAD")
+	data, err := os.ReadFile(headPath)
+	if err != nil {
+		return "", err
+	}
+	head := strings.TrimSpace(string(data))
+	const refPrefix = "ref: refs/heads/"
+	if strings.HasPrefix(head, refPrefix) {
+		return strings.TrimSpace(strings.TrimPrefix(head, refPrefix)), nil
+	}
+	if head == "" {
+		return "", fmt.Errorf("empty git HEAD")
+	}
+	return "", fmt.Errorf("detached HEAD %q", head)
 }
 
 func (s *Server) buildSessionToolOverrides(agentDef catalog.AgentDefinition) map[string]api.ToolDetailResponse {

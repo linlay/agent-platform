@@ -153,6 +153,82 @@ func TestBuildQuerySessionLoadsWorkspaceAgentsForCoder(t *testing.T) {
 	}
 }
 
+func TestBuildQuerySessionLoadsConfiguredProjectPromptsForCoder(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	agentDir := filepath.Join(root, "agents", "coder-app")
+	if err := os.MkdirAll(filepath.Join(agentDir, "project"), 0o755); err != nil {
+		t.Fatalf("mkdir agent project dir: %v", err)
+	}
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "AGENTS.md"), []byte("workspace rules"), 0o644); err != nil {
+		t.Fatalf("write workspace AGENTS.md: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(agentDir, "project", "AGENTS.md"), []byte("agent-managed rules"), 0o644); err != nil {
+		t.Fatalf("write agent-managed AGENTS.md: %v", err)
+	}
+	def := catalog.AgentDefinition{
+		Key:      "coder-app",
+		Mode:     catalog.AgentModeCoder,
+		ModelKey: "mock-model",
+		AgentDir: agentDir,
+		Workspace: catalog.AgentWorkspaceConfig{
+			Root: workspace,
+			ProjectPromptFiles: []string{
+				"AGENTS.md",
+				"CLAUDE.md",
+				"agent:project/AGENTS.md",
+			},
+		},
+	}
+	cfg := config.Config{
+		CoderSettings: config.CoderSettingsConfig{
+			WorkspaceAgents: config.CoderWorkspaceAgentsConfig{Enabled: true, File: "IGNORED.md"},
+		},
+	}
+	server := &Server{deps: Dependencies{Config: cfg}}
+	session, err := server.BuildQuerySession(context.Background(), api.QueryRequest{
+		AgentKey: "coder-app",
+		ChatID:   "chat-1",
+		RunID:    "run-1",
+	}, chat.Summary{ChatID: "chat-1"}, def, querySessionBuildOptions{})
+	if err != nil {
+		t.Fatalf("build query session: %v", err)
+	}
+	want := "Workspace AGENTS.md\nworkspace rules\n\nAgent-managed Project project/AGENTS.md\nagent-managed rules"
+	if session.WorkspaceAgentsPrompt != want {
+		t.Fatalf("workspace agents prompt = %q, want %q", session.WorkspaceAgentsPrompt, want)
+	}
+}
+
+func TestBuildQuerySessionErrorsWhenConfiguredProjectPromptUnreadable(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	if err := os.MkdirAll(filepath.Join(workspace, "AGENTS.md"), 0o755); err != nil {
+		t.Fatalf("mkdir workspace AGENTS.md directory: %v", err)
+	}
+	def := catalog.AgentDefinition{
+		Key:      "coder-app",
+		Mode:     catalog.AgentModeCoder,
+		ModelKey: "mock-model",
+		Workspace: catalog.AgentWorkspaceConfig{
+			Root:               workspace,
+			ProjectPromptFiles: []string{"AGENTS.md"},
+		},
+	}
+	server := &Server{deps: Dependencies{}}
+	_, err := server.BuildQuerySession(context.Background(), api.QueryRequest{
+		AgentKey: "coder-app",
+		ChatID:   "chat-1",
+		RunID:    "run-1",
+	}, chat.Summary{ChatID: "chat-1"}, def, querySessionBuildOptions{})
+	if err == nil || !strings.Contains(err.Error(), "read workspace project prompt") {
+		t.Fatalf("expected unreadable project prompt error, got %v", err)
+	}
+}
+
 func TestBuildQuerySessionSkipsWorkspaceAgentsWhenDisabled(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "workspace")
@@ -247,6 +323,91 @@ func TestBuildQuerySessionErrorsWhenWorkspaceAgentsUnreadable(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "read workspace AGENTS prompt") {
 		t.Fatalf("expected workspace AGENTS read error, got %v", err)
 	}
+}
+
+func TestBuildQuerySessionValidatesExpectedGitBranch(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	if err := writeGitHead(workspace, "main"); err != nil {
+		t.Fatalf("write git head: %v", err)
+	}
+	def := catalog.AgentDefinition{
+		Key:      "coder-app",
+		Mode:     catalog.AgentModeCoder,
+		ModelKey: "mock-model",
+		Workspace: catalog.AgentWorkspaceConfig{
+			Root: workspace,
+			Git:  catalog.AgentWorkspaceGitConfig{ExpectedBranch: "main"},
+		},
+	}
+	server := &Server{deps: Dependencies{}}
+	if _, err := server.BuildQuerySession(context.Background(), api.QueryRequest{
+		AgentKey: "coder-app",
+		ChatID:   "chat-1",
+		RunID:    "run-1",
+	}, chat.Summary{ChatID: "chat-1"}, def, querySessionBuildOptions{}); err != nil {
+		t.Fatalf("build query session: %v", err)
+	}
+}
+
+func TestBuildQuerySessionErrorsWhenGitBranchMismatches(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	if err := writeGitHead(workspace, "feature"); err != nil {
+		t.Fatalf("write git head: %v", err)
+	}
+	def := catalog.AgentDefinition{
+		Key:      "coder-app",
+		Mode:     catalog.AgentModeCoder,
+		ModelKey: "mock-model",
+		Workspace: catalog.AgentWorkspaceConfig{
+			Root: workspace,
+			Git:  catalog.AgentWorkspaceGitConfig{ExpectedBranch: "main"},
+		},
+	}
+	server := &Server{deps: Dependencies{}}
+	_, err := server.BuildQuerySession(context.Background(), api.QueryRequest{
+		AgentKey: "coder-app",
+		ChatID:   "chat-1",
+		RunID:    "run-1",
+	}, chat.Summary{ChatID: "chat-1"}, def, querySessionBuildOptions{})
+	if err == nil || !strings.Contains(err.Error(), "workspace git branch mismatch") {
+		t.Fatalf("expected git branch mismatch error, got %v", err)
+	}
+}
+
+func TestBuildQuerySessionErrorsWhenExpectedGitBranchNeedsRepo(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	def := catalog.AgentDefinition{
+		Key:      "coder-app",
+		Mode:     catalog.AgentModeCoder,
+		ModelKey: "mock-model",
+		Workspace: catalog.AgentWorkspaceConfig{
+			Root: workspace,
+			Git:  catalog.AgentWorkspaceGitConfig{ExpectedBranch: "main"},
+		},
+	}
+	server := &Server{deps: Dependencies{}}
+	_, err := server.BuildQuerySession(context.Background(), api.QueryRequest{
+		AgentKey: "coder-app",
+		ChatID:   "chat-1",
+		RunID:    "run-1",
+	}, chat.Summary{ChatID: "chat-1"}, def, querySessionBuildOptions{})
+	if err == nil || !strings.Contains(err.Error(), "not a git repository") {
+		t.Fatalf("expected git repository error, got %v", err)
+	}
+}
+
+func writeGitHead(workspace string, branch string) error {
+	gitDir := filepath.Join(workspace, ".git")
+	if err := os.MkdirAll(gitDir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/"+branch+"\n"), 0o644)
 }
 
 func TestBuildQuerySessionPlanningModeOnlyAppliesToCoder(t *testing.T) {

@@ -782,9 +782,18 @@ func (s *Server) buildAgentDetailMeta(def catalog.AgentDefinition) (string, map[
 		meta["type"] = def.Type
 	}
 	if strings.TrimSpace(def.Workspace.Root) != "" {
-		meta["workspace"] = map[string]any{
+		workspaceMeta := map[string]any{
 			"root": def.Workspace.Root,
 		}
+		if len(def.Workspace.ProjectPromptFiles) > 0 {
+			workspaceMeta["projectPromptFiles"] = append([]string(nil), def.Workspace.ProjectPromptFiles...)
+		}
+		if strings.TrimSpace(def.Workspace.Git.ExpectedBranch) != "" {
+			workspaceMeta["git"] = map[string]any{
+				"expectedBranch": def.Workspace.Git.ExpectedBranch,
+			}
+		}
+		meta["workspace"] = workspaceMeta
 	}
 	if def.ProxyConfig != nil {
 		meta["proxy"] = map[string]any{

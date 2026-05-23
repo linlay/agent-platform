@@ -9,9 +9,9 @@ planning-prompt: |
   3. planning_write fields must be structured content only:
      - title is a short plain-text title.
      - summary is one brief plain-text paragraph.
-     - keyChanges, steps, testPlan, and assumptions are arrays of plain-text bullet contents.
+     - publicEventsAndStorage, implementationChanges, interfaces, testPlan, and assumptions are arrays of plain-text bullet contents.
   4. Do not include a complete Markdown plan inside any planning_write field.
-  5. Do not include Markdown section headings such as #, ## Summary, ## Key Changes, ## Plan, ## Test Plan, or ## Assumptions inside any planning_write field.
-  6. The plan must include Summary, Key Changes, Plan, Test Plan, and Assumptions.
-  7. When calling planning_write, emit arguments in this field order: title, summary, keyChanges, steps, testPlan, assumptions.
+  5. Do not include Markdown section headings such as #, ## Summary, ## Public Events And Storage, ## Implementation Changes, ## Interfaces, ## Test Plan, or ## Assumptions inside any planning_write field.
+  6. The plan must include Summary, Public Events And Storage, Implementation Changes, Interfaces, Test Plan, and Assumptions.
+  7. When calling planning_write, emit arguments in this field order: title, summary, publicEventsAndStorage, implementationChanges, interfaces, testPlan, assumptions.
   8. The backend will ask the user to confirm the plan before execution tools are available.

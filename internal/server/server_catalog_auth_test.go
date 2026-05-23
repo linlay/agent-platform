@@ -147,7 +147,9 @@ func TestBuildAgentDetailResponseIncludesCoderModeAndWorkspace(t *testing.T) {
 		Name: "Coder",
 		Mode: catalog.AgentModeCoder,
 		Workspace: catalog.AgentWorkspaceConfig{
-			Root: workspace,
+			Root:               workspace,
+			ProjectPromptFiles: []string{"AGENTS.md", "agent:project/AGENTS.md"},
+			Git:                catalog.AgentWorkspaceGitConfig{ExpectedBranch: "main"},
 		},
 	})
 	if response.Mode != catalog.AgentModeCoder {
@@ -159,6 +161,13 @@ func TestBuildAgentDetailResponseIncludesCoderModeAndWorkspace(t *testing.T) {
 	workspaceMeta, ok := response.Meta["workspace"].(map[string]any)
 	if !ok || workspaceMeta["root"] != workspace {
 		t.Fatalf("expected workspace meta root, got %#v", response.Meta)
+	}
+	if !reflect.DeepEqual(workspaceMeta["projectPromptFiles"], []string{"AGENTS.md", "agent:project/AGENTS.md"}) {
+		t.Fatalf("expected workspace project prompt files, got %#v", workspaceMeta)
+	}
+	gitMeta, ok := workspaceMeta["git"].(map[string]any)
+	if !ok || gitMeta["expectedBranch"] != "main" {
+		t.Fatalf("expected workspace git meta, got %#v", workspaceMeta)
 	}
 	if _, ok := response.Meta["planningModeSupported"]; ok {
 		t.Fatalf("did not expect planningModeSupported meta, got %#v", response.Meta)

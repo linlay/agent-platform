@@ -33,8 +33,8 @@ func (t *RuntimeToolExecutor) invokePlanningWrite(args map[string]any, execCtx *
 	}
 
 	spec := planutil.SpecFromArgs(args, execCtx.Request.Message)
-	if len(spec.Steps) == 0 {
-		return ToolExecutionResult{Output: "失败: steps 至少需要一项", Error: "missing_planning_steps", ExitCode: -1}, nil
+	if len(spec.ImplementationChanges) == 0 {
+		return ToolExecutionResult{Output: "失败: implementationChanges 至少需要一项", Error: "missing_implementation_changes", ExitCode: -1}, nil
 	}
 
 	planningID := planutil.PlanningID(spec.Title, planningRunID(execCtx))
@@ -70,7 +70,7 @@ func (t *RuntimeToolExecutor) invokePlanningWrite(args map[string]any, execCtx *
 }
 
 func invalidPlanningMarkdownField(args map[string]any) string {
-	for _, key := range []string{"title", "summary", "keyChanges", "steps", "testPlan", "assumptions"} {
+	for _, key := range []string{"title", "summary", "publicEventsAndStorage", "implementationChanges", "interfaces", "testPlan", "assumptions"} {
 		for _, value := range planningFieldStrings(args[key]) {
 			if containsPlanningMarkdownHeading(value) {
 				return key
@@ -106,7 +106,7 @@ func containsPlanningMarkdownHeading(value string) bool {
 			return true
 		}
 		lower := strings.ToLower(line)
-		for _, heading := range []string{"summary", "key changes", "plan", "test plan", "assumptions"} {
+		for _, heading := range []string{"summary", "public events and storage", "implementation changes", "interfaces", "test plan", "assumptions"} {
 			if strings.HasPrefix(lower, heading+":") {
 				return true
 			}

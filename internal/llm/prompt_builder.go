@@ -67,6 +67,9 @@ func buildWorkspaceAgentsSection(prompt string) string {
 	if prompt == "" {
 		return ""
 	}
+	if strings.HasPrefix(prompt, "Workspace ") || strings.HasPrefix(prompt, "Agent-managed Project ") {
+		return prompt
+	}
 	return "Workspace AGENTS.md\n" + prompt
 }
 
