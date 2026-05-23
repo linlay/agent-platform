@@ -23,7 +23,7 @@ import (
 // isHiddenRequest 判断请求是否标记为"系统自发触发"：
 // 这类 run 不会在 chat 里留下用户回合（QueryLine 不写），
 // 也不会广播 chat.created（避免 webclient 把它渲染成用户→agent 对话）。
-// 典型来源：schedule 触发的定时任务。
+// 典型来源：automation 触发的定时任务。
 func isHiddenRequest(req api.QueryRequest) bool {
 	return req.Hidden != nil && *req.Hidden
 }
@@ -145,8 +145,8 @@ func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
 		summary.AgentKey = agentKey
 	}
 	if created {
-		// hidden run（schedule 等自发触发）也照常广播 chat.created —— 否则 webclient
-		// 要刷新整个列表才能看到新建的 schedule 会话。隐藏语义只影响 chat 内部消息记录
+		// hidden run（automation 等自发触发）也照常广播 chat.created —— 否则 webclient
+		// 要刷新整个列表才能看到新建的 automation 会话。隐藏语义只影响 chat 内部消息记录
 		// （不写伪造的"用户发消息"），不影响会话在列表里的可见性。
 		s.broadcast("chat.created", map[string]any{
 			"chatId":    chatID,
@@ -719,7 +719,7 @@ func syncRunExecutorParams(s *Server, prepared preparedQuery, control *contracts
 
 // syncBroadcastChatUpdated 复刻 run_executor.broadcastRunCompletion 的 chat.updated
 // 广播语义。async 路径在 StartRunExecutor 内部走那条；sync 路径没经过 StartRunExecutor，
-// 这里手动补上，让 schedule 触发的 run 也能通知 hub（进而透传到 gateway / webclient）。
+// 这里手动补上，让 automation 触发的 run 也能通知 hub（进而透传到 gateway / webclient）。
 func syncBroadcastChatUpdated(notifications contracts.NotificationSink, completion chat.RunCompletion) {
 	if notifications == nil {
 		return

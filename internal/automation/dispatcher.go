@@ -1,4 +1,4 @@
-package schedule
+package automation
 
 import (
 	"bytes"
@@ -14,7 +14,7 @@ import (
 
 type DispatchFunc func(ctx context.Context, req api.QueryRequest) error
 
-// Broadcaster 是历史接口占位——当前 schedule 不再主动 broadcast 自定义 push，
+// Broadcaster 是历史接口占位——当前 automation 不再主动 broadcast 自定义 push，
 // 触发后的 run 按普通对话走 request/stream/response 协议，由网关按 run.started
 // 自行 attach 消费 stream 事件。保留入参只为避免破坏老的 NewDispatcher 调用点。
 type Broadcaster interface {
@@ -47,7 +47,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, def Definition) error {
 	startedAt := time.Now()
 	triggeredAt := startedAt.Format(time.RFC3339)
 	log.Printf(
-		"[schedule] dispatch start id=%s name=%s agentKey=%s teamId=%s source=%s triggeredAt=%s",
+		"[automation] dispatch start id=%s name=%s agentKey=%s teamId=%s source=%s triggeredAt=%s",
 		def.ID,
 		def.Name,
 		def.AgentKey,
@@ -59,7 +59,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, def Definition) error {
 	if d.executions != nil {
 		id, recordErr := d.executions.RecordStart(def.ID, def.Name, def.SourceFile, def.AgentKey, def.TeamID)
 		if recordErr != nil {
-			log.Printf("[schedule] execution record start failed id=%s source=%s err=%v", def.ID, def.SourceFile, recordErr)
+			log.Printf("[automation] execution record start failed id=%s source=%s err=%v", def.ID, def.SourceFile, recordErr)
 		} else {
 			executionID = id
 		}
@@ -67,12 +67,12 @@ func (d *Dispatcher) Dispatch(ctx context.Context, def Definition) error {
 	err := d.dispatch(ctx, def.ToQueryRequest())
 	if d.executions != nil && executionID != "" {
 		if recordErr := d.executions.RecordComplete(executionID, err); recordErr != nil {
-			log.Printf("[schedule] execution record complete failed id=%s executionID=%s source=%s err=%v", def.ID, executionID, def.SourceFile, recordErr)
+			log.Printf("[automation] execution record complete failed id=%s executionID=%s source=%s err=%v", def.ID, executionID, def.SourceFile, recordErr)
 		}
 	}
 	if err != nil {
 		log.Printf(
-			"[schedule] dispatch failed id=%s name=%s agentKey=%s teamId=%s source=%s triggeredAt=%s duration=%s err=%v",
+			"[automation] dispatch failed id=%s name=%s agentKey=%s teamId=%s source=%s triggeredAt=%s duration=%s err=%v",
 			def.ID,
 			def.Name,
 			def.AgentKey,
@@ -85,7 +85,7 @@ func (d *Dispatcher) Dispatch(ctx context.Context, def Definition) error {
 		return err
 	}
 	log.Printf(
-		"[schedule] dispatch success id=%s name=%s agentKey=%s teamId=%s source=%s triggeredAt=%s duration=%s",
+		"[automation] dispatch success id=%s name=%s agentKey=%s teamId=%s source=%s triggeredAt=%s duration=%s",
 		def.ID,
 		def.Name,
 		def.AgentKey,
@@ -104,33 +104,33 @@ func (d *Dispatcher) Dispatch(ctx context.Context, def Definition) error {
 		}
 		markdown := strings.TrimSpace(def.PushMessage)
 		if markdown == "" {
-			markdown = "Schedule " + def.ID + " completed"
+			markdown = "Automation " + def.ID + " completed"
 		}
 		d.push(def.PushURL, targetID, strings.TrimSpace(def.Query.ChatID), def.ID, markdown)
 	}
 	return nil
 }
 
-func (d *Dispatcher) push(pushURL string, targetID string, chatID string, scheduleID string, markdown string) {
+func (d *Dispatcher) push(pushURL string, targetID string, chatID string, automationID string, markdown string) {
 	payload, err := json.Marshal(map[string]any{
-		"scheduleId": scheduleID,
-		"chatId":     chatID,
-		"targetId":   targetID,
-		"markdown":   markdown,
+		"automationId": automationID,
+		"chatId":       chatID,
+		"targetId":     targetID,
+		"markdown":     markdown,
 	})
 	if err != nil {
-		log.Printf("[schedule] push marshal failed: %v", err)
+		log.Printf("[automation] push marshal failed: %v", err)
 		return
 	}
 	resp, err := d.httpClient.Post(pushURL, "application/json", bytes.NewReader(payload))
 	if err != nil {
-		log.Printf("[schedule] push to %s failed: %v", pushURL, err)
+		log.Printf("[automation] push to %s failed: %v", pushURL, err)
 		return
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		log.Printf("[schedule] push to %s succeeded (status=%d)", pushURL, resp.StatusCode)
+		log.Printf("[automation] push to %s succeeded (status=%d)", pushURL, resp.StatusCode)
 	} else {
-		log.Printf("[schedule] push to %s returned status %d", pushURL, resp.StatusCode)
+		log.Printf("[automation] push to %s returned status %d", pushURL, resp.StatusCode)
 	}
 }

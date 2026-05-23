@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/automation"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/channel"
 	"agent-platform/internal/chat"
@@ -29,35 +30,34 @@ import (
 	"agent-platform/internal/memory"
 	"agent-platform/internal/models"
 	"agent-platform/internal/observability"
-	"agent-platform/internal/schedule"
 	"agent-platform/internal/skills"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/ws"
 )
 
 type Dependencies struct {
-	Config               config.Config
-	Chats                chat.Store
-	Archives             *chat.ArchiveStore
-	Archiver             *chat.Archiver
-	Memory               memory.Store
-	Registry             catalog.Registry
-	Models               *models.ModelRegistry
-	Runs                 contracts.RunManager
-	Agent                contracts.AgentEngine
-	Tools                contracts.ToolExecutor
-	Sandbox              contracts.SandboxClient
-	MCP                  contracts.McpClient
-	Viewport             contracts.ViewportClient
-	FrontendTools        *frontendtools.Registry
-	CatalogReloader      contracts.CatalogReloader
-	Notifications        contracts.NotificationSink
-	SkillCandidates      skills.CandidateStore
-	Channels             ChannelRegistry
-	ChannelStatus        ChannelStatusProvider
-	ScheduleOrchestrator *schedule.Orchestrator
-	ScheduleRegistry     *schedule.Registry
-	ScheduleExecutions   *schedule.ExecutionStore
+	Config                 config.Config
+	Chats                  chat.Store
+	Archives               *chat.ArchiveStore
+	Archiver               *chat.Archiver
+	Memory                 memory.Store
+	Registry               catalog.Registry
+	Models                 *models.ModelRegistry
+	Runs                   contracts.RunManager
+	Agent                  contracts.AgentEngine
+	Tools                  contracts.ToolExecutor
+	Sandbox                contracts.SandboxClient
+	MCP                    contracts.McpClient
+	Viewport               contracts.ViewportClient
+	FrontendTools          *frontendtools.Registry
+	CatalogReloader        contracts.CatalogReloader
+	Notifications          contracts.NotificationSink
+	SkillCandidates        skills.CandidateStore
+	Channels               ChannelRegistry
+	ChannelStatus          ChannelStatusProvider
+	AutomationOrchestrator *automation.Orchestrator
+	AutomationRegistry     *automation.Registry
+	AutomationExecutions   *automation.ExecutionStore
 	// GatewayResolver 按 chatId 查对应 gateway 的 BaseURL/Token，ws_routes 的文件下载
 	// 路径用它替代旧的 cfg.GatewayWS.BaseURL/JwtToken。nil 时 /api/pull 走 legacy 单 gateway 的 cfg 字段（兼容老部署）。
 	GatewayResolver GatewayResolver
@@ -187,8 +187,8 @@ func (s *Server) SetChannelStatusProvider(provider ChannelStatusProvider) {
 }
 
 // ExecuteInternalQuery reuses the normal query handling pipeline for
-// in-process callers such as the scheduler, while intentionally bypassing the
-// outer HTTP auth gate enforced by ServeHTTP.
+// in-process callers such as the automation orchestrator, while intentionally
+// bypassing the outer HTTP auth gate enforced by ServeHTTP.
 func (s *Server) ExecuteInternalQuery(ctx context.Context, req api.QueryRequest) (int, string, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -476,13 +476,13 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/archives/search", s.method(http.MethodPost, s.handleArchiveSearch))
 	s.router.HandleFunc("/api/archive/delete", s.method(http.MethodPost, s.handleArchiveDelete))
 	s.router.HandleFunc("/api/chat/export", s.method(http.MethodGet, s.handleChatExport))
-	s.router.HandleFunc("/api/schedules", s.method(http.MethodPost, s.handleSchedules))
-	s.router.HandleFunc("/api/schedule", s.method(http.MethodPost, s.handleSchedule))
-	s.router.HandleFunc("/api/schedule/create", s.method(http.MethodPost, s.handleScheduleCreate))
-	s.router.HandleFunc("/api/schedule/update", s.method(http.MethodPost, s.handleScheduleUpdate))
-	s.router.HandleFunc("/api/schedule/delete", s.method(http.MethodPost, s.handleScheduleDelete))
-	s.router.HandleFunc("/api/schedule/toggle", s.method(http.MethodPost, s.handleScheduleToggle))
-	s.router.HandleFunc("/api/schedule/executions", s.method(http.MethodPost, s.handleScheduleExecutions))
+	s.router.HandleFunc("/api/automations", s.method(http.MethodPost, s.handleAutomations))
+	s.router.HandleFunc("/api/automation", s.method(http.MethodPost, s.handleAutomation))
+	s.router.HandleFunc("/api/automation/create", s.method(http.MethodPost, s.handleAutomationCreate))
+	s.router.HandleFunc("/api/automation/update", s.method(http.MethodPost, s.handleAutomationUpdate))
+	s.router.HandleFunc("/api/automation/delete", s.method(http.MethodPost, s.handleAutomationDelete))
+	s.router.HandleFunc("/api/automation/toggle", s.method(http.MethodPost, s.handleAutomationToggle))
+	s.router.HandleFunc("/api/automation/executions", s.method(http.MethodPost, s.handleAutomationExecutions))
 	s.router.HandleFunc("/api/query", s.method(http.MethodPost, s.handleQuery))
 	s.router.HandleFunc("/api/attach", s.method(http.MethodGet, s.handleAttach))
 	s.router.HandleFunc("/api/submit", s.method(http.MethodPost, s.handleSubmit))

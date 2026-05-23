@@ -1,4 +1,4 @@
-package schedule
+package automation
 
 import (
 	"bytes"
@@ -62,12 +62,12 @@ func TestDispatcherBuildsStructuredQueryRequest(t *testing.T) {
 	if got.Params["existing"] != "value" {
 		t.Fatalf("expected existing params, got %#v", got.Params)
 	}
-	meta, ok := got.Params["__schedule"].(map[string]any)
+	meta, ok := got.Params["__automation"].(map[string]any)
 	if !ok {
-		t.Fatalf("expected __schedule metadata, got %#v", got.Params)
+		t.Fatalf("expected __automation metadata, got %#v", got.Params)
 	}
-	if meta["scheduleId"] != "daily" || meta["scheduleName"] != "Daily Summary" || meta["sourceFile"] != "/tmp/daily.yml" {
-		t.Fatalf("unexpected __schedule metadata %#v", meta)
+	if meta["automationId"] != "daily" || meta["automationName"] != "Daily Summary" || meta["sourceFile"] != "/tmp/daily.yml" {
+		t.Fatalf("unexpected __automation metadata %#v", meta)
 	}
 }
 
@@ -90,14 +90,14 @@ func TestDispatcherLogsDispatchLifecycle(t *testing.T) {
 			t.Fatalf("dispatch success: %v", err)
 		}
 	})
-	if !strings.Contains(successLogs, "[schedule] dispatch start id=daily") {
+	if !strings.Contains(successLogs, "[automation] dispatch start id=daily") {
 		t.Fatalf("expected dispatch start log, got %s", successLogs)
 	}
-	if !strings.Contains(successLogs, "[schedule] dispatch success id=daily") {
+	if !strings.Contains(successLogs, "[automation] dispatch success id=daily") {
 		t.Fatalf("expected dispatch success log, got %s", successLogs)
 	}
 	if !strings.Contains(successLogs, "source=/tmp/daily.yml") {
-		t.Fatalf("expected schedule source in logs, got %s", successLogs)
+		t.Fatalf("expected automation source in logs, got %s", successLogs)
 	}
 
 	failureLogs := captureDispatcherLogs(t, func() {
@@ -107,7 +107,7 @@ func TestDispatcherLogsDispatchLifecycle(t *testing.T) {
 			t.Fatal("expected dispatch failure")
 		}
 	})
-	if !strings.Contains(failureLogs, "[schedule] dispatch failed id=daily") {
+	if !strings.Contains(failureLogs, "[automation] dispatch failed id=daily") {
 		t.Fatalf("expected dispatch failure log, got %s", failureLogs)
 	}
 	if !strings.Contains(failureLogs, "err=boom") {
@@ -138,7 +138,7 @@ func TestDispatcherRecordsExecutionLifecycle(t *testing.T) {
 	if err := dispatcher.Dispatch(context.Background(), def); err != nil {
 		t.Fatalf("dispatch success: %v", err)
 	}
-	items, total, err := store.ListBySchedule("daily", 10, 0)
+	items, total, err := store.ListByAutomation("daily", 10, 0)
 	if err != nil {
 		t.Fatalf("list executions: %v", err)
 	}

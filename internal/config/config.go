@@ -19,7 +19,7 @@ type Config struct {
 	CoderSettings  CoderSettingsConfig
 	Providers      CatalogConfig
 	Models         CatalogConfig
-	Schedule       ScheduleConfig
+	Automation     AutomationConfig
 	Memory         MemoryConfig
 	Defaults       DefaultsConfig
 	Stream         StreamConfig
@@ -56,7 +56,7 @@ type PathsConfig struct {
 	AgentsDir       string
 	TeamsDir        string
 	RootDir         string
-	SchedulesDir    string
+	AutomationsDir  string
 	ChatsDir        string
 	MemoryDir       string
 	PanDir          string
@@ -94,7 +94,7 @@ type CoderWorkspaceAgentsConfig struct {
 	File    string
 }
 
-type ScheduleConfig struct {
+type AutomationConfig struct {
 	ExternalDir   string
 	Enabled       bool
 	DefaultZoneID string
@@ -447,7 +447,7 @@ func defaultConfig() Config {
 		AgentsDir:       filepath.Join(runtimeRoot, "agents"),
 		TeamsDir:        filepath.Join(runtimeRoot, "teams"),
 		RootDir:         filepath.Join(runtimeRoot, "root"),
-		SchedulesDir:    filepath.Join(runtimeRoot, "schedules"),
+		AutomationsDir:  filepath.Join(runtimeRoot, "automations"),
 		ChatsDir:        filepath.Join(runtimeRoot, "chats"),
 		MemoryDir:       filepath.Join(runtimeRoot, "memory"),
 		PanDir:          filepath.Join(runtimeRoot, "pan"),
@@ -464,8 +464,8 @@ func defaultConfig() Config {
 		},
 		Providers: CatalogConfig{ExternalDir: filepath.Join(paths.RegistriesDir, "providers")},
 		Models:    CatalogConfig{ExternalDir: filepath.Join(paths.RegistriesDir, "models")},
-		Schedule: ScheduleConfig{
-			ExternalDir: paths.SchedulesDir,
+		Automation: AutomationConfig{
+			ExternalDir: paths.AutomationsDir,
 			Enabled:     true,
 			PoolSize:    4,
 		},
@@ -1020,7 +1020,7 @@ func (c *Config) applyEnv() {
 	c.Paths.AgentsDir = pathEnv("AGENTS_DIR", c.Paths.AgentsDir)
 	c.Paths.TeamsDir = pathEnv("TEAMS_DIR", c.Paths.TeamsDir)
 	c.Paths.RootDir = pathEnv("ROOT_DIR", c.Paths.RootDir)
-	c.Paths.SchedulesDir = pathEnv("SCHEDULES_DIR", c.Paths.SchedulesDir)
+	c.Paths.AutomationsDir = pathEnv("AUTOMATIONS_DIR", c.Paths.AutomationsDir)
 	c.Paths.ChatsDir = pathEnv("CHATS_DIR", c.Paths.ChatsDir)
 	c.Paths.MemoryDir = pathEnv("MEMORY_DIR", c.Paths.MemoryDir)
 	c.Paths.PanDir = pathEnv("PAN_DIR", c.Paths.PanDir)
@@ -1033,10 +1033,10 @@ func (c *Config) applyEnv() {
 	c.Providers.ExternalDir = filepath.Clean(filepath.Join(c.Paths.RegistriesDir, "providers"))
 	c.Models.ExternalDir = filepath.Clean(filepath.Join(c.Paths.RegistriesDir, "models"))
 
-	c.Schedule.ExternalDir = pathEnv("SCHEDULES_DIR", c.Paths.SchedulesDir)
-	c.Schedule.Enabled = boolEnv("AGENT_SCHEDULE_ENABLED", c.Schedule.Enabled)
-	c.Schedule.DefaultZoneID = stringEnv("AGENT_SCHEDULE_DEFAULT_ZONE_ID", c.Schedule.DefaultZoneID)
-	c.Schedule.PoolSize = intEnv("AGENT_SCHEDULE_POOL_SIZE", c.Schedule.PoolSize)
+	c.Automation.ExternalDir = pathEnv("AUTOMATIONS_DIR", c.Paths.AutomationsDir)
+	c.Automation.Enabled = boolEnv("AGENT_AUTOMATION_ENABLED", c.Automation.Enabled)
+	c.Automation.DefaultZoneID = stringEnv("AGENT_AUTOMATION_DEFAULT_ZONE_ID", c.Automation.DefaultZoneID)
+	c.Automation.PoolSize = intEnv("AGENT_AUTOMATION_POOL_SIZE", c.Automation.PoolSize)
 
 	c.Memory.DBFileName = stringEnv("AGENT_MEMORY_DB_FILE_NAME", c.Memory.DBFileName)
 	c.Memory.ContextTopN = intEnv("AGENT_MEMORY_CONTEXT_TOP_N", c.Memory.ContextTopN)
@@ -1135,7 +1135,7 @@ func (c *Config) normalize() error {
 	c.Paths.AgentsDir = filepath.Clean(c.Paths.AgentsDir)
 	c.Paths.TeamsDir = filepath.Clean(c.Paths.TeamsDir)
 	c.Paths.RootDir = filepath.Clean(c.Paths.RootDir)
-	c.Paths.SchedulesDir = filepath.Clean(c.Paths.SchedulesDir)
+	c.Paths.AutomationsDir = filepath.Clean(c.Paths.AutomationsDir)
 	c.Paths.ChatsDir = filepath.Clean(c.Paths.ChatsDir)
 	c.Paths.MemoryDir = filepath.Clean(c.Paths.MemoryDir)
 	c.Paths.PanDir = filepath.Clean(c.Paths.PanDir)
@@ -1144,7 +1144,7 @@ func (c *Config) normalize() error {
 	c.Agents.ExternalDir = filepath.Clean(c.Paths.AgentsDir)
 	c.Teams.ExternalDir = filepath.Clean(c.Paths.TeamsDir)
 	c.Skills.ExternalDir = filepath.Clean(c.Paths.SkillsMarketDir)
-	c.Schedule.ExternalDir = filepath.Clean(c.Paths.SchedulesDir)
+	c.Automation.ExternalDir = filepath.Clean(c.Paths.AutomationsDir)
 	c.Memory.StorageDir = filepath.Clean(c.Paths.MemoryDir)
 	c.ChatStorage.Dir = filepath.Clean(c.Paths.ChatsDir)
 	c.Providers.ExternalDir = filepath.Clean(filepath.Join(c.Paths.RegistriesDir, "providers"))
@@ -1703,7 +1703,7 @@ var deprecatedEnvVars = []string{
 	"AGENT_VIEWPORTS_EXTERNAL_DIR",
 	"AGENT_MCP_SERVERS_REGISTRY_EXTERNAL_DIR",
 	"AGENT_VIEWPORT_SERVERS_REGISTRY_EXTERNAL_DIR",
-	"AGENT_SCHEDULE_EXTERNAL_DIR",
+	"AGENT_AUTOMATION_EXTERNAL_DIR",
 	"AGENT_DATA_EXTERNAL_DIR",
 	"AGENT_MEMORY_STORAGE_DIR",
 	"CHAT_IMAGE_TOKEN_TTL_SECONDS",

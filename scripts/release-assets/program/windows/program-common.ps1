@@ -101,7 +101,7 @@ function Initialize-ProgramRuntime {
     (Join-Path $Script:RuntimeRoot 'agents'), `
     (Join-Path $Script:RuntimeRoot 'teams'), `
     (Join-Path $Script:RuntimeRoot 'root'), `
-    (Join-Path $Script:RuntimeRoot 'schedules'), `
+    (Join-Path $Script:RuntimeRoot 'automations'), `
     (Join-Path $Script:RuntimeRoot 'chats'), `
     (Join-Path $Script:RuntimeRoot 'memory'), `
     (Join-Path $Script:RuntimeRoot 'pan'), `

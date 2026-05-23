@@ -12,6 +12,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/artifactpusher"
+	"agent-platform/internal/automation"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/channel"
 	"agent-platform/internal/chat"
@@ -28,7 +29,6 @@ import (
 	"agent-platform/internal/reload"
 	"agent-platform/internal/runctl"
 	"agent-platform/internal/sandbox"
-	"agent-platform/internal/schedule"
 	"agent-platform/internal/server"
 	"agent-platform/internal/skills"
 	"agent-platform/internal/tools"
@@ -39,21 +39,21 @@ import (
 )
 
 type App struct {
-	Config             config.Config
-	Router             *server.Server
-	backgroundCancel   context.CancelFunc
-	scheduler          schedulerStopper
-	gateways           *gateway.Registry
-	wsHub              *ws.Hub
-	scheduleExecutions *schedule.ExecutionStore
-	lspManager         *lsp.Manager
+	Config               config.Config
+	Router               *server.Server
+	backgroundCancel     context.CancelFunc
+	automation           automationStopper
+	gateways             *gateway.Registry
+	wsHub                *ws.Hub
+	automationExecutions *automation.ExecutionStore
+	lspManager           *lsp.Manager
 }
 
-type schedulerStopper interface {
+type automationStopper interface {
 	Stop() context.Context
 }
 
-var schedulerStopTimeout = 3 * time.Second
+var automationStopTimeout = 3 * time.Second
 
 func New(rootCtx context.Context) (*App, error) {
 	appInitStartedAt := time.Now()
@@ -219,24 +219,24 @@ func New(rootCtx context.Context) (*App, error) {
 	}
 
 	var srv *server.Server
-	var scheduler *schedule.Orchestrator
-	var scheduleRegistry *schedule.Registry
-	var scheduleExecutionStore *schedule.ExecutionStore
-	if cfg.Schedule.Enabled {
-		scheduleRegistry = schedule.NewRegistry(cfg.Schedule.ExternalDir, registry)
-		scheduleExecutionStore, err = schedule.NewExecutionStore(cfg.Schedule.ExternalDir, "executions.db")
+	var automationOrchestrator *automation.Orchestrator
+	var automationRegistry *automation.Registry
+	var automationExecutionStore *automation.ExecutionStore
+	if cfg.Automation.Enabled {
+		automationRegistry = automation.NewRegistry(cfg.Automation.ExternalDir, registry)
+		automationExecutionStore, err = automation.NewExecutionStore(cfg.Automation.ExternalDir, "executions.db")
 		if err != nil {
-			return nil, fmt.Errorf("init schedule execution store (%s): %w", cfg.Schedule.ExternalDir, err)
+			return nil, fmt.Errorf("init automation execution store (%s): %w", cfg.Automation.ExternalDir, err)
 		}
-		var scheduleBroadcaster schedule.Broadcaster
+		var automationBroadcaster automation.Broadcaster
 		if hub, ok := notifications.(*ws.Hub); ok {
-			scheduleBroadcaster = hub
+			automationBroadcaster = hub
 		}
-		dispatcher := schedule.NewDispatcher(func(ctx context.Context, req api.QueryRequest) error {
+		dispatcher := automation.NewDispatcher(func(ctx context.Context, req api.QueryRequest) error {
 			if srv == nil {
 				return fmt.Errorf("server not initialized")
 			}
-			// schedule 触发的 run 标记为 hidden：
+			// automation 触发的 run 标记为 hidden：
 			// chat 不记录伪造的"用户发消息"，chat.created 也不广播，
 			// webclient 仍能看到 assistant 侧输出，但不会渲染成"用户→agent"对话。
 			hiddenTrue := true
@@ -246,11 +246,11 @@ func New(rootCtx context.Context) (*App, error) {
 				return err
 			}
 			if status != http.StatusOK {
-				return fmt.Errorf("scheduled query failed with status %d: %s", status, summarizeScheduleErrorBody(body))
+				return fmt.Errorf("automation query failed with status %d: %s", status, summarizeAutomationErrorBody(body))
 			}
 			return nil
-		}, scheduleBroadcaster, scheduleExecutionStore)
-		scheduler = schedule.NewOrchestrator(scheduleRegistry, dispatcher, cfg.Schedule)
+		}, automationBroadcaster, automationExecutionStore)
+		automationOrchestrator = automation.NewOrchestrator(automationRegistry, dispatcher, cfg.Automation)
 	}
 
 	serverStartedAt := time.Now()
@@ -273,18 +273,18 @@ func New(rootCtx context.Context) (*App, error) {
 			viewport.NewSyncer(viewport.NewServerRegistry(viewport.DefaultServersRoot(cfg.Paths.RegistriesDir)), nil),
 			contracts.NewNoopViewportClient(),
 		),
-		CatalogReloader:      reloader,
-		Notifications:        notifications,
-		SkillCandidates:      skillCandidateStore,
-		Channels:             channelReg,
-		ScheduleOrchestrator: scheduler,
-		ScheduleRegistry:     scheduleRegistry,
-		ScheduleExecutions:   scheduleExecutionStore,
-		GatewayResolver:      gatewayResolver,
+		CatalogReloader:        reloader,
+		Notifications:          notifications,
+		SkillCandidates:        skillCandidateStore,
+		Channels:               channelReg,
+		AutomationOrchestrator: automationOrchestrator,
+		AutomationRegistry:     automationRegistry,
+		AutomationExecutions:   automationExecutionStore,
+		GatewayResolver:        gatewayResolver,
 	})
 	if err != nil {
-		if scheduleExecutionStore != nil {
-			_ = scheduleExecutionStore.Close()
+		if automationExecutionStore != nil {
+			_ = automationExecutionStore.Close()
 		}
 		return nil, fmt.Errorf("init server: %w", err)
 	}
@@ -311,30 +311,30 @@ func New(rootCtx context.Context) (*App, error) {
 		srv.SetChannelStatusProvider(gwRegistry)
 	}
 
-	if scheduler != nil {
-		if err := scheduler.Start(backgroundCtx); err != nil {
+	if automationOrchestrator != nil {
+		if err := automationOrchestrator.Start(backgroundCtx); err != nil {
 			backgroundCancel()
-			if scheduleExecutionStore != nil {
-				_ = scheduleExecutionStore.Close()
+			if automationExecutionStore != nil {
+				_ = automationExecutionStore.Close()
 			}
-			return nil, fmt.Errorf("start schedule orchestrator: %w", err)
+			return nil, fmt.Errorf("start automation orchestrator: %w", err)
 		}
-		log.Printf("schedule orchestrator started in %s (dir=%s)", startupElapsed(serverStartedAt), cfg.Schedule.ExternalDir)
+		log.Printf("automation orchestrator started in %s (dir=%s)", startupElapsed(serverStartedAt), cfg.Automation.ExternalDir)
 	} else {
-		log.Printf("schedule orchestrator disabled")
+		log.Printf("automation orchestrator disabled")
 	}
 	log.Printf("app dependencies initialized in %s", startupElapsed(appInitStartedAt))
 	cleanupBackground = false
 
 	return &App{
-		Config:             cfg,
-		Router:             srv,
-		backgroundCancel:   backgroundCancel,
-		scheduler:          scheduler,
-		gateways:           gwRegistry,
-		wsHub:              wsHub,
-		scheduleExecutions: scheduleExecutionStore,
-		lspManager:         lspManager,
+		Config:               cfg,
+		Router:               srv,
+		backgroundCancel:     backgroundCancel,
+		automation:           automationOrchestrator,
+		gateways:             gwRegistry,
+		wsHub:                wsHub,
+		automationExecutions: automationExecutionStore,
+		lspManager:           lspManager,
 	}, nil
 }
 
@@ -354,17 +354,17 @@ func (a *App) Close() error {
 	if err := observability.CloseMemoryLogger(); err != nil {
 		log.Printf("close memory logger: %v", err)
 	}
-	if a.scheduler != nil {
-		done := a.scheduler.Stop()
+	if a.automation != nil {
+		done := a.automation.Stop()
 		select {
 		case <-done.Done():
-		case <-time.After(schedulerStopTimeout):
-			log.Printf("scheduler stop timed out after %s", schedulerStopTimeout)
+		case <-time.After(automationStopTimeout):
+			log.Printf("automation stop timed out after %s", automationStopTimeout)
 		}
 	}
-	if a.scheduleExecutions != nil {
-		if err := a.scheduleExecutions.Close(); err != nil {
-			log.Printf("close schedule execution store: %v", err)
+	if a.automationExecutions != nil {
+		if err := a.automationExecutions.Close(); err != nil {
+			log.Printf("close automation execution store: %v", err)
 		}
 	}
 	if a.lspManager != nil {
@@ -500,7 +500,7 @@ func (l *lazyGatewayResolver) Resolve(chatID string) (string, string, bool) {
 	return r.Resolve(chatID)
 }
 
-func summarizeScheduleErrorBody(body string) string {
+func summarizeAutomationErrorBody(body string) string {
 	body = strings.Join(strings.Fields(strings.TrimSpace(body)), " ")
 	if body == "" {
 		return "<empty body>"

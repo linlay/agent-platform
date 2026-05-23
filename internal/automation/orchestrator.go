@@ -1,4 +1,4 @@
-package schedule
+package automation
 
 import (
 	"context"
@@ -25,7 +25,7 @@ const reloadDebounce = 150 * time.Millisecond
 type Orchestrator struct {
 	registry   *Registry
 	dispatcher *Dispatcher
-	cfg        config.ScheduleConfig
+	cfg        config.AutomationConfig
 
 	mu            sync.Mutex
 	registrations map[string]*Registration
@@ -37,13 +37,13 @@ type Orchestrator struct {
 
 type Registration struct {
 	Definition Definition
-	schedule   cron.Schedule
+	automation cron.Schedule
 	location   *time.Location
 	ctx        context.Context
 	cancel     context.CancelFunc
 }
 
-func NewOrchestrator(registry *Registry, dispatcher *Dispatcher, cfg config.ScheduleConfig) *Orchestrator {
+func NewOrchestrator(registry *Registry, dispatcher *Dispatcher, cfg config.AutomationConfig) *Orchestrator {
 	poolSize := cfg.PoolSize
 	if poolSize < 1 {
 		poolSize = 1
@@ -94,7 +94,7 @@ func (o *Orchestrator) Reload() error {
 	return nil
 }
 
-func (o *Orchestrator) Schedules() []ScheduleInfo {
+func (o *Orchestrator) Automations() []AutomationInfo {
 	if o == nil {
 		return nil
 	}
@@ -108,21 +108,21 @@ func (o *Orchestrator) Schedules() []ScheduleInfo {
 	sort.Strings(ids)
 
 	now := time.Now()
-	items := make([]ScheduleInfo, 0, len(ids))
+	items := make([]AutomationInfo, 0, len(ids))
 	for _, id := range ids {
 		reg := o.registrations[id]
 		if reg == nil {
 			continue
 		}
 		next := time.Time{}
-		if reg.schedule != nil {
+		if reg.automation != nil {
 			loc := reg.location
 			if loc == nil {
 				loc = time.Local
 			}
-			next = reg.schedule.Next(now.In(loc))
+			next = reg.automation.Next(now.In(loc))
 		}
-		items = append(items, ScheduleInfo{
+		items = append(items, AutomationInfo{
 			Definition:   reg.Definition,
 			NextFireTime: next,
 		})
@@ -163,20 +163,20 @@ func (o *Orchestrator) reconcile(defs []Definition) {
 		o.registerLocked(def)
 	}
 
-	log.Printf("[schedule] registry ready count=%d", len(o.registrations))
+	log.Printf("[automation] registry ready count=%d", len(o.registrations))
 }
 
 func (o *Orchestrator) registerLocked(def Definition) {
-	sched, err := parseCronSchedule(def.Cron)
+	sched, err := parseCronAutomation(def.Cron)
 	if err != nil {
-		log.Printf("[schedule] skip registration for %q: %v", def.ID, err)
+		log.Printf("[automation] skip registration for %q: %v", def.ID, err)
 		return
 	}
-	loc := resolveScheduleLocation(def.Environment.ZoneID, o.cfg.DefaultZoneID)
+	loc := resolveAutomationLocation(def.Environment.ZoneID, o.cfg.DefaultZoneID)
 	regCtx, cancel := context.WithCancel(o.runCtx)
 	reg := &Registration{
 		Definition: def,
-		schedule:   sched,
+		automation: sched,
 		location:   loc,
 		ctx:        regCtx,
 		cancel:     cancel,
@@ -185,7 +185,7 @@ func (o *Orchestrator) registerLocked(def Definition) {
 
 	next := sched.Next(time.Now().In(loc))
 	log.Printf(
-		"[schedule] registered id=%s name=%s cron=%s agentKey=%s teamId=%s nextFireTime=%s source=%s",
+		"[automation] registered id=%s name=%s cron=%s agentKey=%s teamId=%s nextFireTime=%s source=%s",
 		def.ID,
 		def.Name,
 		def.Cron,
@@ -206,13 +206,13 @@ func (o *Orchestrator) unregisterLocked(id string, reason string) {
 	}
 	delete(o.registrations, id)
 	reg.cancel()
-	log.Printf("[schedule] unregistered id=%s reason=%s source=%s", id, reason, reg.Definition.SourceFile)
+	log.Printf("[automation] unregistered id=%s reason=%s source=%s", id, reason, reg.Definition.SourceFile)
 }
 
 func (o *Orchestrator) runRegistration(reg *Registration) {
 	defer o.wg.Done()
 	for {
-		nextRun := reg.schedule.Next(time.Now().In(reg.location))
+		nextRun := reg.automation.Next(time.Now().In(reg.location))
 		timer := time.NewTimer(time.Until(nextRun))
 		select {
 		case <-reg.ctx.Done():
@@ -226,7 +226,7 @@ func (o *Orchestrator) runRegistration(reg *Registration) {
 		case <-timer.C:
 			stop, err := o.fire(reg)
 			if err != nil {
-				log.Printf("[schedule] dispatch failed for %s: %v", reg.Definition.ID, err)
+				log.Printf("[automation] dispatch failed for %s: %v", reg.Definition.ID, err)
 			}
 			if stop {
 				return
@@ -263,7 +263,7 @@ func (o *Orchestrator) fire(reg *Registration) (bool, error) {
 			}
 			delete(o.registrations, reg.Definition.ID)
 			stop = true
-			log.Printf("[schedule] retired id=%s source=%s", reg.Definition.ID, reg.Definition.SourceFile)
+			log.Printf("[automation] retired id=%s source=%s", reg.Definition.ID, reg.Definition.SourceFile)
 		}
 	}
 	o.mu.Unlock()
@@ -283,19 +283,19 @@ func (o *Orchestrator) startWatcher(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	watchedDirs, err := watchScheduleDirTree(fsw, o.registry.root)
+	watchedDirs, err := watchAutomationDirTree(fsw, o.registry.root)
 	if err != nil {
 		_ = fsw.Close()
 		return err
 	}
 
-	log.Printf("[schedule] watching: %s", o.registry.root)
+	log.Printf("[automation] watching: %s", o.registry.root)
 	o.wg.Add(1)
 	go func() {
 		defer o.wg.Done()
 		defer func() {
 			_ = fsw.Close()
-			log.Printf("[schedule] file watcher stopped")
+			log.Printf("[automation] file watcher stopped")
 		}()
 
 		var timer *time.Timer
@@ -318,14 +318,14 @@ func (o *Orchestrator) startWatcher(ctx context.Context) error {
 					continue
 				}
 				if event.Op&fsnotify.Create != 0 {
-					if err := refreshScheduleWatchTree(fsw, o.registry.root, changedPath, watchedDirs); err != nil {
-						log.Printf("[schedule] watcher register failed for %s: %v", changedPath, err)
+					if err := refreshAutomationWatchTree(fsw, o.registry.root, changedPath, watchedDirs); err != nil {
+						log.Printf("[automation] watcher register failed for %s: %v", changedPath, err)
 					}
 				}
 				if event.Op&(fsnotify.Remove|fsnotify.Rename) != 0 {
-					pruneScheduleWatchDir(changedPath, watchedDirs)
+					pruneAutomationWatchDir(changedPath, watchedDirs)
 				}
-				if !shouldReloadSchedulePath(o.registry.root, changedPath) {
+				if !shouldReloadAutomationPath(o.registry.root, changedPath) {
 					continue
 				}
 				if timer != nil {
@@ -333,14 +333,14 @@ func (o *Orchestrator) startWatcher(ctx context.Context) error {
 				}
 				timer = time.AfterFunc(reloadDebounce, func() {
 					if err := o.Reload(); err != nil {
-						log.Printf("[schedule] reload failed after %s: %v", filepath.Base(changedPath), err)
+						log.Printf("[automation] reload failed after %s: %v", filepath.Base(changedPath), err)
 					}
 				})
 			case err, ok := <-fsw.Errors:
 				if !ok {
 					return
 				}
-				log.Printf("[schedule] watcher error: %v", err)
+				log.Printf("[automation] watcher error: %v", err)
 			}
 		}
 	}()
@@ -366,7 +366,7 @@ func (o *Orchestrator) releaseDispatchSlot() {
 	<-o.dispatchSlots
 }
 
-func watchScheduleDirTree(fsw *fsnotify.Watcher, root string) (map[string]struct{}, error) {
+func watchAutomationDirTree(fsw *fsnotify.Watcher, root string) (map[string]struct{}, error) {
 	watched := map[string]struct{}{}
 	root = filepath.Clean(root)
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
@@ -376,10 +376,10 @@ func watchScheduleDirTree(fsw *fsnotify.Watcher, root string) (map[string]struct
 		if !d.IsDir() {
 			return nil
 		}
-		if path != root && !shouldTraverseScheduleDir(d.Name()) {
+		if path != root && !shouldTraverseAutomationDir(d.Name()) {
 			return filepath.SkipDir
 		}
-		return addScheduleWatchDir(fsw, path, watched)
+		return addAutomationWatchDir(fsw, path, watched)
 	})
 	if err != nil {
 		return nil, err
@@ -387,7 +387,7 @@ func watchScheduleDirTree(fsw *fsnotify.Watcher, root string) (map[string]struct
 	return watched, nil
 }
 
-func refreshScheduleWatchTree(fsw *fsnotify.Watcher, root string, path string, watched map[string]struct{}) error {
+func refreshAutomationWatchTree(fsw *fsnotify.Watcher, root string, path string, watched map[string]struct{}) error {
 	info, err := os.Stat(path)
 	if err != nil || !info.IsDir() {
 		return nil
@@ -396,14 +396,14 @@ func refreshScheduleWatchTree(fsw *fsnotify.Watcher, root string, path string, w
 		return nil
 	}
 	base := filepath.Base(path)
-	if !shouldTraverseScheduleDir(base) {
+	if !shouldTraverseAutomationDir(base) {
 		return nil
 	}
-	_, err = watchScheduleDirTreeFrom(fsw, root, path, watched)
+	_, err = watchAutomationDirTreeFrom(fsw, root, path, watched)
 	return err
 }
 
-func watchScheduleDirTreeFrom(fsw *fsnotify.Watcher, root string, start string, watched map[string]struct{}) (map[string]struct{}, error) {
+func watchAutomationDirTreeFrom(fsw *fsnotify.Watcher, root string, start string, watched map[string]struct{}) (map[string]struct{}, error) {
 	root = filepath.Clean(root)
 	start = filepath.Clean(start)
 	err := filepath.WalkDir(start, func(path string, d fs.DirEntry, walkErr error) error {
@@ -413,10 +413,10 @@ func watchScheduleDirTreeFrom(fsw *fsnotify.Watcher, root string, start string, 
 		if !d.IsDir() {
 			return nil
 		}
-		if path != root && path != start && !shouldTraverseScheduleDir(d.Name()) {
+		if path != root && path != start && !shouldTraverseAutomationDir(d.Name()) {
 			return filepath.SkipDir
 		}
-		return addScheduleWatchDir(fsw, path, watched)
+		return addAutomationWatchDir(fsw, path, watched)
 	})
 	if err != nil {
 		return watched, err
@@ -424,7 +424,7 @@ func watchScheduleDirTreeFrom(fsw *fsnotify.Watcher, root string, start string, 
 	return watched, nil
 }
 
-func addScheduleWatchDir(fsw *fsnotify.Watcher, path string, watched map[string]struct{}) error {
+func addAutomationWatchDir(fsw *fsnotify.Watcher, path string, watched map[string]struct{}) error {
 	path = filepath.Clean(path)
 	if _, ok := watched[path]; ok {
 		return nil
@@ -436,7 +436,7 @@ func addScheduleWatchDir(fsw *fsnotify.Watcher, path string, watched map[string]
 	return nil
 }
 
-func pruneScheduleWatchDir(path string, watched map[string]struct{}) {
+func pruneAutomationWatchDir(path string, watched map[string]struct{}) {
 	path = filepath.Clean(path)
 	for dir := range watched {
 		if dir == path || strings.HasPrefix(dir, path+string(os.PathSeparator)) {
@@ -445,7 +445,7 @@ func pruneScheduleWatchDir(path string, watched map[string]struct{}) {
 	}
 }
 
-func shouldReloadSchedulePath(root string, path string) bool {
+func shouldReloadAutomationPath(root string, path string) bool {
 	path = filepath.Clean(path)
 	if !insideDir(root, path) {
 		return false
@@ -459,7 +459,7 @@ func shouldReloadSchedulePath(root string, path string) bool {
 		return false
 	}
 	for _, part := range parts[:len(parts)-1] {
-		if !shouldTraverseScheduleDir(part) {
+		if !shouldTraverseAutomationDir(part) {
 			return false
 		}
 	}
@@ -468,9 +468,9 @@ func shouldReloadSchedulePath(root string, path string) bool {
 		return false
 	}
 	if ext := strings.ToLower(filepath.Ext(last)); ext == ".yml" || ext == ".yaml" {
-		return isScheduleRuntimeFile(path)
+		return isAutomationRuntimeFile(path)
 	}
-	return shouldTraverseScheduleDir(last)
+	return shouldTraverseAutomationDir(last)
 }
 
 func splitPathParts(path string) []string {
@@ -481,21 +481,21 @@ func splitPathParts(path string) []string {
 	return strings.Split(path, string(os.PathSeparator))
 }
 
-func resolveScheduleLocation(zoneID string, defaultZoneID string) *time.Location {
-	if loc, err := loadScheduleLocation(zoneID); err == nil {
+func resolveAutomationLocation(zoneID string, defaultZoneID string) *time.Location {
+	if loc, err := loadAutomationLocation(zoneID); err == nil {
 		return loc
 	} else if strings.TrimSpace(zoneID) != "" {
-		log.Printf("[schedule] invalid zoneId %q, falling back: %v", zoneID, err)
+		log.Printf("[automation] invalid zoneId %q, falling back: %v", zoneID, err)
 	}
-	if loc, err := loadScheduleLocation(defaultZoneID); err == nil {
+	if loc, err := loadAutomationLocation(defaultZoneID); err == nil {
 		return loc
 	} else if strings.TrimSpace(defaultZoneID) != "" {
-		log.Printf("[schedule] invalid default zoneId %q, using local: %v", defaultZoneID, err)
+		log.Printf("[automation] invalid default zoneId %q, using local: %v", defaultZoneID, err)
 	}
 	return time.Local
 }
 
-func loadScheduleLocation(zoneID string) (*time.Location, error) {
+func loadAutomationLocation(zoneID string) (*time.Location, error) {
 	zoneID = strings.TrimSpace(zoneID)
 	if zoneID == "" {
 		return nil, fmt.Errorf("empty zoneId")

@@ -108,7 +108,7 @@ type LocalPaths struct {
 	DataDir            string
 	SkillsDir          string
 	SkillsMarketDir    string
-	SchedulesDir       string
+	AutomationsDir     string
 	OwnerDir           string
 	ModelsDir          string
 	ProvidersDir       string
@@ -130,7 +130,7 @@ type SandboxPaths struct {
 	OwnerDir           string
 	AgentsDir          string
 	TeamsDir           string
-	SchedulesDir       string
+	AutomationsDir     string
 	ChatsDir           string
 	MemoryDir          string
 	ModelsDir          string

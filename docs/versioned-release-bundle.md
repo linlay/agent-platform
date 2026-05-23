@@ -55,7 +55,7 @@ agent-platform/
     agents/
     teams/
     root/
-    schedules/
+    automations/
     chats/
     memory/
     pan/

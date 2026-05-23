@@ -1,4 +1,4 @@
-package schedule
+package automation
 
 import (
 	"crypto/rand"
@@ -49,10 +49,10 @@ func (s *ExecutionStore) initDB() error {
 	s.db = db
 
 	statements := []string{
-		`CREATE TABLE IF NOT EXISTS SCHEDULE_EXECUTIONS (
+		`CREATE TABLE IF NOT EXISTS AUTOMATION_EXECUTIONS (
 			ID_            TEXT PRIMARY KEY,
-			SCHEDULE_ID_   TEXT NOT NULL,
-			SCHEDULE_NAME_ TEXT NOT NULL DEFAULT '',
+			AUTOMATION_ID_   TEXT NOT NULL,
+			AUTOMATION_NAME_ TEXT NOT NULL DEFAULT '',
 			SOURCE_FILE_   TEXT NOT NULL DEFAULT '',
 			AGENT_KEY_     TEXT NOT NULL DEFAULT '',
 			TEAM_ID_       TEXT NOT NULL DEFAULT '',
@@ -62,8 +62,8 @@ func (s *ExecutionStore) initDB() error {
 			COMPLETED_AT_  INTEGER,
 			DURATION_MS_   INTEGER
 		)`,
-		`CREATE INDEX IF NOT EXISTS IDX_EXEC_SCHEDULE ON SCHEDULE_EXECUTIONS(SCHEDULE_ID_)`,
-		`CREATE INDEX IF NOT EXISTS IDX_EXEC_STARTED ON SCHEDULE_EXECUTIONS(STARTED_AT_ DESC)`,
+		`CREATE INDEX IF NOT EXISTS IDX_EXEC_AUTOMATION ON AUTOMATION_EXECUTIONS(AUTOMATION_ID_)`,
+		`CREATE INDEX IF NOT EXISTS IDX_EXEC_STARTED ON AUTOMATION_EXECUTIONS(STARTED_AT_ DESC)`,
 	}
 	for _, stmt := range statements {
 		if _, err := db.Exec(stmt); err != nil {
@@ -73,7 +73,7 @@ func (s *ExecutionStore) initDB() error {
 	return nil
 }
 
-func (s *ExecutionStore) RecordStart(scheduleID, scheduleName, sourceFile, agentKey, teamID string) (string, error) {
+func (s *ExecutionStore) RecordStart(automationID, automationName, sourceFile, agentKey, teamID string) (string, error) {
 	if s == nil || s.db == nil {
 		return "", nil
 	}
@@ -82,12 +82,12 @@ func (s *ExecutionStore) RecordStart(scheduleID, scheduleName, sourceFile, agent
 
 	executionID := generateExecutionID()
 	startedAt := time.Now().UnixMilli()
-	_, err := s.db.Exec(`INSERT INTO SCHEDULE_EXECUTIONS (
-			ID_, SCHEDULE_ID_, SCHEDULE_NAME_, SOURCE_FILE_, AGENT_KEY_, TEAM_ID_, STATUS_, STARTED_AT_
+	_, err := s.db.Exec(`INSERT INTO AUTOMATION_EXECUTIONS (
+			ID_, AUTOMATION_ID_, AUTOMATION_NAME_, SOURCE_FILE_, AGENT_KEY_, TEAM_ID_, STATUS_, STARTED_AT_
 		) VALUES (?, ?, ?, ?, ?, ?, 'running', ?)`,
 		executionID,
-		strings.TrimSpace(scheduleID),
-		strings.TrimSpace(scheduleName),
+		strings.TrimSpace(automationID),
+		strings.TrimSpace(automationName),
 		strings.TrimSpace(sourceFile),
 		strings.TrimSpace(agentKey),
 		strings.TrimSpace(teamID),
@@ -111,7 +111,7 @@ func (s *ExecutionStore) RecordComplete(executionID string, execErr error) error
 	defer s.mu.Unlock()
 
 	var startedAt int64
-	if err := s.db.QueryRow(`SELECT STARTED_AT_ FROM SCHEDULE_EXECUTIONS WHERE ID_=?`, executionID).Scan(&startedAt); err != nil {
+	if err := s.db.QueryRow(`SELECT STARTED_AT_ FROM AUTOMATION_EXECUTIONS WHERE ID_=?`, executionID).Scan(&startedAt); err != nil {
 		return err
 	}
 	completedAt := time.Now().UnixMilli()
@@ -125,32 +125,32 @@ func (s *ExecutionStore) RecordComplete(executionID string, execErr error) error
 		status = "failed"
 		errText = execErr.Error()
 	}
-	_, err := s.db.Exec(`UPDATE SCHEDULE_EXECUTIONS
+	_, err := s.db.Exec(`UPDATE AUTOMATION_EXECUTIONS
 		SET STATUS_=?, ERROR_=?, COMPLETED_AT_=?, DURATION_MS_=?
 		WHERE ID_=?`, status, errText, completedAt, durationMs, executionID)
 	return err
 }
 
-func (s *ExecutionStore) ListBySchedule(scheduleID string, limit, offset int) ([]Execution, int, error) {
+func (s *ExecutionStore) ListByAutomation(automationID string, limit, offset int) ([]Execution, int, error) {
 	if s == nil || s.db == nil {
 		return nil, 0, nil
 	}
-	scheduleID = strings.TrimSpace(scheduleID)
+	automationID = strings.TrimSpace(automationID)
 	limit, offset = normalizeExecutionPage(limit, offset)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	var total int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM SCHEDULE_EXECUTIONS WHERE SCHEDULE_ID_=?`, scheduleID).Scan(&total); err != nil {
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM AUTOMATION_EXECUTIONS WHERE AUTOMATION_ID_=?`, automationID).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	rows, err := s.db.Query(`SELECT ID_, SCHEDULE_ID_, SCHEDULE_NAME_, SOURCE_FILE_, AGENT_KEY_, TEAM_ID_,
+	rows, err := s.db.Query(`SELECT ID_, AUTOMATION_ID_, AUTOMATION_NAME_, SOURCE_FILE_, AGENT_KEY_, TEAM_ID_,
 			STATUS_, ERROR_, STARTED_AT_, COMPLETED_AT_, DURATION_MS_
-		FROM SCHEDULE_EXECUTIONS
-		WHERE SCHEDULE_ID_=?
+		FROM AUTOMATION_EXECUTIONS
+		WHERE AUTOMATION_ID_=?
 		ORDER BY STARTED_AT_ DESC, ID_ DESC
-		LIMIT ? OFFSET ?`, scheduleID, limit, offset)
+		LIMIT ? OFFSET ?`, automationID, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -163,21 +163,21 @@ func (s *ExecutionStore) ListBySchedule(scheduleID string, limit, offset int) ([
 	return items, total, rows.Err()
 }
 
-func (s *ExecutionStore) LastExecution(scheduleID string) (*Execution, error) {
+func (s *ExecutionStore) LastExecution(automationID string) (*Execution, error) {
 	if s == nil || s.db == nil {
 		return nil, nil
 	}
-	scheduleID = strings.TrimSpace(scheduleID)
+	automationID = strings.TrimSpace(automationID)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	row := s.db.QueryRow(`SELECT ID_, SCHEDULE_ID_, SCHEDULE_NAME_, SOURCE_FILE_, AGENT_KEY_, TEAM_ID_,
+	row := s.db.QueryRow(`SELECT ID_, AUTOMATION_ID_, AUTOMATION_NAME_, SOURCE_FILE_, AGENT_KEY_, TEAM_ID_,
 			STATUS_, ERROR_, STARTED_AT_, COMPLETED_AT_, DURATION_MS_
-		FROM SCHEDULE_EXECUTIONS
-		WHERE SCHEDULE_ID_=?
+		FROM AUTOMATION_EXECUTIONS
+		WHERE AUTOMATION_ID_=?
 		ORDER BY STARTED_AT_ DESC, ID_ DESC
-		LIMIT 1`, scheduleID)
+		LIMIT 1`, automationID)
 	item, err := scanExecution(row)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -198,12 +198,12 @@ func (s *ExecutionStore) ListRecent(limit, offset int) ([]Execution, int, error)
 	defer s.mu.Unlock()
 
 	var total int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM SCHEDULE_EXECUTIONS`).Scan(&total); err != nil {
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM AUTOMATION_EXECUTIONS`).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	rows, err := s.db.Query(`SELECT ID_, SCHEDULE_ID_, SCHEDULE_NAME_, SOURCE_FILE_, AGENT_KEY_, TEAM_ID_,
+	rows, err := s.db.Query(`SELECT ID_, AUTOMATION_ID_, AUTOMATION_NAME_, SOURCE_FILE_, AGENT_KEY_, TEAM_ID_,
 			STATUS_, ERROR_, STARTED_AT_, COMPLETED_AT_, DURATION_MS_
-		FROM SCHEDULE_EXECUTIONS
+		FROM AUTOMATION_EXECUTIONS
 		ORDER BY STARTED_AT_ DESC, ID_ DESC
 		LIMIT ? OFFSET ?`, limit, offset)
 	if err != nil {
@@ -251,8 +251,8 @@ func scanExecution(scanner executionScanner) (Execution, error) {
 	var durationMs sql.NullInt64
 	if err := scanner.Scan(
 		&item.ID,
-		&item.ScheduleID,
-		&item.ScheduleName,
+		&item.AutomationID,
+		&item.AutomationName,
 		&item.SourceFile,
 		&item.AgentKey,
 		&item.TeamID,

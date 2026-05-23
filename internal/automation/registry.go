@@ -1,4 +1,4 @@
-package schedule
+package automation
 
 import (
 	"fmt"
@@ -51,7 +51,7 @@ func (r *Registry) Root() string {
 }
 
 func (r *Registry) Load() ([]Definition, error) {
-	paths, err := collectSchedulePaths(r.root)
+	paths, err := collectAutomationPaths(r.root)
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -64,11 +64,11 @@ func (r *Registry) Load() ([]Definition, error) {
 	for _, path := range paths {
 		def, err := r.parseDefinition(path)
 		if err != nil {
-			log.Printf("[schedule] skip invalid schedule file %s: %v", path, err)
+			log.Printf("[automation] skip invalid automation file %s: %v", path, err)
 			continue
 		}
 		if existing, ok := loadedByID[def.ID]; ok {
-			log.Printf("[schedule] skip duplicate schedule id=%s from %s (already loaded from %s)", def.ID, path, existing)
+			log.Printf("[automation] skip duplicate automation id=%s from %s (already loaded from %s)", def.ID, path, existing)
 			continue
 		}
 		loadedByID[def.ID] = path
@@ -77,7 +77,7 @@ func (r *Registry) Load() ([]Definition, error) {
 	return defs, nil
 }
 
-func collectSchedulePaths(root string) ([]string, error) {
+func collectAutomationPaths(root string) ([]string, error) {
 	root = strings.TrimSpace(root)
 	if root == "" {
 		return nil, nil
@@ -94,12 +94,12 @@ func collectSchedulePaths(root string) ([]string, error) {
 
 		name := strings.TrimSpace(d.Name())
 		if d.IsDir() {
-			if !shouldTraverseScheduleDir(name) {
+			if !shouldTraverseAutomationDir(name) {
 				return filepath.SkipDir
 			}
 			return nil
 		}
-		if !isScheduleRuntimeFile(path) {
+		if !isAutomationRuntimeFile(path) {
 			return nil
 		}
 		paths = append(paths, path)
@@ -120,12 +120,12 @@ func (r *Registry) parseDefinition(path string) (Definition, error) {
 	}
 	root, ok := tree.(map[string]any)
 	if !ok {
-		return Definition{}, fmt.Errorf("schedule file must be a map")
+		return Definition{}, fmt.Errorf("automation file must be a map")
 	}
 
 	id := strings.TrimSpace(catalog.LogicalRuntimeBaseName(filepath.Base(path)))
 	if id == "" {
-		return Definition{}, fmt.Errorf("schedule id is required")
+		return Definition{}, fmt.Errorf("automation id is required")
 	}
 
 	name := stringNode(root["name"])
@@ -140,8 +140,8 @@ func (r *Registry) parseDefinition(path string) (Definition, error) {
 	if cronExpr == "" {
 		return Definition{}, fmt.Errorf("cron is required")
 	}
-	if _, err := parseCronSchedule(cronExpr); err != nil {
-		return Definition{}, fmt.Errorf("invalid cron %q: go schedule supports only traditional 5-field cron (minute hour day-of-month month day-of-week): %w", cronExpr, err)
+	if _, err := parseCronAutomation(cronExpr); err != nil {
+		return Definition{}, fmt.Errorf("invalid cron %q: go automation supports only traditional 5-field cron (minute hour day-of-month month day-of-week): %w", cronExpr, err)
 	}
 	remainingRuns, err := positiveIntPtrNode(root["remainingRuns"], "remainingRuns")
 	if err != nil {
@@ -307,7 +307,7 @@ func (r *Registry) Persist(def Definition) error {
 	if err := r.Validate(def); err != nil {
 		return err
 	}
-	path, err := r.schedulePath(def)
+	path, err := r.automationPath(def)
 	if err != nil {
 		return err
 	}
@@ -317,7 +317,7 @@ func (r *Registry) Persist(def Definition) error {
 
 func (r *Registry) Validate(def Definition) error {
 	if strings.TrimSpace(def.ID) == "" {
-		return fmt.Errorf("schedule id is required")
+		return fmt.Errorf("automation id is required")
 	}
 	if strings.TrimSpace(def.Name) == "" {
 		return fmt.Errorf("name is required")
@@ -328,8 +328,8 @@ func (r *Registry) Validate(def Definition) error {
 	if strings.TrimSpace(def.Cron) == "" {
 		return fmt.Errorf("cron is required")
 	}
-	if _, err := parseCronSchedule(def.Cron); err != nil {
-		return fmt.Errorf("invalid cron %q: go schedule supports only traditional 5-field cron (minute hour day-of-month month day-of-week): %w", def.Cron, err)
+	if _, err := parseCronAutomation(def.Cron); err != nil {
+		return fmt.Errorf("invalid cron %q: go automation supports only traditional 5-field cron (minute hour day-of-month month day-of-week): %w", def.Cron, err)
 	}
 	if def.RemainingRuns != nil && *def.RemainingRuns <= 0 {
 		return fmt.Errorf("remainingRuns must be a positive integer")
@@ -361,7 +361,7 @@ func (r *Registry) Validate(def Definition) error {
 }
 
 func (r *Registry) Delete(def Definition) error {
-	path, err := r.schedulePath(def)
+	path, err := r.automationPath(def)
 	if err != nil {
 		return err
 	}
@@ -371,16 +371,16 @@ func (r *Registry) Delete(def Definition) error {
 	return nil
 }
 
-func (r *Registry) schedulePath(def Definition) (string, error) {
+func (r *Registry) automationPath(def Definition) (string, error) {
 	path := strings.TrimSpace(def.SourceFile)
 	if path == "" {
 		if strings.TrimSpace(r.root) == "" || strings.TrimSpace(def.ID) == "" {
-			return "", fmt.Errorf("schedule path is required")
+			return "", fmt.Errorf("automation path is required")
 		}
 		path = filepath.Join(r.root, def.ID+".yml")
 	}
 	if strings.TrimSpace(r.root) != "" && !insideDir(r.root, path) {
-		return "", fmt.Errorf("schedule path %q is outside root %q", path, r.root)
+		return "", fmt.Errorf("automation path %q is outside root %q", path, r.root)
 	}
 	return path, nil
 }
@@ -410,11 +410,11 @@ func sceneNode(value any) (*api.Scene, error) {
 	}, nil
 }
 
-func parseCronSchedule(spec string) (cron.Schedule, error) {
+func parseCronAutomation(spec string) (cron.Schedule, error) {
 	return cronParser.Parse(strings.TrimSpace(spec))
 }
 
-func shouldTraverseScheduleDir(name string) bool {
+func shouldTraverseAutomationDir(name string) bool {
 	name = strings.TrimSpace(name)
 	if name == "" || strings.HasPrefix(name, ".") {
 		return false
@@ -422,7 +422,7 @@ func shouldTraverseScheduleDir(name string) bool {
 	return catalog.ShouldLoadRuntimeName(name)
 }
 
-func isScheduleRuntimeFile(path string) bool {
+func isAutomationRuntimeFile(path string) bool {
 	name := strings.TrimSpace(filepath.Base(path))
 	if name == "" || strings.HasSuffix(name, ".tmp") {
 		return false

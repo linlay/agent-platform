@@ -55,15 +55,15 @@ inputSchema:
         - desktop.agents.cloneAgent
         - desktop.agents.disableAgent
         - desktop.agents.reloadAgents
-        - desktop.automations.listSchedules
-        - desktop.automations.getScheduleDetail
-        - desktop.automations.validateSchedule
-        - desktop.automations.previewSchedule
-        - desktop.automations.createSchedule
-        - desktop.automations.updateSchedule
-        - desktop.automations.pauseSchedule
-        - desktop.automations.resumeSchedule
-        - desktop.automations.deleteSchedule
+        - desktop.automations.listAutomations
+        - desktop.automations.getAutomationDetail
+        - desktop.automations.validateAutomation
+        - desktop.automations.previewAutomation
+        - desktop.automations.createAutomation
+        - desktop.automations.updateAutomation
+        - desktop.automations.pauseAutomation
+        - desktop.automations.resumeAutomation
+        - desktop.automations.deleteAutomation
         - desktop.automations.explainNextRun
     args:
       type: object

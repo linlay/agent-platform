@@ -153,12 +153,12 @@ func TestInvokeReadAllowsSessionAgentDir(t *testing.T) {
 
 func TestInvokeReadAllowsSessionSkillsDir(t *testing.T) {
 	root := t.TempDir()
-	skillsDir := filepath.Join(t.TempDir(), "agent-a", "skills", "schedule")
+	skillsDir := filepath.Join(t.TempDir(), "agent-a", "skills", "automation")
 	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
 		t.Fatalf("mkdir skills dir: %v", err)
 	}
 	skillFile := filepath.Join(skillsDir, "SKILL.md")
-	if err := os.WriteFile(skillFile, []byte("# Schedule\n\nUse calendars.\n"), 0o644); err != nil {
+	if err := os.WriteFile(skillFile, []byte("# Automation\n\nUse calendars.\n"), 0o644); err != nil {
 		t.Fatalf("write skill fixture: %v", err)
 	}
 	executor := fileToolExecutor(root, true)
@@ -175,7 +175,7 @@ func TestInvokeReadAllowsSessionSkillsDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("invokeRead: %v", err)
 	}
-	if result.Error != "" || result.ExitCode != 0 || !strings.Contains(fmt.Sprint(result.Structured["content"]), "# Schedule") {
+	if result.Error != "" || result.ExitCode != 0 || !strings.Contains(fmt.Sprint(result.Structured["content"]), "# Automation") {
 		t.Fatalf("expected session skills read success, got %#v", result)
 	}
 }

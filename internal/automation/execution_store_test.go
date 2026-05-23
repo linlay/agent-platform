@@ -1,4 +1,4 @@
-package schedule
+package automation
 
 import (
 	"errors"
@@ -27,7 +27,7 @@ func TestExecutionStoreRecordsAndListsExecutions(t *testing.T) {
 	if firstID == "" {
 		t.Fatal("expected execution id")
 	}
-	items, total, err := store.ListBySchedule("daily", 10, 0)
+	items, total, err := store.ListByAutomation("daily", 10, 0)
 	if err != nil {
 		t.Fatalf("list running: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestExecutionStoreRecordsAndListsExecutions(t *testing.T) {
 		t.Fatalf("unexpected recent executions total=%d items=%#v", total, recent)
 	}
 
-	paged, total, err := store.ListBySchedule("daily", 1, 1)
+	paged, total, err := store.ListByAutomation("daily", 1, 1)
 	if err != nil {
 		t.Fatalf("list paged: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestExecutionStoreDefaultPagingAndMissingLast(t *testing.T) {
 			t.Fatalf("record start %d: %v", i, err)
 		}
 	}
-	items, total, err := store.ListBySchedule("many", 500, -10)
+	items, total, err := store.ListByAutomation("many", 500, -10)
 	if err != nil {
 		t.Fatalf("list capped: %v", err)
 	}

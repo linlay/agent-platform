@@ -219,7 +219,7 @@ func TestDeferredSubmitRejectsExpiredAwaiting(t *testing.T) {
 		notifications: notifications,
 	})
 
-	seedDeferredAwaiting(t, fixture.chats, "chat-expired", "run-expired", "await-expired", "question", 1, time.Now().UnixMilli())
+	seedDeferredAwaiting(t, fixture.chats, "chat-expired", "run-expired", "await-expired", "question", 10, time.Now().UnixMilli())
 
 	restarted, err := New(Dependencies{
 		Config:          fixture.cfg,
@@ -238,7 +238,7 @@ func TestDeferredSubmitRejectsExpiredAwaiting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new restarted server: %v", err)
 	}
-	time.Sleep(20 * time.Millisecond)
+	time.Sleep(30 * time.Millisecond)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(`{"runId":"run-expired","awaitingId":"await-expired","params":[{"id":"q1","answer":"Approve"}]}`))

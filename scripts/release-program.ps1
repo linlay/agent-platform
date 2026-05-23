@@ -98,7 +98,7 @@ function New-RuntimeTree {
         "runtime/agents",
         "runtime/teams",
         "runtime/root",
-        "runtime/schedules",
+        "runtime/automations",
         "runtime/chats",
         "runtime/memory",
         "runtime/pan",

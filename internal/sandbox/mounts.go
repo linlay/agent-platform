@@ -228,7 +228,7 @@ func (r *ContainerHubMountResolver) platformMountDef(platform string, agentKey s
 		"models":        {destination: "/models", source: func() (string, error) { return r.registryChildSource("models") }},
 		"owner":         {destination: "/owner", overrideOnly: true},
 		"providers":     {destination: "/providers", source: func() (string, error) { return r.registryChildSource("providers") }},
-		"schedules":     {destination: "/schedules", source: func() (string, error) { return hostPath("SCHEDULES_DIR", r.paths.SchedulesDir) }},
+		"automations":   {destination: "/automations", source: func() (string, error) { return hostPath("AUTOMATIONS_DIR", r.paths.AutomationsDir) }},
 		"skills-market": {destination: "/skills-market", source: func() (string, error) { return hostPath("SKILLS_MARKET_DIR", r.paths.SkillsMarketDir) }},
 		"teams":         {destination: "/teams", source: func() (string, error) { return hostPath("TEAMS_DIR", r.paths.TeamsDir) }},
 		"tools":         {destination: "/tools", source: func() (string, error) { return r.registryChildSource("tools") }},

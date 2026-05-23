@@ -39,7 +39,7 @@ create_runtime_tree() {
     "$bundle_root/runtime/agents" \
     "$bundle_root/runtime/teams" \
     "$bundle_root/runtime/root" \
-    "$bundle_root/runtime/schedules" \
+    "$bundle_root/runtime/automations" \
     "$bundle_root/runtime/chats" \
     "$bundle_root/runtime/memory" \
     "$bundle_root/runtime/pan" \

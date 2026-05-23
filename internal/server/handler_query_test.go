@@ -234,7 +234,7 @@ func TestPrepareQueryBuildsLayeredMemoryContexts(t *testing.T) {
 		Kind:       memory.KindObservation,
 		ScopeType:  memory.ScopeChat,
 		ScopeKey:   "chat:chat-1",
-		Title:      "Recent schedule adjustment",
+		Title:      "Recent automation adjustment",
 		Summary:    "上次已经调整过下周工时安排，继续安排下周工时时要参考这个结果。",
 		SourceType: "learn",
 		Category:   "general",
@@ -317,7 +317,7 @@ func TestPrepareQueryBuildsLayeredMemoryContexts(t *testing.T) {
 	if len(prepared.memoryUsageSummary.SessionItems) != 1 || prepared.memoryUsageSummary.SessionItems[0].Summary != "上次已经调整过下周工时安排，继续安排下周工时时要参考这个结果。" {
 		t.Fatalf("unexpected session memory items: %#v", prepared.memoryUsageSummary.SessionItems)
 	}
-	if got := prepared.memoryUsageSummary.UserHint; !containsAll(got, []string{"本次回答借鉴了历史记忆", "Work hours preference", "Recent schedule adjustme"}) {
+	if got := prepared.memoryUsageSummary.UserHint; !containsAll(got, []string{"本次回答借鉴了历史记忆", "Work hours preference", "Recent automation adjust"}) {
 		t.Fatalf("unexpected memory user hint: %q", got)
 	}
 	if prepared.session.MemoryUsageSummary == nil {
@@ -331,15 +331,15 @@ func TestBuildMemoryHitItemsReflectsPromptInjectedRecords(t *testing.T) {
 			{
 				ID:       "fact-1",
 				Kind:     memory.KindFact,
-				Title:    "Schedule rules summary",
-				Summary:  "Schedule rules summary",
+				Title:    "Automation rules summary",
+				Summary:  "Automation rules summary",
 				Category: "platform_rules",
 			},
 			{
 				ID:       "fact-2",
 				Kind:     memory.KindFact,
-				Title:    "Schedule rules summary",
-				Summary:  "Schedule rules summary for current agent",
+				Title:    "Automation rules summary",
+				Summary:  "Automation rules summary for current agent",
 				Category: "platform_rules",
 			},
 		},
@@ -347,8 +347,8 @@ func TestBuildMemoryHitItemsReflectsPromptInjectedRecords(t *testing.T) {
 			{
 				ID:       "obs-1",
 				Kind:     memory.KindObservation,
-				Title:    "Recent schedule adjustment",
-				Summary:  "Recent schedule adjustment",
+				Title:    "Recent automation adjustment",
+				Summary:  "Recent automation adjustment",
 				Category: "general",
 			},
 		},
@@ -500,7 +500,7 @@ func TestPrepareQueryDedupesNearDuplicateAcrossStableAndSession(t *testing.T) {
 			Kind:       memory.KindObservation,
 			ScopeType:  memory.ScopeChat,
 			ScopeKey:   "chat:chat-1",
-			Title:      "Current schedule rule",
+			Title:      "Current automation rule",
 			Summary:    "本周仍按每周40小时、5个工作日每天8小时来记录工时。",
 			SourceType: "learn",
 			Category:   "user_preference",

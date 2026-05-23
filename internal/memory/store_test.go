@@ -345,7 +345,7 @@ func TestRememberUsesSummarizerAcrossStores(t *testing.T) {
 							Category:   "preference",
 							Importance: 9,
 							Confidence: 0.92,
-							Tags:       []string{"schedule"},
+							Tags:       []string{"automation"},
 						}}, nil
 					},
 				})
@@ -370,7 +370,7 @@ func TestRememberUsesSummarizerAcrossStores(t *testing.T) {
 							Category:   "preference",
 							Importance: 9,
 							Confidence: 0.92,
-							Tags:       []string{"schedule"},
+							Tags:       []string{"automation"},
 						}}, nil
 					},
 				})
@@ -830,8 +830,8 @@ func TestBuildContextBundleDeduplicatesBeforePromptDisclosure(t *testing.T) {
 			Kind:       KindFact,
 			ScopeType:  ScopeAgent,
 			ScopeKey:   "agent:agent-a",
-			Title:      "Schedule rules summary",
-			Summary:    "Schedule rules summary",
+			Title:      "Automation rules summary",
+			Summary:    "Automation rules summary",
 			SourceType: "tool-write",
 			Category:   "platform_rules",
 			Importance: 9,
@@ -845,8 +845,8 @@ func TestBuildContextBundleDeduplicatesBeforePromptDisclosure(t *testing.T) {
 			Kind:       KindFact,
 			ScopeType:  ScopeAgent,
 			ScopeKey:   "agent:agent-a",
-			Title:      "Schedule rules summary",
-			Summary:    "Schedule rules summary for current agent",
+			Title:      "Automation rules summary",
+			Summary:    "Automation rules summary for current agent",
 			SourceType: "tool-write",
 			Category:   "platform_rules",
 			Importance: 8,
@@ -861,8 +861,8 @@ func TestBuildContextBundleDeduplicatesBeforePromptDisclosure(t *testing.T) {
 			Kind:       KindObservation,
 			ScopeType:  ScopeChat,
 			ScopeKey:   "chat:chat-1",
-			Title:      "Recent schedule adjustment",
-			Summary:    "Recent schedule adjustment",
+			Title:      "Recent automation adjustment",
+			Summary:    "Recent automation adjustment",
 			SourceType: "learn",
 			Category:   "general",
 			Importance: 7,
@@ -878,7 +878,7 @@ func TestBuildContextBundleDeduplicatesBeforePromptDisclosure(t *testing.T) {
 			ScopeType:  ScopeChat,
 			ScopeKey:   "chat:chat-2",
 			Title:      "",
-			Summary:    "Recent schedule adjustment",
+			Summary:    "Recent automation adjustment",
 			SourceType: "learn",
 			Category:   "general",
 			Importance: 6,
@@ -891,7 +891,7 @@ func TestBuildContextBundleDeduplicatesBeforePromptDisclosure(t *testing.T) {
 	bundle := buildContextBundleFromStored(ContextRequest{
 		AgentKey: "agent-a",
 		ChatID:   "chat-1",
-		Query:    "schedule",
+		Query:    "automation",
 		TopFacts: 5,
 		TopObs:   5,
 		MaxChars: 4000,
@@ -922,8 +922,8 @@ func TestBuildContextBundleKeepsDistinctStableFactsAcrossCategories(t *testing.T
 			Kind:       KindFact,
 			ScopeType:  ScopeAgent,
 			ScopeKey:   "agent:agent-a",
-			Title:      "Schedule rules summary",
-			Summary:    "Schedule rules summary",
+			Title:      "Automation rules summary",
+			Summary:    "Automation rules summary",
 			SourceType: "tool-write",
 			Category:   "platform_rules",
 			Importance: 9,
@@ -937,8 +937,8 @@ func TestBuildContextBundleKeepsDistinctStableFactsAcrossCategories(t *testing.T
 			Kind:       KindFact,
 			ScopeType:  ScopeAgent,
 			ScopeKey:   "agent:agent-a",
-			Title:      "Schedule rules summary",
-			Summary:    "Schedule rules summary",
+			Title:      "Automation rules summary",
+			Summary:    "Automation rules summary",
 			SourceType: "tool-write",
 			Category:   "ops_checklist",
 			Importance: 8,
@@ -951,7 +951,7 @@ func TestBuildContextBundleKeepsDistinctStableFactsAcrossCategories(t *testing.T
 	bundle := buildContextBundleFromStored(ContextRequest{
 		AgentKey: "agent-a",
 		ChatID:   "chat-1",
-		Query:    "schedule",
+		Query:    "automation",
 		TopFacts: 5,
 		TopObs:   5,
 		MaxChars: 4000,
@@ -1538,7 +1538,7 @@ func TestWriteNearDuplicateFactMergesIntoExistingRecordInsteadOfCreatingNewOne(t
 				Importance: 9,
 				Confidence: 0.9,
 				Status:     StatusActive,
-				Tags:       []string{"schedule"},
+				Tags:       []string{"automation"},
 				CreatedAt:  200,
 				UpdatedAt:  200,
 			}
@@ -1570,7 +1570,7 @@ func TestWriteNearDuplicateFactMergesIntoExistingRecordInsteadOfCreatingNewOne(t
 			if got.Importance != 9 || got.Confidence < 0.9 {
 				t.Fatalf("expected merged fact to preserve higher rank, got %#v", got)
 			}
-			if !reflect.DeepEqual(got.Tags, []string{"hours", "schedule"}) && !reflect.DeepEqual(got.Tags, []string{"schedule", "hours"}) {
+			if !reflect.DeepEqual(got.Tags, []string{"hours", "automation"}) && !reflect.DeepEqual(got.Tags, []string{"automation", "hours"}) {
 				t.Fatalf("expected merged fact to combine tags, got %#v", got.Tags)
 			}
 			if got.AccessCount < 1 {

@@ -6,23 +6,23 @@ import (
 	"time"
 )
 
-type blockingScheduler struct {
+type blockingAutomation struct {
 	done context.Context
 }
 
-func (s blockingScheduler) Stop() context.Context {
+func (s blockingAutomation) Stop() context.Context {
 	return s.done
 }
 
-func TestAppCloseReturnsWhenSchedulerStopTimesOut(t *testing.T) {
-	previousTimeout := schedulerStopTimeout
-	schedulerStopTimeout = 20 * time.Millisecond
+func TestAppCloseReturnsWhenAutomationStopTimesOut(t *testing.T) {
+	previousTimeout := automationStopTimeout
+	automationStopTimeout = 20 * time.Millisecond
 	defer func() {
-		schedulerStopTimeout = previousTimeout
+		automationStopTimeout = previousTimeout
 	}()
 
 	app := &App{
-		scheduler: blockingScheduler{done: context.Background()},
+		automation: blockingAutomation{done: context.Background()},
 	}
 
 	startedAt := time.Now()

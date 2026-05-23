@@ -46,7 +46,7 @@ func TestRenamedOldActionRoutesAreRemoved(t *testing.T) {
 	for _, path := range []string{
 		"/api/agent-create",
 		"/api/chat-delete",
-		"/api/schedule-toggle",
+		"/api/automation-toggle",
 		"/api/memory/records",
 	} {
 		rec := httptest.NewRecorder()

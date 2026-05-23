@@ -1,4 +1,4 @@
-package schedule
+package automation
 
 import (
 	"time"
@@ -25,20 +25,20 @@ type Definition struct {
 }
 
 type Execution struct {
-	ID           string
-	ScheduleID   string
-	ScheduleName string
-	SourceFile   string
-	AgentKey     string
-	TeamID       string
-	Status       string
-	Error        string
-	StartedAt    int64
-	CompletedAt  *int64
-	DurationMs   *int64
+	ID             string
+	AutomationID   string
+	AutomationName string
+	SourceFile     string
+	AgentKey       string
+	TeamID         string
+	Status         string
+	Error          string
+	StartedAt      int64
+	CompletedAt    *int64
+	DurationMs     *int64
 }
 
-type ScheduleInfo struct {
+type AutomationInfo struct {
 	Definition   Definition
 	NextFireTime time.Time
 }
@@ -63,12 +63,12 @@ func (d Definition) ToQueryRequest() api.QueryRequest {
 	if params == nil {
 		params = map[string]any{}
 	}
-	params["__schedule"] = map[string]any{
-		"scheduleId":          d.ID,
-		"scheduleName":        d.Name,
-		"scheduleDescription": d.Description,
-		"sourceFile":          d.SourceFile,
-		"triggeredAt":         time.Now().UnixMilli(),
+	params["__automation"] = map[string]any{
+		"automationId":          d.ID,
+		"automationName":        d.Name,
+		"automationDescription": d.Description,
+		"sourceFile":            d.SourceFile,
+		"triggeredAt":           time.Now().UnixMilli(),
 	}
 
 	role := d.Query.Role

@@ -347,16 +347,16 @@
 - `internal/sandbox/mounts.go` (373 行): 沙箱客户端、挂载和服务管理：mounts
 - `internal/sandbox/service.go` (337 行): 沙箱客户端、挂载和服务管理：service
 
-## `internal/schedule/`
+## `internal/automation/`
 
 目录作用：调度任务注册、派发和编排。
 
-- `internal/schedule/dispatcher.go` (120 行): 调度任务注册、派发和编排：dispatcher
-- `internal/schedule/dispatcher_test.go` (134 行): 测试与回归验证：dispatcher
-- `internal/schedule/orchestrator.go` (486 行): 调度任务注册、派发和编排：orchestrator
-- `internal/schedule/orchestrator_test.go` (751 行): 测试与回归验证：orchestrator
-- `internal/schedule/registry.go` (754 行): 调度任务注册、派发和编排：registry
-- `internal/schedule/types.go` (88 行): 调度任务注册、派发和编排：types
+- `internal/automation/dispatcher.go` (120 行): 调度任务注册、派发和编排：dispatcher
+- `internal/automation/dispatcher_test.go` (134 行): 测试与回归验证：dispatcher
+- `internal/automation/orchestrator.go` (486 行): 调度任务注册、派发和编排：orchestrator
+- `internal/automation/orchestrator_test.go` (751 行): 测试与回归验证：orchestrator
+- `internal/automation/registry.go` (754 行): 调度任务注册、派发和编排：registry
+- `internal/automation/types.go` (88 行): 调度任务注册、派发和编排：types
 
 ## `internal/server/`
 

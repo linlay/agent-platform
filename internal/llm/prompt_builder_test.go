@@ -130,7 +130,7 @@ func TestBuildMemorySectionAvoidsDuplicatingLayeredHeaders(t *testing.T) {
 	section := buildMemorySection(QuerySession{
 		StableMemoryContext: "Runtime Context: Stable Memory\n- stable-fact",
 		ObservationContext:  "Runtime Context: Relevant Observations\n- recent-observation",
-		WorkflowContext:     "Runtime Context: Related Workflows\nworkflow: deploy schedule",
+		WorkflowContext:     "Runtime Context: Related Workflows\nworkflow: deploy automation",
 	}, api.QueryRequest{})
 
 	if strings.Count(section, "Runtime Context: Stable Memory") != 1 {
@@ -322,7 +322,7 @@ func TestBuildSystemEnvironmentSectionUsesLocalPathsWithoutSandbox(t *testing.T)
 				SkillsMarketDir:    "/Users/linlay/Project/zenmind/zenmind-env/skills-market",
 				AgentsDir:          "/Users/linlay/Project/zenmind/zenmind-env/agents",
 				TeamsDir:           "/Users/linlay/Project/zenmind/zenmind-env/teams",
-				SchedulesDir:       "/Users/linlay/Project/zenmind/zenmind-env/schedules",
+				AutomationsDir:     "/Users/linlay/Project/zenmind/zenmind-env/automations",
 				ChatsDir:           "/Users/linlay/Project/zenmind/zenmind-env/chats",
 				MemoryDir:          "/Users/linlay/Project/zenmind/zenmind-env/memory",
 				ModelsDir:          "/Users/linlay/Project/zenmind/zenmind-env/registries/models",
@@ -384,7 +384,7 @@ func TestBuildSystemEnvironmentSectionUsesSandboxPathsWhenSandboxEnabled(t *test
 				SkillsMarketDir:    "/skills-market",
 				AgentsDir:          "/agents",
 				TeamsDir:           "/teams",
-				SchedulesDir:       "/schedules",
+				AutomationsDir:     "/automations",
 				ChatsDir:           "/chats",
 				MemoryDir:          "/memory",
 				ModelsDir:          "/models",

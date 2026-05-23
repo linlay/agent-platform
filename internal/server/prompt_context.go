@@ -210,7 +210,7 @@ func resolveLocalPaths(paths config.PathsConfig, chatID string, agentDir string,
 		DataDir:            cleanOrEmpty(paths.ChatsDir),
 		SkillsDir:          agentSkillsDir,
 		SkillsMarketDir:    cleanOrEmpty(paths.SkillsMarketDir),
-		SchedulesDir:       cleanOrEmpty(paths.SchedulesDir),
+		AutomationsDir:     cleanOrEmpty(paths.AutomationsDir),
 		OwnerDir:           cleanOrEmpty(paths.OwnerDir),
 		ModelsDir:          cleanOrEmpty(filepath.Join(paths.RegistriesDir, "models")),
 		ProvidersDir:       cleanOrEmpty(filepath.Join(paths.RegistriesDir, "providers")),
@@ -261,7 +261,7 @@ func resolveContainerSandboxPaths(cfg config.Config, def catalog.AgentDefinition
 	ownerDir := ifNonEmpty(cfg.Paths.OwnerDir, "/owner")
 	var agentsDir string
 	var teamsDir string
-	var schedulesDir string
+	var automationsDir string
 	var chatsDir string
 	memoryDir := ifNonEmpty(cfg.Paths.MemoryDir, "/memory")
 	var modelsDir string
@@ -278,8 +278,8 @@ func resolveContainerSandboxPaths(cfg config.Config, def catalog.AgentDefinition
 			agentsDir = "/agents"
 		case "teams":
 			teamsDir = "/teams"
-		case "schedules":
-			schedulesDir = "/schedules"
+		case "automations":
+			automationsDir = "/automations"
 		case "chats":
 			chatsDir = "/chats"
 		case "models":
@@ -308,7 +308,7 @@ func resolveContainerSandboxPaths(cfg config.Config, def catalog.AgentDefinition
 		OwnerDir:           ownerDir,
 		AgentsDir:          agentsDir,
 		TeamsDir:           teamsDir,
-		SchedulesDir:       schedulesDir,
+		AutomationsDir:     automationsDir,
 		ChatsDir:           chatsDir,
 		MemoryDir:          memoryDir,
 		ModelsDir:          modelsDir,
@@ -354,8 +354,8 @@ func resolveLocalSandboxPaths(cfg config.Config, def catalog.AgentDefinition, ch
 			paths.AgentsDir = absOrEmpty(cfg.Paths.AgentsDir)
 		case "teams":
 			paths.TeamsDir = absOrEmpty(cfg.Paths.TeamsDir)
-		case "schedules":
-			paths.SchedulesDir = absOrEmpty(cfg.Paths.SchedulesDir)
+		case "automations":
+			paths.AutomationsDir = absOrEmpty(cfg.Paths.AutomationsDir)
 		case "chats":
 			paths.ChatsDir = absOrEmpty(cfg.Paths.ChatsDir)
 		case "models":

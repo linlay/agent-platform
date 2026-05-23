@@ -1938,12 +1938,12 @@ func TestFileEditPathApprovalUsesEditCommand(t *testing.T) {
 func TestFileReadAccessAllowsSessionSkillsDirBeforeApproval(t *testing.T) {
 	root := t.TempDir()
 	skillsRoot := filepath.Join(t.TempDir(), "agent-a", "skills")
-	skillDir := filepath.Join(skillsRoot, "schedule")
+	skillDir := filepath.Join(skillsRoot, "automation")
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
 		t.Fatalf("mkdir skill dir: %v", err)
 	}
 	skillFile := filepath.Join(skillDir, "SKILL.md")
-	if err := os.WriteFile(skillFile, []byte("# Schedule\n"), 0o644); err != nil {
+	if err := os.WriteFile(skillFile, []byte("# Automation\n"), 0o644); err != nil {
 		t.Fatalf("write skill fixture: %v", err)
 	}
 	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{backendToolDefinition("file_read")}}

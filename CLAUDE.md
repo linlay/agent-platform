@@ -13,7 +13,7 @@
 - 已具备可选的 embedding 向量语义检索（需配置 `MEMORY_EMBEDDING_PROVIDER_KEY`）
 - 已具备 OpenAI 兼容模型调用、backend tool 执行与 Container Hub sandbox 接入
 - 已具备 `VERSION + scripts/release*.sh + dist/release` 的 program bundle 发布链路，可作为 `zenmind-desktop` builtin 分发
-- 尚未对齐 Java 版的 frontend tool 完整链路、热重载、MCP 实接、鉴权、memory 检索、schedule 编排等高级能力
+- 尚未对齐 Java 版的 frontend tool 完整链路、热重载、MCP 实接、鉴权、memory 检索、automation 编排等高级能力
 
 ## 2. 技术栈
 

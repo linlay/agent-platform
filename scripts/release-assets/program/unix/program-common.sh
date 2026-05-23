@@ -90,7 +90,7 @@ program_prepare_runtime_dirs() {
     "$RUNTIME_ROOT/agents" \
     "$RUNTIME_ROOT/teams" \
     "$RUNTIME_ROOT/root" \
-    "$RUNTIME_ROOT/schedules" \
+    "$RUNTIME_ROOT/automations" \
     "$RUNTIME_ROOT/chats" \
     "$RUNTIME_ROOT/memory" \
     "$RUNTIME_ROOT/pan" \

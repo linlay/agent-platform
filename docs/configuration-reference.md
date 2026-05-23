@@ -64,7 +64,7 @@
 | `AGENTS_DIR` | `${RUNTIME_DIR}/agents` | `Advanced / operator` | agents 定义目录；运行时支持但不展示在 `.env.example` |
 | `TEAMS_DIR` | `${RUNTIME_DIR}/teams` | `Advanced / operator` | teams 定义目录；运行时支持但不展示在 `.env.example` |
 | `ROOT_DIR` | `${RUNTIME_DIR}/root` | `Advanced / operator` | runtime 根目录映射；运行时支持但不展示在 `.env.example` |
-| `SCHEDULES_DIR` | `${RUNTIME_DIR}/schedules` | `Advanced / operator` | schedules 定义目录；运行时支持但不展示在 `.env.example` |
+| `AUTOMATIONS_DIR` | `${RUNTIME_DIR}/automations` | `Advanced / operator` | automations 定义目录；运行时支持但不展示在 `.env.example` |
 | `SKILLS_MARKET_DIR` | `${RUNTIME_DIR}/skills-market` | `Advanced / operator` | skills market 目录映射；运行时支持但不展示在 `.env.example` |
 | `TOOLS_DIR` | `${RUNTIME_DIR}/tools` | `Advanced / operator` | 自定义 frontend tool YAML 目录 |
 | `PROVIDER_APIKEY_KEY_PART` | 空 | `Advanced / operator` | provider `apiKey: AES(...)` 的环境变量半密钥 |
@@ -119,15 +119,15 @@ Container Hub 默认基础挂载为：
 
 ## 高级运维变量
 
-### Schedule
+### Automation
 
 | 环境变量 | 默认值 | 标签 | 说明 |
 |---|---|---|---|
-| `AGENT_SCHEDULE_ENABLED` | `true` | `Advanced / operator` | 是否启用 schedule orchestrator |
-| `AGENT_SCHEDULE_DEFAULT_ZONE_ID` | 空 | `Advanced / operator` | 默认 schedule 时区；未配置时回退到宿主机本地时区 |
-| `AGENT_SCHEDULE_POOL_SIZE` | `4` | `Advanced / operator` | schedule dispatch 最大并发数 |
+| `AGENT_AUTOMATION_ENABLED` | `true` | `Advanced / operator` | 是否启用 automation orchestrator |
+| `AGENT_AUTOMATION_DEFAULT_ZONE_ID` | 空 | `Advanced / operator` | 默认 automation 时区；未配置时回退到宿主机本地时区 |
+| `AGENT_AUTOMATION_POOL_SIZE` | `4` | `Advanced / operator` | automation dispatch 最大并发数 |
 
-普通部署通常不需要显式配置 `AGENT_SCHEDULE_*`；只有在需要固定业务时区，或需要限制/放大 schedule 并发时才建议调整。
+普通部署通常不需要显式配置 `AGENT_AUTOMATION_*`；只有在需要固定业务时区，或需要限制/放大 automation 并发时才建议调整。
 
 ### Bash 工具
 
@@ -388,7 +388,7 @@ provider registry 中的 `apiKey` 支持以下两种形态：
 - `CHAT_RESOURCE_TICKET_*`
 - `CONTAINER_HUB_*`
 - `AGENT_DEFAULT_*`
-- `AGENT_SCHEDULE_*`
+- `AGENT_AUTOMATION_*`
 - `AGENT_MEMORY_*`
 - `CHAT_STORAGE_*`
 - `LOGGING_AGENT_*`

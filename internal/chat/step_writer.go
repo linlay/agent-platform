@@ -28,7 +28,7 @@ type StepWriter struct {
 	chatID string
 	runID  string
 	mode   string // "REACT" / "PLAN_EXECUTE" / "ONESHOT" / "CODER"
-	hidden bool   // true 时跳过 QueryLine 持久化，用于系统自发触发的 run（如 schedule）
+	hidden bool   // true 时跳过 QueryLine 持久化，用于系统自发触发的 run（如 automation）
 
 	debugEventsEnabled bool
 
@@ -88,7 +88,7 @@ func WithDebugEventsEnabled(enabled bool) StepWriterOption {
 }
 
 // NewStepWriter creates a StepWriter for a single run.
-// hidden=true 时跳过 QueryLine 持久化，用于 schedule 等系统自发触发的 run：
+// hidden=true 时跳过 QueryLine 持久化，用于 automation 等系统自发触发的 run：
 // 避免在 chat 里伪造一条"用户说的"消息、导致 webclient 显示成用户→agent 对话。
 func NewStepWriter(store Store, chatID, runID, mode string, hidden bool, opts ...StepWriterOption) *StepWriter {
 	w := &StepWriter{

@@ -533,9 +533,9 @@ func TestLoadAcceptsJavaEnvContract(t *testing.T) {
 		"AGENT_H2A_RENDER_MAX_BUFFERED_EVENTS":    "3",
 		"AGENT_H2A_RENDER_HEARTBEAT_PASS_THROUGH": "false",
 		"AGENT_DEFAULT_REACT_MAX_STEPS":           "12",
-		"AGENT_SCHEDULE_ENABLED":                  "false",
-		"AGENT_SCHEDULE_DEFAULT_ZONE_ID":          "Asia/Shanghai",
-		"AGENT_SCHEDULE_POOL_SIZE":                "7",
+		"AGENT_AUTOMATION_ENABLED":                "false",
+		"AGENT_AUTOMATION_DEFAULT_ZONE_ID":        "Asia/Shanghai",
+		"AGENT_AUTOMATION_POOL_SIZE":              "7",
 		"LOGGING_AGENT_REQUEST_ENABLED":           "false",
 	}, func() {
 		cfg, err := Load()
@@ -575,14 +575,14 @@ func TestLoadAcceptsJavaEnvContract(t *testing.T) {
 		if cfg.Defaults.React.MaxSteps != 12 {
 			t.Fatalf("unexpected react max steps: %d", cfg.Defaults.React.MaxSteps)
 		}
-		if cfg.Schedule.Enabled {
-			t.Fatalf("expected schedule disabled")
+		if cfg.Automation.Enabled {
+			t.Fatalf("expected automation disabled")
 		}
-		if cfg.Schedule.DefaultZoneID != "Asia/Shanghai" {
-			t.Fatalf("unexpected schedule default zone: %q", cfg.Schedule.DefaultZoneID)
+		if cfg.Automation.DefaultZoneID != "Asia/Shanghai" {
+			t.Fatalf("unexpected automation default zone: %q", cfg.Automation.DefaultZoneID)
 		}
-		if cfg.Schedule.PoolSize != 7 {
-			t.Fatalf("unexpected schedule pool size: %d", cfg.Schedule.PoolSize)
+		if cfg.Automation.PoolSize != 7 {
+			t.Fatalf("unexpected automation pool size: %d", cfg.Automation.PoolSize)
 		}
 		if cfg.Logging.Request.Enabled {
 			t.Fatalf("expected request logging disabled")
@@ -1146,7 +1146,7 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 		"AGENTS_DIR",
 		"TEAMS_DIR",
 		"ROOT_DIR",
-		"SCHEDULES_DIR",
+		"AUTOMATIONS_DIR",
 		"CHATS_DIR",
 		"MEMORY_DIR",
 		"PAN_DIR",
@@ -1191,9 +1191,9 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 		"AGENT_H2A_RENDER_MAX_BUFFERED_CHARS",
 		"AGENT_H2A_RENDER_MAX_BUFFERED_EVENTS",
 		"AGENT_H2A_RENDER_HEARTBEAT_PASS_THROUGH",
-		"AGENT_SCHEDULE_ENABLED",
-		"AGENT_SCHEDULE_DEFAULT_ZONE_ID",
-		"AGENT_SCHEDULE_POOL_SIZE",
+		"AGENT_AUTOMATION_ENABLED",
+		"AGENT_AUTOMATION_DEFAULT_ZONE_ID",
+		"AGENT_AUTOMATION_POOL_SIZE",
 		"CHAT_STORAGE_K",
 		"CHAT_STORAGE_CHARSET",
 		"CHAT_STORAGE_ACTION_TOOLS",

@@ -428,7 +428,7 @@ func TestMemoryWSRecordsMirrorsHTTP(t *testing.T) {
 	if err := conn.ReadJSON(&frame); err != nil {
 		t.Fatalf("read records response: %v", err)
 	}
-	records, err := marshalScheduleResponseData[api.MemoryRecordsResponse](frame.Data)
+	records, err := marshalAutomationResponseData[api.MemoryRecordsResponse](frame.Data)
 	if err != nil {
 		t.Fatalf("decode records data: %v", err)
 	}
@@ -477,7 +477,7 @@ func TestMemoryWSRecordAndMeta(t *testing.T) {
 	if err := conn.ReadJSON(&recordFrame); err != nil {
 		t.Fatalf("read record response: %v", err)
 	}
-	record, err := marshalScheduleResponseData[api.MemoryRecordDetailResponse](recordFrame.Data)
+	record, err := marshalAutomationResponseData[api.MemoryRecordDetailResponse](recordFrame.Data)
 	if err != nil {
 		t.Fatalf("decode record data: %v", err)
 	}
@@ -497,7 +497,7 @@ func TestMemoryWSRecordAndMeta(t *testing.T) {
 	if err := conn.ReadJSON(&metaFrame); err != nil {
 		t.Fatalf("read meta response: %v", err)
 	}
-	meta, err := marshalScheduleResponseData[api.MemoryMetaResponse](metaFrame.Data)
+	meta, err := marshalAutomationResponseData[api.MemoryMetaResponse](metaFrame.Data)
 	if err != nil {
 		t.Fatalf("decode meta data: %v", err)
 	}
@@ -573,6 +573,6 @@ func dialMemoryWebSocket(t *testing.T, handler http.Handler) *gws.Conn {
 	if err != nil {
 		t.Fatalf("dial websocket: %v", err)
 	}
-	readScheduleConnectedPush(t, conn)
+	readAutomationConnectedPush(t, conn)
 	return conn
 }

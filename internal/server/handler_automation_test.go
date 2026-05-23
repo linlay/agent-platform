@@ -10,30 +10,30 @@ import (
 	"testing"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/automation"
 	"agent-platform/internal/config"
-	"agent-platform/internal/schedule"
 	"agent-platform/internal/ws"
 
 	gws "github.com/gorilla/websocket"
 )
 
-type scheduleTestServer struct {
+type automationTestServer struct {
 	server       *Server
-	orchestrator *schedule.Orchestrator
-	executions   *schedule.ExecutionStore
+	orchestrator *automation.Orchestrator
+	executions   *automation.ExecutionStore
 }
 
-func newScheduleTestServer(t *testing.T, websocket bool) scheduleTestServer {
+func newAutomationTestServer(t *testing.T, websocket bool) automationTestServer {
 	t.Helper()
 	root := t.TempDir()
-	registry := schedule.NewRegistry(root, nil)
-	executions, err := schedule.NewExecutionStore(root, "executions.db")
+	registry := automation.NewRegistry(root, nil)
+	executions, err := automation.NewExecutionStore(root, "executions.db")
 	if err != nil {
 		t.Fatalf("new execution store: %v", err)
 	}
 	t.Cleanup(func() { _ = executions.Close() })
 
-	orchestrator := schedule.NewOrchestrator(registry, nil, config.ScheduleConfig{DefaultZoneID: "UTC", PoolSize: 1})
+	orchestrator := automation.NewOrchestrator(registry, nil, config.AutomationConfig{DefaultZoneID: "UTC", PoolSize: 1})
 	if err := orchestrator.Start(context.Background()); err != nil {
 		t.Fatalf("start orchestrator: %v", err)
 	}
@@ -53,10 +53,10 @@ func newScheduleTestServer(t *testing.T, websocket bool) scheduleTestServer {
 		t.Cleanup(func() { hub.CloseAll(gws.CloseNormalClosure, "test done") })
 	}
 	deps := Dependencies{
-		Config:               cfg,
-		ScheduleOrchestrator: orchestrator,
-		ScheduleRegistry:     registry,
-		ScheduleExecutions:   executions,
+		Config:                 cfg,
+		AutomationOrchestrator: orchestrator,
+		AutomationRegistry:     registry,
+		AutomationExecutions:   executions,
 	}
 	if hub != nil {
 		deps.Notifications = hub
@@ -65,15 +65,15 @@ func newScheduleTestServer(t *testing.T, websocket bool) scheduleTestServer {
 	if err != nil {
 		t.Fatalf("new server: %v", err)
 	}
-	return scheduleTestServer{server: server, orchestrator: orchestrator, executions: executions}
+	return automationTestServer{server: server, orchestrator: orchestrator, executions: executions}
 }
 
-func TestScheduleHTTPCRUDAndExecutionHistory(t *testing.T) {
-	fixture := newScheduleTestServer(t, false)
+func TestAutomationHTTPCRUDAndExecutionHistory(t *testing.T) {
+	fixture := newAutomationTestServer(t, false)
 
-	create := postScheduleJSON[api.ScheduleDetailResponse](t, fixture.server, "/api/schedule/create", map[string]any{
+	create := postAutomationJSON[api.AutomationDetailResponse](t, fixture.server, "/api/automation/create", map[string]any{
 		"name":        "Daily Demo",
-		"description": "Demo schedule",
+		"description": "Demo automation",
 		"cron":        "17 9 * * *",
 		"agentKey":    "demo-agent",
 		"query": map[string]any{
@@ -93,23 +93,23 @@ func TestScheduleHTTPCRUDAndExecutionHistory(t *testing.T) {
 		t.Fatalf("record complete: %v", err)
 	}
 
-	list := postScheduleJSON[api.ScheduleListResponse](t, fixture.server, "/api/schedules", map[string]any{"tag": "ignored"})
+	list := postAutomationJSON[api.AutomationListResponse](t, fixture.server, "/api/automations", map[string]any{"tag": "ignored"})
 	if list.Total != 1 || len(list.Items) != 1 || list.Items[0].LastExecution == nil || list.Items[0].LastExecution.Status != "success" {
 		t.Fatalf("unexpected list response %#v", list)
 	}
 
-	update := postScheduleJSON[api.ScheduleDetailResponse](t, fixture.server, "/api/schedule/update", map[string]any{
+	update := postAutomationJSON[api.AutomationDetailResponse](t, fixture.server, "/api/automation/update", map[string]any{
 		"id":          create.ID,
-		"description": "Updated schedule",
+		"description": "Updated automation",
 		"query": map[string]any{
 			"message": "updated",
 		},
 	})
-	if update.Description != "Updated schedule" || update.Query.Message != "updated" {
+	if update.Description != "Updated automation" || update.Query.Message != "updated" {
 		t.Fatalf("unexpected update response %#v", update)
 	}
 
-	toggled := postScheduleJSON[api.ScheduleDetailResponse](t, fixture.server, "/api/schedule/toggle", map[string]any{
+	toggled := postAutomationJSON[api.AutomationDetailResponse](t, fixture.server, "/api/automation/toggle", map[string]any{
 		"id":      create.ID,
 		"enabled": false,
 	})
@@ -117,19 +117,19 @@ func TestScheduleHTTPCRUDAndExecutionHistory(t *testing.T) {
 		t.Fatalf("unexpected toggle response %#v", toggled)
 	}
 
-	deleted := postScheduleJSON[map[string]any](t, fixture.server, "/api/schedule/delete", map[string]any{"id": create.ID})
+	deleted := postAutomationJSON[map[string]any](t, fixture.server, "/api/automation/delete", map[string]any{"id": create.ID})
 	if deleted["id"] != create.ID || deleted["deleted"] != true {
 		t.Fatalf("unexpected delete response %#v", deleted)
 	}
 
-	history := postScheduleJSON[api.ScheduleExecutionListResponse](t, fixture.server, "/api/schedule/executions", map[string]any{"id": create.ID})
+	history := postAutomationJSON[api.AutomationExecutionListResponse](t, fixture.server, "/api/automation/executions", map[string]any{"id": create.ID})
 	if history.Total != 1 || len(history.Items) != 1 || history.Items[0].ID != executionID {
 		t.Fatalf("unexpected history response %#v", history)
 	}
 }
 
-func TestScheduleWSRoutesMirrorHTTP(t *testing.T) {
-	fixture := newScheduleTestServer(t, true)
+func TestAutomationWSRoutesMirrorHTTP(t *testing.T) {
+	fixture := newAutomationTestServer(t, true)
 	server := httptest.NewServer(fixture.server)
 	defer server.Close()
 
@@ -139,15 +139,15 @@ func TestScheduleWSRoutesMirrorHTTP(t *testing.T) {
 		t.Fatalf("dial websocket: %v", err)
 	}
 	defer conn.Close()
-	readScheduleConnectedPush(t, conn)
+	readAutomationConnectedPush(t, conn)
 
 	if err := conn.WriteJSON(ws.RequestFrame{
 		Frame: ws.FrameRequest,
-		Type:  "/api/schedule/create",
+		Type:  "/api/automation/create",
 		ID:    "create",
 		Payload: ws.MarshalPayload(map[string]any{
 			"name":        "WS Demo",
-			"description": "Demo schedule",
+			"description": "Demo automation",
 			"cron":        "17 9 * * *",
 			"agentKey":    "demo-agent",
 			"query":       map[string]any{"message": "hello"},
@@ -159,7 +159,7 @@ func TestScheduleWSRoutesMirrorHTTP(t *testing.T) {
 	if err := conn.ReadJSON(&createFrame); err != nil {
 		t.Fatalf("read create response: %v", err)
 	}
-	created, err := marshalScheduleResponseData[api.ScheduleDetailResponse](createFrame.Data)
+	created, err := marshalAutomationResponseData[api.AutomationDetailResponse](createFrame.Data)
 	if err != nil {
 		t.Fatalf("decode create data: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestScheduleWSRoutesMirrorHTTP(t *testing.T) {
 
 	if err := conn.WriteJSON(ws.RequestFrame{
 		Frame:   ws.FrameRequest,
-		Type:    "/api/schedules",
+		Type:    "/api/automations",
 		ID:      "list",
 		Payload: ws.MarshalPayload(map[string]any{}),
 	}); err != nil {
@@ -179,7 +179,7 @@ func TestScheduleWSRoutesMirrorHTTP(t *testing.T) {
 	if err := conn.ReadJSON(&listFrame); err != nil {
 		t.Fatalf("read list response: %v", err)
 	}
-	list, err := marshalScheduleResponseData[api.ScheduleListResponse](listFrame.Data)
+	list, err := marshalAutomationResponseData[api.AutomationListResponse](listFrame.Data)
 	if err != nil {
 		t.Fatalf("decode list data: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestScheduleWSRoutesMirrorHTTP(t *testing.T) {
 	}
 }
 
-func readScheduleConnectedPush(t *testing.T, conn *gws.Conn) {
+func readAutomationConnectedPush(t *testing.T, conn *gws.Conn) {
 	t.Helper()
 	_, raw, err := conn.ReadMessage()
 	if err != nil {
@@ -203,7 +203,7 @@ func readScheduleConnectedPush(t *testing.T, conn *gws.Conn) {
 	}
 }
 
-func marshalScheduleResponseData[T any](value any) (T, error) {
+func marshalAutomationResponseData[T any](value any) (T, error) {
 	var out T
 	data, err := json.Marshal(value)
 	if err != nil {
@@ -215,7 +215,7 @@ func marshalScheduleResponseData[T any](value any) (T, error) {
 	return out, nil
 }
 
-func postScheduleJSON[T any](t *testing.T, server *Server, path string, payload any) T {
+func postAutomationJSON[T any](t *testing.T, server *Server, path string, payload any) T {
 	t.Helper()
 	body, err := json.Marshal(payload)
 	if err != nil {

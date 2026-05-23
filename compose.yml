@@ -19,7 +19,7 @@ services:
       AGENTS_DIR: /opt/runtime/agents
       TEAMS_DIR: /opt/runtime/teams
       ROOT_DIR: /opt/runtime/root
-      SCHEDULES_DIR: /opt/runtime/schedules
+      AUTOMATIONS_DIR: /opt/runtime/automations
       CHATS_DIR: /opt/runtime/chats
       MEMORY_DIR: /opt/runtime/memory
       PAN_DIR: /opt/runtime/pan

@@ -250,7 +250,7 @@ func TestAgentWSCRUDMirrorHTTP(t *testing.T) {
 		t.Fatalf("dial websocket: %v", err)
 	}
 	defer conn.Close()
-	readScheduleConnectedPush(t, conn)
+	readAutomationConnectedPush(t, conn)
 
 	if err := conn.WriteJSON(ws.RequestFrame{
 		Frame: ws.FrameRequest,

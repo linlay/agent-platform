@@ -145,11 +145,11 @@ func TestInvokeGrepAllowsSessionSkillsDir(t *testing.T) {
 	requireRipgrep(t)
 	root := t.TempDir()
 	skillsRoot := filepath.Join(t.TempDir(), "agent-a", "skills")
-	skillDir := filepath.Join(skillsRoot, "schedule")
+	skillDir := filepath.Join(skillsRoot, "automation")
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
 		t.Fatalf("mkdir skill dir: %v", err)
 	}
-	mustWriteFile(t, filepath.Join(skillDir, "SKILL.md"), "# Schedule\n\ncalendar needle\n")
+	mustWriteFile(t, filepath.Join(skillDir, "SKILL.md"), "# Automation\n\ncalendar needle\n")
 	executor := fileToolExecutor(root, false)
 	execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{
 		RuntimeContext: contracts.RuntimeRequestContext{
