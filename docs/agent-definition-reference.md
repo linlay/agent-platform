@@ -133,11 +133,11 @@ contextConfig:
 - `PLAN_EXECUTE` 默认读取 `AGENTS.plan.md`、`AGENTS.execute.md`、`AGENTS.summary.md`
 - `planExecute.<stage>.promptFile` 可显式覆盖对应阶段
 - `PLAN_EXECUTE` 阶段缺少约定文件时，先回退顶层 `promptFile`，再回退 `AGENTS.md`
-- `mode: CODER` 还会按 `configs/coder-settings.yml` 读取 `workspaceConfig.root/AGENTS.md`，用于注入项目级 workspace 规则
+- `mode: CODER` 还会按 `configs/coder-settings.yml` 读取 `runtimeConfig.workspace.root/AGENTS.md`，用于注入项目级 workspace 规则
 
 ## CODER Mode
 
-CODER 是一等 agent mode，应写作 `mode: CODER`，不要使用旧的 `type: CODER`。CODER 默认使用 `bash`、`file_read`、`file_write`、`file_edit`、`file_grep`、`datetime`，并要求 `workspaceConfig.root` 为绝对路径。
+CODER 是一等 agent mode，应写作 `mode: CODER`，不要使用旧的 `type: CODER`。CODER 默认使用 `bash`、`file_read`、`file_write`、`file_edit`、`file_grep`、`datetime`。非沙箱 CODER 要求 `runtimeConfig.workspace.root` 为绝对路径；声明了 `runtimeConfig.environmentId` 的沙箱 CODER 可省略宿主机 workspace。
 
 请求顶层 `planningMode: true` 只对 `mode: CODER` 生效：planning 阶段仅暴露 `file_read`、`file_grep`、`datetime`、`ask_user_question`、`planning_write`；`planning_write` 会把标准 Markdown 规划写入 `CHATS_DIR/plans/<runId>_planning.md` 并触发 live `planning.start` / `planning.delta` / `planning.end` 流事件。live 事件保持轻量：`planning.start` 建立上下文，`planning.delta` 仅携带 `planningId` 与增量文本，`planning.end` 仅携带 `planningId`；`planning.snapshot` 由后端聚合后用于持久化回放和 debug 展示，`planningFile` 只暴露文件名。用户以 approval 确认后，execution 阶段再暴露 CODER 执行工具，不追加 `plan_update_task`。
 
@@ -208,6 +208,8 @@ Go runtime 当前支持在 `agent.yml -> runtimeConfig` 下声明：
 runtimeConfig:
   environmentId: shell
   level: RUN
+  workspace:
+    root: /absolute/project/path
   env:
     HTTP_PROXY: "http://127.0.0.1:7890"
     HTTPS_PROXY: "http://127.0.0.1:7890"
@@ -220,6 +222,8 @@ runtimeConfig:
 - key 必须非空，且不能包含空白字符或 `=`
 - value 必须是字面量字符串；空字符串允许并原样注入 host bash 或下发到 Container Hub
 - 不支持 `${VAR}` 或其他宿主环境变量展开
+- `runtimeConfig.workspace.root` 定义宿主机 workspace 边界，供 host bash 与文件工具使用；该字段必须是绝对路径
+- `workspaceConfig.root` 已废弃，仅作为旧配置兼容 fallback；新 agent 应使用 `runtimeConfig.workspace.root`
 - `runtimeConfig.environmentId` 是 sandbox context 的唯一入口；不需要也不支持再在 `contextConfig.tags` 中声明 `sandbox`
 - agent `runtimeConfig.env` 作为基础值，skill 目录下的 `.sandbox-env.json` 会按 agent 声明顺序叠加并覆盖同名键
 - `/api/agents` 与 `/api/agent` 的 `sandbox` meta 不会回显 `env`，避免暴露代理地址、凭据或私有 endpoint；`extraMounts` 仍可对外暴露，因为它描述的是白名单路径而非敏感值

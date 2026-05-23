@@ -274,7 +274,7 @@ func validateWorkspaceGitConfig(agentDef catalog.AgentDefinition) error {
 	}
 	workspaceRoot := strings.TrimSpace(agentDef.Workspace.Root)
 	if workspaceRoot == "" {
-		return fmt.Errorf("workspaceConfig.root is required when git.expectedBranch is set")
+		return fmt.Errorf("runtimeConfig.workspace.root is required when git.expectedBranch is set")
 	}
 	currentBranch, err := readGitCurrentBranch(workspaceRoot)
 	if err != nil {

@@ -956,8 +956,9 @@ Plan first, then check the current time before reporting.
 				"mode: CODER",
 				"modelConfig:",
 				"  modelKey: mock-model",
-				"workspaceConfig:",
-				"  root: " + filepath.ToSlash(workspace),
+				"runtimeConfig:",
+				"  workspace:",
+				"    root: " + filepath.ToSlash(workspace),
 			}, "\n")), 0o644); err != nil {
 				t.Fatalf("write coder agent: %v", err)
 			}
@@ -1107,8 +1108,9 @@ Plan should be canceled before execution.
 				"mode: CODER",
 				"modelConfig:",
 				"  modelKey: mock-model",
-				"workspaceConfig:",
-				"  root: " + filepath.ToSlash(workspace),
+				"runtimeConfig:",
+				"  workspace:",
+				"    root: " + filepath.ToSlash(workspace),
 			}, "\n")), 0o644); err != nil {
 				t.Fatalf("write coder agent: %v", err)
 			}

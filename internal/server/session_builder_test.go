@@ -68,8 +68,9 @@ func TestBuildQuerySessionUsesCoderProfileDefaults(t *testing.T) {
 			"mode: CODER\n"+
 			"modelConfig:\n"+
 			"  modelKey: deepseek-v4-flash\n"+
-			"workspaceConfig:\n"+
-			"  root: "+filepath.ToSlash(workspace)+"\n",
+			"runtimeConfig:\n"+
+			"  workspace:\n"+
+			"    root: "+filepath.ToSlash(workspace)+"\n",
 	), 0o644); err != nil {
 		t.Fatalf("write agent config: %v", err)
 	}
@@ -422,8 +423,9 @@ func TestBuildQuerySessionPlanningModeOnlyAppliesToCoder(t *testing.T) {
 			"mode: CODER\n"+
 			"modelConfig:\n"+
 			"  modelKey: mock-model\n"+
-			"workspaceConfig:\n"+
-			"  root: "+filepath.ToSlash(workspace)+"\n",
+			"runtimeConfig:\n"+
+			"  workspace:\n"+
+			"    root: "+filepath.ToSlash(workspace)+"\n",
 	), 0o644); err != nil {
 		t.Fatalf("write coder config: %v", err)
 	}

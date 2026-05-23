@@ -66,16 +66,23 @@ func parseAgentWorkspaceConfig(value any) AgentWorkspaceConfig {
 	}
 }
 
-func validateAgentModeWorkspace(mode string, workspace AgentWorkspaceConfig) error {
-	switch strings.ToUpper(strings.TrimSpace(mode)) {
-	case AgentModeCoder:
-		root := strings.TrimSpace(workspace.Root)
-		if root == "" {
-			return fmt.Errorf("workspaceConfig.root is required for CODER agents")
-		}
-		if !filepath.IsAbs(root) {
-			return fmt.Errorf("workspaceConfig.root must be an absolute path for CODER agents")
-		}
+func validateAgentWorkspace(workspace AgentWorkspaceConfig) error {
+	root := strings.TrimSpace(workspace.Root)
+	if root == "" {
+		return nil
+	}
+	if !filepath.IsAbs(root) {
+		return fmt.Errorf("runtimeConfig.workspace.root must be an absolute path")
+	}
+	return nil
+}
+
+func validateAgentModeWorkspace(mode string, workspace AgentWorkspaceConfig, hasRuntimeSandbox bool) error {
+	if strings.ToUpper(strings.TrimSpace(mode)) != AgentModeCoder {
+		return nil
+	}
+	if strings.TrimSpace(workspace.Root) == "" && !hasRuntimeSandbox {
+		return fmt.Errorf("runtimeConfig.workspace.root is required for non-sandbox CODER agents")
 	}
 	return nil
 }

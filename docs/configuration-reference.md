@@ -459,4 +459,4 @@ contextConfig:
 - `PLAN_EXECUTE` 默认读取 `AGENTS.plan.md`、`AGENTS.execute.md`、`AGENTS.summary.md`
 - `planExecute.<stage>.promptFile` 可显式覆盖对应阶段
 - `PLAN_EXECUTE` 阶段缺少约定文件时，先回退顶层 `promptFile`，再回退 `AGENTS.md`
-- `mode: CODER` 会按 `configs/coder-settings.yml` 读取 `workspaceConfig.root/AGENTS.md` 并作为 workspace 规则注入系统提示词；缺失文件兼容跳过，存在但读取失败会中止 session 构建
+- `mode: CODER` 会按 `configs/coder-settings.yml` 读取 `runtimeConfig.workspace.root/AGENTS.md` 并作为 workspace 规则注入系统提示词；缺失文件兼容跳过，存在但读取失败会中止 session 构建
