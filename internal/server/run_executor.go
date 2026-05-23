@@ -197,9 +197,6 @@ func usageDataMap(usage chat.UsageData) map[string]any {
 }
 
 func isClientVisibleEvent(eventType string, streamCfg config.StreamConfig) bool {
-	if eventType == "stage.marker" {
-		return false
-	}
 	if (eventType == "debug.preCall" || eventType == "debug.postCall") && !streamCfg.DebugEventsEnabled {
 		return false
 	}
@@ -287,6 +284,9 @@ func runExecutor(params RunExecutorParams) {
 	emitDelta := func(delta contracts.AgentDelta) {
 		inputs := params.Mapper.Map(delta)
 		for _, input := range inputs {
+			if marker, ok := input.(stream.StageMarker); ok && params.StepWriter != nil {
+				params.StepWriter.OnStageMarker(marker.Stage)
+			}
 			for _, event := range params.Assembler.Consume(input) {
 				publish(event)
 			}
@@ -294,6 +294,9 @@ func runExecutor(params RunExecutorParams) {
 	}
 	emitInputs := func(inputs ...stream.StreamInput) {
 		for _, input := range inputs {
+			if marker, ok := input.(stream.StageMarker); ok && params.StepWriter != nil {
+				params.StepWriter.OnStageMarker(marker.Stage)
+			}
 			for _, event := range params.Assembler.Consume(input) {
 				publish(event)
 			}

@@ -1,6 +1,6 @@
 name: artifact_publish
 label: 发布产物
-description: Publish multiple artifacts generated during the current run, emitting a single batched artifact.publish SSE event for all successfully published outputs from this invocation. Use this when files are created first and then explicitly declared as outputs of the run.
+description: Publish multiple artifacts generated during the current run, emitting a single batched artifact.publish SSE event for all successfully published outputs from this invocation. Use this when files are created first and then explicitly declared as outputs of the run. Pass only the source path; the published file name, extension, and MIME type are derived from the path.
 type: function
 clientVisible: false
 inputSchema:
@@ -15,10 +15,7 @@ inputSchema:
         properties:
           path:
             type: string
-            description: Required. File path to publish. In the sandbox, this is typically a /workspace/... path or a path relative to the current chat working directory.
-          name:
-            type: string
-            description: Custom display name for the artifact. Defaults to the source file name.
+            description: Required. File path to publish. In the sandbox, this is typically a /workspace/... path or a path relative to the current chat working directory. The source file basename is always used as the published download filename.
           description:
             type: string
             description: Short description of this artifact.

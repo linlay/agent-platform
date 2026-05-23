@@ -110,11 +110,7 @@ func publishArtifacts(chatsRoot string, chatID string, runID string, raw any) []
 			artifactID = fmt.Sprintf("artifact_%d_%d", time.Now().UnixMilli(), index)
 		}
 
-		name := AnyStringNode(mapped["name"])
-		if name == "" {
-			name = filepath.Base(sourcePath)
-		}
-		filename := filepath.Base(name)
+		filename := filepath.Base(sourcePath)
 
 		targetPath := sourcePath
 		relativePath, relErr := filepath.Rel(chatDir, targetPath)

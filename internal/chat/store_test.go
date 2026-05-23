@@ -1454,13 +1454,7 @@ func TestStepWriterReusesReactSeqForSplitHITLToolResult(t *testing.T) {
 			"result": "pushed",
 		},
 	})
-	writer.OnEvent(stream.EventData{
-		Type:      "stage.marker",
-		Timestamp: 1006,
-		Payload: map[string]any{
-			"stage": "react-step-2",
-		},
-	})
+	writer.OnStageMarker("react-step-2")
 	writer.OnEvent(stream.EventData{
 		Type:      "debug.preCall",
 		Timestamp: 1007,

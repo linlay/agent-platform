@@ -228,7 +228,7 @@ func TestInMemoryRunManagerActiveRunForChatReturnsConflictForMultipleRuns(t *tes
 	}
 }
 
-func TestInMemoryRunManagerReaperPublishesRunExpiredBeforeInterrupt(t *testing.T) {
+func TestInMemoryRunManagerReaperPublishesExpiredRunErrorBeforeInterrupt(t *testing.T) {
 	manager := NewInMemoryRunManager()
 	manager.maxBackgroundDuration = time.Millisecond
 
@@ -269,11 +269,15 @@ func TestInMemoryRunManagerReaperPublishesRunExpiredBeforeInterrupt(t *testing.T
 	if first.Type != "run.start" {
 		t.Fatalf("expected first replay event run.start, got %#v", first)
 	}
-	if second.Type != "run.expired" {
-		t.Fatalf("expected second replay event run.expired, got %#v", second)
+	if second.Type != "run.error" {
+		t.Fatalf("expected second replay event run.error, got %#v", second)
 	}
 	if second.String("runId") != "run_expired" {
-		t.Fatalf("expected run.expired payload to include runId, got %#v", second)
+		t.Fatalf("expected run.error payload to include runId, got %#v", second)
+	}
+	errorPayload, _ := second.Value("error").(map[string]any)
+	if errorPayload["code"] != "expired" {
+		t.Fatalf("expected run.error code expired, got %#v", second)
 	}
 }
 

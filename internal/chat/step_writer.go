@@ -18,7 +18,7 @@ import (
 // to the chat store.
 //
 // It mirrors the behaviour of Java's TurnTraceWriter:
-//   - stage.marker triggers flushing the current step and starting a new one
+//   - internal stage markers flush the current step and start a new one
 //   - plan/artifact state is tracked and attached to step lines
 //   - snapshot events (reasoning/content/tool/action) become StoredMessages
 //   - request.submit + awaiting.answer are merged into SubmitLines
@@ -127,14 +127,10 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		w.handleRequestQuery(event)
 
 	case "run.start":
-		// default stage; will be overridden by first stage.marker
+		// default stage; will be overridden by the first internal stage marker
 		if w.currentStage == "" {
 			w.currentStage = "oneshot"
 		}
-
-	case "stage.marker":
-		w.flushCurrentStep()
-		w.currentStage = parseStage(event.String("stage"))
 
 	case "reasoning.snapshot":
 		w.ensureStep()
@@ -323,6 +319,13 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		w.flushAllTaskSteps()
 		w.flushPendingSubmit()
 	}
+}
+
+// OnStageMarker processes an internal stage boundary without exposing it as a
+// persisted or streamed event.
+func (w *StepWriter) OnStageMarker(stage string) {
+	w.flushCurrentStep()
+	w.currentStage = parseStage(stage)
 }
 
 // Flush writes any remaining accumulated step. Call at end of stream.

@@ -836,9 +836,17 @@ func (m *InMemoryRunManager) reapExpiredRuns() {
 		if state != nil && state.eventBus != nil {
 			state.eventBus.Publish(stream.EventData{
 				Seq:       state.eventBus.LatestSeq() + 1,
-				Type:      "run.expired",
+				Type:      "run.error",
 				Timestamp: time.Now().UnixMilli(),
-				Payload:   map[string]any{"runId": state.run.RunID},
+				Payload: map[string]any{
+					"runId": state.run.RunID,
+					"error": map[string]any{
+						"code":     "expired",
+						"message":  "run expired",
+						"scope":    "run",
+						"category": "runtime",
+					},
+				},
 			})
 		}
 		if !state.control.Interrupt() {

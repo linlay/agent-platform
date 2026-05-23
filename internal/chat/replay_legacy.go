@@ -13,8 +13,7 @@ func parseChatLegacyFormat(summary Summary, events []map[string]any, rawMessages
 	orderedEvents := make([]stream.EventData, 0, len(events))
 	for _, event := range events {
 		eventType, _ := event["type"].(string)
-		if eventType == "plan.create" || eventType == "plan.update" || eventType == "artifact.publish" ||
-			eventType == "stage.marker" {
+		if eventType == "plan.create" || eventType == "plan.update" || eventType == "artifact.publish" {
 			continue
 		}
 		orderedEvents = append(orderedEvents, stream.EventDataFromMap(event))

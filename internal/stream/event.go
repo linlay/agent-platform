@@ -266,8 +266,6 @@ func eventPayloadKeyOrder(eventType string) []string {
 		return []string{"runId", "usage"}
 	case "run.error":
 		return []string{"runId", "error", "usage"}
-	case "run.expired":
-		return []string{"runId"}
 	case "reasoning.start":
 		return []string{"reasoningId", "runId", "taskId", "reasoningLabel"}
 	case "reasoning.delta":
@@ -324,8 +322,6 @@ func eventPayloadKeyOrder(eventType string) []string {
 		return []string{"taskId", "reason"}
 	case "task.error":
 		return []string{"taskId", "error"}
-	case "stage.marker":
-		return []string{"runId", "chatId", "stage"}
 	case "artifact.publish":
 		return []string{"chatId", "runId", "artifactCount", "artifacts"}
 	default:

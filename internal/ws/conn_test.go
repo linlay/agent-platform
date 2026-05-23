@@ -72,7 +72,7 @@ func TestConnSourceKeepsAsyncDispatchAndConnectedOrdering(t *testing.T) {
 	}
 }
 
-func TestConnStartStreamForwardMapsRunExpiredToExpiredReason(t *testing.T) {
+func TestConnStartStreamForwardMapsExpiredRunErrorToErrorReason(t *testing.T) {
 	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 8, MaxObservesPerConn: 2}, time.Second, AuthSession{})
 	if _, err := conn.ReserveStream("req_1", "run_1"); err != nil {
 		t.Fatalf("reserve stream: %v", err)
@@ -83,16 +83,24 @@ func TestConnStartStreamForwardMapsRunExpiredToExpiredReason(t *testing.T) {
 
 	events <- stream.EventData{
 		Seq:       1,
-		Type:      "run.expired",
+		Type:      "run.error",
 		Timestamp: time.Now().UnixMilli(),
-		Payload:   map[string]any{"runId": "run_1"},
+		Payload: map[string]any{
+			"runId": "run_1",
+			"error": map[string]any{
+				"code":     "expired",
+				"message":  "run expired",
+				"scope":    "run",
+				"category": "runtime",
+			},
+		},
 	}
 	close(events)
 
 	msg := mustReadQueuedMessage(t, conn.writeQueue)
 	frame, ok := msg.frame.(StreamFrame)
-	if !ok || frame.Event == nil || frame.Event.Type != "run.expired" {
-		t.Fatalf("expected first queued stream event to be run.expired, got %#v", msg.frame)
+	if !ok || frame.Event == nil || frame.Event.Type != "run.error" {
+		t.Fatalf("expected first queued stream event to be run.error, got %#v", msg.frame)
 	}
 
 	msg = mustReadQueuedMessage(t, conn.writeQueue)
@@ -100,8 +108,8 @@ func TestConnStartStreamForwardMapsRunExpiredToExpiredReason(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected terminal stream frame, got %#v", msg.frame)
 	}
-	if frame.Reason != "expired" || frame.LastSeq != 1 {
-		t.Fatalf("expected expired terminal frame, got %#v", frame)
+	if frame.Reason != "error" || frame.LastSeq != 1 {
+		t.Fatalf("expected error terminal frame, got %#v", frame)
 	}
 }
 

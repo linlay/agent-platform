@@ -293,8 +293,6 @@ func (c *Conn) StartStreamForward(requestID string, observer *stream.Observer) {
 					reason = "error"
 				case "run.cancel":
 					reason = "cancelled"
-				case "run.expired":
-					reason = "expired"
 				}
 				entry := c.lookupStream(requestID)
 				if entry == nil {
