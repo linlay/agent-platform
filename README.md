@@ -134,7 +134,7 @@ RUN_SOCKET_TESTS=1 make test-integration
 
 ## 3. 配置说明
 
-所有本地环境配置从 `.env.example` 复制到 `.env`。`.env` 不提交；`.env.example` 只保留推荐给普通部署者的最终用户环境变量入口。Bash 与文件工具权限使用 `configs/bash.yml` / `configs/file-tools.yml`，默认值的单一事实源仍以代码和 `configs/*.example.yml` 模板为准。更完整的高级、排障和兼容性配置参考见 [docs/configuration-reference.md](./docs/configuration-reference.md)。
+所有本地环境配置从 `.env.example` 复制到 `.env`。`.env` 不提交；`.env.example` 只保留推荐给普通部署者的最终用户环境变量入口。Bash 与文件工具权限使用 `configs/bash.yml` / `configs/file-tools.yml`，默认值的单一事实源仍以代码和 `configs/*.example.yml` 模板为准。更完整的高级、排障和兼容性配置参考见 [配置化说明](./docs/配置化说明.md)。
 
 ### 根 `.env.example`
 
@@ -163,7 +163,7 @@ RUN_SOCKET_TESTS=1 make test-integration
 - 日志排障：`LOGGING_AGENT_*`
 - memory / chat storage 深度调优：`AGENT_MEMORY_*`、`CHAT_STORAGE_*`
 
-LLM 交互日志、SSE/H2A 传输参数、WebSocket 调优项和 memory/chat storage 细粒度参数的默认值、适用人群和注意事项统一见 [docs/configuration-reference.md](./docs/configuration-reference.md)。
+LLM 交互日志、SSE/H2A 传输参数、WebSocket 调优项和 memory/chat storage 细粒度参数的默认值、适用人群和注意事项统一见 [配置化说明](./docs/配置化说明.md)。
 
 Provider `apiKey` 支持两种写法：
 
@@ -223,7 +223,7 @@ Provider `apiKey` 支持两种写法：
 - 旧 `MEMORY_CHATS_*`
 - 旧 `*_EXTERNAL_DIR`
 
-详细配置见 [docs/configuration-reference.md](./docs/configuration-reference.md)。
+详细配置见 [配置化说明](./docs/配置化说明.md)。
 
 ## 4. 部署
 
@@ -301,8 +301,19 @@ docker compose logs -f
 
 ## 文档索引
 
-- [docs/agent-definition-reference.md](./docs/agent-definition-reference.md)
-- [docs/configuration-reference.md](./docs/configuration-reference.md)
-- [docs/manual-test-cases.md](./docs/manual-test-cases.md)
-- [docs/versioned-release-bundle.md](./docs/versioned-release-bundle.md)
-- [docs/改为 go 方案.md](./docs/%E6%94%B9%E4%B8%BA%20go%20%E6%96%B9%E6%A1%88.md)
+- [智能体配置说明](./docs/智能体配置说明.md)
+- [配置化说明](./docs/配置化说明.md)
+- [工具目录权限](./docs/工具目录权限.md)
+- [真流式和H2A](./docs/真流式和H2A.md)
+- [记忆系统](./docs/记忆系统.md)
+- [运行时和沙箱](./docs/运行时和沙箱.md)
+- [通讯协议](./docs/通讯协议.md)
+- [HITL协议](./docs/HITL协议.md)
+- [自动化](./docs/自动化.md)
+- [子智能体调度](./docs/子智能体调度.md)
+- [MCP与前端工具](./docs/MCP与前端工具.md)
+- [会话存储与回放](./docs/会话存储与回放.md)
+- [鉴权与安全边界](./docs/鉴权与安全边界.md)
+- [版本化打包方案](./docs/版本化打包方案.md)
+- [手工测试用例](./docs/手工测试用例.md)
+- [兼容清理清单](./docs/兼容清理清单.md)
