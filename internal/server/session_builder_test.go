@@ -112,8 +112,24 @@ func TestBuildQuerySessionUsesCoderProfileDefaults(t *testing.T) {
 	if session.Mode != catalog.AgentModeCoder {
 		t.Fatalf("mode = %q, want %q", session.Mode, catalog.AgentModeCoder)
 	}
+	if session.AccessLevel != contracts.AccessLevelDefault {
+		t.Fatalf("access level = %q, want default", session.AccessLevel)
+	}
 	if session.WorkspaceRoot != filepath.Clean(workspace) {
 		t.Fatalf("workspace root = %q, want %q", session.WorkspaceRoot, filepath.Clean(workspace))
+	}
+	autoSession, err := server.BuildQuerySession(context.Background(), api.QueryRequest{
+		AgentKey:    "coder-app",
+		ChatID:      "chat-auto",
+		RunID:       "run-auto",
+		Role:        "user",
+		AccessLevel: contracts.AccessLevelAutoApprove,
+	}, chat.Summary{ChatID: "chat-auto"}, def, querySessionBuildOptions{AllowInvokeAgents: true})
+	if err != nil {
+		t.Fatalf("build auto access query session: %v", err)
+	}
+	if autoSession.AccessLevel != contracts.AccessLevelAutoApprove {
+		t.Fatalf("access level = %q, want auto_approve", autoSession.AccessLevel)
 	}
 }
 

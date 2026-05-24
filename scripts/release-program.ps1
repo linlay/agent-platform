@@ -303,7 +303,9 @@ function Build-ProgramBundle {
 
         Copy-ConfigTemplates -BundleRoot $bundleRoot
         if ($TargetOs -eq "windows") {
+            Copy-Item "$PROGRAM_RELEASE_ASSETS_DIR/windows/access-policy.example.yml" (Join-Path (Join-Path $bundleRoot "configs") "access-policy.example.yml") -Force
             Copy-Item "$PROGRAM_RELEASE_ASSETS_DIR/windows/bash.example.yml" (Join-Path (Join-Path $bundleRoot "configs") "bash.example.yml") -Force
+            Copy-Item "$PROGRAM_RELEASE_ASSETS_DIR/windows/file-tools.example.yml" (Join-Path (Join-Path $bundleRoot "configs") "file-tools.example.yml") -Force
         }
         Copy-BundledRg -BundleRoot $bundleRoot -TargetOs $TargetOs -TargetArch $TargetArch
         New-RuntimeTree -BundleRoot $bundleRoot

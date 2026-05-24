@@ -2,12 +2,32 @@ package contracts
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
 	"agent-platform/internal/stream"
 )
+
+const (
+	AccessLevelDefault     = "default"
+	AccessLevelAutoApprove = "auto_approve"
+	AccessLevelFullAccess  = "full_access"
+)
+
+func NormalizeAccessLevel(value string) (string, bool) {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if normalized == "" {
+		return AccessLevelDefault, true
+	}
+	switch normalized {
+	case AccessLevelDefault, AccessLevelAutoApprove, AccessLevelFullAccess:
+		return normalized, true
+	default:
+		return "", false
+	}
+}
 
 type AgentEngine interface {
 	Stream(ctx context.Context, req api.QueryRequest, session QuerySession) (AgentStream, error)
@@ -166,6 +186,7 @@ type QuerySession struct {
 	AgentHasRuntimeSandbox bool
 	AgentHasMemoryConfig   bool
 	WorkspaceRoot          string
+	AccessLevel            string
 	SkillHookDirs          []string
 	// RuntimeEnvOverrides carries agent/skill-level env defaults for both sandbox and host bash execution.
 	RuntimeEnvOverrides map[string]string
@@ -210,6 +231,11 @@ type ExecutionContext struct {
 	ToolOverrides     map[string]api.ToolDetailResponse
 	// RuntimeEnvOverrides is reused by host bash as agent/skill-level env defaults.
 	RuntimeEnvOverrides map[string]string
+	AccessLevel         string
+	// AccessPolicyApprovals stores one-shot approvals for exact host bash access-policy fingerprints.
+	AccessPolicyApprovals map[string]int
+	// AccessPolicyRuleApprovals stores run-scoped approvals for host bash access-policy rules.
+	AccessPolicyRuleApprovals map[string]bool
 	// BashSecurityApprovals stores one-shot approvals for exact host bash command fingerprints.
 	BashSecurityApprovals map[string]int
 	// FileReadApprovals stores one-shot approvals for exact read/grep file access paths.

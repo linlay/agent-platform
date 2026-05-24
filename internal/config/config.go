@@ -33,6 +33,7 @@ type Config struct {
 	CORS           CORSConfig
 	ContainerHub   ContainerHubConfig
 	Desktop        DesktopConfig
+	AccessPolicy   AccessPolicyConfig
 	Bash           BashConfig
 	FileTools      FileToolsConfig
 	BashHITL       BashHITLConfig
@@ -279,10 +280,13 @@ type DesktopBridgeConfig struct {
 }
 
 type BashConfig struct {
-	WorkingDirectory        string
-	AllowedPaths            []string
-	AllowedCommands         []string
-	PathCheckedCommands     []string
+	WorkingDirectory string
+	// Deprecated: host path policy is loaded from AccessPolicy.
+	AllowedPaths    []string
+	AllowedCommands []string
+	// Deprecated: host path policy is loaded from AccessPolicy.
+	PathCheckedCommands []string
+	// Deprecated: host path policy is loaded from AccessPolicy.
 	PathCheckBypassCommands []string
 	ShellFeaturesEnabled    bool
 	ShellExecutable         string
@@ -292,8 +296,10 @@ type BashConfig struct {
 }
 
 type FileToolsConfig struct {
-	WorkingDirectory       string
-	AllowedReadPaths       []string
+	WorkingDirectory string
+	// Deprecated: file path policy is loaded from AccessPolicy.
+	AllowedReadPaths []string
+	// Deprecated: file path policy is loaded from AccessPolicy.
 	AllowedWritePaths      []string
 	MaxReadBytes           int
 	MaxWriteBytes          int
@@ -301,6 +307,28 @@ type FileToolsConfig struct {
 	RequireWriteApproval   bool
 	RequireReadBeforeWrite bool
 	Hooks                  FileToolsHooksConfig
+}
+
+type AccessPolicyConfig struct {
+	Version          int
+	WorkingDirectory string
+	Levels           map[string]AccessPolicyLevelConfig
+}
+
+type AccessPolicyLevelConfig struct {
+	Inherit       string
+	ReadRoots     []string
+	WriteRoots    []string
+	ReadonlyRoots []string
+	Approvals     AccessPolicyApprovalConfig
+}
+
+type AccessPolicyApprovalConfig struct {
+	ReadOutsideRoots      string
+	WriteOutsideRoots     string
+	BashComplexFilesystem string
+	BashOpaqueCommand     string
+	BashWriteInWriteRoots string
 }
 
 type FileToolsHooksConfig struct {
@@ -600,6 +628,7 @@ func defaultConfig() Config {
 				RequestTimeoutMs: 20000,
 			},
 		},
+		AccessPolicy: defaultAccessPolicyConfig(),
 		Bash: BashConfig{
 			WorkingDirectory: "",
 			AllowedPaths:     []string{".", "/tmp"},
@@ -662,8 +691,15 @@ func defaultConfig() Config {
 func (c *Config) applyStructuredConfig() error {
 	c.applyContainerHubFile(ConfigFile("configs/container-hub.yml"))
 	c.applyDesktopFile(ConfigFile("configs/desktop.yml"))
-	c.applyBashFile(ConfigFile("configs/bash.yml"))
-	c.applyFileToolsFile(ConfigFile("configs/file-tools.yml"))
+	if err := c.applyAccessPolicyFile(ConfigFile("configs/access-policy.yml")); err != nil {
+		return err
+	}
+	if err := c.applyBashFile(ConfigFile("configs/bash.yml")); err != nil {
+		return err
+	}
+	if err := c.applyFileToolsFile(ConfigFile("configs/file-tools.yml")); err != nil {
+		return err
+	}
 	c.applyCORSFile(ConfigFile("configs/cors.yml"))
 	c.applyPromptsFile(ConfigFile("configs/prompts.yml"))
 	c.applyCoderPromptsFile(ConfigFile("configs/coder-prompts.yml"))
@@ -718,46 +754,118 @@ func (c *Config) applyContainerHubFile(path string) {
 	c.ContainerHub.DestroyQueueDelayMs = int64Value(anyValue(values["destroy-queue-delay-ms"], c.ContainerHub.DestroyQueueDelayMs), c.ContainerHub.DestroyQueueDelayMs)
 }
 
-func (c *Config) applyBashFile(path string) {
+func (c *Config) applyAccessPolicyFile(path string) error {
 	tree, err := LoadYAMLTree(path)
 	if err != nil {
-		return
+		return err
 	}
 	values, _ := tree.(map[string]any)
 	if len(values) == 0 {
-		return
+		return nil
+	}
+	c.AccessPolicy.Version = intValue(anyValue(values["version"], c.AccessPolicy.Version), c.AccessPolicy.Version)
+	c.AccessPolicy.WorkingDirectory = stringValue(anyValue(values["working-directory"], c.AccessPolicy.WorkingDirectory), c.AccessPolicy.WorkingDirectory)
+	if levels, ok := values["levels"].(map[string]any); ok && len(levels) > 0 {
+		parsed := make(map[string]AccessPolicyLevelConfig, len(levels))
+		for name, raw := range levels {
+			name = strings.ToLower(strings.TrimSpace(name))
+			if name == "" {
+				continue
+			}
+			base := AccessPolicyLevelConfig{}
+			if existing, ok := c.AccessPolicy.Levels[name]; ok {
+				base = existing
+			}
+			parsed[name] = parseAccessPolicyLevelConfig(raw, base)
+		}
+		for name, level := range c.AccessPolicy.Levels {
+			if _, ok := parsed[name]; !ok {
+				parsed[name] = level
+			}
+		}
+		c.AccessPolicy.Levels = parsed
+	}
+	return nil
+}
+
+func parseAccessPolicyLevelConfig(raw any, fallback AccessPolicyLevelConfig) AccessPolicyLevelConfig {
+	values, _ := raw.(map[string]any)
+	if len(values) == 0 {
+		return fallback
+	}
+	fallback.Inherit = strings.ToLower(strings.TrimSpace(stringValue(anyValue(values["inherit"], fallback.Inherit), fallback.Inherit)))
+	fallback.ReadRoots = csvOrList(anyValue(values["read-roots"], fallback.ReadRoots), fallback.ReadRoots)
+	fallback.WriteRoots = csvOrList(anyValue(values["write-roots"], fallback.WriteRoots), fallback.WriteRoots)
+	fallback.ReadonlyRoots = csvOrList(anyValue(values["readonly-roots"], fallback.ReadonlyRoots), fallback.ReadonlyRoots)
+	fallback.Approvals = parseAccessPolicyApprovals(values["approvals"], fallback.Approvals)
+	return fallback
+}
+
+func parseAccessPolicyApprovals(raw any, fallback AccessPolicyApprovalConfig) AccessPolicyApprovalConfig {
+	values, _ := raw.(map[string]any)
+	if len(values) == 0 {
+		return fallback
+	}
+	fallback.ReadOutsideRoots = stringValue(anyValue(values["read-outside-roots"], fallback.ReadOutsideRoots), fallback.ReadOutsideRoots)
+	fallback.WriteOutsideRoots = stringValue(anyValue(values["write-outside-roots"], fallback.WriteOutsideRoots), fallback.WriteOutsideRoots)
+	fallback.BashComplexFilesystem = stringValue(anyValue(values["bash-complex-filesystem"], fallback.BashComplexFilesystem), fallback.BashComplexFilesystem)
+	fallback.BashOpaqueCommand = stringValue(anyValue(values["bash-opaque-command"], fallback.BashOpaqueCommand), fallback.BashOpaqueCommand)
+	fallback.BashWriteInWriteRoots = stringValue(anyValue(values["bash-write-in-write-roots"], fallback.BashWriteInWriteRoots), fallback.BashWriteInWriteRoots)
+	return fallback
+}
+
+func (c *Config) applyBashFile(path string) error {
+	tree, err := LoadYAMLTree(path)
+	if err != nil {
+		return err
+	}
+	values, _ := tree.(map[string]any)
+	if len(values) == 0 {
+		return nil
+	}
+	if err := rejectDeprecatedYAMLKeys(path, values, "allowed-paths", "path-checked-commands", "path-check-bypass-commands"); err != nil {
+		return err
 	}
 	c.Bash.WorkingDirectory = stringValue(anyValue(values["working-directory"], c.Bash.WorkingDirectory), c.Bash.WorkingDirectory)
-	c.Bash.AllowedPaths = csvOrList(anyValue(values["allowed-paths"], c.Bash.AllowedPaths), c.Bash.AllowedPaths)
 	c.Bash.AllowedCommands = csvOrList(anyValue(values["allowed-commands"], c.Bash.AllowedCommands), c.Bash.AllowedCommands)
-	c.Bash.PathCheckedCommands = csvOrList(anyValue(values["path-checked-commands"], c.Bash.PathCheckedCommands), c.Bash.PathCheckedCommands)
-	c.Bash.PathCheckBypassCommands = csvOrList(anyValue(values["path-check-bypass-commands"], c.Bash.PathCheckBypassCommands), c.Bash.PathCheckBypassCommands)
 	c.Bash.ShellFeaturesEnabled = boolValue(anyValue(values["shell-features-enabled"], c.Bash.ShellFeaturesEnabled), c.Bash.ShellFeaturesEnabled)
 	c.Bash.ShellExecutable = stringValue(anyValue(values["shell-executable"], c.Bash.ShellExecutable), c.Bash.ShellExecutable)
 	c.Bash.ShellArgs = csvOrList(anyValue(values["shell-args"], c.Bash.ShellArgs), c.Bash.ShellArgs)
 	c.Bash.ShellTimeoutMs = intValue(anyValue(values["shell-timeout-ms"], c.Bash.ShellTimeoutMs), c.Bash.ShellTimeoutMs)
 	c.Bash.MaxCommandChars = intValue(anyValue(values["max-command-chars"], c.Bash.MaxCommandChars), c.Bash.MaxCommandChars)
 	c.BashHITL.DefaultTimeoutMs = intValue(anyValue(values["hitl-default-timeout-ms"], c.BashHITL.DefaultTimeoutMs), c.BashHITL.DefaultTimeoutMs)
+	return nil
 }
 
-func (c *Config) applyFileToolsFile(path string) {
+func (c *Config) applyFileToolsFile(path string) error {
 	tree, err := LoadYAMLTree(path)
 	if err != nil {
-		return
+		return err
 	}
 	values, _ := tree.(map[string]any)
 	if len(values) == 0 {
-		return
+		return nil
+	}
+	if err := rejectDeprecatedYAMLKeys(path, values, "allowed-read-paths", "allowed-write-paths"); err != nil {
+		return err
 	}
 	c.FileTools.WorkingDirectory = stringValue(anyValue(values["working-directory"], c.FileTools.WorkingDirectory), c.FileTools.WorkingDirectory)
-	c.FileTools.AllowedReadPaths = csvOrList(anyValue(values["allowed-read-paths"], c.FileTools.AllowedReadPaths), c.FileTools.AllowedReadPaths)
-	c.FileTools.AllowedWritePaths = csvOrList(anyValue(values["allowed-write-paths"], c.FileTools.AllowedWritePaths), c.FileTools.AllowedWritePaths)
 	c.FileTools.MaxReadBytes = intValue(anyValue(values["max-read-bytes"], c.FileTools.MaxReadBytes), c.FileTools.MaxReadBytes)
 	c.FileTools.MaxWriteBytes = intValue(anyValue(values["max-write-bytes"], c.FileTools.MaxWriteBytes), c.FileTools.MaxWriteBytes)
 	c.FileTools.MaxBatchOps = intValue(anyValue(values["max-batch-ops"], c.FileTools.MaxBatchOps), c.FileTools.MaxBatchOps)
 	c.FileTools.RequireWriteApproval = boolValue(anyValue(values["require-write-approval"], c.FileTools.RequireWriteApproval), c.FileTools.RequireWriteApproval)
 	c.FileTools.RequireReadBeforeWrite = boolValue(anyValue(values["require-read-before-write"], c.FileTools.RequireReadBeforeWrite), c.FileTools.RequireReadBeforeWrite)
 	c.FileTools.Hooks = parseFileToolsHooksConfig(values["hooks"], c.FileTools.Hooks)
+	return nil
+}
+
+func rejectDeprecatedYAMLKeys(path string, values map[string]any, keys ...string) error {
+	for _, key := range keys {
+		if _, ok := values[key]; ok {
+			return fmt.Errorf("%s: %q has moved to configs/access-policy.yml", path, key)
+		}
+	}
+	return nil
 }
 
 func defaultLSPDiagnosticsHookConfig() LSPDiagnosticsHookConfig {
@@ -771,6 +879,48 @@ func defaultLSPDiagnosticsHookConfig() LSPDiagnosticsHookConfig {
 			"javascript": {Command: "typescript-language-server", Args: []string{"--stdio"}},
 			"python":     {Command: "pyright-langserver", Args: []string{"--stdio"}},
 			"rust":       {Command: "rust-analyzer"},
+		},
+	}
+}
+
+func defaultAccessPolicyConfig() AccessPolicyConfig {
+	return AccessPolicyConfig{
+		Version:          1,
+		WorkingDirectory: "@workspace",
+		Levels: map[string]AccessPolicyLevelConfig{
+			"default": {
+				ReadRoots:     []string{"@workspace", "@agent", "@skills"},
+				WriteRoots:    []string{"@workspace"},
+				ReadonlyRoots: []string{"@agent", "@skills", "@skills-market"},
+				Approvals: AccessPolicyApprovalConfig{
+					ReadOutsideRoots:      "hitl",
+					WriteOutsideRoots:     "hitl",
+					BashComplexFilesystem: "hitl",
+					BashOpaqueCommand:     "hitl",
+					BashWriteInWriteRoots: "allow",
+				},
+			},
+			"auto_approve": {
+				Inherit: "default",
+				Approvals: AccessPolicyApprovalConfig{
+					ReadOutsideRoots:      "auto",
+					WriteOutsideRoots:     "auto",
+					BashComplexFilesystem: "auto",
+					BashOpaqueCommand:     "auto",
+				},
+			},
+			"full_access": {
+				ReadRoots:     []string{"/"},
+				WriteRoots:    []string{"/"},
+				ReadonlyRoots: nil,
+				Approvals: AccessPolicyApprovalConfig{
+					ReadOutsideRoots:      "allow",
+					WriteOutsideRoots:     "allow",
+					BashComplexFilesystem: "allow",
+					BashOpaqueCommand:     "allow",
+					BashWriteInWriteRoots: "allow",
+				},
+			},
 		},
 	}
 }
@@ -1216,6 +1366,7 @@ func (c *Config) normalize() error {
 	if c.Bash.WorkingDirectory == "" {
 		c.Bash.WorkingDirectory = "."
 	}
+	c.AccessPolicy = normalizeAccessPolicyConfig(c.AccessPolicy)
 	if c.FileTools.WorkingDirectory == "" {
 		c.FileTools.WorkingDirectory = c.Bash.WorkingDirectory
 	}
@@ -1260,6 +1411,78 @@ func normalizeDesktopBridgeConfig(cfg DesktopBridgeConfig) DesktopBridgeConfig {
 	}
 	cfg.BridgeURL = fmt.Sprintf("http://%s:%d%s", cfg.Host, cfg.Port, cfg.Path)
 	return cfg
+}
+
+func normalizeAccessPolicyConfig(cfg AccessPolicyConfig) AccessPolicyConfig {
+	defaults := defaultAccessPolicyConfig()
+	if cfg.Version <= 0 {
+		cfg.Version = defaults.Version
+	}
+	if strings.TrimSpace(cfg.WorkingDirectory) == "" {
+		cfg.WorkingDirectory = defaults.WorkingDirectory
+	}
+	if len(cfg.Levels) == 0 {
+		cfg.Levels = defaults.Levels
+	}
+	for name, level := range defaults.Levels {
+		if _, ok := cfg.Levels[name]; !ok {
+			cfg.Levels[name] = level
+		}
+	}
+	normalizedLevels := make(map[string]AccessPolicyLevelConfig, len(cfg.Levels))
+	for name, level := range cfg.Levels {
+		normalizedName := strings.ToLower(strings.TrimSpace(name))
+		if normalizedName == "" {
+			continue
+		}
+		level.Inherit = strings.ToLower(strings.TrimSpace(level.Inherit))
+		level.ReadRoots = normalizeAccessPolicyRoots(level.ReadRoots)
+		level.WriteRoots = normalizeAccessPolicyRoots(level.WriteRoots)
+		level.ReadonlyRoots = normalizeAccessPolicyRoots(level.ReadonlyRoots)
+		level.Approvals = normalizeAccessPolicyApprovals(level.Approvals)
+		normalizedLevels[normalizedName] = level
+	}
+	cfg.Levels = normalizedLevels
+	return cfg
+}
+
+func normalizeAccessPolicyRoots(roots []string) []string {
+	out := make([]string, 0, len(roots))
+	seen := map[string]struct{}{}
+	for _, root := range roots {
+		root = strings.TrimSpace(root)
+		if root == "" {
+			continue
+		}
+		if !strings.HasPrefix(root, "@") {
+			root = filepath.Clean(root)
+		}
+		if _, ok := seen[root]; ok {
+			continue
+		}
+		seen[root] = struct{}{}
+		out = append(out, root)
+	}
+	return out
+}
+
+func normalizeAccessPolicyApprovals(approvals AccessPolicyApprovalConfig) AccessPolicyApprovalConfig {
+	approvals.ReadOutsideRoots = normalizeAccessPolicyApprovalAction(approvals.ReadOutsideRoots, "hitl")
+	approvals.WriteOutsideRoots = normalizeAccessPolicyApprovalAction(approvals.WriteOutsideRoots, "hitl")
+	approvals.BashComplexFilesystem = normalizeAccessPolicyApprovalAction(approvals.BashComplexFilesystem, "hitl")
+	approvals.BashOpaqueCommand = normalizeAccessPolicyApprovalAction(approvals.BashOpaqueCommand, "hitl")
+	approvals.BashWriteInWriteRoots = normalizeAccessPolicyApprovalAction(approvals.BashWriteInWriteRoots, "allow")
+	return approvals
+}
+
+func normalizeAccessPolicyApprovalAction(value string, fallback string) string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch normalized {
+	case "allow", "hitl", "auto", "block":
+		return normalized
+	default:
+		return fallback
+	}
 }
 
 // normalizeGateways 把 legacy 单 gateway 配置（GatewayWS）合成为 Gateways[0]。

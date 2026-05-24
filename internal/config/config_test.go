@@ -703,7 +703,6 @@ func TestLoadEnvOverridesAndBashYAMLConfig(t *testing.T) {
 		content := "" +
 			"working-directory: " + filepath.ToSlash(filepath.Join("var", "runtime")) + "\n" +
 			"allowed-commands: pwd,echo\n" +
-			"path-check-bypass-commands: echo\n" +
 			"shell-features-enabled: true\n" +
 			"shell-args:\n" +
 			"  - -NoProfile\n" +
@@ -729,9 +728,6 @@ func TestLoadEnvOverridesAndBashYAMLConfig(t *testing.T) {
 			}
 			if len(cfg.Bash.AllowedCommands) != 2 {
 				t.Fatalf("unexpected allowed commands: %#v", cfg.Bash.AllowedCommands)
-			}
-			if len(cfg.Bash.PathCheckBypassCommands) != 1 || cfg.Bash.PathCheckBypassCommands[0] != "echo" {
-				t.Fatalf("unexpected path bypass commands: %#v", cfg.Bash.PathCheckBypassCommands)
 			}
 			if got := strings.Join(cfg.Bash.ShellArgs, "|"); got != "-NoProfile|-Command|{{command}}" {
 				t.Fatalf("unexpected shell args: %#v", cfg.Bash.ShellArgs)
@@ -771,43 +767,61 @@ func TestLoadBashShellArgsFromFile(t *testing.T) {
 	})
 }
 
-func TestFileToolsConfigDefaultsDoNotInheritBashPaths(t *testing.T) {
+func TestDeprecatedBashPathConfigFailsStartup(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
 		content := "" +
 			"working-directory: " + filepath.ToSlash(filepath.Join("var", "runtime")) + "\n" +
 			"allowed-paths: [\".\", \"/tmp/example\"]\n"
 		withProjectFileContents(t, filepath.Join("configs", "bash.yml"), &content, func() {
-			withProjectFileContents(t, filepath.Join("configs", "file-tools.yml"), nil, func() {
-				cfg, err := Load()
-				if err != nil {
-					t.Fatalf("load config: %v", err)
-				}
-				if cfg.FileTools.WorkingDirectory != filepath.Join("var", "runtime") {
-					t.Fatalf("unexpected file working dir: %q", cfg.FileTools.WorkingDirectory)
-				}
-				if strings.Join(cfg.FileTools.AllowedReadPaths, ",") != ".,/tmp" {
-					t.Fatalf("unexpected read paths: %#v", cfg.FileTools.AllowedReadPaths)
-				}
-				if strings.Join(cfg.FileTools.AllowedWritePaths, ",") != ".,/tmp" {
-					t.Fatalf("unexpected write paths: %#v", cfg.FileTools.AllowedWritePaths)
-				}
-				if !cfg.FileTools.RequireWriteApproval {
-					t.Fatalf("expected write approval enabled by default")
-				}
-				if !cfg.FileTools.RequireReadBeforeWrite {
-					t.Fatalf("expected read-before-write enabled by default")
-				}
-				lsp := cfg.FileTools.Hooks.AfterFileChange.LSPDiagnostics
-				if !lsp.Enabled || lsp.TimeoutMs != 3000 {
-					t.Fatalf("unexpected default lsp diagnostics hook: %#v", lsp)
-				}
-				if strings.Join(lsp.Languages, ",") != "go,typescript,javascript,python,rust" {
-					t.Fatalf("unexpected default lsp languages: %#v", lsp.Languages)
-				}
-				if lsp.Servers["go"].Command != "gopls" {
-					t.Fatalf("unexpected default go lsp server: %#v", lsp.Servers["go"])
-				}
-			})
+			_, err := Load()
+			if err == nil || !strings.Contains(err.Error(), "allowed-paths") {
+				t.Fatalf("expected deprecated allowed-paths error, got %v", err)
+			}
+		})
+	})
+}
+
+func TestDeprecatedFileToolsPathConfigFailsStartup(t *testing.T) {
+	withIsolatedEnv(t, nil, func() {
+		content := "" +
+			"allowed-read-paths:\n" +
+			"  - /read/a\n"
+		withProjectFileContents(t, filepath.Join("configs", "file-tools.yml"), &content, func() {
+			_, err := Load()
+			if err == nil || !strings.Contains(err.Error(), "allowed-read-paths") {
+				t.Fatalf("expected deprecated allowed-read-paths error, got %v", err)
+			}
+		})
+	})
+}
+
+func TestAccessPolicyConfigYAMLOverrides(t *testing.T) {
+	withIsolatedEnv(t, nil, func() {
+		content := "" +
+			"version: 1\n" +
+			"working-directory: \"@workspace\"\n" +
+			"levels:\n" +
+			"  default:\n" +
+			"    read-roots:\n" +
+			"      - \"@workspace\"\n" +
+			"    write-roots:\n" +
+			"      - \"@workspace\"\n" +
+			"    readonly-roots: []\n" +
+			"    approvals:\n" +
+			"      read-outside-roots: block\n" +
+			"      write-outside-roots: hitl\n"
+		withProjectFileContents(t, filepath.Join("configs", "access-policy.yml"), &content, func() {
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			level := cfg.AccessPolicy.Levels["default"]
+			if strings.Join(level.ReadRoots, ",") != "@workspace" {
+				t.Fatalf("unexpected read roots: %#v", level.ReadRoots)
+			}
+			if level.Approvals.ReadOutsideRoots != "block" {
+				t.Fatalf("unexpected read outside action: %#v", level.Approvals)
+			}
 		})
 	})
 }
@@ -816,10 +830,6 @@ func TestFileToolsConfigYAMLOverrides(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
 		content := "" +
 			"working-directory: " + filepath.ToSlash(filepath.Join("tmp", "files")) + "\n" +
-			"allowed-read-paths:\n" +
-			"  - /read/a\n" +
-			"  - /read/b\n" +
-			"allowed-write-paths: /write/a\n" +
 			"max-read-bytes: 1234\n" +
 			"max-write-bytes: 5678\n" +
 			"max-batch-ops: 9\n" +
@@ -832,12 +842,6 @@ func TestFileToolsConfigYAMLOverrides(t *testing.T) {
 			}
 			if cfg.FileTools.WorkingDirectory != filepath.Join("tmp", "files") {
 				t.Fatalf("unexpected file working dir: %q", cfg.FileTools.WorkingDirectory)
-			}
-			if strings.Join(cfg.FileTools.AllowedReadPaths, ",") != "/read/a,/read/b" {
-				t.Fatalf("unexpected read paths: %#v", cfg.FileTools.AllowedReadPaths)
-			}
-			if strings.Join(cfg.FileTools.AllowedWritePaths, ",") != "/write/a" {
-				t.Fatalf("unexpected write paths: %#v", cfg.FileTools.AllowedWritePaths)
 			}
 			if cfg.FileTools.MaxReadBytes != 1234 || cfg.FileTools.MaxWriteBytes != 5678 || cfg.FileTools.MaxBatchOps != 9 {
 				t.Fatalf("unexpected file limits: %#v", cfg.FileTools)

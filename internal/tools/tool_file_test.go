@@ -64,6 +64,37 @@ func TestInvokeReadPathEscapeRequiresApproval(t *testing.T) {
 	}
 }
 
+func TestInvokeReadOutsideWorkspaceAutoApproveReadsFile(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("secret\n"), 0o644); err != nil {
+		t.Fatalf("write outside: %v", err)
+	}
+	executor := fileToolExecutor(root, true)
+	execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{
+		AccessLevel:   contracts.AccessLevelAutoApprove,
+		WorkspaceRoot: root,
+	}}
+
+	result, err := executor.invokeRead(map[string]any{
+		"file_path":        filepath.Join(outside, "secret.txt"),
+		"add_line_numbers": false,
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invokeRead: %v", err)
+	}
+	if result.Error != "" || result.ExitCode != 0 {
+		t.Fatalf("expected auto-approved read success, got %#v", result)
+	}
+	if result.Structured["content"] != "secret\n" {
+		t.Fatalf("unexpected content: %#v", result.Structured)
+	}
+	meta, _ := result.Structured["accessPolicy"].(map[string]any)
+	if meta["decision"] != "auto_approved" || meta["accessLevel"] != contracts.AccessLevelAutoApprove {
+		t.Fatalf("expected auto approval metadata, got %#v", result.Structured["accessPolicy"])
+	}
+}
+
 func TestInvokeReadConsumesExactPathApproval(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()
@@ -304,6 +335,35 @@ func TestInvokeWriteRequiresApprovalByDefault(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "owner.md")); !os.IsNotExist(err) {
 		t.Fatalf("expected file not to be written without approval")
+	}
+}
+
+func TestInvokeWriteOutsideWorkspaceAutoApproveBypassesWriteApproval(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	executor := fileToolExecutor(root, true)
+	execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{
+		AccessLevel:   contracts.AccessLevelAutoApprove,
+		WorkspaceRoot: root,
+	}}
+
+	result, err := executor.invokeWrite(context.Background(), map[string]any{
+		"file_path":   filepath.Join(outside, "owner.md"),
+		"content":     "hello",
+		"description": "写入 workspace 外文件",
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invokeWrite: %v", err)
+	}
+	if result.Error != "" || result.ExitCode != 0 {
+		t.Fatalf("expected auto-approved write success, got %#v", result)
+	}
+	if got, err := os.ReadFile(filepath.Join(outside, "owner.md")); err != nil || string(got) != "hello" {
+		t.Fatalf("expected outside file written, got %q err=%v", string(got), err)
+	}
+	meta, _ := result.Structured["accessPolicy"].(map[string]any)
+	if meta["decision"] != "auto_approved" || meta["accessLevel"] != contracts.AccessLevelAutoApprove {
+		t.Fatalf("expected auto approval metadata, got %#v", result.Structured["accessPolicy"])
 	}
 }
 

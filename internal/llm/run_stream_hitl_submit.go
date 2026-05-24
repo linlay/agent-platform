@@ -159,6 +159,9 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 	if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewRequiresApproval {
 		return s.executeApprovedBashSecurityInvocation(invocation, review)
 	}
+	if review := s.lookupBashAccessReview(invocation); review.RequiresApproval() {
+		return s.executeApprovedBashAccessInvocation(invocation, review)
+	}
 	if result := s.lookupWorkspaceHITL(invocation); result.Intercepted {
 		return s.executeApprovedBashInvocation(invocation, result)
 	}

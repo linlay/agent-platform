@@ -158,6 +158,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		AgentHasRuntimeSandbox: hasRuntimeSandbox(agentDef.Runtime),
 		AgentHasMemoryConfig:   agentDef.MemoryEnabled,
 		WorkspaceRoot:          resolvedWorkspaceRoot,
+		AccessLevel:            normalizedAccessLevel(req.AccessLevel),
 		SkillHookDirs:          skillHookDirs,
 		RuntimeEnvOverrides:    runtimeEnvOverrides,
 	}
@@ -236,6 +237,14 @@ func loadConfiguredProjectPrompts(agentDef catalog.AgentDefinition, workspaceRoo
 		sections = append(sections, title+"\n"+content)
 	}
 	return strings.Join(sections, "\n\n"), nil
+}
+
+func normalizedAccessLevel(value string) string {
+	normalized, ok := contracts.NormalizeAccessLevel(value)
+	if !ok {
+		return contracts.AccessLevelDefault
+	}
+	return normalized
 }
 
 func resolveProjectPromptPath(agentDef catalog.AgentDefinition, workspaceRoot string, promptFile catalog.AgentProjectPromptFile) (string, string, string, error) {

@@ -1,16 +1,7 @@
 # Windows file tools preset. Runtime config is loaded from configs/file-tools.yml at startup.
+# Path policy lives in configs/access-policy.yml.
 
 working-directory: .
-
-# file_read / file_grep allowlist. Out-of-allowlist paths fall back to HITL approval
-# with approve / approve_rule_run / reject.
-allowed-read-paths:
-  - .
-  - C:\
-
-# Keep file_write / file_edit access narrower by default.
-allowed-write-paths:
-  - .
 
 max-read-bytes: 1048576
 max-write-bytes: 1048576

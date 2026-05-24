@@ -1,0 +1,44 @@
+version: 1
+
+# 相对路径解析默认基准。@workspace 会随每个请求的 session workspace 展开。
+working-directory: "@workspace"
+
+levels:
+  default:
+    read-roots:
+      - "@workspace"
+      - "@agent"
+      - "@skills"
+    write-roots:
+      - "@workspace"
+    readonly-roots:
+      - "@agent"
+      - "@skills"
+      - "@skills-market"
+    approvals:
+      read-outside-roots: hitl
+      write-outside-roots: hitl
+      bash-complex-filesystem: hitl
+      bash-opaque-command: hitl
+      bash-write-in-write-roots: allow
+
+  auto_approve:
+    inherit: default
+    approvals:
+      read-outside-roots: auto
+      write-outside-roots: auto
+      bash-complex-filesystem: auto
+      bash-opaque-command: auto
+
+  full_access:
+    read-roots:
+      - /
+    write-roots:
+      - /
+    readonly-roots: []
+    approvals:
+      read-outside-roots: allow
+      write-outside-roots: allow
+      bash-complex-filesystem: allow
+      bash-opaque-command: allow
+      bash-write-in-write-roots: allow

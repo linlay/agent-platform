@@ -1,12 +1,8 @@
 # Windows host shell preset. The historical tool name remains `bash`, but host
-# commands run through Windows PowerShell by default.
+# commands run through Windows PowerShell by default. Path policy lives in
+# configs/access-policy.yml.
 working-directory: .
-allowed-paths: ., C:\
-# File tools do not inherit allowed-paths. Configure configs/file-tools.yml
-# allowed-read-paths / allowed-write-paths when file_read/file_grep/file_write/file_edit need wider access.
 allowed-commands: '*'
-path-checked-commands: '*'
-path-check-bypass-commands: '*'
 shell-features-enabled: true
 shell-executable: powershell.exe
 shell-args:

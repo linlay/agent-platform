@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/bashsec"
 	"agent-platform/internal/chat"
 	. "agent-platform/internal/contracts"
@@ -26,6 +27,9 @@ func (s *llmRunStream) approvalHITLResult(invocation *preparedToolInvocation) hi
 	if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewRequiresApproval {
 		return bashSecurityInterceptResult(invocation, review)
 	}
+	if review := s.lookupBashAccessReview(invocation); review.RequiresApproval() {
+		return bashAccessInterceptResult(invocation, review)
+	}
 	if result := s.lookupWorkspaceHITL(invocation); result.Intercepted {
 		return result
 	}
@@ -39,9 +43,15 @@ func (s *llmRunStream) executeApprovedBashInvocation(invocation *preparedToolInv
 		return nil
 	case "approve_rule_run":
 		s.registerRuleWhitelist(result.Rule.RuleKey)
+		if review := s.rawBashAccessReview(invocation); review.RequiresApproval() {
+			accesspolicy.RegisterExactApproval(s.execCtx, review.Fingerprint)
+		}
 		invocation.approvalDecision = ""
 		return s.executeOriginalBash(invocation)
 	case "approve":
+		if review := s.rawBashAccessReview(invocation); review.RequiresApproval() {
+			accesspolicy.RegisterExactApproval(s.execCtx, review.Fingerprint)
+		}
 		invocation.approvalDecision = ""
 		return s.executeOriginalBash(invocation)
 	default:
@@ -95,6 +105,19 @@ func (s *llmRunStream) prepareQueuedBashApprovalBatch() bool {
 				continue
 			}
 			if s.shouldAutoApproveBashSecurity(review) || s.hasBashSecurityApproval(review.Fingerprint) {
+				continue
+			}
+			approvals = append(approvals, s.buildApprovalAskItem(invocation))
+			invocations = append(invocations, invocation)
+			continue
+		}
+		if review := s.lookupBashAccessReview(invocation); review.RequiresApproval() {
+			if s.isRuleWhitelisted(review.RuleKey) {
+				s.applyHITLDecision(invocation, bashAccessInterceptResult(invocation, review), "", "approve_rule_run", "", true)
+				accesspolicy.RegisterRuleApproval(s.execCtx, review.RuleKey)
+				continue
+			}
+			if accesspolicy.HasApproval(s.execCtx, review) {
 				continue
 			}
 			approvals = append(approvals, s.buildApprovalAskItem(invocation))
@@ -189,27 +212,7 @@ func (s *llmRunStream) lookupPrecheckedHITL(invocation *preparedToolInvocation) 
 }
 
 func (s *llmRunStream) lookupWorkspaceHITL(invocation *preparedToolInvocation) hitl.InterceptResult {
-	if invocation == nil || !isBashTool(invocation.toolName) || strings.TrimSpace(s.session.WorkspaceRoot) == "" {
-		return hitl.InterceptResult{}
-	}
-	if invocation.workspaceHITL != nil {
-		return *invocation.workspaceHITL
-	}
-	hitlLevel := 0
-	if s.execCtx != nil {
-		hitlLevel = s.execCtx.HITLLevel
-	}
-	result := hitl.CheckWorkspaceAccess(hitl.WorkspaceCheckInput{
-		Command:       mapStringArg(invocation.args, "command"),
-		Cwd:           mapStringArg(invocation.args, "cwd"),
-		WorkspaceRoot: s.session.WorkspaceRoot,
-		ChatLevel:     hitlLevel,
-	})
-	if result.Intercepted {
-		cloned := result
-		invocation.workspaceHITL = &cloned
-	}
-	return result
+	return hitl.InterceptResult{}
 }
 
 func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {

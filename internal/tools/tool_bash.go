@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/bashsec"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
@@ -47,6 +48,16 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	}
 	if workingDir == "" {
 		workingDir = "."
+	}
+	accessReview := accesspolicy.ReviewBashCommand(t.cfg.AccessPolicy, accessPolicySessionWithFallback(execCtx, workingDir), command, workingDir, bashSecurityKnownVariables(execCtx))
+	switch accessReview.Decision {
+	case accesspolicy.DecisionAllow, accesspolicy.DecisionAutoApproved:
+	case accesspolicy.DecisionRequiresApproval:
+		if !accesspolicy.ConsumeApproval(execCtx, accessReview) {
+			return ToolExecutionResult{Output: accessReview.Reason, Error: "bash_access_approval_required", ExitCode: -1}, nil
+		}
+	default:
+		return ToolExecutionResult{Output: accessReview.Reason, Error: "bash_access_blocked", ExitCode: -1}, nil
 	}
 	if !t.cfg.Bash.ShellFeaturesEnabled {
 		if err := validateStrictCommand(command, t.cfg.Bash, workingDir); err != nil {
@@ -102,7 +113,31 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 			stderr = "Command timed out"
 		}
 	}
-	return bashResult(stdout, stderr, "host", workingDir, exitCode, ""), nil
+	result := bashResult(stdout, stderr, "host", workingDir, exitCode, "")
+	if accessReview.AutoApproved() {
+		appendBashAccessPolicyMetadata(&result, accessReview, stdout, stderr, workingDir, exitCode)
+	}
+	return result, nil
+}
+
+func appendBashAccessPolicyMetadata(result *ToolExecutionResult, review accesspolicy.BashPlan, stdout, stderr, workingDir string, exitCode int) {
+	if result == nil || !review.AutoApproved() {
+		return
+	}
+	if result.Structured == nil {
+		result.Structured = map[string]any{
+			"exitCode":         exitCode,
+			"mode":             "host",
+			"workingDirectory": workingDir,
+			"stdout":           stdout,
+			"stderr":           stderr,
+		}
+	}
+	result.Structured["accessPolicy"] = map[string]any{
+		"accessLevel": review.AccessLevel,
+		"decision":    "auto_approved",
+		"ruleKey":     review.RuleKey,
+	}
 }
 
 const hostShellCommandPlaceholder = "{{command}}"
@@ -222,50 +257,7 @@ func validateStrictCommand(command string, cfg config.BashConfig, workingDirecto
 	if !containsString(cfg.AllowedCommands, base) {
 		return fmt.Errorf("Command not allowed: %s", base)
 	}
-	if !containsString(cfg.PathCheckedCommands, base) || containsString(cfg.PathCheckBypassCommands, base) {
-		return nil
-	}
-	for _, field := range fields[1:] {
-		if strings.HasPrefix(field, "-") {
-			continue
-		}
-		if !looksLikePathArg(field) {
-			continue
-		}
-		resolved := field
-		if !filepath.IsAbs(resolved) {
-			resolved = filepath.Join(workingDirectory, resolved)
-		}
-		resolved = filepath.Clean(resolved)
-		if !pathAllowed(resolved, cfg.AllowedPaths, workingDirectory) {
-			return fmt.Errorf("Path not allowed: %s", field)
-		}
-	}
 	return nil
-}
-
-func looksLikePathArg(arg string) bool {
-	return strings.Contains(arg, "/") || strings.HasPrefix(arg, ".") || strings.HasPrefix(arg, "~")
-}
-
-func pathAllowed(resolved string, allowed []string, workingDirectory string) bool {
-	if len(allowed) == 0 {
-		return false
-	}
-	for _, root := range allowed {
-		if root == "" {
-			continue
-		}
-		checkRoot := root
-		if !filepath.IsAbs(checkRoot) {
-			checkRoot = filepath.Join(workingDirectory, checkRoot)
-		}
-		checkRoot = filepath.Clean(checkRoot)
-		if resolved == checkRoot || strings.HasPrefix(resolved, checkRoot+string(os.PathSeparator)) {
-			return true
-		}
-	}
-	return false
 }
 
 func stringMapArg(args map[string]any, key string) map[string]string {
@@ -318,6 +310,9 @@ func mergeCommandEnv(execCtx *ExecutionContext) []string {
 
 func containsString(values []string, needle string) bool {
 	for _, value := range values {
+		if strings.TrimSpace(value) == "*" {
+			return true
+		}
 		if strings.EqualFold(strings.TrimSpace(value), strings.TrimSpace(needle)) {
 			return true
 		}

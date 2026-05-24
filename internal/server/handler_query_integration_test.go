@@ -94,6 +94,22 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 	}
 }
 
+func TestQueryRejectsInvalidAccessLevel(t *testing.T) {
+	fixture := newTestFixture(t)
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"hello","accessLevel":"root"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	fixture.server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "accessLevel") {
+		t.Fatalf("expected accessLevel validation error, got %s", rec.Body.String())
+	}
+}
+
 func TestQueryUsesProvidedRunIDAndPersistsItEverywhere(t *testing.T) {
 	fixture := newTestFixture(t)
 	server := fixture.server

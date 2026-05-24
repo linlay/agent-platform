@@ -1,19 +1,8 @@
 # File tools preset. Runtime config is loaded from configs/file-tools.yml at startup.
+# 目录权限统一放在 configs/access-policy.yml；这里仅保留大小限制、审批行为和 hook。
 
 # file_read / file_grep / file_write / file_edit 使用的工作目录；相对路径会基于此目录解析。
 working-directory: .
-
-# file_read 与 file_grep 允许的路径白名单（前缀匹配）。
-# 越权路径不会硬拒，而是触发 HITL approval（approve / approve_rule_run / reject）。
-allowed-read-paths:
-  - .
-  - /tmp
-
-# file_write 与 file_edit 允许的路径白名单（前缀匹配）。
-# 同样支持 HITL approval 兜底。建议默认比读权限更严。
-allowed-write-paths:
-  - .
-  - /tmp
 
 max-read-bytes: 1048576
 max-write-bytes: 1048576

@@ -42,10 +42,24 @@
       "required": false
     },
     {
+      "key": "access-policy",
+      "label": "configs/access-policy.yml",
+      "relativePath": "configs/access-policy.yml",
+      "templateRelativePath": "configs/access-policy.example.yml",
+      "required": false
+    },
+    {
       "key": "bash",
       "label": "configs/bash.yml",
       "relativePath": "configs/bash.yml",
       "templateRelativePath": "configs/bash.example.yml",
+      "required": false
+    },
+    {
+      "key": "file-tools",
+      "label": "configs/file-tools.yml",
+      "relativePath": "configs/file-tools.yml",
+      "templateRelativePath": "configs/file-tools.example.yml",
       "required": false
     },
     {

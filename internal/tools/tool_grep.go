@@ -32,15 +32,17 @@ func (t *RuntimeToolExecutor) invokeGrep(ctx context.Context, args map[string]an
 	if rawPath == "" {
 		rawPath = "."
 	}
-	accessCfg := t.sessionFileToolsConfig(filetools.ReadAccess, execCtx)
-	access, err := filetools.BuildAccessPlan(accessCfg, filetools.ReadAccess, rawPath)
+	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, accessPolicySessionWithFallback(execCtx, t.cfg.FileTools.WorkingDirectory), filetools.ReadAccess, rawPath)
 	if err != nil {
 		return fileToolError("grep_invalid_path", err.Error()), nil
+	}
+	if access.Blocked {
+		return fileToolError("grep_path_blocked", access.Reason), nil
 	}
 	if filetools.IsBlockedDeviceFile(access.Path) {
 		return fileToolError("file_read_device_blocked", "device file is blocked"), nil
 	}
-	if !access.AllowedByWhitelist && !filetools.ConsumeReadApproval(execCtx, access) {
+	if !access.AllowedByWhitelist && !access.AutoApproved && !filetools.ConsumeReadApproval(execCtx, access) {
 		return fileAccessApprovalRequired("file_read_approval_required", "grep超出允许目录", access), nil
 	}
 	resolved := filetools.ResolvedPath{Raw: access.RawPath, Path: access.Path, Root: access.Root}
@@ -150,7 +152,7 @@ func (t *RuntimeToolExecutor) invokeGrep(ctx context.Context, args map[string]an
 		headLimit = defaultGrepHeadLimit
 	}
 	results, truncated := pageGrepResults(lines, offset, headLimit)
-	return structuredResult(map[string]any{
+	payload := map[string]any{
 		"tool":       "file_grep",
 		"mode":       mode,
 		"pattern":    pattern,
@@ -161,7 +163,9 @@ func (t *RuntimeToolExecutor) invokeGrep(ctx context.Context, args map[string]an
 		"headLimit":  headLimit,
 		"results":    results,
 		"raw":        truncateStringBytes(out, maxGrepRawBytes),
-	}), nil
+	}
+	appendAccessPolicyMetadata(payload, access)
+	return structuredResult(payload), nil
 }
 
 func resolveRipgrepPath() (string, error) {

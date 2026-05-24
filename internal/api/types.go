@@ -44,6 +44,7 @@ type QueryRequest struct {
 	Stream       *bool          `json:"stream,omitempty"`
 	Hidden       *bool          `json:"hidden,omitempty"`
 	PlanningMode *bool          `json:"planningMode,omitempty"`
+	AccessLevel  string         `json:"accessLevel,omitempty"`
 }
 
 type Scene struct {

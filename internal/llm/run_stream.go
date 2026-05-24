@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 
+	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/api"
 	"agent-platform/internal/bashsec"
 	"agent-platform/internal/chat"
@@ -114,6 +115,7 @@ type preparedToolInvocation struct {
 	precheckedHITL      *hitl.InterceptResult
 	workspaceHITL       *hitl.InterceptResult
 	bashSecurityReview  *bashsec.ReviewResult
+	bashAccessReview    *accesspolicy.BashPlan
 	fileAccessPlan      *filetools.AccessPlan
 	fileWritePlan       *filetools.WritePlan
 	approvalDecision    string

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -1375,7 +1376,7 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 	if strings.TrimSpace(options.command) != "" {
 		command = options.command
 	}
-	rulesContent := strings.Join([]string{
+	ruleLines := []string{
 		"commands:",
 		"  - command: mock",
 		"    subcommands:",
@@ -1384,7 +1385,11 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 		"        title: mock 请假申请",
 		"        viewportType: html",
 		"        viewportKey: leave_form",
-	}, "\n")
+	}
+	if options.timeoutMs > 0 {
+		ruleLines = append(ruleLines, fmt.Sprintf("        timeoutMs: %d", options.timeoutMs))
+	}
+	rulesContent := strings.Join(ruleLines, "\n")
 	if strings.TrimSpace(options.rulesContent) != "" {
 		rulesContent = options.rulesContent
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/api"
 	"agent-platform/internal/bashsec"
 	"agent-platform/internal/config"
@@ -329,6 +330,21 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 		s.skipPostToolHook = true
 		return s.emitBashSecurityApprovalDeltas(invocation, review)
 	}
+	if review := s.lookupBashAccessReview(invocation); review.Decision == accesspolicy.DecisionRequiresApproval {
+		if strings.TrimSpace(invocation.approvalDecision) != "" {
+			return s.executeApprovedBashAccessInvocation(invocation, review)
+		}
+		if s.isRuleWhitelisted(review.RuleKey) {
+			s.applyHITLDecision(invocation, bashAccessInterceptResult(invocation, review), "", "approve_rule_run", "", true)
+			accesspolicy.RegisterRuleApproval(s.execCtx, review.RuleKey)
+			return s.executeOriginalBash(invocation)
+		}
+		if accesspolicy.HasApproval(s.execCtx, review) {
+			return s.executeOriginalBash(invocation)
+		}
+		s.skipPostToolHook = true
+		return s.emitBashAccessApprovalDeltas(invocation, review)
+	}
 	if result := s.lookupWorkspaceHITL(invocation); result.Intercepted {
 		if strings.EqualFold(result.Rule.ViewportType, "builtin") {
 			if strings.TrimSpace(invocation.approvalDecision) != "" {
@@ -475,6 +491,49 @@ func (s *llmRunStream) lookupBashSecurityReview(invocation *preparedToolInvocati
 	return review
 }
 
+func (s *llmRunStream) lookupBashAccessReview(invocation *preparedToolInvocation) accesspolicy.BashPlan {
+	if invocation == nil || !isBashTool(invocation.toolName) {
+		return accesspolicy.BashPlan{Decision: accesspolicy.DecisionAllow}
+	}
+	if s.session.AgentHasRuntimeSandbox || (s.execCtx != nil && s.execCtx.Session.AgentHasRuntimeSandbox) {
+		return accesspolicy.BashPlan{Decision: accesspolicy.DecisionAllow}
+	}
+	if s.engine == nil {
+		return accesspolicy.BashPlan{Decision: accesspolicy.DecisionAllow}
+	}
+	if invocation.bashAccessReview != nil {
+		return *invocation.bashAccessReview
+	}
+	if result := s.lookupPrecheckedHITL(invocation); result.Intercepted {
+		return accesspolicy.BashPlan{Decision: accesspolicy.DecisionAllow}
+	}
+	review := s.rawBashAccessReview(invocation)
+	if review.Decision == accesspolicy.DecisionRequiresApproval {
+		cloned := review
+		invocation.bashAccessReview = &cloned
+	}
+	return review
+}
+
+func (s *llmRunStream) rawBashAccessReview(invocation *preparedToolInvocation) accesspolicy.BashPlan {
+	if invocation == nil || !isBashTool(invocation.toolName) || s.engine == nil {
+		return accesspolicy.BashPlan{Decision: accesspolicy.DecisionAllow}
+	}
+	if s.session.AgentHasRuntimeSandbox || (s.execCtx != nil && s.execCtx.Session.AgentHasRuntimeSandbox) {
+		return accesspolicy.BashPlan{Decision: accesspolicy.DecisionAllow}
+	}
+	cwd := strings.TrimSpace(mapStringArg(invocation.args, "cwd"))
+	var variables map[string]string
+	if s.execCtx != nil {
+		variables = s.execCtx.RuntimeEnvOverrides
+	}
+	cfg := config.AccessPolicyConfig{}
+	if s.engine != nil {
+		cfg = s.engine.cfg.AccessPolicy
+	}
+	return accesspolicy.ReviewBashCommand(cfg, s.fileAccessSession(), strings.TrimSpace(mapStringArg(invocation.args, "command")), cwd, variables)
+}
+
 func (s *llmRunStream) lookupFileWritePlan(invocation *preparedToolInvocation) *filetools.WritePlan {
 	if invocation == nil || !isWriteTool(invocation.toolName) {
 		return nil
@@ -491,10 +550,17 @@ func (s *llmRunStream) lookupFileWritePlan(invocation *preparedToolInvocation) *
 }
 
 func (s *llmRunStream) buildFileWritePlan(invocation *preparedToolInvocation) (filetools.WritePlan, error) {
-	if strings.EqualFold(strings.TrimSpace(invocation.toolName), "file_edit") {
-		return filetools.BuildEditPlan(s.sessionFileToolsConfig(filetools.WriteAccess), invocation.args)
+	access, ok := s.buildFileAccessPlan(invocation)
+	if !ok || access == nil {
+		if strings.EqualFold(strings.TrimSpace(invocation.toolName), "file_edit") {
+			return filetools.BuildEditPlan(s.sessionFileToolsConfig(filetools.WriteAccess), invocation.args)
+		}
+		return filetools.BuildWritePlan(s.sessionFileToolsConfig(filetools.WriteAccess), invocation.args)
 	}
-	return filetools.BuildWritePlan(s.sessionFileToolsConfig(filetools.WriteAccess), invocation.args)
+	if strings.EqualFold(strings.TrimSpace(invocation.toolName), "file_edit") {
+		return filetools.BuildEditPlanWithAccess(*access, s.sessionFileToolsConfig(filetools.WriteAccess), invocation.args)
+	}
+	return filetools.BuildWritePlanWithAccess(*access, s.sessionFileToolsConfig(filetools.WriteAccess), invocation.args)
 }
 
 func (s *llmRunStream) buildFileAccessPlan(invocation *preparedToolInvocation) (*filetools.AccessPlan, bool) {
@@ -505,8 +571,13 @@ func (s *llmRunStream) buildFileAccessPlan(invocation *preparedToolInvocation) (
 	if !ok {
 		return nil, false
 	}
-	cfg := s.sessionFileToolsConfig(mode)
-	plan, err := filetools.BuildAccessPlan(cfg, mode, rawPath)
+	fileCfg := s.sessionFileToolsConfig(mode)
+	session := s.fileAccessSession()
+	if strings.TrimSpace(session.WorkspaceRoot) == "" && strings.TrimSpace(session.RuntimeContext.LocalPaths.WorkspaceDir) == "" && strings.TrimSpace(fileCfg.WorkingDirectory) != "" {
+		session.WorkspaceRoot = fileCfg.WorkingDirectory
+		session.RuntimeContext.LocalPaths.WorkspaceDir = fileCfg.WorkingDirectory
+	}
+	plan, err := filetools.BuildAccessPlanFromPolicy(s.engine.cfg.AccessPolicy, session, mode, rawPath)
 	if err != nil {
 		return nil, false
 	}
@@ -576,10 +647,17 @@ func (s *llmRunStream) fileWritePlanNeedsApproval(plan filetools.WritePlan) bool
 	if !s.engine.cfg.FileTools.RequireWriteApproval {
 		return false
 	}
+	accessLevel, _ := NormalizeAccessLevel(s.fileAccessSession().AccessLevel)
+	if accessLevel == AccessLevelAutoApprove || accessLevel == AccessLevelFullAccess {
+		return false
+	}
 	return !filetools.PathInSessionWorkspace(s.fileAccessSession(), plan.FilePath)
 }
 
 func (s *llmRunStream) fileAccessPlanNeedsApproval(plan filetools.AccessPlan) bool {
+	if plan.Blocked || plan.AutoApproved {
+		return false
+	}
 	if plan.AllowedByWhitelist {
 		return false
 	}
@@ -714,6 +792,25 @@ func (s *llmRunStream) executeApprovedBashSecurityInvocation(invocation *prepare
 		return s.executeOriginalBash(invocation)
 	default:
 		return s.emitBashSecurityApprovalDeltas(invocation, review)
+	}
+}
+
+func (s *llmRunStream) executeApprovedBashAccessInvocation(invocation *preparedToolInvocation, review accesspolicy.BashPlan) error {
+	switch strings.ToLower(strings.TrimSpace(invocation.approvalDecision)) {
+	case "reject":
+		s.appendOriginalToolResult(invocation, hitlRejectedToolResult(invocation))
+		return nil
+	case "approve_rule_run":
+		s.registerRuleWhitelist(review.RuleKey)
+		accesspolicy.RegisterRuleApproval(s.execCtx, review.RuleKey)
+		invocation.approvalDecision = ""
+		return s.executeOriginalBash(invocation)
+	case "approve":
+		accesspolicy.RegisterExactApproval(s.execCtx, review.Fingerprint)
+		invocation.approvalDecision = ""
+		return s.executeOriginalBash(invocation)
+	default:
+		return s.emitBashAccessApprovalDeltas(invocation, review)
 	}
 }
 

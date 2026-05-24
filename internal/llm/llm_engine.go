@@ -100,11 +100,13 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 			Budget:        session.ResolvedBudget,
 			StageSettings: session.ResolvedStageSettings,
 			ToolOverrides: cloneToolOverrides(session.ToolOverrides),
+			AccessLevel:   session.AccessLevel,
 			RunLoopState:  RunLoopStateIdle,
 		}
 	}
 	execCtx.Request = req
 	execCtx.Session = session
+	execCtx.AccessLevel = session.AccessLevel
 	execCtx.HITLLevel = AnyIntNode(req.Params["hitlLevel"])
 	if len(execCtx.RuntimeEnvOverrides) == 0 {
 		execCtx.RuntimeEnvOverrides = CloneStringMap(session.RuntimeEnvOverrides)

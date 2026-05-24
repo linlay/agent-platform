@@ -45,6 +45,7 @@ coverage.out
 !/configs/**/*.example.yml
 !/configs/**/*.example.yaml
 !/configs/**/*.example.pem
+!/configs/access-policy.yml
 !/configs/coder-prompts.yml
 !/configs/coder-settings.yml
 

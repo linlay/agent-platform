@@ -81,6 +81,11 @@ func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
 	if strings.TrimSpace(req.Message) == "" {
 		return preparedQuery{}, &statusError{status: http.StatusBadRequest, message: "message is required"}
 	}
+	accessLevel, ok := contracts.NormalizeAccessLevel(req.AccessLevel)
+	if !ok {
+		return preparedQuery{}, &statusError{status: http.StatusBadRequest, message: "accessLevel must be default, auto_approve, or full_access"}
+	}
+	req.AccessLevel = accessLevel
 
 	runID := strings.TrimSpace(req.RunID)
 	if runID == "" {

@@ -3,6 +3,7 @@ package llm
 import (
 	"strings"
 
+	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/bashsec"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/filetools"
@@ -11,6 +12,28 @@ import (
 
 func (s *llmRunStream) emitBashSecurityApprovalDeltas(invocation *preparedToolInvocation, review bashsec.ReviewResult) error {
 	result := bashSecurityInterceptResult(invocation, review)
+	s.hitlPendingCall = invocation
+	s.hitlMatch = &result
+	s.hitlAwaitingID = buildHITLAwaitingID(invocation.toolID)
+
+	args := s.buildConfirmApprovalArgs(invocation, result)
+	s.hitlAwaitArgs = CloneMap(args)
+	s.pending = append(s.pending, s.buildHITLAwaitDelta(s.hitlAwaitingID, args, 0))
+
+	if s.runControl != nil {
+		awaitDelta, _ := s.pending[len(s.pending)-1].(DeltaAwaitAsk)
+		s.runControl.ExpectSubmit(awaitingContextFromDeltaAsk(awaitDelta))
+	}
+	s.activeToolCall = nil
+	if s.execCtx != nil {
+		s.execCtx.CurrentToolID = ""
+		s.execCtx.CurrentToolName = ""
+	}
+	return nil
+}
+
+func (s *llmRunStream) emitBashAccessApprovalDeltas(invocation *preparedToolInvocation, review accesspolicy.BashPlan) error {
+	result := bashAccessInterceptResult(invocation, review)
 	s.hitlPendingCall = invocation
 	s.hitlMatch = &result
 	s.hitlAwaitingID = buildHITLAwaitingID(invocation.toolID)
@@ -121,6 +144,30 @@ func bashSecurityInterceptResult(invocation *preparedToolInvocation, review bash
 			RuleKey:      ruleKey,
 			Level:        level,
 			Title:        "Bash security approval",
+			ViewportType: "builtin",
+			ViewportKey:  "approval",
+		},
+		OriginalCommand: command,
+		MatchedCommand:  command,
+		MatchedWhole:    true,
+	}
+}
+
+func bashAccessInterceptResult(invocation *preparedToolInvocation, review accesspolicy.BashPlan) hitl.InterceptResult {
+	command := strings.TrimSpace(review.CommandText)
+	if command == "" && invocation != nil {
+		command = strings.TrimSpace(mapStringArg(invocation.args, "command"))
+	}
+	ruleKey := strings.TrimSpace(review.RuleKey)
+	if ruleKey == "" {
+		ruleKey = "bash-access::" + review.Fingerprint
+	}
+	return hitl.InterceptResult{
+		Intercepted: true,
+		Rule: hitl.FlatRule{
+			RuleKey:      ruleKey,
+			Level:        1,
+			Title:        "Bash access approval",
 			ViewportType: "builtin",
 			ViewportKey:  "approval",
 		},

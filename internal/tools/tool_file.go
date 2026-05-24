@@ -21,15 +21,17 @@ import (
 )
 
 func (t *RuntimeToolExecutor) invokeRead(args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
-	accessCfg := t.sessionFileToolsConfig(filetools.ReadAccess, execCtx)
-	access, err := filetools.BuildAccessPlan(accessCfg, filetools.ReadAccess, stringArg(args, "file_path"))
+	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, accessPolicySessionWithFallback(execCtx, t.cfg.FileTools.WorkingDirectory), filetools.ReadAccess, stringArg(args, "file_path"))
 	if err != nil {
 		return fileToolError("file_read_invalid_path", err.Error()), nil
+	}
+	if access.Blocked {
+		return fileToolError("file_read_path_blocked", access.Reason), nil
 	}
 	if filetools.IsBlockedDeviceFile(access.Path) {
 		return fileToolError("file_read_device_blocked", "device file is blocked"), nil
 	}
-	if !access.AllowedByWhitelist && !filetools.ConsumeReadApproval(execCtx, access) {
+	if !access.AllowedByWhitelist && !access.AutoApproved && !filetools.ConsumeReadApproval(execCtx, access) {
 		return fileAccessApprovalRequired("file_read_approval_required", "read超出允许目录", access), nil
 	}
 	resolved := filetools.ResolvedPath{Raw: access.RawPath, Path: access.Path, Root: access.Root}
@@ -76,6 +78,7 @@ func (t *RuntimeToolExecutor) invokeRead(args map[string]any, execCtx *Execution
 		if execCtx != nil {
 			recordReadSnapshot(execCtx, resolved.Path, info, image["sha256"].(string), snapshotOffset, snapshotLimit)
 		}
+		appendAccessPolicyMetadata(image, access)
 		return structuredResult(image), nil
 	}
 	if filetools.IsBinaryExtension(resolved.Path) {
@@ -140,23 +143,27 @@ func (t *RuntimeToolExecutor) invokeRead(args map[string]any, execCtx *Execution
 	if execCtx != nil {
 		recordReadSnapshot(execCtx, resolved.Path, info, sha, snapshotOffset, snapshotLimit)
 	}
+	appendAccessPolicyMetadata(payload, access)
 	return structuredResult(payload), nil
 }
 
 func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	accessCfg := t.sessionFileToolsConfig(filetools.WriteAccess, execCtx)
-	access, err := filetools.BuildAccessPlan(accessCfg, filetools.WriteAccess, stringArg(args, "file_path"))
+	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, accessPolicySessionWithFallback(execCtx, accessCfg.WorkingDirectory), filetools.WriteAccess, stringArg(args, "file_path"))
 	if err != nil {
 		return fileToolError("file_write_invalid_plan", err.Error()), nil
 	}
-	if !access.AllowedByWhitelist && !filetools.ConsumeAccessApproval(execCtx, access) {
+	if access.Blocked {
+		return fileToolError("file_write_path_blocked", access.Reason), nil
+	}
+	if !access.AllowedByWhitelist && !access.AutoApproved && !filetools.ConsumeAccessApproval(execCtx, access) {
 		return fileAccessApprovalRequired("file_write_path_approval_required", "write超出允许目录", access), nil
 	}
-	plan, err := filetools.BuildWritePlan(accessCfg, args)
+	plan, err := filetools.BuildWritePlanWithAccess(access, accessCfg, args)
 	if err != nil {
 		return fileToolError("file_write_invalid_plan", err.Error()), nil
 	}
-	requiresWriteApproval := t.cfg.FileTools.RequireWriteApproval && !writeAllowedBySessionWorkspace(execCtx, plan.FilePath)
+	requiresWriteApproval := t.cfg.FileTools.RequireWriteApproval && !writeAllowedBySessionWorkspace(execCtx, plan.FilePath) && !writeAutoApprovedByAccessLevel(access)
 	if requiresWriteApproval && !filetools.ConsumeWriteApproval(execCtx, plan) {
 		result := structuredResultWithExit(map[string]any{
 			"error":       "file_write_approval_required",
@@ -211,6 +218,7 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 			recordReadSnapshot(execCtx, plan.FilePath, info, after, 0, 0)
 		}
 	}
+	appendAccessPolicyMetadata(payload, access)
 	t.appendFileChangeHookResults(ctx, execCtx, payload, FileChangeEvent{
 		WorkspaceRoot: fileChangeWorkspaceRoot(execCtx),
 		FilePath:      plan.FilePath,
@@ -224,19 +232,22 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 
 func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	accessCfg := t.sessionFileToolsConfig(filetools.WriteAccess, execCtx)
-	access, err := filetools.BuildAccessPlan(accessCfg, filetools.WriteAccess, stringArg(args, "file_path"))
+	access, err := filetools.BuildAccessPlanFromPolicy(t.cfg.AccessPolicy, accessPolicySessionWithFallback(execCtx, accessCfg.WorkingDirectory), filetools.WriteAccess, stringArg(args, "file_path"))
 	if err != nil {
 		return fileToolError("file_edit_invalid_plan", err.Error()), nil
 	}
 	access.CommandText = "file_edit " + access.Path
-	if !access.AllowedByWhitelist && !filetools.ConsumeAccessApproval(execCtx, access) {
+	if access.Blocked {
+		return fileToolError("file_edit_path_blocked", access.Reason), nil
+	}
+	if !access.AllowedByWhitelist && !access.AutoApproved && !filetools.ConsumeAccessApproval(execCtx, access) {
 		return fileAccessApprovalRequired("file_edit_path_approval_required", "edit超出允许目录", access), nil
 	}
-	plan, err := filetools.BuildEditPlan(accessCfg, args)
+	plan, err := filetools.BuildEditPlanWithAccess(access, accessCfg, args)
 	if err != nil {
 		return fileToolError("file_edit_invalid_plan", err.Error()), nil
 	}
-	requiresWriteApproval := t.cfg.FileTools.RequireWriteApproval && !writeAllowedBySessionWorkspace(execCtx, plan.FilePath)
+	requiresWriteApproval := t.cfg.FileTools.RequireWriteApproval && !writeAllowedBySessionWorkspace(execCtx, plan.FilePath) && !writeAutoApprovedByAccessLevel(access)
 	if requiresWriteApproval && !filetools.ConsumeWriteApproval(execCtx, plan) {
 		result := structuredResultWithExit(map[string]any{
 			"error":       "file_edit_approval_required",
@@ -344,6 +355,7 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 			recordReadSnapshot(execCtx, plan.FilePath, info, after, 0, 0)
 		}
 	}
+	appendAccessPolicyMetadata(payload, access)
 	t.appendFileChangeHookResults(ctx, execCtx, payload, FileChangeEvent{
 		WorkspaceRoot: fileChangeWorkspaceRoot(execCtx),
 		FilePath:      plan.FilePath,
@@ -399,6 +411,46 @@ func writeAllowedBySessionWorkspace(execCtx *ExecutionContext, path string) bool
 		return false
 	}
 	return filetools.PathInSessionWorkspace(execCtx.Session, path)
+}
+
+func accessPolicySession(execCtx *ExecutionContext) QuerySession {
+	return accessPolicySessionWithFallback(execCtx, "")
+}
+
+func accessPolicySessionWithFallback(execCtx *ExecutionContext, fallbackWorkspace string) QuerySession {
+	fallbackWorkspace = strings.TrimSpace(fallbackWorkspace)
+	if execCtx == nil {
+		return QuerySession{WorkspaceRoot: fallbackWorkspace}
+	}
+	session := execCtx.Session
+	if strings.TrimSpace(session.AccessLevel) == "" {
+		session.AccessLevel = execCtx.AccessLevel
+	}
+	if strings.TrimSpace(session.WorkspaceRoot) == "" && strings.TrimSpace(session.RuntimeContext.LocalPaths.WorkspaceDir) == "" && fallbackWorkspace != "" {
+		session.WorkspaceRoot = fallbackWorkspace
+		session.RuntimeContext.LocalPaths.WorkspaceDir = fallbackWorkspace
+	}
+	return session
+}
+
+func appendAccessPolicyMetadata(payload map[string]any, access filetools.AccessPlan) {
+	if !access.AutoApproved {
+		return
+	}
+	payload["accessPolicy"] = map[string]any{
+		"accessLevel": access.AccessLevel,
+		"decision":    "auto_approved",
+		"ruleKey":     access.RuleKey,
+	}
+}
+
+func writeAutoApprovedByAccessLevel(access filetools.AccessPlan) bool {
+	switch strings.ToLower(strings.TrimSpace(access.AccessLevel)) {
+	case AccessLevelAutoApprove, AccessLevelFullAccess:
+		return true
+	default:
+		return access.AutoApproved
+	}
 }
 
 func readImageFile(path string, info os.FileInfo) (map[string]any, bool, ToolExecutionResult) {
