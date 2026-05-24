@@ -168,6 +168,56 @@ func TestOpenAIProtocolPrepareRequestReasoningContentCompat(t *testing.T) {
 	}
 }
 
+func TestOpenAIProtocolPrepareRequestOmitsHistoricalToolBase64(t *testing.T) {
+	protocol := &openAIProtocol{engine: NewLLMAgentEngineWithHTTPClient(config.Config{}, nil, nil, nil, nil, &http.Client{})}
+	encoded := "iVBORw0KGgoAAAANSUhEUgAA"
+	prepared, err := protocol.PrepareRequest(protocolStreamParams{
+		provider: ProviderDefinition{Key: "mock", BaseURL: "https://example.com", APIKey: "token"},
+		model:    ModelDefinition{Protocol: "OPENAI", ModelID: "mock-model"},
+		protocolConfig: protocolRuntimeConfig{
+			EndpointPath: "/v1/chat/completions",
+		},
+		messages: []openAIMessage{
+			{Role: "system", Content: "system prompt"},
+			{
+				Role: "assistant",
+				ToolCalls: []openAIToolCall{{
+					ID:   "call_1",
+					Type: "function",
+					Function: openAIFunctionCall{
+						Name:      "file_read",
+						Arguments: `{"file_path":"/private/tmp/page1.png"}`,
+					},
+				}},
+			},
+			{
+				Role:       "tool",
+				ToolCallID: "call_1",
+				Name:       "file_read",
+				Content:    `{"contentBase64":"` + encoded + `","filePath":"/private/tmp/page1.png","kind":"image","mimeType":"image/png","sizeBytes":573750}`,
+			},
+		},
+		toolSpecs: []openAIToolSpec{{
+			Type:     "function",
+			Function: openAIToolDefinition{Name: "file_read"},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("PrepareRequest returned error: %v", err)
+	}
+
+	rawBody := string(prepared.RequestBodyJSON)
+	if strings.Contains(rawBody, encoded) {
+		t.Fatalf("expected historical tool base64 to be omitted from provider request, got %s", rawBody)
+	}
+	if !strings.Contains(rawBody, `\"contentBase64Omitted\":true`) {
+		t.Fatalf("expected omitted marker in provider request, got %s", rawBody)
+	}
+	if !strings.Contains(rawBody, `\"contentBase64Chars\":24`) {
+		t.Fatalf("expected omitted base64 character count in provider request, got %s", rawBody)
+	}
+}
+
 func TestNewAssistantTurnMessageReasoningContentCompat(t *testing.T) {
 	turn := &providerTurnStream{}
 	turn.reasoning.WriteString("thinking...")

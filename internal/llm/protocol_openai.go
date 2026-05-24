@@ -100,7 +100,7 @@ func (p *openAIProtocol) PrepareRequest(params protocolStreamParams) (preparedPr
 	}
 
 	preserveReasoning := preserveReasoningContent(params.protocolConfig, params.stageSettings)
-	normalizedMessages := normalizeOpenAIMessages(applyOpenAIMessageCompat(params.messages, preserveReasoning))
+	normalizedMessages := normalizeOpenAIMessages(applyOpenAIMessageCompat(sanitizeOpenAIToolResultMessages(params.messages), preserveReasoning))
 
 	effectiveToolChoice := "auto"
 	if params.toolChoice != "" {
@@ -311,6 +311,33 @@ func applyOpenAIMessageCompat(messages []openAIMessage, preserveReasoning bool) 
 	copy(out, messages)
 	for i := range out {
 		out[i].ReasoningContent = ""
+	}
+	return out
+}
+
+func sanitizeOpenAIToolResultMessages(messages []openAIMessage) []openAIMessage {
+	out := make([]openAIMessage, len(messages))
+	copy(out, messages)
+	for i := range out {
+		if strings.TrimSpace(out[i].Role) != "tool" {
+			continue
+		}
+		content, ok := out[i].Content.(string)
+		if !ok || !strings.Contains(content, `"contentBase64"`) {
+			continue
+		}
+		var structured map[string]any
+		if err := json.Unmarshal([]byte(content), &structured); err != nil {
+			continue
+		}
+		if _, ok := structured["contentBase64"]; !ok {
+			continue
+		}
+		data, err := json.Marshal(compactStructuredResultForLLM(structured))
+		if err != nil {
+			continue
+		}
+		out[i].Content = string(data)
 	}
 	return out
 }
