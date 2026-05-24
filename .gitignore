@@ -61,6 +61,8 @@ coverage.out
 .DS_Store
 Thumbs.db
 AGENTS.md
+agents.md
+agent.md
 
 # Logs
 *.log
