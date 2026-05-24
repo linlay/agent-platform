@@ -198,7 +198,7 @@ func buildSkillCatalogPrompt(def catalog.AgentDefinition, marketDir string, appe
 func resolveLocalPaths(paths config.PathsConfig, chatID string, agentDir string, workspaceRoot string) contracts.LocalPaths {
 	runtimeHome := filepath.Dir(filepath.Clean(paths.AgentsDir))
 	workingDirectory, _ := os.Getwd()
-	workspaceRoot = cleanOrEmpty(workspaceRoot)
+	workspaceRoot = resolveHostWorkspaceRoot(paths, chatID, workspaceRoot)
 	if workspaceRoot != "" {
 		workingDirectory = workspaceRoot
 	}
@@ -232,6 +232,21 @@ func resolveLocalPaths(paths config.PathsConfig, chatID string, agentDir string,
 		ViewportsDir:       cleanOrEmpty(filepath.Join(filepath.Dir(filepath.Clean(paths.RegistriesDir)), "viewports")),
 		ChatAttachmentsDir: attachmentsDir,
 	}
+}
+
+func resolveHostWorkspaceRoot(paths config.PathsConfig, chatID string, workspaceRoot string) string {
+	workspaceRoot = strings.TrimSpace(workspaceRoot)
+	if workspaceRoot == "" {
+		return ""
+	}
+	if strings.EqualFold(workspaceRoot, catalog.AgentWorkspaceRootChat) {
+		chatID = strings.TrimSpace(chatID)
+		if chatID == "" {
+			return ""
+		}
+		return absOrEmpty(filepath.Join(paths.ChatsDir, chatID))
+	}
+	return cleanOrEmpty(workspaceRoot)
 }
 
 func existingChatAttachmentsDir(paths config.PathsConfig, chatID string) string {

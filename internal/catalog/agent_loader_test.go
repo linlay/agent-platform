@@ -251,13 +251,15 @@ func TestParseAgentFileSupportsCoderWorkspace(t *testing.T) {
 		"name: Coder\n" +
 		"mode: coder\n" +
 		"runtimeConfig:\n" +
-		"  workspace:\n" +
-		"    root: " + filepath.ToSlash(workspace) + "\n" +
-		"    projectPromptFiles:\n" +
-		"      - AGENTS.md\n" +
-		"      - \"agent:project/AGENTS.md\"\n" +
-		"    git:\n" +
-		"      expectedBranch: main\n"
+		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
+		"projectConfig:\n" +
+		"  promptFiles:\n" +
+		"    - source: workspace\n" +
+		"      path: AGENTS.md\n" +
+		"    - source: agent\n" +
+		"      path: AGENTS.md\n" +
+		"  git:\n" +
+		"    expectedBranch: main\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write agent file: %v", err)
 	}
@@ -272,11 +274,15 @@ func TestParseAgentFileSupportsCoderWorkspace(t *testing.T) {
 	if def.Workspace.Root != filepath.Clean(workspace) {
 		t.Fatalf("workspace root = %q, want %q", def.Workspace.Root, filepath.Clean(workspace))
 	}
-	if !reflect.DeepEqual(def.Workspace.ProjectPromptFiles, []string{"AGENTS.md", "agent:project/AGENTS.md"}) {
-		t.Fatalf("project prompt files = %#v", def.Workspace.ProjectPromptFiles)
+	wantPromptFiles := []AgentProjectPromptFile{
+		{Source: "workspace", Path: "AGENTS.md"},
+		{Source: "agent", Path: "AGENTS.md"},
 	}
-	if def.Workspace.Git.ExpectedBranch != "main" {
-		t.Fatalf("expected branch = %q, want main", def.Workspace.Git.ExpectedBranch)
+	if !reflect.DeepEqual(def.Project.PromptFiles, wantPromptFiles) {
+		t.Fatalf("project prompt files = %#v", def.Project.PromptFiles)
+	}
+	if def.Project.Git.ExpectedBranch != "main" {
+		t.Fatalf("expected branch = %q, want main", def.Project.Git.ExpectedBranch)
 	}
 }
 
@@ -288,8 +294,7 @@ func TestParseAgentFileAppliesCoderProfileDefaults(t *testing.T) {
 		"key: coder\n" +
 		"mode: CODER\n" +
 		"runtimeConfig:\n" +
-		"  workspace:\n" +
-		"    root: " + filepath.ToSlash(workspace) + "\n"
+		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write agent file: %v", err)
 	}
@@ -341,8 +346,7 @@ func TestParseAgentFileAllowsCoderProfileOverrides(t *testing.T) {
 		"react:\n" +
 		"  maxSteps: 12\n" +
 		"runtimeConfig:\n" +
-		"  workspace:\n" +
-		"    root: " + filepath.ToSlash(workspace) + "\n"
+		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write agent file: %v", err)
 	}
@@ -373,7 +377,7 @@ func TestParseAgentFileRejectsCoderWithoutWorkspace(t *testing.T) {
 	}
 
 	_, err := parseAgentFile(path)
-	if err == nil || !strings.Contains(err.Error(), "runtimeConfig.workspace.root is required") {
+	if err == nil || !strings.Contains(err.Error(), "runtimeConfig.workspaceRoot is required") {
 		t.Fatalf("expected workspace requirement error, got %v", err)
 	}
 }
@@ -381,13 +385,34 @@ func TestParseAgentFileRejectsCoderWithoutWorkspace(t *testing.T) {
 func TestParseAgentFileRejectsCoderRelativeWorkspace(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
-	if err := os.WriteFile(path, []byte("key: coder\nmode: CODER\nruntimeConfig:\n  workspace:\n    root: ./project\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("key: coder\nmode: CODER\nruntimeConfig:\n  workspaceRoot: ./project\n"), 0o644); err != nil {
 		t.Fatalf("write agent file: %v", err)
 	}
 
 	_, err := parseAgentFile(path)
-	if err == nil || !strings.Contains(err.Error(), "runtimeConfig.workspace.root must be an absolute path") {
+	if err == nil || !strings.Contains(err.Error(), "runtimeConfig.workspaceRoot must be an absolute path") {
 		t.Fatalf("expected absolute workspace requirement error, got %v", err)
+	}
+}
+
+func TestParseAgentFileAcceptsChatWorkspaceRoot(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	content := "" +
+		"key: chat-worker\n" +
+		"mode: REACT\n" +
+		"runtimeConfig:\n" +
+		"  workspaceRoot: \"@chat\"\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	if def.Workspace.Root != AgentWorkspaceRootChat {
+		t.Fatalf("workspace root = %q, want %q", def.Workspace.Root, AgentWorkspaceRootChat)
 	}
 }
 
@@ -424,8 +449,7 @@ func TestParseAgentFileRuntimeWorkspaceOverridesLegacyWorkspaceConfig(t *testing
 		"workspaceConfig:\n" +
 		"  root: " + filepath.ToSlash(legacyWorkspace) + "\n" +
 		"runtimeConfig:\n" +
-		"  workspace:\n" +
-		"    root: " + filepath.ToSlash(runtimeWorkspace) + "\n"
+		"  workspaceRoot: " + filepath.ToSlash(runtimeWorkspace) + "\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write agent file: %v", err)
 	}
@@ -436,6 +460,44 @@ func TestParseAgentFileRuntimeWorkspaceOverridesLegacyWorkspaceConfig(t *testing
 	}
 	if def.Workspace.Root != filepath.Clean(runtimeWorkspace) {
 		t.Fatalf("workspace root = %q, want runtime %q", def.Workspace.Root, filepath.Clean(runtimeWorkspace))
+	}
+}
+
+func TestParseAgentFileFallsBackToLegacyRuntimeWorkspaceProjectConfig(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "project")
+	path := filepath.Join(root, "agent.yml")
+	content := "" +
+		"key: coder\n" +
+		"mode: CODER\n" +
+		"runtimeConfig:\n" +
+		"  workspace:\n" +
+		"    root: " + filepath.ToSlash(workspace) + "\n" +
+		"    projectPromptFiles:\n" +
+		"      - AGENTS.md\n" +
+		"      - agent:AGENTS.md\n" +
+		"    git:\n" +
+		"      expectedBranch: main\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	if def.Workspace.Root != filepath.Clean(workspace) {
+		t.Fatalf("workspace root = %q, want %q", def.Workspace.Root, filepath.Clean(workspace))
+	}
+	wantPromptFiles := []AgentProjectPromptFile{
+		{Source: "workspace", Path: "AGENTS.md"},
+		{Source: "agent", Path: "AGENTS.md"},
+	}
+	if !reflect.DeepEqual(def.Project.PromptFiles, wantPromptFiles) {
+		t.Fatalf("project prompt files = %#v, want %#v", def.Project.PromptFiles, wantPromptFiles)
+	}
+	if def.Project.Git.ExpectedBranch != "main" {
+		t.Fatalf("expected branch = %q, want main", def.Project.Git.ExpectedBranch)
 	}
 }
 

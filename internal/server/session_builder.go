@@ -91,10 +91,11 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 	}
 
 	promptAppend := buildPromptAppendConfig(s.deps.Config.Prompts, agentDef)
-	if err := validateWorkspaceGitConfig(agentDef); err != nil {
+	resolvedWorkspaceRoot := strings.TrimSpace(runtimeContext.LocalPaths.WorkspaceDir)
+	if err := validateWorkspaceGitConfig(agentDef, resolvedWorkspaceRoot); err != nil {
 		return contracts.QuerySession{}, err
 	}
-	workspaceAgentsPrompt, err := s.loadWorkspaceAgentsPrompt(agentDef)
+	workspaceAgentsPrompt, err := s.loadWorkspaceAgentsPrompt(agentDef, resolvedWorkspaceRoot)
 	if err != nil {
 		return contracts.QuerySession{}, err
 	}
@@ -156,7 +157,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		RuntimeExtraMounts:     runtimeExtraMounts(agentDef.Runtime["extraMounts"]),
 		AgentHasRuntimeSandbox: hasRuntimeSandbox(agentDef.Runtime),
 		AgentHasMemoryConfig:   agentDef.MemoryEnabled,
-		WorkspaceRoot:          strings.TrimSpace(agentDef.Workspace.Root),
+		WorkspaceRoot:          resolvedWorkspaceRoot,
 		SkillHookDirs:          skillHookDirs,
 		RuntimeEnvOverrides:    runtimeEnvOverrides,
 	}
@@ -169,18 +170,18 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 	return session, nil
 }
 
-func (s *Server) loadWorkspaceAgentsPrompt(agentDef catalog.AgentDefinition) (string, error) {
+func (s *Server) loadWorkspaceAgentsPrompt(agentDef catalog.AgentDefinition, workspaceRoot string) (string, error) {
 	if !strings.EqualFold(strings.TrimSpace(agentDef.Mode), catalog.AgentModeCoder) {
 		return "", nil
 	}
-	if len(agentDef.Workspace.ProjectPromptFiles) > 0 {
-		return loadConfiguredProjectPrompts(agentDef)
+	if len(agentDef.Project.PromptFiles) > 0 {
+		return loadConfiguredProjectPrompts(agentDef, workspaceRoot)
 	}
 	settings := s.deps.Config.CoderSettings.WorkspaceAgents
 	if !settings.Enabled {
 		return "", nil
 	}
-	workspaceRoot := strings.TrimSpace(agentDef.Workspace.Root)
+	workspaceRoot = strings.TrimSpace(workspaceRoot)
 	if workspaceRoot == "" {
 		return "", nil
 	}
@@ -206,10 +207,10 @@ func (s *Server) loadWorkspaceAgentsPrompt(agentDef catalog.AgentDefinition) (st
 	return "", fmt.Errorf("read workspace AGENTS prompt %s: %w", agentsPath, err)
 }
 
-func loadConfiguredProjectPrompts(agentDef catalog.AgentDefinition) (string, error) {
-	workspaceRoot := strings.TrimSpace(agentDef.Workspace.Root)
-	sections := make([]string, 0, len(agentDef.Workspace.ProjectPromptFiles))
-	for _, promptFile := range agentDef.Workspace.ProjectPromptFiles {
+func loadConfiguredProjectPrompts(agentDef catalog.AgentDefinition, workspaceRoot string) (string, error) {
+	workspaceRoot = strings.TrimSpace(workspaceRoot)
+	sections := make([]string, 0, len(agentDef.Project.PromptFiles))
+	for _, promptFile := range agentDef.Project.PromptFiles {
 		source, displayPath, fullPath, err := resolveProjectPromptPath(agentDef, workspaceRoot, promptFile)
 		if err != nil {
 			return "", err
@@ -229,52 +230,54 @@ func loadConfiguredProjectPrompts(agentDef catalog.AgentDefinition) (string, err
 			continue
 		}
 		title := "Workspace " + displayPath
-		if source == "agent-managed" {
-			title = "Agent-managed Project " + displayPath
+		if source == "agent" {
+			title = "Agent " + displayPath
 		}
 		sections = append(sections, title+"\n"+content)
 	}
 	return strings.Join(sections, "\n\n"), nil
 }
 
-func resolveProjectPromptPath(agentDef catalog.AgentDefinition, workspaceRoot string, promptFile string) (string, string, string, error) {
-	raw := strings.TrimSpace(promptFile)
-	if raw == "" {
+func resolveProjectPromptPath(agentDef catalog.AgentDefinition, workspaceRoot string, promptFile catalog.AgentProjectPromptFile) (string, string, string, error) {
+	rawPath := strings.TrimSpace(promptFile.Path)
+	if rawPath == "" {
 		return "", "", "", nil
 	}
-	const agentPrefix = "agent:"
-	source := "workspace"
+	source := strings.ToLower(strings.TrimSpace(promptFile.Source))
+	if source == "" {
+		source = "workspace"
+	}
 	root := workspaceRoot
-	displayPath := raw
-	if strings.HasPrefix(raw, agentPrefix) {
-		source = "agent-managed"
+	displayPath := rawPath
+	if source == "agent" {
 		root = strings.TrimSpace(agentDef.AgentDir)
-		displayPath = strings.TrimSpace(strings.TrimPrefix(raw, agentPrefix))
+	} else if source != "workspace" {
+		return "", "", "", fmt.Errorf("unsupported project prompt source %q for %q", promptFile.Source, rawPath)
 	}
 	if root == "" {
-		return "", "", "", fmt.Errorf("%s project prompt root is empty for %q", source, raw)
+		return "", "", "", fmt.Errorf("%s project prompt root is empty for %q", source, rawPath)
 	}
 	if filepath.IsAbs(displayPath) {
 		displayPath = filepath.Base(displayPath)
 	}
 	cleanPath := filepath.Clean(displayPath)
 	if cleanPath == "." || cleanPath == ".." || strings.HasPrefix(cleanPath, ".."+string(os.PathSeparator)) {
-		return "", "", "", fmt.Errorf("invalid %s project prompt path %q", source, raw)
+		return "", "", "", fmt.Errorf("invalid %s project prompt path %q", source, rawPath)
 	}
 	return source, filepath.ToSlash(cleanPath), filepath.Join(root, cleanPath), nil
 }
 
-func validateWorkspaceGitConfig(agentDef catalog.AgentDefinition) error {
+func validateWorkspaceGitConfig(agentDef catalog.AgentDefinition, workspaceRoot string) error {
 	if !strings.EqualFold(strings.TrimSpace(agentDef.Mode), catalog.AgentModeCoder) {
 		return nil
 	}
-	expectedBranch := strings.TrimSpace(agentDef.Workspace.Git.ExpectedBranch)
+	expectedBranch := strings.TrimSpace(agentDef.Project.Git.ExpectedBranch)
 	if expectedBranch == "" {
 		return nil
 	}
-	workspaceRoot := strings.TrimSpace(agentDef.Workspace.Root)
+	workspaceRoot = strings.TrimSpace(workspaceRoot)
 	if workspaceRoot == "" {
-		return fmt.Errorf("runtimeConfig.workspace.root is required when git.expectedBranch is set")
+		return fmt.Errorf("runtimeConfig.workspaceRoot is required when projectConfig.git.expectedBranch is set")
 	}
 	currentBranch, err := readGitCurrentBranch(workspaceRoot)
 	if err != nil {

@@ -42,6 +42,7 @@ type AgentDefinition struct {
 	Controls       []map[string]any
 	Runtime        map[string]any
 	Workspace      AgentWorkspaceConfig
+	Project        AgentProjectConfig
 	ReactMaxSteps  int
 	ContextTags    []string
 	Budget         map[string]any
@@ -67,12 +68,20 @@ type AgentDefinition struct {
 }
 
 type AgentWorkspaceConfig struct {
-	Root               string
-	ProjectPromptFiles []string
-	Git                AgentWorkspaceGitConfig
+	Root string
 }
 
-type AgentWorkspaceGitConfig struct {
+type AgentProjectConfig struct {
+	PromptFiles []AgentProjectPromptFile
+	Git         AgentProjectGitConfig
+}
+
+type AgentProjectPromptFile struct {
+	Source string
+	Path   string
+}
+
+type AgentProjectGitConfig struct {
 	ExpectedBranch string
 }
 
@@ -265,6 +274,18 @@ func (r *FileRegistry) Agents(tag string) []api.AgentSummary {
 				"root": def.Workspace.Root,
 			}
 		}
+		if len(def.Project.PromptFiles) > 0 || strings.TrimSpace(def.Project.Git.ExpectedBranch) != "" {
+			projectMeta := map[string]any{}
+			if promptFiles := projectPromptFilesMeta(def.Project.PromptFiles); len(promptFiles) > 0 {
+				projectMeta["promptFiles"] = promptFiles
+			}
+			if strings.TrimSpace(def.Project.Git.ExpectedBranch) != "" {
+				projectMeta["git"] = map[string]any{
+					"expectedBranch": def.Project.Git.ExpectedBranch,
+				}
+			}
+			summary.Meta["project"] = projectMeta
+		}
 		if def.ProxyConfig != nil {
 			summary.Meta["proxy"] = map[string]any{
 				"protocol":  "agw-platform",
@@ -289,6 +310,20 @@ func (r *FileRegistry) Agents(tag string) []api.AgentSummary {
 		items = append(items, summary)
 	}
 	return items
+}
+
+func projectPromptFilesMeta(files []AgentProjectPromptFile) []map[string]any {
+	if len(files) == 0 {
+		return nil
+	}
+	out := make([]map[string]any, 0, len(files))
+	for _, file := range files {
+		out = append(out, map[string]any{
+			"source": file.Source,
+			"path":   file.Path,
+		})
+	}
+	return out
 }
 
 func hasRuntimeSandboxDefinition(runtime map[string]any) bool {

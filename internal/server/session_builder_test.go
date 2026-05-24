@@ -69,8 +69,7 @@ func TestBuildQuerySessionUsesCoderProfileDefaults(t *testing.T) {
 			"modelConfig:\n"+
 			"  modelKey: deepseek-v4-flash\n"+
 			"runtimeConfig:\n"+
-			"  workspace:\n"+
-			"    root: "+filepath.ToSlash(workspace)+"\n",
+			"  workspaceRoot: "+filepath.ToSlash(workspace)+"\n",
 	), 0o644); err != nil {
 		t.Fatalf("write agent config: %v", err)
 	}
@@ -158,8 +157,8 @@ func TestBuildQuerySessionLoadsConfiguredProjectPromptsForCoder(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "workspace")
 	agentDir := filepath.Join(root, "agents", "coder-app")
-	if err := os.MkdirAll(filepath.Join(agentDir, "project"), 0o755); err != nil {
-		t.Fatalf("mkdir agent project dir: %v", err)
+	if err := os.MkdirAll(agentDir, 0o755); err != nil {
+		t.Fatalf("mkdir agent dir: %v", err)
 	}
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatalf("mkdir workspace: %v", err)
@@ -167,8 +166,8 @@ func TestBuildQuerySessionLoadsConfiguredProjectPromptsForCoder(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(workspace, "AGENTS.md"), []byte("workspace rules"), 0o644); err != nil {
 		t.Fatalf("write workspace AGENTS.md: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(agentDir, "project", "AGENTS.md"), []byte("agent-managed rules"), 0o644); err != nil {
-		t.Fatalf("write agent-managed AGENTS.md: %v", err)
+	if err := os.WriteFile(filepath.Join(agentDir, "AGENTS.md"), []byte("agent rules"), 0o644); err != nil {
+		t.Fatalf("write agent AGENTS.md: %v", err)
 	}
 	def := catalog.AgentDefinition{
 		Key:      "coder-app",
@@ -177,10 +176,12 @@ func TestBuildQuerySessionLoadsConfiguredProjectPromptsForCoder(t *testing.T) {
 		AgentDir: agentDir,
 		Workspace: catalog.AgentWorkspaceConfig{
 			Root: workspace,
-			ProjectPromptFiles: []string{
-				"AGENTS.md",
-				"CLAUDE.md",
-				"agent:project/AGENTS.md",
+		},
+		Project: catalog.AgentProjectConfig{
+			PromptFiles: []catalog.AgentProjectPromptFile{
+				{Source: "workspace", Path: "AGENTS.md"},
+				{Source: "workspace", Path: "CLAUDE.md"},
+				{Source: "agent", Path: "AGENTS.md"},
 			},
 		},
 	}
@@ -198,7 +199,7 @@ func TestBuildQuerySessionLoadsConfiguredProjectPromptsForCoder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build query session: %v", err)
 	}
-	want := "Workspace AGENTS.md\nworkspace rules\n\nAgent-managed Project project/AGENTS.md\nagent-managed rules"
+	want := "Workspace AGENTS.md\nworkspace rules\n\nAgent AGENTS.md\nagent rules"
 	if session.WorkspaceAgentsPrompt != want {
 		t.Fatalf("workspace agents prompt = %q, want %q", session.WorkspaceAgentsPrompt, want)
 	}
@@ -215,8 +216,10 @@ func TestBuildQuerySessionErrorsWhenConfiguredProjectPromptUnreadable(t *testing
 		Mode:     catalog.AgentModeCoder,
 		ModelKey: "mock-model",
 		Workspace: catalog.AgentWorkspaceConfig{
-			Root:               workspace,
-			ProjectPromptFiles: []string{"AGENTS.md"},
+			Root: workspace,
+		},
+		Project: catalog.AgentProjectConfig{
+			PromptFiles: []catalog.AgentProjectPromptFile{{Source: "workspace", Path: "AGENTS.md"}},
 		},
 	}
 	server := &Server{deps: Dependencies{}}
@@ -338,7 +341,9 @@ func TestBuildQuerySessionValidatesExpectedGitBranch(t *testing.T) {
 		ModelKey: "mock-model",
 		Workspace: catalog.AgentWorkspaceConfig{
 			Root: workspace,
-			Git:  catalog.AgentWorkspaceGitConfig{ExpectedBranch: "main"},
+		},
+		Project: catalog.AgentProjectConfig{
+			Git: catalog.AgentProjectGitConfig{ExpectedBranch: "main"},
 		},
 	}
 	server := &Server{deps: Dependencies{}}
@@ -363,7 +368,9 @@ func TestBuildQuerySessionErrorsWhenGitBranchMismatches(t *testing.T) {
 		ModelKey: "mock-model",
 		Workspace: catalog.AgentWorkspaceConfig{
 			Root: workspace,
-			Git:  catalog.AgentWorkspaceGitConfig{ExpectedBranch: "main"},
+		},
+		Project: catalog.AgentProjectConfig{
+			Git: catalog.AgentProjectGitConfig{ExpectedBranch: "main"},
 		},
 	}
 	server := &Server{deps: Dependencies{}}
@@ -389,7 +396,9 @@ func TestBuildQuerySessionErrorsWhenExpectedGitBranchNeedsRepo(t *testing.T) {
 		ModelKey: "mock-model",
 		Workspace: catalog.AgentWorkspaceConfig{
 			Root: workspace,
-			Git:  catalog.AgentWorkspaceGitConfig{ExpectedBranch: "main"},
+		},
+		Project: catalog.AgentProjectConfig{
+			Git: catalog.AgentProjectGitConfig{ExpectedBranch: "main"},
 		},
 	}
 	server := &Server{deps: Dependencies{}}
@@ -424,8 +433,7 @@ func TestBuildQuerySessionPlanningModeOnlyAppliesToCoder(t *testing.T) {
 			"modelConfig:\n"+
 			"  modelKey: mock-model\n"+
 			"runtimeConfig:\n"+
-			"  workspace:\n"+
-			"    root: "+filepath.ToSlash(workspace)+"\n",
+			"  workspaceRoot: "+filepath.ToSlash(workspace)+"\n",
 	), 0o644); err != nil {
 		t.Fatalf("write coder config: %v", err)
 	}

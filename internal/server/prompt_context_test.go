@@ -144,6 +144,20 @@ func TestResolveLocalPathsIncludesAgentAndRegistryPaths(t *testing.T) {
 	}
 }
 
+func TestResolveLocalPathsResolvesChatWorkspaceRoot(t *testing.T) {
+	t.Parallel()
+
+	cfg := testPromptContextConfig(t)
+	paths := resolveLocalPaths(cfg.Paths, "chat-1", "", catalog.AgentWorkspaceRootChat)
+	want := absTestPath(t, filepath.Join(cfg.Paths.ChatsDir, "chat-1"))
+	if paths.WorkspaceDir != want {
+		t.Fatalf("workspace dir = %q, want %q", paths.WorkspaceDir, want)
+	}
+	if paths.WorkingDirectory != want {
+		t.Fatalf("working dir = %q, want %q", paths.WorkingDirectory, want)
+	}
+}
+
 func TestResolveLocalPathsOmitsMissingChatAttachmentsDir(t *testing.T) {
 	t.Parallel()
 

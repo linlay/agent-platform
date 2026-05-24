@@ -7,6 +7,7 @@ import (
 )
 
 const AgentModeCoder = "CODER"
+const AgentWorkspaceRootChat = "@chat"
 
 var coderAgentProfile = agentModeProfile{
 	Tools: []string{
@@ -56,14 +57,107 @@ func parseAgentWorkspaceConfig(value any) AgentWorkspaceConfig {
 	if root == "" {
 		return AgentWorkspaceConfig{}
 	}
-	gitConfig := mapNode(node["git"])
 	return AgentWorkspaceConfig{
-		Root:               filepath.Clean(root),
-		ProjectPromptFiles: listStrings(node["projectPromptFiles"]),
-		Git: AgentWorkspaceGitConfig{
+		Root: cleanWorkspaceRoot(root),
+	}
+}
+
+func parseAgentWorkspaceRoot(value any) AgentWorkspaceConfig {
+	root := strings.TrimSpace(stringNode(value))
+	if root == "" {
+		return AgentWorkspaceConfig{}
+	}
+	return AgentWorkspaceConfig{Root: cleanWorkspaceRoot(root)}
+}
+
+func parseAgentProjectConfig(value any) AgentProjectConfig {
+	node := mapNode(value)
+	gitConfig := mapNode(node["git"])
+	return AgentProjectConfig{
+		PromptFiles: parseAgentProjectPromptFiles(node["promptFiles"]),
+		Git: AgentProjectGitConfig{
 			ExpectedBranch: stringNode(gitConfig["expectedBranch"]),
 		},
 	}
+}
+
+func parseLegacyAgentProjectConfig(value any) AgentProjectConfig {
+	node := mapNode(value)
+	gitConfig := mapNode(node["git"])
+	return AgentProjectConfig{
+		PromptFiles: parseAgentProjectPromptFiles(node["projectPromptFiles"]),
+		Git: AgentProjectGitConfig{
+			ExpectedBranch: stringNode(gitConfig["expectedBranch"]),
+		},
+	}
+}
+
+func parseAgentProjectPromptFiles(value any) []AgentProjectPromptFile {
+	switch typed := value.(type) {
+	case []any:
+		out := make([]AgentProjectPromptFile, 0, len(typed))
+		for _, item := range typed {
+			if parsed, ok := parseAgentProjectPromptFile(item); ok {
+				out = append(out, parsed)
+			}
+		}
+		return out
+	case []string:
+		out := make([]AgentProjectPromptFile, 0, len(typed))
+		for _, item := range typed {
+			if parsed, ok := parseAgentProjectPromptFile(item); ok {
+				out = append(out, parsed)
+			}
+		}
+		return out
+	case string:
+		if parsed, ok := parseAgentProjectPromptFile(typed); ok {
+			return []AgentProjectPromptFile{parsed}
+		}
+	}
+	return nil
+}
+
+func parseAgentProjectPromptFile(value any) (AgentProjectPromptFile, bool) {
+	if text := strings.TrimSpace(stringNode(value)); text != "" {
+		const agentPrefix = "agent:"
+		if strings.HasPrefix(text, agentPrefix) {
+			return AgentProjectPromptFile{Source: "agent", Path: strings.TrimSpace(strings.TrimPrefix(text, agentPrefix))}, true
+		}
+		return AgentProjectPromptFile{Source: "workspace", Path: text}, true
+	}
+	node := mapNode(value)
+	if len(node) == 0 {
+		return AgentProjectPromptFile{}, false
+	}
+	path := strings.TrimSpace(stringNode(node["path"]))
+	if path == "" {
+		return AgentProjectPromptFile{}, false
+	}
+	source := normalizeProjectPromptSource(stringNode(node["source"]))
+	if source == "" {
+		source = "workspace"
+	}
+	return AgentProjectPromptFile{Source: source, Path: path}, true
+}
+
+func normalizeProjectPromptSource(source string) string {
+	switch strings.ToLower(strings.TrimSpace(source)) {
+	case "", "workspace":
+		return "workspace"
+	case "agent", "agent-managed":
+		return "agent"
+	default:
+		return strings.ToLower(strings.TrimSpace(source))
+	}
+}
+
+func cleanWorkspaceRoot(root string) string {
+	root = strings.TrimSpace(root)
+	if strings.EqualFold(root, AgentWorkspaceRootChat) {
+		return AgentWorkspaceRootChat
+	}
+	return filepath.Clean(root)
 }
 
 func validateAgentWorkspace(workspace AgentWorkspaceConfig) error {
@@ -71,8 +165,11 @@ func validateAgentWorkspace(workspace AgentWorkspaceConfig) error {
 	if root == "" {
 		return nil
 	}
+	if strings.EqualFold(root, AgentWorkspaceRootChat) {
+		return nil
+	}
 	if !filepath.IsAbs(root) {
-		return fmt.Errorf("runtimeConfig.workspace.root must be an absolute path")
+		return fmt.Errorf("runtimeConfig.workspaceRoot must be an absolute path or %q", AgentWorkspaceRootChat)
 	}
 	return nil
 }
@@ -82,7 +179,7 @@ func validateAgentModeWorkspace(mode string, workspace AgentWorkspaceConfig, has
 		return nil
 	}
 	if strings.TrimSpace(workspace.Root) == "" && !hasRuntimeSandbox {
-		return fmt.Errorf("runtimeConfig.workspace.root is required for non-sandbox CODER agents")
+		return fmt.Errorf("runtimeConfig.workspaceRoot is required for non-sandbox CODER agents")
 	}
 	return nil
 }

@@ -926,8 +926,7 @@ Plan should stream over websocket.
 				"modelConfig:",
 				"  modelKey: mock-model",
 				"runtimeConfig:",
-				"  workspace:",
-				"    root: " + filepath.ToSlash(workspace),
+				"  workspaceRoot: " + filepath.ToSlash(workspace),
 			}, "\n")), 0o644); err != nil {
 				t.Fatalf("write coder agent: %v", err)
 			}
