@@ -47,4 +47,4 @@ HTTP query
 - `internal/server/handler_query.go`
 - `internal/server/handler_run_stream_test.go`
 - `internal/chat/events_writer.go`
-- `docs/通讯协议.md`
+- `docs/API与协议.md`

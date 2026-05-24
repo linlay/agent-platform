@@ -274,6 +274,23 @@ Container Hub 默认基础挂载当前固定为 7 个：
 
 部署时的敏感信息应通过环境变量或 Secret 注入，不要写入仓库文件。
 
+### 版本化打包
+
+面向 `zenmind-desktop` builtin 分发时，使用 program bundle 发布链路：
+
+```bash
+make release-program
+```
+
+产物写入 `dist/release/`，包含 Go 二进制、配置模板、runtime 目录骨架和启停脚本。Desktop 集成时再到 `zenmind-desktop` 执行资源同步：
+
+```bash
+cd ../zenmind-desktop
+npm run sync:assets
+```
+
+完整打包细节见 [版本化打包方案](./docs/版本化打包方案.md)。
+
 ## 5. 运维
 
 ### 查看日志
@@ -307,7 +324,7 @@ docker compose logs -f
 - [真流式和H2A](./docs/真流式和H2A.md)
 - [记忆系统](./docs/记忆系统.md)
 - [运行时和沙箱](./docs/运行时和沙箱.md)
-- [通讯协议](./docs/通讯协议.md)
+- [API与协议](./docs/API与协议.md)
 - [HITL协议](./docs/HITL协议.md)
 - [自动化](./docs/自动化.md)
 - [子智能体调度](./docs/子智能体调度.md)

@@ -2,7 +2,7 @@
 
 ## 1. 项目概览
 
-`agent-platform` 是 `agent-platform` 的 Go 版运行时仓库，目标是在保持 Java runtime 接口风格与部署方式尽量一致的前提下，逐步形成可独立运行、可被 `zenmind-desktop` builtin 分发的 agent runtime。
+`agent-platform` 是 `agent-platform` 的 Go 版运行时仓库，目标是在保持 Java runtime 接口风格与部署方式尽量一致的前提下，逐步形成可独立运行的 agent runtime。
 
 当前仓库定位是“最小可运行闭环 + 特色能力持续补齐”：
 
@@ -13,8 +13,6 @@
 - 已具备 HITL question / approval / form、运行中 submit / steer / interrupt 协议入口。
 - 已具备 SQLite memory、FTS、可选 embedding、learn / consolidate / feedback 与 memory tools。
 - 已具备 automation、`agent_invoke` 子智能体调度、MCP tool sync、WebSocket 控制面等能力骨架。
-- 已具备 `VERSION + scripts/release*.sh + dist/release` 的 program bundle 发布链路。
-
 尚未完全对齐 Java 版的部分能力包括 frontend tool 完整闭环、MCP 全量生产验证、automation 深度编排、热重载细节和更完整的前端协议适配。未落地能力必须在专题文档中明确标注，不能写成已完成能力。
 
 ## 2. 技术栈
@@ -24,9 +22,6 @@
 - 序列化：标准库 `encoding/json`
 - 存储：本地文件系统 + SQLite memory store
 - 配置：环境变量 + `configs/*.yml`
-- 容器化：Docker 多阶段构建
-- 本地编排：Docker Compose
-- 发布：Makefile + shell / PowerShell release scripts
 
 当前没有引入 Web 框架、第三方路由库、外部数据库或消息队列。配置默认值以 `internal/config/config.go` 与 `configs/*.example.yml` 为事实源。
 
@@ -67,8 +62,7 @@ cmd/agent-platform/main.go
 ├── configs/                     # 配置模板与本地覆写入口
 ├── docs/                        # 中文专题文档
 ├── internal/                    # Go runtime 实现
-├── scripts/                     # 发布、审计和辅助脚本
-├── dist/release/                # 版本化 program bundle 输出
+├── scripts/                     # 审计和辅助脚本
 ├── Dockerfile
 ├── Makefile
 ├── compose.yml
@@ -113,7 +107,7 @@ Memory 默认由 `MEMORY_DIR` 控制，当前以 SQLite store 为主，支持 FT
 - Resource：`/api/upload`、`/api/resource`。
 - Viewport / WebSocket：`/api/viewport`、`/ws`。
 
-详细协议拆分到专题文档：REST / SSE / WebSocket 见 [通讯协议](docs/通讯协议.md)，真流式与 attach 见 [真流式和H2A](docs/真流式和H2A.md)，HITL 见 [HITL协议](docs/HITL协议.md)。
+详细协议拆分到专题文档：REST / SSE / WebSocket 见 [API与协议](docs/API与协议.md)，真流式与 attach 见 [真流式和H2A](docs/真流式和H2A.md)，HITL 见 [HITL协议](docs/HITL协议.md)。
 
 ## 7. 开发要点
 
@@ -135,22 +129,6 @@ make run
 make test
 ```
 
-容器验证：
-
-```bash
-docker compose config
-docker compose up --build
-docker compose logs -f
-```
-
-Desktop builtin 联调：
-
-```bash
-make release-program
-cd ../zenmind-desktop
-npm run sync:assets
-```
-
 涉及文档、配置或目录规范调整时，同步检查 `README.md`、`CLAUDE.md`、`docs/` 与 `.gitignore`。
 
 ## 9. 已知约束与注意事项
@@ -161,7 +139,6 @@ npm run sync:assets
 - `runtimeConfig.env` 不会通过 catalog API 回显，避免泄露代理、凭据或私有 endpoint。
 - 文件工具权限独立于 Bash 权限，越权路径通过 HITL approval 兜底。
 - `agent_invoke` 只允许显式配置的主 agent 使用，当前禁止嵌套。
-- program bundle 默认服务于 `zenmind-desktop` builtin 分发。
 
 ## 特色功能文档索引
 
@@ -171,13 +148,13 @@ npm run sync:assets
 - [真流式和H2A](docs/真流式和H2A.md)：SSE、heartbeat、`[DONE]`、attach、backlog、H2A 缓冲。
 - [记忆系统](docs/记忆系统.md)：remember、SQLite memory、FTS、embedding、learn、consolidate、memory tools。
 - [运行时和沙箱](docs/运行时和沙箱.md)：runtime 目录、Container Hub、mounts、host / sandbox 工具边界。
-- [通讯协议](docs/通讯协议.md)：REST、SSE、WebSocket、HTTP 文件数据面、resource ticket。
+- [API与协议](docs/API与协议.md)：HTTP API 参数、SSE、WebSocket、HTTP 文件数据面、resource ticket。
 - [HITL协议](docs/HITL协议.md)：question / approval / form、submit、awaiting 事件。
 - [自动化](docs/自动化.md)：automation registry、orchestrator、dispatch、执行记录。
 - [子智能体调度](docs/子智能体调度.md)：`agent_invoke`、task events、子流归并、禁止嵌套。
 - [MCP与前端工具](docs/MCP与前端工具.md)：MCP registry、tool sync、frontend tool 当前边界。
 - [会话存储与回放](docs/会话存储与回放.md)：chat store、StepLine、raw messages、archive、search、resource。
 - [鉴权与安全边界](docs/鉴权与安全边界.md)：JWT、JWKS、本地公钥、resource ticket、CORS、敏感配置。
-- [版本化打包方案](docs/版本化打包方案.md)：program bundle、发布脚本、Desktop 集成。
+- [版本化打包方案](docs/版本化打包方案.md)：README 索引的交付专题文档。
 - [手工测试用例](docs/手工测试用例.md)：curl 回归用例。
 - [兼容清理清单](docs/兼容清理清单.md)：保留兼容路径与后续删除条件。
