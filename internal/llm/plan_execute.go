@@ -19,6 +19,27 @@ Execution rules:
 2) You may call any available tool as needed.
 3) Before finishing this task, you MUST call plan_update_task to update its status.`
 
+const defaultPlanUserPromptTemplate = `{{plan_prompt}}
+
+{{execute_tool_descriptions}}
+
+{{plan_callable_tool_descriptions}}
+
+Create an execution plan for the user's request. You MUST call plan_add_tasks before the stage finishes.
+
+User request:
+{{user_request}}`
+
+const defaultPlanSummarySystemPrompt = `Summarize the completed plan execution for the user.`
+
+const defaultPlanSummaryUserPromptTemplate = `Please provide a final summary of the completed plan.
+
+Original request:
+{{original_request}}
+
+Task results:
+{{task_results}}`
+
 type planExecuteStream struct {
 	engine  *LLMAgentEngine
 	ctx     context.Context
@@ -159,7 +180,7 @@ func (s *planExecuteStream) startTaskStream(task *PlanTask) error {
 
 	// Build messages from accumulated executeMessages (Java: context.executeMessages() is shared
 	// across all tasks, so each task sees previous tasks' conversation + steers).
-	taskPrompt := renderTemplate(defaultTaskTemplate(s.settings), map[string]string{
+	taskPrompt := renderTemplate(s.taskTemplate(), map[string]string{
 		"task_list":        formatTaskList(s.execCtx.PlanState.Tasks),
 		"task_id":          task.TaskID,
 		"task_description": task.Description,
@@ -282,19 +303,12 @@ func (s *planExecuteStream) emitTaskFailure(task *PlanTask, message string) {
 }
 
 func (s *planExecuteStream) startPlanStage() error {
-	// Augment plan prompt with execute-stage tool descriptions (Java: augmentPlanStageWithToolPrompts)
 	planPrompt := s.settings.Plan.PrimaryPrompt()
 	executeToolDesc := s.buildExecuteToolDescriptions()
-	if executeToolDesc != "" {
-		planPrompt = planPrompt + "\n\n" + executeToolDesc
-	}
 	planCallableDesc := s.buildPlanCallableToolDescriptions()
-	if planCallableDesc != "" {
-		planPrompt = planPrompt + "\n\n" + planCallableDesc
-	}
 
 	req := s.req
-	req.Message = strings.TrimSpace(planPrompt) + "\n\nCreate an execution plan for the user's request. You MUST call plan_add_tasks before the stage finishes.\n\nUser request:\n" + s.req.Message
+	req.Message = s.renderPlanUserPrompt(planPrompt, executeToolDesc, planCallableDesc)
 	stream, err := s.engine.newRunStreamWithOptions(s.ctx, req, s.sessionForStage(s.settings.Plan, s.planStageTools()), true, runStreamOptions{
 		ExecCtx:      s.execCtx,
 		ToolNames:    s.planStageTools(),
@@ -316,14 +330,17 @@ func (s *planExecuteStream) startSummaryStage() error {
 	// Build summary messages from accumulated execute history (Java: context.executeMessages())
 	summaryMessages := make([]openAIMessage, 0, len(s.executeMessages)+2)
 	systemPrompt := s.settings.Summary.PrimaryPrompt()
+	if systemPrompt == "" && s.engine != nil {
+		systemPrompt = strings.TrimSpace(s.engine.cfg.Prompts.PlanExecute.SummarySystemPrompt)
+	}
 	if systemPrompt == "" {
-		systemPrompt = "Summarize the completed plan execution for the user."
+		systemPrompt = defaultPlanSummarySystemPrompt
 	}
 	summaryMessages = append(summaryMessages, openAIMessage{Role: "system", Content: systemPrompt})
 	summaryMessages = append(summaryMessages, s.executeMessages...)
 	summaryMessages = append(summaryMessages, openAIMessage{
 		Role:    "user",
-		Content: "Please provide a final summary of the completed plan.\n\nOriginal request:\n" + s.req.Message + "\n\nTask results:\n" + formatTaskList(s.execCtx.PlanState.Tasks),
+		Content: s.renderSummaryUserPrompt(),
 	})
 
 	stream, err := s.engine.newRunStreamWithOptions(s.ctx, s.req, s.sessionForStage(s.settings.Summary, nil), false, runStreamOptions{
@@ -473,11 +490,45 @@ func nonSystemMessages(msgs []openAIMessage) []openAIMessage {
 	return out
 }
 
+func (s *planExecuteStream) taskTemplate() string {
+	if strings.TrimSpace(s.settings.TaskExecutionPrompt) != "" {
+		return s.settings.TaskExecutionPrompt
+	}
+	if s.engine != nil && strings.TrimSpace(s.engine.cfg.Prompts.PlanExecute.TaskExecutionPromptTemplate) != "" {
+		return strings.TrimSpace(s.engine.cfg.Prompts.PlanExecute.TaskExecutionPromptTemplate)
+	}
+	return defaultTaskExecutionPromptTemplate
+}
+
 func defaultTaskTemplate(settings PlanExecuteSettings) string {
 	if strings.TrimSpace(settings.TaskExecutionPrompt) != "" {
 		return settings.TaskExecutionPrompt
 	}
 	return defaultTaskExecutionPromptTemplate
+}
+
+func (s *planExecuteStream) renderPlanUserPrompt(planPrompt string, executeToolDesc string, planCallableDesc string) string {
+	template := defaultPlanUserPromptTemplate
+	if s.engine != nil && strings.TrimSpace(s.engine.cfg.Prompts.PlanExecute.PlanUserPromptTemplate) != "" {
+		template = strings.TrimSpace(s.engine.cfg.Prompts.PlanExecute.PlanUserPromptTemplate)
+	}
+	return strings.TrimSpace(renderTemplate(template, map[string]string{
+		"plan_prompt":                     strings.TrimSpace(planPrompt),
+		"execute_tool_descriptions":       strings.TrimSpace(executeToolDesc),
+		"plan_callable_tool_descriptions": strings.TrimSpace(planCallableDesc),
+		"user_request":                    s.req.Message,
+	}))
+}
+
+func (s *planExecuteStream) renderSummaryUserPrompt() string {
+	template := defaultPlanSummaryUserPromptTemplate
+	if s.engine != nil && strings.TrimSpace(s.engine.cfg.Prompts.PlanExecute.SummaryUserPromptTemplate) != "" {
+		template = strings.TrimSpace(s.engine.cfg.Prompts.PlanExecute.SummaryUserPromptTemplate)
+	}
+	return strings.TrimSpace(renderTemplate(template, map[string]string{
+		"original_request": s.req.Message,
+		"task_results":     formatTaskList(s.execCtx.PlanState.Tasks),
+	}))
 }
 
 func renderTemplate(template string, values map[string]string) string {

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 )
 
@@ -63,7 +64,7 @@ func TestSystemInitFingerprintChangesWithPromptAndStage(t *testing.T) {
 func TestCachedSystemInitConversions(t *testing.T) {
 	profiles := BuildSystemInitProfiles(fingerprintTestSession(), api.QueryRequest{ChatID: "chat-1", Message: "hello"}, []api.ToolDetailResponse{
 		{Name: "bash", Description: "run shell", Parameters: map[string]any{"type": "object"}},
-	}, 12, 4)
+	}, 12, 4, config.PromptsConfig{})
 	if len(profiles) != 1 {
 		t.Fatalf("expected one profile, got %#v", profiles)
 	}
@@ -113,7 +114,7 @@ func TestPlanExecuteSystemInitProfilesUseRuntimeSettings(t *testing.T) {
 		t.Fatalf("expected runtime defaults to be applied, got %#v", settings)
 	}
 
-	profiles := BuildSystemInitProfiles(session, api.QueryRequest{ChatID: "chat-1", Message: "hello"}, toolDefs, 12, 4)
+	profiles := BuildSystemInitProfiles(session, api.QueryRequest{ChatID: "chat-1", Message: "hello"}, toolDefs, 12, 4, config.PromptsConfig{})
 	if len(profiles) != 3 {
 		t.Fatalf("expected plan/execute/summary profiles, got %#v", profiles)
 	}
@@ -148,7 +149,7 @@ func TestCoderSystemInitProfileUsesDistinctMode(t *testing.T) {
 	toolDefs := []api.ToolDetailResponse{
 		{Name: "bash", Description: "run shell", Parameters: map[string]any{"type": "object"}},
 	}
-	profiles := BuildSystemInitProfiles(session, api.QueryRequest{ChatID: "chat-1", Message: "hello"}, toolDefs, 12, 4)
+	profiles := BuildSystemInitProfiles(session, api.QueryRequest{ChatID: "chat-1", Message: "hello"}, toolDefs, 12, 4, config.PromptsConfig{})
 	if len(profiles) != 1 {
 		t.Fatalf("expected one CODER profile, got %#v", profiles)
 	}

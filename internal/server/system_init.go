@@ -17,6 +17,7 @@ func (s *Server) prepareSystemInitCache(req api.QueryRequest, session *contracts
 		s.deps.Tools.Definitions(),
 		s.deps.Config.Defaults.Plan.MaxSteps,
 		s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask,
+		s.deps.Config.Prompts,
 	)
 	if len(profiles) == 0 {
 		return nil, nil
@@ -76,6 +77,7 @@ func (s *Server) buildSystemInitsForChildTask(req api.QueryRequest, session *con
 		s.deps.Tools.Definitions(),
 		s.deps.Config.Defaults.Plan.MaxSteps,
 		s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask,
+		s.deps.Config.Prompts,
 	)
 	systems := make([]chat.QueryLineSystemInit, 0, len(profiles))
 	for _, profile := range profiles {

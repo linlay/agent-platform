@@ -143,9 +143,22 @@ func TestLoadPromptsConfigFromFile(t *testing.T) {
 		content := "" +
 			"skill:\n" +
 			"  catalog-header: custom skills header\n" +
+			"  disclosure-header: custom disclosure\n" +
+			"  instructions-label: custom label\n" +
 			"  instructions-prompt: |\n" +
 			"    custom skill instructions\n" +
-			"    second line\n"
+			"    second line\n" +
+			"tool-appendix:\n" +
+			"  tool-description-title: custom tool title\n" +
+			"  after-call-hint-title: custom hint title\n" +
+			"plan-execute:\n" +
+			"  task-execution-prompt-template: |\n" +
+			"    custom task {{task_id}}\n" +
+			"  plan-user-prompt-template: |\n" +
+			"    custom plan {{user_request}}\n" +
+			"  summary-system-prompt: custom summary system\n" +
+			"  summary-user-prompt-template: |\n" +
+			"    custom summary {{task_results}}\n"
 		withProjectFileContents(t, filepath.Join("configs", "prompts.yml"), &content, func() {
 			cfg, err := Load()
 			if err != nil {
@@ -158,6 +171,30 @@ func TestLoadPromptsConfigFromFile(t *testing.T) {
 			if cfg.Prompts.Skill.CatalogHeader != "custom skills header" {
 				t.Fatalf("expected catalog header override, got %q", cfg.Prompts.Skill.CatalogHeader)
 			}
+			if cfg.Prompts.Skill.DisclosureHeader != "custom disclosure" {
+				t.Fatalf("expected disclosure header override, got %q", cfg.Prompts.Skill.DisclosureHeader)
+			}
+			if cfg.Prompts.Skill.InstructionsLabel != "custom label" {
+				t.Fatalf("expected instructions label override, got %q", cfg.Prompts.Skill.InstructionsLabel)
+			}
+			if cfg.Prompts.ToolAppendix.ToolDescriptionTitle != "custom tool title" {
+				t.Fatalf("expected tool description title override, got %q", cfg.Prompts.ToolAppendix.ToolDescriptionTitle)
+			}
+			if cfg.Prompts.ToolAppendix.AfterCallHintTitle != "custom hint title" {
+				t.Fatalf("expected after call hint title override, got %q", cfg.Prompts.ToolAppendix.AfterCallHintTitle)
+			}
+			if cfg.Prompts.PlanExecute.TaskExecutionPromptTemplate != "custom task {{task_id}}" {
+				t.Fatalf("expected task prompt override, got %q", cfg.Prompts.PlanExecute.TaskExecutionPromptTemplate)
+			}
+			if cfg.Prompts.PlanExecute.PlanUserPromptTemplate != "custom plan {{user_request}}" {
+				t.Fatalf("expected plan user prompt override, got %q", cfg.Prompts.PlanExecute.PlanUserPromptTemplate)
+			}
+			if cfg.Prompts.PlanExecute.SummarySystemPrompt != "custom summary system" {
+				t.Fatalf("expected summary system prompt override, got %q", cfg.Prompts.PlanExecute.SummarySystemPrompt)
+			}
+			if cfg.Prompts.PlanExecute.SummaryUserPromptTemplate != "custom summary {{task_results}}" {
+				t.Fatalf("expected summary user prompt override, got %q", cfg.Prompts.PlanExecute.SummaryUserPromptTemplate)
+			}
 		})
 	})
 }
@@ -167,7 +204,10 @@ func TestLoadCoderPromptsConfigFromFile(t *testing.T) {
 		content := "" +
 			"planning-prompt: |\n" +
 			"  custom coder planning\n" +
-			"  use planning_write only\n"
+			"  use planning_write only\n" +
+			"summary-system-prompt: custom coder summary system\n" +
+			"summary-user-prompt-template: |\n" +
+			"  custom coder summary {{confirmed_plan}}\n"
 		withProjectFileContents(t, filepath.Join("configs", "coder-prompts.yml"), &content, func() {
 			cfg, err := Load()
 			if err != nil {
@@ -176,6 +216,36 @@ func TestLoadCoderPromptsConfigFromFile(t *testing.T) {
 			want := "custom coder planning\nuse planning_write only"
 			if cfg.CoderPrompts.PlanningPrompt != want {
 				t.Fatalf("expected coder planning prompt %q, got %q", want, cfg.CoderPrompts.PlanningPrompt)
+			}
+			if cfg.CoderPrompts.SummarySystemPrompt != "custom coder summary system" {
+				t.Fatalf("expected coder summary system prompt override, got %q", cfg.CoderPrompts.SummarySystemPrompt)
+			}
+			if cfg.CoderPrompts.SummaryUserPromptTemplate != "custom coder summary {{confirmed_plan}}" {
+				t.Fatalf("expected coder summary user prompt override, got %q", cfg.CoderPrompts.SummaryUserPromptTemplate)
+			}
+		})
+	})
+}
+
+func TestLoadMemoryPromptsConfigFromFile(t *testing.T) {
+	withIsolatedEnv(t, nil, func() {
+		content := "" +
+			"system-prompt-template: |\n" +
+			"  custom memory system\n" +
+			"  {{task_instruction}}\n" +
+			"user-prompt-template: |\n" +
+			"  custom memory user\n" +
+			"  {{source_text}}\n"
+		withProjectFileContents(t, filepath.Join("configs", "memory-prompts.yml"), &content, func() {
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			if cfg.MemoryPrompts.SystemPromptTemplate != "custom memory system\n{{task_instruction}}" {
+				t.Fatalf("expected memory system prompt override, got %q", cfg.MemoryPrompts.SystemPromptTemplate)
+			}
+			if cfg.MemoryPrompts.UserPromptTemplate != "custom memory user\n{{source_text}}" {
+				t.Fatalf("expected memory user prompt override, got %q", cfg.MemoryPrompts.UserPromptTemplate)
 			}
 		})
 	})

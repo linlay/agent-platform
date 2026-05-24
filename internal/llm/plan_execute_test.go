@@ -4,6 +4,8 @@ import (
 	"reflect"
 	"testing"
 
+	"agent-platform/internal/api"
+	"agent-platform/internal/config"
 	contracts "agent-platform/internal/contracts"
 )
 
@@ -53,6 +55,55 @@ func TestPlanStagePostToolHookStopsAfterTasksCreated(t *testing.T) {
 	stream.execCtx.PlanState.Tasks = []contracts.PlanTask{{TaskID: "task_1", Description: "first task"}}
 	if got := stream.planStagePostToolHook("plan_add_tasks", "tool_1"); got != PostToolStop {
 		t.Fatalf("created-plan hook=%v want %v", got, PostToolStop)
+	}
+}
+
+func TestPlanExecuteUsesGlobalPromptTemplates(t *testing.T) {
+	stream := &planExecuteStream{
+		engine: &LLMAgentEngine{cfg: config.Config{
+			Prompts: config.PromptsConfig{
+				PlanExecute: config.PlanExecutePromptsConfig{
+					TaskExecutionPromptTemplate: "global task {{task_id}} {{task_description}}",
+					PlanUserPromptTemplate:      "global plan {{plan_prompt}} {{execute_tool_descriptions}} {{plan_callable_tool_descriptions}} {{user_request}}",
+					SummaryUserPromptTemplate:   "global summary {{original_request}} {{task_results}}",
+				},
+			},
+		}},
+		req: api.QueryRequest{Message: "do work"},
+		execCtx: &contracts.ExecutionContext{
+			PlanState: &contracts.PlanRuntimeState{
+				Tasks: []contracts.PlanTask{{TaskID: "task_1", Status: "completed", Description: "first"}},
+			},
+		},
+	}
+	if got := stream.taskTemplate(); got != "global task {{task_id}} {{task_description}}" {
+		t.Fatalf("expected global task template, got %q", got)
+	}
+	planPrompt := stream.renderPlanUserPrompt("stage plan", "exec tools", "plan tools")
+	if planPrompt != "global plan stage plan exec tools plan tools do work" {
+		t.Fatalf("unexpected rendered plan prompt %q", planPrompt)
+	}
+	summaryPrompt := stream.renderSummaryUserPrompt()
+	if summaryPrompt != "global summary do work - task_1 | completed | first" {
+		t.Fatalf("unexpected rendered summary prompt %q", summaryPrompt)
+	}
+}
+
+func TestPlanExecuteAgentTaskTemplateOverridesGlobal(t *testing.T) {
+	stream := &planExecuteStream{
+		engine: &LLMAgentEngine{cfg: config.Config{
+			Prompts: config.PromptsConfig{
+				PlanExecute: config.PlanExecutePromptsConfig{
+					TaskExecutionPromptTemplate: "global task",
+				},
+			},
+		}},
+		settings: contracts.PlanExecuteSettings{
+			TaskExecutionPrompt: "agent task",
+		},
+	}
+	if got := stream.taskTemplate(); got != "agent task" {
+		t.Fatalf("expected agent task template to win, got %q", got)
 	}
 }
 

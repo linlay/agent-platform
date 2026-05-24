@@ -55,6 +55,21 @@ func TestCoderPlanningPromptUsesCoderPromptsConfig(t *testing.T) {
 	}
 }
 
+func TestCoderSummaryPromptUsesCoderPromptsConfig(t *testing.T) {
+	stream := &coderPlanningStream{
+		engine: &LLMAgentEngine{cfg: config.Config{
+			CoderPrompts: config.CoderPromptsConfig{
+				SummaryUserPromptTemplate: "custom summary {{original_request}} {{confirmed_plan}}",
+			},
+		}},
+		req: api.QueryRequest{Message: "build it"},
+	}
+	got := stream.renderSummaryUserPrompt("confirmed markdown")
+	if got != "custom summary build it confirmed markdown" {
+		t.Fatalf("expected custom coder summary prompt, got %q", got)
+	}
+}
+
 func TestCoderPlanningConfirmationUsesApprovalMode(t *testing.T) {
 	stream := &coderPlanningStream{
 		session: contracts.QuerySession{RunID: "run_1"},

@@ -785,15 +785,10 @@ func (s *Server) buildAgentDetailMeta(def catalog.AgentDefinition) (string, map[
 		workspaceMeta := map[string]any{
 			"root": def.Workspace.Root,
 		}
-		if len(def.Workspace.ProjectPromptFiles) > 0 {
-			workspaceMeta["projectPromptFiles"] = append([]string(nil), def.Workspace.ProjectPromptFiles...)
-		}
-		if strings.TrimSpace(def.Workspace.Git.ExpectedBranch) != "" {
-			workspaceMeta["git"] = map[string]any{
-				"expectedBranch": def.Workspace.Git.ExpectedBranch,
-			}
-		}
 		meta["workspace"] = workspaceMeta
+	}
+	if len(def.Project.PromptFiles) > 0 || strings.TrimSpace(def.Project.Git.ExpectedBranch) != "" {
+		meta["project"] = normalizedProjectMeta(def.Project)
 	}
 	if def.ProxyConfig != nil {
 		meta["proxy"] = map[string]any{
@@ -861,6 +856,26 @@ func normalizedRuntimeMeta(runtime map[string]any) map[string]any {
 	// Intentionally do not expose sandbox env values via API metadata.
 	if mounts := normalizeRuntimeMounts(runtime["extraMounts"]); len(mounts) > 0 {
 		out["extraMounts"] = mounts
+	}
+	return out
+}
+
+func normalizedProjectMeta(project catalog.AgentProjectConfig) map[string]any {
+	out := map[string]any{}
+	if len(project.PromptFiles) > 0 {
+		items := make([]map[string]any, 0, len(project.PromptFiles))
+		for _, item := range project.PromptFiles {
+			items = append(items, map[string]any{
+				"source": item.Source,
+				"path":   item.Path,
+			})
+		}
+		out["promptFiles"] = items
+	}
+	if strings.TrimSpace(project.Git.ExpectedBranch) != "" {
+		out["git"] = map[string]any{
+			"expectedBranch": project.Git.ExpectedBranch,
+		}
 	}
 	return out
 }

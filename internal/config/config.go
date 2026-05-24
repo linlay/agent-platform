@@ -16,6 +16,7 @@ type Config struct {
 	Skills         SkillCatalogConfig
 	Prompts        PromptsConfig
 	CoderPrompts   CoderPromptsConfig
+	MemoryPrompts  MemoryPromptsConfig
 	CoderSettings  CoderSettingsConfig
 	Providers      CatalogConfig
 	Models         CatalogConfig
@@ -73,16 +74,39 @@ type SkillCatalogConfig struct {
 }
 
 type PromptsConfig struct {
-	Skill PromptSkillConfig
+	Skill        PromptSkillConfig
+	ToolAppendix ToolAppendixPromptsConfig
+	PlanExecute  PlanExecutePromptsConfig
 }
 
 type PromptSkillConfig struct {
 	InstructionsPrompt string
 	CatalogHeader      string
+	DisclosureHeader   string
+	InstructionsLabel  string
+}
+
+type ToolAppendixPromptsConfig struct {
+	ToolDescriptionTitle string
+	AfterCallHintTitle   string
+}
+
+type PlanExecutePromptsConfig struct {
+	TaskExecutionPromptTemplate string
+	PlanUserPromptTemplate      string
+	SummarySystemPrompt         string
+	SummaryUserPromptTemplate   string
 }
 
 type CoderPromptsConfig struct {
-	PlanningPrompt string
+	PlanningPrompt            string
+	SummarySystemPrompt       string
+	SummaryUserPromptTemplate string
+}
+
+type MemoryPromptsConfig struct {
+	SystemPromptTemplate string
+	UserPromptTemplate   string
 }
 
 type CoderSettingsConfig struct {
@@ -643,6 +667,7 @@ func (c *Config) applyStructuredConfig() error {
 	c.applyCORSFile(ConfigFile("configs/cors.yml"))
 	c.applyPromptsFile(ConfigFile("configs/prompts.yml"))
 	c.applyCoderPromptsFile(ConfigFile("configs/coder-prompts.yml"))
+	c.applyMemoryPromptsFile(ConfigFile("configs/memory-prompts.yml"))
 	c.applyCoderSettingsFile(ConfigFile("configs/coder-settings.yml"))
 	if err := c.applyChannelsFile(ConfigFile("configs/channels.yml")); err != nil {
 		return err
@@ -870,11 +895,24 @@ func (c *Config) applyPromptsFile(path string) {
 		return
 	}
 	skill, _ := values["skill"].(map[string]any)
-	if len(skill) == 0 {
-		return
+	if len(skill) > 0 {
+		c.Prompts.Skill.InstructionsPrompt = stringValue(anyValue(skill["instructions-prompt"], c.Prompts.Skill.InstructionsPrompt), c.Prompts.Skill.InstructionsPrompt)
+		c.Prompts.Skill.CatalogHeader = stringValue(anyValue(skill["catalog-header"], c.Prompts.Skill.CatalogHeader), c.Prompts.Skill.CatalogHeader)
+		c.Prompts.Skill.DisclosureHeader = stringValue(anyValue(skill["disclosure-header"], c.Prompts.Skill.DisclosureHeader), c.Prompts.Skill.DisclosureHeader)
+		c.Prompts.Skill.InstructionsLabel = stringValue(anyValue(skill["instructions-label"], c.Prompts.Skill.InstructionsLabel), c.Prompts.Skill.InstructionsLabel)
 	}
-	c.Prompts.Skill.InstructionsPrompt = stringValue(anyValue(skill["instructions-prompt"], c.Prompts.Skill.InstructionsPrompt), c.Prompts.Skill.InstructionsPrompt)
-	c.Prompts.Skill.CatalogHeader = stringValue(anyValue(skill["catalog-header"], c.Prompts.Skill.CatalogHeader), c.Prompts.Skill.CatalogHeader)
+	toolAppendix, _ := values["tool-appendix"].(map[string]any)
+	if len(toolAppendix) > 0 {
+		c.Prompts.ToolAppendix.ToolDescriptionTitle = stringValue(anyValue(toolAppendix["tool-description-title"], c.Prompts.ToolAppendix.ToolDescriptionTitle), c.Prompts.ToolAppendix.ToolDescriptionTitle)
+		c.Prompts.ToolAppendix.AfterCallHintTitle = stringValue(anyValue(toolAppendix["after-call-hint-title"], c.Prompts.ToolAppendix.AfterCallHintTitle), c.Prompts.ToolAppendix.AfterCallHintTitle)
+	}
+	planExecute, _ := values["plan-execute"].(map[string]any)
+	if len(planExecute) > 0 {
+		c.Prompts.PlanExecute.TaskExecutionPromptTemplate = stringValue(anyValue(planExecute["task-execution-prompt-template"], c.Prompts.PlanExecute.TaskExecutionPromptTemplate), c.Prompts.PlanExecute.TaskExecutionPromptTemplate)
+		c.Prompts.PlanExecute.PlanUserPromptTemplate = stringValue(anyValue(planExecute["plan-user-prompt-template"], c.Prompts.PlanExecute.PlanUserPromptTemplate), c.Prompts.PlanExecute.PlanUserPromptTemplate)
+		c.Prompts.PlanExecute.SummarySystemPrompt = stringValue(anyValue(planExecute["summary-system-prompt"], c.Prompts.PlanExecute.SummarySystemPrompt), c.Prompts.PlanExecute.SummarySystemPrompt)
+		c.Prompts.PlanExecute.SummaryUserPromptTemplate = stringValue(anyValue(planExecute["summary-user-prompt-template"], c.Prompts.PlanExecute.SummaryUserPromptTemplate), c.Prompts.PlanExecute.SummaryUserPromptTemplate)
+	}
 }
 
 func (c *Config) applyCoderPromptsFile(path string) {
@@ -887,6 +925,21 @@ func (c *Config) applyCoderPromptsFile(path string) {
 		return
 	}
 	c.CoderPrompts.PlanningPrompt = stringValue(anyValue(values["planning-prompt"], c.CoderPrompts.PlanningPrompt), c.CoderPrompts.PlanningPrompt)
+	c.CoderPrompts.SummarySystemPrompt = stringValue(anyValue(values["summary-system-prompt"], c.CoderPrompts.SummarySystemPrompt), c.CoderPrompts.SummarySystemPrompt)
+	c.CoderPrompts.SummaryUserPromptTemplate = stringValue(anyValue(values["summary-user-prompt-template"], c.CoderPrompts.SummaryUserPromptTemplate), c.CoderPrompts.SummaryUserPromptTemplate)
+}
+
+func (c *Config) applyMemoryPromptsFile(path string) {
+	tree, err := LoadYAMLTree(path)
+	if err != nil {
+		return
+	}
+	values, _ := tree.(map[string]any)
+	if len(values) == 0 {
+		return
+	}
+	c.MemoryPrompts.SystemPromptTemplate = stringValue(anyValue(values["system-prompt-template"], c.MemoryPrompts.SystemPromptTemplate), c.MemoryPrompts.SystemPromptTemplate)
+	c.MemoryPrompts.UserPromptTemplate = stringValue(anyValue(values["user-prompt-template"], c.MemoryPrompts.UserPromptTemplate), c.MemoryPrompts.UserPromptTemplate)
 }
 
 func (c *Config) applyCoderSettingsFile(path string) {

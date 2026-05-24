@@ -925,8 +925,8 @@ Plan should stream over websocket.
 				"mode: CODER",
 				"modelConfig:",
 				"  modelKey: mock-model",
-				"workspaceConfig:",
-				"  root: " + filepath.ToSlash(workspace),
+				"runtimeConfig:",
+				"  workspaceRoot: " + filepath.ToSlash(workspace),
 			}, "\n")), 0o644); err != nil {
 				t.Fatalf("write coder agent: %v", err)
 			}
@@ -1104,6 +1104,7 @@ func startAwaitingPushQuestionFlow(t *testing.T, configure func(*config.Config))
 		flow.server.Close()
 		t.Fatalf("expected awaiting.ask identifiers, got stream %s", flow.streamBody.String())
 	}
+	assertEventOrder(t, flow.streamBody.String(), "tool.start", "tool.args", "tool.end", "awaiting.ask")
 	return flow
 }
 

@@ -22,6 +22,7 @@ type DeltaMapper struct {
 	indexedToolIDs       map[int]string
 	toolArgChunkCounters map[string]int
 	toolArgBuffers       map[string]*strings.Builder
+	pendingToolAwaitAsks map[string]*stream.AwaitAsk
 	actionToolIDs        map[string]bool
 	toolRegistry         ToolDefinitionLookup
 	frontend             *frontendtools.Registry
@@ -35,6 +36,7 @@ func NewDeltaMapper(runID string, chatID string, toolTimeoutMs int64, toolRegist
 		indexedToolIDs:       map[int]string{},
 		toolArgChunkCounters: map[string]int{},
 		toolArgBuffers:       map[string]*strings.Builder{},
+		pendingToolAwaitAsks: map[string]*stream.AwaitAsk{},
 		actionToolIDs:        map[string]bool{},
 		toolRegistry:         toolRegistry,
 		frontend:             frontend,
@@ -103,6 +105,11 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 		m.toolArgChunkCounters[toolID] = chunkIndex + 1
 		m.lastKind = "tool"
 		awaitAsk, emitAwaitBeforeToolArgs := m.buildFrontendToolAwaitAsk(toolID, value.Name, value.ArgsDelta, chunkIndex)
+		if awaitAsk != nil && strings.EqualFold(strings.TrimSpace(value.Name), "ask_user_question") {
+			m.pendingToolAwaitAsks[toolID] = awaitAsk
+			awaitAsk = nil
+			emitAwaitBeforeToolArgs = false
+		}
 		toolArgs := stream.ToolArgs{
 			ToolID:          toolID,
 			Delta:           value.ArgsDelta,
@@ -127,6 +134,10 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 				continue
 			}
 			inputs = append(inputs, stream.ToolEnd{ToolID: toolID})
+			if awaitAsk := m.pendingToolAwaitAsks[toolID]; awaitAsk != nil {
+				inputs = append(inputs, *awaitAsk)
+				delete(m.pendingToolAwaitAsks, toolID)
+			}
 		}
 		return inputs
 	case DeltaToolResult:

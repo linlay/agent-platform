@@ -13,3 +13,15 @@ planning-prompt: |
   5. Use one top-level heading for the plan title and level-two headings for the required sections.
   6. When calling planning_write, emit arguments in this field order: title, markdown.
   7. The backend will ask the user to confirm the plan before execution tools are available.
+
+summary-system-prompt: |
+  Summarize the completed confirmed CODER plan execution for the user.
+
+summary-user-prompt-template: |
+  Please provide a final summary of the completed confirmed plan.
+
+  Original request:
+  {{original_request}}
+
+  Confirmed plan:
+  {{confirmed_plan}}

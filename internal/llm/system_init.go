@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 )
 
@@ -21,7 +22,7 @@ type SystemInitProfile struct {
 	Tools         []any
 }
 
-func BuildSystemInitProfiles(session QuerySession, req api.QueryRequest, toolDefs []api.ToolDetailResponse, defaultPlanMaxSteps int, defaultPlanMaxWorkRoundsPerTask int) []SystemInitProfile {
+func BuildSystemInitProfiles(session QuerySession, req api.QueryRequest, toolDefs []api.ToolDetailResponse, defaultPlanMaxSteps int, defaultPlanMaxWorkRoundsPerTask int, prompts config.PromptsConfig) []SystemInitProfile {
 	if session.PlanningMode {
 		return nil
 	}
@@ -33,7 +34,7 @@ func BuildSystemInitProfiles(session QuerySession, req api.QueryRequest, toolDef
 		return []SystemInitProfile{
 			buildPlanSystemInitProfile(session, req, settings, toolDefs),
 			buildExecuteSystemInitProfile(session, settings, toolDefs),
-			buildSummarySystemInitProfile(session, settings),
+			buildSummarySystemInitProfile(session, settings, prompts),
 		}
 	case "oneshot":
 		return []SystemInitProfile{buildDefaultSystemInitProfile(session, req, toolDefs, "oneshot")}
@@ -149,16 +150,21 @@ func buildExecuteSystemInitProfile(session QuerySession, settings PlanExecuteSet
 	}
 }
 
-func buildSummarySystemInitProfile(session QuerySession, settings PlanExecuteSettings) SystemInitProfile {
+func buildSummarySystemInitProfile(session QuerySession, settings PlanExecuteSettings, prompts config.PromptsConfig) SystemInitProfile {
 	systemPrompt := strings.TrimSpace(settings.Summary.PrimaryPrompt())
 	if systemPrompt == "" {
-		systemPrompt = "Summarize the completed plan execution for the user."
+		systemPrompt = strings.TrimSpace(prompts.PlanExecute.SummarySystemPrompt)
 	}
+	if systemPrompt == "" {
+		systemPrompt = defaultPlanSummarySystemPrompt
+	}
+	fingerprintSession := session
+	fingerprintSession.SummaryPrompt = strings.TrimSpace(strings.Join([]string{fingerprintSession.SummaryPrompt, systemPrompt}, "\n"))
 	return SystemInitProfile{
 		CacheKey:      SystemInitCacheKey(session.Mode, "summary"),
 		Mode:          "plan-execute",
 		Stage:         "summary",
-		Fingerprint:   ComputeSystemInitFingerprint(session, "summary", nil),
+		Fingerprint:   ComputeSystemInitFingerprint(fingerprintSession, "summary", nil),
 		SystemMessage: map[string]any{"role": "system", "content": systemPrompt},
 		Tools:         []any{},
 	}

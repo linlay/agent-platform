@@ -144,6 +144,20 @@ func TestResolveLocalPathsIncludesAgentAndRegistryPaths(t *testing.T) {
 	}
 }
 
+func TestResolveLocalPathsResolvesChatWorkspaceRoot(t *testing.T) {
+	t.Parallel()
+
+	cfg := testPromptContextConfig(t)
+	paths := resolveLocalPaths(cfg.Paths, "chat-1", "", catalog.AgentWorkspaceRootChat)
+	want := absTestPath(t, filepath.Join(cfg.Paths.ChatsDir, "chat-1"))
+	if paths.WorkspaceDir != want {
+		t.Fatalf("workspace dir = %q, want %q", paths.WorkspaceDir, want)
+	}
+	if paths.WorkingDirectory != want {
+		t.Fatalf("working dir = %q, want %q", paths.WorkingDirectory, want)
+	}
+}
+
 func TestResolveLocalPathsOmitsMissingChatAttachmentsDir(t *testing.T) {
 	t.Parallel()
 
@@ -440,6 +454,71 @@ func TestBuildPromptAppendConfigUsesGlobalSkillCatalogHeader(t *testing.T) {
 	}, catalog.AgentDefinition{})
 	if appendConfig.Skill.CatalogHeader != "global skills header" {
 		t.Fatalf("expected global catalog header override, got %q", appendConfig.Skill.CatalogHeader)
+	}
+}
+
+func TestBuildPromptAppendConfigUsesGlobalAppendixFields(t *testing.T) {
+	t.Parallel()
+
+	appendConfig := buildPromptAppendConfig(config.PromptsConfig{
+		Skill: config.PromptSkillConfig{
+			DisclosureHeader:  "global disclosure",
+			InstructionsLabel: "global label",
+		},
+		ToolAppendix: config.ToolAppendixPromptsConfig{
+			ToolDescriptionTitle: "global tool title",
+			AfterCallHintTitle:   "global hint title",
+		},
+	}, catalog.AgentDefinition{})
+	if appendConfig.Skill.DisclosureHeader != "global disclosure" {
+		t.Fatalf("expected global disclosure header override, got %q", appendConfig.Skill.DisclosureHeader)
+	}
+	if appendConfig.Skill.InstructionsLabel != "global label" {
+		t.Fatalf("expected global instructions label override, got %q", appendConfig.Skill.InstructionsLabel)
+	}
+	if appendConfig.Tool.ToolDescriptionTitle != "global tool title" {
+		t.Fatalf("expected global tool title override, got %q", appendConfig.Tool.ToolDescriptionTitle)
+	}
+	if appendConfig.Tool.AfterCallHintTitle != "global hint title" {
+		t.Fatalf("expected global hint title override, got %q", appendConfig.Tool.AfterCallHintTitle)
+	}
+}
+
+func TestBuildPromptAppendConfigAgentRuntimePromptsOverrideGlobal(t *testing.T) {
+	t.Parallel()
+
+	appendConfig := buildPromptAppendConfig(config.PromptsConfig{
+		Skill: config.PromptSkillConfig{
+			CatalogHeader:      "global catalog",
+			DisclosureHeader:   "global disclosure",
+			InstructionsLabel:  "global label",
+			InstructionsPrompt: "global instructions",
+		},
+		ToolAppendix: config.ToolAppendixPromptsConfig{
+			ToolDescriptionTitle: "global tool title",
+			AfterCallHintTitle:   "global hint title",
+		},
+	}, catalog.AgentDefinition{
+		RuntimePrompts: catalog.AgentRuntimePrompts{
+			Skill: catalog.SkillPromptConfig{
+				CatalogHeader:     "agent catalog",
+				DisclosureHeader:  "agent disclosure",
+				InstructionsLabel: "agent label",
+			},
+			ToolAppendix: catalog.ToolAppendixPromptConfig{
+				ToolDescriptionTitle: "agent tool title",
+				AfterCallHintTitle:   "agent hint title",
+			},
+		},
+	})
+	if appendConfig.Skill.InstructionsPrompt != "global instructions" {
+		t.Fatalf("expected global instructions to remain, got %q", appendConfig.Skill.InstructionsPrompt)
+	}
+	if appendConfig.Skill.CatalogHeader != "agent catalog" || appendConfig.Skill.DisclosureHeader != "agent disclosure" || appendConfig.Skill.InstructionsLabel != "agent label" {
+		t.Fatalf("expected agent skill prompts to override global, got %#v", appendConfig.Skill)
+	}
+	if appendConfig.Tool.ToolDescriptionTitle != "agent tool title" || appendConfig.Tool.AfterCallHintTitle != "agent hint title" {
+		t.Fatalf("expected agent tool prompts to override global, got %#v", appendConfig.Tool)
 	}
 }
 

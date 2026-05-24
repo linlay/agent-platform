@@ -405,7 +405,7 @@ func resolveMemorySummarizer(cfg config.Config, agent catalog.AgentDefinition, m
 	if timeoutMs <= 0 {
 		timeoutMs = 60000
 	}
-	return memory.NewLLMMemorySummarizer(modelRegistry, modelKey, timeoutMs)
+	return memory.NewLLMMemorySummarizer(modelRegistry, modelKey, timeoutMs, cfg.MemoryPrompts)
 }
 
 func resolveMemoryEmbedder(_ config.Config, agent catalog.AgentDefinition, modelRegistry *models.ModelRegistry, logOnce *sync.Map) *memory.EmbeddingProvider {

@@ -19,6 +19,16 @@ var coderPlanningModePlanTools = []string{
 	"planning_write",
 }
 
+const defaultCoderSummarySystemPrompt = `Summarize the completed confirmed CODER plan execution for the user.`
+
+const defaultCoderSummaryUserPromptTemplate = `Please provide a final summary of the completed confirmed plan.
+
+Original request:
+{{original_request}}
+
+Confirmed plan:
+{{confirmed_plan}}`
+
 type coderPlanningStream struct {
 	engine  *LLMAgentEngine
 	ctx     context.Context
@@ -438,8 +448,11 @@ func (s *coderPlanningStream) startSummaryStage() error {
 	s.pending = append(s.pending, DeltaStageMarker{Stage: "coder-summary"})
 	summaryMessages := make([]openAIMessage, 0, len(s.executeMessages)+2)
 	systemPrompt := s.settings.Summary.PrimaryPrompt()
+	if systemPrompt == "" && s.engine != nil {
+		systemPrompt = strings.TrimSpace(s.engine.cfg.CoderPrompts.SummarySystemPrompt)
+	}
 	if systemPrompt == "" {
-		systemPrompt = "Summarize the completed confirmed CODER plan execution for the user."
+		systemPrompt = defaultCoderSummarySystemPrompt
 	}
 	summaryMessages = append(summaryMessages, openAIMessage{Role: "system", Content: systemPrompt})
 	summaryMessages = append(summaryMessages, s.executeMessages...)
@@ -449,7 +462,7 @@ func (s *coderPlanningStream) startSummaryStage() error {
 	}
 	summaryMessages = append(summaryMessages, openAIMessage{
 		Role:    "user",
-		Content: "Please provide a final summary of the completed confirmed plan.\n\nOriginal request:\n" + s.req.Message + "\n\nConfirmed plan:\n" + planningMarkdown,
+		Content: s.renderSummaryUserPrompt(planningMarkdown),
 	})
 
 	stream, err := s.engine.newRunStreamWithOptions(s.ctx, s.req, s.sessionForStage(s.settings.Summary, nil), false, runStreamOptions{
@@ -465,6 +478,17 @@ func (s *coderPlanningStream) startSummaryStage() error {
 	}
 	s.current = stream
 	return nil
+}
+
+func (s *coderPlanningStream) renderSummaryUserPrompt(planningMarkdown string) string {
+	template := defaultCoderSummaryUserPromptTemplate
+	if s.engine != nil && strings.TrimSpace(s.engine.cfg.CoderPrompts.SummaryUserPromptTemplate) != "" {
+		template = strings.TrimSpace(s.engine.cfg.CoderPrompts.SummaryUserPromptTemplate)
+	}
+	return strings.TrimSpace(renderTemplate(template, map[string]string{
+		"original_request": s.req.Message,
+		"confirmed_plan":   planningMarkdown,
+	}))
 }
 
 func (s *coderPlanningStream) emitTaskTerminal(task *PlanTask, status string) {

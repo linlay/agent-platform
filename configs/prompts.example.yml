@@ -13,3 +13,41 @@ skill:
     5. Multi-skill coordination: When a task requires multiple skills, invoke them in dependency order - complete prerequisites before dependents - then synthesize a unified response.
     6. Graceful fallback: If no skill matches the request, respond using your general capabilities. Do not force a skill invocation when none is appropriate.
   catalog-header: "Available skills (catalog summary, use on demand, do not fabricate non-existent skills or scripts):"
+  disclosure-header: "以下是你刚刚调用到的 skill 完整说明（仅本轮补充，不要忽略）:"
+  instructions-label: "instructions"
+
+tool-appendix:
+  tool-description-title: "工具说明:"
+  after-call-hint-title: "工具调用后推荐指令:"
+
+plan-execute:
+  task-execution-prompt-template: |
+    Task list:
+    {{task_list}}
+    Current task ID: {{task_id}}
+    Current task description: {{task_description}}
+    Execution rules:
+    1) Call at most one tool per round.
+    2) You may call any available tool as needed.
+    3) Before finishing this task, you MUST call plan_update_task to update its status.
+  plan-user-prompt-template: |
+    {{plan_prompt}}
+
+    {{execute_tool_descriptions}}
+
+    {{plan_callable_tool_descriptions}}
+
+    Create an execution plan for the user's request. You MUST call plan_add_tasks before the stage finishes.
+
+    User request:
+    {{user_request}}
+  summary-system-prompt: |
+    Summarize the completed plan execution for the user.
+  summary-user-prompt-template: |
+    Please provide a final summary of the completed plan.
+
+    Original request:
+    {{original_request}}
+
+    Task results:
+    {{task_results}}

@@ -14,6 +14,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
+	"agent-platform/internal/config"
 	"agent-platform/internal/models"
 )
 
@@ -52,9 +53,10 @@ type LLMMemorySummarizer struct {
 	registry *models.ModelRegistry
 	modelKey string
 	timeout  time.Duration
+	prompts  config.MemoryPromptsConfig
 }
 
-func NewLLMMemorySummarizer(registry *models.ModelRegistry, modelKey string, timeoutMs int64) *LLMMemorySummarizer {
+func NewLLMMemorySummarizer(registry *models.ModelRegistry, modelKey string, timeoutMs int64, prompts config.MemoryPromptsConfig) *LLMMemorySummarizer {
 	if registry == nil || strings.TrimSpace(modelKey) == "" {
 		return nil
 	}
@@ -67,6 +69,7 @@ func NewLLMMemorySummarizer(registry *models.ModelRegistry, modelKey string, tim
 		registry: registry,
 		modelKey: strings.TrimSpace(modelKey),
 		timeout:  timeout,
+		prompts:  prompts,
 	}
 }
 
@@ -124,8 +127,8 @@ func (s *LLMMemorySummarizer) complete(prompt memoryPrompt) ([]MemoryDraft, erro
 	if err != nil {
 		return nil, err
 	}
-	systemPrompt := buildMemorySummarizerSystemPrompt(prompt.Task)
-	userPrompt := buildMemorySummarizerUserPrompt(prompt)
+	systemPrompt := s.buildMemorySummarizerSystemPrompt(prompt.Task)
+	userPrompt := s.buildMemorySummarizerUserPrompt(prompt)
 	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
 	defer cancel()
 
@@ -323,6 +326,17 @@ func buildMemorySummarizerSystemPrompt(task string) string {
 	return strings.Join(base, "\n")
 }
 
+func (s *LLMMemorySummarizer) buildMemorySummarizerSystemPrompt(task string) string {
+	template := strings.TrimSpace(s.prompts.SystemPromptTemplate)
+	if template == "" {
+		return buildMemorySummarizerSystemPrompt(task)
+	}
+	return strings.TrimSpace(renderMemoryPromptTemplate(template, map[string]string{
+		"task":             strings.TrimSpace(task),
+		"task_instruction": memoryTaskInstruction(task),
+	}))
+}
+
 func buildMemorySummarizerUserPrompt(prompt memoryPrompt) string {
 	lines := []string{
 		"task: " + prompt.Task,
@@ -339,6 +353,43 @@ func buildMemorySummarizerUserPrompt(prompt memoryPrompt) string {
 	lines = append(lines, "output_schema:")
 	lines = append(lines, `{"items":[{"title":"...","summary":"...","category":"general","importance":1,"confidence":0.9,"tags":["tag"]}]}`)
 	return strings.Join(lines, "\n")
+}
+
+func (s *LLMMemorySummarizer) buildMemorySummarizerUserPrompt(prompt memoryPrompt) string {
+	template := strings.TrimSpace(s.prompts.UserPromptTemplate)
+	if template == "" {
+		return buildMemorySummarizerUserPrompt(prompt)
+	}
+	return strings.TrimSpace(renderMemoryPromptTemplate(template, memoryPromptTemplateValues(prompt)))
+}
+
+func memoryPromptTemplateValues(prompt memoryPrompt) map[string]string {
+	return map[string]string{
+		"task":              prompt.Task,
+		"task_instruction":  memoryTaskInstruction(prompt.Task),
+		"agent_key":         strings.TrimSpace(prompt.AgentKey),
+		"chat_id":           strings.TrimSpace(prompt.ChatID),
+		"user_request":      sanitizeMemoryText(prompt.UserRequest),
+		"historical_memory": strings.Join(renderHistoricalMemory(prompt.History), "\n"),
+		"source_text":       sanitizeMemoryText(prompt.SourceText),
+		"output_schema":     `{"items":[{"title":"...","summary":"...","category":"general","importance":1,"confidence":0.9,"tags":["tag"]}]}`,
+	}
+}
+
+func memoryTaskInstruction(task string) string {
+	if task == "learn" {
+		return "For learn mode, extract only reusable outcomes or durable observations from the run."
+	}
+	return "For remember mode, extract only the stable facts that should remain after this conversation is forgotten."
+}
+
+func renderMemoryPromptTemplate(template string, values map[string]string) string {
+	result := template
+	for key, value := range values {
+		result = strings.ReplaceAll(result, "{{"+key+"}}", value)
+		result = strings.ReplaceAll(result, "{{ "+key+" }}", value)
+	}
+	return result
 }
 
 func rememberSourceText(detail chat.Detail) string {

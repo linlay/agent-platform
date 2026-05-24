@@ -77,12 +77,10 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 			t.Fatalf("read query stream before submit: %v", readErr)
 		}
 	}
-	if strings.Contains(streamBody.String(), `"type":"tool.start"`) {
-		t.Fatalf("did not expect hidden ask_user_question tool.start before awaiting.ask, got %s", streamBody.String())
-	}
 	if awaitQuestionPayload == nil {
 		t.Fatalf("expected awaiting.ask before submit, got %s", streamBody.String())
 	}
+	assertEventOrder(t, streamBody.String(), "tool.start", "tool.args", "tool.end", "awaiting.ask")
 	if awaitingID == "" {
 		t.Fatalf("expected awaitingId on awaiting.ask, got %#v", awaitQuestionPayload)
 	}
@@ -158,11 +156,6 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	if !strings.Contains(body, `"type":"awaiting.ask"`) {
 		t.Fatalf("expected awaiting.ask event, got %s", body)
 	}
-	for _, hiddenType := range []string{`"type":"tool.start"`, `"type":"tool.args"`, `"type":"tool.end"`, `"type":"tool.result"`} {
-		if strings.Contains(body, hiddenType) {
-			t.Fatalf("did not expect hidden ask_user_question %s event, got %s", hiddenType, body)
-		}
-	}
 	if strings.Contains(body, `"type":"awaiting.payload"`) {
 		t.Fatalf("did not expect awaiting.payload event for question mode, got %s", body)
 	}
@@ -189,7 +182,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	if !strings.Contains(body, "final answer") {
 		t.Fatalf("expected final answer in stream, got %s", body)
 	}
-	assertEventOrder(t, body, "awaiting.ask", "request.submit", "awaiting.answer", "request.steer")
+	assertEventOrder(t, body, "tool.start", "tool.args", "tool.end", "awaiting.ask", "request.submit", "awaiting.answer", "request.steer")
 
 	chatsRec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(chatsRec, httptest.NewRequest(http.MethodGet, "/api/chats", nil))
@@ -210,13 +203,14 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	foundAwaitAsk := false
 	foundRequestSubmit := false
 	foundAwaitingAnswer := false
+	foundQuestionSnapshot := false
 	for _, event := range chatResp.Data.Events {
 		switch event.Type {
 		case "tool.snapshot":
 			if event.String("toolName") != "ask_user_question" {
 				continue
 			}
-			t.Fatalf("did not expect hidden ask_user_question tool.snapshot in chat detail, got %#v", event)
+			foundQuestionSnapshot = true
 		case "awaiting.ask":
 			foundAwaitAsk = true
 			if event.String("mode") != "question" || event.String("viewportType") != "builtin" || event.String("viewportKey") != "question" {
@@ -247,6 +241,9 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	}
 	if !foundAwaitAsk {
 		t.Fatalf("expected awaiting.ask in chat detail, got %#v", chatResp.Data.Events)
+	}
+	if !foundQuestionSnapshot {
+		t.Fatalf("expected ask_user_question tool snapshot in chat detail, got %#v", chatResp.Data.Events)
 	}
 	if !foundRequestSubmit {
 		t.Fatalf("expected request.submit in chat detail, got %#v", chatResp.Data.Events)
@@ -280,7 +277,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	}
 }
 
-func TestQuestionAwaitFollowsToolStartAndPrecedesToolArgs(t *testing.T) {
+func TestQuestionAwaitFollowsToolEnd(t *testing.T) {
 	var providerCallCount atomic.Int32
 	secondTurnMessages := make(chan []map[string]any, 1)
 
@@ -383,11 +380,6 @@ questionSubmit:
 	if !strings.Contains(body, `"type":"awaiting.ask"`) {
 		t.Fatalf("expected awaiting.ask event, got %s", body)
 	}
-	for _, hiddenType := range []string{`"type":"tool.start"`, `"type":"tool.args"`, `"type":"tool.end"`, `"type":"tool.result"`} {
-		if strings.Contains(body, hiddenType) {
-			t.Fatalf("did not expect hidden ask_user_question %s event, got %s", hiddenType, body)
-		}
-	}
 	if strings.Contains(body, `"type":"awaiting.payload"`) {
 		t.Fatalf("did not expect awaiting.payload event, got %s", body)
 	}
@@ -404,7 +396,7 @@ questionSubmit:
 		!strings.Contains(body, `"answers":[{"answers":["产品更新","使用教程"],"id":"q1","question":"Notification topics"},{"answer":2,"id":"q2","question":"How many people?"}]`) {
 		t.Fatalf("expected normalized awaiting.answer answers, got %s", body)
 	}
-	assertEventOrder(t, body, "awaiting.ask", "request.submit", "awaiting.answer")
+	assertEventOrder(t, body, "tool.start", "tool.args", "tool.end", "awaiting.ask", "request.submit", "awaiting.answer", "tool.result")
 
 	select {
 	case messages := <-secondTurnMessages:
@@ -426,7 +418,7 @@ questionSubmit:
 	}
 }
 
-func TestQuestionChunkedArgsEmitAwaitAfterFirstToolArgs(t *testing.T) {
+func TestQuestionChunkedArgsEmitAwaitAfterToolEnd(t *testing.T) {
 	var providerCallCount atomic.Int32
 	secondTurnMessages := make(chan []map[string]any, 1)
 
@@ -527,17 +519,13 @@ chunkedQuestionSubmit:
 	if strings.Contains(body, `"type":"awaiting.payload"`) {
 		t.Fatalf("did not expect awaiting.payload event, got %s", body)
 	}
-	for _, hiddenType := range []string{`"type":"tool.start"`, `"type":"tool.args"`, `"type":"tool.end"`, `"type":"tool.result"`} {
-		if strings.Contains(body, hiddenType) {
-			t.Fatalf("did not expect hidden ask_user_question %s event, got %s", hiddenType, body)
-		}
-	}
 	if !strings.Contains(body, `"type":"request.submit"`) {
 		t.Fatalf("expected request.submit event, got %s", body)
 	}
 	if !strings.Contains(body, `"type":"awaiting.answer"`) {
 		t.Fatalf("expected awaiting.answer event, got %s", body)
 	}
+	assertEventOrder(t, body, "tool.start", "tool.args", "tool.end", "awaiting.ask", "request.submit", "awaiting.answer", "tool.result")
 	select {
 	case messages := <-secondTurnMessages:
 		toolContent := ""
@@ -608,17 +596,13 @@ func TestQuestionInvalidSelectOptionsFailsBeforeAwait(t *testing.T) {
 	}
 
 	body := streamBody.String()
-	for _, hiddenType := range []string{`"type":"tool.start"`, `"type":"tool.args"`, `"type":"tool.end"`, `"type":"tool.result"`} {
-		if strings.Contains(body, hiddenType) {
-			t.Fatalf("did not expect hidden ask_user_question %s event, got %s", hiddenType, body)
-		}
-	}
 	if strings.Contains(body, `"type":"awaiting.ask"`) {
 		t.Fatalf("did not expect awaiting.ask for invalid question args, got %s", body)
 	}
 	if strings.Contains(body, `"type":"awaiting.payload"`) {
 		t.Fatalf("did not expect awaiting.payload for invalid question args, got %s", body)
 	}
+	assertEventOrder(t, body, "tool.start", "tool.args", "tool.end", "tool.result")
 
 	select {
 	case messages := <-secondTurnMessages:
@@ -721,12 +705,7 @@ func TestQuestionAwaitDismissReturnsCancelledStructuredResult(t *testing.T) {
 		!strings.Contains(body, `"code":"user_dismissed"`) {
 		t.Fatalf("expected dismissed awaiting.answer in stream, got %s", body)
 	}
-	for _, hiddenType := range []string{`"type":"tool.start"`, `"type":"tool.args"`, `"type":"tool.end"`, `"type":"tool.result"`} {
-		if strings.Contains(body, hiddenType) {
-			t.Fatalf("did not expect hidden ask_user_question %s event, got %s", hiddenType, body)
-		}
-	}
-	assertEventOrder(t, body, "awaiting.ask", "request.submit", "awaiting.answer")
+	assertEventOrder(t, body, "tool.start", "tool.args", "tool.end", "awaiting.ask", "request.submit", "awaiting.answer", "tool.result")
 
 	select {
 	case messages := <-secondTurnMessages:

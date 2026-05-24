@@ -46,7 +46,7 @@ func TestPrepareSystemInitCacheUsesFreshSystemMessageOnFingerprintMatch(t *testi
 		SessionMemoryContext: "Runtime Context: Current Session\n- stale session memory",
 		ObservationContext:   "Runtime Context: Relevant Observations\n- stale observation",
 	}
-	oldProfiles := llm.BuildSystemInitProfiles(oldSession, req, toolDefs, 0, 0)
+	oldProfiles := llm.BuildSystemInitProfiles(oldSession, req, toolDefs, 0, 0, config.PromptsConfig{})
 	if len(oldProfiles) != 1 {
 		t.Fatalf("expected one system init profile, got %#v", oldProfiles)
 	}

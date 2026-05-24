@@ -2,210 +2,92 @@
 
 ## 1. 项目概览
 
-`agent-platform` 是 `agent-platform` 的 Go 版运行时仓库，目标是在保持接口风格与部署方式尽量一致的前提下，逐步把 Java 版 agent runtime 迁移到 Go。
+`agent-platform` 是 `agent-platform` 的 Go 版运行时仓库，目标是在保持 Java runtime 接口风格与部署方式尽量一致的前提下，逐步形成可独立运行的 agent runtime。
 
-当前仓库的定位不是“功能完全对齐”，而是“最小可运行闭环”：
+当前仓库定位是“最小可运行闭环 + 特色能力持续补齐”：
 
-- 已具备独立 HTTP 服务与统一 JSON 包裹
-- 已具备 `POST /api/query` 真流式 SSE 输出、heartbeat 与 `[DONE]` 结束帧
-- 已具备 chat 摘要、事件流、原始消息、上传资源落盘
-- 已具备 remember 落盘、memory learn/consolidate/feedback 能力
-- 已具备可选的 embedding 向量语义检索（需配置 `MEMORY_EMBEDDING_PROVIDER_KEY`）
-- 已具备 OpenAI 兼容模型调用、backend tool 执行与 Container Hub sandbox 接入
-- 已具备 `VERSION + scripts/release*.sh + dist/release` 的 program bundle 发布链路，可作为 `zenmind-desktop` builtin 分发
-- 尚未对齐 Java 版的 frontend tool 完整链路、热重载、MCP 实接、鉴权、memory 检索、automation 编排等高级能力
+- 已具备独立 HTTP 服务、统一 JSON 包裹与 `POST /api/query` 真流式 SSE。
+- 已具备 chat 摘要、事件流、raw messages、上传资源落盘、归档与搜索。
+- 已具备目录驱动的 agents / teams / skills / tools catalog。
+- 已具备 OpenAI / Anthropic 兼容模型调用、backend tools、Container Hub sandbox 与 host tools。
+- 已具备 HITL question / approval / form、运行中 submit / steer / interrupt 协议入口。
+- 已具备 SQLite memory、FTS、可选 embedding、learn / consolidate / feedback 与 memory tools。
+- 已具备 automation、`agent_invoke` 子智能体调度、MCP tool sync、WebSocket 控制面等能力骨架。
+尚未完全对齐 Java 版的部分能力包括 frontend tool 完整闭环、MCP 全量生产验证、automation 深度编排、热重载细节和更完整的前端协议适配。未落地能力必须在专题文档中明确标注，不能写成已完成能力。
 
 ## 2. 技术栈
 
 - 语言：Go
 - HTTP：标准库 `net/http`
 - 序列化：标准库 `encoding/json`
-- 存储：本地文件系统
-- 配置：环境变量 + `configs/*.yml` 顶层键值读取
-- 容器化：Docker 多阶段构建
-- 本地编排：Docker Compose
+- 存储：本地文件系统 + SQLite memory store
+- 配置：环境变量 + `configs/*.yml`
 
-当前没有引入数据库、消息队列、Web 框架或第三方路由库。
+当前没有引入 Web 框架、第三方路由库、外部数据库或消息队列。配置默认值以 `internal/config/config.go` 与 `configs/*.example.yml` 为事实源。
 
 ## 3. 架构设计
 
-### 启动装配
+启动装配主链路：
 
 ```text
 cmd/agent-platform/main.go
   -> app.New()
   -> config.Load()
-  -> chat.NewFileStore()
-  -> memory.NewFileStore()
-  -> engine.LoadModelRegistry()
-  -> engine.NewContainerHubSandboxService()
-  -> engine.NewRuntimeToolExecutor()
-  -> catalog.NewFileRegistry()
-  -> engine.NewLLMAgentEngine()
+  -> chat store / memory store / catalog registry
+  -> model registry / MCP registry / gateway registry
+  -> sandbox service / runtime tool executor
+  -> LLM agent engine / automation orchestrator
   -> server.New()
 ```
 
-启动时的核心事实：
+核心模块边界：
 
-- chat 与 remember 都使用文件系统存储
-- catalog 已从 `runtime/agents` / `runtime/teams` / `runtime/skills-market` 动态装载
-- model registry 会从 `REGISTRIES_DIR/models` 读取模型配置
-- sandbox 通过 Container Hub HTTP 接口执行
-- server 层统一承接 `/api/*` 接口与 SSE 输出
-
-### `/api/query` 主流程
-
-```text
-HTTP request
-  -> QueryRequest 校验
-  -> 归一化 runId / requestId / chatId / agentKey
-  -> Chats.EnsureChat()
-  -> Runs.Register()
-  -> Agent.Stream()
-  -> stream.NewWriter()
-  -> 发送 request.query(runId) / chat.start / run.start
-  -> 按上游 chunk 逐条发送 content.delta / tool.*
-  -> 发送 content.snapshot
-  -> 发送 run.complete
-  -> Chats.OnRunCompleted()
-  -> stream.WriteDone()
-```
-
-SSE 由 `internal/stream/sse.go` 提供，事件名统一写为 `message`，结束帧写 `data: [DONE]`；默认逐事件立刻 flush，也可通过 `AGENT_H2A_RENDER_*` 开启传输层缓冲。
-
-### 当前模块边界
-
-- `internal/server`：HTTP 路由、请求校验、响应封装、SSE 协调
-- `internal/engine`：模型调用、tool 执行、sandbox、run 管理抽象
-- `internal/chat`：chat 摘要、事件、raw messages、上传文件存储
-- `internal/memory`：记忆系统（SQLite 主存储 + FTS5 + 可选 embedding + 生命周期整理 + 反馈循环）
-- `internal/catalog`：目录驱动的 agent/team/skill/tool 注册信息
-- `internal/config`：环境变量与 `configs/*.yml` 的加载、默认值、兼容性校验
+- `internal/server`：HTTP 路由、请求校验、响应包裹、SSE / WebSocket 协调。
+- `internal/llm`：模型协议、prompt 构建、run stream、HITL、planning、tool loop。
+- `internal/tools`：backend tool registry、Bash、FileTools、memory、desktop、MCP tool 调用。
+- `internal/chat`：chat 摘要、事件、StepLine、raw messages、资源文件、归档、回放。
+- `internal/memory`：SQLite memory、FTS、embedding、生命周期整理、反馈循环。
+- `internal/catalog`：agent / team / skill / tool 目录装载与定义解析。
+- `internal/config`：环境变量、YAML、默认值、兼容性拒绝。
+- `internal/stream`：统一事件、dispatcher、SSE writer、事件归一化。
+- `internal/sandbox`：Container Hub client、mounts、sandbox 执行。
+- `internal/automation`：automation 注册、调度、执行记录。
+- `internal/ws` 与 `internal/gateway`：WebSocket 控制面与反向 gateway 连接。
 
 ## 4. 目录结构
 
 ```text
 .
-├── VERSION
-├── cmd/
-│   └── agent-platform/
-├── configs/
-│   ├── bash.example.yml
-│   ├── container-hub.example.yml
-│   ├── cors.example.yml
-│   └── local-public-key.example.pem
-├── dist/
-│   └── release/
-├── docs/
-├── internal/
-│   ├── api/
-│   ├── app/
-│   ├── catalog/
-│   ├── chat/
-│   ├── config/
-│   ├── engine/
-│   ├── memory/
-│   ├── server/
-│   └── stream/
-├── scripts/
-│   ├── release.sh
-│   ├── release-common.sh
-│   ├── release-program.sh
-│   └── release-assets/
+├── cmd/agent-platform/          # 进程入口
+├── configs/                     # 配置模板与本地覆写入口
+├── docs/                        # 中文专题文档
+├── internal/                    # Go runtime 实现
+├── scripts/                     # 审计和辅助脚本
 ├── Dockerfile
 ├── Makefile
 ├── compose.yml
-└── README.md
+├── README.md
+└── VERSION
 ```
 
-主要职责：
-
-- `cmd/agent-platform`：进程入口
-- `configs/`：结构化配置模板与本地覆写入口
-- `dist/release/`：版本化 program bundle 输出目录
-- `docs/`：与参考仓库对齐的补充文档
-- `internal/app`：应用装配
-- `internal/api`：HTTP DTO 与统一响应结构
-- `internal/config`：配置事实源与不兼容变量拦截
-- `internal/server`：REST API 与 SSE 接口实现
-- `internal/engine`：LLM、tool、sandbox、run manager 及 registry 读取
-- `internal/chat`：会话与资源文件存储
-- `internal/memory`：记忆系统（SQLite 主存储、三层渐进式披露、动态预算、有效重要度、反馈循环）
-- `scripts/`：program bundle 发布脚本与 Desktop 启停资源
+`docs/` 是特色能力的主说明区；`CLAUDE.md` 只保留项目事实总览、开发入口和专题索引。
 
 ## 5. 数据结构
 
-### Chat 存储
+Chat 默认由 `CHATS_DIR` 控制，主要包含：
 
-chat 根目录由 `CHATS_DIR` 控制，默认布局：
+- `index.json`：chat 摘要索引。
+- `<chatId>/events.jsonl`：运行事件与 StepLine 回放数据。
+- `<chatId>/raw_messages.jsonl`：用户和助手原始消息。
+- `<chatId>/<uploaded-file>`：上传资源文件。
 
-```text
-<CHATS_DIR>/
-  index.json
-  <chatId>/
-    events.jsonl
-    raw_messages.jsonl
-    <uploaded-file>
-```
+Memory 默认由 `MEMORY_DIR` 控制，当前以 SQLite store 为主，支持 FTS、可选 embedding、observation / fact 生命周期与 memory tools。旧 remember API 仍作为兼容入口存在。
 
-含义：
-
-- `index.json`：chat 摘要索引，记录 `chatId`、`chatName`、`agentKey`、`lastRunId`、`readStatus` 等
-- `events.jsonl`：运行事件流，如 `request.query(runId)`、`chat.start`、`run.start`、`content.delta`、`content.snapshot`、`run.complete`
-- `raw_messages.jsonl`：用户与助手原始消息，新写入记录会带 `runId`
-- 上传文件：直接存放在 chat 目录下，由 `/api/resource` 提供回读
-
-### Remember 存储
-
-remember 根目录由 `MEMORY_DIR` 控制：
-
-```text
-<MEMORY_DIR>/
-  <chatId>.json
-```
-
-文件中包含 `requestId`、`chatId`、`chatName`、`items` 与 `stored` 等最小记忆结果。
-
-### 主要 DTO
-
-核心 DTO 位于 `internal/api/types.go`，包括：
-
-- `ApiResponse[T]`
-- `QueryRequest`
-- `SubmitRequest` / `SubmitResponse`
-- `SteerRequest` / `SteerResponse`
-- `InterruptRequest` / `InterruptResponse`
-- `RememberRequest` / `RememberResponse`
-- `LearnRequest` / `LearnResponse`
-- `ChatSummaryResponse`
-- `ChatDetailResponse`
-- `UploadResponse` / `UploadTicket`
-
-### Agent runtimeConfig
-
-`agent.yml` 当前可在 `runtimeConfig` 下声明 agent 级运行配置：
-
-```yaml
-runtimeConfig:
-  environmentId: shell
-  level: RUN
-  env:
-    HTTP_PROXY: "http://127.0.0.1:7890"
-    HTTPS_PROXY: "http://127.0.0.1:7890"
-    TZ: "Asia/Shanghai"
-```
-
-约束：
-
-- `env` 只接受字面量字符串 map；不支持 `${VAR}` 展开
-- key 必须非空，且不能包含空白字符或 `=`
-- value 必须是字符串；空字符串允许并原样注入 host bash 或 Container Hub
-- 最终合并顺序是 `agent.runtimeConfig.env < skill[i].RuntimeEnv`，后声明的 skill 继续覆盖前者
-- `/api/agents` 和 `/api/agent` 的 sandbox meta 不暴露 `env`，因为其中可能包含代理地址、凭据或私有 endpoint；`extraMounts` 仍继续对外暴露
+核心 DTO 位于 `internal/api`，包括 query、submit、steer、interrupt、remember、learn、chat、upload、automation、memory console 等请求和响应类型。
 
 ## 6. API 定义
 
-所有非 SSE 接口统一返回：
+所有非 SSE JSON 接口统一返回：
 
 ```json
 {
@@ -215,159 +97,64 @@ runtimeConfig:
 }
 ```
 
-主要接口：
+主要接口分组：
 
-- `GET /api/agents`：返回目录驱动的 agent 列表；可选 `includeChats=N` 为每个 agent 附带最近 N 条 active chat 摘要（最大 50，不包含 archived chats）
-- `GET /api/agent?agentKey=...`：返回单个 agent 详情，包含 model / tool / skill / sandbox 元数据
-- `GET /api/teams`：返回目录驱动的 team 列表
-- `GET /api/skills`：返回目录驱动的 skill 列表
-- `GET /api/tools`：返回 tool 列表，支持 `kind` 过滤
-- `GET /api/tool?toolName=...`：返回单个 tool 详情
-- `GET /api/chats`：返回 chat 摘要列表，支持 `lastRunId`、`agentKey`，`lastRunId` 兼容 base36 毫秒 runId 与旧版 `run_YYYY...` 格式
-- `GET /api/chat?chatId=...`：返回 chat 详情，`includeRawMessages=true` 时附带 `rawMessages`
-- `POST /api/chats/search`：全局搜索 active chats，支持 `query`、`agentKey`、`teamId`、`limit`
-- `POST /api/read`：将 chat 标记为已读
-- `GET /api/chat/export?chatId=...`：将 active chat 导出为 Markdown
-- `GET /api/archives`、`GET /api/archive?chatId=...`、`POST /api/archives/search`：归档列表、归档详情与归档搜索
-- `POST /api/query`：返回 SSE；支持可选 `runId` 透传；缺失 `runId` 时服务端按 `base36(epochMillis)` 生成，缺失 `requestId` / `chatId` 时服务端自动生成，缺失 `agentKey` 时回退到默认 agent
-- `GET /api/attach?runId=...&agentKey=...&lastSeq=...`：续接已注册 run 的 SSE 事件流；`agentKey` 必填且需与 run 匹配；run 超过 retention 时返回 `SEQ_EXPIRED`
-- `POST /api/submit`：当前返回最小 ack，占位 awaiting 提交链路；请求体要求 `agentKey + runId + awaitingId`
-- `POST /api/steer`：当前返回最小 ack，占位运行中 steer 链路；请求体要求 `agentKey + runId + message`
-- `POST /api/interrupt`：中断活跃 run 并返回 ack；请求体要求 `agentKey + runId`
-- `POST /api/remember`：从 chat 快照生成最小 remember 文件
-- `POST /api/learn`：当前固定返回 `accepted=false`、`status="not_connected"`
-- `GET /api/viewport`：先查 `runtime/viewports` 本地模板，再查 `registries/viewport-servers` 里的远端 viewport server，最后才回退 noop viewport client
-- `GET /api/resource`：按 chat 目录中的相对路径回读静态资源，可结合 resource ticket 访问
-- `POST /api/upload`：写入 chat 目录并返回 upload ticket
-- `/ws`：只复用控制帧、事件流和文件引用；浏览器/普通客户端的文件字节仍走 `/api/upload` + `/api/resource`。当前 WebSocket `/api/upload` 仅接收网关提供的 `url + metadata`，由 platform 自己下载并校验 `sizeBytes` / `sha256` 后再复用内部上传链路
+- Catalog：`/api/agents`、`/api/agent`、`/api/teams`、`/api/skills`、`/api/tools`、`/api/tool`。
+- Chat：`/api/chats`、`/api/chat`、`/api/chats/search`、`/api/read`、`/api/chat/export`。
+- Archive：`/api/archives`、`/api/archive`、`/api/archives/search`。
+- Run：`/api/query`、`/api/attach`、`/api/submit`、`/api/steer`、`/api/interrupt`。
+- Memory：`/api/remember`、`/api/learn`、memory console 相关接口。
+- Resource：`/api/upload`、`/api/resource`。
+- Viewport / WebSocket：`/api/viewport`、`/ws`。
 
-### HITL 协议
-
-- 人机协作统一保留 `mode` 字段，不引入 `kind`；当前三态是 `question` / `approval` / `form`。
-- `/api/submit` 固定形状为 `{"agentKey":"...","runId":"...","awaitingId":"...","params":[...]}`。
-- `params` 顶层永远是数组；前端不再提交 `mode`，后端按 `awaitingId` 反查当前等待态。
-- `/api/submit.params` 与 `awaiting.ask.{questions|approvals|forms}` 固定按下标对应：`params[i] -> ask.items[i]`。
-- `params` 每项允许携带 `id`，但 `id` 只作审计/日志用途；服务端不会据此分发，只校验数量和字段形状。
-- `awaiting.payload` 已删除；问题、审批项、表单定义全部直接内联在 `awaiting.ask`。
-- `_ask_user_approval_` 已下线；审批流只来自 Bash HITL builtin confirm。
-
-三态契约：
-
-- `mode=question`
-  - 来源：`ask_user_question`
-  - `awaiting.ask`：`{"awaitingId":"...","mode":"question","viewportType":"builtin","viewportKey":"question","timeout":...,"runId":"...","questions":[...]}`
-  - question 始终显式携带最终 `viewportType` / `viewportKey`；未指定时兜底为 `builtin/question`
-  - `/api/submit.params`：`[{"id":"q1","answer":"..."},{"id":"q2","answers":[...]}]`（`id` 可省略，仅作审计字段）
-  - `awaiting.answer`：
-    - answered：`{"awaitingId":"...","mode":"question","status":"answered","answers":[...]}`
-    - error：`{"awaitingId":"...","mode":"question","status":"error","error":{"code":"user_dismissed|timeout|invalid_submit","message":"..."}}`
-  - 整批取消：`params: []`，后端归一化为 `status:"error" + error.code:"user_dismissed"`
-
-- `mode=approval`
-  - 来源：Bash HITL builtin confirm，以及文件工具越权路径审批。
-  - `awaiting.ask`：`{"awaitingId":"...","mode":"approval","viewportType":"builtin","viewportKey":"approval","timeout":...,"runId":"...","approvals":[{"id":"tool_bash","command":"chmod 777 ~/a.sh","description":"放开脚本权限","options":[{"label":"同意","decision":"approve"},{"label":"同意（本次运行同规则都放行）","decision":"approve_rule_run"},{"label":"拒绝","decision":"reject"}],"allowFreeText":true,"freeTextPlaceholder":"可选：填写理由"}]}`
-  - approval 始终显式携带最终 `viewportType` / `viewportKey`；未指定时兜底为 `builtin/approval`
-  - 用户只能批准或拒绝，不能改命令内容
-  - `/api/submit.params`：`[{"id":"tool_bash","decision":"approve|approve_rule_run|reject","reason":"..."}]`（`id` 可省略，仅作审计字段）
-  - `awaiting.answer`：
-    - answered：`{"awaitingId":"...","mode":"approval","status":"answered","approvals":[{"id":"tool_bash","command":"...","decision":"approve","rawDecision":"approve_rule_run","reason":"..."}]}`
-    - error：`{"awaitingId":"...","mode":"approval","status":"error","error":{"code":"user_dismissed|timeout|invalid_submit","message":"..."}}`
-  - 整批取消：`params: []`，归一化为 `status:"error" + error.code:"user_dismissed"`
-
-- `mode=form`
-  - 来源：Bash HITL html form
-  - `awaiting.ask`：`{"awaitingId":"...","mode":"form","viewportType":"html","viewportKey":"leave_form","timeout":...,"runId":"...","forms":[{"id":"form-1","html?":"...","form":{...}}]}`
-  - form 显式携带最终 `viewportType:"html"` + `viewportKey`；已有 HTML key 不会被 builtin 默认值覆盖
-  - `/api/submit.params`：
-    - approve：`[{"id":"form-1","decision":"approve","form":{...}}]`（`id` 可省略；`form` 必填，允许修改后回传）
-    - reject：`[{"id":"form-1","decision":"reject","reason?":"...","form?":{...}}]`（`id` 可省略；`reason` 和修改后的 `form` 可选；cancel 合并为 reject）
-  - `awaiting.answer`：
-    - answered：`{"awaitingId":"...","mode":"form","status":"answered","forms":[{"id":"form-1","command":"...","decision":"approve|reject","form?":{...},"reason?":"..."}]}`
-    - error：`{"awaitingId":"...","mode":"form","status":"error","error":{"code":"user_dismissed|timeout|invalid_submit","message":"..."}}`
-  - 整批取消：`params: []`，归一化为 `status:"error" + error.code:"user_dismissed"`
-
-事件顺序约定：
-
-- question：`tool.start -> awaiting.ask -> tool.args* -> tool.end -> request.submit -> awaiting.answer -> tool.result`
-- approval / form：`tool.start -> tool.args* -> tool.end -> awaiting.ask -> request.submit -> awaiting.answer -> tool.result`
-- `request.submit` 透传前端原始数组，便于审计；`awaiting.answer` 才是后端归一化后的结构化结果。
-- 历史 `events.jsonl` 中旧的 `cancelled/reason` 形状不再兼容；新前端会按未知旧态回退展示。
-
-### StepLine 快照
-
-- `_type:"query"` 可带 `systems` 数组，用于记录本次 query 新增或 fingerprint 变化的 system init 快照；缓存命中时省略 `systems`。每项包含 `cacheKey`、`fingerprint`、`mode`、`stage`、`agentKey`、`systemMessage` 和 `tools`，独立 `_type:"system"` 行仅作为旧数据兼容读取。
-- `_type:"react".seq` 是 react mode 的模型调用分组 id，不是 JSONL 物理行号；HITL 导致 `role:"tool"` 独立成后续 react 行时，该行复用触发它的 assistant tool-call step 的 `seq`。需要唯一物理顺序时使用 JSONL 行顺序或 `updatedAt`。
-- `debug.preCall`：存放后端调试 payload，例如 provider、model、requestBody、contextWindow；回放时优先读取 `debug.preCall`，并兼容旧数据 `system.debugPreCall`。
-- `system`：存放 LLM 请求快照，结构与 Java 版对齐：`{"model":"...","messages":[{"role":"system","content":"..."}],"tools":[...],"stream":true}`。
-- `system.messages` 只保留 system 角色消息；`system` 首次出现必写，后续仅当 model/messages/tools/stream 发生变化时写入。
-
-### Agent 调度 task
-
-- `agent_invoke` 是显式配置的批量调度原语，不走 `ToolExecutor.Invoke`；只有 agent 在 `toolConfig.tools` 声明 `agent_invoke` 时才会暴露给模型，`mode: REACT/ONESHOT/CODER` 不再自动附加该能力。旧名 `_agent_invoke_` 不再作为兼容别名支持。
-- 主 agent 识别到该 tool call 后，会先保留主时间线上的 `tool.start/args/end/snapshot`，再由 server 侧编排层并发启动 `1~3` 个子 agent。
-- 编排层会先顺序 emit 每个 `task.start`，同一批并发任务按 `invokingToolId` 聚合；随后由多个 goroutine 并发消费子 stream，再汇聚回主 goroutine 发出带精确 `taskId` 的子流 delta。
-- 子 agent 复用现有 `task.start / task.complete / task.cancel / task.error` 协议；`task.start` 额外携带 `subAgentKey` 和 `invokingToolId`，终态 task 事件由事件类型表达状态，不额外携带 `status`；`task.cancel` 可带 `reason`，`task.error` 携带结构化 `error`。
-- 子 agent 的 JSONL 与主 agent 同构：每次子任务调起先写带 `taskId` 的 `_type:"query"`，并把该子 agent 的 system init 完整嵌入该 query 的 `systems`；终态 `_type:"react"` 只保留 `taskId`、`taskStatus`、`taskSubAgentKey`，其它任务元数据按 `taskId` 从 query 行关联。
-- `runId` 始终保持主 RunID；前端通过 `taskId` 把子流事件归到子面板，通过 `invokingToolId` 把主时间线上的 `agent_invoke` 节点和聚合卡片关联起来。
-- 全部子任务结束后，编排层会按输入顺序聚合子结果，并仅向主 `mainToolID` 单次 `InjectToolResult`；主上下文只消费这份聚合后的 `tool.result` 文本。
-- 当前版本严格禁止嵌套：`agent_invoke` 只对显式配置该工具且 mode 为 `REACT/ONESHOT/CODER` 的主 agent 可用，子 agent 也只能是 `REACT/ONESHOT/CODER/PROXY`，且子 agent 的可用工具集中会滤掉 `agent_invoke`；`tasks` 长度必须满足 `1 ≤ n ≤ 5`。
-- 三流分离是硬约束：子 agent 中间的 reasoning、tool 调用、content delta 只进入 SSE/events replay，不进入主 `llmRunStream.messages`，也不进入 `raw_messages`；主上下文只消费子 agent 的最终 `tool.result` 文本。
-- `dispatcher.activeTaskID` 仍然是单值；子流的 `content.start / reasoning.start / tool.start / action.start` 如果输入 `taskId` 为空，会自动兜底为当前活跃 taskId，因此不需要引入 task 栈。
+详细协议拆分到专题文档：REST / SSE / WebSocket 见 [API与协议](docs/API与协议.md)，真流式与 attach 见 [真流式和H2A](docs/真流式和H2A.md)，HITL 见 [HITL协议](docs/HITL协议.md)。
 
 ## 7. 开发要点
 
-- 配置事实源以 `internal/config/config.go` 和 `configs/*.example.yml` 为准，`README.md` 只解释，不重复维护默认值。
-- Bash 与文件工具权限分别以 `configs/bash.example.yml`、`configs/file-tools.example.yml` 为配置模板；旧 `AGENT_BASH_*` / `AGENT_FILE_*` env 会被启动阶段拒绝。
-- 根目录不放 `application.yml`；当前 Go 版默认值直接固化在代码里。
-- `.env`、真实 `configs/*.yml`、真实 `configs/*.pem` 必须忽略提交。
-- 参考仓库中的文件命名和文档结构可以复用，但内容必须以 Go 版当前实现为准，不能复制 Java 版未落地能力。
-- 新增 API 时优先保持返回包裹、字段命名和错误语义与参考仓库同风格。
-- 测试目前以 `go test ./...` 为主，重点覆盖 `internal/server` 和 `internal/config`。
+- 配置事实源以 `internal/config/config.go` 和 `configs/*.example.yml` 为准，文档只解释和引用。
+- `.env`、真实 `configs/*.yml`、真实 `configs/*.pem`、真实 token 和私钥不得提交。
+- Bash 与 FileTools 权限分别以 `configs/bash.yml`、`configs/file-tools.yml` 为外部事实源。
+- 旧 `AGENT_BASH_*`、`AGENT_FILE_*`、旧 auth / stream / gateway 等变量会在启动阶段硬失败。
+- 新增能力优先放进对应 `internal/*` 模块，不在 server 层堆业务逻辑。
+- 新增 API 保持统一 JSON 包裹、字段命名和错误语义。
+- 测试以 `make test` / `go test ./...` 为主，协议变更优先覆盖 `internal/server`、`internal/stream`、`internal/llm`、`internal/tools`。
 
 ## 8. 开发流程
 
-本地开发常用流程：
+本地开发：
 
 ```bash
 cp .env.example .env
 make run
 make test
-make release-program
 ```
 
-当前本地 `make run` / `make test` 默认会带 `CGO_ENABLED=0`，其中 `make test` 还会串行执行包测试并使用临时 `GOCACHE`，避免 macOS 上 `CGO=1` 的 `net/http` 二进制在进入 `main()` 前被系统直接杀掉，以及并发 test/cache 导致的异常。需要显式验证真实 loopback 端口测试时，使用 `RUN_SOCKET_TESTS=1 make test-integration`。
-
-容器验证：
-
-```bash
-docker compose up --build
-docker compose logs -f
-```
-
-Desktop builtin 联调：
-
-```bash
-make release-program
-cd ../zenmind-desktop
-npm run sync:assets
-```
-
-涉及文档或目录规范调整时，优先同步：
-
-1. `README.md` 的用户使用说明
-2. `CLAUDE.md` 的项目事实
-3. `docs/` 下的专题文档
-4. `.gitignore` 的敏感文件治理规则
+涉及文档、配置或目录规范调整时，同步检查 `README.md`、`CLAUDE.md`、`docs/` 与 `.gitignore`。
 
 ## 9. 已知约束与注意事项
 
-- 当前仍不是 Java 版的功能完全等价实现，但 `.env` 契约、catalog API、基础鉴权与 resource ticket 已对齐。
-- `skills`、`teams`、`agents` 已支持定时轮询式目录热刷新。
-- `submit` / `steer` / `interrupt` 还没有形成 Java 版那样的运行中双向编排控制面。
-- `viewport` 已支持本地模板和远端 `viewports/get` 拉取；协议能力仍是最小子集，未完全对齐 Java 版前端协议。
-- `remember` 已升级为完整 memory 系统；embedding 语义检索需配置 `MEMORY_EMBEDDING_PROVIDER_KEY`，未配置时降级为 FTS + importance 排序。详见 [docs/memory-system-design.md](docs/memory-system-design.md)。
-- program bundle 当前默认产出 `darwin-arm64` 目标，供 `zenmind-desktop` builtin 直接消费。
-- 若环境中显式设置了废弃旧变量，应用会直接启动失败。
-- `configs/` 下所有配置文件都是启动时静态配置；运行中修改必须重启 runtime 才会生效。
-- 文件工具权限独立配置在 `configs/file-tools.yml`；`file_read` / `file_grep` 使用 `allowed-read-paths`，`file_write` / `file_edit` 使用 `allowed-write-paths`，越权路径通过 HITL approval 兜底。
-- 文件工具新增 run-scoped 读写闭环：`file_read` 可能返回 `file_unchanged`，`file_write` 可能返回 `file_write_not_read` / `file_modified_since_read`，`file_edit` 可能返回 `file_edit_not_read` / `file_edit_modified_since_read`，`file_grep` 可能返回 `grep_ripgrep_missing` / `grep_no_match` / `grep_invalid_type` 等结构化错误码。
+- `configs/` 下配置启动时读取，运行中修改需要重启 runtime。
+- `POST /api/query` 默认逐事件 flush；启用 `AGENT_H2A_RENDER_*` 后可能出现传输层缓冲。
+- WebSocket 是控制面，浏览器/普通客户端文件字节仍走 `POST /api/upload` 和 `GET /api/resource`。
+- `runtimeConfig.env` 不会通过 catalog API 回显，避免泄露代理、凭据或私有 endpoint。
+- 文件工具权限独立于 Bash 权限，越权路径通过 HITL approval 兜底。
+- `agent_invoke` 只允许显式配置的主 agent 使用，当前禁止嵌套。
+
+## 特色功能文档索引
+
+- [智能体配置说明](docs/智能体配置说明.md)：agent / team / skill 定义、CODER、prompt files、memoryConfig、runtimeConfig。
+- [配置化说明](docs/配置化说明.md)：环境变量、`configs/*.yml`、默认值、优先级、废弃变量。
+- [工具目录权限](docs/工具目录权限.md)：Bash、FileTools、allowed paths、越权审批、读后写闭环。
+- [真流式和H2A](docs/真流式和H2A.md)：SSE、heartbeat、`[DONE]`、attach、backlog、H2A 缓冲。
+- [记忆系统](docs/记忆系统.md)：remember、SQLite memory、FTS、embedding、learn、consolidate、memory tools。
+- [运行时和沙箱](docs/运行时和沙箱.md)：runtime 目录、Container Hub、mounts、host / sandbox 工具边界。
+- [API与协议](docs/API与协议.md)：HTTP API 参数、SSE、WebSocket、HTTP 文件数据面、resource ticket。
+- [HITL协议](docs/HITL协议.md)：question / approval / form、submit、awaiting 事件。
+- [自动化](docs/自动化.md)：automation registry、orchestrator、dispatch、执行记录。
+- [子智能体调度](docs/子智能体调度.md)：`agent_invoke`、task events、子流归并、禁止嵌套。
+- [MCP与前端工具](docs/MCP与前端工具.md)：MCP registry、tool sync、frontend tool 当前边界。
+- [会话存储与回放](docs/会话存储与回放.md)：chat store、StepLine、raw messages、archive、search、resource。
+- [鉴权与安全边界](docs/鉴权与安全边界.md)：JWT、JWKS、本地公钥、resource ticket、CORS、敏感配置。
+- [版本化打包方案](docs/版本化打包方案.md)：README 索引的交付专题文档。
+- [手工测试用例](docs/手工测试用例.md)：curl 回归用例。
+- [兼容清理清单](docs/兼容清理清单.md)：保留兼容路径与后续删除条件。

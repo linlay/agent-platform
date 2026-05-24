@@ -16,7 +16,7 @@ func (s stubToolLookup) Tool(name string) (api.ToolDetailResponse, bool) {
 	return tool, ok
 }
 
-func TestDeltaMapper_QuestionInitialAwaitAskComesFromFrontendHandler(t *testing.T) {
+func TestDeltaMapper_QuestionAwaitAskEmitsAfterToolEnd(t *testing.T) {
 	mapper := newQuestionDeltaMapper()
 
 	inputs := mapper.Map(contracts.DeltaToolCall{
@@ -32,11 +32,23 @@ func TestDeltaMapper_QuestionInitialAwaitAskComesFromFrontendHandler(t *testing.
 	if !ok {
 		t.Fatalf("expected ToolArgs input, got %#v", inputs[0])
 	}
-	if args.AwaitAsk == nil {
-		t.Fatalf("expected initial await ask, got %#v", args)
+	if args.AwaitAsk != nil {
+		t.Fatalf("did not expect await ask before tool end, got %#v", args.AwaitAsk)
 	}
-	if args.AwaitAsk.Mode != "question" || args.AwaitAsk.AwaitingID != "tool_1" {
-		t.Fatalf("unexpected await ask %#v", args.AwaitAsk)
+
+	endInputs := mapper.Map(contracts.DeltaToolEnd{ToolIDs: []string{"tool_1"}})
+	if len(endInputs) != 2 {
+		t.Fatalf("expected tool end followed by await ask, got %#v", endInputs)
+	}
+	if _, ok := endInputs[0].(stream.ToolEnd); !ok {
+		t.Fatalf("expected ToolEnd first, got %#v", endInputs[0])
+	}
+	awaitAsk, ok := endInputs[1].(stream.AwaitAsk)
+	if !ok {
+		t.Fatalf("expected AwaitAsk second, got %#v", endInputs[1])
+	}
+	if awaitAsk.Mode != "question" || awaitAsk.AwaitingID != "tool_1" {
+		t.Fatalf("unexpected await ask %#v", awaitAsk)
 	}
 }
 
@@ -59,9 +71,17 @@ func TestDeltaMapper_InvalidQuestionArgsDoNotEmitInitialAwaitAsk(t *testing.T) {
 	if args.AwaitAsk != nil {
 		t.Fatalf("did not expect initial await ask, got %#v", args.AwaitAsk)
 	}
+
+	endInputs := mapper.Map(contracts.DeltaToolEnd{ToolIDs: []string{"tool_1"}})
+	if len(endInputs) != 1 {
+		t.Fatalf("expected only tool end for invalid args, got %#v", endInputs)
+	}
+	if _, ok := endInputs[0].(stream.ToolEnd); !ok {
+		t.Fatalf("expected ToolEnd input, got %#v", endInputs[0])
+	}
 }
 
-func TestDeltaMapper_QuestionChunkedArgsEmitStandaloneAwaitAskWhenPayloadBecomesValid(t *testing.T) {
+func TestDeltaMapper_QuestionChunkedArgsEmitAwaitAskAfterToolEnd(t *testing.T) {
 	mapper := newQuestionDeltaMapper()
 
 	firstInputs := mapper.Map(contracts.DeltaToolCall{
@@ -90,28 +110,36 @@ func TestDeltaMapper_QuestionChunkedArgsEmitStandaloneAwaitAskWhenPayloadBecomes
 		Name:      "ask_user_question",
 		ArgsDelta: `"options":[{"label":"Weekend"}]}]}`,
 	})
-	if len(secondInputs) != 2 {
-		t.Fatalf("expected standalone await ask and tool args on second chunk, got %#v", secondInputs)
+	if len(secondInputs) != 1 {
+		t.Fatalf("expected one mapped input for second chunk, got %#v", secondInputs)
 	}
-	awaitAsk, ok := secondInputs[0].(stream.AwaitAsk)
+	secondArgs, ok := secondInputs[0].(stream.ToolArgs)
 	if !ok {
-		t.Fatalf("expected AwaitAsk input first, got %#v", secondInputs[0])
-	}
-	if awaitAsk.Mode != "question" || awaitAsk.AwaitingID != "tool_1" {
-		t.Fatalf("unexpected await ask %#v", awaitAsk)
-	}
-	secondArgs, ok := secondInputs[1].(stream.ToolArgs)
-	if !ok {
-		t.Fatalf("expected ToolArgs input second, got %#v", secondInputs[1])
+		t.Fatalf("expected ToolArgs input, got %#v", secondInputs[0])
 	}
 	if secondArgs.AwaitAsk != nil {
-		t.Fatalf("did not expect inline await ask on second chunk, got %#v", secondArgs.AwaitAsk)
+		t.Fatalf("did not expect await ask on second chunk, got %#v", secondArgs.AwaitAsk)
 	}
 	if secondArgs.ChunkIndex != 1 {
 		t.Fatalf("expected second chunk index to remain 1, got %#v", secondArgs)
 	}
 	if len(mapper.toolArgBuffers) != 0 {
 		t.Fatalf("expected buffered tool arg payload to be cleared, got %#v", mapper.toolArgBuffers)
+	}
+
+	endInputs := mapper.Map(contracts.DeltaToolEnd{ToolIDs: []string{"tool_1"}})
+	if len(endInputs) != 2 {
+		t.Fatalf("expected tool end followed by await ask, got %#v", endInputs)
+	}
+	if _, ok := endInputs[0].(stream.ToolEnd); !ok {
+		t.Fatalf("expected ToolEnd first, got %#v", endInputs[0])
+	}
+	awaitAsk, ok := endInputs[1].(stream.AwaitAsk)
+	if !ok {
+		t.Fatalf("expected AwaitAsk second, got %#v", endInputs[1])
+	}
+	if awaitAsk.Mode != "question" || awaitAsk.AwaitingID != "tool_1" {
+		t.Fatalf("unexpected await ask %#v", awaitAsk)
 	}
 }
 
@@ -146,6 +174,14 @@ func TestDeltaMapper_InvalidChunkedQuestionArgsDoNotEmitStandaloneAwaitAsk(t *te
 	}
 	if len(mapper.toolArgBuffers) != 0 {
 		t.Fatalf("expected buffered tool arg payload to be cleared after validation failure, got %#v", mapper.toolArgBuffers)
+	}
+
+	endInputs := mapper.Map(contracts.DeltaToolEnd{ToolIDs: []string{"tool_1"}})
+	if len(endInputs) != 1 {
+		t.Fatalf("expected only tool end for invalid chunked args, got %#v", endInputs)
+	}
+	if _, ok := endInputs[0].(stream.ToolEnd); !ok {
+		t.Fatalf("expected ToolEnd input, got %#v", endInputs[0])
 	}
 }
 

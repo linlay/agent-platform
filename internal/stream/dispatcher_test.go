@@ -343,7 +343,7 @@ func TestDispatcherEmitsApprovalAlongsideToolResult(t *testing.T) {
 	}
 }
 
-func TestDispatcherEmitsQuestionModeAwaitAskAfterToolStart(t *testing.T) {
+func TestDispatcherEmitsQuestionModeAwaitAskAfterToolEnd(t *testing.T) {
 	dispatcher := NewDispatcher(StreamRequest{
 		RunID:  "run_1",
 		ChatID: "chat_1",
@@ -354,16 +354,21 @@ func TestDispatcherEmitsQuestionModeAwaitAskAfterToolStart(t *testing.T) {
 		ToolName:   "ask_user_question",
 		Delta:      "{",
 		ChunkIndex: 0,
-		AwaitAsk: &AwaitAsk{
-			AwaitingID:   "tool_1",
-			ViewportType: "builtin",
-			ViewportKey:  "confirm_dialog",
-			Mode:         "question",
-			Timeout:      120000,
-			RunID:        "run_1",
-		},
 	})
-	assertEventTypes(t, events, "tool.start", "awaiting.ask", "tool.args")
+	assertEventTypes(t, events, "tool.start", "tool.args")
+
+	endEvents := dispatcher.Dispatch(ToolEnd{ToolID: "tool_1"})
+	assertEventTypes(t, endEvents, "tool.end", "tool.snapshot")
+
+	awaitEvents := dispatcher.Dispatch(AwaitAsk{
+		AwaitingID:   "tool_1",
+		ViewportType: "builtin",
+		ViewportKey:  "confirm_dialog",
+		Mode:         "question",
+		Timeout:      120000,
+		RunID:        "run_1",
+	})
+	assertEventTypes(t, awaitEvents, "awaiting.ask")
 }
 
 func TestDispatcherEmitsApprovalModeAwaitAskWithQuestions(t *testing.T) {
