@@ -40,18 +40,7 @@ func NewErrorPayload(code string, message string, scope string, category ErrorCa
 		"category": string(category),
 	}
 	if len(diagnostics) > 0 {
-		payload["diagnostics"] = cloneAnyMap(diagnostics)
+		payload["diagnostics"] = CloneAnyMap(diagnostics)
 	}
 	return payload
-}
-
-func cloneAnyMap(values map[string]any) map[string]any {
-	if values == nil {
-		return nil
-	}
-	out := make(map[string]any, len(values))
-	for key, value := range values {
-		out[key] = value
-	}
-	return out
 }

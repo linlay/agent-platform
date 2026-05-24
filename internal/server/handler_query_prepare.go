@@ -1,0 +1,438 @@
+package server
+
+import (
+	"log"
+	"net/http"
+	"sort"
+	"strings"
+
+	"agent-platform/internal/api"
+	"agent-platform/internal/catalog"
+	"agent-platform/internal/channel"
+	"agent-platform/internal/chat"
+	"agent-platform/internal/config"
+	"agent-platform/internal/contracts"
+	"agent-platform/internal/memory"
+	"agent-platform/internal/stream"
+)
+
+func isHiddenRequest(req api.QueryRequest) bool {
+	return req.Hidden != nil && *req.Hidden
+}
+
+type preparedQuery struct {
+	req                api.QueryRequest
+	summary            chat.Summary
+	created            bool
+	agentDef           catalog.AgentDefinition
+	session            contracts.QuerySession
+	memoryUsageSummary *api.MemoryUsageSummary
+	systemInitLines    []chat.QueryLineSystemInit
+	resourceBaseURL    string
+}
+
+type statusError struct {
+	status  int
+	message string
+}
+
+func (e *statusError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return e.message
+}
+
+func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
+	var req api.QueryRequest
+	if err := decodeJSON(r, &req); err != nil {
+		return preparedQuery{}, &statusError{status: http.StatusBadRequest, message: "invalid request body"}
+	}
+	if strings.TrimSpace(req.Message) == "" {
+		return preparedQuery{}, &statusError{status: http.StatusBadRequest, message: "message is required"}
+	}
+	accessLevel, ok := contracts.NormalizeAccessLevel(req.AccessLevel)
+	if !ok {
+		return preparedQuery{}, &statusError{status: http.StatusBadRequest, message: "accessLevel must be default, auto_approve, or full_access"}
+	}
+	req.AccessLevel = accessLevel
+
+	runID := strings.TrimSpace(req.RunID)
+	if runID == "" {
+		runID = newRunID()
+	}
+	requestID := strings.TrimSpace(req.RequestID)
+	if requestID == "" {
+		requestID = runID
+	}
+	chatID := strings.TrimSpace(req.ChatID)
+	if chatID == "" {
+		chatID = newChatID()
+	}
+	existingSummary, _ := s.deps.Chats.Summary(chatID)
+	teamID := strings.TrimSpace(req.TeamID)
+	if teamID == "" && existingSummary != nil {
+		teamID = existingSummary.TeamID
+	}
+	agentKey := strings.TrimSpace(req.AgentKey)
+	usedGlobalDefault := false
+	if agentKey == "" && existingSummary != nil {
+		agentKey = existingSummary.AgentKey
+	}
+	if agentKey == "" && teamID != "" {
+		if team, ok := s.deps.Registry.TeamDefinition(teamID); ok && team.DefaultAgentKey != "" {
+			agentKey = team.DefaultAgentKey
+		}
+	}
+	if agentKey == "" {
+		agentKey = s.deps.Registry.DefaultAgentKey()
+		usedGlobalDefault = agentKey != ""
+	}
+	channelID := channel.ChannelForChatID(chatID)
+	if usedGlobalDefault && channelID != "" && s.deps.Channels != nil {
+		if channelDefault := s.deps.Channels.DefaultAgent(channelID); channelDefault != "" {
+			agentKey = channelDefault
+		}
+	}
+	agentDef, ok := s.deps.Registry.AgentDefinition(agentKey)
+	if !ok {
+		return preparedQuery{}, &statusError{status: http.StatusBadRequest, message: "agent not found"}
+	}
+	if channelID != "" && s.deps.Channels != nil && !s.deps.Channels.IsAgentAllowed(channelID, agentKey) {
+		return preparedQuery{}, &statusError{
+			status:  http.StatusForbidden,
+			message: "agent " + `"` + agentKey + `" is not allowed on channel "` + channelID + `"`,
+		}
+	}
+
+	req.ChatID = chatID
+	req.AgentKey = agentKey
+	req.RequestID = requestID
+	req.RunID = runID
+	req.TeamID = teamID
+
+	summary, created, err := s.deps.Chats.EnsureChat(chatID, agentKey, req.TeamID, req.Message)
+	if err != nil {
+		return preparedQuery{}, err
+	}
+	if !created && agentKey != "" && agentKey != summary.AgentKey {
+		_ = s.deps.Chats.UpdateAgentKey(chatID, agentKey)
+		summary.AgentKey = agentKey
+	}
+	if created {
+		// hidden run（automation 等自发触发）也照常广播 chat.created —— 否则 webclient
+		// 要刷新整个列表才能看到新建的 automation 会话。隐藏语义只影响 chat 内部消息记录
+		// （不写伪造的"用户发消息"），不影响会话在列表里的可见性。
+		s.broadcast("chat.created", map[string]any{
+			"chatId":    chatID,
+			"chatName":  summary.ChatName,
+			"agentKey":  agentKey,
+			"timestamp": summary.CreatedAt,
+		})
+	}
+	if sourceChannel := sourceChannelFromParams(req.Params); sourceChannel != "" {
+		if err := s.deps.Chats.SetSourceChannel(chatID, sourceChannel); err != nil {
+			return preparedQuery{}, err
+		}
+		summary.SourceChannel = sourceChannel
+	}
+	session, err := s.BuildQuerySession(r.Context(), req, summary, agentDef, querySessionBuildOptions{
+		Created:           created,
+		IncludeHistory:    !created,
+		IncludeMemory:     true,
+		AllowInvokeAgents: canUseInvokeAgentsTool(agentDef.Mode),
+	})
+	if err != nil {
+		return preparedQuery{}, err
+	}
+	systemInitLines, err := s.prepareSystemInitCache(req, &session, created)
+	if err != nil {
+		return preparedQuery{}, err
+	}
+
+	return preparedQuery{
+		req:                req,
+		summary:            summary,
+		created:            created,
+		agentDef:           agentDef,
+		session:            session,
+		memoryUsageSummary: session.MemoryUsageSummary,
+		systemInitLines:    systemInitLines,
+		resourceBaseURL:    requestBaseURL(r),
+	}, nil
+}
+
+func buildMemoryUsageSummary(staticMemoryPrompt string, bundle memory.ContextBundle) *api.MemoryUsageSummary {
+	hitItems := buildMemoryHitItems(bundle)
+	summary := &api.MemoryUsageSummary{
+		HasStaticMemory:  strings.TrimSpace(staticMemoryPrompt) != "",
+		StableCount:      len(bundle.StableFacts),
+		SessionCount:     len(bundle.SessionSummaries),
+		ObservationCount: len(bundle.RelevantObservations),
+		StableChars:      len(strings.TrimSpace(bundle.StablePrompt)),
+		SessionChars:     len(strings.TrimSpace(bundle.SessionPrompt)),
+		ObservationChars: len(strings.TrimSpace(bundle.ObservationPrompt)),
+		StableItems:      buildMemoryUsageItems(bundle.StableFacts),
+		SessionItems:     buildMemoryUsageItems(bundle.SessionSummaries),
+		ObservationItems: buildMemoryUsageItems(bundle.RelevantObservations),
+		DisclosedLayers:  append([]string(nil), bundle.DisclosedLayers...),
+		SnapshotID:       strings.TrimSpace(bundle.SnapshotID),
+		StopReason:       strings.TrimSpace(bundle.StopReason),
+		CandidateCounts:  cloneIntMap(bundle.CandidateCounts),
+		SelectedCounts:   cloneIntMap(bundle.SelectedCounts),
+	}
+	summary.UserHint = buildMemoryUserHint(hitItems)
+	if !summary.HasStaticMemory && summary.StableCount == 0 && summary.SessionCount == 0 && summary.ObservationCount == 0 {
+		return nil
+	}
+	return summary
+}
+
+func buildMemoryUsageItems(items []api.StoredMemoryResponse) []api.MemoryUsageItem {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]api.MemoryUsageItem, 0, len(items))
+	for _, item := range items {
+		out = append(out, api.MemoryUsageItem{
+			ID:        strings.TrimSpace(item.ID),
+			Kind:      strings.TrimSpace(item.Kind),
+			ScopeType: strings.TrimSpace(item.ScopeType),
+			Title:     strings.TrimSpace(item.Title),
+			Summary:   strings.TrimSpace(item.Summary),
+			Category:  strings.TrimSpace(item.Category),
+		})
+	}
+	return out
+}
+
+func buildMemoryHitItems(bundle memory.ContextBundle) []api.MemoryHitItem {
+	out := make([]api.MemoryHitItem, 0, 3)
+	appendHits := func(layer string, items []api.StoredMemoryResponse, limit int) {
+		for _, item := range items {
+			if limit > 0 && len(out) >= limit {
+				return
+			}
+			out = append(out, api.MemoryHitItem{
+				ID:        strings.TrimSpace(item.ID),
+				Layer:     strings.TrimSpace(layer),
+				Kind:      strings.TrimSpace(item.Kind),
+				ScopeType: strings.TrimSpace(item.ScopeType),
+				Title:     strings.TrimSpace(item.Title),
+				Summary:   strings.TrimSpace(item.Summary),
+				Category:  strings.TrimSpace(item.Category),
+			})
+		}
+	}
+
+	appendHits("stable", bundle.StableFacts, 3)
+	appendHits("session", bundle.SessionSummaries, 3)
+	appendHits("observation", bundle.RelevantObservations, 3)
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func buildMemoryUserHint(items []api.MemoryHitItem) string {
+	if len(items) == 0 {
+		return ""
+	}
+	labels := make([]string, 0, minInt(len(items), 3))
+	for idx, item := range items {
+		if idx >= 3 {
+			break
+		}
+		label := strings.TrimSpace(item.Title)
+		if label == "" {
+			label = strings.TrimSpace(item.Summary)
+		}
+		if label == "" {
+			continue
+		}
+		runes := []rune(label)
+		if len(runes) > 24 {
+			label = strings.TrimSpace(string(runes[:24])) + "..."
+		}
+		labels = append(labels, "《"+label+"》")
+	}
+	if len(labels) == 0 {
+		return ""
+	}
+	return "本次回答借鉴了历史记忆：" + strings.Join(labels, "、")
+}
+
+func memoryUsageEventPayload(summary *api.MemoryUsageSummary, chatID string, runID string, agentKey string) map[string]any {
+	if summary == nil {
+		return nil
+	}
+	payload := map[string]any{
+		"chatId":           strings.TrimSpace(chatID),
+		"runId":            strings.TrimSpace(runID),
+		"agentKey":         strings.TrimSpace(agentKey),
+		"hasStaticMemory":  summary.HasStaticMemory,
+		"stableCount":      summary.StableCount,
+		"sessionCount":     summary.SessionCount,
+		"observationCount": summary.ObservationCount,
+		"stableChars":      summary.StableChars,
+		"sessionChars":     summary.SessionChars,
+		"observationChars": summary.ObservationChars,
+	}
+	if len(summary.StableItems) > 0 {
+		payload["stableItems"] = summary.StableItems
+	}
+	if len(summary.SessionItems) > 0 {
+		payload["sessionItems"] = summary.SessionItems
+	}
+	if len(summary.ObservationItems) > 0 {
+		payload["observationItems"] = summary.ObservationItems
+	}
+	if strings.TrimSpace(summary.UserHint) != "" {
+		payload["userHint"] = strings.TrimSpace(summary.UserHint)
+	}
+	if len(summary.DisclosedLayers) > 0 {
+		payload["disclosedLayers"] = append([]string(nil), summary.DisclosedLayers...)
+	}
+	if strings.TrimSpace(summary.SnapshotID) != "" {
+		payload["snapshotId"] = strings.TrimSpace(summary.SnapshotID)
+	}
+	if strings.TrimSpace(summary.StopReason) != "" {
+		payload["stopReason"] = strings.TrimSpace(summary.StopReason)
+	}
+	if len(summary.CandidateCounts) > 0 {
+		payload["candidateCounts"] = cloneIntMap(summary.CandidateCounts)
+	}
+	if len(summary.SelectedCounts) > 0 {
+		payload["selectedCounts"] = cloneIntMap(summary.SelectedCounts)
+	}
+	return payload
+}
+
+func cloneIntMap(input map[string]int) map[string]int {
+	if len(input) == 0 {
+		return nil
+	}
+	out := make(map[string]int, len(input))
+	for key, value := range input {
+		out[key] = value
+	}
+	return out
+}
+
+func minInt(a int, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func runtimeAgentEnv(value any) map[string]string {
+	switch env := value.(type) {
+	case map[string]string:
+		return contracts.CloneStringMap(env)
+	default:
+		return nil
+	}
+}
+
+func sourceChannelFromParams(params map[string]any) string {
+	if len(params) == 0 {
+		return ""
+	}
+	if value, ok := params["channel"].(string); ok {
+		return strings.TrimSpace(value)
+	}
+	return ""
+}
+
+func resolveSkillRuntimeSettings(agentEnv map[string]string, agentDir string, marketDir string, skillKeys []string) ([]string, map[string]string) {
+	runtimeEnv := contracts.CloneStringMap(agentEnv)
+	if len(skillKeys) == 0 {
+		return nil, runtimeEnv
+	}
+	seen := map[string]struct{}{}
+	var hookDirs []string
+	for _, raw := range skillKeys {
+		skillKey := strings.ToLower(strings.TrimSpace(raw))
+		if skillKey == "" {
+			continue
+		}
+		if _, ok := seen[skillKey]; ok {
+			continue
+		}
+		seen[skillKey] = struct{}{}
+		def, ok, err := catalog.ResolveSkillDefinition(agentDir, marketDir, skillKey)
+		if err != nil {
+			log.Printf("[server][skill-runtime][warn] skill resolution failed key=%s err=%v", skillKey, err)
+			continue
+		}
+		if !ok {
+			log.Printf("[server][skill-runtime][warn] skill definition not found key=%s", skillKey)
+			continue
+		}
+		if strings.TrimSpace(def.BashHooksDir) != "" {
+			hookDirs = append(hookDirs, def.BashHooksDir)
+		}
+		for key, value := range def.RuntimeEnv {
+			if runtimeEnv == nil {
+				runtimeEnv = make(map[string]string, len(agentEnv)+len(def.RuntimeEnv))
+			}
+			runtimeEnv[key] = value
+		}
+	}
+	return hookDirs, runtimeEnv
+}
+
+func sortedStringKeys(values map[string]string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func (s *Server) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamEventAssembler, contracts.StreamDeltaMapper) {
+	assembler := stream.NewAssembler(stream.StreamRequest{
+		RequestID:          prepared.req.RequestID,
+		RunID:              prepared.req.RunID,
+		ChatID:             prepared.req.ChatID,
+		ChatName:           prepared.summary.ChatName,
+		AgentKey:           prepared.req.AgentKey,
+		Message:            prepared.req.Message,
+		Role:               defaultRole(prepared.req.Role),
+		References:         prepared.req.References,
+		Params:             prepared.req.Params,
+		PlanningMode:       prepared.session.PlanningMode,
+		Created:            prepared.created,
+		MemoryUsageSummary: memoryUsageEventPayload(prepared.memoryUsageSummary, prepared.req.ChatID, prepared.req.RunID, prepared.req.AgentKey),
+	})
+	if s.deps.Tools != nil {
+		for _, toolDef := range s.deps.Tools.Definitions() {
+			effective := applyToolOverride(toolDef, prepared.session.ToolOverrides)
+			if cv, ok := effective.Meta["clientVisible"].(bool); ok && !cv {
+				assembler.RegisterHiddenTools(effective.Name, effective.Key)
+			}
+		}
+	}
+	toolTimeoutMs := resolveHITLTimeoutFromBudget(prepared.session.ResolvedBudget, &s.deps.Config)
+	var mapper contracts.StreamDeltaMapper
+	if s.deps.DeltaMappers != nil {
+		mapper = s.deps.DeltaMappers.NewDeltaMapper(prepared.req.RunID, prepared.req.ChatID, toolTimeoutMs, s.toolLookupWithOverrides(prepared.session.ToolOverrides))
+	}
+	return assembler, mapper
+}
+
+func resolveHITLTimeoutFromBudget(budget contracts.Budget, cfg *config.Config) int64 {
+	normalized := contracts.NormalizeBudget(budget)
+	if normalized.Hitl.TimeoutMs > 0 {
+		return int64(normalized.Hitl.TimeoutMs)
+	}
+	if cfg != nil && cfg.BashHITL.DefaultTimeoutMs > 0 {
+		return int64(cfg.BashHITL.DefaultTimeoutMs)
+	}
+	return 120000
+}

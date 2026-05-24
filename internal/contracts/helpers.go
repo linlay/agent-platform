@@ -10,7 +10,18 @@ func NormalizeBudget(b Budget) Budget {
 }
 
 func CloneMap(values map[string]any) map[string]any {
-	return cloneAnyMap(values)
+	return CloneAnyMap(values)
+}
+
+func CloneAnyMap(values map[string]any) map[string]any {
+	if values == nil {
+		return nil
+	}
+	out := make(map[string]any, len(values))
+	for key, value := range values {
+		out[key] = value
+	}
+	return out
 }
 
 func CloneStringMap(values map[string]string) map[string]string {

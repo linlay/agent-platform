@@ -10,7 +10,6 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/llm"
 	"agent-platform/internal/stream"
 )
 
@@ -23,7 +22,7 @@ type RunExecutorParams struct {
 	Agent              contracts.AgentEngine
 	Registry           catalog.Registry
 	Assembler          *stream.StreamEventAssembler
-	Mapper             *llm.DeltaMapper
+	Mapper             contracts.StreamDeltaMapper
 	Stream             config.StreamConfig
 	StepWriter         *chat.StepWriter
 	EventBus           *stream.RunEventBus
@@ -253,7 +252,7 @@ func runExecutor(params RunExecutorParams) {
 
 	runCtx := params.RunCtx
 	if params.StepWriter != nil {
-		runCtx = llm.WithApprovalSummarySink(runCtx, params.StepWriter.RecordApproval)
+		runCtx = chat.WithApprovalSummarySink(runCtx, params.StepWriter.RecordApproval)
 	}
 
 	publish := func(event stream.StreamEvent) {

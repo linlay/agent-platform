@@ -14,6 +14,7 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/automation"
+	"agent-platform/internal/contracts"
 	"agent-platform/internal/ws"
 )
 
@@ -363,7 +364,7 @@ func mapAutomationQuery(query automation.Query) api.AutomationQueryResponse {
 		Message: query.Message,
 		ChatID:  query.ChatID,
 		Role:    query.Role,
-		Params:  cloneAnyMap(query.Params),
+		Params:  contracts.CloneAnyMap(query.Params),
 		Hidden:  cloneBoolPtr(query.Hidden),
 	}
 }
@@ -373,7 +374,7 @@ func automationQueryFromRequest(req api.AutomationQueryRequest) automation.Query
 		ChatID:  strings.TrimSpace(req.ChatID),
 		Role:    strings.TrimSpace(req.Role),
 		Message: strings.TrimSpace(req.Message),
-		Params:  cloneAnyMap(req.Params),
+		Params:  contracts.CloneAnyMap(req.Params),
 		Hidden:  cloneBoolPtr(req.Hidden),
 	}
 }
@@ -407,7 +408,7 @@ func applyAutomationUpdate(def *automation.Definition, req api.UpdateAutomationR
 		def.Query.ChatID = strings.TrimSpace(req.Query.ChatID)
 		def.Query.Role = strings.TrimSpace(req.Query.Role)
 		def.Query.Message = strings.TrimSpace(req.Query.Message)
-		def.Query.Params = cloneAnyMap(req.Query.Params)
+		def.Query.Params = contracts.CloneAnyMap(req.Query.Params)
 		def.Query.Hidden = cloneBoolPtr(req.Query.Hidden)
 	}
 }
@@ -489,17 +490,6 @@ func randomAutomationSuffix() string {
 func automationFileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
-}
-
-func cloneAnyMap(src map[string]any) map[string]any {
-	if src == nil {
-		return nil
-	}
-	dst := make(map[string]any, len(src))
-	for key, value := range src {
-		dst[key] = value
-	}
-	return dst
 }
 
 func cloneIntPtr(src *int) *int {

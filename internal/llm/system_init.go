@@ -10,19 +10,16 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
-	. "agent-platform/internal/contracts"
+	"agent-platform/internal/contracts"
 )
 
-type SystemInitProfile struct {
-	CacheKey      string
-	Mode          string
-	Stage         string
-	Fingerprint   string
-	SystemMessage map[string]any
-	Tools         []any
+type SystemInitProfileBuilder struct{}
+
+func (SystemInitProfileBuilder) BuildSystemInitProfiles(session contracts.QuerySession, req api.QueryRequest, toolDefs []api.ToolDetailResponse, defaultPlanMaxSteps int, defaultPlanMaxWorkRoundsPerTask int, prompts config.PromptsConfig) []contracts.SystemInitProfile {
+	return BuildSystemInitProfiles(session, req, toolDefs, defaultPlanMaxSteps, defaultPlanMaxWorkRoundsPerTask, prompts)
 }
 
-func BuildSystemInitProfiles(session QuerySession, req api.QueryRequest, toolDefs []api.ToolDetailResponse, defaultPlanMaxSteps int, defaultPlanMaxWorkRoundsPerTask int, prompts config.PromptsConfig) []SystemInitProfile {
+func BuildSystemInitProfiles(session contracts.QuerySession, req api.QueryRequest, toolDefs []api.ToolDetailResponse, defaultPlanMaxSteps int, defaultPlanMaxWorkRoundsPerTask int, prompts config.PromptsConfig) []contracts.SystemInitProfile {
 	if session.PlanningMode {
 		return nil
 	}
@@ -31,21 +28,21 @@ func BuildSystemInitProfiles(session QuerySession, req api.QueryRequest, toolDef
 	case "plan-execute":
 		settings := resolvePlanExecuteRuntimeSettings(session, defaultPlanMaxSteps, defaultPlanMaxWorkRoundsPerTask)
 		session.ResolvedStageSettings = settings
-		return []SystemInitProfile{
+		return []contracts.SystemInitProfile{
 			buildPlanSystemInitProfile(session, req, settings, toolDefs),
 			buildExecuteSystemInitProfile(session, settings, toolDefs),
 			buildSummarySystemInitProfile(session, settings, prompts),
 		}
 	case "oneshot":
-		return []SystemInitProfile{buildDefaultSystemInitProfile(session, req, toolDefs, "oneshot")}
+		return []contracts.SystemInitProfile{buildDefaultSystemInitProfile(session, req, toolDefs, "oneshot")}
 	case "coder":
-		return []SystemInitProfile{buildDefaultSystemInitProfile(session, req, toolDefs, "coder")}
+		return []contracts.SystemInitProfile{buildDefaultSystemInitProfile(session, req, toolDefs, "coder")}
 	default:
 		stage := "react"
 		if strings.TrimSpace(session.Mode) == "" {
 			stage = "oneshot"
 		}
-		return []SystemInitProfile{buildDefaultSystemInitProfile(session, req, toolDefs, stage)}
+		return []contracts.SystemInitProfile{buildDefaultSystemInitProfile(session, req, toolDefs, stage)}
 	}
 }
 
@@ -57,7 +54,7 @@ func SystemInitCacheKey(mode string, stage string) string {
 	return normalizedMode + ":main"
 }
 
-func ComputeSystemInitFingerprint(session QuerySession, stage string, toolDefs []api.ToolDetailResponse) string {
+func ComputeSystemInitFingerprint(session contracts.QuerySession, stage string, toolDefs []api.ToolDetailResponse) string {
 	payload := map[string]any{
 		"agentKey":               session.AgentKey,
 		"agentName":              session.AgentName,
@@ -95,7 +92,7 @@ func ComputeSystemInitFingerprint(session QuerySession, stage string, toolDefs [
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-func buildDefaultSystemInitProfile(session QuerySession, req api.QueryRequest, toolDefs []api.ToolDetailResponse, stage string) SystemInitProfile {
+func buildDefaultSystemInitProfile(session contracts.QuerySession, req api.QueryRequest, toolDefs []api.ToolDetailResponse, stage string) contracts.SystemInitProfile {
 	effectiveDefs := applyToolOverrides(filterToolDefinitions(toolDefs, session.ToolNames), session.ToolOverrides)
 	systemPrompt := buildSystemPrompt(session, req, session.ModelKey, PromptBuildOptions{
 		Stage:                 stage,
@@ -103,7 +100,7 @@ func buildDefaultSystemInitProfile(session QuerySession, req api.QueryRequest, t
 		IncludeAfterCallHints: true,
 	})
 	specs := toOpenAIToolSpecs(effectiveDefs)
-	return SystemInitProfile{
+	return contracts.SystemInitProfile{
 		CacheKey:      SystemInitCacheKey(session.Mode, stage),
 		Mode:          normalizedSystemInitMode(session.Mode),
 		Stage:         "main",
@@ -113,7 +110,7 @@ func buildDefaultSystemInitProfile(session QuerySession, req api.QueryRequest, t
 	}
 }
 
-func buildPlanSystemInitProfile(session QuerySession, req api.QueryRequest, settings PlanExecuteSettings, toolDefs []api.ToolDetailResponse) SystemInitProfile {
+func buildPlanSystemInitProfile(session contracts.QuerySession, req api.QueryRequest, settings contracts.PlanExecuteSettings, toolDefs []api.ToolDetailResponse) contracts.SystemInitProfile {
 	tools := planSystemInitTools(settings.Plan)
 	effectiveDefs := applyToolOverrides(filterToolDefinitions(toolDefs, tools), session.ToolOverrides)
 	systemPrompt := buildSystemPrompt(session, req, session.ModelKey, PromptBuildOptions{
@@ -122,7 +119,7 @@ func buildPlanSystemInitProfile(session QuerySession, req api.QueryRequest, sett
 		IncludeAfterCallHints: true,
 	})
 	specs := toOpenAIToolSpecs(effectiveDefs)
-	return SystemInitProfile{
+	return contracts.SystemInitProfile{
 		CacheKey:      SystemInitCacheKey(session.Mode, "plan"),
 		Mode:          "plan-execute",
 		Stage:         "plan",
@@ -132,7 +129,7 @@ func buildPlanSystemInitProfile(session QuerySession, req api.QueryRequest, sett
 	}
 }
 
-func buildExecuteSystemInitProfile(session QuerySession, settings PlanExecuteSettings, toolDefs []api.ToolDetailResponse) SystemInitProfile {
+func buildExecuteSystemInitProfile(session contracts.QuerySession, settings contracts.PlanExecuteSettings, toolDefs []api.ToolDetailResponse) contracts.SystemInitProfile {
 	tools := appendUniqueTools(stageToolsOrDefault(settings.Execute, session.ToolNames), "plan_update_task")
 	effectiveDefs := applyToolOverrides(filterToolDefinitions(toolDefs, tools), session.ToolOverrides)
 	systemPrompt := strings.TrimSpace(settings.Execute.PrimaryPrompt())
@@ -140,7 +137,7 @@ func buildExecuteSystemInitProfile(session QuerySession, settings PlanExecuteSet
 		systemPrompt = "Execute the current task."
 	}
 	specs := toOpenAIToolSpecs(effectiveDefs)
-	return SystemInitProfile{
+	return contracts.SystemInitProfile{
 		CacheKey:      SystemInitCacheKey(session.Mode, "execute"),
 		Mode:          "plan-execute",
 		Stage:         "execute",
@@ -150,7 +147,7 @@ func buildExecuteSystemInitProfile(session QuerySession, settings PlanExecuteSet
 	}
 }
 
-func buildSummarySystemInitProfile(session QuerySession, settings PlanExecuteSettings, prompts config.PromptsConfig) SystemInitProfile {
+func buildSummarySystemInitProfile(session contracts.QuerySession, settings contracts.PlanExecuteSettings, prompts config.PromptsConfig) contracts.SystemInitProfile {
 	systemPrompt := strings.TrimSpace(settings.Summary.PrimaryPrompt())
 	if systemPrompt == "" {
 		systemPrompt = strings.TrimSpace(prompts.PlanExecute.SummarySystemPrompt)
@@ -160,7 +157,7 @@ func buildSummarySystemInitProfile(session QuerySession, settings PlanExecuteSet
 	}
 	fingerprintSession := session
 	fingerprintSession.SummaryPrompt = strings.TrimSpace(strings.Join([]string{fingerprintSession.SummaryPrompt, systemPrompt}, "\n"))
-	return SystemInitProfile{
+	return contracts.SystemInitProfile{
 		CacheKey:      SystemInitCacheKey(session.Mode, "summary"),
 		Mode:          "plan-execute",
 		Stage:         "summary",
@@ -170,15 +167,15 @@ func buildSummarySystemInitProfile(session QuerySession, settings PlanExecuteSet
 	}
 }
 
-func resolvePlanExecuteRuntimeSettings(session QuerySession, defaultMaxSteps int, defaultMaxWorkRoundsPerTask int) PlanExecuteSettings {
+func resolvePlanExecuteRuntimeSettings(session contracts.QuerySession, defaultMaxSteps int, defaultMaxWorkRoundsPerTask int) contracts.PlanExecuteSettings {
 	settings := session.ResolvedStageSettings
 	if settings.MaxSteps <= 0 || settings.MaxWorkRoundsPerTask <= 0 {
-		settings = ResolvePlanExecuteSettings(session.StageSettings, defaultMaxSteps, defaultMaxWorkRoundsPerTask)
+		settings = contracts.ResolvePlanExecuteSettings(session.StageSettings, defaultMaxSteps, defaultMaxWorkRoundsPerTask)
 	}
 	return settings
 }
 
-func planSystemInitTools(stage StageSettings) []string {
+func planSystemInitTools(stage contracts.StageSettings) []string {
 	if len(stage.Tools) > 0 {
 		return appendUniqueTools(stage.Tools, "plan_add_tasks")
 	}
@@ -281,7 +278,7 @@ func cachedSystemMessageToOpenAI(raw map[string]any) (openAIMessage, bool) {
 	}, true
 }
 
-func resolveCachedSystemInit(session QuerySession, cacheKey string) (openAIMessage, []openAIToolSpec, bool) {
+func resolveCachedSystemInit(session contracts.QuerySession, cacheKey string) (openAIMessage, []openAIToolSpec, bool) {
 	if len(session.SystemInitCache) == 0 {
 		return openAIMessage{}, nil, false
 	}

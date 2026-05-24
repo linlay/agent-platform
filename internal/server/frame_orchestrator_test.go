@@ -120,8 +120,8 @@ func (s *blockingOrchestratableStream) FinalAssistantContent() (string, bool) {
 	return "", false
 }
 
-var _ llm.OrchestratableAgentStream = (*stubOrchestratableStream)(nil)
-var _ llm.OrchestratableAgentStream = (*blockingOrchestratableStream)(nil)
+var _ contracts.OrchestratableAgentStream = (*stubOrchestratableStream)(nil)
+var _ contracts.OrchestratableAgentStream = (*blockingOrchestratableStream)(nil)
 
 func readServerTestJSONLines(store *chat.FileStore, chatID string) ([]map[string]any, error) {
 	path := filepath.Join(filepath.Dir(store.ChatDir(chatID)), chatID+".jsonl")

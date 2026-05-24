@@ -1,0 +1,197 @@
+package memory
+
+import (
+	"database/sql"
+	"fmt"
+	"strings"
+
+	_ "modernc.org/sqlite"
+)
+
+func (s *SQLiteStore) initDB() error {
+	db, err := sql.Open("sqlite", s.dbPath)
+	if err != nil {
+		return err
+	}
+	s.db = db
+
+	statements := []string{
+		`CREATE TABLE IF NOT EXISTS MEMORIES (
+			ID_ TEXT PRIMARY KEY,
+			TS_ INTEGER NOT NULL,
+			REQUEST_ID_ TEXT,
+			CHAT_ID_ TEXT,
+			AGENT_KEY_ TEXT NOT NULL DEFAULT '',
+			SUBJECT_KEY_ TEXT NOT NULL DEFAULT '',
+			SOURCE_TYPE_ TEXT NOT NULL DEFAULT '',
+			SUMMARY_ TEXT NOT NULL DEFAULT '',
+			CATEGORY_ TEXT DEFAULT 'general',
+			IMPORTANCE_ INTEGER DEFAULT 5,
+			TAGS_ TEXT,
+			EMBEDDING_ BLOB,
+			EMBEDDING_MODEL_ TEXT,
+			UPDATED_AT_ INTEGER NOT NULL,
+			ACCESS_COUNT_ INTEGER DEFAULT 0,
+			LAST_ACCESSED_AT_ INTEGER
+		)`,
+		`CREATE TABLE IF NOT EXISTS MEMORY_FACTS (
+			ID_ TEXT PRIMARY KEY,
+			AGENT_KEY_ TEXT NOT NULL DEFAULT '',
+			SCOPE_TYPE_ TEXT NOT NULL DEFAULT 'agent',
+			SCOPE_KEY_ TEXT NOT NULL DEFAULT '',
+			CATEGORY_ TEXT NOT NULL DEFAULT 'general',
+			TITLE_ TEXT NOT NULL DEFAULT '',
+			CONTENT_ TEXT NOT NULL DEFAULT '',
+			TAGS_ TEXT NOT NULL DEFAULT '',
+			IMPORTANCE_ INTEGER NOT NULL DEFAULT 5,
+			CONFIDENCE_ REAL NOT NULL DEFAULT 0.9,
+			STATUS_ TEXT NOT NULL DEFAULT 'active',
+			SOURCE_KIND_ TEXT NOT NULL DEFAULT 'manual',
+			SOURCE_REF_ TEXT NOT NULL DEFAULT '',
+			DEDUPE_KEY_ TEXT NOT NULL DEFAULT '',
+			CREATED_AT_ INTEGER NOT NULL,
+			UPDATED_AT_ INTEGER NOT NULL,
+			LAST_CONFIRMED_AT_ INTEGER,
+			EXPIRES_AT_ INTEGER
+		)`,
+		`CREATE TABLE IF NOT EXISTS MEMORY_OBSERVATIONS (
+			ID_ TEXT PRIMARY KEY,
+			AGENT_KEY_ TEXT NOT NULL DEFAULT '',
+			CHAT_ID_ TEXT NOT NULL DEFAULT '',
+			RUN_ID_ TEXT NOT NULL DEFAULT '',
+			SCOPE_TYPE_ TEXT NOT NULL DEFAULT 'chat',
+			SCOPE_KEY_ TEXT NOT NULL DEFAULT '',
+			TYPE_ TEXT NOT NULL DEFAULT 'discovery',
+			TITLE_ TEXT NOT NULL DEFAULT '',
+			SUMMARY_ TEXT NOT NULL DEFAULT '',
+			DETAIL_ TEXT NOT NULL DEFAULT '',
+			FILES_JSON_ TEXT NOT NULL DEFAULT '[]',
+			TOOLS_JSON_ TEXT NOT NULL DEFAULT '[]',
+			TAGS_ TEXT NOT NULL DEFAULT '',
+			IMPORTANCE_ INTEGER NOT NULL DEFAULT 5,
+			CONFIDENCE_ REAL NOT NULL DEFAULT 0.7,
+			STATUS_ TEXT NOT NULL DEFAULT 'open',
+			CREATED_AT_ INTEGER NOT NULL,
+			UPDATED_AT_ INTEGER NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS MEMORY_LINKS (
+			ID_ TEXT PRIMARY KEY,
+			FROM_ID_ TEXT NOT NULL,
+			TO_ID_ TEXT NOT NULL,
+			RELATION_TYPE_ TEXT NOT NULL DEFAULT 'supports',
+			WEIGHT_ REAL NOT NULL DEFAULT 1.0,
+			CREATED_AT_ INTEGER NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS MEMORY_SNAPSHOTS (
+			ID_ TEXT PRIMARY KEY,
+			CHAT_ID_ TEXT NOT NULL,
+			AGENT_KEY_ TEXT NOT NULL DEFAULT '',
+			STABLE_ITEM_IDS_ TEXT NOT NULL DEFAULT '[]',
+			OBSERVED_ITEM_IDS_ TEXT NOT NULL DEFAULT '[]',
+			CREATED_AT_ INTEGER NOT NULL,
+			UPDATED_AT_ INTEGER NOT NULL,
+			UNIQUE(CHAT_ID_, AGENT_KEY_)
+		)`,
+		`CREATE TABLE IF NOT EXISTS MEMORY_HISTORY (
+			ID_ TEXT PRIMARY KEY,
+			TS_ INTEGER NOT NULL,
+			AGENT_KEY_ TEXT NOT NULL DEFAULT '',
+			CHAT_ID_ TEXT NOT NULL DEFAULT '',
+			RUN_ID_ TEXT NOT NULL DEFAULT '',
+			REQUEST_ID_ TEXT NOT NULL DEFAULT '',
+			USER_KEY_ TEXT NOT NULL DEFAULT '',
+			MEMORY_ID_ TEXT NOT NULL DEFAULT '',
+			MEMORY_KIND_ TEXT NOT NULL DEFAULT '',
+			SCOPE_TYPE_ TEXT NOT NULL DEFAULT '',
+			SCOPE_KEY_ TEXT NOT NULL DEFAULT '',
+			OPERATION_ TEXT NOT NULL,
+			SOURCE_ TEXT NOT NULL DEFAULT '',
+			STATUS_ TEXT NOT NULL DEFAULT 'ok',
+			BEFORE_JSON_ TEXT NOT NULL DEFAULT '{}',
+			AFTER_JSON_ TEXT NOT NULL DEFAULT '{}',
+			DELTA_JSON_ TEXT NOT NULL DEFAULT '{}',
+			META_JSON_ TEXT NOT NULL DEFAULT '{}'
+		)`,
+		`CREATE INDEX IF NOT EXISTS IDX_MEMORY_HISTORY_MEMORY_ID_TS ON MEMORY_HISTORY(MEMORY_ID_, TS_)`,
+		`CREATE INDEX IF NOT EXISTS IDX_MEMORY_HISTORY_AGENT_TS ON MEMORY_HISTORY(AGENT_KEY_, TS_)`,
+		`CREATE INDEX IF NOT EXISTS IDX_MEMORY_HISTORY_CHAT_TS ON MEMORY_HISTORY(CHAT_ID_, TS_)`,
+		`CREATE INDEX IF NOT EXISTS IDX_MEMORY_HISTORY_OPERATION_TS ON MEMORY_HISTORY(OPERATION_, TS_)`,
+		`CREATE INDEX IF NOT EXISTS IDX_MEMORY_HISTORY_RUN_TS ON MEMORY_HISTORY(RUN_ID_, TS_)`,
+		`CREATE VIRTUAL TABLE IF NOT EXISTS MEMORIES_FTS USING fts5(
+			SUMMARY_, SUBJECT_KEY_, CATEGORY_, TAGS_,
+			content=MEMORIES, content_rowid=rowid
+		)`,
+		`CREATE TRIGGER IF NOT EXISTS MEMORIES_AI AFTER INSERT ON MEMORIES BEGIN
+			INSERT INTO MEMORIES_FTS(rowid, SUMMARY_, SUBJECT_KEY_, CATEGORY_, TAGS_)
+			VALUES (new.rowid, new.SUMMARY_, new.SUBJECT_KEY_, new.CATEGORY_, new.TAGS_);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS MEMORIES_AU AFTER UPDATE ON MEMORIES BEGIN
+			INSERT INTO MEMORIES_FTS(MEMORIES_FTS, rowid, SUMMARY_, SUBJECT_KEY_, CATEGORY_, TAGS_)
+			VALUES ('delete', old.rowid, old.SUMMARY_, old.SUBJECT_KEY_, old.CATEGORY_, old.TAGS_);
+			INSERT INTO MEMORIES_FTS(rowid, SUMMARY_, SUBJECT_KEY_, CATEGORY_, TAGS_)
+			VALUES (new.rowid, new.SUMMARY_, new.SUBJECT_KEY_, new.CATEGORY_, new.TAGS_);
+		END`,
+		`CREATE TRIGGER IF NOT EXISTS MEMORIES_AD AFTER DELETE ON MEMORIES BEGIN
+			INSERT INTO MEMORIES_FTS(MEMORIES_FTS, rowid, SUMMARY_, SUBJECT_KEY_, CATEGORY_, TAGS_)
+			VALUES ('delete', old.rowid, old.SUMMARY_, old.SUBJECT_KEY_, old.CATEGORY_, old.TAGS_);
+		END`,
+	}
+	for _, stmt := range statements {
+		if _, err := db.Exec(stmt); err != nil {
+			return fmt.Errorf("init schema: %w", err)
+		}
+	}
+	if err := s.ensureProjectionColumns(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *SQLiteStore) ensureProjectionColumns() error {
+	columns := []struct {
+		name       string
+		definition string
+	}{
+		{name: "KIND_", definition: "TEXT NOT NULL DEFAULT 'fact'"},
+		{name: "REF_ID_", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "SCOPE_TYPE_", definition: "TEXT NOT NULL DEFAULT 'agent'"},
+		{name: "SCOPE_KEY_", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "TITLE_", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "CONFIDENCE_", definition: "REAL NOT NULL DEFAULT 0.9"},
+		{name: "STATUS_", definition: "TEXT NOT NULL DEFAULT 'active'"},
+	}
+	for _, column := range columns {
+		if err := ensureSQLiteColumn(s.db, "MEMORIES", column.name, column.definition); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureSQLiteColumn(db *sql.DB, table string, column string, definition string) error {
+	rows, err := db.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name string
+		var ctype string
+		var notNull int
+		var defaultValue any
+		var pk int
+		if err := rows.Scan(&cid, &name, &ctype, &notNull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		if strings.EqualFold(strings.TrimSpace(name), strings.TrimSpace(column)) {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	_, err = db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` ` + definition)
+	return err
+}

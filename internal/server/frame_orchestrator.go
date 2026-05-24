@@ -17,7 +17,6 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/llm"
 	"agent-platform/internal/stream"
 )
 
@@ -35,7 +34,7 @@ type frameOrchestrator struct {
 	prepareSystemInits func(api.QueryRequest, *contracts.QuerySession, bool) ([]chat.QueryLineSystemInit, error)
 	buildChildSystems  func(api.QueryRequest, *contracts.QuerySession) []chat.QueryLineSystemInit
 	systemInitMu       sync.Mutex
-	mapper             *llm.DeltaMapper
+	mapper             contracts.StreamDeltaMapper
 	emitDelta          func(contracts.AgentDelta)
 	emitInputs         func(...stream.StreamInput)
 	taskCounter        int
@@ -90,7 +89,7 @@ type preparedSubTask struct {
 }
 
 func (o *frameOrchestrator) handleSubAgentBatch(mainStream contracts.AgentStream, invoke contracts.DeltaInvokeSubAgents) error {
-	main, ok := mainStream.(llm.OrchestratableAgentStream)
+	main, ok := mainStream.(contracts.OrchestratableAgentStream)
 	if !ok {
 		return fmt.Errorf("main agent stream does not support sub-agent orchestration")
 	}
@@ -343,7 +342,7 @@ func (o *frameOrchestrator) runChildTask(index int, task preparedSubTask, princi
 		}
 	}
 
-	child, ok := subStream.(llm.OrchestratableAgentStream)
+	child, ok := subStream.(contracts.OrchestratableAgentStream)
 	if !ok {
 		result.Status = "failed"
 		result.Text = "sub-agent stream does not expose final assistant content"
@@ -542,7 +541,7 @@ func (o *frameOrchestrator) writeChildTaskQueryAndSystem(subReq api.QueryRequest
 	})
 }
 
-func (o *frameOrchestrator) injectMainToolError(main llm.OrchestratableAgentStream, toolID string, message string) {
+func (o *frameOrchestrator) injectMainToolError(main contracts.OrchestratableAgentStream, toolID string, message string) {
 	_ = main.InjectToolResult(toolID, message, true)
 }
 

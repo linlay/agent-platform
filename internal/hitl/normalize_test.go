@@ -1,4 +1,4 @@
-package hitlsubmit
+package hitl
 
 import "testing"
 

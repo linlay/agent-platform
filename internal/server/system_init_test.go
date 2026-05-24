@@ -68,9 +68,10 @@ func TestPrepareSystemInitCacheUsesFreshSystemMessageOnFingerprintMatch(t *testi
 	}
 
 	server := &Server{deps: Dependencies{
-		Config: config.Config{},
-		Chats:  store,
-		Tools:  systemInitStaticToolExecutor{defs: toolDefs},
+		Config:      config.Config{},
+		Chats:       store,
+		Tools:       systemInitStaticToolExecutor{defs: toolDefs},
+		SystemInits: llm.SystemInitProfileBuilder{},
 	}}
 	newSession := oldSession
 	newSession.RunID = "run-new"
@@ -118,9 +119,10 @@ func TestPrepareSystemInitCacheReturnsPendingLineOnFingerprintChange(t *testing.
 		SessionMemoryContext: "Runtime Context: Current Session\n- fresh",
 	}
 	server := &Server{deps: Dependencies{
-		Config: config.Config{},
-		Chats:  store,
-		Tools:  systemInitStaticToolExecutor{defs: toolDefs},
+		Config:      config.Config{},
+		Chats:       store,
+		Tools:       systemInitStaticToolExecutor{defs: toolDefs},
+		SystemInits: llm.SystemInitProfileBuilder{},
 	}}
 
 	pending, err := server.prepareSystemInitCache(req, &session, true)
@@ -154,9 +156,10 @@ func TestMainQueryStillDedupsSystemsByFingerprint(t *testing.T) {
 	req := api.QueryRequest{ChatID: "chat-1", Message: "hello"}
 	toolDefs := []api.ToolDetailResponse{{Name: "datetime", Description: "get current time"}}
 	server := &Server{deps: Dependencies{
-		Config: config.Config{},
-		Chats:  store,
-		Tools:  systemInitStaticToolExecutor{defs: toolDefs},
+		Config:      config.Config{},
+		Chats:       store,
+		Tools:       systemInitStaticToolExecutor{defs: toolDefs},
+		SystemInits: llm.SystemInitProfileBuilder{},
 	}}
 	session := contracts.QuerySession{
 		RunID:                "run-1",

@@ -12,6 +12,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
+	"agent-platform/internal/llm"
 	"agent-platform/internal/ws"
 
 	gws "github.com/gorilla/websocket"
@@ -35,6 +36,8 @@ func TestDeferredSubmitHTTPRestoresPendingAwaitingAfterRestart(t *testing.T) {
 		Runs:            fixture.runs,
 		Agent:           fixture.agent,
 		Tools:           fixture.tools,
+		DeltaMappers:    llm.DeltaMapperFactory{Frontend: fixture.frontend},
+		SystemInits:     llm.SystemInitProfileBuilder{},
 		Sandbox:         fixture.sandbox,
 		MCP:             fixture.mcp,
 		Viewport:        fixture.viewport,
@@ -117,6 +120,8 @@ func TestDeferredSubmitWSRestoresPendingAwaitingAfterRestart(t *testing.T) {
 		Runs:            fixture.runs,
 		Agent:           fixture.agent,
 		Tools:           fixture.tools,
+		DeltaMappers:    llm.DeltaMapperFactory{Frontend: fixture.frontend},
+		SystemInits:     llm.SystemInitProfileBuilder{},
 		Sandbox:         fixture.sandbox,
 		MCP:             fixture.mcp,
 		Viewport:        fixture.viewport,
@@ -230,6 +235,8 @@ func TestDeferredSubmitRejectsExpiredAwaiting(t *testing.T) {
 		Runs:            fixture.runs,
 		Agent:           fixture.agent,
 		Tools:           fixture.tools,
+		DeltaMappers:    llm.DeltaMapperFactory{Frontend: fixture.frontend},
+		SystemInits:     llm.SystemInitProfileBuilder{},
 		Sandbox:         fixture.sandbox,
 		MCP:             fixture.mcp,
 		Viewport:        fixture.viewport,
@@ -281,6 +288,8 @@ func TestHydrationSkipsExpiredAwaitings(t *testing.T) {
 		Runs:            fixture.runs,
 		Agent:           fixture.agent,
 		Tools:           fixture.tools,
+		DeltaMappers:    llm.DeltaMapperFactory{Frontend: fixture.frontend},
+		SystemInits:     llm.SystemInitProfileBuilder{},
 		Sandbox:         fixture.sandbox,
 		MCP:             fixture.mcp,
 		Viewport:        fixture.viewport,
@@ -334,6 +343,8 @@ func TestDeferredSubmitAcceptsWithinTimeout(t *testing.T) {
 		Runs:            fixture.runs,
 		Agent:           fixture.agent,
 		Tools:           fixture.tools,
+		DeltaMappers:    llm.DeltaMapperFactory{Frontend: fixture.frontend},
+		SystemInits:     llm.SystemInitProfileBuilder{},
 		Sandbox:         fixture.sandbox,
 		MCP:             fixture.mcp,
 		Viewport:        fixture.viewport,

@@ -344,6 +344,7 @@ func TestBuildRuntimeContextBackfillsSandboxReferencePaths(t *testing.T) {
 	cfg.ContainerHub.Enabled = true
 	cfg.ContainerHub.ResolvedEngine = "docker"
 	cfg.ContainerHub.BaseURL = hub.URL
+	cfg.ContainerHub.RequestTimeoutMs = 1000
 	s := &Server{
 		deps: Dependencies{
 			Config:   cfg,

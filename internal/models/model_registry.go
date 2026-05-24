@@ -150,7 +150,7 @@ func (r *ModelRegistry) List() []ModelDefinition {
 	for _, key := range keys {
 		model := r.models[key]
 		model.Headers = stringMapCopy(model.Headers)
-		model.Compat = cloneAnyMap(model.Compat)
+		model.Compat = contracts.CloneAnyMap(model.Compat)
 		items = append(items, model)
 	}
 	return items
@@ -342,7 +342,7 @@ func loadProviderProtocols(values map[string]any, baseURL string) map[string]Pro
 		result[protocol] = ProtocolDefinition{
 			EndpointPath: resolveProviderEndpointPath(values, baseURL, protocol),
 			Headers:      stringMapNode(node["headers"]),
-			Compat:       cloneAnyMap(contracts.AnyMapNode(node["compat"])),
+			Compat:       contracts.CloneAnyMap(contracts.AnyMapNode(node["compat"])),
 		}
 	}
 	if _, ok := result["OPENAI"]; !ok {
@@ -446,7 +446,7 @@ func loadModels(dir string) (map[string]ModelDefinition, error) {
 			IsVision:      parseTruthyDefault(values["isVision"], false),
 			ContextWindow: contracts.AnyIntNode(values["contextWindow"]),
 			Headers:       stringMapNode(values["headers"]),
-			Compat:        cloneAnyMap(contracts.AnyMapNode(values["compat"])),
+			Compat:        contracts.CloneAnyMap(contracts.AnyMapNode(values["compat"])),
 		}
 	}
 	return result, nil
@@ -517,17 +517,6 @@ func parseTruthyDefault(value any, defaultValue bool) bool {
 		return defaultValue
 	}
 	return parseTruthy(stringNode(value))
-}
-
-func cloneAnyMap(values map[string]any) map[string]any {
-	if values == nil {
-		return nil
-	}
-	out := make(map[string]any, len(values))
-	for key, value := range values {
-		out[key] = value
-	}
-	return out
 }
 
 func shouldLoadRuntimeName(rawName string) bool {

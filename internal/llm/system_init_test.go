@@ -118,7 +118,7 @@ func TestPlanExecuteSystemInitProfilesUseRuntimeSettings(t *testing.T) {
 	if len(profiles) != 3 {
 		t.Fatalf("expected plan/execute/summary profiles, got %#v", profiles)
 	}
-	byKey := map[string]SystemInitProfile{}
+	byKey := map[string]contracts.SystemInitProfile{}
 	for _, profile := range profiles {
 		byKey[profile.CacheKey] = profile
 	}

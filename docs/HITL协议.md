@@ -48,7 +48,7 @@ tool.start
 ## 相关文件
 
 - `internal/hitl/`
-- `internal/hitlsubmit/normalize.go`
+- `internal/hitl/normalize.go`
 - `internal/llm/run_stream_hitl_submit.go`
 - `internal/llm/run_stream_hitl_shell.go`
 - `internal/server/submit_validation.go`

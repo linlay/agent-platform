@@ -1,4 +1,4 @@
-package hitlsubmit
+package hitl
 
 import (
 	"encoding/json"
@@ -42,7 +42,7 @@ func NormalizeApproval(args map[string]any, params any) (map[string]any, error) 
 		definitionID := contracts.AnyStringNode(definition["id"])
 		submittedID := contracts.AnyStringNode(item["id"])
 		if submittedID != "" && definitionID != "" && submittedID != definitionID {
-			log.Printf("[hitlsubmit][warn] approval submit id mismatch index=%d expected=%s actual=%s",
+			log.Printf("[hitl][warn] approval submit id mismatch index=%d expected=%s actual=%s",
 				index,
 				definitionID,
 				submittedID,

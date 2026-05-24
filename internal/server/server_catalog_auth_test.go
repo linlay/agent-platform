@@ -16,6 +16,7 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
+	"agent-platform/internal/llm"
 )
 
 func TestAgentEndpointReturnsDetail(t *testing.T) {
@@ -403,6 +404,8 @@ func TestServerRejectsInvalidLocalJWTConfigAtStartup(t *testing.T) {
 		Runs:            fixture.runs,
 		Agent:           fixture.agent,
 		Tools:           fixture.tools,
+		DeltaMappers:    llm.DeltaMapperFactory{Frontend: fixture.frontend},
+		SystemInits:     llm.SystemInitProfileBuilder{},
 		Sandbox:         fixture.sandbox,
 		MCP:             fixture.mcp,
 		Viewport:        fixture.viewport,
@@ -432,6 +435,8 @@ func TestQueryAcceptsValidLocalJWT(t *testing.T) {
 		Runs:            fixture.runs,
 		Agent:           fixture.agent,
 		Tools:           fixture.tools,
+		DeltaMappers:    llm.DeltaMapperFactory{Frontend: fixture.frontend},
+		SystemInits:     llm.SystemInitProfileBuilder{},
 		Sandbox:         fixture.sandbox,
 		MCP:             fixture.mcp,
 		Viewport:        fixture.viewport,
@@ -476,6 +481,8 @@ func TestQueryRejectsInvalidLocalJWT(t *testing.T) {
 		Runs:            fixture.runs,
 		Agent:           fixture.agent,
 		Tools:           fixture.tools,
+		DeltaMappers:    llm.DeltaMapperFactory{Frontend: fixture.frontend},
+		SystemInits:     llm.SystemInitProfileBuilder{},
 		Sandbox:         fixture.sandbox,
 		MCP:             fixture.mcp,
 		Viewport:        fixture.viewport,

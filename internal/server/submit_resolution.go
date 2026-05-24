@@ -10,7 +10,7 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/frontendtools"
-	"agent-platform/internal/hitlsubmit"
+	"agent-platform/internal/hitl"
 )
 
 func (s *Server) hydrateDeferredAwaitings() {
@@ -180,7 +180,7 @@ func (s *Server) normalizeDeferredSubmit(deferred DeferredAwaiting, params api.S
 		}
 		return handler.NormalizeSubmit(deferred.Ask.Payload, params)
 	case "approval", "form":
-		return hitlsubmit.Normalize(deferred.Ask.Payload, params)
+		return hitl.Normalize(deferred.Ask.Payload, params)
 	default:
 		return nil, fmt.Errorf("unsupported awaiting mode: %s", deferred.Mode)
 	}

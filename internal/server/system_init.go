@@ -4,14 +4,16 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/llm"
 )
 
 func (s *Server) prepareSystemInitCache(req api.QueryRequest, session *contracts.QuerySession, created bool) ([]chat.QueryLineSystemInit, error) {
 	if session == nil || s.deps.Chats == nil || s.deps.Tools == nil {
 		return nil, nil
 	}
-	profiles := llm.BuildSystemInitProfiles(
+	if s.deps.SystemInits == nil {
+		return nil, nil
+	}
+	profiles := s.deps.SystemInits.BuildSystemInitProfiles(
 		*session,
 		req,
 		s.deps.Tools.Definitions(),
@@ -66,7 +68,10 @@ func (s *Server) buildSystemInitsForChildTask(req api.QueryRequest, session *con
 	if session == nil || s.deps.Tools == nil {
 		return nil
 	}
-	profiles := llm.BuildSystemInitProfiles(
+	if s.deps.SystemInits == nil {
+		return nil
+	}
+	profiles := s.deps.SystemInits.BuildSystemInitProfiles(
 		*session,
 		req,
 		s.deps.Tools.Definitions(),

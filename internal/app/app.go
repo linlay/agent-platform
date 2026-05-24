@@ -278,6 +278,8 @@ func New(rootCtx context.Context) (*App, error) {
 		SkillCandidates:        skillCandidateStore,
 		Channels:               channelReg,
 		AutomationOrchestrator: automationOrchestrator,
+		DeltaMappers:           llm.DeltaMapperFactory{Frontend: frontendRegistry},
+		SystemInits:            llm.SystemInitProfileBuilder{},
 		AutomationRegistry:     automationRegistry,
 		AutomationExecutions:   automationExecutionStore,
 		GatewayResolver:        gatewayResolver,

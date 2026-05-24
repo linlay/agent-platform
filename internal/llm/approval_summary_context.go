@@ -6,22 +6,10 @@ import (
 	"agent-platform/internal/chat"
 )
 
-type approvalSummaryContextKey struct{}
-
 func WithApprovalSummarySink(ctx context.Context, sink func(chat.StepApproval)) context.Context {
-	if sink == nil {
-		return ctx
-	}
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	return context.WithValue(ctx, approvalSummaryContextKey{}, sink)
+	return chat.WithApprovalSummarySink(ctx, sink)
 }
 
 func approvalSummarySinkFromContext(ctx context.Context) func(chat.StepApproval) {
-	if ctx == nil {
-		return nil
-	}
-	sink, _ := ctx.Value(approvalSummaryContextKey{}).(func(chat.StepApproval))
-	return sink
+	return chat.ApprovalSummarySinkFromContext(ctx)
 }

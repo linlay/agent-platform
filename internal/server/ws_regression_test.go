@@ -250,13 +250,14 @@ func TestBroadcastDefinitionsStayAlignedAcrossHTTPAndWS(t *testing.T) {
 		t.Fatalf("getwd: %v", err)
 	}
 	handlerQuery := mustReadFile(t, filepath.Join(root, "handler_query.go"))
+	handlerQueryPrepare := mustReadFile(t, filepath.Join(root, "handler_query_prepare.go"))
 	handlerChat := mustReadFile(t, filepath.Join(root, "handler_chat.go"))
 	wsRoutes := mustReadFile(t, filepath.Join(root, "ws_routes.go"))
 	wsQueryRoutes := mustReadFile(t, filepath.Join(root, "ws_query_routes.go"))
 
 	assertContains(t, handlerQuery, `s.broadcast("run.started"`)
 	assertContains(t, handlerQuery, `s.broadcast("run.finished"`)
-	assertContains(t, handlerQuery, `s.broadcast("chat.created"`)
+	assertContains(t, handlerQueryPrepare, `s.broadcast("chat.created"`)
 	assertContains(t, handlerChat, `s.broadcastChatReadState("chat.read"`)
 	assertContains(t, handlerQuery, `s.broadcastChatReadState("chat.unread"`)
 	assertContains(t, wsRoutes, `handler.RegisterRoute("/api/attach"`)

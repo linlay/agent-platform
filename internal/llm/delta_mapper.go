@@ -43,11 +43,19 @@ func NewDeltaMapper(runID string, chatID string, toolTimeoutMs int64, toolRegist
 	}
 }
 
-func (m *DeltaMapper) CloneIsolated(runID string, chatID string) *DeltaMapper {
+func (m *DeltaMapper) CloneIsolated(runID string, chatID string) StreamDeltaMapper {
 	if m == nil {
 		return nil
 	}
 	return NewDeltaMapper(runID, chatID, m.toolTimeoutMs, m.toolRegistry, m.frontend)
+}
+
+type DeltaMapperFactory struct {
+	Frontend *frontendtools.Registry
+}
+
+func (f DeltaMapperFactory) NewDeltaMapper(runID string, chatID string, toolTimeoutMs int64, toolRegistry ToolDefinitionLookup) StreamDeltaMapper {
+	return NewDeltaMapper(runID, chatID, toolTimeoutMs, toolRegistry, f.Frontend)
 }
 
 func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {

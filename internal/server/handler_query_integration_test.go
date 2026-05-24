@@ -17,6 +17,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
+	"agent-platform/internal/llm"
 )
 
 func TestQuerySSEPersistsChatHistory(t *testing.T) {
@@ -1415,6 +1416,8 @@ func TestQueryPersistsToolSnapshotWhenStreamToolPayloadEventsDisabled(t *testing
 		Runs:            fixture.runs,
 		Agent:           fixture.agent,
 		Tools:           fixture.tools,
+		DeltaMappers:    llm.DeltaMapperFactory{Frontend: fixture.frontend},
+		SystemInits:     llm.SystemInitProfileBuilder{},
 		Sandbox:         fixture.sandbox,
 		MCP:             fixture.mcp,
 		Viewport:        fixture.viewport,

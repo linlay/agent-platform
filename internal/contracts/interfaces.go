@@ -38,6 +38,34 @@ type AgentStream interface {
 	Close() error
 }
 
+type OrchestratableAgentStream interface {
+	AgentStream
+	InjectToolResult(toolID string, text string, isError bool) bool
+	FinalAssistantContent() (string, bool)
+}
+
+type StreamDeltaMapper interface {
+	Map(delta AgentDelta) []stream.StreamInput
+	CloneIsolated(runID string, chatID string) StreamDeltaMapper
+}
+
+type StreamDeltaMapperFactory interface {
+	NewDeltaMapper(runID string, chatID string, toolTimeoutMs int64, toolRegistry ToolDefinitionLookup) StreamDeltaMapper
+}
+
+type SystemInitProfile struct {
+	CacheKey      string
+	Mode          string
+	Stage         string
+	Fingerprint   string
+	SystemMessage map[string]any
+	Tools         []any
+}
+
+type SystemInitBuilder interface {
+	BuildSystemInitProfiles(session QuerySession, req api.QueryRequest, toolDefs []api.ToolDetailResponse, defaultPlanMaxSteps int, defaultPlanMaxWorkRoundsPerTask int, prompts config.PromptsConfig) []SystemInitProfile
+}
+
 type ActiveRunService interface {
 	Register(parent context.Context, session QuerySession) (context.Context, *RunControl, ActiveRun)
 	LookupAwaiting(runID string, awaitingID string) (AwaitingSubmitContext, bool)

@@ -1,11 +1,11 @@
 package llm
 
-import "agent-platform/internal/hitlsubmit"
+import "agent-platform/internal/hitl"
 
 func normalizeHITLSubmit(args map[string]any, params any) (map[string]any, error) {
-	return hitlsubmit.Normalize(args, params)
+	return hitl.Normalize(args, params)
 }
 
 func normalizeHITLApprovalSubmit(args map[string]any, params any) (map[string]any, error) {
-	return hitlsubmit.NormalizeApproval(args, params)
+	return hitl.NormalizeApproval(args, params)
 }
