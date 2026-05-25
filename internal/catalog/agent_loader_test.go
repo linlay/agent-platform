@@ -471,6 +471,62 @@ func TestParseAgentFileRejectsCoderRelativeWorkspace(t *testing.T) {
 	}
 }
 
+func TestParseAgentFileExpandsHomeWorkspaceRoot(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		t.Skipf("user home directory unavailable: %v", err)
+	}
+
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	if err := os.WriteFile(path, []byte("key: coder\nmode: CODER\nruntimeConfig:\n  workspaceRoot: ~/project\n"), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	want := filepath.Join(home, "project")
+	if def.Workspace.Root != want {
+		t.Fatalf("workspace root = %q, want %q", def.Workspace.Root, want)
+	}
+}
+
+func TestParseAgentFileExpandsBareHomeWorkspaceRoot(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		t.Skipf("user home directory unavailable: %v", err)
+	}
+
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	if err := os.WriteFile(path, []byte("key: coder\nmode: CODER\nruntimeConfig:\n  workspaceRoot: \"~\"\n"), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	if def.Workspace.Root != filepath.Clean(home) {
+		t.Fatalf("workspace root = %q, want %q", def.Workspace.Root, filepath.Clean(home))
+	}
+}
+
+func TestParseAgentFileRejectsOtherUserHomeWorkspaceRoot(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	if err := os.WriteFile(path, []byte("key: coder\nmode: CODER\nruntimeConfig:\n  workspaceRoot: ~other/project\n"), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	_, err := parseAgentFile(path)
+	if err == nil || !strings.Contains(err.Error(), "runtimeConfig.workspaceRoot must be an absolute path") {
+		t.Fatalf("expected absolute workspace requirement error, got %v", err)
+	}
+}
+
 func TestParseAgentFileAcceptsChatWorkspaceRoot(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")

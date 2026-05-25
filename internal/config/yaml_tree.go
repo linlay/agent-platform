@@ -282,6 +282,7 @@ func parseYAMLScalar(raw string) any {
 			return mapped
 		}
 	}
+	quoted := isQuotedYAMLScalar(value)
 	value = interpolateEnvValue(strings.Trim(value, `"'`))
 	lower := strings.ToLower(value)
 	switch lower {
@@ -294,6 +295,9 @@ func parseYAMLScalar(raw string) any {
 	case "false":
 		return false
 	case "null", "~":
+		if quoted {
+			return value
+		}
 		return nil
 	}
 	if n, err := strconv.ParseInt(value, 10, 64); err == nil {
@@ -303,6 +307,13 @@ func parseYAMLScalar(raw string) any {
 		return f
 	}
 	return value
+}
+
+func isQuotedYAMLScalar(value string) bool {
+	if len(value) < 2 {
+		return false
+	}
+	return (value[0] == '"' && value[len(value)-1] == '"') || (value[0] == '\'' && value[len(value)-1] == '\'')
 }
 
 func countIndent(raw string) int {

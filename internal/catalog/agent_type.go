@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -208,7 +209,22 @@ func cleanWorkspaceRoot(root string) string {
 	if strings.EqualFold(root, AgentWorkspaceRootChat) {
 		return AgentWorkspaceRootChat
 	}
+	root = expandHomeWorkspaceRoot(root)
 	return filepath.Clean(root)
+}
+
+func expandHomeWorkspaceRoot(root string) string {
+	if root != "~" && !strings.HasPrefix(root, "~/") {
+		return root
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return root
+	}
+	if root == "~" {
+		return home
+	}
+	return filepath.Join(home, strings.TrimPrefix(root, "~/"))
 }
 
 func validateAgentWorkspace(workspace AgentWorkspaceConfig) error {

@@ -2,6 +2,34 @@ package config
 
 import "testing"
 
+func TestLoadYAMLTreePreservesQuotedNullLikeScalars(t *testing.T) {
+	content := []byte(`
+bareTilde: ~
+quotedTilde: "~"
+bareNull: null
+quotedNull: "null"
+`)
+
+	tree, err := LoadYAMLTreeBytes(content)
+	if err != nil {
+		t.Fatalf("load yaml tree: %v", err)
+	}
+
+	root := tree.(map[string]any)
+	if got := root["bareTilde"]; got != nil {
+		t.Fatalf("expected bare tilde to be nil, got %#v", got)
+	}
+	if got := root["quotedTilde"]; got != "~" {
+		t.Fatalf("expected quoted tilde string, got %#v", got)
+	}
+	if got := root["bareNull"]; got != nil {
+		t.Fatalf("expected bare null to be nil, got %#v", got)
+	}
+	if got := root["quotedNull"]; got != "null" {
+		t.Fatalf("expected quoted null string, got %#v", got)
+	}
+}
+
 func TestLoadYAMLTreeSupportsFlowMapListItems(t *testing.T) {
 	content := []byte(`
 commands:
