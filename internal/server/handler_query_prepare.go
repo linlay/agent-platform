@@ -98,6 +98,12 @@ func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
 	if !ok {
 		return preparedQuery{}, &statusError{status: http.StatusBadRequest, message: "agent not found"}
 	}
+	if isProxyAgentMode(agentDef.Mode) && proxyRequestHasReservedCWD(req.Params) {
+		return preparedQuery{}, &statusError{
+			status:  http.StatusBadRequest,
+			message: "params.cwd is reserved for PROXY agents; configure runtimeConfig.workspaceRoot in agent.yml",
+		}
+	}
 	if err := s.validateQueryModelOptions(req.Model); err != nil {
 		return preparedQuery{}, err
 	}

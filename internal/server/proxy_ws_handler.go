@@ -187,7 +187,7 @@ func (s *Server) runProxyWebSocket(
 		s.publishProxyError(eventBus, recorder, prepared.req, err)
 		return
 	}
-	if err := upstream.WriteJSON(proxyQueryPayload(prepared.req, prepared.agentDef.ProxyConfig, proxyReferences)); err != nil {
+	if err := upstream.WriteJSON(proxyQueryPayloadWithWorkspace(prepared.req, prepared.agentDef.ProxyConfig, proxyReferences, prepared.session.WorkspaceRoot)); err != nil {
 		s.publishProxyError(eventBus, recorder, prepared.req, fmt.Errorf("proxy websocket write failed: %w", err))
 		return
 	}
@@ -268,7 +268,7 @@ func (s *Server) runProxySSE(
 		"role":       prepared.req.Role,
 		"message":    prepared.req.Message,
 		"references": proxyReferences,
-		"params":     prepared.req.Params,
+		"params":     proxyForwardParams(prepared.req, prepared.session.WorkspaceRoot),
 		"model":      prepared.req.Model,
 		"scene":      prepared.req.Scene,
 		"stream":     true,

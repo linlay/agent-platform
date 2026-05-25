@@ -68,7 +68,7 @@ func proxyQueryPayload(req api.QueryRequest, proxy *catalog.ProxyConfig, referen
 		"role":       req.Role,
 		"message":    req.Message,
 		"references": references,
-		"params":     req.Params,
+		"params":     proxyForwardParams(req, ""),
 		"model":      req.Model,
 		"scene":      req.Scene,
 		"stream":     true,
@@ -79,6 +79,35 @@ func proxyQueryPayload(req api.QueryRequest, proxy *catalog.ProxyConfig, referen
 		"id":      req.RequestID,
 		"payload": payload,
 	}
+}
+
+func proxyQueryPayloadWithWorkspace(req api.QueryRequest, proxy *catalog.ProxyConfig, references []api.Reference, workspaceRoot string) map[string]any {
+	payload := proxyQueryPayload(req, proxy, references)
+	if inner, ok := payload["payload"].(map[string]any); ok {
+		inner["params"] = proxyForwardParams(req, workspaceRoot)
+	}
+	return payload
+}
+
+func proxyForwardParams(req api.QueryRequest, workspaceRoot string) map[string]any {
+	params := contracts.CloneMap(req.Params)
+	workspaceRoot = strings.TrimSpace(workspaceRoot)
+	if workspaceRoot == "" {
+		return params
+	}
+	if params == nil {
+		params = map[string]any{}
+	}
+	params["cwd"] = workspaceRoot
+	return params
+}
+
+func proxyRequestHasReservedCWD(params map[string]any) bool {
+	if params == nil {
+		return false
+	}
+	_, ok := params["cwd"]
+	return ok
 }
 
 func proxyAgentKey(proxy *catalog.ProxyConfig, fallback string) string {

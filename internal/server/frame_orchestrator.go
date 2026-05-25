@@ -285,7 +285,7 @@ func (o *frameOrchestrator) runChildTask(index int, task preparedSubTask, princi
 	o.writeChildTaskQueryAndSystem(subReq, &subSession, task)
 
 	if isProxyAgentMode(task.agentDef.Mode) {
-		return o.runProxyChildTask(result, subReq, task, route)
+		return o.runProxyChildTask(result, subReq, subSession.WorkspaceRoot, task, route)
 	}
 
 	subStream, err := o.agent.Stream(o.runCtx, subReq, subSession)
@@ -365,7 +365,7 @@ func (o *frameOrchestrator) runChildTask(index int, task preparedSubTask, princi
 	return result
 }
 
-func (o *frameOrchestrator) runProxyChildTask(result *childTaskResult, subReq api.QueryRequest, task preparedSubTask, route func(stream.StreamInput)) *childTaskResult {
+func (o *frameOrchestrator) runProxyChildTask(result *childTaskResult, subReq api.QueryRequest, workspaceRoot string, task preparedSubTask, route func(stream.StreamInput)) *childTaskResult {
 	proxy := task.agentDef.ProxyConfig
 	if proxy == nil || strings.TrimSpace(proxy.BaseURL) == "" {
 		result.Status = "failed"
@@ -382,6 +382,9 @@ func (o *frameOrchestrator) runProxyChildTask(result *childTaskResult, subReq ap
 	}
 	if chatID := strings.TrimSpace(proxy.ChatID); chatID != "" {
 		payload["chatId"] = chatID
+	}
+	if params := proxyForwardParams(subReq, workspaceRoot); params != nil {
+		payload["params"] = params
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {

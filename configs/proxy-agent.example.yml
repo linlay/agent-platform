@@ -7,6 +7,10 @@ description: 通过同构 AGW platform 协议代理远端智能体
 icon:
   name: network
 mode: PROXY
+runtimeConfig:
+  # Optional project/workspace root forwarded to the upstream proxy as params.cwd.
+  # Clients must not send params.cwd directly.
+  workspaceRoot: /absolute/project/path
 proxyConfig:
   baseUrl: http://127.0.0.1:8080
   # sse: upstream POST /api/query returns text/event-stream.

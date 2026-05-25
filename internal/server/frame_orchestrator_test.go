@@ -184,10 +184,11 @@ func newTestFrameOrchestratorWithContext(runCtx context.Context, agent contracts
 				panic(t)
 			}
 			return contracts.QuerySession{
-				RunID:    req.RunID,
-				ChatID:   req.ChatID,
-				AgentKey: agentDef.Key,
-				Mode:     agentDef.Mode,
+				RunID:         req.RunID,
+				ChatID:        req.ChatID,
+				AgentKey:      agentDef.Key,
+				Mode:          agentDef.Mode,
+				WorkspaceRoot: agentDef.Workspace.Root,
 			}, nil
 		},
 		mapper: llm.NewDeltaMapper("run_1", "chat_1", 5000, nil, frontendtools.NewDefaultRegistry()),
@@ -286,6 +287,7 @@ func TestFrameOrchestratorAllowsInternalSubAgent(t *testing.T) {
 
 func TestFrameOrchestratorRunsProxySubAgent(t *testing.T) {
 	var upstreamPayload map[string]any
+	workspace := t.TempDir()
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/query" {
 			t.Fatalf("unexpected upstream path %s", r.URL.Path)
@@ -319,6 +321,9 @@ func TestFrameOrchestratorRunsProxySubAgent(t *testing.T) {
 			Key:  "qiuer",
 			Name: "Qiuer",
 			Mode: "PROXY",
+			Workspace: catalog.AgentWorkspaceConfig{
+				Root: workspace,
+			},
 			ProxyConfig: &catalog.ProxyConfig{
 				BaseURL:  upstream.URL,
 				AgentKey: "16",
@@ -336,6 +341,10 @@ func TestFrameOrchestratorRunsProxySubAgent(t *testing.T) {
 	}
 	if upstreamPayload["chatId"] != "dc17be36-92b2-44a6-8076-6b724068a181" {
 		t.Fatalf("expected upstream proxy chatId override, got %#v", upstreamPayload)
+	}
+	params, _ := upstreamPayload["params"].(map[string]any)
+	if params["cwd"] != workspace {
+		t.Fatalf("expected proxy child cwd from workspace root, got %#v", upstreamPayload)
 	}
 	if _, ok := upstreamPayload["stream"]; ok {
 		t.Fatalf("did not expect proxy child payload to force stream flag: %#v", upstreamPayload)
