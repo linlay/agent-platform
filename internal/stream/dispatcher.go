@@ -223,8 +223,8 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 }
 
 func usageSnapshotEvent(runID string, taskID string, chatID string, modelKey string, contextWindow int, currentContextSize int, estimatedNextCallSize int, currentPromptTokens int, currentCompletionTokens int, currentTotalTokens int, currentCachedTokens int, currentReasoningTokens int, currentPromptCacheHitTokens int, currentPromptCacheMissTokens int, currentLLMChatCompletionCount int, runPromptTokens int, runCompletionTokens int, runTotalTokens int, runCachedTokens int, runReasoningTokens int, runPromptCacheHitTokens int, runPromptCacheMissTokens int, runLLMChatCompletionCount int) StreamEvent {
-	currentUsage := usageMapFromValues(currentPromptTokens, currentCompletionTokens, currentTotalTokens, currentCachedTokens, currentReasoningTokens, currentPromptCacheHitTokens, currentPromptCacheMissTokens, currentLLMChatCompletionCount)
-	runUsage := usageMapFromValues(runPromptTokens, runCompletionTokens, runTotalTokens, runCachedTokens, runReasoningTokens, runPromptCacheHitTokens, runPromptCacheMissTokens, runLLMChatCompletionCount)
+	currentUsage := usageMapFromValues(currentPromptTokens, currentCompletionTokens, currentTotalTokens, currentCachedTokens, currentReasoningTokens, currentPromptCacheHitTokens, currentPromptCacheMissTokens, currentLLMChatCompletionCount, false)
+	runUsage := usageMapFromValues(runPromptTokens, runCompletionTokens, runTotalTokens, runCachedTokens, runReasoningTokens, runPromptCacheHitTokens, runPromptCacheMissTokens, runLLMChatCompletionCount, true)
 	payload := map[string]any{
 		"runId":  runID,
 		"chatId": chatID,
@@ -262,12 +262,14 @@ func runUsageStateFromValues(promptTokens int, completionTokens int, totalTokens
 	}
 }
 
-func usageMapFromValues(promptTokens int, completionTokens int, totalTokens int, cachedTokens int, reasoningTokens int, promptCacheHitTokens int, promptCacheMissTokens int, llmChatCompletionCount int) map[string]any {
+func usageMapFromValues(promptTokens int, completionTokens int, totalTokens int, cachedTokens int, reasoningTokens int, promptCacheHitTokens int, promptCacheMissTokens int, llmChatCompletionCount int, includeLLMChatCompletionCount bool) map[string]any {
 	out := map[string]any{
-		"promptTokens":           promptTokens,
-		"completionTokens":       completionTokens,
-		"totalTokens":            totalTokens,
-		"llmChatCompletionCount": llmChatCompletionCount,
+		"promptTokens":     promptTokens,
+		"completionTokens": completionTokens,
+		"totalTokens":      totalTokens,
+	}
+	if includeLLMChatCompletionCount {
+		out["llmChatCompletionCount"] = llmChatCompletionCount
 	}
 	addDetailedUsage(out, cachedTokens, reasoningTokens, promptCacheHitTokens, promptCacheMissTokens)
 	return out

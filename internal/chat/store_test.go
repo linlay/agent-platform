@@ -1875,9 +1875,11 @@ func TestStepWriterPersistsUsageSnapshotWhenDebugEventsDisabled(t *testing.T) {
 	}
 	usage, _ := lines[0]["usage"].(map[string]any)
 	if toIntValue(usage["promptTokens"]) != 100 || toIntValue(usage["completionTokens"]) != 50 || toIntValue(usage["totalTokens"]) != 150 ||
-		toIntValue(usage["promptCacheHitTokens"]) != 64 || toIntValue(usage["promptCacheMissTokens"]) != 36 ||
-		toIntValue(usage["llmChatCompletionCount"]) != 1 {
+		toIntValue(usage["promptCacheHitTokens"]) != 64 || toIntValue(usage["promptCacheMissTokens"]) != 36 {
 		t.Fatalf("expected usage snapshot to persist, got %#v", lines[0])
+	}
+	if _, exists := usage["llmChatCompletionCount"]; exists {
+		t.Fatalf("did not expect persisted usage snapshot llmChatCompletionCount, got %#v", lines[0])
 	}
 	contextWindow, _ := lines[0]["contextWindow"].(map[string]any)
 	if toIntValue(contextWindow["maxSize"]) != 128000 || toIntValue(contextWindow["actualSize"]) != 100 || toIntValue(contextWindow["estimatedSize"]) != 200 {
@@ -4157,9 +4159,10 @@ func TestLoadChatReadsUsageFromStepLevel(t *testing.T) {
 			},
 		},
 		Usage: map[string]any{
-			"promptTokens":     100,
-			"completionTokens": 50,
-			"totalTokens":      150,
+			"promptTokens":           100,
+			"completionTokens":       50,
+			"totalTokens":            150,
+			"llmChatCompletionCount": 1,
 		},
 		Debug: map[string]any{
 			"preCall": map[string]any{
@@ -4240,8 +4243,14 @@ func TestLoadChatReadsUsageFromStepLevel(t *testing.T) {
 	if toIntValue(usageSnapshotCurrent["promptTokens"]) != 100 || toIntValue(usageSnapshotCurrent["completionTokens"]) != 50 || toIntValue(usageSnapshotCurrent["totalTokens"]) != 150 {
 		t.Fatalf("unexpected usage.snapshot current usage %#v", detail.Events[5])
 	}
+	if _, exists := usageSnapshotCurrent["llmChatCompletionCount"]; exists {
+		t.Fatalf("did not expect usage.snapshot current llmChatCompletionCount %#v", detail.Events[5])
+	}
 	if toIntValue(usageSnapshotRun["promptTokens"]) != 100 || toIntValue(usageSnapshotChat["promptTokens"]) != 100 {
 		t.Fatalf("unexpected usage.snapshot cumulative usage %#v", detail.Events[5])
+	}
+	if toIntValue(usageSnapshotRun["llmChatCompletionCount"]) != 1 || toIntValue(usageSnapshotChat["llmChatCompletionCount"]) != 1 {
+		t.Fatalf("unexpected usage.snapshot cumulative llm chat counts %#v", detail.Events[5])
 	}
 	usageSnapshotCW, _ := detail.Events[5].Value("contextWindow").(map[string]any)
 	if toIntValue(usageSnapshotCW["maxSize"]) != 128000 || toIntValue(usageSnapshotCW["currentSize"]) != 100 || toIntValue(usageSnapshotCW["estimatedNextCallSize"]) != 200 {
@@ -4328,6 +4337,9 @@ func TestLoadChatReadsLegacySnakeCaseUsageFromStepLevel(t *testing.T) {
 	usageSnapshotCurrent, _ := usageSnapshotUsage["current"].(map[string]any)
 	if detail.Events[4].Type != "usage.snapshot" || toIntValue(usageSnapshotCurrent["promptCacheHitTokens"]) != 32 || toIntValue(usageSnapshotCurrent["promptCacheMissTokens"]) != 68 {
 		t.Fatalf("expected usage.snapshot with DeepSeek cache fields, got %#v", detail.Events)
+	}
+	if _, exists := usageSnapshotCurrent["llmChatCompletionCount"]; exists {
+		t.Fatalf("did not expect usage.snapshot current llmChatCompletionCount %#v", detail.Events[4])
 	}
 	terminalUsage, _ := detail.Events[5].Value("usage").(map[string]any)
 	terminalRunUsage, _ := terminalUsage["run"].(map[string]any)

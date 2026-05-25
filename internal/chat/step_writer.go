@@ -398,7 +398,7 @@ func (w *StepWriter) captureRootUsageSnapshot(event stream.EventData) {
 	}
 	if usage, ok := event.Value("usage").(map[string]any); ok {
 		if current, ok := usage["current"].(map[string]any); ok {
-			w.pendingUsage = usagePayloadFromMap(current)
+			w.pendingUsage = usagePayloadFromMap(current, false)
 		}
 	}
 }
@@ -413,7 +413,7 @@ func (w *StepWriter) captureTaskUsageSnapshot(buffer *taskStepBuffer, event stre
 	}
 	if usage, ok := event.Value("usage").(map[string]any); ok {
 		if current, ok := usage["current"].(map[string]any); ok {
-			buffer.pendingUsage = usagePayloadFromMap(current)
+			buffer.pendingUsage = usagePayloadFromMap(current, false)
 		}
 	}
 }
@@ -431,10 +431,10 @@ func (w *StepWriter) captureRootDebugData(eventType string, inner map[string]any
 	}
 	if usage, ok := inner["usage"].(map[string]any); ok {
 		if eventType == "debug.preCall" {
-			w.pendingUsage = usagePayloadFromMap(map[string]any{"llmChatCompletionCount": 1})
+			w.pendingUsage = usagePayloadFromMap(map[string]any{"llmChatCompletionCount": 1}, true)
 		}
 		if llm, ok := usage["llmReturnUsage"].(map[string]any); ok {
-			w.pendingUsage = usagePayloadFromMap(llm)
+			w.pendingUsage = usagePayloadFromMap(llm, true)
 		}
 	}
 }
@@ -455,10 +455,10 @@ func (w *StepWriter) captureTaskDebugData(buffer *taskStepBuffer, eventType stri
 	}
 	if usage, ok := inner["usage"].(map[string]any); ok {
 		if eventType == "debug.preCall" {
-			buffer.pendingUsage = usagePayloadFromMap(map[string]any{"llmChatCompletionCount": 1})
+			buffer.pendingUsage = usagePayloadFromMap(map[string]any{"llmChatCompletionCount": 1}, true)
 		}
 		if llm, ok := usage["llmReturnUsage"].(map[string]any); ok {
-			buffer.pendingUsage = usagePayloadFromMap(llm)
+			buffer.pendingUsage = usagePayloadFromMap(llm, true)
 		}
 	}
 }

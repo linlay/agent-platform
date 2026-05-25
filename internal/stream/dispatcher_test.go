@@ -357,9 +357,11 @@ func TestDispatcherUsageSnapshotIncludesTaskAndDeepSeekCacheUsage(t *testing.T) 
 	currentPromptDetails, _ := current["promptTokensDetails"].(map[string]any)
 	currentCompletionDetails, _ := current["completionTokensDetails"].(map[string]any)
 	if currentPromptDetails["cachedTokens"] != 64 || currentCompletionDetails["reasoningTokens"] != 12 ||
-		current["promptCacheHitTokens"] != 64 || current["promptCacheMissTokens"] != 36 ||
-		current["llmChatCompletionCount"] != 1 {
+		current["promptCacheHitTokens"] != 64 || current["promptCacheMissTokens"] != 36 {
 		t.Fatalf("expected detailed current usage, got %#v", usage)
+	}
+	if _, exists := current["llmChatCompletionCount"]; exists {
+		t.Fatalf("did not expect current llmChatCompletionCount, got %#v", usage)
 	}
 	if run["promptCacheHitTokens"] != 128 || run["promptCacheMissTokens"] != 172 || run["llmChatCompletionCount"] != 2 {
 		t.Fatalf("expected detailed run usage, got %#v", usage)

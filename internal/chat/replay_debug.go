@@ -85,7 +85,7 @@ func synthesizeUsageSnapshotEvent(runID, chatID string, taskID string, usage map
 		"runId":  runID,
 		"chatId": chatID,
 		"usage": map[string]any{
-			"current": usagePayloadFromMap(usage),
+			"current": usagePayloadFromMap(usage, false),
 			"run":     cumulativeUsagePayload(runCumulative),
 			"chat":    cumulativeUsagePayload(chatCumulative),
 		},
@@ -145,7 +145,7 @@ func debugPreCallData(debug map[string]any, system map[string]any) map[string]an
 func synthesizePostCallEvent(runID, chatID string, taskID string, usage map[string]any, runCumulative, chatCumulative map[string]int, contextWindow map[string]any, ts int64, nextSeq func() int64) *stream.EventData {
 	llm := map[string]any{"promptTokens": 0, "completionTokens": 0, "totalTokens": 0}
 	if usage != nil {
-		llm = usagePayloadFromMap(usage)
+		llm = usagePayloadFromMap(usage, true)
 	}
 	data := map[string]any{}
 	if cw := synthesizedContextWindow(contextWindow); len(cw) > 0 {
@@ -172,7 +172,7 @@ func synthesizePostCallEvent(runID, chatID string, taskID string, usage map[stri
 	}
 }
 
-func usagePayloadFromMap(usage map[string]any) map[string]any {
+func usagePayloadFromMap(usage map[string]any, includeLLMChatCompletionCount bool) map[string]any {
 	out := map[string]any{
 		"promptTokens":     toIntFromKeys(usage, "promptTokens", "prompt_tokens"),
 		"completionTokens": toIntFromKeys(usage, "completionTokens", "completion_tokens"),
@@ -185,8 +185,10 @@ func usagePayloadFromMap(usage map[string]any) map[string]any {
 		toIntFromKeys(usage, "promptCacheHitTokens", "prompt_cache_hit_tokens"),
 		toIntFromKeys(usage, "promptCacheMissTokens", "prompt_cache_miss_tokens"),
 	)
-	if count := toIntFromKeys(usage, "llmChatCompletionCount", "llm_chat_completion_count"); count > 0 {
-		out["llmChatCompletionCount"] = count
+	if includeLLMChatCompletionCount {
+		if count := toIntFromKeys(usage, "llmChatCompletionCount", "llm_chat_completion_count"); count > 0 {
+			out["llmChatCompletionCount"] = count
+		}
 	}
 	return out
 }
