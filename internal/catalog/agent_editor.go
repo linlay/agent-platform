@@ -239,13 +239,47 @@ func normalizeEditableDefinition(definition map[string]any) map[string]any {
 		return nil
 	}
 	normalized := contracts.CloneMap(definition)
-	switch NormalizeAgentModeForRuntime(stringNode(normalized["mode"])) {
+	mode := NormalizeAgentModeForRuntime(stringNode(normalized["mode"]))
+	switch mode {
 	case "ONESHOT":
 		normalized["mode"] = "REACT"
 	default:
 		normalized["mode"] = AgentModeForAPI(stringNode(normalized["mode"]))
 	}
+	if mode == AgentModeCoder {
+		delete(normalized, "workspace")
+		normalizeEditableCoderVisibility(normalized)
+	}
 	return normalized
+}
+
+func normalizeEditableCoderVisibility(definition map[string]any) {
+	visibility := mapNode(definition["visibility"])
+	scopes := normalizeEditableVisibilityScopes(listStrings(visibility["scopes"]))
+	for _, scope := range scopes {
+		if scope == "invoke" || scope == "internal" {
+			definition["visibility"] = map[string]any{"scopes": scopes}
+			return
+		}
+	}
+	definition["visibility"] = map[string]any{"scopes": []any{"nav"}}
+}
+
+func normalizeEditableVisibilityScopes(rawScopes []string) []string {
+	out := make([]string, 0, len(rawScopes))
+	seen := map[string]struct{}{}
+	for _, raw := range rawScopes {
+		scope := normalizeAgentVisibilityScope(raw)
+		if scope == "" {
+			continue
+		}
+		if _, ok := seen[scope]; ok {
+			continue
+		}
+		seen[scope] = struct{}{}
+		out = append(out, scope)
+	}
+	return out
 }
 
 func writeValidationAgentFile(data []byte) (string, error) {
@@ -375,9 +409,33 @@ func writeYAMLMap(b *strings.Builder, indent int, node map[string]any) {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
+	if indent == 0 {
+		keys = prioritizeYAMLKeys(keys, []string{"key", "name", "mode"})
+	}
 	for _, key := range keys {
 		writeYAMLKeyValue(b, indent, key, node[key])
 	}
+}
+
+func prioritizeYAMLKeys(keys []string, priority []string) []string {
+	out := make([]string, 0, len(keys))
+	seen := make(map[string]struct{}, len(priority))
+	for _, wanted := range priority {
+		for _, key := range keys {
+			if key == wanted {
+				out = append(out, key)
+				seen[key] = struct{}{}
+				break
+			}
+		}
+	}
+	for _, key := range keys {
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		out = append(out, key)
+	}
+	return out
 }
 
 func writeYAMLList(b *strings.Builder, indent int, items []any) {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -166,6 +167,28 @@ func TestAgentCreateCoderAndOpenWorkspace(t *testing.T) {
 	})
 	if created.Key != "coder-project" || created.Mode != "CODER" {
 		t.Fatalf("unexpected coder create response %#v", created)
+	}
+	if _, ok := created.Definition["workspace"]; ok {
+		t.Fatalf("coder definition should not persist legacy workspace root, got %#v", created.Definition)
+	}
+	visibility, _ := created.Definition["visibility"].(map[string]any)
+	scopes, _ := visibility["scopes"].([]any)
+	if len(scopes) != 1 || scopes[0] != "nav" {
+		t.Fatalf("coder visibility scopes = %#v, want [nav]", visibility["scopes"])
+	}
+	if created.Source == nil {
+		t.Fatalf("expected created source")
+	}
+	data, err := os.ReadFile(created.Source.Path)
+	if err != nil {
+		t.Fatalf("read created agent file: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	if len(lines) < 3 || lines[0] != "key: coder-project" || lines[1] != "name: coder-project" || lines[2] != "mode: CODER" {
+		t.Fatalf("unexpected YAML header order:\n%s", data)
+	}
+	if strings.Contains(string(data), "\nworkspace:") || strings.Contains(string(data), "- copilot") {
+		t.Fatalf("created coder file should omit workspace and copilot scope:\n%s", data)
 	}
 
 	var openedPath string
