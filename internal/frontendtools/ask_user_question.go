@@ -62,6 +62,12 @@ func (h *AskUserQuestionHandler) ValidateArgs(args map[string]any) error {
 			if label == "" {
 				return fmt.Errorf("%s: option %d label is required", questionText, optionIndex+1)
 			}
+			if rawPreviewHTML, ok := option["previewHtml"]; ok {
+				previewHTML, ok := rawPreviewHTML.(string)
+				if !ok || strings.TrimSpace(previewHTML) == "" {
+					return fmt.Errorf("%s: option %d previewHtml must be a non-empty string", questionText, optionIndex+1)
+				}
+			}
 		}
 	}
 	return nil

@@ -52,7 +52,10 @@ inputSchema:
                   description: Required. Text shown for this option. This is also the submitted value.
                 description:
                   type: string
-                  description: Additional explanation for this option.
+                  description: Optional plain-text explanation for this option.
+                previewHtml:
+                  type: string
+                  description: Optional safe HTML fragment rendered as a visual preview for this option. When provided, the frontend should render previewHtml instead of description. Do not include full HTML documents, scripts, event handlers, iframes, or remote executable content.
               required:
                 - label
               additionalProperties: false

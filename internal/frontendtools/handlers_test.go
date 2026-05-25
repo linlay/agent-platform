@@ -104,6 +104,74 @@ func TestAskUserQuestionHandlerValidateArgs(t *testing.T) {
 	}
 }
 
+func TestAskUserQuestionHandlerValidateArgsPreviewHTML(t *testing.T) {
+	handler := NewAskUserQuestionHandler()
+	validQuestions := []any{
+		map[string]any{
+			"question": "Pick a plan",
+			"type":     "select",
+			"options": []any{
+				map[string]any{"label": "Plain", "description": "2 days"},
+				map[string]any{"label": "Preview", "previewHtml": "<div><strong>Preview</strong></div>"},
+				map[string]any{"label": "Both", "description": "Fallback", "previewHtml": "<p>Preview</p>"},
+			},
+		},
+	}
+	if err := handler.ValidateArgs(map[string]any{"mode": "question", "questions": validQuestions}); err != nil {
+		t.Fatalf("ValidateArgs returned error for previewHtml options: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name        string
+		previewHTML any
+	}{
+		{name: "empty", previewHTML: ""},
+		{name: "blank", previewHTML: "   "},
+		{name: "non-string", previewHTML: 42},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := handler.ValidateArgs(map[string]any{
+				"mode": "question",
+				"questions": []any{
+					map[string]any{
+						"question": "Pick a plan",
+						"type":     "select",
+						"options":  []any{map[string]any{"label": "Preview", "previewHtml": tc.previewHTML}},
+					},
+				},
+			})
+			if err == nil || !strings.Contains(err.Error(), "previewHtml must be a non-empty string") {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestAskUserQuestionHandlerBuildInitialAwaitAskPreservesOptionPreviewHTML(t *testing.T) {
+	handler := NewAskUserQuestionHandler()
+	awaitAsk := handler.BuildInitialAwaitAsk("tool_1", "run_1", frontendTool("ask_user_question"), map[string]any{
+		"mode": "question",
+		"questions": []any{
+			map[string]any{
+				"question": "Pick a plan",
+				"type":     "select",
+				"options": []any{
+					map[string]any{"label": "Weekend", "description": "Fallback", "previewHtml": "<p>Weekend</p>"},
+				},
+			},
+		},
+	}, 0, 5000)
+	if awaitAsk == nil || len(awaitAsk.Questions) != 1 {
+		t.Fatalf("expected await ask with one question, got %#v", awaitAsk)
+	}
+	question := awaitAsk.Questions[0].(map[string]any)
+	options := question["options"].([]any)
+	option := options[0].(map[string]any)
+	if option["description"] != "Fallback" || option["previewHtml"] != "<p>Weekend</p>" {
+		t.Fatalf("expected option previewHtml and description to be preserved, got %#v", option)
+	}
+}
+
 func TestAskUserQuestionHandlerNormalizeSubmit(t *testing.T) {
 	handler := NewAskUserQuestionHandler()
 	args := map[string]any{

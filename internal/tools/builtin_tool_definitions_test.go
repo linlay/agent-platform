@@ -82,6 +82,15 @@ func TestAskUserToolSchemasMatchContract(t *testing.T) {
 	if _, ok := questionOptionProperties["value"]; ok {
 		t.Fatal("did not expect value on ask user question options")
 	}
+	if _, ok := questionOptionProperties["description"]; !ok {
+		t.Fatal("expected description on ask user question options")
+	}
+	if _, ok := questionOptionProperties["previewHtml"]; !ok {
+		t.Fatal("expected previewHtml on ask user question options")
+	}
+	if questionOptions["additionalProperties"] != false {
+		t.Fatalf("expected ask user question options additionalProperties=false, got %#v", questionOptions["additionalProperties"])
+	}
 }
 
 func TestFileGrepOutputModeEnumIsSchemaArray(t *testing.T) {

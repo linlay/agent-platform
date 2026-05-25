@@ -30,7 +30,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 		switch call {
 		case 1:
 			writeProviderSSE(t, w,
-				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"ask_user_question","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Need confirmation\",\"type\":\"select\",\"options\":[{\"label\":\"Approve\",\"description\":\"Continue with the request\"}],\"allowFreeText\":false}]}"}}]},"finish_reason":"tool_calls"}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"tool_question","type":"function","function":{"name":"ask_user_question","arguments":"{\"mode\":\"question\",\"questions\":[{\"question\":\"Need confirmation\",\"type\":\"select\",\"options\":[{\"label\":\"Approve\",\"description\":\"Continue with the request\",\"previewHtml\":\"<div><strong>Approve</strong></div>\"}],\"allowFreeText\":false}]}"}}]},"finish_reason":"tool_calls"}]}`,
 				`[DONE]`,
 			)
 		case 2:
@@ -110,6 +110,14 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	firstQuestion, _ := questions[0].(map[string]any)
 	if firstQuestion["id"] != "q1" || firstQuestion["question"] != "Need confirmation" {
 		t.Fatalf("unexpected inline question payload %#v", firstQuestion)
+	}
+	questionOptions, _ := firstQuestion["options"].([]any)
+	if len(questionOptions) != 1 {
+		t.Fatalf("expected one question option, got %#v", firstQuestion)
+	}
+	firstOption, _ := questionOptions[0].(map[string]any)
+	if firstOption["description"] != "Continue with the request" || firstOption["previewHtml"] != "<div><strong>Approve</strong></div>" {
+		t.Fatalf("expected previewHtml and description to be preserved on option, got %#v", firstOption)
 	}
 
 	steerReq := httptest.NewRequest(http.MethodPost, "/api/steer", bytes.NewBufferString(`{"agentKey":"mock-agent","runId":"`+runID+`","message":"Please keep it short."}`))
