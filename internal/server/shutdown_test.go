@@ -15,7 +15,6 @@ import (
 
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/runctl"
 )
 
 func TestHTTPQueryStreamClosesDuringRootContextShutdown(t *testing.T) {
@@ -117,7 +116,7 @@ func TestHTTPRunStreamDetachesObserverDuringRootContextShutdown(t *testing.T) {
 	defer cancelRoot()
 
 	fixture := newTestFixture(t)
-	runs := fixture.runs.(*runctl.InMemoryRunManager)
+	runs := fixture.runs.(*contracts.InMemoryRunManager)
 	runID := "run_http_shutdown"
 	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
 		RunID:    runID,
@@ -294,7 +293,7 @@ func waitForBodyClose(t *testing.T, body io.ReadCloser, timeout time.Duration) {
 	}
 }
 
-func waitForObserverCount(t *testing.T, runs *runctl.InMemoryRunManager, runID string, want int, timeout time.Duration) {
+func waitForObserverCount(t *testing.T, runs *contracts.InMemoryRunManager, runID string, want int, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {

@@ -24,7 +24,6 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/runctl"
 	"agent-platform/internal/ws"
 
 	gws "github.com/gorilla/websocket"
@@ -186,7 +185,7 @@ func TestWebSocketChatReturnsActiveRunConflict(t *testing.T) {
 	if _, _, err := fixture.chats.EnsureChat("chat_ws_conflict", "mock-agent", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	runs := fixture.runs.(*runctl.InMemoryRunManager)
+	runs := fixture.runs.(*contracts.InMemoryRunManager)
 	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
 		RunID:    "run_ws_1",
 		ChatID:   "chat_ws_conflict",
@@ -462,7 +461,7 @@ func TestWebSocketRunStreamClosesDuringShutdown(t *testing.T) {
 		},
 	})
 
-	runs := fixture.runs.(*runctl.InMemoryRunManager)
+	runs := fixture.runs.(*contracts.InMemoryRunManager)
 	runID := "run_ws_shutdown"
 	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
 		RunID:    runID,

@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/runctl"
 	"agent-platform/internal/ws"
 
 	gws "github.com/gorilla/websocket"
@@ -22,7 +21,7 @@ func TestRunControlWSRequiresAndValidatesAgentKey(t *testing.T) {
 	}, testFixtureOptions{
 		notifications: ws.NewHub(),
 	})
-	runs := fixture.runs.(*runctl.InMemoryRunManager)
+	runs := fixture.runs.(*contracts.InMemoryRunManager)
 	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
 		RunID:    "run-ws-agent-check",
 		ChatID:   "chat-ws-agent-check",

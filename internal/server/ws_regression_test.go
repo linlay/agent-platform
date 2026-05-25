@@ -17,7 +17,6 @@ import (
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/memory"
-	"agent-platform/internal/runctl"
 )
 
 func TestServerSharedHelpersUseCommonChatAndMemoryStores(t *testing.T) {
@@ -134,7 +133,7 @@ func TestLoadChatDetailAndRememberReturnNotFoundAcrossHTTP(t *testing.T) {
 
 func TestLoadChatDetailIncludesActiveRunAndConflictReturnsHTTP409(t *testing.T) {
 	server, chats, _ := newServerForHelperTests(t)
-	runs := runctl.NewInMemoryRunManager()
+	runs := contracts.NewInMemoryRunManager()
 	server.deps.Runs = runs
 
 	if _, _, err := chats.EnsureChat("chat-live", "agent-1", "", "hello"); err != nil {

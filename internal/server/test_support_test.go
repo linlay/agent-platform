@@ -29,7 +29,6 @@ import (
 	"agent-platform/internal/memory"
 	"agent-platform/internal/models"
 	"agent-platform/internal/reload"
-	"agent-platform/internal/runctl"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/tools"
 )
@@ -347,7 +346,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 	}
 	reloader := reload.NewRuntimeCatalogReloader(registry, modelRegistry, nil, nil, "", notifications)
 
-	runs := runctl.NewInMemoryRunManager()
+	runs := contracts.NewInMemoryRunManager()
 	sandbox := sandboxClient
 	agentEngine := llm.NewLLMAgentEngine(cfg, modelRegistry, toolExecutor, frontendRegistry, sandbox)
 	viewport := contracts.NewNoopViewportClient()

@@ -27,7 +27,6 @@ import (
 	"agent-platform/internal/models"
 	"agent-platform/internal/observability"
 	"agent-platform/internal/reload"
-	"agent-platform/internal/runctl"
 	"agent-platform/internal/sandbox"
 	"agent-platform/internal/server"
 	"agent-platform/internal/skills"
@@ -131,7 +130,7 @@ func New(rootCtx context.Context) (*App, error) {
 	}
 	log.Printf("model registry ready in %s (root=%s)", startupElapsed(modelRegistryStartedAt), cfg.Paths.RegistriesDir)
 
-	runManager := runctl.NewInMemoryRunManager()
+	runManager := contracts.NewInMemoryRunManager()
 	sandboxClient := sandbox.NewContainerHubSandboxService(cfg.ContainerHub, cfg.Paths)
 	backendTools, err := tools.NewRuntimeToolExecutor(cfg, sandboxClient, chatStore, memoryStore, skillCandidateStore)
 	if err != nil {

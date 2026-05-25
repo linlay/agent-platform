@@ -113,6 +113,7 @@ Memory 默认由 `MEMORY_DIR` 控制，当前以 SQLite store 为主，支持 FT
 - 配置事实源以 `internal/config/config.go` 和 `configs/*.example.yml` 为准，文档只解释和引用。
 - `.env`、真实 `configs/*.yml`、真实 `configs/*.pem`、真实 token 和私钥不得提交。
 - Bash 与 FileTools 权限分别以 `configs/bash.yml`、`configs/file-tools.yml` 为外部事实源。
+- `configs/bash.yml`、`configs/file-tools.yml` 中的旧 YAML 键（如 `allowed-paths`）会在启动阶段硬失败，新策略统一走 `configs/access-policy.yml`。
 - 新增能力优先放进对应 `internal/*` 模块，不在 server 层堆业务逻辑。
 - 新增 API 保持统一 JSON 包裹、字段命名和错误语义。
 - 测试以 `make test` / `go test ./...` 为主，协议变更优先覆盖 `internal/server`、`internal/stream`、`internal/llm`、`internal/tools`。

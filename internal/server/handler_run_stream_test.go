@@ -9,12 +9,11 @@ import (
 
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/runctl"
 	"agent-platform/internal/stream"
 )
 
 func TestHandleAttachDefaultsMissingLastSeqToZero(t *testing.T) {
-	runs := runctl.NewInMemoryRunManager()
+	runs := contracts.NewInMemoryRunManager()
 	session := contracts.QuerySession{
 		RunID:    "run_1",
 		ChatID:   "chat_1",

@@ -9,14 +9,13 @@ import (
 	"time"
 
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/runctl"
 )
 
 func TestRunControlHTTPRequiresAndValidatesAgentKey(t *testing.T) {
 	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	})
-	runs := fixture.runs.(*runctl.InMemoryRunManager)
+	runs := fixture.runs.(*contracts.InMemoryRunManager)
 	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
 		RunID:    "run-agent-check",
 		ChatID:   "chat-agent-check",
@@ -105,7 +104,7 @@ func TestRunControlProxyMismatchReturnsForbiddenWithoutForwarding(t *testing.T) 
 	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	})
-	runs := fixture.runs.(*runctl.InMemoryRunManager)
+	runs := fixture.runs.(*contracts.InMemoryRunManager)
 	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
 		RunID:    "run-proxy-agent-check",
 		ChatID:   "chat-proxy-agent-check",
