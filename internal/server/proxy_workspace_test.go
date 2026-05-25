@@ -14,6 +14,8 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
+
+	gws "github.com/gorilla/websocket"
 )
 
 func TestProxyQueryForwardsRuntimeWorkspaceRootAsCWD(t *testing.T) {
@@ -44,6 +46,7 @@ func TestProxyQueryForwardsRuntimeWorkspaceRootAsCWD(t *testing.T) {
 				"  workspaceRoot: " + filepath.ToSlash(workspace),
 				"proxyConfig:",
 				"  baseUrl: " + upstream.URL,
+				"  transport: sse",
 				"  timeoutMs: 30000",
 			})
 		},
@@ -94,6 +97,7 @@ func TestProxyQueryRejectsRequestCWDParam(t *testing.T) {
 				"  workspaceRoot: " + filepath.ToSlash(t.TempDir()),
 				"proxyConfig:",
 				"  baseUrl: " + upstream.URL,
+				"  transport: sse",
 				"  timeoutMs: 30000",
 			})
 		},
@@ -110,6 +114,82 @@ func TestProxyQueryRejectsRequestCWDParam(t *testing.T) {
 	}
 	if upstreamHit.Load() {
 		t.Fatalf("did not expect upstream request when params.cwd is rejected")
+	}
+}
+
+func TestProxyQueryDefaultsToWebSocketAndForwardsRuntimeWorkspaceRootAsCWD(t *testing.T) {
+	workspace := t.TempDir()
+	captured := make(chan map[string]any, 1)
+	upgrader := gws.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	upstream := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/ws" {
+			t.Fatalf("expected websocket path /ws, got %s", r.URL.Path)
+		}
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Fatalf("upgrade upstream websocket: %v", err)
+		}
+		defer conn.Close()
+		var frame map[string]any
+		if err := conn.ReadJSON(&frame); err != nil {
+			t.Fatalf("read upstream websocket frame: %v", err)
+		}
+		captured <- frame
+		if err := conn.WriteJSON(map[string]any{
+			"event": map[string]any{
+				"type":  "run.complete",
+				"runId": "upstream-run",
+			},
+		}); err != nil {
+			t.Fatalf("write upstream websocket completion: %v", err)
+		}
+	}))
+	defer upstream.Close()
+
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		setupRuntime: func(_ string, cfg *config.Config) {
+			writeAgentConfig(t, filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml"), []string{
+				"key: mock-agent",
+				"name: Mock Proxy Agent",
+				"role: 测试代理",
+				"description: proxy test agent",
+				"mode: PROXY",
+				"runtimeConfig:",
+				"  workspaceRoot: " + filepath.ToSlash(workspace),
+				"proxyConfig:",
+				"  baseUrl: " + upstream.URL,
+			})
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	body := bytes.NewBufferString(`{"agentKey":"mock-agent","message":"proxy me","params":{"channel":"desktop"}}`)
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", body))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var frame map[string]any
+	select {
+	case frame = <-captured:
+	default:
+		t.Fatalf("expected upstream websocket frame")
+	}
+	if frame["type"] != "request.query" {
+		t.Fatalf("expected request.query websocket frame, got %#v", frame)
+	}
+	inner, ok := frame["payload"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected payload object, got %#v", frame["payload"])
+	}
+	params, ok := inner["params"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected params object, got %#v", inner["params"])
+	}
+	if params["channel"] != "desktop" || params["cwd"] != filepath.Clean(workspace) {
+		t.Fatalf("unexpected upstream websocket params %#v", params)
 	}
 }
 

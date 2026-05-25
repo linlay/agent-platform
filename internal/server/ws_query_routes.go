@@ -194,6 +194,16 @@ func (s *Server) wsSteer(_ context.Context, conn *ws.Conn, req ws.RequestFrame) 
 		conn.CompleteRequest(req.ID)
 		return
 	}
+	if response, statusErr, ok := s.forwardProxySteer(payload); ok {
+		if statusErr != nil {
+			s.sendWSStatusError(conn, req.ID, statusErr)
+			conn.CompleteRequest(req.ID)
+			return
+		}
+		conn.SendResponse(req.Type, req.ID, 0, "success", response)
+		conn.CompleteRequest(req.ID)
+		return
+	}
 	ack := s.deps.Runs.Steer(payload)
 	conn.SendResponse(req.Type, req.ID, 0, "success", api.SteerResponse{
 		Accepted: ack.Accepted,

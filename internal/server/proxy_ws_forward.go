@@ -49,13 +49,15 @@ func proxyWebSocketTarget(proxy *catalog.ProxyConfig) (string, http.Header, erro
 
 func proxyUpstreamTransport(proxy *catalog.ProxyConfig) string {
 	if proxy == nil {
-		return "sse"
+		return "ws"
 	}
 	switch strings.ToLower(strings.TrimSpace(proxy.Transport)) {
+	case "sse":
+		return "sse"
 	case "ws", "websocket":
 		return "ws"
 	default:
-		return "sse"
+		return "ws"
 	}
 }
 
@@ -249,6 +251,49 @@ func (s *Server) forwardProxyInterrupt(req api.InterruptRequest) (api.InterruptR
 		Status:   "accepted",
 		RunID:    req.RunID,
 		Detail:   "Proxy interrupt forwarded",
+	}, nil, true
+}
+
+func (s *Server) forwardProxySteer(req api.SteerRequest) (api.SteerResponse, *statusError, bool) {
+	route, ok := s.lookupProxyRun(req.RunID)
+	if !ok {
+		return api.SteerResponse{}, nil, false
+	}
+	if strings.TrimSpace(req.AgentKey) != strings.TrimSpace(route.agentKey) {
+		return api.SteerResponse{}, &statusError{status: http.StatusForbidden, message: "agentKey does not match run"}, true
+	}
+	steerID := strings.TrimSpace(req.SteerID)
+	if steerID == "" {
+		steerID = time.Now().UTC().Format("20060102150405.000000000")
+	}
+	payload := map[string]any{
+		"requestId": req.RequestID,
+		"runId":     req.RunID,
+		"chatId":    route.chatID,
+		"agentKey":  route.agentKey,
+		"steerId":   steerID,
+		"message":   req.Message,
+	}
+	if !sendProxyRouteMessage(route, map[string]any{
+		"frame":   "request",
+		"type":    "request.steer",
+		"id":      steerID,
+		"payload": payload,
+	}) {
+		return api.SteerResponse{
+			Accepted: false,
+			Status:   "unmatched",
+			RunID:    req.RunID,
+			SteerID:  steerID,
+			Detail:   "Proxy run is no longer active",
+		}, nil, true
+	}
+	return api.SteerResponse{
+		Accepted: true,
+		Status:   "accepted",
+		RunID:    req.RunID,
+		SteerID:  steerID,
+		Detail:   "Proxy steer forwarded",
 	}, nil, true
 }
 

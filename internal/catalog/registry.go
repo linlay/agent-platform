@@ -116,7 +116,7 @@ type AgentRuntimePrompts struct {
 // AGW-compatible service (e.g. claude-code relay-server on port 3210).
 type ProxyConfig struct {
 	BaseURL   string // e.g. http://127.0.0.1:3210
-	Transport string // sse or ws; defaults to sse for AGW platform-compatible proxy backends
+	Transport string // ws or sse; defaults to ws for bidirectional run control
 	AgentKey  string // optional upstream agentKey override
 	ChatID    string // optional upstream chatId override
 	Token     string // optional Bearer token
@@ -411,10 +411,12 @@ func hasRuntimeSandboxDefinition(runtime map[string]any) bool {
 
 func normalizeProxyTransport(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "sse":
+		return "sse"
 	case "ws", "websocket":
 		return "ws"
 	default:
-		return "sse"
+		return "ws"
 	}
 }
 

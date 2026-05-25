@@ -29,6 +29,10 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if strings.EqualFold(prepared.agentDef.Mode, "PROXY") {
+		if proxyUpstreamTransport(prepared.agentDef.ProxyConfig) == "ws" {
+			s.handleProxyWebSocketQuery(w, r, prepared)
+			return
+		}
 		s.handleProxyQuery(w, r, prepared)
 		return
 	}

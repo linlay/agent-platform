@@ -43,6 +43,14 @@ func (s *Server) handleSteer(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, statusErr.status, api.Failure(statusErr.status, statusErr.message))
 		return
 	}
+	if response, statusErr, ok := s.forwardProxySteer(req); ok {
+		if statusErr != nil {
+			writeJSON(w, statusErr.status, api.Failure(statusErr.status, statusErr.message))
+			return
+		}
+		writeJSON(w, http.StatusOK, api.Success(response))
+		return
+	}
 	ack := s.deps.Runs.Steer(req)
 	writeJSON(w, http.StatusOK, api.Success(api.SteerResponse{
 		Accepted: ack.Accepted,

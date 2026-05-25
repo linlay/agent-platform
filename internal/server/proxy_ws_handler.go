@@ -117,6 +117,73 @@ func (s *Server) wsProxyQuery(
 	conn.StartStreamForward(req.ID, observer)
 }
 
+func (s *Server) handleProxyWebSocketQuery(w http.ResponseWriter, r *http.Request, prepared preparedQuery) {
+	runCtx, control, _ := s.deps.Runs.Register(r.Context(), prepared.session)
+	eventBus, ok := s.deps.Runs.EventBus(prepared.req.RunID)
+	if !ok {
+		s.deps.Runs.Interrupt(api.InterruptRequest{RunID: prepared.req.RunID})
+		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, "run event bus unavailable"))
+		return
+	}
+
+	sseWriter, err := stream.NewWriter(w, stream.Options{
+		SSE:            s.deps.Config.SSE,
+		Render:         s.deps.Config.H2A.Render,
+		LoggingEnabled: s.deps.Config.Logging.SSE.Enabled,
+	})
+	if err != nil {
+		s.deps.Runs.Interrupt(api.InterruptRequest{RunID: prepared.req.RunID})
+		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
+		return
+	}
+	defer sseWriter.Close()
+	sseWriter.StartHeartbeat()
+
+	observer, attachErr := s.deps.Runs.AttachObserver(prepared.req.RunID, 0)
+	if attachErr != nil {
+		s.deps.Runs.Interrupt(api.InterruptRequest{RunID: prepared.req.RunID})
+		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, attachErr.Error()))
+		return
+	}
+	defer s.deps.Runs.DetachObserver(prepared.req.RunID, observer.ID)
+	defer observer.MarkDone()
+
+	s.broadcast("run.started", map[string]any{
+		"runId":    prepared.req.RunID,
+		"chatId":   prepared.req.ChatID,
+		"agentKey": prepared.req.AgentKey,
+	})
+
+	route := &proxyRunRoute{
+		runID:    prepared.req.RunID,
+		chatID:   prepared.req.ChatID,
+		agentKey: prepared.req.AgentKey,
+		send:     make(chan map[string]any, 16),
+		done:     make(chan struct{}),
+	}
+	s.registerProxyRun(route)
+
+	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode, isHiddenRequest(prepared.req), chat.WithDebugEventsEnabled(s.deps.Config.Stream.DebugEventsEnabled))
+	stepWriter.SetPendingSystemInits(prepared.systemInitLines)
+	recorder := newProxyEventRecorder(prepared.req, prepared.agentDef, s.deps.Chats, stepWriter, control)
+	go s.runProxyWebSocket(runCtx, prepared, route, eventBus, recorder)
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case event, ok := <-observer.Events:
+			if !ok {
+				_ = sseWriter.WriteDone()
+				return
+			}
+			if err := sseWriter.WriteJSON("message", event); err != nil {
+				return
+			}
+		}
+	}
+}
+
 func (s *Server) runProxyWebSocket(
 	runCtx context.Context,
 	prepared preparedQuery,

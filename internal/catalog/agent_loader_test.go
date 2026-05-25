@@ -62,6 +62,51 @@ func TestParseAgentFileReadsProxyTransport(t *testing.T) {
 	}
 }
 
+func TestParseAgentFileDefaultsProxyTransportToWebSocket(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	content := "" +
+		"key: proxy-demo\n" +
+		"name: Proxy Demo\n" +
+		"mode: PROXY\n" +
+		"proxyConfig:\n" +
+		"  baseUrl: http://127.0.0.1:3210\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	if def.ProxyConfig == nil || def.ProxyConfig.Transport != "ws" {
+		t.Fatalf("expected default proxy transport ws, got %#v", def.ProxyConfig)
+	}
+}
+
+func TestParseAgentFileKeepsExplicitProxySSETransport(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	content := "" +
+		"key: proxy-demo\n" +
+		"name: Proxy Demo\n" +
+		"mode: PROXY\n" +
+		"proxyConfig:\n" +
+		"  baseUrl: http://127.0.0.1:3210\n" +
+		"  transport: sse\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	if def.ProxyConfig == nil || def.ProxyConfig.Transport != "sse" {
+		t.Fatalf("expected explicit proxy transport sse, got %#v", def.ProxyConfig)
+	}
+}
+
 func TestParseAgentFileDefaultsModeVisibilityAndKanban(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
