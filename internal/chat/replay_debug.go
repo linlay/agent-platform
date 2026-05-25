@@ -78,7 +78,7 @@ func cumulativeUsagePayload(cumulative map[string]int) map[string]any {
 }
 
 func synthesizeUsageSnapshotEvent(runID, chatID string, taskID string, usage map[string]any, runCumulative, chatCumulative map[string]int, contextWindow map[string]any, ts int64, nextSeq func() int64) *stream.EventData {
-	if usage == nil {
+	if !hasProviderUsagePayload(usage) {
 		return nil
 	}
 	payload := map[string]any{
@@ -191,6 +191,19 @@ func usagePayloadFromMap(usage map[string]any, includeLLMChatCompletionCount boo
 		}
 	}
 	return out
+}
+
+func hasProviderUsagePayload(usage map[string]any) bool {
+	if len(usage) == 0 {
+		return false
+	}
+	return toIntFromKeys(usage, "promptTokens", "prompt_tokens") > 0 ||
+		toIntFromKeys(usage, "completionTokens", "completion_tokens") > 0 ||
+		toIntFromKeys(usage, "totalTokens", "total_tokens") > 0 ||
+		toNestedIntFromKeys(usage, "promptTokensDetails", "prompt_tokens_details", "cachedTokens", "cached_tokens") > 0 ||
+		toNestedIntFromKeys(usage, "completionTokensDetails", "completion_tokens_details", "reasoningTokens", "reasoning_tokens") > 0 ||
+		toIntFromKeys(usage, "promptCacheHitTokens", "prompt_cache_hit_tokens") > 0 ||
+		toIntFromKeys(usage, "promptCacheMissTokens", "prompt_cache_miss_tokens") > 0
 }
 
 func addUsageDetailsToMap(out map[string]any, cachedTokens int, reasoningTokens int, promptCacheHitTokens int, promptCacheMissTokens int) {

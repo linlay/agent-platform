@@ -256,7 +256,7 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 				}
 			}
 			rd.events = append(rd.events, awaitingReplay.leftoverEvents()...)
-			if stepUsage != nil {
+			if hasProviderUsagePayload(stepUsage) {
 				rd.totalPromptTokens += toIntFromKeys(stepUsage, "promptTokens", "prompt_tokens")
 				rd.totalCompletionTokens += toIntFromKeys(stepUsage, "completionTokens", "completion_tokens")
 				rd.totalTotalTokens += toIntFromKeys(stepUsage, "totalTokens", "total_tokens")
@@ -282,7 +282,7 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 				rd.chatTotalPromptCacheMissTokens = chatTotalPromptCacheMissTokens
 				rd.chatTotalLlmChatCompletionCount = chatTotalLlmChatCompletionCount
 			}
-			if stepUsage != nil {
+			if hasProviderUsagePayload(stepUsage) {
 				runCumulativePost := map[string]int{
 					"promptTokens":           rd.totalPromptTokens,
 					"completionTokens":       rd.totalCompletionTokens,
@@ -307,7 +307,7 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 					rd.events = append(rd.events, *ev)
 				}
 			}
-			if replayDebugEvents && (stepUsage != nil || len(stepContextWindow) > 0) {
+			if replayDebugEvents && (hasProviderUsagePayload(stepUsage) || len(stepContextWindow) > 0) {
 				runCumulativePost := map[string]int{
 					"promptTokens":           rd.totalPromptTokens,
 					"completionTokens":       rd.totalCompletionTokens,

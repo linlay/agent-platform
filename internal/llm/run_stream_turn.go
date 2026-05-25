@@ -298,7 +298,6 @@ func (s *llmRunStream) finishCurrentTurn() error {
 	if turn == nil {
 		return nil
 	}
-	s.currentTurn = nil
 	if turn.body != nil {
 		_ = turn.body.Close()
 	}
@@ -312,6 +311,7 @@ func (s *llmRunStream) finishCurrentTurn() error {
 			ErrorCategoryModel,
 			nil,
 		)})
+		s.currentTurn = nil
 		s.finished = true
 		return nil
 	}
@@ -322,6 +322,7 @@ func (s *llmRunStream) finishCurrentTurn() error {
 	}
 
 	s.emitPendingUsageDelta()
+	s.currentTurn = nil
 
 	if len(toolCalls) == 0 {
 		if strings.TrimSpace(content) == "" {
@@ -510,13 +511,14 @@ func (s *llmRunStream) handleInterruptIfNeeded() error {
 	}
 	if s.currentTurn != nil && s.currentTurn.body != nil {
 		_ = s.currentTurn.body.Close()
-		s.currentTurn = nil
 	}
 	if !s.cancelSent {
 		s.cancelSent = true
 		s.emitPendingUsageDelta()
+		s.currentTurn = nil
 		s.pending = append(s.pending, DeltaRunCancel{RunID: s.session.RunID})
 		return nil
 	}
+	s.currentTurn = nil
 	return ErrRunInterrupted
 }

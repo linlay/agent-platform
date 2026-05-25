@@ -79,6 +79,7 @@ func (s *llmRunStream) currentSystemRef() map[string]any {
 }
 
 func (s *llmRunStream) emitPendingUsageDelta() {
+	s.commitPendingTurnUsage()
 	if !s.pendingUsageEmit {
 		return
 	}
@@ -109,9 +110,25 @@ func (s *llmRunStream) emitPendingUsageDelta() {
 }
 
 func (s *llmRunStream) accumulateUsage(usage *openAIUsage) {
-	if usage == nil {
+	if !hasProviderUsage(usage) {
 		return
 	}
+	if s.currentTurn != nil {
+		s.currentTurn.usage = cloneOpenAIUsage(usage)
+		return
+	}
+	s.commitUsage(usage)
+}
+
+func (s *llmRunStream) commitPendingTurnUsage() {
+	if s.currentTurn == nil || s.currentTurn.usage == nil || s.currentTurn.usageCommitted {
+		return
+	}
+	s.currentTurn.usageCommitted = true
+	s.commitUsage(s.currentTurn.usage)
+}
+
+func (s *llmRunStream) commitUsage(usage *openAIUsage) {
 	s.lastCallPromptTokens = usage.PromptTokens
 	s.lastCallCompletionTokens = usage.CompletionTokens
 	s.lastCallTotalTokens = usage.TotalTokens
@@ -152,6 +169,27 @@ func (s *llmRunStream) accumulateUsage(usage *openAIUsage) {
 	})
 	log.Printf("[llm][run:%s][usage] last-call: prompt=%d completion=%d total=%d | run-cumulative: prompt=%d completion=%d total=%d",
 		s.session.RunID, usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens, s.runPromptTokens, s.runCompletionTokens, s.runTotalTokens)
+}
+
+func hasProviderUsage(usage *openAIUsage) bool {
+	if usage == nil {
+		return false
+	}
+	return usage.PromptTokens > 0 ||
+		usage.CompletionTokens > 0 ||
+		usage.TotalTokens > 0 ||
+		usage.PromptTokensDetails.CachedTokens > 0 ||
+		usage.CompletionTokensDetails.ReasoningTokens > 0 ||
+		usage.PromptCacheHitTokens > 0 ||
+		usage.PromptCacheMissTokens > 0
+}
+
+func cloneOpenAIUsage(usage *openAIUsage) *openAIUsage {
+	if usage == nil {
+		return nil
+	}
+	cloned := *usage
+	return &cloned
 }
 
 func (s *llmRunStream) drainUsageChunk() {

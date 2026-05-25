@@ -318,7 +318,13 @@ func TestRememberEndpointReturnsStoredMemory(t *testing.T) {
 }
 
 func TestChatSnapshotDeduplicatesChatStartAcrossMultipleQueries(t *testing.T) {
-	fixture := newTestFixture(t)
+	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"content":"Go runtime test response"},"finish_reason":"stop"}]}`,
+			`{"choices":[],"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}}`,
+			`[DONE]`,
+		)
+	})
 	server := fixture.server
 
 	firstReq := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"first turn"}`))

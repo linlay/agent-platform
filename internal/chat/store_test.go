@@ -1887,6 +1887,55 @@ func TestStepWriterPersistsUsageSnapshotWhenDebugEventsDisabled(t *testing.T) {
 	}
 }
 
+func TestStepWriterIgnoresEmptyUsageSnapshot(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	writer := NewStepWriter(store, "chat-empty-usage-snapshot", "run-empty-usage-snapshot", "react", false)
+	writer.OnEvent(stream.EventData{
+		Type: "content.snapshot",
+		Payload: map[string]any{
+			"contentId": "content-1",
+			"text":      "hello",
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type: "usage.snapshot",
+		Payload: map[string]any{
+			"contextWindow": map[string]any{
+				"maxSize":               128000,
+				"currentSize":           0,
+				"estimatedNextCallSize": 5703,
+			},
+			"usage": map[string]any{
+				"current": map[string]any{
+					"promptTokens":           0,
+					"completionTokens":       0,
+					"totalTokens":            0,
+					"llmChatCompletionCount": 1,
+				},
+			},
+		},
+	})
+	writer.OnEvent(stream.EventData{Type: "run.complete"})
+
+	lines, err := readJSONLines(store.chatJSONLPath("chat-empty-usage-snapshot"))
+	if err != nil {
+		t.Fatalf("read chat jsonl: %v", err)
+	}
+	if len(lines) != 1 {
+		t.Fatalf("expected one step line, got %#v", lines)
+	}
+	if _, ok := lines[0]["usage"]; ok {
+		t.Fatalf("did not expect empty usage snapshot to persist usage, got %#v", lines[0])
+	}
+	if _, ok := lines[0]["contextWindow"]; ok {
+		t.Fatalf("did not expect empty usage snapshot to persist context window, got %#v", lines[0])
+	}
+}
+
 func TestStepWriterPlanningLifecyclePersistsSnapshotByDefault(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
@@ -4271,6 +4320,70 @@ func TestLoadChatReadsUsageFromStepLevel(t *testing.T) {
 	terminalChatUsage, _ := terminalUsage["chat"].(map[string]any)
 	if toIntValue(terminalChatUsage["promptTokens"]) != 100 || toIntValue(terminalChatUsage["completionTokens"]) != 50 || toIntValue(terminalChatUsage["totalTokens"]) != 150 {
 		t.Fatalf("unexpected synthesized run.complete chat usage %#v", detail.Events[7])
+	}
+}
+
+func TestLoadChatDoesNotSynthesizeEmptyUsageSnapshot(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-empty-step-usage", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	if err := store.AppendQueryLine("chat-empty-step-usage", QueryLine{
+		ChatID:    "chat-empty-step-usage",
+		RunID:     "run-empty-step-usage",
+		UpdatedAt: 1000,
+		Query:     map[string]any{"chatId": "chat-empty-step-usage", "message": "hello"},
+		Type:      "query",
+	}); err != nil {
+		t.Fatalf("append query line: %v", err)
+	}
+
+	contentTs := int64(1002)
+	if err := store.AppendStepLine("chat-empty-step-usage", StepLine{
+		ChatID:    "chat-empty-step-usage",
+		RunID:     "run-empty-step-usage",
+		UpdatedAt: 1003,
+		Type:      "react",
+		Seq:       1,
+		Messages: []StoredMessage{{
+			Role:      "assistant",
+			Content:   textContent("answer"),
+			ContentID: "content-1",
+			MsgID:     "msg-1",
+			Ts:        &contentTs,
+		}},
+		Usage: map[string]any{
+			"promptTokens":           0,
+			"completionTokens":       0,
+			"totalTokens":            0,
+			"llmChatCompletionCount": 1,
+		},
+		ContextWindow: map[string]any{
+			"maxSize":       128000,
+			"estimatedSize": 5703,
+		},
+	}); err != nil {
+		t.Fatalf("append step line: %v", err)
+	}
+
+	detail, err := store.LoadChat("chat-empty-step-usage")
+	if err != nil {
+		t.Fatalf("load chat: %v", err)
+	}
+	for _, event := range detail.Events {
+		if event.Type == "usage.snapshot" {
+			t.Fatalf("did not expect empty usage snapshot to be synthesized, got %#v", detail.Events)
+		}
+	}
+	complete := detail.Events[len(detail.Events)-1]
+	if complete.Type != "run.complete" {
+		t.Fatalf("expected terminal run.complete, got %#v", complete)
+	}
+	if _, ok := complete.Value("usage").(map[string]any); ok {
+		t.Fatalf("did not expect terminal usage from empty step usage, got %#v", complete)
 	}
 }
 

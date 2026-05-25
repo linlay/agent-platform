@@ -1,5 +1,5 @@
 name: file_grep
-label: 文件内容搜索
+label: 搜索文件
 description: |
   A powerful search tool built on ripgrep. Filter files with glob/type,
   switch between content/files/count output modes, support context lines,

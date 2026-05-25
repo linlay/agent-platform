@@ -82,14 +82,16 @@ type llmRunStream struct {
 }
 
 type providerTurnStream struct {
-	body          io.ReadCloser
-	reader        *bufio.Reader
-	content       strings.Builder
-	reasoning     strings.Builder
-	thinkTag      thinkTagParserState
-	toolCalls     map[int]*toolCallAccumulator
-	finishReason  string
-	hasMeaningful bool
+	body           io.ReadCloser
+	reader         *bufio.Reader
+	content        strings.Builder
+	reasoning      strings.Builder
+	thinkTag       thinkTagParserState
+	toolCalls      map[int]*toolCallAccumulator
+	finishReason   string
+	hasMeaningful  bool
+	usage          *openAIUsage
+	usageCommitted bool
 }
 
 type thinkTagParserState struct {
