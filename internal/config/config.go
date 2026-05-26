@@ -243,6 +243,8 @@ type MemoryLoggingConfig struct {
 type LLMInteractionLoggingConfig struct {
 	Enabled       bool
 	MaskSensitive bool
+	RecordEnabled bool
+	RecordDir     string
 }
 
 type CORSConfig struct {

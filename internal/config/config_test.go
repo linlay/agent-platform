@@ -46,6 +46,12 @@ func TestLoadDefaults(t *testing.T) {
 		if cfg.Logging.LLMInteraction.MaskSensitive {
 			t.Fatalf("expected llm interaction logs to be unmasked by default")
 		}
+		if cfg.Logging.LLMInteraction.RecordEnabled {
+			t.Fatalf("expected llm chat record disabled by default")
+		}
+		if cfg.Logging.LLMInteraction.RecordDir != filepath.Join("runtime", "chats", "llm") {
+			t.Fatalf("unexpected llm chat record dir: %q", cfg.Logging.LLMInteraction.RecordDir)
+		}
 		if cfg.BashHITL.DefaultTimeoutMs != 120000 {
 			t.Fatalf("expected default bash HITL timeout 120000, got %d", cfg.BashHITL.DefaultTimeoutMs)
 		}
@@ -905,6 +911,23 @@ func TestLoadLLMInteractionMaskSensitiveFromEnv(t *testing.T) {
 	})
 }
 
+func TestLoadLLMChatRecordFromDebugEnv(t *testing.T) {
+	withIsolatedEnv(t, map[string]string{
+		"DEBUG_LLM_CHAT_RECORD": "true",
+	}, func() {
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		if !cfg.Logging.LLMInteraction.RecordEnabled {
+			t.Fatalf("expected llm chat record enabled from env")
+		}
+		if cfg.Logging.LLMInteraction.RecordDir != filepath.Join("runtime", "chats", "llm") {
+			t.Fatalf("unexpected llm chat record dir: %q", cfg.Logging.LLMInteraction.RecordDir)
+		}
+	})
+}
+
 func TestLoadIgnoresOldGatewayEnv(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"GATEWAY_WS_URL":                        "wss://gw.example.com/ws/agent?key=zenmi&channel=wecom:xiaozhai",
@@ -1245,6 +1268,7 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 		"LOGGING_AGENT_SSE_ENABLED",
 		"LOGGING_AGENT_LLM_INTERACTION_ENABLED",
 		"LOGGING_AGENT_LLM_INTERACTION_MASK_SENSITIVE",
+		"DEBUG_LLM_CHAT_RECORD",
 		"AGENT_GATEWAY_WS_URL",
 		"GATEWAY_WS_URL",
 		"GATEWAY_JWT_TOKEN",

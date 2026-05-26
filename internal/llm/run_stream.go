@@ -39,6 +39,7 @@ type llmRunStream struct {
 	step               int
 	pending            []AgentDelta
 	currentTurn        *providerTurnStream
+	lastTrace          *llmChatTrace
 	finished           bool
 	closed             bool
 	fallbackSent       bool
@@ -84,6 +85,7 @@ type llmRunStream struct {
 type providerTurnStream struct {
 	body           io.ReadCloser
 	reader         *bufio.Reader
+	trace          *llmChatTrace
 	content        strings.Builder
 	reasoning      strings.Builder
 	thinkTag       thinkTagParserState

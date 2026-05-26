@@ -125,6 +125,8 @@ func defaultConfig() Config {
 			LLMInteraction: LLMInteractionLoggingConfig{
 				Enabled:       true,
 				MaskSensitive: false,
+				RecordEnabled: false,
+				RecordDir:     filepath.Join(paths.ChatsDir, "llm"),
 			},
 		},
 		CORS: CORSConfig{
