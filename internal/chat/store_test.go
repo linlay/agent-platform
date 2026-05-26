@@ -4276,22 +4276,23 @@ func TestLoadChatReadsUsageFromStepLevel(t *testing.T) {
 	if _, exists := preCallData["tools"]; exists {
 		t.Fatalf("did not expect legacy tools in debug.preCall payload %#v", detail.Events[3])
 	}
+	if _, exists := preCallData["usage"]; exists {
+		t.Fatalf("did not expect usage in debug.preCall payload %#v", detail.Events[3])
+	}
 
 	usageSnapshotUsage, _ := detail.Events[5].Value("usage").(map[string]any)
 	usageSnapshotCurrent, _ := usageSnapshotUsage["current"].(map[string]any)
-	usageSnapshotRun, _ := usageSnapshotUsage["run"].(map[string]any)
-	usageSnapshotChat, _ := usageSnapshotUsage["chat"].(map[string]any)
 	if toIntValue(usageSnapshotCurrent["promptTokens"]) != 100 || toIntValue(usageSnapshotCurrent["completionTokens"]) != 50 || toIntValue(usageSnapshotCurrent["totalTokens"]) != 150 {
 		t.Fatalf("unexpected usage.snapshot current usage %#v", detail.Events[5])
 	}
 	if _, exists := usageSnapshotCurrent["llmChatCompletionCount"]; exists {
 		t.Fatalf("did not expect usage.snapshot current llmChatCompletionCount %#v", detail.Events[5])
 	}
-	if toIntValue(usageSnapshotRun["promptTokens"]) != 100 || toIntValue(usageSnapshotChat["promptTokens"]) != 100 {
-		t.Fatalf("unexpected usage.snapshot cumulative usage %#v", detail.Events[5])
+	if _, exists := usageSnapshotUsage["run"]; exists {
+		t.Fatalf("did not expect usage.snapshot run usage %#v", detail.Events[5])
 	}
-	if toIntValue(usageSnapshotRun["llmChatCompletionCount"]) != 1 || toIntValue(usageSnapshotChat["llmChatCompletionCount"]) != 1 {
-		t.Fatalf("unexpected usage.snapshot cumulative llm chat counts %#v", detail.Events[5])
+	if _, exists := usageSnapshotUsage["chat"]; exists {
+		t.Fatalf("did not expect usage.snapshot chat usage %#v", detail.Events[5])
 	}
 	usageSnapshotCW, _ := detail.Events[5].Value("contextWindow").(map[string]any)
 	if toIntValue(usageSnapshotCW["maxSize"]) != 128000 || toIntValue(usageSnapshotCW["currentSize"]) != 100 || toIntValue(usageSnapshotCW["estimatedNextCallSize"]) != 200 {
@@ -4304,14 +4305,14 @@ func TestLoadChatReadsUsageFromStepLevel(t *testing.T) {
 	if toIntValue(llmUsage["promptTokens"]) != 100 || toIntValue(llmUsage["completionTokens"]) != 50 || toIntValue(llmUsage["totalTokens"]) != 150 {
 		t.Fatalf("unexpected debug.postCall usage %#v", detail.Events[6])
 	}
-	terminalUsage, _ := detail.Events[7].Value("usage").(map[string]any)
-	terminalRunUsage, _ := terminalUsage["run"].(map[string]any)
-	if toIntValue(terminalRunUsage["promptTokens"]) != 100 || toIntValue(terminalRunUsage["completionTokens"]) != 50 || toIntValue(terminalRunUsage["totalTokens"]) != 150 {
-		t.Fatalf("unexpected synthesized run.complete run usage %#v", detail.Events[7])
+	if _, exists := postCallUsage["runUsage"]; exists {
+		t.Fatalf("did not expect debug.postCall run usage %#v", detail.Events[6])
 	}
-	terminalChatUsage, _ := terminalUsage["chat"].(map[string]any)
-	if toIntValue(terminalChatUsage["promptTokens"]) != 100 || toIntValue(terminalChatUsage["completionTokens"]) != 50 || toIntValue(terminalChatUsage["totalTokens"]) != 150 {
-		t.Fatalf("unexpected synthesized run.complete chat usage %#v", detail.Events[7])
+	if _, exists := postCallUsage["chatUsage"]; exists {
+		t.Fatalf("did not expect debug.postCall chat usage %#v", detail.Events[6])
+	}
+	if _, exists := detail.Events[7].Value("usage").(map[string]any); exists {
+		t.Fatalf("did not expect synthesized run.complete usage %#v", detail.Events[7])
 	}
 }
 
@@ -4446,19 +4447,14 @@ func TestLoadChatReadsLegacySnakeCaseUsageFromStepLevel(t *testing.T) {
 	if _, exists := usageSnapshotCurrent["llmChatCompletionCount"]; exists {
 		t.Fatalf("did not expect usage.snapshot current llmChatCompletionCount %#v", detail.Events[4])
 	}
-	terminalUsage, _ := detail.Events[5].Value("usage").(map[string]any)
-	terminalRunUsage, _ := terminalUsage["run"].(map[string]any)
-	if toIntValue(terminalRunUsage["promptTokens"]) != 100 || toIntValue(terminalRunUsage["completionTokens"]) != 50 || toIntValue(terminalRunUsage["totalTokens"]) != 150 {
-		t.Fatalf("unexpected synthesized run.complete run usage %#v", detail.Events[5])
+	if _, exists := usageSnapshotUsage["run"]; exists {
+		t.Fatalf("did not expect usage.snapshot run usage %#v", detail.Events[4])
 	}
-	terminalRunPromptDetails, _ := terminalRunUsage["promptTokensDetails"].(map[string]any)
-	terminalRunCompletionDetails, _ := terminalRunUsage["completionTokensDetails"].(map[string]any)
-	if toIntValue(terminalRunPromptDetails["cachedTokens"]) != 32 || toIntValue(terminalRunCompletionDetails["reasoningTokens"]) != 8 ||
-		toIntValue(terminalRunUsage["promptCacheHitTokens"]) != 32 || toIntValue(terminalRunUsage["promptCacheMissTokens"]) != 68 {
-		t.Fatalf("unexpected synthesized run.complete detailed run usage %#v", detail.Events[5])
+	if _, exists := usageSnapshotUsage["chat"]; exists {
+		t.Fatalf("did not expect usage.snapshot chat usage %#v", detail.Events[4])
 	}
-	if toIntValue(terminalRunUsage["llmChatCompletionCount"]) != 1 {
-		t.Fatalf("unexpected synthesized run.complete llm chat completion count %#v", detail.Events[5])
+	if _, exists := detail.Events[5].Value("usage").(map[string]any); exists {
+		t.Fatalf("did not expect synthesized run.complete usage %#v", detail.Events[5])
 	}
 }
 
