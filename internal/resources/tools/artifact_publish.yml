@@ -1,6 +1,6 @@
 name: artifact_publish
 label: 发布产物
-description: Publish multiple artifacts generated during the current run, emitting a single batched artifact.publish SSE event for all successfully published outputs from this invocation. Use this when files are created first and then explicitly declared as outputs of the run. Pass only the source path; the published file name, extension, and MIME type are derived from the path.
+description: Publish files as user-visible artifacts for the current run. You MUST call this tool whenever you have generated, exported, or assembled a file that the user asked for or would reasonably expect as a deliverable, including Markdown, documents, reports, images, spreadsheets, code packages, and archives. Do not merely mention the file path or paste the file contents when a requested deliverable file exists; publish the file with this tool, then summarize it briefly. This emits a single batched artifact.publish SSE event for all successfully published outputs from this invocation. Pass only the source path; the published file name, extension, and MIME type are derived from the path.
 type: function
 clientVisible: false
 inputSchema:

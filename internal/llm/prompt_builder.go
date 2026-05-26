@@ -151,12 +151,10 @@ func buildRuntimeContextPrompt(session QuerySession, req api.QueryRequest) strin
 }
 
 func buildSystemEnvironmentSection(session QuerySession) string {
-	now := time.Now()
-	tz := now.Location().String()
+	tz := time.Local.String()
 	if tz == "Local" {
-		// Try to resolve a meaningful timezone name instead of "Local"
-		zone, _ := now.Zone()
-		if zone != "" {
+		// Try to resolve a meaningful timezone name instead of "Local".
+		if zone := strings.TrimSpace(os.Getenv("TZ")); zone != "" {
 			tz = zone
 		}
 	}
@@ -165,7 +163,6 @@ func buildSystemEnvironmentSection(session QuerySession) string {
 		"os: " + runtime.GOOS,
 		"arch: " + runtime.GOARCH,
 		"timezone: " + tz,
-		"datetime: " + now.Format(time.RFC3339),
 		"language: 中文",
 	}
 	appendContextPaths(&lines, session)
@@ -175,8 +172,6 @@ func buildSystemEnvironmentSection(session QuerySession) string {
 func buildSessionSection(session QuerySession, req api.QueryRequest) string {
 	lines := []string{"Runtime Context: Session"}
 	appendKeyValue(&lines, "chatId", session.ChatID)
-	appendKeyValue(&lines, "runId", session.RunID)
-	appendKeyValue(&lines, "requestId", session.RequestID)
 	appendKeyValue(&lines, "teamId", session.RuntimeContext.TeamID)
 	if summary := summarizeScene(session.RuntimeContext.Scene); summary != "" {
 		lines = append(lines, "scene: "+summary)

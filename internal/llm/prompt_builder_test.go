@@ -285,8 +285,11 @@ func TestBuildSessionSectionMergesContextAndAuth(t *testing.T) {
 	if !strings.Contains(section, "Runtime Context: Session") {
 		t.Fatalf("expected session header, got %q", section)
 	}
-	if !strings.Contains(section, "chatId: chat-1") || !strings.Contains(section, "runId: run-1") || !strings.Contains(section, "requestId: req-1") {
-		t.Fatalf("expected session identifiers in session section, got %q", section)
+	if !strings.Contains(section, "chatId: chat-1") {
+		t.Fatalf("expected chatId in session section, got %q", section)
+	}
+	if strings.Contains(section, "runId:") || strings.Contains(section, "requestId:") {
+		t.Fatalf("expected session section to exclude volatile run identifiers, got %q", section)
 	}
 	if !strings.Contains(section, "teamId: team-1") || !strings.Contains(section, "scene: title=ZenMind, url=https://example.com") {
 		t.Fatalf("expected team and scene in session section, got %q", section)
@@ -310,8 +313,6 @@ func TestBuildSessionSectionMergesContextAndAuth(t *testing.T) {
 	}
 	assertOrderedSubstrings(t, section, []string{
 		"chatId:",
-		"runId:",
-		"requestId:",
 		"teamId:",
 		"scene:",
 		"subject:",
@@ -374,6 +375,9 @@ func TestBuildSystemEnvironmentSectionUsesLocalPathsWithoutSandbox(t *testing.T)
 	}
 	if strings.Contains(section, "tools_dir:") || strings.Contains(section, "viewports_dir:") {
 		t.Fatalf("expected tools_dir and viewports_dir to be removed, got %q", section)
+	}
+	if strings.Contains(section, "datetime:") {
+		t.Fatalf("expected system environment to exclude datetime, got %q", section)
 	}
 	if strings.Contains(section, "chatId:") || strings.Contains(section, "runId:") || strings.Contains(section, "requestId:") {
 		t.Fatalf("expected system environment to exclude session identifiers, got %q", section)
@@ -455,7 +459,10 @@ func TestBuildSystemEnvironmentSectionUsesSandboxPathsWhenSandboxEnabled(t *test
 	if strings.Contains(section, "tools_dir:") || strings.Contains(section, "viewports_dir:") {
 		t.Fatalf("expected tools_dir and viewports_dir to be removed, got %q", section)
 	}
-	if strings.Contains(section, "chatId:") {
+	if strings.Contains(section, "datetime:") {
+		t.Fatalf("expected system environment to exclude datetime, got %q", section)
+	}
+	if strings.Contains(section, "chatId:") || strings.Contains(section, "runId:") || strings.Contains(section, "requestId:") {
 		t.Fatalf("expected system environment to exclude session identifiers, got %q", section)
 	}
 	assertOrderedSubstrings(t, section, []string{
@@ -561,8 +568,11 @@ func TestBuildSystemPromptSeparatesSystemEnvironmentAndSessionContext(t *testing
 	if !strings.Contains(prompt, "chat_dir: /Users/linlay/Project/zenmind/zenmind-env/chats/chat-1") {
 		t.Fatalf("expected final prompt to include chat dir, got %q", prompt)
 	}
-	if !strings.Contains(prompt, "chatId: chat-1") || !strings.Contains(prompt, "runId: run-1") || !strings.Contains(prompt, "requestId: req-1") {
-		t.Fatalf("expected final prompt to include session identifiers, got %q", prompt)
+	if !strings.Contains(prompt, "chatId: chat-1") {
+		t.Fatalf("expected final prompt to include chatId, got %q", prompt)
+	}
+	if strings.Contains(prompt, "runId:") || strings.Contains(prompt, "requestId:") {
+		t.Fatalf("expected final prompt to exclude volatile run identifiers, got %q", prompt)
 	}
 	sessionSection := prompt[sessionIndex:]
 	if strings.Contains(sessionSection, "workspace_dir:") || strings.Contains(sessionSection, "chat_dir:") {
@@ -574,6 +584,9 @@ func TestBuildSystemPromptSeparatesSystemEnvironmentAndSessionContext(t *testing
 	}
 	if strings.Contains(systemSection, "tools_dir:") || strings.Contains(systemSection, "viewports_dir:") {
 		t.Fatalf("expected system environment to exclude tools_dir and viewports_dir, got %q", systemSection)
+	}
+	if strings.Contains(systemSection, "datetime:") {
+		t.Fatalf("expected system environment to exclude datetime, got %q", systemSection)
 	}
 }
 

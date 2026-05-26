@@ -355,7 +355,7 @@ func TestStripToolAppendixPreservesOriginalDynamicSystemPrompt(t *testing.T) {
 	}}
 	appendix := buildToolAppendix(toolDefs, contracts.DefaultPromptAppendConfig(), true)
 	basePrompt := "Runtime Context: System Environment\n" +
-		"datetime: 2026-05-12T10:20:30+08:00\n\n" +
+		"timezone: Asia/Shanghai\n\n" +
 		"Agent instructions stay fixed"
 	systemPrompt := basePrompt + "\n\n" + appendix
 
