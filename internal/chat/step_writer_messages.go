@@ -43,7 +43,7 @@ func storedMessagesContainAssistant(messages []StoredMessage) bool {
 }
 
 func stepLineCanReuseReactSeq(line StepLine) bool {
-	return len(line.Messages) > 0 || len(line.Awaiting) > 0 || line.Approval != nil
+	return len(line.Messages) > 0 || len(line.Awaiting) > 0
 }
 
 func approvalMatchesToolMessages(approval *StepApproval, messages []StoredMessage) bool {
@@ -79,6 +79,42 @@ func approvalMatchesToolMessages(approval *StepApproval, messages []StoredMessag
 		}
 	}
 	return !sawDecisionID
+}
+
+func approvalAuditMessage(approval *StepApproval, ts int64) (StoredMessage, bool) {
+	if approval == nil {
+		return StoredMessage{}, false
+	}
+	notice := approval.LLMNotice
+	if strings.TrimSpace(notice) == "" {
+		notice = approval.Summary
+	}
+	if strings.TrimSpace(notice) == "" {
+		return StoredMessage{}, false
+	}
+	messageTS := ts
+	return StoredMessage{
+		Role:     "user",
+		Content:  textContent(notice),
+		Approval: cloneStepApproval(approval),
+		Ts:       &messageTS,
+	}, true
+}
+
+func cloneStepApproval(approval *StepApproval) *StepApproval {
+	if approval == nil {
+		return nil
+	}
+	cloned := *approval
+	if len(approval.Decisions) > 0 {
+		cloned.Decisions = append([]StepApprovalDecision(nil), approval.Decisions...)
+		for index := range cloned.Decisions {
+			if len(cloned.Decisions[index].Payload) > 0 {
+				cloned.Decisions[index].Payload = cloneStringAnyMap(cloned.Decisions[index].Payload)
+			}
+		}
+	}
+	return &cloned
 }
 
 func (w *StepWriter) ensureMsgID() {

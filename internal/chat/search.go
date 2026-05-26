@@ -172,6 +172,29 @@ func (s *FileStore) SearchSession(chatID string, query string, limit int) ([]Sea
 				}
 				role := stringValue(msg["role"])
 				text := searchMessageText(msg)
+				if approval, ok := msg["approval"].(map[string]any); ok {
+					approvalText := strings.TrimSpace(strings.Join([]string{
+						stringValue(approval["summary"]),
+						stringValue(approval["llmNotice"]),
+					}, "\n"))
+					if score := sessionSearchScore(approvalText, needle); score > 0 {
+						hitTimestamp := int64FromAny(msg["ts"])
+						if hitTimestamp == 0 {
+							hitTimestamp = ts
+						}
+						appendHit(SearchHit{
+							Kind:      "approval",
+							ChatID:    chatID,
+							RunID:     runID,
+							Stage:     stage,
+							Role:      role,
+							Timestamp: hitTimestamp,
+							Snippet:   buildSnippet(approvalText, needle),
+							Score:     score,
+						})
+					}
+					continue
+				}
 				if score := sessionSearchScore(text, needle); score > 0 {
 					hitTimestamp := int64FromAny(msg["ts"])
 					if hitTimestamp == 0 {
@@ -189,21 +212,6 @@ func (s *FileStore) SearchSession(chatID string, query string, limit int) ([]Sea
 						Meta: map[string]any{
 							"taskId": stringValue(line["taskId"]),
 						},
-					})
-				}
-			}
-			if approval, ok := line["approval"].(map[string]any); ok {
-				summary := stringValue(approval["summary"])
-				if score := sessionSearchScore(summary, needle); score > 0 {
-					appendHit(SearchHit{
-						Kind:      "approval",
-						ChatID:    chatID,
-						RunID:     runID,
-						Stage:     stage,
-						Role:      "user",
-						Timestamp: ts,
-						Snippet:   buildSnippet(summary, needle),
-						Score:     score,
 					})
 				}
 			}

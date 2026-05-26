@@ -103,7 +103,6 @@ type StepLine struct {
 	SystemRef       map[string]any   `json:"systemRef,omitempty"`
 	Debug           map[string]any   `json:"debug,omitempty"`
 	Messages        []StoredMessage  `json:"messages"`
-	Approval        *StepApproval    `json:"approval,omitempty"`
 	Awaiting        []map[string]any `json:"awaiting,omitempty"`
 	Usage           map[string]any   `json:"usage,omitempty"`
 	ContextWindow   map[string]any   `json:"contextWindow,omitempty"`
@@ -154,6 +153,7 @@ type SubmitLine struct {
 type StoredMessage struct {
 	Role             string           `json:"role"`
 	Content          []ContentPart    `json:"content,omitempty"`
+	Approval         *StepApproval    `json:"approval,omitempty"`
 	ReasoningContent []ContentPart    `json:"reasoning_content,omitempty"`
 	ToolCalls        []StoredToolCall `json:"tool_calls,omitempty"`
 	Name             string           `json:"name,omitempty"`

@@ -62,31 +62,12 @@ func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
 	}
 
 	var messages []map[string]any
-	var pendingApprovalSummaries []map[string]any
-	currentRunID := ""
-	flushPendingApprovalSummaries := func() {
-		if len(pendingApprovalSummaries) == 0 {
-			return
-		}
-		messages = append(messages, pendingApprovalSummaries...)
-		pendingApprovalSummaries = nil
-	}
-
 	for _, line := range lines {
 		lineType, _ := line["_type"].(string)
 		runID, _ := line["runId"].(string)
 
-		if currentRunID == "" {
-			currentRunID = runID
-		} else if runID != "" && runID != currentRunID {
-			flushPendingApprovalSummaries()
-			currentRunID = runID
-		}
-
 		switch lineType {
 		case "query":
-			flushPendingApprovalSummaries()
-			currentRunID = runID
 			query, _ := line["query"].(map[string]any)
 			if query == nil {
 				continue
@@ -130,23 +111,8 @@ func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
 				}
 				messages = append(messages, msg)
 			}
-			if approval, ok := line["approval"].(map[string]any); ok {
-				notice := stringValue(approval["llmNotice"])
-				if notice == "" {
-					notice = stringValue(approval["summary"])
-				}
-				if notice != "" {
-					pendingApprovalSummaries = append(pendingApprovalSummaries, map[string]any{
-						"runId":   runID,
-						"role":    "user",
-						"content": notice,
-						"ts":      line["updatedAt"],
-					})
-				}
-			}
 		}
 	}
-	flushPendingApprovalSummaries()
 	return messages
 }
 

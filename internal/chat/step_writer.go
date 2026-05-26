@@ -468,19 +468,24 @@ func (w *StepWriter) flushCurrentStep() {
 		return
 	}
 
+	updatedAt := time.Now().UnixMilli()
+	messages := append([]StoredMessage(nil), w.messages...)
+	if w.pendingApproval != nil && approvalMatchesToolMessages(w.pendingApproval, messages) {
+		if approvalMessage, ok := approvalAuditMessage(w.pendingApproval, updatedAt); ok {
+			messages = append(messages, approvalMessage)
+		}
+		w.pendingApproval = nil
+	}
+
 	line := StepLine{
 		ChatID:    w.chatID,
 		RunID:     w.runID,
-		UpdatedAt: time.Now().UnixMilli(),
-		Messages:  w.messages,
+		UpdatedAt: updatedAt,
+		Messages:  messages,
 	}
 	if len(w.pendingAwaiting) > 0 {
 		line.Awaiting = w.pendingAwaiting
 		w.pendingAwaiting = nil
-	}
-	if w.pendingApproval != nil && approvalMatchesToolMessages(w.pendingApproval, w.messages) {
-		line.Approval = w.pendingApproval
-		w.pendingApproval = nil
 	}
 	if w.pendingUsage != nil {
 		line.Usage = w.pendingUsage
@@ -516,7 +521,6 @@ func (w *StepWriter) flushCurrentStep() {
 		w.assignReactSeq(&line)
 	}
 
-	line.Messages = append([]StoredMessage(nil), w.messages...)
 	_ = w.store.AppendStepLine(w.chatID, line)
 	w.messages = nil
 	w.pendingUsage = nil

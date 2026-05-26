@@ -1483,16 +1483,24 @@ func TestStepWriterReusesReactSeqForSplitHITLToolResult(t *testing.T) {
 	if toolStep["_type"] != "react" || toIntValue(toolStep["seq"]) != 1 {
 		t.Fatalf("expected split tool result step to reuse seq=1, got %#v", toolStep)
 	}
-	if _, ok := toolStep["approval"].(map[string]any); !ok {
-		t.Fatalf("expected approval sidecar on tool result step, got %#v", toolStep)
+	if _, ok := toolStep["approval"]; ok {
+		t.Fatalf("did not expect approval sidecar on tool result step, got %#v", toolStep)
 	}
 	toolMessages, _ := toolStep["messages"].([]any)
-	if len(toolMessages) != 1 {
-		t.Fatalf("expected one tool message, got %#v", toolStep)
+	if len(toolMessages) != 2 {
+		t.Fatalf("expected tool message followed by inline approval message, got %#v", toolStep)
 	}
 	toolMessage, _ := toolMessages[0].(map[string]any)
 	if toolMessage["role"] != "tool" {
 		t.Fatalf("expected split step role=tool, got %#v", toolMessage)
+	}
+	approvalMessage, _ := toolMessages[1].(map[string]any)
+	if approvalMessage["role"] != "user" {
+		t.Fatalf("expected inline approval user message, got %#v", approvalMessage)
+	}
+	approval, ok := approvalMessage["approval"].(map[string]any)
+	if !ok || approval["summary"] != `[HITL] git push origin main -> approve` {
+		t.Fatalf("expected inline approval metadata, got %#v", approvalMessage)
 	}
 	finalStep := lines[3]
 	if finalStep["_type"] != "react" || toIntValue(finalStep["seq"]) != 2 {
@@ -2848,7 +2856,7 @@ func TestStepWriterPersistsAwaitingWithoutMessages(t *testing.T) {
 	}
 }
 
-func TestStepWriterPersistsApprovalSidecarOnStepLine(t *testing.T) {
+func TestStepWriterPersistsInlineApprovalMessage(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
@@ -2891,19 +2899,29 @@ func TestStepWriterPersistsApprovalSidecarOnStepLine(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("expected one step line, got %#v", lines)
 	}
-	if _, ok := lines[0]["approval"].(map[string]any); !ok {
-		t.Fatalf("expected approval sidecar on step line, got %#v", lines[0])
-	}
-	approval, _ := lines[0]["approval"].(map[string]any)
-	if _, ok := approval["ruleKey"]; ok {
-		t.Fatalf("did not expect top-level approval.ruleKey, got %#v", approval)
-	}
-	if approval["summary"] != `[HITL] chmod 777 ~/a.sh → approve` || approval["llmNotice"] != `[System audit — HITL approval batch]` {
-		t.Fatalf("expected approval summary and llmNotice sidecar, got %#v", approval)
+	if _, ok := lines[0]["approval"]; ok {
+		t.Fatalf("did not expect top-level approval sidecar on step line, got %#v", lines[0])
 	}
 	messages, _ := lines[0]["messages"].([]any)
-	if len(messages) != 2 {
-		t.Fatalf("expected only tool snapshot and tool result messages, got %#v", lines[0])
+	if len(messages) != 3 {
+		t.Fatalf("expected tool snapshot, tool result, and approval message, got %#v", lines[0])
+	}
+	approvalMessage, _ := messages[2].(map[string]any)
+	if approvalMessage["role"] != "user" {
+		t.Fatalf("expected inline approval user message after tool result, got %#v", approvalMessage)
+	}
+	if text := extractTextFromContent(approvalMessage["content"]); text != `[System audit — HITL approval batch]` {
+		t.Fatalf("expected approval llmNotice as message content, got %#v", approvalMessage)
+	}
+	approval, ok := approvalMessage["approval"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected approval metadata on inline user message, got %#v", approvalMessage)
+	}
+	if _, ok := approval["ruleKey"]; ok {
+		t.Fatalf("did not expect approval.ruleKey outside decisions, got %#v", approval)
+	}
+	if approval["summary"] != `[HITL] chmod 777 ~/a.sh → approve` || approval["llmNotice"] != `[System audit — HITL approval batch]` {
+		t.Fatalf("expected approval summary and llmNotice metadata, got %#v", approval)
 	}
 }
 
@@ -2957,9 +2975,20 @@ func TestStepWriterPersistsFormApprovalDecisionPayload(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("expected one step line, got %#v", lines)
 	}
-	approval, ok := lines[0]["approval"].(map[string]any)
+	if _, ok := lines[0]["approval"]; ok {
+		t.Fatalf("did not expect top-level approval sidecar on step line, got %#v", lines[0])
+	}
+	messages, _ := lines[0]["messages"].([]any)
+	if len(messages) != 3 {
+		t.Fatalf("expected inline approval message after tool result, got %#v", lines[0])
+	}
+	approvalMessage, _ := messages[2].(map[string]any)
+	if approvalMessage["role"] != "user" {
+		t.Fatalf("expected inline approval user message, got %#v", approvalMessage)
+	}
+	approval, ok := approvalMessage["approval"].(map[string]any)
 	if !ok {
-		t.Fatalf("expected approval sidecar on step line, got %#v", lines[0])
+		t.Fatalf("expected approval metadata on inline user message, got %#v", approvalMessage)
 	}
 	if approval["summary"] == approval["llmNotice"] || approval["llmNotice"] == "" {
 		t.Fatalf("expected distinct persisted form approval llmNotice, got %#v", approval)
@@ -2981,7 +3010,7 @@ func TestStepWriterPersistsFormApprovalDecisionPayload(t *testing.T) {
 	}
 }
 
-func TestLoadRawMessagesReplaysApprovalSummaryFromStepLine(t *testing.T) {
+func TestLoadRawMessagesReplaysInlineApprovalMessage(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
@@ -2993,6 +3022,20 @@ func TestLoadRawMessagesReplaysApprovalSummaryFromStepLine(t *testing.T) {
 
 	toolTs := int64(5001)
 	resultTs := int64(5002)
+	approvalTs := int64(5003)
+	approval := &StepApproval{
+		Summary: `[HITL] chmod 777 ~/a.sh → approve`,
+		LLMNotice: `[System audit — HITL approval batch]
+The user reviewed the following tool call(s) and submitted decisions:
+1. tool=bash command="chmod 777 ~/a.sh" decision=approve reason=""
+The tool results above already reflect these decisions; do not re-prompt for approval and do not retry rejected calls.`,
+		Decisions: []StepApprovalDecision{{
+			ToolID:   "tool-1",
+			Command:  "chmod 777 ~/a.sh",
+			Decision: "approve",
+			RuleKey:  "dangerous-commands::chmod",
+		}},
+	}
 	if err := store.AppendStepLine("chat-approval-raw", StepLine{
 		ChatID:    "chat-approval-raw",
 		RunID:     "run-approval-raw",
@@ -3022,19 +3065,12 @@ func TestLoadRawMessagesReplaysApprovalSummaryFromStepLine(t *testing.T) {
 				ToolID:     "tool-1",
 				Ts:         &resultTs,
 			},
-		},
-		Approval: &StepApproval{
-			Summary: `[HITL] chmod 777 ~/a.sh → approve`,
-			LLMNotice: `[System audit — HITL approval batch]
-The user reviewed the following tool call(s) and submitted decisions:
-1. tool=bash command="chmod 777 ~/a.sh" decision=approve reason=""
-The tool results above already reflect these decisions; do not re-prompt for approval and do not retry rejected calls.`,
-			Decisions: []StepApprovalDecision{{
-				ToolID:   "tool-1",
-				Command:  "chmod 777 ~/a.sh",
-				Decision: "approve",
-				RuleKey:  "dangerous-commands::chmod",
-			}},
+			{
+				Role:     "user",
+				Content:  textContent(approval.LLMNotice),
+				Approval: approval,
+				Ts:       &approvalTs,
+			},
 		},
 	}); err != nil {
 		t.Fatalf("append step line: %v", err)
@@ -3056,16 +3092,19 @@ The user reviewed the following tool call(s) and submitted decisions:
 The tool results above already reflect these decisions; do not re-prompt for approval and do not retry rejected calls.` {
 		t.Fatalf("expected approval LLM notice replayed as user raw message, got %#v", rawMessages[2])
 	}
+	if approvalMeta, ok := rawMessages[2]["approval"].(map[string]any); !ok || approvalMeta["summary"] != `[HITL] chmod 777 ~/a.sh → approve` {
+		t.Fatalf("expected raw message to retain approval metadata, got %#v", rawMessages[2])
+	}
 
 	detail, err := store.LoadChat("chat-approval-raw")
 	if err != nil {
 		t.Fatalf("load chat: %v", err)
 	}
 	if len(detail.RawMessages) != 3 {
-		t.Fatalf("expected load chat raw messages to include synthetic approval summary, got %#v", detail.RawMessages)
+		t.Fatalf("expected load chat raw messages to include inline approval message, got %#v", detail.RawMessages)
 	}
 	if detail.RawMessages[2]["role"] != "user" {
-		t.Fatalf("expected synthetic approval summary at end of raw messages, got %#v", detail.RawMessages)
+		t.Fatalf("expected inline approval message at end of raw messages, got %#v", detail.RawMessages)
 	}
 }
 
@@ -3081,6 +3120,22 @@ func TestLoadRawMessagesReplaysAutoApprovalSummaryFromStepLine(t *testing.T) {
 
 	toolTs := int64(6001)
 	resultTs := int64(6002)
+	approvalTs := int64(6003)
+	approval := &StepApproval{
+		Summary: `[AUTO] file_read /tmp/secret.txt → auto_approved（accessLevel=auto_approve）`,
+		LLMNotice: `[System audit — auto approval]
+The system auto-approved the following tool call(s) because accessLevel=auto_approve applies automatic approval to reviewable access-policy checks:
+1. tool=file_read command="file_read /tmp/secret.txt" decision=auto_approved reason="accessLevel=auto_approve"
+The tool results above already reflect these automatic approvals; do not re-prompt for approval.`,
+		Decisions: []StepApprovalDecision{{
+			ToolID:   "tool-1",
+			Command:  "file_read /tmp/secret.txt",
+			Decision: "auto_approved",
+			RuleKey:  "file-read::outside",
+			Reason:   "accessLevel=auto_approve",
+			Mode:     "approval",
+		}},
+	}
 	if err := store.AppendStepLine("chat-auto-approval-raw", StepLine{
 		ChatID:    "chat-auto-approval-raw",
 		RunID:     "run-auto-approval-raw",
@@ -3110,21 +3165,12 @@ func TestLoadRawMessagesReplaysAutoApprovalSummaryFromStepLine(t *testing.T) {
 				ToolID:     "tool-1",
 				Ts:         &resultTs,
 			},
-		},
-		Approval: &StepApproval{
-			Summary: `[AUTO] file_read /tmp/secret.txt → auto_approved（accessLevel=auto_approve）`,
-			LLMNotice: `[System audit — auto approval]
-The system auto-approved the following tool call(s) because accessLevel=auto_approve applies automatic approval to reviewable access-policy checks:
-1. tool=file_read command="file_read /tmp/secret.txt" decision=auto_approved reason="accessLevel=auto_approve"
-The tool results above already reflect these automatic approvals; do not re-prompt for approval.`,
-			Decisions: []StepApprovalDecision{{
-				ToolID:   "tool-1",
-				Command:  "file_read /tmp/secret.txt",
-				Decision: "auto_approved",
-				RuleKey:  "file-read::outside",
-				Reason:   "accessLevel=auto_approve",
-				Mode:     "approval",
-			}},
+			{
+				Role:     "user",
+				Content:  textContent(approval.LLMNotice),
+				Approval: approval,
+				Ts:       &approvalTs,
+			},
 		},
 	}); err != nil {
 		t.Fatalf("append step line: %v", err)
@@ -3140,6 +3186,18 @@ The tool results above already reflect these automatic approvals; do not re-prom
 	if rawMessages[2]["role"] != "user" || !strings.Contains(stringValue(rawMessages[2]["content"]), "decision=auto_approved") {
 		t.Fatalf("expected auto approval LLM notice replayed as user raw message, got %#v", rawMessages[2])
 	}
+	approvalMeta, ok := rawMessages[2]["approval"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected raw auto approval metadata, got %#v", rawMessages[2])
+	}
+	decisions, _ := approvalMeta["decisions"].([]any)
+	if len(decisions) != 1 {
+		t.Fatalf("expected one raw auto approval decision, got %#v", rawMessages[2])
+	}
+	decision, _ := decisions[0].(map[string]any)
+	if decision["decision"] != "auto_approved" {
+		t.Fatalf("expected auto_approved decision metadata, got %#v", rawMessages[2])
+	}
 }
 
 func TestLoadRawMessagesReplaysSplitApprovalSummaryAfterToolResult(t *testing.T) {
@@ -3154,6 +3212,20 @@ func TestLoadRawMessagesReplaysSplitApprovalSummaryAfterToolResult(t *testing.T)
 
 	toolTs := int64(5001)
 	resultTs := int64(5002)
+	approvalTs := int64(5003)
+	approval := &StepApproval{
+		Summary: `[HITL] mock create-leave → reject（timeout）`,
+		LLMNotice: `[System audit — HITL approval batch]
+The user reviewed the following tool call(s) and submitted decisions:
+1. tool=bash command="mock create-leave" decision=reject reason="timeout"
+The tool results above already reflect these decisions; do not re-prompt for approval and do not retry rejected calls.`,
+		Decisions: []StepApprovalDecision{{
+			ToolID:   "tool-1",
+			Command:  "mock create-leave",
+			Decision: "reject",
+			RuleKey:  "leave::create",
+		}},
+	}
 	if err := store.AppendStepLine("chat-approval-split", StepLine{
 		ChatID:    "chat-approval-split",
 		RunID:     "run-approval-split",
@@ -3174,21 +3246,8 @@ func TestLoadRawMessagesReplaysSplitApprovalSummaryAfterToolResult(t *testing.T)
 			MsgID:  "msg-1",
 			Ts:     &toolTs,
 		}},
-		Approval: &StepApproval{
-			Summary: `[HITL] mock create-leave → reject（timeout）`,
-			LLMNotice: `[System audit — HITL approval batch]
-The user reviewed the following tool call(s) and submitted decisions:
-1. tool=bash command="mock create-leave" decision=reject reason="timeout"
-The tool results above already reflect these decisions; do not re-prompt for approval and do not retry rejected calls.`,
-			Decisions: []StepApprovalDecision{{
-				ToolID:   "tool-1",
-				Command:  "mock create-leave",
-				Decision: "reject",
-				RuleKey:  "leave::create",
-			}},
-		},
 	}); err != nil {
-		t.Fatalf("append split approval step line: %v", err)
+		t.Fatalf("append assistant step line: %v", err)
 	}
 	if err := store.AppendStepLine("chat-approval-split", StepLine{
 		ChatID:    "chat-approval-split",
@@ -3203,6 +3262,11 @@ The tool results above already reflect these decisions; do not re-prompt for app
 			Content:    []ContentPart{{Type: "text", Text: `{"error":"hitl_timeout"}`}},
 			ToolID:     "tool-1",
 			Ts:         &resultTs,
+		}, {
+			Role:     "user",
+			Content:  textContent(approval.LLMNotice),
+			Approval: approval,
+			Ts:       &approvalTs,
 		}},
 	}); err != nil {
 		t.Fatalf("append tool result step line: %v", err)
@@ -3226,7 +3290,7 @@ The tool results above already reflect these decisions; do not re-prompt for app
 	}
 }
 
-func TestLoadRawMessagesFallsBackToApprovalSummaryWithoutLLMNotice(t *testing.T) {
+func TestLoadRawMessagesIgnoresLegacyTopLevelApproval(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
@@ -3236,35 +3300,35 @@ func TestLoadRawMessagesFallsBackToApprovalSummaryWithoutLLMNotice(t *testing.T)
 		t.Fatalf("ensure chat: %v", err)
 	}
 
-	if err := store.AppendStepLine("chat-approval-legacy-summary", StepLine{
-		ChatID:    "chat-approval-legacy-summary",
-		RunID:     "run-approval-legacy-summary",
-		UpdatedAt: 5003,
-		Type:      "react",
-		Seq:       1,
-		Messages: []StoredMessage{{
-			Role:       "tool",
-			Name:       "bash",
-			ToolCallID: "tool-1",
-			Content:    []ContentPart{{Type: "text", Text: "ok"}},
-			ToolID:     "tool-1",
+	if err := store.appendJSONLine(store.chatJSONLPath("chat-approval-legacy-summary"), map[string]any{
+		"chatId":    "chat-approval-legacy-summary",
+		"runId":     "run-approval-legacy-summary",
+		"updatedAt": 5003,
+		"_type":     "react",
+		"seq":       1,
+		"messages": []any{map[string]any{
+			"role":         "tool",
+			"name":         "bash",
+			"tool_call_id": "tool-1",
+			"content":      []any{map[string]any{"type": "text", "text": "ok"}},
+			"_toolId":      "tool-1",
 		}},
-		Approval: &StepApproval{
-			Summary: `[HITL] legacy approval`,
+		"approval": map[string]any{
+			"summary": `[HITL] legacy approval`,
 		},
 	}); err != nil {
-		t.Fatalf("append step line: %v", err)
+		t.Fatalf("append legacy step line: %v", err)
 	}
 
 	rawMessages, err := store.LoadRawMessages("chat-approval-legacy-summary", 5)
 	if err != nil {
 		t.Fatalf("load raw messages: %v", err)
 	}
-	if len(rawMessages) != 2 {
-		t.Fatalf("expected tool and fallback summary messages, got %#v", rawMessages)
+	if len(rawMessages) != 1 {
+		t.Fatalf("expected only the tool message; legacy top-level approval must be ignored, got %#v", rawMessages)
 	}
-	if rawMessages[1]["role"] != "user" || rawMessages[1]["content"] != `[HITL] legacy approval` {
-		t.Fatalf("expected legacy approval summary fallback, got %#v", rawMessages)
+	if rawMessages[0]["role"] != "tool" || rawMessages[0]["content"] != "ok" {
+		t.Fatalf("expected tool message without synthesized approval fallback, got %#v", rawMessages)
 	}
 }
 
@@ -3300,11 +3364,14 @@ func TestLoadRawMessagesFlushesApprovalSummaryBeforeNextRun(t *testing.T) {
 			Role:    "assistant",
 			Content: []ContentPart{{Type: "text", Text: "first reply"}},
 			MsgID:   "msg-1",
+		}, {
+			Role:    "user",
+			Content: textContent("[System audit — HITL approval batch]\nfirst approval"),
+			Approval: &StepApproval{
+				Summary:   "[HITL] first approval",
+				LLMNotice: "[System audit — HITL approval batch]\nfirst approval",
+			},
 		}},
-		Approval: &StepApproval{
-			Summary:   "[HITL] first approval",
-			LLMNotice: "[System audit — HITL approval batch]\nfirst approval",
-		},
 	}); err != nil {
 		t.Fatalf("append first step line: %v", err)
 	}
