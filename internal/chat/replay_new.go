@@ -351,6 +351,54 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 				}
 				rd.events = append(rd.events, stream.EventDataFromMap(answer))
 			}
+		case "compact":
+			data, _ := json.Marshal(line)
+			var compact CompactLine
+			if err := json.Unmarshal(data, &compact); err != nil || strings.TrimSpace(compact.CompactID) == "" {
+				continue
+			}
+			if strings.TrimSpace(runID) == "" {
+				runID = strings.TrimSpace(compact.BoundaryRunID)
+			}
+			if strings.TrimSpace(runID) == "" {
+				runID = strings.TrimSpace(summary.LastRunID)
+			}
+			rd := ensureRun(runs, &runOrder, runID)
+			payload := map[string]any{
+				"chatId":                     compact.ChatID,
+				"runId":                      runID,
+				"compactId":                  compact.CompactID,
+				"boundaryRunId":              compact.BoundaryRunID,
+				"boundarySeq":                compact.BoundarySeq,
+				"generation":                 compact.Generation,
+				"summarySource":              compact.SummarySource,
+				"keptRunCount":               compact.KeptRunCount,
+				"compactedRunCount":          compact.CompactedRunCount,
+				"toolDigestCount":            len(compact.ToolDigests),
+				"digestedRunIds":             append([]string(nil), compact.DigestedRunIDs...),
+				"originalMessages":           compact.OriginalMessages,
+				"projectedMessages":          compact.ProjectedMessages,
+				"preCompactEstimatedTokens":  compact.PreCompactTokens,
+				"postCompactEstimatedTokens": compact.PostCompactTokens,
+				"compressionRatio":           compact.CompressionRatio,
+				"elapsedMs":                  compact.ElapsedMs,
+				"trigger":                    compact.Trigger,
+			}
+			if len(compact.CompactionUsage) > 0 {
+				payload["compactionUsage"] = compact.CompactionUsage
+			}
+			if len(compact.CacheMetrics) > 0 {
+				payload["cacheMetrics"] = compact.CacheMetrics
+			}
+			if strings.TrimSpace(compact.Error) != "" {
+				payload["error"] = compact.Error
+			}
+			rd.events = append(rd.events, stream.EventData{
+				Seq:       nextSeq(),
+				Type:      "context.compact.complete",
+				Timestamp: compact.UpdatedAt,
+				Payload:   payload,
+			})
 		case "planning":
 			event, _ := line["event"].(map[string]any)
 			if len(event) == 0 {

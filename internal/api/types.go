@@ -223,6 +223,38 @@ type RememberResponse struct {
 	Stored        []StoredMemoryResponse `json:"stored,omitempty"`
 }
 
+type CompactRequest struct {
+	RequestID string `json:"requestId,omitempty"`
+	ChatID    string `json:"chatId"`
+	AgentKey  string `json:"agentKey,omitempty"`
+	Trigger   string `json:"trigger,omitempty"`
+}
+
+type CompactResponse struct {
+	Accepted          bool           `json:"accepted"`
+	Status            string         `json:"status"`
+	RequestID         string         `json:"requestId,omitempty"`
+	ChatID            string         `json:"chatId"`
+	CompactID         string         `json:"compactId,omitempty"`
+	SummarySource     string         `json:"summarySource,omitempty"`
+	BoundaryRunID     string         `json:"boundaryRunId,omitempty"`
+	BoundarySeq       int            `json:"boundarySeq,omitempty"`
+	Generation        int            `json:"generation,omitempty"`
+	KeptRunCount      int            `json:"keptRunCount,omitempty"`
+	CompactedRunCount int            `json:"compactedRunCount,omitempty"`
+	ToolDigestCount   int            `json:"toolDigestCount,omitempty"`
+	DigestedRunIDs    []string       `json:"digestedRunIds,omitempty"`
+	OriginalMessages  int            `json:"originalMessages,omitempty"`
+	ProjectedMessages int            `json:"projectedMessages,omitempty"`
+	PreCompactTokens  int            `json:"preCompactEstimatedTokens,omitempty"`
+	PostCompactTokens int            `json:"postCompactEstimatedTokens,omitempty"`
+	CompressionRatio  float64        `json:"compressionRatio,omitempty"`
+	CompactionUsage   map[string]any `json:"compactionUsage,omitempty"`
+	CacheMetrics      map[string]any `json:"cacheMetrics,omitempty"`
+	ElapsedMs         int64          `json:"elapsedMs,omitempty"`
+	Detail            string         `json:"detail,omitempty"`
+}
+
 type RememberItemResponse struct {
 	Summary    string `json:"summary"`
 	SubjectKey string `json:"subjectKey,omitempty"`

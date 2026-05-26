@@ -259,6 +259,7 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/submit", s.method(http.MethodPost, s.handleSubmit))
 	s.router.HandleFunc("/api/steer", s.method(http.MethodPost, s.handleSteer))
 	s.router.HandleFunc("/api/interrupt", s.method(http.MethodPost, s.handleInterrupt))
+	s.router.HandleFunc("/api/compact", s.method(http.MethodPost, s.handleCompact))
 	s.router.HandleFunc("/api/remember", s.method(http.MethodPost, s.handleRemember))
 	s.router.HandleFunc("/api/learn", s.method(http.MethodPost, s.handleLearn))
 	s.router.HandleFunc("/api/memory/meta", s.method(http.MethodGet, s.handleMemoryMeta))

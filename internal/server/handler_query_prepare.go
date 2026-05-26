@@ -153,6 +153,9 @@ func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
 	}
 	applyCoderConfigToSession(req.CoderConfig, &session)
 	applyQueryModelOptionsToSession(req.Model, &session)
+	if !created {
+		s.maybeAutoCompact(r.Context(), req, summary, agentDef, &session)
+	}
 	systemInitLines, err := s.prepareSystemInitCache(req, &session, created)
 	if err != nil {
 		return preparedQuery{}, err

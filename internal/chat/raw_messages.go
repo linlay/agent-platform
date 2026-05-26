@@ -6,45 +6,15 @@ import (
 
 // LoadRawMessages loads conversation history from {chatId}.jsonl step lines.
 func (s *FileStore) LoadRawMessages(chatID string, k int) ([]map[string]any, error) {
-	if k <= 0 {
-		k = 20
+	lines, err := readJSONLines(s.chatJSONLPath(chatID))
+	if err != nil || len(lines) == 0 {
+		return nil, err
 	}
-
-	messages := s.loadRawMessagesFromJSONL(chatID)
+	messages := rawMessagesWithCompactProjection(lines, k)
 	if len(messages) == 0 {
 		return nil, nil
 	}
-
-	// Group by runId, keep last K runs (sliding window)
-	type runBucket struct {
-		runID    string
-		messages []map[string]any
-	}
-	var runs []*runBucket
-	runIndex := map[string]*runBucket{}
-	for _, msg := range messages {
-		runID, _ := msg["runId"].(string)
-		if runID == "" {
-			bucket := &runBucket{messages: []map[string]any{msg}}
-			runs = append(runs, bucket)
-			continue
-		}
-		bucket, ok := runIndex[runID]
-		if !ok {
-			bucket = &runBucket{runID: runID}
-			runIndex[runID] = bucket
-			runs = append(runs, bucket)
-		}
-		bucket.messages = append(bucket.messages, msg)
-	}
-	if len(runs) > k {
-		runs = runs[len(runs)-k:]
-	}
-	var result []map[string]any
-	for _, bucket := range runs {
-		result = append(result, bucket.messages...)
-	}
-	return result, nil
+	return messages, nil
 }
 
 // loadRawMessagesFromJSONL extracts OpenAI-format messages from step lines.
@@ -53,7 +23,7 @@ func (s *FileStore) loadRawMessagesFromJSONL(chatID string) []map[string]any {
 	if err != nil || len(lines) == 0 {
 		return nil
 	}
-	return rawMessagesFromJSONLLines(lines)
+	return rawMessagesWithCompactProjection(lines, 20)
 }
 
 func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {

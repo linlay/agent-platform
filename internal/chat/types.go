@@ -147,6 +147,43 @@ type SubmitLine struct {
 	Type      string         `json:"_type"`
 }
 
+type CompactLine struct {
+	Type              string         `json:"_type"`
+	ChatID            string         `json:"chatId"`
+	RunID             string         `json:"runId,omitempty"`
+	CompactID         string         `json:"compactId"`
+	UpdatedAt         int64          `json:"updatedAt"`
+	BoundaryRunID     string         `json:"boundaryRunId,omitempty"`
+	BoundarySeq       int            `json:"boundarySeq"`
+	Generation        int            `json:"generation,omitempty"`
+	Summary           string         `json:"summary"`
+	SummarySource     string         `json:"summarySource"`
+	KeptRunCount      int            `json:"keptRunCount"`
+	CompactedRunCount int            `json:"compactedRunCount,omitempty"`
+	ToolDigests       []ToolDigest   `json:"toolDigests,omitempty"`
+	DigestedRunIDs    []string       `json:"digestedRunIds,omitempty"`
+	CompactionUsage   map[string]any `json:"compactionUsage,omitempty"`
+	CacheMetrics      map[string]any `json:"cacheMetrics,omitempty"`
+	Error             string         `json:"error,omitempty"`
+	Trigger           string         `json:"trigger,omitempty"`
+	OriginalMessages  int            `json:"originalMessages,omitempty"`
+	ProjectedMessages int            `json:"projectedMessages,omitempty"`
+	PreCompactTokens  int            `json:"preCompactEstimatedTokens,omitempty"`
+	PostCompactTokens int            `json:"postCompactEstimatedTokens,omitempty"`
+	CompressionRatio  float64        `json:"compressionRatio,omitempty"`
+	ElapsedMs         int64          `json:"elapsedMs,omitempty"`
+}
+
+type ToolDigest struct {
+	RunID         string `json:"runId,omitempty"`
+	ToolCallID    string `json:"toolCallId,omitempty"`
+	ToolName      string `json:"toolName,omitempty"`
+	OriginalChars int    `json:"originalChars"`
+	DigestChars   int    `json:"digestChars"`
+	SHA256        string `json:"sha256"`
+	Kind          string `json:"kind"`
+}
+
 // ---------------------------------------------------------------------------
 // StoredMessage — one message inside a StepLine.messages array
 // ---------------------------------------------------------------------------

@@ -34,6 +34,14 @@ func (s *FileStore) AppendSubmitLine(chatID string, line SubmitLine) error {
 	return s.appendJSONLine(s.chatJSONLPath(chatID), line)
 }
 
+func (s *FileStore) AppendCompactLine(chatID string, line CompactLine) error {
+	line.Type = "compact"
+	if strings.TrimSpace(line.ChatID) == "" {
+		line.ChatID = chatID
+	}
+	return s.appendJSONLine(s.chatJSONLPath(chatID), line)
+}
+
 func (s *FileStore) AppendSystemInitLine(chatID string, line SystemInitLine) error {
 	line.Type = "system"
 	if strings.TrimSpace(line.ChatID) == "" {
