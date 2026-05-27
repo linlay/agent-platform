@@ -53,8 +53,8 @@ func TestLLMChatTraceWritesSimpleCompletion(t *testing.T) {
 	if response["content"] != "hello world" || response["finishReason"] != "stop" {
 		t.Fatalf("unexpected response: %#v", response)
 	}
-	if _, err := os.Stat(filepath.Join(recordDir, "run_trace_2.json")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("did not expect run_trace_2.json, stat err=%v", err)
+	if _, err := os.Stat(filepath.Join(recordDir, "run_trace_002.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("did not expect run_trace_002.json, stat err=%v", err)
 	}
 }
 
@@ -203,6 +203,21 @@ func TestSafeTraceRunID(t *testing.T) {
 	}
 }
 
+func TestTraceFileNameUsesSortableThreeDigitSequence(t *testing.T) {
+	tests := map[int]string{
+		0:    "abc123_001.json",
+		1:    "abc123_001.json",
+		10:   "abc123_010.json",
+		999:  "abc123_999.json",
+		1000: "abc123_999.json",
+	}
+	for seq, want := range tests {
+		if got := traceFileName("abc123", seq); got != want {
+			t.Fatalf("traceFileName(seq=%d)=%q want %q", seq, got, want)
+		}
+	}
+}
+
 func newTraceTestEngine(t *testing.T, recordDir string, baseURL string, executor contracts.ToolExecutor) *LLMAgentEngine {
 	t.Helper()
 	if executor == nil {
@@ -265,7 +280,7 @@ func drainTraceTestStream(t *testing.T, stream contracts.AgentStream) {
 
 func readTraceFile(t *testing.T, recordDir string, seq int) map[string]any {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(recordDir, "run_trace_"+strconvItoa(seq)+".json"))
+	data, err := os.ReadFile(filepath.Join(recordDir, traceFileName("run_trace", seq)))
 	if err != nil {
 		t.Fatalf("read trace file: %v", err)
 	}

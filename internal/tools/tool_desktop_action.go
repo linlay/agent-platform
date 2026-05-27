@@ -3,14 +3,24 @@ package tools
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 )
+
+const desktopCdpCaptureScreenshotMethod = "Page.captureScreenshot"
+const desktopCdpScreenshotMimeType = "image/png"
 
 var desktopActionAllowlist = map[string]bool{
 	"desktop.navigate.toRoute":                 true,
@@ -137,7 +147,11 @@ func (t *RuntimeToolExecutor) invokeDesktopCDP(ctx context.Context, args map[str
 		SurfaceID: strings.TrimSpace(stringArg(args, "surfaceId")),
 		Source:    buildDesktopActionSource(execCtx),
 	}
-	return t.invokeDesktopBridge(ctx, t.cfg.Desktop.CDP, payload, "desktop_cdp")
+	result, err := t.invokeDesktopBridge(ctx, t.cfg.Desktop.CDP, payload, "desktop_cdp")
+	if err != nil || method != desktopCdpCaptureScreenshotMethod || result.ExitCode != 0 {
+		return result, err
+	}
+	return t.storeDesktopCdpScreenshot(result, execCtx), nil
 }
 
 func (t *RuntimeToolExecutor) invokeDesktopBridge(ctx context.Context, bridge config.DesktopBridgeConfig, payload any, toolName string) (ToolExecutionResult, error) {
@@ -185,6 +199,118 @@ func (t *RuntimeToolExecutor) invokeDesktopBridge(ctx context.Context, bridge co
 		"statusCode": response.StatusCode,
 		"response":   decoded,
 	}, exitCode), nil
+}
+
+func (t *RuntimeToolExecutor) storeDesktopCdpScreenshot(result ToolExecutionResult, execCtx *ExecutionContext) ToolExecutionResult {
+	payload := cloneDesktopMap(result.Structured)
+	response := cloneDesktopMapValue(payload["response"])
+	resultNode := cloneDesktopMapValue(response["result"])
+	data, _ := resultNode["data"].(string)
+	if strings.TrimSpace(data) == "" {
+		return desktopCdpScreenshotErrorResult(payload, "desktop_cdp_screenshot_data_missing", "Page.captureScreenshot response.result.data is missing", nil)
+	}
+
+	chatID := desktopCdpScreenshotChatID(execCtx)
+	if strings.TrimSpace(t.cfg.Paths.ChatsDir) == "" || !chat.ValidChatID(chatID) {
+		return desktopCdpScreenshotErrorResult(payload, "desktop_cdp_screenshot_context_unavailable", "chat context and cfg.Paths.ChatsDir are required to save desktop_cdp screenshots", map[string]any{
+			"chatId":      chatID,
+			"hasChatsDir": strings.TrimSpace(t.cfg.Paths.ChatsDir) != "",
+		})
+	}
+
+	imageBytes, err := base64.StdEncoding.DecodeString(strings.TrimSpace(data))
+	if err != nil {
+		return desktopCdpScreenshotErrorResult(payload, "desktop_cdp_screenshot_decode_failed", err.Error(), nil)
+	}
+
+	referenceName := desktopCdpScreenshotReferenceName(time.Now().UTC())
+	chatDir := filepath.Join(t.cfg.Paths.ChatsDir, chatID)
+	if err := os.MkdirAll(chatDir, 0o755); err != nil {
+		return desktopCdpScreenshotErrorResult(payload, "desktop_cdp_screenshot_write_failed", err.Error(), nil)
+	}
+	filePath := filepath.Join(chatDir, referenceName)
+	if err := os.WriteFile(filePath, imageBytes, 0o600); err != nil {
+		return desktopCdpScreenshotErrorResult(payload, "desktop_cdp_screenshot_write_failed", err.Error(), nil)
+	}
+
+	sha := sha256.Sum256(imageBytes)
+	resultNode["data"] = map[string]any{
+		"saved":                true,
+		"dataOmitted":          true,
+		"referenceName":        referenceName,
+		"filePath":             filePath,
+		"mimeType":             desktopCdpScreenshotMimeType,
+		"sizeBytes":            len(imageBytes),
+		"sha256":               hex.EncodeToString(sha[:]),
+		"visionRecognizeImage": map[string]any{"reference_name": referenceName},
+	}
+	response["result"] = resultNode
+	payload["response"] = response
+	return structuredResult(payload)
+}
+
+func desktopCdpScreenshotChatID(execCtx *ExecutionContext) string {
+	if execCtx == nil {
+		return ""
+	}
+	if chatID := strings.TrimSpace(execCtx.Request.ChatID); chatID != "" {
+		return chatID
+	}
+	return strings.TrimSpace(execCtx.Session.ChatID)
+}
+
+func desktopCdpScreenshotReferenceName(now time.Time) string {
+	return fmt.Sprintf("desktop-cdp-screenshot-%s%09dZ.png", now.Format("20060102T150405"), now.Nanosecond())
+}
+
+func desktopCdpScreenshotErrorResult(payload map[string]any, code string, message string, details map[string]any) ToolExecutionResult {
+	sanitizeDesktopCdpScreenshotData(payload)
+	payload["error"] = map[string]any{
+		"code":    code,
+		"message": message,
+	}
+	if details != nil {
+		payload["details"] = details
+	}
+	result := structuredResultWithExit(payload, -1)
+	result.Error = code
+	return result
+}
+
+func sanitizeDesktopCdpScreenshotData(payload map[string]any) {
+	response, ok := payload["response"].(map[string]any)
+	if !ok {
+		return
+	}
+	resultNode, ok := response["result"].(map[string]any)
+	if !ok {
+		return
+	}
+	if _, ok := resultNode["data"].(string); ok {
+		resultNode["data"] = map[string]any{
+			"saved":       false,
+			"dataOmitted": true,
+		}
+	}
+}
+
+func cloneDesktopMapValue(value any) map[string]any {
+	if mapped, ok := value.(map[string]any); ok {
+		return cloneDesktopMap(mapped)
+	}
+	return map[string]any{}
+}
+
+func cloneDesktopMap(input map[string]any) map[string]any {
+	out := make(map[string]any, len(input))
+	for key, value := range input {
+		if mapped, ok := value.(map[string]any); ok {
+			out[key] = cloneDesktopMap(mapped)
+			continue
+		}
+		out[key] = value
+	}
+	return out
 }
 
 func buildDesktopActionSource(execCtx *ExecutionContext) desktopActionSource {

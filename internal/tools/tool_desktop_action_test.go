@@ -1,12 +1,19 @@
 package tools
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	"agent-platform/internal/config"
@@ -105,6 +112,159 @@ func TestInvokeDesktopCDPCallsBridge(t *testing.T) {
 	}
 	if got.Source.RunID != "run-cdp" || got.Source.ChatID != "chat-cdp" || got.Source.AgentKey != "desktopAssistant" {
 		t.Fatalf("unexpected source: %#v", got.Source)
+	}
+	response := result.Structured["response"].(map[string]any)
+	resultNode := response["result"].(map[string]any)
+	if resultNode["value"] != float64(42) {
+		t.Fatalf("unexpected structured cdp result: %#v", result.Structured)
+	}
+}
+
+func TestInvokeDesktopCDPCaptureScreenshotSavesImageAndOmitsBase64(t *testing.T) {
+	png := testDesktopScreenshotPNG(t)
+	encoded := base64.StdEncoding.EncodeToString(png)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":     true,
+			"method": "Page.captureScreenshot",
+			"result": map[string]any{"data": encoded},
+		})
+	}))
+	defer server.Close()
+
+	chatsDir := t.TempDir()
+	executor := newDesktopTestExecutor("", server.URL)
+	executor.cfg.Paths.ChatsDir = chatsDir
+	result, err := executor.invokeDesktopCDP(context.Background(), map[string]any{
+		"method": "Page.captureScreenshot",
+		"params": map[string]any{"format": "png"},
+	}, &ExecutionContext{Session: QuerySession{ChatID: "chat-cdp"}})
+	if err != nil {
+		t.Fatalf("invoke desktop cdp screenshot: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Fatalf("expected successful screenshot save, got exit=%d output=%s", result.ExitCode, result.Output)
+	}
+	if strings.Contains(result.Output, encoded) {
+		t.Fatalf("screenshot base64 leaked into output: %s", result.Output)
+	}
+
+	response := result.Structured["response"].(map[string]any)
+	resultNode := response["result"].(map[string]any)
+	data := resultNode["data"].(map[string]any)
+	referenceName := data["referenceName"].(string)
+	if !strings.HasPrefix(referenceName, "desktop-cdp-screenshot-") || !strings.HasSuffix(referenceName, ".png") {
+		t.Fatalf("unexpected reference name: %q", referenceName)
+	}
+	filePath := data["filePath"].(string)
+	if filePath != filepath.Join(chatsDir, "chat-cdp", referenceName) {
+		t.Fatalf("unexpected file path: %q", filePath)
+	}
+	written, err := os.ReadFile(filePath)
+	if err != nil {
+		t.Fatalf("read written screenshot: %v", err)
+	}
+	if !bytes.Equal(written, png) {
+		t.Fatalf("written screenshot bytes differ")
+	}
+	sha := sha256.Sum256(png)
+	if data["sha256"] != hex.EncodeToString(sha[:]) || data["mimeType"] != "image/png" || data["sizeBytes"] != len(png) {
+		t.Fatalf("unexpected screenshot metadata: %#v", data)
+	}
+	if data["saved"] != true || data["dataOmitted"] != true {
+		t.Fatalf("expected saved/dataOmitted flags: %#v", data)
+	}
+	visionImage := data["visionRecognizeImage"].(map[string]any)
+	if visionImage["reference_name"] != referenceName {
+		t.Fatalf("unexpected vision image payload: %#v", visionImage)
+	}
+}
+
+func TestInvokeDesktopCDPCaptureScreenshotRequiresChatContext(t *testing.T) {
+	encoded := base64.StdEncoding.EncodeToString(testDesktopScreenshotPNG(t))
+	server := desktopScreenshotServer(t, encoded, true)
+	defer server.Close()
+
+	executor := newDesktopTestExecutor("", server.URL)
+	executor.cfg.Paths.ChatsDir = t.TempDir()
+	result, err := executor.invokeDesktopCDP(context.Background(), map[string]any{
+		"method": "Page.captureScreenshot",
+	}, &ExecutionContext{})
+	if err != nil {
+		t.Fatalf("invoke desktop cdp screenshot: %v", err)
+	}
+	if result.ExitCode != -1 || result.Error != "desktop_cdp_screenshot_context_unavailable" {
+		t.Fatalf("expected context error, got exit=%d error=%q output=%s", result.ExitCode, result.Error, result.Output)
+	}
+	if strings.Contains(result.Output, encoded) {
+		t.Fatalf("screenshot base64 leaked into context error output: %s", result.Output)
+	}
+}
+
+func TestInvokeDesktopCDPCaptureScreenshotRejectsInvalidBase64(t *testing.T) {
+	encoded := "not-valid-base64-data-that-must-not-leak"
+	server := desktopScreenshotServer(t, encoded, true)
+	defer server.Close()
+
+	executor := newDesktopTestExecutor("", server.URL)
+	executor.cfg.Paths.ChatsDir = t.TempDir()
+	result, err := executor.invokeDesktopCDP(context.Background(), map[string]any{
+		"method": "Page.captureScreenshot",
+	}, &ExecutionContext{Session: QuerySession{ChatID: "chat-cdp"}})
+	if err != nil {
+		t.Fatalf("invoke desktop cdp screenshot: %v", err)
+	}
+	if result.ExitCode != -1 || result.Error != "desktop_cdp_screenshot_decode_failed" {
+		t.Fatalf("expected decode error, got exit=%d error=%q output=%s", result.ExitCode, result.Error, result.Output)
+	}
+	if strings.Contains(result.Output, encoded) {
+		t.Fatalf("invalid screenshot base64 leaked into output: %s", result.Output)
+	}
+}
+
+func TestInvokeDesktopCDPCaptureScreenshotRequiresResultData(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":     true,
+			"method": "Page.captureScreenshot",
+			"result": map[string]any{},
+		})
+	}))
+	defer server.Close()
+
+	executor := newDesktopTestExecutor("", server.URL)
+	executor.cfg.Paths.ChatsDir = t.TempDir()
+	result, err := executor.invokeDesktopCDP(context.Background(), map[string]any{
+		"method": "Page.captureScreenshot",
+	}, &ExecutionContext{Session: QuerySession{ChatID: "chat-cdp"}})
+	if err != nil {
+		t.Fatalf("invoke desktop cdp screenshot: %v", err)
+	}
+	if result.ExitCode != -1 || result.Error != "desktop_cdp_screenshot_data_missing" {
+		t.Fatalf("expected data missing error, got exit=%d error=%q output=%s", result.ExitCode, result.Error, result.Output)
+	}
+}
+
+func TestInvokeDesktopCDPCaptureScreenshotDoesNotSaveBridgeFailure(t *testing.T) {
+	server := desktopScreenshotServer(t, "", false)
+	defer server.Close()
+
+	chatsDir := t.TempDir()
+	executor := newDesktopTestExecutor("", server.URL)
+	executor.cfg.Paths.ChatsDir = chatsDir
+	result, err := executor.invokeDesktopCDP(context.Background(), map[string]any{
+		"method": "Page.captureScreenshot",
+	}, &ExecutionContext{Session: QuerySession{ChatID: "chat-cdp"}})
+	if err != nil {
+		t.Fatalf("invoke desktop cdp screenshot: %v", err)
+	}
+	if result.ExitCode != -1 {
+		t.Fatalf("expected bridge failure exit code, got %d output=%s", result.ExitCode, result.Output)
+	}
+	if _, err := os.Stat(filepath.Join(chatsDir, "chat-cdp")); !os.IsNotExist(err) {
+		t.Fatalf("expected no screenshot directory on bridge failure, stat err=%v", err)
 	}
 }
 
@@ -309,6 +469,33 @@ func enumContainsString(values []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func testDesktopScreenshotPNG(t *testing.T) []byte {
+	t.Helper()
+	data, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=")
+	if err != nil {
+		t.Fatalf("decode test png: %v", err)
+	}
+	return data
+}
+
+func desktopScreenshotServer(t *testing.T, data string, ok bool) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		payload := map[string]any{
+			"ok":     ok,
+			"method": "Page.captureScreenshot",
+		}
+		if ok {
+			payload["result"] = map[string]any{"data": data}
+		} else {
+			w.WriteHeader(http.StatusBadRequest)
+			payload["error"] = map[string]any{"code": "cdp_failed", "message": "capture failed"}
+		}
+		_ = json.NewEncoder(w).Encode(payload)
+	}))
 }
 
 func newDesktopTestExecutor(actionURL string, cdpURL string) *RuntimeToolExecutor {

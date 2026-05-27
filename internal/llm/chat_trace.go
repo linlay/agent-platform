@@ -2,6 +2,7 @@ package llm
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -52,9 +53,19 @@ func (s *llmRunStream) newChatTrace(runSeq int, prepared preparedProviderRequest
 	return &llmChatTrace{
 		enabled:       true,
 		maskSensitive: cfg.MaskSensitive,
-		path:          filepath.Join(cfg.RecordDir, safeTraceRunID(s.session.RunID)+"_"+strconvItoa(runSeq)+".json"),
+		path:          filepath.Join(cfg.RecordDir, traceFileName(s.session.RunID, runSeq)),
 		payload:       payload,
 	}
+}
+
+func traceFileName(runID string, runSeq int) string {
+	if runSeq < 1 {
+		runSeq = 1
+	}
+	if runSeq > 999 {
+		runSeq = 999
+	}
+	return fmt.Sprintf("%s_%03d.json", safeTraceRunID(runID), runSeq)
 }
 
 func safeTraceRunID(runID string) string {
