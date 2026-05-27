@@ -194,7 +194,7 @@ func normalizeOpenAIUsage(usage *openAIUsage, protocolConfig protocolRuntimeConf
 	if promptCacheMissTokens <= 0 {
 		promptCacheMissTokens = usage.PromptCacheMissTokens
 	}
-	if promptCacheMissTokens <= 0 && usageCompatDerive(protocolConfig, "promptTokensDetails", "cacheMissTokens") == "promptTokensMinusCacheHitTokens" && usage.PromptTokens > promptCacheHitTokens {
+	if promptCacheMissTokens <= 0 && promptCacheHitTokens > 0 && usage.PromptTokens > promptCacheHitTokens {
 		promptCacheMissTokens = usage.PromptTokens - promptCacheHitTokens
 	}
 	reasoningTokens := usageCompatInt(raw, protocolConfig, "completionTokensDetails", "reasoningTokens")

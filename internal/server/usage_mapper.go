@@ -112,7 +112,11 @@ func usageCacheTokens(usage chat.UsageData) (int, int) {
 	if cacheHitTokens <= 0 {
 		cacheHitTokens = usage.CachedTokens
 	}
-	return cacheHitTokens, usage.PromptCacheMissTokens
+	cacheMissTokens := usage.PromptCacheMissTokens
+	if cacheMissTokens <= 0 && cacheHitTokens > 0 && usage.PromptTokens > cacheHitTokens {
+		cacheMissTokens = usage.PromptTokens - cacheHitTokens
+	}
+	return cacheHitTokens, cacheMissTokens
 }
 
 func usageCacheTokensFromMap(usage map[string]any) (int, int) {
@@ -134,6 +138,15 @@ func usageCacheTokensFromMap(usage map[string]any) (int, int) {
 		contracts.AnyIntNode(usage["promptCacheMissTokens"]),
 		contracts.AnyIntNode(usage["prompt_cache_miss_tokens"]),
 	)
+	if cacheMissTokens <= 0 {
+		promptTokens := firstPositiveInt(
+			contracts.AnyIntNode(usage["promptTokens"]),
+			contracts.AnyIntNode(usage["prompt_tokens"]),
+		)
+		if cacheHitTokens > 0 && promptTokens > cacheHitTokens {
+			cacheMissTokens = promptTokens - cacheHitTokens
+		}
+	}
 	return cacheHitTokens, cacheMissTokens
 }
 

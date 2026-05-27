@@ -79,8 +79,8 @@ func TestNormalizeOpenAIUsageMapsCachedTokensAsPromptCacheHitTokens(t *testing.T
 		},
 	}, protocolRuntimeConfig{})
 
-	if normalized.CacheHitTokens != 40 || normalized.CacheMissTokens != 0 {
-		t.Fatalf("expected cached_tokens to normalize as cache hit only, got %#v", normalized)
+	if normalized.CacheHitTokens != 40 || normalized.CacheMissTokens != 60 {
+		t.Fatalf("expected cached_tokens to normalize with derived cache miss, got %#v", normalized)
 	}
 }
 
@@ -187,6 +187,38 @@ func TestNormalizeOpenAIUsageMapsMiMoCacheUsageByCompatPathAndDerive(t *testing.
 
 	if normalized.CacheHitTokens != 32 || normalized.CacheMissTokens != 68 || normalized.ReasoningTokens != 11 {
 		t.Fatalf("expected mimo usage mapping with derived miss tokens, got %#v", normalized)
+	}
+}
+
+func TestNormalizeOpenAIUsageMapsMiniMaxCacheUsageByCompatPathAndDerive(t *testing.T) {
+	protocolConfig := protocolRuntimeConfig{
+		Compat: map[string]any{
+			"response": map[string]any{
+				"usage": map[string]any{
+					"promptTokensDetails": map[string]any{
+						"cacheHitTokens": map[string]any{
+							"path": "prompt_tokens_details.cached_tokens",
+						},
+						"cacheMissTokens": map[string]any{
+							"derive": "promptTokensMinusCacheHitTokens",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	normalized := normalizeOpenAIUsage(&openAIUsage{
+		PromptTokens: 5233,
+		Raw: map[string]any{
+			"prompt_tokens_details": map[string]any{
+				"cached_tokens": 4475,
+			},
+		},
+	}, protocolConfig)
+
+	if normalized.CacheHitTokens != 4475 || normalized.CacheMissTokens != 758 {
+		t.Fatalf("expected minimax usage mapping with derived miss tokens, got %#v", normalized)
 	}
 }
 

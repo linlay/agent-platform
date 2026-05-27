@@ -209,6 +209,8 @@ func addUsageDetailsToMap(out map[string]any, cachedTokens int, reasoningTokens 
 	}
 	if promptCacheMissTokens > 0 {
 		promptDetails["cacheMissTokens"] = promptCacheMissTokens
+	} else if promptTokens := toIntFromKeys(out, "promptTokens", "prompt_tokens"); cacheHitTokens > 0 && promptTokens > cacheHitTokens {
+		promptDetails["cacheMissTokens"] = promptTokens - cacheHitTokens
 	}
 	if len(promptDetails) > 0 {
 		out["promptTokensDetails"] = promptDetails
@@ -275,7 +277,15 @@ func usageCacheMissTokensFromMap(usage map[string]any) int {
 	if v := toNestedIntFromKeys(usage, "promptTokensDetails", "prompt_tokens_details", "cacheMissTokens", "cache_miss_tokens"); v > 0 {
 		return v
 	}
-	return toIntFromKeys(usage, "promptCacheMissTokens", "prompt_cache_miss_tokens")
+	if v := toIntFromKeys(usage, "promptCacheMissTokens", "prompt_cache_miss_tokens"); v > 0 {
+		return v
+	}
+	promptTokens := toIntFromKeys(usage, "promptTokens", "prompt_tokens")
+	cacheHitTokens := usageCacheHitTokensFromMap(usage)
+	if cacheHitTokens > 0 && promptTokens > cacheHitTokens {
+		return promptTokens - cacheHitTokens
+	}
+	return 0
 }
 
 func int64FromAny(v any) int64 {
