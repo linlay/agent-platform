@@ -238,24 +238,11 @@ func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {
 	s.execCtx.RunLoopState = RunLoopStateWaitingSubmit
 	s.runControl.TransitionState(RunLoopStateWaitingSubmit)
 
-	submitResult, err := s.runControl.AwaitSubmitWithTimeout(
-		s.ctx,
-		batch.awaitingID,
-		time.Duration(s.resolveHITLTimeoutWithRule(batch.timeoutMs))*time.Millisecond,
-	)
+	submitResult, err := s.awaitHITLBatchSubmitOrAccessLevel(batch)
 	if err != nil {
-		if errors.Is(err, ErrRunInterrupted) {
-			return s.handleInterruptIfNeeded()
-		}
-		s.pending = append(s.pending, DeltaAwaitingAnswer{
-			AwaitingID: batch.awaitingID,
-			Answer:     hitlTimeoutAnswer("approval"),
-		})
-		for _, invocation := range batch.invocations {
-			s.applyHITLDecision(invocation, s.approvalHITLResult(invocation), batch.awaitingID, "reject", "timeout", false)
-			timeoutResult := hitlTimeoutToolResult(invocation)
-			invocation.queuedResult = &timeoutResult
-		}
+		return err
+	}
+	if submitResult.Status == "access_level_auto_approved" || submitResult.Status == "hitl_timeout" {
 		s.hitlPendingBatch = nil
 		return nil
 	}
@@ -320,6 +307,92 @@ func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {
 	}
 	s.hitlPendingBatch = nil
 	return nil
+}
+
+func (s *llmRunStream) awaitHITLBatchSubmitOrAccessLevel(batch *pendingHITLApprovalBatch) (SubmitResult, error) {
+	timeout := time.Duration(s.resolveHITLTimeoutWithRule(batch.timeoutMs)) * time.Millisecond
+	deadline := time.Time{}
+	if timeout > 0 {
+		deadline = time.Now().Add(timeout)
+	}
+	for {
+		_, version := s.runControl.AccessLevelSnapshot()
+		wait := timeout
+		if !deadline.IsZero() {
+			wait = time.Until(deadline)
+			if wait <= 0 {
+				s.timeoutHITLBatch(batch)
+				return SubmitResult{Status: "hitl_timeout"}, nil
+			}
+		}
+		submitResult, accessChanged, err := s.runControl.AwaitSubmitWithTimeoutOrAccessLevelChange(s.ctx, batch.awaitingID, wait, version)
+		if accessChanged {
+			resolved, resolveErr := s.tryResolvePendingAccessLevelBatch(batch)
+			if resolveErr != nil || resolved {
+				return SubmitResult{Status: "access_level_auto_approved"}, resolveErr
+			}
+			continue
+		}
+		if err != nil {
+			if errors.Is(err, ErrRunInterrupted) {
+				return SubmitResult{}, s.handleInterruptIfNeeded()
+			}
+			s.timeoutHITLBatch(batch)
+			return SubmitResult{Status: "hitl_timeout"}, nil
+		}
+		return submitResult, nil
+	}
+}
+
+func (s *llmRunStream) timeoutHITLBatch(batch *pendingHITLApprovalBatch) {
+	s.pending = append(s.pending, DeltaAwaitingAnswer{
+		AwaitingID: batch.awaitingID,
+		Answer:     hitlTimeoutAnswer("approval"),
+	})
+	for _, invocation := range batch.invocations {
+		s.applyHITLDecision(invocation, s.approvalHITLResult(invocation), batch.awaitingID, "reject", "timeout", false)
+		timeoutResult := hitlTimeoutToolResult(invocation)
+		invocation.queuedResult = &timeoutResult
+	}
+	s.hitlPendingBatch = nil
+}
+
+func (s *llmRunStream) tryResolvePendingAccessLevelBatch(batch *pendingHITLApprovalBatch) (bool, error) {
+	if batch == nil || len(batch.invocations) == 0 {
+		return false, nil
+	}
+	entries := make([]map[string]any, 0, len(batch.invocations))
+	matches := make([]hitl.InterceptResult, 0, len(batch.invocations))
+	for _, invocation := range batch.invocations {
+		match := s.approvalHITLResult(invocation)
+		if !isAccessPolicyApprovalMatch(match) {
+			return false, nil
+		}
+		matches = append(matches, match)
+		s.refreshAccessLevelForInvocation(invocation)
+		if s.invocationNeedsAccessPolicyApproval(invocation) {
+			return false, nil
+		}
+		item := s.buildApprovalAskItem(invocation)
+		command := accessLevelApprovalCommand(s, invocation, match)
+		if strings.TrimSpace(command) == "" {
+			command = AnyStringNode(item["command"])
+		}
+		entries = append(entries, map[string]any{
+			"id":       approvalAnswerID(batch.awaitingID, invocation),
+			"command":  command,
+			"decision": "auto_approved",
+			"reason":   "accessLevel=" + s.currentAccessLevel(),
+		})
+	}
+	s.pending = append(s.pending, DeltaAwaitingAnswer{
+		AwaitingID: batch.awaitingID,
+		Answer:     accessLevelAutoApprovalBatchAnswer(batch, entries),
+	})
+	for index, invocation := range batch.invocations {
+		s.applyHITLDecision(invocation, matches[index], batch.awaitingID, "auto_approved", "accessLevel="+s.currentAccessLevel(), true)
+	}
+	return true, nil
 }
 
 func (s *llmRunStream) buildHITLNoticeEntry(invocation *preparedToolInvocation) (hitlNoticeEntry, bool) {

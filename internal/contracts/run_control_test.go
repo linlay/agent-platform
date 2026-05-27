@@ -228,6 +228,59 @@ func TestInMemoryRunManagerActiveRunForChatReturnsConflictForMultipleRuns(t *tes
 	}
 }
 
+func TestInMemoryRunManagerUpdateAccessLevelPublishesEventAndStatus(t *testing.T) {
+	manager := NewInMemoryRunManager()
+	_, _, _ = manager.Register(context.Background(), QuerySession{
+		RunID:       "run_access",
+		ChatID:      "chat_1",
+		AgentKey:    "agent_1",
+		AccessLevel: AccessLevelDefault,
+	})
+	observer, err := manager.AttachObserver("run_access", 0)
+	if err != nil {
+		t.Fatalf("attach observer: %v", err)
+	}
+	defer manager.DetachObserver("run_access", observer.ID)
+
+	ack := manager.UpdateAccessLevel(api.AccessLevelRequest{
+		RunID:       "run_access",
+		AgentKey:    "agent_1",
+		AccessLevel: AccessLevelAutoApprove,
+		Reason:      "test",
+	})
+	if !ack.Accepted || ack.Status != "updated" || ack.PreviousAccessLevel != AccessLevelDefault || ack.AccessLevel != AccessLevelAutoApprove || ack.Version != 2 {
+		t.Fatalf("unexpected ack %#v", ack)
+	}
+	status, ok := manager.RunStatus("run_access")
+	if !ok {
+		t.Fatalf("expected run status")
+	}
+	if status.AccessLevel != AccessLevelAutoApprove || status.AccessLevelVersion != 2 {
+		t.Fatalf("unexpected access level status %#v", status)
+	}
+
+	select {
+	case event := <-observer.Events:
+		if event.Type != "run.access_level.changed" {
+			t.Fatalf("unexpected event %#v", event)
+		}
+		if event.String("previousAccessLevel") != AccessLevelDefault || event.String("accessLevel") != AccessLevelAutoApprove {
+			t.Fatalf("unexpected event payload %#v", event)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for access-level event")
+	}
+
+	unchanged := manager.UpdateAccessLevel(api.AccessLevelRequest{
+		RunID:       "run_access",
+		AgentKey:    "agent_1",
+		AccessLevel: AccessLevelAutoApprove,
+	})
+	if !unchanged.Accepted || unchanged.Status != "unchanged" || unchanged.Version != 2 {
+		t.Fatalf("unexpected unchanged ack %#v", unchanged)
+	}
+}
+
 func TestInMemoryRunManagerReaperPublishesExpiredRunErrorBeforeInterrupt(t *testing.T) {
 	manager := NewInMemoryRunManager()
 	manager.maxBackgroundDuration = time.Millisecond

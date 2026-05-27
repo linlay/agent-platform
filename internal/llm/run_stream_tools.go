@@ -14,6 +14,7 @@ import (
 )
 
 func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolInvocation, []AgentDelta, *openAIMessage) {
+	s.syncAccessLevelFromRunControl()
 	toolID := toolCall.ID
 	if strings.TrimSpace(toolID) == "" {
 		return nil, []AgentDelta{DeltaError{Error: NewErrorPayload(
@@ -182,6 +183,7 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 		args:     args,
 		prelude:  s.preToolInvocationDeltas(toolID, toolCall.Function.Name, args),
 	}
+	s.refreshAccessLevelForInvocation(invocation)
 	if isBashTool(invocation.toolName) {
 		review := s.reviewBashSecurity(strings.TrimSpace(mapStringArg(invocation.args, "command")))
 		if review.Decision == bashsec.ReviewRequiresApproval {
@@ -215,6 +217,7 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 	if invocation == nil {
 		return nil
 	}
+	s.refreshAccessLevelForInvocation(invocation)
 	s.skipPostToolHook = false
 
 	s.execCtx.CurrentToolID = invocation.toolID

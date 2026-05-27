@@ -48,17 +48,11 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 		s.runControl.TransitionState(RunLoopStateWaitingSubmit)
 	}
 
-	submitResult, err := s.runControl.AwaitSubmitWithTimeout(s.ctx, awaitingID, time.Duration(s.resolveHITLTimeoutWithRule(match.Rule.TimeoutMs))*time.Millisecond)
+	submitResult, err := s.awaitHITLSubmitOrAccessLevel(invocation, match, awaitingID, awaitArgs)
 	if err != nil {
-		if errors.Is(err, ErrRunInterrupted) {
-			return s.handleInterruptIfNeeded()
-		}
-		s.pending = append(s.pending, DeltaAwaitingAnswer{
-			AwaitingID: awaitingID,
-			Answer:     hitlTimeoutAnswer(strings.TrimSpace(AnyStringNode(awaitArgs["mode"]))),
-		})
-		s.applyHITLDecision(invocation, *match, awaitingID, "reject", "timeout", false)
-		s.appendOriginalToolResult(invocation, hitlTimeoutToolResult(invocation))
+		return err
+	}
+	if submitResult.Status == "access_level_auto_approved" || submitResult.Status == "hitl_timeout" {
 		return nil
 	}
 
@@ -168,7 +162,91 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 	return s.executeOriginalBash(invocation)
 }
 
+func (s *llmRunStream) awaitHITLSubmitOrAccessLevel(invocation *preparedToolInvocation, match *hitl.InterceptResult, awaitingID string, awaitArgs map[string]any) (SubmitResult, error) {
+	timeout := time.Duration(s.resolveHITLTimeoutWithRule(match.Rule.TimeoutMs)) * time.Millisecond
+	deadline := time.Time{}
+	if timeout > 0 {
+		deadline = time.Now().Add(timeout)
+	}
+	for {
+		_, version := s.runControl.AccessLevelSnapshot()
+		wait := timeout
+		if !deadline.IsZero() {
+			wait = time.Until(deadline)
+			if wait <= 0 {
+				s.pending = append(s.pending, DeltaAwaitingAnswer{
+					AwaitingID: awaitingID,
+					Answer:     hitlTimeoutAnswer(strings.TrimSpace(AnyStringNode(awaitArgs["mode"]))),
+				})
+				s.applyHITLDecision(invocation, *match, awaitingID, "reject", "timeout", false)
+				s.appendOriginalToolResult(invocation, hitlTimeoutToolResult(invocation))
+				return SubmitResult{Status: "hitl_timeout"}, nil
+			}
+		}
+		submitResult, accessChanged, err := s.runControl.AwaitSubmitWithTimeoutOrAccessLevelChange(s.ctx, awaitingID, wait, version)
+		if accessChanged {
+			resolved, resolveErr := s.tryResolvePendingAccessLevelApproval(invocation, *match, awaitingID)
+			if resolveErr != nil || resolved {
+				return SubmitResult{Status: "access_level_auto_approved"}, resolveErr
+			}
+			continue
+		}
+		if err != nil {
+			if errors.Is(err, ErrRunInterrupted) {
+				return SubmitResult{}, s.handleInterruptIfNeeded()
+			}
+			s.pending = append(s.pending, DeltaAwaitingAnswer{
+				AwaitingID: awaitingID,
+				Answer:     hitlTimeoutAnswer(strings.TrimSpace(AnyStringNode(awaitArgs["mode"]))),
+			})
+			s.applyHITLDecision(invocation, *match, awaitingID, "reject", "timeout", false)
+			s.appendOriginalToolResult(invocation, hitlTimeoutToolResult(invocation))
+			return SubmitResult{Status: "hitl_timeout"}, nil
+		}
+		return submitResult, nil
+	}
+}
+
+func (s *llmRunStream) tryResolvePendingAccessLevelApproval(invocation *preparedToolInvocation, match hitl.InterceptResult, awaitingID string) (bool, error) {
+	if !isAccessPolicyApprovalMatch(match) {
+		return false, nil
+	}
+	s.refreshAccessLevelForInvocation(invocation)
+	if s.invocationNeedsAccessPolicyApproval(invocation) {
+		return false, nil
+	}
+	accessLevel := s.currentAccessLevel()
+	s.pending = append(s.pending, DeltaAwaitingAnswer{
+		AwaitingID: awaitingID,
+		Answer:     s.accessLevelAutoApprovalAnswer(awaitingID, invocation, match, accessLevel),
+	})
+	s.applyHITLDecision(invocation, match, awaitingID, "auto_approved", "accessLevel="+accessLevel, true)
+	return true, s.executeOriginalBash(invocation)
+}
+
+func (s *llmRunStream) currentAccessLevel() string {
+	if s == nil {
+		return AccessLevelDefault
+	}
+	accessLevel := ""
+	if s.execCtx != nil {
+		accessLevel = s.execCtx.AccessLevel
+		if strings.TrimSpace(accessLevel) == "" {
+			accessLevel = s.execCtx.Session.AccessLevel
+		}
+	}
+	if strings.TrimSpace(accessLevel) == "" {
+		accessLevel = s.session.AccessLevel
+	}
+	normalized, ok := NormalizeAccessLevel(accessLevel)
+	if !ok {
+		return AccessLevelDefault
+	}
+	return normalized
+}
+
 func (s *llmRunStream) executeOriginalBash(invocation *preparedToolInvocation) error {
+	s.refreshAccessLevelForInvocation(invocation)
 	s.execCtx.CurrentToolID = invocation.toolID
 	s.execCtx.CurrentToolName = invocation.toolName
 	s.execCtx.RunLoopState = RunLoopStateToolExecuting

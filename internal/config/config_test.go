@@ -316,7 +316,7 @@ func TestLoadVisionRecognizeConfigFromFile(t *testing.T) {
 			"default-profile: ocr\n" +
 			"profiles:\n" +
 			"  ocr:\n" +
-			"    model-key: qwen2.5-vl\n" +
+			"    model-key: bailian-qwen3_5-plus\n" +
 			"    timeout-ms: 12345\n" +
 			"    max-images: 3\n" +
 			"    max-image-bytes: 456789\n" +
@@ -336,7 +336,7 @@ func TestLoadVisionRecognizeConfigFromFile(t *testing.T) {
 				t.Fatalf("unexpected default profile: %q", cfg.VisionRecognize.DefaultProfile)
 			}
 			profile := cfg.VisionRecognize.Profiles["ocr"]
-			if profile.ModelKey != "qwen2.5-vl" || profile.TimeoutMs != 12345 || profile.MaxImages != 3 || profile.MaxImageBytes != 456789 || profile.OutputFormat != "json" {
+			if profile.ModelKey != "bailian-qwen3_5-plus" || profile.TimeoutMs != 12345 || profile.MaxImages != 3 || profile.MaxImageBytes != 456789 || profile.OutputFormat != "json" {
 				t.Fatalf("unexpected profile: %#v", profile)
 			}
 			if profile.SystemPrompt != "extract text\nreturn json" {

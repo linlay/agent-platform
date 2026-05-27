@@ -111,6 +111,7 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/submit", s.wsSubmit)
 	handler.RegisterRoute("/api/steer", s.wsSteer)
 	handler.RegisterRoute("/api/interrupt", s.wsInterrupt)
+	handler.RegisterRoute("/api/access-level", s.wsAccessLevel)
 	handler.RegisterRoute("/api/remember", s.wsRemember)
 	handler.RegisterRoute("/api/learn", s.wsLearn)
 	handler.RegisterRoute("/api/memory/meta", s.wsMemoryMeta)

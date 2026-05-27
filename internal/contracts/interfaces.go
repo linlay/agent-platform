@@ -72,6 +72,7 @@ type ActiveRunService interface {
 	Submit(req api.SubmitRequest) SubmitAck
 	Steer(req api.SteerRequest) SteerAck
 	Interrupt(req api.InterruptRequest) InterruptAck
+	UpdateAccessLevel(req api.AccessLevelRequest) AccessLevelAck
 	Finish(runID string)
 	AttachObserver(runID string, afterSeq int64) (*stream.Observer, error)
 	DetachObserver(runID string, observerID string)
@@ -337,15 +338,17 @@ type ActiveRun struct {
 }
 
 type RunStatusInfo struct {
-	RunID         string
-	ChatID        string
-	AgentKey      string
-	State         RunLoopState
-	LastSeq       int64
-	OldestSeq     int64
-	ObserverCount int
-	StartedAt     int64
-	CompletedAt   int64
+	RunID              string
+	ChatID             string
+	AgentKey           string
+	State              RunLoopState
+	LastSeq            int64
+	OldestSeq          int64
+	ObserverCount      int
+	StartedAt          int64
+	CompletedAt        int64
+	AccessLevel        string
+	AccessLevelVersion int64
 }
 
 type RunLifecycleConfigurer interface {
@@ -369,6 +372,15 @@ type InterruptAck struct {
 	Accepted bool
 	Status   string
 	Detail   string
+}
+
+type AccessLevelAck struct {
+	Accepted            bool
+	Status              string
+	PreviousAccessLevel string
+	AccessLevel         string
+	Version             int64
+	Detail              string
 }
 
 type RunLoopState string

@@ -172,6 +172,9 @@ func (m *archiveHandlerRunManager) Steer(api.SteerRequest) contracts.SteerAck {
 func (m *archiveHandlerRunManager) Interrupt(api.InterruptRequest) contracts.InterruptAck {
 	return contracts.InterruptAck{}
 }
+func (m *archiveHandlerRunManager) UpdateAccessLevel(api.AccessLevelRequest) contracts.AccessLevelAck {
+	return contracts.AccessLevelAck{}
+}
 func (m *archiveHandlerRunManager) Finish(string) {}
 func (m *archiveHandlerRunManager) AttachObserver(string, int64) (*stream.Observer, error) {
 	return nil, nil

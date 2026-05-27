@@ -72,9 +72,12 @@ type RunControl struct {
 	resolvedSubmits map[string]SubmitResult
 	awaitingSubmits map[string]AwaitingSubmitContext
 	state           RunLoopState
+	accessLevel     string
+	accessVersion   int64
 
 	maxDisconnectedWait time.Duration
 	observerChanged     chan struct{}
+	accessLevelChanged  chan struct{}
 }
 
 func NewRunControl(parent context.Context, runID string) *RunControl {
@@ -91,8 +94,11 @@ func NewRunControl(parent context.Context, runID string) *RunControl {
 		resolvedSubmits:     map[string]SubmitResult{},
 		awaitingSubmits:     map[string]AwaitingSubmitContext{},
 		state:               RunLoopStateIdle,
+		accessLevel:         AccessLevelDefault,
+		accessVersion:       1,
 		maxDisconnectedWait: defaultRunMaxDisconnectedWait,
 		observerChanged:     make(chan struct{}, 1),
+		accessLevelChanged:  make(chan struct{}, 1),
 	}
 	control.observerCnt.Store(1)
 	return control
@@ -189,41 +195,53 @@ func (c *RunControl) AwaitSubmit(ctx context.Context, awaitingID string) (Submit
 }
 
 func (c *RunControl) AwaitSubmitWithTimeout(ctx context.Context, awaitingID string, timeout time.Duration) (SubmitResult, error) {
+	result, _, err := c.awaitSubmitWithTimeout(ctx, awaitingID, timeout, -1)
+	return result, err
+}
+
+func (c *RunControl) AwaitSubmitWithTimeoutOrAccessLevelChange(ctx context.Context, awaitingID string, timeout time.Duration, afterVersion int64) (SubmitResult, bool, error) {
+	if _, currentVersion := c.AccessLevelSnapshot(); currentVersion != afterVersion {
+		return SubmitResult{}, true, nil
+	}
+	return c.awaitSubmitWithTimeout(ctx, awaitingID, timeout, afterVersion)
+}
+
+func (c *RunControl) awaitSubmitWithTimeout(ctx context.Context, awaitingID string, timeout time.Duration, breakOnAccessVersion int64) (SubmitResult, bool, error) {
 	if c == nil {
-		return SubmitResult{}, ErrRunControlUnavailable
+		return SubmitResult{}, false, ErrRunControlUnavailable
 	}
 	if awaitingID == "" {
-		return SubmitResult{}, ErrFrontendSubmitMissingAwaitID
+		return SubmitResult{}, false, ErrFrontendSubmitMissingAwaitID
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if c.interrupted.Load() {
-		return SubmitResult{}, ErrRunInterrupted
+		return SubmitResult{}, false, ErrRunInterrupted
 	}
 	if c.finished.Load() {
-		return SubmitResult{}, ErrRunFinished
+		return SubmitResult{}, false, ErrRunFinished
 	}
 
 	waiter := &submitWaiter{ch: make(chan SubmitResult, 1)}
 	c.mu.Lock()
 	if c.interrupted.Load() {
 		c.mu.Unlock()
-		return SubmitResult{}, ErrRunInterrupted
+		return SubmitResult{}, false, ErrRunInterrupted
 	}
 	if c.finished.Load() {
 		c.mu.Unlock()
-		return SubmitResult{}, ErrRunFinished
+		return SubmitResult{}, false, ErrRunFinished
 	}
 	if _, exists := c.submitWaiters[awaitingID]; exists {
 		c.mu.Unlock()
-		return SubmitResult{}, ErrFrontendSubmitAlreadyWaiting
+		return SubmitResult{}, false, ErrFrontendSubmitAlreadyWaiting
 	}
 	awaitingCtx := c.awaitingSubmits[awaitingID]
 	if pending, exists := c.pendingSubmits[awaitingID]; exists {
 		delete(c.pendingSubmits, awaitingID)
 		c.mu.Unlock()
-		return pending, nil
+		return pending, false, nil
 	}
 	c.submitWaiters[awaitingID] = waiter
 	c.mu.Unlock()
@@ -246,36 +264,46 @@ func (c *RunControl) AwaitSubmitWithTimeout(ctx context.Context, awaitingID stri
 	lastTick := time.Now()
 	timer := newWaitTimer(lastHasObserver, connectedRemaining, disconnectedRemaining)
 	defer stopWaitTimer(timer)
+	var accessChanged <-chan struct{}
+	if breakOnAccessVersion >= 0 {
+		accessChanged = c.accessLevelChanged
+	}
 
 	for {
 		select {
 		case result := <-waiter.ch:
 			switch result.Status {
 			case "interrupted":
-				return SubmitResult{}, ErrRunInterrupted
+				return SubmitResult{}, false, ErrRunInterrupted
 			case "finished":
-				return SubmitResult{}, ErrRunFinished
+				return SubmitResult{}, false, ErrRunFinished
 			default:
-				return result, nil
+				return result, false, nil
 			}
 		case <-ctx.Done():
-			return SubmitResult{}, ctx.Err()
+			return SubmitResult{}, false, ctx.Err()
 		case <-c.ctx.Done():
 			if c.interrupted.Load() {
-				return SubmitResult{}, ErrRunInterrupted
+				return SubmitResult{}, false, ErrRunInterrupted
 			}
 			if c.finished.Load() {
-				return SubmitResult{}, ErrRunFinished
+				return SubmitResult{}, false, ErrRunFinished
 			}
-			return SubmitResult{}, context.Canceled
+			return SubmitResult{}, false, context.Canceled
 		case <-c.observerChanged:
+		case <-accessChanged:
 		case <-waitTimerChan(timer):
 		}
 
 		now := time.Now()
 		connectedRemaining, disconnectedRemaining, expired := consumeWaitBudget(now.Sub(lastTick), lastHasObserver, connectedRemaining, disconnectedRemaining)
 		if expired {
-			return SubmitResult{}, context.DeadlineExceeded
+			return SubmitResult{}, false, context.DeadlineExceeded
+		}
+		if breakOnAccessVersion >= 0 {
+			if _, currentVersion := c.AccessLevelSnapshot(); currentVersion != breakOnAccessVersion {
+				return SubmitResult{}, true, nil
+			}
 		}
 		lastTick = now
 		lastHasObserver = c.HasObserver()
@@ -299,6 +327,73 @@ func (c *RunControl) TransitionState(next RunLoopState) {
 	c.mu.Lock()
 	c.state = next
 	c.mu.Unlock()
+}
+
+func (c *RunControl) SetInitialAccessLevel(accessLevel string) {
+	if c == nil {
+		return
+	}
+	normalized, ok := NormalizeAccessLevel(accessLevel)
+	if !ok {
+		normalized = AccessLevelDefault
+	}
+	c.mu.Lock()
+	c.accessLevel = normalized
+	if c.accessVersion <= 0 {
+		c.accessVersion = 1
+	}
+	c.mu.Unlock()
+}
+
+func (c *RunControl) UpdateAccessLevel(accessLevel string) (string, string, int64, bool) {
+	if c == nil {
+		return "", "", 0, false
+	}
+	normalized, ok := NormalizeAccessLevel(accessLevel)
+	if !ok {
+		normalized = AccessLevelDefault
+	}
+	c.mu.Lock()
+	previous := c.accessLevel
+	if previous == "" {
+		previous = AccessLevelDefault
+	}
+	version := c.accessVersion
+	if version <= 0 {
+		version = 1
+	}
+	if previous == normalized {
+		c.accessLevel = normalized
+		c.accessVersion = version
+		c.mu.Unlock()
+		return previous, normalized, version, false
+	}
+	version++
+	c.accessLevel = normalized
+	c.accessVersion = version
+	c.mu.Unlock()
+	select {
+	case c.accessLevelChanged <- struct{}{}:
+	default:
+	}
+	return previous, normalized, version, true
+}
+
+func (c *RunControl) AccessLevelSnapshot() (string, int64) {
+	if c == nil {
+		return AccessLevelDefault, 0
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	accessLevel := c.accessLevel
+	if accessLevel == "" {
+		accessLevel = AccessLevelDefault
+	}
+	version := c.accessVersion
+	if version <= 0 {
+		version = 1
+	}
+	return accessLevel, version
 }
 
 func (c *RunControl) ResolveSubmit(req api.SubmitRequest) SubmitAck {

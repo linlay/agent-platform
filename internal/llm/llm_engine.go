@@ -194,6 +194,7 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		promptBuildOptions: promptBuildOptions,
 		onApprovalSummary:  approvalSummarySinkFromContext(ctx),
 	}
+	stream.syncAccessLevelFromRunControl()
 	if len(session.SkillHookDirs) > 0 {
 		log.Printf("[llm][run:%s][hitl] creating SkillChecker hookDirs=%v", session.RunID, session.SkillHookDirs)
 		checker, err := hitl.NewSkillChecker(session.SkillHookDirs)

@@ -32,6 +32,18 @@ func encodedSubmitParams(t *testing.T, value any) api.SubmitParams {
 	return params
 }
 
+func waitForRunState(t *testing.T, control *contracts.RunControl, want contracts.RunLoopState) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if control.State() == want {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for run state %s, got %s", want, control.State())
+}
+
 func sampleLeavePayload(days float64) map[string]any {
 	return map[string]any{
 		"applicant_id":  "E1001",
@@ -2366,6 +2378,86 @@ func TestFileReadAccessAutoApproveRecordsApprovalSummary(t *testing.T) {
 	}
 	if !strings.Contains(recordedApproval.Summary, "[AUTO]") {
 		t.Fatalf("expected auto approval frontend summary, got %#v", recordedApproval)
+	}
+}
+
+func TestPendingFileReadApprovalResolvesAfterAccessLevelUpdate(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{backendToolDefinition("file_read")}}
+	control := contracts.NewRunControl(context.Background(), "run_1")
+	control.SetInitialAccessLevel(contracts.AccessLevelDefault)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	session := contracts.QuerySession{
+		RequestID:   "req_1",
+		ChatID:      "chat_1",
+		RunID:       "run_1",
+		AccessLevel: contracts.AccessLevelDefault,
+	}
+	stream := &llmRunStream{
+		ctx:        ctx,
+		session:    session,
+		runControl: control,
+		engine:     &LLMAgentEngine{tools: executor},
+		execCtx: &contracts.ExecutionContext{
+			Session: contracts.QuerySession{
+				AccessLevel:   contracts.AccessLevelDefault,
+				WorkspaceRoot: root,
+			},
+			AccessLevel: contracts.AccessLevelDefault,
+			RunControl:  control,
+		},
+		activeToolCall: &preparedToolInvocation{
+			toolID:   "tool_1",
+			toolName: "file_read",
+			args: map[string]any{
+				"file_path": filepath.Join(outside, "secret.txt"),
+			},
+		},
+	}
+	stream.syncAccessLevelFromRunControl()
+
+	if err := stream.invokeActiveToolCall(); err != nil {
+		t.Fatalf("invoke active read: %v", err)
+	}
+	if stream.hitlPendingCall == nil {
+		t.Fatalf("expected pending approval")
+	}
+	if len(stream.pending) != 1 {
+		t.Fatalf("expected approval ask, got %#v", stream.pending)
+	}
+	if _, ok := stream.pending[0].(contracts.DeltaAwaitAsk); !ok {
+		t.Fatalf("expected approval ask, got %#v", stream.pending)
+	}
+	stream.pending = nil
+
+	done := make(chan error, 1)
+	go func() {
+		done <- stream.fillPending()
+	}()
+	waitForRunState(t, control, contracts.RunLoopStateWaitingSubmit)
+	control.UpdateAccessLevel(contracts.AccessLevelAutoApprove)
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("fill pending: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for access-level auto approval")
+	}
+	if len(executor.invocations) != 1 {
+		t.Fatalf("expected read to execute after access-level update, got %#v", executor.invocations)
+	}
+	if len(stream.pending) != 2 {
+		t.Fatalf("expected awaiting answer and tool result, got %#v", stream.pending)
+	}
+	if answer, ok := stream.pending[0].(contracts.DeltaAwaitingAnswer); !ok || answer.Answer["status"] != "answered" {
+		t.Fatalf("expected access-level awaiting answer, got %#v", stream.pending[0])
+	}
+	if _, ok := stream.pending[1].(contracts.DeltaToolResult); !ok {
+		t.Fatalf("expected tool result, got %#v", stream.pending[1])
 	}
 }
 

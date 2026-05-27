@@ -62,6 +62,7 @@ type llmRunStream struct {
 	skipPostToolHook   bool
 	onApprovalSummary  func(chat.StepApproval)
 	planningWrites     map[string]*planningWriteStreamState
+	accessLevelVersion int64
 
 	lastCallPromptTokens           int
 	lastCallCompletionTokens       int

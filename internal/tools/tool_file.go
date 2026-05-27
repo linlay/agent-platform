@@ -423,6 +423,12 @@ func accessPolicySessionWithFallback(execCtx *ExecutionContext, fallbackWorkspac
 	if execCtx == nil {
 		return QuerySession{WorkspaceRoot: fallbackWorkspace}
 	}
+	if execCtx.RunControl != nil {
+		if accessLevel, _ := execCtx.RunControl.AccessLevelSnapshot(); strings.TrimSpace(accessLevel) != "" {
+			execCtx.AccessLevel = accessLevel
+			execCtx.Session.AccessLevel = accessLevel
+		}
+	}
 	session := execCtx.Session
 	if strings.TrimSpace(session.AccessLevel) == "" {
 		session.AccessLevel = execCtx.AccessLevel

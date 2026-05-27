@@ -190,6 +190,24 @@ type InterruptResponse struct {
 	Detail   string `json:"detail"`
 }
 
+type AccessLevelRequest struct {
+	RequestID   string `json:"requestId,omitempty"`
+	RunID       string `json:"runId"`
+	AgentKey    string `json:"agentKey"`
+	AccessLevel string `json:"accessLevel"`
+	Reason      string `json:"reason,omitempty"`
+}
+
+type AccessLevelResponse struct {
+	Accepted            bool   `json:"accepted"`
+	Status              string `json:"status"`
+	RunID               string `json:"runId"`
+	PreviousAccessLevel string `json:"previousAccessLevel,omitempty"`
+	AccessLevel         string `json:"accessLevel"`
+	Version             int64  `json:"version"`
+	Detail              string `json:"detail"`
+}
+
 type LearnRequest struct {
 	RequestID  string `json:"requestId,omitempty"`
 	ChatID     string `json:"chatId"`

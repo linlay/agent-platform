@@ -98,6 +98,7 @@ GET /ws -> request / response / stream / push / error frames
 | POST | `/api/submit` | body: `agentKey`、`runId`、`awaitingId`、`params` | HITL submit ack |
 | POST | `/api/steer` | body: `agentKey`、`runId`、`message`、`requestId`、`chatId`、`teamId`、`steerId` | steer ack |
 | POST | `/api/interrupt` | body: `agentKey`、`runId`、`message`、`requestId`、`chatId`、`teamId` | interrupt ack |
+| POST | `/api/access-level` | body: `agentKey`、`runId`、`accessLevel`、`requestId`、`reason` | 动态更新 native run 的 accessLevel |
 
 `params` 是业务透传对象，平台不读取、不写入、不约定内部 key。
 
@@ -117,6 +118,19 @@ GET /ws -> request / response / stream / push / error frames
 ```
 
 `model.key` 必须存在于 model registry；`model.modelId` 由后端转发给 ACP CODER 上游时补齐，优先来自 model registry 的 `modelId`，为空时回退到 key；`model.reasoningEffort` 可取 `LOW`、`MEDIUM`、`HIGH`，非空时开启本次 run 的 reasoning。该配置只影响当前 run，不写回 agent 配置。
+
+`accessLevel` 在 `/api/query` 中作为 run 初始值；运行中可通过 `/api/access-level` 调整：
+
+```json
+{
+  "agentKey": "default_agent",
+  "runId": "run-id",
+  "accessLevel": "auto_approve",
+  "reason": "user toggled permission"
+}
+```
+
+响应包含 `accepted`、`status`、`runId`、`previousAccessLevel`、`accessLevel`、`version`、`detail`。更新只影响后续 host bash 与 file tools 的 access-policy 判断；已经开始执行的工具不会被中断。若 run 正在等待 access-policy approval，权限提升后会重新评估当前等待项，满足新权限时自动清理 awaiting 并继续执行。PROXY / ACP CODER run 当前返回 `status=unsupported`，不隐式透传。
 
 #### CODER model options
 

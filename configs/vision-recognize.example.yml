@@ -4,7 +4,7 @@ default-profile: general
 
 profiles:
   general:
-    model-key: qwen2.5-vl
+    model-key: bailian-qwen3_5-flash
     timeout-ms: 60000
     max-images: 4
     max-image-bytes: 20971520
@@ -13,7 +13,7 @@ profiles:
       You are a visual recognition tool. Describe only observable visual facts.
 
   ocr:
-    model-key: qwen2.5-vl
+    model-key: bailian-qwen3_5-plus
     timeout-ms: 60000
     max-images: 4
     max-image-bytes: 20971520
