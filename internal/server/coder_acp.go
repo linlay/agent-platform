@@ -82,7 +82,7 @@ func (s *Server) modelIDForKey(modelKey string) string {
 		return ""
 	}
 	if s.deps.Models != nil {
-		if model, _, err := s.deps.Models.Get(modelKey); err == nil && strings.TrimSpace(model.ModelID) != "" {
+		if model, err := s.deps.Models.GetModel(modelKey); err == nil && strings.TrimSpace(model.ModelID) != "" {
 			return strings.TrimSpace(model.ModelID)
 		}
 	}

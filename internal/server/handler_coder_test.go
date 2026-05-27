@@ -215,6 +215,30 @@ func TestQueryModelOptionsValidation(t *testing.T) {
 		}
 	})
 
+	t.Run("providerless model rejects native request model", func(t *testing.T) {
+		fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+			writeProviderSSE(t, w, `[DONE]`)
+		}, testFixtureOptions{
+			setupRuntime: func(_ string, cfg *config.Config) {
+				modelPath := filepath.Join(cfg.Paths.RegistriesDir, "models", "gpt-5-codex.yml")
+				if err := os.WriteFile(modelPath, []byte(strings.Join([]string{
+					"key: gpt-5-codex",
+					"name: GPT-5 Codex",
+					"modelId: gpt-5-codex",
+				}, "\n")), 0o644); err != nil {
+					t.Fatalf("write providerless model config: %v", err)
+				}
+			},
+		})
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"hi","agentKey":"mock-agent","model":{"key":"gpt-5-codex"}}`))
+		req.Header.Set("Content-Type", "application/json")
+		fixture.server.ServeHTTP(rec, req)
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "provider") {
+			t.Fatalf("expected provider-backed rejection, got %d: %s", rec.Code, rec.Body.String())
+		}
+	})
+
 	t.Run("invalid reasoning effort rejects request model", func(t *testing.T) {
 		fixture := newTestFixture(t)
 		rec := httptest.NewRecorder()

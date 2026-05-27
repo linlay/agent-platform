@@ -113,7 +113,7 @@ func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
 	if statusErr := s.applyProxyRoutingConfig(&agentDef); statusErr != nil {
 		return preparedQuery{}, statusErr
 	}
-	if err := s.validateQueryModelOptions(req.Model); err != nil {
+	if err := s.validateQueryModelOptions(req.Model, agentDef); err != nil {
 		return preparedQuery{}, err
 	}
 	if err := s.validateCoderConfig(req.CoderConfig, agentDef); err != nil {
@@ -208,7 +208,7 @@ func buildMemoryUsageSummary(staticMemoryPrompt string, bundle memory.ContextBun
 	return summary
 }
 
-func (s *Server) validateQueryModelOptions(options *api.QueryModelOptions) error {
+func (s *Server) validateQueryModelOptions(options *api.QueryModelOptions, agentDef catalog.AgentDefinition) error {
 	if options == nil {
 		return nil
 	}
@@ -221,8 +221,14 @@ func (s *Server) validateQueryModelOptions(options *api.QueryModelOptions) error
 		if s.deps.Models == nil {
 			return &statusError{status: http.StatusServiceUnavailable, message: "model registry is not configured"}
 		}
-		if _, _, err := s.deps.Models.Get(modelKey); err != nil {
-			return &statusError{status: http.StatusBadRequest, message: err.Error()}
+		if catalog.AgentUsesACPCoderBackend(agentDef) {
+			if _, err := s.deps.Models.GetModel(modelKey); err != nil {
+				return &statusError{status: http.StatusBadRequest, message: err.Error()}
+			}
+		} else {
+			if _, _, err := s.deps.Models.Get(modelKey); err != nil {
+				return &statusError{status: http.StatusBadRequest, message: err.Error()}
+			}
 		}
 	}
 	if _, ok := normalizeQueryModelReasoningEffort(reasoningEffort); !ok {
@@ -247,8 +253,14 @@ func (s *Server) validateCoderConfig(config *api.CoderConfig, agentDef catalog.A
 		if s.deps.Models == nil {
 			return &statusError{status: http.StatusServiceUnavailable, message: "model registry is not configured"}
 		}
-		if _, _, err := s.deps.Models.Get(modelKey); err != nil {
-			return &statusError{status: http.StatusBadRequest, message: err.Error()}
+		if catalog.AgentUsesACPCoderBackend(agentDef) {
+			if _, err := s.deps.Models.GetModel(modelKey); err != nil {
+				return &statusError{status: http.StatusBadRequest, message: err.Error()}
+			}
+		} else {
+			if _, _, err := s.deps.Models.Get(modelKey); err != nil {
+				return &statusError{status: http.StatusBadRequest, message: err.Error()}
+			}
 		}
 	}
 	if _, ok := normalizeCoderReasoningEffort(reasoningEffort); !ok {

@@ -282,6 +282,95 @@ func TestACPCoderQueryUsesGlobalProxyAndForwardsWorkspaceAndModel(t *testing.T) 
 	}
 }
 
+func TestACPCoderForwardsProviderlessModel(t *testing.T) {
+	workspace := t.TempDir()
+	writeTestGitHead(t, workspace, "main")
+	captured := make(chan map[string]any, 1)
+	upgrader := gws.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	upstream := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/ws" {
+			t.Fatalf("expected websocket path /ws, got %s", r.URL.Path)
+		}
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Fatalf("upgrade upstream websocket: %v", err)
+		}
+		defer conn.Close()
+		var frame map[string]any
+		if err := conn.ReadJSON(&frame); err != nil {
+			t.Fatalf("read upstream websocket frame: %v", err)
+		}
+		captured <- frame
+		if err := conn.WriteJSON(map[string]any{
+			"event": map[string]any{
+				"type":  "run.complete",
+				"runId": "upstream-run",
+			},
+		}); err != nil {
+			t.Fatalf("write upstream websocket completion: %v", err)
+		}
+	}))
+	defer upstream.Close()
+
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		configure: func(cfg *config.Config) {
+			cfg.CoderSettings.ACPProxies = map[string]config.CoderACPProxyConfig{
+				"codex": {BaseURL: upstream.URL},
+			}
+		},
+		setupRuntime: func(_ string, cfg *config.Config) {
+			modelPath := filepath.Join(cfg.Paths.RegistriesDir, "models", "gpt-5-codex.yml")
+			if err := os.WriteFile(modelPath, []byte(strings.Join([]string{
+				"key: gpt-5-codex",
+				"name: GPT-5 Codex",
+				"modelId: gpt-5-codex",
+			}, "\n")), 0o644); err != nil {
+				t.Fatalf("write providerless model config: %v", err)
+			}
+			writeAgentConfig(t, filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml"), []string{
+				"key: mock-agent",
+				"name: Mock ACP Coder",
+				"role: 测试代理",
+				"description: acp coder test agent",
+				"mode: CODER",
+				"modelConfig:",
+				"  modelKey: gpt-5-codex",
+				"runtimeConfig:",
+				"  coderBackend: acp",
+				"  acpProxyId: codex",
+				"  workspaceRoot: " + filepath.ToSlash(workspace),
+				"projectConfig:",
+				"  git:",
+				"    expectedBranch: main",
+			})
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	body := bytes.NewBufferString(`{"agentKey":"mock-agent","message":"proxy me","model":{"key":"gpt-5-codex"},"coderConfig":{"modelKey":"gpt-5-codex"}}`)
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", body))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var frame map[string]any
+	select {
+	case frame = <-captured:
+	default:
+		t.Fatalf("expected upstream websocket frame")
+	}
+	inner, ok := frame["payload"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected payload object, got %#v", frame["payload"])
+	}
+	model, ok := inner["model"].(map[string]any)
+	if !ok || model["key"] != "gpt-5-codex" || model["modelId"] != "gpt-5-codex" {
+		t.Fatalf("unexpected upstream model %#v", inner["model"])
+	}
+}
+
 func TestACPCoderRejectsRequestCWDParam(t *testing.T) {
 	var upstreamHit atomic.Bool
 	upstream := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
