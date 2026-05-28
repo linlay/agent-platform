@@ -1,0 +1,39 @@
+name: vision_recognize
+label: 图像识别
+description: Recognize images through the globally configured vision model. Use this when the active model cannot inspect images directly, or when OCR/visual extraction is needed as a tool result.
+submitResultFormat: json-compact
+type: function
+explicitOnly: true
+inputSchema:
+  type: object
+  properties:
+    images:
+      type: array
+      description: Required. Images to recognize. Each item must provide either reference_name for a current chat attachment or file_path for a host file.
+      minItems: 1
+      items:
+        type: object
+        properties:
+          reference_name:
+            type: string
+            description: Current chat attachment file name to inspect. The name must not include path separators.
+          file_path:
+            type: string
+            description: Host image file path to inspect. This path is checked by access-policy.yml read rules.
+        additionalProperties: false
+    prompt:
+      type: string
+      description: Required. Recognition instruction, such as what to describe, extract, compare, or transcribe.
+    profile:
+      type: string
+      description: Optional. Profile name from configs/vision-recognize.yml. Defaults to default-profile.
+    output_format:
+      type: string
+      description: Optional. Desired result shape. Supports text or json, overriding the selected profile.
+      enum:
+        - text
+        - json
+  required:
+    - images
+    - prompt
+  additionalProperties: false

@@ -325,7 +325,18 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 		}
 	}
 	runtimeConfig := mapNode(root["runtimeConfig"])
+	def.CoderBackend = AgentCoderBackendNative
 	if len(runtimeConfig) > 0 {
+		def.ACPProxyID = stringNode(runtimeConfig["acpProxyId"])
+		rawCoderBackend := stringNode(runtimeConfig["coderBackend"])
+		coderBackend, err := normalizeAgentCoderBackend(rawCoderBackend)
+		if err != nil {
+			return AgentDefinition{}, nil, err
+		}
+		if strings.TrimSpace(rawCoderBackend) == "" && strings.TrimSpace(def.ACPProxyID) != "" {
+			coderBackend = AgentCoderBackendACP
+		}
+		def.CoderBackend = coderBackend
 		def.Runtime = map[string]any{
 			"environmentId": stringNode(runtimeConfig["environmentId"]),
 			"level":         strings.ToLower(stringNode(runtimeConfig["level"])),
@@ -348,6 +359,9 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	}
 	hasRuntimeSandbox := strings.TrimSpace(stringNode(def.Runtime["environmentId"])) != ""
 	if err := validateAgentModeWorkspace(def.Mode, def.Workspace, hasRuntimeSandbox); err != nil {
+		return AgentDefinition{}, nil, err
+	}
+	if err := ValidateAgentCoderBackend(def); err != nil {
 		return AgentDefinition{}, nil, err
 	}
 	def.ReactMaxSteps = intNode(mapNode(root["react"])["maxSteps"])

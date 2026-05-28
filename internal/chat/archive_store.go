@@ -344,6 +344,9 @@ func (s *ArchiveStore) ResolveResource(chatID, file string) (string, error) {
 	if clean == "." || filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
 		return "", os.ErrPermission
 	}
+	if IsToolResultsPath(clean) {
+		return "", os.ErrPermission
+	}
 	path := filepath.Join(s.ChatDir(chatID), clean)
 	rel, err := filepath.Rel(s.ChatDir(chatID), path)
 	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {

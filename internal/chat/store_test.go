@@ -586,6 +586,12 @@ func TestFileStoreDeleteChatRemovesRowsAndFiles(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(store.ChatDir("chat-delete"), "artifact.txt"), []byte("x"), 0o644); err != nil {
 		t.Fatalf("write artifact: %v", err)
 	}
+	if err := os.MkdirAll(filepath.Join(store.ChatDir("chat-delete"), ToolResultsDirName), 0o755); err != nil {
+		t.Fatalf("mkdir tool results dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(store.ChatDir("chat-delete"), ToolResultsDirName, "call_1.json"), []byte(`{"stdout":"x"}`), 0o644); err != nil {
+		t.Fatalf("write tool result: %v", err)
+	}
 	if err := store.OnRunCompleted(RunCompletion{ChatID: "chat-delete", RunID: "loyw3v28", UpdatedAtMillis: time.Now().UnixMilli()}); err != nil {
 		t.Fatalf("complete run: %v", err)
 	}
@@ -1407,8 +1413,8 @@ func TestStepWriterReusesReactSeqForSplitHITLToolResult(t *testing.T) {
 		},
 	})
 	writer.RecordApproval(StepApproval{
-		Summary:   `[HITL] git push origin main -> approve`,
-		LLMNotice: `[System audit - HITL approval batch]`,
+		Summary: `[HITL] git push origin main -> approve`,
+		Notice:  `[System audit - HITL approval batch]`,
 		Decisions: []StepApprovalDecision{{
 			ToolID:   "tool-1",
 			Command:  "git push origin main",
@@ -1483,16 +1489,24 @@ func TestStepWriterReusesReactSeqForSplitHITLToolResult(t *testing.T) {
 	if toolStep["_type"] != "react" || toIntValue(toolStep["seq"]) != 1 {
 		t.Fatalf("expected split tool result step to reuse seq=1, got %#v", toolStep)
 	}
-	if _, ok := toolStep["approval"].(map[string]any); !ok {
-		t.Fatalf("expected approval sidecar on tool result step, got %#v", toolStep)
+	if _, ok := toolStep["approval"]; ok {
+		t.Fatalf("did not expect approval sidecar on tool result step, got %#v", toolStep)
 	}
 	toolMessages, _ := toolStep["messages"].([]any)
-	if len(toolMessages) != 1 {
-		t.Fatalf("expected one tool message, got %#v", toolStep)
+	if len(toolMessages) != 2 {
+		t.Fatalf("expected tool message followed by inline approval message, got %#v", toolStep)
 	}
 	toolMessage, _ := toolMessages[0].(map[string]any)
 	if toolMessage["role"] != "tool" {
 		t.Fatalf("expected split step role=tool, got %#v", toolMessage)
+	}
+	approvalMessage, _ := toolMessages[1].(map[string]any)
+	if approvalMessage["role"] != "user" {
+		t.Fatalf("expected inline approval user message, got %#v", approvalMessage)
+	}
+	approval, ok := approvalMessage["approval"].(map[string]any)
+	if !ok || approval["summary"] != `[HITL] git push origin main -> approve` {
+		t.Fatalf("expected inline approval metadata, got %#v", approvalMessage)
 	}
 	finalStep := lines[3]
 	if finalStep["_type"] != "react" || toIntValue(finalStep["seq"]) != 2 {
@@ -1596,13 +1610,12 @@ func TestStepWriterEmbedsUsageAtStepLevel(t *testing.T) {
 						"completionTokens": 50,
 						"totalTokens":      150,
 						"promptTokensDetails": map[string]any{
-							"cachedTokens": 64,
+							"cacheHitTokens":  64,
+							"cacheMissTokens": 36,
 						},
 						"completionTokensDetails": map[string]any{
 							"reasoningTokens": 12,
 						},
-						"promptCacheHitTokens":   64,
-						"promptCacheMissTokens":  36,
 						"llmChatCompletionCount": 1,
 					},
 				},
@@ -1625,8 +1638,8 @@ func TestStepWriterEmbedsUsageAtStepLevel(t *testing.T) {
 	}
 	promptDetails, _ := usage["promptTokensDetails"].(map[string]any)
 	completionDetails, _ := usage["completionTokensDetails"].(map[string]any)
-	if toIntValue(promptDetails["cachedTokens"]) != 64 || toIntValue(completionDetails["reasoningTokens"]) != 12 ||
-		toIntValue(usage["promptCacheHitTokens"]) != 64 || toIntValue(usage["promptCacheMissTokens"]) != 36 ||
+	if toIntValue(promptDetails["cacheHitTokens"]) != 64 || toIntValue(promptDetails["cacheMissTokens"]) != 36 ||
+		toIntValue(completionDetails["reasoningTokens"]) != 12 ||
 		toIntValue(usage["llmChatCompletionCount"]) != 1 {
 		t.Fatalf("expected detailed step-level usage, got %#v", lines[0])
 	}
@@ -1853,10 +1866,9 @@ func TestStepWriterPersistsUsageSnapshotWhenDebugEventsDisabled(t *testing.T) {
 					"completionTokens": 50,
 					"totalTokens":      150,
 					"promptTokensDetails": map[string]any{
-						"cachedTokens": 64,
+						"cacheHitTokens":  64,
+						"cacheMissTokens": 36,
 					},
-					"promptCacheHitTokens":   64,
-					"promptCacheMissTokens":  36,
 					"llmChatCompletionCount": 1,
 				},
 			},
@@ -1875,8 +1887,9 @@ func TestStepWriterPersistsUsageSnapshotWhenDebugEventsDisabled(t *testing.T) {
 		t.Fatalf("did not expect debug payload, got %#v", lines[0])
 	}
 	usage, _ := lines[0]["usage"].(map[string]any)
+	promptDetails, _ := usage["promptTokensDetails"].(map[string]any)
 	if toIntValue(usage["promptTokens"]) != 100 || toIntValue(usage["completionTokens"]) != 50 || toIntValue(usage["totalTokens"]) != 150 ||
-		toIntValue(usage["promptCacheHitTokens"]) != 64 || toIntValue(usage["promptCacheMissTokens"]) != 36 {
+		toIntValue(promptDetails["cacheHitTokens"]) != 64 || toIntValue(promptDetails["cacheMissTokens"]) != 36 {
 		t.Fatalf("expected usage snapshot to persist, got %#v", lines[0])
 	}
 	if _, exists := usage["llmChatCompletionCount"]; exists {
@@ -1959,8 +1972,11 @@ func TestStepWriterPlanningLifecyclePersistsSnapshotByDefault(t *testing.T) {
 	if lines[0]["_type"] != "planning" || event["type"] != "planning.snapshot" {
 		t.Fatalf("expected planning.snapshot line, got %#v", lines[0])
 	}
-	if event["markdown"] != "# Plan\n\nBody" || event["planningId"] != "plan-run-planning" || event["planningFile"] != "plan-run-planning.md" {
+	if event["text"] != "# Plan\n\nBody" || event["planningId"] != "plan-run-planning" || event["planningFile"] != "plan-run-planning.md" {
 		t.Fatalf("unexpected planning snapshot event %#v", event)
+	}
+	if _, ok := event["markdown"]; ok {
+		t.Fatalf("did not expect public planning snapshot markdown field %#v", event)
 	}
 
 	detail, err := store.LoadChat("chat-planning-snapshot")
@@ -1978,7 +1994,7 @@ func TestStepWriterPlanningLifecyclePersistsSnapshotByDefault(t *testing.T) {
 	}
 }
 
-func TestStepWriterPlanningLifecyclePersistsDebugEventsWhenEnabled(t *testing.T) {
+func TestStepWriterPlanningLifecyclePersistsOnlySnapshotWhenDebugEventsEnabled(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
@@ -1995,9 +2011,133 @@ func TestStepWriterPlanningLifecyclePersistsDebugEventsWhenEnabled(t *testing.T)
 		event, _ := line["event"].(map[string]any)
 		got = append(got, stringVal(event["type"]))
 	}
-	want := []string{"planning.start", "planning.delta", "planning.end", "planning.snapshot"}
+	want := []string{"planning.snapshot"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("planning event lines = %#v, want %#v", got, want)
+	}
+}
+
+func TestLoadChatReplaysSinglePlanningSnapshotFromLegacyLifecycleEvents(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	chatID := "chat-legacy-planning"
+	runID := "run-planning"
+	if _, _, err := store.EnsureChat(chatID, "coder", "", "plan it"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	appendPlanningEventLineForTest(t, store, chatID, runID, 1001, map[string]any{
+		"type":         "planning.start",
+		"timestamp":    int64(1001),
+		"planningId":   "plan-run-planning",
+		"planningFile": "plan-run-planning.md",
+		"chatId":       chatID,
+		"runId":        runID,
+		"title":        "Plan",
+		"updatedAt":    int64(1001),
+	})
+	appendPlanningEventLineForTest(t, store, chatID, runID, 1002, map[string]any{
+		"type":       "planning.delta",
+		"timestamp":  int64(1002),
+		"planningId": "plan-run-planning",
+		"delta":      "# Draft",
+	})
+	appendPlanningEventLineForTest(t, store, chatID, runID, 1003, map[string]any{
+		"type":       "planning.end",
+		"timestamp":  int64(1003),
+		"planningId": "plan-run-planning",
+	})
+	appendPlanningEventLineForTest(t, store, chatID, runID, 1004, map[string]any{
+		"type":         "planning.snapshot",
+		"timestamp":    int64(1004),
+		"planningId":   "plan-run-planning",
+		"planningFile": "plan-run-planning.md",
+		"chatId":       chatID,
+		"runId":        runID,
+		"title":        "Plan",
+		"markdown":     "# Final\n\nBody",
+		"updatedAt":    int64(1004),
+	})
+
+	detail, err := store.LoadChat(chatID)
+	if err != nil {
+		t.Fatalf("load chat: %v", err)
+	}
+	if got := detailEventTypeCount(detail.Events, "planning.snapshot"); got != 1 {
+		t.Fatalf("planning.snapshot count = %d, events %#v", got, detail.Events)
+	}
+	if detailHasEventType(detail.Events, "planning.start") ||
+		detailHasEventType(detail.Events, "planning.delta") ||
+		detailHasEventType(detail.Events, "planning.end") {
+		t.Fatalf("unexpected replayed planning lifecycle events %#v", detail.Events)
+	}
+	snapshot := detailEventByType(detail.Events, "planning.snapshot")
+	if snapshot.String("text") != "# Final\n\nBody" {
+		t.Fatalf("expected snapshot text to prefer canonical snapshot, got %#v", snapshot.Map())
+	}
+	if snapshot.Value("markdown") != nil {
+		t.Fatalf("did not expect replayed planning snapshot markdown, got %#v", snapshot.Map())
+	}
+	if detail.Planning == nil || detail.Planning.Markdown != "# Final\n\nBody" {
+		t.Fatalf("expected planning state from canonical snapshot, got %#v", detail.Planning)
+	}
+}
+
+func TestLoadChatSynthesizesPlanningSnapshotFromLegacyDeltas(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	chatID := "chat-legacy-planning-deltas"
+	runID := "run-planning"
+	if _, _, err := store.EnsureChat(chatID, "coder", "", "plan it"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	appendPlanningEventLineForTest(t, store, chatID, runID, 1001, map[string]any{
+		"type":         "planning.start",
+		"timestamp":    int64(1001),
+		"planningId":   "plan-run-planning",
+		"planningFile": "plan-run-planning.md",
+		"chatId":       chatID,
+		"runId":        runID,
+		"title":        "Plan",
+		"updatedAt":    int64(1001),
+	})
+	appendPlanningEventLineForTest(t, store, chatID, runID, 1002, map[string]any{
+		"type":       "planning.delta",
+		"timestamp":  int64(1002),
+		"planningId": "plan-run-planning",
+		"delta":      "# Draft",
+	})
+	appendPlanningEventLineForTest(t, store, chatID, runID, 1003, map[string]any{
+		"type":       "planning.delta",
+		"timestamp":  int64(1003),
+		"planningId": "plan-run-planning",
+		"delta":      "\n\nBody",
+	})
+	appendPlanningEventLineForTest(t, store, chatID, runID, 1004, map[string]any{
+		"type":       "planning.end",
+		"timestamp":  int64(1004),
+		"planningId": "plan-run-planning",
+	})
+
+	detail, err := store.LoadChat(chatID)
+	if err != nil {
+		t.Fatalf("load chat: %v", err)
+	}
+	if got := detailEventTypeCount(detail.Events, "planning.snapshot"); got != 1 {
+		t.Fatalf("planning.snapshot count = %d, events %#v", got, detail.Events)
+	}
+	snapshot := detailEventByType(detail.Events, "planning.snapshot")
+	if snapshot.String("text") != "# Draft\n\nBody" {
+		t.Fatalf("expected synthesized snapshot text from deltas, got %#v", snapshot.Map())
+	}
+	if snapshot.Value("markdown") != nil {
+		t.Fatalf("did not expect synthesized planning snapshot markdown, got %#v", snapshot.Map())
+	}
+	if detail.Planning == nil || detail.Planning.Markdown != "# Draft\n\nBody" {
+		t.Fatalf("expected planning state from synthesized snapshot, got %#v", detail.Planning)
 	}
 }
 
@@ -2031,6 +2171,19 @@ func emitPlanningLifecycleForTest(writer *StepWriter, chatID string) {
 	})
 }
 
+func appendPlanningEventLineForTest(t *testing.T, store *FileStore, chatID string, runID string, updatedAt int64, event map[string]any) {
+	t.Helper()
+	if err := store.AppendEventLine(chatID, EventLine{
+		ChatID:    chatID,
+		RunID:     runID,
+		UpdatedAt: updatedAt,
+		Event:     event,
+		Type:      "planning",
+	}); err != nil {
+		t.Fatalf("append planning event: %v", err)
+	}
+}
+
 func detailHasEventType(events []stream.EventData, eventType string) bool {
 	for _, event := range events {
 		if event.Type == eventType {
@@ -2038,6 +2191,25 @@ func detailHasEventType(events []stream.EventData, eventType string) bool {
 		}
 	}
 	return false
+}
+
+func detailEventTypeCount(events []stream.EventData, eventType string) int {
+	count := 0
+	for _, event := range events {
+		if event.Type == eventType {
+			count++
+		}
+	}
+	return count
+}
+
+func detailEventByType(events []stream.EventData, eventType string) stream.EventData {
+	for _, event := range events {
+		if event.Type == eventType {
+			return event
+		}
+	}
+	return stream.EventData{}
 }
 
 func TestStepWriterPersistsTaskScopedUsageAndSlimMetadataWithoutDebugPayload(t *testing.T) {
@@ -2563,6 +2735,70 @@ func TestStepWriterWritesSystemInitAfterQuery(t *testing.T) {
 	}
 }
 
+func TestStepWriterPersistsHiddenQueryWithSystemInits(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-hidden-query-system-init", "agent", "", "hidden hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	writer := NewStepWriter(store, "chat-hidden-query-system-init", "run-hidden", "react", true)
+	writer.SetPendingSystemInits([]QueryLineSystemInit{{
+		Fingerprint:   "sha256:hidden",
+		CacheKey:      "react:main",
+		SystemMessage: map[string]any{"role": "system", "content": "hidden system"},
+		Tools:         []any{map[string]any{"type": "function"}},
+	}})
+	writer.OnEvent(stream.EventData{
+		Type:      "request.query",
+		Timestamp: 1001,
+		Payload: map[string]any{
+			"chatId":  "chat-hidden-query-system-init",
+			"runId":   "run-hidden",
+			"message": "hidden hello",
+		},
+	})
+
+	lines, err := readJSONLines(store.chatJSONLPath("chat-hidden-query-system-init"))
+	if err != nil {
+		t.Fatalf("read chat jsonl: %v", err)
+	}
+	if len(lines) != 1 || lines[0]["_type"] != "query" {
+		t.Fatalf("expected one hidden query line, got %#v", lines)
+	}
+	if hidden, _ := lines[0]["hidden"].(bool); !hidden {
+		t.Fatalf("expected hidden=true on query line, got %#v", lines[0])
+	}
+	systems, _ := lines[0]["systems"].([]any)
+	if len(systems) != 1 {
+		t.Fatalf("expected hidden query to keep inline systems, got %#v", lines[0])
+	}
+	system, _ := systems[0].(map[string]any)
+	if system["cacheKey"] != "react:main" || system["fingerprint"] != "sha256:hidden" {
+		t.Fatalf("unexpected inline system cache %#v", system)
+	}
+
+	detail, err := store.LoadChat("chat-hidden-query-system-init")
+	if err != nil {
+		t.Fatalf("load chat: %v", err)
+	}
+	var queryEvent *stream.EventData
+	for i := range detail.Events {
+		if detail.Events[i].Type == "request.query" {
+			queryEvent = &detail.Events[i]
+			break
+		}
+	}
+	if queryEvent == nil {
+		t.Fatalf("expected replayed request.query, got %#v", detail.Events)
+	}
+	if hidden, _ := queryEvent.Value("hidden").(bool); !hidden {
+		t.Fatalf("expected replayed request.query hidden=true, got %#v", queryEvent)
+	}
+}
+
 func TestStepWriterOmitsSystemsWhenNoPendingSystemInits(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
@@ -2634,7 +2870,7 @@ func TestStepWriterPersistsAwaitingWithoutMessages(t *testing.T) {
 	}
 }
 
-func TestStepWriterPersistsApprovalSidecarOnStepLine(t *testing.T) {
+func TestStepWriterPersistsInlineApprovalMessage(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
@@ -2659,8 +2895,8 @@ func TestStepWriterPersistsApprovalSidecarOnStepLine(t *testing.T) {
 		},
 	})
 	writer.RecordApproval(StepApproval{
-		Summary:   `[HITL] chmod 777 ~/a.sh → approve`,
-		LLMNotice: `[System audit — HITL approval batch]`,
+		Summary: `[HITL] chmod 777 ~/a.sh → approve`,
+		Notice:  `[System audit — HITL approval batch]`,
 		Decisions: []StepApprovalDecision{{
 			ToolID:   "tool-1",
 			Command:  "chmod 777 ~/a.sh",
@@ -2677,19 +2913,32 @@ func TestStepWriterPersistsApprovalSidecarOnStepLine(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("expected one step line, got %#v", lines)
 	}
-	if _, ok := lines[0]["approval"].(map[string]any); !ok {
-		t.Fatalf("expected approval sidecar on step line, got %#v", lines[0])
-	}
-	approval, _ := lines[0]["approval"].(map[string]any)
-	if _, ok := approval["ruleKey"]; ok {
-		t.Fatalf("did not expect top-level approval.ruleKey, got %#v", approval)
-	}
-	if approval["summary"] != `[HITL] chmod 777 ~/a.sh → approve` || approval["llmNotice"] != `[System audit — HITL approval batch]` {
-		t.Fatalf("expected approval summary and llmNotice sidecar, got %#v", approval)
+	if _, ok := lines[0]["approval"]; ok {
+		t.Fatalf("did not expect top-level approval sidecar on step line, got %#v", lines[0])
 	}
 	messages, _ := lines[0]["messages"].([]any)
-	if len(messages) != 2 {
-		t.Fatalf("expected only tool snapshot and tool result messages, got %#v", lines[0])
+	if len(messages) != 3 {
+		t.Fatalf("expected tool snapshot, tool result, and approval message, got %#v", lines[0])
+	}
+	approvalMessage, _ := messages[2].(map[string]any)
+	if approvalMessage["role"] != "user" {
+		t.Fatalf("expected inline approval user message after tool result, got %#v", approvalMessage)
+	}
+	if text := extractTextFromContent(approvalMessage["content"]); text != `[System audit — HITL approval batch]` {
+		t.Fatalf("expected approval notice as message content, got %#v", approvalMessage)
+	}
+	approval, ok := approvalMessage["approval"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected approval metadata on inline user message, got %#v", approvalMessage)
+	}
+	if _, ok := approval["ruleKey"]; ok {
+		t.Fatalf("did not expect approval.ruleKey outside decisions, got %#v", approval)
+	}
+	if approval["summary"] != `[HITL] chmod 777 ~/a.sh → approve` {
+		t.Fatalf("expected approval summary metadata, got %#v", approval)
+	}
+	if _, ok := approval["notice"]; ok {
+		t.Fatalf("did not expect persisted approval notice metadata, got %#v", approval)
 	}
 }
 
@@ -2723,8 +2972,8 @@ func TestStepWriterPersistsFormApprovalDecisionPayload(t *testing.T) {
 		},
 	})
 	writer.RecordApproval(StepApproval{
-		Summary:   "[HITL] mock create-leave --payload '{...}' → approve\n  提交参数: {\"applicant_id\":\"E1001\",\"days\":2,\"leave_type\":\"annual\"}",
-		LLMNotice: "[System audit — HITL approval batch]\nsubmitted_payload={\"applicant_id\":\"E1001\",\"days\":2,\"leave_type\":\"annual\"}",
+		Summary: "[HITL] mock create-leave --payload '{...}' → approve\n  提交参数: {\"applicant_id\":\"E1001\",\"days\":2,\"leave_type\":\"annual\"}",
+		Notice:  "[System audit — HITL approval batch]\nsubmitted_payload={\"applicant_id\":\"E1001\",\"days\":2,\"leave_type\":\"annual\"}",
 		Decisions: []StepApprovalDecision{{
 			ToolID:   "tool-1",
 			Command:  "mock create-leave --payload '{...}'",
@@ -2743,12 +2992,26 @@ func TestStepWriterPersistsFormApprovalDecisionPayload(t *testing.T) {
 	if len(lines) != 1 {
 		t.Fatalf("expected one step line, got %#v", lines)
 	}
-	approval, ok := lines[0]["approval"].(map[string]any)
-	if !ok {
-		t.Fatalf("expected approval sidecar on step line, got %#v", lines[0])
+	if _, ok := lines[0]["approval"]; ok {
+		t.Fatalf("did not expect top-level approval sidecar on step line, got %#v", lines[0])
 	}
-	if approval["summary"] == approval["llmNotice"] || approval["llmNotice"] == "" {
-		t.Fatalf("expected distinct persisted form approval llmNotice, got %#v", approval)
+	messages, _ := lines[0]["messages"].([]any)
+	if len(messages) != 3 {
+		t.Fatalf("expected inline approval message after tool result, got %#v", lines[0])
+	}
+	approvalMessage, _ := messages[2].(map[string]any)
+	if approvalMessage["role"] != "user" {
+		t.Fatalf("expected inline approval user message, got %#v", approvalMessage)
+	}
+	approval, ok := approvalMessage["approval"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected approval metadata on inline user message, got %#v", approvalMessage)
+	}
+	if approval["summary"] == "" {
+		t.Fatalf("expected persisted form approval summary, got %#v", approval)
+	}
+	if _, ok := approval["notice"]; ok {
+		t.Fatalf("did not expect persisted form approval notice metadata, got %#v", approval)
 	}
 	decisions, ok := approval["decisions"].([]any)
 	if !ok || len(decisions) != 1 {
@@ -2767,7 +3030,7 @@ func TestStepWriterPersistsFormApprovalDecisionPayload(t *testing.T) {
 	}
 }
 
-func TestLoadRawMessagesReplaysApprovalSummaryFromStepLine(t *testing.T) {
+func TestLoadRawMessagesReplaysInlineApprovalMessage(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
@@ -2779,6 +3042,20 @@ func TestLoadRawMessagesReplaysApprovalSummaryFromStepLine(t *testing.T) {
 
 	toolTs := int64(5001)
 	resultTs := int64(5002)
+	approvalTs := int64(5003)
+	approval := &StepApproval{
+		Summary: `[HITL] chmod 777 ~/a.sh → approve`,
+		Notice: `[System audit — HITL approval batch]
+The user reviewed the following tool call(s) and submitted decisions:
+1. tool=bash command="chmod 777 ~/a.sh" decision=approve reason=""
+The tool results above already reflect these decisions; do not re-prompt for approval and do not retry rejected calls.`,
+		Decisions: []StepApprovalDecision{{
+			ToolID:   "tool-1",
+			Command:  "chmod 777 ~/a.sh",
+			Decision: "approve",
+			RuleKey:  "dangerous-commands::chmod",
+		}},
+	}
 	if err := store.AppendStepLine("chat-approval-raw", StepLine{
 		ChatID:    "chat-approval-raw",
 		RunID:     "run-approval-raw",
@@ -2808,19 +3085,12 @@ func TestLoadRawMessagesReplaysApprovalSummaryFromStepLine(t *testing.T) {
 				ToolID:     "tool-1",
 				Ts:         &resultTs,
 			},
-		},
-		Approval: &StepApproval{
-			Summary: `[HITL] chmod 777 ~/a.sh → approve`,
-			LLMNotice: `[System audit — HITL approval batch]
-The user reviewed the following tool call(s) and submitted decisions:
-1. tool=bash command="chmod 777 ~/a.sh" decision=approve reason=""
-The tool results above already reflect these decisions; do not re-prompt for approval and do not retry rejected calls.`,
-			Decisions: []StepApprovalDecision{{
-				ToolID:   "tool-1",
-				Command:  "chmod 777 ~/a.sh",
-				Decision: "approve",
-				RuleKey:  "dangerous-commands::chmod",
-			}},
+			{
+				Role:     "user",
+				Content:  textContent(approval.Notice),
+				Approval: approval,
+				Ts:       &approvalTs,
+			},
 		},
 	}); err != nil {
 		t.Fatalf("append step line: %v", err)
@@ -2842,16 +3112,111 @@ The user reviewed the following tool call(s) and submitted decisions:
 The tool results above already reflect these decisions; do not re-prompt for approval and do not retry rejected calls.` {
 		t.Fatalf("expected approval LLM notice replayed as user raw message, got %#v", rawMessages[2])
 	}
+	if approvalMeta, ok := rawMessages[2]["approval"].(map[string]any); !ok || approvalMeta["summary"] != `[HITL] chmod 777 ~/a.sh → approve` {
+		t.Fatalf("expected raw message to retain approval metadata, got %#v", rawMessages[2])
+	}
 
 	detail, err := store.LoadChat("chat-approval-raw")
 	if err != nil {
 		t.Fatalf("load chat: %v", err)
 	}
 	if len(detail.RawMessages) != 3 {
-		t.Fatalf("expected load chat raw messages to include synthetic approval summary, got %#v", detail.RawMessages)
+		t.Fatalf("expected load chat raw messages to include inline approval message, got %#v", detail.RawMessages)
 	}
 	if detail.RawMessages[2]["role"] != "user" {
-		t.Fatalf("expected synthetic approval summary at end of raw messages, got %#v", detail.RawMessages)
+		t.Fatalf("expected inline approval message at end of raw messages, got %#v", detail.RawMessages)
+	}
+}
+
+func TestLoadRawMessagesReplaysAutoApprovalSummaryFromStepLine(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+
+	if _, _, err := store.EnsureChat("chat-auto-approval-raw", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	toolTs := int64(6001)
+	resultTs := int64(6002)
+	approvalTs := int64(6003)
+	approval := &StepApproval{
+		Summary: `[AUTO] file_read /tmp/secret.txt → auto_approved（accessLevel=auto_approve）`,
+		Notice: `[System audit — auto approval]
+The system auto-approved the following tool call(s) because accessLevel=auto_approve applies automatic approval to reviewable access-policy checks:
+1. tool=file_read command="file_read /tmp/secret.txt" decision=auto_approved reason="accessLevel=auto_approve"
+The tool results above already reflect these automatic approvals; do not re-prompt for approval.`,
+		Decisions: []StepApprovalDecision{{
+			ToolID:   "tool-1",
+			Command:  "file_read /tmp/secret.txt",
+			Decision: "auto_approved",
+			RuleKey:  "file-read::outside",
+			Reason:   "accessLevel=auto_approve",
+			Mode:     "approval",
+		}},
+	}
+	if err := store.AppendStepLine("chat-auto-approval-raw", StepLine{
+		ChatID:    "chat-auto-approval-raw",
+		RunID:     "run-auto-approval-raw",
+		UpdatedAt: 6003,
+		Type:      "react",
+		Seq:       1,
+		Messages: []StoredMessage{
+			{
+				Role: "assistant",
+				ToolCalls: []StoredToolCall{{
+					ID:   "tool-1",
+					Type: "function",
+					Function: StoredFunction{
+						Name:      "file_read",
+						Arguments: `{"file_path":"/tmp/secret.txt"}`,
+					},
+				}},
+				ToolID: "tool-1",
+				MsgID:  "msg-1",
+				Ts:     &toolTs,
+			},
+			{
+				Role:       "tool",
+				Name:       "file_read",
+				ToolCallID: "tool-1",
+				Content:    []ContentPart{{Type: "text", Text: "ok"}},
+				ToolID:     "tool-1",
+				Ts:         &resultTs,
+			},
+			{
+				Role:     "user",
+				Content:  textContent(approval.Notice),
+				Approval: approval,
+				Ts:       &approvalTs,
+			},
+		},
+	}); err != nil {
+		t.Fatalf("append step line: %v", err)
+	}
+
+	rawMessages, err := store.LoadRawMessages("chat-auto-approval-raw", 5)
+	if err != nil {
+		t.Fatalf("load raw messages: %v", err)
+	}
+	if len(rawMessages) != 3 {
+		t.Fatalf("expected assistant, tool, synthetic user messages, got %#v", rawMessages)
+	}
+	if rawMessages[2]["role"] != "user" || !strings.Contains(stringValue(rawMessages[2]["content"]), "decision=auto_approved") {
+		t.Fatalf("expected auto approval LLM notice replayed as user raw message, got %#v", rawMessages[2])
+	}
+	approvalMeta, ok := rawMessages[2]["approval"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected raw auto approval metadata, got %#v", rawMessages[2])
+	}
+	decisions, _ := approvalMeta["decisions"].([]any)
+	if len(decisions) != 1 {
+		t.Fatalf("expected one raw auto approval decision, got %#v", rawMessages[2])
+	}
+	decision, _ := decisions[0].(map[string]any)
+	if decision["decision"] != "auto_approved" {
+		t.Fatalf("expected auto_approved decision metadata, got %#v", rawMessages[2])
 	}
 }
 
@@ -2867,6 +3232,20 @@ func TestLoadRawMessagesReplaysSplitApprovalSummaryAfterToolResult(t *testing.T)
 
 	toolTs := int64(5001)
 	resultTs := int64(5002)
+	approvalTs := int64(5003)
+	approval := &StepApproval{
+		Summary: `[HITL] mock create-leave → reject（timeout）`,
+		Notice: `[System audit — HITL approval batch]
+The user reviewed the following tool call(s) and submitted decisions:
+1. tool=bash command="mock create-leave" decision=reject reason="timeout"
+The tool results above already reflect these decisions; do not re-prompt for approval and do not retry rejected calls.`,
+		Decisions: []StepApprovalDecision{{
+			ToolID:   "tool-1",
+			Command:  "mock create-leave",
+			Decision: "reject",
+			RuleKey:  "leave::create",
+		}},
+	}
 	if err := store.AppendStepLine("chat-approval-split", StepLine{
 		ChatID:    "chat-approval-split",
 		RunID:     "run-approval-split",
@@ -2887,21 +3266,8 @@ func TestLoadRawMessagesReplaysSplitApprovalSummaryAfterToolResult(t *testing.T)
 			MsgID:  "msg-1",
 			Ts:     &toolTs,
 		}},
-		Approval: &StepApproval{
-			Summary: `[HITL] mock create-leave → reject（timeout）`,
-			LLMNotice: `[System audit — HITL approval batch]
-The user reviewed the following tool call(s) and submitted decisions:
-1. tool=bash command="mock create-leave" decision=reject reason="timeout"
-The tool results above already reflect these decisions; do not re-prompt for approval and do not retry rejected calls.`,
-			Decisions: []StepApprovalDecision{{
-				ToolID:   "tool-1",
-				Command:  "mock create-leave",
-				Decision: "reject",
-				RuleKey:  "leave::create",
-			}},
-		},
 	}); err != nil {
-		t.Fatalf("append split approval step line: %v", err)
+		t.Fatalf("append assistant step line: %v", err)
 	}
 	if err := store.AppendStepLine("chat-approval-split", StepLine{
 		ChatID:    "chat-approval-split",
@@ -2916,6 +3282,11 @@ The tool results above already reflect these decisions; do not re-prompt for app
 			Content:    []ContentPart{{Type: "text", Text: `{"error":"hitl_timeout"}`}},
 			ToolID:     "tool-1",
 			Ts:         &resultTs,
+		}, {
+			Role:     "user",
+			Content:  textContent(approval.Notice),
+			Approval: approval,
+			Ts:       &approvalTs,
 		}},
 	}); err != nil {
 		t.Fatalf("append tool result step line: %v", err)
@@ -2939,7 +3310,7 @@ The tool results above already reflect these decisions; do not re-prompt for app
 	}
 }
 
-func TestLoadRawMessagesFallsBackToApprovalSummaryWithoutLLMNotice(t *testing.T) {
+func TestLoadRawMessagesIgnoresLegacyTopLevelApproval(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
@@ -2949,35 +3320,35 @@ func TestLoadRawMessagesFallsBackToApprovalSummaryWithoutLLMNotice(t *testing.T)
 		t.Fatalf("ensure chat: %v", err)
 	}
 
-	if err := store.AppendStepLine("chat-approval-legacy-summary", StepLine{
-		ChatID:    "chat-approval-legacy-summary",
-		RunID:     "run-approval-legacy-summary",
-		UpdatedAt: 5003,
-		Type:      "react",
-		Seq:       1,
-		Messages: []StoredMessage{{
-			Role:       "tool",
-			Name:       "bash",
-			ToolCallID: "tool-1",
-			Content:    []ContentPart{{Type: "text", Text: "ok"}},
-			ToolID:     "tool-1",
+	if err := store.appendJSONLine(store.chatJSONLPath("chat-approval-legacy-summary"), map[string]any{
+		"chatId":    "chat-approval-legacy-summary",
+		"runId":     "run-approval-legacy-summary",
+		"updatedAt": 5003,
+		"_type":     "react",
+		"seq":       1,
+		"messages": []any{map[string]any{
+			"role":         "tool",
+			"name":         "bash",
+			"tool_call_id": "tool-1",
+			"content":      []any{map[string]any{"type": "text", "text": "ok"}},
+			"_toolId":      "tool-1",
 		}},
-		Approval: &StepApproval{
-			Summary: `[HITL] legacy approval`,
+		"approval": map[string]any{
+			"summary": `[HITL] legacy approval`,
 		},
 	}); err != nil {
-		t.Fatalf("append step line: %v", err)
+		t.Fatalf("append legacy step line: %v", err)
 	}
 
 	rawMessages, err := store.LoadRawMessages("chat-approval-legacy-summary", 5)
 	if err != nil {
 		t.Fatalf("load raw messages: %v", err)
 	}
-	if len(rawMessages) != 2 {
-		t.Fatalf("expected tool and fallback summary messages, got %#v", rawMessages)
+	if len(rawMessages) != 1 {
+		t.Fatalf("expected only the tool message; legacy top-level approval must be ignored, got %#v", rawMessages)
 	}
-	if rawMessages[1]["role"] != "user" || rawMessages[1]["content"] != `[HITL] legacy approval` {
-		t.Fatalf("expected legacy approval summary fallback, got %#v", rawMessages)
+	if rawMessages[0]["role"] != "tool" || rawMessages[0]["content"] != "ok" {
+		t.Fatalf("expected tool message without synthesized approval fallback, got %#v", rawMessages)
 	}
 }
 
@@ -3013,11 +3384,14 @@ func TestLoadRawMessagesFlushesApprovalSummaryBeforeNextRun(t *testing.T) {
 			Role:    "assistant",
 			Content: []ContentPart{{Type: "text", Text: "first reply"}},
 			MsgID:   "msg-1",
+		}, {
+			Role:    "user",
+			Content: textContent("[System audit — HITL approval batch]\nfirst approval"),
+			Approval: &StepApproval{
+				Summary: "[HITL] first approval",
+				Notice:  "[System audit — HITL approval batch]\nfirst approval",
+			},
 		}},
-		Approval: &StepApproval{
-			Summary:   "[HITL] first approval",
-			LLMNotice: "[System audit — HITL approval batch]\nfirst approval",
-		},
 	}); err != nil {
 		t.Fatalf("append first step line: %v", err)
 	}
@@ -4441,7 +4815,8 @@ func TestLoadChatReadsLegacySnakeCaseUsageFromStepLevel(t *testing.T) {
 	}
 	usageSnapshotUsage, _ := detail.Events[4].Value("usage").(map[string]any)
 	usageSnapshotCurrent, _ := usageSnapshotUsage["current"].(map[string]any)
-	if detail.Events[4].Type != "usage.snapshot" || toIntValue(usageSnapshotCurrent["promptCacheHitTokens"]) != 32 || toIntValue(usageSnapshotCurrent["promptCacheMissTokens"]) != 68 {
+	usageSnapshotPromptDetails, _ := usageSnapshotCurrent["promptTokensDetails"].(map[string]any)
+	if detail.Events[4].Type != "usage.snapshot" || toIntValue(usageSnapshotPromptDetails["cacheHitTokens"]) != 32 || toIntValue(usageSnapshotPromptDetails["cacheMissTokens"]) != 68 {
 		t.Fatalf("expected usage.snapshot with DeepSeek cache fields, got %#v", detail.Events)
 	}
 	if _, exists := usageSnapshotCurrent["llmChatCompletionCount"]; exists {

@@ -38,6 +38,13 @@ func defaultConfig() Config {
 			CatalogConfig:  CatalogConfig{ExternalDir: paths.SkillsMarketDir},
 			MaxPromptChars: 8000,
 		},
+		VisionRecognize: VisionRecognizeConfig{
+			Enabled:        false,
+			DefaultProfile: "general",
+		},
+		CoderSettings: CoderSettingsConfig{
+			ACPProxies: map[string]CoderACPProxyConfig{},
+		},
 		Providers: CatalogConfig{ExternalDir: filepath.Join(paths.RegistriesDir, "providers")},
 		Models:    CatalogConfig{ExternalDir: filepath.Join(paths.RegistriesDir, "models")},
 		Automation: AutomationConfig{
@@ -125,6 +132,8 @@ func defaultConfig() Config {
 			LLMInteraction: LLMInteractionLoggingConfig{
 				Enabled:       true,
 				MaskSensitive: false,
+				RecordEnabled: false,
+				RecordDir:     filepath.Join(paths.ChatsDir, "llm"),
 			},
 		},
 		CORS: CORSConfig{
@@ -250,7 +259,7 @@ func defaultAccessPolicyConfig() AccessPolicyConfig {
 				Inherit: "default",
 				Approvals: AccessPolicyApprovalConfig{
 					ReadOutsideRoots:      "auto",
-					WriteOutsideRoots:     "auto",
+					WriteOutsideRoots:     "hitl",
 					BashComplexFilesystem: "auto",
 					BashOpaqueCommand:     "auto",
 				},
@@ -302,6 +311,7 @@ func (c *Config) normalize() error {
 	}
 	c.Desktop.Action = normalizeDesktopBridgeConfig(c.Desktop.Action)
 	c.Desktop.CDP = normalizeDesktopBridgeConfig(c.Desktop.CDP)
+	c.VisionRecognize = normalizeVisionRecognizeConfig(c.VisionRecognize)
 	c.ContainerHub.Enabled = strings.TrimSpace(c.ContainerHub.BaseURL) != ""
 	if c.Bash.WorkingDirectory == "" {
 		c.Bash.WorkingDirectory = "."
@@ -351,6 +361,38 @@ func normalizeDesktopBridgeConfig(cfg DesktopBridgeConfig) DesktopBridgeConfig {
 	}
 	cfg.BridgeURL = fmt.Sprintf("http://%s:%d%s", cfg.Host, cfg.Port, cfg.Path)
 	return cfg
+}
+
+func normalizeVisionRecognizeConfig(cfg VisionRecognizeConfig) VisionRecognizeConfig {
+	cfg.DefaultProfile = strings.TrimSpace(cfg.DefaultProfile)
+	if cfg.DefaultProfile == "" {
+		cfg.DefaultProfile = "general"
+	}
+	if len(cfg.Profiles) == 0 {
+		return cfg
+	}
+	profiles := make(map[string]VisionRecognizeProfileConfig, len(cfg.Profiles))
+	for key, profile := range cfg.Profiles {
+		normalizedKey := strings.TrimSpace(key)
+		if normalizedKey == "" {
+			continue
+		}
+		profile.ModelKey = strings.TrimSpace(profile.ModelKey)
+		profile.OutputFormat = normalizeVisionOutputFormat(profile.OutputFormat)
+		profile.SystemPrompt = strings.TrimSpace(profile.SystemPrompt)
+		profiles[normalizedKey] = profile
+	}
+	cfg.Profiles = profiles
+	return cfg
+}
+
+func normalizeVisionOutputFormat(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "json":
+		return "json"
+	default:
+		return "text"
+	}
 }
 
 func normalizeAccessPolicyConfig(cfg AccessPolicyConfig) AccessPolicyConfig {

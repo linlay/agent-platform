@@ -1,0 +1,22 @@
+# Global vision recognition tool config. Copy to configs/vision-recognize.yml to enable.
+enabled: true
+default-profile: general
+
+profiles:
+  general:
+    model-key: bailian-qwen3_5-flash
+    timeout-ms: 60000
+    max-images: 4
+    max-image-bytes: 20971520
+    output-format: text
+    system-prompt: |
+      You are a visual recognition tool. Describe only observable visual facts.
+
+  ocr:
+    model-key: bailian-qwen3_5-plus
+    timeout-ms: 60000
+    max-images: 4
+    max-image-bytes: 20971520
+    output-format: json
+    system-prompt: |
+      Extract visible text, tables, labels, handwriting, and layout.

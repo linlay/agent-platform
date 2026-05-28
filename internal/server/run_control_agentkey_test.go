@@ -83,6 +83,27 @@ func TestRunControlHTTPRequiresAndValidatesAgentKey(t *testing.T) {
 			body:   `{"agentKey":"other-agent","runId":"run-agent-check"}`,
 			status: http.StatusForbidden,
 		},
+		{
+			name:   "access level missing agentKey",
+			method: http.MethodPost,
+			path:   "/api/access-level",
+			body:   `{"runId":"run-agent-check","accessLevel":"auto_approve"}`,
+			status: http.StatusBadRequest,
+		},
+		{
+			name:   "access level mismatched agentKey",
+			method: http.MethodPost,
+			path:   "/api/access-level",
+			body:   `{"agentKey":"other-agent","runId":"run-agent-check","accessLevel":"auto_approve"}`,
+			status: http.StatusForbidden,
+		},
+		{
+			name:   "access level invalid value",
+			method: http.MethodPost,
+			path:   "/api/access-level",
+			body:   `{"agentKey":"mock-agent","runId":"run-agent-check","accessLevel":"root"}`,
+			status: http.StatusBadRequest,
+		},
 	}
 
 	for _, tc := range tests {
@@ -97,6 +118,31 @@ func TestRunControlHTTPRequiresAndValidatesAgentKey(t *testing.T) {
 				t.Fatalf("expected %d, got %d: %s", tc.status, rec.Code, rec.Body.String())
 			}
 		})
+	}
+}
+
+func TestAccessLevelHTTPUpdatesRunAccessLevel(t *testing.T) {
+	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	})
+	runs := fixture.runs.(*contracts.InMemoryRunManager)
+	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
+		RunID:       "run-access-http",
+		ChatID:      "chat-access-http",
+		AgentKey:    "mock-agent",
+		AccessLevel: contracts.AccessLevelDefault,
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/access-level", bytes.NewBufferString(`{"agentKey":"mock-agent","runId":"run-access-http","accessLevel":"auto_approve","reason":"test"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	status, ok := runs.RunStatus("run-access-http")
+	if !ok || status.AccessLevel != contracts.AccessLevelAutoApprove || status.AccessLevelVersion != 2 {
+		t.Fatalf("unexpected run status %#v ok=%v", status, ok)
 	}
 }
 
@@ -140,6 +186,11 @@ func TestRunControlProxyMismatchReturnsForbiddenWithoutForwarding(t *testing.T) 
 			path: "/api/steer",
 			body: `{"agentKey":"other-agent","runId":"run-proxy-agent-check","message":"continue"}`,
 		},
+		{
+			name: "access-level",
+			path: "/api/access-level",
+			body: `{"agentKey":"other-agent","runId":"run-proxy-agent-check","accessLevel":"auto_approve"}`,
+		},
 	}
 
 	for _, tc := range tests {
@@ -157,6 +208,43 @@ func TestRunControlProxyMismatchReturnsForbiddenWithoutForwarding(t *testing.T) 
 			case <-time.After(10 * time.Millisecond):
 			}
 		})
+	}
+}
+
+func TestAccessLevelHTTPReturnsUnsupportedForProxyRun(t *testing.T) {
+	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	})
+	runs := fixture.runs.(*contracts.InMemoryRunManager)
+	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
+		RunID:    "run-proxy-access-level",
+		ChatID:   "chat-proxy-access-level",
+		AgentKey: "proxy-agent",
+	})
+	route := &proxyRunRoute{
+		runID:    "run-proxy-access-level",
+		chatID:   "chat-proxy-access-level",
+		agentKey: "proxy-agent",
+		send:     make(chan map[string]any, 1),
+		done:     make(chan struct{}),
+	}
+	fixture.server.registerProxyRun(route)
+	defer fixture.server.unregisterProxyRun(route.runID, route)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/access-level", bytes.NewBufferString(`{"agentKey":"proxy-agent","runId":"run-proxy-access-level","accessLevel":"auto_approve"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"status":"unsupported"`)) {
+		t.Fatalf("expected unsupported response, got %s", rec.Body.String())
+	}
+	select {
+	case msg := <-route.send:
+		t.Fatalf("did not expect proxy forward, got %#v", msg)
+	case <-time.After(10 * time.Millisecond):
 	}
 }
 

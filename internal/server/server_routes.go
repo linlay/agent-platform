@@ -221,10 +221,12 @@ func isSyncQueryContext(ctx context.Context) bool {
 
 func (s *Server) routes() {
 	s.router.HandleFunc("/api/agents", s.method(http.MethodGet, s.handleAgents))
+	s.router.HandleFunc("/api/agents/order", s.handleAgentOrder)
 	s.router.HandleFunc("/api/channels", s.method(http.MethodGet, s.handleChannels))
 	s.router.HandleFunc("/api/agent", s.method(http.MethodGet, s.handleAgent))
 	s.router.HandleFunc("/api/agent/create", s.method(http.MethodPost, s.handleAgentCreate))
 	s.router.HandleFunc("/api/agent/update", s.method(http.MethodPost, s.handleAgentUpdate))
+	s.router.HandleFunc("/api/agent/model-config", s.method(http.MethodPost, s.handleAgentModelConfig))
 	s.router.HandleFunc("/api/agent/delete", s.method(http.MethodPost, s.handleAgentDelete))
 	s.router.HandleFunc("/api/agent/open-workspace", s.method(http.MethodPost, s.handleAgentOpenWorkspace))
 	s.router.HandleFunc("/api/agent/editor-options", s.method(http.MethodGet, s.handleAgentEditorOptions))
@@ -260,6 +262,7 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/steer", s.method(http.MethodPost, s.handleSteer))
 	s.router.HandleFunc("/api/interrupt", s.method(http.MethodPost, s.handleInterrupt))
 	s.router.HandleFunc("/api/compact", s.method(http.MethodPost, s.handleCompact))
+	s.router.HandleFunc("/api/access-level", s.method(http.MethodPost, s.handleAccessLevel))
 	s.router.HandleFunc("/api/remember", s.method(http.MethodPost, s.handleRemember))
 	s.router.HandleFunc("/api/learn", s.method(http.MethodPost, s.handleLearn))
 	s.router.HandleFunc("/api/memory/meta", s.method(http.MethodGet, s.handleMemoryMeta))
@@ -273,6 +276,7 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/memory/record/detail", s.method(http.MethodGet, s.handleMemoryRecord))
 	s.router.HandleFunc("/api/memory/record/timeline", s.method(http.MethodGet, s.handleMemoryRecordTimeline))
 	s.router.HandleFunc("/api/viewport", s.method(http.MethodGet, s.handleViewport))
+	s.router.HandleFunc("/api/tool-result", s.method(http.MethodGet, s.handleToolResult))
 	s.router.HandleFunc("/api/resource", s.method(http.MethodGet, s.handleResource))
 	s.router.HandleFunc("/api/upload", s.method(http.MethodPost, s.handleUpload))
 	if s.wsHandler != nil {

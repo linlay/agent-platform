@@ -14,6 +14,7 @@ import (
 )
 
 func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolInvocation, []AgentDelta, *openAIMessage) {
+	s.syncAccessLevelFromRunControl()
 	toolID := toolCall.ID
 	if strings.TrimSpace(toolID) == "" {
 		return nil, []AgentDelta{DeltaError{Error: NewErrorPayload(
@@ -182,6 +183,7 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 		args:     args,
 		prelude:  s.preToolInvocationDeltas(toolID, toolCall.Function.Name, args),
 	}
+	s.refreshAccessLevelForInvocation(invocation)
 	if isBashTool(invocation.toolName) {
 		review := s.reviewBashSecurity(strings.TrimSpace(mapStringArg(invocation.args, "command")))
 		if review.Decision == bashsec.ReviewRequiresApproval {
@@ -215,6 +217,7 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 	if invocation == nil {
 		return nil
 	}
+	s.refreshAccessLevelForInvocation(invocation)
 	s.skipPostToolHook = false
 
 	s.execCtx.CurrentToolID = invocation.toolID
@@ -347,6 +350,7 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 		}
 	}
 
+	s.recordAccessPolicyAutoApproval(invocation)
 	result, invokeErr := s.engine.tools.Invoke(s.ctx, invocation.toolName, invocation.args, s.execCtx)
 	if invokeErr != nil {
 		if errors.Is(invokeErr, ErrRunInterrupted) {
@@ -432,7 +436,9 @@ func publishedArtifactMaps(raw any) []map[string]any {
 
 func (s *llmRunStream) appendOriginalToolResult(invocation *preparedToolInvocation, result ToolExecutionResult) {
 	result = applyHITLMetadata(result, invocation)
+	result = s.maybeSpillToolResult(invocation, result)
 	s.previousToolResult = structuredOrOutput(result)
+	content := s.toolResultContent(invocation.toolName, result)
 	s.pending = append(s.pending, DeltaToolResult{
 		ToolID:   invocation.toolID,
 		ToolName: invocation.toolName,
@@ -442,8 +448,11 @@ func (s *llmRunStream) appendOriginalToolResult(invocation *preparedToolInvocati
 		Role:       "tool",
 		ToolCallID: invocation.toolID,
 		Name:       invocation.toolName,
-		Content:    s.toolResultContent(invocation.toolName, result),
+		Content:    content,
 	})
+	if s.lastTrace != nil {
+		s.lastTrace.appendToolResult(invocation, content, result)
+	}
 	if entry, ok := s.buildHITLNoticeEntry(invocation); ok {
 		s.pendingHITLNotices = append(s.pendingHITLNotices, entry)
 	}
@@ -459,6 +468,31 @@ func (s *llmRunStream) appendOriginalToolResult(invocation *preparedToolInvocati
 			s.onApprovalSummary(*approval)
 		}
 		s.pendingHITLNotices = nil
+	}
+}
+
+func (s *llmRunStream) recordAccessPolicyAutoApproval(invocation *preparedToolInvocation) {
+	if invocation == nil || invocation.hitlDecision != nil {
+		return
+	}
+	if plan := s.lookupFileAccessPlan(invocation); plan != nil && plan.AutoApproved {
+		invocation.hitlDecision = &hitlDecisionState{
+			Decision: "auto_approved",
+			Reason:   "accessLevel=auto_approve",
+			RuleKey:  strings.TrimSpace(plan.RuleKey),
+			Executed: true,
+			Mode:     "approval",
+		}
+		return
+	}
+	if review := s.lookupBashAccessReview(invocation); review.AutoApproved() {
+		invocation.hitlDecision = &hitlDecisionState{
+			Decision: "auto_approved",
+			Reason:   "accessLevel=auto_approve",
+			RuleKey:  strings.TrimSpace(review.RuleKey),
+			Executed: true,
+			Mode:     "approval",
+		}
 	}
 }
 

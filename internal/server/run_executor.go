@@ -144,10 +144,11 @@ func applyUsageMapToData(target *chat.UsageData, usage map[string]any) {
 	target.PromptTokens = contracts.AnyIntNode(usage["promptTokens"])
 	target.CompletionTokens = contracts.AnyIntNode(usage["completionTokens"])
 	target.TotalTokens = contracts.AnyIntNode(usage["totalTokens"])
-	target.CachedTokens = usageDetailInt(usage, "promptTokensDetails", "cachedTokens")
+	cacheHitTokens, cacheMissTokens := usageCacheTokensFromMap(usage)
+	target.CachedTokens = cacheHitTokens
 	target.ReasoningTokens = usageDetailInt(usage, "completionTokensDetails", "reasoningTokens")
-	target.PromptCacheHitTokens = contracts.AnyIntNode(usage["promptCacheHitTokens"])
-	target.PromptCacheMissTokens = contracts.AnyIntNode(usage["promptCacheMissTokens"])
+	target.PromptCacheHitTokens = cacheHitTokens
+	target.PromptCacheMissTokens = cacheMissTokens
 	target.LlmChatCompletionCount = contracts.AnyIntNode(usage["llmChatCompletionCount"])
 }
 
@@ -191,16 +192,24 @@ func usageDataMap(usage chat.UsageData) map[string]any {
 		"totalTokens":      usage.TotalTokens,
 	}
 	if usage.CachedTokens > 0 {
-		out["promptTokensDetails"] = map[string]any{"cachedTokens": usage.CachedTokens}
+		out["promptTokensDetails"] = map[string]any{"cacheHitTokens": usage.CachedTokens}
 	}
 	if usage.ReasoningTokens > 0 {
 		out["completionTokensDetails"] = map[string]any{"reasoningTokens": usage.ReasoningTokens}
 	}
-	if usage.PromptCacheHitTokens > 0 {
-		out["promptCacheHitTokens"] = usage.PromptCacheHitTokens
-	}
-	if usage.PromptCacheMissTokens > 0 {
-		out["promptCacheMissTokens"] = usage.PromptCacheMissTokens
+	cacheHitTokens, cacheMissTokens := usageCacheTokens(usage)
+	if cacheHitTokens > 0 || cacheMissTokens > 0 {
+		promptDetails, _ := out["promptTokensDetails"].(map[string]any)
+		if promptDetails == nil {
+			promptDetails = map[string]any{}
+			out["promptTokensDetails"] = promptDetails
+		}
+		if cacheHitTokens > 0 {
+			promptDetails["cacheHitTokens"] = cacheHitTokens
+		}
+		if cacheMissTokens > 0 {
+			promptDetails["cacheMissTokens"] = cacheMissTokens
+		}
 	}
 	if usage.LlmChatCompletionCount > 0 {
 		out["llmChatCompletionCount"] = usage.LlmChatCompletionCount

@@ -75,10 +75,12 @@ func (s *Server) logWSDispatch(next ws.RouteHandler) ws.RouteHandler {
 
 func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/agents", s.wsAgents)
+	handler.RegisterRoute("/api/agents/order", s.wsAgentOrder)
 	handler.RegisterRoute("/api/channels", s.wsChannels)
 	handler.RegisterRoute("/api/agent", s.wsAgent)
 	handler.RegisterRoute("/api/agent/create", s.wsAgentCreate)
 	handler.RegisterRoute("/api/agent/update", s.wsAgentUpdate)
+	handler.RegisterRoute("/api/agent/model-config", s.wsAgentModelConfig)
 	handler.RegisterRoute("/api/agent/delete", s.wsAgentDelete)
 	handler.RegisterRoute("/api/agent/editor-options", s.wsAgentEditorOptions)
 	handler.RegisterRoute("/api/model-options", s.wsModelOptions)
@@ -110,6 +112,7 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/submit", s.wsSubmit)
 	handler.RegisterRoute("/api/steer", s.wsSteer)
 	handler.RegisterRoute("/api/interrupt", s.wsInterrupt)
+	handler.RegisterRoute("/api/access-level", s.wsAccessLevel)
 	handler.RegisterRoute("/api/remember", s.wsRemember)
 	handler.RegisterRoute("/api/learn", s.wsLearn)
 	handler.RegisterRoute("/api/memory/meta", s.wsMemoryMeta)

@@ -7,36 +7,37 @@ import (
 )
 
 type Config struct {
-	Server         ServerConfig
-	Paths          PathsConfig
-	Agents         CatalogConfig
-	Teams          CatalogConfig
-	Skills         SkillCatalogConfig
-	Prompts        PromptsConfig
-	CoderPrompts   CoderPromptsConfig
-	MemoryPrompts  MemoryPromptsConfig
-	CoderSettings  CoderSettingsConfig
-	Providers      CatalogConfig
-	Models         CatalogConfig
-	Automation     AutomationConfig
-	Memory         MemoryConfig
-	Defaults       DefaultsConfig
-	Stream         StreamConfig
-	SSE            SSEConfig
-	H2A            H2AConfig
-	Auth           AuthConfig
-	ResourceTicket ResourceTicketConfig
-	ChatStorage    ChatStorageConfig
-	Logging        LoggingConfig
-	CORS           CORSConfig
-	ContainerHub   ContainerHubConfig
-	Desktop        DesktopConfig
-	AccessPolicy   AccessPolicyConfig
-	Bash           BashConfig
-	FileTools      FileToolsConfig
-	BashHITL       BashHITLConfig
-	Run            RunConfig
-	WebSocket      WebSocketConfig
+	Server          ServerConfig
+	Paths           PathsConfig
+	Agents          CatalogConfig
+	Teams           CatalogConfig
+	Skills          SkillCatalogConfig
+	Prompts         PromptsConfig
+	CoderPrompts    CoderPromptsConfig
+	MemoryPrompts   MemoryPromptsConfig
+	CoderSettings   CoderSettingsConfig
+	VisionRecognize VisionRecognizeConfig
+	Providers       CatalogConfig
+	Models          CatalogConfig
+	Automation      AutomationConfig
+	Memory          MemoryConfig
+	Defaults        DefaultsConfig
+	Stream          StreamConfig
+	SSE             SSEConfig
+	H2A             H2AConfig
+	Auth            AuthConfig
+	ResourceTicket  ResourceTicketConfig
+	ChatStorage     ChatStorageConfig
+	Logging         LoggingConfig
+	CORS            CORSConfig
+	ContainerHub    ContainerHubConfig
+	Desktop         DesktopConfig
+	AccessPolicy    AccessPolicyConfig
+	Bash            BashConfig
+	FileTools       FileToolsConfig
+	BashHITL        BashHITLConfig
+	Run             RunConfig
+	WebSocket       WebSocketConfig
 	// Gateways 是多 gateway 反向连接列表（wecom / feishu / ding / ...）。
 	Gateways []GatewayEntry
 	// Channels 是 channel 元数据与 agent 准入配置；每条可合成一条 gateway entry。
@@ -109,6 +110,7 @@ type MemoryPromptsConfig struct {
 type CoderSettingsConfig struct {
 	WorkspaceAgents CoderWorkspaceAgentsConfig
 	DefaultAgent    CoderDefaultAgentConfig
+	ACPProxies      map[string]CoderACPProxyConfig
 }
 
 type CoderWorkspaceAgentsConfig struct {
@@ -119,6 +121,27 @@ type CoderWorkspaceAgentsConfig struct {
 type CoderDefaultAgentConfig struct {
 	ModelKey        string
 	ReasoningEffort string
+}
+
+type CoderACPProxyConfig struct {
+	BaseURL   string
+	AuthToken string
+	TimeoutMs int
+}
+
+type VisionRecognizeConfig struct {
+	Enabled        bool
+	DefaultProfile string
+	Profiles       map[string]VisionRecognizeProfileConfig
+}
+
+type VisionRecognizeProfileConfig struct {
+	ModelKey      string
+	TimeoutMs     int
+	MaxImages     int
+	MaxImageBytes int
+	OutputFormat  string
+	SystemPrompt  string
 }
 
 type AutomationConfig struct {
@@ -243,6 +266,8 @@ type MemoryLoggingConfig struct {
 type LLMInteractionLoggingConfig struct {
 	Enabled       bool
 	MaskSensitive bool
+	RecordEnabled bool
+	RecordDir     string
 }
 
 type CORSConfig struct {

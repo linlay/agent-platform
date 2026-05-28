@@ -146,6 +146,9 @@ func (s *FileStore) SearchSession(chatID string, query string, limit int) ([]Sea
 		}
 		switch lineType {
 		case "query":
+			if hidden, _ := line["hidden"].(bool); hidden {
+				continue
+			}
 			payload, _ := line["query"].(map[string]any)
 			message := stringValue(payload["message"])
 			if score := sessionSearchScore(message, needle); score > 0 {
@@ -169,6 +172,29 @@ func (s *FileStore) SearchSession(chatID string, query string, limit int) ([]Sea
 				}
 				role := stringValue(msg["role"])
 				text := searchMessageText(msg)
+				if approval, ok := msg["approval"].(map[string]any); ok {
+					approvalText := strings.TrimSpace(strings.Join([]string{
+						text,
+						stringValue(approval["summary"]),
+					}, "\n"))
+					if score := sessionSearchScore(approvalText, needle); score > 0 {
+						hitTimestamp := int64FromAny(msg["ts"])
+						if hitTimestamp == 0 {
+							hitTimestamp = ts
+						}
+						appendHit(SearchHit{
+							Kind:      "approval",
+							ChatID:    chatID,
+							RunID:     runID,
+							Stage:     stage,
+							Role:      role,
+							Timestamp: hitTimestamp,
+							Snippet:   buildSnippet(approvalText, needle),
+							Score:     score,
+						})
+					}
+					continue
+				}
 				if score := sessionSearchScore(text, needle); score > 0 {
 					hitTimestamp := int64FromAny(msg["ts"])
 					if hitTimestamp == 0 {
@@ -186,21 +212,6 @@ func (s *FileStore) SearchSession(chatID string, query string, limit int) ([]Sea
 						Meta: map[string]any{
 							"taskId": stringValue(line["taskId"]),
 						},
-					})
-				}
-			}
-			if approval, ok := line["approval"].(map[string]any); ok {
-				summary := stringValue(approval["summary"])
-				if score := sessionSearchScore(summary, needle); score > 0 {
-					appendHit(SearchHit{
-						Kind:      "approval",
-						ChatID:    chatID,
-						RunID:     runID,
-						Stage:     stage,
-						Role:      "user",
-						Timestamp: ts,
-						Snippet:   buildSnippet(summary, needle),
-						Score:     score,
 					})
 				}
 			}

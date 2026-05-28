@@ -158,6 +158,9 @@ func (s *llmRunStream) prepareNextTurn() error {
 	if err != nil {
 		return err
 	}
+	runSeq := s.runLLMChatCompletionCount + 1
+	effectiveToolChoice := effectiveTraceToolChoice(s.toolChoice, s.toolSpecs)
+	trace := s.newChatTrace(runSeq, preparedRequest, effectiveToolChoice)
 	s.runLLMChatCompletionCount++
 	s.lastCallLLMChatCompletionCount = 1
 	s.pending = append(s.pending, DeltaDebugPreCall{
@@ -181,6 +184,9 @@ func (s *llmRunStream) prepareNextTurn() error {
 		RunPromptCacheMissTokens:  s.runPromptCacheMissTokens,
 		RunLLMChatCompletionCount: s.runLLMChatCompletionCount,
 	})
+	if trace != nil {
+		trace.markSent(time.Now())
+	}
 	turn, err := s.protocol.OpenStream(s.ctx, protocolStreamParams{
 		runID:          s.session.RunID,
 		provider:       s.provider,
@@ -192,10 +198,18 @@ func (s *llmRunStream) prepareNextTurn() error {
 		toolChoice:     s.toolChoice,
 	}, preparedRequest)
 	if err != nil {
+		if trace != nil {
+			trace.completeError(err)
+		}
 		return err
+	}
+	if trace != nil {
+		trace.markResponseStarted(time.Now())
+		turn.trace = trace
 	}
 	s.execCtx.ModelCalls++
 	s.currentTurn = turn
+	s.lastTrace = trace
 	s.step++
 	return nil
 }
@@ -267,12 +281,21 @@ func (s *llmRunStream) consumeCurrentTurn() (bool, error) {
 		}
 		if errors.Is(err, io.EOF) {
 			if s.currentTurn.finishReason == "" && !s.currentTurn.hasMeaningful {
+				if s.currentTurn.trace != nil {
+					s.currentTurn.trace.completeError(fmt.Errorf("provider stream ended before first valid event"))
+				}
 				return false, fmt.Errorf("provider stream ended before first valid event")
 			}
 			if s.currentTurn.finishReason == "" {
+				if s.currentTurn.trace != nil {
+					s.currentTurn.trace.completeError(io.ErrUnexpectedEOF)
+				}
 				return false, io.ErrUnexpectedEOF
 			}
 			return true, s.finishCurrentTurn()
+		}
+		if s.currentTurn != nil && s.currentTurn.trace != nil {
+			s.currentTurn.trace.completeError(err)
 		}
 		return false, err
 	}
@@ -287,7 +310,11 @@ func (s *llmRunStream) consumeCurrentTurn() (bool, error) {
 	if s.protocol == nil {
 		return false, fmt.Errorf("streaming protocol %s is not supported", s.model.Protocol)
 	}
-	return s.protocol.ConsumeChunk(s, eventName, rawChunk)
+	done, consumeErr := s.protocol.ConsumeChunk(s, eventName, rawChunk)
+	if consumeErr != nil && s.currentTurn != nil && s.currentTurn.trace != nil {
+		s.currentTurn.trace.completeError(consumeErr)
+	}
+	return done, consumeErr
 }
 
 func (s *llmRunStream) finishCurrentTurn() error {
@@ -304,6 +331,9 @@ func (s *llmRunStream) finishCurrentTurn() error {
 
 	toolCalls, err := turn.materializeToolCalls()
 	if err != nil {
+		if turn.trace != nil {
+			turn.trace.completeError(err)
+		}
 		s.pending = append(s.pending, DeltaError{Error: NewErrorPayload(
 			"missing_tool_call_id",
 			err.Error(),
@@ -319,6 +349,10 @@ func (s *llmRunStream) finishCurrentTurn() error {
 	if content != "" || len(toolCalls) > 0 {
 		msg := s.newAssistantTurnMessage(turn, content, toolCalls)
 		s.messages = append(s.messages, msg)
+	}
+	if turn.trace != nil {
+		turn.trace.appendToolCalls(toolCalls)
+		turn.trace.completeOK(content, strings.TrimSpace(turn.finishReason), turn.usage)
 	}
 
 	s.emitPendingUsageDelta()
@@ -358,6 +392,12 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		}
 		if toolMessage != nil {
 			s.messages = append(s.messages, *toolMessage)
+			if turn.trace != nil {
+				turn.trace.appendToolResult(&preparedToolInvocation{
+					toolID:   toolCall.ID,
+					toolName: toolCall.Function.Name,
+				}, traceToolMessageContent(*toolMessage), map[string]any{"content": traceToolMessageContent(*toolMessage)})
+			}
 		}
 		if invocation != nil {
 			s.queuedToolCalls = append(s.queuedToolCalls, invocation)
@@ -515,6 +555,9 @@ func (s *llmRunStream) handleInterruptIfNeeded() error {
 	if !s.cancelSent {
 		s.cancelSent = true
 		s.emitPendingUsageDelta()
+		if s.currentTurn != nil && s.currentTurn.trace != nil {
+			s.currentTurn.trace.completeInterrupted()
+		}
 		s.currentTurn = nil
 		s.pending = append(s.pending, DeltaRunCancel{RunID: s.session.RunID})
 		return nil

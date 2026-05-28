@@ -237,7 +237,7 @@ func defaultLevelConfig(name string) config.AccessPolicyLevelConfig {
 			Inherit: AccessLevelDefault,
 			Approvals: config.AccessPolicyApprovalConfig{
 				ReadOutsideRoots:      "auto",
-				WriteOutsideRoots:     "auto",
+				WriteOutsideRoots:     "hitl",
 				BashComplexFilesystem: "auto",
 				BashOpaqueCommand:     "auto",
 			},

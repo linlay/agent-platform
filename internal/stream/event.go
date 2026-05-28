@@ -313,7 +313,7 @@ func eventPayloadKeyOrder(eventType string) []string {
 	case "planning.delta":
 		return []string{"planningId", "delta"}
 	case "planning.snapshot":
-		return []string{"planningId", "planningFile", "chatId", "runId", "title", "markdown", "updatedAt"}
+		return []string{"planningId", "planningFile", "chatId", "runId", "title", "text", "updatedAt"}
 	case "planning.end":
 		return []string{"planningId"}
 	case "task.start":

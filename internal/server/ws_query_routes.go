@@ -39,7 +39,7 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	if strings.EqualFold(prepared.agentDef.Mode, "PROXY") {
+	if isProxyRoutedAgent(prepared.agentDef) {
 		s.wsProxyQuery(ctx, conn, req, prepared)
 		return
 	}
@@ -244,6 +244,23 @@ func (s *Server) wsInterrupt(_ context.Context, conn *ws.Conn, req ws.RequestFra
 		RunID:    payload.RunID,
 		Detail:   ack.Detail,
 	})
+	conn.CompleteRequest(req.ID)
+}
+
+func (s *Server) wsAccessLevel(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
+	payload, err := ws.DecodePayload[api.AccessLevelRequest](req)
+	if err != nil {
+		conn.SendError(req.ID, "invalid_request", 400, "invalid access-level payload", nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	response, statusErr := s.updateAccessLevel(payload)
+	if statusErr != nil {
+		s.sendWSStatusError(conn, req.ID, statusErr)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	conn.SendResponse(req.Type, req.ID, 0, "success", response)
 	conn.CompleteRequest(req.ID)
 }
 

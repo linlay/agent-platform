@@ -37,6 +37,37 @@ func TestInvokeGrepFilesWithMatchesGlob(t *testing.T) {
 	}
 }
 
+func TestInvokeGrepNoMatchReturnsEmptySuccess(t *testing.T) {
+	requireRipgrep(t)
+	root := t.TempDir()
+	mustWriteFile(t, filepath.Join(root, "a.go"), "package main\nfunc Alpha() {}\n")
+	executor := fileToolExecutor(root, false)
+
+	result, err := executor.invokeGrep(context.Background(), map[string]any{
+		"pattern":     ".",
+		"glob":        "*.d.ts",
+		"output_mode": "content",
+	}, &contracts.ExecutionContext{})
+	if err != nil {
+		t.Fatalf("invokeGrep: %v", err)
+	}
+	if result.Error != "" || result.ExitCode != 0 {
+		t.Fatalf("expected empty grep success, got %#v", result)
+	}
+	if result.Structured["error"] != nil {
+		t.Fatalf("expected no structured error, got %#v", result.Structured)
+	}
+	if got, ok := result.Structured["matchCount"].(int); !ok || got != 0 {
+		t.Fatalf("expected matchCount=0, got %#v", result.Structured["matchCount"])
+	}
+	if results := stringSliceResult(t, result.Structured["results"]); len(results) != 0 {
+		t.Fatalf("expected empty results, got %#v", results)
+	}
+	if result.Structured["raw"] != "" {
+		t.Fatalf("expected empty raw output, got %#v", result.Structured["raw"])
+	}
+}
+
 func TestInvokeGrepContentCountTypeAndPagination(t *testing.T) {
 	requireRipgrep(t)
 	root := t.TempDir()

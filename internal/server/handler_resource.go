@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/chat"
 )
 
 const uploadManifestName = ".uploads.jsonl"
@@ -46,6 +47,10 @@ func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
 	fileParam := r.URL.Query().Get("file")
 	if fileParam == "" {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "file is required"))
+		return
+	}
+	if chat.IsToolResultsPath(fileParam) {
+		writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "resource access denied"))
 		return
 	}
 	if s.deps.Config.ResourceTicket.Enabled() {
@@ -77,6 +82,103 @@ func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.ServeFile(w, r, path)
+}
+
+func (s *Server) handleToolResult(w http.ResponseWriter, r *http.Request) {
+	chatID := strings.TrimSpace(r.URL.Query().Get("chatId"))
+	relPath := strings.TrimSpace(r.URL.Query().Get("path"))
+	if !chat.ValidChatID(chatID) {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "chatId is required"))
+		return
+	}
+	if !chat.IsToolResultRelativePath(relPath) {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid tool result path"))
+		return
+	}
+	if s.deps.Config.ResourceTicket.Enabled() {
+		principal := PrincipalFromContext(r.Context())
+		ticket := strings.TrimSpace(r.URL.Query().Get("t"))
+		if principal == nil {
+			if ticket == "" {
+				writeJSON(w, http.StatusUnauthorized, api.Failure(http.StatusUnauthorized, "resource ticket required"))
+				return
+			}
+			ticketChatID, err := s.ticketService.Verify(ticket)
+			if err != nil {
+				writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, err.Error()))
+				return
+			}
+			if ticketChatID != chatID {
+				writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "resource ticket chat mismatch"))
+				return
+			}
+		}
+	}
+	path, err := s.resolveToolResultPath(chatID, relPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "tool result not found"))
+			return
+		}
+		writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "tool result access denied"))
+		return
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "tool result not found"))
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
+		return
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil || info.IsDir() {
+		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "tool result not found"))
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	http.ServeContent(w, r, info.Name(), info.ModTime(), file)
+}
+
+func (s *Server) resolveToolResultPath(chatID string, relPath string) (string, error) {
+	if !chat.ValidChatID(chatID) || !chat.IsToolResultRelativePath(relPath) {
+		return "", os.ErrPermission
+	}
+	clean := filepath.Clean(relPath)
+	if path, err := resolveToolResultPathInChatDir(s.deps.Chats.ChatDir(chatID), clean); err == nil {
+		return path, nil
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
+	}
+	if s.deps.Archives != nil {
+		return resolveToolResultPathInChatDir(s.deps.Archives.ChatDir(chatID), clean)
+	}
+	return "", os.ErrNotExist
+}
+
+func resolveToolResultPathInChatDir(chatDir string, relPath string) (string, error) {
+	if strings.TrimSpace(chatDir) == "" || !chat.IsToolResultRelativePath(relPath) {
+		return "", os.ErrPermission
+	}
+	base := filepath.Clean(chatDir)
+	path := filepath.Join(base, filepath.Clean(relPath))
+	rel, err := filepath.Rel(base, path)
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+		return "", os.ErrPermission
+	}
+	if !chat.IsToolResultRelativePath(rel) {
+		return "", os.ErrPermission
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return "", err
+	}
+	if info.IsDir() {
+		return "", os.ErrNotExist
+	}
+	return path, nil
 }
 
 func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {

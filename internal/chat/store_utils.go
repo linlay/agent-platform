@@ -69,3 +69,29 @@ func ValidChatID(chatID string) bool {
 	clean := filepath.Clean(chatID)
 	return clean == chatID && clean != "." && clean != string(filepath.Separator)
 }
+
+func IsToolResultsPath(path string) bool {
+	clean := filepath.ToSlash(filepath.Clean(strings.TrimSpace(path)))
+	if clean == "." || clean == "" {
+		return false
+	}
+	for _, part := range strings.Split(clean, "/") {
+		if part == ToolResultsDirName {
+			return true
+		}
+	}
+	return false
+}
+
+func IsToolResultRelativePath(path string) bool {
+	clean := filepath.Clean(strings.TrimSpace(path))
+	if clean == "." || clean == "" || filepath.IsAbs(clean) || strings.HasPrefix(clean, "..") {
+		return false
+	}
+	parts := strings.Split(filepath.ToSlash(clean), "/")
+	if len(parts) != 2 || parts[0] != ToolResultsDirName {
+		return false
+	}
+	name := strings.TrimSpace(parts[1])
+	return name != "" && !strings.Contains(name, "/") && strings.HasSuffix(name, ".json")
+}

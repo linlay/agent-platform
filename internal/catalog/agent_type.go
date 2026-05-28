@@ -8,6 +8,8 @@ import (
 )
 
 const AgentModeCoder = "CODER"
+const AgentCoderBackendNative = "native"
+const AgentCoderBackendACP = "acp"
 const AgentWorkspaceRootChat = "@chat"
 
 var defaultAgentVisibilityScopes = []string{"nav", "copilot", "invoke"}
@@ -243,6 +245,48 @@ func validateAgentWorkspace(workspace AgentWorkspaceConfig) error {
 
 func validateAgentModeWorkspace(mode string, workspace AgentWorkspaceConfig, hasRuntimeSandbox bool) error {
 	return nil
+}
+
+func normalizeAgentCoderBackend(value string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "":
+		return AgentCoderBackendNative, nil
+	case AgentCoderBackendNative:
+		return AgentCoderBackendNative, nil
+	case AgentCoderBackendACP:
+		return AgentCoderBackendACP, nil
+	default:
+		return "", fmt.Errorf("runtimeConfig.coderBackend must be native or acp")
+	}
+}
+
+func ValidateAgentCoderBackend(def AgentDefinition) error {
+	acpProxyID := strings.TrimSpace(def.ACPProxyID)
+	switch strings.ToLower(strings.TrimSpace(def.CoderBackend)) {
+	case "", AgentCoderBackendNative:
+		return nil
+	case AgentCoderBackendACP:
+		if !strings.EqualFold(strings.TrimSpace(def.Mode), AgentModeCoder) {
+			return fmt.Errorf("runtimeConfig.coderBackend: acp is only supported for mode: CODER")
+		}
+		if acpProxyID == "" {
+			return fmt.Errorf("runtimeConfig.acpProxyId is required when runtimeConfig.coderBackend: acp")
+		}
+		if def.ProxyConfig != nil {
+			return fmt.Errorf("proxyConfig is not supported for CODER agents using runtimeConfig.coderBackend: acp; configure configs/coder-settings.yml acp-proxies and runtimeConfig.acpProxyId")
+		}
+		if len(def.Project.PromptFiles) > 0 {
+			return fmt.Errorf("projectConfig.promptFiles is not supported for CODER agents using runtimeConfig.coderBackend: acp")
+		}
+		return nil
+	default:
+		return fmt.Errorf("runtimeConfig.coderBackend must be native or acp")
+	}
+}
+
+func AgentUsesACPCoderBackend(def AgentDefinition) bool {
+	return strings.EqualFold(strings.TrimSpace(def.Mode), AgentModeCoder) &&
+		strings.EqualFold(strings.TrimSpace(def.CoderBackend), AgentCoderBackendACP)
 }
 
 func applyAgentModeProfileDefaults(def AgentDefinition) AgentDefinition {

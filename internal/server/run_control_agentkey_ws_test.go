@@ -91,6 +91,24 @@ func TestRunControlWSRequiresAndValidatesAgentKey(t *testing.T) {
 			payload: map[string]any{"agentKey": "other-agent", "runId": "run-ws-agent-check"},
 			code:    http.StatusForbidden,
 		},
+		{
+			name:    "access level missing agentKey",
+			typ:     "/api/access-level",
+			payload: map[string]any{"runId": "run-ws-agent-check", "accessLevel": "auto_approve"},
+			code:    http.StatusBadRequest,
+		},
+		{
+			name:    "access level mismatched agentKey",
+			typ:     "/api/access-level",
+			payload: map[string]any{"agentKey": "other-agent", "runId": "run-ws-agent-check", "accessLevel": "auto_approve"},
+			code:    http.StatusForbidden,
+		},
+		{
+			name:    "access level invalid value",
+			typ:     "/api/access-level",
+			payload: map[string]any{"agentKey": "mock-agent", "runId": "run-ws-agent-check", "accessLevel": "root"},
+			code:    http.StatusBadRequest,
+		},
 	}
 
 	for _, tc := range tests {

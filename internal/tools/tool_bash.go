@@ -100,9 +100,6 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	exitCode := 0
 	stderr := ""
 	stdout := string(output)
-	if len(stdout) > maxBashOutputChars {
-		stdout = stdout[:maxBashOutputChars]
-	}
 	if err != nil {
 		exitCode = -1
 		if exitErr, ok := err.(*exec.ExitError); ok {
@@ -239,8 +236,6 @@ var unsupportedBashCommands = map[string]bool{
 	".": true, "source": true, "eval": true, "exec": true,
 	"coproc": true, "fg": true, "bg": true, "jobs": true,
 }
-
-const maxBashOutputChars = 8000
 
 func validateStrictCommand(command string, cfg config.BashConfig, workingDirectory string) error {
 	if strings.ContainsAny(command, "\n;&|<>(){}") {

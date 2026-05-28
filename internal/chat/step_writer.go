@@ -22,7 +22,7 @@ type StepWriter struct {
 	chatID string
 	runID  string
 	mode   string // "REACT" / "PLAN_EXECUTE" / "ONESHOT" / "CODER"
-	hidden bool   // true 时跳过 QueryLine 持久化，用于系统自发触发的 run（如 automation）
+	hidden bool   // true 时标记 QueryLine 为展示层隐藏，但仍保留完整 JSONL trace
 
 	debugEventsEnabled bool
 
@@ -31,12 +31,13 @@ type StepWriter struct {
 
 	currentStage string
 
-	messages       []StoredMessage
-	latestPlan     *PlanState
-	latestPlanning *PlanningState
-	latestArtifact *ArtifactState
-	taskBuffers    map[string]*taskStepBuffer
-	closedTaskIDs  map[string]bool
+	messages                   []StoredMessage
+	latestPlan                 *PlanState
+	latestPlanning             *PlanningState
+	latestArtifact             *ArtifactState
+	planningSnapshotsPersisted map[string]bool
+	taskBuffers                map[string]*taskStepBuffer
+	closedTaskIDs              map[string]bool
 
 	// tool/action name tracking (for tool.result → StoredMessage.Name)
 	toolNames     map[string]string
@@ -68,21 +69,22 @@ func WithDebugEventsEnabled(enabled bool) StepWriterOption {
 }
 
 // NewStepWriter creates a StepWriter for a single run.
-// hidden=true 时跳过 QueryLine 持久化，用于 automation 等系统自发触发的 run：
-// 避免在 chat 里伪造一条"用户说的"消息、导致 webclient 显示成用户→agent 对话。
+// hidden=true 用于 automation 等系统自发触发的 run：QueryLine 仍会持久化，
+// 但会带 hidden 标记，供展示/导出/搜索层避免伪造成可见的用户发言。
 func NewStepWriter(store Store, chatID, runID, mode string, hidden bool, opts ...StepWriterOption) *StepWriter {
 	w := &StepWriter{
-		store:         store,
-		chatID:        chatID,
-		runID:         runID,
-		mode:          strings.ToUpper(strings.TrimSpace(mode)),
-		hidden:        hidden,
-		taskBuffers:   map[string]*taskStepBuffer{},
-		closedTaskIDs: map[string]bool{},
-		toolNames:     map[string]string{},
-		actionNames:   map[string]string{},
-		toolTaskIDs:   map[string]string{},
-		actionTaskIDs: map[string]string{},
+		store:                      store,
+		chatID:                     chatID,
+		runID:                      runID,
+		mode:                       strings.ToUpper(strings.TrimSpace(mode)),
+		hidden:                     hidden,
+		taskBuffers:                map[string]*taskStepBuffer{},
+		closedTaskIDs:              map[string]bool{},
+		planningSnapshotsPersisted: map[string]bool{},
+		toolNames:                  map[string]string{},
+		actionNames:                map[string]string{},
+		toolTaskIDs:                map[string]string{},
+		actionTaskIDs:              map[string]string{},
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -346,12 +348,6 @@ func (w *StepWriter) handleRequestQuery(event stream.EventData) {
 	}
 	w.queryWritten = true
 
-	// hidden run 不写 QueryLine，避免 webclient 显示成"用户→agent"对话
-	if w.hidden {
-		w.pendingSystemInits = nil
-		return
-	}
-
 	query := map[string]any{}
 	// Copy all payload fields into query, excluding seq/type/timestamp
 	for key, val := range event.Payload {
@@ -363,6 +359,7 @@ func (w *StepWriter) handleRequestQuery(event stream.EventData) {
 		ChatID:    w.chatID,
 		RunID:     w.runID,
 		UpdatedAt: time.Now().UnixMilli(),
+		Hidden:    w.hidden,
 		Query:     query,
 		Systems:   append([]QueryLineSystemInit(nil), w.pendingSystemInits...),
 	})
@@ -471,19 +468,24 @@ func (w *StepWriter) flushCurrentStep() {
 		return
 	}
 
+	updatedAt := time.Now().UnixMilli()
+	messages := append([]StoredMessage(nil), w.messages...)
+	if w.pendingApproval != nil && approvalMatchesToolMessages(w.pendingApproval, messages) {
+		if approvalMessage, ok := approvalAuditMessage(w.pendingApproval, updatedAt); ok {
+			messages = append(messages, approvalMessage)
+		}
+		w.pendingApproval = nil
+	}
+
 	line := StepLine{
 		ChatID:    w.chatID,
 		RunID:     w.runID,
-		UpdatedAt: time.Now().UnixMilli(),
-		Messages:  w.messages,
+		UpdatedAt: updatedAt,
+		Messages:  messages,
 	}
 	if len(w.pendingAwaiting) > 0 {
 		line.Awaiting = w.pendingAwaiting
 		w.pendingAwaiting = nil
-	}
-	if w.pendingApproval != nil && approvalMatchesToolMessages(w.pendingApproval, w.messages) {
-		line.Approval = w.pendingApproval
-		w.pendingApproval = nil
 	}
 	if w.pendingUsage != nil {
 		line.Usage = w.pendingUsage
@@ -519,7 +521,6 @@ func (w *StepWriter) flushCurrentStep() {
 		w.assignReactSeq(&line)
 	}
 
-	line.Messages = append([]StoredMessage(nil), w.messages...)
 	_ = w.store.AppendStepLine(w.chatID, line)
 	w.messages = nil
 	w.pendingUsage = nil

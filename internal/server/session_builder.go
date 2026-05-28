@@ -175,6 +175,9 @@ func (s *Server) loadWorkspaceAgentsPrompt(agentDef catalog.AgentDefinition, wor
 	if !strings.EqualFold(strings.TrimSpace(agentDef.Mode), catalog.AgentModeCoder) {
 		return "", nil
 	}
+	if catalog.AgentUsesACPCoderBackend(agentDef) {
+		return "", nil
+	}
 	if len(agentDef.Project.PromptFiles) > 0 {
 		return loadConfiguredProjectPrompts(agentDef, workspaceRoot)
 	}

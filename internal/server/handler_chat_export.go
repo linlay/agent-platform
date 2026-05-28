@@ -66,6 +66,9 @@ func renderChatMarkdown(chatName string, agentKey string, events []stream.EventD
 	for _, event := range events {
 		switch event.Type {
 		case "request.query":
+			if hidden, _ := event.Value("hidden").(bool); hidden {
+				continue
+			}
 			message := strings.TrimSpace(event.String("message"))
 			if message == "" {
 				continue

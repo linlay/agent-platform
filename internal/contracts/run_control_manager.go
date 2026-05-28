@@ -81,6 +81,7 @@ func (m *InMemoryRunManager) Register(_ context.Context, session QuerySession) (
 
 	control := NewRunControl(context.Background(), session.RunID)
 	control.SetMaxDisconnectedWait(m.maxDisconnectedWait)
+	control.SetInitialAccessLevel(session.AccessLevel)
 	run := ActiveRun{RunID: session.RunID, ChatID: session.ChatID, AgentKey: session.AgentKey}
 	eventBus := stream.NewRunEventBus(m.eventBusMaxEvents, m.maxObserversPerRun, func(count int) {
 		control.SetObserverCount(int32(count))
@@ -145,6 +146,49 @@ func (m *InMemoryRunManager) Interrupt(req api.InterruptRequest) InterruptAck {
 	return InterruptAck{Accepted: true, Status: "accepted", Detail: "Interrupt accepted"}
 }
 
+func (m *InMemoryRunManager) UpdateAccessLevel(req api.AccessLevelRequest) AccessLevelAck {
+	state, ok := m.lookupRun(req.RunID)
+	if !ok {
+		return AccessLevelAck{Accepted: false, Status: "unmatched", Detail: "No active run found"}
+	}
+	if strings.TrimSpace(req.AgentKey) != "" && strings.TrimSpace(state.run.AgentKey) != strings.TrimSpace(req.AgentKey) {
+		return AccessLevelAck{Accepted: false, Status: "forbidden", Detail: "agentKey does not match run"}
+	}
+	if state.control == nil || state.control.Interrupted() || state.control.Finished() || !state.completedAt.IsZero() {
+		return AccessLevelAck{Accepted: false, Status: "unmatched", Detail: "Run is no longer active"}
+	}
+	previous, current, version, changed := state.control.UpdateAccessLevel(req.AccessLevel)
+	status := "updated"
+	detail := "accessLevel updated"
+	if !changed {
+		status = "unchanged"
+		detail = "accessLevel unchanged"
+	}
+	ack := AccessLevelAck{
+		Accepted:            true,
+		Status:              status,
+		PreviousAccessLevel: previous,
+		AccessLevel:         current,
+		Version:             version,
+		Detail:              detail,
+	}
+	if changed && state.eventBus != nil {
+		state.eventBus.Publish(stream.EventData{
+			Seq:       state.eventBus.LatestSeq() + 1,
+			Type:      "run.access_level.changed",
+			Timestamp: time.Now().UnixMilli(),
+			Payload: map[string]any{
+				"runId":               state.run.RunID,
+				"previousAccessLevel": previous,
+				"accessLevel":         current,
+				"version":             version,
+				"reason":              strings.TrimSpace(req.Reason),
+			},
+		})
+	}
+	return ack
+}
+
 func (m *InMemoryRunManager) Finish(runID string) {
 	m.mu.Lock()
 	state, ok := m.runs[runID]
@@ -188,6 +232,7 @@ func (m *InMemoryRunManager) RunStatus(runID string) (RunStatusInfo, bool) {
 		ObserverCount: state.eventBus.ObserverCount(),
 		StartedAt:     state.startedAt.UnixMilli(),
 	}
+	info.AccessLevel, info.AccessLevelVersion = state.control.AccessLevelSnapshot()
 	if !state.completedAt.IsZero() {
 		info.CompletedAt = state.completedAt.UnixMilli()
 	}
@@ -244,6 +289,7 @@ func (m *InMemoryRunManager) ActiveRunForChat(chatID string) (RunStatusInfo, boo
 		ObserverCount: match.eventBus.ObserverCount(),
 		StartedAt:     match.startedAt.UnixMilli(),
 	}
+	info.AccessLevel, info.AccessLevelVersion = match.control.AccessLevelSnapshot()
 	if !match.completedAt.IsZero() {
 		info.CompletedAt = match.completedAt.UnixMilli()
 	}

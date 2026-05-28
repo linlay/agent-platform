@@ -136,6 +136,7 @@ func New(rootCtx context.Context) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("init runtime tools: %w", err)
 	}
+	backendTools.WithModelRegistry(modelRegistry)
 	var lspManager *lsp.Manager
 	if cfg.FileTools.Hooks.AfterFileChange.LSPDiagnostics.Enabled {
 		lspManager = lsp.NewManager(cfg.FileTools.Hooks.AfterFileChange.LSPDiagnostics)

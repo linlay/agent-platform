@@ -272,6 +272,9 @@ func (s *FileStore) ResolveResource(file string) (string, error) {
 	if clean == "." || strings.HasPrefix(clean, "..") {
 		return "", os.ErrPermission
 	}
+	if IsToolResultsPath(clean) {
+		return "", os.ErrPermission
+	}
 	path := filepath.Join(s.root, clean)
 	if _, err := os.Stat(path); err != nil {
 		return "", err

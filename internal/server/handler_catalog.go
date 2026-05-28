@@ -117,6 +117,22 @@ func (s *Server) handleAgentUpdate(w http.ResponseWriter, r *http.Request) {
 	s.writeAgentHTTPResponse(w, response, err)
 }
 
+func (s *Server) handleAgentModelConfig(w http.ResponseWriter, r *http.Request) {
+	var req api.UpdateAgentModelConfigRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid payload"))
+		return
+	}
+	key, err := queryOrBodyIDAny(r, []string{"agentKey", "key"}, req.AgentKey, req.Key)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, err.Error()))
+		return
+	}
+	req.Key = key
+	response, err := s.updateAgentModelConfig(r.Context(), req)
+	s.writeAgentHTTPResponse(w, response, err)
+}
+
 func (s *Server) handleAgentDelete(w http.ResponseWriter, r *http.Request) {
 	var req api.DeleteAgentRequest
 	if err := decodeOptionalJSON(r, &req); err != nil {
@@ -245,6 +261,84 @@ func (s *Server) updateAgent(ctx context.Context, req api.UpdateAgentRequest) (a
 		return api.AgentDetailResponse{}, mapAgentEditError(err)
 	}
 	return s.reloadAndLoadAgent(ctx, key)
+}
+
+func (s *Server) updateAgentModelConfig(ctx context.Context, req api.UpdateAgentModelConfigRequest) (api.AgentModelConfigResponse, error) {
+	editor, err := s.agentEditor()
+	if err != nil {
+		return api.AgentModelConfigResponse{}, err
+	}
+	key := firstNonBlank(req.Key, req.AgentKey)
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "agentKey is required")
+	}
+	modelKey := strings.TrimSpace(req.ModelKey)
+	if modelKey == "" {
+		return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "modelKey is required")
+	}
+	reasoningEffort, ok := normalizeCoderReasoningEffort(req.ReasoningEffort)
+	if !ok {
+		return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "reasoningEffort must be NONE, LOW, MEDIUM, or HIGH")
+	}
+	if s.deps.Models == nil {
+		return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusServiceUnavailable, "unavailable", "model registry is not configured")
+	}
+	if _, err := s.deps.Models.GetModel(modelKey); err != nil {
+		return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", err.Error())
+	}
+	files, found, err := editor.EditableAgent(key)
+	if err != nil {
+		return api.AgentModelConfigResponse{}, mapAgentEditError(err)
+	}
+	if !found {
+		return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusNotFound, "not_found", "editable agent not found")
+	}
+	if files.Source.Path == "" || files.Source.Kind == "" {
+		return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "editable agent source is missing")
+	}
+	def, ok := s.deps.Registry.AgentDefinition(key)
+	if !ok {
+		return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusNotFound, "not_found", "agent not found")
+	}
+	if !strings.EqualFold(strings.TrimSpace(def.Mode), catalog.AgentModeCoder) {
+		return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "agent model config can only be updated for CODER agents")
+	}
+
+	definition := contracts.CloneMap(files.Definition)
+	modelConfig := contracts.CloneMap(contracts.AnyMapNode(definition["modelConfig"]))
+	if modelConfig == nil {
+		modelConfig = map[string]any{}
+	}
+	modelConfig["modelKey"] = modelKey
+	reasoning := contracts.CloneMap(contracts.AnyMapNode(modelConfig["reasoning"]))
+	if reasoning == nil {
+		reasoning = map[string]any{}
+	}
+	if reasoningEffort == "NONE" {
+		reasoning["enabled"] = false
+		delete(reasoning, "effort")
+	} else if reasoningEffort != "" {
+		reasoning["enabled"] = true
+		reasoning["effort"] = reasoningEffort
+	}
+	if len(reasoning) > 0 {
+		modelConfig["reasoning"] = reasoning
+	}
+	definition["modelConfig"] = modelConfig
+
+	if _, err := editor.UpdateEditableAgent(key, definition, &files.SoulPrompt, &files.AgentsPrompt); err != nil {
+		return api.AgentModelConfigResponse{}, mapAgentEditError(err)
+	}
+	if s.deps.Registry != nil {
+		if err := s.deps.Registry.Reload(ctx, "agents"); err != nil {
+			return api.AgentModelConfigResponse{}, err
+		}
+	}
+	return api.AgentModelConfigResponse{
+		Key:         key,
+		ModelConfig: modelConfig,
+	}, nil
 }
 
 func (s *Server) deleteAgent(ctx context.Context, req api.DeleteAgentRequest) (map[string]any, error) {
@@ -503,6 +597,17 @@ func (s *Server) wsAgentUpdate(ctx context.Context, conn *ws.Conn, req ws.Reques
 	}
 	payload.Key = firstNonBlank(payload.AgentKey, payload.Key)
 	response, updateErr := s.updateAgent(ctx, payload)
+	s.sendAgentWSResponse(conn, req, response, updateErr)
+}
+
+func (s *Server) wsAgentModelConfig(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {
+	payload, err := ws.DecodePayload[api.UpdateAgentModelConfigRequest](req)
+	if err != nil {
+		s.sendAgentWSError(conn, req, newAgentStatusError(http.StatusBadRequest, "invalid_request", "invalid payload"))
+		return
+	}
+	payload.Key = firstNonBlank(payload.AgentKey, payload.Key)
+	response, updateErr := s.updateAgentModelConfig(ctx, payload)
 	s.sendAgentWSResponse(conn, req, response, updateErr)
 }
 

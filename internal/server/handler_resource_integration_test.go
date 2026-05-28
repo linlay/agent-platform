@@ -21,6 +21,7 @@ import (
 	"testing"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	"agent-platform/internal/ws"
 
@@ -89,6 +90,62 @@ func TestUploadAndResourceRoundTrip(t *testing.T) {
 	}
 	if len(matches) != 1 {
 		t.Fatalf("expected uploaded file under %s, got %v", fixture.cfg.Paths.ChatsDir, matches)
+	}
+}
+
+func TestToolResultEndpointServesHiddenResultAndResourceRejectsIt(t *testing.T) {
+	fixture := newTestFixture(t)
+	server := fixture.server
+	chatID := "chat-tool-result"
+	resultDir := filepath.Join(fixture.chats.ChatDir(chatID), ".tool-results")
+	if err := os.MkdirAll(resultDir, 0o755); err != nil {
+		t.Fatalf("mkdir tool result dir: %v", err)
+	}
+	resultJSON := `{"stdout":"large output","exitCode":0}`
+	if err := os.WriteFile(filepath.Join(resultDir, "call_1.json"), []byte(resultJSON), 0o644); err != nil {
+		t.Fatalf("write tool result: %v", err)
+	}
+
+	resourceRec := httptest.NewRecorder()
+	server.ServeHTTP(resourceRec, httptest.NewRequest(http.MethodGet, "/api/resource?file=chat-tool-result%2F.tool-results%2Fcall_1.json", nil))
+	if resourceRec.Code != http.StatusForbidden {
+		t.Fatalf("expected hidden tool result to be forbidden via resource, got %d: %s", resourceRec.Code, resourceRec.Body.String())
+	}
+
+	resultRec := httptest.NewRecorder()
+	server.ServeHTTP(resultRec, httptest.NewRequest(http.MethodGet, "/api/tool-result?chatId=chat-tool-result&path=.tool-results%2Fcall_1.json", nil))
+	if resultRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 tool result, got %d: %s", resultRec.Code, resultRec.Body.String())
+	}
+	if strings.TrimSpace(resultRec.Body.String()) != resultJSON {
+		t.Fatalf("unexpected tool result body: %q", resultRec.Body.String())
+	}
+
+	traversalRec := httptest.NewRecorder()
+	server.ServeHTTP(traversalRec, httptest.NewRequest(http.MethodGet, "/api/tool-result?chatId=chat-tool-result&path=.tool-results%2F..%2Fcall_1.json", nil))
+	if traversalRec.Code != http.StatusBadRequest {
+		t.Fatalf("expected traversal path rejected, got %d", traversalRec.Code)
+	}
+
+	archives, err := chat.NewArchiveStore(fixture.cfg.Paths.ChatsDir)
+	if err != nil {
+		t.Fatalf("new archive store: %v", err)
+	}
+	server.deps.Archives = archives
+	archiveDir := filepath.Join(archives.ChatDir("chat-tool-result-archived"), ".tool-results")
+	if err := os.MkdirAll(archiveDir, 0o755); err != nil {
+		t.Fatalf("mkdir archived tool result dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(archiveDir, "call_2.json"), []byte(`{"stdout":"archived"}`), 0o644); err != nil {
+		t.Fatalf("write archived tool result: %v", err)
+	}
+	archiveRec := httptest.NewRecorder()
+	server.ServeHTTP(archiveRec, httptest.NewRequest(http.MethodGet, "/api/tool-result?chatId=chat-tool-result-archived&path=.tool-results%2Fcall_2.json", nil))
+	if archiveRec.Code != http.StatusOK {
+		t.Fatalf("expected archived tool result 200, got %d: %s", archiveRec.Code, archiveRec.Body.String())
+	}
+	if strings.TrimSpace(archiveRec.Body.String()) != `{"stdout":"archived"}` {
+		t.Fatalf("unexpected archived tool result body: %q", archiveRec.Body.String())
 	}
 }
 

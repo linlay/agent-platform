@@ -64,6 +64,9 @@ func parseToolDefinition(root map[string]any, options toolDefinitionParseOptions
 	if clientVisible, ok := root["clientVisible"].(bool); ok {
 		meta["clientVisible"] = clientVisible
 	}
+	if explicitOnly, ok := root["explicitOnly"].(bool); ok {
+		meta["explicitOnly"] = explicitOnly
+	}
 	if toolAction, ok := root["toolAction"].(bool); ok {
 		meta["toolAction"] = toolAction
 	}

@@ -76,6 +76,63 @@ func TestSearchSessionFindsQueryMessageAndEvent(t *testing.T) {
 	}
 }
 
+func TestSearchSessionSkipsHiddenQueryButKeepsAssistantMessages(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-hidden-search", "agent-a", "", "Secret automation prompt"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	if err := store.AppendQueryLine("chat-hidden-search", QueryLine{
+		ChatID:    "chat-hidden-search",
+		RunID:     "run-hidden",
+		UpdatedAt: 100,
+		Hidden:    true,
+		Query: map[string]any{
+			"message": "Secret automation prompt",
+			"role":    "user",
+		},
+		Type: "query",
+	}); err != nil {
+		t.Fatalf("append query: %v", err)
+	}
+	if err := store.AppendStepLine("chat-hidden-search", StepLine{
+		ChatID:    "chat-hidden-search",
+		RunID:     "run-hidden",
+		UpdatedAt: 200,
+		Type:      "react",
+		Stage:     "execute",
+		Messages: []StoredMessage{
+			{
+				Role:    "assistant",
+				Content: []ContentPart{{Type: "text", Text: "Automation summary is available."}},
+				Ts:      int64Ptr(210),
+			},
+		},
+	}); err != nil {
+		t.Fatalf("append step: %v", err)
+	}
+
+	hits, err := store.SearchSession("chat-hidden-search", "automation", 10)
+	if err != nil {
+		t.Fatalf("search session: %v", err)
+	}
+	foundQuery := false
+	foundAssistant := false
+	for _, hit := range hits {
+		if hit.Kind == "query" {
+			foundQuery = true
+		}
+		if hit.Kind == "message" && hit.Role == "assistant" {
+			foundAssistant = true
+		}
+	}
+	if foundQuery || !foundAssistant {
+		t.Fatalf("expected hidden query skipped and assistant kept, got %#v", hits)
+	}
+}
+
 func TestSearchGlobalFiltersAgentAndIncludesChatMetadata(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {

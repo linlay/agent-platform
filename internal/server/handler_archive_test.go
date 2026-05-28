@@ -52,9 +52,9 @@ func TestHandleChatArchiveArchivesChatAndBroadcasts(t *testing.T) {
 		t.Fatalf("unexpected archives response: %#v", archives.Data)
 	}
 	usage := archives.Data.Items[0].Usage
-	if usage == nil || usage.PromptTokensDetails == nil || usage.PromptTokensDetails.CachedTokens != 2 ||
+	if usage == nil || usage.PromptTokensDetails == nil || usage.PromptTokensDetails.CacheHitTokens != 2 ||
+		usage.PromptTokensDetails.CacheMissTokens != 1 ||
 		usage.CompletionTokensDetails == nil || usage.CompletionTokensDetails.ReasoningTokens != 4 ||
-		usage.PromptCacheHitTokens != 2 || usage.PromptCacheMissTokens != 1 ||
 		usage.LlmChatCompletionCount != 1 {
 		t.Fatalf("expected detailed archive usage, got %#v", usage)
 	}
@@ -171,6 +171,9 @@ func (m *archiveHandlerRunManager) Steer(api.SteerRequest) contracts.SteerAck {
 }
 func (m *archiveHandlerRunManager) Interrupt(api.InterruptRequest) contracts.InterruptAck {
 	return contracts.InterruptAck{}
+}
+func (m *archiveHandlerRunManager) UpdateAccessLevel(api.AccessLevelRequest) contracts.AccessLevelAck {
+	return contracts.AccessLevelAck{}
 }
 func (m *archiveHandlerRunManager) Finish(string) {}
 func (m *archiveHandlerRunManager) AttachObserver(string, int64) (*stream.Observer, error) {

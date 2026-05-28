@@ -177,15 +177,40 @@ func (w *StepWriter) handlePlanningEvent(event stream.EventData) {
 	w.updatePlanning(event)
 	switch event.Type {
 	case "planning.start", "planning.delta", "planning.end":
-		if w.debugEventsEnabled {
-			w.appendTypedEventLine(event, "planning")
-		}
 		if event.Type == "planning.end" {
-			w.appendTypedEventLine(w.planningSnapshotEvent(event), "planning")
+			w.appendPlanningSnapshotEvent(event)
 		}
 	case "planning.snapshot":
-		w.appendTypedEventLine(event, "planning")
+		w.appendPlanningSnapshotEvent(event)
 	}
+}
+
+func (w *StepWriter) appendPlanningSnapshotEvent(source stream.EventData) {
+	event := w.planningSnapshotEvent(source)
+	key := w.planningSnapshotPersistKey(event)
+	if key != "" {
+		if w.planningSnapshotsPersisted[key] {
+			return
+		}
+		w.planningSnapshotsPersisted[key] = true
+	}
+	w.appendTypedEventLine(event, "planning")
+}
+
+func (w *StepWriter) planningSnapshotPersistKey(event stream.EventData) string {
+	runID := strings.TrimSpace(event.String("runId"))
+	if runID == "" {
+		runID = strings.TrimSpace(w.runID)
+	}
+	planningID := strings.TrimSpace(event.String("planningId"))
+	planningFile := strings.TrimSpace(event.String("planningFile"))
+	if planningID == "" && planningFile == "" {
+		return ""
+	}
+	if planningID != "" {
+		return runID + "\x00id\x00" + planningID
+	}
+	return runID + "\x00file\x00" + planningFile
 }
 
 func (w *StepWriter) planningSnapshotEvent(source stream.EventData) stream.EventData {
@@ -194,7 +219,7 @@ func (w *StepWriter) planningSnapshotEvent(source stream.EventData) stream.Event
 		payload["planningId"] = w.latestPlanning.PlanningID
 		payload["planningFile"] = planningFileDisplayName(w.latestPlanning.PlanningFile)
 		payload["title"] = w.latestPlanning.Title
-		payload["markdown"] = w.latestPlanning.Markdown
+		payload["text"] = w.latestPlanning.Markdown
 		payload["updatedAt"] = w.latestPlanning.UpdatedAt
 	}
 	if value := strings.TrimSpace(source.String("chatId")); value != "" {
@@ -269,7 +294,9 @@ func (w *StepWriter) updatePlanning(event stream.EventData) {
 	if value := event.String("delta"); value != "" {
 		w.latestPlanning.Markdown += value
 	}
-	if value := strings.TrimSpace(event.String("markdown")); value != "" {
+	if value := event.String("text"); value != "" {
+		w.latestPlanning.Markdown = value
+	} else if value := event.String("markdown"); value != "" {
 		w.latestPlanning.Markdown = value
 	}
 	if updatedAt := event.Value("updatedAt"); updatedAt != nil {

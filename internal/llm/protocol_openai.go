@@ -71,6 +71,22 @@ type openAIUsage struct {
 	CompletionTokensDetails openAICompletionTokenDetails `json:"completion_tokens_details"`
 	PromptCacheHitTokens    int                          `json:"prompt_cache_hit_tokens"`
 	PromptCacheMissTokens   int                          `json:"prompt_cache_miss_tokens"`
+	Raw                     map[string]any               `json:"-"`
+}
+
+func (u *openAIUsage) UnmarshalJSON(data []byte) error {
+	type alias openAIUsage
+	var decoded alias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*u = openAIUsage(decoded)
+	u.Raw = raw
+	return nil
 }
 
 type openAIPromptTokenDetails struct {

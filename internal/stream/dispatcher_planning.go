@@ -22,7 +22,7 @@ func (d *StreamEventDispatcher) handlePlanningDelta(input PlanningDelta) []Strea
 
 func (d *StreamEventDispatcher) handlePlanningSnapshot(input PlanningSnapshot) []StreamEvent {
 	payload := d.planningContextPayload(input.PlanningID, input.PlanningFile, input.ChatID, input.RunID, input.Title)
-	payload["markdown"] = input.Markdown
+	payload["text"] = input.Markdown
 	return []StreamEvent{NewEvent("planning.snapshot", payload)}
 }
 

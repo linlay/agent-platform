@@ -98,13 +98,22 @@ func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
 	if !ok {
 		return preparedQuery{}, &statusError{status: http.StatusBadRequest, message: "agent not found"}
 	}
-	if isProxyAgentMode(agentDef.Mode) && proxyRequestHasReservedCWD(req.Params) {
+	if isProxyRoutedAgent(agentDef) && proxyRequestHasReservedCWD(req.Params) {
 		return preparedQuery{}, &statusError{
 			status:  http.StatusBadRequest,
-			message: "params.cwd is reserved for PROXY agents; configure runtimeConfig.workspaceRoot in agent.yml",
+			message: "params.cwd is reserved for proxy-routed agents; configure runtimeConfig.workspaceRoot in agent.yml",
 		}
 	}
-	if err := s.validateQueryModelOptions(req.Model); err != nil {
+	if catalog.AgentUsesACPCoderBackend(agentDef) && req.PlanningMode != nil && *req.PlanningMode {
+		return preparedQuery{}, &statusError{
+			status:  http.StatusBadRequest,
+			message: "planningMode is not supported for CODER agents using runtimeConfig.coderBackend: acp",
+		}
+	}
+	if statusErr := s.applyProxyRoutingConfig(&agentDef); statusErr != nil {
+		return preparedQuery{}, statusErr
+	}
+	if err := s.validateQueryModelOptions(req.Model, agentDef); err != nil {
 		return preparedQuery{}, err
 	}
 	if err := s.validateCoderConfig(req.CoderConfig, agentDef); err != nil {
@@ -156,6 +165,9 @@ func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
 	if !created {
 		s.maybeAutoCompact(r.Context(), req, summary, agentDef, &session)
 	}
+	if catalog.AgentUsesACPCoderBackend(agentDef) {
+		req.Model = s.acpCoderModelOptions(session, req.Model)
+	}
 	systemInitLines, err := s.prepareSystemInitCache(req, &session, created)
 	if err != nil {
 		return preparedQuery{}, err
@@ -199,7 +211,7 @@ func buildMemoryUsageSummary(staticMemoryPrompt string, bundle memory.ContextBun
 	return summary
 }
 
-func (s *Server) validateQueryModelOptions(options *api.QueryModelOptions) error {
+func (s *Server) validateQueryModelOptions(options *api.QueryModelOptions, agentDef catalog.AgentDefinition) error {
 	if options == nil {
 		return nil
 	}
@@ -212,8 +224,14 @@ func (s *Server) validateQueryModelOptions(options *api.QueryModelOptions) error
 		if s.deps.Models == nil {
 			return &statusError{status: http.StatusServiceUnavailable, message: "model registry is not configured"}
 		}
-		if _, _, err := s.deps.Models.Get(modelKey); err != nil {
-			return &statusError{status: http.StatusBadRequest, message: err.Error()}
+		if catalog.AgentUsesACPCoderBackend(agentDef) {
+			if _, err := s.deps.Models.GetModel(modelKey); err != nil {
+				return &statusError{status: http.StatusBadRequest, message: err.Error()}
+			}
+		} else {
+			if _, _, err := s.deps.Models.Get(modelKey); err != nil {
+				return &statusError{status: http.StatusBadRequest, message: err.Error()}
+			}
 		}
 	}
 	if _, ok := normalizeQueryModelReasoningEffort(reasoningEffort); !ok {
@@ -238,8 +256,14 @@ func (s *Server) validateCoderConfig(config *api.CoderConfig, agentDef catalog.A
 		if s.deps.Models == nil {
 			return &statusError{status: http.StatusServiceUnavailable, message: "model registry is not configured"}
 		}
-		if _, _, err := s.deps.Models.Get(modelKey); err != nil {
-			return &statusError{status: http.StatusBadRequest, message: err.Error()}
+		if catalog.AgentUsesACPCoderBackend(agentDef) {
+			if _, err := s.deps.Models.GetModel(modelKey); err != nil {
+				return &statusError{status: http.StatusBadRequest, message: err.Error()}
+			}
+		} else {
+			if _, _, err := s.deps.Models.Get(modelKey); err != nil {
+				return &statusError{status: http.StatusBadRequest, message: err.Error()}
+			}
 		}
 	}
 	if _, ok := normalizeCoderReasoningEffort(reasoningEffort); !ok {

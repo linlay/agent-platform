@@ -238,24 +238,11 @@ func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {
 	s.execCtx.RunLoopState = RunLoopStateWaitingSubmit
 	s.runControl.TransitionState(RunLoopStateWaitingSubmit)
 
-	submitResult, err := s.runControl.AwaitSubmitWithTimeout(
-		s.ctx,
-		batch.awaitingID,
-		time.Duration(s.resolveHITLTimeoutWithRule(batch.timeoutMs))*time.Millisecond,
-	)
+	submitResult, err := s.awaitHITLBatchSubmitOrAccessLevel(batch)
 	if err != nil {
-		if errors.Is(err, ErrRunInterrupted) {
-			return s.handleInterruptIfNeeded()
-		}
-		s.pending = append(s.pending, DeltaAwaitingAnswer{
-			AwaitingID: batch.awaitingID,
-			Answer:     hitlTimeoutAnswer("approval"),
-		})
-		for _, invocation := range batch.invocations {
-			s.applyHITLDecision(invocation, s.approvalHITLResult(invocation), batch.awaitingID, "reject", "timeout", false)
-			timeoutResult := hitlTimeoutToolResult(invocation)
-			invocation.queuedResult = &timeoutResult
-		}
+		return err
+	}
+	if submitResult.Status == "access_level_auto_approved" || submitResult.Status == "hitl_timeout" {
 		s.hitlPendingBatch = nil
 		return nil
 	}
@@ -322,6 +309,92 @@ func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {
 	return nil
 }
 
+func (s *llmRunStream) awaitHITLBatchSubmitOrAccessLevel(batch *pendingHITLApprovalBatch) (SubmitResult, error) {
+	timeout := time.Duration(s.resolveHITLTimeoutWithRule(batch.timeoutMs)) * time.Millisecond
+	deadline := time.Time{}
+	if timeout > 0 {
+		deadline = time.Now().Add(timeout)
+	}
+	for {
+		_, version := s.runControl.AccessLevelSnapshot()
+		wait := timeout
+		if !deadline.IsZero() {
+			wait = time.Until(deadline)
+			if wait <= 0 {
+				s.timeoutHITLBatch(batch)
+				return SubmitResult{Status: "hitl_timeout"}, nil
+			}
+		}
+		submitResult, accessChanged, err := s.runControl.AwaitSubmitWithTimeoutOrAccessLevelChange(s.ctx, batch.awaitingID, wait, version)
+		if accessChanged {
+			resolved, resolveErr := s.tryResolvePendingAccessLevelBatch(batch)
+			if resolveErr != nil || resolved {
+				return SubmitResult{Status: "access_level_auto_approved"}, resolveErr
+			}
+			continue
+		}
+		if err != nil {
+			if errors.Is(err, ErrRunInterrupted) {
+				return SubmitResult{}, s.handleInterruptIfNeeded()
+			}
+			s.timeoutHITLBatch(batch)
+			return SubmitResult{Status: "hitl_timeout"}, nil
+		}
+		return submitResult, nil
+	}
+}
+
+func (s *llmRunStream) timeoutHITLBatch(batch *pendingHITLApprovalBatch) {
+	s.pending = append(s.pending, DeltaAwaitingAnswer{
+		AwaitingID: batch.awaitingID,
+		Answer:     hitlTimeoutAnswer("approval"),
+	})
+	for _, invocation := range batch.invocations {
+		s.applyHITLDecision(invocation, s.approvalHITLResult(invocation), batch.awaitingID, "reject", "timeout", false)
+		timeoutResult := hitlTimeoutToolResult(invocation)
+		invocation.queuedResult = &timeoutResult
+	}
+	s.hitlPendingBatch = nil
+}
+
+func (s *llmRunStream) tryResolvePendingAccessLevelBatch(batch *pendingHITLApprovalBatch) (bool, error) {
+	if batch == nil || len(batch.invocations) == 0 {
+		return false, nil
+	}
+	entries := make([]map[string]any, 0, len(batch.invocations))
+	matches := make([]hitl.InterceptResult, 0, len(batch.invocations))
+	for _, invocation := range batch.invocations {
+		match := s.approvalHITLResult(invocation)
+		if !isAccessPolicyApprovalMatch(match) {
+			return false, nil
+		}
+		matches = append(matches, match)
+		s.refreshAccessLevelForInvocation(invocation)
+		if s.invocationNeedsAccessPolicyApproval(invocation) {
+			return false, nil
+		}
+		item := s.buildApprovalAskItem(invocation)
+		command := accessLevelApprovalCommand(s, invocation, match)
+		if strings.TrimSpace(command) == "" {
+			command = AnyStringNode(item["command"])
+		}
+		entries = append(entries, map[string]any{
+			"id":       approvalAnswerID(batch.awaitingID, invocation),
+			"command":  command,
+			"decision": "auto_approved",
+			"reason":   "accessLevel=" + s.currentAccessLevel(),
+		})
+	}
+	s.pending = append(s.pending, DeltaAwaitingAnswer{
+		AwaitingID: batch.awaitingID,
+		Answer:     accessLevelAutoApprovalBatchAnswer(batch, entries),
+	})
+	for index, invocation := range batch.invocations {
+		s.applyHITLDecision(invocation, matches[index], batch.awaitingID, "auto_approved", "accessLevel="+s.currentAccessLevel(), true)
+	}
+	return true, nil
+}
+
 func (s *llmRunStream) buildHITLNoticeEntry(invocation *preparedToolInvocation) (hitlNoticeEntry, bool) {
 	if invocation == nil || invocation.hitlDecision == nil {
 		return hitlNoticeEntry{}, false
@@ -359,6 +432,25 @@ func formatHITLFrontendSummary(entries []hitlNoticeEntry) string {
 	if len(entries) == 0 {
 		return ""
 	}
+	if allHITLNoticeEntriesAutoApproved(entries) {
+		if len(entries) == 1 {
+			return "[AUTO] " + formatHITLSummaryLine(entries[0])
+		}
+		lines := make([]string, 0, len(entries)+1)
+		lines = append(lines, "[AUTO] 自动审批结果：")
+		for index, entry := range entries {
+			lines = append(lines, fmt.Sprintf("%d. %s", index+1, formatHITLSummaryLine(entry)))
+		}
+		return strings.Join(lines, "\n")
+	}
+	if anyHITLNoticeEntryAutoApproved(entries) {
+		lines := make([]string, 0, len(entries)+1)
+		lines = append(lines, "[Approval] 审批结果：")
+		for index, entry := range entries {
+			lines = append(lines, fmt.Sprintf("%d. %s", index+1, formatHITLSummaryLine(entry)))
+		}
+		return strings.Join(lines, "\n")
+	}
 	if len(entries) == 1 {
 		return "[HITL] " + formatHITLSummaryLine(entries[0])
 	}
@@ -376,8 +468,19 @@ func formatHITLLLMNotice(entries []hitlNoticeEntry) string {
 		return ""
 	}
 	lines := make([]string, 0, len(entries)*2+3)
-	lines = append(lines, "[System audit — HITL approval batch]")
-	lines = append(lines, "The user reviewed the following tool call(s) and submitted decisions:")
+	allAutoApproved := allHITLNoticeEntriesAutoApproved(entries)
+	anyAutoApproved := anyHITLNoticeEntryAutoApproved(entries)
+	switch {
+	case allAutoApproved:
+		lines = append(lines, "[System audit — auto approval]")
+		lines = append(lines, "The system auto-approved the following tool call(s) because accessLevel=auto_approve applies automatic approval to reviewable access-policy checks:")
+	case anyAutoApproved:
+		lines = append(lines, "[System audit — approval batch]")
+		lines = append(lines, "The following tool call approval decisions were applied:")
+	default:
+		lines = append(lines, "[System audit — HITL approval batch]")
+		lines = append(lines, "The user reviewed the following tool call(s) and submitted decisions:")
+	}
 	for index, entry := range entries {
 		lines = append(lines, fmt.Sprintf(
 			"%d. tool=%s command=\"%s\" decision=%s reason=\"%s\"",
@@ -397,8 +500,37 @@ func formatHITLLLMNotice(entries []hitlNoticeEntry) string {
 			}
 		}
 	}
-	lines = append(lines, "The tool results above already reflect these decisions; do not re-prompt for approval and do not retry rejected calls.")
+	if allAutoApproved {
+		lines = append(lines, "The tool results above already reflect these automatic approvals; do not re-prompt for approval.")
+	} else {
+		lines = append(lines, "The tool results above already reflect these decisions; do not re-prompt for approval and do not retry rejected calls.")
+	}
 	return strings.Join(lines, "\n")
+}
+
+func allHITLNoticeEntriesAutoApproved(entries []hitlNoticeEntry) bool {
+	if len(entries) == 0 {
+		return false
+	}
+	for _, entry := range entries {
+		if !isAutoApprovedHITLNoticeEntry(entry) {
+			return false
+		}
+	}
+	return true
+}
+
+func anyHITLNoticeEntryAutoApproved(entries []hitlNoticeEntry) bool {
+	for _, entry := range entries {
+		if isAutoApprovedHITLNoticeEntry(entry) {
+			return true
+		}
+	}
+	return false
+}
+
+func isAutoApprovedHITLNoticeEntry(entry hitlNoticeEntry) bool {
+	return strings.EqualFold(strings.TrimSpace(entry.decision), "auto_approved")
 }
 
 func formatHITLLLMNoticeValue(value string, fallback string) string {
@@ -455,7 +587,7 @@ func buildHITLBatchSummaryAndApproval(entries []hitlNoticeEntry) (string, *chat.
 
 	approval := &chat.StepApproval{
 		Summary:   frontendSummary,
-		LLMNotice: llmNotice,
+		Notice:    llmNotice,
 		Decisions: make([]chat.StepApprovalDecision, 0, len(entries)),
 	}
 	for _, entry := range entries {

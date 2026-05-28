@@ -67,8 +67,8 @@ func TestRunEventProcessorDecoratesTerminalUsage(t *testing.T) {
 			}
 			runPromptDetails, _ := run["promptTokensDetails"].(map[string]any)
 			runCompletionDetails, _ := run["completionTokensDetails"].(map[string]any)
-			if AnyIntNode(runPromptDetails["cachedTokens"]) != 5 || AnyIntNode(runCompletionDetails["reasoningTokens"]) != 2 ||
-				AnyIntNode(run["promptCacheHitTokens"]) != 5 || AnyIntNode(run["promptCacheMissTokens"]) != 2 {
+			if AnyIntNode(runPromptDetails["cacheHitTokens"]) != 5 || AnyIntNode(runPromptDetails["cacheMissTokens"]) != 2 ||
+				AnyIntNode(runCompletionDetails["reasoningTokens"]) != 2 {
 				t.Fatalf("unexpected run detailed usage %#v", usage)
 			}
 			if AnyIntNode(run["llmChatCompletionCount"]) != 1 {
@@ -80,8 +80,8 @@ func TestRunEventProcessorDecoratesTerminalUsage(t *testing.T) {
 			}
 			chatPromptDetails, _ := chatUsage["promptTokensDetails"].(map[string]any)
 			chatCompletionDetails, _ := chatUsage["completionTokensDetails"].(map[string]any)
-			if AnyIntNode(chatPromptDetails["cachedTokens"]) != 25 || AnyIntNode(chatCompletionDetails["reasoningTokens"]) != 12 ||
-				AnyIntNode(chatUsage["promptCacheHitTokens"]) != 25 || AnyIntNode(chatUsage["promptCacheMissTokens"]) != 82 {
+			if AnyIntNode(chatPromptDetails["cacheHitTokens"]) != 25 || AnyIntNode(chatPromptDetails["cacheMissTokens"]) != 82 ||
+				AnyIntNode(chatCompletionDetails["reasoningTokens"]) != 12 {
 				t.Fatalf("unexpected chat detailed usage %#v", usage)
 			}
 			if AnyIntNode(chatUsage["llmChatCompletionCount"]) != 5 {
@@ -196,8 +196,8 @@ func TestRunEventProcessorDecoratesUsageSnapshotWithChatUsage(t *testing.T) {
 	}
 	chatPromptDetails, _ := chatUsage["promptTokensDetails"].(map[string]any)
 	chatCompletionDetails, _ := chatUsage["completionTokensDetails"].(map[string]any)
-	if AnyIntNode(chatPromptDetails["cachedTokens"]) != 25 || AnyIntNode(chatCompletionDetails["reasoningTokens"]) != 12 ||
-		AnyIntNode(chatUsage["promptCacheHitTokens"]) != 25 || AnyIntNode(chatUsage["promptCacheMissTokens"]) != 82 {
+	if AnyIntNode(chatPromptDetails["cacheHitTokens"]) != 25 || AnyIntNode(chatPromptDetails["cacheMissTokens"]) != 82 ||
+		AnyIntNode(chatCompletionDetails["reasoningTokens"]) != 12 {
 		t.Fatalf("unexpected detailed chat usage %#v", usage)
 	}
 	if AnyIntNode(chatUsage["llmChatCompletionCount"]) != 5 {

@@ -21,7 +21,12 @@ func (c *Config) applyStructuredConfig() error {
 	c.applyPromptsFile(ConfigFile("configs/prompts.yml"))
 	c.applyCoderPromptsFile(ConfigFile("configs/coder-prompts.yml"))
 	c.applyMemoryPromptsFile(ConfigFile("configs/memory-prompts.yml"))
-	c.applyCoderSettingsFile(ConfigFile("configs/coder-settings.yml"))
+	if err := c.applyCoderSettingsFile(ConfigFile("configs/coder-settings.yml")); err != nil {
+		return err
+	}
+	if err := c.applyVisionRecognizeFile(ConfigFile("configs/vision-recognize.yml")); err != nil {
+		return err
+	}
 	if err := c.applyChannelsFile(ConfigFile("configs/channels.yml")); err != nil {
 		return err
 	}
@@ -352,26 +357,113 @@ func (c *Config) applyMemoryPromptsFile(path string) {
 	c.MemoryPrompts.UserPromptTemplate = stringValue(anyValue(values["user-prompt-template"], c.MemoryPrompts.UserPromptTemplate), c.MemoryPrompts.UserPromptTemplate)
 }
 
-func (c *Config) applyCoderSettingsFile(path string) {
+func (c *Config) applyCoderSettingsFile(path string) error {
 	tree, err := LoadYAMLTree(path)
 	if err != nil {
-		return
+		return err
 	}
 	values, _ := tree.(map[string]any)
 	if len(values) == 0 {
-		return
+		return nil
 	}
 	defaultAgent, _ := values["default-agent"].(map[string]any)
 	if len(defaultAgent) > 0 {
 		c.CoderSettings.DefaultAgent.ModelKey = stringValue(anyValue(defaultAgent["modelKey"], c.CoderSettings.DefaultAgent.ModelKey), c.CoderSettings.DefaultAgent.ModelKey)
 		c.CoderSettings.DefaultAgent.ReasoningEffort = stringValue(anyValue(defaultAgent["reasoningEffort"], c.CoderSettings.DefaultAgent.ReasoningEffort), c.CoderSettings.DefaultAgent.ReasoningEffort)
 	}
+	acpProxies, err := parseCoderACPProxies(values["acp-proxies"], c.CoderSettings.ACPProxies)
+	if err != nil {
+		return err
+	}
+	c.CoderSettings.ACPProxies = acpProxies
 	workspaceAgents, _ := values["workspace-agents"].(map[string]any)
 	if len(workspaceAgents) == 0 {
-		return
+		return nil
 	}
 	c.CoderSettings.WorkspaceAgents.Enabled = boolValue(anyValue(workspaceAgents["enabled"], c.CoderSettings.WorkspaceAgents.Enabled), c.CoderSettings.WorkspaceAgents.Enabled)
 	c.CoderSettings.WorkspaceAgents.File = stringValue(anyValue(workspaceAgents["file"], c.CoderSettings.WorkspaceAgents.File), c.CoderSettings.WorkspaceAgents.File)
+	return nil
+}
+
+func parseCoderACPProxies(raw any, fallback map[string]CoderACPProxyConfig) (map[string]CoderACPProxyConfig, error) {
+	out := make(map[string]CoderACPProxyConfig, len(fallback))
+	for key, value := range fallback {
+		out[strings.TrimSpace(key)] = value
+	}
+	values, _ := raw.(map[string]any)
+	if len(values) == 0 {
+		return out, nil
+	}
+	for rawID, rawValue := range values {
+		id := strings.TrimSpace(rawID)
+		if id == "" {
+			return nil, fmt.Errorf("coder-settings config: acp-proxies id must not be empty")
+		}
+		proxyValues, ok := rawValue.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("coder-settings config: acp-proxies.%s must be an object", id)
+		}
+		cfg := CoderACPProxyConfig{}
+		if existing, ok := out[id]; ok {
+			cfg = existing
+		}
+		cfg.BaseURL = stringValue(anyValue(proxyValues["base-url"], cfg.BaseURL), cfg.BaseURL)
+		cfg.AuthToken = stringValue(anyValue(proxyValues["auth-token"], cfg.AuthToken), cfg.AuthToken)
+		cfg.TimeoutMs = intValue(anyValue(proxyValues["timeout-ms"], cfg.TimeoutMs), cfg.TimeoutMs)
+		if cfg.TimeoutMs <= 0 {
+			cfg.TimeoutMs = 300000
+		}
+		if strings.TrimSpace(cfg.BaseURL) == "" {
+			return nil, fmt.Errorf("coder-settings config: acp-proxies.%s.base-url is required", id)
+		}
+		out[id] = cfg
+	}
+	return out, nil
+}
+
+func (c *Config) applyVisionRecognizeFile(path string) error {
+	tree, err := LoadYAMLTree(path)
+	if err != nil {
+		return err
+	}
+	values, _ := tree.(map[string]any)
+	if len(values) == 0 {
+		return nil
+	}
+	c.VisionRecognize.Enabled = boolValue(anyValue(values["enabled"], c.VisionRecognize.Enabled), c.VisionRecognize.Enabled)
+	c.VisionRecognize.DefaultProfile = stringValue(anyValue(values["default-profile"], c.VisionRecognize.DefaultProfile), c.VisionRecognize.DefaultProfile)
+	profiles, _ := values["profiles"].(map[string]any)
+	if len(profiles) == 0 {
+		return nil
+	}
+	parsed := make(map[string]VisionRecognizeProfileConfig, len(profiles))
+	for key, raw := range profiles {
+		profileKey := strings.TrimSpace(key)
+		if profileKey == "" {
+			continue
+		}
+		base := VisionRecognizeProfileConfig{}
+		if existing, ok := c.VisionRecognize.Profiles[profileKey]; ok {
+			base = existing
+		}
+		parsed[profileKey] = parseVisionRecognizeProfileConfig(raw, base)
+	}
+	c.VisionRecognize.Profiles = parsed
+	return nil
+}
+
+func parseVisionRecognizeProfileConfig(raw any, fallback VisionRecognizeProfileConfig) VisionRecognizeProfileConfig {
+	values, _ := raw.(map[string]any)
+	if len(values) == 0 {
+		return fallback
+	}
+	fallback.ModelKey = stringValue(anyValue(values["model-key"], fallback.ModelKey), fallback.ModelKey)
+	fallback.TimeoutMs = intValue(anyValue(values["timeout-ms"], fallback.TimeoutMs), fallback.TimeoutMs)
+	fallback.MaxImages = intValue(anyValue(values["max-images"], fallback.MaxImages), fallback.MaxImages)
+	fallback.MaxImageBytes = intValue(anyValue(values["max-image-bytes"], fallback.MaxImageBytes), fallback.MaxImageBytes)
+	fallback.OutputFormat = stringValue(anyValue(values["output-format"], fallback.OutputFormat), fallback.OutputFormat)
+	fallback.SystemPrompt = stringValue(anyValue(values["system-prompt"], fallback.SystemPrompt), fallback.SystemPrompt)
+	return fallback
 }
 
 func (c *Config) applyChannelsFile(path string) error {

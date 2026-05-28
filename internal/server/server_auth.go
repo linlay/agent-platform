@@ -49,7 +49,7 @@ func (s *Server) withPrincipal(r *http.Request, w http.ResponseWriter) *http.Req
 	if r.Method == http.MethodOptions {
 		return r
 	}
-	if r.Method == http.MethodGet && r.URL.Path == "/api/resource" {
+	if r.Method == http.MethodGet && (r.URL.Path == "/api/resource" || r.URL.Path == "/api/tool-result") {
 		if !s.deps.Config.ResourceTicket.Enabled() {
 			return r
 		}

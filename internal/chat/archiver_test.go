@@ -67,6 +67,12 @@ func TestArchiverMovesChatToArchiveAndPreservesAttachments(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(active.ChatDir("chat-archiver"), "artifact.txt"), []byte("artifact"), 0o644); err != nil {
 		t.Fatalf("write artifact: %v", err)
 	}
+	if err := os.MkdirAll(filepath.Join(active.ChatDir("chat-archiver"), ToolResultsDirName), 0o755); err != nil {
+		t.Fatalf("create tool results dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(active.ChatDir("chat-archiver"), ToolResultsDirName, "call_1.json"), []byte(`{"stdout":"x"}`), 0o644); err != nil {
+		t.Fatalf("write tool result: %v", err)
+	}
 
 	if err := archiver.ArchiveChat("chat-archiver"); err != nil {
 		t.Fatalf("archive chat: %v", err)
@@ -81,6 +87,9 @@ func TestArchiverMovesChatToArchiveAndPreservesAttachments(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(archive.ChatDir("chat-archiver"), "artifact.txt")); err != nil {
 		t.Fatalf("expected artifact moved to archive: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(archive.ChatDir("chat-archiver"), ToolResultsDirName, "call_1.json")); err != nil {
+		t.Fatalf("expected tool result moved to archive: %v", err)
 	}
 
 	loaded, err := archive.LoadArchived("chat-archiver")

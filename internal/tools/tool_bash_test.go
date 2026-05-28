@@ -565,6 +565,86 @@ func TestInvokeHostBashAutoApprovedAccessAddsMetadata(t *testing.T) {
 	}
 }
 
+func TestInvokeHostBashAutoApprovedReadWithDevNullRedirection(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	note := filepath.Join(outside, "note.md")
+	if err := os.WriteFile(note, []byte("# note\n"), 0o644); err != nil {
+		t.Fatalf("write outside note: %v", err)
+	}
+	executor := &RuntimeToolExecutor{
+		cfg: config.Config{
+			Bash: config.BashConfig{
+				WorkingDirectory:     root,
+				AllowedCommands:      []string{"*"},
+				ShellFeaturesEnabled: true,
+				ShellExecutable:      "bash",
+				ShellTimeoutMs:       30000,
+				MaxCommandChars:      16000,
+			},
+		},
+	}
+	execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{
+		AccessLevel:   contracts.AccessLevelAutoApprove,
+		WorkspaceRoot: root,
+	}}
+
+	command := "find " + outside + ` -maxdepth 1 -name "*.md" -type f 2>/dev/null`
+	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": command}, execCtx)
+	if err != nil {
+		t.Fatalf("invokeHostBash returned error: %v", err)
+	}
+	if result.Error != "" || result.ExitCode != 0 {
+		t.Fatalf("expected bash success, got %#v", result)
+	}
+	if strings.TrimSpace(result.Output) != note {
+		t.Fatalf("expected note path in stdout, got %q", result.Output)
+	}
+	meta, _ := result.Structured["accessPolicy"].(map[string]any)
+	if meta["decision"] != "auto_approved" || meta["accessLevel"] != contracts.AccessLevelAutoApprove {
+		t.Fatalf("expected auto approval metadata, got %#v", result.Structured["accessPolicy"])
+	}
+}
+
+func TestInvokeHostBashRealOutsideRedirectionStillRequiresAccessApproval(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	logPath := filepath.Join(outside, "out.log")
+	command := "printf ok > " + logPath
+	executor := &RuntimeToolExecutor{
+		cfg: config.Config{
+			Bash: config.BashConfig{
+				WorkingDirectory:     root,
+				AllowedCommands:      []string{"*"},
+				ShellFeaturesEnabled: true,
+				ShellExecutable:      "bash",
+				ShellTimeoutMs:       30000,
+				MaxCommandChars:      16000,
+			},
+		},
+	}
+	execCtx := &contracts.ExecutionContext{
+		Session: contracts.QuerySession{
+			AccessLevel:   contracts.AccessLevelAutoApprove,
+			WorkspaceRoot: root,
+		},
+		BashSecurityApprovals: map[string]int{
+			bashsec.ApprovalFingerprint(command): 1,
+		},
+	}
+
+	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": command}, execCtx)
+	if err != nil {
+		t.Fatalf("invokeHostBash returned error: %v", err)
+	}
+	if result.Error != "bash_access_approval_required" {
+		t.Fatalf("expected bash_access_approval_required, got %#v", result)
+	}
+	if _, err := os.Stat(logPath); !os.IsNotExist(err) {
+		t.Fatalf("did not expect redirected file to be written, stat err=%v", err)
+	}
+}
+
 func TestInvokeHostBashFullAccessStillKeepsBashsecHardBlock(t *testing.T) {
 	root := t.TempDir()
 	executor := &RuntimeToolExecutor{

@@ -98,6 +98,7 @@ GET /ws -> request / response / stream / push / error frames
 | POST | `/api/submit` | body: `agentKey`、`runId`、`awaitingId`、`params` | HITL submit ack |
 | POST | `/api/steer` | body: `agentKey`、`runId`、`message`、`requestId`、`chatId`、`teamId`、`steerId` | steer ack |
 | POST | `/api/interrupt` | body: `agentKey`、`runId`、`message`、`requestId`、`chatId`、`teamId` | interrupt ack |
+| POST | `/api/access-level` | body: `agentKey`、`runId`、`accessLevel`、`requestId`、`reason` | 动态更新 native run 的 accessLevel |
 
 `params` 是业务透传对象，平台不读取、不写入、不约定内部 key。
 
@@ -110,12 +111,26 @@ GET /ws -> request / response / stream / push / error frames
   "accessLevel": "auto_approve",
   "model": {
     "key": "qwen3-coder",
+    "modelId": "qwen3-coder",
     "reasoningEffort": "HIGH"
   }
 }
 ```
 
-`model.key` 必须存在于 model registry；`model.reasoningEffort` 可取 `LOW`、`MEDIUM`、`HIGH`，非空时开启本次 run 的 reasoning。该配置只影响当前 run，不写回 agent 配置。
+`model.key` 必须存在于 model registry；`model.modelId` 由后端转发给 ACP CODER 上游时补齐，优先来自 model registry 的 `modelId`，为空时回退到 key；`model.reasoningEffort` 可取 `LOW`、`MEDIUM`、`HIGH`，非空时开启本次 run 的 reasoning。该配置只影响当前 run，不写回 agent 配置。
+
+`accessLevel` 在 `/api/query` 中作为 run 初始值；运行中可通过 `/api/access-level` 调整：
+
+```json
+{
+  "agentKey": "default_agent",
+  "runId": "run-id",
+  "accessLevel": "auto_approve",
+  "reason": "user toggled permission"
+}
+```
+
+响应包含 `accepted`、`status`、`runId`、`previousAccessLevel`、`accessLevel`、`version`、`detail`。更新只影响后续 host bash 与 file tools 的 access-policy 判断；已经开始执行的工具不会被中断。若 run 正在等待 access-policy approval，权限提升后会重新评估当前等待项，满足新权限时自动清理 awaiting 并继续执行。PROXY / ACP CODER run 当前返回 `status=unsupported`，不隐式透传。
 
 #### CODER model options
 
@@ -151,6 +166,7 @@ HITL 三态细节见 [HITL协议](HITL协议.md)。真流式、heartbeat、attac
 |---|---|---|---|
 | GET | `/api/viewport` | query: `viewportKey`、`viewportType` | viewport 模板或 fallback |
 | GET | `/api/resource` | query: `file`、`t` | chat 资源文件；`t` 为可选 resource ticket |
+| GET | `/api/tool-result` | query: `chatId`、`path`、`t` | `.tool-results/<toolId>.json` 完整工具结果；`t` 为可选 resource ticket |
 | POST | `/api/upload` | multipart: `requestId`、`chatId`、`file` | upload ticket 与资源访问信息 |
 
 resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界.md)。
@@ -285,6 +301,7 @@ resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界
 - HTTP query 参数在 WS payload 中通常以同名 JSON 字段传入。
 - `GET /api/attach`、`POST /api/submit`、`POST /api/steer`、`POST /api/interrupt` 都要求 `agentKey`，并校验 run 归属。
 - WS `/api/resource` 要求 `file + pushURL`，用于将本地资源推给 gateway；HTTP `/api/resource` 直接返回文件字节。
+- `.tool-results` 是隐藏工具结果目录，不通过 `/api/resource` 或 WS `/api/resource` 暴露；HTTP `/api/tool-result` 只接受 `.tool-results/<toolId>.json`。
 - 反向 gateway 配置在 `configs/channels.yml`，不再通过旧单 gateway env 合成。
 - 完整 DTO 字段以 `internal/api/*.go` 为事实源。
 

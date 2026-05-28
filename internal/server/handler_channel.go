@@ -2,7 +2,6 @@ package server
 
 import (
 	"net/http"
-	"sort"
 
 	"agent-platform/internal/api"
 )
@@ -38,7 +37,6 @@ func (s *Server) channelAgentKeys(channelID string, allAgents bool) []string {
 		for _, item := range items {
 			keys = append(keys, item.Key)
 		}
-		sort.Strings(keys)
 		return keys
 	}
 	return s.deps.Channels.AllowedAgentKeys(channelID)

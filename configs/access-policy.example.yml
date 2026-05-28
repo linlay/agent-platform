@@ -24,7 +24,7 @@ levels:
     inherit: default
     approvals:
       read-outside-roots: auto
-      write-outside-roots: auto
+      write-outside-roots: hitl
       bash-complex-filesystem: auto
       bash-opaque-command: auto
 

@@ -94,18 +94,37 @@ func addDetailedUsage(out map[string]any, cachedTokens int, reasoningTokens int,
 	if out == nil {
 		return
 	}
-	if cachedTokens > 0 {
-		out["promptTokensDetails"] = map[string]any{"cachedTokens": cachedTokens}
+	cacheHitTokens := promptCacheHitTokens
+	if cacheHitTokens <= 0 {
+		cacheHitTokens = cachedTokens
+	}
+	promptDetails := map[string]any{}
+	if cacheHitTokens > 0 {
+		promptDetails["cacheHitTokens"] = cacheHitTokens
+	}
+	if promptCacheMissTokens > 0 {
+		promptDetails["cacheMissTokens"] = promptCacheMissTokens
+	} else if promptTokens := intValue(out["promptTokens"]); cacheHitTokens > 0 && promptTokens > cacheHitTokens {
+		promptDetails["cacheMissTokens"] = promptTokens - cacheHitTokens
+	}
+	if len(promptDetails) > 0 {
+		out["promptTokensDetails"] = promptDetails
 	}
 	if reasoningTokens > 0 {
 		out["completionTokensDetails"] = map[string]any{"reasoningTokens": reasoningTokens}
 	}
-	if promptCacheHitTokens > 0 {
-		out["promptCacheHitTokens"] = promptCacheHitTokens
+}
+
+func intValue(v any) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case int64:
+		return int(n)
+	case float64:
+		return int(n)
 	}
-	if promptCacheMissTokens > 0 {
-		out["promptCacheMissTokens"] = promptCacheMissTokens
-	}
+	return 0
 }
 
 func (d *StreamEventDispatcher) closeOpenBlocks() []StreamEvent {

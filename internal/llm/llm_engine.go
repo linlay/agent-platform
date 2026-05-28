@@ -194,6 +194,7 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		promptBuildOptions: promptBuildOptions,
 		onApprovalSummary:  approvalSummarySinkFromContext(ctx),
 	}
+	stream.syncAccessLevelFromRunControl()
 	if len(session.SkillHookDirs) > 0 {
 		log.Printf("[llm][run:%s][hitl] creating SkillChecker hookDirs=%v", session.RunID, session.SkillHookDirs)
 		checker, err := hitl.NewSkillChecker(session.SkillHookDirs)
@@ -245,7 +246,14 @@ func stageSettingsForName(settings PlanExecuteSettings, stage string) StageSetti
 
 func filterToolDefinitions(defs []api.ToolDetailResponse, allowed []string) []api.ToolDetailResponse {
 	if len(allowed) == 0 {
-		return defs
+		filtered := make([]api.ToolDetailResponse, 0, len(defs))
+		for _, def := range defs {
+			if explicitOnly, _ := def.Meta["explicitOnly"].(bool); explicitOnly {
+				continue
+			}
+			filtered = append(filtered, def)
+		}
+		return filtered
 	}
 	allowedSet := map[string]struct{}{}
 	for _, name := range allowed {

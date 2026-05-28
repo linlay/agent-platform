@@ -21,6 +21,15 @@ type BashPlan struct {
 	AccessLevel string
 }
 
+type redirectAccessKind int
+
+const (
+	redirectAccessNeutral redirectAccessKind = iota
+	redirectAccessRead
+	redirectAccessWrite
+	redirectAccessUnknown
+)
+
 func (p BashPlan) Allowed() bool {
 	return p.Decision == DecisionAllow || p.Decision == DecisionAutoApproved
 }
@@ -78,11 +87,20 @@ func ReviewBashCommand(cfg config.AccessPolicyConfig, session QuerySession, comm
 			return opaqueBashPlan(command, accessLevel, level.Approvals.BashOpaqueCommand, base, workingDir)
 		}
 		for _, redirect := range cmd.Redirects {
-			mode := ReadAccess
-			if strings.Contains(redirect.Op, ">") {
-				mode = WriteAccess
+			kind := classifyRedirectAccess(redirect)
+			if kind == redirectAccessNeutral {
+				continue
 			}
 			if strings.TrimSpace(redirect.Target) == "" || containsUnresolvedPlaceholder(redirect.Target) {
+				return bashPlanForAction(command, accessLevel, level.Approvals.BashComplexFilesystem, "bash redirection target cannot be resolved statically", "bash-access:complex")
+			}
+			mode := ReadAccess
+			switch kind {
+			case redirectAccessRead:
+				mode = ReadAccess
+			case redirectAccessWrite:
+				mode = WriteAccess
+			default:
 				return bashPlanForAction(command, accessLevel, level.Approvals.BashComplexFilesystem, "bash redirection target cannot be resolved statically", "bash-access:complex")
 			}
 			pathPlan, err := BuildPathPlan(cfg, session, mode, resolveAgainstCwd(redirect.Target, workingDir))
@@ -120,6 +138,61 @@ func ReviewBashCommand(cfg config.AccessPolicyConfig, session QuerySession, comm
 		return autoPlan
 	}
 	return bashPlan(command, accessLevel, DecisionAllow, "", "", "")
+}
+
+func classifyRedirectAccess(redirect bashast.Redirect) redirectAccessKind {
+	op := strings.TrimSpace(redirect.Op)
+	target := strings.TrimSpace(redirect.Target)
+	if op == "" {
+		return redirectAccessUnknown
+	}
+	if op == "<<<" {
+		return redirectAccessNeutral
+	}
+	if isDevNullRedirectTarget(target) {
+		return redirectAccessNeutral
+	}
+	switch op {
+	case "<&", ">&":
+		if isFileDescriptorRedirectTarget(target) {
+			return redirectAccessNeutral
+		}
+		return redirectAccessUnknown
+	case "<":
+		return redirectAccessRead
+	case ">", ">>", ">|", ">>|", "&>", "&>|", "&>>", "&>>|":
+		return redirectAccessWrite
+	case "<>":
+		return redirectAccessWrite
+	default:
+		if strings.Contains(op, ">") {
+			return redirectAccessWrite
+		}
+		if strings.Contains(op, "<") {
+			return redirectAccessRead
+		}
+		return redirectAccessUnknown
+	}
+}
+
+func isDevNullRedirectTarget(target string) bool {
+	return filepath.Clean(expandHome(strings.TrimSpace(target))) == "/dev/null"
+}
+
+func isFileDescriptorRedirectTarget(target string) bool {
+	target = strings.TrimSpace(target)
+	if target == "-" {
+		return true
+	}
+	if target == "" {
+		return false
+	}
+	for _, r := range target {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func reviewBashPathPlan(command string, accessLevel string, level Level, mode AccessMode, pathPlan PathPlan, outsideReason string) BashPlan {

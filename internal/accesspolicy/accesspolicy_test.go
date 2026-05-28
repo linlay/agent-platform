@@ -107,6 +107,13 @@ func TestAutoApproveAndFullAccessLevels(t *testing.T) {
 	if !autoPlan.AutoApproved() {
 		t.Fatalf("expected auto-approved outside read, got %#v", autoPlan)
 	}
+	autoWritePlan, err := BuildPathPlan(cfg, autoSession, WriteAccess, outside)
+	if err != nil {
+		t.Fatalf("build auto write plan: %v", err)
+	}
+	if !autoWritePlan.RequiresApproval() {
+		t.Fatalf("expected auto-approve outside write to require approval, got %#v", autoWritePlan)
+	}
 
 	fullSession := contracts.QuerySession{AccessLevel: contracts.AccessLevelFullAccess, WorkspaceRoot: workspace}
 	fullPlan, err := BuildPathPlan(cfg, fullSession, WriteAccess, outside)
@@ -179,6 +186,60 @@ func TestBashAccessPolicyAllowsChatWriteRoot(t *testing.T) {
 	plan := ReviewBashCommand(config.AccessPolicyConfig{}, session, "touch "+filepath.Join(chatDir, "artifact.md"), workspace, nil)
 	if !plan.Allowed() || plan.RequiresApproval() {
 		t.Fatalf("expected chat bash write allowed, got %#v", plan)
+	}
+}
+
+func TestBashAccessPolicyDevNullRedirectionIsNeutral(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	outside := filepath.Join(root, "outside")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatalf("mkdir outside: %v", err)
+	}
+	cfg := config.AccessPolicyConfig{}
+
+	for _, command := range []string{
+		"echo ok >/dev/null",
+		"echo ok >>/dev/null",
+		"echo ok &>/dev/null",
+		"echo ok 2>/dev/null",
+		"echo ok 2>&1",
+		"echo ok 2>&-",
+		"cat <&0",
+		"cat <&-",
+		"cat </dev/null",
+		"cat <<< 'literal text'",
+	} {
+		session := contracts.QuerySession{AccessLevel: contracts.AccessLevelDefault, WorkspaceRoot: workspace}
+		plan := ReviewBashCommand(cfg, session, command, workspace, nil)
+		if !plan.Allowed() || plan.RequiresApproval() {
+			t.Fatalf("expected neutral redirection allowed for %q, got %#v", command, plan)
+		}
+	}
+
+	readCommand := "find " + outside + ` -maxdepth 1 -name "*.md" -type f 2>/dev/null`
+	defaultSession := contracts.QuerySession{AccessLevel: contracts.AccessLevelDefault, WorkspaceRoot: workspace}
+	defaultPlan := ReviewBashCommand(cfg, defaultSession, readCommand, workspace, nil)
+	if !defaultPlan.RequiresApproval() || !strings.Contains(defaultPlan.RuleKey, "access-read") {
+		t.Fatalf("expected default outside read approval, got %#v", defaultPlan)
+	}
+	if strings.Contains(defaultPlan.RuleKey, "access-write") {
+		t.Fatalf("did not expect dev/null redirection to become write approval, got %#v", defaultPlan)
+	}
+
+	autoSession := contracts.QuerySession{AccessLevel: contracts.AccessLevelAutoApprove, WorkspaceRoot: workspace}
+	autoPlan := ReviewBashCommand(cfg, autoSession, readCommand, workspace, nil)
+	if !autoPlan.AutoApproved() || !strings.Contains(autoPlan.RuleKey, "access-read") {
+		t.Fatalf("expected auto-approved outside read, got %#v", autoPlan)
+	}
+
+	writeCommand := "find " + outside + " -maxdepth 1 2>" + filepath.Join(outside, "err.log")
+	writePlan := ReviewBashCommand(cfg, autoSession, writeCommand, workspace, nil)
+	if !writePlan.RequiresApproval() || !strings.Contains(writePlan.RuleKey, "access-write") {
+		t.Fatalf("expected real stderr file redirection to require write approval, got %#v", writePlan)
 	}
 }
 

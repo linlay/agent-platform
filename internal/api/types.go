@@ -51,6 +51,7 @@ type QueryRequest struct {
 
 type QueryModelOptions struct {
 	Key             string `json:"key,omitempty"`
+	ModelID         string `json:"modelId,omitempty"`
 	ReasoningEffort string `json:"reasoningEffort,omitempty"`
 }
 
@@ -187,6 +188,24 @@ type InterruptResponse struct {
 	Status   string `json:"status"`
 	RunID    string `json:"runId"`
 	Detail   string `json:"detail"`
+}
+
+type AccessLevelRequest struct {
+	RequestID   string `json:"requestId,omitempty"`
+	RunID       string `json:"runId"`
+	AgentKey    string `json:"agentKey"`
+	AccessLevel string `json:"accessLevel"`
+	Reason      string `json:"reason,omitempty"`
+}
+
+type AccessLevelResponse struct {
+	Accepted            bool   `json:"accepted"`
+	Status              string `json:"status"`
+	RunID               string `json:"runId"`
+	PreviousAccessLevel string `json:"previousAccessLevel,omitempty"`
+	AccessLevel         string `json:"accessLevel"`
+	Version             int64  `json:"version"`
+	Detail              string `json:"detail"`
 }
 
 type LearnRequest struct {
@@ -396,9 +415,31 @@ type UpdateAgentRequest struct {
 	AgentsPrompt *string        `json:"agentsPrompt,omitempty"`
 }
 
+type UpdateAgentModelConfigRequest struct {
+	Key             string `json:"key,omitempty"`
+	AgentKey        string `json:"agentKey,omitempty"`
+	ModelKey        string `json:"modelKey"`
+	ReasoningEffort string `json:"reasoningEffort,omitempty"`
+}
+
+type AgentModelConfigResponse struct {
+	Key         string         `json:"key"`
+	ModelConfig map[string]any `json:"modelConfig"`
+}
+
 type DeleteAgentRequest struct {
 	Key      string `json:"key"`
 	AgentKey string `json:"agentKey,omitempty"`
+}
+
+type AgentOrderResponse struct {
+	Version   int      `json:"version"`
+	Order     []string `json:"order"`
+	UpdatedAt int64    `json:"updatedAt"`
+}
+
+type UpdateAgentOrderRequest struct {
+	Order []string `json:"order"`
 }
 
 type OpenAgentWorkspaceRequest struct {
@@ -545,8 +586,6 @@ type ChatUsageData struct {
 	TotalTokens             int                     `json:"totalTokens"`
 	PromptTokensDetails     *PromptTokenDetails     `json:"promptTokensDetails,omitempty"`
 	CompletionTokensDetails *CompletionTokenDetails `json:"completionTokensDetails,omitempty"`
-	PromptCacheHitTokens    int                     `json:"promptCacheHitTokens,omitempty"`
-	PromptCacheMissTokens   int                     `json:"promptCacheMissTokens,omitempty"`
 	LlmChatCompletionCount  int                     `json:"llmChatCompletionCount,omitempty"`
 }
 
@@ -556,7 +595,8 @@ type ChatUsageBreakdown struct {
 }
 
 type PromptTokenDetails struct {
-	CachedTokens int `json:"cachedTokens,omitempty"`
+	CacheHitTokens  int `json:"cacheHitTokens,omitempty"`
+	CacheMissTokens int `json:"cacheMissTokens,omitempty"`
 }
 
 type CompletionTokenDetails struct {

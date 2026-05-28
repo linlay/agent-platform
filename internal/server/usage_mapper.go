@@ -20,12 +20,13 @@ func mapUsageData(usage chat.UsageData) api.ChatUsageData {
 		PromptTokens:           usage.PromptTokens,
 		CompletionTokens:       usage.CompletionTokens,
 		TotalTokens:            usage.TotalTokens,
-		PromptCacheHitTokens:   usage.PromptCacheHitTokens,
-		PromptCacheMissTokens:  usage.PromptCacheMissTokens,
 		LlmChatCompletionCount: usage.LlmChatCompletionCount,
 	}
-	if usage.CachedTokens > 0 {
-		out.PromptTokensDetails = &api.PromptTokenDetails{CachedTokens: usage.CachedTokens}
+	if cacheHitTokens, cacheMissTokens := usageCacheTokens(usage); cacheHitTokens > 0 || cacheMissTokens > 0 {
+		out.PromptTokensDetails = &api.PromptTokenDetails{
+			CacheHitTokens:  cacheHitTokens,
+			CacheMissTokens: cacheMissTokens,
+		}
 	}
 	if usage.ReasoningTokens > 0 {
 		out.CompletionTokensDetails = &api.CompletionTokenDetails{ReasoningTokens: usage.ReasoningTokens}
@@ -87,13 +88,12 @@ func mapUsageDataFromPayload(usage map[string]any) *api.ChatUsageData {
 		PromptTokens:           contracts.AnyIntNode(usage["promptTokens"]),
 		CompletionTokens:       contracts.AnyIntNode(usage["completionTokens"]),
 		TotalTokens:            contracts.AnyIntNode(usage["totalTokens"]),
-		PromptCacheHitTokens:   contracts.AnyIntNode(usage["promptCacheHitTokens"]),
-		PromptCacheMissTokens:  contracts.AnyIntNode(usage["promptCacheMissTokens"]),
 		LlmChatCompletionCount: contracts.AnyIntNode(usage["llmChatCompletionCount"]),
 	}
-	if details, _ := usage["promptTokensDetails"].(map[string]any); details != nil {
-		if cachedTokens := contracts.AnyIntNode(details["cachedTokens"]); cachedTokens > 0 {
-			out.PromptTokensDetails = &api.PromptTokenDetails{CachedTokens: cachedTokens}
+	if cacheHitTokens, cacheMissTokens := usageCacheTokensFromMap(usage); cacheHitTokens > 0 || cacheMissTokens > 0 {
+		out.PromptTokensDetails = &api.PromptTokenDetails{
+			CacheHitTokens:  cacheHitTokens,
+			CacheMissTokens: cacheMissTokens,
 		}
 	}
 	if details, _ := usage["completionTokensDetails"].(map[string]any); details != nil {
@@ -105,4 +105,56 @@ func mapUsageDataFromPayload(usage map[string]any) *api.ChatUsageData {
 		return nil
 	}
 	return &out
+}
+
+func usageCacheTokens(usage chat.UsageData) (int, int) {
+	cacheHitTokens := usage.PromptCacheHitTokens
+	if cacheHitTokens <= 0 {
+		cacheHitTokens = usage.CachedTokens
+	}
+	cacheMissTokens := usage.PromptCacheMissTokens
+	if cacheMissTokens <= 0 && cacheHitTokens > 0 && usage.PromptTokens > cacheHitTokens {
+		cacheMissTokens = usage.PromptTokens - cacheHitTokens
+	}
+	return cacheHitTokens, cacheMissTokens
+}
+
+func usageCacheTokensFromMap(usage map[string]any) (int, int) {
+	details, _ := usage["promptTokensDetails"].(map[string]any)
+	if details == nil {
+		details, _ = usage["prompt_tokens_details"].(map[string]any)
+	}
+	cacheHitTokens := firstPositiveInt(
+		contracts.AnyIntNode(details["cacheHitTokens"]),
+		contracts.AnyIntNode(details["cache_hit_tokens"]),
+		contracts.AnyIntNode(details["cachedTokens"]),
+		contracts.AnyIntNode(details["cached_tokens"]),
+		contracts.AnyIntNode(usage["promptCacheHitTokens"]),
+		contracts.AnyIntNode(usage["prompt_cache_hit_tokens"]),
+	)
+	cacheMissTokens := firstPositiveInt(
+		contracts.AnyIntNode(details["cacheMissTokens"]),
+		contracts.AnyIntNode(details["cache_miss_tokens"]),
+		contracts.AnyIntNode(usage["promptCacheMissTokens"]),
+		contracts.AnyIntNode(usage["prompt_cache_miss_tokens"]),
+	)
+	if cacheMissTokens <= 0 {
+		promptTokens := firstPositiveInt(
+			contracts.AnyIntNode(usage["promptTokens"]),
+			contracts.AnyIntNode(usage["prompt_tokens"]),
+		)
+		if cacheHitTokens > 0 && promptTokens > cacheHitTokens {
+			cacheMissTokens = promptTokens - cacheHitTokens
+		}
+	}
+	return cacheHitTokens, cacheMissTokens
+}
+
+func firstPositiveInt(values ...int) int {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
 }

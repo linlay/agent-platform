@@ -85,6 +85,11 @@ func preserveReasoningContent(protocolConfig protocolRuntimeConfig, _ StageSetti
 	return AnyBoolNode(messagesCompat["preserveReasoningContent"])
 }
 
+func responseUsageCompat(protocolConfig protocolRuntimeConfig) map[string]any {
+	responseCompat := AnyMapNode(protocolConfig.Compat["response"])
+	return AnyMapNode(responseCompat["usage"])
+}
+
 func mergeStringMaps(maps ...map[string]string) map[string]string {
 	var out map[string]string
 	for _, current := range maps {

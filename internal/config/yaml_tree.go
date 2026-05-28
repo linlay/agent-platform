@@ -39,8 +39,13 @@ func LoadYAMLTreeReader(reader io.Reader) (any, error) {
 
 	lines := make([]yamlLine, 0, 64)
 	scanner := bufio.NewScanner(reader)
+	firstLine := true
 	for scanner.Scan() {
 		raw := strings.TrimRight(scanner.Text(), "\r\n")
+		if firstLine {
+			raw = strings.TrimPrefix(raw, "\ufeff")
+			firstLine = false
+		}
 		if strings.TrimSpace(raw) == "" {
 			continue
 		}

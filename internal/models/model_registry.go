@@ -134,6 +134,24 @@ func (r *ModelRegistry) Get(key string) (ModelDefinition, ProviderDefinition, er
 	return model, provider, nil
 }
 
+func (r *ModelRegistry) GetModel(key string) (ModelDefinition, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	key = strings.TrimSpace(key)
+	if key == "" {
+		model, _, err := r.defaultLocked()
+		return model, err
+	}
+	model, ok := r.models[key]
+	if !ok {
+		return ModelDefinition{}, fmt.Errorf("model %s not found", key)
+	}
+	model.Headers = stringMapCopy(model.Headers)
+	model.Compat = contracts.CloneAnyMap(model.Compat)
+	return model, nil
+}
+
 func (r *ModelRegistry) List() []ModelDefinition {
 	if r == nil {
 		return nil
@@ -209,12 +227,14 @@ func (r *ModelRegistry) defaultLocked() (ModelDefinition, ProviderDefinition, er
 		modelKeys = append(modelKeys, key)
 	}
 	sort.Strings(modelKeys)
-	model := r.models[modelKeys[0]]
-	provider, ok := r.providers[model.Provider]
-	if !ok {
-		return ModelDefinition{}, ProviderDefinition{}, fmt.Errorf("provider %s not found for model %s", model.Provider, model.Key)
+	for _, modelKey := range modelKeys {
+		model := r.models[modelKey]
+		provider, ok := r.providers[model.Provider]
+		if ok {
+			return model, provider, nil
+		}
 	}
-	return model, provider, nil
+	return ModelDefinition{}, ProviderDefinition{}, fmt.Errorf("no provider-backed models loaded from registries")
 }
 
 func matchProviderDefault(models map[string]ModelDefinition, provider ProviderDefinition) (ModelDefinition, bool) {

@@ -39,6 +39,7 @@ type llmRunStream struct {
 	step               int
 	pending            []AgentDelta
 	currentTurn        *providerTurnStream
+	lastTrace          *llmChatTrace
 	finished           bool
 	closed             bool
 	fallbackSent       bool
@@ -61,6 +62,7 @@ type llmRunStream struct {
 	skipPostToolHook   bool
 	onApprovalSummary  func(chat.StepApproval)
 	planningWrites     map[string]*planningWriteStreamState
+	accessLevelVersion int64
 
 	lastCallPromptTokens           int
 	lastCallCompletionTokens       int
@@ -84,6 +86,7 @@ type llmRunStream struct {
 type providerTurnStream struct {
 	body           io.ReadCloser
 	reader         *bufio.Reader
+	trace          *llmChatTrace
 	content        strings.Builder
 	reasoning      strings.Builder
 	thinkTag       thinkTagParserState

@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
@@ -1023,6 +1024,9 @@ Plan first, then check the current time before reporting.
 			t.Fatalf("expected %s before confirmation, got %s", eventType, streamBody.String())
 		}
 	}
+	if strings.Contains(streamBody.String(), `"toolName":"planning_write"`) || strings.Contains(streamBody.String(), `"toolId":"tool_plan"`) {
+		t.Fatalf("did not expect hidden planning_write tool events before confirmation, got %s", streamBody.String())
+	}
 	if got := strings.Count(streamBody.String(), `"type":"planning.delta"`); got <= 1 {
 		t.Fatalf("expected multiple planning.delta events before confirmation, got %d in %s", got, streamBody.String())
 	}
@@ -1081,6 +1085,160 @@ Plan first, then check the current time before reporting.
 		t.Fatalf("provider calls = %d, want 6", got)
 	}
 	assertPersistedPlanningModeRequestQuery(t, fixture.server)
+}
+
+func TestCoderPlanningWriteStreamsDeltasBeforeProviderFinishes(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		clientVisible      bool
+		wantToolVisibility bool
+	}{
+		{name: "hidden_tool_events", clientVisible: false, wantToolVisibility: false},
+		{name: "visible_tool_events", clientVisible: true, wantToolVisibility: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var providerCallCount atomic.Int32
+			firstFrameFlushed := make(chan struct{})
+			continueProvider := make(chan struct{})
+			releasedProvider := false
+			defer func() {
+				if !releasedProvider {
+					close(continueProvider)
+				}
+			}()
+
+			prefixArgs := `{"title":"Streaming Plan","markdown":"# Streaming Plan\n\n## Summary\nPart one`
+			suffixArgs := ` and part two.\n\n## Test Plan\n- Verify true streaming\n"}`
+
+			fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+				var payload map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+					t.Fatalf("decode model request: %v", err)
+				}
+				if call := providerCallCount.Add(1); call != 1 {
+					t.Fatalf("unexpected provider call %d", call)
+				}
+				assertCoderPlanningToolSet(t, providerRequestToolNames(payload["tools"]))
+
+				flusher, ok := w.(http.Flusher)
+				if !ok {
+					t.Fatalf("expected flusher")
+				}
+				w.Header().Set("Content-Type", "text/event-stream")
+				writeProviderSSEFrame(t, w, providerToolCallArgsDeltaFrame(t, "tool_plan", "planning_write", prefixArgs, ""))
+				flusher.Flush()
+				close(firstFrameFlushed)
+
+				select {
+				case <-continueProvider:
+				case <-r.Context().Done():
+					return
+				case <-time.After(5 * time.Second):
+					t.Fatalf("timed out waiting to continue provider stream")
+				}
+
+				writeProviderSSEFrame(t, w, providerToolCallArgsDeltaFrame(t, "", "", suffixArgs, "tool_calls"))
+				flusher.Flush()
+				writeProviderSSEFrame(t, w, `[DONE]`)
+				flusher.Flush()
+			}, testFixtureOptions{
+				setupRuntime: func(root string, cfg *config.Config) {
+					workspace := filepath.Join(root, "workspace")
+					agentDir := filepath.Join(cfg.Paths.AgentsDir, "coder-app")
+					if err := os.MkdirAll(agentDir, 0o755); err != nil {
+						t.Fatalf("mkdir coder agent: %v", err)
+					}
+					if err := os.MkdirAll(workspace, 0o755); err != nil {
+						t.Fatalf("mkdir workspace: %v", err)
+					}
+					lines := []string{
+						"key: coder-app",
+						"name: Coder App",
+						"mode: CODER",
+						"modelConfig:",
+						"  modelKey: mock-model",
+						"runtimeConfig:",
+						"  workspaceRoot: " + filepath.ToSlash(workspace),
+					}
+					if tc.clientVisible {
+						lines = append(lines,
+							"toolConfig:",
+							"  overrides:",
+							"    planning_write:",
+							"      meta:",
+							"        clientVisible: true",
+						)
+					}
+					if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+						t.Fatalf("write coder agent: %v", err)
+					}
+				},
+			})
+
+			httpServer := newLoopbackServer(t, fixture.server)
+			defer httpServer.Close()
+
+			client := http.Client{Timeout: 10 * time.Second}
+			resp, err := client.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"please stream the plan","agentKey":"coder-app","planningMode":true}`))
+			if err != nil {
+				t.Fatalf("post query: %v", err)
+			}
+			defer resp.Body.Close()
+
+			select {
+			case <-firstFrameFlushed:
+			case <-time.After(5 * time.Second):
+				t.Fatalf("timed out waiting for first provider frame")
+			}
+
+			reader := bufio.NewReader(resp.Body)
+			var streamBody strings.Builder
+			runID, firstDelta := readUntilPlanningDelta(t, reader, &streamBody)
+			if !strings.Contains(firstDelta, "Part one") {
+				t.Fatalf("expected first planning delta from partial provider args, got %q in %s", firstDelta, streamBody.String())
+			}
+			if strings.Contains(streamBody.String(), `"type":"planning.end"`) {
+				t.Fatalf("did not expect planning.end before provider finished, got %s", streamBody.String())
+			}
+			planningFile := filepath.Join(fixture.cfg.Paths.ChatsDir, "plans", runID+"_planning.md")
+			draftBytes, readDraftErr := os.ReadFile(planningFile)
+			if readDraftErr != nil {
+				t.Fatalf("expected draft planning file before provider finished: %v", readDraftErr)
+			}
+			draft := string(draftBytes)
+			if !strings.Contains(draft, "Part one") || strings.Contains(draft, "part two") {
+				t.Fatalf("unexpected draft planning markdown before provider finished:\n%s", draft)
+			}
+			assertPlanningWriteToolVisibility(t, streamBody.String(), tc.wantToolVisibility)
+
+			prefixDeltaCount := strings.Count(streamBody.String(), `"type":"planning.delta"`)
+			close(continueProvider)
+			releasedProvider = true
+
+			_, confirmAwaitingID := readAwaitingApproval(t, reader, &streamBody, "confirm")
+			bodyBeforeDecision := streamBody.String()
+			if !strings.Contains(bodyBeforeDecision, `"type":"planning.end"`) {
+				t.Fatalf("expected planning.end after provider finished, got %s", bodyBeforeDecision)
+			}
+			if got := strings.Count(bodyBeforeDecision, `"type":"planning.delta"`); got <= prefixDeltaCount {
+				t.Fatalf("expected additional planning.delta after provider finished, got %d before=%d in %s", got, prefixDeltaCount, bodyBeforeDecision)
+			}
+			finalBytes, readFinalErr := os.ReadFile(planningFile)
+			if readFinalErr != nil {
+				t.Fatalf("read final planning file: %v", readFinalErr)
+			}
+			if !strings.Contains(string(finalBytes), "Part one and part two.") {
+				t.Fatalf("expected final planning markdown to contain both provider chunks, got:\n%s", string(finalBytes))
+			}
+			assertPlanningWriteToolVisibility(t, bodyBeforeDecision, tc.wantToolVisibility)
+
+			submitFrontendDecision(t, fixture.server, runID, confirmAwaitingID, "reject")
+			readRemainingSSEUntilEOF(t, reader, &streamBody)
+			if got := providerCallCount.Load(); got != 1 {
+				t.Fatalf("provider calls = %d, want 1", got)
+			}
+		})
+	}
 }
 
 func TestCoderPlanningModeCancelDoesNotExecuteTasks(t *testing.T) {
@@ -1194,7 +1352,7 @@ Plan should be canceled before execution.
 	if got := providerCallCount.Load(); got != 1 {
 		t.Fatalf("provider calls = %d, want 1", got)
 	}
-	assertPersistedPlanningDebugEvents(t, fixture.server)
+	assertPersistedPlanningSnapshotOnly(t, fixture.server)
 }
 
 func readAwaitingQuestion(t *testing.T, reader *bufio.Reader, streamBody *strings.Builder, expectedQuestion string) (string, string) {
@@ -1250,6 +1408,128 @@ func readAwaitingApproval(t *testing.T, reader *bufio.Reader, streamBody *string
 		if readErr != nil {
 			t.Fatalf("read stream before awaiting approval %q: %v", expectedApprovalID, readErr)
 		}
+	}
+}
+
+func readUntilPlanningDelta(t *testing.T, reader *bufio.Reader, streamBody *strings.Builder) (string, string) {
+	t.Helper()
+	runID := ""
+	for {
+		line, readErr := readSSELineWithTimeout(t, reader, "planning.delta")
+		streamBody.WriteString(line)
+		if strings.HasPrefix(line, "data: {") {
+			payload := decodeSSELine(t, line)
+			switch payload["type"] {
+			case "planning.start":
+				runID, _ = payload["runId"].(string)
+			case "planning.delta":
+				delta, _ := payload["delta"].(string)
+				if runID == "" {
+					runID, _ = payload["runId"].(string)
+				}
+				if runID == "" {
+					t.Fatalf("expected planning runId before delta, got %#v", payload)
+				}
+				return runID, delta
+			}
+		}
+		if readErr == io.EOF {
+			t.Fatalf("stream ended before planning.delta, got %s", streamBody.String())
+		}
+		if readErr != nil {
+			t.Fatalf("read stream before planning.delta: %v", readErr)
+		}
+	}
+}
+
+func readRemainingSSEUntilEOF(t *testing.T, reader *bufio.Reader, streamBody *strings.Builder) {
+	t.Helper()
+	for {
+		line, readErr := readSSELineWithTimeout(t, reader, "stream EOF")
+		streamBody.WriteString(line)
+		if readErr == io.EOF {
+			return
+		}
+		if readErr != nil {
+			t.Fatalf("read remaining stream: %v", readErr)
+		}
+	}
+}
+
+func readSSELineWithTimeout(t *testing.T, reader *bufio.Reader, waitingFor string) (string, error) {
+	t.Helper()
+	type readResult struct {
+		line string
+		err  error
+	}
+	done := make(chan readResult, 1)
+	go func() {
+		line, err := reader.ReadString('\n')
+		done <- readResult{line: line, err: err}
+	}()
+	select {
+	case result := <-done:
+		return result.line, result.err
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for %s", waitingFor)
+		return "", nil
+	}
+}
+
+func assertPlanningWriteToolVisibility(t *testing.T, body string, wantVisible bool) {
+	t.Helper()
+	hasPlanningWriteTool := strings.Contains(body, `"toolName":"planning_write"`) || strings.Contains(body, `"toolId":"tool_plan"`)
+	if wantVisible {
+		if !hasPlanningWriteTool || !strings.Contains(body, `"type":"tool.args"`) {
+			t.Fatalf("expected visible planning_write tool events, got %s", body)
+		}
+		return
+	}
+	if hasPlanningWriteTool {
+		t.Fatalf("did not expect hidden planning_write tool events, got %s", body)
+	}
+}
+
+func providerToolCallArgsDeltaFrame(t *testing.T, toolID string, toolName string, argsDelta string, finishReason string) string {
+	t.Helper()
+	function := map[string]any{}
+	if toolName != "" {
+		function["name"] = toolName
+	}
+	if argsDelta != "" {
+		function["arguments"] = argsDelta
+	}
+	toolCall := map[string]any{
+		"index":    0,
+		"function": function,
+	}
+	if toolID != "" {
+		toolCall["id"] = toolID
+	}
+	if toolName != "" {
+		toolCall["type"] = "function"
+	}
+	choice := map[string]any{
+		"delta": map[string]any{
+			"tool_calls": []any{toolCall},
+		},
+	}
+	if finishReason != "" {
+		choice["finish_reason"] = finishReason
+	}
+	frame, err := json.Marshal(map[string]any{
+		"choices": []any{choice},
+	})
+	if err != nil {
+		t.Fatalf("marshal provider tool call delta frame: %v", err)
+	}
+	return string(frame)
+}
+
+func writeProviderSSEFrame(t *testing.T, w io.Writer, frame string) {
+	t.Helper()
+	if _, err := io.WriteString(w, "data: "+frame+"\n\n"); err != nil {
+		t.Fatalf("write sse frame: %v", err)
 	}
 }
 
@@ -1342,20 +1622,29 @@ func assertPersistedPlanningModeRequestQuery(t *testing.T, server http.Handler) 
 			if strings.TrimSpace(stringValue(planning["planningId"])) == "" || strings.TrimSpace(stringValue(planning["planningFile"])) == "" {
 				t.Fatalf("expected persisted planning state, got %#v", chatResp.Data.Planning)
 			}
-			if !strings.Contains(stringValue(planning["markdown"]), "## Summary") {
-				t.Fatalf("expected persisted planning markdown, got %#v", planning)
+			if !strings.Contains(stringValue(planning["text"]), "## Summary") {
+				t.Fatalf("expected persisted planning text, got %#v", planning)
 			}
-			hasPlanningSnapshot := false
+			if _, ok := planning["markdown"]; ok {
+				t.Fatalf("did not expect persisted planning markdown field, got %#v", planning)
+			}
+			planningSnapshotCount := 0
 			for _, ev := range chatResp.Data.Events {
 				switch ev.Type {
 				case "planning.snapshot":
-					hasPlanningSnapshot = true
+					planningSnapshotCount++
+					if !strings.Contains(ev.String("text"), "## Summary") {
+						t.Fatalf("expected replayed planning.snapshot text, got %#v", ev.Map())
+					}
+					if ev.Value("markdown") != nil {
+						t.Fatalf("did not expect replayed planning.snapshot markdown field, got %#v", ev.Map())
+					}
 				case "planning.start", "planning.delta", "planning.end":
 					t.Fatalf("did not expect default replay planning debug event %s in %#v", ev.Type, chatResp.Data.Events)
 				}
 			}
-			if !hasPlanningSnapshot {
-				t.Fatalf("expected replayed planning.snapshot event, got %#v", chatResp.Data.Events)
+			if planningSnapshotCount != 1 {
+				t.Fatalf("expected one replayed planning.snapshot event, got %d in %#v", planningSnapshotCount, chatResp.Data.Events)
 			}
 			return
 		}
@@ -1363,7 +1652,7 @@ func assertPersistedPlanningModeRequestQuery(t *testing.T, server http.Handler) 
 	t.Fatalf("expected persisted request.query planningMode=true, got %#v", chatResp.Data.Events)
 }
 
-func assertPersistedPlanningDebugEvents(t *testing.T, server http.Handler) {
+func assertPersistedPlanningSnapshotOnly(t *testing.T, server http.Handler) {
 	t.Helper()
 	chatsRec := httptest.NewRecorder()
 	server.ServeHTTP(chatsRec, httptest.NewRequest(http.MethodGet, "/api/chats", nil))
@@ -1381,17 +1670,17 @@ func assertPersistedPlanningDebugEvents(t *testing.T, server http.Handler) {
 	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
 		t.Fatalf("decode chat response: %v", err)
 	}
-	for _, eventType := range []string{"planning.start", "planning.delta", "planning.end", "planning.snapshot"} {
-		found := false
-		for _, ev := range chatResp.Data.Events {
-			if ev.Type == eventType {
-				found = true
-				break
-			}
+	planningSnapshotCount := 0
+	for _, ev := range chatResp.Data.Events {
+		switch ev.Type {
+		case "planning.snapshot":
+			planningSnapshotCount++
+		case "planning.start", "planning.delta", "planning.end":
+			t.Fatalf("did not expect persisted planning lifecycle event %s with debug enabled, got %#v", ev.Type, chatResp.Data.Events)
 		}
-		if !found {
-			t.Fatalf("expected replayed %s with debug enabled, got %#v", eventType, chatResp.Data.Events)
-		}
+	}
+	if planningSnapshotCount != 1 {
+		t.Fatalf("expected one persisted planning.snapshot with debug enabled, got %d in %#v", planningSnapshotCount, chatResp.Data.Events)
 	}
 }
 

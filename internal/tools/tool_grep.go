@@ -123,10 +123,7 @@ func (t *RuntimeToolExecutor) invokeGrep(ctx context.Context, args map[string]an
 	}
 	out := stdout.String()
 	errText := stderr.String()
-	if err != nil && strings.TrimSpace(out) == "" {
-		if exitCode == 1 {
-			return fileToolError("grep_no_match", "no matches found"), nil
-		}
+	if err != nil && strings.TrimSpace(out) == "" && exitCode != 1 {
 		if strings.Contains(errText, "unrecognized file type") || strings.Contains(errText, "unknown file type") {
 			return fileToolError("grep_invalid_type", strings.TrimSpace(errText)), nil
 		}

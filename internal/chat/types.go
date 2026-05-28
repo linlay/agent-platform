@@ -2,6 +2,8 @@ package chat
 
 import "agent-platform/internal/stream"
 
+const ToolResultsDirName = ".tool-results"
+
 // ---------------------------------------------------------------------------
 // Plan / Artifact state (shared by step lines and API responses)
 // ---------------------------------------------------------------------------
@@ -36,7 +38,7 @@ type PlanningState struct {
 	PlanningFile string `json:"planningFile"`
 	Title        string `json:"title,omitempty"`
 	Status       string `json:"status,omitempty"`
-	Markdown     string `json:"markdown,omitempty"`
+	Markdown     string `json:"text,omitempty"`
 	UpdatedAt    int64  `json:"updatedAt,omitempty"`
 }
 
@@ -103,7 +105,6 @@ type StepLine struct {
 	SystemRef       map[string]any   `json:"systemRef,omitempty"`
 	Debug           map[string]any   `json:"debug,omitempty"`
 	Messages        []StoredMessage  `json:"messages"`
-	Approval        *StepApproval    `json:"approval,omitempty"`
 	Awaiting        []map[string]any `json:"awaiting,omitempty"`
 	Usage           map[string]any   `json:"usage,omitempty"`
 	ContextWindow   map[string]any   `json:"contextWindow,omitempty"`
@@ -116,7 +117,7 @@ type StepLine struct {
 
 type StepApproval struct {
 	Summary   string                 `json:"summary"`
-	LLMNotice string                 `json:"llmNotice,omitempty"`
+	Notice    string                 `json:"-"`
 	Decisions []StepApprovalDecision `json:"decisions,omitempty"`
 }
 
@@ -191,6 +192,7 @@ type ToolDigest struct {
 type StoredMessage struct {
 	Role             string           `json:"role"`
 	Content          []ContentPart    `json:"content,omitempty"`
+	Approval         *StepApproval    `json:"approval,omitempty"`
 	ReasoningContent []ContentPart    `json:"reasoning_content,omitempty"`
 	ToolCalls        []StoredToolCall `json:"tool_calls,omitempty"`
 	Name             string           `json:"name,omitempty"`

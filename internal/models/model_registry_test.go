@@ -145,6 +145,69 @@ func TestLoadModelRegistryParsesModelVisionFalse(t *testing.T) {
 	}
 }
 
+func TestProviderlessModelCanBeListedAndReadWithoutProvider(t *testing.T) {
+	root := t.TempDir()
+	writeTestProviderAndModel(t, root, "apiKey: plain-text")
+	writeTestProviderlessModel(t, root, "gpt-5-codex", "gpt-5-codex")
+
+	registry, err := LoadModelRegistry(root)
+	if err != nil {
+		t.Fatalf("LoadModelRegistry returned error: %v", err)
+	}
+
+	model, err := registry.GetModel("gpt-5-codex")
+	if err != nil {
+		t.Fatalf("GetModel returned error: %v", err)
+	}
+	if model.Key != "gpt-5-codex" || model.ModelID != "gpt-5-codex" || model.Provider != "" {
+		t.Fatalf("unexpected providerless model %#v", model)
+	}
+
+	found := false
+	for _, item := range registry.List() {
+		if item.Key == "gpt-5-codex" && item.ModelID == "gpt-5-codex" && item.Provider == "" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected providerless model in List")
+	}
+}
+
+func TestProviderlessModelStillFailsProviderBackedGet(t *testing.T) {
+	root := t.TempDir()
+	writeTestProviderAndModel(t, root, "apiKey: plain-text")
+	writeTestProviderlessModel(t, root, "gpt-5-codex", "gpt-5-codex")
+
+	registry, err := LoadModelRegistry(root)
+	if err != nil {
+		t.Fatalf("LoadModelRegistry returned error: %v", err)
+	}
+
+	if _, _, err := registry.Get("gpt-5-codex"); err == nil || !strings.Contains(err.Error(), "provider") {
+		t.Fatalf("expected provider-backed Get to fail, got %v", err)
+	}
+}
+
+func TestDefaultSkipsProviderlessModels(t *testing.T) {
+	root := t.TempDir()
+	writeTestProviderAndModel(t, root, "apiKey: plain-text")
+	writeTestProviderlessModel(t, root, "aaa-codex", "gpt-5-codex")
+
+	registry, err := LoadModelRegistry(root)
+	if err != nil {
+		t.Fatalf("LoadModelRegistry returned error: %v", err)
+	}
+
+	model, provider, err := registry.Default()
+	if err != nil {
+		t.Fatalf("Default returned error: %v", err)
+	}
+	if model.Key != "mock-model" || provider.Key != "mock" {
+		t.Fatalf("expected provider-backed default, got model=%#v provider=%#v", model, provider)
+	}
+}
+
 func writeTestProviderAndModel(t *testing.T, root string, apiKeyLine string, modelLines ...string) {
 	t.Helper()
 
@@ -178,5 +241,21 @@ func writeTestProviderAndModel(t *testing.T, root string, apiKeyLine string, mod
 	}
 	if err := os.WriteFile(filepath.Join(modelsDir, "mock-model.yml"), []byte(modelConfig), 0o644); err != nil {
 		t.Fatalf("write model config: %v", err)
+	}
+}
+
+func writeTestProviderlessModel(t *testing.T, root string, key string, modelID string) {
+	t.Helper()
+	modelsDir := filepath.Join(root, "models")
+	if err := os.MkdirAll(modelsDir, 0o755); err != nil {
+		t.Fatalf("mkdir models dir: %v", err)
+	}
+	modelConfig := strings.Join([]string{
+		"key: " + key,
+		"name: Providerless Model",
+		"modelId: " + modelID,
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(modelsDir, key+".yml"), []byte(modelConfig), 0o644); err != nil {
+		t.Fatalf("write providerless model config: %v", err)
 	}
 }

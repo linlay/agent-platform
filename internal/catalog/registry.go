@@ -36,6 +36,8 @@ type AgentDefinition struct {
 	Wonders           []string
 	ModelKey          string
 	Mode              string
+	CoderBackend      string
+	ACPProxyID        string
 	VisibilityScopes  []string
 	KanbanConcurrency int
 	Tools             []string
@@ -248,7 +250,7 @@ func (r *FileRegistry) Agents(scope string) []api.AgentSummary {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	keys := sortedKeys(r.agents)
+	keys := r.orderedAgentKeysLocked()
 	items := make([]api.AgentSummary, 0, len(keys))
 	scope = normalizeAgentSummaryScope(scope)
 	for _, key := range keys {
@@ -272,6 +274,12 @@ func (r *FileRegistry) Agents(scope string) []api.AgentSummary {
 				"tools":  append([]string(nil), def.Tools...),
 				"skills": append([]string(nil), def.Skills...),
 			},
+		}
+		if strings.EqualFold(strings.TrimSpace(def.Mode), AgentModeCoder) && strings.TrimSpace(def.CoderBackend) != "" {
+			summary.Meta["coderBackend"] = strings.ToLower(strings.TrimSpace(def.CoderBackend))
+			if strings.TrimSpace(def.ACPProxyID) != "" {
+				summary.Meta["acpProxyId"] = strings.TrimSpace(def.ACPProxyID)
+			}
 		}
 		if strings.TrimSpace(def.Type) != "" {
 			summary.Meta["type"] = def.Type
@@ -332,10 +340,26 @@ func agentSummaryCoderDefaults(def AgentDefinition) (string, string) {
 		settings.Plan.ReasoningEffort,
 		settings.Summary.ReasoningEffort,
 	)
+	if strings.TrimSpace(reasoningEffort) == "" && agentSummaryReasoningDisabled(def.StageSettings) {
+		reasoningEffort = "NONE"
+	}
 	if strings.TrimSpace(reasoningEffort) == "" {
 		reasoningEffort = "MEDIUM"
 	}
 	return modelKey, reasoningEffort
+}
+
+func agentSummaryReasoningDisabled(raw map[string]any) bool {
+	for _, key := range []string{"execute", "plan", "summary"} {
+		node := contracts.AnyMapNode(raw[key])
+		if enabled, ok := node["reasoningEnabled"].(bool); ok && !enabled {
+			return true
+		}
+	}
+	if enabled, ok := raw["reasoningEnabled"].(bool); ok && !enabled {
+		return true
+	}
+	return false
 }
 
 func firstNonBlankString(values ...string) string {

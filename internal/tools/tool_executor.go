@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"strings"
 
 	"agent-platform/internal/api"
@@ -10,6 +11,7 @@ import (
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/memory"
+	"agent-platform/internal/models"
 	"agent-platform/internal/skills"
 )
 
@@ -24,9 +26,11 @@ type RuntimeToolExecutor struct {
 	sandbox         SandboxClient
 	chats           chat.Store
 	memory          memory.Store
+	models          *models.ModelRegistry
 	skillCandidates skills.CandidateStore
 	artifactPusher  ArtifactPusher
 	fileChangeHooks []FileChangeHook
+	httpClient      *http.Client
 	defs            []api.ToolDetailResponse
 }
 
@@ -48,6 +52,7 @@ func NewRuntimeToolExecutor(cfg config.Config, sandbox SandboxClient, chats chat
 		chats:           chats,
 		memory:          memoryStore,
 		skillCandidates: skillCandidates,
+		httpClient:      &http.Client{},
 		defs:            filtered,
 	}, nil
 }
@@ -67,6 +72,20 @@ func (t *RuntimeToolExecutor) WithArtifactPusher(pusher ArtifactPusher) *Runtime
 func (t *RuntimeToolExecutor) WithFileChangeHooks(hooks ...FileChangeHook) *RuntimeToolExecutor {
 	if t != nil {
 		t.fileChangeHooks = append([]FileChangeHook(nil), hooks...)
+	}
+	return t
+}
+
+func (t *RuntimeToolExecutor) WithModelRegistry(registry *models.ModelRegistry) *RuntimeToolExecutor {
+	if t != nil {
+		t.models = registry
+	}
+	return t
+}
+
+func (t *RuntimeToolExecutor) WithHTTPClient(client *http.Client) *RuntimeToolExecutor {
+	if t != nil && client != nil {
+		t.httpClient = client
 	}
 	return t
 }
@@ -100,6 +119,8 @@ func (t *RuntimeToolExecutor) Invoke(ctx context.Context, toolName string, args 
 		return t.invokePlanUpdateTask(args, execCtx)
 	case "planning_write":
 		return t.invokePlanningWrite(args, execCtx)
+	case "vision_recognize":
+		return t.invokeVisionRecognize(ctx, args, execCtx)
 	case "bash":
 		if execCtx != nil && hasRuntimeSandbox(execCtx.Session) {
 			if !t.cfg.ContainerHub.Enabled {

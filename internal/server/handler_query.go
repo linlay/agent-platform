@@ -14,8 +14,8 @@ import (
 )
 
 // isHiddenRequest 判断请求是否标记为"系统自发触发"：
-// 这类 run 不会在 chat 里留下用户回合（QueryLine 不写），
-// 也不会广播 chat.created（避免 webclient 把它渲染成用户→agent 对话）。
+// 这类 run 的 QueryLine 仍会写入 chat JSONL 以保留完整 trace，
+// 但会携带 hidden 标记，供 webclient / export / search 避免渲染成可见用户发言。
 // 典型来源：automation 触发的定时任务。
 func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	prepared, err := s.prepareQuery(r)
@@ -28,7 +28,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
-	if strings.EqualFold(prepared.agentDef.Mode, "PROXY") {
+	if isProxyRoutedAgent(prepared.agentDef) {
 		if proxyUpstreamTransport(prepared.agentDef.ProxyConfig) == "ws" {
 			s.handleProxyWebSocketQuery(w, r, prepared)
 			return

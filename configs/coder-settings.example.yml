@@ -8,6 +8,17 @@ default-agent:
   # an explicit modelConfig.reasoning.effort.
   reasoningEffort: MEDIUM
 
+acp-proxies:
+  # ACP CODER bridge entries. Codex CLI/proxy settings stay in proxy-acp-codex.
+  # claude:
+  #   base-url: http://127.0.0.1:17070
+  #   timeout-ms: 300000
+  #   auth-token: ${CLAUDE_ACP_PROXY_TOKEN:}
+  # codex-17071:
+  #   base-url: http://127.0.0.1:17071
+  #   timeout-ms: 300000
+  #   auth-token: ${CODEX_ACP_PROXY_TOKEN:}
+
 workspace-agents:
   # When enabled, CODER sessions read the workspace rules file from
   # <workspaceConfig.root>/<file> and inject it into the system prompt.

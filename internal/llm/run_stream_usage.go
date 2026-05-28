@@ -129,20 +129,21 @@ func (s *llmRunStream) commitPendingTurnUsage() {
 }
 
 func (s *llmRunStream) commitUsage(usage *openAIUsage) {
+	normalized := normalizeOpenAIUsage(usage, s.protocolConfig)
 	s.lastCallPromptTokens = usage.PromptTokens
 	s.lastCallCompletionTokens = usage.CompletionTokens
 	s.lastCallTotalTokens = usage.TotalTokens
-	s.lastCallCachedTokens = usage.PromptTokensDetails.CachedTokens
-	s.lastCallReasoningTokens = usage.CompletionTokensDetails.ReasoningTokens
-	s.lastCallPromptCacheHitTokens = usage.PromptCacheHitTokens
-	s.lastCallPromptCacheMissTokens = usage.PromptCacheMissTokens
+	s.lastCallCachedTokens = normalized.CacheHitTokens
+	s.lastCallReasoningTokens = normalized.ReasoningTokens
+	s.lastCallPromptCacheHitTokens = normalized.CacheHitTokens
+	s.lastCallPromptCacheMissTokens = normalized.CacheMissTokens
 	s.runPromptTokens += usage.PromptTokens
 	s.runCompletionTokens += usage.CompletionTokens
 	s.runTotalTokens += usage.TotalTokens
-	s.runCachedTokens += usage.PromptTokensDetails.CachedTokens
-	s.runReasoningTokens += usage.CompletionTokensDetails.ReasoningTokens
-	s.runPromptCacheHitTokens += usage.PromptCacheHitTokens
-	s.runPromptCacheMissTokens += usage.PromptCacheMissTokens
+	s.runCachedTokens += normalized.CacheHitTokens
+	s.runReasoningTokens += normalized.ReasoningTokens
+	s.runPromptCacheHitTokens += normalized.CacheHitTokens
+	s.runPromptCacheMissTokens += normalized.CacheMissTokens
 	s.pendingUsageEmit = true
 	s.pending = append(s.pending, DeltaUsageSnapshot{
 		ChatID:                          s.session.ChatID,
@@ -169,6 +170,104 @@ func (s *llmRunStream) commitUsage(usage *openAIUsage) {
 	})
 	log.Printf("[llm][run:%s][usage] last-call: prompt=%d completion=%d total=%d | run-cumulative: prompt=%d completion=%d total=%d",
 		s.session.RunID, usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens, s.runPromptTokens, s.runCompletionTokens, s.runTotalTokens)
+}
+
+type normalizedOpenAIUsageDetails struct {
+	CacheHitTokens  int
+	CacheMissTokens int
+	ReasoningTokens int
+}
+
+func normalizeOpenAIUsage(usage *openAIUsage, protocolConfig protocolRuntimeConfig) normalizedOpenAIUsageDetails {
+	if usage == nil {
+		return normalizedOpenAIUsageDetails{}
+	}
+	raw := usage.Raw
+	if raw == nil {
+		raw = openAIUsageRawMap(usage)
+	}
+	promptCacheHitTokens := usageCompatInt(raw, protocolConfig, "promptTokensDetails", "cacheHitTokens")
+	if promptCacheHitTokens <= 0 {
+		promptCacheHitTokens = firstPositiveUsageInt(usage.PromptCacheHitTokens, usage.PromptTokensDetails.CachedTokens)
+	}
+	promptCacheMissTokens := usageCompatInt(raw, protocolConfig, "promptTokensDetails", "cacheMissTokens")
+	if promptCacheMissTokens <= 0 {
+		promptCacheMissTokens = usage.PromptCacheMissTokens
+	}
+	if promptCacheMissTokens <= 0 && promptCacheHitTokens > 0 && usage.PromptTokens > promptCacheHitTokens {
+		promptCacheMissTokens = usage.PromptTokens - promptCacheHitTokens
+	}
+	reasoningTokens := usageCompatInt(raw, protocolConfig, "completionTokensDetails", "reasoningTokens")
+	if reasoningTokens <= 0 {
+		reasoningTokens = usage.CompletionTokensDetails.ReasoningTokens
+	}
+
+	return normalizedOpenAIUsageDetails{
+		CacheHitTokens:  promptCacheHitTokens,
+		CacheMissTokens: promptCacheMissTokens,
+		ReasoningTokens: reasoningTokens,
+	}
+}
+
+func usageCompatInt(raw map[string]any, protocolConfig protocolRuntimeConfig, detailKey string, valueKey string) int {
+	rule := usageCompatRule(protocolConfig, detailKey, valueKey)
+	path := strings.TrimSpace(AnyStringNode(rule["path"]))
+	if path == "" {
+		return 0
+	}
+	return intAtPath(raw, path)
+}
+
+func usageCompatDerive(protocolConfig protocolRuntimeConfig, detailKey string, valueKey string) string {
+	rule := usageCompatRule(protocolConfig, detailKey, valueKey)
+	return strings.TrimSpace(AnyStringNode(rule["derive"]))
+}
+
+func usageCompatRule(protocolConfig protocolRuntimeConfig, detailKey string, valueKey string) map[string]any {
+	usageCompat := responseUsageCompat(protocolConfig)
+	details := AnyMapNode(usageCompat[detailKey])
+	return AnyMapNode(details[valueKey])
+}
+
+func intAtPath(values map[string]any, path string) int {
+	var current any = values
+	for _, part := range strings.Split(path, ".") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			return 0
+		}
+		currentMap, _ := current.(map[string]any)
+		if currentMap == nil {
+			return 0
+		}
+		current = currentMap[part]
+	}
+	return AnyIntNode(current)
+}
+
+func openAIUsageRawMap(usage *openAIUsage) map[string]any {
+	if usage == nil {
+		return nil
+	}
+	raw := map[string]any{
+		"prompt_tokens":             usage.PromptTokens,
+		"completion_tokens":         usage.CompletionTokens,
+		"total_tokens":              usage.TotalTokens,
+		"prompt_cache_hit_tokens":   usage.PromptCacheHitTokens,
+		"prompt_cache_miss_tokens":  usage.PromptCacheMissTokens,
+		"prompt_tokens_details":     map[string]any{"cached_tokens": usage.PromptTokensDetails.CachedTokens},
+		"completion_tokens_details": map[string]any{"reasoning_tokens": usage.CompletionTokensDetails.ReasoningTokens},
+	}
+	return raw
+}
+
+func firstPositiveUsageInt(values ...int) int {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
 }
 
 func hasProviderUsage(usage *openAIUsage) bool {
