@@ -58,6 +58,27 @@ func TestBuildSystemPromptInjectsAgentIdentityWithoutSoulIdentity(t *testing.T) 
 	}
 }
 
+func TestBuildSystemPromptAddsCoderSystemPromptOnlyForMainCoderStage(t *testing.T) {
+	session := QuerySession{
+		AgentKey:          "coder",
+		AgentName:         "Coder",
+		Mode:              "CODER",
+		CoderSystemPrompt: "main coder system prompt",
+	}
+	main := buildSystemPrompt(session, api.QueryRequest{}, "", PromptBuildOptions{Stage: "coder"})
+	if !strings.Contains(main, "main coder system prompt") {
+		t.Fatalf("expected CODER main prompt to include coder system prompt, got %q", main)
+	}
+	planning := buildSystemPrompt(session, api.QueryRequest{}, "", PromptBuildOptions{Stage: "coder-plan"})
+	if strings.Contains(planning, "main coder system prompt") {
+		t.Fatalf("expected CODER planning prompt to skip coder system prompt, got %q", planning)
+	}
+	execute := buildSystemPrompt(session, api.QueryRequest{}, "", PromptBuildOptions{Stage: "coder-execute"})
+	if strings.Contains(execute, "main coder system prompt") {
+		t.Fatalf("expected CODER execute prompt to skip coder system prompt, got %q", execute)
+	}
+}
+
 func TestBuildSystemPromptPlacesAgentIdentityBeforeSoul(t *testing.T) {
 	prompt := buildSystemPrompt(QuerySession{
 		AgentKey:   "demo",

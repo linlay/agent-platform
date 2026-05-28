@@ -177,22 +177,20 @@ Provider `apiKey` 支持两种写法：
 本仓库保留与参考仓库一致的结构化配置入口：
 
 - `configs/ai-tools.example.yml`
-- `configs/container-hub.example.yml`
-- `configs/cors.example.yml`
 - `configs/host-tools.example.yml`
 - `configs/local-public-key.example.pem`
 - `configs/channels.example.yml`
 - `configs/prompts.example.yml`
+- `configs/runtime.example.yml`
 
 当前 Go runtime 实际会读取：
 
 - `configs/ai-tools.yml`
 - `configs/channels.yml`
-- `configs/container-hub.yml`
-- `configs/cors.yml`
 - `configs/host-tools.yml`
 - `configs/local-public-key.pem`
 - `configs/prompts.yml`
+- `configs/runtime.yml`
 
 `configs/` 不是可配置目录，固定使用 runtime 根目录下的 `./configs`；容器内固定挂载到 `/opt/configs`。
 
@@ -207,7 +205,7 @@ Provider `apiKey` 支持两种写法：
 
 配置优先级：
 
-- Host / AI tools / prompts: 代码默认值 `<` 旧拆分 yml `<` 新合并 yml
+- Host / AI tools / prompts / runtime: 代码默认值 `<` 旧拆分 yml `<` 新合并 yml
 - 其它配置: 代码默认值 `<` yml `<` 仍受支持的环境变量
 
 详细配置见 [配置化说明](./docs/配置化说明.md)。
@@ -255,7 +253,7 @@ Container Hub 默认基础挂载当前最多 7 个：
 - `destination + mode`：覆盖默认基础挂载模式
 - `source + destination + mode`：新增自定义挂载，不能拿来覆盖默认基础挂载路径
 
-`configs/container-hub.example.yml` 只默认展开 `base-url`；其它超时、默认 environment 和 sandbox level 都已有代码默认值，模板中以注释形式保留，按需取消注释覆盖。`auth-token` 未在模板中展示，但代码仍支持 `CONTAINER_HUB_AUTH_TOKEN` / `auth-token`，用于对接 `agent-container-hub` 的 `AUTH_TOKEN` Bearer 鉴权。
+`configs/runtime.example.yml` 的 `container-hub` 节只默认展开 `base-url`；其它超时、默认 environment 和 sandbox level 都已有代码默认值，模板中以注释形式保留，按需取消注释覆盖。`auth-token` 未在模板中展示，但代码仍支持 `CONTAINER_HUB_AUTH_TOKEN` / `container-hub.auth-token`，用于对接 `agent-container-hub` 的 `AUTH_TOKEN` Bearer 鉴权。
 
 `context tags` 不是全局默认集合，而是每个 agent 从 `contextConfig.tags` 或 `contextTags` 读取。当前支持/归一化后的标签有 `system`、`context`、`owner`、`auth`、`all-agents`、`memory`；其中 `agent_identity`、`run_session`、`scene`、`references`、`execution_policy`、`skills` 会归一化为 `context`，`memory_context` 会归一化为 `memory`。
 

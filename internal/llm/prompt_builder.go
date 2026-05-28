@@ -36,6 +36,7 @@ func buildSystemPrompt(session QuerySession, req api.QueryRequest, _ string, opt
 
 	sections := []string{
 		buildAgentIdentitySection(session),
+		buildCoderSystemPromptSection(session, options.Stage),
 		strings.TrimSpace(session.SoulPrompt),
 		strings.TrimSpace(session.AgentsPrompt),
 		buildWorkspaceAgentsSection(session.WorkspaceAgentsPrompt),
@@ -47,6 +48,16 @@ func buildSystemPrompt(session QuerySession, req api.QueryRequest, _ string, opt
 		buildToolAppendix(options.ToolDefinitions, appendConfig, options.IncludeAfterCallHints),
 	}
 	return joinPromptSections(sections...)
+}
+
+func buildCoderSystemPromptSection(session QuerySession, stage string) string {
+	if !strings.EqualFold(strings.TrimSpace(session.Mode), "CODER") {
+		return ""
+	}
+	if !strings.EqualFold(strings.TrimSpace(stage), "coder") {
+		return ""
+	}
+	return strings.TrimSpace(session.CoderSystemPrompt)
 }
 
 func buildAgentIdentitySection(session QuerySession) string {

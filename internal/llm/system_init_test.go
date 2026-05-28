@@ -161,6 +161,50 @@ func TestCoderSystemInitProfileUsesDistinctMode(t *testing.T) {
 	}
 }
 
+func TestCoderSystemInitProfileIncludesCoderSystemPrompt(t *testing.T) {
+	session := fingerprintTestSession()
+	session.Mode = "CODER"
+	session.CoderSystemPrompt = "custom coder system prompt"
+	toolDefs := []api.ToolDetailResponse{
+		{Name: "bash", Description: "run shell", Parameters: map[string]any{"type": "object"}},
+	}
+	profiles := BuildSystemInitProfiles(session, api.QueryRequest{ChatID: "chat-1", Message: "hello"}, toolDefs, 12, 4, config.PromptsConfig{})
+	if len(profiles) != 1 {
+		t.Fatalf("expected one CODER profile, got %#v", profiles)
+	}
+	content, _ := profiles[0].SystemMessage["content"].(string)
+	if !strings.Contains(content, "custom coder system prompt") {
+		t.Fatalf("expected coder system prompt in system init, got %q", content)
+	}
+}
+
+func TestCoderPlanningModeDoesNotBuildCoderSystemInit(t *testing.T) {
+	session := fingerprintTestSession()
+	session.Mode = "CODER"
+	session.PlanningMode = true
+	session.CoderSystemPrompt = "custom coder system prompt"
+	toolDefs := []api.ToolDetailResponse{
+		{Name: "bash", Description: "run shell", Parameters: map[string]any{"type": "object"}},
+	}
+	profiles := BuildSystemInitProfiles(session, api.QueryRequest{ChatID: "chat-1", Message: "hello"}, toolDefs, 12, 4, config.PromptsConfig{})
+	if len(profiles) != 0 {
+		t.Fatalf("expected planning mode to skip system init cache, got %#v", profiles)
+	}
+}
+
+func TestCoderSystemPromptChangesFingerprint(t *testing.T) {
+	session := fingerprintTestSession()
+	session.Mode = "CODER"
+	session.CoderSystemPrompt = "coder prompt one"
+	toolDefs := []api.ToolDetailResponse{{Name: "bash", Description: "run shell"}}
+	first := ComputeSystemInitFingerprint(session, "main", toolDefs)
+	session.CoderSystemPrompt = "coder prompt two"
+	second := ComputeSystemInitFingerprint(session, "main", toolDefs)
+	if first == second {
+		t.Fatalf("expected coder system prompt change to update fingerprint")
+	}
+}
+
 func fingerprintTestSession() contracts.QuerySession {
 	return contracts.QuerySession{
 		RequestID:        "request-1",

@@ -214,17 +214,10 @@ write_program_manifest() {
       "required": true
     },
     {
-      "key": "container-hub",
-      "label": "configs/container-hub.yml",
-      "relativePath": "configs/container-hub.yml",
-      "templateRelativePath": "configs/container-hub.example.yml",
-      "required": false
-    },
-    {
-      "key": "desktop",
-      "label": "configs/desktop.yml",
-      "relativePath": "configs/desktop.yml",
-      "templateRelativePath": "configs/desktop.example.yml",
+      "key": "runtime",
+      "label": "configs/runtime.yml",
+      "relativePath": "configs/runtime.yml",
+      "templateRelativePath": "configs/runtime.example.yml",
       "required": false
     },
     {
@@ -246,13 +239,6 @@ write_program_manifest() {
       "label": "configs/prompts.yml",
       "relativePath": "configs/prompts.yml",
       "templateRelativePath": "configs/prompts.example.yml",
-      "required": false
-    },
-    {
-      "key": "cors",
-      "label": "configs/cors.yml",
-      "relativePath": "configs/cors.yml",
-      "templateRelativePath": "configs/cors.example.yml",
       "required": false
     }
   ],

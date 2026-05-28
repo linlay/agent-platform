@@ -72,17 +72,19 @@ func TestLoadDefaults(t *testing.T) {
 
 func TestLoadDesktopConfigMissingFileLeavesBridgeUnconfigured(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
-		withProjectFileContents(t, filepath.Join("configs", "desktop.yml"), nil, func() {
-			cfg, err := Load()
-			if err != nil {
-				t.Fatalf("load config: %v", err)
-			}
-			if cfg.Desktop.Action.BridgeURL != "" {
-				t.Fatalf("expected missing desktop action bridge url, got %q", cfg.Desktop.Action.BridgeURL)
-			}
-			if cfg.Desktop.CDP.BridgeURL != "" {
-				t.Fatalf("expected missing desktop cdp bridge url, got %q", cfg.Desktop.CDP.BridgeURL)
-			}
+		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), nil, func() {
+			withProjectFileContents(t, filepath.Join("configs", "desktop.yml"), nil, func() {
+				cfg, err := Load()
+				if err != nil {
+					t.Fatalf("load config: %v", err)
+				}
+				if cfg.Desktop.Action.BridgeURL != "" {
+					t.Fatalf("expected missing desktop action bridge url, got %q", cfg.Desktop.Action.BridgeURL)
+				}
+				if cfg.Desktop.CDP.BridgeURL != "" {
+					t.Fatalf("expected missing desktop cdp bridge url, got %q", cfg.Desktop.CDP.BridgeURL)
+				}
+			})
 		})
 	})
 }
@@ -100,23 +102,164 @@ func TestLoadDesktopConfigFromFile(t *testing.T) {
 			"  port: 17002\n" +
 			"  path: /cdp/custom\n" +
 			"  request-timeout-ms: 5678\n"
-		withProjectFileContents(t, filepath.Join("configs", "desktop.yml"), &content, func() {
-			cfg, err := Load()
-			if err != nil {
-				t.Fatalf("load config: %v", err)
-			}
-			if cfg.Desktop.Action.BridgeURL != "http://127.0.0.2:17001/actions/custom" {
-				t.Fatalf("unexpected desktop action bridge url: %q", cfg.Desktop.Action.BridgeURL)
-			}
-			if cfg.Desktop.Action.RequestTimeoutMs != 1234 {
-				t.Fatalf("unexpected desktop action timeout: %d", cfg.Desktop.Action.RequestTimeoutMs)
-			}
-			if cfg.Desktop.CDP.BridgeURL != "http://localhost:17002/cdp/custom" {
-				t.Fatalf("unexpected desktop cdp bridge url: %q", cfg.Desktop.CDP.BridgeURL)
-			}
-			if cfg.Desktop.CDP.RequestTimeoutMs != 5678 {
-				t.Fatalf("unexpected desktop cdp timeout: %d", cfg.Desktop.CDP.RequestTimeoutMs)
-			}
+		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), nil, func() {
+			withProjectFileContents(t, filepath.Join("configs", "desktop.yml"), &content, func() {
+				cfg, err := Load()
+				if err != nil {
+					t.Fatalf("load config: %v", err)
+				}
+				if cfg.Desktop.Action.BridgeURL != "http://127.0.0.2:17001/actions/custom" {
+					t.Fatalf("unexpected desktop action bridge url: %q", cfg.Desktop.Action.BridgeURL)
+				}
+				if cfg.Desktop.Action.RequestTimeoutMs != 1234 {
+					t.Fatalf("unexpected desktop action timeout: %d", cfg.Desktop.Action.RequestTimeoutMs)
+				}
+				if cfg.Desktop.CDP.BridgeURL != "http://localhost:17002/cdp/custom" {
+					t.Fatalf("unexpected desktop cdp bridge url: %q", cfg.Desktop.CDP.BridgeURL)
+				}
+				if cfg.Desktop.CDP.RequestTimeoutMs != 5678 {
+					t.Fatalf("unexpected desktop cdp timeout: %d", cfg.Desktop.CDP.RequestTimeoutMs)
+				}
+			})
+		})
+	})
+}
+
+func TestLoadRuntimeConfigFromFile(t *testing.T) {
+	withIsolatedEnv(t, nil, func() {
+		content := "" +
+			"container-hub:\n" +
+			"  base-url: http://runtime-hub\n" +
+			"  auth-token: runtime-token\n" +
+			"  default-environment-id: runtime-env\n" +
+			"  request-timeout-ms: 123456\n" +
+			"  default-sandbox-level: agent\n" +
+			"  agent-idle-timeout-ms: 654321\n" +
+			"  destroy-queue-delay-ms: 2345\n" +
+			"desktop:\n" +
+			"  action:\n" +
+			"    host: 127.0.0.3\n" +
+			"    port: 17101\n" +
+			"    path: actions/runtime\n" +
+			"    request-timeout-ms: 2345\n" +
+			"  cdp:\n" +
+			"    host: localhost\n" +
+			"    port: 17102\n" +
+			"    path: /cdp/runtime\n" +
+			"    request-timeout-ms: 6789\n" +
+			"cors:\n" +
+			"  enabled: true\n" +
+			"  path-pattern: /runtime/**\n" +
+			"  allowed-origin-patterns:\n" +
+			"    - http://runtime.local\n" +
+			"  allowed-methods: [GET, POST]\n" +
+			"  allowed-headers: [X-Runtime]\n" +
+			"  exposed-headers: [X-Expose]\n" +
+			"  allow-credentials: true\n" +
+			"  max-age-seconds: 99\n"
+		withProjectFileContents(t, filepath.Join("configs", "container-hub.yml"), nil, func() {
+			withProjectFileContents(t, filepath.Join("configs", "desktop.yml"), nil, func() {
+				withProjectFileContents(t, filepath.Join("configs", "cors.yml"), nil, func() {
+					withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &content, func() {
+						cfg, err := Load()
+						if err != nil {
+							t.Fatalf("load config: %v", err)
+						}
+						if cfg.ContainerHub.BaseURL != "http://runtime-hub" || cfg.ContainerHub.AuthToken != "runtime-token" || cfg.ContainerHub.DefaultEnvironmentID != "runtime-env" {
+							t.Fatalf("unexpected container hub identity: %#v", cfg.ContainerHub)
+						}
+						if cfg.ContainerHub.RequestTimeoutMs != 123456 || cfg.ContainerHub.DefaultSandboxLevel != "agent" || cfg.ContainerHub.AgentIdleTimeoutMs != 654321 || cfg.ContainerHub.DestroyQueueDelayMs != 2345 {
+							t.Fatalf("unexpected container hub runtime settings: %#v", cfg.ContainerHub)
+						}
+						if cfg.Desktop.Action.BridgeURL != "http://127.0.0.3:17101/actions/runtime" || cfg.Desktop.Action.RequestTimeoutMs != 2345 {
+							t.Fatalf("unexpected desktop action config: %#v", cfg.Desktop.Action)
+						}
+						if cfg.Desktop.CDP.BridgeURL != "http://localhost:17102/cdp/runtime" || cfg.Desktop.CDP.RequestTimeoutMs != 6789 {
+							t.Fatalf("unexpected desktop cdp config: %#v", cfg.Desktop.CDP)
+						}
+						if !cfg.CORS.Enabled || cfg.CORS.PathPattern != "/runtime/**" || !cfg.CORS.AllowCredentials || cfg.CORS.MaxAgeSeconds != 99 {
+							t.Fatalf("unexpected cors scalar config: %#v", cfg.CORS)
+						}
+						if strings.Join(cfg.CORS.AllowedOriginPatterns, ",") != "http://runtime.local" || strings.Join(cfg.CORS.AllowedMethods, ",") != "GET,POST" || strings.Join(cfg.CORS.AllowedHeaders, ",") != "X-Runtime" || strings.Join(cfg.CORS.ExposedHeaders, ",") != "X-Expose" {
+							t.Fatalf("unexpected cors list config: %#v", cfg.CORS)
+						}
+					})
+				})
+			})
+		})
+	})
+}
+
+func TestLoadRuntimeConfigOverridesLegacyRuntimeFiles(t *testing.T) {
+	withIsolatedEnv(t, nil, func() {
+		legacyContainer := "" +
+			"base-url: http://legacy-hub\n" +
+			"auth-token: legacy-token\n" +
+			"default-environment-id: legacy-env\n"
+		legacyDesktop := "" +
+			"action:\n" +
+			"  host: 127.0.0.4\n" +
+			"  port: 17201\n" +
+			"  path: /actions/legacy\n"
+		legacyCORS := "" +
+			"enabled: false\n" +
+			"path-pattern: /legacy/**\n"
+		merged := "" +
+			"container-hub:\n" +
+			"  base-url: http://runtime-hub\n" +
+			"desktop:\n" +
+			"  action:\n" +
+			"    port: 17301\n" +
+			"cors:\n" +
+			"  enabled: true\n"
+		withProjectFileContents(t, filepath.Join("configs", "container-hub.yml"), &legacyContainer, func() {
+			withProjectFileContents(t, filepath.Join("configs", "desktop.yml"), &legacyDesktop, func() {
+				withProjectFileContents(t, filepath.Join("configs", "cors.yml"), &legacyCORS, func() {
+					withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &merged, func() {
+						cfg, err := Load()
+						if err != nil {
+							t.Fatalf("load config: %v", err)
+						}
+						if cfg.ContainerHub.BaseURL != "http://runtime-hub" {
+							t.Fatalf("expected runtime container hub base url to win, got %q", cfg.ContainerHub.BaseURL)
+						}
+						if cfg.ContainerHub.AuthToken != "legacy-token" || cfg.ContainerHub.DefaultEnvironmentID != "legacy-env" {
+							t.Fatalf("expected legacy container hub fallback to remain, got %#v", cfg.ContainerHub)
+						}
+						if cfg.Desktop.Action.BridgeURL != "http://127.0.0.4:17301/actions/legacy" {
+							t.Fatalf("expected runtime desktop port with legacy fallback, got %#v", cfg.Desktop.Action)
+						}
+						if !cfg.CORS.Enabled || cfg.CORS.PathPattern != "/legacy/**" {
+							t.Fatalf("expected runtime cors enabled with legacy path fallback, got %#v", cfg.CORS)
+						}
+					})
+				})
+			})
+		})
+	})
+}
+
+func TestLoadEnvOverridesRuntimeYAMLConfig(t *testing.T) {
+	withIsolatedEnv(t, map[string]string{
+		"CONTAINER_HUB_BASE_URL": "http://env-hub",
+	}, func() {
+		content := "" +
+			"container-hub:\n" +
+			"  base-url: http://runtime-hub\n" +
+			"  request-timeout-ms: 111\n"
+		withProjectFileContents(t, filepath.Join("configs", "container-hub.yml"), nil, func() {
+			withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &content, func() {
+				cfg, err := Load()
+				if err != nil {
+					t.Fatalf("load config: %v", err)
+				}
+				if cfg.ContainerHub.BaseURL != "http://env-hub" {
+					t.Fatalf("expected env container hub base url to win, got %q", cfg.ContainerHub.BaseURL)
+				}
+				if cfg.ContainerHub.RequestTimeoutMs != 111 {
+					t.Fatalf("expected runtime yaml timeout to remain, got %d", cfg.ContainerHub.RequestTimeoutMs)
+				}
+			})
 		})
 	})
 }
@@ -157,6 +300,9 @@ func TestLoadPromptsConfigFromFile(t *testing.T) {
 			"  summary-user-prompt-template: |\n" +
 			"    custom summary {{task_results}}\n" +
 			"coder:\n" +
+			"  system-prompt: |\n" +
+			"    custom coder system\n" +
+			"    read before editing\n" +
 			"  planning-prompt: |\n" +
 			"    custom coder planning\n" +
 			"    use planning_write only\n" +
@@ -206,6 +352,9 @@ func TestLoadPromptsConfigFromFile(t *testing.T) {
 			if cfg.Prompts.PlanExecute.SummaryUserPromptTemplate != "custom summary {{task_results}}" {
 				t.Fatalf("expected summary user prompt override, got %q", cfg.Prompts.PlanExecute.SummaryUserPromptTemplate)
 			}
+			if cfg.CoderPrompts.SystemPrompt != "custom coder system\nread before editing" {
+				t.Fatalf("expected coder system prompt override, got %q", cfg.CoderPrompts.SystemPrompt)
+			}
 			if cfg.CoderPrompts.PlanningPrompt != "custom coder planning\nuse planning_write only" {
 				t.Fatalf("expected coder planning prompt override, got %q", cfg.CoderPrompts.PlanningPrompt)
 			}
@@ -228,6 +377,9 @@ func TestLoadPromptsConfigFromFile(t *testing.T) {
 func TestLoadCoderPromptsConfigFromFile(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
 		content := "" +
+			"system-prompt: |\n" +
+			"  custom coder system\n" +
+			"  read before editing\n" +
 			"planning-prompt: |\n" +
 			"  custom coder planning\n" +
 			"  use planning_write only\n" +
@@ -239,6 +391,9 @@ func TestLoadCoderPromptsConfigFromFile(t *testing.T) {
 				cfg, err := Load()
 				if err != nil {
 					t.Fatalf("load config: %v", err)
+				}
+				if cfg.CoderPrompts.SystemPrompt != "custom coder system\nread before editing" {
+					t.Fatalf("expected coder system prompt override, got %q", cfg.CoderPrompts.SystemPrompt)
 				}
 				want := "custom coder planning\nuse planning_write only"
 				if cfg.CoderPrompts.PlanningPrompt != want {
@@ -284,6 +439,7 @@ func TestLoadMemoryPromptsConfigFromFile(t *testing.T) {
 func TestLoadPromptsConfigOverridesLegacyPromptFiles(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
 		legacyCoder := "" +
+			"system-prompt: legacy coder system\n" +
 			"planning-prompt: legacy coder plan\n" +
 			"summary-system-prompt: legacy coder summary\n"
 		legacyMemory := "" +
@@ -291,6 +447,7 @@ func TestLoadPromptsConfigOverridesLegacyPromptFiles(t *testing.T) {
 			"user-prompt-template: legacy memory user\n"
 		merged := "" +
 			"coder:\n" +
+			"  system-prompt: merged coder system\n" +
 			"  planning-prompt: merged coder plan\n" +
 			"memory:\n" +
 			"  user-prompt-template: merged memory user\n"
@@ -303,6 +460,9 @@ func TestLoadPromptsConfigOverridesLegacyPromptFiles(t *testing.T) {
 					}
 					if cfg.CoderPrompts.PlanningPrompt != "merged coder plan" {
 						t.Fatalf("expected merged coder prompt to win, got %q", cfg.CoderPrompts.PlanningPrompt)
+					}
+					if cfg.CoderPrompts.SystemPrompt != "merged coder system" {
+						t.Fatalf("expected merged coder system prompt to win, got %q", cfg.CoderPrompts.SystemPrompt)
 					}
 					if cfg.CoderPrompts.SummarySystemPrompt != "legacy coder summary" {
 						t.Fatalf("expected legacy coder fallback to remain, got %q", cfg.CoderPrompts.SummarySystemPrompt)
@@ -588,7 +748,7 @@ func TestLoadUsesServiceConfigDirForStructuredFilesAndAuthKey(t *testing.T) {
 	}
 	if err := os.WriteFile(
 		filepath.Join(configsDir, "prompts.yml"),
-		[]byte("skill:\n  catalog-header: service config header\ncoder:\n  planning-prompt: service coder plan\n"),
+		[]byte("skill:\n  catalog-header: service config header\ncoder:\n  system-prompt: service coder system\n  planning-prompt: service coder plan\n"),
 		0o644,
 	); err != nil {
 		t.Fatalf("write prompts config: %v", err)
@@ -607,6 +767,13 @@ func TestLoadUsesServiceConfigDirForStructuredFilesAndAuthKey(t *testing.T) {
 	); err != nil {
 		t.Fatalf("write host tools config: %v", err)
 	}
+	if err := os.WriteFile(
+		filepath.Join(configsDir, "runtime.yml"),
+		[]byte("container-hub:\n  base-url: http://service-hub\ncors:\n  enabled: true\n"),
+		0o644,
+	); err != nil {
+		t.Fatalf("write runtime config: %v", err)
+	}
 
 	withIsolatedEnv(t, map[string]string{
 		"SERVICE_CONFIG_DIR": configDir,
@@ -621,11 +788,17 @@ func TestLoadUsesServiceConfigDirForStructuredFilesAndAuthKey(t *testing.T) {
 		if cfg.CoderPrompts.PlanningPrompt != "service coder plan" {
 			t.Fatalf("expected coder prompts from service config dir, got %q", cfg.CoderPrompts.PlanningPrompt)
 		}
+		if cfg.CoderPrompts.SystemPrompt != "service coder system" {
+			t.Fatalf("expected coder system prompt from service config dir, got %q", cfg.CoderPrompts.SystemPrompt)
+		}
 		if !cfg.VisionRecognize.Enabled || cfg.VisionRecognize.DefaultProfile != "service" {
 			t.Fatalf("expected ai tools from service config dir, got %#v", cfg.VisionRecognize)
 		}
 		if cfg.Bash.ShellExecutable != "service-shell" {
 			t.Fatalf("expected host tools from service config dir, got %q", cfg.Bash.ShellExecutable)
+		}
+		if cfg.ContainerHub.BaseURL != "http://service-hub" || !cfg.CORS.Enabled {
+			t.Fatalf("expected runtime config from service config dir, got hub=%#v cors=%#v", cfg.ContainerHub, cfg.CORS)
 		}
 		wantKeyPath := filepath.Join(configDir, "configs", "local-public-key.pem")
 		if cfg.Auth.LocalPublicKeyFile != wantKeyPath {
@@ -818,23 +991,25 @@ func TestLoadIgnoresOldEnvVars(t *testing.T) {
 	}
 	withIsolatedEnv(t, values, func() {
 		withProjectFileContents(t, filepath.Join("configs", "channels.yml"), nil, func() {
-			withProjectFileContents(t, filepath.Join("configs", "container-hub.yml"), nil, func() {
-				cfg, err := Load()
-				if err != nil {
-					t.Fatalf("load config: %v", err)
-				}
-				if len(cfg.Gateways) != 0 {
-					t.Fatalf("old gateway env should not synthesize gateways, got %#v", cfg.Gateways)
-				}
-				if !cfg.Auth.Enabled {
-					t.Fatalf("old auth env should not disable auth")
-				}
-				if cfg.ContainerHub.BaseURL != "" || cfg.ContainerHub.Enabled {
-					t.Fatalf("old container hub env should not configure container hub: %#v", cfg.ContainerHub)
-				}
-				if cfg.Paths.MemoryDir == filepath.Join("var", "custom-memory") {
-					t.Fatalf("old memory storage env should not affect memory dir")
-				}
+			withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), nil, func() {
+				withProjectFileContents(t, filepath.Join("configs", "container-hub.yml"), nil, func() {
+					cfg, err := Load()
+					if err != nil {
+						t.Fatalf("load config: %v", err)
+					}
+					if len(cfg.Gateways) != 0 {
+						t.Fatalf("old gateway env should not synthesize gateways, got %#v", cfg.Gateways)
+					}
+					if !cfg.Auth.Enabled {
+						t.Fatalf("old auth env should not disable auth")
+					}
+					if cfg.ContainerHub.BaseURL != "" || cfg.ContainerHub.Enabled {
+						t.Fatalf("old container hub env should not configure container hub: %#v", cfg.ContainerHub)
+					}
+					if cfg.Paths.MemoryDir == filepath.Join("var", "custom-memory") {
+						t.Fatalf("old memory storage env should not affect memory dir")
+					}
+				})
 			})
 		})
 	})
@@ -1316,17 +1491,19 @@ func TestLoadContainerHubDisabledWhenBaseURLMissing(t *testing.T) {
 			"default-environment-id:\n" +
 			"request-timeout-ms: 300000\n" +
 			"default-sandbox-level: run\n"
-		withProjectFileContents(t, filepath.Join("configs", "container-hub.yml"), &content, func() {
-			cfg, err := Load()
-			if err != nil {
-				t.Fatalf("load config: %v", err)
-			}
-			if cfg.ContainerHub.Enabled {
-				t.Fatalf("expected container hub disabled when base url is missing")
-			}
-			if cfg.ContainerHub.BaseURL != "" {
-				t.Fatalf("expected empty base url, got %q", cfg.ContainerHub.BaseURL)
-			}
+		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), nil, func() {
+			withProjectFileContents(t, filepath.Join("configs", "container-hub.yml"), &content, func() {
+				cfg, err := Load()
+				if err != nil {
+					t.Fatalf("load config: %v", err)
+				}
+				if cfg.ContainerHub.Enabled {
+					t.Fatalf("expected container hub disabled when base url is missing")
+				}
+				if cfg.ContainerHub.BaseURL != "" {
+					t.Fatalf("expected empty base url, got %q", cfg.ContainerHub.BaseURL)
+				}
+			})
 		})
 	})
 }

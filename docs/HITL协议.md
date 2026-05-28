@@ -42,7 +42,6 @@ tool.start
 
 ## 约束与注意事项
 
-- `_ask_user_approval_` 已下线，审批流来自 Bash HITL builtin confirm 或文件工具越权审批。
 - `request.submit` 记录前端原始数组，`awaiting.answer` 才是后端归一化结果。
 
 ## 相关文件

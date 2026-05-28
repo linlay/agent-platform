@@ -97,6 +97,7 @@ type PlanExecutePromptsConfig struct {
 }
 
 type CoderPromptsConfig struct {
+	SystemPrompt              string
 	PlanningPrompt            string
 	SummarySystemPrompt       string
 	SummaryUserPromptTemplate string

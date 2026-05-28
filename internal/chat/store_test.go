@@ -4946,7 +4946,7 @@ func TestLoadChatReplaysApprovalAwaitLifecycleLegacyEventLines(t *testing.T) {
 	}
 }
 
-func TestLoadChatReplaysLegacyConfirmLifecycleEvents(t *testing.T) {
+func TestLoadChatSuppressesLegacyConfirmLifecycleEvents(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
@@ -4971,20 +4971,15 @@ func TestLoadChatReplaysLegacyConfirmLifecycleEvents(t *testing.T) {
 
 	legacyEvents := []map[string]any{
 		{
-			"type":         "confirm.viewport",
-			"confirmId":    "tool-legacy",
-			"confirmName":  "_ask_user_approval_",
-			"viewportType": "builtin",
-			"viewportKey":  "confirm_dialog",
-			"mode":         "approval",
-			"timeout":      120000,
-			"runId":        "run-legacy",
-			"chatId":       "chat-legacy",
+			"type":      "confirm.viewport",
+			"confirmId": "tool-legacy",
+			"runId":     "run-legacy",
+			"chatId":    "chat-legacy",
 		},
 		{
 			"type":      "confirm.payload",
 			"confirmId": "tool-legacy",
-			"payload":   map[string]any{"mode": "approval"},
+			"payload":   map[string]any{},
 		},
 		{
 			"type":       "request.submit",
@@ -4993,6 +4988,14 @@ func TestLoadChatReplaysLegacyConfirmLifecycleEvents(t *testing.T) {
 			"runId":      "run-legacy",
 			"awaitingId": "tool-legacy",
 			"params":     map[string]any{"value": "approve"},
+		},
+		{
+			"type":       "request.submit",
+			"requestId":  "req-current",
+			"chatId":     "chat-legacy",
+			"runId":      "run-legacy",
+			"awaitingId": "tool-legacy",
+			"params":     []any{},
 		},
 	}
 	for _, event := range legacyEvents {
@@ -5012,21 +5015,22 @@ func TestLoadChatReplaysLegacyConfirmLifecycleEvents(t *testing.T) {
 		t.Fatalf("load chat: %v", err)
 	}
 
-	foundConfirmViewport := false
-	foundConfirmPayload := false
-	foundRequestSubmit := false
+	foundCurrentSubmit := false
 	for _, event := range detail.Events {
 		switch event.Type {
-		case "confirm.viewport":
-			foundConfirmViewport = true
-		case "confirm.payload":
-			foundConfirmPayload = true
+		case "confirm.viewport", "confirm.payload":
+			t.Fatalf("did not expect legacy confirm lifecycle event to replay: %#v", event)
 		case "request.submit":
-			foundRequestSubmit = true
+			if event.String("requestId") == "req-legacy" {
+				t.Fatalf("did not expect legacy confirm submit to replay: %#v", event)
+			}
+			if event.String("requestId") == "req-current" {
+				foundCurrentSubmit = true
+			}
 		}
 	}
-	if !foundConfirmViewport || !foundConfirmPayload || !foundRequestSubmit {
-		t.Fatalf("expected legacy confirm lifecycle events to replay, got %#v", detail.Events)
+	if !foundCurrentSubmit {
+		t.Fatalf("expected current array-shaped request.submit to replay, got %#v", detail.Events)
 	}
 }
 

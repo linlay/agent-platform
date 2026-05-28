@@ -207,6 +207,7 @@ type QuerySession struct {
 	PlanPrompt            string
 	ExecutePrompt         string
 	SummaryPrompt         string
+	CoderSystemPrompt     string
 
 	RuntimeEnvironmentID   string
 	RuntimeLevel           string

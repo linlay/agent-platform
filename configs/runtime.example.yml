@@ -1,0 +1,58 @@
+# Runtime integration config. Copy to configs/runtime.yml to customize locally.
+
+container-hub:
+  base-url: ${CONTAINER_HUB_BASE_URL:http://host.docker.internal:11960}
+
+  # Optional overrides; code defaults apply when omitted.
+  # auth-token:
+  # default-environment-id:
+  # request-timeout-ms: 300000
+  # default-sandbox-level: run
+  # agent-idle-timeout-ms: 600000
+  # destroy-queue-delay-ms: 5000
+
+  # Default mounts come from runtime directory config:
+  # /workspace -> CHATS_DIR/<chatId> (rw)
+  # /root      -> ROOT_DIR (rw)
+  # /skills    -> AGENTS_DIR/<agentKey>/skills (ro, only run/agent; global skips it)
+  # /pan       -> PAN_DIR (rw)
+  # /agent     -> AGENTS_DIR/<agentKey> (ro, required)
+  # /owner     -> OWNER_DIR (ro)
+  # /memory    -> MEMORY_DIR/<agentKey> (ro)
+  #
+  # runtimeConfig.extraMounts supports:
+  # platform + mode             -> on-demand platform mount; skills-market mounts to /skills-market
+  # destination + mode          -> override default mount mode
+  # source + destination + mode -> add a custom mount
+
+desktop:
+  action:
+    host: 127.0.0.1
+    port: 11788
+    path: /actions/call
+    request-timeout-ms: 20000
+
+  cdp:
+    host: 127.0.0.1
+    port: 11788
+    path: /cdp/call
+    request-timeout-ms: 20000
+
+cors:
+  enabled: false
+  path-pattern: /api/**
+  allowed-origin-patterns:
+    - http://localhost:8081
+  allowed-methods:
+    - GET
+    - POST
+    - PUT
+    - PATCH
+    - DELETE
+    - OPTIONS
+  allowed-headers:
+    - "*"
+  exposed-headers:
+    - Content-Type
+  allow-credentials: false
+  max-age-seconds: 3600

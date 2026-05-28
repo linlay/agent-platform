@@ -112,6 +112,7 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 	var chatTotalLlmChatCompletionCount int
 	taskQueries := map[string]replayedSubTaskQuery{}
 	planningReplayEvents := collectPlanningReplayEvents(lines)
+	legacyConfirmIDs := map[string]bool{}
 	for _, line := range lines {
 		if lineType, _ := line["_type"].(string); lineType != "query" {
 			continue
@@ -378,6 +379,9 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 			if len(event) == 0 {
 				continue
 			}
+			if suppressLegacyConfirmReplay(event, legacyConfirmIDs) {
+				continue
+			}
 			if _, ok := event["runId"]; !ok && runID != "" {
 				event["runId"] = runID
 			}
@@ -449,6 +453,26 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 		Planning:    planning,
 		Artifact:    artifact,
 	}, nil
+}
+
+func suppressLegacyConfirmReplay(event map[string]any, legacyConfirmIDs map[string]bool) bool {
+	eventType := strings.TrimSpace(stringFromAny(event["type"]))
+	switch eventType {
+	case "confirm.viewport", "confirm.payload":
+		if confirmID := strings.TrimSpace(stringFromAny(event["confirmId"])); confirmID != "" {
+			legacyConfirmIDs[confirmID] = true
+		}
+		return true
+	case "request.submit":
+		awaitingID := strings.TrimSpace(stringFromAny(event["awaitingId"]))
+		if awaitingID == "" || !legacyConfirmIDs[awaitingID] {
+			return false
+		}
+		_, ok := event["params"].([]any)
+		return !ok
+	default:
+		return false
+	}
 }
 
 func taskToolIDFromLine(line map[string]any) string {

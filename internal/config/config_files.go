@@ -8,6 +8,8 @@ import (
 func (c *Config) applyStructuredConfig() error {
 	c.applyContainerHubFile(ConfigFile("configs/container-hub.yml"))
 	c.applyDesktopFile(ConfigFile("configs/desktop.yml"))
+	c.applyCORSFile(ConfigFile("configs/cors.yml"))
+	c.applyRuntimeFile(ConfigFile("configs/runtime.yml"))
 	if err := c.applyAccessPolicyFile(ConfigFile("configs/access-policy.yml")); err != nil {
 		return err
 	}
@@ -20,7 +22,6 @@ func (c *Config) applyStructuredConfig() error {
 	if err := c.applyHostToolsFile(ConfigFile("configs/host-tools.yml")); err != nil {
 		return err
 	}
-	c.applyCORSFile(ConfigFile("configs/cors.yml"))
 	c.applyCoderPromptsFile(ConfigFile("configs/coder-prompts.yml"))
 	c.applyMemoryPromptsFile(ConfigFile("configs/memory-prompts.yml"))
 	c.applyPromptsFile(ConfigFile("configs/prompts.yml"))
@@ -56,6 +57,10 @@ func (c *Config) applyDesktopFile(path string) {
 	if len(values) == 0 {
 		return
 	}
+	c.applyDesktopValues(values)
+}
+
+func (c *Config) applyDesktopValues(values map[string]any) {
 	c.Desktop.Action = parseDesktopBridgeConfig(values["action"], c.Desktop.Action)
 	c.Desktop.CDP = parseDesktopBridgeConfig(values["cdp"], c.Desktop.CDP)
 }
@@ -80,6 +85,10 @@ func (c *Config) applyContainerHubFile(path string) {
 	if len(values) == 0 {
 		return
 	}
+	c.applyContainerHubValues(values)
+}
+
+func (c *Config) applyContainerHubValues(values map[string]any) {
 	c.ContainerHub.BaseURL = stringValue(anyValue(values["base-url"], c.ContainerHub.BaseURL), c.ContainerHub.BaseURL)
 	c.ContainerHub.AuthToken = stringValue(anyValue(values["auth-token"], c.ContainerHub.AuthToken), c.ContainerHub.AuthToken)
 	c.ContainerHub.DefaultEnvironmentID = stringValue(anyValue(values["default-environment-id"], c.ContainerHub.DefaultEnvironmentID), c.ContainerHub.DefaultEnvironmentID)
@@ -87,6 +96,25 @@ func (c *Config) applyContainerHubFile(path string) {
 	c.ContainerHub.DefaultSandboxLevel = strings.ToLower(stringValue(anyValue(values["default-sandbox-level"], c.ContainerHub.DefaultSandboxLevel), c.ContainerHub.DefaultSandboxLevel))
 	c.ContainerHub.AgentIdleTimeoutMs = int64Value(anyValue(values["agent-idle-timeout-ms"], c.ContainerHub.AgentIdleTimeoutMs), c.ContainerHub.AgentIdleTimeoutMs)
 	c.ContainerHub.DestroyQueueDelayMs = int64Value(anyValue(values["destroy-queue-delay-ms"], c.ContainerHub.DestroyQueueDelayMs), c.ContainerHub.DestroyQueueDelayMs)
+}
+
+func (c *Config) applyRuntimeFile(path string) {
+	values, err := loadYAMLMap(path)
+	if err != nil {
+		return
+	}
+	if len(values) == 0 {
+		return
+	}
+	if containerHub, ok := values["container-hub"].(map[string]any); ok && len(containerHub) > 0 {
+		c.applyContainerHubValues(containerHub)
+	}
+	if desktop, ok := values["desktop"].(map[string]any); ok && len(desktop) > 0 {
+		c.applyDesktopValues(desktop)
+	}
+	if cors, ok := values["cors"].(map[string]any); ok && len(cors) > 0 {
+		c.applyCORSValues(cors)
+	}
 }
 
 func (c *Config) applyAccessPolicyFile(path string) error {
@@ -337,12 +365,16 @@ func (c *Config) applyCORSFile(path string) {
 	if len(values) == 0 {
 		return
 	}
+	c.applyCORSValues(values)
+}
+
+func (c *Config) applyCORSValues(values map[string]any) {
 	c.CORS.Enabled = boolValue(anyValue(values["enabled"], c.CORS.Enabled), c.CORS.Enabled)
 	c.CORS.PathPattern = stringValue(anyValue(values["path-pattern"], c.CORS.PathPattern), c.CORS.PathPattern)
-	c.CORS.AllowedOriginPatterns = listValue(anyValue(values["allowed-origin-patterns"], c.CORS.AllowedOriginPatterns), c.CORS.AllowedOriginPatterns)
-	c.CORS.AllowedMethods = listValue(anyValue(values["allowed-methods"], c.CORS.AllowedMethods), c.CORS.AllowedMethods)
-	c.CORS.AllowedHeaders = listValue(anyValue(values["allowed-headers"], c.CORS.AllowedHeaders), c.CORS.AllowedHeaders)
-	c.CORS.ExposedHeaders = listValue(anyValue(values["exposed-headers"], c.CORS.ExposedHeaders), c.CORS.ExposedHeaders)
+	c.CORS.AllowedOriginPatterns = csvOrList(anyValue(values["allowed-origin-patterns"], c.CORS.AllowedOriginPatterns), c.CORS.AllowedOriginPatterns)
+	c.CORS.AllowedMethods = csvOrList(anyValue(values["allowed-methods"], c.CORS.AllowedMethods), c.CORS.AllowedMethods)
+	c.CORS.AllowedHeaders = csvOrList(anyValue(values["allowed-headers"], c.CORS.AllowedHeaders), c.CORS.AllowedHeaders)
+	c.CORS.ExposedHeaders = csvOrList(anyValue(values["exposed-headers"], c.CORS.ExposedHeaders), c.CORS.ExposedHeaders)
 	c.CORS.AllowCredentials = boolValue(anyValue(values["allow-credentials"], c.CORS.AllowCredentials), c.CORS.AllowCredentials)
 	c.CORS.MaxAgeSeconds = intValue(anyValue(values["max-age-seconds"], c.CORS.MaxAgeSeconds), c.CORS.MaxAgeSeconds)
 }
@@ -398,6 +430,7 @@ func (c *Config) applyCoderPromptsFile(path string) {
 }
 
 func (c *Config) applyCoderPromptsValues(values map[string]any) {
+	c.CoderPrompts.SystemPrompt = stringValue(anyValue(values["system-prompt"], c.CoderPrompts.SystemPrompt), c.CoderPrompts.SystemPrompt)
 	c.CoderPrompts.PlanningPrompt = stringValue(anyValue(values["planning-prompt"], c.CoderPrompts.PlanningPrompt), c.CoderPrompts.PlanningPrompt)
 	c.CoderPrompts.SummarySystemPrompt = stringValue(anyValue(values["summary-system-prompt"], c.CoderPrompts.SummarySystemPrompt), c.CoderPrompts.SummarySystemPrompt)
 	c.CoderPrompts.SummaryUserPromptTemplate = stringValue(anyValue(values["summary-user-prompt-template"], c.CoderPrompts.SummaryUserPromptTemplate), c.CoderPrompts.SummaryUserPromptTemplate)

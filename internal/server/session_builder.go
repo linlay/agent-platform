@@ -152,6 +152,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		PlanPrompt:             agentDef.PlanPrompt,
 		ExecutePrompt:          agentDef.ExecutePrompt,
 		SummaryPrompt:          agentDef.SummaryPrompt,
+		CoderSystemPrompt:      coderSystemPrompt(agentDef.Mode, s.deps.Config.CoderPrompts.SystemPrompt),
 		RuntimeEnvironmentID:   extractRuntimeField(agentDef.Runtime, "environmentId"),
 		RuntimeLevel:           extractRuntimeField(agentDef.Runtime, "level"),
 		RuntimeExtraMounts:     runtimeExtraMounts(agentDef.Runtime["extraMounts"]),
@@ -169,6 +170,13 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		session.Subject = principal.Subject
 	}
 	return session, nil
+}
+
+func coderSystemPrompt(mode string, prompt string) string {
+	if !strings.EqualFold(strings.TrimSpace(mode), catalog.AgentModeCoder) {
+		return ""
+	}
+	return strings.TrimSpace(prompt)
 }
 
 func (s *Server) loadWorkspaceAgentsPrompt(agentDef catalog.AgentDefinition, workspaceRoot string) (string, error) {

@@ -78,6 +78,9 @@ func TestBuildQuerySessionUsesCoderProfileDefaults(t *testing.T) {
 			AgentsDir: agentsDir,
 			ChatsDir:  filepath.Join(root, "chats"),
 		},
+		CoderPrompts: config.CoderPromptsConfig{
+			SystemPrompt: "configured coder system prompt",
+		},
 	}
 	registry, err := catalog.NewFileRegistry(cfg, nil)
 	if err != nil {
@@ -117,6 +120,9 @@ func TestBuildQuerySessionUsesCoderProfileDefaults(t *testing.T) {
 	}
 	if session.WorkspaceRoot != filepath.Clean(workspace) {
 		t.Fatalf("workspace root = %q, want %q", session.WorkspaceRoot, filepath.Clean(workspace))
+	}
+	if session.CoderSystemPrompt != "configured coder system prompt" {
+		t.Fatalf("coder system prompt = %q, want configured prompt", session.CoderSystemPrompt)
 	}
 	autoSession, err := server.BuildQuerySession(context.Background(), api.QueryRequest{
 		AgentKey:    "coder-app",
