@@ -86,8 +86,6 @@ func synthesizeUsageSnapshotEvent(runID, chatID string, taskID string, usage map
 		"chatId": chatID,
 		"usage": map[string]any{
 			"current": usagePayloadFromMap(usage, false),
-			"run":     cumulativeUsagePayload(runCumulative),
-			"chat":    cumulativeUsagePayload(chatCumulative),
 		},
 	}
 	if cw := synthesizedUsageSnapshotContextWindow(contextWindow); len(cw) > 0 {
@@ -109,12 +107,9 @@ func synthesizePreCallEvent(runID, chatID string, taskID string, runCumulative, 
 	if data == nil {
 		data = map[string]any{}
 	}
+	delete(data, "usage")
 	if cw := synthesizedContextWindow(contextWindow); len(cw) > 0 {
 		data["contextWindow"] = cw
-	}
-	data["usage"] = map[string]any{
-		"runUsage":  cumulativeUsagePayload(runCumulative),
-		"chatUsage": cumulativeUsagePayload(chatCumulative),
 	}
 	payload := map[string]any{
 		"runId":  runID,
@@ -153,8 +148,6 @@ func synthesizePostCallEvent(runID, chatID string, taskID string, usage map[stri
 	}
 	data["usage"] = map[string]any{
 		"llmReturnUsage": llm,
-		"runUsage":       cumulativeUsagePayload(runCumulative),
-		"chatUsage":      cumulativeUsagePayload(chatCumulative),
 	}
 	payload := map[string]any{
 		"runId":  runID,

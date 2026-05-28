@@ -1685,6 +1685,115 @@ func TestWriteToolEmitsApprovalBeforeExecuting(t *testing.T) {
 	}
 }
 
+func TestWriteToolInsideSessionChatDirSkipsApproval(t *testing.T) {
+	workspace := t.TempDir()
+	chatDir := filepath.Join(t.TempDir(), "chat-1")
+	session := contracts.QuerySession{
+		RunID:         "run_1",
+		WorkspaceRoot: workspace,
+		RuntimeContext: contracts.RuntimeRequestContext{
+			LocalPaths: contracts.LocalPaths{
+				WorkspaceDir:       workspace,
+				ChatAttachmentsDir: chatDir,
+			},
+		},
+	}
+	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{writeToolDefinition()}}
+	stream := &llmRunStream{
+		ctx:     context.Background(),
+		session: session,
+		engine: &LLMAgentEngine{
+			cfg: config.Config{
+				FileTools: config.FileToolsConfig{
+					WorkingDirectory:     workspace,
+					AllowedReadPaths:     []string{"."},
+					AllowedWritePaths:    []string{"."},
+					MaxReadBytes:         1024,
+					MaxWriteBytes:        1024,
+					MaxBatchOps:          20,
+					RequireWriteApproval: true,
+				},
+			},
+			tools: executor,
+		},
+		execCtx: &contracts.ExecutionContext{Session: session},
+		activeToolCall: &preparedToolInvocation{
+			toolID:   "tool_1",
+			toolName: "file_write",
+			args: map[string]any{
+				"file_path":   filepath.Join(chatDir, "artifact.md"),
+				"content":     "hello",
+				"description": "写入 chat 产物",
+			},
+		},
+	}
+
+	if err := stream.invokeActiveToolCall(); err != nil {
+		t.Fatalf("invoke active write: %v", err)
+	}
+	if len(stream.pending) != 1 {
+		t.Fatalf("expected only tool result pending, got %#v", stream.pending)
+	}
+	if len(executor.invocations) != 1 {
+		t.Fatalf("expected write to execute without approval, got %#v", executor.invocations)
+	}
+}
+
+func TestEditToolInsideSessionChatDirSkipsApproval(t *testing.T) {
+	workspace := t.TempDir()
+	chatDir := filepath.Join(t.TempDir(), "chat-1")
+	session := contracts.QuerySession{
+		RunID:         "run_1",
+		WorkspaceRoot: workspace,
+		RuntimeContext: contracts.RuntimeRequestContext{
+			LocalPaths: contracts.LocalPaths{
+				WorkspaceDir:       workspace,
+				ChatAttachmentsDir: chatDir,
+			},
+		},
+	}
+	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{editToolDefinition()}}
+	stream := &llmRunStream{
+		ctx:     context.Background(),
+		session: session,
+		engine: &LLMAgentEngine{
+			cfg: config.Config{
+				FileTools: config.FileToolsConfig{
+					WorkingDirectory:     workspace,
+					AllowedReadPaths:     []string{"."},
+					AllowedWritePaths:    []string{"."},
+					MaxReadBytes:         1024,
+					MaxWriteBytes:        1024,
+					MaxBatchOps:          20,
+					RequireWriteApproval: true,
+				},
+			},
+			tools: executor,
+		},
+		execCtx: &contracts.ExecutionContext{Session: session},
+		activeToolCall: &preparedToolInvocation{
+			toolID:   "tool_1",
+			toolName: "file_edit",
+			args: map[string]any{
+				"file_path":   filepath.Join(chatDir, "artifact.md"),
+				"old_string":  "hello",
+				"new_string":  "hi",
+				"description": "编辑 chat 产物",
+			},
+		},
+	}
+
+	if err := stream.invokeActiveToolCall(); err != nil {
+		t.Fatalf("invoke active edit: %v", err)
+	}
+	if len(stream.pending) != 1 {
+		t.Fatalf("expected only tool result pending, got %#v", stream.pending)
+	}
+	if len(executor.invocations) != 1 {
+		t.Fatalf("expected edit to execute without approval, got %#v", executor.invocations)
+	}
+}
+
 func TestWriteToolApprovalUsesToolLabelInCommand(t *testing.T) {
 	root := t.TempDir()
 	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{backendToolDefinitionWithLabel("file_write", "写入文件")}}

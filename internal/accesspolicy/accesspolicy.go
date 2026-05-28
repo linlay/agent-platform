@@ -168,23 +168,38 @@ func SessionWorkspaceRoot(session QuerySession) string {
 }
 
 func PathInSessionWorkspace(session QuerySession, path string) bool {
-	workspaceRoot := SessionWorkspaceRoot(session)
-	if workspaceRoot == "" || strings.TrimSpace(path) == "" {
+	if strings.TrimSpace(path) == "" {
 		return false
 	}
-	workspaceRoot, ok := normalizeExistingOrFuturePath(workspaceRoot)
+	for _, root := range []string{
+		SessionWorkspaceRoot(session),
+		SessionChatDir(session),
+	} {
+		if pathInSessionRoot(root, path) {
+			return true
+		}
+	}
+	return false
+}
+
+func SessionChatDir(session QuerySession) string {
+	return cleanAbs(session.RuntimeContext.LocalPaths.ChatAttachmentsDir)
+}
+
+func pathInSessionRoot(root string, path string) bool {
+	if strings.TrimSpace(root) == "" {
+		return false
+	}
+	root, ok := normalizeExistingOrFuturePath(root)
 	if !ok {
 		return false
 	}
 	candidate := expandHome(path)
 	if !filepath.IsAbs(candidate) {
-		candidate = filepath.Join(workspaceRoot, candidate)
+		candidate = filepath.Join(root, candidate)
 	}
 	candidate, ok = normalizeExistingOrFuturePath(candidate)
-	if !ok {
-		return false
-	}
-	return pathWithinRoot(candidate, workspaceRoot)
+	return ok && pathWithinRoot(candidate, root)
 }
 
 func NormalizePath(path string) (string, error) {
@@ -242,8 +257,8 @@ func defaultLevelConfig(name string) config.AccessPolicyLevelConfig {
 		}
 	default:
 		return config.AccessPolicyLevelConfig{
-			ReadRoots:     []string{"@workspace", "@agent", "@skills"},
-			WriteRoots:    []string{"@workspace"},
+			ReadRoots:     []string{"@workspace", "@chat", "@agent", "@skills"},
+			WriteRoots:    []string{"@workspace", "@chat"},
 			ReadonlyRoots: []string{"@agent", "@skills", "@skills-market"},
 			Approvals: config.AccessPolicyApprovalConfig{
 				ReadOutsideRoots:      "hitl",
@@ -367,6 +382,8 @@ func expandRootAlias(root string, session QuerySession) string {
 	switch strings.ToLower(strings.TrimSpace(root)) {
 	case "@workspace":
 		return SessionWorkspaceRoot(session)
+	case "@chat":
+		return SessionChatDir(session)
 	case "@agent":
 		return cleanAbs(session.RuntimeContext.LocalPaths.AgentDir)
 	case "@skills":

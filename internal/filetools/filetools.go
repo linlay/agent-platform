@@ -133,6 +133,7 @@ func ConfigWithSessionReadRoots(cfg config.FileToolsConfig, mode AccessMode, ses
 	}
 	local := session.RuntimeContext.LocalPaths
 	workspaceRoot := sessionWorkspaceRoot(session)
+	chatDir := sessionChatDir(session)
 	if workspaceRoot != "" {
 		cfg.WorkingDirectory = workspaceRoot
 	}
@@ -141,6 +142,7 @@ func ConfigWithSessionReadRoots(cfg config.FileToolsConfig, mode AccessMode, ses
 		roots = []string{workspaceRoot}
 	}
 	for _, root := range []string{
+		chatDir,
 		local.AgentDir,
 		local.SkillsDir,
 	} {
@@ -156,32 +158,21 @@ func ConfigWithSessionReadRoots(cfg config.FileToolsConfig, mode AccessMode, ses
 
 func ConfigWithSessionWriteRoots(cfg config.FileToolsConfig, session QuerySession) config.FileToolsConfig {
 	workspaceRoot := sessionWorkspaceRoot(session)
+	chatDir := sessionChatDir(session)
 	if workspaceRoot == "" {
+		if chatDir != "" {
+			cfg.WorkingDirectory = chatDir
+			cfg.AllowedWritePaths = []string{chatDir}
+		}
 		return cfg
 	}
 	cfg.WorkingDirectory = workspaceRoot
-	cfg.AllowedWritePaths = []string{workspaceRoot}
+	cfg.AllowedWritePaths = uniqueNonEmptyStrings([]string{workspaceRoot, chatDir})
 	return cfg
 }
 
 func PathInSessionWorkspace(session QuerySession, path string) bool {
-	workspaceRoot := SessionWorkspaceRoot(session)
-	if workspaceRoot == "" || strings.TrimSpace(path) == "" {
-		return false
-	}
-	workspaceRoot, ok := normalizeExistingOrFuturePath(workspaceRoot)
-	if !ok {
-		return false
-	}
-	candidate := expandHome(path)
-	if !filepath.IsAbs(candidate) {
-		candidate = filepath.Join(workspaceRoot, candidate)
-	}
-	candidate, ok = normalizeExistingOrFuturePath(candidate)
-	if !ok {
-		return false
-	}
-	return candidate == workspaceRoot || strings.HasPrefix(candidate, workspaceRoot+string(os.PathSeparator))
+	return accesspolicy.PathInSessionWorkspace(session, path)
 }
 
 func sessionWorkspaceRoot(session QuerySession) string {
@@ -190,6 +181,10 @@ func sessionWorkspaceRoot(session QuerySession) string {
 
 func SessionWorkspaceRoot(session QuerySession) string {
 	return accesspolicy.SessionWorkspaceRoot(session)
+}
+
+func sessionChatDir(session QuerySession) string {
+	return accesspolicy.SessionChatDir(session)
 }
 
 func normalizeExistingOrFuturePath(path string) (string, bool) {

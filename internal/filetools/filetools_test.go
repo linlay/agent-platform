@@ -117,6 +117,7 @@ func TestBuildEditPlanUsesEditFingerprintAndRuleKey(t *testing.T) {
 
 func TestConfigWithSessionReadRootsOnlyExtendsReadAccess(t *testing.T) {
 	root := t.TempDir()
+	chatDir := filepath.Join(t.TempDir(), "chat-1")
 	agentDir := filepath.Join(t.TempDir(), "agent-a")
 	skillsDir := filepath.Join(agentDir, "skills")
 	skillsMarketDir := filepath.Join(t.TempDir(), "skills-market")
@@ -130,15 +131,20 @@ func TestConfigWithSessionReadRootsOnlyExtendsReadAccess(t *testing.T) {
 	}
 	session := contracts.QuerySession{RuntimeContext: contracts.RuntimeRequestContext{
 		LocalPaths: contracts.LocalPaths{
-			AgentDir:        agentDir,
-			SkillsDir:       skillsDir,
-			SkillsMarketDir: skillsMarketDir,
+			WorkspaceDir:       root,
+			ChatAttachmentsDir: chatDir,
+			AgentDir:           agentDir,
+			SkillsDir:          skillsDir,
+			SkillsMarketDir:    skillsMarketDir,
 		},
 	}}
 
 	readCfg := ConfigWithSessionReadRoots(cfg, ReadAccess, session)
-	if len(readCfg.AllowedReadPaths) != 3 {
+	if len(readCfg.AllowedReadPaths) != 4 {
 		t.Fatalf("expected session read roots appended, got %#v", readCfg.AllowedReadPaths)
+	}
+	if !hasString(readCfg.AllowedReadPaths, filepath.Clean(chatDir)) {
+		t.Fatalf("expected chat dir in read roots, got %#v", readCfg.AllowedReadPaths)
 	}
 	for _, root := range readCfg.AllowedReadPaths {
 		if root == filepath.Clean(skillsMarketDir) {
@@ -151,6 +157,59 @@ func TestConfigWithSessionReadRootsOnlyExtendsReadAccess(t *testing.T) {
 	}
 	if strings.Join(cfg.AllowedReadPaths, ",") != "." {
 		t.Fatalf("expected original config unchanged, got %#v", cfg.AllowedReadPaths)
+	}
+}
+
+func TestConfigWithSessionWriteRootsIncludesChatDir(t *testing.T) {
+	workspace := t.TempDir()
+	chatDir := filepath.Join(t.TempDir(), "chat-1")
+	cfg := config.FileToolsConfig{
+		WorkingDirectory:  workspace,
+		AllowedReadPaths:  []string{"."},
+		AllowedWritePaths: []string{"."},
+	}
+	session := contracts.QuerySession{
+		WorkspaceRoot: workspace,
+		RuntimeContext: contracts.RuntimeRequestContext{
+			LocalPaths: contracts.LocalPaths{
+				WorkspaceDir:       workspace,
+				ChatAttachmentsDir: chatDir,
+			},
+		},
+	}
+
+	writeCfg := ConfigWithSessionWriteRoots(cfg, session)
+	if writeCfg.WorkingDirectory != workspace {
+		t.Fatalf("working directory = %q, want %q", writeCfg.WorkingDirectory, workspace)
+	}
+	if !hasString(writeCfg.AllowedWritePaths, workspace) || !hasString(writeCfg.AllowedWritePaths, filepath.Clean(chatDir)) {
+		t.Fatalf("expected workspace and chat dir write roots, got %#v", writeCfg.AllowedWritePaths)
+	}
+}
+
+func TestPathInSessionWorkspaceAllowsRootWorkspace(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "artifact.md")
+	session := contracts.QuerySession{WorkspaceRoot: string(os.PathSeparator)}
+	if !PathInSessionWorkspace(session, path) {
+		t.Fatalf("expected %s to be inside root workspace", path)
+	}
+}
+
+func TestPathInSessionWorkspaceAllowsChatDirWithExplicitWorkspace(t *testing.T) {
+	workspace := t.TempDir()
+	chatDir := filepath.Join(t.TempDir(), "chat-1")
+	path := filepath.Join(chatDir, "artifact.md")
+	session := contracts.QuerySession{
+		WorkspaceRoot: workspace,
+		RuntimeContext: contracts.RuntimeRequestContext{
+			LocalPaths: contracts.LocalPaths{
+				WorkspaceDir:       workspace,
+				ChatAttachmentsDir: chatDir,
+			},
+		},
+	}
+	if !PathInSessionWorkspace(session, path) {
+		t.Fatalf("expected %s to be inside session chat dir", path)
 	}
 }
 
@@ -213,4 +272,13 @@ func realPathForTest(t *testing.T, path string) string {
 		t.Fatalf("eval symlinks %s: %v", path, err)
 	}
 	return real
+}
+
+func hasString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }

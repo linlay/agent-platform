@@ -235,8 +235,8 @@ func defaultAccessPolicyConfig() AccessPolicyConfig {
 		WorkingDirectory: "@workspace",
 		Levels: map[string]AccessPolicyLevelConfig{
 			"default": {
-				ReadRoots:     []string{"@workspace", "@agent", "@skills"},
-				WriteRoots:    []string{"@workspace"},
+				ReadRoots:     []string{"@workspace", "@chat", "@agent", "@skills"},
+				WriteRoots:    []string{"@workspace", "@chat"},
 				ReadonlyRoots: []string{"@agent", "@skills", "@skills-market"},
 				Approvals: AccessPolicyApprovalConfig{
 					ReadOutsideRoots:      "hitl",

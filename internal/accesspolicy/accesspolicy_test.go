@@ -53,6 +53,46 @@ func TestDefaultLevelAllowsWorkspaceAgentAndSkillsRead(t *testing.T) {
 	}
 }
 
+func TestDefaultLevelAllowsChatReadWriteWithExplicitWorkspace(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	chatDir := filepath.Join(root, "chats", "chat-1")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	if err := os.MkdirAll(chatDir, 0o755); err != nil {
+		t.Fatalf("mkdir chat dir: %v", err)
+	}
+	session := contracts.QuerySession{
+		AccessLevel:   contracts.AccessLevelDefault,
+		WorkspaceRoot: workspace,
+		RuntimeContext: contracts.RuntimeRequestContext{
+			LocalPaths: contracts.LocalPaths{
+				WorkspaceDir:       workspace,
+				ChatAttachmentsDir: chatDir,
+			},
+		},
+	}
+	cfg := config.AccessPolicyConfig{}
+	chatFile := filepath.Join(chatDir, "artifact.md")
+
+	readPlan, err := BuildPathPlan(cfg, session, ReadAccess, chatFile)
+	if err != nil {
+		t.Fatalf("build chat read plan: %v", err)
+	}
+	if !readPlan.Allowed() || readPlan.RequiresApproval() {
+		t.Fatalf("expected chat read allowed, got %#v", readPlan)
+	}
+
+	writePlan, err := BuildPathPlan(cfg, session, WriteAccess, chatFile)
+	if err != nil {
+		t.Fatalf("build chat write plan: %v", err)
+	}
+	if !writePlan.Allowed() || writePlan.RequiresApproval() {
+		t.Fatalf("expected chat write allowed, got %#v", writePlan)
+	}
+}
+
 func TestAutoApproveAndFullAccessLevels(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "workspace")
@@ -112,6 +152,33 @@ func TestBashAccessPolicyDefaultCwdAndPathDecisions(t *testing.T) {
 	}
 	if bashPlan.Decision != filePlan.Decision {
 		t.Fatalf("expected bash and file path decisions to match, bash=%#v file=%#v", bashPlan, filePlan)
+	}
+}
+
+func TestBashAccessPolicyAllowsChatWriteRoot(t *testing.T) {
+	root := t.TempDir()
+	workspace := filepath.Join(root, "workspace")
+	chatDir := filepath.Join(root, "chats", "chat-1")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	if err := os.MkdirAll(chatDir, 0o755); err != nil {
+		t.Fatalf("mkdir chat dir: %v", err)
+	}
+	session := contracts.QuerySession{
+		AccessLevel:   contracts.AccessLevelDefault,
+		WorkspaceRoot: workspace,
+		RuntimeContext: contracts.RuntimeRequestContext{
+			LocalPaths: contracts.LocalPaths{
+				WorkspaceDir:       workspace,
+				ChatAttachmentsDir: chatDir,
+			},
+		},
+	}
+
+	plan := ReviewBashCommand(config.AccessPolicyConfig{}, session, "touch "+filepath.Join(chatDir, "artifact.md"), workspace, nil)
+	if !plan.Allowed() || plan.RequiresApproval() {
+		t.Fatalf("expected chat bash write allowed, got %#v", plan)
 	}
 }
 

@@ -85,7 +85,7 @@ func TestChatUsageBreakdownPrefersLatestRunAndHistoricalChatUsage(t *testing.T) 
 	}
 }
 
-func TestChatUsageBreakdownFallsBackToHistoricalRunAndSummaryChatUsage(t *testing.T) {
+func TestChatUsageBreakdownUsesSummaryChatUsageWithoutHistoricalRunFallback(t *testing.T) {
 	breakdown := chatUsageBreakdown(
 		&chat.UsageData{PromptTokens: 30, CompletionTokens: 7, TotalTokens: 37, LlmChatCompletionCount: 2},
 		nil,
@@ -105,11 +105,11 @@ func TestChatUsageBreakdownFallsBackToHistoricalRunAndSummaryChatUsage(t *testin
 			},
 		},
 	)
-	if breakdown == nil || breakdown.LastRun == nil || breakdown.Chat == nil {
+	if breakdown == nil || breakdown.Chat == nil {
 		t.Fatalf("expected fallback usage breakdown, got %#v", breakdown)
 	}
-	if breakdown.LastRun.TotalTokens != 7 || breakdown.LastRun.LlmChatCompletionCount != 1 {
-		t.Fatalf("expected last run fallback from events, got %#v", breakdown.LastRun)
+	if breakdown.LastRun != nil {
+		t.Fatalf("did not expect last run fallback from events, got %#v", breakdown.LastRun)
 	}
 	if breakdown.Chat.TotalTokens != 37 || breakdown.Chat.LlmChatCompletionCount != 2 {
 		t.Fatalf("expected chat fallback from summary, got %#v", breakdown.Chat)

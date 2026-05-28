@@ -67,14 +67,8 @@ func chatUsageBreakdown(summaryUsage *chat.UsageData, runs []chat.RunSummary, ev
 			break
 		}
 	}
-	if lastRun == nil {
-		lastRun = latestRunUsageFromEvents(events)
-	}
 
-	chatUsage := latestChatUsageFromEvents(events)
-	if chatUsage == nil {
-		chatUsage = mapUsageDataPtr(summaryUsage)
-	}
+	chatUsage := mapUsageDataPtr(summaryUsage)
 
 	if lastRun == nil && chatUsage == nil {
 		return nil

@@ -397,6 +397,88 @@ func TestInvokeWriteInsideSessionWorkspaceBypassesWriteApproval(t *testing.T) {
 	}
 }
 
+func TestInvokeWriteInsideSessionChatDirBypassesWriteApproval(t *testing.T) {
+	root := t.TempDir()
+	chatDir := filepath.Join(t.TempDir(), "chat-1")
+	if err := os.MkdirAll(chatDir, 0o755); err != nil {
+		t.Fatalf("mkdir chat dir: %v", err)
+	}
+	executor := fileToolExecutor(root, true)
+	execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{
+		WorkspaceRoot: root,
+		RuntimeContext: contracts.RuntimeRequestContext{
+			LocalPaths: contracts.LocalPaths{
+				WorkspaceDir:       root,
+				ChatAttachmentsDir: chatDir,
+			},
+		},
+	}}
+
+	result, err := executor.invokeWrite(context.Background(), map[string]any{
+		"file_path":   filepath.Join(chatDir, "artifact.md"),
+		"content":     "hello",
+		"description": "写入 chat 产物",
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invokeWrite: %v", err)
+	}
+	if result.Error != "" || result.ExitCode != 0 {
+		t.Fatalf("expected chat write success, got %#v", result)
+	}
+	data, err := os.ReadFile(filepath.Join(chatDir, "artifact.md"))
+	if err != nil {
+		t.Fatalf("read written file: %v", err)
+	}
+	if string(data) != "hello" {
+		t.Fatalf("unexpected content: %q", string(data))
+	}
+}
+
+func TestInvokeEditInsideSessionChatDirBypassesWriteApproval(t *testing.T) {
+	root := t.TempDir()
+	chatDir := filepath.Join(t.TempDir(), "chat-1")
+	if err := os.MkdirAll(chatDir, 0o755); err != nil {
+		t.Fatalf("mkdir chat dir: %v", err)
+	}
+	path := filepath.Join(chatDir, "artifact.md")
+	if err := os.WriteFile(path, []byte("hello"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	executor := fileToolExecutor(root, true)
+	execCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{
+		WorkspaceRoot: root,
+		RuntimeContext: contracts.RuntimeRequestContext{
+			LocalPaths: contracts.LocalPaths{
+				WorkspaceDir:       root,
+				ChatAttachmentsDir: chatDir,
+			},
+		},
+	}}
+	if _, err := executor.invokeRead(map[string]any{"file_path": path}, execCtx); err != nil {
+		t.Fatalf("invokeRead: %v", err)
+	}
+
+	result, err := executor.invokeEdit(context.Background(), map[string]any{
+		"file_path":   path,
+		"old_string":  "hello",
+		"new_string":  "hi",
+		"description": "编辑 chat 产物",
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invokeEdit: %v", err)
+	}
+	if result.Error != "" || result.ExitCode != 0 {
+		t.Fatalf("expected chat edit success, got %#v", result)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read edited file: %v", err)
+	}
+	if string(data) != "hi" {
+		t.Fatalf("unexpected content: %q", string(data))
+	}
+}
+
 func TestInvokeWriteOutsideSessionWorkspaceRequiresPathApproval(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()

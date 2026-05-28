@@ -469,26 +469,6 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 		// Synthesize run.complete for the frontend (not persisted in JSONL).
 		if runID != "" {
 			payload := map[string]any{"runId": runID, "finishReason": "stop"}
-			if rd.totalTotalTokens > 0 || rd.totalLlmChatCompletionCount > 0 {
-				chatUsage := map[string]any{
-					"promptTokens":           rd.chatTotalPromptTokens,
-					"completionTokens":       rd.chatTotalCompletionTokens,
-					"totalTokens":            rd.chatTotalTotalTokens,
-					"llmChatCompletionCount": rd.chatTotalLlmChatCompletionCount,
-				}
-				addUsageDetailsToMap(chatUsage, rd.chatTotalCachedTokens, rd.chatTotalReasoningTokens, rd.chatTotalPromptCacheHitTokens, rd.chatTotalPromptCacheMissTokens)
-				runUsage := map[string]any{
-					"promptTokens":           rd.totalPromptTokens,
-					"completionTokens":       rd.totalCompletionTokens,
-					"totalTokens":            rd.totalTotalTokens,
-					"llmChatCompletionCount": rd.totalLlmChatCompletionCount,
-				}
-				addUsageDetailsToMap(runUsage, rd.totalCachedTokens, rd.totalReasoningTokens, rd.totalPromptCacheHitTokens, rd.totalPromptCacheMissTokens)
-				payload["usage"] = map[string]any{
-					"chat": chatUsage,
-					"run":  runUsage,
-				}
-			}
 			allEvents = append(allEvents, stream.EventData{
 				Seq:       nextSeq(),
 				Type:      "run.complete",
