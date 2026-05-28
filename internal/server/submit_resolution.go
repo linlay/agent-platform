@@ -179,7 +179,7 @@ func (s *Server) normalizeDeferredSubmit(deferred DeferredAwaiting, params api.S
 			handler = frontendtools.NewAskUserQuestionHandler()
 		}
 		return handler.NormalizeSubmit(deferred.Ask.Payload, params)
-	case "approval", "form":
+	case "approval", "form", "plan":
 		return hitl.Normalize(deferred.Ask.Payload, params)
 	default:
 		return nil, fmt.Errorf("unsupported awaiting mode: %s", deferred.Mode)

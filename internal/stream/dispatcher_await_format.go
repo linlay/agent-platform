@@ -57,6 +57,11 @@ func newAwaitingAnswerEvent(input AwaitingAnswer) StreamEvent {
 		if len(formatted) > 0 {
 			payload["forms"] = formatted
 		}
+	case "plan":
+		formatted := formatAwaitingPlan(answer["plan"])
+		if len(formatted) > 0 {
+			payload["plan"] = formatted
+		}
 	default:
 		return StreamEvent{}
 	}
@@ -176,6 +181,30 @@ func formatAwaitingForms(raw any) []map[string]any {
 	}
 }
 
+func formatAwaitingPlan(raw any) map[string]any {
+	plan := anyMap(raw)
+	if len(plan) == 0 {
+		return nil
+	}
+	decision := strings.ToLower(strings.TrimSpace(anyString(plan["decision"])))
+	if decision == "" {
+		return nil
+	}
+	entry := map[string]any{
+		"decision": decision,
+	}
+	if id := strings.TrimSpace(anyString(plan["id"])); id != "" {
+		entry["id"] = id
+	}
+	if planningID := strings.TrimSpace(anyString(plan["planningId"])); planningID != "" {
+		entry["planningId"] = planningID
+	}
+	if reason := strings.TrimSpace(anyString(plan["reason"])); reason != "" {
+		entry["reason"] = reason
+	}
+	return entry
+}
+
 func appendAwaitingQuestionValue(entry map[string]any, value any) {
 	switch typed := value.(type) {
 	case []string:
@@ -232,6 +261,9 @@ func (d *StreamEventDispatcher) newAwaitAskEvent(input AwaitAsk) StreamEvent {
 	if len(input.Forms) > 0 {
 		payload["forms"] = input.Forms
 	}
+	if len(input.Plan) > 0 {
+		payload["plan"] = clonePayload(input.Plan)
+	}
 	return NewEvent("awaiting.ask", payload)
 }
 
@@ -257,6 +289,13 @@ func awaitAskViewport(input AwaitAsk) (string, string) {
 	case "form":
 		if viewportType == "" {
 			viewportType = "html"
+		}
+	case "plan":
+		if viewportType == "" {
+			viewportType = "builtin"
+		}
+		if viewportKey == "" {
+			viewportKey = "plan"
 		}
 	}
 	return viewportType, viewportKey

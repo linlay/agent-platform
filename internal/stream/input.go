@@ -233,6 +233,7 @@ type AwaitAsk struct {
 	Questions    []any
 	Approvals    []any
 	Forms        []any
+	Plan         map[string]any
 }
 
 func (AwaitAsk) streamInputTag() {}
