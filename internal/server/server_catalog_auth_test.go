@@ -303,7 +303,14 @@ func TestAgentsEndpointReturnsCatalogFieldsAndScopeFiltering(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), `"role":"Code assistant"`) {
 		t.Fatalf("agents response should include role, got %s", rec.Body.String())
 	}
-	if strings.Contains(rec.Body.String(), "should stay out") || strings.Contains(rec.Body.String(), `"description"`) || strings.Contains(rec.Body.String(), `"visibility"`) || strings.Contains(rec.Body.String(), `"kanban"`) {
+	visibility, ok := coder.Meta["visibility"].(map[string]any)
+	if !ok {
+		t.Fatalf("coder summary should include visibility meta, got %#v", coder.Meta)
+	}
+	if !reflect.DeepEqual(visibility["scopes"], []any{"nav", "copilot", "invoke"}) {
+		t.Fatalf("coder visibility scopes = %#v", visibility["scopes"])
+	}
+	if strings.Contains(rec.Body.String(), "should stay out") || strings.Contains(rec.Body.String(), `"description"`) || strings.Contains(rec.Body.String(), `"kanban"`) {
 		t.Fatalf("agents response should omit backend fields, got %s", rec.Body.String())
 	}
 
@@ -321,6 +328,16 @@ func TestAgentsEndpointReturnsCatalogFieldsAndScopeFiltering(t *testing.T) {
 	}
 	if containsString(keys, "internal-agent") || containsString(keys, "invoke-agent") || !containsString(keys, "coder-agent") {
 		t.Fatalf("nav scope keys = %#v", keys)
+	}
+	for _, item := range response.Data {
+		visibility, ok := item.Meta["visibility"].(map[string]any)
+		if !ok {
+			t.Fatalf("nav summary should include visibility meta, got %#v", item.Meta)
+		}
+		scopes, _ := visibility["scopes"].([]any)
+		if !containsAnyString(scopes, "nav") {
+			t.Fatalf("nav summary should only include nav-visible agents, got %s scopes %#v", item.Key, scopes)
+		}
 	}
 
 	rec = httptest.NewRecorder()
@@ -344,6 +361,15 @@ func TestAgentsEndpointReturnsCatalogFieldsAndScopeFiltering(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400 for invalid scope, got %d: %s", rec.Code, rec.Body.String())
 	}
+}
+
+func containsAnyString(values []any, needle string) bool {
+	for _, value := range values {
+		if s, ok := value.(string); ok && s == needle {
+			return true
+		}
+	}
+	return false
 }
 
 func TestAgentEndpointRequiresAgentKey(t *testing.T) {

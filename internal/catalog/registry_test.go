@@ -766,12 +766,22 @@ func TestAgentsSummaryIncludesCatalogFieldsAndFiltersScope(t *testing.T) {
 	if navItems[0].Meta["modelKey"] != "agent-model" || navItems[0].Meta["toolsCount"] != 2 || navItems[0].Meta["skillsCount"] != 1 {
 		t.Fatalf("summary meta should include modelKey and list counts, got %#v", navItems[0].Meta)
 	}
+	visibility, ok := navItems[0].Meta["visibility"].(map[string]any)
+	if !ok {
+		t.Fatalf("summary meta should include visibility, got %#v", navItems[0].Meta)
+	}
+	if !reflect.DeepEqual(visibility["scopes"], []string{"nav", "copilot"}) {
+		t.Fatalf("summary visibility scopes = %#v", visibility["scopes"])
+	}
 	data, err := json.Marshal(navItems[0])
 	if err != nil {
 		t.Fatalf("marshal agent summary: %v", err)
 	}
-	if strings.Contains(string(data), "description") || strings.Contains(string(data), "visibility") || strings.Contains(string(data), "kanban") {
+	if strings.Contains(string(data), "description") || strings.Contains(string(data), "kanban") {
 		t.Fatalf("summary json should omit backend fields, got %s", data)
+	}
+	if !strings.Contains(string(data), `"visibility":{"scopes":["nav","copilot"]}`) {
+		t.Fatalf("summary json should include visibility meta, got %s", data)
 	}
 	if !strings.Contains(string(data), `"role":"Assistant role"`) {
 		t.Fatalf("summary json should include role, got %s", data)

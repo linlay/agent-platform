@@ -282,6 +282,9 @@ func (r *FileRegistry) Agents(scope string) []api.AgentSummary {
 				"toolsCount":  len(def.Tools),
 				"skills":      append([]string(nil), def.Skills...),
 				"skillsCount": len(def.Skills),
+				"visibility": map[string]any{
+					"scopes": EffectiveAgentVisibilityScopes(def),
+				},
 			},
 		}
 		if strings.EqualFold(strings.TrimSpace(def.Mode), AgentModeCoder) && strings.TrimSpace(def.CoderBackend) != "" {
