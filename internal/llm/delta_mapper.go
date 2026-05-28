@@ -360,6 +360,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			ContextWindow:                   value.ContextWindow,
 			CurrentContextSize:              value.CurrentContextSize,
 			EstimatedNextCallSize:           value.EstimatedNextCallSize,
+			CacheDiagnostics:                CloneMap(value.CacheDiagnostics),
 			LLMReturnPromptTokens:           value.LLMReturnPromptTokens,
 			LLMReturnCompletionTokens:       value.LLMReturnCompletionTokens,
 			LLMReturnTotalTokens:            value.LLMReturnTotalTokens,

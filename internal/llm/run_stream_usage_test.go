@@ -30,9 +30,15 @@ func TestAccumulateUsageIgnoresEmptyProviderUsage(t *testing.T) {
 
 func TestAccumulateUsageCommitsLatestValidProviderUsageOnce(t *testing.T) {
 	stream := &llmRunStream{
-		session:                        contracts.QuerySession{RunID: "run-valid-usage", ChatID: "chat-valid-usage"},
-		model:                          models.ModelDefinition{Key: "mock-model", ContextWindow: 128000},
-		currentTurn:                    &providerTurnStream{},
+		session:     contracts.QuerySession{RunID: "run-valid-usage", ChatID: "chat-valid-usage"},
+		model:       models.ModelDefinition{Key: "mock-model", ContextWindow: 128000},
+		currentTurn: &providerTurnStream{},
+		messages: []openAIMessage{
+			{Role: "system", Content: "stable system prompt"},
+			{Role: "user", Content: "write an article"},
+			{Role: "assistant", Content: "previous long assistant answer"},
+			{Role: "user", Content: "change topic"},
+		},
 		runLLMChatCompletionCount:      1,
 		lastCallLLMChatCompletionCount: 1,
 	}
@@ -65,6 +71,9 @@ func TestAccumulateUsageCommitsLatestValidProviderUsageOnce(t *testing.T) {
 	if snapshot.LLMReturnPromptTokens != 20 || snapshot.LLMReturnCompletionTokens != 5 || snapshot.LLMReturnTotalTokens != 25 ||
 		snapshot.LLMReturnPromptCacheHitTokens != 7 || snapshot.LLMReturnPromptCacheMissTokens != 13 {
 		t.Fatalf("unexpected usage snapshot %#v", snapshot)
+	}
+	if snapshot.CacheDiagnostics == nil || snapshot.CacheDiagnostics["cacheMissTokens"] != 13 {
+		t.Fatalf("expected cache diagnostics in usage snapshot, got %#v", snapshot.CacheDiagnostics)
 	}
 	if _, ok := stream.pending[1].(contracts.DeltaDebugPostCall); !ok {
 		t.Fatalf("expected second delta to be DeltaDebugPostCall, got %#v", stream.pending[1])

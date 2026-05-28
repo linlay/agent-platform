@@ -258,6 +258,7 @@ type DeltaUsageSnapshot struct {
 	ContextWindow                   int
 	CurrentContextSize              int
 	EstimatedNextCallSize           int
+	CacheDiagnostics                map[string]any
 	LLMReturnPromptTokens           int
 	LLMReturnCompletionTokens       int
 	LLMReturnTotalTokens            int

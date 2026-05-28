@@ -151,6 +151,7 @@ func (s *llmRunStream) commitUsage(usage *openAIUsage) {
 		ContextWindow:                   s.effectiveContextWindow(),
 		CurrentContextSize:              s.currentContextSize(),
 		EstimatedNextCallSize:           s.estimatedNextCallSize(),
+		CacheDiagnostics:                buildPromptCacheDiagnostics(s.messages, usage),
 		LLMReturnPromptTokens:           s.lastCallPromptTokens,
 		LLMReturnCompletionTokens:       s.lastCallCompletionTokens,
 		LLMReturnTotalTokens:            s.lastCallTotalTokens,
