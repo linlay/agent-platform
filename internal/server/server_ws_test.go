@@ -1086,7 +1086,7 @@ Plan should stream over websocket.
 	if got := countStrings(eventTypes, "planning.delta"); got <= 1 {
 		t.Fatalf("expected multiple websocket planning.delta events, got %d in %#v", got, eventTypes)
 	}
-	planningFile := filepath.Join(fixture.cfg.Paths.ChatsDir, "plans", runID+"_planning.md")
+	planningFile := filepath.Join(fixture.cfg.Paths.ChatsDir, "plans", runID+"_planning_1.md")
 	planningBytes, readPlanningErr := os.ReadFile(planningFile)
 	if readPlanningErr != nil {
 		t.Fatalf("expected websocket planning markdown file before confirmation: %v", readPlanningErr)
@@ -1340,14 +1340,14 @@ func collectWebSocketEventsUntilPlanningApproval(t *testing.T, conn *gws.Conn, r
 			continue
 		}
 		types = append(types, frame.Event.Type)
-		if frame.Event.Type == "awaiting.ask" && frame.Event.String("mode") == "approval" {
+		if frame.Event.Type == "awaiting.ask" && frame.Event.String("mode") == "plan" {
 			if timeout, ok := frame.Event.Payload["timeout"].(float64); !ok || timeout != 0 {
-				t.Fatalf("expected websocket planning approval timeout 0, got %#v", frame.Event.Payload)
+				t.Fatalf("expected websocket planning confirmation timeout 0, got %#v", frame.Event.Payload)
 			}
 			return types, frame.Event.String("runId"), frame.Event.String("awaitingId")
 		}
 	}
-	t.Fatalf("timed out waiting for websocket planning approval for %s", requestID)
+	t.Fatalf("timed out waiting for websocket planning confirmation for %s", requestID)
 	return nil, "", ""
 }
 

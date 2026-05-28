@@ -1809,6 +1809,30 @@ func TestValidateSubmitParamsAllowsOrderedItemsWithoutIDs(t *testing.T) {
 				{"decision": "approve", "form": map[string]any{"days": 2}},
 			}),
 		},
+		{
+			name:      "plan approve",
+			mode:      "plan",
+			itemCount: 1,
+			params: mustEncodeSubmitParams(t, []map[string]any{
+				{"decision": "approve"},
+			}),
+		},
+		{
+			name:      "plan reject with empty reason",
+			mode:      "plan",
+			itemCount: 1,
+			params: mustEncodeSubmitParams(t, []map[string]any{
+				{"decision": "reject", "reason": ""},
+			}),
+		},
+		{
+			name:      "plan reject with reason",
+			mode:      "plan",
+			itemCount: 1,
+			params: mustEncodeSubmitParams(t, []map[string]any{
+				{"decision": "reject", "reason": "请补充测试范围"},
+			}),
+		},
 	}
 
 	for _, tt := range tests {
@@ -1857,6 +1881,14 @@ func TestValidateSubmitParamsIgnoresSubmittedIDsWhenCountMatches(t *testing.T) {
 				{"id": "wrong-form", "decision": "reject"},
 			}),
 		},
+		{
+			name:      "plan",
+			mode:      "plan",
+			itemCount: 1,
+			params: mustEncodeSubmitParams(t, []map[string]any{
+				{"id": "wrong-plan", "decision": "approve"},
+			}),
+		},
 	}
 
 	for _, tt := range tests {
@@ -1882,6 +1914,20 @@ func TestValidateSubmitParamsRejectsCountMismatch(t *testing.T) {
 		{"answer": "Weekend"},
 	}))
 	if err == nil || !strings.Contains(err.Error(), "expected 2 submit items, got 1") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateSubmitParamsRejectsPlanCountMismatch(t *testing.T) {
+	err := validateSubmitParams(contracts.AwaitingSubmitContext{
+		AwaitingID: "await_1",
+		Mode:       "plan",
+		ItemCount:  1,
+	}, mustEncodeSubmitParams(t, []map[string]any{
+		{"decision": "approve"},
+		{"decision": "reject"},
+	}))
+	if err == nil || !strings.Contains(err.Error(), "expected 1 submit items, got 2") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -1928,6 +1974,24 @@ func TestValidateSubmitParamsRejectsInvalidShape(t *testing.T) {
 			mode:       "form",
 			item:       map[string]any{"decision": "approve", "form": "bad"},
 			wantSubstr: "items[0]: form field must be an object",
+		},
+		{
+			name:       "plan missing decision",
+			mode:       "plan",
+			item:       map[string]any{"reason": "nope"},
+			wantSubstr: "items[0]: plan items require decision",
+		},
+		{
+			name:       "plan invalid decision",
+			mode:       "plan",
+			item:       map[string]any{"decision": "approve_rule_run"},
+			wantSubstr: `items[0]: unsupported plan decision "approve_rule_run"`,
+		},
+		{
+			name:       "plan rejects form",
+			mode:       "plan",
+			item:       map[string]any{"decision": "reject", "form": map[string]any{}},
+			wantSubstr: "items[0]: plan items do not allow form",
 		},
 	}
 

@@ -35,7 +35,9 @@ func (t *RuntimeToolExecutor) invokePlanningWrite(args map[string]any, execCtx *
 		return ToolExecutionResult{Output: "失败: markdown 不能为空", Error: "missing_markdown", ExitCode: -1}, nil
 	}
 
-	planningID := planutil.PlanningID(spec.Title, planningRunID(execCtx))
+	revision := planningRevision(execCtx)
+	execCtx.PlanningRevision = revision
+	planningID := planutil.PlanningIDForRevision(planningRunID(execCtx), revision)
 	planningFile := planutil.PlanningFile(chatsDir, planningID)
 	if err := os.MkdirAll(filepath.Dir(planningFile), 0o755); err != nil {
 		return ToolExecutionResult{Output: "失败: 创建 plans 目录失败: " + err.Error(), Error: "planning_write_failed", ExitCode: -1}, nil
@@ -78,4 +80,11 @@ func planningRunID(execCtx *ExecutionContext) string {
 		runID = strings.TrimSpace(execCtx.Session.RequestID)
 	}
 	return runID
+}
+
+func planningRevision(execCtx *ExecutionContext) int {
+	if execCtx == nil || execCtx.PlanningRevision <= 0 {
+		return 1
+	}
+	return execCtx.PlanningRevision
 }

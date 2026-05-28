@@ -72,7 +72,7 @@ func (s *llmRunStream) planningDeltasFromToolCall(delta DeltaToolCall) []AgentDe
 	}
 	state.title = title
 	if state.planningID == "" {
-		state.planningID = planutil.PlanningID(title, s.planningRunID())
+		state.planningID = planutil.PlanningIDForRevision(s.planningRunID(), s.planningRevision())
 	}
 	if state.planningFile == "" {
 		if chatsDir := s.planningChatsDir(); chatsDir != "" {
@@ -257,6 +257,13 @@ func (s *llmRunStream) planningRunID() string {
 		runID = strings.TrimSpace(s.session.RequestID)
 	}
 	return runID
+}
+
+func (s *llmRunStream) planningRevision() int {
+	if s == nil || s.execCtx == nil || s.execCtx.PlanningRevision <= 0 {
+		return 1
+	}
+	return s.execCtx.PlanningRevision
 }
 
 func (s *llmRunStream) planningChatsDir() string {

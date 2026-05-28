@@ -26,7 +26,7 @@ func TestPlanningWriteCreatesMarkdownFile(t *testing.T) {
 			PlanningMode: true,
 		},
 	}
-	stalePlanningFile := filepath.Join(root, "plans", "run_123_planning.md")
+	stalePlanningFile := filepath.Join(root, "plans", "run_123_planning_1.md")
 	if err := os.MkdirAll(filepath.Dir(stalePlanningFile), 0o755); err != nil {
 		t.Fatalf("mkdir stale planning dir: %v", err)
 	}
@@ -45,7 +45,7 @@ func TestPlanningWriteCreatesMarkdownFile(t *testing.T) {
 		t.Fatalf("expected success, got %#v", result)
 	}
 	planningID := AnyStringNode(result.Structured["planningId"])
-	if planningID != "run_123_planning" {
+	if planningID != "run_123_planning_1" {
 		t.Fatalf("unexpected planningId %q", planningID)
 	}
 	planningFile := AnyStringNode(result.Structured["planningFile"])

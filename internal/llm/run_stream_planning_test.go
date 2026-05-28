@@ -40,8 +40,8 @@ func TestPlanningWriteArgumentsStreamPlanningDeltas(t *testing.T) {
 	markdown := streamingPlanningMarkdown("Streaming Plan", "Stream the plan while the tool arguments arrive.", "Emit planning start before completion")
 	stream.appendFinalPlanningDeltas("tool_plan", contracts.ToolExecutionResult{
 		Structured: map[string]any{
-			"planningId":   "run_1_planning",
-			"planningFile": filepath.Join(chatsDir, "plans", "run_1_planning.md"),
+			"planningId":   "run_1_planning_1",
+			"planningFile": filepath.Join(chatsDir, "plans", "run_1_planning_1.md"),
 			"title":        "Streaming Plan",
 			"status":       "ready",
 			"markdown":     markdown,
@@ -104,7 +104,7 @@ func TestPlanningWriteStreamsPartialStringsAndDraftFile(t *testing.T) {
 		t.Fatalf("did not expect later sections before summary closes, got:\n%s", combined)
 	}
 
-	planningFile := filepath.Join(chatsDir, "plans", "run_partial_planning.md")
+	planningFile := filepath.Join(chatsDir, "plans", "run_partial_planning_1.md")
 	draftBytes, readErr := os.ReadFile(planningFile)
 	if readErr != nil {
 		t.Fatalf("read draft planning file: %v", readErr)
@@ -130,7 +130,7 @@ func TestPlanningWriteStreamsPartialStringsAndDraftFile(t *testing.T) {
 	markdown := streamingPlanningMarkdown("Streaming Plan", "Stream the plan while arguments arrive.", "Emit planning deltas before the string closes")
 	stream.appendFinalPlanningDeltas("tool_plan", contracts.ToolExecutionResult{
 		Structured: map[string]any{
-			"planningId":   "run_partial_planning",
+			"planningId":   "run_partial_planning_1",
 			"planningFile": planningFile,
 			"title":        "Streaming Plan",
 			"status":       "ready",

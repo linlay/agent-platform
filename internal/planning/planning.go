@@ -65,7 +65,14 @@ func NormalizeMarkdown(markdown string, title string) string {
 }
 
 func PlanningID(title string, runID string) string {
-	return SafeRunID(runID) + "_planning"
+	return PlanningIDForRevision(runID, 1)
+}
+
+func PlanningIDForRevision(runID string, revision int) string {
+	if revision <= 0 {
+		revision = 1
+	}
+	return SafeRunID(runID) + "_planning_" + intString(revision)
 }
 
 func PlanningFile(chatsDir string, planningID string) string {
@@ -131,4 +138,18 @@ func anyString(value any) string {
 	default:
 		return ""
 	}
+}
+
+func intString(value int) string {
+	if value <= 0 {
+		return "1"
+	}
+	var digits [20]byte
+	i := len(digits)
+	for value > 0 {
+		i--
+		digits[i] = byte('0' + value%10)
+		value /= 10
+	}
+	return string(digits[i:])
 }

@@ -540,11 +540,11 @@ func awaitingContextFromProxyEvent(event stream.EventData) contracts.AwaitingSub
 	return contracts.AwaitingSubmitContext{
 		AwaitingID: awaitingID,
 		Mode:       mode,
-		ItemCount:  proxyAwaitItemCount(mode, event.Payload["questions"], event.Payload["approvals"], event.Payload["forms"]),
+		ItemCount:  proxyAwaitItemCount(mode, event.Payload["questions"], event.Payload["approvals"], event.Payload["forms"], event.Payload["plan"]),
 	}
 }
 
-func proxyAwaitItemCount(mode string, questions any, approvals any, forms any) int {
+func proxyAwaitItemCount(mode string, questions any, approvals any, forms any, plan any) int {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
 	case "question":
 		return lenAnySlice(questions)
@@ -552,6 +552,11 @@ func proxyAwaitItemCount(mode string, questions any, approvals any, forms any) i
 		return lenAnySlice(approvals)
 	case "form":
 		return lenAnySlice(forms)
+	case "plan":
+		if lenAnyMap(plan) > 0 {
+			return 1
+		}
+		return 0
 	default:
 		return 0
 	}
@@ -560,6 +565,13 @@ func proxyAwaitItemCount(mode string, questions any, approvals any, forms any) i
 func lenAnySlice(value any) int {
 	if items, ok := value.([]any); ok {
 		return len(items)
+	}
+	return 0
+}
+
+func lenAnyMap(value any) int {
+	if item, ok := value.(map[string]any); ok {
+		return len(item)
 	}
 	return 0
 }

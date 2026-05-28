@@ -257,6 +257,7 @@ type ExecutionContext struct {
 	RunLoopState      RunLoopState
 	PlanState         *PlanRuntimeState
 	PlanningState     *PlanningRuntimeState
+	PlanningRevision  int
 	ToolOverrides     map[string]api.ToolDetailResponse
 	// RuntimeEnvOverrides is reused by host bash as agent/skill-level env defaults.
 	RuntimeEnvOverrides map[string]string

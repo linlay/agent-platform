@@ -40,15 +40,21 @@ type coderPlanningStream struct {
 	pending  []AgentDelta
 	current  AgentStream
 
-	taskIndex           int
-	planDone            bool
-	executionDone       bool
-	confirmationPending bool
-	confirmationDone    bool
-	summaryDone         bool
-	completed           bool
-	closed              bool
-	taskLifecycle       bool
+	taskIndex             int
+	planDone              bool
+	executionDone         bool
+	confirmationPending   bool
+	confirmationDone      bool
+	summaryDone           bool
+	completed             bool
+	closed                bool
+	taskLifecycle         bool
+	nextPlanIsFeedback    bool
+	currentPlanIsFeedback bool
+
+	rejectedPlanMarkdown string
+	rejectedPlanDecision string
+	rejectedPlanReason   string
 
 	executeMessages []openAIMessage
 }
@@ -56,12 +62,13 @@ type coderPlanningStream struct {
 func newCoderPlanningStream(engine *LLMAgentEngine, ctx context.Context, req api.QueryRequest, session QuerySession) (AgentStream, error) {
 	settings := resolvePlanExecuteRuntimeSettings(session, engine.cfg.Defaults.Plan.MaxSteps, engine.cfg.Defaults.Plan.MaxWorkRoundsPerTask)
 	execCtx := &ExecutionContext{
-		Request:       req,
-		Session:       session,
-		RunControl:    RunControlFromContext(ctx),
-		Budget:        NormalizeBudget(session.ResolvedBudget),
-		StageSettings: settings,
-		RunLoopState:  RunLoopStateIdle,
+		Request:          req,
+		Session:          session,
+		RunControl:       RunControlFromContext(ctx),
+		Budget:           NormalizeBudget(session.ResolvedBudget),
+		StageSettings:    settings,
+		RunLoopState:     RunLoopStateIdle,
+		PlanningRevision: 1,
 	}
 	return &coderPlanningStream{
 		engine:   engine,
@@ -132,6 +139,9 @@ func (s *coderPlanningStream) Close() error {
 
 func (s *coderPlanningStream) advance() error {
 	if !s.planDone {
+		if s.nextPlanIsFeedback {
+			return s.startPlanningFeedbackStage()
+		}
 		return s.startPlanStage()
 	}
 	if !s.confirmationDone {
@@ -148,6 +158,7 @@ func (s *coderPlanningStream) advance() error {
 }
 
 func (s *coderPlanningStream) startPlanStage() error {
+	s.currentPlanIsFeedback = false
 	planPrompt := s.planningPrompt()
 	req := s.req
 	req.Message = strings.TrimSpace(planPrompt) + "\n\nUser request:\n" + s.req.Message
@@ -157,6 +168,27 @@ func (s *coderPlanningStream) startPlanStage() error {
 		ModelKey:     s.resolveStageModelKey(s.settings.Plan),
 		MaxSteps:     s.settings.MaxSteps,
 		Stage:        "coder-plan",
+		PostToolHook: s.planStagePostToolHook,
+	})
+	if err != nil {
+		return err
+	}
+	s.current = stream
+	return nil
+}
+
+func (s *coderPlanningStream) startPlanningFeedbackStage() error {
+	s.nextPlanIsFeedback = false
+	s.currentPlanIsFeedback = true
+	s.pending = append(s.pending, DeltaStageMarker{Stage: "coder-plan-feedback"})
+	req := s.req
+	req.Message = s.planningFeedbackPrompt()
+	stream, err := s.engine.newRunStreamWithOptions(s.ctx, req, s.sessionForStage(s.settings.Plan, s.planStageTools()), true, runStreamOptions{
+		ExecCtx:      s.execCtx,
+		ToolNames:    s.planStageTools(),
+		ModelKey:     s.resolveStageModelKey(s.settings.Plan),
+		MaxSteps:     s.settings.MaxSteps,
+		Stage:        "coder-plan-feedback",
 		PostToolHook: s.planStagePostToolHook,
 	})
 	if err != nil {
@@ -191,8 +223,15 @@ func joinNonEmptyPrompts(values ...string) string {
 
 func (s *coderPlanningStream) afterStageEOF() error {
 	if !s.planDone {
+		wasFeedback := s.currentPlanIsFeedback
+		s.currentPlanIsFeedback = false
 		s.planDone = true
 		if s.execCtx == nil || s.execCtx.PlanningState == nil || strings.TrimSpace(s.execCtx.PlanningState.Markdown) == "" {
+			if wasFeedback {
+				s.summaryDone = true
+				s.completed = true
+				return nil
+			}
 			s.pending = append(s.pending, DeltaError{
 				Error: NewErrorPayload(
 					"plan_not_created",
@@ -232,22 +271,31 @@ func (s *coderPlanningStream) emitPlanConfirmationAsk() {
 }
 
 func (s *coderPlanningStream) planConfirmationAsk() DeltaAwaitAsk {
+	planningID := ""
+	if s.execCtx != nil && s.execCtx.PlanningState != nil {
+		planningID = strings.TrimSpace(s.execCtx.PlanningState.PlanningID)
+	}
 	return DeltaAwaitAsk{
-		AwaitingID:   s.session.RunID + "_coder_plan_confirm",
-		Mode:         "approval",
+		AwaitingID:   s.planConfirmationAwaitingID(),
+		Mode:         "plan",
 		Timeout:      0,
 		RunID:        s.session.RunID,
 		ViewportType: "builtin",
-		ViewportKey:  "approval",
-		Approvals: []any{
-			map[string]any{
-				"id":            "confirm",
-				"command":       "是否按此计划执行？",
-				"description":   "确认后将按当前 Markdown plan 开始执行",
-				"allowFreeText": false,
-				"options": []any{
-					map[string]any{"label": "执行计划", "decision": "approve", "description": "按当前计划开始执行任务"},
-					map[string]any{"label": "取消执行", "decision": "reject", "description": "停止本轮，不执行计划任务"},
+		ViewportKey:  "plan",
+		Plan: map[string]any{
+			"id":         "confirm",
+			"planningId": planningID,
+			"title":      "实施此计划？",
+			"options": []any{
+				map[string]any{"label": "是，实施此计划", "decision": "approve"},
+				map[string]any{
+					"label":    "否，请告知如何调整",
+					"decision": "reject",
+					"input": map[string]any{
+						"type":        "text",
+						"placeholder": "请告知如何调整",
+						"required":    false,
+					},
 				},
 			},
 		},
@@ -257,7 +305,7 @@ func (s *coderPlanningStream) planConfirmationAsk() DeltaAwaitAsk {
 func (s *coderPlanningStream) awaitPlanConfirmation() error {
 	s.confirmationPending = false
 	s.confirmationDone = true
-	awaitingID := s.session.RunID + "_coder_plan_confirm"
+	awaitingID := s.planConfirmationAwaitingID()
 	if s.execCtx == nil || s.execCtx.RunControl == nil {
 		return ErrRunControlUnavailable
 	}
@@ -274,7 +322,7 @@ func (s *coderPlanningStream) awaitPlanConfirmation() error {
 		}
 		s.pending = append(s.pending, DeltaAwaitingAnswer{
 			AwaitingID: awaitingID,
-			Answer:     AwaitingErrorAnswer("approval", "invalid_submit", err.Error()),
+			Answer:     AwaitingErrorAnswer("plan", "invalid_submit", err.Error()),
 		})
 		s.cancelUnstartedPlan("已取消执行计划。")
 		return nil
@@ -291,11 +339,11 @@ func (s *coderPlanningStream) awaitPlanConfirmation() error {
 	})
 
 	args := s.planConfirmationArgs()
-	normalized, normalizeErr := normalizeHITLApprovalSubmit(args, submitResult.Request.Params)
+	normalized, normalizeErr := normalizeHITLPlanSubmit(args, submitResult.Request.Params)
 	if normalizeErr != nil {
 		s.pending = append(s.pending, DeltaAwaitingAnswer{
 			AwaitingID: awaitingID,
-			Answer:     AwaitingErrorAnswer("approval", "invalid_submit", normalizeErr.Error()),
+			Answer:     AwaitingErrorAnswer("plan", "invalid_submit", normalizeErr.Error()),
 		})
 		s.cancelUnstartedPlan("已取消执行计划。")
 		return nil
@@ -305,37 +353,99 @@ func (s *coderPlanningStream) awaitPlanConfirmation() error {
 		Answer:     CloneMap(normalized),
 	})
 
-	if strings.EqualFold(AnyStringNode(normalized["status"]), "error") || confirmationDecision(normalized) != "approve" {
+	if strings.EqualFold(AnyStringNode(normalized["status"]), "error") {
 		s.cancelUnstartedPlan("已取消执行计划。")
 		return nil
 	}
-	return nil
+	switch confirmationDecision(normalized) {
+	case "approve":
+		return nil
+	case "reject":
+		s.preparePlanningFeedback(normalized)
+		return nil
+	default:
+		s.cancelUnstartedPlan("已取消执行计划。")
+		return nil
+	}
 }
 
 func (s *coderPlanningStream) planConfirmationArgs() map[string]any {
 	ask := s.planConfirmationAsk()
 	return map[string]any{
-		"mode":      ask.Mode,
-		"approvals": append([]any(nil), ask.Approvals...),
+		"mode": ask.Mode,
+		"plan": CloneMap(ask.Plan),
 	}
 }
 
-func confirmationDecision(normalized map[string]any) string {
-	switch approvals := normalized["approvals"].(type) {
-	case []map[string]any:
-		if len(approvals) == 0 {
-			return ""
-		}
-		return strings.TrimSpace(AnyStringNode(approvals[0]["decision"]))
-	case []any:
-		if len(approvals) == 0 {
-			return ""
-		}
-		approval, _ := approvals[0].(map[string]any)
-		return strings.TrimSpace(AnyStringNode(approval["decision"]))
-	default:
-		return ""
+func (s *coderPlanningStream) planConfirmationAwaitingID() string {
+	return fmt.Sprintf("%s_coder_plan_confirm_%d", s.session.RunID, s.currentPlanningRevision())
+}
+
+func (s *coderPlanningStream) currentPlanningRevision() int {
+	if s == nil || s.execCtx == nil || s.execCtx.PlanningRevision <= 0 {
+		return 1
 	}
+	return s.execCtx.PlanningRevision
+}
+
+func (s *coderPlanningStream) planningFeedbackPrompt() string {
+	reason := strings.TrimSpace(s.rejectedPlanReason)
+	if reason == "" {
+		reason = "(empty)"
+	}
+	return strings.TrimSpace(joinNonEmptyPrompts(
+		s.planningPrompt(),
+		`You are handling feedback on a CODER plan that the user rejected.
+
+Rules:
+1. Do not execute or mutate anything in this stage.
+2. Use the rejected plan and feedback to decide what to do next.
+3. If a revised plan should be proposed, call planning_write exactly once with a complete replacement Markdown plan for the next revision.
+4. If the right outcome is to cancel or stop, do not call planning_write; reply with a concise cancellation or clarification note.
+5. The backend will ask the user to confirm any revised plan before execution tools are available.`,
+		"Original request:\n"+s.req.Message,
+		"Rejected plan markdown:\n"+strings.TrimSpace(s.rejectedPlanMarkdown),
+		"User decision: "+firstNonBlankString(s.rejectedPlanDecision, "reject"),
+		"User feedback:\n"+reason,
+	))
+}
+
+func confirmationDecision(normalized map[string]any) string {
+	plan := AnyMapNode(normalized["plan"])
+	return strings.ToLower(strings.TrimSpace(AnyStringNode(plan["decision"])))
+}
+
+func confirmationReason(normalized map[string]any) string {
+	plan := AnyMapNode(normalized["plan"])
+	return strings.TrimSpace(AnyStringNode(plan["reason"]))
+}
+
+func (s *coderPlanningStream) preparePlanningFeedback(normalized map[string]any) {
+	markdown := ""
+	if s.execCtx != nil && s.execCtx.PlanningState != nil {
+		s.execCtx.PlanningState.Status = "rejected"
+		markdown = s.execCtx.PlanningState.Markdown
+	}
+	s.rejectedPlanMarkdown = markdown
+	s.rejectedPlanDecision = confirmationDecision(normalized)
+	s.rejectedPlanReason = confirmationReason(normalized)
+	if s.execCtx != nil {
+		s.execCtx.PlanningState = nil
+		s.execCtx.PlanningRevision = s.currentPlanningRevision() + 1
+	}
+	s.planDone = false
+	s.confirmationDone = false
+	s.nextPlanIsFeedback = true
+	s.executeMessages = nil
+}
+
+func firstNonBlankString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func (s *coderPlanningStream) cancelUnstartedPlan(message string) {

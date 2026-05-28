@@ -70,10 +70,14 @@ func TestCoderSummaryPromptUsesCoderPromptsConfig(t *testing.T) {
 	}
 }
 
-func TestCoderPlanningConfirmationUsesApprovalMode(t *testing.T) {
+func TestCoderPlanningConfirmationUsesPlanMode(t *testing.T) {
 	stream := &coderPlanningStream{
 		session: contracts.QuerySession{RunID: "run_1"},
 		execCtx: &contracts.ExecutionContext{
+			PlanningRevision: 1,
+			PlanningState: &contracts.PlanningRuntimeState{
+				PlanningID: "run_1_planning_1",
+			},
 			Budget: contracts.Budget{
 				Tool: contracts.RetryPolicy{TimeoutMs: 120000},
 				Hitl: contracts.HitlPolicy{TimeoutMs: 600000},
@@ -81,27 +85,30 @@ func TestCoderPlanningConfirmationUsesApprovalMode(t *testing.T) {
 		},
 	}
 	ask := stream.planConfirmationAsk()
-	if ask.Mode != "approval" || ask.ViewportType != "builtin" || ask.ViewportKey != "approval" {
-		t.Fatalf("expected approval confirmation ask, got %#v", ask)
+	if ask.AwaitingID != "run_1_coder_plan_confirm_1" || ask.Mode != "plan" || ask.ViewportType != "builtin" || ask.ViewportKey != "plan" {
+		t.Fatalf("expected plan confirmation ask, got %#v", ask)
 	}
 	if ask.Timeout != 0 {
 		t.Fatalf("expected planning confirmation to wait forever with timeout 0, got %#v", ask)
 	}
-	if len(ask.Questions) != 0 || len(ask.Approvals) != 1 {
-		t.Fatalf("expected one approval and no questions, got %#v", ask)
+	if len(ask.Questions) != 0 || len(ask.Approvals) != 0 || len(ask.Plan) == 0 {
+		t.Fatalf("expected one plan and no questions/approvals, got %#v", ask)
 	}
-	approval, _ := ask.Approvals[0].(map[string]any)
-	if approval["id"] != "confirm" {
-		t.Fatalf("unexpected approval item %#v", approval)
+	if ask.Plan["id"] != "confirm" || ask.Plan["planningId"] != "run_1_planning_1" || ask.Plan["title"] != "实施此计划？" {
+		t.Fatalf("unexpected plan item %#v", ask.Plan)
 	}
-	options, _ := approval["options"].([]any)
+	options, _ := ask.Plan["options"].([]any)
 	if len(options) != 2 {
-		t.Fatalf("expected approve/reject options, got %#v", approval)
+		t.Fatalf("expected approve/reject options, got %#v", ask.Plan)
 	}
 	first, _ := options[0].(map[string]any)
 	second, _ := options[1].(map[string]any)
-	if first["decision"] != "approve" || second["decision"] != "reject" {
-		t.Fatalf("expected explicit approval decisions, got %#v", options)
+	if first["label"] != "是，实施此计划" || first["decision"] != "approve" || second["label"] != "否，请告知如何调整" || second["decision"] != "reject" {
+		t.Fatalf("expected explicit plan decisions, got %#v", options)
+	}
+	input, _ := second["input"].(map[string]any)
+	if input["placeholder"] != "请告知如何调整" {
+		t.Fatalf("expected reject feedback input, got %#v", second)
 	}
 }
 
@@ -112,7 +119,8 @@ func TestCoderPlanningConfirmationWaitsWithoutDisconnectedTimeout(t *testing.T) 
 	stream := &coderPlanningStream{
 		session: contracts.QuerySession{RunID: "run_1"},
 		execCtx: &contracts.ExecutionContext{
-			RunControl: runControl,
+			RunControl:       runControl,
+			PlanningRevision: 1,
 		},
 	}
 	stream.emitPlanConfirmationAsk()
@@ -120,7 +128,7 @@ func TestCoderPlanningConfirmationWaitsWithoutDisconnectedTimeout(t *testing.T) 
 	resultCh := make(chan contracts.SubmitResult, 1)
 	errCh := make(chan error, 1)
 	go func() {
-		result, err := runControl.AwaitSubmitWithTimeout(context.Background(), "run_1_coder_plan_confirm", 0)
+		result, err := runControl.AwaitSubmitWithTimeout(context.Background(), "run_1_coder_plan_confirm_1", 0)
 		if err != nil {
 			errCh <- err
 			return
@@ -142,7 +150,7 @@ func TestCoderPlanningConfirmationWaitsWithoutDisconnectedTimeout(t *testing.T) 
 	}
 	ack := runControl.ResolveSubmit(api.SubmitRequest{
 		RunID:      "run_1",
-		AwaitingID: "run_1_coder_plan_confirm",
+		AwaitingID: "run_1_coder_plan_confirm_1",
 		Params:     params,
 	})
 	if !ack.Accepted {
@@ -152,10 +160,19 @@ func TestCoderPlanningConfirmationWaitsWithoutDisconnectedTimeout(t *testing.T) 
 	case err := <-errCh:
 		t.Fatalf("expected submit result, got err %v", err)
 	case result := <-resultCh:
-		if result.Request.AwaitingID != "run_1_coder_plan_confirm" {
+		if result.Request.AwaitingID != "run_1_coder_plan_confirm_1" {
 			t.Fatalf("unexpected result: %#v", result)
 		}
 	case <-time.After(time.Second):
 		t.Fatalf("timed out waiting for planning confirmation submit")
+	}
+}
+
+func TestAwaitItemCountPlan(t *testing.T) {
+	if got := awaitItemCount("plan", nil, nil, nil, map[string]any{"id": "confirm"}); got != 1 {
+		t.Fatalf("plan item count = %d, want 1", got)
+	}
+	if got := awaitItemCount("plan", nil, nil, nil, nil); got != 0 {
+		t.Fatalf("empty plan item count = %d, want 0", got)
 	}
 }

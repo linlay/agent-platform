@@ -1117,14 +1117,14 @@ Plan first, then check the current time before reporting.
 		t.Fatalf("expected multiple planning.delta events before confirmation, got %d in %s", got, streamBody.String())
 	}
 	timeResultIndex := strings.Index(streamBody.String(), `"type":"tool.result","toolId":"tool_plan_time"`)
-	confirmationAskIndex := strings.Index(streamBody.String(), `"awaitingId":"`+runID+`_coder_plan_confirm"`)
+	confirmationAskIndex := strings.Index(streamBody.String(), `"awaitingId":"`+runID+`_coder_plan_confirm_1"`)
 	if !(timeResultIndex >= 0 && confirmationAskIndex > timeResultIndex) {
 		t.Fatalf("expected later planning batch tool result before confirmation, got %s", streamBody.String())
 	}
 	if strings.Contains(streamBody.String(), `"type":"planning.snapshot"`) {
 		t.Fatalf("did not expect live planning.snapshot, got %s", streamBody.String())
 	}
-	planningFile := filepath.Join(fixture.cfg.Paths.ChatsDir, "plans", runID+"_planning.md")
+	planningFile := filepath.Join(fixture.cfg.Paths.ChatsDir, "plans", runID+"_planning_1.md")
 	planningBytes, readPlanningErr := os.ReadFile(planningFile)
 	if readPlanningErr != nil {
 		t.Fatalf("expected planning markdown file before confirmation: %v", readPlanningErr)
@@ -1150,13 +1150,13 @@ Plan first, then check the current time before reporting.
 		t.Fatalf("expected live request.query planningMode=true, got %s", body)
 	}
 	planIndex := strings.Index(body, `"type":"planning.end"`)
-	confirmIndex := strings.Index(body, `是否按此计划执行？`)
+	confirmIndex := strings.Index(body, `实施此计划？`)
 	executionIndex := strings.Index(body, `execution completed`)
 	if !(planIndex >= 0 && confirmIndex > planIndex && executionIndex > confirmIndex) {
 		t.Fatalf("expected planning.end before confirmation and execution content after confirmation, got %s", body)
 	}
-	if !strings.Contains(body, `"mode":"approval"`) || !strings.Contains(body, `"decision":"approve"`) {
-		t.Fatalf("expected confirmation approval in stream, got %s", body)
+	if !strings.Contains(body, `"mode":"plan"`) || !strings.Contains(body, `"decision":"approve"`) {
+		t.Fatalf("expected confirmation plan answer in stream, got %s", body)
 	}
 	if strings.Contains(body, `"type":"planning.snapshot"`) {
 		t.Fatalf("did not expect live planning.snapshot, got %s", body)
@@ -1201,32 +1201,40 @@ func TestCoderPlanningWriteStreamsDeltasBeforeProviderFinishes(t *testing.T) {
 				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 					t.Fatalf("decode model request: %v", err)
 				}
-				if call := providerCallCount.Add(1); call != 1 {
+				switch call := providerCallCount.Add(1); call {
+				case 1:
+					assertCoderPlanningToolSet(t, providerRequestToolNames(payload["tools"]))
+
+					flusher, ok := w.(http.Flusher)
+					if !ok {
+						t.Fatalf("expected flusher")
+					}
+					w.Header().Set("Content-Type", "text/event-stream")
+					writeProviderSSEFrame(t, w, providerToolCallArgsDeltaFrame(t, "tool_plan", "planning_write", prefixArgs, ""))
+					flusher.Flush()
+					close(firstFrameFlushed)
+
+					select {
+					case <-continueProvider:
+					case <-r.Context().Done():
+						return
+					case <-time.After(5 * time.Second):
+						t.Fatalf("timed out waiting to continue provider stream")
+					}
+
+					writeProviderSSEFrame(t, w, providerToolCallArgsDeltaFrame(t, "", "", suffixArgs, "tool_calls"))
+					flusher.Flush()
+					writeProviderSSEFrame(t, w, `[DONE]`)
+					flusher.Flush()
+				case 2:
+					assertCoderPlanningToolSet(t, providerRequestToolNames(payload["tools"]))
+					writeProviderSSE(t, w,
+						`{"choices":[{"delta":{"content":"已取消执行计划。"},"finish_reason":"stop"}]}`,
+						`[DONE]`,
+					)
+				default:
 					t.Fatalf("unexpected provider call %d", call)
 				}
-				assertCoderPlanningToolSet(t, providerRequestToolNames(payload["tools"]))
-
-				flusher, ok := w.(http.Flusher)
-				if !ok {
-					t.Fatalf("expected flusher")
-				}
-				w.Header().Set("Content-Type", "text/event-stream")
-				writeProviderSSEFrame(t, w, providerToolCallArgsDeltaFrame(t, "tool_plan", "planning_write", prefixArgs, ""))
-				flusher.Flush()
-				close(firstFrameFlushed)
-
-				select {
-				case <-continueProvider:
-				case <-r.Context().Done():
-					return
-				case <-time.After(5 * time.Second):
-					t.Fatalf("timed out waiting to continue provider stream")
-				}
-
-				writeProviderSSEFrame(t, w, providerToolCallArgsDeltaFrame(t, "", "", suffixArgs, "tool_calls"))
-				flusher.Flush()
-				writeProviderSSEFrame(t, w, `[DONE]`)
-				flusher.Flush()
 			}, testFixtureOptions{
 				setupRuntime: func(root string, cfg *config.Config) {
 					workspace := filepath.Join(root, "workspace")
@@ -1286,7 +1294,7 @@ func TestCoderPlanningWriteStreamsDeltasBeforeProviderFinishes(t *testing.T) {
 			if strings.Contains(streamBody.String(), `"type":"planning.end"`) {
 				t.Fatalf("did not expect planning.end before provider finished, got %s", streamBody.String())
 			}
-			planningFile := filepath.Join(fixture.cfg.Paths.ChatsDir, "plans", runID+"_planning.md")
+			planningFile := filepath.Join(fixture.cfg.Paths.ChatsDir, "plans", runID+"_planning_1.md")
 			draftBytes, readDraftErr := os.ReadFile(planningFile)
 			if readDraftErr != nil {
 				t.Fatalf("expected draft planning file before provider finished: %v", readDraftErr)
@@ -1320,8 +1328,8 @@ func TestCoderPlanningWriteStreamsDeltasBeforeProviderFinishes(t *testing.T) {
 
 			submitFrontendDecision(t, fixture.server, runID, confirmAwaitingID, "reject")
 			readRemainingSSEUntilEOF(t, reader, &streamBody)
-			if got := providerCallCount.Load(); got != 1 {
-				t.Fatalf("provider calls = %d, want 1", got)
+			if got := providerCallCount.Load(); got != 2 {
+				t.Fatalf("provider calls = %d, want 2", got)
 			}
 		})
 	}
@@ -1362,6 +1370,12 @@ Plan should be canceled before execution.
 - The user cancels at confirmation
 `,
 				}),
+				`[DONE]`,
+			)
+		case 2:
+			assertCoderPlanningToolSet(t, providerRequestToolNames(payload["tools"]))
+			writeProviderSSE(t, w,
+				`{"choices":[{"delta":{"content":"已取消执行计划。"},"finish_reason":"stop"}]}`,
 				`[DONE]`,
 			)
 		default:
@@ -1435,10 +1449,165 @@ Plan should be canceled before execution.
 	if planningEndIndex := strings.Index(body[answerIndex:], `"type":"planning.end"`); planningEndIndex >= 0 {
 		t.Fatalf("did not expect planning.end after awaiting.answer cancel, got %s", body)
 	}
-	if got := providerCallCount.Load(); got != 1 {
-		t.Fatalf("provider calls = %d, want 1", got)
+	if got := providerCallCount.Load(); got != 2 {
+		t.Fatalf("provider calls = %d, want 2", got)
 	}
 	assertPersistedPlanningSnapshotOnly(t, fixture.server)
+}
+
+func TestCoderPlanningModeRejectCanGenerateRevisionAndApprove(t *testing.T) {
+	var providerCallCount atomic.Int32
+
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode model request: %v", err)
+		}
+		toolNames := providerRequestToolNames(payload["tools"])
+		switch call := providerCallCount.Add(1); call {
+		case 1:
+			assertCoderPlanningToolSet(t, toolNames)
+			writeProviderSSE(t, w,
+				providerToolCallFrame(t, "tool_plan_v1", "planning_write", map[string]any{
+					"title": "Revision Plan V1",
+					"markdown": `# Revision Plan V1
+
+## Summary
+Initial plan with too little test coverage.
+
+## Public Events And Storage
+- Emit the first planning revision
+
+## Implementation Changes
+- Implement the feature
+
+## Interfaces
+- Use mode=plan
+
+## Test Plan
+- Minimal tests
+
+## Assumptions
+- The user may request changes
+`,
+				}),
+				`[DONE]`,
+			)
+		case 2:
+			assertCoderPlanningToolSet(t, toolNames)
+			if !strings.Contains(string(mustJSONMarshal(t, payload)), "请补充测试范围") {
+				t.Fatalf("expected feedback reason in planning feedback prompt, got %#v", payload)
+			}
+			writeProviderSSE(t, w,
+				providerToolCallFrame(t, "tool_plan_v2", "planning_write", map[string]any{
+					"title": "Revision Plan V2",
+					"markdown": `# Revision Plan V2
+
+## Summary
+Revised plan with explicit test coverage.
+
+## Public Events And Storage
+- Emit the second planning revision
+
+## Implementation Changes
+- Implement the feature
+- Preserve rejected plan as non-executable
+
+## Interfaces
+- Use mode=plan
+
+## Test Plan
+- Cover approve
+- Cover reject
+- Cover revision
+
+## Assumptions
+- The user approves the revised plan
+`,
+				}),
+				`[DONE]`,
+			)
+		case 3:
+			assertStringSliceContains(t, toolNames, "bash", "file_read", "file_write", "file_edit", "file_grep", "datetime")
+			assertStringSliceExcludes(t, toolNames, "planning_write", "ask_user_question")
+			writeProviderSSE(t, w,
+				`{"choices":[{"delta":{"content":"executed revised plan"},"finish_reason":"stop"}]}`,
+				`[DONE]`,
+			)
+		case 4:
+			if len(toolNames) != 0 {
+				t.Fatalf("summary should not expose tools, got %#v", toolNames)
+			}
+			writeProviderSSE(t, w,
+				`{"choices":[{"delta":{"content":"summary for revised plan"},"finish_reason":"stop"}]}`,
+				`[DONE]`,
+			)
+		default:
+			t.Fatalf("unexpected provider call %d", call)
+		}
+	}, testFixtureOptions{
+		setupRuntime: func(root string, cfg *config.Config) {
+			workspace := filepath.Join(root, "workspace")
+			agentDir := filepath.Join(cfg.Paths.AgentsDir, "coder-app")
+			if err := os.MkdirAll(agentDir, 0o755); err != nil {
+				t.Fatalf("mkdir coder agent: %v", err)
+			}
+			if err := os.MkdirAll(workspace, 0o755); err != nil {
+				t.Fatalf("mkdir workspace: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte(strings.Join([]string{
+				"key: coder-app",
+				"name: Coder App",
+				"mode: CODER",
+				"modelConfig:",
+				"  modelKey: mock-model",
+				"runtimeConfig:",
+				"  workspaceRoot: " + filepath.ToSlash(workspace),
+			}, "\n")), 0o644); err != nil {
+				t.Fatalf("write coder agent: %v", err)
+			}
+		},
+	})
+
+	httpServer := newLoopbackServer(t, fixture.server)
+	defer httpServer.Close()
+
+	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"please plan revisions","agentKey":"coder-app","planningMode":true}`))
+	if err != nil {
+		t.Fatalf("post query: %v", err)
+	}
+	defer resp.Body.Close()
+
+	reader := bufio.NewReader(resp.Body)
+	var streamBody strings.Builder
+	runID, firstConfirmAwaitingID := readAwaitingApproval(t, reader, &streamBody, "confirm")
+	if !strings.Contains(streamBody.String(), runID+`_planning_1`) || !strings.Contains(streamBody.String(), runID+`_coder_plan_confirm_1`) {
+		t.Fatalf("expected first planning revision and confirmation, got %s", streamBody.String())
+	}
+	submitFrontendDecisionWithReason(t, fixture.server, runID, firstConfirmAwaitingID, "reject", "请补充测试范围")
+
+	_, secondConfirmAwaitingID := readAwaitingApproval(t, reader, &streamBody, "confirm")
+	if !strings.Contains(streamBody.String(), runID+`_planning_2`) || !strings.Contains(streamBody.String(), runID+`_coder_plan_confirm_2`) {
+		t.Fatalf("expected second planning revision and confirmation, got %s", streamBody.String())
+	}
+	secondPlanningFile := filepath.Join(fixture.cfg.Paths.ChatsDir, "plans", runID+"_planning_2.md")
+	secondPlanningBytes, readErr := os.ReadFile(secondPlanningFile)
+	if readErr != nil {
+		t.Fatalf("expected second planning markdown file: %v", readErr)
+	}
+	if !strings.Contains(string(secondPlanningBytes), "# Revision Plan V2") || !strings.Contains(string(secondPlanningBytes), "Cover revision") {
+		t.Fatalf("unexpected second planning markdown:\n%s", string(secondPlanningBytes))
+	}
+	submitFrontendDecision(t, fixture.server, runID, secondConfirmAwaitingID, "approve")
+	readRemainingSSEUntilEOF(t, reader, &streamBody)
+
+	body := streamBody.String()
+	if !strings.Contains(body, "executed revised plan") || !strings.Contains(body, "summary for revised plan") {
+		t.Fatalf("expected revised plan execution and summary, got %s", body)
+	}
+	if got := providerCallCount.Load(); got != 4 {
+		t.Fatalf("provider calls = %d, want 4", got)
+	}
 }
 
 func readAwaitingQuestion(t *testing.T, reader *bufio.Reader, streamBody *strings.Builder, expectedQuestion string) (string, string) {
@@ -1474,11 +1643,11 @@ func readAwaitingApproval(t *testing.T, reader *bufio.Reader, streamBody *string
 		if strings.HasPrefix(line, "data: {") {
 			payload := decodeSSELine(t, line)
 			if payload["type"] == "awaiting.ask" && awaitingApprovalID(payload) == expectedApprovalID {
-				if payload["mode"] != "approval" || payload["viewportType"] != "builtin" || payload["viewportKey"] != "approval" {
-					t.Fatalf("expected approval awaiting.ask, got %#v", payload)
+				if payload["mode"] != "plan" || payload["viewportType"] != "builtin" || payload["viewportKey"] != "plan" {
+					t.Fatalf("expected plan awaiting.ask, got %#v", payload)
 				}
 				if timeout, ok := payload["timeout"].(float64); !ok || timeout != 0 {
-					t.Fatalf("expected planning approval timeout 0, got %#v", payload)
+					t.Fatalf("expected planning confirmation timeout 0, got %#v", payload)
 				}
 				runID, _ := payload["runId"].(string)
 				awaitingID, _ := payload["awaitingId"].(string)
@@ -1562,6 +1731,15 @@ func readSSELineWithTimeout(t *testing.T, reader *bufio.Reader, waitingFor strin
 	}
 }
 
+func mustJSONMarshal(t *testing.T, value any) []byte {
+	t.Helper()
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("marshal json: %v", err)
+	}
+	return data
+}
+
 func assertPlanningWriteToolVisibility(t *testing.T, body string, wantVisible bool) {
 	t.Helper()
 	hasPlanningWriteTool := strings.Contains(body, `"toolName":"planning_write"`) || strings.Contains(body, `"toolId":"tool_plan"`)
@@ -1638,6 +1816,9 @@ func awaitingQuestionText(payload map[string]any) string {
 }
 
 func awaitingApprovalID(payload map[string]any) string {
+	if plan, _ := payload["plan"].(map[string]any); len(plan) > 0 {
+		return strings.TrimSpace(stringValue(plan["id"]))
+	}
 	approvals, _ := payload["approvals"].([]any)
 	if len(approvals) == 0 {
 		return ""
@@ -1666,9 +1847,25 @@ func submitFrontendAnswer(t *testing.T, server http.Handler, runID string, await
 }
 
 func submitFrontendDecision(t *testing.T, server http.Handler, runID string, awaitingID string, decision string) {
+	submitFrontendDecisionWithReason(t, server, runID, awaitingID, decision, "")
+}
+
+func submitFrontendDecisionWithReason(t *testing.T, server http.Handler, runID string, awaitingID string, decision string, reason string) {
 	t.Helper()
-	body := `{"agentKey":"coder-app","runId":"` + runID + `","awaitingId":"` + awaitingID + `","params":[{"id":"confirm","decision":"` + decision + `"}]}`
-	req := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBufferString(body))
+	item := map[string]any{"id": "confirm", "decision": decision}
+	if reason != "" {
+		item["reason"] = reason
+	}
+	body, err := json.Marshal(map[string]any{
+		"agentKey":   "coder-app",
+		"runId":      runID,
+		"awaitingId": awaitingID,
+		"params":     []map[string]any{item},
+	})
+	if err != nil {
+		t.Fatalf("marshal submit decision: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewBuffer(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	server.ServeHTTP(rec, req)

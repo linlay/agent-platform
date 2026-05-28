@@ -499,6 +499,38 @@ func TestDispatcherDefaultsQuestionAwaitAskViewport(t *testing.T) {
 	}
 }
 
+func TestDispatcherEmitsPlanModeAwaitAsk(t *testing.T) {
+	dispatcher := NewDispatcher(StreamRequest{
+		RunID:    "run_1",
+		ChatID:   "chat_1",
+		AgentKey: "agent_1",
+	})
+
+	events := dispatcher.Dispatch(AwaitAsk{
+		AwaitingID: "run_1_coder_plan_confirm_1",
+		Mode:       "plan",
+		Timeout:    0,
+		RunID:      "run_1",
+		Plan: map[string]any{
+			"id":         "confirm",
+			"planningId": "run_1_planning_1",
+			"title":      "实施此计划？",
+		},
+	})
+	assertEventTypes(t, events, "awaiting.ask")
+	payload := events[0].ToData()
+	if payload["viewportType"] != "builtin" || payload["viewportKey"] != "plan" {
+		t.Fatalf("expected builtin plan viewport metadata, got %#v", payload)
+	}
+	if _, ok := payload["approvals"]; ok {
+		t.Fatalf("did not expect approvals for plan awaiting.ask, got %#v", payload)
+	}
+	plan, _ := payload["plan"].(map[string]any)
+	if plan["id"] != "confirm" || plan["planningId"] != "run_1_planning_1" {
+		t.Fatalf("unexpected plan awaiting.ask payload %#v", payload)
+	}
+}
+
 func TestDispatcherSkipsDuplicateAwaitAskForSameAwaitingID(t *testing.T) {
 	dispatcher := NewDispatcher(StreamRequest{
 		RunID:  "run_1",
@@ -855,6 +887,29 @@ func TestEventDataMarshalsAwaitAskWithFormsBeforeTimestamp(t *testing.T) {
 	}
 }
 
+func TestEventDataMarshalsAwaitAskWithPlanBeforeTimestamp(t *testing.T) {
+	event := NewEvent("awaiting.ask", map[string]any{
+		"awaitingId": "run_1_coder_plan_confirm_1",
+		"mode":       "plan",
+		"timeout":    0,
+		"runId":      "run_1",
+		"plan": map[string]any{
+			"id":         "confirm",
+			"planningId": "run_1_planning_1",
+		},
+	})
+	data, err := json.Marshal(event.Data())
+	if err != nil {
+		t.Fatalf("marshal event data: %v", err)
+	}
+	text := string(data)
+	planIndex := strings.Index(text, `"plan":{"id":"confirm","planningId":"run_1_planning_1"}`)
+	timestampIndex := strings.Index(text, `"timestamp":`)
+	if planIndex < 0 || timestampIndex < 0 || planIndex >= timestampIndex {
+		t.Fatalf("expected plan before timestamp in %s", text)
+	}
+}
+
 func TestEventDataMarshalsApprovalAwaitAskWithQuestions(t *testing.T) {
 	event := NewEvent("awaiting.ask", map[string]any{
 		"awaitingId": "tool_1",
@@ -933,6 +988,36 @@ func TestDispatcherEmitsAwaitingAnswerForApprovalMode(t *testing.T) {
 	}
 	if approvals[0]["id"] != "cmd-1" || approvals[0]["command"] != "Proceed?" || approvals[0]["decision"] != "approve" {
 		t.Fatalf("unexpected approval awaiting.answer payload %#v", approvals[0])
+	}
+}
+
+func TestDispatcherEmitsAwaitingAnswerForPlanMode(t *testing.T) {
+	dispatcher := NewDispatcher(StreamRequest{
+		RunID:  "run_1",
+		ChatID: "chat_1",
+	})
+
+	events := dispatcher.Dispatch(AwaitingAnswer{
+		AwaitingID: "run_1_coder_plan_confirm_1",
+		Answer: map[string]any{
+			"mode":   "plan",
+			"status": "answered",
+			"plan": map[string]any{
+				"id":         "confirm",
+				"planningId": "run_1_planning_1",
+				"decision":   "reject",
+				"reason":     "请补充测试范围",
+			},
+		},
+	})
+	assertEventTypes(t, events, "awaiting.answer")
+	payload := events[0].ToData()
+	if payload["mode"] != "plan" || payload["status"] != "answered" {
+		t.Fatalf("unexpected plan awaiting.answer payload %#v", payload)
+	}
+	plan, _ := payload["plan"].(map[string]any)
+	if plan["id"] != "confirm" || plan["planningId"] != "run_1_planning_1" || plan["decision"] != "reject" || plan["reason"] != "请补充测试范围" {
+		t.Fatalf("unexpected formatted plan answer %#v", payload)
 	}
 }
 
@@ -1122,6 +1207,45 @@ func TestEventDataMarshalsAwaitingAnswerFormSubmitWithContractKeyOrder(t *testin
 		`"mode":"form"`,
 		`"status":"answered"`,
 		`"forms":[{"decision":"approve","form":{"applicant_id":"E1001"},"id":"form-1"}]`,
+		`"timestamp":`,
+	}
+	prev := -1
+	for _, part := range order {
+		idx := strings.Index(text, part)
+		if idx < 0 {
+			t.Fatalf("expected %q in %s", part, text)
+		}
+		if idx <= prev {
+			t.Fatalf("expected ordered keys in %s", text)
+		}
+		prev = idx
+	}
+}
+
+func TestEventDataMarshalsAwaitingAnswerPlanSubmitWithContractKeyOrder(t *testing.T) {
+	event := NewEvent("awaiting.answer", map[string]any{
+		"awaitingId": "run_1_coder_plan_confirm_1",
+		"mode":       "plan",
+		"status":     "answered",
+		"plan": map[string]any{
+			"id":         "confirm",
+			"planningId": "run_1_planning_1",
+			"decision":   "approve",
+		},
+	})
+	event.Seq = 14
+	data, err := json.Marshal(event.Data())
+	if err != nil {
+		t.Fatalf("marshal event data: %v", err)
+	}
+	text := string(data)
+	order := []string{
+		`"seq":14`,
+		`"type":"awaiting.answer"`,
+		`"awaitingId":"run_1_coder_plan_confirm_1"`,
+		`"mode":"plan"`,
+		`"status":"answered"`,
+		`"plan":{"decision":"approve","id":"confirm","planningId":"run_1_planning_1"}`,
 		`"timestamp":`,
 	}
 	prev := -1
