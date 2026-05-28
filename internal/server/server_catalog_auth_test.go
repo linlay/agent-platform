@@ -234,7 +234,7 @@ func TestAgentsEndpointReturnsCatalogFieldsAndScopeFiltering(t *testing.T) {
 					"key: coder-agent",
 					"name: Coder Agent",
 					"description: should stay out of summary json",
-					"role: should stay out too",
+					"role: Code assistant",
 					"mode: CODER",
 					"modelConfig:",
 					"  modelKey: agent-model",
@@ -294,10 +294,16 @@ func TestAgentsEndpointReturnsCatalogFieldsAndScopeFiltering(t *testing.T) {
 	if coder.DefaultModelKey != "execute-model" || coder.DefaultReasoningEffort != "HIGH" {
 		t.Fatalf("coder defaults = %#v", coder)
 	}
+	if coder.Role != "Code assistant" {
+		t.Fatalf("coder role = %q, want Code assistant", coder.Role)
+	}
 	if len(coder.Chats) != 1 || coder.Chats[0].ChatID != "chat-coder" {
 		t.Fatalf("coder chats = %#v", coder.Chats)
 	}
-	if strings.Contains(rec.Body.String(), "should stay out") || strings.Contains(rec.Body.String(), `"description"`) || strings.Contains(rec.Body.String(), `"role"`) || strings.Contains(rec.Body.String(), `"visibility"`) || strings.Contains(rec.Body.String(), `"kanban"`) {
+	if !strings.Contains(rec.Body.String(), `"role":"Code assistant"`) {
+		t.Fatalf("agents response should include role, got %s", rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "should stay out") || strings.Contains(rec.Body.String(), `"description"`) || strings.Contains(rec.Body.String(), `"visibility"`) || strings.Contains(rec.Body.String(), `"kanban"`) {
 		t.Fatalf("agents response should omit backend fields, got %s", rec.Body.String())
 	}
 

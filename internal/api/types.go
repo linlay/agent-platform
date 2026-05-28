@@ -349,7 +349,7 @@ type AgentSummary struct {
 	DefaultModelKey        string                `json:"defaultModelKey,omitempty"`
 	DefaultReasoningEffort string                `json:"defaultReasoningEffort,omitempty"`
 	Description            string                `json:"-"`
-	Role                   string                `json:"-"`
+	Role                   string                `json:"role,omitempty"`
 	Type                   string                `json:"type,omitempty"`
 	Stats                  AgentChatStats        `json:"stats"`
 	Chats                  []ChatSummaryResponse `json:"chats,omitempty"`

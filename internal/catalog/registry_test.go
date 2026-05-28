@@ -711,7 +711,7 @@ func TestAgentsSummaryIncludesCatalogFieldsAndFiltersScope(t *testing.T) {
 				Name:              "Assistant",
 				Icon:              map[string]any{"name": "bot", "color": "#336699"},
 				Description:       "hidden from json",
-				Role:              "also hidden",
+				Role:              "Assistant role",
 				Mode:              "REACT",
 				Workspace:         AgentWorkspaceConfig{Root: workspace},
 				VisibilityScopes:  []string{"nav", "copilot"},
@@ -720,6 +720,7 @@ func TestAgentsSummaryIncludesCatalogFieldsAndFiltersScope(t *testing.T) {
 			"worker": {
 				Key:      "worker",
 				Name:     "Worker",
+				Role:     "Code worker",
 				Mode:     AgentModeCoder,
 				ModelKey: "agent-model",
 				StageSettings: map[string]any{
@@ -758,8 +759,11 @@ func TestAgentsSummaryIncludesCatalogFieldsAndFiltersScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal agent summary: %v", err)
 	}
-	if strings.Contains(string(data), "description") || strings.Contains(string(data), "role") || strings.Contains(string(data), "visibility") || strings.Contains(string(data), "kanban") {
+	if strings.Contains(string(data), "description") || strings.Contains(string(data), "visibility") || strings.Contains(string(data), "kanban") {
 		t.Fatalf("summary json should omit backend fields, got %s", data)
+	}
+	if !strings.Contains(string(data), `"role":"Assistant role"`) {
+		t.Fatalf("summary json should include role, got %s", data)
 	}
 	if strings.Contains(string(data), "defaultModelKey") || strings.Contains(string(data), "defaultReasoningEffort") {
 		t.Fatalf("non-CODER summary should omit CODER defaults, got %s", data)
@@ -782,12 +786,16 @@ func TestAgentsSummaryIncludesCatalogFieldsAndFiltersScope(t *testing.T) {
 	if worker.DefaultModelKey != "execute-model" || worker.DefaultReasoningEffort != "HIGH" {
 		t.Fatalf("CODER defaults should prefer execute settings, got %#v", worker)
 	}
+	if worker.Role != "Code worker" {
+		t.Fatalf("CODER summary role = %q, want Code worker", worker.Role)
+	}
 	workerData, err := json.Marshal(worker)
 	if err != nil {
 		t.Fatalf("marshal CODER agent summary: %v", err)
 	}
 	if !strings.Contains(string(workerData), `"defaultModelKey":"execute-model"`) ||
-		!strings.Contains(string(workerData), `"defaultReasoningEffort":"HIGH"`) {
+		!strings.Contains(string(workerData), `"defaultReasoningEffort":"HIGH"`) ||
+		!strings.Contains(string(workerData), `"role":"Code worker"`) {
 		t.Fatalf("CODER summary JSON should include root defaults, got %s", workerData)
 	}
 }
