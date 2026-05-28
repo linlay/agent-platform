@@ -18,8 +18,24 @@ import (
 // 但会携带 hidden 标记，供 webclient / export / search 避免渲染成可见用户发言。
 // 典型来源：automation 触发的定时任务。
 func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
-	prepared, err := s.prepareQuery(r)
+	admission, err := s.prepareQueryAdmission(r, true)
 	if err != nil {
+		var statusErr *statusError
+		if errors.As(err, &statusErr) {
+			writeJSON(w, statusErr.status, api.Failure(statusErr.status, statusErr.message))
+			return
+		}
+		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
+		return
+	}
+	release, availability := s.tryAcquireQuery(admission)
+	if !availability.CanQuery {
+		writeJSON(w, http.StatusTooManyRequests, queryAvailabilityFailure(availability))
+		return
+	}
+	prepared, err := s.completeQueryPreparation(r.Context(), admission, release)
+	if err != nil {
+		releaseQuery(release)
 		var statusErr *statusError
 		if errors.As(err, &statusErr) {
 			writeJSON(w, statusErr.status, api.Failure(statusErr.status, statusErr.message))
@@ -48,6 +64,7 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 	principal := PrincipalFromContext(r.Context())
 	eventBus, ok := s.deps.Runs.EventBus(prepared.req.RunID)
 	if !ok {
+		releaseQuery(prepared.release)
 		s.deps.Runs.Interrupt(api.InterruptRequest{RunID: prepared.req.RunID})
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, "run event bus unavailable"))
 		return
@@ -64,6 +81,7 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 		LoggingEnabled: s.deps.Config.Logging.SSE.Enabled,
 	})
 	if err != nil {
+		releaseQuery(prepared.release)
 		s.deps.Runs.Interrupt(api.InterruptRequest{RunID: prepared.req.RunID})
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
@@ -73,6 +91,7 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 
 	observer, err := s.deps.Runs.AttachObserver(prepared.req.RunID, 0)
 	if err != nil {
+		releaseQuery(prepared.release)
 		s.deps.Runs.Interrupt(api.InterruptRequest{RunID: prepared.req.RunID})
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
@@ -115,6 +134,7 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 			s.autoLearnIfEnabled(completion.ChatID, completion.RunID, prepared.session.AgentKey, prepared.session.TeamID, principal, prepared.req.RequestID)
 		},
 		OnComplete: func(runID string) {
+			releaseQuery(prepared.release)
 			s.deps.Runs.Finish(runID)
 			s.broadcast("run.finished", map[string]any{
 				"runId":  runID,
@@ -140,6 +160,7 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 }
 
 func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, prepared preparedQuery) {
+	defer releaseQuery(prepared.release)
 	control := contracts.NewRunControl(ctx, prepared.req.RunID)
 	control.SetObserverCount(1)
 	runCtx := contracts.WithRunControl(control.Context(), control)

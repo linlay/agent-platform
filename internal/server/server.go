@@ -75,6 +75,7 @@ type Server struct {
 	ticketService     *ResourceTicketService
 	wsHandler         *ws.Handler
 	deferredAwaitings *DeferredAwaitingStore
+	queryLimiter      *agentQueryLimiter
 	uploadMu          sync.Mutex
 	proxyMu           sync.RWMutex
 	proxyRuns         map[string]*proxyRunRoute
@@ -132,6 +133,7 @@ func New(deps Dependencies) (*Server, error) {
 		authVerifier:      authVerifier,
 		ticketService:     NewResourceTicketService(deps.Config.ResourceTicket),
 		deferredAwaitings: NewDeferredAwaitingStore(),
+		queryLimiter:      newAgentQueryLimiter(),
 		proxyRuns:         map[string]*proxyRunRoute{},
 	}
 	s.hydrateDeferredAwaitings()

@@ -55,6 +55,25 @@ type QueryModelOptions struct {
 	ReasoningEffort string `json:"reasoningEffort,omitempty"`
 }
 
+type QueryAvailabilityResponse struct {
+	CanQuery    bool                 `json:"canQuery"`
+	Code        string               `json:"code"`
+	Message     string               `json:"message"`
+	AgentKey    string               `json:"agentKey"`
+	ChatID      string               `json:"chatId"`
+	TeamID      string               `json:"teamId,omitempty"`
+	Concurrency int                  `json:"concurrency"`
+	ActiveCount int                  `json:"activeCount"`
+	ActiveRuns  []QueryActiveRunInfo `json:"activeRuns"`
+}
+
+type QueryActiveRunInfo struct {
+	RunID     string `json:"runId"`
+	ChatID    string `json:"chatId"`
+	AgentKey  string `json:"agentKey"`
+	StartedAt int64  `json:"startedAt"`
+}
+
 type CoderConfig struct {
 	ModelKey        string `json:"modelKey,omitempty"`
 	ReasoningEffort string `json:"reasoningEffort,omitempty"`

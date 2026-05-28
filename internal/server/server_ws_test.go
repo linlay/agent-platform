@@ -170,6 +170,130 @@ func waitForLogText(t *testing.T, buffer *lockedLogBuffer, needle string) {
 	t.Fatalf("expected log to contain %q, got %q", needle, buffer.String())
 }
 
+func TestWebSocketQueryAvailabilityReportsConcurrencyLimit(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		notifications: ws.NewHub(),
+		configure: func(cfg *config.Config) {
+			cfg.WebSocket.WriteQueueSize = 8
+			cfg.WebSocket.PingIntervalMs = 30000
+		},
+	})
+	release, availability := fixture.server.queryLimiter.TryAcquire("mock-agent", "run-active", "chat-active", "", 1)
+	defer releaseQuery(release)
+	if !availability.CanQuery {
+		t.Fatalf("expected manual acquire to succeed: %#v", availability)
+	}
+
+	server := httptest.NewServer(fixture.server)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
+	conn, _, err := gws.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer conn.Close()
+	readConnectedPush(t, conn)
+
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame: ws.FrameRequest,
+		Type:  "/api/query/availability",
+		ID:    "req_query_availability",
+		Payload: ws.MarshalPayload(map[string]any{
+			"agentKey": "mock-agent",
+			"chatId":   "chat-next",
+		}),
+	}); err != nil {
+		t.Fatalf("write availability request: %v", err)
+	}
+	var frame ws.ResponseFrame
+	if err := conn.ReadJSON(&frame); err != nil {
+		t.Fatalf("read availability response: %v", err)
+	}
+	if frame.Frame != ws.FrameResponse || frame.Type != "/api/query/availability" || frame.Code != 0 {
+		t.Fatalf("unexpected availability response: %#v", frame)
+	}
+	data, err := marshalResponseData[api.QueryAvailabilityResponse](frame.Data)
+	if err != nil {
+		t.Fatalf("decode availability data: %v", err)
+	}
+	if data.CanQuery || data.Code != "agent_concurrency_limit_exceeded" || data.ActiveCount != 1 {
+		t.Fatalf("expected concurrency limit response, got %#v", data)
+	}
+}
+
+func TestWebSocketQueryConcurrencyLimitReturnsErrorAndCompletesRequest(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		notifications: ws.NewHub(),
+		configure: func(cfg *config.Config) {
+			cfg.WebSocket.WriteQueueSize = 8
+			cfg.WebSocket.PingIntervalMs = 30000
+		},
+	})
+	release, availability := fixture.server.queryLimiter.TryAcquire("mock-agent", "run-active", "chat-active", "", 1)
+	defer releaseQuery(release)
+	if !availability.CanQuery {
+		t.Fatalf("expected manual acquire to succeed: %#v", availability)
+	}
+
+	server := httptest.NewServer(fixture.server)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
+	conn, _, err := gws.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer conn.Close()
+	readConnectedPush(t, conn)
+
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame: ws.FrameRequest,
+		Type:  "/api/query",
+		ID:    "req_query_limited",
+		Payload: ws.MarshalPayload(map[string]any{
+			"agentKey": "mock-agent",
+			"chatId":   "chat-ws-limited",
+			"message":  "hello",
+		}),
+	}); err != nil {
+		t.Fatalf("write query request: %v", err)
+	}
+	var limited ws.ErrorFrame
+	if err := conn.ReadJSON(&limited); err != nil {
+		t.Fatalf("read query error: %v", err)
+	}
+	if limited.Frame != ws.FrameError || limited.Type != "agent_concurrency_limit_exceeded" || limited.Code != http.StatusTooManyRequests {
+		t.Fatalf("unexpected limited error frame: %#v", limited)
+	}
+
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame:   ws.FrameRequest,
+		Type:    "/api/agents",
+		ID:      "req_query_limited",
+		Payload: ws.MarshalPayload(map[string]any{}),
+	}); err != nil {
+		t.Fatalf("write reused id request: %v", err)
+	}
+	var agents ws.ResponseFrame
+	if err := conn.ReadJSON(&agents); err != nil {
+		t.Fatalf("read agents response: %v", err)
+	}
+	if agents.Frame != ws.FrameResponse || agents.Type != "/api/agents" || agents.ID != "req_query_limited" {
+		t.Fatalf("expected request id to be completed after limit error, got %#v", agents)
+	}
+
+	chatRec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId=chat-ws-limited", nil))
+	if chatRec.Code != http.StatusNotFound {
+		t.Fatalf("expected limited ws query to avoid chat creation, got %d: %s", chatRec.Code, chatRec.Body.String())
+	}
+}
+
 func TestWebSocketChatReturnsActiveRunConflict(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)

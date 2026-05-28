@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"sort"
@@ -29,6 +30,14 @@ type preparedQuery struct {
 	memoryUsageSummary *api.MemoryUsageSummary
 	systemInitLines    []chat.QueryLineSystemInit
 	resourceBaseURL    string
+	release            queryReleaseFunc
+}
+
+type queryAdmission struct {
+	req             api.QueryRequest
+	existingSummary *chat.Summary
+	agentDef        catalog.AgentDefinition
+	resourceBaseURL string
 }
 
 type statusError struct {
@@ -43,17 +52,17 @@ func (e *statusError) Error() string {
 	return e.message
 }
 
-func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
+func (s *Server) prepareQueryAdmission(r *http.Request, requireMessage bool) (queryAdmission, error) {
 	var req api.QueryRequest
 	if err := decodeJSON(r, &req); err != nil {
-		return preparedQuery{}, &statusError{status: http.StatusBadRequest, message: "invalid request body"}
+		return queryAdmission{}, &statusError{status: http.StatusBadRequest, message: "invalid request body"}
 	}
-	if strings.TrimSpace(req.Message) == "" {
-		return preparedQuery{}, &statusError{status: http.StatusBadRequest, message: "message is required"}
+	if requireMessage && strings.TrimSpace(req.Message) == "" {
+		return queryAdmission{}, &statusError{status: http.StatusBadRequest, message: "message is required"}
 	}
 	accessLevel, ok := contracts.NormalizeAccessLevel(req.AccessLevel)
 	if !ok {
-		return preparedQuery{}, &statusError{status: http.StatusBadRequest, message: "accessLevel must be default, auto_approve, or full_access"}
+		return queryAdmission{}, &statusError{status: http.StatusBadRequest, message: "accessLevel must be default, auto_approve, or full_access"}
 	}
 	req.AccessLevel = accessLevel
 
@@ -69,7 +78,10 @@ func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
 	if chatID == "" {
 		chatID = newChatID()
 	}
-	existingSummary, _ := s.deps.Chats.Summary(chatID)
+	var existingSummary *chat.Summary
+	if s.deps.Chats != nil {
+		existingSummary, _ = s.deps.Chats.Summary(chatID)
+	}
 	teamID := strings.TrimSpace(req.TeamID)
 	if teamID == "" && existingSummary != nil {
 		teamID = existingSummary.TeamID
@@ -96,31 +108,31 @@ func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
 	}
 	agentDef, ok := s.deps.Registry.AgentDefinition(agentKey)
 	if !ok {
-		return preparedQuery{}, &statusError{status: http.StatusBadRequest, message: "agent not found"}
+		return queryAdmission{}, &statusError{status: http.StatusBadRequest, message: "agent not found"}
 	}
 	if isProxyRoutedAgent(agentDef) && proxyRequestHasReservedCWD(req.Params) {
-		return preparedQuery{}, &statusError{
+		return queryAdmission{}, &statusError{
 			status:  http.StatusBadRequest,
 			message: "params.cwd is reserved for proxy-routed agents; configure runtimeConfig.workspaceRoot in agent.yml",
 		}
 	}
 	if catalog.AgentUsesACPCoderBackend(agentDef) && req.PlanningMode != nil && *req.PlanningMode {
-		return preparedQuery{}, &statusError{
+		return queryAdmission{}, &statusError{
 			status:  http.StatusBadRequest,
 			message: "planningMode is not supported for CODER agents using runtimeConfig.coderBackend: acp",
 		}
 	}
 	if statusErr := s.applyProxyRoutingConfig(&agentDef); statusErr != nil {
-		return preparedQuery{}, statusErr
+		return queryAdmission{}, statusErr
 	}
 	if err := s.validateQueryModelOptions(req.Model, agentDef); err != nil {
-		return preparedQuery{}, err
+		return queryAdmission{}, err
 	}
 	if err := s.validateCoderConfig(req.CoderConfig, agentDef); err != nil {
-		return preparedQuery{}, err
+		return queryAdmission{}, err
 	}
 	if channelID != "" && s.deps.Channels != nil && !s.deps.Channels.IsAgentAllowed(channelID, agentKey) {
-		return preparedQuery{}, &statusError{
+		return queryAdmission{}, &statusError{
 			status:  http.StatusForbidden,
 			message: "agent " + `"` + agentKey + `" is not allowed on channel "` + channelID + `"`,
 		}
@@ -132,6 +144,19 @@ func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
 	req.RunID = runID
 	req.TeamID = teamID
 
+	return queryAdmission{
+		req:             req,
+		existingSummary: existingSummary,
+		agentDef:        agentDef,
+		resourceBaseURL: requestBaseURL(r),
+	}, nil
+}
+
+func (s *Server) completeQueryPreparation(ctx context.Context, admission queryAdmission, release queryReleaseFunc) (preparedQuery, error) {
+	req := admission.req
+	agentDef := admission.agentDef
+	chatID := req.ChatID
+	agentKey := req.AgentKey
 	summary, created, err := s.deps.Chats.EnsureChat(chatID, agentKey, req.TeamID, req.Message)
 	if err != nil {
 		return preparedQuery{}, err
@@ -151,7 +176,7 @@ func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
 			"timestamp": summary.CreatedAt,
 		})
 	}
-	session, err := s.BuildQuerySession(r.Context(), req, summary, agentDef, querySessionBuildOptions{
+	session, err := s.BuildQuerySession(ctx, req, summary, agentDef, querySessionBuildOptions{
 		Created:           created,
 		IncludeHistory:    !created,
 		IncludeMemory:     true,
@@ -178,8 +203,17 @@ func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
 		session:            session,
 		memoryUsageSummary: session.MemoryUsageSummary,
 		systemInitLines:    systemInitLines,
-		resourceBaseURL:    requestBaseURL(r),
+		resourceBaseURL:    admission.resourceBaseURL,
+		release:            release,
 	}, nil
+}
+
+func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
+	admission, err := s.prepareQueryAdmission(r, true)
+	if err != nil {
+		return preparedQuery{}, err
+	}
+	return s.completeQueryPreparation(r.Context(), admission, nil)
 }
 
 func buildMemoryUsageSummary(staticMemoryPrompt string, bundle memory.ContextBundle) *api.MemoryUsageSummary {

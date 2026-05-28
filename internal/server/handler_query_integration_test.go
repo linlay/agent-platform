@@ -112,6 +112,92 @@ func TestQueryRejectsInvalidAccessLevel(t *testing.T) {
 	}
 }
 
+func TestQueryAvailabilityReportsAgentConcurrencyLimit(t *testing.T) {
+	fixture := newTestFixture(t)
+	release, availability := fixture.server.queryLimiter.TryAcquire("mock-agent", "run-active", "chat-active", "", 1)
+	defer releaseQuery(release)
+	if !availability.CanQuery {
+		t.Fatalf("expected manual acquire to succeed: %#v", availability)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/query/availability", bytes.NewBufferString(`{"agentKey":"mock-agent","chatId":"chat-next"}`))
+	req.Header.Set("Content-Type", "application/json")
+	fixture.server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var response api.ApiResponse[api.QueryAvailabilityResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Data.CanQuery || response.Data.Code != "agent_concurrency_limit_exceeded" {
+		t.Fatalf("expected concurrency limit response, got %#v", response.Data)
+	}
+	if response.Data.Concurrency != 1 || response.Data.ActiveCount != 1 || len(response.Data.ActiveRuns) != 1 {
+		t.Fatalf("unexpected active run details: %#v", response.Data)
+	}
+	if response.Data.ActiveRuns[0].RunID != "run-active" || response.Data.ActiveRuns[0].ChatID != "chat-active" {
+		t.Fatalf("unexpected active run: %#v", response.Data.ActiveRuns[0])
+	}
+}
+
+func TestQueryConcurrencyLimitReturns429WithoutCreatingChat(t *testing.T) {
+	fixture := newTestFixture(t)
+	release, availability := fixture.server.queryLimiter.TryAcquire("mock-agent", "run-active", "chat-active", "", 1)
+	defer releaseQuery(release)
+	if !availability.CanQuery {
+		t.Fatalf("expected manual acquire to succeed: %#v", availability)
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"agentKey":"mock-agent","chatId":"chat-limited","message":"hello"}`))
+	req.Header.Set("Content-Type", "application/json")
+	fixture.server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var response api.ApiResponse[map[string]any]
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if response.Data["code"] != "agent_concurrency_limit_exceeded" {
+		t.Fatalf("expected concurrency error code, got %#v", response.Data)
+	}
+
+	chatRec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId=chat-limited", nil))
+	if chatRec.Code != http.StatusNotFound {
+		t.Fatalf("expected limited query to avoid chat creation, got %d: %s", chatRec.Code, chatRec.Body.String())
+	}
+}
+
+func TestQueryReleasesConcurrencySlotAfterCompletion(t *testing.T) {
+	fixture := newTestFixture(t)
+
+	queryRec := httptest.NewRecorder()
+	queryReq := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"agentKey":"mock-agent","chatId":"chat-release","message":"hello"}`))
+	queryReq.Header.Set("Content-Type", "application/json")
+	fixture.server.ServeHTTP(queryRec, queryReq)
+	if queryRec.Code != http.StatusOK {
+		t.Fatalf("expected query success, got %d: %s", queryRec.Code, queryRec.Body.String())
+	}
+
+	availabilityRec := httptest.NewRecorder()
+	availabilityReq := httptest.NewRequest(http.MethodPost, "/api/query/availability", bytes.NewBufferString(`{"agentKey":"mock-agent","chatId":"chat-next"}`))
+	availabilityReq.Header.Set("Content-Type", "application/json")
+	fixture.server.ServeHTTP(availabilityRec, availabilityReq)
+	var response api.ApiResponse[api.QueryAvailabilityResponse]
+	if err := json.Unmarshal(availabilityRec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode availability: %v", err)
+	}
+	if !response.Data.CanQuery || response.Data.ActiveCount != 0 {
+		t.Fatalf("expected slot to be released, got %#v", response.Data)
+	}
+}
+
 func TestQueryUsesProvidedRunIDAndPersistsItEverywhere(t *testing.T) {
 	fixture := newTestFixture(t)
 	server := fixture.server

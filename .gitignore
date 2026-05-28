@@ -33,19 +33,12 @@ coverage.out
 .env
 /application.yaml
 /application.yml
-/configs/*.yml
-/configs/*.yaml
-/configs/*.pem
 /configs/**/*.yml
 /configs/**/*.yaml
 /configs/**/*.pem
-!/configs/*.example.yml
-!/configs/*.example.yaml
-!/configs/*.example.pem
 !/configs/**/*.example.yml
 !/configs/**/*.example.yaml
 !/configs/**/*.example.pem
-!/configs/prompts.yml
 
 # IDE/Editor
 .classpath

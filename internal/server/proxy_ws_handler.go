@@ -71,6 +71,7 @@ func (s *Server) wsProxyQuery(
 	runCtx, control, _ := s.deps.Runs.Register(ctx, prepared.session)
 	eventBus, ok := s.deps.Runs.EventBus(prepared.req.RunID)
 	if !ok {
+		releaseQuery(prepared.release)
 		s.deps.Runs.Interrupt(api.InterruptRequest{RunID: prepared.req.RunID})
 		conn.ReleaseStream(req.ID)
 		conn.SendError(req.ID, "internal_error", 500, "run event bus unavailable", nil)
@@ -78,6 +79,7 @@ func (s *Server) wsProxyQuery(
 	}
 	observer, attachErr := s.deps.Runs.AttachObserver(prepared.req.RunID, 0)
 	if attachErr != nil {
+		releaseQuery(prepared.release)
 		s.deps.Runs.Interrupt(api.InterruptRequest{RunID: prepared.req.RunID})
 		conn.ReleaseStream(req.ID)
 		s.sendWSAttachError(conn, req.ID, prepared.req.RunID, prepared.req.ChatID, attachErr)
@@ -121,6 +123,7 @@ func (s *Server) handleProxyWebSocketQuery(w http.ResponseWriter, r *http.Reques
 	runCtx, control, _ := s.deps.Runs.Register(r.Context(), prepared.session)
 	eventBus, ok := s.deps.Runs.EventBus(prepared.req.RunID)
 	if !ok {
+		releaseQuery(prepared.release)
 		s.deps.Runs.Interrupt(api.InterruptRequest{RunID: prepared.req.RunID})
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, "run event bus unavailable"))
 		return
@@ -132,6 +135,7 @@ func (s *Server) handleProxyWebSocketQuery(w http.ResponseWriter, r *http.Reques
 		LoggingEnabled: s.deps.Config.Logging.SSE.Enabled,
 	})
 	if err != nil {
+		releaseQuery(prepared.release)
 		s.deps.Runs.Interrupt(api.InterruptRequest{RunID: prepared.req.RunID})
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
@@ -141,6 +145,7 @@ func (s *Server) handleProxyWebSocketQuery(w http.ResponseWriter, r *http.Reques
 
 	observer, attachErr := s.deps.Runs.AttachObserver(prepared.req.RunID, 0)
 	if attachErr != nil {
+		releaseQuery(prepared.release)
 		s.deps.Runs.Interrupt(api.InterruptRequest{RunID: prepared.req.RunID})
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, attachErr.Error()))
 		return
@@ -192,6 +197,7 @@ func (s *Server) runProxyWebSocket(
 	recorder *proxyEventRecorder,
 ) {
 	defer func() {
+		releaseQuery(prepared.release)
 		if route != nil {
 			s.unregisterProxyRun(prepared.req.RunID, route)
 			close(route.done)

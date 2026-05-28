@@ -20,7 +20,7 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	prepared, err := s.prepareQuery(httpReq)
+	admission, err := s.prepareQueryAdmission(httpReq, true)
 	if err != nil {
 		var statusErr *statusError
 		if errors.As(err, &statusErr) {
@@ -31,12 +31,30 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	prepared.resourceBaseURL = conn.RequestBaseURL()
-	if _, reserveErr := conn.ReserveStream(req.ID, prepared.req.RunID); reserveErr != nil {
+	admission.resourceBaseURL = conn.RequestBaseURL()
+	release, availability := s.tryAcquireQuery(admission)
+	if !availability.CanQuery {
+		conn.SendError(req.ID, queryAvailabilityCodeConcurrencyLimit, http.StatusTooManyRequests, availability.Message, queryAvailabilityDetails(availability))
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	if _, reserveErr := conn.ReserveStream(req.ID, admission.req.RunID); reserveErr != nil {
+		releaseQuery(release)
 		if protoErr, ok := reserveErr.(*ws.ProtocolError); ok {
 			conn.SendProtocolError(req.ID, protoErr)
 		}
 		conn.CompleteRequest(req.ID)
+		return
+	}
+	prepared, err := s.completeQueryPreparation(ctx, admission, release)
+	if err != nil {
+		releaseQuery(release)
+		if statusErr, ok := err.(*statusError); ok {
+			conn.SendError(req.ID, "invalid_request", statusErr.status, statusErr.message, nil)
+		} else {
+			conn.SendError(req.ID, "internal_error", 500, err.Error(), nil)
+		}
+		conn.ReleaseStream(req.ID)
 		return
 	}
 	if isProxyRoutedAgent(prepared.agentDef) {
@@ -47,6 +65,7 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 	runCtx, control, _ := s.deps.Runs.Register(ctx, prepared.session)
 	eventBus, ok := s.deps.Runs.EventBus(prepared.req.RunID)
 	if !ok {
+		releaseQuery(prepared.release)
 		s.deps.Runs.Interrupt(api.InterruptRequest{RunID: prepared.req.RunID})
 		conn.ReleaseStream(req.ID)
 		conn.SendError(req.ID, "internal_error", 500, "run event bus unavailable", nil)
@@ -54,6 +73,7 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 	}
 	observer, attachErr := s.deps.Runs.AttachObserver(prepared.req.RunID, 0)
 	if attachErr != nil {
+		releaseQuery(prepared.release)
 		s.deps.Runs.Interrupt(api.InterruptRequest{RunID: prepared.req.RunID})
 		conn.ReleaseStream(req.ID)
 		s.sendWSAttachError(conn, req.ID, prepared.req.RunID, prepared.req.ChatID, attachErr)
@@ -102,11 +122,35 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 			s.autoLearnIfEnabled(completion.ChatID, completion.RunID, prepared.session.AgentKey, prepared.session.TeamID, principal, prepared.req.RequestID)
 		},
 		OnComplete: func(runID string) {
+			releaseQuery(prepared.release)
 			s.deps.Runs.Finish(runID)
 			s.broadcast("run.finished", map[string]any{"runId": runID, "chatId": prepared.req.ChatID})
 		},
 	})
 	conn.StartStreamForward(req.ID, observer)
+}
+
+func (s *Server) wsQueryAvailability(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, "/api/query/availability", bytes.NewReader(req.Payload))
+	if err != nil {
+		conn.SendError(req.ID, "internal_error", 500, err.Error(), nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	admission, err := s.prepareQueryAdmission(httpReq, false)
+	if err != nil {
+		var statusErr *statusError
+		if errors.As(err, &statusErr) {
+			conn.SendError(req.ID, "invalid_request", statusErr.status, statusErr.message, nil)
+		} else {
+			conn.SendError(req.ID, "internal_error", 500, err.Error(), nil)
+		}
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	admission.resourceBaseURL = conn.RequestBaseURL()
+	conn.SendResponse(req.Type, req.ID, 0, "success", s.queryAvailability(admission))
+	conn.CompleteRequest(req.ID)
 }
 
 func (s *Server) wsAttach(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {

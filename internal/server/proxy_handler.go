@@ -28,6 +28,7 @@ import (
 // (content.snapshot, reasoning.snapshot, tool.snapshot, tool.result, …), so
 // we accumulate per-id buffers and synthesise snapshot events at *.end.
 func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepared preparedQuery) {
+	defer releaseQuery(prepared.release)
 	req := prepared.req
 	agentDef := prepared.agentDef
 	proxy := agentDef.ProxyConfig
