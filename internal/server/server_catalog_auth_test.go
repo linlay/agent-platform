@@ -307,7 +307,7 @@ func TestAgentsEndpointReturnsCatalogFieldsAndScopeFiltering(t *testing.T) {
 	if !ok {
 		t.Fatalf("coder summary should include visibility meta, got %#v", coder.Meta)
 	}
-	if !reflect.DeepEqual(visibility["scopes"], []any{"nav", "copilot", "invoke"}) {
+	if !reflect.DeepEqual(visibility["scopes"], []any{"nav"}) {
 		t.Fatalf("coder visibility scopes = %#v", visibility["scopes"])
 	}
 	if strings.Contains(rec.Body.String(), "should stay out") || strings.Contains(rec.Body.String(), `"description"`) || strings.Contains(rec.Body.String(), `"kanban"`) {
@@ -352,7 +352,7 @@ func TestAgentsEndpointReturnsCatalogFieldsAndScopeFiltering(t *testing.T) {
 	for _, item := range response.Data {
 		keys = append(keys, item.Key)
 	}
-	if !containsString(keys, "invoke-agent") || !containsString(keys, "mock-agent") || containsString(keys, "internal-agent") {
+	if !containsString(keys, "invoke-agent") || containsString(keys, "mock-agent") || containsString(keys, "internal-agent") {
 		t.Fatalf("invoke scope keys = %#v", keys)
 	}
 

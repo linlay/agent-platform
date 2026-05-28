@@ -126,11 +126,43 @@ func TestParseAgentFileDefaultsModeVisibilityAndKanban(t *testing.T) {
 	if def.Mode != "REACT" {
 		t.Fatalf("mode = %q, want REACT", def.Mode)
 	}
-	if !reflect.DeepEqual(def.VisibilityScopes, []string{"nav", "copilot", "invoke"}) {
+	if !reflect.DeepEqual(def.VisibilityScopes, []string{"nav"}) {
 		t.Fatalf("visibility scopes = %#v", def.VisibilityScopes)
 	}
 	if def.KanbanConcurrency != 1 {
 		t.Fatalf("kanban concurrency = %d, want 1", def.KanbanConcurrency)
+	}
+}
+
+func TestParseAgentFileDefaultsEmptyOrInvalidVisibilityToNav(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		visibility string
+	}{
+		{name: "empty scopes", visibility: "visibility:\n  scopes: []\n"},
+		{name: "invalid scopes", visibility: "visibility:\n  scopes:\n    - nope\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			path := filepath.Join(root, "agent.yml")
+			content := "" +
+				"key: demo\n" +
+				"name: Demo\n" +
+				"modelConfig:\n" +
+				"  modelKey: demo-model\n" +
+				tc.visibility
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+				t.Fatalf("write agent file: %v", err)
+			}
+
+			def, err := parseAgentFile(path)
+			if err != nil {
+				t.Fatalf("parse agent file: %v", err)
+			}
+			if !reflect.DeepEqual(def.VisibilityScopes, []string{"nav"}) {
+				t.Fatalf("visibility scopes = %#v", def.VisibilityScopes)
+			}
+		})
 	}
 }
 

@@ -168,6 +168,17 @@ func newTestFrameOrchestrator(agent contracts.AgentEngine, registry map[string]c
 	return newTestFrameOrchestratorWithContext(context.Background(), agent, registry, emitted, routed)
 }
 
+func testInvocableAgentRegistry(registry map[string]catalog.AgentDefinition) map[string]catalog.AgentDefinition {
+	out := make(map[string]catalog.AgentDefinition, len(registry))
+	for key, def := range registry {
+		if len(def.VisibilityScopes) == 0 {
+			def.VisibilityScopes = []string{"invoke"}
+		}
+		out[key] = def
+	}
+	return out
+}
+
 func newTestFrameOrchestratorWithContext(runCtx context.Context, agent contracts.AgentEngine, registry map[string]catalog.AgentDefinition, emitted *[]contracts.AgentDelta, routed *[]stream.StreamInput) *frameOrchestrator {
 	return &frameOrchestrator{
 		runCtx:  runCtx,
@@ -176,7 +187,7 @@ func newTestFrameOrchestratorWithContext(runCtx context.Context, agent contracts
 		summary: chat.Summary{ChatID: "chat_1", ChatName: "demo"},
 		agent:   agent,
 		registry: orchestratorRegistry{
-			agents: registry,
+			agents: testInvocableAgentRegistry(registry),
 		},
 		buildQuerySession: func(_ context.Context, req api.QueryRequest, _ chat.Summary, agentDef catalog.AgentDefinition, options querySessionBuildOptions) (contracts.QuerySession, error) {
 			if options.IncludeHistory || options.IncludeMemory || options.AllowInvokeAgents {

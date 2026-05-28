@@ -12,7 +12,7 @@ const AgentCoderBackendNative = "native"
 const AgentCoderBackendACP = "acp"
 const AgentWorkspaceRootChat = "@chat"
 
-var defaultAgentVisibilityScopes = []string{"nav", "copilot", "invoke"}
+var defaultAgentVisibilityScopes = []string{"nav"}
 
 var coderAgentProfile = agentModeProfile{
 	Tools: []string{
