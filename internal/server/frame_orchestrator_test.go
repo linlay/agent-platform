@@ -319,7 +319,7 @@ func TestFrameOrchestratorRunsProxySubAgent(t *testing.T) {
 	mainStream := &stubOrchestratableStream{
 		deltas: []contracts.AgentDelta{
 			newInvokeAgentsDelta(contracts.SubAgentTaskSpec{
-				SubAgentKey: "qiuer",
+				SubAgentKey: "remote-query",
 				TaskText:    "查一下研发部",
 				TaskName:    "云端查询",
 			}),
@@ -328,9 +328,9 @@ func TestFrameOrchestratorRunsProxySubAgent(t *testing.T) {
 	var emitted []contracts.AgentDelta
 	var routed []stream.StreamInput
 	orchestrator := newTestFrameOrchestrator(&orchestratorAgentEngine{}, map[string]catalog.AgentDefinition{
-		"qiuer": {
-			Key:  "qiuer",
-			Name: "Qiuer",
+		"remote-query": {
+			Key:  "remote-query",
+			Name: "Remote Query",
 			Mode: "PROXY",
 			Workspace: catalog.AgentWorkspaceConfig{
 				Root: workspace,
@@ -472,7 +472,7 @@ func TestFrameOrchestratorReportsProxySubAgentNestedError(t *testing.T) {
 	mainStream := &stubOrchestratableStream{
 		deltas: []contracts.AgentDelta{
 			newInvokeAgentsDelta(contracts.SubAgentTaskSpec{
-				SubAgentKey: "qiuer",
+				SubAgentKey: "remote-query",
 				TaskText:    "查一下研发部",
 				TaskName:    "云端查询",
 			}),
@@ -481,9 +481,9 @@ func TestFrameOrchestratorReportsProxySubAgentNestedError(t *testing.T) {
 	var emitted []contracts.AgentDelta
 	var routed []stream.StreamInput
 	orchestrator := newTestFrameOrchestrator(&orchestratorAgentEngine{}, map[string]catalog.AgentDefinition{
-		"qiuer": {
-			Key:  "qiuer",
-			Name: "Qiuer",
+		"remote-query": {
+			Key:  "remote-query",
+			Name: "Remote Query",
 			Mode: "PROXY",
 			ProxyConfig: &catalog.ProxyConfig{
 				BaseURL: upstream.URL,
