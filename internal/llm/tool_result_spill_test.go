@@ -33,7 +33,7 @@ func TestMaybeSpillToolResultLeavesSmallResultInline(t *testing.T) {
 	if _, ok := got.Structured["resultRef"]; ok {
 		t.Fatalf("did not expect resultRef for small result: %#v", got.Structured)
 	}
-	if _, err := os.Stat(filepath.Join(chatDir, chat.ToolResultsDirName)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(chatDir, chat.ToolRootDirName, chat.ToolResultsDirName)); !os.IsNotExist(err) {
 		t.Fatalf("expected no tool result dir, stat err=%v", err)
 	}
 }
@@ -66,7 +66,7 @@ func TestMaybeSpillToolResultWritesFullResultAndReturnsPreview(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected resultRef, got %#v", got.Structured)
 	}
-	if ref["path"] != ".tool-results/call_large.json" {
+	if ref["path"] != ".tools/results/call_large.json" {
 		t.Fatalf("unexpected ref path: %#v", ref)
 	}
 	sum := sha256.Sum256(resultJSON)
@@ -84,7 +84,7 @@ func TestMaybeSpillToolResultWritesFullResultAndReturnsPreview(t *testing.T) {
 		t.Fatalf("expected shortened preview, got len=%d", len(preview))
 	}
 
-	data, err := os.ReadFile(filepath.Join(chatDir, chat.ToolResultsDirName, "call_large.json"))
+	data, err := os.ReadFile(filepath.Join(chatDir, chat.ToolRootDirName, chat.ToolResultsDirName, "call_large.json"))
 	if err != nil {
 		t.Fatalf("read spilled result: %v", err)
 	}
@@ -118,14 +118,14 @@ func TestMaybeSpillToolResultConvertsLargePlainBashOutputToStructuredPreview(t *
 	if !ok {
 		t.Fatalf("expected structured preview with resultRef, got %#v", got)
 	}
-	if ref["path"] != ".tool-results/call_bash.json" {
+	if ref["path"] != ".tools/results/call_bash.json" {
 		t.Fatalf("unexpected sanitized path: %#v", ref)
 	}
 	preview, _ := got.Structured["stdout"].(string)
 	if len(preview) >= len(stdout) {
 		t.Fatalf("expected stdout preview, got len=%d", len(preview))
 	}
-	data, err := os.ReadFile(filepath.Join(chatDir, chat.ToolResultsDirName, "call_bash.json"))
+	data, err := os.ReadFile(filepath.Join(chatDir, chat.ToolRootDirName, chat.ToolResultsDirName, "call_bash.json"))
 	if err != nil {
 		t.Fatalf("read spilled bash result: %v", err)
 	}

@@ -3,7 +3,6 @@ package llm
 import (
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -41,7 +40,7 @@ func TestPlanningWriteArgumentsStreamPlanningDeltas(t *testing.T) {
 	stream.appendFinalPlanningDeltas("tool_plan", contracts.ToolExecutionResult{
 		Structured: map[string]any{
 			"planningId":   "run_1_planning_1",
-			"planningFile": filepath.Join(chatsDir, "plans", "run_1_planning_1.md"),
+			"planningFile": planutil.PlanningFileForChat(chatsDir, "chat_1", "run_1_planning_1"),
 			"title":        "Streaming Plan",
 			"status":       "ready",
 			"markdown":     markdown,
@@ -104,7 +103,7 @@ func TestPlanningWriteStreamsPartialStringsAndDraftFile(t *testing.T) {
 		t.Fatalf("did not expect later sections before summary closes, got:\n%s", combined)
 	}
 
-	planningFile := filepath.Join(chatsDir, "plans", "run_partial_planning_1.md")
+	planningFile := planutil.PlanningFileForChat(chatsDir, "chat_1", "run_partial_planning_1")
 	draftBytes, readErr := os.ReadFile(planningFile)
 	if readErr != nil {
 		t.Fatalf("read draft planning file: %v", readErr)

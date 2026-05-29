@@ -1303,7 +1303,8 @@ func TestFileToolsConfigYAMLOverrides(t *testing.T) {
 			"max-write-bytes: 5678\n" +
 			"max-batch-ops: 9\n" +
 			"require-write-approval: false\n" +
-			"require-read-before-write: false\n"
+			"require-read-before-write: false\n" +
+			"read-before-write-scope: chat\n"
 		withProjectFileContents(t, filepath.Join("configs", "host-tools.yml"), nil, func() {
 			withProjectFileContents(t, filepath.Join("configs", "file-tools.yml"), &content, func() {
 				cfg, err := Load()
@@ -1321,6 +1322,23 @@ func TestFileToolsConfigYAMLOverrides(t *testing.T) {
 				}
 				if cfg.FileTools.RequireReadBeforeWrite {
 					t.Fatalf("expected read-before-write disabled from yaml")
+				}
+				if cfg.FileTools.ReadBeforeWriteScope != "chat" {
+					t.Fatalf("expected chat read-before-write scope, got %q", cfg.FileTools.ReadBeforeWriteScope)
+				}
+			})
+		})
+	})
+}
+
+func TestFileToolsConfigRejectsInvalidReadBeforeWriteScope(t *testing.T) {
+	withIsolatedEnv(t, nil, func() {
+		content := "read-before-write-scope: global\n"
+		withProjectFileContents(t, filepath.Join("configs", "host-tools.yml"), nil, func() {
+			withProjectFileContents(t, filepath.Join("configs", "file-tools.yml"), &content, func() {
+				_, err := Load()
+				if err == nil || !strings.Contains(err.Error(), "read-before-write-scope") {
+					t.Fatalf("expected invalid read-before-write-scope error, got %v", err)
 				}
 			})
 		})
@@ -1397,7 +1415,8 @@ func TestHostToolsConfigYAMLOverrides(t *testing.T) {
 			"  max-write-bytes: 5678\n" +
 			"  max-batch-ops: 9\n" +
 			"  require-write-approval: false\n" +
-			"  require-read-before-write: false\n"
+			"  require-read-before-write: false\n" +
+			"  read-before-write-scope: chat\n"
 		withProjectFileContents(t, filepath.Join("configs", "access-policy.yml"), nil, func() {
 			withProjectFileContents(t, filepath.Join("configs", "bash.yml"), nil, func() {
 				withProjectFileContents(t, filepath.Join("configs", "file-tools.yml"), nil, func() {
@@ -1430,6 +1449,9 @@ func TestHostToolsConfigYAMLOverrides(t *testing.T) {
 						}
 						if cfg.FileTools.RequireWriteApproval || cfg.FileTools.RequireReadBeforeWrite {
 							t.Fatalf("expected file approval flags disabled from yaml, got %#v", cfg.FileTools)
+						}
+						if cfg.FileTools.ReadBeforeWriteScope != "chat" {
+							t.Fatalf("expected chat read-before-write scope, got %q", cfg.FileTools.ReadBeforeWriteScope)
 						}
 					})
 				})

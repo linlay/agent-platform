@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/filetools"
@@ -875,6 +876,151 @@ func TestInvokeWriteRejectsFileModifiedSinceRead(t *testing.T) {
 	}
 	if result.ExitCode == 0 || result.Structured["error"] != "file_modified_since_read" {
 		t.Fatalf("expected modified rejection, got %#v", result.Structured)
+	}
+}
+
+func TestInvokeWriteAllowsChatScopedSnapshotAcrossRuns(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "owner.md")
+	if err := os.WriteFile(path, []byte("old"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	executor := fileToolExecutor(root, false)
+	store, err := chat.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new chat store: %v", err)
+	}
+	executor.chats = store
+	executor.cfg.FileTools.ReadBeforeWriteScope = "chat"
+
+	readCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{ChatID: "chat-file-state", RunID: "run-read"}}
+	if _, err := executor.invokeRead(map[string]any{"file_path": "owner.md", "add_line_numbers": false}, readCtx); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	ledgerPath := filepath.Join(store.ChatDir("chat-file-state"), chat.ToolRootDirName, chat.ToolStateDirName, chat.FileVersionsFileName)
+	if _, err := os.Stat(ledgerPath); err != nil {
+		t.Fatalf("expected file version ledger: %v", err)
+	}
+
+	writeCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{ChatID: "chat-file-state", RunID: "run-write"}}
+	result, err := executor.invokeWrite(context.Background(), map[string]any{
+		"file_path":   "owner.md",
+		"content":     "new",
+		"description": "写入 owner 文档",
+	}, writeCtx)
+	if err != nil {
+		t.Fatalf("invokeWrite: %v", err)
+	}
+	if result.Error != "" || result.ExitCode != 0 {
+		t.Fatalf("expected write success from chat-scoped snapshot, got %#v", result)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != "new" {
+		t.Fatalf("unexpected written content %q err=%v", string(got), err)
+	}
+}
+
+func TestInvokeWriteDoesNotReuseChatSnapshotForDifferentChat(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "owner.md"), []byte("old"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	executor := fileToolExecutor(root, false)
+	store, err := chat.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new chat store: %v", err)
+	}
+	executor.chats = store
+	executor.cfg.FileTools.ReadBeforeWriteScope = "chat"
+
+	if _, err := executor.invokeRead(map[string]any{"file_path": "owner.md", "add_line_numbers": false}, &contracts.ExecutionContext{Session: contracts.QuerySession{ChatID: "chat-a", RunID: "run-read"}}); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	result, err := executor.invokeWrite(context.Background(), map[string]any{
+		"file_path":   "owner.md",
+		"content":     "new",
+		"description": "写入 owner 文档",
+	}, &contracts.ExecutionContext{Session: contracts.QuerySession{ChatID: "chat-b", RunID: "run-write"}})
+	if err != nil {
+		t.Fatalf("invokeWrite: %v", err)
+	}
+	if result.ExitCode == 0 || result.Structured["error"] != "file_write_not_read" {
+		t.Fatalf("expected not-read rejection for different chat, got %#v", result.Structured)
+	}
+}
+
+func TestInvokeWriteRejectsModifiedFileAfterChatScopedSnapshot(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "owner.md")
+	if err := os.WriteFile(path, []byte("old"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	executor := fileToolExecutor(root, false)
+	store, err := chat.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new chat store: %v", err)
+	}
+	executor.chats = store
+	executor.cfg.FileTools.ReadBeforeWriteScope = "chat"
+	if _, err := executor.invokeRead(map[string]any{"file_path": "owner.md", "add_line_numbers": false}, &contracts.ExecutionContext{Session: contracts.QuerySession{ChatID: "chat-file-state", RunID: "run-read"}}); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	time.Sleep(time.Millisecond)
+	if err := os.WriteFile(path, []byte("external change"), 0o644); err != nil {
+		t.Fatalf("external write: %v", err)
+	}
+
+	result, err := executor.invokeWrite(context.Background(), map[string]any{
+		"file_path":   "owner.md",
+		"content":     "new",
+		"description": "写入 owner 文档",
+	}, &contracts.ExecutionContext{Session: contracts.QuerySession{ChatID: "chat-file-state", RunID: "run-write"}})
+	if err != nil {
+		t.Fatalf("invokeWrite: %v", err)
+	}
+	if result.ExitCode == 0 || result.Structured["error"] != "file_modified_since_read" {
+		t.Fatalf("expected modified rejection, got %#v", result.Structured)
+	}
+}
+
+func TestInvokeEditRefreshesChatScopedSnapshot(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "owner.md")
+	if err := os.WriteFile(path, []byte("old"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	executor := fileToolExecutor(root, false)
+	store, err := chat.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new chat store: %v", err)
+	}
+	executor.chats = store
+	executor.cfg.FileTools.ReadBeforeWriteScope = "chat"
+	if _, err := executor.invokeRead(map[string]any{"file_path": "owner.md", "add_line_numbers": false}, &contracts.ExecutionContext{Session: contracts.QuerySession{ChatID: "chat-edit-state", RunID: "run-read"}}); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if result, err := executor.invokeEdit(context.Background(), map[string]any{
+		"file_path":   "owner.md",
+		"old_string":  "old",
+		"new_string":  "edited",
+		"description": "编辑 owner 文档",
+	}, &contracts.ExecutionContext{Session: contracts.QuerySession{ChatID: "chat-edit-state", RunID: "run-edit"}}); err != nil {
+		t.Fatalf("invokeEdit: %v", err)
+	} else if result.Error != "" || result.ExitCode != 0 {
+		t.Fatalf("expected edit success, got %#v", result)
+	}
+	result, err := executor.invokeWrite(context.Background(), map[string]any{
+		"file_path":   "owner.md",
+		"content":     "final",
+		"description": "写入 owner 文档",
+	}, &contracts.ExecutionContext{Session: contracts.QuerySession{ChatID: "chat-edit-state", RunID: "run-write"}})
+	if err != nil {
+		t.Fatalf("invokeWrite: %v", err)
+	}
+	if result.Error != "" || result.ExitCode != 0 {
+		t.Fatalf("expected write success after edit refreshed chat snapshot, got %#v", result)
+	}
+	if got, err := os.ReadFile(path); err != nil || string(got) != "final" {
+		t.Fatalf("unexpected written content %q err=%v", string(got), err)
 	}
 }
 

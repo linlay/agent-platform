@@ -194,6 +194,7 @@ func defaultConfig() Config {
 			MaxBatchOps:            20,
 			RequireWriteApproval:   true,
 			RequireReadBeforeWrite: true,
+			ReadBeforeWriteScope:   "run",
 			Hooks: FileToolsHooksConfig{
 				AfterFileChange: FileAfterChangeHooksConfig{
 					LSPDiagnostics: defaultLSPDiagnosticsHookConfig(),

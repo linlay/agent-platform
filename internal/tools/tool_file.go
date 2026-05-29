@@ -77,7 +77,8 @@ func (t *RuntimeToolExecutor) invokeRead(args map[string]any, execCtx *Execution
 			return result, nil
 		}
 		if execCtx != nil {
-			recordReadSnapshot(execCtx, resolved.Path, info, image["sha256"].(string), snapshotOffset, snapshotLimit)
+			snap := recordReadSnapshot(execCtx, resolved.Path, info, image["sha256"].(string), snapshotOffset, snapshotLimit)
+			t.recordChatFileVersion(execCtx, resolved.Path, snap, "read", false)
 		}
 		appendAccessPolicyMetadata(image, access)
 		return structuredResult(image), nil
@@ -142,7 +143,8 @@ func (t *RuntimeToolExecutor) invokeRead(args map[string]any, execCtx *Execution
 		payload["contentBase64"] = base64.StdEncoding.EncodeToString(data)
 	}
 	if execCtx != nil {
-		recordReadSnapshot(execCtx, resolved.Path, info, sha, snapshotOffset, snapshotLimit)
+		snap := recordReadSnapshot(execCtx, resolved.Path, info, sha, snapshotOffset, snapshotLimit)
+		t.recordChatFileVersion(execCtx, resolved.Path, snap, "read", truncated)
 	}
 	appendAccessPolicyMetadata(payload, access)
 	return structuredResult(payload), nil
@@ -178,7 +180,7 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 		return result, nil
 	}
 	if t.cfg.FileTools.RequireReadBeforeWrite {
-		if result, ok := validateReadBeforeWrite(plan.FilePath, execCtx); ok {
+		if result, ok := t.validateReadBeforeWrite(plan.FilePath, execCtx); ok {
 			return result, nil
 		}
 	}
@@ -216,7 +218,8 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 		payload["sizeBytes"] = info.Size()
 		payload["modifiedUnixMs"] = info.ModTime().UnixMilli()
 		if execCtx != nil {
-			recordReadSnapshot(execCtx, plan.FilePath, info, after, 0, 0)
+			snap := recordReadSnapshot(execCtx, plan.FilePath, info, after, 0, 0)
+			t.recordChatFileVersion(execCtx, plan.FilePath, snap, "write", false)
 		}
 	}
 	appendAccessPolicyMetadata(payload, access)
@@ -262,7 +265,7 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 		return result, nil
 	}
 	if t.cfg.FileTools.RequireReadBeforeWrite {
-		if result, ok := validateReadBeforeFileMutation(plan.FilePath, execCtx, "file_edit"); ok {
+		if result, ok := t.validateReadBeforeFileMutation(plan.FilePath, execCtx, "file_edit"); ok {
 			return result, nil
 		}
 	}
@@ -353,7 +356,8 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 		payload["sizeBytes"] = info.Size()
 		payload["modifiedUnixMs"] = info.ModTime().UnixMilli()
 		if execCtx != nil {
-			recordReadSnapshot(execCtx, plan.FilePath, info, after, 0, 0)
+			snap := recordReadSnapshot(execCtx, plan.FilePath, info, after, 0, 0)
+			t.recordChatFileVersion(execCtx, plan.FilePath, snap, "edit", false)
 		}
 	}
 	appendAccessPolicyMetadata(payload, access)
@@ -488,11 +492,11 @@ func readImageFile(path string, info os.FileInfo) (map[string]any, bool, ToolExe
 	}, true, ToolExecutionResult{}
 }
 
-func validateReadBeforeWrite(path string, execCtx *ExecutionContext) (ToolExecutionResult, bool) {
-	return validateReadBeforeFileMutation(path, execCtx, "file_write")
+func (t *RuntimeToolExecutor) validateReadBeforeWrite(path string, execCtx *ExecutionContext) (ToolExecutionResult, bool) {
+	return t.validateReadBeforeFileMutation(path, execCtx, "file_write")
 }
 
-func validateReadBeforeFileMutation(path string, execCtx *ExecutionContext, errorPrefix string) (ToolExecutionResult, bool) {
+func (t *RuntimeToolExecutor) validateReadBeforeFileMutation(path string, execCtx *ExecutionContext, errorPrefix string) (ToolExecutionResult, bool) {
 	notReadCode := errorPrefix + "_not_read"
 	modifiedCode := errorPrefix + "_modified_since_read"
 	if errorPrefix == "file_write" {
@@ -506,16 +510,41 @@ func validateReadBeforeFileMutation(path string, execCtx *ExecutionContext, erro
 		return fileToolError(errorPrefix+"_failed", err.Error()), true
 	}
 	if execCtx == nil || execCtx.ReadFileState == nil {
+		if snap, ok := t.loadChatFileVersionSnapshot(execCtx, path); ok {
+			if result, rejected := validateFileSnapshot(path, info, snap, modifiedCode, execCtx); rejected {
+				return result, true
+			}
+			return ToolExecutionResult{}, false
+		}
 		return fileToolError(notReadCode, "file exists but was not read in this run; call read first then retry"), true
 	}
 	snap, ok := execCtx.ReadFileState[path]
 	if !ok {
+		if chatSnap, chatOK := t.loadChatFileVersionSnapshot(execCtx, path); chatOK {
+			if result, rejected := validateFileSnapshot(path, info, chatSnap, modifiedCode, execCtx); rejected {
+				return result, true
+			}
+			return ToolExecutionResult{}, false
+		}
 		return fileToolError(notReadCode, "file exists but was not read in this run; call read first then retry"), true
 	}
+	return validateFileSnapshot(path, info, snap, modifiedCode, nil)
+}
+
+func validateFileSnapshot(path string, info os.FileInfo, snap ReadFileSnapshot, modifiedCode string, restoreCtx *ExecutionContext) (ToolExecutionResult, bool) {
 	if info.ModTime().UnixMilli() != snap.ModifiedUnixMs || info.Size() != snap.SizeBytes {
-		if currentSha := fileSHA256(path); currentSha != snap.SHA256 {
+		currentSha := fileSHA256(path)
+		if currentSha != snap.SHA256 {
 			return fileToolError(modifiedCode, "file has been modified since last read; re-read before writing"), true
 		}
+		snap.ModifiedUnixMs = info.ModTime().UnixMilli()
+		snap.SizeBytes = info.Size()
+	}
+	if restoreCtx != nil {
+		if restoreCtx.ReadFileState == nil {
+			restoreCtx.ReadFileState = map[string]ReadFileSnapshot{}
+		}
+		restoreCtx.ReadFileState[path] = snap
 	}
 	return ToolExecutionResult{}, false
 }
@@ -531,14 +560,14 @@ func normalizeEditString(content string) string {
 	return strings.ReplaceAll(content, "\r\n", "\n")
 }
 
-func recordReadSnapshot(execCtx *ExecutionContext, path string, info os.FileInfo, sha string, offset int64, limit int64) {
+func recordReadSnapshot(execCtx *ExecutionContext, path string, info os.FileInfo, sha string, offset int64, limit int64) ReadFileSnapshot {
 	if execCtx == nil {
-		return
+		return ReadFileSnapshot{}
 	}
 	if execCtx.ReadFileState == nil {
 		execCtx.ReadFileState = map[string]ReadFileSnapshot{}
 	}
-	execCtx.ReadFileState[path] = ReadFileSnapshot{
+	snap := ReadFileSnapshot{
 		ModifiedUnixMs: info.ModTime().UnixMilli(),
 		SizeBytes:      info.Size(),
 		SHA256:         sha,
@@ -546,6 +575,8 @@ func recordReadSnapshot(execCtx *ExecutionContext, path string, info os.FileInfo
 		Limit:          limit,
 		ReadAtUnixMs:   time.Now().UnixMilli(),
 	}
+	execCtx.ReadFileState[path] = snap
+	return snap
 }
 
 func addLineNumbersArg(args map[string]any) bool {

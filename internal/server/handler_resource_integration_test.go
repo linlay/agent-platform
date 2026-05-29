@@ -105,11 +105,24 @@ func TestToolResultEndpointServesHiddenResultAndResourceRejectsIt(t *testing.T) 
 	if err := os.WriteFile(filepath.Join(resultDir, "call_1.json"), []byte(resultJSON), 0o644); err != nil {
 		t.Fatalf("write tool result: %v", err)
 	}
+	newResultDir := filepath.Join(fixture.chats.ChatDir(chatID), chat.ToolRootDirName, chat.ToolResultsDirName)
+	if err := os.MkdirAll(newResultDir, 0o755); err != nil {
+		t.Fatalf("mkdir new tool result dir: %v", err)
+	}
+	newResultJSON := `{"stdout":"new output","exitCode":0}`
+	if err := os.WriteFile(filepath.Join(newResultDir, "call_new.json"), []byte(newResultJSON), 0o644); err != nil {
+		t.Fatalf("write new tool result: %v", err)
+	}
 
 	resourceRec := httptest.NewRecorder()
 	server.ServeHTTP(resourceRec, httptest.NewRequest(http.MethodGet, "/api/resource?file=chat-tool-result%2F.tool-results%2Fcall_1.json", nil))
 	if resourceRec.Code != http.StatusForbidden {
 		t.Fatalf("expected hidden tool result to be forbidden via resource, got %d: %s", resourceRec.Code, resourceRec.Body.String())
+	}
+	newResourceRec := httptest.NewRecorder()
+	server.ServeHTTP(newResourceRec, httptest.NewRequest(http.MethodGet, "/api/resource?file=chat-tool-result%2F.tools%2Fresults%2Fcall_new.json", nil))
+	if newResourceRec.Code != http.StatusForbidden {
+		t.Fatalf("expected .tools result to be forbidden via resource, got %d: %s", newResourceRec.Code, newResourceRec.Body.String())
 	}
 
 	resultRec := httptest.NewRecorder()
@@ -119,6 +132,14 @@ func TestToolResultEndpointServesHiddenResultAndResourceRejectsIt(t *testing.T) 
 	}
 	if strings.TrimSpace(resultRec.Body.String()) != resultJSON {
 		t.Fatalf("unexpected tool result body: %q", resultRec.Body.String())
+	}
+	newResultRec := httptest.NewRecorder()
+	server.ServeHTTP(newResultRec, httptest.NewRequest(http.MethodGet, "/api/tool-result?chatId=chat-tool-result&path=.tools%2Fresults%2Fcall_new.json", nil))
+	if newResultRec.Code != http.StatusOK {
+		t.Fatalf("expected 200 new tool result, got %d: %s", newResultRec.Code, newResultRec.Body.String())
+	}
+	if strings.TrimSpace(newResultRec.Body.String()) != newResultJSON {
+		t.Fatalf("unexpected new tool result body: %q", newResultRec.Body.String())
 	}
 
 	traversalRec := httptest.NewRecorder()

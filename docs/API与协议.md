@@ -166,7 +166,7 @@ HITL 三态细节见 [HITL协议](HITL协议.md)。真流式、heartbeat、attac
 |---|---|---|---|
 | GET | `/api/viewport` | query: `viewportKey`、`viewportType` | viewport 模板或 fallback |
 | GET | `/api/resource` | query: `file`、`t` | chat 资源文件；`t` 为可选 resource ticket |
-| GET | `/api/tool-result` | query: `chatId`、`path`、`t` | `.tool-results/<toolId>.json` 完整工具结果；`t` 为可选 resource ticket |
+| GET | `/api/tool-result` | query: `chatId`、`path`、`t` | `.tools/results/<toolId>.json` 完整工具结果；兼容旧 `.tool-results/<toolId>.json`；`t` 为可选 resource ticket |
 | POST | `/api/upload` | multipart: `requestId`、`chatId`、`file` | upload ticket 与资源访问信息 |
 
 resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界.md)。
@@ -301,7 +301,7 @@ resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界
 - HTTP query 参数在 WS payload 中通常以同名 JSON 字段传入。
 - `GET /api/attach`、`POST /api/submit`、`POST /api/steer`、`POST /api/interrupt` 都要求 `agentKey`，并校验 run 归属。
 - WS `/api/resource` 要求 `file + pushURL`，用于将本地资源推给 gateway；HTTP `/api/resource` 直接返回文件字节。
-- `.tool-results` 是隐藏工具结果目录，不通过 `/api/resource` 或 WS `/api/resource` 暴露；HTTP `/api/tool-result` 只接受 `.tool-results/<toolId>.json`。
+- `.tools` 是隐藏工具内部目录，不通过 `/api/resource` 或 WS `/api/resource` 暴露；HTTP `/api/tool-result` 接受 `.tools/results/<toolId>.json`，并兼容旧 `.tool-results/<toolId>.json`。
 - 反向 gateway 配置在 `configs/channels.yml`，不再通过旧单 gateway env 合成。
 - 完整 DTO 字段以 `internal/api/*.go` 为事实源。
 

@@ -51,6 +51,10 @@ func (a *Archiver) ArchiveChat(chatID string) error {
 	if err != nil {
 		return err
 	}
+	hasChatDirContent, err := chatDirHasAnyEntries(a.active.ChatDir(chatID))
+	if err != nil {
+		return err
+	}
 
 	archived := ArchivedChat{
 		Summary: ArchivedSummary{
@@ -74,7 +78,7 @@ func (a *Archiver) ArchiveChat(chatID string) error {
 	}
 
 	movedAttachments := false
-	if hasAttachments {
+	if hasChatDirContent {
 		if err := os.Rename(a.active.ChatDir(chatID), a.archive.ChatDir(chatID)); err != nil {
 			_ = a.archive.DeleteArchived(chatID)
 			return fmt.Errorf("move attachments: %w", err)
@@ -138,8 +142,23 @@ func chatDirHasAttachments(dir string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	for range entries {
+	for _, entry := range entries {
+		name := strings.TrimSpace(entry.Name())
+		if name == LegacyToolResultsDirName || name == ToolRootDirName {
+			continue
+		}
 		return true, nil
 	}
 	return false, nil
+}
+
+func chatDirHasAnyEntries(dir string) (bool, error) {
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return len(entries) > 0, nil
 }

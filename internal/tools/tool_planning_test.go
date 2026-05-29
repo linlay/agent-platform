@@ -49,7 +49,7 @@ func TestPlanningWriteCreatesMarkdownFile(t *testing.T) {
 		t.Fatalf("unexpected planningId %q", planningID)
 	}
 	planningFile := AnyStringNode(result.Structured["planningFile"])
-	if planningFile != filepath.Join(root, "plans", planningID+".md") {
+	if planningFile != planutil.PlanningFileForChat(root, "chat_1", planningID) {
 		t.Fatalf("unexpected planningFile %q", planningFile)
 	}
 	data, readErr := os.ReadFile(planningFile)
@@ -133,6 +133,6 @@ Write a standard planning document.
 - Run go test
 
 ## Assumptions
-- Use CHATS_DIR/plans
+- Use chat .tools/plans
 `, title)
 }

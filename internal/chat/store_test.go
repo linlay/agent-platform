@@ -586,10 +586,10 @@ func TestFileStoreDeleteChatRemovesRowsAndFiles(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(store.ChatDir("chat-delete"), "artifact.txt"), []byte("x"), 0o644); err != nil {
 		t.Fatalf("write artifact: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Join(store.ChatDir("chat-delete"), ToolResultsDirName), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(store.ChatDir("chat-delete"), LegacyToolResultsDirName), 0o755); err != nil {
 		t.Fatalf("mkdir tool results dir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(store.ChatDir("chat-delete"), ToolResultsDirName, "call_1.json"), []byte(`{"stdout":"x"}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(store.ChatDir("chat-delete"), LegacyToolResultsDirName, "call_1.json"), []byte(`{"stdout":"x"}`), 0o644); err != nil {
 		t.Fatalf("write tool result: %v", err)
 	}
 	if err := store.OnRunCompleted(RunCompletion{ChatID: "chat-delete", RunID: "loyw3v28", UpdatedAtMillis: time.Now().UnixMilli()}); err != nil {

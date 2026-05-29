@@ -1089,7 +1089,8 @@ Plan first, then check the current time before reporting.
 	httpServer := newLoopbackServer(t, fixture.server)
 	defer httpServer.Close()
 
-	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"please plan first","agentKey":"coder-app","planningMode":true}`))
+	chatID := "chat_coder_plan_confirm"
+	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"please plan first","agentKey":"coder-app","chatId":"`+chatID+`","planningMode":true}`))
 	if err != nil {
 		t.Fatalf("post query: %v", err)
 	}
@@ -1124,7 +1125,7 @@ Plan first, then check the current time before reporting.
 	if strings.Contains(streamBody.String(), `"type":"planning.snapshot"`) {
 		t.Fatalf("did not expect live planning.snapshot, got %s", streamBody.String())
 	}
-	planningFile := filepath.Join(fixture.cfg.Paths.ChatsDir, "plans", runID+"_planning_1.md")
+	planningFile := filepath.Join(fixture.cfg.Paths.ChatsDir, chatID, chat.ToolRootDirName, chat.ToolPlansDirName, runID+"_planning_1.md")
 	planningBytes, readPlanningErr := os.ReadFile(planningFile)
 	if readPlanningErr != nil {
 		t.Fatalf("expected planning markdown file before confirmation: %v", readPlanningErr)
@@ -1273,7 +1274,11 @@ func TestCoderPlanningWriteStreamsDeltasBeforeProviderFinishes(t *testing.T) {
 			defer httpServer.Close()
 
 			client := http.Client{Timeout: 10 * time.Second}
-			resp, err := client.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"please stream the plan","agentKey":"coder-app","planningMode":true}`))
+			chatID := "chat_stream_plan_hidden"
+			if tc.clientVisible {
+				chatID = "chat_stream_plan_visible"
+			}
+			resp, err := client.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"please stream the plan","agentKey":"coder-app","chatId":"`+chatID+`","planningMode":true}`))
 			if err != nil {
 				t.Fatalf("post query: %v", err)
 			}
@@ -1294,7 +1299,7 @@ func TestCoderPlanningWriteStreamsDeltasBeforeProviderFinishes(t *testing.T) {
 			if strings.Contains(streamBody.String(), `"type":"planning.end"`) {
 				t.Fatalf("did not expect planning.end before provider finished, got %s", streamBody.String())
 			}
-			planningFile := filepath.Join(fixture.cfg.Paths.ChatsDir, "plans", runID+"_planning_1.md")
+			planningFile := filepath.Join(fixture.cfg.Paths.ChatsDir, chatID, chat.ToolRootDirName, chat.ToolPlansDirName, runID+"_planning_1.md")
 			draftBytes, readDraftErr := os.ReadFile(planningFile)
 			if readDraftErr != nil {
 				t.Fatalf("expected draft planning file before provider finished: %v", readDraftErr)
@@ -1572,7 +1577,8 @@ Revised plan with explicit test coverage.
 	httpServer := newLoopbackServer(t, fixture.server)
 	defer httpServer.Close()
 
-	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"please plan revisions","agentKey":"coder-app","planningMode":true}`))
+	chatID := "chat_plan_revisions"
+	resp, err := http.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"please plan revisions","agentKey":"coder-app","chatId":"`+chatID+`","planningMode":true}`))
 	if err != nil {
 		t.Fatalf("post query: %v", err)
 	}
@@ -1590,7 +1596,7 @@ Revised plan with explicit test coverage.
 	if !strings.Contains(streamBody.String(), runID+`_planning_2`) || !strings.Contains(streamBody.String(), runID+`_coder_plan_confirm_2`) {
 		t.Fatalf("expected second planning revision and confirmation, got %s", streamBody.String())
 	}
-	secondPlanningFile := filepath.Join(fixture.cfg.Paths.ChatsDir, "plans", runID+"_planning_2.md")
+	secondPlanningFile := filepath.Join(fixture.cfg.Paths.ChatsDir, chatID, chat.ToolRootDirName, chat.ToolPlansDirName, runID+"_planning_2.md")
 	secondPlanningBytes, readErr := os.ReadFile(secondPlanningFile)
 	if readErr != nil {
 		t.Fatalf("expected second planning markdown file: %v", readErr)

@@ -38,9 +38,9 @@ func (t *RuntimeToolExecutor) invokePlanningWrite(args map[string]any, execCtx *
 	revision := planningRevision(execCtx)
 	execCtx.PlanningRevision = revision
 	planningID := planutil.PlanningIDForRevision(planningRunID(execCtx), revision)
-	planningFile := planutil.PlanningFile(chatsDir, planningID)
+	planningFile := planutil.PlanningFileForChat(chatsDir, execCtx.Session.ChatID, planningID)
 	if err := os.MkdirAll(filepath.Dir(planningFile), 0o755); err != nil {
-		return ToolExecutionResult{Output: "失败: 创建 plans 目录失败: " + err.Error(), Error: "planning_write_failed", ExitCode: -1}, nil
+		return ToolExecutionResult{Output: "失败: 创建 planning 目录失败: " + err.Error(), Error: "planning_write_failed", ExitCode: -1}, nil
 	}
 	if err := os.WriteFile(planningFile, []byte(markdown), 0o644); err != nil {
 		return ToolExecutionResult{Output: "失败: 写入 planning markdown 失败: " + err.Error(), Error: "planning_write_failed", ExitCode: -1}, nil

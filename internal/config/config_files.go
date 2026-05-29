@@ -224,18 +224,29 @@ func (c *Config) applyFileToolsFile(path string) error {
 	if err := rejectDeprecatedYAMLKeys(path, "configs/host-tools.yml > access-policy", values, "allowed-read-paths", "allowed-write-paths"); err != nil {
 		return err
 	}
-	c.applyFileToolsValues(values)
-	return nil
+	return c.applyFileToolsValues(path, values)
 }
 
-func (c *Config) applyFileToolsValues(values map[string]any) {
+func (c *Config) applyFileToolsValues(path string, values map[string]any) error {
 	c.FileTools.WorkingDirectory = stringValue(anyValue(values["working-directory"], c.FileTools.WorkingDirectory), c.FileTools.WorkingDirectory)
 	c.FileTools.MaxReadBytes = intValue(anyValue(values["max-read-bytes"], c.FileTools.MaxReadBytes), c.FileTools.MaxReadBytes)
 	c.FileTools.MaxWriteBytes = intValue(anyValue(values["max-write-bytes"], c.FileTools.MaxWriteBytes), c.FileTools.MaxWriteBytes)
 	c.FileTools.MaxBatchOps = intValue(anyValue(values["max-batch-ops"], c.FileTools.MaxBatchOps), c.FileTools.MaxBatchOps)
 	c.FileTools.RequireWriteApproval = boolValue(anyValue(values["require-write-approval"], c.FileTools.RequireWriteApproval), c.FileTools.RequireWriteApproval)
 	c.FileTools.RequireReadBeforeWrite = boolValue(anyValue(values["require-read-before-write"], c.FileTools.RequireReadBeforeWrite), c.FileTools.RequireReadBeforeWrite)
+	if raw, ok := values["read-before-write-scope"]; ok {
+		scope := strings.ToLower(strings.TrimSpace(stringValue(raw, "")))
+		switch scope {
+		case "", "run":
+			c.FileTools.ReadBeforeWriteScope = "run"
+		case "chat":
+			c.FileTools.ReadBeforeWriteScope = "chat"
+		default:
+			return fmt.Errorf("%s: invalid file-tools.read-before-write-scope %q; expected run or chat", path, scope)
+		}
+	}
 	c.FileTools.Hooks = parseFileToolsHooksConfig(values["hooks"], c.FileTools.Hooks)
+	return nil
 }
 
 func rejectDeprecatedYAMLKeys(path string, target string, values map[string]any, keys ...string) error {
@@ -268,7 +279,9 @@ func (c *Config) applyHostToolsFile(path string) error {
 		if err := rejectDeprecatedYAMLKeys(path, "configs/host-tools.yml > access-policy", fileTools, "allowed-read-paths", "allowed-write-paths"); err != nil {
 			return err
 		}
-		c.applyFileToolsValues(fileTools)
+		if err := c.applyFileToolsValues(path, fileTools); err != nil {
+			return err
+		}
 	}
 	return nil
 }

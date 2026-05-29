@@ -1067,6 +1067,7 @@ Plan should stream over websocket.
 	defer conn.Close()
 
 	requestID := "req_query_planning"
+	chatID := "chat_ws_planning"
 	if err := conn.WriteJSON(ws.RequestFrame{
 		Frame: ws.FrameRequest,
 		Type:  "/api/query",
@@ -1074,6 +1075,7 @@ Plan should stream over websocket.
 		Payload: ws.MarshalPayload(map[string]any{
 			"message":      "please plan over websocket",
 			"agentKey":     "coder-ws",
+			"chatId":       chatID,
 			"planningMode": true,
 		}),
 	}); err != nil {
@@ -1086,7 +1088,7 @@ Plan should stream over websocket.
 	if got := countStrings(eventTypes, "planning.delta"); got <= 1 {
 		t.Fatalf("expected multiple websocket planning.delta events, got %d in %#v", got, eventTypes)
 	}
-	planningFile := filepath.Join(fixture.cfg.Paths.ChatsDir, "plans", runID+"_planning_1.md")
+	planningFile := filepath.Join(fixture.cfg.Paths.ChatsDir, chatID, chat.ToolRootDirName, chat.ToolPlansDirName, runID+"_planning_1.md")
 	planningBytes, readPlanningErr := os.ReadFile(planningFile)
 	if readPlanningErr != nil {
 		t.Fatalf("expected websocket planning markdown file before confirmation: %v", readPlanningErr)

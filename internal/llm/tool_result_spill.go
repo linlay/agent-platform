@@ -37,8 +37,8 @@ func (s *llmRunStream) maybeSpillToolResult(invocation *preparedToolInvocation, 
 	sum := sha256.Sum256(fullJSON)
 	sha := hex.EncodeToString(sum[:])
 	toolFile := safeToolResultFileName(invocation.toolID, sha)
-	relPath := filepath.ToSlash(filepath.Join(chat.ToolResultsDirName, toolFile))
-	absPath := filepath.Join(chatDir, chat.ToolResultsDirName, toolFile)
+	relPath := filepath.ToSlash(filepath.Join(chat.ToolRootDirName, chat.ToolResultsDirName, toolFile))
+	absPath := filepath.Join(chatDir, chat.ToolRootDirName, chat.ToolResultsDirName, toolFile)
 	if err := atomicWriteToolResult(absPath, fullJSON); err != nil {
 		return result
 	}

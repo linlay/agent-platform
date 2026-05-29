@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"sync"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
@@ -30,6 +31,7 @@ type RuntimeToolExecutor struct {
 	skillCandidates skills.CandidateStore
 	artifactPusher  ArtifactPusher
 	fileChangeHooks []FileChangeHook
+	fileStateMu     sync.Mutex
 	httpClient      *http.Client
 	defs            []api.ToolDetailResponse
 }

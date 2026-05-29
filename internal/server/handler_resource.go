@@ -49,7 +49,7 @@ func (s *Server) handleResource(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "file is required"))
 		return
 	}
-	if chat.IsToolResultsPath(fileParam) {
+	if chat.IsToolInternalPath(fileParam) {
 		writeJSON(w, http.StatusForbidden, api.Failure(http.StatusForbidden, "resource access denied"))
 		return
 	}

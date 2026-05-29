@@ -2,7 +2,14 @@ package chat
 
 import "agent-platform/internal/stream"
 
-const ToolResultsDirName = ".tool-results"
+const (
+	LegacyToolResultsDirName = ".tool-results"
+	ToolRootDirName          = ".tools"
+	ToolResultsDirName       = "results"
+	ToolStateDirName         = "state"
+	ToolPlansDirName         = "plans"
+	FileVersionsFileName     = "file-versions.json"
+)
 
 // ---------------------------------------------------------------------------
 // Plan / Artifact state (shared by step lines and API responses)

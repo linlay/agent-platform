@@ -76,7 +76,7 @@ func (s *llmRunStream) planningDeltasFromToolCall(delta DeltaToolCall) []AgentDe
 	}
 	if state.planningFile == "" {
 		if chatsDir := s.planningChatsDir(); chatsDir != "" {
-			state.planningFile = planutil.PlanningFile(chatsDir, state.planningID)
+			state.planningFile = planutil.PlanningFileForChat(chatsDir, s.session.ChatID, state.planningID)
 		}
 	}
 	events := make([]AgentDelta, 0)

@@ -340,6 +340,7 @@ type FileToolsConfig struct {
 	MaxBatchOps            int
 	RequireWriteApproval   bool
 	RequireReadBeforeWrite bool
+	ReadBeforeWriteScope   string
 	Hooks                  FileToolsHooksConfig
 }
 

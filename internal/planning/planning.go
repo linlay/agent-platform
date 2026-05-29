@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode"
+
+	"agent-platform/internal/chat"
 )
 
 type Spec struct {
@@ -77,6 +79,15 @@ func PlanningIDForRevision(runID string, revision int) string {
 
 func PlanningFile(chatsDir string, planningID string) string {
 	return filepath.Join(strings.TrimSpace(chatsDir), "plans", strings.TrimSpace(planningID)+".md")
+}
+
+func PlanningFileForChat(chatsDir string, chatID string, planningID string) string {
+	chatsDir = strings.TrimSpace(chatsDir)
+	chatID = strings.TrimSpace(chatID)
+	if chatsDir == "" || !chat.ValidChatID(chatID) {
+		return PlanningFile(chatsDir, planningID)
+	}
+	return filepath.Join(chatsDir, chatID, chat.ToolRootDirName, chat.ToolPlansDirName, strings.TrimSpace(planningID)+".md")
 }
 
 func SafeFileStem(value string) string {
