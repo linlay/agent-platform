@@ -982,6 +982,46 @@ func TestInvokeWriteRejectsModifiedFileAfterChatScopedSnapshot(t *testing.T) {
 	}
 }
 
+func TestInvokeWriteRejectsSameStatDifferentSHAAfterChatScopedSnapshot(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "owner.md")
+	if err := os.WriteFile(path, []byte("old"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	executor := fileToolExecutor(root, false)
+	store, err := chat.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new chat store: %v", err)
+	}
+	executor.chats = store
+	executor.cfg.FileTools.ReadBeforeWriteScope = "chat"
+	readCtx := &contracts.ExecutionContext{Session: contracts.QuerySession{ChatID: "chat-file-state", RunID: "run-read"}}
+	if _, err := executor.invokeRead(map[string]any{"file_path": "owner.md", "add_line_numbers": false}, readCtx); err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	resolvedPath := filepath.Join(realPath(t, root), "owner.md")
+	snap := readCtx.ReadFileState[resolvedPath]
+	if err := os.WriteFile(path, []byte("bad"), 0o644); err != nil {
+		t.Fatalf("external write: %v", err)
+	}
+	modTime := time.UnixMilli(snap.ModifiedUnixMs)
+	if err := os.Chtimes(path, modTime, modTime); err != nil {
+		t.Fatalf("restore mtime: %v", err)
+	}
+
+	result, err := executor.invokeWrite(context.Background(), map[string]any{
+		"file_path":   "owner.md",
+		"content":     "new",
+		"description": "写入 owner 文档",
+	}, &contracts.ExecutionContext{Session: contracts.QuerySession{ChatID: "chat-file-state", RunID: "run-write"}})
+	if err != nil {
+		t.Fatalf("invokeWrite: %v", err)
+	}
+	if result.ExitCode == 0 || result.Structured["error"] != "file_modified_since_read" {
+		t.Fatalf("expected sha-based modified rejection, got %#v", result.Structured)
+	}
+}
+
 func TestInvokeEditRefreshesChatScopedSnapshot(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "owner.md")

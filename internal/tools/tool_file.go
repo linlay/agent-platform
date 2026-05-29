@@ -511,7 +511,7 @@ func (t *RuntimeToolExecutor) validateReadBeforeFileMutation(path string, execCt
 	}
 	if execCtx == nil || execCtx.ReadFileState == nil {
 		if snap, ok := t.loadChatFileVersionSnapshot(execCtx, path); ok {
-			if result, rejected := validateFileSnapshot(path, info, snap, modifiedCode, execCtx); rejected {
+			if result, rejected := validateFileSnapshot(path, info, snap, modifiedCode, execCtx, true); rejected {
 				return result, true
 			}
 			return ToolExecutionResult{}, false
@@ -521,22 +521,25 @@ func (t *RuntimeToolExecutor) validateReadBeforeFileMutation(path string, execCt
 	snap, ok := execCtx.ReadFileState[path]
 	if !ok {
 		if chatSnap, chatOK := t.loadChatFileVersionSnapshot(execCtx, path); chatOK {
-			if result, rejected := validateFileSnapshot(path, info, chatSnap, modifiedCode, execCtx); rejected {
+			if result, rejected := validateFileSnapshot(path, info, chatSnap, modifiedCode, execCtx, true); rejected {
 				return result, true
 			}
 			return ToolExecutionResult{}, false
 		}
 		return fileToolError(notReadCode, "file exists but was not read in this run; call read first then retry"), true
 	}
-	return validateFileSnapshot(path, info, snap, modifiedCode, nil)
+	return validateFileSnapshot(path, info, snap, modifiedCode, nil, false)
 }
 
-func validateFileSnapshot(path string, info os.FileInfo, snap ReadFileSnapshot, modifiedCode string, restoreCtx *ExecutionContext) (ToolExecutionResult, bool) {
-	if info.ModTime().UnixMilli() != snap.ModifiedUnixMs || info.Size() != snap.SizeBytes {
+func validateFileSnapshot(path string, info os.FileInfo, snap ReadFileSnapshot, modifiedCode string, restoreCtx *ExecutionContext, forceSHA bool) (ToolExecutionResult, bool) {
+	statChanged := info.ModTime().UnixMilli() != snap.ModifiedUnixMs || info.Size() != snap.SizeBytes
+	if forceSHA || statChanged {
 		currentSha := fileSHA256(path)
 		if currentSha != snap.SHA256 {
 			return fileToolError(modifiedCode, "file has been modified since last read; re-read before writing"), true
 		}
+	}
+	if statChanged {
 		snap.ModifiedUnixMs = info.ModTime().UnixMilli()
 		snap.SizeBytes = info.Size()
 	}
