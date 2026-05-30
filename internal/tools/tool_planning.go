@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	. "agent-platform/internal/contracts"
 	planutil "agent-platform/internal/planning"
@@ -29,9 +28,9 @@ func (t *RuntimeToolExecutor) invokePlanningWrite(args map[string]any, execCtx *
 		return ToolExecutionResult{Output: "失败: CHATS_DIR 未配置", Error: "chats_dir_unavailable", ExitCode: -1}, nil
 	}
 
-	spec := planutil.SpecFromArgs(args, execCtx.Request.Message)
+	spec := planutil.SpecFromArgs(args)
 	markdown := planutil.RenderMarkdown(spec)
-	if strings.TrimSpace(markdown) == "" || strings.TrimSpace(markdown) == "# "+strings.TrimSpace(spec.Title) {
+	if !planutil.ValidMarkdown(markdown) {
 		return ToolExecutionResult{Output: "失败: markdown 不能为空", Error: "missing_markdown", ExitCode: -1}, nil
 	}
 
@@ -46,22 +45,15 @@ func (t *RuntimeToolExecutor) invokePlanningWrite(args map[string]any, execCtx *
 		return ToolExecutionResult{Output: "失败: 写入 planning markdown 失败: " + err.Error(), Error: "planning_write_failed", ExitCode: -1}, nil
 	}
 
-	updatedAt := time.Now().UnixMilli()
 	execCtx.PlanningState = &PlanningRuntimeState{
 		PlanningID:   planningID,
 		PlanningFile: planningFile,
-		Title:        spec.Title,
 		Markdown:     markdown,
-		Status:       "ready",
-		UpdatedAt:    updatedAt,
 	}
 	payload := map[string]any{
 		"planningId":   planningID,
 		"planningFile": planningFile,
-		"title":        spec.Title,
-		"status":       "ready",
 		"markdown":     markdown,
-		"updatedAt":    updatedAt,
 	}
 	result := structuredResultWithExit(payload, 0)
 	result.Output = fmt.Sprintf("planning written: %s", planningFile)

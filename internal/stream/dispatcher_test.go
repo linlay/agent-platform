@@ -183,33 +183,13 @@ func TestDispatcherTaskTerminalPayloads(t *testing.T) {
 	})
 }
 
-func TestDispatcherEmitsPlanningLifecycle(t *testing.T) {
+func TestDispatcherEmitsPlanningDelta(t *testing.T) {
 	dispatcher := NewDispatcher(StreamRequest{
 		RequestID: "req_1",
 		RunID:     "run_1",
 		ChatID:    "chat_1",
 		AgentKey:  "coder",
 	})
-
-	start := dispatcher.Dispatch(PlanningStart{
-		PlanningID:   "plan-run_1",
-		PlanningFile: "/tmp/plan-run_1.md",
-		Title:        "Plan",
-		Status:       "started",
-	})
-	assertEventTypes(t, start, "planning.start")
-	if got := start[0].Data().String("planningId"); got != "plan-run_1" {
-		t.Fatalf("expected planningId, got %#v", start[0].ToData())
-	}
-	startData := start[0].Data()
-	if got := startData.String("planningFile"); got != "plan-run_1.md" {
-		t.Fatalf("expected planningFile basename, got %#v", start[0].ToData())
-	}
-	for _, key := range []string{"requestId", "agentKey", "status"} {
-		if got := startData.Value(key); got != nil {
-			t.Fatalf("did not expect planning.start %s, got %#v", key, start[0].ToData())
-		}
-	}
 
 	delta := dispatcher.Dispatch(PlanningDelta{
 		PlanningID: "plan-run_1",
@@ -219,33 +199,6 @@ func TestDispatcherEmitsPlanningLifecycle(t *testing.T) {
 	deltaData := delta[0].Data()
 	if got := deltaData.Payload; len(got) != 2 || got["planningId"] != "plan-run_1" || got["delta"] != "\n\n# Plan" {
 		t.Fatalf("unexpected planning.delta payload %#v", deltaData.Map())
-	}
-
-	snapshot := dispatcher.Dispatch(PlanningSnapshot{
-		PlanningID:   "plan-run_1",
-		PlanningFile: "/tmp/plan-run_1.md",
-		Markdown:     "# Plan",
-	})
-	assertEventTypes(t, snapshot, "planning.snapshot")
-	if got := snapshot[0].Data().String("planningFile"); got != "plan-run_1.md" {
-		t.Fatalf("expected snapshot planningFile basename, got %#v", snapshot[0].ToData())
-	}
-	snapshotData := snapshot[0].Data()
-	if got := snapshotData.String("text"); got != "# Plan" {
-		t.Fatalf("expected snapshot text, got %#v", snapshot[0].ToData())
-	}
-	if got := snapshotData.Value("markdown"); got != nil {
-		t.Fatalf("did not expect public planning.snapshot markdown, got %#v", snapshot[0].ToData())
-	}
-
-	end := dispatcher.Dispatch(PlanningEnd{
-		PlanningID: "plan-run_1",
-		Status:     "ready",
-		Markdown:   "# Plan",
-	})
-	assertEventTypes(t, end, "planning.end")
-	if got := end[0].Data().Payload; len(got) != 1 || got["planningId"] != "plan-run_1" {
-		t.Fatalf("unexpected planning.end payload %#v", end[0].ToData())
 	}
 }
 

@@ -9,65 +9,21 @@ import (
 )
 
 type Spec struct {
-	Title    string
 	Markdown string
 }
 
-func SpecFromArgs(args map[string]any, requestMessage string) Spec {
-	title := strings.TrimSpace(anyString(args["title"]))
-	if title == "" {
-		title = TitleFromRequest(requestMessage)
-	}
-	if title == "" {
-		title = "CODER Planning"
-	}
+func SpecFromArgs(args map[string]any) Spec {
 	return Spec{
-		Title:    title,
-		Markdown: NormalizeMarkdown(anyString(args["markdown"]), title),
+		Markdown: anyString(args["markdown"]),
 	}
-}
-
-func TitleFromRequest(message string) string {
-	message = strings.TrimSpace(message)
-	if message == "" {
-		return ""
-	}
-	runes := []rune(message)
-	if len(runes) > 40 {
-		message = strings.TrimSpace(string(runes[:40]))
-	}
-	return message
 }
 
 func RenderMarkdown(spec Spec) string {
-	return NormalizeMarkdown(spec.Markdown, spec.Title)
+	return spec.Markdown
 }
 
-func RenderDraftMarkdown(args map[string]any) string {
-	title := strings.TrimSpace(anyString(args["title"]))
-	if title == "" {
-		return ""
-	}
-	return NormalizeMarkdown(anyString(args["markdown"]), title)
-}
-
-func NormalizeMarkdown(markdown string, title string) string {
-	markdown = strings.TrimSpace(markdown)
-	title = strings.TrimSpace(title)
-	if markdown == "" {
-		if title == "" {
-			return ""
-		}
-		return "# " + title + "\n"
-	}
-	if !strings.HasPrefix(strings.TrimSpace(markdown), "#") && title != "" {
-		markdown = "# " + title + "\n\n" + markdown
-	}
-	return strings.TrimRight(markdown, "\n") + "\n"
-}
-
-func PlanningID(title string, runID string) string {
-	return PlanningIDForRevision(runID, 1)
+func ValidMarkdown(markdown string) bool {
+	return strings.TrimSpace(markdown) != ""
 }
 
 func PlanningIDForRevision(runID string, revision int) string {
@@ -88,38 +44,6 @@ func PlanningFileForChat(chatsDir string, chatID string, planningID string) stri
 		return PlanningFile(chatsDir, planningID)
 	}
 	return filepath.Join(chatsDir, chatID, chat.ToolRootDirName, chat.ToolPlansDirName, strings.TrimSpace(planningID)+".md")
-}
-
-func SafeFileStem(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "planning"
-	}
-	var b strings.Builder
-	lastDash := false
-	count := 0
-	for _, r := range value {
-		if unicode.IsLetter(r) || unicode.IsDigit(r) {
-			b.WriteRune(r)
-			lastDash = false
-			count++
-		} else if r == '_' {
-			b.WriteRune(r)
-			lastDash = false
-			count++
-		} else if !lastDash {
-			b.WriteByte('-')
-			lastDash = true
-		}
-		if count >= 80 {
-			break
-		}
-	}
-	out := strings.Trim(b.String(), "-")
-	if out == "" {
-		return "planning"
-	}
-	return out
 }
 
 func SafeRunID(value string) string {

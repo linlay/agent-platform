@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -173,83 +172,6 @@ func (w *StepWriter) appendTypedEventLine(event stream.EventData, lineType strin
 	})
 }
 
-func (w *StepWriter) handlePlanningEvent(event stream.EventData) {
-	w.updatePlanning(event)
-	switch event.Type {
-	case "planning.start", "planning.delta", "planning.end":
-		if event.Type == "planning.end" {
-			w.appendPlanningSnapshotEvent(event)
-		}
-	case "planning.snapshot":
-		w.appendPlanningSnapshotEvent(event)
-	}
-}
-
-func (w *StepWriter) appendPlanningSnapshotEvent(source stream.EventData) {
-	event := w.planningSnapshotEvent(source)
-	key := w.planningSnapshotPersistKey(event)
-	if key != "" {
-		if w.planningSnapshotsPersisted[key] {
-			return
-		}
-		w.planningSnapshotsPersisted[key] = true
-	}
-	w.appendTypedEventLine(event, "planning")
-}
-
-func (w *StepWriter) planningSnapshotPersistKey(event stream.EventData) string {
-	runID := strings.TrimSpace(event.String("runId"))
-	if runID == "" {
-		runID = strings.TrimSpace(w.runID)
-	}
-	planningID := strings.TrimSpace(event.String("planningId"))
-	planningFile := strings.TrimSpace(event.String("planningFile"))
-	if planningID == "" && planningFile == "" {
-		return ""
-	}
-	if planningID != "" {
-		return runID + "\x00id\x00" + planningID
-	}
-	return runID + "\x00file\x00" + planningFile
-}
-
-func (w *StepWriter) planningSnapshotEvent(source stream.EventData) stream.EventData {
-	payload := map[string]any{}
-	if w.latestPlanning != nil {
-		payload["planningId"] = w.latestPlanning.PlanningID
-		payload["planningFile"] = planningFileDisplayName(w.latestPlanning.PlanningFile)
-		payload["title"] = w.latestPlanning.Title
-		payload["text"] = w.latestPlanning.Markdown
-		payload["updatedAt"] = w.latestPlanning.UpdatedAt
-	}
-	if value := strings.TrimSpace(source.String("chatId")); value != "" {
-		payload["chatId"] = value
-	} else {
-		payload["chatId"] = w.chatID
-	}
-	if value := strings.TrimSpace(source.String("runId")); value != "" {
-		payload["runId"] = value
-	} else {
-		payload["runId"] = w.runID
-	}
-	if payload["updatedAt"] == nil || int64FromAny(payload["updatedAt"]) == 0 {
-		payload["updatedAt"] = source.Timestamp
-	}
-	return stream.EventData{
-		Type:      "planning.snapshot",
-		Timestamp: source.Timestamp,
-		Payload:   payload,
-	}
-}
-
-func planningFileDisplayName(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return ""
-	}
-	return filepath.Base(value)
-}
-
 func (w *StepWriter) updatePlan(event stream.EventData) {
 	planID := event.String("planId")
 	plan := &PlanState{PlanID: planID, Tasks: []PlanTaskState{}}
@@ -265,46 +187,6 @@ func (w *StepWriter) updatePlan(event stream.EventData) {
 		})
 	}
 	w.latestPlan = plan
-}
-
-func (w *StepWriter) updatePlanning(event stream.EventData) {
-	if event.Type == "planning.start" {
-		if planningID := strings.TrimSpace(event.String("planningId")); planningID != "" &&
-			w.latestPlanning != nil &&
-			w.latestPlanning.PlanningID != "" &&
-			w.latestPlanning.PlanningID != planningID {
-			w.latestPlanning = nil
-		}
-	}
-	if w.latestPlanning == nil {
-		w.latestPlanning = &PlanningState{}
-	}
-	if value := strings.TrimSpace(event.String("planningId")); value != "" {
-		w.latestPlanning.PlanningID = value
-	}
-	if value := strings.TrimSpace(event.String("planningFile")); value != "" {
-		w.latestPlanning.PlanningFile = value
-	}
-	if value := strings.TrimSpace(event.String("title")); value != "" {
-		w.latestPlanning.Title = value
-	}
-	if value := strings.TrimSpace(event.String("status")); value != "" {
-		w.latestPlanning.Status = value
-	}
-	if value := event.String("delta"); value != "" {
-		w.latestPlanning.Markdown += value
-	}
-	if value := event.String("text"); value != "" {
-		w.latestPlanning.Markdown = value
-	} else if value := event.String("markdown"); value != "" {
-		w.latestPlanning.Markdown = value
-	}
-	if updatedAt := event.Value("updatedAt"); updatedAt != nil {
-		w.latestPlanning.UpdatedAt = int64FromAny(updatedAt)
-	}
-	if w.latestPlanning.UpdatedAt == 0 {
-		w.latestPlanning.UpdatedAt = event.Timestamp
-	}
 }
 
 func (w *StepWriter) updateArtifact(event stream.EventData) {

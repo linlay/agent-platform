@@ -6,13 +6,9 @@ clientVisible: false
 inputSchema:
   type: object
   properties:
-    title:
-      type: string
-      description: Required. Short plain-text title for the plan. Do not include Markdown headings.
     markdown:
       type: string
-      description: Required. Complete Markdown plan following the active CODER planning prompt. Include the title as the top-level heading.
+      description: Required. Complete Markdown plan following the active CODER planning prompt. Include one top-level heading and all required sections.
   required:
-    - title
     - markdown
   additionalProperties: false

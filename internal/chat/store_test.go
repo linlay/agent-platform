@@ -1954,74 +1954,35 @@ func TestStepWriterIgnoresEmptyUsageSnapshot(t *testing.T) {
 	}
 }
 
-func TestStepWriterPlanningLifecyclePersistsSnapshotByDefault(t *testing.T) {
+func TestStepWriterPlanningEventsAreLiveOnly(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-planning-snapshot", "coder", "", "plan it"); err != nil {
+	if _, _, err := store.EnsureChat("chat-planning-live-only", "coder", "", "plan it"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	writer := NewStepWriter(store, "chat-planning-snapshot", "run-planning", "coder", false)
-	emitPlanningLifecycleForTest(writer, "chat-planning-snapshot")
+	writer := NewStepWriter(store, "chat-planning-live-only", "run-planning", "coder", false)
+	emitPlanningLifecycleForTest(writer, "chat-planning-live-only")
+	writer.Flush()
 
-	lines, err := readJSONLines(store.chatJSONLPath("chat-planning-snapshot"))
+	lines, err := readJSONLines(store.chatJSONLPath("chat-planning-live-only"))
 	if err != nil {
 		t.Fatalf("read jsonl: %v", err)
 	}
-	if len(lines) != 1 {
-		t.Fatalf("expected one planning snapshot line, got %#v", lines)
+	if len(lines) != 0 {
+		t.Fatalf("did not expect planning events to persist, got %#v", lines)
 	}
-	event, _ := lines[0]["event"].(map[string]any)
-	if lines[0]["_type"] != "planning" || event["type"] != "planning.snapshot" {
-		t.Fatalf("expected planning.snapshot line, got %#v", lines[0])
-	}
-	if event["text"] != "# Plan\n\nBody" || event["planningId"] != "plan-run-planning" || event["planningFile"] != "plan-run-planning.md" {
-		t.Fatalf("unexpected planning snapshot event %#v", event)
-	}
-	if _, ok := event["markdown"]; ok {
-		t.Fatalf("did not expect public planning snapshot markdown field %#v", event)
-	}
-
-	detail, err := store.LoadChat("chat-planning-snapshot")
+	detail, err := store.LoadChat("chat-planning-live-only")
 	if err != nil {
 		t.Fatalf("load chat: %v", err)
 	}
-	if detail.Planning == nil || detail.Planning.Markdown != "# Plan\n\nBody" {
-		t.Fatalf("expected latest planning state from snapshot, got %#v", detail.Planning)
-	}
-	if !detailHasEventType(detail.Events, "planning.snapshot") ||
-		detailHasEventType(detail.Events, "planning.start") ||
-		detailHasEventType(detail.Events, "planning.delta") ||
-		detailHasEventType(detail.Events, "planning.end") {
-		t.Fatalf("unexpected replayed planning events %#v", detail.Events)
+	if detail.Planning != nil || detailHasEventType(detail.Events, "planning.delta") {
+		t.Fatalf("did not expect replayed planning state/events, planning=%#v events=%#v", detail.Planning, detail.Events)
 	}
 }
 
-func TestStepWriterPlanningLifecyclePersistsOnlySnapshotWhenDebugEventsEnabled(t *testing.T) {
-	store, err := NewFileStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("new file store: %v", err)
-	}
-	writer := NewStepWriter(store, "chat-planning-debug", "run-planning", "coder", false, WithDebugEventsEnabled(true))
-	emitPlanningLifecycleForTest(writer, "chat-planning-debug")
-
-	lines, err := readJSONLines(store.chatJSONLPath("chat-planning-debug"))
-	if err != nil {
-		t.Fatalf("read jsonl: %v", err)
-	}
-	got := make([]string, 0, len(lines))
-	for _, line := range lines {
-		event, _ := line["event"].(map[string]any)
-		got = append(got, stringVal(event["type"]))
-	}
-	want := []string{"planning.snapshot"}
-	if strings.Join(got, ",") != strings.Join(want, ",") {
-		t.Fatalf("planning event lines = %#v, want %#v", got, want)
-	}
-}
-
-func TestLoadChatReplaysSinglePlanningSnapshotFromLegacyLifecycleEvents(t *testing.T) {
+func TestLoadChatIgnoresLegacyPlanningEventLines(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
@@ -2031,26 +1992,11 @@ func TestLoadChatReplaysSinglePlanningSnapshotFromLegacyLifecycleEvents(t *testi
 	if _, _, err := store.EnsureChat(chatID, "coder", "", "plan it"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	appendPlanningEventLineForTest(t, store, chatID, runID, 1001, map[string]any{
-		"type":         "planning.start",
-		"timestamp":    int64(1001),
-		"planningId":   "plan-run-planning",
-		"planningFile": "plan-run-planning.md",
-		"chatId":       chatID,
-		"runId":        runID,
-		"title":        "Plan",
-		"updatedAt":    int64(1001),
-	})
 	appendPlanningEventLineForTest(t, store, chatID, runID, 1002, map[string]any{
 		"type":       "planning.delta",
 		"timestamp":  int64(1002),
 		"planningId": "plan-run-planning",
 		"delta":      "# Draft",
-	})
-	appendPlanningEventLineForTest(t, store, chatID, runID, 1003, map[string]any{
-		"type":       "planning.end",
-		"timestamp":  int64(1003),
-		"planningId": "plan-run-planning",
 	})
 	appendPlanningEventLineForTest(t, store, chatID, runID, 1004, map[string]any{
 		"type":         "planning.snapshot",
@@ -2059,105 +2005,21 @@ func TestLoadChatReplaysSinglePlanningSnapshotFromLegacyLifecycleEvents(t *testi
 		"planningFile": "plan-run-planning.md",
 		"chatId":       chatID,
 		"runId":        runID,
-		"title":        "Plan",
 		"markdown":     "# Final\n\nBody",
-		"updatedAt":    int64(1004),
 	})
 
 	detail, err := store.LoadChat(chatID)
 	if err != nil {
 		t.Fatalf("load chat: %v", err)
 	}
-	if got := detailEventTypeCount(detail.Events, "planning.snapshot"); got != 1 {
-		t.Fatalf("planning.snapshot count = %d, events %#v", got, detail.Events)
-	}
-	if detailHasEventType(detail.Events, "planning.start") ||
-		detailHasEventType(detail.Events, "planning.delta") ||
-		detailHasEventType(detail.Events, "planning.end") {
-		t.Fatalf("unexpected replayed planning lifecycle events %#v", detail.Events)
-	}
-	snapshot := detailEventByType(detail.Events, "planning.snapshot")
-	if snapshot.String("text") != "# Final\n\nBody" {
-		t.Fatalf("expected snapshot text to prefer canonical snapshot, got %#v", snapshot.Map())
-	}
-	if snapshot.Value("markdown") != nil {
-		t.Fatalf("did not expect replayed planning snapshot markdown, got %#v", snapshot.Map())
-	}
-	if detail.Planning == nil || detail.Planning.Markdown != "# Final\n\nBody" {
-		t.Fatalf("expected planning state from canonical snapshot, got %#v", detail.Planning)
-	}
-}
-
-func TestLoadChatSynthesizesPlanningSnapshotFromLegacyDeltas(t *testing.T) {
-	store, err := NewFileStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("new file store: %v", err)
-	}
-	chatID := "chat-legacy-planning-deltas"
-	runID := "run-planning"
-	if _, _, err := store.EnsureChat(chatID, "coder", "", "plan it"); err != nil {
-		t.Fatalf("ensure chat: %v", err)
-	}
-	appendPlanningEventLineForTest(t, store, chatID, runID, 1001, map[string]any{
-		"type":         "planning.start",
-		"timestamp":    int64(1001),
-		"planningId":   "plan-run-planning",
-		"planningFile": "plan-run-planning.md",
-		"chatId":       chatID,
-		"runId":        runID,
-		"title":        "Plan",
-		"updatedAt":    int64(1001),
-	})
-	appendPlanningEventLineForTest(t, store, chatID, runID, 1002, map[string]any{
-		"type":       "planning.delta",
-		"timestamp":  int64(1002),
-		"planningId": "plan-run-planning",
-		"delta":      "# Draft",
-	})
-	appendPlanningEventLineForTest(t, store, chatID, runID, 1003, map[string]any{
-		"type":       "planning.delta",
-		"timestamp":  int64(1003),
-		"planningId": "plan-run-planning",
-		"delta":      "\n\nBody",
-	})
-	appendPlanningEventLineForTest(t, store, chatID, runID, 1004, map[string]any{
-		"type":       "planning.end",
-		"timestamp":  int64(1004),
-		"planningId": "plan-run-planning",
-	})
-
-	detail, err := store.LoadChat(chatID)
-	if err != nil {
-		t.Fatalf("load chat: %v", err)
-	}
-	if got := detailEventTypeCount(detail.Events, "planning.snapshot"); got != 1 {
-		t.Fatalf("planning.snapshot count = %d, events %#v", got, detail.Events)
-	}
-	snapshot := detailEventByType(detail.Events, "planning.snapshot")
-	if snapshot.String("text") != "# Draft\n\nBody" {
-		t.Fatalf("expected synthesized snapshot text from deltas, got %#v", snapshot.Map())
-	}
-	if snapshot.Value("markdown") != nil {
-		t.Fatalf("did not expect synthesized planning snapshot markdown, got %#v", snapshot.Map())
-	}
-	if detail.Planning == nil || detail.Planning.Markdown != "# Draft\n\nBody" {
-		t.Fatalf("expected planning state from synthesized snapshot, got %#v", detail.Planning)
+	if detail.Planning != nil ||
+		detailHasEventType(detail.Events, "planning.snapshot") ||
+		detailHasEventType(detail.Events, "planning.delta") {
+		t.Fatalf("did not expect legacy planning replay, planning=%#v events=%#v", detail.Planning, detail.Events)
 	}
 }
 
 func emitPlanningLifecycleForTest(writer *StepWriter, chatID string) {
-	writer.OnEvent(stream.EventData{
-		Type:      "planning.start",
-		Timestamp: 1001,
-		Payload: map[string]any{
-			"planningId":   "plan-run-planning",
-			"planningFile": "plan-run-planning.md",
-			"chatId":       chatID,
-			"runId":        "run-planning",
-			"title":        "Plan",
-			"updatedAt":    int64(1001),
-		},
-	})
 	writer.OnEvent(stream.EventData{
 		Type:      "planning.delta",
 		Timestamp: 1002,

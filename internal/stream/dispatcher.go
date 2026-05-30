@@ -38,14 +38,8 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 		return nil
 	case PlanUpdate:
 		return d.handlePlanUpdate(value)
-	case PlanningStart:
-		return d.handlePlanningStart(value)
 	case PlanningDelta:
 		return d.handlePlanningDelta(value)
-	case PlanningSnapshot:
-		return d.handlePlanningSnapshot(value)
-	case PlanningEnd:
-		return d.handlePlanningEnd(value)
 	case TaskStart:
 		return d.handleTaskStart(value)
 	case TaskComplete:

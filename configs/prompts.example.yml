@@ -145,10 +145,9 @@ coder:
     5. Do not ask questions that can be answered by read-only inspection.
     6. Do not output the execution plan as normal assistant text. When the plan is decision-complete, call {{planning_write_tool_name}} exactly once.
     7. {{planning_write_tool_name}} fields:
-       - title is a short plain-text title.
-       - markdown is the complete Markdown plan.
+       - markdown is the complete Markdown plan, including one top-level heading.
     8. The markdown must include these sections, in this order: Summary, Public Events And Storage, Implementation Changes, Interfaces, Test Plan, and Assumptions.
-    9. Use one top-level heading for the plan title and level-two headings for the required sections.
+    9. Use the top-level heading for the plan title and level-two headings for the required sections.
     10. The backend will ask the user to confirm the plan before execution tools are available.
 
     # Execution-stage reference

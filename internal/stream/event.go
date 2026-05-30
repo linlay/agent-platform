@@ -227,9 +227,8 @@ func shouldOmitPayloadField(eventType string, key string, value any) bool {
 			key == "description" || key == "arguments"
 	case "source.publish":
 		return key == "taskId" || key == "toolId" || key == "query"
-	case "planning.start", "planning.delta", "planning.snapshot", "planning.end":
-		return key == "planningId" || key == "planningFile" || key == "chatId" || key == "runId" ||
-			key == "title"
+	case "planning.delta":
+		return key == "planningId"
 	case "task.start":
 		return key == "description" || key == "subAgentKey" || key == "invokingToolId"
 	case "task.cancel":
@@ -308,14 +307,8 @@ func eventPayloadKeyOrder(eventType string) []string {
 		return []string{"actionId", "result"}
 	case "plan.create", "plan.update":
 		return []string{"planId", "chatId", "plan"}
-	case "planning.start":
-		return []string{"planningId", "planningFile", "chatId", "runId", "title", "updatedAt"}
 	case "planning.delta":
 		return []string{"planningId", "delta"}
-	case "planning.snapshot":
-		return []string{"planningId", "planningFile", "chatId", "runId", "title", "text", "updatedAt"}
-	case "planning.end":
-		return []string{"planningId"}
 	case "task.start":
 		return []string{"taskId", "runId", "taskName", "description", "subAgentKey", "invokingToolId"}
 	case "task.complete":

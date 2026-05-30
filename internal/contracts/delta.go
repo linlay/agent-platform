@@ -68,60 +68,12 @@ type DeltaPlanUpdate struct {
 
 func (DeltaPlanUpdate) agentDeltaTag() {}
 
-type DeltaPlanningStart struct {
-	PlanningID   string
-	PlanningFile string
-	ChatID       string
-	RunID        string
-	RequestID    string
-	AgentKey     string
-	Title        string
-	Status       string
-}
-
-func (DeltaPlanningStart) agentDeltaTag() {}
-
 type DeltaPlanningDelta struct {
-	PlanningID   string
-	PlanningFile string
-	ChatID       string
-	RunID        string
-	RequestID    string
-	AgentKey     string
-	Title        string
-	Status       string
-	Delta        string
+	PlanningID string
+	Delta      string
 }
 
 func (DeltaPlanningDelta) agentDeltaTag() {}
-
-type DeltaPlanningSnapshot struct {
-	PlanningID   string
-	PlanningFile string
-	ChatID       string
-	RunID        string
-	RequestID    string
-	AgentKey     string
-	Title        string
-	Status       string
-	Markdown     string
-}
-
-func (DeltaPlanningSnapshot) agentDeltaTag() {}
-
-type DeltaPlanningEnd struct {
-	PlanningID   string
-	PlanningFile string
-	ChatID       string
-	RunID        string
-	RequestID    string
-	AgentKey     string
-	Title        string
-	Status       string
-	Markdown     string
-}
-
-func (DeltaPlanningEnd) agentDeltaTag() {}
 
 type DeltaTaskLifecycle struct {
 	Kind        string

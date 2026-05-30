@@ -1006,14 +1006,13 @@ func TestCoderPlanningModeQuestionsConfirmThenExecutes(t *testing.T) {
 						ID:   "tool_plan",
 						Name: "planning_write",
 						Args: map[string]any{
-							"title": "Confirm Coder Plan",
 							"markdown": `# Confirm Coder Plan
 
 ## Summary
 Plan first, then check the current time before reporting.
 
 ## Public Events And Storage
-- Keep planning lifecycle events before confirmation
+- Keep planning delta events before confirmation
 
 ## Implementation Changes
 - Check the current time before reporting
@@ -1106,10 +1105,8 @@ Plan first, then check the current time before reporting.
 	if strings.Contains(streamBody.String(), `"type":"task.start"`) {
 		t.Fatalf("did not expect task.start before plan confirmation, got %s", streamBody.String())
 	}
-	for _, eventType := range []string{`"type":"planning.start"`, `"type":"planning.delta"`, `"type":"planning.end"`} {
-		if !strings.Contains(streamBody.String(), eventType) {
-			t.Fatalf("expected %s before confirmation, got %s", eventType, streamBody.String())
-		}
+	if !strings.Contains(streamBody.String(), `"type":"planning.delta"`) {
+		t.Fatalf("expected planning.delta before confirmation, got %s", streamBody.String())
 	}
 	if strings.Contains(streamBody.String(), `"toolName":"planning_write"`) || strings.Contains(streamBody.String(), `"toolId":"tool_plan"`) {
 		t.Fatalf("did not expect hidden planning_write tool events before confirmation, got %s", streamBody.String())
@@ -1124,6 +1121,9 @@ Plan first, then check the current time before reporting.
 	}
 	if strings.Contains(streamBody.String(), `"type":"planning.snapshot"`) {
 		t.Fatalf("did not expect live planning.snapshot, got %s", streamBody.String())
+	}
+	if strings.Contains(streamBody.String(), `"type":"planning.start"`) || strings.Contains(streamBody.String(), `"type":"planning.end"`) {
+		t.Fatalf("did not expect planning lifecycle events, got %s", streamBody.String())
 	}
 	planningFile := filepath.Join(fixture.cfg.Paths.ChatsDir, chatID, chat.ToolRootDirName, chat.ToolPlansDirName, runID+"_planning_1.md")
 	planningBytes, readPlanningErr := os.ReadFile(planningFile)
@@ -1150,17 +1150,20 @@ Plan first, then check the current time before reporting.
 	if !strings.Contains(body, `"type":"request.query"`) || !strings.Contains(body, `"planningMode":true`) {
 		t.Fatalf("expected live request.query planningMode=true, got %s", body)
 	}
-	planIndex := strings.Index(body, `"type":"planning.end"`)
+	planIndex := strings.LastIndex(body, `"type":"planning.delta"`)
 	confirmIndex := strings.Index(body, `实施此计划？`)
 	executionIndex := strings.Index(body, `execution completed`)
 	if !(planIndex >= 0 && confirmIndex > planIndex && executionIndex > confirmIndex) {
-		t.Fatalf("expected planning.end before confirmation and execution content after confirmation, got %s", body)
+		t.Fatalf("expected planning.delta before confirmation and execution content after confirmation, got %s", body)
 	}
 	if !strings.Contains(body, `"mode":"plan"`) || !strings.Contains(body, `"decision":"approve"`) {
 		t.Fatalf("expected confirmation plan answer in stream, got %s", body)
 	}
 	if strings.Contains(body, `"type":"planning.snapshot"`) {
 		t.Fatalf("did not expect live planning.snapshot, got %s", body)
+	}
+	if strings.Contains(body, `"type":"planning.start"`) || strings.Contains(body, `"type":"planning.end"`) {
+		t.Fatalf("did not expect planning lifecycle events, got %s", body)
 	}
 	if got := strings.Count(body, `"type":"planning.delta"`); got <= 1 {
 		t.Fatalf("expected multiple live planning.delta events, got %d in %s", got, body)
@@ -1194,7 +1197,7 @@ func TestCoderPlanningWriteStreamsDeltasBeforeProviderFinishes(t *testing.T) {
 				}
 			}()
 
-			prefixArgs := `{"title":"Streaming Plan","markdown":"# Streaming Plan\n\n## Summary\nPart one`
+			prefixArgs := `{"markdown":"# Streaming Plan\n\n## Summary\nPart one`
 			suffixArgs := ` and part two.\n\n## Test Plan\n- Verify true streaming\n"}`
 
 			fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
@@ -1296,8 +1299,8 @@ func TestCoderPlanningWriteStreamsDeltasBeforeProviderFinishes(t *testing.T) {
 			if !strings.Contains(firstDelta, "Part one") {
 				t.Fatalf("expected first planning delta from partial provider args, got %q in %s", firstDelta, streamBody.String())
 			}
-			if strings.Contains(streamBody.String(), `"type":"planning.end"`) {
-				t.Fatalf("did not expect planning.end before provider finished, got %s", streamBody.String())
+			if strings.Contains(streamBody.String(), `"type":"planning.end"`) || strings.Contains(streamBody.String(), `"type":"planning.start"`) {
+				t.Fatalf("did not expect planning lifecycle before provider finished, got %s", streamBody.String())
 			}
 			planningFile := filepath.Join(fixture.cfg.Paths.ChatsDir, chatID, chat.ToolRootDirName, chat.ToolPlansDirName, runID+"_planning_1.md")
 			draftBytes, readDraftErr := os.ReadFile(planningFile)
@@ -1316,8 +1319,8 @@ func TestCoderPlanningWriteStreamsDeltasBeforeProviderFinishes(t *testing.T) {
 
 			_, confirmAwaitingID := readAwaitingApproval(t, reader, &streamBody, "confirm")
 			bodyBeforeDecision := streamBody.String()
-			if !strings.Contains(bodyBeforeDecision, `"type":"planning.end"`) {
-				t.Fatalf("expected planning.end after provider finished, got %s", bodyBeforeDecision)
+			if strings.Contains(bodyBeforeDecision, `"type":"planning.end"`) || strings.Contains(bodyBeforeDecision, `"type":"planning.start"`) {
+				t.Fatalf("did not expect planning lifecycle events, got %s", bodyBeforeDecision)
 			}
 			if got := strings.Count(bodyBeforeDecision, `"type":"planning.delta"`); got <= prefixDeltaCount {
 				t.Fatalf("expected additional planning.delta after provider finished, got %d before=%d in %s", got, prefixDeltaCount, bodyBeforeDecision)
@@ -1353,7 +1356,6 @@ func TestCoderPlanningModeCancelDoesNotExecuteTasks(t *testing.T) {
 			assertCoderPlanningToolSet(t, providerRequestToolNames(payload["tools"]))
 			writeProviderSSE(t, w,
 				providerToolCallFrame(t, "tool_plan", "planning_write", map[string]any{
-					"title": "Cancel Coder Plan",
 					"markdown": `# Cancel Coder Plan
 
 ## Summary
@@ -1457,7 +1459,7 @@ Plan should be canceled before execution.
 	if got := providerCallCount.Load(); got != 2 {
 		t.Fatalf("provider calls = %d, want 2", got)
 	}
-	assertPersistedPlanningSnapshotOnly(t, fixture.server)
+	assertNoPersistedPlanningEvents(t, fixture.server)
 }
 
 func TestCoderPlanningModeRejectCanGenerateRevisionAndApprove(t *testing.T) {
@@ -1474,7 +1476,6 @@ func TestCoderPlanningModeRejectCanGenerateRevisionAndApprove(t *testing.T) {
 			assertCoderPlanningToolSet(t, toolNames)
 			writeProviderSSE(t, w,
 				providerToolCallFrame(t, "tool_plan_v1", "planning_write", map[string]any{
-					"title": "Revision Plan V1",
 					"markdown": `# Revision Plan V1
 
 ## Summary
@@ -1505,7 +1506,6 @@ Initial plan with too little test coverage.
 			}
 			writeProviderSSE(t, w,
 				providerToolCallFrame(t, "tool_plan_v2", "planning_write", map[string]any{
-					"title": "Revision Plan V2",
 					"markdown": `# Revision Plan V2
 
 ## Summary
@@ -1681,13 +1681,10 @@ func readUntilPlanningDelta(t *testing.T, reader *bufio.Reader, streamBody *stri
 		if strings.HasPrefix(line, "data: {") {
 			payload := decodeSSELine(t, line)
 			switch payload["type"] {
-			case "planning.start":
+			case "request.query", "run.start":
 				runID, _ = payload["runId"].(string)
 			case "planning.delta":
 				delta, _ := payload["delta"].(string)
-				if runID == "" {
-					runID, _ = payload["runId"].(string)
-				}
 				if runID == "" {
 					t.Fatalf("expected planning runId before delta, got %#v", payload)
 				}
@@ -1907,33 +1904,13 @@ func assertPersistedPlanningModeRequestQuery(t *testing.T, server http.Handler) 
 	}
 	for _, event := range chatResp.Data.Events {
 		if event.Type == "request.query" && event.Value("planningMode") == true {
-			planning, _ := chatResp.Data.Planning.(map[string]any)
-			if strings.TrimSpace(stringValue(planning["planningId"])) == "" || strings.TrimSpace(stringValue(planning["planningFile"])) == "" {
-				t.Fatalf("expected persisted planning state, got %#v", chatResp.Data.Planning)
-			}
-			if !strings.Contains(stringValue(planning["text"]), "## Summary") {
-				t.Fatalf("expected persisted planning text, got %#v", planning)
-			}
-			if _, ok := planning["markdown"]; ok {
-				t.Fatalf("did not expect persisted planning markdown field, got %#v", planning)
-			}
-			planningSnapshotCount := 0
 			for _, ev := range chatResp.Data.Events {
-				switch ev.Type {
-				case "planning.snapshot":
-					planningSnapshotCount++
-					if !strings.Contains(ev.String("text"), "## Summary") {
-						t.Fatalf("expected replayed planning.snapshot text, got %#v", ev.Map())
-					}
-					if ev.Value("markdown") != nil {
-						t.Fatalf("did not expect replayed planning.snapshot markdown field, got %#v", ev.Map())
-					}
-				case "planning.start", "planning.delta", "planning.end":
-					t.Fatalf("did not expect default replay planning debug event %s in %#v", ev.Type, chatResp.Data.Events)
+				if strings.HasPrefix(ev.Type, "planning.") {
+					t.Fatalf("did not expect persisted planning event %s in %#v", ev.Type, chatResp.Data.Events)
 				}
 			}
-			if planningSnapshotCount != 1 {
-				t.Fatalf("expected one replayed planning.snapshot event, got %d in %#v", planningSnapshotCount, chatResp.Data.Events)
+			if chatResp.Data.Planning != nil {
+				t.Fatalf("did not expect persisted planning state, got %#v", chatResp.Data.Planning)
 			}
 			return
 		}
@@ -1941,7 +1918,7 @@ func assertPersistedPlanningModeRequestQuery(t *testing.T, server http.Handler) 
 	t.Fatalf("expected persisted request.query planningMode=true, got %#v", chatResp.Data.Events)
 }
 
-func assertPersistedPlanningSnapshotOnly(t *testing.T, server http.Handler) {
+func assertNoPersistedPlanningEvents(t *testing.T, server http.Handler) {
 	t.Helper()
 	chatsRec := httptest.NewRecorder()
 	server.ServeHTTP(chatsRec, httptest.NewRequest(http.MethodGet, "/api/chats", nil))
@@ -1959,17 +1936,13 @@ func assertPersistedPlanningSnapshotOnly(t *testing.T, server http.Handler) {
 	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
 		t.Fatalf("decode chat response: %v", err)
 	}
-	planningSnapshotCount := 0
 	for _, ev := range chatResp.Data.Events {
-		switch ev.Type {
-		case "planning.snapshot":
-			planningSnapshotCount++
-		case "planning.start", "planning.delta", "planning.end":
-			t.Fatalf("did not expect persisted planning lifecycle event %s with debug enabled, got %#v", ev.Type, chatResp.Data.Events)
+		if strings.HasPrefix(ev.Type, "planning.") {
+			t.Fatalf("did not expect persisted planning event %s, got %#v", ev.Type, chatResp.Data.Events)
 		}
 	}
-	if planningSnapshotCount != 1 {
-		t.Fatalf("expected one persisted planning.snapshot with debug enabled, got %d in %#v", planningSnapshotCount, chatResp.Data.Events)
+	if chatResp.Data.Planning != nil {
+		t.Fatalf("did not expect persisted planning state, got %#v", chatResp.Data.Planning)
 	}
 }
 

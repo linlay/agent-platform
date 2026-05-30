@@ -412,10 +412,7 @@ type PlanRuntimeState struct {
 type PlanningRuntimeState struct {
 	PlanningID   string
 	PlanningFile string
-	Title        string
 	Markdown     string
-	Status       string
-	UpdatedAt    int64
 }
 
 type NoopToolExecutor struct{}

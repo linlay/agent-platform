@@ -43,10 +43,7 @@ type ArtifactItemState struct {
 type PlanningState struct {
 	PlanningID   string `json:"planningId"`
 	PlanningFile string `json:"planningFile"`
-	Title        string `json:"title,omitempty"`
-	Status       string `json:"status,omitempty"`
 	Markdown     string `json:"text,omitempty"`
-	UpdatedAt    int64  `json:"updatedAt,omitempty"`
 }
 
 // ---------------------------------------------------------------------------

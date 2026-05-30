@@ -192,56 +192,11 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			Plan:   value.Plan,
 			ChatID: value.ChatID,
 		}}
-	case DeltaPlanningStart:
-		m.lastKind = ""
-		return []stream.StreamInput{stream.PlanningStart{
-			PlanningID:   value.PlanningID,
-			PlanningFile: value.PlanningFile,
-			ChatID:       value.ChatID,
-			RunID:        value.RunID,
-			RequestID:    value.RequestID,
-			AgentKey:     value.AgentKey,
-			Title:        value.Title,
-			Status:       value.Status,
-		}}
 	case DeltaPlanningDelta:
 		m.lastKind = ""
 		return []stream.StreamInput{stream.PlanningDelta{
-			PlanningID:   value.PlanningID,
-			PlanningFile: value.PlanningFile,
-			ChatID:       value.ChatID,
-			RunID:        value.RunID,
-			RequestID:    value.RequestID,
-			AgentKey:     value.AgentKey,
-			Title:        value.Title,
-			Status:       value.Status,
-			Delta:        value.Delta,
-		}}
-	case DeltaPlanningSnapshot:
-		m.lastKind = ""
-		return []stream.StreamInput{stream.PlanningSnapshot{
-			PlanningID:   value.PlanningID,
-			PlanningFile: value.PlanningFile,
-			ChatID:       value.ChatID,
-			RunID:        value.RunID,
-			RequestID:    value.RequestID,
-			AgentKey:     value.AgentKey,
-			Title:        value.Title,
-			Status:       value.Status,
-			Markdown:     value.Markdown,
-		}}
-	case DeltaPlanningEnd:
-		m.lastKind = ""
-		return []stream.StreamInput{stream.PlanningEnd{
-			PlanningID:   value.PlanningID,
-			PlanningFile: value.PlanningFile,
-			ChatID:       value.ChatID,
-			RunID:        value.RunID,
-			RequestID:    value.RequestID,
-			AgentKey:     value.AgentKey,
-			Title:        value.Title,
-			Status:       value.Status,
-			Markdown:     value.Markdown,
+			PlanningID: value.PlanningID,
+			Delta:      value.Delta,
 		}}
 	case DeltaTaskLifecycle:
 		m.lastKind = ""

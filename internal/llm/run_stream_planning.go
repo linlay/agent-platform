@@ -17,10 +17,8 @@ const planningDeltaChunkRunes = 96
 type planningWriteStreamState struct {
 	toolID               string
 	argsBuffer           string
-	started              bool
 	planningID           string
 	planningFile         string
-	title                string
 	sentMarkdown         string
 	draftFileInitialized bool
 }
@@ -32,7 +30,6 @@ type planningDraftString struct {
 }
 
 type planningDraftArgs struct {
-	Title    planningDraftString
 	Markdown planningDraftString
 }
 
@@ -63,14 +60,9 @@ func (s *llmRunStream) planningDeltasFromToolCall(delta DeltaToolCall) []AgentDe
 	}
 	state.argsBuffer += delta.ArgsDelta
 	draftArgs := parsePlanningDraftArgs(state.argsBuffer)
-	if !draftArgs.Title.Closed {
+	if !draftArgs.Markdown.Present {
 		return nil
 	}
-	title := strings.TrimSpace(draftArgs.Title.Value)
-	if title == "" {
-		return nil
-	}
-	state.title = title
 	if state.planningID == "" {
 		state.planningID = planutil.PlanningIDForRevision(s.planningRunID(), s.planningRevision())
 	}
@@ -79,25 +71,14 @@ func (s *llmRunStream) planningDeltasFromToolCall(delta DeltaToolCall) []AgentDe
 			state.planningFile = planutil.PlanningFileForChat(chatsDir, s.session.ChatID, state.planningID)
 		}
 	}
-	events := make([]AgentDelta, 0)
-	if !state.started {
-		state.started = true
-		events = append(events, s.planningStartDelta(state, "started"))
-	}
 	draft := renderPlanningDraftMarkdown(draftArgs)
-	events = append(events, s.planningMarkdownDeltas(state, draft, true)...)
-	return events
+	return s.planningMarkdownDeltas(state, draft, true)
 }
 
 func (s *llmRunStream) appendFinalPlanningDeltas(toolID string, result ToolExecutionResult) {
 	planningID := strings.TrimSpace(AnyStringNode(result.Structured["planningId"]))
 	planningFile := strings.TrimSpace(AnyStringNode(result.Structured["planningFile"]))
-	title := strings.TrimSpace(AnyStringNode(result.Structured["title"]))
-	status := strings.TrimSpace(AnyStringNode(result.Structured["status"]))
 	markdown := AnyStringNode(result.Structured["markdown"])
-	if status == "" {
-		status = "ready"
-	}
 	if planningID == "" || strings.TrimSpace(markdown) == "" {
 		return
 	}
@@ -111,25 +92,7 @@ func (s *llmRunStream) appendFinalPlanningDeltas(toolID string, result ToolExecu
 	if state.planningFile == "" {
 		state.planningFile = planningFile
 	}
-	if state.title == "" {
-		state.title = title
-	}
-	if !state.started {
-		state.started = true
-		s.pending = append(s.pending, s.planningStartDelta(state, "started"))
-	}
 	s.pending = append(s.pending, s.planningMarkdownDeltas(state, markdown, false)...)
-	s.pending = append(s.pending, DeltaPlanningEnd{
-		PlanningID:   planningID,
-		PlanningFile: planningFile,
-		ChatID:       s.session.ChatID,
-		RunID:        s.session.RunID,
-		RequestID:    s.session.RequestID,
-		AgentKey:     s.session.AgentKey,
-		Title:        title,
-		Status:       status,
-		Markdown:     markdown,
-	})
 	if s.planningWrites != nil {
 		delete(s.planningWrites, strings.TrimSpace(toolID))
 	}
@@ -159,15 +122,8 @@ func (s *llmRunStream) planningMarkdownDeltas(state *planningWriteStreamState, m
 			state.appendPlanningDraftFile(chunk)
 		}
 		events = append(events, DeltaPlanningDelta{
-			PlanningID:   state.planningID,
-			PlanningFile: state.planningFile,
-			ChatID:       s.session.ChatID,
-			RunID:        s.session.RunID,
-			RequestID:    s.session.RequestID,
-			AgentKey:     s.session.AgentKey,
-			Title:        state.title,
-			Status:       "writing",
-			Delta:        chunk,
+			PlanningID: state.planningID,
+			Delta:      chunk,
 		})
 	}
 	return events
@@ -211,19 +167,6 @@ func (state *planningWriteStreamState) appendPlanningDraftFile(chunk string) {
 	}
 	defer file.Close()
 	_, _ = file.WriteString(chunk)
-}
-
-func (s *llmRunStream) planningStartDelta(state *planningWriteStreamState, status string) DeltaPlanningStart {
-	return DeltaPlanningStart{
-		PlanningID:   state.planningID,
-		PlanningFile: state.planningFile,
-		ChatID:       s.session.ChatID,
-		RunID:        s.session.RunID,
-		RequestID:    s.session.RequestID,
-		AgentKey:     s.session.AgentKey,
-		Title:        state.title,
-		Status:       status,
-	}
 }
 
 func (s *llmRunStream) ensurePlanningWriteState(toolID string) *planningWriteStreamState {
@@ -282,7 +225,6 @@ func (s *llmRunStream) planningChatsDir() string {
 
 func parsePlanningDraftArgs(buffer string) planningDraftArgs {
 	return planningDraftArgs{
-		Title:    parsePlanningStringField(buffer, "title"),
 		Markdown: parsePlanningStringField(buffer, "markdown"),
 	}
 }
@@ -300,35 +242,10 @@ func parsePlanningStringField(buffer string, key string) planningDraftString {
 }
 
 func renderPlanningDraftMarkdown(args planningDraftArgs) string {
-	if !args.Title.Closed {
-		return ""
-	}
-	title := strings.TrimSpace(args.Title.Value)
-	if title == "" {
-		return ""
-	}
 	if !args.Markdown.Present {
-		return planutil.NormalizeMarkdown("", title)
+		return ""
 	}
-	if !args.Markdown.Closed {
-		return normalizePartialPlanningMarkdown(args.Markdown.Value, title)
-	}
-	return planutil.NormalizeMarkdown(args.Markdown.Value, title)
-}
-
-func normalizePartialPlanningMarkdown(markdown string, title string) string {
-	markdown = strings.TrimSpace(markdown)
-	title = strings.TrimSpace(title)
-	if markdown == "" {
-		if title == "" {
-			return ""
-		}
-		return "# " + title + "\n"
-	}
-	if !strings.HasPrefix(strings.TrimSpace(markdown), "#") && title != "" {
-		return "# " + title + "\n\n" + markdown
-	}
-	return markdown
+	return args.Markdown.Value
 }
 
 func partialPlanningWriteArgs(buffer string) map[string]any {
@@ -338,9 +255,6 @@ func partialPlanningWriteArgs(buffer string) map[string]any {
 	}
 	out := map[string]any{}
 	draft := parsePlanningDraftArgs(buffer)
-	if draft.Title.Closed {
-		out["title"] = draft.Title.Value
-	}
 	if draft.Markdown.Closed {
 		out["markdown"] = draft.Markdown.Value
 	}

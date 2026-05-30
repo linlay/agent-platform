@@ -990,14 +990,13 @@ func TestWebSocketCoderPlanningEmitsLifecycleEvents(t *testing.T) {
 		case 1:
 			writeProviderSSE(t, w,
 				providerToolCallFrame(t, "tool_plan", "planning_write", map[string]any{
-					"title": "WebSocket Planning",
 					"markdown": `# WebSocket Planning
 
 ## Summary
 Plan should stream over websocket.
 
 ## Public Events And Storage
-- Emit planning lifecycle events
+- Emit planning delta events
 
 ## Implementation Changes
 - Confirm and execute the plan
@@ -1083,8 +1082,8 @@ Plan should stream over websocket.
 	}
 
 	eventTypes, runID, awaitingID := collectWebSocketEventsUntilPlanningApproval(t, conn, requestID)
-	assertStringSliceContains(t, eventTypes, "planning.start", "planning.delta", "planning.end", "awaiting.ask")
-	assertStringSliceExcludes(t, eventTypes, "planning.snapshot")
+	assertStringSliceContains(t, eventTypes, "planning.delta", "awaiting.ask")
+	assertStringSliceExcludes(t, eventTypes, "planning.start", "planning.end", "planning.snapshot")
 	if got := countStrings(eventTypes, "planning.delta"); got <= 1 {
 		t.Fatalf("expected multiple websocket planning.delta events, got %d in %#v", got, eventTypes)
 	}
@@ -1110,7 +1109,7 @@ Plan should stream over websocket.
 
 	eventTypes = append(eventTypes, collectWebSocketStreamEventTypes(t, conn, requestID)...)
 	assertStringSliceContains(t, eventTypes, "run.complete")
-	assertStringSliceExcludes(t, eventTypes, "planning.snapshot")
+	assertStringSliceExcludes(t, eventTypes, "planning.start", "planning.end", "planning.snapshot")
 }
 
 type awaitingPushQuestionFlow struct {

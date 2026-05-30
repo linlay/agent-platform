@@ -457,7 +457,6 @@ func confirmationReason(normalized map[string]any) string {
 func (s *coderPlanningStream) preparePlanningFeedback(normalized map[string]any) {
 	markdown := ""
 	if s.execCtx != nil && s.execCtx.PlanningState != nil {
-		s.execCtx.PlanningState.Status = "rejected"
 		markdown = s.execCtx.PlanningState.Markdown
 	}
 	s.rejectedPlanMarkdown = markdown
@@ -483,9 +482,6 @@ func firstNonBlankString(values ...string) string {
 }
 
 func (s *coderPlanningStream) cancelUnstartedPlan(message string) {
-	if s.execCtx != nil && s.execCtx.PlanningState != nil {
-		s.execCtx.PlanningState.Status = "canceled"
-	}
 	if strings.TrimSpace(message) != "" {
 		s.pending = append(s.pending, DeltaContent{Text: message})
 	}

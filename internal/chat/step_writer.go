@@ -31,13 +31,11 @@ type StepWriter struct {
 
 	currentStage string
 
-	messages                   []StoredMessage
-	latestPlan                 *PlanState
-	latestPlanning             *PlanningState
-	latestArtifact             *ArtifactState
-	planningSnapshotsPersisted map[string]bool
-	taskBuffers                map[string]*taskStepBuffer
-	closedTaskIDs              map[string]bool
+	messages       []StoredMessage
+	latestPlan     *PlanState
+	latestArtifact *ArtifactState
+	taskBuffers    map[string]*taskStepBuffer
+	closedTaskIDs  map[string]bool
 
 	// tool/action name tracking (for tool.result → StoredMessage.Name)
 	toolNames     map[string]string
@@ -73,18 +71,17 @@ func WithDebugEventsEnabled(enabled bool) StepWriterOption {
 // 但会带 hidden 标记，供展示/导出/搜索层避免伪造成可见的用户发言。
 func NewStepWriter(store Store, chatID, runID, mode string, hidden bool, opts ...StepWriterOption) *StepWriter {
 	w := &StepWriter{
-		store:                      store,
-		chatID:                     chatID,
-		runID:                      runID,
-		mode:                       strings.ToUpper(strings.TrimSpace(mode)),
-		hidden:                     hidden,
-		taskBuffers:                map[string]*taskStepBuffer{},
-		closedTaskIDs:              map[string]bool{},
-		planningSnapshotsPersisted: map[string]bool{},
-		toolNames:                  map[string]string{},
-		actionNames:                map[string]string{},
-		toolTaskIDs:                map[string]string{},
-		actionTaskIDs:              map[string]string{},
+		store:         store,
+		chatID:        chatID,
+		runID:         runID,
+		mode:          strings.ToUpper(strings.TrimSpace(mode)),
+		hidden:        hidden,
+		taskBuffers:   map[string]*taskStepBuffer{},
+		closedTaskIDs: map[string]bool{},
+		toolNames:     map[string]string{},
+		actionNames:   map[string]string{},
+		toolTaskIDs:   map[string]string{},
+		actionTaskIDs: map[string]string{},
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -246,9 +243,6 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 
 	case "plan.create", "plan.update":
 		w.updatePlan(event)
-
-	case "planning.start", "planning.delta", "planning.snapshot", "planning.end":
-		w.handlePlanningEvent(event)
 
 	case "task.start":
 		w.flushCurrentStep()

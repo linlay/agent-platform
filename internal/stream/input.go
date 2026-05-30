@@ -92,60 +92,12 @@ type PlanUpdate struct {
 
 func (PlanUpdate) streamInputTag() {}
 
-type PlanningStart struct {
-	PlanningID   string
-	PlanningFile string
-	ChatID       string
-	RunID        string
-	RequestID    string
-	AgentKey     string
-	Title        string
-	Status       string
-}
-
-func (PlanningStart) streamInputTag() {}
-
 type PlanningDelta struct {
-	PlanningID   string
-	PlanningFile string
-	ChatID       string
-	RunID        string
-	RequestID    string
-	AgentKey     string
-	Title        string
-	Status       string
-	Delta        string
+	PlanningID string
+	Delta      string
 }
 
 func (PlanningDelta) streamInputTag() {}
-
-type PlanningSnapshot struct {
-	PlanningID   string
-	PlanningFile string
-	ChatID       string
-	RunID        string
-	RequestID    string
-	AgentKey     string
-	Title        string
-	Status       string
-	Markdown     string
-}
-
-func (PlanningSnapshot) streamInputTag() {}
-
-type PlanningEnd struct {
-	PlanningID   string
-	PlanningFile string
-	ChatID       string
-	RunID        string
-	RequestID    string
-	AgentKey     string
-	Title        string
-	Status       string
-	Markdown     string
-}
-
-func (PlanningEnd) streamInputTag() {}
 
 type TaskStart struct {
 	TaskID      string

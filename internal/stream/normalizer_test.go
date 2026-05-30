@@ -77,7 +77,7 @@ func TestNormalizerKeepsCapabilityEventsFromHiddenTool(t *testing.T) {
 	}
 }
 
-func TestNormalizerKeepsPlanningLifecycleFromHiddenPlanningWrite(t *testing.T) {
+func TestNormalizerKeepsPlanningDeltaFromHiddenPlanningWrite(t *testing.T) {
 	normalizer := NewNormalizer()
 	normalizer.RegisterHiddenTools("planning_write")
 
@@ -85,10 +85,6 @@ func TestNormalizerKeepsPlanningLifecycleFromHiddenPlanningWrite(t *testing.T) {
 		NewEvent("tool.start", map[string]any{
 			"toolId":   "tool_plan",
 			"toolName": "planning_write",
-		}),
-		NewEvent("planning.start", map[string]any{
-			"planningId": "run_1_planning",
-			"title":      "Plan",
 		}),
 		NewEvent("tool.args", map[string]any{
 			"toolId": "tool_plan",
@@ -101,9 +97,6 @@ func TestNormalizerKeepsPlanningLifecycleFromHiddenPlanningWrite(t *testing.T) {
 		NewEvent("tool.end", map[string]any{
 			"toolId": "tool_plan",
 		}),
-		NewEvent("planning.end", map[string]any{
-			"planningId": "run_1_planning",
-		}),
 		NewEvent("tool.result", map[string]any{
 			"toolId": "tool_plan",
 			"result": "ok",
@@ -111,7 +104,7 @@ func TestNormalizerKeepsPlanningLifecycleFromHiddenPlanningWrite(t *testing.T) {
 	}
 
 	got := normalizer.Normalize(events)
-	assertEventTypes(t, got, "planning.start", "planning.delta", "planning.end")
+	assertEventTypes(t, got, "planning.delta")
 	for _, event := range got {
 		if strings.HasPrefix(event.Type, "tool.") {
 			t.Fatalf("did not expect tool event for hidden planning_write, got %#v", got)
