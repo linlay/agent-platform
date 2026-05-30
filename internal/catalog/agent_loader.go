@@ -396,7 +396,7 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	if def.Description == "" {
 		def.Description = def.Key
 	}
-	if def.Role == "" {
+	if def.Role == "" && !strings.EqualFold(def.Mode, AgentModeCoder) {
 		def.Role = def.Name
 	}
 	return def, root, nil
