@@ -118,6 +118,28 @@ func (w *StepWriter) bufferAwaitingEvent(event stream.EventData) {
 	m := event.Map()
 	delete(m, "seq")
 	w.pendingAwaiting = append(w.pendingAwaiting, m)
+	if w.store == nil {
+		return
+	}
+	createdAt := event.Timestamp
+	if createdAt <= 0 {
+		createdAt = time.Now().UnixMilli()
+	}
+	_ = w.store.PersistAwaitingAsk(w.chatID, PendingAwaiting{
+		AwaitingID: strings.TrimSpace(event.String("awaitingId")),
+		RunID:      firstNonBlankString(event.String("runId"), w.runID),
+		Mode:       strings.TrimSpace(event.String("mode")),
+		CreatedAt:  createdAt,
+	}, event)
+}
+
+func firstNonBlankString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func (w *StepWriter) bufferSubmitEvent(event stream.EventData) {

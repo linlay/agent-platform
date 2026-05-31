@@ -38,6 +38,7 @@ func mapChatSummaries(items []chat.Summary) []api.ChatSummaryResponse {
 				AwaitingID: item.PendingAwaiting.AwaitingID,
 				RunID:      item.PendingAwaiting.RunID,
 				Mode:       item.PendingAwaiting.Mode,
+				Status:     "awaiting",
 				CreatedAt:  item.PendingAwaiting.CreatedAt,
 			}
 		}

@@ -21,6 +21,7 @@ type Store interface {
 	Summary(chatID string) (*Summary, error)
 	LoadAllPendingAwaitings() ([]PendingAwaitingWithChat, error)
 	LoadAwaitingAsk(chatID string, awaitingID string) (*PersistedAwaitingAsk, error)
+	PersistAwaitingAsk(chatID string, pending PendingAwaiting, event stream.EventData) error
 	SetPendingAwaiting(chatID string, pending PendingAwaiting) error
 	ClearPendingAwaiting(chatID string, awaitingID string) error
 	AppendEvent(chatID string, event stream.EventData) error

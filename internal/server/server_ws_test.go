@@ -707,12 +707,22 @@ func TestWebSocketPushAwaitingAskAndAnswerSyncPendingChatSummary(t *testing.T) {
 	if summaries[0].Awaiting == nil {
 		t.Fatalf("expected awaiting in chat summary, got %#v", summaries[0])
 	}
-	if summaries[0].Awaiting.AwaitingID != flow.awaitingID || summaries[0].Awaiting.RunID != flow.runID || summaries[0].Awaiting.Mode != "question" || summaries[0].Awaiting.CreatedAt <= 0 {
+	if summaries[0].Awaiting.AwaitingID != flow.awaitingID || summaries[0].Awaiting.RunID != flow.runID || summaries[0].Awaiting.Mode != "question" || summaries[0].Awaiting.Status != "awaiting" || summaries[0].Awaiting.CreatedAt <= 0 {
 		t.Fatalf("unexpected awaiting summary %#v", summaries[0].Awaiting)
+	}
+	persistedAsk, err := flow.fixture.chats.LoadAwaitingAsk(flow.chatID, flow.awaitingID)
+	if err != nil {
+		t.Fatalf("load persisted awaiting ask: %v", err)
+	}
+	if persistedAsk == nil || persistedAsk.AwaitingID != flow.awaitingID || persistedAsk.RunID != flow.runID || persistedAsk.Mode != "question" {
+		t.Fatalf("expected awaiting.ask to be immediately persisted, got %#v", persistedAsk)
 	}
 	rawChatSummaries := loadChatSummariesRawForTest(t, flow.fixture.server)
 	if !strings.Contains(rawChatSummaries, `"awaiting"`) {
 		t.Fatalf("expected /api/chats response to serialize awaiting, got %s", rawChatSummaries)
+	}
+	if !strings.Contains(rawChatSummaries, `"status":"awaiting"`) {
+		t.Fatalf("expected /api/chats response to serialize awaiting status, got %s", rawChatSummaries)
 	}
 	if strings.Contains(rawChatSummaries, `"pendingAwaiting"`) {
 		t.Fatalf("did not expect /api/chats response to serialize pendingAwaiting, got %s", rawChatSummaries)

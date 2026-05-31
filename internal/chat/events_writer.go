@@ -51,6 +51,10 @@ func (s *FileStore) appendJSONLine(path string, payload any) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	return s.appendJSONLineLocked(path, payload)
+}
+
+func (s *FileStore) appendJSONLineLocked(path string, payload any) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}

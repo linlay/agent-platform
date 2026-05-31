@@ -66,6 +66,8 @@ GET /ws -> request / response / stream / push / error frames
 | POST | `/api/chat/archive` | body: `chatId`、`reason` | 归档结果 |
 | GET | `/api/chat/export` | query: `chatId` | Markdown 导出 |
 
+`/api/chats` 的 chat 摘要在存在可恢复等待项时包含 `awaiting`：`awaitingId`、`runId`、`mode`、`status:"awaiting"`、`createdAt`。
+
 ### Archive
 
 | Method | Path | 参数 | 响应 |

@@ -113,6 +113,7 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 	var chatTotalToolCallCount int
 	taskQueries := map[string]replayedSubTaskQuery{}
 	legacyConfirmIDs := map[string]bool{}
+	stepAwaitingAsks := map[string]bool{}
 	for _, line := range lines {
 		if lineType, _ := line["_type"].(string); lineType != "query" {
 			continue
@@ -129,6 +130,26 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 			TaskDesc:    stringFromAny(query["message"]),
 			SubAgentKey: stringFromAny(line["subAgentKey"]),
 			MainToolID:  taskToolIDFromLine(line),
+		}
+	}
+	for _, line := range lines {
+		lineType, _ := line["_type"].(string)
+		if lineType != "react" && lineType != "plan-execute" && lineType != "step" {
+			continue
+		}
+		runID, _ := line["runId"].(string)
+		awaitingItems, _ := line["awaiting"].([]any)
+		for _, raw := range awaitingItems {
+			item, _ := raw.(map[string]any)
+			if item == nil || strings.TrimSpace(stringFromAny(item["type"])) != "awaiting.ask" {
+				continue
+			}
+			awaitingID := strings.TrimSpace(stringFromAny(item["awaitingId"]))
+			if awaitingID == "" {
+				continue
+			}
+			itemRunID := strings.TrimSpace(stringFromAny(item["runId"]))
+			stepAwaitingAsks[awaitingReplayKey(firstNonBlankReplayString(itemRunID, runID), awaitingID)] = true
 		}
 	}
 
@@ -382,6 +403,9 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 				continue
 			}
 			if suppressLegacyConfirmReplay(event, legacyConfirmIDs) {
+				continue
+			}
+			if shouldSuppressImmediateAwaitingAskReplay(event, runID, stepAwaitingAsks) {
 				continue
 			}
 			if _, ok := event["runId"]; !ok && runID != "" {

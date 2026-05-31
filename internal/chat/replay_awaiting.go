@@ -1,6 +1,10 @@
 package chat
 
-import "agent-platform/internal/stream"
+import (
+	"strings"
+
+	"agent-platform/internal/stream"
+)
 
 type stepAwaitingReplay struct {
 	items          []map[string]any
@@ -76,6 +80,31 @@ func (r *stepAwaitingReplay) leftoverEvents() []stream.EventData {
 		events = append(events, stream.EventDataFromMap(item))
 	}
 	return events
+}
+
+func shouldSuppressImmediateAwaitingAskReplay(event map[string]any, fallbackRunID string, stepAwaitingAsks map[string]bool) bool {
+	if len(stepAwaitingAsks) == 0 || strings.TrimSpace(stringValue(event["type"])) != "awaiting.ask" {
+		return false
+	}
+	awaitingID := strings.TrimSpace(stringValue(event["awaitingId"]))
+	if awaitingID == "" {
+		return false
+	}
+	runID := firstNonBlankReplayString(stringValue(event["runId"]), fallbackRunID)
+	return stepAwaitingAsks[awaitingReplayKey(runID, awaitingID)]
+}
+
+func awaitingReplayKey(runID string, awaitingID string) string {
+	return strings.TrimSpace(runID) + "\x00" + strings.TrimSpace(awaitingID)
+}
+
+func firstNonBlankReplayString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func cloneStringAnyMap(src map[string]any) map[string]any {

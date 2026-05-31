@@ -217,6 +217,155 @@ func TestDeferredSubmitWSRestoresPendingAwaitingAfterRestart(t *testing.T) {
 	}
 }
 
+func TestDeferredSubmitRestoresAllAwaitingModesAfterRestart(t *testing.T) {
+	notifications := &recordingNotificationSink{}
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		notifications: notifications,
+	})
+
+	nowMs := time.Now().UnixMilli()
+	cases := []struct {
+		name       string
+		mode       string
+		awaitingID string
+		ask        map[string]any
+		params     api.SubmitParams
+	}{
+		{
+			name:       "question",
+			mode:       "question",
+			awaitingID: "await-question",
+			ask: map[string]any{
+				"questions": []any{
+					map[string]any{"id": "q1", "question": "Need confirmation", "type": "text"},
+				},
+			},
+			params: mustEncodeSubmitParams(t, []map[string]any{
+				{"id": "q1", "answer": "Approve"},
+			}),
+		},
+		{
+			name:       "approval",
+			mode:       "approval",
+			awaitingID: "await-approval",
+			ask: map[string]any{
+				"approvals": []any{
+					map[string]any{"id": "cmd-1", "command": "chmod 777 ~/a.sh"},
+				},
+			},
+			params: mustEncodeSubmitParams(t, []map[string]any{
+				{"id": "cmd-1", "decision": "approve"},
+			}),
+		},
+		{
+			name:       "form",
+			mode:       "form",
+			awaitingID: "await-form",
+			ask: map[string]any{
+				"forms": []any{
+					map[string]any{"id": "form-1", "command": "mock create-leave", "form": map[string]any{"days": 1}},
+				},
+			},
+			params: mustEncodeSubmitParams(t, []map[string]any{
+				{"id": "form-1", "decision": "approve", "form": map[string]any{"days": 2}},
+			}),
+		},
+		{
+			name:       "plan",
+			mode:       "plan",
+			awaitingID: "await-plan",
+			ask: map[string]any{
+				"plan": map[string]any{"id": "confirm", "planningId": "run-plan_planning_1"},
+			},
+			params: mustEncodeSubmitParams(t, []map[string]any{
+				{"id": "confirm", "decision": "approve"},
+			}),
+		},
+	}
+
+	for _, tc := range cases {
+		chatID := "chat-" + tc.name
+		runID := "run-" + tc.name
+		seedDeferredAwaitingPayload(t, fixture.chats, chatID, runID, tc.awaitingID, tc.mode, 60000, nowMs, tc.ask)
+	}
+
+	restarted, err := New(Dependencies{
+		Config:          fixture.cfg,
+		Chats:           fixture.chats,
+		Memory:          fixture.memories,
+		Registry:        fixture.registry,
+		Runs:            fixture.runs,
+		Agent:           fixture.agent,
+		Tools:           fixture.tools,
+		DeltaMappers:    llm.DeltaMapperFactory{Frontend: fixture.frontend},
+		SystemInits:     llm.SystemInitProfileBuilder{},
+		Sandbox:         fixture.sandbox,
+		MCP:             fixture.mcp,
+		Viewport:        fixture.viewport,
+		CatalogReloader: fixture.catalogReloader,
+		Notifications:   notifications,
+	})
+	if err != nil {
+		t.Fatalf("new restarted server: %v", err)
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			chatID := "chat-" + tc.name
+			runID := "run-" + tc.name
+			summary, err := fixture.chats.Summary(chatID)
+			if err != nil {
+				t.Fatalf("load summary: %v", err)
+			}
+			apiSummary := mapChatSummaries([]chat.Summary{*summary})[0]
+			if apiSummary.Awaiting == nil || apiSummary.Awaiting.Status != "awaiting" || apiSummary.Awaiting.Mode != tc.mode {
+				t.Fatalf("expected awaiting status in summary, got %#v", apiSummary.Awaiting)
+			}
+
+			detail, err := fixture.chats.LoadChat(chatID)
+			if err != nil {
+				t.Fatalf("load chat detail: %v", err)
+			}
+			foundAsk := false
+			for _, event := range detail.Events {
+				if event.Type == "awaiting.ask" && event.String("awaitingId") == tc.awaitingID && event.String("mode") == tc.mode {
+					foundAsk = true
+				}
+			}
+			if !foundAsk {
+				t.Fatalf("expected replayed awaiting.ask for %s, got %#v", tc.mode, detail.Events)
+			}
+
+			body, err := json.Marshal(api.SubmitRequest{
+				AgentKey:   "mock-agent",
+				RunID:      runID,
+				AwaitingID: tc.awaitingID,
+				Params:     tc.params,
+			})
+			if err != nil {
+				t.Fatalf("marshal submit: %v", err)
+			}
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			restarted.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("submit expected 200, got %d: %s", rec.Code, rec.Body.String())
+			}
+
+			summary, err = fixture.chats.Summary(chatID)
+			if err != nil {
+				t.Fatalf("reload summary: %v", err)
+			}
+			if summary.PendingAwaiting != nil {
+				t.Fatalf("expected pending awaiting cleared after submit, got %#v", summary.PendingAwaiting)
+			}
+		})
+	}
+}
+
 func TestDeferredSubmitRejectsExpiredAwaiting(t *testing.T) {
 	notifications := &recordingNotificationSink{}
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
@@ -366,25 +515,33 @@ func TestDeferredSubmitAcceptsWithinTimeout(t *testing.T) {
 
 func seedDeferredAwaiting(t *testing.T, store chat.Store, chatID string, runID string, awaitingID string, mode string, timeoutMs int, createdAt int64) {
 	t.Helper()
+	seedDeferredAwaitingPayload(t, store, chatID, runID, awaitingID, mode, timeoutMs, createdAt, map[string]any{
+		"questions": []any{
+			map[string]any{"id": "q1", "question": "Need confirmation", "type": "text"},
+		},
+	})
+}
+
+func seedDeferredAwaitingPayload(t *testing.T, store chat.Store, chatID string, runID string, awaitingID string, mode string, timeoutMs int, createdAt int64, askPayload map[string]any) {
+	t.Helper()
 	if _, _, err := store.EnsureChat(chatID, "mock-agent", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
+	}
+	ask := map[string]any{
+		"type":       "awaiting.ask",
+		"awaitingId": awaitingID,
+		"mode":       mode,
+		"timeout":    timeoutMs,
+	}
+	for key, value := range askPayload {
+		ask[key] = value
 	}
 	if err := store.AppendStepLine(chatID, chat.StepLine{
 		ChatID:    chatID,
 		RunID:     runID,
 		UpdatedAt: createdAt,
 		Type:      "react",
-		Awaiting: []map[string]any{
-			{
-				"type":       "awaiting.ask",
-				"awaitingId": awaitingID,
-				"mode":       mode,
-				"timeout":    timeoutMs,
-				"questions": []any{
-					map[string]any{"id": "q1", "question": "Need confirmation", "type": "text"},
-				},
-			},
-		},
+		Awaiting:  []map[string]any{ask},
 	}); err != nil {
 		t.Fatalf("append awaiting step line: %v", err)
 	}

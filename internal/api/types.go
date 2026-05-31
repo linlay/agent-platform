@@ -565,6 +565,7 @@ type Awaiting struct {
 	AwaitingID string `json:"awaitingId"`
 	RunID      string `json:"runId"`
 	Mode       string `json:"mode"`
+	Status     string `json:"status"`
 	CreatedAt  int64  `json:"createdAt"`
 }
 
