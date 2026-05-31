@@ -97,9 +97,11 @@ type Reference struct {
 }
 
 type SubmitRequest struct {
+	ChatID     string       `json:"chatId,omitempty"`
 	RunID      string       `json:"runId"`
 	AgentKey   string       `json:"agentKey"`
 	AwaitingID string       `json:"awaitingId"`
+	SubmitID   string       `json:"submitId,omitempty"`
 	Params     SubmitParams `json:"params"`
 }
 
@@ -170,8 +172,11 @@ func EncodeSubmitParams(value any) (SubmitParams, error) {
 type SubmitResponse struct {
 	Accepted   bool   `json:"accepted"`
 	Status     string `json:"status"`
+	ChatID     string `json:"chatId,omitempty"`
 	RunID      string `json:"runId"`
 	AwaitingID string `json:"awaitingId"`
+	SubmitID   string `json:"submitId,omitempty"`
+	Continued  bool   `json:"continued,omitempty"`
 	Detail     string `json:"detail"`
 }
 

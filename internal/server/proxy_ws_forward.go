@@ -193,6 +193,7 @@ func (s *Server) forwardProxySubmit(req api.SubmitRequest) (api.SubmitResponse, 
 		"chatId":     route.chatID,
 		"agentKey":   route.agentKey,
 		"awaitingId": req.AwaitingID,
+		"submitId":   req.SubmitID,
 		"params":     req.Params,
 	}
 	if !sendProxyRouteMessage(route, map[string]any{
@@ -204,16 +205,20 @@ func (s *Server) forwardProxySubmit(req api.SubmitRequest) (api.SubmitResponse, 
 		return api.SubmitResponse{
 			Accepted:   false,
 			Status:     "unmatched",
+			ChatID:     route.chatID,
 			RunID:      req.RunID,
 			AwaitingID: req.AwaitingID,
+			SubmitID:   req.SubmitID,
 			Detail:     "Proxy run is no longer active",
 		}, nil, true
 	}
 	return api.SubmitResponse{
 		Accepted:   true,
 		Status:     "accepted",
+		ChatID:     route.chatID,
 		RunID:      req.RunID,
 		AwaitingID: req.AwaitingID,
+		SubmitID:   req.SubmitID,
 		Detail:     "Proxy submit forwarded",
 	}, nil, true
 }

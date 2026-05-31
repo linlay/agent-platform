@@ -18,6 +18,9 @@ func newAwaitingAnswerEvent(input AwaitingAnswer) StreamEvent {
 		"awaitingId": input.AwaitingID,
 		"mode":       mode,
 	}
+	if submitID := strings.TrimSpace(anyString(answer["submitId"])); submitID != "" {
+		payload["submitId"] = submitID
+	}
 	status := strings.ToLower(strings.TrimSpace(anyString(answer["status"])))
 	if status == "" {
 		return StreamEvent{}

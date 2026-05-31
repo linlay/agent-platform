@@ -307,6 +307,7 @@ type ToolExecutionResult struct {
 type SubmitInfo struct {
 	RunID      string
 	AwaitingID string
+	SubmitID   string
 	Params     any
 }
 
@@ -360,6 +361,7 @@ type RunLifecycleConfigurer interface {
 type SubmitAck struct {
 	Accepted bool
 	Status   string
+	SubmitID string
 	Detail   string
 }
 

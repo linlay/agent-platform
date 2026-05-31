@@ -31,6 +31,7 @@ type preparedQuery struct {
 	systemInitLines    []chat.QueryLineSystemInit
 	resourceBaseURL    string
 	release            queryReleaseFunc
+	continueRun        bool
 }
 
 type queryAdmission struct {
@@ -650,6 +651,7 @@ func (s *Server) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamEv
 		Model:              prepared.req.Model,
 		PlanningMode:       prepared.session.PlanningMode,
 		Created:            prepared.created,
+		ContinueRun:        prepared.continueRun,
 		MemoryUsageSummary: memoryUsageEventPayload(prepared.memoryUsageSummary, prepared.req.ChatID, prepared.req.RunID, prepared.req.AgentKey),
 	})
 	if s.deps.Tools != nil {

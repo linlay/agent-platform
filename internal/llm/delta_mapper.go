@@ -245,6 +245,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			ChatID:     value.ChatID,
 			RunID:      value.RunID,
 			AwaitingID: value.AwaitingID,
+			SubmitID:   value.SubmitID,
 			Params:     value.Params,
 		}}
 	case DeltaAwaitingAnswer:

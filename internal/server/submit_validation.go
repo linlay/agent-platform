@@ -74,6 +74,18 @@ func (s *Server) validateSubmitAgentKey(req api.SubmitRequest) *statusError {
 			}
 		}
 	}
+	if strings.TrimSpace(req.ChatID) != "" && s.deps.Chats != nil {
+		summary, err := s.deps.Chats.Summary(req.ChatID)
+		if err == nil && summary != nil {
+			if strings.TrimSpace(summary.AgentKey) != strings.TrimSpace(req.AgentKey) {
+				return &statusError{status: http.StatusForbidden, message: "agentKey does not match run"}
+			}
+			return nil
+		}
+		if err != nil && !errors.Is(err, chat.ErrChatNotFound) {
+			return &statusError{status: http.StatusInternalServerError, message: err.Error()}
+		}
+	}
 	return nil
 }
 

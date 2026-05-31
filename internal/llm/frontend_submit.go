@@ -97,6 +97,7 @@ func (c *FrontendSubmitCoordinator) Await(ctx context.Context, execCtx *Executio
 			SubmitInfo: &SubmitInfo{
 				RunID:      result.Request.RunID,
 				AwaitingID: result.Request.AwaitingID,
+				SubmitID:   result.Request.SubmitID,
 				Params:     result.Request.Params,
 			},
 		}, nil
@@ -114,6 +115,7 @@ func (c *FrontendSubmitCoordinator) Await(ctx context.Context, execCtx *Executio
 		SubmitInfo: &SubmitInfo{
 			RunID:      result.Request.RunID,
 			AwaitingID: result.Request.AwaitingID,
+			SubmitID:   result.Request.SubmitID,
 			Params:     result.Request.Params,
 		},
 	}, nil

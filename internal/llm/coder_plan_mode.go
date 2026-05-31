@@ -369,6 +369,7 @@ func (s *coderPlanningStream) awaitPlanConfirmation() error {
 		ChatID:     s.session.ChatID,
 		RunID:      s.session.RunID,
 		AwaitingID: awaitingID,
+		SubmitID:   submitResult.Request.SubmitID,
 		Params:     submitResult.Request.Params,
 	})
 
@@ -377,14 +378,14 @@ func (s *coderPlanningStream) awaitPlanConfirmation() error {
 	if normalizeErr != nil {
 		s.pending = append(s.pending, DeltaAwaitingAnswer{
 			AwaitingID: awaitingID,
-			Answer:     AwaitingErrorAnswer("plan", "invalid_submit", normalizeErr.Error()),
+			Answer:     awaitingAnswerWithSubmitID(AwaitingErrorAnswer("plan", "invalid_submit", normalizeErr.Error()), submitResult.Request.SubmitID),
 		})
 		s.cancelUnstartedPlan("已取消执行计划。")
 		return nil
 	}
 	s.pending = append(s.pending, DeltaAwaitingAnswer{
 		AwaitingID: awaitingID,
-		Answer:     CloneMap(normalized),
+		Answer:     awaitingAnswerWithSubmitID(normalized, submitResult.Request.SubmitID),
 	})
 
 	if strings.EqualFold(AnyStringNode(normalized["status"]), "error") {

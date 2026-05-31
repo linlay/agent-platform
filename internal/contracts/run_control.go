@@ -398,16 +398,23 @@ func (c *RunControl) AccessLevelSnapshot() (string, int64) {
 
 func (c *RunControl) ResolveSubmit(req api.SubmitRequest) SubmitAck {
 	if c == nil {
-		return SubmitAck{Accepted: false, Status: "unmatched", Detail: "No active run found"}
+		return SubmitAck{Accepted: false, Status: "unmatched", SubmitID: req.SubmitID, Detail: "No active run found"}
 	}
 	c.mu.Lock()
 	if resolved, exists := c.resolvedSubmits[req.AwaitingID]; exists {
 		c.mu.Unlock()
+		if strings.TrimSpace(req.SubmitID) != "" && strings.TrimSpace(resolved.Request.SubmitID) == strings.TrimSpace(req.SubmitID) {
+			detail := resolved.Detail
+			if detail == "" {
+				detail = "Frontend submit accepted"
+			}
+			return SubmitAck{Accepted: true, Status: "accepted", SubmitID: req.SubmitID, Detail: detail}
+		}
 		detail := resolved.Detail
 		if detail == "" {
 			detail = "Frontend submit already resolved"
 		}
-		return SubmitAck{Accepted: false, Status: "already_resolved", Detail: detail}
+		return SubmitAck{Accepted: false, Status: "already_resolved", SubmitID: firstNonBlankSubmitID(resolved.Request.SubmitID, req.SubmitID), Detail: detail}
 	}
 	waiter, ok := c.submitWaiters[req.AwaitingID]
 	if ok {
@@ -429,20 +436,20 @@ func (c *RunControl) ResolveSubmit(req api.SubmitRequest) SubmitAck {
 		c.resolvedSubmits[req.AwaitingID] = accepted
 		delete(c.awaitingSubmits, req.AwaitingID)
 		c.mu.Unlock()
-		return SubmitAck{Accepted: true, Status: "accepted", Detail: "Frontend submit accepted"}
+		return SubmitAck{Accepted: true, Status: "accepted", SubmitID: req.SubmitID, Detail: "Frontend submit accepted"}
 	}
 	c.mu.Unlock()
 	if !ok {
-		return SubmitAck{Accepted: false, Status: "unmatched", Detail: "No pending frontend submit waiter found"}
+		return SubmitAck{Accepted: false, Status: "unmatched", SubmitID: req.SubmitID, Detail: "No pending frontend submit waiter found"}
 	}
 	if !waiter.deliver(SubmitResult{
 		Request: req,
 		Status:  "accepted",
 		Detail:  "Frontend submit accepted",
 	}) {
-		return SubmitAck{Accepted: false, Status: "unmatched", Detail: "Frontend submit waiter is no longer active"}
+		return SubmitAck{Accepted: false, Status: "unmatched", SubmitID: req.SubmitID, Detail: "Frontend submit waiter is no longer active"}
 	}
-	return SubmitAck{Accepted: true, Status: "accepted", Detail: "Frontend submit accepted"}
+	return SubmitAck{Accepted: true, Status: "accepted", SubmitID: req.SubmitID, Detail: "Frontend submit accepted"}
 }
 
 func (c *RunControl) LookupAwaiting(awaitingID string) (AwaitingSubmitContext, bool) {
@@ -475,8 +482,18 @@ func (c *RunControl) LookupResolvedSubmit(awaitingID string) (SubmitAck, bool) {
 	return SubmitAck{
 		Accepted: false,
 		Status:   "already_resolved",
+		SubmitID: resolved.Request.SubmitID,
 		Detail:   detail,
 	}, true
+}
+
+func firstNonBlankSubmitID(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func (c *RunControl) ExpectSubmit(ctx AwaitingSubmitContext) {

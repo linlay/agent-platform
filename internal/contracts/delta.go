@@ -132,6 +132,7 @@ type DeltaRequestSubmit struct {
 	ChatID     string
 	RunID      string
 	AwaitingID string
+	SubmitID   string
 	Params     any
 }
 

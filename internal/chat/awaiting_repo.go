@@ -43,6 +43,48 @@ func (s *FileStore) LoadAwaitingAsk(chatID string, awaitingID string) (*Persiste
 	return loadPersistedAwaitingAskFromLines(lines, awaitingID), nil
 }
 
+func (s *FileStore) LoadAwaitingSubmit(chatID string, awaitingID string, submitID string) (*PersistedAwaitingSubmit, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	lines, err := readJSONLines(s.chatJSONLPath(chatID))
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return nil, err
+		}
+		lines = nil
+	}
+	return loadPersistedAwaitingSubmitFromLines(lines, chatID, awaitingID, submitID), nil
+}
+
+func (s *FileStore) LoadLatestAwaitingSubmit(chatID string, awaitingID string) (*PersistedAwaitingSubmit, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	lines, err := readJSONLines(s.chatJSONLPath(chatID))
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return nil, err
+		}
+		lines = nil
+	}
+	return loadPersistedAwaitingSubmitFromLines(lines, chatID, awaitingID, ""), nil
+}
+
+func (s *FileStore) LoadRunQuery(chatID string, runID string) (*QueryLine, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	lines, err := readJSONLines(s.chatJSONLPath(chatID))
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return nil, err
+		}
+		lines = nil
+	}
+	return loadRunQueryFromLines(lines, chatID, runID), nil
+}
+
 func loadPersistedAwaitingAskFromLines(lines []map[string]any, awaitingID string) *PersistedAwaitingAsk {
 	awaitingID = strings.TrimSpace(awaitingID)
 	if awaitingID == "" {
@@ -74,6 +116,97 @@ func loadPersistedAwaitingAskFromLines(lines []map[string]any, awaitingID string
 		}
 	}
 	return latest
+}
+
+func loadPersistedAwaitingSubmitFromLines(lines []map[string]any, chatID string, awaitingID string, submitID string) *PersistedAwaitingSubmit {
+	awaitingID = strings.TrimSpace(awaitingID)
+	submitID = strings.TrimSpace(submitID)
+	if awaitingID == "" {
+		return nil
+	}
+	var latest *PersistedAwaitingSubmit
+	for _, line := range lines {
+		if strings.TrimSpace(stringValue(line["_type"])) != "submit" {
+			continue
+		}
+		submit, _ := line["submit"].(map[string]any)
+		answer, _ := line["answer"].(map[string]any)
+		if !submitLineMatchesAwaiting(submit, answer, awaitingID) {
+			continue
+		}
+		lineSubmitID := firstNonBlankSubmitLineValue(submit, answer, "submitId")
+		if submitID != "" && lineSubmitID != submitID {
+			continue
+		}
+		lineChatID := firstNonBlankSubmitLineValue(submit, answer, "chatId")
+		if lineChatID == "" {
+			lineChatID = strings.TrimSpace(chatID)
+		}
+		latest = &PersistedAwaitingSubmit{
+			ChatID:     lineChatID,
+			RunID:      firstNonBlankSubmitLineValue(submit, answer, "runId"),
+			AwaitingID: awaitingID,
+			SubmitID:   lineSubmitID,
+			UpdatedAt:  int64FromAny(line["updatedAt"]),
+			Submit:     cloneStringAnyMap(submit),
+			Answer:     cloneStringAnyMap(answer),
+		}
+	}
+	return latest
+}
+
+func submitLineMatchesAwaiting(submit map[string]any, answer map[string]any, awaitingID string) bool {
+	if strings.TrimSpace(stringValue(submit["awaitingId"])) == awaitingID {
+		return true
+	}
+	if strings.TrimSpace(stringValue(answer["awaitingId"])) == awaitingID {
+		return true
+	}
+	return false
+}
+
+func firstNonBlankSubmitLineValue(submit map[string]any, answer map[string]any, key string) string {
+	if value := strings.TrimSpace(stringValue(submit[key])); value != "" {
+		return value
+	}
+	return strings.TrimSpace(stringValue(answer[key]))
+}
+
+func loadRunQueryFromLines(lines []map[string]any, chatID string, runID string) *QueryLine {
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return nil
+	}
+	for _, line := range lines {
+		if strings.TrimSpace(stringValue(line["_type"])) != "query" {
+			continue
+		}
+		if strings.TrimSpace(stringValue(line["runId"])) != runID {
+			continue
+		}
+		query, _ := line["query"].(map[string]any)
+		if query == nil {
+			continue
+		}
+		lineChatID := firstNonBlankSubmitLineValue(line, query, "chatId")
+		if lineChatID == "" {
+			lineChatID = strings.TrimSpace(chatID)
+		}
+		return &QueryLine{
+			Type:      "query",
+			ChatID:    lineChatID,
+			RunID:     runID,
+			UpdatedAt: int64FromAny(line["updatedAt"]),
+			Hidden:    boolValue(line["hidden"]),
+			Query:     cloneStringAnyMap(query),
+		}
+	}
+	return nil
+}
+
+func boolValue(value any) bool {
+	typed, _ := value.(bool)
+	return typed
 }
 
 func persistedAwaitingAskFromMap(item map[string]any, fallbackRunID string) *PersistedAwaitingAsk {

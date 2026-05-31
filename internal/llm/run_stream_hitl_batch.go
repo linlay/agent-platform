@@ -254,6 +254,7 @@ func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {
 		ChatID:     s.session.ChatID,
 		RunID:      s.session.RunID,
 		AwaitingID: batch.awaitingID,
+		SubmitID:   submitResult.Request.SubmitID,
 		Params:     submitResult.Request.Params,
 	})
 
@@ -261,7 +262,7 @@ func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {
 	if normalizeErr != nil {
 		s.pending = append(s.pending, DeltaAwaitingAnswer{
 			AwaitingID: batch.awaitingID,
-			Answer:     AwaitingErrorAnswer(strings.TrimSpace(AnyStringNode(batch.awaitArgs["mode"])), "invalid_submit", normalizeErr.Error()),
+			Answer:     awaitingAnswerWithSubmitID(AwaitingErrorAnswer(strings.TrimSpace(AnyStringNode(batch.awaitArgs["mode"])), "invalid_submit", normalizeErr.Error()), submitResult.Request.SubmitID),
 		})
 		for _, invocation := range batch.invocations {
 			s.applyHITLDecision(invocation, s.approvalHITLResult(invocation), batch.awaitingID, "reject", normalizeErr.Error(), false)
@@ -274,7 +275,7 @@ func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {
 	if len(normalized) > 0 {
 		s.pending = append(s.pending, DeltaAwaitingAnswer{
 			AwaitingID: batch.awaitingID,
-			Answer:     CloneMap(normalized),
+			Answer:     awaitingAnswerWithSubmitID(normalized, submitResult.Request.SubmitID),
 		})
 	}
 

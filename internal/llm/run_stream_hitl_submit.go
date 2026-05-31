@@ -64,6 +64,7 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 		ChatID:     s.session.ChatID,
 		RunID:      s.session.RunID,
 		AwaitingID: awaitingID,
+		SubmitID:   submitResult.Request.SubmitID,
 		Params:     submitResult.Request.Params,
 	})
 
@@ -71,7 +72,7 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 	if normalizeErr != nil {
 		s.pending = append(s.pending, DeltaAwaitingAnswer{
 			AwaitingID: awaitingID,
-			Answer:     AwaitingErrorAnswer(strings.TrimSpace(AnyStringNode(awaitArgs["mode"])), "invalid_submit", normalizeErr.Error()),
+			Answer:     awaitingAnswerWithSubmitID(AwaitingErrorAnswer(strings.TrimSpace(AnyStringNode(awaitArgs["mode"])), "invalid_submit", normalizeErr.Error()), submitResult.Request.SubmitID),
 		})
 		s.applyHITLDecision(invocation, *match, awaitingID, "reject", normalizeErr.Error(), false)
 		s.appendOriginalToolResult(invocation, frontendSubmitInvalidPayloadResult(invocation, awaitingID, submitResult.Request.Params, normalizeErr))
@@ -80,7 +81,7 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 	if len(normalized) > 0 {
 		s.pending = append(s.pending, DeltaAwaitingAnswer{
 			AwaitingID: awaitingID,
-			Answer:     CloneMap(normalized),
+			Answer:     awaitingAnswerWithSubmitID(normalized, submitResult.Request.SubmitID),
 		})
 	}
 

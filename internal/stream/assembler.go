@@ -18,6 +18,7 @@ type StreamRequest struct {
 	Model              any
 	PlanningMode       bool
 	Created            bool
+	ContinueRun        bool
 	MemoryUsageSummary map[string]any
 }
 
@@ -63,8 +64,9 @@ func (a *StreamEventAssembler) Bootstrap() []StreamEvent {
 	if a.request.PlanningMode {
 		queryPayload["planningMode"] = true
 	}
-	events := []StreamEvent{
-		NewEvent("request.query", queryPayload),
+	events := []StreamEvent{}
+	if !a.request.ContinueRun {
+		events = append(events, NewEvent("request.query", queryPayload))
 	}
 	if a.request.Created {
 		events = append(events, NewEvent("chat.start", map[string]any{

@@ -240,6 +240,16 @@ type PersistedAwaitingAsk struct {
 	Payload    map[string]any
 }
 
+type PersistedAwaitingSubmit struct {
+	ChatID     string
+	RunID      string
+	AwaitingID string
+	SubmitID   string
+	UpdatedAt  int64
+	Submit     map[string]any
+	Answer     map[string]any
+}
+
 type Detail struct {
 	ChatID      string
 	ChatName    string

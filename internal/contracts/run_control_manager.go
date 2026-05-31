@@ -99,7 +99,7 @@ func (m *InMemoryRunManager) Register(_ context.Context, session QuerySession) (
 func (m *InMemoryRunManager) Submit(req api.SubmitRequest) SubmitAck {
 	control, ok := m.lookupControl(req.RunID)
 	if !ok {
-		return SubmitAck{Accepted: false, Status: "unmatched", Detail: "No active run found"}
+		return SubmitAck{Accepted: false, Status: "unmatched", SubmitID: req.SubmitID, Detail: "No active run found"}
 	}
 	return control.ResolveSubmit(req)
 }

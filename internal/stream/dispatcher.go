@@ -74,6 +74,7 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 			"chatId":     value.ChatID,
 			"runId":      value.RunID,
 			"awaitingId": value.AwaitingID,
+			"submitId":   value.SubmitID,
 			"params":     value.Params,
 		})}
 	case AwaitingAnswer:

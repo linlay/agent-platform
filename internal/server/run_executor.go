@@ -537,6 +537,9 @@ func handleAwaitingLifecycle(params RunExecutorParams, data stream.EventData, tr
 			"status":     strings.TrimSpace(data.String("status")),
 			"resolvedAt": data.Timestamp,
 		}
+		if submitID := strings.TrimSpace(data.String("submitId")); submitID != "" {
+			payload["submitId"] = submitID
+		}
 		if errorCode := awaitingAnswerErrorCode(data); errorCode != "" {
 			payload["errorCode"] = errorCode
 		}

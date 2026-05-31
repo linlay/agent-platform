@@ -48,7 +48,7 @@ func TestDeferredSubmitHTTPRestoresPendingAwaitingAfterRestart(t *testing.T) {
 		t.Fatalf("new restarted server: %v", err)
 	}
 
-	reqBody := bytes.NewBufferString(`{"agentKey":"mock-agent","runId":"run-http","awaitingId":"await-http","params":[{"id":"q1","answer":"Approve"}]}`)
+	reqBody := bytes.NewBufferString(`{"chatId":"chat-http","submitId":"submit-http","agentKey":"mock-agent","runId":"run-http","awaitingId":"await-http","params":[{"id":"q1","answer":"Approve"}]}`)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/submit", reqBody)
 	req.Header.Set("Content-Type", "application/json")
@@ -63,6 +63,9 @@ func TestDeferredSubmitHTTPRestoresPendingAwaitingAfterRestart(t *testing.T) {
 	}
 	if !response.Data.Accepted || response.Data.Status != "accepted" {
 		t.Fatalf("unexpected submit response %#v", response.Data)
+	}
+	if response.Data.SubmitID != "submit-http" || !response.Data.Continued {
+		t.Fatalf("expected submitId echo and continued response, got %#v", response.Data)
 	}
 
 	summary, err := fixture.chats.Summary("chat-http")
@@ -93,8 +96,8 @@ func TestDeferredSubmitHTTPRestoresPendingAwaitingAfterRestart(t *testing.T) {
 	if !foundSubmit || !foundAnswer {
 		t.Fatalf("expected submit replay in chat detail, got %#v", detail.Events)
 	}
-	if eventTypes := notifications.EventTypes(); len(eventTypes) == 0 || eventTypes[len(eventTypes)-1] != "awaiting.answer" {
-		t.Fatalf("expected awaiting.answer notification, got %#v", eventTypes)
+	if eventTypes := notifications.EventTypes(); len(eventTypes) < 2 || eventTypes[0] != "awaiting.answer" || eventTypes[1] != "run.started" {
+		t.Fatalf("expected awaiting.answer then run.started notifications, got %#v", eventTypes)
 	}
 }
 
@@ -149,6 +152,8 @@ func TestDeferredSubmitWSRestoresPendingAwaitingAfterRestart(t *testing.T) {
 		Type:  "/api/submit",
 		ID:    "req_submit_deferred",
 		Payload: ws.MarshalPayload(map[string]any{
+			"chatId":     "chat-ws",
+			"submitId":   "submit-ws",
 			"agentKey":   "mock-agent",
 			"runId":      "run-ws",
 			"awaitingId": "await-ws",
@@ -217,7 +222,98 @@ func TestDeferredSubmitWSRestoresPendingAwaitingAfterRestart(t *testing.T) {
 	}
 }
 
-func TestDeferredSubmitRestoresAllAwaitingModesAfterRestart(t *testing.T) {
+func TestDeferredSubmitSubmitIDIsIdempotent(t *testing.T) {
+	notifications := &recordingNotificationSink{}
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		notifications: notifications,
+	})
+
+	seedDeferredAwaiting(t, fixture.chats, "chat-idempotent", "run-idempotent", "await-idempotent", "question", 0, time.Now().UnixMilli())
+
+	restarted, err := New(Dependencies{
+		Config:          fixture.cfg,
+		Chats:           fixture.chats,
+		Memory:          fixture.memories,
+		Registry:        fixture.registry,
+		Runs:            fixture.runs,
+		Agent:           fixture.agent,
+		Tools:           fixture.tools,
+		DeltaMappers:    llm.DeltaMapperFactory{Frontend: fixture.frontend},
+		SystemInits:     llm.SystemInitProfileBuilder{},
+		Sandbox:         fixture.sandbox,
+		MCP:             fixture.mcp,
+		Viewport:        fixture.viewport,
+		CatalogReloader: fixture.catalogReloader,
+		Notifications:   notifications,
+	})
+	if err != nil {
+		t.Fatalf("new restarted server: %v", err)
+	}
+
+	submit := func(submitID string) api.SubmitResponse {
+		t.Helper()
+		body, err := json.Marshal(api.SubmitRequest{
+			ChatID:     "chat-idempotent",
+			SubmitID:   submitID,
+			AgentKey:   "mock-agent",
+			RunID:      "run-idempotent",
+			AwaitingID: "await-idempotent",
+			Params: mustEncodeSubmitParams(t, []map[string]any{
+				{"id": "q1", "answer": "Approve"},
+			}),
+		})
+		if err != nil {
+			t.Fatalf("marshal submit: %v", err)
+		}
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		restarted.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("submit expected 200, got %d: %s", rec.Code, rec.Body.String())
+		}
+		var response api.ApiResponse[api.SubmitResponse]
+		if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+			t.Fatalf("decode submit response: %v", err)
+		}
+		return response.Data
+	}
+
+	first := submit("submit-idem-1")
+	if !first.Accepted || first.Status != "accepted" || first.SubmitID != "submit-idem-1" {
+		t.Fatalf("unexpected first submit response %#v", first)
+	}
+	second := submit("submit-idem-1")
+	if !second.Accepted || second.Status != "accepted" || second.SubmitID != "submit-idem-1" {
+		t.Fatalf("unexpected retry submit response %#v", second)
+	}
+	third := submit("submit-idem-2")
+	if third.Accepted || third.Status != "already_resolved" || third.SubmitID != "submit-idem-2" {
+		t.Fatalf("unexpected conflicting submit response %#v", third)
+	}
+
+	detail, err := fixture.chats.LoadChat("chat-idempotent")
+	if err != nil {
+		t.Fatalf("load chat detail: %v", err)
+	}
+	submitCount := 0
+	answerCount := 0
+	for _, event := range detail.Events {
+		switch event.Type {
+		case "request.submit":
+			submitCount++
+		case "awaiting.answer":
+			answerCount++
+		}
+	}
+	if submitCount != 1 || answerCount != 1 {
+		t.Fatalf("expected one submit and one answer, got submit=%d answer=%d events=%#v", submitCount, answerCount, detail.Events)
+	}
+}
+
+func TestDeferredSubmitRestoresQuestionAndPlanAfterRestart(t *testing.T) {
 	notifications := &recordingNotificationSink{}
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
@@ -232,11 +328,13 @@ func TestDeferredSubmitRestoresAllAwaitingModesAfterRestart(t *testing.T) {
 		awaitingID string
 		ask        map[string]any
 		params     api.SubmitParams
+		restorable bool
 	}{
 		{
 			name:       "question",
 			mode:       "question",
 			awaitingID: "await-question",
+			restorable: true,
 			ask: map[string]any{
 				"questions": []any{
 					map[string]any{"id": "q1", "question": "Need confirmation", "type": "text"},
@@ -250,6 +348,7 @@ func TestDeferredSubmitRestoresAllAwaitingModesAfterRestart(t *testing.T) {
 			name:       "approval",
 			mode:       "approval",
 			awaitingID: "await-approval",
+			restorable: false,
 			ask: map[string]any{
 				"approvals": []any{
 					map[string]any{"id": "cmd-1", "command": "chmod 777 ~/a.sh"},
@@ -263,6 +362,7 @@ func TestDeferredSubmitRestoresAllAwaitingModesAfterRestart(t *testing.T) {
 			name:       "form",
 			mode:       "form",
 			awaitingID: "await-form",
+			restorable: false,
 			ask: map[string]any{
 				"forms": []any{
 					map[string]any{"id": "form-1", "command": "mock create-leave", "form": map[string]any{"days": 1}},
@@ -276,6 +376,7 @@ func TestDeferredSubmitRestoresAllAwaitingModesAfterRestart(t *testing.T) {
 			name:       "plan",
 			mode:       "plan",
 			awaitingID: "await-plan",
+			restorable: true,
 			ask: map[string]any{
 				"plan": map[string]any{"id": "confirm", "planningId": "run-plan_planning_1"},
 			},
@@ -320,6 +421,30 @@ func TestDeferredSubmitRestoresAllAwaitingModesAfterRestart(t *testing.T) {
 				t.Fatalf("load summary: %v", err)
 			}
 			apiSummary := mapChatSummaries([]chat.Summary{*summary})[0]
+			if !tc.restorable {
+				if apiSummary.Awaiting != nil {
+					t.Fatalf("expected non-restorable awaiting to be cleared, got %#v", apiSummary.Awaiting)
+				}
+				body, err := json.Marshal(api.SubmitRequest{
+					ChatID:     chatID,
+					SubmitID:   "submit-" + tc.name,
+					AgentKey:   "mock-agent",
+					RunID:      runID,
+					AwaitingID: tc.awaitingID,
+					Params:     tc.params,
+				})
+				if err != nil {
+					t.Fatalf("marshal submit: %v", err)
+				}
+				rec := httptest.NewRecorder()
+				req := httptest.NewRequest(http.MethodPost, "/api/submit", bytes.NewReader(body))
+				req.Header.Set("Content-Type", "application/json")
+				restarted.ServeHTTP(rec, req)
+				if rec.Code != http.StatusBadRequest {
+					t.Fatalf("non-restorable submit expected 400, got %d: %s", rec.Code, rec.Body.String())
+				}
+				return
+			}
 			if apiSummary.Awaiting == nil || apiSummary.Awaiting.Status != "awaiting" || apiSummary.Awaiting.Mode != tc.mode {
 				t.Fatalf("expected awaiting status in summary, got %#v", apiSummary.Awaiting)
 			}
@@ -339,6 +464,8 @@ func TestDeferredSubmitRestoresAllAwaitingModesAfterRestart(t *testing.T) {
 			}
 
 			body, err := json.Marshal(api.SubmitRequest{
+				ChatID:     chatID,
+				SubmitID:   "submit-" + tc.name,
 				AgentKey:   "mock-agent",
 				RunID:      runID,
 				AwaitingID: tc.awaitingID,

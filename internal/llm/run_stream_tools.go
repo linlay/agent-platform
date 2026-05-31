@@ -370,9 +370,13 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 			ChatID:     s.session.ChatID,
 			RunID:      s.session.RunID,
 			AwaitingID: result.SubmitInfo.AwaitingID,
+			SubmitID:   result.SubmitInfo.SubmitID,
 			Params:     result.SubmitInfo.Params,
 		})
 		if answer := frontendSubmitAwaitingAnswer(invocation, result); len(answer) > 0 {
+			if result.SubmitInfo.SubmitID != "" {
+				answer["submitId"] = result.SubmitInfo.SubmitID
+			}
 			s.pending = append(s.pending, DeltaAwaitingAnswer{
 				AwaitingID: result.SubmitInfo.AwaitingID,
 				Answer:     CloneMap(answer),
