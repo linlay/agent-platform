@@ -168,6 +168,8 @@ func TestMonitorStaticRoutes(t *testing.T) {
 				`name="connection-view" value="all"`,
 				"/monitor/monitor.css",
 				"/monitor/monitor.js",
+				"frame / id",
+				"event / topic",
 			},
 		},
 		{
@@ -175,14 +177,14 @@ func TestMonitorStaticRoutes(t *testing.T) {
 			path:          "/monitor/monitor.css",
 			wantStatus:    http.StatusOK,
 			wantType:      "text/css",
-			wantBodyParts: []string{".metric-grid"},
+			wantBodyParts: []string{".metric-grid", ".connections-table", ".copy-user-agent"},
 		},
 		{
 			method:        http.MethodGet,
 			path:          "/monitor/monitor.js",
 			wantStatus:    http.StatusOK,
 			wantType:      "text/javascript",
-			wantBodyParts: []string{"requestJSON", "Authorization", "access_token", "history.replaceState", "sessionId", "connectionView", "active", "copyPayloadText"},
+			wantBodyParts: []string{"requestJSON", "Authorization", "access_token", "history.replaceState", "sessionId", "connectionView", "active", "copyPayloadText", "copyUserAgentText"},
 		},
 		{
 			method:     http.MethodGet,

@@ -34,7 +34,7 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 	admission.resourceBaseURL = conn.RequestBaseURL()
 	release, availability := s.tryAcquireQuery(admission)
 	if !availability.CanQuery {
-		conn.SendError(req.ID, queryAvailabilityCodeConcurrencyLimit, http.StatusTooManyRequests, availability.Message, queryAvailabilityDetails(availability))
+		conn.SendError(req.ID, availability.Code, http.StatusTooManyRequests, availability.Message, nil)
 		conn.CompleteRequest(req.ID)
 		return
 	}

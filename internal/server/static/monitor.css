@@ -341,6 +341,46 @@ table {
   border-collapse: collapse;
 }
 
+.connections-table {
+  table-layout: fixed;
+}
+
+.connections-table th:nth-child(1),
+.connections-table td:nth-child(1),
+.connections-table th:nth-child(2),
+.connections-table td:nth-child(2) {
+  width: 92px;
+}
+
+.connections-table th:nth-child(3),
+.connections-table td:nth-child(3) {
+  width: 180px;
+}
+
+.connections-table th:nth-child(4),
+.connections-table td:nth-child(4),
+.connections-table th:nth-child(5),
+.connections-table td:nth-child(5) {
+  width: 138px;
+}
+
+.connections-table th:nth-child(6),
+.connections-table td:nth-child(6) {
+  width: 86px;
+}
+
+.connections-table th:nth-child(7),
+.connections-table td:nth-child(7) {
+  width: 116px;
+}
+
+.connections-table th:nth-child(8),
+.connections-table td:nth-child(8),
+.connections-table th:nth-child(9),
+.connections-table td:nth-child(9) {
+  width: 96px;
+}
+
 .messages-table {
   min-width: 1180px;
   table-layout: fixed;
@@ -368,7 +408,12 @@ table {
 
 .messages-table th:nth-child(5),
 .messages-table td:nth-child(5) {
-  width: 260px;
+  width: 170px;
+}
+
+.messages-table th:nth-child(6),
+.messages-table td:nth-child(6) {
+  width: 170px;
 }
 
 th,
@@ -413,6 +458,11 @@ tbody tr:hover {
 .stack {
   display: grid;
   gap: 1px;
+  min-width: 0;
+}
+
+.stack .mono {
+  overflow-wrap: anywhere;
 }
 
 .chip {
@@ -485,6 +535,11 @@ tbody tr:hover {
 .copy-button.copied {
   border-color: #b7e4c7;
   color: var(--success);
+}
+
+.copy-user-agent {
+  margin-top: 4px;
+  padding: 1px 6px;
 }
 
 .empty-state {

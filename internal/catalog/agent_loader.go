@@ -272,13 +272,7 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 		Wonders:          normalizeWonderStrings(root["wonders"]),
 		Mode:             NormalizeAgentModeForRuntime(stringNode(root["mode"])),
 		VisibilityScopes: parseAgentVisibilityScopes(root["visibility"]),
-		Concurrency:      DefaultAgentConcurrency,
 	}
-	concurrency, err := parseAgentConcurrency(root)
-	if err != nil {
-		return AgentDefinition{}, nil, err
-	}
-	def.Concurrency = concurrency
 	agentType, err := normalizeAgentType(stringNode(root["type"]))
 	if err != nil {
 		return AgentDefinition{}, nil, err

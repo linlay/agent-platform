@@ -268,8 +268,7 @@
         ["channel", connection.channel],
         ["source", connection.source],
         ["device", connection.deviceId],
-        ["userAgent", connection.userAgent],
-      ]);
+      ], connection.userAgent);
       appendCell(row, formatOptionalTime(connection.connectedAt), "mono");
       appendCell(row, formatOptionalTime(firstValue(connection.lastSeenAt, connection.lastMessageAt, connection.closedAt)), "mono");
       appendStatusCell(row, connection);
@@ -301,11 +300,13 @@
       appendCell(row, firstValue(message.type, message.frame), "mono");
       appendStackCell(row, [
         ["frame", message.frame],
-        ["event", message.event],
-        ["topic", message.topic],
         ["id", message.id],
         ["size", formatBytes(message.sizeBytes)],
         ["error", message.error],
+      ]);
+      appendStackCell(row, [
+        ["event", message.event],
+        ["topic", message.topic],
       ]);
       appendPayloadCell(row, message);
       dom.messagesBody.appendChild(row);
@@ -321,7 +322,7 @@
     row.appendChild(cell);
   }
 
-  function appendStackCell(row, items) {
+  function appendStackCell(row, items, userAgent) {
     var cell = document.createElement("td");
     var stack = create("div", "stack");
     items.forEach(function (item) {
@@ -338,7 +339,28 @@
       setText(stack, "-");
     }
     cell.appendChild(stack);
+    appendUserAgentControls(cell, userAgent);
     row.appendChild(cell);
+  }
+
+  function appendUserAgentControls(cell, userAgent) {
+    var normalizedUserAgent = normalizeDisplayValue(userAgent);
+    if (normalizedUserAgent === "-") {
+      return;
+    }
+    cell.title = normalizedUserAgent;
+    var copyButton = create("button", "copy-button copy-user-agent");
+    copyButton.type = "button";
+    copyButton.title = "复制完整 userAgent";
+    setText(copyButton, "复制 UA");
+    copyButton.addEventListener("click", function () {
+      copyUserAgentText(normalizedUserAgent, copyButton, cell);
+    });
+    cell.appendChild(copyButton);
+  }
+
+  function copyUserAgentText(text, button, sourceElement) {
+    copyPayloadText(text, button, sourceElement);
   }
 
   function appendStatusCell(row, connection) {

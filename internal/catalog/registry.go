@@ -42,7 +42,6 @@ type AgentDefinition struct {
 	CoderBackend     string
 	ACPProxyID       string
 	VisibilityScopes []string
-	Concurrency      int
 	Tools            []string
 	Skills           []string
 	Controls         []map[string]any
@@ -418,13 +417,6 @@ func EffectiveAgentVisibilityScopes(def AgentDefinition) []string {
 		return append([]string(nil), defaultAgentVisibilityScopes...)
 	}
 	return append([]string(nil), def.VisibilityScopes...)
-}
-
-func EffectiveAgentConcurrency(def AgentDefinition) int {
-	if def.Concurrency <= 0 {
-		return DefaultAgentConcurrency
-	}
-	return def.Concurrency
 }
 
 func projectPromptFilesMeta(files []AgentProjectPromptFile) []map[string]any {

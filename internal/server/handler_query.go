@@ -30,7 +30,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	}
 	release, availability := s.tryAcquireQuery(admission)
 	if !availability.CanQuery {
-		writeJSON(w, http.StatusTooManyRequests, queryAvailabilityFailure(availability))
+		writeJSON(w, http.StatusTooManyRequests, api.Failure(http.StatusTooManyRequests, availability.Message))
 		return
 	}
 	prepared, err := s.completeQueryPreparation(r.Context(), admission, release)

@@ -11,7 +11,6 @@ const AgentModeCoder = "CODER"
 const AgentCoderBackendNative = "native"
 const AgentCoderBackendACP = "acp"
 const AgentWorkspaceRootChat = "@chat"
-const DefaultAgentConcurrency = 1
 
 var defaultAgentVisibilityScopes = []string{"nav"}
 
@@ -121,17 +120,6 @@ func normalizeAgentVisibilityScope(raw string) string {
 	default:
 		return ""
 	}
-}
-
-func parseAgentConcurrency(root map[string]any) (int, error) {
-	if _, ok := root["concurrency"]; ok {
-		concurrency := intNode(root["concurrency"])
-		if concurrency <= 0 {
-			return 0, fmt.Errorf("concurrency must be greater than or equal to 1")
-		}
-		return concurrency, nil
-	}
-	return DefaultAgentConcurrency, nil
 }
 
 func parseAgentProjectConfig(value any) AgentProjectConfig {

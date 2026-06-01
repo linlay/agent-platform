@@ -245,7 +245,6 @@ func TestAgentsEndpointReturnsCatalogFieldsAndScopeFiltering(t *testing.T) {
 					"icon:",
 					"  name: terminal",
 					"  color: '#336699'",
-					"concurrency: 2",
 					"runtimeConfig:",
 					"  workspaceRoot: " + filepath.ToSlash(workspace),
 				}, "\n"),

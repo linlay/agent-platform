@@ -719,7 +719,6 @@ func TestAgentsSummaryIncludesCatalogFieldsAndFiltersScope(t *testing.T) {
 				Skills:           []string{"browser"},
 				Workspace:        AgentWorkspaceConfig{Root: workspace},
 				VisibilityScopes: []string{"nav", "copilot"},
-				Concurrency:      2,
 			},
 			"worker": {
 				Key:      "worker",

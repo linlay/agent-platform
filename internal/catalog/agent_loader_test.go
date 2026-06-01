@@ -107,7 +107,7 @@ func TestParseAgentFileKeepsExplicitProxySSETransport(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileDefaultsModeVisibilityAndConcurrency(t *testing.T) {
+func TestParseAgentFileDefaultsModeAndVisibility(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
 	content := "" +
@@ -128,9 +128,6 @@ func TestParseAgentFileDefaultsModeVisibilityAndConcurrency(t *testing.T) {
 	}
 	if !reflect.DeepEqual(def.VisibilityScopes, []string{"nav"}) {
 		t.Fatalf("visibility scopes = %#v", def.VisibilityScopes)
-	}
-	if def.Concurrency != 1 {
-		t.Fatalf("concurrency = %d, want 1", def.Concurrency)
 	}
 }
 
@@ -192,7 +189,7 @@ func TestParseAgentFileAcceptsPlanExecuteModeAliases(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileReadsVisibilityAndConcurrency(t *testing.T) {
+func TestParseAgentFileReadsVisibility(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
 	content := "" +
@@ -208,8 +205,7 @@ func TestParseAgentFileReadsVisibilityAndConcurrency(t *testing.T) {
 		"    - internal\n" +
 		"    - invoke\n" +
 		"    - bad-scope\n" +
-		"    - invoke\n" +
-		"concurrency: 3\n"
+		"    - invoke\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write agent file: %v", err)
 	}
@@ -223,26 +219,6 @@ func TestParseAgentFileReadsVisibilityAndConcurrency(t *testing.T) {
 	}
 	if !reflect.DeepEqual(def.VisibilityScopes, []string{"internal", "invoke"}) {
 		t.Fatalf("visibility scopes = %#v", def.VisibilityScopes)
-	}
-	if def.Concurrency != 3 {
-		t.Fatalf("concurrency = %d, want 3", def.Concurrency)
-	}
-}
-
-func TestParseAgentFileRejectsInvalidConcurrency(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "agent.yml")
-	content := "" +
-		"key: demo\n" +
-		"name: Demo\n" +
-		"concurrency: 0\n"
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write agent file: %v", err)
-	}
-
-	_, err := parseAgentFile(path)
-	if err == nil || !strings.Contains(err.Error(), "concurrency") {
-		t.Fatalf("expected concurrency error, got %v", err)
 	}
 }
 
