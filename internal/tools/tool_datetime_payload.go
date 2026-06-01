@@ -113,7 +113,7 @@ func parseOffsetSeconds(offset string) (int, error) {
 
 func normalizeDateTimeOffset(raw string) (string, error) {
 	offset := strings.TrimSpace(raw)
-	if offset == "" || offset == "0" {
+	if offset == "" || offset == "0" || offset == "+0" || offset == "-0" {
 		return "0", nil
 	}
 	compact := strings.ReplaceAll(offset, " ", "")
