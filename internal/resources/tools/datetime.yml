@@ -10,5 +10,5 @@ inputSchema:
       description: Timezone to use. Supports IANA zoneId values and offset formats such as UTC+8, +08:00, and Z.
     offset:
       type: string
-      description: Chained time offset, for example +1D, +1D-3H+20m, +10M+25D, -2y, or +3w. Here y=year, M=month, D=day, H=hour, and m=minute. Leave blank or use 0 for the current time.
+      description: Chained time offset, for example +1D, +1D-3H+20m, +10M+25D, -2y, or +3w. Units are case-sensitive; y=year, M=month, w=week, D=day, H=hour, m=minute, and S=second. Leave blank or use 0 for the current time.
   additionalProperties: false

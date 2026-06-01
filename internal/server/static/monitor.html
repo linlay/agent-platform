@@ -15,13 +15,12 @@
           <p id="page-subtitle">localhost:11949 /monitor</p>
         </div>
         <div class="toolbar" aria-label="监控操作">
-          <label class="field">
-            <span>sessionId</span>
-            <select id="session-select">
-              <option value="">全部 session</option>
-            </select>
+          <label class="field token-field">
+            <span>access_token</span>
+            <input id="token-input" type="password" autocomplete="off" spellcheck="false" placeholder="Bearer token">
           </label>
-          <button id="clear-filter" class="button button-secondary" type="button">清除筛选</button>
+          <button id="apply-token" class="button button-secondary" type="button">应用 token</button>
+          <button id="clear-token" class="button button-secondary" type="button">清除 token</button>
           <button id="refresh-button" class="button button-primary" type="button">刷新</button>
         </div>
       </header>
@@ -42,13 +41,34 @@
           <div id="overview-grid" class="metric-grid"></div>
         </section>
 
+        <section class="filterbar panel" aria-label="连接筛选">
+          <label class="field session-field">
+            <span>sessionId</span>
+            <select id="session-select">
+              <option value="">全部 session</option>
+            </select>
+          </label>
+          <button id="clear-filter" class="button button-secondary" type="button">清除筛选</button>
+          <div class="radio-group" role="radiogroup" aria-label="连接视图">
+            <span class="radio-title">连接</span>
+            <label>
+              <input type="radio" name="connection-view" value="active" checked>
+              <span>active</span>
+            </label>
+            <label>
+              <input type="radio" name="connection-view" value="all">
+              <span>all</span>
+            </label>
+          </div>
+          <span id="connections-count" class="muted count-pill">0 条</span>
+        </section>
+
         <section class="panel" aria-labelledby="connections-title">
           <div class="section-head">
             <h2 id="connections-title">连接列表</h2>
-            <span id="connections-count" class="muted">0 条</span>
           </div>
           <div class="table-wrap">
-            <table>
+            <table class="connections-table">
               <thead>
                 <tr>
                   <th>sessionId</th>
@@ -74,7 +94,7 @@
             <span id="messages-count" class="muted">0 条</span>
           </div>
           <div class="table-wrap">
-            <table>
+            <table class="messages-table">
               <thead>
                 <tr>
                   <th>time</th>

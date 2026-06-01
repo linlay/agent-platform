@@ -12,6 +12,7 @@
     loading: false,
     accessToken: "",
     selectedSessionId: "",
+    connectionView: "active",
     knownSessionIds: [],
     overview: null,
     connectionsSnapshot: null,
@@ -22,8 +23,12 @@
 
   document.addEventListener("DOMContentLoaded", function () {
     dom = {
+      tokenInput: document.getElementById("token-input"),
+      applyToken: document.getElementById("apply-token"),
+      clearToken: document.getElementById("clear-token"),
       sessionSelect: document.getElementById("session-select"),
       clearFilter: document.getElementById("clear-filter"),
+      connectionViewInputs: document.querySelectorAll('input[name="connection-view"]'),
       refreshButton: document.getElementById("refresh-button"),
       pageSubtitle: document.getElementById("page-subtitle"),
       loadingState: document.getElementById("loading-state"),
@@ -39,6 +44,17 @@
     };
 
     initializeAccessToken();
+    dom.applyToken.addEventListener("click", function () {
+      applyAccessToken();
+    });
+    dom.clearToken.addEventListener("click", function () {
+      clearAccessToken();
+    });
+    dom.tokenInput.addEventListener("keydown", function (event) {
+      if (event.key === "Enter") {
+        applyAccessToken();
+      }
+    });
     dom.refreshButton.addEventListener("click", function () {
       loadDashboard();
     });
@@ -50,6 +66,15 @@
     dom.sessionSelect.addEventListener("change", function (event) {
       state.selectedSessionId = event.target.value;
       loadDashboard();
+    });
+    dom.connectionViewInputs.forEach(function (input) {
+      input.addEventListener("change", function (event) {
+        if (!event.target.checked) {
+          return;
+        }
+        state.connectionView = event.target.value === "all" ? "all" : "active";
+        renderAll();
+      });
     });
 
     setText(dom.pageSubtitle, window.location.host + " /monitor");
@@ -83,7 +108,7 @@
     if (!response.ok) {
       var httpMessage = envelope && envelope.msg ? envelope.msg : response.statusText;
       if (response.status === 401) {
-        httpMessage = "Unauthorized。请通过带 access_token 的 /monitor 链接打开监控页。";
+        httpMessage = "Unauthorized。请在顶部输入 access_token 后点击“应用 token”。";
       }
       throw new Error("HTTP " + response.status + "：" + httpMessage);
     }
@@ -133,7 +158,9 @@
 
   function renderEmptyShell() {
     renderOverview({});
-    renderConnections([]);
+    renderSessionSelect();
+    renderConnectionViewControls();
+    renderConnections([], 0);
     renderMessages([]);
   }
 
@@ -142,7 +169,8 @@
     var messages = getMessages();
     renderOverview(state.overview || {});
     renderSessionSelect();
-    renderConnections(connections);
+    renderConnectionViewControls();
+    renderConnections(getVisibleConnections(connections), connections.length);
     renderMessages(messages);
   }
 
@@ -210,9 +238,23 @@
     dom.clearFilter.disabled = !previous || state.loading;
   }
 
-  function renderConnections(connections) {
+  function renderConnectionViewControls() {
+    dom.connectionViewInputs.forEach(function (input) {
+      input.checked = input.value === state.connectionView;
+      input.disabled = state.loading;
+    });
+  }
+
+  function renderConnections(connections, totalCount) {
+    var total = typeof totalCount === "number" ? totalCount : connections.length;
     dom.connectionsBody.replaceChildren();
-    setText(dom.connectionsCount, connections.length + " 条");
+    if (state.connectionView === "active") {
+      setText(dom.connectionsCount, "active " + connections.length + " / all " + total + " 条");
+      setText(dom.connectionsEmpty, "暂无 active 连接");
+    } else {
+      setText(dom.connectionsCount, "all " + total + " 条");
+      setText(dom.connectionsEmpty, "暂无连接");
+    }
     dom.connectionsEmpty.hidden = connections.length !== 0;
 
     connections.forEach(function (connection) {
@@ -302,9 +344,9 @@
   function appendStatusCell(row, connection) {
     var cell = document.createElement("td");
     var chip = create("span", "chip");
-    var active = Boolean(firstValue(connection.active, connection.online, connection.connected));
+    var active = isActiveConnection(connection);
     chip.classList.add(active ? "chip-active" : "chip-closed");
-    setText(chip, active ? "active" : "closed");
+    setText(chip, active ? "active" : firstValue(connection.status, connection.state, "closed"));
     cell.appendChild(chip);
     if (connection.closedAt) {
       var closedAt = create("div", "mono");
@@ -333,7 +375,6 @@
     var fullPayload = firstValue(message.payload, message.data, message.body, "");
     var raw = firstValue(fullPayload, message.payloadPreview, "");
     var text = stringifyPayload(raw);
-    var summaryText = summarize(text, 180);
 
     if (!text) {
       setText(cell, "-");
@@ -341,20 +382,85 @@
       return;
     }
 
-    var summary = create("div", "payload-summary");
-    setText(summary, summaryText);
-    cell.appendChild(summary);
-
-    if (message.truncated || text.length > 180) {
-      var details = document.createElement("details");
-      var summaryToggle = document.createElement("summary");
-      setText(summaryToggle, fullPayload ? "查看完整内容" : "查看 payload 预览");
-      var pre = create("pre", "payload-full");
-      setText(pre, text);
-      details.append(summaryToggle, pre);
-      cell.appendChild(details);
-    }
+    var wrapper = create("div", "payload-cell");
+    var summary = create("span", "payload-summary");
+    var copyButton = create("button", "copy-button");
+    copyButton.type = "button";
+    setText(summary, text);
+    summary.title = summarize(text, 1200);
+    setText(copyButton, "复制");
+    copyButton.addEventListener("click", function () {
+      copyPayloadText(text, copyButton, summary);
+    });
+    wrapper.append(summary, copyButton);
+    cell.appendChild(wrapper);
     row.appendChild(cell);
+  }
+
+  async function copyPayloadText(text, button, sourceElement) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        markCopyState(button, "已复制", true);
+        return;
+      }
+      var fallbackState = copyTextFallback(text, sourceElement);
+      if (fallbackState === "copied") {
+        markCopyState(button, "已复制", true);
+      } else if (fallbackState === "selected") {
+        markCopyState(button, "已选中", true);
+      } else {
+        throw new Error("clipboard unavailable");
+      }
+    } catch (error) {
+      if (copyTextFallback(text, sourceElement) === "selected") {
+        markCopyState(button, "已选中", true);
+        return;
+      }
+      markCopyState(button, "复制失败", false);
+    }
+  }
+
+  function copyTextFallback(text, sourceElement) {
+    var textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "readonly");
+    textarea.style.position = "fixed";
+    textarea.style.top = "-1000px";
+    textarea.style.left = "-1000px";
+    document.body.appendChild(textarea);
+    textarea.select();
+    try {
+      if (document.execCommand && document.execCommand("copy")) {
+        textarea.remove();
+        return "copied";
+      }
+    } catch (error) {
+      // Fall through to selecting the visible text for manual copy.
+    }
+    textarea.remove();
+    return selectElementText(sourceElement) ? "selected" : "";
+  }
+
+  function selectElementText(element) {
+    if (!element || !window.getSelection || !document.createRange) {
+      return false;
+    }
+    var range = document.createRange();
+    range.selectNodeContents(element);
+    var selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return true;
+  }
+
+  function markCopyState(button, label, ok) {
+    button.classList.toggle("copied", ok);
+    setText(button, label);
+    window.setTimeout(function () {
+      button.classList.remove("copied");
+      setText(button, "复制");
+    }, 1200);
   }
 
   function updateKnownSessionIds() {
@@ -385,6 +491,46 @@
     return arrayValue(firstValue(snapshot.connections, snapshot.items, snapshot.list));
   }
 
+  function getVisibleConnections(connections) {
+    if (state.connectionView === "all") {
+      return connections;
+    }
+    return connections.filter(isActiveConnection);
+  }
+
+  function isActiveConnection(connection) {
+    if (!connection || typeof connection !== "object") {
+      return false;
+    }
+    var explicit = firstValue(connection.active, connection.online, connection.connected);
+    var parsed = parseBooleanFlag(explicit);
+    if (parsed !== null) {
+      return parsed;
+    }
+    var status = String(firstValue(connection.status, connection.state, connection.readyState, "")).toLowerCase();
+    return ["active", "open", "connected", "online", "ready", "running"].indexOf(status) !== -1;
+  }
+
+  function parseBooleanFlag(value) {
+    if (value === undefined || value === null || value === "") {
+      return null;
+    }
+    if (typeof value === "boolean") {
+      return value;
+    }
+    if (typeof value === "number") {
+      return value !== 0;
+    }
+    var normalized = String(value).toLowerCase();
+    if (["true", "1", "yes", "y", "active", "online", "connected", "open"].indexOf(normalized) !== -1) {
+      return true;
+    }
+    if (["false", "0", "no", "n", "closed", "offline", "disconnected"].indexOf(normalized) !== -1) {
+      return false;
+    }
+    return null;
+  }
+
   function getMessages() {
     var snapshot = state.messagesSnapshot || {};
     return arrayValue(firstValue(snapshot.messages, snapshot.items, snapshot.list));
@@ -399,6 +545,8 @@
     dom.refreshButton.disabled = loading;
     dom.sessionSelect.disabled = loading;
     dom.clearFilter.disabled = loading || !state.selectedSessionId;
+    setTokenControls();
+    renderConnectionViewControls();
   }
 
   function initializeAccessToken() {
@@ -409,7 +557,31 @@
     } else {
       state.accessToken = loadStoredToken();
     }
+    dom.tokenInput.value = state.accessToken;
+    setTokenControls();
     scrubAccessTokenFromUrl();
+  }
+
+  function applyAccessToken() {
+    state.accessToken = normalizedAccessToken(dom.tokenInput.value);
+    dom.tokenInput.value = state.accessToken;
+    storeToken(state.accessToken);
+    setTokenControls();
+    loadDashboard();
+  }
+
+  function clearAccessToken() {
+    state.accessToken = "";
+    dom.tokenInput.value = "";
+    storeToken("");
+    setTokenControls();
+    loadDashboard();
+  }
+
+  function setTokenControls() {
+    dom.tokenInput.disabled = state.loading;
+    dom.applyToken.disabled = state.loading;
+    dom.clearToken.disabled = state.loading || !state.accessToken;
   }
 
   function normalizedAccessToken(value) {
@@ -596,18 +768,18 @@
       return "";
     }
     if (typeof value === "string") {
-      return prettyJSONString(value);
+      return compactJSONString(value);
     }
     try {
-      return JSON.stringify(value, null, 2);
+      return JSON.stringify(value);
     } catch (error) {
       return String(value);
     }
   }
 
-  function prettyJSONString(value) {
+  function compactJSONString(value) {
     try {
-      return JSON.stringify(JSON.parse(value), null, 2);
+      return JSON.stringify(JSON.parse(value));
     } catch (error) {
       return value;
     }
