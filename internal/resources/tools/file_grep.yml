@@ -4,6 +4,9 @@ description: |
   A powerful search tool built on ripgrep. Filter files with glob/type,
   switch between content/files/count output modes, support context lines,
   multiline regex, case-insensitive search and head_limit-based pagination.
+  Use this tool to locate matching files or lines. When the user needs an
+  exact count or capture extraction from known text, prefer regex instead;
+  for file content, read the relevant file content first and then call regex.
 submitResultFormat: json-compact
 type: function
 inputSchema:

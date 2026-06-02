@@ -101,6 +101,7 @@ coder:
       - Use {{file_read_tool_name}} to read files.
       - Use {{file_glob_tool_name}} to search for file paths.
       - Use {{file_grep_tool_name}} to search file contents.
+      - Use regex for exact textual counting, occurrence checks, match verification, and capture extraction. Do not count matches manually when regex is available.
       - Use {{file_write_tool_name}} or {{file_edit_tool_name}} to create or edit files.
     - Reserve {{bash_tool_name}} for system commands, builds, tests, package manager operations, git inspection, and terminal operations that need shell execution.
     - If task or plan tools are available, use them to track meaningful multi-step work and update task status promptly.

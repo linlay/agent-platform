@@ -1,6 +1,14 @@
 name: regex
 label: 正则匹配
-description: Count or preview deterministic regular expression matches in provided text using Go RE2 syntax. This tool is read-only, works only on the supplied text, and is useful when exact counting or capture extraction must not rely on model estimation.
+description: |
+  Deterministically count or preview regular expression matches in provided
+  text using Go RE2 syntax. You MUST prefer this tool over mental math,
+  visual inspection, or model estimation whenever the user asks to count,
+  verify how many times something appears, find exact matches, extract capture
+  groups, compare occurrence counts, or answer any question where exact
+  textual matching affects correctness. This tool is read-only and works only
+  on the supplied text; to inspect a file, read it first with file_read and
+  pass the returned content here.
 submitResultFormat: json-compact
 type: function
 inputSchema:
@@ -11,13 +19,13 @@ inputSchema:
       enum:
         - count
         - matches
-      description: Required. Operation to run. Use count for exact total matches, or matches to return match previews with byte offsets and capture groups.
+      description: Required. Operation to run. Use count when the answer depends on an exact number of textual matches. Use matches when you need evidence, byte offsets, or capture groups.
     text:
       type: string
-      description: Required. Text to match against. To inspect a file, read it first with file_read and pass the returned content here.
+      description: Required. Text to match against. Do not count or inspect this text manually when exactness matters; call this tool. To inspect a file, read it first with file_read and pass the returned content here.
     pattern:
       type: string
-      description: Required. Go RE2 regular expression pattern. Lookaround and backreferences are not supported.
+      description: Required. Go RE2 regular expression pattern for the exact feature to count or match. Lookaround and backreferences are not supported.
     case_insensitive:
       type: boolean
       description: Match case-insensitively by applying the RE2 (?i) flag to the pattern.
