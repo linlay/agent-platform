@@ -2,6 +2,7 @@ name: bash
 label: 执行命令
 description: |
   Run allowlisted host shell commands. Windows runs through PowerShell by default; Unix/macOS run through bash/sh.
+  Use bash for running commands, tests, builds, package managers, git, and other terminal operations. When file_write/file_edit are available, create or edit files with those tools first, then use bash only to run them.
   Use the cwd parameter for directory changes; do not inline `cd /path && ...` when cwd can express the target directory.
   Shell syntax may be available, but security policy can block control operators, redirections, substitutions, and opaque scripts.
   Avoid writing commands like `cd /path && command`, `cmd1; cmd2`, `cmd1 && cmd2`, `cmd1 || cmd2`, `cmd1 | cmd2`, `cmd > file`, `cmd 2>&1`, `cmd >/dev/null 2>&1`, `$(cmd)`, backticks, heredocs, `eval`, `source`, or background jobs with `&`.

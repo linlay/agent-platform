@@ -1,6 +1,9 @@
 name: file_write
 label: 写入文件
-description: Create or overwrite a single file on the host filesystem. This tool is intentionally narrow, Claude Code-style, and requires user approval by default. Existing files must be read in the same run before writing; external changes after read return file_modified_since_read. Successful results include lineStats with addedLines, deletedLines, and editedLines.
+description: |
+  Create or overwrite a single UTF-8 file on the host filesystem. Prefer this tool for creating files, writing scripts, or replacing complete file contents when available.
+  Do not use bash redirection, heredocs, cat/echo/printf/tee, or interpreter one-liners to write files when this tool is available.
+  Existing files must be read in the same run before writing; external changes after read return file_modified_since_read. Successful results include lineStats with addedLines, deletedLines, and editedLines.
 submitResultFormat: json-compact
 type: function
 inputSchema:
