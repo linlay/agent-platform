@@ -143,10 +143,40 @@ func TestSessionHostAccessRootsAllowOwnerReadWrite(t *testing.T) {
 func TestAutoApproveAndFullAccessLevels(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "workspace")
+	chatDir := filepath.Join(root, "chats", "chat-1")
 	outside := filepath.Join(root, "outside", "secret.txt")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatalf("mkdir workspace: %v", err)
+	}
+	if err := os.MkdirAll(chatDir, 0o755); err != nil {
+		t.Fatalf("mkdir chat dir: %v", err)
+	}
 	cfg := config.AccessPolicyConfig{}
 
-	autoSession := contracts.QuerySession{AccessLevel: contracts.AccessLevelAutoApprove, WorkspaceRoot: workspace}
+	autoSession := contracts.QuerySession{
+		AccessLevel:   contracts.AccessLevelAutoApprove,
+		WorkspaceRoot: workspace,
+		RuntimeContext: contracts.RuntimeRequestContext{
+			LocalPaths: contracts.LocalPaths{
+				WorkspaceDir:       workspace,
+				ChatAttachmentsDir: chatDir,
+			},
+		},
+	}
+	workspaceWritePlan, err := BuildPathPlan(cfg, autoSession, WriteAccess, filepath.Join(workspace, "artifact.md"))
+	if err != nil {
+		t.Fatalf("build auto workspace write plan: %v", err)
+	}
+	if !workspaceWritePlan.Allowed() || workspaceWritePlan.RequiresApproval() {
+		t.Fatalf("expected auto-approve workspace write allowed, got %#v", workspaceWritePlan)
+	}
+	chatWritePlan, err := BuildPathPlan(cfg, autoSession, WriteAccess, filepath.Join(chatDir, "artifact.md"))
+	if err != nil {
+		t.Fatalf("build auto chat write plan: %v", err)
+	}
+	if !chatWritePlan.Allowed() || chatWritePlan.RequiresApproval() {
+		t.Fatalf("expected auto-approve chat write allowed, got %#v", chatWritePlan)
+	}
 	autoPlan, err := BuildPathPlan(cfg, autoSession, ReadAccess, outside)
 	if err != nil {
 		t.Fatalf("build auto read plan: %v", err)

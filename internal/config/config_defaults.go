@@ -434,6 +434,9 @@ func normalizeAccessPolicyConfig(cfg AccessPolicyConfig) AccessPolicyConfig {
 }
 
 func normalizeAccessPolicyRoots(roots []string) []string {
+	if roots == nil {
+		return nil
+	}
 	out := make([]string, 0, len(roots))
 	seen := map[string]struct{}{}
 	for _, root := range roots {

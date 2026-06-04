@@ -241,16 +241,10 @@ func NormalizePath(path string) (string, error) {
 }
 
 func resolveLevelConfig(cfg config.AccessPolicyConfig, name string, seen map[string]bool) config.AccessPolicyLevelConfig {
-	defaults := defaultLevelConfig(name)
-	if cfg.Levels == nil {
-		return defaults
-	}
-	current, ok := cfg.Levels[name]
-	if !ok {
-		if fallback, ok := cfg.Levels[AccessLevelDefault]; ok {
-			current = fallback
-		} else {
-			return defaults
+	current := defaultLevelConfig(name)
+	if cfg.Levels != nil {
+		if configured, ok := cfg.Levels[name]; ok {
+			current = mergeLevelConfig(current, configured)
 		}
 	}
 	if current.Inherit != "" && !seen[name] {
@@ -258,7 +252,7 @@ func resolveLevelConfig(cfg config.AccessPolicyConfig, name string, seen map[str
 		parent := resolveLevelConfig(cfg, current.Inherit, seen)
 		current = mergeLevelConfig(parent, current)
 	}
-	return mergeLevelConfig(defaults, current)
+	return current
 }
 
 func defaultLevelConfig(name string) config.AccessPolicyLevelConfig {

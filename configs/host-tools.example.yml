@@ -7,10 +7,12 @@ access-policy:
     default:
       read-roots:
         - "@workspace"
+        - "@chat"
         - "@agent"
         - "@skills"
       write-roots:
         - "@workspace"
+        - "@chat"
       readonly-roots:
         - "@agent"
         - "@skills"

@@ -82,6 +82,13 @@ func TestLoadDefaults(t *testing.T) {
 		if cfg.Desktop.CDP.BridgeURL != "http://127.0.0.1:11788/cdp/call" {
 			t.Fatalf("unexpected default desktop cdp bridge url: %q", cfg.Desktop.CDP.BridgeURL)
 		}
+		defaultLevel := cfg.AccessPolicy.Levels["default"]
+		if got := strings.Join(defaultLevel.ReadRoots, ","); got != "@workspace,@chat,@agent,@skills" {
+			t.Fatalf("unexpected default access-policy read roots: %#v", defaultLevel.ReadRoots)
+		}
+		if got := strings.Join(defaultLevel.WriteRoots, ","); got != "@workspace,@chat" {
+			t.Fatalf("unexpected default access-policy write roots: %#v", defaultLevel.WriteRoots)
+		}
 	})
 }
 
@@ -1295,8 +1302,10 @@ func TestAccessPolicyConfigYAMLOverrides(t *testing.T) {
 			"    default:\n" +
 			"      read-roots:\n" +
 			"        - \"@workspace\"\n" +
+			"        - \"@chat\"\n" +
 			"      write-roots:\n" +
 			"        - \"@workspace\"\n" +
+			"        - \"@chat\"\n" +
 			"      readonly-roots: []\n" +
 			"      approvals:\n" +
 			"        read-outside-roots: block\n" +
@@ -1307,14 +1316,49 @@ func TestAccessPolicyConfigYAMLOverrides(t *testing.T) {
 				t.Fatalf("load config: %v", err)
 			}
 			level := cfg.AccessPolicy.Levels["default"]
-			if strings.Join(level.ReadRoots, ",") != "@workspace" {
+			if strings.Join(level.ReadRoots, ",") != "@workspace,@chat" {
 				t.Fatalf("unexpected read roots: %#v", level.ReadRoots)
+			}
+			if strings.Join(level.WriteRoots, ",") != "@workspace,@chat" {
+				t.Fatalf("unexpected write roots: %#v", level.WriteRoots)
 			}
 			if level.Approvals.ReadOutsideRoots != "block" {
 				t.Fatalf("unexpected read outside action: %#v", level.Approvals)
 			}
 		})
 	})
+}
+
+func TestAccessPolicyNormalizePreservesRootInheritanceIntent(t *testing.T) {
+	cfg := normalizeAccessPolicyConfig(AccessPolicyConfig{
+		Levels: map[string]AccessPolicyLevelConfig{
+			"default": {
+				ReadRoots:  []string{"@workspace", "@chat"},
+				WriteRoots: []string{"@workspace", "@chat"},
+			},
+			"auto_approve": {
+				Inherit: "default",
+			},
+			"empty": {
+				Inherit:    "default",
+				ReadRoots:  []string{},
+				WriteRoots: []string{},
+			},
+		},
+	})
+
+	autoLevel := cfg.Levels["auto_approve"]
+	if autoLevel.ReadRoots != nil || autoLevel.WriteRoots != nil {
+		t.Fatalf("expected inherited level roots to stay nil, got read=%#v write=%#v", autoLevel.ReadRoots, autoLevel.WriteRoots)
+	}
+
+	emptyLevel := cfg.Levels["empty"]
+	if emptyLevel.ReadRoots == nil || len(emptyLevel.ReadRoots) != 0 {
+		t.Fatalf("expected explicit empty read roots to stay empty slice, got %#v", emptyLevel.ReadRoots)
+	}
+	if emptyLevel.WriteRoots == nil || len(emptyLevel.WriteRoots) != 0 {
+		t.Fatalf("expected explicit empty write roots to stay empty slice, got %#v", emptyLevel.WriteRoots)
+	}
 }
 
 func TestFileToolsConfigYAMLOverrides(t *testing.T) {
