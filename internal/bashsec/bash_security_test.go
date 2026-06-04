@@ -41,6 +41,21 @@ func TestReviewBashSecurityRequiresApprovalForPythonInlineTripleQuotes(t *testin
 	}
 }
 
+func TestReviewBashSecurityHeredocTripleQuotesUseRedirectionApproval(t *testing.T) {
+	command := `cat << 'PYEOF' > /tmp/three_sum.py
+"""doc"""
+PYEOF
+python3 /tmp/three_sum.py`
+
+	result := ReviewBashSecurity(command)
+	if result.Decision != ReviewRequiresApproval {
+		t.Fatalf("expected requires_approval, got %#v", result)
+	}
+	if result.RuleKey != RuleKeyRedirections || result.Level != LevelRedirections {
+		t.Fatalf("expected redirection rule metadata, got %#v", result)
+	}
+}
+
 func TestReviewBashSecurityStillBlocksHardFailures(t *testing.T) {
 	tests := []string{
 		`cat < /tmp/secret`,
@@ -89,6 +104,13 @@ func TestReviewBashSecurityRequiresApprovalForTooComplexEvenWhenLegacyClean(t *t
 
 func TestReviewBashSecurityBlocksDangerousEmbeddedScriptFromAST(t *testing.T) {
 	result := ReviewBashSecurity(`python3 -c 'import os; os.system("evil")'`)
+	if result.Decision != ReviewBlock {
+		t.Fatalf("expected block, got %#v", result)
+	}
+}
+
+func TestReviewBashSecurityBlocksDangerousHeredocExpansion(t *testing.T) {
+	result := ReviewBashSecurity("cat <<EOF\n$(eval evil)\nEOF")
 	if result.Decision != ReviewBlock {
 		t.Fatalf("expected block, got %#v", result)
 	}

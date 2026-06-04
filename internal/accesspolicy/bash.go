@@ -141,6 +141,9 @@ func ReviewBashCommand(cfg config.AccessPolicyConfig, session QuerySession, comm
 }
 
 func classifyRedirectAccess(redirect bashast.Redirect) redirectAccessKind {
+	if redirect.IsHeredoc {
+		return redirectAccessNeutral
+	}
 	op := strings.TrimSpace(redirect.Op)
 	target := strings.TrimSpace(redirect.Target)
 	if op == "" {

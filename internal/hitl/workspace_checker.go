@@ -49,6 +49,9 @@ func CheckWorkspaceAccess(input WorkspaceCheckInput) InterceptResult {
 
 func firstOutsidePath(cmd bashast.SimpleCommand, cwd string, root string) string {
 	for _, redirect := range cmd.Redirects {
+		if redirect.IsHeredoc {
+			continue
+		}
 		if outside, ok := outsideWorkspacePath(redirect.Target, cwd, root); ok {
 			return outside
 		}

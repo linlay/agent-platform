@@ -21,9 +21,12 @@ type EnvVar struct {
 }
 
 type Redirect struct {
-	Op     string
-	Target string
-	Fd     int
+	Op               string
+	Target           string
+	Fd               int
+	IsHeredoc        bool
+	HeredocBodyStart int
+	HeredocBodyEnd   int
 }
 
 type ParseResult struct {

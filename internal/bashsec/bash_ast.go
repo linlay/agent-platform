@@ -8,7 +8,7 @@ import (
 )
 
 func reviewFromAST(command string, result bashast.ParseResult, embeddedScripts []bashast.EmbeddedScript) ReviewResult {
-	legacy := reviewLegacyCompatibleWithAST(command)
+	legacy := reviewLegacyCompatibleWithAST(command, result)
 	if legacy.Decision != ReviewAllow {
 		return legacy
 	}
@@ -26,18 +26,19 @@ func reviewFromAST(command string, result bashast.ParseResult, embeddedScripts [
 	return ReviewResult{Decision: ReviewAllow}
 }
 
-func reviewLegacyCompatibleWithAST(command string) ReviewResult {
-	if controlCharRe.MatchString(command) {
+func reviewLegacyCompatibleWithAST(command string, result bashast.ParseResult) ReviewResult {
+	legacyCommand := maskHeredocBodiesForLegacy(command, result)
+	if controlCharRe.MatchString(legacyCommand) {
 		return blockReview("Command contains non-printable control characters that could bypass security checks")
 	}
 
-	baseCommand := command
-	if idx := strings.IndexAny(command, " \t"); idx >= 0 {
-		baseCommand = command[:idx]
+	baseCommand := legacyCommand
+	if idx := strings.IndexAny(legacyCommand, " \t"); idx >= 0 {
+		baseCommand = legacyCommand[:idx]
 	}
 	baseCommand = strings.TrimSpace(baseCommand)
 
-	extracted := extractQuotedContent(command)
+	extracted := extractQuotedContent(legacyCommand)
 	fullyUnquotedPreStrip := extracted.fullyUnquoted
 	fullyUnquotedContent := stripSafeRedirections(extracted.fullyUnquoted)
 	unquotedKeepQuoteChars := extracted.unquotedKeepQuoteChars
@@ -47,46 +48,46 @@ func reviewLegacyCompatibleWithAST(command string) ReviewResult {
 		fn   func() (bool, string)
 	}{
 		{"incomplete_commands", func() (bool, string) {
-			return validateIncompleteCommands(command)
+			return validateIncompleteCommands(legacyCommand)
 		}},
 		{"obfuscated_flags", func() (bool, string) {
-			return validateObfuscatedFlags(command, baseCommand, fullyUnquotedContent)
+			return validateObfuscatedFlags(legacyCommand, baseCommand, fullyUnquotedContent)
 		}},
 		{"shell_metacharacters", func() (bool, string) {
-			return validateShellMetacharacters(command)
+			return validateShellMetacharacters(legacyCommand)
 		}},
 		{"comment_quote_desync", func() (bool, string) {
-			return validateCommentQuoteDesync(command)
+			return validateCommentQuoteDesync(legacyCommand)
 		}},
 		{"quoted_newline", func() (bool, string) {
-			return validateQuotedNewline(command)
+			return validateQuotedNewline(legacyCommand)
 		}},
 		{"newlines", func() (bool, string) {
 			return validateNewlines(fullyUnquotedPreStrip)
 		}},
 		{"ifs_injection", func() (bool, string) {
-			return validateIFSInjection(command)
+			return validateIFSInjection(legacyCommand)
 		}},
 		{"proc_environ_access", func() (bool, string) {
-			return validateProcEnvironAccess(command)
+			return validateProcEnvironAccess(legacyCommand)
 		}},
 		{"backslash_escaped_whitespace", func() (bool, string) {
-			return validateBackslashEscapedWhitespace(command)
+			return validateBackslashEscapedWhitespace(legacyCommand)
 		}},
 		{"unicode_whitespace", func() (bool, string) {
-			return validateUnicodeWhitespace(command)
+			return validateUnicodeWhitespace(legacyCommand)
 		}},
 		{"mid_word_hash", func() (bool, string) {
 			return validateMidWordHash(unquotedKeepQuoteChars)
 		}},
 		{"brace_expansion", func() (bool, string) {
-			return validateBraceExpansion(fullyUnquotedPreStrip, command)
+			return validateBraceExpansion(fullyUnquotedPreStrip, legacyCommand)
 		}},
 		{"zsh_dangerous_commands", func() (bool, string) {
-			return validateZshDangerousCommands(command)
+			return validateZshDangerousCommands(legacyCommand)
 		}},
 		{"malformed_token_injection", func() (bool, string) {
-			return validateMalformedTokenInjection(command)
+			return validateMalformedTokenInjection(legacyCommand)
 		}},
 	}
 
@@ -99,6 +100,63 @@ func reviewLegacyCompatibleWithAST(command string) ReviewResult {
 		}
 	}
 	return ReviewResult{Decision: ReviewAllow}
+}
+
+func maskHeredocBodiesForLegacy(command string, result bashast.ParseResult) string {
+	var masked []byte
+	for _, cmd := range result.Commands {
+		for _, redirect := range cmd.Redirects {
+			start, end, ok := heredocLegacyMaskRange(command, redirect)
+			if !ok {
+				continue
+			}
+			if masked == nil {
+				masked = []byte(command)
+			}
+			for idx := start; idx < end; idx++ {
+				masked[idx] = ' '
+			}
+		}
+	}
+	if masked == nil {
+		return command
+	}
+	return string(masked)
+}
+
+func heredocLegacyMaskRange(command string, redirect bashast.Redirect) (int, int, bool) {
+	if !redirect.IsHeredoc {
+		return 0, 0, false
+	}
+	start := redirect.HeredocBodyStart
+	end := redirect.HeredocBodyEnd
+	if start < 0 || end < start || start > len(command) {
+		return 0, 0, false
+	}
+	if end > len(command) {
+		end = len(command)
+	}
+
+	maskStart := start
+	if idx := strings.LastIndexByte(command[:start], '\n'); idx >= 0 {
+		maskStart = idx
+		if maskStart > 0 && command[maskStart-1] == '\r' {
+			maskStart--
+		}
+	}
+
+	maskEnd := end
+	if end < len(command) {
+		if idx := strings.IndexByte(command[end:], '\n'); idx >= 0 {
+			maskEnd = end + idx + 1
+		} else {
+			maskEnd = len(command)
+		}
+	}
+	if maskEnd < maskStart {
+		return 0, 0, false
+	}
+	return maskStart, maskEnd, true
 }
 
 func reviewASTCommand(command string, cmd bashast.SimpleCommand) ReviewResult {
@@ -135,6 +193,9 @@ func reviewASTCommand(command string, cmd bashast.SimpleCommand) ReviewResult {
 }
 
 func reviewASTRedirect(command string, redir bashast.Redirect) ReviewResult {
+	if redir.IsHeredoc {
+		return ReviewResult{Decision: ReviewAllow}
+	}
 	op := strings.TrimSpace(redir.Op)
 	target := strings.TrimSpace(redir.Target)
 	if containsASTPlaceholder(target) {

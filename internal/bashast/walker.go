@@ -366,9 +366,6 @@ func (w *walker) parseRedirects(redirs []*syntax.Redirect, scope *varScope) ([]R
 		if redir == nil {
 			continue
 		}
-		if redir.Hdoc != nil {
-			return nil, tooComplex("syntax.Redirect", "unsupported heredoc redirection")
-		}
 		target := ""
 		if redir.Word != nil {
 			parsed, err := w.parseWord(redir.Word, scope)
@@ -385,9 +382,54 @@ func (w *walker) parseRedirects(redirs []*syntax.Redirect, scope *varScope) ([]R
 			}
 			fd = parsed
 		}
-		out = append(out, Redirect{Op: redir.Op.String(), Target: target, Fd: fd})
+		next := Redirect{Op: redir.Op.String(), Target: target, Fd: fd}
+		if redir.Hdoc != nil {
+			if _, err := w.parseWord(redir.Hdoc, scope); err != nil {
+				return nil, err
+			}
+			bodyStart, bodyEnd := w.heredocBodyRange(redir, target)
+			next.IsHeredoc = true
+			next.HeredocBodyStart = bodyStart
+			next.HeredocBodyEnd = bodyEnd
+		}
+		out = append(out, next)
 	}
 	return out, nil
+}
+
+func (w *walker) heredocBodyRange(redir *syntax.Redirect, delimiter string) (int, int) {
+	start := int(redir.Hdoc.Pos().Offset())
+	end := int(redir.Hdoc.End().Offset())
+	if start < 0 || end < start || start > len(w.source) {
+		return start, end
+	}
+	if end > len(w.source) {
+		end = len(w.source)
+	}
+
+	scan := start
+	for scan <= end {
+		lineStart := scan
+		lineEnd := strings.IndexByte(w.source[scan:end], '\n')
+		next := end + 1
+		rawLine := w.source[scan:end]
+		if lineEnd >= 0 {
+			rawLine = w.source[scan : scan+lineEnd]
+			next = scan + lineEnd + 1
+		}
+		candidate := strings.TrimSuffix(rawLine, "\r")
+		if redir.Op.String() == "<<-" {
+			candidate = strings.TrimLeft(candidate, "\t")
+		}
+		if candidate == delimiter {
+			return start, lineStart
+		}
+		if next <= scan || next > len(w.source) {
+			break
+		}
+		scan = next
+	}
+	return start, end
 }
 
 func (w *walker) parseWord(word *syntax.Word, scope *varScope) (string, *walkError) {

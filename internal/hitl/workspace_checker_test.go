@@ -62,3 +62,25 @@ func TestWorkspaceCheckerDefersComplexShellToExistingSecurity(t *testing.T) {
 		t.Fatalf("expected complex shell to be left to bash security, got %#v", result)
 	}
 }
+
+func TestWorkspaceCheckerIgnoresHeredocBodyPaths(t *testing.T) {
+	root := t.TempDir()
+	result := CheckWorkspaceAccess(WorkspaceCheckInput{
+		Command:       "cat <<EOF\n/etc/hosts\nEOF",
+		WorkspaceRoot: root,
+	})
+	if result.Intercepted {
+		t.Fatalf("expected heredoc body path to pass, got %#v", result)
+	}
+}
+
+func TestWorkspaceCheckerStillInterceptsHeredocOutputPath(t *testing.T) {
+	root := t.TempDir()
+	result := CheckWorkspaceAccess(WorkspaceCheckInput{
+		Command:       "cat <<EOF > /etc/heredoc.out\nhello\nEOF",
+		WorkspaceRoot: root,
+	})
+	if !result.Intercepted {
+		t.Fatalf("expected heredoc output path to be intercepted")
+	}
+}

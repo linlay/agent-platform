@@ -259,6 +259,7 @@ func TestBashAccessPolicyDevNullRedirectionIsNeutral(t *testing.T) {
 		"cat <&-",
 		"cat </dev/null",
 		"cat <<< 'literal text'",
+		"cat <<EOF\n" + outside + "\nEOF",
 	} {
 		session := contracts.QuerySession{AccessLevel: contracts.AccessLevelDefault, WorkspaceRoot: workspace}
 		plan := ReviewBashCommand(cfg, session, command, workspace, nil)
@@ -287,6 +288,12 @@ func TestBashAccessPolicyDevNullRedirectionIsNeutral(t *testing.T) {
 	writePlan := ReviewBashCommand(cfg, autoSession, writeCommand, workspace, nil)
 	if !writePlan.RequiresApproval() || !strings.Contains(writePlan.RuleKey, "access-write") {
 		t.Fatalf("expected real stderr file redirection to require write approval, got %#v", writePlan)
+	}
+
+	heredocWriteCommand := "cat <<EOF > " + filepath.Join(outside, "heredoc.log") + "\nhello\nEOF"
+	heredocWritePlan := ReviewBashCommand(cfg, autoSession, heredocWriteCommand, workspace, nil)
+	if !heredocWritePlan.RequiresApproval() || !strings.Contains(heredocWritePlan.RuleKey, "access-write") {
+		t.Fatalf("expected heredoc output redirection to require write approval, got %#v", heredocWritePlan)
 	}
 }
 

@@ -61,6 +61,48 @@ func TestParseForSecurityVariablesAndRedirects(t *testing.T) {
 	}
 }
 
+func TestParseForSecurityHeredocRedirect(t *testing.T) {
+	command := "cat <<EOF\nhello\nEOF"
+	result := ParseForSecurity(command)
+	if result.Kind != Simple {
+		t.Fatalf("expected simple, got %#v", result)
+	}
+	if len(result.Commands) != 1 {
+		t.Fatalf("expected one command, got %#v", result.Commands)
+	}
+	cmd := result.Commands[0]
+	if len(cmd.Redirects) != 1 {
+		t.Fatalf("expected one redirect, got %#v", cmd.Redirects)
+	}
+	redirect := cmd.Redirects[0]
+	if redirect.Op != "<<" || redirect.Target != "EOF" || !redirect.IsHeredoc {
+		t.Fatalf("unexpected heredoc redirect %#v", redirect)
+	}
+	if redirect.HeredocBodyStart < 0 || redirect.HeredocBodyEnd < redirect.HeredocBodyStart || redirect.HeredocBodyEnd > len(command) {
+		t.Fatalf("unexpected heredoc body range %#v for command len %d", redirect, len(command))
+	}
+	if got := command[redirect.HeredocBodyStart:redirect.HeredocBodyEnd]; got != "hello\n" {
+		t.Fatalf("expected heredoc body range to cover body, got %q", got)
+	}
+}
+
+func TestParseForSecurityHeredocCommandSubstitution(t *testing.T) {
+	result := ParseForSecurity("cat <<EOF\n$(date)\nEOF")
+	if result.Kind != Simple {
+		t.Fatalf("expected simple, got %#v", result)
+	}
+	if len(result.Commands) != 2 {
+		t.Fatalf("expected command substitution and parent command, got %#v", result.Commands)
+	}
+	if len(result.Commands[0].Argv) == 0 || result.Commands[0].Argv[0] != "date" {
+		t.Fatalf("expected heredoc command substitution to expose date command, got %#v", result.Commands)
+	}
+	parent := result.Commands[1]
+	if len(parent.Argv) == 0 || parent.Argv[0] != "cat" || len(parent.Redirects) != 1 || !parent.Redirects[0].IsHeredoc {
+		t.Fatalf("expected parent cat command with heredoc redirect, got %#v", parent)
+	}
+}
+
 func TestParseForSecurityExitStatusSpecialParameter(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -144,7 +186,6 @@ func TestParseForSecurityTooComplex(t *testing.T) {
 		`echo \ hello`,
 		`echo $'evil'`,
 		"echo `date`",
-		"cat <<EOF\nhello\nEOF",
 	}
 	for _, command := range tests {
 		t.Run(command, func(t *testing.T) {
