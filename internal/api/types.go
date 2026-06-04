@@ -666,11 +666,12 @@ type RunSummary struct {
 }
 
 type ActiveRunInfo struct {
-	RunID     string `json:"runId"`
-	State     string `json:"state"`
-	LastSeq   int64  `json:"lastSeq"`
-	OldestSeq int64  `json:"oldestSeq"`
-	StartedAt int64  `json:"startedAt"`
+	RunID        string `json:"runId"`
+	State        string `json:"state"`
+	LastSeq      int64  `json:"lastSeq"`
+	OldestSeq    int64  `json:"oldestSeq"`
+	StartedAt    int64  `json:"startedAt"`
+	PlanningMode bool   `json:"planningMode,omitempty"`
 }
 
 type SessionSearchRequest struct {

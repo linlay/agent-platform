@@ -110,6 +110,11 @@ func (s *Server) loadChatDetail(ctx context.Context, chatID string, includeRawMe
 				OldestSeq: activeRun.OldestSeq,
 				StartedAt: activeRun.StartedAt,
 			}
+			if query, queryErr := s.deps.Chats.LoadRunQuery(chatID, activeRun.RunID); queryErr == nil && query != nil {
+				if planningMode, _ := query.Query["planningMode"].(bool); planningMode {
+					response.ActiveRun.PlanningMode = true
+				}
+			}
 
 			// Drop synthesized run.complete for the still-active run so events stay
 			// consistent with the live run state reported from memory.

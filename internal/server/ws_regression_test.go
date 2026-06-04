@@ -270,8 +270,9 @@ func TestLoadChatDetailIncludesActiveRunAndConflictReturnsHTTP409(t *testing.T) 
 		RunID:     "run-live",
 		UpdatedAt: 1003,
 		Query: map[string]any{
-			"chatId":  "chat-live",
-			"message": "still running",
+			"chatId":       "chat-live",
+			"message":      "still running",
+			"planningMode": true,
 		},
 		Type: "query",
 	}); err != nil {
@@ -302,6 +303,9 @@ func TestLoadChatDetailIncludesActiveRunAndConflictReturnsHTTP409(t *testing.T) 
 	if detail.ActiveRun == nil || detail.ActiveRun.RunID != "run-live" {
 		t.Fatalf("expected active run in chat detail, got %#v", detail.ActiveRun)
 	}
+	if !detail.ActiveRun.PlanningMode {
+		t.Fatalf("expected active run planningMode=true, got %#v", detail.ActiveRun)
+	}
 	runCompleteCounts := map[string]int{}
 	for _, event := range detail.Events {
 		if event.Type != "run.complete" {
@@ -314,6 +318,41 @@ func TestLoadChatDetailIncludesActiveRunAndConflictReturnsHTTP409(t *testing.T) 
 	}
 	if runCompleteCounts["run-done"] != 1 {
 		t.Fatalf("expected completed run.complete to remain, got %#v", detail.Events)
+	}
+
+	if _, _, err := chats.EnsureChat("chat-live-plain", "agent-1", "", "hello"); err != nil {
+		t.Fatalf("ensure plain chat: %v", err)
+	}
+	if err := chats.AppendQueryLine("chat-live-plain", chat.QueryLine{
+		ChatID:    "chat-live-plain",
+		RunID:     "run-live-plain",
+		UpdatedAt: 1005,
+		Query: map[string]any{
+			"chatId":  "chat-live-plain",
+			"message": "plain running",
+		},
+		Type: "query",
+	}); err != nil {
+		t.Fatalf("append plain live query line: %v", err)
+	}
+	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
+		RunID:    "run-live-plain",
+		ChatID:   "chat-live-plain",
+		AgentKey: "agent-1",
+	})
+	plainDetail, err := server.loadChatDetail(context.Background(), "chat-live-plain", false)
+	if err != nil {
+		t.Fatalf("load plain chat detail: %v", err)
+	}
+	if plainDetail.ActiveRun == nil || plainDetail.ActiveRun.PlanningMode {
+		t.Fatalf("expected plain active run without planningMode, got %#v", plainDetail.ActiveRun)
+	}
+	activeRunJSON, err := json.Marshal(plainDetail.ActiveRun)
+	if err != nil {
+		t.Fatalf("marshal plain active run: %v", err)
+	}
+	if strings.Contains(string(activeRunJSON), "planningMode") {
+		t.Fatalf("expected planningMode to be omitted when false, got %s", string(activeRunJSON))
 	}
 
 	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
