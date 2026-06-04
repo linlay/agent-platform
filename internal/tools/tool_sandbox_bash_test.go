@@ -52,6 +52,43 @@ func TestInvokeSandboxBashSuccessReturnsPlainStdout(t *testing.T) {
 	}
 }
 
+func TestInvokeSandboxBashSuccessWithStderrReturnsStructuredJSON(t *testing.T) {
+	executor := &RuntimeToolExecutor{
+		sandbox: &stubSandboxClient{
+			result: contracts.SandboxExecutionResult{
+				ExitCode:         0,
+				Stdout:           "ok\n",
+				Stderr:           "warn\n",
+				WorkingDirectory: "/workspace",
+			},
+		},
+	}
+
+	result, err := executor.invokeSandboxBash(context.Background(), map[string]any{"command": "sample"}, &contracts.ExecutionContext{})
+	if err != nil {
+		t.Fatalf("invokeSandboxBash returned error: %v", err)
+	}
+	if result.Structured == nil {
+		t.Fatal("expected structured result when stderr is present")
+	}
+	if result.Structured["stdout"] != "ok\n" {
+		t.Fatalf("expected stdout to stay separate, got %#v", result.Structured)
+	}
+	if result.Structured["stderr"] != "warn\n" {
+		t.Fatalf("expected stderr to be preserved, got %#v", result.Structured)
+	}
+	if result.ExitCode != 0 || result.Error != "" {
+		t.Fatalf("expected successful result, got %#v", result)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(result.Output), &payload); err != nil {
+		t.Fatalf("expected JSON output, got %q: %v", result.Output, err)
+	}
+	if payload["stderr"] != "warn\n" {
+		t.Fatalf("expected marshaled stderr to be preserved, got %#v", payload)
+	}
+}
+
 func TestInvokeSandboxBashFailureReturnsStructuredJSON(t *testing.T) {
 	executor := &RuntimeToolExecutor{
 		sandbox: &stubSandboxClient{

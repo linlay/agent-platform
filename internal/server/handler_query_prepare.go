@@ -679,5 +679,5 @@ func resolveHITLTimeoutFromBudget(budget contracts.Budget, cfg *config.Config) i
 	if cfg != nil && cfg.BashHITL.DefaultTimeoutMs > 0 {
 		return int64(cfg.BashHITL.DefaultTimeoutMs)
 	}
-	return 120000
+	return 600000
 }

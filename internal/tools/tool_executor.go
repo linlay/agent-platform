@@ -193,7 +193,7 @@ func structuredResult(payload map[string]any) ToolExecutionResult {
 }
 
 func bashResult(stdout, stderr, mode, workingDirectory string, exitCode int, hardError string) ToolExecutionResult {
-	if exitCode == 0 && strings.TrimSpace(hardError) == "" {
+	if exitCode == 0 && stderr == "" && strings.TrimSpace(hardError) == "" {
 		return ToolExecutionResult{
 			Output:   stdout,
 			ExitCode: 0,

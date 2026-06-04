@@ -78,35 +78,37 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	cmd.Dir = workingDir
 	cmd.Env = mergeCommandEnv(execCtx)
 
-	outputFile, err := os.CreateTemp("", "agent-platform-bash-*.log")
+	stdoutFile, err := os.CreateTemp("", "agent-platform-bash-stdout-*.log")
 	if err != nil {
 		return bashResult("", err.Error(), "host", workingDir, -1, "bash_output_capture_failed"), nil
 	}
-	defer func() {
-		_ = outputFile.Close()
-		_ = os.Remove(outputFile.Name())
-	}()
-	cmd.Stdout = outputFile
-	cmd.Stderr = outputFile
+	defer cleanupBashOutputFile(stdoutFile)
+	stderrFile, err := os.CreateTemp("", "agent-platform-bash-stderr-*.log")
+	if err != nil {
+		return bashResult("", err.Error(), "host", workingDir, -1, "bash_output_capture_failed"), nil
+	}
+	defer cleanupBashOutputFile(stderrFile)
+	cmd.Stdout = stdoutFile
+	cmd.Stderr = stderrFile
 
 	err = cmd.Run()
-	if _, seekErr := outputFile.Seek(0, 0); seekErr != nil {
-		return bashResult("", seekErr.Error(), "host", workingDir, -1, "bash_output_capture_failed"), nil
+	stdout, readErr := readBashOutputFile(stdoutFile)
+	if readErr != nil {
+		return bashResult("", readErr.Error(), "host", workingDir, -1, "bash_output_capture_failed"), nil
 	}
-	output, readErr := io.ReadAll(outputFile)
+	stderr, readErr := readBashOutputFile(stderrFile)
 	if readErr != nil {
 		return bashResult("", readErr.Error(), "host", workingDir, -1, "bash_output_capture_failed"), nil
 	}
 	exitCode := 0
-	stderr := ""
-	stdout := string(output)
 	if err != nil {
 		exitCode = -1
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			exitCode = exitErr.ExitCode()
+		} else if strings.TrimSpace(stderr) == "" {
+			stderr = err.Error()
 		}
-		stderr = err.Error()
-		if runCtx.Err() == context.DeadlineExceeded {
+		if runCtx.Err() == context.DeadlineExceeded && strings.TrimSpace(stderr) == "" {
 			stderr = "Command timed out"
 		}
 	}
@@ -115,6 +117,25 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 		appendBashAccessPolicyMetadata(&result, accessReview, stdout, stderr, workingDir, exitCode)
 	}
 	return result, nil
+}
+
+func cleanupBashOutputFile(file *os.File) {
+	if file == nil {
+		return
+	}
+	_ = file.Close()
+	_ = os.Remove(file.Name())
+}
+
+func readBashOutputFile(file *os.File) (string, error) {
+	if _, err := file.Seek(0, 0); err != nil {
+		return "", err
+	}
+	output, err := io.ReadAll(file)
+	if err != nil {
+		return "", err
+	}
+	return string(output), nil
 }
 
 func appendBashAccessPolicyMetadata(result *ToolExecutionResult, review accesspolicy.BashPlan, stdout, stderr, workingDir string, exitCode int) {

@@ -505,7 +505,7 @@ func TestResolveHITLTimeoutUsesHitlBudgetGlobalAndFallback(t *testing.T) {
 			name:   "tool timeout no longer affects hitl timeout",
 			budget: contracts.Budget{Tool: contracts.RetryPolicy{TimeoutMs: 5000}},
 			global: 0,
-			want:   120000,
+			want:   600000,
 		},
 	}
 

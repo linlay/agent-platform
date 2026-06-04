@@ -202,7 +202,7 @@ func defaultConfig() Config {
 			},
 		},
 		BashHITL: BashHITLConfig{
-			DefaultTimeoutMs: 120000,
+			DefaultTimeoutMs: 600000,
 		},
 		Run: RunConfig{
 			ReaperIntervalMs:        30000,

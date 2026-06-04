@@ -55,8 +55,8 @@ func TestLoadDefaults(t *testing.T) {
 		if cfg.Logging.LLMInteraction.RecordDir != filepath.Join("runtime", "chats", "llm") {
 			t.Fatalf("unexpected llm chat record dir: %q", cfg.Logging.LLMInteraction.RecordDir)
 		}
-		if cfg.BashHITL.DefaultTimeoutMs != 120000 {
-			t.Fatalf("expected default bash HITL timeout 120000, got %d", cfg.BashHITL.DefaultTimeoutMs)
+		if cfg.BashHITL.DefaultTimeoutMs != 600000 {
+			t.Fatalf("expected default bash HITL timeout 600000, got %d", cfg.BashHITL.DefaultTimeoutMs)
 		}
 		if cfg.Defaults.Budget.Hitl.TimeoutMs != 0 {
 			t.Fatalf("expected default HITL budget timeout 0, got %d", cfg.Defaults.Budget.Hitl.TimeoutMs)

@@ -101,6 +101,62 @@ func TestInvokeHostBashSuccessReturnsPlainStdout(t *testing.T) {
 	}
 }
 
+func TestInvokeHostBashSuccessWithStderrReturnsStructuredJSON(t *testing.T) {
+	root := t.TempDir()
+	scriptPath := filepath.Join(root, "emit.sh")
+	if err := os.WriteFile(scriptPath, []byte("printf 'warn\\n' >&2\nprintf 'ok\\n'\n"), 0o644); err != nil {
+		t.Fatalf("write script: %v", err)
+	}
+	executor := &RuntimeToolExecutor{
+		cfg: config.Config{
+			AccessPolicy: config.AccessPolicyConfig{
+				WorkingDirectory: root,
+				Levels: map[string]config.AccessPolicyLevelConfig{
+					contracts.AccessLevelDefault: {
+						Approvals: config.AccessPolicyApprovalConfig{
+							BashOpaqueCommand: "allow",
+						},
+					},
+				},
+			},
+			Bash: config.BashConfig{
+				WorkingDirectory:        root,
+				AllowedPaths:            []string{root},
+				AllowedCommands:         []string{"sh"},
+				PathCheckedCommands:     []string{},
+				PathCheckBypassCommands: []string{},
+				ShellExecutable:         "bash",
+				ShellTimeoutMs:          30000,
+				MaxCommandChars:         16000,
+			},
+		},
+	}
+
+	result, err := executor.invokeHostBash(context.Background(), map[string]any{"command": "sh " + scriptPath}, nil)
+	if err != nil {
+		t.Fatalf("invokeHostBash returned error: %v", err)
+	}
+	if result.Structured == nil {
+		t.Fatal("expected structured result when stderr is present")
+	}
+	if result.Structured["stdout"] != "ok\n" {
+		t.Fatalf("expected stdout to stay separate, got %#v", result.Structured)
+	}
+	if result.Structured["stderr"] != "warn\n" {
+		t.Fatalf("expected stderr to be preserved, got %#v", result.Structured)
+	}
+	if result.ExitCode != 0 || result.Error != "" {
+		t.Fatalf("expected successful result, got %#v", result)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(result.Output), &payload); err != nil {
+		t.Fatalf("expected JSON output, got %q: %v", result.Output, err)
+	}
+	if payload["stderr"] != "warn\n" {
+		t.Fatalf("expected marshaled stderr to be preserved, got %#v", payload)
+	}
+}
+
 func TestInvokeHostBashDoesNotWaitForBackgroundProcessOutput(t *testing.T) {
 	root := t.TempDir()
 	executor := &RuntimeToolExecutor{
@@ -194,8 +250,11 @@ func TestInvokeHostBashFailureReturnsStructuredJSON(t *testing.T) {
 	if got, _ := result.Structured["stderr"].(string); strings.TrimSpace(got) == "" {
 		t.Fatalf("expected stderr metadata, got %#v", result.Structured)
 	}
-	if got, _ := result.Structured["stdout"].(string); !strings.Contains(got, "missing") {
-		t.Fatalf("expected stdout to include command output, got %#v", result.Structured)
+	if got, _ := result.Structured["stdout"].(string); got != "" {
+		t.Fatalf("expected stdout to stay separate from stderr, got %#v", result.Structured)
+	}
+	if got, _ := result.Structured["stderr"].(string); !strings.Contains(got, "missing") {
+		t.Fatalf("expected stderr to include command output, got %#v", result.Structured)
 	}
 	var payload map[string]any
 	if err := json.Unmarshal([]byte(result.Output), &payload); err != nil {

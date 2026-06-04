@@ -502,7 +502,7 @@ func (s *llmRunStream) resolveHITLTimeout() int64 {
 	if s.engine.cfg.BashHITL.DefaultTimeoutMs > 0 {
 		return int64(s.engine.cfg.BashHITL.DefaultTimeoutMs)
 	}
-	return 120000
+	return 600000
 }
 
 func (s *llmRunStream) resolveHITLTimeoutWithRule(ruleTimeoutMs int) int64 {
