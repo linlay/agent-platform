@@ -548,6 +548,7 @@ type ChatSummaryResponse struct {
 	Read           ChatReadState  `json:"read"`
 	Awaiting       *Awaiting      `json:"awaiting,omitempty"`
 	Usage          *ChatUsageData `json:"usage,omitempty"`
+	ActiveRun      *ActiveRunInfo `json:"activeRun,omitempty"`
 }
 
 type ChatReadState struct {

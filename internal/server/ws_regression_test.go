@@ -410,6 +410,8 @@ func TestGatewayPullPathAndURLBuilderUsePullEndpoint(t *testing.T) {
 
 func TestListAgentSummariesIncludesChatStats(t *testing.T) {
 	server, chats, _ := newServerForHelperTests(t)
+	runs := contracts.NewInMemoryRunManager()
+	server.deps.Runs = runs
 	server.deps.Registry = wsRegressionCatalogRegistry{
 		items: []api.AgentSummary{
 			{Key: "agent-a", Name: "Agent A"},
@@ -450,6 +452,12 @@ func TestListAgentSummariesIncludesChatStats(t *testing.T) {
 	if _, err := chats.MarkRead("chat-b1", "loyw3v2s"); err != nil {
 		t.Fatalf("mark chat-b1 read: %v", err)
 	}
+	_, control, _ := runs.Register(context.Background(), contracts.QuerySession{
+		RunID:    "run-active-a1",
+		ChatID:   "chat-a1",
+		AgentKey: "agent-a",
+	})
+	control.TransitionState(contracts.RunLoopStateWaitingSubmit)
 
 	items, err := server.listAgentSummaries(0, "")
 	if err != nil {
@@ -483,8 +491,20 @@ func TestListAgentSummariesIncludesChatStats(t *testing.T) {
 	if got := chatsByKey["agent-a"]; got[0].Usage != nil {
 		t.Fatalf("agent chats should not include usage, got %#v", got[0].Usage)
 	}
+	if got := chatsByKey["agent-a"]; got[0].ActiveRun == nil ||
+		got[0].ActiveRun.RunID != "run-active-a1" ||
+		got[0].ActiveRun.State != string(contracts.RunLoopStateWaitingSubmit) ||
+		got[0].ActiveRun.StartedAt == 0 {
+		t.Fatalf("expected agent chat active run, got %#v", got[0].ActiveRun)
+	}
+	if got := chatsByKey["agent-a"]; got[0].ActiveRun.PlanningMode {
+		t.Fatalf("agent chat active run should not include planningMode, got %#v", got[0].ActiveRun)
+	}
 	if got := chatsByKey["agent-b"]; len(got) != 1 || got[0].ChatID != "chat-b1" {
 		t.Fatalf("unexpected agent-b chats: %#v", got)
+	}
+	if got := chatsByKey["agent-b"]; got[0].ActiveRun != nil {
+		t.Fatalf("agent-b chat should not include activeRun, got %#v", got[0].ActiveRun)
 	}
 
 	chatSummaries, err := server.listChatSummaries("", "")
@@ -500,6 +520,9 @@ func TestListAgentSummariesIncludesChatStats(t *testing.T) {
 	}
 	if chatA1.ChatID == "" || chatA1.Usage == nil || chatA1.Usage.TotalTokens != 10 {
 		t.Fatalf("/api/chats summaries should still include usage, got %#v", chatA1)
+	}
+	if chatA1.ActiveRun != nil {
+		t.Fatalf("/api/chats summaries should not include activeRun, got %#v", chatA1.ActiveRun)
 	}
 }
 

@@ -53,7 +53,7 @@ func (c *FrontendSubmitCoordinator) Await(ctx context.Context, execCtx *Executio
 			ExitCode:   -1,
 		}, nil
 	}
-	timeout := toolTimeout(NormalizeBudget(execCtx.Budget).Tool)
+	timeout := frontendSubmitTimeout(execCtx)
 	execCtx.RunLoopState = RunLoopStateWaitingSubmit
 	execCtx.RunControl.TransitionState(RunLoopStateWaitingSubmit)
 	waitStarted := time.Now()
@@ -119,6 +119,19 @@ func (c *FrontendSubmitCoordinator) Await(ctx context.Context, execCtx *Executio
 			Params:     result.Request.Params,
 		},
 	}, nil
+}
+
+func frontendSubmitTimeout(execCtx *ExecutionContext) time.Duration {
+	if execCtx != nil && execCtx.RunControl != nil {
+		if awaitingCtx, ok := execCtx.RunControl.LookupAwaiting(execCtx.CurrentToolID); ok && awaitingCtx.TimeoutMs > 0 {
+			return time.Duration(awaitingCtx.TimeoutMs) * time.Millisecond
+		}
+	}
+	budget := NormalizeBudget(execCtx.Budget)
+	if budget.Hitl.TimeoutMs > 0 {
+		return time.Duration(budget.Hitl.TimeoutMs) * time.Millisecond
+	}
+	return toolTimeout(budget.Tool)
 }
 
 func resolveFrontendTimeoutMessage(toolName string, awaitingID string, timeoutMs int64, elapsedMs int64) string {

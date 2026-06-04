@@ -221,3 +221,31 @@ func TestFrontendSubmitCoordinatorAwait_TimeoutReturnsCompactStructuredError(t *
 		t.Fatalf("expected timeout awaiting.error payload, got %#v", result.Structured)
 	}
 }
+
+func TestFrontendSubmitCoordinatorAwait_UsesAwaitingAskTimeoutOverToolBudget(t *testing.T) {
+	control := contracts.NewRunControl(context.Background(), "run_1")
+	control.ExpectSubmit(contracts.AwaitingSubmitContext{
+		AwaitingID: "tool_1",
+		Mode:       "question",
+		ItemCount:  1,
+		TimeoutMs:  1,
+	})
+
+	result, err := NewFrontendSubmitCoordinator(frontendtools.NewDefaultRegistry()).Await(context.Background(), &contracts.ExecutionContext{
+		RunControl:      control,
+		CurrentToolID:   "tool_1",
+		CurrentToolName: "ask_user_question",
+		Budget: contracts.Budget{
+			Tool: contracts.RetryPolicy{TimeoutMs: 1200000},
+		},
+	}, map[string]any{"mode": "question"})
+	if err != nil {
+		t.Fatalf("Await returned error: %v", err)
+	}
+	if result.Error != "frontend_submit_timeout" {
+		t.Fatalf("expected timeout error code, got %#v", result)
+	}
+	if !strings.Contains(result.Output, "timeoutMs=1") {
+		t.Fatalf("expected awaiting.ask timeout to drive submit wait, got %q", result.Output)
+	}
+}

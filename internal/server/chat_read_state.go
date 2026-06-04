@@ -3,6 +3,7 @@ package server
 import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
+	"agent-platform/internal/contracts"
 )
 
 func toAPIReadState(state chat.ChatReadState) api.ChatReadState {
@@ -17,6 +18,16 @@ func toAPIAgentStats(state chat.AgentChatStats) api.AgentChatStats {
 	return api.AgentChatStats{
 		TotalCount:  state.TotalCount,
 		UnreadCount: state.UnreadCount,
+	}
+}
+
+func toAPIActiveRunInfo(activeRun contracts.RunStatusInfo) *api.ActiveRunInfo {
+	return &api.ActiveRunInfo{
+		RunID:     activeRun.RunID,
+		State:     string(activeRun.State),
+		LastSeq:   activeRun.LastSeq,
+		OldestSeq: activeRun.OldestSeq,
+		StartedAt: activeRun.StartedAt,
 	}
 }
 
@@ -36,10 +47,31 @@ func (s *Server) listAgentSummaries(includeChats int, scope string) ([]api.Agent
 			if err != nil {
 				return nil, err
 			}
-			items[i].Chats = mapChatSummariesWithoutUsage(chats)
+			summaries, err := s.mapAgentChatSummaries(chats)
+			if err != nil {
+				return nil, err
+			}
+			items[i].Chats = summaries
 		}
 	}
 	return items, nil
+}
+
+func (s *Server) mapAgentChatSummaries(items []chat.Summary) ([]api.ChatSummaryResponse, error) {
+	response := mapChatSummariesWithoutUsage(items)
+	if s.deps.Runs == nil {
+		return response, nil
+	}
+	for i := range response {
+		activeRun, ok, err := s.deps.Runs.ActiveRunForChat(response[i].ChatID)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			response[i].ActiveRun = toAPIActiveRunInfo(activeRun)
+		}
+	}
+	return response, nil
 }
 
 func (s *Server) agentUnreadCount(agentKey string) (int, error) {

@@ -112,13 +112,7 @@ func (s *Server) loadChatDetail(ctx context.Context, chatID string, includeRawMe
 			return api.ChatDetailResponse{}, activeErr
 		}
 		if ok {
-			response.ActiveRun = &api.ActiveRunInfo{
-				RunID:     activeRun.RunID,
-				State:     string(activeRun.State),
-				LastSeq:   activeRun.LastSeq,
-				OldestSeq: activeRun.OldestSeq,
-				StartedAt: activeRun.StartedAt,
-			}
+			response.ActiveRun = toAPIActiveRunInfo(activeRun)
 			if query, queryErr := s.deps.Chats.LoadRunQuery(chatID, activeRun.RunID); queryErr == nil && query != nil {
 				if planningMode, _ := query.Query["planningMode"].(bool); planningMode {
 					response.ActiveRun.PlanningMode = true
