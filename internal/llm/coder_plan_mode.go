@@ -256,6 +256,51 @@ func joinNonEmptyPrompts(values ...string) string {
 	return strings.Join(parts, "\n\n")
 }
 
+func planningStageHasAssistantText(messages []openAIMessage) bool {
+	start := 0
+	for index, message := range messages {
+		if strings.EqualFold(strings.TrimSpace(message.Role), "user") {
+			start = index + 1
+		}
+	}
+	for _, message := range messages[start:] {
+		if !strings.EqualFold(strings.TrimSpace(message.Role), "assistant") {
+			continue
+		}
+		if openAIMessageContentHasText(message.Content) {
+			return true
+		}
+	}
+	return false
+}
+
+func openAIMessageContentHasText(content any) bool {
+	switch value := content.(type) {
+	case string:
+		return strings.TrimSpace(value) != ""
+	case []any:
+		for _, item := range value {
+			part := AnyMapNode(item)
+			if len(part) == 0 {
+				if strings.TrimSpace(AnyStringNode(item)) != "" {
+					return true
+				}
+				continue
+			}
+			if strings.TrimSpace(AnyStringNode(part["text"])) != "" {
+				return true
+			}
+		}
+	case []map[string]any:
+		for _, part := range value {
+			if strings.TrimSpace(AnyStringNode(part["text"])) != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (s *coderPlanningStream) afterStageEOF() error {
 	if !s.planDone {
 		wasFeedback := s.currentPlanIsFeedback
@@ -267,12 +312,17 @@ func (s *coderPlanningStream) afterStageEOF() error {
 				s.completed = true
 				return nil
 			}
+			if planningStageHasAssistantText(s.executeMessages) {
+				s.summaryDone = true
+				s.completed = true
+				return nil
+			}
 			s.pending = append(s.pending, DeltaError{
 				Error: NewErrorPayload(
 					"plan_not_created",
-					"CODER planning mode did not write a Markdown plan via planning_write",
+					"CODER planning mode ended without a Markdown plan",
 					ErrorScopeRun,
-					ErrorCategorySystem,
+					ErrorCategoryModel,
 					nil,
 				),
 			})

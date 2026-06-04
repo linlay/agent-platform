@@ -171,6 +171,143 @@ func TestCoderPlanningConfirmationUsesPlanMode(t *testing.T) {
 	}
 }
 
+func TestCoderPlanningStageEOFWithPlanningWriteEmitsConfirmation(t *testing.T) {
+	stream := &coderPlanningStream{
+		session: contracts.QuerySession{RunID: "run_1"},
+		execCtx: &contracts.ExecutionContext{
+			PlanningRevision: 1,
+			PlanningState: &contracts.PlanningRuntimeState{
+				PlanningID: "run_1_planning_1",
+				Markdown:   "# Plan\n\n- Do it",
+			},
+		},
+	}
+	if err := stream.afterStageEOF(); err != nil {
+		t.Fatalf("afterStageEOF: %v", err)
+	}
+	if !stream.planDone || stream.completed || stream.summaryDone || !stream.confirmationPending {
+		t.Fatalf("unexpected planning stream state: %#v", stream)
+	}
+	if len(stream.pending) != 1 {
+		t.Fatalf("expected one pending confirmation ask, got %#v", stream.pending)
+	}
+	ask, ok := stream.pending[0].(contracts.DeltaAwaitAsk)
+	if !ok || ask.Mode != "plan" || ask.Plan["planningId"] != "run_1_planning_1" {
+		t.Fatalf("expected plan confirmation ask, got %#v", stream.pending[0])
+	}
+}
+
+func TestCoderPlanningStageEOFWithoutPlanButAssistantTextCompletes(t *testing.T) {
+	stream := &coderPlanningStream{
+		execCtx: &contracts.ExecutionContext{},
+		executeMessages: []openAIMessage{
+			{Role: "user", Content: "这个怎么产生的"},
+			{Role: "assistant", Content: "这是由 planningMode 误触发产生的。"},
+		},
+	}
+	if err := stream.afterStageEOF(); err != nil {
+		t.Fatalf("afterStageEOF: %v", err)
+	}
+	if !stream.planDone || !stream.completed || !stream.summaryDone {
+		t.Fatalf("expected planning stream to complete normally, got %#v", stream)
+	}
+	for _, delta := range stream.pending {
+		if errDelta, ok := delta.(contracts.DeltaError); ok {
+			t.Fatalf("did not expect error for assistant text, got %#v", errDelta)
+		}
+	}
+}
+
+func TestCoderPlanningStageEOFWithoutPlanAndTextEmitsModelError(t *testing.T) {
+	stream := &coderPlanningStream{
+		execCtx: &contracts.ExecutionContext{},
+		executeMessages: []openAIMessage{
+			{Role: "assistant", ToolCalls: []openAIToolCall{{ID: "tool_1"}}},
+		},
+	}
+	if err := stream.afterStageEOF(); err != nil {
+		t.Fatalf("afterStageEOF: %v", err)
+	}
+	if !stream.planDone || !stream.completed || !stream.summaryDone {
+		t.Fatalf("expected planning stream to complete after error, got %#v", stream)
+	}
+	if len(stream.pending) != 1 {
+		t.Fatalf("expected one pending error, got %#v", stream.pending)
+	}
+	errDelta, ok := stream.pending[0].(contracts.DeltaError)
+	if !ok {
+		t.Fatalf("expected DeltaError, got %#v", stream.pending[0])
+	}
+	if errDelta.Error["code"] != "plan_not_created" || errDelta.Error["category"] != "model" {
+		t.Fatalf("expected model plan_not_created error, got %#v", errDelta.Error)
+	}
+}
+
+func TestCoderPlanningFeedbackStageEOFWithoutPlanCompletes(t *testing.T) {
+	stream := &coderPlanningStream{
+		execCtx:               &contracts.ExecutionContext{},
+		currentPlanIsFeedback: true,
+	}
+	if err := stream.afterStageEOF(); err != nil {
+		t.Fatalf("afterStageEOF: %v", err)
+	}
+	if !stream.planDone || !stream.completed || !stream.summaryDone {
+		t.Fatalf("expected feedback stage to complete normally, got %#v", stream)
+	}
+	if len(stream.pending) != 0 {
+		t.Fatalf("did not expect pending deltas for empty feedback, got %#v", stream.pending)
+	}
+}
+
+func TestPlanningStageHasAssistantText(t *testing.T) {
+	cases := []struct {
+		name     string
+		messages []openAIMessage
+		want     bool
+	}{
+		{
+			name:     "assistant string",
+			messages: []openAIMessage{{Role: "assistant", Content: "请补充一下范围。"}},
+			want:     true,
+		},
+		{
+			name: "assistant content parts",
+			messages: []openAIMessage{{
+				Role: "assistant",
+				Content: []any{
+					map[string]any{"type": "text", "text": "已取消执行计划。"},
+				},
+			}},
+			want: true,
+		},
+		{
+			name:     "user text only",
+			messages: []openAIMessage{{Role: "user", Content: "hello"}},
+			want:     false,
+		},
+		{
+			name:     "assistant tool call only",
+			messages: []openAIMessage{{Role: "assistant", ToolCalls: []openAIToolCall{{ID: "tool_1"}}}},
+			want:     false,
+		},
+		{
+			name: "history assistant before current user",
+			messages: []openAIMessage{
+				{Role: "assistant", Content: "历史回复"},
+				{Role: "user", Content: "当前请求"},
+			},
+			want: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := planningStageHasAssistantText(tc.messages); got != tc.want {
+				t.Fatalf("planningStageHasAssistantText()=%v want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestCoderPlanningConfirmationWaitsWithoutDisconnectedTimeout(t *testing.T) {
 	runControl := contracts.NewRunControl(context.Background(), "run_1")
 	runControl.SetMaxDisconnectedWait(20 * time.Millisecond)
