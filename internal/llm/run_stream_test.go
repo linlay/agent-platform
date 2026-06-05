@@ -599,6 +599,13 @@ func TestResolveHITLTimeoutWithRuleUsesRuleOverride(t *testing.T) {
 	if got := stream.resolveHITLTimeoutWithItem("approval", 0); got != 600000 {
 		t.Fatalf("expected fallback hitl budget timeout 600000, got %d", got)
 	}
+	// question mode also supports item-specific timeout
+	if got := stream.resolveHITLTimeoutWithItem("question", 900000); got != 900000 {
+		t.Fatalf("expected question item timeout 900000, got %d", got)
+	}
+	if got := stream.resolveHITLTimeoutWithItem("question", 0); got != 600000 {
+		t.Fatalf("expected question fallback hitl budget timeout 600000, got %d", got)
+	}
 }
 
 func TestPreToolInvocationDeltasUsesHitlTimeoutForFrontendAwaiting(t *testing.T) {
@@ -637,6 +644,56 @@ func TestPreToolInvocationDeltasUsesHitlTimeoutForFrontendAwaiting(t *testing.T)
 	}
 	if handler.timeoutMs != 600000 {
 		t.Fatalf("expected frontend await timeout 600000 from hitl budget, got %d", handler.timeoutMs)
+	}
+}
+
+func TestPreToolInvocationDeltasUsesArgsTimeoutMsForFrontendAwaiting(t *testing.T) {
+	handler := &captureFrontendHandler{}
+	tool := api.ToolDetailResponse{
+		Name: "ask_user_question",
+		Meta: map[string]any{
+			"kind":          "frontend",
+			"sourceType":    "local",
+			"clientVisible": false,
+		},
+	}
+	stream := &llmRunStream{
+		engine: &LLMAgentEngine{
+			tools:    stubToolExecutor{defs: []api.ToolDetailResponse{tool}},
+			frontend: frontendtools.NewRegistry(handler),
+		},
+		session:    contracts.QuerySession{RunID: "run_1"},
+		runControl: contracts.NewRunControl(context.Background(), "run_1"),
+		execCtx: &contracts.ExecutionContext{
+			Budget: contracts.Budget{
+				Tool: contracts.RetryPolicy{TimeoutMs: 5000},
+				Hitl: contracts.HitlPolicy{TimeoutMs: 600000},
+			},
+		},
+	}
+
+	deltas := stream.preToolInvocationDeltas("tool_1", "ask_user_question", map[string]any{
+		"mode":      "question",
+		"timeoutMs": 900000,
+		"questions": []any{
+			map[string]any{"question": "Need confirmation", "type": "text"},
+		},
+	})
+	if len(deltas) != 0 {
+		t.Fatalf("expected no prelude deltas, got %#v", deltas)
+	}
+	if handler.timeoutMs != 900000 {
+		t.Fatalf("expected frontend await timeout 900000 from args.timeoutMs, got %d", handler.timeoutMs)
+	}
+	awaiting, ok := stream.runControl.LookupAwaiting("tool_1")
+	if !ok {
+		t.Fatal("expected awaiting context to be registered")
+	}
+	if awaiting.TimeoutMs != 900000 {
+		t.Fatalf("expected awaiting context timeout 900000, got %d", awaiting.TimeoutMs)
+	}
+	if awaiting.TimeoutMs <= int64(stream.execCtx.Budget.Tool.TimeoutMs) {
+		t.Fatal("awaiting context timeout must be independent of budget.tool.timeoutMs")
 	}
 }
 

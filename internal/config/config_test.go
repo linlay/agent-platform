@@ -9,87 +9,101 @@ import (
 
 func TestLoadDefaults(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
-		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("load config: %v", err)
-		}
-		if cfg.Server.Port != "11949" {
-			t.Fatalf("expected default port 11949, got %q", cfg.Server.Port)
-		}
-		if cfg.Paths.RegistriesDir != filepath.Join("runtime", "registries") {
-			t.Fatalf("unexpected registries dir: %q", cfg.Paths.RegistriesDir)
-		}
-		if cfg.Paths.ToolsDir != filepath.Join("runtime", "tools") {
-			t.Fatalf("unexpected tools dir: %q", cfg.Paths.ToolsDir)
-		}
-		if !cfg.Auth.Enabled {
-			t.Fatalf("expected auth enabled by default")
-		}
-		if cfg.Auth.LocalPublicKeyFile != ProjectFile(filepath.Join("configs", "local-public-key.pem")) {
-			t.Fatalf("unexpected default auth public key path: %q", cfg.Auth.LocalPublicKeyFile)
-		}
-		if cfg.ResourceTicket.Enabled() {
-			t.Fatalf("expected resource ticket disabled by default")
-		}
-		if cfg.Billing.Currency != "CNY" {
-			t.Fatalf("expected default billing currency CNY, got %q", cfg.Billing.Currency)
-		}
-		if !cfg.Stream.IncludeToolPayloadEvents {
-			t.Fatalf("expected stream tool payload events enabled by default")
-		}
-		if cfg.Stream.DebugEventsEnabled {
-			t.Fatalf("expected stream debug events disabled by default")
-		}
-		if cfg.SSE.HeartbeatIntervalMs != 15000 {
-			t.Fatalf("expected default heartbeat interval 15000, got %d", cfg.SSE.HeartbeatIntervalMs)
-		}
-		if cfg.H2A.Render.HeartbeatPassThrough != true {
-			t.Fatalf("expected heartbeat pass-through enabled by default")
-		}
-		if cfg.Logging.LLMInteraction.MaskSensitive {
-			t.Fatalf("expected llm interaction logs to be unmasked by default")
-		}
-		if cfg.Logging.LLMInteraction.RecordEnabled {
-			t.Fatalf("expected llm chat record disabled by default")
-		}
-		if cfg.Logging.LLMInteraction.RecordDir != filepath.Join("runtime", "chats", "llm") {
-			t.Fatalf("unexpected llm chat record dir: %q", cfg.Logging.LLMInteraction.RecordDir)
-		}
-		if cfg.Defaults.Budget.Hitl.TimeoutMs != 0 {
-			t.Fatalf("expected default HITL budget timeout 0, got %d", cfg.Defaults.Budget.Hitl.TimeoutMs)
-		}
-		if cfg.Defaults.Budget.Hitl.Question.TimeoutMs != 0 || cfg.Defaults.Budget.Hitl.Approval.TimeoutMs != 0 ||
-			cfg.Defaults.Budget.Hitl.Form.TimeoutMs != 0 || cfg.Defaults.Budget.Hitl.Plan.TimeoutMs != 0 {
-			t.Fatalf("expected default HITL mode timeouts unset, got %#v", cfg.Defaults.Budget.Hitl)
-		}
-		if cfg.Defaults.MaxOutputTokens != 4096 {
-			t.Fatalf("expected default max output tokens 4096, got %d", cfg.Defaults.MaxOutputTokens)
-		}
-		if cfg.Defaults.Budget.Model.MaxCalls != 100 {
-			t.Fatalf("expected default model max calls 100, got %d", cfg.Defaults.Budget.Model.MaxCalls)
-		}
-		if cfg.Defaults.Budget.MaxSteps != 100 {
-			t.Fatalf("expected default budget max steps 100, got %d", cfg.Defaults.Budget.MaxSteps)
-		}
-		if cfg.Defaults.Budget.Tool.MaxCalls != 60 {
-			t.Fatalf("expected default tool max calls 60, got %d", cfg.Defaults.Budget.Tool.MaxCalls)
-		}
-		if !cfg.Memory.Enabled {
-			t.Fatalf("expected memory runtime enabled by default")
-		}
-		if cfg.Desktop.Action.BridgeURL != "http://127.0.0.1:11788/actions/call" {
-			t.Fatalf("unexpected default desktop action bridge url: %q", cfg.Desktop.Action.BridgeURL)
-		}
-		if cfg.Desktop.CDP.BridgeURL != "http://127.0.0.1:11788/cdp/call" {
-			t.Fatalf("unexpected default desktop cdp bridge url: %q", cfg.Desktop.CDP.BridgeURL)
-		}
-		defaultLevel := cfg.AccessPolicy.Levels["default"]
-		if got := strings.Join(defaultLevel.ReadRoots, ","); got != "@workspace,@chat,@agent,@skills" {
-			t.Fatalf("unexpected default access-policy read roots: %#v", defaultLevel.ReadRoots)
-		}
-		if got := strings.Join(defaultLevel.WriteRoots, ","); got != "@workspace,@chat" {
-			t.Fatalf("unexpected default access-policy write roots: %#v", defaultLevel.WriteRoots)
-		}
+		runtimeConfig := "" +
+			"desktop:\n" +
+			"  action:\n" +
+			"    host: 127.0.0.1\n" +
+			"    port: 11788\n" +
+			"    path: /actions/call\n" +
+			"    request-timeout-ms: 20000\n" +
+			"  cdp:\n" +
+			"    host: 127.0.0.1\n" +
+			"    port: 11788\n" +
+			"    path: /cdp/call\n" +
+			"    request-timeout-ms: 20000\n"
+		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &runtimeConfig, func() {
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			if cfg.Server.Port != "11949" {
+				t.Fatalf("expected default port 11949, got %q", cfg.Server.Port)
+			}
+			if cfg.Paths.RegistriesDir != filepath.Join("runtime", "registries") {
+				t.Fatalf("unexpected registries dir: %q", cfg.Paths.RegistriesDir)
+			}
+			if cfg.Paths.ToolsDir != filepath.Join("runtime", "tools") {
+				t.Fatalf("unexpected tools dir: %q", cfg.Paths.ToolsDir)
+			}
+			if !cfg.Auth.Enabled {
+				t.Fatalf("expected auth enabled by default")
+			}
+			if cfg.Auth.LocalPublicKeyFile != ProjectFile(filepath.Join("configs", "local-public-key.pem")) {
+				t.Fatalf("unexpected default auth public key path: %q", cfg.Auth.LocalPublicKeyFile)
+			}
+			if cfg.ResourceTicket.Enabled() {
+				t.Fatalf("expected resource ticket disabled by default")
+			}
+			if cfg.Billing.Currency != "CNY" {
+				t.Fatalf("expected default billing currency CNY, got %q", cfg.Billing.Currency)
+			}
+			if !cfg.Stream.IncludeToolPayloadEvents {
+				t.Fatalf("expected stream tool payload events enabled by default")
+			}
+			if cfg.Stream.DebugEventsEnabled {
+				t.Fatalf("expected stream debug events disabled by default")
+			}
+			if cfg.SSE.HeartbeatIntervalMs != 15000 {
+				t.Fatalf("expected default heartbeat interval 15000, got %d", cfg.SSE.HeartbeatIntervalMs)
+			}
+			if cfg.H2A.Render.HeartbeatPassThrough != true {
+				t.Fatalf("expected heartbeat pass-through enabled by default")
+			}
+			if cfg.Logging.LLMInteraction.MaskSensitive {
+				t.Fatalf("expected llm interaction logs to be unmasked by default")
+			}
+			if cfg.Logging.LLMInteraction.RecordEnabled {
+				t.Fatalf("expected llm chat record disabled by default")
+			}
+			if cfg.Logging.LLMInteraction.RecordDir != filepath.Join("runtime", "chats", "llm") {
+				t.Fatalf("unexpected llm chat record dir: %q", cfg.Logging.LLMInteraction.RecordDir)
+			}
+			if cfg.Defaults.Budget.Hitl.TimeoutMs != 0 {
+				t.Fatalf("expected default HITL budget timeout 0, got %d", cfg.Defaults.Budget.Hitl.TimeoutMs)
+			}
+			if cfg.Defaults.Budget.Hitl.Question.TimeoutMs != 0 || cfg.Defaults.Budget.Hitl.Approval.TimeoutMs != 0 ||
+				cfg.Defaults.Budget.Hitl.Form.TimeoutMs != 0 || cfg.Defaults.Budget.Hitl.Plan.TimeoutMs != 0 {
+				t.Fatalf("expected default HITL mode timeouts unset, got %#v", cfg.Defaults.Budget.Hitl)
+			}
+			if cfg.Defaults.MaxOutputTokens != 4096 {
+				t.Fatalf("expected default max output tokens 4096, got %d", cfg.Defaults.MaxOutputTokens)
+			}
+			if cfg.Defaults.Budget.Model.MaxCalls != 100 {
+				t.Fatalf("expected default model max calls 100, got %d", cfg.Defaults.Budget.Model.MaxCalls)
+			}
+			if cfg.Defaults.Budget.MaxSteps != 100 {
+				t.Fatalf("expected default budget max steps 100, got %d", cfg.Defaults.Budget.MaxSteps)
+			}
+			if cfg.Defaults.Budget.Tool.MaxCalls != 60 {
+				t.Fatalf("expected default tool max calls 60, got %d", cfg.Defaults.Budget.Tool.MaxCalls)
+			}
+			if !cfg.Memory.Enabled {
+				t.Fatalf("expected memory runtime enabled by default")
+			}
+			if cfg.Desktop.Action.BridgeURL != "http://127.0.0.1:11788/actions/call" {
+				t.Fatalf("unexpected default desktop action bridge url: %q", cfg.Desktop.Action.BridgeURL)
+			}
+			if cfg.Desktop.CDP.BridgeURL != "http://127.0.0.1:11788/cdp/call" {
+				t.Fatalf("unexpected default desktop cdp bridge url: %q", cfg.Desktop.CDP.BridgeURL)
+			}
+			defaultLevel := cfg.AccessPolicy.Levels["default"]
+			if got := strings.Join(defaultLevel.ReadRoots, ","); got != "@workspace,@chat,@agent,@skills" {
+				t.Fatalf("unexpected default access-policy read roots: %#v", defaultLevel.ReadRoots)
+			}
+			if got := strings.Join(defaultLevel.WriteRoots, ","); got != "@workspace,@chat" {
+				t.Fatalf("unexpected default access-policy write roots: %#v", defaultLevel.WriteRoots)
+			}
+		})
 	})
 }
 

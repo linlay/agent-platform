@@ -89,6 +89,23 @@ func TestAskUserToolSchemasMatchContract(t *testing.T) {
 	if !enumContains(t, questionProperties["mode"], "question") {
 		t.Fatal("expected ask user question mode=question")
 	}
+	// timeoutMs must be a root-level optional property
+	timeoutSchema, hasTimeout := questionProperties["timeoutMs"]
+	if !hasTimeout {
+		t.Fatal("expected ask_user_question root property timeoutMs")
+	}
+	if mapChild(t, questionProperties, "timeoutMs")["type"] != "integer" {
+		t.Fatalf("expected timeoutMs type integer, got %#v", timeoutSchema)
+	}
+	required, ok := questionDef["required"].([]any)
+	if !ok {
+		t.Fatalf("expected ask_user_question required array, got %#v", questionDef["required"])
+	}
+	for _, field := range required {
+		if field == "timeoutMs" {
+			t.Fatal("timeoutMs must not be required")
+		}
+	}
 	questionsField := mapChild(t, questionProperties, "questions")
 	questionItem := mapChild(t, mapChild(t, questionsField, "items"), "properties")
 	questionType := questionItem["type"]
@@ -114,8 +131,8 @@ func TestAskUserToolSchemasMatchContract(t *testing.T) {
 		t.Fatalf("expected conditional schema on ask user question items, got %#v", mapChild(t, questionsField, "items")["allOf"])
 	}
 	conditional := mapChild(t, allOf[0].(map[string]any), "then")
-	required, ok := conditional["required"].([]any)
-	if !ok || len(required) != 1 || required[0] != "options" {
+	condRequired, ok := conditional["required"].([]any)
+	if !ok || len(condRequired) != 1 || condRequired[0] != "options" {
 		t.Fatalf("expected select conditional to require options, got %#v", conditional["required"])
 	}
 	questionOptionProperties := mapChild(t, questionOptions, "properties")
