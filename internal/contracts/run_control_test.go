@@ -334,6 +334,55 @@ func TestInMemoryRunManagerReaperPublishesExpiredRunErrorBeforeInterrupt(t *test
 	}
 }
 
+func TestInMemoryRunManagerReaperSkipsNoTimeoutAwaitingRun(t *testing.T) {
+	manager := NewInMemoryRunManager()
+	manager.maxBackgroundDuration = time.Millisecond
+
+	_, control, _ := manager.Register(context.Background(), QuerySession{
+		RunID:    "run_no_timeout",
+		ChatID:   "chat_1",
+		AgentKey: "agent_1",
+	})
+	control.ExpectSubmit(AwaitingSubmitContext{
+		AwaitingID: "await_plan",
+		Mode:       "plan",
+		ItemCount:  1,
+		NoTimeout:  true,
+	})
+	eventBus, ok := manager.EventBus("run_no_timeout")
+	if !ok {
+		t.Fatalf("expected event bus")
+	}
+	eventBus.Publish(stream.EventData{
+		Seq:       1,
+		Type:      "run.start",
+		Timestamp: time.Now().UnixMilli(),
+		Payload:   map[string]any{"runId": "run_no_timeout"},
+	})
+
+	manager.mu.Lock()
+	manager.runs["run_no_timeout"].startedAt = time.Now().Add(-time.Second)
+	manager.mu.Unlock()
+
+	manager.reapExpiredRuns()
+
+	if control.Interrupted() {
+		t.Fatalf("did not expect no-timeout awaiting run to be interrupted by reaper")
+	}
+
+	observer, err := eventBus.Subscribe(0)
+	if err != nil {
+		t.Fatalf("subscribe replay: %v", err)
+	}
+	defer eventBus.Unsubscribe(observer.ID)
+
+	first := mustReadEvent(t, observer.Events)
+	if first.Type != "run.start" {
+		t.Fatalf("expected first replay event run.start, got %#v", first)
+	}
+	assertNoReplayEvent(t, observer.Events)
+}
+
 func mustReadEvent(t *testing.T, events <-chan stream.EventData) stream.EventData {
 	t.Helper()
 	select {
@@ -342,5 +391,14 @@ func mustReadEvent(t *testing.T, events <-chan stream.EventData) stream.EventDat
 	case <-time.After(2 * time.Second):
 		t.Fatalf("timed out waiting for replay event")
 		return stream.EventData{}
+	}
+}
+
+func assertNoReplayEvent(t *testing.T, events <-chan stream.EventData) {
+	t.Helper()
+	select {
+	case event := <-events:
+		t.Fatalf("did not expect replay event, got %#v", event)
+	case <-time.After(80 * time.Millisecond):
 	}
 }

@@ -346,6 +346,9 @@ func (m *InMemoryRunManager) reapExpiredRuns() {
 		if state.eventBus.ObserverCount() > 0 {
 			continue
 		}
+		if state.control != nil && state.control.HasNoTimeoutAwaiting() {
+			continue
+		}
 		if now.Sub(state.startedAt) > m.maxBackgroundDuration {
 			toInterrupt = append(toInterrupt, state)
 		}

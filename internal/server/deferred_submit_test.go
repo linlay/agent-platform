@@ -599,6 +599,7 @@ func TestHydrationSkipsExpiredAwaitings(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("submit fresh expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
+	waitForRecordedNotificationType(t, notifications, "run.finished")
 }
 
 func TestHydrationClearsDanglingAndAnsweredAwaitings(t *testing.T) {
@@ -747,4 +748,18 @@ func seedDeferredAwaitingPayload(t *testing.T, store chat.Store, chatID string, 
 	}); err != nil {
 		t.Fatalf("set pending awaiting: %v", err)
 	}
+}
+
+func waitForRecordedNotificationType(t *testing.T, sink *recordingNotificationSink, eventType string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, candidate := range sink.EventTypes() {
+			if candidate == eventType {
+				return
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for notification %s; got %#v", eventType, sink.EventTypes())
 }
