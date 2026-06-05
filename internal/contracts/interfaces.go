@@ -247,6 +247,10 @@ type ReadFileSnapshot struct {
 	Offset         int64
 	Limit          int64
 	ReadAtUnixMs   int64
+	Source         string
+	LineNumbered   bool
+	Partial        bool
+	Truncated      bool
 }
 
 type ExecutionContext struct {

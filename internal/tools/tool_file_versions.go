@@ -26,6 +26,8 @@ type fileVersionSnapshot struct {
 	RunID            string `json:"runId,omitempty"`
 	Offset           int64  `json:"offset,omitempty"`
 	Limit            int64  `json:"limit,omitempty"`
+	LineNumbered     bool   `json:"lineNumbered,omitempty"`
+	Partial          bool   `json:"partial,omitempty"`
 	Truncated        bool   `json:"truncated,omitempty"`
 }
 
@@ -57,6 +59,10 @@ func (t *RuntimeToolExecutor) recordChatFileVersion(execCtx *ExecutionContext, p
 	if observedAt <= 0 {
 		observedAt = time.Now().UnixMilli()
 	}
+	snapshotSource := strings.TrimSpace(source)
+	if strings.TrimSpace(snap.Source) != "" {
+		snapshotSource = strings.TrimSpace(snap.Source)
+	}
 	t.fileStateMu.Lock()
 	defer t.fileStateMu.Unlock()
 
@@ -70,11 +76,13 @@ func (t *RuntimeToolExecutor) recordChatFileVersion(execCtx *ExecutionContext, p
 		SizeBytes:        snap.SizeBytes,
 		ModifiedUnixMs:   snap.ModifiedUnixMs,
 		ObservedAtUnixMs: observedAt,
-		Source:           strings.TrimSpace(source),
+		Source:           snapshotSource,
 		RunID:            strings.TrimSpace(execCtx.Session.RunID),
 		Offset:           snap.Offset,
 		Limit:            snap.Limit,
-		Truncated:        truncated,
+		LineNumbered:     snap.LineNumbered,
+		Partial:          snap.Partial,
+		Truncated:        truncated || snap.Truncated,
 	}
 	data, err := json.MarshalIndent(ledger, "", "  ")
 	if err != nil {
@@ -103,6 +111,10 @@ func (t *RuntimeToolExecutor) loadChatFileVersionSnapshot(execCtx *ExecutionCont
 	if !ok || strings.TrimSpace(item.SHA256) == "" {
 		return ReadFileSnapshot{}, false
 	}
+	source := strings.TrimSpace(item.Source)
+	if source == "" {
+		source = "read"
+	}
 	return ReadFileSnapshot{
 		ModifiedUnixMs: item.ModifiedUnixMs,
 		SizeBytes:      item.SizeBytes,
@@ -110,6 +122,10 @@ func (t *RuntimeToolExecutor) loadChatFileVersionSnapshot(execCtx *ExecutionCont
 		Offset:         item.Offset,
 		Limit:          item.Limit,
 		ReadAtUnixMs:   item.ObservedAtUnixMs,
+		Source:         source,
+		LineNumbered:   item.LineNumbered,
+		Partial:        item.Partial || (source == "read" && (item.Offset > 1 || item.Limit > 0)),
+		Truncated:      item.Truncated,
 	}, true
 }
 

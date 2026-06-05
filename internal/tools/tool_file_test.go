@@ -319,6 +319,57 @@ func TestInvokeReadDedupsUnchangedFile(t *testing.T) {
 	}
 }
 
+func TestInvokeReadDedupRespectsLineNumberOption(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "notes.txt"), []byte("\tindented\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	executor := fileToolExecutor(root, true)
+	execCtx := &contracts.ExecutionContext{}
+	if _, err := executor.invokeRead(map[string]any{"file_path": "notes.txt"}, execCtx); err != nil {
+		t.Fatalf("first read: %v", err)
+	}
+	result, err := executor.invokeRead(map[string]any{"file_path": "notes.txt", "add_line_numbers": false}, execCtx)
+	if err != nil {
+		t.Fatalf("raw read: %v", err)
+	}
+	if result.Structured["kind"] == "unchanged" {
+		t.Fatalf("expected raw content instead of unchanged payload, got %#v", result.Structured)
+	}
+	if result.Structured["content"] != "\tindented\n" {
+		t.Fatalf("unexpected raw content: %#v", result.Structured["content"])
+	}
+}
+
+func TestInvokeReadLineRangeCanStartBeyondInitialReadLimit(t *testing.T) {
+	root := t.TempDir()
+	var builder strings.Builder
+	for i := 1; i <= 20; i++ {
+		builder.WriteString(fmt.Sprintf("line-%02d\n", i))
+	}
+	if err := os.WriteFile(filepath.Join(root, "notes.txt"), []byte(builder.String()), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	executor := fileToolExecutor(root, true)
+	executor.cfg.FileTools.MaxReadBytes = len("line-20\n")
+
+	result, err := executor.invokeRead(map[string]any{
+		"file_path":        "notes.txt",
+		"offset":           float64(20),
+		"limit":            float64(1),
+		"add_line_numbers": false,
+	}, &contracts.ExecutionContext{})
+	if err != nil {
+		t.Fatalf("range read: %v", err)
+	}
+	if result.Error != "" || result.Structured["content"] != "line-20\n" {
+		t.Fatalf("expected high-offset line, got %#v", result.Structured)
+	}
+	if result.Structured["truncated"] != false {
+		t.Fatalf("expected selected range not to be truncated, got %#v", result.Structured["truncated"])
+	}
+}
+
 func TestInvokeWriteRequiresApprovalByDefault(t *testing.T) {
 	root := t.TempDir()
 	executor := fileToolExecutor(root, true)
@@ -1132,6 +1183,120 @@ func TestInvokeWriteAllowsReadThenWriteAndRefreshesSnapshot(t *testing.T) {
 	}
 }
 
+func TestInvokeReadAfterWriteAndEditReturnsFreshContent(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "owner.md")
+	if err := os.WriteFile(path, []byte("old\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	executor := fileToolExecutor(root, false)
+	execCtx := &contracts.ExecutionContext{}
+	if _, err := executor.invokeRead(map[string]any{"file_path": "owner.md"}, execCtx); err != nil {
+		t.Fatalf("initial read: %v", err)
+	}
+	if result, err := executor.invokeWrite(context.Background(), map[string]any{
+		"file_path":   "owner.md",
+		"content":     "new\n",
+		"description": "写入 owner 文档",
+	}, execCtx); err != nil {
+		t.Fatalf("invokeWrite: %v", err)
+	} else if result.Error != "" || result.ExitCode != 0 {
+		t.Fatalf("expected write success, got %#v", result)
+	}
+	afterWrite, err := executor.invokeRead(map[string]any{"file_path": "owner.md"}, execCtx)
+	if err != nil {
+		t.Fatalf("read after write: %v", err)
+	}
+	if afterWrite.Structured["kind"] == "unchanged" || !strings.Contains(fmt.Sprint(afterWrite.Structured["content"]), "new") {
+		t.Fatalf("expected fresh read after write, got %#v", afterWrite.Structured)
+	}
+	if result, err := executor.invokeEdit(context.Background(), map[string]any{
+		"file_path":   "owner.md",
+		"old_string":  "new",
+		"new_string":  "edited",
+		"description": "编辑 owner 文档",
+	}, execCtx); err != nil {
+		t.Fatalf("invokeEdit: %v", err)
+	} else if result.Error != "" || result.ExitCode != 0 {
+		t.Fatalf("expected edit success, got %#v", result)
+	}
+	afterEdit, err := executor.invokeRead(map[string]any{"file_path": "owner.md"}, execCtx)
+	if err != nil {
+		t.Fatalf("read after edit: %v", err)
+	}
+	if afterEdit.Structured["kind"] == "unchanged" || !strings.Contains(fmt.Sprint(afterEdit.Structured["content"]), "edited") {
+		t.Fatalf("expected fresh read after edit, got %#v", afterEdit.Structured)
+	}
+}
+
+func TestInvokeWriteAndEditRejectPartialOrTruncatedRead(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "write.md"), []byte("one\ntwo\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "edit.md"), []byte("one\ntwo\n"), 0o644); err != nil {
+		t.Fatalf("edit fixture: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "truncated.md"), []byte("abcdef\n"), 0o644); err != nil {
+		t.Fatalf("truncated fixture: %v", err)
+	}
+	executor := fileToolExecutor(root, false)
+
+	writeCtx := &contracts.ExecutionContext{}
+	if _, err := executor.invokeRead(map[string]any{"file_path": "write.md", "limit": float64(1), "add_line_numbers": false}, writeCtx); err != nil {
+		t.Fatalf("partial read for write: %v", err)
+	}
+	writeResult, err := executor.invokeWrite(context.Background(), map[string]any{
+		"file_path":   "write.md",
+		"content":     "new\n",
+		"description": "写入 owner 文档",
+	}, writeCtx)
+	if err != nil {
+		t.Fatalf("invokeWrite: %v", err)
+	}
+	if writeResult.ExitCode == 0 || writeResult.Structured["error"] != "file_write_partial_read" {
+		t.Fatalf("expected partial-read write rejection, got %#v", writeResult.Structured)
+	}
+
+	editCtx := &contracts.ExecutionContext{}
+	if _, err := executor.invokeRead(map[string]any{"file_path": "edit.md", "limit": float64(1), "add_line_numbers": false}, editCtx); err != nil {
+		t.Fatalf("partial read for edit: %v", err)
+	}
+	editResult, err := executor.invokeEdit(context.Background(), map[string]any{
+		"file_path":   "edit.md",
+		"old_string":  "one",
+		"new_string":  "uno",
+		"description": "编辑 owner 文档",
+	}, editCtx)
+	if err != nil {
+		t.Fatalf("invokeEdit: %v", err)
+	}
+	if editResult.ExitCode == 0 || editResult.Structured["error"] != "file_edit_partial_read" {
+		t.Fatalf("expected partial-read edit rejection, got %#v", editResult.Structured)
+	}
+
+	executor.cfg.FileTools.MaxReadBytes = 3
+	truncatedCtx := &contracts.ExecutionContext{}
+	readResult, err := executor.invokeRead(map[string]any{"file_path": "truncated.md", "add_line_numbers": false}, truncatedCtx)
+	if err != nil {
+		t.Fatalf("truncated read: %v", err)
+	}
+	if readResult.Structured["truncated"] != true {
+		t.Fatalf("expected truncated read, got %#v", readResult.Structured)
+	}
+	truncatedWrite, err := executor.invokeWrite(context.Background(), map[string]any{
+		"file_path":   "truncated.md",
+		"content":     "new\n",
+		"description": "写入 owner 文档",
+	}, truncatedCtx)
+	if err != nil {
+		t.Fatalf("invokeWrite after truncated read: %v", err)
+	}
+	if truncatedWrite.ExitCode == 0 || truncatedWrite.Structured["error"] != "file_write_partial_read" {
+		t.Fatalf("expected truncated-read write rejection, got %#v", truncatedWrite.Structured)
+	}
+}
+
 func TestInvokeWriteReportsLineStatsForNewFile(t *testing.T) {
 	root := t.TempDir()
 	executor := fileToolExecutor(root, false)
@@ -1386,6 +1551,67 @@ func TestInvokeEditRejectsMissingStringAndIdenticalStrings(t *testing.T) {
 	}
 	if same.ExitCode == 0 || same.Structured["error"] != "file_edit_invalid_plan" {
 		t.Fatalf("expected identical string rejection, got %#v", same.Structured)
+	}
+}
+
+func TestInvokeEditMissingStringReportsDiagnostics(t *testing.T) {
+	root := t.TempDir()
+	indentPath := filepath.Join(root, "indent.go")
+	if err := os.WriteFile(indentPath, []byte("\t\tif ok {\n\t\t\treturn nil\n\t\t}\n"), 0o644); err != nil {
+		t.Fatalf("write indent fixture: %v", err)
+	}
+	appliedPath := filepath.Join(root, "applied.txt")
+	if err := os.WriteFile(appliedPath, []byte("hello agent\n"), 0o644); err != nil {
+		t.Fatalf("write applied fixture: %v", err)
+	}
+	executor := fileToolExecutor(root, false)
+
+	indentCtx := &contracts.ExecutionContext{}
+	if _, err := executor.invokeRead(map[string]any{"file_path": "indent.go", "add_line_numbers": false}, indentCtx); err != nil {
+		t.Fatalf("read indent: %v", err)
+	}
+	indentResult, err := executor.invokeEdit(context.Background(), map[string]any{
+		"file_path":   "indent.go",
+		"old_string":  "\t\t\tif ok {\n\t\t\t\treturn nil\n\t\t\t}\n",
+		"new_string":  "\t\tif ok {\n\t\t\treturn nil\n\t\t}\n",
+		"description": "编辑缩进测试",
+	}, indentCtx)
+	if err != nil {
+		t.Fatalf("invokeEdit indent: %v", err)
+	}
+	if indentResult.ExitCode == 0 || indentResult.Structured["error"] != "file_edit_string_not_found" {
+		t.Fatalf("expected missing string rejection, got %#v", indentResult.Structured)
+	}
+	indentDiagnostics, ok := indentResult.Structured["diagnostics"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected diagnostics payload, got %#v", indentResult.Structured)
+	}
+	if indentDiagnostics["lineNumberedIndentLikely"] != true || indentDiagnostics["candidateMatchesAfterRemovingOneLeadingTab"] != 1 {
+		t.Fatalf("expected line-numbered indent diagnostics, got %#v", indentDiagnostics)
+	}
+
+	appliedCtx := &contracts.ExecutionContext{}
+	if _, err := executor.invokeRead(map[string]any{"file_path": "applied.txt", "add_line_numbers": false}, appliedCtx); err != nil {
+		t.Fatalf("read applied: %v", err)
+	}
+	appliedResult, err := executor.invokeEdit(context.Background(), map[string]any{
+		"file_path":   "applied.txt",
+		"old_string":  "hello world",
+		"new_string":  "hello agent",
+		"description": "编辑已应用测试",
+	}, appliedCtx)
+	if err != nil {
+		t.Fatalf("invokeEdit applied: %v", err)
+	}
+	if appliedResult.ExitCode == 0 || appliedResult.Structured["error"] != "file_edit_string_not_found" {
+		t.Fatalf("expected missing string rejection, got %#v", appliedResult.Structured)
+	}
+	appliedDiagnostics, ok := appliedResult.Structured["diagnostics"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected diagnostics payload, got %#v", appliedResult.Structured)
+	}
+	if appliedDiagnostics["alreadyAppliedLikely"] != true || appliedDiagnostics["newStringMatches"] != 1 {
+		t.Fatalf("expected already-applied diagnostics, got %#v", appliedDiagnostics)
 	}
 }
 
