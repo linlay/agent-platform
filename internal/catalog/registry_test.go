@@ -459,8 +459,8 @@ func TestLoadSkillsLoadsBashHooksAndRuntimeEnv(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# Mock Skill\n\nSkill description"), 0o644); err != nil {
 		t.Fatalf("write skill: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(skillDir, ".sandbox-env.json"), []byte(`{"NODE_ENV":"production","DEBUG":"0"}`), 0o644); err != nil {
-		t.Fatalf("write sandbox env: %v", err)
+	if err := os.WriteFile(filepath.Join(skillDir, ".runtime-env.json"), []byte(`{"NODE_ENV":"production","DEBUG":"0"}`), 0o644); err != nil {
+		t.Fatalf("write runtime env: %v", err)
 	}
 
 	skills, err := loadSkills(root, 0)
@@ -568,13 +568,13 @@ func TestResolveSkillDefinitionPrefersAgentLocalSkillBeforeMarket(t *testing.T) 
 	if err := os.WriteFile(filepath.Join(localSkillDir, "SKILL.md"), []byte("---\nname: Local Skill\ndescription: Local Description\n---\n"), 0o644); err != nil {
 		t.Fatalf("write local skill: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(localSkillDir, ".sandbox-env.json"), []byte(`{"SOURCE":"local"}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(localSkillDir, ".runtime-env.json"), []byte(`{"SOURCE":"local"}`), 0o644); err != nil {
 		t.Fatalf("write local env: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(marketSkillDir, "SKILL.md"), []byte("---\nname: Market Skill\ndescription: Market Description\n---\n"), 0o644); err != nil {
 		t.Fatalf("write market skill: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(marketSkillDir, ".sandbox-env.json"), []byte(`{"SOURCE":"market"}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(marketSkillDir, ".runtime-env.json"), []byte(`{"SOURCE":"market"}`), 0o644); err != nil {
 		t.Fatalf("write market env: %v", err)
 	}
 
@@ -656,7 +656,7 @@ func TestSkillsSummaryIncludesSafeMetadataAndTagMatchesTriggers(t *testing.T) {
 	}
 }
 
-func TestLoadSkillsRejectsInvalidSandboxEnvJSON(t *testing.T) {
+func TestLoadSkillsRejectsInvalidRuntimeEnvJSON(t *testing.T) {
 	root := t.TempDir()
 	skillDir := filepath.Join(root, "mock-skill")
 	if err := os.MkdirAll(skillDir, 0o755); err != nil {
@@ -665,12 +665,12 @@ func TestLoadSkillsRejectsInvalidSandboxEnvJSON(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("# Mock Skill\n\nSkill description"), 0o644); err != nil {
 		t.Fatalf("write skill: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(skillDir, ".sandbox-env.json"), []byte(`{"NODE_ENV":}`), 0o644); err != nil {
-		t.Fatalf("write sandbox env: %v", err)
+	if err := os.WriteFile(filepath.Join(skillDir, ".runtime-env.json"), []byte(`{"NODE_ENV":}`), 0o644); err != nil {
+		t.Fatalf("write runtime env: %v", err)
 	}
 
 	if _, err := loadSkills(root, 0); err == nil {
-		t.Fatal("expected invalid sandbox env error")
+		t.Fatal("expected invalid runtime env error")
 	}
 }
 

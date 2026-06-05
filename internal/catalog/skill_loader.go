@@ -97,9 +97,9 @@ func loadSkillDefinitionFromDir(skillDir, skillID string, maxPromptChars int) (S
 	if err != nil {
 		return SkillDefinition{}, false, fmt.Errorf("skill %s .bash-hooks: %w", skillID, err)
 	}
-	sandboxEnv, err := loadSkillRuntimeEnv(skillDir)
+	runtimeEnv, err := loadSkillRuntimeEnv(skillDir)
 	if err != nil {
-		return SkillDefinition{}, false, fmt.Errorf("skill %s .sandbox-env.json: %w", skillID, err)
+		return SkillDefinition{}, false, fmt.Errorf("skill %s .runtime-env.json: %w", skillID, err)
 	}
 
 	return SkillDefinition{
@@ -111,7 +111,7 @@ func loadSkillDefinitionFromDir(skillDir, skillID string, maxPromptChars int) (S
 		Prompt:          prompt,
 		PromptTruncated: truncated,
 		BashHooksDir:    bashHooksDir,
-		RuntimeEnv:      sandboxEnv,
+		RuntimeEnv:      runtimeEnv,
 	}, true, nil
 }
 
@@ -131,7 +131,7 @@ func resolveSkillBashHooksDir(skillDir string) (string, error) {
 }
 
 func loadSkillRuntimeEnv(skillDir string) (map[string]string, error) {
-	path := filepath.Join(skillDir, ".sandbox-env.json")
+	path := filepath.Join(skillDir, ".runtime-env.json")
 	content, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil

@@ -27,8 +27,8 @@ func writeSkillRuntimeFixture(t *testing.T, root string, skillID string, env str
 		t.Fatalf("write SKILL.md: %v", err)
 	}
 	if strings.TrimSpace(env) != "" {
-		if err := os.WriteFile(filepath.Join(skillDir, ".sandbox-env.json"), []byte(env), 0o644); err != nil {
-			t.Fatalf("write sandbox env: %v", err)
+		if err := os.WriteFile(filepath.Join(skillDir, ".runtime-env.json"), []byte(env), 0o644); err != nil {
+			t.Fatalf("write runtime env: %v", err)
 		}
 	}
 	return skillDir
