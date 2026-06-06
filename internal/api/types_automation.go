@@ -39,7 +39,6 @@ type AutomationQueryResponse struct {
 	ChatID  string         `json:"chatId,omitempty"`
 	Role    string         `json:"role,omitempty"`
 	Params  map[string]any `json:"params,omitempty"`
-	Hidden  *bool          `json:"hidden,omitempty"`
 }
 
 type AutomationExecutionBrief struct {
@@ -81,7 +80,6 @@ type AutomationQueryRequest struct {
 	ChatID  string         `json:"chatId,omitempty"`
 	Role    string         `json:"role,omitempty"`
 	Params  map[string]any `json:"params,omitempty"`
-	Hidden  *bool          `json:"hidden,omitempty"`
 }
 
 type UpdateAutomationRequest struct {

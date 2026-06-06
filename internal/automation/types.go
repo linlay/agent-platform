@@ -1,6 +1,7 @@
 package automation
 
 import (
+	"strings"
 	"time"
 
 	"agent-platform/internal/api"
@@ -55,29 +56,33 @@ type Query struct {
 	References []api.Reference
 	Params     map[string]any
 	Scene      *api.Scene
-	Hidden     *bool
 }
 
 func (d Definition) ToQueryRequest() api.QueryRequest {
 	params := contracts.CloneMap(d.Query.Params)
-
-	role := d.Query.Role
-	if role == "" {
-		role = "user"
-	}
 
 	return api.QueryRequest{
 		RequestID:  d.Query.RequestID,
 		ChatID:     d.Query.ChatID,
 		AgentKey:   d.AgentKey,
 		TeamID:     d.TeamID,
-		Role:       role,
+		Role:       EffectiveQueryRole(d.Query.Role),
 		Message:    d.Query.Message,
 		References: append([]api.Reference(nil), d.Query.References...),
 		Params:     params,
 		Scene:      cloneScene(d.Query.Scene),
-		Hidden:     cloneBoolPtr(d.Query.Hidden),
 	}
+}
+
+func EffectiveQueryRole(role string) string {
+	if strings.TrimSpace(role) == "" {
+		return api.QueryRoleAutomation
+	}
+	normalized, ok := api.NormalizeQueryRole(role)
+	if ok {
+		return normalized
+	}
+	return strings.TrimSpace(role)
 }
 
 func cloneScene(src *api.Scene) *api.Scene {
@@ -86,12 +91,4 @@ func cloneScene(src *api.Scene) *api.Scene {
 	}
 	dst := *src
 	return &dst
-}
-
-func cloneBoolPtr(src *bool) *bool {
-	if src == nil {
-		return nil
-	}
-	value := *src
-	return &value
 }

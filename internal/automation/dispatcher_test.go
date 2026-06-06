@@ -12,7 +12,6 @@ import (
 )
 
 func TestDispatcherBuildsStructuredQueryRequest(t *testing.T) {
-	hidden := true
 	def := Definition{
 		ID:          "daily",
 		Name:        "Daily Summary",
@@ -30,8 +29,7 @@ func TestDispatcherBuildsStructuredQueryRequest(t *testing.T) {
 			References: []api.Reference{
 				{ID: "ref-1", Type: "url", URL: "https://example.com"},
 			},
-			Scene:  &api.Scene{URL: "https://example.com/app", Title: "demo"},
-			Hidden: &hidden,
+			Scene: &api.Scene{URL: "https://example.com/app", Title: "demo"},
 		},
 	}
 
@@ -50,11 +48,8 @@ func TestDispatcherBuildsStructuredQueryRequest(t *testing.T) {
 	if got.AgentKey != "demo-agent" || got.TeamID != "team-a" {
 		t.Fatalf("unexpected target %#v", got)
 	}
-	if got.Role != "user" || got.Message != "hello" {
+	if got.Role != "automation" || got.Message != "hello" {
 		t.Fatalf("unexpected role/message %#v", got)
-	}
-	if got.Hidden == nil || !*got.Hidden {
-		t.Fatalf("expected hidden=true, got %#v", got.Hidden)
 	}
 	if len(got.References) != 1 || got.Scene == nil || got.Scene.Title != "demo" {
 		t.Fatalf("unexpected refs/scene %#v", got)

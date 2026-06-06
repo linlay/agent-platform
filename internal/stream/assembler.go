@@ -13,6 +13,7 @@ type StreamRequest struct {
 	AgentKey           string
 	Message            string
 	Role               string
+	Scene              *SceneRef
 	References         any
 	Params             map[string]any
 	Model              any
@@ -21,6 +22,28 @@ type StreamRequest struct {
 	Created            bool
 	ContinueRun        bool
 	MemoryUsageSummary map[string]any
+}
+
+type SceneRef struct {
+	URL   string `json:"url,omitempty"`
+	Title string `json:"title,omitempty"`
+}
+
+func (s *SceneRef) ToMap() map[string]any {
+	if s == nil {
+		return nil
+	}
+	m := map[string]any{}
+	if s.URL != "" {
+		m["url"] = s.URL
+	}
+	if s.Title != "" {
+		m["title"] = s.Title
+	}
+	if len(m) == 0 {
+		return nil
+	}
+	return m
 }
 
 type StreamEventAssembler struct {
@@ -67,6 +90,9 @@ func (a *StreamEventAssembler) Bootstrap() []StreamEvent {
 	}
 	if a.request.PlanningMode {
 		queryPayload["planningMode"] = true
+	}
+	if scene := a.request.Scene.ToMap(); scene != nil {
+		queryPayload["scene"] = scene
 	}
 	events := []StreamEvent{}
 	if !a.request.ContinueRun {

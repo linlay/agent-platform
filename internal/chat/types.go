@@ -72,12 +72,11 @@ type QueryLineSystemInit struct {
 }
 
 // QueryLine represents a _type:"query" line in chatId.jsonl.
-// Field order matches Java: chatId, runId, updatedAt, hidden, query, systems, _type.
+// Field order matches Java: chatId, runId, updatedAt, query, systems, _type.
 type QueryLine struct {
 	ChatID      string                `json:"chatId"`
 	RunID       string                `json:"runId"`
 	UpdatedAt   int64                 `json:"updatedAt"`
-	Hidden      bool                  `json:"hidden,omitempty"`
 	TaskID      string                `json:"taskId,omitempty"`
 	TaskName    string                `json:"taskName,omitempty"`
 	TaskToolID  string                `json:"taskToolId,omitempty"`

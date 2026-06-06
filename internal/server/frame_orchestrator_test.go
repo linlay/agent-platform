@@ -846,7 +846,7 @@ func TestSubTaskReactStepPersistsContentMessage(t *testing.T) {
 	child := &stubOrchestratableStream{finalText: "马到成功"}
 	assembler := stream.NewAssembler(stream.StreamRequest{RunID: "run_1", ChatID: "chat_1"})
 	mapper := llm.NewDeltaMapper("run_1", "chat_1", contracts.Budget{Hitl: contracts.HitlPolicy{Timeout: 5}}, nil, frontendtools.NewDefaultRegistry())
-	writer := chat.NewStepWriter(store, "chat_1", "run_1", "react", false)
+	writer := chat.NewStepWriter(store, "chat_1", "run_1", "react")
 	orchestrator := newTestFrameOrchestrator(&orchestratorAgentEngine{streams: []contracts.AgentStream{child}}, map[string]catalog.AgentDefinition{
 		"writer": {Key: "writer", Name: "Writer", Mode: "REACT"},
 	}, nil, nil)

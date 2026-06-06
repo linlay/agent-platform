@@ -5,6 +5,8 @@ import (
 	"errors"
 	"sort"
 	"strings"
+
+	"agent-platform/internal/api"
 )
 
 type SearchHit struct {
@@ -146,17 +148,18 @@ func (s *FileStore) SearchSession(chatID string, query string, limit int) ([]Sea
 		}
 		switch lineType {
 		case "query":
-			if hidden, _ := line["hidden"].(bool); hidden {
+			payload, _ := line["query"].(map[string]any)
+			role := defaultSearchRole(stringValue(payload["role"]))
+			if !api.QueryRoleVisible(role) {
 				continue
 			}
-			payload, _ := line["query"].(map[string]any)
 			message := stringValue(payload["message"])
 			if score := sessionSearchScore(message, needle); score > 0 {
 				appendHit(SearchHit{
 					Kind:      "query",
 					ChatID:    chatID,
 					RunID:     runID,
-					Role:      defaultSearchRole(stringValue(payload["role"])),
+					Role:      role,
 					Timestamp: ts,
 					Snippet:   buildSnippet(message, needle),
 					Score:     score,

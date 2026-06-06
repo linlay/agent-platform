@@ -13,10 +13,6 @@ import (
 	"agent-platform/internal/stream"
 )
 
-// isHiddenRequest 判断请求是否标记为"系统自发触发"：
-// 这类 run 的 QueryLine 仍会写入 chat JSONL 以保留完整 trace，
-// 但会携带 hidden 标记，供 webclient / export / search 避免渲染成可见用户发言。
-// 典型来源：automation 触发的定时任务。
 func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	admission, err := s.prepareQueryAdmission(r, true)
 	if err != nil {
@@ -100,7 +96,7 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 	defer observer.MarkDone()
 
 	assembler, mapper := s.newAssemblerAndMapper(prepared)
-	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode, isHiddenRequest(prepared.req), chat.WithDebugEventsEnabled(s.deps.Config.Stream.DebugEventsEnabled))
+	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode, chat.WithDebugEventsEnabled(s.deps.Config.Stream.DebugEventsEnabled))
 	stepWriter.SetPendingSystemInits(prepared.systemInitLines)
 
 	StartRunExecutor(RunExecutorParams{
@@ -205,7 +201,7 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 	}
 	processor := &runEventProcessor{
 		assistantText: &assistantText,
-		stepWriter:    chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode, isHiddenRequest(prepared.req), chat.WithDebugEventsEnabled(s.deps.Config.Stream.DebugEventsEnabled)),
+		stepWriter:    chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode, chat.WithDebugEventsEnabled(s.deps.Config.Stream.DebugEventsEnabled)),
 		stream:        s.deps.Config.Stream,
 		billing:       s.deps.Config.Billing,
 		models:        s.deps.Models,

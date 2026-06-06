@@ -91,13 +91,13 @@ GET /ws -> request / response / stream / push / error frames
 | POST | `/api/automation/toggle` | body: `id` 或 `automationId`、`enabled` | 启停后的 automation 详情 |
 | POST | `/api/automation/executions` | body: `id` 或 `automationId`、`limit`、`offset` | execution history |
 
-`query` 对象包含 `message`、`chatId`、`role`、`params`、`hidden`。
+`query` 对象包含 `message`、`chatId`、`role`、`params`。`role` 可选值为 `user`、`assistant`、`automation`、`system`；automation 未显式配置时默认为 `automation`。
 
 ### Run
 
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
-| POST | `/api/query` | body: `message`、`agentKey`、`teamId`、`chatId`、`runId`、`requestId`、`references`、`params`、`scene`、`stream`、`hidden`、`planningMode`、`accessLevel`、`model` | SSE stream；结束帧为 `data: [DONE]` |
+| POST | `/api/query` | body: `message`、`agentKey`、`teamId`、`chatId`、`runId`、`requestId`、`role`、`references`、`params`、`scene`、`stream`、`planningMode`、`accessLevel`、`model` | SSE stream；结束帧为 `data: [DONE]` |
 | GET | `/api/attach` | query: `runId`、`agentKey`、`lastSeq` | 续接 run 的 SSE stream |
 | POST | `/api/submit` | body: `agentKey`、`runId`、`awaitingId`、`params` | HITL submit ack |
 | POST | `/api/steer` | body: `agentKey`、`runId`、`message`、`requestId`、`chatId`、`teamId`、`steerId` | steer ack |
@@ -105,6 +105,8 @@ GET /ws -> request / response / stream / push / error frames
 | POST | `/api/access-level` | body: `agentKey`、`runId`、`accessLevel`、`requestId`、`reason` | 动态更新 native run 的 accessLevel |
 
 `params` 是业务透传对象，平台不读取、不写入、不约定内部 key。
+
+`role` 可选值为 `user`、`assistant`、`automation`、`system`，普通 query 缺省为 `user`。`automation` / `system` 的 `request.query` 会保留在 trace 中，但不会作为可见用户消息参与搜索或 Markdown 导出。
 
 `model` 可做本次 run 的模型覆盖：
 

@@ -237,6 +237,10 @@ func parseQuery(node map[string]any) (Query, error) {
 	if err != nil {
 		return Query{}, err
 	}
+	role, err = normalizeAutomationQueryRole(role)
+	if err != nil {
+		return Query{}, err
+	}
 	references, err := parseReferences(node["references"])
 	if err != nil {
 		return Query{}, err
@@ -249,10 +253,6 @@ func parseQuery(node map[string]any) (Query, error) {
 	if err != nil {
 		return Query{}, err
 	}
-	hidden, err := boolPtrNode(node["hidden"])
-	if err != nil {
-		return Query{}, err
-	}
 
 	return Query{
 		RequestID:  requestID,
@@ -262,7 +262,6 @@ func parseQuery(node map[string]any) (Query, error) {
 		References: references,
 		Params:     params,
 		Scene:      scene,
-		Hidden:     hidden,
 	}, nil
 }
 
@@ -348,6 +347,9 @@ func (r *Registry) Validate(def Definition) error {
 	if strings.TrimSpace(def.Query.Message) == "" {
 		return fmt.Errorf("query.message is required")
 	}
+	if _, err := normalizeAutomationQueryRole(def.Query.Role); err != nil {
+		return err
+	}
 	chatID := strings.TrimSpace(def.Query.ChatID)
 	if chatID != "" {
 		if len(chatID) > chatIDMaxLength {
@@ -358,6 +360,17 @@ func (r *Registry) Validate(def Definition) error {
 		}
 	}
 	return nil
+}
+
+func normalizeAutomationQueryRole(role string) (string, error) {
+	if strings.TrimSpace(role) == "" {
+		return api.QueryRoleAutomation, nil
+	}
+	normalized, ok := api.NormalizeQueryRole(role)
+	if !ok {
+		return "", fmt.Errorf("invalid query.role: %s", api.QueryRoleValidationMessage)
+	}
+	return normalized, nil
 }
 
 func (r *Registry) Delete(def Definition) error {
@@ -500,17 +513,6 @@ func boolNode(value any, fallback bool) bool {
 	default:
 		return fallback
 	}
-}
-
-func boolPtrNode(value any) (*bool, error) {
-	if value == nil {
-		return nil, nil
-	}
-	typed, ok := value.(bool)
-	if !ok {
-		return nil, fmt.Errorf("invalid query.hidden")
-	}
-	return &typed, nil
 }
 
 func int64PtrNode(value any) (*int64, error) {

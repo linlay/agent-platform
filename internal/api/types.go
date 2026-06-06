@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"agent-platform/internal/stream"
 )
@@ -30,6 +31,64 @@ func Failure(code int, msg string) ApiResponse[map[string]any] {
 	}
 }
 
+const (
+	QueryRoleUser       = "user"
+	QueryRoleAssistant  = "assistant"
+	QueryRoleAutomation = "automation"
+	QueryRoleSystem     = "system"
+
+	QueryRoleValidationMessage = "role must be user, assistant, automation, or system"
+)
+
+func NormalizeQueryRole(role string) (string, bool) {
+	switch strings.TrimSpace(role) {
+	case "", QueryRoleUser:
+		return QueryRoleUser, true
+	case QueryRoleAssistant:
+		return QueryRoleAssistant, true
+	case QueryRoleAutomation:
+		return QueryRoleAutomation, true
+	case QueryRoleSystem:
+		return QueryRoleSystem, true
+	default:
+		return "", false
+	}
+}
+
+func DefaultQueryRole(role string) string {
+	normalized, ok := NormalizeQueryRole(role)
+	if !ok {
+		return ""
+	}
+	return normalized
+}
+
+func QueryRoleVisible(role string) bool {
+	normalized, ok := NormalizeQueryRole(role)
+	if !ok {
+		return true
+	}
+	return normalized != QueryRoleAutomation && normalized != QueryRoleSystem
+}
+
+func ProviderSafeQueryMessage(role string, message string) (string, string) {
+	normalized, ok := NormalizeQueryRole(role)
+	if !ok {
+		normalized = QueryRoleUser
+	}
+	message = strings.TrimSpace(message)
+	switch normalized {
+	case QueryRoleAutomation:
+		return QueryRoleUser, "[automation request]\n" + message
+	case QueryRoleSystem:
+		return QueryRoleUser, "[system request]\n" + message
+	case QueryRoleAssistant:
+		return QueryRoleAssistant, message
+	default:
+		return QueryRoleUser, message
+	}
+}
+
 type QueryRequest struct {
 	RequestID    string             `json:"requestId,omitempty"`
 	RunID        string             `json:"runId,omitempty"`
@@ -42,7 +101,6 @@ type QueryRequest struct {
 	Params       map[string]any     `json:"params,omitempty"`
 	Scene        *Scene             `json:"scene,omitempty"`
 	Stream       *bool              `json:"stream,omitempty"`
-	Hidden       *bool              `json:"hidden,omitempty"`
 	PlanningMode *bool              `json:"planningMode,omitempty"`
 	AccessLevel  string             `json:"accessLevel,omitempty"`
 	Model        *QueryModelOptions `json:"model,omitempty"`

@@ -1191,7 +1191,7 @@ func TestStepWriterActionSnapshotPersistsTsAndReplaysTimestamp(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-action-ts", "run-action-ts", "react", false)
+	writer := NewStepWriter(store, "chat-action-ts", "run-action-ts", "react")
 	writer.OnEvent(stream.EventData{
 		Type:      "action.snapshot",
 		Timestamp: 3456,
@@ -1245,7 +1245,7 @@ func TestStepWriterEmbedsAwaitingInStepLine(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-awaiting-step", "run-awaiting-step", "react", false)
+	writer := NewStepWriter(store, "chat-awaiting-step", "run-awaiting-step", "react")
 	writer.OnEvent(stream.EventData{
 		Type:      "tool.snapshot",
 		Timestamp: 1001,
@@ -1337,7 +1337,7 @@ func TestStepWriterMergesSubmitAndAnswer(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-submit-merge", "run-submit-merge", "react", false)
+	writer := NewStepWriter(store, "chat-submit-merge", "run-submit-merge", "react")
 	writer.OnEvent(stream.EventData{
 		Type:      "request.submit",
 		Timestamp: 1001,
@@ -1396,7 +1396,7 @@ func TestStepWriterTimeoutAnswerDoesNotSplitToolStep(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-timeout-submit", "run-timeout-submit", "react", false)
+	writer := NewStepWriter(store, "chat-timeout-submit", "run-timeout-submit", "react")
 	writer.OnEvent(stream.EventData{
 		Type:      "tool.snapshot",
 		Timestamp: 1001,
@@ -1485,7 +1485,7 @@ func TestStepWriterReusesReactSeqForSplitHITLToolResult(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-hitl-seq", "run-hitl-seq", "react", false)
+	writer := NewStepWriter(store, "chat-hitl-seq", "run-hitl-seq", "react")
 	writer.OnEvent(stream.EventData{
 		Type:      "debug.preCall",
 		Timestamp: 1000,
@@ -1626,7 +1626,7 @@ func TestStepWriterFormatsStructuredToolResultAsJSON(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-tool-result-json", "run-tool-result-json", "react", false)
+	writer := NewStepWriter(store, "chat-tool-result-json", "run-tool-result-json", "react")
 	writer.OnEvent(stream.EventData{
 		Type:      "tool.snapshot",
 		Timestamp: 1001,
@@ -1692,7 +1692,7 @@ func TestStepWriterEmbedsUsageAtStepLevel(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-usage-step", "run-usage-step", "react", false)
+	writer := NewStepWriter(store, "chat-usage-step", "run-usage-step", "react")
 	writer.OnEvent(stream.EventData{
 		Type:      "content.snapshot",
 		Timestamp: 2001,
@@ -1776,7 +1776,7 @@ func TestStepWriterPersistsSystemRefWithoutDebugPayload(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-system-snapshot", "run-system-snapshot", "react", false, WithDebugEventsEnabled(true))
+	writer := NewStepWriter(store, "chat-system-snapshot", "run-system-snapshot", "react", WithDebugEventsEnabled(true))
 	systemRef := map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:first"}
 	requestBody := map[string]any{
 		"model": "gpt-5.2",
@@ -1872,7 +1872,7 @@ func TestStepWriterOmitsPreCallDebugWhenDebugEventsDisabled(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-debug-disabled", "run-debug-disabled", "react", false)
+	writer := NewStepWriter(store, "chat-debug-disabled", "run-debug-disabled", "react")
 	writer.OnEvent(stream.EventData{
 		Type: "debug.preCall",
 		Payload: map[string]any{
@@ -1950,7 +1950,7 @@ func TestStepWriterPersistsUsageSnapshotWhenDebugEventsDisabled(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-usage-snapshot", "run-usage-snapshot", "react", false)
+	writer := NewStepWriter(store, "chat-usage-snapshot", "run-usage-snapshot", "react")
 	writer.OnEvent(stream.EventData{
 		Type: "content.snapshot",
 		Payload: map[string]any{
@@ -2042,7 +2042,7 @@ func TestStepWriterIgnoresEmptyUsageSnapshot(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-empty-usage-snapshot", "run-empty-usage-snapshot", "react", false)
+	writer := NewStepWriter(store, "chat-empty-usage-snapshot", "run-empty-usage-snapshot", "react")
 	writer.OnEvent(stream.EventData{
 		Type: "content.snapshot",
 		Payload: map[string]any{
@@ -2093,7 +2093,7 @@ func TestStepWriterPlanningDeltasAreLiveOnly(t *testing.T) {
 	if _, _, err := store.EnsureChat("chat-planning-live-only", "coder", "", "plan it"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	writer := NewStepWriter(store, "chat-planning-live-only", "run-planning", "coder", false)
+	writer := NewStepWriter(store, "chat-planning-live-only", "run-planning", "coder")
 	emitPlanningLifecycleForTest(writer, "chat-planning-live-only")
 	writer.Flush()
 
@@ -2223,7 +2223,7 @@ func TestStepWriterPersistsTaskScopedUsageAndSlimMetadataWithoutDebugPayload(t *
 		t.Fatalf("new file store: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-task-debug", "run-task-debug", "react", false, WithDebugEventsEnabled(true))
+	writer := NewStepWriter(store, "chat-task-debug", "run-task-debug", "react", WithDebugEventsEnabled(true))
 	writer.OnEvent(stream.EventData{
 		Type: "task.start",
 		Payload: map[string]any{
@@ -2338,7 +2338,7 @@ func TestStepWriterSubTaskReactFlushOrder(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-task-order", "run-task-order", "react", false)
+	writer := NewStepWriter(store, "chat-task-order", "run-task-order", "react")
 	writer.OnEvent(stream.EventData{
 		Type: "tool.snapshot",
 		Payload: map[string]any{
@@ -2694,6 +2694,50 @@ func TestRawMessagesSkipSystemInitLines(t *testing.T) {
 	}
 }
 
+func TestLoadRawMessagesMapsAutomationAndSystemQueryRolesToUser(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-role-raw", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	for idx, item := range []struct {
+		runID   string
+		role    string
+		message string
+	}{
+		{runID: "run-auto", role: "automation", message: "automation hello"},
+		{runID: "run-system", role: "system", message: "system hello"},
+	} {
+		if err := store.AppendQueryLine("chat-role-raw", QueryLine{
+			Type:      "query",
+			ChatID:    "chat-role-raw",
+			RunID:     item.runID,
+			UpdatedAt: int64(idx + 1),
+			Query: map[string]any{
+				"role":    item.role,
+				"message": item.message,
+			},
+		}); err != nil {
+			t.Fatalf("append query: %v", err)
+		}
+	}
+	messages, err := store.LoadRawMessages("chat-role-raw", 5)
+	if err != nil {
+		t.Fatalf("load raw messages: %v", err)
+	}
+	wants := []string{"[automation request]\nautomation hello", "[system request]\nsystem hello"}
+	if len(messages) != len(wants) {
+		t.Fatalf("expected raw messages, got %#v", messages)
+	}
+	for idx, want := range wants {
+		if messages[idx]["role"] != "user" || messages[idx]["content"] != want {
+			t.Fatalf("unexpected raw message %d: %#v", idx, messages[idx])
+		}
+	}
+}
+
 func TestStepWriterWritesSystemInitAfterQuery(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
@@ -2703,7 +2747,7 @@ func TestStepWriterWritesSystemInitAfterQuery(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-query-system-init", "run-1", "react", false)
+	writer := NewStepWriter(store, "chat-query-system-init", "run-1", "react")
 	writer.SetPendingSystemInits([]QueryLineSystemInit{{
 		Fingerprint:   "sha256:first",
 		CacheKey:      "react:main",
@@ -2740,52 +2784,57 @@ func TestStepWriterWritesSystemInitAfterQuery(t *testing.T) {
 	}
 }
 
-func TestStepWriterPersistsHiddenQueryWithSystemInits(t *testing.T) {
+func TestStepWriterPersistsQueryWithSystemInitsWithoutHiddenFlag(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-hidden-query-system-init", "agent", "", "hidden hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-query-system-init-no-hidden", "agent", "", "system hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-hidden-query-system-init", "run-hidden", "react", true)
+	writer := NewStepWriter(store, "chat-query-system-init-no-hidden", "run-system", "react")
 	writer.SetPendingSystemInits([]QueryLineSystemInit{{
-		Fingerprint:   "sha256:hidden",
+		Fingerprint:   "sha256:system",
 		CacheKey:      "react:main",
-		SystemMessage: map[string]any{"role": "system", "content": "hidden system"},
+		SystemMessage: map[string]any{"role": "system", "content": "system"},
 		Tools:         []any{map[string]any{"type": "function"}},
 	}})
 	writer.OnEvent(stream.EventData{
 		Type:      "request.query",
 		Timestamp: 1001,
 		Payload: map[string]any{
-			"chatId":  "chat-hidden-query-system-init",
-			"runId":   "run-hidden",
-			"message": "hidden hello",
+			"chatId":  "chat-query-system-init-no-hidden",
+			"runId":   "run-system",
+			"role":    "system",
+			"message": "system hello",
+			"scene": map[string]any{
+				"url":   "https://example.com/app",
+				"title": "demo",
+			},
 		},
 	})
 
-	lines, err := readJSONLines(store.chatJSONLPath("chat-hidden-query-system-init"))
+	lines, err := readJSONLines(store.chatJSONLPath("chat-query-system-init-no-hidden"))
 	if err != nil {
 		t.Fatalf("read chat jsonl: %v", err)
 	}
 	if len(lines) != 1 || lines[0]["_type"] != "query" {
-		t.Fatalf("expected one hidden query line, got %#v", lines)
+		t.Fatalf("expected one query line, got %#v", lines)
 	}
-	if hidden, _ := lines[0]["hidden"].(bool); !hidden {
-		t.Fatalf("expected hidden=true on query line, got %#v", lines[0])
+	if _, ok := lines[0]["hidden"]; ok {
+		t.Fatalf("did not expect hidden on query line, got %#v", lines[0])
 	}
 	systems, _ := lines[0]["systems"].([]any)
 	if len(systems) != 1 {
-		t.Fatalf("expected hidden query to keep inline systems, got %#v", lines[0])
+		t.Fatalf("expected query to keep inline systems, got %#v", lines[0])
 	}
 	system, _ := systems[0].(map[string]any)
-	if system["cacheKey"] != "react:main" || system["fingerprint"] != "sha256:hidden" {
+	if system["cacheKey"] != "react:main" || system["fingerprint"] != "sha256:system" {
 		t.Fatalf("unexpected inline system cache %#v", system)
 	}
 
-	detail, err := store.LoadChat("chat-hidden-query-system-init")
+	detail, err := store.LoadChat("chat-query-system-init-no-hidden")
 	if err != nil {
 		t.Fatalf("load chat: %v", err)
 	}
@@ -2799,8 +2848,15 @@ func TestStepWriterPersistsHiddenQueryWithSystemInits(t *testing.T) {
 	if queryEvent == nil {
 		t.Fatalf("expected replayed request.query, got %#v", detail.Events)
 	}
-	if hidden, _ := queryEvent.Value("hidden").(bool); !hidden {
-		t.Fatalf("expected replayed request.query hidden=true, got %#v", queryEvent)
+	if _, ok := queryEvent.Payload["hidden"]; ok {
+		t.Fatalf("did not expect replayed request.query hidden, got %#v", queryEvent)
+	}
+	if queryEvent.String("role") != "system" {
+		t.Fatalf("expected replayed request.query role=system, got %#v", queryEvent)
+	}
+	scene, _ := queryEvent.Value("scene").(map[string]any)
+	if scene["url"] != "https://example.com/app" || scene["title"] != "demo" {
+		t.Fatalf("expected replayed request.query scene, got %#v", queryEvent)
 	}
 }
 
@@ -2813,7 +2869,7 @@ func TestStepWriterOmitsSystemsWhenNoPendingSystemInits(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-query-no-system-init", "run-1", "react", false)
+	writer := NewStepWriter(store, "chat-query-no-system-init", "run-1", "react")
 	writer.OnEvent(stream.EventData{
 		Type:      "request.query",
 		Timestamp: 1001,
@@ -2842,7 +2898,7 @@ func TestStepWriterPersistsAwaitingWithoutMessages(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-awaiting-standalone", "run-awaiting-standalone", "react", false)
+	writer := NewStepWriter(store, "chat-awaiting-standalone", "run-awaiting-standalone", "react")
 	writer.OnEvent(stream.EventData{
 		Type:      "awaiting.ask",
 		Timestamp: 3001,
@@ -2914,7 +2970,7 @@ func TestStepWriterFlushesAwaitingAskImmediatelyForAllModes(t *testing.T) {
 	for _, tc := range tests {
 		chatID := "chat-awaiting-" + tc.mode
 		runID := "run-awaiting-" + tc.mode
-		writer := NewStepWriter(store, chatID, runID, "react", false)
+		writer := NewStepWriter(store, chatID, runID, "react")
 		payload := map[string]any{
 			"awaitingId": "await-" + tc.mode,
 			"mode":       tc.mode,
@@ -2955,7 +3011,7 @@ func TestStepWriterPersistsInlineApprovalMessage(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-approval-step", "run-approval-step", "react", false)
+	writer := NewStepWriter(store, "chat-approval-step", "run-approval-step", "react")
 	writer.OnEvent(stream.EventData{
 		Type:      "tool.snapshot",
 		Timestamp: 4001,
@@ -3032,7 +3088,7 @@ func TestStepWriterPersistsFormApprovalDecisionPayload(t *testing.T) {
 		"days":         2.0,
 		"leave_type":   "annual",
 	}
-	writer := NewStepWriter(store, "chat-form-approval-step", "run-form-approval-step", "react", false)
+	writer := NewStepWriter(store, "chat-form-approval-step", "run-form-approval-step", "react")
 	writer.OnEvent(stream.EventData{
 		Type:      "tool.snapshot",
 		Timestamp: 4101,
@@ -3525,7 +3581,7 @@ func TestStepWriterSubAgentStepsAreExcludedFromRawMessages(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-subagent-raw", "run-subagent-raw", "react", false)
+	writer := NewStepWriter(store, "chat-subagent-raw", "run-subagent-raw", "react")
 	writer.OnEvent(stream.EventData{
 		Type:      "content.snapshot",
 		Timestamp: 1001,
@@ -3609,7 +3665,7 @@ func TestStepWriterTaskSnapshotsUpsertAfterComplete(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-task-upsert", "run-task-upsert", "react", false)
+	writer := NewStepWriter(store, "chat-task-upsert", "run-task-upsert", "react")
 	writer.OnEvent(stream.EventData{
 		Type:      "task.start",
 		Timestamp: 1001,
@@ -3673,7 +3729,7 @@ func TestStepWriterRootSnapshotsUpsertByContentID(t *testing.T) {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-root-upsert", "run-root-upsert", "react", false)
+	writer := NewStepWriter(store, "chat-root-upsert", "run-root-upsert", "react")
 	writer.OnEvent(stream.EventData{
 		Type:      "content.snapshot",
 		Timestamp: 1001,
@@ -3718,7 +3774,7 @@ func TestStepWriterDoesNotInferTaskForUntargetedContent(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-subagent-no-infer", "run-subagent-no-infer", "react", false)
+	writer := NewStepWriter(store, "chat-subagent-no-infer", "run-subagent-no-infer", "react")
 	writer.OnEvent(stream.EventData{
 		Type:      "task.start",
 		Timestamp: 1001,
@@ -5350,7 +5406,7 @@ func TestStepWriterBatchedArtifactPublishUpdatesArtifactState(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-artifact-batch", "run-artifact-batch", "REACT", false)
+	writer := NewStepWriter(store, "chat-artifact-batch", "run-artifact-batch", "REACT")
 	writer.OnEvent(stream.EventData{
 		Type:      "run.start",
 		Timestamp: 1000,

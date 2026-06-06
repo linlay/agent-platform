@@ -197,16 +197,10 @@ func loadRunQueryFromLines(lines []map[string]any, chatID string, runID string) 
 			ChatID:    lineChatID,
 			RunID:     runID,
 			UpdatedAt: int64FromAny(line["updatedAt"]),
-			Hidden:    boolValue(line["hidden"]),
 			Query:     cloneStringAnyMap(query),
 		}
 	}
 	return nil
-}
-
-func boolValue(value any) bool {
-	typed, _ := value.(bool)
-	return typed
 }
 
 func persistedAwaitingAskFromMap(item map[string]any, fallbackRunID string) *PersistedAwaitingAsk {

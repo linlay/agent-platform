@@ -60,7 +60,6 @@ func TestRegistryLoadsStructuredAutomationDefinition(t *testing.T) {
 			"  chatId: 123e4567-e89b-12d3-a456-426614174000\n"+
 			"  role: system\n"+
 			"  message: hello\n"+
-			"  hidden: true\n"+
 			"  params:\n"+
 			"    source: automation\n"+
 			"  scene:\n"+
@@ -100,9 +99,6 @@ func TestRegistryLoadsStructuredAutomationDefinition(t *testing.T) {
 	}
 	if def.Query.Role != "system" || def.Query.Message != "hello" {
 		t.Fatalf("unexpected query core fields %#v", def.Query)
-	}
-	if def.Query.Hidden == nil || !*def.Query.Hidden {
-		t.Fatalf("expected hidden=true, got %#v", def.Query.Hidden)
 	}
 	if len(def.Query.References) != 1 || def.Query.References[0].URL != "https://example.com/doc" {
 		t.Fatalf("unexpected references %#v", def.Query.References)
@@ -144,6 +140,22 @@ func TestRegistrySkipsExampleAutomationDefinition(t *testing.T) {
 	}
 	if len(defs) != 1 || defs[0].ID != "demo" {
 		t.Fatalf("expected one loadable automation, got %#v", defs)
+	}
+}
+
+func TestRegistryDefaultsQueryRoleToAutomation(t *testing.T) {
+	root := t.TempDir()
+	writeAutomation(t, filepath.Join(root, "daily.yml"), automationBody("hello", "17 9 * * *", ""))
+
+	defs, err := NewRegistry(root, nil).Load()
+	if err != nil {
+		t.Fatalf("load automations: %v", err)
+	}
+	if len(defs) != 1 {
+		t.Fatalf("expected one automation, got %#v", defs)
+	}
+	if defs[0].Query.Role != "automation" {
+		t.Fatalf("expected default query role automation, got %#v", defs[0].Query)
 	}
 }
 
@@ -192,7 +204,8 @@ func TestRegistryKeepsLexicallyFirstDuplicateAutomationID(t *testing.T) {
 func TestRegistrySkipsInvalidAutomations(t *testing.T) {
 	root := t.TempDir()
 	files := map[string]string{
-		"missing-message.yml":       "name: Missing Message\ndescription: bad\ncron: \"17 9 * * *\"\nagentKey: demo-agent\nquery:\n  hidden: true\n",
+		"missing-message.yml":       "name: Missing Message\ndescription: bad\ncron: \"17 9 * * *\"\nagentKey: demo-agent\nquery:\n",
+		"invalid-role.yml":          "name: Invalid Role\ndescription: bad\ncron: \"17 9 * * *\"\nagentKey: demo-agent\nquery:\n  role: scheduler\n  message: hi\n",
 		"invalid-chat.yml":          "name: Invalid Chat\ndescription: bad\ncron: \"17 9 * * *\"\nagentKey: demo-agent\nquery:\n  message: hi\n  chatId: \"bad chat id!\"\n",
 		"invalid-zone.yml":          "name: Invalid Zone\ndescription: bad\ncron: \"17 9 * * *\"\nagentKey: demo-agent\nenvironment:\n  zoneId: Mars/Base\nquery:\n  message: hi\n",
 		"invalid-cron.yml":          "name: Invalid Cron\ndescription: bad\ncron: \"0 0 9 * * *\"\nagentKey: demo-agent\nquery:\n  message: hi\n",

@@ -2,6 +2,8 @@ package chat
 
 import (
 	"strings"
+
+	"agent-platform/internal/api"
 )
 
 // LoadRawMessages loads conversation history from {chatId}.jsonl step lines.
@@ -72,10 +74,11 @@ func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
 			if query == nil {
 				continue
 			}
+			role, content := api.ProviderSafeQueryMessage(stringValue(query["role"]), stringValue(query["message"]))
 			msg := map[string]any{
 				"runId":   runID,
-				"role":    stringValue(query["role"]),
-				"content": stringValue(query["message"]),
+				"role":    role,
+				"content": content,
 				"ts":      line["updatedAt"],
 			}
 			messages = append(messages, msg)

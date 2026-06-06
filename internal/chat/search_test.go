@@ -76,30 +76,29 @@ func TestSearchSessionFindsQueryMessageAndEvent(t *testing.T) {
 	}
 }
 
-func TestSearchSessionSkipsHiddenQueryButKeepsAssistantMessages(t *testing.T) {
+func TestSearchSessionSkipsAutomationQueryButKeepsAssistantMessages(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
-	if _, _, err := store.EnsureChat("chat-hidden-search", "agent-a", "", "Secret automation prompt"); err != nil {
+	if _, _, err := store.EnsureChat("chat-automation-search", "agent-a", "", "Secret automation prompt"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	if err := store.AppendQueryLine("chat-hidden-search", QueryLine{
-		ChatID:    "chat-hidden-search",
-		RunID:     "run-hidden",
+	if err := store.AppendQueryLine("chat-automation-search", QueryLine{
+		ChatID:    "chat-automation-search",
+		RunID:     "run-automation",
 		UpdatedAt: 100,
-		Hidden:    true,
 		Query: map[string]any{
 			"message": "Secret automation prompt",
-			"role":    "user",
+			"role":    "automation",
 		},
 		Type: "query",
 	}); err != nil {
 		t.Fatalf("append query: %v", err)
 	}
-	if err := store.AppendStepLine("chat-hidden-search", StepLine{
-		ChatID:    "chat-hidden-search",
-		RunID:     "run-hidden",
+	if err := store.AppendStepLine("chat-automation-search", StepLine{
+		ChatID:    "chat-automation-search",
+		RunID:     "run-automation",
 		UpdatedAt: 200,
 		Type:      "react",
 		Stage:     "execute",
@@ -114,7 +113,7 @@ func TestSearchSessionSkipsHiddenQueryButKeepsAssistantMessages(t *testing.T) {
 		t.Fatalf("append step: %v", err)
 	}
 
-	hits, err := store.SearchSession("chat-hidden-search", "automation", 10)
+	hits, err := store.SearchSession("chat-automation-search", "automation", 10)
 	if err != nil {
 		t.Fatalf("search session: %v", err)
 	}
@@ -129,7 +128,7 @@ func TestSearchSessionSkipsHiddenQueryButKeepsAssistantMessages(t *testing.T) {
 		}
 	}
 	if foundQuery || !foundAssistant {
-		t.Fatalf("expected hidden query skipped and assistant kept, got %#v", hits)
+		t.Fatalf("expected automation query skipped and assistant kept, got %#v", hits)
 	}
 }
 

@@ -16,10 +16,6 @@ import (
 	"agent-platform/internal/stream"
 )
 
-func isHiddenRequest(req api.QueryRequest) bool {
-	return req.Hidden != nil && *req.Hidden
-}
-
 type preparedQuery struct {
 	req                api.QueryRequest
 	summary            chat.Summary
@@ -59,6 +55,11 @@ func (s *Server) prepareQueryAdmission(r *http.Request, requireMessage bool) (qu
 	}
 	if requireMessage && strings.TrimSpace(req.Message) == "" {
 		return queryAdmission{}, &statusError{status: http.StatusBadRequest, message: "message is required"}
+	}
+	if role, ok := normalizeQueryRole(req.Role); ok {
+		req.Role = role
+	} else {
+		return queryAdmission{}, &statusError{status: http.StatusBadRequest, message: api.QueryRoleValidationMessage}
 	}
 	accessLevel, ok := contracts.NormalizeAccessLevel(req.AccessLevel)
 	if !ok {
@@ -166,9 +167,8 @@ func (s *Server) completeQueryPreparation(ctx context.Context, admission queryAd
 		summary.AgentKey = agentKey
 	}
 	if created {
-		// hidden run（automation 等自发触发）也照常广播 chat.created —— 否则 webclient
-		// 要刷新整个列表才能看到新建的 automation 会话。隐藏语义只影响 chat 内部消息记录
-		// （不写伪造的"用户发消息"），不影响会话在列表里的可见性。
+		// automation/system role 只影响 chat 内部 request.query 的展示语义，
+		// 不影响会话在列表里的可见性。
 		s.broadcast("chat.created", map[string]any{
 			"chatId":    chatID,
 			"chatName":  summary.ChatName,
@@ -637,6 +637,14 @@ func sortedStringKeys(values map[string]string) []string {
 }
 
 func (s *Server) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamEventAssembler, contracts.StreamDeltaMapper) {
+	role, _ := normalizeQueryRole(prepared.req.Role)
+	sceneRef := (*stream.SceneRef)(nil)
+	if prepared.req.Scene != nil {
+		sceneRef = &stream.SceneRef{
+			URL:   prepared.req.Scene.URL,
+			Title: prepared.req.Scene.Title,
+		}
+	}
 	assembler := stream.NewAssembler(stream.StreamRequest{
 		RequestID:          prepared.req.RequestID,
 		RunID:              prepared.req.RunID,
@@ -644,7 +652,8 @@ func (s *Server) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamEv
 		ChatName:           prepared.summary.ChatName,
 		AgentKey:           prepared.req.AgentKey,
 		Message:            prepared.req.Message,
-		Role:               defaultRole(prepared.req.Role),
+		Role:               role,
+		Scene:              sceneRef,
 		References:         prepared.req.References,
 		Params:             prepared.req.Params,
 		Model:              prepared.req.Model,

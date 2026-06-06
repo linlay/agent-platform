@@ -22,7 +22,6 @@ type StepWriter struct {
 	chatID string
 	runID  string
 	mode   string // "REACT" / "PLAN_EXECUTE" / "ONESHOT" / "CODER"
-	hidden bool   // true 时标记 QueryLine 为展示层隐藏，但仍保留完整 JSONL trace
 
 	debugEventsEnabled bool
 
@@ -67,15 +66,12 @@ func WithDebugEventsEnabled(enabled bool) StepWriterOption {
 }
 
 // NewStepWriter creates a StepWriter for a single run.
-// hidden=true 用于 automation 等系统自发触发的 run：QueryLine 仍会持久化，
-// 但会带 hidden 标记，供展示/导出/搜索层避免伪造成可见的用户发言。
-func NewStepWriter(store Store, chatID, runID, mode string, hidden bool, opts ...StepWriterOption) *StepWriter {
+func NewStepWriter(store Store, chatID, runID, mode string, opts ...StepWriterOption) *StepWriter {
 	w := &StepWriter{
 		store:         store,
 		chatID:        chatID,
 		runID:         runID,
 		mode:          strings.ToUpper(strings.TrimSpace(mode)),
-		hidden:        hidden,
 		taskBuffers:   map[string]*taskStepBuffer{},
 		closedTaskIDs: map[string]bool{},
 		toolNames:     map[string]string{},
@@ -353,7 +349,6 @@ func (w *StepWriter) handleRequestQuery(event stream.EventData) {
 		ChatID:    w.chatID,
 		RunID:     w.runID,
 		UpdatedAt: time.Now().UnixMilli(),
-		Hidden:    w.hidden,
 		Query:     query,
 		Systems:   append([]QueryLineSystemInit(nil), w.pendingSystemInits...),
 	})

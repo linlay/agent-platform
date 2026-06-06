@@ -39,9 +39,6 @@ func renderDefinition(def Definition) []byte {
 		writeYAMLKeyValue(&b, 2, "role", def.Query.Role)
 	}
 	writeYAMLKeyValue(&b, 2, "message", def.Query.Message)
-	if def.Query.Hidden != nil {
-		writeYAMLKeyValue(&b, 2, "hidden", *def.Query.Hidden)
-	}
 	if len(def.Query.Params) > 0 {
 		writeYAMLKeyValue(&b, 2, "params", def.Query.Params)
 	}

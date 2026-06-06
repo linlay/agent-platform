@@ -214,11 +214,16 @@ func decodeOptionalJSON(r *http.Request, target any) error {
 	return json.Unmarshal(data, target)
 }
 
+func normalizeQueryRole(role string) (string, bool) {
+	return api.NormalizeQueryRole(role)
+}
+
 func defaultRole(role string) string {
-	if strings.TrimSpace(role) == "" {
-		return "user"
+	normalized, ok := api.NormalizeQueryRole(role)
+	if !ok {
+		return api.QueryRoleUser
 	}
-	return strings.TrimSpace(role)
+	return normalized
 }
 
 func (s *Server) buildAgentDetailResponse(def catalog.AgentDefinition) api.AgentDetailResponse {

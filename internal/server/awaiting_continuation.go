@@ -92,7 +92,7 @@ func (s *Server) startAwaitingContinuation(deferred DeferredAwaiting, submitReq 
 		continueRun: true,
 	}
 	assembler, mapper := s.newAssemblerAndMapper(prepared)
-	stepWriter := chat.NewStepWriter(s.deps.Chats, chatID, runID, agentDef.Mode, true, chat.WithDebugEventsEnabled(s.deps.Config.Stream.DebugEventsEnabled))
+	stepWriter := chat.NewStepWriter(s.deps.Chats, chatID, runID, agentDef.Mode, chat.WithDebugEventsEnabled(s.deps.Config.Stream.DebugEventsEnabled))
 	startedAt := int64(0)
 	if parsed, ok := chat.ParseRunIDMillis(runID); ok {
 		startedAt = parsed
@@ -149,9 +149,7 @@ func queryRequestForAwaitingContinuation(original *chat.QueryLine, submitReq api
 	req.RequestID = firstNonBlank(req.RequestID, submitReq.SubmitID, req.RunID)
 	req.AgentKey = firstNonBlank(submitReq.AgentKey, req.AgentKey, summary.AgentKey, agentDef.Key)
 	req.TeamID = firstNonBlank(req.TeamID, summary.TeamID)
-	req.Role = firstNonBlank(req.Role, "user")
-	hidden := true
-	req.Hidden = &hidden
+	req.Role = api.QueryRoleSystem
 	if strings.EqualFold(mode, "plan") {
 		planningMode := false
 		req.PlanningMode = &planningMode

@@ -363,9 +363,8 @@ func mapAutomationQuery(query automation.Query) api.AutomationQueryResponse {
 	return api.AutomationQueryResponse{
 		Message: query.Message,
 		ChatID:  query.ChatID,
-		Role:    query.Role,
+		Role:    automation.EffectiveQueryRole(query.Role),
 		Params:  contracts.CloneAnyMap(query.Params),
-		Hidden:  cloneBoolPtr(query.Hidden),
 	}
 }
 
@@ -375,7 +374,6 @@ func automationQueryFromRequest(req api.AutomationQueryRequest) automation.Query
 		Role:    strings.TrimSpace(req.Role),
 		Message: strings.TrimSpace(req.Message),
 		Params:  contracts.CloneAnyMap(req.Params),
-		Hidden:  cloneBoolPtr(req.Hidden),
 	}
 }
 
@@ -409,7 +407,6 @@ func applyAutomationUpdate(def *automation.Definition, req api.UpdateAutomationR
 		def.Query.Role = strings.TrimSpace(req.Query.Role)
 		def.Query.Message = strings.TrimSpace(req.Query.Message)
 		def.Query.Params = contracts.CloneAnyMap(req.Query.Params)
-		def.Query.Hidden = cloneBoolPtr(req.Query.Hidden)
 	}
 }
 
@@ -501,14 +498,6 @@ func cloneIntPtr(src *int) *int {
 }
 
 func cloneInt64Ptr(src *int64) *int64 {
-	if src == nil {
-		return nil
-	}
-	value := *src
-	return &value
-}
-
-func cloneBoolPtr(src *bool) *bool {
 	if src == nil {
 		return nil
 	}

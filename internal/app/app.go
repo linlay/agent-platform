@@ -236,11 +236,9 @@ func New(rootCtx context.Context) (*App, error) {
 			if srv == nil {
 				return fmt.Errorf("server not initialized")
 			}
-			// automation 触发的 run 标记为 hidden：
-			// chat 不记录伪造的"用户发消息"，chat.created 也不广播，
-			// webclient 仍能看到 assistant 侧输出，但不会渲染成"用户→agent"对话。
-			hiddenTrue := true
-			req.Hidden = &hiddenTrue
+			if strings.TrimSpace(req.Role) == "" {
+				req.Role = api.QueryRoleAutomation
+			}
 			status, body, err := srv.ExecuteInternalQuery(ctx, req)
 			if err != nil {
 				return err

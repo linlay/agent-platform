@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -110,6 +111,35 @@ func TestQueryRejectsInvalidAccessLevel(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "accessLevel") {
 		t.Fatalf("expected accessLevel validation error, got %s", rec.Body.String())
+	}
+}
+
+func TestQueryRoleValidation(t *testing.T) {
+	fixture := newTestFixture(t)
+	for _, role := range []string{"", "user", "assistant", "automation", "system"} {
+		body := `{"message":"hello"}`
+		if role != "" {
+			body = `{"message":"hello","role":"` + role + `"}`
+		}
+		req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(body))
+		admission, err := fixture.server.prepareQueryAdmission(req, true)
+		if err != nil {
+			t.Fatalf("role %q should be accepted: %v", role, err)
+		}
+		want := role
+		if want == "" {
+			want = api.QueryRoleUser
+		}
+		if admission.req.Role != want {
+			t.Fatalf("role %q normalized to %q, want %q", role, admission.req.Role, want)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"hello","role":"scheduler"}`))
+	_, err := fixture.server.prepareQueryAdmission(req, true)
+	var statusErr *statusError
+	if !errors.As(err, &statusErr) || statusErr.status != http.StatusBadRequest || !strings.Contains(statusErr.message, "role must be") {
+		t.Fatalf("expected invalid role 400, got %#v", err)
 	}
 }
 

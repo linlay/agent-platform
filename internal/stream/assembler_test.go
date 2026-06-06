@@ -77,6 +77,7 @@ func TestAssemblerBootstrapIncludesOptionalQueryContext(t *testing.T) {
 			"channel": "desktop",
 			"nested":  map[string]any{"enabled": true},
 		},
+		Scene: &SceneRef{URL: "https://example.com/app", Title: "demo"},
 		Model: map[string]any{
 			"key":             "qwen3-max",
 			"reasoningEffort": "HIGH",
@@ -100,6 +101,10 @@ func TestAssemblerBootstrapIncludesOptionalQueryContext(t *testing.T) {
 	}
 	if requestQuery["accessLevel"] != "auto_approve" {
 		t.Fatalf("expected request.query accessLevel, got %#v", requestQuery)
+	}
+	scene, _ := requestQuery["scene"].(map[string]any)
+	if scene["url"] != "https://example.com/app" || scene["title"] != "demo" {
+		t.Fatalf("expected request.query scene, got %#v", requestQuery)
 	}
 }
 
