@@ -273,11 +273,6 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 		Mode:             NormalizeAgentModeForRuntime(stringNode(root["mode"])),
 		VisibilityScopes: parseAgentVisibilityScopes(root["visibility"]),
 	}
-	agentType, err := normalizeAgentType(stringNode(root["type"]))
-	if err != nil {
-		return AgentDefinition{}, nil, err
-	}
-	def.Type = agentType
 	modelConfig := mapNode(root["modelConfig"])
 	def.ModelKey = stringNode(modelConfig["modelKey"])
 	toolConfig := mapNode(root["toolConfig"])

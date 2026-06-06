@@ -77,7 +77,6 @@ func (s *Server) buildRuntimeRequestContext(input runtimeRequestContextInput) (c
 	}
 	context := contracts.RuntimeRequestContext{
 		AgentKey:     input.agentKey,
-		AgentType:    strings.TrimSpace(input.definition.Type),
 		TeamID:       input.teamID,
 		Role:         input.role,
 		ChatName:     input.chatName,

@@ -35,7 +35,6 @@ type AgentDefinition struct {
 	Icon             any
 	Description      string
 	Role             string
-	Type             string
 	Wonders          []string
 	ModelKey         string
 	Mode             string
@@ -278,7 +277,6 @@ func (r *FileRegistry) Agents(scope string) []api.AgentSummary {
 			WorkspaceDir: def.Workspace.Root,
 			Description:  def.Description,
 			Role:         def.Role,
-			Type:         def.Type,
 			Meta: map[string]any{
 				"model":       def.ModelKey,
 				"modelKey":    def.ModelKey,
@@ -297,9 +295,6 @@ func (r *FileRegistry) Agents(scope string) []api.AgentSummary {
 			if strings.TrimSpace(def.ACPProxyID) != "" {
 				summary.Meta["acpProxyId"] = strings.TrimSpace(def.ACPProxyID)
 			}
-		}
-		if strings.TrimSpace(def.Type) != "" {
-			summary.Meta["type"] = def.Type
 		}
 		if strings.TrimSpace(def.Workspace.Root) != "" {
 			summary.Meta["workspace"] = map[string]any{

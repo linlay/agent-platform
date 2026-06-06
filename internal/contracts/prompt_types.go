@@ -44,7 +44,6 @@ Skill Dispatch Rules:
 
 type RuntimeRequestContext struct {
 	AgentKey       string
-	AgentType      string
 	TeamID         string
 	Role           string
 	ChatName       string

@@ -68,19 +68,6 @@ func AgentModeForAPI(value string) string {
 	}
 }
 
-func normalizeAgentType(value string) (string, error) {
-	agentType := strings.ToUpper(strings.TrimSpace(value))
-	if agentType == "" {
-		return "", nil
-	}
-	switch agentType {
-	case AgentModeCoder:
-		return "", fmt.Errorf("type: CODER is no longer supported; use mode: CODER")
-	default:
-		return "", fmt.Errorf("unsupported agent type %q", value)
-	}
-}
-
 func parseAgentWorkspaceRoot(value any) AgentWorkspaceConfig {
 	root := strings.TrimSpace(stringNode(value))
 	if root == "" {

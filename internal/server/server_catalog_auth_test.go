@@ -163,9 +163,6 @@ func TestBuildAgentDetailResponseIncludesCoderModeAndWorkspace(t *testing.T) {
 	if response.Mode != catalog.AgentModeCoder {
 		t.Fatalf("mode = %q, want %q", response.Mode, catalog.AgentModeCoder)
 	}
-	if response.Type != "" {
-		t.Fatalf("type = %q, want empty for CODER mode", response.Type)
-	}
 	workspaceMeta, ok := response.Meta["workspace"].(map[string]any)
 	if !ok || workspaceMeta["root"] != workspace {
 		t.Fatalf("expected workspace meta root, got %#v", response.Meta)

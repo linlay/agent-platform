@@ -122,7 +122,6 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		AgentName:              agentDef.Name,
 		AgentRole:              agentDef.Role,
 		AgentDescription:       agentDef.Description,
-		AgentType:              agentDef.Type,
 		ModelKey:               agentDef.ModelKey,
 		ToolNames:              buildSessionToolNames(effectiveAgentTools(agentDef), options.AllowInvokeAgents),
 		Mode:                   agentDef.Mode,

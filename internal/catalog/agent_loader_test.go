@@ -944,32 +944,6 @@ func TestParseAgentFileAllowsSandboxCoderWithoutHostWorkspace(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileRejectsLegacyCoderType(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "agent.yml")
-	if err := os.WriteFile(path, []byte("key: coder\ntype: CODER\n"), 0o644); err != nil {
-		t.Fatalf("write agent file: %v", err)
-	}
-
-	_, err := parseAgentFile(path)
-	if err == nil || !strings.Contains(err.Error(), "use mode: CODER") {
-		t.Fatalf("expected legacy CODER type migration error, got %v", err)
-	}
-}
-
-func TestParseAgentFileRejectsUnknownType(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "agent.yml")
-	if err := os.WriteFile(path, []byte("key: agent\ntype: REVIEWER\n"), 0o644); err != nil {
-		t.Fatalf("write agent file: %v", err)
-	}
-
-	_, err := parseAgentFile(path)
-	if err == nil || !strings.Contains(err.Error(), "unsupported agent type") {
-		t.Fatalf("expected unsupported type error, got %v", err)
-	}
-}
-
 func TestParseAgentFileRejectsInvalidRuntimeEnv(t *testing.T) {
 	tests := []struct {
 		name        string

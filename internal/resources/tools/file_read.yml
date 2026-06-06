@@ -17,8 +17,8 @@ inputSchema:
       description: Maximum number of lines to return. When omitted, content is limited by file-tools.max-read-bytes in configs/host-tools.yml.
     add_line_numbers:
       type: boolean
-      default: true
-      description: Add cat -n style line numbers to UTF-8 text output. Defaults to true.
+      default: false
+      description: Add cat -n style line numbers to UTF-8 text output. Defaults to false.
   required:
     - file_path
   additionalProperties: false

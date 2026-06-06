@@ -229,7 +229,6 @@ func (s *Server) buildAgentDetailResponse(def catalog.AgentDefinition) api.Agent
 		Icon:        def.Icon,
 		Description: def.Description,
 		Role:        def.Role,
-		Type:        def.Type,
 		Wonders:     append([]string(nil), def.Wonders...),
 		Model:       modelName,
 		Mode:        catalog.AgentModeForAPI(def.Mode),
@@ -270,9 +269,6 @@ func (s *Server) buildAgentDetailMeta(def catalog.AgentDefinition) (string, map[
 	}
 	if len(def.Skills) > 0 {
 		meta["perAgentSkills"] = append([]string(nil), def.Skills...)
-	}
-	if strings.TrimSpace(def.Type) != "" {
-		meta["type"] = def.Type
 	}
 	if strings.EqualFold(strings.TrimSpace(def.Mode), catalog.AgentModeCoder) && strings.TrimSpace(def.CoderBackend) != "" {
 		meta["coderBackend"] = strings.ToLower(strings.TrimSpace(def.CoderBackend))
