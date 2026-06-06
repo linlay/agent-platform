@@ -547,6 +547,14 @@ type ChatSummaryResponse struct {
 	Awaiting       *Awaiting      `json:"awaiting,omitempty"`
 	Usage          *ChatUsageData `json:"usage,omitempty"`
 	ActiveRun      *ActiveRunInfo `json:"activeRun,omitempty"`
+	Error          *ChatErrorInfo `json:"error,omitempty"`
+}
+
+type ChatErrorInfo struct {
+	Code    string   `json:"code"`
+	Message string   `json:"message"`
+	ChatID  string   `json:"chatId,omitempty"`
+	RunIDs  []string `json:"runIds,omitempty"`
 }
 
 type ChatReadState struct {

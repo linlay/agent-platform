@@ -289,11 +289,7 @@ func (s *Server) wsChat(ctx context.Context, conn *ws.Conn, req ws.RequestFrame)
 	}
 	var conflictErr *contracts.ActiveRunConflictError
 	if errors.As(loadErr, &conflictErr) {
-		conn.SendError(req.ID, "active_run_conflict", 409, "multiple active runs found for chat", map[string]any{
-			"code":   "active_run_conflict",
-			"chatId": conflictErr.ChatID,
-			"runIds": append([]string(nil), conflictErr.RunIDs...),
-		})
+		conn.SendError(req.ID, activeRunConflictCode, 409, activeRunConflictMessage, activeRunConflictInfo(conflictErr))
 		conn.CompleteRequest(req.ID)
 		return
 	}
@@ -410,11 +406,7 @@ func (s *Server) wsChatDelete(_ context.Context, conn *ws.Conn, req ws.RequestFr
 		activeRun, ok, activeErr := s.deps.Runs.ActiveRunForChat(chatID)
 		var conflictErr *contracts.ActiveRunConflictError
 		if errors.As(activeErr, &conflictErr) {
-			conn.SendError(req.ID, "active_run_conflict", 409, "multiple active runs found for chat", map[string]any{
-				"code":   "active_run_conflict",
-				"chatId": conflictErr.ChatID,
-				"runIds": append([]string(nil), conflictErr.RunIDs...),
-			})
+			conn.SendError(req.ID, activeRunConflictCode, 409, activeRunConflictMessage, activeRunConflictInfo(conflictErr))
 			conn.CompleteRequest(req.ID)
 			return
 		}
@@ -424,11 +416,7 @@ func (s *Server) wsChatDelete(_ context.Context, conn *ws.Conn, req ws.RequestFr
 			return
 		}
 		if ok {
-			conn.SendError(req.ID, "active_run_conflict", 409, "active run found for chat", map[string]any{
-				"code":   "active_run_conflict",
-				"chatId": chatID,
-				"runIds": []string{activeRun.RunID},
-			})
+			conn.SendError(req.ID, activeRunConflictCode, 409, activeRunFoundMessage, activeRunFoundInfo(chatID, []string{activeRun.RunID}))
 			conn.CompleteRequest(req.ID)
 			return
 		}

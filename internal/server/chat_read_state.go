@@ -1,6 +1,8 @@
 package server
 
 import (
+	"errors"
+
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
@@ -65,6 +67,11 @@ func (s *Server) mapAgentChatSummaries(items []chat.Summary) ([]api.ChatSummaryR
 	for i := range response {
 		activeRun, ok, err := s.deps.Runs.ActiveRunForChat(response[i].ChatID)
 		if err != nil {
+			var conflictErr *contracts.ActiveRunConflictError
+			if errors.As(err, &conflictErr) {
+				response[i].Error = activeRunConflictInfo(conflictErr)
+				continue
+			}
 			return nil, err
 		}
 		if ok {

@@ -290,6 +290,104 @@ func TestWebSocketChatReturnsActiveRunConflict(t *testing.T) {
 	if frame.Frame != ws.FrameError || frame.Type != "active_run_conflict" || frame.Code != http.StatusConflict {
 		t.Fatalf("unexpected websocket error frame: %s", string(raw))
 	}
+	if frame.Msg != activeRunConflictMessage {
+		t.Fatalf("unexpected websocket error message: %#v", frame)
+	}
+	assertActiveRunConflictInfo(t, decodeWSChatErrorInfo(t, frame.Data), activeRunConflictMessage, "chat_ws_conflict", "run_ws_1", "run_ws_2")
+}
+
+func TestWebSocketAgentsKeepsChatWithActiveRunConflictError(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		sandbox:       &recordingSandbox{},
+		notifications: ws.NewHub(),
+		configure: func(cfg *config.Config) {
+			cfg.WebSocket.WriteQueueSize = 4
+			cfg.WebSocket.PingIntervalMs = 30000
+		},
+	})
+
+	if _, _, err := fixture.chats.EnsureChat("chat_ws_agents_conflict", "mock-agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	runs := fixture.runs.(*contracts.InMemoryRunManager)
+	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
+		RunID:    "run_ws_agents_1",
+		ChatID:   "chat_ws_agents_conflict",
+		AgentKey: "mock-agent",
+	})
+	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
+		RunID:    "run_ws_agents_2",
+		ChatID:   "chat_ws_agents_conflict",
+		AgentKey: "mock-agent",
+	})
+
+	server := httptest.NewServer(fixture.server)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
+	conn, _, err := gws.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer conn.Close()
+	waitForPushFrameType(t, conn, "connected")
+
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame: ws.FrameRequest,
+		Type:  "/api/agents",
+		ID:    "req_agents_conflict",
+		Payload: ws.MarshalPayload(map[string]any{
+			"includeChats": 1,
+		}),
+	}); err != nil {
+		t.Fatalf("write request: %v", err)
+	}
+
+	raw := waitForWebSocketFrame(t, conn, func(data []byte) bool {
+		var meta struct {
+			Frame string `json:"frame"`
+			ID    string `json:"id"`
+		}
+		if err := json.Unmarshal(data, &meta); err != nil {
+			t.Fatalf("decode websocket frame metadata: %v", err)
+		}
+		return meta.ID == "req_agents_conflict" && (meta.Frame == ws.FrameResponse || meta.Frame == ws.FrameError)
+	})
+	var frame struct {
+		Frame string             `json:"frame"`
+		Type  string             `json:"type"`
+		ID    string             `json:"id"`
+		Code  int                `json:"code"`
+		Msg   string             `json:"msg"`
+		Data  []api.AgentSummary `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &frame); err != nil {
+		t.Fatalf("decode websocket agents frame: %v", err)
+	}
+	if frame.Frame != ws.FrameResponse || frame.Type != "/api/agents" || frame.Code != 0 {
+		t.Fatalf("expected successful agents response, got %s", string(raw))
+	}
+	var conflicted *api.ChatSummaryResponse
+	for _, agent := range frame.Data {
+		for i := range agent.Chats {
+			if agent.Chats[i].ChatID == "chat_ws_agents_conflict" {
+				conflicted = &agent.Chats[i]
+				break
+			}
+		}
+	}
+	if conflicted == nil {
+		t.Fatalf("expected conflicted chat in agents response: %#v", frame.Data)
+	}
+	if conflicted.ActiveRun != nil {
+		t.Fatalf("conflicted chat should not expose activeRun, got %#v", conflicted.ActiveRun)
+	}
+	if conflicted.Error == nil {
+		t.Fatalf("expected chat error on conflicted chat, got %#v", conflicted)
+	}
+	assertActiveRunConflictInfo(t, *conflicted.Error, activeRunConflictMessage, "chat_ws_agents_conflict", "run_ws_agents_1", "run_ws_agents_2")
 }
 
 func TestWebSocketPushesChatReadAfterMarkRead(t *testing.T) {
@@ -1333,6 +1431,41 @@ func countStrings(values []string, target string) int {
 		}
 	}
 	return count
+}
+
+func decodeWSChatErrorInfo(t *testing.T, data any) api.ChatErrorInfo {
+	t.Helper()
+	encoded, err := json.Marshal(data)
+	if err != nil {
+		t.Fatalf("marshal websocket error data: %v", err)
+	}
+	var info api.ChatErrorInfo
+	if err := json.Unmarshal(encoded, &info); err != nil {
+		t.Fatalf("decode websocket chat error data: %v", err)
+	}
+	return info
+}
+
+func assertActiveRunConflictInfo(t *testing.T, info api.ChatErrorInfo, message string, chatID string, runIDs ...string) {
+	t.Helper()
+	if info.Code != activeRunConflictCode || info.Message != message || info.ChatID != chatID {
+		t.Fatalf("unexpected chat error info: %#v", info)
+	}
+	if len(info.RunIDs) != len(runIDs) {
+		t.Fatalf("expected run ids %v, got %v", runIDs, info.RunIDs)
+	}
+	counts := map[string]int{}
+	for _, runID := range info.RunIDs {
+		counts[runID]++
+	}
+	for _, runID := range runIDs {
+		counts[runID]--
+	}
+	for runID, count := range counts {
+		if count != 0 {
+			t.Fatalf("expected run ids %v, got %v; mismatch %s=%d", runIDs, info.RunIDs, runID, count)
+		}
+	}
 }
 
 func waitForWebSocketFrame(t *testing.T, conn *gws.Conn, match func([]byte) bool) []byte {

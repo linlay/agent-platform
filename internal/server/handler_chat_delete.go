@@ -37,14 +37,10 @@ func (s *Server) handleChatDelete(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if ok {
-			writeJSON(w, http.StatusConflict, api.ApiResponse[map[string]any]{
+			writeJSON(w, http.StatusConflict, api.ApiResponse[*api.ChatErrorInfo]{
 				Code: http.StatusConflict,
-				Msg:  "active_run_conflict",
-				Data: map[string]any{
-					"code":   "active_run_conflict",
-					"chatId": chatID,
-					"runIds": []string{activeRun.RunID},
-				},
+				Msg:  activeRunConflictCode,
+				Data: activeRunFoundInfo(chatID, []string{activeRun.RunID}),
 			})
 			return
 		}

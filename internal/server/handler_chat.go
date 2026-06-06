@@ -135,15 +135,40 @@ func (s *Server) loadChatDetail(ctx context.Context, chatID string, includeRawMe
 	return response, nil
 }
 
+const (
+	activeRunConflictCode    = "active_run_conflict"
+	activeRunConflictMessage = "multiple active runs found for chat"
+	activeRunFoundMessage    = "active run found for chat"
+)
+
+func activeRunConflictInfo(conflict *contracts.ActiveRunConflictError) *api.ChatErrorInfo {
+	if conflict == nil {
+		return activeRunConflictInfoFor("", activeRunConflictMessage, nil)
+	}
+	return activeRunConflictInfoFor(conflict.ChatID, activeRunConflictMessage, conflict.RunIDs)
+}
+
+func activeRunFoundInfo(chatID string, runIDs []string) *api.ChatErrorInfo {
+	return activeRunConflictInfoFor(chatID, activeRunFoundMessage, runIDs)
+}
+
+func activeRunConflictInfoFor(chatID string, message string, runIDs []string) *api.ChatErrorInfo {
+	if message == "" {
+		message = activeRunConflictMessage
+	}
+	return &api.ChatErrorInfo{
+		Code:    activeRunConflictCode,
+		Message: message,
+		ChatID:  chatID,
+		RunIDs:  append([]string(nil), runIDs...),
+	}
+}
+
 func writeActiveRunConflict(w http.ResponseWriter, conflict *contracts.ActiveRunConflictError) {
-	writeJSON(w, http.StatusConflict, api.ApiResponse[map[string]any]{
+	writeJSON(w, http.StatusConflict, api.ApiResponse[*api.ChatErrorInfo]{
 		Code: http.StatusConflict,
-		Msg:  "active_run_conflict",
-		Data: map[string]any{
-			"code":   "active_run_conflict",
-			"chatId": conflict.ChatID,
-			"runIds": append([]string(nil), conflict.RunIDs...),
-		},
+		Msg:  activeRunConflictCode,
+		Data: activeRunConflictInfo(conflict),
 	})
 }
 

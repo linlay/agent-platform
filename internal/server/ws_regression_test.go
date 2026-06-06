@@ -524,6 +524,31 @@ func TestListAgentSummariesIncludesChatStats(t *testing.T) {
 	if chatA1.ActiveRun != nil {
 		t.Fatalf("/api/chats summaries should not include activeRun, got %#v", chatA1.ActiveRun)
 	}
+
+	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
+		RunID:    "run-active-a1-duplicate",
+		ChatID:   "chat-a1",
+		AgentKey: "agent-a",
+	})
+	items, err = server.listAgentSummaries(1, "")
+	if err != nil {
+		t.Fatalf("list agent summaries should keep chat-level active run conflicts: %v", err)
+	}
+	chatsByKey = map[string][]api.ChatSummaryResponse{}
+	for _, item := range items {
+		chatsByKey[item.Key] = item.Chats
+	}
+	got := chatsByKey["agent-a"]
+	if len(got) != 1 || got[0].ChatID != "chat-a1" {
+		t.Fatalf("unexpected agent-a chats after conflict: %#v", got)
+	}
+	if got[0].ActiveRun != nil {
+		t.Fatalf("conflicted agent chat should not include activeRun, got %#v", got[0].ActiveRun)
+	}
+	if got[0].Error == nil {
+		t.Fatalf("expected chat-level conflict error, got %#v", got[0])
+	}
+	assertActiveRunConflictInfo(t, *got[0].Error, activeRunConflictMessage, "chat-a1", "run-active-a1", "run-active-a1-duplicate")
 }
 
 type wsRegressionCatalogRegistry struct {

@@ -68,6 +68,8 @@ GET /ws -> request / response / stream / push / error frames
 
 `/api/chats` 的 chat 摘要在存在可恢复等待项时包含 `awaiting`：`awaitingId`、`runId`、`mode`、`status:"awaiting"`、`createdAt`。
 
+`/api/agents?includeChats=N` 附带的 chat 摘要可能包含局部 `error`，用于展示单个 chat 的可恢复/可诊断异常而不让列表整体失败。当前 `multiple active runs found for chat` 会返回 `error: { "code": "active_run_conflict", "message": "multiple active runs found for chat", "chatId": "...", "runIds": ["..."] }`，此时该 chat 不包含 `activeRun`。
+
 ### Archive
 
 | Method | Path | 参数 | 响应 |
@@ -255,6 +257,7 @@ resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界
 ```json
 {"frame":"push","type":"connected","data":{}}
 {"frame":"error","type":"invalid_request","id":"req-1","code":400,"msg":"...","data":{}}
+{"frame":"error","type":"active_run_conflict","id":"req-1","code":409,"msg":"multiple active runs found for chat","data":{"code":"active_run_conflict","message":"multiple active runs found for chat","chatId":"chat-id","runIds":["run-1","run-2"]}}
 ```
 
 当前 platform 主动发送的 `push.type`：
