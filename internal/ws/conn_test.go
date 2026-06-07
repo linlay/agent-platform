@@ -31,6 +31,58 @@ func TestConnRejectsDuplicateObserve(t *testing.T) {
 	}
 }
 
+func TestConnDetachRunStreamReleasesObserverAndAllowsReobserve(t *testing.T) {
+	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 8, MaxObservesPerConn: 2}, time.Second, AuthSession{})
+	streamID, err := conn.ReserveStream("req_1", "run_1")
+	if err != nil {
+		t.Fatalf("reserve stream: %v", err)
+	}
+
+	events := make(chan stream.EventData, 1)
+	detachCount := 0
+	conn.AttachObserver("req_1", "obs_1", func() {
+		detachCount++
+		close(events)
+	})
+	conn.StartStreamForward("req_1", &stream.Observer{Events: events})
+	events <- stream.EventData{Seq: 7, Type: "content.delta"}
+
+	msg := mustReadQueuedMessage(t, conn.writeQueue)
+	frame, ok := msg.frame.(StreamFrame)
+	if !ok || frame.Event == nil || frame.Event.Seq != 7 {
+		t.Fatalf("expected forwarded event frame, got %#v", msg.frame)
+	}
+
+	detached, ok := conn.DetachRunStream("run_1")
+	if !ok {
+		t.Fatalf("expected run stream to detach")
+	}
+	if detached.RunID != "run_1" || detached.StreamRequestID != "req_1" || detached.StreamID != streamID || detached.LastSeq != 7 {
+		t.Fatalf("unexpected detach result %#v", detached)
+	}
+	msg = mustReadQueuedMessage(t, conn.writeQueue)
+	frame, ok = msg.frame.(StreamFrame)
+	if !ok {
+		t.Fatalf("expected detached terminal frame, got %#v", msg.frame)
+	}
+	if frame.ID != "req_1" || frame.StreamID != streamID || frame.Reason != "detached" || frame.LastSeq != 7 {
+		t.Fatalf("unexpected detached terminal frame %#v", frame)
+	}
+	if detachCount != 1 {
+		t.Fatalf("expected detach callback once, got %d", detachCount)
+	}
+	if _, ok := conn.DetachRunStream("run_1"); ok {
+		t.Fatalf("expected second detach to be a no-op")
+	}
+	if detachCount != 1 {
+		t.Fatalf("expected detach callback to remain once, got %d", detachCount)
+	}
+	if _, err := conn.ReserveStream("req_2", "run_1"); err != nil {
+		t.Fatalf("expected run to be observable after detach: %v", err)
+	}
+	conn.ReleaseStream("req_2")
+}
+
 func TestConnClosesOnWriteQueueOverflow(t *testing.T) {
 	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 1}, time.Second, AuthSession{})
 	if !conn.SendPush("heartbeat", map[string]any{"timestamp": 1}) {

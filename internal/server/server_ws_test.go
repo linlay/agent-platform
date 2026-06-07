@@ -696,6 +696,109 @@ func TestWebSocketRunStreamClosesDuringShutdown(t *testing.T) {
 	}
 }
 
+func TestWebSocketDetachReleasesRunObserverWithoutFinishingRun(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		notifications: ws.NewHub(),
+		configure: func(cfg *config.Config) {
+			cfg.WebSocket.WriteQueueSize = 8
+			cfg.WebSocket.PingInterval = 30000
+		},
+	})
+
+	runs := fixture.runs.(*contracts.InMemoryRunManager)
+	runID := "run_ws_detach"
+	_, _, _ = runs.Register(context.Background(), contracts.QuerySession{
+		RunID:    runID,
+		ChatID:   "chat_ws_detach",
+		AgentKey: "mock-agent",
+	})
+
+	server := httptest.NewServer(fixture.server)
+	defer server.Close()
+	conn, _, err := gws.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http")+"/ws", nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer conn.Close()
+	readConnectedPush(t, conn)
+
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame: ws.FrameRequest,
+		Type:  "/api/attach",
+		ID:    "req_attach_detach",
+		Payload: ws.MarshalPayload(map[string]any{
+			"agentKey": "mock-agent",
+			"runId":    runID,
+		}),
+	}); err != nil {
+		t.Fatalf("write attach request: %v", err)
+	}
+	waitForObserverCount(t, runs, runID, 1, 2*time.Second)
+
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame: ws.FrameRequest,
+		Type:  "/api/detach",
+		ID:    "req_detach",
+		Payload: ws.MarshalPayload(map[string]any{
+			"agentKey": "mock-agent",
+			"runId":    runID,
+			"reason":   "chat_switch",
+		}),
+	}); err != nil {
+		t.Fatalf("write detach request: %v", err)
+	}
+
+	detachResp, terminal := waitForWebSocketDetachFrames(t, conn, "req_detach", "req_attach_detach")
+	if !detachResp.Accepted || detachResp.Status != "detached" || detachResp.RunID != runID {
+		t.Fatalf("unexpected detach response %#v", detachResp)
+	}
+	if detachResp.StreamRequestID != "req_attach_detach" || detachResp.StreamID == "" {
+		t.Fatalf("expected detach response to identify stream, got %#v", detachResp)
+	}
+	if terminal.Reason != "detached" || terminal.ID != "req_attach_detach" || terminal.StreamID != detachResp.StreamID {
+		t.Fatalf("unexpected detached terminal frame %#v", terminal)
+	}
+	waitForObserverCount(t, runs, runID, 0, 2*time.Second)
+	status, ok := runs.RunStatus(runID)
+	if !ok {
+		t.Fatalf("expected run status after detach")
+	}
+	if status.CompletedAt != 0 {
+		t.Fatalf("detach should not finish run, got status %#v", status)
+	}
+
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame: ws.FrameRequest,
+		Type:  "/api/detach",
+		ID:    "req_detach_again",
+		Payload: ws.MarshalPayload(map[string]any{
+			"agentKey": "mock-agent",
+			"runId":    runID,
+		}),
+	}); err != nil {
+		t.Fatalf("write second detach request: %v", err)
+	}
+	notObserving := waitForWebSocketResponseData[api.DetachResponse](t, conn, "req_detach_again")
+	if notObserving.Accepted || notObserving.Status != "not_observing" || notObserving.RunID != runID {
+		t.Fatalf("unexpected second detach response %#v", notObserving)
+	}
+
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame: ws.FrameRequest,
+		Type:  "/api/attach",
+		ID:    "req_attach_again",
+		Payload: ws.MarshalPayload(map[string]any{
+			"agentKey": "mock-agent",
+			"runId":    runID,
+		}),
+	}); err != nil {
+		t.Fatalf("write reattach request: %v", err)
+	}
+	waitForObserverCount(t, runs, runID, 1, 2*time.Second)
+}
+
 func TestWebSocketPushAwaitingAskAndAnswerSyncPendingChatSummary(t *testing.T) {
 	flow := startAwaitingPushQuestionFlow(t, nil)
 	defer flow.conn.Close()
@@ -1466,6 +1569,102 @@ func assertActiveRunConflictInfo(t *testing.T, info api.ChatErrorInfo, message s
 			t.Fatalf("expected run ids %v, got %v; mismatch %s=%d", runIDs, info.RunIDs, runID, count)
 		}
 	}
+}
+
+func waitForWebSocketDetachFrames(t *testing.T, conn *gws.Conn, detachID string, streamRequestID string) (api.DetachResponse, ws.StreamFrame) {
+	t.Helper()
+	var (
+		response    api.DetachResponse
+		gotResponse bool
+		terminal    ws.StreamFrame
+		gotTerminal bool
+		deadline    = time.Now().Add(5 * time.Second)
+	)
+	for time.Now().Before(deadline) {
+		if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+			t.Fatalf("set websocket read deadline: %v", err)
+		}
+		_, raw, err := conn.ReadMessage()
+		if err != nil {
+			t.Fatalf("read websocket message: %v", err)
+		}
+		var meta struct {
+			Frame string `json:"frame"`
+			ID    string `json:"id"`
+		}
+		if err := json.Unmarshal(raw, &meta); err != nil {
+			t.Fatalf("decode websocket frame metadata: %v", err)
+		}
+		switch {
+		case meta.Frame == ws.FrameResponse && meta.ID == detachID:
+			var frame ws.ResponseFrame
+			if err := json.Unmarshal(raw, &frame); err != nil {
+				t.Fatalf("decode detach response frame: %v", err)
+			}
+			if frame.Code != 0 {
+				t.Fatalf("expected successful detach response, got %#v", frame)
+			}
+			var decodeErr error
+			response, decodeErr = marshalResponseData[api.DetachResponse](frame.Data)
+			if decodeErr != nil {
+				t.Fatalf("decode detach response data: %v", decodeErr)
+			}
+			gotResponse = true
+		case meta.Frame == ws.FrameStream && meta.ID == streamRequestID:
+			var frame ws.StreamFrame
+			if err := json.Unmarshal(raw, &frame); err != nil {
+				t.Fatalf("decode detached terminal frame: %v", err)
+			}
+			if frame.Reason != "" {
+				terminal = frame
+				gotTerminal = true
+			}
+		}
+		if gotResponse && gotTerminal {
+			return response, terminal
+		}
+	}
+	t.Fatalf("timed out waiting for detach response and terminal stream frame")
+	return api.DetachResponse{}, ws.StreamFrame{}
+}
+
+func waitForWebSocketResponseData[T any](t *testing.T, conn *gws.Conn, requestID string) T {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+			t.Fatalf("set websocket read deadline: %v", err)
+		}
+		_, raw, err := conn.ReadMessage()
+		if err != nil {
+			t.Fatalf("read websocket message: %v", err)
+		}
+		var meta struct {
+			Frame string `json:"frame"`
+			ID    string `json:"id"`
+		}
+		if err := json.Unmarshal(raw, &meta); err != nil {
+			t.Fatalf("decode websocket frame metadata: %v", err)
+		}
+		if meta.Frame != ws.FrameResponse || meta.ID != requestID {
+			continue
+		}
+		var frame ws.ResponseFrame
+		if err := json.Unmarshal(raw, &frame); err != nil {
+			t.Fatalf("decode websocket response frame: %v", err)
+		}
+		if frame.Code != 0 {
+			t.Fatalf("expected successful websocket response, got %#v", frame)
+		}
+		data, decodeErr := marshalResponseData[T](frame.Data)
+		if decodeErr != nil {
+			t.Fatalf("decode websocket response data: %v", decodeErr)
+		}
+		return data
+	}
+	t.Fatalf("timed out waiting for websocket response %s", requestID)
+	var zero T
+	return zero
 }
 
 func waitForWebSocketFrame(t *testing.T, conn *gws.Conn, match func([]byte) bool) []byte {

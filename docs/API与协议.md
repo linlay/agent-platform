@@ -343,6 +343,7 @@ resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界
 | `/api/chats/search` | `query`、`agentKey`、`teamId`、`limit` | `response` |
 | `/api/query` | `QueryRequest` | `stream` |
 | `/api/attach` | `runId`、`agentKey`、`lastSeq` | `stream` |
+| `/api/detach` | `runId`、`agentKey`、`reason` | `response`；关闭当前 WS 连接上该 run 的 observer，不中断 run |
 | `/api/submit` | `SubmitRequest` | `response` |
 | `/api/steer` | `SteerRequest` | `response` |
 | `/api/interrupt` | `InterruptRequest` | `response` |
@@ -364,7 +365,8 @@ resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界
 ## 约束与注意事项
 
 - HTTP query 参数在 WS payload 中通常以同名 JSON 字段传入。
-- `GET /api/attach`、`POST /api/submit`、`POST /api/steer`、`POST /api/interrupt` 都要求 `agentKey`，并校验 run 归属。
+- `GET /api/attach`、WS `/api/detach`、`POST /api/submit`、`POST /api/steer`、`POST /api/interrupt` 都要求 `agentKey`，并校验 run 归属。
+- WS 客户端切换 current chat 时，应先对旧 chat 的 active run 发送 `/api/detach`，再对新 chat 的 active run 发送 `/api/attach`；detach 只释放当前 WS 连接上的订阅流，不停止后台 run。
 - WS `/api/resource` 要求 `file + pushURL`，用于将本地资源推给 gateway；HTTP `/api/resource` 直接返回文件字节。
 - `.tools` 是隐藏工具内部目录，不通过 `/api/resource` 或 WS `/api/resource` 暴露；HTTP `/api/tool-result` 接受 `.tools/results/<toolId>.json`，并兼容旧 `.tool-results/<toolId>.json`。
 - 反向 gateway 配置在 `configs/channels.yml`，不再通过旧单 gateway env 合成。

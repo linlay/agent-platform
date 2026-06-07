@@ -196,6 +196,41 @@ func (s *Server) wsAttach(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 	conn.StartStreamForward(req.ID, observer)
 }
 
+func (s *Server) wsDetach(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
+	payload, err := ws.DecodePayload[api.DetachRequest](req)
+	if err != nil {
+		conn.SendError(req.ID, "invalid_request", 400, "invalid detach payload", nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	if statusErr := s.validateRunAgentKey(payload.RunID, payload.AgentKey); statusErr != nil {
+		s.sendWSStatusError(conn, req.ID, statusErr)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	detached, ok := conn.DetachRunStream(payload.RunID)
+	if !ok {
+		conn.SendResponse(req.Type, req.ID, 0, "success", api.DetachResponse{
+			Accepted: false,
+			Status:   "not_observing",
+			RunID:    payload.RunID,
+			Detail:   "Stream is not observed on this connection",
+		})
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	conn.SendResponse(req.Type, req.ID, 0, "success", api.DetachResponse{
+		Accepted:        true,
+		Status:          "detached",
+		RunID:           detached.RunID,
+		StreamRequestID: detached.StreamRequestID,
+		StreamID:        detached.StreamID,
+		LastSeq:         detached.LastSeq,
+		Detail:          "Stream detached",
+	})
+	conn.CompleteRequest(req.ID)
+}
+
 func (s *Server) wsSubmit(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
 	payload, err := ws.DecodePayload[api.SubmitRequest](req)
 	if err != nil {

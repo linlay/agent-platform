@@ -112,6 +112,7 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/query/availability", s.wsQueryAvailability)
 	handler.RegisterRoute("/api/query", s.wsQuery)
 	handler.RegisterRoute("/api/attach", s.wsAttach)
+	handler.RegisterRoute("/api/detach", s.wsDetach)
 	handler.RegisterRoute("/api/submit", s.wsSubmit)
 	handler.RegisterRoute("/api/steer", s.wsSteer)
 	handler.RegisterRoute("/api/interrupt", s.wsInterrupt)

@@ -262,6 +262,22 @@ type InterruptResponse struct {
 	Detail   string `json:"detail"`
 }
 
+type DetachRequest struct {
+	RunID    string `json:"runId"`
+	AgentKey string `json:"agentKey"`
+	Reason   string `json:"reason,omitempty"`
+}
+
+type DetachResponse struct {
+	Accepted        bool   `json:"accepted"`
+	Status          string `json:"status"`
+	RunID           string `json:"runId"`
+	StreamRequestID string `json:"streamRequestId,omitempty"`
+	StreamID        string `json:"streamId,omitempty"`
+	LastSeq         int64  `json:"lastSeq"`
+	Detail          string `json:"detail"`
+}
+
 type AccessLevelRequest struct {
 	RequestID   string `json:"requestId,omitempty"`
 	RunID       string `json:"runId"`

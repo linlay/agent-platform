@@ -56,6 +56,24 @@ func TestRunControlWSRequiresAndValidatesAgentKey(t *testing.T) {
 			code:    http.StatusForbidden,
 		},
 		{
+			name:    "detach missing agentKey",
+			typ:     "/api/detach",
+			payload: map[string]any{"runId": "run-ws-agent-check"},
+			code:    http.StatusBadRequest,
+		},
+		{
+			name:    "detach mismatched agentKey",
+			typ:     "/api/detach",
+			payload: map[string]any{"agentKey": "other-agent", "runId": "run-ws-agent-check"},
+			code:    http.StatusForbidden,
+		},
+		{
+			name:    "detach not found",
+			typ:     "/api/detach",
+			payload: map[string]any{"agentKey": "mock-agent", "runId": "run-ws-agent-missing"},
+			code:    http.StatusNotFound,
+		},
+		{
 			name:    "submit missing agentKey",
 			typ:     "/api/submit",
 			payload: map[string]any{"runId": "run-ws-agent-check", "awaitingId": "await-ws-agent-check", "params": []any{}},

@@ -28,8 +28,16 @@ type streamEntry struct {
 	runID      string
 	streamID   string
 	observerID string
+	lastSeq    int64
 	detach     func()
 	detachOnce sync.Once
+}
+
+type DetachedStream struct {
+	RunID           string
+	StreamRequestID string
+	StreamID        string
+	LastSeq         int64
 }
 
 type Conn struct {
@@ -259,21 +267,67 @@ func (c *Conn) ReserveStream(requestID string, runID string) (string, error) {
 }
 
 func (c *Conn) ReleaseStream(requestID string) {
-	if c == nil || requestID == "" {
-		return
+	c.releaseStream(requestID, false, "", 0)
+}
+
+func (c *Conn) DetachRunStream(runID string) (DetachedStream, bool) {
+	if c == nil {
+		return DetachedStream{}, false
 	}
-	var entry *streamEntry
+	runID = strings.TrimSpace(runID)
+	if runID == "" {
+		return DetachedStream{}, false
+	}
+	c.mu.Lock()
+	requestID := c.observingRuns[runID]
+	c.mu.Unlock()
+	if requestID == "" {
+		return DetachedStream{}, false
+	}
+	return c.releaseStream(requestID, true, "detached", 0)
+}
+
+func (c *Conn) releaseStream(requestID string, sendTerminal bool, reason string, lastSeq int64) (DetachedStream, bool) {
+	if c == nil || requestID == "" {
+		return DetachedStream{}, false
+	}
+	var (
+		entry  *streamEntry
+		result DetachedStream
+	)
 	c.mu.Lock()
 	entry = c.activeStreams[requestID]
 	if entry != nil {
 		delete(c.activeStreams, requestID)
 		delete(c.observingRuns, entry.runID)
+		if lastSeq > entry.lastSeq {
+			entry.lastSeq = lastSeq
+		}
+		result = DetachedStream{
+			RunID:           entry.runID,
+			StreamRequestID: requestID,
+			StreamID:        entry.streamID,
+			LastSeq:         entry.lastSeq,
+		}
+		if sendTerminal && !c.isClosed() {
+			_ = c.enqueue(outboundMessage{
+				frame: StreamFrame{
+					Frame:    FrameStream,
+					ID:       requestID,
+					StreamID: entry.streamID,
+					Reason:   reason,
+					LastSeq:  entry.lastSeq,
+				},
+				msgType: gws.TextMessage,
+			})
+		}
 	}
 	delete(c.inflightRequests, requestID)
 	c.mu.Unlock()
 	if entry != nil && entry.detach != nil {
 		entry.detachOnce.Do(entry.detach)
 	}
+	return result, entry != nil
 }
 
 func (c *Conn) AttachObserver(requestID string, observerID string, detach func()) {
@@ -313,19 +367,7 @@ func (c *Conn) StartStreamForward(requestID string, observer *stream.Observer) {
 				case "run.cancel":
 					reason = "cancelled"
 				}
-				entry := c.lookupStream(requestID)
-				if entry == nil {
-					return
-				}
-				if !c.enqueue(outboundMessage{
-					frame: StreamFrame{
-						Frame:    FrameStream,
-						ID:       requestID,
-						StreamID: entry.streamID,
-						Event:    &event,
-					},
-					msgType: gws.TextMessage,
-				}) {
+				if !c.sendStreamEvent(requestID, event) {
 					return
 				}
 			}
@@ -333,30 +375,32 @@ func (c *Conn) StartStreamForward(requestID string, observer *stream.Observer) {
 	}()
 }
 
-func (c *Conn) lookupStream(requestID string) *streamEntry {
+func (c *Conn) sendStreamEvent(requestID string, event stream.EventData) bool {
+	if c == nil || requestID == "" {
+		return false
+	}
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.activeStreams[requestID]
+	entry := c.activeStreams[requestID]
+	if entry == nil {
+		c.mu.Unlock()
+		return false
+	}
+	entry.lastSeq = event.Seq
+	ok := c.enqueue(outboundMessage{
+		frame: StreamFrame{
+			Frame:    FrameStream,
+			ID:       requestID,
+			StreamID: entry.streamID,
+			Event:    &event,
+		},
+		msgType: gws.TextMessage,
+	})
+	c.mu.Unlock()
+	return ok
 }
 
 func (c *Conn) finishStream(requestID string, reason string, lastSeq int64) {
-	entry := c.lookupStream(requestID)
-	if entry == nil {
-		return
-	}
-	if !c.isClosed() {
-		_ = c.enqueue(outboundMessage{
-			frame: StreamFrame{
-				Frame:    FrameStream,
-				ID:       requestID,
-				StreamID: entry.streamID,
-				Reason:   reason,
-				LastSeq:  lastSeq,
-			},
-			msgType: gws.TextMessage,
-		})
-	}
-	c.ReleaseStream(requestID)
+	c.releaseStream(requestID, true, reason, lastSeq)
 }
 
 func (c *Conn) SendResponse(frameType string, id string, code int, msg string, data any) bool {
