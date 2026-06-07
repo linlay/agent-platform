@@ -11,7 +11,7 @@ import (
 type Handler interface {
 	ToolName() string
 	ValidateArgs(args map[string]any) error
-	BuildInitialAwaitAsk(toolID string, runID string, tool api.ToolDetailResponse, args map[string]any, chunkIndex int, timeoutMs int64) *stream.AwaitAsk
+	BuildInitialAwaitAsk(toolID string, runID string, tool api.ToolDetailResponse, args map[string]any, chunkIndex int, timeout int64) *stream.AwaitAsk
 	NormalizeSubmit(args map[string]any, params any) (map[string]any, error)
 	FormatSubmitResult(format string, result contracts.ToolExecutionResult) (string, bool)
 }

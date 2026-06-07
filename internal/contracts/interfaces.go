@@ -142,7 +142,7 @@ type ActionInvoker interface {
 
 type SandboxClient interface {
 	OpenIfNeeded(ctx context.Context, execCtx *ExecutionContext) error
-	Execute(ctx context.Context, execCtx *ExecutionContext, command string, cwd string, timeoutMs int64, env map[string]string) (SandboxExecutionResult, error)
+	Execute(ctx context.Context, execCtx *ExecutionContext, command string, cwd string, timeout int64, env map[string]string) (SandboxExecutionResult, error)
 	CloseQuietly(execCtx *ExecutionContext)
 }
 
@@ -325,7 +325,7 @@ type AwaitingSubmitContext struct {
 	Mode       string
 	ItemCount  int
 	NoTimeout  bool
-	TimeoutMs  int64
+	Timeout    int64
 }
 
 func (c AwaitingSubmitContext) Clone() AwaitingSubmitContext {
@@ -334,7 +334,7 @@ func (c AwaitingSubmitContext) Clone() AwaitingSubmitContext {
 		Mode:       c.Mode,
 		ItemCount:  c.ItemCount,
 		NoTimeout:  c.NoTimeout,
-		TimeoutMs:  c.TimeoutMs,
+		Timeout:    c.Timeout,
 	}
 }
 

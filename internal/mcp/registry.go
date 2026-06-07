@@ -15,7 +15,8 @@ import (
 	"agent-platform/internal/contracts"
 )
 
-const defaultReadTimeoutMs = 15000
+const defaultReadTimeout = 15
+const migrationRequiredPrefix = "migration required:"
 
 type Registry struct {
 	root string
@@ -106,6 +107,9 @@ func loadServersFromDir(root string) (map[string]ServerDefinition, error) {
 	for _, path := range files {
 		server, err := parseServerFile(path)
 		if err != nil {
+			if strings.Contains(err.Error(), migrationRequiredPrefix) {
+				return nil, err
+			}
 			continue
 		}
 		if server.Key == "" || !server.Enabled() {
@@ -131,6 +135,19 @@ func parseServerFile(path string) (ServerDefinition, error) {
 	if !firstBool(root["enabled"], true) {
 		return ServerDefinition{}, nil
 	}
+	// Reject legacy ms fields
+	if _, hasOld := root["connectTimeoutMs"]; hasOld {
+		return ServerDefinition{}, fmt.Errorf("migration required: 'connectTimeoutMs' is removed, use 'connect-timeout' in seconds")
+	}
+	if _, hasOld := root["connect-timeout-ms"]; hasOld {
+		return ServerDefinition{}, fmt.Errorf("migration required: 'connect-timeout-ms' is removed, use 'connect-timeout' in seconds")
+	}
+	if _, hasOld := root["readTimeoutMs"]; hasOld {
+		return ServerDefinition{}, fmt.Errorf("migration required: 'readTimeoutMs' is removed, use 'read-timeout' in seconds")
+	}
+	if _, hasOld := root["read-timeout-ms"]; hasOld {
+		return ServerDefinition{}, fmt.Errorf("migration required: 'read-timeout-ms' is removed, use 'read-timeout' in seconds")
+	}
 	serverKey := normalizeKey(contracts.FirstNonEmptyString(root["serverKey"], root["server-key"], root["key"]))
 	if serverKey == "" {
 		base := filepath.Base(path)
@@ -142,21 +159,24 @@ func parseServerFile(path string) (ServerDefinition, error) {
 	}
 	endpointPath := normalizeEndpointPath(contracts.FirstNonEmptyString(root["endpointPath"], root["endpoint-path"], root["path"]))
 	server := ServerDefinition{
-		Key:              serverKey,
-		Name:             fallbackString(contracts.FirstNonEmptyString(root["name"]), serverKey),
-		BaseURL:          baseURL,
-		EndpointPath:     endpointPath,
-		ToolPrefix:       strings.TrimSpace(contracts.FirstNonEmptyString(root["toolPrefix"], root["tool-prefix"])),
-		AuthToken:        strings.TrimSpace(contracts.FirstNonEmptyString(root["authToken"], root["auth-token"])),
-		Headers:          normalizeStringMap(contracts.AnyMapNode(root["headers"])),
-		AliasMap:         normalizeAliasMap(contracts.AnyMapNode(root["aliasMap"])),
-		ConnectTimeoutMs: firstInt(root["connectTimeoutMs"], root["connect-timeout-ms"], 3000),
-		ReadTimeoutMs:    firstInt(root["readTimeoutMs"], root["read-timeout-ms"], defaultReadTimeoutMs),
-		Retry:            firstInt(root["retry"], nil, 1),
+		Key:            serverKey,
+		Name:           fallbackString(contracts.FirstNonEmptyString(root["name"]), serverKey),
+		BaseURL:        baseURL,
+		EndpointPath:   endpointPath,
+		ToolPrefix:     strings.TrimSpace(contracts.FirstNonEmptyString(root["toolPrefix"], root["tool-prefix"])),
+		AuthToken:      strings.TrimSpace(contracts.FirstNonEmptyString(root["authToken"], root["auth-token"])),
+		Headers:        normalizeStringMap(contracts.AnyMapNode(root["headers"])),
+		AliasMap:       normalizeAliasMap(contracts.AnyMapNode(root["aliasMap"])),
+		ConnectTimeout: firstInt(root["connect-timeout"], nil, 3),
+		ReadTimeout:    firstInt(root["read-timeout"], nil, defaultReadTimeout),
+		Retry:          firstInt(root["retry"], nil, 1),
 	}
 	for _, item := range listMaps(root["tools"]) {
 		tool, err := parseToolDefinition(item)
 		if err != nil {
+			if strings.Contains(err.Error(), migrationRequiredPrefix) {
+				return ServerDefinition{}, err
+			}
 			continue
 		}
 		server.Tools = append(server.Tools, tool)
@@ -168,6 +188,10 @@ func parseToolDefinition(root map[string]any) (ToolDefinition, error) {
 	name := strings.TrimSpace(contracts.FirstNonEmptyString(root["name"]))
 	if name == "" {
 		return ToolDefinition{}, fmt.Errorf("tool name is required")
+	}
+	meta := contracts.CloneMap(contracts.AnyMapNode(root["meta"]))
+	if _, hasOld := meta["timeoutMs"]; hasOld {
+		return ToolDefinition{}, fmt.Errorf("migration required: 'meta.timeoutMs' is removed, use 'meta.timeout' in seconds for tool %q", name)
 	}
 	parameters := contracts.AnyMapNode(root["inputSchema"])
 	if len(parameters) == 0 {
@@ -185,7 +209,7 @@ func parseToolDefinition(root map[string]any) (ToolDefinition, error) {
 		ViewportType:  strings.TrimSpace(contracts.FirstNonEmptyString(root["viewportType"])),
 		ViewportKey:   strings.TrimSpace(contracts.FirstNonEmptyString(root["viewportKey"])),
 		Aliases:       aliases,
-		Meta:          contracts.CloneMap(contracts.AnyMapNode(root["meta"])),
+		Meta:          meta,
 	}, nil
 }
 

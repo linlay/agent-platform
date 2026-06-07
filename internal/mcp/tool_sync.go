@@ -154,6 +154,10 @@ func (s *ToolSync) syncServer(ctx context.Context, server ServerDefinition) (ser
 		}
 		tool = applyServerToolOverride(tool, findServerToolOverride(server.Tools, tool))
 		def := tool.ToAPITool(server.Key)
+		if _, hasOld := def.Meta["timeoutMs"]; hasOld {
+			log.Printf("[mcp] rejected tool %q from server %q: 'meta.timeoutMs' is removed, use 'meta.timeout' in seconds", tool.Name, server.Key)
+			continue
+		}
 		toolsByName[normalizedName] = def
 		registerAliases(server, normalizedName, tool.Aliases, aliasToCanonical)
 	}

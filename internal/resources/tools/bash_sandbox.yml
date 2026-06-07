@@ -15,9 +15,9 @@ inputSchema:
     cwd:
       type: string
       description: Working directory for this execution. When empty, the current run's default sandbox cwd is used.
-    timeout_ms:
+    timeout:
       type: integer
-      description: Execution timeout in milliseconds.
+      description: Execution timeout in seconds.
     env:
       type: object
       description: 本次命令追加的环境变量（合并到 session 默认 env 之上）。

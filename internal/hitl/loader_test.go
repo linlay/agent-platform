@@ -270,7 +270,7 @@ commands:
 	}
 }
 
-func TestLoadRulesFlattensTimeoutMs(t *testing.T) {
+func TestLoadRulesFlattensTimeout(t *testing.T) {
 	root := t.TempDir()
 	content := `
 commands:
@@ -278,7 +278,7 @@ commands:
     subcommands:
       - match: create-leave
         level: 1
-        timeoutMs: 600000
+        timeout: 600
 `
 	if err := os.WriteFile(filepath.Join(root, "mock.yml"), []byte(content), 0o644); err != nil {
 		t.Fatalf("write rule file: %v", err)
@@ -291,8 +291,8 @@ commands:
 	if len(rules) != 1 {
 		t.Fatalf("expected 1 rule, got %#v", rules)
 	}
-	if rules[0].TimeoutMs != 600000 {
-		t.Fatalf("expected flattened timeout 600000, got %#v", rules[0])
+	if rules[0].Timeout != 600 {
+		t.Fatalf("expected flattened timeout 600, got %#v", rules[0])
 	}
 }
 

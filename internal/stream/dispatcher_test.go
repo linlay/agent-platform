@@ -410,7 +410,7 @@ func TestDispatcherEmitsQuestionModeAwaitAskAfterToolEnd(t *testing.T) {
 		ViewportType: "builtin",
 		ViewportKey:  "confirm_dialog",
 		Mode:         "question",
-		Timeout:      120000,
+		Timeout:      120,
 		RunID:        "run_1",
 	})
 	assertEventTypes(t, awaitEvents, "awaiting.ask")
@@ -430,7 +430,7 @@ func TestDispatcherEmitsApprovalModeAwaitAskWithQuestions(t *testing.T) {
 	viewportEvents := dispatcher.Dispatch(AwaitAsk{
 		AwaitingID: "tool_1",
 		Mode:       "approval",
-		Timeout:    120000,
+		Timeout:    120,
 		RunID:      "run_1",
 		Approvals: []any{
 			map[string]any{
@@ -466,7 +466,7 @@ func TestDispatcherDefaultsQuestionAwaitAskViewport(t *testing.T) {
 	events := dispatcher.Dispatch(AwaitAsk{
 		AwaitingID: "tool_1",
 		Mode:       "question",
-		Timeout:    120000,
+		Timeout:    120,
 		RunID:      "run_1",
 		Questions: []any{
 			map[string]any{"id": "q1", "question": "Need confirmation", "type": "text"},
@@ -520,7 +520,7 @@ func TestDispatcherSkipsDuplicateAwaitAskForSameAwaitingID(t *testing.T) {
 	first := dispatcher.Dispatch(AwaitAsk{
 		AwaitingID: "await_1",
 		Mode:       "approval",
-		Timeout:    120000,
+		Timeout:    120,
 		RunID:      "run_1",
 		Approvals: []any{
 			map[string]any{
@@ -538,7 +538,7 @@ func TestDispatcherSkipsDuplicateAwaitAskForSameAwaitingID(t *testing.T) {
 	second := dispatcher.Dispatch(AwaitAsk{
 		AwaitingID: "await_1",
 		Mode:       "approval",
-		Timeout:    120000,
+		Timeout:    120,
 		RunID:      "run_1",
 		Approvals: []any{
 			map[string]any{
@@ -567,7 +567,7 @@ func TestDispatcherEmitsApprovalModeAwaitAskWithPayloadOnlyForForm(t *testing.T)
 		ViewportType: "html",
 		ViewportKey:  "leave_form",
 		Mode:         "form",
-		Timeout:      120000,
+		Timeout:      120,
 		RunID:        "run_1",
 		Forms: []any{
 			map[string]any{
@@ -799,7 +799,7 @@ func TestEventDataMarshalsWithContractKeyOrder(t *testing.T) {
 
 func TestEventDataMarshalsAwaitAskWithContractKeyOrder(t *testing.T) {
 	event := NewEvent("awaiting.ask", map[string]any{
-		"timeout":    120000,
+		"timeout":    120,
 		"runId":      "run_1",
 		"agentKey":   "agent_1",
 		"mode":       "approval",
@@ -816,7 +816,7 @@ func TestEventDataMarshalsAwaitAskWithContractKeyOrder(t *testing.T) {
 		`"type":"awaiting.ask"`,
 		`"awaitingId":"tool_1"`,
 		`"mode":"approval"`,
-		`"timeout":120000`,
+		`"timeout":120`,
 		`"runId":"run_1"`,
 		`"agentKey":"agent_1"`,
 		`"timestamp":`,
@@ -840,7 +840,7 @@ func TestEventDataMarshalsAwaitAskWithFormsBeforeTimestamp(t *testing.T) {
 		"viewportType": "html",
 		"viewportKey":  "leave_form",
 		"mode":         "form",
-		"timeout":      120000,
+		"timeout":      120,
 		"runId":        "run_1",
 		"forms": []any{
 			map[string]any{
@@ -894,7 +894,7 @@ func TestEventDataMarshalsApprovalAwaitAskWithQuestions(t *testing.T) {
 	event := NewEvent("awaiting.ask", map[string]any{
 		"awaitingId": "tool_1",
 		"mode":       "approval",
-		"timeout":    120000,
+		"timeout":    120,
 		"runId":      "run_1",
 		"approvals": []any{
 			map[string]any{"id": "cmd-1", "command": "Proceed?"},

@@ -437,7 +437,7 @@ func (s *llmRunStream) checkBudgetBeforeModelCall() map[string]any {
 			ErrorCategoryTimeout,
 			map[string]any{
 				"elapsedMs": time.Since(s.execCtx.StartedAt).Milliseconds(),
-				"timeoutMs": budget.Timeout * 1000,
+				"timeout": budget.Timeout,
 			},
 		)
 	}

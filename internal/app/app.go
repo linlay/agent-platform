@@ -401,11 +401,11 @@ func resolveMemorySummarizer(cfg config.Config, agent catalog.AgentDefinition, m
 	if modelKey == "" {
 		return nil
 	}
-	timeoutMs := agent.MemoryConfig.AutoRemember.TimeoutMs
-	if timeoutMs <= 0 {
-		timeoutMs = 60000
+	timeout := agent.MemoryConfig.AutoRemember.Timeout
+	if timeout <= 0 {
+		timeout = 60
 	}
-	return memory.NewLLMMemorySummarizer(modelRegistry, modelKey, timeoutMs, cfg.MemoryPrompts)
+	return memory.NewLLMMemorySummarizer(modelRegistry, modelKey, timeout, cfg.MemoryPrompts)
 }
 
 func resolveMemoryEmbedder(_ config.Config, agent catalog.AgentDefinition, modelRegistry *models.ModelRegistry, logOnce *sync.Map) *memory.EmbeddingProvider {
@@ -421,13 +421,13 @@ func resolveMemoryEmbedder(_ config.Config, agent catalog.AgentDefinition, model
 	}
 	model := firstNonBlank(embeddingCfg.Model, provider.Memory.Embedding.Model)
 	dimension := firstPositiveInt(embeddingCfg.Dimension, provider.Memory.Embedding.Dimension)
-	timeoutMs := firstPositiveInt(embeddingCfg.TimeoutMs, provider.Memory.Embedding.TimeoutMs, 15000)
+	timeout := firstPositiveInt(embeddingCfg.Timeout, provider.Memory.Embedding.Timeout, 15)
 	baseURL := strings.TrimRight(strings.TrimSpace(provider.BaseURL), "/")
 	if baseURL == "" || model == "" || dimension <= 0 {
 		logMemoryEmbeddingOnce(logOnce, agent.Key, providerKey, "incomplete", fmt.Sprintf("[memory][embedding] disabled for agent %s: provider %s missing baseURL/model/dimension", agent.Key, providerKey))
 		return nil
 	}
-	return memory.NewEmbeddingProvider(baseURL, provider.APIKey, model, dimension, timeoutMs)
+	return memory.NewEmbeddingProvider(baseURL, provider.APIKey, model, dimension, timeout)
 }
 
 func logMemoryEmbeddingOnce(logOnce *sync.Map, agentKey string, providerKey string, reason string, message string) {

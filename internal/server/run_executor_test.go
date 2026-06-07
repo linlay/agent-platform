@@ -195,7 +195,7 @@ func TestHandleAwaitingLifecycleBroadcastsViewportMetadata(t *testing.T) {
 			"awaitingId":   "await-1",
 			"runId":        "run-1",
 			"mode":         "form",
-			"timeout":      120000,
+			"timeout":      120,
 			"viewportType": "html",
 			"viewportKey":  "leave_form",
 		},
@@ -220,7 +220,7 @@ func TestHandleAwaitingLifecycleBroadcastsAwaitAskPushForApprovalAndPlan(t *test
 		awaitingID string
 		timeout    int
 	}{
-		{mode: "approval", awaitingID: "await-approval", timeout: 600000},
+		{mode: "approval", awaitingID: "await-approval", timeout: 600},
 		{mode: "plan", awaitingID: "await-plan", timeout: 0},
 	}
 

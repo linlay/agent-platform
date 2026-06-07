@@ -351,7 +351,7 @@ func (s *Server) runProxySSE(
 		return
 	}
 
-	timeout := time.Duration(proxy.TimeoutMs) * time.Millisecond
+	timeout := time.Duration(proxy.Timeout) * time.Second
 	client := &http.Client{Timeout: timeout}
 	proxyReq, err := http.NewRequestWithContext(runCtx, http.MethodPost, targetURL, bytes.NewReader(body))
 	if err != nil {

@@ -228,7 +228,7 @@ func TestFrontendSubmitCoordinatorAwait_UsesAwaitingAskTimeoutOverToolBudget(t *
 		AwaitingID: "tool_1",
 		Mode:       "question",
 		ItemCount:  1,
-		TimeoutMs:  1,
+		Timeout:  1,
 	})
 
 	result, err := NewFrontendSubmitCoordinator(frontendtools.NewDefaultRegistry()).Await(context.Background(), &contracts.ExecutionContext{
@@ -245,7 +245,7 @@ func TestFrontendSubmitCoordinatorAwait_UsesAwaitingAskTimeoutOverToolBudget(t *
 	if result.Error != "frontend_submit_timeout" {
 		t.Fatalf("expected timeout error code, got %#v", result)
 	}
-	if !strings.Contains(result.Output, "timeoutMs=1") {
+	if !strings.Contains(result.Output, "timeout=1") {
 		t.Fatalf("expected awaiting.ask timeout to drive submit wait, got %q", result.Output)
 	}
 }
@@ -256,7 +256,7 @@ func TestFrontendSubmitTimeoutUsesDisplayedAwaitingAskTimeout(t *testing.T) {
 		AwaitingID: "tool_1",
 		Mode:       "question",
 		ItemCount:  1,
-		TimeoutMs:  600000,
+		Timeout:    600,
 	})
 
 	timeout := frontendSubmitTimeout(&contracts.ExecutionContext{
@@ -267,7 +267,7 @@ func TestFrontendSubmitTimeoutUsesDisplayedAwaitingAskTimeout(t *testing.T) {
 			Tool: contracts.RetryPolicy{Timeout: 120},
 		},
 	})
-	if timeout.Milliseconds() != 600000 {
-		t.Fatalf("expected awaiting.ask.timeout 600000 to drive backend wait, got %d", timeout.Milliseconds())
+	if timeout.Seconds() != 600 {
+		t.Fatalf("expected awaiting.ask.timeout 600 to drive backend wait, got %d", int64(timeout.Seconds()))
 	}
 }

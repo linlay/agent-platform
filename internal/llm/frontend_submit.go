@@ -61,9 +61,9 @@ func (c *FrontendSubmitCoordinator) Await(ctx context.Context, execCtx *Executio
 	result, err := execCtx.RunControl.AwaitSubmitWithTimeout(ctx, awaitingID, timeout)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			elapsedMs := time.Since(waitStarted).Milliseconds()
-			timeoutMs := timeout.Milliseconds()
-			detailedMsg := resolveFrontendTimeoutMessage(toolName, awaitingID, timeoutMs, elapsedMs)
+			elapsed := time.Since(waitStarted).Milliseconds() / 1000
+			timeoutSec := int64(timeout.Seconds())
+			detailedMsg := resolveFrontendTimeoutMessage(toolName, awaitingID, timeoutSec, elapsed)
 			return ToolExecutionResult{
 				Output:     detailedMsg,
 				Structured: AwaitingErrorAnswer(strings.TrimSpace(AnyStringNode(args["mode"])), "timeout", "等待项已超时"),
@@ -123,8 +123,8 @@ func (c *FrontendSubmitCoordinator) Await(ctx context.Context, execCtx *Executio
 
 func frontendSubmitTimeout(execCtx *ExecutionContext) time.Duration {
 	if execCtx != nil && execCtx.RunControl != nil {
-		if awaitingCtx, ok := execCtx.RunControl.LookupAwaiting(execCtx.CurrentToolID); ok && awaitingCtx.TimeoutMs > 0 {
-			return time.Duration(awaitingCtx.TimeoutMs) * time.Millisecond
+		if awaitingCtx, ok := execCtx.RunControl.LookupAwaiting(execCtx.CurrentToolID); ok && awaitingCtx.Timeout > 0 {
+			return time.Duration(awaitingCtx.Timeout) * time.Second
 		}
 	}
 	budget := Budget{}
@@ -132,7 +132,7 @@ func frontendSubmitTimeout(execCtx *ExecutionContext) time.Duration {
 		budget = NormalizeBudget(execCtx.Budget)
 	}
 	mode := argsModeFromExecContext(execCtx)
-	return time.Duration(ResolveHITLTimeout(mode, 0, budget)) * time.Millisecond
+	return time.Duration(ResolveHITLTimeout(mode, 0, budget)) * time.Second
 }
 
 func argsModeFromExecContext(execCtx *ExecutionContext) string {
@@ -145,14 +145,14 @@ func argsModeFromExecContext(execCtx *ExecutionContext) string {
 	return "form"
 }
 
-func resolveFrontendTimeoutMessage(toolName string, awaitingID string, timeoutMs int64, elapsedMs int64) string {
+func resolveFrontendTimeoutMessage(toolName string, awaitingID string, timeout int64, elapsed int64) string {
 	if toolName == "" {
 		toolName = "unknown"
 	}
 	if awaitingID == "" {
 		awaitingID = "unknown"
 	}
-	return "Frontend tool submit timeout: tool=" + toolName + ", awaitingId=" + awaitingID + ", elapsedMs=" + formatInt64(elapsedMs) + ", timeoutMs=" + formatInt64(timeoutMs)
+	return "Frontend tool submit timeout: tool=" + toolName + ", awaitingId=" + awaitingID + ", elapsed=" + formatInt64(elapsed) + ", timeout=" + formatInt64(timeout)
 }
 
 func formatInt64(value int64) string {

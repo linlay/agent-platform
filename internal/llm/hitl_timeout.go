@@ -16,12 +16,12 @@ func resolveFrontendAwaitTimeout(toolName string, tool api.ToolDetailResponse, a
 			mode = "form"
 		}
 	}
-	itemTimeoutMs := int64(0)
+	itemTimeout := int64(0)
 	if mode == "question" {
-		itemTimeoutMs = int64(AnyIntNode(args["timeoutMs"]))
+		itemTimeout = int64(AnyIntNode(args["timeout"]))
 	}
 	if mode == "form" {
-		itemTimeoutMs = int64(AnyIntNode(tool.Meta["timeoutMs"]))
+		itemTimeout = int64(AnyIntNode(tool.Meta["timeout"]))
 	}
-	return ResolveHITLTimeout(mode, itemTimeoutMs, budget)
+	return ResolveHITLTimeout(mode, itemTimeout, budget)
 }

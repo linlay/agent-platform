@@ -76,7 +76,7 @@ func (s *llmRunStream) emitHITLConfirmDeltas(invocation *preparedToolInvocation,
 
 	args := s.buildHITLArgs(invocation, result)
 	s.hitlAwaitArgs = CloneMap(args)
-	s.pending = append(s.pending, s.buildHITLAwaitDelta(s.hitlAwaitingID, args, result.Rule.TimeoutMs))
+	s.pending = append(s.pending, s.buildHITLAwaitDelta(s.hitlAwaitingID, args, result.Rule.Timeout))
 
 	if s.runControl != nil {
 		awaitDelta, _ := s.pending[len(s.pending)-1].(DeltaAwaitAsk)
@@ -209,15 +209,15 @@ func (s *llmRunStream) prepareQueuedBashApprovalBatch() bool {
 		if invocation == nil || invocation.precheckedHITL == nil {
 			continue
 		}
-		if invocation.precheckedHITL.Rule.TimeoutMs > maxRuleTimeout {
-			maxRuleTimeout = invocation.precheckedHITL.Rule.TimeoutMs
+		if invocation.precheckedHITL.Rule.Timeout > maxRuleTimeout {
+			maxRuleTimeout = invocation.precheckedHITL.Rule.Timeout
 		}
 	}
 	s.hitlPendingBatch = &pendingHITLApprovalBatch{
 		awaitingID:  awaitingID,
 		awaitArgs:   CloneMap(args),
 		invocations: invocations,
-		timeoutMs:   maxRuleTimeout,
+		timeout:     maxRuleTimeout,
 	}
 	awaitDelta := s.buildHITLAwaitDelta(awaitingID, args, maxRuleTimeout)
 	s.pending = append(s.pending, awaitDelta)
@@ -347,7 +347,7 @@ func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {
 }
 
 func (s *llmRunStream) awaitHITLBatchSubmitOrAccessLevel(batch *pendingHITLApprovalBatch) (SubmitResult, error) {
-	timeout := time.Duration(s.resolveHITLTimeoutWithItem("approval", int64(batch.timeoutMs))) * time.Millisecond
+	timeout := time.Duration(s.resolveHITLTimeoutWithItem("approval", int64(batch.timeout))) * time.Second
 	deadline := time.Time{}
 	if timeout > 0 {
 		deadline = time.Now().Add(timeout)

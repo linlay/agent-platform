@@ -170,9 +170,9 @@ func frontendSubmitInvalidPayloadResult(invocation *preparedToolInvocation, awai
 	}
 }
 
-func (s *llmRunStream) buildHITLAwaitDelta(awaitingID string, args map[string]any, ruleTimeoutMs int) DeltaAwaitAsk {
+func (s *llmRunStream) buildHITLAwaitDelta(awaitingID string, args map[string]any, ruleTimeout int) DeltaAwaitAsk {
 	mode := strings.ToLower(strings.TrimSpace(AnyStringNode(args["mode"])))
-	timeout := s.resolveHITLTimeoutWithItem(mode, int64(ruleTimeoutMs))
+	timeout := s.resolveHITLTimeoutWithItem(mode, int64(ruleTimeout))
 	await := DeltaAwaitAsk{
 		AwaitingID: awaitingID,
 		Mode:       mode,
@@ -285,7 +285,7 @@ func awaitingContextFromStreamAsk(awaitAsk *stream.AwaitAsk) AwaitingSubmitConte
 		AwaitingID: awaitAsk.AwaitingID,
 		Mode:       awaitAsk.Mode,
 		ItemCount:  awaitItemCount(awaitAsk.Mode, awaitAsk.Questions, awaitAsk.Approvals, awaitAsk.Forms, awaitAsk.Plan),
-		TimeoutMs:  awaitAsk.Timeout,
+		Timeout:    awaitAsk.Timeout,
 	}
 }
 
@@ -294,7 +294,7 @@ func awaitingContextFromDeltaAsk(awaitAsk DeltaAwaitAsk) AwaitingSubmitContext {
 		AwaitingID: awaitAsk.AwaitingID,
 		Mode:       awaitAsk.Mode,
 		ItemCount:  awaitItemCount(awaitAsk.Mode, awaitAsk.Questions, awaitAsk.Approvals, awaitAsk.Forms, awaitAsk.Plan),
-		TimeoutMs:  awaitAsk.Timeout,
+		Timeout:    awaitAsk.Timeout,
 	}
 }
 

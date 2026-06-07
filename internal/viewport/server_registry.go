@@ -1,6 +1,7 @@
 package viewport
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,7 +16,7 @@ type ServerDefinition struct {
 	BaseURL      string
 	EndpointPath string
 	AuthToken    string
-	TimeoutMs    int
+	Timeout      int
 }
 
 type ServerRegistry struct {
@@ -45,12 +46,16 @@ func (r *ServerRegistry) List() ([]ServerDefinition, error) {
 			continue
 		}
 		rootNode, _ := tree.(map[string]any)
+		// Reject legacy ms field
+		if _, hasOld := rootNode["timeoutMs"]; hasOld {
+			return nil, fmt.Errorf("migration required: 'timeoutMs' is removed, use 'timeout' in seconds in file %s", name)
+		}
 		server := ServerDefinition{
 			Key:          strings.TrimSpace(contracts.FirstNonEmptyString(rootNode["key"], rootNode["serverKey"])),
 			BaseURL:      strings.TrimSpace(contracts.StringValue(rootNode["baseUrl"])),
 			EndpointPath: strings.TrimSpace(contracts.StringValue(rootNode["endpointPath"])),
 			AuthToken:    strings.TrimSpace(contracts.StringValue(rootNode["authToken"])),
-			TimeoutMs:    contracts.IntValue(rootNode["timeoutMs"]),
+			Timeout:      contracts.IntValue(rootNode["timeout"]),
 		}
 		if server.Key == "" {
 			server.Key = strings.TrimSuffix(strings.TrimSuffix(name, ".yaml"), ".yml")

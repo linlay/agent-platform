@@ -72,20 +72,20 @@ func canonicalExpenseCommand(amount float64) string {
 }
 
 type captureFrontendHandler struct {
-	timeoutMs int64
+	timeout int64
 }
 
 func (h *captureFrontendHandler) ToolName() string { return "ask_user_question" }
 
 func (h *captureFrontendHandler) ValidateArgs(args map[string]any) error { return nil }
 
-func (h *captureFrontendHandler) BuildInitialAwaitAsk(toolID string, runID string, tool api.ToolDetailResponse, args map[string]any, chunkIndex int, timeoutMs int64) *streampkg.AwaitAsk {
-	h.timeoutMs = timeoutMs
+func (h *captureFrontendHandler) BuildInitialAwaitAsk(toolID string, runID string, tool api.ToolDetailResponse, args map[string]any, chunkIndex int, timeout int64) *streampkg.AwaitAsk {
+	h.timeout = timeout
 	return &streampkg.AwaitAsk{
 		AwaitingID: toolID,
 		RunID:      runID,
 		Mode:       "question",
-		Timeout:    timeoutMs,
+		Timeout:    timeout,
 		Questions: []any{
 			map[string]any{"id": "q1", "question": "Need confirmation", "type": "text"},
 		},
@@ -493,22 +493,22 @@ func TestResolveHITLTimeoutUsesHitlBudgetGlobalAndFallback(t *testing.T) {
 			name:   "agent hitl budget wins",
 			mode:   "question",
 			budget: contracts.Budget{Hitl: contracts.HitlPolicy{Timeout: 600}, Tool: contracts.RetryPolicy{Timeout: 5}},
-			want:   600000,
+			want:   600,
 		},
 		{
 			name: "mode timeout wins",
 			mode: "plan",
 			budget: contracts.Budget{Hitl: contracts.HitlPolicy{
 				Timeout: 600,
-				Plan:      contracts.HitlModePolicy{Timeout: 300},
+				Plan:    contracts.HitlModePolicy{Timeout: 300},
 			}},
-			want: 300000,
+			want: 300,
 		},
 		{
 			name:   "tool timeout no longer affects hitl timeout",
 			mode:   "question",
 			budget: contracts.Budget{Tool: contracts.RetryPolicy{Timeout: 5}},
-			want:   600000,
+			want:   600,
 		},
 	}
 
@@ -520,7 +520,7 @@ func TestResolveHITLTimeoutUsesHitlBudgetGlobalAndFallback(t *testing.T) {
 				},
 			}
 			if got := stream.resolveHITLTimeout(tc.mode); got != tc.want {
-				t.Fatalf("expected timeout %d, got %d", tc.want, got)
+				t.Fatalf("expected timeout %d sec, got %d", tc.want, got)
 			}
 		})
 	}
@@ -593,18 +593,18 @@ func TestResolveHITLTimeoutWithRuleUsesRuleOverride(t *testing.T) {
 		},
 	}
 
-	if got := stream.resolveHITLTimeoutWithItem("approval", 150000); got != 150000 {
-		t.Fatalf("expected rule timeout 150000, got %d", got)
+	if got := stream.resolveHITLTimeoutWithItem("approval", 150); got != 150 {
+		t.Fatalf("expected rule timeout 150, got %d", got)
 	}
-	if got := stream.resolveHITLTimeoutWithItem("approval", 0); got != 600000 {
-		t.Fatalf("expected fallback hitl budget timeout 600000, got %d", got)
+	if got := stream.resolveHITLTimeoutWithItem("approval", 0); got != 600 {
+		t.Fatalf("expected fallback hitl budget timeout 600, got %d", got)
 	}
 	// question mode also supports item-specific timeout
-	if got := stream.resolveHITLTimeoutWithItem("question", 900000); got != 900000 {
-		t.Fatalf("expected question item timeout 900000, got %d", got)
+	if got := stream.resolveHITLTimeoutWithItem("question", 900); got != 900 {
+		t.Fatalf("expected question item timeout 900, got %d", got)
 	}
-	if got := stream.resolveHITLTimeoutWithItem("question", 0); got != 600000 {
-		t.Fatalf("expected question fallback hitl budget timeout 600000, got %d", got)
+	if got := stream.resolveHITLTimeoutWithItem("question", 0); got != 600 {
+		t.Fatalf("expected question fallback hitl budget timeout 600, got %d", got)
 	}
 }
 
@@ -642,12 +642,12 @@ func TestPreToolInvocationDeltasUsesHitlTimeoutForFrontendAwaiting(t *testing.T)
 	if len(deltas) != 0 {
 		t.Fatalf("expected no prelude deltas, got %#v", deltas)
 	}
-	if handler.timeoutMs != 600000 {
-		t.Fatalf("expected frontend await timeout 600000 from hitl budget, got %d", handler.timeoutMs)
+	if handler.timeout != 600 {
+		t.Fatalf("expected frontend await timeout 600 from hitl budget, got %d", handler.timeout)
 	}
 }
 
-func TestPreToolInvocationDeltasUsesArgsTimeoutMsForFrontendAwaiting(t *testing.T) {
+func TestPreToolInvocationDeltasUsesArgsTimeoutForFrontendAwaiting(t *testing.T) {
 	handler := &captureFrontendHandler{}
 	tool := api.ToolDetailResponse{
 		Name: "ask_user_question",
@@ -673,8 +673,8 @@ func TestPreToolInvocationDeltasUsesArgsTimeoutMsForFrontendAwaiting(t *testing.
 	}
 
 	deltas := stream.preToolInvocationDeltas("tool_1", "ask_user_question", map[string]any{
-		"mode":      "question",
-		"timeoutMs": 900000,
+		"mode":    "question",
+		"timeout": 900,
 		"questions": []any{
 			map[string]any{"question": "Need confirmation", "type": "text"},
 		},
@@ -682,17 +682,17 @@ func TestPreToolInvocationDeltasUsesArgsTimeoutMsForFrontendAwaiting(t *testing.
 	if len(deltas) != 0 {
 		t.Fatalf("expected no prelude deltas, got %#v", deltas)
 	}
-	if handler.timeoutMs != 900000 {
-		t.Fatalf("expected frontend await timeout 900000 from args.timeoutMs, got %d", handler.timeoutMs)
+	if handler.timeout != 900 {
+		t.Fatalf("expected frontend await timeout 900 from args.timeout, got %d", handler.timeout)
 	}
 	awaiting, ok := stream.runControl.LookupAwaiting("tool_1")
 	if !ok {
 		t.Fatal("expected awaiting context to be registered")
 	}
-	if awaiting.TimeoutMs != 900000 {
-		t.Fatalf("expected awaiting context timeout 900000, got %d", awaiting.TimeoutMs)
+	if awaiting.Timeout != 900 {
+		t.Fatalf("expected awaiting context timeout 900, got %d", awaiting.Timeout)
 	}
-	if awaiting.TimeoutMs <= int64(stream.execCtx.Budget.Tool.Timeout) {
+	if awaiting.Timeout <= int64(stream.execCtx.Budget.Tool.Timeout) {
 		t.Fatal("awaiting context timeout must be independent of budget.tool.timeout")
 	}
 }
@@ -724,7 +724,7 @@ func TestEmitHITLConfirmDeltasUsesRuleTimeoutOverride(t *testing.T) {
 			Level:        1,
 			ViewportType: "html",
 			ViewportKey:  "leave_form",
-			TimeoutMs:    60000,
+			Timeout:      60,
 		},
 		ParsedCommand: hitl.CommandComponents{
 			BaseCommand: "mock",
@@ -739,8 +739,8 @@ func TestEmitHITLConfirmDeltasUsesRuleTimeoutOverride(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected await ask delta, got %#v", stream.pending)
 	}
-	if ask.Timeout != 60000 {
-		t.Fatalf("expected rule timeout 60000, got %#v", ask)
+	if ask.Timeout != 60 {
+		t.Fatalf("expected rule timeout 60, got %#v", ask)
 	}
 }
 
@@ -778,7 +778,7 @@ func TestAwaitHITLSubmitAndExecuteUsesRuleTimeoutOverride(t *testing.T) {
 				Level:        1,
 				ViewportType: "builtin",
 				ViewportKey:  "confirm_dialog",
-				TimeoutMs:    1000,
+				Timeout:      1,
 			},
 		},
 		hitlAwaitingID: buildHITLAwaitingID("tool_1"),
@@ -4365,12 +4365,12 @@ func TestPrepareQueuedBashApprovalBatch_UsesLargestRuleTimeout(t *testing.T) {
 			results: map[string]hitl.InterceptResult{
 				"chmod 777 ~/a.sh": {
 					Intercepted:     true,
-					Rule:            hitl.FlatRule{Level: 1, ViewportType: "builtin", ViewportKey: "confirm_dialog", TimeoutMs: 40000},
+					Rule:            hitl.FlatRule{Level: 1, ViewportType: "builtin", ViewportKey: "confirm_dialog", Timeout: 40},
 					OriginalCommand: "chmod 777 ~/a.sh",
 				},
 				"chmod 777 ~/b.sh": {
 					Intercepted:     true,
-					Rule:            hitl.FlatRule{Level: 2, ViewportType: "builtin", ViewportKey: "confirm_dialog", TimeoutMs: 60000},
+					Rule:            hitl.FlatRule{Level: 2, ViewportType: "builtin", ViewportKey: "confirm_dialog", Timeout: 60},
 					OriginalCommand: "chmod 777 ~/b.sh",
 				},
 			},
@@ -4391,8 +4391,8 @@ func TestPrepareQueuedBashApprovalBatch_UsesLargestRuleTimeout(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected await ask delta, got %#v", stream.pending)
 	}
-	if ask.Timeout != 60000 {
-		t.Fatalf("expected largest rule timeout 60000, got %#v", ask)
+	if ask.Timeout != 60 {
+		t.Fatalf("expected largest rule timeout 60, got %#v", ask)
 	}
 }
 
@@ -4416,12 +4416,12 @@ func TestAwaitHITLApprovalBatchAndContinueUsesLargestRuleTimeout(t *testing.T) {
 			results: map[string]hitl.InterceptResult{
 				"chmod 777 ~/a.sh": {
 					Intercepted:     true,
-					Rule:            hitl.FlatRule{Level: 1, ViewportType: "builtin", ViewportKey: "confirm_dialog", TimeoutMs: 400},
+					Rule:            hitl.FlatRule{Level: 1, ViewportType: "builtin", ViewportKey: "confirm_dialog", Timeout: 4},
 					OriginalCommand: "chmod 777 ~/a.sh",
 				},
 				"chmod 777 ~/b.sh": {
 					Intercepted:     true,
-					Rule:            hitl.FlatRule{Level: 2, ViewportType: "builtin", ViewportKey: "confirm_dialog", TimeoutMs: 1000},
+					Rule:            hitl.FlatRule{Level: 2, ViewportType: "builtin", ViewportKey: "confirm_dialog", Timeout: 10},
 					OriginalCommand: "chmod 777 ~/b.sh",
 				},
 			},
@@ -4442,8 +4442,8 @@ func TestAwaitHITLApprovalBatchAndContinueUsesLargestRuleTimeout(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected await ask delta, got %#v", stream.pending)
 	}
-	if ask.Timeout != 1000 {
-		t.Fatalf("expected largest rule timeout 1000, got %#v", ask)
+	if ask.Timeout != 10 {
+		t.Fatalf("expected largest rule timeout 10, got %#v", ask)
 	}
 	runControl.ExpectSubmit(contracts.AwaitingSubmitContext{
 		AwaitingID: ask.AwaitingID,

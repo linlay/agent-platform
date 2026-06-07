@@ -139,7 +139,7 @@ type pendingHITLApprovalBatch struct {
 	awaitingID  string
 	awaitArgs   map[string]any
 	invocations []*preparedToolInvocation
-	timeoutMs   int
+	timeout     int
 }
 
 type hitlDecisionState struct {

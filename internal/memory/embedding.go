@@ -17,23 +17,23 @@ type EmbeddingProvider struct {
 	APIKey     string
 	Model      string
 	Dimension  int
-	TimeoutMs  int
+	Timeout    int
 	httpClient *http.Client
 }
 
-func NewEmbeddingProvider(baseURL, apiKey, model string, dimension, timeoutMs int) *EmbeddingProvider {
+func NewEmbeddingProvider(baseURL, apiKey, model string, dimension, timeout int) *EmbeddingProvider {
 	if dimension <= 0 {
 		dimension = 1024
 	}
-	if timeoutMs <= 0 {
-		timeoutMs = 15000
+	if timeout <= 0 {
+		timeout = 15
 	}
 	return &EmbeddingProvider{
 		BaseURL:    baseURL,
 		APIKey:     apiKey,
 		Model:      model,
 		Dimension:  dimension,
-		TimeoutMs:  timeoutMs,
+		Timeout:    timeout,
 		httpClient: &http.Client{},
 	}
 }
@@ -57,7 +57,7 @@ func (p *EmbeddingProvider) Embed(ctx context.Context, texts []string) ([][]floa
 		return nil, fmt.Errorf("embedding provider not configured")
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, time.Duration(p.TimeoutMs)*time.Millisecond)
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(p.Timeout)*time.Second)
 	defer cancel()
 
 	body, err := json.Marshal(embeddingRequest{

@@ -23,7 +23,7 @@ func (h *GenericFormHandler) ValidateArgs(_ map[string]any) error {
 	return nil
 }
 
-func (h *GenericFormHandler) BuildInitialAwaitAsk(toolID string, runID string, tool api.ToolDetailResponse, args map[string]any, chunkIndex int, timeoutMs int64) *stream.AwaitAsk {
+func (h *GenericFormHandler) BuildInitialAwaitAsk(toolID string, runID string, tool api.ToolDetailResponse, args map[string]any, chunkIndex int, timeout int64) *stream.AwaitAsk {
 	if chunkIndex != 0 {
 		return nil
 	}
@@ -48,7 +48,7 @@ func (h *GenericFormHandler) BuildInitialAwaitAsk(toolID string, runID string, t
 		ViewportType: viewportType,
 		ViewportKey:  viewportKey,
 		Mode:         "form",
-		Timeout:      timeoutMs,
+		Timeout:      timeout,
 		RunID:        runID,
 		Forms:        []any{form},
 	}

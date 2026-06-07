@@ -61,9 +61,9 @@ func (s *Server) hydrateDeferredAwaitings() {
 			_ = s.deps.Chats.ClearPendingAwaiting(item.ChatID, item.AwaitingID)
 			continue
 		}
-		timeoutMs := contracts.AnyIntNode(ask.Payload["timeout"])
-		if timeoutMs > 0 && nowMs-item.CreatedAt > int64(timeoutMs) {
-			log.Printf("[server][awaiting] clearing expired deferred awaiting chatId=%s awaitingId=%s age=%dms timeout=%dms", item.ChatID, item.AwaitingID, nowMs-item.CreatedAt, timeoutMs)
+		timeoutSec := contracts.AnyIntNode(ask.Payload["timeout"])
+		if timeoutSec > 0 && nowMs-item.CreatedAt > int64(timeoutSec)*1000 {
+			log.Printf("[server][awaiting] clearing expired deferred awaiting chatId=%s awaitingId=%s age=%dms timeout=%ds", item.ChatID, item.AwaitingID, nowMs-item.CreatedAt, timeoutSec)
 			_ = s.deps.Chats.ClearPendingAwaiting(item.ChatID, item.AwaitingID)
 			continue
 		}
@@ -136,8 +136,8 @@ func (s *Server) resolveDeferredSubmit(req api.SubmitRequest) (api.SubmitRespons
 		_ = s.deps.Chats.ClearPendingAwaiting(deferred.ChatID, req.AwaitingID)
 		return api.SubmitResponse{}, fmt.Errorf("awaiting is not restorable")
 	}
-	timeoutMs := contracts.AnyIntNode(deferred.Ask.Payload["timeout"])
-	if timeoutMs > 0 && time.Now().UnixMilli()-deferred.CreatedAt > int64(timeoutMs) {
+	timeoutSec := contracts.AnyIntNode(deferred.Ask.Payload["timeout"])
+	if timeoutSec > 0 && time.Now().UnixMilli()-deferred.CreatedAt > int64(timeoutSec)*1000 {
 		s.deferredAwaitings.Remove(req.AwaitingID)
 		_ = s.deps.Chats.ClearPendingAwaiting(deferred.ChatID, req.AwaitingID)
 		return api.SubmitResponse{}, fmt.Errorf("awaiting has expired")

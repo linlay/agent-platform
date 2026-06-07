@@ -96,8 +96,8 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	if _, exists := awaitQuestionPayload["toolTimeout"]; exists {
 		t.Fatalf("did not expect toolTimeout on awaiting.ask, got %#v", awaitQuestionPayload)
 	}
-	if awaitQuestionPayload["timeout"] != float64(210000) {
-		t.Fatalf("expected await question timeout 210000, got %#v", awaitQuestionPayload)
+	if awaitQuestionPayload["timeout"] != float64(210) {
+		t.Fatalf("expected await question timeout 210, got %#v", awaitQuestionPayload)
 	}
 	if awaitQuestionPayload["mode"] != "question" {
 		t.Fatalf("expected await question mode question, got %#v", awaitQuestionPayload)
@@ -1010,7 +1010,7 @@ func TestBashHITLApproveFlowReplaysApprovalSummaryInChatRawMessages(t *testing.T
 	}, testFixtureOptions{
 		sandbox: &recordingSandbox{},
 		configure: func(cfg *config.Config) {
-			cfg.Defaults.Budget.Hitl.Timeout = 15000
+			cfg.Defaults.Budget.Hitl.Timeout = 600
 		},
 		setupRuntime: func(_ string, cfg *config.Config) {
 			root := filepath.Join(cfg.Paths.SkillsMarketDir, "mock-skill", ".bash-hooks")
@@ -1279,7 +1279,7 @@ func TestBashHITLRejectWithReasonFlow(t *testing.T) {
 func TestBashHITLTimeoutFlow(t *testing.T) {
 	body, executed := runBashHITLFlow(t, bashHITLFlowOptions{
 		skipSubmit: true,
-		timeoutMs:  20,
+		timeout:    20,
 	})
 	if len(executed) != 0 {
 		t.Fatalf("expected timed out command not to execute, got %#v", executed)
@@ -1497,7 +1497,7 @@ type bashHITLFlowOptions struct {
 	command         string
 	rulesContent    string
 	skipSubmit      bool
-	timeoutMs       int
+	timeout         int
 	mcp             contracts.McpClient
 	mcpTools        stubMCPToolCatalog
 }
@@ -1522,8 +1522,8 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 		"        viewportType: html",
 		"        viewportKey: leave_form",
 	}
-	if options.timeoutMs > 0 {
-		ruleLines = append(ruleLines, fmt.Sprintf("        timeoutMs: %d", options.timeoutMs))
+	if options.timeout > 0 {
+		ruleLines = append(ruleLines, fmt.Sprintf("        timeout: %d", options.timeout))
 	}
 	rulesContent := strings.Join(ruleLines, "\n")
 	if strings.TrimSpace(options.rulesContent) != "" {
@@ -1563,9 +1563,9 @@ func runBashHITLFlow(t *testing.T, options bashHITLFlowOptions) (string, []strin
 		mcp:      options.mcp,
 		mcpTools: options.mcpTools,
 		configure: func(cfg *config.Config) {
-			cfg.Defaults.Budget.Hitl.Timeout = 15000
-			if options.timeoutMs > 0 {
-				cfg.Defaults.Budget.Hitl.Timeout = options.timeoutMs
+			cfg.Defaults.Budget.Hitl.Timeout = 600
+			if options.timeout > 0 {
+				cfg.Defaults.Budget.Hitl.Timeout = options.timeout
 			}
 		},
 		setupRuntime: func(_ string, cfg *config.Config) {

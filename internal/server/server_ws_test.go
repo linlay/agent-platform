@@ -917,8 +917,8 @@ func TestWebSocketPushAwaitingAnswerEmitsErrorStatuses(t *testing.T) {
 			},
 			act: func(t *testing.T, flow *awaitingPushQuestionFlow, awaitAskData map[string]any) {
 				t.Helper()
-				if timeout, ok := awaitAskData["timeout"].(float64); !ok || timeout != 1000 {
-					t.Fatalf("expected awaiting.asking timeout 1000, got %#v", awaitAskData)
+				if timeout, ok := awaitAskData["timeout"].(float64); !ok || timeout != 1 {
+					t.Fatalf("expected awaiting.asking timeout 1, got %#v", awaitAskData)
 				}
 			},
 			errorCode: "timeout",

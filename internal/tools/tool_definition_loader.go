@@ -76,8 +76,12 @@ func parseToolDefinition(root map[string]any, options toolDefinitionParseOptions
 	if viewportKey != "" {
 		meta["viewportKey"] = viewportKey
 	}
-	if timeoutMs := AnyIntNode(root["timeoutMs"]); timeoutMs > 0 {
-		meta["timeoutMs"] = timeoutMs
+	// Reject legacy ms field in meta
+	if _, hasOld := root["timeoutMs"]; hasOld {
+		return api.ToolDetailResponse{}, fmt.Errorf("migration required: 'timeoutMs' is removed, use 'timeout' in seconds for tool %q", name)
+	}
+	if timeout := AnyIntNode(root["timeout"]); timeout > 0 {
+		meta["timeout"] = timeout
 	}
 	if sourceKey != "" {
 		meta["sourceKey"] = sourceKey

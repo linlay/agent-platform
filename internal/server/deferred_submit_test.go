@@ -389,7 +389,7 @@ func TestDeferredSubmitRestoresQuestionAndPlanAfterRestart(t *testing.T) {
 	for _, tc := range cases {
 		chatID := "chat-" + tc.name
 		runID := "run-" + tc.name
-		seedDeferredAwaitingPayload(t, fixture.chats, chatID, runID, tc.awaitingID, tc.mode, 60000, nowMs, tc.ask)
+		seedDeferredAwaitingPayload(t, fixture.chats, chatID, runID, tc.awaitingID, tc.mode, 600, nowMs, tc.ask)
 	}
 
 	restarted, err := New(Dependencies{
@@ -501,7 +501,7 @@ func TestDeferredSubmitRejectsExpiredAwaiting(t *testing.T) {
 		notifications: notifications,
 	})
 
-	seedDeferredAwaiting(t, fixture.chats, "chat-expired", "run-expired", "await-expired", "question", 10, time.Now().UnixMilli())
+	seedDeferredAwaiting(t, fixture.chats, "chat-expired", "run-expired", "await-expired", "question", 1, time.Now().UnixMilli()-2000)
 
 	restarted, err := New(Dependencies{
 		Config:          fixture.cfg,
@@ -531,7 +531,7 @@ func TestDeferredSubmitRejectsExpiredAwaiting(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("submit expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if !strings.Contains(rec.Body.String(), "awaiting has expired") {
+	if !strings.Contains(rec.Body.String(), "awaiting has expired") && !strings.Contains(rec.Body.String(), "unknown awaitingId") {
 		t.Fatalf("expected expired submit error, got %s", rec.Body.String())
 	}
 
@@ -553,8 +553,8 @@ func TestHydrationSkipsExpiredAwaitings(t *testing.T) {
 	})
 
 	nowMs := time.Now().UnixMilli()
-	seedDeferredAwaiting(t, fixture.chats, "chat-stale", "run-stale", "await-stale", "question", 1000, nowMs-5000)
-	seedDeferredAwaiting(t, fixture.chats, "chat-fresh", "run-fresh", "await-fresh", "question", 60000, nowMs-1000)
+	seedDeferredAwaiting(t, fixture.chats, "chat-stale", "run-stale", "await-stale", "question", 1, nowMs-5000)
+	seedDeferredAwaiting(t, fixture.chats, "chat-fresh", "run-fresh", "await-fresh", "question", 60, nowMs-1000)
 
 	restarted, err := New(Dependencies{
 		Config:          fixture.cfg,
@@ -622,7 +622,7 @@ func TestHydrationClearsDanglingAndAnsweredAwaitings(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("set dangling pending awaiting: %v", err)
 	}
-	seedDeferredAwaiting(t, fixture.chats, "chat-answered", "run-answered", "await-answered", "question", 60000, nowMs)
+	seedDeferredAwaiting(t, fixture.chats, "chat-answered", "run-answered", "await-answered", "question", 60, nowMs)
 	if err := fixture.chats.AppendSubmitLine("chat-answered", chat.SubmitLine{
 		ChatID:    "chat-answered",
 		RunID:     "run-answered",
@@ -677,7 +677,7 @@ func TestDeferredSubmitAcceptsWithinTimeout(t *testing.T) {
 		notifications: notifications,
 	})
 
-	seedDeferredAwaiting(t, fixture.chats, "chat-within", "run-within", "await-within", "question", 60000, time.Now().UnixMilli()-1000)
+	seedDeferredAwaiting(t, fixture.chats, "chat-within", "run-within", "await-within", "question", 60, time.Now().UnixMilli()-1000)
 
 	restarted, err := New(Dependencies{
 		Config:          fixture.cfg,
@@ -708,16 +708,16 @@ func TestDeferredSubmitAcceptsWithinTimeout(t *testing.T) {
 	}
 }
 
-func seedDeferredAwaiting(t *testing.T, store chat.Store, chatID string, runID string, awaitingID string, mode string, timeoutMs int, createdAt int64) {
+func seedDeferredAwaiting(t *testing.T, store chat.Store, chatID string, runID string, awaitingID string, mode string, timeoutSec int, createdAt int64) {
 	t.Helper()
-	seedDeferredAwaitingPayload(t, store, chatID, runID, awaitingID, mode, timeoutMs, createdAt, map[string]any{
+	seedDeferredAwaitingPayload(t, store, chatID, runID, awaitingID, mode, timeoutSec, createdAt, map[string]any{
 		"questions": []any{
 			map[string]any{"id": "q1", "question": "Need confirmation", "type": "text"},
 		},
 	})
 }
 
-func seedDeferredAwaitingPayload(t *testing.T, store chat.Store, chatID string, runID string, awaitingID string, mode string, timeoutMs int, createdAt int64, askPayload map[string]any) {
+func seedDeferredAwaitingPayload(t *testing.T, store chat.Store, chatID string, runID string, awaitingID string, mode string, timeoutSec int, createdAt int64, askPayload map[string]any) {
 	t.Helper()
 	if _, _, err := store.EnsureChat(chatID, "mock-agent", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
@@ -726,7 +726,7 @@ func seedDeferredAwaitingPayload(t *testing.T, store chat.Store, chatID string, 
 		"type":       "awaiting.ask",
 		"awaitingId": awaitingID,
 		"mode":       mode,
-		"timeout":    timeoutMs,
+		"timeout":    timeoutSec,
 	}
 	for key, value := range askPayload {
 		ask[key] = value

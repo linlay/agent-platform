@@ -294,6 +294,9 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	}
 	def.StageSettings = applyModelReasoningDefaults(def.StageSettings, mapNode(modelConfig["reasoning"]))
 	if proxyRaw := mapNode(root["proxyConfig"]); len(proxyRaw) > 0 {
+		if _, hasOld := proxyRaw["timeoutMs"]; hasOld {
+			return AgentDefinition{}, nil, fmt.Errorf("migration required: %s proxyConfig.timeoutMs is removed, use proxyConfig.timeout in seconds", path)
+		}
 		def.ProxyConfig = &ProxyConfig{
 			BaseURL:   stringNode(proxyRaw["baseUrl"]),
 			Transport: normalizeProxyTransport(stringNode(proxyRaw["transport"])),
@@ -301,10 +304,10 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 			ChatID:    stringNode(proxyRaw["chatId"]),
 			Token:     resolveProxyToken(proxyRaw),
 			TokenEnv:  stringNode(proxyRaw["tokenEnv"]),
-			TimeoutMs: intNode(proxyRaw["timeoutMs"]),
+			Timeout:   intNode(proxyRaw["timeout"]),
 		}
-		if def.ProxyConfig.TimeoutMs <= 0 {
-			def.ProxyConfig.TimeoutMs = 300000
+		if def.ProxyConfig.Timeout <= 0 {
+			def.ProxyConfig.Timeout = 300
 		}
 	}
 	def.RuntimePrompts = parseRuntimePrompts(mapNode(root["runtimePrompts"]))
@@ -376,7 +379,11 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	if (len(def.Skills) > 0 || runtimeRequiresBash(def.Runtime)) && !containsString(def.Tools, "bash") {
 		def.Tools = append(def.Tools, "bash")
 	}
-	def.MemoryConfig = parseAgentMemoryConfig(root["memoryConfig"])
+	memoryConfig, err := parseAgentMemoryConfig(path, root["memoryConfig"])
+	if err != nil {
+		return AgentDefinition{}, nil, err
+	}
+	def.MemoryConfig = memoryConfig
 	def.MemoryEnabled = def.MemoryConfig.Enabled
 	if def.MemoryConfig.Enabled {
 		for _, memTool := range []string{"memory_write", "memory_read", "memory_search"} {
@@ -477,7 +484,7 @@ func cleanAgentHostAccessRoot(root string) (string, error) {
 	return "", fmt.Errorf("%q must be an absolute path, ~/ path, or a supported alias", root)
 }
 
-func parseAgentMemoryConfig(value any) AgentMemoryConfig {
+func parseAgentMemoryConfig(path string, value any) (AgentMemoryConfig, error) {
 	node := mapNode(value)
 	cfg := AgentMemoryConfig{}
 	if enabled, ok := node["enabled"].(bool); ok {
@@ -487,19 +494,25 @@ func parseAgentMemoryConfig(value any) AgentMemoryConfig {
 		cfg.ManagementTools = managementTools
 	}
 	embedding := mapNode(node["embedding"])
+	if _, hasOld := embedding["timeoutMs"]; hasOld {
+		return cfg, fmt.Errorf("migration required: %s memoryConfig.embedding.timeoutMs is removed, use memoryConfig.embedding.timeout in seconds", path)
+	}
 	cfg.Embedding = AgentMemoryEmbeddingConfig{
 		ProviderKey: stringNode(embedding["providerKey"]),
 		Model:       stringNode(embedding["model"]),
 		Dimension:   intNode(embedding["dimension"]),
-		TimeoutMs:   intNode(embedding["timeoutMs"]),
+		Timeout:     intNode(embedding["timeout"]),
 	}
 	autoRemember := mapNode(node["autoRemember"])
+	if _, hasOld := autoRemember["timeoutMs"]; hasOld {
+		return cfg, fmt.Errorf("migration required: %s memoryConfig.autoRemember.timeoutMs is removed, use memoryConfig.autoRemember.timeout in seconds", path)
+	}
 	if enabled, ok := autoRemember["enabled"].(bool); ok {
 		cfg.AutoRemember.Enabled = enabled
 	}
 	cfg.AutoRemember.ModelKey = stringNode(autoRemember["modelKey"])
-	cfg.AutoRemember.TimeoutMs = int64(intNode(autoRemember["timeoutMs"]))
-	return cfg
+	cfg.AutoRemember.Timeout = int64(intNode(autoRemember["timeout"]))
+	return cfg, nil
 }
 
 func applyGlobalAgentFlags(def AgentDefinition, globalMemoryEnabled bool) AgentDefinition {

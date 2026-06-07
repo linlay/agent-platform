@@ -5,7 +5,7 @@ vision-recognize:
   default-profile: general
   profiles:
     general:
-      model-key: bailian-qwen3_6-plus
+      model-key: minimax-m3
       timeout: 60
       max-images: 4
       max-image-bytes: 20971520
@@ -14,7 +14,7 @@ vision-recognize:
         You are a visual recognition tool. Describe only observable visual facts.
 
     ocr:
-      model-key: bailian-qwen3_6-plus
+      model-key: minimax-m3
       timeout: 60
       max-images: 4
       max-image-bytes: 20971520

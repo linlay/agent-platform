@@ -223,21 +223,21 @@ func mergeHitlModePolicy(base HitlModePolicy, overrides map[string]any) HitlMode
 	return policy
 }
 
-const DefaultHITLTimeoutMs int64 = 600000
+const DefaultHITLTimeout int64 = 600
 
-func ResolveHITLTimeout(mode string, itemTimeoutMs int64, budget Budget) int64 {
+func ResolveHITLTimeout(mode string, itemTimeout int64, budget Budget) int64 {
 	mode = strings.ToLower(strings.TrimSpace(mode))
 	hitl := budget.Hitl
-	if itemTimeoutMs > 0 && (mode == "approval" || mode == "form" || mode == "question") {
-		return itemTimeoutMs
+	if itemTimeout > 0 && (mode == "approval" || mode == "form" || mode == "question") {
+		return itemTimeout
 	}
 	if modeTimeout := hitlModeTimeout(hitl, mode); modeTimeout > 0 {
-		return int64(modeTimeout) * 1000
+		return int64(modeTimeout)
 	}
 	if hitl.Timeout > 0 {
-		return int64(hitl.Timeout) * 1000
+		return int64(hitl.Timeout)
 	}
-	return DefaultHITLTimeoutMs
+	return DefaultHITLTimeout
 }
 
 func hitlModeTimeout(hitl HitlPolicy, mode string) int {

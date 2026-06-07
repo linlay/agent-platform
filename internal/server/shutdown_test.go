@@ -191,7 +191,7 @@ func TestProxyQueryCancelsUpstreamRequestDuringRootContextShutdown(t *testing.T)
 				"proxyConfig:",
 				"  baseUrl: " + upstream.URL,
 				"  transport: sse",
-				"  timeoutMs: 30000",
+				"  timeout: 30",
 			})
 		},
 	})

@@ -462,14 +462,14 @@ func (s *Server) buildAgentEditorOptions() api.AgentEditorOptionsResponse {
 			{Key: "PROXY", Label: "PROXY"},
 		},
 		ProxyConfigSchema: api.AgentEditorProxyConfigSchema{
-			DefaultTimeoutMs: 300000,
+			DefaultTimeout: 300,
 			Fields: []api.AgentEditorProxyConfigField{
 				{Key: "baseUrl", Label: "Base URL", Type: "string", Required: true},
 				{Key: "transport", Label: "Transport (default ws)", Type: "select"},
 				{Key: "agentKey", Label: "Upstream Agent Key", Type: "string"},
 				{Key: "chatId", Label: "Upstream Chat ID", Type: "string"},
 				{Key: "token", Label: "Token", Type: "password"},
-				{Key: "timeoutMs", Label: "Timeout (ms)", Type: "number"},
+				{Key: "timeout", Label: "Timeout (s)", Type: "number"},
 			},
 		},
 	}

@@ -56,19 +56,19 @@ type LLMMemorySummarizer struct {
 	prompts  config.MemoryPromptsConfig
 }
 
-func NewLLMMemorySummarizer(registry *models.ModelRegistry, modelKey string, timeoutMs int64, prompts config.MemoryPromptsConfig) *LLMMemorySummarizer {
+func NewLLMMemorySummarizer(registry *models.ModelRegistry, modelKey string, timeout int64, prompts config.MemoryPromptsConfig) *LLMMemorySummarizer {
 	if registry == nil || strings.TrimSpace(modelKey) == "" {
 		return nil
 	}
-	timeout := time.Duration(timeoutMs) * time.Millisecond
-	if timeout <= 0 {
-		timeout = 60 * time.Second
+	timeoutDuration := time.Duration(timeout) * time.Second
+	if timeoutDuration <= 0 {
+		timeoutDuration = 60 * time.Second
 	}
 	return &LLMMemorySummarizer{
-		client:   &http.Client{Timeout: timeout},
+		client:   &http.Client{Timeout: timeoutDuration},
 		registry: registry,
 		modelKey: strings.TrimSpace(modelKey),
-		timeout:  timeout,
+		timeout:  timeoutDuration,
 		prompts:  prompts,
 	}
 }

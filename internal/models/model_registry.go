@@ -37,7 +37,7 @@ type ProviderMemoryConfig struct {
 type ProviderMemoryEmbeddingConfig struct {
 	Model     string
 	Dimension int
-	TimeoutMs int
+	Timeout   int
 }
 
 type ModelDefinition struct {
@@ -284,6 +284,10 @@ func loadProviders(dir string) (map[string]ProviderDefinition, error) {
 		baseURL := resolveProviderBaseURL(key, values)
 		apiKey := strings.TrimSpace(stringNode(values["apiKey"]))
 		protocols := loadProviderProtocols(values, baseURL)
+		memoryConfig, err := loadProviderMemory(values)
+		if err != nil {
+			return nil, fmt.Errorf("load provider %s: %w", entry.Name(), err)
+		}
 		result[key] = ProviderDefinition{
 			Key:          key,
 			BaseURL:      baseURL,
@@ -291,24 +295,27 @@ func loadProviders(dir string) (map[string]ProviderDefinition, error) {
 			DefaultModel: strings.TrimSpace(stringNode(values["defaultModel"])),
 			EndpointPath: resolveProviderEndpointPath(values, baseURL, "OPENAI"),
 			Protocols:    protocols,
-			Memory:       loadProviderMemory(values),
+			Memory:       memoryConfig,
 		}
 	}
 	return result, nil
 }
 
-func loadProviderMemory(values map[string]any) ProviderMemoryConfig {
+func loadProviderMemory(values map[string]any) (ProviderMemoryConfig, error) {
 	embedding := nestedMap(values, "memory", "embedding")
 	if embedding == nil {
-		return ProviderMemoryConfig{}
+		return ProviderMemoryConfig{}, nil
+	}
+	if _, hasOld := embedding["timeoutMs"]; hasOld {
+		return ProviderMemoryConfig{}, fmt.Errorf("migration required: memory.embedding.timeoutMs is removed, use memory.embedding.timeout in seconds")
 	}
 	return ProviderMemoryConfig{
 		Embedding: ProviderMemoryEmbeddingConfig{
 			Model:     strings.TrimSpace(stringNode(embedding["model"])),
 			Dimension: intNode(embedding["dimension"]),
-			TimeoutMs: intNode(embedding["timeoutMs"]),
+			Timeout:   intNode(embedding["timeout"]),
 		},
-	}
+	}, nil
 }
 
 func resolveProviderBaseURL(key string, values map[string]any) string {

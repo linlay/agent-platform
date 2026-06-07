@@ -108,7 +108,7 @@ func (c *Client) callWithRetry(ctx context.Context, server ServerDefinition, met
 }
 
 func (c *Client) call(ctx context.Context, server ServerDefinition, method string, params map[string]any, target any) error {
-	timeout := time.Duration(server.ReadTimeoutMs) * time.Millisecond
+	timeout := time.Duration(server.ReadTimeout) * time.Second
 	if timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, timeout)
@@ -252,7 +252,7 @@ func (c *Client) httpClientForServer(server ServerDefinition) *http.Client {
 	if c == nil || c.httpClient == nil {
 		return &http.Client{}
 	}
-	if server.ConnectTimeoutMs <= 0 {
+	if server.ConnectTimeout <= 0 {
 		return c.httpClient
 	}
 	cloned := *c.httpClient
@@ -265,7 +265,7 @@ func (c *Client) httpClientForServer(server ServerDefinition) *http.Client {
 	if transport, ok := baseTransport.(*http.Transport); ok && transport != nil {
 		transport = transport.Clone()
 		transport.DialContext = (&net.Dialer{
-			Timeout: time.Duration(server.ConnectTimeoutMs) * time.Millisecond,
+			Timeout: time.Duration(server.ConnectTimeout) * time.Second,
 		}).DialContext
 		cloned.Transport = transport
 	}

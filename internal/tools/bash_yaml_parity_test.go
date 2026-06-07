@@ -26,8 +26,8 @@ func TestBashYAMLParity(t *testing.T) {
 
 	hostProps := propertyKeys(hostDef)
 	containerProps := propertyKeys(containerDef)
-	assertKeySet(t, hostProps, []string{"command", "cwd", "description", "timeout_ms"})
-	assertKeySet(t, containerProps, []string{"command", "cwd", "description", "env", "timeout_ms"})
+	assertKeySet(t, hostProps, []string{"command", "cwd", "description", "timeout"})
+	assertKeySet(t, containerProps, []string{"command", "cwd", "description", "env", "timeout"})
 	assertRequiredKeys(t, hostDef, []string{"command", "description"})
 	assertRequiredKeys(t, containerDef, []string{"command", "description"})
 

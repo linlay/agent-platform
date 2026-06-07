@@ -106,13 +106,13 @@ type AgentMemoryEmbeddingConfig struct {
 	ProviderKey string
 	Model       string
 	Dimension   int
-	TimeoutMs   int
+	Timeout     int
 }
 
 type AgentMemoryAutoRememberConfig struct {
-	Enabled   bool
-	ModelKey  string
-	TimeoutMs int64
+	Enabled  bool
+	ModelKey string
+	Timeout  int64
 }
 
 type AgentRuntimePrompts struct {
@@ -130,7 +130,7 @@ type ProxyConfig struct {
 	ChatID    string // optional upstream chatId override
 	Token     string // optional Bearer token
 	TokenEnv  string // optional env var name for Bearer token
-	TimeoutMs int    // default 300000 (5 min)
+	Timeout   int    // default 300 (5 min), seconds
 }
 
 type SkillPromptConfig struct {
@@ -669,11 +669,11 @@ func parseToolOverrides(value any) map[string]api.ToolDetailResponse {
 			}
 			meta["viewportKey"] = viewportKey
 		}
-		if timeoutMs := intNode(override["timeoutMs"]); timeoutMs > 0 {
+		if timeout := intNode(override["timeout"]); timeout > 0 {
 			if meta == nil {
 				meta = map[string]any{}
 			}
-			meta["timeoutMs"] = timeoutMs
+			meta["timeout"] = timeout
 		}
 		result[strings.ToLower(strings.TrimSpace(toolName))] = api.ToolDetailResponse{
 			Key:           key,

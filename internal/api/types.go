@@ -533,7 +533,7 @@ type AgentEditorOption struct {
 
 type AgentEditorProxyConfigSchema struct {
 	Fields           []AgentEditorProxyConfigField `json:"fields"`
-	DefaultTimeoutMs int                           `json:"defaultTimeoutMs"`
+	DefaultTimeout int                          `json:"defaultTimeout"`
 }
 
 type AgentEditorProxyConfigField struct {

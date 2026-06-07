@@ -38,15 +38,15 @@ func (s *Server) applyProxyRoutingConfig(def *catalog.AgentDefinition) *statusEr
 			message: "ACP proxy " + `"` + proxyID + `" is missing base-url in configs/coder-settings.yml acp-proxies`,
 		}
 	}
-	timeoutMs := proxy.Timeout * 1000
-	if timeoutMs <= 0 {
-		timeoutMs = 300 * 1000
+	timeout := proxy.Timeout
+	if timeout <= 0 {
+		timeout = 300
 	}
 	def.ProxyConfig = &catalog.ProxyConfig{
 		BaseURL:   baseURL,
 		Transport: "ws",
 		Token:     strings.TrimSpace(proxy.AuthToken),
-		TimeoutMs: timeoutMs,
+		Timeout:   timeout,
 	}
 	return nil
 }

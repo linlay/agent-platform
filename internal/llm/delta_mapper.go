@@ -379,15 +379,15 @@ func (m *DeltaMapper) buildFrontendToolAwaitAsk(toolID string, toolName string, 
 			return nil, false
 		}
 		delete(m.toolArgBuffers, toolID)
-		timeoutMs := resolveFrontendAwaitTimeout(toolName, tool, args, m.budget)
-		return handler.BuildInitialAwaitAsk(toolID, m.runID, tool, args, 0, timeoutMs), true
+		timeout := resolveFrontendAwaitTimeout(toolName, tool, args, m.budget)
+		return handler.BuildInitialAwaitAsk(toolID, m.runID, tool, args, 0, timeout), true
 	}
 	if strings.TrimSpace(argsDelta) != "" {
 		var args map[string]any
 		if err := json.Unmarshal([]byte(argsDelta), &args); err == nil {
 			if err := handler.ValidateArgs(args); err == nil {
-				timeoutMs := resolveFrontendAwaitTimeout(toolName, tool, args, m.budget)
-				return handler.BuildInitialAwaitAsk(toolID, m.runID, tool, args, chunkIndex, timeoutMs), false
+				timeout := resolveFrontendAwaitTimeout(toolName, tool, args, m.budget)
+				return handler.BuildInitialAwaitAsk(toolID, m.runID, tool, args, chunkIndex, timeout), false
 			}
 			return nil, false
 		}

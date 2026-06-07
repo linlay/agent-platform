@@ -48,7 +48,7 @@ func TestProxyQueryForwardsRuntimeWorkspaceRootAsCWD(t *testing.T) {
 				"proxyConfig:",
 				"  baseUrl: " + upstream.URL,
 				"  transport: sse",
-				"  timeoutMs: 30000",
+				"  timeout: 30",
 			})
 		},
 	})
@@ -99,7 +99,7 @@ func TestProxyQueryRejectsRequestCWDParam(t *testing.T) {
 				"proxyConfig:",
 				"  baseUrl: " + upstream.URL,
 				"  transport: sse",
-				"  timeoutMs: 30000",
+				"  timeout: 30",
 			})
 		},
 	})

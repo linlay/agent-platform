@@ -68,7 +68,7 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 		return
 	}
 
-	timeout := time.Duration(proxy.TimeoutMs) * time.Millisecond
+	timeout := time.Duration(proxy.Timeout) * time.Second
 	client := &http.Client{Timeout: timeout}
 
 	proxyReq, err := http.NewRequestWithContext(r.Context(), http.MethodPost, targetURL, bytes.NewReader(body))

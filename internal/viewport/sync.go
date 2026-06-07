@@ -68,8 +68,8 @@ type jsonRPCError struct {
 func (s *Syncer) fetch(ctx context.Context, server ServerDefinition, viewportKey string) (map[string]any, bool, error) {
 	reqCtx := ctx
 	var cancel context.CancelFunc
-	if server.TimeoutMs > 0 {
-		reqCtx, cancel = context.WithTimeout(ctx, time.Duration(server.TimeoutMs)*time.Millisecond)
+	if server.Timeout > 0 {
+		reqCtx, cancel = context.WithTimeout(ctx, time.Duration(server.Timeout)*time.Second)
 		defer cancel()
 	}
 

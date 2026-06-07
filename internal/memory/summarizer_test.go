@@ -3,9 +3,23 @@ package memory
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"agent-platform/internal/config"
+	"agent-platform/internal/models"
 )
+
+func TestMemorySummarizerTimeoutUsesSeconds(t *testing.T) {
+	summarizer := NewLLMMemorySummarizer(&models.ModelRegistry{}, "mock-model", 0, config.MemoryPromptsConfig{})
+	if summarizer.timeout != 60*time.Second || summarizer.client.Timeout != 60*time.Second {
+		t.Fatalf("expected default summarizer timeout 60s, got timeout=%s client=%s", summarizer.timeout, summarizer.client.Timeout)
+	}
+
+	summarizer = NewLLMMemorySummarizer(&models.ModelRegistry{}, "mock-model", 2, config.MemoryPromptsConfig{})
+	if summarizer.timeout != 2*time.Second || summarizer.client.Timeout != 2*time.Second {
+		t.Fatalf("expected configured summarizer timeout 2s, got timeout=%s client=%s", summarizer.timeout, summarizer.client.Timeout)
+	}
+}
 
 func TestMemorySummarizerDefaultPrompts(t *testing.T) {
 	summarizer := &LLMMemorySummarizer{}

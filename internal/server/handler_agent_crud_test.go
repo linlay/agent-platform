@@ -100,9 +100,9 @@ func TestAgentProxyCRUDAllowsProxyConfigWithoutModelConfig(t *testing.T) {
 			"description": "proxy test agent",
 			"mode":        "PROXY",
 			"proxyConfig": map[string]any{
-				"baseUrl":   "http://127.0.0.1:3210",
-				"token":     "proxy-token",
-				"timeoutMs": 300000,
+				"baseUrl": "http://127.0.0.1:3210",
+				"token":   "proxy-token",
+				"timeout": 300,
 			},
 		},
 	})
@@ -540,7 +540,7 @@ func TestAgentEditorOptionsHTTP(t *testing.T) {
 		got[3].Key != "internal" || got[3].Label != "internal" {
 		t.Fatalf("unexpected visibility scopes %#v", got)
 	}
-	if response.Data.ProxyConfigSchema.DefaultTimeoutMs != 300000 || len(response.Data.ProxyConfigSchema.Fields) != 6 || !response.Data.ProxyConfigSchema.Fields[0].Required {
+	if response.Data.ProxyConfigSchema.DefaultTimeout != 300 || len(response.Data.ProxyConfigSchema.Fields) != 6 || !response.Data.ProxyConfigSchema.Fields[0].Required {
 		t.Fatalf("unexpected proxy schema %#v", response.Data.ProxyConfigSchema)
 	}
 }
@@ -612,6 +612,24 @@ func TestAgentCRUDSafetyErrors(t *testing.T) {
 					"description": "bad proxy",
 					"mode":        "PROXY",
 					"proxyConfig": map[string]any{"token": "token"},
+				},
+			},
+			status: http.StatusBadRequest,
+		},
+		{
+			name: "proxy deprecated timeout ms",
+			path: "/api/agent/create",
+			body: map[string]any{
+				"key": "bad-proxy-timeout",
+				"definition": map[string]any{
+					"key":         "bad-proxy-timeout",
+					"name":        "Bad Proxy Timeout",
+					"description": "bad proxy timeout",
+					"mode":        "PROXY",
+					"proxyConfig": map[string]any{
+						"baseUrl":   "http://127.0.0.1:3210",
+						"timeoutMs": 300000,
+					},
 				},
 			},
 			status: http.StatusBadRequest,

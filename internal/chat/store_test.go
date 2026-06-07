@@ -1458,7 +1458,7 @@ func TestStepWriterEmbedsAwaitingInStepLine(t *testing.T) {
 		Payload: map[string]any{
 			"awaitingId": "tool-1",
 			"mode":       "question",
-			"timeout":    120000,
+			"timeout":    120,
 			"runId":      "run-awaiting-step",
 			"questions": []any{
 				map[string]any{
@@ -1609,7 +1609,7 @@ func TestStepWriterTimeoutAnswerDoesNotSplitToolStep(t *testing.T) {
 		Payload: map[string]any{
 			"awaitingId": "tool-1",
 			"mode":       "approval",
-			"timeout":    120000,
+			"timeout":    120,
 			"runId":      "run-timeout-submit",
 		},
 	})
@@ -1707,7 +1707,7 @@ func TestStepWriterReusesReactSeqForSplitHITLToolResult(t *testing.T) {
 		Payload: map[string]any{
 			"awaitingId": "tool-1",
 			"mode":       "approval",
-			"timeout":    120000,
+			"timeout":    120,
 			"runId":      "run-hitl-seq",
 		},
 	})
@@ -3102,7 +3102,7 @@ func TestStepWriterPersistsAwaitingWithoutMessages(t *testing.T) {
 		Payload: map[string]any{
 			"awaitingId": "tool-1",
 			"mode":       "question",
-			"timeout":    120000,
+			"timeout":    120,
 		},
 	})
 	writer.Flush()
@@ -3171,7 +3171,7 @@ func TestStepWriterFlushesAwaitingAskImmediatelyForAllModes(t *testing.T) {
 		payload := map[string]any{
 			"awaitingId": "await-" + tc.mode,
 			"mode":       tc.mode,
-			"timeout":    120000,
+			"timeout":    120,
 			"runId":      runID,
 			tc.key:       tc.data,
 		}
@@ -4306,7 +4306,7 @@ func TestLoadChatIgnoresQuestionAwaitingAskEventLines(t *testing.T) {
 			"type":       "awaiting.ask",
 			"awaitingId": "tool-1",
 			"mode":       "question",
-			"timeout":    120000,
+			"timeout":    120,
 			"runId":      "run-1",
 			"questions": []any{
 				map[string]any{
@@ -4551,7 +4551,7 @@ func TestLoadChatReplaysAwaitingFromStepLine(t *testing.T) {
 				"timestamp":  1002,
 				"awaitingId": "tool-1",
 				"mode":       "question",
-				"timeout":    120000,
+				"timeout":    120,
 				"questions": []any{
 					map[string]any{
 						"id":       "q1",
@@ -4624,7 +4624,7 @@ func TestLoadChatIgnoresEventLineAwaitingAsk(t *testing.T) {
 			"type":       "awaiting.ask",
 			"awaitingId": "tool-1",
 			"mode":       "question",
-			"timeout":    120000,
+			"timeout":    120,
 			"runId":      "run-awaiting-event-ignored",
 			"questions": []any{
 				map[string]any{"id": "q1", "question": "How many?", "type": "number"},
@@ -4677,7 +4677,7 @@ func TestLoadChatDoesNotSynthesizeRunCompleteForPendingAwaiting(t *testing.T) {
 			"awaitingId": "tool-1",
 			"runId":      "run-awaiting-pending",
 			"mode":       "question",
-			"timeout":    120000,
+			"timeout":    120,
 			"questions": []any{
 				map[string]any{"id": "q1", "question": "How many?", "type": "number"},
 			},
@@ -5531,7 +5531,7 @@ func TestLoadChatIgnoresApprovalAwaitingAskEventLines(t *testing.T) {
 			"type":       "awaiting.ask",
 			"awaitingId": "tool-approval",
 			"mode":       "approval",
-			"timeout":    120000,
+			"timeout":    120,
 			"runId":      "run-approval",
 			"approvals": []any{
 				map[string]any{

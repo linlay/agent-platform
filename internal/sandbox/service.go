@@ -90,7 +90,7 @@ func (s *ContainerHubSandboxService) resolveRuntimeLevel(execCtx *contracts.Exec
 	return level
 }
 
-func (s *ContainerHubSandboxService) Execute(ctx context.Context, execCtx *contracts.ExecutionContext, command string, cwd string, timeoutMs int64, env map[string]string) (contracts.SandboxExecutionResult, error) {
+func (s *ContainerHubSandboxService) Execute(ctx context.Context, execCtx *contracts.ExecutionContext, command string, cwd string, timeout int64, env map[string]string) (contracts.SandboxExecutionResult, error) {
 	if err := s.OpenIfNeeded(ctx, execCtx); err != nil {
 		return contracts.SandboxExecutionResult{}, err
 	}
@@ -103,8 +103,8 @@ func (s *ContainerHubSandboxService) Execute(ctx context.Context, execCtx *contr
 		"args":    []string{"-lc", command},
 		"cwd":     workingDirectory,
 	}
-	if timeoutMs > 0 {
-		payload["timeout_ms"] = timeoutMs
+	if timeout > 0 {
+		payload["timeout"] = timeout
 	}
 	if len(env) > 0 {
 		payload["env"] = contracts.CloneStringMap(env)

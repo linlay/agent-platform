@@ -71,36 +71,36 @@ func TestResolveHITLTimeoutUsesModeItemAndFallbackPriority(t *testing.T) {
 	}}
 
 	// question: item-specific timeout > mode budget
-	if got := ResolveHITLTimeout("question", 900000, budget); got != 900000 {
-		t.Fatalf("question timeout = %d, want item override 900000", got)
+	if got := ResolveHITLTimeout("question", 900, budget); got != 900 {
+		t.Fatalf("question timeout = %d, want item override 900", got)
 	}
 	// question: no item-specific → mode budget
-	if got := ResolveHITLTimeout("question", 0, budget); got != 110000 {
-		t.Fatalf("question timeout = %d, want mode override 110000", got)
+	if got := ResolveHITLTimeout("question", 0, budget); got != 110 {
+		t.Fatalf("question timeout = %d, want mode override 110", got)
 	}
 	// plan: item-specific timeout is NOT supported, should fall through to mode budget
-	if got := ResolveHITLTimeout("plan", 900000, budget); got != 140000 {
-		t.Fatalf("plan timeout = %d, want mode override 140000", got)
+	if got := ResolveHITLTimeout("plan", 900, budget); got != 140 {
+		t.Fatalf("plan timeout = %d, want mode override 140", got)
 	}
 	// approval: item-specific timeout > mode budget
-	if got := ResolveHITLTimeout("approval", 900000, budget); got != 900000 {
-		t.Fatalf("approval timeout = %d, want item override 900000", got)
+	if got := ResolveHITLTimeout("approval", 900, budget); got != 900 {
+		t.Fatalf("approval timeout = %d, want item override 900", got)
 	}
 	// form: item-specific timeout > mode budget
-	if got := ResolveHITLTimeout("form", 800000, budget); got != 800000 {
-		t.Fatalf("form timeout = %d, want item override 800000", got)
+	if got := ResolveHITLTimeout("form", 800, budget); got != 800 {
+		t.Fatalf("form timeout = %d, want item override 800", got)
 	}
 	// approval: no item-specific → mode budget
-	if got := ResolveHITLTimeout("approval", 0, budget); got != 120000 {
-		t.Fatalf("approval timeout = %d, want mode override 120000", got)
+	if got := ResolveHITLTimeout("approval", 0, budget); got != 120 {
+		t.Fatalf("approval timeout = %d, want mode override 120", got)
 	}
 	// question: no mode or item → global hitl
-	if got := ResolveHITLTimeout("question", 0, Budget{Hitl: HitlPolicy{Timeout: 100}}); got != 100000 {
-		t.Fatalf("question timeout = %d, want global override 100000", got)
+	if got := ResolveHITLTimeout("question", 0, Budget{Hitl: HitlPolicy{Timeout: 100}}); got != 100 {
+		t.Fatalf("question timeout = %d, want global override 100", got)
 	}
 	// question: nothing set → default
-	if got := ResolveHITLTimeout("question", 0, Budget{}); got != DefaultHITLTimeoutMs {
-		t.Fatalf("question timeout = %d, want fallback %d", got, DefaultHITLTimeoutMs)
+	if got := ResolveHITLTimeout("question", 0, Budget{}); got != DefaultHITLTimeout {
+		t.Fatalf("question timeout = %d, want fallback %d", got, DefaultHITLTimeout)
 	}
 }
 

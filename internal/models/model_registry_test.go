@@ -51,7 +51,7 @@ func TestLoadModelRegistryParsesProviderMemoryEmbedding(t *testing.T) {
 		"  embedding:",
 		"    model: text-embedding-3-small",
 		"    dimension: 1536",
-		"    timeoutMs: 15000",
+		"    timeout: 15",
 	}, "\n"))
 
 	registry, err := LoadModelRegistry(root)
@@ -69,8 +69,27 @@ func TestLoadModelRegistryParsesProviderMemoryEmbedding(t *testing.T) {
 	if provider.Memory.Embedding.Dimension != 1536 {
 		t.Fatalf("unexpected embedding dimension: %d", provider.Memory.Embedding.Dimension)
 	}
-	if provider.Memory.Embedding.TimeoutMs != 15000 {
-		t.Fatalf("unexpected embedding timeout: %d", provider.Memory.Embedding.TimeoutMs)
+	if provider.Memory.Embedding.Timeout != 15 {
+		t.Fatalf("unexpected embedding timeout: %d", provider.Memory.Embedding.Timeout)
+	}
+}
+
+func TestLoadModelRegistryRejectsDeprecatedProviderMemoryTimeoutMs(t *testing.T) {
+	root := t.TempDir()
+	writeTestProviderAndModel(t, root, strings.Join([]string{
+		"apiKey: plain-text",
+		"memory:",
+		"  embedding:",
+		"    model: text-embedding-3-small",
+		"    timeoutMs: 15000",
+	}, "\n"))
+
+	_, err := LoadModelRegistry(root)
+	if err == nil {
+		t.Fatal("expected deprecated provider memory timeoutMs to be rejected")
+	}
+	if !strings.Contains(err.Error(), "memory.embedding.timeoutMs") || !strings.Contains(err.Error(), "memory.embedding.timeout") {
+		t.Fatalf("expected migration error for memory.embedding.timeoutMs, got %v", err)
 	}
 }
 

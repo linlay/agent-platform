@@ -163,7 +163,7 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 
 func (s *llmRunStream) awaitHITLSubmitOrAccessLevel(invocation *preparedToolInvocation, match *hitl.InterceptResult, awaitingID string, awaitArgs map[string]any) (SubmitResult, error) {
 	mode := strings.TrimSpace(AnyStringNode(awaitArgs["mode"]))
-	timeout := time.Duration(s.resolveHITLTimeoutWithItem(mode, int64(match.Rule.TimeoutMs))) * time.Millisecond
+	timeout := time.Duration(s.resolveHITLTimeoutWithItem(mode, int64(match.Rule.Timeout))) * time.Second
 	deadline := time.Time{}
 	if timeout > 0 {
 		deadline = time.Now().Add(timeout)
@@ -497,10 +497,10 @@ func (s *llmRunStream) resolveHITLTimeout(mode string) int64 {
 	return s.resolveHITLTimeoutWithItem(mode, 0)
 }
 
-func (s *llmRunStream) resolveHITLTimeoutWithItem(mode string, itemTimeoutMs int64) int64 {
+func (s *llmRunStream) resolveHITLTimeoutWithItem(mode string, itemTimeout int64) int64 {
 	budget := Budget{}
 	if s != nil && s.execCtx != nil {
 		budget = NormalizeBudget(s.execCtx.Budget)
 	}
-	return ResolveHITLTimeout(mode, itemTimeoutMs, budget)
+	return ResolveHITLTimeout(mode, itemTimeout, budget)
 }

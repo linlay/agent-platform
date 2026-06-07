@@ -21,9 +21,9 @@ inputSchema:
     cwd:
       type: string
       description: Working directory for this execution. When empty, the host shell working directory default is used.
-    timeout_ms:
+    timeout:
       type: integer
-      description: Execution timeout in milliseconds.
+      description: Execution timeout in seconds.
   required:
     - command
     - description

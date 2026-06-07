@@ -394,7 +394,7 @@ func (o *frameOrchestrator) runProxyChildTask(result *childTaskResult, subReq ap
 		return result
 	}
 
-	timeout := time.Duration(proxy.TimeoutMs) * time.Millisecond
+	timeout := time.Duration(proxy.Timeout) * time.Second
 	if timeout <= 0 {
 		timeout = 5 * time.Minute
 	}

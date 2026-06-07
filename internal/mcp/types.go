@@ -9,18 +9,18 @@ import (
 )
 
 type ServerDefinition struct {
-	Key              string
-	Name             string
-	BaseURL          string
-	EndpointPath     string
-	ToolPrefix       string
-	AuthToken        string
-	Headers          map[string]string
-	AliasMap         map[string]string
-	ConnectTimeoutMs int
-	ReadTimeoutMs    int
-	Retry            int
-	Tools            []ToolDefinition
+	Key             string
+	Name            string
+	BaseURL         string
+	EndpointPath    string
+	ToolPrefix      string
+	AuthToken       string
+	Headers         map[string]string
+	AliasMap        map[string]string
+	ConnectTimeout  int
+	ReadTimeout     int
+	Retry           int
+	Tools           []ToolDefinition
 }
 
 func (s ServerDefinition) ResolvedURL() string {

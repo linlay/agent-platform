@@ -27,6 +27,9 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 	if len(command) > maxInt(t.cfg.Bash.MaxCommandChars, 16000) {
 		return ToolExecutionResult{Output: "Command is too long", Error: "command_too_long", ExitCode: -1}, nil
 	}
+	if _, hasOld := args["timeout_ms"]; hasOld {
+		return ToolExecutionResult{Output: "migration required: 'timeout_ms' is removed, use 'timeout' in seconds", Error: "parameter_migration_required", ExitCode: -1}, nil
+	}
 	securityReview := bashsec.ReviewBashSecurityWithKnownVariables(command, bashSecurityKnownVariables(execCtx))
 	switch securityReview.Decision {
 	case bashsec.ReviewAllow:
@@ -65,11 +68,11 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 		}
 	}
 
-	timeoutMs := int64Arg(args, "timeout_ms")
-	if timeoutMs <= 0 {
-		timeoutMs = int64(maxInt(t.cfg.Bash.ShellTimeout, 10)) * 1000
+	timeoutSeconds := int64Arg(args, "timeout")
+	if timeoutSeconds <= 0 {
+		timeoutSeconds = int64(maxInt(t.cfg.Bash.ShellTimeout, 10))
 	}
-	timeout := time.Duration(timeoutMs) * time.Millisecond
+	timeout := time.Duration(timeoutSeconds) * time.Second
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 

@@ -84,6 +84,29 @@ func TestParseAgentFileDefaultsProxyTransportToWebSocket(t *testing.T) {
 	}
 }
 
+func TestParseAgentFileRejectsDeprecatedProxyTimeoutMs(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	content := "" +
+		"key: proxy-demo\n" +
+		"name: Proxy Demo\n" +
+		"mode: PROXY\n" +
+		"proxyConfig:\n" +
+		"  baseUrl: http://127.0.0.1:3210\n" +
+		"  timeoutMs: 300000\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	_, err := parseAgentFile(path)
+	if err == nil {
+		t.Fatal("expected deprecated proxyConfig.timeoutMs to be rejected")
+	}
+	if !strings.Contains(err.Error(), "proxyConfig.timeoutMs") || !strings.Contains(err.Error(), "proxyConfig.timeout") {
+		t.Fatalf("expected migration error for proxyConfig.timeoutMs, got %v", err)
+	}
+}
+
 func TestParseAgentFileKeepsExplicitProxySSETransport(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
@@ -1103,11 +1126,11 @@ func TestParseAgentFileParsesMemoryRuntimeConfig(t *testing.T) {
 		"    providerKey: openai\n" +
 		"    model: text-embedding-3-small\n" +
 		"    dimension: 1536\n" +
-		"    timeoutMs: 15000\n" +
+		"    timeout: 15\n" +
 		"  autoRemember:\n" +
 		"    enabled: true\n" +
 		"    modelKey: minimax-m2_7-anthropic\n" +
-		"    timeoutMs: 60000\n"
+		"    timeout: 60\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write agent file: %v", err)
 	}
@@ -1122,13 +1145,64 @@ func TestParseAgentFileParsesMemoryRuntimeConfig(t *testing.T) {
 	if def.MemoryConfig.Embedding.ProviderKey != "openai" ||
 		def.MemoryConfig.Embedding.Model != "text-embedding-3-small" ||
 		def.MemoryConfig.Embedding.Dimension != 1536 ||
-		def.MemoryConfig.Embedding.TimeoutMs != 15000 {
+		def.MemoryConfig.Embedding.Timeout != 15 {
 		t.Fatalf("unexpected embedding config: %#v", def.MemoryConfig.Embedding)
 	}
 	if !def.MemoryConfig.AutoRemember.Enabled ||
 		def.MemoryConfig.AutoRemember.ModelKey != "minimax-m2_7-anthropic" ||
-		def.MemoryConfig.AutoRemember.TimeoutMs != 60000 {
+		def.MemoryConfig.AutoRemember.Timeout != 60 {
 		t.Fatalf("unexpected auto remember config: %#v", def.MemoryConfig.AutoRemember)
+	}
+}
+
+func TestParseAgentFileRejectsDeprecatedMemoryTimeoutMs(t *testing.T) {
+	cases := []struct {
+		name       string
+		config     string
+		wantErrSub string
+	}{
+		{
+			name: "embedding",
+			config: "" +
+				"  embedding:\n" +
+				"    providerKey: openai\n" +
+				"    timeoutMs: 15000\n",
+			wantErrSub: "memoryConfig.embedding.timeoutMs",
+		},
+		{
+			name: "auto remember",
+			config: "" +
+				"  autoRemember:\n" +
+				"    enabled: true\n" +
+				"    modelKey: minimax-m2_7-anthropic\n" +
+				"    timeoutMs: 60000\n",
+			wantErrSub: "memoryConfig.autoRemember.timeoutMs",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			path := filepath.Join(root, "agent.yml")
+			content := "" +
+				"key: demo\n" +
+				"name: Demo\n" +
+				"mode: REACT\n" +
+				"modelConfig:\n" +
+				"  modelKey: demo-model\n" +
+				"memoryConfig:\n" +
+				"  enabled: true\n" +
+				tc.config
+			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+				t.Fatalf("write agent file: %v", err)
+			}
+			_, err := parseAgentFile(path)
+			if err == nil {
+				t.Fatal("expected deprecated memory timeoutMs to be rejected")
+			}
+			if !strings.Contains(err.Error(), tc.wantErrSub) || !strings.Contains(err.Error(), "timeout") {
+				t.Fatalf("expected migration error for %s, got %v", tc.wantErrSub, err)
+			}
+		})
 	}
 }
 

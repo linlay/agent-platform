@@ -21,6 +21,9 @@ func (h *AskUserQuestionHandler) ToolName() string {
 }
 
 func (h *AskUserQuestionHandler) ValidateArgs(args map[string]any) error {
+	if _, hasOld := args["timeoutMs"]; hasOld {
+		return fmt.Errorf("migration required: 'timeoutMs' is removed, use 'timeout' in seconds")
+	}
 	if !strings.EqualFold(strings.TrimSpace(contracts.AnyStringNode(args["mode"])), "question") {
 		return fmt.Errorf("ask_user_question mode must be question")
 	}
@@ -89,7 +92,7 @@ func (h *AskUserQuestionHandler) ValidateArgs(args map[string]any) error {
 	return nil
 }
 
-func (h *AskUserQuestionHandler) BuildInitialAwaitAsk(toolID string, runID string, _ api.ToolDetailResponse, args map[string]any, chunkIndex int, timeoutMs int64) *stream.AwaitAsk {
+func (h *AskUserQuestionHandler) BuildInitialAwaitAsk(toolID string, runID string, _ api.ToolDetailResponse, args map[string]any, chunkIndex int, timeout int64) *stream.AwaitAsk {
 	if chunkIndex != 0 {
 		return nil
 	}
@@ -102,7 +105,7 @@ func (h *AskUserQuestionHandler) BuildInitialAwaitAsk(toolID string, runID strin
 		ViewportType: "builtin",
 		ViewportKey:  "question",
 		Mode:         "question",
-		Timeout:      timeoutMs,
+		Timeout:      timeout,
 		RunID:        runID,
 		Questions:    questions,
 	}
