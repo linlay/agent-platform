@@ -15,7 +15,7 @@ const (
 	defaultRunMaxBackgroundDuration = 0
 	defaultRunCompletedRetention    = 10 * time.Second
 	defaultRunEventBusMaxEvents     = 10000
-	defaultRunMaxDisconnectedWait   = 10 * time.Minute
+	defaultRunMaxDisconnectedWait   = 0
 	defaultRunMaxObserversPerRun    = 8
 )
 
@@ -634,7 +634,7 @@ func (c *RunControl) ObserverCount() int32 {
 }
 
 func (c *RunControl) SetMaxDisconnectedWait(wait time.Duration) {
-	if c == nil || wait <= 0 {
+	if c == nil || wait < 0 {
 		return
 	}
 	c.mu.Lock()

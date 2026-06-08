@@ -1310,7 +1310,7 @@ func TestLoadIgnoresOldEnvVars(t *testing.T) {
 					if cfg.Run.ReaperInterval != 30 ||
 						cfg.Run.MaxBackgroundDuration != 0 ||
 						cfg.Run.CompletedRetention != 10 ||
-						cfg.Run.MaxDisconnectedWait != 600 {
+						cfg.Run.MaxDisconnectedWait != 0 {
 						t.Fatalf("old run timeout env should not affect defaults: %#v", cfg.Run)
 					}
 					if cfg.WebSocket.PingInterval != 30 || cfg.WebSocket.WriteTimeout != 15 {

@@ -206,7 +206,7 @@ func defaultConfig() Config {
 			MaxBackgroundDuration: 0,  // seconds; 0 means never expire detached runs
 			CompletedRetention:    10, // seconds
 			EventBusMaxEvents:     10000,
-			MaxDisconnectedWait:   600, // seconds
+			MaxDisconnectedWait:   0, // seconds; 0 means wait forever while disconnected
 			MaxObserversPerRun:    8,
 		},
 		WebSocket: WebSocketConfig{

@@ -63,9 +63,7 @@ func (m *InMemoryRunManager) ConfigureRunLifecycle(cfg config.RunConfig) {
 	if cfg.EventBusMaxEvents > 0 {
 		m.eventBusMaxEvents = cfg.EventBusMaxEvents
 	}
-	if cfg.MaxDisconnectedWait > 0 {
-		m.maxDisconnectedWait = time.Duration(cfg.MaxDisconnectedWait) * time.Second
-	}
+	m.maxDisconnectedWait = time.Duration(cfg.MaxDisconnectedWait) * time.Second
 	if cfg.MaxObserversPerRun > 0 {
 		m.maxObserversPerRun = cfg.MaxObserversPerRun
 	}

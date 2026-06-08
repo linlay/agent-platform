@@ -140,6 +140,50 @@ func TestRunControlAwaitSubmitHonorsMaxDisconnectedWait(t *testing.T) {
 	}
 }
 
+func TestRunControlAwaitSubmitDefaultDisconnectedWaitIsForever(t *testing.T) {
+	control := NewRunControl(context.Background(), "run_1")
+	control.SetObserverCount(0)
+	control.ExpectSubmit(testAwaitingContext("await_1"))
+
+	resultCh := make(chan SubmitResult, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		result, err := control.AwaitSubmitWithTimeout(context.Background(), "await_1", time.Second)
+		if err != nil {
+			errCh <- err
+			return
+		}
+		resultCh <- result
+	}()
+
+	select {
+	case err := <-errCh:
+		t.Fatalf("did not expect disconnected wait to expire by default: %v", err)
+	case result := <-resultCh:
+		t.Fatalf("did not expect awaiting to resolve before submit: %#v", result)
+	case <-time.After(80 * time.Millisecond):
+	}
+
+	ack := control.ResolveSubmit(api.SubmitRequest{
+		RunID:      "run_1",
+		AwaitingID: "await_1",
+		Params:     testSubmitParams(t, []map[string]any{{"id": "q1", "answer": "ok"}}),
+	})
+	if !ack.Accepted {
+		t.Fatalf("expected submit to be accepted after disconnected wait, got %#v", ack)
+	}
+	select {
+	case err := <-errCh:
+		t.Fatalf("expected submit result, got err %v", err)
+	case result := <-resultCh:
+		if result.Request.AwaitingID != "await_1" {
+			t.Fatalf("unexpected result: %#v", result)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("timed out waiting for submit result")
+	}
+}
+
 func TestRunControlAwaitSubmitNoTimeoutIgnoresDisconnectedWait(t *testing.T) {
 	control := NewRunControl(context.Background(), "run_1")
 	control.SetMaxDisconnectedWait(20 * time.Millisecond)
