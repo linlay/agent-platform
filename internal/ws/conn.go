@@ -18,6 +18,8 @@ import (
 
 type RouteHandler func(context.Context, *Conn, RequestFrame)
 
+const defaultWriteQueueFullGrace = 5 * time.Second
+
 type outboundMessage struct {
 	frame     any
 	msgType   int
@@ -41,17 +43,20 @@ type DetachedStream struct {
 }
 
 type Conn struct {
-	sessionID         string
-	socket            *gws.Conn
-	hub               *Hub
-	cfg               config.WebSocketConfig
-	heartbeatInterval time.Duration
-	requestBaseURL    string
-	clientInfoMu      sync.RWMutex
-	remoteAddr        string
-	userAgent         string
-	source            string
-	deviceID          string
+	sessionID           string
+	socket              *gws.Conn
+	hub                 *Hub
+	cfg                 config.WebSocketConfig
+	heartbeatInterval   time.Duration
+	writeQueueFullGrace time.Duration
+	requestBaseURL      string
+	clientInfoMu        sync.RWMutex
+	remoteAddr          string
+	userAgent           string
+	source              string
+	deviceID            string
+	closeReasonMu       sync.RWMutex
+	closeReason         string
 
 	// silent=true 时：Run 不主动发 push.connected，writeLoop 不发 push.heartbeat / auth.expiring。
 	// 用于 agent-platform 反向连出到网关的场景——网关按自己的节奏发注册 ACK，我们只做被动应答。
@@ -120,19 +125,31 @@ func NewConn(socket *gws.Conn, hub *Hub, cfg config.WebSocketConfig, heartbeatIn
 		remoteAddr = socket.RemoteAddr().String()
 	}
 	return &Conn{
-		sessionID:         fmt.Sprintf("ws_%d", nextSessionID.Add(1)),
-		socket:            socket,
-		hub:               hub,
-		cfg:               cfg,
-		heartbeatInterval: heartbeatInterval,
-		remoteAddr:        remoteAddr,
-		auth:              auth,
-		inflightRequests:  map[string]struct{}{},
-		activeStreams:     map[string]*streamEntry{},
-		observingRuns:     map[string]string{},
-		writeQueue:        make(chan outboundMessage, cfg.WriteQueueSize),
-		closed:            make(chan struct{}),
+		sessionID:           fmt.Sprintf("ws_%d", nextSessionID.Add(1)),
+		socket:              socket,
+		hub:                 hub,
+		cfg:                 cfg,
+		heartbeatInterval:   heartbeatInterval,
+		writeQueueFullGrace: resolvedWriteQueueFullGrace(cfg),
+		remoteAddr:          remoteAddr,
+		auth:                auth,
+		inflightRequests:    map[string]struct{}{},
+		activeStreams:       map[string]*streamEntry{},
+		observingRuns:       map[string]string{},
+		writeQueue:          make(chan outboundMessage, cfg.WriteQueueSize),
+		closed:              make(chan struct{}),
 	}
+}
+
+func resolvedWriteQueueFullGrace(cfg config.WebSocketConfig) time.Duration {
+	grace := defaultWriteQueueFullGrace
+	if cfg.WriteTimeout > 0 {
+		writeTimeout := time.Duration(cfg.WriteTimeout) * time.Second
+		if writeTimeout > 0 && writeTimeout < grace {
+			grace = writeTimeout
+		}
+	}
+	return grace
 }
 
 func (c *Conn) SessionID() string {
@@ -462,6 +479,19 @@ func (c *Conn) enqueue(message outboundMessage) bool {
 	case c.writeQueue <- message:
 		return true
 	default:
+	}
+	grace := c.writeQueueFullGrace
+	if grace <= 0 {
+		grace = defaultWriteQueueFullGrace
+	}
+	timer := time.NewTimer(grace)
+	defer timer.Stop()
+	select {
+	case <-c.closed:
+		return false
+	case c.writeQueue <- message:
+		return true
+	case <-timer.C:
 		go c.close(gws.ClosePolicyViolation, "write queue full")
 		return false
 	}
@@ -546,8 +576,27 @@ func (c *Conn) isClosed() bool {
 	return c.closing.Load()
 }
 
+func (c *Conn) setCloseReason(reason string) {
+	if c == nil {
+		return
+	}
+	c.closeReasonMu.Lock()
+	c.closeReason = strings.TrimSpace(reason)
+	c.closeReasonMu.Unlock()
+}
+
+func (c *Conn) monitorCloseReason() string {
+	if c == nil {
+		return ""
+	}
+	c.closeReasonMu.RLock()
+	defer c.closeReasonMu.RUnlock()
+	return c.closeReason
+}
+
 func (c *Conn) close(code int, text string) {
 	c.closeOnce.Do(func() {
+		c.setCloseReason(text)
 		c.closing.Store(true)
 		close(c.closed)
 		if c.hub != nil {

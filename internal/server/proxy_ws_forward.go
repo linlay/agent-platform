@@ -513,22 +513,22 @@ func (r *proxyEventRecorder) OnEvent(event stream.EventData) {
 	}
 }
 
-func (r *proxyEventRecorder) Finish() {
+func (r *proxyEventRecorder) Finish() (bool, chat.RunCompletion) {
 	if r == nil || r.stepWriter == nil {
-		return
+		return false, chat.RunCompletion{}
 	}
 	r.stepWriter.Flush()
 	if r.req.ChatID == "" || r.req.RunID == "" {
-		return
+		return false, chat.RunCompletion{}
 	}
 	if r.chatStore == nil {
-		return
+		return false, chat.RunCompletion{}
 	}
 	finishReason := r.finishReason
 	if strings.TrimSpace(finishReason) == "" {
 		finishReason = "complete"
 	}
-	if err := r.chatStore.OnRunCompleted(chat.RunCompletion{
+	completion := chat.RunCompletion{
 		ChatID:          r.req.ChatID,
 		RunID:           r.req.RunID,
 		AgentKey:        r.req.AgentKey,
@@ -538,9 +538,12 @@ func (r *proxyEventRecorder) Finish() {
 		StartedAtMillis: r.startedAt,
 		UpdatedAtMillis: time.Now().UnixMilli(),
 		Usage:           r.runUsage,
-	}); err != nil {
-		log.Printf("[proxy][ws] OnRunCompleted failed: %v", err)
 	}
+	if err := r.chatStore.OnRunCompleted(completion); err != nil {
+		log.Printf("[proxy][ws] OnRunCompleted failed: %v", err)
+		return false, chat.RunCompletion{}
+	}
+	return true, completion
 }
 
 func awaitingContextFromProxyEvent(event stream.EventData) contracts.AwaitingSubmitContext {

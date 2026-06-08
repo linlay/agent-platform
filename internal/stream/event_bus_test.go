@@ -79,6 +79,24 @@ func TestRunEventBusReplayExpansionDoesNotDropObserver(t *testing.T) {
 	}
 }
 
+func TestRunEventBusReplayAtDefaultBufferKeepsLiveHeadroom(t *testing.T) {
+	bus := NewRunEventBus(256, 0, nil)
+	for seq := int64(1); seq <= int64(defaultObserverBuffer); seq++ {
+		bus.Publish(EventData{Seq: seq, Type: "content.delta"})
+	}
+
+	observer, err := bus.Subscribe(0)
+	if err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+	defer bus.Unsubscribe(observer.ID)
+
+	bus.Publish(EventData{Seq: int64(defaultObserverBuffer + 1), Type: "content.delta"})
+	if got := bus.ObserverCount(); got != 1 {
+		t.Fatalf("expected observer to keep live headroom after exact-buffer replay, got count=%d", got)
+	}
+}
+
 func TestRunEventBusCloseIsIdempotent(t *testing.T) {
 	bus := NewRunEventBus(256, 0, nil)
 	observer, err := bus.Subscribe(0)

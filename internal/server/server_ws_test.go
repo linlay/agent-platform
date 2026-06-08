@@ -596,6 +596,126 @@ func TestWebSocketRunCompletionPushOrdering(t *testing.T) {
 	}
 }
 
+func TestWebSocketProxyRunCompletionPushOrdering(t *testing.T) {
+	workspace := t.TempDir()
+	upgrader := gws.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	upstream := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/ws" {
+			t.Fatalf("expected upstream websocket path /ws, got %s", r.URL.Path)
+		}
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Fatalf("upgrade upstream websocket: %v", err)
+		}
+		defer conn.Close()
+		var frame map[string]any
+		if err := conn.ReadJSON(&frame); err != nil {
+			t.Fatalf("read upstream websocket frame: %v", err)
+		}
+		if err := conn.WriteJSON(map[string]any{
+			"event": map[string]any{
+				"seq":   1,
+				"type":  "content.delta",
+				"runId": "upstream-run",
+				"delta": "proxy hello",
+			},
+		}); err != nil {
+			t.Fatalf("write upstream websocket delta: %v", err)
+		}
+		if err := conn.WriteJSON(map[string]any{
+			"event": map[string]any{
+				"seq":   2,
+				"type":  "run.complete",
+				"runId": "upstream-run",
+			},
+		}); err != nil {
+			t.Fatalf("write upstream websocket completion: %v", err)
+		}
+	}))
+	defer upstream.Close()
+
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		notifications: ws.NewHub(),
+		configure: func(cfg *config.Config) {
+			cfg.WebSocket.WriteQueueSize = 8
+			cfg.WebSocket.PingInterval = 30000
+		},
+		setupRuntime: func(_ string, cfg *config.Config) {
+			writeAgentConfig(t, filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml"), []string{
+				"key: mock-agent",
+				"name: Mock Proxy Agent",
+				"role: proxy test agent",
+				"description: proxy websocket completion ordering test agent",
+				"mode: PROXY",
+				"runtimeConfig:",
+				"  workspaceRoot: " + filepath.ToSlash(workspace),
+				"proxyConfig:",
+				"  baseUrl: " + upstream.URL,
+			})
+		},
+	})
+
+	server := httptest.NewServer(fixture.server)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
+	conn, _, err := gws.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer conn.Close()
+
+	waitForPushFrameType(t, conn, "connected")
+
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame: ws.FrameRequest,
+		Type:  "/api/query",
+		ID:    "req_proxy_query_order",
+		Payload: ws.MarshalPayload(map[string]any{
+			"chatId":   "chat_proxy_ws_order",
+			"runId":    "run_proxy_ws_order",
+			"agentKey": "mock-agent",
+			"message":  "hello proxy ordering",
+		}),
+	}); err != nil {
+		t.Fatalf("write websocket proxy query: %v", err)
+	}
+
+	sequence := make([]string, 0, 4)
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) && len(sequence) < 4 {
+		if err := conn.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+			t.Fatalf("set websocket read deadline: %v", err)
+		}
+		_, raw, err := conn.ReadMessage()
+		if err != nil {
+			t.Fatalf("read websocket message: %v", err)
+		}
+		var meta struct {
+			Frame  string `json:"frame"`
+			ID     string `json:"id"`
+			Type   string `json:"type"`
+			Reason string `json:"reason"`
+		}
+		if err := json.Unmarshal(raw, &meta); err != nil {
+			t.Fatalf("decode websocket frame: %v", err)
+		}
+		switch {
+		case meta.Frame == ws.FrameStream && meta.ID == "req_proxy_query_order" && meta.Reason != "":
+			sequence = append(sequence, "stream.done")
+		case meta.Frame == ws.FramePush && (meta.Type == "run.finished" || meta.Type == "chat.unread" || meta.Type == "chat.updated"):
+			sequence = append(sequence, meta.Type)
+		}
+	}
+
+	want := []string{"stream.done", "run.finished", "chat.unread", "chat.updated"}
+	if !reflect.DeepEqual(sequence, want) {
+		t.Fatalf("unexpected proxy websocket completion order: got %v want %v", sequence, want)
+	}
+}
+
 func TestWebSocketRunStreamClosesDuringShutdown(t *testing.T) {
 	hub := ws.NewHub()
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {

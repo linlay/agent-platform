@@ -308,7 +308,7 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 
 	if stepWriter != nil {
 		stepWriter.Flush()
-		if err := chatStore.OnRunCompleted(chat.RunCompletion{
+		completion := chat.RunCompletion{
 			ChatID:          req.ChatID,
 			RunID:           req.RunID,
 			AgentKey:        req.AgentKey,
@@ -318,12 +318,11 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 			StartedAtMillis: startedAt,
 			UpdatedAtMillis: time.Now().UnixMilli(),
 			Usage:           runUsage,
-		}); err != nil {
+		}
+		if err := chatStore.OnRunCompleted(completion); err != nil {
 			log.Printf("[proxy] OnRunCompleted failed: %v", err)
-		} else if sum, err := chatStore.Summary(req.ChatID); err == nil && sum != nil {
-			if agentUnreadCount, err := s.agentUnreadCount(sum.AgentKey); err == nil {
-				s.broadcastChatReadState("chat.unread", *sum, agentUnreadCount)
-			}
+		} else {
+			s.broadcastRunCompletionNotifications(completion)
 		}
 	}
 

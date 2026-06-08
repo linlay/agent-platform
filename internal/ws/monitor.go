@@ -69,6 +69,7 @@ type MonitorConnection struct {
 	ReceivedMessages int64  `json:"receivedMessages"`
 	SentMessages     int64  `json:"sentMessages"`
 	Errors           int64  `json:"errors"`
+	CloseReason      string `json:"closeReason"`
 	InflightRequests int    `json:"inflightRequests"`
 	ActiveStreams    int    `json:"activeStreams"`
 	WriteQueueDepth  int    `json:"writeQueueDepth"`
@@ -108,6 +109,7 @@ type monitorConnectionState struct {
 	ReceivedMessages int64
 	SentMessages     int64
 	Errors           int64
+	CloseReason      string
 	ConnectedSeq     int64
 }
 
@@ -236,6 +238,7 @@ func (h *Hub) monitorClose(conn *Conn) {
 	state.Active = false
 	state.ClosedAt = now
 	state.LastSeenAt = now
+	state.CloseReason = monitorSanitizeText(conn.monitorCloseReason(), monitorPreviewMaxRunes)
 	h.trimMonitorConnectionsLocked()
 	h.monitorMu.Unlock()
 }
@@ -420,6 +423,7 @@ func (state *monitorConnectionState) snapshot() MonitorConnection {
 		ReceivedMessages: state.ReceivedMessages,
 		SentMessages:     state.SentMessages,
 		Errors:           state.Errors,
+		CloseReason:      state.CloseReason,
 	}
 }
 

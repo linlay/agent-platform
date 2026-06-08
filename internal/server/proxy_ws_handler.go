@@ -197,19 +197,26 @@ func (s *Server) runProxyWebSocket(
 	recorder *proxyEventRecorder,
 ) {
 	defer func() {
-		releaseQuery(prepared.release)
 		if route != nil {
 			s.unregisterProxyRun(prepared.req.RunID, route)
 			close(route.done)
 		}
+		var (
+			persisted  bool
+			completion chat.RunCompletion
+		)
 		if recorder != nil {
-			recorder.Finish()
+			persisted, completion = recorder.Finish()
 		}
 		if eventBus != nil {
-			eventBus.Freeze()
+			eventBus.FreezeAndWait()
 		}
+		releaseQuery(prepared.release)
 		s.deps.Runs.Finish(prepared.req.RunID)
 		s.broadcast("run.finished", map[string]any{"runId": prepared.req.RunID, "chatId": prepared.req.ChatID})
+		if persisted {
+			s.broadcastRunCompletionNotifications(completion)
+		}
 	}()
 
 	if proxyUpstreamTransport(prepared.agentDef.ProxyConfig) == "sse" {

@@ -758,3 +758,20 @@ func broadcastRunCompletion(params RunExecutorParams, completion chat.RunComplet
 		})
 	}
 }
+
+func (s *Server) broadcastRunCompletionNotifications(completion chat.RunCompletion) {
+	if s == nil {
+		return
+	}
+	broadcastRunCompletion(RunExecutorParams{
+		Chats:         s.deps.Chats,
+		Notifications: s.deps.Notifications,
+		OnUnreadChanged: func(summary chat.Summary) {
+			agentUnreadCount, err := s.agentUnreadCount(summary.AgentKey)
+			if err != nil {
+				return
+			}
+			s.broadcastChatReadState("chat.unread", summary, agentUnreadCount)
+		},
+	}, completion)
+}

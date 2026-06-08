@@ -84,7 +84,10 @@ func TestConnDetachRunStreamReleasesObserverAndAllowsReobserve(t *testing.T) {
 }
 
 func TestConnClosesOnWriteQueueOverflow(t *testing.T) {
-	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 1}, time.Second, AuthSession{})
+	hub := NewHub()
+	conn := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 1}, time.Second, AuthSession{})
+	conn.writeQueueFullGrace = 20 * time.Millisecond
+	hub.register(conn)
 	if !conn.SendPush("heartbeat", map[string]any{"timestamp": 1}) {
 		t.Fatalf("expected first enqueue to succeed")
 	}
@@ -97,6 +100,38 @@ func TestConnClosesOnWriteQueueOverflow(t *testing.T) {
 	}
 	if !conn.isClosed() {
 		t.Fatalf("expected connection to close after overflow")
+	}
+	snapshot := hub.MonitorConnections(1, MonitorFilter{SessionID: conn.SessionID()})
+	if len(snapshot.Connections) != 1 || snapshot.Connections[0].CloseReason != "write queue full" {
+		t.Fatalf("expected monitor close reason, got %#v", snapshot.Connections)
+	}
+}
+
+func TestConnEnqueueWaitsForTransientWriteQueueBackpressure(t *testing.T) {
+	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 1}, time.Second, AuthSession{})
+	conn.writeQueueFullGrace = 100 * time.Millisecond
+	if !conn.SendPush("first", nil) {
+		t.Fatalf("expected first enqueue to succeed")
+	}
+
+	drained := make(chan struct{})
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		<-conn.writeQueue
+		close(drained)
+	}()
+
+	if !conn.SendPush("second", nil) {
+		t.Fatalf("expected second enqueue to wait for queue drain")
+	}
+	<-drained
+	if conn.isClosed() {
+		t.Fatalf("did not expect transient backpressure to close connection")
+	}
+	msg := mustReadQueuedMessage(t, conn.writeQueue)
+	push, ok := msg.frame.(PushFrame)
+	if !ok || push.Type != "second" {
+		t.Fatalf("expected queued second push, got %#v", msg.frame)
 	}
 }
 

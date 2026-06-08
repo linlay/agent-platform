@@ -179,9 +179,9 @@ func (b *RunEventBus) Subscribe(afterSeq int64) (*Observer, error) {
 		}
 	}
 
-	bufferSize := defaultObserverBuffer
-	if len(replay) > bufferSize {
-		bufferSize = len(replay) + defaultObserverBuffer
+	bufferSize := len(replay) + defaultObserverBuffer
+	if bufferSize < defaultObserverBuffer {
+		bufferSize = defaultObserverBuffer
 	}
 
 	id := fmt.Sprintf("obs-%d", b.nextObserverID.Add(1))
