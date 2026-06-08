@@ -53,8 +53,8 @@ func TestLoadDefaults(t *testing.T) {
 			if cfg.Stream.DebugEventsEnabled {
 				t.Fatalf("expected stream debug events disabled by default")
 			}
-			if cfg.SSE.HeartbeatInterval != 15 {
-				t.Fatalf("expected default heartbeat interval 15, got %d", cfg.SSE.HeartbeatInterval)
+			if cfg.SSE.HeartbeatInterval != 60 {
+				t.Fatalf("expected default heartbeat interval 60, got %d", cfg.SSE.HeartbeatInterval)
 			}
 			if cfg.H2A.Render.HeartbeatPassThrough != true {
 				t.Fatalf("expected heartbeat pass-through enabled by default")
@@ -78,14 +78,20 @@ func TestLoadDefaults(t *testing.T) {
 			if cfg.Defaults.MaxOutputTokens != 4096 {
 				t.Fatalf("expected default max output tokens 4096, got %d", cfg.Defaults.MaxOutputTokens)
 			}
+			if cfg.Defaults.Budget.Timeout != 600 {
+				t.Fatalf("expected default budget timeout 600, got %d", cfg.Defaults.Budget.Timeout)
+			}
 			if cfg.Defaults.Budget.Model.MaxCalls != 100 {
 				t.Fatalf("expected default model max calls 100, got %d", cfg.Defaults.Budget.Model.MaxCalls)
+			}
+			if cfg.Defaults.Budget.Model.RetryCount != 3 {
+				t.Fatalf("expected default model retry count 3, got %d", cfg.Defaults.Budget.Model.RetryCount)
 			}
 			if cfg.Defaults.Budget.MaxSteps != 100 {
 				t.Fatalf("expected default budget max steps 100, got %d", cfg.Defaults.Budget.MaxSteps)
 			}
-			if cfg.Defaults.Budget.Tool.MaxCalls != 60 {
-				t.Fatalf("expected default tool max calls 60, got %d", cfg.Defaults.Budget.Tool.MaxCalls)
+			if cfg.Defaults.Budget.Tool.MaxCalls != 100 {
+				t.Fatalf("expected default tool max calls 100, got %d", cfg.Defaults.Budget.Tool.MaxCalls)
 			}
 			if !cfg.Memory.Enabled {
 				t.Fatalf("expected memory runtime enabled by default")
@@ -1232,11 +1238,8 @@ func TestLoadIgnoresOldEnvVars(t *testing.T) {
 		"BUDGET_HITL_APPROVAL_TIMEOUT_MS":       "9000",
 		"BUDGET_HITL_FORM_TIMEOUT_MS":           "10000",
 		"BUDGET_HITL_PLAN_TIMEOUT_MS":           "11000",
-		"AGENT_SSE_HEARTBEAT_INTERVAL_MS":       "12000",
 		"AGENT_H2A_RENDER_FLUSH_INTERVAL_MS":    "13000",
-		"AGENT_RUN_REAPER_INTERVAL_MS":          "14000",
 		"AGENT_RUN_MAX_BACKGROUND_DURATION_MS":  "15000",
-		"AGENT_RUN_COMPLETED_RETENTION_MS":      "16000",
 		"AGENT_RUN_MAX_DISCONNECTED_WAIT_MS":    "17000",
 		"AGENT_WS_PING_INTERVAL_MS":             "18000",
 		"AGENT_WS_WRITE_TIMEOUT_MS":             "19000",
@@ -1288,7 +1291,7 @@ func TestLoadIgnoresOldEnvVars(t *testing.T) {
 						cfg.ContainerHub.DestroyQueueDelay != 5 {
 						t.Fatalf("old container hub timeout env should not affect defaults: %#v", cfg.ContainerHub)
 					}
-					if cfg.Defaults.Budget.Timeout != 300 ||
+					if cfg.Defaults.Budget.Timeout != 600 ||
 						cfg.Defaults.Budget.Model.Timeout != 120 ||
 						cfg.Defaults.Budget.Tool.Timeout != 120 ||
 						cfg.Defaults.Budget.Hitl.Timeout != 0 ||
@@ -1301,12 +1304,12 @@ func TestLoadIgnoresOldEnvVars(t *testing.T) {
 					if cfg.Paths.MemoryDir == filepath.Join("var", "custom-memory") {
 						t.Fatalf("old memory storage env should not affect memory dir")
 					}
-					if cfg.SSE.HeartbeatInterval != 15 || cfg.H2A.Render.FlushInterval != 0 {
+					if cfg.SSE.HeartbeatInterval != 60 || cfg.H2A.Render.FlushInterval != 0 {
 						t.Fatalf("old stream timeout env should not affect defaults: sse=%d h2a=%d", cfg.SSE.HeartbeatInterval, cfg.H2A.Render.FlushInterval)
 					}
 					if cfg.Run.ReaperInterval != 30 ||
-						cfg.Run.MaxBackgroundDuration != 600 ||
-						cfg.Run.CompletedRetention != 600 ||
+						cfg.Run.MaxBackgroundDuration != 0 ||
+						cfg.Run.CompletedRetention != 10 ||
 						cfg.Run.MaxDisconnectedWait != 600 {
 						t.Fatalf("old run timeout env should not affect defaults: %#v", cfg.Run)
 					}
@@ -1326,18 +1329,14 @@ func TestLoadAcceptsJavaEnvContract(t *testing.T) {
 		"CHAT_RESOURCE_TICKET_TTL_SECONDS":        "300",
 		"STREAM_INCLUDE_TOOL_PAYLOAD_EVENTS":      "true",
 		"DEBUG_EVENTS_ENABLED":                    "true",
-		"AGENT_SSE_HEARTBEAT_INTERVAL":            "3",
 		"AGENT_H2A_RENDER_FLUSH_INTERVAL":         "25",
 		"AGENT_H2A_RENDER_MAX_BUFFERED_CHARS":     "256",
 		"AGENT_H2A_RENDER_MAX_BUFFERED_EVENTS":    "3",
 		"AGENT_H2A_RENDER_HEARTBEAT_PASS_THROUGH": "false",
-		"AGENT_RUN_REAPER_INTERVAL":               "31",
 		"AGENT_RUN_MAX_BACKGROUND_DURATION":       "601",
-		"AGENT_RUN_COMPLETED_RETENTION":           "602",
 		"AGENT_RUN_MAX_DISCONNECTED_WAIT":         "603",
 		"AGENT_WS_PING_INTERVAL":                  "32",
 		"AGENT_WS_WRITE_TIMEOUT":                  "16",
-		"AGENT_DEFAULT_REACT_MAX_STEPS":           "12",
 		"AGENT_AUTOMATION_ENABLED":                "false",
 		"AGENT_AUTOMATION_DEFAULT_ZONE_ID":        "Asia/Shanghai",
 		"AGENT_AUTOMATION_POOL_SIZE":              "7",
@@ -1362,7 +1361,7 @@ func TestLoadAcceptsJavaEnvContract(t *testing.T) {
 		if !cfg.Stream.DebugEventsEnabled {
 			t.Fatalf("expected stream debug event flag enabled")
 		}
-		if cfg.SSE.HeartbeatInterval != 3 {
+		if cfg.SSE.HeartbeatInterval != 60 {
 			t.Fatalf("unexpected heartbeat interval: %d", cfg.SSE.HeartbeatInterval)
 		}
 		if cfg.H2A.Render.FlushInterval != 25 {
@@ -1377,16 +1376,16 @@ func TestLoadAcceptsJavaEnvContract(t *testing.T) {
 		if cfg.H2A.Render.HeartbeatPassThrough {
 			t.Fatalf("expected heartbeat pass-through disabled from env")
 		}
-		if cfg.Run.ReaperInterval != 31 ||
+		if cfg.Run.ReaperInterval != 30 ||
 			cfg.Run.MaxBackgroundDuration != 601 ||
-			cfg.Run.CompletedRetention != 602 ||
+			cfg.Run.CompletedRetention != 10 ||
 			cfg.Run.MaxDisconnectedWait != 603 {
 			t.Fatalf("unexpected run lifecycle config from env: %#v", cfg.Run)
 		}
 		if cfg.WebSocket.PingInterval != 32 || cfg.WebSocket.WriteTimeout != 16 {
 			t.Fatalf("unexpected websocket timeout config from env: %#v", cfg.WebSocket)
 		}
-		if cfg.Defaults.React.MaxSteps != 12 {
+		if cfg.Defaults.React.MaxSteps != 60 {
 			t.Fatalf("unexpected react max steps: %d", cfg.Defaults.React.MaxSteps)
 		}
 		if cfg.Automation.Enabled {
@@ -2292,7 +2291,6 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 		"CHAT_RESOURCE_TICKET_TTL_SECONDS",
 		"STREAM_INCLUDE_TOOL_PAYLOAD_EVENTS",
 		"DEBUG_EVENTS_ENABLED",
-		"AGENT_SSE_HEARTBEAT_INTERVAL_MS",
 		"AGENT_H2A_RENDER_FLUSH_INTERVAL_MS",
 		"AGENT_H2A_RENDER_MAX_BUFFERED_CHARS",
 		"AGENT_H2A_RENDER_MAX_BUFFERED_EVENTS",
@@ -2315,7 +2313,6 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 		"AGENT_DEFAULT_MAX_OUTPUT_TOKENS",
 		"AGENT_DEFAULT_BUDGET_TIMEOUT",
 		"AGENT_DEFAULT_BUDGET_MAX_STEPS",
-		"AGENT_DEFAULT_BUDGET_MODEL_MAX_CALLS",
 		"AGENT_DEFAULT_BUDGET_MODEL_TIMEOUT",
 		"AGENT_DEFAULT_BUDGET_MODEL_RETRY_COUNT",
 		"AGENT_DEFAULT_BUDGET_TOOL_MAX_CALLS",
@@ -2326,9 +2323,6 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 		"BUDGET_HITL_APPROVAL_TIMEOUT",
 		"BUDGET_HITL_FORM_TIMEOUT",
 		"BUDGET_HITL_PLAN_TIMEOUT",
-		"AGENT_DEFAULT_REACT_MAX_STEPS",
-		"AGENT_DEFAULT_PLAN_EXECUTE_MAX_STEPS",
-		"AGENT_DEFAULT_PLAN_EXECUTE_MAX_WORK_ROUNDS_PER_TASK",
 		"LOGGING_AGENT_REQUEST_ENABLED",
 		"LOGGING_AGENT_AUTH_ENABLED",
 		"LOGGING_AGENT_EXCEPTION_ENABLED",

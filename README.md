@@ -157,7 +157,7 @@ RUN_SOCKET_TESTS=1 make test-integration
 以下环境变量仍受 Go runtime 支持，但为了降低最终用户理解成本，默认不再出现在 `.env.example` 中：
 
 - 低频 runtime 子目录覆盖：`OWNER_DIR`、`AGENTS_DIR`、`TEAMS_DIR`、`ROOT_DIR`、`AUTOMATIONS_DIR`、`SKILLS_MARKET_DIR`
-- 传输与渲染调试：`AGENT_SSE_HEARTBEAT_INTERVAL`、`AGENT_H2A_RENDER_*`
+- 传输与渲染调试：SSE heartbeat 固定 60s，H2A 缓冲可通过 `AGENT_H2A_RENDER_*` 调整
 - WebSocket 深度调优：`AGENT_WS_MAX_MESSAGE_SIZE`、`AGENT_WS_PING_INTERVAL`、`AGENT_WS_WRITE_TIMEOUT`、`AGENT_WS_WRITE_QUEUE_SIZE`、`AGENT_WS_MAX_OBSERVES_PER_CONN`
 - 日志排障：`LOGGING_AGENT_*`
 - memory / chat storage 深度调优：`AGENT_MEMORY_*`、`CHAT_STORAGE_*`

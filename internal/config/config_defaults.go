@@ -69,16 +69,16 @@ func defaultConfig() Config {
 		Defaults: DefaultsConfig{
 			MaxOutputTokens: 4096,
 			Budget: BudgetDefaultsConfig{
-				Timeout: 300,
-				MaxSteps:     100,
+				Timeout:  600,
+				MaxSteps: 100,
 				Model: RetryBudgetConfig{
 					MaxCalls:   100,
-					Timeout:  120,
-					RetryCount: 0,
+					Timeout:    120,
+					RetryCount: 3,
 				},
 				Tool: RetryBudgetConfig{
-					MaxCalls:   60,
-					Timeout:  120,
+					MaxCalls:   100,
+					Timeout:    120,
 					RetryCount: 0,
 				},
 				Hitl: HitlBudgetConfig{
@@ -96,7 +96,7 @@ func defaultConfig() Config {
 			DebugEventsEnabled:       false,
 		},
 		SSE: SSEConfig{
-			HeartbeatInterval: 15, // seconds
+			HeartbeatInterval: 60, // seconds
 		},
 		H2A: H2AConfig{
 			Render: H2ARenderConfig{
@@ -202,11 +202,12 @@ func defaultConfig() Config {
 			},
 		},
 		Run: RunConfig{
-			ReaperInterval:        30,  // seconds
-			MaxBackgroundDuration: 600, // seconds
-			CompletedRetention:    600, // seconds
-			EventBusMaxEvents:      10000,
+			ReaperInterval:        30, // seconds
+			MaxBackgroundDuration: 0,  // seconds; 0 means never expire detached runs
+			CompletedRetention:    10, // seconds
+			EventBusMaxEvents:     10000,
 			MaxDisconnectedWait:   600, // seconds
+			MaxObserversPerRun:    8,
 		},
 		WebSocket: WebSocketConfig{
 			MaxMessageSizeBytes: 1 << 20,

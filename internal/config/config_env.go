@@ -48,17 +48,12 @@ func (c *Config) applyEnv() {
 	c.Defaults.MaxOutputTokens = intEnv("AGENT_DEFAULT_MAX_OUTPUT_TOKENS", c.Defaults.MaxOutputTokens)
 	c.Defaults.Budget.Timeout = intEnv("AGENT_DEFAULT_BUDGET_TIMEOUT", c.Defaults.Budget.Timeout)
 	_, defaultBudgetMaxStepsEnv := os.LookupEnv("AGENT_DEFAULT_BUDGET_MAX_STEPS")
-	_, legacyModelMaxCallsEnv := os.LookupEnv("AGENT_DEFAULT_BUDGET_MODEL_MAX_CALLS")
 	_, defaultToolMaxCallsEnv := os.LookupEnv("AGENT_DEFAULT_BUDGET_TOOL_MAX_CALLS")
 	c.Defaults.Budget.MaxSteps = intEnv("AGENT_DEFAULT_BUDGET_MAX_STEPS", c.Defaults.Budget.MaxSteps)
-	c.Defaults.Budget.Model.MaxCalls = intEnv("AGENT_DEFAULT_BUDGET_MODEL_MAX_CALLS", c.Defaults.Budget.Model.MaxCalls)
-	if !defaultBudgetMaxStepsEnv && legacyModelMaxCallsEnv && c.Defaults.Budget.Model.MaxCalls > 0 {
-		c.Defaults.Budget.MaxSteps = c.Defaults.Budget.Model.MaxCalls
-	}
 	c.Defaults.Budget.Model.Timeout = intEnv("AGENT_DEFAULT_BUDGET_MODEL_TIMEOUT", c.Defaults.Budget.Model.Timeout)
 	c.Defaults.Budget.Model.RetryCount = intEnv("AGENT_DEFAULT_BUDGET_MODEL_RETRY_COUNT", c.Defaults.Budget.Model.RetryCount)
 	c.Defaults.Budget.Tool.MaxCalls = intEnv("AGENT_DEFAULT_BUDGET_TOOL_MAX_CALLS", c.Defaults.Budget.Tool.MaxCalls)
-	if (defaultBudgetMaxStepsEnv || legacyModelMaxCallsEnv) && !defaultToolMaxCallsEnv && c.Defaults.Budget.MaxSteps > 0 {
+	if defaultBudgetMaxStepsEnv && !defaultToolMaxCallsEnv && c.Defaults.Budget.MaxSteps > 0 {
 		c.Defaults.Budget.Tool.MaxCalls = c.Defaults.Budget.MaxSteps * 2
 	}
 	c.Defaults.Budget.Tool.Timeout = intEnv("AGENT_DEFAULT_BUDGET_TOOL_TIMEOUT", c.Defaults.Budget.Tool.Timeout)
@@ -68,14 +63,9 @@ func (c *Config) applyEnv() {
 	c.Defaults.Budget.Hitl.Approval.Timeout = intEnv("BUDGET_HITL_APPROVAL_TIMEOUT", c.Defaults.Budget.Hitl.Approval.Timeout)
 	c.Defaults.Budget.Hitl.Form.Timeout = intEnv("BUDGET_HITL_FORM_TIMEOUT", c.Defaults.Budget.Hitl.Form.Timeout)
 	c.Defaults.Budget.Hitl.Plan.Timeout = intEnv("BUDGET_HITL_PLAN_TIMEOUT", c.Defaults.Budget.Hitl.Plan.Timeout)
-	c.Defaults.React.MaxSteps = intEnv("AGENT_DEFAULT_REACT_MAX_STEPS", c.Defaults.React.MaxSteps)
-	c.Defaults.Plan.MaxSteps = intEnv("AGENT_DEFAULT_PLAN_EXECUTE_MAX_STEPS", c.Defaults.Plan.MaxSteps)
-	c.Defaults.Plan.MaxWorkRoundsPerTask = intEnv("AGENT_DEFAULT_PLAN_EXECUTE_MAX_WORK_ROUNDS_PER_TASK", c.Defaults.Plan.MaxWorkRoundsPerTask)
-
 	c.Stream.IncludeToolPayloadEvents = boolEnv("STREAM_INCLUDE_TOOL_PAYLOAD_EVENTS", c.Stream.IncludeToolPayloadEvents)
 	c.Stream.DebugEventsEnabled = boolEnv("DEBUG_EVENTS_ENABLED", c.Stream.DebugEventsEnabled)
 	c.Stream.DebugEventsEnabled = boolEnv("DELTA_LOGS_ENABLED", c.Stream.DebugEventsEnabled)
-	c.SSE.HeartbeatInterval = int64Env("AGENT_SSE_HEARTBEAT_INTERVAL", c.SSE.HeartbeatInterval)
 	c.H2A.Render.FlushInterval = int64Env("AGENT_H2A_RENDER_FLUSH_INTERVAL", c.H2A.Render.FlushInterval)
 	c.H2A.Render.MaxBufferedChars = intEnv("AGENT_H2A_RENDER_MAX_BUFFERED_CHARS", c.H2A.Render.MaxBufferedChars)
 	c.H2A.Render.MaxBufferedEvents = intEnv("AGENT_H2A_RENDER_MAX_BUFFERED_EVENTS", c.H2A.Render.MaxBufferedEvents)
@@ -124,12 +114,8 @@ func (c *Config) applyEnv() {
 	c.ContainerHub.AgentIdleTimeout = int64Env("CONTAINER_HUB_AGENT_IDLE_TIMEOUT", c.ContainerHub.AgentIdleTimeout)
 	c.ContainerHub.DestroyQueueDelay = int64Env("CONTAINER_HUB_DESTROY_QUEUE_DELAY", c.ContainerHub.DestroyQueueDelay)
 
-	c.Run.ReaperInterval = int64Env("AGENT_RUN_REAPER_INTERVAL", c.Run.ReaperInterval)
 	c.Run.MaxBackgroundDuration = int64Env("AGENT_RUN_MAX_BACKGROUND_DURATION", c.Run.MaxBackgroundDuration)
-	c.Run.CompletedRetention = int64Env("AGENT_RUN_COMPLETED_RETENTION", c.Run.CompletedRetention)
-	c.Run.EventBusMaxEvents = intEnv("AGENT_RUN_EVENTBUS_MAX_EVENTS", c.Run.EventBusMaxEvents)
 	c.Run.MaxDisconnectedWait = int64Env("AGENT_RUN_MAX_DISCONNECTED_WAIT", c.Run.MaxDisconnectedWait)
-	c.Run.MaxObserversPerRun = intEnv("AGENT_RUN_MAX_OBSERVERS_PER_RUN", c.Run.MaxObserversPerRun)
 	c.WebSocket.MaxMessageSizeBytes = intEnv("AGENT_WS_MAX_MESSAGE_SIZE", c.WebSocket.MaxMessageSizeBytes)
 	c.WebSocket.PingInterval = int64Env("AGENT_WS_PING_INTERVAL", c.WebSocket.PingInterval)
 	c.WebSocket.WriteTimeout = int64Env("AGENT_WS_WRITE_TIMEOUT", c.WebSocket.WriteTimeout)

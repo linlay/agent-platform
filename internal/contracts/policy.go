@@ -131,7 +131,7 @@ func ResolveBudget(cfg config.Config, overrides map[string]any) Budget {
 func normalizeBudget(b Budget) Budget {
 	hadStepOverride := b.MaxSteps > 0 || b.Model.MaxCalls > 0
 	if b.Timeout <= 0 {
-		b.Timeout = 300
+		b.Timeout = 600
 	}
 	if b.MaxSteps <= 0 {
 		b.MaxSteps = b.Model.MaxCalls
@@ -141,7 +141,7 @@ func normalizeBudget(b Budget) Budget {
 	}
 	b.Model = normalizeRetryPolicy(b.Model, RetryPolicy{MaxCalls: b.MaxSteps, Timeout: 120, RetryCount: 0})
 	b.Model.MaxCalls = b.MaxSteps
-	toolFallbackMaxCalls := 60
+	toolFallbackMaxCalls := 100
 	if hadStepOverride {
 		toolFallbackMaxCalls = b.MaxSteps * 2
 	}

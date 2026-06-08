@@ -56,9 +56,7 @@ func (m *InMemoryRunManager) ConfigureRunLifecycle(cfg config.RunConfig) {
 	if cfg.ReaperInterval > 0 {
 		m.reaperInterval = time.Duration(cfg.ReaperInterval) * time.Second
 	}
-	if cfg.MaxBackgroundDuration > 0 {
-		m.maxBackgroundDuration = time.Duration(cfg.MaxBackgroundDuration) * time.Second
-	}
+	m.maxBackgroundDuration = time.Duration(cfg.MaxBackgroundDuration) * time.Second
 	if cfg.CompletedRetention > 0 {
 		m.completedRetention = time.Duration(cfg.CompletedRetention) * time.Second
 	}
@@ -353,7 +351,7 @@ func (m *InMemoryRunManager) reapExpiredRuns() {
 		if state.control != nil && state.control.HasNoTimeoutAwaiting() {
 			continue
 		}
-		if now.Sub(state.startedAt) > m.maxBackgroundDuration {
+		if m.maxBackgroundDuration > 0 && now.Sub(state.startedAt) > m.maxBackgroundDuration {
 			toInterrupt = append(toInterrupt, state)
 		}
 	}

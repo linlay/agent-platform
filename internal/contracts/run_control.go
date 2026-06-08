@@ -12,11 +12,11 @@ import (
 
 const (
 	defaultRunReaperInterval        = 30 * time.Second
-	defaultRunMaxBackgroundDuration = 10 * time.Minute
-	defaultRunCompletedRetention    = 10 * time.Minute
+	defaultRunMaxBackgroundDuration = 0
+	defaultRunCompletedRetention    = 10 * time.Second
 	defaultRunEventBusMaxEvents     = 10000
 	defaultRunMaxDisconnectedWait   = 10 * time.Minute
-	defaultRunMaxObserversPerRun    = 16
+	defaultRunMaxObserversPerRun    = 8
 )
 
 const (
