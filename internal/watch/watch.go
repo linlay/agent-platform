@@ -50,6 +50,7 @@ func Start(ctx context.Context, spec Spec) (*Watcher, error) {
 		return nil, err
 	}
 	w := &Watcher{fsw: fsw, watched: map[string]struct{}{}, done: make(chan struct{})}
+	go w.run(ctx, spec)
 	for _, root := range spec.Roots {
 		if err := w.addRoot(root); err != nil {
 			log.Printf("%s skip watch %s (%s): %v", spec.prefix(), root.Path, root.Label, err)
@@ -59,10 +60,10 @@ func Start(ctx context.Context, spec Spec) (*Watcher, error) {
 	}
 	if w.Watched() == 0 {
 		_ = fsw.Close()
+		<-w.done
 		return nil, ErrNoWatchedRoots
 	}
 
-	go w.run(ctx, spec)
 	return w, nil
 }
 
