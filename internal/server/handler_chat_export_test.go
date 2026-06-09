@@ -8,6 +8,9 @@ import (
 
 	"agent-platform/internal/chat"
 	"agent-platform/internal/stream"
+	"agent-platform/internal/ws"
+
+	gws "github.com/gorilla/websocket"
 )
 
 func TestHandleChatJSONLReturnsActiveRawContent(t *testing.T) {
@@ -81,6 +84,77 @@ func TestHandleChatJSONLValidationAndNotFound(t *testing.T) {
 	}
 }
 
+func TestWSChatJSONLReturnsRawContent(t *testing.T) {
+	fixture := newChatJSONLWSTestFixture(t)
+	chatID := "chat-jsonl-ws"
+	seedSearchableChat(t, fixture.chats, chatID)
+	want, err := fixture.chats.LoadJSONLContent(chatID)
+	if err != nil {
+		t.Fatalf("load raw jsonl: %v", err)
+	}
+	conn := dialTestWS(t, fixture.server)
+	defer conn.Close()
+
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame:   ws.FrameRequest,
+		Type:    "/api/chat/jsonl",
+		ID:      "req_raw_jsonl",
+		Payload: ws.MarshalPayload(map[string]any{"chatId": chatID}),
+	}); err != nil {
+		t.Fatalf("write request: %v", err)
+	}
+	var frame ws.ResponseFrame
+	if err := conn.ReadJSON(&frame); err != nil {
+		t.Fatalf("read response: %v", err)
+	}
+	if frame.Frame != ws.FrameResponse || frame.ID != "req_raw_jsonl" || frame.Code != 0 {
+		t.Fatalf("unexpected response frame: %#v", frame)
+	}
+	data, ok := frame.Data.(string)
+	if !ok {
+		t.Fatalf("expected string data, got %#v", frame.Data)
+	}
+	if data != want {
+		t.Fatalf("raw jsonl mismatch\nwant: %q\ngot:  %q", want, data)
+	}
+}
+
+func TestWSChatJSONLValidationAndNotFound(t *testing.T) {
+	fixture := newChatJSONLWSTestFixture(t)
+	conn := dialTestWS(t, fixture.server)
+	defer conn.Close()
+
+	for _, tc := range []struct {
+		name    string
+		id      string
+		payload map[string]any
+		code    int
+		typeKey string
+	}{
+		{name: "missing", id: "req_missing", payload: map[string]any{}, code: http.StatusBadRequest, typeKey: "invalid_request"},
+		{name: "invalid", id: "req_invalid", payload: map[string]any{"chatId": "../chat"}, code: http.StatusBadRequest, typeKey: "invalid_request"},
+		{name: "not found", id: "req_not_found", payload: map[string]any{"chatId": "missing-chat"}, code: http.StatusNotFound, typeKey: "not_found"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := conn.WriteJSON(ws.RequestFrame{
+				Frame:   ws.FrameRequest,
+				Type:    "/api/chat/jsonl",
+				ID:      tc.id,
+				Payload: ws.MarshalPayload(tc.payload),
+			}); err != nil {
+				t.Fatalf("write request: %v", err)
+			}
+			var frame ws.ErrorFrame
+			if err := conn.ReadJSON(&frame); err != nil {
+				t.Fatalf("read error: %v", err)
+			}
+			if frame.Frame != ws.FrameError || frame.ID != tc.id || frame.Type != tc.typeKey || frame.Code != tc.code {
+				t.Fatalf("unexpected error frame: %#v", frame)
+			}
+		})
+	}
+}
+
 func TestLoadJSONLContentRejectsInvalidChatID(t *testing.T) {
 	store, err := chat.NewFileStore(t.TempDir())
 	if err != nil {
@@ -89,6 +163,28 @@ func TestLoadJSONLContentRejectsInvalidChatID(t *testing.T) {
 	if _, err := store.LoadJSONLContent("../chat"); err == nil {
 		t.Fatalf("expected invalid chatId error")
 	}
+}
+
+func dialTestWS(t *testing.T, server *Server) *gws.Conn {
+	t.Helper()
+	testServer := httptest.NewServer(server)
+	t.Cleanup(testServer.Close)
+	wsURL := "ws" + strings.TrimPrefix(testServer.URL, "http") + "/ws"
+	conn, _, err := gws.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	readConnectedPush(t, conn)
+	return conn
+}
+
+func newChatJSONLWSTestFixture(t *testing.T) testFixture {
+	t.Helper()
+	return newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		notifications: ws.NewHub(),
+	})
 }
 
 func TestRenderChatMarkdownSkipsAutomationQuery(t *testing.T) {

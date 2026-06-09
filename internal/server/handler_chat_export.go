@@ -56,10 +56,7 @@ func (s *Server) handleChatJSONL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	content, err := s.deps.Chats.LoadJSONLContent(chatID)
-	if errors.Is(err, chat.ErrChatNotFound) && s.deps.Archives != nil {
-		content, err = s.deps.Archives.LoadJSONLContent(chatID)
-	}
+	content, err := s.loadChatJSONLContent(chatID)
 	if errors.Is(err, chat.ErrChatNotFound) {
 		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "chat not found"))
 		return
@@ -73,6 +70,14 @@ func (s *Server) handleChatJSONL(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`inline; filename=%q`, safeJSONLFilename(chatID)))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(content))
+}
+
+func (s *Server) loadChatJSONLContent(chatID string) (string, error) {
+	content, err := s.deps.Chats.LoadJSONLContent(chatID)
+	if errors.Is(err, chat.ErrChatNotFound) && s.deps.Archives != nil {
+		content, err = s.deps.Archives.LoadJSONLContent(chatID)
+	}
+	return content, err
 }
 
 func renderChatMarkdown(chatName string, agentKey string, events []stream.EventData) string {

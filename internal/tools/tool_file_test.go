@@ -789,6 +789,14 @@ func assertResultLineStats(t *testing.T, result contracts.ToolExecutionResult, a
 	}
 }
 
+func assertErrorMessageContains(t *testing.T, result contracts.ToolExecutionResult, want string) {
+	t.Helper()
+	message, _ := result.Structured["message"].(string)
+	if !strings.Contains(message, want) {
+		t.Fatalf("expected error message to contain %q, got %#v", want, result.Structured["message"])
+	}
+}
+
 func assertLineStats(t *testing.T, stats contracts.LineDiffStats, added int, deleted int, edited int) {
 	t.Helper()
 	if stats.AddedLines != added || stats.DeletedLines != deleted || stats.EditedLines != edited {
@@ -1268,6 +1276,7 @@ func TestInvokeWriteAndEditRejectPartialOrTruncatedRead(t *testing.T) {
 	if writeResult.ExitCode == 0 || writeResult.Structured["error"] != "file_write_partial_read" {
 		t.Fatalf("expected partial-read write rejection, got %#v", writeResult.Structured)
 	}
+	assertErrorMessageContains(t, writeResult, "fully read")
 
 	editCtx := &contracts.ExecutionContext{}
 	if _, err := executor.invokeRead(map[string]any{"file_path": "edit.md", "limit": float64(1), "add_line_numbers": false}, editCtx); err != nil {
@@ -1285,6 +1294,7 @@ func TestInvokeWriteAndEditRejectPartialOrTruncatedRead(t *testing.T) {
 	if editResult.ExitCode == 0 || editResult.Structured["error"] != "file_edit_partial_read" {
 		t.Fatalf("expected partial-read edit rejection, got %#v", editResult.Structured)
 	}
+	assertErrorMessageContains(t, editResult, "fully read")
 
 	executor.cfg.FileTools.MaxReadBytes = 3
 	truncatedCtx := &contracts.ExecutionContext{}
@@ -1306,6 +1316,7 @@ func TestInvokeWriteAndEditRejectPartialOrTruncatedRead(t *testing.T) {
 	if truncatedWrite.ExitCode == 0 || truncatedWrite.Structured["error"] != "file_write_partial_read" {
 		t.Fatalf("expected truncated-read write rejection, got %#v", truncatedWrite.Structured)
 	}
+	assertErrorMessageContains(t, truncatedWrite, "fully read")
 }
 
 func TestInvokeWriteReportsLineStatsForNewFile(t *testing.T) {
@@ -1670,6 +1681,7 @@ func TestInvokeEditRequiresReadForExistingFileAndRejectsExternalChanges(t *testi
 	if notRead.ExitCode == 0 || notRead.Structured["error"] != "file_edit_not_read" {
 		t.Fatalf("expected not-read rejection, got %#v", notRead.Structured)
 	}
+	assertErrorMessageContains(t, notRead, "fully read")
 
 	if _, err := executor.invokeRead(map[string]any{"file_path": "owner.md", "add_line_numbers": false}, execCtx); err != nil {
 		t.Fatalf("read: %v", err)

@@ -92,6 +92,7 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/tool", s.wsTool)
 	handler.RegisterRoute("/api/chats", s.wsChats)
 	handler.RegisterRoute("/api/chat", s.wsChat)
+	handler.RegisterRoute("/api/chat/jsonl", s.wsChatJSONL)
 	handler.RegisterRoute("/api/read", s.wsRead)
 	handler.RegisterRoute("/api/feedback", s.wsFeedback)
 	handler.RegisterRoute("/api/chat/delete", s.wsChatDelete)
@@ -300,6 +301,37 @@ func (s *Server) wsChat(ctx context.Context, conn *ws.Conn, req ws.RequestFrame)
 		return
 	}
 	conn.SendResponse(req.Type, req.ID, 0, "success", response)
+	conn.CompleteRequest(req.ID)
+}
+
+func (s *Server) wsChatJSONL(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
+	payload, err := ws.DecodePayload[struct {
+		ChatID string `json:"chatId"`
+	}](req)
+	chatID := strings.TrimSpace(payload.ChatID)
+	if err != nil || chatID == "" {
+		conn.SendError(req.ID, "invalid_request", 400, "chatId is required", nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	if !chat.ValidChatID(chatID) {
+		conn.SendError(req.ID, "invalid_request", 400, "invalid chatId", nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+
+	content, loadErr := s.loadChatJSONLContent(chatID)
+	if errors.Is(loadErr, chat.ErrChatNotFound) {
+		conn.SendError(req.ID, "not_found", 404, "chat not found", nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	if loadErr != nil {
+		conn.SendError(req.ID, "internal_error", 500, loadErr.Error(), nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	conn.SendResponse(req.Type, req.ID, 0, "success", content)
 	conn.CompleteRequest(req.ID)
 }
 

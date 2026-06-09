@@ -3,7 +3,7 @@ label: 编辑文件
 description: |
   Edit a single UTF-8 text file on the host filesystem by replacing an exact string. Prefer this tool for modifying existing files when available; use file_write for full overwrites.
   Do not use bash redirection, heredocs, cat/echo/printf/tee, or interpreter one-liners to edit files when this tool is available.
-  Existing files must be read in the same run before editing; external changes after read return file_edit_modified_since_read. Successful results include lineStats with addedLines, deletedLines, and editedLines.
+  Existing files must be fully read in the same run before editing; external changes after read return file_edit_modified_since_read. Successful results include lineStats with addedLines, deletedLines, and editedLines.
 submitResultFormat: json-compact
 type: function
 inputSchema:

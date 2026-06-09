@@ -332,7 +332,7 @@ resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界
 | `/api/chat/delete` | `chatId` | `response` |
 | `/api/chat/rename` | `chatId`、`chatName` | `response` |
 | `/api/chat/archive` | `chatId`、`reason` | `response` |
-| `/api/chat/jsonl` | `chatId` | 不支持 WS；HTTP 文本数据面 |
+| `/api/chat/jsonl` | `chatId` | `response`，data 为原始 JSONL 字符串；HTTP 仍返回 text/plain |
 | `/api/archives` | `agentKey`、`limit`、`offset` | `response` |
 | `/api/archive` | `chatId` | `response` |
 | `/api/archives/search` | `query`、`agentKey`、`limit` | `response` |

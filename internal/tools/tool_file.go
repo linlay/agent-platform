@@ -538,7 +538,7 @@ func (t *RuntimeToolExecutor) validateReadBeforeFileMutation(path string, execCt
 			}
 			return ToolExecutionResult{}, false
 		}
-		return fileToolError(notReadCode, "file exists but was not read in this run; call read first then retry"), true
+		return fileToolError(notReadCode, "file exists but was not fully read in this run; call file_read without offset/limit and ensure truncated=false before retrying"), true
 	}
 	snap, ok := execCtx.ReadFileState[path]
 	if !ok {
@@ -548,7 +548,7 @@ func (t *RuntimeToolExecutor) validateReadBeforeFileMutation(path string, execCt
 			}
 			return ToolExecutionResult{}, false
 		}
-		return fileToolError(notReadCode, "file exists but was not read in this run; call read first then retry"), true
+		return fileToolError(notReadCode, "file exists but was not fully read in this run; call file_read without offset/limit and ensure truncated=false before retrying"), true
 	}
 	return validateFileSnapshot(path, info, snap, modifiedCode, partialCode, nil, false)
 }
@@ -562,7 +562,7 @@ func validateFileSnapshot(path string, info os.FileInfo, snap ReadFileSnapshot, 
 		}
 	}
 	if snapshotBlocksMutation(snap) {
-		return fileToolError(partialCode, "file was only partially read; call file_read without offset/limit and without truncation before writing"), true
+		return fileToolError(partialCode, "file was not fully read; call file_read without offset/limit and ensure truncated=false before retrying"), true
 	}
 	if statChanged {
 		snap.ModifiedUnixMs = info.ModTime().UnixMilli()
