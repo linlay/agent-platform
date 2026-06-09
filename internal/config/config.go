@@ -35,6 +35,7 @@ type Config struct {
 	Desktop         DesktopConfig
 	AccessPolicy    AccessPolicyConfig
 	Bash            BashConfig
+	SandboxBash     SandboxBashConfig
 	FileTools       FileToolsConfig
 	Run             RunConfig
 	WebSocket       WebSocketConfig
@@ -197,10 +198,10 @@ type StageBudgetConfig struct {
 
 type HitlBudgetConfig struct {
 	Timeout  int // seconds
-	Question  HitlModeBudgetConfig
-	Approval  HitlModeBudgetConfig
-	Form      HitlModeBudgetConfig
-	Plan      HitlModeBudgetConfig
+	Question HitlModeBudgetConfig
+	Approval HitlModeBudgetConfig
+	Form     HitlModeBudgetConfig
+	Plan     HitlModeBudgetConfig
 }
 
 type HitlModeBudgetConfig struct {
@@ -306,7 +307,7 @@ type ContainerHubConfig struct {
 	BaseURL              string
 	AuthToken            string
 	DefaultEnvironmentID string
-	RequestTimeout       int   // 秒
+	RequestTimeout       int // 秒
 	DefaultSandboxLevel  string
 	AgentIdleTimeout     int64 // 秒
 	DestroyQueueDelay    int64 // 秒
@@ -319,11 +320,11 @@ type DesktopConfig struct {
 }
 
 type DesktopBridgeConfig struct {
-	Host             string
-	Port             int
-	Path             string
-	RequestTimeout   int // seconds
-	BridgeURL        string
+	Host           string
+	Port           int
+	Path           string
+	RequestTimeout int // seconds
+	BridgeURL      string
 }
 
 type BashConfig struct {
@@ -358,7 +359,6 @@ type FileToolsConfig struct {
 }
 
 type AccessPolicyConfig struct {
-	Version          int
 	WorkingDirectory string
 	Levels           map[string]AccessPolicyLevelConfig
 }
@@ -377,6 +377,20 @@ type AccessPolicyApprovalConfig struct {
 	BashComplexFilesystem string
 	BashOpaqueCommand     string
 	BashWriteInWriteRoots string
+}
+
+type SandboxBashConfig struct {
+	Security SandboxBashSecurityConfig
+}
+
+type SandboxBashSecurityConfig struct {
+	BashsecOverrides   SandboxBashBashsecOverridesConfig
+	AuditAutoApprovals bool
+}
+
+type SandboxBashBashsecOverridesConfig struct {
+	OutputRedirection        string
+	HeredocOutputRedirection string
 }
 
 type FileToolsHooksConfig struct {
@@ -417,9 +431,9 @@ type WebSocketConfig struct {
 }
 
 const (
-	defaultGatewayHandshakeTimeout int64 = 10  // seconds
-	defaultGatewayReconnectMin     int64 = 1   // seconds
-	defaultGatewayReconnectMax     int64 = 30  // seconds
+	defaultGatewayHandshakeTimeout int64 = 10 // seconds
+	defaultGatewayReconnectMin     int64 = 1  // seconds
+	defaultGatewayReconnectMax     int64 = 30 // seconds
 )
 
 // GatewayEntry 描述单个 gateway 反向连接条目。
@@ -431,14 +445,14 @@ type GatewayEntry struct {
 	Channel string
 	// SourceChannel 是 gateway URL 里 ?channel= 的完整来源标签（如 "wecom:xiaozhai"）。
 	// SourcePrefix 是 SourceChannel 冒号前的来源前缀（如 "wecom"），用于兼容旧 chatId。
-	SourceChannel      string
-	SourcePrefix       string
-	URL                string
-	JwtToken           string
-	BaseURL            string
-	HandshakeTimeout   int64 // seconds
-	ReconnectMin       int64 // seconds
-	ReconnectMax       int64 // seconds
+	SourceChannel    string
+	SourcePrefix     string
+	URL              string
+	JwtToken         string
+	BaseURL          string
+	HandshakeTimeout int64 // seconds
+	ReconnectMin     int64 // seconds
+	ReconnectMax     int64 // seconds
 }
 
 type ChannelType string
@@ -459,12 +473,12 @@ type ChannelConfig struct {
 }
 
 type ChannelGatewayConfig struct {
-	URL                string
-	JwtToken           string
-	BaseURL            string
-	HandshakeTimeout   int64 // seconds
-	ReconnectMin       int64 // seconds
-	ReconnectMax       int64 // seconds
+	URL              string
+	JwtToken         string
+	BaseURL          string
+	HandshakeTimeout int64 // seconds
+	ReconnectMin     int64 // seconds
+	ReconnectMax     int64 // seconds
 }
 
 // 网关 HTTP 旁路的路径约定，由网关侧固定，不再做成可配置。

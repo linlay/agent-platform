@@ -1877,6 +1877,147 @@ func TestBashSecuritySoftBlockAutoApprovesByHITLLevel(t *testing.T) {
 	}
 }
 
+func TestSandboxBashSecurityRedirectionOverrideAutoApprovesAndAudits(t *testing.T) {
+	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{bashToolDefinition()}}
+	command := "cat << 'EOF' > /downloads/a.txt\nhello\nEOF"
+	stream := &llmRunStream{
+		ctx: context.Background(),
+		engine: &LLMAgentEngine{
+			cfg: config.Config{
+				SandboxBash: config.SandboxBashConfig{
+					Security: config.SandboxBashSecurityConfig{
+						BashsecOverrides: config.SandboxBashBashsecOverridesConfig{
+							OutputRedirection:        "auto",
+							HeredocOutputRedirection: "auto",
+						},
+						AuditAutoApprovals: true,
+					},
+				},
+			},
+			tools:    executor,
+			frontend: frontendtools.NewDefaultRegistry(),
+		},
+		session: contracts.QuerySession{RunID: "run_1", AgentHasRuntimeSandbox: true},
+		execCtx: &contracts.ExecutionContext{Session: contracts.QuerySession{
+			AgentHasRuntimeSandbox: true,
+		}},
+		activeToolCall: &preparedToolInvocation{
+			toolID:   "tool_1",
+			toolName: "bash",
+			args:     map[string]any{"command": command, "description": "写入下载目录"},
+		},
+	}
+	var recordedApproval *chat.StepApproval
+	stream.onApprovalSummary = func(approval chat.StepApproval) {
+		copied := approval
+		copied.Decisions = append([]chat.StepApprovalDecision(nil), approval.Decisions...)
+		recordedApproval = &copied
+	}
+
+	if err := stream.invokeActiveToolCall(); err != nil {
+		t.Fatalf("invokeActiveToolCall returned error: %v", err)
+	}
+	if len(executor.invocations) != 1 {
+		t.Fatalf("expected sandbox bash command to execute without approval UI, got %#v", executor.invocations)
+	}
+	if stream.hitlPendingCall != nil {
+		t.Fatalf("did not expect pending HITL approval, got %#v", stream.hitlPendingCall)
+	}
+	if recordedApproval == nil {
+		t.Fatal("expected sandbox auto approval to record approval summary")
+	}
+	if len(recordedApproval.Decisions) != 1 || recordedApproval.Decisions[0].Decision != "auto_approved" {
+		t.Fatalf("expected auto-approved sandbox bash decision, got %#v", recordedApproval)
+	}
+	if recordedApproval.Decisions[0].Reason != sandboxBashSecurityOverrideReason ||
+		!strings.Contains(recordedApproval.Notice, "configured automatic approval policy") ||
+		strings.Contains(recordedApproval.Notice, "because accessLevel=auto_approve") {
+		t.Fatalf("unexpected sandbox auto approval notice: %#v", recordedApproval)
+	}
+}
+
+func TestHostBashIgnoresSandboxBashSecurityOverride(t *testing.T) {
+	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{bashToolDefinition()}}
+	stream := &llmRunStream{
+		ctx: context.Background(),
+		engine: &LLMAgentEngine{
+			cfg: config.Config{
+				SandboxBash: config.SandboxBashConfig{
+					Security: config.SandboxBashSecurityConfig{
+						BashsecOverrides: config.SandboxBashBashsecOverridesConfig{
+							OutputRedirection: "auto",
+						},
+						AuditAutoApprovals: true,
+					},
+				},
+			},
+			tools:    executor,
+			frontend: frontendtools.NewDefaultRegistry(),
+		},
+		session: contracts.QuerySession{RunID: "run_1"},
+		execCtx: &contracts.ExecutionContext{},
+		activeToolCall: &preparedToolInvocation{
+			toolID:   "tool_1",
+			toolName: "bash",
+			args:     map[string]any{"command": "printf ok > owner.md", "description": "创建 owner"},
+		},
+	}
+
+	if err := stream.invokeActiveToolCall(); err != nil {
+		t.Fatalf("invokeActiveToolCall returned error: %v", err)
+	}
+	if len(executor.invocations) != 0 {
+		t.Fatalf("did not expect host bash command to execute before approval, got %#v", executor.invocations)
+	}
+	if stream.hitlPendingCall == nil || len(stream.pending) != 1 {
+		t.Fatalf("expected host bash security approval, pending=%#v hitlPending=%#v", stream.pending, stream.hitlPendingCall)
+	}
+}
+
+func TestSandboxBashSecurityOverrideDoesNotBypassHardBlock(t *testing.T) {
+	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{bashToolDefinition()}}
+	stream := &llmRunStream{
+		ctx: context.Background(),
+		engine: &LLMAgentEngine{
+			cfg: config.Config{
+				SandboxBash: config.SandboxBashConfig{
+					Security: config.SandboxBashSecurityConfig{
+						BashsecOverrides: config.SandboxBashBashsecOverridesConfig{
+							OutputRedirection: "auto",
+						},
+						AuditAutoApprovals: true,
+					},
+				},
+			},
+			tools:    executor,
+			frontend: frontendtools.NewDefaultRegistry(),
+		},
+		session: contracts.QuerySession{RunID: "run_1", AgentHasRuntimeSandbox: true},
+		execCtx: &contracts.ExecutionContext{Session: contracts.QuerySession{
+			AgentHasRuntimeSandbox: true,
+		}},
+		activeToolCall: &preparedToolInvocation{
+			toolID:   "tool_1",
+			toolName: "bash",
+			args:     map[string]any{"command": "cat < /tmp/secret", "description": "读取 secret"},
+		},
+	}
+
+	if err := stream.invokeActiveToolCall(); err != nil {
+		t.Fatalf("invokeActiveToolCall returned error: %v", err)
+	}
+	if len(executor.invocations) != 0 {
+		t.Fatalf("did not expect hard-blocked command to execute, got %#v", executor.invocations)
+	}
+	if len(stream.pending) != 1 {
+		t.Fatalf("expected one blocked tool result, got %#v", stream.pending)
+	}
+	result, ok := stream.pending[0].(contracts.DeltaToolResult)
+	if !ok || result.Result.Error != "bash_security_blocked" {
+		t.Fatalf("expected bash security blocked tool result, got %#v", stream.pending[0])
+	}
+}
+
 func TestBashSecuritySoftBlockUsesExistingFingerprintApproval(t *testing.T) {
 	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{bashToolDefinition()}}
 	command := "printf ok > owner.md"

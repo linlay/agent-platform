@@ -1567,7 +1567,6 @@ func TestAccessPolicyConfigYAMLOverrides(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
 		content := "" +
 			"access-policy:\n" +
-			"  version: 1\n" +
 			"  working-directory: \"@workspace\"\n" +
 			"  levels:\n" +
 			"    default:\n" +
@@ -1595,6 +1594,43 @@ func TestAccessPolicyConfigYAMLOverrides(t *testing.T) {
 			}
 			if level.Approvals.ReadOutsideRoots != "block" {
 				t.Fatalf("unexpected read outside action: %#v", level.Approvals)
+			}
+		})
+	})
+}
+
+func TestSandboxBashConfigYAMLOverrides(t *testing.T) {
+	withIsolatedEnv(t, nil, func() {
+		content := "" +
+			"access-policy:\n" +
+			"  levels:\n" +
+			"    auto_approve:\n" +
+			"      inherit: default\n" +
+			"      approvals:\n" +
+			"        bash-write-in-write-roots: allow\n" +
+			"sandbox-bash:\n" +
+			"  security:\n" +
+			"    bashsec-overrides:\n" +
+			"      output-redirection: auto\n" +
+			"      heredoc-output-redirection: nope\n" +
+			"    audit-auto-approvals: true\n"
+		withProjectFileContents(t, filepath.Join("configs", "host-tools.yml"), &content, func() {
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			if cfg.SandboxBash.Security.BashsecOverrides.OutputRedirection != "auto" {
+				t.Fatalf("unexpected output redirection override: %#v", cfg.SandboxBash)
+			}
+			if cfg.SandboxBash.Security.BashsecOverrides.HeredocOutputRedirection != "" {
+				t.Fatalf("expected invalid heredoc override to fall back to empty, got %#v", cfg.SandboxBash)
+			}
+			if !cfg.SandboxBash.Security.AuditAutoApprovals {
+				t.Fatalf("expected sandbox bash auto approvals to be audited")
+			}
+			autoLevel := cfg.AccessPolicy.Levels["auto_approve"]
+			if autoLevel.Approvals.BashWriteInWriteRoots != "allow" {
+				t.Fatalf("expected explicit auto_approve bash write action, got %#v", autoLevel.Approvals)
 			}
 		})
 	})
@@ -1742,7 +1778,6 @@ func TestHostToolsConfigYAMLOverrides(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
 		content := "" +
 			"access-policy:\n" +
-			"  version: 1\n" +
 			"  working-directory: \"@workspace\"\n" +
 			"  levels:\n" +
 			"    default:\n" +

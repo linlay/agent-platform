@@ -181,7 +181,6 @@ func parseHitlModeBudgetConfig(raw any, fallback HitlModeBudgetConfig) HitlModeB
 }
 
 func (c *Config) applyAccessPolicyValues(values map[string]any) {
-	c.AccessPolicy.Version = intValue(anyValue(values["version"], c.AccessPolicy.Version), c.AccessPolicy.Version)
 	c.AccessPolicy.WorkingDirectory = stringValue(anyValue(values["working-directory"], c.AccessPolicy.WorkingDirectory), c.AccessPolicy.WorkingDirectory)
 	if levels, ok := values["levels"].(map[string]any); ok && len(levels) > 0 {
 		parsed := make(map[string]AccessPolicyLevelConfig, len(levels))
@@ -239,6 +238,25 @@ func (c *Config) applyBashValues(values map[string]any) {
 	c.Bash.ShellArgs = csvOrList(anyValue(values["shell-args"], c.Bash.ShellArgs), c.Bash.ShellArgs)
 	c.Bash.ShellTimeout = intValue(anyValue(values["shell-timeout"], c.Bash.ShellTimeout), c.Bash.ShellTimeout)
 	c.Bash.MaxCommandChars = intValue(anyValue(values["max-command-chars"], c.Bash.MaxCommandChars), c.Bash.MaxCommandChars)
+}
+
+func (c *Config) applySandboxBashValues(values map[string]any) {
+	security, _ := values["security"].(map[string]any)
+	if len(security) == 0 {
+		return
+	}
+	overrides, _ := security["bashsec-overrides"].(map[string]any)
+	if len(overrides) > 0 {
+		c.SandboxBash.Security.BashsecOverrides.OutputRedirection = normalizeAccessPolicyApprovalAction(
+			stringValue(anyValue(overrides["output-redirection"], c.SandboxBash.Security.BashsecOverrides.OutputRedirection), c.SandboxBash.Security.BashsecOverrides.OutputRedirection),
+			c.SandboxBash.Security.BashsecOverrides.OutputRedirection,
+		)
+		c.SandboxBash.Security.BashsecOverrides.HeredocOutputRedirection = normalizeAccessPolicyApprovalAction(
+			stringValue(anyValue(overrides["heredoc-output-redirection"], c.SandboxBash.Security.BashsecOverrides.HeredocOutputRedirection), c.SandboxBash.Security.BashsecOverrides.HeredocOutputRedirection),
+			c.SandboxBash.Security.BashsecOverrides.HeredocOutputRedirection,
+		)
+	}
+	c.SandboxBash.Security.AuditAutoApprovals = boolValue(anyValue(security["audit-auto-approvals"], c.SandboxBash.Security.AuditAutoApprovals), c.SandboxBash.Security.AuditAutoApprovals)
 }
 
 func (c *Config) applyFileToolsValues(path string, values map[string]any) error {
@@ -323,6 +341,9 @@ func (c *Config) applyHostToolsFile(path string) error {
 			return err
 		}
 		c.applyBashValues(bash)
+	}
+	if sandboxBash, ok := values["sandbox-bash"].(map[string]any); ok && len(sandboxBash) > 0 {
+		c.applySandboxBashValues(sandboxBash)
 	}
 	if fileTools, ok := values["file-tools"].(map[string]any); ok && len(fileTools) > 0 {
 		if err := rejectDeprecatedYAMLKeys(path, "configs/host-tools.yml > access-policy", fileTools, "allowed-read-paths", "allowed-write-paths"); err != nil {
@@ -683,12 +704,12 @@ func parseChannelConfig(channelID string, values map[string]any) (ChannelConfig,
 		return ChannelConfig{}, fmt.Errorf("channels config: channel %q gateway is required", channelID)
 	}
 	cfg.Gateway = ChannelGatewayConfig{
-		URL:                stringValue(anyValue(gatewayMap["url"], ""), ""),
-		JwtToken:           stringValue(anyValue(gatewayMap["jwt-token"], ""), ""),
-		BaseURL:            stringValue(anyValue(gatewayMap["base-url"], ""), ""),
-		HandshakeTimeout:   int64Value(anyValue(gatewayMap["handshake-timeout"], 0), 0),
-		ReconnectMin:       int64Value(anyValue(gatewayMap["reconnect-min"], 0), 0),
-		ReconnectMax:       int64Value(anyValue(gatewayMap["reconnect-max"], 0), 0),
+		URL:              stringValue(anyValue(gatewayMap["url"], ""), ""),
+		JwtToken:         stringValue(anyValue(gatewayMap["jwt-token"], ""), ""),
+		BaseURL:          stringValue(anyValue(gatewayMap["base-url"], ""), ""),
+		HandshakeTimeout: int64Value(anyValue(gatewayMap["handshake-timeout"], 0), 0),
+		ReconnectMin:     int64Value(anyValue(gatewayMap["reconnect-min"], 0), 0),
+		ReconnectMax:     int64Value(anyValue(gatewayMap["reconnect-max"], 0), 0),
 	}
 	if err := rejectDeprecatedYAMLKeys("channels "+channelID+" gateway", "handshake-timeout", gatewayMap, "handshake-timeout-ms"); err != nil {
 		return ChannelConfig{}, err

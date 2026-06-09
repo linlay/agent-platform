@@ -136,6 +136,15 @@ func (s *llmRunStream) prepareQueuedBashApprovalBatch() bool {
 			invocations = append(invocations, invocation)
 			continue
 		} else if review.Decision == bashsec.ReviewRequiresApproval {
+			switch s.sandboxBashSecurityOverrideAction(invocation, review) {
+			case "allow", "block":
+				continue
+			case "auto":
+				if s.engine != nil && s.engine.cfg.SandboxBash.Security.AuditAutoApprovals {
+					s.applyHITLDecision(invocation, bashSecurityInterceptResult(invocation, review), "", "auto_approved", sandboxBashSecurityOverrideReason, true)
+				}
+				continue
+			}
 			if s.isRuleWhitelisted(review.RuleKey) {
 				s.applyHITLDecision(invocation, bashSecurityInterceptResult(invocation, review), "", "approve_rule_run", "", true)
 				continue
@@ -510,7 +519,11 @@ func formatHITLLLMNotice(entries []hitlNoticeEntry) string {
 	switch {
 	case allAutoApproved:
 		lines = append(lines, "[System audit — auto approval]")
-		lines = append(lines, "The system auto-approved the following tool call(s) because accessLevel=auto_approve applies automatic approval to reviewable access-policy checks:")
+		if allHITLNoticeEntriesAutoApprovedByAccessLevel(entries) {
+			lines = append(lines, "The system auto-approved the following tool call(s) because accessLevel=auto_approve applies automatic approval to reviewable access-policy checks:")
+		} else {
+			lines = append(lines, "The system auto-approved the following tool call(s) according to configured automatic approval policy:")
+		}
 	case anyAutoApproved:
 		lines = append(lines, "[System audit — approval batch]")
 		lines = append(lines, "The following tool call approval decisions were applied:")
@@ -552,6 +565,21 @@ func allHITLNoticeEntriesAutoApproved(entries []hitlNoticeEntry) bool {
 	}
 	for _, entry := range entries {
 		if !isAutoApprovedHITLNoticeEntry(entry) {
+			return false
+		}
+	}
+	return true
+}
+
+func allHITLNoticeEntriesAutoApprovedByAccessLevel(entries []hitlNoticeEntry) bool {
+	if len(entries) == 0 {
+		return false
+	}
+	for _, entry := range entries {
+		if !strings.EqualFold(strings.TrimSpace(entry.decision), "auto_approved") {
+			return false
+		}
+		if !strings.HasPrefix(strings.TrimSpace(entry.reason), "accessLevel=auto_approve") {
 			return false
 		}
 	}

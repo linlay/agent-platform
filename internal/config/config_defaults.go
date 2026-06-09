@@ -100,7 +100,7 @@ func defaultConfig() Config {
 		},
 		H2A: H2AConfig{
 			Render: H2ARenderConfig{
-				FlushInterval:      0, // seconds; 0 means disabled
+				FlushInterval:        0, // seconds; 0 means disabled
 				MaxBufferedChars:     0,
 				MaxBufferedEvents:    0,
 				HeartbeatPassThrough: true,
@@ -154,8 +154,8 @@ func defaultConfig() Config {
 			Enabled:             false,
 			RequestTimeout:      300,
 			DefaultSandboxLevel: "run",
-			AgentIdleTimeout:  600,
-			DestroyQueueDelay: 5,
+			AgentIdleTimeout:    600,
+			DestroyQueueDelay:   5,
 		},
 		Desktop: DesktopConfig{
 			Action: DesktopBridgeConfig{
@@ -243,7 +243,6 @@ func defaultLSPDiagnosticsHookConfig() LSPDiagnosticsHookConfig {
 
 func defaultAccessPolicyConfig() AccessPolicyConfig {
 	return AccessPolicyConfig{
-		Version:          1,
 		WorkingDirectory: "@workspace",
 		Levels: map[string]AccessPolicyLevelConfig{
 			"default": {
@@ -265,6 +264,7 @@ func defaultAccessPolicyConfig() AccessPolicyConfig {
 					WriteOutsideRoots:     "hitl",
 					BashComplexFilesystem: "auto",
 					BashOpaqueCommand:     "auto",
+					BashWriteInWriteRoots: "allow",
 				},
 			},
 			"full_access": {
@@ -400,9 +400,6 @@ func normalizeVisionOutputFormat(value string) string {
 
 func normalizeAccessPolicyConfig(cfg AccessPolicyConfig) AccessPolicyConfig {
 	defaults := defaultAccessPolicyConfig()
-	if cfg.Version <= 0 {
-		cfg.Version = defaults.Version
-	}
 	if strings.TrimSpace(cfg.WorkingDirectory) == "" {
 		cfg.WorkingDirectory = defaults.WorkingDirectory
 	}
@@ -510,16 +507,16 @@ func (c *Config) normalizeChannels() error {
 			return fmt.Errorf("channels config: channel %q gateway.url is required", channelID)
 		}
 		c.Gateways = append(c.Gateways, GatewayEntry{
-			ID:                 channelID,
-			Channel:            channelID,
-			SourceChannel:      deriveSourceChannelFromURL(channelCfg.Gateway.URL),
-			SourcePrefix:       deriveChannelFromURL(channelCfg.Gateway.URL),
-			URL:                strings.TrimSpace(channelCfg.Gateway.URL),
-			JwtToken:           strings.TrimSpace(channelCfg.Gateway.JwtToken),
-			BaseURL:            strings.TrimSpace(channelCfg.Gateway.BaseURL),
-			HandshakeTimeout:   channelCfg.Gateway.HandshakeTimeout,
-			ReconnectMin:       channelCfg.Gateway.ReconnectMin,
-			ReconnectMax:       channelCfg.Gateway.ReconnectMax,
+			ID:               channelID,
+			Channel:          channelID,
+			SourceChannel:    deriveSourceChannelFromURL(channelCfg.Gateway.URL),
+			SourcePrefix:     deriveChannelFromURL(channelCfg.Gateway.URL),
+			URL:              strings.TrimSpace(channelCfg.Gateway.URL),
+			JwtToken:         strings.TrimSpace(channelCfg.Gateway.JwtToken),
+			BaseURL:          strings.TrimSpace(channelCfg.Gateway.BaseURL),
+			HandshakeTimeout: channelCfg.Gateway.HandshakeTimeout,
+			ReconnectMin:     channelCfg.Gateway.ReconnectMin,
+			ReconnectMax:     channelCfg.Gateway.ReconnectMax,
 		})
 		existingGatewayIDs[channelID] = struct{}{}
 		existingGatewayChannels[channelID] = struct{}{}

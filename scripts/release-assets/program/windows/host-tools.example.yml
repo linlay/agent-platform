@@ -28,6 +28,7 @@ access-policy:
         write-outside-roots: auto
         bash-complex-filesystem: auto
         bash-opaque-command: auto
+        bash-write-in-write-roots: allow
 
     full_access:
       read-roots:
@@ -63,6 +64,13 @@ bash:
   #   - /s
   #   - /c
   #   - "{{command}}"
+
+sandbox-bash:
+  security:
+    bashsec-overrides:
+      output-redirection: auto
+      heredoc-output-redirection: auto
+    audit-auto-approvals: true
 
 file-tools:
   working-directory: .

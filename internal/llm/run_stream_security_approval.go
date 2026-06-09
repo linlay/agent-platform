@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"agent-platform/internal/accesspolicy"
+	"agent-platform/internal/bashast"
 	"agent-platform/internal/bashsec"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/filetools"
@@ -123,6 +124,89 @@ func (s *llmRunStream) shouldAutoApproveBashSecurity(review bashsec.ReviewResult
 		return false
 	}
 	return s.execCtx.HITLLevel >= review.Level
+}
+
+const sandboxBashSecurityOverrideReason = "sandbox-bash.security.bashsec-overrides"
+
+func (s *llmRunStream) isSandboxRuntime() bool {
+	if s == nil {
+		return false
+	}
+	return s.session.AgentHasRuntimeSandbox || (s.execCtx != nil && s.execCtx.Session.AgentHasRuntimeSandbox)
+}
+
+func (s *llmRunStream) sandboxBashSecurityOverrideAction(invocation *preparedToolInvocation, review bashsec.ReviewResult) string {
+	if s == nil || s.engine == nil || invocation == nil || !s.isSandboxRuntime() {
+		return ""
+	}
+	if review.Decision != bashsec.ReviewRequiresApproval || review.RuleKey != bashsec.RuleKeyRedirections {
+		return ""
+	}
+	overrides := s.engine.cfg.SandboxBash.Security.BashsecOverrides
+	command := strings.TrimSpace(mapStringArg(invocation.args, "command"))
+	if sandboxBashHasHeredocOutputRedirection(command, s.execCtxRuntimeEnvOverrides()) {
+		if action := strings.TrimSpace(overrides.HeredocOutputRedirection); action != "" {
+			return action
+		}
+	}
+	return strings.TrimSpace(overrides.OutputRedirection)
+}
+
+func (s *llmRunStream) executeSandboxBashSecurityOverride(invocation *preparedToolInvocation, review bashsec.ReviewResult) (bool, error) {
+	switch strings.TrimSpace(s.sandboxBashSecurityOverrideAction(invocation, review)) {
+	case "allow":
+		return true, s.executeOriginalBash(invocation)
+	case "auto":
+		if s.engine != nil && s.engine.cfg.SandboxBash.Security.AuditAutoApprovals {
+			s.applyHITLDecision(invocation, bashSecurityInterceptResult(invocation, review), "", "auto_approved", sandboxBashSecurityOverrideReason, true)
+		}
+		return true, s.executeOriginalBash(invocation)
+	case "block":
+		s.appendOriginalToolResult(invocation, bashSecurityBlockedToolResult(review))
+		return true, nil
+	default:
+		return false, nil
+	}
+}
+
+func (s *llmRunStream) execCtxRuntimeEnvOverrides() map[string]string {
+	if s == nil || s.execCtx == nil {
+		return nil
+	}
+	return s.execCtx.RuntimeEnvOverrides
+}
+
+func sandboxBashHasHeredocOutputRedirection(command string, variables map[string]string) bool {
+	result := bashast.ParseForSecurityWithKnownVariables(command, variables)
+	if result.Kind != bashast.Simple {
+		return false
+	}
+	for _, cmd := range result.Commands {
+		hasHeredoc := false
+		hasOutput := false
+		for _, redirect := range cmd.Redirects {
+			if redirect.IsHeredoc {
+				hasHeredoc = true
+				continue
+			}
+			if bashSecurityRedirectIsOutput(redirect.Op) {
+				hasOutput = true
+			}
+		}
+		if hasHeredoc && hasOutput {
+			return true
+		}
+	}
+	return false
+}
+
+func bashSecurityRedirectIsOutput(op string) bool {
+	switch strings.TrimSpace(op) {
+	case ">", ">>", ">|", ">>|", ">&", "&>", "&>|", "&>>", "&>>|":
+		return true
+	default:
+		return strings.Contains(op, ">")
+	}
 }
 
 func bashSecurityInterceptResult(invocation *preparedToolInvocation, review bashsec.ReviewResult) hitl.InterceptResult {

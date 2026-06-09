@@ -326,6 +326,9 @@ func (s *llmRunStream) executeApprovedBashSecurityInvocation(invocation *prepare
 		invocation.approvalDecision = ""
 		s.registerBashSecurityApproval(review.Fingerprint)
 		return s.executeOriginalBash(invocation)
+	case "auto_approved":
+		invocation.approvalDecision = ""
+		return s.executeOriginalBash(invocation)
 	default:
 		return s.emitBashSecurityApprovalDeltas(invocation, review)
 	}

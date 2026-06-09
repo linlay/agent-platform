@@ -294,6 +294,9 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 		if strings.TrimSpace(invocation.approvalDecision) != "" {
 			return s.executeApprovedBashSecurityInvocation(invocation, review)
 		}
+		if handled, err := s.executeSandboxBashSecurityOverride(invocation, review); handled {
+			return err
+		}
 		if s.isRuleWhitelisted(review.RuleKey) {
 			s.applyHITLDecision(invocation, bashSecurityInterceptResult(invocation, review), "", "approve_rule_run", "", true)
 			s.registerBashSecurityApproval(review.Fingerprint)

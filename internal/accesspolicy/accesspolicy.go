@@ -265,6 +265,7 @@ func defaultLevelConfig(name string) config.AccessPolicyLevelConfig {
 				WriteOutsideRoots:     "hitl",
 				BashComplexFilesystem: "auto",
 				BashOpaqueCommand:     "auto",
+				BashWriteInWriteRoots: "allow",
 			},
 		}
 	case AccessLevelFullAccess:
