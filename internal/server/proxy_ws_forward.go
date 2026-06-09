@@ -473,20 +473,25 @@ func (r *proxyEventRecorder) OnEvent(event stream.EventData) {
 		}
 	case "tool.end":
 		id, _ := event.Payload["toolId"].(string)
+		fileChange, _ := event.Payload["fileChange"].(map[string]any)
 		b := r.tools[id]
 		delete(r.tools, id)
 		if b == nil {
 			b = &proxyToolBucket{}
 		}
+		payload := map[string]any{
+			"toolId":    id,
+			"runId":     b.runID,
+			"toolName":  b.toolName,
+			"arguments": b.args.String(),
+		}
+		if len(fileChange) > 0 {
+			payload["fileChange"] = fileChange
+		}
 		r.stepWriter.OnEvent(stream.EventData{
 			Type:      "tool.snapshot",
 			Timestamp: event.Timestamp,
-			Payload: map[string]any{
-				"toolId":    id,
-				"runId":     b.runID,
-				"toolName":  b.toolName,
-				"arguments": b.args.String(),
-			},
+			Payload:   payload,
 		})
 	case "awaiting.ask":
 		if r.control != nil {

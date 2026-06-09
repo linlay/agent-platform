@@ -35,7 +35,8 @@ type ToolArgs struct {
 func (ToolArgs) streamInputTag() {}
 
 type ToolEnd struct {
-	ToolID string
+	ToolID     string
+	FileChange map[string]any
 }
 
 func (ToolEnd) streamInputTag() {}
@@ -49,6 +50,7 @@ type ToolResult struct {
 	Hitl            map[string]any
 	Error           string
 	ExitCode        int
+	FileChange      map[string]any
 }
 
 func (ToolResult) streamInputTag() {}

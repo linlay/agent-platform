@@ -141,7 +141,10 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 				inputs = append(inputs, stream.ActionEnd{ActionID: toolID})
 				continue
 			}
-			inputs = append(inputs, stream.ToolEnd{ToolID: toolID})
+			inputs = append(inputs, stream.ToolEnd{
+				ToolID:     toolID,
+				FileChange: CloneMap(value.FileChanges[toolID]),
+			})
 			if awaitAsk := m.pendingToolAwaitAsks[toolID]; awaitAsk != nil {
 				inputs = append(inputs, *awaitAsk)
 				delete(m.pendingToolAwaitAsks, toolID)
@@ -175,6 +178,7 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			Hitl:            CloneMap(value.Result.HITL),
 			Error:           resultError,
 			ExitCode:        resultExitCode,
+			FileChange:      toolResultFileChange(value.ToolName, value.Result),
 		}}
 	case DeltaStageMarker:
 		m.lastKind = ""

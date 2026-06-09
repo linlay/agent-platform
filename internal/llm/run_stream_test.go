@@ -204,6 +204,134 @@ func TestParallelToolCallBatchExecutesAllBeforePostToolStop(t *testing.T) {
 	}
 }
 
+func TestFinishCurrentTurnEstimatesFileWriteChangeOnToolEnd(t *testing.T) {
+	root := t.TempDir()
+	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{writeToolDefinition()}}
+	stream := &llmRunStream{
+		ctx:     context.Background(),
+		session: contracts.QuerySession{RunID: "run_1", WorkspaceRoot: root},
+		engine: &LLMAgentEngine{
+			cfg: config.Config{
+				FileTools: config.FileToolsConfig{
+					WorkingDirectory:  root,
+					MaxReadBytes:      1024,
+					MaxWriteBytes:     1024,
+					AllowedReadPaths:  []string{"."},
+					AllowedWritePaths: []string{"."},
+				},
+			},
+			tools: executor,
+		},
+		execCtx:      &contracts.ExecutionContext{},
+		maxSteps:     2,
+		allowToolUse: true,
+		currentTurn:  providerTurnWithToolCall("tool_1", "file_write", `{"file_path":"owner.md","content":"one\ntwo\n"}`),
+	}
+
+	if err := stream.finishCurrentTurn(); err != nil {
+		t.Fatalf("finishCurrentTurn: %v", err)
+	}
+	end, ok := stream.pending[0].(contracts.DeltaToolEnd)
+	if !ok {
+		t.Fatalf("expected DeltaToolEnd first, got %#v", stream.pending)
+	}
+	fileChange := end.FileChanges["tool_1"]
+	assertFileChange(t, fileChange, resolvedTestPath(t, root, "owner.md"), "write", 2, 0, 0)
+}
+
+func TestFinishCurrentTurnEstimatesFileEditChangeOnToolEnd(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "owner.md"), []byte("hello world\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{editToolDefinition()}}
+	stream := &llmRunStream{
+		ctx:     context.Background(),
+		session: contracts.QuerySession{RunID: "run_1", WorkspaceRoot: root},
+		engine: &LLMAgentEngine{
+			cfg: config.Config{
+				FileTools: config.FileToolsConfig{
+					WorkingDirectory:  root,
+					MaxReadBytes:      1024,
+					MaxWriteBytes:     1024,
+					AllowedReadPaths:  []string{"."},
+					AllowedWritePaths: []string{"."},
+				},
+			},
+			tools: executor,
+		},
+		execCtx:      &contracts.ExecutionContext{},
+		maxSteps:     2,
+		allowToolUse: true,
+		currentTurn:  providerTurnWithToolCall("tool_1", "file_edit", `{"file_path":"owner.md","old_string":"hello world","new_string":"hello agent"}`),
+	}
+
+	if err := stream.finishCurrentTurn(); err != nil {
+		t.Fatalf("finishCurrentTurn: %v", err)
+	}
+	end, ok := stream.pending[0].(contracts.DeltaToolEnd)
+	if !ok {
+		t.Fatalf("expected DeltaToolEnd first, got %#v", stream.pending)
+	}
+	fileChange := end.FileChanges["tool_1"]
+	assertFileChange(t, fileChange, resolvedTestPath(t, root, "owner.md"), "edit", 1, 1, 1)
+}
+
+func TestToolResultFileChangeOnlyForSuccessfulFileMutations(t *testing.T) {
+	success := contracts.ToolExecutionResult{
+		Structured: map[string]any{
+			"filePath": "/tmp/app.go",
+			"lineStats": map[string]any{
+				"addedLines":   1,
+				"deletedLines": 1,
+				"editedLines":  1,
+			},
+		},
+		ExitCode: 0,
+	}
+	assertFileChange(t, toolResultFileChange("file_edit", success), "/tmp/app.go", "edit", 1, 1, 1)
+	if got := toolResultFileChange("file_grep", success); got != nil {
+		t.Fatalf("expected file_grep to omit fileChange, got %#v", got)
+	}
+	failed := success
+	failed.Error = "file_edit_failed"
+	failed.ExitCode = -1
+	if got := toolResultFileChange("file_edit", failed); got != nil {
+		t.Fatalf("expected failed file_edit to omit fileChange, got %#v", got)
+	}
+	withoutStats := contracts.ToolExecutionResult{
+		Structured: map[string]any{"filePath": "/tmp/app.go"},
+		ExitCode:   0,
+	}
+	if got := toolResultFileChange("file_edit", withoutStats); got != nil {
+		t.Fatalf("expected missing lineStats to omit fileChange, got %#v", got)
+	}
+}
+
+func providerTurnWithToolCall(toolID string, toolName string, args string) *providerTurnStream {
+	acc := &toolCallAccumulator{ID: toolID, Type: "function", FunctionName: toolName}
+	acc.Arguments.WriteString(args)
+	return &providerTurnStream{
+		toolCalls:     map[int]*toolCallAccumulator{0: acc},
+		finishReason:  "tool_calls",
+		hasMeaningful: true,
+	}
+}
+
+func assertFileChange(t *testing.T, fileChange map[string]any, filePath string, operation string, added int, deleted int, edited int) {
+	t.Helper()
+	if len(fileChange) == 0 {
+		t.Fatal("expected fileChange payload")
+	}
+	if fileChange["filePath"] != filePath || fileChange["operation"] != operation {
+		t.Fatalf("unexpected fileChange identity: %#v", fileChange)
+	}
+	stats, _ := fileChange["lineStats"].(map[string]any)
+	if stats["addedLines"] != added || stats["deletedLines"] != deleted || stats["editedLines"] != edited {
+		t.Fatalf("expected lineStats +%d -%d edited=%d, got %#v", added, deleted, edited, stats)
+	}
+}
+
 type stubChecker struct {
 	result hitl.InterceptResult
 	tools  map[string]api.ToolDetailResponse

@@ -381,13 +381,37 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		return nil
 	}
 
+	type preparedTurnToolCall struct {
+		toolCall        openAIToolCall
+		invocation      *preparedToolInvocation
+		immediateEvents []AgentDelta
+		toolMessage     *openAIMessage
+	}
 	toolIDs := make([]string, 0, len(toolCalls))
+	fileChanges := map[string]map[string]any{}
+	preparedCalls := make([]preparedTurnToolCall, 0, len(toolCalls))
 	for _, toolCall := range toolCalls {
 		toolIDs = append(toolIDs, toolCall.ID)
-	}
-	s.pending = append(s.pending, DeltaToolEnd{ToolIDs: toolIDs})
-	for _, toolCall := range toolCalls {
 		invocation, immediateEvents, toolMessage := s.prepareToolCall(toolCall)
+		if fileChange := s.estimatedToolFileChange(invocation); len(fileChange) > 0 {
+			fileChanges[toolCall.ID] = fileChange
+		}
+		preparedCalls = append(preparedCalls, preparedTurnToolCall{
+			toolCall:        toolCall,
+			invocation:      invocation,
+			immediateEvents: immediateEvents,
+			toolMessage:     toolMessage,
+		})
+	}
+	if len(fileChanges) == 0 {
+		fileChanges = nil
+	}
+	s.pending = append(s.pending, DeltaToolEnd{ToolIDs: toolIDs, FileChanges: fileChanges})
+	for _, prepared := range preparedCalls {
+		toolCall := prepared.toolCall
+		invocation := prepared.invocation
+		immediateEvents := prepared.immediateEvents
+		toolMessage := prepared.toolMessage
 		if len(immediateEvents) > 0 {
 			s.pending = append(s.pending, immediateEvents...)
 		}

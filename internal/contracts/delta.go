@@ -29,7 +29,8 @@ type DeltaToolCall struct {
 func (DeltaToolCall) agentDeltaTag() {}
 
 type DeltaToolEnd struct {
-	ToolIDs []string
+	ToolIDs     []string
+	FileChanges map[string]map[string]any
 }
 
 func (DeltaToolEnd) agentDeltaTag() {}

@@ -267,20 +267,25 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 			}
 		case "tool.end":
 			id, _ := event.Payload["toolId"].(string)
+			fileChange, _ := event.Payload["fileChange"].(map[string]any)
 			b := tools[id]
 			delete(tools, id)
 			if b == nil {
 				b = &toolBucket{}
 			}
+			payload := map[string]any{
+				"toolId":    id,
+				"runId":     b.runID,
+				"toolName":  b.toolName,
+				"arguments": b.args.String(),
+			}
+			if len(fileChange) > 0 {
+				payload["fileChange"] = fileChange
+			}
 			stepWriter.OnEvent(stream.EventData{
 				Type:      "tool.snapshot",
 				Timestamp: event.Timestamp,
-				Payload: map[string]any{
-					"toolId":    id,
-					"runId":     b.runID,
-					"toolName":  b.toolName,
-					"arguments": b.args.String(),
-				},
+				Payload:   payload,
 			})
 
 		case "run.complete":

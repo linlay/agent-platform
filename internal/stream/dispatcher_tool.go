@@ -39,14 +39,17 @@ func (d *StreamEventDispatcher) handleToolArgs(input ToolArgs) []StreamEvent {
 }
 
 func (d *StreamEventDispatcher) handleToolEnd(input ToolEnd) []StreamEvent {
-	return d.closeTool(input.ToolID)
+	return d.closeTool(input.ToolID, input.FileChange)
 }
 
 func (d *StreamEventDispatcher) handleToolResult(input ToolResult) []StreamEvent {
-	events := d.closeTool(input.ToolID)
+	events := d.closeTool(input.ToolID, nil)
 	payload := map[string]any{
 		"toolId": input.ToolID,
 		"result": buildToolResultValue(input),
+	}
+	if len(input.FileChange) > 0 {
+		payload["fileChange"] = clonePayload(input.FileChange)
 	}
 	if len(input.Hitl) > 0 {
 		payload["approval"] = clonePayload(input.Hitl)
@@ -107,21 +110,25 @@ func (d *StreamEventDispatcher) closeAllTools() []StreamEvent {
 	}
 	var events []StreamEvent
 	for toolID := range d.state.openTools {
-		events = append(events, d.closeTool(toolID)...)
+		events = append(events, d.closeTool(toolID, nil)...)
 	}
 	return events
 }
 
-func (d *StreamEventDispatcher) closeTool(toolID string) []StreamEvent {
+func (d *StreamEventDispatcher) closeTool(toolID string, fileChange map[string]any) []StreamEvent {
 	block, ok := d.state.openTools[toolID]
 	if !ok {
 		return nil
 	}
 	delete(d.state.openTools, toolID)
-	events := []StreamEvent{NewEvent("tool.end", map[string]any{
+	endPayload := map[string]any{
 		"toolId": toolID,
-	})}
-	events = append(events, NewEvent("tool.snapshot", map[string]any{
+	}
+	if len(fileChange) > 0 {
+		endPayload["fileChange"] = clonePayload(fileChange)
+	}
+	events := []StreamEvent{NewEvent("tool.end", endPayload)}
+	snapshotPayload := map[string]any{
 		"toolId":          toolID,
 		"runId":           d.request.RunID,
 		"toolName":        block.Name,
@@ -129,7 +136,11 @@ func (d *StreamEventDispatcher) closeTool(toolID string) []StreamEvent {
 		"toolLabel":       block.Label,
 		"toolDescription": block.Description,
 		"arguments":       d.state.toolArgsBuffer[toolID],
-	}))
+	}
+	if len(fileChange) > 0 {
+		snapshotPayload["fileChange"] = clonePayload(fileChange)
+	}
+	events = append(events, NewEvent("tool.snapshot", snapshotPayload))
 	return events
 }
 

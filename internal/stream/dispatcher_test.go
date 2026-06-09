@@ -49,6 +49,68 @@ func TestDispatcherEmitsToolSnapshotAndResultLifecycle(t *testing.T) {
 	assertEventTypes(t, resultEvents, "tool.result")
 }
 
+func TestDispatcherEmitsFileChangeOnToolEndAndSnapshot(t *testing.T) {
+	dispatcher := NewDispatcher(StreamRequest{
+		RunID:  "run_1",
+		ChatID: "chat_1",
+	})
+
+	_ = dispatcher.Dispatch(ToolArgs{
+		ToolID:     "tool_1",
+		ToolName:   "file_edit",
+		Delta:      "{}",
+		ChunkIndex: 0,
+	})
+	fileChange := map[string]any{
+		"filePath":  "/tmp/app.go",
+		"operation": "edit",
+		"lineStats": map[string]any{
+			"addedLines":   1,
+			"deletedLines": 1,
+			"editedLines":  1,
+		},
+	}
+	events := dispatcher.Dispatch(ToolEnd{
+		ToolID:     "tool_1",
+		FileChange: fileChange,
+	})
+	assertEventTypes(t, events, "tool.end", "tool.snapshot")
+	for _, event := range events {
+		got, _ := event.ToData()["fileChange"].(map[string]any)
+		if !reflect.DeepEqual(got, fileChange) {
+			t.Fatalf("expected fileChange on %s, got %#v", event.Type, event.ToData())
+		}
+	}
+}
+
+func TestDispatcherEmitsFileChangeOnToolResult(t *testing.T) {
+	dispatcher := NewDispatcher(StreamRequest{
+		RunID:  "run_1",
+		ChatID: "chat_1",
+	})
+
+	fileChange := map[string]any{
+		"filePath":  "/tmp/app.go",
+		"operation": "edit",
+		"lineStats": map[string]any{
+			"addedLines":   1,
+			"deletedLines": 1,
+			"editedLines":  1,
+		},
+	}
+	events := dispatcher.Dispatch(ToolResult{
+		ToolID:     "tool_1",
+		ToolName:   "file_edit",
+		Result:     map[string]any{"status": "edited"},
+		FileChange: fileChange,
+	})
+	assertEventTypes(t, events, "tool.result")
+	got, _ := events[0].ToData()["fileChange"].(map[string]any)
+	if !reflect.DeepEqual(got, fileChange) {
+		t.Fatalf("expected fileChange on tool.result, got %#v", events[0].ToData())
+	}
+}
+
 func TestDispatcherEmitsDedicatedMemoryEventAlongsideToolResult(t *testing.T) {
 	dispatcher := NewDispatcher(StreamRequest{
 		RunID:  "run_1",
