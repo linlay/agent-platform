@@ -8,6 +8,7 @@ require (
 )
 
 require (
+	github.com/creack/pty v1.1.24
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/google/uuid v1.6.0 // indirect

@@ -511,7 +511,7 @@ func (c *Conn) recordInboundMessage(raw []byte, req RequestFrame, errorText stri
 		return
 	}
 	source, deviceID := c.monitorClientMetadata()
-	preview, truncated := monitorPayloadPreview(raw)
+	preview, truncated := monitorInboundPayloadPreview(raw, req)
 	c.hub.recordMonitorMessage(MonitorMessage{
 		Timestamp:      time.Now().UnixMilli(),
 		SessionID:      c.SessionID(),
@@ -526,6 +526,31 @@ func (c *Conn) recordInboundMessage(raw []byte, req RequestFrame, errorText stri
 		Truncated:      truncated,
 		Error:          errorText,
 	})
+}
+
+func monitorInboundPayloadPreview(raw []byte, req RequestFrame) (string, bool) {
+	if req.Frame == FrameRequest && req.Type == "/api/terminal/input" {
+		var payload struct {
+			TerminalID string `json:"terminalId"`
+			Data       string `json:"data"`
+		}
+		_ = json.Unmarshal(req.Payload, &payload)
+		data, _ := json.Marshal(struct {
+			Frame      string `json:"frame"`
+			Type       string `json:"type"`
+			ID         string `json:"id"`
+			TerminalID string `json:"terminalId,omitempty"`
+			DataBytes  int    `json:"dataBytes"`
+		}{
+			Frame:      req.Frame,
+			Type:       req.Type,
+			ID:         req.ID,
+			TerminalID: payload.TerminalID,
+			DataBytes:  len(payload.Data),
+		})
+		return monitorPayloadPreview(data)
+	}
+	return monitorPayloadPreview(raw)
 }
 
 func (c *Conn) recordOutboundMessage(frame any) {

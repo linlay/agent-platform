@@ -103,6 +103,33 @@ func TestHubMonitorRecordsRecentMessagesAndSanitizesPreview(t *testing.T) {
 	}
 }
 
+func TestMonitorRedactsTerminalInputPreview(t *testing.T) {
+	hub := NewHub()
+	conn := NewConn(nil, hub, config.WebSocketConfig{WriteQueueSize: 8}, time.Second, AuthSession{})
+	hub.register(conn)
+	raw := []byte(`{"frame":"request","type":"/api/terminal/input","id":"term_input","payload":{"terminalId":"term_1","data":"secret-token-value"}}`)
+	conn.recordInboundMessage(raw, RequestFrame{
+		Frame: FrameRequest,
+		Type:  "/api/terminal/input",
+		ID:    "term_input",
+		Payload: MarshalPayload(map[string]any{
+			"terminalId": "term_1",
+			"data":       "secret-token-value",
+		}),
+	}, "")
+
+	messages := hub.MonitorMessages(1, MonitorFilter{}).Messages
+	if len(messages) != 1 {
+		t.Fatalf("expected one message, got %#v", messages)
+	}
+	if strings.Contains(messages[0].PayloadPreview, "secret-token-value") {
+		t.Fatalf("terminal input leaked in preview: %#v", messages[0])
+	}
+	if !strings.Contains(messages[0].PayloadPreview, `"dataBytes":18`) {
+		t.Fatalf("expected data byte summary, got %#v", messages[0])
+	}
+}
+
 func TestWSClientMetadataFromRequestNormalizesAndFallsBackToAuthDeviceID(t *testing.T) {
 	req := httptest.NewRequest("GET", "/ws?source=WebClient&device_id=device-query", nil)
 	source, deviceID := wsClientMetadataFromRequest(req, AuthSession{DeviceID: "device-claim"})

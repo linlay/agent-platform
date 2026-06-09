@@ -18,6 +18,7 @@ import (
 	"agent-platform/internal/memory"
 	"agent-platform/internal/models"
 	"agent-platform/internal/skills"
+	terminalpkg "agent-platform/internal/terminal"
 	"agent-platform/internal/ws"
 )
 
@@ -74,6 +75,7 @@ type Server struct {
 	authVerifier      *JWTVerifier
 	ticketService     *ResourceTicketService
 	wsHandler         *ws.Handler
+	terminals         *terminalpkg.Manager
 	deferredAwaitings *DeferredAwaitingStore
 	uploadMu          sync.Mutex
 	proxyMu           sync.RWMutex
@@ -131,6 +133,7 @@ func New(deps Dependencies) (*Server, error) {
 		deps:              deps,
 		authVerifier:      authVerifier,
 		ticketService:     NewResourceTicketService(deps.Config.ResourceTicket),
+		terminals:         terminalpkg.NewManager(),
 		deferredAwaitings: NewDeferredAwaitingStore(),
 		proxyRuns:         map[string]*proxyRunRoute{},
 	}

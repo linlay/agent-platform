@@ -283,6 +283,26 @@ func (c *Conn) ReserveStream(requestID string, runID string) (string, error) {
 	return streamID, nil
 }
 
+func (c *Conn) ReserveNamedStream(requestID string, streamID string) error {
+	if c == nil {
+		return &ProtocolError{Code: 500, Type: "internal_error", Msg: "connection is nil"}
+	}
+	streamID = strings.TrimSpace(streamID)
+	if streamID == "" {
+		return &ProtocolError{Code: 400, Type: "invalid_request", Msg: "streamId is required"}
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, exists := c.activeStreams[requestID]; exists {
+		return &ProtocolError{Code: 409, Type: "duplicate_stream", Msg: fmt.Sprintf("request %s already has an active stream", requestID)}
+	}
+	if c.cfg.MaxObservesPerConn > 0 && len(c.activeStreams) >= c.cfg.MaxObservesPerConn {
+		return &ProtocolError{Code: 429, Type: "too_many_streams", Msg: "too many active streams"}
+	}
+	c.activeStreams[requestID] = &streamEntry{streamID: streamID}
+	return nil
+}
+
 func (c *Conn) ReleaseStream(requestID string) {
 	c.releaseStream(requestID, false, "", 0)
 }
@@ -356,6 +376,10 @@ func (c *Conn) AttachObserver(requestID string, observerID string, detach func()
 	}
 }
 
+func (c *Conn) AttachStreamCleanup(requestID string, cleanup func()) {
+	c.AttachObserver(requestID, "", cleanup)
+}
+
 func (c *Conn) StartStreamForward(requestID string, observer *stream.Observer) {
 	if c == nil || observer == nil {
 		return
@@ -416,8 +440,25 @@ func (c *Conn) sendStreamEvent(requestID string, event stream.EventData) bool {
 	return ok
 }
 
+func (c *Conn) SendStreamEvent(requestID string, event stream.EventData) bool {
+	return c.sendStreamEvent(requestID, event)
+}
+
 func (c *Conn) finishStream(requestID string, reason string, lastSeq int64) {
 	c.releaseStream(requestID, true, reason, lastSeq)
+}
+
+func (c *Conn) FinishStream(requestID string, reason string, lastSeq int64) {
+	c.finishStream(requestID, reason, lastSeq)
+}
+
+func (c *Conn) Done() <-chan struct{} {
+	if c == nil {
+		closed := make(chan struct{})
+		close(closed)
+		return closed
+	}
+	return c.closed
 }
 
 func (c *Conn) SendResponse(frameType string, id string, code int, msg string, data any) bool {

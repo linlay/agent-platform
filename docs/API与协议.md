@@ -348,6 +348,10 @@ resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界
 | `/api/query` | `QueryRequest` | `stream` |
 | `/api/attach` | `runId`、`agentKey`、`lastSeq` | `stream` |
 | `/api/detach` | `runId`、`agentKey`、`reason` | `response`；关闭当前 WS 连接上该 run 的 observer，不中断 run |
+| `/api/terminal/open` | `agentKey`、可选 `chatId`、`cols`、`rows` | `stream` |
+| `/api/terminal/input` | `terminalId`、`data` | `response` |
+| `/api/terminal/resize` | `terminalId`、`cols`、`rows` | `response` |
+| `/api/terminal/close` | `terminalId` | `response` |
 | `/api/submit` | `SubmitRequest` | `response` |
 | `/api/steer` | `SteerRequest` | `response` |
 | `/api/interrupt` | `InterruptRequest` | `response` |
@@ -375,6 +379,35 @@ resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界
 - `.tools` 是隐藏工具内部目录，不通过 `/api/resource` 或 WS `/api/resource` 暴露；HTTP `/api/tool-result` 接受 `.tools/results/<toolId>.json`，并兼容旧 `.tool-results/<toolId>.json`。
 - 反向 gateway 配置在 `configs/channels.yml`，不再通过旧单 gateway env 合成。
 - 完整 DTO 字段以 `internal/api/*.go` 为事实源。
+
+### CODER Terminal
+
+CODER 终端只复用主 `/ws` 连接，不提供独立 `/ws/terminal`，也不新增顶层 `frame` 类型。终端协议仍使用 `frame:"request"` / `frame:"stream"` / `frame:"response"` / `frame:"error"`。
+
+`/api/terminal/open` 是长生命周期 stream：
+
+```json
+{"frame":"request","type":"/api/terminal/open","id":"term-1","payload":{"agentKey":"coder","chatId":"chat-1","cols":120,"rows":32}}
+```
+
+open 成功后返回 stream 事件：
+
+```json
+{"frame":"stream","id":"term-1","streamId":"term_xxx","event":{"type":"terminal.opened","seq":1,"payload":{"terminalId":"term_xxx","agentKey":"coder","cwd":"/workspace","shell":"/bin/zsh"}}}
+{"frame":"stream","id":"term-1","streamId":"term_xxx","event":{"type":"terminal.output","seq":2,"payload":{"terminalId":"term_xxx","data":"..."}}}
+{"frame":"stream","id":"term-1","streamId":"term_xxx","event":{"type":"terminal.exit","seq":3,"payload":{"terminalId":"term_xxx","exitCode":0}}}
+{"frame":"stream","id":"term-1","streamId":"term_xxx","reason":"exit","lastSeq":3}
+```
+
+键盘输入、窗口大小变化和关闭使用普通 request/response：
+
+```json
+{"frame":"request","type":"/api/terminal/input","id":"term-input-1","payload":{"terminalId":"term_xxx","data":"ls\r"}}
+{"frame":"request","type":"/api/terminal/resize","id":"term-resize-1","payload":{"terminalId":"term_xxx","cols":120,"rows":32}}
+{"frame":"request","type":"/api/terminal/close","id":"term-close-1","payload":{"terminalId":"term_xxx"}}
+```
+
+首版只支持 macOS/Linux 上的本地 native CODER agent。非 CODER agent、sandbox/ACP CODER agent、Windows、缺失 agent、空 workspace、`@chat` workspace 缺少 `chatId` 都会拒绝。cwd 只由 platform 根据 agent workspace 反查，不信任前端传入任意 cwd。终端输入与输出不会写入 chat/event log；WS monitor 只记录 terminal 输入/输出的类型、id 与字节数，不记录原始 preview。错误沿用现有 error frame，`type` 为 `invalid_request`、`forbidden`、`terminal_not_found`、`unsupported` 或 `internal_error`。
 
 ## 相关文件
 
