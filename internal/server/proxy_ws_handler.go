@@ -113,7 +113,11 @@ func (s *Server) wsProxyQuery(
 	if upstreamTransport == "ws" {
 		proxyControl = control
 	}
-	recorder := newProxyEventRecorder(prepared.req, prepared.agentDef, s.deps.Chats, stepWriter, proxyControl)
+	var chatUsage chat.UsageData
+	if prepared.summary.Usage != nil {
+		chatUsage = *prepared.summary.Usage
+	}
+	recorder := newProxyEventRecorder(prepared.req, prepared.agentDef, s.deps.Chats, stepWriter, proxyControl, chatUsage, s.deps.Models, s.deps.Config.Billing)
 
 	go s.runProxyWebSocket(runCtx, prepared, route, eventBus, recorder)
 	conn.StartStreamForward(req.ID, observer)
@@ -170,7 +174,11 @@ func (s *Server) handleProxyWebSocketQuery(w http.ResponseWriter, r *http.Reques
 
 	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode, chat.WithDebugEventsEnabled(s.deps.Config.Stream.DebugEventsEnabled))
 	stepWriter.SetPendingSystemInits(prepared.systemInitLines)
-	recorder := newProxyEventRecorder(prepared.req, prepared.agentDef, s.deps.Chats, stepWriter, control)
+	var chatUsage chat.UsageData
+	if prepared.summary.Usage != nil {
+		chatUsage = *prepared.summary.Usage
+	}
+	recorder := newProxyEventRecorder(prepared.req, prepared.agentDef, s.deps.Chats, stepWriter, control, chatUsage, s.deps.Models, s.deps.Config.Billing)
 	go s.runProxyWebSocket(runCtx, prepared, route, eventBus, recorder)
 
 	for {
@@ -303,6 +311,9 @@ func (s *Server) runProxyWebSocket(
 		if event.Timestamp <= 0 {
 			event.Timestamp = time.Now().UnixMilli()
 		}
+		if recorder != nil {
+			recorder.DecorateEvent(&event)
+		}
 		eventBus.Publish(event)
 		if recorder != nil {
 			recorder.OnEvent(event)
@@ -409,6 +420,9 @@ func (s *Server) runProxySSE(
 		}
 		if event.Timestamp <= 0 {
 			event.Timestamp = time.Now().UnixMilli()
+		}
+		if recorder != nil {
+			recorder.DecorateEvent(&event)
 		}
 		if eventBus != nil {
 			eventBus.Publish(event)

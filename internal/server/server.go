@@ -94,6 +94,13 @@ func (r *statusRecorder) WriteHeader(status int) {
 	r.ResponseWriter.WriteHeader(status)
 }
 
+func (r *statusRecorder) Locale() string {
+	if provider, ok := r.ResponseWriter.(localeProvider); ok {
+		return provider.Locale()
+	}
+	return ""
+}
+
 func (r *statusRecorder) Flush() {
 	if flusher, ok := r.ResponseWriter.(http.Flusher); ok {
 		flusher.Flush()

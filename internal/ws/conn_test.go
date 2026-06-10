@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"agent-platform/internal/config"
+	"agent-platform/internal/i18n"
 	"agent-platform/internal/stream"
 )
 
@@ -28,6 +29,62 @@ func TestConnRejectsDuplicateObserve(t *testing.T) {
 	}
 	if _, err := conn.ReserveStream("req_2", "run_1"); err == nil {
 		t.Fatalf("expected duplicate observe error")
+	}
+}
+
+func TestConnLocaleLocalizesErrorsPerConnection(t *testing.T) {
+	zhConn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{})
+	enConn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4}, time.Second, AuthSession{})
+	if !zhConn.SetLocale(i18n.LocaleZhCN) {
+		t.Fatalf("expected zh-CN locale to be accepted")
+	}
+
+	zhConn.SendError("req_1", "not_found", 404, "agent not found", nil)
+	enConn.SendError("req_1", "not_found", 404, "agent not found", nil)
+
+	zhMsg := mustReadQueuedMessage(t, zhConn.writeQueue)
+	zhFrame, ok := zhMsg.frame.(ErrorFrame)
+	if !ok || zhFrame.Msg != "智能体不存在" {
+		t.Fatalf("expected localized zh error frame, got %#v", zhMsg.frame)
+	}
+	enMsg := mustReadQueuedMessage(t, enConn.writeQueue)
+	enFrame, ok := enMsg.frame.(ErrorFrame)
+	if !ok || enFrame.Msg != "agent not found" {
+		t.Fatalf("expected English error frame, got %#v", enMsg.frame)
+	}
+}
+
+func TestConnLocaleLocalizesStreamErrorWithoutMutatingOriginal(t *testing.T) {
+	conn := NewConn(nil, nil, config.WebSocketConfig{WriteQueueSize: 4, MaxObservesPerConn: 2}, time.Second, AuthSession{})
+	conn.SetLocale(i18n.LocaleZhCN)
+	if _, err := conn.ReserveStream("req_1", "run_1"); err != nil {
+		t.Fatalf("reserve stream: %v", err)
+	}
+	event := stream.EventData{
+		Seq:  1,
+		Type: "run.error",
+		Payload: map[string]any{
+			"error": map[string]any{
+				"code":    "not_found",
+				"message": "agent not found",
+			},
+		},
+	}
+	if !conn.SendStreamEvent("req_1", event) {
+		t.Fatalf("expected stream event to be queued")
+	}
+	msg := mustReadQueuedMessage(t, conn.writeQueue)
+	frame, ok := msg.frame.(StreamFrame)
+	if !ok || frame.Event == nil {
+		t.Fatalf("expected stream frame, got %#v", msg.frame)
+	}
+	errPayload := frame.Event.Payload["error"].(map[string]any)
+	if errPayload["message"] != "智能体不存在" {
+		t.Fatalf("expected localized stream error, got %#v", errPayload)
+	}
+	originalErr := event.Payload["error"].(map[string]any)
+	if originalErr["message"] != "agent not found" {
+		t.Fatalf("expected original event payload unchanged, got %#v", originalErr)
 	}
 }
 

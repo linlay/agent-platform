@@ -143,6 +143,11 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 	startedAt := time.Now().UnixMilli()
 	finishReason := "complete"
 	var runUsage chat.UsageData
+	var chatUsage chat.UsageData
+	if prepared.summary.Usage != nil {
+		chatUsage = *prepared.summary.Usage
+	}
+	usageTracker := newProxyUsageTracker(chatUsage, &runUsage, s.deps.Models, s.deps.Config.Billing)
 
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, 256*1024), 1024*1024)
@@ -156,6 +161,7 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 			if payload != "" && payload != stream.DoneSentinel {
 				if decoded, ok := decodeProxyEvent([]byte(payload)); ok {
 					event = normalizeProxyEventIdentity(decoded, req)
+					usageTracker.Decorate(&event)
 					hasEvent = true
 					if data, err := json.Marshal(event); err == nil {
 						outLine = "data: " + string(data)
@@ -288,17 +294,16 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 				Payload:   payload,
 			})
 
+		case "usage.snapshot":
+			stepWriter.OnEvent(event)
 		case "run.complete":
 			finishReason = "complete"
-			applyTerminalEventUsage(&runUsage, event)
 			stepWriter.OnEvent(event)
 		case "run.cancel":
 			finishReason = "cancel"
-			applyTerminalEventUsage(&runUsage, event)
 			stepWriter.OnEvent(event)
 		case "run.error":
 			finishReason = "error"
-			applyTerminalEventUsage(&runUsage, event)
 			stepWriter.OnEvent(event)
 		case "tool.result",
 			"task.start", "task.complete", "task.cancel", "task.error",

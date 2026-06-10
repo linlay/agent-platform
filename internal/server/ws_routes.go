@@ -46,6 +46,7 @@ func (a wsTokenAuthenticator) VerifyToken(ctx context.Context, token string) (ws
 
 func (s *Server) newWSHandler(hub *ws.Hub) *ws.Handler {
 	handler := ws.NewHandler(s.deps.Config.WebSocket, time.Duration(s.deps.Config.SSE.HeartbeatInterval)*time.Second, hub, wsTokenAuthenticator{server: s})
+	handler.SetDefaultLocale(s.deps.Config.I18N.DefaultLocale)
 	s.registerWSRoutes(handler)
 	handler.SetDispatch(s.logWSDispatch(handler.Dispatch))
 	return handler
@@ -76,6 +77,7 @@ func (s *Server) logWSDispatch(next ws.RouteHandler) ws.RouteHandler {
 }
 
 func (s *Server) registerWSRoutes(handler *ws.Handler) {
+	handler.RegisterRoute("/api/locale", s.wsLocale)
 	handler.RegisterRoute("/api/agents", s.wsAgents)
 	handler.RegisterRoute("/api/agents/order", s.wsAgentOrder)
 	handler.RegisterRoute("/api/channels", s.wsChannels)

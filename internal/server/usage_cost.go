@@ -5,8 +5,81 @@ import (
 
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
+	"agent-platform/internal/contracts"
 	"agent-platform/internal/models"
+	"agent-platform/internal/stream"
 )
+
+type usageCostDecorator struct {
+	models  *models.ModelRegistry
+	billing config.BillingConfig
+}
+
+func (d usageCostDecorator) decorateCurrentUsage(data *stream.EventData) (chat.UsageData, bool) {
+	if data == nil || data.Payload == nil {
+		return chat.UsageData{}, false
+	}
+	usage, _ := data.Payload["usage"].(map[string]any)
+	if usage == nil {
+		return chat.UsageData{}, false
+	}
+	current, _ := usage["current"].(map[string]any)
+	if current == nil {
+		return chat.UsageData{}, false
+	}
+	currentUsage := usageDataFromMap(current)
+	if modelKey := usageModelKeyFromEvent(data, current); modelKey != "" {
+		currentUsage.ModelKey = modelKey
+		current["modelKey"] = modelKey
+	}
+	currentUsage = d.estimateForModel(currentUsage)
+	if estimated := usageEstimatedCostFromData(currentUsage); estimated != nil {
+		current["estimatedCost"] = estimated
+	}
+	return currentUsage, true
+}
+
+func (d usageCostDecorator) estimateForModel(usage chat.UsageData) chat.UsageData {
+	if d.models == nil {
+		return usage
+	}
+	modelKey := strings.TrimSpace(usage.ModelKey)
+	if modelKey == "" {
+		return usage
+	}
+	if !usageHasBillableTokens(usage) {
+		return usage
+	}
+	model, err := d.models.GetModel(modelKey)
+	if err != nil || !modelPricingEnabled(model.Pricing) {
+		return usage
+	}
+	return estimateUsageCost(usage, model.Pricing, d.billing)
+}
+
+func usageModelKeyFromEvent(data *stream.EventData, usage map[string]any) string {
+	if data == nil || data.Payload == nil {
+		return ""
+	}
+	usageRoot, _ := data.Payload["usage"].(map[string]any)
+	modelNode, _ := data.Payload["model"].(map[string]any)
+	contextWindow, _ := data.Payload["contextWindow"].(map[string]any)
+	return strings.TrimSpace(contracts.FirstNonEmptyString(
+		usage["modelKey"], usage["model_key"],
+		usageRoot["modelKey"], usageRoot["model_key"],
+		contextWindow["modelKey"], contextWindow["model_key"],
+		modelNode["key"],
+	))
+}
+
+func usageHasBillableTokens(usage chat.UsageData) bool {
+	return usage.PromptTokens > 0 ||
+		usage.CompletionTokens > 0 ||
+		usage.TotalTokens > 0 ||
+		usage.CachedTokens > 0 ||
+		usage.PromptCacheHitTokens > 0 ||
+		usage.PromptCacheMissTokens > 0
+}
 
 func estimateUsageCost(usage chat.UsageData, pricing models.ModelPricing, billing config.BillingConfig) chat.UsageData {
 	if !modelPricingEnabled(pricing) {

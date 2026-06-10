@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"agent-platform/internal/api"
+	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
@@ -465,6 +467,142 @@ func TestRunEventProcessorAccumulatesCurrentCostAcrossModels(t *testing.T) {
 	}
 	if runUsage.EstimatedCostCurrency != "CNY" || runUsage.EstimatedCostTotal != 13 {
 		t.Fatalf("expected cost to sum per current model, got %#v", runUsage)
+	}
+}
+
+func TestProxyUsageTrackerDecoratesUsageSnapshotWithEstimatedCost(t *testing.T) {
+	runUsage := chat.UsageData{}
+	tracker := newProxyUsageTracker(
+		chat.UsageData{PromptTokens: 10, CompletionTokens: 5, TotalTokens: 15, LlmChatCompletionCount: 1},
+		&runUsage,
+		writeUsageCostRegistry(t),
+		config.BillingConfig{Currency: "CNY"},
+	)
+	event := &stream.EventData{
+		Type: "usage.snapshot",
+		Payload: map[string]any{
+			"contextWindow": map[string]any{"modelKey": "mock-model"},
+			"usage": map[string]any{
+				"current": map[string]any{
+					"promptTokens":     1_000_000,
+					"completionTokens": 1_000_000,
+					"totalTokens":      2_000_000,
+					"promptTokensDetails": map[string]any{
+						"cacheHitTokens":  200_000,
+						"cacheMissTokens": 800_000,
+					},
+				},
+				"run": map[string]any{
+					"promptTokens":     1_000_000,
+					"completionTokens": 1_000_000,
+					"totalTokens":      2_000_000,
+				},
+			},
+		},
+	}
+
+	tracker.Decorate(event)
+
+	usage, _ := event.Payload["usage"].(map[string]any)
+	current, _ := usage["current"].(map[string]any)
+	currentCost, _ := current["estimatedCost"].(map[string]any)
+	if current["modelKey"] != "mock-model" || floatValue(currentCost["total"]) != 8.405 {
+		t.Fatalf("expected proxy current cost decoration, got %#v", current)
+	}
+	run, _ := usage["run"].(map[string]any)
+	runCost, _ := run["estimatedCost"].(map[string]any)
+	if floatValue(runCost["total"]) != 8.405 {
+		t.Fatalf("expected proxy run cost from current usage, got %#v", run)
+	}
+	chatUsage, _ := usage["chat"].(map[string]any)
+	chatCost, _ := chatUsage["estimatedCost"].(map[string]any)
+	if AnyIntNode(chatUsage["totalTokens"]) != 2_000_015 || floatValue(chatCost["total"]) != 8.405 {
+		t.Fatalf("expected proxy chat usage to include base tokens and run cost, got %#v", chatUsage)
+	}
+	if runUsage.EstimatedCostCurrency != "CNY" || runUsage.EstimatedCostTotal != 8.405 {
+		t.Fatalf("expected proxy run usage to capture cost, got %#v", runUsage)
+	}
+}
+
+func TestProxyEventRecorderPersistsDecoratedUsageSnapshotCost(t *testing.T) {
+	store, err := chat.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new chat store: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-proxy-cost", "proxy-agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	stepWriter := chat.NewStepWriter(store, "chat-proxy-cost", "run-proxy-cost", "PROXY")
+	recorder := newProxyEventRecorder(
+		api.QueryRequest{ChatID: "chat-proxy-cost", RunID: "run-proxy-cost", AgentKey: "proxy-agent", Message: "hello"},
+		catalog.AgentDefinition{Key: "proxy-agent", Mode: "PROXY"},
+		store,
+		stepWriter,
+		nil,
+		chat.UsageData{},
+		writeUsageCostRegistry(t),
+		config.BillingConfig{Currency: "CNY"},
+	)
+	recorder.OnEvent(stream.EventData{
+		Type:      "content.start",
+		Timestamp: 1,
+		Payload:   map[string]any{"contentId": "content-1", "runId": "run-proxy-cost"},
+	})
+	recorder.OnEvent(stream.EventData{
+		Type:      "content.delta",
+		Timestamp: 2,
+		Payload:   map[string]any{"contentId": "content-1", "delta": "answer"},
+	})
+	recorder.OnEvent(stream.EventData{
+		Type:      "content.end",
+		Timestamp: 3,
+		Payload:   map[string]any{"contentId": "content-1"},
+	})
+	usageEvent := stream.EventData{
+		Type:      "usage.snapshot",
+		Timestamp: 4,
+		Payload: map[string]any{
+			"contextWindow": map[string]any{"modelKey": "mock-model"},
+			"usage": map[string]any{
+				"current": map[string]any{
+					"promptTokens":     1_000_000,
+					"completionTokens": 1_000_000,
+					"totalTokens":      2_000_000,
+				},
+				"run": map[string]any{
+					"promptTokens":     1_000_000,
+					"completionTokens": 1_000_000,
+					"totalTokens":      2_000_000,
+				},
+			},
+		},
+	}
+	recorder.DecorateEvent(&usageEvent)
+	recorder.OnEvent(usageEvent)
+	terminalEvent := stream.EventData{
+		Type:      "run.complete",
+		Timestamp: 5,
+		Payload:   map[string]any{"runId": "run-proxy-cost"},
+	}
+	recorder.DecorateEvent(&terminalEvent)
+	recorder.OnEvent(terminalEvent)
+
+	persisted, completion := recorder.Finish()
+	if !persisted {
+		t.Fatalf("expected proxy completion to persist")
+	}
+	if completion.Usage.EstimatedCostCurrency != "CNY" || completion.Usage.EstimatedCostTotal != 9 {
+		t.Fatalf("expected completion usage cost from decorated snapshot, got %#v", completion.Usage)
+	}
+	detail, err := store.LoadChat("chat-proxy-cost")
+	if err != nil {
+		t.Fatalf("load chat: %v", err)
+	}
+	if detail.ReplayUsage.LastRun.EstimatedCostCurrency != "CNY" || detail.ReplayUsage.LastRun.EstimatedCostTotal != 9 {
+		t.Fatalf("expected replay lastRun cost from proxy step usage, got %#v", detail.ReplayUsage.LastRun)
+	}
+	if detail.ReplayUsage.Chat.EstimatedCostCurrency != "CNY" || detail.ReplayUsage.Chat.EstimatedCostTotal != 9 {
+		t.Fatalf("expected replay chat cost from proxy step usage, got %#v", detail.ReplayUsage.Chat)
 	}
 }
 

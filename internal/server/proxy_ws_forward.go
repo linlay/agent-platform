@@ -12,7 +12,9 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
+	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/models"
 	"agent-platform/internal/stream"
 )
 
@@ -326,6 +328,7 @@ type proxyEventRecorder struct {
 	chatStore     chat.Store
 	stepWriter    *chat.StepWriter
 	control       *contracts.RunControl
+	usageTracker  *proxyUsageTracker
 	assistantText strings.Builder
 	startedAt     int64
 	finishReason  string
@@ -352,6 +355,9 @@ func newProxyEventRecorder(
 	chatStore chat.Store,
 	stepWriter *chat.StepWriter,
 	control *contracts.RunControl,
+	chatUsage chat.UsageData,
+	models *models.ModelRegistry,
+	billing config.BillingConfig,
 ) *proxyEventRecorder {
 	if stepWriter == nil {
 		return nil
@@ -368,7 +374,7 @@ func newProxyEventRecorder(
 			"message":   req.Message,
 		},
 	})
-	return &proxyEventRecorder{
+	recorder := &proxyEventRecorder{
 		req:        req,
 		agentDef:   agentDef,
 		chatStore:  chatStore,
@@ -379,6 +385,15 @@ func newProxyEventRecorder(
 		reasonings: map[string]*proxyContentBucket{},
 		tools:      map[string]*proxyToolBucket{},
 	}
+	recorder.usageTracker = newProxyUsageTracker(chatUsage, &recorder.runUsage, models, billing)
+	return recorder
+}
+
+func (r *proxyEventRecorder) DecorateEvent(event *stream.EventData) {
+	if r == nil || r.usageTracker == nil {
+		return
+	}
+	r.usageTracker.Decorate(event)
 }
 
 func (r *proxyEventRecorder) OnEvent(event stream.EventData) {
@@ -493,6 +508,8 @@ func (r *proxyEventRecorder) OnEvent(event stream.EventData) {
 			Timestamp: event.Timestamp,
 			Payload:   payload,
 		})
+	case "usage.snapshot":
+		r.stepWriter.OnEvent(event)
 	case "awaiting.ask":
 		if r.control != nil {
 			r.control.ExpectSubmit(awaitingContextFromProxyEvent(event))
@@ -500,15 +517,12 @@ func (r *proxyEventRecorder) OnEvent(event stream.EventData) {
 		r.stepWriter.OnEvent(event)
 	case "run.complete":
 		r.finishReason = "complete"
-		applyTerminalEventUsage(&r.runUsage, event)
 		r.stepWriter.OnEvent(event)
 	case "run.cancel":
 		r.finishReason = "cancel"
-		applyTerminalEventUsage(&r.runUsage, event)
 		r.stepWriter.OnEvent(event)
 	case "run.error":
 		r.finishReason = "error"
-		applyTerminalEventUsage(&r.runUsage, event)
 		r.stepWriter.OnEvent(event)
 	case "tool.result",
 		"task.start", "task.complete", "task.cancel", "task.error",

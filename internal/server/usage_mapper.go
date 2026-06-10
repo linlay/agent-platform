@@ -76,28 +76,23 @@ func latestUsageFromEvents(events []stream.EventData, key string) *api.ChatUsage
 }
 
 func chatUsageBreakdown(summaryUsage *chat.UsageData, runs []chat.RunSummary, replayUsage chat.ReplayUsage, contextWindow map[string]any, models *models.ModelRegistry, billing config.BillingConfig) *api.ChatUsageBreakdown {
-	lastRun, lastRunModelKey := latestRunUsageWithModelFromSummaries(runs)
+	lastRun, _ := latestRunUsageWithModelFromSummaries(runs)
 	if replayRunID := strings.TrimSpace(replayUsage.LastRunID); replayRunID != "" {
-		if completedRun, completedRunModelKey, foundCompletedRun := runUsageWithModelForID(runs, replayRunID); foundCompletedRun {
+		if completedRun, _, foundCompletedRun := runUsageWithModelForID(runs, replayRunID); foundCompletedRun {
 			if completedRun != nil {
 				if completedRun.EstimatedCost != nil {
 					lastRun = completedRun
-					lastRunModelKey = completedRunModelKey
 				} else if strings.TrimSpace(replayUsage.LastRun.EstimatedCostCurrency) != "" {
 					applyEstimatedCost(completedRun, replayUsage.LastRun)
 					lastRun = completedRun
-					lastRunModelKey = completedRunModelKey
 				} else {
 					lastRun = completedRun
-					lastRunModelKey = completedRunModelKey
 				}
 			} else if mapped := mapUsageDataPtr(&replayUsage.LastRun); mapped != nil {
 				lastRun = mapped
-				lastRunModelKey = completedRunModelKey
 			}
 		} else if mapped := mapUsageDataPtr(&replayUsage.LastRun); mapped != nil {
 			lastRun = mapped
-			lastRunModelKey = contextWindowModelKey(contextWindow)
 		}
 	}
 
@@ -112,19 +107,6 @@ func chatUsageBreakdown(summaryUsage *chat.UsageData, runs []chat.RunSummary, re
 		}
 	}
 
-	// Read-time cost fallback: 对 lastRun 和 chat 兜底估算 cost
-	applyReadTimeCostFallback(lastRun, lastRunModelKey, models, billing)
-
-	// chat 兜底：仅当 chat 与 lastRun token 一致时才补 cost（单轮 chat）
-	if chatUsage != nil && lastRun != nil {
-		same := chatUsage.PromptTokens == lastRun.PromptTokens &&
-			chatUsage.CompletionTokens == lastRun.CompletionTokens &&
-			chatUsage.TotalTokens == lastRun.TotalTokens
-		if same {
-			applyReadTimeCostFallback(chatUsage, lastRunModelKey, models, billing)
-		}
-	}
-
 	if lastRun == nil && chatUsage == nil {
 		return nil
 	}
@@ -132,62 +114,6 @@ func chatUsageBreakdown(summaryUsage *chat.UsageData, runs []chat.RunSummary, re
 		LastRun: lastRun,
 		Chat:    chatUsage,
 	}
-}
-
-func applyReadTimeCostFallback(target *api.ChatUsageData, modelKey string, models *models.ModelRegistry, billing config.BillingConfig) {
-	if target == nil {
-		return
-	}
-	if target.EstimatedCost != nil {
-		return // 已有 cost，跳过
-	}
-	if target.TotalTokens <= 0 {
-		return // 无 token，跳过
-	}
-
-	modelKey = strings.TrimSpace(modelKey)
-	if modelKey == "" {
-		return
-	}
-	if models == nil {
-		return
-	}
-	model, err := models.GetModel(modelKey)
-	if err != nil {
-		return
-	}
-	if !modelPricingEnabled(model.Pricing) {
-		return
-	}
-
-	// 将 api.ChatUsageData 转成 chat.UsageData 后调用 estimateUsageCost
-	ud := chat.UsageData{
-		ModelKey:              modelKey,
-		PromptTokens:          target.PromptTokens,
-		CompletionTokens:      target.CompletionTokens,
-		TotalTokens:           target.TotalTokens,
-		PromptCacheHitTokens:  0,
-		PromptCacheMissTokens: target.PromptTokens,
-		CachedTokens:          0,
-	}
-	if details := target.PromptTokensDetails; details != nil {
-		ud.PromptCacheHitTokens = details.CacheHitTokens
-		ud.PromptCacheMissTokens = details.CacheMissTokens
-		ud.CachedTokens = details.CacheHitTokens
-	}
-	ud = estimateUsageCost(ud, model.Pricing, billing)
-
-	target.EstimatedCost = &api.EstimatedCost{
-		Currency:       ud.EstimatedCostCurrency,
-		InputCacheHit:  ud.EstimatedCostInputHit,
-		InputCacheMiss: ud.EstimatedCostInputMiss,
-		Output:         ud.EstimatedCostOutput,
-		Total:          ud.EstimatedCostTotal,
-	}
-}
-
-func contextWindowModelKey(contextWindow map[string]any) string {
-	return strings.TrimSpace(contracts.FirstNonEmptyString(contextWindow["modelKey"], contextWindow["model_key"]))
 }
 
 func applyEstimatedCost(target *api.ChatUsageData, source chat.UsageData) {

@@ -447,6 +447,16 @@ func (c *Conn) SetClientMetadata(source string, deviceID string) {
 	c.clientInfoMu.Unlock()
 }
 
+func (c *Conn) DeviceID() string {
+	if c == nil {
+		return ""
+	}
+	c.clientInfoMu.RLock()
+	deviceID := c.deviceID
+	c.clientInfoMu.RUnlock()
+	return deviceID
+}
+
 func (c *Conn) monitorClientInfo() (string, string, string, string) {
 	if c == nil {
 		return "", "", "", ""

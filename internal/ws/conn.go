@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"agent-platform/internal/config"
+	"agent-platform/internal/i18n"
 	"agent-platform/internal/stream"
 
 	gws "github.com/gorilla/websocket"
@@ -57,6 +58,8 @@ type Conn struct {
 	deviceID            string
 	closeReasonMu       sync.RWMutex
 	closeReason         string
+	localeMu            sync.RWMutex
+	locale              string
 
 	// silent=true 时：Run 不主动发 push.connected，writeLoop 不发 push.heartbeat / auth.expiring。
 	// 用于 agent-platform 反向连出到网关的场景——网关按自己的节奏发注册 ACK，我们只做被动应答。
@@ -132,6 +135,7 @@ func NewConn(socket *gws.Conn, hub *Hub, cfg config.WebSocketConfig, heartbeatIn
 		heartbeatInterval:   heartbeatInterval,
 		writeQueueFullGrace: resolvedWriteQueueFullGrace(cfg),
 		remoteAddr:          remoteAddr,
+		locale:              i18n.DefaultLocale,
 		auth:                auth,
 		inflightRequests:    map[string]struct{}{},
 		activeStreams:       map[string]*streamEntry{},
@@ -157,6 +161,30 @@ func (c *Conn) SessionID() string {
 		return ""
 	}
 	return c.sessionID
+}
+
+func (c *Conn) SetLocale(locale string) bool {
+	if c == nil {
+		return false
+	}
+	normalized, ok := i18n.NormalizeLocale(locale)
+	if !ok {
+		return false
+	}
+	c.localeMu.Lock()
+	c.locale = normalized
+	c.localeMu.Unlock()
+	return true
+}
+
+func (c *Conn) Locale() string {
+	if c == nil {
+		return i18n.DefaultLocale
+	}
+	c.localeMu.RLock()
+	locale := c.locale
+	c.localeMu.RUnlock()
+	return i18n.ResolveLocale(locale)
 }
 
 func (c *Conn) Context() context.Context {
@@ -420,6 +448,7 @@ func (c *Conn) sendStreamEvent(requestID string, event stream.EventData) bool {
 	if c == nil || requestID == "" {
 		return false
 	}
+	event.Payload = i18n.LocalizeEventPayload(c.Locale(), event.Type, event.Payload)
 	c.mu.Lock()
 	entry := c.activeStreams[requestID]
 	if entry == nil {
@@ -490,14 +519,15 @@ func (c *Conn) SendPush(frameType string, data any) bool {
 }
 
 func (c *Conn) SendError(id string, frameType string, code int, msg string, data any) bool {
+	locale := c.Locale()
 	return c.enqueue(outboundMessage{
 		frame: ErrorFrame{
 			Frame: FrameError,
 			Type:  frameType,
 			ID:    id,
 			Code:  code,
-			Msg:   msg,
-			Data:  data,
+			Msg:   i18n.Translate(locale, frameType, msg),
+			Data:  i18n.LocalizeValue(locale, data),
 		},
 		msgType: gws.TextMessage,
 	})

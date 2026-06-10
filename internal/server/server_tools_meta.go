@@ -12,6 +12,7 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/i18n"
 	"agent-platform/internal/stream"
 )
 
@@ -191,7 +192,26 @@ func applyToolOverride(def api.ToolDetailResponse, overrides map[string]api.Tool
 func writeJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
+	if locale := responseLocale(w); locale != "" {
+		payload = i18n.LocalizeValue(locale, payload)
+	}
 	_ = json.NewEncoder(w).Encode(payload)
+}
+
+type localeProvider interface {
+	Locale() string
+}
+
+func responseLocale(w http.ResponseWriter) string {
+	if provider, ok := w.(localeProvider); ok {
+		return provider.Locale()
+	}
+	return ""
+}
+
+func localizeStreamEventData(locale string, event stream.EventData) stream.EventData {
+	event.Payload = i18n.LocalizeEventPayload(locale, event.Type, event.Payload)
+	return event
 }
 
 func decodeJSON(r *http.Request, target any) error {

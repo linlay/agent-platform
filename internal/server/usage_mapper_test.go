@@ -394,10 +394,10 @@ func TestChatUsageBreakdownReplayOnlyAwaitingRunReturnsCost(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// Read-time cost fallback tests
+// No read-time cost fallback tests
 // ---------------------------------------------------------------------------
 
-func TestChatUsageBreakdownFallbackCostForLastRunWithoutCost(t *testing.T) {
+func TestChatUsageBreakdownDoesNotEstimateLastRunWithoutPersistedCost(t *testing.T) {
 	registry := writeTestModelRegistry(t)
 	breakdown := chatUsageBreakdown(
 		nil,
@@ -425,18 +425,12 @@ func TestChatUsageBreakdownFallbackCostForLastRunWithoutCost(t *testing.T) {
 	if breakdown == nil || breakdown.LastRun == nil {
 		t.Fatalf("expected usage breakdown, got %#v", breakdown)
 	}
-	if breakdown.LastRun.EstimatedCost == nil {
-		t.Fatalf("expected lastRun estimatedCost from fallback, got %#v", breakdown.LastRun)
-	}
-	if breakdown.LastRun.EstimatedCost.Currency != "CNY" {
-		t.Fatalf("expected cost currency CNY, got %q", breakdown.LastRun.EstimatedCost.Currency)
-	}
-	if breakdown.LastRun.EstimatedCost.Total <= 0 {
-		t.Fatalf("expected positive total cost, got %f", breakdown.LastRun.EstimatedCost.Total)
+	if breakdown.LastRun.EstimatedCost != nil {
+		t.Fatalf("did not expect read-time lastRun estimatedCost, got %#v", breakdown.LastRun.EstimatedCost)
 	}
 }
 
-func TestChatUsageBreakdownFallbackCostForChatWhenTokenSameAsLastRun(t *testing.T) {
+func TestChatUsageBreakdownDoesNotEstimateChatWhenTokenSameAsLastRun(t *testing.T) {
 	registry := writeTestModelRegistry(t)
 	breakdown := chatUsageBreakdown(
 		&chat.UsageData{PromptTokens: 1_000_000, CompletionTokens: 1_000_000, TotalTokens: 2_000_000, LlmChatCompletionCount: 1},
@@ -465,19 +459,15 @@ func TestChatUsageBreakdownFallbackCostForChatWhenTokenSameAsLastRun(t *testing.
 	if breakdown == nil || breakdown.LastRun == nil || breakdown.Chat == nil {
 		t.Fatalf("expected usage breakdown, got %#v", breakdown)
 	}
-	if breakdown.LastRun.EstimatedCost == nil {
-		t.Fatalf("expected lastRun estimatedCost from fallback, got %#v", breakdown.LastRun)
+	if breakdown.LastRun.EstimatedCost != nil {
+		t.Fatalf("did not expect read-time lastRun estimatedCost, got %#v", breakdown.LastRun.EstimatedCost)
 	}
-	if breakdown.Chat.EstimatedCost == nil {
-		t.Fatalf("expected chat estimatedCost from fallback when tokens match lastRun, got %#v", breakdown.Chat)
-	}
-	if breakdown.Chat.EstimatedCost.Total != breakdown.LastRun.EstimatedCost.Total {
-		t.Fatalf("expected chat cost to equal lastRun cost, chat=%f lastRun=%f",
-			breakdown.Chat.EstimatedCost.Total, breakdown.LastRun.EstimatedCost.Total)
+	if breakdown.Chat.EstimatedCost != nil {
+		t.Fatalf("did not expect read-time chat estimatedCost, got %#v", breakdown.Chat.EstimatedCost)
 	}
 }
 
-func TestChatUsageBreakdownSkipsFallbackWhenChatTokensExceedsLastRun(t *testing.T) {
+func TestChatUsageBreakdownDoesNotEstimateMultiRunChat(t *testing.T) {
 	registry := writeTestModelRegistry(t)
 	breakdown := chatUsageBreakdown(
 		&chat.UsageData{PromptTokens: 200, CompletionTokens: 100, TotalTokens: 300, LlmChatCompletionCount: 2},
@@ -502,13 +492,11 @@ func TestChatUsageBreakdownSkipsFallbackWhenChatTokensExceedsLastRun(t *testing.
 	if breakdown == nil || breakdown.LastRun == nil || breakdown.Chat == nil {
 		t.Fatalf("expected usage breakdown, got %#v", breakdown)
 	}
-	// lastRun should get fallback cost
-	if breakdown.LastRun.EstimatedCost == nil {
-		t.Fatalf("expected lastRun estimatedCost from fallback, got %#v", breakdown.LastRun)
+	if breakdown.LastRun.EstimatedCost != nil {
+		t.Fatalf("did not expect read-time lastRun estimatedCost, got %#v", breakdown.LastRun.EstimatedCost)
 	}
-	// chat should NOT get fallback cost because tokens exceed lastRun (multi-run)
 	if breakdown.Chat.EstimatedCost != nil {
-		t.Fatalf("expected chat to NOT have estimatedCost when tokens exceed lastRun, got %#v", breakdown.Chat.EstimatedCost)
+		t.Fatalf("did not expect read-time chat estimatedCost, got %#v", breakdown.Chat.EstimatedCost)
 	}
 }
 
@@ -580,7 +568,7 @@ func TestChatUsageBreakdownSkipsFallbackWhenPricingMissing(t *testing.T) {
 	}
 }
 
-func TestChatUsageBreakdownFallbackUsesCompletedRunModelOverContextWindow(t *testing.T) {
+func TestChatUsageBreakdownDoesNotFallbackToCompletedRunModel(t *testing.T) {
 	registry := writeTestModelRegistry(t)
 	breakdown := chatUsageBreakdown(
 		&chat.UsageData{PromptTokens: 1_000_000, CompletionTokens: 1_000_000, TotalTokens: 2_000_000, LlmChatCompletionCount: 1},
@@ -606,18 +594,21 @@ func TestChatUsageBreakdownFallbackUsesCompletedRunModelOverContextWindow(t *tes
 		config.BillingConfig{Currency: "CNY"},
 	)
 
-	if breakdown == nil || breakdown.LastRun == nil || breakdown.LastRun.EstimatedCost == nil {
-		t.Fatalf("expected lastRun estimatedCost from completed run model, got %#v", breakdown)
+	if breakdown == nil || breakdown.LastRun == nil {
+		t.Fatalf("expected usage breakdown, got %#v", breakdown)
 	}
-	if breakdown.LastRun.EstimatedCost.Total != 3 {
-		t.Fatalf("expected old-model cost total 3, got %#v", breakdown.LastRun.EstimatedCost)
+	if breakdown.LastRun.EstimatedCost != nil {
+		t.Fatalf("did not expect completed-run read-time fallback cost, got %#v", breakdown.LastRun.EstimatedCost)
 	}
-	if breakdown.Chat == nil || breakdown.Chat.EstimatedCost == nil || breakdown.Chat.EstimatedCost.Total != 3 {
-		t.Fatalf("expected chat fallback to reuse old-model cost when tokens match, got %#v", breakdown.Chat)
+	if breakdown.Chat == nil {
+		t.Fatalf("expected chat usage, got %#v", breakdown)
+	}
+	if breakdown.Chat.EstimatedCost != nil {
+		t.Fatalf("did not expect chat read-time fallback cost, got %#v", breakdown.Chat.EstimatedCost)
 	}
 }
 
-func TestChatUsageBreakdownFallbackUsesContextWindowForReplayOnlyDeepseekModel(t *testing.T) {
+func TestChatUsageBreakdownDoesNotFallbackToContextWindowForReplayOnlyModel(t *testing.T) {
 	registry := writeTestModelRegistry(t)
 	breakdown := chatUsageBreakdown(
 		nil,
@@ -632,14 +623,17 @@ func TestChatUsageBreakdownFallbackUsesContextWindowForReplayOnlyDeepseekModel(t
 		config.BillingConfig{Currency: "CNY"},
 	)
 
-	if breakdown == nil || breakdown.LastRun == nil || breakdown.LastRun.EstimatedCost == nil {
-		t.Fatalf("expected deepseek fallback estimatedCost, got %#v", breakdown)
+	if breakdown == nil || breakdown.LastRun == nil {
+		t.Fatalf("expected usage breakdown, got %#v", breakdown)
 	}
-	if breakdown.LastRun.EstimatedCost.Total != 13 {
-		t.Fatalf("expected deepseek cost total 13, got %#v", breakdown.LastRun.EstimatedCost)
+	if breakdown.LastRun.EstimatedCost != nil {
+		t.Fatalf("did not expect context-window read-time fallback cost, got %#v", breakdown.LastRun.EstimatedCost)
 	}
-	if breakdown.Chat == nil || breakdown.Chat.EstimatedCost == nil || breakdown.Chat.EstimatedCost.Total != 13 {
-		t.Fatalf("expected chat deepseek fallback cost 13, got %#v", breakdown.Chat)
+	if breakdown.Chat == nil {
+		t.Fatalf("expected chat usage, got %#v", breakdown)
+	}
+	if breakdown.Chat.EstimatedCost != nil {
+		t.Fatalf("did not expect chat context-window read-time fallback cost, got %#v", breakdown.Chat.EstimatedCost)
 	}
 }
 

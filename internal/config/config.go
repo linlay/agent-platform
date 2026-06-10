@@ -26,6 +26,7 @@ type Config struct {
 	Stream          StreamConfig
 	SSE             SSEConfig
 	H2A             H2AConfig
+	I18N            I18NConfig
 	Auth            AuthConfig
 	ResourceTicket  ResourceTicketConfig
 	ChatStorage     ChatStorageConfig
@@ -235,6 +236,10 @@ type H2ARenderConfig struct {
 	MaxBufferedChars     int
 	MaxBufferedEvents    int
 	HeartbeatPassThrough bool
+}
+
+type I18NConfig struct {
+	DefaultLocale string
 }
 
 type AuthConfig struct {

@@ -70,6 +70,7 @@ func (c *Config) applyEnv() {
 	c.H2A.Render.MaxBufferedChars = intEnv("AGENT_H2A_RENDER_MAX_BUFFERED_CHARS", c.H2A.Render.MaxBufferedChars)
 	c.H2A.Render.MaxBufferedEvents = intEnv("AGENT_H2A_RENDER_MAX_BUFFERED_EVENTS", c.H2A.Render.MaxBufferedEvents)
 	c.H2A.Render.HeartbeatPassThrough = boolEnv("AGENT_H2A_RENDER_HEARTBEAT_PASS_THROUGH", c.H2A.Render.HeartbeatPassThrough)
+	c.I18N.DefaultLocale = stringEnv("I18N_DEFAULT_LOCALE", c.I18N.DefaultLocale)
 
 	c.Auth.Enabled = boolEnv("AUTH_ENABLED", c.Auth.Enabled)
 	c.Auth.JWKSURI = stringEnv("AUTH_JWKS_URI", c.Auth.JWKSURI)

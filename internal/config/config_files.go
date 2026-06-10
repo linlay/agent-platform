@@ -103,6 +103,10 @@ func (c *Config) applyRuntimeFile(path string) error {
 	if billing, ok := values["billing"].(map[string]any); ok && len(billing) > 0 {
 		c.applyBillingValues(billing)
 	}
+	if i18nValues, ok := values["i18n"].(map[string]any); ok && len(i18nValues) > 0 {
+		c.I18N.DefaultLocale = stringValue(anyValue(i18nValues["defaultLocale"], c.I18N.DefaultLocale), c.I18N.DefaultLocale)
+		c.I18N.DefaultLocale = stringValue(anyValue(i18nValues["default-locale"], c.I18N.DefaultLocale), c.I18N.DefaultLocale)
+	}
 	if budget, ok := values["budget"].(map[string]any); ok && len(budget) > 0 {
 		if err := rejectDeprecatedBudgetKeys(path, "budget", budget); err != nil {
 			return err

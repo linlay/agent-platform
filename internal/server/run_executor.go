@@ -142,55 +142,34 @@ func (p *runEventProcessor) decorateUsageSnapshot(data *stream.EventData) {
 	if usage == nil {
 		return
 	}
-	modelKey := p.modelKeyFromEvent(data)
+	var (
+		currentUsage chat.UsageData
+		hasCurrent   bool
+	)
 	if current, _ := usage["current"].(map[string]any); current != nil {
-		currentUsage := usageDataFromMap(current)
-		if modelKey == "" {
-			modelKey = currentUsage.ModelKey
-		}
-		if modelKey != "" {
-			currentUsage.ModelKey = modelKey
-			current["modelKey"] = modelKey
+		currentUsage, hasCurrent = (usageCostDecorator{models: p.models, billing: p.billing}).decorateCurrentUsage(data)
+		if modelKey := strings.TrimSpace(currentUsage.ModelKey); modelKey != "" {
 			p.recordRunModelKey(modelKey)
-		}
-		currentUsage = p.estimateUsageCostForModel(currentUsage)
-		if estimated := usageEstimatedCostFromData(currentUsage); estimated != nil {
-			current["estimatedCost"] = estimated
-			if p.runUsage != nil {
-				addEstimatedUsageCost(p.runUsage, currentUsage)
-			}
 		}
 	}
 	if run, _ := usage["run"].(map[string]any); run != nil {
 		if p.runUsage != nil {
+			if usageEstimatedCostFromData(currentUsage) != nil {
+				addEstimatedUsageCost(p.runUsage, currentUsage)
+			}
 			mergeUsageMapIntoRunData(p.runUsage, run)
 			p.applyRunModelKey()
 			runUsage := *p.runUsage
 			runUsage.ModelKey = ""
 			usage["run"] = usageDataMap(runUsage)
 		}
+	} else if hasCurrent && p.runUsage != nil {
+		*p.runUsage = addUsageData(*p.runUsage, currentUsage)
+		p.applyRunModelKey()
+		runUsage := *p.runUsage
+		runUsage.ModelKey = ""
+		usage["run"] = usageDataMap(runUsage)
 	}
-}
-
-func (p *runEventProcessor) modelKeyFromEvent(data *stream.EventData) string {
-	modelNode, _ := data.Payload["model"].(map[string]any)
-	contextWindow, _ := data.Payload["contextWindow"].(map[string]any)
-	return strings.TrimSpace(contracts.FirstNonEmptyString(contextWindow["modelKey"], contextWindow["model_key"], modelNode["key"]))
-}
-
-func (p *runEventProcessor) estimateUsageCostForModel(usage chat.UsageData) chat.UsageData {
-	if p == nil || p.models == nil {
-		return usage
-	}
-	modelKey := strings.TrimSpace(usage.ModelKey)
-	if modelKey == "" {
-		return usage
-	}
-	model, err := p.models.GetModel(modelKey)
-	if err != nil || !modelPricingEnabled(model.Pricing) {
-		return usage
-	}
-	return estimateUsageCost(usage, model.Pricing, p.billing)
 }
 
 func (p *runEventProcessor) recordRunModelKey(modelKey string) {
@@ -227,7 +206,7 @@ func (p *runEventProcessor) decorateTerminalUsage(data *stream.EventData) {
 		return
 	}
 	delete(data.Payload, "chatUsage")
-	if p.runUsage == nil || (p.runUsage.TotalTokens == 0 && p.runUsage.LlmChatCompletionCount == 0 && p.runUsage.ToolCallCount == 0) {
+	if p.runUsage == nil || !usageHasData(*p.runUsage) {
 		delete(data.Payload, "usage")
 		return
 	}

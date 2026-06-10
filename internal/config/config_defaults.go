@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"agent-platform/internal/i18n"
 )
 
 func defaultConfig() Config {
@@ -105,6 +107,9 @@ func defaultConfig() Config {
 				MaxBufferedEvents:    0,
 				HeartbeatPassThrough: true,
 			},
+		},
+		I18N: I18NConfig{
+			DefaultLocale: i18n.DefaultLocale,
 		},
 		Auth: AuthConfig{
 			Enabled:            true,
@@ -314,6 +319,7 @@ func (c *Config) normalize() error {
 	}
 	c.Desktop.Action = normalizeDesktopBridgeConfig(c.Desktop.Action)
 	c.Desktop.CDP = normalizeDesktopBridgeConfig(c.Desktop.CDP)
+	c.I18N.DefaultLocale = i18n.ResolveLocale(c.I18N.DefaultLocale)
 	c.VisionRecognize = normalizeVisionRecognizeConfig(c.VisionRecognize)
 	c.ContainerHub.Enabled = strings.TrimSpace(c.ContainerHub.BaseURL) != ""
 	if c.Bash.WorkingDirectory == "" {

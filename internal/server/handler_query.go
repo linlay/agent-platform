@@ -10,6 +10,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/i18n"
 	"agent-platform/internal/stream"
 )
 
@@ -56,6 +57,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepared preparedQuery) {
+	locale := requestLocale(r, s.deps.Config.I18N.DefaultLocale)
 	runCtx, control, _ := s.deps.Runs.Register(r.Context(), prepared.session)
 	principal := PrincipalFromContext(r.Context())
 	eventBus, ok := s.deps.Runs.EventBus(prepared.req.RunID)
@@ -150,7 +152,7 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 				_ = sseWriter.WriteDone()
 				return
 			}
-			if err := sseWriter.WriteJSON("message", event); err != nil {
+			if err := sseWriter.WriteJSON("message", localizeStreamEventData(locale, event)); err != nil {
 				return
 			}
 		}
@@ -158,6 +160,7 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 }
 
 func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, prepared preparedQuery) {
+	locale := i18n.ResolveLocale(s.deps.Config.I18N.DefaultLocale, responseLocale(w))
 	defer releaseQuery(prepared.release)
 	control := contracts.NewRunControl(ctx, prepared.req.RunID)
 	control.SetObserverCount(1)
@@ -215,7 +218,7 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 		if !visible {
 			return nil
 		}
-		return sseWriter.WriteJSON("message", data)
+		return sseWriter.WriteJSON("message", localizeStreamEventData(locale, data))
 	}
 
 	for _, event := range assembler.Bootstrap() {

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"agent-platform/internal/config"
+	"agent-platform/internal/i18n"
 
 	gws "github.com/gorilla/websocket"
 )
@@ -19,6 +20,7 @@ type Handler struct {
 	heartbeatInterval time.Duration
 	hub               *Hub
 	authenticator     TokenAuthenticator
+	defaultLocale     string
 	upgrader          gws.Upgrader
 	routes            map[string]RouteHandler
 	dispatch          RouteHandler
@@ -30,11 +32,19 @@ func NewHandler(cfg config.WebSocketConfig, heartbeatInterval time.Duration, hub
 		heartbeatInterval: heartbeatInterval,
 		hub:               hub,
 		authenticator:     authenticator,
+		defaultLocale:     i18n.DefaultLocale,
 		upgrader: gws.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},
 		routes: map[string]RouteHandler{},
 	}
+}
+
+func (h *Handler) SetDefaultLocale(locale string) {
+	if h == nil {
+		return
+	}
+	h.defaultLocale = i18n.ResolveLocale(locale)
 }
 
 func (h *Handler) RegisterRoute(frameType string, route RouteHandler) {
@@ -76,6 +86,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	conn := NewConn(socket, h.hub, h.cfg, h.heartbeatInterval, auth)
+	conn.SetLocale(wsLocaleFromRequest(r, h.defaultLocale))
 	conn.SetRequestBaseURL(wsRequestBaseURL(r))
 	conn.SetClientInfo(r.RemoteAddr, r.UserAgent())
 	conn.SetClientMetadata(wsClientMetadataFromRequest(r, auth))
@@ -163,6 +174,18 @@ func wsRequestBaseURL(r *http.Request) string {
 		}
 	}
 	return strings.TrimRight(proto+"://"+host, "/")
+}
+
+func wsLocaleFromRequest(r *http.Request, defaultLocale string) string {
+	if r == nil {
+		return i18n.ResolveLocale(defaultLocale)
+	}
+	return i18n.LocaleFromHTTP(
+		r.URL.Query().Get("locale"),
+		r.Header.Get("X-Locale"),
+		r.Header.Get("Accept-Language"),
+		defaultLocale,
+	)
 }
 
 func wsClientMetadataFromRequest(r *http.Request, auth AuthSession) (string, string) {

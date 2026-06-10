@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -8,6 +9,7 @@ import (
 	"io"
 	"log"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/textproto"
@@ -15,6 +17,7 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/i18n"
 	"agent-platform/internal/observability"
 	"agent-platform/internal/stream"
 	"agent-platform/internal/ws"
@@ -24,6 +27,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	startedAt := time.Now()
 	if s.handleCORS(w, r) {
 		return
+	}
+	w = &localizedResponseWriter{
+		ResponseWriter: w,
+		locale: i18n.LocaleFromHTTP(
+			r.URL.Query().Get("locale"),
+			r.Header.Get("X-Locale"),
+			r.Header.Get("Accept-Language"),
+			s.deps.Config.I18N.DefaultLocale,
+		),
 	}
 	r = s.withPrincipal(r, w)
 	if r == nil {
@@ -35,6 +47,43 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 	s.router.ServeHTTP(rec, r)
 	s.logRequest(r, rec.status, time.Since(startedAt))
+}
+
+type localizedResponseWriter struct {
+	http.ResponseWriter
+	locale string
+}
+
+func (w *localizedResponseWriter) Locale() string {
+	if w == nil {
+		return ""
+	}
+	return w.locale
+}
+
+func (w *localizedResponseWriter) Flush() {
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+}
+
+func (w *localizedResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hijacker, ok := w.ResponseWriter.(http.Hijacker); ok {
+		return hijacker.Hijack()
+	}
+	return nil, nil, fmt.Errorf("underlying ResponseWriter does not implement http.Hijacker")
+}
+
+func requestLocale(r *http.Request, defaultLocale string) string {
+	if r == nil {
+		return i18n.ResolveLocale(defaultLocale)
+	}
+	return i18n.LocaleFromHTTP(
+		r.URL.Query().Get("locale"),
+		r.Header.Get("X-Locale"),
+		r.Header.Get("Accept-Language"),
+		defaultLocale,
+	)
 }
 
 func (s *Server) WSHandler() *ws.Handler {
