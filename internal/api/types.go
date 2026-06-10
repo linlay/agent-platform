@@ -15,6 +15,10 @@ type ApiResponse[T any] struct {
 	Data T      `json:"data"`
 }
 
+type FileHistoryResponse struct {
+	Content string `json:"content"`
+}
+
 func Success[T any](data T) ApiResponse[T] {
 	return ApiResponse[T]{
 		Code: 0,

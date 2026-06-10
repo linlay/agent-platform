@@ -88,6 +88,10 @@ type ToolExecutor interface {
 	Invoke(ctx context.Context, toolName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error)
 }
 
+type FileHistoryReader interface {
+	ReadFileHistory(chatID string, runID string, filePath string, version string) (string, error)
+}
+
 type FileChangeHook interface {
 	AfterFileChange(ctx context.Context, event FileChangeEvent) FileChangeHookResult
 }

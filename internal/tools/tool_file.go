@@ -214,6 +214,7 @@ func (t *RuntimeToolExecutor) invokeWrite(ctx context.Context, args map[string]a
 	after := fileSHA256(plan.FilePath)
 	info, _ := os.Stat(plan.FilePath)
 	lineStats := computeLineDiffStats(beforeContent, string(plan.Content))
+	_ = t.recordFileHistory(execCtx, plan.FilePath, []byte(beforeContent), beforeExists, plan.Content, true)
 	payload := map[string]any{
 		"status":       "written",
 		"filePath":     plan.FilePath,
@@ -354,6 +355,7 @@ func (t *RuntimeToolExecutor) invokeEdit(ctx context.Context, args map[string]an
 	after := fileSHA256(plan.FilePath)
 	info, _ := os.Stat(plan.FilePath)
 	lineStats := computeLineDiffStats(currentContent, string(updatedBytes))
+	_ = t.recordFileHistory(execCtx, plan.FilePath, []byte(currentContent), beforeExists, updatedBytes, true)
 	payload := map[string]any{
 		"status":       "edited",
 		"filePath":     plan.FilePath,

@@ -91,6 +91,17 @@ func (r *ToolRouter) Definitions() []api.ToolDetailResponse {
 	return MergeToolDefinitions(localDefs, nil, mcpDefs)
 }
 
+func (r *ToolRouter) ReadFileHistory(chatID string, runID string, filePath string, version string) (string, error) {
+	if r == nil {
+		return "", ErrNotImplemented
+	}
+	reader, ok := r.backend.(FileHistoryReader)
+	if !ok {
+		return "", ErrNotImplemented
+	}
+	return reader.ReadFileHistory(chatID, runID, filePath, version)
+}
+
 func (r *ToolRouter) Invoke(ctx context.Context, toolName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	def, ok := r.lookup(toolName)
 	if !ok {
