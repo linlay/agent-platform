@@ -71,4 +71,11 @@ func NewFileStore(root string) (*FileStore, error) {
 	return store, nil
 }
 
+func (s *FileStore) Close() error {
+	if s == nil || s.db == nil {
+		return nil
+	}
+	return s.db.Close()
+}
+
 // RunIDAfter and related helpers are in run_id.go

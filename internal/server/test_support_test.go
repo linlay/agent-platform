@@ -141,6 +141,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 	t.Helper()
 	root := t.TempDir()
 	providerServer := newLoopbackServer(t, modelHandler)
+	t.Cleanup(providerServer.Close)
 	containerHubServer := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/environments/") && strings.HasSuffix(r.URL.Path, "/agent-prompt") {
 			w.Header().Set("Content-Type", "application/json")
@@ -149,6 +150,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 		}
 		http.NotFound(w, r)
 	}))
+	t.Cleanup(containerHubServer.Close)
 
 	registriesDir := filepath.Join(root, "registries")
 	agentsDir := filepath.Join(root, "agents")
@@ -309,6 +311,9 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
 	}
+	t.Cleanup(func() {
+		_ = chats.Close()
+	})
 	memories, err := memory.NewFileStore(cfg.Paths.MemoryDir)
 	if err != nil {
 		t.Fatalf("new memory store: %v", err)
