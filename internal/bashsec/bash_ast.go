@@ -54,7 +54,7 @@ func reviewLegacyCompatibleWithAST(command string, result bashast.ParseResult) R
 			return validateObfuscatedFlags(legacyCommand, baseCommand, fullyUnquotedContent)
 		}},
 		{"shell_metacharacters", func() (bool, string) {
-			return validateShellMetacharacters(legacyCommand)
+			return validateShellMetacharactersFromAST(result)
 		}},
 		{"comment_quote_desync", func() (bool, string) {
 			return validateCommentQuoteDesync(legacyCommand)
@@ -100,6 +100,39 @@ func reviewLegacyCompatibleWithAST(command string, result bashast.ParseResult) R
 		}
 	}
 	return ReviewResult{Decision: ReviewAllow}
+}
+
+func validateShellMetacharactersFromAST(result bashast.ParseResult) (bool, string) {
+	for _, cmd := range result.Commands {
+		for _, argv := range deterministicCommandChain(cmd.Argv) {
+			if findPatternArgvHasShellMetacharacters(argv) {
+				return false, shellMetacharactersReason
+			}
+		}
+	}
+	return true, ""
+}
+
+func findPatternArgvHasShellMetacharacters(argv []string) bool {
+	if len(argv) == 0 || normalizedCommandBase(argv[0]) != "find" {
+		return false
+	}
+	for idx := 1; idx < len(argv); idx++ {
+		arg := argv[idx]
+		switch arg {
+		case "-name", "-path", "-iname":
+			if idx+1 < len(argv) && strings.ContainsAny(argv[idx+1], ";|&") {
+				return true
+			}
+			idx++
+		case "-regex":
+			if idx+1 < len(argv) && strings.ContainsAny(argv[idx+1], ";&") {
+				return true
+			}
+			idx++
+		}
+	}
+	return false
 }
 
 func maskHeredocBodiesForLegacy(command string, result bashast.ParseResult) string {

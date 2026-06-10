@@ -1,6 +1,9 @@
 package bashsec
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestReviewBashSecurityRequiresApprovalForOutputRedirection(t *testing.T) {
 	command := `printf '%s\n' hello > /tmp/owner.md`
@@ -77,6 +80,7 @@ func TestReviewBashSecurityAllowsASTSimpleSafeCommand(t *testing.T) {
 		`VAR=x && echo "$VAR" | wc -c`,
 		`VAR=x && echo ${VAR}`,
 		`false; echo "Exit code: $?"`,
+		`printf '%s\n' 'a;b&c'`,
 	}
 	for _, command := range tests {
 		t.Run(command, func(t *testing.T) {
@@ -85,6 +89,54 @@ func TestReviewBashSecurityAllowsASTSimpleSafeCommand(t *testing.T) {
 				t.Fatalf("expected allow, got %#v", result)
 			}
 		})
+	}
+}
+
+func TestReviewBashSecurityAllowsQuotedMetacharactersInASTArguments(t *testing.T) {
+	tests := []string{
+		`curl -s -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" "https://finance.eastmoney.com/a/202606103766446879.html" | head -c 50000`,
+		`node -e "const value = 'a;b&c'; const count = 1; console.log(value, count)"`,
+		`curl -s --max-time 15 "http://push2.eastmoney.com/api/qt/stock/get?secid=1.688256&fields=f43,f44,f45,f46,f47,f48,f57,f58,f60,f169,f170,f171" 2>&1`,
+	}
+	for _, command := range tests {
+		t.Run(command, func(t *testing.T) {
+			result := ReviewBashSecurity(command)
+			if result.Decision != ReviewAllow {
+				t.Fatalf("expected allow, got %#v", result)
+			}
+		})
+	}
+}
+
+func TestReviewBashSecurityASTArgumentMetacharacterBoundaries(t *testing.T) {
+	block := []string{
+		`find . -name 'a;b'`,
+		`find . -path 'a&b'`,
+		`find . -iname 'a|b'`,
+		`curl $(eval evil)`,
+		`node -e 'require("child_process")'`,
+	}
+	for _, command := range block {
+		t.Run(command, func(t *testing.T) {
+			result := ReviewBashSecurity(command)
+			if result.Decision != ReviewBlock {
+				t.Fatalf("expected block, got %#v", result)
+			}
+		})
+	}
+
+	result := ReviewBashSecurity(`curl "$URL"`)
+	if result.Decision != ReviewRequiresApproval {
+		t.Fatalf("expected requires approval for unknown variable, got %#v", result)
+	}
+
+	dangerousNode := `node -e "const https = require('https'); https.get('https://example.com/?a=1&b=2', res => console.log(res.statusCode));"`
+	result = ReviewBashSecurity(dangerousNode)
+	if result.Decision != ReviewBlock {
+		t.Fatalf("expected dangerous node script to block, got %#v", result)
+	}
+	if result.Reason == shellMetacharactersReason || !strings.Contains(result.Reason, "dangerous embedded javascript") {
+		t.Fatalf("expected embedded javascript reason instead of metacharacter reason, got %#v", result)
 	}
 }
 

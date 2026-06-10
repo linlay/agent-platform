@@ -166,18 +166,16 @@ func isASCIISpace(b byte) bool {
 // metacharacter injection in arguments (e.g., inside find -name patterns).
 
 func validateShellMetacharacters(unquotedContent string) (bool, string) {
-	msg := "Command contains shell metacharacters (;, |, or &) in arguments"
-
 	if metaInQuotesRe.MatchString(unquotedContent) {
-		return false, msg
+		return false, shellMetacharactersReason
 	}
 	if findNameMetaRe.MatchString(unquotedContent) ||
 		findPathMetaRe.MatchString(unquotedContent) ||
 		findInameMetaRe.MatchString(unquotedContent) {
-		return false, msg
+		return false, shellMetacharactersReason
 	}
 	if findRegexMetaRe.MatchString(unquotedContent) {
-		return false, msg
+		return false, shellMetacharactersReason
 	}
 	return true, ""
 }

@@ -233,8 +233,9 @@ var (
 )
 
 const (
-	outputRedirectionReason = "Command contains output redirection (>) which could write to arbitrary files"
-	tripleQuoteReason       = "Command contains consecutive quote characters at word start (potential obfuscation)"
+	shellMetacharactersReason = "Command contains shell metacharacters (;, |, or &) in arguments"
+	outputRedirectionReason   = "Command contains output redirection (>) which could write to arbitrary files"
+	tripleQuoteReason         = "Command contains consecutive quote characters at word start (potential obfuscation)"
 )
 
 var backslashNewlineRe = regexp.MustCompile(`\\+\n`)
