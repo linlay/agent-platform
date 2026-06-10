@@ -131,8 +131,11 @@ func (r *FileRegistry) findEditableAgent(key string) (EditableAgentFiles, bool, 
 		}
 		if entry.IsDir() {
 			source, ok, err := editableDirectorySource(root, name)
-			if err != nil || !ok {
+			if err != nil {
 				return EditableAgentFiles{}, false, err
+			}
+			if !ok {
+				continue
 			}
 			files, match, err := readEditableAgentSource(key, source)
 			if err != nil {
