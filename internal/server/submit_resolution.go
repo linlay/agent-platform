@@ -79,7 +79,6 @@ func (s *Server) hydrateDeferredAwaitings() {
 }
 
 func (s *Server) resolveSubmit(req api.SubmitRequest) (api.SubmitResponse, int, string, error) {
-	req = normalizeSubmitRequest(req)
 	if err := validateSubmitIdentity(req); err != nil {
 		return api.SubmitResponse{}, 0, "", err
 	}

@@ -13,7 +13,6 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid submit payload"))
 		return
 	}
-	req = normalizeSubmitRequest(req)
 	if statusErr := s.validateSubmitAgentKey(req); statusErr != nil {
 		writeJSON(w, statusErr.status, api.Failure(statusErr.status, statusErr.message))
 		return

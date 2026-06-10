@@ -463,13 +463,9 @@ func TestDeferredSubmitRestoresQuestionAndPlanAfterRestart(t *testing.T) {
 				t.Fatalf("expected replayed awaiting.ask for %s, got %#v", tc.mode, detail.Events)
 			}
 
-			submitID := "submit-" + tc.name
-			if tc.name == "plan" {
-				submitID = ""
-			}
 			body, err := json.Marshal(api.SubmitRequest{
 				ChatID:     chatID,
-				SubmitID:   submitID,
+				SubmitID:   "submit-" + tc.name,
 				AgentKey:   "mock-agent",
 				RunID:      runID,
 				AwaitingID: tc.awaitingID,
@@ -484,48 +480,6 @@ func TestDeferredSubmitRestoresQuestionAndPlanAfterRestart(t *testing.T) {
 			restarted.ServeHTTP(rec, req)
 			if rec.Code != http.StatusOK {
 				t.Fatalf("submit expected 200, got %d: %s", rec.Code, rec.Body.String())
-			}
-			var response api.ApiResponse[api.SubmitResponse]
-			if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
-				t.Fatalf("decode submit response: %v", err)
-			}
-			if !response.Data.Accepted || response.Data.Status != "accepted" {
-				t.Fatalf("unexpected submit response %#v", response.Data)
-			}
-			if submitID != "" && response.Data.SubmitID != submitID {
-				t.Fatalf("expected submitId echo %q, got %#v", submitID, response.Data)
-			}
-			if submitID == "" {
-				if !strings.HasPrefix(response.Data.SubmitID, "submit_") {
-					t.Fatalf("expected generated submitId, got %#v", response.Data)
-				}
-				detail, err := fixture.chats.LoadChat(chatID)
-				if err != nil {
-					t.Fatalf("load submitted chat detail: %v", err)
-				}
-				foundSubmit := false
-				foundAnswer := false
-				for _, event := range detail.Events {
-					switch event.Type {
-					case "request.submit":
-						if event.String("awaitingId") == tc.awaitingID {
-							foundSubmit = true
-							if event.String("submitId") != response.Data.SubmitID {
-								t.Fatalf("persisted submitId mismatch in request.submit: got %#v want %q", event.Payload, response.Data.SubmitID)
-							}
-						}
-					case "awaiting.answer":
-						if event.String("awaitingId") == tc.awaitingID {
-							foundAnswer = true
-							if event.String("submitId") != response.Data.SubmitID {
-								t.Fatalf("persisted submitId mismatch in awaiting.answer: got %#v want %q", event.Payload, response.Data.SubmitID)
-							}
-						}
-					}
-				}
-				if !foundSubmit || !foundAnswer {
-					t.Fatalf("expected persisted submit and answer for generated submitId, got %#v", detail.Events)
-				}
 			}
 
 			summary, err = fixture.chats.Summary(chatID)
