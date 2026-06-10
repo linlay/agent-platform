@@ -134,7 +134,7 @@ RUN_SOCKET_TESTS=1 make test-integration
 
 ## 3. 配置说明
 
-所有本地环境配置从 `.env.example` 复制到 `.env`。`.env` 不提交；`.env.example` 只保留推荐给普通部署者的最终用户环境变量入口。Host 工具配置使用 `configs/host-tools.yml`，AI 工具配置使用 `configs/ai-tools.yml`，默认值的单一事实源仍以代码和 `configs/*.example.yml` 模板为准。更完整的高级、排障和兼容性配置参考见 [配置化说明](./docs/配置化说明.md)。
+所有本地环境配置从 `.env.example` 复制到 `.env`。`.env` 不提交；`.env.example` 只保留推荐给普通部署者的最终用户环境变量入口。工具运行时配置使用 `configs/tools.yml`，AI 工具配置使用 `configs/ai-tools.yml`，默认值的单一事实源仍以代码和 `configs/*.example.yml` 模板为准。更完整的高级、排障和兼容性配置参考见 [配置化说明](./docs/配置化说明.md)。
 
 ### 根 `.env.example`
 
@@ -174,7 +174,7 @@ Provider `apiKey` 按明文字符串读取：
 本仓库保留与参考仓库一致的结构化配置入口：
 
 - `configs/ai-tools.example.yml`
-- `configs/host-tools.example.yml`
+- `configs/tools.example.yml`
 - `configs/local-public-key.example.pem`
 - `configs/channels.example.yml`
 - `configs/prompts.example.yml`
@@ -184,7 +184,7 @@ Provider `apiKey` 按明文字符串读取：
 
 - `configs/ai-tools.yml`
 - `configs/channels.yml`
-- `configs/host-tools.yml`
+- `configs/tools.yml`
 - `configs/local-public-key.pem`
 - `configs/prompts.yml`
 - `configs/runtime.yml`

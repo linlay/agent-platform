@@ -11,7 +11,7 @@ inputSchema:
   properties:
     file_path:
       type: string
-      description: Required. Absolute path, or a path relative to the file-tools working-directory in configs/host-tools.yml, for the file to edit.
+      description: Required. Absolute path, or a path relative to the file-tools working-directory in configs/tools.yml, for the file to edit.
     old_string:
       type: string
       description: Required. Exact UTF-8 text to replace. Use an empty string only to create a new file or write an empty existing file.

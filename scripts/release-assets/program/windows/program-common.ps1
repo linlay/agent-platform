@@ -64,12 +64,12 @@ function Initialize-ProgramConfig {
 }
 
 function Convert-LegacyHitlBudgetConfig {
-  $hostToolsFile = Join-Path $Script:ConfigDir 'host-tools.yml'
+  $toolsFile = Join-Path $Script:ConfigDir 'tools.yml'
   $runtimeFile = Join-Path $Script:ConfigDir 'runtime.yml'
   $legacyFile = $null
   $legacyText = $null
   $match = $null
-  foreach ($candidate in @($hostToolsFile, $runtimeFile)) {
+  foreach ($candidate in @($toolsFile, $runtimeFile)) {
     if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
       continue
     }

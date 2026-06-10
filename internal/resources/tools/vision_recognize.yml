@@ -19,7 +19,7 @@ inputSchema:
             description: Current chat attachment file name to inspect. The name must not include path separators.
           file_path:
             type: string
-            description: Host image file path to inspect. This path is checked by access-policy rules in configs/host-tools.yml.
+            description: Host image file path to inspect. This path is checked by access-policy rules in configs/tools.yml.
         additionalProperties: false
     prompt:
       type: string

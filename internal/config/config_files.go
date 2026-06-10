@@ -9,7 +9,7 @@ func (c *Config) applyStructuredConfig() error {
 	if err := c.applyRuntimeFile(ConfigFile("configs/runtime.yml")); err != nil {
 		return err
 	}
-	if err := c.applyHostToolsFile(ConfigFile("configs/host-tools.yml")); err != nil {
+	if err := c.applyToolsFile(ConfigFile("configs/tools.yml")); err != nil {
 		return err
 	}
 	c.applyPromptsFile(ConfigFile("configs/prompts.yml"))
@@ -323,7 +323,7 @@ func rejectDeprecatedBudgetKeys(path string, fieldPath string, values map[string
 	return nil
 }
 
-func (c *Config) applyHostToolsFile(path string) error {
+func (c *Config) applyToolsFile(path string) error {
 	values, err := loadYAMLMap(path)
 	if err != nil {
 		return err
@@ -335,7 +335,7 @@ func (c *Config) applyHostToolsFile(path string) error {
 		c.applyAccessPolicyValues(accessPolicy)
 	}
 	if bash, ok := values["bash"].(map[string]any); ok && len(bash) > 0 {
-		if err := rejectDeprecatedYAMLKeys(path, "configs/host-tools.yml > access-policy", bash, "allowed-paths", "path-checked-commands", "path-check-bypass-commands"); err != nil {
+		if err := rejectDeprecatedYAMLKeys(path, "configs/tools.yml > access-policy", bash, "allowed-paths", "path-checked-commands", "path-check-bypass-commands"); err != nil {
 			return err
 		}
 		if err := rejectDeprecatedYAMLKeys(path, "bash.shell-timeout", bash, "shell-timeout-ms"); err != nil {
@@ -350,7 +350,7 @@ func (c *Config) applyHostToolsFile(path string) error {
 		c.applySandboxBashValues(sandboxBash)
 	}
 	if fileTools, ok := values["file-tools"].(map[string]any); ok && len(fileTools) > 0 {
-		if err := rejectDeprecatedYAMLKeys(path, "configs/host-tools.yml > access-policy", fileTools, "allowed-read-paths", "allowed-write-paths"); err != nil {
+		if err := rejectDeprecatedYAMLKeys(path, "configs/tools.yml > access-policy", fileTools, "allowed-read-paths", "allowed-write-paths"); err != nil {
 			return err
 		}
 		if err := c.applyFileToolsValues(path, fileTools); err != nil {

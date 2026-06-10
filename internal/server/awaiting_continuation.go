@@ -59,7 +59,6 @@ func (s *Server) startAwaitingContinuation(deferred DeferredAwaiting, submitReq 
 	if err != nil {
 		return false, err
 	}
-	applyCoderConfigToSession(req.CoderConfig, &session)
 	applyQueryModelOptionsToSession(req.Model, &session)
 	if catalog.AgentUsesACPCoderBackend(agentDef) {
 		req.Model = s.acpCoderModelOptions(session, req.Model)

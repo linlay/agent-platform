@@ -349,7 +349,7 @@ func TestACPCoderForwardsProviderlessModel(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	body := bytes.NewBufferString(`{"agentKey":"mock-agent","message":"proxy me","model":{"key":"gpt-5-codex"},"coderConfig":{"modelKey":"gpt-5-codex"}}`)
+	body := bytes.NewBufferString(`{"agentKey":"mock-agent","message":"proxy me","model":{"key":"gpt-5-codex"}}`)
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", body))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())

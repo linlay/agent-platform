@@ -64,13 +64,13 @@ program_initialize_config() {
 }
 
 program_migrate_hitl_budget_config() {
-  local host_tools_file="$CONFIG_DIR/host-tools.yml"
+  local tools_file="$CONFIG_DIR/tools.yml"
   local runtime_file="$CONFIG_DIR/runtime.yml"
   local legacy_file=""
   local timeout_ms
 
-  if [[ -f "$host_tools_file" ]] && grep -Eq '^[[:space:]]*hitl-default-timeout-ms:' "$host_tools_file"; then
-    legacy_file="$host_tools_file"
+  if [[ -f "$tools_file" ]] && grep -Eq '^[[:space:]]*hitl-default-timeout-ms:' "$tools_file"; then
+    legacy_file="$tools_file"
   elif [[ -f "$runtime_file" ]] && grep -Eq '^[[:space:]]*hitl-default-timeout-ms:' "$runtime_file"; then
     legacy_file="$runtime_file"
   else

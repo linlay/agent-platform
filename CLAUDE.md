@@ -9,7 +9,7 @@
 - 已具备独立 HTTP 服务、统一 JSON 包裹与 `POST /api/query` 真流式 SSE。
 - 已具备 chat 摘要、事件流、raw messages、上传资源落盘、归档与搜索。
 - 已具备目录驱动的 agents / teams / skills / tools catalog。
-- 已具备 OpenAI / Anthropic 兼容模型调用、backend tools、Container Hub sandbox 与 host tools。
+- 已具备 OpenAI / Anthropic 兼容模型调用、backend tools、Container Hub sandbox 与 tools。
 - 已具备 HITL question / approval / form、运行中 submit / steer / interrupt 协议入口。
 - 已具备 SQLite memory、FTS、可选 embedding、learn / consolidate / feedback 与 memory tools。
 - 已具备 automation、`agent_invoke` 子智能体调度、MCP tool sync、WebSocket 控制面等能力骨架。
@@ -112,8 +112,8 @@ Memory 默认由 `MEMORY_DIR` 控制，当前以 SQLite store 为主，支持 FT
 
 - 配置事实源以 `internal/config/config.go` 和 `configs/*.example.yml` 为准，文档只解释和引用。
 - `.env`、真实 `configs/*.yml`、真实 `configs/*.pem`、真实 token 和私钥不得提交。
-- Host 工具配置以 `configs/host-tools.yml` 为外部事实源，包含 access policy、bash 和 file tools。
-- `configs/host-tools.yml` 中的旧 YAML 键（如 `bash.allowed-paths`、`file-tools.allowed-read-paths`）会在启动阶段硬失败，新策略统一走 `host-tools.access-policy`。
+- 工具运行时配置以 `configs/tools.yml` 为外部事实源，包含 access policy、bash 和 file tools。
+- `configs/tools.yml` 中的旧 YAML 键（如 `bash.allowed-paths`、`file-tools.allowed-read-paths`）会在启动阶段硬失败，新策略统一走 `tools.access-policy`。
 - 新增能力优先放进对应 `internal/*` 模块，不在 server 层堆业务逻辑。
 - 新增 API 保持统一 JSON 包裹、字段命名和错误语义。
 - 测试以 `make test` / `go test ./...` 为主，协议变更优先覆盖 `internal/server`、`internal/stream`、`internal/llm`、`internal/tools`。

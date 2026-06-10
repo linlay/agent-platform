@@ -221,10 +221,10 @@ write_program_manifest() {
       "required": false
     },
     {
-      "key": "host-tools",
-      "label": "configs/host-tools.yml",
-      "relativePath": "configs/host-tools.yml",
-      "templateRelativePath": "configs/host-tools.example.yml",
+      "key": "tools",
+      "label": "configs/tools.yml",
+      "relativePath": "configs/tools.yml",
+      "templateRelativePath": "configs/tools.example.yml",
       "required": false
     },
     {

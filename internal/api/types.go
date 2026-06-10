@@ -104,7 +104,6 @@ type QueryRequest struct {
 	PlanningMode *bool              `json:"planningMode,omitempty"`
 	AccessLevel  string             `json:"accessLevel,omitempty"`
 	Model        *QueryModelOptions `json:"model,omitempty"`
-	CoderConfig  *CoderConfig       `json:"coderConfig,omitempty"`
 }
 
 type QueryModelOptions struct {
@@ -120,11 +119,6 @@ type QueryAvailabilityResponse struct {
 	AgentKey string `json:"agentKey"`
 	ChatID   string `json:"chatId"`
 	TeamID   string `json:"teamId,omitempty"`
-}
-
-type CoderConfig struct {
-	ModelKey        string `json:"modelKey,omitempty"`
-	ReasoningEffort string `json:"reasoningEffort,omitempty"`
 }
 
 type Scene struct {

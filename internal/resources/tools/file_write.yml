@@ -11,7 +11,7 @@ inputSchema:
   properties:
     file_path:
       type: string
-      description: Required. Absolute path, or a path relative to the file-tools working-directory in configs/host-tools.yml, for the file to create or overwrite.
+      description: Required. Absolute path, or a path relative to the file-tools working-directory in configs/tools.yml, for the file to create or overwrite.
     content:
       type: string
       description: Required. Complete UTF-8 file contents to write. Existing file contents are replaced.

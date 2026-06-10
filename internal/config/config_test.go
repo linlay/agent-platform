@@ -1026,11 +1026,11 @@ func TestLoadUsesServiceConfigDirForStructuredFilesAndAuthKey(t *testing.T) {
 		t.Fatalf("write ai tools config: %v", err)
 	}
 	if err := os.WriteFile(
-		filepath.Join(configsDir, "host-tools.yml"),
+		filepath.Join(configsDir, "tools.yml"),
 		[]byte("bash:\n  shell-executable: service-shell\n"),
 		0o644,
 	); err != nil {
-		t.Fatalf("write host tools config: %v", err)
+		t.Fatalf("write tools config: %v", err)
 	}
 	if err := os.WriteFile(
 		filepath.Join(configsDir, "runtime.yml"),
@@ -1060,7 +1060,7 @@ func TestLoadUsesServiceConfigDirForStructuredFilesAndAuthKey(t *testing.T) {
 			t.Fatalf("expected ai tools from service config dir, got %#v", cfg.VisionRecognize)
 		}
 		if cfg.Bash.ShellExecutable != "service-shell" {
-			t.Fatalf("expected host tools from service config dir, got %q", cfg.Bash.ShellExecutable)
+			t.Fatalf("expected tools from service config dir, got %q", cfg.Bash.ShellExecutable)
 		}
 		if cfg.ContainerHub.BaseURL != "http://service-hub" || !cfg.CORS.Enabled {
 			t.Fatalf("expected runtime config from service config dir, got hub=%#v cors=%#v", cfg.ContainerHub, cfg.CORS)
@@ -1438,7 +1438,7 @@ func TestLoadContainerHubAndBashConfigFromFiles(t *testing.T) {
 	})
 }
 
-func TestLoadEnvOverridesAndBashYAMLConfig(t *testing.T) {
+func TestLoadEnvOverridesAndToolsYAMLConfig(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"CONTAINER_HUB_BASE_URL":       "http://127.0.0.1:18000",
 		"BUDGET_HITL_TIMEOUT":          "60",
@@ -1456,7 +1456,7 @@ func TestLoadEnvOverridesAndBashYAMLConfig(t *testing.T) {
 			"    - -NoProfile\n" +
 			"    - -Command\n" +
 			"    - \"{{command}}\"\n"
-		withProjectFileContents(t, filepath.Join("configs", "host-tools.yml"), &content, func() {
+		withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
 			cfg, err := Load()
 			if err != nil {
 				t.Fatalf("load config: %v", err)
@@ -1496,7 +1496,7 @@ func TestLoadRejectsDeprecatedBashHITLTimeout(t *testing.T) {
 	content := "" +
 		"bash:\n" +
 		"  hitl-default-timeout-ms: 45000\n"
-	withProjectFileContents(t, filepath.Join("configs", "host-tools.yml"), &content, func() {
+	withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
 		_, err := Load()
 		if err == nil {
 			t.Fatal("expected deprecated bash HITL timeout to be rejected")
@@ -1518,7 +1518,7 @@ func TestLoadBashShellArgsFromFile(t *testing.T) {
 			"    - Bypass\n" +
 			"    - -Command\n" +
 			"    - \"{{command}}\"\n"
-		withProjectFileContents(t, filepath.Join("configs", "host-tools.yml"), &content, func() {
+		withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
 			cfg, err := Load()
 			if err != nil {
 				t.Fatalf("load config: %v", err)
@@ -1539,7 +1539,7 @@ func TestDeprecatedBashPathConfigFailsStartup(t *testing.T) {
 			"bash:\n" +
 			"  working-directory: " + filepath.ToSlash(filepath.Join("var", "runtime")) + "\n" +
 			"  allowed-paths: [\".\", \"/tmp/example\"]\n"
-		withProjectFileContents(t, filepath.Join("configs", "host-tools.yml"), &content, func() {
+		withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
 			_, err := Load()
 			if err == nil || !strings.Contains(err.Error(), "allowed-paths") {
 				t.Fatalf("expected deprecated allowed-paths error, got %v", err)
@@ -1554,7 +1554,7 @@ func TestDeprecatedFileToolsPathConfigFailsStartup(t *testing.T) {
 			"file-tools:\n" +
 			"  allowed-read-paths:\n" +
 			"    - /read/a\n"
-		withProjectFileContents(t, filepath.Join("configs", "host-tools.yml"), &content, func() {
+		withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
 			_, err := Load()
 			if err == nil || !strings.Contains(err.Error(), "allowed-read-paths") {
 				t.Fatalf("expected deprecated allowed-read-paths error, got %v", err)
@@ -1580,7 +1580,7 @@ func TestAccessPolicyConfigYAMLOverrides(t *testing.T) {
 			"      approvals:\n" +
 			"        read-outside-roots: block\n" +
 			"        write-outside-roots: hitl\n"
-		withProjectFileContents(t, filepath.Join("configs", "host-tools.yml"), &content, func() {
+		withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
 			cfg, err := Load()
 			if err != nil {
 				t.Fatalf("load config: %v", err)
@@ -1614,7 +1614,7 @@ func TestSandboxBashConfigYAMLOverrides(t *testing.T) {
 			"      output-redirection: auto\n" +
 			"      heredoc-output-redirection: nope\n" +
 			"    audit-auto-approvals: true\n"
-		withProjectFileContents(t, filepath.Join("configs", "host-tools.yml"), &content, func() {
+		withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
 			cfg, err := Load()
 			if err != nil {
 				t.Fatalf("load config: %v", err)
@@ -1679,7 +1679,7 @@ func TestFileToolsConfigYAMLOverrides(t *testing.T) {
 			"  require-write-approval: false\n" +
 			"  require-read-before-write: false\n" +
 			"  read-before-write-scope: chat\n"
-		withProjectFileContents(t, filepath.Join("configs", "host-tools.yml"), &content, func() {
+		withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
 			cfg, err := Load()
 			if err != nil {
 				t.Fatalf("load config: %v", err)
@@ -1706,7 +1706,7 @@ func TestFileToolsConfigYAMLOverrides(t *testing.T) {
 func TestFileToolsConfigRejectsInvalidReadBeforeWriteScope(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
 		content := "file-tools:\n  read-before-write-scope: global\n"
-		withProjectFileContents(t, filepath.Join("configs", "host-tools.yml"), &content, func() {
+		withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
 			_, err := Load()
 			if err == nil || !strings.Contains(err.Error(), "read-before-write-scope") {
 				t.Fatalf("expected invalid read-before-write-scope error, got %v", err)
@@ -1729,7 +1729,7 @@ func TestFileToolsConfigLSPHookYAMLOverrides(t *testing.T) {
 			"          go:\n" +
 			"            command: custom-gopls\n" +
 			"            args: [\"serve\"]\n"
-		withProjectFileContents(t, filepath.Join("configs", "host-tools.yml"), &content, func() {
+		withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
 			cfg, err := Load()
 			if err != nil {
 				t.Fatalf("load config: %v", err)
@@ -1762,7 +1762,7 @@ func TestFileToolsConfigRejectsDeprecatedLSPTimeoutMs(t *testing.T) {
 			"    after-file-change:\n" +
 			"      lsp-diagnostics:\n" +
 			"        timeout-ms: 3000\n"
-		withProjectFileContents(t, filepath.Join("configs", "host-tools.yml"), &content, func() {
+		withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
 			_, err := Load()
 			if err == nil {
 				t.Fatal("expected deprecated lsp timeout-ms to be rejected")
@@ -1774,7 +1774,7 @@ func TestFileToolsConfigRejectsDeprecatedLSPTimeoutMs(t *testing.T) {
 	})
 }
 
-func TestHostToolsConfigYAMLOverrides(t *testing.T) {
+func TestToolsConfigYAMLOverrides(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
 		content := "" +
 			"access-policy:\n" +
@@ -1807,7 +1807,7 @@ func TestHostToolsConfigYAMLOverrides(t *testing.T) {
 		withProjectFileContents(t, filepath.Join("configs", "access-policy.yml"), nil, func() {
 			withProjectFileContents(t, filepath.Join("configs", "bash.yml"), nil, func() {
 				withProjectFileContents(t, filepath.Join("configs", "file-tools.yml"), nil, func() {
-					withProjectFileContents(t, filepath.Join("configs", "host-tools.yml"), &content, func() {
+					withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
 						cfg, err := Load()
 						if err != nil {
 							t.Fatalf("load config: %v", err)
@@ -1844,12 +1844,12 @@ func TestHostToolsConfigYAMLOverrides(t *testing.T) {
 	})
 }
 
-func TestHostToolsConfigRejectsDeprecatedShellTimeoutMs(t *testing.T) {
+func TestToolsConfigRejectsDeprecatedShellTimeoutMs(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
 		content := "" +
 			"bash:\n" +
 			"  shell-timeout-ms: 30000\n"
-		withProjectFileContents(t, filepath.Join("configs", "host-tools.yml"), &content, func() {
+		withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
 			_, err := Load()
 			if err == nil {
 				t.Fatal("expected deprecated shell-timeout-ms to be rejected")
@@ -1861,7 +1861,7 @@ func TestHostToolsConfigRejectsDeprecatedShellTimeoutMs(t *testing.T) {
 	})
 }
 
-func TestHostToolsConfigIgnoresLegacyToolFiles(t *testing.T) {
+func TestToolsConfigIgnoresLegacyToolFiles(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
 		legacyAccess := "" +
 			"levels:\n" +
@@ -1887,16 +1887,16 @@ func TestHostToolsConfigIgnoresLegacyToolFiles(t *testing.T) {
 		withProjectFileContents(t, filepath.Join("configs", "access-policy.yml"), &legacyAccess, func() {
 			withProjectFileContents(t, filepath.Join("configs", "bash.yml"), &legacyBash, func() {
 				withProjectFileContents(t, filepath.Join("configs", "file-tools.yml"), &legacyFileTools, func() {
-					withProjectFileContents(t, filepath.Join("configs", "host-tools.yml"), &merged, func() {
+					withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &merged, func() {
 						cfg, err := Load()
 						if err != nil {
 							t.Fatalf("load config: %v", err)
 						}
 						if cfg.AccessPolicy.Levels["default"].Approvals.ReadOutsideRoots != "auto" {
-							t.Fatalf("expected host-tools access policy to win, got %#v", cfg.AccessPolicy.Levels["default"].Approvals)
+							t.Fatalf("expected tools access policy to win, got %#v", cfg.AccessPolicy.Levels["default"].Approvals)
 						}
 						if cfg.Bash.WorkingDirectory != "merged-bash" {
-							t.Fatalf("expected host-tools bash working dir to win, got %q", cfg.Bash.WorkingDirectory)
+							t.Fatalf("expected tools bash working dir to win, got %q", cfg.Bash.WorkingDirectory)
 						}
 						if strings.Join(cfg.Bash.AllowedCommands, ",") == "pwd" {
 							t.Fatalf("expected legacy bash file to be ignored, got %#v", cfg.Bash.AllowedCommands)
@@ -1905,7 +1905,7 @@ func TestHostToolsConfigIgnoresLegacyToolFiles(t *testing.T) {
 							t.Fatalf("expected legacy file-tools file to be ignored, got %q", cfg.FileTools.WorkingDirectory)
 						}
 						if cfg.FileTools.MaxReadBytes != 222 {
-							t.Fatalf("expected host-tools file-tools max read to win, got %d", cfg.FileTools.MaxReadBytes)
+							t.Fatalf("expected tools file-tools max read to win, got %d", cfg.FileTools.MaxReadBytes)
 						}
 					})
 				})
@@ -1914,15 +1914,46 @@ func TestHostToolsConfigIgnoresLegacyToolFiles(t *testing.T) {
 	})
 }
 
-func TestHostToolsDeprecatedPathConfigFailsStartup(t *testing.T) {
+func TestToolsConfigIgnoresLegacyHostToolsFile(t *testing.T) {
+	withIsolatedEnv(t, nil, func() {
+		legacy := "" +
+			"access-policy:\n" +
+			"  levels:\n" +
+			"    default:\n" +
+			"      approvals:\n" +
+			"        read-outside-roots: block\n" +
+			"bash:\n" +
+			"  working-directory: legacy-host-bash\n" +
+			"  shell-executable: legacy-host-shell\n"
+		withProjectFileContents(t, filepath.Join("configs", "tools.yml"), nil, func() {
+			withProjectFileContents(t, filepath.Join("configs", "host-tools.yml"), &legacy, func() {
+				cfg, err := Load()
+				if err != nil {
+					t.Fatalf("load config: %v", err)
+				}
+				if cfg.AccessPolicy.Levels["default"].Approvals.ReadOutsideRoots == "block" {
+					t.Fatalf("expected legacy host-tools access policy to be ignored, got %#v", cfg.AccessPolicy.Levels["default"].Approvals)
+				}
+				if cfg.Bash.WorkingDirectory == "legacy-host-bash" {
+					t.Fatalf("expected legacy host-tools bash working dir to be ignored, got %q", cfg.Bash.WorkingDirectory)
+				}
+				if cfg.Bash.ShellExecutable == "legacy-host-shell" {
+					t.Fatalf("expected legacy host-tools shell executable to be ignored, got %q", cfg.Bash.ShellExecutable)
+				}
+			})
+		})
+	})
+}
+
+func TestToolsDeprecatedPathConfigFailsStartup(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
 		bashContent := "" +
 			"bash:\n" +
 			"  allowed-paths: [\".\"]\n"
 		withProjectFileContents(t, filepath.Join("configs", "bash.yml"), nil, func() {
-			withProjectFileContents(t, filepath.Join("configs", "host-tools.yml"), &bashContent, func() {
+			withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &bashContent, func() {
 				_, err := Load()
-				if err == nil || !strings.Contains(err.Error(), "allowed-paths") || !strings.Contains(err.Error(), "configs/host-tools.yml > access-policy") {
+				if err == nil || !strings.Contains(err.Error(), "allowed-paths") || !strings.Contains(err.Error(), "configs/tools.yml > access-policy") {
 					t.Fatalf("expected deprecated allowed-paths error, got %v", err)
 				}
 			})
@@ -1931,9 +1962,9 @@ func TestHostToolsDeprecatedPathConfigFailsStartup(t *testing.T) {
 			"file-tools:\n" +
 			"  allowed-read-paths: [\".\"]\n"
 		withProjectFileContents(t, filepath.Join("configs", "file-tools.yml"), nil, func() {
-			withProjectFileContents(t, filepath.Join("configs", "host-tools.yml"), &fileToolsContent, func() {
+			withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &fileToolsContent, func() {
 				_, err := Load()
-				if err == nil || !strings.Contains(err.Error(), "allowed-read-paths") || !strings.Contains(err.Error(), "configs/host-tools.yml > access-policy") {
+				if err == nil || !strings.Contains(err.Error(), "allowed-read-paths") || !strings.Contains(err.Error(), "configs/tools.yml > access-policy") {
 					t.Fatalf("expected deprecated allowed-read-paths error, got %v", err)
 				}
 			})

@@ -8,13 +8,13 @@ inputSchema:
   properties:
     file_path:
       type: string
-      description: Required. Absolute path, or a path relative to the file-tools working-directory in configs/host-tools.yml, for the file to read.
+      description: Required. Absolute path, or a path relative to the file-tools working-directory in configs/tools.yml, for the file to read.
     offset:
       type: integer
       description: One-based line number to start reading from. Defaults to the beginning of the file.
     limit:
       type: integer
-      description: Maximum number of lines to return. When omitted, content is limited by file-tools.max-read-bytes in configs/host-tools.yml.
+      description: Maximum number of lines to return. When omitted, content is limited by file-tools.max-read-bytes in configs/tools.yml.
     add_line_numbers:
       type: boolean
       default: false

@@ -17,7 +17,7 @@ inputSchema:
       description: Required. Regex pattern to search for, using ripgrep syntax.
     path:
       type: string
-      description: File or directory to search. Defaults to the file-tools working-directory in configs/host-tools.yml.
+      description: File or directory to search. Defaults to the file-tools working-directory in configs/tools.yml.
     glob:
       type: string
       description: Glob filter, such as '*.go' or '*.{ts,tsx}'.

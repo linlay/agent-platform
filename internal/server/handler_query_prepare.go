@@ -129,9 +129,6 @@ func (s *Server) prepareQueryAdmission(r *http.Request, requireMessage bool) (qu
 	if err := s.validateQueryModelOptions(req.Model, agentDef); err != nil {
 		return queryAdmission{}, err
 	}
-	if err := s.validateCoderConfig(req.CoderConfig, agentDef); err != nil {
-		return queryAdmission{}, err
-	}
 	if channelID != "" && s.deps.Channels != nil && !s.deps.Channels.IsAgentAllowed(channelID, agentKey) {
 		return queryAdmission{}, &statusError{
 			status:  http.StatusForbidden,
@@ -185,7 +182,6 @@ func (s *Server) completeQueryPreparation(ctx context.Context, admission queryAd
 	if err != nil {
 		return preparedQuery{}, err
 	}
-	applyCoderConfigToSession(req.CoderConfig, &session)
 	applyQueryModelOptionsToSession(req.Model, &session)
 	if catalog.AgentUsesACPCoderBackend(agentDef) {
 		req.Model = s.acpCoderModelOptions(session, req.Model)
@@ -265,58 +261,14 @@ func (s *Server) validateQueryModelOptions(options *api.QueryModelOptions, agent
 			}
 		}
 	}
-	if _, ok := normalizeQueryModelReasoningEffort(reasoningEffort); !ok {
-		return &statusError{status: http.StatusBadRequest, message: "model.reasoningEffort must be LOW, MEDIUM, or HIGH"}
+	reasoningEffort, ok := normalizeQueryModelReasoningEffort(reasoningEffort)
+	if !ok {
+		return &statusError{status: http.StatusBadRequest, message: "model.reasoningEffort must be LOW, MEDIUM, or HIGH; CODER agents also support NONE"}
+	}
+	if reasoningEffort == "NONE" && !strings.EqualFold(strings.TrimSpace(agentDef.Mode), catalog.AgentModeCoder) {
+		return &statusError{status: http.StatusBadRequest, message: "model.reasoningEffort NONE is only supported for CODER agents"}
 	}
 	return nil
-}
-
-func (s *Server) validateCoderConfig(config *api.CoderConfig, agentDef catalog.AgentDefinition) error {
-	if config == nil {
-		return nil
-	}
-	if !strings.EqualFold(strings.TrimSpace(agentDef.Mode), catalog.AgentModeCoder) {
-		return &statusError{status: http.StatusBadRequest, message: "coderConfig is only supported for CODER agents"}
-	}
-	modelKey := strings.TrimSpace(config.ModelKey)
-	reasoningEffort := strings.TrimSpace(config.ReasoningEffort)
-	if modelKey == "" && reasoningEffort == "" {
-		return nil
-	}
-	if modelKey != "" {
-		if s.deps.Models == nil {
-			return &statusError{status: http.StatusServiceUnavailable, message: "model registry is not configured"}
-		}
-		if catalog.AgentUsesACPCoderBackend(agentDef) {
-			if _, err := s.deps.Models.GetModel(modelKey); err != nil {
-				return &statusError{status: http.StatusBadRequest, message: err.Error()}
-			}
-		} else {
-			if _, _, err := s.deps.Models.Get(modelKey); err != nil {
-				return &statusError{status: http.StatusBadRequest, message: err.Error()}
-			}
-		}
-	}
-	if _, ok := normalizeCoderReasoningEffort(reasoningEffort); !ok {
-		return &statusError{status: http.StatusBadRequest, message: "coderConfig.reasoningEffort must be NONE, LOW, MEDIUM, or HIGH"}
-	}
-	return nil
-}
-
-func applyCoderConfigToSession(config *api.CoderConfig, session *contracts.QuerySession) {
-	if config == nil || session == nil {
-		return
-	}
-	modelKey := strings.TrimSpace(config.ModelKey)
-	reasoningEffort, ok := normalizeCoderReasoningEffort(config.ReasoningEffort)
-	if modelKey == "" && (reasoningEffort == "" || !ok) {
-		return
-	}
-	if modelKey != "" {
-		session.ModelKey = modelKey
-	}
-	session.StageSettings = applyCoderConfigToRawStageSettings(session.StageSettings, modelKey, reasoningEffort)
-	session.ResolvedStageSettings = applyCoderConfigToResolvedStageSettings(session.ResolvedStageSettings, modelKey, reasoningEffort)
 }
 
 func applyQueryModelOptionsToSession(options *api.QueryModelOptions, session *contracts.QuerySession) {
@@ -339,6 +291,8 @@ func normalizeQueryModelReasoningEffort(value string) (string, bool) {
 	switch strings.ToUpper(strings.TrimSpace(value)) {
 	case "":
 		return "", true
+	case "NONE":
+		return "NONE", true
 	case "LOW":
 		return "LOW", true
 	case "MEDIUM":
@@ -358,47 +312,12 @@ func applyQueryModelOptionsToRawStageSettings(raw map[string]any, modelKey strin
 	if modelKey != "" {
 		out["modelKey"] = modelKey
 	}
-	if reasoningEffort != "" {
+	if reasoningEffort == "NONE" {
+		out["reasoningEnabled"] = false
+		delete(out, "reasoningEffort")
+	} else if reasoningEffort != "" {
 		out["reasoningEnabled"] = true
 		out["reasoningEffort"] = reasoningEffort
-	}
-	for _, stage := range []string{"plan", "execute", "summary"} {
-		nested := contracts.CloneMap(contracts.AnyMapNode(out[stage]))
-		if nested == nil {
-			nested = map[string]any{}
-		}
-		if modelKey != "" {
-			nested["modelKey"] = modelKey
-		}
-		if reasoningEffort != "" {
-			nested["reasoningEnabled"] = true
-			nested["reasoningEffort"] = reasoningEffort
-		}
-		out[stage] = nested
-	}
-	return out
-}
-
-func applyQueryModelOptionsToResolvedStageSettings(settings contracts.PlanExecuteSettings, modelKey string, reasoningEffort string) contracts.PlanExecuteSettings {
-	apply := func(stage *contracts.StageSettings) {
-		if modelKey != "" {
-			stage.ModelKey = modelKey
-		}
-		if reasoningEffort != "" {
-			stage.ReasoningEnabled = true
-			stage.ReasoningEffort = reasoningEffort
-		}
-	}
-	apply(&settings.Plan)
-	apply(&settings.Execute)
-	apply(&settings.Summary)
-	return settings
-}
-
-func applyCoderConfigToRawStageSettings(raw map[string]any, modelKey string, reasoningEffort string) map[string]any {
-	out := contracts.CloneMap(raw)
-	if out == nil {
-		out = map[string]any{}
 	}
 	for _, stage := range []string{"plan", "execute", "summary"} {
 		nested := contracts.CloneMap(contracts.AnyMapNode(out[stage]))
@@ -420,7 +339,7 @@ func applyCoderConfigToRawStageSettings(raw map[string]any, modelKey string, rea
 	return out
 }
 
-func applyCoderConfigToResolvedStageSettings(settings contracts.PlanExecuteSettings, modelKey string, reasoningEffort string) contracts.PlanExecuteSettings {
+func applyQueryModelOptionsToResolvedStageSettings(settings contracts.PlanExecuteSettings, modelKey string, reasoningEffort string) contracts.PlanExecuteSettings {
 	apply := func(stage *contracts.StageSettings) {
 		if modelKey != "" {
 			stage.ModelKey = modelKey

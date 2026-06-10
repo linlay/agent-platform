@@ -1,4 +1,4 @@
-# Windows host tool config. Copy to configs/host-tools.yml to customize locally.
+# Tool runtime config. Copy to configs/tools.yml to customize locally.
 
 access-policy:
   working-directory: "@workspace"
@@ -6,10 +6,12 @@ access-policy:
     default:
       read-roots:
         - "@workspace"
+        - "@chat"
         - "@agent"
         - "@skills"
       write-roots:
         - "@workspace"
+        - "@chat"
       readonly-roots:
         - "@agent"
         - "@skills"
@@ -25,16 +27,16 @@ access-policy:
       inherit: default
       approvals:
         read-outside-roots: auto
-        write-outside-roots: auto
+        write-outside-roots: hitl
         bash-complex-filesystem: auto
         bash-opaque-command: auto
         bash-write-in-write-roots: allow
 
     full_access:
       read-roots:
-        - C:\
+        - /
       write-roots:
-        - C:\
+        - /
       readonly-roots: []
       approvals:
         read-outside-roots: allow
@@ -45,24 +47,19 @@ access-policy:
 
 bash:
   working-directory: .
-  allowed-commands: '*'
+  allowed-commands: ls,pwd,cat,head,tail,top,free,df,git,rg,find,echo,printf,sed,awk,grep,wc,sort,uniq,tr,cut,xargs,cd,stat,file,du,test,which,mkdir,touch,cp,mv,rm,ln,chmod,env,date,bash,sh,make,go,npm,yarn,pnpm,node,python,python3,pip,curl,wget
   shell-features-enabled: true
-  shell-executable: powershell.exe
-  shell-args:
-    - -NoProfile
-    - -ExecutionPolicy
-    - Bypass
-    - -Command
-    - "{{command}}"
   shell-timeout: 30
   max-command-chars: 16000
 
-  # To force cmd.exe instead, use:
-  # shell-executable: cmd.exe
+  # Command-open preset: only opens the command allowlist.
+  # allowed-commands: '*'
+  # max-command-chars: 32000
+
+  # Unix/macOS shell override example.
+  # shell-executable: bash
   # shell-args:
-  #   - /d
-  #   - /s
-  #   - /c
+  #   - -lc
   #   - "{{command}}"
 
 sandbox-bash:
@@ -80,3 +77,25 @@ file-tools:
   require-write-approval: true
   require-read-before-write: true
   read-before-write-scope: run
+  hooks:
+    after-file-change:
+      lsp-diagnostics:
+        enabled: true
+        timeout: 3
+        languages: ["go", "typescript", "javascript", "python", "rust"]
+        servers:
+          go:
+            command: gopls
+            args: []
+          typescript:
+            command: typescript-language-server
+            args: ["--stdio"]
+          javascript:
+            command: typescript-language-server
+            args: ["--stdio"]
+          python:
+            command: pyright-langserver
+            args: ["--stdio"]
+          rust:
+            command: rust-analyzer
+            args: []
