@@ -285,6 +285,64 @@ func buildContextWindow(usage map[string]any, maxSize int, estimatedSize int) ma
 	return cw
 }
 
+func captureStepModelMetadata(modelKey *string, reasoningEffort *string, values ...map[string]any) {
+	if modelKey != nil && strings.TrimSpace(*modelKey) == "" {
+		for _, value := range values {
+			if text := firstStringFromKeys(value, "modelKey", "model_key"); text != "" {
+				*modelKey = text
+				break
+			}
+		}
+	}
+	if reasoningEffort != nil && strings.TrimSpace(*reasoningEffort) == "" {
+		for _, value := range values {
+			if text := firstStringFromKeys(value, "reasoningEffort", "reasoning_effort"); text != "" {
+				*reasoningEffort = text
+				break
+			}
+		}
+	}
+}
+
+func applyStepLineModelMetadata(line *StepLine, modelKey string, reasoningEffort string) {
+	if line == nil {
+		return
+	}
+	line.ModelKey = firstNonEmptyStepString(
+		line.ModelKey,
+		modelKey,
+		firstStringFromKeys(line.Usage, "modelKey", "model_key"),
+		firstStringFromKeys(line.ContextWindow, "modelKey", "model_key"),
+	)
+	line.ReasoningEffort = firstNonEmptyStepString(
+		line.ReasoningEffort,
+		reasoningEffort,
+		firstStringFromKeys(line.Usage, "reasoningEffort", "reasoning_effort"),
+		firstStringFromKeys(line.ContextWindow, "reasoningEffort", "reasoning_effort"),
+	)
+	stripStepModelMetadata(line.Usage)
+	stripStepModelMetadata(line.ContextWindow)
+}
+
+func stripStepModelMetadata(values map[string]any) {
+	if values == nil {
+		return
+	}
+	delete(values, "modelKey")
+	delete(values, "model_key")
+	delete(values, "reasoningEffort")
+	delete(values, "reasoning_effort")
+}
+
+func firstNonEmptyStepString(values ...string) string {
+	for _, value := range values {
+		if text := strings.TrimSpace(value); text != "" {
+			return text
+		}
+	}
+	return ""
+}
+
 func systemRefFromPreCall(value map[string]any) map[string]any {
 	if len(value) == 0 {
 		return nil

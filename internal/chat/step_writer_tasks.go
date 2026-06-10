@@ -19,6 +19,8 @@ type taskStepBuffer struct {
 	pendingUsage            map[string]any
 	pendingContextWindowMax int
 	pendingEstimated        int
+	pendingModelKey         string
+	pendingReasoningEffort  string
 }
 
 func (w *StepWriter) ensureTaskBuffer(taskID string) *taskStepBuffer {
@@ -42,6 +44,13 @@ func (w *StepWriter) taskIDForEvent(event stream.EventData) string {
 		return strings.TrimSpace(w.actionTaskIDs[actionID])
 	}
 	return ""
+}
+
+func (buffer *taskStepBuffer) capturePendingModelMetadata(values ...map[string]any) {
+	if buffer == nil {
+		return
+	}
+	captureStepModelMetadata(&buffer.pendingModelKey, &buffer.pendingReasoningEffort, values...)
 }
 
 func (w *StepWriter) flushTaskStep(taskID string) {
@@ -81,6 +90,7 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 	if w.latestArtifact != nil {
 		line.Artifacts = w.latestArtifact
 	}
+	applyStepLineModelMetadata(&line, buffer.pendingModelKey, buffer.pendingReasoningEffort)
 
 	if w.mode == "PLAN_EXECUTE" {
 		line.Type = "plan-execute"
@@ -102,6 +112,8 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 	buffer.pendingUsage = nil
 	buffer.pendingContextWindowMax = 0
 	buffer.pendingEstimated = 0
+	buffer.pendingModelKey = ""
+	buffer.pendingReasoningEffort = ""
 	buffer.pendingSystemRef = nil
 }
 

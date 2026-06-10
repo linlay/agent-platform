@@ -73,21 +73,27 @@ func synthesizedUsageSnapshotContextWindow(contextWindow map[string]any) map[str
 	return cw
 }
 
-func contextWindowWithUsageModel(contextWindow map[string]any, usage map[string]any) map[string]any {
+func contextWindowWithStepModel(line map[string]any, contextWindow map[string]any, usage map[string]any) map[string]any {
 	if len(contextWindow) == 0 {
 		contextWindow = map[string]any{}
 	} else {
 		contextWindow = cloneStringAnyMap(contextWindow)
 	}
-	if firstStringFromKeys(contextWindow, "modelKey", "model_key") == "" {
-		if modelKey := firstStringFromKeys(usage, "modelKey", "model_key"); modelKey != "" {
-			contextWindow["modelKey"] = modelKey
-		}
+	modelKey := firstNonEmptyStepString(
+		firstStringFromKeys(line, "modelKey", "model_key"),
+		firstStringFromKeys(contextWindow, "modelKey", "model_key"),
+		firstStringFromKeys(usage, "modelKey", "model_key"),
+	)
+	if modelKey != "" {
+		contextWindow["modelKey"] = modelKey
 	}
-	if firstStringFromKeys(contextWindow, "reasoningEffort", "reasoning_effort") == "" {
-		if reasoningEffort := firstStringFromKeys(usage, "reasoningEffort", "reasoning_effort"); reasoningEffort != "" {
-			contextWindow["reasoningEffort"] = reasoningEffort
-		}
+	reasoningEffort := firstNonEmptyStepString(
+		firstStringFromKeys(line, "reasoningEffort", "reasoning_effort"),
+		firstStringFromKeys(contextWindow, "reasoningEffort", "reasoning_effort"),
+		firstStringFromKeys(usage, "reasoningEffort", "reasoning_effort"),
+	)
+	if reasoningEffort != "" {
+		contextWindow["reasoningEffort"] = reasoningEffort
 	}
 	return contextWindow
 }
@@ -184,6 +190,7 @@ func synthesizePostCallEvent(runID, chatID string, taskID string, usage map[stri
 	if usage != nil {
 		llm = usagePayloadFromMap(usage, true)
 	}
+	applyUsageModelMetadataFromContextWindow(llm, contextWindow)
 	data := map[string]any{}
 	if cw := synthesizedContextWindow(contextWindow); len(cw) > 0 {
 		data["contextWindow"] = cw
@@ -204,6 +211,22 @@ func synthesizePostCallEvent(runID, chatID string, taskID string, usage map[stri
 		Type:      "debug.postCall",
 		Timestamp: ts,
 		Payload:   payload,
+	}
+}
+
+func applyUsageModelMetadataFromContextWindow(usage map[string]any, contextWindow map[string]any) {
+	if usage == nil {
+		return
+	}
+	if firstStringFromKeys(usage, "modelKey", "model_key") == "" {
+		if modelKey := firstStringFromKeys(contextWindow, "modelKey", "model_key"); modelKey != "" {
+			usage["modelKey"] = modelKey
+		}
+	}
+	if firstStringFromKeys(usage, "reasoningEffort", "reasoning_effort") == "" {
+		if reasoningEffort := firstStringFromKeys(contextWindow, "reasoningEffort", "reasoning_effort"); reasoningEffort != "" {
+			usage["reasoningEffort"] = reasoningEffort
+		}
 	}
 }
 

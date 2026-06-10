@@ -103,6 +103,8 @@ type StepLine struct {
 	RunID           string           `json:"runId"`
 	UpdatedAt       int64            `json:"updatedAt"`
 	LiveSeq         int64            `json:"liveSeq,omitempty"`
+	ModelKey        string           `json:"modelKey,omitempty"`
+	ReasoningEffort string           `json:"reasoningEffort,omitempty"`
 	TaskID          string           `json:"taskId,omitempty"`
 	TaskStatus      string           `json:"taskStatus,omitempty"`
 	TaskSubAgentKey string           `json:"taskSubAgentKey,omitempty"`

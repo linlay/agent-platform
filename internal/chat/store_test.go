@@ -2228,6 +2228,12 @@ func TestStepWriterPersistsUsageSnapshotWhenDebugEventsDisabled(t *testing.T) {
 	if _, ok := lines[0]["debug"]; ok {
 		t.Fatalf("did not expect debug payload, got %#v", lines[0])
 	}
+	if lines[0]["modelKey"] != "mock-model" {
+		t.Fatalf("expected persisted usage snapshot top-level modelKey, got %#v", lines[0])
+	}
+	if lines[0]["reasoningEffort"] != "HIGH" {
+		t.Fatalf("expected persisted usage snapshot top-level reasoningEffort, got %#v", lines[0])
+	}
 	usage, _ := lines[0]["usage"].(map[string]any)
 	promptDetails, _ := usage["promptTokensDetails"].(map[string]any)
 	if toIntValue(usage["promptTokens"]) != 100 || toIntValue(usage["completionTokens"]) != 50 || toIntValue(usage["totalTokens"]) != 150 ||
@@ -2240,12 +2246,7 @@ func TestStepWriterPersistsUsageSnapshotWhenDebugEventsDisabled(t *testing.T) {
 	if toIntValue(usage["toolCallCount"]) != 2 {
 		t.Fatalf("expected persisted usage snapshot toolCallCount, got %#v", lines[0])
 	}
-	if usage["modelKey"] != "mock-model" {
-		t.Fatalf("expected persisted usage snapshot modelKey, got %#v", lines[0])
-	}
-	if usage["reasoningEffort"] != "HIGH" {
-		t.Fatalf("expected persisted usage snapshot reasoningEffort, got %#v", lines[0])
-	}
+	assertNoStepModelMetadata(t, usage, "usage")
 	estimatedCost, _ := usage["estimatedCost"].(map[string]any)
 	if estimatedCost["currency"] != "CNY" || estimatedCost["total"] != 0.06 {
 		t.Fatalf("expected persisted usage snapshot estimated cost, got %#v", lines[0])
@@ -2254,9 +2255,69 @@ func TestStepWriterPersistsUsageSnapshotWhenDebugEventsDisabled(t *testing.T) {
 	if toIntValue(contextWindow["maxSize"]) != 128000 || toIntValue(contextWindow["actualSize"]) != 100 || toIntValue(contextWindow["estimatedSize"]) != 200 {
 		t.Fatalf("expected context window to persist, got %#v", lines[0])
 	}
-	if contextWindow["modelKey"] != "mock-model" || contextWindow["reasoningEffort"] != "HIGH" {
-		t.Fatalf("expected context window model metadata to persist, got %#v", lines[0])
+	assertNoStepModelMetadata(t, contextWindow, "contextWindow")
+}
+
+func TestStepWriterPersistsPlanExecuteModelMetadataAtTopLevel(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
 	}
+
+	writer := NewStepWriter(store, "chat-plan-execute-model", "run-plan-execute-model", "PLAN_EXECUTE")
+	writer.OnStageMarker("execute-task-1")
+	writer.OnEvent(stream.EventData{
+		Type: "content.snapshot",
+		Payload: map[string]any{
+			"contentId": "content-1",
+			"text":      "execute result",
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type: "usage.snapshot",
+		Payload: map[string]any{
+			"contextWindow": map[string]any{
+				"maxSize":               128000,
+				"currentSize":           100,
+				"estimatedNextCallSize": 200,
+			},
+			"usage": map[string]any{
+				"current": map[string]any{
+					"promptTokens":     100,
+					"completionTokens": 50,
+					"totalTokens":      150,
+					"modelKey":         "plan-model",
+					"reasoningEffort":  "MEDIUM",
+				},
+			},
+		},
+	})
+	writer.OnEvent(stream.EventData{Type: "run.complete"})
+
+	lines, err := readJSONLines(store.chatJSONLPath("chat-plan-execute-model"))
+	if err != nil {
+		t.Fatalf("read chat jsonl: %v", err)
+	}
+	if len(lines) != 1 {
+		t.Fatalf("expected one plan-execute step line, got %#v", lines)
+	}
+	line := lines[0]
+	if line["_type"] != "plan-execute" || line["stage"] != "execute" || toIntValue(line["seq"]) != 1 {
+		t.Fatalf("expected execute plan step, got %#v", line)
+	}
+	if line["modelKey"] != "plan-model" || line["reasoningEffort"] != "MEDIUM" {
+		t.Fatalf("expected plan-execute top-level model metadata, got %#v", line)
+	}
+	usage, _ := line["usage"].(map[string]any)
+	if toIntValue(usage["promptTokens"]) != 100 || toIntValue(usage["totalTokens"]) != 150 {
+		t.Fatalf("expected plan-execute usage, got %#v", line)
+	}
+	assertNoStepModelMetadata(t, usage, "plan-execute usage")
+	contextWindow, _ := line["contextWindow"].(map[string]any)
+	if toIntValue(contextWindow["maxSize"]) != 128000 || toIntValue(contextWindow["actualSize"]) != 100 || toIntValue(contextWindow["estimatedSize"]) != 200 {
+		t.Fatalf("expected plan-execute contextWindow, got %#v", line)
+	}
+	assertNoStepModelMetadata(t, contextWindow, "plan-execute contextWindow")
 }
 
 func TestStepWriterIgnoresEmptyUsageSnapshot(t *testing.T) {
@@ -2440,6 +2501,15 @@ func detailEventByType(events []stream.EventData, eventType string) stream.Event
 	return stream.EventData{}
 }
 
+func assertNoStepModelMetadata(t *testing.T, values map[string]any, label string) {
+	t.Helper()
+	for _, key := range []string{"modelKey", "model_key", "reasoningEffort", "reasoning_effort"} {
+		if _, ok := values[key]; ok {
+			t.Fatalf("did not expect %s in %s: %#v", key, label, values)
+		}
+	}
+}
+
 func TestStepWriterPersistsTaskScopedUsageAndSlimMetadataWithoutDebugPayload(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
@@ -2499,6 +2569,8 @@ func TestStepWriterPersistsTaskScopedUsageAndSlimMetadataWithoutDebugPayload(t *
 						"promptTokens":     100,
 						"completionTokens": 50,
 						"totalTokens":      150,
+						"modelKey":         "task-model",
+						"reasoningEffort":  "LOW",
 					},
 				},
 			},
@@ -2542,14 +2614,19 @@ func TestStepWriterPersistsTaskScopedUsageAndSlimMetadataWithoutDebugPayload(t *
 	if systemRef["cacheKey"] != "react:analyzer" || systemRef["fingerprint"] != "sha256:child" {
 		t.Fatalf("expected task systemRef, got %#v", taskLine)
 	}
+	if taskLine["modelKey"] != "task-model" || taskLine["reasoningEffort"] != "LOW" {
+		t.Fatalf("expected task top-level model metadata, got %#v", taskLine)
+	}
 	usage, _ := taskLine["usage"].(map[string]any)
 	if toIntValue(usage["promptTokens"]) != 100 || toIntValue(usage["totalTokens"]) != 150 {
 		t.Fatalf("expected task usage, got %#v", taskLine)
 	}
+	assertNoStepModelMetadata(t, usage, "task usage")
 	contextWindow, _ := taskLine["contextWindow"].(map[string]any)
 	if toIntValue(contextWindow["maxSize"]) != 128000 || toIntValue(contextWindow["actualSize"]) != 100 || toIntValue(contextWindow["estimatedSize"]) != 200 {
 		t.Fatalf("expected task contextWindow, got %#v", taskLine)
 	}
+	assertNoStepModelMetadata(t, contextWindow, "task contextWindow")
 	if _, ok := lines[1]["debug"]; ok {
 		t.Fatalf("did not expect child debug to pollute root step, got %#v", lines[1])
 	}
@@ -5020,11 +5097,13 @@ func TestLoadChatReadsUsageFromStepLevel(t *testing.T) {
 
 	contentTs := int64(1002)
 	if err := store.AppendStepLine("chat-step-usage", StepLine{
-		ChatID:    "chat-step-usage",
-		RunID:     "run-step-usage",
-		UpdatedAt: 1003,
-		Type:      "react",
-		Seq:       1,
+		ChatID:          "chat-step-usage",
+		RunID:           "run-step-usage",
+		UpdatedAt:       1003,
+		ModelKey:        "line-model",
+		ReasoningEffort: "HIGH",
+		Type:            "react",
+		Seq:             1,
 		Messages: []StoredMessage{
 			{
 				Role:      "assistant",
@@ -5096,6 +5175,9 @@ func TestLoadChatReadsUsageFromStepLevel(t *testing.T) {
 	if toIntValue(preCallCW["maxSize"]) != 128000 || toIntValue(preCallCW["actualSize"]) != 100 || toIntValue(preCallCW["estimatedSize"]) != 200 {
 		t.Fatalf("unexpected debug.preCall context window %#v", detail.Events[3])
 	}
+	if preCallCW["modelKey"] != "line-model" || preCallCW["reasoningEffort"] != "HIGH" {
+		t.Fatalf("expected debug.preCall context window model metadata from step line, got %#v", detail.Events[3])
+	}
 	if preCallProvider["key"] != "minimax" || preCallProvider["endpoint"] != "https://api.minimaxi.com/v1/chat/completions" {
 		t.Fatalf("unexpected debug.preCall provider %#v", detail.Events[3])
 	}
@@ -5115,7 +5197,8 @@ func TestLoadChatReadsUsageFromStepLevel(t *testing.T) {
 		t.Fatalf("did not expect usage in debug.preCall payload %#v", detail.Events[3])
 	}
 
-	if toIntValue(detail.ContextWindow["maxSize"]) != 128000 || toIntValue(detail.ContextWindow["currentSize"]) != 100 || toIntValue(detail.ContextWindow["estimatedNextCallSize"]) != 200 {
+	if toIntValue(detail.ContextWindow["maxSize"]) != 128000 || toIntValue(detail.ContextWindow["currentSize"]) != 100 || toIntValue(detail.ContextWindow["estimatedNextCallSize"]) != 200 ||
+		detail.ContextWindow["modelKey"] != "line-model" || detail.ContextWindow["reasoningEffort"] != "HIGH" {
 		t.Fatalf("unexpected detail context window %#v", detail.ContextWindow)
 	}
 
@@ -5127,6 +5210,9 @@ func TestLoadChatReadsUsageFromStepLevel(t *testing.T) {
 	}
 	if toIntValue(llmUsage["toolCallCount"]) != 2 {
 		t.Fatalf("unexpected debug.postCall toolCallCount %#v", detail.Events[5])
+	}
+	if llmUsage["modelKey"] != "line-model" || llmUsage["reasoningEffort"] != "HIGH" {
+		t.Fatalf("expected debug.postCall usage model metadata from step line, got %#v", detail.Events[5])
 	}
 	if _, exists := postCallUsage["runUsage"]; exists {
 		t.Fatalf("did not expect debug.postCall run usage %#v", detail.Events[5])
@@ -5261,6 +5347,8 @@ func TestLoadChatReadsLegacySnakeCaseUsageFromStepLevel(t *testing.T) {
 			"prompt_cache_hit_tokens":   32,
 			"prompt_cache_miss_tokens":  68,
 			"llm_chat_completion_count": 1,
+			"model_key":                 "legacy-model",
+			"reasoning_effort":          "LOW",
 		},
 		ContextWindow: map[string]any{
 			"max_size":       128000,
@@ -5283,7 +5371,8 @@ func TestLoadChatReadsLegacySnakeCaseUsageFromStepLevel(t *testing.T) {
 			t.Fatalf("did not expect usage-only legacy step to synthesize debug event, got %#v", detail.Events)
 		}
 	}
-	if toIntValue(detail.ContextWindow["maxSize"]) != 128000 || toIntValue(detail.ContextWindow["currentSize"]) != 100 || toIntValue(detail.ContextWindow["estimatedNextCallSize"]) != 200 {
+	if toIntValue(detail.ContextWindow["maxSize"]) != 128000 || toIntValue(detail.ContextWindow["currentSize"]) != 100 || toIntValue(detail.ContextWindow["estimatedNextCallSize"]) != 200 ||
+		detail.ContextWindow["modelKey"] != "legacy-model" || detail.ContextWindow["reasoningEffort"] != "LOW" {
 		t.Fatalf("expected detail context window from legacy step usage, got %#v", detail.ContextWindow)
 	}
 	if _, exists := detail.Events[4].Value("usage").(map[string]any); exists {

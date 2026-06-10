@@ -55,6 +55,8 @@ type StepWriter struct {
 	pendingUsage            map[string]any
 	pendingContextWindowMax int
 	pendingEstimated        int
+	pendingModelKey         string
+	pendingReasoningEffort  string
 	pendingSystemRef        map[string]any
 	pendingSystemInits      []QueryLineSystemInit
 }
@@ -397,17 +399,20 @@ func (w *StepWriter) appendStoredMessage(event stream.EventData, message StoredM
 }
 
 func (w *StepWriter) captureRootUsageSnapshot(event stream.EventData) {
+	contextWindow, _ := event.Value("contextWindow").(map[string]any)
 	if usage, ok := event.Value("usage").(map[string]any); ok {
 		if current, ok := usage["current"].(map[string]any); ok {
 			if !hasProviderUsagePayload(current) {
 				return
 			}
 			w.pendingUsage = usagePayloadFromSnapshotEvent(event, current, false)
+			w.capturePendingModelMetadata(w.pendingUsage, contextWindow)
 		}
 	}
-	if cw, ok := event.Value("contextWindow").(map[string]any); ok {
+	if cw := contextWindow; cw != nil {
 		w.pendingContextWindowMax = toIntFromKeys(cw, "maxSize", "max_size")
 		w.pendingEstimated = toIntFromKeys(cw, "estimatedNextCallSize", "estimated_next_call_size", "estimatedSize", "estimated_size")
+		w.capturePendingModelMetadata(cw)
 	}
 }
 
@@ -415,17 +420,20 @@ func (w *StepWriter) captureTaskUsageSnapshot(buffer *taskStepBuffer, event stre
 	if buffer == nil {
 		return
 	}
+	contextWindow, _ := event.Value("contextWindow").(map[string]any)
 	if usage, ok := event.Value("usage").(map[string]any); ok {
 		if current, ok := usage["current"].(map[string]any); ok {
 			if !hasProviderUsagePayload(current) {
 				return
 			}
 			buffer.pendingUsage = usagePayloadFromSnapshotEvent(event, current, false)
+			buffer.capturePendingModelMetadata(buffer.pendingUsage, contextWindow)
 		}
 	}
-	if cw, ok := event.Value("contextWindow").(map[string]any); ok {
+	if cw := contextWindow; cw != nil {
 		buffer.pendingContextWindowMax = toIntFromKeys(cw, "maxSize", "max_size")
 		buffer.pendingEstimated = toIntFromKeys(cw, "estimatedNextCallSize", "estimated_next_call_size", "estimatedSize", "estimated_size")
+		buffer.capturePendingModelMetadata(cw)
 	}
 }
 
@@ -436,13 +444,16 @@ func (w *StepWriter) captureRootDebugData(eventType string, inner map[string]any
 	if cw, ok := inner["contextWindow"].(map[string]any); ok {
 		w.pendingContextWindowMax = toIntFromKeys(cw, "maxSize", "max_size")
 		w.pendingEstimated = toIntFromKeys(cw, "estimatedSize", "estimated_size")
+		w.capturePendingModelMetadata(cw)
 	}
 	if usage, ok := inner["usage"].(map[string]any); ok {
 		if eventType == "debug.preCall" {
 			w.pendingUsage = usagePayloadFromMap(map[string]any{"llmChatCompletionCount": 1}, true)
+			w.capturePendingModelMetadata(w.pendingUsage)
 		}
 		if llm, ok := usage["llmReturnUsage"].(map[string]any); ok {
 			w.pendingUsage = usagePayloadFromMap(llm, true)
+			w.capturePendingModelMetadata(w.pendingUsage, llm)
 		}
 	}
 }
@@ -457,15 +468,25 @@ func (w *StepWriter) captureTaskDebugData(buffer *taskStepBuffer, eventType stri
 	if cw, ok := inner["contextWindow"].(map[string]any); ok {
 		buffer.pendingContextWindowMax = toIntFromKeys(cw, "maxSize", "max_size")
 		buffer.pendingEstimated = toIntFromKeys(cw, "estimatedSize", "estimated_size")
+		buffer.capturePendingModelMetadata(cw)
 	}
 	if usage, ok := inner["usage"].(map[string]any); ok {
 		if eventType == "debug.preCall" {
 			buffer.pendingUsage = usagePayloadFromMap(map[string]any{"llmChatCompletionCount": 1}, true)
+			buffer.capturePendingModelMetadata(buffer.pendingUsage)
 		}
 		if llm, ok := usage["llmReturnUsage"].(map[string]any); ok {
 			buffer.pendingUsage = usagePayloadFromMap(llm, true)
+			buffer.capturePendingModelMetadata(buffer.pendingUsage, llm)
 		}
 	}
+}
+
+func (w *StepWriter) capturePendingModelMetadata(values ...map[string]any) {
+	if w == nil {
+		return
+	}
+	captureStepModelMetadata(&w.pendingModelKey, &w.pendingReasoningEffort, values...)
 }
 
 func (w *StepWriter) flushCurrentStep() {
@@ -477,6 +498,8 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 		w.pendingUsage = nil
 		w.pendingContextWindowMax = 0
 		w.pendingEstimated = 0
+		w.pendingModelKey = ""
+		w.pendingReasoningEffort = ""
 		w.pendingSystemRef = nil
 		return
 	}
@@ -524,6 +547,7 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 	if w.latestArtifact != nil {
 		line.Artifacts = w.latestArtifact
 	}
+	applyStepLineModelMetadata(&line, w.pendingModelKey, w.pendingReasoningEffort)
 
 	if w.mode == "PLAN_EXECUTE" {
 		line.Type = "plan-execute"
@@ -543,6 +567,8 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 	w.pendingUsage = nil
 	w.pendingContextWindowMax = 0
 	w.pendingEstimated = 0
+	w.pendingModelKey = ""
+	w.pendingReasoningEffort = ""
 	w.pendingSystemRef = nil
 }
 
