@@ -154,6 +154,9 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	if !submitResp.Data.Accepted || submitResp.Data.Status != "accepted" {
 		t.Fatalf("expected accepted submit, got %#v", submitResp.Data)
 	}
+	if !strings.HasPrefix(submitResp.Data.SubmitID, "submit_") {
+		t.Fatalf("expected generated submitId, got %#v", submitResp.Data)
+	}
 
 	for {
 		line, readErr := reader.ReadString('\n')

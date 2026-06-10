@@ -98,6 +98,9 @@ func (p *runEventProcessor) decorate(data *stream.EventData) {
 			usage = map[string]any{}
 			inner["usage"] = usage
 		}
+		if data.Type == "debug.postCall" {
+			(usageCostDecorator{models: p.models, billing: p.billing}).decorateDebugLLMReturnUsage(inner)
+		}
 		if p.runUsage != nil {
 			if ru, ok := usage["runUsage"].(map[string]any); ok {
 				mergeUsageMapIntoRunData(p.runUsage, ru)

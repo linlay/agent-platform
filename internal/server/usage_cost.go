@@ -39,6 +39,30 @@ func (d usageCostDecorator) decorateCurrentUsage(data *stream.EventData) (chat.U
 	return currentUsage, true
 }
 
+func (d usageCostDecorator) decorateDebugLLMReturnUsage(inner map[string]any) (chat.UsageData, bool) {
+	if inner == nil {
+		return chat.UsageData{}, false
+	}
+	usage, _ := inner["usage"].(map[string]any)
+	if usage == nil {
+		return chat.UsageData{}, false
+	}
+	llmReturnUsage, _ := usage["llmReturnUsage"].(map[string]any)
+	if llmReturnUsage == nil {
+		return chat.UsageData{}, false
+	}
+	currentUsage := usageDataFromMap(llmReturnUsage)
+	if modelKey := usageModelKeyFromDebugData(inner, llmReturnUsage); modelKey != "" {
+		currentUsage.ModelKey = modelKey
+		llmReturnUsage["modelKey"] = modelKey
+	}
+	currentUsage = d.estimateForModel(currentUsage)
+	if estimated := usageEstimatedCostFromData(currentUsage); estimated != nil {
+		llmReturnUsage["estimatedCost"] = estimated
+	}
+	return currentUsage, true
+}
+
 func (d usageCostDecorator) estimateForModel(usage chat.UsageData) chat.UsageData {
 	if d.models == nil {
 		return usage
@@ -67,6 +91,19 @@ func usageModelKeyFromEvent(data *stream.EventData, usage map[string]any) string
 	return strings.TrimSpace(contracts.FirstNonEmptyString(
 		usage["modelKey"], usage["model_key"],
 		usageRoot["modelKey"], usageRoot["model_key"],
+		contextWindow["modelKey"], contextWindow["model_key"],
+		modelNode["key"],
+	))
+}
+
+func usageModelKeyFromDebugData(inner map[string]any, usage map[string]any) string {
+	if inner == nil {
+		return ""
+	}
+	modelNode, _ := inner["model"].(map[string]any)
+	contextWindow, _ := inner["contextWindow"].(map[string]any)
+	return strings.TrimSpace(contracts.FirstNonEmptyString(
+		usage["modelKey"], usage["model_key"],
 		contextWindow["modelKey"], contextWindow["model_key"],
 		modelNode["key"],
 	))

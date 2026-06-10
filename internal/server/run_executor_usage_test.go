@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -365,6 +366,125 @@ func TestRunEventProcessorDecoratesUsageSnapshotWithEstimatedCost(t *testing.T) 
 	}
 }
 
+func TestRunEventProcessorPersistsDebugPostCallEstimatedCostToJSONL(t *testing.T) {
+	root := t.TempDir()
+	store, err := chat.NewFileStore(root)
+	if err != nil {
+		t.Fatalf("new chat store: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-debug-cost", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	stepWriter := chat.NewStepWriter(store, "chat-debug-cost", "run-debug-cost", "REACT")
+	runUsage := chat.UsageData{}
+	processor := &runEventProcessor{
+		stepWriter: stepWriter,
+		billing:    config.BillingConfig{Currency: "CNY"},
+		models:     writeUsageCostRegistry(t),
+		runUsage:   &runUsage,
+	}
+
+	processor.Consume(stream.NewEvent("content.snapshot", map[string]any{
+		"contentId": "content-1",
+		"text":      "answer",
+	}))
+	processor.Consume(stream.NewEvent("debug.postCall", map[string]any{
+		"data": map[string]any{
+			"model": map[string]any{"key": "mock-model"},
+			"contextWindow": map[string]any{
+				"maxSize":       128000,
+				"estimatedSize": 200,
+			},
+			"usage": map[string]any{
+				"llmReturnUsage": map[string]any{
+					"promptTokens":     1_000_000,
+					"completionTokens": 1_000_000,
+					"totalTokens":      2_000_000,
+					"promptTokensDetails": map[string]any{
+						"cacheHitTokens":  200_000,
+						"cacheMissTokens": 800_000,
+					},
+					"llmChatCompletionCount": 1,
+				},
+				"runUsage": map[string]any{
+					"promptTokens":     1_000_000,
+					"completionTokens": 1_000_000,
+					"totalTokens":      2_000_000,
+				},
+			},
+		},
+	}))
+	processor.Consume(stream.NewEvent("run.complete", map[string]any{"runId": "run-debug-cost"}))
+	stepWriter.Flush()
+
+	raw, err := os.ReadFile(filepath.Join(root, "chat-debug-cost.jsonl"))
+	if err != nil {
+		t.Fatalf("read chat jsonl: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("expected one persisted step line, got %d lines: %s", len(lines), string(raw))
+	}
+	var step map[string]any
+	if err := json.Unmarshal([]byte(lines[0]), &step); err != nil {
+		t.Fatalf("decode step line: %v", err)
+	}
+	usage, _ := step["usage"].(map[string]any)
+	estimatedCost, _ := usage["estimatedCost"].(map[string]any)
+	if estimatedCost["currency"] != "CNY" || floatValue(estimatedCost["inputCacheHit"]) != 0.005 ||
+		floatValue(estimatedCost["inputCacheMiss"]) != 2.4 || floatValue(estimatedCost["output"]) != 6 ||
+		floatValue(estimatedCost["total"]) != 8.405 {
+		t.Fatalf("expected step usage estimated cost, got %#v in step %#v", estimatedCost, step)
+	}
+
+	detail, err := store.LoadChat("chat-debug-cost")
+	if err != nil {
+		t.Fatalf("load chat: %v", err)
+	}
+	if detail.ReplayUsage.LastRun.EstimatedCostCurrency != "CNY" || detail.ReplayUsage.LastRun.EstimatedCostTotal != 8.405 {
+		t.Fatalf("expected replay lastRun cost from debug post-call step usage, got %#v", detail.ReplayUsage.LastRun)
+	}
+	if detail.ReplayUsage.Chat.EstimatedCostCurrency != "CNY" || detail.ReplayUsage.Chat.EstimatedCostTotal != 8.405 {
+		t.Fatalf("expected replay chat cost from debug post-call step usage, got %#v", detail.ReplayUsage.Chat)
+	}
+	if runUsage.EstimatedCostCurrency != "" || runUsage.EstimatedCostTotal != 0 {
+		t.Fatalf("did not expect debug post-call runUsage merge to estimate cumulative cost, got %#v", runUsage)
+	}
+}
+
+func TestRunEventProcessorOmitsDebugPostCallEstimatedCostWithoutPricing(t *testing.T) {
+	runUsage := chat.UsageData{}
+	processor := &runEventProcessor{
+		billing:  config.BillingConfig{Currency: "CNY"},
+		models:   writeUsageCostRegistry(t),
+		runUsage: &runUsage,
+	}
+	data := &stream.EventData{
+		Type: "debug.postCall",
+		Payload: map[string]any{
+			"data": map[string]any{
+				"model": map[string]any{"key": "no-pricing-model"},
+				"usage": map[string]any{
+					"llmReturnUsage": map[string]any{
+						"promptTokens":     100,
+						"completionTokens": 50,
+						"totalTokens":      150,
+					},
+				},
+			},
+		},
+	}
+
+	processor.decorate(data)
+
+	inner, _ := data.Payload["data"].(map[string]any)
+	usage, _ := inner["usage"].(map[string]any)
+	llmReturnUsage, _ := usage["llmReturnUsage"].(map[string]any)
+	if _, exists := llmReturnUsage["estimatedCost"]; exists {
+		t.Fatalf("did not expect estimatedCost without model pricing, got %#v", llmReturnUsage)
+	}
+}
+
 func TestRunEventProcessorPreservesEstimatedCostOnTerminalUsage(t *testing.T) {
 	runUsage := chat.UsageData{}
 	processor := &runEventProcessor{
@@ -649,6 +769,14 @@ func writeUsageCostRegistry(t *testing.T) *models.ModelRegistry {
 		"  output: 20.00",
 	}, "\n")), 0o644); err != nil {
 		t.Fatalf("write expensive model: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "models", "no-pricing.yml"), []byte(strings.Join([]string{
+		"key: no-pricing-model",
+		"provider: mock",
+		"protocol: OPENAI",
+		"modelId: no-pricing-model-id",
+	}, "\n")), 0o644); err != nil {
+		t.Fatalf("write no-pricing model: %v", err)
 	}
 	registry, err := models.LoadModelRegistry(root)
 	if err != nil {
