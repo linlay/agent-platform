@@ -2397,6 +2397,64 @@ func TestStepWriterPlanningDeltasAreLiveOnly(t *testing.T) {
 	}
 }
 
+func TestLoadChatRestoresPlanningFromReactAwaitingPlan(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	chatID := "chat-awaiting-plan"
+	runID := "run-planning"
+	if _, _, err := store.EnsureChat(chatID, "coder", "", "plan it"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	planningFile := filepath.Join(store.ChatDir(chatID), ToolRootDirName, ToolPlansDirName, "run-planning_planning_1.md")
+	if err := os.MkdirAll(filepath.Dir(planningFile), 0o755); err != nil {
+		t.Fatalf("mkdir planning dir: %v", err)
+	}
+	if err := os.WriteFile(planningFile, []byte("# Awaiting Plan\n\nBody"), 0o644); err != nil {
+		t.Fatalf("write planning file: %v", err)
+	}
+	if err := store.AppendStepLine(chatID, StepLine{
+		ChatID:    chatID,
+		RunID:     runID,
+		UpdatedAt: 1004,
+		Messages:  []StoredMessage{},
+		Awaiting: []map[string]any{
+			{
+				"type":       "awaiting.ask",
+				"awaitingId": "run-planning_coder_plan_confirm_1",
+				"mode":       "plan",
+				"timeout":    0,
+				"plan": map[string]any{
+					"id":           "confirm",
+					"planningId":   "run-planning_planning_1",
+					"planningFile": planningFile,
+					"title":        "实施此计划？",
+				},
+			},
+		},
+		Type: "react",
+		Seq:  1,
+	}); err != nil {
+		t.Fatalf("append step line: %v", err)
+	}
+
+	detail, err := store.LoadChat(chatID)
+	if err != nil {
+		t.Fatalf("load chat: %v", err)
+	}
+	if detail.Planning == nil || detail.Planning.PlanningID != "run-planning_planning_1" ||
+		detail.Planning.PlanningFile != planningFile || detail.Planning.Markdown != "# Awaiting Plan\n\nBody" {
+		t.Fatalf("expected planning state from awaiting plan, got planning=%#v events=%#v", detail.Planning, detail.Events)
+	}
+	if detailEventTypeCount(detail.Events, "planning.snapshot") != 0 {
+		t.Fatalf("did not expect awaiting plan to synthesize planning.snapshot, got %#v", detail.Events)
+	}
+	if !detailHasEventType(detail.Events, "awaiting.ask") {
+		t.Fatalf("expected awaiting.ask to replay, got %#v", detail.Events)
+	}
+}
+
 func TestLoadChatReplaysPlanningSnapshotRefsAndIgnoresDeltas(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
@@ -2439,6 +2497,53 @@ func TestLoadChatReplaysPlanningSnapshotRefsAndIgnoresDeltas(t *testing.T) {
 	}
 	if detailEventTypeCount(detail.Events, "planning.snapshot") != 1 || detailHasEventType(detail.Events, "planning.delta") {
 		t.Fatalf("expected one replayed planning.snapshot and no delta, got %#v", detail.Events)
+	}
+}
+
+func TestLoadChatReplaysPlanningSnapshotEventLine(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	chatID := "chat-event-planning"
+	runID := "run-planning"
+	if _, _, err := store.EnsureChat(chatID, "coder", "", "plan it"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	planningFile := filepath.Join(store.ChatDir(chatID), ToolRootDirName, ToolPlansDirName, "event-planning.md")
+	if err := os.MkdirAll(filepath.Dir(planningFile), 0o755); err != nil {
+		t.Fatalf("mkdir planning dir: %v", err)
+	}
+	if err := os.WriteFile(planningFile, []byte("# Event Plan\n\nBody"), 0o644); err != nil {
+		t.Fatalf("write planning file: %v", err)
+	}
+	if err := store.AppendEventLine(chatID, EventLine{
+		ChatID:    chatID,
+		RunID:     runID,
+		UpdatedAt: 1004,
+		Type:      "event",
+		Event: map[string]any{
+			"type":         "planning.snapshot",
+			"timestamp":    int64(1004),
+			"planningId":   "event-planning",
+			"planningFile": planningFile,
+			"chatId":       chatID,
+			"runId":        runID,
+		},
+	}); err != nil {
+		t.Fatalf("append planning event: %v", err)
+	}
+
+	detail, err := store.LoadChat(chatID)
+	if err != nil {
+		t.Fatalf("load chat: %v", err)
+	}
+	if detail.Planning == nil || detail.Planning.PlanningID != "event-planning" ||
+		detail.Planning.PlanningFile != planningFile || detail.Planning.Markdown != "# Event Plan\n\nBody" {
+		t.Fatalf("expected planning state from event line, got planning=%#v events=%#v", detail.Planning, detail.Events)
+	}
+	if detailEventTypeCount(detail.Events, "planning.snapshot") != 1 {
+		t.Fatalf("expected one replayed planning.snapshot, got %#v", detail.Events)
 	}
 }
 

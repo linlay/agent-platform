@@ -5,9 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
-	"agent-platform/internal/chat"
 	. "agent-platform/internal/contracts"
 	planutil "agent-platform/internal/planning"
 )
@@ -46,7 +44,6 @@ func (t *RuntimeToolExecutor) invokePlanningWrite(args map[string]any, execCtx *
 	if err := os.WriteFile(planningFile, []byte(markdown), 0o644); err != nil {
 		return ToolExecutionResult{Output: "失败: 写入 planning markdown 失败: " + err.Error(), Error: "planning_write_failed", ExitCode: -1}, nil
 	}
-	t.appendPlanningSnapshotRef(execCtx, planningID, planningFile)
 
 	execCtx.PlanningState = &PlanningRuntimeState{
 		PlanningID:   planningID,
@@ -61,41 +58,6 @@ func (t *RuntimeToolExecutor) invokePlanningWrite(args map[string]any, execCtx *
 	result := structuredResultWithExit(payload, 0)
 	result.Output = fmt.Sprintf("planning written: %s", planningFile)
 	return result, nil
-}
-
-func (t *RuntimeToolExecutor) appendPlanningSnapshotRef(execCtx *ExecutionContext, planningID string, planningFile string) {
-	if t == nil || t.chats == nil || execCtx == nil {
-		return
-	}
-	chatID := strings.TrimSpace(execCtx.Session.ChatID)
-	if chatID == "" {
-		chatID = strings.TrimSpace(execCtx.Request.ChatID)
-	}
-	if !chat.ValidChatID(chatID) || strings.TrimSpace(planningID) == "" || strings.TrimSpace(planningFile) == "" {
-		return
-	}
-	runID := strings.TrimSpace(execCtx.Session.RunID)
-	if runID == "" {
-		runID = strings.TrimSpace(execCtx.Request.RunID)
-	}
-	if runID == "" {
-		runID = strings.TrimSpace(execCtx.Session.RequestID)
-	}
-	now := time.Now().UnixMilli()
-	_ = t.chats.AppendEventLine(chatID, chat.EventLine{
-		ChatID:    chatID,
-		RunID:     runID,
-		UpdatedAt: now,
-		Event: map[string]any{
-			"type":         "planning.snapshot",
-			"timestamp":    now,
-			"chatId":       chatID,
-			"runId":        runID,
-			"planningId":   strings.TrimSpace(planningID),
-			"planningFile": strings.TrimSpace(planningFile),
-		},
-		Type: "planning",
-	})
 }
 
 func planningRunID(execCtx *ExecutionContext) string {

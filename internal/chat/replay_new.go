@@ -223,6 +223,9 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 			}
 			msgs, _ := line["messages"].([]any)
 			awaitingReplay := newStepAwaitingReplay(line["awaiting"], runID, lineLiveSeq)
+			if state := planningStateFromAwaitingPlan(line["awaiting"], chatDir); state != nil {
+				planning = state
+			}
 			stepUsage, _ := line["usage"].(map[string]any)
 			stepContextWindow, _ := line["contextWindow"].(map[string]any)
 			stepContextWindow = contextWindowWithStepModel(line, stepContextWindow, stepUsage)
@@ -391,6 +394,19 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 			}
 			event = cloneStringAnyMap(event)
 			clearReplayCursorFields(event)
+			if strings.TrimSpace(stringFromAny(event["type"])) == "planning.snapshot" {
+				planningLine := cloneStringAnyMap(line)
+				planningLine["event"] = event
+				state, replayedEvent := planningSnapshotFromLine(planningLine, chatDir)
+				if state == nil || replayedEvent == nil {
+					continue
+				}
+				planning = state
+				rd := ensureRun(runs, &runOrder, runID)
+				replayedEvent.Seq = nextSeq()
+				rd.events = append(rd.events, *replayedEvent)
+				continue
+			}
 			if suppressLegacyConfirmReplay(event, legacyConfirmIDs) {
 				continue
 			}

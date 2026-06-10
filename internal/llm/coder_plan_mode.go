@@ -371,8 +371,10 @@ func (s *coderPlanningStream) emitPlanConfirmationAsk() {
 
 func (s *coderPlanningStream) planConfirmationAsk() DeltaAwaitAsk {
 	planningID := ""
+	planningFile := ""
 	if s.execCtx != nil && s.execCtx.PlanningState != nil {
 		planningID = strings.TrimSpace(s.execCtx.PlanningState.PlanningID)
+		planningFile = strings.TrimSpace(s.execCtx.PlanningState.PlanningFile)
 	}
 	return DeltaAwaitAsk{
 		AwaitingID:   s.planConfirmationAwaitingID(),
@@ -382,9 +384,10 @@ func (s *coderPlanningStream) planConfirmationAsk() DeltaAwaitAsk {
 		ViewportType: "builtin",
 		ViewportKey:  "plan",
 		Plan: map[string]any{
-			"id":         "confirm",
-			"planningId": planningID,
-			"title":      "实施此计划？",
+			"id":           "confirm",
+			"planningId":   planningID,
+			"planningFile": planningFile,
+			"title":        "实施此计划？",
 			"options": []any{
 				map[string]any{"label": "是，实施此计划", "decision": "approve"},
 				map[string]any{

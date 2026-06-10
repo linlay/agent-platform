@@ -167,7 +167,8 @@ func TestCoderPlanningConfirmationUsesPlanMode(t *testing.T) {
 		execCtx: &contracts.ExecutionContext{
 			PlanningRevision: 1,
 			PlanningState: &contracts.PlanningRuntimeState{
-				PlanningID: "run_1_planning_1",
+				PlanningID:   "run_1_planning_1",
+				PlanningFile: "/tmp/chat_1/.tools/plans/run_1_planning_1.md",
 			},
 			Budget: contracts.Budget{
 				Tool: contracts.RetryPolicy{Timeout: 120},
@@ -185,7 +186,8 @@ func TestCoderPlanningConfirmationUsesPlanMode(t *testing.T) {
 	if len(ask.Questions) != 0 || len(ask.Approvals) != 0 || len(ask.Plan) == 0 {
 		t.Fatalf("expected one plan and no questions/approvals, got %#v", ask)
 	}
-	if ask.Plan["id"] != "confirm" || ask.Plan["planningId"] != "run_1_planning_1" || ask.Plan["title"] != "实施此计划？" {
+	if ask.Plan["id"] != "confirm" || ask.Plan["planningId"] != "run_1_planning_1" ||
+		ask.Plan["planningFile"] != "/tmp/chat_1/.tools/plans/run_1_planning_1.md" || ask.Plan["title"] != "实施此计划？" {
 		t.Fatalf("unexpected plan item %#v", ask.Plan)
 	}
 	options, _ := ask.Plan["options"].([]any)

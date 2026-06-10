@@ -1879,8 +1879,11 @@ func assertPersistedPlanningModeRequestQuery(t *testing.T, server http.Handler) 
 					t.Fatalf("did not expect persisted planning.delta in %#v", chatResp.Data.Events)
 				}
 			}
-			if detailEventTypeCountForServerTest(chatResp.Data.Events, "planning.snapshot") == 0 {
-				t.Fatalf("expected persisted planning.snapshot, got %#v", chatResp.Data.Events)
+			if detailEventTypeCountForServerTest(chatResp.Data.Events, "planning.snapshot") != 0 {
+				t.Fatalf("did not expect awaiting-plan replay to synthesize planning.snapshot, got %#v", chatResp.Data.Events)
+			}
+			if !detailHasPlanAwaitingWithPlanningFileForServerTest(chatResp.Data.Events) {
+				t.Fatalf("expected persisted plan awaiting to carry planningFile, got %#v", chatResp.Data.Events)
 			}
 			planning, _ := chatResp.Data.Planning.(map[string]any)
 			if len(planning) == 0 || strings.TrimSpace(anyString(planning["planningId"])) == "" ||
@@ -1892,6 +1895,19 @@ func assertPersistedPlanningModeRequestQuery(t *testing.T, server http.Handler) 
 		}
 	}
 	t.Fatalf("expected persisted request.query planningMode=true, got %#v", chatResp.Data.Events)
+}
+
+func detailHasPlanAwaitingWithPlanningFileForServerTest(events []stream.EventData) bool {
+	for _, event := range events {
+		if event.Type != "awaiting.ask" || !strings.EqualFold(strings.TrimSpace(anyString(event.Value("mode"))), "plan") {
+			continue
+		}
+		plan, _ := event.Value("plan").(map[string]any)
+		if strings.TrimSpace(anyString(plan["planningId"])) != "" && strings.TrimSpace(anyString(plan["planningFile"])) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func detailEventTypeCountForServerTest(events []stream.EventData, eventType string) int {
