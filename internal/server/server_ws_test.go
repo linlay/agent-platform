@@ -1338,8 +1338,9 @@ Plan should stream over websocket.
 	}
 
 	eventTypes, runID, awaitingID := collectWebSocketEventsUntilPlanningApproval(t, conn, requestID)
-	assertStringSliceContains(t, eventTypes, "planning.delta", "awaiting.ask")
-	assertStringSliceExcludes(t, eventTypes, "planning.start", "planning.end", "planning.snapshot")
+	assertStringSliceContains(t, eventTypes, "planning.start", "planning.delta", "planning.end", "awaiting.ask")
+	assertStringSliceExcludes(t, eventTypes, "planning.snapshot")
+	assertEventOrderForServerTest(t, eventTypes, "planning.start", "planning.delta", "planning.end", "awaiting.ask")
 	if got := countStrings(eventTypes, "planning.delta"); got <= 1 {
 		t.Fatalf("expected multiple websocket planning.delta events, got %d in %#v", got, eventTypes)
 	}
@@ -1365,7 +1366,7 @@ Plan should stream over websocket.
 
 	eventTypes = append(eventTypes, collectWebSocketStreamEventTypes(t, conn, requestID)...)
 	assertStringSliceContains(t, eventTypes, "run.complete")
-	assertStringSliceExcludes(t, eventTypes, "planning.start", "planning.end", "planning.snapshot")
+	assertStringSliceExcludes(t, eventTypes, "planning.snapshot")
 }
 
 type awaitingPushQuestionFlow struct {
@@ -1654,6 +1655,25 @@ func countStrings(values []string, target string) int {
 		}
 	}
 	return count
+}
+
+func assertEventOrderForServerTest(t *testing.T, got []string, want ...string) {
+	t.Helper()
+	cursor := 0
+	for _, eventType := range want {
+		found := false
+		for cursor < len(got) {
+			if got[cursor] == eventType {
+				found = true
+				cursor++
+				break
+			}
+			cursor++
+		}
+		if !found {
+			t.Fatalf("expected event order %v in %#v", want, got)
+		}
+	}
 }
 
 func decodeWSChatErrorInfo(t *testing.T, data any) api.ChatErrorInfo {

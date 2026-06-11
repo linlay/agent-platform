@@ -2447,11 +2447,70 @@ func TestLoadChatRestoresPlanningFromReactAwaitingPlan(t *testing.T) {
 		detail.Planning.PlanningFile != planningFile || detail.Planning.Markdown != "# Awaiting Plan\n\nBody" {
 		t.Fatalf("expected planning state from awaiting plan, got planning=%#v events=%#v", detail.Planning, detail.Events)
 	}
-	if detailEventTypeCount(detail.Events, "planning.snapshot") != 0 {
-		t.Fatalf("did not expect awaiting plan to synthesize planning.snapshot, got %#v", detail.Events)
+	if detailEventTypeCount(detail.Events, "planning.snapshot") != 1 {
+		t.Fatalf("expected awaiting plan to synthesize one planning.snapshot, got %#v", detail.Events)
 	}
 	if !detailHasEventType(detail.Events, "awaiting.ask") {
 		t.Fatalf("expected awaiting.ask to replay, got %#v", detail.Events)
+	}
+	snapshot := detailEventByType(detail.Events, "planning.snapshot")
+	if snapshot.String("planningId") != "run-planning_planning_1" ||
+		snapshot.String("planningFile") != planningFile ||
+		snapshot.String("text") != "# Awaiting Plan\n\nBody" {
+		t.Fatalf("unexpected synthesized planning.snapshot: %#v", snapshot)
+	}
+	snapshotIndex := detailEventTypeIndex(detail.Events, "planning.snapshot")
+	awaitingIndex := detailEventTypeIndex(detail.Events, "awaiting.ask")
+	if snapshotIndex < 0 || awaitingIndex < 0 || snapshotIndex >= awaitingIndex {
+		t.Fatalf("expected planning.snapshot before awaiting.ask, got %#v", detail.Events)
+	}
+}
+
+func TestLoadChatSynthesizesPlanningSnapshotsForMultipleAwaitingPlans(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	chatID := "chat-awaiting-plan-replan"
+	runID := "run-planning"
+	if _, _, err := store.EnsureChat(chatID, "coder", "", "plan it"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	firstFile := filepath.Join(store.ChatDir(chatID), ToolRootDirName, ToolPlansDirName, "run-planning_planning_1.md")
+	secondFile := filepath.Join(store.ChatDir(chatID), ToolRootDirName, ToolPlansDirName, "run-planning_planning_2.md")
+	if err := os.MkdirAll(filepath.Dir(firstFile), 0o755); err != nil {
+		t.Fatalf("mkdir planning dir: %v", err)
+	}
+	if err := os.WriteFile(firstFile, []byte("# First\n\nBody"), 0o644); err != nil {
+		t.Fatalf("write first planning file: %v", err)
+	}
+	if err := os.WriteFile(secondFile, []byte("# Second\n\nBody"), 0o644); err != nil {
+		t.Fatalf("write second planning file: %v", err)
+	}
+
+	appendPlanAwaitingStepForTest(t, store, chatID, runID, 1004, "run-planning_coder_plan_confirm_1", "run-planning_planning_1", firstFile)
+	appendPlanAwaitingStepForTest(t, store, chatID, runID, 1008, "run-planning_coder_plan_confirm_2", "run-planning_planning_2", secondFile)
+
+	detail, err := store.LoadChat(chatID)
+	if err != nil {
+		t.Fatalf("load chat: %v", err)
+	}
+	if detail.Planning == nil || detail.Planning.PlanningID != "run-planning_planning_2" ||
+		detail.Planning.PlanningFile != secondFile || detail.Planning.Markdown != "# Second\n\nBody" {
+		t.Fatalf("expected latest planning state from second awaiting plan, got planning=%#v events=%#v", detail.Planning, detail.Events)
+	}
+	if detailEventTypeCount(detail.Events, "planning.snapshot") != 2 || detailEventTypeCount(detail.Events, "awaiting.ask") != 2 {
+		t.Fatalf("expected two planning snapshots and two awaiting asks, got %#v", detail.Events)
+	}
+
+	firstSnapshotIndex := detailEventIndexByTypeAndString(detail.Events, "planning.snapshot", "planningId", "run-planning_planning_1")
+	firstAwaitingIndex := detailEventIndexByTypeAndString(detail.Events, "awaiting.ask", "awaitingId", "run-planning_coder_plan_confirm_1")
+	secondSnapshotIndex := detailEventIndexByTypeAndString(detail.Events, "planning.snapshot", "planningId", "run-planning_planning_2")
+	secondAwaitingIndex := detailEventIndexByTypeAndString(detail.Events, "awaiting.ask", "awaitingId", "run-planning_coder_plan_confirm_2")
+	if firstSnapshotIndex < 0 || firstAwaitingIndex < 0 || secondSnapshotIndex < 0 || secondAwaitingIndex < 0 ||
+		firstSnapshotIndex >= firstAwaitingIndex || firstAwaitingIndex >= secondSnapshotIndex || secondSnapshotIndex >= secondAwaitingIndex {
+		t.Fatalf("unexpected planning snapshot/awaiting ordering: %#v", detail.Events)
 	}
 }
 
@@ -2565,6 +2624,33 @@ func emitPlanningLifecycleForTest(writer *StepWriter, chatID string) {
 	})
 }
 
+func appendPlanAwaitingStepForTest(t *testing.T, store *FileStore, chatID string, runID string, updatedAt int64, awaitingID string, planningID string, planningFile string) {
+	t.Helper()
+	if err := store.AppendStepLine(chatID, StepLine{
+		ChatID:    chatID,
+		RunID:     runID,
+		UpdatedAt: updatedAt,
+		Messages:  []StoredMessage{},
+		Awaiting: []map[string]any{
+			{
+				"type":       "awaiting.ask",
+				"awaitingId": awaitingID,
+				"mode":       "plan",
+				"timeout":    0,
+				"plan": map[string]any{
+					"id":           "confirm",
+					"planningId":   planningID,
+					"planningFile": planningFile,
+					"title":        "实施此计划？",
+				},
+			},
+		},
+		Type: "react",
+	}); err != nil {
+		t.Fatalf("append step line: %v", err)
+	}
+}
+
 func appendPlanningEventLineForTest(t *testing.T, store *FileStore, chatID string, runID string, updatedAt int64, event map[string]any) {
 	t.Helper()
 	if err := store.AppendEventLine(chatID, EventLine{
@@ -2595,6 +2681,24 @@ func detailEventTypeCount(events []stream.EventData, eventType string) int {
 		}
 	}
 	return count
+}
+
+func detailEventTypeIndex(events []stream.EventData, eventType string) int {
+	for idx, event := range events {
+		if event.Type == eventType {
+			return idx
+		}
+	}
+	return -1
+}
+
+func detailEventIndexByTypeAndString(events []stream.EventData, eventType string, key string, value string) int {
+	for idx, event := range events {
+		if event.Type == eventType && event.String(key) == value {
+			return idx
+		}
+	}
+	return -1
 }
 
 func detailEventByType(events []stream.EventData, eventType string) stream.EventData {

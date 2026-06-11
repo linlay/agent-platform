@@ -3,20 +3,21 @@ package chat
 import "agent-platform/internal/stream"
 
 type stepAwaitingReplay struct {
-	items          []map[string]any
-	awaitingByTool map[string][]int
-	consumed       map[int]bool
+	items                   []map[string]any
+	planningSnapshotByIndex map[int]*stream.EventData
+	awaitingByTool          map[string][]int
+	consumed                map[int]bool
 }
 
-func newStepAwaitingReplay(rawAwaiting any, runID string, liveSeq int64) *stepAwaitingReplay {
-	awaitingList, _ := rawAwaiting.([]any)
+func newStepAwaitingReplay(rawAwaiting any, chatID string, runID string, chatDir string, liveSeq int64, fallbackTimestamp int64, legacyPlanningSnapshotIDs map[string]bool) *stepAwaitingReplay {
+	awaitingList := toMapSlice(rawAwaiting)
 	replay := &stepAwaitingReplay{
-		items:          make([]map[string]any, 0, len(awaitingList)),
-		awaitingByTool: map[string][]int{},
-		consumed:       map[int]bool{},
+		items:                   make([]map[string]any, 0, len(awaitingList)),
+		planningSnapshotByIndex: map[int]*stream.EventData{},
+		awaitingByTool:          map[string][]int{},
+		consumed:                map[int]bool{},
 	}
-	for _, rawItem := range awaitingList {
-		item, _ := rawItem.(map[string]any)
+	for _, item := range awaitingList {
 		if item == nil {
 			continue
 		}
@@ -30,6 +31,9 @@ func newStepAwaitingReplay(rawAwaiting any, runID string, liveSeq int64) *stepAw
 
 		idx := len(replay.items)
 		replay.items = append(replay.items, normalized)
+		if _, event := planningSnapshotFromAwaitingItem(normalized, chatID, runID, chatDir, fallbackTimestamp, legacyPlanningSnapshotIDs); event != nil {
+			replay.planningSnapshotByIndex[idx] = event
+		}
 
 		itemType, _ := normalized["type"].(string)
 		if itemType != "awaiting.ask" {
@@ -59,7 +63,7 @@ func (r *stepAwaitingReplay) consumeForTool(toolID string) []stream.EventData {
 			continue
 		}
 		r.consumed[idx] = true
-		events = append(events, stream.EventDataFromMap(r.items[idx]))
+		events = append(events, r.eventsForItem(idx)...)
 	}
 	delete(r.awaitingByTool, toolID)
 	return events
@@ -71,12 +75,24 @@ func (r *stepAwaitingReplay) leftoverEvents() []stream.EventData {
 	}
 
 	events := make([]stream.EventData, 0, len(r.items))
-	for idx, item := range r.items {
+	for idx := range r.items {
 		if r.consumed[idx] {
 			continue
 		}
-		events = append(events, stream.EventDataFromMap(item))
+		events = append(events, r.eventsForItem(idx)...)
 	}
+	return events
+}
+
+func (r *stepAwaitingReplay) eventsForItem(idx int) []stream.EventData {
+	if r == nil || idx < 0 || idx >= len(r.items) {
+		return nil
+	}
+	events := make([]stream.EventData, 0, 2)
+	if snapshot := r.planningSnapshotByIndex[idx]; snapshot != nil {
+		events = append(events, *snapshot)
+	}
+	events = append(events, stream.EventDataFromMap(r.items[idx]))
 	return events
 }
 

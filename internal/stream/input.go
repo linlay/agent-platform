@@ -94,12 +94,24 @@ type PlanUpdate struct {
 
 func (PlanUpdate) streamInputTag() {}
 
+type PlanningStart struct {
+	PlanningID string
+}
+
+func (PlanningStart) streamInputTag() {}
+
 type PlanningDelta struct {
 	PlanningID string
 	Delta      string
 }
 
 func (PlanningDelta) streamInputTag() {}
+
+type PlanningEnd struct {
+	PlanningID string
+}
+
+func (PlanningEnd) streamInputTag() {}
 
 type TaskStart struct {
 	TaskID      string

@@ -60,6 +60,61 @@ func planningSnapshotFromLine(line map[string]any, chatDir string) (*PlanningSta
 	return state, eventData
 }
 
+func planningSnapshotFromAwaitingItem(item map[string]any, chatID string, runID string, chatDir string, fallbackTimestamp int64, legacyPlanningSnapshotIDs map[string]bool) (*PlanningState, *stream.EventData) {
+	if strings.TrimSpace(stringFromAny(item["type"])) != "awaiting.ask" ||
+		!strings.EqualFold(strings.TrimSpace(stringFromAny(item["mode"])), "plan") {
+		return nil, nil
+	}
+	plan, _ := item["plan"].(map[string]any)
+	if len(plan) == 0 {
+		return nil, nil
+	}
+	state := planningStateFromRef(
+		strings.TrimSpace(stringFromAny(plan["planningId"])),
+		strings.TrimSpace(stringFromAny(plan["planningFile"])),
+		"",
+		chatDir,
+	)
+	if state == nil {
+		return nil, nil
+	}
+	if legacyPlanningSnapshotIDs != nil && legacyPlanningSnapshotIDs[state.PlanningID] {
+		return state, nil
+	}
+	if state.Markdown == "" {
+		return state, nil
+	}
+
+	timestamp := int64FromAny(item["timestamp"])
+	if timestamp == 0 {
+		timestamp = fallbackTimestamp
+	}
+	if strings.TrimSpace(chatID) == "" {
+		chatID = strings.TrimSpace(stringFromAny(item["chatId"]))
+	}
+	if strings.TrimSpace(runID) == "" {
+		runID = strings.TrimSpace(stringFromAny(item["runId"]))
+	}
+
+	payload := map[string]any{
+		"planningId":   state.PlanningID,
+		"planningFile": state.PlanningFile,
+		"text":         state.Markdown,
+	}
+	if strings.TrimSpace(chatID) != "" {
+		payload["chatId"] = strings.TrimSpace(chatID)
+	}
+	if strings.TrimSpace(runID) != "" {
+		payload["runId"] = strings.TrimSpace(runID)
+	}
+
+	return state, &stream.EventData{
+		Type:      "planning.snapshot",
+		Timestamp: timestamp,
+		Payload:   payload,
+	}
+}
+
 func planningStateFromAwaitingPlan(rawAwaiting any, chatDir string) *PlanningState {
 	var latest *PlanningState
 	for _, item := range toMapSlice(rawAwaiting) {
@@ -84,13 +139,28 @@ func planningStateFromAwaitingPlan(rawAwaiting any, chatDir string) *PlanningSta
 	return latest
 }
 
-func planningStateFromRef(planningID string, planningFile string, markdown string, chatDir string) *PlanningState {
-	planningID = strings.TrimSpace(planningID)
-	planningFile = strings.TrimSpace(planningFile)
-	if planningID == "" && planningFile != "" {
-		base := filepath.Base(planningFile)
-		planningID = strings.TrimSuffix(base, filepath.Ext(base))
+func legacyPlanningSnapshotIDsFromLines(lines []map[string]any, chatDir string) map[string]bool {
+	ids := map[string]bool{}
+	for _, line := range lines {
+		lineType := strings.TrimSpace(stringFromAny(line["_type"]))
+		if lineType != "planning" && lineType != "event" && lineType != "steer" {
+			continue
+		}
+		event, _ := line["event"].(map[string]any)
+		if len(event) == 0 || strings.TrimSpace(stringFromAny(event["type"])) != "planning.snapshot" {
+			continue
+		}
+		state, replayedEvent := planningSnapshotFromLine(line, chatDir)
+		if state != nil && replayedEvent != nil {
+			ids[state.PlanningID] = true
+		}
 	}
+	return ids
+}
+
+func planningStateFromRef(planningID string, planningFile string, markdown string, chatDir string) *PlanningState {
+	planningID = planningIDFromRef(planningID, planningFile)
+	planningFile = strings.TrimSpace(planningFile)
 	if planningID == "" {
 		return nil
 	}
@@ -115,6 +185,16 @@ func planningStateFromRef(planningID string, planningFile string, markdown strin
 		PlanningFile: responseFile,
 		Markdown:     markdown,
 	}
+}
+
+func planningIDFromRef(planningID string, planningFile string) string {
+	planningID = strings.TrimSpace(planningID)
+	planningFile = strings.TrimSpace(planningFile)
+	if planningID == "" && planningFile != "" {
+		base := filepath.Base(planningFile)
+		planningID = strings.TrimSuffix(base, filepath.Ext(base))
+	}
+	return planningID
 }
 
 func resolvePlanningFileForReplay(planningFile string, chatDir string, planningID string) string {

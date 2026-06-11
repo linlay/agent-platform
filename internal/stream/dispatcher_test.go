@@ -245,13 +245,19 @@ func TestDispatcherTaskTerminalPayloads(t *testing.T) {
 	})
 }
 
-func TestDispatcherEmitsPlanningDelta(t *testing.T) {
+func TestDispatcherEmitsPlanningLifecycle(t *testing.T) {
 	dispatcher := NewDispatcher(StreamRequest{
 		RequestID: "req_1",
 		RunID:     "run_1",
 		ChatID:    "chat_1",
 		AgentKey:  "coder",
 	})
+
+	start := dispatcher.Dispatch(PlanningStart{PlanningID: "plan-run_1"})
+	assertEventTypes(t, start, "planning.start")
+	if got := start[0].Data().Payload; len(got) != 1 || got["planningId"] != "plan-run_1" {
+		t.Fatalf("unexpected planning.start payload %#v", start[0].Data().Map())
+	}
 
 	delta := dispatcher.Dispatch(PlanningDelta{
 		PlanningID: "plan-run_1",
@@ -261,6 +267,12 @@ func TestDispatcherEmitsPlanningDelta(t *testing.T) {
 	deltaData := delta[0].Data()
 	if got := deltaData.Payload; len(got) != 2 || got["planningId"] != "plan-run_1" || got["delta"] != "\n\n# Plan" {
 		t.Fatalf("unexpected planning.delta payload %#v", deltaData.Map())
+	}
+
+	end := dispatcher.Dispatch(PlanningEnd{PlanningID: "plan-run_1"})
+	assertEventTypes(t, end, "planning.end")
+	if got := end[0].Data().Payload; len(got) != 1 || got["planningId"] != "plan-run_1" {
+		t.Fatalf("unexpected planning.end payload %#v", end[0].Data().Map())
 	}
 }
 

@@ -196,11 +196,21 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			Plan:   value.Plan,
 			ChatID: value.ChatID,
 		}}
+	case DeltaPlanningStart:
+		m.lastKind = ""
+		return []stream.StreamInput{stream.PlanningStart{
+			PlanningID: value.PlanningID,
+		}}
 	case DeltaPlanningDelta:
 		m.lastKind = ""
 		return []stream.StreamInput{stream.PlanningDelta{
 			PlanningID: value.PlanningID,
 			Delta:      value.Delta,
+		}}
+	case DeltaPlanningEnd:
+		m.lastKind = ""
+		return []stream.StreamInput{stream.PlanningEnd{
+			PlanningID: value.PlanningID,
 		}}
 	case DeltaTaskLifecycle:
 		m.lastKind = ""

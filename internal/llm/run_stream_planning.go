@@ -20,6 +20,8 @@ type planningWriteStreamState struct {
 	planningID           string
 	planningFile         string
 	sentMarkdown         string
+	started              bool
+	ended                bool
 	draftFileInitialized bool
 }
 
@@ -93,6 +95,9 @@ func (s *llmRunStream) appendFinalPlanningDeltas(toolID string, result ToolExecu
 		state.planningFile = planningFile
 	}
 	s.pending = append(s.pending, s.planningMarkdownDeltas(state, markdown, false)...)
+	if end := state.planningEndDelta(); end != nil {
+		s.pending = append(s.pending, end)
+	}
 	if s.planningWrites != nil {
 		delete(s.planningWrites, strings.TrimSpace(toolID))
 	}
@@ -113,7 +118,13 @@ func (s *llmRunStream) planningMarkdownDeltas(state *planningWriteStreamState, m
 	}
 	state.sentMarkdown += suffix
 	chunks := splitPlanningDeltaChunks(suffix)
-	events := make([]AgentDelta, 0, len(chunks))
+	events := make([]AgentDelta, 0, len(chunks)+1)
+	if !state.started {
+		state.started = true
+		events = append(events, DeltaPlanningStart{
+			PlanningID: state.planningID,
+		})
+	}
 	for _, chunk := range chunks {
 		if chunk == "" {
 			continue
@@ -127,6 +138,14 @@ func (s *llmRunStream) planningMarkdownDeltas(state *planningWriteStreamState, m
 		})
 	}
 	return events
+}
+
+func (state *planningWriteStreamState) planningEndDelta() AgentDelta {
+	if state == nil || !state.started || state.ended || strings.TrimSpace(state.planningID) == "" {
+		return nil
+	}
+	state.ended = true
+	return DeltaPlanningEnd{PlanningID: state.planningID}
 }
 
 func splitPlanningDeltaChunks(text string) []string {

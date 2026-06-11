@@ -116,6 +116,7 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 	var latestContextWindow map[string]any
 	taskQueries := map[string]replayedSubTaskQuery{}
 	legacyConfirmIDs := map[string]bool{}
+	legacyPlanningSnapshotIDs := legacyPlanningSnapshotIDsFromLines(lines, chatDir)
 	for _, line := range lines {
 		if lineType, _ := line["_type"].(string); lineType != "query" {
 			continue
@@ -222,7 +223,7 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 				rd.events = append(rd.events, events...)
 			}
 			msgs, _ := line["messages"].([]any)
-			awaitingReplay := newStepAwaitingReplay(line["awaiting"], runID, lineLiveSeq)
+			awaitingReplay := newStepAwaitingReplay(line["awaiting"], chatID, runID, chatDir, lineLiveSeq, int64FromAny(line["updatedAt"]), legacyPlanningSnapshotIDs)
 			if state := planningStateFromAwaitingPlan(line["awaiting"], chatDir); state != nil {
 				planning = state
 			}

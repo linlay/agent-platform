@@ -69,12 +69,24 @@ type DeltaPlanUpdate struct {
 
 func (DeltaPlanUpdate) agentDeltaTag() {}
 
+type DeltaPlanningStart struct {
+	PlanningID string
+}
+
+func (DeltaPlanningStart) agentDeltaTag() {}
+
 type DeltaPlanningDelta struct {
 	PlanningID string
 	Delta      string
 }
 
 func (DeltaPlanningDelta) agentDeltaTag() {}
+
+type DeltaPlanningEnd struct {
+	PlanningID string
+}
+
+func (DeltaPlanningEnd) agentDeltaTag() {}
 
 type DeltaTaskLifecycle struct {
 	Kind        string

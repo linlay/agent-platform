@@ -46,14 +46,14 @@ func TestPlanningWriteArgumentsStreamPlanningDeltas(t *testing.T) {
 	})
 
 	starts, deltaCount, ends, combined := planningEventStats(stream.pending)
-	if starts != 0 {
-		t.Fatalf("planning.start count = %d, want 0", starts)
+	if starts != 1 {
+		t.Fatalf("planning.start count = %d, want 1", starts)
 	}
 	if deltaCount < 3 {
 		t.Fatalf("planning.delta count = %d, want at least 3; events %#v", deltaCount, stream.pending)
 	}
-	if ends != 0 {
-		t.Fatalf("planning.end count = %d, want 0", ends)
+	if ends != 1 {
+		t.Fatalf("planning.end count = %d, want 1", ends)
 	}
 	if combined != markdown {
 		t.Fatalf("combined planning.delta markdown mismatch\nwant:\n%s\ngot:\n%s", markdown, combined)
@@ -88,8 +88,8 @@ func TestPlanningWriteStreamsPartialStringsAndDraftFile(t *testing.T) {
 	}
 
 	starts, deltaCount, ends, combined := planningEventStats(stream.pending)
-	if starts != 0 {
-		t.Fatalf("planning.start count = %d, want 0", starts)
+	if starts != 1 {
+		t.Fatalf("planning.start count = %d, want 1", starts)
 	}
 	if ends != 0 {
 		t.Fatalf("planning.end count = %d, want 0", ends)
@@ -136,9 +136,12 @@ func TestPlanningWriteStreamsPartialStringsAndDraftFile(t *testing.T) {
 		},
 	})
 
-	_, _, ends, finalCombined := planningEventStats(stream.pending)
-	if ends != 0 {
-		t.Fatalf("planning.end count = %d, want 0", ends)
+	starts, _, ends, finalCombined := planningEventStats(stream.pending)
+	if starts != 1 {
+		t.Fatalf("planning.start count = %d, want 1", starts)
+	}
+	if ends != 1 {
+		t.Fatalf("planning.end count = %d, want 1", ends)
 	}
 	if finalCombined != markdown {
 		t.Fatalf("combined planning.delta markdown mismatch\nwant:\n%s\ngot:\n%s", markdown, finalCombined)
@@ -179,7 +182,13 @@ func TestPlanningWriteCompleteArgumentsSplitIntoMultipleDeltas(t *testing.T) {
 		ArgsDelta: string(data),
 	}})
 
-	_, deltaCount, _, combined := planningEventStats(stream.pending)
+	starts, deltaCount, ends, combined := planningEventStats(stream.pending)
+	if starts != 1 {
+		t.Fatalf("planning.start count = %d, want 1", starts)
+	}
+	if ends != 0 {
+		t.Fatalf("planning.end count = %d, want 0 before tool result", ends)
+	}
 	if deltaCount < 3 {
 		t.Fatalf("planning.delta count = %d, want multiple planning chunks; markdown %q", deltaCount, combined)
 	}
@@ -226,8 +235,8 @@ func TestPlanningWriteMarkdownStartingWithLevelTwoHeadingStreamsAsIs(t *testing.
 	})
 
 	starts, _, ends, combined := planningEventStats(stream.pending)
-	if starts != 0 || ends != 0 {
-		t.Fatalf("did not expect planning lifecycle events, starts=%d ends=%d events=%#v", starts, ends, stream.pending)
+	if starts != 1 || ends != 1 {
+		t.Fatalf("expected planning lifecycle events, starts=%d ends=%d events=%#v", starts, ends, stream.pending)
 	}
 	if combined != markdown {
 		t.Fatalf("combined planning delta should preserve markdown exactly\nwant:%q\ngot:%q", markdown, combined)
@@ -238,9 +247,13 @@ func planningEventStats(events []contracts.AgentDelta) (starts int, deltas int, 
 	var b strings.Builder
 	for _, event := range events {
 		switch typed := event.(type) {
+		case contracts.DeltaPlanningStart:
+			starts++
 		case contracts.DeltaPlanningDelta:
 			deltas++
 			b.WriteString(typed.Delta)
+		case contracts.DeltaPlanningEnd:
+			ends++
 		}
 	}
 	return starts, deltas, ends, b.String()

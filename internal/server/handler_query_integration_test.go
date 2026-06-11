@@ -1092,9 +1092,7 @@ Plan first, then check the current time before reporting.
 	if strings.Contains(streamBody.String(), `"type":"planning.snapshot"`) {
 		t.Fatalf("did not expect live planning.snapshot, got %s", streamBody.String())
 	}
-	if strings.Contains(streamBody.String(), `"type":"planning.start"`) || strings.Contains(streamBody.String(), `"type":"planning.end"`) {
-		t.Fatalf("did not expect planning lifecycle events, got %s", streamBody.String())
-	}
+	assertPlanningLifecycleBeforePlanAwaiting(t, streamBody.String(), runID)
 	planningFile := filepath.Join(fixture.cfg.Paths.ChatsDir, chatID, chat.ToolRootDirName, chat.ToolPlansDirName, runID+"_planning_1.md")
 	planningBytes, readPlanningErr := os.ReadFile(planningFile)
 	if readPlanningErr != nil {
@@ -1132,9 +1130,7 @@ Plan first, then check the current time before reporting.
 	if strings.Contains(body, `"type":"planning.snapshot"`) {
 		t.Fatalf("did not expect live planning.snapshot, got %s", body)
 	}
-	if strings.Contains(body, `"type":"planning.start"`) || strings.Contains(body, `"type":"planning.end"`) {
-		t.Fatalf("did not expect planning lifecycle events, got %s", body)
-	}
+	assertPlanningLifecycleBeforePlanAwaiting(t, body, runID)
 	if got := strings.Count(body, `"type":"planning.delta"`); got <= 1 {
 		t.Fatalf("expected multiple live planning.delta events, got %d in %s", got, body)
 	}
@@ -1269,8 +1265,12 @@ func TestCoderPlanningWriteStreamsDeltasBeforeProviderFinishes(t *testing.T) {
 			if !strings.Contains(firstDelta, "Part one") {
 				t.Fatalf("expected first planning delta from partial provider args, got %q in %s", firstDelta, streamBody.String())
 			}
-			if strings.Contains(streamBody.String(), `"type":"planning.end"`) || strings.Contains(streamBody.String(), `"type":"planning.start"`) {
-				t.Fatalf("did not expect planning lifecycle before provider finished, got %s", streamBody.String())
+			if strings.Contains(streamBody.String(), `"type":"planning.end"`) {
+				t.Fatalf("did not expect planning.end before provider finished, got %s", streamBody.String())
+			}
+			assertPlanningStartBeforeDelta(t, streamBody.String())
+			if strings.Contains(streamBody.String(), `"type":"planning.snapshot"`) {
+				t.Fatalf("did not expect live planning.snapshot, got %s", streamBody.String())
 			}
 			planningFile := filepath.Join(fixture.cfg.Paths.ChatsDir, chatID, chat.ToolRootDirName, chat.ToolPlansDirName, runID+"_planning_1.md")
 			draftBytes, readDraftErr := os.ReadFile(planningFile)
@@ -1289,9 +1289,7 @@ func TestCoderPlanningWriteStreamsDeltasBeforeProviderFinishes(t *testing.T) {
 
 			_, confirmAwaitingID := readAwaitingApproval(t, reader, &streamBody, "confirm")
 			bodyBeforeDecision := streamBody.String()
-			if strings.Contains(bodyBeforeDecision, `"type":"planning.end"`) || strings.Contains(bodyBeforeDecision, `"type":"planning.start"`) {
-				t.Fatalf("did not expect planning lifecycle events, got %s", bodyBeforeDecision)
-			}
+			assertPlanningLifecycleBeforePlanAwaiting(t, bodyBeforeDecision, runID)
 			if got := strings.Count(bodyBeforeDecision, `"type":"planning.delta"`); got <= prefixDeltaCount {
 				t.Fatalf("expected additional planning.delta after provider finished, got %d before=%d in %s", got, prefixDeltaCount, bodyBeforeDecision)
 			}
@@ -1670,6 +1668,26 @@ func readUntilPlanningDelta(t *testing.T, reader *bufio.Reader, streamBody *stri
 	}
 }
 
+func assertPlanningStartBeforeDelta(t *testing.T, body string) {
+	t.Helper()
+	startIndex := strings.Index(body, `"type":"planning.start"`)
+	deltaIndex := strings.Index(body, `"type":"planning.delta"`)
+	if !(startIndex >= 0 && deltaIndex > startIndex) {
+		t.Fatalf("expected planning.start before planning.delta, got %s", body)
+	}
+}
+
+func assertPlanningLifecycleBeforePlanAwaiting(t *testing.T, body string, runID string) {
+	t.Helper()
+	startIndex := strings.Index(body, `"type":"planning.start"`)
+	deltaIndex := strings.Index(body, `"type":"planning.delta"`)
+	endIndex := strings.LastIndex(body, `"type":"planning.end"`)
+	awaitingIndex := strings.Index(body, `"awaitingId":"`+runID+`_coder_plan_confirm_`)
+	if !(startIndex >= 0 && deltaIndex > startIndex && endIndex > deltaIndex && awaitingIndex > endIndex) {
+		t.Fatalf("expected planning.start < planning.delta < planning.end < plan awaiting, got %s", body)
+	}
+}
+
 func readRemainingSSEUntilEOF(t *testing.T, reader *bufio.Reader, streamBody *strings.Builder) {
 	t.Helper()
 	for {
@@ -1879,12 +1897,13 @@ func assertPersistedPlanningModeRequestQuery(t *testing.T, server http.Handler) 
 					t.Fatalf("did not expect persisted planning.delta in %#v", chatResp.Data.Events)
 				}
 			}
-			if detailEventTypeCountForServerTest(chatResp.Data.Events, "planning.snapshot") != 0 {
-				t.Fatalf("did not expect awaiting-plan replay to synthesize planning.snapshot, got %#v", chatResp.Data.Events)
+			if detailEventTypeCountForServerTest(chatResp.Data.Events, "planning.snapshot") != 1 {
+				t.Fatalf("expected awaiting-plan replay to synthesize one planning.snapshot, got %#v", chatResp.Data.Events)
 			}
 			if !detailHasPlanAwaitingWithPlanningFileForServerTest(chatResp.Data.Events) {
 				t.Fatalf("expected persisted plan awaiting to carry planningFile, got %#v", chatResp.Data.Events)
 			}
+			assertPlanningSnapshotBeforePlanAwaitingForServerTest(t, chatResp.Data.Events)
 			planning, _ := chatResp.Data.Planning.(map[string]any)
 			if len(planning) == 0 || strings.TrimSpace(anyString(planning["planningId"])) == "" ||
 				strings.TrimSpace(anyString(planning["planningFile"])) == "" ||
@@ -1895,6 +1914,33 @@ func assertPersistedPlanningModeRequestQuery(t *testing.T, server http.Handler) 
 		}
 	}
 	t.Fatalf("expected persisted request.query planningMode=true, got %#v", chatResp.Data.Events)
+}
+
+func assertPlanningSnapshotBeforePlanAwaitingForServerTest(t *testing.T, events []stream.EventData) {
+	t.Helper()
+	snapshotIndex := -1
+	awaitingIndex := -1
+	var snapshot stream.EventData
+	var awaiting stream.EventData
+	for idx, event := range events {
+		if event.Type == "planning.snapshot" && snapshotIndex < 0 {
+			snapshotIndex = idx
+			snapshot = event
+		}
+		if event.Type == "awaiting.ask" && strings.EqualFold(strings.TrimSpace(anyString(event.Value("mode"))), "plan") && awaitingIndex < 0 {
+			awaitingIndex = idx
+			awaiting = event
+		}
+	}
+	if snapshotIndex < 0 || awaitingIndex < 0 || snapshotIndex >= awaitingIndex {
+		t.Fatalf("expected planning.snapshot before plan awaiting.ask, got %#v", events)
+	}
+	plan, _ := awaiting.Value("plan").(map[string]any)
+	if snapshot.String("planningId") != strings.TrimSpace(anyString(plan["planningId"])) ||
+		snapshot.String("planningFile") != strings.TrimSpace(anyString(plan["planningFile"])) ||
+		!strings.Contains(snapshot.String("text"), "#") {
+		t.Fatalf("unexpected replay planning.snapshot=%#v awaiting=%#v", snapshot, awaiting)
+	}
 }
 
 func detailHasPlanAwaitingWithPlanningFileForServerTest(events []stream.EventData) bool {
