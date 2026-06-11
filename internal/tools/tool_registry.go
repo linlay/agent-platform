@@ -42,7 +42,7 @@ func LoadRuntimeToolDefinitions(root string) ([]api.ToolDetailResponse, error) {
 			log.Printf("[tools] skip invalid tool file %s: object root required", path)
 			continue
 		}
-		def, err := parseToolDefinition(rootNode, toolDefinitionParseOptions{sourceType: "agent-local"})
+		def, err := parseToolDefinition(rootNode, toolDefinitionParseOptions{sourceType: "agent-local", baseDir: filepath.Dir(path)})
 		if err != nil {
 			log.Printf("[tools] skip invalid tool file %s: %v", path, err)
 			continue

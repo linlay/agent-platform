@@ -46,6 +46,7 @@ type App struct {
 	wsHub                *ws.Hub
 	automationExecutions *automation.ExecutionStore
 	lspManager           *lsp.Manager
+	externalTools        *tools.ExternalToolManager
 }
 
 type automationStopper interface {
@@ -159,7 +160,8 @@ func New(rootCtx context.Context) (*App, error) {
 		return nil, fmt.Errorf("load runtime tools: %w", err)
 	}
 	frontendRegistry := frontendtools.NewDefaultRegistry()
-	toolExecutor := tools.NewToolRouter(backendTools, mcpClient, mcpToolSync, llm.NewFrontendSubmitCoordinator(frontendRegistry), contracts.NewNoopActionInvoker(), append([]api.ToolDetailResponse(nil), runtimeTools...)...)
+	externalTools := tools.NewExternalToolManager()
+	toolExecutor := tools.NewToolRouter(backendTools, mcpClient, mcpToolSync, llm.NewFrontendSubmitCoordinator(frontendRegistry), contracts.NewNoopActionInvoker(), append([]api.ToolDetailResponse(nil), runtimeTools...)...).WithExternalInvoker(externalTools)
 
 	registryStartedAt := time.Now()
 	registry, err := catalog.NewFileRegistry(cfg, toolExecutor.Definitions())
@@ -335,6 +337,7 @@ func New(rootCtx context.Context) (*App, error) {
 		wsHub:                wsHub,
 		automationExecutions: automationExecutionStore,
 		lspManager:           lspManager,
+		externalTools:        externalTools,
 	}, nil
 }
 
@@ -370,6 +373,11 @@ func (a *App) Close() error {
 	if a.lspManager != nil {
 		if err := a.lspManager.Close(); err != nil {
 			log.Printf("close lsp manager: %v", err)
+		}
+	}
+	if a.externalTools != nil {
+		if err := a.externalTools.Close(); err != nil {
+			log.Printf("close external tools: %v", err)
 		}
 	}
 	if err := observability.CloseMemoryLogger(); err != nil {

@@ -27,6 +27,7 @@ type ToolRouter struct {
 	mcpTools    toolCatalog
 	frontend    frontendSubmitter
 	action      ActionInvoker
+	external    ExternalToolInvoker
 	localDefs   []api.ToolDetailResponse
 	localByName map[string]api.ToolDetailResponse
 }
@@ -42,6 +43,17 @@ func NewToolRouter(backend ToolExecutor, mcp McpClient, mcpTools toolCatalog, fr
 		localDefs:   localDefs,
 		localByName: localByName,
 	}
+}
+
+func (r *ToolRouter) WithExternalInvoker(external ExternalToolInvoker) *ToolRouter {
+	if r == nil {
+		return r
+	}
+	r.external = external
+	if external != nil {
+		external.Configure(r.Definitions())
+	}
+	return r
 }
 
 func buildLocalToolDefinitions(base []api.ToolDetailResponse, extraDefs []api.ToolDetailResponse) ([]api.ToolDetailResponse, map[string]api.ToolDetailResponse) {
@@ -76,7 +88,11 @@ func (r *ToolRouter) ReloadRuntimeToolDefinitions(root string) error {
 	r.mu.Lock()
 	r.localDefs = localDefs
 	r.localByName = localByName
+	external := r.external
 	r.mu.Unlock()
+	if external != nil {
+		external.Configure(localDefs)
+	}
 	return nil
 }
 
@@ -130,6 +146,11 @@ func (r *ToolRouter) Invoke(ctx context.Context, toolName string, args map[strin
 				return ToolExecutionResult{Output: "action invoker not configured", Error: "action_not_configured", ExitCode: -1}, nil
 			}
 			return r.action.Invoke(callCtx, def.Name, args, execCtx)
+		case "external":
+			if r.external == nil {
+				return ToolExecutionResult{Output: "external tool invoker not configured", Error: "external_not_configured", ExitCode: -1}, nil
+			}
+			return r.external.Invoke(callCtx, def, args, execCtx)
 		case "backend":
 			fallthrough
 		default:
