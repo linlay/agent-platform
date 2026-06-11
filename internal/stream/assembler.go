@@ -68,6 +68,11 @@ func (a *StreamEventAssembler) RegisterHiddenTools(names ...string) {
 }
 
 func (a *StreamEventAssembler) Bootstrap() []StreamEvent {
+	_, normalized := a.BootstrapWithRaw()
+	return normalized
+}
+
+func (a *StreamEventAssembler) BootstrapWithRaw() ([]StreamEvent, []StreamEvent) {
 	queryPayload := map[string]any{
 		"requestId": a.request.RequestID,
 		"runId":     a.request.RunID,
@@ -112,7 +117,8 @@ func (a *StreamEventAssembler) Bootstrap() []StreamEvent {
 		"chatId":   a.request.ChatID,
 		"agentKey": a.request.AgentKey,
 	}))
-	return a.stamp(a.normalizer.Normalize(events))
+	raw := a.stamp(events)
+	return raw, a.normalizer.Normalize(raw)
 }
 
 func isEmptyValue(value any) bool {
@@ -129,15 +135,33 @@ func isEmptyValue(value any) bool {
 }
 
 func (a *StreamEventAssembler) Consume(input StreamInput) []StreamEvent {
-	return a.stamp(a.normalizer.Normalize(a.dispatcher.Dispatch(input)))
+	_, normalized := a.ConsumeWithRaw(input)
+	return normalized
+}
+
+func (a *StreamEventAssembler) ConsumeWithRaw(input StreamInput) ([]StreamEvent, []StreamEvent) {
+	raw := a.stamp(a.dispatcher.Dispatch(input))
+	return raw, a.normalizer.Normalize(raw)
 }
 
 func (a *StreamEventAssembler) Complete() []StreamEvent {
-	return a.stamp(a.normalizer.Normalize(a.dispatcher.Complete()))
+	_, normalized := a.CompleteWithRaw()
+	return normalized
+}
+
+func (a *StreamEventAssembler) CompleteWithRaw() ([]StreamEvent, []StreamEvent) {
+	raw := a.stamp(a.dispatcher.Complete())
+	return raw, a.normalizer.Normalize(raw)
 }
 
 func (a *StreamEventAssembler) Fail(err error) []StreamEvent {
-	return a.stamp(a.normalizer.Normalize(a.dispatcher.Fail(err)))
+	_, normalized := a.FailWithRaw(err)
+	return normalized
+}
+
+func (a *StreamEventAssembler) FailWithRaw(err error) ([]StreamEvent, []StreamEvent) {
+	raw := a.stamp(a.dispatcher.Fail(err))
+	return raw, a.normalizer.Normalize(raw)
 }
 
 func (a *StreamEventAssembler) stamp(events []StreamEvent) []StreamEvent {

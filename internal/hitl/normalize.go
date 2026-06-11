@@ -165,9 +165,10 @@ func NormalizePlan(args map[string]any, params any) (map[string]any, error) {
 	}
 
 	entry := map[string]any{
-		"id":         firstNonBlank(definitionID, submittedID),
-		"planningId": strings.TrimSpace(contracts.AnyStringNode(definition["planningId"])),
-		"decision":   decision,
+		"id":           firstNonBlank(definitionID, submittedID),
+		"planningId":   strings.TrimSpace(contracts.AnyStringNode(definition["planningId"])),
+		"planningFile": strings.TrimSpace(contracts.AnyStringNode(definition["planningFile"])),
+		"decision":     decision,
 	}
 	if reason := strings.TrimSpace(contracts.AnyStringNode(item["reason"])); reason != "" {
 		entry["reason"] = reason

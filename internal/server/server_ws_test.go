@@ -1245,7 +1245,7 @@ func TestWebSocketCoderPlanningEmitsLifecycleEvents(t *testing.T) {
 		switch call := providerCallCount.Add(1); call {
 		case 1:
 			writeProviderSSE(t, w,
-				providerToolCallFrame(t, "tool_plan", "planning_write", map[string]any{
+				providerToolCallFrame(t, "tool_plan", "finalize_planning", map[string]any{
 					"markdown": `# WebSocket Planning
 
 ## Summary

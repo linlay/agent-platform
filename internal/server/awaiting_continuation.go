@@ -165,6 +165,9 @@ func awaitingContinuationHistory(history []map[string]any, runID string, awaitin
 	for _, item := range history {
 		out = append(out, contracts.CloneMap(item))
 	}
+	if historyHasToolResult(out, awaitingID) {
+		return out
+	}
 	toolName := toolCallNameForAwaiting(out, awaitingID)
 	if toolName == "" {
 		return out
@@ -178,6 +181,62 @@ func awaitingContinuationHistory(history []map[string]any, runID string, awaitin
 		"content":      string(content),
 	})
 	return out
+}
+
+func (s *Server) persistDeferredAwaitingToolAnswer(chatID string, runID string, awaitingID string, answer map[string]any, resolvedAt int64) error {
+	if s == nil || s.deps.Chats == nil {
+		return nil
+	}
+	chatID = strings.TrimSpace(chatID)
+	runID = strings.TrimSpace(runID)
+	awaitingID = strings.TrimSpace(awaitingID)
+	if chatID == "" || runID == "" || awaitingID == "" || len(answer) == 0 {
+		return nil
+	}
+	history, err := s.deps.Chats.LoadRawMessages(chatID, s.deps.Config.ChatStorage.K)
+	if err != nil {
+		return err
+	}
+	if historyHasToolResult(history, awaitingID) {
+		return nil
+	}
+	toolName := toolCallNameForAwaiting(history, awaitingID)
+	if toolName == "" {
+		return nil
+	}
+	content, _ := json.Marshal(answer)
+	return s.deps.Chats.AppendStepLine(chatID, chat.StepLine{
+		ChatID:    chatID,
+		RunID:     runID,
+		UpdatedAt: resolvedAt,
+		Type:      "react",
+		Messages: []chat.StoredMessage{{
+			Role:       "tool",
+			Name:       toolName,
+			ToolCallID: awaitingID,
+			Content: []chat.ContentPart{{
+				Type: "text",
+				Text: string(content),
+			}},
+			Ts: &resolvedAt,
+		}},
+	})
+}
+
+func historyHasToolResult(history []map[string]any, awaitingID string) bool {
+	awaitingID = strings.TrimSpace(awaitingID)
+	if awaitingID == "" {
+		return false
+	}
+	for _, item := range history {
+		if strings.TrimSpace(stringValue(item["role"])) != "tool" {
+			continue
+		}
+		if strings.TrimSpace(stringValue(item["tool_call_id"])) == awaitingID {
+			return true
+		}
+	}
+	return false
 }
 
 func toolCallNameForAwaiting(history []map[string]any, awaitingID string) string {

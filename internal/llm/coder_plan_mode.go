@@ -18,7 +18,7 @@ var coderPlanningModePlanTools = []string{
 	"datetime",
 	"regex",
 	"ask_user_question",
-	"planning_write",
+	FinalizePlanningToolName,
 }
 
 const defaultCoderSummarySystemPrompt = `Summarize the completed confirmed CODER plan execution for the user.`
@@ -115,7 +115,11 @@ func (s *coderPlanningStream) Next() (AgentDelta, error) {
 			if llmStream, ok := s.current.(*llmRunStream); ok {
 				accumulated := llmStream.AccumulatedMessages()
 				if !s.planDone || !s.executionDone {
-					s.executeMessages = append(s.executeMessages, nonSystemMessages(accumulated)...)
+					if s.currentPlanIsFeedback {
+						s.executeMessages = nonSystemMessages(accumulated)
+					} else {
+						s.executeMessages = append(s.executeMessages, nonSystemMessages(accumulated)...)
+					}
 				}
 				if s.planDone && !s.executionDone {
 					s.summaryBaseMessages = append([]openAIMessage(nil), accumulated...)
@@ -192,7 +196,9 @@ func (s *coderPlanningStream) startPlanningFeedbackStage() error {
 	s.pending = append(s.pending, DeltaStageMarker{Stage: "coder-plan-feedback"})
 	req := s.req
 	req.Message = s.planningFeedbackPrompt()
-	stream, err := s.engine.newRunStreamWithOptions(s.ctx, req, s.sessionForStage(s.settings.Plan, s.planStageTools()), true, runStreamOptions{
+	stageSession := s.sessionForStage(s.settings.Plan, s.planStageTools())
+	stageSession.HistoryMessages = append(stageSession.HistoryMessages, rawMessagesFromOpenAIMessages(s.executeMessages)...)
+	stream, err := s.engine.newRunStreamWithOptions(s.ctx, req, stageSession, true, runStreamOptions{
 		ExecCtx:      s.execCtx,
 		ToolNames:    s.planStageTools(),
 		ModelKey:     s.resolveStageModelKey(s.settings.Plan),
@@ -205,6 +211,57 @@ func (s *coderPlanningStream) startPlanningFeedbackStage() error {
 	}
 	s.current = stream
 	return nil
+}
+
+func rawMessagesFromOpenAIMessages(messages []openAIMessage) []map[string]any {
+	if len(messages) == 0 {
+		return nil
+	}
+	out := make([]map[string]any, 0, len(messages))
+	for _, message := range messages {
+		raw := rawMessageFromOpenAIMessage(message)
+		if len(raw) > 0 {
+			out = append(out, raw)
+		}
+	}
+	return out
+}
+
+func rawMessageFromOpenAIMessage(message openAIMessage) map[string]any {
+	role := strings.TrimSpace(message.Role)
+	if role == "" {
+		return nil
+	}
+	raw := map[string]any{"role": role}
+	if content, ok := message.Content.(string); ok && strings.TrimSpace(content) != "" {
+		raw["content"] = content
+	} else if message.Content != nil {
+		raw["content"] = message.Content
+	}
+	if strings.TrimSpace(message.Name) != "" {
+		raw["name"] = strings.TrimSpace(message.Name)
+	}
+	if strings.TrimSpace(message.ToolCallID) != "" {
+		raw["tool_call_id"] = strings.TrimSpace(message.ToolCallID)
+	}
+	if len(message.ToolCalls) > 0 {
+		calls := make([]any, 0, len(message.ToolCalls))
+		for _, call := range message.ToolCalls {
+			calls = append(calls, map[string]any{
+				"id":   call.ID,
+				"type": firstNonBlankString(call.Type, "function"),
+				"function": map[string]any{
+					"name":      call.Function.Name,
+					"arguments": call.Function.Arguments,
+				},
+			})
+		}
+		raw["tool_calls"] = calls
+	}
+	if strings.TrimSpace(message.ReasoningContent) != "" {
+		raw["reasoning_content"] = message.ReasoningContent
+	}
+	return raw
 }
 
 func (s *coderPlanningStream) planningPrompt() string {
@@ -372,12 +429,16 @@ func (s *coderPlanningStream) emitPlanConfirmationAsk() {
 func (s *coderPlanningStream) planConfirmationAsk() DeltaAwaitAsk {
 	planningID := ""
 	planningFile := ""
+	toolCallID := s.planConfirmationAwaitingID()
 	if s.execCtx != nil && s.execCtx.PlanningState != nil {
 		planningID = strings.TrimSpace(s.execCtx.PlanningState.PlanningID)
 		planningFile = strings.TrimSpace(s.execCtx.PlanningState.PlanningFile)
+		if id := strings.TrimSpace(s.execCtx.PlanningState.ToolCallID); id != "" {
+			toolCallID = id
+		}
 	}
 	return DeltaAwaitAsk{
-		AwaitingID:   s.planConfirmationAwaitingID(),
+		AwaitingID:   toolCallID,
 		Mode:         "plan",
 		Timeout:      0,
 		RunID:        s.session.RunID,
@@ -408,6 +469,11 @@ func (s *coderPlanningStream) awaitPlanConfirmation() error {
 	s.confirmationPending = false
 	s.confirmationDone = true
 	awaitingID := s.planConfirmationAwaitingID()
+	if s.execCtx != nil && s.execCtx.PlanningState != nil {
+		if toolCallID := strings.TrimSpace(s.execCtx.PlanningState.ToolCallID); toolCallID != "" {
+			awaitingID = toolCallID
+		}
+	}
 	if s.execCtx == nil || s.execCtx.RunControl == nil {
 		return ErrRunControlUnavailable
 	}
@@ -455,6 +521,7 @@ func (s *coderPlanningStream) awaitPlanConfirmation() error {
 		AwaitingID: awaitingID,
 		Answer:     awaitingAnswerWithSubmitID(normalized, submitResult.Request.SubmitID),
 	})
+	s.appendPlanConfirmationToolResult(normalized)
 
 	if strings.EqualFold(AnyStringNode(normalized["status"]), "error") {
 		s.cancelUnstartedPlan("已取消执行计划。")
@@ -472,6 +539,39 @@ func (s *coderPlanningStream) awaitPlanConfirmation() error {
 	}
 }
 
+func (s *coderPlanningStream) appendPlanConfirmationToolResult(normalized map[string]any) {
+	if s == nil || len(normalized) == 0 {
+		return
+	}
+	toolID := s.planConfirmationAwaitingID()
+	toolName := FinalizePlanningToolName
+	if s.execCtx != nil && s.execCtx.PlanningState != nil {
+		if value := strings.TrimSpace(s.execCtx.PlanningState.ToolCallID); value != "" {
+			toolID = value
+		}
+		if value := strings.TrimSpace(s.execCtx.PlanningState.ToolName); value != "" {
+			toolName = value
+		}
+	}
+	content := MarshalJSON(normalized)
+	result := ToolExecutionResult{
+		Output:     content,
+		Structured: CloneMap(normalized),
+		ExitCode:   0,
+	}
+	s.pending = append(s.pending, DeltaToolResult{
+		ToolID:   toolID,
+		ToolName: toolName,
+		Result:   result,
+	})
+	s.executeMessages = append(s.executeMessages, openAIMessage{
+		Role:       "tool",
+		ToolCallID: toolID,
+		Name:       toolName,
+		Content:    content,
+	})
+}
+
 func (s *coderPlanningStream) planConfirmationArgs() map[string]any {
 	ask := s.planConfirmationAsk()
 	return map[string]any{
@@ -481,6 +581,11 @@ func (s *coderPlanningStream) planConfirmationArgs() map[string]any {
 }
 
 func (s *coderPlanningStream) planConfirmationAwaitingID() string {
+	if s != nil && s.execCtx != nil && s.execCtx.PlanningState != nil {
+		if toolCallID := strings.TrimSpace(s.execCtx.PlanningState.ToolCallID); toolCallID != "" {
+			return toolCallID
+		}
+	}
 	return fmt.Sprintf("%s_coder_plan_confirm_%d", s.session.RunID, s.currentPlanningRevision())
 }
 
@@ -503,8 +608,8 @@ func (s *coderPlanningStream) planningFeedbackPrompt() string {
 Rules:
 1. Do not execute or mutate anything in this stage.
 2. Use the rejected plan and feedback to decide what to do next.
-3. If a revised plan should be proposed, call planning_write exactly once with a complete replacement Markdown plan for the next revision.
-4. If the right outcome is to cancel or stop, do not call planning_write; reply with a concise cancellation or clarification note.
+3. If a revised plan should be proposed, call finalize_planning exactly once with a complete replacement Markdown plan for the next revision.
+4. If the right outcome is to cancel or stop, do not call finalize_planning; reply with a concise cancellation or clarification note.
 5. The backend will ask the user to confirm any revised plan before execution tools are available.`,
 		"Original request:\n"+s.req.Message,
 		"Rejected plan markdown:\n"+strings.TrimSpace(s.rejectedPlanMarkdown),
@@ -538,7 +643,6 @@ func (s *coderPlanningStream) preparePlanningFeedback(normalized map[string]any)
 	s.planDone = false
 	s.confirmationDone = false
 	s.nextPlanIsFeedback = true
-	s.executeMessages = nil
 	s.summaryBaseMessages = nil
 }
 
@@ -743,12 +847,12 @@ func (s *coderPlanningStream) executeStageTools() []string {
 
 func coderPlanningExecuteTools(stage StageSettings, toolNames []string) []string {
 	tools := stageToolsOrDefault(stage, toolNames)
-	return removeToolNames(tools, "plan_add_tasks", "plan_get_tasks", "plan_update_task", "planning_write", "ask_user_question")
+	return removeToolNames(tools, "plan_add_tasks", "plan_get_tasks", "plan_update_task", FinalizePlanningToolName, LegacyPlanningWriteToolName, "ask_user_question")
 }
 
 func isPlanningOnlyTool(name string) bool {
 	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "plan_add_tasks", "plan_get_tasks", "plan_update_task", "planning_write", "ask_user_question":
+	case "plan_add_tasks", "plan_get_tasks", "plan_update_task", FinalizePlanningToolName, LegacyPlanningWriteToolName, "ask_user_question":
 		return true
 	default:
 		return false

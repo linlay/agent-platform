@@ -387,6 +387,14 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 		}
 		result = ToolExecutionResult{Output: invokeErr.Error(), Error: "tool_execution_failed", ExitCode: -1}
 	}
+	if isPlanningWriteTool(invocation.toolName) && result.ExitCode == 0 {
+		if s.execCtx != nil && s.execCtx.PlanningState != nil {
+			s.execCtx.PlanningState.ToolCallID = invocation.toolID
+			s.execCtx.PlanningState.ToolName = invocation.toolName
+		}
+		s.appendFinalPlanningDeltas(invocation.toolID, result)
+		return nil
+	}
 	if result.SubmitInfo != nil {
 		s.pending = append(s.pending, DeltaRequestSubmit{
 			RequestID:  s.session.RequestID,
@@ -420,9 +428,6 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 			ChatID: s.session.ChatID,
 			Plan:   PlanTasksArray(s.execCtx.PlanState),
 		})
-	}
-	if isPlanningWriteTool(invocation.toolName) && result.ExitCode == 0 {
-		s.appendFinalPlanningDeltas(invocation.toolID, result)
 	}
 	appendPublishedArtifactDelta(&s.pending, s.session, result.Structured["publishedArtifacts"])
 	return nil
@@ -702,7 +707,7 @@ func isPlanTool(name string) bool {
 }
 
 func isPlanningWriteTool(name string) bool {
-	return strings.EqualFold(strings.TrimSpace(name), "planning_write")
+	return IsFinalizePlanningToolName(name)
 }
 
 func (s *llmRunStream) preToolInvocationDeltas(toolID string, toolName string, payload map[string]any) []AgentDelta {

@@ -164,6 +164,13 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 	case "tool.result":
 		w.ensureStep()
 		toolID := event.String("toolId")
+		toolName := w.toolNames[toolID]
+		if strings.TrimSpace(toolName) == "" {
+			toolName = event.String("toolName")
+			if strings.TrimSpace(toolName) != "" {
+				w.toolNames[toolID] = toolName
+			}
+		}
 		ts := event.Timestamp
 		w.appendStoredMessage(stream.EventData{
 			Seq:       event.Seq,
@@ -174,7 +181,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 			},
 		}, StoredMessage{
 			Role:       "tool",
-			Name:       w.toolNames[toolID],
+			Name:       toolName,
 			ToolCallID: toolID,
 			Content:    textContent(formatResult(event.Value("result"))),
 			ToolID:     toolID,

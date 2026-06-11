@@ -16,6 +16,20 @@ const (
 	AccessLevelFullAccess  = "full_access"
 )
 
+const (
+	FinalizePlanningToolName    = "finalize_planning"
+	LegacyPlanningWriteToolName = "planning_write"
+)
+
+func IsFinalizePlanningToolName(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case FinalizePlanningToolName, LegacyPlanningWriteToolName:
+		return true
+	default:
+		return false
+	}
+}
+
 func NormalizeAccessLevel(value string) (string, bool) {
 	normalized := strings.ToLower(strings.TrimSpace(value))
 	if normalized == "" {
@@ -430,6 +444,8 @@ type PlanningRuntimeState struct {
 	PlanningID   string
 	PlanningFile string
 	Markdown     string
+	ToolCallID   string
+	ToolName     string
 }
 
 type NoopToolExecutor struct{}

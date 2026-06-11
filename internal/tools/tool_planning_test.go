@@ -14,7 +14,7 @@ import (
 	planutil "agent-platform/internal/planning"
 )
 
-func TestPlanningWriteCreatesMarkdownFile(t *testing.T) {
+func TestFinalizePlanningCreatesMarkdownFile(t *testing.T) {
 	root := t.TempDir()
 	executor := &RuntimeToolExecutor{cfg: config.Config{Paths: config.PathsConfig{ChatsDir: root}}}
 	execCtx := &ExecutionContext{
@@ -35,11 +35,11 @@ func TestPlanningWriteCreatesMarkdownFile(t *testing.T) {
 		t.Fatalf("write stale planning file: %v", err)
 	}
 
-	result, err := executor.Invoke(context.Background(), "planning_write", map[string]any{
+	result, err := executor.Invoke(context.Background(), FinalizePlanningToolName, map[string]any{
 		"markdown": standardPlanningMarkdown("改造 CODER planningMode"),
 	}, execCtx)
 	if err != nil {
-		t.Fatalf("invoke planning_write: %v", err)
+		t.Fatalf("invoke finalize_planning: %v", err)
 	}
 	if result.ExitCode != 0 {
 		t.Fatalf("expected success, got %#v", result)
@@ -74,9 +74,12 @@ func TestPlanningWriteCreatesMarkdownFile(t *testing.T) {
 	if execCtx.PlanningState == nil || execCtx.PlanningState.PlanningID != planningID {
 		t.Fatalf("expected execution context planning state, got %#v", execCtx.PlanningState)
 	}
+	if execCtx.PlanningState.ToolName != FinalizePlanningToolName {
+		t.Fatalf("expected planning state tool name %q, got %#v", FinalizePlanningToolName, execCtx.PlanningState)
+	}
 }
 
-func TestPlanningWriteDoesNotPersistSnapshotRefs(t *testing.T) {
+func TestFinalizePlanningDoesNotPersistSnapshotRefs(t *testing.T) {
 	root := t.TempDir()
 	store, err := chat.NewFileStore(root)
 	if err != nil {
@@ -99,14 +102,14 @@ func TestPlanningWriteDoesNotPersistSnapshotRefs(t *testing.T) {
 	}
 
 	firstMarkdown := "# Persisted Plan V1\n\n## Summary\nFirst plan"
-	if result, err := executor.Invoke(context.Background(), "planning_write", map[string]any{"markdown": firstMarkdown}, execCtx); err != nil || result.ExitCode != 0 {
-		t.Fatalf("first planning_write result=%#v err=%v", result, err)
+	if result, err := executor.Invoke(context.Background(), FinalizePlanningToolName, map[string]any{"markdown": firstMarkdown}, execCtx); err != nil || result.ExitCode != 0 {
+		t.Fatalf("first finalize_planning result=%#v err=%v", result, err)
 	}
 	execCtx.PlanningState = nil
 	execCtx.PlanningRevision = 2
 	secondMarkdown := "# Persisted Plan V2\n\n## Summary\nSecond plan"
-	if result, err := executor.Invoke(context.Background(), "planning_write", map[string]any{"markdown": secondMarkdown}, execCtx); err != nil || result.ExitCode != 0 {
-		t.Fatalf("second planning_write result=%#v err=%v", result, err)
+	if result, err := executor.Invoke(context.Background(), FinalizePlanningToolName, map[string]any{"markdown": secondMarkdown}, execCtx); err != nil || result.ExitCode != 0 {
+		t.Fatalf("second finalize_planning result=%#v err=%v", result, err)
 	}
 
 	jsonlBytes, readErr := os.ReadFile(filepath.Join(root, "chat_1.jsonl"))
@@ -114,11 +117,11 @@ func TestPlanningWriteDoesNotPersistSnapshotRefs(t *testing.T) {
 		t.Fatalf("read chat jsonl: %v", readErr)
 	}
 	if len(jsonlBytes) > 0 {
-		t.Fatalf("planning_write should not persist planning refs in jsonl, got:\n%s", string(jsonlBytes))
+		t.Fatalf("finalize_planning should not persist planning refs in jsonl, got:\n%s", string(jsonlBytes))
 	}
 }
 
-func TestPlanningWritePreservesMarkdownExactly(t *testing.T) {
+func TestFinalizePlanningPreservesMarkdownExactly(t *testing.T) {
 	root := t.TempDir()
 	executor := &RuntimeToolExecutor{cfg: config.Config{Paths: config.PathsConfig{ChatsDir: root}}}
 	execCtx := &ExecutionContext{
@@ -129,11 +132,11 @@ func TestPlanningWritePreservesMarkdownExactly(t *testing.T) {
 		},
 	}
 	markdown := "## Summary\nNo backend heading normalization."
-	result, err := executor.Invoke(context.Background(), "planning_write", map[string]any{
+	result, err := executor.Invoke(context.Background(), FinalizePlanningToolName, map[string]any{
 		"markdown": markdown,
 	}, execCtx)
 	if err != nil {
-		t.Fatalf("invoke planning_write: %v", err)
+		t.Fatalf("invoke finalize_planning: %v", err)
 	}
 	if result.ExitCode != 0 {
 		t.Fatalf("expected success, got %#v", result)
@@ -147,7 +150,7 @@ func TestPlanningWritePreservesMarkdownExactly(t *testing.T) {
 	}
 }
 
-func TestPlanningWriteRejectsSecondWrite(t *testing.T) {
+func TestFinalizePlanningRejectsSecondWrite(t *testing.T) {
 	executor := &RuntimeToolExecutor{cfg: config.Config{Paths: config.PathsConfig{ChatsDir: t.TempDir()}}}
 	execCtx := &ExecutionContext{
 		Request: api.QueryRequest{Message: "plan"},
@@ -157,18 +160,18 @@ func TestPlanningWriteRejectsSecondWrite(t *testing.T) {
 		},
 		PlanningState: &PlanningRuntimeState{Markdown: "# Existing\n"},
 	}
-	result, err := executor.Invoke(context.Background(), "planning_write", map[string]any{
+	result, err := executor.Invoke(context.Background(), FinalizePlanningToolName, map[string]any{
 		"markdown": standardPlanningMarkdown("Plan"),
 	}, execCtx)
 	if err != nil {
-		t.Fatalf("invoke planning_write: %v", err)
+		t.Fatalf("invoke finalize_planning: %v", err)
 	}
-	if result.Error != "planning_write_already_exists" || result.ExitCode == 0 {
+	if result.Error != "finalize_planning_already_exists" || result.ExitCode == 0 {
 		t.Fatalf("expected already exists error, got %#v", result)
 	}
 }
 
-func TestPlanningWriteRejectsEmptyMarkdown(t *testing.T) {
+func TestFinalizePlanningRejectsEmptyMarkdown(t *testing.T) {
 	executor := &RuntimeToolExecutor{cfg: config.Config{Paths: config.PathsConfig{ChatsDir: t.TempDir()}}}
 	execCtx := &ExecutionContext{
 		Request: api.QueryRequest{Message: "plan"},
@@ -177,14 +180,34 @@ func TestPlanningWriteRejectsEmptyMarkdown(t *testing.T) {
 			PlanningMode: true,
 		},
 	}
-	result, err := executor.Invoke(context.Background(), "planning_write", map[string]any{
+	result, err := executor.Invoke(context.Background(), FinalizePlanningToolName, map[string]any{
 		"markdown": "",
 	}, execCtx)
 	if err != nil {
-		t.Fatalf("invoke planning_write: %v", err)
+		t.Fatalf("invoke finalize_planning: %v", err)
 	}
 	if result.Error != "missing_markdown" || result.ExitCode == 0 {
 		t.Fatalf("expected missing markdown error, got %#v", result)
+	}
+}
+
+func TestPlanningWriteLegacyAliasStillWorks(t *testing.T) {
+	executor := &RuntimeToolExecutor{cfg: config.Config{Paths: config.PathsConfig{ChatsDir: t.TempDir()}}}
+	execCtx := &ExecutionContext{
+		Session: QuerySession{
+			RunID:        "run_legacy",
+			ChatID:       "chat_1",
+			PlanningMode: true,
+		},
+	}
+	result, err := executor.Invoke(context.Background(), LegacyPlanningWriteToolName, map[string]any{
+		"markdown": "# Legacy Plan\n\n## Summary\nAlias still works.",
+	}, execCtx)
+	if err != nil {
+		t.Fatalf("invoke legacy planning_write: %v", err)
+	}
+	if result.ExitCode != 0 || execCtx.PlanningState == nil || execCtx.PlanningState.ToolName != LegacyPlanningWriteToolName {
+		t.Fatalf("expected legacy alias to write plan and remember tool name, result=%#v state=%#v", result, execCtx.PlanningState)
 	}
 }
 
@@ -201,7 +224,7 @@ Write a standard planning document.
 - Write the markdown file
 
 ## Interfaces
-- Use planning_write markdown field
+- Use finalize_planning markdown field
 
 ## Test Plan
 - Run go test

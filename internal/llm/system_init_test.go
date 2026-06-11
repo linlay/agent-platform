@@ -186,14 +186,14 @@ func TestCoderPlanningModeBuildsPlanAndExecuteSystemInit(t *testing.T) {
 	session.ResolvedStageSettings = contracts.PlanExecuteSettings{
 		MaxSteps:             12,
 		MaxWorkRoundsPerTask: 4,
-		Execute:              contracts.StageSettings{Tools: []string{"bash", "file_read", "planning_write", "ask_user_question"}},
+		Execute:              contracts.StageSettings{Tools: []string{"bash", "file_read", contracts.FinalizePlanningToolName, "ask_user_question"}},
 		Summary:              contracts.StageSettings{SystemPrompt: "summary must not get a cache profile"},
 	}
 	toolDefs := []api.ToolDetailResponse{
 		{Name: "bash", Description: "run shell", Parameters: map[string]any{"type": "object"}},
 		{Name: "file_read", Description: "read files", Parameters: map[string]any{"type": "object"}},
 		{Name: "ask_user_question", Description: "ask", Parameters: map[string]any{"type": "object"}},
-		{Name: "planning_write", Description: "write plan", Parameters: map[string]any{"type": "object"}},
+		{Name: contracts.FinalizePlanningToolName, Description: "write plan", Parameters: map[string]any{"type": "object"}},
 	}
 	req := api.QueryRequest{ChatID: "chat-1", Message: "hello"}
 	profiles := BuildSystemInitProfiles(session, req, toolDefs, 12, 4, config.PromptsConfig{})
@@ -213,7 +213,7 @@ func TestCoderPlanningModeBuildsPlanAndExecuteSystemInit(t *testing.T) {
 	if _, ok := byKey["coder:summary"]; ok {
 		t.Fatalf("did not expect coder summary profile %#v", byKey)
 	}
-	assertToolNames(t, byKey["coder:plan"].Tools, []string{"file_read", "ask_user_question", "planning_write"})
+	assertToolNames(t, byKey["coder:plan"].Tools, []string{"file_read", "ask_user_question", contracts.FinalizePlanningToolName})
 	assertToolNames(t, byKey["coder:execute"].Tools, []string{"bash", "file_read"})
 	wantExecuteSystem := coderPlanningExecutionSystemPrompt(session, req, session.ResolvedStageSettings, coderPlanningModePlanTools, []string{"bash", "file_read"}, defaultCoderExecuteSystemPrompt)
 	if byKey["coder:execute"].SystemMessage["content"] != wantExecuteSystem {

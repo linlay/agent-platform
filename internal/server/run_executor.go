@@ -492,26 +492,40 @@ func runExecutor(params RunExecutorParams) {
 		runCtx = chat.WithApprovalSummarySink(runCtx, params.StepWriter.RecordApproval)
 	}
 
-	publish := func(event stream.StreamEvent) {
-		data, visible := processor.Consume(event)
-		handleAwaitingLifecycle(params, data, tracker)
-		if visible && params.EventBus != nil {
-			params.EventBus.Publish(data)
+	publishBatch := func(rawEvents []stream.StreamEvent, normalizedEvents []stream.StreamEvent) {
+		if len(rawEvents) == 0 && len(normalizedEvents) == 0 {
+			return
+		}
+		processed := make(map[int64]stream.EventData, len(rawEvents))
+		for _, event := range rawEvents {
+			data, _ := processor.Consume(event)
+			processed[event.Seq] = data
+			handleAwaitingLifecycle(params, data, tracker)
+		}
+		for _, event := range normalizedEvents {
+			data, ok := processed[event.Seq]
+			if !ok {
+				data, _ = processor.Consume(event)
+				handleAwaitingLifecycle(params, data, tracker)
+			}
+			if isClientVisibleEvent(data.Type, params.Stream) && params.EventBus != nil {
+				params.EventBus.Publish(data)
+			}
 		}
 	}
 
-	for _, event := range params.Assembler.Bootstrap() {
-		publish(event)
+	publishAssembler := func(rawEvents []stream.StreamEvent, normalizedEvents []stream.StreamEvent) {
+		publishBatch(rawEvents, normalizedEvents)
 	}
+
+	publishAssembler(params.Assembler.BootstrapWithRaw())
 
 	agentStream, err := params.Agent.Stream(runCtx, params.Request, params.Session)
 	if err != nil {
 		if params.RunControl != nil {
 			params.RunControl.TransitionState(contracts.RunLoopStateFailed)
 		}
-		for _, event := range params.Assembler.Fail(err) {
-			publish(event)
-		}
+		publishAssembler(params.Assembler.FailWithRaw(err))
 		persisted, completion = persistRunCompletionWithReason(params, assistantText.String(), runUsage, "error", false)
 		return
 	}
@@ -523,9 +537,7 @@ func runExecutor(params RunExecutorParams) {
 			if marker, ok := input.(stream.StageMarker); ok && params.StepWriter != nil {
 				params.StepWriter.OnStageMarker(marker.Stage)
 			}
-			for _, event := range params.Assembler.Consume(input) {
-				publish(event)
-			}
+			publishAssembler(params.Assembler.ConsumeWithRaw(input))
 		}
 	}
 	emitInputs := func(inputs ...stream.StreamInput) {
@@ -533,9 +545,7 @@ func runExecutor(params RunExecutorParams) {
 			if marker, ok := input.(stream.StageMarker); ok && params.StepWriter != nil {
 				params.StepWriter.OnStageMarker(marker.Stage)
 			}
-			for _, event := range params.Assembler.Consume(input) {
-				publish(event)
-			}
+			publishAssembler(params.Assembler.ConsumeWithRaw(input))
 		}
 	}
 
@@ -563,9 +573,7 @@ func runExecutor(params RunExecutorParams) {
 		if params.RunControl != nil {
 			params.RunControl.TransitionState(contracts.RunLoopStateFailed)
 		}
-		for _, event := range params.Assembler.Fail(orchestrateErr) {
-			publish(event)
-		}
+		publishAssembler(params.Assembler.FailWithRaw(orchestrateErr))
 	}
 
 	if streamFailed || streamInterrupted {
@@ -577,9 +585,7 @@ func runExecutor(params RunExecutorParams) {
 		return
 	}
 
-	for _, event := range params.Assembler.Complete() {
-		publish(event)
-	}
+	publishAssembler(params.Assembler.CompleteWithRaw())
 	persisted, completion = persistRunCompletionWithReason(params, assistantText.String(), runUsage, "complete", true)
 }
 

@@ -104,7 +104,7 @@ func TestBuildSystemPromptRendersCoderSystemPromptPlaceholders(t *testing.T) {
 	for _, expected := range []string{
 		"CODER coder Coder false /workspace",
 		"bash, file_read, file_write, file_edit, ask_user_question",
-		"file_read, file_glob, file_grep, datetime, regex, ask_user_question, planning_write",
+		"file_read, file_glob, file_grep, datetime, regex, ask_user_question, finalize_planning",
 		"bash, file_read, file_write, file_edit",
 		"file_read ask_user_question",
 	} {

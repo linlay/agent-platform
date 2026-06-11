@@ -188,6 +188,9 @@ func (s *Server) resolveDeferredSubmit(req api.SubmitRequest) (api.SubmitRespons
 	}); err != nil {
 		return api.SubmitResponse{}, err
 	}
+	if err := s.persistDeferredAwaitingToolAnswer(deferred.ChatID, req.RunID, req.AwaitingID, answerPayload, resolvedAt); err != nil {
+		return api.SubmitResponse{}, err
+	}
 	if err := s.deps.Chats.ClearPendingAwaiting(deferred.ChatID, req.AwaitingID); err != nil {
 		return api.SubmitResponse{}, err
 	}

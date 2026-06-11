@@ -10,15 +10,19 @@ import (
 	planutil "agent-platform/internal/planning"
 )
 
-func (t *RuntimeToolExecutor) invokePlanningWrite(args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
+func (t *RuntimeToolExecutor) invokePlanningWrite(toolName string, args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
+	toolName = strings.TrimSpace(toolName)
+	if toolName == "" {
+		toolName = FinalizePlanningToolName
+	}
 	if execCtx == nil {
 		return ToolExecutionResult{Output: "失败: 缺少执行上下文", Error: "planning_context_unavailable", ExitCode: -1}, nil
 	}
 	if !execCtx.Session.PlanningMode {
-		return ToolExecutionResult{Output: "失败: planning_write 只能在 CODER planningMode 阶段使用", Error: "planning_write_not_allowed", ExitCode: -1}, nil
+		return ToolExecutionResult{Output: "失败: " + toolName + " 只能在 CODER planningMode 阶段使用", Error: planningToolErrorCode(toolName, "not_allowed"), ExitCode: -1}, nil
 	}
 	if execCtx.PlanningState != nil && strings.TrimSpace(execCtx.PlanningState.Markdown) != "" {
-		return ToolExecutionResult{Output: "失败: planning_write 已经写入过规划", Error: "planning_write_already_exists", ExitCode: -1}, nil
+		return ToolExecutionResult{Output: "失败: " + toolName + " 已经写入过规划", Error: planningToolErrorCode(toolName, "already_exists"), ExitCode: -1}, nil
 	}
 	chatsDir := strings.TrimSpace(t.cfg.Paths.ChatsDir)
 	if chatsDir == "" {
@@ -39,16 +43,17 @@ func (t *RuntimeToolExecutor) invokePlanningWrite(args map[string]any, execCtx *
 	planningID := planutil.PlanningIDForRevision(planningRunID(execCtx), revision)
 	planningFile := planutil.PlanningFileForChat(chatsDir, execCtx.Session.ChatID, planningID)
 	if err := os.MkdirAll(filepath.Dir(planningFile), 0o755); err != nil {
-		return ToolExecutionResult{Output: "失败: 创建 planning 目录失败: " + err.Error(), Error: "planning_write_failed", ExitCode: -1}, nil
+		return ToolExecutionResult{Output: "失败: 创建 planning 目录失败: " + err.Error(), Error: planningToolErrorCode(toolName, "failed"), ExitCode: -1}, nil
 	}
 	if err := os.WriteFile(planningFile, []byte(markdown), 0o644); err != nil {
-		return ToolExecutionResult{Output: "失败: 写入 planning markdown 失败: " + err.Error(), Error: "planning_write_failed", ExitCode: -1}, nil
+		return ToolExecutionResult{Output: "失败: 写入 planning markdown 失败: " + err.Error(), Error: planningToolErrorCode(toolName, "failed"), ExitCode: -1}, nil
 	}
 
 	execCtx.PlanningState = &PlanningRuntimeState{
 		PlanningID:   planningID,
 		PlanningFile: planningFile,
 		Markdown:     markdown,
+		ToolName:     toolName,
 	}
 	payload := map[string]any{
 		"planningId":   planningID,
@@ -58,6 +63,14 @@ func (t *RuntimeToolExecutor) invokePlanningWrite(args map[string]any, execCtx *
 	result := structuredResultWithExit(payload, 0)
 	result.Output = fmt.Sprintf("planning written: %s", planningFile)
 	return result, nil
+}
+
+func planningToolErrorCode(toolName string, suffix string) string {
+	prefix := FinalizePlanningToolName
+	if strings.EqualFold(strings.TrimSpace(toolName), LegacyPlanningWriteToolName) {
+		prefix = LegacyPlanningWriteToolName
+	}
+	return prefix + "_" + strings.TrimSpace(suffix)
 }
 
 func planningRunID(execCtx *ExecutionContext) string {

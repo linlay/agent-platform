@@ -10,7 +10,7 @@ import (
 	planutil "agent-platform/internal/planning"
 )
 
-func TestPlanningWriteArgumentsStreamPlanningDeltas(t *testing.T) {
+func TestFinalizePlanningArgumentsStreamPlanningDeltas(t *testing.T) {
 	chatsDir := t.TempDir()
 	stream := &llmRunStream{
 		session: contracts.QuerySession{
@@ -26,12 +26,12 @@ func TestPlanningWriteArgumentsStreamPlanningDeltas(t *testing.T) {
 
 	chunks := []string{
 		`{"markdown":"# Streaming Plan`,
-		`\n\n## Summary\nStream the plan while the tool arguments arrive.\n\n## Public Events And Storage\n- Emit planning delta before completion\n\n## Implementation Changes\n- Parse arguments incrementally\n- Write the final markdown\n\n## Interfaces\n- Use planning_write markdown field\n\n## Test Plan\n- Assert multiple deltas\n\n## Assumptions\n- The provider emits tool arguments in order"}`,
+		`\n\n## Summary\nStream the plan while the tool arguments arrive.\n\n## Public Events And Storage\n- Emit planning delta before completion\n\n## Implementation Changes\n- Parse arguments incrementally\n- Write the final markdown\n\n## Interfaces\n- Use finalize_planning markdown field\n\n## Test Plan\n- Assert multiple deltas\n\n## Assumptions\n- The provider emits tool arguments in order"}`,
 	}
 	for _, chunk := range chunks {
 		stream.appendToolCallDeltas([]contracts.AgentDelta{contracts.DeltaToolCall{
 			ID:        "tool_plan",
-			Name:      "planning_write",
+			Name:      contracts.FinalizePlanningToolName,
 			ArgsDelta: chunk,
 		}})
 	}
@@ -60,7 +60,7 @@ func TestPlanningWriteArgumentsStreamPlanningDeltas(t *testing.T) {
 	}
 }
 
-func TestPlanningWriteStreamsPartialStringsAndDraftFile(t *testing.T) {
+func TestFinalizePlanningStreamsPartialStringsAndDraftFile(t *testing.T) {
 	chatsDir := t.TempDir()
 	stream := &llmRunStream{
 		session: contracts.QuerySession{
@@ -82,7 +82,7 @@ func TestPlanningWriteStreamsPartialStringsAndDraftFile(t *testing.T) {
 	for _, chunk := range prefixChunks {
 		stream.appendToolCallDeltas([]contracts.AgentDelta{contracts.DeltaToolCall{
 			ID:        "tool_plan",
-			Name:      "planning_write",
+			Name:      contracts.FinalizePlanningToolName,
 			ArgsDelta: chunk,
 		}})
 	}
@@ -116,13 +116,13 @@ func TestPlanningWriteStreamsPartialStringsAndDraftFile(t *testing.T) {
 	suffixChunks := []string{
 		`.\n\n## Public Events And Storage\n- Emit planning deltas before the string closes`,
 		`\n\n## Implementation Changes\n- Parse arguments incrementally\n- Write the final markdown`,
-		`\n\n## Interfaces\n- Use planning_write markdown field\n\n## Test Plan\n- Assert multiple deltas`,
+		`\n\n## Interfaces\n- Use finalize_planning markdown field\n\n## Test Plan\n- Assert multiple deltas`,
 		`\n\n## Assumptions\n- The provider emits tool arguments in order"}`,
 	}
 	for _, chunk := range suffixChunks {
 		stream.appendToolCallDeltas([]contracts.AgentDelta{contracts.DeltaToolCall{
 			ID:        "tool_plan",
-			Name:      "planning_write",
+			Name:      contracts.FinalizePlanningToolName,
 			ArgsDelta: chunk,
 		}})
 	}
@@ -155,7 +155,7 @@ func TestPlanningWriteStreamsPartialStringsAndDraftFile(t *testing.T) {
 	}
 }
 
-func TestPlanningWriteCompleteArgumentsSplitIntoMultipleDeltas(t *testing.T) {
+func TestFinalizePlanningCompleteArgumentsSplitIntoMultipleDeltas(t *testing.T) {
 	chatsDir := t.TempDir()
 	stream := &llmRunStream{
 		session: contracts.QuerySession{
@@ -178,7 +178,7 @@ func TestPlanningWriteCompleteArgumentsSplitIntoMultipleDeltas(t *testing.T) {
 
 	stream.appendToolCallDeltas([]contracts.AgentDelta{contracts.DeltaToolCall{
 		ID:        "tool_plan",
-		Name:      "planning_write",
+		Name:      contracts.FinalizePlanningToolName,
 		ArgsDelta: string(data),
 	}})
 
@@ -203,7 +203,7 @@ func TestPlanningWriteCompleteArgumentsSplitIntoMultipleDeltas(t *testing.T) {
 	}
 }
 
-func TestPlanningWriteMarkdownStartingWithLevelTwoHeadingStreamsAsIs(t *testing.T) {
+func TestFinalizePlanningMarkdownStartingWithLevelTwoHeadingStreamsAsIs(t *testing.T) {
 	chatsDir := t.TempDir()
 	stream := &llmRunStream{
 		session: contracts.QuerySession{
@@ -223,7 +223,7 @@ func TestPlanningWriteMarkdownStartingWithLevelTwoHeadingStreamsAsIs(t *testing.
 
 	stream.appendToolCallDeltas([]contracts.AgentDelta{contracts.DeltaToolCall{
 		ID:        "tool_plan",
-		Name:      "planning_write",
+		Name:      contracts.FinalizePlanningToolName,
 		ArgsDelta: string(data),
 	}})
 	stream.appendFinalPlanningDeltas("tool_plan", contracts.ToolExecutionResult{
@@ -273,7 +273,7 @@ func streamingPlanningMarkdown(title string, summary string, publicEvent string)
 - Write the final markdown
 
 ## Interfaces
-- Use planning_write markdown field
+- Use finalize_planning markdown field
 
 ## Test Plan
 - Assert multiple deltas
@@ -295,7 +295,7 @@ The provider returned full arguments in one chunk.
 - Emit several planning delta events
 
 ## Interfaces
-- Use the new planning_write schema
+- Use the new finalize_planning schema
 
 ## Test Plan
 - Check delta count

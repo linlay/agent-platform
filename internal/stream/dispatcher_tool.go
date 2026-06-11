@@ -45,8 +45,9 @@ func (d *StreamEventDispatcher) handleToolEnd(input ToolEnd) []StreamEvent {
 func (d *StreamEventDispatcher) handleToolResult(input ToolResult) []StreamEvent {
 	events := d.closeTool(input.ToolID, nil)
 	payload := map[string]any{
-		"toolId": input.ToolID,
-		"result": buildToolResultValue(input),
+		"toolId":   input.ToolID,
+		"toolName": input.ToolName,
+		"result":   buildToolResultValue(input),
 	}
 	if len(input.FileChange) > 0 {
 		payload["fileChange"] = clonePayload(input.FileChange)

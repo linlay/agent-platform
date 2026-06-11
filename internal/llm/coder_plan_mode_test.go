@@ -20,7 +20,7 @@ func TestResolveAgentModeCoder(t *testing.T) {
 
 func TestCoderPlanningStageToolsAreReadOnlyPlusQuestionsAndPlan(t *testing.T) {
 	stream := &coderPlanningStream{}
-	want := []string{"file_read", "file_glob", "file_grep", "datetime", "regex", "ask_user_question", "planning_write"}
+	want := []string{"file_read", "file_glob", "file_grep", "datetime", "regex", "ask_user_question", contracts.FinalizePlanningToolName}
 	if got := stream.planStageTools(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("planStageTools()=%#v want %#v", got, want)
 	}
@@ -39,7 +39,7 @@ func TestCoderPlanningStageToolsAreReadOnlyPlusQuestionsAndPlan(t *testing.T) {
 func TestCoderExecuteStageToolsExcludePlanningOnlyTools(t *testing.T) {
 	stream := &coderPlanningStream{
 		session: contracts.QuerySession{
-			ToolNames: []string{"bash", "file_read", "plan_add_tasks", "planning_write", "ask_user_question", "plan_update_task", "datetime"},
+			ToolNames: []string{"bash", "file_read", "plan_add_tasks", contracts.FinalizePlanningToolName, contracts.LegacyPlanningWriteToolName, "ask_user_question", "plan_update_task", "datetime"},
 		},
 	}
 	want := []string{"bash", "file_read", "datetime"}
@@ -52,7 +52,7 @@ func TestCoderPlanningPromptUsesCoderPromptsConfig(t *testing.T) {
 	stream := &coderPlanningStream{
 		engine: &LLMAgentEngine{cfg: config.Config{
 			CoderPrompts: config.CoderPromptsConfig{
-				PlanningPrompt: "custom {{agent_key}} {{workspace_dir}} {{plan_stage_tools}} {{execute_stage_tools}}\nUse {{planning_write_tool_name}}.\n{{execute_tool_descriptions}}",
+				PlanningPrompt: "custom {{agent_key}} {{workspace_dir}} {{plan_stage_tools}} {{execute_stage_tools}}\nUse {{finalize_planning_tool_name}}.\n{{execute_tool_descriptions}}",
 			},
 		}},
 		session: contracts.QuerySession{
@@ -68,10 +68,10 @@ func TestCoderPlanningPromptUsesCoderPromptsConfig(t *testing.T) {
 	if !strings.Contains(prompt, "custom coder /workspace") {
 		t.Fatalf("expected custom coder planning prompt, got %q", prompt)
 	}
-	if !strings.Contains(prompt, "Use planning_write.") {
-		t.Fatalf("expected configured planning_write instructions, got %q", prompt)
+	if !strings.Contains(prompt, "Use finalize_planning.") {
+		t.Fatalf("expected configured finalize_planning instructions, got %q", prompt)
 	}
-	if !strings.Contains(prompt, "file_read, file_glob, file_grep, datetime, regex, ask_user_question, planning_write") {
+	if !strings.Contains(prompt, "file_read, file_glob, file_grep, datetime, regex, ask_user_question, finalize_planning") {
 		t.Fatalf("expected rendered plan stage tools, got %q", prompt)
 	}
 	if !strings.Contains(prompt, "bash, file_read, file_write, file_edit, datetime") {
@@ -90,7 +90,7 @@ func TestCoderExecutionSystemPromptIncludesRenderedCoderSystemPrompt(t *testing.
 			AgentName:         "Coder",
 			Mode:              "CODER",
 			PlanningMode:      true,
-			ToolNames:         []string{"bash", "file_read", "planning_write", "ask_user_question"},
+			ToolNames:         []string{"bash", "file_read", contracts.FinalizePlanningToolName, contracts.LegacyPlanningWriteToolName, "ask_user_question"},
 			CoderSystemPrompt: "CODER {{agent_key}} {{agent_name}} {{available_tools}} {{execute_stage_tools}} {{bash_tool_name}}",
 		},
 		settings: contracts.PlanExecuteSettings{
@@ -169,6 +169,8 @@ func TestCoderPlanningConfirmationUsesPlanMode(t *testing.T) {
 			PlanningState: &contracts.PlanningRuntimeState{
 				PlanningID:   "run_1_planning_1",
 				PlanningFile: "/tmp/chat_1/.tools/plans/run_1_planning_1.md",
+				ToolCallID:   "tool_plan",
+				ToolName:     contracts.FinalizePlanningToolName,
 			},
 			Budget: contracts.Budget{
 				Tool: contracts.RetryPolicy{Timeout: 120},
@@ -177,7 +179,7 @@ func TestCoderPlanningConfirmationUsesPlanMode(t *testing.T) {
 		},
 	}
 	ask := stream.planConfirmationAsk()
-	if ask.AwaitingID != "run_1_coder_plan_confirm_1" || ask.Mode != "plan" || ask.ViewportType != "builtin" || ask.ViewportKey != "plan" {
+	if ask.AwaitingID != "tool_plan" || ask.Mode != "plan" || ask.ViewportType != "builtin" || ask.ViewportKey != "plan" {
 		t.Fatalf("expected plan confirmation ask, got %#v", ask)
 	}
 	if ask.Timeout != 0 {
@@ -205,7 +207,7 @@ func TestCoderPlanningConfirmationUsesPlanMode(t *testing.T) {
 	}
 }
 
-func TestCoderPlanningStageEOFWithPlanningWriteEmitsConfirmation(t *testing.T) {
+func TestCoderPlanningStageEOFWithFinalizePlanningEmitsConfirmation(t *testing.T) {
 	stream := &coderPlanningStream{
 		session: contracts.QuerySession{RunID: "run_1"},
 		execCtx: &contracts.ExecutionContext{
@@ -213,6 +215,8 @@ func TestCoderPlanningStageEOFWithPlanningWriteEmitsConfirmation(t *testing.T) {
 			PlanningState: &contracts.PlanningRuntimeState{
 				PlanningID: "run_1_planning_1",
 				Markdown:   "# Plan\n\n- Do it",
+				ToolCallID: "tool_plan",
+				ToolName:   contracts.FinalizePlanningToolName,
 			},
 		},
 	}
@@ -226,7 +230,7 @@ func TestCoderPlanningStageEOFWithPlanningWriteEmitsConfirmation(t *testing.T) {
 		t.Fatalf("expected one pending confirmation ask, got %#v", stream.pending)
 	}
 	ask, ok := stream.pending[0].(contracts.DeltaAwaitAsk)
-	if !ok || ask.Mode != "plan" || ask.Plan["planningId"] != "run_1_planning_1" {
+	if !ok || ask.Mode != "plan" || ask.AwaitingID != "tool_plan" || ask.Plan["planningId"] != "run_1_planning_1" {
 		t.Fatalf("expected plan confirmation ask, got %#v", stream.pending[0])
 	}
 }

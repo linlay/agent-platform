@@ -1,6 +1,6 @@
-name: planning_write
-label: 写入规划（兼容）
-description: Legacy alias for finalize_planning. New CODER planning-mode prompts expose finalize_planning instead.
+name: finalize_planning
+label: 确认规划
+description: Finalize the CODER planning-mode Markdown plan. This tool is only available during CODER planning mode and must be called exactly once when the plan is ready for user confirmation.
 type: function
 clientVisible: false
 inputSchema:

@@ -974,7 +974,7 @@ func TestCoderPlanningModeQuestionsConfirmThenExecutes(t *testing.T) {
 				providerToolCallsFrame(t, []providerToolCallSpec{
 					{
 						ID:   "tool_plan",
-						Name: "planning_write",
+						Name: "finalize_planning",
 						Args: map[string]any{
 							"markdown": `# Confirm Coder Plan
 
@@ -1008,14 +1008,15 @@ Plan first, then check the current time before reporting.
 			)
 		case 4:
 			assertStringSliceContains(t, toolNames, "bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "regex")
-			assertStringSliceExcludes(t, toolNames, "plan_add_tasks", "planning_write", "ask_user_question", "plan_update_task")
+			assertStringSliceExcludes(t, toolNames, "plan_add_tasks", "finalize_planning", "planning_write", "ask_user_question", "plan_update_task")
+			assertProviderMessagesContainToolResult(t, payload, "tool_plan", "finalize_planning", "approve")
 			writeProviderSSE(t, w,
 				providerToolCallFrame(t, "tool_time", "datetime", map[string]any{}),
 				`[DONE]`,
 			)
 		case 5:
 			assertStringSliceContains(t, toolNames, "bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "regex")
-			assertStringSliceExcludes(t, toolNames, "plan_add_tasks", "planning_write", "ask_user_question", "plan_update_task")
+			assertStringSliceExcludes(t, toolNames, "plan_add_tasks", "finalize_planning", "planning_write", "ask_user_question", "plan_update_task")
 			writeProviderSSE(t, w,
 				`{"choices":[{"delta":{"content":"execution completed"},"finish_reason":"stop"}]}`,
 				`[DONE]`,
@@ -1078,14 +1079,14 @@ Plan first, then check the current time before reporting.
 	if !strings.Contains(streamBody.String(), `"type":"planning.delta"`) {
 		t.Fatalf("expected planning.delta before confirmation, got %s", streamBody.String())
 	}
-	if strings.Contains(streamBody.String(), `"toolName":"planning_write"`) || strings.Contains(streamBody.String(), `"toolId":"tool_plan"`) {
-		t.Fatalf("did not expect hidden planning_write tool events before confirmation, got %s", streamBody.String())
+	if strings.Contains(streamBody.String(), `"toolName":"finalize_planning"`) || strings.Contains(streamBody.String(), `"toolId":"tool_plan"`) {
+		t.Fatalf("did not expect hidden finalize_planning tool events before confirmation, got %s", streamBody.String())
 	}
 	if got := strings.Count(streamBody.String(), `"type":"planning.delta"`); got <= 1 {
 		t.Fatalf("expected multiple planning.delta events before confirmation, got %d in %s", got, streamBody.String())
 	}
 	timeResultIndex := strings.Index(streamBody.String(), `"type":"tool.result","toolId":"tool_plan_time"`)
-	confirmationAskIndex := strings.Index(streamBody.String(), `"awaitingId":"`+runID+`_coder_plan_confirm_1"`)
+	confirmationAskIndex := strings.Index(streamBody.String(), `"awaitingId":"`+confirmAwaitingID+`"`)
 	if !(timeResultIndex >= 0 && confirmationAskIndex > timeResultIndex) {
 		t.Fatalf("expected later planning batch tool result before confirmation, got %s", streamBody.String())
 	}
@@ -1141,9 +1142,10 @@ Plan first, then check the current time before reporting.
 		t.Fatalf("provider calls = %d, want 6", got)
 	}
 	assertPersistedPlanningModeRequestQuery(t, fixture.server)
+	assertJSONLFinalizePlanningHistory(t, fixture.chats, chatID, map[string]string{"tool_plan": "approve"})
 }
 
-func TestCoderPlanningWriteStreamsDeltasBeforeProviderFinishes(t *testing.T) {
+func TestFinalizePlanningStreamsDeltasBeforeProviderFinishes(t *testing.T) {
 	for _, tc := range []struct {
 		name               string
 		clientVisible      bool
@@ -1180,7 +1182,7 @@ func TestCoderPlanningWriteStreamsDeltasBeforeProviderFinishes(t *testing.T) {
 						t.Fatalf("expected flusher")
 					}
 					w.Header().Set("Content-Type", "text/event-stream")
-					writeProviderSSEFrame(t, w, providerToolCallArgsDeltaFrame(t, "tool_plan", "planning_write", prefixArgs, ""))
+					writeProviderSSEFrame(t, w, providerToolCallArgsDeltaFrame(t, "tool_plan", "finalize_planning", prefixArgs, ""))
 					flusher.Flush()
 					close(firstFrameFlushed)
 
@@ -1228,7 +1230,7 @@ func TestCoderPlanningWriteStreamsDeltasBeforeProviderFinishes(t *testing.T) {
 						lines = append(lines,
 							"toolConfig:",
 							"  overrides:",
-							"    planning_write:",
+							"    finalize_planning:",
 							"      meta:",
 							"        clientVisible: true",
 						)
@@ -1281,7 +1283,7 @@ func TestCoderPlanningWriteStreamsDeltasBeforeProviderFinishes(t *testing.T) {
 			if !strings.Contains(draft, "Part one") || strings.Contains(draft, "part two") {
 				t.Fatalf("unexpected draft planning markdown before provider finished:\n%s", draft)
 			}
-			assertPlanningWriteToolVisibility(t, streamBody.String(), tc.wantToolVisibility)
+			assertFinalizePlanningToolVisibility(t, streamBody.String(), tc.wantToolVisibility)
 
 			prefixDeltaCount := strings.Count(streamBody.String(), `"type":"planning.delta"`)
 			close(continueProvider)
@@ -1300,7 +1302,7 @@ func TestCoderPlanningWriteStreamsDeltasBeforeProviderFinishes(t *testing.T) {
 			if !strings.Contains(string(finalBytes), "Part one and part two.") {
 				t.Fatalf("expected final planning markdown to contain both provider chunks, got:\n%s", string(finalBytes))
 			}
-			assertPlanningWriteToolVisibility(t, bodyBeforeDecision, tc.wantToolVisibility)
+			assertFinalizePlanningToolVisibility(t, bodyBeforeDecision, tc.wantToolVisibility)
 
 			submitFrontendDecision(t, fixture.server, runID, confirmAwaitingID, "reject")
 			readRemainingSSEUntilEOF(t, reader, &streamBody)
@@ -1323,7 +1325,7 @@ func TestCoderPlanningModeCancelDoesNotExecuteTasks(t *testing.T) {
 		case 1:
 			assertCoderPlanningToolSet(t, providerRequestToolNames(payload["tools"]))
 			writeProviderSSE(t, w,
-				providerToolCallFrame(t, "tool_plan", "planning_write", map[string]any{
+				providerToolCallFrame(t, "tool_plan", "finalize_planning", map[string]any{
 					"markdown": `# Cancel Coder Plan
 
 ## Summary
@@ -1349,6 +1351,7 @@ Plan should be canceled before execution.
 			)
 		case 2:
 			assertCoderPlanningToolSet(t, providerRequestToolNames(payload["tools"]))
+			assertProviderMessagesContainToolResult(t, payload, "tool_plan", "finalize_planning", "reject")
 			writeProviderSSE(t, w,
 				`{"choices":[{"delta":{"content":"已取消执行计划。"},"finish_reason":"stop"}]}`,
 				`[DONE]`,
@@ -1443,7 +1446,7 @@ func TestCoderPlanningModeRejectCanGenerateRevisionAndApprove(t *testing.T) {
 		case 1:
 			assertCoderPlanningToolSet(t, toolNames)
 			writeProviderSSE(t, w,
-				providerToolCallFrame(t, "tool_plan_v1", "planning_write", map[string]any{
+				providerToolCallFrame(t, "tool_plan_v1", "finalize_planning", map[string]any{
 					"markdown": `# Revision Plan V1
 
 ## Summary
@@ -1472,8 +1475,9 @@ Initial plan with too little test coverage.
 			if !strings.Contains(string(mustJSONMarshal(t, payload)), "请补充测试范围") {
 				t.Fatalf("expected feedback reason in planning feedback prompt, got %#v", payload)
 			}
+			assertProviderMessagesContainToolResult(t, payload, "tool_plan_v1", "finalize_planning", "reject")
 			writeProviderSSE(t, w,
-				providerToolCallFrame(t, "tool_plan_v2", "planning_write", map[string]any{
+				providerToolCallFrame(t, "tool_plan_v2", "finalize_planning", map[string]any{
 					"markdown": `# Revision Plan V2
 
 ## Summary
@@ -1502,7 +1506,8 @@ Revised plan with explicit test coverage.
 			)
 		case 3:
 			assertStringSliceContains(t, toolNames, "bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "regex")
-			assertStringSliceExcludes(t, toolNames, "planning_write", "ask_user_question")
+			assertStringSliceExcludes(t, toolNames, "finalize_planning", "planning_write", "ask_user_question")
+			assertProviderMessagesContainToolResult(t, payload, "tool_plan_v2", "finalize_planning", "approve")
 			writeProviderSSE(t, w,
 				`{"choices":[{"delta":{"content":"executed revised plan"},"finish_reason":"stop"}]}`,
 				`[DONE]`,
@@ -1555,13 +1560,13 @@ Revised plan with explicit test coverage.
 	reader := bufio.NewReader(resp.Body)
 	var streamBody strings.Builder
 	runID, firstConfirmAwaitingID := readAwaitingApproval(t, reader, &streamBody, "confirm")
-	if !strings.Contains(streamBody.String(), runID+`_planning_1`) || !strings.Contains(streamBody.String(), runID+`_coder_plan_confirm_1`) {
+	if !strings.Contains(streamBody.String(), runID+`_planning_1`) || !strings.Contains(streamBody.String(), `"awaitingId":"tool_plan_v1"`) {
 		t.Fatalf("expected first planning revision and confirmation, got %s", streamBody.String())
 	}
 	submitFrontendDecisionWithReason(t, fixture.server, runID, firstConfirmAwaitingID, "reject", "请补充测试范围")
 
 	_, secondConfirmAwaitingID := readAwaitingApproval(t, reader, &streamBody, "confirm")
-	if !strings.Contains(streamBody.String(), runID+`_planning_2`) || !strings.Contains(streamBody.String(), runID+`_coder_plan_confirm_2`) {
+	if !strings.Contains(streamBody.String(), runID+`_planning_2`) || !strings.Contains(streamBody.String(), `"awaitingId":"tool_plan_v2"`) {
 		t.Fatalf("expected second planning revision and confirmation, got %s", streamBody.String())
 	}
 	secondPlanningFile := filepath.Join(fixture.cfg.Paths.ChatsDir, chatID, chat.ToolRootDirName, chat.ToolPlansDirName, runID+"_planning_2.md")
@@ -1582,6 +1587,10 @@ Revised plan with explicit test coverage.
 	if got := providerCallCount.Load(); got != 4 {
 		t.Fatalf("provider calls = %d, want 4", got)
 	}
+	assertJSONLFinalizePlanningHistory(t, fixture.chats, chatID, map[string]string{
+		"tool_plan_v1": "reject",
+		"tool_plan_v2": "approve",
+	})
 }
 
 func readAwaitingQuestion(t *testing.T, reader *bufio.Reader, streamBody *strings.Builder, expectedQuestion string) (string, string) {
@@ -1682,7 +1691,7 @@ func assertPlanningLifecycleBeforePlanAwaiting(t *testing.T, body string, runID 
 	startIndex := strings.Index(body, `"type":"planning.start"`)
 	deltaIndex := strings.Index(body, `"type":"planning.delta"`)
 	endIndex := strings.LastIndex(body, `"type":"planning.end"`)
-	awaitingIndex := strings.Index(body, `"awaitingId":"`+runID+`_coder_plan_confirm_`)
+	awaitingIndex := strings.Index(body, "实施此计划？")
 	if !(startIndex >= 0 && deltaIndex > startIndex && endIndex > deltaIndex && awaitingIndex > endIndex) {
 		t.Fatalf("expected planning.start < planning.delta < planning.end < plan awaiting, got %s", body)
 	}
@@ -1731,17 +1740,62 @@ func mustJSONMarshal(t *testing.T, value any) []byte {
 	return data
 }
 
-func assertPlanningWriteToolVisibility(t *testing.T, body string, wantVisible bool) {
+func assertProviderMessagesContainToolResult(t *testing.T, payload map[string]any, toolID string, toolName string, decision string) {
 	t.Helper()
-	hasPlanningWriteTool := strings.Contains(body, `"toolName":"planning_write"`) || strings.Contains(body, `"toolId":"tool_plan"`)
+	messages, _ := payload["messages"].([]any)
+	if len(messages) == 0 {
+		t.Fatalf("expected provider messages, got %#v", payload)
+	}
+	toolCallIndex := -1
+	toolResultIndex := -1
+	for index, raw := range messages {
+		message, _ := raw.(map[string]any)
+		if len(message) == 0 {
+			continue
+		}
+		switch strings.TrimSpace(stringValue(message["role"])) {
+		case "assistant":
+			calls, _ := message["tool_calls"].([]any)
+			for _, rawCall := range calls {
+				call, _ := rawCall.(map[string]any)
+				if strings.TrimSpace(stringValue(call["id"])) != toolID {
+					continue
+				}
+				fn, _ := call["function"].(map[string]any)
+				if strings.TrimSpace(stringValue(fn["name"])) == toolName {
+					toolCallIndex = index
+				}
+			}
+		case "tool":
+			if strings.TrimSpace(stringValue(message["tool_call_id"])) != toolID {
+				continue
+			}
+			if strings.TrimSpace(stringValue(message["name"])) != toolName {
+				t.Fatalf("tool result for %s used wrong tool name in payload %#v", toolID, message)
+			}
+			content := stringValue(message["content"])
+			if !strings.Contains(content, `"decision":"`+decision+`"`) {
+				t.Fatalf("tool result for %s missing decision %q in content %q", toolID, decision, content)
+			}
+			toolResultIndex = index
+		}
+	}
+	if toolCallIndex < 0 || toolResultIndex < 0 || toolResultIndex < toolCallIndex {
+		t.Fatalf("expected assistant tool_call before matching tool result id=%s name=%s, got messages %#v", toolID, toolName, messages)
+	}
+}
+
+func assertFinalizePlanningToolVisibility(t *testing.T, body string, wantVisible bool) {
+	t.Helper()
+	hasFinalizePlanningTool := strings.Contains(body, `"toolName":"finalize_planning"`) || strings.Contains(body, `"toolId":"tool_plan"`)
 	if wantVisible {
-		if !hasPlanningWriteTool || !strings.Contains(body, `"type":"tool.args"`) {
-			t.Fatalf("expected visible planning_write tool events, got %s", body)
+		if !hasFinalizePlanningTool || !strings.Contains(body, `"type":"tool.args"`) {
+			t.Fatalf("expected visible finalize_planning tool events, got %s", body)
 		}
 		return
 	}
-	if hasPlanningWriteTool {
-		t.Fatalf("did not expect hidden planning_write tool events, got %s", body)
+	if hasFinalizePlanningTool {
+		t.Fatalf("did not expect hidden finalize_planning tool events, got %s", body)
 	}
 }
 
@@ -1793,8 +1847,8 @@ func assertCoderPlanningToolSet(t *testing.T, got []string) {
 	if len(got) != 7 {
 		t.Fatalf("coder planning tools length=%d tools=%#v", len(got), got)
 	}
-	assertStringSliceContains(t, got, "file_read", "file_glob", "file_grep", "datetime", "regex", "ask_user_question", "planning_write")
-	assertStringSliceExcludes(t, got, "bash", "file_write", "file_edit", "desktop_action", "desktop_cdp", "agent_invoke", "plan_add_tasks", "plan_update_task")
+	assertStringSliceContains(t, got, "file_read", "file_glob", "file_grep", "datetime", "regex", "ask_user_question", "finalize_planning")
+	assertStringSliceExcludes(t, got, "bash", "file_write", "file_edit", "desktop_action", "desktop_cdp", "agent_invoke", "plan_add_tasks", "plan_update_task", "planning_write")
 }
 
 func awaitingQuestionText(payload map[string]any) string {
@@ -1914,6 +1968,74 @@ func assertPersistedPlanningModeRequestQuery(t *testing.T, server http.Handler) 
 		}
 	}
 	t.Fatalf("expected persisted request.query planningMode=true, got %#v", chatResp.Data.Events)
+}
+
+func assertJSONLFinalizePlanningHistory(t *testing.T, store chat.Store, chatID string, decisions map[string]string) {
+	t.Helper()
+	content, err := store.LoadJSONLContent(chatID)
+	if err != nil {
+		t.Fatalf("load chat jsonl: %v", err)
+	}
+	decoder := json.NewDecoder(strings.NewReader(content))
+	toolCalls := map[string]bool{}
+	toolResults := map[string]string{}
+	for {
+		var line map[string]any
+		if err := decoder.Decode(&line); err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			t.Fatalf("decode chat jsonl line: %v\n%s", err, content)
+		}
+		if stringValue(line["_type"]) == "planning" {
+			t.Fatalf("did not expect persisted _type planning row, got:\n%s", content)
+		}
+		messages, _ := line["messages"].([]any)
+		for _, rawMessage := range messages {
+			message, _ := rawMessage.(map[string]any)
+			switch stringValue(message["role"]) {
+			case "assistant":
+				for _, rawCall := range anySliceForServerTest(message["tool_calls"]) {
+					call, _ := rawCall.(map[string]any)
+					fn, _ := call["function"].(map[string]any)
+					if stringValue(fn["name"]) == "finalize_planning" {
+						toolCalls[stringValue(call["id"])] = true
+					}
+				}
+			case "tool":
+				toolID := stringValue(message["tool_call_id"])
+				if stringValue(message["name"]) == "finalize_planning" && toolID != "" {
+					toolResults[toolID] = textFromJSONLMessageContentForServerTest(message["content"])
+				}
+			}
+		}
+	}
+	for toolID, decision := range decisions {
+		if !toolCalls[toolID] {
+			t.Fatalf("expected JSONL assistant finalize_planning tool_call %s, got:\n%s", toolID, content)
+		}
+		result := toolResults[toolID]
+		if !strings.Contains(result, `"decision":"`+decision+`"`) {
+			t.Fatalf("expected JSONL tool result %s decision %q, got result %q in:\n%s", toolID, decision, result, content)
+		}
+	}
+}
+
+func anySliceForServerTest(value any) []any {
+	items, _ := value.([]any)
+	return items
+}
+
+func textFromJSONLMessageContentForServerTest(value any) string {
+	if text, ok := value.(string); ok {
+		return text
+	}
+	var b strings.Builder
+	for _, raw := range anySliceForServerTest(value) {
+		part, _ := raw.(map[string]any)
+		b.WriteString(stringValue(part["text"]))
+	}
+	return b.String()
 }
 
 func assertPlanningSnapshotBeforePlanAwaitingForServerTest(t *testing.T, events []stream.EventData) {
