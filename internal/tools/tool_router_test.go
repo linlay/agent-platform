@@ -127,6 +127,65 @@ inputSchema:
 	}
 }
 
+func TestLoadRuntimeToolDefinitionsBindsBundleService(t *testing.T) {
+	root := t.TempDir()
+	bundle := filepath.Join(root, "qiuerscript")
+	if err := os.MkdirAll(bundle, 0o755); err != nil {
+		t.Fatalf("create bundle: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(bundle, "service.yml"), []byte(`
+key: qiuerscript
+transport: stdio-jsonrpc
+command: ./qiuerscript-tool
+args: ["serve", "--datasource", "dev"]
+startupTimeout: 5
+timeout: 30
+`), 0o644); err != nil {
+		t.Fatalf("write service: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(bundle, "qs_read.yml"), []byte(`
+name: qs_read
+label: Read QS
+description: Read Qiuer method.
+submitResultFormat: json-compact
+type: function
+inputSchema:
+  type: object
+  properties:
+    file_path:
+      type: string
+  required:
+    - file_path
+`), 0o644); err != nil {
+		t.Fatalf("write runtime tool: %v", err)
+	}
+
+	defs, err := LoadRuntimeToolDefinitions(root)
+	if err != nil {
+		t.Fatalf("load runtime tools: %v", err)
+	}
+	if len(defs) != 1 {
+		t.Fatalf("expected only qs_read to load, got %#v", defs)
+	}
+	tool := defs[0]
+	if tool.Name != "qs_read" {
+		t.Fatalf("expected qs_read, got %q", tool.Name)
+	}
+	if tool.Meta["kind"] != "external" || tool.Meta["serviceKey"] != "qiuerscript" {
+		t.Fatalf("unexpected runtime tool metadata %#v", tool.Meta)
+	}
+	if _, exists := tool.Meta["explicitOnly"]; exists {
+		t.Fatalf("did not expect explicitOnly from bundle service, got %#v", tool.Meta)
+	}
+	externalMeta, _ := tool.Meta["external"].(map[string]any)
+	if externalMeta["command"] != filepath.Join(bundle, "qiuerscript-tool") {
+		t.Fatalf("expected bundle command to resolve from service dir, got %#v", externalMeta["command"])
+	}
+	if externalMeta["workingDirectory"] != bundle {
+		t.Fatalf("expected bundle working directory, got %#v", externalMeta["workingDirectory"])
+	}
+}
+
 func TestToolRouterInvokeExternalTool(t *testing.T) {
 	external := &captureExternalInvoker{}
 	router := NewToolRouter(stubBackendToolExecutor{}, nil, nil, nil, nil, api.ToolDetailResponse{

@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -14,24 +15,21 @@ import (
 )
 
 func LoadRuntimeToolDefinitions(root string) ([]api.ToolDetailResponse, error) {
-	entries, err := os.ReadDir(root)
-	if os.IsNotExist(err) {
+	if _, err := os.Stat(root); os.IsNotExist(err) {
 		return nil, nil
+	} else if err != nil {
+		return nil, err
 	}
+
+	files, err := runtimeToolYAMLFiles(root)
 	if err != nil {
 		return nil, err
 	}
-	names := make([]string, 0, len(entries))
-	for _, entry := range entries {
-		names = append(names, entry.Name())
-	}
-	sort.Strings(names)
-	out := make([]api.ToolDetailResponse, 0, len(names))
-	for _, name := range names {
-		if !catalog.ShouldLoadRuntimeName(name) || (!strings.HasSuffix(name, ".yml") && !strings.HasSuffix(name, ".yaml")) {
-			continue
-		}
-		path := filepath.Join(root, name)
+
+	servicesByDir := map[string]runtimeExternalService{}
+	servicesByKey := map[string]string{}
+	toolFiles := make([]runtimeToolFile, 0, len(files))
+	for _, path := range files {
 		tree, err := config.LoadYAMLTree(path)
 		if err != nil {
 			log.Printf("[tools] skip invalid tool file %s: %v", path, err)
@@ -42,14 +40,103 @@ func LoadRuntimeToolDefinitions(root string) ([]api.ToolDetailResponse, error) {
 			log.Printf("[tools] skip invalid tool file %s: object root required", path)
 			continue
 		}
-		def, err := parseToolDefinition(rootNode, toolDefinitionParseOptions{sourceType: "agent-local", baseDir: filepath.Dir(path)})
+		if isRuntimeExternalServiceFile(path, rootNode) {
+			service, err := parseRuntimeExternalService(path, rootNode)
+			if err != nil {
+				log.Printf("[tools] skip invalid external service file %s: %v", path, err)
+				continue
+			}
+			if previous, exists := servicesByKey[service.key]; exists {
+				log.Printf("[tools] skip external service file %s: duplicate service key %q already defined by %s", path, service.key, previous)
+				continue
+			}
+			servicesByKey[service.key] = path
+			servicesByDir[filepath.Dir(path)] = service
+			continue
+		}
+		toolFiles = append(toolFiles, runtimeToolFile{path: path, root: rootNode})
+	}
+
+	out := make([]api.ToolDetailResponse, 0, len(toolFiles))
+	for _, file := range toolFiles {
+		options := toolDefinitionParseOptions{sourceType: "agent-local", baseDir: filepath.Dir(file.path)}
+		if service, ok := servicesByDir[filepath.Dir(file.path)]; ok {
+			options.defaultExternal = service.external
+		}
+		def, err := parseToolDefinition(file.root, options)
 		if err != nil {
-			log.Printf("[tools] skip invalid tool file %s: %v", path, err)
+			log.Printf("[tools] skip invalid tool file %s: %v", file.path, err)
 			continue
 		}
 		out = append(out, def)
 	}
 	return out, nil
+}
+
+type runtimeToolFile struct {
+	path string
+	root map[string]any
+}
+
+type runtimeExternalService struct {
+	key      string
+	external map[string]any
+}
+
+func runtimeToolYAMLFiles(root string) ([]string, error) {
+	files := make([]string, 0, 16)
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+		if entry == nil {
+			return nil
+		}
+		name := entry.Name()
+		if entry.IsDir() {
+			if path != root && (strings.HasPrefix(name, ".") || !catalog.ShouldLoadRuntimeName(name)) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !catalog.ShouldLoadRuntimeName(name) || (!strings.HasSuffix(name, ".yml") && !strings.HasSuffix(name, ".yaml")) {
+			return nil
+		}
+		files = append(files, path)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(files)
+	return files, nil
+}
+
+func isRuntimeExternalServiceFile(path string, root map[string]any) bool {
+	name := strings.ToLower(filepath.Base(path))
+	if name == "service.yml" || name == "service.yaml" {
+		return true
+	}
+	return strings.EqualFold(strings.TrimSpace(AnyStringNode(root["kind"])), "external-service")
+}
+
+func parseRuntimeExternalService(path string, root map[string]any) (runtimeExternalService, error) {
+	serviceKey := strings.TrimSpace(AnyStringNode(root["key"]))
+	if serviceKey == "" {
+		serviceKey = strings.TrimSpace(AnyStringNode(root["serviceKey"]))
+	}
+	if serviceKey == "" {
+		serviceKey = strings.TrimSpace(filepath.Base(filepath.Dir(path)))
+	}
+	external := CloneMap(root)
+	delete(external, "key")
+	delete(external, "kind")
+	external["serviceKey"] = serviceKey
+	normalized, err := normalizeExternalToolMeta(serviceKey, serviceKey, external, filepath.Dir(path))
+	if err != nil {
+		return runtimeExternalService{}, err
+	}
+	return runtimeExternalService{key: serviceKey, external: normalized}, nil
 }
 
 func MergeToolDefinitions(base []api.ToolDetailResponse, runtime []api.ToolDetailResponse, mcp []api.ToolDetailResponse) []api.ToolDetailResponse {

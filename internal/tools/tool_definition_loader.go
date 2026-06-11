@@ -13,6 +13,7 @@ type toolDefinitionParseOptions struct {
 	sourceType       string
 	defaultSourceKey string
 	baseDir          string
+	defaultExternal  map[string]any
 }
 
 func parseToolDefinition(root map[string]any, options toolDefinitionParseOptions) (api.ToolDetailResponse, error) {
@@ -29,6 +30,9 @@ func parseToolDefinition(root map[string]any, options toolDefinitionParseOptions
 	viewportKey := AnyStringNode(root["viewportKey"])
 	kind := "backend"
 	external := AnyMapNode(root["external"])
+	if len(external) == 0 && len(options.defaultExternal) > 0 {
+		external = CloneMap(options.defaultExternal)
+	}
 	switch typeValue {
 	case "frontend":
 		kind = "frontend"
