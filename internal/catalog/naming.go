@@ -22,6 +22,31 @@ func ShouldIgnoreRuntimeWatchPath(path string) bool {
 	return name == ".DS_Store"
 }
 
+// ShouldWatchRuntimeDir returns true if a directory should be recursively
+// watched by the file watcher. Returns false for staging directories
+// (e.g. "cutej.bootstrap"), backup snapshots (containing ".bak."), and
+// post-init leftovers (e.g. "bootstrap.deleted"). Keeping this close to
+// ShouldLoadRuntimeName ensures watch and load filtering stay consistent.
+func ShouldWatchRuntimeDir(name string) bool {
+	if !ShouldLoadRuntimeName(name) {
+		return false
+	}
+	lower := strings.ToLower(name)
+	// Staging directories created before bootstrap renames them.
+	if strings.HasSuffix(lower, ".bootstrap") {
+		return false
+	}
+	// Backup snapshots created by bootstrap or manual operations.
+	if strings.Contains(lower, ".bak.") {
+		return false
+	}
+	// Post-init leftovers.
+	if strings.HasSuffix(lower, ".deleted") {
+		return false
+	}
+	return true
+}
+
 func LogicalRuntimeBaseName(rawName string) string {
 	name := strings.TrimSpace(rawName)
 	if name == "" {

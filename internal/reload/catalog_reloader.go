@@ -191,6 +191,9 @@ func StartBackgroundReloaders(ctx context.Context, cfg config.Config, reloader c
 			Path:      entry.path,
 			Label:     entry.reason,
 			Recursive: true,
+			ShouldTraverse: func(path string) bool {
+				return catalog.ShouldWatchRuntimeDir(filepath.Base(path))
+			},
 		})
 	}
 

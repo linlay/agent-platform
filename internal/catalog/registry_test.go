@@ -54,6 +54,42 @@ func TestShouldIgnoreRuntimeWatchPath(t *testing.T) {
 	}
 }
 
+func TestShouldWatchRuntimeDir(t *testing.T) {
+	cases := []struct {
+		name string
+		want bool
+	}{
+		// Normal agent directories — should be watched
+		{name: "cutej", want: true},
+		{name: "dailyOfficeProAssistant", want: true},
+		{name: "myAgent", want: true},
+
+		// Staging directories — should NOT be watched
+		{name: "cutej.bootstrap", want: false},
+		{name: "dailyOfficeProAssistant.bootstrap", want: false},
+		{name: "Agent.Bootstrap", want: false},
+
+		// Backup directories — should NOT be watched
+		{name: "cutej.bak.20260612-142448", want: false},
+		{name: "bootstrap.deleted.bak.20260612", want: false},
+
+		// Post-init leftovers — should NOT be watched
+		{name: "bootstrap.deleted", want: false},
+		{name: "something.deleted", want: false},
+
+		// Example directories — already excluded by ShouldLoadRuntimeName
+		{name: "agent.example", want: false},
+
+		// Empty name
+		{name: "", want: false},
+	}
+	for _, tc := range cases {
+		if got := ShouldWatchRuntimeDir(tc.name); got != tc.want {
+			t.Fatalf("ShouldWatchRuntimeDir(%q)=%v want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
 func TestLogicalRuntimeBaseNameStripsDemoAndExampleMarkers(t *testing.T) {
 	cases := map[string]string{
 		"auth.yml":            "auth",

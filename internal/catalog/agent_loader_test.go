@@ -792,6 +792,31 @@ func TestParseAgentFileAcceptsChatWorkspaceRoot(t *testing.T) {
 	}
 }
 
+func TestParseAgentFileAcceptsSlashWorkspaceRoot(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	content := "" +
+		"key: chat-worker\n" +
+		"mode: REACT\n" +
+		"runtimeConfig:\n" +
+		"  workspaceRoot: \"/\"\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	want, err := filepath.Abs("/")
+	if err != nil {
+		t.Fatalf("filepath.Abs: %v", err)
+	}
+	if def.Workspace.Root != want {
+		t.Fatalf("workspace root = %q, want %q", def.Workspace.Root, want)
+	}
+}
+
 func TestParseAgentFileReadsHostAccessAndSandboxMounts(t *testing.T) {
 	root := t.TempDir()
 	owner := filepath.Join(root, "owner")

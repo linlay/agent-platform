@@ -186,6 +186,11 @@ func cleanWorkspaceRoot(root string) string {
 	if strings.EqualFold(root, AgentWorkspaceRootChat) {
 		return AgentWorkspaceRootChat
 	}
+	if root == "/" || root == "\\" {
+		if abs, err := filepath.Abs(root); err == nil {
+			return abs
+		}
+	}
 	root = expandHomeWorkspaceRoot(root)
 	return filepath.Clean(root)
 }
