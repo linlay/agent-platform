@@ -53,8 +53,8 @@ func TestLoadDefaults(t *testing.T) {
 			if cfg.Stream.DebugEventsEnabled {
 				t.Fatalf("expected stream debug events disabled by default")
 			}
-			if cfg.SSE.HeartbeatInterval != 60 {
-				t.Fatalf("expected default heartbeat interval 60, got %d", cfg.SSE.HeartbeatInterval)
+			if cfg.SSE.HeartbeatInterval != 30 {
+				t.Fatalf("expected default heartbeat interval 30, got %d", cfg.SSE.HeartbeatInterval)
 			}
 			if cfg.H2A.Render.HeartbeatPassThrough != true {
 				t.Fatalf("expected heartbeat pass-through enabled by default")
@@ -1304,7 +1304,7 @@ func TestLoadIgnoresOldEnvVars(t *testing.T) {
 					if cfg.Paths.MemoryDir == filepath.Join("var", "custom-memory") {
 						t.Fatalf("old memory storage env should not affect memory dir")
 					}
-					if cfg.SSE.HeartbeatInterval != 60 || cfg.H2A.Render.FlushInterval != 0 {
+					if cfg.SSE.HeartbeatInterval != 30 || cfg.H2A.Render.FlushInterval != 0 {
 						t.Fatalf("old stream timeout env should not affect defaults: sse=%d h2a=%d", cfg.SSE.HeartbeatInterval, cfg.H2A.Render.FlushInterval)
 					}
 					if cfg.Run.ReaperInterval != 30 ||
@@ -1361,7 +1361,7 @@ func TestLoadAcceptsJavaEnvContract(t *testing.T) {
 		if !cfg.Stream.DebugEventsEnabled {
 			t.Fatalf("expected stream debug event flag enabled")
 		}
-		if cfg.SSE.HeartbeatInterval != 60 {
+		if cfg.SSE.HeartbeatInterval != 30 {
 			t.Fatalf("unexpected heartbeat interval: %d", cfg.SSE.HeartbeatInterval)
 		}
 		if cfg.H2A.Render.FlushInterval != 25 {

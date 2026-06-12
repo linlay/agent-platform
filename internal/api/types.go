@@ -498,6 +498,49 @@ type AdminAgentDetailResponse struct {
 	Diagnostics  []AdminAgentDiagnostic `json:"diagnostics,omitempty"`
 }
 
+type AdminRegistrySummary struct {
+	Category    string                 `json:"category"`
+	File        string                 `json:"file"`
+	Key         string                 `json:"key,omitempty"`
+	Name        string                 `json:"name,omitempty"`
+	Status      string                 `json:"status"`
+	Diagnostics []AdminAgentDiagnostic `json:"diagnostics,omitempty"`
+	Source      *AgentSource           `json:"source,omitempty"`
+	Summary     map[string]any         `json:"summary,omitempty"`
+	UpdatedAt   int64                  `json:"updatedAt,omitempty"`
+	Size        int64                  `json:"size,omitempty"`
+}
+
+type AdminRegistryListResponse struct {
+	Items []AdminRegistrySummary `json:"items"`
+	Total int                    `json:"total"`
+}
+
+type AdminRegistryDetailResponse struct {
+	AdminRegistrySummary
+	Content string         `json:"content"`
+	Parsed  map[string]any `json:"parsed,omitempty"`
+}
+
+type AdminRegistryDetailRequest struct {
+	Category string `json:"category"`
+	File     string `json:"file"`
+	Content  string `json:"content"`
+}
+
+type AdminRegistryValidateRequest struct {
+	Category string `json:"category"`
+	File     string `json:"file,omitempty"`
+	Content  string `json:"content"`
+}
+
+type AdminRegistryValidateResponse struct {
+	Status      string                 `json:"status"`
+	Diagnostics []AdminAgentDiagnostic `json:"diagnostics,omitempty"`
+	Summary     map[string]any         `json:"summary,omitempty"`
+	Parsed      map[string]any         `json:"parsed,omitempty"`
+}
+
 type CreateAgentRequest struct {
 	Key          string         `json:"key,omitempty"`
 	Definition   map[string]any `json:"definition"`

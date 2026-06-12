@@ -98,7 +98,7 @@ func defaultConfig() Config {
 			DebugEventsEnabled:       false,
 		},
 		SSE: SSEConfig{
-			HeartbeatInterval: 60, // seconds
+			HeartbeatInterval: 30, // seconds
 		},
 		H2A: H2AConfig{
 			Render: H2ARenderConfig{
