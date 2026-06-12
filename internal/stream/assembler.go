@@ -127,7 +127,19 @@ func isEmptyValue(value any) bool {
 	}
 	v := reflect.ValueOf(value)
 	switch v.Kind() {
-	case reflect.Array, reflect.Chan, reflect.Map, reflect.Slice, reflect.String:
+	case reflect.Chan, reflect.Map, reflect.Slice:
+		if v.IsNil() {
+			return true
+		}
+		return v.Len() == 0
+	case reflect.Func, reflect.Ptr:
+		return v.IsNil()
+	case reflect.Interface:
+		if v.IsNil() {
+			return true
+		}
+		return isEmptyValue(v.Elem().Interface())
+	case reflect.Array, reflect.String:
 		return v.Len() == 0
 	default:
 		return false

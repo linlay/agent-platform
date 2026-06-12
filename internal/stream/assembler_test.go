@@ -108,6 +108,29 @@ func TestAssemblerBootstrapIncludesOptionalQueryContext(t *testing.T) {
 	}
 }
 
+func TestAssemblerBootstrapOmitsTypedNilModel(t *testing.T) {
+	type queryModelOptions struct {
+		Key string `json:"key,omitempty"`
+	}
+	var model *queryModelOptions
+	assembler := NewAssembler(StreamRequest{
+		RequestID: "req_nil_model",
+		RunID:     "run_nil_model",
+		ChatID:    "chat_nil_model",
+		AgentKey:  "agent_nil_model",
+		Message:   "hello",
+		Role:      "user",
+		Model:     model,
+	})
+
+	bootstrap := assembler.Bootstrap()
+	assertStampedTypes(t, bootstrap, "request.query", "run.start")
+	requestQuery := bootstrap[0].ToData()
+	if _, ok := requestQuery["model"]; ok {
+		t.Fatalf("expected typed nil model to be omitted, got %#v", requestQuery)
+	}
+}
+
 func TestAssemblerBootstrapIncludesPlanningModeWhenEnabled(t *testing.T) {
 	assembler := NewAssembler(StreamRequest{
 		RequestID:    "req_plan",
