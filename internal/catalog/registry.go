@@ -173,19 +173,21 @@ type FileRegistry struct {
 	cfg   config.Config
 	tools []api.ToolDetailResponse
 
-	mu     sync.RWMutex
-	agents map[string]AgentDefinition
-	teams  map[string]TeamDefinition
-	skills map[string]SkillDefinition
+	mu          sync.RWMutex
+	agents      map[string]AgentDefinition
+	adminAgents map[string]AdminAgent
+	teams       map[string]TeamDefinition
+	skills      map[string]SkillDefinition
 }
 
 func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*FileRegistry, error) {
 	registry := &FileRegistry{
-		cfg:    cfg,
-		tools:  dedupeToolDefinitions(append([]api.ToolDetailResponse(nil), toolDefs...)),
-		agents: map[string]AgentDefinition{},
-		teams:  map[string]TeamDefinition{},
-		skills: map[string]SkillDefinition{},
+		cfg:         cfg,
+		tools:       dedupeToolDefinitions(append([]api.ToolDetailResponse(nil), toolDefs...)),
+		agents:      map[string]AgentDefinition{},
+		adminAgents: map[string]AdminAgent{},
+		teams:       map[string]TeamDefinition{},
+		skills:      map[string]SkillDefinition{},
 	}
 	if err := registry.Reload(context.Background(), "startup"); err != nil {
 		return nil, err
@@ -204,12 +206,13 @@ func NewFileRegistry(cfg config.Config, toolDefs []api.ToolDetailResponse) (*Fil
 func (r *FileRegistry) Reload(_ context.Context, reason string) error {
 	switch reason {
 	case "agents":
-		agents, err := loadAgents(r.cfg.Paths.AgentsDir, r.cfg.Paths.SkillsMarketDir, r.cfg.Memory.Enabled)
+		agents, adminAgents, err := loadAgentsWithAdmin(r.cfg.Paths.AgentsDir, r.cfg.Paths.SkillsMarketDir, r.cfg.Memory.Enabled)
 		if err != nil {
 			return err
 		}
 		r.mu.Lock()
 		r.agents = agents
+		r.adminAgents = adminAgents
 		r.mu.Unlock()
 		return nil
 	case "teams":
@@ -233,7 +236,7 @@ func (r *FileRegistry) Reload(_ context.Context, reason string) error {
 	}
 
 	// Full reload (startup, config, or unknown reason)
-	agents, err := loadAgents(r.cfg.Paths.AgentsDir, r.cfg.Paths.SkillsMarketDir, r.cfg.Memory.Enabled)
+	agents, adminAgents, err := loadAgentsWithAdmin(r.cfg.Paths.AgentsDir, r.cfg.Paths.SkillsMarketDir, r.cfg.Memory.Enabled)
 	if err != nil {
 		return err
 	}
@@ -248,10 +251,39 @@ func (r *FileRegistry) Reload(_ context.Context, reason string) error {
 
 	r.mu.Lock()
 	r.agents = agents
+	r.adminAgents = adminAgents
 	r.teams = teams
 	r.skills = skills
 	r.mu.Unlock()
 	return nil
+}
+
+func (r *FileRegistry) AdminAgents() []AdminAgent {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	keys := r.orderedAdminAgentKeysLocked()
+	items := make([]AdminAgent, 0, len(keys))
+	for _, key := range keys {
+		items = append(items, cloneAdminAgent(r.adminAgents[key]))
+	}
+	return items
+}
+
+func (r *FileRegistry) AdminAgent(key string) (AdminAgent, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	def, ok := r.adminAgents[strings.TrimSpace(key)]
+	if !ok {
+		return AdminAgent{}, false
+	}
+	return cloneAdminAgent(def), true
+}
+
+func (r *FileRegistry) AdminAgentKeys() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return sortedKeys(r.adminAgents)
 }
 
 func (r *FileRegistry) Agents(scope string) []api.AgentSummary {

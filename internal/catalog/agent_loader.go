@@ -24,7 +24,13 @@ func resolveDirectoryAgentConfig(dirPath string) string {
 }
 
 func loadAgents(root, marketDir string, globalMemoryEnabled bool) (map[string]AgentDefinition, error) {
+	items, _, err := loadAgentsWithAdmin(root, marketDir, globalMemoryEnabled)
+	return items, err
+}
+
+func loadAgentsWithAdmin(root, marketDir string, globalMemoryEnabled bool) (map[string]AgentDefinition, map[string]AdminAgent, error) {
 	items := map[string]AgentDefinition{}
+	adminItems := map[string]AdminAgent{}
 	err := visitRuntimeEntries(
 		root,
 		func(root string) {
@@ -34,46 +40,187 @@ func loadAgents(root, marketDir string, globalMemoryEnabled bool) (map[string]Ag
 			return !strings.HasPrefix(name, ".") && ShouldLoadRuntimeName(name)
 		},
 		func(name string, entry os.DirEntry) {
-			if entry.IsDir() {
-				agentDir := filepath.Join(root, name)
-				configPath := resolveDirectoryAgentConfig(agentDir)
-				if configPath == "" {
-					log.Printf("[catalog][agents] skip directory %s: no agent.yml or agent.yaml found", name)
-					return
-				}
-				def, err := parseAgentFileWithPrompts(configPath, agentDir)
-				if err != nil {
-					log.Printf("[catalog][agents] skip directory %s: parse error: %v", name, err)
-					return
-				}
-				if def.Key != name {
-					log.Printf("[catalog][agents] skip directory %s: key mismatch (file key=%q, directory=%q)", name, def.Key, name)
-					return
-				}
-				def.AgentDir = agentDir
-				if marketDir != "" && len(def.Skills) > 0 {
-					if err := reconcileDeclaredSkills(agentDir, def.Skills, marketDir); err != nil {
-						log.Printf("[catalog][skills] sync %s: %v", def.Key, err)
-					}
-				}
-				items[def.Key] = applyGlobalAgentFlags(def, globalMemoryEnabled)
-				return
-			}
-			if !strings.HasSuffix(name, ".yml") && !strings.HasSuffix(name, ".yaml") {
-				return
-			}
-			def, err := parseAgentFile(filepath.Join(root, name))
-			if err != nil {
-				log.Printf("[catalog][agents] skip file %s: parse error: %v", name, err)
-				return
-			}
-			items[def.Key] = applyGlobalAgentFlags(def, globalMemoryEnabled)
+			loadAgentSourceIntoMaps(root, name, entry, marketDir, globalMemoryEnabled, items, adminItems)
 		},
 	)
 	if err != nil {
+		return nil, nil, err
+	}
+	return items, adminItems, nil
+}
+
+func loadAgentSourceIntoMaps(root string, name string, entry os.DirEntry, marketDir string, globalMemoryEnabled bool, items map[string]AgentDefinition, adminItems map[string]AdminAgent) {
+	source, ok := runtimeAgentSource(root, name, entry)
+	if !ok {
+		return
+	}
+	fallbackKey := adminAgentFallbackKey(source)
+	definition, err := readAdminAgentDefinitionMap(source.Path)
+	if err != nil {
+		log.Printf("[catalog][agents] skip %s %s: parse error: %v", source.Kind, name, err)
+		adminItems[fallbackKey] = invalidAdminAgent(source, fallbackKey, nil, "invalid_yaml", err)
+		return
+	}
+	adminKey := adminAgentKey(source, fallbackKey, definition)
+	def, _, err := parseAgentFileRaw(source.Path)
+	if err != nil {
+		log.Printf("[catalog][agents] skip %s %s: parse error: %v", source.Kind, name, err)
+		adminItems[adminKey] = invalidAdminAgent(source, adminKey, definition, "invalid_config", err)
+		return
+	}
+	if source.Kind == "directory" && def.Key != name {
+		err := fmt.Errorf("key mismatch (file key=%q, directory=%q)", def.Key, name)
+		log.Printf("[catalog][agents] skip directory %s: %v", name, err)
+		adminItems[fallbackKey] = invalidAdminAgent(source, fallbackKey, definition, "key_mismatch", err)
+		return
+	}
+	if source.Kind == "directory" {
+		loadAgentPrompts(source.AgentDir, &def, definition)
+		def.AgentDir = source.AgentDir
+		if marketDir != "" && len(def.Skills) > 0 {
+			if err := reconcileDeclaredSkills(source.AgentDir, def.Skills, marketDir); err != nil {
+				log.Printf("[catalog][skills] sync %s: %v", def.Key, err)
+			}
+		}
+	}
+	def = applyGlobalAgentFlags(def, globalMemoryEnabled)
+	items[def.Key] = def
+	adminItems[def.Key] = readyAdminAgent(def, source, definition)
+}
+
+func runtimeAgentSource(root string, name string, entry os.DirEntry) (EditableAgentSource, bool) {
+	if entry.IsDir() {
+		agentDir := filepath.Join(root, name)
+		configPath := resolveDirectoryAgentConfig(agentDir)
+		if configPath == "" {
+			log.Printf("[catalog][agents] skip directory %s: no agent.yml or agent.yaml found", name)
+			return EditableAgentSource{}, false
+		}
+		return EditableAgentSource{Kind: "directory", Path: configPath, AgentDir: agentDir}, true
+	}
+	lowerName := strings.ToLower(name)
+	if !strings.HasSuffix(lowerName, ".yml") && !strings.HasSuffix(lowerName, ".yaml") {
+		return EditableAgentSource{}, false
+	}
+	return EditableAgentSource{Kind: "file", Path: filepath.Join(root, name)}, true
+}
+
+func readAdminAgentDefinitionMap(path string) (map[string]any, error) {
+	tree, err := config.LoadYAMLTree(path)
+	if err != nil {
 		return nil, err
 	}
-	return items, nil
+	root, ok := tree.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("agent file must be a map")
+	}
+	return root, nil
+}
+
+func adminAgentFallbackKey(source EditableAgentSource) string {
+	if source.Kind == "directory" && strings.TrimSpace(source.AgentDir) != "" {
+		return filepath.Base(filepath.Clean(source.AgentDir))
+	}
+	return LogicalRuntimeBaseName(filepath.Base(source.Path))
+}
+
+func adminAgentKey(source EditableAgentSource, fallbackKey string, definition map[string]any) string {
+	if source.Kind == "directory" {
+		return fallbackKey
+	}
+	if key := stringNode(definition["key"]); key != "" {
+		return key
+	}
+	return fallbackKey
+}
+
+func invalidAdminAgent(source EditableAgentSource, key string, definition map[string]any, code string, err error) AdminAgent {
+	item := adminAgentFromDefinition(source, key, definition)
+	item.Status = AdminAgentStatusInvalid
+	item.Diagnostics = []AdminAgentDiagnostic{{
+		Severity:   "error",
+		Code:       code,
+		Message:    err.Error(),
+		SourcePath: source.Path,
+	}}
+	return item
+}
+
+func readyAdminAgent(def AgentDefinition, source EditableAgentSource, definition map[string]any) AdminAgent {
+	apiMode := AgentModeForAPI(def.Mode)
+	item := AdminAgent{
+		Key:          def.Key,
+		Name:         firstNonBlankString(def.Name, def.Key),
+		Icon:         def.Icon,
+		Description:  def.Description,
+		Role:         def.Role,
+		Mode:         apiMode,
+		ModelKey:     def.ModelKey,
+		Tools:        append([]string(nil), def.Tools...),
+		Skills:       append([]string(nil), def.Skills...),
+		Workspace:    def.Workspace,
+		Controls:     cloneListMaps(def.Controls),
+		Status:       AdminAgentStatusReady,
+		Source:       source,
+		Definition:   contracts.CloneMap(definition),
+		SoulPrompt:   def.SoulPrompt,
+		AgentsPrompt: def.AgentsPrompt,
+	}
+	item.Meta = adminAgentMeta(item, EffectiveAgentVisibilityScopes(def))
+	return item
+}
+
+func adminAgentFromDefinition(source EditableAgentSource, key string, definition map[string]any) AdminAgent {
+	if key == "" {
+		key = adminAgentFallbackKey(source)
+	}
+	modelConfig := mapNode(definition["modelConfig"])
+	toolConfig := mapNode(definition["toolConfig"])
+	runtimeConfig := mapNode(definition["runtimeConfig"])
+	mode := ""
+	if rawMode := stringNode(definition["mode"]); rawMode != "" {
+		mode = AgentModeForAPI(rawMode)
+	}
+	soulPrompt := ""
+	agentsPrompt := ""
+	if source.Kind == "directory" && strings.TrimSpace(source.AgentDir) != "" {
+		soulPrompt = readOptionalMarkdown(filepath.Join(source.AgentDir, "SOUL.md"))
+		agentsPrompt = readOptionalMarkdown(filepath.Join(source.AgentDir, "AGENTS.md"))
+	}
+	item := AdminAgent{
+		Key:          key,
+		Name:         firstNonBlankString(stringNode(definition["name"]), key),
+		Icon:         definition["icon"],
+		Description:  stringNode(definition["description"]),
+		Role:         stringNode(definition["role"]),
+		Mode:         mode,
+		ModelKey:     stringNode(modelConfig["modelKey"]),
+		Tools:        listStrings(toolConfig["tools"]),
+		Skills:       listStrings(mapNode(definition["skillConfig"])["skills"]),
+		Workspace:    parseAgentWorkspaceRoot(runtimeConfig["workspaceRoot"]),
+		Controls:     cloneListMaps(listMaps(definition["controls"])),
+		Source:       source,
+		Definition:   contracts.CloneMap(definition),
+		SoulPrompt:   soulPrompt,
+		AgentsPrompt: agentsPrompt,
+	}
+	item.Meta = adminAgentMeta(item, parseAgentVisibilityScopes(definition["visibility"]))
+	return item
+}
+
+func adminAgentMeta(item AdminAgent, visibilityScopes []string) map[string]any {
+	return map[string]any{
+		"model":       item.ModelKey,
+		"modelKey":    item.ModelKey,
+		"mode":        item.Mode,
+		"tools":       append([]string(nil), item.Tools...),
+		"toolsCount":  len(item.Tools),
+		"skills":      append([]string(nil), item.Skills...),
+		"skillsCount": len(item.Skills),
+		"visibility": map[string]any{
+			"scopes": append([]string(nil), visibilityScopes...),
+		},
+	}
 }
 
 func loadAgentPrompts(agentDir string, def *AgentDefinition, root map[string]any) {

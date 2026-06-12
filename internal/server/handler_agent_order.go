@@ -56,9 +56,17 @@ func (s *Server) readAgentOrder() (api.AgentOrderResponse, error) {
 	if err != nil {
 		return api.AgentOrderResponse{}, err
 	}
+	order := append([]string(nil), file.Order...)
+	if s.deps.Registry != nil {
+		validKeys := make([]string, 0)
+		for _, item := range s.deps.Registry.Agents("all") {
+			validKeys = append(validKeys, item.Key)
+		}
+		order = filterKnownAgentOrder(file.Order, keySet(validKeys))
+	}
 	return api.AgentOrderResponse{
 		Version:   file.Version,
-		Order:     append([]string(nil), file.Order...),
+		Order:     order,
 		UpdatedAt: file.UpdatedAt,
 	}, nil
 }

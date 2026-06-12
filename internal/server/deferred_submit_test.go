@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -98,6 +100,80 @@ func TestDeferredSubmitHTTPRestoresPendingAwaitingAfterRestart(t *testing.T) {
 	}
 	if eventTypes := notifications.EventTypes(); len(eventTypes) < 2 || eventTypes[0] != "awaiting.answered" || eventTypes[1] != "run.started" {
 		t.Fatalf("expected awaiting.answered then run.started notifications, got %#v", eventTypes)
+	}
+}
+
+func TestPersistDeferredAwaitingToolAnswerWritesReactToolLine(t *testing.T) {
+	root := t.TempDir()
+	store, err := chat.NewFileStore(root)
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	chatID := "chat-react-tool"
+	runID := "run-react-tool"
+	awaitingID := "await-react-tool"
+	if _, _, err := store.EnsureChat(chatID, "mock-agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	assistantTs := int64(1701)
+	if err := store.AppendStepLine(chatID, chat.StepLine{
+		ChatID:    chatID,
+		RunID:     runID,
+		UpdatedAt: 1701,
+		Type:      chat.StepLineTypeReact,
+		Seq:       1,
+		Messages: []chat.StoredMessage{{
+			Role: "assistant",
+			ToolCalls: []chat.StoredToolCall{{
+				ID:   awaitingID,
+				Type: "function",
+				Function: chat.StoredFunction{
+					Name:      "ask_user_question",
+					Arguments: `{"questions":[]}`,
+				},
+			}},
+			ToolID: awaitingID,
+			MsgID:  "msg-1",
+			Ts:     &assistantTs,
+		}},
+	}); err != nil {
+		t.Fatalf("append assistant step: %v", err)
+	}
+
+	server := &Server{deps: Dependencies{Chats: store}}
+	answer := map[string]any{
+		"type":       "awaiting.answer",
+		"awaitingId": awaitingID,
+		"mode":       "question",
+		"status":     "answered",
+		"answers":    []any{map[string]any{"id": "q1", "answer": "ok"}},
+	}
+	if err := server.persistDeferredAwaitingToolAnswer(chatID, runID, awaitingID, answer, 1702); err != nil {
+		t.Fatalf("persist deferred awaiting tool answer: %v", err)
+	}
+
+	raw, err := os.ReadFile(filepath.Join(root, chatID+".jsonl"))
+	if err != nil {
+		t.Fatalf("read jsonl: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected assistant and react-tool lines, got %q", raw)
+	}
+	var appended map[string]any
+	if err := json.Unmarshal([]byte(lines[1]), &appended); err != nil {
+		t.Fatalf("decode appended line: %v", err)
+	}
+	if appended["_type"] != chat.StepLineTypeReactTool {
+		t.Fatalf("expected react-tool line, got %#v", appended)
+	}
+	messages, _ := appended["messages"].([]any)
+	if len(messages) != 1 {
+		t.Fatalf("expected one tool message, got %#v", appended)
+	}
+	message, _ := messages[0].(map[string]any)
+	if message["role"] != "tool" || message["name"] != "ask_user_question" || message["tool_call_id"] != awaitingID {
+		t.Fatalf("unexpected tool message %#v", message)
 	}
 }
 

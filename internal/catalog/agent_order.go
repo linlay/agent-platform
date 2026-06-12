@@ -84,3 +84,11 @@ func (r *FileRegistry) orderedAgentKeysLocked() []string {
 	}
 	return orderKeys(r.agents, orderFile.Order)
 }
+
+func (r *FileRegistry) orderedAdminAgentKeysLocked() []string {
+	orderFile, err := ReadAgentOrderFile(r.cfg.Paths.AgentsDir)
+	if err != nil {
+		return sortedKeys(r.adminAgents)
+	}
+	return orderKeys(r.adminAgents, orderFile.Order)
+}

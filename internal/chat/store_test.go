@@ -1353,7 +1353,7 @@ func TestStepWriterPersistsLiveSeqAndReplaysIt(t *testing.T) {
 			if _, ok := query["seq"]; ok {
 				t.Fatalf("did not expect nested query seq, got %#v", query)
 			}
-		case "react":
+		case StepLineTypeReact, StepLineTypeReactTool:
 			stepLines = append(stepLines, line)
 		case "submit":
 			submitLine = line
@@ -1686,8 +1686,8 @@ func TestStepWriterTimeoutAnswerDoesNotSplitToolStep(t *testing.T) {
 	if len(messages) != 1 {
 		t.Fatalf("expected tool snapshot on first step line, got %#v", awaitingStep)
 	}
-	if toolResultStep["_type"] != "react" || toIntValue(toolResultStep["seq"]) != 1 {
-		t.Fatalf("expected tool result step to reuse seq=1, got %#v", toolResultStep)
+	if toolResultStep["_type"] != StepLineTypeReactTool || toIntValue(toolResultStep["seq"]) != 1 {
+		t.Fatalf("expected react-tool result step to reuse seq=1, got %#v", toolResultStep)
 	}
 	resultMessages, _ := toolResultStep["messages"].([]any)
 	if len(resultMessages) != 1 {
@@ -1815,8 +1815,8 @@ func TestStepWriterReusesReactSeqForSplitHITLToolResult(t *testing.T) {
 		t.Fatalf("did not expect approval on assistant tool-call step, got %#v", firstStep)
 	}
 	toolStep := lines[2]
-	if toolStep["_type"] != "react" || toIntValue(toolStep["seq"]) != 1 {
-		t.Fatalf("expected split tool result step to reuse seq=1, got %#v", toolStep)
+	if toolStep["_type"] != StepLineTypeReactTool || toIntValue(toolStep["seq"]) != 1 {
+		t.Fatalf("expected react-tool split result step to reuse seq=1, got %#v", toolStep)
 	}
 	if _, ok := toolStep["approval"]; ok {
 		t.Fatalf("did not expect approval sidecar on tool result step, got %#v", toolStep)
@@ -3951,6 +3951,106 @@ The user reviewed the following tool call(s) and submitted decisions:
 1. tool=bash command="mock create-leave" decision=reject reason="timeout"
 The tool results above already reflect these decisions; do not re-prompt for approval and do not retry rejected calls.` {
 		t.Fatalf("expected approval LLM notice at end, got %#v", rawMessages[2])
+	}
+}
+
+func TestReactToolAndLegacyReactToolResultLinesReplay(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		lineType string
+	}{
+		{name: "react-tool", lineType: StepLineTypeReactTool},
+		{name: "legacy-react", lineType: StepLineTypeReact},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store, err := NewFileStore(t.TempDir())
+			if err != nil {
+				t.Fatalf("new file store: %v", err)
+			}
+			chatID := "chat-" + tc.name
+			runID := "run-" + tc.name
+			if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+				t.Fatalf("ensure chat: %v", err)
+			}
+
+			assistantTs := int64(6101)
+			resultTs := int64(6102)
+			if err := store.AppendStepLine(chatID, StepLine{
+				ChatID:    chatID,
+				RunID:     runID,
+				UpdatedAt: 6101,
+				LiveSeq:   7,
+				Type:      StepLineTypeReact,
+				Seq:       1,
+				Messages: []StoredMessage{{
+					Role: "assistant",
+					ToolCalls: []StoredToolCall{{
+						ID:   "tool-1",
+						Type: "function",
+						Function: StoredFunction{
+							Name:      "ask_user_question",
+							Arguments: `{"questions":[]}`,
+						},
+					}},
+					ToolID: "tool-1",
+					MsgID:  "msg-1",
+					Ts:     &assistantTs,
+				}},
+			}); err != nil {
+				t.Fatalf("append assistant step: %v", err)
+			}
+			if err := store.AppendStepLine(chatID, StepLine{
+				ChatID:    chatID,
+				RunID:     runID,
+				UpdatedAt: 6102,
+				LiveSeq:   8,
+				Type:      tc.lineType,
+				Seq:       1,
+				Messages: []StoredMessage{{
+					Role:       "tool",
+					Name:       "ask_user_question",
+					ToolCallID: "tool-1",
+					Content:    []ContentPart{{Type: "text", Text: `{"answers":[{"id":"q1","answer":"ok"}]}`}},
+					ToolID:     "tool-1",
+					Ts:         &resultTs,
+				}},
+			}); err != nil {
+				t.Fatalf("append tool result step: %v", err)
+			}
+
+			rawMessages, err := store.LoadRawMessages(chatID, 10)
+			if err != nil {
+				t.Fatalf("load raw messages: %v", err)
+			}
+			if len(rawMessages) != 2 || rawMessages[0]["role"] != "assistant" || rawMessages[1]["role"] != "tool" {
+				t.Fatalf("expected assistant -> tool raw messages, got %#v", rawMessages)
+			}
+			if rawMessages[1]["content"] != `{"answers":[{"id":"q1","answer":"ok"}]}` {
+				t.Fatalf("unexpected tool raw message content %#v", rawMessages[1])
+			}
+
+			detail, err := store.LoadChat(chatID)
+			if err != nil {
+				t.Fatalf("load chat: %v", err)
+			}
+			foundSnapshot := false
+			foundResult := false
+			for _, event := range detail.Events {
+				switch event.Type {
+				case "tool.snapshot":
+					if event.String("toolId") == "tool-1" && event.String("toolName") == "ask_user_question" {
+						foundSnapshot = true
+					}
+				case "tool.result":
+					if event.String("toolId") == "tool-1" && event.String("result") == `{"answers":[{"id":"q1","answer":"ok"}]}` {
+						foundResult = true
+					}
+				}
+			}
+			if !foundSnapshot || !foundResult {
+				t.Fatalf("expected tool snapshot/result replay, got %#v", detail.Events)
+			}
+		})
 	}
 }
 

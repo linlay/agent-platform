@@ -87,11 +87,19 @@ type QueryLine struct {
 	Type        string                `json:"_type"`
 }
 
+const (
+	StepLineTypeReact       = "react"
+	StepLineTypeReactTool   = "react-tool"
+	StepLineTypePlanExecute = "plan-execute"
+	StepLineTypeLegacyStep  = "step"
+)
+
 // StepLine represents a step line in chatId.jsonl.
-// _type is the persisted step shape: "react" or "plan-execute".
-// REACT/ONESHOT/CODER modes: { _type: "react", seq: N, messages: [...] }
-// In react lines, seq is the model-call grouping id, not a physical line
-// number. Continuation lines such as HITL-split tool results may reuse the
+// _type is the persisted step shape: "react", "react-tool", or "plan-execute".
+// REACT/ONESHOT/CODER model-call lines: { _type: "react", seq: N, messages: [...] }
+// Split tool-result continuation lines: { _type: "react-tool", seq: N, messages: [...] }
+// In react/react-tool lines, seq is the model-call grouping id, not a physical
+// line number. Continuation lines such as HITL-split tool results may reuse the
 // same seq as the assistant tool-call step that caused them.
 // PLAN_EXECUTE mode:
 //

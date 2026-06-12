@@ -83,7 +83,7 @@ func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
 			}
 			messages = append(messages, msg)
 
-		case "step", "react", "plan-execute":
+		case StepLineTypeLegacyStep, StepLineTypeReact, StepLineTypeReactTool, StepLineTypePlanExecute:
 			if strings.TrimSpace(stringValue(line["taskSubAgentKey"])) != "" {
 				continue
 			}

@@ -66,7 +66,7 @@ func (s *FileStore) LoadRunTrace(chatID string, runID string) (RunTrace, error) 
 					trace.Query = &query
 				}
 			}
-		case "react", "plan-execute", "step":
+		case StepLineTypeReact, StepLineTypeReactTool, StepLineTypePlanExecute, StepLineTypeLegacyStep:
 			data, _ := json.Marshal(line)
 			var step StepLine
 			if err := json.Unmarshal(data, &step); err == nil {
@@ -182,7 +182,7 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 				Payload:   payload,
 			})
 
-		case "react", "plan-execute", "step":
+		case StepLineTypeReact, StepLineTypeReactTool, StepLineTypePlanExecute, StepLineTypeLegacyStep:
 			lineLiveSeq := int64FromAny(line["liveSeq"])
 			rd := ensureRun(runs, &runOrder, runID)
 

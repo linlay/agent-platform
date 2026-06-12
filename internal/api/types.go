@@ -430,6 +430,28 @@ type AgentChatStats struct {
 	UnreadCount int `json:"unreadCount"`
 }
 
+type AdminAgentDiagnostic struct {
+	Severity   string `json:"severity"`
+	Code       string `json:"code"`
+	Message    string `json:"message"`
+	SourcePath string `json:"sourcePath,omitempty"`
+}
+
+type AdminAgentSummary struct {
+	Key                    string                 `json:"key"`
+	Name                   string                 `json:"name"`
+	Icon                   any                    `json:"icon,omitempty"`
+	Mode                   string                 `json:"mode,omitempty"`
+	WorkspaceDir           string                 `json:"workspaceDir,omitempty"`
+	DefaultModelKey        string                 `json:"defaultModelKey,omitempty"`
+	DefaultReasoningEffort string                 `json:"defaultReasoningEffort,omitempty"`
+	Role                   string                 `json:"role,omitempty"`
+	Status                 string                 `json:"status"`
+	Diagnostics            []AdminAgentDiagnostic `json:"diagnostics,omitempty"`
+	Source                 *AgentSource           `json:"source,omitempty"`
+	Meta                   map[string]any         `json:"meta,omitempty"`
+}
+
 type AgentDetailResponse struct {
 	Key          string           `json:"key"`
 	Name         string           `json:"name"`
@@ -454,6 +476,26 @@ type AgentSource struct {
 	Kind     string `json:"kind"`
 	Path     string `json:"path"`
 	AgentDir string `json:"agentDir,omitempty"`
+}
+
+type AdminAgentDetailResponse struct {
+	Key          string                 `json:"key"`
+	Name         string                 `json:"name"`
+	Icon         any                    `json:"icon,omitempty"`
+	Description  string                 `json:"description,omitempty"`
+	Role         string                 `json:"role,omitempty"`
+	Model        string                 `json:"model,omitempty"`
+	Mode         string                 `json:"mode,omitempty"`
+	Tools        []string               `json:"tools"`
+	Skills       []string               `json:"skills"`
+	Controls     []map[string]any       `json:"controls"`
+	Meta         map[string]any         `json:"meta"`
+	Definition   map[string]any         `json:"definition,omitempty"`
+	SoulPrompt   string                 `json:"soulPrompt,omitempty"`
+	AgentsPrompt string                 `json:"agentsPrompt,omitempty"`
+	Source       *AgentSource           `json:"source,omitempty"`
+	Status       string                 `json:"status"`
+	Diagnostics  []AdminAgentDiagnostic `json:"diagnostics,omitempty"`
 }
 
 type CreateAgentRequest struct {

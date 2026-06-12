@@ -209,7 +209,7 @@ func (s *Server) persistDeferredAwaitingToolAnswer(chatID string, runID string, 
 		ChatID:    chatID,
 		RunID:     runID,
 		UpdatedAt: resolvedAt,
-		Type:      "react",
+		Type:      chat.StepLineTypeReactTool,
 		Messages: []chat.StoredMessage{{
 			Role:       "tool",
 			Name:       toolName,

@@ -8,7 +8,7 @@ import (
 )
 
 // StepWriter accumulates SSE events and writes Java-compatible JSONL lines
-// (_type: "query" / "react" / "plan-execute" / "submit" / "steer" / "event")
+// (_type: "query" / "react" / "react-tool" / "plan-execute" / "submit" / "steer" / "event")
 // to the chat store.
 //
 // It mirrors the behaviour of Java's TurnTraceWriter:
@@ -583,11 +583,16 @@ func (w *StepWriter) assignReactSeq(line *StepLine) {
 	if line == nil {
 		return
 	}
-	line.Type = "react"
 	if stepLineStartsModelCall(*line) {
+		line.Type = StepLineTypeReact
 		w.seqCounter++
 		line.Seq = w.seqCounter
 		return
+	}
+	if stepLineIsReactToolContinuation(*line) {
+		line.Type = StepLineTypeReactTool
+	} else {
+		line.Type = StepLineTypeReact
 	}
 	if stepLineCanReuseReactSeq(*line) && w.seqCounter > 0 {
 		line.Seq = w.seqCounter

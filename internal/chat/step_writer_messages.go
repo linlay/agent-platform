@@ -47,6 +47,18 @@ func stepLineCanReuseReactSeq(line StepLine) bool {
 	return len(line.Messages) > 0 || len(line.Awaiting) > 0
 }
 
+func stepLineIsReactToolContinuation(line StepLine) bool {
+	if storedMessagesContainAssistant(line.Messages) {
+		return false
+	}
+	for _, message := range line.Messages {
+		if strings.EqualFold(strings.TrimSpace(message.Role), "tool") {
+			return true
+		}
+	}
+	return false
+}
+
 func approvalMatchesToolMessages(approval *StepApproval, messages []StoredMessage) bool {
 	if approval == nil {
 		return false
