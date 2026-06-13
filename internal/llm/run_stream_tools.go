@@ -10,7 +10,6 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/bashsec"
 	. "agent-platform/internal/contracts"
-	"agent-platform/internal/filetools"
 	"agent-platform/internal/hitl"
 )
 
@@ -30,108 +29,36 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 	args := map[string]any{}
 	if strings.TrimSpace(toolCall.Function.Arguments) != "" {
 		if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
-			return nil, []AgentDelta{DeltaToolResult{
-					ToolID:   toolID,
-					ToolName: toolCall.Function.Name,
-					Result: ToolExecutionResult{
-						Output:   "invalid tool arguments: " + err.Error(),
-						Error:    "invalid_tool_arguments",
-						ExitCode: -1,
-					},
-				}}, &openAIMessage{
-					Role:       "tool",
-					ToolCallID: toolID,
-					Name:       toolCall.Function.Name,
-					Content:    "invalid tool arguments: " + err.Error(),
-				}
+			deltas, message := preparedToolErrorResult(toolID, toolCall.Function.Name, "invalid tool arguments: "+err.Error(), "invalid_tool_arguments")
+			return nil, deltas, message
 		}
 	}
 	expandedArgs, err := ExpandToolArgsTemplates(args, s.previousToolResult)
 	if err != nil {
-		return nil, []AgentDelta{DeltaToolResult{
-				ToolID:   toolID,
-				ToolName: toolCall.Function.Name,
-				Result: ToolExecutionResult{
-					Output:   err.Error(),
-					Error:    "tool_args_template_missing_value",
-					ExitCode: -1,
-				},
-			}}, &openAIMessage{
-				Role:       "tool",
-				ToolCallID: toolID,
-				Name:       toolCall.Function.Name,
-				Content:    err.Error(),
-			}
+		deltas, message := preparedToolErrorResult(toolID, toolCall.Function.Name, err.Error(), "tool_args_template_missing_value")
+		return nil, deltas, message
 	}
 	args, _ = expandedArgs.(map[string]any)
 
 	if validationErr := s.validateFrontendToolArgs(toolCall.Function.Name, args); validationErr != nil {
-		return nil, []AgentDelta{DeltaToolResult{
-				ToolID:   toolID,
-				ToolName: toolCall.Function.Name,
-				Result: ToolExecutionResult{
-					Output:   "invalid tool arguments: " + validationErr.Error(),
-					Error:    "invalid_tool_arguments",
-					ExitCode: -1,
-				},
-			}}, &openAIMessage{
-				Role:       "tool",
-				ToolCallID: toolID,
-				Name:       toolCall.Function.Name,
-				Content:    "invalid tool arguments: " + validationErr.Error(),
-			}
+		deltas, message := preparedToolErrorResult(toolID, toolCall.Function.Name, "invalid tool arguments: "+validationErr.Error(), "invalid_tool_arguments")
+		return nil, deltas, message
 	}
 	if validationErr := validateBashToolArgs(toolCall.Function.Name, args); validationErr != nil {
-		return nil, []AgentDelta{DeltaToolResult{
-				ToolID:   toolID,
-				ToolName: toolCall.Function.Name,
-				Result: ToolExecutionResult{
-					Output:   "invalid tool arguments: " + validationErr.Error(),
-					Error:    "invalid_tool_arguments",
-					ExitCode: -1,
-				},
-			}}, &openAIMessage{
-				Role:       "tool",
-				ToolCallID: toolID,
-				Name:       toolCall.Function.Name,
-				Content:    "invalid tool arguments: " + validationErr.Error(),
-			}
+		deltas, message := preparedToolErrorResult(toolID, toolCall.Function.Name, "invalid tool arguments: "+validationErr.Error(), "invalid_tool_arguments")
+		return nil, deltas, message
 	}
 	if validationErr := validateWriteToolArgs(toolCall.Function.Name, args); validationErr != nil {
-		return nil, []AgentDelta{DeltaToolResult{
-				ToolID:   toolID,
-				ToolName: toolCall.Function.Name,
-				Result: ToolExecutionResult{
-					Output:   "invalid tool arguments: " + validationErr.Error(),
-					Error:    "invalid_tool_arguments",
-					ExitCode: -1,
-				},
-			}}, &openAIMessage{
-				Role:       "tool",
-				ToolCallID: toolID,
-				Name:       toolCall.Function.Name,
-				Content:    "invalid tool arguments: " + validationErr.Error(),
-			}
+		deltas, message := preparedToolErrorResult(toolID, toolCall.Function.Name, "invalid tool arguments: "+validationErr.Error(), "invalid_tool_arguments")
+		return nil, deltas, message
 	}
 
 	if strings.EqualFold(strings.TrimSpace(toolCall.Function.Name), InvokeAgentsToolName) {
 		rawTasks, _ := args["tasks"].([]any)
 		if len(rawTasks) < 1 || len(rawTasks) > MaxInvokeAgentTasks {
 			message := fmt.Sprintf("invalid tool arguments: tasks must contain between 1 and %d items", MaxInvokeAgentTasks)
-			return nil, []AgentDelta{DeltaToolResult{
-					ToolID:   toolID,
-					ToolName: toolCall.Function.Name,
-					Result: ToolExecutionResult{
-						Output:   message,
-						Error:    "invalid_tool_arguments",
-						ExitCode: -1,
-					},
-				}}, &openAIMessage{
-					Role:       "tool",
-					ToolCallID: toolID,
-					Name:       toolCall.Function.Name,
-					Content:    message,
-				}
+			deltas, openAIMessage := preparedToolErrorResult(toolID, toolCall.Function.Name, message, "invalid_tool_arguments")
+			return nil, deltas, openAIMessage
 		}
 		tasks := make([]SubAgentTaskSpec, 0, len(rawTasks))
 		for _, rawTask := range rawTasks {
@@ -144,20 +71,8 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 			}
 			if subAgentKey == "" || taskText == "" {
 				message := "invalid tool arguments: every task requires subAgentKey and task"
-				return nil, []AgentDelta{DeltaToolResult{
-						ToolID:   toolID,
-						ToolName: toolCall.Function.Name,
-						Result: ToolExecutionResult{
-							Output:   message,
-							Error:    "invalid_tool_arguments",
-							ExitCode: -1,
-						},
-					}}, &openAIMessage{
-						Role:       "tool",
-						ToolCallID: toolID,
-						Name:       toolCall.Function.Name,
-						Content:    message,
-					}
+				deltas, openAIMessage := preparedToolErrorResult(toolID, toolCall.Function.Name, message, "invalid_tool_arguments")
+				return nil, deltas, openAIMessage
 			}
 			tasks = append(tasks, SubAgentTaskSpec{
 				SubAgentKey: subAgentKey,
@@ -194,16 +109,8 @@ func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolIn
 			invocation.bashSecurityReview = &review
 			if result := s.lookupPrecheckedHITL(invocation); !result.Intercepted {
 				blocked := bashSecurityBlockedToolResult(review)
-				return nil, []AgentDelta{DeltaToolResult{
-						ToolID:   toolID,
-						ToolName: toolCall.Function.Name,
-						Result:   blocked,
-					}}, &openAIMessage{
-						Role:       "tool",
-						ToolCallID: toolID,
-						Name:       toolCall.Function.Name,
-						Content:    blocked.Output,
-					}
+				deltas, message := preparedToolResultMessage(toolID, toolCall.Function.Name, blocked, blocked.Output)
+				return nil, deltas, message
 			}
 		}
 	}
@@ -304,16 +211,19 @@ func (s *llmRunStream) handleToolApprovalBeforeInvoke(invocation *preparedToolIn
 		return true, err
 	}
 	if invocation.precheckedHITL != nil && invocation.precheckedHITL.Intercepted {
-		return true, s.handlePrecheckedHITLApproval(invocation, *invocation.precheckedHITL)
+		return true, s.handleHITLApproval(invocation, *invocation.precheckedHITL, hitlApprovalOptions{
+			allowExistingDecision: true,
+		})
 	}
 	if s.checker != nil && isBashTool(invocation.toolName) {
 		command := mapStringArg(invocation.args, "command")
 		if result := s.checker.Check(command, s.execCtx.HITLLevel); result.Intercepted {
-			return true, s.handleCheckerHITLApproval(invocation, result)
+			return true, s.handleHITLApproval(invocation, result, hitlApprovalOptions{
+				skipPostToolHookImmediately: true,
+			})
 		}
 	}
-	if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewBlock {
-		s.appendOriginalToolResult(invocation, bashSecurityBlockedToolResult(review))
+	if s.handleBashSecurityBlockBeforeInvoke(invocation) {
 		return true, nil
 	}
 	if handled, err := s.handleBashAccessApprovalBeforeInvoke(invocation); handled {
@@ -347,92 +257,41 @@ func (s *llmRunStream) handleBashAccessApprovalBeforeInvoke(invocation *prepared
 }
 
 func (s *llmRunStream) handleBuiltInApprovalRequest(request approvalRequest) (bool, error) {
-	invocation := request.invocation
-	switch request.kind {
-	case approvalKindFileAccess:
-		if request.hasApprovalDecision() {
-			return true, s.executeApprovedApprovalRequest(request)
-		}
-		s.skipPostToolHook = true
-		return true, s.emitApprovalRequestDeltas(request)
-	case approvalKindFileWrite:
-		if request.hasApprovalDecision() {
-			return true, s.executeApprovedApprovalRequest(request)
-		}
-		if request.fileWritePlan != nil && filetools.HasWriteApproval(s.execCtx, *request.fileWritePlan) {
-			return true, s.executeOriginalBash(invocation)
-		}
-		s.skipPostToolHook = true
-		return true, s.emitApprovalRequestDeltas(request)
-	case approvalKindBashSecurity:
-		if request.hasApprovalDecision() {
-			return true, s.executeApprovedApprovalRequest(request)
-		}
-		review := *request.bashSecurityReview
-		if handled, err := s.executeSandboxBashSecurityOverride(invocation, review); handled {
-			return true, err
-		}
-		if s.isRuleWhitelisted(review.RuleKey) {
-			s.applyHITLDecision(invocation, request.result, "", "approve_rule_run", "", true)
-			s.registerBashSecurityApproval(review.Fingerprint)
-			return true, s.executeOriginalBash(invocation)
-		}
-		if s.shouldAutoApproveBashSecurity(review) {
-			s.registerBashSecurityApproval(review.Fingerprint)
-			return true, s.executeOriginalBash(invocation)
-		}
-		if s.hasBashSecurityApproval(review.Fingerprint) {
-			return true, s.executeOriginalBash(invocation)
-		}
-		s.skipPostToolHook = true
-		return true, s.emitApprovalRequestDeltas(request)
-	case approvalKindBashAccess:
-		if request.hasApprovalDecision() {
-			return true, s.executeApprovedApprovalRequest(request)
-		}
-		review := *request.bashAccessReview
-		if s.isRuleWhitelisted(review.RuleKey) {
-			s.applyHITLDecision(invocation, request.result, "", "approve_rule_run", "", true)
-			accesspolicy.RegisterRuleApproval(s.execCtx, review.RuleKey)
-			return true, s.executeOriginalBash(invocation)
-		}
-		if accesspolicy.HasApproval(s.execCtx, review) {
-			return true, s.executeOriginalBash(invocation)
-		}
-		s.skipPostToolHook = true
-		return true, s.emitApprovalRequestDeltas(request)
-	default:
-		return false, nil
+	if handled, err := s.tryResolveApprovalFastPath(request, approvalFastPathExecuteNow); handled {
+		return true, err
 	}
+	s.skipPostToolHook = true
+	return true, s.emitApprovalRequestDeltas(request)
 }
 
-func (s *llmRunStream) handlePrecheckedHITLApproval(invocation *preparedToolInvocation, result hitl.InterceptResult) error {
+func (s *llmRunStream) handleBashSecurityBlockBeforeInvoke(invocation *preparedToolInvocation) bool {
+	if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewBlock {
+		s.appendOriginalToolResult(invocation, bashSecurityBlockedToolResult(review))
+		return true
+	}
+	return false
+}
+
+type hitlApprovalOptions struct {
+	allowExistingDecision       bool
+	skipPostToolHookImmediately bool
+}
+
+func (s *llmRunStream) handleHITLApproval(invocation *preparedToolInvocation, result hitl.InterceptResult, options hitlApprovalOptions) error {
+	if options.skipPostToolHookImmediately {
+		s.skipPostToolHook = true
+	}
 	request := hitlApprovalRequest(invocation, result)
 	if strings.EqualFold(result.Rule.ViewportType, "builtin") {
-		if request.hasApprovalDecision() {
+		if options.allowExistingDecision && request.hasApprovalDecision() {
 			return s.executeApprovedApprovalRequest(request)
 		}
-		if s.isRuleWhitelisted(result.Rule.RuleKey) {
-			s.applyHITLDecision(invocation, result, "", "approve_rule_run", "", true)
-			return s.executeApprovedApprovalRequest(request)
-		}
-		if s.shouldAutoApproveHITL(result) {
-			return s.executeOriginalBash(invocation)
+		if handled, err := s.tryResolveHITLApprovalFastPath(request, approvalFastPathExecuteNow); handled {
+			return err
 		}
 	}
-	s.skipPostToolHook = true
-	return s.emitApprovalRequestDeltas(request)
-}
-
-func (s *llmRunStream) handleCheckerHITLApproval(invocation *preparedToolInvocation, result hitl.InterceptResult) error {
-	s.skipPostToolHook = true
-	request := hitlApprovalRequest(invocation, result)
-	if strings.EqualFold(result.Rule.ViewportType, "builtin") && s.isRuleWhitelisted(result.Rule.RuleKey) {
-		s.applyHITLDecision(invocation, result, "", "approve_rule_run", "", true)
-		return s.executeApprovedApprovalRequest(request)
-	}
-	if s.shouldAutoApproveHITL(result) {
-		return s.executeOriginalBash(invocation)
+	if !options.skipPostToolHookImmediately {
+		s.skipPostToolHook = true
 	}
 	return s.emitApprovalRequestDeltas(request)
 }
@@ -494,6 +353,27 @@ func (s *llmRunStream) appendFrontendSubmitDeltas(invocation *preparedToolInvoca
 			})
 		}
 	}
+}
+
+func preparedToolErrorResult(toolID, toolName, output, errorCode string) ([]AgentDelta, *openAIMessage) {
+	return preparedToolResultMessage(toolID, toolName, ToolExecutionResult{
+		Output:   output,
+		Error:    errorCode,
+		ExitCode: -1,
+	}, output)
+}
+
+func preparedToolResultMessage(toolID, toolName string, result ToolExecutionResult, content string) ([]AgentDelta, *openAIMessage) {
+	return []AgentDelta{DeltaToolResult{
+			ToolID:   toolID,
+			ToolName: toolName,
+			Result:   result,
+		}}, &openAIMessage{
+			Role:       "tool",
+			ToolCallID: toolID,
+			Name:       toolName,
+			Content:    content,
+		}
 }
 
 func (s *llmRunStream) checkBudgetBeforeToolCall(toolName string) *ToolExecutionResult {

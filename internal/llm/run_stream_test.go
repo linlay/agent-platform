@@ -4615,6 +4615,63 @@ func TestPrepareQueuedBashApprovalBatch_MergesAllBuiltinApprovalsInSingleAwait(t
 	}
 }
 
+func TestAwaitHITLApprovalBatchAndContinueUsesStoredMatch(t *testing.T) {
+	runControl := contracts.NewRunControl(context.Background(), "run_1")
+	review := bashsec.ReviewResult{
+		Decision:    bashsec.ReviewRequiresApproval,
+		RuleKey:     "bash-security::stored",
+		Fingerprint: "stored-fingerprint",
+		Level:       1,
+	}
+	invocation := &preparedToolInvocation{
+		toolID:             "tool_1",
+		toolName:           "bash",
+		args:               map[string]any{"command": "cat <<EOF > out.txt\nhello\nEOF", "description": "write heredoc output"},
+		bashSecurityReview: &review,
+	}
+	stream := &llmRunStream{
+		ctx: context.Background(),
+		session: contracts.QuerySession{
+			RequestID: "req_1",
+			ChatID:    "chat_1",
+			RunID:     "run_1",
+		},
+		runControl: runControl,
+		execCtx: &contracts.ExecutionContext{
+			Budget: contracts.Budget{Tool: contracts.RetryPolicy{Timeout: 1}},
+		},
+		queuedToolCalls: []*preparedToolInvocation{invocation},
+	}
+
+	if !stream.prepareQueuedBashApprovalBatch() {
+		t.Fatal("expected batch approval await to be prepared")
+	}
+	if stream.hitlPendingBatch == nil || len(stream.hitlPendingBatch.matches) != 1 {
+		t.Fatalf("expected one stored batch match, got %#v", stream.hitlPendingBatch)
+	}
+	allow := bashsec.ReviewResult{Decision: bashsec.ReviewAllow}
+	invocation.bashSecurityReview = &allow
+
+	ask := stream.pending[0].(contracts.DeltaAwaitAsk)
+	ack := runControl.ResolveSubmit(api.SubmitRequest{
+		RunID:      "run_1",
+		AwaitingID: ask.AwaitingID,
+		Params:     encodedSubmitParams(t, []map[string]any{{"id": "tool_1", "decision": "approve"}}),
+	})
+	if !ack.Accepted {
+		t.Fatalf("expected submit to be accepted, got %#v", ack)
+	}
+	if err := stream.awaitHITLApprovalBatchAndContinue(); err != nil {
+		t.Fatalf("awaitHITLApprovalBatchAndContinue returned error: %v", err)
+	}
+	if invocation.hitlDecision == nil {
+		t.Fatal("expected HITL decision to be recorded")
+	}
+	if invocation.hitlDecision.RuleKey != "bash-security::stored" {
+		t.Fatalf("expected stored match ruleKey, got %#v", invocation.hitlDecision)
+	}
+}
+
 func TestPrepareQueuedBashApprovalBatch_UsesLargestRuleTimeout(t *testing.T) {
 	stream := &llmRunStream{
 		ctx: context.Background(),

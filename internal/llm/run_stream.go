@@ -138,6 +138,7 @@ type pendingHITLApprovalBatch struct {
 	awaitingID  string
 	awaitArgs   map[string]any
 	invocations []*preparedToolInvocation
+	matches     []hitl.InterceptResult
 	timeout     int
 }
 

@@ -12,13 +12,6 @@ import (
 	"agent-platform/internal/hitl"
 )
 
-func (s *llmRunStream) approvalHITLResult(invocation *preparedToolInvocation) hitl.InterceptResult {
-	if request, ok := s.approvalRequestForInvocation(invocation); ok {
-		return request.result
-	}
-	return s.lookupPrecheckedHITL(invocation)
-}
-
 func (s *llmRunStream) executeApprovedBashInvocation(invocation *preparedToolInvocation, result hitl.InterceptResult) error {
 	switch strings.ToLower(strings.TrimSpace(invocation.approvalDecision)) {
 	case "reject":
@@ -63,84 +56,15 @@ func (s *llmRunStream) prepareQueuedBashApprovalBatch() bool {
 
 	approvals := make([]any, 0)
 	invocations := make([]*preparedToolInvocation, 0)
+	matches := make([]hitl.InterceptResult, 0)
 	for _, invocation := range s.queuedToolCalls {
-		if !isBashTool(invocation.toolName) {
-			continue
-		}
-		if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewBlock {
-			if s.checker == nil {
-				continue
-			}
-			result := s.lookupPrecheckedHITL(invocation)
-			if !result.Intercepted {
-				continue
-			}
-			if !strings.EqualFold(result.Rule.ViewportType, "builtin") {
-				continue
-			}
-			if s.isRuleWhitelisted(result.Rule.RuleKey) {
-				s.applyHITLDecision(invocation, result, "", "approve_rule_run", "", true)
-				continue
-			}
-			if s.shouldAutoApproveHITL(result) {
-				continue
-			}
-			approvals = append(approvals, s.buildApprovalAskItem(invocation))
-			invocations = append(invocations, invocation)
-			continue
-		} else if review.Decision == bashsec.ReviewRequiresApproval {
-			switch s.sandboxBashSecurityOverrideAction(invocation, review) {
-			case "allow", "block":
-				continue
-			case "auto":
-				if s.engine != nil && s.engine.cfg.SandboxBash.Security.AuditAutoApprovals {
-					s.applyHITLDecision(invocation, bashSecurityInterceptResult(invocation, review), "", "auto_approved", sandboxBashSecurityOverrideReason, true)
-				}
-				continue
-			}
-			if s.isRuleWhitelisted(review.RuleKey) {
-				s.applyHITLDecision(invocation, bashSecurityInterceptResult(invocation, review), "", "approve_rule_run", "", true)
-				continue
-			}
-			if s.shouldAutoApproveBashSecurity(review) || s.hasBashSecurityApproval(review.Fingerprint) {
-				continue
-			}
-			approvals = append(approvals, s.buildApprovalAskItem(invocation))
-			invocations = append(invocations, invocation)
-			continue
-		}
-		if review := s.lookupBashAccessReview(invocation); review.RequiresApproval() {
-			if s.isRuleWhitelisted(review.RuleKey) {
-				s.applyHITLDecision(invocation, bashAccessInterceptResult(invocation, review), "", "approve_rule_run", "", true)
-				accesspolicy.RegisterRuleApproval(s.execCtx, review.RuleKey)
-				continue
-			}
-			if accesspolicy.HasApproval(s.execCtx, review) {
-				continue
-			}
-			approvals = append(approvals, s.buildApprovalAskItem(invocation))
-			invocations = append(invocations, invocation)
-			continue
-		}
-		if s.checker == nil {
-			continue
-		}
-		result := s.lookupPrecheckedHITL(invocation)
-		if !result.Intercepted {
-			continue
-		}
-		if !strings.EqualFold(result.Rule.ViewportType, "builtin") {
-			continue
-		}
-		if s.isRuleWhitelisted(result.Rule.RuleKey) {
-			s.applyHITLDecision(invocation, result, "", "approve_rule_run", "", true)
-			continue
-		}
-		if s.shouldAutoApproveHITL(result) {
+		candidate, ok := s.queuedBashApprovalCandidate(invocation)
+		if !ok {
 			continue
 		}
 		approvals = append(approvals, s.buildApprovalAskItem(invocation))
-		invocations = append(invocations, invocation)
+		invocations = append(invocations, candidate.invocation)
+		matches = append(matches, candidate.match)
 	}
 	if len(invocations) == 0 {
 		return false
@@ -152,18 +76,16 @@ func (s *llmRunStream) prepareQueuedBashApprovalBatch() bool {
 		"approvals": approvals,
 	}
 	maxRuleTimeout := 0
-	for _, invocation := range invocations {
-		if invocation == nil || invocation.precheckedHITL == nil {
-			continue
-		}
-		if invocation.precheckedHITL.Rule.Timeout > maxRuleTimeout {
-			maxRuleTimeout = invocation.precheckedHITL.Rule.Timeout
+	for _, match := range matches {
+		if match.Rule.Timeout > maxRuleTimeout {
+			maxRuleTimeout = match.Rule.Timeout
 		}
 	}
 	s.hitlPendingBatch = &pendingHITLApprovalBatch{
 		awaitingID:  awaitingID,
 		awaitArgs:   CloneMap(args),
 		invocations: invocations,
+		matches:     matches,
 		timeout:     maxRuleTimeout,
 	}
 	awaitDelta := s.buildHITLAwaitDelta(awaitingID, args, maxRuleTimeout)
@@ -172,6 +94,49 @@ func (s *llmRunStream) prepareQueuedBashApprovalBatch() bool {
 		s.runControl.ExpectSubmit(awaitingContextFromDeltaAsk(awaitDelta))
 	}
 	return true
+}
+
+type queuedBashApprovalCandidate struct {
+	invocation *preparedToolInvocation
+	match      hitl.InterceptResult
+}
+
+func (s *llmRunStream) queuedBashApprovalCandidate(invocation *preparedToolInvocation) (queuedBashApprovalCandidate, bool) {
+	if invocation == nil || !isBashTool(invocation.toolName) {
+		return queuedBashApprovalCandidate{}, false
+	}
+	if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewBlock {
+		return s.queuedGenericHITLApprovalCandidate(invocation)
+	} else if review.Decision == bashsec.ReviewRequiresApproval {
+		request := s.bashSecurityApprovalRequest(invocation, review)
+		if handled, _ := s.tryResolveApprovalFastPath(request, approvalFastPathSkipBatch); handled {
+			return queuedBashApprovalCandidate{}, false
+		}
+		return queuedBashApprovalCandidate{invocation: invocation, match: request.result}, true
+	}
+	if review := s.lookupBashAccessReview(invocation); review.RequiresApproval() {
+		request := s.bashAccessApprovalRequest(invocation, review)
+		if handled, _ := s.tryResolveApprovalFastPath(request, approvalFastPathSkipBatch); handled {
+			return queuedBashApprovalCandidate{}, false
+		}
+		return queuedBashApprovalCandidate{invocation: invocation, match: request.result}, true
+	}
+	return s.queuedGenericHITLApprovalCandidate(invocation)
+}
+
+func (s *llmRunStream) queuedGenericHITLApprovalCandidate(invocation *preparedToolInvocation) (queuedBashApprovalCandidate, bool) {
+	if s.checker == nil {
+		return queuedBashApprovalCandidate{}, false
+	}
+	result := s.lookupPrecheckedHITL(invocation)
+	if !result.Intercepted || !strings.EqualFold(result.Rule.ViewportType, "builtin") {
+		return queuedBashApprovalCandidate{}, false
+	}
+	request := hitlApprovalRequest(invocation, result)
+	if handled, _ := s.tryResolveHITLApprovalFastPath(request, approvalFastPathSkipBatch); handled {
+		return queuedBashApprovalCandidate{}, false
+	}
+	return queuedBashApprovalCandidate{invocation: invocation, match: result}, true
 }
 
 func (s *llmRunStream) lookupPrecheckedHITL(invocation *preparedToolInvocation) hitl.InterceptResult {
@@ -232,8 +197,8 @@ func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {
 	s.appendHITLRequestSubmit(batch.awaitingID, submitResult)
 	normalized, normalizeErr := s.normalizeHITLSubmitAndEmitAnswer(batch.awaitingID, batch.awaitArgs, submitResult)
 	if normalizeErr != nil {
-		for _, invocation := range batch.invocations {
-			s.applyHITLDecision(invocation, s.approvalHITLResult(invocation), batch.awaitingID, "reject", normalizeErr.Error(), false)
+		for index, invocation := range batch.invocations {
+			s.applyHITLDecision(invocation, batch.matchAt(index), batch.awaitingID, "reject", normalizeErr.Error(), false)
 			result := frontendSubmitInvalidPayloadResult(invocation, batch.awaitingID, submitResult.Request.Params, normalizeErr)
 			invocation.queuedResult = &result
 		}
@@ -242,8 +207,8 @@ func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {
 	}
 
 	if strings.EqualFold(AnyStringNode(normalized["status"]), "error") {
-		for _, invocation := range batch.invocations {
-			s.applyHITLDecision(invocation, s.approvalHITLResult(invocation), batch.awaitingID, "reject", "user_dismissed", false)
+		for index, invocation := range batch.invocations {
+			s.applyHITLDecision(invocation, batch.matchAt(index), batch.awaitingID, "reject", "user_dismissed", false)
 			rejected := hitlRejectedToolResult(invocation)
 			invocation.queuedResult = &rejected
 		}
@@ -254,14 +219,14 @@ func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {
 	approvals, _ := normalized["approvals"].([]map[string]any)
 	for index, invocation := range batch.invocations {
 		if index >= len(approvals) {
-			s.applyHITLDecision(invocation, s.approvalHITLResult(invocation), batch.awaitingID, "reject", "", false)
+			s.applyHITLDecision(invocation, batch.matchAt(index), batch.awaitingID, "reject", "", false)
 			rejected := hitlRejectedToolResult(invocation)
 			invocation.queuedResult = &rejected
 			continue
 		}
 		normalizedDecision := strings.TrimSpace(AnyStringNode(approvals[index]["decision"]))
 		reason := strings.TrimSpace(AnyStringNode(approvals[index]["reason"]))
-		s.applyHITLDecision(invocation, s.approvalHITLResult(invocation), batch.awaitingID, normalizedDecision, reason, normalizedDecision != "reject")
+		s.applyHITLDecision(invocation, batch.matchAt(index), batch.awaitingID, normalizedDecision, reason, normalizedDecision != "reject")
 		invocation.approvalDecision = normalizedDecision
 		if strings.EqualFold(normalizedDecision, "reject") {
 			rejected := hitlRejectedToolResult(invocation)
@@ -291,8 +256,8 @@ func (s *llmRunStream) timeoutHITLBatch(batch *pendingHITLApprovalBatch) {
 		AwaitingID: batch.awaitingID,
 		Answer:     hitlTimeoutAnswer("approval"),
 	})
-	for _, invocation := range batch.invocations {
-		s.applyHITLDecision(invocation, s.approvalHITLResult(invocation), batch.awaitingID, "reject", "timeout", false)
+	for index, invocation := range batch.invocations {
+		s.applyHITLDecision(invocation, batch.matchAt(index), batch.awaitingID, "reject", "timeout", false)
 		timeoutResult := hitlTimeoutToolResult(invocation)
 		invocation.queuedResult = &timeoutResult
 	}
@@ -304,13 +269,11 @@ func (s *llmRunStream) tryResolvePendingAccessLevelBatch(batch *pendingHITLAppro
 		return false, nil
 	}
 	entries := make([]map[string]any, 0, len(batch.invocations))
-	matches := make([]hitl.InterceptResult, 0, len(batch.invocations))
-	for _, invocation := range batch.invocations {
-		match := s.approvalHITLResult(invocation)
+	for index, invocation := range batch.invocations {
+		match := batch.matchAt(index)
 		if !isAccessPolicyApprovalMatch(match) {
 			return false, nil
 		}
-		matches = append(matches, match)
 		s.refreshAccessLevelForInvocation(invocation)
 		if s.invocationNeedsAccessPolicyApproval(invocation) {
 			return false, nil
@@ -332,9 +295,16 @@ func (s *llmRunStream) tryResolvePendingAccessLevelBatch(batch *pendingHITLAppro
 		Answer:     accessLevelAutoApprovalBatchAnswer(batch, entries),
 	})
 	for index, invocation := range batch.invocations {
-		s.applyHITLDecision(invocation, matches[index], batch.awaitingID, "auto_approved", "accessLevel="+s.currentAccessLevel(), true)
+		s.applyHITLDecision(invocation, batch.matchAt(index), batch.awaitingID, "auto_approved", "accessLevel="+s.currentAccessLevel(), true)
 	}
 	return true, nil
+}
+
+func (batch *pendingHITLApprovalBatch) matchAt(index int) hitl.InterceptResult {
+	if batch == nil || index < 0 || index >= len(batch.matches) {
+		return hitl.InterceptResult{}
+	}
+	return batch.matches[index]
 }
 
 func (s *llmRunStream) buildHITLNoticeEntry(invocation *preparedToolInvocation) (hitlNoticeEntry, bool) {

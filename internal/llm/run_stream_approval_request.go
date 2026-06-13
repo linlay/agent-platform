@@ -20,6 +20,13 @@ const (
 	approvalKindHITL         approvalKind = "hitl"
 )
 
+type approvalFastPathMode int
+
+const (
+	approvalFastPathExecuteNow approvalFastPathMode = iota
+	approvalFastPathSkipBatch
+)
+
 type approvalRequest struct {
 	kind               approvalKind
 	invocation         *preparedToolInvocation
@@ -169,4 +176,111 @@ func (s *llmRunStream) emitApprovalRequestForInvocation(invocation *preparedTool
 
 func (r approvalRequest) hasApprovalDecision() bool {
 	return r.invocation != nil && strings.TrimSpace(r.invocation.approvalDecision) != ""
+}
+
+func (s *llmRunStream) tryResolveApprovalFastPath(request approvalRequest, mode approvalFastPathMode) (bool, error) {
+	if request.hasApprovalDecision() {
+		if mode == approvalFastPathExecuteNow {
+			return true, s.executeApprovedApprovalRequest(request)
+		}
+		return true, nil
+	}
+	switch request.kind {
+	case approvalKindFileWrite:
+		if request.fileWritePlan != nil && filetools.HasWriteApproval(s.execCtx, *request.fileWritePlan) {
+			if mode == approvalFastPathExecuteNow {
+				return true, s.executeOriginalBash(request.invocation)
+			}
+			return true, nil
+		}
+	case approvalKindBashSecurity:
+		if request.bashSecurityReview == nil {
+			return false, nil
+		}
+		return s.tryResolveBashSecurityApprovalFastPath(request, *request.bashSecurityReview, mode)
+	case approvalKindBashAccess:
+		if request.bashAccessReview == nil {
+			return false, nil
+		}
+		return s.tryResolveBashAccessApprovalFastPath(request, *request.bashAccessReview, mode)
+	}
+	return false, nil
+}
+
+func (s *llmRunStream) tryResolveBashSecurityApprovalFastPath(request approvalRequest, review bashsec.ReviewResult, mode approvalFastPathMode) (bool, error) {
+	if mode == approvalFastPathExecuteNow {
+		if handled, err := s.executeSandboxBashSecurityOverride(request.invocation, review); handled {
+			return true, err
+		}
+	} else {
+		switch s.sandboxBashSecurityOverrideAction(request.invocation, review) {
+		case "allow", "block":
+			return true, nil
+		case "auto":
+			if s.engine != nil && s.engine.cfg.SandboxBash.Security.AuditAutoApprovals {
+				s.applyHITLDecision(request.invocation, request.result, "", "auto_approved", sandboxBashSecurityOverrideReason, true)
+			}
+			return true, nil
+		}
+	}
+	if s.isRuleWhitelisted(review.RuleKey) {
+		s.applyHITLDecision(request.invocation, request.result, "", "approve_rule_run", "", true)
+		if mode == approvalFastPathExecuteNow {
+			s.registerBashSecurityApproval(review.Fingerprint)
+			return true, s.executeOriginalBash(request.invocation)
+		}
+		return true, nil
+	}
+	if s.shouldAutoApproveBashSecurity(review) {
+		if mode == approvalFastPathExecuteNow {
+			s.registerBashSecurityApproval(review.Fingerprint)
+			return true, s.executeOriginalBash(request.invocation)
+		}
+		return true, nil
+	}
+	if s.hasBashSecurityApproval(review.Fingerprint) {
+		if mode == approvalFastPathExecuteNow {
+			return true, s.executeOriginalBash(request.invocation)
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+func (s *llmRunStream) tryResolveBashAccessApprovalFastPath(request approvalRequest, review accesspolicy.BashPlan, mode approvalFastPathMode) (bool, error) {
+	if s.isRuleWhitelisted(review.RuleKey) {
+		s.applyHITLDecision(request.invocation, request.result, "", "approve_rule_run", "", true)
+		accesspolicy.RegisterRuleApproval(s.execCtx, review.RuleKey)
+		if mode == approvalFastPathExecuteNow {
+			return true, s.executeOriginalBash(request.invocation)
+		}
+		return true, nil
+	}
+	if accesspolicy.HasApproval(s.execCtx, review) {
+		if mode == approvalFastPathExecuteNow {
+			return true, s.executeOriginalBash(request.invocation)
+		}
+		return true, nil
+	}
+	return false, nil
+}
+
+func (s *llmRunStream) tryResolveHITLApprovalFastPath(request approvalRequest, mode approvalFastPathMode) (bool, error) {
+	if request.kind != approvalKindHITL || !strings.EqualFold(request.result.Rule.ViewportType, "builtin") {
+		return false, nil
+	}
+	if s.isRuleWhitelisted(request.result.Rule.RuleKey) {
+		s.applyHITLDecision(request.invocation, request.result, "", "approve_rule_run", "", true)
+		if mode == approvalFastPathExecuteNow {
+			return true, s.executeApprovedApprovalRequest(request)
+		}
+		return true, nil
+	}
+	if s.shouldAutoApproveHITL(request.result) {
+		if mode == approvalFastPathExecuteNow {
+			return true, s.executeOriginalBash(request.invocation)
+		}
+		return true, nil
+	}
+	return false, nil
 }
