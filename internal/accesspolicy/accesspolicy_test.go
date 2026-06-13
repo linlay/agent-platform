@@ -93,6 +93,36 @@ func TestDefaultLevelAllowsChatReadWriteWithExplicitWorkspace(t *testing.T) {
 	}
 }
 
+func TestBuildPathPlanCanonicalKeysStableAcrossEquivalentForms(t *testing.T) {
+	workspace := t.TempDir()
+	path := filepath.Join(workspace, "notes.txt")
+	if err := os.WriteFile(path, []byte("hello"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	session := contracts.QuerySession{
+		AccessLevel:   contracts.AccessLevelDefault,
+		WorkspaceRoot: workspace,
+	}
+
+	relativePlan, err := BuildPathPlan(config.AccessPolicyConfig{}, session, ReadAccess, "notes.txt")
+	if err != nil {
+		t.Fatalf("build relative plan: %v", err)
+	}
+	absolutePlan, err := BuildPathPlan(config.AccessPolicyConfig{}, session, ReadAccess, filepath.Join(workspace, ".", "notes.txt"))
+	if err != nil {
+		t.Fatalf("build absolute plan: %v", err)
+	}
+	if relativePlan.Path != absolutePlan.Path || relativePlan.Path != realPathForTest(t, path) {
+		t.Fatalf("expected host paths to remain stable, relative=%#v absolute=%#v", relativePlan, absolutePlan)
+	}
+	if relativePlan.CommandText != "file_read "+relativePlan.Path {
+		t.Fatalf("expected command text to use host path, got %#v", relativePlan)
+	}
+	if relativePlan.Fingerprint != absolutePlan.Fingerprint || relativePlan.RuleKey != absolutePlan.RuleKey {
+		t.Fatalf("expected equivalent path forms to share canonical approval keys, relative=%#v absolute=%#v", relativePlan, absolutePlan)
+	}
+}
+
 func TestSessionHostAccessRootsAllowOwnerReadWrite(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "workspace")
@@ -406,4 +436,13 @@ func TestBashWriteInWriteRootsApprovalAction(t *testing.T) {
 	if !autoPlan.AutoApproved() {
 		t.Fatalf("expected write-root bash auto approval, got %#v", autoPlan)
 	}
+}
+
+func realPathForTest(t *testing.T, path string) string {
+	t.Helper()
+	real, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatalf("eval symlinks %s: %v", path, err)
+	}
+	return real
 }

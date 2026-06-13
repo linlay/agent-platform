@@ -10,6 +10,7 @@ import (
 	"agent-platform/internal/bashast"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/pathutil"
 )
 
 type BashPlan struct {
@@ -179,7 +180,7 @@ func classifyRedirectAccess(redirect bashast.Redirect) redirectAccessKind {
 }
 
 func isDevNullRedirectTarget(target string) bool {
-	return filepath.Clean(expandHome(strings.TrimSpace(target))) == "/dev/null"
+	return filepath.Clean(pathutil.ExpandHome(strings.TrimSpace(target))) == "/dev/null"
 }
 
 func isFileDescriptorRedirectTarget(target string) bool {

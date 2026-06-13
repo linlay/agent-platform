@@ -4,12 +4,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/pathutil"
 )
 
 type AccessMode string
@@ -73,12 +73,12 @@ func BuildPathPlan(cfg config.AccessPolicyConfig, session QuerySession, mode Acc
 	accessLevel := sessionAccessLevel(session)
 	level := EffectiveLevel(cfg, accessLevel)
 	workingDir := WorkingDirectory(cfg, session)
-	candidate := expandHome(rawPath)
+	candidate := pathutil.ExpandHome(rawPath)
 	if !filepath.IsAbs(candidate) {
 		candidate = filepath.Join(workingDir, candidate)
 	}
 	candidate = filepath.Clean(candidate)
-	realCandidate, err := NormalizePath(candidate)
+	realCandidate, err := pathutil.Canonicalize(candidate)
 	if err != nil {
 		return PathPlan{}, err
 	}
@@ -99,9 +99,12 @@ func BuildPathPlan(cfg config.AccessPolicyConfig, session QuerySession, mode Acc
 	if ok {
 		return buildPathPlan(mode, rawPath, realCandidate, root, accessLevel, DecisionAllow, ""), nil
 	}
-	root = nearestExistingAncestor(realCandidate)
-	if root == "" {
-		root = filepath.Dir(realCandidate)
+	root, err = pathutil.NearestExistingAncestor(realCandidate.Host)
+	if err != nil || root.Host == "" {
+		root, err = pathutil.Canonicalize(filepath.Dir(realCandidate.Host))
+		if err != nil {
+			return PathPlan{}, err
+		}
 	}
 	return buildPathPlan(mode, rawPath, realCandidate, root, accessLevel, decisionForAction(action), outsideRootsReason(mode)), nil
 }
@@ -136,7 +139,7 @@ func WorkingDirectory(cfg config.AccessPolicyConfig, session QuerySession) strin
 		return "."
 	}
 	if filepath.IsAbs(raw) {
-		return filepath.Clean(expandHome(raw))
+		return filepath.Clean(pathutil.ExpandHome(raw))
 	}
 	if workspace := SessionWorkspaceRoot(session); workspace != "" {
 		return workspace
@@ -161,7 +164,7 @@ func SessionWorkspaceRoot(session QuerySession) string {
 	if root == "" {
 		return ""
 	}
-	root = filepath.Clean(expandHome(root))
+	root = filepath.Clean(pathutil.ExpandHome(root))
 	if !filepath.IsAbs(root) {
 		return ""
 	}
@@ -201,15 +204,15 @@ func PathInSessionHostAccessRoot(session QuerySession, mode AccessMode, path str
 	if workingDir == "" {
 		workingDir = "."
 	}
-	candidate := expandHome(path)
+	candidate := pathutil.ExpandHome(path)
 	if !filepath.IsAbs(candidate) {
 		candidate = filepath.Join(workingDir, candidate)
 	}
-	candidate, ok := normalizeExistingOrFuturePath(candidate)
-	if !ok {
+	candidateCanonical, err := pathutil.Canonicalize(candidate)
+	if err != nil {
 		return false
 	}
-	_, ok = firstAllowedRoot(session, workingDir, roots, candidate)
+	_, ok := firstAllowedRoot(session, workingDir, roots, candidateCanonical)
 	return ok
 }
 
@@ -221,23 +224,24 @@ func pathInSessionRoot(root string, path string) bool {
 	if strings.TrimSpace(root) == "" {
 		return false
 	}
-	root, ok := normalizeExistingOrFuturePath(root)
-	if !ok {
+	rootCanonical, err := pathutil.Canonicalize(root)
+	if err != nil {
 		return false
 	}
-	candidate := expandHome(path)
+	candidate := pathutil.ExpandHome(path)
 	if !filepath.IsAbs(candidate) {
-		candidate = filepath.Join(root, candidate)
+		candidate = filepath.Join(rootCanonical.Host, candidate)
 	}
-	candidate, ok = normalizeExistingOrFuturePath(candidate)
-	return ok && pathWithinRoot(candidate, root)
+	candidateCanonical, err := pathutil.Canonicalize(candidate)
+	return err == nil && pathutil.WithinRoot(candidateCanonical, rootCanonical)
 }
 
 func NormalizePath(path string) (string, error) {
-	if normalized, ok := normalizeExistingOrFuturePath(path); ok {
-		return normalized, nil
+	normalized, err := pathutil.Canonicalize(path)
+	if err != nil {
+		return "", err
 	}
-	return "", fmt.Errorf("resolve path: %s", path)
+	return normalized.Host, nil
 }
 
 func resolveLevelConfig(cfg config.AccessPolicyConfig, name string, seen map[string]bool) config.AccessPolicyLevelConfig {
@@ -335,17 +339,17 @@ func mergeApprovals(parent config.AccessPolicyApprovalConfig, child config.Acces
 	return out
 }
 
-func buildPathPlan(mode AccessMode, rawPath, path, root, accessLevel string, decision Decision, reason string) PathPlan {
-	fingerprintHash := sha256.Sum256([]byte(string(mode) + "\x00" + path))
-	rootHash := sha256.Sum256([]byte(string(mode) + "\x00" + root))
-	command := "file_read " + path
+func buildPathPlan(mode AccessMode, rawPath string, path pathutil.Canonical, root pathutil.Canonical, accessLevel string, decision Decision, reason string) PathPlan {
+	fingerprintHash := sha256.Sum256([]byte(string(mode) + "\x00" + path.Key))
+	rootHash := sha256.Sum256([]byte(string(mode) + "\x00" + root.Key))
+	command := "file_read " + path.Host
 	if mode == WriteAccess {
-		command = "file_write " + path
+		command = "file_write " + path.Host
 	}
 	return PathPlan{
 		RawPath:     rawPath,
-		Path:        path,
-		Root:        root,
+		Path:        path.Host,
+		Root:        root.Host,
 		RuleKey:     "access-" + string(mode) + "::" + hex.EncodeToString(rootHash[:8]),
 		Fingerprint: hex.EncodeToString(fingerprintHash[:]),
 		CommandText: command,
@@ -376,7 +380,7 @@ func outsideRootsReason(mode AccessMode) string {
 	return "read path is outside allowed roots"
 }
 
-func firstAllowedRoot(session QuerySession, workingDir string, roots []string, candidate string) (string, bool) {
+func firstAllowedRoot(session QuerySession, workingDir string, roots []string, candidate pathutil.Canonical) (pathutil.Canonical, bool) {
 	for _, root := range roots {
 		root = strings.TrimSpace(root)
 		if root == "" {
@@ -393,15 +397,15 @@ func firstAllowedRoot(session QuerySession, workingDir string, roots []string, c
 		if !filepath.IsAbs(checkRoot) {
 			checkRoot = filepath.Join(workingDir, checkRoot)
 		}
-		checkRoot, ok := normalizeExistingOrFuturePath(checkRoot)
-		if !ok {
+		checkRootCanonical, err := pathutil.Canonicalize(checkRoot)
+		if err != nil {
 			continue
 		}
-		if pathWithinRoot(candidate, checkRoot) {
-			return checkRoot, true
+		if pathutil.WithinRoot(candidate, checkRootCanonical) {
+			return checkRootCanonical, true
 		}
 	}
-	return "", false
+	return pathutil.Canonical{}, false
 }
 
 func expandRootAlias(root string, session QuerySession) string {
@@ -441,86 +445,9 @@ func cleanAbs(path string) string {
 	if path == "" {
 		return ""
 	}
-	path = filepath.Clean(expandHome(path))
+	path = filepath.Clean(pathutil.ExpandHome(path))
 	if !filepath.IsAbs(path) {
 		return ""
-	}
-	return path
-}
-
-func normalizeExistingOrFuturePath(path string) (string, bool) {
-	path = filepath.Clean(expandHome(strings.TrimSpace(path)))
-	if path == "" {
-		return "", false
-	}
-	if evaluated, err := filepath.EvalSymlinks(path); err == nil {
-		return filepath.Clean(evaluated), true
-	}
-	existing := path
-	missing := []string{}
-	for {
-		if existing == "." || existing == string(filepath.Separator) || existing == "" {
-			break
-		}
-		if _, err := os.Lstat(existing); err == nil {
-			break
-		}
-		missing = append([]string{filepath.Base(existing)}, missing...)
-		parent := filepath.Dir(existing)
-		if parent == existing {
-			break
-		}
-		existing = parent
-	}
-	evaluatedParent, err := filepath.EvalSymlinks(existing)
-	if err != nil {
-		if abs, absErr := filepath.Abs(path); absErr == nil {
-			return filepath.Clean(abs), true
-		}
-		return "", false
-	}
-	return filepath.Clean(filepath.Join(append([]string{evaluatedParent}, missing...)...)), true
-}
-
-func nearestExistingAncestor(path string) string {
-	current := filepath.Clean(path)
-	if current == "" {
-		return ""
-	}
-	for {
-		if info, err := os.Stat(current); err == nil {
-			if info.IsDir() {
-				return current
-			}
-			return filepath.Dir(current)
-		}
-		parent := filepath.Dir(current)
-		if parent == current {
-			return current
-		}
-		current = parent
-	}
-}
-
-func pathWithinRoot(path string, root string) bool {
-	path = filepath.Clean(path)
-	root = filepath.Clean(root)
-	if root == string(os.PathSeparator) {
-		return filepath.IsAbs(path)
-	}
-	return path == root || strings.HasPrefix(path, root+string(os.PathSeparator))
-}
-
-func expandHome(path string) string {
-	path = strings.TrimSpace(path)
-	if path == "~" || strings.HasPrefix(path, "~/") {
-		home, err := os.UserHomeDir()
-		if err == nil && home != "" {
-			if path == "~" {
-				return home
-			}
-			return filepath.Join(home, strings.TrimPrefix(path, "~/"))
-		}
 	}
 	return path
 }

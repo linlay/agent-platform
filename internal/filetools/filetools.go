@@ -4,13 +4,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
 	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/pathutil"
 )
 
 type AccessMode string
@@ -30,6 +30,8 @@ type AccessPlan struct {
 	RawPath            string
 	Path               string
 	Root               string
+	pathKey            string
+	rootKey            string
 	RuleKey            string
 	Fingerprint        string
 	CommandText        string
@@ -61,16 +63,16 @@ func BuildAccessPlan(cfg config.FileToolsConfig, mode AccessMode, rawPath string
 	if rawPath == "" {
 		return AccessPlan{}, fmt.Errorf("file_path is required")
 	}
-	candidate := expandHome(rawPath)
+	candidate := pathutil.ExpandHome(rawPath)
 	if !filepath.IsAbs(candidate) {
 		workingDir := cfg.WorkingDirectory
 		if strings.TrimSpace(workingDir) == "" {
 			workingDir = "."
 		}
-		candidate = filepath.Join(expandHome(workingDir), candidate)
+		candidate = filepath.Join(pathutil.ExpandHome(workingDir), candidate)
 	}
 	candidate = filepath.Clean(candidate)
-	realCandidate, err := evaluatePath(candidate)
+	realCandidate, err := pathutil.Canonicalize(candidate)
 	if err != nil {
 		return AccessPlan{}, err
 	}
@@ -80,20 +82,28 @@ func BuildAccessPlan(cfg config.FileToolsConfig, mode AccessMode, rawPath string
 	}
 	root, ok := firstAllowedRoot(cfg.WorkingDirectory, roots, realCandidate)
 	if !ok {
-		root = nearestExistingAncestor(realCandidate)
+		root, err = pathutil.NearestExistingAncestor(realCandidate.Host)
+		if err != nil {
+			return AccessPlan{}, err
+		}
 	}
-	if root == "" {
-		root = filepath.Dir(realCandidate)
+	if root.Host == "" {
+		root, err = pathutil.Canonicalize(filepath.Dir(realCandidate.Host))
+		if err != nil {
+			return AccessPlan{}, err
+		}
 	}
-	fingerprintHash := sha256.Sum256([]byte(string(mode) + "\x00" + realCandidate))
-	rootHash := sha256.Sum256([]byte(string(mode) + "\x00" + root))
+	fingerprintHash := sha256.Sum256([]byte(string(mode) + "\x00" + realCandidate.Key))
+	rootHash := sha256.Sum256([]byte(string(mode) + "\x00" + root.Key))
 	return AccessPlan{
 		RawPath:            rawPath,
-		Path:               realCandidate,
-		Root:               root,
+		Path:               realCandidate.Host,
+		Root:               root.Host,
+		pathKey:            realCandidate.Key,
+		rootKey:            root.Key,
 		RuleKey:            "file-" + string(mode) + "::" + hex.EncodeToString(rootHash[:8]),
 		Fingerprint:        hex.EncodeToString(fingerprintHash[:]),
-		CommandText:        accessModeCommandName(mode) + " " + realCandidate,
+		CommandText:        accessModeCommandName(mode) + " " + realCandidate.Host,
 		AllowedByWhitelist: ok,
 		Mode:               mode,
 	}, nil
@@ -111,10 +121,20 @@ func BuildAccessPlanFromPolicy(cfg config.AccessPolicyConfig, session QuerySessi
 		}
 		return AccessPlan{}, err
 	}
+	pathCanonical, err := pathutil.Canonicalize(plan.Path)
+	if err != nil {
+		return AccessPlan{}, err
+	}
+	rootCanonical, err := pathutil.Canonicalize(plan.Root)
+	if err != nil {
+		return AccessPlan{}, err
+	}
 	return AccessPlan{
 		RawPath:            plan.RawPath,
 		Path:               plan.Path,
 		Root:               plan.Root,
+		pathKey:            pathCanonical.Key,
+		rootKey:            rootCanonical.Key,
 		RuleKey:            "file-" + string(mode) + strings.TrimPrefix(plan.RuleKey, "access-"+string(policyMode)),
 		Fingerprint:        plan.Fingerprint,
 		CommandText:        accessModeCommandName(mode) + " " + plan.Path,
@@ -150,7 +170,7 @@ func ConfigWithSessionReadRoots(cfg config.FileToolsConfig, mode AccessMode, ses
 		if root == "" {
 			continue
 		}
-		roots = append(roots, filepath.Clean(expandHome(root)))
+		roots = append(roots, filepath.Clean(pathutil.ExpandHome(root)))
 	}
 	cfg.AllowedReadPaths = uniqueNonEmptyStrings(roots)
 	return cfg
@@ -191,20 +211,6 @@ func sessionChatDir(session QuerySession) string {
 	return accesspolicy.SessionChatDir(session)
 }
 
-func normalizeExistingOrFuturePath(path string) (string, bool) {
-	path = filepath.Clean(expandHome(strings.TrimSpace(path)))
-	if path == "" {
-		return "", false
-	}
-	if evaluated, err := evaluatePath(path); err == nil {
-		return evaluated, true
-	}
-	if abs, err := filepath.Abs(path); err == nil {
-		return filepath.Clean(abs), true
-	}
-	return "", false
-}
-
 func BuildWritePlan(cfg config.FileToolsConfig, args map[string]any) (WritePlan, error) {
 	access, err := BuildAccessPlan(cfg, WriteAccess, AnyStringNode(args["file_path"]))
 	if err != nil {
@@ -216,9 +222,13 @@ func BuildWritePlan(cfg config.FileToolsConfig, args map[string]any) (WritePlan,
 		return WritePlan{}, fmt.Errorf("content exceeds max write bytes")
 	}
 	contentBytes := []byte(content)
-	sum := sha256.Sum256([]byte(access.Path + "\x00" + hex.EncodeToString(sha256Bytes(contentBytes))))
+	pathKey, rootKey, err := canonicalAccessKeys(access)
+	if err != nil {
+		return WritePlan{}, err
+	}
+	sum := sha256.Sum256([]byte(pathKey + "\x00" + hex.EncodeToString(sha256Bytes(contentBytes))))
 	fingerprint := hex.EncodeToString(sum[:])
-	rootHash := sha256.Sum256([]byte(access.Root))
+	rootHash := sha256.Sum256([]byte(rootKey))
 	ruleKey := "file-write::" + hex.EncodeToString(rootHash[:8])
 	return WritePlan{
 		FilePath:    access.Path,
@@ -240,9 +250,13 @@ func BuildWritePlanWithAccess(access AccessPlan, cfg config.FileToolsConfig, arg
 		return WritePlan{}, fmt.Errorf("content exceeds max write bytes")
 	}
 	contentBytes := []byte(content)
-	sum := sha256.Sum256([]byte(access.Path + "\x00" + hex.EncodeToString(sha256Bytes(contentBytes))))
+	pathKey, rootKey, err := canonicalAccessKeys(access)
+	if err != nil {
+		return WritePlan{}, err
+	}
+	sum := sha256.Sum256([]byte(pathKey + "\x00" + hex.EncodeToString(sha256Bytes(contentBytes))))
 	fingerprint := hex.EncodeToString(sum[:])
-	rootHash := sha256.Sum256([]byte(access.Root))
+	rootHash := sha256.Sum256([]byte(rootKey))
 	ruleKey := "file-write::" + hex.EncodeToString(rootHash[:8])
 	return WritePlan{
 		FilePath:    access.Path,
@@ -278,14 +292,18 @@ func BuildEditPlan(cfg config.FileToolsConfig, args map[string]any) (WritePlan, 
 		return WritePlan{}, fmt.Errorf("new_string exceeds max write bytes")
 	}
 	replaceAll := AnyBoolNode(args["replace_all"])
+	pathKey, rootKey, err := canonicalAccessKeys(access)
+	if err != nil {
+		return WritePlan{}, err
+	}
 	fingerprintInput := strings.Join([]string{
-		access.Path,
+		pathKey,
 		oldString,
 		newString,
 		fmt.Sprintf("%t", replaceAll),
 	}, "\x00")
 	sum := sha256.Sum256([]byte(fingerprintInput))
-	rootHash := sha256.Sum256([]byte("file_edit\x00" + access.Root))
+	rootHash := sha256.Sum256([]byte("file_edit\x00" + rootKey))
 	commandText := fmt.Sprintf("file_edit %s (%d -> %d bytes)", access.Path, len([]byte(oldString)), len([]byte(newString)))
 	if replaceAll {
 		commandText += " replace_all"
@@ -322,14 +340,18 @@ func BuildEditPlanWithAccess(access AccessPlan, cfg config.FileToolsConfig, args
 		return WritePlan{}, fmt.Errorf("new_string exceeds max write bytes")
 	}
 	replaceAll := AnyBoolNode(args["replace_all"])
+	pathKey, rootKey, err := canonicalAccessKeys(access)
+	if err != nil {
+		return WritePlan{}, err
+	}
 	fingerprintInput := strings.Join([]string{
-		access.Path,
+		pathKey,
 		oldString,
 		newString,
 		fmt.Sprintf("%t", replaceAll),
 	}, "\x00")
 	sum := sha256.Sum256([]byte(fingerprintInput))
-	rootHash := sha256.Sum256([]byte("file_edit\x00" + access.Root))
+	rootHash := sha256.Sum256([]byte("file_edit\x00" + rootKey))
 	commandText := fmt.Sprintf("file_edit %s (%d -> %d bytes)", access.Path, len([]byte(oldString)), len([]byte(newString)))
 	if replaceAll {
 		commandText += " replace_all"
@@ -347,6 +369,26 @@ func BuildEditPlanWithAccess(access AccessPlan, cfg config.FileToolsConfig, args
 		NewString:   newString,
 		ReplaceAll:  replaceAll,
 	}, nil
+}
+
+func canonicalAccessKeys(access AccessPlan) (string, string, error) {
+	pathKey := strings.TrimSpace(access.pathKey)
+	if pathKey == "" {
+		pathCanonical, err := pathutil.Canonicalize(access.Path)
+		if err != nil {
+			return "", "", err
+		}
+		pathKey = pathCanonical.Key
+	}
+	rootKey := strings.TrimSpace(access.rootKey)
+	if rootKey == "" {
+		rootCanonical, err := pathutil.Canonicalize(access.Root)
+		if err != nil {
+			return "", "", err
+		}
+		rootKey = rootCanonical.Key
+	}
+	return pathKey, rootKey, nil
 }
 
 func accessModeCommandName(mode AccessMode) string {
@@ -509,97 +551,29 @@ func HasWriteApproval(execCtx *ExecutionContext, plan WritePlan) bool {
 	return execCtx.FileWriteApprovals != nil && execCtx.FileWriteApprovals[plan.Fingerprint] > 0
 }
 
-func evaluatePath(path string) (string, error) {
-	if evaluated, err := filepath.EvalSymlinks(path); err == nil {
-		return filepath.Clean(evaluated), nil
-	}
-	existing := path
-	missing := []string{}
-	for {
-		if existing == "." || existing == string(filepath.Separator) || existing == "" {
-			break
-		}
-		if _, err := os.Lstat(existing); err == nil {
-			break
-		}
-		missing = append([]string{filepath.Base(existing)}, missing...)
-		parent := filepath.Dir(existing)
-		if parent == existing {
-			break
-		}
-		existing = parent
-	}
-	evaluatedParent, err := filepath.EvalSymlinks(existing)
-	if err != nil {
-		return "", fmt.Errorf("resolve path: %w", err)
-	}
-	return filepath.Clean(filepath.Join(append([]string{evaluatedParent}, missing...)...)), nil
-}
-
-func nearestExistingAncestor(path string) string {
-	current := filepath.Clean(path)
-	if current == "" {
-		return ""
-	}
-	if info, err := os.Lstat(current); err == nil && info.IsDir() {
-		if evaluated, err := filepath.EvalSymlinks(current); err == nil {
-			return filepath.Clean(evaluated)
-		}
-		return current
-	}
-	for {
-		parent := filepath.Dir(current)
-		if parent == current || parent == "." || parent == "" {
-			if evaluated, err := filepath.EvalSymlinks(current); err == nil {
-				return filepath.Clean(evaluated)
-			}
-			return current
-		}
-		if info, err := os.Lstat(parent); err == nil && info.IsDir() {
-			if evaluated, err := filepath.EvalSymlinks(parent); err == nil {
-				return filepath.Clean(evaluated)
-			}
-			return parent
-		}
-		current = parent
-	}
-}
-
-func firstAllowedRoot(workingDir string, roots []string, path string) (string, bool) {
+func firstAllowedRoot(workingDir string, roots []string, path pathutil.Canonical) (pathutil.Canonical, bool) {
 	for _, root := range roots {
 		resolvedRoot := strings.TrimSpace(root)
 		if resolvedRoot == "" {
 			continue
 		}
-		resolvedRoot = expandHome(resolvedRoot)
+		resolvedRoot = pathutil.ExpandHome(resolvedRoot)
 		if !filepath.IsAbs(resolvedRoot) {
 			base := workingDir
 			if strings.TrimSpace(base) == "" {
 				base = "."
 			}
-			resolvedRoot = filepath.Join(expandHome(base), resolvedRoot)
+			resolvedRoot = filepath.Join(pathutil.ExpandHome(base), resolvedRoot)
 		}
-		evaluatedRoot, err := evaluatePath(filepath.Clean(resolvedRoot))
+		evaluatedRoot, err := pathutil.Canonicalize(filepath.Clean(resolvedRoot))
 		if err != nil {
 			continue
 		}
-		if path == evaluatedRoot || strings.HasPrefix(path, evaluatedRoot+string(os.PathSeparator)) {
+		if pathutil.WithinRoot(path, evaluatedRoot) {
 			return evaluatedRoot, true
 		}
 	}
-	return "", false
-}
-
-func expandHome(path string) string {
-	if path == "~" || strings.HasPrefix(path, "~/") {
-		if home, err := os.UserHomeDir(); err == nil && home != "" {
-			if path == "~" {
-				return home
-			}
-			return filepath.Join(home, strings.TrimPrefix(path, "~/"))
-		}
-	}
-	return path
+	return pathutil.Canonical{}, false
 }
 
 func sha256Bytes(data []byte) []byte {

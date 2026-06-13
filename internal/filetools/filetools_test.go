@@ -65,6 +65,53 @@ func TestBuildAccessPlanDeniedInfersNearestExistingAncestor(t *testing.T) {
 	}
 }
 
+func TestBuildAccessAndWritePlansUseCanonicalKeysForEquivalentForms(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "notes.txt")
+	if err := os.WriteFile(path, []byte("hello"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	cfg := config.FileToolsConfig{
+		WorkingDirectory:  root,
+		AllowedReadPaths:  []string{"."},
+		AllowedWritePaths: []string{"."},
+		MaxWriteBytes:     1024,
+	}
+
+	relativeAccess, err := BuildAccessPlan(cfg, ReadAccess, "notes.txt")
+	if err != nil {
+		t.Fatalf("build relative access plan: %v", err)
+	}
+	absoluteAccess, err := BuildAccessPlan(cfg, ReadAccess, filepath.Join(root, ".", "notes.txt"))
+	if err != nil {
+		t.Fatalf("build absolute access plan: %v", err)
+	}
+	if relativeAccess.Path != absoluteAccess.Path || relativeAccess.Path != filepath.Join(realPathForTest(t, root), "notes.txt") {
+		t.Fatalf("expected host paths to remain stable, relative=%#v absolute=%#v", relativeAccess, absoluteAccess)
+	}
+	if relativeAccess.CommandText != "file_read "+relativeAccess.Path {
+		t.Fatalf("expected command text to use host path, got %#v", relativeAccess)
+	}
+	if relativeAccess.Fingerprint != absoluteAccess.Fingerprint || relativeAccess.RuleKey != absoluteAccess.RuleKey {
+		t.Fatalf("expected equivalent path forms to share canonical access keys, relative=%#v absolute=%#v", relativeAccess, absoluteAccess)
+	}
+
+	relativeWrite, err := BuildWritePlan(cfg, map[string]any{"file_path": "notes.txt", "content": "hello"})
+	if err != nil {
+		t.Fatalf("build relative write plan: %v", err)
+	}
+	absoluteWrite, err := BuildWritePlan(cfg, map[string]any{"file_path": filepath.Join(root, ".", "notes.txt"), "content": "hello"})
+	if err != nil {
+		t.Fatalf("build absolute write plan: %v", err)
+	}
+	if relativeWrite.FilePath != absoluteWrite.FilePath {
+		t.Fatalf("expected write host paths to match, relative=%#v absolute=%#v", relativeWrite, absoluteWrite)
+	}
+	if relativeWrite.Fingerprint != absoluteWrite.Fingerprint || relativeWrite.RuleKey != absoluteWrite.RuleKey {
+		t.Fatalf("expected equivalent path forms to share canonical write keys, relative=%#v absolute=%#v", relativeWrite, absoluteWrite)
+	}
+}
+
 func TestBuildEditPlanUsesEditFingerprintAndRuleKey(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "notes.txt")
