@@ -125,7 +125,6 @@ type preparedToolInvocation struct {
 	awaitExternalResult bool
 	toolCallCounted     bool
 	precheckedHITL      *hitl.InterceptResult
-	workspaceHITL       *hitl.InterceptResult
 	bashSecurityReview  *bashsec.ReviewResult
 	bashAccessReview    *accesspolicy.BashPlan
 	fileAccessPlan      *filetools.AccessPlan

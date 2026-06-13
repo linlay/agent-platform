@@ -11,6 +11,7 @@ import (
 	"agent-platform/internal/bashsec"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/filetools"
+	"agent-platform/internal/hitl"
 )
 
 func (s *llmRunStream) prepareToolCall(toolCall openAIToolCall) (*preparedToolInvocation, []AgentDelta, *openAIMessage) {
@@ -233,6 +234,30 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 	if invocation == nil {
 		return nil
 	}
+	s.beginToolInvocation(invocation)
+	if result := s.checkBudgetBeforeToolCall(invocation.toolName); result != nil {
+		s.appendOriginalToolResult(invocation, *result)
+		return nil
+	}
+
+	keepActive := false
+	defer func() {
+		if !keepActive {
+			s.finishToolInvocation(invocation)
+		}
+	}()
+
+	if handled, keep, err := s.handleDeferredToolInvocation(invocation); handled {
+		keepActive = keep
+		return err
+	}
+	if handled, err := s.handleToolApprovalBeforeInvoke(invocation); handled {
+		return err
+	}
+	return s.invokeToolAndPublishResult(invocation)
+}
+
+func (s *llmRunStream) beginToolInvocation(invocation *preparedToolInvocation) {
 	s.refreshAccessLevelForInvocation(invocation)
 	s.skipPostToolHook = false
 
@@ -248,137 +273,171 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 		s.runToolCallCount++
 		invocation.toolCallCounted = true
 	}
-	if result := s.checkBudgetBeforeToolCall(invocation.toolName); result != nil {
-		s.appendOriginalToolResult(invocation, *result)
-		return nil
+}
+
+func (s *llmRunStream) finishToolInvocation(invocation *preparedToolInvocation) {
+	if s.runControl != nil {
+		s.runControl.ClearExpectedSubmit(invocation.toolID)
 	}
-	keepActive := false
-	defer func() {
-		if keepActive {
-			return
-		}
-		if s.runControl != nil {
-			s.runControl.ClearExpectedSubmit(invocation.toolID)
-		}
-		s.execCtx.CurrentToolID = ""
-		s.execCtx.CurrentToolName = ""
-		s.activeToolCall = nil
-	}()
+	s.execCtx.CurrentToolID = ""
+	s.execCtx.CurrentToolName = ""
+	s.activeToolCall = nil
+}
+
+func (s *llmRunStream) handleDeferredToolInvocation(invocation *preparedToolInvocation) (bool, bool, error) {
 	if invocation.queuedResult != nil {
 		s.appendOriginalToolResult(invocation, *invocation.queuedResult)
 		invocation.queuedResult = nil
-		return nil
+		return true, false, nil
 	}
 	if invocation.awaitExternalResult {
-		keepActive = true
-		return nil
+		return true, true, nil
 	}
-	if accessPlan := s.lookupFileAccessPlan(invocation); accessPlan != nil && s.fileAccessPlanNeedsApproval(*accessPlan) {
-		if strings.TrimSpace(invocation.approvalDecision) != "" {
-			return s.executeApprovedFileAccessInvocation(invocation, *accessPlan)
-		}
-		s.skipPostToolHook = true
-		return s.emitFileAccessApprovalDeltas(invocation, *accessPlan)
+	return false, false, nil
+}
+
+func (s *llmRunStream) handleToolApprovalBeforeInvoke(invocation *preparedToolInvocation) (bool, error) {
+	if handled, err := s.handleFileApprovalBeforeInvoke(invocation); handled {
+		return true, err
 	}
-	if plan := s.lookupFileWritePlan(invocation); plan != nil && s.fileWritePlanNeedsApproval(*plan) {
-		if strings.TrimSpace(invocation.approvalDecision) != "" {
-			return s.executeApprovedFileWriteInvocation(invocation, *plan)
-		}
-		if filetools.HasWriteApproval(s.execCtx, *plan) {
-			return s.executeOriginalBash(invocation)
-		}
-		s.skipPostToolHook = true
-		return s.emitFileWriteApprovalDeltas(invocation, *plan)
-	}
-	if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewRequiresApproval {
-		if strings.TrimSpace(invocation.approvalDecision) != "" {
-			return s.executeApprovedBashSecurityInvocation(invocation, review)
-		}
-		if handled, err := s.executeSandboxBashSecurityOverride(invocation, review); handled {
-			return err
-		}
-		if s.isRuleWhitelisted(review.RuleKey) {
-			s.applyHITLDecision(invocation, bashSecurityInterceptResult(invocation, review), "", "approve_rule_run", "", true)
-			s.registerBashSecurityApproval(review.Fingerprint)
-			return s.executeOriginalBash(invocation)
-		}
-		if s.shouldAutoApproveBashSecurity(review) {
-			s.registerBashSecurityApproval(review.Fingerprint)
-			return s.executeOriginalBash(invocation)
-		}
-		if s.hasBashSecurityApproval(review.Fingerprint) {
-			return s.executeOriginalBash(invocation)
-		}
-		s.skipPostToolHook = true
-		return s.emitBashSecurityApprovalDeltas(invocation, review)
-	}
-	if result := s.lookupWorkspaceHITL(invocation); result.Intercepted {
-		if strings.EqualFold(result.Rule.ViewportType, "builtin") {
-			if strings.TrimSpace(invocation.approvalDecision) != "" {
-				return s.executeApprovedBashInvocation(invocation, result)
-			}
-			if s.isRuleWhitelisted(result.Rule.RuleKey) {
-				s.applyHITLDecision(invocation, result, "", "approve_rule_run", "", true)
-				return s.executeApprovedBashInvocation(invocation, result)
-			}
-			if s.shouldAutoApproveHITL(result) {
-				return s.executeOriginalBash(invocation)
-			}
-		}
-		s.skipPostToolHook = true
-		return s.emitHITLConfirmDeltas(invocation, result)
+	if handled, err := s.handleBashSecurityApprovalBeforeInvoke(invocation); handled {
+		return true, err
 	}
 	if invocation.precheckedHITL != nil && invocation.precheckedHITL.Intercepted {
-		result := *invocation.precheckedHITL
-		if strings.EqualFold(result.Rule.ViewportType, "builtin") {
-			if strings.TrimSpace(invocation.approvalDecision) != "" {
-				return s.executeApprovedBashInvocation(invocation, result)
-			}
-			if s.isRuleWhitelisted(result.Rule.RuleKey) {
-				s.applyHITLDecision(invocation, result, "", "approve_rule_run", "", true)
-				return s.executeApprovedBashInvocation(invocation, result)
-			}
-			if s.shouldAutoApproveHITL(result) {
-				return s.executeOriginalBash(invocation)
-			}
-		}
-		s.skipPostToolHook = true
-		return s.emitHITLConfirmDeltas(invocation, result)
+		return true, s.handlePrecheckedHITLApproval(invocation, *invocation.precheckedHITL)
 	}
 	if s.checker != nil && isBashTool(invocation.toolName) {
 		command := mapStringArg(invocation.args, "command")
 		if result := s.checker.Check(command, s.execCtx.HITLLevel); result.Intercepted {
-			s.skipPostToolHook = true
-			if strings.EqualFold(result.Rule.ViewportType, "builtin") && s.isRuleWhitelisted(result.Rule.RuleKey) {
-				s.applyHITLDecision(invocation, result, "", "approve_rule_run", "", true)
-				return s.executeApprovedBashInvocation(invocation, result)
-			}
-			if s.shouldAutoApproveHITL(result) {
-				return s.executeOriginalBash(invocation)
-			}
-			return s.emitHITLConfirmDeltas(invocation, result)
+			return true, s.handleCheckerHITLApproval(invocation, result)
 		}
 	}
 	if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewBlock {
 		s.appendOriginalToolResult(invocation, bashSecurityBlockedToolResult(review))
-		return nil
+		return true, nil
 	}
+	if handled, err := s.handleBashAccessApprovalBeforeInvoke(invocation); handled {
+		return true, err
+	}
+	return false, nil
+}
+
+func (s *llmRunStream) handleFileApprovalBeforeInvoke(invocation *preparedToolInvocation) (bool, error) {
+	if accessPlan := s.lookupFileAccessPlan(invocation); accessPlan != nil && s.fileAccessPlanNeedsApproval(*accessPlan) {
+		return s.handleBuiltInApprovalRequest(s.fileAccessApprovalRequest(invocation, *accessPlan))
+	}
+	if plan := s.lookupFileWritePlan(invocation); plan != nil && s.fileWritePlanNeedsApproval(*plan) {
+		return s.handleBuiltInApprovalRequest(s.fileWriteApprovalRequest(invocation, *plan))
+	}
+	return false, nil
+}
+
+func (s *llmRunStream) handleBashSecurityApprovalBeforeInvoke(invocation *preparedToolInvocation) (bool, error) {
+	if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewRequiresApproval {
+		return s.handleBuiltInApprovalRequest(s.bashSecurityApprovalRequest(invocation, review))
+	}
+	return false, nil
+}
+
+func (s *llmRunStream) handleBashAccessApprovalBeforeInvoke(invocation *preparedToolInvocation) (bool, error) {
 	if review := s.lookupBashAccessReview(invocation); review.Decision == accesspolicy.DecisionRequiresApproval {
-		if strings.TrimSpace(invocation.approvalDecision) != "" {
-			return s.executeApprovedBashAccessInvocation(invocation, review)
-		}
-		if s.isRuleWhitelisted(review.RuleKey) {
-			s.applyHITLDecision(invocation, bashAccessInterceptResult(invocation, review), "", "approve_rule_run", "", true)
-			accesspolicy.RegisterRuleApproval(s.execCtx, review.RuleKey)
-			return s.executeOriginalBash(invocation)
-		}
-		if accesspolicy.HasApproval(s.execCtx, review) {
-			return s.executeOriginalBash(invocation)
+		return s.handleBuiltInApprovalRequest(s.bashAccessApprovalRequest(invocation, review))
+	}
+	return false, nil
+}
+
+func (s *llmRunStream) handleBuiltInApprovalRequest(request approvalRequest) (bool, error) {
+	invocation := request.invocation
+	switch request.kind {
+	case approvalKindFileAccess:
+		if request.hasApprovalDecision() {
+			return true, s.executeApprovedApprovalRequest(request)
 		}
 		s.skipPostToolHook = true
-		return s.emitBashAccessApprovalDeltas(invocation, review)
+		return true, s.emitApprovalRequestDeltas(request)
+	case approvalKindFileWrite:
+		if request.hasApprovalDecision() {
+			return true, s.executeApprovedApprovalRequest(request)
+		}
+		if request.fileWritePlan != nil && filetools.HasWriteApproval(s.execCtx, *request.fileWritePlan) {
+			return true, s.executeOriginalBash(invocation)
+		}
+		s.skipPostToolHook = true
+		return true, s.emitApprovalRequestDeltas(request)
+	case approvalKindBashSecurity:
+		if request.hasApprovalDecision() {
+			return true, s.executeApprovedApprovalRequest(request)
+		}
+		review := *request.bashSecurityReview
+		if handled, err := s.executeSandboxBashSecurityOverride(invocation, review); handled {
+			return true, err
+		}
+		if s.isRuleWhitelisted(review.RuleKey) {
+			s.applyHITLDecision(invocation, request.result, "", "approve_rule_run", "", true)
+			s.registerBashSecurityApproval(review.Fingerprint)
+			return true, s.executeOriginalBash(invocation)
+		}
+		if s.shouldAutoApproveBashSecurity(review) {
+			s.registerBashSecurityApproval(review.Fingerprint)
+			return true, s.executeOriginalBash(invocation)
+		}
+		if s.hasBashSecurityApproval(review.Fingerprint) {
+			return true, s.executeOriginalBash(invocation)
+		}
+		s.skipPostToolHook = true
+		return true, s.emitApprovalRequestDeltas(request)
+	case approvalKindBashAccess:
+		if request.hasApprovalDecision() {
+			return true, s.executeApprovedApprovalRequest(request)
+		}
+		review := *request.bashAccessReview
+		if s.isRuleWhitelisted(review.RuleKey) {
+			s.applyHITLDecision(invocation, request.result, "", "approve_rule_run", "", true)
+			accesspolicy.RegisterRuleApproval(s.execCtx, review.RuleKey)
+			return true, s.executeOriginalBash(invocation)
+		}
+		if accesspolicy.HasApproval(s.execCtx, review) {
+			return true, s.executeOriginalBash(invocation)
+		}
+		s.skipPostToolHook = true
+		return true, s.emitApprovalRequestDeltas(request)
+	default:
+		return false, nil
 	}
+}
 
+func (s *llmRunStream) handlePrecheckedHITLApproval(invocation *preparedToolInvocation, result hitl.InterceptResult) error {
+	request := hitlApprovalRequest(invocation, result)
+	if strings.EqualFold(result.Rule.ViewportType, "builtin") {
+		if request.hasApprovalDecision() {
+			return s.executeApprovedApprovalRequest(request)
+		}
+		if s.isRuleWhitelisted(result.Rule.RuleKey) {
+			s.applyHITLDecision(invocation, result, "", "approve_rule_run", "", true)
+			return s.executeApprovedApprovalRequest(request)
+		}
+		if s.shouldAutoApproveHITL(result) {
+			return s.executeOriginalBash(invocation)
+		}
+	}
+	s.skipPostToolHook = true
+	return s.emitApprovalRequestDeltas(request)
+}
+
+func (s *llmRunStream) handleCheckerHITLApproval(invocation *preparedToolInvocation, result hitl.InterceptResult) error {
+	s.skipPostToolHook = true
+	request := hitlApprovalRequest(invocation, result)
+	if strings.EqualFold(result.Rule.ViewportType, "builtin") && s.isRuleWhitelisted(result.Rule.RuleKey) {
+		s.applyHITLDecision(invocation, result, "", "approve_rule_run", "", true)
+		return s.executeApprovedApprovalRequest(request)
+	}
+	if s.shouldAutoApproveHITL(result) {
+		return s.executeOriginalBash(invocation)
+	}
+	return s.emitApprovalRequestDeltas(request)
+}
+
+func (s *llmRunStream) invokeToolAndPublishResult(invocation *preparedToolInvocation) error {
 	s.recordAccessPolicyAutoApproval(invocation)
 	result, invokeErr := s.engine.tools.Invoke(s.ctx, invocation.toolName, invocation.args, s.execCtx)
 	if invokeErr != nil {
@@ -395,6 +454,20 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 		s.appendFinalPlanningDeltas(invocation.toolID, result)
 		return nil
 	}
+	s.appendFrontendSubmitDeltas(invocation, result)
+	s.appendOriginalToolResult(invocation, result)
+	if isPlanTool(invocation.toolName) && s.execCtx != nil && s.execCtx.PlanState != nil && len(s.execCtx.PlanState.Tasks) > 0 {
+		s.pending = append(s.pending, DeltaPlanUpdate{
+			PlanID: s.execCtx.PlanState.PlanID,
+			ChatID: s.session.ChatID,
+			Plan:   PlanTasksArray(s.execCtx.PlanState),
+		})
+	}
+	appendPublishedArtifactDelta(&s.pending, s.session, result.Structured["publishedArtifacts"])
+	return nil
+}
+
+func (s *llmRunStream) appendFrontendSubmitDeltas(invocation *preparedToolInvocation, result ToolExecutionResult) {
 	if result.SubmitInfo != nil {
 		s.pending = append(s.pending, DeltaRequestSubmit{
 			RequestID:  s.session.RequestID,
@@ -421,16 +494,6 @@ func (s *llmRunStream) invokeActiveToolCall() error {
 			})
 		}
 	}
-	s.appendOriginalToolResult(invocation, result)
-	if isPlanTool(invocation.toolName) && s.execCtx != nil && s.execCtx.PlanState != nil && len(s.execCtx.PlanState.Tasks) > 0 {
-		s.pending = append(s.pending, DeltaPlanUpdate{
-			PlanID: s.execCtx.PlanState.PlanID,
-			ChatID: s.session.ChatID,
-			Plan:   PlanTasksArray(s.execCtx.PlanState),
-		})
-	}
-	appendPublishedArtifactDelta(&s.pending, s.session, result.Structured["publishedArtifacts"])
-	return nil
 }
 
 func (s *llmRunStream) checkBudgetBeforeToolCall(toolName string) *ToolExecutionResult {

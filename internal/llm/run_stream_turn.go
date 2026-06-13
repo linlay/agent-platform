@@ -47,77 +47,72 @@ func (s *llmRunStream) prime() error {
 
 func (s *llmRunStream) fillPending() error {
 	for len(s.pending) == 0 {
-		if err := s.handleInterruptIfNeeded(); err != nil || len(s.pending) > 0 {
+		if err := s.fillNextPendingSource(); err != nil {
 			return err
-		}
-		if s.finished {
-			return io.EOF
-		}
-		if s.hitlPendingBatch != nil {
-			if err := s.awaitHITLApprovalBatchAndContinue(); err != nil {
-				return err
-			}
-			continue
-		}
-		if s.hitlPendingCall != nil {
-			if err := s.awaitHITLSubmitAndExecute(); err != nil {
-				return err
-			}
-			continue
-		}
-		if s.activeToolCall != nil {
-			toolName := s.activeToolCall.toolName
-			toolID := s.activeToolCall.toolID
-			if err := s.invokeActiveToolCall(); err != nil {
-				return err
-			}
-			if s.skipPostToolHook {
-				s.skipPostToolHook = false
-				continue
-			}
-			if s.postToolHook != nil && s.postToolHook(toolName, toolID) == PostToolStop {
-				s.stopAfterToolBatch = true
-			}
-			continue
-		}
-		if len(s.queuedToolCalls) > 0 {
-			s.activateNextToolCall()
-			continue
-		}
-		if s.stopAfterToolBatch {
-			s.finished = true
-			continue
-		}
-		if s.currentTurn == nil {
-			if s.step >= s.maxSteps {
-				if !s.finalTurnAttempted {
-					s.finalTurnAttempted = true
-					s.prepareFinalTurnWithoutTools()
-					if err := s.prepareNextTurn(); err != nil {
-						return err
-					}
-					continue
-				}
-				s.enqueueFallback("Tool execution loop reached the maximum number of steps.")
-				s.finished = true
-				continue
-			}
-			if err := s.prepareNextTurn(); err != nil {
-				return err
-			}
-			if len(s.pending) > 0 || s.currentTurn == nil {
-				continue
-			}
-		}
-		done, err := s.consumeCurrentTurn()
-		if err != nil {
-			return err
-		}
-		if done {
-			continue
 		}
 	}
 	return nil
+}
+
+func (s *llmRunStream) fillNextPendingSource() error {
+	if err := s.handleInterruptIfNeeded(); err != nil || len(s.pending) > 0 {
+		return err
+	}
+	if s.finished {
+		return io.EOF
+	}
+	if s.hitlPendingBatch != nil {
+		return s.awaitHITLApprovalBatchAndContinue()
+	}
+	if s.hitlPendingCall != nil {
+		return s.awaitHITLSubmitAndExecute()
+	}
+	if s.activeToolCall != nil {
+		return s.invokeActiveToolCallAndPostHook()
+	}
+	if len(s.queuedToolCalls) > 0 {
+		s.activateNextToolCall()
+		return nil
+	}
+	if s.stopAfterToolBatch {
+		s.finished = true
+		return nil
+	}
+	if s.currentTurn == nil {
+		return s.prepareTurnForPending()
+	}
+	_, err := s.consumeCurrentTurn()
+	return err
+}
+
+func (s *llmRunStream) invokeActiveToolCallAndPostHook() error {
+	toolName := s.activeToolCall.toolName
+	toolID := s.activeToolCall.toolID
+	if err := s.invokeActiveToolCall(); err != nil {
+		return err
+	}
+	if s.skipPostToolHook {
+		s.skipPostToolHook = false
+		return nil
+	}
+	if s.postToolHook != nil && s.postToolHook(toolName, toolID) == PostToolStop {
+		s.stopAfterToolBatch = true
+	}
+	return nil
+}
+
+func (s *llmRunStream) prepareTurnForPending() error {
+	if s.step >= s.maxSteps {
+		if !s.finalTurnAttempted {
+			s.finalTurnAttempted = true
+			s.prepareFinalTurnWithoutTools()
+			return s.prepareNextTurn()
+		}
+		s.enqueueFallback("Tool execution loop reached the maximum number of steps.")
+		s.finished = true
+		return nil
+	}
+	return s.prepareNextTurn()
 }
 
 func (s *llmRunStream) prepareNextTurn() error {

@@ -2,10 +2,8 @@ package llm
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/bashsec"
@@ -15,23 +13,8 @@ import (
 )
 
 func (s *llmRunStream) approvalHITLResult(invocation *preparedToolInvocation) hitl.InterceptResult {
-	if _, plan, ok := s.combinedFileWriteApprovalPlans(invocation); ok {
-		return fileWriteInterceptResult(*plan)
-	}
-	if plan := s.lookupFileAccessPlan(invocation); plan != nil && s.fileAccessPlanNeedsApproval(*plan) {
-		return fileAccessInterceptResult(*plan)
-	}
-	if plan := s.lookupFileWritePlan(invocation); plan != nil && s.fileWritePlanNeedsApproval(*plan) {
-		return fileWriteInterceptResult(*plan)
-	}
-	if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewRequiresApproval {
-		return bashSecurityInterceptResult(invocation, review)
-	}
-	if review := s.lookupBashAccessReview(invocation); review.RequiresApproval() {
-		return bashAccessInterceptResult(invocation, review)
-	}
-	if result := s.lookupWorkspaceHITL(invocation); result.Intercepted {
-		return result
+	if request, ok := s.approvalRequestForInvocation(invocation); ok {
+		return request.result
 	}
 	return s.lookupPrecheckedHITL(invocation)
 }
@@ -70,22 +53,7 @@ func (s *llmRunStream) shouldAutoApproveHITL(result hitl.InterceptResult) bool {
 }
 
 func (s *llmRunStream) emitHITLConfirmDeltas(invocation *preparedToolInvocation, result hitl.InterceptResult) error {
-	s.hitlPendingCall = invocation
-	s.hitlMatch = &result
-	s.hitlAwaitingID = buildHITLAwaitingID(invocation.toolID)
-
-	args := s.buildHITLArgs(invocation, result)
-	s.hitlAwaitArgs = CloneMap(args)
-	s.pending = append(s.pending, s.buildHITLAwaitDelta(s.hitlAwaitingID, args, result.Rule.Timeout))
-
-	if s.runControl != nil {
-		awaitDelta, _ := s.pending[len(s.pending)-1].(DeltaAwaitAsk)
-		s.runControl.ExpectSubmit(awaitingContextFromDeltaAsk(awaitDelta))
-	}
-	s.activeToolCall = nil
-	s.execCtx.CurrentToolID = ""
-	s.execCtx.CurrentToolName = ""
-	return nil
+	return s.emitApprovalRequestDeltas(hitlApprovalRequest(invocation, result))
 }
 
 func (s *llmRunStream) prepareQueuedBashApprovalBatch() bool {
@@ -100,21 +68,6 @@ func (s *llmRunStream) prepareQueuedBashApprovalBatch() bool {
 			continue
 		}
 		if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewBlock {
-			if result := s.lookupWorkspaceHITL(invocation); result.Intercepted {
-				if !strings.EqualFold(result.Rule.ViewportType, "builtin") {
-					continue
-				}
-				if s.isRuleWhitelisted(result.Rule.RuleKey) {
-					s.applyHITLDecision(invocation, result, "", "approve_rule_run", "", true)
-					continue
-				}
-				if s.shouldAutoApproveHITL(result) {
-					continue
-				}
-				approvals = append(approvals, s.buildApprovalAskItem(invocation))
-				invocations = append(invocations, invocation)
-				continue
-			}
 			if s.checker == nil {
 				continue
 			}
@@ -163,21 +116,6 @@ func (s *llmRunStream) prepareQueuedBashApprovalBatch() bool {
 				continue
 			}
 			if accesspolicy.HasApproval(s.execCtx, review) {
-				continue
-			}
-			approvals = append(approvals, s.buildApprovalAskItem(invocation))
-			invocations = append(invocations, invocation)
-			continue
-		}
-		if result := s.lookupWorkspaceHITL(invocation); result.Intercepted {
-			if !strings.EqualFold(result.Rule.ViewportType, "builtin") {
-				continue
-			}
-			if s.isRuleWhitelisted(result.Rule.RuleKey) {
-				s.applyHITLDecision(invocation, result, "", "approve_rule_run", "", true)
-				continue
-			}
-			if s.shouldAutoApproveHITL(result) {
 				continue
 			}
 			approvals = append(approvals, s.buildApprovalAskItem(invocation))
@@ -256,10 +194,6 @@ func (s *llmRunStream) lookupPrecheckedHITL(invocation *preparedToolInvocation) 
 	return result
 }
 
-func (s *llmRunStream) lookupWorkspaceHITL(invocation *preparedToolInvocation) hitl.InterceptResult {
-	return hitl.InterceptResult{}
-}
-
 func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {
 	batch := s.hitlPendingBatch
 	if batch == nil || strings.TrimSpace(batch.awaitingID) == "" {
@@ -294,21 +228,10 @@ func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {
 
 	s.execCtx.RunLoopState = RunLoopStateToolExecuting
 	s.runControl.TransitionState(RunLoopStateToolExecuting)
-	s.pending = append(s.pending, DeltaRequestSubmit{
-		RequestID:  s.session.RequestID,
-		ChatID:     s.session.ChatID,
-		RunID:      s.session.RunID,
-		AwaitingID: batch.awaitingID,
-		SubmitID:   submitResult.Request.SubmitID,
-		Params:     submitResult.Request.Params,
-	})
 
-	normalized, normalizeErr := s.normalizeHITLSubmit(batch.awaitArgs, submitResult.Request.Params)
+	s.appendHITLRequestSubmit(batch.awaitingID, submitResult)
+	normalized, normalizeErr := s.normalizeHITLSubmitAndEmitAnswer(batch.awaitingID, batch.awaitArgs, submitResult)
 	if normalizeErr != nil {
-		s.pending = append(s.pending, DeltaAwaitingAnswer{
-			AwaitingID: batch.awaitingID,
-			Answer:     awaitingAnswerWithSubmitID(AwaitingErrorAnswer(strings.TrimSpace(AnyStringNode(batch.awaitArgs["mode"])), "invalid_submit", normalizeErr.Error()), submitResult.Request.SubmitID),
-		})
 		for _, invocation := range batch.invocations {
 			s.applyHITLDecision(invocation, s.approvalHITLResult(invocation), batch.awaitingID, "reject", normalizeErr.Error(), false)
 			result := frontendSubmitInvalidPayloadResult(invocation, batch.awaitingID, submitResult.Request.Params, normalizeErr)
@@ -316,12 +239,6 @@ func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {
 		}
 		s.hitlPendingBatch = nil
 		return nil
-	}
-	if len(normalized) > 0 {
-		s.pending = append(s.pending, DeltaAwaitingAnswer{
-			AwaitingID: batch.awaitingID,
-			Answer:     awaitingAnswerWithSubmitID(normalized, submitResult.Request.SubmitID),
-		})
 	}
 
 	if strings.EqualFold(AnyStringNode(normalized["status"]), "error") {
@@ -356,38 +273,17 @@ func (s *llmRunStream) awaitHITLApprovalBatchAndContinue() error {
 }
 
 func (s *llmRunStream) awaitHITLBatchSubmitOrAccessLevel(batch *pendingHITLApprovalBatch) (SubmitResult, error) {
-	timeout := time.Duration(s.resolveHITLTimeoutWithItem("approval", int64(batch.timeout))) * time.Second
-	deadline := time.Time{}
-	if timeout > 0 {
-		deadline = time.Now().Add(timeout)
-	}
-	for {
-		_, version := s.runControl.AccessLevelSnapshot()
-		wait := timeout
-		if !deadline.IsZero() {
-			wait = time.Until(deadline)
-			if wait <= 0 {
-				s.timeoutHITLBatch(batch)
-				return SubmitResult{Status: "hitl_timeout"}, nil
-			}
-		}
-		submitResult, accessChanged, err := s.runControl.AwaitSubmitWithTimeoutOrAccessLevelChange(s.ctx, batch.awaitingID, wait, version)
-		if accessChanged {
-			resolved, resolveErr := s.tryResolvePendingAccessLevelBatch(batch)
-			if resolveErr != nil || resolved {
-				return SubmitResult{Status: "access_level_auto_approved"}, resolveErr
-			}
-			continue
-		}
-		if err != nil {
-			if errors.Is(err, ErrRunInterrupted) {
-				return SubmitResult{}, s.handleInterruptIfNeeded()
-			}
+	return s.awaitHITLSubmitOrAccessLevelChange(hitlSubmitWaitConfig{
+		awaitingID:  batch.awaitingID,
+		mode:        "approval",
+		ruleTimeout: int64(batch.timeout),
+		onAccessLevelChange: func() (bool, error) {
+			return s.tryResolvePendingAccessLevelBatch(batch)
+		},
+		onTimeout: func() {
 			s.timeoutHITLBatch(batch)
-			return SubmitResult{Status: "hitl_timeout"}, nil
-		}
-		return submitResult, nil
-	}
+		},
+	})
 }
 
 func (s *llmRunStream) timeoutHITLBatch(batch *pendingHITLApprovalBatch) {

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"log"
 	"strings"
-	"time"
 
 	"agent-platform/internal/bashsec"
 	. "agent-platform/internal/contracts"
@@ -59,30 +58,12 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 		s.runControl.TransitionState(RunLoopStateToolExecuting)
 	}
 
-	s.pending = append(s.pending, DeltaRequestSubmit{
-		RequestID:  s.session.RequestID,
-		ChatID:     s.session.ChatID,
-		RunID:      s.session.RunID,
-		AwaitingID: awaitingID,
-		SubmitID:   submitResult.Request.SubmitID,
-		Params:     submitResult.Request.Params,
-	})
-
-	normalized, normalizeErr := s.normalizeHITLSubmit(awaitArgs, submitResult.Request.Params)
+	s.appendHITLRequestSubmit(awaitingID, submitResult)
+	normalized, normalizeErr := s.normalizeHITLSubmitAndEmitAnswer(awaitingID, awaitArgs, submitResult)
 	if normalizeErr != nil {
-		s.pending = append(s.pending, DeltaAwaitingAnswer{
-			AwaitingID: awaitingID,
-			Answer:     awaitingAnswerWithSubmitID(AwaitingErrorAnswer(strings.TrimSpace(AnyStringNode(awaitArgs["mode"])), "invalid_submit", normalizeErr.Error()), submitResult.Request.SubmitID),
-		})
 		s.applyHITLDecision(invocation, *match, awaitingID, "reject", normalizeErr.Error(), false)
 		s.appendOriginalToolResult(invocation, frontendSubmitInvalidPayloadResult(invocation, awaitingID, submitResult.Request.Params, normalizeErr))
 		return nil
-	}
-	if len(normalized) > 0 {
-		s.pending = append(s.pending, DeltaAwaitingAnswer{
-			AwaitingID: awaitingID,
-			Answer:     awaitingAnswerWithSubmitID(normalized, submitResult.Request.SubmitID),
-		})
 	}
 
 	if strings.EqualFold(AnyStringNode(normalized["status"]), "error") {
@@ -143,68 +124,25 @@ func (s *llmRunStream) awaitHITLSubmitAndExecute() error {
 		return nil
 	}
 	invocation.approvalDecision = selectedDecision
-	if plan := s.lookupFileAccessPlan(invocation); plan != nil && s.fileAccessPlanNeedsApproval(*plan) {
-		return s.executeApprovedFileAccessInvocation(invocation, *plan)
-	}
-	if plan := s.lookupFileWritePlan(invocation); plan != nil && s.fileWritePlanNeedsApproval(*plan) {
-		return s.executeApprovedFileWriteInvocation(invocation, *plan)
-	}
-	if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewRequiresApproval {
-		return s.executeApprovedBashSecurityInvocation(invocation, review)
-	}
-	if review := s.lookupBashAccessReview(invocation); review.RequiresApproval() {
-		return s.executeApprovedBashAccessInvocation(invocation, review)
-	}
-	if result := s.lookupWorkspaceHITL(invocation); result.Intercepted {
-		return s.executeApprovedBashInvocation(invocation, result)
+	if request, ok := s.approvalRequestForInvocation(invocation); ok {
+		return s.executeApprovedApprovalRequest(request)
 	}
 	return s.executeOriginalBash(invocation)
 }
 
 func (s *llmRunStream) awaitHITLSubmitOrAccessLevel(invocation *preparedToolInvocation, match *hitl.InterceptResult, awaitingID string, awaitArgs map[string]any) (SubmitResult, error) {
 	mode := strings.TrimSpace(AnyStringNode(awaitArgs["mode"]))
-	timeout := time.Duration(s.resolveHITLTimeoutWithItem(mode, int64(match.Rule.Timeout))) * time.Second
-	deadline := time.Time{}
-	if timeout > 0 {
-		deadline = time.Now().Add(timeout)
-	}
-	for {
-		_, version := s.runControl.AccessLevelSnapshot()
-		wait := timeout
-		if !deadline.IsZero() {
-			wait = time.Until(deadline)
-			if wait <= 0 {
-				s.pending = append(s.pending, DeltaAwaitingAnswer{
-					AwaitingID: awaitingID,
-					Answer:     hitlTimeoutAnswer(strings.TrimSpace(AnyStringNode(awaitArgs["mode"]))),
-				})
-				s.applyHITLDecision(invocation, *match, awaitingID, "reject", "timeout", false)
-				s.appendOriginalToolResult(invocation, hitlTimeoutToolResult(invocation))
-				return SubmitResult{Status: "hitl_timeout"}, nil
-			}
-		}
-		submitResult, accessChanged, err := s.runControl.AwaitSubmitWithTimeoutOrAccessLevelChange(s.ctx, awaitingID, wait, version)
-		if accessChanged {
-			resolved, resolveErr := s.tryResolvePendingAccessLevelApproval(invocation, *match, awaitingID)
-			if resolveErr != nil || resolved {
-				return SubmitResult{Status: "access_level_auto_approved"}, resolveErr
-			}
-			continue
-		}
-		if err != nil {
-			if errors.Is(err, ErrRunInterrupted) {
-				return SubmitResult{}, s.handleInterruptIfNeeded()
-			}
-			s.pending = append(s.pending, DeltaAwaitingAnswer{
-				AwaitingID: awaitingID,
-				Answer:     hitlTimeoutAnswer(strings.TrimSpace(AnyStringNode(awaitArgs["mode"]))),
-			})
-			s.applyHITLDecision(invocation, *match, awaitingID, "reject", "timeout", false)
-			s.appendOriginalToolResult(invocation, hitlTimeoutToolResult(invocation))
-			return SubmitResult{Status: "hitl_timeout"}, nil
-		}
-		return submitResult, nil
-	}
+	return s.awaitHITLSubmitOrAccessLevelChange(hitlSubmitWaitConfig{
+		awaitingID:  awaitingID,
+		mode:        mode,
+		ruleTimeout: int64(match.Rule.Timeout),
+		onAccessLevelChange: func() (bool, error) {
+			return s.tryResolvePendingAccessLevelApproval(invocation, *match, awaitingID)
+		},
+		onTimeout: func() {
+			s.timeoutHITLSubmit(invocation, *match, awaitingID, mode)
+		},
+	})
 }
 
 func (s *llmRunStream) tryResolvePendingAccessLevelApproval(invocation *preparedToolInvocation, match hitl.InterceptResult, awaitingID string) (bool, error) {
@@ -336,8 +274,6 @@ func (s *llmRunStream) buildApprovalAskItem(invocation *preparedToolInvocation) 
 		command = s.fileToolApprovalDisplayCommand(invocation, plan, nil)
 	} else if plan := s.lookupFileWritePlan(invocation); plan != nil {
 		command = s.fileToolApprovalDisplayCommand(invocation, nil, plan)
-	} else if result := s.lookupWorkspaceHITL(invocation); result.Intercepted && strings.TrimSpace(result.MatchedCommand) != "" {
-		command = result.MatchedCommand + " (" + mapStringArg(invocation.args, "command") + ")"
 	}
 	description := approvalDescription(invocation)
 	if combinedWriteApproval {
@@ -354,8 +290,6 @@ func (s *llmRunStream) buildApprovalAskItem(invocation *preparedToolInvocation) 
 		} else {
 			description = "write超出允许目录"
 		}
-	} else if result := s.lookupWorkspaceHITL(invocation); result.Intercepted {
-		description = "命令访问超出 workspace"
 	}
 	item := map[string]any{
 		"id":                  invocation.toolID,
@@ -374,8 +308,6 @@ func (s *llmRunStream) buildApprovalAskItem(invocation *preparedToolInvocation) 
 		result = fileWriteInterceptResult(*plan)
 	} else if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewRequiresApproval {
 		result = bashSecurityInterceptResult(invocation, review)
-	} else if workspace := s.lookupWorkspaceHITL(invocation); workspace.Intercepted {
-		result = workspace
 	} else if invocation != nil && invocation.precheckedHITL != nil {
 		result = *invocation.precheckedHITL
 	} else if s.checker != nil {

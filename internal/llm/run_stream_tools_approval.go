@@ -267,13 +267,13 @@ func (s *llmRunStream) executeApprovedFileAccessInvocation(invocation *preparedT
 		invocation.approvalDecision = ""
 		return s.executeAfterFileAccessApproval(invocation)
 	default:
-		return s.emitFileAccessApprovalDeltas(invocation, plan)
+		return s.emitApprovalRequestDeltas(s.fileAccessApprovalRequest(invocation, plan))
 	}
 }
 
 func (s *llmRunStream) executeAfterFileAccessApproval(invocation *preparedToolInvocation) error {
 	if plan := s.lookupFileWritePlan(invocation); plan != nil && s.fileWritePlanNeedsApproval(*plan) && !filetools.HasWriteApproval(s.execCtx, *plan) {
-		return s.emitFileWriteApprovalDeltas(invocation, *plan)
+		return s.emitApprovalRequestDeltas(s.fileWriteApprovalRequest(invocation, *plan))
 	}
 	return s.executeOriginalBash(invocation)
 }
@@ -292,7 +292,7 @@ func (s *llmRunStream) executeApprovedFileWriteInvocation(invocation *preparedTo
 		invocation.approvalDecision = ""
 		return s.executeOriginalBash(invocation)
 	default:
-		return s.emitFileWriteApprovalDeltas(invocation, plan)
+		return s.emitApprovalRequestDeltas(s.fileWriteApprovalRequest(invocation, plan))
 	}
 }
 
@@ -330,7 +330,7 @@ func (s *llmRunStream) executeApprovedBashSecurityInvocation(invocation *prepare
 		invocation.approvalDecision = ""
 		return s.executeOriginalBash(invocation)
 	default:
-		return s.emitBashSecurityApprovalDeltas(invocation, review)
+		return s.emitApprovalRequestDeltas(s.bashSecurityApprovalRequest(invocation, review))
 	}
 }
 
@@ -349,6 +349,6 @@ func (s *llmRunStream) executeApprovedBashAccessInvocation(invocation *preparedT
 		invocation.approvalDecision = ""
 		return s.executeOriginalBash(invocation)
 	default:
-		return s.emitBashAccessApprovalDeltas(invocation, review)
+		return s.emitApprovalRequestDeltas(s.bashAccessApprovalRequest(invocation, review))
 	}
 }

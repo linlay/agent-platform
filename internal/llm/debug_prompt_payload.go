@@ -78,65 +78,18 @@ func buildInjectedPromptPayload(session QuerySession, req api.QueryRequest, opti
 }
 
 func buildInjectedSystemSections(session QuerySession, req api.QueryRequest, options PromptBuildOptions) []map[string]any {
-	appendConfig := effectivePromptAppendConfig(session.PromptAppend)
-	stageInstructionsPrompt := strings.TrimSpace(options.StageInstructionsPrompt)
-	if stageInstructionsPrompt == "" {
-		stageInstructionsPrompt = resolveStageInstructionsPrompt(session, options.Stage)
-	}
-	stageSystemPrompt := strings.TrimSpace(options.StageSystemPrompt)
-	if stageSystemPrompt == "" {
-		stageSystemPrompt = resolveStageSystemPrompt(session, options.Stage)
-	}
-
-	sections := make([]map[string]any, 0, 16)
-	appendSection := func(id, title, category, content string) {
-		content = strings.TrimSpace(content)
-		if content == "" {
-			return
-		}
+	source := buildSystemPromptSections(session, req, options)
+	sections := make([]map[string]any, 0, len(source))
+	for _, section := range source {
 		sections = append(sections, map[string]any{
-			"id":       id,
-			"title":    title,
+			"id":       section.ID,
+			"title":    section.Title,
 			"role":     "system",
-			"category": category,
-			"content":  content,
-			"tokens":   estimateTokensFromText(content),
+			"category": section.Category,
+			"content":  section.Content,
+			"tokens":   estimateTokensFromText(section.Content),
 		})
 	}
-
-	appendSection("agent-identity", "Agent Identity", "agent.identity", buildAgentIdentitySection(session))
-	appendSection("agent-soul", "Soul Prompt", "agent.soul", strings.TrimSpace(session.SoulPrompt))
-	appendSection("agent-prompt", "Agent Prompt", "agent.prompt", strings.TrimSpace(session.AgentsPrompt))
-	appendSection("workspace-agents", "Workspace AGENTS.md", "workspace.agents", buildWorkspaceAgentsSection(session.WorkspaceAgentsPrompt))
-	appendSection("static-memory", "Static Memory Prompt", "memory.static", strings.TrimSpace(session.StaticMemoryPrompt))
-
-	for _, tag := range session.ContextTags {
-		switch strings.ToLower(strings.TrimSpace(tag)) {
-		case "system":
-			appendSection("runtime-system", "Runtime Context: System Environment", "runtime.system", buildSystemEnvironmentSection(session))
-		case "session":
-			appendSection("runtime-session", "Runtime Context: Session", "runtime.session", buildSessionSection(session, req))
-		case "owner":
-			appendSection("runtime-owner", "Runtime Context: Owner", "runtime.owner", buildOwnerSection(session.RuntimeContext.LocalPaths))
-		case "all-agents":
-			appendSection("runtime-all-agents", "Runtime Context: All Agents", "runtime.all_agents", buildAllAgentsSection(session.RuntimeContext.AgentDigests))
-		}
-	}
-	if session.AgentHasRuntimeSandbox || session.RuntimeContext.SandboxContext != nil {
-		appendSection("runtime-sandbox", "Runtime Context: Sandbox", "runtime.sandbox", buildSandboxSection(session.RuntimeContext.SandboxContext))
-	}
-	if session.AgentHasMemoryConfig {
-		appendSection("memory-stable", "Runtime Context: Stable Memory", "memory.stable", strings.TrimSpace(session.StableMemoryContext))
-		appendSection("memory-session", "Runtime Context: Current Session", "memory.session", strings.TrimSpace(session.SessionMemoryContext))
-		appendSection("memory-observation", "Runtime Context: Relevant Observations", "memory.observation", strings.TrimSpace(session.ObservationContext))
-		appendSection("memory-workflow", "Runtime Context: Workflow Memory", "memory.workflow", strings.TrimSpace(session.WorkflowContext))
-	}
-
-	appendSection("stage-instructions", "Stage Instructions Prompt", "stage.instructions", stageInstructionsPrompt)
-	appendSection("stage-system", "Stage System Prompt", "stage.system", stageSystemPrompt)
-	appendSection("skill-catalog", "Skill Catalog Prompt", "skills.catalog", strings.TrimSpace(session.SkillCatalogPrompt))
-	appendSection("tool-appendix", "Tool Appendix", "tools.appendix", buildToolAppendix(options.ToolDefinitions, appendConfig, options.IncludeAfterCallHints))
-
 	return sections
 }
 

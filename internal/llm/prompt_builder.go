@@ -23,7 +23,23 @@ type PromptBuildOptions struct {
 	IncludeAfterCallHints   bool
 }
 
+type systemPromptSection struct {
+	ID       string
+	Title    string
+	Category string
+	Content  string
+}
+
 func buildSystemPrompt(session QuerySession, req api.QueryRequest, _ string, options PromptBuildOptions) string {
+	sections := buildSystemPromptSections(session, req, options)
+	contents := make([]string, 0, len(sections))
+	for _, section := range sections {
+		contents = append(contents, section.Content)
+	}
+	return joinPromptSections(contents...)
+}
+
+func buildSystemPromptSections(session QuerySession, req api.QueryRequest, options PromptBuildOptions) []systemPromptSection {
 	appendConfig := effectivePromptAppendConfig(session.PromptAppend)
 	stageInstructionsPrompt := strings.TrimSpace(options.StageInstructionsPrompt)
 	if stageInstructionsPrompt == "" {
@@ -34,20 +50,90 @@ func buildSystemPrompt(session QuerySession, req api.QueryRequest, _ string, opt
 		stageSystemPrompt = resolveStageSystemPrompt(session, options.Stage)
 	}
 
-	sections := []string{
-		buildAgentIdentitySection(session),
-		buildCoderSystemPromptSection(session, req, toolNamesFromDefinitions(options.ToolDefinitions, session.ToolNames), options.Stage),
-		strings.TrimSpace(session.SoulPrompt),
-		strings.TrimSpace(session.AgentsPrompt),
-		buildWorkspaceAgentsSection(session.WorkspaceAgentsPrompt),
-		strings.TrimSpace(session.StaticMemoryPrompt),
-		buildRuntimeContextPrompt(session, req),
-		stageInstructionsPrompt,
-		stageSystemPrompt,
-		strings.TrimSpace(session.SkillCatalogPrompt),
-		buildToolAppendix(options.ToolDefinitions, appendConfig, options.IncludeAfterCallHints),
+	sections := make([]systemPromptSection, 0, 16)
+	appendSection := func(id, title, category, content string) {
+		content = strings.TrimSpace(content)
+		if content == "" {
+			return
+		}
+		sections = append(sections, systemPromptSection{
+			ID:       id,
+			Title:    title,
+			Category: category,
+			Content:  content,
+		})
 	}
-	return joinPromptSections(sections...)
+
+	appendSection("agent-identity", "Agent Identity", "agent.identity", buildAgentIdentitySection(session))
+	appendSection("coder-system", "Coder System Prompt", "coder.system", buildCoderSystemPromptSection(session, req, toolNamesFromDefinitions(options.ToolDefinitions, session.ToolNames), options.Stage))
+	appendSection("agent-soul", "Soul Prompt", "agent.soul", strings.TrimSpace(session.SoulPrompt))
+	appendSection("agent-prompt", "Agent Prompt", "agent.prompt", strings.TrimSpace(session.AgentsPrompt))
+	appendSection("workspace-agents", "Workspace AGENTS.md", "workspace.agents", buildWorkspaceAgentsSection(session.WorkspaceAgentsPrompt))
+	appendSection("static-memory", "Static Memory Prompt", "memory.static", strings.TrimSpace(session.StaticMemoryPrompt))
+	appendRuntimeSystemPromptSections(&sections, session, req)
+	appendSection("stage-instructions", "Stage Instructions Prompt", "stage.instructions", stageInstructionsPrompt)
+	appendSection("stage-system", "Stage System Prompt", "stage.system", stageSystemPrompt)
+	appendSection("skill-catalog", "Skill Catalog Prompt", "skills.catalog", strings.TrimSpace(session.SkillCatalogPrompt))
+	appendSection("tool-appendix", "Tool Appendix", "tools.appendix", buildToolAppendix(options.ToolDefinitions, appendConfig, options.IncludeAfterCallHints))
+
+	return sections
+}
+
+func appendRuntimeSystemPromptSections(sections *[]systemPromptSection, session QuerySession, req api.QueryRequest) {
+	appendSection := func(id, title, category, content string) {
+		content = strings.TrimSpace(content)
+		if content == "" {
+			return
+		}
+		*sections = append(*sections, systemPromptSection{
+			ID:       id,
+			Title:    title,
+			Category: category,
+			Content:  content,
+		})
+	}
+
+	for _, tag := range session.ContextTags {
+		switch strings.ToLower(strings.TrimSpace(tag)) {
+		case "system":
+			appendSection("runtime-system", "Runtime Context: System Environment", "runtime.system", buildSystemEnvironmentSection(session))
+		case "session":
+			appendSection("runtime-session", "Runtime Context: Session", "runtime.session", buildSessionSection(session, req))
+		case "owner":
+			appendSection("runtime-owner", "Runtime Context: Owner", "runtime.owner", buildOwnerSection(session.RuntimeContext.LocalPaths))
+		case "all-agents":
+			appendSection("runtime-all-agents", "Runtime Context: All Agents", "runtime.all_agents", buildAllAgentsSection(session.RuntimeContext.AgentDigests))
+		}
+	}
+	if session.AgentHasRuntimeSandbox || session.RuntimeContext.SandboxContext != nil {
+		appendSection("runtime-sandbox", "Runtime Context: Sandbox", "runtime.sandbox", buildSandboxSection(session.RuntimeContext.SandboxContext))
+	}
+	if session.AgentHasMemoryConfig {
+		appendRuntimeMemorySystemPromptSections(sections, session, req)
+	}
+}
+
+func appendRuntimeMemorySystemPromptSections(sections *[]systemPromptSection, session QuerySession, req api.QueryRequest) {
+	before := len(*sections)
+	appendSection := func(id, title, category, content string) {
+		content = strings.TrimSpace(content)
+		if content == "" {
+			return
+		}
+		*sections = append(*sections, systemPromptSection{
+			ID:       id,
+			Title:    title,
+			Category: category,
+			Content:  content,
+		})
+	}
+	appendSection("memory-stable", "Runtime Context: Stable Memory", "memory.stable", strings.TrimSpace(session.StableMemoryContext))
+	appendSection("memory-session", "Runtime Context: Current Session", "memory.session", strings.TrimSpace(session.SessionMemoryContext))
+	appendSection("memory-observation", "Runtime Context: Relevant Observations", "memory.observation", strings.TrimSpace(session.ObservationContext))
+	appendSection("memory-workflow", "Runtime Context: Workflow Memory", "memory.workflow", strings.TrimSpace(session.WorkflowContext))
+	if len(*sections) == before {
+		appendSection("memory-agent", "Runtime Context: Agent Memory", "memory.agent", buildMemorySection(session, req))
+	}
 }
 
 func buildCoderSystemPromptSection(session QuerySession, req api.QueryRequest, toolNames []string, stage string) string {
