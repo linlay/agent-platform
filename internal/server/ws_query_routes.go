@@ -33,23 +33,15 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 		return
 	}
 	admission.resourceBaseURL = conn.RequestBaseURL()
-	release, availability := s.tryAcquireQuery(admission)
-	if !availability.CanQuery {
-		conn.SendError(req.ID, availability.Code, http.StatusTooManyRequests, availability.Message, nil)
-		conn.CompleteRequest(req.ID)
-		return
-	}
 	if _, reserveErr := conn.ReserveStream(req.ID, admission.req.RunID); reserveErr != nil {
-		releaseQuery(release)
 		if protoErr, ok := reserveErr.(*ws.ProtocolError); ok {
 			conn.SendProtocolError(req.ID, protoErr)
 		}
 		conn.CompleteRequest(req.ID)
 		return
 	}
-	prepared, err := s.completeQueryPreparation(ctx, admission, release)
+	prepared, err := s.completeQueryPreparation(ctx, admission, nil)
 	if err != nil {
-		releaseQuery(release)
 		if statusErr, ok := err.(*statusError); ok {
 			conn.SendError(req.ID, "invalid_request", statusErr.status, statusErr.message, nil)
 		} else {
@@ -131,29 +123,6 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 		},
 	})
 	conn.StartStreamForward(req.ID, observer)
-}
-
-func (s *Server) wsQueryAvailability(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, "/api/query/availability", bytes.NewReader(req.Payload))
-	if err != nil {
-		conn.SendError(req.ID, "internal_error", 500, err.Error(), nil)
-		conn.CompleteRequest(req.ID)
-		return
-	}
-	admission, err := s.prepareQueryAdmission(httpReq, false)
-	if err != nil {
-		var statusErr *statusError
-		if errors.As(err, &statusErr) {
-			conn.SendError(req.ID, "invalid_request", statusErr.status, statusErr.message, nil)
-		} else {
-			conn.SendError(req.ID, "internal_error", 500, err.Error(), nil)
-		}
-		conn.CompleteRequest(req.ID)
-		return
-	}
-	admission.resourceBaseURL = conn.RequestBaseURL()
-	conn.SendResponse(req.Type, req.ID, 0, "success", s.queryAvailability(admission))
-	conn.CompleteRequest(req.ID)
 }
 
 func (s *Server) wsAttach(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {

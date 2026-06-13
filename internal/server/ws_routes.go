@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"net/http"
 	"strings"
 	"time"
 
@@ -79,14 +80,8 @@ func (s *Server) logWSDispatch(next ws.RouteHandler) ws.RouteHandler {
 func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/locale", s.wsLocale)
 	handler.RegisterRoute("/api/agents", s.wsAgents)
-	handler.RegisterRoute("/api/agents/order", s.wsAgentOrder)
-	handler.RegisterRoute("/api/channels", s.wsChannels)
 	handler.RegisterRoute("/api/agent", s.wsAgent)
-	handler.RegisterRoute("/api/agent/create", s.wsAgentCreate)
-	handler.RegisterRoute("/api/agent/update", s.wsAgentUpdate)
 	handler.RegisterRoute("/api/agent/model-config", s.wsAgentModelConfig)
-	handler.RegisterRoute("/api/agent/delete", s.wsAgentDelete)
-	handler.RegisterRoute("/api/agent/editor-options", s.wsAgentEditorOptions)
 	handler.RegisterRoute("/api/model-options", s.wsModelOptions)
 	handler.RegisterRoute("/api/teams", s.wsTeams)
 	handler.RegisterRoute("/api/skills", s.wsSkills)
@@ -106,13 +101,8 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/archive/delete", s.wsArchiveDelete)
 	handler.RegisterRoute("/api/automations", s.wsAutomations)
 	handler.RegisterRoute("/api/automation", s.wsAutomation)
-	handler.RegisterRoute("/api/automation/create", s.wsAutomationCreate)
-	handler.RegisterRoute("/api/automation/update", s.wsAutomationUpdate)
-	handler.RegisterRoute("/api/automation/delete", s.wsAutomationDelete)
-	handler.RegisterRoute("/api/automation/toggle", s.wsAutomationToggle)
 	handler.RegisterRoute("/api/automation/executions", s.wsAutomationExecutions)
 	handler.RegisterRoute("/api/chats/search", s.wsGlobalSearch)
-	handler.RegisterRoute("/api/query/availability", s.wsQueryAvailability)
 	handler.RegisterRoute("/api/query", s.wsQuery)
 	handler.RegisterRoute("/api/attach", s.wsAttach)
 	handler.RegisterRoute("/api/detach", s.wsDetach)
@@ -126,6 +116,7 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/terminal/close", s.wsTerminalClose)
 	handler.RegisterRoute("/api/remember", s.wsRemember)
 	handler.RegisterRoute("/api/learn", s.wsLearn)
+	handler.RegisterRoute("/api/compact", s.wsCompact)
 	handler.RegisterRoute("/api/memory/meta", s.wsMemoryMeta)
 	handler.RegisterRoute("/api/memory/context-preview", s.wsMemoryContextPreview)
 	handler.RegisterRoute("/api/memory/scope/list", s.wsMemoryScopes)
@@ -171,11 +162,6 @@ func (s *Server) wsAgents(_ context.Context, conn *ws.Conn, req ws.RequestFrame)
 	conn.CompleteRequest(req.ID)
 }
 
-func (s *Server) wsChannels(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
-	conn.SendResponse(req.Type, req.ID, 0, "success", s.listChannelSummaries())
-	conn.CompleteRequest(req.ID)
-}
-
 func (s *Server) wsAgent(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
 	payload, err := ws.DecodePayload[struct {
 		AgentKey string `json:"agentKey"`
@@ -198,11 +184,6 @@ func (s *Server) wsAgent(_ context.Context, conn *ws.Conn, req ws.RequestFrame) 
 		return
 	}
 	conn.SendResponse(req.Type, req.ID, 0, "success", response)
-	conn.CompleteRequest(req.ID)
-}
-
-func (s *Server) wsAgentEditorOptions(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
-	conn.SendResponse(req.Type, req.ID, 0, "success", s.buildAgentEditorOptions())
 	conn.CompleteRequest(req.ID)
 }
 
@@ -580,6 +561,44 @@ func (s *Server) wsLearn(_ context.Context, conn *ws.Conn, req ws.RequestFrame) 
 		ChatID:    payload.ChatID,
 	})
 	conn.CompleteRequest(req.ID)
+}
+
+func (s *Server) wsCompact(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {
+	payload, err := ws.DecodePayload[api.CompactRequest](req)
+	if err != nil || strings.TrimSpace(payload.ChatID) == "" {
+		conn.SendError(req.ID, "invalid_request", 400, "chatId is required", nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	response, compactErr := s.compactChat(ctx, payload)
+	if compactErr != nil {
+		var statusErr *statusError
+		if errors.As(compactErr, &statusErr) {
+			conn.SendError(req.ID, compactWSErrorType(statusErr.status), statusErr.status, statusErr.message, nil)
+			conn.CompleteRequest(req.ID)
+			return
+		}
+		conn.SendError(req.ID, "internal_error", 500, compactErr.Error(), nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	conn.SendResponse(req.Type, req.ID, 0, "success", response)
+	conn.CompleteRequest(req.ID)
+}
+
+func compactWSErrorType(status int) string {
+	switch status {
+	case http.StatusForbidden:
+		return "forbidden"
+	case http.StatusNotFound:
+		return "not_found"
+	case http.StatusServiceUnavailable:
+		return "unavailable"
+	case http.StatusInternalServerError:
+		return "internal_error"
+	default:
+		return "invalid_request"
+	}
 }
 
 func (s *Server) wsViewport(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {

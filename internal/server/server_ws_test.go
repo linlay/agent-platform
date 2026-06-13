@@ -170,7 +170,7 @@ func waitForLogText(t *testing.T, buffer *lockedLogBuffer, needle string) {
 	t.Fatalf("expected log to contain %q, got %q", needle, buffer.String())
 }
 
-func TestWebSocketQueryAvailabilityAlwaysAllowsAgentQuery(t *testing.T) {
+func TestWebSocketQueryAvailabilityRouteRemoved(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
@@ -203,19 +203,13 @@ func TestWebSocketQueryAvailabilityAlwaysAllowsAgentQuery(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("write availability request: %v", err)
 	}
-	var frame ws.ResponseFrame
+	var frame ws.ErrorFrame
 	if err := conn.ReadJSON(&frame); err != nil {
 		t.Fatalf("read availability response: %v", err)
 	}
-	if frame.Frame != ws.FrameResponse || frame.Type != "/api/query/availability" || frame.Code != 0 {
+	if frame.Frame != ws.FrameError || frame.Type != "invalid_request" || frame.ID != "req_query_availability" ||
+		frame.Code != http.StatusBadRequest || !strings.Contains(frame.Msg, "unknown type: /api/query/availability") {
 		t.Fatalf("unexpected availability response: %#v", frame)
-	}
-	data, err := marshalResponseData[api.QueryAvailabilityResponse](frame.Data)
-	if err != nil {
-		t.Fatalf("decode availability data: %v", err)
-	}
-	if !data.CanQuery || data.Code != "ok" || data.AgentKey != "mock-agent" || data.ChatID != "chat-next" {
-		t.Fatalf("expected availability ok, got %#v", data)
 	}
 }
 

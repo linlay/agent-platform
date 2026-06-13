@@ -16,7 +16,7 @@ import (
 	gws "github.com/gorilla/websocket"
 )
 
-func TestWebSocketChannelsAndAgentsIgnoreChannelFilter(t *testing.T) {
+func TestWebSocketChannelsRouteRemovedAndAgentsIgnoreChannelFilter(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
@@ -71,19 +71,13 @@ func TestWebSocketChannelsAndAgentsIgnoreChannelFilter(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("write channels request: %v", err)
 	}
-	var channelsFrame ws.ResponseFrame
+	var channelsFrame ws.ErrorFrame
 	if err := conn.ReadJSON(&channelsFrame); err != nil {
 		t.Fatalf("read channels frame: %v", err)
 	}
-	if channelsFrame.Frame != ws.FrameResponse || channelsFrame.ID != "req_channels" {
+	if channelsFrame.Frame != ws.FrameError || channelsFrame.Type != "invalid_request" || channelsFrame.ID != "req_channels" ||
+		channelsFrame.Code != http.StatusBadRequest || !strings.Contains(channelsFrame.Msg, "unknown type: /api/channels") {
 		t.Fatalf("unexpected channels frame: %#v", channelsFrame)
-	}
-	channelsData, err := marshalResponseData[[]api.ChannelSummary](channelsFrame.Data)
-	if err != nil {
-		t.Fatalf("decode channels data: %v", err)
-	}
-	if len(channelsData) != 1 || !channelsData[0].Connected {
-		t.Fatalf("unexpected channels payload: %#v", channelsData)
 	}
 
 	if err := conn.WriteJSON(ws.RequestFrame{

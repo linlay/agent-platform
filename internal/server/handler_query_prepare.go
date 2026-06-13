@@ -41,11 +41,19 @@ type statusError struct {
 	message string
 }
 
+type queryReleaseFunc func()
+
 func (e *statusError) Error() string {
 	if e == nil {
 		return ""
 	}
 	return e.message
+}
+
+func releaseQuery(release queryReleaseFunc) {
+	if release != nil {
+		release()
+	}
 }
 
 func (s *Server) prepareQueryAdmission(r *http.Request, requireMessage bool) (queryAdmission, error) {

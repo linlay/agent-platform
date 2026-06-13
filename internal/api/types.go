@@ -116,15 +116,6 @@ type QueryModelOptions struct {
 	ReasoningEffort string `json:"reasoningEffort,omitempty"`
 }
 
-type QueryAvailabilityResponse struct {
-	CanQuery bool   `json:"canQuery"`
-	Code     string `json:"code"`
-	Message  string `json:"message"`
-	AgentKey string `json:"agentKey"`
-	ChatID   string `json:"chatId"`
-	TeamID   string `json:"teamId,omitempty"`
-}
-
 type Scene struct {
 	URL   string `json:"url,omitempty"`
 	Title string `json:"title,omitempty"`
@@ -672,15 +663,6 @@ type CoderModelOption struct {
 type ReasoningEffortOption struct {
 	Key   string `json:"key"`
 	Label string `json:"label"`
-}
-
-type ChannelSummary struct {
-	ID           string   `json:"id"`
-	Name         string   `json:"name"`
-	Type         string   `json:"type"`
-	DefaultAgent string   `json:"defaultAgent,omitempty"`
-	Agents       []string `json:"agents"`
-	Connected    bool     `json:"connected"`
 }
 
 type TeamSummary struct {

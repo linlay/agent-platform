@@ -1,8 +1,11 @@
 package server
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -277,4 +280,32 @@ func filterKnownAgentOrder(order []string, known map[string]struct{}) []string {
 		out = append(out, key)
 	}
 	return out
+}
+
+func writeAgentOrderFile(agentsDir string, file catalog.AgentOrderFile) error {
+	if strings.TrimSpace(agentsDir) == "" {
+		return fmt.Errorf("agents directory is not configured")
+	}
+	if err := os.MkdirAll(agentsDir, 0o755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(file, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	tmp, err := os.CreateTemp(agentsDir, ".agent-order-*.json")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+	defer func() { _ = os.Remove(tmpPath) }()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, filepath.Join(agentsDir, catalog.AgentOrderFileName))
 }

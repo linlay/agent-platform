@@ -527,49 +527,6 @@ func (s *Server) wsAutomation(_ context.Context, conn *ws.Conn, req ws.RequestFr
 	s.sendAutomationWSResponse(conn, req, response, loadErr)
 }
 
-func (s *Server) wsAutomationCreate(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
-	payload, err := ws.DecodePayload[api.CreateAutomationRequest](req)
-	if err != nil {
-		s.sendAutomationWSError(conn, req, newAutomationStatusError(http.StatusBadRequest, "invalid_request", "invalid payload"))
-		return
-	}
-	response, createErr := s.createAutomation(payload)
-	s.sendAutomationWSResponse(conn, req, response, createErr)
-}
-
-func (s *Server) wsAutomationUpdate(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
-	payload, err := ws.DecodePayload[api.UpdateAutomationRequest](req)
-	if err != nil {
-		s.sendAutomationWSError(conn, req, newAutomationStatusError(http.StatusBadRequest, "invalid_request", "invalid payload"))
-		return
-	}
-	payload.ID = firstNonBlank(payload.AutomationID, payload.ID)
-	response, updateErr := s.updateAutomation(payload)
-	s.sendAutomationWSResponse(conn, req, response, updateErr)
-}
-
-func (s *Server) wsAutomationDelete(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
-	payload, err := ws.DecodePayload[api.DeleteAutomationRequest](req)
-	if err != nil {
-		s.sendAutomationWSError(conn, req, newAutomationStatusError(http.StatusBadRequest, "invalid_request", "invalid payload"))
-		return
-	}
-	payload.ID = firstNonBlank(payload.AutomationID, payload.ID)
-	response, deleteErr := s.deleteAutomation(payload)
-	s.sendAutomationWSResponse(conn, req, response, deleteErr)
-}
-
-func (s *Server) wsAutomationToggle(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
-	payload, err := ws.DecodePayload[api.ToggleAutomationRequest](req)
-	if err != nil {
-		s.sendAutomationWSError(conn, req, newAutomationStatusError(http.StatusBadRequest, "invalid_request", "invalid payload"))
-		return
-	}
-	payload.ID = firstNonBlank(payload.AutomationID, payload.ID)
-	response, toggleErr := s.toggleAutomation(payload)
-	s.sendAutomationWSResponse(conn, req, response, toggleErr)
-}
-
 func (s *Server) wsAutomationExecutions(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
 	payload, err := ws.DecodePayload[api.AutomationExecutionsRequest](req)
 	if err != nil {

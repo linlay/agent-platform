@@ -137,7 +137,7 @@ func TestPrepareQueryRejectsDisallowedAgentOnChannel(t *testing.T) {
 	}
 }
 
-func TestHandleAgentsIgnoresChannelAndHandleChannelsShowsConnected(t *testing.T) {
+func TestHandleAgentsIgnoresChannelAndChannelsRouteIsRemoved(t *testing.T) {
 	server, chats := newServerForChannelTests(t)
 	server.deps.Channels = channelpkg.NewRegistry([]config.ChannelConfig{
 		{
@@ -155,11 +155,6 @@ func TestHandleAgentsIgnoresChannelAndHandleChannelsShowsConnected(t *testing.T)
 			AllAgents: true,
 		},
 	})
-	server.deps.ChannelStatus = channelStatusStub{
-		"wecom":  true,
-		"mobile": false,
-	}
-
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/agents?channel=wecom", nil)
 	server.handleAgents(rec, req)
@@ -223,30 +218,11 @@ func TestHandleAgentsIgnoresChannelAndHandleChannelsShowsConnected(t *testing.T)
 		}
 	}
 
+	fixture := newTestFixture(t)
 	rec = httptest.NewRecorder()
-	server.handleChannels(rec, httptest.NewRequest(http.MethodGet, "/api/channels", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("handleChannels code = %d body=%s", rec.Code, rec.Body.String())
-	}
-	var channelsResp api.ApiResponse[[]api.ChannelSummary]
-	if err := json.Unmarshal(rec.Body.Bytes(), &channelsResp); err != nil {
-		t.Fatalf("decode channels response: %v", err)
-	}
-	if len(channelsResp.Data) != 2 {
-		t.Fatalf("expected 2 channels, got %#v", channelsResp.Data)
-	}
-	byID := map[string]api.ChannelSummary{}
-	for _, item := range channelsResp.Data {
-		byID[item.ID] = item
-	}
-	if !byID["wecom"].Connected || byID["mobile"].Connected {
-		t.Fatalf("unexpected connected states: %#v", byID)
-	}
-	if !reflect.DeepEqual(byID["wecom"].Agents, []string{"assistant", "code-helper"}) {
-		t.Fatalf("unexpected wecom agents: %#v", byID["wecom"].Agents)
-	}
-	if !reflect.DeepEqual(byID["mobile"].Agents, []string{"assistant", "code-helper", "customer-service", "team-agent"}) {
-		t.Fatalf("unexpected mobile agents: %#v", byID["mobile"].Agents)
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/channels", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("channels route should be removed, got %d body=%s", rec.Code, rec.Body.String())
 	}
 }
 

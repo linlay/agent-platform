@@ -613,27 +613,6 @@ func (s *Server) writeAgentHTTPResponse(w http.ResponseWriter, response any, err
 	writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 }
 
-func (s *Server) wsAgentCreate(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {
-	payload, err := ws.DecodePayload[api.CreateAgentRequest](req)
-	if err != nil {
-		s.sendAgentWSError(conn, req, newAgentStatusError(http.StatusBadRequest, "invalid_request", "invalid payload"))
-		return
-	}
-	response, createErr := s.createAgent(ctx, payload)
-	s.sendAgentWSResponse(conn, req, response, createErr)
-}
-
-func (s *Server) wsAgentUpdate(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {
-	payload, err := ws.DecodePayload[api.UpdateAgentRequest](req)
-	if err != nil {
-		s.sendAgentWSError(conn, req, newAgentStatusError(http.StatusBadRequest, "invalid_request", "invalid payload"))
-		return
-	}
-	payload.Key = firstNonBlank(payload.AgentKey, payload.Key)
-	response, updateErr := s.updateAgent(ctx, payload)
-	s.sendAgentWSResponse(conn, req, response, updateErr)
-}
-
 func (s *Server) wsAgentModelConfig(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {
 	payload, err := ws.DecodePayload[api.UpdateAgentModelConfigRequest](req)
 	if err != nil {
@@ -643,17 +622,6 @@ func (s *Server) wsAgentModelConfig(ctx context.Context, conn *ws.Conn, req ws.R
 	payload.Key = firstNonBlank(payload.AgentKey, payload.Key)
 	response, updateErr := s.updateAgentModelConfig(ctx, payload)
 	s.sendAgentWSResponse(conn, req, response, updateErr)
-}
-
-func (s *Server) wsAgentDelete(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {
-	payload, err := ws.DecodePayload[api.DeleteAgentRequest](req)
-	if err != nil {
-		s.sendAgentWSError(conn, req, newAgentStatusError(http.StatusBadRequest, "invalid_request", "invalid payload"))
-		return
-	}
-	payload.Key = firstNonBlank(payload.AgentKey, payload.Key)
-	response, deleteErr := s.deleteAgent(ctx, payload)
-	s.sendAgentWSResponse(conn, req, response, deleteErr)
 }
 
 func (s *Server) sendAgentWSResponse(conn *ws.Conn, req ws.RequestFrame, response any, err error) {

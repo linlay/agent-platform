@@ -25,14 +25,8 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
-	release, availability := s.tryAcquireQuery(admission)
-	if !availability.CanQuery {
-		writeJSON(w, http.StatusTooManyRequests, api.Failure(http.StatusTooManyRequests, availability.Message))
-		return
-	}
-	prepared, err := s.completeQueryPreparation(r.Context(), admission, release)
+	prepared, err := s.completeQueryPreparation(r.Context(), admission, nil)
 	if err != nil {
-		releaseQuery(release)
 		var statusErr *statusError
 		if errors.As(err, &statusErr) {
 			writeJSON(w, statusErr.status, api.Failure(statusErr.status, statusErr.message))

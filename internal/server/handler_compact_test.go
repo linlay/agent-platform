@@ -10,6 +10,9 @@ import (
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
+	"agent-platform/internal/ws"
+
+	gws "github.com/gorilla/websocket"
 )
 
 func TestHandleCompactWritesCheckpointAndReloadsRawMessages(t *testing.T) {
@@ -62,6 +65,103 @@ func TestHandleCompactWritesCheckpointAndReloadsRawMessages(t *testing.T) {
 		if strings.Contains(content, "r1") || strings.Contains(content, "r2") {
 			t.Fatalf("compacted content leaked into raw messages: %#v", msg)
 		}
+	}
+}
+
+func TestWSCompactWritesCheckpointAndReloadsRawMessages(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"content":"compact ws "}}]}`,
+			`{"choices":[{"delta":{"content":"summary"},"finish_reason":"stop"}]}`,
+			`[DONE]`,
+		)
+	}, testFixtureOptions{notifications: ws.NewHub()})
+	chatID := "chat-ws-compact"
+	if _, _, err := fixture.chats.EnsureChat(chatID, "mock-agent", "", "first compact message"); err != nil {
+		t.Fatalf("EnsureChat: %v", err)
+	}
+	appendServerCompactRun(t, fixture.chats, chatID, "r1", "user r1", "assistant r1")
+	appendServerCompactRun(t, fixture.chats, chatID, "r2", "user r2", "assistant r2")
+	appendServerCompactRun(t, fixture.chats, chatID, "r3", "user r3", "assistant r3")
+	appendServerCompactRun(t, fixture.chats, chatID, "r4", "user r4", "assistant r4")
+
+	server := httptest.NewServer(fixture.server)
+	defer server.Close()
+	conn, _, err := gws.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http")+"/ws", nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer conn.Close()
+	readConnectedPush(t, conn)
+
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame: ws.FrameRequest,
+		Type:  "/api/compact",
+		ID:    "compact_ws",
+		Payload: ws.MarshalPayload(map[string]any{
+			"requestId": "req-ws-compact",
+			"chatId":    chatID,
+			"agentKey":  "mock-agent",
+			"trigger":   "manual",
+		}),
+	}); err != nil {
+		t.Fatalf("write compact ws request: %v", err)
+	}
+	response := waitForWebSocketResponseData[api.CompactResponse](t, conn, "compact_ws")
+	if !response.Accepted || response.Status != "completed" || response.ChatID != chatID {
+		t.Fatalf("unexpected compact websocket response: %#v", response)
+	}
+	if response.SummarySource != "model" {
+		t.Fatalf("summarySource = %q, want model", response.SummarySource)
+	}
+
+	raw, err := fixture.chats.LoadRawMessages(chatID, 1)
+	if err != nil {
+		t.Fatalf("LoadRawMessages: %v", err)
+	}
+	if len(raw) != 5 {
+		t.Fatalf("raw len = %d, want summary + two tail runs", len(raw))
+	}
+	firstContent, _ := raw[0]["content"].(string)
+	if !strings.Contains(firstContent, "compact ws summary") {
+		t.Fatalf("first raw content = %q", firstContent)
+	}
+}
+
+func TestWSCompactRejectsMissingChatID(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{notifications: ws.NewHub()})
+	server := httptest.NewServer(fixture.server)
+	defer server.Close()
+	conn, _, err := gws.DefaultDialer.Dial("ws"+strings.TrimPrefix(server.URL, "http")+"/ws", nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer conn.Close()
+	readConnectedPush(t, conn)
+
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame:   ws.FrameRequest,
+		Type:    "/api/compact",
+		ID:      "compact_missing_chat",
+		Payload: ws.MarshalPayload(map[string]any{"requestId": "req-missing-chat"}),
+	}); err != nil {
+		t.Fatalf("write compact ws request: %v", err)
+	}
+	raw := waitForWebSocketFrame(t, conn, func(raw []byte) bool {
+		var frame ws.ErrorFrame
+		if err := json.Unmarshal(raw, &frame); err != nil {
+			return false
+		}
+		return frame.Frame == ws.FrameError && frame.ID == "compact_missing_chat"
+	})
+	var frame ws.ErrorFrame
+	if err := json.Unmarshal(raw, &frame); err != nil {
+		t.Fatalf("decode compact ws error: %v", err)
+	}
+	if frame.Type != "invalid_request" || frame.Code != http.StatusBadRequest || strings.Contains(frame.Msg, "unknown type") {
+		t.Fatalf("unexpected compact ws error: %#v", frame)
 	}
 }
 

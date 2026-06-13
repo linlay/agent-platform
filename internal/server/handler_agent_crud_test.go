@@ -20,7 +20,7 @@ import (
 func TestAgentHTTPCRUDAndEditableDetail(t *testing.T) {
 	fixture := newTestFixture(t)
 
-	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/agent/create", map[string]any{
+	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
 		"key": "editable-agent",
 		"definition": map[string]any{
 			"key":         "editable-agent",
@@ -68,7 +68,7 @@ func TestAgentHTTPCRUDAndEditableDetail(t *testing.T) {
 
 	updatedDefinition := detail.Definition
 	updatedDefinition["description"] = "updated test agent"
-	updated := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/agent/update", map[string]any{
+	updated := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/update", map[string]any{
 		"key":          "editable-agent",
 		"definition":   updatedDefinition,
 		"agentsPrompt": "Agents v2",
@@ -77,7 +77,7 @@ func TestAgentHTTPCRUDAndEditableDetail(t *testing.T) {
 		t.Fatalf("unexpected update response %#v", updated)
 	}
 
-	deleted := postAgentJSON[map[string]any](t, fixture.server, "/api/agent/delete", map[string]any{"key": "editable-agent"})
+	deleted := postAgentJSON[map[string]any](t, fixture.server, "/api/admin/agents/delete", map[string]any{"key": "editable-agent"})
 	if deleted["key"] != "editable-agent" || deleted["deleted"] != true {
 		t.Fatalf("unexpected delete response %#v", deleted)
 	}
@@ -91,7 +91,7 @@ func TestAgentHTTPCRUDAndEditableDetail(t *testing.T) {
 func TestAgentProxyCRUDAllowsProxyConfigWithoutModelConfig(t *testing.T) {
 	fixture := newTestFixture(t)
 
-	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/agent/create", map[string]any{
+	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
 		"key": "proxy-agent",
 		"definition": map[string]any{
 			"key":         "proxy-agent",
@@ -118,7 +118,7 @@ func TestAgentProxyCRUDAllowsProxyConfigWithoutModelConfig(t *testing.T) {
 func TestAgentPlanExecuteCRUDUsesAPIModeContract(t *testing.T) {
 	fixture := newTestFixture(t)
 
-	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/agent/create", map[string]any{
+	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
 		"key": "plan-agent",
 		"definition": map[string]any{
 			"key":         "plan-agent",
@@ -139,7 +139,7 @@ func TestAgentPlanExecuteCRUDUsesAPIModeContract(t *testing.T) {
 	}
 
 	detail.Definition["description"] = "updated plan execute test agent"
-	updated := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/agent/update", map[string]any{
+	updated := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/update", map[string]any{
 		"key":        "plan-agent",
 		"definition": detail.Definition,
 	})
@@ -155,7 +155,7 @@ func TestAgentCreateCoderAndOpenWorkspace(t *testing.T) {
 		t.Fatalf("create workspace dir: %v", err)
 	}
 
-	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/agent/create", map[string]any{
+	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
 		"definition": map[string]any{
 			"name": "agent-coder",
 			"icon": "bot",
@@ -223,7 +223,7 @@ func TestAgentCreateCoderAndOpenWorkspace(t *testing.T) {
 	updatedDefinition := created.Definition
 	updatedDefinition["name"] = "Renamed Coder"
 	updatedDefinition["icon"] = "sparkles"
-	updated := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/agent/update", map[string]any{
+	updated := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/update", map[string]any{
 		"key":        created.Key,
 		"definition": updatedDefinition,
 	})
@@ -275,7 +275,7 @@ func TestAgentCreateCoderAppliesDefaultModelConfig(t *testing.T) {
 	})
 	workspaceDir := t.TempDir()
 
-	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/agent/create", map[string]any{
+	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
 		"key": "coder-defaults",
 		"definition": map[string]any{
 			"key":  "coder-defaults",
@@ -312,7 +312,7 @@ func TestAgentCreateCoderPreservesExplicitModelConfig(t *testing.T) {
 	})
 	workspaceDir := t.TempDir()
 
-	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/agent/create", map[string]any{
+	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
 		"key": "coder-explicit",
 		"definition": map[string]any{
 			"key":  "coder-explicit",
@@ -339,7 +339,7 @@ func TestAgentCreateCoderPreservesExplicitModelConfig(t *testing.T) {
 func TestAgentModelConfigUpdatePersistsCoderDefaults(t *testing.T) {
 	fixture := newTestFixture(t)
 	workspaceDir := t.TempDir()
-	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/agent/create", map[string]any{
+	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
 		"key": "coder-model-config",
 		"definition": map[string]any{
 			"key":  "coder-model-config",
@@ -403,7 +403,7 @@ func TestAgentModelConfigUpdatePersistsCoderDefaults(t *testing.T) {
 func TestAgentModelConfigUpdatePersistsNoneReasoning(t *testing.T) {
 	fixture := newTestFixture(t)
 	workspaceDir := t.TempDir()
-	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/agent/create", map[string]any{
+	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
 		"key": "coder-model-none",
 		"definition": map[string]any{
 			"key":  "coder-model-none",
@@ -451,7 +451,7 @@ func TestAgentModelConfigUpdatePersistsNoneReasoning(t *testing.T) {
 func TestAgentModelConfigUpdateRejectsInvalidRequests(t *testing.T) {
 	fixture := newTestFixture(t)
 	workspaceDir := t.TempDir()
-	createdCoder := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/agent/create", map[string]any{
+	createdCoder := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
 		"key": "coder-model-errors",
 		"definition": map[string]any{
 			"key":  "coder-model-errors",
@@ -462,7 +462,7 @@ func TestAgentModelConfigUpdateRejectsInvalidRequests(t *testing.T) {
 			},
 		},
 	})
-	postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/agent/create", map[string]any{
+	postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
 		"key": "react-model-errors",
 		"definition": map[string]any{
 			"key":         "react-model-errors",
@@ -512,7 +512,7 @@ func TestAgentEditorOptionsHTTP(t *testing.T) {
 	fixture := newTestFixture(t)
 
 	rec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agent/editor-options", nil))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/admin/agents/editor-options", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("options returned %d: %s", rec.Code, rec.Body.String())
 	}
@@ -545,6 +545,28 @@ func TestAgentEditorOptionsHTTP(t *testing.T) {
 	}
 }
 
+func TestAgentLegacyRuntimeManagementRoutesRemoved(t *testing.T) {
+	fixture := newTestFixture(t)
+	cases := []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodPost, path: "/api/agent/create"},
+		{method: http.MethodPost, path: "/api/agent/update"},
+		{method: http.MethodPost, path: "/api/agent/delete"},
+		{method: http.MethodGet, path: "/api/agent/editor-options"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.path, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			fixture.server.ServeHTTP(rec, httptest.NewRequest(tc.method, tc.path, bytes.NewBufferString(`{}`)))
+			if rec.Code != http.StatusNotFound {
+				t.Fatalf("expected old route %s to be removed, got %d: %s", tc.path, rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
 func TestAgentCRUDSafetyErrors(t *testing.T) {
 	fixture := newTestFixture(t)
 
@@ -556,7 +578,7 @@ func TestAgentCRUDSafetyErrors(t *testing.T) {
 	}{
 		{
 			name: "duplicate",
-			path: "/api/agent/create",
+			path: "/api/admin/agents/create",
 			body: map[string]any{
 				"key": "mock-agent",
 				"definition": map[string]any{
@@ -569,7 +591,7 @@ func TestAgentCRUDSafetyErrors(t *testing.T) {
 		},
 		{
 			name: "missing key",
-			path: "/api/agent/create",
+			path: "/api/admin/agents/create",
 			body: map[string]any{
 				"definition": map[string]any{"key": "", "name": "Missing"},
 			},
@@ -577,7 +599,7 @@ func TestAgentCRUDSafetyErrors(t *testing.T) {
 		},
 		{
 			name: "path traversal",
-			path: "/api/agent/create",
+			path: "/api/admin/agents/create",
 			body: map[string]any{
 				"key": "../bad",
 				"definition": map[string]any{
@@ -590,7 +612,7 @@ func TestAgentCRUDSafetyErrors(t *testing.T) {
 		},
 		{
 			name: "mismatched definition key",
-			path: "/api/agent/create",
+			path: "/api/admin/agents/create",
 			body: map[string]any{
 				"key": "safe-key",
 				"definition": map[string]any{
@@ -603,7 +625,7 @@ func TestAgentCRUDSafetyErrors(t *testing.T) {
 		},
 		{
 			name: "proxy missing base url",
-			path: "/api/agent/create",
+			path: "/api/admin/agents/create",
 			body: map[string]any{
 				"key": "bad-proxy",
 				"definition": map[string]any{
@@ -618,7 +640,7 @@ func TestAgentCRUDSafetyErrors(t *testing.T) {
 		},
 		{
 			name: "proxy deprecated timeout ms",
-			path: "/api/agent/create",
+			path: "/api/admin/agents/create",
 			body: map[string]any{
 				"key": "bad-proxy-timeout",
 				"definition": map[string]any{
@@ -636,7 +658,7 @@ func TestAgentCRUDSafetyErrors(t *testing.T) {
 		},
 		{
 			name:   "delete missing",
-			path:   "/api/agent/delete",
+			path:   "/api/admin/agents/delete",
 			body:   map[string]any{"key": "missing-agent"},
 			status: http.StatusNotFound,
 		},
@@ -657,7 +679,7 @@ func TestAgentCRUDSafetyErrors(t *testing.T) {
 	}
 }
 
-func TestAgentWSCRUDMirrorHTTP(t *testing.T) {
+func TestAgentWSRuntimeModelConfigAndAdminRoutesRejected(t *testing.T) {
 	hub := ws.NewHub()
 	t.Cleanup(func() { hub.CloseAll(gws.CloseNormalClosure, "test done") })
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
@@ -669,6 +691,17 @@ func TestAgentWSCRUDMirrorHTTP(t *testing.T) {
 			cfg.WebSocket.PingInterval = 30000
 		},
 	})
+	workspaceDir := t.TempDir()
+	coderCreated := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
+		"definition": map[string]any{
+			"name": "WS Coder",
+			"mode": "CODER",
+			"runtimeConfig": map[string]any{
+				"workspaceRoot": workspaceDir,
+			},
+		},
+	})
+
 	server := httptest.NewServer(fixture.server)
 	defer server.Close()
 
@@ -679,87 +712,30 @@ func TestAgentWSCRUDMirrorHTTP(t *testing.T) {
 	defer conn.Close()
 	readAutomationConnectedPush(t, conn)
 
-	if err := conn.WriteJSON(ws.RequestFrame{
-		Frame: ws.FrameRequest,
-		Type:  "/api/agent/editor-options",
-		ID:    "agent-options",
-	}); err != nil {
-		t.Fatalf("write options request: %v", err)
-	}
-	var optionsFrame ws.ResponseFrame
-	if err := conn.ReadJSON(&optionsFrame); err != nil {
-		t.Fatalf("read options response: %v", err)
-	}
-	options, err := marshalAgentResponseData[api.AgentEditorOptionsResponse](optionsFrame.Data)
-	if err != nil {
-		t.Fatalf("decode options data: %v", err)
-	}
-	if optionsFrame.Frame != ws.FrameResponse || optionsFrame.ID != "agent-options" ||
-		len(options.Modes) != 4 || options.Modes[1].Key != "PLAN-EXECUTE" || options.Modes[3].Key != "PROXY" {
-		t.Fatalf("unexpected options frame %#v data=%#v", optionsFrame, options)
-	}
-
-	if err := conn.WriteJSON(ws.RequestFrame{
-		Frame: ws.FrameRequest,
-		Type:  "/api/agent/create",
-		ID:    "create-agent",
-		Payload: ws.MarshalPayload(map[string]any{
-			"key": "ws-agent",
-			"definition": map[string]any{
-				"key":         "ws-agent",
-				"name":        "WS Agent",
-				"role":        "WS",
-				"description": "ws test agent",
-				"mode":        "REACT",
-				"modelConfig": map[string]any{"modelKey": "mock-model"},
-			},
-			"soulPrompt": "WS Soul",
-		}),
-	}); err != nil {
-		t.Fatalf("write create request: %v", err)
-	}
-	var createFrame ws.ResponseFrame
-	if err := conn.ReadJSON(&createFrame); err != nil {
-		t.Fatalf("read create response: %v", err)
-	}
-	created, err := marshalAgentResponseData[api.AgentDetailResponse](createFrame.Data)
-	if err != nil {
-		t.Fatalf("decode create data: %v", err)
-	}
-	if createFrame.Frame != ws.FrameResponse || createFrame.ID != "create-agent" || created.Key != "ws-agent" || created.SoulPrompt != "WS Soul" {
-		t.Fatalf("unexpected create frame %#v data=%#v", createFrame, created)
-	}
-
-	workspaceDir := t.TempDir()
-	if err := conn.WriteJSON(ws.RequestFrame{
-		Frame: ws.FrameRequest,
-		Type:  "/api/agent/create",
-		ID:    "create-coder",
-		Payload: ws.MarshalPayload(map[string]any{
-			"definition": map[string]any{
-				"name": "WS Coder",
-				"mode": "CODER",
-				"runtimeConfig": map[string]any{
-					"workspaceRoot": workspaceDir,
-				},
-			},
-		}),
-	}); err != nil {
-		t.Fatalf("write coder create request: %v", err)
-	}
-	var coderCreateFrame ws.ResponseFrame
-	if err := conn.ReadJSON(&coderCreateFrame); err != nil {
-		t.Fatalf("read coder create response: %v", err)
-	}
-	if coderCreateFrame.Frame != ws.FrameResponse || coderCreateFrame.ID != "create-coder" {
-		t.Fatalf("unexpected coder create frame %#v", coderCreateFrame)
-	}
-	coderCreated, err := marshalAgentResponseData[api.AgentDetailResponse](coderCreateFrame.Data)
-	if err != nil {
-		t.Fatalf("decode coder create data: %v", err)
-	}
-	if !strings.HasPrefix(coderCreated.Key, "coder-") || coderCreated.Mode != "CODER" {
-		t.Fatalf("unexpected coder create key=%q mode=%q", coderCreated.Key, coderCreated.Mode)
+	for _, removed := range []struct {
+		id        string
+		frameType string
+	}{
+		{id: "legacy-create", frameType: "/api/agent/create"},
+		{id: "admin-create", frameType: "/api/admin/agents/create"},
+		{id: "legacy-options", frameType: "/api/agent/editor-options"},
+		{id: "admin-options", frameType: "/api/admin/agents/editor-options"},
+	} {
+		if err := conn.WriteJSON(ws.RequestFrame{
+			Frame: ws.FrameRequest,
+			Type:  removed.frameType,
+			ID:    removed.id,
+		}); err != nil {
+			t.Fatalf("write removed route request: %v", err)
+		}
+		var errFrame ws.ErrorFrame
+		if err := conn.ReadJSON(&errFrame); err != nil {
+			t.Fatalf("read removed route response: %v", err)
+		}
+		if errFrame.Frame != ws.FrameError || errFrame.Type != "invalid_request" || errFrame.ID != removed.id || errFrame.Code != http.StatusBadRequest ||
+			!strings.Contains(errFrame.Msg, "unknown type: "+removed.frameType) {
+			t.Fatalf("unexpected removed route frame for %s: %#v", removed.frameType, errFrame)
+		}
 	}
 
 	if err := conn.WriteJSON(ws.RequestFrame{
@@ -787,26 +763,6 @@ func TestAgentWSCRUDMirrorHTTP(t *testing.T) {
 	if modelConfigFrame.Frame != ws.FrameResponse || modelConfigFrame.ID != "update-coder-model" ||
 		modelConfig["modelKey"] != "mock-model" || reasoning["enabled"] != false {
 		t.Fatalf("unexpected model config frame %#v data=%#v", modelConfigFrame, modelUpdated)
-	}
-
-	if err := conn.WriteJSON(ws.RequestFrame{
-		Frame:   ws.FrameRequest,
-		Type:    "/api/agent/delete",
-		ID:      "delete-agent",
-		Payload: ws.MarshalPayload(map[string]any{"key": "ws-agent"}),
-	}); err != nil {
-		t.Fatalf("write delete request: %v", err)
-	}
-	var deleteFrame ws.ResponseFrame
-	if err := conn.ReadJSON(&deleteFrame); err != nil {
-		t.Fatalf("read delete response: %v", err)
-	}
-	deleted, err := marshalAgentResponseData[map[string]any](deleteFrame.Data)
-	if err != nil {
-		t.Fatalf("decode delete data: %v", err)
-	}
-	if deleteFrame.Frame != ws.FrameResponse || deleteFrame.ID != "delete-agent" || deleted["deleted"] != true {
-		t.Fatalf("unexpected delete frame %#v data=%#v", deleteFrame, deleted)
 	}
 }
 

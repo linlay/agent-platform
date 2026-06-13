@@ -143,19 +143,15 @@ func TestQueryRoleValidation(t *testing.T) {
 	}
 }
 
-func TestQueryAvailabilityAlwaysAllowsAgentQuery(t *testing.T) {
+func TestQueryAvailabilityRouteRemoved(t *testing.T) {
 	fixture := newTestFixture(t)
 
 	availabilityRec := httptest.NewRecorder()
 	availabilityReq := httptest.NewRequest(http.MethodPost, "/api/query/availability", bytes.NewBufferString(`{"agentKey":"mock-agent","chatId":"chat-next"}`))
 	availabilityReq.Header.Set("Content-Type", "application/json")
 	fixture.server.ServeHTTP(availabilityRec, availabilityReq)
-	var response api.ApiResponse[api.QueryAvailabilityResponse]
-	if err := json.Unmarshal(availabilityRec.Body.Bytes(), &response); err != nil {
-		t.Fatalf("decode availability: %v", err)
-	}
-	if !response.Data.CanQuery || response.Data.Code != "ok" || response.Data.AgentKey != "mock-agent" || response.Data.ChatID != "chat-next" {
-		t.Fatalf("expected availability ok, got %#v", response.Data)
+	if availabilityRec.Code != http.StatusNotFound {
+		t.Fatalf("expected query availability route to be removed, got %d: %s", availabilityRec.Code, availabilityRec.Body.String())
 	}
 }
 

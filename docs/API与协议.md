@@ -34,8 +34,8 @@ GET /ws -> request / response / stream / push / error frames
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
 | GET | `/api/agents` | query: `includeChats` | agent 列表，可附带最近 chat 摘要 |
-| GET | `/api/channels` | 无 | channel 摘要列表 |
 | GET | `/api/agent` | query: `agentKey` | 单个 agent 详情 |
+| POST | `/api/agent/model-config` | body: `agentKey`/`key`、`modelKey`、`reasoningEffort` | 更新 CODER agent 的运行时默认模型配置 |
 | GET | `/api/teams` | 无 | team 列表 |
 | GET | `/api/skills` | 无 | skill 列表 |
 | GET | `/api/skill-candidates` | query: `agentKey` | skill candidate 列表 |
@@ -43,14 +43,24 @@ GET /ws -> request / response / stream / push / error frames
 | GET | `/api/tool` | query: `toolName` | 单个 tool 详情 |
 | GET | `/api/model-options` | 无 | 聊天运行时可选模型与思考深度 |
 
-### Agent 编辑
+### Admin
 
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
-| POST | `/api/agent/create` | body: `key`、`name`、`role`、`description`、`icon`、`modelConfig`、`toolConfig`、`skillConfig`、`runtimeConfig`、`mode`、`plain` | 创建后的 agent 详情 |
-| POST | `/api/agent/update` | body: `agentKey` 及可更新 agent 字段 | 更新后的 agent 详情 |
-| POST | `/api/agent/delete` | body: `agentKey` | 删除结果 |
-| GET | `/api/agent/editor-options` | 无 | 编辑器可选项 |
+| GET | `/api/admin/agents` | 无 | admin agent 列表，包含 invalid agent 诊断 |
+| GET | `/api/admin/agents/detail` | query: `agentKey` | admin agent 详情 |
+| GET/PUT | `/api/admin/agents/order` | PUT body: `order` | agent 展示顺序 |
+| POST | `/api/admin/agents/create` | body: `key`、`definition`、`soulPrompt`、`agentsPrompt` | 创建后的 agent 详情 |
+| POST | `/api/admin/agents/update` | body: `key`/`agentKey`、`definition`、`soulPrompt`、`agentsPrompt` | 更新后的 agent 详情 |
+| POST | `/api/admin/agents/delete` | body: `key`/`agentKey` | 删除结果 |
+| GET | `/api/admin/agents/editor-options` | 无 | agent 编辑器可选项 |
+| GET | `/api/admin/registries` | 无 | registry 文件列表与诊断 |
+| GET/PUT | `/api/admin/registries/detail` | query/body: `category`、`file`、`content` | registry 文件详情或保存结果 |
+| POST | `/api/admin/registries/validate` | body: `category`、`file`、`content` | registry 内容校验结果 |
+| POST | `/api/admin/automations/create` | body: `name`、`description`、`cron`、`agentKey`、`enabled`、`teamId`、`zoneId`、`remainingRuns`、`query` | 创建后的 automation 详情 |
+| POST | `/api/admin/automations/update` | body: `id` 或 `automationId`，以及可更新字段 | 更新后的 automation 详情 |
+| POST | `/api/admin/automations/delete` | body: `id` 或 `automationId` | 删除结果 |
+| POST | `/api/admin/automations/toggle` | body: `id` 或 `automationId`、`enabled` | 启停后的 automation 详情 |
 
 ### Chat
 
@@ -90,10 +100,6 @@ GET /ws -> request / response / stream / push / error frames
 |---|---|---|---|
 | POST | `/api/automations` | body: `tag` | automation 列表 |
 | POST | `/api/automation` | body: `id` 或 `automationId` | automation 详情 |
-| POST | `/api/automation/create` | body: `name`、`description`、`cron`、`agentKey`、`enabled`、`teamId`、`zoneId`、`remainingRuns`、`query` | 创建后的 automation 详情 |
-| POST | `/api/automation/update` | body: `id` 或 `automationId`，以及可更新字段 | 更新后的 automation 详情 |
-| POST | `/api/automation/delete` | body: `id` 或 `automationId` | 删除结果 |
-| POST | `/api/automation/toggle` | body: `id` 或 `automationId`、`enabled` | 启停后的 automation 详情 |
 | POST | `/api/automation/executions` | body: `id` 或 `automationId`、`limit`、`offset` | execution history |
 
 `query` 对象包含 `message`、`chatId`、`role`、`params`。`role` 可选值为 `user`、`assistant`、`automation`、`system`；automation 未显式配置时默认为 `automation`。
@@ -314,12 +320,8 @@ resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界
 | Route | Payload | 返回 |
 |---|---|---|
 | `/api/agents` | `includeChats` | `response` |
-| `/api/channels` | 无 | `response` |
 | `/api/agent` | `agentKey` | `response` |
-| `/api/agent/create` | agent 创建字段 | `response` |
-| `/api/agent/update` | agent 更新字段 | `response` |
-| `/api/agent/delete` | `agentKey` | `response` |
-| `/api/agent/editor-options` | 无 | `response` |
+| `/api/agent/model-config` | `agentKey`/`key`、`modelKey`、`reasoningEffort` | `response` |
 | `/api/model-options` | 无 | `response` |
 | `/api/teams` | 无 | `response` |
 | `/api/skills` | 无 | `response` |
@@ -339,10 +341,6 @@ resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界
 | `/api/archive/delete` | `chatId` | `response` |
 | `/api/automations` | `tag` | `response` |
 | `/api/automation` | `id` 或 `automationId` | `response` |
-| `/api/automation/create` | automation 创建字段 | `response` |
-| `/api/automation/update` | automation 更新字段 | `response` |
-| `/api/automation/delete` | `id` 或 `automationId` | `response` |
-| `/api/automation/toggle` | `id` 或 `automationId`、`enabled` | `response` |
 | `/api/automation/executions` | `id` 或 `automationId`、`limit`、`offset` | `response` |
 | `/api/chats/search` | `query`、`agentKey`、`teamId`、`limit` | `response` |
 | `/api/query` | `QueryRequest` | `stream` |
