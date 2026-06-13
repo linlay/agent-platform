@@ -13,8 +13,6 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
 	"agent-platform/internal/ws"
-
-	gws "github.com/gorilla/websocket"
 )
 
 func setupAdminRegistriesFixture(t *testing.T) testFixture {
@@ -151,84 +149,5 @@ func TestAdminRegistryDetailSaveValidateAndPathGuard(t *testing.T) {
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/admin/registries/detail?category=providers&file=../mock.yml", nil))
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("path traversal should fail, got %d body=%s", rec.Code, rec.Body.String())
-	}
-}
-
-func TestAdminRegistriesWebSocketRoutes(t *testing.T) {
-	fixture := setupAdminRegistriesFixture(t)
-	server := httptest.NewServer(fixture.server)
-	defer server.Close()
-
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
-	conn, _, err := gws.DefaultDialer.Dial(wsURL, nil)
-	if err != nil {
-		t.Fatalf("dial websocket: %v", err)
-	}
-	defer conn.Close()
-	readConnectedPush(t, conn)
-
-	if err := conn.WriteJSON(ws.RequestFrame{Frame: ws.FrameRequest, Type: "/api/admin/registries", ID: "admin-registries"}); err != nil {
-		t.Fatalf("write registries request: %v", err)
-	}
-	var listFrame ws.ResponseFrame
-	if err := conn.ReadJSON(&listFrame); err != nil {
-		t.Fatalf("read registries frame: %v", err)
-	}
-	if listFrame.Frame != ws.FrameResponse || listFrame.ID != "admin-registries" || listFrame.Code != 0 {
-		t.Fatalf("unexpected list frame: %#v", listFrame)
-	}
-	listData, err := marshalResponseData[api.AdminRegistryListResponse](listFrame.Data)
-	if err != nil {
-		t.Fatalf("decode list data: %v", err)
-	}
-	if listData.Total == 0 {
-		t.Fatalf("expected registry items, got %#v", listData)
-	}
-
-	if err := conn.WriteJSON(ws.RequestFrame{
-		Frame: ws.FrameRequest,
-		Type:  "/api/admin/registries/detail",
-		ID:    "admin-registry-detail",
-		Payload: ws.MarshalPayload(map[string]any{
-			"category": "providers",
-			"file":     "mock.yml",
-		}),
-	}); err != nil {
-		t.Fatalf("write detail request: %v", err)
-	}
-	var detailFrame ws.ResponseFrame
-	if err := conn.ReadJSON(&detailFrame); err != nil {
-		t.Fatalf("read detail frame: %v", err)
-	}
-	detailData, err := marshalResponseData[api.AdminRegistryDetailResponse](detailFrame.Data)
-	if err != nil {
-		t.Fatalf("decode detail data: %v", err)
-	}
-	if detailFrame.Frame != ws.FrameResponse || detailFrame.Code != 0 || detailData.File != "mock.yml" || detailData.Content == "" {
-		t.Fatalf("unexpected detail frame=%#v data=%#v", detailFrame, detailData)
-	}
-
-	if err := conn.WriteJSON(ws.RequestFrame{
-		Frame: ws.FrameRequest,
-		Type:  "/api/admin/registries/validate",
-		ID:    "admin-registry-validate",
-		Payload: ws.MarshalPayload(map[string]any{
-			"category": "providers",
-			"file":     "draft.yml",
-			"content":  "key: draft\nbaseUrl: http://localhost:18888\n",
-		}),
-	}); err != nil {
-		t.Fatalf("write validate request: %v", err)
-	}
-	var validateFrame ws.ResponseFrame
-	if err := conn.ReadJSON(&validateFrame); err != nil {
-		t.Fatalf("read validate frame: %v", err)
-	}
-	validateData, err := marshalResponseData[api.AdminRegistryValidateResponse](validateFrame.Data)
-	if err != nil {
-		t.Fatalf("decode validate data: %v", err)
-	}
-	if validateFrame.Frame != ws.FrameResponse || validateFrame.Code != 0 || validateData.Status != "ready" {
-		t.Fatalf("unexpected validate frame=%#v data=%#v", validateFrame, validateData)
 	}
 }

@@ -2,7 +2,6 @@ package server
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"net/http"
 	"os"
@@ -14,7 +13,6 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/ws"
 )
 
 const (
@@ -506,46 +504,4 @@ func atomicWriteAdminRegistryFile(path string, data []byte) error {
 		return err
 	}
 	return os.Rename(tmpName, path)
-}
-
-func (s *Server) wsAdminRegistries(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
-	if _, err := ws.DecodePayload[struct{}](req); err != nil {
-		s.sendAgentWSError(conn, req, newAgentStatusError(http.StatusBadRequest, "invalid_request", "invalid payload"))
-		return
-	}
-	response, listErr := s.listAdminRegistries()
-	s.sendAgentWSResponse(conn, req, response, listErr)
-}
-
-func (s *Server) wsAdminRegistryDetail(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
-	payload, err := ws.DecodePayload[struct {
-		Category string  `json:"category"`
-		File     string  `json:"file"`
-		Content  *string `json:"content"`
-	}](req)
-	if err != nil {
-		s.sendAgentWSError(conn, req, newAgentStatusError(http.StatusBadRequest, "invalid_request", "invalid payload"))
-		return
-	}
-	if payload.Content == nil {
-		response, readErr := s.readAdminRegistryDetail(payload.Category, payload.File)
-		s.sendAgentWSResponse(conn, req, response, readErr)
-		return
-	}
-	response, saveErr := s.saveAdminRegistryDetail(api.AdminRegistryDetailRequest{
-		Category: payload.Category,
-		File:     payload.File,
-		Content:  *payload.Content,
-	})
-	s.sendAgentWSResponse(conn, req, response, saveErr)
-}
-
-func (s *Server) wsAdminRegistryValidate(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
-	payload, err := ws.DecodePayload[api.AdminRegistryValidateRequest](req)
-	if err != nil {
-		s.sendAgentWSError(conn, req, newAgentStatusError(http.StatusBadRequest, "invalid_request", "invalid payload"))
-		return
-	}
-	response, validateErr := s.validateAdminRegistry(payload)
-	s.sendAgentWSResponse(conn, req, response, validateErr)
 }
