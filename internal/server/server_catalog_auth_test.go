@@ -451,7 +451,7 @@ func TestCatalogEndpoints(t *testing.T) {
 	fixture := newTestFixture(t)
 	server := fixture.server
 
-	for _, path := range []string{"/api/agents", "/api/agent?agentKey=mock-agent", "/api/teams", "/api/skills", "/api/tools", "/api/tool?toolName=bash"} {
+	for _, path := range []string{"/api/agents", "/api/agent?agentKey=mock-agent", "/api/teams", "/api/admin/skills", "/api/admin/tools", "/api/tool?toolName=bash"} {
 		rec := httptest.NewRecorder()
 		server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 		if rec.Code != http.StatusOK {

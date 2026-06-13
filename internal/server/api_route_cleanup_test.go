@@ -19,18 +19,18 @@ import (
 func TestCatalogTagParametersAreIgnored(t *testing.T) {
 	fixture := newTestFixture(t)
 
-	skills := getAPIData[[]api.SkillSummary](t, fixture.server, http.MethodGet, "/api/skills", nil)
-	skillsWithTag := getAPIData[[]api.SkillSummary](t, fixture.server, http.MethodGet, "/api/skills?tag=does-not-filter", nil)
+	skills := getAPIData[[]api.SkillSummary](t, fixture.server, http.MethodGet, "/api/admin/skills", nil)
+	skillsWithTag := getAPIData[[]api.SkillSummary](t, fixture.server, http.MethodGet, "/api/admin/skills?tag=does-not-filter", nil)
 	if len(skills) != len(skillsWithTag) {
 		t.Fatalf("expected skills tag parameter to be ignored: all=%d tagged=%d", len(skills), len(skillsWithTag))
 	}
 
-	tools := getAPIData[[]api.ToolSummary](t, fixture.server, http.MethodGet, "/api/tools", nil)
-	toolsWithTag := getAPIData[[]api.ToolSummary](t, fixture.server, http.MethodGet, "/api/tools?tag=does-not-filter", nil)
+	tools := getAPIData[[]api.ToolSummary](t, fixture.server, http.MethodGet, "/api/admin/tools", nil)
+	toolsWithTag := getAPIData[[]api.ToolSummary](t, fixture.server, http.MethodGet, "/api/admin/tools?tag=does-not-filter", nil)
 	if len(tools) != len(toolsWithTag) {
 		t.Fatalf("expected tools tag parameter to be ignored: all=%d tagged=%d", len(tools), len(toolsWithTag))
 	}
-	kindTools := getAPIData[[]api.ToolSummary](t, fixture.server, http.MethodGet, "/api/tools?kind=does-not-exist", nil)
+	kindTools := getAPIData[[]api.ToolSummary](t, fixture.server, http.MethodGet, "/api/admin/tools?kind=does-not-exist", nil)
 	if len(kindTools) != 0 || len(kindTools) > len(tools) {
 		t.Fatalf("expected kind filter to remain active: all=%d kind=%d", len(tools), len(kindTools))
 	}
@@ -81,6 +81,8 @@ func TestRemovedHTTPAPIRoutesReturnNotFound(t *testing.T) {
 		{method: http.MethodGet, path: "/api/chat-export?chatId=chat-route-search"},
 		{method: http.MethodPost, path: "/api/session-search", body: `{"chatId":"chat-route-search","query":"rollback"}`},
 		{method: http.MethodGet, path: "/api/archive-resource?chatId=chat-route-search&file=report.md"},
+		{method: http.MethodGet, path: "/api/skills"},
+		{method: http.MethodGet, path: "/api/tools"},
 	} {
 		rec := httptest.NewRecorder()
 		fixture.server.ServeHTTP(rec, httptest.NewRequest(tc.method, tc.path, bytes.NewBufferString(tc.body)))

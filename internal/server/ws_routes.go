@@ -84,8 +84,6 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/agent/model-config", s.wsAgentModelConfig)
 	handler.RegisterRoute("/api/model-options", s.wsModelOptions)
 	handler.RegisterRoute("/api/teams", s.wsTeams)
-	handler.RegisterRoute("/api/skills", s.wsSkills)
-	handler.RegisterRoute("/api/tools", s.wsTools)
 	handler.RegisterRoute("/api/tool", s.wsTool)
 	handler.RegisterRoute("/api/chats", s.wsChats)
 	handler.RegisterRoute("/api/chat", s.wsChat)
@@ -195,29 +193,6 @@ func (s *Server) wsModelOptions(_ context.Context, conn *ws.Conn, req ws.Request
 
 func (s *Server) wsTeams(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
 	conn.SendResponse(req.Type, req.ID, 0, "success", s.deps.Registry.Teams())
-	conn.CompleteRequest(req.ID)
-}
-
-func (s *Server) wsSkills(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
-	if _, err := ws.DecodePayload[struct{}](req); err != nil {
-		conn.SendError(req.ID, "invalid_request", 400, "invalid payload", nil)
-		conn.CompleteRequest(req.ID)
-		return
-	}
-	conn.SendResponse(req.Type, req.ID, 0, "success", s.deps.Registry.Skills(""))
-	conn.CompleteRequest(req.ID)
-}
-
-func (s *Server) wsTools(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
-	payload, err := ws.DecodePayload[struct {
-		Kind string `json:"kind"`
-	}](req)
-	if err != nil {
-		conn.SendError(req.ID, "invalid_request", 400, "invalid payload", nil)
-		conn.CompleteRequest(req.ID)
-		return
-	}
-	conn.SendResponse(req.Type, req.ID, 0, "success", s.listTools(payload.Kind, ""))
 	conn.CompleteRequest(req.ID)
 }
 
