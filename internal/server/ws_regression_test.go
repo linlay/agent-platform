@@ -514,7 +514,9 @@ func TestBroadcastDefinitionsStayAlignedAcrossHTTPAndWS(t *testing.T) {
 	assertContains(t, handlerQueryPrepare, `s.broadcast("chat.created"`)
 	assertContains(t, handlerChat, `s.broadcastChatReadState("chat.read"`)
 	assertContains(t, handlerQuery, `s.broadcastChatReadState("chat.unread"`)
+	assertContains(t, wsRoutes, `handler.RegisterRoute("/api/agents", s.wsAgents)`)
 	assertContains(t, wsRoutes, `handler.RegisterRoute("/api/attach"`)
+	assertNotContains(t, wsRoutes, `handler.RegisterRoute("/api/admin/agents"`)
 	assertContains(t, wsQueryRoutes, `s.broadcast("run.started"`)
 	assertContains(t, wsQueryRoutes, `s.broadcast("run.finished"`)
 	assertContains(t, wsRoutes, `s.broadcastChatReadState("chat.read"`)
@@ -756,5 +758,12 @@ func assertContains(t *testing.T, text string, want string) {
 	t.Helper()
 	if !strings.Contains(text, want) {
 		t.Fatalf("expected %q in file contents", want)
+	}
+}
+
+func assertNotContains(t *testing.T, text string, want string) {
+	t.Helper()
+	if strings.Contains(text, want) {
+		t.Fatalf("did not expect %q in file contents", want)
 	}
 }

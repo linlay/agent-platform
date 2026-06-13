@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -10,7 +9,6 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/contracts"
-	"agent-platform/internal/ws"
 )
 
 type adminAgentRegistry interface {
@@ -279,52 +277,4 @@ func filterKnownAgentOrder(order []string, known map[string]struct{}) []string {
 		out = append(out, key)
 	}
 	return out
-}
-
-func (s *Server) wsAdminAgents(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
-	if _, err := ws.DecodePayload[struct{}](req); err != nil {
-		s.sendAgentWSError(conn, req, newAgentStatusError(http.StatusBadRequest, "invalid_request", "invalid payload"))
-		return
-	}
-	registry, err := s.adminAgentRegistry()
-	if err != nil {
-		s.sendAgentWSError(conn, req, err)
-		return
-	}
-	items := registry.AdminAgents()
-	response := make([]api.AdminAgentSummary, 0, len(items))
-	for _, item := range items {
-		response = append(response, buildAdminAgentSummary(item))
-	}
-	conn.SendResponse(req.Type, req.ID, 0, "success", response)
-	conn.CompleteRequest(req.ID)
-}
-
-func (s *Server) wsAdminAgentDetail(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
-	payload, err := ws.DecodePayload[struct {
-		AgentKey string `json:"agentKey"`
-	}](req)
-	if err != nil || strings.TrimSpace(payload.AgentKey) == "" {
-		s.sendAgentWSError(conn, req, newAgentStatusError(http.StatusBadRequest, "invalid_request", "agentKey is required"))
-		return
-	}
-	response, detailErr := s.adminAgentDetail(payload.AgentKey)
-	s.sendAgentWSResponse(conn, req, response, detailErr)
-}
-
-func (s *Server) wsAdminAgentOrder(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
-	payload, err := ws.DecodePayload[struct {
-		Order *[]string `json:"order"`
-	}](req)
-	if err != nil {
-		s.sendAgentWSError(conn, req, newAgentStatusError(http.StatusBadRequest, "invalid_request", "invalid payload"))
-		return
-	}
-	if payload.Order == nil {
-		response, readErr := s.readAdminAgentOrder()
-		s.sendAgentWSResponse(conn, req, response, readErr)
-		return
-	}
-	response, updateErr := s.updateAdminAgentOrder(*payload.Order)
-	s.sendAgentWSResponse(conn, req, response, updateErr)
 }
