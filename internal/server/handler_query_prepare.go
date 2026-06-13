@@ -183,6 +183,9 @@ func (s *Server) completeQueryPreparation(ctx context.Context, admission queryAd
 		return preparedQuery{}, err
 	}
 	applyQueryModelOptionsToSession(req.Model, &session)
+	if !created {
+		s.maybeAutoCompact(ctx, req, agentDef, &session)
+	}
 	if catalog.AgentUsesACPCoderBackend(agentDef) {
 		req.Model = s.acpCoderModelOptions(session, req.Model)
 	}

@@ -263,6 +263,27 @@ type InterruptResponse struct {
 	Detail   string `json:"detail"`
 }
 
+type CompactRequest struct {
+	RequestID string `json:"requestId,omitempty"`
+	ChatID    string `json:"chatId,omitempty"`
+	AgentKey  string `json:"agentKey,omitempty"`
+	Trigger   string `json:"trigger,omitempty"`
+}
+
+type CompactResponse struct {
+	Accepted                   bool           `json:"accepted"`
+	Status                     string         `json:"status"`
+	RequestID                  string         `json:"requestId,omitempty"`
+	ChatID                     string         `json:"chatId,omitempty"`
+	CompactID                  string         `json:"compactId,omitempty"`
+	SummarySource              string         `json:"summarySource,omitempty"`
+	PreCompactEstimatedTokens  int            `json:"preCompactEstimatedTokens,omitempty"`
+	PostCompactEstimatedTokens int            `json:"postCompactEstimatedTokens,omitempty"`
+	CompressionRatio           float64        `json:"compressionRatio,omitempty"`
+	CompactionUsage            map[string]any `json:"compactionUsage,omitempty"`
+	Detail                     string         `json:"detail,omitempty"`
+}
+
 type DetachRequest struct {
 	RunID    string `json:"runId"`
 	AgentKey string `json:"agentKey"`

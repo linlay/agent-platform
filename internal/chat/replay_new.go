@@ -355,6 +355,42 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 			if events := finishReplayedSubTaskIfTerminal(rd, runID, taskID, taskStatus, ts, nextSeq); len(events) > 0 {
 				rd.events = append(rd.events, events...)
 			}
+		case CompactCheckpointLineType:
+			if lineIsCompacted(line) {
+				continue
+			}
+			eventRunID := runID
+			if strings.TrimSpace(eventRunID) == "" {
+				eventRunID = summary.LastRunID
+			}
+			payload := map[string]any{
+				"type":      "context.compact.complete",
+				"chatId":    chatID,
+				"compactId": stringFromAny(line["compactId"]),
+				"trigger":   stringFromAny(line["trigger"]),
+			}
+			if strings.TrimSpace(eventRunID) != "" {
+				payload["runId"] = eventRunID
+			}
+			if summarySource := strings.TrimSpace(stringFromAny(line["summarySource"])); summarySource != "" {
+				payload["summarySource"] = summarySource
+			}
+			if tokens := int64FromAny(line["preCompactEstimatedTokens"]); tokens > 0 {
+				payload["preCompactEstimatedTokens"] = tokens
+			}
+			if tokens := int64FromAny(line["postCompactEstimatedTokens"]); tokens > 0 {
+				payload["postCompactEstimatedTokens"] = tokens
+			}
+			if ratio, ok := line["compressionRatio"].(float64); ok && ratio > 0 {
+				payload["compressionRatio"] = ratio
+			}
+			rd := ensureRun(runs, &runOrder, eventRunID)
+			rd.events = append(rd.events, stream.EventData{
+				Seq:       nextSeq(),
+				Type:      "context.compact.complete",
+				Timestamp: int64FromAny(line["updatedAt"]),
+				Payload:   payload,
+			})
 		case "submit":
 			lineLiveSeq := int64FromAny(line["liveSeq"])
 			rd := ensureRun(runs, &runOrder, runID)

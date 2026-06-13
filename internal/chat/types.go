@@ -92,7 +92,23 @@ const (
 	StepLineTypeReactTool   = "react-tool"
 	StepLineTypePlanExecute = "plan-execute"
 	StepLineTypeLegacyStep  = "step"
+
+	CompactCheckpointLineType = "compact.checkpoint"
 )
+
+type CompactCheckpointLine struct {
+	Type                       string         `json:"_type"`
+	ChatID                     string         `json:"chatId"`
+	CompactID                  string         `json:"compactId"`
+	UpdatedAt                  int64          `json:"updatedAt"`
+	Trigger                    string         `json:"trigger,omitempty"`
+	Summary                    string         `json:"summary,omitempty"`
+	SummarySource              string         `json:"summarySource,omitempty"`
+	PreCompactEstimatedTokens  int            `json:"preCompactEstimatedTokens,omitempty"`
+	PostCompactEstimatedTokens int            `json:"postCompactEstimatedTokens,omitempty"`
+	CompressionRatio           float64        `json:"compressionRatio,omitempty"`
+	CompactionUsage            map[string]any `json:"compactionUsage"`
+}
 
 // StepLine represents a step line in chatId.jsonl.
 // _type is the persisted step shape: "react", "react-tool", or "plan-execute".

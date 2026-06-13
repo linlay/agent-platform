@@ -12,9 +12,16 @@ func (s *FileStore) LoadRawMessages(chatID string, k int) ([]map[string]any, err
 		k = 20
 	}
 
-	messages := s.loadRawMessagesFromJSONL(chatID)
+	lines, err := readJSONLines(s.chatJSONLPath(chatID))
+	if err != nil || len(lines) == 0 {
+		return nil, err
+	}
+	messages := rawMessagesFromJSONLLines(lines)
 	if len(messages) == 0 {
 		return nil, nil
+	}
+	if hasActiveCompactCheckpoint(lines) {
+		return messages, nil
 	}
 
 	// Group by runId, keep last K runs (sliding window)
@@ -65,10 +72,23 @@ func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
 
 	var messages []map[string]any
 	for _, line := range lines {
+		if lineIsCompacted(line) {
+			continue
+		}
 		lineType, _ := line["_type"].(string)
 		runID, _ := line["runId"].(string)
 
 		switch lineType {
+		case CompactCheckpointLineType:
+			summary, ok := activeCompactCheckpointSummary(line)
+			if !ok {
+				continue
+			}
+			messages = append(messages, map[string]any{
+				"role":    "user",
+				"content": compactCheckpointSummaryMessage(summary),
+				"ts":      line["updatedAt"],
+			})
 		case "query":
 			query, _ := line["query"].(map[string]any)
 			if query == nil {
