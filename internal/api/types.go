@@ -110,6 +110,16 @@ type QueryRequest struct {
 	Model        *QueryModelOptions `json:"model,omitempty"`
 }
 
+type QueryResponse struct {
+	RequestID     string         `json:"requestId"`
+	RunID         string         `json:"runId"`
+	ChatID        string         `json:"chatId"`
+	AgentKey      string         `json:"agentKey"`
+	AssistantText string         `json:"assistantText"`
+	FinishReason  string         `json:"finishReason"`
+	Usage         *ChatUsageData `json:"usage,omitempty"`
+}
+
 type QueryModelOptions struct {
 	Key             string `json:"key,omitempty"`
 	ModelID         string `json:"modelId,omitempty"`

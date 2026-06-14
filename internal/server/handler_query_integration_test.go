@@ -98,6 +98,91 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 	}
 }
 
+func TestQueryNonStreamReturnsJSONAndPersistsChatHistory(t *testing.T) {
+	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"content":"JSON "}}]}`,
+			`{"choices":[{"delta":{"content":"response"},"finish_reason":"stop"}]}`,
+			`{"choices":[],"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}}`,
+			`[DONE]`,
+		)
+	})
+	server := fixture.server
+
+	body := bytes.NewBufferString(`{"message":"非流式回答","agentKey":"mock-agent","stream":false}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/query", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Type"); !strings.Contains(got, "application/json") {
+		t.Fatalf("expected json content type, got %q", got)
+	}
+	if strings.Contains(rec.Body.String(), "data:") || strings.Contains(rec.Body.String(), stream.DoneSentinel) {
+		t.Fatalf("did not expect sse body, got %s", rec.Body.String())
+	}
+
+	var queryResp api.ApiResponse[api.QueryResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &queryResp); err != nil {
+		t.Fatalf("decode query response: %v", err)
+	}
+	if queryResp.Code != 0 || queryResp.Data.AssistantText != "JSON response" || queryResp.Data.FinishReason != "complete" {
+		t.Fatalf("unexpected query response %#v", queryResp)
+	}
+	if queryResp.Data.ChatID == "" || queryResp.Data.RunID == "" || queryResp.Data.RequestID == "" || queryResp.Data.AgentKey != "mock-agent" {
+		t.Fatalf("expected run identifiers in response, got %#v", queryResp.Data)
+	}
+	if queryResp.Data.Usage == nil || queryResp.Data.Usage.TotalTokens != 10 {
+		t.Fatalf("expected run usage in response, got %#v", queryResp.Data.Usage)
+	}
+
+	chatRec := httptest.NewRecorder()
+	server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+queryResp.Data.ChatID+"&includeRawMessages=true", nil))
+	var chatResp api.ApiResponse[api.ChatDetailResponse]
+	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
+		t.Fatalf("decode chat response: %v", err)
+	}
+	assertPersistedEventTypes(t, chatResp.Data.Events,
+		"request.query",
+		"chat.start",
+		"run.start",
+		"content.snapshot",
+		"run.complete",
+	)
+	if len(chatResp.Data.Runs) == 0 || chatResp.Data.Runs[0].AssistantText != "JSON response" {
+		t.Fatalf("expected run summary assistant text, got %#v", chatResp.Data.Runs)
+	}
+	if chatResp.Data.Usage == nil || chatResp.Data.Usage.LastRun == nil || chatResp.Data.Usage.LastRun.TotalTokens != 10 {
+		t.Fatalf("expected persisted usage breakdown, got %#v", chatResp.Data.Usage)
+	}
+}
+
+func TestQuerySteamTypoDoesNotDisableSSE(t *testing.T) {
+	fixture := newTestFixture(t)
+	server := fixture.server
+
+	body := bytes.NewBufferString(`{"message":"拼写错误字段","agentKey":"mock-agent","steam":false}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/query", body)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Type"); !strings.Contains(got, "text/event-stream") {
+		t.Fatalf("expected sse content type, got %q", got)
+	}
+	if !strings.Contains(rec.Body.String(), "data: "+stream.DoneSentinel) {
+		t.Fatalf("expected sse done sentinel, got %s", rec.Body.String())
+	}
+}
+
 func TestQueryRejectsInvalidAccessLevel(t *testing.T) {
 	fixture := newTestFixture(t)
 	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"hello","accessLevel":"root"}`))
@@ -538,6 +623,74 @@ func TestQueryCanExecuteBackendToolLoop(t *testing.T) {
 
 	chatRec := httptest.NewRecorder()
 	server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatsResp.Data[0].ChatID, nil))
+	var chatResp api.ApiResponse[api.ChatDetailResponse]
+	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
+		t.Fatalf("decode chat detail: %v", err)
+	}
+	assertPersistedEventTypes(t, chatResp.Data.Events,
+		"request.query",
+		"chat.start",
+		"run.start",
+		"tool.snapshot",
+		"tool.result",
+		"content.snapshot",
+		"run.complete",
+	)
+}
+
+func TestQueryNonStreamCanExecuteBackendToolLoop(t *testing.T) {
+	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode model request: %v", err)
+		}
+		messages, _ := payload["messages"].([]any)
+		hasToolMessage := false
+		for _, item := range messages {
+			message, _ := item.(map[string]any)
+			if role, _ := message["role"].(string); role == "tool" {
+				hasToolMessage = true
+				break
+			}
+		}
+		if !hasToolMessage {
+			writeProviderSSE(t, w,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_datetime","type":"function","function":{"name":"datetime","arguments":"{"}}]}}]}`,
+				`{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"}"}}]},"finish_reason":"tool_calls"}]}`,
+				`[DONE]`,
+			)
+			return
+		}
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"content":"完成工具调用后"}}]}`,
+			`{"choices":[{"delta":{"content":"的最终回答"},"finish_reason":"stop"}]}`,
+			`[DONE]`,
+		)
+	})
+	server := fixture.server
+
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"现在几点？","stream":false}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "data:") || strings.Contains(rec.Body.String(), stream.DoneSentinel) {
+		t.Fatalf("did not expect sse body, got %s", rec.Body.String())
+	}
+	var queryResp api.ApiResponse[api.QueryResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &queryResp); err != nil {
+		t.Fatalf("decode query response: %v", err)
+	}
+	if queryResp.Data.AssistantText != "完成工具调用后的最终回答" || queryResp.Data.FinishReason != "complete" {
+		t.Fatalf("unexpected query response %#v", queryResp)
+	}
+
+	chatRec := httptest.NewRecorder()
+	server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+queryResp.Data.ChatID, nil))
 	var chatResp api.ApiResponse[api.ChatDetailResponse]
 	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
 		t.Fatalf("decode chat detail: %v", err)

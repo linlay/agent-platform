@@ -197,6 +197,72 @@ func (s *Server) handleProxyWebSocketQuery(w http.ResponseWriter, r *http.Reques
 	}
 }
 
+func (s *Server) handleProxyQueryNonStream(w http.ResponseWriter, r *http.Request, prepared preparedQuery) {
+	runCtx, control, _ := s.deps.Runs.Register(r.Context(), prepared.session)
+	eventBus, ok := s.deps.Runs.EventBus(prepared.req.RunID)
+	if !ok {
+		releaseQuery(prepared.release)
+		s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.req, contracts.InterruptReasonEventBusUnavailable, "run event bus unavailable"))
+		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, "run event bus unavailable"))
+		return
+	}
+	observer, attachErr := s.deps.Runs.AttachObserver(prepared.req.RunID, 0)
+	if attachErr != nil {
+		releaseQuery(prepared.release)
+		s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.req, contracts.InterruptReasonObserverAttachFailed, attachErr.Error()))
+		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, attachErr.Error()))
+		return
+	}
+	defer s.deps.Runs.DetachObserver(prepared.req.RunID, observer.ID)
+	defer observer.MarkDone()
+
+	s.broadcast("run.started", map[string]any{
+		"runId":    prepared.req.RunID,
+		"chatId":   prepared.req.ChatID,
+		"agentKey": prepared.req.AgentKey,
+	})
+
+	upstreamTransport := proxyUpstreamTransport(prepared.agentDef.ProxyConfig)
+	var route *proxyRunRoute
+	if upstreamTransport == "ws" {
+		route = &proxyRunRoute{
+			runID:    prepared.req.RunID,
+			chatID:   prepared.req.ChatID,
+			agentKey: prepared.req.AgentKey,
+			send:     make(chan map[string]any, 16),
+			done:     make(chan struct{}),
+		}
+		s.registerProxyRun(route)
+	}
+
+	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode, chat.WithDebugEventsEnabled(s.deps.Config.Stream.DebugEventsEnabled))
+	stepWriter.SetPendingSystemInits(prepared.systemInitLines)
+	var proxyControl *contracts.RunControl
+	if upstreamTransport == "ws" {
+		proxyControl = control
+	}
+	var chatUsage chat.UsageData
+	if prepared.summary.Usage != nil {
+		chatUsage = *prepared.summary.Usage
+	}
+	recorder := newProxyEventRecorder(prepared.req, prepared.agentDef, s.deps.Chats, stepWriter, proxyControl, chatUsage, s.deps.Models, s.deps.Config.Billing)
+	go s.runProxyWebSocket(runCtx, prepared, route, eventBus, recorder)
+
+	var collector queryEventCollector
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case event, ok := <-observer.Events:
+			if !ok {
+				writeJSON(w, http.StatusOK, api.Success(queryResponseFromResult(prepared.req, collector.Result())))
+				return
+			}
+			collector.Consume(event)
+		}
+	}
+}
+
 func (s *Server) runProxyWebSocket(
 	runCtx context.Context,
 	prepared preparedQuery,

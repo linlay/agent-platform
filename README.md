@@ -34,7 +34,7 @@
 
 返回格式约定：
 
-- `POST /api/query` 成功时返回真实流式 SSE event stream，服务端会按 provider 原始流式 chunk 逐步透传 `content.delta`，结束时追加 `data: [DONE]`。
+- `POST /api/query` 成功时默认返回真实流式 SSE event stream，服务端会按 provider 原始流式 chunk 逐步透传 `content.delta`，结束时追加 `data: [DONE]`；请求体传 `stream:false` 时返回普通 JSON，字段名不兼容错拼 `steam`。
 - 其余 JSON 接口统一返回：
 
 ```json

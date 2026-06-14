@@ -36,6 +36,10 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if isProxyRoutedAgent(prepared.agentDef) {
+		if isNonStreamingQuery(prepared.req) && !isSyncQueryContext(r.Context()) {
+			s.handleProxyQueryNonStream(w, r, prepared)
+			return
+		}
 		if proxyUpstreamTransport(prepared.agentDef.ProxyConfig) == "ws" {
 			s.handleProxyWebSocketQuery(w, r, prepared)
 			return
@@ -47,7 +51,15 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 		s.handleQuerySync(w, r.Context(), prepared)
 		return
 	}
+	if isNonStreamingQuery(prepared.req) {
+		s.handleQueryNonStream(w, r.Context(), prepared)
+		return
+	}
 	s.handleQueryAsync(w, r, prepared)
+}
+
+func isNonStreamingQuery(req api.QueryRequest) bool {
+	return req.Stream != nil && !*req.Stream
 }
 
 func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepared preparedQuery) {
@@ -155,6 +167,126 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 
 func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, prepared preparedQuery) {
 	locale := i18n.ResolveLocale(s.deps.Config.I18N.DefaultLocale, responseLocale(w))
+	sseWriter, err := stream.NewWriter(w, stream.Options{
+		SSE:            s.deps.Config.SSE,
+		Render:         s.deps.Config.H2A.Render,
+		LoggingEnabled: s.deps.Config.Logging.SSE.Enabled,
+	})
+	if err != nil {
+		releaseQuery(prepared.release)
+		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
+		return
+	}
+	defer sseWriter.Close()
+	sseWriter.StartHeartbeat()
+
+	if _, err := s.runQuerySync(ctx, prepared, func(data stream.EventData) error {
+		return sseWriter.WriteJSON("message", localizeStreamEventData(locale, data))
+	}); err == nil {
+		_ = sseWriter.WriteDone()
+	}
+}
+
+func (s *Server) handleQueryNonStream(w http.ResponseWriter, ctx context.Context, prepared preparedQuery) {
+	result, err := s.runQuerySync(ctx, prepared, nil)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
+		return
+	}
+	writeJSON(w, http.StatusOK, api.Success(queryResponseFromResult(prepared.req, result)))
+}
+
+type queryRunResult struct {
+	AssistantText string
+	FinishReason  string
+	Usage         chat.UsageData
+}
+
+type queryEventCollector struct {
+	assistantText strings.Builder
+	finishReason  string
+	usage         chat.UsageData
+}
+
+func (c *queryEventCollector) Consume(event stream.EventData) {
+	if c == nil {
+		return
+	}
+	switch event.Type {
+	case "content.delta":
+		if delta := event.String("delta"); delta != "" {
+			c.assistantText.WriteString(delta)
+		}
+	case "content.snapshot":
+		if text := event.String("text"); text != "" {
+			c.assistantText.Reset()
+			c.assistantText.WriteString(text)
+		}
+	case "content.end":
+		if text := event.String("text"); text != "" && c.assistantText.Len() == 0 {
+			c.assistantText.WriteString(text)
+		}
+	case "usage.snapshot":
+		c.consumeUsage(event)
+	case "run.complete":
+		c.finishReason = "complete"
+		c.consumeUsage(event)
+	case "run.cancel":
+		c.finishReason = "cancel"
+		c.consumeUsage(event)
+	case "run.error":
+		c.finishReason = "error"
+		c.consumeUsage(event)
+	}
+}
+
+func (c *queryEventCollector) Result() queryRunResult {
+	if c == nil {
+		return queryRunResult{FinishReason: "complete"}
+	}
+	finishReason := strings.TrimSpace(c.finishReason)
+	if finishReason == "" {
+		finishReason = "complete"
+	}
+	return queryRunResult{
+		AssistantText: c.assistantText.String(),
+		FinishReason:  finishReason,
+		Usage:         c.usage,
+	}
+}
+
+func (c *queryEventCollector) consumeUsage(event stream.EventData) {
+	if c == nil || event.Payload == nil {
+		return
+	}
+	usage, _ := event.Payload["usage"].(map[string]any)
+	if usage == nil {
+		return
+	}
+	if run, _ := usage["run"].(map[string]any); run != nil {
+		mergeUsageMapIntoRunData(&c.usage, run)
+		return
+	}
+	mergeUsageMapIntoRunData(&c.usage, usage)
+}
+
+func queryResponseFromResult(req api.QueryRequest, result queryRunResult) api.QueryResponse {
+	finishReason := strings.TrimSpace(result.FinishReason)
+	if finishReason == "" {
+		finishReason = "complete"
+	}
+	return api.QueryResponse{
+		RequestID:     req.RequestID,
+		RunID:         req.RunID,
+		ChatID:        req.ChatID,
+		AgentKey:      req.AgentKey,
+		AssistantText: result.AssistantText,
+		FinishReason:  finishReason,
+		Usage:         mapUsageDataPtr(&result.Usage),
+	}
+}
+
+func (s *Server) runQuerySync(ctx context.Context, prepared preparedQuery, emitVisible func(stream.EventData) error) (queryRunResult, error) {
 	defer releaseQuery(prepared.release)
 	control := contracts.NewRunControl(ctx, prepared.req.RunID)
 	control.SetObserverCount(1)
@@ -176,17 +308,6 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 	if strings.TrimSpace(principal.Subject) == "" {
 		principal = nil
 	}
-	sseWriter, err := stream.NewWriter(w, stream.Options{
-		SSE:            s.deps.Config.SSE,
-		Render:         s.deps.Config.H2A.Render,
-		LoggingEnabled: s.deps.Config.Logging.SSE.Enabled,
-	})
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
-		return
-	}
-	defer sseWriter.Close()
-	sseWriter.StartHeartbeat()
 
 	var (
 		assistantText strings.Builder
@@ -212,12 +333,15 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 		if !visible {
 			return nil
 		}
-		return sseWriter.WriteJSON("message", localizeStreamEventData(locale, data))
+		if emitVisible == nil {
+			return nil
+		}
+		return emitVisible(data)
 	}
 
 	for _, event := range assembler.Bootstrap() {
 		if err := writeEvent(event); err != nil {
-			return
+			return queryRunResult{}, err
 		}
 	}
 
@@ -225,14 +349,15 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 	if err != nil {
 		control.TransitionState(contracts.RunLoopStateFailed)
 		for _, event := range assembler.Fail(err) {
-			_ = writeEvent(event)
+			if writeErr := writeEvent(event); writeErr != nil {
+				return queryRunResult{}, writeErr
+			}
 		}
 		persisted, completion := persistRunCompletionWithReason(syncRunExecutorParams(s, prepared, control, principal), assistantText.String(), runUsage, "error", false)
 		if persisted {
 			syncBroadcastChatUpdated(s.deps.Notifications, completion)
 		}
-		_ = sseWriter.WriteDone()
-		return
+		return queryRunResult{AssistantText: assistantText.String(), FinishReason: "error", Usage: runUsage}, nil
 	}
 	defer agentStream.Close()
 
@@ -252,7 +377,7 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 			control.TransitionState(contracts.RunLoopStateFailed)
 			for _, event := range assembler.Fail(nextErr) {
 				if writeErr := writeEvent(event); writeErr != nil {
-					return
+					return queryRunResult{}, writeErr
 				}
 			}
 			break
@@ -261,7 +386,7 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 		for _, input := range inputs {
 			for _, event := range assembler.Consume(input) {
 				if err := writeEvent(event); err != nil {
-					return
+					return queryRunResult{}, err
 				}
 			}
 		}
@@ -277,20 +402,19 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 		if persisted {
 			syncBroadcastChatUpdated(s.deps.Notifications, completion)
 		}
-		_ = sseWriter.WriteDone()
-		return
+		return queryRunResult{AssistantText: assistantText.String(), FinishReason: finishReason, Usage: runUsage}, nil
 	}
 
 	for _, event := range assembler.Complete() {
 		if err := writeEvent(event); err != nil {
-			return
+			return queryRunResult{}, err
 		}
 	}
 	persisted, completion := persistRunCompletionWithReason(syncRunExecutorParams(s, prepared, control, principal), assistantText.String(), runUsage, "complete", true)
 	if persisted {
 		syncBroadcastChatUpdated(s.deps.Notifications, completion)
 	}
-	_ = sseWriter.WriteDone()
+	return queryRunResult{AssistantText: assistantText.String(), FinishReason: "complete", Usage: runUsage}, nil
 }
 
 // syncRunExecutorParams 构造 handleQuerySync 三次持久化完成态调用所需参数

@@ -75,6 +75,95 @@ func TestProxyQueryForwardsRuntimeWorkspaceRootAsCWD(t *testing.T) {
 	}
 }
 
+func TestProxyQueryNonStreamAggregatesSSEUpstream(t *testing.T) {
+	workspace := t.TempDir()
+	captured := make(chan map[string]any, 1)
+	upstream := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode upstream payload: %v", err)
+		}
+		captured <- payload
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, `data: {"type":"content.start","contentId":"content-1","runId":"upstream-run"}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"type":"content.delta","contentId":"content-1","delta":"proxy ","runId":"upstream-run"}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"type":"content.delta","contentId":"content-1","delta":"answer","runId":"upstream-run"}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"type":"content.end","contentId":"content-1","text":"proxy answer","runId":"upstream-run"}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"type":"run.complete","runId":"upstream-run","usage":{"run":{"promptTokens":4,"completionTokens":2,"totalTokens":6}}}`+"\n\n")
+	}))
+	defer upstream.Close()
+
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		setupRuntime: func(_ string, cfg *config.Config) {
+			writeAgentConfig(t, filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml"), []string{
+				"key: mock-agent",
+				"name: Mock Proxy Agent",
+				"role: 测试代理",
+				"description: proxy test agent",
+				"mode: PROXY",
+				"runtimeConfig:",
+				"  workspaceRoot: " + filepath.ToSlash(workspace),
+				"proxyConfig:",
+				"  baseUrl: " + upstream.URL,
+				"  transport: sse",
+				"  timeout: 30",
+			})
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	body := bytes.NewBufferString(`{"agentKey":"mock-agent","message":"proxy me","stream":false,"params":{"channel":"desktop"}}`)
+	req := httptest.NewRequest(http.MethodPost, "/api/query", body)
+	req.Header.Set("Content-Type", "application/json")
+	fixture.server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := rec.Header().Get("Content-Type"); !strings.Contains(got, "application/json") {
+		t.Fatalf("expected json content type, got %q", got)
+	}
+	if strings.Contains(rec.Body.String(), "data:") {
+		t.Fatalf("did not expect sse body, got %s", rec.Body.String())
+	}
+	var queryResp api.ApiResponse[api.QueryResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &queryResp); err != nil {
+		t.Fatalf("decode query response: %v", err)
+	}
+	if queryResp.Data.AssistantText != "proxy answer" || queryResp.Data.FinishReason != "complete" {
+		t.Fatalf("unexpected query response %#v", queryResp)
+	}
+	if queryResp.Data.Usage == nil || queryResp.Data.Usage.TotalTokens != 6 {
+		t.Fatalf("expected proxy usage in response, got %#v", queryResp.Data.Usage)
+	}
+
+	var payload map[string]any
+	select {
+	case payload = <-captured:
+	default:
+		t.Fatalf("expected upstream payload")
+	}
+	if payload["stream"] != true {
+		t.Fatalf("expected platform to request upstream streaming, got %#v", payload)
+	}
+
+	chatRec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+queryResp.Data.ChatID, nil))
+	var chatResp api.ApiResponse[api.ChatDetailResponse]
+	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
+		t.Fatalf("decode chat detail: %v", err)
+	}
+	assertPersistedEventTypes(t, chatResp.Data.Events,
+		"request.query",
+		"chat.start",
+		"run.start",
+		"content.snapshot",
+		"run.complete",
+	)
+}
+
 func TestProxyQueryRejectsRequestCWDParam(t *testing.T) {
 	var upstreamHit atomic.Bool
 	upstream := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

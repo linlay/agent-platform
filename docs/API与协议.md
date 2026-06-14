@@ -108,12 +108,36 @@ GET /ws -> request / response / stream / push / error frames
 
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
-| POST | `/api/query` | body: `message`、`agentKey`、`teamId`、`chatId`、`runId`、`requestId`、`role`、`references`、`params`、`scene`、`stream`、`planningMode`、`accessLevel`、`model` | SSE stream；结束帧为 `data: [DONE]` |
+| POST | `/api/query` | body: `message`、`agentKey`、`teamId`、`chatId`、`runId`、`requestId`、`role`、`references`、`params`、`scene`、`stream`、`planningMode`、`accessLevel`、`model` | 默认 SSE stream；`stream:false` 时返回 JSON |
 | GET | `/api/attach` | query: `runId`、`agentKey`、`lastSeq` | 续接 run 的 SSE stream |
 | POST | `/api/submit` | body: `agentKey`、`runId`、`awaitingId`、`params` | HITL submit ack |
 | POST | `/api/steer` | body: `agentKey`、`runId`、`message`、`requestId`、`chatId`、`teamId`、`steerId` | steer ack |
 | POST | `/api/interrupt` | body: `agentKey`、`runId`、`message`、`requestId`、`chatId`、`teamId` | interrupt ack |
 | POST | `/api/access-level` | body: `agentKey`、`runId`、`accessLevel`、`requestId`、`reason` | 动态更新 native run 的 accessLevel |
+
+`/api/query` 的 `stream` 是 JSON body 字段；省略或传 `true` 时返回 SSE，结束帧为 `data: [DONE]`。传 `false` 时服务端仍执行完整 run、持久化 chat，并在结束后返回普通 JSON：
+
+```json
+{
+  "code": 0,
+  "msg": "success",
+  "data": {
+    "requestId": "req_xxx",
+    "runId": "run_xxx",
+    "chatId": "chat_xxx",
+    "agentKey": "coder",
+    "assistantText": "最终回答",
+    "finishReason": "complete",
+    "usage": {
+      "promptTokens": 10,
+      "completionTokens": 5,
+      "totalTokens": 15
+    }
+  }
+}
+```
+
+`steam` 不是支持字段；如果误传 `steam:false`，不会触发非流式响应。
 
 `params` 是业务透传对象，平台不读取、不写入、不约定内部 key。
 
