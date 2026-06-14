@@ -4936,6 +4936,53 @@ func TestAppendOriginalToolResult_DoesNotAppendHITLSummaryWithoutApprovalEntries
 	}
 }
 
+func TestAppendOriginalToolResult_SpillsEligiblePreviewIntoMessages(t *testing.T) {
+	chatDir := t.TempDir()
+	stream := &llmRunStream{
+		engine: &LLMAgentEngine{
+			tools: stubToolExecutor{},
+		},
+		execCtx: &contracts.ExecutionContext{},
+		session: contracts.QuerySession{
+			ChatID: "chat-stream-spill",
+			RuntimeContext: contracts.RuntimeRequestContext{
+				LocalPaths: contracts.LocalPaths{ChatAttachmentsDir: chatDir},
+			},
+		},
+	}
+	invocation := &preparedToolInvocation{
+		toolID:   "tool_regex_large",
+		toolName: "regex",
+	}
+	output := strings.Repeat("r", toolResultSpillThresholdBytes+1024)
+
+	stream.appendOriginalToolResult(invocation, contracts.ToolExecutionResult{Output: output})
+
+	if len(stream.pending) != 1 {
+		t.Fatalf("expected one pending tool result, got %#v", stream.pending)
+	}
+	resultDelta, ok := stream.pending[0].(contracts.DeltaToolResult)
+	if !ok {
+		t.Fatalf("expected DeltaToolResult, got %#v", stream.pending[0])
+	}
+	if resultDelta.Result.Structured["truncated"] != true {
+		t.Fatalf("expected pending result to be truncated, got %#v", resultDelta.Result)
+	}
+	if len(stream.messages) != 1 {
+		t.Fatalf("expected one tool message, got %#v", stream.messages)
+	}
+	content, ok := stream.messages[0].Content.(string)
+	if !ok {
+		t.Fatalf("expected string tool content, got %#v", stream.messages[0].Content)
+	}
+	if content != resultDelta.Result.Output {
+		t.Fatalf("expected message content to match spilled preview output")
+	}
+	if content == output || !strings.Contains(content, `"resultRef"`) {
+		t.Fatalf("expected message content to contain preview resultRef, got len=%d", len(content))
+	}
+}
+
 func TestPrepareQueuedBashApprovalBatch_SkipsWhitelistedRuleWithinRun(t *testing.T) {
 	stream := &llmRunStream{
 		session: contracts.QuerySession{RunID: "run_1"},

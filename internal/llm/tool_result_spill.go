@@ -15,6 +15,7 @@ import (
 )
 
 const toolResultSpillThresholdBytes = 64 * 1024
+const toolResultPreviewBytes = 2000
 
 func (s *llmRunStream) maybeSpillToolResult(invocation *preparedToolInvocation, result ToolExecutionResult) ToolExecutionResult {
 	if invocation == nil || !toolResultSpillEligible(invocation.toolName) {
@@ -77,7 +78,7 @@ func (s *llmRunStream) toolResultChatDir() string {
 
 func toolResultSpillEligible(toolName string) bool {
 	switch strings.TrimSpace(toolName) {
-	case "bash", "file_read", "file_glob", "file_grep", "web_fetch", "WebFetch":
+	case "bash", "file_read", "file_glob", "file_grep", "vision_recognize", "regex":
 		return true
 	default:
 		return false
@@ -99,7 +100,7 @@ func fullToolResultPayload(toolName string, result ToolExecutionResult) any {
 }
 
 func previewToolResultPayload(toolName string, result ToolExecutionResult, fullPayload any, ref map[string]any) map[string]any {
-	budget := toolResultSpillThresholdBytes
+	budget := toolResultPreviewBytes
 	preview := previewValue(fullPayload, &budget)
 	out, ok := preview.(map[string]any)
 	if !ok {

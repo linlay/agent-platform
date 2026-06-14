@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
@@ -83,6 +84,9 @@ func TestMaybeSpillToolResultWritesFullResultAndReturnsPreview(t *testing.T) {
 	if len(preview) >= len(content) || !strings.Contains(preview, "see resultRef") {
 		t.Fatalf("expected shortened preview, got len=%d", len(preview))
 	}
+	if len(preview) > toolResultPreviewBytes {
+		t.Fatalf("expected preview to fit %d bytes, got %d", toolResultPreviewBytes, len(preview))
+	}
 
 	data, err := os.ReadFile(filepath.Join(chatDir, chat.ToolRootDirName, chat.ToolResultsDirName, "call_large.json"))
 	if err != nil {
@@ -135,5 +139,127 @@ func TestMaybeSpillToolResultConvertsLargePlainBashOutputToStructuredPreview(t *
 	}
 	if decoded["stdout"] != stdout {
 		t.Fatalf("spilled stdout mismatch")
+	}
+}
+
+func TestMaybeSpillToolResultPreviewPreservesUTF8(t *testing.T) {
+	chatDir := t.TempDir()
+	stream := &llmRunStream{
+		session: contracts.QuerySession{
+			ChatID: "chat-utf8",
+			RuntimeContext: contracts.RuntimeRequestContext{
+				LocalPaths: contracts.LocalPaths{ChatAttachmentsDir: chatDir},
+			},
+		},
+	}
+	content := strings.Repeat("你好", toolResultSpillThresholdBytes)
+	full := map[string]any{"kind": "text", "content": content}
+	resultJSON, _ := json.Marshal(full)
+
+	got := stream.maybeSpillToolResult(&preparedToolInvocation{toolID: "call_utf8", toolName: "file_read"}, contracts.ToolExecutionResult{
+		Output:     string(resultJSON),
+		Structured: full,
+	})
+
+	preview, _ := got.Structured["content"].(string)
+	if !utf8.ValidString(preview) {
+		t.Fatalf("expected valid UTF-8 preview")
+	}
+	if len(preview) > toolResultPreviewBytes {
+		t.Fatalf("expected preview to fit %d bytes, got %d", toolResultPreviewBytes, len(preview))
+	}
+	if got.Structured["truncated"] != true {
+		t.Fatalf("expected truncated marker, got %#v", got.Structured)
+	}
+}
+
+func TestMaybeSpillToolResultIncludesRegexAndVisionRecognize(t *testing.T) {
+	for _, toolName := range []string{"regex", "vision_recognize"} {
+		t.Run(toolName, func(t *testing.T) {
+			chatDir := t.TempDir()
+			stream := &llmRunStream{
+				session: contracts.QuerySession{
+					ChatID: "chat-" + toolName,
+					RuntimeContext: contracts.RuntimeRequestContext{
+						LocalPaths: contracts.LocalPaths{ChatAttachmentsDir: chatDir},
+					},
+				},
+			}
+			output := strings.Repeat("m", toolResultSpillThresholdBytes+1024)
+
+			got := stream.maybeSpillToolResult(&preparedToolInvocation{toolID: "call_" + toolName, toolName: toolName}, contracts.ToolExecutionResult{
+				Output: output,
+			})
+
+			if got.Structured["truncated"] != true {
+				t.Fatalf("expected %s result to spill, got %#v", toolName, got.Structured)
+			}
+			if _, ok := got.Structured["resultRef"].(map[string]any); !ok {
+				t.Fatalf("expected resultRef for %s, got %#v", toolName, got.Structured)
+			}
+			preview, _ := got.Structured["output"].(string)
+			if len(preview) > toolResultPreviewBytes {
+				t.Fatalf("expected %s preview to fit %d bytes, got %d", toolName, toolResultPreviewBytes, len(preview))
+			}
+		})
+	}
+}
+
+func TestMaybeSpillToolResultSkipsNonEligibleTool(t *testing.T) {
+	chatDir := t.TempDir()
+	stream := &llmRunStream{
+		session: contracts.QuerySession{
+			ChatID: "chat-agent",
+			RuntimeContext: contracts.RuntimeRequestContext{
+				LocalPaths: contracts.LocalPaths{ChatAttachmentsDir: chatDir},
+			},
+		},
+	}
+	output := strings.Repeat("a", toolResultSpillThresholdBytes+1024)
+
+	got := stream.maybeSpillToolResult(&preparedToolInvocation{toolID: "call_agent", toolName: "agent_invoke"}, contracts.ToolExecutionResult{
+		Output: output,
+	})
+
+	if got.Output != output {
+		t.Fatalf("expected non-eligible output to stay inline")
+	}
+	if len(got.Structured) != 0 {
+		t.Fatalf("did not expect structured preview for non-eligible tool: %#v", got.Structured)
+	}
+	if _, err := os.Stat(filepath.Join(chatDir, chat.ToolRootDirName, chat.ToolResultsDirName)); !os.IsNotExist(err) {
+		t.Fatalf("expected no tool result dir for non-eligible tool, stat err=%v", err)
+	}
+}
+
+func TestMaybeSpillToolResultSkipsRawParams(t *testing.T) {
+	chatDir := t.TempDir()
+	stream := &llmRunStream{
+		session: contracts.QuerySession{
+			ChatID: "chat-raw",
+			RuntimeContext: contracts.RuntimeRequestContext{
+				LocalPaths: contracts.LocalPaths{ChatAttachmentsDir: chatDir},
+			},
+		},
+	}
+	content := strings.Repeat("r", toolResultSpillThresholdBytes+1024)
+	full := map[string]any{"kind": "text", "content": content}
+	resultJSON, _ := json.Marshal(full)
+	result := contracts.ToolExecutionResult{
+		Output:     string(resultJSON),
+		Structured: full,
+		RawParams:  map[string]any{"content": content},
+	}
+
+	got := stream.maybeSpillToolResult(&preparedToolInvocation{toolID: "call_raw", toolName: "file_read"}, result)
+
+	if _, ok := got.Structured["resultRef"]; ok {
+		t.Fatalf("did not expect resultRef for RawParams result: %#v", got.Structured)
+	}
+	if got.Output != result.Output {
+		t.Fatalf("expected RawParams output to stay inline")
+	}
+	if _, err := os.Stat(filepath.Join(chatDir, chat.ToolRootDirName, chat.ToolResultsDirName)); !os.IsNotExist(err) {
+		t.Fatalf("expected no tool result dir for RawParams result, stat err=%v", err)
 	}
 }
