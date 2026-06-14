@@ -35,6 +35,43 @@ func TestLoadEmbeddedToolDefinitionsIncludesAskUserBuiltins(t *testing.T) {
 	if !byName["regex"] {
 		t.Fatal("expected regex builtin tool definition")
 	}
+	if !byName["web_fetch"] {
+		t.Fatal("expected web_fetch builtin tool definition")
+	}
+}
+
+func TestWebFetchToolSchemaMatchesContract(t *testing.T) {
+	defs, err := LoadEmbeddedToolDefinitions()
+	if err != nil {
+		t.Fatalf("load embedded tool definitions: %v", err)
+	}
+
+	var webFetchDef map[string]any
+	for _, def := range defs {
+		if def.Name == "web_fetch" {
+			webFetchDef = def.Parameters
+			if def.Meta["submitResultFormat"] != "json-compact" {
+				t.Fatalf("unexpected submit result format: %#v", def.Meta)
+			}
+			break
+		}
+	}
+	if webFetchDef == nil {
+		t.Fatal("expected web_fetch builtin tool definition")
+	}
+	properties := mapChild(t, webFetchDef, "properties")
+	for _, want := range []string{"url", "prompt", "profile"} {
+		if _, ok := properties[want]; !ok {
+			t.Fatalf("expected web_fetch property %q", want)
+		}
+	}
+	required, ok := webFetchDef["required"].([]any)
+	if !ok {
+		t.Fatalf("expected web_fetch required array, got %#v", webFetchDef["required"])
+	}
+	if len(required) != 2 || required[0] != "url" || required[1] != "prompt" {
+		t.Fatalf("unexpected web_fetch required fields: %#v", required)
+	}
 }
 
 func TestRegexToolSchemaMatchesContract(t *testing.T) {

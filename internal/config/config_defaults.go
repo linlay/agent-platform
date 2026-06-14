@@ -44,6 +44,10 @@ func defaultConfig() Config {
 			Enabled:        false,
 			DefaultProfile: "general",
 		},
+		WebFetch: WebFetchConfig{
+			Enabled:        false,
+			DefaultProfile: "general",
+		},
 		CoderSettings: CoderSettingsConfig{
 			ACPProxies: map[string]CoderACPProxyConfig{},
 		},
@@ -321,6 +325,7 @@ func (c *Config) normalize() error {
 	c.Desktop.CDP = normalizeDesktopBridgeConfig(c.Desktop.CDP)
 	c.I18N.DefaultLocale = i18n.ResolveLocale(c.I18N.DefaultLocale)
 	c.VisionRecognize = normalizeVisionRecognizeConfig(c.VisionRecognize)
+	c.WebFetch = normalizeWebFetchConfig(c.WebFetch)
 	c.ContainerHub.Enabled = strings.TrimSpace(c.ContainerHub.BaseURL) != ""
 	if c.Bash.WorkingDirectory == "" {
 		c.Bash.WorkingDirectory = "."
@@ -402,6 +407,65 @@ func normalizeVisionOutputFormat(value string) string {
 	default:
 		return "text"
 	}
+}
+
+func normalizeWebFetchConfig(cfg WebFetchConfig) WebFetchConfig {
+	cfg.DefaultProfile = strings.TrimSpace(cfg.DefaultProfile)
+	if cfg.DefaultProfile == "" {
+		cfg.DefaultProfile = "general"
+	}
+	cfg.PreapprovedHosts = normalizeWebFetchHosts(cfg.PreapprovedHosts)
+	if len(cfg.Profiles) == 0 {
+		return cfg
+	}
+	profiles := make(map[string]WebFetchProfileConfig, len(cfg.Profiles))
+	for key, profile := range cfg.Profiles {
+		normalizedKey := strings.TrimSpace(key)
+		if normalizedKey == "" {
+			continue
+		}
+		profile.ModelKey = strings.TrimSpace(profile.ModelKey)
+		if profile.Timeout <= 0 {
+			profile.Timeout = 60
+		}
+		if profile.FetchTimeout <= 0 {
+			profile.FetchTimeout = 60
+		}
+		if profile.MaxURLLength <= 0 {
+			profile.MaxURLLength = 2000
+		}
+		if profile.MaxResponseBytes <= 0 {
+			profile.MaxResponseBytes = 10 * 1024 * 1024
+		}
+		if profile.MaxMarkdownChars <= 0 {
+			profile.MaxMarkdownChars = 100000
+		}
+		if profile.MaxOutputTokens <= 0 {
+			profile.MaxOutputTokens = 1200
+		}
+		profile.SystemPrompt = strings.TrimSpace(profile.SystemPrompt)
+		profiles[normalizedKey] = profile
+	}
+	cfg.Profiles = profiles
+	return cfg
+}
+
+func normalizeWebFetchHosts(hosts []string) []string {
+	out := make([]string, 0, len(hosts))
+	seen := map[string]struct{}{}
+	for _, host := range hosts {
+		host = strings.ToLower(strings.TrimSpace(host))
+		host = strings.TrimSuffix(host, ".")
+		if host == "" {
+			continue
+		}
+		if _, ok := seen[host]; ok {
+			continue
+		}
+		seen[host] = struct{}{}
+		out = append(out, host)
+	}
+	return out
 }
 
 func normalizeAccessPolicyConfig(cfg AccessPolicyConfig) AccessPolicyConfig {

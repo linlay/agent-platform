@@ -17,6 +17,7 @@ type Config struct {
 	MemoryPrompts   MemoryPromptsConfig
 	CoderSettings   CoderSettingsConfig
 	VisionRecognize VisionRecognizeConfig
+	WebFetch        WebFetchConfig
 	Providers       CatalogConfig
 	Models          CatalogConfig
 	Automation      AutomationConfig
@@ -145,6 +146,24 @@ type VisionRecognizeProfileConfig struct {
 	MaxImageBytes int
 	OutputFormat  string
 	SystemPrompt  string
+}
+
+type WebFetchConfig struct {
+	Enabled          bool
+	DefaultProfile   string
+	PreapprovedHosts []string
+	Profiles         map[string]WebFetchProfileConfig
+}
+
+type WebFetchProfileConfig struct {
+	ModelKey         string
+	Timeout          int // seconds
+	FetchTimeout     int // seconds
+	MaxURLLength     int
+	MaxResponseBytes int
+	MaxMarkdownChars int
+	MaxOutputTokens  int
+	SystemPrompt     string
 }
 
 type AutomationConfig struct {

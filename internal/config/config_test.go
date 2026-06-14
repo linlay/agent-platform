@@ -874,6 +874,89 @@ func TestLoadAIToolsRejectsDeprecatedVisionTimeoutMs(t *testing.T) {
 	})
 }
 
+func TestLoadWebFetchMissingFileDefaultsDisabled(t *testing.T) {
+	withIsolatedEnv(t, nil, func() {
+		withProjectFileContents(t, filepath.Join("configs", "ai-tools.yml"), nil, func() {
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			if cfg.WebFetch.Enabled {
+				t.Fatal("expected web_fetch disabled by default")
+			}
+			if cfg.WebFetch.DefaultProfile != "general" {
+				t.Fatalf("unexpected default profile: %q", cfg.WebFetch.DefaultProfile)
+			}
+		})
+	})
+}
+
+func TestLoadWebFetchConfigFromFile(t *testing.T) {
+	withIsolatedEnv(t, nil, func() {
+		content := "" +
+			"web-fetch:\n" +
+			"  enabled: true\n" +
+			"  default-profile: summary\n" +
+			"  preapproved-hosts:\n" +
+			"    - Example.com.\n" +
+			"    - '*.Docs.Example.com'\n" +
+			"  profiles:\n" +
+			"    summary:\n" +
+			"      model-key: th-minimax-m3\n" +
+			"      timeout: 11\n" +
+			"      fetch-timeout: 12\n" +
+			"      max-url-length: 456\n" +
+			"      max-response-bytes: 789\n" +
+			"      max-markdown-chars: 1234\n" +
+			"      max-output-tokens: 321\n" +
+			"      system-prompt: |\n" +
+			"        summarize web pages\n"
+		withProjectFileContents(t, filepath.Join("configs", "ai-tools.yml"), &content, func() {
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			if !cfg.WebFetch.Enabled {
+				t.Fatal("expected web_fetch enabled")
+			}
+			if cfg.WebFetch.DefaultProfile != "summary" {
+				t.Fatalf("unexpected default profile: %q", cfg.WebFetch.DefaultProfile)
+			}
+			if got := strings.Join(cfg.WebFetch.PreapprovedHosts, ","); got != "example.com,*.docs.example.com" {
+				t.Fatalf("unexpected preapproved hosts: %q", got)
+			}
+			profile := cfg.WebFetch.Profiles["summary"]
+			if profile.ModelKey != "th-minimax-m3" || profile.Timeout != 11 || profile.FetchTimeout != 12 || profile.MaxURLLength != 456 || profile.MaxResponseBytes != 789 || profile.MaxMarkdownChars != 1234 || profile.MaxOutputTokens != 321 {
+				t.Fatalf("unexpected profile: %#v", profile)
+			}
+			if profile.SystemPrompt != "summarize web pages" {
+				t.Fatalf("unexpected system prompt: %q", profile.SystemPrompt)
+			}
+		})
+	})
+}
+
+func TestLoadAIToolsRejectsDeprecatedWebFetchTimeoutMs(t *testing.T) {
+	withIsolatedEnv(t, nil, func() {
+		content := "" +
+			"web-fetch:\n" +
+			"  enabled: true\n" +
+			"  profiles:\n" +
+			"    general:\n" +
+			"      model-key: th-minimax-m3\n" +
+			"      timeout-ms: 60000\n"
+		withProjectFileContents(t, filepath.Join("configs", "ai-tools.yml"), &content, func() {
+			_, err := Load()
+			if err == nil {
+				t.Fatal("expected deprecated web-fetch timeout-ms to be rejected")
+			}
+			if !strings.Contains(err.Error(), "timeout-ms") || !strings.Contains(err.Error(), "web-fetch.profiles.general.timeout") {
+				t.Fatalf("expected migration error for web-fetch timeout-ms, got %v", err)
+			}
+		})
+	})
+}
+
 func TestLoadAIToolsConfigFromFile(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
 		content := "" +

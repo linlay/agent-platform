@@ -1,0 +1,21 @@
+name: web_fetch
+label: 网页抓取
+description: Fetch a public HTTP(S) URL, convert the content to markdown-like text, and apply a prompt using the configured small model. Use this for public web pages; authenticated or private URLs are not supported.
+submitResultFormat: json-compact
+type: function
+inputSchema:
+  type: object
+  properties:
+    url:
+      type: string
+      description: Required. Public http or https URL to fetch. Private, localhost, credentialed, and internal network URLs are rejected.
+    prompt:
+      type: string
+      description: Required. Instruction to apply to the fetched content, such as summarize, extract facts, or answer a question from the page.
+    profile:
+      type: string
+      description: Optional. Profile name from configs/ai-tools.yml > web-fetch. Defaults to default-profile.
+  required:
+    - url
+    - prompt
+  additionalProperties: false

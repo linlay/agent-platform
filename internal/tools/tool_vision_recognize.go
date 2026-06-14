@@ -1,13 +1,10 @@
 package tools
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	neturl "net/url"
 	"path/filepath"
 	"strings"
@@ -282,43 +279,7 @@ func (t *RuntimeToolExecutor) completeVisionAnthropic(ctx context.Context, model
 }
 
 func (t *RuntimeToolExecutor) postVisionJSON(ctx context.Context, provider models.ProviderDefinition, model models.ModelDefinition, body map[string]any, protocol string) ([]byte, error) {
-	payload, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	endpoint := visionProviderEndpoint(provider, model, protocol)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	switch strings.ToUpper(strings.TrimSpace(protocol)) {
-	case "ANTHROPIC":
-		req.Header.Set("X-Api-Key", provider.APIKey)
-		req.Header.Set("anthropic-version", "2023-06-01")
-	default:
-		req.Header.Set("Authorization", "Bearer "+provider.APIKey)
-	}
-	for key, value := range visionProtocolHeaders(provider, model, protocol) {
-		req.Header.Set(key, value)
-	}
-	client := t.httpClient
-	if client == nil {
-		client = http.DefaultClient
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("vision model request failed with status %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
-	}
-	return data, nil
+	return t.postModelJSON(ctx, provider, model, body, protocol, "vision model")
 }
 
 func visionProviderEndpoint(provider models.ProviderDefinition, model models.ModelDefinition, protocol string) string {

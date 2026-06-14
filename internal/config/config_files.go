@@ -611,6 +611,29 @@ func (c *Config) applyVisionRecognizeValues(values map[string]any) {
 	c.VisionRecognize.Profiles = parsed
 }
 
+func (c *Config) applyWebFetchValues(values map[string]any) {
+	c.WebFetch.Enabled = boolValue(anyValue(values["enabled"], c.WebFetch.Enabled), c.WebFetch.Enabled)
+	c.WebFetch.DefaultProfile = stringValue(anyValue(values["default-profile"], c.WebFetch.DefaultProfile), c.WebFetch.DefaultProfile)
+	c.WebFetch.PreapprovedHosts = csvOrList(anyValue(values["preapproved-hosts"], c.WebFetch.PreapprovedHosts), c.WebFetch.PreapprovedHosts)
+	profiles, _ := values["profiles"].(map[string]any)
+	if len(profiles) == 0 {
+		return
+	}
+	parsed := make(map[string]WebFetchProfileConfig, len(profiles))
+	for key, raw := range profiles {
+		profileKey := strings.TrimSpace(key)
+		if profileKey == "" {
+			continue
+		}
+		base := WebFetchProfileConfig{}
+		if existing, ok := c.WebFetch.Profiles[profileKey]; ok {
+			base = existing
+		}
+		parsed[profileKey] = parseWebFetchProfileConfig(raw, base)
+	}
+	c.WebFetch.Profiles = parsed
+}
+
 func (c *Config) applyAIToolsFile(path string) error {
 	values, err := loadYAMLMap(path)
 	if err != nil {
@@ -631,6 +654,21 @@ func (c *Config) applyAIToolsFile(path string) error {
 		}
 		c.applyVisionRecognizeValues(visionRecognize)
 	}
+	if webFetch, ok := values["web-fetch"].(map[string]any); ok && len(webFetch) > 0 {
+		if profiles, ok := webFetch["profiles"].(map[string]any); ok && len(profiles) > 0 {
+			for profileKey, profileRaw := range profiles {
+				if profileValues, ok := profileRaw.(map[string]any); ok && len(profileValues) > 0 {
+					if err := rejectDeprecatedYAMLKeys(path, "web-fetch.profiles."+profileKey+".timeout", profileValues, "timeout-ms"); err != nil {
+						return err
+					}
+					if err := rejectDeprecatedYAMLKeys(path, "web-fetch.profiles."+profileKey+".fetch-timeout", profileValues, "fetch-timeout-ms"); err != nil {
+						return err
+					}
+				}
+			}
+		}
+		c.applyWebFetchValues(webFetch)
+	}
 	return nil
 }
 
@@ -644,6 +682,22 @@ func parseVisionRecognizeProfileConfig(raw any, fallback VisionRecognizeProfileC
 	fallback.MaxImages = intValue(anyValue(values["max-images"], fallback.MaxImages), fallback.MaxImages)
 	fallback.MaxImageBytes = intValue(anyValue(values["max-image-bytes"], fallback.MaxImageBytes), fallback.MaxImageBytes)
 	fallback.OutputFormat = stringValue(anyValue(values["output-format"], fallback.OutputFormat), fallback.OutputFormat)
+	fallback.SystemPrompt = stringValue(anyValue(values["system-prompt"], fallback.SystemPrompt), fallback.SystemPrompt)
+	return fallback
+}
+
+func parseWebFetchProfileConfig(raw any, fallback WebFetchProfileConfig) WebFetchProfileConfig {
+	values, _ := raw.(map[string]any)
+	if len(values) == 0 {
+		return fallback
+	}
+	fallback.ModelKey = stringValue(anyValue(values["model-key"], fallback.ModelKey), fallback.ModelKey)
+	fallback.Timeout = intValue(anyValue(values["timeout"], fallback.Timeout), fallback.Timeout)
+	fallback.FetchTimeout = intValue(anyValue(values["fetch-timeout"], fallback.FetchTimeout), fallback.FetchTimeout)
+	fallback.MaxURLLength = intValue(anyValue(values["max-url-length"], fallback.MaxURLLength), fallback.MaxURLLength)
+	fallback.MaxResponseBytes = intValue(anyValue(values["max-response-bytes"], fallback.MaxResponseBytes), fallback.MaxResponseBytes)
+	fallback.MaxMarkdownChars = intValue(anyValue(values["max-markdown-chars"], fallback.MaxMarkdownChars), fallback.MaxMarkdownChars)
+	fallback.MaxOutputTokens = intValue(anyValue(values["max-output-tokens"], fallback.MaxOutputTokens), fallback.MaxOutputTokens)
 	fallback.SystemPrompt = stringValue(anyValue(values["system-prompt"], fallback.SystemPrompt), fallback.SystemPrompt)
 	return fallback
 }
