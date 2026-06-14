@@ -259,6 +259,7 @@ type CompactRequest struct {
 	ChatID    string `json:"chatId,omitempty"`
 	AgentKey  string `json:"agentKey,omitempty"`
 	Trigger   string `json:"trigger,omitempty"`
+	Level     string `json:"level,omitempty"`
 }
 
 type CompactResponse struct {
@@ -267,11 +268,15 @@ type CompactResponse struct {
 	RequestID                  string         `json:"requestId,omitempty"`
 	ChatID                     string         `json:"chatId,omitempty"`
 	CompactID                  string         `json:"compactId,omitempty"`
+	Level                      string         `json:"level,omitempty"`
 	SummarySource              string         `json:"summarySource,omitempty"`
 	PreCompactEstimatedTokens  int            `json:"preCompactEstimatedTokens,omitempty"`
 	PostCompactEstimatedTokens int            `json:"postCompactEstimatedTokens,omitempty"`
 	CompressionRatio           float64        `json:"compressionRatio,omitempty"`
 	CompactionUsage            map[string]any `json:"compactionUsage,omitempty"`
+	ToolsCleared               int            `json:"toolsCleared,omitempty"`
+	ToolsKept                  int            `json:"toolsKept,omitempty"`
+	TokensFreed                int            `json:"tokensFreed,omitempty"`
 	Detail                     string         `json:"detail,omitempty"`
 }
 

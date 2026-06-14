@@ -19,6 +19,8 @@ import (
 type compactChatStore interface {
 	BuildCompactSnapshot(chatID string, keptRunCount int) (chat.CompactSnapshot, error)
 	CommitCompactCheckpoint(chatID string, snapshot chat.CompactSnapshot, checkpoint chat.CompactCheckpointLine) error
+	BuildToolCompactSnapshot(chatID string, keepRecent int) (chat.ToolCompactSnapshot, error)
+	CommitToolCompact(chatID string, snapshot chat.ToolCompactSnapshot, line chat.ToolCompactLine) error
 }
 
 func (s *Server) handleCompact(w http.ResponseWriter, r *http.Request) {
@@ -53,9 +55,14 @@ func (s *Server) compactChat(ctx context.Context, req api.CompactRequest) (api.C
 	if trigger == "" {
 		trigger = "manual"
 	}
+	level, err := normalizeCompactLevel(req.Level)
+	if err != nil {
+		return api.CompactResponse{}, &statusError{status: http.StatusBadRequest, message: err.Error()}
+	}
 	baseResp := api.CompactResponse{
 		RequestID: requestID,
 		ChatID:    chatID,
+		Level:     level,
 		Status:    "skipped",
 		Detail:    "skipped",
 	}
@@ -87,6 +94,9 @@ func (s *Server) compactChat(ctx context.Context, req api.CompactRequest) (api.C
 	}
 	if explicitAgentKey && !agentOK {
 		return api.CompactResponse{}, &statusError{status: http.StatusBadRequest, message: "agent not found"}
+	}
+	if level == "l1_tools" {
+		return s.compactChatToolResults(baseResp, store, chatID, requestID, trigger)
 	}
 
 	snapshot, err := store.BuildCompactSnapshot(chatID, chat.DefaultCompactKeptRunCount)
@@ -160,12 +170,85 @@ func (s *Server) compactChat(ctx context.Context, req api.CompactRequest) (api.C
 		RequestID:                  requestID,
 		ChatID:                     chatID,
 		CompactID:                  compactID,
+		Level:                      level,
 		SummarySource:              summarySource,
 		PreCompactEstimatedTokens:  snapshot.PreCompactEstimatedTokens,
 		PostCompactEstimatedTokens: postTokens,
 		CompressionRatio:           ratio,
 		CompactionUsage:            compactionUsage,
 		Detail:                     detail,
+	}, nil
+}
+
+func normalizeCompactLevel(level string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "", "summary":
+		return "summary", nil
+	case "l1_tools":
+		return "l1_tools", nil
+	default:
+		return "", fmt.Errorf("invalid compact level")
+	}
+}
+
+func (s *Server) compactChatToolResults(baseResp api.CompactResponse, store compactChatStore, chatID string, requestID string, trigger string) (api.CompactResponse, error) {
+	snapshot, err := store.BuildToolCompactSnapshot(chatID, chat.DefaultToolCompactKeepRecent)
+	if err != nil {
+		if errors.Is(err, chat.ErrNoCompactableHistory) {
+			baseResp.Detail = "no_compactable_tool_results"
+			return baseResp, nil
+		}
+		return api.CompactResponse{}, err
+	}
+	baseResp.ToolsKept = snapshot.ToolsKept
+	if snapshot.ToolsCleared == 0 {
+		baseResp.Detail = "no_compactable_tool_results"
+		return baseResp, nil
+	}
+
+	compactID := "compact_" + newRunID()
+	line := chat.ToolCompactLine{
+		Type:                       chat.ToolCompactLineType,
+		ChatID:                     chatID,
+		CompactID:                  compactID,
+		UpdatedAt:                  time.Now().UnixMilli(),
+		Trigger:                    trigger,
+		Level:                      "l1_tools",
+		ToolsCleared:               snapshot.ToolsCleared,
+		ToolsKept:                  snapshot.ToolsKept,
+		TokensFreed:                snapshot.TokensFreed,
+		PreCompactEstimatedTokens:  snapshot.PreCompactEstimatedTokens,
+		PostCompactEstimatedTokens: snapshot.PostCompactEstimatedTokens,
+		CompressionRatio:           snapshot.CompressionRatio,
+	}
+	if err := store.CommitToolCompact(chatID, snapshot, line); err != nil {
+		if errors.Is(err, chat.ErrCompactHistoryChanged) {
+			baseResp.CompactID = compactID
+			baseResp.Detail = "history_changed"
+			return baseResp, nil
+		}
+		if errors.Is(err, chat.ErrNoCompactableHistory) {
+			baseResp.CompactID = compactID
+			baseResp.Detail = "no_compactable_tool_results"
+			return baseResp, nil
+		}
+		return api.CompactResponse{}, err
+	}
+
+	return api.CompactResponse{
+		Accepted:                   true,
+		Status:                     "completed",
+		RequestID:                  requestID,
+		ChatID:                     chatID,
+		CompactID:                  compactID,
+		Level:                      "l1_tools",
+		PreCompactEstimatedTokens:  snapshot.PreCompactEstimatedTokens,
+		PostCompactEstimatedTokens: snapshot.PostCompactEstimatedTokens,
+		CompressionRatio:           snapshot.CompressionRatio,
+		ToolsCleared:               snapshot.ToolsCleared,
+		ToolsKept:                  snapshot.ToolsKept,
+		TokensFreed:                snapshot.TokensFreed,
+		Detail:                     "completed",
 	}, nil
 }
 

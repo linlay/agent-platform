@@ -3,6 +3,7 @@ package chat
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -277,6 +278,182 @@ func TestCompactCommitDetectsHistoryChanged(t *testing.T) {
 	}
 }
 
+func TestToolCompactClearsOlderCompactableToolResults(t *testing.T) {
+	store := newCompactTestStore(t)
+	chatID := "chat-tool-compact"
+	ensureCompactTestChat(t, store, chatID)
+	for i := 1; i <= 7; i++ {
+		appendCompactTestToolResult(t, store, chatID, fmt.Sprintf("r%d", i), fmt.Sprintf("tool-%d", i), "file_read", fmt.Sprintf("file result %d %s", i, strings.Repeat("x", 240)))
+	}
+	appendCompactTestToolResult(t, store, chatID, "r8", "tool-noncompact", "memory_search", "memory result should stay")
+
+	snapshot, err := store.BuildToolCompactSnapshot(chatID, DefaultToolCompactKeepRecent)
+	if err != nil {
+		t.Fatalf("BuildToolCompactSnapshot: %v", err)
+	}
+	if snapshot.ToolsCleared != 2 || snapshot.ToolsKept != 5 || snapshot.TokensFreed <= 0 {
+		t.Fatalf("unexpected tool compact snapshot: %#v", snapshot)
+	}
+	if err := store.CommitToolCompact(chatID, snapshot, ToolCompactLine{
+		Type:                       ToolCompactLineType,
+		ChatID:                     chatID,
+		CompactID:                  "compact_tools_1",
+		UpdatedAt:                  123,
+		Trigger:                    "manual",
+		Level:                      "l1_tools",
+		ToolsCleared:               snapshot.ToolsCleared,
+		ToolsKept:                  snapshot.ToolsKept,
+		TokensFreed:                snapshot.TokensFreed,
+		PreCompactEstimatedTokens:  snapshot.PreCompactEstimatedTokens,
+		PostCompactEstimatedTokens: snapshot.PostCompactEstimatedTokens,
+		CompressionRatio:           snapshot.CompressionRatio,
+	}); err != nil {
+		t.Fatalf("CommitToolCompact: %v", err)
+	}
+	if _, err := os.Stat(store.ChatDir(chatID) + "/.compact-backups/compact_tools_1.jsonl"); err != nil {
+		t.Fatalf("expected tool compact backup: %v", err)
+	}
+
+	lines, err := readJSONLines(store.chatJSONLPath(chatID))
+	if err != nil {
+		t.Fatalf("read jsonl: %v", err)
+	}
+	if got := stringFromAny(lines[len(lines)-1]["_type"]); got != ToolCompactLineType {
+		t.Fatalf("last line type = %q, want %q", got, ToolCompactLineType)
+	}
+
+	raw, err := store.LoadRawMessages(chatID, 20)
+	if err != nil {
+		t.Fatalf("LoadRawMessages: %v", err)
+	}
+	toolContent := map[string]string{}
+	for _, msg := range raw {
+		if stringFromAny(msg["role"]) != "tool" {
+			continue
+		}
+		toolContent[stringFromAny(msg["tool_call_id"])] = stringFromAny(msg["content"])
+	}
+	for _, toolID := range []string{"tool-1", "tool-2"} {
+		if toolContent[toolID] != ToolCompactClearedMessage {
+			t.Fatalf("%s content = %q, want cleared marker", toolID, toolContent[toolID])
+		}
+	}
+	for i := 3; i <= 7; i++ {
+		toolID := fmt.Sprintf("tool-%d", i)
+		if strings.Contains(toolContent[toolID], ToolCompactClearedMessage) || !strings.Contains(toolContent[toolID], fmt.Sprintf("file result %d", i)) {
+			t.Fatalf("%s should be kept, got %q", toolID, toolContent[toolID])
+		}
+	}
+	if toolContent["tool-noncompact"] != "memory result should stay" {
+		t.Fatalf("non compactable tool changed: %q", toolContent["tool-noncompact"])
+	}
+
+	second, err := store.BuildToolCompactSnapshot(chatID, DefaultToolCompactKeepRecent)
+	if err != nil {
+		t.Fatalf("second BuildToolCompactSnapshot: %v", err)
+	}
+	if second.ToolsCleared != 0 {
+		t.Fatalf("second tool compact should be idempotent, got %#v", second)
+	}
+}
+
+func TestToolCompactCommitDetectsHistoryChanged(t *testing.T) {
+	store := newCompactTestStore(t)
+	chatID := "chat-tool-compact-race"
+	ensureCompactTestChat(t, store, chatID)
+	for i := 1; i <= 7; i++ {
+		appendCompactTestToolResult(t, store, chatID, fmt.Sprintf("r%d", i), fmt.Sprintf("tool-%d", i), "bash", fmt.Sprintf("bash result %d %s", i, strings.Repeat("x", 240)))
+	}
+
+	snapshot, err := store.BuildToolCompactSnapshot(chatID, DefaultToolCompactKeepRecent)
+	if err != nil {
+		t.Fatalf("BuildToolCompactSnapshot: %v", err)
+	}
+	appendCompactTestRun(t, store, chatID, "r8", "user r8", "assistant r8")
+	err = store.CommitToolCompact(chatID, snapshot, ToolCompactLine{
+		Type:      ToolCompactLineType,
+		ChatID:    chatID,
+		CompactID: "compact_tools_race",
+		UpdatedAt: 123,
+		Level:     "l1_tools",
+	})
+	if !errors.Is(err, ErrCompactHistoryChanged) {
+		t.Fatalf("CommitToolCompact err = %v, want ErrCompactHistoryChanged", err)
+	}
+
+	raw, err := store.LoadRawMessages(chatID, 20)
+	if err != nil {
+		t.Fatalf("LoadRawMessages: %v", err)
+	}
+	for _, msg := range raw {
+		if stringFromAny(msg["role"]) == "tool" && stringFromAny(msg["content"]) == ToolCompactClearedMessage {
+			t.Fatalf("tool result unexpectedly compacted after history_changed: %#v", msg)
+		}
+	}
+	lines, err := readJSONLines(store.chatJSONLPath(chatID))
+	if err != nil {
+		t.Fatalf("read jsonl: %v", err)
+	}
+	for _, line := range lines {
+		if stringFromAny(line["_type"]) == ToolCompactLineType {
+			t.Fatalf("tool compact line unexpectedly written after history_changed: %#v", line)
+		}
+	}
+}
+
+func TestSummaryCompactCanCoverToolCompactMetadata(t *testing.T) {
+	store := newCompactTestStore(t)
+	chatID := "chat-tool-compact-then-summary"
+	ensureCompactTestChat(t, store, chatID)
+	for i := 1; i <= 7; i++ {
+		appendCompactTestToolResult(t, store, chatID, fmt.Sprintf("r%d", i), fmt.Sprintf("tool-%d", i), "file_grep", fmt.Sprintf("grep result %d %s", i, strings.Repeat("x", 240)))
+	}
+	toolSnapshot, err := store.BuildToolCompactSnapshot(chatID, DefaultToolCompactKeepRecent)
+	if err != nil {
+		t.Fatalf("BuildToolCompactSnapshot: %v", err)
+	}
+	if err := store.CommitToolCompact(chatID, toolSnapshot, ToolCompactLine{
+		Type:      ToolCompactLineType,
+		ChatID:    chatID,
+		CompactID: "compact_tools_1",
+		UpdatedAt: 123,
+		Level:     "l1_tools",
+	}); err != nil {
+		t.Fatalf("CommitToolCompact: %v", err)
+	}
+	appendCompactTestRun(t, store, chatID, "r8", "user r8", "assistant r8")
+	appendCompactTestRun(t, store, chatID, "r9", "user r9", "assistant r9")
+
+	summarySnapshot, err := store.BuildCompactSnapshot(chatID, 2)
+	if err != nil {
+		t.Fatalf("BuildCompactSnapshot: %v", err)
+	}
+	if err := store.CommitCompactCheckpoint(chatID, summarySnapshot, CompactCheckpointLine{
+		Type:            CompactCheckpointLineType,
+		ChatID:          chatID,
+		CompactID:       "compact_summary_1",
+		UpdatedAt:       456,
+		Summary:         "summary after tool compact",
+		SummarySource:   "model",
+		CompactionUsage: map[string]any{},
+	}); err != nil {
+		t.Fatalf("CommitCompactCheckpoint: %v", err)
+	}
+	lines, err := readJSONLines(store.chatJSONLPath(chatID))
+	if err != nil {
+		t.Fatalf("read jsonl: %v", err)
+	}
+	coveredToolMetadata := false
+	for _, line := range lines {
+		if stringFromAny(line["_type"]) == ToolCompactLineType && stringFromAny(line["_compact"]) == "compact_summary_1" {
+			coveredToolMetadata = true
+		}
+	}
+	if !coveredToolMetadata {
+		t.Fatalf("summary compact did not cover tool compact metadata")
+	}
+}
+
 func newCompactTestStore(t *testing.T) *FileStore {
 	t.Helper()
 	store, err := NewFileStore(t.TempDir())
@@ -314,6 +491,37 @@ func appendCompactTestRun(t *testing.T, store *FileStore, chatID string, runID s
 			{
 				Role:    "assistant",
 				Content: []ContentPart{{Type: "text", Text: assistantText}},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("AppendStepLine(%s): %v", runID, err)
+	}
+}
+
+func appendCompactTestToolResult(t *testing.T, store *FileStore, chatID string, runID string, toolID string, toolName string, resultText string) {
+	t.Helper()
+	if err := store.AppendStepLine(chatID, StepLine{
+		Type:      StepLineTypeReact,
+		ChatID:    chatID,
+		RunID:     runID,
+		UpdatedAt: 101,
+		Messages: []StoredMessage{
+			{
+				Role: "assistant",
+				ToolCalls: []StoredToolCall{{
+					ID:   toolID,
+					Type: "function",
+					Function: StoredFunction{
+						Name:      toolName,
+						Arguments: "{}",
+					},
+				}},
+			},
+			{
+				Role:       "tool",
+				Name:       toolName,
+				ToolCallID: toolID,
+				Content:    []ContentPart{{Type: "text", Text: resultText}},
 			},
 		},
 	}); err != nil {

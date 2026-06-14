@@ -94,6 +94,7 @@ const (
 	StepLineTypeLegacyStep  = "step"
 
 	CompactCheckpointLineType = "compact.checkpoint"
+	ToolCompactLineType       = "compact.tool"
 )
 
 type CompactCheckpointLine struct {
@@ -108,6 +109,21 @@ type CompactCheckpointLine struct {
 	PostCompactEstimatedTokens int            `json:"postCompactEstimatedTokens,omitempty"`
 	CompressionRatio           float64        `json:"compressionRatio,omitempty"`
 	CompactionUsage            map[string]any `json:"compactionUsage"`
+}
+
+type ToolCompactLine struct {
+	Type                       string  `json:"_type"`
+	ChatID                     string  `json:"chatId"`
+	CompactID                  string  `json:"compactId"`
+	UpdatedAt                  int64   `json:"updatedAt"`
+	Trigger                    string  `json:"trigger,omitempty"`
+	Level                      string  `json:"level,omitempty"`
+	ToolsCleared               int     `json:"toolsCleared,omitempty"`
+	ToolsKept                  int     `json:"toolsKept,omitempty"`
+	TokensFreed                int     `json:"tokensFreed,omitempty"`
+	PreCompactEstimatedTokens  int     `json:"preCompactEstimatedTokens,omitempty"`
+	PostCompactEstimatedTokens int     `json:"postCompactEstimatedTokens,omitempty"`
+	CompressionRatio           float64 `json:"compressionRatio,omitempty"`
 }
 
 // StepLine represents a step line in chatId.jsonl.
