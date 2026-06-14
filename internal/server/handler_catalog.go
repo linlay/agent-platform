@@ -182,20 +182,6 @@ func (s *Server) handleTools(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, api.Success(s.listTools(r.URL.Query().Get("kind"), "")))
 }
 
-func (s *Server) handleTool(w http.ResponseWriter, r *http.Request) {
-	toolName := r.URL.Query().Get("toolName")
-	if toolName == "" {
-		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "toolName is required"))
-		return
-	}
-	tool, ok := s.lookupTool(toolName)
-	if !ok {
-		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "tool not found"))
-		return
-	}
-	writeJSON(w, http.StatusOK, api.Success(tool))
-}
-
 func (s *Server) agentEditor() (editableAgentRegistry, error) {
 	editor, ok := s.deps.Registry.(editableAgentRegistry)
 	if !ok || editor == nil {

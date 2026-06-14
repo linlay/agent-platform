@@ -37,10 +37,7 @@ GET /ws -> request / response / stream / push / error frames
 | GET | `/api/agent` | query: `agentKey` | 单个 agent 详情 |
 | POST | `/api/agent/model-config` | body: `agentKey`/`key`、`modelKey`、`reasoningEffort` | 更新 CODER agent 的运行时默认模型配置 |
 | GET | `/api/teams` | 无 | team 列表 |
-| GET | `/api/skills` | 无 | skill 列表 |
 | GET | `/api/skill-candidates` | query: `agentKey` | skill candidate 列表 |
-| GET | `/api/tools` | query: `kind` | tool 列表 |
-| GET | `/api/tool` | query: `toolName` | 单个 tool 详情 |
 | GET | `/api/model-options` | 无 | 聊天运行时可选模型与思考深度 |
 
 ### Admin
@@ -54,6 +51,8 @@ GET /ws -> request / response / stream / push / error frames
 | POST | `/api/admin/agents/update` | body: `key`/`agentKey`、`definition`、`soulPrompt`、`agentsPrompt` | 更新后的 agent 详情 |
 | POST | `/api/admin/agents/delete` | body: `key`/`agentKey` | 删除结果 |
 | GET | `/api/admin/agents/editor-options` | 无 | agent 编辑器可选项 |
+| GET | `/api/admin/skills` | 无 | skill 列表 |
+| GET | `/api/admin/tools` | query: `kind` | tool 列表 |
 | GET | `/api/admin/registries` | 无 | registry 文件列表与诊断 |
 | GET/PUT | `/api/admin/registries/detail` | query/body: `category`、`file`、`content` | registry 文件详情或保存结果 |
 | POST | `/api/admin/registries/validate` | body: `category`、`file`、`content` | registry 内容校验结果 |
@@ -348,9 +347,6 @@ resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界
 | `/api/agent/model-config` | `agentKey`/`key`、`modelKey`、`reasoningEffort` | `response` |
 | `/api/model-options` | 无 | `response` |
 | `/api/teams` | 无 | `response` |
-| `/api/skills` | 无 | `response` |
-| `/api/tools` | `kind` | `response` |
-| `/api/tool` | `toolName` | `response` |
 | `/api/chats` | `lastRunId`、`agentKey` | `response` |
 | `/api/chat` | `chatId`、`includeRawMessages` | `response` |
 | `/api/read` | `chatId` | `response` |

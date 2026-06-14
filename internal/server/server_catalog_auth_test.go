@@ -394,37 +394,6 @@ func TestAgentEndpointRequiresAgentKey(t *testing.T) {
 	}
 }
 
-func TestToolEndpointReturnsCanonicalJavaBuiltinSchemas(t *testing.T) {
-	fixture := newMemoryEnabledTestFixture(t)
-
-	for _, tc := range []struct {
-		toolName         string
-		requiredProperty string
-	}{
-		{toolName: "memory_read", requiredProperty: "sort"},
-		{toolName: "datetime", requiredProperty: "timezone"},
-	} {
-		rec := httptest.NewRecorder()
-		fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/tool?toolName="+tc.toolName, nil))
-
-		if rec.Code != http.StatusOK {
-			t.Fatalf("expected 200 for %s, got %d: %s", tc.toolName, rec.Code, rec.Body.String())
-		}
-
-		var response api.ApiResponse[api.ToolDetailResponse]
-		if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
-			t.Fatalf("decode tool response for %s: %v", tc.toolName, err)
-		}
-		if response.Data.Name != tc.toolName {
-			t.Fatalf("expected tool %s, got %#v", tc.toolName, response.Data)
-		}
-		properties, _ := response.Data.Parameters["properties"].(map[string]any)
-		if _, ok := properties[tc.requiredProperty]; !ok {
-			t.Fatalf("expected property %s in %s schema, got %#v", tc.requiredProperty, tc.toolName, response.Data.Parameters)
-		}
-	}
-}
-
 func TestAgentEndpointRejectsBlankAgentKey(t *testing.T) {
 	fixture := newTestFixture(t)
 	rec := httptest.NewRecorder()
@@ -451,7 +420,7 @@ func TestCatalogEndpoints(t *testing.T) {
 	fixture := newTestFixture(t)
 	server := fixture.server
 
-	for _, path := range []string{"/api/agents", "/api/agent?agentKey=mock-agent", "/api/teams", "/api/admin/skills", "/api/admin/tools", "/api/tool?toolName=bash"} {
+	for _, path := range []string{"/api/agents", "/api/agent?agentKey=mock-agent", "/api/teams", "/api/admin/skills", "/api/admin/tools"} {
 		rec := httptest.NewRecorder()
 		server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
 		if rec.Code != http.StatusOK {

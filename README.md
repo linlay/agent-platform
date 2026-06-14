@@ -11,9 +11,8 @@
 - `GET /api/agents`
 - `GET /api/agent?agentKey=...`
 - `GET /api/teams`
-- `GET /api/skills`
-- `GET /api/tools`
-- `GET /api/tool?toolName=...`
+- `GET /api/admin/skills`
+- `GET /api/admin/tools`
 - `GET /api/chats`
 - `GET /api/chat?chatId=...`
 - `POST /api/chats/search`

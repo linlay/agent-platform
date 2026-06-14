@@ -293,7 +293,6 @@ func (s *Server) routes() {
 	s.router.HandleFunc("/api/admin/skills", s.method(http.MethodGet, s.handleSkills))
 	s.router.HandleFunc("/api/skill-candidates", s.method(http.MethodGet, s.handleSkillCandidates))
 	s.router.HandleFunc("/api/admin/tools", s.method(http.MethodGet, s.handleTools))
-	s.router.HandleFunc("/api/tool", s.method(http.MethodGet, s.handleTool))
 	s.router.HandleFunc("/api/chats", s.method(http.MethodGet, s.handleChats))
 	s.router.HandleFunc("/api/chat", s.method(http.MethodGet, s.handleChat))
 	s.router.HandleFunc("/api/chats/search", s.method(http.MethodPost, s.handleGlobalSearch))

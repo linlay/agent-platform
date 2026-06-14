@@ -83,6 +83,7 @@ func TestRemovedHTTPAPIRoutesReturnNotFound(t *testing.T) {
 		{method: http.MethodGet, path: "/api/archive-resource?chatId=chat-route-search&file=report.md"},
 		{method: http.MethodGet, path: "/api/skills"},
 		{method: http.MethodGet, path: "/api/tools"},
+		{method: http.MethodGet, path: "/api/tool?toolName=bash"},
 	} {
 		rec := httptest.NewRecorder()
 		fixture.server.ServeHTTP(rec, httptest.NewRequest(tc.method, tc.path, bytes.NewBufferString(tc.body)))

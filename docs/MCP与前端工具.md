@@ -23,8 +23,7 @@ REGISTRIES_DIR/mcp-servers
 
 - `REGISTRIES_DIR`：registry 根目录。
 - `TOOLS_DIR`：自定义 frontend tool YAML 目录。
-- `/api/tools`：工具列表。
-- `/api/tool?toolName=...`：单工具详情。
+- `/api/admin/tools`：工具列表。
 - `desktop_action`：Desktop bridge 动作入口。
 - `ask_user_question`：内置 HITL question 工具。
 

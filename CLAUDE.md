@@ -98,7 +98,7 @@ Memory 默认由 `MEMORY_DIR` 控制，当前以 SQLite store 为主，支持 FT
 
 主要接口分组：
 
-- Catalog：`/api/agents`、`/api/agent`、`/api/teams`、`/api/skills`、`/api/tools`、`/api/tool`。
+- Catalog：`/api/agents`、`/api/agent`、`/api/teams`、`/api/admin/skills`、`/api/admin/tools`。
 - Chat：`/api/chats`、`/api/chat`、`/api/chats/search`、`/api/read`、`/api/chat/export`。
 - Archive：`/api/archives`、`/api/archive`、`/api/archives/search`。
 - Run：`/api/query`、`/api/attach`、`/api/submit`、`/api/steer`、`/api/interrupt`。

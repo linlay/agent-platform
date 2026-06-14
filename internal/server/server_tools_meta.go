@@ -104,23 +104,6 @@ func (s *Server) listTools(kind string, tag string) []api.ToolSummary {
 	return items
 }
 
-func (s *Server) lookupTool(toolName string) (api.ToolDetailResponse, bool) {
-	switch strings.ToLower(strings.TrimSpace(toolName)) {
-	case "_sandbox_bash_", "bash_sandbox":
-		return api.ToolDetailResponse{}, false
-	}
-	if tl, ok := s.deps.Tools.(contracts.ToolDefinitionLookup); ok {
-		if tool, exists := tl.Tool(toolName); exists {
-			return canonicalizePublicToolDefinition(tool)
-		}
-	}
-	tool, ok := s.deps.Registry.Tool(toolName)
-	if !ok {
-		return api.ToolDetailResponse{}, false
-	}
-	return canonicalizePublicToolDefinition(tool)
-}
-
 func matchesToolTag(tool api.ToolDetailResponse, needle string) bool {
 	fields := []string{
 		tool.Key,

@@ -84,7 +84,6 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/agent/model-config", s.wsAgentModelConfig)
 	handler.RegisterRoute("/api/model-options", s.wsModelOptions)
 	handler.RegisterRoute("/api/teams", s.wsTeams)
-	handler.RegisterRoute("/api/tool", s.wsTool)
 	handler.RegisterRoute("/api/chats", s.wsChats)
 	handler.RegisterRoute("/api/chat", s.wsChat)
 	handler.RegisterRoute("/api/chat/jsonl", s.wsChatJSONL)
@@ -193,25 +192,6 @@ func (s *Server) wsModelOptions(_ context.Context, conn *ws.Conn, req ws.Request
 
 func (s *Server) wsTeams(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
 	conn.SendResponse(req.Type, req.ID, 0, "success", s.deps.Registry.Teams())
-	conn.CompleteRequest(req.ID)
-}
-
-func (s *Server) wsTool(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
-	payload, err := ws.DecodePayload[struct {
-		ToolName string `json:"toolName"`
-	}](req)
-	if err != nil || strings.TrimSpace(payload.ToolName) == "" {
-		conn.SendError(req.ID, "invalid_request", 400, "toolName is required", nil)
-		conn.CompleteRequest(req.ID)
-		return
-	}
-	tool, ok := s.lookupTool(payload.ToolName)
-	if !ok {
-		conn.SendError(req.ID, "not_found", 404, "tool not found", nil)
-		conn.CompleteRequest(req.ID)
-		return
-	}
-	conn.SendResponse(req.Type, req.ID, 0, "success", tool)
 	conn.CompleteRequest(req.ID)
 }
 
