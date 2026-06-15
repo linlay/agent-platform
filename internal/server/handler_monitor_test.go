@@ -117,6 +117,47 @@ func TestMonitorEndpointsValidateLimits(t *testing.T) {
 	}
 }
 
+func TestMonitorEndpointsBypassHTTPAuth(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		notifications: ws.NewHub(),
+		configure: func(cfg *config.Config) {
+			_, publicKeyPath := writeTestJWTKeyPair(t, t.TempDir())
+			cfg.Auth = config.AuthConfig{
+				Enabled:            true,
+				LocalPublicKeyFile: publicKeyPath,
+				Issuer:             "zenmind-local",
+			}
+		},
+	})
+	server := httptest.NewServer(fixture.server)
+	defer server.Close()
+
+	for _, path := range []string{
+		"/api/monitor",
+		"/api/monitor/ws/connections",
+		"/api/monitor/ws/messages",
+	} {
+		resp, err := http.Get(server.URL + path)
+		if err != nil {
+			t.Fatalf("get %s: %v", path, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected %s to bypass auth with 200, got %d", path, resp.StatusCode)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/query", strings.NewReader(`{"message":"鉴权测试"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected non-monitor API to require auth, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func waitForMonitorOverview(t *testing.T, baseURL string, messageType string) ws.MonitorOverview {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)

@@ -6,11 +6,9 @@
     connections: "/api/monitor/ws/connections?limit=100",
     messages: "/api/monitor/ws/messages?limit=50",
   };
-  var TOKEN_STORAGE_KEY = "agent-platform.monitor.accessToken";
 
   var state = {
     loading: false,
-    accessToken: "",
     selectedSessionId: "",
     connectionView: "active",
     knownSessionIds: [],
@@ -23,14 +21,10 @@
 
   document.addEventListener("DOMContentLoaded", function () {
     dom = {
-      tokenInput: document.getElementById("token-input"),
-      applyToken: document.getElementById("apply-token"),
-      clearToken: document.getElementById("clear-token"),
       sessionSelect: document.getElementById("session-select"),
       clearFilter: document.getElementById("clear-filter"),
       connectionViewInputs: document.querySelectorAll('input[name="connection-view"]'),
       refreshButton: document.getElementById("refresh-button"),
-      pageSubtitle: document.getElementById("page-subtitle"),
       loadingState: document.getElementById("loading-state"),
       errorBanner: document.getElementById("error-banner"),
       generatedAt: document.getElementById("generated-at"),
@@ -43,18 +37,6 @@
       messagesEmpty: document.getElementById("messages-empty"),
     };
 
-    initializeAccessToken();
-    dom.applyToken.addEventListener("click", function () {
-      applyAccessToken();
-    });
-    dom.clearToken.addEventListener("click", function () {
-      clearAccessToken();
-    });
-    dom.tokenInput.addEventListener("keydown", function (event) {
-      if (event.key === "Enter") {
-        applyAccessToken();
-      }
-    });
     dom.refreshButton.addEventListener("click", function () {
       loadDashboard();
     });
@@ -77,21 +59,15 @@
       });
     });
 
-    setText(dom.pageSubtitle, window.location.host + " /monitor");
     renderEmptyShell();
     loadDashboard();
   });
 
   async function requestJSON(url) {
     var response;
-    var headers = { Accept: "application/json" };
-    var token = normalizedAccessToken(state.accessToken);
-    if (token) {
-      headers.Authorization = "Bearer " + token;
-    }
     try {
       response = await fetch(url, {
-        headers: headers,
+        headers: { Accept: "application/json" },
         cache: "no-store",
       });
     } catch (error) {
@@ -107,9 +83,6 @@
 
     if (!response.ok) {
       var httpMessage = envelope && envelope.msg ? envelope.msg : response.statusText;
-      if (response.status === 401) {
-        httpMessage = "Unauthorized。请在顶部输入 access_token 后点击“应用 token”。";
-      }
       throw new Error("HTTP " + response.status + "：" + httpMessage);
     }
     if (!envelope || typeof envelope !== "object" || !Object.prototype.hasOwnProperty.call(envelope, "code")) {
@@ -567,94 +540,7 @@
     dom.refreshButton.disabled = loading;
     dom.sessionSelect.disabled = loading;
     dom.clearFilter.disabled = loading || !state.selectedSessionId;
-    setTokenControls();
     renderConnectionViewControls();
-  }
-
-  function initializeAccessToken() {
-    var urlToken = readUrlAccessToken();
-    if (urlToken) {
-      state.accessToken = urlToken;
-      storeToken(urlToken);
-    } else {
-      state.accessToken = loadStoredToken();
-    }
-    dom.tokenInput.value = state.accessToken;
-    setTokenControls();
-    scrubAccessTokenFromUrl();
-  }
-
-  function applyAccessToken() {
-    state.accessToken = normalizedAccessToken(dom.tokenInput.value);
-    dom.tokenInput.value = state.accessToken;
-    storeToken(state.accessToken);
-    setTokenControls();
-    loadDashboard();
-  }
-
-  function clearAccessToken() {
-    state.accessToken = "";
-    dom.tokenInput.value = "";
-    storeToken("");
-    setTokenControls();
-    loadDashboard();
-  }
-
-  function setTokenControls() {
-    dom.tokenInput.disabled = state.loading;
-    dom.applyToken.disabled = state.loading;
-    dom.clearToken.disabled = state.loading || !state.accessToken;
-  }
-
-  function normalizedAccessToken(value) {
-    var token = String(value || "").trim();
-    if (token.toLowerCase().indexOf("bearer ") === 0) {
-      token = token.slice(7).trim();
-    }
-    return token;
-  }
-
-  function readUrlAccessToken() {
-    try {
-      var params = new URLSearchParams(window.location.search);
-      return normalizedAccessToken(params.get("access_token"));
-    } catch (error) {
-      return "";
-    }
-  }
-
-  function scrubAccessTokenFromUrl() {
-    try {
-      var url = new URL(window.location.href);
-      if (!url.searchParams.has("access_token")) {
-        return;
-      }
-      url.searchParams.delete("access_token");
-      var nextPath = url.pathname + url.search + url.hash;
-      window.history.replaceState(window.history.state, document.title, nextPath);
-    } catch (error) {
-      // The token has already been copied to memory; URL cleanup is best effort.
-    }
-  }
-
-  function loadStoredToken() {
-    try {
-      return normalizedAccessToken(window.sessionStorage.getItem(TOKEN_STORAGE_KEY));
-    } catch (error) {
-      return "";
-    }
-  }
-
-  function storeToken(token) {
-    try {
-      if (token) {
-        window.sessionStorage.setItem(TOKEN_STORAGE_KEY, token);
-      } else {
-        window.sessionStorage.removeItem(TOKEN_STORAGE_KEY);
-      }
-    } catch (error) {
-      // The token still works for the current page even if storage is blocked.
-    }
   }
 
   function setError(message) {

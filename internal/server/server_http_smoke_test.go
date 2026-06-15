@@ -161,15 +161,19 @@ func TestMonitorStaticRoutes(t *testing.T) {
 			wantBodyParts: []string{
 				"智能体平台监控",
 				`name="referrer" content="no-referrer"`,
-				"token-input",
-				"apply-token",
-				"clear-token",
+				"refresh-button",
 				`name="connection-view" value="active"`,
 				`name="connection-view" value="all"`,
 				"/monitor/monitor.css",
 				"/monitor/monitor.js",
 				"frame / id",
 				"event / topic",
+			},
+			wantAbsent: []string{
+				"token-input",
+				"apply-token",
+				"clear-token",
+				"page-subtitle",
 			},
 		},
 		{
@@ -193,7 +197,8 @@ func TestMonitorStaticRoutes(t *testing.T) {
 			path:          "/monitor/monitor.js",
 			wantStatus:    http.StatusOK,
 			wantType:      "text/javascript",
-			wantBodyParts: []string{"requestJSON", "Authorization", "access_token", "history.replaceState", "sessionId", "connectionView", "active", "copyPayloadText", "copyUserAgentText"},
+			wantBodyParts: []string{"requestJSON", "sessionId", "connectionView", "active", "copyPayloadText", "copyUserAgentText"},
+			wantAbsent:    []string{"Authorization", "access_token", "agent-platform.monitor.accessToken", "history.replaceState", "sessionStorage"},
 		},
 		{
 			method:     http.MethodGet,

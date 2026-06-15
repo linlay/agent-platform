@@ -49,6 +49,9 @@ func (s *Server) withPrincipal(r *http.Request, w http.ResponseWriter) *http.Req
 	if r.Method == http.MethodOptions {
 		return r
 	}
+	if isPublicMonitorRequest(r) {
+		return r
+	}
 	if r.Method == http.MethodGet && (r.URL.Path == "/api/resource" || r.URL.Path == "/api/tool-result") {
 		if !s.deps.Config.ResourceTicket.Enabled() {
 			return r
@@ -68,6 +71,18 @@ func (s *Server) withPrincipal(r *http.Request, w http.ResponseWriter) *http.Req
 		return nil
 	}
 	return r.WithContext(WithPrincipal(r.Context(), principal))
+}
+
+func isPublicMonitorRequest(r *http.Request) bool {
+	if r == nil || r.Method != http.MethodGet {
+		return false
+	}
+	switch r.URL.Path {
+	case "/api/monitor", "/api/monitor/ws/connections", "/api/monitor/ws/messages":
+		return true
+	default:
+		return false
+	}
 }
 
 func writeAuthError(w http.ResponseWriter) {
