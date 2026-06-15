@@ -354,6 +354,98 @@ func parseRuntimePrompts(root map[string]any) AgentRuntimePrompts {
 	}
 }
 
+func mergeStageSettingsBudgets(budget map[string]any, stageSettings map[string]any) map[string]any {
+	stageBudgets := stageBudgetsFromStageSettings(stageSettings)
+	if len(stageBudgets) == 0 {
+		return budget
+	}
+	merged := contracts.CloneMap(budget)
+	if merged == nil {
+		merged = map[string]any{}
+	}
+	stages := contracts.CloneMap(mapNode(merged["stages"]))
+	if stages == nil {
+		stages = map[string]any{}
+	}
+	for stage, stageBudget := range stageBudgets {
+		stages[stage] = mergeStageBudgetNodes(stages[stage], stageBudget)
+	}
+	merged["stages"] = stages
+	return merged
+}
+
+func stageBudgetsFromStageSettings(stageSettings map[string]any) map[string]map[string]any {
+	out := map[string]map[string]any{}
+	for _, stage := range []string{"plan", "execute", "summary"} {
+		node := mapNode(stageSettings[stage])
+		if len(node) == 0 {
+			continue
+		}
+		stageBudget := allowedStageBudgetNode(mapNode(node["budget"]))
+		if len(stageBudget) > 0 {
+			out[stage] = stageBudget
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func mergeStageBudgetNodes(base any, override map[string]any) map[string]any {
+	merged := contracts.CloneMap(mapNode(base))
+	if merged == nil {
+		merged = map[string]any{}
+	}
+	if value, exists := override["maxSteps"]; exists {
+		merged["maxSteps"] = value
+	}
+	if overrideTool := mapNode(override["tool"]); len(overrideTool) > 0 {
+		tool := contracts.CloneMap(mapNode(merged["tool"]))
+		if tool == nil {
+			tool = map[string]any{}
+		}
+		for key, value := range overrideTool {
+			tool[key] = value
+		}
+		merged["tool"] = tool
+	}
+	return merged
+}
+
+func allowedStageBudgetNode(raw map[string]any) map[string]any {
+	if len(raw) == 0 {
+		return nil
+	}
+	out := map[string]any{}
+	if value, exists := raw["maxSteps"]; exists {
+		out["maxSteps"] = value
+	}
+	if tool := allowedStageBudgetToolNode(mapNode(raw["tool"])); len(tool) > 0 {
+		out["tool"] = tool
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func allowedStageBudgetToolNode(raw map[string]any) map[string]any {
+	if len(raw) == 0 {
+		return nil
+	}
+	out := map[string]any{}
+	for _, key := range []string{"timeout", "maxCalls", "retryCount"} {
+		if value, exists := raw[key]; exists {
+			out[key] = value
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
 func loadPromptMarkdowns(agentDir string, promptFiles []string) string {
 	var parts []string
 	root := filepath.Clean(agentDir)
@@ -448,6 +540,7 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	if stageSettings := mapNode(root["stageSettings"]); len(stageSettings) > 0 {
 		def.StageSettings = contracts.CloneMap(stageSettings)
 	}
+	def.Budget = mergeStageSettingsBudgets(def.Budget, def.StageSettings)
 	def.StageSettings = applyModelReasoningDefaults(def.StageSettings, mapNode(modelConfig["reasoning"]))
 	def.StageSettings = applyModelSamplingDefaults(def.StageSettings, mapNode(modelConfig["sampling"]))
 	if proxyRaw := mapNode(root["proxyConfig"]); len(proxyRaw) > 0 {

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 )
 
@@ -96,6 +97,124 @@ func TestParseAgentFileSupportsNestedPlanExecuteStageConfig(t *testing.T) {
 	}
 	if settings.Execute.Sampling.FrequencyPenalty == nil || *settings.Execute.Sampling.FrequencyPenalty != 0.1 {
 		t.Fatalf("expected nested frequency penalty, got %#v", settings.Execute.Sampling)
+	}
+}
+
+func TestParseAgentFileMergesStageSettingsBudgetIntoResolvedBudget(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	content := "" +
+		"key: stage-budget\n" +
+		"name: Stage Budget\n" +
+		"mode: PLAN_EXECUTE\n" +
+		"modelConfig:\n" +
+		"  modelKey: demo-model\n" +
+		"budget:\n" +
+		"  maxSteps: 120\n" +
+		"stageSettings:\n" +
+		"  plan:\n" +
+		"    budget:\n" +
+		"      maxSteps: 20\n" +
+		"      timeout: 600\n" +
+		"      tool:\n" +
+		"        timeout: 90\n" +
+		"        maxCalls: 40\n" +
+		"  summary:\n" +
+		"    budget:\n" +
+		"      maxSteps: 3\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	budget := contracts.ResolveBudget(config.Config{}, def.Budget)
+	if budget.MaxSteps != 120 {
+		t.Fatalf("root max steps = %d, want 120", budget.MaxSteps)
+	}
+	if budget.Stages["plan"].MaxSteps != 20 || budget.Stages["plan"].Tool.Timeout != 90 || budget.Stages["plan"].Tool.MaxCalls != 40 {
+		t.Fatalf("plan stage budget = %#v, want maxSteps 20 tool timeout 90 maxCalls 40", budget.Stages["plan"])
+	}
+	if budget.Stages["summary"].MaxSteps != 3 {
+		t.Fatalf("summary stage budget = %#v, want maxSteps 3", budget.Stages["summary"])
+	}
+	if stageBudget := mapNode(mapNode(def.Budget["stages"])["plan"]); stageBudget["timeout"] != nil {
+		t.Fatalf("stage-level timeout should not be merged into effective budget, got %#v", stageBudget)
+	}
+}
+
+func TestParseAgentFileStageSettingsBudgetOverridesLegacyBudgetStages(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	content := "" +
+		"key: stage-budget-precedence\n" +
+		"name: Stage Budget Precedence\n" +
+		"mode: PLAN_EXECUTE\n" +
+		"modelConfig:\n" +
+		"  modelKey: demo-model\n" +
+		"budget:\n" +
+		"  stages:\n" +
+		"    plan:\n" +
+		"      maxSteps: 7\n" +
+		"      tool:\n" +
+		"        maxCalls: 14\n" +
+		"        retryCount: 2\n" +
+		"    execute:\n" +
+		"      maxSteps: 8\n" +
+		"stageSettings:\n" +
+		"  plan:\n" +
+		"    budget:\n" +
+		"      maxSteps: 20\n" +
+		"      tool:\n" +
+		"        timeout: 90\n" +
+		"        maxCalls: 40\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	budget := contracts.ResolveBudget(config.Config{}, def.Budget)
+	if budget.Stages["plan"].MaxSteps != 20 || budget.Stages["plan"].Tool.MaxCalls != 40 ||
+		budget.Stages["plan"].Tool.Timeout != 90 || budget.Stages["plan"].Tool.RetryCount != 2 {
+		t.Fatalf("plan stage budget = %#v, want stageSettings override", budget.Stages["plan"])
+	}
+	if budget.Stages["execute"].MaxSteps != 8 {
+		t.Fatalf("execute legacy stage budget = %#v, want maxSteps 8", budget.Stages["execute"])
+	}
+}
+
+func TestParseAgentFilePreservesLegacyBudgetStagesWithoutStageSettingsBudget(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	content := "" +
+		"key: legacy-stage-budget\n" +
+		"name: Legacy Stage Budget\n" +
+		"mode: PLAN_EXECUTE\n" +
+		"modelConfig:\n" +
+		"  modelKey: demo-model\n" +
+		"budget:\n" +
+		"  stages:\n" +
+		"    execute:\n" +
+		"      maxSteps: 8\n" +
+		"      tool:\n" +
+		"        timeout: 30\n" +
+		"        maxCalls: 16\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	budget := contracts.ResolveBudget(config.Config{}, def.Budget)
+	if budget.Stages["execute"].MaxSteps != 8 || budget.Stages["execute"].Tool.Timeout != 30 || budget.Stages["execute"].Tool.MaxCalls != 16 {
+		t.Fatalf("execute legacy stage budget = %#v, want maxSteps 8 tool timeout 30 maxCalls 16", budget.Stages["execute"])
 	}
 }
 
