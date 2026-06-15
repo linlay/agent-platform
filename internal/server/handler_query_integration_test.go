@@ -98,6 +98,70 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 	}
 }
 
+func TestQueryAppliesAgentSamplingConfigToProviderRequest(t *testing.T) {
+	var sawProviderRequest atomic.Bool
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode model request: %v", err)
+		}
+		if floatValue(payload["temperature"]) != 0.4 {
+			t.Fatalf("expected stage temperature override 0.4, got %#v in %#v", payload["temperature"], payload)
+		}
+		if floatValue(payload["top_p"]) != 0.95 {
+			t.Fatalf("expected inherited top_p 0.95, got %#v in %#v", payload["top_p"], payload)
+		}
+		if floatValue(payload["presence_penalty"]) != 0 {
+			t.Fatalf("expected inherited presence_penalty 0, got %#v in %#v", payload["presence_penalty"], payload)
+		}
+		if floatValue(payload["frequency_penalty"]) != 0.15 {
+			t.Fatalf("expected inherited frequency_penalty 0.15, got %#v in %#v", payload["frequency_penalty"], payload)
+		}
+		if floatValue(payload["seed"]) != 123 {
+			t.Fatalf("expected inherited seed 123, got %#v in %#v", payload["seed"], payload)
+		}
+		sawProviderRequest.Store(true)
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"content":"sampled response"},"finish_reason":"stop"}]}`,
+			`[DONE]`,
+		)
+	}, testFixtureOptions{
+		setupRuntime: func(_ string, cfg *config.Config) {
+			agentPath := filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml")
+			data, err := os.ReadFile(agentPath)
+			if err != nil {
+				t.Fatalf("read agent config: %v", err)
+			}
+			content := strings.Replace(string(data),
+				"modelConfig:\n  modelKey: mock-model\n",
+				"modelConfig:\n  modelKey: mock-model\n  sampling:\n    temperature: 0.7\n    topP: 0.95\n    presencePenalty: 0\n    frequencyPenalty: 0.15\n    seed: 123\n",
+				1,
+			)
+			content = strings.TrimSpace(content) + "\n" +
+				"stageSettings:\n" +
+				"  execute:\n" +
+				"    sampling:\n" +
+				"      temperature: 0.4\n"
+			if err := os.WriteFile(agentPath, []byte(content), 0o644); err != nil {
+				t.Fatalf("write sampled agent config: %v", err)
+			}
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"hi","agentKey":"mock-agent"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	fixture.server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !sawProviderRequest.Load() {
+		t.Fatal("expected provider request")
+	}
+}
+
 func TestQueryNonStreamReturnsJSONAndPersistsChatHistory(t *testing.T) {
 	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w,

@@ -168,6 +168,66 @@ func TestOpenAIProtocolPrepareRequestReasoningContentCompat(t *testing.T) {
 	}
 }
 
+func TestOpenAIProtocolPrepareRequestAppliesSamplingAfterCompat(t *testing.T) {
+	protocol := &openAIProtocol{engine: NewLLMAgentEngineWithHTTPClient(config.Config{}, nil, nil, nil, nil, &http.Client{})}
+	prepared, err := protocol.PrepareRequest(protocolStreamParams{
+		provider: ProviderDefinition{Key: "mock", BaseURL: "https://example.com", APIKey: "token"},
+		model:    ModelDefinition{Protocol: "OPENAI", ModelID: "mock-model"},
+		protocolConfig: protocolRuntimeConfig{
+			EndpointPath: "/v1/chat/completions",
+			Compat: map[string]any{
+				"request": map[string]any{
+					"always": map[string]any{
+						"temperature":      1.2,
+						"top_p":            0.1,
+						"presence_penalty": 0.5,
+					},
+				},
+			},
+		},
+		stageSettings: StageSettings{
+			Sampling: SamplingSettings{
+				Temperature:      float64PtrForTest(0),
+				TopP:             float64PtrForTest(0.95),
+				PresencePenalty:  float64PtrForTest(0),
+				FrequencyPenalty: float64PtrForTest(0.25),
+				Seed:             int64PtrForTest(42),
+			},
+		},
+		messages: []openAIMessage{
+			{Role: "system", Content: "system prompt"},
+			{Role: "user", Content: "hi"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("PrepareRequest returned error: %v", err)
+	}
+
+	assertRequestNumber(t, prepared.RequestBody, "temperature", 0)
+	assertRequestNumber(t, prepared.RequestBody, "top_p", 0.95)
+	assertRequestNumber(t, prepared.RequestBody, "presence_penalty", 0)
+	assertRequestNumber(t, prepared.RequestBody, "frequency_penalty", 0.25)
+	assertRequestNumber(t, prepared.RequestBody, "seed", 42)
+}
+
+func TestOpenAIProtocolPrepareRequestKeepsDeterministicDefaultTemperature(t *testing.T) {
+	protocol := &openAIProtocol{engine: NewLLMAgentEngineWithHTTPClient(config.Config{}, nil, nil, nil, nil, &http.Client{})}
+	prepared, err := protocol.PrepareRequest(protocolStreamParams{
+		provider:       ProviderDefinition{Key: "mock", BaseURL: "https://example.com", APIKey: "token"},
+		model:          ModelDefinition{Protocol: "OPENAI", ModelID: "mock-model"},
+		protocolConfig: protocolRuntimeConfig{EndpointPath: "/v1/chat/completions"},
+		messages: []openAIMessage{
+			{Role: "system", Content: "system prompt"},
+			{Role: "user", Content: "hi"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("PrepareRequest returned error: %v", err)
+	}
+
+	assertRequestNumber(t, prepared.RequestBody, "temperature", 0)
+}
+
 func TestOpenAIProtocolPrepareRequestOmitsHistoricalToolBase64(t *testing.T) {
 	protocol := &openAIProtocol{engine: NewLLMAgentEngineWithHTTPClient(config.Config{}, nil, nil, nil, nil, &http.Client{})}
 	encoded := "iVBORw0KGgoAAAANSUhEUgAA"
@@ -405,5 +465,67 @@ func TestAnthropicPrepareRequestExposesDebugPayload(t *testing.T) {
 				t.Fatalf("expected one tool in request body, got %#v", prepared.RequestBody)
 			}
 		})
+	}
+}
+
+func TestAnthropicPrepareRequestAppliesSupportedSamplingOnly(t *testing.T) {
+	protocol := &anthropicProtocol{engine: &LLMAgentEngine{}}
+	prepared, err := protocol.PrepareRequest(protocolStreamParams{
+		provider:       ProviderDefinition{Key: "anthropic", BaseURL: "https://example.com", APIKey: "token"},
+		model:          ModelDefinition{ModelID: "claude-test"},
+		protocolConfig: protocolRuntimeConfig{EndpointPath: "/v1/messages"},
+		stageSettings: StageSettings{
+			Sampling: SamplingSettings{
+				Temperature:      float64PtrForTest(0.3),
+				TopP:             float64PtrForTest(0.8),
+				PresencePenalty:  float64PtrForTest(0.2),
+				FrequencyPenalty: float64PtrForTest(0.4),
+				Seed:             int64PtrForTest(99),
+			},
+		},
+		messages: []openAIMessage{
+			{Role: "system", Content: "anthropic system"},
+			{Role: "user", Content: "hi"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("PrepareRequest returned error: %v", err)
+	}
+
+	assertRequestNumber(t, prepared.RequestBody, "temperature", 0.3)
+	assertRequestNumber(t, prepared.RequestBody, "top_p", 0.8)
+	for _, key := range []string{"presence_penalty", "frequency_penalty", "seed"} {
+		if _, exists := prepared.RequestBody[key]; exists {
+			t.Fatalf("did not expect Anthropic request key %s, got %#v", key, prepared.RequestBody)
+		}
+	}
+}
+
+func float64PtrForTest(value float64) *float64 {
+	return &value
+}
+
+func int64PtrForTest(value int64) *int64 {
+	return &value
+}
+
+func assertRequestNumber(t *testing.T, body map[string]any, key string, want float64) {
+	t.Helper()
+	got, ok := requestNumber(body[key])
+	if !ok || got != want {
+		t.Fatalf("expected %s=%v, got %#v in body %#v", key, want, body[key], body)
+	}
+}
+
+func requestNumber(value any) (float64, bool) {
+	switch v := value.(type) {
+	case int:
+		return float64(v), true
+	case int64:
+		return float64(v), true
+	case float64:
+		return v, true
+	default:
+		return 0, false
 	}
 }

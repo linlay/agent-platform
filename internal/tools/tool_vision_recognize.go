@@ -13,6 +13,7 @@ import (
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/filetools"
+	"agent-platform/internal/modelrequest"
 	"agent-platform/internal/models"
 	"agent-platform/internal/multimodal"
 )
@@ -201,9 +202,9 @@ func (t *RuntimeToolExecutor) completeVisionOpenAI(ctx context.Context, model mo
 			{"role": "system", "content": visionSystemPrompt(profile, outputFormat)},
 			{"role": "user", "content": content},
 		},
-		"temperature": 0,
-		"stream":      false,
+		"stream": false,
 	}
+	modelrequest.ApplyDeterministicTemperature(body)
 	body = mergeVisionRequestCompat(body, provider, model)
 	data, err := t.postVisionJSON(ctx, provider, model, body, "OPENAI")
 	if err != nil {

@@ -9,6 +9,7 @@ type StageSettings struct {
 	Model              string
 	Protocol           string
 	Tools              []string
+	Sampling           SamplingSettings
 	ReasoningEnabled   bool
 	ReasoningEffort    string
 	DeepThinking       bool
@@ -39,14 +40,15 @@ func ResolvePlanExecuteSettings(raw map[string]any, defaultsMaxSteps int, defaul
 	if len(raw) == 0 {
 		return settings
 	}
+	baseSampling := ParseSamplingSettings(anyMapNode(raw["sampling"]))
 	if nested := anyMapNode(raw["plan"]); len(nested) > 0 {
-		settings.Plan = parseStageSettings(nested)
+		settings.Plan = parseStageSettingsWithBaseSampling(nested, baseSampling)
 	}
 	if nested := anyMapNode(raw["execute"]); len(nested) > 0 {
-		settings.Execute = parseStageSettings(nested)
+		settings.Execute = parseStageSettingsWithBaseSampling(nested, baseSampling)
 	}
 	if nested := anyMapNode(raw["summary"]); len(nested) > 0 {
-		settings.Summary = parseStageSettings(nested)
+		settings.Summary = parseStageSettingsWithBaseSampling(nested, baseSampling)
 	}
 	if settings.Execute.IsZero() {
 		settings.Execute = parseStageSettings(raw)
@@ -69,6 +71,12 @@ func ResolvePlanExecuteSettings(raw map[string]any, defaultsMaxSteps int, defaul
 	return settings
 }
 
+func parseStageSettingsWithBaseSampling(raw map[string]any, base SamplingSettings) StageSettings {
+	settings := parseStageSettings(raw)
+	settings.Sampling = MergeSamplingSettings(base, settings.Sampling)
+	return settings
+}
+
 func parseStageSettings(raw map[string]any) StageSettings {
 	return StageSettings{
 		SystemPrompt:       anyStringNode(raw["systemPrompt"]),
@@ -77,6 +85,7 @@ func parseStageSettings(raw map[string]any) StageSettings {
 		Model:              anyStringNode(raw["model"]),
 		Protocol:           strings.ToUpper(anyStringNode(raw["protocol"])),
 		Tools:              anyListStrings(raw["tools"]),
+		Sampling:           ParseSamplingSettings(anyMapNode(raw["sampling"])),
 		ReasoningEnabled:   anyBoolNode(raw["reasoningEnabled"]),
 		ReasoningEffort:    anyStringNode(raw["reasoningEffort"]),
 		DeepThinking:       anyBoolNode(raw["deepThinking"]),
@@ -99,6 +108,7 @@ func (s StageSettings) IsZero() bool {
 		strings.TrimSpace(s.Model) == "" &&
 		strings.TrimSpace(s.Protocol) == "" &&
 		len(s.Tools) == 0 &&
+		s.Sampling.IsZero() &&
 		!s.ReasoningEnabled &&
 		strings.TrimSpace(s.ReasoningEffort) == "" &&
 		!s.DeepThinking &&

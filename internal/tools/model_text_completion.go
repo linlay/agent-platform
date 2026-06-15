@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"agent-platform/internal/modelrequest"
 	"agent-platform/internal/models"
 )
 
@@ -34,9 +35,9 @@ func (t *RuntimeToolExecutor) completeTextModelOpenAI(ctx context.Context, model
 			{"role": "system", "content": strings.TrimSpace(request.SystemPrompt)},
 			{"role": "user", "content": strings.TrimSpace(request.UserPrompt)},
 		},
-		"temperature": 0,
-		"stream":      false,
+		"stream": false,
 	}
+	modelrequest.ApplyDeterministicTemperature(body)
 	if request.MaxOutputTokens > 0 {
 		body["max_tokens"] = request.MaxOutputTokens
 	}

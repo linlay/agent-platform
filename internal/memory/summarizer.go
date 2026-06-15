@@ -15,6 +15,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
+	"agent-platform/internal/modelrequest"
 	"agent-platform/internal/models"
 )
 
@@ -148,9 +149,9 @@ func (s *LLMMemorySummarizer) completeOpenAI(ctx context.Context, model models.M
 			{"role": "system", "content": systemPrompt},
 			{"role": "user", "content": userPrompt},
 		},
-		"temperature": 0,
-		"stream":      false,
+		"stream": false,
 	}
+	modelrequest.ApplyDeterministicTemperature(body)
 	payload, err := json.Marshal(body)
 	if err != nil {
 		return nil, err

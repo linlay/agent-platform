@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/modelrequest"
 )
 
 type openAIProtocol struct {
@@ -128,10 +129,10 @@ func (p *openAIProtocol) PrepareRequest(params protocolStreamParams) (preparedPr
 	requestBody := map[string]any{
 		"model":          params.model.ModelID,
 		"messages":       normalizedMessages,
-		"temperature":    0,
 		"stream":         true,
 		"stream_options": &streamOptions{IncludeUsage: true},
 	}
+	modelrequest.ApplyDeterministicTemperature(requestBody)
 	if len(params.toolSpecs) > 0 {
 		requestBody["tools"] = params.toolSpecs
 	}
@@ -141,6 +142,7 @@ func (p *openAIProtocol) PrepareRequest(params protocolStreamParams) (preparedPr
 	if compatRequest := compatRequestOverrides(params.protocolConfig, params.stageSettings.ReasoningEnabled); len(compatRequest) > 0 {
 		requestBody = mergeAnyMaps(requestBody, compatRequest)
 	}
+	modelrequest.ApplyOpenAICompatibleSampling(requestBody, params.stageSettings.Sampling)
 	body, err := json.Marshal(requestBody)
 	if err != nil {
 		return preparedProviderRequest{}, err

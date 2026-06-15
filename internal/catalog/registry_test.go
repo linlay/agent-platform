@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/contracts"
 )
 
 func TestShouldLoadRuntimeNameMatchesJavaSemantics(t *testing.T) {
@@ -476,6 +477,75 @@ func TestParseAgentFilePreservesExplicitStageReasoningOverrides(t *testing.T) {
 	}
 	if execute["reasoningEffort"] != "LOW" {
 		t.Fatalf("expected explicit execute reasoningEffort to win, got %#v", execute)
+	}
+}
+
+func TestParseAgentFileMapsModelSamplingIntoStageSettings(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	if err := os.WriteFile(path, []byte(
+		"key: sampled\n"+
+			"name: Sampled\n"+
+			"mode: PLAN_EXECUTE\n"+
+			"modelConfig:\n"+
+			"  modelKey: demo-model\n"+
+			"  sampling:\n"+
+			"    temperature: 0.7\n"+
+			"    topP: 0.9\n"+
+			"    presencePenalty: 0\n"+
+			"stageSettings:\n"+
+			"  plan:\n"+
+			"    sampling:\n"+
+			"      temperature: 0.2\n",
+	), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	rootSampling := contracts.ParseSamplingSettings(mapNode(def.StageSettings["sampling"]))
+	if rootSampling.Temperature == nil || *rootSampling.Temperature != 0.7 {
+		t.Fatalf("expected root temperature from modelConfig, got %#v", rootSampling)
+	}
+	if rootSampling.TopP == nil || *rootSampling.TopP != 0.9 {
+		t.Fatalf("expected root topP from modelConfig, got %#v", rootSampling)
+	}
+	if rootSampling.PresencePenalty == nil || *rootSampling.PresencePenalty != 0 {
+		t.Fatalf("expected explicit zero presence penalty from modelConfig, got %#v", rootSampling)
+	}
+	plan, _ := def.StageSettings["plan"].(map[string]any)
+	planSampling := contracts.ParseSamplingSettings(mapNode(plan["sampling"]))
+	if planSampling.Temperature == nil || *planSampling.Temperature != 0.2 {
+		t.Fatalf("expected plan temperature override, got %#v", planSampling)
+	}
+	if planSampling.TopP == nil || *planSampling.TopP != 0.9 {
+		t.Fatalf("expected plan topP inherited from modelConfig, got %#v", planSampling)
+	}
+	if planSampling.PresencePenalty == nil || *planSampling.PresencePenalty != 0 {
+		t.Fatalf("expected plan explicit zero presence penalty inherited from modelConfig, got %#v", planSampling)
+	}
+}
+
+func TestParseAgentFileRejectsInvalidSamplingType(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	if err := os.WriteFile(path, []byte(
+		"key: bad-sampling\n"+
+			"name: Bad Sampling\n"+
+			"mode: REACT\n"+
+			"modelConfig:\n"+
+			"  modelKey: demo-model\n"+
+			"  sampling:\n"+
+			"    temperature: creative\n",
+	), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	_, err := parseAgentFile(path)
+	if err == nil || !strings.Contains(err.Error(), "modelConfig.sampling.temperature must be a number") {
+		t.Fatalf("expected invalid sampling type error, got %v", err)
 	}
 }
 

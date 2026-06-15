@@ -422,6 +422,9 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 		VisibilityScopes: parseAgentVisibilityScopes(root["visibility"]),
 	}
 	modelConfig := mapNode(root["modelConfig"])
+	if err := validateAgentSamplingConfig(path, root); err != nil {
+		return AgentDefinition{}, nil, err
+	}
 	def.ModelKey = stringNode(modelConfig["modelKey"])
 	toolConfig := mapNode(root["toolConfig"])
 	def.Tools = listStrings(toolConfig["tools"])
@@ -441,6 +444,7 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 		def.StageSettings = contracts.CloneMap(stageSettings)
 	}
 	def.StageSettings = applyModelReasoningDefaults(def.StageSettings, mapNode(modelConfig["reasoning"]))
+	def.StageSettings = applyModelSamplingDefaults(def.StageSettings, mapNode(modelConfig["sampling"]))
 	if proxyRaw := mapNode(root["proxyConfig"]); len(proxyRaw) > 0 {
 		if _, hasOld := proxyRaw["timeoutMs"]; hasOld {
 			return AgentDefinition{}, nil, fmt.Errorf("migration required: %s proxyConfig.timeoutMs is removed, use proxyConfig.timeout in seconds", path)
@@ -772,6 +776,37 @@ func parseAgentGreetings(root map[string]any) []string {
 	return normalizeAgentTextList(root["greeting"])
 }
 
+func validateAgentSamplingConfig(path string, root map[string]any) error {
+	modelConfig := mapNode(root["modelConfig"])
+	if _, exists := modelConfig["sampling"]; exists {
+		if err := contracts.ValidateSamplingSettings(modelConfig["sampling"], "modelConfig.sampling"); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+	}
+	stageSettings := mapNode(root["stageSettings"])
+	if len(stageSettings) == 0 {
+		return nil
+	}
+	if _, exists := stageSettings["sampling"]; exists {
+		if err := contracts.ValidateSamplingSettings(stageSettings["sampling"], "stageSettings.sampling"); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+	}
+	for _, stage := range []string{"plan", "execute", "summary"} {
+		node := mapNode(stageSettings[stage])
+		if len(node) == 0 {
+			continue
+		}
+		if _, exists := node["sampling"]; !exists {
+			continue
+		}
+		if err := contracts.ValidateSamplingSettings(node["sampling"], "stageSettings."+stage+".sampling"); err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
+	}
+	return nil
+}
+
 func normalizeWonderStrings(value any) []string {
 	return normalizeAgentTextList(value)
 }
@@ -870,4 +905,31 @@ func applyReasoningDefaultsToStageNode(node map[string]any, enabled any, enabled
 			node["reasoningEffort"] = effort
 		}
 	}
+}
+
+func applyModelSamplingDefaults(stageSettings map[string]any, modelSampling map[string]any) map[string]any {
+	defaults := contracts.ParseSamplingSettings(modelSampling)
+	if defaults.IsZero() {
+		return stageSettings
+	}
+	if stageSettings == nil {
+		stageSettings = map[string]any{}
+	}
+	topSampling := contracts.MergeSamplingSettings(defaults, contracts.ParseSamplingSettings(mapNode(stageSettings["sampling"])))
+	if !topSampling.IsZero() {
+		stageSettings["sampling"] = topSampling.ToMap()
+	}
+	for _, key := range []string{"plan", "execute", "summary"} {
+		node := mapNode(stageSettings[key])
+		if len(node) == 0 {
+			continue
+		}
+		node = contracts.CloneMap(node)
+		merged := contracts.MergeSamplingSettings(topSampling, contracts.ParseSamplingSettings(mapNode(node["sampling"])))
+		if !merged.IsZero() {
+			node["sampling"] = merged.ToMap()
+		}
+		stageSettings[key] = node
+	}
+	return stageSettings
 }

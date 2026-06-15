@@ -11,6 +11,7 @@ import (
 	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/filetools"
+	"agent-platform/internal/modelrequest"
 	. "agent-platform/internal/models"
 )
 
@@ -184,6 +185,7 @@ func (p *anthropicProtocol) buildRequestBody(model ModelDefinition, stageSetting
 	if compatRequest := compatRequestOverrides(protocolConfig, stageSettings.ReasoningEnabled); len(compatRequest) > 0 {
 		requestBody = mergeAnyMaps(requestBody, compatRequest)
 	}
+	modelrequest.ApplyAnthropicSampling(requestBody, stageSettings.Sampling)
 
 	return requestBody, effectiveToolChoice, nil
 }
