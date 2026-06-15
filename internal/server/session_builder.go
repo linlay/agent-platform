@@ -133,7 +133,6 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		ContextTags:            append([]string(nil), agentDef.ContextTags...),
 		Budget:                 contracts.CloneMap(agentDef.Budget),
 		StageSettings:          contracts.CloneMap(agentDef.StageSettings),
-		ToolOverrides:          s.buildSessionToolOverrides(agentDef),
 		ResolvedBudget:         contracts.ResolveBudget(s.deps.Config, agentDef.Budget),
 		ResolvedStageSettings:  contracts.ResolvePlanExecuteSettings(agentDef.StageSettings, s.deps.Config.Defaults.Plan.MaxSteps, s.deps.Config.Defaults.Plan.MaxWorkRoundsPerTask),
 		HistoryMessages:        historyMessages,
@@ -355,28 +354,6 @@ func readGitCurrentBranch(workspaceRoot string) (string, error) {
 		return "", fmt.Errorf("empty git HEAD")
 	}
 	return "", fmt.Errorf("detached HEAD %q", head)
-}
-
-func (s *Server) buildSessionToolOverrides(agentDef catalog.AgentDefinition) map[string]api.ToolDetailResponse {
-	overrides := cloneToolOverrides(agentDef.ToolOverrides)
-	if !hasRuntimeSandbox(agentDef.Runtime) {
-		return overrides
-	}
-	tool, ok := s.lookupInternalTool("bash_sandbox")
-	if !ok {
-		return overrides
-	}
-	override := cloneToolDetailResponse(tool)
-	override.Name = "bash"
-	override.Key = "bash"
-	if overrides == nil {
-		overrides = map[string]api.ToolDetailResponse{}
-	}
-	if existing, ok := overrides["bash"]; ok {
-		override = applyToolOverride(override, map[string]api.ToolDetailResponse{"bash": existing})
-	}
-	overrides["bash"] = override
-	return overrides
 }
 
 func buildSessionToolNames(base []string, allowInvokeAgents bool) []string {

@@ -8,7 +8,6 @@ import (
 	"strings"
 	"unicode"
 
-	"agent-platform/internal/api"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
 )
@@ -427,8 +426,10 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	}
 	def.ModelKey = stringNode(modelConfig["modelKey"])
 	toolConfig := mapNode(root["toolConfig"])
+	if _, exists := toolConfig["overrides"]; exists {
+		return AgentDefinition{}, nil, fmt.Errorf("migration required: %s toolConfig.overrides is removed; define tool metadata in the tool registry instead", path)
+	}
 	def.Tools = listStrings(toolConfig["tools"])
-	def.ToolOverrides = parseToolOverrides(toolConfig["overrides"])
 	def.Skills = listStrings(mapNode(root["skillConfig"])["skills"])
 	def.Controls = cloneListMaps(listMaps(root["controls"]))
 	contextConfig := mapNode(root["contextConfig"])
@@ -525,7 +526,7 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	def.ReactMaxSteps = intNode(mapNode(root["react"])["maxSteps"])
 	def = applyAgentModeProfileDefaults(def)
 
-	if err := validateReservedBashToolNames(def.Tools, def.ToolOverrides); err != nil {
+	if err := validateReservedBashToolNames(def.Tools); err != nil {
 		return AgentDefinition{}, nil, err
 	}
 	if (len(def.Skills) > 0 || runtimeRequiresBash(def.Runtime)) && !containsString(def.Tools, "bash") {
@@ -729,20 +730,9 @@ func rejectDeprecatedAgentBudgetKeys(path string, fieldPath string, values map[s
 	return nil
 }
 
-func validateReservedBashToolNames(tools []string, overrides map[string]api.ToolDetailResponse) error {
+func validateReservedBashToolNames(tools []string) error {
 	for _, tool := range tools {
 		if err := validateReservedBashToolName(tool, "toolConfig.tools"); err != nil {
-			return err
-		}
-	}
-	for rawName, override := range overrides {
-		if err := validateReservedBashToolName(rawName, "toolConfig.overrides"); err != nil {
-			return err
-		}
-		if err := validateReservedBashToolName(override.Name, "toolConfig.overrides.*.name"); err != nil {
-			return err
-		}
-		if err := validateReservedBashToolName(override.Key, "toolConfig.overrides.*.key"); err != nil {
 			return err
 		}
 	}

@@ -201,7 +201,6 @@ type QuerySession struct {
 	ContextTags           []string
 	Budget                map[string]any
 	StageSettings         map[string]any
-	ToolOverrides         map[string]api.ToolDetailResponse
 	ResolvedBudget        Budget
 	ResolvedStageSettings PlanExecuteSettings
 	HistoryMessages       []map[string]any
@@ -285,7 +284,6 @@ type ExecutionContext struct {
 	PlanState         *PlanRuntimeState
 	PlanningState     *PlanningRuntimeState
 	PlanningRevision  int
-	ToolOverrides     map[string]api.ToolDetailResponse
 	// RuntimeEnvOverrides is reused by host bash as agent/skill-level env defaults.
 	RuntimeEnvOverrides map[string]string
 	AccessLevel         string

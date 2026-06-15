@@ -595,15 +595,14 @@ func (s *Server) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamEv
 	})
 	if s.deps.Tools != nil {
 		for _, toolDef := range s.deps.Tools.Definitions() {
-			effective := applyToolOverride(toolDef, prepared.session.ToolOverrides)
-			if cv, ok := effective.Meta["clientVisible"].(bool); ok && !cv {
-				assembler.RegisterHiddenTools(effective.Name, effective.Key)
+			if cv, ok := toolDef.Meta["clientVisible"].(bool); ok && !cv {
+				assembler.RegisterHiddenTools(toolDef.Name, toolDef.Key)
 			}
 		}
 	}
 	var mapper contracts.StreamDeltaMapper
 	if s.deps.DeltaMappers != nil {
-		mapper = s.deps.DeltaMappers.NewDeltaMapper(prepared.req.RunID, prepared.req.ChatID, prepared.session.ResolvedBudget, s.toolLookupWithOverrides(prepared.session.ToolOverrides))
+		mapper = s.deps.DeltaMappers.NewDeltaMapper(prepared.req.RunID, prepared.req.ChatID, prepared.session.ResolvedBudget, s.toolLookup())
 	}
 	return assembler, mapper
 }

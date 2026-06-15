@@ -687,7 +687,8 @@ func (s *llmRunStream) lookupToolDefinition(toolName string) (api.ToolDetailResp
 			return tool, true
 		}
 	}
-	for _, tool := range applyToolOverrides(s.engine.tools.Definitions(), s.execCtx.ToolOverrides) {
+	useSandboxBash := s.session.AgentHasRuntimeSandbox || (s.execCtx != nil && s.execCtx.Session.AgentHasRuntimeSandbox)
+	for _, tool := range effectiveToolDefinitions(s.engine.tools.Definitions(), nil, useSandboxBash) {
 		if strings.EqualFold(strings.TrimSpace(tool.Name), strings.TrimSpace(toolName)) {
 			return tool, true
 		}

@@ -657,6 +657,26 @@ func TestAgentCRUDSafetyErrors(t *testing.T) {
 			status: http.StatusBadRequest,
 		},
 		{
+			name: "tool overrides removed",
+			path: "/api/admin/agents/create",
+			body: map[string]any{
+				"key": "bad-tool-overrides",
+				"definition": map[string]any{
+					"key":         "bad-tool-overrides",
+					"name":        "Bad Tool Overrides",
+					"description": "bad tool overrides",
+					"modelConfig": map[string]any{"modelKey": "mock-model"},
+					"toolConfig": map[string]any{
+						"tools": []any{"datetime"},
+						"overrides": map[string]any{
+							"datetime": map[string]any{"label": "Now"},
+						},
+					},
+				},
+			},
+			status: http.StatusBadRequest,
+		},
+		{
 			name:   "delete missing",
 			path:   "/api/admin/agents/delete",
 			body:   map[string]any{"key": "missing-agent"},

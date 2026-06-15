@@ -84,7 +84,7 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	if options.ToolNames != nil {
 		allowedTools = options.ToolNames
 	}
-	effectiveDefs := applyToolOverrides(filterToolDefinitions(e.tools.Definitions(), allowedTools), session.ToolOverrides)
+	effectiveDefs := effectiveToolDefinitions(e.tools.Definitions(), allowedTools, session.AgentHasRuntimeSandbox)
 	toolSpecs := toOpenAIToolSpecs(effectiveDefs)
 	cacheKey := SystemInitCacheKey(session.Mode, options.Stage)
 	cachedSystem, cachedTools, cacheOK := resolveCachedSystemInit(session, cacheKey)
@@ -99,7 +99,6 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 			Session:       session,
 			Budget:        session.ResolvedBudget,
 			StageSettings: session.ResolvedStageSettings,
-			ToolOverrides: cloneToolOverrides(session.ToolOverrides),
 			AccessLevel:   session.AccessLevel,
 			RunLoopState:  RunLoopStateIdle,
 		}
@@ -332,65 +331,42 @@ func filterToolDefinitions(defs []api.ToolDetailResponse, allowed []string) []ap
 	return filtered
 }
 
-func applyToolOverrides(defs []api.ToolDetailResponse, overrides map[string]api.ToolDetailResponse) []api.ToolDetailResponse {
-	if len(overrides) == 0 {
-		return defs
+func effectiveToolDefinitions(defs []api.ToolDetailResponse, allowed []string, useSandboxBash bool) []api.ToolDetailResponse {
+	filtered := filterToolDefinitions(defs, allowed)
+	if !useSandboxBash {
+		return filtered
 	}
-	out := make([]api.ToolDetailResponse, 0, len(defs))
-	for _, def := range defs {
-		override, ok := overrides[normalizeOverrideKey(def.Name)]
-		if !ok {
-			override, ok = overrides[normalizeOverrideKey(def.Key)]
-		}
-		if !ok {
-			out = append(out, def)
+	sandboxBash, ok := sandboxBashAsPublicBash(defs)
+	if !ok {
+		return filtered
+	}
+	out := make([]api.ToolDetailResponse, 0, len(filtered))
+	for _, def := range filtered {
+		if isToolDefinitionNamed(def, "bash_sandbox") || isToolDefinitionNamed(def, "_sandbox_bash_") {
 			continue
 		}
-		out = append(out, mergeToolOverride(def, override))
+		if isToolDefinitionNamed(def, "bash") {
+			out = append(out, sandboxBash)
+			continue
+		}
+		out = append(out, def)
 	}
 	return out
 }
 
-func mergeToolOverride(base api.ToolDetailResponse, override api.ToolDetailResponse) api.ToolDetailResponse {
-	merged := cloneToolDefinition(base)
-	if strings.TrimSpace(override.Key) != "" {
-		merged.Key = override.Key
+func sandboxBashAsPublicBash(defs []api.ToolDetailResponse) (api.ToolDetailResponse, bool) {
+	for _, def := range defs {
+		if isToolDefinitionNamed(def, "bash_sandbox") || isToolDefinitionNamed(def, "_sandbox_bash_") {
+			tool := cloneToolDefinition(def)
+			tool.Key = "bash"
+			tool.Name = "bash"
+			return tool, true
+		}
 	}
-	if strings.TrimSpace(override.Name) != "" {
-		merged.Name = override.Name
-	}
-	if strings.TrimSpace(override.Label) != "" {
-		merged.Label = override.Label
-	}
-	if strings.TrimSpace(override.Description) != "" {
-		merged.Description = override.Description
-	}
-	if strings.TrimSpace(override.AfterCallHint) != "" {
-		merged.AfterCallHint = override.AfterCallHint
-	}
-	if len(override.Parameters) > 0 {
-		merged.Parameters = CloneMap(override.Parameters)
-	}
-	if len(merged.Meta) == 0 {
-		merged.Meta = map[string]any{}
-	}
-	for key, value := range override.Meta {
-		merged.Meta[key] = value
-	}
-	return merged
+	return api.ToolDetailResponse{}, false
 }
 
-func cloneToolOverrides(src map[string]api.ToolDetailResponse) map[string]api.ToolDetailResponse {
-	if src == nil {
-		return nil
-	}
-	out := make(map[string]api.ToolDetailResponse, len(src))
-	for key, value := range src {
-		out[key] = cloneToolDefinition(value)
-	}
-	return out
-}
-
-func normalizeOverrideKey(value string) string {
-	return strings.ToLower(strings.TrimSpace(value))
+func isToolDefinitionNamed(def api.ToolDetailResponse, name string) bool {
+	needle := strings.ToLower(strings.TrimSpace(name))
+	return strings.EqualFold(strings.TrimSpace(def.Name), needle) || strings.EqualFold(strings.TrimSpace(def.Key), needle)
 }

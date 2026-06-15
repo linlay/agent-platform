@@ -284,7 +284,7 @@ func TestParseAgentFileIgnoresLegacyToolConfigBuckets(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileLoadsToolOverridesFromToolConfig(t *testing.T) {
+func TestParseAgentFileRejectsToolOverridesFromToolConfig(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
 	content := "" +
@@ -306,27 +306,12 @@ func TestParseAgentFileLoadsToolOverridesFromToolConfig(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFile(path)
-	if err != nil {
-		t.Fatalf("parse agent file: %v", err)
+	_, err := parseAgentFile(path)
+	if err == nil {
+		t.Fatal("expected toolConfig.overrides to be rejected")
 	}
-	for _, tool := range []string{"ask_user_question"} {
-		if !containsString(def.Tools, tool) {
-			t.Fatalf("expected %s in flattened tools list, got %#v", tool, def.Tools)
-		}
-	}
-	if def.MemoryEnabled {
-		t.Fatalf("expected memory to stay disabled by default, got %#v", def)
-	}
-	override, ok := def.ToolOverrides["ask_user_question"]
-	if !ok {
-		t.Fatalf("expected tool override to load, got %#v", def.ToolOverrides)
-	}
-	if override.Label != "Ask" || override.Description != "Ask the user a question" {
-		t.Fatalf("expected tool override fields to load, got %#v", override)
-	}
-	if override.Meta["viewportType"] != "builtin" || override.Meta["viewportKey"] != "question_dialog" {
-		t.Fatalf("expected viewport metadata in tool override meta, got %#v", override.Meta)
+	if !strings.Contains(err.Error(), "toolConfig.overrides is removed") {
+		t.Fatalf("expected toolConfig.overrides migration error, got %v", err)
 	}
 }
 

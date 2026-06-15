@@ -53,7 +53,6 @@ type AgentDefinition struct {
 	ContextTags      []string
 	Budget           map[string]any
 	StageSettings    map[string]any
-	ToolOverrides    map[string]api.ToolDetailResponse
 	RuntimePrompts   AgentRuntimePrompts
 	AgentDir         string
 
@@ -676,54 +675,6 @@ func containsString(values []string, needle string) bool {
 	return false
 }
 
-func parseToolOverrides(value any) map[string]api.ToolDetailResponse {
-	root := mapNode(value)
-	if len(root) == 0 {
-		return nil
-	}
-	result := make(map[string]api.ToolDetailResponse, len(root))
-	for toolName, rawOverride := range root {
-		override := mapNode(rawOverride)
-		if len(override) == 0 {
-			continue
-		}
-		name := defaultString(stringNode(override["name"]), toolName)
-		key := defaultString(stringNode(override["key"]), toolName)
-		meta := mapNode(override["meta"])
-		if viewportType := stringNode(override["viewportType"]); viewportType != "" {
-			if meta == nil {
-				meta = map[string]any{}
-			}
-			meta["viewportType"] = viewportType
-		}
-		if viewportKey := stringNode(override["viewportKey"]); viewportKey != "" {
-			if meta == nil {
-				meta = map[string]any{}
-			}
-			meta["viewportKey"] = viewportKey
-		}
-		if timeout := intNode(override["timeout"]); timeout > 0 {
-			if meta == nil {
-				meta = map[string]any{}
-			}
-			meta["timeout"] = timeout
-		}
-		result[strings.ToLower(strings.TrimSpace(toolName))] = api.ToolDetailResponse{
-			Key:           key,
-			Name:          name,
-			Label:         stringNode(override["label"]),
-			Description:   stringNode(override["description"]),
-			AfterCallHint: stringNode(override["afterCallHint"]),
-			Parameters:    contracts.CloneMap(firstMapNode(override["inputSchema"], override["parameters"])),
-			Meta:          contracts.CloneMap(meta),
-		}
-	}
-	if len(result) == 0 {
-		return nil
-	}
-	return result
-}
-
 func firstStringNode(root map[string]any, keys ...string) string {
 	for _, key := range keys {
 		if text := stringNode(root[key]); text != "" {
@@ -731,15 +682,6 @@ func firstStringNode(root map[string]any, keys ...string) string {
 		}
 	}
 	return ""
-}
-
-func firstMapNode(values ...any) map[string]any {
-	for _, value := range values {
-		if mapped := mapNode(value); len(mapped) > 0 {
-			return mapped
-		}
-	}
-	return nil
 }
 
 func defaultString(value string, fallback string) string {

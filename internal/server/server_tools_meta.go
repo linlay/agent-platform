@@ -49,26 +49,6 @@ func (s *Server) toolLookup() contracts.ToolDefinitionLookup {
 	return s.deps.Registry
 }
 
-func (s *Server) toolLookupWithOverrides(overrides map[string]api.ToolDetailResponse) contracts.ToolDefinitionLookup {
-	base := s.toolLookup()
-	if len(overrides) == 0 {
-		return base
-	}
-	return overrideToolLookup{
-		base:      base,
-		overrides: cloneToolOverrides(overrides),
-	}
-}
-
-func (s *Server) lookupInternalTool(toolName string) (api.ToolDetailResponse, bool) {
-	if tl, ok := s.deps.Tools.(contracts.ToolDefinitionLookup); ok {
-		if tool, exists := tl.Tool(toolName); exists {
-			return tool, true
-		}
-	}
-	return s.deps.Registry.Tool(toolName)
-}
-
 func (s *Server) listTools(kind string, tag string) []api.ToolSummary {
 	needleKind := strings.ToLower(strings.TrimSpace(kind))
 	needleTag := strings.ToLower(strings.TrimSpace(tag))
@@ -128,48 +108,6 @@ func summaryAgentKey(summary *chat.Summary) string {
 		return ""
 	}
 	return strings.TrimSpace(summary.AgentKey)
-}
-
-func applyToolOverride(def api.ToolDetailResponse, overrides map[string]api.ToolDetailResponse) api.ToolDetailResponse {
-	if len(overrides) == 0 {
-		return def
-	}
-	override, ok := overrides[strings.ToLower(strings.TrimSpace(def.Name))]
-	if !ok {
-		override, ok = overrides[strings.ToLower(strings.TrimSpace(def.Key))]
-	}
-	if !ok {
-		return def
-	}
-	merged := def
-	if strings.TrimSpace(override.Key) != "" {
-		merged.Key = override.Key
-	}
-	if strings.TrimSpace(override.Name) != "" {
-		merged.Name = override.Name
-	}
-	if strings.TrimSpace(override.Label) != "" {
-		merged.Label = override.Label
-	}
-	if strings.TrimSpace(override.Description) != "" {
-		merged.Description = override.Description
-	}
-	if strings.TrimSpace(override.AfterCallHint) != "" {
-		merged.AfterCallHint = override.AfterCallHint
-	}
-	if len(override.Parameters) > 0 {
-		merged.Parameters = contracts.CloneMap(override.Parameters)
-	}
-	if len(def.Meta) > 0 {
-		merged.Meta = contracts.CloneMap(def.Meta)
-	}
-	if len(merged.Meta) == 0 {
-		merged.Meta = map[string]any{}
-	}
-	for key, value := range override.Meta {
-		merged.Meta[key] = value
-	}
-	return merged
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {
@@ -474,25 +412,6 @@ func cloneListMaps(src []map[string]any) []map[string]any {
 	return out
 }
 
-func cloneToolOverrides(src map[string]api.ToolDetailResponse) map[string]api.ToolDetailResponse {
-	if src == nil {
-		return nil
-	}
-	out := make(map[string]api.ToolDetailResponse, len(src))
-	for key, value := range src {
-		out[key] = api.ToolDetailResponse{
-			Key:           value.Key,
-			Name:          value.Name,
-			Label:         value.Label,
-			Description:   value.Description,
-			AfterCallHint: value.AfterCallHint,
-			Parameters:    contracts.CloneMap(value.Parameters),
-			Meta:          contracts.CloneMap(value.Meta),
-		}
-	}
-	return out
-}
-
 func cloneToolDetailResponse(value api.ToolDetailResponse) api.ToolDetailResponse {
 	return api.ToolDetailResponse{
 		Key:           value.Key,
@@ -503,22 +422,6 @@ func cloneToolDetailResponse(value api.ToolDetailResponse) api.ToolDetailRespons
 		Parameters:    contracts.CloneMap(value.Parameters),
 		Meta:          contracts.CloneMap(value.Meta),
 	}
-}
-
-type overrideToolLookup struct {
-	base      contracts.ToolDefinitionLookup
-	overrides map[string]api.ToolDetailResponse
-}
-
-func (o overrideToolLookup) Tool(name string) (api.ToolDetailResponse, bool) {
-	if o.base == nil {
-		return api.ToolDetailResponse{}, false
-	}
-	tool, ok := o.base.Tool(name)
-	if !ok {
-		return api.ToolDetailResponse{}, false
-	}
-	return applyToolOverride(tool, o.overrides), true
 }
 
 func canonicalizePublicToolDefinition(tool api.ToolDetailResponse) (api.ToolDetailResponse, bool) {

@@ -105,7 +105,7 @@ func ComputeSystemInitFingerprint(session contracts.QuerySession, stage string, 
 }
 
 func buildDefaultSystemInitProfile(session contracts.QuerySession, req api.QueryRequest, toolDefs []api.ToolDetailResponse, stage string) contracts.SystemInitProfile {
-	effectiveDefs := applyToolOverrides(filterToolDefinitions(toolDefs, session.ToolNames), session.ToolOverrides)
+	effectiveDefs := effectiveToolDefinitions(toolDefs, session.ToolNames, session.AgentHasRuntimeSandbox)
 	systemPrompt := buildSystemPrompt(session, req, session.ModelKey, PromptBuildOptions{
 		Stage:                 stage,
 		ToolDefinitions:       effectiveDefs,
@@ -124,7 +124,7 @@ func buildDefaultSystemInitProfile(session contracts.QuerySession, req api.Query
 
 func buildPlanSystemInitProfile(session contracts.QuerySession, req api.QueryRequest, settings contracts.PlanExecuteSettings, toolDefs []api.ToolDetailResponse) contracts.SystemInitProfile {
 	tools := planSystemInitTools(settings.Plan)
-	effectiveDefs := applyToolOverrides(filterToolDefinitions(toolDefs, tools), session.ToolOverrides)
+	effectiveDefs := effectiveToolDefinitions(toolDefs, tools, session.AgentHasRuntimeSandbox)
 	systemPrompt := buildSystemPrompt(session, req, session.ModelKey, PromptBuildOptions{
 		Stage:                 "plan",
 		ToolDefinitions:       effectiveDefs,
@@ -143,7 +143,7 @@ func buildPlanSystemInitProfile(session contracts.QuerySession, req api.QueryReq
 
 func buildExecuteSystemInitProfile(session contracts.QuerySession, settings contracts.PlanExecuteSettings, toolDefs []api.ToolDetailResponse) contracts.SystemInitProfile {
 	tools := appendUniqueTools(stageToolsOrDefault(settings.Execute, session.ToolNames), "plan_update_task")
-	effectiveDefs := applyToolOverrides(filterToolDefinitions(toolDefs, tools), session.ToolOverrides)
+	effectiveDefs := effectiveToolDefinitions(toolDefs, tools, session.AgentHasRuntimeSandbox)
 	systemPrompt := strings.TrimSpace(settings.Execute.PrimaryPrompt())
 	if systemPrompt == "" {
 		systemPrompt = "Execute the current task."
@@ -180,7 +180,7 @@ func buildSummarySystemInitProfile(session contracts.QuerySession, settings cont
 }
 
 func buildCoderPlanningPlanSystemInitProfile(session contracts.QuerySession, req api.QueryRequest, _ contracts.PlanExecuteSettings, toolDefs []api.ToolDetailResponse) contracts.SystemInitProfile {
-	effectiveDefs := applyToolOverrides(filterToolDefinitions(toolDefs, coderPlanningModePlanTools), session.ToolOverrides)
+	effectiveDefs := effectiveToolDefinitions(toolDefs, coderPlanningModePlanTools, session.AgentHasRuntimeSandbox)
 	systemPrompt := buildSystemPrompt(session, req, session.ModelKey, PromptBuildOptions{
 		Stage:                 "coder-plan",
 		ToolDefinitions:       effectiveDefs,
@@ -199,7 +199,7 @@ func buildCoderPlanningPlanSystemInitProfile(session contracts.QuerySession, req
 
 func buildCoderPlanningExecuteSystemInitProfile(session contracts.QuerySession, req api.QueryRequest, settings contracts.PlanExecuteSettings, toolDefs []api.ToolDetailResponse) contracts.SystemInitProfile {
 	executeTools := coderPlanningExecuteTools(settings.Execute, session.ToolNames)
-	effectiveDefs := applyToolOverrides(filterToolDefinitions(toolDefs, executeTools), session.ToolOverrides)
+	effectiveDefs := effectiveToolDefinitions(toolDefs, executeTools, session.AgentHasRuntimeSandbox)
 	systemPrompt := coderPlanningExecutionSystemPrompt(session, req, settings, coderPlanningModePlanTools, executeTools, defaultCoderExecuteSystemPrompt)
 	specs := toOpenAIToolSpecs(effectiveDefs)
 	return contracts.SystemInitProfile{

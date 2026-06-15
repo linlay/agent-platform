@@ -1359,170 +1359,147 @@ Plan first, then check the current time before reporting.
 }
 
 func TestFinalizePlanningStreamsDeltasBeforeProviderFinishes(t *testing.T) {
-	for _, tc := range []struct {
-		name               string
-		clientVisible      bool
-		wantToolVisibility bool
-	}{
-		{name: "hidden_tool_events", clientVisible: false, wantToolVisibility: false},
-		{name: "visible_tool_events", clientVisible: true, wantToolVisibility: true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			var providerCallCount atomic.Int32
-			firstFrameFlushed := make(chan struct{})
-			continueProvider := make(chan struct{})
-			releasedProvider := false
-			defer func() {
-				if !releasedProvider {
-					close(continueProvider)
-				}
-			}()
+	var providerCallCount atomic.Int32
+	firstFrameFlushed := make(chan struct{})
+	continueProvider := make(chan struct{})
+	releasedProvider := false
+	defer func() {
+		if !releasedProvider {
+			close(continueProvider)
+		}
+	}()
 
-			prefixArgs := `{"markdown":"# Streaming Plan\n\n## Summary\nPart one`
-			suffixArgs := ` and part two.\n\n## Test Plan\n- Verify true streaming\n"}`
+	prefixArgs := `{"markdown":"# Streaming Plan\n\n## Summary\nPart one`
+	suffixArgs := ` and part two.\n\n## Test Plan\n- Verify true streaming\n"}`
 
-			fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
-				var payload map[string]any
-				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-					t.Fatalf("decode model request: %v", err)
-				}
-				switch call := providerCallCount.Add(1); call {
-				case 1:
-					assertCoderPlanningToolSet(t, providerRequestToolNames(payload["tools"]))
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode model request: %v", err)
+		}
+		switch call := providerCallCount.Add(1); call {
+		case 1:
+			assertCoderPlanningToolSet(t, providerRequestToolNames(payload["tools"]))
 
-					flusher, ok := w.(http.Flusher)
-					if !ok {
-						t.Fatalf("expected flusher")
-					}
-					w.Header().Set("Content-Type", "text/event-stream")
-					writeProviderSSEFrame(t, w, providerToolCallArgsDeltaFrame(t, "tool_plan", "finalize_planning", prefixArgs, ""))
-					flusher.Flush()
-					close(firstFrameFlushed)
-
-					select {
-					case <-continueProvider:
-					case <-r.Context().Done():
-						return
-					case <-time.After(5 * time.Second):
-						t.Fatalf("timed out waiting to continue provider stream")
-					}
-
-					writeProviderSSEFrame(t, w, providerToolCallArgsDeltaFrame(t, "", "", suffixArgs, "tool_calls"))
-					flusher.Flush()
-					writeProviderSSEFrame(t, w, `[DONE]`)
-					flusher.Flush()
-				case 2:
-					assertCoderPlanningToolSet(t, providerRequestToolNames(payload["tools"]))
-					writeProviderSSE(t, w,
-						`{"choices":[{"delta":{"content":"已取消执行计划。"},"finish_reason":"stop"}]}`,
-						`[DONE]`,
-					)
-				default:
-					t.Fatalf("unexpected provider call %d", call)
-				}
-			}, testFixtureOptions{
-				setupRuntime: func(root string, cfg *config.Config) {
-					workspace := filepath.Join(root, "workspace")
-					agentDir := filepath.Join(cfg.Paths.AgentsDir, "coder-app")
-					if err := os.MkdirAll(agentDir, 0o755); err != nil {
-						t.Fatalf("mkdir coder agent: %v", err)
-					}
-					if err := os.MkdirAll(workspace, 0o755); err != nil {
-						t.Fatalf("mkdir workspace: %v", err)
-					}
-					lines := []string{
-						"key: coder-app",
-						"name: Coder App",
-						"mode: CODER",
-						"modelConfig:",
-						"  modelKey: mock-model",
-						"runtimeConfig:",
-						"  workspaceRoot: " + filepath.ToSlash(workspace),
-					}
-					if tc.clientVisible {
-						lines = append(lines,
-							"toolConfig:",
-							"  overrides:",
-							"    finalize_planning:",
-							"      meta:",
-							"        clientVisible: true",
-						)
-					}
-					if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte(strings.Join(lines, "\n")), 0o644); err != nil {
-						t.Fatalf("write coder agent: %v", err)
-					}
-				},
-			})
-
-			httpServer := newLoopbackServer(t, fixture.server)
-			defer httpServer.Close()
-
-			client := http.Client{Timeout: 10 * time.Second}
-			chatID := "chat_stream_plan_hidden"
-			if tc.clientVisible {
-				chatID = "chat_stream_plan_visible"
+			flusher, ok := w.(http.Flusher)
+			if !ok {
+				t.Fatalf("expected flusher")
 			}
-			resp, err := client.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"please stream the plan","agentKey":"coder-app","chatId":"`+chatID+`","planningMode":true}`))
-			if err != nil {
-				t.Fatalf("post query: %v", err)
-			}
-			defer resp.Body.Close()
+			w.Header().Set("Content-Type", "text/event-stream")
+			writeProviderSSEFrame(t, w, providerToolCallArgsDeltaFrame(t, "tool_plan", "finalize_planning", prefixArgs, ""))
+			flusher.Flush()
+			close(firstFrameFlushed)
 
 			select {
-			case <-firstFrameFlushed:
+			case <-continueProvider:
+			case <-r.Context().Done():
+				return
 			case <-time.After(5 * time.Second):
-				t.Fatalf("timed out waiting for first provider frame")
+				t.Fatalf("timed out waiting to continue provider stream")
 			}
 
-			reader := bufio.NewReader(resp.Body)
-			var streamBody strings.Builder
-			runID, firstDelta := readUntilPlanningDelta(t, reader, &streamBody)
-			if !strings.Contains(firstDelta, "Part one") {
-				t.Fatalf("expected first planning delta from partial provider args, got %q in %s", firstDelta, streamBody.String())
+			writeProviderSSEFrame(t, w, providerToolCallArgsDeltaFrame(t, "", "", suffixArgs, "tool_calls"))
+			flusher.Flush()
+			writeProviderSSEFrame(t, w, `[DONE]`)
+			flusher.Flush()
+		case 2:
+			assertCoderPlanningToolSet(t, providerRequestToolNames(payload["tools"]))
+			writeProviderSSE(t, w,
+				`{"choices":[{"delta":{"content":"已取消执行计划。"},"finish_reason":"stop"}]}`,
+				`[DONE]`,
+			)
+		default:
+			t.Fatalf("unexpected provider call %d", call)
+		}
+	}, testFixtureOptions{
+		setupRuntime: func(root string, cfg *config.Config) {
+			workspace := filepath.Join(root, "workspace")
+			agentDir := filepath.Join(cfg.Paths.AgentsDir, "coder-app")
+			if err := os.MkdirAll(agentDir, 0o755); err != nil {
+				t.Fatalf("mkdir coder agent: %v", err)
 			}
-			if strings.Contains(streamBody.String(), `"type":"planning.end"`) {
-				t.Fatalf("did not expect planning.end before provider finished, got %s", streamBody.String())
+			if err := os.MkdirAll(workspace, 0o755); err != nil {
+				t.Fatalf("mkdir workspace: %v", err)
 			}
-			assertPlanningStartBeforeDelta(t, streamBody.String())
-			if strings.Contains(streamBody.String(), `"type":"planning.snapshot"`) {
-				t.Fatalf("did not expect live planning.snapshot, got %s", streamBody.String())
+			lines := []string{
+				"key: coder-app",
+				"name: Coder App",
+				"mode: CODER",
+				"modelConfig:",
+				"  modelKey: mock-model",
+				"runtimeConfig:",
+				"  workspaceRoot: " + filepath.ToSlash(workspace),
 			}
-			planningFile := filepath.Join(fixture.cfg.Paths.ChatsDir, chatID, chat.ToolRootDirName, chat.ToolPlansDirName, runID+"_planning_1.md")
-			draftBytes, readDraftErr := os.ReadFile(planningFile)
-			if readDraftErr != nil {
-				t.Fatalf("expected draft planning file before provider finished: %v", readDraftErr)
+			if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+				t.Fatalf("write coder agent: %v", err)
 			}
-			draft := string(draftBytes)
-			if !strings.Contains(draft, "Part one") || strings.Contains(draft, "part two") {
-				t.Fatalf("unexpected draft planning markdown before provider finished:\n%s", draft)
-			}
-			assertFinalizePlanningToolVisibility(t, streamBody.String(), tc.wantToolVisibility)
+		},
+	})
 
-			prefixDeltaCount := strings.Count(streamBody.String(), `"type":"planning.delta"`)
-			close(continueProvider)
-			releasedProvider = true
+	httpServer := newLoopbackServer(t, fixture.server)
+	defer httpServer.Close()
 
-			_, confirmAwaitingID := readAwaitingApproval(t, reader, &streamBody, "confirm")
-			bodyBeforeDecision := streamBody.String()
-			assertPlanningLifecycleBeforePlanAwaiting(t, bodyBeforeDecision, runID)
-			if got := strings.Count(bodyBeforeDecision, `"type":"planning.delta"`); got <= prefixDeltaCount {
-				t.Fatalf("expected additional planning.delta after provider finished, got %d before=%d in %s", got, prefixDeltaCount, bodyBeforeDecision)
-			}
-			finalBytes, readFinalErr := os.ReadFile(planningFile)
-			if readFinalErr != nil {
-				t.Fatalf("read final planning file: %v", readFinalErr)
-			}
-			if !strings.Contains(string(finalBytes), "Part one and part two.") {
-				t.Fatalf("expected final planning markdown to contain both provider chunks, got:\n%s", string(finalBytes))
-			}
-			assertFinalizePlanningToolVisibility(t, bodyBeforeDecision, tc.wantToolVisibility)
+	client := http.Client{Timeout: 10 * time.Second}
+	chatID := "chat_stream_plan_hidden"
+	resp, err := client.Post(httpServer.URL+"/api/query", "application/json", bytes.NewBufferString(`{"message":"please stream the plan","agentKey":"coder-app","chatId":"`+chatID+`","planningMode":true}`))
+	if err != nil {
+		t.Fatalf("post query: %v", err)
+	}
+	defer resp.Body.Close()
 
-			submitFrontendDecision(t, fixture.server, runID, confirmAwaitingID, "reject")
-			readRemainingSSEUntilEOF(t, reader, &streamBody)
-			if got := providerCallCount.Load(); got != 2 {
-				t.Fatalf("provider calls = %d, want 2", got)
-			}
-		})
+	select {
+	case <-firstFrameFlushed:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for first provider frame")
+	}
+
+	reader := bufio.NewReader(resp.Body)
+	var streamBody strings.Builder
+	runID, firstDelta := readUntilPlanningDelta(t, reader, &streamBody)
+	if !strings.Contains(firstDelta, "Part one") {
+		t.Fatalf("expected first planning delta from partial provider args, got %q in %s", firstDelta, streamBody.String())
+	}
+	if strings.Contains(streamBody.String(), `"type":"planning.end"`) {
+		t.Fatalf("did not expect planning.end before provider finished, got %s", streamBody.String())
+	}
+	assertPlanningStartBeforeDelta(t, streamBody.String())
+	if strings.Contains(streamBody.String(), `"type":"planning.snapshot"`) {
+		t.Fatalf("did not expect live planning.snapshot, got %s", streamBody.String())
+	}
+	planningFile := filepath.Join(fixture.cfg.Paths.ChatsDir, chatID, chat.ToolRootDirName, chat.ToolPlansDirName, runID+"_planning_1.md")
+	draftBytes, readDraftErr := os.ReadFile(planningFile)
+	if readDraftErr != nil {
+		t.Fatalf("expected draft planning file before provider finished: %v", readDraftErr)
+	}
+	draft := string(draftBytes)
+	if !strings.Contains(draft, "Part one") || strings.Contains(draft, "part two") {
+		t.Fatalf("unexpected draft planning markdown before provider finished:\n%s", draft)
+	}
+	assertFinalizePlanningToolVisibility(t, streamBody.String(), false)
+
+	prefixDeltaCount := strings.Count(streamBody.String(), `"type":"planning.delta"`)
+	close(continueProvider)
+	releasedProvider = true
+
+	_, confirmAwaitingID := readAwaitingApproval(t, reader, &streamBody, "confirm")
+	bodyBeforeDecision := streamBody.String()
+	assertPlanningLifecycleBeforePlanAwaiting(t, bodyBeforeDecision, runID)
+	if got := strings.Count(bodyBeforeDecision, `"type":"planning.delta"`); got <= prefixDeltaCount {
+		t.Fatalf("expected additional planning.delta after provider finished, got %d before=%d in %s", got, prefixDeltaCount, bodyBeforeDecision)
+	}
+	finalBytes, readFinalErr := os.ReadFile(planningFile)
+	if readFinalErr != nil {
+		t.Fatalf("read final planning file: %v", readFinalErr)
+	}
+	if !strings.Contains(string(finalBytes), "Part one and part two.") {
+		t.Fatalf("expected final planning markdown to contain both provider chunks, got:\n%s", string(finalBytes))
+	}
+	assertFinalizePlanningToolVisibility(t, bodyBeforeDecision, false)
+
+	submitFrontendDecision(t, fixture.server, runID, confirmAwaitingID, "reject")
+	readRemainingSSEUntilEOF(t, reader, &streamBody)
+	if got := providerCallCount.Load(); got != 2 {
+		t.Fatalf("provider calls = %d, want 2", got)
 	}
 }
 
