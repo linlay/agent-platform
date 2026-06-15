@@ -549,6 +549,30 @@ func TestParseAgentFileRejectsInvalidSamplingType(t *testing.T) {
 	}
 }
 
+func TestParseAgentFileRejectsInvalidNestedStageSamplingType(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	if err := os.WriteFile(path, []byte(
+		"key: bad-stage-sampling\n"+
+			"name: Bad Stage Sampling\n"+
+			"mode: PLAN_EXECUTE\n"+
+			"modelConfig:\n"+
+			"  modelKey: demo-model\n"+
+			"stageSettings:\n"+
+			"  plan:\n"+
+			"    modelConfig:\n"+
+			"      sampling:\n"+
+			"        temperature: warm\n",
+	), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	_, err := parseAgentFile(path)
+	if err == nil || !strings.Contains(err.Error(), "stageSettings.plan.modelConfig.sampling.temperature must be a number") {
+		t.Fatalf("expected invalid nested stage sampling type error, got %v", err)
+	}
+}
+
 func TestLoadTeamsSupportsYAMLAndSkipsExampleFiles(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "default.yaml"), []byte(

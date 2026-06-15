@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"agent-platform/internal/contracts"
 )
 
 func TestParseAgentFileSupportsFlattenedToolConfig(t *testing.T) {
@@ -36,6 +38,64 @@ func TestParseAgentFileSupportsFlattenedToolConfig(t *testing.T) {
 	}
 	if def.MemoryEnabled {
 		t.Fatalf("expected memory to stay disabled by default, got %#v", def)
+	}
+}
+
+func TestParseAgentFileSupportsNestedPlanExecuteStageConfig(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	content := "" +
+		"key: nested-stage\n" +
+		"name: Nested Stage\n" +
+		"mode: PLAN_EXECUTE\n" +
+		"modelConfig:\n" +
+		"  modelKey: root-model\n" +
+		"  sampling:\n" +
+		"    temperature: 0.7\n" +
+		"    topP: 0.9\n" +
+		"stageSettings:\n" +
+		"  execute:\n" +
+		"    modelKey: legacy-model\n" +
+		"    tools:\n" +
+		"      - legacy_tool\n" +
+		"    modelConfig:\n" +
+		"      modelKey: nested-model\n" +
+		"      reasoning:\n" +
+		"        enabled: true\n" +
+		"        effort: MEDIUM\n" +
+		"      maxOutputTokens: 8192\n" +
+		"      sampling:\n" +
+		"        frequencyPenalty: 0.1\n" +
+		"    toolConfig:\n" +
+		"      tools:\n" +
+		"        - bash\n" +
+		"        - file_read\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+
+	def, err := parseAgentFile(path)
+	if err != nil {
+		t.Fatalf("parse agent file: %v", err)
+	}
+	settings := contracts.ResolvePlanExecuteSettings(def.StageSettings, 0, 0)
+	if settings.Execute.ModelKey != "nested-model" {
+		t.Fatalf("expected nested execute model key, got %q", settings.Execute.ModelKey)
+	}
+	if settings.Execute.ReasoningEnabled != true || settings.Execute.ReasoningEffort != "MEDIUM" {
+		t.Fatalf("expected nested reasoning settings, got enabled=%v effort=%q", settings.Execute.ReasoningEnabled, settings.Execute.ReasoningEffort)
+	}
+	if settings.Execute.MaxOutputTokens != 8192 {
+		t.Fatalf("expected nested max output tokens, got %d", settings.Execute.MaxOutputTokens)
+	}
+	if !reflect.DeepEqual(settings.Execute.Tools, []string{"bash", "file_read"}) {
+		t.Fatalf("expected nested tools to win, got %#v", settings.Execute.Tools)
+	}
+	if settings.Execute.Sampling.Temperature == nil || *settings.Execute.Sampling.Temperature != 0.7 {
+		t.Fatalf("expected execute temperature inherited from root model sampling, got %#v", settings.Execute.Sampling)
+	}
+	if settings.Execute.Sampling.FrequencyPenalty == nil || *settings.Execute.Sampling.FrequencyPenalty != 0.1 {
+		t.Fatalf("expected nested frequency penalty, got %#v", settings.Execute.Sampling)
 	}
 }
 
@@ -1301,6 +1361,43 @@ func TestParseAgentFileWithPromptsStagePromptFileOverridesConvention(t *testing.
 	}
 	if def.PlanPrompt != "custom plan" {
 		t.Fatalf("plan prompt = %q, want custom override", def.PlanPrompt)
+	}
+}
+
+func TestParseAgentFileWithPromptsStageSettingsPromptFileOverridesLegacyPlanExecute(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "agent.yml")
+	content := "" +
+		"key: demo\n" +
+		"name: Demo\n" +
+		"mode: PLAN_EXECUTE\n" +
+		"modelConfig:\n" +
+		"  modelKey: demo-model\n" +
+		"stageSettings:\n" +
+		"  plan:\n" +
+		"    promptFile: stage-plan.md\n" +
+		"planExecute:\n" +
+		"  plan:\n" +
+		"    promptFile: legacy-plan.md\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write agent file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.plan.md"), []byte("plan convention"), 0o644); err != nil {
+		t.Fatalf("write convention prompt: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "legacy-plan.md"), []byte("legacy plan"), 0o644); err != nil {
+		t.Fatalf("write legacy prompt: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "stage-plan.md"), []byte("stage plan"), 0o644); err != nil {
+		t.Fatalf("write stage prompt: %v", err)
+	}
+
+	def, err := parseAgentFileWithPrompts(path, root)
+	if err != nil {
+		t.Fatalf("parse agent file with prompts: %v", err)
+	}
+	if def.PlanPrompt != "stage plan" {
+		t.Fatalf("plan prompt = %q, want stageSettings prompt override", def.PlanPrompt)
 	}
 }
 

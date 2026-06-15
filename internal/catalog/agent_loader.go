@@ -234,10 +234,11 @@ func loadAgentPrompts(agentDir string, def *AgentDefinition, root map[string]any
 
 	switch def.Mode {
 	case "PLAN_EXECUTE":
+		stageSettings := mapNode(root["stageSettings"])
 		pe := mapNode(root["planExecute"])
-		def.PlanPrompt = resolveStagePrompt(agentDir, "plan", mapNode(pe["plan"]), topPromptFiles)
-		def.ExecutePrompt = resolveStagePrompt(agentDir, "execute", mapNode(pe["execute"]), topPromptFiles)
-		def.SummaryPrompt = resolveStagePrompt(agentDir, "summary", mapNode(pe["summary"]), topPromptFiles)
+		def.PlanPrompt = resolveStagePrompt(agentDir, "plan", mapNode(stageSettings["plan"]), mapNode(pe["plan"]), topPromptFiles)
+		def.ExecutePrompt = resolveStagePrompt(agentDir, "execute", mapNode(stageSettings["execute"]), mapNode(pe["execute"]), topPromptFiles)
+		def.SummaryPrompt = resolveStagePrompt(agentDir, "summary", mapNode(stageSettings["summary"]), mapNode(pe["summary"]), topPromptFiles)
 	default:
 		if len(topPromptFiles) > 0 {
 			def.AgentsPrompt = loadPromptMarkdowns(agentDir, topPromptFiles)
@@ -248,8 +249,11 @@ func loadAgentPrompts(agentDir string, def *AgentDefinition, root map[string]any
 	}
 }
 
-func resolveStagePrompt(agentDir string, stage string, stageConfig map[string]any, topPromptFiles []string) string {
+func resolveStagePrompt(agentDir string, stage string, stageConfig map[string]any, legacyStageConfig map[string]any, topPromptFiles []string) string {
 	stageFiles := parsePromptFileField(stageConfig["promptFile"])
+	if len(stageFiles) == 0 {
+		stageFiles = parsePromptFileField(legacyStageConfig["promptFile"])
+	}
 	if len(stageFiles) > 0 {
 		if content := loadPromptMarkdowns(agentDir, stageFiles); content != "" {
 			return content
@@ -787,11 +791,16 @@ func validateAgentSamplingConfig(path string, root map[string]any) error {
 		if len(node) == 0 {
 			continue
 		}
-		if _, exists := node["sampling"]; !exists {
-			continue
+		if _, exists := node["sampling"]; exists {
+			if err := contracts.ValidateSamplingSettings(node["sampling"], "stageSettings."+stage+".sampling"); err != nil {
+				return fmt.Errorf("%s: %w", path, err)
+			}
 		}
-		if err := contracts.ValidateSamplingSettings(node["sampling"], "stageSettings."+stage+".sampling"); err != nil {
-			return fmt.Errorf("%s: %w", path, err)
+		modelConfig := mapNode(node["modelConfig"])
+		if _, exists := modelConfig["sampling"]; exists {
+			if err := contracts.ValidateSamplingSettings(modelConfig["sampling"], "stageSettings."+stage+".modelConfig.sampling"); err != nil {
+				return fmt.Errorf("%s: %w", path, err)
+			}
 		}
 	}
 	return nil

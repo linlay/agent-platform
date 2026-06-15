@@ -78,6 +78,7 @@ func parseStageSettingsWithBaseSampling(raw map[string]any, base SamplingSetting
 }
 
 func parseStageSettings(raw map[string]any) StageSettings {
+	raw = normalizeStageSettingsNode(raw)
 	return StageSettings{
 		SystemPrompt:       anyStringNode(raw["systemPrompt"]),
 		ModelKey:           anyStringNode(raw["modelKey"]),
@@ -91,6 +92,44 @@ func parseStageSettings(raw map[string]any) StageSettings {
 		DeepThinking:       anyBoolNode(raw["deepThinking"]),
 		InstructionsPrompt: anyStringNode(raw["instructionsPrompt"]),
 		MaxOutputTokens:    anyIntNode(raw["maxOutputTokens"]),
+	}
+}
+
+func normalizeStageSettingsNode(raw map[string]any) map[string]any {
+	if len(raw) == 0 {
+		return raw
+	}
+	normalized := make(map[string]any, len(raw)+4)
+	for key, value := range raw {
+		normalized[key] = value
+	}
+	if modelConfig := anyMapNode(raw["modelConfig"]); len(modelConfig) > 0 {
+		applyStageModelConfig(normalized, modelConfig)
+	}
+	if toolConfig := anyMapNode(raw["toolConfig"]); len(toolConfig) > 0 {
+		if _, exists := toolConfig["tools"]; exists {
+			normalized["tools"] = toolConfig["tools"]
+		}
+	}
+	return normalized
+}
+
+func applyStageModelConfig(stage map[string]any, modelConfig map[string]any) {
+	for _, key := range []string{"modelKey", "providerKey", "model", "protocol", "maxOutputTokens"} {
+		if _, exists := modelConfig[key]; exists {
+			stage[key] = modelConfig[key]
+		}
+	}
+	if _, exists := modelConfig["sampling"]; exists {
+		stage["sampling"] = modelConfig["sampling"]
+	}
+	if reasoning := anyMapNode(modelConfig["reasoning"]); len(reasoning) > 0 {
+		if _, exists := reasoning["enabled"]; exists {
+			stage["reasoningEnabled"] = reasoning["enabled"]
+		}
+		if _, exists := reasoning["effort"]; exists {
+			stage["reasoningEffort"] = reasoning["effort"]
+		}
 	}
 }
 
