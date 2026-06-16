@@ -1,5 +1,7 @@
 package stream
 
+import "agent-platform/internal/apperrors"
+
 func (d *StreamEventDispatcher) Complete() []StreamEvent {
 	if d.state.terminated {
 		return nil
@@ -8,7 +10,7 @@ func (d *StreamEventDispatcher) Complete() []StreamEvent {
 	if d.state.runError != nil {
 		payload := map[string]any{
 			"runId": d.request.RunID,
-			"error": normalizeErrorMap(d.state.runError, "stream_failed", "run", "runtime"),
+			"error": normalizeErrorMap(d.state.runError, string(apperrors.CodeStreamFailed), string(apperrors.ScopeRun), string(apperrors.CategoryChatRun)),
 		}
 		if usage := d.usagePayload(); usage != nil {
 			payload["usage"] = usage
@@ -33,16 +35,16 @@ func (d *StreamEventDispatcher) Fail(err error) []StreamEvent {
 	if d.state.terminated {
 		return nil
 	}
-	d.state.runError = map[string]any{
-		"code":     "stream_failed",
-		"message":  err.Error(),
-		"scope":    "run",
-		"category": "runtime",
-	}
+	d.state.runError = apperrors.FromError(
+		err,
+		apperrors.CodeStreamFailed,
+		apperrors.WithScope(apperrors.ScopeRun),
+		apperrors.WithCategory(apperrors.CategoryChatRun),
+	)
 	events := d.closeOpenBlocks()
 	payload := map[string]any{
 		"runId": d.request.RunID,
-		"error": normalizeErrorMap(d.state.runError, "stream_failed", "run", "runtime"),
+		"error": normalizeErrorMap(d.state.runError, string(apperrors.CodeStreamFailed), string(apperrors.ScopeRun), string(apperrors.CategoryChatRun)),
 	}
 	if usage := d.usagePayload(); usage != nil {
 		payload["usage"] = usage
@@ -143,17 +145,37 @@ func normalizeErrorMap(input map[string]any, defaultCode string, defaultScope st
 	if output == nil {
 		output = map[string]any{}
 	}
-	if _, ok := output["code"]; !ok {
+	code, _ := output["code"].(string)
+	if code == "" {
+		code = defaultCode
 		output["code"] = defaultCode
 	}
 	if _, ok := output["message"]; !ok {
 		output["message"] = ""
 	}
+	definition, known := apperrors.Lookup(apperrors.Code(code))
 	if _, ok := output["scope"]; !ok {
-		output["scope"] = defaultScope
+		if known {
+			output["scope"] = string(definition.Scope)
+		} else {
+			output["scope"] = defaultScope
+		}
 	}
 	if _, ok := output["category"]; !ok {
-		output["category"] = defaultCategory
+		if known {
+			output["category"] = string(definition.Category)
+		} else {
+			output["category"] = defaultCategory
+		}
+	}
+	if _, ok := output["status"]; !ok && known {
+		output["status"] = definition.HTTPStatus
+	}
+	if _, ok := output["retryable"]; !ok && known {
+		output["retryable"] = definition.Retryable
+	}
+	if _, ok := output["userSafeMessageKey"]; !ok && known {
+		output["userSafeMessageKey"] = definition.UserSafeMessageKey
 	}
 	return output
 }

@@ -27,12 +27,27 @@ func Success[T any](data T) ApiResponse[T] {
 	}
 }
 
-func Failure(code int, msg string) ApiResponse[map[string]any] {
+func Failure(code int, msg string, errors ...map[string]any) ApiResponse[map[string]any] {
+	data := map[string]any{}
+	if len(errors) > 0 && len(errors[0]) > 0 {
+		data["error"] = cloneAnyMap(errors[0])
+	}
 	return ApiResponse[map[string]any]{
 		Code: code,
 		Msg:  msg,
-		Data: map[string]any{},
+		Data: data,
 	}
+}
+
+func cloneAnyMap(input map[string]any) map[string]any {
+	if len(input) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(input))
+	for key, value := range input {
+		out[key] = value
+	}
+	return out
 }
 
 const (

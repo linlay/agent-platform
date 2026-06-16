@@ -52,6 +52,11 @@ func TestConnLocaleLocalizesErrorsPerConnection(t *testing.T) {
 	if !ok || enFrame.Msg != "agent not found" {
 		t.Fatalf("expected English error frame, got %#v", enMsg.frame)
 	}
+	data, _ := enFrame.Data.(map[string]any)
+	errPayload, _ := data["error"].(map[string]any)
+	if errPayload["code"] != "not_found" || errPayload["status"] != 404 {
+		t.Fatalf("expected structured error payload in websocket frame, got %#v", enFrame.Data)
+	}
 }
 
 func TestConnLocaleLocalizesStreamErrorWithoutMutatingOriginal(t *testing.T) {

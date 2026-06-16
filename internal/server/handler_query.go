@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/apperrors"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/i18n"
@@ -201,7 +202,7 @@ func (s *Server) handleQueryNonStream(w http.ResponseWriter, ctx context.Context
 		result.FullText = collector.FullText(result.AssistantText)
 	}
 	if queryRunFailed(result) {
-		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, queryRunErrorMessage(result)))
+		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, queryRunErrorMessage(result), queryRunErrorPayload(result)))
 		return
 	}
 	writeJSON(w, http.StatusOK, api.Success(queryResponseFromResult(prepared.req, result)))
@@ -213,6 +214,7 @@ type queryRunResult struct {
 	Usage         chat.UsageData
 	FullText      string
 	ErrorMessage  string
+	ErrorPayload  map[string]any
 }
 
 type queryEventCollector struct {
@@ -221,6 +223,7 @@ type queryEventCollector struct {
 	usage         chat.UsageData
 	fullText      *queryFullTextBuilder
 	errorMessage  string
+	errorPayload  map[string]any
 }
 
 func newQueryEventCollector(includeFullText bool) *queryEventCollector {
@@ -265,6 +268,9 @@ func (c *queryEventCollector) Consume(event stream.EventData) {
 		if message := queryEventErrorMessage(event); message != "" {
 			c.errorMessage = message
 		}
+		if payload := queryEventErrorPayload(event); len(payload) > 0 {
+			c.errorPayload = payload
+		}
 		c.consumeUsage(event)
 	}
 }
@@ -283,6 +289,7 @@ func (c *queryEventCollector) Result() queryRunResult {
 		Usage:         c.usage,
 		FullText:      c.FullText(c.assistantText.String()),
 		ErrorMessage:  c.errorMessage,
+		ErrorPayload:  cloneQueryErrorPayload(c.errorPayload),
 	}
 }
 
@@ -503,6 +510,9 @@ func mergeObservedQueryRunResult(result queryRunResult, observed queryRunResult)
 	if strings.TrimSpace(result.ErrorMessage) == "" {
 		result.ErrorMessage = observed.ErrorMessage
 	}
+	if len(result.ErrorPayload) == 0 {
+		result.ErrorPayload = cloneQueryErrorPayload(observed.ErrorPayload)
+	}
 	if result.Usage.TotalTokens == 0 && observed.Usage.TotalTokens > 0 {
 		result.Usage = observed.Usage
 	}
@@ -518,6 +528,18 @@ func queryRunErrorMessage(result queryRunResult) string {
 		return message
 	}
 	return "query run failed"
+}
+
+func queryRunErrorPayload(result queryRunResult) map[string]any {
+	if len(result.ErrorPayload) > 0 {
+		return cloneQueryErrorPayload(result.ErrorPayload)
+	}
+	return apperrors.Payload(apperrors.CodeStreamFailed, queryRunErrorMessage(result), apperrors.WithScope(apperrors.ScopeRun))
+}
+
+func queryEventErrorPayload(event stream.EventData) map[string]any {
+	payload, _ := event.Value("error").(map[string]any)
+	return cloneQueryErrorPayload(payload)
 }
 
 func queryEventErrorMessage(event stream.EventData) string {
@@ -544,6 +566,17 @@ func queryErrorValueMessage(value any) string {
 		}
 	}
 	return strings.TrimSpace(formatFullTextValue(value))
+}
+
+func cloneQueryErrorPayload(input map[string]any) map[string]any {
+	if len(input) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(input))
+	for key, value := range input {
+		out[key] = value
+	}
+	return out
 }
 
 func (s *Server) runQuerySync(ctx context.Context, prepared preparedQuery, emitVisible func(stream.EventData) error, observeEvent func(stream.EventData)) (queryRunResult, error) {
@@ -620,7 +653,13 @@ func (s *Server) runQuerySync(ctx context.Context, prepared preparedQuery, emitV
 		if persisted {
 			syncBroadcastChatUpdated(s.deps.Notifications, completion)
 		}
-		return queryRunResult{AssistantText: assistantText.String(), FinishReason: "error", Usage: runUsage, ErrorMessage: err.Error()}, nil
+		return queryRunResult{
+			AssistantText: assistantText.String(),
+			FinishReason:  "error",
+			Usage:         runUsage,
+			ErrorMessage:  err.Error(),
+			ErrorPayload:  apperrors.FromError(err, apperrors.CodeStreamFailed, apperrors.WithScope(apperrors.ScopeRun)),
+		}, nil
 	}
 	defer agentStream.Close()
 
@@ -671,7 +710,13 @@ func (s *Server) runQuerySync(ctx context.Context, prepared preparedQuery, emitV
 		if persisted {
 			syncBroadcastChatUpdated(s.deps.Notifications, completion)
 		}
-		return queryRunResult{AssistantText: assistantText.String(), FinishReason: finishReason, Usage: runUsage, ErrorMessage: errorMessage}, nil
+		return queryRunResult{
+			AssistantText: assistantText.String(),
+			FinishReason:  finishReason,
+			Usage:         runUsage,
+			ErrorMessage:  errorMessage,
+			ErrorPayload:  apperrors.FromError(streamErr, apperrors.CodeStreamFailed, apperrors.WithScope(apperrors.ScopeRun)),
+		}, nil
 	}
 
 	for _, event := range assembler.Complete() {

@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"agent-platform/internal/apperrors"
 	"agent-platform/internal/config"
 	"agent-platform/internal/i18n"
 	"agent-platform/internal/stream"
@@ -520,6 +521,7 @@ func (c *Conn) SendPush(frameType string, data any) bool {
 
 func (c *Conn) SendError(id string, frameType string, code int, msg string, data any) bool {
 	locale := c.Locale()
+	data = attachStructuredError(frameType, code, msg, data)
 	return c.enqueue(outboundMessage{
 		frame: ErrorFrame{
 			Frame: FrameError,
@@ -531,6 +533,24 @@ func (c *Conn) SendError(id string, frameType string, code int, msg string, data
 		},
 		msgType: gws.TextMessage,
 	})
+}
+
+func attachStructuredError(frameType string, status int, msg string, data any) any {
+	errorPayload := apperrors.Payload(apperrors.Code(frameType), msg, apperrors.WithStatus(status))
+	if data == nil {
+		return map[string]any{"error": errorPayload}
+	}
+	if typed, ok := data.(map[string]any); ok {
+		out := make(map[string]any, len(typed)+1)
+		for key, value := range typed {
+			out[key] = value
+		}
+		if _, exists := out["error"]; !exists {
+			out["error"] = errorPayload
+		}
+		return out
+	}
+	return data
 }
 
 func (c *Conn) SendProtocolError(id string, err *ProtocolError) bool {

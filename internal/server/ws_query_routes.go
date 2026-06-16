@@ -334,7 +334,7 @@ func (s *Server) sendWSStatusError(conn *ws.Conn, requestID string, err *statusE
 func (s *Server) sendWSAttachError(conn *ws.Conn, requestID string, runID string, chatID string, err error) {
 	var replayErr *stream.ReplayWindowExceededError
 	if errors.As(err, &replayErr) {
-		conn.SendError(requestID, "SEQ_EXPIRED", 409, "SEQ_EXPIRED", map[string]any{
+		conn.SendError(requestID, "seq_expired", 409, "SEQ_EXPIRED", map[string]any{
 			"runId":     runID,
 			"chatId":    chatID,
 			"oldestSeq": replayErr.OldestSeq,

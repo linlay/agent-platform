@@ -45,6 +45,9 @@ func TestTranslateAndFallback(t *testing.T) {
 	if got := Translate(LocaleZhCN, "internal_error", "database exploded"); got != "database exploded" {
 		t.Fatalf("dynamic messages should remain unchanged, got %q", got)
 	}
+	if got := Translate(LocaleZhCN, "provider_quota_exhausted", "model request failed with status 429: api key quota exhausted"); got != "模型服务额度已用尽" {
+		t.Fatalf("provider code should translate independently of dynamic message, got %q", got)
+	}
 	if got := Translate(LocaleEN, "not_found", "agent not found"); got != "agent not found" {
 		t.Fatalf("en should not translate, got %q", got)
 	}

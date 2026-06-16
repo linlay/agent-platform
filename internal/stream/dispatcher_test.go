@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"agent-platform/internal/apperrors"
 )
 
 func TestDispatcherClosesContentWhenSwitchingToTool(t *testing.T) {
@@ -827,6 +829,29 @@ func TestDispatcherFailClosesOpenBlocksAndEmitsRunError(t *testing.T) {
 	errPayload, _ := last["error"].(map[string]any)
 	if errPayload["code"] != "stream_failed" {
 		t.Fatalf("expected stream_failed code, got %#v", errPayload)
+	}
+}
+
+func TestDispatcherFailPreservesStructuredProviderError(t *testing.T) {
+	dispatcher := NewDispatcher(StreamRequest{
+		RunID:  "run_1",
+		ChatID: "chat_1",
+	})
+
+	events := dispatcher.Fail(apperrors.New(
+		apperrors.CodeProviderQuotaExhausted,
+		"model request failed with status 429: api key quota exhausted",
+		apperrors.WithStatus(429),
+	))
+	assertEventTypes(t, events, "run.error")
+
+	last := events[len(events)-1].ToData()
+	errPayload, _ := last["error"].(map[string]any)
+	if errPayload["code"] != string(apperrors.CodeProviderQuotaExhausted) {
+		t.Fatalf("expected provider code, got %#v", errPayload)
+	}
+	if errPayload["category"] != string(apperrors.CategoryModel) || errPayload["status"] != 429 || errPayload["retryable"] != false {
+		t.Fatalf("unexpected provider error metadata %#v", errPayload)
 	}
 }
 

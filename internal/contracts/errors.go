@@ -1,6 +1,10 @@
 package contracts
 
-import "errors"
+import (
+	"errors"
+
+	"agent-platform/internal/apperrors"
+)
 
 type ErrorCategory string
 
@@ -32,15 +36,14 @@ var (
 	ErrNotImplemented               = errors.New("not implemented")
 )
 
+// NewErrorPayload is a compatibility entrypoint for older call sites.
+// New structured errors should be created through internal/apperrors.
 func NewErrorPayload(code string, message string, scope string, category ErrorCategory, diagnostics map[string]any) map[string]any {
-	payload := map[string]any{
-		"code":     code,
-		"message":  message,
-		"scope":    scope,
-		"category": string(category),
-	}
-	if len(diagnostics) > 0 {
-		payload["diagnostics"] = CloneAnyMap(diagnostics)
-	}
-	return payload
+	return apperrors.Payload(
+		apperrors.Code(code),
+		message,
+		apperrors.WithScope(apperrors.Scope(scope)),
+		apperrors.WithCategory(apperrors.Category(category)),
+		apperrors.WithDiagnostics(CloneAnyMap(diagnostics)),
+	)
 }

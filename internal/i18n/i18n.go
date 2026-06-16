@@ -71,24 +71,133 @@ var zhCNMessages = map[string]string{
 }
 
 var zhCNCodes = map[string]string{
-	"active_run_conflict": "当前会话存在活跃运行冲突",
-	"duplicate_id":        "请求 id 已在处理中",
-	"duplicate_observe":   "当前连接已在观察该运行",
-	"forbidden":           "无权限访问",
-	"internal_error":      "内部错误",
-	"invalid_locale":      "语言设置无效",
-	"invalid_request":     "请求无效",
-	"not_found":           "未找到",
-	"resource_forbidden":  "资源访问被拒绝",
-	"resource_not_found":  "资源不存在",
-	"run_not_found":       "运行不存在",
-	"task_failed":         "任务失败",
-	"timeout":             "操作超时",
-	"too_many_observers":  "观察者数量过多",
-	"too_many_streams":    "活跃流数量过多",
-	"unavailable":         "服务不可用",
-	"unauthorized":        "未授权",
-	"user_dismissed":      "用户关闭等待项",
+	"active_run_conflict":                    "当前会话存在活跃运行冲突",
+	"agent_forbidden":                        "当前渠道不允许使用该智能体",
+	"agent_not_found":                        "智能体不存在",
+	"agent_registry_unavailable":             "智能体注册表不可用",
+	"archive_not_found":                      "归档不存在",
+	"archive_operation_failed":               "归档操作失败",
+	"archive_unavailable":                    "归档服务不可用",
+	"automation_execution_store_unavailable": "自动化执行记录不可用",
+	"automation_id_allocate_failed":          "自动化 ID 分配失败",
+	"automation_invalid":                     "自动化配置无效",
+	"automation_not_found":                   "自动化不存在",
+	"automation_unavailable":                 "自动化服务不可用",
+	"budget_exceeded":                        "运行预算已用尽",
+	"channel_forbidden":                      "当前渠道不允许该操作",
+	"chat_not_found":                         "会话不存在",
+	"chat_store_unavailable":                 "会话存储不可用",
+	"configuration_error":                    "配置错误",
+	"duplicate_id":                           "请求 id 已在处理中",
+	"duplicate_observe":                      "当前连接已在观察该运行",
+	"duplicate_stream":                       "请求已存在活跃流",
+	"event_bus_unavailable":                  "运行事件总线不可用",
+	"external_tool_call_failed":              "外部工具调用失败",
+	"file_history_not_found":                 "文件历史不存在",
+	"file_history_unavailable":               "文件历史不可用",
+	"forbidden":                              "无权限访问",
+	"frontend_submit_invalid_payload":        "前端提交内容无效",
+	"frontend_submit_timeout":                "等待前端提交超时",
+	"frontend_tool_handler_not_registered":   "前端工具处理器未注册",
+	"hitl_rejected":                          "用户拒绝了该操作",
+	"hitl_rejected_with_feedback":            "用户拒绝并给出了修改意见",
+	"hitl_timeout":                           "等待用户审批超时",
+	"invalid_field":                          "字段无效",
+	"internal_error":                         "内部错误",
+	"invalid_file_history_request":           "文件历史请求无效",
+	"invalid_locale":                         "语言设置无效",
+	"invalid_payload":                        "请求内容无效",
+	"invalid_request":                        "请求无效",
+	"invalid_upload_metadata":                "上传元数据无效",
+	"mcp_call_failed":                        "MCP 调用失败",
+	"memory_disabled":                        "记忆系统已禁用",
+	"memory_history_unavailable":             "记忆历史不可用",
+	"memory_not_found":                       "记忆不存在",
+	"memory_operation_failed":                "记忆操作失败",
+	"memory_store_unavailable":               "记忆存储不可用",
+	"method_not_allowed":                     "请求方法不允许",
+	"missing_required_field":                 "必填字段缺失",
+	"model_calls_exceeded":                   "模型调用次数已达上限",
+	"model_not_found":                        "模型不存在",
+	"model_registry_unavailable":             "模型注册表不可用",
+	"not_found":                              "未找到",
+	"observer_attach_failed":                 "观察运行流失败",
+	"plan_context_unavailable":               "计划上下文不可用",
+	"planning_mode_unsupported":              "当前智能体不支持规划模式",
+	"policy_denied":                          "安全策略拒绝了该操作",
+	"provider_auth_failed":                   "模型服务鉴权失败",
+	"provider_bad_request":                   "模型服务请求无效",
+	"provider_bad_response":                  "模型服务返回异常",
+	"provider_content_filter":                "模型服务拒绝了该内容",
+	"provider_context_length_exceeded":       "上下文长度超过模型限制",
+	"provider_model_not_found":               "模型服务中不存在该模型",
+	"provider_network_error":                 "连接模型服务失败",
+	"provider_permission_denied":             "模型服务权限不足",
+	"provider_quota_exhausted":               "模型服务额度已用尽",
+	"provider_rate_limited":                  "模型服务请求过于频繁",
+	"provider_request_failed":                "模型服务请求失败",
+	"provider_stream_failed":                 "模型服务流式响应失败",
+	"provider_stream_invalid":                "模型服务流式响应无效",
+	"provider_timeout":                       "模型服务请求超时",
+	"provider_unavailable":                   "模型服务不可用",
+	"proxy_bad_response":                     "代理服务返回异常",
+	"proxy_config_missing":                   "代理配置缺失",
+	"proxy_request_failed":                   "代理请求失败",
+	"proxy_streaming_unsupported":            "代理服务不支持流式响应",
+	"proxy_timeout":                          "代理请求超时",
+	"proxy_upstream_error":                   "代理上游服务错误",
+	"resource_forbidden":                     "资源访问被拒绝",
+	"resource_not_found":                     "资源不存在",
+	"resource_push_failed":                   "资源推送失败",
+	"resource_read_failed":                   "资源读取失败",
+	"resource_ticket_chat_mismatch":          "资源票据与会话不匹配",
+	"resource_ticket_required":               "需要资源票据",
+	"run_not_found":                          "运行不存在",
+	"run_already_finished":                   "运行已结束",
+	"run_cancelled":                          "运行已取消",
+	"run_error":                              "运行失败",
+	"run_interrupted":                        "运行已中断",
+	"run_timeout":                            "运行超时",
+	"seq_expired":                            "流序号已过期",
+	"SEQ_EXPIRED":                            "流序号已过期",
+	"service_unavailable":                    "服务不可用",
+	"skill_candidate_store_unavailable":      "技能候选存储不可用",
+	"storage_failed":                         "存储操作失败",
+	"stream_failed":                          "运行流失败",
+	"sub_agent_failed":                       "子智能体执行失败",
+	"task_execution_error":                   "任务执行错误",
+	"task_failed":                            "任务失败",
+	"terminal_not_found":                     "终端不存在",
+	"terminal_unavailable":                   "终端服务不可用",
+	"terminal_unsupported":                   "终端不受支持",
+	"timeout":                                "操作超时",
+	"tool_args_invalid":                      "工具参数无效",
+	"tool_calls_exceeded":                    "工具调用次数已达上限",
+	"tool_failed":                            "工具调用失败",
+	"too_many_observers":                     "观察者数量过多",
+	"too_many_streams":                       "活跃流数量过多",
+	"tool_not_found":                         "工具不存在",
+	"tool_result_access_denied":              "工具结果访问被拒绝",
+	"tool_result_forbidden":                  "工具结果访问被拒绝",
+	"tool_result_not_found":                  "工具结果不存在",
+	"tool_timeout":                           "工具调用超时",
+	"unsupported":                            "不支持该操作",
+	"unsupported_operation":                  "不支持该操作",
+	"upload_failed":                          "上传失败",
+	"unavailable":                            "服务不可用",
+	"unauthorized":                           "未授权",
+	"user_dismissed":                         "用户关闭等待项",
+}
+
+var zhCNPreferMessageCodes = map[string]bool{
+	"active_run_conflict": true,
+	"forbidden":           true,
+	"internal_error":      true,
+	"invalid_request":     true,
+	"not_found":           true,
+	"timeout":             true,
+	"unavailable":         true,
+	"unauthorized":        true,
 }
 
 // SupportedLocales returns the public locale identifiers accepted by this service.
@@ -165,13 +274,22 @@ func Translate(locale string, code string, message string) string {
 	if locale != LocaleZhCN {
 		return message
 	}
-	if translated := zhCNMessages[message]; translated != "" {
-		return translated
-	}
-	if message == "" || message == code {
-		if translated := zhCNCodes[code]; translated != "" {
+	if zhCNPreferMessageCodes[code] {
+		if translated := zhCNMessages[message]; translated != "" {
 			return translated
 		}
+		if message == "" || message == code {
+			if translated := zhCNCodes[code]; translated != "" {
+				return translated
+			}
+		}
+		return message
+	}
+	if translated := zhCNCodes[code]; translated != "" {
+		return translated
+	}
+	if translated := zhCNMessages[message]; translated != "" {
+		return translated
 	}
 	return message
 }
