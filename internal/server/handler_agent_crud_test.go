@@ -7,8 +7,10 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
@@ -155,6 +157,7 @@ func TestAgentCreateCoderAndOpenWorkspace(t *testing.T) {
 		t.Fatalf("create workspace dir: %v", err)
 	}
 
+	beforeCreate := time.Now().Unix()
 	created := postAgentJSON[api.AgentDetailResponse](t, fixture.server, "/api/admin/agents/create", map[string]any{
 		"definition": map[string]any{
 			"name": "agent-coder",
@@ -171,8 +174,16 @@ func TestAgentCreateCoderAndOpenWorkspace(t *testing.T) {
 			},
 		},
 	})
+	afterCreate := time.Now().Unix()
 	if !strings.HasPrefix(created.Key, "coder-") || created.Mode != "CODER" {
 		t.Fatalf("unexpected coder create response %#v", created)
+	}
+	generatedAt, err := strconv.ParseInt(strings.TrimPrefix(created.Key, "coder-"), 36, 64)
+	if err != nil {
+		t.Fatalf("coder key suffix should be base36 seconds, key=%q err=%v", created.Key, err)
+	}
+	if generatedAt < beforeCreate || generatedAt > afterCreate {
+		t.Fatalf("coder key suffix = %d, want between %d and %d for key %q", generatedAt, beforeCreate, afterCreate, created.Key)
 	}
 	if created.Definition["key"] != created.Key {
 		t.Fatalf("expected generated coder key to be persisted, key=%q definition=%#v", created.Key, created.Definition["key"])

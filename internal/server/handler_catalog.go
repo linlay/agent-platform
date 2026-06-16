@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
@@ -253,7 +252,7 @@ func (s *Server) normalizeCoderCreation(key string, definition map[string]any) (
 	if mode != catalog.AgentModeCoder {
 		return key, definition
 	}
-	newKey := fmt.Sprintf("coder-%d", time.Now().UnixMilli())
+	newKey := "coder-" + strconv.FormatInt(time.Now().Unix(), 36)
 	out := contracts.CloneMap(definition)
 	out["key"] = newKey
 
