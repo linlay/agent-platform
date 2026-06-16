@@ -113,6 +113,110 @@ func TestCoderModelOptionsHTTP(t *testing.T) {
 	}
 }
 
+func TestCoderModelOptionsFiltersEmptyAPIKeyAndShowsACPPassthrough(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		setupRuntime: func(_ string, cfg *config.Config) {
+			if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "providers", "mock.yml"), []byte(strings.Join([]string{
+				"key: mock",
+				"baseUrl: http://127.0.0.1:1",
+				"apiKey:",
+				"defaultModel: mock-model",
+			}, "\n")), 0o644); err != nil {
+				t.Fatalf("write empty api key provider: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "models", "gpt-5-codex.yml"), []byte(strings.Join([]string{
+				"key: gpt-5-codex",
+				"name: GPT-5 Codex",
+				"protocol: ACP_PASSTHROUGH",
+				"modelId: gpt-5-codex",
+			}, "\n")), 0o644); err != nil {
+				t.Fatalf("write acp passthrough model: %v", err)
+			}
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/model-options", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("options returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var response api.ApiResponse[api.CoderModelOptionsResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode options response: %v", err)
+	}
+	if response.Data.DefaultModelKey != "gpt-5-codex" {
+		t.Fatalf("expected ACP passthrough fallback default, got %#v", response.Data)
+	}
+	for _, model := range response.Data.Models {
+		if model.Key == "mock-model" {
+			t.Fatalf("mock-model should be hidden when provider apiKey is empty: %#v", response.Data.Models)
+		}
+	}
+	foundACP := false
+	for _, model := range response.Data.Models {
+		if model.Key == "gpt-5-codex" && model.Protocol == "ACP_PASSTHROUGH" && model.Provider == "" {
+			foundACP = true
+		}
+	}
+	if !foundACP {
+		t.Fatalf("expected ACP passthrough model option, got %#v", response.Data.Models)
+	}
+}
+
+func TestCoderModelOptionsDefaultSkipsHiddenProviderModel(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		setupRuntime: func(_ string, cfg *config.Config) {
+			if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "providers", "mock.yml"), []byte(strings.Join([]string{
+				"key: mock",
+				"baseUrl: http://127.0.0.1:1",
+				"apiKey:",
+				"defaultModel: mock-model",
+			}, "\n")), 0o644); err != nil {
+				t.Fatalf("write empty api key provider: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "providers", "ready.yml"), []byte(strings.Join([]string{
+				"key: ready",
+				"baseUrl: http://127.0.0.1:1",
+				"apiKey: ready-key",
+				"defaultModel: ready-model",
+			}, "\n")), 0o644); err != nil {
+				t.Fatalf("write ready provider: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "models", "ready-model.yml"), []byte(strings.Join([]string{
+				"key: ready-model",
+				"name: Ready Model",
+				"provider: ready",
+				"protocol: OPENAI",
+				"modelId: ready-model-id",
+			}, "\n")), 0o644); err != nil {
+				t.Fatalf("write ready model: %v", err)
+			}
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/model-options", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("options returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var response api.ApiResponse[api.CoderModelOptionsResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode options response: %v", err)
+	}
+	if response.Data.DefaultModelKey != "ready-model" {
+		t.Fatalf("expected ready-model default, got %#v", response.Data)
+	}
+	for _, model := range response.Data.Models {
+		if model.Key == "mock-model" {
+			t.Fatalf("mock-model should be hidden when provider apiKey is empty: %#v", response.Data.Models)
+		}
+	}
+}
+
 func TestCoderModelOptionsWS(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `{"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}`, `[DONE]`)

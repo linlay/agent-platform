@@ -55,6 +55,8 @@ type ModelDefinition struct {
 	Compat        map[string]any
 }
 
+const ProtocolACPPassthrough = "ACP_PASSTHROUGH"
+
 type ModelPricing struct {
 	Currency       string
 	Unit           string
@@ -83,6 +85,14 @@ func (p ProviderDefinition) Protocol(protocol string) ProtocolDefinition {
 		return ProtocolDefinition{EndpointPath: p.EndpointPath}
 	}
 	return ProtocolDefinition{}
+}
+
+func IsACPPassthroughProtocol(protocol string) bool {
+	return strings.EqualFold(strings.TrimSpace(protocol), ProtocolACPPassthrough)
+}
+
+func IsACPPassthroughModel(model ModelDefinition) bool {
+	return IsACPPassthroughProtocol(model.Protocol)
 }
 
 func LoadModelRegistry(registriesDir string) (*ModelRegistry, error) {
@@ -135,6 +145,9 @@ func (r *ModelRegistry) Get(key string) (ModelDefinition, ProviderDefinition, er
 	model, ok := r.models[key]
 	if !ok {
 		return ModelDefinition{}, ProviderDefinition{}, fmt.Errorf("model %s not found", key)
+	}
+	if IsACPPassthroughModel(model) {
+		return ModelDefinition{}, ProviderDefinition{}, fmt.Errorf("model %s uses ACP_PASSTHROUGH protocol and cannot be used by native provider runtime", model.Key)
 	}
 	provider, ok := r.providers[model.Provider]
 	if !ok {
@@ -227,6 +240,9 @@ func (r *ModelRegistry) defaultLocked() (ModelDefinition, ProviderDefinition, er
 	sort.Strings(providerKeys)
 	for _, providerKey := range providerKeys {
 		provider := r.providers[providerKey]
+		if !providerHasAPIKey(provider) {
+			continue
+		}
 		if match, ok := matchProviderDefault(r.models, provider); ok {
 			return match, provider, nil
 		}
@@ -238,8 +254,11 @@ func (r *ModelRegistry) defaultLocked() (ModelDefinition, ProviderDefinition, er
 	sort.Strings(modelKeys)
 	for _, modelKey := range modelKeys {
 		model := r.models[modelKey]
+		if IsACPPassthroughModel(model) {
+			continue
+		}
 		provider, ok := r.providers[model.Provider]
-		if ok {
+		if ok && providerHasAPIKey(provider) {
 			return model, provider, nil
 		}
 	}
@@ -247,7 +266,13 @@ func (r *ModelRegistry) defaultLocked() (ModelDefinition, ProviderDefinition, er
 }
 
 func matchProviderDefault(models map[string]ModelDefinition, provider ProviderDefinition) (ModelDefinition, bool) {
+	if !providerHasAPIKey(provider) {
+		return ModelDefinition{}, false
+	}
 	for _, model := range models {
+		if IsACPPassthroughModel(model) {
+			continue
+		}
 		if model.Provider != provider.Key {
 			continue
 		}
@@ -256,6 +281,10 @@ func matchProviderDefault(models map[string]ModelDefinition, provider ProviderDe
 		}
 	}
 	return ModelDefinition{}, false
+}
+
+func providerHasAPIKey(provider ProviderDefinition) bool {
+	return strings.TrimSpace(provider.APIKey) != ""
 }
 
 func loadProviders(dir string) (map[string]ProviderDefinition, error) {

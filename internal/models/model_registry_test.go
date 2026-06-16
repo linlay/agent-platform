@@ -258,6 +258,28 @@ func TestProviderlessModelStillFailsProviderBackedGet(t *testing.T) {
 	}
 }
 
+func TestACPPassthroughModelCanBeReadWithoutProvider(t *testing.T) {
+	root := t.TempDir()
+	writeTestProviderAndModel(t, root, "apiKey: plain-text")
+	writeTestProviderlessModel(t, root, "gpt-5-codex", "gpt-5-codex", "protocol: ACP_PASSTHROUGH")
+
+	registry, err := LoadModelRegistry(root)
+	if err != nil {
+		t.Fatalf("LoadModelRegistry returned error: %v", err)
+	}
+
+	model, err := registry.GetModel("gpt-5-codex")
+	if err != nil {
+		t.Fatalf("GetModel returned error: %v", err)
+	}
+	if !IsACPPassthroughModel(model) {
+		t.Fatalf("expected ACP passthrough model, got %#v", model)
+	}
+	if _, _, err := registry.Get("gpt-5-codex"); err == nil || !strings.Contains(err.Error(), "ACP_PASSTHROUGH") {
+		t.Fatalf("expected native provider Get to reject ACP passthrough model, got %v", err)
+	}
+}
+
 func TestDefaultSkipsProviderlessModels(t *testing.T) {
 	root := t.TempDir()
 	writeTestProviderAndModel(t, root, "apiKey: plain-text")
@@ -274,6 +296,20 @@ func TestDefaultSkipsProviderlessModels(t *testing.T) {
 	}
 	if model.Key != "mock-model" || provider.Key != "mock" {
 		t.Fatalf("expected provider-backed default, got model=%#v provider=%#v", model, provider)
+	}
+}
+
+func TestDefaultSkipsProviderModelsWithEmptyAPIKey(t *testing.T) {
+	root := t.TempDir()
+	writeTestProviderAndModel(t, root, "apiKey:")
+
+	registry, err := LoadModelRegistry(root)
+	if err != nil {
+		t.Fatalf("LoadModelRegistry returned error: %v", err)
+	}
+
+	if _, _, err := registry.Default(); err == nil || !strings.Contains(err.Error(), "no provider-backed models") {
+		t.Fatalf("expected no provider-backed models default error, got %v", err)
 	}
 }
 
@@ -313,7 +349,7 @@ func writeTestProviderAndModel(t *testing.T, root string, apiKeyLine string, mod
 	}
 }
 
-func writeTestProviderlessModel(t *testing.T, root string, key string, modelID string) {
+func writeTestProviderlessModel(t *testing.T, root string, key string, modelID string, extraLines ...string) {
 	t.Helper()
 	modelsDir := filepath.Join(root, "models")
 	if err := os.MkdirAll(modelsDir, 0o755); err != nil {
@@ -324,6 +360,9 @@ func writeTestProviderlessModel(t *testing.T, root string, key string, modelID s
 		"name: Providerless Model",
 		"modelId: " + modelID,
 	}, "\n")
+	if len(extraLines) > 0 {
+		modelConfig += "\n" + strings.Join(extraLines, "\n")
+	}
 	if err := os.WriteFile(filepath.Join(modelsDir, key+".yml"), []byte(modelConfig), 0o644); err != nil {
 		t.Fatalf("write providerless model config: %v", err)
 	}

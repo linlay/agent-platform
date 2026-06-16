@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/models"
 )
 
 var coderReasoningEfforts = []api.ReasoningEffortOption{
@@ -20,15 +21,10 @@ func (s *Server) handleModelOptions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) buildModelOptions() api.CoderModelOptionsResponse {
-	models := s.listModelOptions()
-	defaultModelKey := ""
-	if s.deps.Models != nil {
-		if model, _, err := s.deps.Models.Default(); err == nil {
-			defaultModelKey = strings.TrimSpace(model.Key)
-		}
-	}
+	modelOptions := s.listModelOptions()
+	defaultModelKey := s.defaultModelOptionKey(modelOptions)
 	return api.CoderModelOptionsResponse{
-		Models:                 models,
+		Models:                 modelOptions,
 		ReasoningEfforts:       append([]api.ReasoningEffortOption(nil), coderReasoningEfforts...),
 		DefaultModelKey:        defaultModelKey,
 		DefaultReasoningEffort: "MEDIUM",
@@ -36,12 +32,15 @@ func (s *Server) buildModelOptions() api.CoderModelOptionsResponse {
 }
 
 func (s *Server) listModelOptions() []api.CoderModelOption {
-	models := []api.CoderModelOption{}
+	options := []api.CoderModelOption{}
 	if s.deps.Models == nil {
-		return models
+		return options
 	}
 	for _, model := range s.deps.Models.List() {
-		models = append(models, api.CoderModelOption{
+		if !s.shouldShowModelOption(model) {
+			continue
+		}
+		options = append(options, api.CoderModelOption{
 			Key:           model.Key,
 			Name:          model.Name,
 			Provider:      model.Provider,
@@ -52,7 +51,59 @@ func (s *Server) listModelOptions() []api.CoderModelOption {
 			ContextWindow: model.ContextWindow,
 		})
 	}
-	return models
+	return options
+}
+
+func (s *Server) shouldShowModelOption(model models.ModelDefinition) bool {
+	if models.IsACPPassthroughModel(model) {
+		return true
+	}
+	providerKey := strings.TrimSpace(model.Provider)
+	if providerKey == "" || s.deps.Models == nil {
+		return false
+	}
+	provider, err := s.deps.Models.GetProvider(providerKey)
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(provider.APIKey) != ""
+}
+
+func (s *Server) defaultModelOptionKey(options []api.CoderModelOption) string {
+	if len(options) == 0 {
+		return ""
+	}
+	visible := make(map[string]bool, len(options))
+	normalFallback := ""
+	acpFallback := ""
+	for _, option := range options {
+		key := strings.TrimSpace(option.Key)
+		if key == "" {
+			continue
+		}
+		visible[key] = true
+		if models.IsACPPassthroughProtocol(option.Protocol) {
+			if acpFallback == "" {
+				acpFallback = key
+			}
+			continue
+		}
+		if normalFallback == "" {
+			normalFallback = key
+		}
+	}
+	if s.deps.Models != nil {
+		if model, _, err := s.deps.Models.Default(); err == nil {
+			key := strings.TrimSpace(model.Key)
+			if visible[key] {
+				return key
+			}
+		}
+	}
+	if normalFallback != "" {
+		return normalFallback
+	}
+	return acpFallback
 }
 
 func normalizeCoderReasoningEffort(value string) (string, bool) {

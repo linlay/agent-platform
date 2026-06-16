@@ -80,6 +80,27 @@ curl "http://127.0.0.1:11949/api/agent?agentKey=default_agent"
 curl http://127.0.0.1:11949/api/chats
 ```
 
+HTTP 模式调用 `/api/query` 的可运行示例：
+
+```bash
+# 终端 1：启动服务
+make run
+
+# 终端 2：普通 HTTP JSON 响应，内部会传 stream:false
+go run ./examples/http-query -message "用一句话介绍 agent-platform"
+
+# 如需查看 SSE 流式事件
+go run ./examples/http-query -stream -message "元素碳的简介，100字"
+```
+
+也可以直接用 curl：
+
+```bash
+curl -sS -X POST http://127.0.0.1:11949/api/query \
+  -H "Content-Type: application/json" \
+  -d '{"message":"用一句话介绍 agent-platform","agentKey":"default_agent","stream":false}'
+```
+
 ### Mobile Gateway 本地联调
 
 `agent-platform` 不会自行签发 gateway JWT。本地 mobile channel 联调时，需要先生成一对 RSA 密钥，并把预签名 token 写进 `.env`。
@@ -165,7 +186,7 @@ LLM 交互日志、SSE/H2A 传输参数、WebSocket 调优项和 memory/chat sto
 
 Provider `apiKey` 按明文字符串读取：
 
-- 示例：`apiKey: sk-...`
+- 未配置时保留为空值：`apiKey:`
 - runtime 不再支持 provider `apiKey` 加密或解密；包括 `AES(...)` 在内的任何值都会作为普通字符串使用。
 
 ### `configs/` 目录

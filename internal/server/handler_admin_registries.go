@@ -13,6 +13,7 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/models"
 )
 
 const (
@@ -246,11 +247,14 @@ func (s *Server) adminRegistryDiagnostics(category string, file string, root map
 		if strings.TrimSpace(contracts.FirstNonEmptyString(root["key"])) == "" {
 			addError("missing_key", "model key is required")
 		}
-		provider := strings.TrimSpace(contracts.FirstNonEmptyString(root["provider"]))
-		if provider == "" {
-			addError("missing_provider", "model provider is required")
-		} else if !s.adminRegistryProviderExists(provider) {
-			addError("unknown_provider", fmt.Sprintf("provider %s not found", provider))
+		protocol := strings.TrimSpace(contracts.FirstNonEmptyString(root["protocol"]))
+		if !models.IsACPPassthroughProtocol(protocol) {
+			provider := strings.TrimSpace(contracts.FirstNonEmptyString(root["provider"]))
+			if provider == "" {
+				addError("missing_provider", "model provider is required")
+			} else if !s.adminRegistryProviderExists(provider) {
+				addError("unknown_provider", fmt.Sprintf("provider %s not found", provider))
+			}
 		}
 		if strings.TrimSpace(contracts.FirstNonEmptyString(root["modelId"], root["model-id"])) == "" {
 			addError("missing_model_id", "modelId is required")

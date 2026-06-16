@@ -50,6 +50,14 @@ func setupAdminRegistriesFixture(t *testing.T) testFixture {
 			}, "\n")), 0o644); err != nil {
 				t.Fatalf("write unknown provider model: %v", err)
 			}
+			if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "models", "acp-passthrough.yml"), []byte(strings.Join([]string{
+				"key: acp-passthrough",
+				"name: ACP Passthrough",
+				"protocol: ACP_PASSTHROUGH",
+				"modelId: gpt-5-codex",
+			}, "\n")), 0o644); err != nil {
+				t.Fatalf("write acp passthrough model: %v", err)
+			}
 		},
 	})
 }
@@ -78,6 +86,9 @@ func TestAdminRegistriesEndpointIncludesInvalidFiles(t *testing.T) {
 	}
 	if item := byFile["models/unknown-provider.yml"]; item.Status != "invalid" || len(item.Diagnostics) == 0 || item.Diagnostics[0].Code != "unknown_provider" {
 		t.Fatalf("unknown provider diagnostics missing: %#v", item)
+	}
+	if item := byFile["models/acp-passthrough.yml"]; item.Status != "ready" || len(item.Diagnostics) != 0 {
+		t.Fatalf("acp passthrough providerless model should be ready: %#v", item)
 	}
 	if item := byFile["viewport-servers/missing-base.yml"]; item.Status != "invalid" || len(item.Diagnostics) == 0 || item.Diagnostics[0].Code != "missing_base_url" {
 		t.Fatalf("viewport diagnostics missing: %#v", item)
@@ -143,6 +154,20 @@ func TestAdminRegistryDetailSaveValidateAndPathGuard(t *testing.T) {
 	}
 	if validateResp.Data.Status != "invalid" || len(validateResp.Data.Diagnostics) == 0 || validateResp.Data.Diagnostics[0].Code != "unknown_provider" {
 		t.Fatalf("expected invalid validate diagnostics, got %#v", validateResp.Data)
+	}
+
+	validateBody = bytes.NewBufferString(`{"category":"models","file":"draft-acp.yml","content":"key: draft-acp\nprotocol: ACP_PASSTHROUGH\nmodelId: gpt-5-codex\n"}`)
+	rec = httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/admin/registries/validate", validateBody))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("validate acp status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	validateResp = api.ApiResponse[api.AdminRegistryValidateResponse]{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &validateResp); err != nil {
+		t.Fatalf("decode acp validate response: %v", err)
+	}
+	if validateResp.Data.Status != "ready" || len(validateResp.Data.Diagnostics) != 0 {
+		t.Fatalf("expected ready acp validate response, got %#v", validateResp.Data)
 	}
 
 	rec = httptest.NewRecorder()

@@ -138,6 +138,30 @@ GET /ws -> request / response / stream / push / error frames
 
 `steam` 不是支持字段；如果误传 `steam:false`，不会触发非流式响应。
 
+可运行的 HTTP JSON 模式示例：
+
+```bash
+# 终端 1：启动 agent-platform
+make run
+
+# 终端 2：调用 /api/query，默认请求体使用 stream:false
+go run ./examples/http-query -message "用一句话介绍 agent-platform"
+```
+
+等价 curl：
+
+```bash
+curl -sS -X POST http://127.0.0.1:11949/api/query \
+  -H "Content-Type: application/json" \
+  -d '{"message":"用一句话介绍 agent-platform","agentKey":"default_agent","stream":false}'
+```
+
+SSE 模式可以跑同一个例子：
+
+```bash
+go run ./examples/http-query -stream -message "元素碳的简介，100字"
+```
+
 `params` 是业务透传对象，平台不读取、不写入、不约定内部 key。
 
 `role` 可选值为 `user`、`assistant`、`automation`、`system`，普通 query 缺省为 `user`。`automation` / `system` 的 `request.query` 会保留在 trace 中，但不会作为可见用户消息参与搜索或 Markdown 导出。
@@ -176,9 +200,9 @@ GET /ws -> request / response / stream / push / error frames
 
 `GET /api/model-options` 返回聊天输入区运行时可选项。前端按当前 agent `mode` 自行决定是否展示该控件：
 
-- `models`: 当前 model registry 中的模型，字段为 `key/provider/modelId/protocol/isReasoner/isVision/contextWindow`
+- `models`: 当前 model registry 中可展示的模型，字段为 `key/provider/modelId/protocol/isReasoner/isVision/contextWindow`。普通模型要求 provider 存在且 `apiKey` 非空；`protocol: ACP_PASSTHROUGH` 的 ACP 透传模型不要求 provider。
 - `reasoningEfforts`: 固定为 `NONE`、`LOW`、`MEDIUM`、`HIGH`，其中 `NONE` 表示关闭思考深度
-- `defaultModelKey`: model registry 默认模型；无默认模型时为空
+- `defaultModelKey`: 可展示模型中的默认模型；优先普通可调用模型，没有时可回退到 ACP 透传模型，无默认模型时为空
 - `defaultReasoningEffort`: 固定为 `MEDIUM`
 
 其中 `contextWindow` 是 API 响应字段名；model registry YAML 中对应配置字段为 `maxInputTokens`。
