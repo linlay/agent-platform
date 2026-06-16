@@ -240,6 +240,32 @@ func TestQueryNonStreamReturnsJSONAndPersistsChatHistory(t *testing.T) {
 	}
 }
 
+func TestQueryNonStreamReturnsFailureWhenRunErrors(t *testing.T) {
+	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `{"broken":true}`, `[DONE]`)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"bad stream","agentKey":"mock-agent","stream":false}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	fixture.server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp api.ApiResponse[map[string]any]
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode failure response: %v", err)
+	}
+	if resp.Code != http.StatusInternalServerError || !strings.Contains(resp.Msg, "provider stream returned no choices") {
+		t.Fatalf("expected provider error failure, got %#v body=%s", resp, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), `"content"`) {
+		t.Fatalf("did not expect success content field on run error, got %s", rec.Body.String())
+	}
+}
+
 func TestQuerySteamTypoDoesNotDisableSSE(t *testing.T) {
 	fixture := newTestFixture(t)
 	server := fixture.server

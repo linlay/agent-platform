@@ -259,6 +259,10 @@ func (s *Server) handleProxyQueryNonStream(w http.ResponseWriter, r *http.Reques
 				if prepared.req.IncludeFullText {
 					result.FullText = collector.FullText(result.AssistantText)
 				}
+				if queryRunFailed(result) {
+					writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, queryRunErrorMessage(result)))
+					return
+				}
 				writeJSON(w, http.StatusOK, api.Success(queryResponseFromResult(prepared.req, result)))
 				return
 			}

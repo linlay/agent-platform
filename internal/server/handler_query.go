@@ -196,8 +196,13 @@ func (s *Server) handleQueryNonStream(w http.ResponseWriter, ctx context.Context
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
+	result = mergeObservedQueryRunResult(result, collector.Result())
 	if prepared.req.IncludeFullText {
 		result.FullText = collector.FullText(result.AssistantText)
+	}
+	if queryRunFailed(result) {
+		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, queryRunErrorMessage(result)))
+		return
 	}
 	writeJSON(w, http.StatusOK, api.Success(queryResponseFromResult(prepared.req, result)))
 }
@@ -207,6 +212,7 @@ type queryRunResult struct {
 	FinishReason  string
 	Usage         chat.UsageData
 	FullText      string
+	ErrorMessage  string
 }
 
 type queryEventCollector struct {
@@ -214,6 +220,7 @@ type queryEventCollector struct {
 	finishReason  string
 	usage         chat.UsageData
 	fullText      *queryFullTextBuilder
+	errorMessage  string
 }
 
 func newQueryEventCollector(includeFullText bool) *queryEventCollector {
@@ -255,6 +262,9 @@ func (c *queryEventCollector) Consume(event stream.EventData) {
 		c.consumeUsage(event)
 	case "run.error":
 		c.finishReason = "error"
+		if message := queryEventErrorMessage(event); message != "" {
+			c.errorMessage = message
+		}
 		c.consumeUsage(event)
 	}
 }
@@ -272,6 +282,7 @@ func (c *queryEventCollector) Result() queryRunResult {
 		FinishReason:  finishReason,
 		Usage:         c.usage,
 		FullText:      c.FullText(c.assistantText.String()),
+		ErrorMessage:  c.errorMessage,
 	}
 }
 
@@ -482,6 +493,59 @@ func queryResponseFromResult(req api.QueryRequest, result queryRunResult) api.Qu
 	return resp
 }
 
+func mergeObservedQueryRunResult(result queryRunResult, observed queryRunResult) queryRunResult {
+	if strings.TrimSpace(result.AssistantText) == "" && strings.TrimSpace(observed.AssistantText) != "" {
+		result.AssistantText = observed.AssistantText
+	}
+	if strings.EqualFold(strings.TrimSpace(observed.FinishReason), "error") || strings.TrimSpace(result.FinishReason) == "" {
+		result.FinishReason = observed.FinishReason
+	}
+	if strings.TrimSpace(result.ErrorMessage) == "" {
+		result.ErrorMessage = observed.ErrorMessage
+	}
+	if result.Usage.TotalTokens == 0 && observed.Usage.TotalTokens > 0 {
+		result.Usage = observed.Usage
+	}
+	return result
+}
+
+func queryRunFailed(result queryRunResult) bool {
+	return strings.EqualFold(strings.TrimSpace(result.FinishReason), "error")
+}
+
+func queryRunErrorMessage(result queryRunResult) string {
+	if message := strings.TrimSpace(result.ErrorMessage); message != "" {
+		return message
+	}
+	return "query run failed"
+}
+
+func queryEventErrorMessage(event stream.EventData) string {
+	if message := strings.TrimSpace(event.String("message")); message != "" {
+		return message
+	}
+	if message := strings.TrimSpace(event.String("error")); message != "" {
+		return message
+	}
+	return queryErrorValueMessage(event.Value("error"))
+}
+
+func queryErrorValueMessage(value any) string {
+	switch typed := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return strings.TrimSpace(typed)
+	case map[string]any:
+		for _, key := range []string{"message", "error", "code"} {
+			if message, _ := typed[key].(string); strings.TrimSpace(message) != "" {
+				return strings.TrimSpace(message)
+			}
+		}
+	}
+	return strings.TrimSpace(formatFullTextValue(value))
+}
+
 func (s *Server) runQuerySync(ctx context.Context, prepared preparedQuery, emitVisible func(stream.EventData) error, observeEvent func(stream.EventData)) (queryRunResult, error) {
 	defer releaseQuery(prepared.release)
 	control := contracts.NewRunControl(ctx, prepared.req.RunID)
@@ -556,12 +620,13 @@ func (s *Server) runQuerySync(ctx context.Context, prepared preparedQuery, emitV
 		if persisted {
 			syncBroadcastChatUpdated(s.deps.Notifications, completion)
 		}
-		return queryRunResult{AssistantText: assistantText.String(), FinishReason: "error", Usage: runUsage}, nil
+		return queryRunResult{AssistantText: assistantText.String(), FinishReason: "error", Usage: runUsage, ErrorMessage: err.Error()}, nil
 	}
 	defer agentStream.Close()
 
 	streamFailed := false
 	streamInterrupted := false
+	var streamErr error
 	for {
 		delta, nextErr := agentStream.Next()
 		if errors.Is(nextErr, io.EOF) {
@@ -573,6 +638,7 @@ func (s *Server) runQuerySync(ctx context.Context, prepared preparedQuery, emitV
 		}
 		if nextErr != nil {
 			streamFailed = true
+			streamErr = nextErr
 			control.TransitionState(contracts.RunLoopStateFailed)
 			for _, event := range assembler.Fail(nextErr) {
 				if writeErr := writeEvent(event); writeErr != nil {
@@ -597,11 +663,15 @@ func (s *Server) runQuerySync(ctx context.Context, prepared preparedQuery, emitV
 		if streamInterrupted {
 			finishReason = "cancel"
 		}
+		errorMessage := ""
+		if streamErr != nil {
+			errorMessage = streamErr.Error()
+		}
 		persisted, completion := persistRunCompletionWithReason(syncRunExecutorParams(s, prepared, control, principal), assistantText.String(), runUsage, finishReason, false)
 		if persisted {
 			syncBroadcastChatUpdated(s.deps.Notifications, completion)
 		}
-		return queryRunResult{AssistantText: assistantText.String(), FinishReason: finishReason, Usage: runUsage}, nil
+		return queryRunResult{AssistantText: assistantText.String(), FinishReason: finishReason, Usage: runUsage, ErrorMessage: errorMessage}, nil
 	}
 
 	for _, event := range assembler.Complete() {
