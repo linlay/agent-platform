@@ -114,17 +114,24 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 	if chatStore != nil {
 		stepWriter = chat.NewStepWriter(chatStore, req.ChatID, req.RunID, agentDef.Mode, chat.WithDebugEventsEnabled(s.deps.Config.Stream.DebugEventsEnabled))
 		stepWriter.SetPendingSystemInits(prepared.systemInitLines)
+		queryPayload := map[string]any{
+			"requestId": req.RequestID,
+			"runId":     req.RunID,
+			"chatId":    req.ChatID,
+			"agentKey":  req.AgentKey,
+			"role":      req.Role,
+			"message":   req.Message,
+		}
+		if req.IncludeUsage {
+			queryPayload["includeUsage"] = true
+		}
+		if req.IncludeFullText {
+			queryPayload["includeFullText"] = true
+		}
 		stepWriter.OnEvent(stream.EventData{
 			Type:      "request.query",
 			Timestamp: time.Now().UnixMilli(),
-			Payload: map[string]any{
-				"requestId": req.RequestID,
-				"runId":     req.RunID,
-				"chatId":    req.ChatID,
-				"agentKey":  req.AgentKey,
-				"role":      req.Role,
-				"message":   req.Message,
-			},
+			Payload:   queryPayload,
 		})
 	}
 

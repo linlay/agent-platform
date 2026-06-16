@@ -173,7 +173,8 @@ func TestQueryNonStreamReturnsJSONAndPersistsChatHistory(t *testing.T) {
 	})
 	server := fixture.server
 
-	body := bytes.NewBufferString(`{"message":"非流式回答","agentKey":"mock-agent","stream":false}`)
+	chatID := "chat-nonstream-json"
+	body := bytes.NewBufferString(`{"chatId":"` + chatID + `","message":"非流式回答","agentKey":"mock-agent","stream":false}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/query", body)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -190,22 +191,36 @@ func TestQueryNonStreamReturnsJSONAndPersistsChatHistory(t *testing.T) {
 		t.Fatalf("did not expect sse body, got %s", rec.Body.String())
 	}
 
+	var rawResp api.ApiResponse[map[string]json.RawMessage]
+	if err := json.Unmarshal(rec.Body.Bytes(), &rawResp); err != nil {
+		t.Fatalf("decode raw query response: %v", err)
+	}
+	if len(rawResp.Data) != 1 {
+		t.Fatalf("expected content-only response data, got %s", rec.Body.String())
+	}
+	if _, ok := rawResp.Data["content"]; !ok {
+		t.Fatalf("expected content field, got %s", rec.Body.String())
+	}
+	if _, ok := rawResp.Data["assistantText"]; ok {
+		t.Fatalf("did not expect assistantText in default response, got %s", rec.Body.String())
+	}
+	if _, ok := rawResp.Data["usage"]; ok {
+		t.Fatalf("did not expect usage in default response, got %s", rec.Body.String())
+	}
+
 	var queryResp api.ApiResponse[api.QueryResponse]
 	if err := json.Unmarshal(rec.Body.Bytes(), &queryResp); err != nil {
 		t.Fatalf("decode query response: %v", err)
 	}
-	if queryResp.Code != 0 || queryResp.Data.AssistantText != "JSON response" || queryResp.Data.FinishReason != "complete" {
+	if queryResp.Code != 0 || queryResp.Data.Content != "JSON response" {
 		t.Fatalf("unexpected query response %#v", queryResp)
 	}
-	if queryResp.Data.ChatID == "" || queryResp.Data.RunID == "" || queryResp.Data.RequestID == "" || queryResp.Data.AgentKey != "mock-agent" {
-		t.Fatalf("expected run identifiers in response, got %#v", queryResp.Data)
-	}
-	if queryResp.Data.Usage == nil || queryResp.Data.Usage.TotalTokens != 10 {
-		t.Fatalf("expected run usage in response, got %#v", queryResp.Data.Usage)
+	if queryResp.Data.Usage != nil || queryResp.Data.FullText != nil {
+		t.Fatalf("did not expect optional fields by default, got %#v", queryResp.Data)
 	}
 
 	chatRec := httptest.NewRecorder()
-	server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+queryResp.Data.ChatID+"&includeRawMessages=true", nil))
+	server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatID+"&includeRawMessages=true", nil))
 	var chatResp api.ApiResponse[api.ChatDetailResponse]
 	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
 		t.Fatalf("decode chat response: %v", err)
@@ -728,12 +743,14 @@ func TestQueryNonStreamCanExecuteBackendToolLoop(t *testing.T) {
 		writeProviderSSE(t, w,
 			`{"choices":[{"delta":{"content":"完成工具调用后"}}]}`,
 			`{"choices":[{"delta":{"content":"的最终回答"},"finish_reason":"stop"}]}`,
+			`{"choices":[],"usage":{"prompt_tokens":11,"completion_tokens":5,"total_tokens":16}}`,
 			`[DONE]`,
 		)
 	})
 	server := fixture.server
 
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"现在几点？","stream":false}`))
+	chatID := "chat-nonstream-tool"
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"`+chatID+`","message":"现在几点？","stream":false,"includeUsage":true,"includeFullText":true}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 
@@ -749,12 +766,22 @@ func TestQueryNonStreamCanExecuteBackendToolLoop(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &queryResp); err != nil {
 		t.Fatalf("decode query response: %v", err)
 	}
-	if queryResp.Data.AssistantText != "完成工具调用后的最终回答" || queryResp.Data.FinishReason != "complete" {
+	if queryResp.Data.Content != "完成工具调用后的最终回答" {
 		t.Fatalf("unexpected query response %#v", queryResp)
+	}
+	if queryResp.Data.Usage == nil || queryResp.Data.Usage.TotalTokens != 16 {
+		t.Fatalf("expected run usage in response, got %#v", queryResp.Data.Usage)
+	}
+	if queryResp.Data.FullText == nil {
+		t.Fatalf("expected fullText in response, got %#v", queryResp.Data)
+	}
+	fullText := *queryResp.Data.FullText
+	if !strings.Contains(fullText, "datetime") || !strings.Contains(fullText, "Tool result") || !strings.Contains(fullText, "完成工具调用后的最终回答") {
+		t.Fatalf("expected tool process and final answer in fullText, got %q", fullText)
 	}
 
 	chatRec := httptest.NewRecorder()
-	server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+queryResp.Data.ChatID, nil))
+	server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatID, nil))
 	var chatResp api.ApiResponse[api.ChatDetailResponse]
 	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
 		t.Fatalf("decode chat detail: %v", err)

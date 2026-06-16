@@ -362,17 +362,24 @@ func newProxyEventRecorder(
 	if stepWriter == nil {
 		return nil
 	}
+	queryPayload := map[string]any{
+		"requestId": req.RequestID,
+		"runId":     req.RunID,
+		"chatId":    req.ChatID,
+		"agentKey":  req.AgentKey,
+		"role":      req.Role,
+		"message":   req.Message,
+	}
+	if req.IncludeUsage {
+		queryPayload["includeUsage"] = true
+	}
+	if req.IncludeFullText {
+		queryPayload["includeFullText"] = true
+	}
 	stepWriter.OnEvent(stream.EventData{
 		Type:      "request.query",
 		Timestamp: time.Now().UnixMilli(),
-		Payload: map[string]any{
-			"requestId": req.RequestID,
-			"runId":     req.RunID,
-			"chatId":    req.ChatID,
-			"agentKey":  req.AgentKey,
-			"role":      req.Role,
-			"message":   req.Message,
-		},
+		Payload:   queryPayload,
 	})
 	recorder := &proxyEventRecorder{
 		req:        req,

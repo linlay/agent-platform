@@ -114,7 +114,8 @@ func TestProxyQueryNonStreamAggregatesSSEUpstream(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	body := bytes.NewBufferString(`{"agentKey":"mock-agent","message":"proxy me","stream":false,"params":{"channel":"desktop"}}`)
+	chatID := "chat-proxy-nonstream"
+	body := bytes.NewBufferString(`{"chatId":"` + chatID + `","agentKey":"mock-agent","message":"proxy me","stream":false,"includeUsage":true,"params":{"channel":"desktop"}}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/query", body)
 	req.Header.Set("Content-Type", "application/json")
 	fixture.server.ServeHTTP(rec, req)
@@ -132,7 +133,7 @@ func TestProxyQueryNonStreamAggregatesSSEUpstream(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &queryResp); err != nil {
 		t.Fatalf("decode query response: %v", err)
 	}
-	if queryResp.Data.AssistantText != "proxy answer" || queryResp.Data.FinishReason != "complete" {
+	if queryResp.Data.Content != "proxy answer" {
 		t.Fatalf("unexpected query response %#v", queryResp)
 	}
 	if queryResp.Data.Usage == nil || queryResp.Data.Usage.TotalTokens != 6 {
@@ -150,7 +151,7 @@ func TestProxyQueryNonStreamAggregatesSSEUpstream(t *testing.T) {
 	}
 
 	chatRec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+queryResp.Data.ChatID, nil))
+	fixture.server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatID, nil))
 	var chatResp api.ApiResponse[api.ChatDetailResponse]
 	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
 		t.Fatalf("decode chat detail: %v", err)

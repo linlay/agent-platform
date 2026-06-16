@@ -107,26 +107,34 @@ GET /ws -> request / response / stream / push / error frames
 
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
-| POST | `/api/query` | body: `message`、`agentKey`、`teamId`、`chatId`、`runId`、`requestId`、`role`、`references`、`params`、`scene`、`stream`、`planningMode`、`accessLevel`、`model` | 默认 SSE stream；`stream:false` 时返回 JSON |
+| POST | `/api/query` | body: `message`、`agentKey`、`teamId`、`chatId`、`runId`、`requestId`、`role`、`references`、`params`、`scene`、`stream`、`includeUsage`、`includeFullText`、`planningMode`、`accessLevel`、`model` | 默认 SSE stream；`stream:false` 时返回 JSON |
 | GET | `/api/attach` | query: `runId`、`agentKey`、`lastSeq` | 续接 run 的 SSE stream |
 | POST | `/api/submit` | body: `agentKey`、`runId`、`awaitingId`、`params` | HITL submit ack |
 | POST | `/api/steer` | body: `agentKey`、`runId`、`message`、`requestId`、`chatId`、`teamId`、`steerId` | steer ack |
 | POST | `/api/interrupt` | body: `agentKey`、`runId`、`message`、`requestId`、`chatId`、`teamId` | interrupt ack |
 | POST | `/api/access-level` | body: `agentKey`、`runId`、`accessLevel`、`requestId`、`reason` | 动态更新 native run 的 accessLevel |
 
-`/api/query` 的 `stream` 是 JSON body 字段；省略或传 `true` 时返回 SSE，结束帧为 `data: [DONE]`。传 `false` 时服务端仍执行完整 run、持久化 chat，并在结束后返回普通 JSON：
+`/api/query` 的 `stream` 是 JSON body 字段；省略或传 `true` 时返回 SSE，结束帧为 `data: [DONE]`。传 `false` 时服务端仍执行完整 run、持久化 chat，并在结束后返回普通 JSON。默认只返回最终回答：
 
 ```json
 {
   "code": 0,
   "msg": "success",
   "data": {
-    "requestId": "req_xxx",
-    "runId": "run_xxx",
-    "chatId": "chat_xxx",
-    "agentKey": "coder",
-    "assistantText": "最终回答",
-    "finishReason": "complete",
+    "content": "最终回答"
+  }
+}
+```
+
+`includeUsage:true` 会在 `data` 中追加本轮用量；`includeFullText:true` 会追加面向阅读的全过程文本：
+
+```json
+{
+  "code": 0,
+  "msg": "success",
+  "data": {
+    "content": "最终回答",
+    "fullText": "Tool: datetime\n{}\n\nTool result: datetime\n...\n\nAnswer\n最终回答",
     "usage": {
       "promptTokens": 10,
       "completionTokens": 5,
@@ -138,28 +146,28 @@ GET /ws -> request / response / stream / push / error frames
 
 `steam` 不是支持字段；如果误传 `steam:false`，不会触发非流式响应。
 
-可运行的 HTTP JSON 模式示例：
-
-```bash
-# 终端 1：启动 agent-platform
-make run
-
-# 终端 2：调用 /api/query，默认请求体使用 stream:false
-go run ./examples/http-query -message "用一句话介绍 agent-platform"
-```
-
-等价 curl：
+可运行的 HTTP JSON 模式 curl：
 
 ```bash
 curl -sS -X POST http://127.0.0.1:11949/api/query \
   -H "Content-Type: application/json" \
-  -d '{"message":"用一句话介绍 agent-platform","agentKey":"default_agent","stream":false}'
+  -d '{"message":"用一句话介绍 agent-platform","agentKey":"zenmi","stream":false}'
 ```
 
-SSE 模式可以跑同一个例子：
+带用量：
 
 ```bash
-go run ./examples/http-query -stream -message "元素碳的简介，100字"
+curl -sS -X POST http://127.0.0.1:11949/api/query \
+  -H "Content-Type: application/json" \
+  -d '{"message":"用一句话介绍 agent-platform","agentKey":"zenmi","stream":false,"includeUsage":true}'
+```
+
+带全过程：
+
+```bash
+curl -sS -X POST http://127.0.0.1:11949/api/query \
+  -H "Content-Type: application/json" \
+  -d '{"message":"用一句话介绍 agent-platform","agentKey":"zenmi","stream":false,"includeFullText":true}'
 ```
 
 `params` 是业务透传对象，平台不读取、不写入、不约定内部 key。

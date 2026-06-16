@@ -18,6 +18,8 @@ type StreamRequest struct {
 	Params             map[string]any
 	Model              any
 	PlanningMode       bool
+	IncludeUsage       bool
+	IncludeFullText    bool
 	AccessLevel        string
 	Created            bool
 	ContinueRun        bool
@@ -95,6 +97,12 @@ func (a *StreamEventAssembler) BootstrapWithRaw() ([]StreamEvent, []StreamEvent)
 	}
 	if a.request.PlanningMode {
 		queryPayload["planningMode"] = true
+	}
+	if a.request.IncludeUsage {
+		queryPayload["includeUsage"] = true
+	}
+	if a.request.IncludeFullText {
+		queryPayload["includeFullText"] = true
 	}
 	if scene := a.request.Scene.ToMap(); scene != nil {
 		queryPayload["scene"] = scene

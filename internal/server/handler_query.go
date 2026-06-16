@@ -2,7 +2,9 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -182,16 +184,20 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 
 	if _, err := s.runQuerySync(ctx, prepared, func(data stream.EventData) error {
 		return sseWriter.WriteJSON("message", localizeStreamEventData(locale, data))
-	}); err == nil {
+	}, nil); err == nil {
 		_ = sseWriter.WriteDone()
 	}
 }
 
 func (s *Server) handleQueryNonStream(w http.ResponseWriter, ctx context.Context, prepared preparedQuery) {
-	result, err := s.runQuerySync(ctx, prepared, nil)
+	collector := newQueryEventCollector(prepared.req.IncludeFullText)
+	result, err := s.runQuerySync(ctx, prepared, nil, collector.Consume)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
+	}
+	if prepared.req.IncludeFullText {
+		result.FullText = collector.FullText(result.AssistantText)
 	}
 	writeJSON(w, http.StatusOK, api.Success(queryResponseFromResult(prepared.req, result)))
 }
@@ -200,17 +206,30 @@ type queryRunResult struct {
 	AssistantText string
 	FinishReason  string
 	Usage         chat.UsageData
+	FullText      string
 }
 
 type queryEventCollector struct {
 	assistantText strings.Builder
 	finishReason  string
 	usage         chat.UsageData
+	fullText      *queryFullTextBuilder
+}
+
+func newQueryEventCollector(includeFullText bool) *queryEventCollector {
+	c := &queryEventCollector{}
+	if includeFullText {
+		c.fullText = newQueryFullTextBuilder()
+	}
+	return c
 }
 
 func (c *queryEventCollector) Consume(event stream.EventData) {
 	if c == nil {
 		return
+	}
+	if c.fullText != nil {
+		c.fullText.Consume(event)
 	}
 	switch event.Type {
 	case "content.delta":
@@ -252,6 +271,182 @@ func (c *queryEventCollector) Result() queryRunResult {
 		AssistantText: c.assistantText.String(),
 		FinishReason:  finishReason,
 		Usage:         c.usage,
+		FullText:      c.FullText(c.assistantText.String()),
+	}
+}
+
+func (c *queryEventCollector) FullText(content string) string {
+	if c == nil || c.fullText == nil {
+		return ""
+	}
+	return c.fullText.Text(content)
+}
+
+type queryFullTextBuilder struct {
+	parts             []string
+	reasoningBuffers  map[string]*strings.Builder
+	reasoningRecorded map[string]bool
+	toolArgsBuffers   map[string]*strings.Builder
+	toolNames         map[string]string
+	toolRecorded      map[string]bool
+}
+
+func newQueryFullTextBuilder() *queryFullTextBuilder {
+	return &queryFullTextBuilder{
+		reasoningBuffers:  map[string]*strings.Builder{},
+		reasoningRecorded: map[string]bool{},
+		toolArgsBuffers:   map[string]*strings.Builder{},
+		toolNames:         map[string]string{},
+		toolRecorded:      map[string]bool{},
+	}
+}
+
+func (b *queryFullTextBuilder) Consume(event stream.EventData) {
+	if b == nil {
+		return
+	}
+	switch event.Type {
+	case "reasoning.delta":
+		id := firstNonBlankString(event.String("reasoningId"), "reasoning")
+		b.reasoningBuffer(id).WriteString(event.String("delta"))
+	case "reasoning.end", "reasoning.snapshot":
+		id := firstNonBlankString(event.String("reasoningId"), "reasoning")
+		text := strings.TrimSpace(event.String("text"))
+		if text == "" {
+			text = strings.TrimSpace(b.reasoningBuffer(id).String())
+		}
+		b.appendOnce(b.reasoningRecorded, id, "Reasoning", text)
+	case "tool.start":
+		id := firstNonBlankString(event.String("toolId"), "tool")
+		b.toolNames[id] = firstNonBlankString(event.String("toolName"), event.String("toolLabel"), id)
+	case "tool.args":
+		id := firstNonBlankString(event.String("toolId"), "tool")
+		b.toolArgsBuffer(id).WriteString(event.String("delta"))
+	case "tool.snapshot":
+		id := firstNonBlankString(event.String("toolId"), "tool")
+		name := firstNonBlankString(event.String("toolName"), b.toolNames[id], id)
+		args := strings.TrimSpace(event.String("arguments"))
+		if args == "" {
+			args = strings.TrimSpace(b.toolArgsBuffer(id).String())
+		}
+		b.appendOnce(b.toolRecorded, id, "Tool: "+name, formatFullTextValue(args))
+	case "tool.result":
+		name := firstNonBlankString(event.String("toolName"), event.String("toolId"), "tool")
+		b.appendPart("Tool result: "+name, formatFullTextValue(event.Value("result")))
+	case "action.snapshot":
+		name := firstNonBlankString(event.String("actionName"), event.String("actionId"), "action")
+		b.appendPart("Action: "+name, formatFullTextValue(event.Value("arguments")))
+	case "action.result":
+		name := firstNonBlankString(event.String("actionId"), "action")
+		b.appendPart("Action result: "+name, formatFullTextValue(event.Value("result")))
+	case "planning.snapshot":
+		b.appendPart("Plan", formatFullTextValue(event.Value("text")))
+	case "planning.start":
+		b.appendLine("Planning started")
+	case "planning.end":
+		b.appendLine("Planning finished")
+	case "task.start":
+		name := firstNonBlankString(event.String("taskName"), event.String("taskId"), "task")
+		detail := strings.TrimSpace(event.String("description"))
+		if detail != "" {
+			name += ": " + detail
+		}
+		b.appendLine("Task started: " + name)
+	case "task.complete":
+		name := firstNonBlankString(event.String("taskName"), event.String("taskId"), "task")
+		b.appendLine("Task completed: " + name)
+	case "run.error":
+		b.appendPart("Run error", formatFullTextValue(event.Value("error")))
+	case "run.cancel":
+		b.appendLine("Run canceled")
+	}
+}
+
+func (b *queryFullTextBuilder) Text(content string) string {
+	if b == nil {
+		return strings.TrimSpace(content)
+	}
+	parts := append([]string(nil), b.parts...)
+	if answer := strings.TrimSpace(content); answer != "" {
+		parts = append(parts, "Answer\n"+answer)
+	}
+	return strings.TrimSpace(strings.Join(parts, "\n\n"))
+}
+
+func (b *queryFullTextBuilder) reasoningBuffer(id string) *strings.Builder {
+	if existing := b.reasoningBuffers[id]; existing != nil {
+		return existing
+	}
+	next := &strings.Builder{}
+	b.reasoningBuffers[id] = next
+	return next
+}
+
+func (b *queryFullTextBuilder) toolArgsBuffer(id string) *strings.Builder {
+	if existing := b.toolArgsBuffers[id]; existing != nil {
+		return existing
+	}
+	next := &strings.Builder{}
+	b.toolArgsBuffers[id] = next
+	return next
+}
+
+func (b *queryFullTextBuilder) appendOnce(seen map[string]bool, key string, title string, body string) {
+	if seen[key] {
+		return
+	}
+	seen[key] = true
+	b.appendPart(title, body)
+}
+
+func (b *queryFullTextBuilder) appendPart(title string, body string) {
+	title = strings.TrimSpace(title)
+	body = strings.TrimSpace(body)
+	if title == "" && body == "" {
+		return
+	}
+	if body == "" {
+		b.appendLine(title)
+		return
+	}
+	if title == "" {
+		b.appendLine(body)
+		return
+	}
+	b.appendLine(title + "\n" + body)
+}
+
+func (b *queryFullTextBuilder) appendLine(text string) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return
+	}
+	b.parts = append(b.parts, text)
+}
+
+func firstNonBlankString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func formatFullTextValue(value any) string {
+	switch typed := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return strings.TrimSpace(typed)
+	case fmt.Stringer:
+		return strings.TrimSpace(typed.String())
+	default:
+		data, err := json.MarshalIndent(typed, "", "  ")
+		if err != nil {
+			return strings.TrimSpace(fmt.Sprint(typed))
+		}
+		return strings.TrimSpace(string(data))
 	}
 }
 
@@ -271,22 +466,23 @@ func (c *queryEventCollector) consumeUsage(event stream.EventData) {
 }
 
 func queryResponseFromResult(req api.QueryRequest, result queryRunResult) api.QueryResponse {
-	finishReason := strings.TrimSpace(result.FinishReason)
-	if finishReason == "" {
-		finishReason = "complete"
+	resp := api.QueryResponse{
+		Content: result.AssistantText,
 	}
-	return api.QueryResponse{
-		RequestID:     req.RequestID,
-		RunID:         req.RunID,
-		ChatID:        req.ChatID,
-		AgentKey:      req.AgentKey,
-		AssistantText: result.AssistantText,
-		FinishReason:  finishReason,
-		Usage:         mapUsageDataPtr(&result.Usage),
+	if req.IncludeFullText {
+		fullText := strings.TrimSpace(result.FullText)
+		if fullText == "" {
+			fullText = strings.TrimSpace(result.AssistantText)
+		}
+		resp.FullText = &fullText
 	}
+	if req.IncludeUsage {
+		resp.Usage = mapUsageDataPtr(&result.Usage)
+	}
+	return resp
 }
 
-func (s *Server) runQuerySync(ctx context.Context, prepared preparedQuery, emitVisible func(stream.EventData) error) (queryRunResult, error) {
+func (s *Server) runQuerySync(ctx context.Context, prepared preparedQuery, emitVisible func(stream.EventData) error, observeEvent func(stream.EventData)) (queryRunResult, error) {
 	defer releaseQuery(prepared.release)
 	control := contracts.NewRunControl(ctx, prepared.req.RunID)
 	control.SetObserverCount(1)
@@ -330,6 +526,9 @@ func (s *Server) runQuerySync(ctx context.Context, prepared preparedQuery, emitV
 	runCtx = chat.WithApprovalSummarySink(runCtx, processor.stepWriter.RecordApproval)
 	writeEvent := func(event stream.StreamEvent) error {
 		data, visible := processor.Consume(event)
+		if observeEvent != nil {
+			observeEvent(data)
+		}
 		if !visible {
 			return nil
 		}

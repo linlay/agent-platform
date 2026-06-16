@@ -588,6 +588,8 @@ func (s *Server) newAssemblerAndMapper(prepared preparedQuery) (*stream.StreamEv
 		Params:             prepared.req.Params,
 		Model:              prepared.req.Model,
 		PlanningMode:       prepared.session.PlanningMode,
+		IncludeUsage:       prepared.req.IncludeUsage,
+		IncludeFullText:    prepared.req.IncludeFullText,
 		AccessLevel:        prepared.session.AccessLevel,
 		Created:            prepared.created,
 		ContinueRun:        prepared.continueRun,

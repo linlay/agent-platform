@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-`POST /api/query` 默认成功时返回 SSE event stream。服务端按 provider 原始流式 chunk 逐步映射为 `content.delta`、`tool.*`、`reasoning.*` 等事件，结束时写入 `data: [DONE]`。默认行为是逐事件 flush。请求体显式传 `stream:false` 时，服务端仍执行完整 run，但会聚合最终回答并返回普通 JSON；错拼字段 `steam` 不会触发非流式。
+`POST /api/query` 默认成功时返回 SSE event stream。服务端按 provider 原始流式 chunk 逐步映射为 `content.delta`、`tool.*`、`reasoning.*` 等事件，结束时写入 `data: [DONE]`。默认行为是逐事件 flush。请求体显式传 `stream:false` 时，服务端仍执行完整 run，但会聚合最终回答并返回普通 JSON，默认 `data` 只包含 `content`；可用 `includeUsage:true` / `includeFullText:true` 追加 `usage` / `fullText`。错拼字段 `steam` 不会触发非流式。
 
 H2A render 是传输层缓冲能力，用于控制前端渲染节奏。启用相关缓冲参数后，客户端看到的输出可能不再表现为逐 token 或逐事件抵达。
 

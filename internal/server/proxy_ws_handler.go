@@ -248,14 +248,18 @@ func (s *Server) handleProxyQueryNonStream(w http.ResponseWriter, r *http.Reques
 	recorder := newProxyEventRecorder(prepared.req, prepared.agentDef, s.deps.Chats, stepWriter, proxyControl, chatUsage, s.deps.Models, s.deps.Config.Billing)
 	go s.runProxyWebSocket(runCtx, prepared, route, eventBus, recorder)
 
-	var collector queryEventCollector
+	collector := newQueryEventCollector(prepared.req.IncludeFullText)
 	for {
 		select {
 		case <-r.Context().Done():
 			return
 		case event, ok := <-observer.Events:
 			if !ok {
-				writeJSON(w, http.StatusOK, api.Success(queryResponseFromResult(prepared.req, collector.Result())))
+				result := collector.Result()
+				if prepared.req.IncludeFullText {
+					result.FullText = collector.FullText(result.AssistantText)
+				}
+				writeJSON(w, http.StatusOK, api.Success(queryResponseFromResult(prepared.req, result)))
 				return
 			}
 			collector.Consume(event)

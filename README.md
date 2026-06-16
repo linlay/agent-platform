@@ -33,7 +33,7 @@
 
 返回格式约定：
 
-- `POST /api/query` 成功时默认返回真实流式 SSE event stream，服务端会按 provider 原始流式 chunk 逐步透传 `content.delta`，结束时追加 `data: [DONE]`；请求体传 `stream:false` 时返回普通 JSON，字段名不兼容错拼 `steam`。
+- `POST /api/query` 成功时默认返回真实流式 SSE event stream，服务端会按 provider 原始流式 chunk 逐步透传 `content.delta`，结束时追加 `data: [DONE]`；请求体传 `stream:false` 时返回普通 JSON，默认 `data` 只包含 `content`，可用 `includeUsage:true` / `includeFullText:true` 追加 `usage` / `fullText`，字段名不兼容错拼 `steam`。
 - 其余 JSON 接口统一返回：
 
 ```json
@@ -80,25 +80,20 @@ curl "http://127.0.0.1:11949/api/agent?agentKey=default_agent"
 curl http://127.0.0.1:11949/api/chats
 ```
 
-HTTP 模式调用 `/api/query` 的可运行示例：
-
-```bash
-# 终端 1：启动服务
-make run
-
-# 终端 2：普通 HTTP JSON 响应，内部会传 stream:false
-go run ./examples/http-query -message "用一句话介绍 agent-platform"
-
-# 如需查看 SSE 流式事件
-go run ./examples/http-query -stream -message "元素碳的简介，100字"
-```
-
-也可以直接用 curl：
+HTTP 模式调用 `/api/query` 的可运行 curl：
 
 ```bash
 curl -sS -X POST http://127.0.0.1:11949/api/query \
   -H "Content-Type: application/json" \
-  -d '{"message":"用一句话介绍 agent-platform","agentKey":"default_agent","stream":false}'
+  -d '{"message":"用一句话介绍 agent-platform","agentKey":"zenmi","stream":false}'
+```
+
+按需带用量或全过程：
+
+```bash
+curl -sS -X POST http://127.0.0.1:11949/api/query \
+  -H "Content-Type: application/json" \
+  -d '{"message":"用一句话介绍 agent-platform","agentKey":"zenmi","stream":false,"includeUsage":true,"includeFullText":true}'
 ```
 
 ### Mobile Gateway 本地联调

@@ -94,30 +94,28 @@ func ProviderSafeQueryMessage(role string, message string) (string, string) {
 }
 
 type QueryRequest struct {
-	RequestID    string             `json:"requestId,omitempty"`
-	RunID        string             `json:"runId,omitempty"`
-	ChatID       string             `json:"chatId,omitempty"`
-	AgentKey     string             `json:"agentKey,omitempty"`
-	TeamID       string             `json:"teamId,omitempty"`
-	Role         string             `json:"role,omitempty"`
-	Message      string             `json:"message"`
-	References   []Reference        `json:"references,omitempty"`
-	Params       map[string]any     `json:"params,omitempty"`
-	Scene        *Scene             `json:"scene,omitempty"`
-	Stream       *bool              `json:"stream,omitempty"`
-	PlanningMode *bool              `json:"planningMode,omitempty"`
-	AccessLevel  string             `json:"accessLevel,omitempty"`
-	Model        *QueryModelOptions `json:"model,omitempty"`
+	RequestID       string             `json:"requestId,omitempty"`
+	RunID           string             `json:"runId,omitempty"`
+	ChatID          string             `json:"chatId,omitempty"`
+	AgentKey        string             `json:"agentKey,omitempty"`
+	TeamID          string             `json:"teamId,omitempty"`
+	Role            string             `json:"role,omitempty"`
+	Message         string             `json:"message"`
+	References      []Reference        `json:"references,omitempty"`
+	Params          map[string]any     `json:"params,omitempty"`
+	Scene           *Scene             `json:"scene,omitempty"`
+	Stream          *bool              `json:"stream,omitempty"`
+	IncludeUsage    bool               `json:"includeUsage,omitempty"`
+	IncludeFullText bool               `json:"includeFullText,omitempty"`
+	PlanningMode    *bool              `json:"planningMode,omitempty"`
+	AccessLevel     string             `json:"accessLevel,omitempty"`
+	Model           *QueryModelOptions `json:"model,omitempty"`
 }
 
 type QueryResponse struct {
-	RequestID     string         `json:"requestId"`
-	RunID         string         `json:"runId"`
-	ChatID        string         `json:"chatId"`
-	AgentKey      string         `json:"agentKey"`
-	AssistantText string         `json:"assistantText"`
-	FinishReason  string         `json:"finishReason"`
-	Usage         *ChatUsageData `json:"usage,omitempty"`
+	Content  string         `json:"content"`
+	FullText *string        `json:"fullText,omitempty"`
+	Usage    *ChatUsageData `json:"usage,omitempty"`
 }
 
 type QueryModelOptions struct {
