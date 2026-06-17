@@ -727,9 +727,9 @@ func TestResolveHITLTimeoutWithRuleUsesRuleOverride(t *testing.T) {
 	if got := stream.resolveHITLTimeoutWithItem("approval", 0); got != 600 {
 		t.Fatalf("expected fallback hitl budget timeout 600, got %d", got)
 	}
-	// question mode also supports item-specific timeout
-	if got := stream.resolveHITLTimeoutWithItem("question", 900); got != 900 {
-		t.Fatalf("expected question item timeout 900, got %d", got)
+	// question mode ignores item-specific timeout
+	if got := stream.resolveHITLTimeoutWithItem("question", 900); got != 600 {
+		t.Fatalf("expected question fallback hitl budget timeout 600, got %d", got)
 	}
 	if got := stream.resolveHITLTimeoutWithItem("question", 0); got != 600 {
 		t.Fatalf("expected question fallback hitl budget timeout 600, got %d", got)
@@ -775,7 +775,7 @@ func TestPreToolInvocationDeltasUsesHitlTimeoutForFrontendAwaiting(t *testing.T)
 	}
 }
 
-func TestPreToolInvocationDeltasUsesArgsTimeoutForFrontendAwaiting(t *testing.T) {
+func TestPreToolInvocationDeltasIgnoresArgsTimeoutForFrontendAwaiting(t *testing.T) {
 	handler := &captureFrontendHandler{}
 	tool := api.ToolDetailResponse{
 		Name: "ask_user_question",
@@ -810,15 +810,15 @@ func TestPreToolInvocationDeltasUsesArgsTimeoutForFrontendAwaiting(t *testing.T)
 	if len(deltas) != 0 {
 		t.Fatalf("expected no prelude deltas, got %#v", deltas)
 	}
-	if handler.timeout != 900 {
-		t.Fatalf("expected frontend await timeout 900 from args.timeout, got %d", handler.timeout)
+	if handler.timeout != 600 {
+		t.Fatalf("expected frontend await timeout 600 from hitl budget, got %d", handler.timeout)
 	}
 	awaiting, ok := stream.runControl.LookupAwaiting("tool_1")
 	if !ok {
 		t.Fatal("expected awaiting context to be registered")
 	}
-	if awaiting.Timeout != 900 {
-		t.Fatalf("expected awaiting context timeout 900, got %d", awaiting.Timeout)
+	if awaiting.Timeout != 600 {
+		t.Fatalf("expected awaiting context timeout 600, got %d", awaiting.Timeout)
 	}
 	if awaiting.Timeout <= int64(stream.execCtx.Budget.Tool.Timeout) {
 		t.Fatal("awaiting context timeout must be independent of budget.tool.timeout")

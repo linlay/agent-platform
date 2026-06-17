@@ -66,7 +66,7 @@ func (c *FrontendSubmitCoordinator) Await(ctx context.Context, execCtx *Executio
 			detailedMsg := resolveFrontendTimeoutMessage(toolName, awaitingID, timeoutSec, elapsed)
 			return ToolExecutionResult{
 				Output:     detailedMsg,
-				Structured: AwaitingErrorAnswer(strings.TrimSpace(AnyStringNode(args["mode"])), "timeout", "等待项已超时"),
+				Structured: AwaitingTimeoutAnswer(strings.TrimSpace(AnyStringNode(args["mode"])), timeoutSec, elapsed),
 				Error:      "frontend_submit_timeout",
 				ExitCode:   -1,
 			}, nil

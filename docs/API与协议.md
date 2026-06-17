@@ -350,7 +350,9 @@ resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界
 | `awaiting.answered` | `chatId`、`runId`、`awaitingId`、`mode`、`status`、`resolvedAt`、可选 `errorCode` / `submitId` |
 | `resource.pushed` | `chatId`、`artifactId`、`name`、`mimeType`、`sha256`、`sizeBytes`、`timestamp` |
 
-`awaiting.asking.timeout` 与 stream 中的 `awaiting.ask.timeout` 语义一致：`0` 表示无限等待、不自动超时；大于 `0` 时按毫秒倒计时。
+`awaiting.asking.timeout` 与 stream 中的 `awaiting.ask.timeout` 语义一致：`0` 表示无限等待、不自动超时；大于 `0` 时按秒倒计时。
+
+stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会显示超时秒数和原因；`error` 可附带 `timeoutSeconds`、`elapsedSeconds`、`reason:"submit_not_received_before_timeout"`。
 
 字段说明：
 

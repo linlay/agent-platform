@@ -1286,7 +1286,11 @@ func TestBashHITLTimeoutFlow(t *testing.T) {
 	}
 	if !strings.Contains(body, `"type":"awaiting.answer"`) ||
 		!strings.Contains(body, `"status":"error"`) ||
-		!strings.Contains(body, `"code":"timeout"`) {
+		!strings.Contains(body, `"code":"timeout"`) ||
+		!strings.Contains(body, `"message":"等待项已超时（20秒）。原因：等待表单提交，超过配置的 20 秒未收到有效提交。"`) ||
+		!strings.Contains(body, `"timeoutSeconds":20`) ||
+		!strings.Contains(body, `"elapsedSeconds":20`) ||
+		!strings.Contains(body, `"reason":"submit_not_received_before_timeout"`) {
 		t.Fatalf("expected timeout awaiting.answer in stream, got %s", body)
 	}
 	resultPayload := findToolResultPayload(t, body, "tool_bash")

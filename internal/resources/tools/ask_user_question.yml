@@ -83,9 +83,6 @@ inputSchema:
               required:
                 - options
         additionalProperties: false
-    timeout:
-      type: integer
-      description: Optional. Timeout in seconds for the entire question dialog. Only set this when the default wait time is insufficient or you need a shorter wait. When unset, the budget-based timeout applies.
   required:
     - mode
     - questions

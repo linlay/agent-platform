@@ -1220,6 +1220,37 @@ func TestDispatcherEmitsAwaitingAnswerErrorFields(t *testing.T) {
 	}
 }
 
+func TestDispatcherPreservesAwaitingAnswerTimeoutErrorDetails(t *testing.T) {
+	dispatcher := NewDispatcher(StreamRequest{
+		RunID:  "run_1",
+		ChatID: "chat_1",
+	})
+
+	events := dispatcher.Dispatch(AwaitingAnswer{
+		AwaitingID: "tool_1",
+		Answer: map[string]any{
+			"mode":   "question",
+			"status": "error",
+			"error": map[string]any{
+				"code":           "timeout",
+				"message":        "等待项已超时（60秒）。原因：等待问题回复，超过配置的 60 秒未收到有效提交。",
+				"timeoutSeconds": int64(60),
+				"elapsedSeconds": int64(61),
+				"reason":         "submit_not_received_before_timeout",
+			},
+		},
+	})
+	assertEventTypes(t, events, "awaiting.answer")
+	errPayload, _ := events[0].ToData()["error"].(map[string]any)
+	if errPayload["code"] != "timeout" ||
+		errPayload["message"] != "等待项已超时（60秒）。原因：等待问题回复，超过配置的 60 秒未收到有效提交。" ||
+		errPayload["timeoutSeconds"] != int64(60) ||
+		errPayload["elapsedSeconds"] != int64(61) ||
+		errPayload["reason"] != "submit_not_received_before_timeout" {
+		t.Fatalf("unexpected timeout error payload %#v", errPayload)
+	}
+}
+
 func TestEventDataMarshalsAwaitingAnswerWithContractKeyOrder(t *testing.T) {
 	event := NewEvent("awaiting.answer", map[string]any{
 		"awaitingId": "tool_1",

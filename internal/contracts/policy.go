@@ -228,7 +228,7 @@ const DefaultHITLTimeout int64 = 600
 func ResolveHITLTimeout(mode string, itemTimeout int64, budget Budget) int64 {
 	mode = strings.ToLower(strings.TrimSpace(mode))
 	hitl := budget.Hitl
-	if itemTimeout > 0 && (mode == "approval" || mode == "form" || mode == "question") {
+	if itemTimeout > 0 && (mode == "approval" || mode == "form") {
 		return itemTimeout
 	}
 	if modeTimeout := hitlModeTimeout(hitl, mode); modeTimeout > 0 {

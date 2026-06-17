@@ -132,22 +132,11 @@ func TestAskUserToolSchemasMatchContract(t *testing.T) {
 	if !enumContains(t, questionProperties["mode"], "question") {
 		t.Fatal("expected ask user question mode=question")
 	}
-	// timeout must be a root-level optional property
-	timeoutSchema, hasTimeout := questionProperties["timeout"]
-	if !hasTimeout {
-		t.Fatal("expected ask_user_question root property timeout")
+	if _, hasTimeout := questionProperties["timeout"]; hasTimeout {
+		t.Fatal("did not expect ask_user_question root property timeout")
 	}
-	if mapChild(t, questionProperties, "timeout")["type"] != "integer" {
-		t.Fatalf("expected timeout type integer, got %#v", timeoutSchema)
-	}
-	required, ok := questionDef["required"].([]any)
-	if !ok {
+	if _, ok := questionDef["required"].([]any); !ok {
 		t.Fatalf("expected ask_user_question required array, got %#v", questionDef["required"])
-	}
-	for _, field := range required {
-		if field == "timeout" {
-			t.Fatal("timeout must not be required")
-		}
 	}
 	questionsField := mapChild(t, questionProperties, "questions")
 	questionItem := mapChild(t, mapChild(t, questionsField, "items"), "properties")

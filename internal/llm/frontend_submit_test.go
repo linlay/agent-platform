@@ -213,8 +213,11 @@ func TestFrontendSubmitCoordinatorAwait_TimeoutReturnsCompactStructuredError(t *
 		"mode":   "question",
 		"status": "error",
 		"error": map[string]any{
-			"code":    "timeout",
-			"message": "等待项已超时",
+			"code":           "timeout",
+			"message":        "等待项已超时（1秒）。原因：等待问题回复，超过配置的 1 秒未收到有效提交。",
+			"timeoutSeconds": int64(1),
+			"elapsedSeconds": int64(1),
+			"reason":         "submit_not_received_before_timeout",
 		},
 	}
 	if !reflect.DeepEqual(result.Structured, expected) {
@@ -228,7 +231,7 @@ func TestFrontendSubmitCoordinatorAwait_UsesAwaitingAskTimeoutOverToolBudget(t *
 		AwaitingID: "tool_1",
 		Mode:       "question",
 		ItemCount:  1,
-		Timeout:  1,
+		Timeout:    1,
 	})
 
 	result, err := NewFrontendSubmitCoordinator(frontendtools.NewDefaultRegistry()).Await(context.Background(), &contracts.ExecutionContext{

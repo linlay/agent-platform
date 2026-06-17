@@ -73,9 +73,9 @@ func TestResolveHITLTimeoutUsesModeItemAndFallbackPriority(t *testing.T) {
 		Plan:     HitlModePolicy{Timeout: 140},
 	}}
 
-	// question: item-specific timeout > mode budget
-	if got := ResolveHITLTimeout("question", 900, budget); got != 900 {
-		t.Fatalf("question timeout = %d, want item override 900", got)
+	// question: item-specific timeout is NOT supported, should fall through to mode budget
+	if got := ResolveHITLTimeout("question", 900, budget); got != 110 {
+		t.Fatalf("question timeout = %d, want mode override 110", got)
 	}
 	// question: no item-specific → mode budget
 	if got := ResolveHITLTimeout("question", 0, budget); got != 110 {

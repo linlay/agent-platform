@@ -17,9 +17,6 @@ func resolveFrontendAwaitTimeout(toolName string, tool api.ToolDetailResponse, a
 		}
 	}
 	itemTimeout := int64(0)
-	if mode == "question" {
-		itemTimeout = int64(AnyIntNode(args["timeout"]))
-	}
 	if mode == "form" {
 		itemTimeout = int64(AnyIntNode(tool.Meta["timeout"]))
 	}

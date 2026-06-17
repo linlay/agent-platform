@@ -43,7 +43,8 @@ tool.start
 - `params` 顶层永远是数组。
 - `params[i]` 固定对应 `awaiting.ask.questions|approvals|forms` 的第 `i` 项；`mode=plan` 固定只接受 1 项，对应单个 `awaiting.ask.plan`。
 - `params` 每项允许带 `id`，但 `id` 只用于审计或日志，不用于分发。
-- `awaiting.ask.timeout == 0` 表示无限等待、不自动超时；`timeout > 0` 表示毫秒倒计时。
+- `awaiting.ask.timeout == 0` 表示无限等待、不自动超时；`timeout > 0` 表示按秒倒计时。
+- `awaiting.answer.error.code == "timeout"` 时，`error.message` 会包含超时秒数与详细原因，并可携带 `timeoutSeconds`、`elapsedSeconds`、`reason:"submit_not_received_before_timeout"`。
 - `awaiting.payload` 已删除，问题、审批项、表单定义直接内联在 `awaiting.ask`。
 
 ## 约束与注意事项

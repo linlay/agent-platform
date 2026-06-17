@@ -92,9 +92,10 @@ func (s *llmRunStream) normalizeHITLSubmitAndEmitAnswer(awaitingID string, await
 }
 
 func (s *llmRunStream) timeoutHITLSubmit(invocation *preparedToolInvocation, match hitl.InterceptResult, awaitingID string, mode string) {
+	timeoutSeconds := s.resolveHITLTimeoutWithItem(mode, int64(match.Rule.Timeout))
 	s.pending = append(s.pending, DeltaAwaitingAnswer{
 		AwaitingID: awaitingID,
-		Answer:     hitlTimeoutAnswer(strings.TrimSpace(mode)),
+		Answer:     hitlTimeoutAnswer(strings.TrimSpace(mode), timeoutSeconds),
 	})
 	s.applyHITLDecision(invocation, match, awaitingID, "reject", "timeout", false)
 	s.appendOriginalToolResult(invocation, hitlTimeoutToolResult(invocation))

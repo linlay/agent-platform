@@ -252,9 +252,10 @@ func (s *llmRunStream) awaitHITLBatchSubmitOrAccessLevel(batch *pendingHITLAppro
 }
 
 func (s *llmRunStream) timeoutHITLBatch(batch *pendingHITLApprovalBatch) {
+	timeoutSeconds := s.resolveHITLTimeoutWithItem("approval", int64(batch.timeout))
 	s.pending = append(s.pending, DeltaAwaitingAnswer{
 		AwaitingID: batch.awaitingID,
-		Answer:     hitlTimeoutAnswer("approval"),
+		Answer:     hitlTimeoutAnswer("approval", timeoutSeconds),
 	})
 	for index, invocation := range batch.invocations {
 		s.applyHITLDecision(invocation, batch.matchAt(index), batch.awaitingID, "reject", "timeout", false)

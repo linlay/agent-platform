@@ -58,8 +58,8 @@ func buildHITLBatchAwaitingID(runID string, turnStep int) string {
 	return fmt.Sprintf("await_batch_%s_%d", strings.TrimSpace(runID), turnStep)
 }
 
-func hitlTimeoutAnswer(mode string) map[string]any {
-	return AwaitingErrorAnswer(mode, "timeout", "等待项已超时")
+func hitlTimeoutAnswer(mode string, timeoutSeconds int64) map[string]any {
+	return AwaitingTimeoutAnswer(mode, timeoutSeconds, timeoutSeconds)
 }
 
 func frontendSubmitAwaitingAnswer(invocation *preparedToolInvocation, result ToolExecutionResult) map[string]any {
@@ -72,7 +72,7 @@ func frontendSubmitAwaitingAnswer(invocation *preparedToolInvocation, result Too
 	mode := strings.TrimSpace(AnyStringNode(invocation.args["mode"]))
 	switch result.Error {
 	case "frontend_submit_timeout":
-		return AwaitingErrorAnswer(mode, "timeout", AnyStringNode(AnyMapNode(result.Structured["error"])["message"]))
+		return result.Structured
 	case "frontend_submit_invalid_payload":
 		return AwaitingErrorAnswer(mode, "invalid_submit", AnyStringNode(result.Structured["message"]))
 	default:

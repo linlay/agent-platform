@@ -35,6 +35,15 @@ func newAwaitingAnswerEvent(input AwaitingAnswer) StreamEvent {
 			if message := strings.TrimSpace(anyString(errPayload["message"])); message != "" {
 				entry["message"] = message
 			}
+			if timeoutSeconds, ok := errPayload["timeoutSeconds"]; ok {
+				entry["timeoutSeconds"] = timeoutSeconds
+			}
+			if elapsedSeconds, ok := errPayload["elapsedSeconds"]; ok {
+				entry["elapsedSeconds"] = elapsedSeconds
+			}
+			if reason := strings.TrimSpace(anyString(errPayload["reason"])); reason != "" {
+				entry["reason"] = reason
+			}
 			if len(entry) > 0 {
 				payload["error"] = entry
 			}
