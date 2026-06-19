@@ -134,7 +134,9 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 				IncludeAfterCallHints:   true,
 			})
 			e.logPromptMemory(session.RunID, options.Stage, req, session)
-			log.Printf("[llm][run:%s][%s] LLM delta stream system prompt:\n%s", session.RunID, options.Stage, systemPrompt)
+			if e.llmConsoleEnabled(llmConsolePrompt) {
+				log.Printf("[llm][run:%s][%s] LLM delta stream system prompt:\n%s", session.RunID, options.Stage, systemPrompt)
+			}
 			messages = []openAIMessage{{
 				Role:    "system",
 				Content: systemPrompt,
@@ -149,7 +151,7 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		}
 		messages = append(messages, openAIMessage{
 			Role:    "user",
-			Content: buildUserMessageContent(e.cfg.Paths.ChatsDir, req.ChatID, req.Message, req.References, model.IsVision),
+			Content: buildUserMessageContent(e.cfg.Paths.ChatsDir, req.ChatID, req.Message, req.References, model.IsVision, e.llmConsoleEnabled(llmConsoleMedia)),
 		})
 	} else if useCachedSystemInit {
 		messages = replaceSystemMessage(messages, cachedSystem)
@@ -200,16 +202,22 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 	}
 	stream.syncAccessLevelFromRunControl()
 	if len(session.SkillHookDirs) > 0 {
-		log.Printf("[llm][run:%s][hitl] creating SkillChecker hookDirs=%v", session.RunID, session.SkillHookDirs)
+		if e.llmConsoleEnabled(llmConsoleHitl) {
+			log.Printf("[llm][run:%s][hitl] creating SkillChecker hookDirs=%v", session.RunID, session.SkillHookDirs)
+		}
 		checker, err := hitl.NewSkillChecker(session.SkillHookDirs)
 		if err != nil {
 			log.Printf("[llm][run:%s][hitl][warning] failed to create SkillChecker hookDirs=%v err=%v", session.RunID, session.SkillHookDirs, err)
 			return nil, err
 		}
 		stream.checker = checker
-		log.Printf("[llm][run:%s][hitl] SkillChecker enabled hookDirCount=%d", session.RunID, len(session.SkillHookDirs))
+		if e.llmConsoleEnabled(llmConsoleHitl) {
+			log.Printf("[llm][run:%s][hitl] SkillChecker enabled hookDirCount=%d", session.RunID, len(session.SkillHookDirs))
+		}
 	} else {
-		log.Printf("[llm][run:%s][hitl] SkillChecker disabled hookDirCount=0", session.RunID)
+		if e.llmConsoleEnabled(llmConsoleHitl) {
+			log.Printf("[llm][run:%s][hitl] SkillChecker disabled hookDirCount=0", session.RunID)
+		}
 	}
 	if !stream.allowToolUse {
 		stream.toolSpecs = nil

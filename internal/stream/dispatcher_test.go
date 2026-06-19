@@ -336,6 +336,69 @@ func TestDispatcherIncludesTaskIDOnDebugEvents(t *testing.T) {
 	if runUsage["toolCallCount"] != 2 {
 		t.Fatalf("expected run tool call usage, got %#v", usage)
 	}
+
+	llmEvents := dispatcher.Dispatch(InputDebugLLMCall{
+		TaskID:                          "task_sub_1",
+		ChatID:                          "chat_1",
+		ProviderKey:                     "mock",
+		ProviderEndpoint:                "https://api.example.test/v1/chat/completions",
+		ModelKey:                        "mock-model",
+		ModelID:                         "mock-model-id",
+		ReasoningEffort:                 "HIGH",
+		Status:                          "ok",
+		RunSeq:                          2,
+		TraceFile:                       "llm/run_1_002.json",
+		TraceURL:                        "/api/resource?file=llm%2Frun_1_002.json",
+		SystemRef:                       map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:test"},
+		ContextWindow:                   128000,
+		CurrentContextSize:              100,
+		EstimatedNextCallSize:           150,
+		LLMReturnPromptTokens:           7,
+		LLMReturnCompletionTokens:       3,
+		LLMReturnTotalTokens:            10,
+		LLMReturnCachedTokens:           4,
+		LLMReturnReasoningTokens:        2,
+		LLMReturnPromptCacheHitTokens:   4,
+		LLMReturnPromptCacheMissTokens:  3,
+		LLMReturnLLMChatCompletionCount: 1,
+		LLMReturnToolCallCount:          2,
+		RunPromptTokens:                 107,
+		RunCompletionTokens:             53,
+		RunTotalTokens:                  160,
+		RunCachedTokens:                 68,
+		RunReasoningTokens:              14,
+		RunPromptCacheHitTokens:         68,
+		RunPromptCacheMissTokens:        39,
+		RunLLMChatCompletionCount:       2,
+		RunToolCallCount:                4,
+	})
+	assertEventTypes(t, llmEvents, "debug.llmCall")
+	llmData := llmEvents[0].Data()
+	if got := llmData.String("taskId"); got != "task_sub_1" {
+		t.Fatalf("expected debug.llmCall taskId, got %#v", llmEvents[0].ToData())
+	}
+	llmPayload, _ := llmData.Value("data").(map[string]any)
+	trace, _ := llmPayload["trace"].(map[string]any)
+	if trace["file"] != "llm/run_1_002.json" || trace["url"] != "/api/resource?file=llm%2Frun_1_002.json" {
+		t.Fatalf("unexpected trace payload %#v", llmPayload)
+	}
+	if llmPayload["status"] != "ok" || llmPayload["runSeq"] != 2 {
+		t.Fatalf("unexpected llm call metadata %#v", llmPayload)
+	}
+	systemRef, _ := llmPayload["systemRef"].(map[string]any)
+	if systemRef["cacheKey"] != "react:main" {
+		t.Fatalf("expected systemRef in debug.llmCall, got %#v", llmPayload)
+	}
+	llmUsageEnvelope, _ := llmPayload["usage"].(map[string]any)
+	llmReturnUsage, _ := llmUsageEnvelope["llmReturnUsage"].(map[string]any)
+	llmPromptDetails, _ := llmReturnUsage["promptTokensDetails"].(map[string]any)
+	llmCompletionDetails, _ := llmReturnUsage["completionTokensDetails"].(map[string]any)
+	if llmPromptDetails["cacheHitTokens"] != 4 || llmPromptDetails["cacheMissTokens"] != 3 ||
+		llmCompletionDetails["reasoningTokens"] != 2 ||
+		llmReturnUsage["llmChatCompletionCount"] != 1 ||
+		llmReturnUsage["toolCallCount"] != 2 {
+		t.Fatalf("expected detailed debug.llmCall usage, got %#v", llmUsageEnvelope)
+	}
 }
 
 func TestDispatcherTerminalUsageIncludesLLMChatCompletionCountWithoutTokens(t *testing.T) {

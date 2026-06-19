@@ -120,7 +120,7 @@ func TestLLMChatTraceWritesToolLoopFiles(t *testing.T) {
 	if len(toolResults) != 1 || !strings.Contains(toolResults[0].(map[string]any)["content"].(string), "2026-05-26") {
 		t.Fatalf("unexpected tool results: %#v", toolResults)
 	}
-	entries, err := os.ReadDir(filepath.Join(recordDir, "chat_1", ".llm-records"))
+	entries, err := os.ReadDir(filepath.Join(recordDir, "llm"))
 	if err != nil {
 		t.Fatalf("read llm records dir: %v", err)
 	}
@@ -403,7 +403,7 @@ func readTraceFile(t *testing.T, recordDir string, seq int) map[string]any {
 }
 
 func traceFilePath(recordDir string, chatID string, seq int) string {
-	return filepath.Join(recordDir, chatID, ".llm-records", traceFileName("run_trace", seq))
+	return filepath.Join(recordDir, traceRelativeFile("run_trace", seq))
 }
 
 func serverHTTPClient() *http.Client {

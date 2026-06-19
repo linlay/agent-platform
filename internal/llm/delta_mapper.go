@@ -327,6 +327,43 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			RunLLMChatCompletionCount:       value.RunLLMChatCompletionCount,
 			RunToolCallCount:                value.RunToolCallCount,
 		}}
+	case DeltaDebugLLMCall:
+		m.lastKind = ""
+		return []stream.StreamInput{stream.InputDebugLLMCall{
+			TaskID:                          value.TaskID,
+			ChatID:                          value.ChatID,
+			ProviderKey:                     value.ProviderKey,
+			ProviderEndpoint:                value.ProviderEndpoint,
+			ModelKey:                        value.ModelKey,
+			ModelID:                         value.ModelID,
+			ReasoningEffort:                 value.ReasoningEffort,
+			Status:                          value.Status,
+			RunSeq:                          value.RunSeq,
+			TraceFile:                       value.TraceFile,
+			TraceURL:                        value.TraceURL,
+			SystemRef:                       CloneMap(value.SystemRef),
+			ContextWindow:                   value.ContextWindow,
+			CurrentContextSize:              value.CurrentContextSize,
+			EstimatedNextCallSize:           value.EstimatedNextCallSize,
+			LLMReturnPromptTokens:           value.LLMReturnPromptTokens,
+			LLMReturnCompletionTokens:       value.LLMReturnCompletionTokens,
+			LLMReturnTotalTokens:            value.LLMReturnTotalTokens,
+			LLMReturnCachedTokens:           value.LLMReturnCachedTokens,
+			LLMReturnReasoningTokens:        value.LLMReturnReasoningTokens,
+			LLMReturnPromptCacheHitTokens:   value.LLMReturnPromptCacheHitTokens,
+			LLMReturnPromptCacheMissTokens:  value.LLMReturnPromptCacheMissTokens,
+			LLMReturnLLMChatCompletionCount: value.LLMReturnLLMChatCompletionCount,
+			LLMReturnToolCallCount:          value.LLMReturnToolCallCount,
+			RunPromptTokens:                 value.RunPromptTokens,
+			RunCompletionTokens:             value.RunCompletionTokens,
+			RunTotalTokens:                  value.RunTotalTokens,
+			RunCachedTokens:                 value.RunCachedTokens,
+			RunReasoningTokens:              value.RunReasoningTokens,
+			RunPromptCacheHitTokens:         value.RunPromptCacheHitTokens,
+			RunPromptCacheMissTokens:        value.RunPromptCacheMissTokens,
+			RunLLMChatCompletionCount:       value.RunLLMChatCompletionCount,
+			RunToolCallCount:                value.RunToolCallCount,
+		}}
 	case DeltaUsageSnapshot:
 		m.lastKind = ""
 		return []stream.StreamInput{stream.InputUsageSnapshot{

@@ -223,6 +223,44 @@ type DeltaDebugPostCall struct {
 
 func (DeltaDebugPostCall) agentDeltaTag() {}
 
+type DeltaDebugLLMCall struct {
+	TaskID                          string
+	ChatID                          string
+	ProviderKey                     string
+	ProviderEndpoint                string
+	ModelKey                        string
+	ModelID                         string
+	ReasoningEffort                 string
+	Status                          string
+	RunSeq                          int
+	TraceFile                       string
+	TraceURL                        string
+	SystemRef                       map[string]any
+	ContextWindow                   int
+	CurrentContextSize              int
+	EstimatedNextCallSize           int
+	LLMReturnPromptTokens           int
+	LLMReturnCompletionTokens       int
+	LLMReturnTotalTokens            int
+	LLMReturnCachedTokens           int
+	LLMReturnReasoningTokens        int
+	LLMReturnPromptCacheHitTokens   int
+	LLMReturnPromptCacheMissTokens  int
+	LLMReturnLLMChatCompletionCount int
+	LLMReturnToolCallCount          int
+	RunPromptTokens                 int
+	RunCompletionTokens             int
+	RunTotalTokens                  int
+	RunCachedTokens                 int
+	RunReasoningTokens              int
+	RunPromptCacheHitTokens         int
+	RunPromptCacheMissTokens        int
+	RunLLMChatCompletionCount       int
+	RunToolCallCount                int
+}
+
+func (DeltaDebugLLMCall) agentDeltaTag() {}
+
 type DeltaUsageSnapshot struct {
 	ChatID                          string
 	ModelKey                        string

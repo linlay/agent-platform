@@ -209,6 +209,74 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 			payload["taskId"] = value.TaskID
 		}
 		return []StreamEvent{NewEvent("debug.postCall", payload)}
+	case InputDebugLLMCall:
+		if value.RunTotalTokens > 0 || value.RunLLMChatCompletionCount > 0 || value.RunToolCallCount > 0 {
+			d.state.runUsage = runUsageStateFromValues(value.RunPromptTokens, value.RunCompletionTokens, value.RunTotalTokens, value.RunCachedTokens, value.RunReasoningTokens, value.RunPromptCacheHitTokens, value.RunPromptCacheMissTokens, value.RunLLMChatCompletionCount, value.RunToolCallCount)
+		}
+		llmReturnUsage := map[string]any{
+			"promptTokens":           value.LLMReturnPromptTokens,
+			"completionTokens":       value.LLMReturnCompletionTokens,
+			"totalTokens":            value.LLMReturnTotalTokens,
+			"llmChatCompletionCount": value.LLMReturnLLMChatCompletionCount,
+			"toolCallCount":          value.LLMReturnToolCallCount,
+		}
+		if value.ModelKey != "" {
+			llmReturnUsage["modelKey"] = value.ModelKey
+		}
+		if value.ReasoningEffort != "" {
+			llmReturnUsage["reasoningEffort"] = value.ReasoningEffort
+		}
+		addDetailedUsage(llmReturnUsage, value.LLMReturnCachedTokens, value.LLMReturnReasoningTokens, value.LLMReturnPromptCacheHitTokens, value.LLMReturnPromptCacheMissTokens)
+		runUsage := map[string]any{
+			"promptTokens":           value.RunPromptTokens,
+			"completionTokens":       value.RunCompletionTokens,
+			"totalTokens":            value.RunTotalTokens,
+			"llmChatCompletionCount": value.RunLLMChatCompletionCount,
+			"toolCallCount":          value.RunToolCallCount,
+		}
+		addDetailedUsage(runUsage, value.RunCachedTokens, value.RunReasoningTokens, value.RunPromptCacheHitTokens, value.RunPromptCacheMissTokens)
+		data := map[string]any{
+			"provider": map[string]any{
+				"key":      value.ProviderKey,
+				"endpoint": value.ProviderEndpoint,
+			},
+			"model": map[string]any{
+				"key":             value.ModelKey,
+				"id":              value.ModelID,
+				"reasoningEffort": value.ReasoningEffort,
+			},
+			"contextWindow": map[string]any{
+				"maxSize":         value.ContextWindow,
+				"actualSize":      value.CurrentContextSize,
+				"estimatedSize":   value.EstimatedNextCallSize,
+				"modelKey":        value.ModelKey,
+				"reasoningEffort": value.ReasoningEffort,
+			},
+			"usage": map[string]any{
+				"llmReturnUsage": llmReturnUsage,
+				"runUsage":       runUsage,
+			},
+			"status": value.Status,
+			"runSeq": value.RunSeq,
+		}
+		if value.TraceFile != "" || value.TraceURL != "" {
+			data["trace"] = map[string]any{
+				"file": value.TraceFile,
+				"url":  value.TraceURL,
+			}
+		}
+		if len(value.SystemRef) > 0 {
+			data["systemRef"] = clonePayload(value.SystemRef)
+		}
+		payload := map[string]any{
+			"runId":  d.request.RunID,
+			"chatId": value.ChatID,
+			"data":   data,
+		}
+		if value.TaskID != "" {
+			payload["taskId"] = value.TaskID
+		}
+		return []StreamEvent{NewEvent("debug.llmCall", payload)}
 	case InputUsageSnapshot:
 		if value.RunTotalTokens > 0 || value.RunLLMChatCompletionCount > 0 || value.RunToolCallCount > 0 {
 			d.state.runUsage = runUsageStateFromValues(value.RunPromptTokens, value.RunCompletionTokens, value.RunTotalTokens, value.RunCachedTokens, value.RunReasoningTokens, value.RunPromptCacheHitTokens, value.RunPromptCacheMissTokens, value.RunLLMChatCompletionCount, value.RunToolCallCount)

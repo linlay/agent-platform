@@ -1013,6 +1013,119 @@ func TestQueryAndRunDebugEventsEnabledWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestQueryLLMChatRecordEmitsDebugLLMCall(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w,
+			`{"choices":[{"delta":{"content":"hello"},"finish_reason":"stop"}]}`,
+			`{"choices":[],"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}}`,
+			`[DONE]`,
+		)
+	}, testFixtureOptions{
+		configure: func(cfg *config.Config) {
+			cfg.Stream.DebugEventsEnabled = false
+			cfg.Logging.LLMInteraction.RecordEnabled = true
+			cfg.Logging.LLMInteraction.RecordDir = cfg.Paths.ChatsDir
+		},
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"record debug"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	sseTypes := decodeEventTypesFromSSE(t, body)
+	assertStringSliceContains(t, sseTypes, "debug.llmCall")
+	assertStringSliceExcludes(t, sseTypes, "debug.preCall", "debug.postCall")
+
+	messages := decodeSSEMessages(t, body)
+	var llmCall map[string]any
+	for _, message := range messages {
+		if stringValue(message["type"]) == "debug.llmCall" {
+			llmCall = message
+			break
+		}
+	}
+	if llmCall == nil {
+		t.Fatalf("expected debug.llmCall message, got %#v", messages)
+	}
+	runID, _ := messages[0]["runId"].(string)
+	chatID, _ := messages[0]["chatId"].(string)
+	data, _ := llmCall["data"].(map[string]any)
+	if data["status"] != "ok" || testIntValue(data["runSeq"]) != 1 {
+		t.Fatalf("unexpected debug.llmCall metadata %#v", data)
+	}
+	traceInfo, _ := data["trace"].(map[string]any)
+	traceFile, _ := traceInfo["file"].(string)
+	traceURL, _ := traceInfo["url"].(string)
+	if traceFile != "llm/"+runID+"_001.json" || traceURL == "" {
+		t.Fatalf("unexpected trace payload %#v", data)
+	}
+	if _, exists := data["requestBody"]; exists {
+		t.Fatalf("did not expect full request body in debug.llmCall payload, got %#v", data)
+	}
+	usage, _ := data["usage"].(map[string]any)
+	llmUsage, _ := usage["llmReturnUsage"].(map[string]any)
+	if testIntValue(llmUsage["promptTokens"]) != 7 || testIntValue(llmUsage["completionTokens"]) != 3 || testIntValue(llmUsage["totalTokens"]) != 10 {
+		t.Fatalf("unexpected debug.llmCall usage %#v", data)
+	}
+
+	resourceRec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(resourceRec, httptest.NewRequest(http.MethodGet, traceURL, nil))
+	if resourceRec.Code != http.StatusOK {
+		t.Fatalf("expected trace resource 200, got %d: %s", resourceRec.Code, resourceRec.Body.String())
+	}
+	var trace map[string]any
+	if err := json.Unmarshal(resourceRec.Body.Bytes(), &trace); err != nil {
+		t.Fatalf("decode trace json: %v body=%s", err, resourceRec.Body.String())
+	}
+	if trace["runId"] != runID || trace["chatId"] != chatID || trace["status"] != "ok" {
+		t.Fatalf("unexpected trace metadata %#v", trace)
+	}
+	if _, ok := trace["request"].(map[string]any); !ok {
+		t.Fatalf("expected full request in trace json, got %#v", trace)
+	}
+
+	runRec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(runRec, httptest.NewRequest(http.MethodGet, "/api/attach?runId="+runID+"&agentKey=mock-agent", nil))
+	if runRec.Code != http.StatusOK {
+		t.Fatalf("expected run stream 200, got %d: %s", runRec.Code, runRec.Body.String())
+	}
+	runTypes := decodeEventTypesFromSSE(t, runRec.Body.String())
+	assertStringSliceContains(t, runTypes, "debug.llmCall")
+	assertStringSliceExcludes(t, runTypes, "debug.preCall", "debug.postCall")
+
+	chatRec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatID, nil))
+	var chatResp api.ApiResponse[api.ChatDetailResponse]
+	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
+		t.Fatalf("decode chat detail: %v", err)
+	}
+	assertEventTypesExclude(t, chatResp.Data.Events, "debug.preCall", "debug.postCall", "debug.llmCall")
+	if chatResp.Data.Usage == nil || chatResp.Data.ContextWindow == nil {
+		t.Fatalf("expected outer usage and context window, got usage=%#v contextWindow=%#v", chatResp.Data.Usage, chatResp.Data.ContextWindow)
+	}
+}
+
+func testIntValue(value any) int {
+	switch v := value.(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	case json.Number:
+		i, _ := v.Int64()
+		return int(i)
+	default:
+		return 0
+	}
+}
+
 func TestPlanExecutePlanStageOnlyUsesPlanAddTasksBeforeSequentialTaskExecution(t *testing.T) {
 	var providerCallCount atomic.Int32
 

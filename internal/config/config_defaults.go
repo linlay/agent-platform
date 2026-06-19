@@ -143,10 +143,11 @@ func defaultConfig() Config {
 				Enabled: true,
 			},
 			LLMInteraction: LLMInteractionLoggingConfig{
-				Enabled:       true,
-				MaskSensitive: false,
-				RecordEnabled: false,
-				RecordDir:     paths.ChatsDir,
+				Enabled:           true,
+				ConsoleCategories: []string{"request", "usage"},
+				MaskSensitive:     false,
+				RecordEnabled:     false,
+				RecordDir:         paths.ChatsDir,
 			},
 		},
 		CORS: CORSConfig{

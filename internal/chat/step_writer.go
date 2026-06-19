@@ -291,7 +291,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		w.updateArtifact(event)
 		w.stepLiveSeq = maxLiveSeq(w.stepLiveSeq, event.Seq)
 
-	case "debug.preCall", "debug.postCall":
+	case "debug.preCall", "debug.postCall", "debug.llmCall":
 		if inner, ok := event.Value("data").(map[string]any); ok {
 			if taskID := w.taskIDForEvent(event); taskID != "" {
 				if w.closedTaskIDs[taskID] {
@@ -445,7 +445,7 @@ func (w *StepWriter) captureTaskUsageSnapshot(buffer *taskStepBuffer, event stre
 }
 
 func (w *StepWriter) captureRootDebugData(eventType string, inner map[string]any) {
-	if eventType == "debug.preCall" {
+	if eventType == "debug.preCall" || eventType == "debug.llmCall" {
 		w.pendingSystemRef = systemRefFromPreCall(inner)
 	}
 	if cw, ok := inner["contextWindow"].(map[string]any); ok {
@@ -469,7 +469,7 @@ func (w *StepWriter) captureTaskDebugData(buffer *taskStepBuffer, eventType stri
 	if buffer == nil {
 		return
 	}
-	if eventType == "debug.preCall" {
+	if eventType == "debug.preCall" || eventType == "debug.llmCall" {
 		buffer.pendingSystemRef = systemRefFromPreCall(inner)
 	}
 	if cw, ok := inner["contextWindow"].(map[string]any); ok {

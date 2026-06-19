@@ -91,6 +91,21 @@ func (s *llmRunStream) currentSystemRef() map[string]any {
 	}
 }
 
+func (s *llmRunStream) resetLastCallUsage() {
+	if s == nil {
+		return
+	}
+	s.lastCallPromptTokens = 0
+	s.lastCallCompletionTokens = 0
+	s.lastCallTotalTokens = 0
+	s.lastCallCachedTokens = 0
+	s.lastCallReasoningTokens = 0
+	s.lastCallPromptCacheHitTokens = 0
+	s.lastCallPromptCacheMissTokens = 0
+	s.lastCallLLMChatCompletionCount = 0
+	s.lastCallToolCallCount = 0
+}
+
 func (s *llmRunStream) emitPendingUsageDelta() {
 	s.commitPendingTurnUsage()
 	if !s.pendingUsageEmit {
@@ -100,10 +115,57 @@ func (s *llmRunStream) emitPendingUsageDelta() {
 	s.lastCallToolCallCount = currentToolCallCount
 	s.lastSnapshotToolCallCount = s.runToolCallCount
 	s.pendingUsageEmit = false
+	if s.currentTurn != nil && s.currentTurn.trace != nil {
+		return
+	}
 	s.pending = append(s.pending, DeltaDebugPostCall{
 		ChatID:                          s.session.ChatID,
 		ModelKey:                        s.model.Key,
 		ReasoningEffort:                 s.effectiveReasoningEffort(),
+		ContextWindow:                   s.effectiveContextWindow(),
+		CurrentContextSize:              s.currentContextSize(),
+		EstimatedNextCallSize:           s.estimatedNextCallSize(),
+		LLMReturnPromptTokens:           s.lastCallPromptTokens,
+		LLMReturnCompletionTokens:       s.lastCallCompletionTokens,
+		LLMReturnTotalTokens:            s.lastCallTotalTokens,
+		LLMReturnCachedTokens:           s.lastCallCachedTokens,
+		LLMReturnReasoningTokens:        s.lastCallReasoningTokens,
+		LLMReturnPromptCacheHitTokens:   s.lastCallPromptCacheHitTokens,
+		LLMReturnPromptCacheMissTokens:  s.lastCallPromptCacheMissTokens,
+		LLMReturnLLMChatCompletionCount: s.lastCallLLMChatCompletionCount,
+		LLMReturnToolCallCount:          s.lastCallToolCallCount,
+		RunPromptTokens:                 s.runPromptTokens,
+		RunCompletionTokens:             s.runCompletionTokens,
+		RunTotalTokens:                  s.runTotalTokens,
+		RunCachedTokens:                 s.runCachedTokens,
+		RunReasoningTokens:              s.runReasoningTokens,
+		RunPromptCacheHitTokens:         s.runPromptCacheHitTokens,
+		RunPromptCacheMissTokens:        s.runPromptCacheMissTokens,
+		RunLLMChatCompletionCount:       s.runLLMChatCompletionCount,
+		RunToolCallCount:                s.runToolCallCount,
+	})
+}
+
+func (s *llmRunStream) emitDebugLLMCallDelta(trace *llmChatTrace) {
+	if s == nil || trace == nil {
+		return
+	}
+	status := trace.statusValue()
+	if status == "" {
+		status = "unknown"
+	}
+	s.pending = append(s.pending, DeltaDebugLLMCall{
+		ChatID:                          s.session.ChatID,
+		ProviderKey:                     s.provider.Key,
+		ProviderEndpoint:                trace.payloadString("endpoint"),
+		ModelKey:                        s.model.Key,
+		ModelID:                         s.model.ModelID,
+		ReasoningEffort:                 s.effectiveReasoningEffort(),
+		Status:                          status,
+		RunSeq:                          trace.runSeqValue(),
+		TraceFile:                       trace.relativeFileValue(),
+		TraceURL:                        trace.resourceURL(),
+		SystemRef:                       s.currentSystemRef(),
 		ContextWindow:                   s.effectiveContextWindow(),
 		CurrentContextSize:              s.currentContextSize(),
 		EstimatedNextCallSize:           s.estimatedNextCallSize(),
@@ -190,8 +252,10 @@ func (s *llmRunStream) commitUsage(usage *openAIUsage) {
 		RunLLMChatCompletionCount:       s.runLLMChatCompletionCount,
 		RunToolCallCount:                s.runToolCallCount,
 	})
-	log.Printf("[llm][run:%s][usage] last-call: prompt=%d completion=%d total=%d | run-cumulative: prompt=%d completion=%d total=%d",
-		s.session.RunID, usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens, s.runPromptTokens, s.runCompletionTokens, s.runTotalTokens)
+	if s.engine != nil && s.engine.llmConsoleEnabled(llmConsoleUsage) {
+		log.Printf("[llm][run:%s][usage] last-call: prompt=%d completion=%d total=%d | run-cumulative: prompt=%d completion=%d total=%d",
+			s.session.RunID, usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens, s.runPromptTokens, s.runCompletionTokens, s.runTotalTokens)
+	}
 }
 
 func (s *llmRunStream) currentToolCallCountSinceSnapshot() int {

@@ -156,30 +156,33 @@ func (s *llmRunStream) prepareNextTurn() error {
 	runSeq := s.runLLMChatCompletionCount + 1
 	effectiveToolChoice := effectiveTraceToolChoice(s.toolChoice, s.toolSpecs)
 	trace := s.newChatTrace(runSeq, preparedRequest, effectiveToolChoice)
+	s.resetLastCallUsage()
 	s.runLLMChatCompletionCount++
 	s.lastCallLLMChatCompletionCount = 1
-	s.pending = append(s.pending, DeltaDebugPreCall{
-		ChatID:                    s.session.ChatID,
-		ProviderKey:               s.provider.Key,
-		ProviderEndpoint:          preparedRequest.Endpoint,
-		ModelKey:                  s.model.Key,
-		ModelID:                   s.model.ModelID,
-		RequestBody:               preparedRequest.RequestBody,
-		InjectedPrompt:            buildInjectedPromptPayload(s.session, s.req, s.promptBuildOptions, s.messages),
-		SystemRef:                 s.currentSystemRef(),
-		ContextWindow:             s.effectiveContextWindow(),
-		CurrentContextSize:        s.currentContextSize(),
-		EstimatedNextCallSize:     s.estimatedNextCallSize(),
-		RunPromptTokens:           s.runPromptTokens,
-		RunCompletionTokens:       s.runCompletionTokens,
-		RunTotalTokens:            s.runTotalTokens,
-		RunCachedTokens:           s.runCachedTokens,
-		RunReasoningTokens:        s.runReasoningTokens,
-		RunPromptCacheHitTokens:   s.runPromptCacheHitTokens,
-		RunPromptCacheMissTokens:  s.runPromptCacheMissTokens,
-		RunLLMChatCompletionCount: s.runLLMChatCompletionCount,
-		RunToolCallCount:          s.runToolCallCount,
-	})
+	if trace == nil {
+		s.pending = append(s.pending, DeltaDebugPreCall{
+			ChatID:                    s.session.ChatID,
+			ProviderKey:               s.provider.Key,
+			ProviderEndpoint:          preparedRequest.Endpoint,
+			ModelKey:                  s.model.Key,
+			ModelID:                   s.model.ModelID,
+			RequestBody:               preparedRequest.RequestBody,
+			InjectedPrompt:            buildInjectedPromptPayload(s.session, s.req, s.promptBuildOptions, s.messages),
+			SystemRef:                 s.currentSystemRef(),
+			ContextWindow:             s.effectiveContextWindow(),
+			CurrentContextSize:        s.currentContextSize(),
+			EstimatedNextCallSize:     s.estimatedNextCallSize(),
+			RunPromptTokens:           s.runPromptTokens,
+			RunCompletionTokens:       s.runCompletionTokens,
+			RunTotalTokens:            s.runTotalTokens,
+			RunCachedTokens:           s.runCachedTokens,
+			RunReasoningTokens:        s.runReasoningTokens,
+			RunPromptCacheHitTokens:   s.runPromptCacheHitTokens,
+			RunPromptCacheMissTokens:  s.runPromptCacheMissTokens,
+			RunLLMChatCompletionCount: s.runLLMChatCompletionCount,
+			RunToolCallCount:          s.runToolCallCount,
+		})
+	}
 	if trace != nil {
 		trace.markSent(time.Now())
 	}
@@ -330,6 +333,8 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		if turn.trace != nil {
 			turn.trace.completeError(err)
 		}
+		s.emitPendingUsageDelta()
+		s.emitDebugLLMCallDelta(turn.trace)
 		s.pending = append(s.pending, DeltaError{Error: NewErrorPayload(
 			"missing_tool_call_id",
 			err.Error(),
@@ -352,6 +357,7 @@ func (s *llmRunStream) finishCurrentTurn() error {
 	}
 
 	s.emitPendingUsageDelta()
+	s.emitDebugLLMCallDelta(turn.trace)
 	s.currentTurn = nil
 
 	if len(toolCalls) == 0 {
@@ -574,16 +580,19 @@ func (s *llmRunStream) handleInterruptIfNeeded() error {
 	}
 	if !s.cancelSent {
 		s.cancelSent = true
-		s.emitPendingUsageDelta()
+		var trace *llmChatTrace
 		if s.currentTurn != nil && s.currentTurn.trace != nil {
+			trace = s.currentTurn.trace
 			info := InterruptInfo{}
 			if s.runControl != nil {
 				if snapshot, ok := s.runControl.InterruptInfo(); ok {
 					info = snapshot
 				}
 			}
-			s.currentTurn.trace.completeInterrupted(info)
+			trace.completeInterrupted(info)
 		}
+		s.emitPendingUsageDelta()
+		s.emitDebugLLMCallDelta(trace)
 		s.currentTurn = nil
 		s.pending = append(s.pending, DeltaRunCancel{RunID: s.session.RunID})
 		return nil

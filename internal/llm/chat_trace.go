@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,8 +20,11 @@ type llmChatTrace struct {
 	enabled       bool
 	maskSensitive bool
 	path          string
+	relativeFile  string
+	runSeq        int
 	payload       map[string]any
 	startedAt     time.Time
+	status        string
 	completed     bool
 }
 
@@ -50,12 +54,19 @@ func (s *llmRunStream) newChatTrace(runSeq int, prepared preparedProviderRequest
 	if strings.TrimSpace(s.model.Protocol) == "" {
 		payload["protocol"] = "OPENAI"
 	}
+	relativeFile := traceRelativeFile(s.session.RunID, runSeq)
 	return &llmChatTrace{
 		enabled:       true,
 		maskSensitive: cfg.MaskSensitive,
-		path:          filepath.Join(cfg.RecordDir, safeTraceChatID(s.session.ChatID), ".llm-records", traceFileName(s.session.RunID, runSeq)),
+		path:          filepath.Join(cfg.RecordDir, filepath.FromSlash(relativeFile)),
+		relativeFile:  relativeFile,
+		runSeq:        runSeq,
 		payload:       payload,
 	}
+}
+
+func traceRelativeFile(runID string, runSeq int) string {
+	return filepath.ToSlash(filepath.Join("llm", traceFileName(runID, runSeq)))
 }
 
 func traceFileName(runID string, runSeq int) string {
@@ -117,6 +128,47 @@ func effectiveTraceToolChoice(toolChoice string, toolSpecs []openAIToolSpec) str
 		return ""
 	}
 	return effective
+}
+
+func (t *llmChatTrace) runSeqValue() int {
+	if t == nil || !t.enabled {
+		return 0
+	}
+	return t.runSeq
+}
+
+func (t *llmChatTrace) relativeFileValue() string {
+	if t == nil || !t.enabled {
+		return ""
+	}
+	return strings.TrimSpace(t.relativeFile)
+}
+
+func (t *llmChatTrace) resourceURL() string {
+	relativeFile := t.relativeFileValue()
+	if relativeFile == "" {
+		return ""
+	}
+	return "/api/resource?file=" + url.QueryEscape(filepath.ToSlash(relativeFile))
+}
+
+func (t *llmChatTrace) statusValue() string {
+	if t == nil || !t.enabled {
+		return ""
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return strings.TrimSpace(t.status)
+}
+
+func (t *llmChatTrace) payloadString(key string) string {
+	if t == nil || !t.enabled {
+		return ""
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	value, _ := t.payload[key].(string)
+	return strings.TrimSpace(value)
 }
 
 func (t *llmChatTrace) markSent(at time.Time) {
@@ -200,6 +252,7 @@ func (t *llmChatTrace) complete(status string, errText string, content string, r
 		return
 	}
 	t.completed = true
+	t.status = strings.TrimSpace(status)
 	completedAt := time.Now()
 	t.payload["completedAt"] = completedAt.Format(time.RFC3339Nano)
 	if !t.startedAt.IsZero() {

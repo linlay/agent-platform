@@ -62,6 +62,9 @@ func TestLoadDefaults(t *testing.T) {
 			if cfg.Logging.LLMInteraction.MaskSensitive {
 				t.Fatalf("expected llm interaction logs to be unmasked by default")
 			}
+			if got, want := strings.Join(cfg.Logging.LLMInteraction.ConsoleCategories, ","), "request,usage"; got != want {
+				t.Fatalf("expected default llm console categories %q, got %q", want, got)
+			}
 			if cfg.Logging.LLMInteraction.RecordEnabled {
 				t.Fatalf("expected llm chat record disabled by default")
 			}
@@ -2093,6 +2096,33 @@ func TestLoadLLMInteractionMaskSensitiveFromEnv(t *testing.T) {
 	})
 }
 
+func TestLoadLLMConsoleFromDebugEnv(t *testing.T) {
+	tests := []struct {
+		name string
+		env  string
+		want string
+	}{
+		{name: "raw and parsed", env: "raw,parsed", want: "raw,parsed"},
+		{name: "none", env: "none", want: "none"},
+		{name: "all", env: "all", want: "all"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			withIsolatedEnv(t, map[string]string{
+				"DEBUG_LLM_CONSOLE": tt.env,
+			}, func() {
+				cfg, err := Load()
+				if err != nil {
+					t.Fatalf("load config: %v", err)
+				}
+				if got := strings.Join(cfg.Logging.LLMInteraction.ConsoleCategories, ","); got != tt.want {
+					t.Fatalf("expected llm console categories %q, got %q", tt.want, got)
+				}
+			})
+		})
+	}
+}
+
 func TestLoadLLMChatRecordFromDebugEnv(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"DEBUG_LLM_CHAT_RECORD": "true",
@@ -2481,6 +2511,7 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 		"LOGGING_AGENT_SSE_ENABLED",
 		"LOGGING_AGENT_LLM_INTERACTION_ENABLED",
 		"LOGGING_AGENT_LLM_INTERACTION_MASK_SENSITIVE",
+		"DEBUG_LLM_CONSOLE",
 		"DEBUG_LLM_CHAT_RECORD",
 		"AGENT_GATEWAY_WS_URL",
 		"GATEWAY_WS_URL",

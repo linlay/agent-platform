@@ -614,6 +614,9 @@ func routeChildStreamInput(taskID string, input stream.StreamInput) stream.Strea
 	case stream.InputDebugPostCall:
 		value.TaskID = taskID
 		return value
+	case stream.InputDebugLLMCall:
+		value.TaskID = taskID
+		return value
 	default:
 		return input
 	}

@@ -2089,6 +2089,96 @@ func TestStepWriterPersistsSystemRefWithoutDebugPayload(t *testing.T) {
 	}
 }
 
+func TestStepWriterCapturesDebugLLMCallMetadata(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-llm-call", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	writer := NewStepWriter(store, "chat-llm-call", "run-llm-call", "react")
+	writer.OnEvent(stream.EventData{
+		Type: "debug.llmCall",
+		Payload: map[string]any{
+			"data": map[string]any{
+				"provider":  map[string]any{"key": "mock"},
+				"systemRef": map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:llm-call"},
+				"contextWindow": map[string]any{
+					"maxSize":         128000,
+					"actualSize":      100,
+					"estimatedSize":   200,
+					"modelKey":        "mock-model",
+					"reasoningEffort": "HIGH",
+				},
+				"usage": map[string]any{
+					"llmReturnUsage": map[string]any{
+						"promptTokens":           100,
+						"completionTokens":       50,
+						"totalTokens":            150,
+						"llmChatCompletionCount": 1,
+						"toolCallCount":          2,
+						"modelKey":               "mock-model",
+						"reasoningEffort":        "HIGH",
+					},
+				},
+				"trace": map[string]any{
+					"file": "llm/run-llm-call_001.json",
+					"url":  "/api/resource?file=llm%2Frun-llm-call_001.json",
+				},
+				"status": "ok",
+				"runSeq": 1,
+			},
+		},
+	})
+	writer.OnEvent(stream.EventData{
+		Type: "content.snapshot",
+		Payload: map[string]any{
+			"contentId": "content-1",
+			"text":      "hello",
+		},
+	})
+	writer.OnEvent(stream.EventData{Type: "run.complete"})
+
+	lines, err := readJSONLines(store.chatJSONLPath("chat-llm-call"))
+	if err != nil {
+		t.Fatalf("read chat jsonl: %v", err)
+	}
+	if len(lines) != 1 {
+		t.Fatalf("expected one step line, got %#v", lines)
+	}
+	if _, ok := lines[0]["debug"]; ok {
+		t.Fatalf("did not expect debug payload in chat jsonl, got %#v", lines[0])
+	}
+	systemRef, _ := lines[0]["systemRef"].(map[string]any)
+	if systemRef["cacheKey"] != "react:main" || systemRef["fingerprint"] != "sha256:llm-call" {
+		t.Fatalf("expected systemRef from debug.llmCall, got %#v", lines[0])
+	}
+	usage, _ := lines[0]["usage"].(map[string]any)
+	if toIntValue(usage["promptTokens"]) != 100 || toIntValue(usage["completionTokens"]) != 50 || toIntValue(usage["totalTokens"]) != 150 ||
+		toIntValue(usage["llmChatCompletionCount"]) != 1 || toIntValue(usage["toolCallCount"]) != 2 {
+		t.Fatalf("expected usage from debug.llmCall, got %#v", lines[0])
+	}
+	contextWindow, _ := lines[0]["contextWindow"].(map[string]any)
+	if toIntValue(contextWindow["maxSize"]) != 128000 || toIntValue(contextWindow["actualSize"]) != 100 || toIntValue(contextWindow["estimatedSize"]) != 200 {
+		t.Fatalf("expected contextWindow from debug.llmCall, got %#v", lines[0])
+	}
+
+	detail, err := store.LoadChat("chat-llm-call")
+	if err != nil {
+		t.Fatalf("load chat: %v", err)
+	}
+	for _, event := range detail.Events {
+		if event.Type == "debug.llmCall" {
+			t.Fatalf("did not expect debug.llmCall in chat history, got %#v", detail.Events)
+		}
+	}
+	if detail.ReplayUsage.Chat.TotalTokens != 150 || detail.ContextWindow == nil {
+		t.Fatalf("expected replay usage/context window, got usage=%#v contextWindow=%#v", detail.ReplayUsage, detail.ContextWindow)
+	}
+}
+
 func TestStepWriterOmitsPreCallDebugWhenDebugEventsDisabled(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {

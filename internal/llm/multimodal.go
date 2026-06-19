@@ -14,12 +14,12 @@ import (
 // When the request has image references in the chat dir, it returns an
 // OpenAI-compatible multimodal content array: [{type:text,...},{type:image_url,...},...].
 // Otherwise it returns the plain text string so existing callers keep working.
-func buildUserMessageContent(chatsDir string, chatID string, text string, references []api.Reference, isVision bool) any {
+func buildUserMessageContent(chatsDir string, chatID string, text string, references []api.Reference, isVision bool, logMedia bool) any {
 	if !isVision {
 		return text
 	}
 
-	imageBlocks := collectImageBlocks(chatsDir, chatID, references)
+	imageBlocks := collectImageBlocks(chatsDir, chatID, references, logMedia)
 	if len(imageBlocks) == 0 {
 		return text
 	}
@@ -35,7 +35,7 @@ func buildUserMessageContent(chatsDir string, chatID string, text string, refere
 	return content
 }
 
-func collectImageBlocks(chatsDir string, chatID string, references []api.Reference) []map[string]any {
+func collectImageBlocks(chatsDir string, chatID string, references []api.Reference, logMedia bool) []map[string]any {
 	if len(references) == 0 || strings.TrimSpace(chatsDir) == "" || strings.TrimSpace(chatID) == "" {
 		return nil
 	}
@@ -61,7 +61,7 @@ func collectImageBlocks(chatsDir string, chatID string, references []api.Referen
 			log.Printf("[llm][multimodal] skip image ref name=%q path=%q err=%v", name, hostPath, err)
 			continue
 		}
-		if image.Reencoded {
+		if image.Reencoded && logMedia {
 			log.Printf("[llm][multimodal] reencoded image name=%q sentBytes=%d", name, image.SentBytes)
 		}
 		blocks = append(blocks, multimodal.OpenAIImageBlock(image))

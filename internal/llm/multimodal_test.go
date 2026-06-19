@@ -22,7 +22,7 @@ func TestBuildUserMessageContentIncludesImageReferences(t *testing.T) {
 	content := buildUserMessageContent(chatsDir, chatID, "what is in this image?", []api.Reference{{
 		Name:     "demo.png",
 		MimeType: "image/png",
-	}}, true)
+	}}, true, false)
 
 	blocks, ok := content.([]map[string]any)
 	if !ok {
@@ -48,7 +48,7 @@ func TestBuildUserMessageContentFallsBackToTextWithoutImages(t *testing.T) {
 	content := buildUserMessageContent(t.TempDir(), "chat_1", "hello", []api.Reference{{
 		Name:     "notes.txt",
 		MimeType: "text/plain",
-	}}, true)
+	}}, true, false)
 
 	if content != "hello" {
 		t.Fatalf("expected plain text fallback, got %#v", content)
@@ -68,7 +68,7 @@ func TestBuildUserMessageContentSkipsImagesWhenNotVision(t *testing.T) {
 	content := buildUserMessageContent(chatsDir, chatID, "hello", []api.Reference{{
 		Name:     "demo.png",
 		MimeType: "image/png",
-	}}, false)
+	}}, false, false)
 
 	if content != "hello" {
 		t.Fatalf("expected plain text for non-vision model, got %#v", content)

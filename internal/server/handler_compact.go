@@ -312,6 +312,8 @@ func (s *Server) generateCompactSummary(ctx context.Context, req api.CompactRequ
 			usage = compactUsageFromUsageSnapshot(d)
 		case contracts.DeltaDebugPostCall:
 			usage = compactUsageFromDebugPostCall(d)
+		case contracts.DeltaDebugLLMCall:
+			usage = compactUsageFromDebugLLMCall(d)
 		case contracts.DeltaError:
 			return strings.TrimSpace(b.String()), usage, fmt.Errorf("compact summary model error: %v", d.Error)
 		}
@@ -400,6 +402,25 @@ func compactUsageFromUsageSnapshot(d contracts.DeltaUsageSnapshot) map[string]an
 }
 
 func compactUsageFromDebugPostCall(d contracts.DeltaDebugPostCall) map[string]any {
+	return compactUsageMap(
+		d.ModelKey,
+		d.ReasoningEffort,
+		d.ContextWindow,
+		d.CurrentContextSize,
+		d.EstimatedNextCallSize,
+		d.LLMReturnPromptTokens,
+		d.LLMReturnCompletionTokens,
+		d.LLMReturnTotalTokens,
+		d.LLMReturnCachedTokens,
+		d.LLMReturnReasoningTokens,
+		d.LLMReturnPromptCacheHitTokens,
+		d.LLMReturnPromptCacheMissTokens,
+		d.LLMReturnLLMChatCompletionCount,
+		d.LLMReturnToolCallCount,
+	)
+}
+
+func compactUsageFromDebugLLMCall(d contracts.DeltaDebugLLMCall) map[string]any {
 	return compactUsageMap(
 		d.ModelKey,
 		d.ReasoningEffort,
