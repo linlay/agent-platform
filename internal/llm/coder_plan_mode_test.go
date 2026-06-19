@@ -18,9 +18,9 @@ func TestResolveAgentModeCoder(t *testing.T) {
 	}
 }
 
-func TestCoderPlanningStageToolsAreReadOnlyPlusQuestionsAndPlan(t *testing.T) {
+func TestCoderPlanningStageToolsAreReadOnlyPlusVisionQuestionsAndPlan(t *testing.T) {
 	stream := &coderPlanningStream{}
-	want := []string{"file_read", "file_glob", "file_grep", "datetime", "regex", "ask_user_question", contracts.FinalizePlanningToolName}
+	want := []string{"file_read", "file_glob", "file_grep", "datetime", "regex", "vision_recognize", "ask_user_question", contracts.FinalizePlanningToolName}
 	if got := stream.planStageTools(); !reflect.DeepEqual(got, want) {
 		t.Fatalf("planStageTools()=%#v want %#v", got, want)
 	}
@@ -71,7 +71,7 @@ func TestCoderPlanningPromptUsesCoderPromptsConfig(t *testing.T) {
 	if !strings.Contains(prompt, "Use finalize_planning.") {
 		t.Fatalf("expected configured finalize_planning instructions, got %q", prompt)
 	}
-	if !strings.Contains(prompt, "file_read, file_glob, file_grep, datetime, regex, ask_user_question, finalize_planning") {
+	if !strings.Contains(prompt, "file_read, file_glob, file_grep, datetime, regex, vision_recognize, ask_user_question, finalize_planning") {
 		t.Fatalf("expected rendered plan stage tools, got %q", prompt)
 	}
 	if !strings.Contains(prompt, "bash, file_read, file_write, file_edit, datetime") {

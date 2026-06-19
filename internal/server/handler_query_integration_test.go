@@ -2087,10 +2087,10 @@ func writeProviderSSEFrame(t *testing.T, w io.Writer, frame string) {
 
 func assertCoderPlanningToolSet(t *testing.T, got []string) {
 	t.Helper()
-	if len(got) != 7 {
+	if len(got) != 8 {
 		t.Fatalf("coder planning tools length=%d tools=%#v", len(got), got)
 	}
-	assertStringSliceContains(t, got, "file_read", "file_glob", "file_grep", "datetime", "regex", "ask_user_question", "finalize_planning")
+	assertStringSliceContains(t, got, "file_read", "file_glob", "file_grep", "datetime", "regex", "vision_recognize", "ask_user_question", "finalize_planning")
 	assertStringSliceExcludes(t, got, "bash", "file_write", "file_edit", "desktop_action", "desktop_cdp", "agent_invoke", "plan_add_tasks", "plan_update_task", "planning_write")
 }
 

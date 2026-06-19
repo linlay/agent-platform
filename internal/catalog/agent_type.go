@@ -24,11 +24,12 @@ var coderAgentProfile = agentModeProfile{
 		"file_grep",
 		"datetime",
 		"regex",
+		"vision_recognize",
 	},
 	ContextTags: []string{"system", "session"},
 	Budget: map[string]any{
-		"timeout": 1800,
-		"maxSteps":     240,
+		"timeout":  1800,
+		"maxSteps": 240,
 		"tool": map[string]any{
 			"maxCalls": 200,
 		},

@@ -17,6 +17,7 @@ var coderPlanningModePlanTools = []string{
 	"file_grep",
 	"datetime",
 	"regex",
+	"vision_recognize",
 	"ask_user_question",
 	FinalizePlanningToolName,
 }

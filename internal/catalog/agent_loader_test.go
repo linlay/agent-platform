@@ -759,7 +759,7 @@ func TestParseAgentFileAppliesCoderProfileDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	wantTools := []string{"bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "regex"}
+	wantTools := []string{"bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "regex", "vision_recognize"}
 	if !reflect.DeepEqual(def.Tools, wantTools) {
 		t.Fatalf("tools = %#v, want %#v", def.Tools, wantTools)
 	}
@@ -863,6 +863,14 @@ func TestParseAgentFileAllowsCoderWithoutWorkspace(t *testing.T) {
 	}
 	if def.Workspace.Root != "" {
 		t.Fatalf("workspace root = %q, want empty runtime default", def.Workspace.Root)
+	}
+	if !containsString(def.Tools, "vision_recognize") {
+		t.Fatalf("expected CODER default tools to include vision_recognize, got %#v", def.Tools)
+	}
+	for _, tool := range []string{"memory_write", "memory_read", "memory_search"} {
+		if containsString(def.Tools, tool) {
+			t.Fatalf("expected CODER default tools not to include %s without memoryConfig, got %#v", tool, def.Tools)
+		}
 	}
 }
 
