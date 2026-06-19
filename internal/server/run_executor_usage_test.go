@@ -366,7 +366,7 @@ func TestRunEventProcessorDecoratesUsageSnapshotWithEstimatedCost(t *testing.T) 
 	}
 }
 
-func TestRunEventProcessorPersistsDebugPostCallEstimatedCostToJSONL(t *testing.T) {
+func TestRunEventProcessorPersistsDebugLLMChatEstimatedCostToJSONL(t *testing.T) {
 	root := t.TempDir()
 	store, err := chat.NewFileStore(root)
 	if err != nil {
@@ -388,7 +388,7 @@ func TestRunEventProcessorPersistsDebugPostCallEstimatedCostToJSONL(t *testing.T
 		"contentId": "content-1",
 		"text":      "answer",
 	}))
-	processor.Consume(stream.NewEvent("debug.postCall", map[string]any{
+	processor.Consume(stream.NewEvent("debug.llmChat", map[string]any{
 		"data": map[string]any{
 			"model": map[string]any{"key": "mock-model"},
 			"contextWindow": map[string]any{
@@ -442,17 +442,17 @@ func TestRunEventProcessorPersistsDebugPostCallEstimatedCostToJSONL(t *testing.T
 		t.Fatalf("load chat: %v", err)
 	}
 	if detail.ReplayUsage.LastRun.EstimatedCostCurrency != "CNY" || detail.ReplayUsage.LastRun.EstimatedCostTotal != 8.405 {
-		t.Fatalf("expected replay lastRun cost from debug post-call step usage, got %#v", detail.ReplayUsage.LastRun)
+		t.Fatalf("expected replay lastRun cost from debug llmChat step usage, got %#v", detail.ReplayUsage.LastRun)
 	}
 	if detail.ReplayUsage.Chat.EstimatedCostCurrency != "CNY" || detail.ReplayUsage.Chat.EstimatedCostTotal != 8.405 {
-		t.Fatalf("expected replay chat cost from debug post-call step usage, got %#v", detail.ReplayUsage.Chat)
+		t.Fatalf("expected replay chat cost from debug llmChat step usage, got %#v", detail.ReplayUsage.Chat)
 	}
 	if runUsage.EstimatedCostCurrency != "" || runUsage.EstimatedCostTotal != 0 {
-		t.Fatalf("did not expect debug post-call runUsage merge to estimate cumulative cost, got %#v", runUsage)
+		t.Fatalf("did not expect debug llmChat runUsage merge to estimate cumulative cost, got %#v", runUsage)
 	}
 }
 
-func TestRunEventProcessorOmitsDebugPostCallEstimatedCostWithoutPricing(t *testing.T) {
+func TestRunEventProcessorOmitsDebugLLMChatEstimatedCostWithoutPricing(t *testing.T) {
 	runUsage := chat.UsageData{}
 	processor := &runEventProcessor{
 		billing:  config.BillingConfig{Currency: "CNY"},
@@ -460,7 +460,7 @@ func TestRunEventProcessorOmitsDebugPostCallEstimatedCostWithoutPricing(t *testi
 		runUsage: &runUsage,
 	}
 	data := &stream.EventData{
-		Type: "debug.postCall",
+		Type: "debug.llmChat",
 		Payload: map[string]any{
 			"data": map[string]any{
 				"model": map[string]any{"key": "no-pricing-model"},
@@ -511,7 +511,7 @@ func TestRunEventProcessorPreservesEstimatedCostOnTerminalUsage(t *testing.T) {
 		},
 	})
 	processor.decorate(&stream.EventData{
-		Type: "debug.postCall",
+		Type: "debug.llmChat",
 		Payload: map[string]any{
 			"data": map[string]any{
 				"usage": map[string]any{

@@ -1710,11 +1710,15 @@ func TestStepWriterReusesReactSeqForSplitHITLToolResult(t *testing.T) {
 
 	writer := NewStepWriter(store, "chat-hitl-seq", "run-hitl-seq", "react")
 	writer.OnEvent(stream.EventData{
-		Type:      "debug.preCall",
+		Type:      "usage.snapshot",
 		Timestamp: 1000,
 		Payload: map[string]any{
-			"data": map[string]any{
-				"usage": map[string]any{},
+			"usage": map[string]any{
+				"current": map[string]any{
+					"promptTokens":           1,
+					"totalTokens":            1,
+					"llmChatCompletionCount": 1,
+				},
 			},
 		},
 	})
@@ -1778,11 +1782,15 @@ func TestStepWriterReusesReactSeqForSplitHITLToolResult(t *testing.T) {
 	})
 	writer.OnStageMarker("react-step-2")
 	writer.OnEvent(stream.EventData{
-		Type:      "debug.preCall",
+		Type:      "usage.snapshot",
 		Timestamp: 1007,
 		Payload: map[string]any{
-			"data": map[string]any{
-				"usage": map[string]any{},
+			"usage": map[string]any{
+				"current": map[string]any{
+					"promptTokens":           1,
+					"totalTokens":            1,
+					"llmChatCompletionCount": 1,
+				},
 			},
 		},
 	})
@@ -1925,7 +1933,7 @@ func TestStepWriterEmbedsUsageAtStepLevel(t *testing.T) {
 		},
 	})
 	writer.OnEvent(stream.EventData{
-		Type:      "debug.postCall",
+		Type:      "debug.llmChat",
 		Timestamp: 2002,
 		Payload: map[string]any{
 			"data": map[string]any{
@@ -1999,7 +2007,7 @@ func TestStepWriterPersistsSystemRefWithoutDebugPayload(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-system-snapshot", "run-system-snapshot", "react", WithDebugEventsEnabled(true))
+	writer := NewStepWriter(store, "chat-system-snapshot", "run-system-snapshot", "react")
 	systemRef := map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:first"}
 	requestBody := map[string]any{
 		"model": "gpt-5.2",
@@ -2018,9 +2026,9 @@ func TestStepWriterPersistsSystemRefWithoutDebugPayload(t *testing.T) {
 		"stream": true,
 	}
 
-	emitDebugPreCall := func(request map[string]any) {
+	emitDebugLLMChat := func(request map[string]any) {
 		writer.OnEvent(stream.EventData{
-			Type: "debug.preCall",
+			Type: "debug.llmChat",
 			Payload: map[string]any{
 				"data": map[string]any{
 					"provider":  map[string]any{"key": "mock"},
@@ -2051,7 +2059,7 @@ func TestStepWriterPersistsSystemRefWithoutDebugPayload(t *testing.T) {
 		})
 	}
 
-	emitDebugPreCall(requestBody)
+	emitDebugLLMChat(requestBody)
 	emitContent("content-1", "first")
 	writer.OnEvent(stream.EventData{Type: "run.complete"})
 
@@ -2083,7 +2091,7 @@ func TestStepWriterPersistsSystemRefWithoutDebugPayload(t *testing.T) {
 		t.Fatalf("load chat: %v", err)
 	}
 	for _, event := range detail.Events {
-		if event.Type == "debug.preCall" || event.Type == "debug.postCall" {
+		if event.Type == "debug.llmChat" {
 			t.Fatalf("did not expect debug events in chat history, got %#v", detail.Events)
 		}
 	}
@@ -2179,7 +2187,7 @@ func TestStepWriterCapturesDebugLLMChatMetadata(t *testing.T) {
 	}
 }
 
-func TestStepWriterOmitsPreCallDebugWhenDebugEventsDisabled(t *testing.T) {
+func TestStepWriterPersistsLLMChatMetadataWithoutDebugPayload(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
@@ -2187,39 +2195,14 @@ func TestStepWriterOmitsPreCallDebugWhenDebugEventsDisabled(t *testing.T) {
 
 	writer := NewStepWriter(store, "chat-debug-disabled", "run-debug-disabled", "react")
 	writer.OnEvent(stream.EventData{
-		Type: "debug.preCall",
+		Type: "debug.llmChat",
 		Payload: map[string]any{
 			"data": map[string]any{
-				"provider":    map[string]any{"key": "mock"},
-				"requestBody": map[string]any{"model": "gpt-5.2"},
-				"systemRef":   map[string]any{"cacheKey": "react:main"},
+				"provider":  map[string]any{"key": "mock"},
+				"systemRef": map[string]any{"cacheKey": "react:main"},
 				"contextWindow": map[string]any{
 					"maxSize":       128000,
-					"estimatedSize": 200,
-				},
-				"usage": map[string]any{
-					"runUsage": map[string]any{
-						"promptTokens":     100,
-						"completionTokens": 0,
-						"totalTokens":      100,
-					},
-				},
-			},
-		},
-	})
-	writer.OnEvent(stream.EventData{
-		Type: "content.snapshot",
-		Payload: map[string]any{
-			"contentId": "content-1",
-			"text":      "hello",
-		},
-	})
-	writer.OnEvent(stream.EventData{
-		Type: "debug.postCall",
-		Payload: map[string]any{
-			"data": map[string]any{
-				"contextWindow": map[string]any{
-					"maxSize":       128000,
+					"actualSize":    100,
 					"estimatedSize": 200,
 				},
 				"usage": map[string]any{
@@ -2232,6 +2215,13 @@ func TestStepWriterOmitsPreCallDebugWhenDebugEventsDisabled(t *testing.T) {
 			},
 		},
 	})
+	writer.OnEvent(stream.EventData{
+		Type: "content.snapshot",
+		Payload: map[string]any{
+			"contentId": "content-1",
+			"text":      "hello",
+		},
+	})
 	writer.OnEvent(stream.EventData{Type: "run.complete"})
 
 	lines, err := readJSONLines(store.chatJSONLPath("chat-debug-disabled"))
@@ -2242,7 +2232,7 @@ func TestStepWriterOmitsPreCallDebugWhenDebugEventsDisabled(t *testing.T) {
 		t.Fatalf("expected one step line, got %#v", lines)
 	}
 	if _, ok := lines[0]["debug"]; ok {
-		t.Fatalf("did not expect debug payload when debug events are disabled, got %#v", lines[0])
+		t.Fatalf("did not expect debug payload in chat jsonl, got %#v", lines[0])
 	}
 	if _, ok := lines[0]["systemRef"].(map[string]any); !ok {
 		t.Fatalf("expected non-debug systemRef to remain, got %#v", lines[0])
@@ -2330,8 +2320,8 @@ func TestStepWriterPersistsUsageSnapshotWhenDebugEventsDisabled(t *testing.T) {
 		toIntValue(promptDetails["cacheHitTokens"]) != 64 || toIntValue(promptDetails["cacheMissTokens"]) != 36 {
 		t.Fatalf("expected usage snapshot to persist, got %#v", lines[0])
 	}
-	if _, exists := usage["llmChatCompletionCount"]; exists {
-		t.Fatalf("did not expect persisted usage snapshot llmChatCompletionCount, got %#v", lines[0])
+	if toIntValue(usage["llmChatCompletionCount"]) != 1 {
+		t.Fatalf("expected persisted usage snapshot llmChatCompletionCount, got %#v", lines[0])
 	}
 	if toIntValue(usage["toolCallCount"]) != 2 {
 		t.Fatalf("expected persisted usage snapshot toolCallCount, got %#v", lines[0])
@@ -2815,7 +2805,7 @@ func TestStepWriterPersistsTaskScopedUsageAndSlimMetadataWithoutDebugPayload(t *
 		t.Fatalf("new file store: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-task-debug", "run-task-debug", "react", WithDebugEventsEnabled(true))
+	writer := NewStepWriter(store, "chat-task-debug", "run-task-debug", "react")
 	writer.OnEvent(stream.EventData{
 		Type: "task.start",
 		Payload: map[string]any{
@@ -2827,7 +2817,7 @@ func TestStepWriterPersistsTaskScopedUsageAndSlimMetadataWithoutDebugPayload(t *
 		},
 	})
 	writer.OnEvent(stream.EventData{
-		Type: "debug.preCall",
+		Type: "debug.llmChat",
 		Payload: map[string]any{
 			"taskId": "task_1",
 			"data": map[string]any{
@@ -2855,7 +2845,7 @@ func TestStepWriterPersistsTaskScopedUsageAndSlimMetadataWithoutDebugPayload(t *
 		},
 	})
 	writer.OnEvent(stream.EventData{
-		Type: "debug.postCall",
+		Type: "debug.llmChat",
 		Payload: map[string]any{
 			"taskId": "task_1",
 			"data": map[string]any{
@@ -5519,21 +5509,6 @@ func TestLoadChatReadsUsageFromStepLevel(t *testing.T) {
 			"llmChatCompletionCount": 1,
 			"toolCallCount":          2,
 		},
-		Debug: map[string]any{
-			"preCall": map[string]any{
-				"provider": map[string]any{
-					"key":      "minimax",
-					"endpoint": "https://api.minimaxi.com/v1/chat/completions",
-				},
-				"model": map[string]any{
-					"key": "mock-model",
-					"id":  "mock-model-id",
-				},
-				"requestBody": map[string]any{
-					"model": "mock-model-id",
-				},
-			},
-		},
 		ContextWindow: map[string]any{
 			"maxSize":       128000,
 			"actualSize":    100,
@@ -5552,9 +5527,7 @@ func TestLoadChatReadsUsageFromStepLevel(t *testing.T) {
 		"chat.start",
 		"run.start",
 		"request.query",
-		"debug.preCall",
 		"content.snapshot",
-		"debug.postCall",
 		"run.complete",
 	}
 	if len(detail.Events) != len(expectedTypes) {
@@ -5566,61 +5539,13 @@ func TestLoadChatReadsUsageFromStepLevel(t *testing.T) {
 		}
 	}
 
-	preCallData, _ := detail.Events[3].Value("data").(map[string]any)
-	preCallProvider, _ := preCallData["provider"].(map[string]any)
-	preCallModel, _ := preCallData["model"].(map[string]any)
-	preCallCW, _ := preCallData["contextWindow"].(map[string]any)
-	preCallRequestBody, _ := preCallData["requestBody"].(map[string]any)
-	if toIntValue(preCallCW["maxSize"]) != 128000 || toIntValue(preCallCW["actualSize"]) != 100 || toIntValue(preCallCW["estimatedSize"]) != 200 {
-		t.Fatalf("unexpected debug.preCall context window %#v", detail.Events[3])
-	}
-	if preCallCW["modelKey"] != "line-model" || preCallCW["reasoningEffort"] != "HIGH" {
-		t.Fatalf("expected debug.preCall context window model metadata from step line, got %#v", detail.Events[3])
-	}
-	if preCallProvider["key"] != "minimax" || preCallProvider["endpoint"] != "https://api.minimaxi.com/v1/chat/completions" {
-		t.Fatalf("unexpected debug.preCall provider %#v", detail.Events[3])
-	}
-	if preCallModel["key"] != "mock-model" || preCallModel["id"] != "mock-model-id" {
-		t.Fatalf("unexpected debug.preCall model %#v", detail.Events[3])
-	}
-	if preCallRequestBody["model"] != "mock-model-id" {
-		t.Fatalf("unexpected debug.preCall payload %#v", detail.Events[3])
-	}
-	if _, exists := preCallData["systemPrompt"]; exists {
-		t.Fatalf("did not expect legacy systemPrompt in debug.preCall payload %#v", detail.Events[3])
-	}
-	if _, exists := preCallData["tools"]; exists {
-		t.Fatalf("did not expect legacy tools in debug.preCall payload %#v", detail.Events[3])
-	}
-	if _, exists := preCallData["usage"]; exists {
-		t.Fatalf("did not expect usage in debug.preCall payload %#v", detail.Events[3])
-	}
-
 	if toIntValue(detail.ContextWindow["maxSize"]) != 128000 || toIntValue(detail.ContextWindow["currentSize"]) != 100 || toIntValue(detail.ContextWindow["estimatedNextCallSize"]) != 200 ||
 		detail.ContextWindow["modelKey"] != "line-model" || detail.ContextWindow["reasoningEffort"] != "HIGH" {
 		t.Fatalf("unexpected detail context window %#v", detail.ContextWindow)
 	}
 
-	postCallData, _ := detail.Events[5].Value("data").(map[string]any)
-	postCallUsage, _ := postCallData["usage"].(map[string]any)
-	llmUsage, _ := postCallUsage["llmReturnUsage"].(map[string]any)
-	if toIntValue(llmUsage["promptTokens"]) != 100 || toIntValue(llmUsage["completionTokens"]) != 50 || toIntValue(llmUsage["totalTokens"]) != 150 {
-		t.Fatalf("unexpected debug.postCall usage %#v", detail.Events[5])
-	}
-	if toIntValue(llmUsage["toolCallCount"]) != 2 {
-		t.Fatalf("unexpected debug.postCall toolCallCount %#v", detail.Events[5])
-	}
-	if llmUsage["modelKey"] != "line-model" || llmUsage["reasoningEffort"] != "HIGH" {
-		t.Fatalf("expected debug.postCall usage model metadata from step line, got %#v", detail.Events[5])
-	}
-	if _, exists := postCallUsage["runUsage"]; exists {
-		t.Fatalf("did not expect debug.postCall run usage %#v", detail.Events[5])
-	}
-	if _, exists := postCallUsage["chatUsage"]; exists {
-		t.Fatalf("did not expect debug.postCall chat usage %#v", detail.Events[5])
-	}
-	if _, exists := detail.Events[6].Value("usage").(map[string]any); exists {
-		t.Fatalf("did not expect synthesized run.complete usage %#v", detail.Events[6])
+	if _, exists := detail.Events[4].Value("usage").(map[string]any); exists {
+		t.Fatalf("did not expect synthesized run.complete usage %#v", detail.Events[4])
 	}
 	if detail.ReplayUsage.LastRunID != "run-step-usage" ||
 		detail.ReplayUsage.LastRun.PromptTokens != 100 ||
@@ -5766,8 +5691,8 @@ func TestLoadChatReadsLegacySnakeCaseUsageFromStepLevel(t *testing.T) {
 		t.Fatalf("expected legacy usage replay events, got %#v", detail.Events)
 	}
 	for _, event := range detail.Events {
-		if event.Type == "debug.preCall" || event.Type == "debug.postCall" || event.Type == "usage.snapshot" {
-			t.Fatalf("did not expect usage-only legacy step to synthesize debug event, got %#v", detail.Events)
+		if event.Type == "usage.snapshot" {
+			t.Fatalf("did not expect usage-only legacy step to synthesize usage event, got %#v", detail.Events)
 		}
 	}
 	if toIntValue(detail.ContextWindow["maxSize"]) != 128000 || toIntValue(detail.ContextWindow["currentSize"]) != 100 || toIntValue(detail.ContextWindow["estimatedNextCallSize"]) != 200 ||

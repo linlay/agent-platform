@@ -568,7 +568,7 @@ func TestFrameOrchestratorSubAgentRequestsShareRunIDWithUniqueRequestIDs(t *test
 	}
 	childOne := &stubOrchestratableStream{
 		deltas: []contracts.AgentDelta{
-			contracts.DeltaDebugPreCall{ChatID: "chat_1", ModelKey: "mock"},
+			contracts.DeltaDebugLLMChat{ChatID: "chat_1", ModelKey: "mock", Status: "ok", RunSeq: 1},
 			contracts.DeltaReasoning{Text: "thinking"},
 			contracts.DeltaContent{Text: "child answer"},
 		},
@@ -656,12 +656,12 @@ func TestFrameOrchestratorSubAgentRequestsShareRunIDWithUniqueRequestIDs(t *test
 	foundReasoning := false
 	foundContent := false
 	foundFinalContent := false
-	foundPreCall := false
+	foundLLMChat := false
 	for _, input := range routed {
 		switch value := input.(type) {
-		case stream.InputDebugPreCall:
+		case stream.InputDebugLLMChat:
 			if value.TaskID == "run_1_t_1" {
-				foundPreCall = true
+				foundLLMChat = true
 			}
 		case stream.ReasoningDelta:
 			if value.TaskID == "run_1_t_1" && value.ReasoningID == "run_1_t_1_r_1" {
@@ -676,8 +676,8 @@ func TestFrameOrchestratorSubAgentRequestsShareRunIDWithUniqueRequestIDs(t *test
 			}
 		}
 	}
-	if !foundPreCall || !foundReasoning || !foundContent || !foundFinalContent {
-		t.Fatalf("expected child debug/reasoning/content/final IDs to use task prefix; preCall=%v reasoning=%v content=%v final=%v routed=%#v", foundPreCall, foundReasoning, foundContent, foundFinalContent, routed)
+	if !foundLLMChat || !foundReasoning || !foundContent || !foundFinalContent {
+		t.Fatalf("expected child debug/reasoning/content/final IDs to use task prefix; llmChat=%v reasoning=%v content=%v final=%v routed=%#v", foundLLMChat, foundReasoning, foundContent, foundFinalContent, routed)
 	}
 }
 

@@ -310,8 +310,6 @@ func (s *Server) generateCompactSummary(ctx context.Context, req api.CompactRequ
 			b.WriteString(d.Text)
 		case contracts.DeltaUsageSnapshot:
 			usage = compactUsageFromUsageSnapshot(d)
-		case contracts.DeltaDebugPostCall:
-			usage = compactUsageFromDebugPostCall(d)
 		case contracts.DeltaDebugLLMChat:
 			usage = compactUsageFromDebugLLMChat(d)
 		case contracts.DeltaError:
@@ -383,25 +381,6 @@ func compactTriggerThreshold(contextWindow int) int {
 }
 
 func compactUsageFromUsageSnapshot(d contracts.DeltaUsageSnapshot) map[string]any {
-	return compactUsageMap(
-		d.ModelKey,
-		d.ReasoningEffort,
-		d.ContextWindow,
-		d.CurrentContextSize,
-		d.EstimatedNextCallSize,
-		d.LLMReturnPromptTokens,
-		d.LLMReturnCompletionTokens,
-		d.LLMReturnTotalTokens,
-		d.LLMReturnCachedTokens,
-		d.LLMReturnReasoningTokens,
-		d.LLMReturnPromptCacheHitTokens,
-		d.LLMReturnPromptCacheMissTokens,
-		d.LLMReturnLLMChatCompletionCount,
-		d.LLMReturnToolCallCount,
-	)
-}
-
-func compactUsageFromDebugPostCall(d contracts.DeltaDebugPostCall) map[string]any {
 	return compactUsageMap(
 		d.ModelKey,
 		d.ReasoningEffort,

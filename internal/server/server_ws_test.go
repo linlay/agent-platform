@@ -1104,14 +1104,14 @@ func TestWebSocketPushAwaitingAnswerRunInterruptedClearsPendingChatSummary(t *te
 	}
 }
 
-func TestWebSocketQueryDebugVisibilityFollowsStreamConfig(t *testing.T) {
+func TestWebSocketQueryDebugVisibilityFollowsLLMChatRecord(t *testing.T) {
 	testCases := []struct {
-		name         string
-		includeDebug bool
-		wantDebug    bool
+		name       string
+		recordLLM  bool
+		wantLLMLog bool
 	}{
-		{name: "hidden by default", includeDebug: false, wantDebug: false},
-		{name: "visible when enabled", includeDebug: true, wantDebug: true},
+		{name: "hidden by default", recordLLM: false, wantLLMLog: false},
+		{name: "visible when record enabled", recordLLM: true, wantLLMLog: true},
 	}
 
 	for _, tc := range testCases {
@@ -1127,7 +1127,8 @@ func TestWebSocketQueryDebugVisibilityFollowsStreamConfig(t *testing.T) {
 				configure: func(cfg *config.Config) {
 					cfg.WebSocket.WriteQueueSize = 8
 					cfg.WebSocket.PingInterval = 30000
-					cfg.Stream.DebugEventsEnabled = tc.includeDebug
+					cfg.Logging.LLMInteraction.RecordEnabled = tc.recordLLM
+					cfg.Logging.LLMInteraction.RecordDir = cfg.Paths.ChatsDir
 				},
 			})
 
@@ -1153,11 +1154,11 @@ func TestWebSocketQueryDebugVisibilityFollowsStreamConfig(t *testing.T) {
 			}
 
 			eventTypes := collectWebSocketStreamEventTypes(t, conn, "req_query_debug")
-			if tc.wantDebug {
-				assertStringSliceContains(t, eventTypes, "debug.preCall", "debug.postCall")
+			if tc.wantLLMLog {
+				assertStringSliceContains(t, eventTypes, "debug.llmChat")
 				return
 			}
-			assertStringSliceExcludes(t, eventTypes, "debug.preCall", "debug.postCall")
+			assertStringSliceExcludes(t, eventTypes, "debug.llmChat")
 		})
 	}
 }

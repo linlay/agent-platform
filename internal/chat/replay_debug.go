@@ -150,70 +150,6 @@ func synthesizeUsageSnapshotEvent(runID, chatID string, taskID string, usage map
 	}
 }
 
-func synthesizePreCallEvent(runID, chatID string, taskID string, runCumulative, chatCumulative map[string]int, contextWindow map[string]any, preCallData map[string]any, ts int64, nextSeq func() int64) *stream.EventData {
-	data := cloneStringAnyMap(preCallData)
-	if data == nil {
-		data = map[string]any{}
-	}
-	delete(data, "usage")
-	if cw := synthesizedContextWindow(contextWindow); len(cw) > 0 {
-		data["contextWindow"] = cw
-	}
-	payload := map[string]any{
-		"runId":  runID,
-		"chatId": chatID,
-		"data":   data,
-	}
-	if strings.TrimSpace(taskID) != "" {
-		payload["taskId"] = taskID
-	}
-	return &stream.EventData{
-		Seq:       nextSeq(),
-		Type:      "debug.preCall",
-		Timestamp: ts,
-		Payload:   payload,
-	}
-}
-
-func debugPreCallData(debug map[string]any, system map[string]any) map[string]any {
-	if len(debug) > 0 {
-		data, _ := debug["preCall"].(map[string]any)
-		if len(data) > 0 {
-			return cloneStringAnyMap(data)
-		}
-	}
-	return nil
-}
-
-func synthesizePostCallEvent(runID, chatID string, taskID string, usage map[string]any, runCumulative, chatCumulative map[string]int, contextWindow map[string]any, ts int64, nextSeq func() int64) *stream.EventData {
-	llm := map[string]any{"promptTokens": 0, "completionTokens": 0, "totalTokens": 0}
-	if usage != nil {
-		llm = usagePayloadFromMap(usage, true)
-	}
-	applyUsageModelMetadataFromContextWindow(llm, contextWindow)
-	data := map[string]any{}
-	if cw := synthesizedContextWindow(contextWindow); len(cw) > 0 {
-		data["contextWindow"] = cw
-	}
-	data["usage"] = map[string]any{
-		"llmReturnUsage": llm,
-	}
-	payload := map[string]any{
-		"runId":  runID,
-		"chatId": chatID,
-		"data":   data,
-	}
-	if strings.TrimSpace(taskID) != "" {
-		payload["taskId"] = taskID
-	}
-	return &stream.EventData{
-		Seq:       nextSeq(),
-		Type:      "debug.postCall",
-		Timestamp: ts,
-		Payload:   payload,
-	}
-}
-
 func applyUsageModelMetadataFromContextWindow(usage map[string]any, contextWindow map[string]any) {
 	if usage == nil {
 		return
@@ -278,6 +214,8 @@ func usagePayloadFromMap(usage map[string]any, includeLLMChatCompletionCount boo
 	if includeLLMChatCompletionCount {
 		if count := toIntFromKeys(usage, "llmChatCompletionCount", "llm_chat_completion_count"); count > 0 {
 			out["llmChatCompletionCount"] = count
+		} else if hasLLMTokenUsagePayload(usage) {
+			out["llmChatCompletionCount"] = 1
 		}
 	}
 	if count := toIntFromKeys(usage, "toolCallCount", "tool_call_count"); count > 0 {
@@ -305,13 +243,20 @@ func hasProviderUsagePayload(usage map[string]any) bool {
 	if len(usage) == 0 {
 		return false
 	}
+	return hasLLMTokenUsagePayload(usage) ||
+		toIntFromKeys(usage, "toolCallCount", "tool_call_count") > 0
+}
+
+func hasLLMTokenUsagePayload(usage map[string]any) bool {
+	if len(usage) == 0 {
+		return false
+	}
 	return toIntFromKeys(usage, "promptTokens", "prompt_tokens") > 0 ||
 		toIntFromKeys(usage, "completionTokens", "completion_tokens") > 0 ||
 		toIntFromKeys(usage, "totalTokens", "total_tokens") > 0 ||
 		usageCacheHitTokensFromMap(usage) > 0 ||
 		toNestedIntFromKeys(usage, "completionTokensDetails", "completion_tokens_details", "reasoningTokens", "reasoning_tokens") > 0 ||
-		usageCacheMissTokensFromMap(usage) > 0 ||
-		toIntFromKeys(usage, "toolCallCount", "tool_call_count") > 0
+		usageCacheMissTokensFromMap(usage) > 0
 }
 
 func addUsageDetailsToMap(out map[string]any, cachedTokens int, reasoningTokens int, promptCacheHitTokens int, promptCacheMissTokens int) {

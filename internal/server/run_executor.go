@@ -88,7 +88,7 @@ func (p *runEventProcessor) decorate(data *stream.EventData) {
 				p.assistantText.WriteString(text)
 			}
 		}
-	case "debug.preCall", "debug.postCall", "debug.llmChat":
+	case "debug.llmChat":
 		inner, ok := data.Payload["data"].(map[string]any)
 		if !ok {
 			return
@@ -98,9 +98,7 @@ func (p *runEventProcessor) decorate(data *stream.EventData) {
 			usage = map[string]any{}
 			inner["usage"] = usage
 		}
-		if data.Type == "debug.postCall" || data.Type == "debug.llmChat" {
-			(usageCostDecorator{models: p.models, billing: p.billing}).decorateDebugLLMReturnUsage(inner)
-		}
+		(usageCostDecorator{models: p.models, billing: p.billing}).decorateDebugLLMReturnUsage(inner)
 		if p.runUsage != nil {
 			if ru, ok := usage["runUsage"].(map[string]any); ok {
 				mergeUsageMapIntoRunData(p.runUsage, ru)
@@ -430,9 +428,6 @@ func usageHasData(usage chat.UsageData) bool {
 func isClientVisibleEvent(eventType string, streamCfg config.StreamConfig) bool {
 	if eventType == "debug.llmChat" {
 		return true
-	}
-	if (eventType == "debug.preCall" || eventType == "debug.postCall") && !streamCfg.DebugEventsEnabled {
-		return false
 	}
 	if (eventType == "tool.args" || eventType == "tool.result") && !streamCfg.IncludeToolPayloadEvents {
 		return false

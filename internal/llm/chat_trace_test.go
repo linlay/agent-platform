@@ -19,6 +19,13 @@ import (
 	"agent-platform/internal/models"
 )
 
+func stringFromAny(value any) string {
+	if text, ok := value.(string); ok {
+		return text
+	}
+	return ""
+}
+
 func TestLLMChatTraceWritesSimpleCompletion(t *testing.T) {
 	recordDir := t.TempDir()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -48,6 +55,14 @@ func TestLLMChatTraceWritesSimpleCompletion(t *testing.T) {
 	request := trace["request"].(map[string]any)
 	if request["model"] != "mock-model-id" {
 		t.Fatalf("unexpected request body: %#v", request)
+	}
+	injectedPrompt, _ := trace["injectedPrompt"].(map[string]any)
+	if strings.TrimSpace(stringFromAny(injectedPrompt["systemPrompt"])) == "" {
+		t.Fatalf("expected trace injectedPrompt.systemPrompt, got %#v", injectedPrompt)
+	}
+	providerMessages, _ := injectedPrompt["providerMessages"].([]any)
+	if len(providerMessages) == 0 {
+		t.Fatalf("expected trace injectedPrompt.providerMessages, got %#v", injectedPrompt)
 	}
 	if _, ok := trace["tools"]; ok {
 		t.Fatalf("did not expect top-level tools field: %#v", trace["tools"])
@@ -291,6 +306,10 @@ func TestLLMChatTraceMaskSensitivePreservesMetadata(t *testing.T) {
 	user := messages[len(messages)-1].(map[string]any)
 	if !strings.HasPrefix(user["content"].(string), "[masked chars=") {
 		t.Fatalf("expected user prompt masked: %#v", user)
+	}
+	injectedPrompt, _ := trace["injectedPrompt"].(map[string]any)
+	if !strings.HasPrefix(injectedPrompt["systemPrompt"].(string), "[masked chars=") {
+		t.Fatalf("expected injected prompt masked: %#v", injectedPrompt)
 	}
 	response := trace["response"].(map[string]any)
 	if !strings.HasPrefix(response["content"].(string), "[masked chars=") {

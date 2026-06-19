@@ -239,7 +239,6 @@ type PlanExecuteDefaultsConfig struct {
 
 type StreamConfig struct {
 	IncludeToolPayloadEvents bool
-	DebugEventsEnabled       bool
 }
 
 type SSEConfig struct {

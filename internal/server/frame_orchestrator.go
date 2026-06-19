@@ -608,12 +608,6 @@ func routeChildStreamInput(taskID string, input stream.StreamInput) stream.Strea
 	case stream.AwaitingAnswer:
 		value.AwaitingID = namespaceChildID(taskID, value.AwaitingID)
 		return value
-	case stream.InputDebugPreCall:
-		value.TaskID = taskID
-		return value
-	case stream.InputDebugPostCall:
-		value.TaskID = taskID
-		return value
 	case stream.InputDebugLLMChat:
 		value.TaskID = taskID
 		return value

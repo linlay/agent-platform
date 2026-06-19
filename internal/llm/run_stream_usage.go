@@ -115,35 +115,6 @@ func (s *llmRunStream) emitPendingUsageDelta() {
 	s.lastCallToolCallCount = currentToolCallCount
 	s.lastSnapshotToolCallCount = s.runToolCallCount
 	s.pendingUsageEmit = false
-	if s.currentTurn != nil && s.currentTurn.trace != nil {
-		return
-	}
-	s.pending = append(s.pending, DeltaDebugPostCall{
-		ChatID:                          s.session.ChatID,
-		ModelKey:                        s.model.Key,
-		ReasoningEffort:                 s.effectiveReasoningEffort(),
-		ContextWindow:                   s.effectiveContextWindow(),
-		CurrentContextSize:              s.currentContextSize(),
-		EstimatedNextCallSize:           s.estimatedNextCallSize(),
-		LLMReturnPromptTokens:           s.lastCallPromptTokens,
-		LLMReturnCompletionTokens:       s.lastCallCompletionTokens,
-		LLMReturnTotalTokens:            s.lastCallTotalTokens,
-		LLMReturnCachedTokens:           s.lastCallCachedTokens,
-		LLMReturnReasoningTokens:        s.lastCallReasoningTokens,
-		LLMReturnPromptCacheHitTokens:   s.lastCallPromptCacheHitTokens,
-		LLMReturnPromptCacheMissTokens:  s.lastCallPromptCacheMissTokens,
-		LLMReturnLLMChatCompletionCount: s.lastCallLLMChatCompletionCount,
-		LLMReturnToolCallCount:          s.lastCallToolCallCount,
-		RunPromptTokens:                 s.runPromptTokens,
-		RunCompletionTokens:             s.runCompletionTokens,
-		RunTotalTokens:                  s.runTotalTokens,
-		RunCachedTokens:                 s.runCachedTokens,
-		RunReasoningTokens:              s.runReasoningTokens,
-		RunPromptCacheHitTokens:         s.runPromptCacheHitTokens,
-		RunPromptCacheMissTokens:        s.runPromptCacheMissTokens,
-		RunLLMChatCompletionCount:       s.runLLMChatCompletionCount,
-		RunToolCallCount:                s.runToolCallCount,
-	})
 }
 
 func (s *llmRunStream) emitDebugLLMChatDelta(trace *llmChatTrace) {

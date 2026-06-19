@@ -23,8 +23,6 @@ type StepWriter struct {
 	runID  string
 	mode   string // "REACT" / "PLAN_EXECUTE" / "ONESHOT" / "CODER"
 
-	debugEventsEnabled bool
-
 	queryWritten bool
 	seqCounter   int
 
@@ -62,12 +60,6 @@ type StepWriter struct {
 }
 
 type StepWriterOption func(*StepWriter)
-
-func WithDebugEventsEnabled(enabled bool) StepWriterOption {
-	return func(w *StepWriter) {
-		w.debugEventsEnabled = enabled
-	}
-}
 
 // NewStepWriter creates a StepWriter for a single run.
 func NewStepWriter(store Store, chatID, runID, mode string, opts ...StepWriterOption) *StepWriter {
@@ -291,17 +283,17 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 		w.updateArtifact(event)
 		w.stepLiveSeq = maxLiveSeq(w.stepLiveSeq, event.Seq)
 
-	case "debug.preCall", "debug.postCall", "debug.llmChat":
+	case "debug.llmChat":
 		if inner, ok := event.Value("data").(map[string]any); ok {
 			if taskID := w.taskIDForEvent(event); taskID != "" {
 				if w.closedTaskIDs[taskID] {
 					break
 				}
 				buffer := w.ensureTaskBuffer(taskID)
-				w.captureTaskDebugData(buffer, event.Type, inner)
+				w.captureTaskDebugData(buffer, inner)
 				buffer.liveSeq = maxLiveSeq(buffer.liveSeq, event.Seq)
 			} else {
-				w.captureRootDebugData(event.Type, inner)
+				w.captureRootDebugData(inner)
 				w.stepLiveSeq = maxLiveSeq(w.stepLiveSeq, event.Seq)
 			}
 		}
@@ -412,7 +404,7 @@ func (w *StepWriter) captureRootUsageSnapshot(event stream.EventData) {
 			if !hasProviderUsagePayload(current) {
 				return
 			}
-			w.pendingUsage = usagePayloadFromSnapshotEvent(event, current, false)
+			w.pendingUsage = usagePayloadFromSnapshotEvent(event, current, true)
 			w.capturePendingModelMetadata(w.pendingUsage, contextWindow)
 		}
 	}
@@ -433,7 +425,7 @@ func (w *StepWriter) captureTaskUsageSnapshot(buffer *taskStepBuffer, event stre
 			if !hasProviderUsagePayload(current) {
 				return
 			}
-			buffer.pendingUsage = usagePayloadFromSnapshotEvent(event, current, false)
+			buffer.pendingUsage = usagePayloadFromSnapshotEvent(event, current, true)
 			buffer.capturePendingModelMetadata(buffer.pendingUsage, contextWindow)
 		}
 	}
@@ -444,9 +436,9 @@ func (w *StepWriter) captureTaskUsageSnapshot(buffer *taskStepBuffer, event stre
 	}
 }
 
-func (w *StepWriter) captureRootDebugData(eventType string, inner map[string]any) {
-	if eventType == "debug.preCall" || eventType == "debug.llmChat" {
-		w.pendingSystemRef = systemRefFromPreCall(inner)
+func (w *StepWriter) captureRootDebugData(inner map[string]any) {
+	if systemRef := systemRefFromDebugData(inner); len(systemRef) > 0 {
+		w.pendingSystemRef = systemRef
 	}
 	if cw, ok := inner["contextWindow"].(map[string]any); ok {
 		w.pendingContextWindowMax = toIntFromKeys(cw, "maxSize", "max_size")
@@ -454,10 +446,6 @@ func (w *StepWriter) captureRootDebugData(eventType string, inner map[string]any
 		w.capturePendingModelMetadata(cw)
 	}
 	if usage, ok := inner["usage"].(map[string]any); ok {
-		if eventType == "debug.preCall" {
-			w.pendingUsage = usagePayloadFromMap(map[string]any{"llmChatCompletionCount": 1}, true)
-			w.capturePendingModelMetadata(w.pendingUsage)
-		}
 		if llm, ok := usage["llmReturnUsage"].(map[string]any); ok {
 			w.pendingUsage = usagePayloadFromMap(llm, true)
 			w.capturePendingModelMetadata(w.pendingUsage, llm)
@@ -465,12 +453,12 @@ func (w *StepWriter) captureRootDebugData(eventType string, inner map[string]any
 	}
 }
 
-func (w *StepWriter) captureTaskDebugData(buffer *taskStepBuffer, eventType string, inner map[string]any) {
+func (w *StepWriter) captureTaskDebugData(buffer *taskStepBuffer, inner map[string]any) {
 	if buffer == nil {
 		return
 	}
-	if eventType == "debug.preCall" || eventType == "debug.llmChat" {
-		buffer.pendingSystemRef = systemRefFromPreCall(inner)
+	if systemRef := systemRefFromDebugData(inner); len(systemRef) > 0 {
+		buffer.pendingSystemRef = systemRef
 	}
 	if cw, ok := inner["contextWindow"].(map[string]any); ok {
 		buffer.pendingContextWindowMax = toIntFromKeys(cw, "maxSize", "max_size")
@@ -478,10 +466,6 @@ func (w *StepWriter) captureTaskDebugData(buffer *taskStepBuffer, eventType stri
 		buffer.capturePendingModelMetadata(cw)
 	}
 	if usage, ok := inner["usage"].(map[string]any); ok {
-		if eventType == "debug.preCall" {
-			buffer.pendingUsage = usagePayloadFromMap(map[string]any{"llmChatCompletionCount": 1}, true)
-			buffer.capturePendingModelMetadata(buffer.pendingUsage)
-		}
 		if llm, ok := usage["llmReturnUsage"].(map[string]any); ok {
 			buffer.pendingUsage = usagePayloadFromMap(llm, true)
 			buffer.capturePendingModelMetadata(buffer.pendingUsage, llm)

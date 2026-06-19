@@ -159,30 +159,6 @@ func (s *llmRunStream) prepareNextTurn() error {
 	s.resetLastCallUsage()
 	s.runLLMChatCompletionCount++
 	s.lastCallLLMChatCompletionCount = 1
-	if trace == nil {
-		s.pending = append(s.pending, DeltaDebugPreCall{
-			ChatID:                    s.session.ChatID,
-			ProviderKey:               s.provider.Key,
-			ProviderEndpoint:          preparedRequest.Endpoint,
-			ModelKey:                  s.model.Key,
-			ModelID:                   s.model.ModelID,
-			RequestBody:               preparedRequest.RequestBody,
-			InjectedPrompt:            buildInjectedPromptPayload(s.session, s.req, s.promptBuildOptions, s.messages),
-			SystemRef:                 s.currentSystemRef(),
-			ContextWindow:             s.effectiveContextWindow(),
-			CurrentContextSize:        s.currentContextSize(),
-			EstimatedNextCallSize:     s.estimatedNextCallSize(),
-			RunPromptTokens:           s.runPromptTokens,
-			RunCompletionTokens:       s.runCompletionTokens,
-			RunTotalTokens:            s.runTotalTokens,
-			RunCachedTokens:           s.runCachedTokens,
-			RunReasoningTokens:        s.runReasoningTokens,
-			RunPromptCacheHitTokens:   s.runPromptCacheHitTokens,
-			RunPromptCacheMissTokens:  s.runPromptCacheMissTokens,
-			RunLLMChatCompletionCount: s.runLLMChatCompletionCount,
-			RunToolCallCount:          s.runToolCallCount,
-		})
-	}
 	if trace != nil {
 		trace.markSent(time.Now())
 	}

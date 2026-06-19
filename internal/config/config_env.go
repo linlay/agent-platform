@@ -64,8 +64,6 @@ func (c *Config) applyEnv() {
 	c.Defaults.Budget.Hitl.Form.Timeout = intEnv("BUDGET_HITL_FORM_TIMEOUT", c.Defaults.Budget.Hitl.Form.Timeout)
 	c.Defaults.Budget.Hitl.Plan.Timeout = intEnv("BUDGET_HITL_PLAN_TIMEOUT", c.Defaults.Budget.Hitl.Plan.Timeout)
 	c.Stream.IncludeToolPayloadEvents = boolEnv("STREAM_INCLUDE_TOOL_PAYLOAD_EVENTS", c.Stream.IncludeToolPayloadEvents)
-	c.Stream.DebugEventsEnabled = boolEnv("DEBUG_EVENTS_ENABLED", c.Stream.DebugEventsEnabled)
-	c.Stream.DebugEventsEnabled = boolEnv("DELTA_LOGS_ENABLED", c.Stream.DebugEventsEnabled)
 	c.H2A.Render.FlushInterval = int64Env("AGENT_H2A_RENDER_FLUSH_INTERVAL", c.H2A.Render.FlushInterval)
 	c.H2A.Render.MaxBufferedChars = intEnv("AGENT_H2A_RENDER_MAX_BUFFERED_CHARS", c.H2A.Render.MaxBufferedChars)
 	c.H2A.Render.MaxBufferedEvents = intEnv("AGENT_H2A_RENDER_MAX_BUFFERED_EVENTS", c.H2A.Render.MaxBufferedEvents)

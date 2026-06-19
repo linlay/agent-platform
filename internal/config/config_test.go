@@ -50,9 +50,6 @@ func TestLoadDefaults(t *testing.T) {
 			if !cfg.Stream.IncludeToolPayloadEvents {
 				t.Fatalf("expected stream tool payload events enabled by default")
 			}
-			if cfg.Stream.DebugEventsEnabled {
-				t.Fatalf("expected stream debug events disabled by default")
-			}
 			if cfg.SSE.HeartbeatInterval != 30 {
 				t.Fatalf("expected default heartbeat interval 30, got %d", cfg.SSE.HeartbeatInterval)
 			}
@@ -1307,7 +1304,6 @@ func TestLoadMemoryLogFileEnvOverridesMemoryDirDefault(t *testing.T) {
 func TestLoadIgnoresOldEnvVars(t *testing.T) {
 	values := map[string]string{
 		"AGENT_CONTAINER_HUB_BASE_URL":          "http://127.0.0.1:18000",
-		"AGENT_STREAM_INCLUDE_DEBUG_EVENTS":     "true",
 		"AGENT_MEMORY_STORAGE_DIR":              filepath.Join("var", "custom-memory"),
 		"AGENT_CONFIG_DIR":                      "configs",
 		"GATEWAY_WS_URL":                        "wss://gw.example.com/ws/agent?channel=wecom",
@@ -1414,7 +1410,6 @@ func TestLoadAcceptsJavaEnvContract(t *testing.T) {
 		"CHAT_RESOURCE_TICKET_SECRET":             "secret",
 		"CHAT_RESOURCE_TICKET_TTL_SECONDS":        "300",
 		"STREAM_INCLUDE_TOOL_PAYLOAD_EVENTS":      "true",
-		"DEBUG_EVENTS_ENABLED":                    "true",
 		"AGENT_H2A_RENDER_FLUSH_INTERVAL":         "25",
 		"AGENT_H2A_RENDER_MAX_BUFFERED_CHARS":     "256",
 		"AGENT_H2A_RENDER_MAX_BUFFERED_EVENTS":    "3",
@@ -1443,9 +1438,6 @@ func TestLoadAcceptsJavaEnvContract(t *testing.T) {
 		}
 		if !cfg.Stream.IncludeToolPayloadEvents {
 			t.Fatalf("expected stream tool payload flag enabled")
-		}
-		if !cfg.Stream.DebugEventsEnabled {
-			t.Fatalf("expected stream debug event flag enabled")
 		}
 		if cfg.SSE.HeartbeatInterval != 30 {
 			t.Fatalf("unexpected heartbeat interval: %d", cfg.SSE.HeartbeatInterval)
@@ -1485,20 +1477,6 @@ func TestLoadAcceptsJavaEnvContract(t *testing.T) {
 		}
 		if cfg.Logging.Request.Enabled {
 			t.Fatalf("expected request logging disabled")
-		}
-	})
-}
-
-func TestLoadAcceptsDeltaLogsEnabledAlias(t *testing.T) {
-	withIsolatedEnv(t, map[string]string{
-		"DELTA_LOGS_ENABLED": "true",
-	}, func() {
-		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("load config: %v", err)
-		}
-		if !cfg.Stream.DebugEventsEnabled {
-			t.Fatalf("expected DELTA_LOGS_ENABLED to enable stream debug events")
 		}
 	})
 }
@@ -2469,7 +2447,6 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 		"CHAT_RESOURCE_TICKET_SECRET",
 		"CHAT_RESOURCE_TICKET_TTL_SECONDS",
 		"STREAM_INCLUDE_TOOL_PAYLOAD_EVENTS",
-		"DEBUG_EVENTS_ENABLED",
 		"AGENT_H2A_RENDER_FLUSH_INTERVAL_MS",
 		"AGENT_H2A_RENDER_MAX_BUFFERED_CHARS",
 		"AGENT_H2A_RENDER_MAX_BUFFERED_EVENTS",

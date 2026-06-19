@@ -12,9 +12,6 @@ func stepLineStartsModelCall(line StepLine) bool {
 	if usageHasLLMChat(line.Usage) {
 		return true
 	}
-	if debugHasPreCall(line.Debug) {
-		return true
-	}
 	return storedMessagesContainAssistant(line.Messages)
 }
 
@@ -24,14 +21,6 @@ func usageHasLLMChat(usage map[string]any) bool {
 	}
 	return toIntFromKeys(usage, "llmChatCompletionCount", "llm_chat_completion_count") > 0 ||
 		toIntFromKeys(usage, "toolCallCount", "tool_call_count") > 0
-}
-
-func debugHasPreCall(debug map[string]any) bool {
-	if len(debug) == 0 {
-		return false
-	}
-	_, ok := debug["preCall"]
-	return ok
 }
 
 func storedMessagesContainAssistant(messages []StoredMessage) bool {
@@ -355,7 +344,7 @@ func firstNonEmptyStepString(values ...string) string {
 	return ""
 }
 
-func systemRefFromPreCall(value map[string]any) map[string]any {
+func systemRefFromDebugData(value map[string]any) map[string]any {
 	if len(value) == 0 {
 		return nil
 	}

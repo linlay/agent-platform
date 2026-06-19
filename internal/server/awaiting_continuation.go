@@ -91,7 +91,7 @@ func (s *Server) startAwaitingContinuation(deferred DeferredAwaiting, submitReq 
 		continueRun: true,
 	}
 	assembler, mapper := s.newAssemblerAndMapper(prepared)
-	stepWriter := chat.NewStepWriter(s.deps.Chats, chatID, runID, agentDef.Mode, chat.WithDebugEventsEnabled(s.deps.Config.Stream.DebugEventsEnabled))
+	stepWriter := chat.NewStepWriter(s.deps.Chats, chatID, runID, agentDef.Mode)
 	startedAt := int64(0)
 	if parsed, ok := chat.ParseRunIDMillis(runID); ok {
 		startedAt = parsed

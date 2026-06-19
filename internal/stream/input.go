@@ -232,62 +232,6 @@ type RequestSteer struct {
 
 func (RequestSteer) streamInputTag() {}
 
-type InputDebugPreCall struct {
-	TaskID                    string
-	ChatID                    string
-	ProviderKey               string
-	ProviderEndpoint          string
-	ModelKey                  string
-	ModelID                   string
-	RequestBody               map[string]any
-	InjectedPrompt            map[string]any
-	SystemRef                 map[string]any
-	ContextWindow             int
-	CurrentContextSize        int
-	EstimatedNextCallSize     int
-	RunPromptTokens           int
-	RunCompletionTokens       int
-	RunTotalTokens            int
-	RunCachedTokens           int
-	RunReasoningTokens        int
-	RunPromptCacheHitTokens   int
-	RunPromptCacheMissTokens  int
-	RunLLMChatCompletionCount int
-	RunToolCallCount          int
-}
-
-func (InputDebugPreCall) streamInputTag() {}
-
-type InputDebugPostCall struct {
-	TaskID                          string
-	ChatID                          string
-	ModelKey                        string
-	ReasoningEffort                 string
-	ContextWindow                   int
-	CurrentContextSize              int
-	EstimatedNextCallSize           int
-	LLMReturnPromptTokens           int
-	LLMReturnCompletionTokens       int
-	LLMReturnTotalTokens            int
-	LLMReturnCachedTokens           int
-	LLMReturnReasoningTokens        int
-	LLMReturnPromptCacheHitTokens   int
-	LLMReturnPromptCacheMissTokens  int
-	LLMReturnLLMChatCompletionCount int
-	LLMReturnToolCallCount          int
-	RunPromptTokens                 int
-	RunCompletionTokens             int
-	RunTotalTokens                  int
-	RunCachedTokens                 int
-	RunReasoningTokens              int
-	RunPromptCacheHitTokens         int
-	RunPromptCacheMissTokens        int
-	RunLLMChatCompletionCount       int
-	RunToolCallCount                int
-}
-
-func (InputDebugPostCall) streamInputTag() {}
-
 type InputDebugLLMChat struct {
 	TaskID                          string
 	ChatID                          string

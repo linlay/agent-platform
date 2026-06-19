@@ -275,58 +275,6 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			SteerID:   value.SteerID,
 			Message:   value.Message,
 		}}
-	case DeltaDebugPreCall:
-		m.lastKind = ""
-		return []stream.StreamInput{stream.InputDebugPreCall{
-			ChatID:                    value.ChatID,
-			ProviderKey:               value.ProviderKey,
-			ProviderEndpoint:          value.ProviderEndpoint,
-			ModelKey:                  value.ModelKey,
-			ModelID:                   value.ModelID,
-			RequestBody:               CloneMap(value.RequestBody),
-			InjectedPrompt:            CloneMap(value.InjectedPrompt),
-			SystemRef:                 CloneMap(value.SystemRef),
-			ContextWindow:             value.ContextWindow,
-			CurrentContextSize:        value.CurrentContextSize,
-			EstimatedNextCallSize:     value.EstimatedNextCallSize,
-			RunPromptTokens:           value.RunPromptTokens,
-			RunCompletionTokens:       value.RunCompletionTokens,
-			RunTotalTokens:            value.RunTotalTokens,
-			RunCachedTokens:           value.RunCachedTokens,
-			RunReasoningTokens:        value.RunReasoningTokens,
-			RunPromptCacheHitTokens:   value.RunPromptCacheHitTokens,
-			RunPromptCacheMissTokens:  value.RunPromptCacheMissTokens,
-			RunLLMChatCompletionCount: value.RunLLMChatCompletionCount,
-			RunToolCallCount:          value.RunToolCallCount,
-		}}
-	case DeltaDebugPostCall:
-		m.lastKind = ""
-		return []stream.StreamInput{stream.InputDebugPostCall{
-			ChatID:                          value.ChatID,
-			ModelKey:                        value.ModelKey,
-			ReasoningEffort:                 value.ReasoningEffort,
-			ContextWindow:                   value.ContextWindow,
-			CurrentContextSize:              value.CurrentContextSize,
-			EstimatedNextCallSize:           value.EstimatedNextCallSize,
-			LLMReturnPromptTokens:           value.LLMReturnPromptTokens,
-			LLMReturnCompletionTokens:       value.LLMReturnCompletionTokens,
-			LLMReturnTotalTokens:            value.LLMReturnTotalTokens,
-			LLMReturnCachedTokens:           value.LLMReturnCachedTokens,
-			LLMReturnReasoningTokens:        value.LLMReturnReasoningTokens,
-			LLMReturnPromptCacheHitTokens:   value.LLMReturnPromptCacheHitTokens,
-			LLMReturnPromptCacheMissTokens:  value.LLMReturnPromptCacheMissTokens,
-			LLMReturnLLMChatCompletionCount: value.LLMReturnLLMChatCompletionCount,
-			LLMReturnToolCallCount:          value.LLMReturnToolCallCount,
-			RunPromptTokens:                 value.RunPromptTokens,
-			RunCompletionTokens:             value.RunCompletionTokens,
-			RunTotalTokens:                  value.RunTotalTokens,
-			RunCachedTokens:                 value.RunCachedTokens,
-			RunReasoningTokens:              value.RunReasoningTokens,
-			RunPromptCacheHitTokens:         value.RunPromptCacheHitTokens,
-			RunPromptCacheMissTokens:        value.RunPromptCacheMissTokens,
-			RunLLMChatCompletionCount:       value.RunLLMChatCompletionCount,
-			RunToolCallCount:                value.RunToolCallCount,
-		}}
 	case DeltaDebugLLMChat:
 		m.lastKind = ""
 		return []stream.StreamInput{stream.InputDebugLLMChat{

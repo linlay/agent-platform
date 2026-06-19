@@ -233,37 +233,6 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 			if cw := synthesizedUsageSnapshotContextWindow(stepContextWindow); len(cw) > 0 {
 				latestContextWindow = cw
 			}
-			stepSystem, _ := line["system"].(map[string]any)
-			stepDebug, _ := line["debug"].(map[string]any)
-			stepPreCallData := debugPreCallData(stepDebug, stepSystem)
-			replayDebugEvents := len(stepPreCallData) > 0
-			if replayDebugEvents {
-				runCumulativePre := map[string]int{
-					"promptTokens":           rd.totalPromptTokens,
-					"completionTokens":       rd.totalCompletionTokens,
-					"totalTokens":            rd.totalTotalTokens,
-					"cachedTokens":           rd.totalCachedTokens,
-					"reasoningTokens":        rd.totalReasoningTokens,
-					"promptCacheHitTokens":   rd.totalPromptCacheHitTokens,
-					"promptCacheMissTokens":  rd.totalPromptCacheMissTokens,
-					"llmChatCompletionCount": rd.totalLlmChatCompletionCount,
-					"toolCallCount":          rd.totalToolCallCount,
-				}
-				chatCumulativePre := map[string]int{
-					"promptTokens":           chatTotalPromptTokens,
-					"completionTokens":       chatTotalCompletionTokens,
-					"totalTokens":            chatTotalTotalTokens,
-					"cachedTokens":           chatTotalCachedTokens,
-					"reasoningTokens":        chatTotalReasoningTokens,
-					"promptCacheHitTokens":   chatTotalPromptCacheHitTokens,
-					"promptCacheMissTokens":  chatTotalPromptCacheMissTokens,
-					"llmChatCompletionCount": chatTotalLlmChatCompletionCount,
-					"toolCallCount":          chatTotalToolCallCount,
-				}
-				if ev := synthesizePreCallEvent(runID, chatID, taskID, runCumulativePre, chatCumulativePre, stepContextWindow, stepPreCallData, ts, nextSeq); ev != nil {
-					rd.events = append(rd.events, *ev)
-				}
-			}
 			for _, rawMsg := range msgs {
 				msgMap, _ := rawMsg.(map[string]any)
 				if msgMap == nil {
@@ -324,33 +293,6 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 				chatTotalEstimatedCostInputMiss += inputMiss
 				chatTotalEstimatedCostOutput += output
 				chatTotalEstimatedCostTotal += total
-			}
-			if replayDebugEvents && (hasProviderUsagePayload(stepUsage) || len(stepContextWindow) > 0) {
-				runCumulativePost := map[string]int{
-					"promptTokens":           rd.totalPromptTokens,
-					"completionTokens":       rd.totalCompletionTokens,
-					"totalTokens":            rd.totalTotalTokens,
-					"cachedTokens":           rd.totalCachedTokens,
-					"reasoningTokens":        rd.totalReasoningTokens,
-					"promptCacheHitTokens":   rd.totalPromptCacheHitTokens,
-					"promptCacheMissTokens":  rd.totalPromptCacheMissTokens,
-					"llmChatCompletionCount": rd.totalLlmChatCompletionCount,
-					"toolCallCount":          rd.totalToolCallCount,
-				}
-				chatCumulativePost := map[string]int{
-					"promptTokens":           chatTotalPromptTokens,
-					"completionTokens":       chatTotalCompletionTokens,
-					"totalTokens":            chatTotalTotalTokens,
-					"cachedTokens":           chatTotalCachedTokens,
-					"reasoningTokens":        chatTotalReasoningTokens,
-					"promptCacheHitTokens":   chatTotalPromptCacheHitTokens,
-					"promptCacheMissTokens":  chatTotalPromptCacheMissTokens,
-					"llmChatCompletionCount": chatTotalLlmChatCompletionCount,
-					"toolCallCount":          chatTotalToolCallCount,
-				}
-				if ev := synthesizePostCallEvent(runID, chatID, taskID, stepUsage, runCumulativePost, chatCumulativePost, stepContextWindow, ts, nextSeq); ev != nil {
-					rd.events = append(rd.events, *ev)
-				}
 			}
 			if events := finishReplayedSubTaskIfTerminal(rd, runID, taskID, taskStatus, ts, nextSeq); len(events) > 0 {
 				rd.events = append(rd.events, events...)

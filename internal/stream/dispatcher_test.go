@@ -284,59 +284,6 @@ func TestDispatcherIncludesTaskIDOnDebugEvents(t *testing.T) {
 		ChatID: "chat_1",
 	})
 
-	preEvents := dispatcher.Dispatch(InputDebugPreCall{
-		TaskID:   "task_sub_1",
-		ChatID:   "chat_1",
-		ModelKey: "mock",
-	})
-	assertEventTypes(t, preEvents, "debug.preCall")
-	if got := preEvents[0].Data().String("taskId"); got != "task_sub_1" {
-		t.Fatalf("expected debug.preCall taskId, got %#v", preEvents[0].ToData())
-	}
-
-	postEvents := dispatcher.Dispatch(InputDebugPostCall{
-		TaskID:                          "task_sub_1",
-		ChatID:                          "chat_1",
-		ModelKey:                        "mock",
-		LLMReturnPromptTokens:           100,
-		LLMReturnCompletionTokens:       50,
-		LLMReturnTotalTokens:            150,
-		LLMReturnCachedTokens:           64,
-		LLMReturnReasoningTokens:        12,
-		LLMReturnPromptCacheHitTokens:   64,
-		LLMReturnPromptCacheMissTokens:  36,
-		RunPromptTokens:                 100,
-		RunCompletionTokens:             50,
-		RunTotalTokens:                  150,
-		RunCachedTokens:                 64,
-		RunReasoningTokens:              12,
-		RunPromptCacheHitTokens:         64,
-		RunPromptCacheMissTokens:        36,
-		LLMReturnLLMChatCompletionCount: 1,
-		LLMReturnToolCallCount:          2,
-		RunLLMChatCompletionCount:       1,
-		RunToolCallCount:                2,
-	})
-	assertEventTypes(t, postEvents, "debug.postCall")
-	if got := postEvents[0].Data().String("taskId"); got != "task_sub_1" {
-		t.Fatalf("expected debug.postCall taskId, got %#v", postEvents[0].ToData())
-	}
-	postData, _ := postEvents[0].Data().Value("data").(map[string]any)
-	usage, _ := postData["usage"].(map[string]any)
-	llmUsage, _ := usage["llmReturnUsage"].(map[string]any)
-	promptDetails, _ := llmUsage["promptTokensDetails"].(map[string]any)
-	completionDetails, _ := llmUsage["completionTokensDetails"].(map[string]any)
-	if promptDetails["cacheHitTokens"] != 64 || promptDetails["cacheMissTokens"] != 36 ||
-		completionDetails["reasoningTokens"] != 12 ||
-		llmUsage["llmChatCompletionCount"] != 1 ||
-		llmUsage["toolCallCount"] != 2 {
-		t.Fatalf("expected detailed llm usage, got %#v", usage)
-	}
-	runUsage, _ := usage["runUsage"].(map[string]any)
-	if runUsage["toolCallCount"] != 2 {
-		t.Fatalf("expected run tool call usage, got %#v", usage)
-	}
-
 	llmEvents := dispatcher.Dispatch(InputDebugLLMChat{
 		TaskID:                          "task_sub_1",
 		ChatID:                          "chat_1",
@@ -407,11 +354,13 @@ func TestDispatcherTerminalUsageIncludesLLMChatCompletionCountWithoutTokens(t *t
 		ChatID: "chat_1",
 	})
 
-	dispatcher.Dispatch(InputDebugPreCall{
-		ChatID:                    "chat_1",
-		ModelKey:                  "mock",
-		RunLLMChatCompletionCount: 1,
-		RunToolCallCount:          3,
+	dispatcher.Dispatch(InputUsageSnapshot{
+		ChatID:                          "chat_1",
+		ModelKey:                        "mock",
+		RunLLMChatCompletionCount:       1,
+		RunToolCallCount:                3,
+		LLMReturnLLMChatCompletionCount: 1,
+		LLMReturnToolCallCount:          3,
 	})
 	dispatcher.Dispatch(InputRunComplete{FinishReason: "stop"})
 	events := dispatcher.Complete()

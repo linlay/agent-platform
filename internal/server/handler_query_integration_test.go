@@ -881,7 +881,7 @@ func TestQueryAndRunDebugEventsDisabledByDefault(t *testing.T) {
 	}
 	body := rec.Body.String()
 	sseTypes := decodeEventTypesFromSSE(t, body)
-	assertStringSliceExcludes(t, sseTypes, "debug.preCall", "debug.postCall")
+	assertStringSliceExcludes(t, sseTypes, "debug.llmChat")
 	assertStringSliceContains(t, sseTypes, "usage.snapshot")
 
 	messages := decodeSSEMessages(t, body)
@@ -900,7 +900,7 @@ func TestQueryAndRunDebugEventsDisabledByDefault(t *testing.T) {
 		t.Fatalf("expected run stream 200, got %d: %s", runRec.Code, runRec.Body.String())
 	}
 	runTypes := decodeEventTypesFromSSE(t, runRec.Body.String())
-	assertStringSliceExcludes(t, runTypes, "debug.preCall", "debug.postCall")
+	assertStringSliceExcludes(t, runTypes, "debug.llmChat")
 	assertStringSliceContains(t, runTypes, "usage.snapshot")
 
 	chatRec := httptest.NewRecorder()
@@ -909,104 +909,7 @@ func TestQueryAndRunDebugEventsDisabledByDefault(t *testing.T) {
 	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
 		t.Fatalf("decode chat detail: %v", err)
 	}
-	assertEventTypesExclude(t, chatResp.Data.Events, "debug.preCall", "debug.postCall")
-	assertEventTypesExclude(t, chatResp.Data.Events, "usage.snapshot")
-	if chatResp.Data.Usage == nil || chatResp.Data.ContextWindow == nil {
-		t.Fatalf("expected outer usage and context window, got usage=%#v contextWindow=%#v", chatResp.Data.Usage, chatResp.Data.ContextWindow)
-	}
-}
-
-func TestQueryAndRunDebugEventsEnabledWhenEnabled(t *testing.T) {
-	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
-		writeProviderSSE(t, w,
-			`{"choices":[{"delta":{"content":"hello"},"finish_reason":"stop"}]}`,
-			`{"choices":[],"usage":{"prompt_tokens":7,"completion_tokens":3,"total_tokens":10}}`,
-			`[DONE]`,
-		)
-	}, testFixtureOptions{
-		configure: func(cfg *config.Config) {
-			cfg.Stream.DebugEventsEnabled = true
-		},
-	})
-
-	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"show debug"}`))
-	req.Header.Set("Content-Type", "application/json")
-	rec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-	body := rec.Body.String()
-	assertStringSliceContains(t, decodeEventTypesFromSSE(t, body), "debug.preCall", "debug.postCall")
-
-	messages := decodeSSEMessages(t, body)
-	if len(messages) == 0 {
-		t.Fatalf("expected sse messages, got %s", body)
-	}
-	var preCall map[string]any
-	for _, message := range messages {
-		if eventType, _ := message["type"].(string); eventType == "debug.preCall" {
-			preCall = message
-			break
-		}
-	}
-	if preCall == nil {
-		t.Fatalf("expected debug.preCall in sse stream, got %#v", messages)
-	}
-	preCallData, _ := preCall["data"].(map[string]any)
-	provider, _ := preCallData["provider"].(map[string]any)
-	model, _ := preCallData["model"].(map[string]any)
-	requestBody, _ := preCallData["requestBody"].(map[string]any)
-	injectedPrompt, _ := preCallData["injectedPrompt"].(map[string]any)
-	if provider["key"] != "mock" {
-		t.Fatalf("expected provider key mock, got %#v", provider)
-	}
-	if !strings.HasSuffix(stringValue(provider["endpoint"]), "/v1/chat/completions") {
-		t.Fatalf("unexpected provider endpoint %#v", provider)
-	}
-	if model["key"] != "mock-model" || model["id"] != "mock-model-id" {
-		t.Fatalf("unexpected model payload %#v", model)
-	}
-	if len(requestBody) == 0 {
-		t.Fatalf("expected requestBody payload, got %#v", preCallData)
-	}
-	if len(injectedPrompt) == 0 {
-		t.Fatalf("expected injectedPrompt payload, got %#v", preCallData)
-	}
-	if got := strings.TrimSpace(stringValue(injectedPrompt["systemPrompt"])); got == "" {
-		t.Fatalf("expected injectedPrompt.systemPrompt, got %#v", injectedPrompt)
-	}
-	providerMessages, _ := injectedPrompt["providerMessages"].([]any)
-	if len(providerMessages) == 0 {
-		t.Fatalf("expected injectedPrompt.providerMessages, got %#v", injectedPrompt)
-	}
-	if _, exists := preCallData["systemPrompt"]; exists {
-		t.Fatalf("did not expect systemPrompt in debug.preCall payload, got %#v", preCallData)
-	}
-	if _, exists := preCallData["tools"]; exists {
-		t.Fatalf("did not expect tools in debug.preCall payload, got %#v", preCallData)
-	}
-	runID, _ := messages[0]["runId"].(string)
-	chatID, _ := messages[0]["chatId"].(string)
-	if runID == "" || chatID == "" {
-		t.Fatalf("expected runId/chatId in first sse message, got %#v", messages[0])
-	}
-
-	runRec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(runRec, httptest.NewRequest(http.MethodGet, "/api/attach?runId="+runID+"&agentKey=mock-agent", nil))
-	if runRec.Code != http.StatusOK {
-		t.Fatalf("expected run stream 200, got %d: %s", runRec.Code, runRec.Body.String())
-	}
-	assertStringSliceContains(t, decodeEventTypesFromSSE(t, runRec.Body.String()), "debug.preCall", "debug.postCall")
-
-	chatRec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatID, nil))
-	var chatResp api.ApiResponse[api.ChatDetailResponse]
-	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
-		t.Fatalf("decode chat detail: %v", err)
-	}
-	assertEventTypesExclude(t, chatResp.Data.Events, "debug.preCall", "debug.postCall")
+	assertEventTypesExclude(t, chatResp.Data.Events, "debug.llmChat")
 	assertEventTypesExclude(t, chatResp.Data.Events, "usage.snapshot")
 	if chatResp.Data.Usage == nil || chatResp.Data.ContextWindow == nil {
 		t.Fatalf("expected outer usage and context window, got usage=%#v contextWindow=%#v", chatResp.Data.Usage, chatResp.Data.ContextWindow)
@@ -1022,7 +925,6 @@ func TestQueryLLMChatRecordEmitsDebugLLMChat(t *testing.T) {
 		)
 	}, testFixtureOptions{
 		configure: func(cfg *config.Config) {
-			cfg.Stream.DebugEventsEnabled = false
 			cfg.Logging.LLMInteraction.RecordEnabled = true
 			cfg.Logging.LLMInteraction.RecordDir = cfg.Paths.ChatsDir
 		},
@@ -1039,7 +941,6 @@ func TestQueryLLMChatRecordEmitsDebugLLMChat(t *testing.T) {
 	body := rec.Body.String()
 	sseTypes := decodeEventTypesFromSSE(t, body)
 	assertStringSliceContains(t, sseTypes, "debug.llmChat")
-	assertStringSliceExcludes(t, sseTypes, "debug.preCall", "debug.postCall")
 
 	messages := decodeSSEMessages(t, body)
 	var llmChat map[string]any
@@ -1067,6 +968,9 @@ func TestQueryLLMChatRecordEmitsDebugLLMChat(t *testing.T) {
 	if _, exists := data["requestBody"]; exists {
 		t.Fatalf("did not expect full request body in debug.llmChat payload, got %#v", data)
 	}
+	if _, exists := data["injectedPrompt"]; exists {
+		t.Fatalf("did not expect injectedPrompt in debug.llmChat payload, got %#v", data)
+	}
 	usage, _ := data["usage"].(map[string]any)
 	llmUsage, _ := usage["llmReturnUsage"].(map[string]any)
 	if testIntValue(llmUsage["promptTokens"]) != 7 || testIntValue(llmUsage["completionTokens"]) != 3 || testIntValue(llmUsage["totalTokens"]) != 10 {
@@ -1088,6 +992,13 @@ func TestQueryLLMChatRecordEmitsDebugLLMChat(t *testing.T) {
 	if _, ok := trace["request"].(map[string]any); !ok {
 		t.Fatalf("expected full request in trace json, got %#v", trace)
 	}
+	injectedPrompt, _ := trace["injectedPrompt"].(map[string]any)
+	if len(injectedPrompt) == 0 {
+		t.Fatalf("expected injectedPrompt in trace json, got %#v", trace)
+	}
+	if _, ok := injectedPrompt["providerMessages"].([]any); !ok {
+		t.Fatalf("expected injectedPrompt.providerMessages in trace json, got %#v", injectedPrompt)
+	}
 
 	runRec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(runRec, httptest.NewRequest(http.MethodGet, "/api/attach?runId="+runID+"&agentKey=mock-agent", nil))
@@ -1096,7 +1007,6 @@ func TestQueryLLMChatRecordEmitsDebugLLMChat(t *testing.T) {
 	}
 	runTypes := decodeEventTypesFromSSE(t, runRec.Body.String())
 	assertStringSliceContains(t, runTypes, "debug.llmChat")
-	assertStringSliceExcludes(t, runTypes, "debug.preCall", "debug.postCall")
 
 	chatRec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatID, nil))
@@ -1104,7 +1014,7 @@ func TestQueryLLMChatRecordEmitsDebugLLMChat(t *testing.T) {
 	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
 		t.Fatalf("decode chat detail: %v", err)
 	}
-	assertEventTypesExclude(t, chatResp.Data.Events, "debug.preCall", "debug.postCall", "debug.llmChat")
+	assertEventTypesExclude(t, chatResp.Data.Events, "debug.llmChat")
 	if chatResp.Data.Usage == nil || chatResp.Data.ContextWindow == nil {
 		t.Fatalf("expected outer usage and context window, got usage=%#v contextWindow=%#v", chatResp.Data.Usage, chatResp.Data.ContextWindow)
 	}
@@ -1197,7 +1107,6 @@ func TestPlanExecutePlanStageOnlyUsesPlanAddTasksBeforeSequentialTaskExecution(t
 		}
 	}, testFixtureOptions{
 		configure: func(cfg *config.Config) {
-			cfg.Stream.DebugEventsEnabled = true
 			cfg.Memory.Enabled = true
 		},
 		setupRuntime: func(_ string, cfg *config.Config) {
@@ -1237,7 +1146,6 @@ func TestPlanExecutePlanStageOnlyUsesPlanAddTasksBeforeSequentialTaskExecution(t
 	}
 
 	messages := decodeSSEMessages(t, rec.Body.String())
-	var preCallTools [][]string
 	preTaskToolNames := make([]string, 0)
 	firstTaskStartIndex := -1
 	taskStarts := map[string]int{}
@@ -1246,10 +1154,6 @@ func TestPlanExecutePlanStageOnlyUsesPlanAddTasksBeforeSequentialTaskExecution(t
 
 	for index, message := range messages {
 		switch stringValue(message["type"]) {
-		case "debug.preCall":
-			data, _ := message["data"].(map[string]any)
-			requestBody, _ := data["requestBody"].(map[string]any)
-			preCallTools = append(preCallTools, providerRequestToolNames(requestBody["tools"]))
 		case "tool.start":
 			if firstTaskStartIndex < 0 {
 				preTaskToolNames = append(preTaskToolNames, stringValue(message["toolName"]))
@@ -1268,19 +1172,6 @@ func TestPlanExecutePlanStageOnlyUsesPlanAddTasksBeforeSequentialTaskExecution(t
 
 	if !reflect.DeepEqual(preTaskToolNames, []string{"plan_add_tasks"}) {
 		t.Fatalf("expected only plan_add_tasks before first task.start, got %#v", preTaskToolNames)
-	}
-	if len(preCallTools) != 6 {
-		t.Fatalf("expected 6 debug.preCall events, got %#v", preCallTools)
-	}
-	if !reflect.DeepEqual(preCallTools[0], []string{"plan_add_tasks"}) {
-		t.Fatalf("plan debug.preCall tools=%#v want only plan_add_tasks", preCallTools[0])
-	}
-	for callIndex := 1; callIndex <= 4; callIndex++ {
-		assertStringSliceContains(t, preCallTools[callIndex], "datetime", "memory_search", "plan_update_task")
-		assertStringSliceExcludes(t, preCallTools[callIndex], "plan_add_tasks")
-	}
-	if len(preCallTools[5]) != 0 {
-		t.Fatalf("summary debug.preCall tools=%#v want none", preCallTools[5])
 	}
 
 	alphaStart, ok := taskStarts["task_alpha"]
@@ -1716,9 +1607,6 @@ Plan should be canceled before execution.
 			t.Fatalf("unexpected provider call after cancel: %d", call)
 		}
 	}, testFixtureOptions{
-		configure: func(cfg *config.Config) {
-			cfg.Stream.DebugEventsEnabled = true
-		},
 		setupRuntime: func(root string, cfg *config.Config) {
 			workspace := filepath.Join(root, "workspace")
 			agentDir := filepath.Join(cfg.Paths.AgentsDir, "coder-app")

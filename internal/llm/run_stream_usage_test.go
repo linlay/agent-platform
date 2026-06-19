@@ -55,8 +55,8 @@ func TestAccumulateUsageCommitsLatestValidProviderUsageOnce(t *testing.T) {
 	if stream.runPromptTokens != 20 || stream.runCompletionTokens != 5 || stream.runTotalTokens != 25 {
 		t.Fatalf("expected latest usage to be committed once, got prompt=%d completion=%d total=%d", stream.runPromptTokens, stream.runCompletionTokens, stream.runTotalTokens)
 	}
-	if len(stream.pending) != 2 {
-		t.Fatalf("expected usage.snapshot and debug.postCall deltas, got %#v", stream.pending)
+	if len(stream.pending) != 1 {
+		t.Fatalf("expected usage.snapshot delta, got %#v", stream.pending)
 	}
 	snapshot, ok := stream.pending[0].(contracts.DeltaUsageSnapshot)
 	if !ok {
@@ -65,9 +65,6 @@ func TestAccumulateUsageCommitsLatestValidProviderUsageOnce(t *testing.T) {
 	if snapshot.LLMReturnPromptTokens != 20 || snapshot.LLMReturnCompletionTokens != 5 || snapshot.LLMReturnTotalTokens != 25 ||
 		snapshot.LLMReturnPromptCacheHitTokens != 7 || snapshot.LLMReturnPromptCacheMissTokens != 13 {
 		t.Fatalf("unexpected usage snapshot %#v", snapshot)
-	}
-	if _, ok := stream.pending[1].(contracts.DeltaDebugPostCall); !ok {
-		t.Fatalf("expected second delta to be DeltaDebugPostCall, got %#v", stream.pending[1])
 	}
 }
 
@@ -104,13 +101,6 @@ func TestUsageSnapshotIncludesToolCallCountSincePreviousSnapshot(t *testing.T) {
 	}
 	if snapshot.LLMReturnToolCallCount != 2 || snapshot.RunToolCallCount != 2 {
 		t.Fatalf("expected tool counts in snapshot, got %#v", snapshot)
-	}
-	postCall, ok := stream.pending[1].(contracts.DeltaDebugPostCall)
-	if !ok {
-		t.Fatalf("expected second delta to be DeltaDebugPostCall, got %#v", stream.pending[1])
-	}
-	if postCall.LLMReturnToolCallCount != 2 || postCall.RunToolCallCount != 2 {
-		t.Fatalf("expected tool counts in debug.postCall, got %#v", postCall)
 	}
 }
 

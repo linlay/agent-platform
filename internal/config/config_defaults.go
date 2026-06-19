@@ -99,7 +99,6 @@ func defaultConfig() Config {
 		},
 		Stream: StreamConfig{
 			IncludeToolPayloadEvents: true,
-			DebugEventsEnabled:       false,
 		},
 		SSE: SSEConfig{
 			HeartbeatInterval: 30, // seconds
