@@ -9,7 +9,7 @@ import (
 )
 
 func stepLineStartsModelCall(line StepLine) bool {
-	if usageHasLLMCall(line.Usage) {
+	if usageHasLLMChat(line.Usage) {
 		return true
 	}
 	if debugHasPreCall(line.Debug) {
@@ -18,7 +18,7 @@ func stepLineStartsModelCall(line StepLine) bool {
 	return storedMessagesContainAssistant(line.Messages)
 }
 
-func usageHasLLMCall(usage map[string]any) bool {
+func usageHasLLMChat(usage map[string]any) bool {
 	if len(usage) == 0 {
 		return false
 	}

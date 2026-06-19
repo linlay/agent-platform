@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -87,6 +88,7 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/chats", s.wsChats)
 	handler.RegisterRoute("/api/chat", s.wsChat)
 	handler.RegisterRoute("/api/chat/jsonl", s.wsChatJSONL)
+	handler.RegisterRoute("/api/chat/llm-trace", s.wsChatLLMTrace)
 	handler.RegisterRoute("/api/read", s.wsRead)
 	handler.RegisterRoute("/api/feedback", s.wsFeedback)
 	handler.RegisterRoute("/api/chat/delete", s.wsChatDelete)
@@ -265,6 +267,37 @@ func (s *Server) wsChatJSONL(_ context.Context, conn *ws.Conn, req ws.RequestFra
 	content, loadErr := s.loadChatJSONLContent(chatID)
 	if errors.Is(loadErr, chat.ErrChatNotFound) {
 		conn.SendError(req.ID, "not_found", 404, "chat not found", nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	if loadErr != nil {
+		conn.SendError(req.ID, "internal_error", 500, loadErr.Error(), nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	conn.SendResponse(req.Type, req.ID, 0, "success", content)
+	conn.CompleteRequest(req.ID)
+}
+
+func (s *Server) wsChatLLMTrace(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
+	payload, err := ws.DecodePayload[struct {
+		File string `json:"file"`
+	}](req)
+	fileParam := strings.TrimSpace(payload.File)
+	if err != nil || fileParam == "" {
+		conn.SendError(req.ID, "invalid_request", 400, "file is required", nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+
+	content, _, loadErr := s.loadChatLLMTraceContent(fileParam)
+	if errors.Is(loadErr, errInvalidLLMTraceFile) {
+		conn.SendError(req.ID, "invalid_request", 400, "invalid file", nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	if errors.Is(loadErr, os.ErrNotExist) {
+		conn.SendError(req.ID, "not_found", 404, "llm trace not found", nil)
 		conn.CompleteRequest(req.ID)
 		return
 	}

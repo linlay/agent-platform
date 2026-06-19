@@ -149,7 +149,7 @@ func (t *llmChatTrace) resourceURL() string {
 	if relativeFile == "" {
 		return ""
 	}
-	return "/api/resource?file=" + url.QueryEscape(filepath.ToSlash(relativeFile))
+	return "/api/chat/llm-trace?file=" + url.QueryEscape(filepath.ToSlash(relativeFile))
 }
 
 func (t *llmChatTrace) statusValue() string {

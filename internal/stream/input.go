@@ -288,7 +288,7 @@ type InputDebugPostCall struct {
 
 func (InputDebugPostCall) streamInputTag() {}
 
-type InputDebugLLMCall struct {
+type InputDebugLLMChat struct {
 	TaskID                          string
 	ChatID                          string
 	ProviderKey                     string
@@ -324,7 +324,7 @@ type InputDebugLLMCall struct {
 	RunToolCallCount                int
 }
 
-func (InputDebugLLMCall) streamInputTag() {}
+func (InputDebugLLMChat) streamInputTag() {}
 
 type InputUsageSnapshot struct {
 	TaskID                          string

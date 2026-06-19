@@ -1013,7 +1013,7 @@ func TestQueryAndRunDebugEventsEnabledWhenEnabled(t *testing.T) {
 	}
 }
 
-func TestQueryLLMChatRecordEmitsDebugLLMCall(t *testing.T) {
+func TestQueryLLMChatRecordEmitsDebugLLMChat(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w,
 			`{"choices":[{"delta":{"content":"hello"},"finish_reason":"stop"}]}`,
@@ -1038,25 +1038,25 @@ func TestQueryLLMChatRecordEmitsDebugLLMCall(t *testing.T) {
 	}
 	body := rec.Body.String()
 	sseTypes := decodeEventTypesFromSSE(t, body)
-	assertStringSliceContains(t, sseTypes, "debug.llmCall")
+	assertStringSliceContains(t, sseTypes, "debug.llmChat")
 	assertStringSliceExcludes(t, sseTypes, "debug.preCall", "debug.postCall")
 
 	messages := decodeSSEMessages(t, body)
-	var llmCall map[string]any
+	var llmChat map[string]any
 	for _, message := range messages {
-		if stringValue(message["type"]) == "debug.llmCall" {
-			llmCall = message
+		if stringValue(message["type"]) == "debug.llmChat" {
+			llmChat = message
 			break
 		}
 	}
-	if llmCall == nil {
-		t.Fatalf("expected debug.llmCall message, got %#v", messages)
+	if llmChat == nil {
+		t.Fatalf("expected debug.llmChat message, got %#v", messages)
 	}
 	runID, _ := messages[0]["runId"].(string)
 	chatID, _ := messages[0]["chatId"].(string)
-	data, _ := llmCall["data"].(map[string]any)
+	data, _ := llmChat["data"].(map[string]any)
 	if data["status"] != "ok" || testIntValue(data["runSeq"]) != 1 {
-		t.Fatalf("unexpected debug.llmCall metadata %#v", data)
+		t.Fatalf("unexpected debug.llmChat metadata %#v", data)
 	}
 	traceInfo, _ := data["trace"].(map[string]any)
 	traceFile, _ := traceInfo["file"].(string)
@@ -1065,12 +1065,12 @@ func TestQueryLLMChatRecordEmitsDebugLLMCall(t *testing.T) {
 		t.Fatalf("unexpected trace payload %#v", data)
 	}
 	if _, exists := data["requestBody"]; exists {
-		t.Fatalf("did not expect full request body in debug.llmCall payload, got %#v", data)
+		t.Fatalf("did not expect full request body in debug.llmChat payload, got %#v", data)
 	}
 	usage, _ := data["usage"].(map[string]any)
 	llmUsage, _ := usage["llmReturnUsage"].(map[string]any)
 	if testIntValue(llmUsage["promptTokens"]) != 7 || testIntValue(llmUsage["completionTokens"]) != 3 || testIntValue(llmUsage["totalTokens"]) != 10 {
-		t.Fatalf("unexpected debug.llmCall usage %#v", data)
+		t.Fatalf("unexpected debug.llmChat usage %#v", data)
 	}
 
 	resourceRec := httptest.NewRecorder()
@@ -1095,7 +1095,7 @@ func TestQueryLLMChatRecordEmitsDebugLLMCall(t *testing.T) {
 		t.Fatalf("expected run stream 200, got %d: %s", runRec.Code, runRec.Body.String())
 	}
 	runTypes := decodeEventTypesFromSSE(t, runRec.Body.String())
-	assertStringSliceContains(t, runTypes, "debug.llmCall")
+	assertStringSliceContains(t, runTypes, "debug.llmChat")
 	assertStringSliceExcludes(t, runTypes, "debug.preCall", "debug.postCall")
 
 	chatRec := httptest.NewRecorder()
@@ -1104,7 +1104,7 @@ func TestQueryLLMChatRecordEmitsDebugLLMCall(t *testing.T) {
 	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
 		t.Fatalf("decode chat detail: %v", err)
 	}
-	assertEventTypesExclude(t, chatResp.Data.Events, "debug.preCall", "debug.postCall", "debug.llmCall")
+	assertEventTypesExclude(t, chatResp.Data.Events, "debug.preCall", "debug.postCall", "debug.llmChat")
 	if chatResp.Data.Usage == nil || chatResp.Data.ContextWindow == nil {
 		t.Fatalf("expected outer usage and context window, got usage=%#v contextWindow=%#v", chatResp.Data.Usage, chatResp.Data.ContextWindow)
 	}

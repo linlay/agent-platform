@@ -223,10 +223,10 @@ func TestDeltaMapper_GenericFrontendToolEmitsFormAwaitAsk(t *testing.T) {
 	}
 }
 
-func TestDeltaMapper_DebugLLMCall(t *testing.T) {
+func TestDeltaMapper_DebugLLMChat(t *testing.T) {
 	mapper := NewDeltaMapper("run_1", "chat_1", contracts.Budget{}, nil, nil)
 
-	inputs := mapper.Map(contracts.DeltaDebugLLMCall{
+	inputs := mapper.Map(contracts.DeltaDebugLLMChat{
 		TaskID:                          "task_1",
 		ChatID:                          "chat_1",
 		ProviderKey:                     "mock",
@@ -237,7 +237,7 @@ func TestDeltaMapper_DebugLLMCall(t *testing.T) {
 		Status:                          "ok",
 		RunSeq:                          1,
 		TraceFile:                       "llm/run_1_001.json",
-		TraceURL:                        "/api/resource?file=llm%2Frun_1_001.json",
+		TraceURL:                        "/api/chat/llm-trace?file=llm%2Frun_1_001.json",
 		SystemRef:                       map[string]any{"cacheKey": "react:main"},
 		ContextWindow:                   128000,
 		CurrentContextSize:              10,
@@ -254,9 +254,9 @@ func TestDeltaMapper_DebugLLMCall(t *testing.T) {
 	if len(inputs) != 1 {
 		t.Fatalf("expected one mapped input, got %#v", inputs)
 	}
-	call, ok := inputs[0].(stream.InputDebugLLMCall)
+	call, ok := inputs[0].(stream.InputDebugLLMChat)
 	if !ok {
-		t.Fatalf("expected InputDebugLLMCall, got %#v", inputs[0])
+		t.Fatalf("expected InputDebugLLMChat, got %#v", inputs[0])
 	}
 	if call.TaskID != "task_1" || call.TraceFile != "llm/run_1_001.json" || call.RunSeq != 1 || call.Status != "ok" {
 		t.Fatalf("unexpected mapped debug llm call %#v", call)

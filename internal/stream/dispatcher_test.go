@@ -337,7 +337,7 @@ func TestDispatcherIncludesTaskIDOnDebugEvents(t *testing.T) {
 		t.Fatalf("expected run tool call usage, got %#v", usage)
 	}
 
-	llmEvents := dispatcher.Dispatch(InputDebugLLMCall{
+	llmEvents := dispatcher.Dispatch(InputDebugLLMChat{
 		TaskID:                          "task_sub_1",
 		ChatID:                          "chat_1",
 		ProviderKey:                     "mock",
@@ -348,7 +348,7 @@ func TestDispatcherIncludesTaskIDOnDebugEvents(t *testing.T) {
 		Status:                          "ok",
 		RunSeq:                          2,
 		TraceFile:                       "llm/run_1_002.json",
-		TraceURL:                        "/api/resource?file=llm%2Frun_1_002.json",
+		TraceURL:                        "/api/chat/llm-trace?file=llm%2Frun_1_002.json",
 		SystemRef:                       map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:test"},
 		ContextWindow:                   128000,
 		CurrentContextSize:              100,
@@ -372,14 +372,14 @@ func TestDispatcherIncludesTaskIDOnDebugEvents(t *testing.T) {
 		RunLLMChatCompletionCount:       2,
 		RunToolCallCount:                4,
 	})
-	assertEventTypes(t, llmEvents, "debug.llmCall")
+	assertEventTypes(t, llmEvents, "debug.llmChat")
 	llmData := llmEvents[0].Data()
 	if got := llmData.String("taskId"); got != "task_sub_1" {
-		t.Fatalf("expected debug.llmCall taskId, got %#v", llmEvents[0].ToData())
+		t.Fatalf("expected debug.llmChat taskId, got %#v", llmEvents[0].ToData())
 	}
 	llmPayload, _ := llmData.Value("data").(map[string]any)
 	trace, _ := llmPayload["trace"].(map[string]any)
-	if trace["file"] != "llm/run_1_002.json" || trace["url"] != "/api/resource?file=llm%2Frun_1_002.json" {
+	if trace["file"] != "llm/run_1_002.json" || trace["url"] != "/api/chat/llm-trace?file=llm%2Frun_1_002.json" {
 		t.Fatalf("unexpected trace payload %#v", llmPayload)
 	}
 	if llmPayload["status"] != "ok" || llmPayload["runSeq"] != 2 {
@@ -387,7 +387,7 @@ func TestDispatcherIncludesTaskIDOnDebugEvents(t *testing.T) {
 	}
 	systemRef, _ := llmPayload["systemRef"].(map[string]any)
 	if systemRef["cacheKey"] != "react:main" {
-		t.Fatalf("expected systemRef in debug.llmCall, got %#v", llmPayload)
+		t.Fatalf("expected systemRef in debug.llmChat, got %#v", llmPayload)
 	}
 	llmUsageEnvelope, _ := llmPayload["usage"].(map[string]any)
 	llmReturnUsage, _ := llmUsageEnvelope["llmReturnUsage"].(map[string]any)
@@ -397,7 +397,7 @@ func TestDispatcherIncludesTaskIDOnDebugEvents(t *testing.T) {
 		llmCompletionDetails["reasoningTokens"] != 2 ||
 		llmReturnUsage["llmChatCompletionCount"] != 1 ||
 		llmReturnUsage["toolCallCount"] != 2 {
-		t.Fatalf("expected detailed debug.llmCall usage, got %#v", llmUsageEnvelope)
+		t.Fatalf("expected detailed debug.llmChat usage, got %#v", llmUsageEnvelope)
 	}
 }
 

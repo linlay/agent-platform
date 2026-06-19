@@ -327,9 +327,9 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			RunLLMChatCompletionCount:       value.RunLLMChatCompletionCount,
 			RunToolCallCount:                value.RunToolCallCount,
 		}}
-	case DeltaDebugLLMCall:
+	case DeltaDebugLLMChat:
 		m.lastKind = ""
-		return []stream.StreamInput{stream.InputDebugLLMCall{
+		return []stream.StreamInput{stream.InputDebugLLMChat{
 			TaskID:                          value.TaskID,
 			ChatID:                          value.ChatID,
 			ProviderKey:                     value.ProviderKey,

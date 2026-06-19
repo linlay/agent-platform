@@ -2089,7 +2089,7 @@ func TestStepWriterPersistsSystemRefWithoutDebugPayload(t *testing.T) {
 	}
 }
 
-func TestStepWriterCapturesDebugLLMCallMetadata(t *testing.T) {
+func TestStepWriterCapturesDebugLLMChatMetadata(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
@@ -2098,9 +2098,9 @@ func TestStepWriterCapturesDebugLLMCallMetadata(t *testing.T) {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
-	writer := NewStepWriter(store, "chat-llm-call", "run-llm-call", "react")
+	writer := NewStepWriter(store, "chat-llm-call", "run-llm-chat", "react")
 	writer.OnEvent(stream.EventData{
-		Type: "debug.llmCall",
+		Type: "debug.llmChat",
 		Payload: map[string]any{
 			"data": map[string]any{
 				"provider":  map[string]any{"key": "mock"},
@@ -2124,8 +2124,8 @@ func TestStepWriterCapturesDebugLLMCallMetadata(t *testing.T) {
 					},
 				},
 				"trace": map[string]any{
-					"file": "llm/run-llm-call_001.json",
-					"url":  "/api/resource?file=llm%2Frun-llm-call_001.json",
+					"file": "llm/run-llm-chat_001.json",
+					"url":  "/api/chat/llm-trace?file=llm%2Frun-llm-chat_001.json",
 				},
 				"status": "ok",
 				"runSeq": 1,
@@ -2153,16 +2153,16 @@ func TestStepWriterCapturesDebugLLMCallMetadata(t *testing.T) {
 	}
 	systemRef, _ := lines[0]["systemRef"].(map[string]any)
 	if systemRef["cacheKey"] != "react:main" || systemRef["fingerprint"] != "sha256:llm-call" {
-		t.Fatalf("expected systemRef from debug.llmCall, got %#v", lines[0])
+		t.Fatalf("expected systemRef from debug.llmChat, got %#v", lines[0])
 	}
 	usage, _ := lines[0]["usage"].(map[string]any)
 	if toIntValue(usage["promptTokens"]) != 100 || toIntValue(usage["completionTokens"]) != 50 || toIntValue(usage["totalTokens"]) != 150 ||
 		toIntValue(usage["llmChatCompletionCount"]) != 1 || toIntValue(usage["toolCallCount"]) != 2 {
-		t.Fatalf("expected usage from debug.llmCall, got %#v", lines[0])
+		t.Fatalf("expected usage from debug.llmChat, got %#v", lines[0])
 	}
 	contextWindow, _ := lines[0]["contextWindow"].(map[string]any)
 	if toIntValue(contextWindow["maxSize"]) != 128000 || toIntValue(contextWindow["actualSize"]) != 100 || toIntValue(contextWindow["estimatedSize"]) != 200 {
-		t.Fatalf("expected contextWindow from debug.llmCall, got %#v", lines[0])
+		t.Fatalf("expected contextWindow from debug.llmChat, got %#v", lines[0])
 	}
 
 	detail, err := store.LoadChat("chat-llm-call")
@@ -2170,8 +2170,8 @@ func TestStepWriterCapturesDebugLLMCallMetadata(t *testing.T) {
 		t.Fatalf("load chat: %v", err)
 	}
 	for _, event := range detail.Events {
-		if event.Type == "debug.llmCall" {
-			t.Fatalf("did not expect debug.llmCall in chat history, got %#v", detail.Events)
+		if event.Type == "debug.llmChat" {
+			t.Fatalf("did not expect debug.llmChat in chat history, got %#v", detail.Events)
 		}
 	}
 	if detail.ReplayUsage.Chat.TotalTokens != 150 || detail.ContextWindow == nil {

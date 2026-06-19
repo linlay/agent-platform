@@ -146,7 +146,7 @@ func (s *llmRunStream) emitPendingUsageDelta() {
 	})
 }
 
-func (s *llmRunStream) emitDebugLLMCallDelta(trace *llmChatTrace) {
+func (s *llmRunStream) emitDebugLLMChatDelta(trace *llmChatTrace) {
 	if s == nil || trace == nil {
 		return
 	}
@@ -154,7 +154,7 @@ func (s *llmRunStream) emitDebugLLMCallDelta(trace *llmChatTrace) {
 	if status == "" {
 		status = "unknown"
 	}
-	s.pending = append(s.pending, DeltaDebugLLMCall{
+	s.pending = append(s.pending, DeltaDebugLLMChat{
 		ChatID:                          s.session.ChatID,
 		ProviderKey:                     s.provider.Key,
 		ProviderEndpoint:                trace.payloadString("endpoint"),

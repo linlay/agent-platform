@@ -334,7 +334,7 @@ func (s *llmRunStream) finishCurrentTurn() error {
 			turn.trace.completeError(err)
 		}
 		s.emitPendingUsageDelta()
-		s.emitDebugLLMCallDelta(turn.trace)
+		s.emitDebugLLMChatDelta(turn.trace)
 		s.pending = append(s.pending, DeltaError{Error: NewErrorPayload(
 			"missing_tool_call_id",
 			err.Error(),
@@ -357,7 +357,7 @@ func (s *llmRunStream) finishCurrentTurn() error {
 	}
 
 	s.emitPendingUsageDelta()
-	s.emitDebugLLMCallDelta(turn.trace)
+	s.emitDebugLLMChatDelta(turn.trace)
 	s.currentTurn = nil
 
 	if len(toolCalls) == 0 {
@@ -592,7 +592,7 @@ func (s *llmRunStream) handleInterruptIfNeeded() error {
 			trace.completeInterrupted(info)
 		}
 		s.emitPendingUsageDelta()
-		s.emitDebugLLMCallDelta(trace)
+		s.emitDebugLLMChatDelta(trace)
 		s.currentTurn = nil
 		s.pending = append(s.pending, DeltaRunCancel{RunID: s.session.RunID})
 		return nil

@@ -4,6 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -11,6 +14,8 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/stream"
 )
+
+var errInvalidLLMTraceFile = errors.New("invalid llm trace file")
 
 func (s *Server) handleChatExport(w http.ResponseWriter, r *http.Request) {
 	chatID := strings.TrimSpace(r.URL.Query().Get("chatId"))
@@ -78,6 +83,107 @@ func (s *Server) loadChatJSONLContent(chatID string) (string, error) {
 		content, err = s.deps.Archives.LoadJSONLContent(chatID)
 	}
 	return content, err
+}
+
+func (s *Server) handleChatLLMTrace(w http.ResponseWriter, r *http.Request) {
+	fileParam := strings.TrimSpace(r.URL.Query().Get("file"))
+	if fileParam == "" {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "file is required"))
+		return
+	}
+
+	content, filename, err := s.loadChatLLMTraceContent(fileParam)
+	if errors.Is(err, errInvalidLLMTraceFile) {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid file"))
+		return
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "llm trace not found"))
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`inline; filename=%q`, filename))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write([]byte(content))
+}
+
+func (s *Server) loadChatLLMTraceContent(fileParam string) (string, string, error) {
+	relativeFile, filename, err := validateLLMTraceFileParam(fileParam)
+	if err != nil {
+		return "", "", err
+	}
+	recordDir := strings.TrimSpace(s.deps.Config.Logging.LLMInteraction.RecordDir)
+	if recordDir == "" {
+		return "", filename, fmt.Errorf("llm trace record dir is not configured")
+	}
+
+	base := filepath.Clean(recordDir)
+	target := filepath.Join(base, filepath.FromSlash(relativeFile))
+	rel, err := filepath.Rel(base, target)
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+		return "", filename, errInvalidLLMTraceFile
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		return "", filename, err
+	}
+	return string(data), filename, nil
+}
+
+func validateLLMTraceFileParam(fileParam string) (string, string, error) {
+	clean := path.Clean(strings.TrimSpace(fileParam))
+	if clean == "." || clean != strings.TrimSpace(fileParam) || strings.Contains(clean, "\x00") || strings.Contains(clean, "\\") || strings.HasPrefix(clean, "/") || strings.HasPrefix(clean, "../") || clean == ".." {
+		return "", "", errInvalidLLMTraceFile
+	}
+	const prefix = "llm/"
+	if !strings.HasPrefix(clean, prefix) {
+		return "", "", errInvalidLLMTraceFile
+	}
+	filename := strings.TrimPrefix(clean, prefix)
+	if filename == "" || strings.Contains(filename, "/") || !strings.HasSuffix(filename, ".json") {
+		return "", "", errInvalidLLMTraceFile
+	}
+	stem := strings.TrimSuffix(filename, ".json")
+	if len(stem) < 5 || stem[len(stem)-4] != '_' {
+		return "", "", errInvalidLLMTraceFile
+	}
+	name := stem[:len(stem)-4]
+	seq := stem[len(stem)-3:]
+	if !isSafeLLMTraceName(name) || !isThreeDigitSequence(seq) {
+		return "", "", errInvalidLLMTraceFile
+	}
+	return clean, filename, nil
+}
+
+func isSafeLLMTraceName(name string) bool {
+	if name == "" || name == "." || name == ".." || strings.Contains(name, "..") {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func isThreeDigitSequence(seq string) bool {
+	if len(seq) != 3 {
+		return false
+	}
+	for i := 0; i < len(seq); i++ {
+		if seq[i] < '0' || seq[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func renderChatMarkdown(chatName string, agentKey string, events []stream.EventData) string {

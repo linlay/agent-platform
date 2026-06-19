@@ -75,6 +75,7 @@ GET /ws -> request / response / stream / push / error frames
 | POST | `/api/chat/archive` | body: `chatId`、`reason` | 归档结果 |
 | GET | `/api/chat/export` | query: `chatId` | Markdown 导出 |
 | GET | `/api/chat/jsonl` | query: `chatId` | 原始 chat JSONL 文本；active 不存在时回退 archive |
+| GET | `/api/chat/llm-trace` | query: `file=llm/<runId>_NNN.json` | 原始 LLM chat trace JSON 文本 |
 
 `/api/chats` 的 chat 摘要在存在可恢复等待项时包含 `awaiting`：`awaitingId`、`runId`、`mode`、`status:"awaiting"`、`createdAt`。
 
@@ -389,6 +390,7 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 | `/api/chat/rename` | `chatId`、`chatName` | `response` |
 | `/api/chat/archive` | `chatId`、`reason` | `response` |
 | `/api/chat/jsonl` | `chatId` | `response`，data 为原始 JSONL 字符串；HTTP 仍返回 text/plain |
+| `/api/chat/llm-trace` | `file` | `response`，data 为原始 LLM trace JSON 字符串；HTTP 返回 application/json |
 | `/api/archives` | `agentKey`、`limit`、`offset` | `response` |
 | `/api/archive` | `chatId` | `response` |
 | `/api/archives/search` | `query`、`agentKey`、`limit` | `response` |

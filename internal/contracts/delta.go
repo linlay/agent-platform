@@ -223,7 +223,7 @@ type DeltaDebugPostCall struct {
 
 func (DeltaDebugPostCall) agentDeltaTag() {}
 
-type DeltaDebugLLMCall struct {
+type DeltaDebugLLMChat struct {
 	TaskID                          string
 	ChatID                          string
 	ProviderKey                     string
@@ -259,7 +259,7 @@ type DeltaDebugLLMCall struct {
 	RunToolCallCount                int
 }
 
-func (DeltaDebugLLMCall) agentDeltaTag() {}
+func (DeltaDebugLLMChat) agentDeltaTag() {}
 
 type DeltaUsageSnapshot struct {
 	ChatID                          string

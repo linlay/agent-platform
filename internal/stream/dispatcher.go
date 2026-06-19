@@ -209,7 +209,7 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 			payload["taskId"] = value.TaskID
 		}
 		return []StreamEvent{NewEvent("debug.postCall", payload)}
-	case InputDebugLLMCall:
+	case InputDebugLLMChat:
 		if value.RunTotalTokens > 0 || value.RunLLMChatCompletionCount > 0 || value.RunToolCallCount > 0 {
 			d.state.runUsage = runUsageStateFromValues(value.RunPromptTokens, value.RunCompletionTokens, value.RunTotalTokens, value.RunCachedTokens, value.RunReasoningTokens, value.RunPromptCacheHitTokens, value.RunPromptCacheMissTokens, value.RunLLMChatCompletionCount, value.RunToolCallCount)
 		}
@@ -276,7 +276,7 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 		if value.TaskID != "" {
 			payload["taskId"] = value.TaskID
 		}
-		return []StreamEvent{NewEvent("debug.llmCall", payload)}
+		return []StreamEvent{NewEvent("debug.llmChat", payload)}
 	case InputUsageSnapshot:
 		if value.RunTotalTokens > 0 || value.RunLLMChatCompletionCount > 0 || value.RunToolCallCount > 0 {
 			d.state.runUsage = runUsageStateFromValues(value.RunPromptTokens, value.RunCompletionTokens, value.RunTotalTokens, value.RunCachedTokens, value.RunReasoningTokens, value.RunPromptCacheHitTokens, value.RunPromptCacheMissTokens, value.RunLLMChatCompletionCount, value.RunToolCallCount)
