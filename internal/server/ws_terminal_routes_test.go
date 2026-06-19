@@ -17,9 +17,6 @@ import (
 )
 
 func TestWebSocketTerminalOpenInputAndExit(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("PTY terminal is unsupported on windows")
-	}
 	workspace := t.TempDir()
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
@@ -69,6 +66,9 @@ func TestWebSocketTerminalOpenInputAndExit(t *testing.T) {
 	}
 
 	openedRaw := waitForWebSocketFrame(t, conn, func(data []byte) bool {
+		if runtime.GOOS == "windows" && websocketErrorType(data) == "unsupported" {
+			t.Skip("Windows ConPTY is unsupported on this host")
+		}
 		return websocketStreamEventType(data) == "terminal.opened"
 	})
 	terminalID := terminalIDFromStreamFrame(t, openedRaw)
@@ -82,7 +82,7 @@ func TestWebSocketTerminalOpenInputAndExit(t *testing.T) {
 		ID:    "term_input",
 		Payload: ws.MarshalPayload(map[string]any{
 			"terminalId": terminalID,
-			"data":       "printf ws-terminal-ready\\n\nexit\n",
+			"data":       terminalReadyInput(),
 		}),
 	}); err != nil {
 		t.Fatalf("write terminal input: %v", err)
@@ -196,9 +196,6 @@ func TestWebSocketTerminalUnknownSessionControlsReturnNotFound(t *testing.T) {
 }
 
 func TestOpenTerminalSessionRejectsInvalidAgentWorkspace(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("windows validation is covered by the terminal package unsupported test")
-	}
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
@@ -284,6 +281,48 @@ func TestOpenTerminalSessionRejectsInvalidAgentWorkspace(t *testing.T) {
 	}
 }
 
+func TestResolveTerminalShellDefaultsByPlatform(t *testing.T) {
+	tests := []struct {
+		name       string
+		configured string
+		envShell   string
+		goos       string
+		want       string
+	}{
+		{
+			name:       "configured wins",
+			configured: "pwsh.exe",
+			envShell:   "/bin/zsh",
+			goos:       "windows",
+			want:       "pwsh.exe",
+		},
+		{
+			name:     "windows defaults to powershell",
+			envShell: "/bin/zsh",
+			goos:     "windows",
+			want:     "powershell.exe",
+		},
+		{
+			name:     "unix uses shell env",
+			envShell: "/bin/zsh",
+			goos:     "darwin",
+			want:     "/bin/zsh",
+		},
+		{
+			name: "unix falls back to bash",
+			goos: "linux",
+			want: "/bin/bash",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := resolveTerminalShellForGOOS(tt.configured, tt.envShell, tt.goos); got != tt.want {
+				t.Fatalf("shell = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func writeTerminalTestAgentFile(t *testing.T, cfg *config.Config, agentKey string, content string) {
 	t.Helper()
 	agentDir := filepath.Join(cfg.Paths.AgentsDir, agentKey)
@@ -316,6 +355,17 @@ func websocketStreamEventType(data []byte) string {
 	return frame.Event.Type
 }
 
+func websocketErrorType(data []byte) string {
+	var frame ws.ErrorFrame
+	if err := json.Unmarshal(data, &frame); err != nil {
+		return ""
+	}
+	if frame.Frame != ws.FrameError {
+		return ""
+	}
+	return frame.Type
+}
+
 func terminalIDFromStreamFrame(t *testing.T, data []byte) string {
 	t.Helper()
 	var frame ws.StreamFrame
@@ -326,4 +376,11 @@ func terminalIDFromStreamFrame(t *testing.T, data []byte) string {
 		return ""
 	}
 	return strings.TrimSpace(stringValue(frame.Event.Payload["terminalId"]))
+}
+
+func terminalReadyInput() string {
+	if runtime.GOOS == "windows" {
+		return "Write-Output ws-terminal-ready\r\nexit\r\n"
+	}
+	return "printf ws-terminal-ready\\n\nexit\n"
 }

@@ -155,9 +155,6 @@ func (s *Server) openTerminalSession(payload terminalOpenPayload) (*terminalpkg.
 	if s == nil || s.terminals == nil {
 		return nil, &statusError{status: http.StatusServiceUnavailable, message: "terminal manager is not configured"}
 	}
-	if runtime.GOOS == "windows" {
-		return nil, &statusError{status: http.StatusNotImplemented, message: "terminal is unsupported on windows"}
-	}
 	agentKey := strings.TrimSpace(payload.AgentKey)
 	if agentKey == "" {
 		return nil, &statusError{status: http.StatusBadRequest, message: "agentKey is required"}
@@ -230,10 +227,17 @@ func (s *Server) resolveTerminalWorkspace(def catalog.AgentDefinition, chatID st
 }
 
 func resolveTerminalShell(configured string) string {
+	return resolveTerminalShellForGOOS(configured, os.Getenv("SHELL"), runtime.GOOS)
+}
+
+func resolveTerminalShellForGOOS(configured string, envShell string, goos string) string {
 	if shell := strings.TrimSpace(configured); shell != "" {
 		return shell
 	}
-	if shell := strings.TrimSpace(os.Getenv("SHELL")); shell != "" {
+	if goos == "windows" {
+		return "powershell.exe"
+	}
+	if shell := strings.TrimSpace(envShell); shell != "" {
 		return shell
 	}
 	return "/bin/bash"

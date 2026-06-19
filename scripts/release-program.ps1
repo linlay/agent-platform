@@ -288,10 +288,21 @@ function Build-ProgramBundle {
         New-Item -ItemType Directory -Path (Join-Path $bundleRoot "configs") -Force | Out-Null
 
         Write-Host "[release] building program binary for $TargetOs..."
-        $env:CGO_ENABLED = "0"
-        & go build -o $backendPath ./cmd/agent-platform
-        if ($LASTEXITCODE -ne 0) {
-            Write-Error "go build failed for $TargetOs"
+        $oldCGOEnabled = $env:CGO_ENABLED
+        $oldGOOS = $env:GOOS
+        $oldGOARCH = $env:GOARCH
+        try {
+            $env:CGO_ENABLED = "0"
+            $env:GOOS = $TargetOs
+            $env:GOARCH = $TargetArch
+            & go build -o $backendPath ./cmd/agent-platform
+            if ($LASTEXITCODE -ne 0) {
+                Write-Error "go build failed for $TargetOs/$TargetArch"
+            }
+        } finally {
+            if ($null -eq $oldCGOEnabled) { Remove-Item Env:CGO_ENABLED -ErrorAction SilentlyContinue } else { $env:CGO_ENABLED = $oldCGOEnabled }
+            if ($null -eq $oldGOOS) { Remove-Item Env:GOOS -ErrorAction SilentlyContinue } else { $env:GOOS = $oldGOOS }
+            if ($null -eq $oldGOARCH) { Remove-Item Env:GOARCH -ErrorAction SilentlyContinue } else { $env:GOARCH = $oldGOARCH }
         }
 
         Write-Host "[release] assembling program bundle for $TargetOs..."

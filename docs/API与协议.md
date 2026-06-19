@@ -459,7 +459,7 @@ open 成功后返回 stream 事件：
 {"frame":"request","type":"/api/terminal/close","id":"term-close-1","payload":{"terminalId":"term_xxx"}}
 ```
 
-首版只支持 macOS/Linux 上的本地 native CODER agent。非 CODER agent、sandbox/ACP CODER agent、Windows、缺失 agent、空 workspace、`@chat` workspace 缺少 `chatId` 都会拒绝。cwd 只由 platform 根据 agent workspace 反查，不信任前端传入任意 cwd。终端输入与输出不会写入 chat/event log；WS monitor 只记录 terminal 输入/输出的类型、id 与字节数，不记录原始 preview。错误沿用现有 error frame，`type` 为 `invalid_request`、`forbidden`、`terminal_not_found`、`unsupported` 或 `internal_error`。
+CODER 终端支持 macOS/Linux 上的 Unix PTY，以及 Windows 上的 ConPTY / PowerShell PTY。Windows 需要 ConPTY 可用的系统版本（Windows 10 1809 / Windows Server 2019 及以上）；旧系统会返回 `unsupported`。非 CODER agent、sandbox/ACP CODER agent、缺失 agent、空 workspace、`@chat` workspace 缺少 `chatId` 都会拒绝。cwd 只由 platform 根据 agent workspace 反查，不信任前端传入任意 cwd。终端输入与输出不会写入 chat/event log；WS monitor 只记录 terminal 输入/输出的类型、id 与字节数，不记录原始 preview。错误沿用现有 error frame，`type` 为 `invalid_request`、`forbidden`、`terminal_not_found`、`unsupported` 或 `internal_error`。
 
 ## 相关文件
 
