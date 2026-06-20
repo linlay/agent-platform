@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -81,6 +82,79 @@ func TestHandleChatArchiveReportsActiveRunConflictPerItem(t *testing.T) {
 		t.Fatalf("active summary: %v", err)
 	} else if sum == nil {
 		t.Fatalf("expected active chat to remain")
+	}
+}
+
+func TestHandleArchiveRestoreRestoresChat(t *testing.T) {
+	server, active, archiveStore := newArchiveHandlerTestServer(t, nil)
+	seedArchiveHandlerChat(t, active, "chat-http-restore")
+
+	archiveRec := httptest.NewRecorder()
+	server.ServeHTTP(archiveRec, httptest.NewRequest(http.MethodPost, "/api/chat/archive", bytes.NewBufferString(`{"chatIds":["chat-http-restore"]}`)))
+	if archiveRec.Code != http.StatusOK {
+		t.Fatalf("archive status=%d body=%s", archiveRec.Code, archiveRec.Body.String())
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/archive/restore", bytes.NewBufferString(`{"chatIds":["chat-http-restore"]}`)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("restore status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp api.ApiResponse[api.ArchiveRestoreResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode restore response: %v", err)
+	}
+	if len(resp.Data.Results) != 1 || !resp.Data.Results[0].Success || resp.Data.Results[0].Summary == nil {
+		t.Fatalf("unexpected restore response: %#v", resp.Data)
+	}
+	if resp.Data.Results[0].Summary.ChatID != "chat-http-restore" || resp.Data.Results[0].Summary.AgentKey != "agent-a" {
+		t.Fatalf("unexpected restored summary: %#v", resp.Data.Results[0].Summary)
+	}
+	if detail, err := active.LoadChat("chat-http-restore"); err != nil {
+		t.Fatalf("load restored chat: %v", err)
+	} else if len(detail.Events) == 0 {
+		t.Fatalf("expected restored events")
+	}
+	if _, err := archiveStore.LoadArchived("chat-http-restore"); !errors.Is(err, chat.ErrChatNotFound) {
+		t.Fatalf("expected archive removed, got %v", err)
+	}
+}
+
+func TestHandleArchiveRestoreReportsActiveConflictPerItem(t *testing.T) {
+	server, active, archiveStore := newArchiveHandlerTestServer(t, nil)
+	if err := archiveStore.ArchiveChat(chat.ArchivedChat{
+		Summary: chat.ArchivedSummary{
+			ChatID:         "chat-http-restore-conflict",
+			ChatName:       "Archived conflict",
+			AgentKey:       "agent-a",
+			CreatedAt:      1000,
+			UpdatedAt:      2000,
+			ArchivedAt:     3000,
+			LastRunID:      "run-restore-conflict",
+			LastRunContent: "archived",
+		},
+		JSONLContent: `{"chatId":"chat-http-restore-conflict","runId":"run-restore-conflict","updatedAt":1000,"query":{"message":"hello"},"_type":"query"}` + "\n",
+	}); err != nil {
+		t.Fatalf("seed archive: %v", err)
+	}
+	if _, _, err := active.EnsureChat("chat-http-restore-conflict", "agent-a", "", "active"); err != nil {
+		t.Fatalf("ensure active: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/archive/restore", bytes.NewBufferString(`{"chatIds":["chat-http-restore-conflict"]}`)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("restore status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var resp api.ApiResponse[api.ArchiveRestoreResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode restore response: %v", err)
+	}
+	if len(resp.Data.Results) != 1 || resp.Data.Results[0].Success || resp.Data.Results[0].Error != "active chat already exists" {
+		t.Fatalf("unexpected restore response: %#v", resp.Data)
+	}
+	if _, err := archiveStore.LoadArchived("chat-http-restore-conflict"); err != nil {
+		t.Fatalf("archive should remain after restore conflict: %v", err)
 	}
 }
 

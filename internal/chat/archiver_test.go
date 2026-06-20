@@ -174,6 +174,146 @@ func TestArchiverMovesToolStateWithoutMarkingAttachments(t *testing.T) {
 	}
 }
 
+func TestArchiverRestoresArchivedChatAndRemovesArchive(t *testing.T) {
+	root := t.TempDir()
+	active, err := NewFileStore(root)
+	if err != nil {
+		t.Fatalf("new active store: %v", err)
+	}
+	archive, err := NewArchiveStore(root)
+	if err != nil {
+		t.Fatalf("new archive store: %v", err)
+	}
+	archiver := NewArchiver(active, archive)
+
+	if _, _, err := active.EnsureChat("chat-restore", "agent-a", "team-a", "hello restore"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	if err := active.SetSourceChannel("chat-restore", "desktop"); err != nil {
+		t.Fatalf("set source channel: %v", err)
+	}
+	if err := active.AppendQueryLine("chat-restore", QueryLine{
+		ChatID:    "chat-restore",
+		RunID:     "run-restore",
+		UpdatedAt: 1000,
+		Query:     map[string]any{"role": "user", "message": "hello restore"},
+		Type:      "query",
+	}); err != nil {
+		t.Fatalf("append query: %v", err)
+	}
+	if err := active.OnRunCompleted(RunCompletion{
+		ChatID:          "chat-restore",
+		RunID:           "run-restore",
+		AgentKey:        "agent-a",
+		AssistantText:   "restored response",
+		InitialMessage:  "hello restore",
+		FinishReason:    "complete",
+		StartedAtMillis: 1000,
+		UpdatedAtMillis: 2000,
+		Usage:           UsageData{PromptTokens: 4, CompletionTokens: 5, TotalTokens: 9},
+	}); err != nil {
+		t.Fatalf("complete run: %v", err)
+	}
+	if err := os.MkdirAll(active.ChatDir("chat-restore"), 0o755); err != nil {
+		t.Fatalf("mkdir active chat dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(active.ChatDir("chat-restore"), "artifact.txt"), []byte("artifact"), 0o644); err != nil {
+		t.Fatalf("write artifact: %v", err)
+	}
+
+	if err := archiver.ArchiveChat("chat-restore"); err != nil {
+		t.Fatalf("archive chat: %v", err)
+	}
+	if _, err := archive.LoadArchived("chat-restore"); err != nil {
+		t.Fatalf("expected archive before restore: %v", err)
+	}
+
+	summary, err := archiver.RestoreChat("chat-restore")
+	if err != nil {
+		t.Fatalf("restore chat: %v", err)
+	}
+	if summary.ChatID != "chat-restore" || summary.AgentKey != "agent-a" || summary.TeamID != "team-a" || summary.SourceChannel != "desktop" {
+		t.Fatalf("unexpected restored summary: %#v", summary)
+	}
+	if summary.Read.IsRead {
+		t.Fatalf("new archived unread state should be preserved, got %#v", summary.Read)
+	}
+	if summary.Usage == nil || summary.Usage.TotalTokens != 9 {
+		t.Fatalf("expected restored usage, got %#v", summary.Usage)
+	}
+	runs, err := active.ListRuns("chat-restore")
+	if err != nil {
+		t.Fatalf("list restored runs: %v", err)
+	}
+	if len(runs) != 1 || runs[0].RunID != "run-restore" || runs[0].Usage.TotalTokens != 9 {
+		t.Fatalf("unexpected restored runs: %#v", runs)
+	}
+	detail, err := active.LoadChat("chat-restore")
+	if err != nil {
+		t.Fatalf("load restored chat: %v", err)
+	}
+	if len(detail.Events) == 0 {
+		t.Fatalf("expected restored replay events")
+	}
+	if _, err := os.Stat(filepath.Join(active.ChatDir("chat-restore"), "artifact.txt")); err != nil {
+		t.Fatalf("expected artifact restored to active dir: %v", err)
+	}
+	if _, err := archive.LoadArchived("chat-restore"); !errors.Is(err, ErrChatNotFound) {
+		t.Fatalf("expected archive removed after restore, got %v", err)
+	}
+}
+
+func TestArchiverRestoreConflictsWithActiveChat(t *testing.T) {
+	root := t.TempDir()
+	active, err := NewFileStore(root)
+	if err != nil {
+		t.Fatalf("new active store: %v", err)
+	}
+	archive, err := NewArchiveStore(root)
+	if err != nil {
+		t.Fatalf("new archive store: %v", err)
+	}
+	if err := archive.ArchiveChat(testArchivedChat("chat-restore-conflict", "agent-a", "Archived", "done")); err != nil {
+		t.Fatalf("seed archive: %v", err)
+	}
+	if _, _, err := active.EnsureChat("chat-restore-conflict", "agent-a", "", "active"); err != nil {
+		t.Fatalf("ensure active: %v", err)
+	}
+
+	if _, err := NewArchiver(active, archive).RestoreChat("chat-restore-conflict"); !errors.Is(err, ErrChatAlreadyActive) {
+		t.Fatalf("expected ErrChatAlreadyActive, got %v", err)
+	}
+	if _, err := archive.LoadArchived("chat-restore-conflict"); err != nil {
+		t.Fatalf("archive should remain after conflict: %v", err)
+	}
+}
+
+func TestArchiverRestoreLegacyArchiveDefaultsToRead(t *testing.T) {
+	root := t.TempDir()
+	active, err := NewFileStore(root)
+	if err != nil {
+		t.Fatalf("new active store: %v", err)
+	}
+	archive, err := NewArchiveStore(root)
+	if err != nil {
+		t.Fatalf("new archive store: %v", err)
+	}
+	if err := archive.ArchiveChat(testArchivedChat("chat-legacy-restore", "agent-a", "Legacy", "done")); err != nil {
+		t.Fatalf("seed archive: %v", err)
+	}
+	if _, err := archive.db.Exec("UPDATE ARCHIVED_CHATS SET READ_RUN_ID_='', READ_AT_=NULL, READ_STATE_CAPTURED_=0 WHERE CHAT_ID_=?", "chat-legacy-restore"); err != nil {
+		t.Fatalf("simulate legacy archive: %v", err)
+	}
+
+	summary, err := NewArchiver(active, archive).RestoreChat("chat-legacy-restore")
+	if err != nil {
+		t.Fatalf("restore legacy archive: %v", err)
+	}
+	if !summary.Read.IsRead || summary.Read.ReadRunID != summary.LastRunID {
+		t.Fatalf("expected legacy archive to restore as read, got %#v summary=%#v", summary.Read, summary)
+	}
+}
+
 func TestArchiverLeavesActiveChatWhenArchiveAlreadyExists(t *testing.T) {
 	root := t.TempDir()
 	active, err := NewFileStore(root)

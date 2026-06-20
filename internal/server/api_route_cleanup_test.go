@@ -67,6 +67,11 @@ func TestRenamedHTTPAPIRoutes(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("POST /api/archives/search expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
+	rec = httptest.NewRecorder()
+	archiveServer.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/archive/restore", bytes.NewBufferString(`{"chatIds":["chat-route-archive"]}`)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST /api/archive/restore expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
 }
 
 func TestRemovedHTTPAPIRoutesReturnNotFound(t *testing.T) {
@@ -122,6 +127,7 @@ func TestWebSocketSearchRoutesRenamed(t *testing.T) {
 	}{
 		{route: "/api/chats/search", id: "new_chats_search"},
 		{route: "/api/archives/search", id: "new_archives_search"},
+		{route: "/api/archive/restore", id: "new_archive_restore"},
 	} {
 		if err := conn.WriteJSON(ws.RequestFrame{
 			Frame:   ws.FrameRequest,

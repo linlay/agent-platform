@@ -98,6 +98,7 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/archive", s.wsArchive)
 	handler.RegisterRoute("/api/archives/search", s.wsArchiveSearch)
 	handler.RegisterRoute("/api/archive/delete", s.wsArchiveDelete)
+	handler.RegisterRoute("/api/archive/restore", s.wsArchiveRestore)
 	handler.RegisterRoute("/api/automations", s.wsAutomations)
 	handler.RegisterRoute("/api/automation", s.wsAutomation)
 	handler.RegisterRoute("/api/automation/executions", s.wsAutomationExecutions)

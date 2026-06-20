@@ -113,6 +113,31 @@ func (s *Server) handleArchiveDelete(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, api.Success(response))
 }
 
+func (s *Server) handleArchiveRestore(w http.ResponseWriter, r *http.Request) {
+	var req api.ArchiveRestoreRequest
+	if err := decodeOptionalJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "invalid payload"))
+		return
+	}
+	if chatID := strings.TrimSpace(r.URL.Query().Get("chatId")); chatID != "" {
+		if len(req.ChatIDs) > 0 && (len(req.ChatIDs) != 1 || strings.TrimSpace(req.ChatIDs[0]) != chatID) {
+			writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "chatId mismatch"))
+			return
+		}
+		req.ChatIDs = []string{chatID}
+	}
+	if len(req.ChatIDs) == 0 {
+		writeJSON(w, http.StatusBadRequest, api.Failure(http.StatusBadRequest, "chatIds is required"))
+		return
+	}
+	response, err := s.restoreArchives(req.ChatIDs)
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, api.Failure(http.StatusServiceUnavailable, err.Error()))
+		return
+	}
+	writeJSON(w, http.StatusOK, api.Success(response))
+}
+
 func (s *Server) archiveChats(chatIDs []string) (api.ArchiveChatResponse, error) {
 	if s.deps.Archiver == nil {
 		return api.ArchiveChatResponse{}, errors.New("archiver is not configured")
@@ -152,6 +177,37 @@ func (s *Server) archiveChats(chatIDs []string) (api.ArchiveChatResponse, error)
 	return api.ArchiveChatResponse{Results: results}, nil
 }
 
+func (s *Server) restoreArchives(chatIDs []string) (api.ArchiveRestoreResponse, error) {
+	if s.deps.Archiver == nil {
+		return api.ArchiveRestoreResponse{}, errors.New("archiver is not configured")
+	}
+	if len(chatIDs) == 0 {
+		return api.ArchiveRestoreResponse{}, errors.New("chatIds is required")
+	}
+	results := make([]api.ArchiveRestoreResult, 0, len(chatIDs))
+	for _, rawChatID := range chatIDs {
+		chatID := strings.TrimSpace(rawChatID)
+		result := api.ArchiveRestoreResult{ChatID: chatID}
+		if !chat.ValidChatID(chatID) {
+			result.Error = "invalid chatId"
+			results = append(results, result)
+			continue
+		}
+		summary, err := s.deps.Archiver.RestoreChat(chatID)
+		if err != nil {
+			result.Error = restoreResultError(err)
+			results = append(results, result)
+			continue
+		}
+		result.Success = true
+		apiSummary := mapChatSummaries([]chat.Summary{summary})[0]
+		result.Summary = &apiSummary
+		results = append(results, result)
+		s.broadcast("chat.restored", map[string]any{"chatId": chatID, "agentKey": summary.AgentKey, "summary": apiSummary})
+	}
+	return api.ArchiveRestoreResponse{Results: results}, nil
+}
+
 func (s *Server) ensureNoActiveRun(chatID string) error {
 	if s.deps.Runs == nil {
 		return nil
@@ -176,6 +232,19 @@ func archiveResultError(err error) string {
 		return "chat not found"
 	case errors.Is(err, chat.ErrChatAlreadyArchived):
 		return "already archived"
+	case errors.Is(err, os.ErrPermission):
+		return "invalid chatId"
+	default:
+		return err.Error()
+	}
+}
+
+func restoreResultError(err error) string {
+	switch {
+	case errors.Is(err, chat.ErrChatNotFound):
+		return "archive not found"
+	case errors.Is(err, chat.ErrChatAlreadyActive):
+		return "active chat already exists"
 	case errors.Is(err, os.ErrPermission):
 		return "invalid chatId"
 	default:
@@ -410,6 +479,23 @@ func (s *Server) wsArchiveDelete(_ context.Context, conn *ws.Conn, req ws.Reques
 	}
 	if deleteErr != nil {
 		conn.SendError(req.ID, "unavailable", 503, deleteErr.Error(), nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	conn.SendResponse(req.Type, req.ID, 0, "success", response)
+	conn.CompleteRequest(req.ID)
+}
+
+func (s *Server) wsArchiveRestore(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
+	payload, err := ws.DecodePayload[api.ArchiveRestoreRequest](req)
+	if err != nil || len(payload.ChatIDs) == 0 {
+		conn.SendError(req.ID, "invalid_request", 400, "chatIds is required", nil)
+		conn.CompleteRequest(req.ID)
+		return
+	}
+	response, restoreErr := s.restoreArchives(payload.ChatIDs)
+	if restoreErr != nil {
+		conn.SendError(req.ID, "unavailable", 503, restoreErr.Error(), nil)
 		conn.CompleteRequest(req.ID)
 		return
 	}

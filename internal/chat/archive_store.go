@@ -46,11 +46,15 @@ func (s *ArchiveStore) initDB() error {
 			CHAT_NAME_        TEXT NOT NULL,
 			AGENT_KEY_        TEXT NOT NULL DEFAULT '',
 			TEAM_ID_          TEXT,
+			SOURCE_CHANNEL_   TEXT NOT NULL DEFAULT '',
 			CREATED_AT_       INTEGER NOT NULL,
 			UPDATED_AT_       INTEGER NOT NULL,
 			ARCHIVED_AT_      INTEGER NOT NULL,
 			LAST_RUN_ID_      TEXT NOT NULL DEFAULT '',
 			LAST_RUN_CONTENT_ TEXT NOT NULL DEFAULT '',
+			READ_RUN_ID_      TEXT NOT NULL DEFAULT '',
+			READ_AT_          INTEGER,
+			READ_STATE_CAPTURED_ INTEGER NOT NULL DEFAULT 0,
 			USAGE_PROMPT_TOKENS_     INTEGER NOT NULL DEFAULT 0,
 			USAGE_COMPLETION_TOKENS_ INTEGER NOT NULL DEFAULT 0,
 			USAGE_TOTAL_TOKENS_      INTEGER NOT NULL DEFAULT 0,
@@ -119,6 +123,17 @@ func (s *ArchiveStore) initDB() error {
 			return fmt.Errorf("init archive schema: %w", err)
 		}
 	}
+	for _, col := range []string{
+		"SOURCE_CHANNEL_ TEXT NOT NULL DEFAULT ''",
+		"READ_RUN_ID_ TEXT NOT NULL DEFAULT ''",
+		"READ_AT_ INTEGER",
+		"READ_STATE_CAPTURED_ INTEGER NOT NULL DEFAULT 0",
+	} {
+		_, _ = db.Exec("ALTER TABLE ARCHIVED_CHATS ADD COLUMN " + col)
+	}
+	_, _ = db.Exec(`UPDATE ARCHIVED_CHATS
+		SET READ_RUN_ID_=LAST_RUN_ID_, READ_AT_=ARCHIVED_AT_, READ_STATE_CAPTURED_=1
+		WHERE READ_STATE_CAPTURED_=0`)
 	for _, table := range []string{"ARCHIVED_CHATS", "ARCHIVED_RUNS"} {
 		for _, col := range []string{
 			"USAGE_CACHED_TOKENS_",
@@ -181,18 +196,23 @@ func (s *ArchiveStore) ArchiveChat(chat ArchivedChat) error {
 	if chat.Summary.ArchivedAt <= 0 {
 		chat.Summary.ArchivedAt = time.Now().UnixMilli()
 	}
+	readRunID := strings.TrimSpace(chat.Summary.Read.ReadRunID)
+	var readAt any
+	if chat.Summary.Read.ReadAt != nil {
+		readAt = *chat.Summary.Read.ReadAt
+	}
 	_, err = tx.Exec(`INSERT INTO ARCHIVED_CHATS (
-			CHAT_ID_, CHAT_NAME_, AGENT_KEY_, TEAM_ID_, CREATED_AT_, UPDATED_AT_, ARCHIVED_AT_,
-			LAST_RUN_ID_, LAST_RUN_CONTENT_,
+			CHAT_ID_, CHAT_NAME_, AGENT_KEY_, TEAM_ID_, SOURCE_CHANNEL_, CREATED_AT_, UPDATED_AT_, ARCHIVED_AT_,
+			LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_RUN_ID_, READ_AT_, READ_STATE_CAPTURED_,
 			USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_, USAGE_CACHED_TOKENS_, USAGE_REASONING_TOKENS_,
 			USAGE_PROMPT_CACHE_HIT_TOKENS_, USAGE_PROMPT_CACHE_MISS_TOKENS_,
 			USAGE_ESTIMATED_COST_CURRENCY_, USAGE_ESTIMATED_COST_INPUT_CACHE_HIT_, USAGE_ESTIMATED_COST_INPUT_CACHE_MISS_, USAGE_ESTIMATED_COST_OUTPUT_, USAGE_ESTIMATED_COST_TOTAL_,
 			USAGE_LLM_CHAT_COMPLETION_COUNT_, USAGE_TOOL_CALL_COUNT_,
 			JSONL_CONTENT_, EVENTS_CONTENT_, RAW_MESSAGES_CONTENT_, HAS_ATTACHMENTS_
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		chat.Summary.ChatID, chat.Summary.ChatName, chat.Summary.AgentKey, nilIfEmpty(chat.Summary.TeamID),
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		chat.Summary.ChatID, chat.Summary.ChatName, chat.Summary.AgentKey, nilIfEmpty(chat.Summary.TeamID), chat.Summary.SourceChannel,
 		chat.Summary.CreatedAt, chat.Summary.UpdatedAt, chat.Summary.ArchivedAt,
-		chat.Summary.LastRunID, chat.Summary.LastRunContent,
+		chat.Summary.LastRunID, chat.Summary.LastRunContent, readRunID, readAt, 1,
 		usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens, usage.CachedTokens, usage.ReasoningTokens,
 		usage.PromptCacheHitTokens, usage.PromptCacheMissTokens,
 		usage.EstimatedCostCurrency, usage.EstimatedCostInputHit, usage.EstimatedCostInputMiss, usage.EstimatedCostOutput, usage.EstimatedCostTotal,
@@ -252,8 +272,8 @@ func (s *ArchiveStore) ListArchived(agentKey string, limit, offset int) ([]Archi
 	}
 
 	queryArgs := append(append([]any(nil), args...), limit, offset)
-	rows, err := s.db.Query(`SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_, COALESCE(TEAM_ID_,''), CREATED_AT_, UPDATED_AT_, ARCHIVED_AT_,
-			LAST_RUN_ID_, LAST_RUN_CONTENT_,
+	rows, err := s.db.Query(`SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_, COALESCE(TEAM_ID_,''), COALESCE(SOURCE_CHANNEL_,''), CREATED_AT_, UPDATED_AT_, ARCHIVED_AT_,
+			LAST_RUN_ID_, LAST_RUN_CONTENT_, COALESCE(READ_RUN_ID_,''), READ_AT_, COALESCE(READ_STATE_CAPTURED_,0),
 			USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_, USAGE_CACHED_TOKENS_, USAGE_REASONING_TOKENS_,
 			USAGE_PROMPT_CACHE_HIT_TOKENS_, USAGE_PROMPT_CACHE_MISS_TOKENS_,
 			USAGE_ESTIMATED_COST_CURRENCY_, USAGE_ESTIMATED_COST_INPUT_CACHE_HIT_, USAGE_ESTIMATED_COST_INPUT_CACHE_MISS_, USAGE_ESTIMATED_COST_OUTPUT_, USAGE_ESTIMATED_COST_TOTAL_,
@@ -281,8 +301,8 @@ func (s *ArchiveStore) LoadArchived(chatID string) (*ArchivedChat, error) {
 	if !ValidChatID(chatID) {
 		return nil, os.ErrPermission
 	}
-	row := s.db.QueryRow(`SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_, COALESCE(TEAM_ID_,''), CREATED_AT_, UPDATED_AT_, ARCHIVED_AT_,
-			LAST_RUN_ID_, LAST_RUN_CONTENT_,
+	row := s.db.QueryRow(`SELECT CHAT_ID_, CHAT_NAME_, AGENT_KEY_, COALESCE(TEAM_ID_,''), COALESCE(SOURCE_CHANNEL_,''), CREATED_AT_, UPDATED_AT_, ARCHIVED_AT_,
+			LAST_RUN_ID_, LAST_RUN_CONTENT_, COALESCE(READ_RUN_ID_,''), READ_AT_, COALESCE(READ_STATE_CAPTURED_,0),
 			USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_, USAGE_CACHED_TOKENS_, USAGE_REASONING_TOKENS_,
 			USAGE_PROMPT_CACHE_HIT_TOKENS_, USAGE_PROMPT_CACHE_MISS_TOKENS_,
 			USAGE_ESTIMATED_COST_CURRENCY_, USAGE_ESTIMATED_COST_INPUT_CACHE_HIT_, USAGE_ESTIMATED_COST_INPUT_CACHE_MISS_, USAGE_ESTIMATED_COST_OUTPUT_, USAGE_ESTIMATED_COST_TOTAL_,
@@ -312,10 +332,12 @@ func (s *ArchiveStore) LoadArchived(chatID string) (*ArchivedChat, error) {
 		ChatName:       archived.Summary.ChatName,
 		AgentKey:       archived.Summary.AgentKey,
 		TeamID:         archived.Summary.TeamID,
+		SourceChannel:  archived.Summary.SourceChannel,
 		CreatedAt:      archived.Summary.CreatedAt,
 		UpdatedAt:      archived.Summary.UpdatedAt,
 		LastRunID:      archived.Summary.LastRunID,
 		LastRunContent: archived.Summary.LastRunContent,
+		Read:           archived.Summary.Read,
 		Usage:          archived.Summary.Usage,
 	}
 	archived.Detail, err = parseChatNewFormat(summary, lines, rawMessages, s.ChatDir(chatID))
@@ -548,10 +570,12 @@ func scanArchivedChatRow(row archivedSummaryScanner) (*ArchivedChat, error) {
 	var item ArchivedChat
 	var usage UsageData
 	var hasAttachments int
+	var readAt sql.NullInt64
+	var readStateCaptured int
 	if err := row.Scan(
-		&item.Summary.ChatID, &item.Summary.ChatName, &item.Summary.AgentKey, &item.Summary.TeamID,
+		&item.Summary.ChatID, &item.Summary.ChatName, &item.Summary.AgentKey, &item.Summary.TeamID, &item.Summary.SourceChannel,
 		&item.Summary.CreatedAt, &item.Summary.UpdatedAt, &item.Summary.ArchivedAt,
-		&item.Summary.LastRunID, &item.Summary.LastRunContent,
+		&item.Summary.LastRunID, &item.Summary.LastRunContent, &item.Summary.Read.ReadRunID, &readAt, &readStateCaptured,
 		&usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens,
 		&usage.CachedTokens, &usage.ReasoningTokens,
 		&usage.PromptCacheHitTokens, &usage.PromptCacheMissTokens,
@@ -564,6 +588,10 @@ func scanArchivedChatRow(row archivedSummaryScanner) (*ArchivedChat, error) {
 	if hasUsageData(usage) {
 		item.Summary.Usage = &usage
 	}
+	if readAt.Valid {
+		item.Summary.Read.ReadAt = &readAt.Int64
+	}
+	applyArchivedReadState(&item.Summary, readStateCaptured)
 	item.Summary.HasAttachments = hasAttachments != 0
 	return &item, nil
 }
@@ -574,10 +602,12 @@ func scanArchivedSummaries(rows *sql.Rows) ([]ArchivedSummary, error) {
 		var item ArchivedSummary
 		var usage UsageData
 		var hasAttachments int
+		var readAt sql.NullInt64
+		var readStateCaptured int
 		if err := rows.Scan(
-			&item.ChatID, &item.ChatName, &item.AgentKey, &item.TeamID,
+			&item.ChatID, &item.ChatName, &item.AgentKey, &item.TeamID, &item.SourceChannel,
 			&item.CreatedAt, &item.UpdatedAt, &item.ArchivedAt,
-			&item.LastRunID, &item.LastRunContent,
+			&item.LastRunID, &item.LastRunContent, &item.Read.ReadRunID, &readAt, &readStateCaptured,
 			&usage.PromptTokens, &usage.CompletionTokens, &usage.TotalTokens,
 			&usage.CachedTokens, &usage.ReasoningTokens,
 			&usage.PromptCacheHitTokens, &usage.PromptCacheMissTokens,
@@ -589,10 +619,35 @@ func scanArchivedSummaries(rows *sql.Rows) ([]ArchivedSummary, error) {
 		if hasUsageData(usage) {
 			item.Usage = &usage
 		}
+		if readAt.Valid {
+			item.Read.ReadAt = &readAt.Int64
+		}
+		applyArchivedReadState(&item, readStateCaptured)
 		item.HasAttachments = hasAttachments != 0
 		items = append(items, item)
 	}
 	return items, nil
+}
+
+func applyArchivedReadState(item *ArchivedSummary, readStateCaptured int) {
+	if item == nil {
+		return
+	}
+	if readStateCaptured == 0 {
+		item.Read.ReadRunID = item.LastRunID
+		if item.Read.ReadAt == nil && item.ArchivedAt > 0 {
+			readAt := item.ArchivedAt
+			item.Read.ReadAt = &readAt
+		}
+	}
+	applyArchivedDerivedReadState(item)
+}
+
+func applyArchivedDerivedReadState(item *ArchivedSummary) {
+	if item == nil {
+		return
+	}
+	item.Read.IsRead = !RunIDAfter(item.LastRunID, item.Read.ReadRunID)
 }
 
 func readJSONLinesContent(content string) ([]map[string]any, error) {

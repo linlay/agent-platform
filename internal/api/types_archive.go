@@ -71,3 +71,18 @@ type ArchiveDeleteResponse struct {
 	ChatID  string `json:"chatId"`
 	Deleted bool   `json:"deleted"`
 }
+
+type ArchiveRestoreRequest struct {
+	ChatIDs []string `json:"chatIds"`
+}
+
+type ArchiveRestoreResult struct {
+	ChatID  string               `json:"chatId"`
+	Success bool                 `json:"success"`
+	Error   string               `json:"error,omitempty"`
+	Summary *ChatSummaryResponse `json:"summary,omitempty"`
+}
+
+type ArchiveRestoreResponse struct {
+	Results []ArchiveRestoreResult `json:"results"`
+}
