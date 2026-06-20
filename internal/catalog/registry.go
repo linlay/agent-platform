@@ -524,6 +524,19 @@ func (r *FileRegistry) Tool(name string) (api.ToolDetailResponse, bool) {
 func (r *FileRegistry) DefaultAgentKey() string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
+	// Prefer the first CODER-mode agent (alphabetically).
+	var coderKeys []string
+	for key, def := range r.agents {
+		if strings.EqualFold(strings.TrimSpace(def.Mode), AgentModeCoder) {
+			coderKeys = append(coderKeys, key)
+		}
+	}
+	if len(coderKeys) > 0 {
+		sort.Strings(coderKeys)
+		return coderKeys[0]
+	}
+
 	keys := sortedKeys(r.agents)
 	if len(keys) == 0 {
 		return ""

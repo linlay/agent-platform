@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 const AgentOrderFileName = "agent-order.json"
@@ -80,7 +81,10 @@ func orderKeys[T any](values map[string]T, order []string) []string {
 func (r *FileRegistry) orderedAgentKeysLocked() []string {
 	orderFile, err := ReadAgentOrderFile(r.cfg.Paths.AgentsDir)
 	if err != nil {
-		return sortedKeys(r.agents)
+		return r.defaultOrderedAgentKeysLocked()
+	}
+	if len(orderFile.Order) == 0 {
+		return r.defaultOrderedAgentKeysLocked()
 	}
 	return orderKeys(r.agents, orderFile.Order)
 }
@@ -88,7 +92,40 @@ func (r *FileRegistry) orderedAgentKeysLocked() []string {
 func (r *FileRegistry) orderedAdminAgentKeysLocked() []string {
 	orderFile, err := ReadAgentOrderFile(r.cfg.Paths.AgentsDir)
 	if err != nil {
-		return sortedKeys(r.adminAgents)
+		return r.defaultOrderedAdminAgentKeysLocked()
+	}
+	if len(orderFile.Order) == 0 {
+		return r.defaultOrderedAdminAgentKeysLocked()
 	}
 	return orderKeys(r.adminAgents, orderFile.Order)
+}
+
+func (r *FileRegistry) defaultOrderedAgentKeysLocked() []string {
+	coderKeys := make([]string, 0)
+	otherKeys := make([]string, 0)
+	for key, def := range r.agents {
+		if strings.EqualFold(strings.TrimSpace(def.Mode), AgentModeCoder) {
+			coderKeys = append(coderKeys, key)
+		} else {
+			otherKeys = append(otherKeys, key)
+		}
+	}
+	sort.Strings(coderKeys)
+	sort.Strings(otherKeys)
+	return append(coderKeys, otherKeys...)
+}
+
+func (r *FileRegistry) defaultOrderedAdminAgentKeysLocked() []string {
+	coderKeys := make([]string, 0)
+	otherKeys := make([]string, 0)
+	for key, def := range r.adminAgents {
+		if strings.EqualFold(strings.TrimSpace(def.Mode), AgentModeCoder) {
+			coderKeys = append(coderKeys, key)
+		} else {
+			otherKeys = append(otherKeys, key)
+		}
+	}
+	sort.Strings(coderKeys)
+	sort.Strings(otherKeys)
+	return append(coderKeys, otherKeys...)
 }
