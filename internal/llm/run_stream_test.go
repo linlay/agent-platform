@@ -563,53 +563,6 @@ func TestPreToolInvocationDeltas_QuestionRegistersAwaitingContext(t *testing.T) 
 	}
 }
 
-func TestPrepareToolCall_LegacyMultipleReturnsToolError(t *testing.T) {
-	tool := api.ToolDetailResponse{
-		Name: "ask_user_question",
-		Meta: map[string]any{
-			"kind":          "frontend",
-			"sourceType":    "local",
-			"viewportType":  "builtin",
-			"viewportKey":   "confirm_dialog",
-			"clientVisible": true,
-		},
-	}
-	stream := &llmRunStream{
-		engine: &LLMAgentEngine{
-			tools:    stubToolExecutor{defs: []api.ToolDetailResponse{tool}},
-			frontend: frontendtools.NewDefaultRegistry(),
-		},
-		session: contracts.QuerySession{RunID: "run_1"},
-		execCtx: &contracts.ExecutionContext{},
-	}
-
-	invocation, deltas, toolMsg := stream.prepareToolCall(openAIToolCall{
-		ID:   "tool_1",
-		Type: "function",
-		Function: openAIFunctionCall{
-			Name:      "ask_user_question",
-			Arguments: `{"mode":"question","questions":[{"question":"Notification topics","type":"select","multiple":true,"options":[{"label":"产品更新"}]}]}`,
-		},
-	})
-	if invocation != nil {
-		t.Fatalf("expected no invocation, got %#v", invocation)
-	}
-	if len(deltas) != 1 {
-		t.Fatalf("expected one error delta, got %#v", deltas)
-	}
-	result, ok := deltas[0].(contracts.DeltaToolResult)
-	if !ok {
-		t.Fatalf("expected DeltaToolResult, got %#v", deltas[0])
-	}
-	if result.Result.Error != "invalid_tool_arguments" || !strings.Contains(result.Result.Output, "multiple is no longer supported; use type=multi-select") {
-		t.Fatalf("unexpected tool result %#v", result)
-	}
-	toolContent, _ := toolMsg.Content.(string)
-	if toolMsg == nil || !strings.Contains(toolContent, "multiple is no longer supported; use type=multi-select") {
-		t.Fatalf("unexpected tool message %#v", toolMsg)
-	}
-}
-
 func TestResolveHITLTimeoutUsesHitlBudgetGlobalAndFallback(t *testing.T) {
 	tests := []struct {
 		name   string

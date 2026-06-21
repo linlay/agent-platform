@@ -9,12 +9,10 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
-	"agent-platform/internal/chat"
 	"agent-platform/internal/skills"
 )
 
 type Store interface {
-	Remember(chatDetail chat.Detail, request api.RememberRequest, agentKey string) (api.RememberResponse, error)
 	Search(query string, limit int) ([]api.StoredMemoryResponse, error)
 	SearchDetailed(agentKey string, query string, category string, limit int) ([]ScoredRecord, error)
 	Read(id string) (*api.StoredMemoryResponse, error)
@@ -524,13 +522,6 @@ func (s *FileStore) applyConsolidationPlan(agentKey string, plan consolidationPl
 		"promotedCount": result.PromotedCount,
 	})
 	return result, nil
-}
-
-func rememberStatus(stored []api.StoredMemoryResponse) string {
-	if len(stored) == 0 {
-		return "no_memory_extracted"
-	}
-	return "stored"
 }
 
 func filterHistoryByAgent(items []api.StoredMemoryResponse, agentKey string) []api.StoredMemoryResponse {

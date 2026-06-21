@@ -165,7 +165,7 @@ func (s *FileStore) SearchSession(chatID string, query string, limit int) ([]Sea
 					Score:     score,
 				})
 			}
-		case StepLineTypeReact, StepLineTypeReactTool, StepLineTypePlanExecute, StepLineTypeLegacyStep:
+		case StepLineTypeReact, StepLineTypeReactTool, StepLineTypePlanExecute, StepLineTypeStep:
 			stage := stringValue(line["stage"])
 			messages, _ := line["messages"].([]any)
 			for _, raw := range messages {

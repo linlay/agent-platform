@@ -33,8 +33,6 @@ type Store interface {
 	AppendSubmitLine(chatID string, line SubmitLine) error
 	LoadSystemInit(chatID string, cacheKey string) (*SystemInitLine, error)
 	LoadAllSystemInits(chatID string) (map[string]*SystemInitLine, error)
-	// AppendSystemInitLine is retained for legacy imports/backfills. Main write paths store system snapshots inline on QueryLine.Systems.
-	AppendSystemInitLine(chatID string, line SystemInitLine) error
 	LoadRawMessages(chatID string, k int) ([]map[string]any, error)
 	LoadJSONLContent(chatID string) (string, error)
 	OnRunCompleted(completion RunCompletion) error

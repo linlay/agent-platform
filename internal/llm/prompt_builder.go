@@ -146,7 +146,7 @@ func buildCoderSystemPromptSection(session QuerySession, req api.QueryRequest, t
 	return renderCoderPromptTemplate(session.CoderSystemPrompt, coderPromptTemplateValues(session, req, coderPromptTemplateData{
 		AvailableTools:    toolNames,
 		PlanStageTools:    coderPlanningModePlanTools,
-		ExecuteStageTools: removeToolNames(toolNames, "plan_add_tasks", "plan_get_tasks", "plan_update_task", FinalizePlanningToolName, LegacyPlanningWriteToolName, "ask_user_question"),
+		ExecuteStageTools: removeToolNames(toolNames, "plan_add_tasks", "plan_get_tasks", "plan_update_task", FinalizePlanningToolName, "ask_user_question"),
 	}))
 }
 
@@ -172,7 +172,7 @@ func coderPromptTemplateValues(session QuerySession, req api.QueryRequest, data 
 	}
 	executeStageTools := data.ExecuteStageTools
 	if len(executeStageTools) == 0 {
-		executeStageTools = removeToolNames(availableTools, "plan_add_tasks", "plan_get_tasks", "plan_update_task", FinalizePlanningToolName, LegacyPlanningWriteToolName, "ask_user_question")
+		executeStageTools = removeToolNames(availableTools, "plan_add_tasks", "plan_get_tasks", "plan_update_task", FinalizePlanningToolName, "ask_user_question")
 	}
 	workspaceDir := firstNonBlank(
 		session.RuntimeContext.LocalPaths.WorkspaceDir,
@@ -198,7 +198,6 @@ func coderPromptTemplateValues(session QuerySession, req api.QueryRequest, data 
 		"execute_stage_tools":         strings.Join(normalizeToolNameList(executeStageTools), ", "),
 		"execute_tool_descriptions":   strings.TrimSpace(data.ExecuteToolDescriptions),
 		"ask_user_question_tool_name": "ask_user_question",
-		"planning_write_tool_name":    FinalizePlanningToolName,
 		"finalize_planning_tool_name": FinalizePlanningToolName,
 		"bash_tool_name":              "bash",
 		"datetime_tool_name":          "datetime",
@@ -508,7 +507,7 @@ func buildSandboxSection(context *SandboxContext) string {
 	appendKeyValue(&lines, "defaultEnvironmentId", context.DefaultEnvironmentID)
 	appendKeyValue(&lines, "level", context.Level)
 	if len(context.ExtraMounts) > 0 {
-		lines = append(lines, "extraMounts:")
+		lines = append(lines, "sandboxMounts:")
 		for _, mount := range context.ExtraMounts {
 			if strings.TrimSpace(mount) != "" {
 				lines = append(lines, "- "+strings.TrimSpace(mount))

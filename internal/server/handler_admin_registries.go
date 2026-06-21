@@ -238,11 +238,6 @@ func (s *Server) adminRegistryDiagnostics(category string, file string, root map
 		if strings.TrimSpace(contracts.FirstNonEmptyString(root["apiKey"], root["api-key"])) == "" {
 			addWarning("missing_api_key", "provider apiKey is empty")
 		}
-		if embedding := nestedAdminRegistryMap(root, "memory", "embedding"); embedding != nil {
-			if _, ok := embedding["timeoutMs"]; ok {
-				addError("deprecated_field", "memory.embedding.timeoutMs is removed, use memory.embedding.timeout in seconds")
-			}
-		}
 	case "models":
 		if strings.TrimSpace(contracts.FirstNonEmptyString(root["key"])) == "" {
 			addError("missing_key", "model key is required")
@@ -259,12 +254,6 @@ func (s *Server) adminRegistryDiagnostics(category string, file string, root map
 		if strings.TrimSpace(contracts.FirstNonEmptyString(root["modelId"], root["model-id"])) == "" {
 			addError("missing_model_id", "modelId is required")
 		}
-		if _, hasOld := root["contextWindow"]; hasOld {
-			addWarning("ignored_field", "contextWindow is ignored; use maxInputTokens")
-		}
-		if _, hasOld := root["maxTokens"]; hasOld {
-			addWarning("ignored_field", "maxTokens is ignored; use maxInputTokens/maxOutputTokens")
-		}
 	case "mcp-servers":
 		if adminRegistryKey(category, file, root) == "" {
 			addError("missing_key", "serverKey or key is required")
@@ -272,20 +261,12 @@ func (s *Server) adminRegistryDiagnostics(category string, file string, root map
 		if strings.TrimSpace(contracts.FirstNonEmptyString(root["baseUrl"], root["base-url"], root["url"])) == "" {
 			addError("missing_base_url", "MCP server baseUrl is required")
 		}
-		for _, field := range []string{"connectTimeoutMs", "connect-timeout-ms", "readTimeoutMs", "read-timeout-ms"} {
-			if _, ok := root[field]; ok {
-				addError("deprecated_field", fmt.Sprintf("%s is removed; use seconds fields", field))
-			}
-		}
 	case "viewport-servers":
 		if adminRegistryKey(category, file, root) == "" {
 			addError("missing_key", "serverKey or key is required")
 		}
 		if strings.TrimSpace(contracts.FirstNonEmptyString(root["baseUrl"], root["base-url"], root["url"])) == "" {
 			addError("missing_base_url", "viewport server baseUrl is required")
-		}
-		if _, ok := root["timeoutMs"]; ok {
-			addError("deprecated_field", "timeoutMs is removed; use timeout in seconds")
 		}
 	default:
 		addError("invalid_category", "unsupported registry category")
@@ -437,18 +418,6 @@ func adminRegistryPublicSummary(category string, root map[string]any) map[string
 		put("timeout", root["timeout"])
 	}
 	return out
-}
-
-func nestedAdminRegistryMap(values map[string]any, keys ...string) map[string]any {
-	current := values
-	for _, key := range keys {
-		next := contracts.AnyMapNode(current[key])
-		if len(next) == 0 {
-			return nil
-		}
-		current = next
-	}
-	return current
 }
 
 func adminRegistryBool(raw any, fallback bool) bool {

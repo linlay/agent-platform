@@ -14,15 +14,7 @@ import (
 )
 
 type mockRememberSummarizer struct {
-	remember func(input RememberSynthesisInput) ([]MemoryDraft, error)
-	learn    func(input LearnSynthesisInput) ([]MemoryDraft, error)
-}
-
-func (m mockRememberSummarizer) SummarizeRemember(input RememberSynthesisInput) ([]MemoryDraft, error) {
-	if m.remember == nil {
-		return nil, nil
-	}
-	return m.remember(input)
+	learn func(input LearnSynthesisInput) ([]MemoryDraft, error)
 }
 
 func (m mockRememberSummarizer) SummarizeLearn(input LearnSynthesisInput) ([]MemoryDraft, error) {
@@ -168,58 +160,6 @@ func TestConsolidateSupersedesNearDuplicateFactsAcrossStores(t *testing.T) {
 	}
 }
 
-func TestRememberUsesConsistentImportanceAcrossStores(t *testing.T) {
-	tests := []struct {
-		name  string
-		build func(t *testing.T) Store
-	}{
-		{
-			name: "file",
-			build: func(t *testing.T) Store {
-				store, err := NewFileStore(t.TempDir())
-				if err != nil {
-					t.Fatalf("new file store: %v", err)
-				}
-				return store
-			},
-		},
-		{
-			name: "sqlite",
-			build: func(t *testing.T) Store {
-				store, err := NewSQLiteStore(t.TempDir(), "memory.db")
-				if err != nil {
-					t.Fatalf("new sqlite store: %v", err)
-				}
-				return store
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			store := tt.build(t)
-			resp, err := store.Remember(chat.Detail{
-				ChatID:   "chat-1",
-				ChatName: "Demo Chat",
-				RawMessages: []map[string]any{
-					{"role": "assistant", "content": "Captured summary"},
-				},
-			}, api.RememberRequest{
-				RequestID: "req-1",
-				ChatID:    "chat-1",
-			}, "agent-a")
-			if err != nil {
-				t.Fatalf("remember: %v", err)
-			}
-			if len(resp.Stored) != 1 {
-				t.Fatalf("expected one stored memory, got %#v", resp.Stored)
-			}
-			if resp.Stored[0].Importance != rememberImportance {
-				t.Fatalf("expected importance %d, got %#v", rememberImportance, resp.Stored[0])
-			}
-		})
-	}
-}
-
 func TestSQLiteStoreRecordsMemoryHistoryForWriteUpdateAndFeedback(t *testing.T) {
 	store, err := NewSQLiteStore(t.TempDir(), "memory.db")
 	if err != nil {
@@ -320,111 +260,6 @@ func historyHasOperation(events []HistoryEvent, operation string) bool {
 		}
 	}
 	return false
-}
-
-func TestRememberUsesSummarizerAcrossStores(t *testing.T) {
-	tests := []struct {
-		name  string
-		build func(t *testing.T) Store
-	}{
-		{
-			name: "file",
-			build: func(t *testing.T) Store {
-				store, err := NewFileStore(t.TempDir())
-				if err != nil {
-					t.Fatalf("new file store: %v", err)
-				}
-				store.SetRememberSummarizer(mockRememberSummarizer{
-					remember: func(input RememberSynthesisInput) ([]MemoryDraft, error) {
-						if len(input.History) != 1 {
-							t.Fatalf("expected one historical memory, got %d", len(input.History))
-						}
-						return []MemoryDraft{{
-							Title:      "Merged preference",
-							Summary:    "用户默认按每天 8 小时、每周 40 小时来安排工作。",
-							Category:   "preference",
-							Importance: 9,
-							Confidence: 0.92,
-							Tags:       []string{"automation"},
-						}}, nil
-					},
-				})
-				return store
-			},
-		},
-		{
-			name: "sqlite",
-			build: func(t *testing.T) Store {
-				store, err := NewSQLiteStore(t.TempDir(), "memory.db")
-				if err != nil {
-					t.Fatalf("new sqlite store: %v", err)
-				}
-				store.SetRememberSummarizer(mockRememberSummarizer{
-					remember: func(input RememberSynthesisInput) ([]MemoryDraft, error) {
-						if len(input.History) != 1 {
-							t.Fatalf("expected one historical memory, got %d", len(input.History))
-						}
-						return []MemoryDraft{{
-							Title:      "Merged preference",
-							Summary:    "用户默认按每天 8 小时、每周 40 小时来安排工作。",
-							Category:   "preference",
-							Importance: 9,
-							Confidence: 0.92,
-							Tags:       []string{"automation"},
-						}}, nil
-					},
-				})
-				return store
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			store := tt.build(t)
-			now := time.Now().UnixMilli()
-			if err := store.Write(api.StoredMemoryResponse{
-				ID:         "hist-1",
-				AgentKey:   "agent-a",
-				ChatID:     "chat-old",
-				SubjectKey: "chat:chat-old",
-				Kind:       KindFact,
-				ScopeType:  ScopeAgent,
-				ScopeKey:   "agent:agent-a",
-				Title:      "Working hours",
-				Summary:    "用户每周工作 40 小时。",
-				SourceType: "tool-write",
-				Category:   "preference",
-				Importance: 8,
-				Confidence: 0.9,
-				Status:     StatusActive,
-				CreatedAt:  now - 1000,
-				UpdatedAt:  now - 1000,
-			}); err != nil {
-				t.Fatalf("seed history: %v", err)
-			}
-			resp, err := store.Remember(chat.Detail{
-				ChatID:   "chat-1",
-				ChatName: "Demo Chat",
-				RawMessages: []map[string]any{
-					{"role": "user", "content": "记住我每周工作 40 小时，默认按每天 8 小时安排"},
-					{"role": "assistant", "content": "好的，我会按你每周 40 小时、每天 8 小时来安排。"},
-				},
-			}, api.RememberRequest{
-				RequestID: "req-1",
-				ChatID:    "chat-1",
-			}, "agent-a")
-			if err != nil {
-				t.Fatalf("remember: %v", err)
-			}
-			if !resp.Accepted || len(resp.Stored) != 1 {
-				t.Fatalf("unexpected remember response: %#v", resp)
-			}
-			if got := resp.Stored[0].Summary; got != "用户默认按每天 8 小时、每周 40 小时来安排工作。" {
-				t.Fatalf("expected summarizer output, got %q", got)
-			}
-		})
-	}
 }
 
 func TestLearnCanSkipStorageViaSummarizerAcrossStores(t *testing.T) {

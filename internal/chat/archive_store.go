@@ -131,9 +131,6 @@ func (s *ArchiveStore) initDB() error {
 	} {
 		_, _ = db.Exec("ALTER TABLE ARCHIVED_CHATS ADD COLUMN " + col)
 	}
-	_, _ = db.Exec(`UPDATE ARCHIVED_CHATS
-		SET READ_RUN_ID_=LAST_RUN_ID_, READ_AT_=ARCHIVED_AT_, READ_STATE_CAPTURED_=1
-		WHERE READ_STATE_CAPTURED_=0`)
 	for _, table := range []string{"ARCHIVED_CHATS", "ARCHIVED_RUNS"} {
 		for _, col := range []string{
 			"USAGE_CACHED_TOKENS_",

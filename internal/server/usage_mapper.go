@@ -207,11 +207,11 @@ func mapChatContextWindow(contextWindow map[string]any) *api.ChatContextWindow {
 		return nil
 	}
 	out := api.ChatContextWindow{
-		ModelKey:              strings.TrimSpace(contracts.FirstNonEmptyString(contextWindow["modelKey"], contextWindow["model_key"])),
-		ReasoningEffort:       strings.TrimSpace(contracts.FirstNonEmptyString(contextWindow["reasoningEffort"], contextWindow["reasoning_effort"])),
+		ModelKey:              strings.TrimSpace(contracts.AnyStringNode(contextWindow["modelKey"])),
+		ReasoningEffort:       strings.TrimSpace(contracts.AnyStringNode(contextWindow["reasoningEffort"])),
 		MaxSize:               contracts.AnyIntNode(contextWindow["maxSize"]),
-		CurrentSize:           firstPositiveInt(contracts.AnyIntNode(contextWindow["currentSize"]), contracts.AnyIntNode(contextWindow["current_size"]), contracts.AnyIntNode(contextWindow["actualSize"]), contracts.AnyIntNode(contextWindow["actual_size"])),
-		EstimatedNextCallSize: firstPositiveInt(contracts.AnyIntNode(contextWindow["estimatedNextCallSize"]), contracts.AnyIntNode(contextWindow["estimated_next_call_size"]), contracts.AnyIntNode(contextWindow["estimatedSize"]), contracts.AnyIntNode(contextWindow["estimated_size"])),
+		CurrentSize:           contracts.AnyIntNode(contextWindow["currentSize"]),
+		EstimatedNextCallSize: contracts.AnyIntNode(contextWindow["estimatedNextCallSize"]),
 	}
 	if out.MaxSize == 0 && out.CurrentSize == 0 && out.EstimatedNextCallSize == 0 && out.ModelKey == "" && out.ReasoningEffort == "" {
 		return nil
@@ -224,7 +224,7 @@ func mapUsageDataFromPayload(usage map[string]any) *api.ChatUsageData {
 		return nil
 	}
 	out := api.ChatUsageData{
-		ModelKey:               strings.TrimSpace(contracts.FirstNonEmptyString(usage["modelKey"], usage["model_key"])),
+		ModelKey:               strings.TrimSpace(contracts.AnyStringNode(usage["modelKey"])),
 		PromptTokens:           contracts.AnyIntNode(usage["promptTokens"]),
 		CompletionTokens:       contracts.AnyIntNode(usage["completionTokens"]),
 		TotalTokens:            contracts.AnyIntNode(usage["totalTokens"]),
@@ -280,27 +280,16 @@ func usageCacheTokens(usage chat.UsageData) (int, int) {
 
 func usageCacheTokensFromMap(usage map[string]any) (int, int) {
 	details, _ := usage["promptTokensDetails"].(map[string]any)
-	if details == nil {
-		details, _ = usage["prompt_tokens_details"].(map[string]any)
-	}
 	cacheHitTokens := firstPositiveInt(
 		contracts.AnyIntNode(details["cacheHitTokens"]),
-		contracts.AnyIntNode(details["cache_hit_tokens"]),
 		contracts.AnyIntNode(details["cachedTokens"]),
-		contracts.AnyIntNode(details["cached_tokens"]),
 		contracts.AnyIntNode(usage["promptCacheHitTokens"]),
-		contracts.AnyIntNode(usage["prompt_cache_hit_tokens"]),
 	)
 	cacheMissTokens := firstPositiveInt(
 		contracts.AnyIntNode(details["cacheMissTokens"]),
-		contracts.AnyIntNode(details["cache_miss_tokens"]),
 		contracts.AnyIntNode(usage["promptCacheMissTokens"]),
-		contracts.AnyIntNode(usage["prompt_cache_miss_tokens"]),
 	)
-	promptTokens := firstPositiveInt(
-		contracts.AnyIntNode(usage["promptTokens"]),
-		contracts.AnyIntNode(usage["prompt_tokens"]),
-	)
+	promptTokens := contracts.AnyIntNode(usage["promptTokens"])
 	return normalizeUsageCacheTokens(promptTokens, cacheHitTokens, cacheMissTokens)
 }
 

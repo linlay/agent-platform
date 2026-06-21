@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -143,61 +142,6 @@ func TestRegistryLoadsServerTimeoutSeconds(t *testing.T) {
 	}
 	if server.ConnectTimeout != 3 || server.ReadTimeout != 15 {
 		t.Fatalf("expected second-based timeouts, got %#v", server)
-	}
-}
-
-func TestRegistryRejectsDeprecatedServerTimeoutMs(t *testing.T) {
-	cases := []struct {
-		name       string
-		field      string
-		wantErrSub string
-	}{
-		{name: "camel connect", field: "connectTimeoutMs: 3000\n", wantErrSub: "connectTimeoutMs"},
-		{name: "kebab connect", field: "connect-timeout-ms: 3000\n", wantErrSub: "connect-timeout-ms"},
-		{name: "camel read", field: "readTimeoutMs: 15000\n", wantErrSub: "readTimeoutMs"},
-		{name: "kebab read", field: "read-timeout-ms: 15000\n", wantErrSub: "read-timeout-ms"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			root := t.TempDir()
-			if err := os.WriteFile(filepath.Join(root, "server.yml"), []byte(
-				"key: demo\n"+
-					"baseUrl: http://127.0.0.1:11969\n"+
-					tc.field,
-			), 0o644); err != nil {
-				t.Fatalf("write registry file: %v", err)
-			}
-
-			_, err := NewRegistry(root)
-			if err == nil {
-				t.Fatal("expected deprecated timeout field to be rejected")
-			}
-			if !strings.Contains(err.Error(), tc.wantErrSub) || !strings.Contains(err.Error(), "timeout") {
-				t.Fatalf("expected migration error for %s, got %v", tc.wantErrSub, err)
-			}
-		})
-	}
-}
-
-func TestRegistryRejectsDeprecatedStaticToolMetaTimeoutMs(t *testing.T) {
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "server.yml"), []byte(
-		"key: demo\n"+
-			"baseUrl: http://127.0.0.1:11969\n"+
-			"tools:\n"+
-			"  - name: static_tool\n"+
-			"    meta:\n"+
-			"      timeoutMs: 600000\n",
-	), 0o644); err != nil {
-		t.Fatalf("write registry file: %v", err)
-	}
-
-	_, err := NewRegistry(root)
-	if err == nil {
-		t.Fatal("expected deprecated tool meta timeoutMs to be rejected")
-	}
-	if !strings.Contains(err.Error(), "meta.timeoutMs") || !strings.Contains(err.Error(), "meta.timeout") {
-		t.Fatalf("expected migration error for meta.timeoutMs, got %v", err)
 	}
 }
 

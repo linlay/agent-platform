@@ -66,7 +66,7 @@ func (s *FileStore) LoadRunTrace(chatID string, runID string) (RunTrace, error) 
 					trace.Query = &query
 				}
 			}
-		case StepLineTypeReact, StepLineTypeReactTool, StepLineTypePlanExecute, StepLineTypeLegacyStep:
+		case StepLineTypeReact, StepLineTypeReactTool, StepLineTypePlanExecute, StepLineTypeStep:
 			data, _ := json.Marshal(line)
 			var step StepLine
 			if err := json.Unmarshal(data, &step); err == nil {
@@ -115,8 +115,6 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 	var chatTotalEstimatedCostInputHit, chatTotalEstimatedCostInputMiss, chatTotalEstimatedCostOutput, chatTotalEstimatedCostTotal float64
 	var latestContextWindow map[string]any
 	taskQueries := map[string]replayedSubTaskQuery{}
-	legacyConfirmIDs := map[string]bool{}
-	legacyPlanningSnapshotIDs := legacyPlanningSnapshotIDsFromLines(lines, chatDir)
 	for _, line := range lines {
 		if lineType, _ := line["_type"].(string); lineType != "query" {
 			continue
@@ -182,7 +180,7 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 				Payload:   payload,
 			})
 
-		case StepLineTypeReact, StepLineTypeReactTool, StepLineTypePlanExecute, StepLineTypeLegacyStep:
+		case StepLineTypeReact, StepLineTypeReactTool, StepLineTypePlanExecute, StepLineTypeStep:
 			lineLiveSeq := int64FromAny(line["liveSeq"])
 			rd := ensureRun(runs, &runOrder, runID)
 
@@ -193,11 +191,7 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 				artifact = parseArtifactFromStep(rawArt)
 			}
 
-			// new format uses "stage", legacy uses "_stage"
 			stage, _ := line["stage"].(string)
-			if stage == "" {
-				stage, _ = line["_stage"].(string)
-			}
 			taskID, _ := line["taskId"].(string)
 			taskName, _ := line["taskName"].(string)
 			taskDescription, _ := line["taskDescription"].(string)
@@ -223,7 +217,7 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 				rd.events = append(rd.events, events...)
 			}
 			msgs, _ := line["messages"].([]any)
-			awaitingReplay := newStepAwaitingReplay(line["awaiting"], chatID, runID, chatDir, lineLiveSeq, int64FromAny(line["updatedAt"]), legacyPlanningSnapshotIDs)
+			awaitingReplay := newStepAwaitingReplay(line["awaiting"], chatID, runID, chatDir, lineLiveSeq, int64FromAny(line["updatedAt"]))
 			if state := planningStateFromAwaitingPlan(line["awaiting"], chatDir); state != nil {
 				planning = state
 			}
@@ -249,24 +243,24 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 			if hasProviderUsagePayload(stepUsage) {
 				stepCacheHitTokens := usageCacheHitTokensFromMap(stepUsage)
 				stepCacheMissTokens := usageCacheMissTokensFromMap(stepUsage)
-				rd.totalPromptTokens += toIntFromKeys(stepUsage, "promptTokens", "prompt_tokens")
-				rd.totalCompletionTokens += toIntFromKeys(stepUsage, "completionTokens", "completion_tokens")
-				rd.totalTotalTokens += toIntFromKeys(stepUsage, "totalTokens", "total_tokens")
+				rd.totalPromptTokens += toIntFromKeys(stepUsage, "promptTokens")
+				rd.totalCompletionTokens += toIntFromKeys(stepUsage, "completionTokens")
+				rd.totalTotalTokens += toIntFromKeys(stepUsage, "totalTokens")
 				rd.totalCachedTokens += stepCacheHitTokens
-				rd.totalReasoningTokens += toNestedIntFromKeys(stepUsage, "completionTokensDetails", "completion_tokens_details", "reasoningTokens", "reasoning_tokens")
+				rd.totalReasoningTokens += toNestedIntFromKeys(stepUsage, "completionTokensDetails", "reasoningTokens")
 				rd.totalPromptCacheHitTokens += stepCacheHitTokens
 				rd.totalPromptCacheMissTokens += stepCacheMissTokens
-				rd.totalLlmChatCompletionCount += toIntFromKeys(stepUsage, "llmChatCompletionCount", "llm_chat_completion_count")
-				rd.totalToolCallCount += toIntFromKeys(stepUsage, "toolCallCount", "tool_call_count")
-				chatTotalPromptTokens += toIntFromKeys(stepUsage, "promptTokens", "prompt_tokens")
-				chatTotalCompletionTokens += toIntFromKeys(stepUsage, "completionTokens", "completion_tokens")
-				chatTotalTotalTokens += toIntFromKeys(stepUsage, "totalTokens", "total_tokens")
+				rd.totalLlmChatCompletionCount += toIntFromKeys(stepUsage, "llmChatCompletionCount")
+				rd.totalToolCallCount += toIntFromKeys(stepUsage, "toolCallCount")
+				chatTotalPromptTokens += toIntFromKeys(stepUsage, "promptTokens")
+				chatTotalCompletionTokens += toIntFromKeys(stepUsage, "completionTokens")
+				chatTotalTotalTokens += toIntFromKeys(stepUsage, "totalTokens")
 				chatTotalCachedTokens += stepCacheHitTokens
-				chatTotalReasoningTokens += toNestedIntFromKeys(stepUsage, "completionTokensDetails", "completion_tokens_details", "reasoningTokens", "reasoning_tokens")
+				chatTotalReasoningTokens += toNestedIntFromKeys(stepUsage, "completionTokensDetails", "reasoningTokens")
 				chatTotalPromptCacheHitTokens += stepCacheHitTokens
 				chatTotalPromptCacheMissTokens += stepCacheMissTokens
-				chatTotalLlmChatCompletionCount += toIntFromKeys(stepUsage, "llmChatCompletionCount", "llm_chat_completion_count")
-				chatTotalToolCallCount += toIntFromKeys(stepUsage, "toolCallCount", "tool_call_count")
+				chatTotalLlmChatCompletionCount += toIntFromKeys(stepUsage, "llmChatCompletionCount")
+				chatTotalToolCallCount += toIntFromKeys(stepUsage, "toolCallCount")
 				rd.chatTotalPromptTokens = chatTotalPromptTokens
 				rd.chatTotalCompletionTokens = chatTotalCompletionTokens
 				rd.chatTotalTotalTokens = chatTotalTotalTokens
@@ -356,15 +350,6 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 				addReplayLiveSeq(answer, lineLiveSeq)
 				rd.events = append(rd.events, stream.EventDataFromMap(answer))
 			}
-		case "planning":
-			state, event := planningSnapshotFromLine(line, chatDir)
-			if state == nil || event == nil {
-				continue
-			}
-			planning = state
-			rd := ensureRun(runs, &runOrder, runID)
-			event.Seq = nextSeq()
-			rd.events = append(rd.events, *event)
 		case "event", "steer":
 			lineLiveSeq := int64FromAny(line["liveSeq"])
 			event, _ := line["event"].(map[string]any)
@@ -374,19 +359,6 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 			event = cloneStringAnyMap(event)
 			clearReplayCursorFields(event)
 			if strings.TrimSpace(stringFromAny(event["type"])) == "planning.snapshot" {
-				planningLine := cloneStringAnyMap(line)
-				planningLine["event"] = event
-				state, replayedEvent := planningSnapshotFromLine(planningLine, chatDir)
-				if state == nil || replayedEvent == nil {
-					continue
-				}
-				planning = state
-				rd := ensureRun(runs, &runOrder, runID)
-				replayedEvent.Seq = nextSeq()
-				rd.events = append(rd.events, *replayedEvent)
-				continue
-			}
-			if suppressLegacyConfirmReplay(event, legacyConfirmIDs) {
 				continue
 			}
 			if strings.TrimSpace(stringFromAny(event["type"])) == "awaiting.ask" {
@@ -440,7 +412,7 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 		}
 		allEvents = append(allEvents, rd.events...)
 		// Synthesize run.complete for the frontend (not persisted in JSONL).
-		if runID != "" && !isPendingAwaitingRun(summary, runID) {
+		if runID != "" && !(isPendingAwaitingRun(summary, runID) && runHasAwaitingAsk(rd.events)) {
 			payload := map[string]any{"runId": runID, "finishReason": "stop"}
 			allEvents = append(allEvents, stream.EventData{
 				Seq:       nextSeq(),
@@ -525,24 +497,13 @@ func replayRunUsageData(rd *chatRunData) UsageData {
 	}
 }
 
-func suppressLegacyConfirmReplay(event map[string]any, legacyConfirmIDs map[string]bool) bool {
-	eventType := strings.TrimSpace(stringFromAny(event["type"]))
-	switch eventType {
-	case "confirm.viewport", "confirm.payload":
-		if confirmID := strings.TrimSpace(stringFromAny(event["confirmId"])); confirmID != "" {
-			legacyConfirmIDs[confirmID] = true
+func runHasAwaitingAsk(events []stream.EventData) bool {
+	for _, event := range events {
+		if event.Type == "awaiting.ask" {
+			return true
 		}
-		return true
-	case "request.submit":
-		awaitingID := strings.TrimSpace(stringFromAny(event["awaitingId"]))
-		if awaitingID == "" || !legacyConfirmIDs[awaitingID] {
-			return false
-		}
-		_, ok := event["params"].([]any)
-		return !ok
-	default:
-		return false
 	}
+	return false
 }
 
 func isPendingAwaitingRun(summary Summary, runID string) bool {

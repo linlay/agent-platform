@@ -16,7 +16,6 @@ import (
 )
 
 const defaultReadTimeout = 15
-const migrationRequiredPrefix = "migration required:"
 
 type Registry struct {
 	root string
@@ -107,9 +106,6 @@ func loadServersFromDir(root string) (map[string]ServerDefinition, error) {
 	for _, path := range files {
 		server, err := parseServerFile(path)
 		if err != nil {
-			if strings.Contains(err.Error(), migrationRequiredPrefix) {
-				return nil, err
-			}
 			continue
 		}
 		if server.Key == "" || !server.Enabled() {
@@ -134,19 +130,6 @@ func parseServerFile(path string) (ServerDefinition, error) {
 	}
 	if !firstBool(root["enabled"], true) {
 		return ServerDefinition{}, nil
-	}
-	// Reject legacy ms fields
-	if _, hasOld := root["connectTimeoutMs"]; hasOld {
-		return ServerDefinition{}, fmt.Errorf("migration required: 'connectTimeoutMs' is removed, use 'connect-timeout' in seconds")
-	}
-	if _, hasOld := root["connect-timeout-ms"]; hasOld {
-		return ServerDefinition{}, fmt.Errorf("migration required: 'connect-timeout-ms' is removed, use 'connect-timeout' in seconds")
-	}
-	if _, hasOld := root["readTimeoutMs"]; hasOld {
-		return ServerDefinition{}, fmt.Errorf("migration required: 'readTimeoutMs' is removed, use 'read-timeout' in seconds")
-	}
-	if _, hasOld := root["read-timeout-ms"]; hasOld {
-		return ServerDefinition{}, fmt.Errorf("migration required: 'read-timeout-ms' is removed, use 'read-timeout' in seconds")
 	}
 	serverKey := normalizeKey(contracts.FirstNonEmptyString(root["serverKey"], root["server-key"], root["key"]))
 	if serverKey == "" {
@@ -174,9 +157,6 @@ func parseServerFile(path string) (ServerDefinition, error) {
 	for _, item := range listMaps(root["tools"]) {
 		tool, err := parseToolDefinition(item)
 		if err != nil {
-			if strings.Contains(err.Error(), migrationRequiredPrefix) {
-				return ServerDefinition{}, err
-			}
 			continue
 		}
 		server.Tools = append(server.Tools, tool)
@@ -190,9 +170,6 @@ func parseToolDefinition(root map[string]any) (ToolDefinition, error) {
 		return ToolDefinition{}, fmt.Errorf("tool name is required")
 	}
 	meta := contracts.CloneMap(contracts.AnyMapNode(root["meta"]))
-	if _, hasOld := meta["timeoutMs"]; hasOld {
-		return ToolDefinition{}, fmt.Errorf("migration required: 'meta.timeoutMs' is removed, use 'meta.timeout' in seconds for tool %q", name)
-	}
 	parameters := contracts.AnyMapNode(root["inputSchema"])
 	if len(parameters) == 0 {
 		parameters = contracts.AnyMapNode(root["parameters"])

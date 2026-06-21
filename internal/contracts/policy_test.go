@@ -107,7 +107,7 @@ func TestResolveHITLTimeoutUsesModeItemAndFallbackPriority(t *testing.T) {
 	}
 }
 
-func TestResolveBudgetMaxStepsAndLegacyModelFallback(t *testing.T) {
+func TestResolveBudgetMaxSteps(t *testing.T) {
 	cfg := config.Config{
 		Defaults: config.DefaultsConfig{
 			Budget: config.BudgetDefaultsConfig{
@@ -124,14 +124,6 @@ func TestResolveBudgetMaxStepsAndLegacyModelFallback(t *testing.T) {
 	})
 	if budget.MaxSteps != 25 || budget.Model.MaxCalls != 25 || budget.Tool.MaxCalls != 50 {
 		t.Fatalf("resolved budget with maxSteps = %#v, want max/model 25 and derived tool 50", budget)
-	}
-
-	legacy := ResolveBudget(cfg, map[string]any{
-		"model": map[string]any{"maxCalls": 12},
-		"tool":  map[string]any{"maxCalls": 7},
-	})
-	if legacy.MaxSteps != 12 || legacy.Model.MaxCalls != 12 || legacy.Tool.MaxCalls != 7 {
-		t.Fatalf("resolved legacy budget = %#v, want max/model 12 and explicit tool 7", legacy)
 	}
 
 	preferred := ResolveBudget(cfg, map[string]any{

@@ -316,109 +316,6 @@ func TestFileStoreLoadAwaitingAskUsesCanonicalStepOnly(t *testing.T) {
 	}
 }
 
-func TestFileStoreMigratesLegacyDBAndRoundTripsPendingAwaiting(t *testing.T) {
-	root := t.TempDir()
-	db, err := sql.Open("sqlite", filepath.Join(root, "chats.db"))
-	if err != nil {
-		t.Fatalf("open legacy chats db: %v", err)
-	}
-	_, err = db.Exec(`
-		CREATE TABLE CHATS (
-			CHAT_ID_ TEXT PRIMARY KEY,
-			CHAT_NAME_ TEXT NOT NULL,
-			AGENT_KEY_ TEXT NOT NULL DEFAULT '',
-			TEAM_ID_ TEXT,
-			CREATED_AT_ INTEGER NOT NULL,
-			UPDATED_AT_ INTEGER NOT NULL,
-			LAST_RUN_ID_ TEXT NOT NULL DEFAULT '',
-			LAST_RUN_CONTENT_ TEXT NOT NULL DEFAULT '',
-			READ_STATUS_ INTEGER NOT NULL DEFAULT 1,
-			READ_AT_ INTEGER,
-			USAGE_PROMPT_TOKENS_ INTEGER NOT NULL DEFAULT 0,
-			USAGE_COMPLETION_TOKENS_ INTEGER NOT NULL DEFAULT 0,
-			USAGE_TOTAL_TOKENS_ INTEGER NOT NULL DEFAULT 0,
-			PENDING_AWAITING_ID_ TEXT NOT NULL DEFAULT '',
-			PENDING_AWAITING_RUN_ID_ TEXT NOT NULL DEFAULT '',
-			PENDING_AWAITING_MODE_ TEXT NOT NULL DEFAULT '',
-			PENDING_AWAITING_CREATED_AT_ INTEGER NOT NULL DEFAULT 0
-		);
-	`)
-	if err != nil {
-		t.Fatalf("create legacy chats table: %v", err)
-	}
-	_, err = db.Exec(`INSERT INTO CHATS (
-			CHAT_ID_, CHAT_NAME_, AGENT_KEY_, CREATED_AT_, UPDATED_AT_, LAST_RUN_ID_, LAST_RUN_CONTENT_, READ_STATUS_,
-			PENDING_AWAITING_ID_, PENDING_AWAITING_RUN_ID_, PENDING_AWAITING_MODE_, PENDING_AWAITING_CREATED_AT_
-		) VALUES (?, ?, ?, ?, ?, '', '', 1, ?, ?, ?, ?)`,
-		"chat-legacy", "legacy", "agent", 100, 200, "await_legacy", "run_legacy", "question", 24680)
-	if err != nil {
-		t.Fatalf("insert legacy chat: %v", err)
-	}
-	if err := db.Close(); err != nil {
-		t.Fatalf("close legacy chats db: %v", err)
-	}
-
-	store, err := NewFileStore(root)
-	if err != nil {
-		t.Fatalf("new file store from legacy db: %v", err)
-	}
-
-	summary, err := store.Summary("chat-legacy")
-	if err != nil {
-		t.Fatalf("load migrated summary: %v", err)
-	}
-	if summary == nil || summary.PendingAwaiting == nil {
-		t.Fatalf("expected migrated summary with pending awaiting, got %#v", summary)
-	}
-	if summary.Read.ReadRunID != "" || !summary.Read.IsRead {
-		t.Fatalf("expected migrated summary to preserve read state, got %#v", summary.Read)
-	}
-	if *summary.PendingAwaiting != (PendingAwaiting{
-		AwaitingID: "await_legacy",
-		RunID:      "run_legacy",
-		Mode:       "question",
-		CreatedAt:  24680,
-	}) {
-		t.Fatalf("expected migrated summary pending awaiting, got %#v", summary)
-	}
-	if err := store.ClearPendingAwaiting("chat-legacy", "await_legacy"); err != nil {
-		t.Fatalf("clear pending awaiting after migration: %v", err)
-	}
-	summary, err = store.Summary("chat-legacy")
-	if err != nil {
-		t.Fatalf("reload migrated summary after clear: %v", err)
-	}
-	if summary == nil || summary.PendingAwaiting != nil {
-		t.Fatalf("expected pending awaiting cleared after migration round trip, got %#v", summary)
-	}
-
-	db, err = sql.Open("sqlite", filepath.Join(root, "chats.db"))
-	if err != nil {
-		t.Fatalf("reopen migrated chats db: %v", err)
-	}
-	defer db.Close()
-	rows, err := db.Query(`PRAGMA table_info(CHATS)`)
-	if err != nil {
-		t.Fatalf("pragma table_info: %v", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var cid int
-		var name, dataType string
-		var notNull, pk int
-		var defaultValue any
-		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &pk); err != nil {
-			t.Fatalf("scan table info: %v", err)
-		}
-		if name == "READ_STATUS_" {
-			t.Fatal("expected READ_STATUS_ column to be removed during migration")
-		}
-		if name == "PENDING_AWAITING_ID_" {
-			t.Fatal("expected pending awaiting columns to be renamed during migration")
-		}
-	}
-}
-
 func TestFileStoreMarkReadAdvancesWatermarkAndClampsFutureRunID(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
@@ -475,11 +372,11 @@ func TestFileStoreMarkReadAdvancesWatermarkAndClampsFutureRunID(t *testing.T) {
 	}
 }
 
-func TestFileStoreMigratesLegacyRunsUsageModelKeyColumn(t *testing.T) {
+func TestFileStoreAddsRunsUsageModelKeyColumn(t *testing.T) {
 	root := t.TempDir()
 	db, err := sql.Open("sqlite", filepath.Join(root, "chats.db"))
 	if err != nil {
-		t.Fatalf("open legacy chats db: %v", err)
+		t.Fatalf("open chats db: %v", err)
 	}
 	_, err = db.Exec(`
 		CREATE TABLE RUNS (
@@ -497,15 +394,15 @@ func TestFileStoreMigratesLegacyRunsUsageModelKeyColumn(t *testing.T) {
 		);
 	`)
 	if err != nil {
-		t.Fatalf("create legacy runs table: %v", err)
+		t.Fatalf("create runs table: %v", err)
 	}
 	if err := db.Close(); err != nil {
-		t.Fatalf("close legacy chats db: %v", err)
+		t.Fatalf("close chats db: %v", err)
 	}
 
 	store, err := NewFileStore(root)
 	if err != nil {
-		t.Fatalf("new file store from legacy db: %v", err)
+		t.Fatalf("new file store: %v", err)
 	}
 	if store == nil {
 		t.Fatal("expected migrated store")
@@ -535,7 +432,7 @@ func TestFileStoreMigratesLegacyRunsUsageModelKeyColumn(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatal("expected USAGE_MODEL_KEY_ column to be added to legacy RUNS")
+		t.Fatal("expected USAGE_MODEL_KEY_ column to be added to RUNS")
 	}
 }
 
@@ -684,10 +581,10 @@ func TestFileStoreDeleteChatRemovesRowsAndFiles(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(store.ChatDir("chat-delete"), "artifact.txt"), []byte("x"), 0o644); err != nil {
 		t.Fatalf("write artifact: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Join(store.ChatDir("chat-delete"), LegacyToolResultsDirName), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(store.ChatDir("chat-delete"), ToolRootDirName, ToolResultsDirName), 0o755); err != nil {
 		t.Fatalf("mkdir tool results dir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(store.ChatDir("chat-delete"), LegacyToolResultsDirName, "call_1.json"), []byte(`{"stdout":"x"}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(store.ChatDir("chat-delete"), ToolRootDirName, ToolResultsDirName, "call_1.json"), []byte(`{"stdout":"x"}`), 0o644); err != nil {
 		t.Fatalf("write tool result: %v", err)
 	}
 	if err := store.OnRunCompleted(RunCompletion{ChatID: "chat-delete", RunID: "loyw3v28", UpdatedAtMillis: time.Now().UnixMilli()}); err != nil {
@@ -830,96 +727,6 @@ func TestFileStoreListChatsUsesParsedRunIDCursor(t *testing.T) {
 	}
 	if len(items) != 1 || items[0].ChatID != "chat-new" {
 		t.Fatalf("expected later base36 run after cursor, got %#v", items)
-	}
-}
-
-func TestRebuildSnapshotEventsGroupsByRunAndBackfillsLegacyIDs(t *testing.T) {
-	run1 := "loyw3v28"
-	run2 := "loyw3v2s"
-
-	events := rebuildSnapshotEvents([]map[string]any{
-		{"type": "request.query", "chatId": "chat_1", "message": "first"},
-		{"type": "chat.start", "chatId": "chat_1", "chatName": "demo"},
-		{"type": "run.start", "chatId": "chat_1", "runId": run1},
-		{"type": "reasoning.start", "chatId": "chat_1", "runId": run1},
-		{"type": "reasoning.end", "chatId": "chat_1", "runId": run1},
-		{"type": "reasoning.snapshot", "chatId": "chat_1", "runId": run1, "text": "thinking"},
-		{"type": "content.snapshot", "chatId": "chat_1", "runId": run1, "text": "answer 1"},
-		{"type": "run.complete", "runId": run1},
-		{"type": "request.query", "chatId": "chat_1", "message": "second"},
-		{"type": "chat.start", "chatId": "chat_1", "chatName": "demo"},
-		{"type": "run.start", "chatId": "chat_1", "runId": run2},
-		{"type": "tool.start", "chatId": "chat_1", "runId": run2, "toolName": "datetime"},
-		{"type": "tool.end", "chatId": "chat_1", "runId": run2},
-		{"type": "tool.snapshot", "chatId": "chat_1", "runId": run2, "arguments": "{}"},
-		{"type": "tool.result", "chatId": "chat_1", "runId": run2, "output": map[string]any{"ok": true}},
-		{"type": "action.start", "chatId": "chat_1", "runId": run2, "actionName": "approval_action"},
-		{"type": "action.end", "chatId": "chat_1", "runId": run2},
-		{"type": "action.result", "chatId": "chat_1", "runId": run2, "result": map[string]any{"confirmed": true}},
-		{"type": "run.complete", "runId": run2},
-	})
-
-	if len(events) != 18 {
-		t.Fatalf("expected 18 rebuilt events, got %d: %#v", len(events), events)
-	}
-	if events[0]["type"] != "chat.start" {
-		t.Fatalf("expected chat.start first, got %#v", events[0])
-	}
-	if events[1]["type"] != "request.query" || events[1]["runId"] != run1 {
-		t.Fatalf("expected first request.query to bind to run1, got %#v", events[1])
-	}
-	if events[2]["type"] != "run.start" || events[2]["runId"] != run1 {
-		t.Fatalf("expected run1 start after request, got %#v", events[2])
-	}
-	if events[8]["type"] != "request.query" || events[8]["runId"] != run2 {
-		t.Fatalf("expected second request.query to bind to run2, got %#v", events[8])
-	}
-	if events[9]["type"] != "run.start" || events[9]["runId"] != run2 {
-		t.Fatalf("expected run2 start after second request, got %#v", events[9])
-	}
-
-	if got := events[3]["reasoningId"]; got != run1+"_r_1" {
-		t.Fatalf("expected reasoning.start to backfill run-scoped id, got %#v", events[3])
-	}
-	if got := events[3]["reasoningLabel"]; got != stream.ReasoningLabelForID(run1+"_r_1") {
-		t.Fatalf("expected reasoning.start to backfill reasoningLabel, got %#v", events[3])
-	}
-	if got := events[5]["reasoningId"]; got != run1+"_r_1" {
-		t.Fatalf("expected reasoning.snapshot to reuse prior id, got %#v", events[5])
-	}
-	if got := events[5]["reasoningLabel"]; got != stream.ReasoningLabelForID(run1+"_r_1") {
-		t.Fatalf("expected reasoning.snapshot to reuse deterministic reasoningLabel, got %#v", events[5])
-	}
-	if got := events[6]["contentId"]; got != run1+"_c_1" {
-		t.Fatalf("expected content.snapshot to backfill run-scoped id, got %#v", events[6])
-	}
-
-	if got := events[10]["toolId"]; got != run2+"_tool_1" {
-		t.Fatalf("expected tool.start fallback id, got %#v", events[10])
-	}
-	if got := events[11]["toolId"]; got != run2+"_tool_1" {
-		t.Fatalf("expected tool.end to reuse fallback id, got %#v", events[11])
-	}
-	if got := events[12]["toolId"]; got != run2+"_tool_1" {
-		t.Fatalf("expected tool.snapshot to reuse fallback id, got %#v", events[12])
-	}
-	if got := events[13]["toolId"]; got != run2+"_tool_result_1" {
-		t.Fatalf("expected tool.result fallback id after closed block, got %#v", events[13])
-	}
-	if got := events[14]["actionId"]; got != run2+"_action_1" {
-		t.Fatalf("expected action.start fallback id, got %#v", events[14])
-	}
-	if got := events[15]["actionId"]; got != run2+"_action_1" {
-		t.Fatalf("expected action.end to reuse fallback id, got %#v", events[15])
-	}
-	if got := events[16]["actionId"]; got != run2+"_action_result_1" {
-		t.Fatalf("expected action.result fallback id after closed block, got %#v", events[16])
-	}
-
-	for index, event := range events {
-		if got := int64(index + 1); event["seq"] != got {
-			t.Fatalf("expected contiguous seq at index %d, got %#v", index, event)
-		}
 	}
 }
 
@@ -1981,7 +1788,7 @@ func TestStepWriterEmbedsUsageAtStepLevel(t *testing.T) {
 		t.Fatalf("expected detailed step-level usage, got %#v", lines[0])
 	}
 	contextWindow, _ := lines[0]["contextWindow"].(map[string]any)
-	if toIntValue(contextWindow["maxSize"]) != 128000 || toIntValue(contextWindow["actualSize"]) != 100 || toIntValue(contextWindow["estimatedSize"]) != 200 {
+	if toIntValue(contextWindow["maxSize"]) != 128000 || toIntValue(contextWindow["currentSize"]) != 100 || toIntValue(contextWindow["estimatedNextCallSize"]) != 200 {
 		t.Fatalf("expected step-level context window, got %#v", lines[0])
 	}
 
@@ -2082,7 +1889,7 @@ func TestStepWriterPersistsSystemRefWithoutDebugPayload(t *testing.T) {
 		t.Fatalf("expected systemRef on step, got %#v", lines[0])
 	}
 	contextWindow, _ := lines[0]["contextWindow"].(map[string]any)
-	if toIntValue(contextWindow["maxSize"]) != 128000 || toIntValue(contextWindow["estimatedSize"]) != 200 {
+	if toIntValue(contextWindow["maxSize"]) != 128000 || toIntValue(contextWindow["estimatedNextCallSize"]) != 200 {
 		t.Fatalf("expected contextWindow on step, got %#v", lines[0])
 	}
 
@@ -2169,7 +1976,7 @@ func TestStepWriterCapturesDebugLLMChatMetadata(t *testing.T) {
 		t.Fatalf("expected usage from debug.llmChat, got %#v", lines[0])
 	}
 	contextWindow, _ := lines[0]["contextWindow"].(map[string]any)
-	if toIntValue(contextWindow["maxSize"]) != 128000 || toIntValue(contextWindow["actualSize"]) != 100 || toIntValue(contextWindow["estimatedSize"]) != 200 {
+	if toIntValue(contextWindow["maxSize"]) != 128000 || toIntValue(contextWindow["currentSize"]) != 100 || toIntValue(contextWindow["estimatedNextCallSize"]) != 200 {
 		t.Fatalf("expected contextWindow from debug.llmChat, got %#v", lines[0])
 	}
 
@@ -2242,7 +2049,7 @@ func TestStepWriterPersistsLLMChatMetadataWithoutDebugPayload(t *testing.T) {
 		t.Fatalf("expected usage to remain, got %#v", lines[0])
 	}
 	contextWindow, _ := lines[0]["contextWindow"].(map[string]any)
-	if toIntValue(contextWindow["maxSize"]) != 128000 || toIntValue(contextWindow["actualSize"]) != 100 || toIntValue(contextWindow["estimatedSize"]) != 200 {
+	if toIntValue(contextWindow["maxSize"]) != 128000 || toIntValue(contextWindow["currentSize"]) != 100 || toIntValue(contextWindow["estimatedNextCallSize"]) != 200 {
 		t.Fatalf("expected context window to remain, got %#v", lines[0])
 	}
 }
@@ -2332,7 +2139,7 @@ func TestStepWriterPersistsUsageSnapshotWhenDebugEventsDisabled(t *testing.T) {
 		t.Fatalf("expected persisted usage snapshot estimated cost, got %#v", lines[0])
 	}
 	contextWindow, _ := lines[0]["contextWindow"].(map[string]any)
-	if toIntValue(contextWindow["maxSize"]) != 128000 || toIntValue(contextWindow["actualSize"]) != 100 || toIntValue(contextWindow["estimatedSize"]) != 200 {
+	if toIntValue(contextWindow["maxSize"]) != 128000 || toIntValue(contextWindow["currentSize"]) != 100 || toIntValue(contextWindow["estimatedNextCallSize"]) != 200 {
 		t.Fatalf("expected context window to persist, got %#v", lines[0])
 	}
 	assertNoStepModelMetadata(t, contextWindow, "contextWindow")
@@ -2394,7 +2201,7 @@ func TestStepWriterPersistsPlanExecuteModelMetadataAtTopLevel(t *testing.T) {
 	}
 	assertNoStepModelMetadata(t, usage, "plan-execute usage")
 	contextWindow, _ := line["contextWindow"].(map[string]any)
-	if toIntValue(contextWindow["maxSize"]) != 128000 || toIntValue(contextWindow["actualSize"]) != 100 || toIntValue(contextWindow["estimatedSize"]) != 200 {
+	if toIntValue(contextWindow["maxSize"]) != 128000 || toIntValue(contextWindow["currentSize"]) != 100 || toIntValue(contextWindow["estimatedNextCallSize"]) != 200 {
 		t.Fatalf("expected plan-execute contextWindow, got %#v", line)
 	}
 	assertNoStepModelMetadata(t, contextWindow, "plan-execute contextWindow")
@@ -2594,98 +2401,6 @@ func TestLoadChatSynthesizesPlanningSnapshotsForMultipleAwaitingPlans(t *testing
 	}
 }
 
-func TestLoadChatReplaysPlanningSnapshotRefsAndIgnoresDeltas(t *testing.T) {
-	store, err := NewFileStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("new file store: %v", err)
-	}
-	chatID := "chat-legacy-planning"
-	runID := "run-planning"
-	if _, _, err := store.EnsureChat(chatID, "coder", "", "plan it"); err != nil {
-		t.Fatalf("ensure chat: %v", err)
-	}
-	planningFile := filepath.Join(store.ChatDir(chatID), ToolRootDirName, ToolPlansDirName, "plan-run-planning.md")
-	if err := os.MkdirAll(filepath.Dir(planningFile), 0o755); err != nil {
-		t.Fatalf("mkdir planning dir: %v", err)
-	}
-	if err := os.WriteFile(planningFile, []byte("# Final\n\nBody"), 0o644); err != nil {
-		t.Fatalf("write planning file: %v", err)
-	}
-	appendPlanningEventLineForTest(t, store, chatID, runID, 1002, map[string]any{
-		"type":       "planning.delta",
-		"timestamp":  int64(1002),
-		"planningId": "plan-run-planning",
-		"delta":      "# Draft",
-	})
-	appendPlanningEventLineForTest(t, store, chatID, runID, 1004, map[string]any{
-		"type":         "planning.snapshot",
-		"timestamp":    int64(1004),
-		"planningId":   "plan-run-planning",
-		"planningFile": planningFile,
-		"chatId":       chatID,
-		"runId":        runID,
-	})
-
-	detail, err := store.LoadChat(chatID)
-	if err != nil {
-		t.Fatalf("load chat: %v", err)
-	}
-	if detail.Planning == nil || detail.Planning.PlanningID != "plan-run-planning" ||
-		detail.Planning.PlanningFile != planningFile || detail.Planning.Markdown != "# Final\n\nBody" {
-		t.Fatalf("expected replayed planning state from file, got planning=%#v events=%#v", detail.Planning, detail.Events)
-	}
-	if detailEventTypeCount(detail.Events, "planning.snapshot") != 1 || detailHasEventType(detail.Events, "planning.delta") {
-		t.Fatalf("expected one replayed planning.snapshot and no delta, got %#v", detail.Events)
-	}
-}
-
-func TestLoadChatReplaysPlanningSnapshotEventLine(t *testing.T) {
-	store, err := NewFileStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("new file store: %v", err)
-	}
-	chatID := "chat-event-planning"
-	runID := "run-planning"
-	if _, _, err := store.EnsureChat(chatID, "coder", "", "plan it"); err != nil {
-		t.Fatalf("ensure chat: %v", err)
-	}
-	planningFile := filepath.Join(store.ChatDir(chatID), ToolRootDirName, ToolPlansDirName, "event-planning.md")
-	if err := os.MkdirAll(filepath.Dir(planningFile), 0o755); err != nil {
-		t.Fatalf("mkdir planning dir: %v", err)
-	}
-	if err := os.WriteFile(planningFile, []byte("# Event Plan\n\nBody"), 0o644); err != nil {
-		t.Fatalf("write planning file: %v", err)
-	}
-	if err := store.AppendEventLine(chatID, EventLine{
-		ChatID:    chatID,
-		RunID:     runID,
-		UpdatedAt: 1004,
-		Type:      "event",
-		Event: map[string]any{
-			"type":         "planning.snapshot",
-			"timestamp":    int64(1004),
-			"planningId":   "event-planning",
-			"planningFile": planningFile,
-			"chatId":       chatID,
-			"runId":        runID,
-		},
-	}); err != nil {
-		t.Fatalf("append planning event: %v", err)
-	}
-
-	detail, err := store.LoadChat(chatID)
-	if err != nil {
-		t.Fatalf("load chat: %v", err)
-	}
-	if detail.Planning == nil || detail.Planning.PlanningID != "event-planning" ||
-		detail.Planning.PlanningFile != planningFile || detail.Planning.Markdown != "# Event Plan\n\nBody" {
-		t.Fatalf("expected planning state from event line, got planning=%#v events=%#v", detail.Planning, detail.Events)
-	}
-	if detailEventTypeCount(detail.Events, "planning.snapshot") != 1 {
-		t.Fatalf("expected one replayed planning.snapshot, got %#v", detail.Events)
-	}
-}
-
 func emitPlanningLifecycleForTest(writer *StepWriter, chatID string) {
 	writer.OnEvent(stream.EventData{
 		Type:      "planning.delta",
@@ -2728,19 +2443,6 @@ func appendPlanAwaitingStepForTest(t *testing.T, store *FileStore, chatID string
 		Type: "react",
 	}); err != nil {
 		t.Fatalf("append step line: %v", err)
-	}
-}
-
-func appendPlanningEventLineForTest(t *testing.T, store *FileStore, chatID string, runID string, updatedAt int64, event map[string]any) {
-	t.Helper()
-	if err := store.AppendEventLine(chatID, EventLine{
-		ChatID:    chatID,
-		RunID:     runID,
-		UpdatedAt: updatedAt,
-		Event:     event,
-		Type:      "planning",
-	}); err != nil {
-		t.Fatalf("append planning event: %v", err)
 	}
 }
 
@@ -2792,7 +2494,7 @@ func detailEventByType(events []stream.EventData, eventType string) stream.Event
 
 func assertNoStepModelMetadata(t *testing.T, values map[string]any, label string) {
 	t.Helper()
-	for _, key := range []string{"modelKey", "model_key", "reasoningEffort", "reasoning_effort"} {
+	for _, key := range []string{"modelKey", "reasoningEffort"} {
 		if _, ok := values[key]; ok {
 			t.Fatalf("did not expect %s in %s: %#v", key, label, values)
 		}
@@ -2912,7 +2614,7 @@ func TestStepWriterPersistsTaskScopedUsageAndSlimMetadataWithoutDebugPayload(t *
 	}
 	assertNoStepModelMetadata(t, usage, "task usage")
 	contextWindow, _ := taskLine["contextWindow"].(map[string]any)
-	if toIntValue(contextWindow["maxSize"]) != 128000 || toIntValue(contextWindow["actualSize"]) != 100 || toIntValue(contextWindow["estimatedSize"]) != 200 {
+	if toIntValue(contextWindow["maxSize"]) != 128000 || toIntValue(contextWindow["currentSize"]) != 100 || toIntValue(contextWindow["estimatedNextCallSize"]) != 200 {
 		t.Fatalf("expected task contextWindow, got %#v", taskLine)
 	}
 	assertNoStepModelMetadata(t, contextWindow, "task contextWindow")
@@ -3215,39 +2917,6 @@ func TestLoadSystemInitsParsesCacheKeyToModeStage(t *testing.T) {
 	}
 	if got := all["plan-execute:execute"]; got == nil || got.Mode != "plan-execute" || got.Stage != "execute" {
 		t.Fatalf("expected plan-execute:execute to parse mode/stage, got %#v", got)
-	}
-}
-
-func TestFileStoreLoadsLegacySystemInitByCacheKey(t *testing.T) {
-	store, err := NewFileStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("new file store: %v", err)
-	}
-	if _, _, err := store.EnsureChat("chat-legacy-system", "agent", "", "hello"); err != nil {
-		t.Fatalf("ensure chat: %v", err)
-	}
-	if err := store.appendJSONLine(store.chatJSONLPath("chat-legacy-system"), SystemInitLine{
-		Type:          "system-init",
-		ChatID:        "chat-legacy-system",
-		AgentKey:      "agent",
-		RunID:         "run-legacy",
-		CreatedAt:     1,
-		Fingerprint:   "sha256:legacy",
-		CacheKey:      "react:main",
-		Mode:          "react",
-		Stage:         "main",
-		SystemMessage: map[string]any{"role": "system", "content": "legacy"},
-		Tools:         []any{},
-	}); err != nil {
-		t.Fatalf("append legacy system cache line: %v", err)
-	}
-
-	loaded, err := store.LoadSystemInit("chat-legacy-system", "react:main")
-	if err != nil {
-		t.Fatalf("load system cache line: %v", err)
-	}
-	if loaded == nil || loaded.Fingerprint != "sha256:legacy" || loaded.Type != "system-init" {
-		t.Fatalf("expected legacy system cache line, got %#v", loaded)
 	}
 }
 
@@ -4034,13 +3703,12 @@ The tool results above already reflect these decisions; do not re-prompt for app
 	}
 }
 
-func TestReactToolAndLegacyReactToolResultLinesReplay(t *testing.T) {
+func TestReactToolResultLinesReplay(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
 		lineType string
 	}{
 		{name: "react-tool", lineType: StepLineTypeReactTool},
-		{name: "legacy-react", lineType: StepLineTypeReact},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			store, err := NewFileStore(t.TempDir())
@@ -4131,48 +3799,6 @@ func TestReactToolAndLegacyReactToolResultLinesReplay(t *testing.T) {
 				t.Fatalf("expected tool snapshot/result replay, got %#v", detail.Events)
 			}
 		})
-	}
-}
-
-func TestLoadRawMessagesIgnoresLegacyTopLevelApproval(t *testing.T) {
-	store, err := NewFileStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("new file store: %v", err)
-	}
-
-	if _, _, err := store.EnsureChat("chat-approval-legacy-summary", "agent", "", "hello"); err != nil {
-		t.Fatalf("ensure chat: %v", err)
-	}
-
-	if err := store.appendJSONLine(store.chatJSONLPath("chat-approval-legacy-summary"), map[string]any{
-		"chatId":    "chat-approval-legacy-summary",
-		"runId":     "run-approval-legacy-summary",
-		"updatedAt": 5003,
-		"_type":     "react",
-		"seq":       1,
-		"messages": []any{map[string]any{
-			"role":         "tool",
-			"name":         "bash",
-			"tool_call_id": "tool-1",
-			"content":      []any{map[string]any{"type": "text", "text": "ok"}},
-			"_toolId":      "tool-1",
-		}},
-		"approval": map[string]any{
-			"summary": `[HITL] legacy approval`,
-		},
-	}); err != nil {
-		t.Fatalf("append legacy step line: %v", err)
-	}
-
-	rawMessages, err := store.LoadRawMessages("chat-approval-legacy-summary", 5)
-	if err != nil {
-		t.Fatalf("load raw messages: %v", err)
-	}
-	if len(rawMessages) != 1 {
-		t.Fatalf("expected only the tool message; legacy top-level approval must be ignored, got %#v", rawMessages)
-	}
-	if rawMessages[0]["role"] != "tool" || rawMessages[0]["content"] != "ok" {
-		t.Fatalf("expected tool message without synthesized approval fallback, got %#v", rawMessages)
 	}
 }
 
@@ -5510,9 +5136,9 @@ func TestLoadChatReadsUsageFromStepLevel(t *testing.T) {
 			"toolCallCount":          2,
 		},
 		ContextWindow: map[string]any{
-			"maxSize":       128000,
-			"actualSize":    100,
-			"estimatedSize": 200,
+			"maxSize":               128000,
+			"currentSize":           100,
+			"estimatedNextCallSize": 200,
 		},
 	}); err != nil {
 		t.Fatalf("append step line: %v", err)
@@ -5603,8 +5229,8 @@ func TestLoadChatDoesNotSynthesizeEmptyUsageSnapshot(t *testing.T) {
 			"llmChatCompletionCount": 1,
 		},
 		ContextWindow: map[string]any{
-			"maxSize":       128000,
-			"estimatedSize": 5703,
+			"maxSize":               128000,
+			"estimatedNextCallSize": 5703,
 		},
 	}); err != nil {
 		t.Fatalf("append step line: %v", err)
@@ -5631,86 +5257,6 @@ func TestLoadChatDoesNotSynthesizeEmptyUsageSnapshot(t *testing.T) {
 	}
 	if detail.ReplayUsage.LastRunID != "" || detail.ReplayUsage.Chat.TotalTokens != 0 || detail.ReplayUsage.Chat.LlmChatCompletionCount != 0 {
 		t.Fatalf("did not expect replay usage from empty provider usage, got %#v", detail.ReplayUsage)
-	}
-}
-
-func TestLoadChatReadsLegacySnakeCaseUsageFromStepLevel(t *testing.T) {
-	store, err := NewFileStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("new file store: %v", err)
-	}
-	if _, _, err := store.EnsureChat("chat-legacy-step-usage", "agent", "", "hello"); err != nil {
-		t.Fatalf("ensure chat: %v", err)
-	}
-	if err := store.AppendQueryLine("chat-legacy-step-usage", QueryLine{
-		ChatID:    "chat-legacy-step-usage",
-		RunID:     "run-legacy-step-usage",
-		UpdatedAt: 1000,
-		Query:     map[string]any{"chatId": "chat-legacy-step-usage", "message": "hello"},
-		Type:      "query",
-	}); err != nil {
-		t.Fatalf("append query line: %v", err)
-	}
-	if err := store.AppendStepLine("chat-legacy-step-usage", StepLine{
-		ChatID:    "chat-legacy-step-usage",
-		RunID:     "run-legacy-step-usage",
-		UpdatedAt: 1003,
-		Type:      "react",
-		Seq:       1,
-		Messages: []StoredMessage{{
-			Role:      "assistant",
-			Content:   textContent("answer"),
-			ContentID: "content-1",
-		}},
-		Usage: map[string]any{
-			"prompt_tokens":             100,
-			"completion_tokens":         50,
-			"total_tokens":              150,
-			"prompt_tokens_details":     map[string]any{"cached_tokens": 32},
-			"completion_tokens_details": map[string]any{"reasoning_tokens": 8},
-			"prompt_cache_hit_tokens":   32,
-			"prompt_cache_miss_tokens":  68,
-			"llm_chat_completion_count": 1,
-			"model_key":                 "legacy-model",
-			"reasoning_effort":          "LOW",
-		},
-		ContextWindow: map[string]any{
-			"max_size":       128000,
-			"actual_size":    100,
-			"estimated_size": 200,
-		},
-	}); err != nil {
-		t.Fatalf("append step line: %v", err)
-	}
-
-	detail, err := store.LoadChat("chat-legacy-step-usage")
-	if err != nil {
-		t.Fatalf("load chat: %v", err)
-	}
-	if len(detail.Events) != 5 {
-		t.Fatalf("expected legacy usage replay events, got %#v", detail.Events)
-	}
-	for _, event := range detail.Events {
-		if event.Type == "usage.snapshot" {
-			t.Fatalf("did not expect usage-only legacy step to synthesize usage event, got %#v", detail.Events)
-		}
-	}
-	if toIntValue(detail.ContextWindow["maxSize"]) != 128000 || toIntValue(detail.ContextWindow["currentSize"]) != 100 || toIntValue(detail.ContextWindow["estimatedNextCallSize"]) != 200 ||
-		detail.ContextWindow["modelKey"] != "legacy-model" || detail.ContextWindow["reasoningEffort"] != "LOW" {
-		t.Fatalf("expected detail context window from legacy step usage, got %#v", detail.ContextWindow)
-	}
-	if _, exists := detail.Events[4].Value("usage").(map[string]any); exists {
-		t.Fatalf("did not expect synthesized run.complete usage %#v", detail.Events[4])
-	}
-	if detail.ReplayUsage.LastRunID != "run-legacy-step-usage" ||
-		detail.ReplayUsage.LastRun.PromptTokens != 100 ||
-		detail.ReplayUsage.LastRun.CompletionTokens != 50 ||
-		detail.ReplayUsage.LastRun.TotalTokens != 150 ||
-		detail.ReplayUsage.LastRun.PromptCacheHitTokens != 32 ||
-		detail.ReplayUsage.LastRun.PromptCacheMissTokens != 68 ||
-		detail.ReplayUsage.LastRun.ReasoningTokens != 8 ||
-		detail.ReplayUsage.LastRun.LlmChatCompletionCount != 1 {
-		t.Fatalf("unexpected replay usage from legacy step usage %#v", detail.ReplayUsage)
 	}
 }
 
@@ -6051,110 +5597,22 @@ func TestLoadChatIgnoresApprovalAwaitingAskEventLines(t *testing.T) {
 	}
 }
 
-func TestLoadChatSuppressesLegacyConfirmLifecycleEvents(t *testing.T) {
+func TestLoadChatReplaysSourcePublishEvent(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
 
-	if _, _, err := store.EnsureChat("chat-legacy", "agent", "", "hello"); err != nil {
+	if _, _, err := store.EnsureChat("chat-source-current", "agent", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
 
-	if err := store.AppendQueryLine("chat-legacy", QueryLine{
-		ChatID:    "chat-legacy",
-		RunID:     "run-legacy",
-		UpdatedAt: 1000,
-		Query: map[string]any{
-			"chatId":  "chat-legacy",
-			"message": "legacy confirm flow",
-		},
-		Type: "query",
-	}); err != nil {
-		t.Fatalf("append query line: %v", err)
-	}
-
-	legacyEvents := []map[string]any{
-		{
-			"type":      "confirm.viewport",
-			"confirmId": "tool-legacy",
-			"runId":     "run-legacy",
-			"chatId":    "chat-legacy",
-		},
-		{
-			"type":      "confirm.payload",
-			"confirmId": "tool-legacy",
-			"payload":   map[string]any{},
-		},
-		{
-			"type":       "request.submit",
-			"requestId":  "req-legacy",
-			"chatId":     "chat-legacy",
-			"runId":      "run-legacy",
-			"awaitingId": "tool-legacy",
-			"params":     map[string]any{"value": "approve"},
-		},
-		{
-			"type":       "request.submit",
-			"requestId":  "req-current",
-			"chatId":     "chat-legacy",
-			"runId":      "run-legacy",
-			"awaitingId": "tool-legacy",
-			"params":     []any{},
-		},
-	}
-	for _, event := range legacyEvents {
-		if err := store.AppendEventLine("chat-legacy", EventLine{
-			ChatID:    "chat-legacy",
-			RunID:     "run-legacy",
-			UpdatedAt: 1001,
-			Type:      "event",
-			Event:     event,
-		}); err != nil {
-			t.Fatalf("append legacy event line: %v", err)
-		}
-	}
-
-	detail, err := store.LoadChat("chat-legacy")
-	if err != nil {
-		t.Fatalf("load chat: %v", err)
-	}
-
-	foundCurrentSubmit := false
-	for _, event := range detail.Events {
-		switch event.Type {
-		case "confirm.viewport", "confirm.payload":
-			t.Fatalf("did not expect legacy confirm lifecycle event to replay: %#v", event)
-		case "request.submit":
-			if event.String("requestId") == "req-legacy" {
-				t.Fatalf("did not expect legacy confirm submit to replay: %#v", event)
-			}
-			if event.String("requestId") == "req-current" {
-				foundCurrentSubmit = true
-			}
-		}
-	}
-	if !foundCurrentSubmit {
-		t.Fatalf("expected current array-shaped request.submit to replay, got %#v", detail.Events)
-	}
-}
-
-func TestLoadChatReplaysLegacySourcePublishEvent(t *testing.T) {
-	store, err := NewFileStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("new file store: %v", err)
-	}
-
-	if _, _, err := store.EnsureChat("chat-source-legacy", "agent", "", "hello"); err != nil {
-		t.Fatalf("ensure chat: %v", err)
-	}
-
-	legacyEvents := []stream.EventData{
+	events := []stream.EventData{
 		{
 			Type:      "chat.start",
 			Timestamp: 1000,
 			Payload: map[string]any{
-				"chatId":   "chat-source-legacy",
+				"chatId":   "chat-source-current",
 				"chatName": "hello",
 			},
 		},
@@ -6162,8 +5620,8 @@ func TestLoadChatReplaysLegacySourcePublishEvent(t *testing.T) {
 			Type:      "request.query",
 			Timestamp: 1001,
 			Payload: map[string]any{
-				"chatId":  "chat-source-legacy",
-				"runId":   "run-source-legacy",
+				"chatId":  "chat-source-current",
+				"runId":   "run-source-current",
 				"message": "where is the policy?",
 			},
 		},
@@ -6171,16 +5629,16 @@ func TestLoadChatReplaysLegacySourcePublishEvent(t *testing.T) {
 			Type:      "run.start",
 			Timestamp: 1002,
 			Payload: map[string]any{
-				"chatId": "chat-source-legacy",
-				"runId":  "run-source-legacy",
+				"chatId": "chat-source-current",
+				"runId":  "run-source-current",
 			},
 		},
 		{
 			Type:      "source.publish",
 			Timestamp: 1003,
 			Payload: map[string]any{
-				"publishId":   "src-legacy",
-				"runId":       "run-source-legacy",
+				"publishId":   "src-current",
+				"runId":       "run-source-current",
 				"kind":        "ragflow",
 				"sourceCount": 1,
 				"chunkCount":  1,
@@ -6205,8 +5663,8 @@ func TestLoadChatReplaysLegacySourcePublishEvent(t *testing.T) {
 			Type:      "content.snapshot",
 			Timestamp: 1004,
 			Payload: map[string]any{
-				"contentId": "run-source-legacy_c_1",
-				"runId":     "run-source-legacy",
+				"contentId": "run-source-current_c_1",
+				"runId":     "run-source-current",
 				"text":      "answer",
 			},
 		},
@@ -6214,19 +5672,19 @@ func TestLoadChatReplaysLegacySourcePublishEvent(t *testing.T) {
 			Type:      "run.complete",
 			Timestamp: 1005,
 			Payload: map[string]any{
-				"runId": "run-source-legacy",
+				"runId": "run-source-current",
 			},
 		},
 	}
 
-	for idx := range legacyEvents {
-		legacyEvents[idx].Seq = int64(idx + 1)
-		if err := store.AppendEvent("chat-source-legacy", legacyEvents[idx]); err != nil {
-			t.Fatalf("append legacy event: %v", err)
+	for idx := range events {
+		events[idx].Seq = int64(idx + 1)
+		if err := store.AppendEvent("chat-source-current", events[idx]); err != nil {
+			t.Fatalf("append event: %v", err)
 		}
 	}
 
-	detail, err := store.LoadChat("chat-source-legacy")
+	detail, err := store.LoadChat("chat-source-current")
 	if err != nil {
 		t.Fatalf("load chat: %v", err)
 	}
@@ -6237,7 +5695,7 @@ func TestLoadChatReplaysLegacySourcePublishEvent(t *testing.T) {
 		switch event.Type {
 		case "source.publish":
 			foundSourcePublish = true
-			if event.String("publishId") != "src-legacy" || event.String("runId") != "run-source-legacy" {
+			if event.String("publishId") != "src-current" || event.String("runId") != "run-source-current" {
 				t.Fatalf("unexpected source.publish replay %#v", event)
 			}
 			sources, ok := event.Value("sources").([]any)

@@ -238,7 +238,7 @@ func TestParseAgentFileReadsSingularGreeting(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileReadsRuntimePromptsWithoutLegacyContextTags(t *testing.T) {
+func TestParseAgentFileReadsRuntimePromptsAndContextConfigTags(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
 	if err := os.WriteFile(path, []byte(
@@ -247,13 +247,7 @@ func TestParseAgentFileReadsRuntimePromptsWithoutLegacyContextTags(t *testing.T)
 			"mode: ONESHOT\n"+
 			"modelConfig:\n"+
 			"  modelKey: demo-model\n"+
-			"contextTags:\n"+
-			"  - agent_identity\n"+
-			"  - run_session\n"+
-			"  - memory_context\n"+
 			"runtimePrompts:\n"+
-			"  planExecute:\n"+
-			"    taskExecutionPromptTemplate: TASK={{task_id}}\n"+
 			"  skill:\n"+
 			"    catalogHeader: skills-header-override\n"+
 			"  toolAppendix:\n"+
@@ -267,16 +261,13 @@ func TestParseAgentFileReadsRuntimePromptsWithoutLegacyContextTags(t *testing.T)
 		t.Fatalf("parse agent file: %v", err)
 	}
 	if got := strings.Join(def.ContextTags, ","); got != "" {
-		t.Fatalf("expected legacy contextTags to be ignored, got %q", got)
+		t.Fatalf("expected empty context tags, got %q", got)
 	}
 	if def.RuntimePrompts.Skill.CatalogHeader != "skills-header-override" {
 		t.Fatalf("expected skill prompt override, got %#v", def.RuntimePrompts)
 	}
 	if def.RuntimePrompts.ToolAppendix.ToolDescriptionTitle != "tool-desc-title-override" {
 		t.Fatalf("expected tool appendix override, got %#v", def.RuntimePrompts)
-	}
-	if def.StageSettings["taskExecutionPromptTemplate"] != "TASK={{task_id}}" {
-		t.Fatalf("expected task execution prompt template merged into stage settings, got %#v", def.StageSettings)
 	}
 }
 
@@ -439,11 +430,13 @@ func TestParseAgentFileMapsModelReasoningIntoStageSettings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	if def.StageSettings["reasoningEnabled"] != true {
-		t.Fatalf("expected reasoningEnabled default, got %#v", def.StageSettings)
+	execute := mapNode(def.StageSettings["execute"])
+	reasoning := mapNode(mapNode(execute["modelConfig"])["reasoning"])
+	if reasoning["enabled"] != true {
+		t.Fatalf("expected reasoning enabled default, got %#v", def.StageSettings)
 	}
-	if def.StageSettings["reasoningEffort"] != "HIGH" {
-		t.Fatalf("expected reasoningEffort default, got %#v", def.StageSettings)
+	if reasoning["effort"] != "HIGH" {
+		t.Fatalf("expected reasoning effort default, got %#v", def.StageSettings)
 	}
 }
 
@@ -461,8 +454,10 @@ func TestParseAgentFilePreservesExplicitStageReasoningOverrides(t *testing.T) {
 			"    effort: HIGH\n"+
 			"stageSettings:\n"+
 			"  execute:\n"+
-			"    reasoningEnabled: false\n"+
-			"    reasoningEffort: LOW\n",
+			"    modelConfig:\n"+
+			"      reasoning:\n"+
+			"        enabled: false\n"+
+			"        effort: LOW\n",
 	), 0o644); err != nil {
 		t.Fatalf("write agent file: %v", err)
 	}
@@ -472,10 +467,11 @@ func TestParseAgentFilePreservesExplicitStageReasoningOverrides(t *testing.T) {
 		t.Fatalf("parse agent file: %v", err)
 	}
 	execute, _ := def.StageSettings["execute"].(map[string]any)
-	if execute["reasoningEnabled"] != false {
+	reasoning := mapNode(mapNode(execute["modelConfig"])["reasoning"])
+	if reasoning["enabled"] != false {
 		t.Fatalf("expected explicit execute reasoningEnabled to win, got %#v", execute)
 	}
-	if execute["reasoningEffort"] != "LOW" {
+	if reasoning["effort"] != "LOW" {
 		t.Fatalf("expected explicit execute reasoningEffort to win, got %#v", execute)
 	}
 }
@@ -495,8 +491,9 @@ func TestParseAgentFileMapsModelSamplingIntoStageSettings(t *testing.T) {
 			"    presencePenalty: 0\n"+
 			"stageSettings:\n"+
 			"  plan:\n"+
-			"    sampling:\n"+
-			"      temperature: 0.2\n",
+			"    modelConfig:\n"+
+			"      sampling:\n"+
+			"        temperature: 0.2\n",
 	), 0o644); err != nil {
 		t.Fatalf("write agent file: %v", err)
 	}
@@ -505,18 +502,8 @@ func TestParseAgentFileMapsModelSamplingIntoStageSettings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	rootSampling := contracts.ParseSamplingSettings(mapNode(def.StageSettings["sampling"]))
-	if rootSampling.Temperature == nil || *rootSampling.Temperature != 0.7 {
-		t.Fatalf("expected root temperature from modelConfig, got %#v", rootSampling)
-	}
-	if rootSampling.TopP == nil || *rootSampling.TopP != 0.9 {
-		t.Fatalf("expected root topP from modelConfig, got %#v", rootSampling)
-	}
-	if rootSampling.PresencePenalty == nil || *rootSampling.PresencePenalty != 0 {
-		t.Fatalf("expected explicit zero presence penalty from modelConfig, got %#v", rootSampling)
-	}
 	plan, _ := def.StageSettings["plan"].(map[string]any)
-	planSampling := contracts.ParseSamplingSettings(mapNode(plan["sampling"]))
+	planSampling := contracts.ParseSamplingSettings(mapNode(mapNode(plan["modelConfig"])["sampling"]))
 	if planSampling.Temperature == nil || *planSampling.Temperature != 0.2 {
 		t.Fatalf("expected plan temperature override, got %#v", planSampling)
 	}
@@ -916,16 +903,28 @@ func TestAgentsSummaryIncludesCatalogFieldsAndFiltersScope(t *testing.T) {
 				ModelKey:  "agent-model",
 				StageSettings: map[string]any{
 					"plan": map[string]any{
-						"modelKey":        "plan-model",
-						"reasoningEffort": "LOW",
+						"modelConfig": map[string]any{
+							"modelKey": "plan-model",
+							"reasoning": map[string]any{
+								"effort": "LOW",
+							},
+						},
 					},
 					"execute": map[string]any{
-						"modelKey":        "execute-model",
-						"reasoningEffort": "HIGH",
+						"modelConfig": map[string]any{
+							"modelKey": "execute-model",
+							"reasoning": map[string]any{
+								"effort": "HIGH",
+							},
+						},
 					},
 					"summary": map[string]any{
-						"modelKey":        "summary-model",
-						"reasoningEffort": "MEDIUM",
+						"modelConfig": map[string]any{
+							"modelKey": "summary-model",
+							"reasoning": map[string]any{
+								"effort": "MEDIUM",
+							},
+						},
 					},
 				},
 				VisibilityScopes: []string{"internal"},

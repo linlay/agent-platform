@@ -471,7 +471,7 @@ func TestDispatcherEmitsApprovalAlongsideToolResult(t *testing.T) {
 		t.Fatalf("expected approval payload on tool.result, got %#v", payload)
 	}
 	if _, ok := payload["hitl"]; ok {
-		t.Fatalf("did not expect legacy hitl key, got %#v", payload)
+		t.Fatalf("did not expect hitl key, got %#v", payload)
 	}
 }
 

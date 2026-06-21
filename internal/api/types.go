@@ -352,30 +352,6 @@ type LearnResponse struct {
 	Stored           []StoredMemoryResponse `json:"stored,omitempty"`
 }
 
-type RememberRequest struct {
-	RequestID string `json:"requestId"`
-	ChatID    string `json:"chatId"`
-}
-
-type RememberResponse struct {
-	Accepted      bool                   `json:"accepted"`
-	Status        string                 `json:"status"`
-	RequestID     string                 `json:"requestId"`
-	ChatID        string                 `json:"chatId"`
-	MemoryPath    string                 `json:"memoryPath,omitempty"`
-	MemoryRoot    string                 `json:"memoryRoot,omitempty"`
-	MemoryCount   int                    `json:"memoryCount"`
-	Detail        string                 `json:"detail,omitempty"`
-	PromptPreview *PromptPreviewResponse `json:"promptPreview,omitempty"`
-	Items         []RememberItemResponse `json:"items,omitempty"`
-	Stored        []StoredMemoryResponse `json:"stored,omitempty"`
-}
-
-type RememberItemResponse struct {
-	Summary    string `json:"summary"`
-	SubjectKey string `json:"subjectKey,omitempty"`
-}
-
 type StoredMemoryResponse struct {
 	ID             string   `json:"id"`
 	RequestID      string   `json:"requestId,omitempty"`

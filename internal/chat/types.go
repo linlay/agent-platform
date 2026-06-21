@@ -3,12 +3,11 @@ package chat
 import "agent-platform/internal/stream"
 
 const (
-	LegacyToolResultsDirName = ".tool-results"
-	ToolRootDirName          = ".tools"
-	ToolResultsDirName       = "results"
-	ToolStateDirName         = "state"
-	ToolPlansDirName         = "plans"
-	FileVersionsFileName     = "file-versions.json"
+	ToolRootDirName      = ".tools"
+	ToolResultsDirName   = "results"
+	ToolStateDirName     = "state"
+	ToolPlansDirName     = "plans"
+	FileVersionsFileName = "file-versions.json"
 )
 
 // ---------------------------------------------------------------------------
@@ -91,7 +90,7 @@ const (
 	StepLineTypeReact       = "react"
 	StepLineTypeReactTool   = "react-tool"
 	StepLineTypePlanExecute = "plan-execute"
-	StepLineTypeLegacyStep  = "step"
+	StepLineTypeStep        = "step"
 
 	CompactCheckpointLineType = "compact.checkpoint"
 	ToolCompactLineType       = "compact.tool"

@@ -281,7 +281,7 @@ func TestPrepareQueryBuildsLayeredMemoryContexts(t *testing.T) {
 		t.Fatalf("expected session memory context, got empty")
 	}
 	if prepared.session.MemoryContext != "" {
-		t.Fatalf("expected legacy memory context to stay empty, got %q", prepared.session.MemoryContext)
+		t.Fatalf("expected aggregate memory context to stay empty, got %q", prepared.session.MemoryContext)
 	}
 	if prepared.session.Subject != "" {
 		t.Fatalf("expected anonymous subject to stay empty, got %q", prepared.session.Subject)

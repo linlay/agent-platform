@@ -134,10 +134,6 @@ func parseRuleFile(path string) (RuleFile, bool, error) {
 			PassThroughFlags: stringList(rawCommand["passThroughFlags"]),
 		}
 		for _, rawSub := range listMaps(rawCommand["subcommands"]) {
-			// Reject legacy ms field
-			if _, hasOld := rawSub["timeoutMs"]; hasOld {
-				return RuleFile{}, false, fmt.Errorf("migration required: 'timeoutMs' is removed, use 'timeout' in seconds in file %s", path)
-			}
 			block.Subcommands = append(block.Subcommands, SubcommandRule{
 				Match:        strings.TrimSpace(stringValue(rawSub["match"])),
 				Level:        intValue(rawSub["level"]),

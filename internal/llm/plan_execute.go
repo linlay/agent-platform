@@ -40,7 +40,7 @@ Original request:
 Task results:
 {{task_results}}`
 
-type planExecuteStream struct {
+type planPipelineStream struct {
 	engine  *LLMAgentEngine
 	ctx     context.Context
 	req     api.QueryRequest
@@ -60,7 +60,7 @@ type planExecuteStream struct {
 	executeMessages []openAIMessage // accumulated messages across rounds for summary
 }
 
-func newPlanExecuteStream(engine *LLMAgentEngine, ctx context.Context, req api.QueryRequest, session QuerySession) (AgentStream, error) {
+func newPlanPipelineStream(engine *LLMAgentEngine, ctx context.Context, req api.QueryRequest, session QuerySession) (AgentStream, error) {
 	settings := resolvePlanExecuteRuntimeSettings(session, engine.cfg.Defaults.Plan.MaxSteps, engine.cfg.Defaults.Plan.MaxWorkRoundsPerTask)
 	execCtx := &ExecutionContext{
 		Request:       req,
@@ -73,7 +73,7 @@ func newPlanExecuteStream(engine *LLMAgentEngine, ctx context.Context, req api.Q
 			PlanID: session.RunID + "_plan",
 		},
 	}
-	stream := &planExecuteStream{
+	stream := &planPipelineStream{
 		engine:   engine,
 		ctx:      ctx,
 		req:      req,
@@ -90,7 +90,7 @@ func newPlanExecuteStream(engine *LLMAgentEngine, ctx context.Context, req api.Q
 	return stream, nil
 }
 
-func (s *planExecuteStream) Next() (AgentDelta, error) {
+func (s *planPipelineStream) Next() (AgentDelta, error) {
 	for {
 		if len(s.pending) > 0 {
 			event := s.pending[0]
@@ -126,7 +126,7 @@ func (s *planExecuteStream) Next() (AgentDelta, error) {
 	}
 }
 
-func (s *planExecuteStream) Close() error {
+func (s *planPipelineStream) Close() error {
 	if s.closed {
 		return nil
 	}
@@ -137,7 +137,7 @@ func (s *planExecuteStream) Close() error {
 	return nil
 }
 
-func (s *planExecuteStream) advance() error {
+func (s *planPipelineStream) advance() error {
 	if !s.planDone {
 		return s.startPlanStage()
 	}
@@ -154,7 +154,7 @@ func (s *planExecuteStream) advance() error {
 // advanceTaskExecution starts execution for the current task.
 // The llmRunStream handles the multi-turn tool execution loop internally.
 // After the stream ends, afterStageEOF checks task status.
-func (s *planExecuteStream) advanceTaskExecution() error {
+func (s *planPipelineStream) advanceTaskExecution() error {
 	task := &s.execCtx.PlanState.Tasks[s.taskIndex]
 
 	if task.Status == "" || task.Status == "init" {
@@ -175,7 +175,7 @@ func (s *planExecuteStream) advanceTaskExecution() error {
 	return s.startTaskStream(task)
 }
 
-func (s *planExecuteStream) startTaskStream(task *PlanTask) error {
+func (s *planPipelineStream) startTaskStream(task *PlanTask) error {
 	beforeStatus := NormalizePlanTaskStatus(task.Status)
 
 	// Build messages from accumulated executeMessages (Java: context.executeMessages() is shared
@@ -222,7 +222,7 @@ func (s *planExecuteStream) startTaskStream(task *PlanTask) error {
 	return nil
 }
 
-func (s *planExecuteStream) afterStageEOF() error {
+func (s *planPipelineStream) afterStageEOF() error {
 	if !s.planDone {
 		s.planDone = true
 		if len(s.execCtx.PlanState.Tasks) == 0 {
@@ -267,7 +267,7 @@ func (s *planExecuteStream) afterStageEOF() error {
 	return nil
 }
 
-func (s *planExecuteStream) emitTaskTerminal(task *PlanTask, status string) {
+func (s *planPipelineStream) emitTaskTerminal(task *PlanTask, status string) {
 	switch status {
 	case "completed":
 		s.pending = append(s.pending, DeltaTaskLifecycle{Kind: "complete", TaskID: task.TaskID})
@@ -285,7 +285,7 @@ func (s *planExecuteStream) emitTaskTerminal(task *PlanTask, status string) {
 	s.execCtx.PlanState.ActiveTaskID = ""
 }
 
-func (s *planExecuteStream) emitTaskFailure(task *PlanTask, message string) {
+func (s *planPipelineStream) emitTaskFailure(task *PlanTask, message string) {
 	task.Status = "failed"
 	s.pending = append(s.pending, DeltaPlanUpdate{
 		PlanID: s.execCtx.PlanState.PlanID,
@@ -302,7 +302,7 @@ func (s *planExecuteStream) emitTaskFailure(task *PlanTask, message string) {
 	s.execCtx.PlanState.ActiveTaskID = ""
 }
 
-func (s *planExecuteStream) startPlanStage() error {
+func (s *planPipelineStream) startPlanStage() error {
 	planPrompt := s.settings.Plan.PrimaryPrompt()
 	executeToolDesc := s.buildExecuteToolDescriptions()
 	planCallableDesc := s.buildPlanCallableToolDescriptions()
@@ -324,7 +324,7 @@ func (s *planExecuteStream) startPlanStage() error {
 	return nil
 }
 
-func (s *planExecuteStream) startSummaryStage() error {
+func (s *planPipelineStream) startSummaryStage() error {
 	s.pending = append(s.pending, DeltaStageMarker{Stage: "summary"})
 
 	// Build summary messages from accumulated execute history (Java: context.executeMessages())
@@ -361,7 +361,7 @@ func (s *planExecuteStream) startSummaryStage() error {
 // buildExecuteToolDescriptions returns a prompt section describing execute-stage
 // tools for reference during planning (Java: augmentPlanStageWithToolPrompts).
 // Output format matches Java backendToolDescriptionSection: "- name: description".
-func (s *planExecuteStream) buildExecuteToolDescriptions() string {
+func (s *planPipelineStream) buildExecuteToolDescriptions() string {
 	tools := s.executeStageTools()
 	if len(tools) == 0 {
 		return ""
@@ -384,7 +384,7 @@ func (s *planExecuteStream) buildExecuteToolDescriptions() string {
 	return "以下是执行阶段可用工具说明（当前是规划阶段，仅供参考，不允许调用）:\n" + strings.Join(lines, "\n")
 }
 
-func (s *planExecuteStream) buildPlanCallableToolDescriptions() string {
+func (s *planPipelineStream) buildPlanCallableToolDescriptions() string {
 	descByName := s.toolDescriptionsByName()
 	desc := strings.TrimSpace(descByName["plan_add_tasks"])
 	if desc == "" {
@@ -393,7 +393,7 @@ func (s *planExecuteStream) buildPlanCallableToolDescriptions() string {
 	return "当前规划阶段可调用工具（必须调用 plan_add_tasks 创建计划）:\n- plan_add_tasks: " + desc
 }
 
-func (s *planExecuteStream) toolDescriptionsByName() map[string]string {
+func (s *planPipelineStream) toolDescriptionsByName() map[string]string {
 	defs := s.engine.tools.Definitions()
 	out := make(map[string]string, len(defs))
 	for _, def := range defs {
@@ -406,7 +406,7 @@ func (s *planExecuteStream) toolDescriptionsByName() map[string]string {
 	return out
 }
 
-func (s *planExecuteStream) sessionForStage(stage StageSettings, toolNames []string) QuerySession {
+func (s *planPipelineStream) sessionForStage(stage StageSettings, toolNames []string) QuerySession {
 	session := s.session
 	if modelKey := s.resolveStageModelKey(stage); modelKey != "" {
 		session.ModelKey = modelKey
@@ -417,21 +417,21 @@ func (s *planExecuteStream) sessionForStage(stage StageSettings, toolNames []str
 	return session
 }
 
-func (s *planExecuteStream) resolveStageModelKey(stage StageSettings) string {
+func (s *planPipelineStream) resolveStageModelKey(stage StageSettings) string {
 	if strings.TrimSpace(stage.ModelKey) != "" {
 		return strings.TrimSpace(stage.ModelKey)
 	}
 	return s.session.ModelKey
 }
 
-func (s *planExecuteStream) planStageTools() []string {
+func (s *planPipelineStream) planStageTools() []string {
 	if len(s.settings.Plan.Tools) > 0 {
 		return appendUniqueTools(s.settings.Plan.Tools, "plan_add_tasks")
 	}
 	return []string{"plan_add_tasks"}
 }
 
-func (s *planExecuteStream) planStagePostToolHook(toolName string, _ string) PostToolHookResult {
+func (s *planPipelineStream) planStagePostToolHook(toolName string, _ string) PostToolHookResult {
 	if !isPlanTool(toolName) {
 		return PostToolContinue
 	}
@@ -441,7 +441,7 @@ func (s *planExecuteStream) planStagePostToolHook(toolName string, _ string) Pos
 	return PostToolContinue
 }
 
-func (s *planExecuteStream) executeStageTools() []string {
+func (s *planPipelineStream) executeStageTools() []string {
 	tools := stageToolsOrDefault(s.settings.Execute, s.session.ToolNames)
 	// plan_update_task for status updates, no plan_get_tasks (per Zhang Qian's feedback)
 	return appendUniqueTools(tools, "plan_update_task")
@@ -490,7 +490,7 @@ func nonSystemMessages(msgs []openAIMessage) []openAIMessage {
 	return out
 }
 
-func (s *planExecuteStream) taskTemplate() string {
+func (s *planPipelineStream) taskTemplate() string {
 	if strings.TrimSpace(s.settings.TaskExecutionPrompt) != "" {
 		return s.settings.TaskExecutionPrompt
 	}
@@ -507,7 +507,7 @@ func defaultTaskTemplate(settings PlanExecuteSettings) string {
 	return defaultTaskExecutionPromptTemplate
 }
 
-func (s *planExecuteStream) renderPlanUserPrompt(planPrompt string, executeToolDesc string, planCallableDesc string) string {
+func (s *planPipelineStream) renderPlanUserPrompt(planPrompt string, executeToolDesc string, planCallableDesc string) string {
 	template := defaultPlanUserPromptTemplate
 	if s.engine != nil && strings.TrimSpace(s.engine.cfg.Prompts.PlanExecute.PlanUserPromptTemplate) != "" {
 		template = strings.TrimSpace(s.engine.cfg.Prompts.PlanExecute.PlanUserPromptTemplate)
@@ -520,7 +520,7 @@ func (s *planExecuteStream) renderPlanUserPrompt(planPrompt string, executeToolD
 	}))
 }
 
-func (s *planExecuteStream) renderSummaryUserPrompt() string {
+func (s *planPipelineStream) renderSummaryUserPrompt() string {
 	template := defaultPlanSummaryUserPromptTemplate
 	if s.engine != nil && strings.TrimSpace(s.engine.cfg.Prompts.PlanExecute.SummaryUserPromptTemplate) != "" {
 		template = strings.TrimSpace(s.engine.cfg.Prompts.PlanExecute.SummaryUserPromptTemplate)

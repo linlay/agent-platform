@@ -216,42 +216,6 @@ func TestAskUserQuestionHandlerNormalizeSubmit(t *testing.T) {
 	}
 }
 
-func TestAskUserQuestionHandlerValidateArgsRejectsLegacyMultiSelect(t *testing.T) {
-	handler := NewAskUserQuestionHandler()
-	err := handler.ValidateArgs(map[string]any{
-		"mode": "question",
-		"questions": []any{
-			map[string]any{
-				"question":    "Notification topics",
-				"type":        "select",
-				"multiSelect": true,
-				"options":     []any{map[string]any{"label": "产品更新"}},
-			},
-		},
-	})
-	if err == nil || !strings.Contains(err.Error(), "multiSelect is no longer supported; use type=multi-select") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestAskUserQuestionHandlerValidateArgsRejectsLegacyMultipleFlag(t *testing.T) {
-	handler := NewAskUserQuestionHandler()
-	err := handler.ValidateArgs(map[string]any{
-		"mode": "question",
-		"questions": []any{
-			map[string]any{
-				"question": "Notification topics",
-				"type":     "select",
-				"multiple": true,
-				"options":  []any{map[string]any{"label": "产品更新"}},
-			},
-		},
-	})
-	if err == nil || !strings.Contains(err.Error(), "multiple is no longer supported; use type=multi-select") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
 func TestAskUserQuestionHandlerNormalizeSubmitIgnoresSubmittedIDs(t *testing.T) {
 	handler := NewAskUserQuestionHandler()
 	result, err := handler.NormalizeSubmit(map[string]any{

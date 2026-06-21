@@ -9,7 +9,7 @@
 - 已具备独立 HTTP 服务、统一 JSON 包裹与 `POST /api/query` 真流式 SSE。
 - 已具备 chat 摘要、事件流、raw messages、上传资源落盘、归档与搜索。
 - 已具备目录驱动的 agents / teams / skills / tools catalog。
-- 已具备 OpenAI / Anthropic 兼容模型调用、backend tools、Container Hub sandbox 与 tools。
+- 已具备 OpenAI / Anthropic 协议模型调用、backend tools、Container Hub sandbox 与 tools。
 - 已具备 HITL question / approval / form、运行中 submit / steer / interrupt 协议入口。
 - 已具备 SQLite memory、FTS、可选 embedding、learn / consolidate / feedback 与 memory tools。
 - 已具备 automation、`agent_invoke` 子智能体调度、MCP tool sync、WebSocket 控制面等能力骨架。
@@ -48,7 +48,7 @@ cmd/agent-platform/main.go
 - `internal/chat`：chat 摘要、事件、StepLine、raw messages、资源文件、归档、回放。
 - `internal/memory`：SQLite memory、FTS、embedding、生命周期整理、反馈循环。
 - `internal/catalog`：agent / team / skill / tool 目录装载与定义解析。
-- `internal/config`：环境变量、YAML、默认值、兼容性拒绝。
+- `internal/config`：环境变量、YAML、默认值。
 - `internal/stream`：统一事件、dispatcher、SSE writer、事件归一化。
 - `internal/sandbox`：Container Hub client、mounts、sandbox 执行。
 - `internal/automation`：automation 注册、调度、执行记录。
@@ -76,13 +76,13 @@ cmd/agent-platform/main.go
 
 Chat 默认由 `CHATS_DIR` 控制，主要包含：
 
-- `index.json`：chat 摘要索引。
+- `chats.db`：chat 摘要索引。
 - `<chatId>.jsonl`：运行事件、StepLine、system init 与 raw messages。
 - `<chatId>/<uploaded-file>`：上传资源文件。
 
-Memory 默认由 `MEMORY_DIR` 控制，当前以 SQLite store 为主，支持 FTS、可选 embedding、observation / fact 生命周期与 memory tools。旧 remember API 仍作为兼容入口存在。
+Memory 默认由 `MEMORY_DIR` 控制，当前以 SQLite store 为主，支持 FTS、可选 embedding、observation / fact 生命周期、`/api/learn` 与 memory tools。
 
-核心 DTO 位于 `internal/api`，包括 query、submit、steer、interrupt、remember、learn、chat、upload、automation、memory console 等请求和响应类型。
+核心 DTO 位于 `internal/api`，包括 query、submit、steer、interrupt、learn、chat、upload、automation、memory console 等请求和响应类型。
 
 ## 6. API 定义
 
@@ -102,7 +102,7 @@ Memory 默认由 `MEMORY_DIR` 控制，当前以 SQLite store 为主，支持 FT
 - Chat：`/api/chats`、`/api/chat`、`/api/chats/search`、`/api/read`、`/api/chat/export`。
 - Archive：`/api/archives`、`/api/archive`、`/api/archives/search`。
 - Run：`/api/query`、`/api/attach`、`/api/submit`、`/api/steer`、`/api/interrupt`。
-- Memory：`/api/remember`、`/api/learn`、memory console 相关接口。
+- Memory：`/api/learn`、memory console 相关接口。
 - Resource：`/api/upload`、`/api/resource`。
 - Viewport / WebSocket：`/api/viewport`、`/ws`。
 

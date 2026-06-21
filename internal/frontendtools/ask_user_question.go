@@ -21,9 +21,6 @@ func (h *AskUserQuestionHandler) ToolName() string {
 }
 
 func (h *AskUserQuestionHandler) ValidateArgs(args map[string]any) error {
-	if _, hasOld := args["timeoutMs"]; hasOld {
-		return fmt.Errorf("migration required: 'timeoutMs' is removed, use 'timeout' in seconds")
-	}
 	if !strings.EqualFold(strings.TrimSpace(contracts.AnyStringNode(args["mode"])), "question") {
 		return fmt.Errorf("ask_user_question mode must be question")
 	}
@@ -41,12 +38,6 @@ func (h *AskUserQuestionHandler) ValidateArgs(args map[string]any) error {
 		questionText := strings.TrimSpace(contracts.AnyStringNode(question["question"]))
 		if questionText == "" {
 			return fmt.Errorf("question %d: question is required", index+1)
-		}
-		if _, hasLegacyField := question["multiSelect"]; hasLegacyField {
-			return fmt.Errorf("%s: multiSelect is no longer supported; use type=multi-select", questionText)
-		}
-		if _, hasMultipleField := question["multiple"]; hasMultipleField {
-			return fmt.Errorf("%s: multiple is no longer supported; use type=multi-select", questionText)
 		}
 		questionType := strings.ToLower(strings.TrimSpace(contracts.AnyStringNode(question["type"])))
 		if questionType == "" {

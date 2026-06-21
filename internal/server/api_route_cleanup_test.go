@@ -89,6 +89,7 @@ func TestRemovedHTTPAPIRoutesReturnNotFound(t *testing.T) {
 		{method: http.MethodGet, path: "/api/skills"},
 		{method: http.MethodGet, path: "/api/tools"},
 		{method: http.MethodGet, path: "/api/tool?toolName=bash"},
+		{method: http.MethodPost, path: "/api/" + "remember", body: `{"requestId":"remember-1","chatId":"chat-route-search"}`},
 	} {
 		rec := httptest.NewRecorder()
 		fixture.server.ServeHTTP(rec, httptest.NewRequest(tc.method, tc.path, bytes.NewBufferString(tc.body)))
@@ -152,6 +153,7 @@ func TestWebSocketSearchRoutesRenamed(t *testing.T) {
 	}{
 		{route: "/api/search", id: "old_search"},
 		{route: "/api/archive/search", id: "old_archive_search"},
+		{route: "/api/" + "remember", id: "old_remember"},
 	} {
 		if err := conn.WriteJSON(ws.RequestFrame{
 			Frame:   ws.FrameRequest,

@@ -286,7 +286,7 @@ func (s *Server) generateCompactSummary(ctx context.Context, req api.CompactRequ
 	session.SessionMemoryContext = ""
 	session.ObservationContext = ""
 	session.MemoryUsageSummary = nil
-	session.ReactMaxSteps = 1
+	session.ResolvedBudget = contracts.NormalizeBudget(contracts.Budget{MaxSteps: 1})
 	session.SystemInitCache = nil
 
 	agentStream, err := s.deps.Agent.Stream(ctx, summaryReq, session)

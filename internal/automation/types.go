@@ -19,9 +19,6 @@ type Definition struct {
 	TeamID        string
 	Environment   Environment
 	Query         Query
-	PushURL       string
-	PushTargetID  string
-	PushMessage   string
 	SourceFile    string
 }
 

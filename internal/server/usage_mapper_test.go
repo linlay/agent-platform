@@ -205,11 +205,11 @@ func TestChatUsageBreakdownPrefersCompletedRunSummaryOverReplayForSameRun(t *tes
 
 func TestMapChatContextWindowIncludesModelMetadata(t *testing.T) {
 	contextWindow := mapChatContextWindow(map[string]any{
-		"maxSize":         128000,
-		"actualSize":      100,
-		"estimatedSize":   200,
-		"modelKey":        "mock-model",
-		"reasoningEffort": "HIGH",
+		"maxSize":               128000,
+		"currentSize":           100,
+		"estimatedNextCallSize": 200,
+		"modelKey":              "mock-model",
+		"reasoningEffort":       "HIGH",
 	})
 
 	if contextWindow == nil ||

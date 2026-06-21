@@ -66,11 +66,7 @@ func (t *RuntimeToolExecutor) invokePlanningWrite(toolName string, args map[stri
 }
 
 func planningToolErrorCode(toolName string, suffix string) string {
-	prefix := FinalizePlanningToolName
-	if strings.EqualFold(strings.TrimSpace(toolName), LegacyPlanningWriteToolName) {
-		prefix = LegacyPlanningWriteToolName
-	}
-	return prefix + "_" + strings.TrimSpace(suffix)
+	return FinalizePlanningToolName + "_" + strings.TrimSpace(suffix)
 }
 
 func planningRunID(execCtx *ExecutionContext) string {

@@ -9,7 +9,7 @@ type stepAwaitingReplay struct {
 	consumed                map[int]bool
 }
 
-func newStepAwaitingReplay(rawAwaiting any, chatID string, runID string, chatDir string, liveSeq int64, fallbackTimestamp int64, legacyPlanningSnapshotIDs map[string]bool) *stepAwaitingReplay {
+func newStepAwaitingReplay(rawAwaiting any, chatID string, runID string, chatDir string, liveSeq int64, fallbackTimestamp int64) *stepAwaitingReplay {
 	awaitingList := toMapSlice(rawAwaiting)
 	replay := &stepAwaitingReplay{
 		items:                   make([]map[string]any, 0, len(awaitingList)),
@@ -31,7 +31,7 @@ func newStepAwaitingReplay(rawAwaiting any, chatID string, runID string, chatDir
 
 		idx := len(replay.items)
 		replay.items = append(replay.items, normalized)
-		if _, event := planningSnapshotFromAwaitingItem(normalized, chatID, runID, chatDir, fallbackTimestamp, legacyPlanningSnapshotIDs); event != nil {
+		if _, event := planningSnapshotFromAwaitingItem(normalized, chatID, runID, chatDir, fallbackTimestamp); event != nil {
 			replay.planningSnapshotByIndex[idx] = event
 		}
 

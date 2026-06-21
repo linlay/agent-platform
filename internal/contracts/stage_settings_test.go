@@ -4,7 +4,9 @@ import "testing"
 
 func TestStageSettingsParsesMaxOutputTokens(t *testing.T) {
 	settings := parseStageSettings(map[string]any{
-		"maxOutputTokens": 8192,
+		"modelConfig": map[string]any{
+			"maxOutputTokens": 8192,
+		},
 	})
 
 	if settings.MaxOutputTokens != 8192 {
@@ -15,27 +17,16 @@ func TestStageSettingsParsesMaxOutputTokens(t *testing.T) {
 	}
 }
 
-func TestStageSettingsIgnoresLegacyMaxTokens(t *testing.T) {
-	settings := parseStageSettings(map[string]any{
-		"maxTokens": 8192,
-	})
-
-	if settings.MaxOutputTokens != 0 {
-		t.Fatalf("expected legacy maxTokens to be ignored, got %d", settings.MaxOutputTokens)
-	}
-	if !settings.IsZero() {
-		t.Fatal("expected stage settings with only legacy maxTokens to be zero")
-	}
-}
-
 func TestStageSettingsParsesSamplingWithZeroTemperature(t *testing.T) {
 	settings := parseStageSettings(map[string]any{
-		"sampling": map[string]any{
-			"temperature":      0,
-			"top_p":            0.95,
-			"presencePenalty":  0,
-			"frequencyPenalty": 0.25,
-			"seed":             42,
+		"modelConfig": map[string]any{
+			"sampling": map[string]any{
+				"temperature":      0,
+				"top_p":            0.95,
+				"presencePenalty":  0,
+				"frequencyPenalty": 0.25,
+				"seed":             42,
+			},
 		},
 	})
 
@@ -59,15 +50,17 @@ func TestStageSettingsParsesSamplingWithZeroTemperature(t *testing.T) {
 	}
 }
 
-func TestResolvePlanExecuteSettingsMergesRootSamplingIntoStages(t *testing.T) {
+func TestResolvePlanExecuteSettingsIgnoresRootSampling(t *testing.T) {
 	settings := ResolvePlanExecuteSettings(map[string]any{
 		"sampling": map[string]any{
 			"temperature": 0.7,
 			"topP":        0.9,
 		},
 		"plan": map[string]any{
-			"sampling": map[string]any{
-				"temperature": 0.2,
+			"modelConfig": map[string]any{
+				"sampling": map[string]any{
+					"temperature": 0.2,
+				},
 			},
 		},
 	}, 0, 0)
@@ -75,32 +68,17 @@ func TestResolvePlanExecuteSettingsMergesRootSamplingIntoStages(t *testing.T) {
 	if settings.Plan.Sampling.Temperature == nil || *settings.Plan.Sampling.Temperature != 0.2 {
 		t.Fatalf("expected plan temperature override, got %#v", settings.Plan.Sampling)
 	}
-	if settings.Plan.Sampling.TopP == nil || *settings.Plan.Sampling.TopP != 0.9 {
-		t.Fatalf("expected plan topP inherited from root, got %#v", settings.Plan.Sampling)
+	if settings.Plan.Sampling.TopP != nil {
+		t.Fatalf("did not expect root topP to be inherited, got %#v", settings.Plan.Sampling)
 	}
-	if settings.Execute.Sampling.Temperature == nil || *settings.Execute.Sampling.Temperature != 0.7 {
-		t.Fatalf("expected execute temperature from root, got %#v", settings.Execute.Sampling)
-	}
-	if settings.Summary.Sampling.TopP == nil || *settings.Summary.Sampling.TopP != 0.9 {
-		t.Fatalf("expected summary topP inherited from execute, got %#v", settings.Summary.Sampling)
+	if !settings.Execute.Sampling.IsZero() || !settings.Summary.Sampling.IsZero() {
+		t.Fatalf("did not expect root sampling to create execute/summary settings, got execute=%#v summary=%#v", settings.Execute.Sampling, settings.Summary.Sampling)
 	}
 }
 
 func TestResolvePlanExecuteSettingsParsesNestedStageModelAndToolConfig(t *testing.T) {
 	settings := ResolvePlanExecuteSettings(map[string]any{
-		"sampling": map[string]any{
-			"temperature": 0.7,
-			"topP":        0.9,
-		},
 		"plan": map[string]any{
-			"modelKey":         "legacy-model",
-			"tools":            []any{"legacy_tool"},
-			"reasoningEnabled": false,
-			"reasoningEffort":  "LOW",
-			"maxOutputTokens":  512,
-			"sampling": map[string]any{
-				"temperature": 0.6,
-			},
 			"modelConfig": map[string]any{
 				"modelKey": "nested-model",
 				"reasoning": map[string]any{
@@ -110,6 +88,7 @@ func TestResolvePlanExecuteSettingsParsesNestedStageModelAndToolConfig(t *testin
 				"maxOutputTokens": 4096,
 				"sampling": map[string]any{
 					"temperature": 0.2,
+					"topP":        0.9,
 				},
 			},
 			"toolConfig": map[string]any{
@@ -134,6 +113,6 @@ func TestResolvePlanExecuteSettingsParsesNestedStageModelAndToolConfig(t *testin
 		t.Fatalf("expected nested temperature to win, got %#v", settings.Plan.Sampling)
 	}
 	if settings.Plan.Sampling.TopP == nil || *settings.Plan.Sampling.TopP != 0.9 {
-		t.Fatalf("expected topP inherited from root sampling, got %#v", settings.Plan.Sampling)
+		t.Fatalf("expected nested topP, got %#v", settings.Plan.Sampling)
 	}
 }

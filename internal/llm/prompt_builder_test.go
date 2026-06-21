@@ -252,7 +252,7 @@ func TestBuildRuntimeContextPromptAutoIncludesMemorySection(t *testing.T) {
 func TestBuildRuntimeContextPromptSkipsMemoryFallbackWithoutMemoryConfig(t *testing.T) {
 	prompt := buildRuntimeContextPrompt(QuerySession{}, api.QueryRequest{
 		Params: map[string]any{
-			"memoryContext": "legacy-memory",
+			"memoryContext": "param-memory",
 		},
 	})
 

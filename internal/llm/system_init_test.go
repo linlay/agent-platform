@@ -91,11 +91,15 @@ func TestPlanExecuteSystemInitProfilesUseRuntimeSettings(t *testing.T) {
 	session.ResolvedStageSettings = contracts.PlanExecuteSettings{}
 	session.StageSettings = map[string]any{
 		"plan": map[string]any{
-			"tools": []any{"custom_plan"},
+			"toolConfig": map[string]any{
+				"tools": []any{"custom_plan"},
+			},
 		},
 		"execute": map[string]any{
-			"tools":              []any{"bash", "custom_exec"},
 			"instructionsPrompt": "execute primary",
+			"toolConfig": map[string]any{
+				"tools": []any{"bash", "custom_exec"},
+			},
 		},
 		"summary": map[string]any{
 			"instructionsPrompt": "summary primary",

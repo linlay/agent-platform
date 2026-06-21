@@ -472,7 +472,7 @@ func memoryPreviewSandboxContext(context *contracts.SandboxContext) string {
 	appendMemoryPreviewKeyValue(&lines, "defaultEnvironmentId", context.DefaultEnvironmentID)
 	appendMemoryPreviewKeyValue(&lines, "level", context.Level)
 	if len(context.ExtraMounts) > 0 {
-		lines = append(lines, "extraMounts:")
+		lines = append(lines, "sandboxMounts:")
 		for _, mount := range context.ExtraMounts {
 			if strings.TrimSpace(mount) != "" {
 				lines = append(lines, "- "+strings.TrimSpace(mount))

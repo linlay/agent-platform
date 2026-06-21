@@ -977,7 +977,7 @@ func TestBashHITLApproveFlow(t *testing.T) {
 		t.Fatalf("did not expect camelCase leave payload aliases in stream, got %s", body)
 	}
 	if strings.Contains(body, `"initialPayload":`) || strings.Contains(body, `"viewportPayload":`) {
-		t.Fatalf("did not expect legacy form payload fields in stream, got %s", body)
+		t.Fatalf("did not expect form payload aliases in stream, got %s", body)
 	}
 	if strings.Contains(body, "map[") {
 		t.Fatalf("did not expect Go map string in stream, got %s", body)
@@ -1452,7 +1452,7 @@ func TestBashHITLDockerRMIApproveFlow(t *testing.T) {
 		t.Fatalf("expected approval sidecar on tool.result, got %#v", resultPayload)
 	}
 	if _, ok := resultPayload["hitl"]; ok {
-		t.Fatalf("did not expect legacy hitl key, got %#v", resultPayload)
+		t.Fatalf("did not expect hitl key, got %#v", resultPayload)
 	}
 	if strings.Contains(body, `"frontend_submit_invalid_payload"`) {
 		t.Fatalf("did not expect frontend_submit_invalid_payload, got %s", body)

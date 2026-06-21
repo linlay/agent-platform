@@ -409,8 +409,8 @@ func (w *StepWriter) captureRootUsageSnapshot(event stream.EventData) {
 		}
 	}
 	if cw := contextWindow; cw != nil {
-		w.pendingContextWindowMax = toIntFromKeys(cw, "maxSize", "max_size")
-		w.pendingEstimated = toIntFromKeys(cw, "estimatedNextCallSize", "estimated_next_call_size", "estimatedSize", "estimated_size")
+		w.pendingContextWindowMax = toIntFromKeys(cw, "maxSize")
+		w.pendingEstimated = toIntFromKeys(cw, "estimatedNextCallSize")
 		w.capturePendingModelMetadata(cw)
 	}
 }
@@ -430,8 +430,8 @@ func (w *StepWriter) captureTaskUsageSnapshot(buffer *taskStepBuffer, event stre
 		}
 	}
 	if cw := contextWindow; cw != nil {
-		buffer.pendingContextWindowMax = toIntFromKeys(cw, "maxSize", "max_size")
-		buffer.pendingEstimated = toIntFromKeys(cw, "estimatedNextCallSize", "estimated_next_call_size", "estimatedSize", "estimated_size")
+		buffer.pendingContextWindowMax = toIntFromKeys(cw, "maxSize")
+		buffer.pendingEstimated = toIntFromKeys(cw, "estimatedNextCallSize")
 		buffer.capturePendingModelMetadata(cw)
 	}
 }
@@ -441,8 +441,8 @@ func (w *StepWriter) captureRootDebugData(inner map[string]any) {
 		w.pendingSystemRef = systemRef
 	}
 	if cw, ok := inner["contextWindow"].(map[string]any); ok {
-		w.pendingContextWindowMax = toIntFromKeys(cw, "maxSize", "max_size")
-		w.pendingEstimated = toIntFromKeys(cw, "estimatedSize", "estimated_size")
+		w.pendingContextWindowMax = toIntFromKeys(cw, "maxSize")
+		w.pendingEstimated = toIntFromKeys(cw, "estimatedSize")
 		w.capturePendingModelMetadata(cw)
 	}
 	if usage, ok := inner["usage"].(map[string]any); ok {
@@ -461,8 +461,8 @@ func (w *StepWriter) captureTaskDebugData(buffer *taskStepBuffer, inner map[stri
 		buffer.pendingSystemRef = systemRef
 	}
 	if cw, ok := inner["contextWindow"].(map[string]any); ok {
-		buffer.pendingContextWindowMax = toIntFromKeys(cw, "maxSize", "max_size")
-		buffer.pendingEstimated = toIntFromKeys(cw, "estimatedSize", "estimated_size")
+		buffer.pendingContextWindowMax = toIntFromKeys(cw, "maxSize")
+		buffer.pendingEstimated = toIntFromKeys(cw, "estimatedSize")
 		buffer.capturePendingModelMetadata(cw)
 	}
 	if usage, ok := inner["usage"].(map[string]any); ok {

@@ -19,8 +19,8 @@ func usageHasLLMChat(usage map[string]any) bool {
 	if len(usage) == 0 {
 		return false
 	}
-	return toIntFromKeys(usage, "llmChatCompletionCount", "llm_chat_completion_count") > 0 ||
-		toIntFromKeys(usage, "toolCallCount", "tool_call_count") > 0
+	return toIntFromKeys(usage, "llmChatCompletionCount") > 0 ||
+		toIntFromKeys(usage, "toolCallCount") > 0
 }
 
 func storedMessagesContainAssistant(messages []StoredMessage) bool {
@@ -262,22 +262,22 @@ func cloneStepSystemPayload(value map[string]any) map[string]any {
 func buildContextWindow(usage map[string]any, maxSize int, estimatedSize int) map[string]any {
 	actual := 0
 	if usage != nil {
-		actual = toIntFromKeys(usage, "promptTokens", "prompt_tokens")
+		actual = toIntFromKeys(usage, "promptTokens")
 	}
 	cw := map[string]any{}
 	if maxSize > 0 {
 		cw["maxSize"] = maxSize
 	}
 	if actual > 0 {
-		cw["actualSize"] = actual
+		cw["currentSize"] = actual
 	}
 	if estimatedSize > 0 {
-		cw["estimatedSize"] = estimatedSize
+		cw["estimatedNextCallSize"] = estimatedSize
 	}
-	if modelKey := firstStringFromKeys(usage, "modelKey", "model_key"); modelKey != "" {
+	if modelKey := firstStringFromKeys(usage, "modelKey"); modelKey != "" {
 		cw["modelKey"] = modelKey
 	}
-	if reasoningEffort := firstStringFromKeys(usage, "reasoningEffort", "reasoning_effort"); reasoningEffort != "" {
+	if reasoningEffort := firstStringFromKeys(usage, "reasoningEffort"); reasoningEffort != "" {
 		cw["reasoningEffort"] = reasoningEffort
 	}
 	if len(cw) == 0 {
@@ -289,7 +289,7 @@ func buildContextWindow(usage map[string]any, maxSize int, estimatedSize int) ma
 func captureStepModelMetadata(modelKey *string, reasoningEffort *string, values ...map[string]any) {
 	if modelKey != nil && strings.TrimSpace(*modelKey) == "" {
 		for _, value := range values {
-			if text := firstStringFromKeys(value, "modelKey", "model_key"); text != "" {
+			if text := firstStringFromKeys(value, "modelKey"); text != "" {
 				*modelKey = text
 				break
 			}
@@ -297,7 +297,7 @@ func captureStepModelMetadata(modelKey *string, reasoningEffort *string, values 
 	}
 	if reasoningEffort != nil && strings.TrimSpace(*reasoningEffort) == "" {
 		for _, value := range values {
-			if text := firstStringFromKeys(value, "reasoningEffort", "reasoning_effort"); text != "" {
+			if text := firstStringFromKeys(value, "reasoningEffort"); text != "" {
 				*reasoningEffort = text
 				break
 			}
@@ -312,14 +312,14 @@ func applyStepLineModelMetadata(line *StepLine, modelKey string, reasoningEffort
 	line.ModelKey = firstNonEmptyStepString(
 		line.ModelKey,
 		modelKey,
-		firstStringFromKeys(line.Usage, "modelKey", "model_key"),
-		firstStringFromKeys(line.ContextWindow, "modelKey", "model_key"),
+		firstStringFromKeys(line.Usage, "modelKey"),
+		firstStringFromKeys(line.ContextWindow, "modelKey"),
 	)
 	line.ReasoningEffort = firstNonEmptyStepString(
 		line.ReasoningEffort,
 		reasoningEffort,
-		firstStringFromKeys(line.Usage, "reasoningEffort", "reasoning_effort"),
-		firstStringFromKeys(line.ContextWindow, "reasoningEffort", "reasoning_effort"),
+		firstStringFromKeys(line.Usage, "reasoningEffort"),
+		firstStringFromKeys(line.ContextWindow, "reasoningEffort"),
 	)
 	stripStepModelMetadata(line.Usage)
 	stripStepModelMetadata(line.ContextWindow)
@@ -330,9 +330,7 @@ func stripStepModelMetadata(values map[string]any) {
 		return
 	}
 	delete(values, "modelKey")
-	delete(values, "model_key")
 	delete(values, "reasoningEffort")
-	delete(values, "reasoning_effort")
 }
 
 func firstNonEmptyStepString(values ...string) string {

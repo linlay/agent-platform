@@ -120,15 +120,19 @@ func TestServerSharedHelpersUseCommonChatAndMemoryStores(t *testing.T) {
 		t.Fatalf("expected detailed run summary usage, got %#v", detail.Runs)
 	}
 
-	rememberResp, err := server.executeRemember(api.RememberRequest{
-		RequestID: "req-remember",
-		ChatID:    "chat-1",
-	})
-	if err != nil {
-		t.Fatalf("execute remember: %v", err)
+	req := httptest.NewRequest(http.MethodPost, "/api/learn", strings.NewReader(`{"requestId":"req-learn","chatId":"chat-1"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	server.handleLearn(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("learn expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if !rememberResp.Accepted || rememberResp.MemoryCount != 1 {
-		t.Fatalf("unexpected remember response %#v", rememberResp)
+	var learnResp api.ApiResponse[api.LearnResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &learnResp); err != nil {
+		t.Fatalf("decode learn response: %v", err)
+	}
+	if !learnResp.Data.Accepted || learnResp.Data.ObservationCount == 0 {
+		t.Fatalf("unexpected learn response %#v", learnResp.Data)
 	}
 	matches, err := memories.Search("answer", 10)
 	if err != nil {
@@ -200,28 +204,17 @@ func TestLoadChatDetailUsageBreakdownSeparatesLastRunFromChatTotal(t *testing.T)
 	}
 }
 
-func TestLoadChatDetailAndRememberReturnNotFoundAcrossHTTP(t *testing.T) {
+func TestLoadChatDetailReturnsNotFoundAcrossHTTP(t *testing.T) {
 	server, _, _ := newServerForHelperTests(t)
 
 	if _, err := server.loadChatDetail(context.Background(), "missing-chat", false); err == nil {
 		t.Fatalf("expected loadChatDetail to return not found")
-	}
-	if _, err := server.executeRemember(api.RememberRequest{RequestID: "req_missing", ChatID: "missing-chat"}); err == nil {
-		t.Fatalf("expected executeRemember to return not found")
 	}
 
 	chatRec := httptest.NewRecorder()
 	server.handleChat(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId=missing-chat", nil))
 	if chatRec.Code != http.StatusNotFound {
 		t.Fatalf("expected HTTP chat 404, got %d: %s", chatRec.Code, chatRec.Body.String())
-	}
-
-	rememberReq := httptest.NewRequest(http.MethodPost, "/api/remember", strings.NewReader(`{"requestId":"req_missing","chatId":"missing-chat"}`))
-	rememberReq.Header.Set("Content-Type", "application/json")
-	rememberRec := httptest.NewRecorder()
-	server.handleRemember(rememberRec, rememberReq)
-	if rememberRec.Code != http.StatusNotFound {
-		t.Fatalf("expected HTTP remember 404, got %d: %s", rememberRec.Code, rememberRec.Body.String())
 	}
 }
 
@@ -473,7 +466,7 @@ func TestLoadChatDetailActiveRunLastSeqUsesPersistedLiveSeqCursor(t *testing.T) 
 		UpdatedAt: 3001,
 		Query: map[string]any{
 			"chatId":  "chat-old-live-cursor",
-			"message": "legacy running",
+			"message": "running",
 		},
 		Type: "query",
 	}); err != nil {
@@ -494,7 +487,7 @@ func TestLoadChatDetailActiveRunLastSeqUsesPersistedLiveSeqCursor(t *testing.T) 
 		t.Fatalf("load old chat detail: %v", err)
 	}
 	if oldDetail.ActiveRun == nil || oldDetail.ActiveRun.LastSeq != 0 {
-		t.Fatalf("expected legacy active run lastSeq=0, got %#v", oldDetail.ActiveRun)
+		t.Fatalf("expected active run lastSeq=0, got %#v", oldDetail.ActiveRun)
 	}
 }
 

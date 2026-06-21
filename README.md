@@ -1,6 +1,6 @@
 # agent-platform
 
-本仓库是 `agent-platform` 的 Go 版运行时实现，当前以 Java runtime 的 `.env` / `application.yml` 契约为事实源，支持目录驱动的 agents / teams / skills catalog、JWT 鉴权、resource ticket、chat 文件落盘、remember 输出、Container Hub sandbox，以及最小 OpenAI 兼容模型与 backend tool loop。
+本仓库是 `agent-platform` 的 Go 版运行时实现，当前以 Java runtime 的 `.env` / `application.yml` 契约为事实源，支持目录驱动的 agents / teams / skills catalog、JWT 鉴权、resource ticket、chat 文件落盘、memory learn、Container Hub sandbox，以及最小 OpenAI 协议模型与 backend tool loop。
 
 > 项目事实、架构与开发约束见 [CLAUDE.md](./CLAUDE.md)，补充说明见 [docs/](./docs)。
 
@@ -25,7 +25,6 @@
 - `POST /api/submit`
 - `POST /api/steer`
 - `POST /api/interrupt`
-- `POST /api/remember`
 - `POST /api/learn`
 - `GET /api/viewport?viewportKey=...`
 - `GET /api/resource?file=...`
@@ -33,7 +32,7 @@
 
 返回格式约定：
 
-- `POST /api/query` 成功时默认返回真实流式 SSE event stream，服务端会按 provider 原始流式 chunk 逐步透传 `content.delta`，结束时追加 `data: [DONE]`；请求体传 `stream:false` 时返回普通 JSON，默认 `data` 只包含 `content`，可用 `includeUsage:true` / `includeFullText:true` 追加 `usage` / `fullText`，字段名不兼容错拼 `steam`。
+- `POST /api/query` 成功时默认返回真实流式 SSE event stream，服务端会按 provider 原始流式 chunk 逐步透传 `content.delta`，结束时追加 `data: [DONE]`；请求体传 `stream:false` 时返回普通 JSON，默认 `data` 只包含 `content`，可用 `includeUsage:true` / `includeFullText:true` 追加 `usage` / `fullText`，错拼字段 `steam` 不会被识别。
 - 其余 JSON 接口统一返回：
 
 ```json
@@ -58,7 +57,7 @@
 
 ### 前置要求
 
-- Go 1.22 或兼容版本
+- Go 1.22 或更新版本
 - Docker / Docker Compose（如需容器运行）
 - 可用的 provider / model 注册文件（放在 `runtime/registries/`）
 
@@ -149,7 +148,7 @@ RUN_SOCKET_TESTS=1 make test-integration
 
 ## 3. 配置说明
 
-所有本地环境配置从 `.env.example` 复制到 `.env`。`.env` 不提交；`.env.example` 只保留推荐给普通部署者的最终用户环境变量入口。工具运行时配置使用 `configs/tools.yml`，AI 工具配置使用 `configs/ai-tools.yml`，默认值的单一事实源仍以代码和 `configs/*.example.yml` 模板为准。更完整的高级、排障和兼容性配置参考见 [配置化说明](./docs/配置化说明.md)。
+所有本地环境配置从 `.env.example` 复制到 `.env`。`.env` 不提交；`.env.example` 只保留推荐给普通部署者的最终用户环境变量入口。工具运行时配置使用 `configs/tools.yml`，AI 工具配置使用 `configs/ai-tools.yml`，默认值的单一事实源仍以代码和 `configs/*.example.yml` 模板为准。更完整的高级与排障配置参考见 [配置化说明](./docs/配置化说明.md)。
 
 ### 根 `.env.example`
 
@@ -214,11 +213,11 @@ Provider `apiKey` 按明文字符串读取：
 - 默认值是 `configs/local-public-key.pem`
 - `AUTH_LOCAL_PUBLIC_KEY_FILE` 若是绝对路径，则原样使用
 - 若是相对路径，则按项目根目录解析
-- 若为了兼容仍写成单文件名 `local-public-key.pem`，会自动解析到 `configs/local-public-key.pem`
+- 单文件名 `local-public-key.pem` 会按项目根目录解析
 
 配置优先级：
 
-- Host / AI tools / prompts / runtime: 代码默认值 `<` 旧拆分 yml `<` 新合并 yml
+- Host / AI tools / prompts / runtime: 代码默认值 `<` yml
 - 其它配置: 代码默认值 `<` yml `<` 仍受支持的环境变量
 
 详细配置见 [配置化说明](./docs/配置化说明.md)。
@@ -260,7 +259,7 @@ Container Hub 默认基础挂载当前最多 7 个：
 - `/owner` -> `OWNER_DIR`（`ro`，目录缺失时自动创建）
 - `/memory` -> `MEMORY_DIR/<agentKey>`（`ro`，目录缺失时自动创建）
 
-`runtimeConfig.extraMounts` 会真实影响 Container Hub session mounts：
+`runtimeConfig.sandboxMounts` 会真实影响 Container Hub session mounts：
 
 - `platform + mode`：恢复按需平台挂载，或覆盖默认 `/agent`、`/owner`、`/memory` 模式；`platform: skills-market` 会显式挂载 `/skills-market`
 - `destination + mode`：覆盖默认基础挂载模式
@@ -306,13 +305,13 @@ docker compose logs -f
 
 ### 常见排查
 
-- 服务无法启动：先检查环境里是否设置了已废弃的旧变量，或鉴权公钥 / JWKS 配置是否不完整。
+- 服务无法启动：先检查当前配置文件、鉴权公钥与 JWKS 配置是否完整。
 - Query 无法调用模型：检查 `REGISTRIES_DIR/providers`、`REGISTRIES_DIR/models` 是否存在，并确认 provider `apiKey` / `baseUrl` 可用。
 - Automation 看起来没有触发：先确认服务进程本身正在运行；如果是本地 `make run`，日志不会出现在 `docker compose logs` 里。随后检查 stdout 中是否有 `automation orchestrator started`、`[automation] registered ...`、`[automation] dispatch ...`。
 - Query 看起来不像真流式：先检查是否启用了 `AGENT_H2A_RENDER_FLUSH_INTERVAL`、`AGENT_H2A_RENDER_MAX_BUFFERED_CHARS` 或 `AGENT_H2A_RENDER_MAX_BUFFERED_EVENTS` 这类传输层缓冲参数；默认 SSE writer 会逐事件 flush。
 - `bash` 执行失败：检查 `CONTAINER_HUB_BASE_URL`、`default-environment-id`，以及 `.env` 中的目录变量是否为宿主机真实路径。
 - chat 没有持久化：检查 `CHATS_DIR` 是否可写。
-- remember 没有输出文件：确认请求体里同时传了 `requestId` 和 `chatId`。
+- memory learn 未生效：确认 `/api/learn` 请求体、agent memory 配置与 `MEMORY_DIR` 可写性。
 - 上传后无法下载：确认文件已落到 `CHATS_DIR/<chatId>/`，并检查 `/api/resource?file=...` 是否原样使用。
 
 ## 文档索引

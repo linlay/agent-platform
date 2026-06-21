@@ -17,7 +17,7 @@ func resolveAgentMode(mode string) AgentMode {
 	case "ONESHOT":
 		return oneshotMode{}
 	case "PLAN_EXECUTE", "PLAN-EXECUTE":
-		return planExecuteMode{}
+		return planPipelineMode{}
 	case "CODER":
 		return coderMode{}
 	case "REACT":
@@ -55,8 +55,8 @@ func (oneshotMode) Start(engine *LLMAgentEngine, ctx context.Context, req api.Qu
 	})
 }
 
-type planExecuteMode struct{}
+type planPipelineMode struct{}
 
-func (planExecuteMode) Start(engine *LLMAgentEngine, ctx context.Context, req api.QueryRequest, session QuerySession) (AgentStream, error) {
-	return newPlanExecuteStream(engine, ctx, req, session)
+func (planPipelineMode) Start(engine *LLMAgentEngine, ctx context.Context, req api.QueryRequest, session QuerySession) (AgentStream, error) {
+	return newPlanPipelineStream(engine, ctx, req, session)
 }

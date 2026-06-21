@@ -231,7 +231,7 @@ func applyUsageMapToData(target *chat.UsageData, usage map[string]any) {
 
 func usageDataFromMap(usage map[string]any) chat.UsageData {
 	out := chat.UsageData{
-		ModelKey:               strings.TrimSpace(contracts.FirstNonEmptyString(usage["modelKey"], usage["model_key"])),
+		ModelKey:               strings.TrimSpace(contracts.AnyStringNode(usage["modelKey"])),
 		PromptTokens:           contracts.AnyIntNode(usage["promptTokens"]),
 		CompletionTokens:       contracts.AnyIntNode(usage["completionTokens"]),
 		TotalTokens:            contracts.AnyIntNode(usage["totalTokens"]),

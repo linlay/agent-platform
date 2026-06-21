@@ -56,9 +56,6 @@ func TestParseAgentFileSupportsNestedPlanExecuteStageConfig(t *testing.T) {
 		"    topP: 0.9\n" +
 		"stageSettings:\n" +
 		"  execute:\n" +
-		"    modelKey: legacy-model\n" +
-		"    tools:\n" +
-		"      - legacy_tool\n" +
 		"    modelConfig:\n" +
 		"      modelKey: nested-model\n" +
 		"      reasoning:\n" +
@@ -145,79 +142,6 @@ func TestParseAgentFileMergesStageSettingsBudgetIntoResolvedBudget(t *testing.T)
 	}
 }
 
-func TestParseAgentFileStageSettingsBudgetOverridesLegacyBudgetStages(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "agent.yml")
-	content := "" +
-		"key: stage-budget-precedence\n" +
-		"name: Stage Budget Precedence\n" +
-		"mode: PLAN_EXECUTE\n" +
-		"modelConfig:\n" +
-		"  modelKey: demo-model\n" +
-		"budget:\n" +
-		"  stages:\n" +
-		"    plan:\n" +
-		"      maxSteps: 7\n" +
-		"      tool:\n" +
-		"        maxCalls: 14\n" +
-		"        retryCount: 2\n" +
-		"    execute:\n" +
-		"      maxSteps: 8\n" +
-		"stageSettings:\n" +
-		"  plan:\n" +
-		"    budget:\n" +
-		"      maxSteps: 20\n" +
-		"      tool:\n" +
-		"        timeout: 90\n" +
-		"        maxCalls: 40\n"
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write agent file: %v", err)
-	}
-
-	def, err := parseAgentFile(path)
-	if err != nil {
-		t.Fatalf("parse agent file: %v", err)
-	}
-	budget := contracts.ResolveBudget(config.Config{}, def.Budget)
-	if budget.Stages["plan"].MaxSteps != 20 || budget.Stages["plan"].Tool.MaxCalls != 40 ||
-		budget.Stages["plan"].Tool.Timeout != 90 || budget.Stages["plan"].Tool.RetryCount != 2 {
-		t.Fatalf("plan stage budget = %#v, want stageSettings override", budget.Stages["plan"])
-	}
-	if budget.Stages["execute"].MaxSteps != 8 {
-		t.Fatalf("execute legacy stage budget = %#v, want maxSteps 8", budget.Stages["execute"])
-	}
-}
-
-func TestParseAgentFilePreservesLegacyBudgetStagesWithoutStageSettingsBudget(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "agent.yml")
-	content := "" +
-		"key: legacy-stage-budget\n" +
-		"name: Legacy Stage Budget\n" +
-		"mode: PLAN_EXECUTE\n" +
-		"modelConfig:\n" +
-		"  modelKey: demo-model\n" +
-		"budget:\n" +
-		"  stages:\n" +
-		"    execute:\n" +
-		"      maxSteps: 8\n" +
-		"      tool:\n" +
-		"        timeout: 30\n" +
-		"        maxCalls: 16\n"
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write agent file: %v", err)
-	}
-
-	def, err := parseAgentFile(path)
-	if err != nil {
-		t.Fatalf("parse agent file: %v", err)
-	}
-	budget := contracts.ResolveBudget(config.Config{}, def.Budget)
-	if budget.Stages["execute"].MaxSteps != 8 || budget.Stages["execute"].Tool.Timeout != 30 || budget.Stages["execute"].Tool.MaxCalls != 16 {
-		t.Fatalf("execute legacy stage budget = %#v, want maxSteps 8 tool timeout 30 maxCalls 16", budget.Stages["execute"])
-	}
-}
-
 func TestParseAgentFileReadsProxyTransport(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
@@ -260,29 +184,6 @@ func TestParseAgentFileDefaultsProxyTransportToWebSocket(t *testing.T) {
 	}
 	if def.ProxyConfig == nil || def.ProxyConfig.Transport != "ws" {
 		t.Fatalf("expected default proxy transport ws, got %#v", def.ProxyConfig)
-	}
-}
-
-func TestParseAgentFileRejectsDeprecatedProxyTimeoutMs(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "agent.yml")
-	content := "" +
-		"key: proxy-demo\n" +
-		"name: Proxy Demo\n" +
-		"mode: PROXY\n" +
-		"proxyConfig:\n" +
-		"  baseUrl: http://127.0.0.1:3210\n" +
-		"  timeoutMs: 300000\n"
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write agent file: %v", err)
-	}
-
-	_, err := parseAgentFile(path)
-	if err == nil {
-		t.Fatal("expected deprecated proxyConfig.timeoutMs to be rejected")
-	}
-	if !strings.Contains(err.Error(), "proxyConfig.timeoutMs") || !strings.Contains(err.Error(), "proxyConfig.timeout") {
-		t.Fatalf("expected migration error for proxyConfig.timeoutMs, got %v", err)
 	}
 }
 
@@ -455,42 +356,11 @@ func TestParseAgentFileIgnoresLegacyToolConfigBuckets(t *testing.T) {
 	}
 	for _, tool := range []string{"datetime", "ask_user_question", "plan_update_task"} {
 		if containsString(def.Tools, tool) {
-			t.Fatalf("expected legacy tool bucket entry %s to stay ignored, got %#v", tool, def.Tools)
+			t.Fatalf("expected inactive tool bucket entry %s to stay ignored, got %#v", tool, def.Tools)
 		}
 	}
 	if def.MemoryEnabled {
 		t.Fatalf("expected memory to stay disabled by default, got %#v", def)
-	}
-}
-
-func TestParseAgentFileRejectsToolOverridesFromToolConfig(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "agent.yml")
-	content := "" +
-		"key: demo\n" +
-		"name: Demo\n" +
-		"mode: REACT\n" +
-		"modelConfig:\n" +
-		"  modelKey: demo-model\n" +
-		"toolConfig:\n" +
-		"  tools:\n" +
-		"    - ask_user_question\n" +
-		"  overrides:\n" +
-		"    ask_user_question:\n" +
-		"      label: Ask\n" +
-		"      description: Ask the user a question\n" +
-		"      viewportType: builtin\n" +
-		"      viewportKey: question_dialog\n"
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write agent file: %v", err)
-	}
-
-	_, err := parseAgentFile(path)
-	if err == nil {
-		t.Fatal("expected toolConfig.overrides to be rejected")
-	}
-	if !strings.Contains(err.Error(), "toolConfig.overrides is removed") {
-		t.Fatalf("expected toolConfig.overrides migration error, got %v", err)
 	}
 }
 
@@ -600,7 +470,7 @@ func TestParseAgentFileSupportsCoderWorkspace(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileSupportsACPCoderBackend(t *testing.T) {
+func TestParseAgentFileSupportsACPCoderProxyID(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "project")
 	path := filepath.Join(root, "agent.yml")
@@ -608,7 +478,6 @@ func TestParseAgentFileSupportsACPCoderBackend(t *testing.T) {
 		"key: coder\n" +
 		"mode: CODER\n" +
 		"runtimeConfig:\n" +
-		"  coderBackend: acp\n" +
 		"  acpProxyId: codex\n" +
 		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n" +
 		"projectConfig:\n" +
@@ -622,8 +491,8 @@ func TestParseAgentFileSupportsACPCoderBackend(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	if def.Mode != AgentModeCoder || def.CoderBackend != AgentCoderBackendACP {
-		t.Fatalf("mode/backend = %q/%q, want CODER/acp", def.Mode, def.CoderBackend)
+	if def.Mode != AgentModeCoder {
+		t.Fatalf("mode = %q, want CODER", def.Mode)
 	}
 	if def.ACPProxyID != "codex" {
 		t.Fatalf("acpProxyId = %q, want codex", def.ACPProxyID)
@@ -643,7 +512,6 @@ func TestParseAgentFileRejectsACPCoderPromptFiles(t *testing.T) {
 		"key: coder\n" +
 		"mode: CODER\n" +
 		"runtimeConfig:\n" +
-		"  coderBackend: acp\n" +
 		"  acpProxyId: codex\n" +
 		"projectConfig:\n" +
 		"  promptFiles:\n" +
@@ -665,7 +533,6 @@ func TestParseAgentFileRejectsACPCoderProxyConfig(t *testing.T) {
 		"key: coder\n" +
 		"mode: CODER\n" +
 		"runtimeConfig:\n" +
-		"  coderBackend: acp\n" +
 		"  acpProxyId: codex\n" +
 		"proxyConfig:\n" +
 		"  baseUrl: http://127.0.0.1:3211\n"
@@ -679,25 +546,7 @@ func TestParseAgentFileRejectsACPCoderProxyConfig(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileRejectsACPCoderWithoutProxyID(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "agent.yml")
-	content := "" +
-		"key: coder\n" +
-		"mode: CODER\n" +
-		"runtimeConfig:\n" +
-		"  coderBackend: acp\n"
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write agent file: %v", err)
-	}
-
-	_, err := parseAgentFile(path)
-	if err == nil || !strings.Contains(err.Error(), "runtimeConfig.acpProxyId is required") {
-		t.Fatalf("expected ACP CODER acpProxyId rejection, got %v", err)
-	}
-}
-
-func TestParseAgentFileInfersACPBackendFromProxyID(t *testing.T) {
+func TestParseAgentFileUsesACPBackendFromProxyID(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "project")
 	path := filepath.Join(root, "agent.yml")
@@ -715,30 +564,11 @@ func TestParseAgentFileInfersACPBackendFromProxyID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
-	if def.CoderBackend != AgentCoderBackendACP || def.ACPProxyID != "codex" {
-		t.Fatalf("backend/proxy = %q/%q, want acp/codex", def.CoderBackend, def.ACPProxyID)
+	if def.ACPProxyID != "codex" {
+		t.Fatalf("acpProxyId = %q, want codex", def.ACPProxyID)
 	}
 	if !AgentUsesACPCoderBackend(def) {
 		t.Fatalf("expected ACP CODER backend")
-	}
-}
-
-func TestParseAgentFileRejectsNativeCoderBackendWithProxyID(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "agent.yml")
-	content := "" +
-		"key: coder\n" +
-		"mode: CODER\n" +
-		"runtimeConfig:\n" +
-		"  coderBackend: native\n" +
-		"  acpProxyId: codex\n"
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write agent file: %v", err)
-	}
-
-	_, err := parseAgentFile(path)
-	if err == nil || !strings.Contains(err.Error(), "runtimeConfig.coderBackend: native conflicts with runtimeConfig.acpProxyId") {
-		t.Fatalf("expected native/acpProxyId conflict rejection, got %v", err)
 	}
 }
 
@@ -776,9 +606,6 @@ func TestParseAgentFileAppliesCoderProfileDefaults(t *testing.T) {
 	if got := intNode(mapNode(def.Budget["tool"])["maxCalls"]); got != 200 {
 		t.Fatalf("tool.maxCalls = %d, want 200", got)
 	}
-	if def.ReactMaxSteps != 0 {
-		t.Fatalf("react max steps = %d, want 0 after budget migration", def.ReactMaxSteps)
-	}
 	if def.Name != "" || def.Role != "" || def.Description != "coder" {
 		t.Fatalf("identity defaults = name:%q role:%q description:%q, want name/role empty, description key fallback", def.Name, def.Role, def.Description)
 	}
@@ -799,8 +626,6 @@ func TestParseAgentFileAllowsCoderProfileOverrides(t *testing.T) {
 		"    - owner\n" +
 		"budget:\n" +
 		"  timeout: 1234\n" +
-		"react:\n" +
-		"  maxSteps: 12\n" +
 		"runtimeConfig:\n" +
 		"  workspaceRoot: " + filepath.ToSlash(workspace) + "\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -819,34 +644,6 @@ func TestParseAgentFileAllowsCoderProfileOverrides(t *testing.T) {
 	}
 	if got := intNode(def.Budget["timeout"]); got != 1234 {
 		t.Fatalf("timeout = %d, want explicit override", got)
-	}
-	if def.ReactMaxSteps != 12 {
-		t.Fatalf("react max steps = %d, want explicit override", def.ReactMaxSteps)
-	}
-}
-
-func TestParseAgentFileRejectsDeprecatedBudgetTimeoutKeys(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "agent.yml")
-	content := "" +
-		"key: demo\n" +
-		"name: Demo\n" +
-		"mode: REACT\n" +
-		"modelConfig:\n" +
-		"  modelKey: demo-model\n" +
-		"budget:\n" +
-		"  tool:\n" +
-		"    timeoutMs: 120000\n"
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write agent file: %v", err)
-	}
-
-	_, err := parseAgentFile(path)
-	if err == nil {
-		t.Fatal("expected deprecated budget timeoutMs to be rejected")
-	}
-	if !strings.Contains(err.Error(), "budget.tool.timeoutMs") || !strings.Contains(err.Error(), "budget.tool.timeout") {
-		t.Fatalf("expected migration error for deprecated budget timeout, got %v", err)
 	}
 }
 
@@ -1022,63 +819,9 @@ func TestParseAgentFileReadsHostAccessAndSandboxMounts(t *testing.T) {
 	if !reflect.DeepEqual(def.HostAccess.WriteRoots, []string{"@owner"}) {
 		t.Fatalf("host write roots = %#v", def.HostAccess.WriteRoots)
 	}
-	mounts, _ := def.Runtime["extraMounts"].([]map[string]any)
+	mounts, _ := def.Runtime["sandboxMounts"].([]map[string]any)
 	if len(mounts) != 1 || mounts[0]["platform"] != "owner" || mounts[0]["mode"] != "rw" {
-		t.Fatalf("expected sandboxMounts to populate runtime extraMounts, got %#v", def.Runtime["extraMounts"])
-	}
-}
-
-func TestParseAgentFileSandboxMountsOverrideLegacyExtraMounts(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "agent.yml")
-	content := "" +
-		"key: mount-demo\n" +
-		"mode: REACT\n" +
-		"runtimeConfig:\n" +
-		"  sandboxMounts:\n" +
-		"    - platform: owner\n" +
-		"      target: /owner\n" +
-		"      mode: rw\n" +
-		"  extraMounts:\n" +
-		"    - platform: memory\n" +
-		"      target: /memory\n" +
-		"      mode: ro\n"
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write agent file: %v", err)
-	}
-
-	def, err := parseAgentFile(path)
-	if err != nil {
-		t.Fatalf("parse agent file: %v", err)
-	}
-	mounts, _ := def.Runtime["extraMounts"].([]map[string]any)
-	if len(mounts) != 1 || mounts[0]["platform"] != "owner" {
-		t.Fatalf("expected sandboxMounts to override extraMounts, got %#v", def.Runtime["extraMounts"])
-	}
-}
-
-func TestParseAgentFileKeepsLegacyExtraMountsWhenSandboxMountsMissing(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "agent.yml")
-	content := "" +
-		"key: mount-demo\n" +
-		"mode: REACT\n" +
-		"runtimeConfig:\n" +
-		"  extraMounts:\n" +
-		"    - platform: memory\n" +
-		"      target: /memory\n" +
-		"      mode: ro\n"
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write agent file: %v", err)
-	}
-
-	def, err := parseAgentFile(path)
-	if err != nil {
-		t.Fatalf("parse agent file: %v", err)
-	}
-	mounts, _ := def.Runtime["extraMounts"].([]map[string]any)
-	if len(mounts) != 1 || mounts[0]["platform"] != "memory" {
-		t.Fatalf("expected legacy extraMounts fallback, got %#v", def.Runtime["extraMounts"])
+		t.Fatalf("expected sandboxMounts to populate runtime sandboxMounts, got %#v", def.Runtime["sandboxMounts"])
 	}
 }
 
@@ -1352,57 +1095,6 @@ func TestParseAgentFileParsesMemoryRuntimeConfig(t *testing.T) {
 	}
 }
 
-func TestParseAgentFileRejectsDeprecatedMemoryTimeoutMs(t *testing.T) {
-	cases := []struct {
-		name       string
-		config     string
-		wantErrSub string
-	}{
-		{
-			name: "embedding",
-			config: "" +
-				"  embedding:\n" +
-				"    providerKey: openai\n" +
-				"    timeoutMs: 15000\n",
-			wantErrSub: "memoryConfig.embedding.timeoutMs",
-		},
-		{
-			name: "auto remember",
-			config: "" +
-				"  autoRemember:\n" +
-				"    enabled: true\n" +
-				"    modelKey: minimax-m2_7-anthropic\n" +
-				"    timeoutMs: 60000\n",
-			wantErrSub: "memoryConfig.autoRemember.timeoutMs",
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			root := t.TempDir()
-			path := filepath.Join(root, "agent.yml")
-			content := "" +
-				"key: demo\n" +
-				"name: Demo\n" +
-				"mode: REACT\n" +
-				"modelConfig:\n" +
-				"  modelKey: demo-model\n" +
-				"memoryConfig:\n" +
-				"  enabled: true\n" +
-				tc.config
-			if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-				t.Fatalf("write agent file: %v", err)
-			}
-			_, err := parseAgentFile(path)
-			if err == nil {
-				t.Fatal("expected deprecated memory timeoutMs to be rejected")
-			}
-			if !strings.Contains(err.Error(), tc.wantErrSub) || !strings.Contains(err.Error(), "timeout") {
-				t.Fatalf("expected migration error for %s, got %v", tc.wantErrSub, err)
-			}
-		})
-	}
-}
-
 func TestParseAgentFileAllowsOptingOutOfBaseMemoryTools(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
@@ -1469,7 +1161,7 @@ func TestParseAgentFileWithPromptsStagePromptFileOverridesConvention(t *testing.
 		"mode: PLAN_EXECUTE\n" +
 		"modelConfig:\n" +
 		"  modelKey: demo-model\n" +
-		"planExecute:\n" +
+		"stageSettings:\n" +
 		"  plan:\n" +
 		"    promptFile: custom-plan.md\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
@@ -1488,43 +1180,6 @@ func TestParseAgentFileWithPromptsStagePromptFileOverridesConvention(t *testing.
 	}
 	if def.PlanPrompt != "custom plan" {
 		t.Fatalf("plan prompt = %q, want custom override", def.PlanPrompt)
-	}
-}
-
-func TestParseAgentFileWithPromptsStageSettingsPromptFileOverridesLegacyPlanExecute(t *testing.T) {
-	root := t.TempDir()
-	path := filepath.Join(root, "agent.yml")
-	content := "" +
-		"key: demo\n" +
-		"name: Demo\n" +
-		"mode: PLAN_EXECUTE\n" +
-		"modelConfig:\n" +
-		"  modelKey: demo-model\n" +
-		"stageSettings:\n" +
-		"  plan:\n" +
-		"    promptFile: stage-plan.md\n" +
-		"planExecute:\n" +
-		"  plan:\n" +
-		"    promptFile: legacy-plan.md\n"
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write agent file: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "AGENTS.plan.md"), []byte("plan convention"), 0o644); err != nil {
-		t.Fatalf("write convention prompt: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "legacy-plan.md"), []byte("legacy plan"), 0o644); err != nil {
-		t.Fatalf("write legacy prompt: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "stage-plan.md"), []byte("stage plan"), 0o644); err != nil {
-		t.Fatalf("write stage prompt: %v", err)
-	}
-
-	def, err := parseAgentFileWithPrompts(path, root)
-	if err != nil {
-		t.Fatalf("parse agent file with prompts: %v", err)
-	}
-	if def.PlanPrompt != "stage plan" {
-		t.Fatalf("plan prompt = %q, want stageSettings prompt override", def.PlanPrompt)
 	}
 }
 
@@ -1589,7 +1244,7 @@ func TestParseAgentFileWithPromptsLoadsLegacySoulSections(t *testing.T) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatalf("write agent file: %v", err)
 	}
-	if err := os.WriteFile(soulPath, []byte("# Identity\n\n- key: demo\n\n## Mission\n\nLegacy mission"), 0o644); err != nil {
+	if err := os.WriteFile(soulPath, []byte("# Identity\n\n- key: demo\n\n## Mission\n\nCurrent mission"), 0o644); err != nil {
 		t.Fatalf("write soul file: %v", err)
 	}
 
@@ -1597,11 +1252,11 @@ func TestParseAgentFileWithPromptsLoadsLegacySoulSections(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse agent file with prompts: %v", err)
 	}
-	if !strings.Contains(def.SoulPrompt, "Legacy mission") {
+	if !strings.Contains(def.SoulPrompt, "Current mission") {
 		t.Fatalf("expected soul prompt to load, got %q", def.SoulPrompt)
 	}
 	if !strings.Contains(def.SoulPrompt, "# Identity") || !strings.Contains(def.SoulPrompt, "## Mission") {
-		t.Fatalf("expected legacy headings to remain in soul prompt, got %q", def.SoulPrompt)
+		t.Fatalf("expected headings to remain in soul prompt, got %q", def.SoulPrompt)
 	}
 }
 

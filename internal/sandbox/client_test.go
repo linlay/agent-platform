@@ -111,9 +111,9 @@ func TestRunLevelSandboxSessionIDReusesRunIDAcrossRequestIDs(t *testing.T) {
 }
 
 func TestRunLevelSandboxSessionIDFallsBackToRunIDWithoutRequestID(t *testing.T) {
-	got := runSessionID(contracts.QuerySession{RunID: "run_legacy"})
-	if got != "run-run_legacy" {
-		t.Fatalf("runSessionID() = %q, want %q", got, "run-run_legacy")
+	got := runSessionID(contracts.QuerySession{RunID: "run_without_request"})
+	if got != "run-run_without_request" {
+		t.Fatalf("runSessionID() = %q, want %q", got, "run-run_without_request")
 	}
 }
 

@@ -60,51 +60,6 @@ function Initialize-ProgramConfig {
       Copy-Item -LiteralPath $example.FullName -Destination $target
     }
   }
-  Convert-LegacyHitlBudgetConfig
-}
-
-function Convert-LegacyHitlBudgetConfig {
-  $toolsFile = Join-Path $Script:ConfigDir 'tools.yml'
-  $runtimeFile = Join-Path $Script:ConfigDir 'runtime.yml'
-  $legacyFile = $null
-  $legacyText = $null
-  $match = $null
-  foreach ($candidate in @($toolsFile, $runtimeFile)) {
-    if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
-      continue
-    }
-    $candidateText = Get-Content -LiteralPath $candidate -Raw
-    $candidateMatch = [regex]::Match($candidateText, '(?m)^[ \t]*hitl-default-timeout-ms:[ \t]*([0-9]+).*$')
-    if ($candidateMatch.Success) {
-      $legacyFile = $candidate
-      $legacyText = $candidateText
-      $match = $candidateMatch
-      break
-    }
-  }
-  if ($null -eq $legacyFile) {
-    return
-  }
-
-  $timeoutMs = $match.Groups[1].Value
-  if ([string]::IsNullOrWhiteSpace($timeoutMs)) {
-    $timeoutMs = '600000'
-  }
-  $timeoutSeconds = [int][Math]::Ceiling(([double]$timeoutMs) / 1000)
-
-  $updatedLegacyText = [regex]::Replace($legacyText, '(?m)^[ \t]*hitl-default-timeout-ms:[ \t]*.*\r?\n?', '')
-  Set-Content -LiteralPath $legacyFile -Value $updatedLegacyText -NoNewline
-
-  $runtimeText = ''
-  if (Test-Path -LiteralPath $runtimeFile -PathType Leaf) {
-    $runtimeText = Get-Content -LiteralPath $runtimeFile -Raw
-  }
-  if ($runtimeText -notmatch '(?m)^budget:[ \t]*$') {
-    $budgetText = "budget:`n  hitl:`n    timeout: $timeoutSeconds`n`n"
-    Set-Content -LiteralPath $runtimeFile -Value ($budgetText + $runtimeText) -NoNewline
-  }
-
-  Write-Host '[program-deploy] migrated bash.hitl-default-timeout-ms to budget.hitl.timeout'
 }
 
 function Import-ProgramEnv {

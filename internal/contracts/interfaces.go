@@ -17,17 +17,11 @@ const (
 )
 
 const (
-	FinalizePlanningToolName    = "finalize_planning"
-	LegacyPlanningWriteToolName = "planning_write"
+	FinalizePlanningToolName = "finalize_planning"
 )
 
 func IsFinalizePlanningToolName(name string) bool {
-	switch strings.ToLower(strings.TrimSpace(name)) {
-	case FinalizePlanningToolName, LegacyPlanningWriteToolName:
-		return true
-	default:
-		return false
-	}
+	return strings.EqualFold(strings.TrimSpace(name), FinalizePlanningToolName)
 }
 
 func NormalizeAccessLevel(value string) (string, bool) {
@@ -193,7 +187,6 @@ type QuerySession struct {
 	ToolNames             []string
 	Mode                  string
 	PlanningMode          bool
-	ReactMaxSteps         int
 	TeamID                string
 	Created               bool
 	Subject               string

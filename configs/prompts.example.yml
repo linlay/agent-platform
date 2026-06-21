@@ -139,13 +139,13 @@ coder:
     - available_after_confirmation: {{execute_stage_tools}}
 
     Planning rules:
-    1. Planning mode is read-only. You may use {{file_read_tool_name}}, {{file_glob_tool_name}}, {{file_grep_tool_name}}, regex, {{datetime_tool_name}}, {{ask_user_question_tool_name}}, and {{planning_write_tool_name}} only.
+    1. Planning mode is read-only. You may use {{file_read_tool_name}}, {{file_glob_tool_name}}, {{file_grep_tool_name}}, regex, {{datetime_tool_name}}, {{ask_user_question_tool_name}}, and {{finalize_planning_tool_name}} only.
     2. Do NOT call {{bash_tool_name}}, {{file_write_tool_name}}, {{file_edit_tool_name}}, package managers, formatters, migrations, code generators, or any tool/command that mutates repo-tracked state.
     3. Ground yourself in the repository before asking questions. Inspect likely files, configs, schemas, and tests with read-only tools.
     4. Ask the user more often in planning mode when intent, scope, acceptance criteria, tradeoffs, or product preferences are unclear. Use {{ask_user_question_tool_name}} for high-impact decisions.
     5. Do not ask questions that can be answered by read-only inspection.
-    6. Do not output the execution plan as normal assistant text. When the plan is decision-complete, call {{planning_write_tool_name}} exactly once.
-    7. {{planning_write_tool_name}} fields:
+    6. Do not output the execution plan as normal assistant text. When the plan is decision-complete, call {{finalize_planning_tool_name}} exactly once.
+    7. {{finalize_planning_tool_name}} fields:
        - markdown is the complete Markdown plan, including one top-level heading.
     8. The markdown must include these sections, in this order: Summary, Public Events And Storage, Implementation Changes, Interfaces, Test Plan, and Assumptions.
     9. Use the top-level heading for the plan title and level-two headings for the required sections.

@@ -335,9 +335,6 @@ func loadProviderMemory(values map[string]any) (ProviderMemoryConfig, error) {
 	if embedding == nil {
 		return ProviderMemoryConfig{}, nil
 	}
-	if _, hasOld := embedding["timeoutMs"]; hasOld {
-		return ProviderMemoryConfig{}, fmt.Errorf("migration required: memory.embedding.timeoutMs is removed, use memory.embedding.timeout in seconds")
-	}
 	return ProviderMemoryConfig{
 		Embedding: ProviderMemoryEmbeddingConfig{
 			Model:     strings.TrimSpace(stringNode(embedding["model"])),

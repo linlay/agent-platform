@@ -52,15 +52,6 @@ func parseDesktopBridgeConfig(raw any, fallback DesktopBridgeConfig) DesktopBrid
 }
 
 func (c *Config) applyContainerHubValues(path string, values map[string]any) error {
-	if err := rejectDeprecatedYAMLKeys(path, "container-hub.request-timeout", values, "request-timeout-ms"); err != nil {
-		return err
-	}
-	if err := rejectDeprecatedYAMLKeys(path, "container-hub.agent-idle-timeout", values, "agent-idle-timeout-ms"); err != nil {
-		return err
-	}
-	if err := rejectDeprecatedYAMLKeys(path, "container-hub.destroy-queue-delay", values, "destroy-queue-delay-ms"); err != nil {
-		return err
-	}
 	c.ContainerHub.BaseURL = stringValue(anyValue(values["base-url"], c.ContainerHub.BaseURL), c.ContainerHub.BaseURL)
 	c.ContainerHub.AuthToken = stringValue(anyValue(values["auth-token"], c.ContainerHub.AuthToken), c.ContainerHub.AuthToken)
 	c.ContainerHub.DefaultEnvironmentID = stringValue(anyValue(values["default-environment-id"], c.ContainerHub.DefaultEnvironmentID), c.ContainerHub.DefaultEnvironmentID)
@@ -85,16 +76,6 @@ func (c *Config) applyRuntimeFile(path string) error {
 		}
 	}
 	if desktop, ok := values["desktop"].(map[string]any); ok && len(desktop) > 0 {
-		if action, ok := desktop["action"].(map[string]any); ok && len(action) > 0 {
-			if err := rejectDeprecatedYAMLKeys(path, "desktop.action.request-timeout", action, "request-timeout-ms"); err != nil {
-				return err
-			}
-		}
-		if cdp, ok := desktop["cdp"].(map[string]any); ok && len(cdp) > 0 {
-			if err := rejectDeprecatedYAMLKeys(path, "desktop.cdp.request-timeout", cdp, "request-timeout-ms"); err != nil {
-				return err
-			}
-		}
 		c.applyDesktopValues(desktop)
 	}
 	if cors, ok := values["cors"].(map[string]any); ok && len(cors) > 0 {
@@ -108,9 +89,6 @@ func (c *Config) applyRuntimeFile(path string) error {
 		c.I18N.DefaultLocale = stringValue(anyValue(i18nValues["default-locale"], c.I18N.DefaultLocale), c.I18N.DefaultLocale)
 	}
 	if budget, ok := values["budget"].(map[string]any); ok && len(budget) > 0 {
-		if err := rejectDeprecatedBudgetKeys(path, "budget", budget); err != nil {
-			return err
-		}
 		c.applyRuntimeBudgetValues(budget)
 	}
 	return nil
@@ -285,44 +263,6 @@ func (c *Config) applyFileToolsValues(path string, values map[string]any) error 
 	return nil
 }
 
-func rejectDeprecatedYAMLKeys(path string, target string, values map[string]any, keys ...string) error {
-	for _, key := range keys {
-		if _, ok := values[key]; ok {
-			return fmt.Errorf("%s: %q has moved to %s", path, key, target)
-		}
-	}
-	return nil
-}
-
-func rejectDeprecatedBudgetKeys(path string, fieldPath string, values map[string]any) error {
-	if err := rejectDeprecatedYAMLKeys(path, fieldPath+".timeout", values, "runTimeoutMs", "timeoutMs"); err != nil {
-		return err
-	}
-	for key, raw := range values {
-		child, ok := raw.(map[string]any)
-		if !ok || len(child) == 0 {
-			continue
-		}
-		nextPath := fieldPath + "." + key
-		if key == "stages" {
-			for stageKey, stageRaw := range child {
-				stage, ok := stageRaw.(map[string]any)
-				if !ok || len(stage) == 0 {
-					continue
-				}
-				if err := rejectDeprecatedBudgetKeys(path, nextPath+"."+stageKey, stage); err != nil {
-					return err
-				}
-			}
-			continue
-		}
-		if err := rejectDeprecatedBudgetKeys(path, nextPath, child); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func (c *Config) applyToolsFile(path string) error {
 	values, err := loadYAMLMap(path)
 	if err != nil {
@@ -335,36 +275,14 @@ func (c *Config) applyToolsFile(path string) error {
 		c.applyAccessPolicyValues(accessPolicy)
 	}
 	if bash, ok := values["bash"].(map[string]any); ok && len(bash) > 0 {
-		if err := rejectDeprecatedYAMLKeys(path, "configs/tools.yml > access-policy", bash, "allowed-paths", "path-checked-commands", "path-check-bypass-commands"); err != nil {
-			return err
-		}
-		if err := rejectDeprecatedYAMLKeys(path, "bash.shell-timeout", bash, "shell-timeout-ms"); err != nil {
-			return err
-		}
-		if err := rejectDeprecatedYAMLKeys(path, "budget.hitl.timeout", bash, "hitl-default-timeout-ms"); err != nil {
-			return err
-		}
 		c.applyBashValues(bash)
 	}
 	if sandboxBash, ok := values["sandbox-bash"].(map[string]any); ok && len(sandboxBash) > 0 {
 		c.applySandboxBashValues(sandboxBash)
 	}
 	if fileTools, ok := values["file-tools"].(map[string]any); ok && len(fileTools) > 0 {
-		if err := rejectDeprecatedYAMLKeys(path, "configs/tools.yml > access-policy", fileTools, "allowed-read-paths", "allowed-write-paths"); err != nil {
-			return err
-		}
 		if err := c.applyFileToolsValues(path, fileTools); err != nil {
 			return err
-		}
-		// Check LSP diagnostics inside file-tools.hooks.after-file-change
-		if hooks, ok := fileTools["hooks"].(map[string]any); ok && len(hooks) > 0 {
-			if after, ok := hooks["after-file-change"].(map[string]any); ok && len(after) > 0 {
-				if lspValues, ok := after["lsp-diagnostics"].(map[string]any); ok && len(lspValues) > 0 {
-					if err := rejectDeprecatedYAMLKeys(path, "file-tools.hooks.after-file-change.lsp-diagnostics.timeout", lspValues, "timeout-ms"); err != nil {
-						return err
-					}
-				}
-			}
 		}
 	}
 	return nil
@@ -502,12 +420,12 @@ func (c *Config) applyPromptsValues(values map[string]any) {
 		c.Prompts.ToolAppendix.ToolDescriptionTitle = stringValue(anyValue(toolAppendix["tool-description-title"], c.Prompts.ToolAppendix.ToolDescriptionTitle), c.Prompts.ToolAppendix.ToolDescriptionTitle)
 		c.Prompts.ToolAppendix.AfterCallHintTitle = stringValue(anyValue(toolAppendix["after-call-hint-title"], c.Prompts.ToolAppendix.AfterCallHintTitle), c.Prompts.ToolAppendix.AfterCallHintTitle)
 	}
-	planExecute, _ := values["plan-execute"].(map[string]any)
-	if len(planExecute) > 0 {
-		c.Prompts.PlanExecute.TaskExecutionPromptTemplate = stringValue(anyValue(planExecute["task-execution-prompt-template"], c.Prompts.PlanExecute.TaskExecutionPromptTemplate), c.Prompts.PlanExecute.TaskExecutionPromptTemplate)
-		c.Prompts.PlanExecute.PlanUserPromptTemplate = stringValue(anyValue(planExecute["plan-user-prompt-template"], c.Prompts.PlanExecute.PlanUserPromptTemplate), c.Prompts.PlanExecute.PlanUserPromptTemplate)
-		c.Prompts.PlanExecute.SummarySystemPrompt = stringValue(anyValue(planExecute["summary-system-prompt"], c.Prompts.PlanExecute.SummarySystemPrompt), c.Prompts.PlanExecute.SummarySystemPrompt)
-		c.Prompts.PlanExecute.SummaryUserPromptTemplate = stringValue(anyValue(planExecute["summary-user-prompt-template"], c.Prompts.PlanExecute.SummaryUserPromptTemplate), c.Prompts.PlanExecute.SummaryUserPromptTemplate)
+	planPrompts, _ := values["plan-execute"].(map[string]any)
+	if len(planPrompts) > 0 {
+		c.Prompts.PlanExecute.TaskExecutionPromptTemplate = stringValue(anyValue(planPrompts["task-execution-prompt-template"], c.Prompts.PlanExecute.TaskExecutionPromptTemplate), c.Prompts.PlanExecute.TaskExecutionPromptTemplate)
+		c.Prompts.PlanExecute.PlanUserPromptTemplate = stringValue(anyValue(planPrompts["plan-user-prompt-template"], c.Prompts.PlanExecute.PlanUserPromptTemplate), c.Prompts.PlanExecute.PlanUserPromptTemplate)
+		c.Prompts.PlanExecute.SummarySystemPrompt = stringValue(anyValue(planPrompts["summary-system-prompt"], c.Prompts.PlanExecute.SummarySystemPrompt), c.Prompts.PlanExecute.SummarySystemPrompt)
+		c.Prompts.PlanExecute.SummaryUserPromptTemplate = stringValue(anyValue(planPrompts["summary-user-prompt-template"], c.Prompts.PlanExecute.SummaryUserPromptTemplate), c.Prompts.PlanExecute.SummaryUserPromptTemplate)
 	}
 }
 
@@ -574,9 +492,6 @@ func parseCoderACPProxies(raw any, fallback map[string]CoderACPProxyConfig) (map
 		}
 		cfg.BaseURL = stringValue(anyValue(proxyValues["base-url"], cfg.BaseURL), cfg.BaseURL)
 		cfg.AuthToken = stringValue(anyValue(proxyValues["auth-token"], cfg.AuthToken), cfg.AuthToken)
-		if err := rejectDeprecatedYAMLKeys("coder-settings config", "acp-proxies."+id+".timeout", proxyValues, "timeout-ms"); err != nil {
-			return nil, err
-		}
 		cfg.Timeout = intValue(anyValue(proxyValues["timeout"], cfg.Timeout), cfg.Timeout)
 		if cfg.Timeout <= 0 {
 			cfg.Timeout = 300
@@ -643,30 +558,9 @@ func (c *Config) applyAIToolsFile(path string) error {
 		return nil
 	}
 	if visionRecognize, ok := values["vision-recognize"].(map[string]any); ok && len(visionRecognize) > 0 {
-		if profiles, ok := visionRecognize["profiles"].(map[string]any); ok && len(profiles) > 0 {
-			for profileKey, profileRaw := range profiles {
-				if profileValues, ok := profileRaw.(map[string]any); ok && len(profileValues) > 0 {
-					if err := rejectDeprecatedYAMLKeys(path, "vision-recognize.profiles."+profileKey+".timeout", profileValues, "timeout-ms"); err != nil {
-						return err
-					}
-				}
-			}
-		}
 		c.applyVisionRecognizeValues(visionRecognize)
 	}
 	if webFetch, ok := values["web-fetch"].(map[string]any); ok && len(webFetch) > 0 {
-		if profiles, ok := webFetch["profiles"].(map[string]any); ok && len(profiles) > 0 {
-			for profileKey, profileRaw := range profiles {
-				if profileValues, ok := profileRaw.(map[string]any); ok && len(profileValues) > 0 {
-					if err := rejectDeprecatedYAMLKeys(path, "web-fetch.profiles."+profileKey+".timeout", profileValues, "timeout-ms"); err != nil {
-						return err
-					}
-					if err := rejectDeprecatedYAMLKeys(path, "web-fetch.profiles."+profileKey+".fetch-timeout", profileValues, "fetch-timeout-ms"); err != nil {
-						return err
-					}
-				}
-			}
-		}
 		c.applyWebFetchValues(webFetch)
 	}
 	return nil
@@ -768,15 +662,6 @@ func parseChannelConfig(channelID string, values map[string]any) (ChannelConfig,
 		HandshakeTimeout: int64Value(anyValue(gatewayMap["handshake-timeout"], 0), 0),
 		ReconnectMin:     int64Value(anyValue(gatewayMap["reconnect-min"], 0), 0),
 		ReconnectMax:     int64Value(anyValue(gatewayMap["reconnect-max"], 0), 0),
-	}
-	if err := rejectDeprecatedYAMLKeys("channels "+channelID+" gateway", "handshake-timeout", gatewayMap, "handshake-timeout-ms"); err != nil {
-		return ChannelConfig{}, err
-	}
-	if err := rejectDeprecatedYAMLKeys("channels "+channelID+" gateway", "reconnect-min", gatewayMap, "reconnect-min-ms"); err != nil {
-		return ChannelConfig{}, err
-	}
-	if err := rejectDeprecatedYAMLKeys("channels "+channelID+" gateway", "reconnect-max", gatewayMap, "reconnect-max-ms"); err != nil {
-		return ChannelConfig{}, err
 	}
 	return cfg, nil
 }

@@ -97,53 +97,39 @@ func TestToolResultEndpointServesHiddenResultAndResourceRejectsIt(t *testing.T) 
 	fixture := newTestFixture(t)
 	server := fixture.server
 	chatID := "chat-tool-result"
-	resultDir := filepath.Join(fixture.chats.ChatDir(chatID), ".tool-results")
+	resultDir := filepath.Join(fixture.chats.ChatDir(chatID), chat.ToolRootDirName, chat.ToolResultsDirName)
 	if err := os.MkdirAll(resultDir, 0o755); err != nil {
 		t.Fatalf("mkdir tool result dir: %v", err)
 	}
-	resultJSON := `{"stdout":"large output","exitCode":0}`
+	resultJSON := `{"stdout":"new output","exitCode":0}`
 	if err := os.WriteFile(filepath.Join(resultDir, "call_1.json"), []byte(resultJSON), 0o644); err != nil {
 		t.Fatalf("write tool result: %v", err)
 	}
-	newResultDir := filepath.Join(fixture.chats.ChatDir(chatID), chat.ToolRootDirName, chat.ToolResultsDirName)
-	if err := os.MkdirAll(newResultDir, 0o755); err != nil {
-		t.Fatalf("mkdir new tool result dir: %v", err)
-	}
-	newResultJSON := `{"stdout":"new output","exitCode":0}`
-	if err := os.WriteFile(filepath.Join(newResultDir, "call_new.json"), []byte(newResultJSON), 0o644); err != nil {
-		t.Fatalf("write new tool result: %v", err)
-	}
 
 	resourceRec := httptest.NewRecorder()
-	server.ServeHTTP(resourceRec, httptest.NewRequest(http.MethodGet, "/api/resource?file=chat-tool-result%2F.tool-results%2Fcall_1.json", nil))
+	server.ServeHTTP(resourceRec, httptest.NewRequest(http.MethodGet, "/api/resource?file=chat-tool-result%2F.tools%2Fresults%2Fcall_1.json", nil))
 	if resourceRec.Code != http.StatusForbidden {
-		t.Fatalf("expected hidden tool result to be forbidden via resource, got %d: %s", resourceRec.Code, resourceRec.Body.String())
-	}
-	newResourceRec := httptest.NewRecorder()
-	server.ServeHTTP(newResourceRec, httptest.NewRequest(http.MethodGet, "/api/resource?file=chat-tool-result%2F.tools%2Fresults%2Fcall_new.json", nil))
-	if newResourceRec.Code != http.StatusForbidden {
-		t.Fatalf("expected .tools result to be forbidden via resource, got %d: %s", newResourceRec.Code, newResourceRec.Body.String())
+		t.Fatalf("expected .tools result to be forbidden via resource, got %d: %s", resourceRec.Code, resourceRec.Body.String())
 	}
 
 	resultRec := httptest.NewRecorder()
-	server.ServeHTTP(resultRec, httptest.NewRequest(http.MethodGet, "/api/tool-result?chatId=chat-tool-result&path=.tool-results%2Fcall_1.json", nil))
+	server.ServeHTTP(resultRec, httptest.NewRequest(http.MethodGet, "/api/tool-result?chatId=chat-tool-result&path=.tools%2Fresults%2Fcall_1.json", nil))
 	if resultRec.Code != http.StatusOK {
 		t.Fatalf("expected 200 tool result, got %d: %s", resultRec.Code, resultRec.Body.String())
 	}
 	if strings.TrimSpace(resultRec.Body.String()) != resultJSON {
 		t.Fatalf("unexpected tool result body: %q", resultRec.Body.String())
 	}
-	newResultRec := httptest.NewRecorder()
-	server.ServeHTTP(newResultRec, httptest.NewRequest(http.MethodGet, "/api/tool-result?chatId=chat-tool-result&path=.tools%2Fresults%2Fcall_new.json", nil))
-	if newResultRec.Code != http.StatusOK {
-		t.Fatalf("expected 200 new tool result, got %d: %s", newResultRec.Code, newResultRec.Body.String())
-	}
-	if strings.TrimSpace(newResultRec.Body.String()) != newResultJSON {
-		t.Fatalf("unexpected new tool result body: %q", newResultRec.Body.String())
+
+	oldPathRec := httptest.NewRecorder()
+	oldToolResultsPath := "." + "tool-results%2Fcall_1.json"
+	server.ServeHTTP(oldPathRec, httptest.NewRequest(http.MethodGet, "/api/tool-result?chatId=chat-tool-result&path="+oldToolResultsPath, nil))
+	if oldPathRec.Code != http.StatusBadRequest {
+		t.Fatalf("expected old tool result path rejected, got %d: %s", oldPathRec.Code, oldPathRec.Body.String())
 	}
 
 	traversalRec := httptest.NewRecorder()
-	server.ServeHTTP(traversalRec, httptest.NewRequest(http.MethodGet, "/api/tool-result?chatId=chat-tool-result&path=.tool-results%2F..%2Fcall_1.json", nil))
+	server.ServeHTTP(traversalRec, httptest.NewRequest(http.MethodGet, "/api/tool-result?chatId=chat-tool-result&path=.tools%2Fresults%2F..%2Fcall_1.json", nil))
 	if traversalRec.Code != http.StatusBadRequest {
 		t.Fatalf("expected traversal path rejected, got %d", traversalRec.Code)
 	}
@@ -153,7 +139,7 @@ func TestToolResultEndpointServesHiddenResultAndResourceRejectsIt(t *testing.T) 
 		t.Fatalf("new archive store: %v", err)
 	}
 	server.deps.Archives = archives
-	archiveDir := filepath.Join(archives.ChatDir("chat-tool-result-archived"), ".tool-results")
+	archiveDir := filepath.Join(archives.ChatDir("chat-tool-result-archived"), chat.ToolRootDirName, chat.ToolResultsDirName)
 	if err := os.MkdirAll(archiveDir, 0o755); err != nil {
 		t.Fatalf("mkdir archived tool result dir: %v", err)
 	}
@@ -161,7 +147,7 @@ func TestToolResultEndpointServesHiddenResultAndResourceRejectsIt(t *testing.T) 
 		t.Fatalf("write archived tool result: %v", err)
 	}
 	archiveRec := httptest.NewRecorder()
-	server.ServeHTTP(archiveRec, httptest.NewRequest(http.MethodGet, "/api/tool-result?chatId=chat-tool-result-archived&path=.tool-results%2Fcall_2.json", nil))
+	server.ServeHTTP(archiveRec, httptest.NewRequest(http.MethodGet, "/api/tool-result?chatId=chat-tool-result-archived&path=.tools%2Fresults%2Fcall_2.json", nil))
 	if archiveRec.Code != http.StatusOK {
 		t.Fatalf("expected archived tool result 200, got %d: %s", archiveRec.Code, archiveRec.Body.String())
 	}
@@ -218,13 +204,13 @@ func TestUploadIDSeedsFromExistingRootUploadFiles(t *testing.T) {
 	fixture := newTestFixture(t)
 	server := fixture.server
 
-	_, _, err := fixture.chats.EnsureChat("chat_legacy_upload_ids", "", "", "")
+	_, _, err := fixture.chats.EnsureChat("chat_root_upload_ids", "", "", "")
 	if err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
-	chatDir := fixture.chats.ChatDir("chat_legacy_upload_ids")
+	chatDir := fixture.chats.ChatDir("chat_root_upload_ids")
 	if err := os.MkdirAll(chatDir, 0o755); err != nil {
-		t.Fatalf("create legacy chat dir: %v", err)
+		t.Fatalf("create chat dir: %v", err)
 	}
 	for name, content := range map[string]string{
 		"existing-one.txt": "one",
@@ -238,9 +224,9 @@ func TestUploadIDSeedsFromExistingRootUploadFiles(t *testing.T) {
 		t.Fatalf("write fixture directory: %v", err)
 	}
 
-	response := postTestUpload(t, server, "chat_legacy_upload_ids", "upload_legacy", "new.txt", "new")
+	response := postTestUpload(t, server, "chat_root_upload_ids", "upload_root", "new.txt", "new")
 	if response.Upload.ID != "r03" {
-		t.Fatalf("expected legacy-seeded upload id r03, got %#v", response.Upload)
+		t.Fatalf("expected seeded upload id r03, got %#v", response.Upload)
 	}
 }
 

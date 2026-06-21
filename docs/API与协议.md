@@ -222,7 +222,6 @@ HITL 三态细节见 [HITL协议](HITL协议.md)。真流式、heartbeat、attac
 
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
-| POST | `/api/remember` | body: `requestId`、`chatId` | 兼容 remember 结果 |
 | POST | `/api/learn` | body: `requestId`、`chatId`、`subjectKey` | learn / auto memory 结果 |
 | GET | `/api/memory/meta` | 无 | memory category/type/scope/status 元数据 |
 | POST | `/api/memory/context-preview` | body: `chatId`、`message` | memory context 预览 |
@@ -241,7 +240,7 @@ HITL 三态细节见 [HITL协议](HITL协议.md)。真流式、heartbeat、attac
 |---|---|---|---|
 | GET | `/api/viewport` | query: `viewportKey`、`viewportType` | viewport 模板或 fallback |
 | GET | `/api/resource` | query: `file`、`t` | chat 资源文件；`t` 为可选 resource ticket |
-| GET | `/api/tool-result` | query: `chatId`、`path`、`t` | `.tools/results/<toolId>.json` 完整工具结果；兼容旧 `.tool-results/<toolId>.json`；`t` 为可选 resource ticket |
+| GET | `/api/tool-result` | query: `chatId`、`path`、`t` | `.tools/results/<toolId>.json` 完整工具结果；`t` 为可选 resource ticket |
 | POST | `/api/upload` | multipart: `requestId`、`chatId`、`file` | upload ticket 与资源访问信息 |
 
 resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界.md)。
@@ -280,7 +279,7 @@ resource ticket、JWT 与 CORS 见 [鉴权与安全边界](鉴权与安全边界
 - 入口：`GET /ws`，HTTP upgrade 为 WebSocket。
 - 鉴权：复用 HTTP token 校验链路。
 - token 可通过 `Sec-WebSocket-Protocol: bearer.<token>` 或 query token 传递；服务端会在握手成功时回写匹配的 subprotocol。
-- 客户端可通过 query 自报监控元数据：`source` 与 `deviceId`，例如 `/ws?source=webclient&deviceId=device-123`；`source` 转小写后展示，`deviceId` 兼容 `device_id`，缺省时可从 JWT claim `deviceId` / `device_id` 兜底。
+- 客户端可通过 query 自报监控元数据：`source` 与 `deviceId`，例如 `/ws?source=webclient&deviceId=device-123`；`source` 转小写后展示，缺省时可从 JWT claim `deviceId` 兜底。
 - WebSocket 控制面常开；没有单独的关闭开关。
 
 ### 帧类型
@@ -409,7 +408,6 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 | `/api/submit` | `SubmitRequest` | `response` |
 | `/api/steer` | `SteerRequest` | `response` |
 | `/api/interrupt` | `InterruptRequest` | `response` |
-| `/api/remember` | `RememberRequest` | `response` |
 | `/api/learn` | `LearnRequest` | `response` |
 | `/api/memory/meta` | 无 | `response` |
 | `/api/memory/context-preview` | `chatId`、`message` | `response` |
@@ -428,10 +426,10 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 
 - HTTP query 参数在 WS payload 中通常以同名 JSON 字段传入。
 - `GET /api/attach`、WS `/api/detach`、`POST /api/submit`、`POST /api/steer`、`POST /api/interrupt` 都要求 `agentKey`，并校验 run 归属。
-- WS 客户端切换 current chat 时，应先对旧 chat 的 active run 发送 `/api/detach`，再对新 chat 的 active run 发送 `/api/attach`；detach 只释放当前 WS 连接上的订阅流，不停止后台 run。
+- WS 客户端切换 current chat 时，应先对原 chat 的 active run 发送 `/api/detach`，再对新 chat 的 active run 发送 `/api/attach`；detach 只释放当前 WS 连接上的订阅流，不停止后台 run。
 - WS `/api/resource` 要求 `file + pushURL`，用于将本地资源推给 gateway；HTTP `/api/resource` 直接返回文件字节。
-- `.tools` 是隐藏工具内部目录，不通过 `/api/resource` 或 WS `/api/resource` 暴露；HTTP `/api/tool-result` 接受 `.tools/results/<toolId>.json`，并兼容旧 `.tool-results/<toolId>.json`。
-- 反向 gateway 配置在 `configs/channels.yml`，不再通过旧单 gateway env 合成。
+- `.tools` 是隐藏工具内部目录，不通过 `/api/resource` 或 WS `/api/resource` 暴露；HTTP `/api/tool-result` 接受 `.tools/results/<toolId>.json`。
+- 反向 gateway 配置在 `configs/channels.yml`。
 - 完整 DTO 字段以 `internal/api/*.go` 为事实源。
 
 ### CODER Terminal

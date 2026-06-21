@@ -74,25 +74,6 @@ func TestLoadModelRegistryParsesProviderMemoryEmbedding(t *testing.T) {
 	}
 }
 
-func TestLoadModelRegistryRejectsDeprecatedProviderMemoryTimeoutMs(t *testing.T) {
-	root := t.TempDir()
-	writeTestProviderAndModel(t, root, strings.Join([]string{
-		"apiKey: plain-text",
-		"memory:",
-		"  embedding:",
-		"    model: text-embedding-3-small",
-		"    timeoutMs: 15000",
-	}, "\n"))
-
-	_, err := LoadModelRegistry(root)
-	if err == nil {
-		t.Fatal("expected deprecated provider memory timeoutMs to be rejected")
-	}
-	if !strings.Contains(err.Error(), "memory.embedding.timeoutMs") || !strings.Contains(err.Error(), "memory.embedding.timeout") {
-		t.Fatalf("expected migration error for memory.embedding.timeoutMs, got %v", err)
-	}
-}
-
 func TestLoadModelRegistryDefaultsModelVisionToFalse(t *testing.T) {
 	root := t.TempDir()
 	writeTestProviderAndModel(t, root, "apiKey: plain-text", "name: Mock Model")
@@ -165,24 +146,6 @@ func TestLoadModelRegistryParsesMaxInputTokensAsContextWindow(t *testing.T) {
 	}
 	if model.ContextWindow != 1048576 {
 		t.Fatalf("expected maxInputTokens to populate ContextWindow, got %d", model.ContextWindow)
-	}
-}
-
-func TestLoadModelRegistryIgnoresLegacyContextWindowField(t *testing.T) {
-	root := t.TempDir()
-	writeTestProviderAndModel(t, root, "apiKey: plain-text", "contextWindow: 1048576")
-
-	registry, err := LoadModelRegistry(root)
-	if err != nil {
-		t.Fatalf("LoadModelRegistry returned error: %v", err)
-	}
-
-	model, _, err := registry.Get("mock-model")
-	if err != nil {
-		t.Fatalf("registry.Get returned error: %v", err)
-	}
-	if model.ContextWindow != 0 {
-		t.Fatalf("expected legacy contextWindow field to be ignored, got %d", model.ContextWindow)
 	}
 }
 

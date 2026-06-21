@@ -36,9 +36,9 @@ func TestValidateDeferredSubmitParamsAcceptsDismissAndValidShapes(t *testing.T) 
 }
 
 func TestValidateDeferredSubmitParamsRejectsInvalidApprovalDecision(t *testing.T) {
-	legacyDecision := "approve_" + "prefix_run"
-	err := validateDeferredSubmitParams("approval", mustEncodeSubmitParams(t, []map[string]any{{"decision": legacyDecision}}))
-	if err == nil || !strings.Contains(err.Error(), `items[0]: unsupported approval decision "`+legacyDecision+`"`) {
+	invalidDecision := "approve_" + "prefix_run"
+	err := validateDeferredSubmitParams("approval", mustEncodeSubmitParams(t, []map[string]any{{"decision": invalidDecision}}))
+	if err == nil || !strings.Contains(err.Error(), `items[0]: unsupported approval decision "`+invalidDecision+`"`) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

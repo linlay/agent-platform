@@ -72,7 +72,7 @@ func (s *Server) buildRuntimeRequestContext(input runtimeRequestContextInput) (c
 	if err != nil {
 		return contracts.RuntimeRequestContext{}, err
 	}
-	if promptContextHasPlatformMount(input.definition.Runtime["extraMounts"], "skills-market") {
+	if promptContextHasPlatformMount(input.definition.Runtime["sandboxMounts"], "skills-market") {
 		localPaths.SkillsMarketDir = cleanOrEmpty(s.deps.Config.Paths.SkillsMarketDir)
 	}
 	context := contracts.RuntimeRequestContext{
@@ -313,7 +313,7 @@ func resolveContainerSandboxPaths(cfg config.Config, def catalog.AgentDefinition
 	var viewportServersDir string
 	var toolsDir string
 	var viewportsDir string
-	for _, mount := range promptContextSandboxMounts(def.Runtime["extraMounts"]) {
+	for _, mount := range promptContextSandboxMounts(def.Runtime["sandboxMounts"]) {
 		switch strings.ToLower(strings.TrimSpace(anyString(mount["platform"]))) {
 		case "skills-market":
 			skillsMarketDir = "/skills-market"
@@ -385,7 +385,7 @@ func resolveLocalSandboxPaths(cfg config.Config, def catalog.AgentDefinition, ch
 		OwnerDir:     absOrEmpty(cfg.Paths.OwnerDir),
 		MemoryDir:    absOrEmpty(cfg.Paths.MemoryDir),
 	}
-	for _, mount := range promptContextSandboxMounts(def.Runtime["extraMounts"]) {
+	for _, mount := range promptContextSandboxMounts(def.Runtime["sandboxMounts"]) {
 		switch strings.ToLower(strings.TrimSpace(anyString(mount["platform"]))) {
 		case "skills-market":
 			paths.SkillsMarketDir = absOrEmpty(cfg.Paths.SkillsMarketDir)
@@ -495,7 +495,7 @@ func buildSandboxContext(cfg config.Config, def catalog.AgentDefinition) (*contr
 		Level:                   level,
 		ContainerHubEnabled:     cfg.ContainerHub.Enabled,
 		UsesSandboxBash:         hasRuntimeSandbox(def.Runtime),
-		ExtraMounts:             summarizeExtraMounts(def),
+		ExtraMounts:             summarizeSandboxMounts(def),
 		EnvironmentPrompt:       prompt,
 	}, nil
 }
@@ -520,8 +520,8 @@ func fetchSandboxPrompt(cfg config.ContainerHubConfig, environmentID string) (st
 	return strings.TrimSpace(result.Prompt), nil
 }
 
-func summarizeExtraMounts(def catalog.AgentDefinition) []string {
-	mounts := promptContextSandboxMounts(def.Runtime["extraMounts"])
+func summarizeSandboxMounts(def catalog.AgentDefinition) []string {
+	mounts := promptContextSandboxMounts(def.Runtime["sandboxMounts"])
 	out := make([]string, 0, len(mounts))
 	for _, mount := range mounts {
 		mode := strings.ToLower(strings.TrimSpace(anyString(mount["mode"])))
@@ -644,12 +644,12 @@ func resolveLocalSkillsDir(hasSkillsDir bool, level string, agentDir string, ski
 	return ""
 }
 
-func promptContextHasPlatformMount(extraMounts any, platform string) bool {
+func promptContextHasPlatformMount(sandboxMounts any, platform string) bool {
 	platform = strings.ToLower(strings.TrimSpace(platform))
 	if platform == "" {
 		return false
 	}
-	for _, mount := range promptContextSandboxMounts(extraMounts) {
+	for _, mount := range promptContextSandboxMounts(sandboxMounts) {
 		if strings.EqualFold(strings.TrimSpace(anyString(mount["platform"])), platform) {
 			return true
 		}

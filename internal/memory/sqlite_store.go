@@ -2,7 +2,6 @@ package memory
 
 import (
 	"database/sql"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"sort"
@@ -11,7 +10,6 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
-	"agent-platform/internal/chat"
 
 	_ "modernc.org/sqlite"
 )
@@ -91,81 +89,6 @@ func (s *SQLiteStore) runtimeForAgent(agentKey string) RuntimeConfig {
 		runtime.Summarizer = resolved.Summarizer
 	}
 	return runtime
-}
-
-func (s *SQLiteStore) Remember(chatDetail chat.Detail, request api.RememberRequest, agentKey string) (api.RememberResponse, error) {
-	runtime := s.runtimeForAgent(agentKey)
-	s.mu.Lock()
-	history, err := s.listProjectionItemsLocked(agentKey)
-	s.mu.Unlock()
-	if err != nil {
-		return api.RememberResponse{}, err
-	}
-	drafts := summarizeRememberWithFallback(runtime.Summarizer, RememberSynthesisInput{
-		Request:  request,
-		Chat:     chatDetail,
-		AgentKey: agentKey,
-		History:  history,
-	})
-	stored := buildRememberStoredItems(request, chatDetail, agentKey, drafts)
-	for _, item := range stored {
-		if err := s.Write(item); err != nil {
-			return api.RememberResponse{}, err
-		}
-	}
-	logMemoryOperation("remember", map[string]any{
-		"agentKey":    agentKey,
-		"chatId":      request.ChatID,
-		"requestId":   request.RequestID,
-		"memoryCount": len(stored),
-	})
-
-	memoryPath := filepath.Join(s.root, request.ChatID+".json")
-	items := make([]api.RememberItemResponse, 0, len(stored))
-	for _, item := range stored {
-		items = append(items, api.RememberItemResponse{
-			Summary:    item.Summary,
-			SubjectKey: chatDetail.ChatID,
-		})
-	}
-	payload := map[string]any{
-		"requestId": request.RequestID,
-		"chatId":    request.ChatID,
-		"chatName":  chatDetail.ChatName,
-		"items":     items,
-		"stored":    stored,
-	}
-	data, err := json.MarshalIndent(payload, "", "  ")
-	if err != nil {
-		return api.RememberResponse{}, err
-	}
-	if err := os.WriteFile(memoryPath, data, 0o644); err != nil {
-		return api.RememberResponse{}, err
-	}
-
-	preview := &api.PromptPreviewResponse{
-		UserPrompt:        firstRawMessage(chatDetail.RawMessages),
-		ChatName:          chatDetail.ChatName,
-		RawMessageCount:   len(chatDetail.RawMessages),
-		EventCount:        len(chatDetail.Events),
-		ReferenceCount:    len(chatDetail.References),
-		RawMessageSamples: sampleMessages(chatDetail.RawMessages),
-		EventSamples:      sampleEvents(chatDetail.Events),
-	}
-
-	return api.RememberResponse{
-		Accepted:      len(stored) > 0,
-		Status:        rememberStatus(stored),
-		RequestID:     request.RequestID,
-		ChatID:        request.ChatID,
-		MemoryPath:    memoryPath,
-		MemoryRoot:    s.root,
-		MemoryCount:   len(stored),
-		Detail:        "remember request captured; memory root=" + s.root,
-		PromptPreview: preview,
-		Items:         items,
-		Stored:        stored,
-	}, nil
 }
 
 func (s *SQLiteStore) Search(query string, limit int) ([]api.StoredMemoryResponse, error) {

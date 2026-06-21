@@ -140,8 +140,9 @@ func TestQueryAppliesAgentSamplingConfigToProviderRequest(t *testing.T) {
 			content = strings.TrimSpace(content) + "\n" +
 				"stageSettings:\n" +
 				"  execute:\n" +
-				"    sampling:\n" +
-				"      temperature: 0.4\n"
+				"    modelConfig:\n" +
+				"      sampling:\n" +
+				"        temperature: 0.4\n"
 			if err := os.WriteFile(agentPath, []byte(content), 0o644); err != nil {
 				t.Fatalf("write sampled agent config: %v", err)
 			}
@@ -507,47 +508,6 @@ func TestQueryGeneratesBase36RunIDWhenMissing(t *testing.T) {
 	}
 	if millis, ok := chat.ParseRunIDMillis(runID); !ok || millis <= 0 {
 		t.Fatalf("expected generated run id to parse as epoch millis, got %q millis=%d ok=%v", runID, millis, ok)
-	}
-}
-
-func TestRememberEndpointReturnsStoredMemory(t *testing.T) {
-	fixture := newMemoryEnabledTestFixture(t)
-	server := fixture.server
-
-	queryReq := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"记住这个答案"}`))
-	queryReq.Header.Set("Content-Type", "application/json")
-	queryRec := httptest.NewRecorder()
-	server.ServeHTTP(queryRec, queryReq)
-
-	chatsRec := httptest.NewRecorder()
-	server.ServeHTTP(chatsRec, httptest.NewRequest(http.MethodGet, "/api/chats", nil))
-
-	var chatsResp api.ApiResponse[[]api.ChatSummaryResponse]
-	if err := json.Unmarshal(chatsRec.Body.Bytes(), &chatsResp); err != nil {
-		t.Fatalf("decode chats response: %v", err)
-	}
-	chatID := chatsResp.Data[0].ChatID
-
-	rememberReq := httptest.NewRequest(http.MethodPost, "/api/remember", bytes.NewBufferString(`{"requestId":"req_remember","chatId":"`+chatID+`"}`))
-	rememberReq.Header.Set("Content-Type", "application/json")
-	rememberRec := httptest.NewRecorder()
-	server.ServeHTTP(rememberRec, rememberReq)
-
-	if rememberRec.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d: %s", rememberRec.Code, rememberRec.Body.String())
-	}
-	var rememberResp api.ApiResponse[api.RememberResponse]
-	if err := json.Unmarshal(rememberRec.Body.Bytes(), &rememberResp); err != nil {
-		t.Fatalf("decode remember response: %v", err)
-	}
-	if !rememberResp.Data.Accepted {
-		t.Fatalf("expected remember accepted, got %#v", rememberResp.Data)
-	}
-	if rememberResp.Data.MemoryCount != 1 {
-		t.Fatalf("expected one memory item, got %#v", rememberResp.Data)
-	}
-	if !strings.HasPrefix(rememberResp.Data.MemoryPath, fixture.cfg.Paths.MemoryDir+string(os.PathSeparator)) {
-		t.Fatalf("expected memory path under %s, got %s", fixture.cfg.Paths.MemoryDir, rememberResp.Data.MemoryPath)
 	}
 }
 
@@ -1278,7 +1238,7 @@ Plan first, then check the current time before reporting.
 			)
 		case 4:
 			assertStringSliceContains(t, toolNames, "bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "regex")
-			assertStringSliceExcludes(t, toolNames, "plan_add_tasks", "finalize_planning", "planning_write", "ask_user_question", "plan_update_task")
+			assertStringSliceExcludes(t, toolNames, "plan_add_tasks", "finalize_planning", "ask_user_question", "plan_update_task")
 			assertProviderMessagesContainToolResult(t, payload, "tool_plan", "finalize_planning", "approve")
 			writeProviderSSE(t, w,
 				providerToolCallFrame(t, "tool_time", "datetime", map[string]any{}),
@@ -1286,7 +1246,7 @@ Plan first, then check the current time before reporting.
 			)
 		case 5:
 			assertStringSliceContains(t, toolNames, "bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "regex")
-			assertStringSliceExcludes(t, toolNames, "plan_add_tasks", "finalize_planning", "planning_write", "ask_user_question", "plan_update_task")
+			assertStringSliceExcludes(t, toolNames, "plan_add_tasks", "finalize_planning", "ask_user_question", "plan_update_task")
 			writeProviderSSE(t, w,
 				`{"choices":[{"delta":{"content":"execution completed"},"finish_reason":"stop"}]}`,
 				`[DONE]`,
@@ -1750,7 +1710,7 @@ Revised plan with explicit test coverage.
 			)
 		case 3:
 			assertStringSliceContains(t, toolNames, "bash", "file_read", "file_write", "file_edit", "file_glob", "file_grep", "datetime", "regex")
-			assertStringSliceExcludes(t, toolNames, "finalize_planning", "planning_write", "ask_user_question")
+			assertStringSliceExcludes(t, toolNames, "finalize_planning", "ask_user_question")
 			assertProviderMessagesContainToolResult(t, payload, "tool_plan_v2", "finalize_planning", "approve")
 			writeProviderSSE(t, w,
 				`{"choices":[{"delta":{"content":"executed revised plan"},"finish_reason":"stop"}]}`,
@@ -2092,7 +2052,7 @@ func assertCoderPlanningToolSet(t *testing.T, got []string) {
 		t.Fatalf("coder planning tools length=%d tools=%#v", len(got), got)
 	}
 	assertStringSliceContains(t, got, "file_read", "file_glob", "file_grep", "datetime", "regex", "vision_recognize", "ask_user_question", "finalize_planning")
-	assertStringSliceExcludes(t, got, "bash", "file_write", "file_edit", "desktop_action", "desktop_cdp", "agent_invoke", "plan_add_tasks", "plan_update_task", "planning_write")
+	assertStringSliceExcludes(t, got, "bash", "file_write", "file_edit", "desktop_action", "desktop_cdp", "agent_invoke", "plan_add_tasks", "plan_update_task")
 }
 
 func awaitingQuestionText(payload map[string]any) string {

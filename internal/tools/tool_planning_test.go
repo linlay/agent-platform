@@ -191,26 +191,6 @@ func TestFinalizePlanningRejectsEmptyMarkdown(t *testing.T) {
 	}
 }
 
-func TestPlanningWriteLegacyAliasStillWorks(t *testing.T) {
-	executor := &RuntimeToolExecutor{cfg: config.Config{Paths: config.PathsConfig{ChatsDir: t.TempDir()}}}
-	execCtx := &ExecutionContext{
-		Session: QuerySession{
-			RunID:        "run_legacy",
-			ChatID:       "chat_1",
-			PlanningMode: true,
-		},
-	}
-	result, err := executor.Invoke(context.Background(), LegacyPlanningWriteToolName, map[string]any{
-		"markdown": "# Legacy Plan\n\n## Summary\nAlias still works.",
-	}, execCtx)
-	if err != nil {
-		t.Fatalf("invoke legacy planning_write: %v", err)
-	}
-	if result.ExitCode != 0 || execCtx.PlanningState == nil || execCtx.PlanningState.ToolName != LegacyPlanningWriteToolName {
-		t.Fatalf("expected legacy alias to write plan and remember tool name, result=%#v state=%#v", result, execCtx.PlanningState)
-	}
-}
-
 func standardPlanningMarkdown(title string) string {
 	return `# ` + title + `
 

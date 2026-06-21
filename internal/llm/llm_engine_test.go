@@ -7,7 +7,7 @@ import (
 	"agent-platform/internal/contracts"
 )
 
-func TestResolveMaxStepsUsesBudgetAndLegacyReactFallback(t *testing.T) {
+func TestResolveMaxStepsUsesBudgetAndDefaults(t *testing.T) {
 	engine := &LLMAgentEngine{
 		cfg: config.Config{
 			Defaults: config.DefaultsConfig{
@@ -16,12 +16,8 @@ func TestResolveMaxStepsUsesBudgetAndLegacyReactFallback(t *testing.T) {
 		},
 	}
 
-	if got := engine.resolveMaxSteps(contracts.QuerySession{ReactMaxSteps: 160}, "react"); got != 160 {
-		t.Fatalf("resolveMaxSteps() = %d, want legacy react override 160", got)
-	}
 	if got := engine.resolveMaxSteps(contracts.QuerySession{
-		Budget:        map[string]any{"maxSteps": 24},
-		ReactMaxSteps: 160,
+		Budget: map[string]any{"maxSteps": 24},
 		ResolvedBudget: contracts.Budget{
 			MaxSteps: 24,
 		},

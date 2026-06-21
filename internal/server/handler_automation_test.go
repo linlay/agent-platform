@@ -128,24 +128,6 @@ func TestAutomationHTTPCRUDAndExecutionHistory(t *testing.T) {
 	}
 }
 
-func TestAutomationLegacyManagementRoutesRemoved(t *testing.T) {
-	fixture := newAutomationTestServer(t, false)
-	for _, path := range []string{
-		"/api/automation/create",
-		"/api/automation/update",
-		"/api/automation/delete",
-		"/api/automation/toggle",
-	} {
-		t.Run(path, func(t *testing.T) {
-			rec := httptest.NewRecorder()
-			fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, path, bytes.NewBufferString(`{}`)))
-			if rec.Code != http.StatusNotFound {
-				t.Fatalf("expected old route %s to be removed, got %d: %s", path, rec.Code, rec.Body.String())
-			}
-		})
-	}
-}
-
 func TestAutomationWSRuntimeRoutesAndManagementRoutesRejected(t *testing.T) {
 	fixture := newAutomationTestServer(t, true)
 	created := postAutomationJSON[api.AutomationDetailResponse](t, fixture.server, "/api/admin/automations/create", map[string]any{
@@ -170,7 +152,6 @@ func TestAutomationWSRuntimeRoutesAndManagementRoutesRejected(t *testing.T) {
 		id        string
 		frameType string
 	}{
-		{id: "legacy-create", frameType: "/api/automation/create"},
 		{id: "admin-create", frameType: "/api/admin/automations/create"},
 	} {
 		if err := conn.WriteJSON(ws.RequestFrame{

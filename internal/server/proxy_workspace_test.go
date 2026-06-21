@@ -332,7 +332,6 @@ func TestACPCoderQueryUsesGlobalProxyAndForwardsWorkspaceAndModel(t *testing.T) 
 				"modelConfig:",
 				"  modelKey: mock-model",
 				"runtimeConfig:",
-				"  coderBackend: acp",
 				"  acpProxyId: codex",
 				"  workspaceRoot: " + filepath.ToSlash(workspace),
 				"projectConfig:",
@@ -428,7 +427,6 @@ func TestACPCoderForwardsProviderlessModel(t *testing.T) {
 				"modelConfig:",
 				"  modelKey: gpt-5-codex",
 				"runtimeConfig:",
-				"  coderBackend: acp",
 				"  acpProxyId: codex",
 				"  workspaceRoot: " + filepath.ToSlash(workspace),
 				"projectConfig:",
@@ -483,7 +481,6 @@ func TestACPCoderRejectsRequestCWDParam(t *testing.T) {
 				"key: mock-agent",
 				"mode: CODER",
 				"runtimeConfig:",
-				"  coderBackend: acp",
 				"  acpProxyId: codex",
 				"  workspaceRoot: " + filepath.ToSlash(t.TempDir()),
 			})
@@ -515,7 +512,6 @@ func TestACPCoderRejectsPlanningMode(t *testing.T) {
 				"key: mock-agent",
 				"mode: CODER",
 				"runtimeConfig:",
-				"  coderBackend: acp",
 				"  acpProxyId: codex",
 				"  workspaceRoot: " + filepath.ToSlash(t.TempDir()),
 			})
@@ -544,7 +540,6 @@ func TestACPCoderRejectsUnknownProxyID(t *testing.T) {
 				"key: mock-agent",
 				"mode: CODER",
 				"runtimeConfig:",
-				"  coderBackend: acp",
 				"  acpProxyId: codex",
 				"  workspaceRoot: " + filepath.ToSlash(t.TempDir()),
 			})

@@ -60,45 +60,6 @@ program_initialize_config() {
       [[ -f "$target" ]] || cp "$source" "$target"
     done
   fi
-  program_migrate_hitl_budget_config
-}
-
-program_migrate_hitl_budget_config() {
-  local tools_file="$CONFIG_DIR/tools.yml"
-  local runtime_file="$CONFIG_DIR/runtime.yml"
-  local legacy_file=""
-  local timeout_ms
-
-  if [[ -f "$tools_file" ]] && grep -Eq '^[[:space:]]*hitl-default-timeout-ms:' "$tools_file"; then
-    legacy_file="$tools_file"
-  elif [[ -f "$runtime_file" ]] && grep -Eq '^[[:space:]]*hitl-default-timeout-ms:' "$runtime_file"; then
-    legacy_file="$runtime_file"
-  else
-    return 0
-  fi
-
-  timeout_ms="$(
-    sed -nE 's/^[[:space:]]*hitl-default-timeout-ms:[[:space:]]*([0-9]+).*/\1/p' "$legacy_file" |
-      head -n 1
-  )"
-  timeout_ms="${timeout_ms:-600000}"
-  local timeout_seconds=$(((timeout_ms + 999) / 1000))
-
-  awk '!/^[[:space:]]*hitl-default-timeout-ms:[[:space:]]*/' "$legacy_file" >"$legacy_file.tmp"
-  mv "$legacy_file.tmp" "$legacy_file"
-
-  if [[ ! -f "$runtime_file" ]] || ! grep -Eq '^budget:[[:space:]]*$' "$runtime_file"; then
-    local runtime_tmp="$runtime_file.tmp"
-    {
-      printf 'budget:\n'
-      printf '  hitl:\n'
-      printf '    timeout: %s\n\n' "$timeout_seconds"
-      [[ ! -f "$runtime_file" ]] || cat "$runtime_file"
-    } >"$runtime_tmp"
-    mv "$runtime_tmp" "$runtime_file"
-  fi
-
-  echo "[program-deploy] migrated bash.hitl-default-timeout-ms to budget.hitl.timeout"
 }
 
 program_load_env() {

@@ -235,10 +235,9 @@ func loadAgentPrompts(agentDir string, def *AgentDefinition, root map[string]any
 	switch def.Mode {
 	case "PLAN_EXECUTE":
 		stageSettings := mapNode(root["stageSettings"])
-		pe := mapNode(root["planExecute"])
-		def.PlanPrompt = resolveStagePrompt(agentDir, "plan", mapNode(stageSettings["plan"]), mapNode(pe["plan"]), topPromptFiles)
-		def.ExecutePrompt = resolveStagePrompt(agentDir, "execute", mapNode(stageSettings["execute"]), mapNode(pe["execute"]), topPromptFiles)
-		def.SummaryPrompt = resolveStagePrompt(agentDir, "summary", mapNode(stageSettings["summary"]), mapNode(pe["summary"]), topPromptFiles)
+		def.PlanPrompt = resolveStagePrompt(agentDir, "plan", mapNode(stageSettings["plan"]), topPromptFiles)
+		def.ExecutePrompt = resolveStagePrompt(agentDir, "execute", mapNode(stageSettings["execute"]), topPromptFiles)
+		def.SummaryPrompt = resolveStagePrompt(agentDir, "summary", mapNode(stageSettings["summary"]), topPromptFiles)
 	default:
 		if len(topPromptFiles) > 0 {
 			def.AgentsPrompt = loadPromptMarkdowns(agentDir, topPromptFiles)
@@ -249,11 +248,8 @@ func loadAgentPrompts(agentDir string, def *AgentDefinition, root map[string]any
 	}
 }
 
-func resolveStagePrompt(agentDir string, stage string, stageConfig map[string]any, legacyStageConfig map[string]any, topPromptFiles []string) string {
+func resolveStagePrompt(agentDir string, stage string, stageConfig map[string]any, topPromptFiles []string) string {
 	stageFiles := parsePromptFileField(stageConfig["promptFile"])
-	if len(stageFiles) == 0 {
-		stageFiles = parsePromptFileField(legacyStageConfig["promptFile"])
-	}
 	if len(stageFiles) > 0 {
 		if content := loadPromptMarkdowns(agentDir, stageFiles); content != "" {
 			return content
@@ -337,7 +333,6 @@ func parseRuntimePrompts(root map[string]any) AgentRuntimePrompts {
 	if len(toolAppendix) == 0 {
 		toolAppendix = mapNode(root["toolAppendixConfig"])
 	}
-	planExecute := mapNode(root["planExecute"])
 	return AgentRuntimePrompts{
 		Skill: SkillPromptConfig{
 			CatalogHeader:     stringNode(skill["catalogHeader"]),
@@ -347,9 +342,6 @@ func parseRuntimePrompts(root map[string]any) AgentRuntimePrompts {
 		ToolAppendix: ToolAppendixPromptConfig{
 			ToolDescriptionTitle: stringNode(toolAppendix["toolDescriptionTitle"]),
 			AfterCallHintTitle:   stringNode(toolAppendix["afterCallHintTitle"]),
-		},
-		PlanExecute: PlanExecutePromptConfig{
-			TaskExecutionPromptTemplate: stringNode(planExecute["taskExecutionPromptTemplate"]),
 		},
 	}
 }
@@ -522,9 +514,6 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	}
 	def.ModelKey = stringNode(modelConfig["modelKey"])
 	toolConfig := mapNode(root["toolConfig"])
-	if _, exists := toolConfig["overrides"]; exists {
-		return AgentDefinition{}, nil, fmt.Errorf("migration required: %s toolConfig.overrides is removed; define tool metadata in the tool registry instead", path)
-	}
 	def.Tools = listStrings(toolConfig["tools"])
 	def.Skills = listStrings(mapNode(root["skillConfig"])["skills"])
 	def.Controls = cloneListMaps(listMaps(root["controls"]))
@@ -532,10 +521,8 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	contextTags := listStrings(contextConfig["tags"])
 	def.ContextTags = normalizeContextTags(contextTags)
 	if budget := mapNode(root["budget"]); len(budget) > 0 {
-		if err := rejectDeprecatedAgentBudgetKeys(path, "budget", budget); err != nil {
-			return AgentDefinition{}, nil, err
-		}
 		def.Budget = contracts.CloneMap(budget)
+		delete(def.Budget, "stages")
 	}
 	if stageSettings := mapNode(root["stageSettings"]); len(stageSettings) > 0 {
 		def.StageSettings = contracts.CloneMap(stageSettings)
@@ -544,9 +531,6 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	def.StageSettings = applyModelReasoningDefaults(def.StageSettings, mapNode(modelConfig["reasoning"]))
 	def.StageSettings = applyModelSamplingDefaults(def.StageSettings, mapNode(modelConfig["sampling"]))
 	if proxyRaw := mapNode(root["proxyConfig"]); len(proxyRaw) > 0 {
-		if _, hasOld := proxyRaw["timeoutMs"]; hasOld {
-			return AgentDefinition{}, nil, fmt.Errorf("migration required: %s proxyConfig.timeoutMs is removed, use proxyConfig.timeout in seconds", path)
-		}
 		def.ProxyConfig = &ProxyConfig{
 			BaseURL:   stringNode(proxyRaw["baseUrl"]),
 			Transport: normalizeProxyTransport(stringNode(proxyRaw["transport"])),
@@ -561,30 +545,9 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 		}
 	}
 	def.RuntimePrompts = parseRuntimePrompts(mapNode(root["runtimePrompts"]))
-	if strings.TrimSpace(def.RuntimePrompts.PlanExecute.TaskExecutionPromptTemplate) != "" {
-		if def.StageSettings == nil {
-			def.StageSettings = map[string]any{}
-		}
-		if strings.TrimSpace(stringNode(def.StageSettings["taskExecutionPromptTemplate"])) == "" {
-			def.StageSettings["taskExecutionPromptTemplate"] = def.RuntimePrompts.PlanExecute.TaskExecutionPromptTemplate
-		}
-	}
 	runtimeConfig := mapNode(root["runtimeConfig"])
-	def.CoderBackend = AgentCoderBackendNative
 	if len(runtimeConfig) > 0 {
 		def.ACPProxyID = stringNode(runtimeConfig["acpProxyId"])
-		rawCoderBackend := stringNode(runtimeConfig["coderBackend"])
-		coderBackend, err := normalizeAgentCoderBackend(rawCoderBackend)
-		if err != nil {
-			return AgentDefinition{}, nil, err
-		}
-		if strings.EqualFold(strings.TrimSpace(rawCoderBackend), AgentCoderBackendNative) && strings.TrimSpace(def.ACPProxyID) != "" {
-			return AgentDefinition{}, nil, fmt.Errorf("runtimeConfig.coderBackend: native conflicts with runtimeConfig.acpProxyId; omit coderBackend for native CODER or omit acpProxyId")
-		}
-		if strings.TrimSpace(def.ACPProxyID) != "" {
-			coderBackend = AgentCoderBackendACP
-		}
-		def.CoderBackend = coderBackend
 		def.Runtime = map[string]any{
 			"environmentId": stringNode(runtimeConfig["environmentId"]),
 			"level":         strings.ToLower(stringNode(runtimeConfig["level"])),
@@ -602,11 +565,8 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 			return AgentDefinition{}, nil, err
 		}
 		mounts := listMaps(runtimeConfig["sandboxMounts"])
-		if len(mounts) == 0 {
-			mounts = listMaps(runtimeConfig["extraMounts"])
-		}
 		if len(mounts) > 0 {
-			def.Runtime["extraMounts"] = cloneListMaps(mounts)
+			def.Runtime["sandboxMounts"] = cloneListMaps(mounts)
 		}
 	}
 	def.Project = parseAgentProjectConfig(root["projectConfig"])
@@ -620,7 +580,6 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 	if err := ValidateAgentCoderBackend(def); err != nil {
 		return AgentDefinition{}, nil, err
 	}
-	def.ReactMaxSteps = intNode(mapNode(root["react"])["maxSteps"])
 	def = applyAgentModeProfileDefaults(def)
 
 	if err := validateReservedBashToolNames(def.Tools); err != nil {
@@ -744,9 +703,6 @@ func parseAgentMemoryConfig(path string, value any) (AgentMemoryConfig, error) {
 		cfg.ManagementTools = managementTools
 	}
 	embedding := mapNode(node["embedding"])
-	if _, hasOld := embedding["timeoutMs"]; hasOld {
-		return cfg, fmt.Errorf("migration required: %s memoryConfig.embedding.timeoutMs is removed, use memoryConfig.embedding.timeout in seconds", path)
-	}
 	cfg.Embedding = AgentMemoryEmbeddingConfig{
 		ProviderKey: stringNode(embedding["providerKey"]),
 		Model:       stringNode(embedding["model"]),
@@ -754,9 +710,6 @@ func parseAgentMemoryConfig(path string, value any) (AgentMemoryConfig, error) {
 		Timeout:     intNode(embedding["timeout"]),
 	}
 	autoRemember := mapNode(node["autoRemember"])
-	if _, hasOld := autoRemember["timeoutMs"]; hasOld {
-		return cfg, fmt.Errorf("migration required: %s memoryConfig.autoRemember.timeoutMs is removed, use memoryConfig.autoRemember.timeout in seconds", path)
-	}
 	if enabled, ok := autoRemember["enabled"].(bool); ok {
 		cfg.AutoRemember.Enabled = enabled
 	}
@@ -794,37 +747,6 @@ func isMemoryTool(name string) bool {
 	default:
 		return false
 	}
-}
-
-func rejectDeprecatedAgentBudgetKeys(path string, fieldPath string, values map[string]any) error {
-	for _, key := range []string{"runTimeoutMs", "timeoutMs"} {
-		if _, ok := values[key]; ok {
-			return fmt.Errorf("%s: %q has moved to %s.timeout", path, fieldPath+"."+key, fieldPath)
-		}
-	}
-	for key, raw := range values {
-		child, ok := raw.(map[string]any)
-		if !ok || len(child) == 0 {
-			continue
-		}
-		nextPath := fieldPath + "." + key
-		if key == "stages" {
-			for stageKey, stageRaw := range child {
-				stage, ok := stageRaw.(map[string]any)
-				if !ok || len(stage) == 0 {
-					continue
-				}
-				if err := rejectDeprecatedAgentBudgetKeys(path, nextPath+"."+stageKey, stage); err != nil {
-					return err
-				}
-			}
-			continue
-		}
-		if err := rejectDeprecatedAgentBudgetKeys(path, nextPath, child); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func validateReservedBashToolNames(tools []string) error {
@@ -874,20 +796,10 @@ func validateAgentSamplingConfig(path string, root map[string]any) error {
 	if len(stageSettings) == 0 {
 		return nil
 	}
-	if _, exists := stageSettings["sampling"]; exists {
-		if err := contracts.ValidateSamplingSettings(stageSettings["sampling"], "stageSettings.sampling"); err != nil {
-			return fmt.Errorf("%s: %w", path, err)
-		}
-	}
 	for _, stage := range []string{"plan", "execute", "summary"} {
 		node := mapNode(stageSettings[stage])
 		if len(node) == 0 {
 			continue
-		}
-		if _, exists := node["sampling"]; exists {
-			if err := contracts.ValidateSamplingSettings(node["sampling"], "stageSettings."+stage+".sampling"); err != nil {
-				return fmt.Errorf("%s: %w", path, err)
-			}
 		}
 		modelConfig := mapNode(node["modelConfig"])
 		if _, exists := modelConfig["sampling"]; exists {
@@ -974,12 +886,8 @@ func applyModelReasoningDefaults(stageSettings map[string]any, reasoning map[str
 	if stageSettings == nil {
 		stageSettings = map[string]any{}
 	}
-	applyReasoningDefaultsToStageNode(stageSettings, enabled, enabledOK, effort, effortOK)
 	for _, key := range []string{"plan", "execute", "summary"} {
-		node := mapNode(stageSettings[key])
-		if len(node) == 0 {
-			continue
-		}
+		node := cloneMapForWrite(mapNode(stageSettings[key]))
 		applyReasoningDefaultsToStageNode(node, enabled, enabledOK, effort, effortOK)
 		stageSettings[key] = node
 	}
@@ -987,15 +895,21 @@ func applyModelReasoningDefaults(stageSettings map[string]any, reasoning map[str
 }
 
 func applyReasoningDefaultsToStageNode(node map[string]any, enabled any, enabledOK bool, effort any, effortOK bool) {
+	modelConfig := cloneMapForWrite(mapNode(node["modelConfig"]))
+	reasoning := cloneMapForWrite(mapNode(modelConfig["reasoning"]))
 	if enabledOK {
-		if _, exists := node["reasoningEnabled"]; !exists {
-			node["reasoningEnabled"] = enabled
+		if _, exists := reasoning["enabled"]; !exists {
+			reasoning["enabled"] = enabled
 		}
 	}
 	if effortOK {
-		if _, exists := node["reasoningEffort"]; !exists {
-			node["reasoningEffort"] = effort
+		if _, exists := reasoning["effort"]; !exists {
+			reasoning["effort"] = effort
 		}
+	}
+	if len(reasoning) > 0 {
+		modelConfig["reasoning"] = reasoning
+		node["modelConfig"] = modelConfig
 	}
 }
 
@@ -1007,21 +921,23 @@ func applyModelSamplingDefaults(stageSettings map[string]any, modelSampling map[
 	if stageSettings == nil {
 		stageSettings = map[string]any{}
 	}
-	topSampling := contracts.MergeSamplingSettings(defaults, contracts.ParseSamplingSettings(mapNode(stageSettings["sampling"])))
-	if !topSampling.IsZero() {
-		stageSettings["sampling"] = topSampling.ToMap()
-	}
 	for _, key := range []string{"plan", "execute", "summary"} {
-		node := mapNode(stageSettings[key])
-		if len(node) == 0 {
-			continue
-		}
-		node = contracts.CloneMap(node)
-		merged := contracts.MergeSamplingSettings(topSampling, contracts.ParseSamplingSettings(mapNode(node["sampling"])))
+		node := cloneMapForWrite(mapNode(stageSettings[key]))
+		modelConfig := cloneMapForWrite(mapNode(node["modelConfig"]))
+		merged := contracts.MergeSamplingSettings(defaults, contracts.ParseSamplingSettings(mapNode(modelConfig["sampling"])))
 		if !merged.IsZero() {
-			node["sampling"] = merged.ToMap()
+			modelConfig["sampling"] = merged.ToMap()
+			node["modelConfig"] = modelConfig
 		}
 		stageSettings[key] = node
 	}
 	return stageSettings
+}
+
+func cloneMapForWrite(values map[string]any) map[string]any {
+	cloned := contracts.CloneMap(values)
+	if cloned == nil {
+		return map[string]any{}
+	}
+	return cloned
 }

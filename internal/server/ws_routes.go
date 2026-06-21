@@ -114,7 +114,6 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/terminal/input", s.wsTerminalInput)
 	handler.RegisterRoute("/api/terminal/resize", s.wsTerminalResize)
 	handler.RegisterRoute("/api/terminal/close", s.wsTerminalClose)
-	handler.RegisterRoute("/api/remember", s.wsRemember)
 	handler.RegisterRoute("/api/learn", s.wsLearn)
 	handler.RegisterRoute("/api/compact", s.wsCompact)
 	handler.RegisterRoute("/api/memory/meta", s.wsMemoryMeta)
@@ -511,28 +510,6 @@ func (s *Server) wsGlobalSearch(_ context.Context, conn *ws.Conn, req ws.Request
 		Count:   len(results),
 		Results: results,
 	})
-	conn.CompleteRequest(req.ID)
-}
-
-func (s *Server) wsRemember(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
-	payload, err := ws.DecodePayload[api.RememberRequest](req)
-	if err != nil || strings.TrimSpace(payload.RequestID) == "" || strings.TrimSpace(payload.ChatID) == "" {
-		conn.SendError(req.ID, "invalid_request", 400, "requestId and chatId are required", nil)
-		conn.CompleteRequest(req.ID)
-		return
-	}
-	response, rememberErr := s.executeRemember(payload)
-	if errors.Is(rememberErr, chat.ErrChatNotFound) {
-		conn.SendError(req.ID, "not_found", 404, "chat not found", nil)
-		conn.CompleteRequest(req.ID)
-		return
-	}
-	if rememberErr != nil {
-		conn.SendError(req.ID, "internal_error", 500, rememberErr.Error(), nil)
-		conn.CompleteRequest(req.ID)
-		return
-	}
-	conn.SendResponse(req.Type, req.ID, 0, "success", response)
 	conn.CompleteRequest(req.ID)
 }
 

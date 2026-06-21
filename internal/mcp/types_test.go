@@ -26,6 +26,6 @@ func TestToolDefinitionToAPIToolUsesViewportTypeMeta(t *testing.T) {
 		t.Fatalf("expected viewportType meta, got %#v", apiTool.Meta)
 	}
 	if _, exists := apiTool.Meta["toolType"]; exists {
-		t.Fatalf("did not expect legacy toolType meta, got %#v", apiTool.Meta)
+		t.Fatalf("did not expect toolType meta, got %#v", apiTool.Meta)
 	}
 }

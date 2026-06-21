@@ -127,20 +127,6 @@ func TestLoadEnvDefaultMaxOutputTokens(t *testing.T) {
 	})
 }
 
-func TestLoadEnvIgnoresLegacyDefaultMaxTokens(t *testing.T) {
-	withIsolatedEnv(t, map[string]string{
-		"AGENT_DEFAULT_MAX_TOKENS": "8192",
-	}, func() {
-		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("load config: %v", err)
-		}
-		if cfg.Defaults.MaxOutputTokens != 4096 {
-			t.Fatalf("expected legacy max tokens env to be ignored, got %d", cfg.Defaults.MaxOutputTokens)
-		}
-	})
-}
-
 func TestLoadEnvBudgetMaxStepsDerivesToolMaxCalls(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"AGENT_DEFAULT_BUDGET_MAX_STEPS": "17",
@@ -207,21 +193,6 @@ func TestLoadDesktopConfigFromFile(t *testing.T) {
 			}
 			if cfg.Desktop.CDP.RequestTimeout != 56 {
 				t.Fatalf("unexpected desktop cdp timeout: %d", cfg.Desktop.CDP.RequestTimeout)
-			}
-		})
-	})
-}
-
-func TestLoadRuntimeRejectsDeprecatedDesktopTimeoutMs(t *testing.T) {
-	withIsolatedEnv(t, nil, func() {
-		content := "" +
-			"desktop:\n" +
-			"  action:\n" +
-			"    request-timeout-ms: 20000\n"
-		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &content, func() {
-			_, err := Load()
-			if err == nil || !strings.Contains(err.Error(), "request-timeout-ms") || !strings.Contains(err.Error(), "desktop.action.request-timeout") {
-				t.Fatalf("expected deprecated desktop request-timeout-ms error, got %v", err)
 			}
 		})
 	})
@@ -332,56 +303,6 @@ func TestLoadRuntimeConfigFromFile(t *testing.T) {
 	})
 }
 
-func TestLoadRuntimeConfigRejectsDeprecatedBudgetTimeoutKeys(t *testing.T) {
-	withIsolatedEnv(t, nil, func() {
-		content := "" +
-			"budget:\n" +
-			"  runTimeoutMs: 300000\n"
-		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &content, func() {
-			_, err := Load()
-			if err == nil {
-				t.Fatal("expected deprecated budget runTimeoutMs to be rejected")
-			}
-			if !strings.Contains(err.Error(), "runTimeoutMs") || !strings.Contains(err.Error(), "budget.timeout") {
-				t.Fatalf("expected migration error for deprecated budget timeout, got %v", err)
-			}
-		})
-
-		content = "" +
-			"budget:\n" +
-			"  stages:\n" +
-			"    execute:\n" +
-			"      tool:\n" +
-			"        timeoutMs: 120000\n"
-		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &content, func() {
-			_, err := Load()
-			if err == nil {
-				t.Fatal("expected deprecated stage tool timeoutMs to be rejected")
-			}
-			if !strings.Contains(err.Error(), "timeoutMs") || !strings.Contains(err.Error(), "budget.stages.execute.tool.timeout") {
-				t.Fatalf("expected migration error for deprecated stage tool timeout, got %v", err)
-			}
-		})
-	})
-}
-
-func TestLoadRuntimeConfigRejectsDeprecatedContainerHubTimeoutKeys(t *testing.T) {
-	withIsolatedEnv(t, nil, func() {
-		content := "" +
-			"container-hub:\n" +
-			"  request-timeout-ms: 300000\n"
-		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &content, func() {
-			_, err := Load()
-			if err == nil {
-				t.Fatal("expected deprecated container hub timeout to be rejected")
-			}
-			if !strings.Contains(err.Error(), "request-timeout-ms") || !strings.Contains(err.Error(), "container-hub.request-timeout") {
-				t.Fatalf("expected migration error for deprecated container hub timeout, got %v", err)
-			}
-		})
-	})
-}
-
 func TestLoadEnvOverridesRuntimeBudgetHITLConfig(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"BUDGET_HITL_TIMEOUT":          "710",
@@ -414,55 +335,6 @@ func TestLoadEnvOverridesRuntimeBudgetHITLConfig(t *testing.T) {
 				cfg.Defaults.Budget.Hitl.Plan.Timeout != 750 {
 				t.Fatalf("expected env to override runtime HITL budget config, got %#v", cfg.Defaults.Budget.Hitl)
 			}
-		})
-	})
-}
-
-func TestLoadRuntimeConfigIgnoresLegacyRuntimeFiles(t *testing.T) {
-	withIsolatedEnv(t, nil, func() {
-		legacyContainer := "" +
-			"base-url: http://legacy-hub\n" +
-			"auth-token: legacy-token\n" +
-			"default-environment-id: legacy-env\n"
-		legacyDesktop := "" +
-			"action:\n" +
-			"  host: 127.0.0.4\n" +
-			"  port: 17201\n" +
-			"  path: /actions/legacy\n"
-		legacyCORS := "" +
-			"enabled: false\n" +
-			"path-pattern: /legacy/**\n"
-		merged := "" +
-			"container-hub:\n" +
-			"  base-url: http://runtime-hub\n" +
-			"desktop:\n" +
-			"  action:\n" +
-			"    port: 17301\n" +
-			"cors:\n" +
-			"  enabled: true\n"
-		withProjectFileContents(t, filepath.Join("configs", "container-hub.yml"), &legacyContainer, func() {
-			withProjectFileContents(t, filepath.Join("configs", "desktop.yml"), &legacyDesktop, func() {
-				withProjectFileContents(t, filepath.Join("configs", "cors.yml"), &legacyCORS, func() {
-					withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &merged, func() {
-						cfg, err := Load()
-						if err != nil {
-							t.Fatalf("load config: %v", err)
-						}
-						if cfg.ContainerHub.BaseURL != "http://runtime-hub" {
-							t.Fatalf("expected runtime container hub base url to win, got %q", cfg.ContainerHub.BaseURL)
-						}
-						if cfg.ContainerHub.AuthToken != "" || cfg.ContainerHub.DefaultEnvironmentID != "" {
-							t.Fatalf("expected legacy container hub file to be ignored, got %#v", cfg.ContainerHub)
-						}
-						if cfg.Desktop.Action.BridgeURL != "" || cfg.Desktop.Action.Port != 17301 {
-							t.Fatalf("expected runtime desktop config without legacy fallback, got %#v", cfg.Desktop.Action)
-						}
-						if !cfg.CORS.Enabled || cfg.CORS.PathPattern == "/legacy/**" {
-							t.Fatalf("expected legacy cors file to be ignored, got %#v", cfg.CORS)
-						}
-					})
-				})
-			})
 		})
 	})
 }
@@ -533,7 +405,7 @@ func TestLoadPromptsConfigFromFile(t *testing.T) {
 			"    read before editing\n" +
 			"  planning-prompt: |\n" +
 			"    custom coder planning\n" +
-			"    use planning_write only\n" +
+			"    use finalize_planning only\n" +
 			"  summary-system-prompt: custom coder summary system\n" +
 			"  summary-user-prompt-template: |\n" +
 			"    custom coder summary {{confirmed_plan}}\n" +
@@ -583,7 +455,7 @@ func TestLoadPromptsConfigFromFile(t *testing.T) {
 			if cfg.CoderPrompts.SystemPrompt != "custom coder system\nread before editing" {
 				t.Fatalf("expected coder system prompt override, got %q", cfg.CoderPrompts.SystemPrompt)
 			}
-			if cfg.CoderPrompts.PlanningPrompt != "custom coder planning\nuse planning_write only" {
+			if cfg.CoderPrompts.PlanningPrompt != "custom coder planning\nuse finalize_planning only" {
 				t.Fatalf("expected coder planning prompt override, got %q", cfg.CoderPrompts.PlanningPrompt)
 			}
 			if cfg.CoderPrompts.SummarySystemPrompt != "custom coder summary system" {
@@ -611,7 +483,7 @@ func TestLoadCoderPromptsConfigFromFile(t *testing.T) {
 			"    read before editing\n" +
 			"  planning-prompt: |\n" +
 			"    custom coder planning\n" +
-			"    use planning_write only\n" +
+			"    use finalize_planning only\n" +
 			"  summary-system-prompt: custom coder summary system\n" +
 			"  summary-user-prompt-template: |\n" +
 			"    custom coder summary {{confirmed_plan}}\n"
@@ -623,7 +495,7 @@ func TestLoadCoderPromptsConfigFromFile(t *testing.T) {
 			if cfg.CoderPrompts.SystemPrompt != "custom coder system\nread before editing" {
 				t.Fatalf("expected coder system prompt override, got %q", cfg.CoderPrompts.SystemPrompt)
 			}
-			want := "custom coder planning\nuse planning_write only"
+			want := "custom coder planning\nuse finalize_planning only"
 			if cfg.CoderPrompts.PlanningPrompt != want {
 				t.Fatalf("expected coder planning prompt %q, got %q", want, cfg.CoderPrompts.PlanningPrompt)
 			}
@@ -658,49 +530,6 @@ func TestLoadMemoryPromptsConfigFromFile(t *testing.T) {
 			if cfg.MemoryPrompts.UserPromptTemplate != "custom memory user\n{{source_text}}" {
 				t.Fatalf("expected memory user prompt override, got %q", cfg.MemoryPrompts.UserPromptTemplate)
 			}
-		})
-	})
-}
-
-func TestLoadPromptsConfigIgnoresLegacyPromptFiles(t *testing.T) {
-	withIsolatedEnv(t, nil, func() {
-		legacyCoder := "" +
-			"system-prompt: legacy coder system\n" +
-			"planning-prompt: legacy coder plan\n" +
-			"summary-system-prompt: legacy coder summary\n"
-		legacyMemory := "" +
-			"system-prompt-template: legacy memory system\n" +
-			"user-prompt-template: legacy memory user\n"
-		merged := "" +
-			"coder:\n" +
-			"  system-prompt: merged coder system\n" +
-			"  planning-prompt: merged coder plan\n" +
-			"memory:\n" +
-			"  user-prompt-template: merged memory user\n"
-		withProjectFileContents(t, filepath.Join("configs", "coder-prompts.yml"), &legacyCoder, func() {
-			withProjectFileContents(t, filepath.Join("configs", "memory-prompts.yml"), &legacyMemory, func() {
-				withProjectFileContents(t, filepath.Join("configs", "prompts.yml"), &merged, func() {
-					cfg, err := Load()
-					if err != nil {
-						t.Fatalf("load config: %v", err)
-					}
-					if cfg.CoderPrompts.PlanningPrompt != "merged coder plan" {
-						t.Fatalf("expected merged coder prompt to win, got %q", cfg.CoderPrompts.PlanningPrompt)
-					}
-					if cfg.CoderPrompts.SystemPrompt != "merged coder system" {
-						t.Fatalf("expected merged coder system prompt to win, got %q", cfg.CoderPrompts.SystemPrompt)
-					}
-					if cfg.CoderPrompts.SummarySystemPrompt == "legacy coder summary" {
-						t.Fatalf("expected legacy coder prompt file to be ignored, got %q", cfg.CoderPrompts.SummarySystemPrompt)
-					}
-					if cfg.MemoryPrompts.SystemPromptTemplate == "legacy memory system" {
-						t.Fatalf("expected legacy memory prompt file to be ignored, got %q", cfg.MemoryPrompts.SystemPromptTemplate)
-					}
-					if cfg.MemoryPrompts.UserPromptTemplate != "merged memory user" {
-						t.Fatalf("expected merged memory prompt to win, got %q", cfg.MemoryPrompts.UserPromptTemplate)
-					}
-				})
-			})
 		})
 	})
 }
@@ -777,25 +606,6 @@ func TestLoadCoderSettingsRejectsACPProxyWithoutBaseURL(t *testing.T) {
 	})
 }
 
-func TestLoadCoderSettingsRejectsDeprecatedACPProxyTimeoutMs(t *testing.T) {
-	withIsolatedEnv(t, nil, func() {
-		content := "" +
-			"acp-proxies:\n" +
-			"  codex:\n" +
-			"    base-url: http://127.0.0.1:3211\n" +
-			"    timeout-ms: 300000\n"
-		withProjectFileContents(t, filepath.Join("configs", "coder-settings.yml"), &content, func() {
-			_, err := Load()
-			if err == nil {
-				t.Fatal("expected deprecated ACP proxy timeout-ms to be rejected")
-			}
-			if !strings.Contains(err.Error(), "timeout-ms") || !strings.Contains(err.Error(), "acp-proxies.codex.timeout") {
-				t.Fatalf("expected migration error for ACP proxy timeout-ms, got %v", err)
-			}
-		})
-	})
-}
-
 func TestLoadVisionRecognizeMissingFileDefaultsDisabled(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
 		withProjectFileContents(t, filepath.Join("configs", "ai-tools.yml"), nil, func() {
@@ -848,27 +658,6 @@ func TestLoadVisionRecognizeConfigFromFile(t *testing.T) {
 			}
 			if profile.SystemPrompt != "extract text\nreturn json" {
 				t.Fatalf("unexpected system prompt: %q", profile.SystemPrompt)
-			}
-		})
-	})
-}
-
-func TestLoadAIToolsRejectsDeprecatedVisionTimeoutMs(t *testing.T) {
-	withIsolatedEnv(t, nil, func() {
-		content := "" +
-			"vision-recognize:\n" +
-			"  enabled: true\n" +
-			"  profiles:\n" +
-			"    general:\n" +
-			"      model-key: bailian-qwen3_5-plus\n" +
-			"      timeout-ms: 60000\n"
-		withProjectFileContents(t, filepath.Join("configs", "ai-tools.yml"), &content, func() {
-			_, err := Load()
-			if err == nil {
-				t.Fatal("expected deprecated vision timeout-ms to be rejected")
-			}
-			if !strings.Contains(err.Error(), "timeout-ms") || !strings.Contains(err.Error(), "vision-recognize.profiles.general.timeout") {
-				t.Fatalf("expected migration error for vision timeout-ms, got %v", err)
 			}
 		})
 	})
@@ -936,27 +725,6 @@ func TestLoadWebFetchConfigFromFile(t *testing.T) {
 	})
 }
 
-func TestLoadAIToolsRejectsDeprecatedWebFetchTimeoutMs(t *testing.T) {
-	withIsolatedEnv(t, nil, func() {
-		content := "" +
-			"web-fetch:\n" +
-			"  enabled: true\n" +
-			"  profiles:\n" +
-			"    general:\n" +
-			"      model-key: th-minimax-m3\n" +
-			"      timeout-ms: 60000\n"
-		withProjectFileContents(t, filepath.Join("configs", "ai-tools.yml"), &content, func() {
-			_, err := Load()
-			if err == nil {
-				t.Fatal("expected deprecated web-fetch timeout-ms to be rejected")
-			}
-			if !strings.Contains(err.Error(), "timeout-ms") || !strings.Contains(err.Error(), "web-fetch.profiles.general.timeout") {
-				t.Fatalf("expected migration error for web-fetch timeout-ms, got %v", err)
-			}
-		})
-	})
-}
-
 func TestLoadAIToolsConfigFromFile(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
 		content := "" +
@@ -1000,43 +768,6 @@ func TestLoadAIToolsConfigFromFile(t *testing.T) {
 				}
 				if profile.SystemPrompt != "extract merged text" {
 					t.Fatalf("unexpected system prompt: %q", profile.SystemPrompt)
-				}
-			})
-		})
-	})
-}
-
-func TestLoadAIToolsConfigIgnoresLegacyVisionRecognizeFile(t *testing.T) {
-	withIsolatedEnv(t, nil, func() {
-		legacy := "" +
-			"enabled: true\n" +
-			"default-profile: legacy\n" +
-			"profiles:\n" +
-			"  legacy:\n" +
-			"    model-key: legacy-model\n"
-		merged := "" +
-			"vision-recognize:\n" +
-			"  default-profile: merged\n" +
-			"  profiles:\n" +
-			"    merged:\n" +
-			"      model-key: merged-model\n"
-		withProjectFileContents(t, filepath.Join("configs", "vision-recognize.yml"), &legacy, func() {
-			withProjectFileContents(t, filepath.Join("configs", "ai-tools.yml"), &merged, func() {
-				cfg, err := Load()
-				if err != nil {
-					t.Fatalf("load config: %v", err)
-				}
-				if cfg.VisionRecognize.Enabled {
-					t.Fatal("expected legacy enabled flag to be ignored")
-				}
-				if cfg.VisionRecognize.DefaultProfile != "merged" {
-					t.Fatalf("expected ai-tools default profile to win, got %q", cfg.VisionRecognize.DefaultProfile)
-				}
-				if _, ok := cfg.VisionRecognize.Profiles["legacy"]; ok {
-					t.Fatalf("expected merged profiles to replace legacy profiles, got %#v", cfg.VisionRecognize.Profiles)
-				}
-				if cfg.VisionRecognize.Profiles["merged"].ModelKey != "merged-model" {
-					t.Fatalf("expected merged model profile, got %#v", cfg.VisionRecognize.Profiles)
 				}
 			})
 		})
@@ -1301,109 +1032,6 @@ func TestLoadMemoryLogFileEnvOverridesMemoryDirDefault(t *testing.T) {
 	})
 }
 
-func TestLoadIgnoresOldEnvVars(t *testing.T) {
-	values := map[string]string{
-		"AGENT_CONTAINER_HUB_BASE_URL":          "http://127.0.0.1:18000",
-		"AGENT_MEMORY_STORAGE_DIR":              filepath.Join("var", "custom-memory"),
-		"AGENT_CONFIG_DIR":                      "configs",
-		"GATEWAY_WS_URL":                        "wss://gw.example.com/ws/agent?channel=wecom",
-		"AGENT_GATEWAY_WS_RECONNECT_MAX_MS":     "6789",
-		"MEMORY_CHATS_INDEX_SQLITE_FILE":        "old.db",
-		"CONTAINER_HUB_REQUEST_TIMEOUT_MS":      "1000",
-		"CONTAINER_HUB_AGENT_IDLE_TIMEOUT_MS":   "2000",
-		"CONTAINER_HUB_DESTROY_QUEUE_DELAY_MS":  "3000",
-		"AGENT_DEFAULT_BUDGET_RUN_TIMEOUT_MS":   "4000",
-		"AGENT_DEFAULT_BUDGET_MODEL_TIMEOUT_MS": "5000",
-		"AGENT_DEFAULT_BUDGET_TOOL_TIMEOUT_MS":  "6000",
-		"BUDGET_HITL_TIMEOUT_MS":                "7000",
-		"BUDGET_HITL_QUESTION_TIMEOUT_MS":       "8000",
-		"BUDGET_HITL_APPROVAL_TIMEOUT_MS":       "9000",
-		"BUDGET_HITL_FORM_TIMEOUT_MS":           "10000",
-		"BUDGET_HITL_PLAN_TIMEOUT_MS":           "11000",
-		"AGENT_H2A_RENDER_FLUSH_INTERVAL_MS":    "13000",
-		"AGENT_RUN_MAX_BACKGROUND_DURATION_MS":  "15000",
-		"AGENT_RUN_MAX_DISCONNECTED_WAIT_MS":    "17000",
-		"AGENT_WS_PING_INTERVAL_MS":             "18000",
-		"AGENT_WS_WRITE_TIMEOUT_MS":             "19000",
-		"AGENT_AUTH_ENABLED":                    "false",
-	}
-	bashAndFileEnv := []string{
-		"AGENT_BASH_WORKING_DIRECTORY",
-		"AGENT_BASH_ALLOWED_PATHS",
-		"AGENT_BASH_ALLOWED_COMMANDS",
-		"AGENT_BASH_PATH_CHECKED_COMMANDS",
-		"AGENT_BASH_PATH_CHECK_BYPASS_COMMANDS",
-		"AGENT_BASH_SHELL_FEATURES_ENABLED",
-		"AGENT_BASH_SHELL_EXECUTABLE",
-		"AGENT_BASH_SHELL_ARGS",
-		"AGENT_BASH_SHELL_TIMEOUT_MS",
-		"AGENT_BASH_MAX_COMMAND_CHARS",
-		"AGENT_BASH_HITL_DEFAULT_TIMEOUT_MS",
-		"AGENT_FILE_WORKING_DIRECTORY",
-		"AGENT_FILE_ALLOWED_READ_PATHS",
-		"AGENT_FILE_ALLOWED_WRITE_PATHS",
-		"AGENT_FILE_MAX_READ_BYTES",
-		"AGENT_FILE_MAX_WRITE_BYTES",
-		"AGENT_FILE_MAX_BATCH_OPS",
-		"AGENT_FILE_REQUIRE_WRITE_APPROVAL",
-		"AGENT_FILE_REQUIRE_READ_BEFORE_WRITE",
-	}
-	for _, key := range bashAndFileEnv {
-		values[key] = "deprecated"
-	}
-	withIsolatedEnv(t, values, func() {
-		withProjectFileContents(t, filepath.Join("configs", "channels.yml"), nil, func() {
-			withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), nil, func() {
-				withProjectFileContents(t, filepath.Join("configs", "container-hub.yml"), nil, func() {
-					cfg, err := Load()
-					if err != nil {
-						t.Fatalf("load config: %v", err)
-					}
-					if len(cfg.Gateways) != 0 {
-						t.Fatalf("old gateway env should not synthesize gateways, got %#v", cfg.Gateways)
-					}
-					if !cfg.Auth.Enabled {
-						t.Fatalf("old auth env should not disable auth")
-					}
-					if cfg.ContainerHub.BaseURL != "" || cfg.ContainerHub.Enabled {
-						t.Fatalf("old container hub env should not configure container hub: %#v", cfg.ContainerHub)
-					}
-					if cfg.ContainerHub.RequestTimeout != 300 ||
-						cfg.ContainerHub.AgentIdleTimeout != 600 ||
-						cfg.ContainerHub.DestroyQueueDelay != 5 {
-						t.Fatalf("old container hub timeout env should not affect defaults: %#v", cfg.ContainerHub)
-					}
-					if cfg.Defaults.Budget.Timeout != 600 ||
-						cfg.Defaults.Budget.Model.Timeout != 120 ||
-						cfg.Defaults.Budget.Tool.Timeout != 120 ||
-						cfg.Defaults.Budget.Hitl.Timeout != 0 ||
-						cfg.Defaults.Budget.Hitl.Question.Timeout != 0 ||
-						cfg.Defaults.Budget.Hitl.Approval.Timeout != 0 ||
-						cfg.Defaults.Budget.Hitl.Form.Timeout != 0 ||
-						cfg.Defaults.Budget.Hitl.Plan.Timeout != 0 {
-						t.Fatalf("old budget timeout env should not affect defaults: %#v", cfg.Defaults.Budget)
-					}
-					if cfg.Paths.MemoryDir == filepath.Join("var", "custom-memory") {
-						t.Fatalf("old memory storage env should not affect memory dir")
-					}
-					if cfg.SSE.HeartbeatInterval != 30 || cfg.H2A.Render.FlushInterval != 0 {
-						t.Fatalf("old stream timeout env should not affect defaults: sse=%d h2a=%d", cfg.SSE.HeartbeatInterval, cfg.H2A.Render.FlushInterval)
-					}
-					if cfg.Run.ReaperInterval != 30 ||
-						cfg.Run.MaxBackgroundDuration != 0 ||
-						cfg.Run.CompletedRetention != 10 ||
-						cfg.Run.MaxDisconnectedWait != 0 {
-						t.Fatalf("old run timeout env should not affect defaults: %#v", cfg.Run)
-					}
-					if cfg.WebSocket.PingInterval != 30 || cfg.WebSocket.WriteTimeout != 15 {
-						t.Fatalf("old websocket timeout env should not affect defaults: %#v", cfg.WebSocket)
-					}
-				})
-			})
-		})
-	})
-}
-
 func TestLoadAcceptsJavaEnvContract(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"AUTH_ENABLED":                            "false",
@@ -1556,21 +1184,6 @@ func TestLoadEnvOverridesAndToolsYAMLConfig(t *testing.T) {
 	})
 }
 
-func TestLoadRejectsDeprecatedBashHITLTimeout(t *testing.T) {
-	content := "" +
-		"bash:\n" +
-		"  hitl-default-timeout-ms: 45000\n"
-	withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
-		_, err := Load()
-		if err == nil {
-			t.Fatal("expected deprecated bash HITL timeout to be rejected")
-		}
-		if !strings.Contains(err.Error(), "hitl-default-timeout-ms") || !strings.Contains(err.Error(), "budget.hitl.timeout") {
-			t.Fatalf("expected migration error for deprecated bash HITL timeout, got %v", err)
-		}
-	})
-}
-
 func TestLoadBashShellArgsFromFile(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
 		content := "" +
@@ -1592,36 +1205,6 @@ func TestLoadBashShellArgsFromFile(t *testing.T) {
 			}
 			if got := strings.Join(cfg.Bash.ShellArgs, "|"); got != "-NoProfile|-ExecutionPolicy|Bypass|-Command|{{command}}" {
 				t.Fatalf("unexpected shell args: %#v", cfg.Bash.ShellArgs)
-			}
-		})
-	})
-}
-
-func TestDeprecatedBashPathConfigFailsStartup(t *testing.T) {
-	withIsolatedEnv(t, nil, func() {
-		content := "" +
-			"bash:\n" +
-			"  working-directory: " + filepath.ToSlash(filepath.Join("var", "runtime")) + "\n" +
-			"  allowed-paths: [\".\", \"/tmp/example\"]\n"
-		withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
-			_, err := Load()
-			if err == nil || !strings.Contains(err.Error(), "allowed-paths") {
-				t.Fatalf("expected deprecated allowed-paths error, got %v", err)
-			}
-		})
-	})
-}
-
-func TestDeprecatedFileToolsPathConfigFailsStartup(t *testing.T) {
-	withIsolatedEnv(t, nil, func() {
-		content := "" +
-			"file-tools:\n" +
-			"  allowed-read-paths:\n" +
-			"    - /read/a\n"
-		withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
-			_, err := Load()
-			if err == nil || !strings.Contains(err.Error(), "allowed-read-paths") {
-				t.Fatalf("expected deprecated allowed-read-paths error, got %v", err)
 			}
 		})
 	})
@@ -1818,26 +1401,6 @@ func TestFileToolsConfigLSPHookYAMLOverrides(t *testing.T) {
 	})
 }
 
-func TestFileToolsConfigRejectsDeprecatedLSPTimeoutMs(t *testing.T) {
-	withIsolatedEnv(t, nil, func() {
-		content := "" +
-			"file-tools:\n" +
-			"  hooks:\n" +
-			"    after-file-change:\n" +
-			"      lsp-diagnostics:\n" +
-			"        timeout-ms: 3000\n"
-		withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
-			_, err := Load()
-			if err == nil {
-				t.Fatal("expected deprecated lsp timeout-ms to be rejected")
-			}
-			if !strings.Contains(err.Error(), "timeout-ms") || !strings.Contains(err.Error(), "file-tools.hooks.after-file-change.lsp-diagnostics.timeout") {
-				t.Fatalf("expected migration error for lsp timeout-ms, got %v", err)
-			}
-		})
-	})
-}
-
 func TestToolsConfigYAMLOverrides(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
 		content := "" +
@@ -1903,134 +1466,6 @@ func TestToolsConfigYAMLOverrides(t *testing.T) {
 						}
 					})
 				})
-			})
-		})
-	})
-}
-
-func TestToolsConfigRejectsDeprecatedShellTimeoutMs(t *testing.T) {
-	withIsolatedEnv(t, nil, func() {
-		content := "" +
-			"bash:\n" +
-			"  shell-timeout-ms: 30000\n"
-		withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
-			_, err := Load()
-			if err == nil {
-				t.Fatal("expected deprecated shell-timeout-ms to be rejected")
-			}
-			if !strings.Contains(err.Error(), "shell-timeout-ms") || !strings.Contains(err.Error(), "bash.shell-timeout") {
-				t.Fatalf("expected migration error for shell-timeout-ms, got %v", err)
-			}
-		})
-	})
-}
-
-func TestToolsConfigIgnoresLegacyToolFiles(t *testing.T) {
-	withIsolatedEnv(t, nil, func() {
-		legacyAccess := "" +
-			"levels:\n" +
-			"  default:\n" +
-			"    approvals:\n" +
-			"      read-outside-roots: block\n"
-		legacyBash := "" +
-			"working-directory: legacy-bash\n" +
-			"allowed-commands: pwd\n"
-		legacyFileTools := "" +
-			"working-directory: legacy-files\n" +
-			"max-read-bytes: 111\n"
-		merged := "" +
-			"access-policy:\n" +
-			"  levels:\n" +
-			"    default:\n" +
-			"      approvals:\n" +
-			"        read-outside-roots: auto\n" +
-			"bash:\n" +
-			"  working-directory: merged-bash\n" +
-			"file-tools:\n" +
-			"  max-read-bytes: 222\n"
-		withProjectFileContents(t, filepath.Join("configs", "access-policy.yml"), &legacyAccess, func() {
-			withProjectFileContents(t, filepath.Join("configs", "bash.yml"), &legacyBash, func() {
-				withProjectFileContents(t, filepath.Join("configs", "file-tools.yml"), &legacyFileTools, func() {
-					withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &merged, func() {
-						cfg, err := Load()
-						if err != nil {
-							t.Fatalf("load config: %v", err)
-						}
-						if cfg.AccessPolicy.Levels["default"].Approvals.ReadOutsideRoots != "auto" {
-							t.Fatalf("expected tools access policy to win, got %#v", cfg.AccessPolicy.Levels["default"].Approvals)
-						}
-						if cfg.Bash.WorkingDirectory != "merged-bash" {
-							t.Fatalf("expected tools bash working dir to win, got %q", cfg.Bash.WorkingDirectory)
-						}
-						if strings.Join(cfg.Bash.AllowedCommands, ",") == "pwd" {
-							t.Fatalf("expected legacy bash file to be ignored, got %#v", cfg.Bash.AllowedCommands)
-						}
-						if cfg.FileTools.WorkingDirectory == "legacy-files" {
-							t.Fatalf("expected legacy file-tools file to be ignored, got %q", cfg.FileTools.WorkingDirectory)
-						}
-						if cfg.FileTools.MaxReadBytes != 222 {
-							t.Fatalf("expected tools file-tools max read to win, got %d", cfg.FileTools.MaxReadBytes)
-						}
-					})
-				})
-			})
-		})
-	})
-}
-
-func TestToolsConfigIgnoresLegacyHostToolsFile(t *testing.T) {
-	withIsolatedEnv(t, nil, func() {
-		legacy := "" +
-			"access-policy:\n" +
-			"  levels:\n" +
-			"    default:\n" +
-			"      approvals:\n" +
-			"        read-outside-roots: block\n" +
-			"bash:\n" +
-			"  working-directory: legacy-host-bash\n" +
-			"  shell-executable: legacy-host-shell\n"
-		withProjectFileContents(t, filepath.Join("configs", "tools.yml"), nil, func() {
-			withProjectFileContents(t, filepath.Join("configs", "host-tools.yml"), &legacy, func() {
-				cfg, err := Load()
-				if err != nil {
-					t.Fatalf("load config: %v", err)
-				}
-				if cfg.AccessPolicy.Levels["default"].Approvals.ReadOutsideRoots == "block" {
-					t.Fatalf("expected legacy host-tools access policy to be ignored, got %#v", cfg.AccessPolicy.Levels["default"].Approvals)
-				}
-				if cfg.Bash.WorkingDirectory == "legacy-host-bash" {
-					t.Fatalf("expected legacy host-tools bash working dir to be ignored, got %q", cfg.Bash.WorkingDirectory)
-				}
-				if cfg.Bash.ShellExecutable == "legacy-host-shell" {
-					t.Fatalf("expected legacy host-tools shell executable to be ignored, got %q", cfg.Bash.ShellExecutable)
-				}
-			})
-		})
-	})
-}
-
-func TestToolsDeprecatedPathConfigFailsStartup(t *testing.T) {
-	withIsolatedEnv(t, nil, func() {
-		bashContent := "" +
-			"bash:\n" +
-			"  allowed-paths: [\".\"]\n"
-		withProjectFileContents(t, filepath.Join("configs", "bash.yml"), nil, func() {
-			withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &bashContent, func() {
-				_, err := Load()
-				if err == nil || !strings.Contains(err.Error(), "allowed-paths") || !strings.Contains(err.Error(), "configs/tools.yml > access-policy") {
-					t.Fatalf("expected deprecated allowed-paths error, got %v", err)
-				}
-			})
-		})
-		fileToolsContent := "" +
-			"file-tools:\n" +
-			"  allowed-read-paths: [\".\"]\n"
-		withProjectFileContents(t, filepath.Join("configs", "file-tools.yml"), nil, func() {
-			withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &fileToolsContent, func() {
-				_, err := Load()
-				if err == nil || !strings.Contains(err.Error(), "allowed-read-paths") || !strings.Contains(err.Error(), "configs/tools.yml > access-policy") {
-					t.Fatalf("expected deprecated allowed-read-paths error, got %v", err)
-				}
 			})
 		})
 	})
@@ -2329,37 +1764,6 @@ func TestLoadGatewayConfigFromChannels(t *testing.T) {
 			}
 		})
 	})
-}
-
-func TestLoadChannelsRejectsDeprecatedGatewayTimeoutMs(t *testing.T) {
-	cases := []struct {
-		name       string
-		legacyKey  string
-		targetPath string
-	}{
-		{name: "handshake", legacyKey: "handshake-timeout-ms", targetPath: "handshake-timeout"},
-		{name: "reconnect min", legacyKey: "reconnect-min-ms", targetPath: "reconnect-min"},
-		{name: "reconnect max", legacyKey: "reconnect-max-ms", targetPath: "reconnect-max"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			withIsolatedEnv(t, nil, func() {
-				content := "" +
-					"channels:\n" +
-					"  mobile:\n" +
-					"    type: gateway\n" +
-					"    gateway:\n" +
-					"      url: ws://127.0.0.1:17999/gw?channel=mobile\n" +
-					"      " + tc.legacyKey + ": 10000\n"
-				withProjectFileContents(t, filepath.Join("configs", "channels.yml"), &content, func() {
-					_, err := Load()
-					if err == nil || !strings.Contains(err.Error(), tc.legacyKey) || !strings.Contains(err.Error(), tc.targetPath) {
-						t.Fatalf("expected deprecated gateway timeout error for %s, got %v", tc.legacyKey, err)
-					}
-				})
-			})
-		})
-	}
 }
 
 func TestLoadFailsWhenExplicitPanDirDoesNotExist(t *testing.T) {

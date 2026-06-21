@@ -10,7 +10,7 @@ import (
 )
 
 func TestPlanStageToolsDefaultsToPlanAddTasksOnly(t *testing.T) {
-	stream := &planExecuteStream{
+	stream := &planPipelineStream{
 		session: contracts.QuerySession{
 			ToolNames: []string{"datetime", "memory_search"},
 		},
@@ -22,7 +22,7 @@ func TestPlanStageToolsDefaultsToPlanAddTasksOnly(t *testing.T) {
 }
 
 func TestPlanStageToolsPreservesExplicitPlanToolsWithoutSessionFallback(t *testing.T) {
-	stream := &planExecuteStream{
+	stream := &planPipelineStream{
 		session: contracts.QuerySession{
 			ToolNames: []string{"memory_search", "datetime"},
 		},
@@ -39,7 +39,7 @@ func TestPlanStageToolsPreservesExplicitPlanToolsWithoutSessionFallback(t *testi
 }
 
 func TestPlanStagePostToolHookStopsAfterTasksCreated(t *testing.T) {
-	stream := &planExecuteStream{
+	stream := &planPipelineStream{
 		execCtx: &contracts.ExecutionContext{
 			PlanState: &contracts.PlanRuntimeState{},
 		},
@@ -59,7 +59,7 @@ func TestPlanStagePostToolHookStopsAfterTasksCreated(t *testing.T) {
 }
 
 func TestPlanExecuteUsesGlobalPromptTemplates(t *testing.T) {
-	stream := &planExecuteStream{
+	stream := &planPipelineStream{
 		engine: &LLMAgentEngine{cfg: config.Config{
 			Prompts: config.PromptsConfig{
 				PlanExecute: config.PlanExecutePromptsConfig{
@@ -90,7 +90,7 @@ func TestPlanExecuteUsesGlobalPromptTemplates(t *testing.T) {
 }
 
 func TestPlanExecuteAgentTaskTemplateOverridesGlobal(t *testing.T) {
-	stream := &planExecuteStream{
+	stream := &planPipelineStream{
 		engine: &LLMAgentEngine{cfg: config.Config{
 			Prompts: config.PromptsConfig{
 				PlanExecute: config.PlanExecutePromptsConfig{

@@ -90,13 +90,6 @@ func renderDefinition(def Definition) []byte {
 		writeYAMLKeyValue(&b, 2, "references", items)
 	}
 
-	if strings.TrimSpace(def.PushURL) != "" {
-		writeYAMLKeyValue(&b, 0, "pushUrl", def.PushURL)
-	}
-	if strings.TrimSpace(def.PushTargetID) != "" {
-		writeYAMLKeyValue(&b, 0, "pushTargetId", def.PushTargetID)
-	}
-
 	return []byte(b.String())
 }
 

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"agent-platform/internal/stream"
 )
@@ -32,14 +31,6 @@ func (s *FileStore) AppendEventLine(chatID string, line EventLine) error {
 }
 
 func (s *FileStore) AppendSubmitLine(chatID string, line SubmitLine) error {
-	return s.appendJSONLine(s.chatJSONLPath(chatID), line)
-}
-
-func (s *FileStore) AppendSystemInitLine(chatID string, line SystemInitLine) error {
-	line.Type = "system"
-	if strings.TrimSpace(line.ChatID) == "" {
-		line.ChatID = chatID
-	}
 	return s.appendJSONLine(s.chatJSONLPath(chatID), line)
 }
 

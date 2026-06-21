@@ -89,9 +89,9 @@ func usageModelKeyFromEvent(data *stream.EventData, usage map[string]any) string
 	modelNode, _ := data.Payload["model"].(map[string]any)
 	contextWindow, _ := data.Payload["contextWindow"].(map[string]any)
 	return strings.TrimSpace(contracts.FirstNonEmptyString(
-		usage["modelKey"], usage["model_key"],
-		usageRoot["modelKey"], usageRoot["model_key"],
-		contextWindow["modelKey"], contextWindow["model_key"],
+		usage["modelKey"],
+		usageRoot["modelKey"],
+		contextWindow["modelKey"],
 		modelNode["key"],
 	))
 }
@@ -103,8 +103,8 @@ func usageModelKeyFromDebugData(inner map[string]any, usage map[string]any) stri
 	modelNode, _ := inner["model"].(map[string]any)
 	contextWindow, _ := inner["contextWindow"].(map[string]any)
 	return strings.TrimSpace(contracts.FirstNonEmptyString(
-		usage["modelKey"], usage["model_key"],
-		contextWindow["modelKey"], contextWindow["model_key"],
+		usage["modelKey"],
+		contextWindow["modelKey"],
 		modelNode["key"],
 	))
 }

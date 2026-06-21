@@ -217,11 +217,8 @@ func (s *Server) buildAgentDetailMeta(def catalog.AgentDefinition) (string, map[
 	if len(def.Skills) > 0 {
 		meta["perAgentSkills"] = append([]string(nil), def.Skills...)
 	}
-	if strings.EqualFold(strings.TrimSpace(def.Mode), catalog.AgentModeCoder) && strings.TrimSpace(def.CoderBackend) != "" {
-		meta["coderBackend"] = strings.ToLower(strings.TrimSpace(def.CoderBackend))
-		if strings.TrimSpace(def.ACPProxyID) != "" {
-			meta["acpProxyId"] = strings.TrimSpace(def.ACPProxyID)
-		}
+	if strings.TrimSpace(def.ACPProxyID) != "" {
+		meta["acpProxyId"] = strings.TrimSpace(def.ACPProxyID)
 	}
 	if strings.TrimSpace(def.Workspace.Root) != "" {
 		workspaceMeta := map[string]any{
@@ -296,8 +293,8 @@ func normalizedRuntimeMeta(runtime map[string]any) map[string]any {
 		"level":         strings.ToUpper(stringValue(runtime["level"])),
 	}
 	// Intentionally do not expose sandbox env values via API metadata.
-	if mounts := normalizeRuntimeMounts(runtime["extraMounts"]); len(mounts) > 0 {
-		out["extraMounts"] = mounts
+	if mounts := normalizeRuntimeMounts(runtime["sandboxMounts"]); len(mounts) > 0 {
+		out["sandboxMounts"] = mounts
 	}
 	return out
 }

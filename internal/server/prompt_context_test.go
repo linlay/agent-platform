@@ -368,7 +368,7 @@ func TestBuildRuntimeContextIgnoresLegacySandboxTagWithoutSandboxConfig(t *testi
 		t.Fatalf("buildRuntimeRequestContext() error = %v", err)
 	}
 	if context.SandboxContext != nil {
-		t.Fatalf("expected legacy sandbox tag to have no effect, got %#v", context.SandboxContext)
+		t.Fatalf("expected sandbox tag to have no effect, got %#v", context.SandboxContext)
 	}
 }
 
@@ -443,7 +443,7 @@ func TestBuildRuntimeContextIncludesSkillsMarketOnlyWithExplicitMount(t *testing
 			Key:      "demo-agent",
 			AgentDir: filepath.Join(cfg.Paths.AgentsDir, "demo-agent"),
 			Runtime: map[string]any{
-				"extraMounts": []map[string]any{
+				"sandboxMounts": []map[string]any{
 					{"platform": "skills-market", "mode": "ro"},
 				},
 			},
@@ -765,7 +765,7 @@ func testPromptContextDefinition(paths config.PathsConfig) catalog.AgentDefiniti
 		AgentDir: filepath.Join(paths.AgentsDir, "demo-agent"),
 		Runtime: map[string]any{
 			"level": "run",
-			"extraMounts": []map[string]any{
+			"sandboxMounts": []map[string]any{
 				{"platform": "skills-market", "mode": "ro"},
 				{"platform": "agents"},
 				{"platform": "teams"},

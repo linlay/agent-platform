@@ -20,15 +20,7 @@ import (
 )
 
 type RememberSummarizer interface {
-	SummarizeRemember(input RememberSynthesisInput) ([]MemoryDraft, error)
 	SummarizeLearn(input LearnSynthesisInput) ([]MemoryDraft, error)
-}
-
-type RememberSynthesisInput struct {
-	Request  api.RememberRequest
-	Chat     chat.Detail
-	AgentKey string
-	History  []api.StoredMemoryResponse
 }
 
 type LearnSynthesisInput struct {
@@ -72,24 +64,6 @@ func NewLLMMemorySummarizer(registry *models.ModelRegistry, modelKey string, tim
 		timeout:  timeoutDuration,
 		prompts:  prompts,
 	}
-}
-
-func (s *LLMMemorySummarizer) SummarizeRemember(input RememberSynthesisInput) ([]MemoryDraft, error) {
-	if s == nil {
-		return nil, nil
-	}
-	source := rememberSourceText(input.Chat)
-	if strings.TrimSpace(source) == "" {
-		return nil, nil
-	}
-	return s.complete(memoryPrompt{
-		Task:        "remember",
-		AgentKey:    input.AgentKey,
-		ChatID:      input.Request.ChatID,
-		History:     input.History,
-		SourceText:  source,
-		UserRequest: firstRawMessage(input.Chat.RawMessages),
-	})
 }
 
 func (s *LLMMemorySummarizer) SummarizeLearn(input LearnSynthesisInput) ([]MemoryDraft, error) {
@@ -393,21 +367,6 @@ func renderMemoryPromptTemplate(template string, values map[string]string) strin
 	return result
 }
 
-func rememberSourceText(detail chat.Detail) string {
-	lines := []string{}
-	if strings.TrimSpace(detail.ChatName) != "" {
-		lines = append(lines, "chat_name: "+strings.TrimSpace(detail.ChatName))
-	}
-	for _, sample := range sampleMessages(detail.RawMessages) {
-		lines = append(lines, sample)
-	}
-	summary := extractRememberSummary(detail)
-	if strings.TrimSpace(summary) != "" {
-		lines = append(lines, "assistant_summary: "+summary)
-	}
-	return strings.TrimSpace(strings.Join(lines, "\n"))
-}
-
 func learnSourceText(trace chat.RunTrace) string {
 	lines := []string{}
 	if trace.Query != nil {
@@ -464,36 +423,6 @@ func pickHistoricalMemory(items []api.StoredMemoryResponse, limit int) []api.Sto
 	return filtered
 }
 
-func buildRememberStoredItems(request api.RememberRequest, chatDetail chat.Detail, agentKey string, drafts []MemoryDraft) []api.StoredMemoryResponse {
-	now := time.Now().UnixMilli()
-	out := make([]api.StoredMemoryResponse, 0, len(drafts))
-	for _, draft := range drafts {
-		item := api.StoredMemoryResponse{
-			ID:         generateMemoryID(),
-			RequestID:  request.RequestID,
-			ChatID:     request.ChatID,
-			AgentKey:   agentKey,
-			SubjectKey: chatDetail.ChatID,
-			Kind:       KindFact,
-			RefID:      request.ChatID,
-			ScopeType:  ScopeAgent,
-			ScopeKey:   normalizeScopeKey(ScopeAgent, "", agentKey, "", request.ChatID, ""),
-			Title:      draft.Title,
-			Summary:    draft.Summary,
-			SourceType: "remember",
-			Category:   nonEmptyCategory(draft.Category, "remember"),
-			Importance: draft.Importance,
-			Confidence: draft.Confidence,
-			Status:     StatusActive,
-			Tags:       append([]string{"remember"}, draft.Tags...),
-			CreatedAt:  now,
-			UpdatedAt:  now,
-		}
-		out = append(out, normalizeStoredItem(item))
-	}
-	return out
-}
-
 func buildLearnedMemoriesFromDrafts(input LearnInput, drafts []MemoryDraft) []api.StoredMemoryResponse {
 	now := time.Now().UnixMilli()
 	out := make([]api.StoredMemoryResponse, 0, len(drafts))
@@ -522,27 +451,6 @@ func buildLearnedMemoriesFromDrafts(input LearnInput, drafts []MemoryDraft) []ap
 		out = append(out, normalizeStoredItem(item))
 	}
 	return out
-}
-
-func summarizeRememberWithFallback(summarizer RememberSummarizer, input RememberSynthesisInput) []MemoryDraft {
-	if summarizer != nil {
-		drafts, err := summarizer.SummarizeRemember(input)
-		if err == nil {
-			return drafts
-		}
-		log.Printf("[memory][remember] summarizer failed, fallback to heuristic (chatId=%s agentKey=%s): %v", input.Request.ChatID, input.AgentKey, err)
-	}
-	summary := extractRememberSummary(input.Chat)
-	if strings.TrimSpace(summary) == "" {
-		return nil
-	}
-	return []MemoryDraft{{
-		Summary:    summary,
-		Category:   "remember",
-		Importance: rememberImportance,
-		Confidence: 0.9,
-		Tags:       []string{"remember"},
-	}}
 }
 
 func summarizeLearnWithFallback(summarizer RememberSummarizer, input LearnSynthesisInput) []MemoryDraft {

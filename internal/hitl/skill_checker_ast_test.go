@@ -37,6 +37,6 @@ func TestCheckRulesFallsBackWhenASTTooComplex(t *testing.T) {
 	}
 	result := checkRules(byCmd, "git status {a,b}", 0)
 	if !result.Intercepted {
-		t.Fatalf("expected legacy fallback interception, got %#v", result)
+		t.Fatalf("expected fallback interception, got %#v", result)
 	}
 }

@@ -39,7 +39,6 @@ type AgentDefinition struct {
 	Wonders          []string
 	ModelKey         string
 	Mode             string
-	CoderBackend     string
 	ACPProxyID       string
 	VisibilityScopes []string
 	Tools            []string
@@ -49,7 +48,6 @@ type AgentDefinition struct {
 	HostAccess       AgentHostAccessConfig
 	Workspace        AgentWorkspaceConfig
 	Project          AgentProjectConfig
-	ReactMaxSteps    int
 	ContextTags      []string
 	Budget           map[string]any
 	StageSettings    map[string]any
@@ -118,7 +116,6 @@ type AgentMemoryAutoRememberConfig struct {
 type AgentRuntimePrompts struct {
 	Skill        SkillPromptConfig
 	ToolAppendix ToolAppendixPromptConfig
-	PlanExecute  PlanExecutePromptConfig
 }
 
 // ProxyConfig configures PROXY mode: forward /api/query to a remote
@@ -142,10 +139,6 @@ type SkillPromptConfig struct {
 type ToolAppendixPromptConfig struct {
 	ToolDescriptionTitle string
 	AfterCallHintTitle   string
-}
-
-type PlanExecutePromptConfig struct {
-	TaskExecutionPromptTemplate string
 }
 
 type TeamDefinition struct {
@@ -322,11 +315,8 @@ func (r *FileRegistry) Agents(scope string) []api.AgentSummary {
 				},
 			},
 		}
-		if strings.EqualFold(strings.TrimSpace(def.Mode), AgentModeCoder) && strings.TrimSpace(def.CoderBackend) != "" {
-			summary.Meta["coderBackend"] = strings.ToLower(strings.TrimSpace(def.CoderBackend))
-			if strings.TrimSpace(def.ACPProxyID) != "" {
-				summary.Meta["acpProxyId"] = strings.TrimSpace(def.ACPProxyID)
-			}
+		if strings.TrimSpace(def.ACPProxyID) != "" {
+			summary.Meta["acpProxyId"] = strings.TrimSpace(def.ACPProxyID)
 		}
 		if strings.TrimSpace(def.Workspace.Root) != "" {
 			summary.Meta["workspace"] = map[string]any{
@@ -396,12 +386,11 @@ func agentSummaryCoderDefaults(def AgentDefinition) (string, string) {
 func agentSummaryReasoningDisabled(raw map[string]any) bool {
 	for _, key := range []string{"execute", "plan", "summary"} {
 		node := contracts.AnyMapNode(raw[key])
-		if enabled, ok := node["reasoningEnabled"].(bool); ok && !enabled {
+		modelConfig := contracts.AnyMapNode(node["modelConfig"])
+		reasoning := contracts.AnyMapNode(modelConfig["reasoning"])
+		if enabled, ok := reasoning["enabled"].(bool); ok && !enabled {
 			return true
 		}
-	}
-	if enabled, ok := raw["reasoningEnabled"].(bool); ok && !enabled {
-		return true
 	}
 	return false
 }
@@ -490,8 +479,8 @@ func runtimeSandboxSummaryMeta(runtime map[string]any) map[string]any {
 		"environmentId": strings.TrimSpace(stringNode(runtime["environmentId"])),
 		"level":         strings.ToUpper(strings.TrimSpace(stringNode(runtime["level"]))),
 	}
-	if mounts := listMaps(runtime["extraMounts"]); len(mounts) > 0 {
-		out["extraMounts"] = cloneListMaps(mounts)
+	if mounts := listMaps(runtime["sandboxMounts"]); len(mounts) > 0 {
+		out["sandboxMounts"] = cloneListMaps(mounts)
 	}
 	return out
 }

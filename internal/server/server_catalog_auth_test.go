@@ -98,13 +98,13 @@ func TestAgentEndpointReturnsDetail(t *testing.T) {
 	if _, exists := sandbox["env"]; exists {
 		t.Fatalf("expected sandbox env to stay private, got %#v", sandbox)
 	}
-	extraMounts, ok := sandbox["extraMounts"].([]any)
-	if !ok || len(extraMounts) != 1 {
-		t.Fatalf("expected sandbox extraMounts, got %#v", sandbox)
+	sandboxMounts, ok := sandbox["sandboxMounts"].([]any)
+	if !ok || len(sandboxMounts) != 1 {
+		t.Fatalf("expected sandbox mounts, got %#v", sandbox)
 	}
-	firstMount, ok := extraMounts[0].(map[string]any)
+	firstMount, ok := sandboxMounts[0].(map[string]any)
 	if !ok {
-		t.Fatalf("expected first sandbox mount map, got %#v", extraMounts[0])
+		t.Fatalf("expected first sandbox mount map, got %#v", sandboxMounts[0])
 	}
 	if _, exists := firstMount["source"]; !exists || firstMount["source"] != nil {
 		t.Fatalf("expected sandbox mount source=null, got %#v", firstMount)
@@ -250,8 +250,10 @@ func TestAgentsEndpointReturnsCatalogFieldsAndScopeFiltering(t *testing.T) {
 					"  modelKey: agent-model",
 					"stageSettings:",
 					"  execute:",
-					"    modelKey: execute-model",
-					"    reasoningEffort: HIGH",
+					"    modelConfig:",
+					"      modelKey: execute-model",
+					"      reasoning:",
+					"        effort: HIGH",
 					"icon:",
 					"  name: terminal",
 					"  color: '#336699'",

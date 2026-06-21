@@ -23,8 +23,8 @@ func TestLoadEmbeddedToolDefinitionsIncludesAskUserBuiltins(t *testing.T) {
 	if !byName["finalize_planning"] {
 		t.Fatal("expected finalize_planning builtin tool definition")
 	}
-	if !byName["planning_write"] {
-		t.Fatal("expected legacy planning_write builtin tool definition")
+	if byName["planning"+"_write"] {
+		t.Fatal("did not expect removed planning alias to remain a tool name")
 	}
 	if byName["confirm_dialog"] {
 		t.Fatal("did not expect confirm_dialog to remain a tool name")

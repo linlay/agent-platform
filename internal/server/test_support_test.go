@@ -228,7 +228,7 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 		"  env:",
 		"    HTTP_PROXY: http://agent-proxy",
 		"    TZ: Asia/Shanghai",
-		"  extraMounts:",
+		"  sandboxMounts:",
 		"    - platform: skills-market",
 		"      destination: /skills",
 		"      mode: ro",

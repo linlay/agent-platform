@@ -15,10 +15,10 @@ type RetryPolicy struct {
 
 type HitlPolicy struct {
 	Timeout  int            `json:"timeout,omitempty"`
-	Question  HitlModePolicy `json:"question,omitempty"`
-	Approval  HitlModePolicy `json:"approval,omitempty"`
-	Form      HitlModePolicy `json:"form,omitempty"`
-	Plan      HitlModePolicy `json:"plan,omitempty"`
+	Question HitlModePolicy `json:"question,omitempty"`
+	Approval HitlModePolicy `json:"approval,omitempty"`
+	Form     HitlModePolicy `json:"form,omitempty"`
+	Plan     HitlModePolicy `json:"plan,omitempty"`
 }
 
 type HitlModePolicy struct {
@@ -32,33 +32,33 @@ type StageBudget struct {
 
 type Budget struct {
 	Timeout  int                    `json:"timeout,omitempty"`
-	MaxSteps     int                    `json:"maxSteps,omitempty"`
-	Model        RetryPolicy            `json:"model,omitempty"`
-	Tool         RetryPolicy            `json:"tool,omitempty"`
-	Hitl         HitlPolicy             `json:"hitl,omitempty"`
-	Stages       map[string]StageBudget `json:"stages,omitempty"`
+	MaxSteps int                    `json:"maxSteps,omitempty"`
+	Model    RetryPolicy            `json:"model,omitempty"`
+	Tool     RetryPolicy            `json:"tool,omitempty"`
+	Hitl     HitlPolicy             `json:"hitl,omitempty"`
+	Stages   map[string]StageBudget `json:"stages,omitempty"`
 }
 
 func DefaultBudget(cfg config.Config) Budget {
 	return Budget{
-		Timeout: cfg.Defaults.Budget.Timeout,
-		MaxSteps:     cfg.Defaults.Budget.MaxSteps,
+		Timeout:  cfg.Defaults.Budget.Timeout,
+		MaxSteps: cfg.Defaults.Budget.MaxSteps,
 		Model: RetryPolicy{
 			MaxCalls:   cfg.Defaults.Budget.Model.MaxCalls,
-			Timeout:  cfg.Defaults.Budget.Model.Timeout,
+			Timeout:    cfg.Defaults.Budget.Model.Timeout,
 			RetryCount: cfg.Defaults.Budget.Model.RetryCount,
 		},
 		Tool: RetryPolicy{
 			MaxCalls:   cfg.Defaults.Budget.Tool.MaxCalls,
-			Timeout:  cfg.Defaults.Budget.Tool.Timeout,
+			Timeout:    cfg.Defaults.Budget.Tool.Timeout,
 			RetryCount: cfg.Defaults.Budget.Tool.RetryCount,
 		},
 		Hitl: HitlPolicy{
-			Timeout: cfg.Defaults.Budget.Hitl.Timeout,
-			Question:  hitlModePolicyFromConfig(cfg.Defaults.Budget.Hitl.Question),
-			Approval:  hitlModePolicyFromConfig(cfg.Defaults.Budget.Hitl.Approval),
-			Form:      hitlModePolicyFromConfig(cfg.Defaults.Budget.Hitl.Form),
-			Plan:      hitlModePolicyFromConfig(cfg.Defaults.Budget.Hitl.Plan),
+			Timeout:  cfg.Defaults.Budget.Hitl.Timeout,
+			Question: hitlModePolicyFromConfig(cfg.Defaults.Budget.Hitl.Question),
+			Approval: hitlModePolicyFromConfig(cfg.Defaults.Budget.Hitl.Approval),
+			Form:     hitlModePolicyFromConfig(cfg.Defaults.Budget.Hitl.Form),
+			Plan:     hitlModePolicyFromConfig(cfg.Defaults.Budget.Hitl.Plan),
 		},
 		Stages: stageBudgetsFromConfig(cfg.Defaults.Budget.Stages),
 	}
@@ -104,10 +104,6 @@ func ResolveBudget(cfg config.Config, overrides map[string]any) Budget {
 		rootStepsOverridden = true
 	}
 	if model := anyMapNode(overrides["model"]); len(model) > 0 {
-		if value := anyIntNode(model["maxCalls"]); value > 0 && !rootStepsOverridden {
-			budget.MaxSteps = value
-			rootStepsOverridden = true
-		}
 		budget.Model = mergeRetryPolicy(budget.Model, model)
 	}
 	if tool := anyMapNode(overrides["tool"]); len(tool) > 0 {
@@ -129,12 +125,9 @@ func ResolveBudget(cfg config.Config, overrides map[string]any) Budget {
 }
 
 func normalizeBudget(b Budget) Budget {
-	hadStepOverride := b.MaxSteps > 0 || b.Model.MaxCalls > 0
+	hadStepOverride := b.MaxSteps > 0
 	if b.Timeout <= 0 {
 		b.Timeout = 600
-	}
-	if b.MaxSteps <= 0 {
-		b.MaxSteps = b.Model.MaxCalls
 	}
 	if b.MaxSteps <= 0 {
 		b.MaxSteps = 100

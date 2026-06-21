@@ -26,7 +26,7 @@ func NewContainerHubMountResolver(paths config.PathsConfig) *ContainerHubMountRe
 	return &ContainerHubMountResolver{paths: paths}
 }
 
-func (r *ContainerHubMountResolver) Resolve(chatID string, agentKey string, level string, extraMounts []contracts.SandboxExtraMount) ([]MountSpec, error) {
+func (r *ContainerHubMountResolver) Resolve(chatID string, agentKey string, level string, sandboxMounts []contracts.SandboxExtraMount) ([]MountSpec, error) {
 	agentKey = strings.TrimSpace(agentKey)
 	if agentKey == "" {
 		return nil, fmt.Errorf("container-hub mount validation failed for agent-self: agentKey is required")
@@ -80,21 +80,21 @@ func (r *ContainerHubMountResolver) Resolve(chatID string, agentKey string, leve
 	} else if err != nil {
 		return nil, err
 	}
-	if err := r.applyExtraMounts(&mounts, agentKey, extraMounts); err != nil {
+	if err := r.applySandboxMounts(&mounts, agentKey, sandboxMounts); err != nil {
 		return nil, err
 	}
 
 	return mounts, nil
 }
 
-func (r *ContainerHubMountResolver) applyExtraMounts(mounts *[]MountSpec, agentKey string, extraMounts []contracts.SandboxExtraMount) error {
-	for _, extraMount := range extraMounts {
-		if isZeroExtraMount(extraMount) {
+func (r *ContainerHubMountResolver) applySandboxMounts(mounts *[]MountSpec, agentKey string, sandboxMounts []contracts.SandboxExtraMount) error {
+	for _, sandboxMount := range sandboxMounts {
+		if isZeroSandboxMount(sandboxMount) {
 			continue
 		}
-		destination := normalizeContainerPath(extraMount.Destination)
-		if isDefaultMountOverride(extraMount, destination) {
-			readOnly, err := parseMountMode(extraMount.Mode, "default-mount-override", destination)
+		destination := normalizeContainerPath(sandboxMount.Destination)
+		if isDefaultMountOverride(sandboxMount, destination) {
+			readOnly, err := parseMountMode(sandboxMount.Mode, "default-mount-override", destination)
 			if err != nil {
 				return err
 			}
@@ -103,29 +103,29 @@ func (r *ContainerHubMountResolver) applyExtraMounts(mounts *[]MountSpec, agentK
 			}
 			continue
 		}
-		if strings.TrimSpace(extraMount.Platform) != "" {
-			if err := r.resolvePlatformMount(mounts, agentKey, extraMount); err != nil {
+		if strings.TrimSpace(sandboxMount.Platform) != "" {
+			if err := r.resolvePlatformMount(mounts, agentKey, sandboxMount); err != nil {
 				return err
 			}
 			continue
 		}
-		if err := r.resolveCustomMount(mounts, extraMount, destination); err != nil {
+		if err := r.resolveCustomMount(mounts, sandboxMount, destination); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func isZeroExtraMount(extraMount contracts.SandboxExtraMount) bool {
-	return strings.TrimSpace(extraMount.Platform) == "" &&
-		strings.TrimSpace(extraMount.Source) == "" &&
-		strings.TrimSpace(extraMount.Destination) == "" &&
-		strings.TrimSpace(extraMount.Mode) == ""
+func isZeroSandboxMount(sandboxMount contracts.SandboxExtraMount) bool {
+	return strings.TrimSpace(sandboxMount.Platform) == "" &&
+		strings.TrimSpace(sandboxMount.Source) == "" &&
+		strings.TrimSpace(sandboxMount.Destination) == "" &&
+		strings.TrimSpace(sandboxMount.Mode) == ""
 }
 
-func isDefaultMountOverride(extraMount contracts.SandboxExtraMount, destination string) bool {
-	return strings.TrimSpace(extraMount.Platform) == "" &&
-		strings.TrimSpace(extraMount.Source) == "" &&
+func isDefaultMountOverride(sandboxMount contracts.SandboxExtraMount, destination string) bool {
+	return strings.TrimSpace(sandboxMount.Platform) == "" &&
+		strings.TrimSpace(sandboxMount.Source) == "" &&
 		destination != "" &&
 		isDefaultMountDestination(destination)
 }
@@ -153,14 +153,14 @@ func applyMountOverride(mounts *[]MountSpec, destination string, readOnly bool) 
 	return nil
 }
 
-func (r *ContainerHubMountResolver) resolvePlatformMount(mounts *[]MountSpec, agentKey string, extraMount contracts.SandboxExtraMount) error {
-	platform := strings.ToLower(strings.TrimSpace(extraMount.Platform))
+func (r *ContainerHubMountResolver) resolvePlatformMount(mounts *[]MountSpec, agentKey string, sandboxMount contracts.SandboxExtraMount) error {
+	platform := strings.ToLower(strings.TrimSpace(sandboxMount.Platform))
 	def, ok := r.platformMountDef(platform, agentKey)
 	if !ok {
-		log.Printf("[container-hub] skip unknown runtimeConfig.sandboxMounts/extraMounts platform %q", extraMount.Platform)
+		log.Printf("[container-hub] skip unknown runtimeConfig.sandboxMounts platform %q", sandboxMount.Platform)
 		return nil
 	}
-	readOnly, err := parseMountMode(extraMount.Mode, "extra-mount:"+platform, def.destination)
+	readOnly, err := parseMountMode(sandboxMount.Mode, "sandbox-mount:"+platform, def.destination)
 	if err != nil {
 		return err
 	}
@@ -172,40 +172,40 @@ func (r *ContainerHubMountResolver) resolvePlatformMount(mounts *[]MountSpec, ag
 		return err
 	}
 	if strings.TrimSpace(source) == "" {
-		return fmt.Errorf("container-hub mount validation failed for extra-mount:%s: source is not configured (containerPath=%s)", platform, def.destination)
+		return fmt.Errorf("container-hub mount validation failed for sandbox-mount:%s: source is not configured (containerPath=%s)", platform, def.destination)
 	}
-	if err := validateMountDirectory("extra-mount:"+platform, source, def.destination); err != nil {
+	if err := validateMountDirectory("sandbox-mount:"+platform, source, def.destination); err != nil {
 		return err
 	}
 	return appendMount(mounts, MountSpec{
-		Name:        "extra-mount:" + platform,
+		Name:        "sandbox-mount:" + platform,
 		Source:      source,
 		Destination: def.destination,
 		ReadOnly:    readOnly,
 	})
 }
 
-func (r *ContainerHubMountResolver) resolveCustomMount(mounts *[]MountSpec, extraMount contracts.SandboxExtraMount, destination string) error {
-	readOnly, err := parseMountMode(extraMount.Mode, "extra-mount", destination)
+func (r *ContainerHubMountResolver) resolveCustomMount(mounts *[]MountSpec, sandboxMount contracts.SandboxExtraMount, destination string) error {
+	readOnly, err := parseMountMode(sandboxMount.Mode, "sandbox-mount", destination)
 	if err != nil {
 		return err
 	}
 	if destination != "" && isDefaultMountDestination(destination) {
-		return fmt.Errorf("container-hub mount validation failed for extra-mount: overriding a default mount must omit source/platform and only declare destination + mode (destination=%s)", destination)
+		return fmt.Errorf("container-hub mount validation failed for sandbox-mount: overriding a default mount must omit source/platform and only declare destination + mode (destination=%s)", destination)
 	}
-	source := strings.TrimSpace(extraMount.Source)
+	source := strings.TrimSpace(sandboxMount.Source)
 	if source == "" || destination == "" {
-		return fmt.Errorf("container-hub mount validation failed for extra-mount: custom mount requires source + destination + mode")
+		return fmt.Errorf("container-hub mount validation failed for sandbox-mount: custom mount requires source + destination + mode")
 	}
 	if !strings.HasPrefix(destination, "/") {
-		return fmt.Errorf("container-hub mount validation failed for extra-mount: destination must be an absolute path (destination=%s)", extraMount.Destination)
+		return fmt.Errorf("container-hub mount validation failed for sandbox-mount: destination must be an absolute path (destination=%s)", sandboxMount.Destination)
 	}
 	source = filepath.Clean(source)
-	if err := validateMountDirectory("extra-mount", source, destination); err != nil {
+	if err := validateMountDirectory("sandbox-mount", source, destination); err != nil {
 		return err
 	}
 	return appendMount(mounts, MountSpec{
-		Name:        "extra-mount",
+		Name:        "sandbox-mount",
 		Source:      source,
 		Destination: destination,
 		ReadOnly:    readOnly,

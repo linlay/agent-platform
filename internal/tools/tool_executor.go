@@ -121,7 +121,7 @@ func (t *RuntimeToolExecutor) Invoke(ctx context.Context, toolName string, args 
 		return t.invokePlanGetTasks(execCtx)
 	case "plan_update_task":
 		return t.invokePlanUpdateTask(args, execCtx)
-	case FinalizePlanningToolName, LegacyPlanningWriteToolName:
+	case FinalizePlanningToolName:
 		return t.invokePlanningWrite(toolName, args, execCtx)
 	case "regex":
 		return t.invokeRegex(args), nil

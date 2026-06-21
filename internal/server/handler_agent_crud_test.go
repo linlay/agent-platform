@@ -189,7 +189,7 @@ func TestAgentCreateCoderAndOpenWorkspace(t *testing.T) {
 		t.Fatalf("expected generated coder key to be persisted, key=%q definition=%#v", created.Key, created.Definition["key"])
 	}
 	if _, ok := created.Definition["workspace"]; ok {
-		t.Fatalf("coder definition should not persist legacy workspace root, got %#v", created.Definition)
+		t.Fatalf("coder definition should not persist workspace root shortcut, got %#v", created.Definition)
 	}
 	name, nameOk := created.Definition["name"].(string)
 	if !nameOk || name == "" {
@@ -556,28 +556,6 @@ func TestAgentEditorOptionsHTTP(t *testing.T) {
 	}
 }
 
-func TestAgentLegacyRuntimeManagementRoutesRemoved(t *testing.T) {
-	fixture := newTestFixture(t)
-	cases := []struct {
-		method string
-		path   string
-	}{
-		{method: http.MethodPost, path: "/api/agent/create"},
-		{method: http.MethodPost, path: "/api/agent/update"},
-		{method: http.MethodPost, path: "/api/agent/delete"},
-		{method: http.MethodGet, path: "/api/agent/editor-options"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.path, func(t *testing.T) {
-			rec := httptest.NewRecorder()
-			fixture.server.ServeHTTP(rec, httptest.NewRequest(tc.method, tc.path, bytes.NewBufferString(`{}`)))
-			if rec.Code != http.StatusNotFound {
-				t.Fatalf("expected old route %s to be removed, got %d: %s", tc.path, rec.Code, rec.Body.String())
-			}
-		})
-	}
-}
-
 func TestAgentCRUDSafetyErrors(t *testing.T) {
 	fixture := newTestFixture(t)
 
@@ -650,44 +628,6 @@ func TestAgentCRUDSafetyErrors(t *testing.T) {
 			status: http.StatusBadRequest,
 		},
 		{
-			name: "proxy deprecated timeout ms",
-			path: "/api/admin/agents/create",
-			body: map[string]any{
-				"key": "bad-proxy-timeout",
-				"definition": map[string]any{
-					"key":         "bad-proxy-timeout",
-					"name":        "Bad Proxy Timeout",
-					"description": "bad proxy timeout",
-					"mode":        "PROXY",
-					"proxyConfig": map[string]any{
-						"baseUrl":   "http://127.0.0.1:3210",
-						"timeoutMs": 300000,
-					},
-				},
-			},
-			status: http.StatusBadRequest,
-		},
-		{
-			name: "tool overrides removed",
-			path: "/api/admin/agents/create",
-			body: map[string]any{
-				"key": "bad-tool-overrides",
-				"definition": map[string]any{
-					"key":         "bad-tool-overrides",
-					"name":        "Bad Tool Overrides",
-					"description": "bad tool overrides",
-					"modelConfig": map[string]any{"modelKey": "mock-model"},
-					"toolConfig": map[string]any{
-						"tools": []any{"datetime"},
-						"overrides": map[string]any{
-							"datetime": map[string]any{"label": "Now"},
-						},
-					},
-				},
-			},
-			status: http.StatusBadRequest,
-		},
-		{
 			name:   "delete missing",
 			path:   "/api/admin/agents/delete",
 			body:   map[string]any{"key": "missing-agent"},
@@ -747,9 +687,7 @@ func TestAgentWSRuntimeModelConfigAndAdminRoutesRejected(t *testing.T) {
 		id        string
 		frameType string
 	}{
-		{id: "legacy-create", frameType: "/api/agent/create"},
 		{id: "admin-create", frameType: "/api/admin/agents/create"},
-		{id: "legacy-options", frameType: "/api/agent/editor-options"},
 		{id: "admin-options", frameType: "/api/admin/agents/editor-options"},
 	} {
 		if err := conn.WriteJSON(ws.RequestFrame{

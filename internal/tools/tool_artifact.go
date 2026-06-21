@@ -42,7 +42,7 @@ func (t *RuntimeToolExecutor) invokeArtifactPublish(args map[string]any, execCtx
 // artifacts/<runId>/. Mirrors Java ArtifactPublishService.publish().
 // coerceArtifactList 容错：部分 LLM（Qwen3.5 等）在 tool_call 里会把 array 参数
 // 错误地序列化成 JSON 字符串（`"[{...}]"` 而不是 `[{...}]`）。这里先按原生数组
-// 断言，失败则尝试 json.Unmarshal 字符串。单个对象也兼容（包装成单元素数组）。
+// 断言，失败则尝试 json.Unmarshal 字符串。单个对象会包装成单元素数组。
 func coerceArtifactList(raw any) []any {
 	switch v := raw.(type) {
 	case []any:

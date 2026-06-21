@@ -74,20 +74,6 @@ func (s *FileStore) loadSystemInits(chatID string) (map[string]*SystemInitLine, 
 				latest = &convertedCopy
 				byCacheKey[cacheKey] = &convertedCopy
 			}
-		case "system", "system-init":
-			raw, err := json.Marshal(line)
-			if err != nil {
-				return nil, nil, err
-			}
-			var parsed SystemInitLine
-			if err := json.Unmarshal(raw, &parsed); err != nil {
-				return nil, nil, err
-			}
-			parsedCopy := parsed
-			latest = &parsedCopy
-			if cacheKey := strings.TrimSpace(parsed.CacheKey); cacheKey != "" {
-				byCacheKey[cacheKey] = &parsedCopy
-			}
 		}
 	}
 	return byCacheKey, latest, nil

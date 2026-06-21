@@ -1,7 +1,6 @@
 package viewport
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,10 +45,6 @@ func (r *ServerRegistry) List() ([]ServerDefinition, error) {
 			continue
 		}
 		rootNode, _ := tree.(map[string]any)
-		// Reject legacy ms field
-		if _, hasOld := rootNode["timeoutMs"]; hasOld {
-			return nil, fmt.Errorf("migration required: 'timeoutMs' is removed, use 'timeout' in seconds in file %s", name)
-		}
 		server := ServerDefinition{
 			Key:          strings.TrimSpace(contracts.FirstNonEmptyString(rootNode["key"], rootNode["serverKey"])),
 			BaseURL:      strings.TrimSpace(contracts.StringValue(rootNode["baseUrl"])),

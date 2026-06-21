@@ -40,18 +40,14 @@ func ResolvePlanExecuteSettings(raw map[string]any, defaultsMaxSteps int, defaul
 	if len(raw) == 0 {
 		return settings
 	}
-	baseSampling := ParseSamplingSettings(anyMapNode(raw["sampling"]))
 	if nested := anyMapNode(raw["plan"]); len(nested) > 0 {
-		settings.Plan = parseStageSettingsWithBaseSampling(nested, baseSampling)
+		settings.Plan = parseStageSettings(nested)
 	}
 	if nested := anyMapNode(raw["execute"]); len(nested) > 0 {
-		settings.Execute = parseStageSettingsWithBaseSampling(nested, baseSampling)
+		settings.Execute = parseStageSettings(nested)
 	}
 	if nested := anyMapNode(raw["summary"]); len(nested) > 0 {
-		settings.Summary = parseStageSettingsWithBaseSampling(nested, baseSampling)
-	}
-	if settings.Execute.IsZero() {
-		settings.Execute = parseStageSettings(raw)
+		settings.Summary = parseStageSettings(nested)
 	}
 	if settings.Plan.IsZero() {
 		settings.Plan = settings.Execute
@@ -62,18 +58,6 @@ func ResolvePlanExecuteSettings(raw map[string]any, defaultsMaxSteps int, defaul
 	if value := anyStringNode(raw["taskExecutionPromptTemplate"]); value != "" {
 		settings.TaskExecutionPrompt = value
 	}
-	if value := anyIntNode(raw["maxSteps"]); value > 0 {
-		settings.MaxSteps = value
-	}
-	if value := anyIntNode(raw["maxWorkRoundsPerTask"]); value > 0 {
-		settings.MaxWorkRoundsPerTask = value
-	}
-	return settings
-}
-
-func parseStageSettingsWithBaseSampling(raw map[string]any, base SamplingSettings) StageSettings {
-	settings := parseStageSettings(raw)
-	settings.Sampling = MergeSamplingSettings(base, settings.Sampling)
 	return settings
 }
 
@@ -99,9 +83,11 @@ func normalizeStageSettingsNode(raw map[string]any) map[string]any {
 	if len(raw) == 0 {
 		return raw
 	}
-	normalized := make(map[string]any, len(raw)+4)
-	for key, value := range raw {
-		normalized[key] = value
+	normalized := map[string]any{}
+	for _, key := range []string{"systemPrompt", "deepThinking", "instructionsPrompt"} {
+		if value, exists := raw[key]; exists {
+			normalized[key] = value
+		}
 	}
 	if modelConfig := anyMapNode(raw["modelConfig"]); len(modelConfig) > 0 {
 		applyStageModelConfig(normalized, modelConfig)

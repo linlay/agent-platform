@@ -159,11 +159,4 @@ func TestAdminAgentOrderAllowsInvalidKeysAndRuntimeOrderFiltersThem(t *testing.T
 		t.Fatalf("unexpected admin read order: %#v", adminRead.Data.Order)
 	}
 
-	for _, method := range []string{http.MethodGet, http.MethodPut} {
-		rec = httptest.NewRecorder()
-		fixture.server.ServeHTTP(rec, httptest.NewRequest(method, "/api/agents/order", bytes.NewBufferString(`{"order":["mock-agent"]}`)))
-		if rec.Code != http.StatusNotFound {
-			t.Fatalf("legacy runtime order route should be removed for %s, got %d body=%s", method, rec.Code, rec.Body.String())
-		}
-	}
 }

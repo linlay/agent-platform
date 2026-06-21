@@ -188,9 +188,6 @@ func (r *Registry) parseDefinition(path string) (Definition, error) {
 		TeamID:        teamID,
 		Environment:   Environment{ZoneID: zoneID},
 		Query:         query,
-		PushURL:       stringNode(root["pushUrl"]),
-		PushTargetID:  stringNode(root["pushTargetId"]),
-		PushMessage:   stringNode(root["pushMessage"]),
 		SourceFile:    path,
 	}, nil
 }

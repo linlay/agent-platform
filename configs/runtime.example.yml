@@ -37,7 +37,7 @@ container-hub:
   # /owner     -> OWNER_DIR (ro)
   # /memory    -> MEMORY_DIR/<agentKey> (ro)
   #
-  # runtimeConfig.sandboxMounts supports; legacy extraMounts is still accepted:
+  # runtimeConfig.sandboxMounts controls Container Hub session mounts:
   # platform + mode             -> on-demand platform mount; skills-market mounts to /skills-market
   # destination + mode          -> override default mount mode
   # source + destination + mode -> add a custom mount

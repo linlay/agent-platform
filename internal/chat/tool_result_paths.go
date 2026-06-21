@@ -11,7 +11,7 @@ func IsToolInternalPath(path string) bool {
 		return false
 	}
 	for _, part := range strings.Split(clean, "/") {
-		if part == LegacyToolResultsDirName || part == ToolRootDirName {
+		if part == ToolRootDirName {
 			return true
 		}
 	}
@@ -28,10 +28,7 @@ func IsToolResultRelativePath(path string) bool {
 		return false
 	}
 	parts := strings.Split(filepath.ToSlash(clean), "/")
-	switch {
-	case len(parts) == 2 && parts[0] == LegacyToolResultsDirName:
-	case len(parts) == 3 && parts[0] == ToolRootDirName && parts[1] == ToolResultsDirName:
-	default:
+	if len(parts) != 3 || parts[0] != ToolRootDirName || parts[1] != ToolResultsDirName {
 		return false
 	}
 	name := strings.TrimSpace(parts[len(parts)-1])

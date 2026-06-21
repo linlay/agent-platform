@@ -8,8 +8,6 @@ import (
 )
 
 const AgentModeCoder = "CODER"
-const AgentCoderBackendNative = "native"
-const AgentCoderBackendACP = "acp"
 const AgentWorkspaceRootChat = "@chat"
 
 var defaultAgentVisibilityScopes = []string{"nav"}
@@ -34,14 +32,12 @@ var coderAgentProfile = agentModeProfile{
 			"maxCalls": 200,
 		},
 	},
-	ReactMaxSteps: 0,
 }
 
 type agentModeProfile struct {
-	Tools         []string
-	ContextTags   []string
-	Budget        map[string]any
-	ReactMaxSteps int
+	Tools       []string
+	ContextTags []string
+	Budget      map[string]any
 }
 
 func NormalizeAgentModeForRuntime(value string) string {
@@ -228,28 +224,9 @@ func validateAgentModeWorkspace(mode string, workspace AgentWorkspaceConfig, has
 	return nil
 }
 
-func normalizeAgentCoderBackend(value string) (string, error) {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "":
-		return AgentCoderBackendNative, nil
-	case AgentCoderBackendNative:
-		return AgentCoderBackendNative, nil
-	case AgentCoderBackendACP:
-		return AgentCoderBackendACP, nil
-	default:
-		return "", fmt.Errorf("runtimeConfig.coderBackend must be native or acp")
-	}
-}
-
 func ValidateAgentCoderBackend(def AgentDefinition) error {
 	acpProxyID := strings.TrimSpace(def.ACPProxyID)
-	coderBackend := strings.ToLower(strings.TrimSpace(def.CoderBackend))
-	switch coderBackend {
-	case "", AgentCoderBackendNative, AgentCoderBackendACP:
-	default:
-		return fmt.Errorf("runtimeConfig.coderBackend must be native or acp")
-	}
-	if acpProxyID != "" || coderBackend == AgentCoderBackendACP {
+	if acpProxyID != "" {
 		if !strings.EqualFold(strings.TrimSpace(def.Mode), AgentModeCoder) {
 			return fmt.Errorf("runtimeConfig.acpProxyId is only supported for mode: CODER")
 		}
@@ -269,8 +246,7 @@ func ValidateAgentCoderBackend(def AgentDefinition) error {
 
 func AgentUsesACPCoderBackend(def AgentDefinition) bool {
 	return strings.EqualFold(strings.TrimSpace(def.Mode), AgentModeCoder) &&
-		(strings.TrimSpace(def.ACPProxyID) != "" ||
-			strings.EqualFold(strings.TrimSpace(def.CoderBackend), AgentCoderBackendACP))
+		strings.TrimSpace(def.ACPProxyID) != ""
 }
 
 func applyAgentModeProfileDefaults(def AgentDefinition) AgentDefinition {
@@ -286,9 +262,6 @@ func applyAgentModeProfileDefaults(def AgentDefinition) AgentDefinition {
 	}
 	if def.Budget == nil && len(profile.Budget) > 0 {
 		def.Budget = cloneAgentProfileMap(profile.Budget)
-	}
-	if def.ReactMaxSteps <= 0 && profile.ReactMaxSteps > 0 {
-		def.ReactMaxSteps = profile.ReactMaxSteps
 	}
 	return def
 }

@@ -465,10 +465,9 @@ type GatewayEntry struct {
 	// ID 是 gateway 在 Registry 里的唯一键，Admin API 按 ID 增删。
 	ID string
 	// Channel 是用户配置的 channel id，用于 UI / 权限 / 管理面。
-	// 兼容老部署时它也可以等于 chatId 前缀（如 "wecom"）。
 	Channel string
 	// SourceChannel 是 gateway URL 里 ?channel= 的完整来源标签（如 "wecom:xiaozhai"）。
-	// SourcePrefix 是 SourceChannel 冒号前的来源前缀（如 "wecom"），用于兼容旧 chatId。
+	// SourcePrefix 是 SourceChannel 冒号前的来源前缀（如 "wecom"）。
 	SourceChannel    string
 	SourcePrefix     string
 	URL              string

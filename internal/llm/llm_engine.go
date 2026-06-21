@@ -238,9 +238,6 @@ func (e *LLMAgentEngine) resolveMaxSteps(session QuerySession, budgetStage strin
 	if budgetStageMaxSteps(session.ResolvedBudget, budgetStage) > 0 {
 		return budgetStageMaxSteps(session.ResolvedBudget, budgetStage)
 	}
-	if !sessionHasRootStepBudget(session) && session.ReactMaxSteps > 0 {
-		return session.ReactMaxSteps
-	}
 	maxSteps := NormalizeBudget(session.ResolvedBudget).MaxSteps
 	if maxSteps <= 0 {
 		maxSteps = e.cfg.Defaults.React.MaxSteps
@@ -285,16 +282,6 @@ func budgetStageForName(session QuerySession, stage string) string {
 
 func normalizeBudgetStageName(stage string) string {
 	return strings.ToLower(strings.TrimSpace(stage))
-}
-
-func sessionHasRootStepBudget(session QuerySession) bool {
-	if AnyIntNode(session.Budget["maxSteps"]) > 0 {
-		return true
-	}
-	if model := AnyMapNode(session.Budget["model"]); AnyIntNode(model["maxCalls"]) > 0 {
-		return true
-	}
-	return false
 }
 
 func stageSettingsForName(settings PlanExecuteSettings, stage string) StageSettings {

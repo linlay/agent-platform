@@ -76,10 +76,10 @@ func TestArchiverMovesChatToArchiveAndPreservesAttachments(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(active.ChatDir("chat-archiver"), "artifact.txt"), []byte("artifact"), 0o644); err != nil {
 		t.Fatalf("write artifact: %v", err)
 	}
-	if err := os.MkdirAll(filepath.Join(active.ChatDir("chat-archiver"), LegacyToolResultsDirName), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(active.ChatDir("chat-archiver"), ToolRootDirName, ToolResultsDirName), 0o755); err != nil {
 		t.Fatalf("create tool results dir: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(active.ChatDir("chat-archiver"), LegacyToolResultsDirName, "call_1.json"), []byte(`{"stdout":"x"}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(active.ChatDir("chat-archiver"), ToolRootDirName, ToolResultsDirName, "call_1.json"), []byte(`{"stdout":"x"}`), 0o644); err != nil {
 		t.Fatalf("write tool result: %v", err)
 	}
 
@@ -97,7 +97,7 @@ func TestArchiverMovesChatToArchiveAndPreservesAttachments(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(archive.ChatDir("chat-archiver"), "artifact.txt")); err != nil {
 		t.Fatalf("expected artifact moved to archive: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(archive.ChatDir("chat-archiver"), LegacyToolResultsDirName, "call_1.json")); err != nil {
+	if _, err := os.Stat(filepath.Join(archive.ChatDir("chat-archiver"), ToolRootDirName, ToolResultsDirName, "call_1.json")); err != nil {
 		t.Fatalf("expected tool result moved to archive: %v", err)
 	}
 
@@ -285,32 +285,6 @@ func TestArchiverRestoreConflictsWithActiveChat(t *testing.T) {
 	}
 	if _, err := archive.LoadArchived("chat-restore-conflict"); err != nil {
 		t.Fatalf("archive should remain after conflict: %v", err)
-	}
-}
-
-func TestArchiverRestoreLegacyArchiveDefaultsToRead(t *testing.T) {
-	root := t.TempDir()
-	active, err := NewFileStore(root)
-	if err != nil {
-		t.Fatalf("new active store: %v", err)
-	}
-	archive, err := NewArchiveStore(root)
-	if err != nil {
-		t.Fatalf("new archive store: %v", err)
-	}
-	if err := archive.ArchiveChat(testArchivedChat("chat-legacy-restore", "agent-a", "Legacy", "done")); err != nil {
-		t.Fatalf("seed archive: %v", err)
-	}
-	if _, err := archive.db.Exec("UPDATE ARCHIVED_CHATS SET READ_RUN_ID_='', READ_AT_=NULL, READ_STATE_CAPTURED_=0 WHERE CHAT_ID_=?", "chat-legacy-restore"); err != nil {
-		t.Fatalf("simulate legacy archive: %v", err)
-	}
-
-	summary, err := NewArchiver(active, archive).RestoreChat("chat-legacy-restore")
-	if err != nil {
-		t.Fatalf("restore legacy archive: %v", err)
-	}
-	if !summary.Read.IsRead || summary.Read.ReadRunID != summary.LastRunID {
-		t.Fatalf("expected legacy archive to restore as read, got %#v summary=%#v", summary.Read, summary)
 	}
 }
 

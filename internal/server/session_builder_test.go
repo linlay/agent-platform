@@ -109,9 +109,6 @@ func TestBuildQuerySessionUsesCoderProfileDefaults(t *testing.T) {
 	if session.ResolvedBudget.Timeout != 1800 || session.ResolvedBudget.MaxSteps != 240 || session.ResolvedBudget.Model.MaxCalls != 240 || session.ResolvedBudget.Tool.MaxCalls != 200 {
 		t.Fatalf("resolved budget = %#v, want CODER defaults", session.ResolvedBudget)
 	}
-	if session.ReactMaxSteps != 0 {
-		t.Fatalf("react max steps = %d, want migrated budget default only", session.ReactMaxSteps)
-	}
 	if session.Mode != catalog.AgentModeCoder {
 		t.Fatalf("mode = %q, want %q", session.Mode, catalog.AgentModeCoder)
 	}

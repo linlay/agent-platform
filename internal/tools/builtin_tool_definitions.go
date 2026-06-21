@@ -34,7 +34,6 @@ var requiredBuiltinToolNames = []string{
 	"plan_get_tasks",
 	"plan_update_task",
 	"finalize_planning",
-	"planning_write",
 	"regex",
 	"vision_recognize",
 	"web_fetch",

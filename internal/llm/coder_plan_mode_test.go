@@ -39,7 +39,7 @@ func TestCoderPlanningStageToolsAreReadOnlyPlusVisionQuestionsAndPlan(t *testing
 func TestCoderExecuteStageToolsExcludePlanningOnlyTools(t *testing.T) {
 	stream := &coderPlanningStream{
 		session: contracts.QuerySession{
-			ToolNames: []string{"bash", "file_read", "plan_add_tasks", contracts.FinalizePlanningToolName, contracts.LegacyPlanningWriteToolName, "ask_user_question", "plan_update_task", "datetime"},
+			ToolNames: []string{"bash", "file_read", "plan_add_tasks", contracts.FinalizePlanningToolName, "ask_user_question", "plan_update_task", "datetime"},
 		},
 	}
 	want := []string{"bash", "file_read", "datetime"}
@@ -90,7 +90,7 @@ func TestCoderExecutionSystemPromptIncludesRenderedCoderSystemPrompt(t *testing.
 			AgentName:         "Coder",
 			Mode:              "CODER",
 			PlanningMode:      true,
-			ToolNames:         []string{"bash", "file_read", contracts.FinalizePlanningToolName, contracts.LegacyPlanningWriteToolName, "ask_user_question"},
+			ToolNames:         []string{"bash", "file_read", contracts.FinalizePlanningToolName, "ask_user_question"},
 			CoderSystemPrompt: "CODER {{agent_key}} {{agent_name}} {{available_tools}} {{execute_stage_tools}} {{bash_tool_name}}",
 		},
 		settings: contracts.PlanExecuteSettings{
