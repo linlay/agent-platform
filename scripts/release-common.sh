@@ -200,7 +200,7 @@ write_program_manifest() {
   "backend": {
     "entry": "$backend_entry"
   },
-  "scripts": {
+  "lifecycle": {
     "start": ["$start_script", "--daemon"],
     "stop": "$stop_script",
     "deploy": "$deploy_script"

@@ -14,7 +14,7 @@
   "backend": {
     "entry": "__BACKEND_ENTRY__"
   },
-  "scripts": {
+  "lifecycle": {
     "start": ["__START_SCRIPT__", "--daemon"],
     "stop": "__STOP_SCRIPT__",
     "deploy": "__DEPLOY_SCRIPT__"
