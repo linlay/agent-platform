@@ -280,6 +280,69 @@ func TestInvokeDesktopActionRejectsUnknownAction(t *testing.T) {
 	}
 }
 
+func TestInvokeDesktopActionAllowsCurrentDesktopActions(t *testing.T) {
+	var requested []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var got desktopActionRequest
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		requested = append(requested, got.Action)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok":     true,
+			"action": got.Action,
+			"result": map[string]any{"ok": true},
+		})
+	}))
+	defer server.Close()
+
+	for _, action := range []string{
+		"desktop.setting.getState",
+		"desktop.web.listSurfaces",
+		"desktop.web.webapp.getStatus",
+		"desktop.web.website.list",
+		"desktop.pet.show",
+		"desktop.pet.state",
+	} {
+		t.Run(action, func(t *testing.T) {
+			result, err := newDesktopTestExecutor(server.URL, "").invokeDesktopAction(context.Background(), map[string]any{
+				"action": action,
+			}, &ExecutionContext{})
+			if err != nil {
+				t.Fatalf("invoke desktop action: %v", err)
+			}
+			if result.ExitCode != 0 {
+				t.Fatalf("expected successful exit code, got %d: %s", result.ExitCode, result.Output)
+			}
+		})
+	}
+	if len(requested) != 6 {
+		t.Fatalf("expected bridge to receive 6 actions, got %d: %#v", len(requested), requested)
+	}
+}
+
+func TestInvokeDesktopActionRejectsLegacyAndUnsupportedActions(t *testing.T) {
+	for _, action := range []string{
+		"desktop.settings.getState",
+		"desktop.agents.listAgents",
+		"desktop.automations.listAutomations",
+		"desktop.help.searchTopics",
+	} {
+		t.Run(action, func(t *testing.T) {
+			result, err := (&RuntimeToolExecutor{}).invokeDesktopAction(context.Background(), map[string]any{
+				"action": action,
+			}, &ExecutionContext{})
+			if err != nil {
+				t.Fatalf("invoke desktop action: %v", err)
+			}
+			if result.ExitCode != -1 || result.Error != "unknown_action" {
+				t.Fatalf("expected unknown_action failure, got exit=%d error=%q output=%s", result.ExitCode, result.Error, result.Output)
+			}
+		})
+	}
+}
+
 func TestInvokeDesktopActionRejectsPageActions(t *testing.T) {
 	for _, action := range []string{
 		"desktop.page.readCurrent",
@@ -301,27 +364,6 @@ func TestInvokeDesktopActionRejectsPageActions(t *testing.T) {
 
 func TestDesktopActionAllowlistMatchesToolSchema(t *testing.T) {
 	want := []string{
-		"desktop.agents.applyAgentConfigPatch",
-		"desktop.agents.cloneAgent",
-		"desktop.agents.createAgent",
-		"desktop.agents.createAgentDraft",
-		"desktop.agents.disableAgent",
-		"desktop.agents.getAgentDetail",
-		"desktop.agents.listAgents",
-		"desktop.agents.previewAgentConfigPatch",
-		"desktop.agents.reloadAgents",
-		"desktop.agents.updateAgent",
-		"desktop.agents.validateAgentConfig",
-		"desktop.automations.createAutomation",
-		"desktop.automations.deleteAutomation",
-		"desktop.automations.explainNextRun",
-		"desktop.automations.getAutomationDetail",
-		"desktop.automations.listAutomations",
-		"desktop.automations.pauseAutomation",
-		"desktop.automations.previewAutomation",
-		"desktop.automations.resumeAutomation",
-		"desktop.automations.updateAutomation",
-		"desktop.automations.validateAutomation",
 		"desktop.controlCenter.getServiceDetail",
 		"desktop.controlCenter.getServiceLogsMeta",
 		"desktop.controlCenter.getServiceStatus",
@@ -333,16 +375,19 @@ func TestDesktopActionAllowlistMatchesToolSchema(t *testing.T) {
 		"desktop.controlCenter.restartService",
 		"desktop.controlCenter.startService",
 		"desktop.controlCenter.stopService",
-		"desktop.help.explainCurrentPage",
-		"desktop.help.getCurrentTopic",
-		"desktop.help.navigateToRelatedPage",
 		"desktop.help.openTopic",
-		"desktop.help.searchTopics",
-		"desktop.help.suggestNextAction",
+		"desktop.kanban.createIssue",
+		"desktop.kanban.deleteIssue",
+		"desktop.kanban.getIssue",
+		"desktop.kanban.listIssues",
+		"desktop.kanban.moveIssue",
+		"desktop.kanban.updateIssue",
 		"desktop.market.applySettingsPatch",
-		"desktop.market.buildSandboxImage",
+		"desktop.market.deleteSandboxImage",
+		"desktop.market.exportSandboxImage",
 		"desktop.market.getItemDetail",
 		"desktop.market.getSettings",
+		"desktop.market.importSandboxImage",
 		"desktop.market.importSkill",
 		"desktop.market.installItem",
 		"desktop.market.listItems",
@@ -352,14 +397,39 @@ func TestDesktopActionAllowlistMatchesToolSchema(t *testing.T) {
 		"desktop.market.updateItem",
 		"desktop.market.validateSettings",
 		"desktop.navigate.toRoute",
-		"desktop.settings.applyPatch",
-		"desktop.settings.getState",
-		"desktop.settings.previewPatch",
-		"desktop.settings.validatePatch",
+		"desktop.pet.hide",
+		"desktop.pet.list",
+		"desktop.pet.set",
+		"desktop.pet.show",
+		"desktop.pet.state",
+		"desktop.setting.applyPatch",
+		"desktop.setting.getState",
+		"desktop.setting.previewPatch",
+		"desktop.setting.validatePatch",
+		"desktop.web.activateSurface",
+		"desktop.web.closeTab",
+		"desktop.web.getActiveSurface",
+		"desktop.web.goBack",
+		"desktop.web.list",
+		"desktop.web.listSurfaces",
+		"desktop.web.navigate",
+		"desktop.web.openTab",
+		"desktop.web.reload",
+		"desktop.web.switchTab",
+		"desktop.web.webapp.getStatus",
+		"desktop.web.webapp.installAndOpen",
+		"desktop.web.webapp.open",
+		"desktop.web.webapp.restart",
+		"desktop.web.webapp.start",
+		"desktop.web.webapp.stop",
+		"desktop.web.website.add",
+		"desktop.web.website.list",
+		"desktop.web.website.remove",
+		"desktop.web.website.update",
 	}
 	sort.Strings(want)
 
-	gotAllowlist := sortedDesktopActionAllowlist()
+	gotAllowlist := sortedDesktopActionAllowlist(t)
 	if !reflect.DeepEqual(gotAllowlist, want) {
 		t.Fatalf("desktop action allowlist mismatch\nwant: %#v\n got: %#v", want, gotAllowlist)
 	}
@@ -416,9 +486,14 @@ func TestInvokeDesktopActionRequiresConfiguredBridge(t *testing.T) {
 	}
 }
 
-func sortedDesktopActionAllowlist() []string {
-	values := make([]string, 0, len(desktopActionAllowlist))
-	for action := range desktopActionAllowlist {
+func sortedDesktopActionAllowlist(t *testing.T) []string {
+	t.Helper()
+	allowlist, err := getDesktopActionAllowlist()
+	if err != nil {
+		t.Fatalf("load desktop action allowlist: %v", err)
+	}
+	values := make([]string, 0, len(allowlist))
+	for action := range allowlist {
 		values = append(values, action)
 	}
 	sort.Strings(values)

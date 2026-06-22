@@ -11,10 +11,30 @@ inputSchema:
       description: Required. Allowlisted Desktop action name to call through the local Desktop Action Bridge.
       enum:
         - desktop.navigate.toRoute
-        - desktop.settings.getState
-        - desktop.settings.validatePatch
-        - desktop.settings.previewPatch
-        - desktop.settings.applyPatch
+        - desktop.setting.getState
+        - desktop.setting.validatePatch
+        - desktop.setting.previewPatch
+        - desktop.setting.applyPatch
+        - desktop.web.listSurfaces
+        - desktop.web.getActiveSurface
+        - desktop.web.activateSurface
+        - desktop.web.navigate
+        - desktop.web.reload
+        - desktop.web.goBack
+        - desktop.web.openTab
+        - desktop.web.closeTab
+        - desktop.web.switchTab
+        - desktop.web.list
+        - desktop.web.website.list
+        - desktop.web.website.add
+        - desktop.web.website.update
+        - desktop.web.website.remove
+        - desktop.web.webapp.getStatus
+        - desktop.web.webapp.start
+        - desktop.web.webapp.stop
+        - desktop.web.webapp.restart
+        - desktop.web.webapp.open
+        - desktop.web.webapp.installAndOpen
         - desktop.controlCenter.listServices
         - desktop.controlCenter.getServiceStatus
         - desktop.controlCenter.getServiceDetail
@@ -37,34 +57,21 @@ inputSchema:
         - desktop.market.updateItem
         - desktop.market.uninstallItem
         - desktop.market.importSkill
-        - desktop.market.buildSandboxImage
-        - desktop.help.getCurrentTopic
-        - desktop.help.searchTopics
+        - desktop.market.importSandboxImage
+        - desktop.market.exportSandboxImage
+        - desktop.market.deleteSandboxImage
         - desktop.help.openTopic
-        - desktop.help.explainCurrentPage
-        - desktop.help.suggestNextAction
-        - desktop.help.navigateToRelatedPage
-        - desktop.agents.listAgents
-        - desktop.agents.getAgentDetail
-        - desktop.agents.validateAgentConfig
-        - desktop.agents.previewAgentConfigPatch
-        - desktop.agents.applyAgentConfigPatch
-        - desktop.agents.createAgentDraft
-        - desktop.agents.createAgent
-        - desktop.agents.updateAgent
-        - desktop.agents.cloneAgent
-        - desktop.agents.disableAgent
-        - desktop.agents.reloadAgents
-        - desktop.automations.listAutomations
-        - desktop.automations.getAutomationDetail
-        - desktop.automations.validateAutomation
-        - desktop.automations.previewAutomation
-        - desktop.automations.createAutomation
-        - desktop.automations.updateAutomation
-        - desktop.automations.pauseAutomation
-        - desktop.automations.resumeAutomation
-        - desktop.automations.deleteAutomation
-        - desktop.automations.explainNextRun
+        - desktop.kanban.listIssues
+        - desktop.kanban.getIssue
+        - desktop.kanban.createIssue
+        - desktop.kanban.updateIssue
+        - desktop.kanban.deleteIssue
+        - desktop.kanban.moveIssue
+        - desktop.pet.state
+        - desktop.pet.show
+        - desktop.pet.hide
+        - desktop.pet.list
+        - desktop.pet.set
     args:
       type: object
       description: JSON arguments for the selected action. Use only fields documented by the Desktop action catalog.

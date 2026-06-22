@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"agent-platform/internal/chat"
@@ -22,62 +23,55 @@ import (
 const desktopCdpCaptureScreenshotMethod = "Page.captureScreenshot"
 const desktopCdpScreenshotMimeType = "image/png"
 
-var desktopActionAllowlist = map[string]bool{
-	"desktop.navigate.toRoute":                 true,
-	"desktop.settings.getState":                true,
-	"desktop.settings.validatePatch":           true,
-	"desktop.settings.previewPatch":            true,
-	"desktop.settings.applyPatch":              true,
-	"desktop.controlCenter.listServices":       true,
-	"desktop.controlCenter.getServiceStatus":   true,
-	"desktop.controlCenter.getServiceDetail":   true,
-	"desktop.controlCenter.getServiceLogsMeta": true,
-	"desktop.controlCenter.readServiceLog":     true,
-	"desktop.controlCenter.openLogViewer":      true,
-	"desktop.controlCenter.installService":     true,
-	"desktop.controlCenter.initializeService":  true,
-	"desktop.controlCenter.startService":       true,
-	"desktop.controlCenter.stopService":        true,
-	"desktop.controlCenter.restartService":     true,
-	"desktop.market.getSettings":               true,
-	"desktop.market.validateSettings":          true,
-	"desktop.market.previewSettingsPatch":      true,
-	"desktop.market.applySettingsPatch":        true,
-	"desktop.market.listItems":                 true,
-	"desktop.market.refresh":                   true,
-	"desktop.market.getItemDetail":             true,
-	"desktop.market.installItem":               true,
-	"desktop.market.updateItem":                true,
-	"desktop.market.uninstallItem":             true,
-	"desktop.market.importSkill":               true,
-	"desktop.market.buildSandboxImage":         true,
-	"desktop.help.getCurrentTopic":             true,
-	"desktop.help.searchTopics":                true,
-	"desktop.help.openTopic":                   true,
-	"desktop.help.explainCurrentPage":          true,
-	"desktop.help.suggestNextAction":           true,
-	"desktop.help.navigateToRelatedPage":       true,
-	"desktop.agents.listAgents":                true,
-	"desktop.agents.getAgentDetail":            true,
-	"desktop.agents.validateAgentConfig":       true,
-	"desktop.agents.previewAgentConfigPatch":   true,
-	"desktop.agents.applyAgentConfigPatch":     true,
-	"desktop.agents.createAgentDraft":          true,
-	"desktop.agents.createAgent":               true,
-	"desktop.agents.updateAgent":               true,
-	"desktop.agents.cloneAgent":                true,
-	"desktop.agents.disableAgent":              true,
-	"desktop.agents.reloadAgents":              true,
-	"desktop.automations.listAutomations":      true,
-	"desktop.automations.getAutomationDetail":  true,
-	"desktop.automations.validateAutomation":   true,
-	"desktop.automations.previewAutomation":    true,
-	"desktop.automations.createAutomation":     true,
-	"desktop.automations.updateAutomation":     true,
-	"desktop.automations.pauseAutomation":      true,
-	"desktop.automations.resumeAutomation":     true,
-	"desktop.automations.deleteAutomation":     true,
-	"desktop.automations.explainNextRun":       true,
+var (
+	desktopActionAllowlistOnce sync.Once
+	desktopActionAllowlist     map[string]bool
+	desktopActionAllowlistErr  error
+)
+
+func getDesktopActionAllowlist() (map[string]bool, error) {
+	desktopActionAllowlistOnce.Do(func() {
+		desktopActionAllowlist, desktopActionAllowlistErr = loadDesktopActionAllowlist()
+	})
+	return desktopActionAllowlist, desktopActionAllowlistErr
+}
+
+func loadDesktopActionAllowlist() (map[string]bool, error) {
+	defs, err := LoadEmbeddedToolDefinitions()
+	if err != nil {
+		return nil, err
+	}
+	for _, def := range defs {
+		if def.Name != "desktop_action" {
+			continue
+		}
+		properties, ok := def.Parameters["properties"].(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("desktop_action schema missing properties")
+		}
+		actionProperty, ok := properties["action"].(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("desktop_action schema missing action property")
+		}
+		enum, ok := actionProperty["enum"].([]any)
+		if !ok || len(enum) == 0 {
+			return nil, fmt.Errorf("desktop_action action enum is required")
+		}
+		allowlist := make(map[string]bool, len(enum))
+		for _, item := range enum {
+			action, ok := item.(string)
+			if !ok || strings.TrimSpace(action) == "" {
+				return nil, fmt.Errorf("desktop_action action enum contains an invalid value")
+			}
+			action = strings.TrimSpace(action)
+			if allowlist[action] {
+				return nil, fmt.Errorf("desktop_action action enum contains duplicate value %q", action)
+			}
+			allowlist[action] = true
+		}
+		return allowlist, nil
+	}
+	return nil, fmt.Errorf("desktop_action tool definition not found")
 }
 
 type desktopActionRequest struct {
@@ -108,7 +102,11 @@ func (t *RuntimeToolExecutor) invokeDesktopAction(ctx context.Context, args map[
 	if action == "" {
 		return desktopActionErrorResult("invalid_args", "action is required", nil), nil
 	}
-	if !desktopActionAllowlist[action] {
+	allowlist, err := getDesktopActionAllowlist()
+	if err != nil {
+		return desktopActionErrorResult("desktop_action_allowlist_unavailable", "desktop action allowlist is unavailable", map[string]any{"error": err.Error()}), nil
+	}
+	if !allowlist[action] {
 		return desktopActionErrorResult("unknown_action", "desktop action is not allowlisted", map[string]any{"action": action}), nil
 	}
 
