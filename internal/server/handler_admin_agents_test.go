@@ -99,6 +99,30 @@ func TestAdminAgentsEndpointIncludesInvalidAgentsAndRuntimeEndpointDoesNot(t *te
 	}
 }
 
+func TestAdminAgentDetailKeepsEditableFieldsForReadyAgents(t *testing.T) {
+	fixture := newTestFixture(t)
+
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/admin/agents/detail?agentKey=mock-agent", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("admin ready detail status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var detailResp api.ApiResponse[api.AdminAgentDetailResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &detailResp); err != nil {
+		t.Fatalf("decode admin ready detail response: %v", err)
+	}
+	detail := detailResp.Data
+	if detail.Status != "ready" {
+		t.Fatalf("expected ready detail status, got %#v", detail.Status)
+	}
+	if detail.Definition["key"] != "mock-agent" {
+		t.Fatalf("expected editable definition to be returned, got %#v", detail.Definition)
+	}
+	if detail.Source == nil || !strings.HasSuffix(detail.Source.Path, filepath.Join("mock-agent", "agent.yml")) {
+		t.Fatalf("expected editable source path, got %#v", detail.Source)
+	}
+}
+
 func TestAdminAgentDetailReturnsDiagnosticsForInvalidAgents(t *testing.T) {
 	fixture := setupAdminAgentsFixture(t)
 

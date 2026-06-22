@@ -483,8 +483,8 @@ type AgentDetailResponse struct {
 	Controls     []map[string]any `json:"controls"`
 	Meta         map[string]any   `json:"meta"`
 	Definition   map[string]any   `json:"definition,omitempty"`
-	SoulPrompt   string           `json:"soulPrompt"`
-	AgentsPrompt string           `json:"agentsPrompt"`
+	SoulPrompt   string           `json:"soulPrompt,omitempty"`
+	AgentsPrompt string           `json:"agentsPrompt,omitempty"`
 	Source       *AgentSource     `json:"source,omitempty"`
 }
 

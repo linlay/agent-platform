@@ -63,7 +63,7 @@ func TestAgentHTTPCRUDAndEditableDetail(t *testing.T) {
 		t.Fatalf("unexpected source path %q", created.Source.Path)
 	}
 
-	detail := getAgentDetail(t, fixture.server, "editable-agent")
+	detail := getAdminAgentDetail(t, fixture.server, "editable-agent")
 	if detail.SoulPrompt != "Soul v1" || detail.AgentsPrompt != "Agents v1" {
 		t.Fatalf("expected prompts from detail, got %#v", detail)
 	}
@@ -135,7 +135,7 @@ func TestAgentPlanExecuteCRUDUsesAPIModeContract(t *testing.T) {
 		t.Fatalf("expected PLAN-EXECUTE create response, got %#v", created)
 	}
 
-	detail := getAgentDetail(t, fixture.server, "plan-agent")
+	detail := getAdminAgentDetail(t, fixture.server, "plan-agent")
 	if detail.Mode != "PLAN-EXECUTE" || detail.Definition["mode"] != "PLAN-EXECUTE" {
 		t.Fatalf("expected PLAN-EXECUTE detail response, got %#v", detail)
 	}
@@ -745,6 +745,20 @@ func getAgentDetail(t *testing.T, server *Server, key string) api.AgentDetailRes
 	var response api.ApiResponse[api.AgentDetailResponse]
 	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode detail response: %v", err)
+	}
+	return response.Data
+}
+
+func getAdminAgentDetail(t *testing.T, server *Server, key string) api.AdminAgentDetailResponse {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/admin/agents/detail?agentKey="+key, nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("admin agent detail returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var response api.ApiResponse[api.AdminAgentDetailResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode admin detail response: %v", err)
 	}
 	return response.Data
 }

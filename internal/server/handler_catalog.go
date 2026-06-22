@@ -89,11 +89,7 @@ func (s *Server) handleAgent(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, api.Failure(http.StatusNotFound, "agent not found"))
 		return
 	}
-	response, err := s.buildEditableAgentDetailResponse(def)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
-		return
-	}
+	response := s.buildAgentDetailResponse(def)
 	writeJSON(w, http.StatusOK, api.Success(response))
 }
 

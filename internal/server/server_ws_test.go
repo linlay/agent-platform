@@ -158,6 +158,48 @@ func TestWebSocketRequestFramesAreLogged(t *testing.T) {
 	waitForLogText(t, &buffer, `"sessionId":"ws_`)
 }
 
+func TestWebSocketAgentEndpointDoesNotExposeEditableFields(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		notifications: ws.NewHub(),
+		configure: func(cfg *config.Config) {
+			cfg.WebSocket.WriteQueueSize = 8
+			cfg.WebSocket.PingInterval = 30000
+		},
+	})
+
+	server := httptest.NewServer(fixture.server)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
+	conn, _, err := gws.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial websocket: %v", err)
+	}
+	defer conn.Close()
+
+	readConnectedPush(t, conn)
+
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame: ws.FrameRequest,
+		Type:  "/api/agent",
+		ID:    "req_agent_detail",
+		Payload: ws.MarshalPayload(map[string]any{
+			"agentKey": "mock-agent",
+		}),
+	}); err != nil {
+		t.Fatalf("write agent detail request: %v", err)
+	}
+
+	data := waitForWebSocketResponseData[map[string]any](t, conn, "req_agent_detail")
+	for _, field := range []string{"definition", "soulPrompt", "agentsPrompt", "source"} {
+		if _, ok := data[field]; ok {
+			t.Fatalf("websocket /api/agent should not expose editable field %q: %#v", field, data[field])
+		}
+	}
+}
+
 func waitForLogText(t *testing.T, buffer *lockedLogBuffer, needle string) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)

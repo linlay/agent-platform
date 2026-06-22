@@ -34,7 +34,7 @@ GET /ws -> request / response / stream / push / error frames
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
 | GET | `/api/agents` | query: `includeChats` | agent 列表，可附带最近 chat 摘要 |
-| GET | `/api/agent` | query: `agentKey` | 单个 agent 详情 |
+| GET | `/api/agent` | query: `agentKey` | 单个运行时 agent 详情，不返回编辑专用字段 |
 | POST | `/api/agent/model-config` | body: `agentKey`/`key`、`modelKey`、`reasoningEffort` | 更新 CODER agent 的运行时默认模型配置 |
 | GET | `/api/teams` | 无 | team 列表 |
 | GET | `/api/skill-candidates` | query: `agentKey` | skill candidate 列表 |
@@ -45,7 +45,7 @@ GET /ws -> request / response / stream / push / error frames
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
 | GET | `/api/admin/agents` | 无 | admin agent 列表，包含 invalid agent 诊断 |
-| GET | `/api/admin/agents/detail` | query: `agentKey` | admin agent 详情 |
+| GET | `/api/admin/agents/detail` | query: `agentKey` | admin agent 详情，包含编辑配置、来源和诊断 |
 | GET/PUT | `/api/admin/agents/order` | PUT body: `order` | agent 展示顺序 |
 | POST | `/api/admin/agents/create` | body: `key`、`definition`、`soulPrompt`、`agentsPrompt` | 创建后的 agent 详情 |
 | POST | `/api/admin/agents/update` | body: `key`/`agentKey`、`definition`、`soulPrompt`、`agentsPrompt` | 更新后的 agent 详情 |
@@ -79,7 +79,7 @@ GET /ws -> request / response / stream / push / error frames
 
 `/api/agents?includeChats=N` 附带的 chat 摘要可能包含局部 `error`，用于展示单个 chat 的可恢复/可诊断异常而不让列表整体失败。当前 `multiple active runs found for chat` 会返回 `error: { "code": "active_run_conflict", "message": "multiple active runs found for chat", "chatId": "...", "runIds": ["..."] }`，此时该 chat 不包含 `activeRun`。
 
-`/api/agent` 会返回 agent 配置中的 `greetings` 与 `wonders` 数组。客户端可将 `greetings` 作为开场/占位介绍，并随机挑选一条显示在聊天输入框 placeholder 或空状态里；`wonders` 用于展示可直接提交的具体 query 示例。`/api/agents` 是列表摘要接口，不返回 `greetings` 或 `wonders`。
+`/api/agent` 会返回 agent 配置中的 `greetings` 与 `wonders` 数组。客户端可将 `greetings` 作为开场/占位介绍，并随机挑选一条显示在聊天输入框 placeholder 或空状态里；`wonders` 用于展示可直接提交的具体 query 示例。`/api/agents` 是列表摘要接口，不返回 `greetings` 或 `wonders`。`/api/agent` 是运行时详情接口，不返回 `definition`、`soulPrompt`、`agentsPrompt`、`source`；编辑器应使用 `/api/admin/agents/detail` 获取这些字段，以及 `status`、`diagnostics`。
 
 ### Archive
 

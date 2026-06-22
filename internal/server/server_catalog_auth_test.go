@@ -114,6 +114,30 @@ func TestAgentEndpointReturnsDetail(t *testing.T) {
 	}
 }
 
+func TestAgentEndpointDoesNotExposeEditableFields(t *testing.T) {
+	fixture := newTestFixture(t)
+	rec := httptest.NewRecorder()
+
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agent?agentKey=mock-agent", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	data, ok := raw["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected response data object, got %#v", raw["data"])
+	}
+	for _, field := range []string{"definition", "soulPrompt", "agentsPrompt", "source"} {
+		if _, ok := data[field]; ok {
+			t.Fatalf("/api/agent should not expose editable field %q: %#v", field, data[field])
+		}
+	}
+}
+
 func TestBuildAgentDetailMetaOmitsSandboxForRuntimeEnvOnly(t *testing.T) {
 	s := &Server{}
 	_, meta := s.buildAgentDetailMeta(catalog.AgentDefinition{
