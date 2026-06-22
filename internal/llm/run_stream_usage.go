@@ -364,7 +364,7 @@ func (s *llmRunStream) drainUsageChunk() {
 		return
 	}
 	for i := 0; i < 3; i++ {
-		_, rawChunk, err := readSSEFrame(s.currentTurn.reader)
+		_, rawChunk, err := s.readCurrentSSEFrame()
 		if err != nil {
 			break
 		}

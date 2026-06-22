@@ -32,6 +32,9 @@ func (s *llmRunStream) Close() error {
 	s.closed = true
 	if s.currentTurn != nil && s.currentTurn.body != nil {
 		_ = s.currentTurn.body.Close()
+		if s.currentTurn.cancel != nil {
+			s.currentTurn.cancel()
+		}
 		s.currentTurn = nil
 	}
 	s.engine.sandbox.CloseQuietly(s.execCtx)
@@ -171,6 +174,7 @@ func (s *llmRunStream) prepareNextTurn() error {
 		messages:       s.messages,
 		toolSpecs:      s.toolSpecs,
 		toolChoice:     s.toolChoice,
+		modelTimeout:   s.modelStreamIdleTimeout(),
 	}, preparedRequest)
 	if err != nil {
 		if trace != nil {
@@ -249,7 +253,7 @@ func stripToolAppendixFromSystemPrompt(systemPrompt string, appendConfig PromptA
 }
 
 func (s *llmRunStream) consumeCurrentTurn() (bool, error) {
-	eventName, rawChunk, err := readSSEFrame(s.currentTurn.reader)
+	eventName, rawChunk, err := s.readCurrentSSEFrame()
 	if err != nil {
 		if s.isInterrupted() {
 			return false, nil
@@ -302,6 +306,9 @@ func (s *llmRunStream) finishCurrentTurn() error {
 	}
 	if turn.body != nil {
 		_ = turn.body.Close()
+	}
+	if turn.cancel != nil {
+		turn.cancel()
 	}
 
 	toolCalls, err := turn.materializeToolCalls()
@@ -553,6 +560,9 @@ func (s *llmRunStream) handleInterruptIfNeeded() error {
 	}
 	if s.currentTurn != nil && s.currentTurn.body != nil {
 		_ = s.currentTurn.body.Close()
+		if s.currentTurn.cancel != nil {
+			s.currentTurn.cancel()
+		}
 	}
 	if !s.cancelSent {
 		s.cancelSent = true

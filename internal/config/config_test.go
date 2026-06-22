@@ -78,8 +78,11 @@ func TestLoadDefaults(t *testing.T) {
 			if cfg.Defaults.MaxOutputTokens != 4096 {
 				t.Fatalf("expected default max output tokens 4096, got %d", cfg.Defaults.MaxOutputTokens)
 			}
-			if cfg.Defaults.Budget.Timeout != 600 {
-				t.Fatalf("expected default budget timeout 600, got %d", cfg.Defaults.Budget.Timeout)
+			if cfg.Defaults.Budget.Timeout != 3600 {
+				t.Fatalf("expected default budget timeout 3600, got %d", cfg.Defaults.Budget.Timeout)
+			}
+			if cfg.Defaults.Budget.Model.Timeout != 30 {
+				t.Fatalf("expected default model timeout 30, got %d", cfg.Defaults.Budget.Model.Timeout)
 			}
 			if cfg.Defaults.Budget.Model.MaxCalls != 100 {
 				t.Fatalf("expected default model max calls 100, got %d", cfg.Defaults.Budget.Model.MaxCalls)
@@ -92,6 +95,9 @@ func TestLoadDefaults(t *testing.T) {
 			}
 			if cfg.Defaults.Budget.Tool.MaxCalls != 100 {
 				t.Fatalf("expected default tool max calls 100, got %d", cfg.Defaults.Budget.Tool.MaxCalls)
+			}
+			if cfg.Defaults.Budget.Tool.Timeout != 600 {
+				t.Fatalf("expected default tool timeout 600, got %d", cfg.Defaults.Budget.Tool.Timeout)
 			}
 			if !cfg.Memory.Enabled {
 				t.Fatalf("expected memory runtime enabled by default")

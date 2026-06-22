@@ -65,10 +65,7 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 		}
 	}
 
-	timeoutSeconds := int64Arg(args, "timeout")
-	if timeoutSeconds <= 0 {
-		timeoutSeconds = int64(maxInt(t.cfg.Bash.ShellTimeout, 10))
-	}
+	timeoutSeconds := t.resolveBashTimeoutSeconds(args, execCtx)
 	timeout := time.Duration(timeoutSeconds) * time.Second
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -117,6 +114,25 @@ func (t *RuntimeToolExecutor) invokeHostBash(ctx context.Context, args map[strin
 		appendBashAccessPolicyMetadata(&result, accessReview, stdout, stderr, workingDir, exitCode)
 	}
 	return result, nil
+}
+
+func (t *RuntimeToolExecutor) resolveBashTimeoutSeconds(args map[string]any, execCtx *ExecutionContext) int64 {
+	requested := int64Arg(args, "timeout")
+	budgetTimeout := int64(0)
+	if execCtx != nil {
+		budget := NormalizeBudget(execCtx.Budget)
+		budgetTimeout = int64(budget.Tool.Timeout)
+	}
+	if requested <= 0 {
+		if budgetTimeout > 0 {
+			return budgetTimeout
+		}
+		return int64(maxInt(t.cfg.Bash.ShellTimeout, 10))
+	}
+	if budgetTimeout > 0 && requested > budgetTimeout {
+		return budgetTimeout
+	}
+	return requested
 }
 
 func cleanupBashOutputFile(file *os.File) {

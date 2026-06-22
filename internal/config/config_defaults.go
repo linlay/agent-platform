@@ -75,16 +75,16 @@ func defaultConfig() Config {
 		Defaults: DefaultsConfig{
 			MaxOutputTokens: 4096,
 			Budget: BudgetDefaultsConfig{
-				Timeout:  600,
+				Timeout:  3600,
 				MaxSteps: 100,
 				Model: RetryBudgetConfig{
 					MaxCalls:   100,
-					Timeout:    120,
+					Timeout:    30,
 					RetryCount: 3,
 				},
 				Tool: RetryBudgetConfig{
 					MaxCalls:   100,
-					Timeout:    120,
+					Timeout:    600,
 					RetryCount: 0,
 				},
 				Hitl: HitlBudgetConfig{

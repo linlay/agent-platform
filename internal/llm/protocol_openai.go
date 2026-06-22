@@ -184,7 +184,7 @@ func (p *openAIProtocol) OpenStream(ctx context.Context, params protocolStreamPa
 		req.Header.Set(key, value)
 	}
 
-	return p.engine.executeProviderRequest(req)
+	return p.engine.executeProviderRequest(req, params.modelTimeout)
 }
 
 func (p *openAIProtocol) ConsumeChunk(s *llmRunStream, _ string, rawChunk string) (bool, error) {

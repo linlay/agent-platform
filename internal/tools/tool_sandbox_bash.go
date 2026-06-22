@@ -12,7 +12,7 @@ func (t *RuntimeToolExecutor) invokeSandboxBash(ctx context.Context, args map[st
 	if command == "" {
 		return ToolExecutionResult{Output: "Missing argument: command", Error: "missing_command", ExitCode: -1}, nil
 	}
-	timeout := int64Arg(args, "timeout")
+	timeout := t.resolveBashTimeoutSeconds(args, execCtx)
 	result, err := t.sandbox.Execute(ctx, execCtx, command, stringArg(args, "cwd"), timeout, stringMapArg(args, "env"))
 	if err != nil {
 		return ToolExecutionResult{Output: err.Error(), Error: "sandbox_execute_failed", ExitCode: -1}, nil

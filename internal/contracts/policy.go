@@ -127,18 +127,18 @@ func ResolveBudget(cfg config.Config, overrides map[string]any) Budget {
 func normalizeBudget(b Budget) Budget {
 	hadStepOverride := b.MaxSteps > 0
 	if b.Timeout <= 0 {
-		b.Timeout = 600
+		b.Timeout = 3600
 	}
 	if b.MaxSteps <= 0 {
 		b.MaxSteps = 100
 	}
-	b.Model = normalizeRetryPolicy(b.Model, RetryPolicy{MaxCalls: b.MaxSteps, Timeout: 120, RetryCount: 0})
+	b.Model = normalizeRetryPolicy(b.Model, RetryPolicy{MaxCalls: b.MaxSteps, Timeout: 30, RetryCount: 0})
 	b.Model.MaxCalls = b.MaxSteps
 	toolFallbackMaxCalls := 100
 	if hadStepOverride {
 		toolFallbackMaxCalls = b.MaxSteps * 2
 	}
-	b.Tool = normalizeRetryPolicy(b.Tool, RetryPolicy{MaxCalls: toolFallbackMaxCalls, Timeout: 300, RetryCount: 0})
+	b.Tool = normalizeRetryPolicy(b.Tool, RetryPolicy{MaxCalls: toolFallbackMaxCalls, Timeout: 600, RetryCount: 0})
 	if b.Stages != nil {
 		normalizedStages := map[string]StageBudget{}
 		for key, stage := range b.Stages {

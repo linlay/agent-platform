@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/apperrors"
 	"agent-platform/internal/bashsec"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
@@ -201,6 +203,89 @@ func TestParallelToolCallBatchExecutesAllBeforePostToolStop(t *testing.T) {
 	}
 	if got := len(stream.messages[0].ToolCalls); got != 3 {
 		t.Fatalf("expected assistant message to keep all tool calls, got %d", got)
+	}
+}
+
+func TestReadCurrentSSEFrameUsesModelIdleTimeout(t *testing.T) {
+	reader, writer := io.Pipe()
+	defer writer.Close()
+	stream := &llmRunStream{
+		execCtx: &contracts.ExecutionContext{
+			Budget: contracts.Budget{Model: contracts.RetryPolicy{Timeout: 1}},
+		},
+		currentTurn: &providerTurnStream{
+			body:   reader,
+			reader: bufio.NewReader(reader),
+		},
+	}
+
+	start := time.Now()
+	_, _, err := stream.readCurrentSSEFrame()
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("expected model stream idle timeout")
+	}
+	var appErr *apperrors.Error
+	if !errors.As(err, &appErr) || appErr.Code() != apperrors.CodeProviderTimeout {
+		t.Fatalf("expected provider timeout app error, got %T %v", err, err)
+	}
+	if elapsed >= 2*time.Second {
+		t.Fatalf("expected idle timeout near 1s, took %s", elapsed)
+	}
+}
+
+func TestReadCurrentSSEFrameAcceptsChunkWithinModelIdleTimeout(t *testing.T) {
+	reader, writer := io.Pipe()
+	defer writer.Close()
+	stream := &llmRunStream{
+		execCtx: &contracts.ExecutionContext{
+			Budget: contracts.Budget{Model: contracts.RetryPolicy{Timeout: 1}},
+		},
+		currentTurn: &providerTurnStream{
+			body:   reader,
+			reader: bufio.NewReader(reader),
+		},
+	}
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		_, _ = writer.Write([]byte("data: {\"choices\":[]}\n\n"))
+	}()
+
+	_, rawChunk, err := stream.readCurrentSSEFrame()
+	if err != nil {
+		t.Fatalf("readCurrentSSEFrame returned error: %v", err)
+	}
+	if rawChunk != `{"choices":[]}` {
+		t.Fatalf("unexpected raw chunk %q", rawChunk)
+	}
+}
+
+func TestReadCurrentSSEFrameTimesOutBetweenChunks(t *testing.T) {
+	reader, writer := io.Pipe()
+	defer writer.Close()
+	stream := &llmRunStream{
+		execCtx: &contracts.ExecutionContext{
+			Budget: contracts.Budget{Model: contracts.RetryPolicy{Timeout: 1}},
+		},
+		currentTurn: &providerTurnStream{
+			body:   reader,
+			reader: bufio.NewReader(reader),
+		},
+	}
+	go func() {
+		_, _ = writer.Write([]byte("data: {\"choices\":[]}\n\n"))
+	}()
+	if _, _, err := stream.readCurrentSSEFrame(); err != nil {
+		t.Fatalf("first readCurrentSSEFrame returned error: %v", err)
+	}
+
+	_, _, err := stream.readCurrentSSEFrame()
+	if err == nil {
+		t.Fatal("expected model stream idle timeout between chunks")
+	}
+	var appErr *apperrors.Error
+	if !errors.As(err, &appErr) || appErr.Code() != apperrors.CodeProviderTimeout {
+		t.Fatalf("expected provider timeout app error, got %T %v", err, err)
 	}
 }
 

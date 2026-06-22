@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"agent-platform/internal/apperrors"
 	. "agent-platform/internal/contracts"
@@ -37,6 +38,7 @@ type protocolStreamParams struct {
 	messages       []openAIMessage
 	toolSpecs      []openAIToolSpec
 	toolChoice     string
+	modelTimeout   time.Duration
 }
 
 func resolveProtocol(engine *LLMAgentEngine, model ModelDefinition) providerProtocol {
@@ -68,7 +70,10 @@ func normalizePreparedRequestBody(body []byte) (map[string]any, error) {
 	return requestBody, nil
 }
 
-func (e *LLMAgentEngine) executeProviderRequest(req *http.Request) (*providerTurnStream, error) {
+func (e *LLMAgentEngine) executeProviderRequest(req *http.Request, firstResponseTimeout time.Duration) (*providerTurnStream, error) {
+	if firstResponseTimeout > 0 {
+		return e.executeProviderRequestWithFirstResponseTimeout(req, firstResponseTimeout)
+	}
 	resp, err := e.httpClient.Do(req)
 	if err != nil {
 		return nil, providerTransportError(err)
@@ -85,6 +90,38 @@ func (e *LLMAgentEngine) executeProviderRequest(req *http.Request) (*providerTur
 		body:   resp.Body,
 		reader: bufio.NewReader(resp.Body),
 	}, nil
+}
+
+type providerRequestResult struct {
+	turn *providerTurnStream
+	err  error
+}
+
+func (e *LLMAgentEngine) executeProviderRequestWithFirstResponseTimeout(req *http.Request, timeout time.Duration) (*providerTurnStream, error) {
+	ctx, cancel := context.WithCancel(req.Context())
+	timedReq := req.WithContext(ctx)
+	resultCh := make(chan providerRequestResult, 1)
+	go func() {
+		turn, err := e.executeProviderRequest(timedReq, 0)
+		resultCh <- providerRequestResult{turn: turn, err: err}
+	}()
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case result := <-resultCh:
+		if result.err != nil {
+			cancel()
+			return nil, result.err
+		}
+		if result.turn != nil {
+			result.turn.cancel = cancel
+		}
+		return result.turn, nil
+	case <-timer.C:
+		cancel()
+		return nil, modelStreamIdleTimeoutError(timeout)
+	}
 }
 
 func providerTransportError(err error) error {

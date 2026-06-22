@@ -23,7 +23,7 @@ inputSchema:
       description: Working directory for this execution. When empty, the host shell working directory default is used.
     timeout:
       type: integer
-      description: Execution timeout in seconds.
+      description: Requested execution timeout in seconds. It defaults to the effective budget.tool.timeout and is capped by that tool budget.
   required:
     - command
     - description

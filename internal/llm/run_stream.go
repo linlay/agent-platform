@@ -92,6 +92,7 @@ type llmRunStream struct {
 
 type providerTurnStream struct {
 	body           io.ReadCloser
+	cancel         context.CancelFunc
 	reader         *bufio.Reader
 	trace          *llmChatTrace
 	content        strings.Builder

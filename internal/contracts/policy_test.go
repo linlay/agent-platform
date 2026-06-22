@@ -48,14 +48,20 @@ func TestNormalizeBudgetLeavesUnsetHitlTimeoutAtZero(t *testing.T) {
 	if budget.MaxSteps != 100 {
 		t.Fatalf("expected default max steps 100, got %#v", budget)
 	}
-	if budget.Timeout != 600 {
-		t.Fatalf("expected default timeout 600, got %#v", budget)
+	if budget.Timeout != 3600 {
+		t.Fatalf("expected default timeout 3600, got %#v", budget)
 	}
 	if budget.Model.MaxCalls != 100 {
 		t.Fatalf("expected default model max calls 100, got %#v", budget)
 	}
+	if budget.Model.Timeout != 30 {
+		t.Fatalf("expected default model timeout 30, got %#v", budget)
+	}
 	if budget.Tool.MaxCalls != 100 {
 		t.Fatalf("expected default tool max calls 100, got %#v", budget)
+	}
+	if budget.Tool.Timeout != 600 {
+		t.Fatalf("expected default tool timeout 600, got %#v", budget)
 	}
 
 	derived := NormalizeBudget(Budget{MaxSteps: 7})

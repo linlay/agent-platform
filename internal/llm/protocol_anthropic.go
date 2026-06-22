@@ -70,7 +70,7 @@ func (p *anthropicProtocol) OpenStream(ctx context.Context, params protocolStrea
 		req.Header.Set(key, value)
 	}
 
-	return p.engine.executeProviderRequest(req)
+	return p.engine.executeProviderRequest(req, params.modelTimeout)
 }
 
 func (p *anthropicProtocol) ConsumeChunk(s *llmRunStream, eventName string, rawChunk string) (bool, error) {

@@ -192,6 +192,61 @@ func TestInvokeHostBashDoesNotWaitForBackgroundProcessOutput(t *testing.T) {
 	}
 }
 
+func TestInvokeHostBashDefaultsTimeoutToToolBudget(t *testing.T) {
+	root := t.TempDir()
+	executor := &RuntimeToolExecutor{
+		cfg: config.Config{
+			Bash: config.BashConfig{
+				WorkingDirectory:     root,
+				AllowedCommands:      []string{"sleep"},
+				ShellFeaturesEnabled: true,
+				ShellExecutable:      "bash",
+				ShellTimeout:         30,
+				MaxCommandChars:      16000,
+			},
+		},
+	}
+
+	start := time.Now()
+	result, err := executor.invokeHostBash(
+		context.Background(),
+		map[string]any{"command": "sleep 2"},
+		&contracts.ExecutionContext{Budget: contracts.Budget{Tool: contracts.RetryPolicy{Timeout: 1}}},
+	)
+	elapsed := time.Since(start)
+	if err != nil {
+		t.Fatalf("invokeHostBash returned error: %v", err)
+	}
+	if result.ExitCode != -1 || !strings.Contains(result.Output, "Command timed out") {
+		t.Fatalf("expected command timeout result, got %#v", result)
+	}
+	if elapsed >= 2*time.Second {
+		t.Fatalf("expected budget timeout near 1s, took %s", elapsed)
+	}
+}
+
+func TestResolveBashTimeoutCapsRequestedTimeoutAtToolBudget(t *testing.T) {
+	executor := &RuntimeToolExecutor{
+		cfg: config.Config{
+			Bash: config.BashConfig{ShellTimeout: 30},
+		},
+	}
+	execCtx := &contracts.ExecutionContext{Budget: contracts.Budget{Tool: contracts.RetryPolicy{Timeout: 5}}}
+
+	if got := executor.resolveBashTimeoutSeconds(map[string]any{}, execCtx); got != 5 {
+		t.Fatalf("default bash timeout = %d, want tool budget 5", got)
+	}
+	if got := executor.resolveBashTimeoutSeconds(map[string]any{"timeout": 2}, execCtx); got != 2 {
+		t.Fatalf("short requested bash timeout = %d, want 2", got)
+	}
+	if got := executor.resolveBashTimeoutSeconds(map[string]any{"timeout": 10}, execCtx); got != 5 {
+		t.Fatalf("capped requested bash timeout = %d, want tool budget 5", got)
+	}
+	if got := executor.resolveBashTimeoutSeconds(map[string]any{}, nil); got != 30 {
+		t.Fatalf("fallback bash timeout = %d, want shell timeout 30", got)
+	}
+}
+
 func TestInvokeHostBashDefaultsCwdToSessionWorkspace(t *testing.T) {
 	root := t.TempDir()
 	executor := &RuntimeToolExecutor{

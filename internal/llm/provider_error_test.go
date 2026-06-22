@@ -1,10 +1,15 @@
 package llm
 
 import (
+	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
 	"agent-platform/internal/apperrors"
+	"agent-platform/internal/config"
 )
 
 func TestClassifyProviderResponseError(t *testing.T) {
@@ -83,5 +88,36 @@ func TestProviderResponseErrorCarriesStructuredPayload(t *testing.T) {
 	diagnostics, _ := payload["diagnostics"].(map[string]any)
 	if diagnostics["upstreamStatus"] != 429 {
 		t.Fatalf("expected upstream status diagnostics, got %#v", diagnostics)
+	}
+}
+
+func TestExecuteProviderRequestUsesFirstResponseTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-time.After(5 * time.Second):
+			_, _ = w.Write([]byte("data: [DONE]\n\n"))
+		}
+	}))
+	defer server.Close()
+
+	engine := NewLLMAgentEngineWithHTTPClient(config.Config{}, nil, nil, nil, nil, server.Client())
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, server.URL, nil)
+	if err != nil {
+		t.Fatalf("new request: %v", err)
+	}
+	start := time.Now()
+	_, err = engine.executeProviderRequest(req, time.Second)
+	elapsed := time.Since(start)
+	if err == nil {
+		t.Fatal("expected first response timeout")
+	}
+	var appErr *apperrors.Error
+	if !errors.As(err, &appErr) || appErr.Code() != apperrors.CodeProviderTimeout {
+		t.Fatalf("expected provider timeout app error, got %T %v", err, err)
+	}
+	if elapsed >= 2*time.Second {
+		t.Fatalf("expected first response timeout near 1s, took %s", elapsed)
 	}
 }

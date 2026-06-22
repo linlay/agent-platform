@@ -9,16 +9,18 @@ import (
 )
 
 type stubSandboxClient struct {
-	result contracts.SandboxExecutionResult
-	err    error
-	env    map[string]string
+	result  contracts.SandboxExecutionResult
+	err     error
+	env     map[string]string
+	timeout int64
 }
 
 func (s *stubSandboxClient) OpenIfNeeded(_ context.Context, _ *contracts.ExecutionContext) error {
 	return nil
 }
 
-func (s *stubSandboxClient) Execute(_ context.Context, _ *contracts.ExecutionContext, _ string, _ string, _ int64, env map[string]string) (contracts.SandboxExecutionResult, error) {
+func (s *stubSandboxClient) Execute(_ context.Context, _ *contracts.ExecutionContext, _ string, _ string, timeout int64, env map[string]string) (contracts.SandboxExecutionResult, error) {
+	s.timeout = timeout
 	s.env = env
 	return s.result, s.err
 }
@@ -145,5 +147,28 @@ func TestInvokeSandboxBashForwardsEnv(t *testing.T) {
 	}
 	if sandbox.env["FOO"] != "bar" {
 		t.Fatalf("expected env to be forwarded, got %#v", sandbox.env)
+	}
+}
+
+func TestInvokeSandboxBashDefaultsTimeoutToToolBudget(t *testing.T) {
+	sandbox := &stubSandboxClient{
+		result: contracts.SandboxExecutionResult{
+			ExitCode:         0,
+			Stdout:           "ok\n",
+			WorkingDirectory: "/workspace",
+		},
+	}
+	executor := &RuntimeToolExecutor{sandbox: sandbox}
+
+	_, err := executor.invokeSandboxBash(
+		context.Background(),
+		map[string]any{"command": "echo ok", "timeout": 700},
+		&contracts.ExecutionContext{Budget: contracts.Budget{Tool: contracts.RetryPolicy{Timeout: 600}}},
+	)
+	if err != nil {
+		t.Fatalf("invokeSandboxBash returned error: %v", err)
+	}
+	if sandbox.timeout != 600 {
+		t.Fatalf("expected sandbox timeout to be capped at 600, got %d", sandbox.timeout)
 	}
 }
