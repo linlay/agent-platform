@@ -208,6 +208,7 @@ type StoredMessage struct {
 	ToolCalls        []StoredToolCall `json:"tool_calls,omitempty"`
 	Name             string           `json:"name,omitempty"`
 	ToolCallID       string           `json:"tool_call_id,omitempty"`
+	DurationMs       *int64           `json:"durationMs,omitempty"`
 	Ts               *int64           `json:"ts,omitempty"`
 	ReasoningID      string           `json:"_reasoningId,omitempty"`
 	ContentID        string           `json:"_contentId,omitempty"`

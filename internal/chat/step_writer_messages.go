@@ -147,6 +147,20 @@ func formatResult(v any) string {
 	return fmt.Sprintf("%v", v)
 }
 
+func durationMsPointer(value any, payload map[string]any) *int64 {
+	if payload == nil {
+		return nil
+	}
+	if _, ok := payload["durationMs"]; !ok {
+		return nil
+	}
+	duration := int64FromAny(value)
+	if duration < 0 {
+		duration = 0
+	}
+	return &duration
+}
+
 func upsertStoredMessage(messages []StoredMessage, message StoredMessage) []StoredMessage {
 	key := storedMessageUpsertKey(message)
 	if key == "" {

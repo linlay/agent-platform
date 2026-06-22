@@ -55,7 +55,12 @@ func (d *StreamEventDispatcher) handleToolResult(input ToolResult) []StreamEvent
 	if len(input.Hitl) > 0 {
 		payload["approval"] = clonePayload(input.Hitl)
 	}
-	events = append(events, NewEvent("tool.result", payload))
+	resultEvent := NewEvent("tool.result", payload)
+	if startedAt, ok := d.state.toolEndAtByID[input.ToolID]; ok {
+		resultEvent.Payload["durationMs"] = nonNegativeDurationMs(startedAt, resultEvent.Timestamp)
+		delete(d.state.toolEndAtByID, input.ToolID)
+	}
+	events = append(events, resultEvent)
 	if eventType, memoryPayload := d.memoryToolResultEvent(input); eventType != "" && len(memoryPayload) > 0 {
 		events = append(events, NewEvent(eventType, memoryPayload))
 	}
@@ -128,7 +133,9 @@ func (d *StreamEventDispatcher) closeTool(toolID string, fileChange map[string]a
 	if len(fileChange) > 0 {
 		endPayload["fileChange"] = clonePayload(fileChange)
 	}
-	events := []StreamEvent{NewEvent("tool.end", endPayload)}
+	endEvent := NewEvent("tool.end", endPayload)
+	d.state.toolEndAtByID[toolID] = endEvent.Timestamp
+	events := []StreamEvent{endEvent}
 	snapshotPayload := map[string]any{
 		"toolId":          toolID,
 		"runId":           d.request.RunID,

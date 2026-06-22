@@ -49,6 +49,41 @@ func TestDispatcherEmitsToolSnapshotAndResultLifecycle(t *testing.T) {
 		Result:   map[string]any{"iso8601": "2026-01-01T00:00:00Z"},
 	})
 	assertEventTypes(t, resultEvents, "tool.result")
+	assertDurationMsPresent(t, resultEvents[0])
+}
+
+func TestDispatcherEmitsAwaitingAnswerDuration(t *testing.T) {
+	dispatcher := NewDispatcher(StreamRequest{
+		RunID:  "run_1",
+		ChatID: "chat_1",
+	})
+
+	askEvents := dispatcher.Dispatch(AwaitAsk{
+		AwaitingID: "tool_1",
+		Mode:       "approval",
+		Timeout:    120,
+		RunID:      "run_1",
+		Approvals: []any{
+			map[string]any{"id": "cmd-1", "command": "Proceed?"},
+		},
+	})
+	assertEventTypes(t, askEvents, "awaiting.ask")
+
+	answerEvents := dispatcher.Dispatch(AwaitingAnswer{
+		AwaitingID: "tool_1",
+		Answer: map[string]any{
+			"mode":   "approval",
+			"status": "answered",
+			"approvals": []any{
+				map[string]any{
+					"id":       "cmd-1",
+					"decision": "approve",
+				},
+			},
+		},
+	})
+	assertEventTypes(t, answerEvents, "awaiting.answer")
+	assertDurationMsPresent(t, answerEvents[0])
 }
 
 func TestDispatcherEmitsFileChangeOnToolEndAndSnapshot(t *testing.T) {
@@ -908,6 +943,45 @@ func TestEventDataMarshalsWithContractKeyOrder(t *testing.T) {
 	}
 }
 
+func TestEventDataMarshalsToolResultWithContractKeyOrder(t *testing.T) {
+	event := NewEvent("tool.result", map[string]any{
+		"toolId":     "tool_1",
+		"toolName":   "bash",
+		"result":     "ok",
+		"durationMs": int64(42),
+		"approval": map[string]any{
+			"decision": "approve",
+		},
+	})
+	event.Seq = 8
+	data, err := json.Marshal(event.Data())
+	if err != nil {
+		t.Fatalf("marshal event data: %v", err)
+	}
+	text := string(data)
+	order := []string{
+		`"seq":8`,
+		`"type":"tool.result"`,
+		`"toolId":"tool_1"`,
+		`"toolName":"bash"`,
+		`"result":"ok"`,
+		`"durationMs":42`,
+		`"approval":{"decision":"approve"}`,
+		`"timestamp":`,
+	}
+	prev := -1
+	for _, part := range order {
+		idx := strings.Index(text, part)
+		if idx < 0 {
+			t.Fatalf("expected %q in %s", part, text)
+		}
+		if idx <= prev {
+			t.Fatalf("expected ordered keys in %s", text)
+		}
+		prev = idx
+	}
+}
+
 func TestEventDataMarshalsAwaitAskWithContractKeyOrder(t *testing.T) {
 	event := NewEvent("awaiting.ask", map[string]any{
 		"timeout":    120,
@@ -1268,6 +1342,7 @@ func TestEventDataMarshalsAwaitingAnswerWithContractKeyOrder(t *testing.T) {
 		"awaitingId": "tool_1",
 		"mode":       "question",
 		"status":     "error",
+		"durationMs": int64(42),
 		"error": map[string]any{
 			"code":    "user_dismissed",
 			"message": "用户关闭等待项",
@@ -1285,6 +1360,7 @@ func TestEventDataMarshalsAwaitingAnswerWithContractKeyOrder(t *testing.T) {
 		`"awaitingId":"tool_1"`,
 		`"mode":"question"`,
 		`"status":"error"`,
+		`"durationMs":42`,
 		`"error":{"code":"user_dismissed","message":"用户关闭等待项"}`,
 		`"timestamp":`,
 	}
@@ -1392,5 +1468,20 @@ func assertEventTypes(t *testing.T, events []StreamEvent, want ...string) {
 		if event.Type != want[idx] {
 			t.Fatalf("event %d: expected %s, got %s", idx, want[idx], event.Type)
 		}
+	}
+}
+
+func assertDurationMsPresent(t *testing.T, event StreamEvent) {
+	t.Helper()
+	value, ok := event.Payload["durationMs"]
+	if !ok {
+		t.Fatalf("expected durationMs on %s, got %#v", event.Type, event.Payload)
+	}
+	duration, ok := value.(int64)
+	if !ok {
+		t.Fatalf("expected int64 durationMs on %s, got %#v", event.Type, value)
+	}
+	if duration < 0 {
+		t.Fatalf("expected non-negative durationMs on %s, got %d", event.Type, duration)
 	}
 }

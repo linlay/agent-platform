@@ -26,6 +26,9 @@ func newAwaitingAnswerEvent(input AwaitingAnswer) StreamEvent {
 		return StreamEvent{}
 	}
 	payload["status"] = status
+	if durationMs, ok := answer["durationMs"]; ok {
+		payload["durationMs"] = durationMs
+	}
 	if status == "error" {
 		if errPayload := anyMap(answer["error"]); len(errPayload) > 0 {
 			entry := map[string]any{}
@@ -276,7 +279,9 @@ func (d *StreamEventDispatcher) newAwaitAskEvent(input AwaitAsk) StreamEvent {
 	if len(input.Plan) > 0 {
 		payload["plan"] = clonePayload(input.Plan)
 	}
-	return NewEvent("awaiting.ask", payload)
+	event := NewEvent("awaiting.ask", payload)
+	d.state.awaitingAskAtByID[awaitingID] = event.Timestamp
+	return event
 }
 
 func awaitAskViewport(input AwaitAsk) (string, string) {

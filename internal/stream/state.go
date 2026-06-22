@@ -20,6 +20,8 @@ type StreamEventStateData struct {
 	toolArgsBuffer    map[string]string
 	actionArgsBuffer  map[string]string
 	emittedAwaitings  map[string]bool
+	toolEndAtByID     map[string]int64
+	awaitingAskAtByID map[string]int64
 	runFinishReason   string
 	runError          map[string]any
 	runUsage          *runUsageState
@@ -62,12 +64,14 @@ type actionBlockState struct {
 
 func NewStateData() *StreamEventStateData {
 	return &StreamEventStateData{
-		openTools:        map[string]toolBlockState{},
-		openActions:      map[string]actionBlockState{},
-		reasoningBuffer:  map[string]string{},
-		contentBuffer:    map[string]string{},
-		toolArgsBuffer:   map[string]string{},
-		actionArgsBuffer: map[string]string{},
-		emittedAwaitings: map[string]bool{},
+		openTools:         map[string]toolBlockState{},
+		openActions:       map[string]actionBlockState{},
+		reasoningBuffer:   map[string]string{},
+		contentBuffer:     map[string]string{},
+		toolArgsBuffer:    map[string]string{},
+		actionArgsBuffer:  map[string]string{},
+		emittedAwaitings:  map[string]bool{},
+		toolEndAtByID:     map[string]int64{},
+		awaitingAskAtByID: map[string]int64{},
 	}
 }

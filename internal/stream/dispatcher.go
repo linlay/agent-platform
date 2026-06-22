@@ -86,6 +86,10 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 		if event.Type == "" {
 			return nil
 		}
+		if startedAt, ok := d.state.awaitingAskAtByID[value.AwaitingID]; ok {
+			event.Payload["durationMs"] = nonNegativeDurationMs(startedAt, event.Timestamp)
+			delete(d.state.awaitingAskAtByID, value.AwaitingID)
+		}
 		return []StreamEvent{event}
 	case RequestSteer:
 		events := d.closeOpenBlocks()

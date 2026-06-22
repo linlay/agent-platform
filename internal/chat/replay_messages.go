@@ -133,6 +133,9 @@ func storedMessageToEvents(msg map[string]any, runID, taskID, stage string, live
 				"toolId": id,
 				"result": text,
 			}
+			if _, ok := msg["durationMs"]; ok {
+				payload["durationMs"] = msg["durationMs"]
+			}
 			addReplayLiveSeq(payload, liveSeq)
 			events = append(events, stream.EventData{
 				Seq:       nextSeq(),

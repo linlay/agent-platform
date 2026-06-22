@@ -175,6 +175,9 @@ func (s *Server) resolveDeferredSubmit(req api.SubmitRequest) (api.SubmitRespons
 	if strings.TrimSpace(req.SubmitID) != "" {
 		answerPayload["submitId"] = strings.TrimSpace(req.SubmitID)
 	}
+	if duration, ok := awaitingDurationMs(deferred.CreatedAt, resolvedAt); ok {
+		answerPayload["durationMs"] = duration
+	}
 
 	if err := s.deps.Chats.AppendSubmitLine(deferred.ChatID, chat.SubmitLine{
 		ChatID:    deferred.ChatID,
@@ -232,6 +235,9 @@ func (s *Server) resolveNonContinuableDeferredSubmit(deferred DeferredAwaiting, 
 	answerPayload["runId"] = req.RunID
 	if strings.TrimSpace(req.SubmitID) != "" {
 		answerPayload["submitId"] = strings.TrimSpace(req.SubmitID)
+	}
+	if duration, ok := awaitingDurationMs(deferred.CreatedAt, resolvedAt); ok {
+		answerPayload["durationMs"] = duration
 	}
 
 	if err := s.deps.Chats.AppendSubmitLine(deferred.ChatID, chat.SubmitLine{
@@ -347,10 +353,24 @@ func (s *Server) broadcastDeferredAwaitingAnswer(deferred DeferredAwaiting, norm
 	if submitID := strings.TrimSpace(stringValue(normalized["submitId"])); submitID != "" {
 		payload["submitId"] = submitID
 	}
+	if _, ok := normalized["durationMs"]; ok {
+		payload["durationMs"] = contracts.AnyIntNode(normalized["durationMs"])
+	}
 	if payload["mode"] == "" {
 		payload["mode"] = deferred.Mode
 	}
 	s.deps.Notifications.Broadcast("awaiting.answered", payload)
+}
+
+func awaitingDurationMs(createdAt int64, resolvedAt int64) (int64, bool) {
+	if createdAt <= 0 || resolvedAt <= 0 {
+		return 0, false
+	}
+	duration := resolvedAt - createdAt
+	if duration < 0 {
+		duration = 0
+	}
+	return duration, true
 }
 
 func (s *Server) resolvePersistedAwaitingSubmit(req api.SubmitRequest) (api.SubmitResponse, bool, error) {

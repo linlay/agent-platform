@@ -31,6 +31,14 @@ func NewEvent(eventType string, payload map[string]any) StreamEvent {
 	}
 }
 
+func nonNegativeDurationMs(startedAt int64, endedAt int64) int64 {
+	duration := endedAt - startedAt
+	if duration < 0 {
+		return 0
+	}
+	return duration
+}
+
 func (e StreamEvent) ToData() map[string]any {
 	return e.Data().Map()
 }
@@ -245,7 +253,7 @@ func eventPayloadKeyOrder(eventType string) []string {
 	case "awaiting.ask":
 		return []string{"awaitingId", "mode", "viewportType", "viewportKey", "timeout", "runId", "agentKey", "questions", "approvals", "forms", "plan"}
 	case "awaiting.answer":
-		return []string{"awaitingId", "mode", "status", "submitId", "answers", "approvals", "forms", "plan", "error"}
+		return []string{"awaitingId", "mode", "status", "submitId", "durationMs", "answers", "approvals", "forms", "plan", "error"}
 	case "request.submit":
 		return []string{"requestId", "chatId", "runId", "awaitingId", "submitId", "params"}
 	case "request.steer":
@@ -292,7 +300,7 @@ func eventPayloadKeyOrder(eventType string) []string {
 	case "tool.snapshot":
 		return []string{"toolId", "runId", "toolName", "taskId", "toolLabel", "toolDescription", "arguments", "fileChange"}
 	case "tool.result":
-		return []string{"toolId", "toolName", "result", "fileChange", "hitl", "approval"}
+		return []string{"toolId", "toolName", "result", "durationMs", "fileChange", "hitl", "approval"}
 	case "source.publish":
 		return []string{"publishId", "runId", "taskId", "toolId", "kind", "query", "sourceCount", "chunkCount", "sources"}
 	case "action.start":

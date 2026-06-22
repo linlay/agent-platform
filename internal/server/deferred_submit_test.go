@@ -93,6 +93,9 @@ func TestDeferredSubmitHTTPRestoresPendingAwaitingAfterRestart(t *testing.T) {
 			if event.String("awaitingId") != "await-http" || event.String("status") != "answered" {
 				t.Fatalf("unexpected awaiting.answer %#v", event)
 			}
+			if duration, ok := event.Value("durationMs").(float64); !ok || duration < 0 {
+				t.Fatalf("expected non-negative durationMs on deferred awaiting.answer, got %#v", event)
+			}
 		}
 	}
 	if !foundSubmit || !foundAnswer {
@@ -100,6 +103,9 @@ func TestDeferredSubmitHTTPRestoresPendingAwaitingAfterRestart(t *testing.T) {
 	}
 	if eventTypes := notifications.EventTypes(); len(eventTypes) < 2 || eventTypes[0] != "awaiting.answered" || eventTypes[1] != "run.started" {
 		t.Fatalf("expected awaiting.answered then run.started notifications, got %#v", eventTypes)
+	}
+	if payloads := notifications.Payloads(); len(payloads) == 0 || payloads[0]["durationMs"] == nil {
+		t.Fatalf("expected deferred awaiting.answered notification durationMs, got %#v", payloads)
 	}
 }
 

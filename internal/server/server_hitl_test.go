@@ -979,6 +979,11 @@ func TestBashHITLApproveFlow(t *testing.T) {
 	if strings.Contains(body, `"initialPayload":`) || strings.Contains(body, `"viewportPayload":`) {
 		t.Fatalf("did not expect form payload aliases in stream, got %s", body)
 	}
+	assertSSEEventDuration(t, body, "awaiting.answer")
+	resultPayload := findToolResultPayload(t, body, "tool_bash")
+	if duration, ok := resultPayload["durationMs"].(float64); !ok || duration < 0 {
+		t.Fatalf("expected non-negative durationMs on tool.result, got %#v", resultPayload)
+	}
 	if strings.Contains(body, "map[") {
 		t.Fatalf("did not expect Go map string in stream, got %s", body)
 	}
@@ -1296,6 +1301,10 @@ func TestBashHITLTimeoutFlow(t *testing.T) {
 	resultPayload := findToolResultPayload(t, body, "tool_bash")
 	if got, ok := resultPayload["result"].(string); !ok || got != "hitl_timeout: command execution timed out while waiting for user approval" {
 		t.Fatalf("expected timeout tool.result in stream, got %s", body)
+	}
+	assertSSEEventDuration(t, body, "awaiting.answer")
+	if duration, ok := resultPayload["durationMs"].(float64); !ok || duration < 0 {
+		t.Fatalf("expected non-negative durationMs on timeout tool.result, got %#v", resultPayload)
 	}
 	if strings.Contains(body, "map[") {
 		t.Fatalf("did not expect Go map string in stream, got %s", body)

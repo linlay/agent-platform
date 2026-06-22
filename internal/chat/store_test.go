@@ -832,6 +832,7 @@ func TestStoredMessageToEventsPreservesTimestamp(t *testing.T) {
 				"_toolId":      "stored-tool",
 				"tool_call_id": "tool-call-1",
 				"content":      "ok",
+				"durationMs":   int64(42),
 			},
 			wantType: "tool.result",
 		},
@@ -848,6 +849,9 @@ func TestStoredMessageToEventsPreservesTimestamp(t *testing.T) {
 			}
 			if events[0].Timestamp != ts {
 				t.Fatalf("expected timestamp %d, got %#v", ts, events[0])
+			}
+			if tc.name == "tool result" && events[0].Value("durationMs") != int64(42) {
+				t.Fatalf("expected tool.result durationMs to replay, got %#v", events[0])
 			}
 		})
 	}
@@ -1678,7 +1682,8 @@ func TestStepWriterFormatsStructuredToolResultAsJSON(t *testing.T) {
 		Type:      "tool.result",
 		Timestamp: 1002,
 		Payload: map[string]any{
-			"toolId": "tool-1",
+			"toolId":     "tool-1",
+			"durationMs": int64(77),
 			"result": map[string]any{
 				"error":    "hitl_timeout",
 				"exitCode": -1,
@@ -1703,6 +1708,9 @@ func TestStepWriterFormatsStructuredToolResultAsJSON(t *testing.T) {
 		t.Fatalf("expected tool snapshot and tool result messages, got %#v", lines[0])
 	}
 	resultMsg, _ := messages[1].(map[string]any)
+	if resultMsg["durationMs"] != float64(77) {
+		t.Fatalf("expected persisted durationMs on tool result, got %#v", resultMsg)
+	}
 	content, _ := resultMsg["content"].([]any)
 	if len(content) != 1 {
 		t.Fatalf("expected one content item, got %#v", resultMsg)
@@ -4571,6 +4579,7 @@ func TestLoadChatReplaysSubmitLine(t *testing.T) {
 			"type":       "awaiting.answer",
 			"awaitingId": "tool-1",
 			"mode":       "question",
+			"durationMs": int64(88),
 			"questions": []any{
 				map[string]any{"question": "How many?", "answer": 3},
 			},
@@ -4605,6 +4614,9 @@ func TestLoadChatReplaysSubmitLine(t *testing.T) {
 	}
 	if detail.Events[4].String("runId") != "run-submit-replay" {
 		t.Fatalf("expected runId to be backfilled on awaiting.answer, got %#v", detail.Events[4])
+	}
+	if detail.Events[4].Value("durationMs") != float64(88) {
+		t.Fatalf("expected awaiting.answer durationMs to replay, got %#v", detail.Events[4])
 	}
 }
 

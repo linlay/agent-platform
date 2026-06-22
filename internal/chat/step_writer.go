@@ -164,6 +164,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 			}
 		}
 		ts := event.Timestamp
+		durationMs := durationMsPointer(event.Value("durationMs"), event.Payload)
 		w.appendStoredMessage(stream.EventData{
 			Seq:       event.Seq,
 			Type:      event.Type,
@@ -177,6 +178,7 @@ func (w *StepWriter) OnEvent(event stream.EventData) {
 			ToolCallID: toolID,
 			Content:    textContent(formatResult(event.Value("result"))),
 			ToolID:     toolID,
+			DurationMs: durationMs,
 			Ts:         &ts,
 		})
 		w.needNewMsgID = true
