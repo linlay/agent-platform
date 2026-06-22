@@ -68,11 +68,19 @@ func (s *Server) wsProxyQuery(
 	req platformws.RequestFrame,
 	prepared preparedQuery,
 ) {
-	runCtx, control, _ := s.deps.Runs.Register(ctx, prepared.session)
+	registered, statusErr := s.registerQueryRun(ctx, prepared)
+	if statusErr != nil {
+		releaseQuery(prepared.release)
+		conn.ReleaseStream(req.ID)
+		s.sendWSStatusError(conn, req.ID, statusErr)
+		return
+	}
+	runCtx, control := registered.RunCtx, registered.Control
 	eventBus, ok := s.deps.Runs.EventBus(prepared.req.RunID)
 	if !ok {
 		releaseQuery(prepared.release)
 		s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.req, contracts.InterruptReasonEventBusUnavailable, "run event bus unavailable"))
+		s.finishRegisteredQueryRun(prepared, registered)
 		conn.ReleaseStream(req.ID)
 		conn.SendError(req.ID, "internal_error", 500, "run event bus unavailable", nil)
 		return
@@ -81,6 +89,7 @@ func (s *Server) wsProxyQuery(
 	if attachErr != nil {
 		releaseQuery(prepared.release)
 		s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.req, contracts.InterruptReasonObserverAttachFailed, attachErr.Error()))
+		s.finishRegisteredQueryRun(prepared, registered)
 		conn.ReleaseStream(req.ID)
 		s.sendWSAttachError(conn, req.ID, prepared.req.RunID, prepared.req.ChatID, attachErr)
 		return
@@ -124,11 +133,18 @@ func (s *Server) wsProxyQuery(
 }
 
 func (s *Server) handleProxyWebSocketQuery(w http.ResponseWriter, r *http.Request, prepared preparedQuery) {
-	runCtx, control, _ := s.deps.Runs.Register(r.Context(), prepared.session)
+	registered, statusErr := s.registerQueryRun(r.Context(), prepared)
+	if statusErr != nil {
+		releaseQuery(prepared.release)
+		writeStatusError(w, statusErr)
+		return
+	}
+	runCtx, control := registered.RunCtx, registered.Control
 	eventBus, ok := s.deps.Runs.EventBus(prepared.req.RunID)
 	if !ok {
 		releaseQuery(prepared.release)
 		s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.req, contracts.InterruptReasonEventBusUnavailable, "run event bus unavailable"))
+		s.finishRegisteredQueryRun(prepared, registered)
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, "run event bus unavailable"))
 		return
 	}
@@ -141,6 +157,7 @@ func (s *Server) handleProxyWebSocketQuery(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		releaseQuery(prepared.release)
 		s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.req, contracts.InterruptReasonStreamWriterFailed, err.Error()))
+		s.finishRegisteredQueryRun(prepared, registered)
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
@@ -151,6 +168,7 @@ func (s *Server) handleProxyWebSocketQuery(w http.ResponseWriter, r *http.Reques
 	if attachErr != nil {
 		releaseQuery(prepared.release)
 		s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.req, contracts.InterruptReasonObserverAttachFailed, attachErr.Error()))
+		s.finishRegisteredQueryRun(prepared, registered)
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, attachErr.Error()))
 		return
 	}
@@ -198,11 +216,18 @@ func (s *Server) handleProxyWebSocketQuery(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) handleProxyQueryNonStream(w http.ResponseWriter, r *http.Request, prepared preparedQuery) {
-	runCtx, control, _ := s.deps.Runs.Register(r.Context(), prepared.session)
+	registered, statusErr := s.registerQueryRun(r.Context(), prepared)
+	if statusErr != nil {
+		releaseQuery(prepared.release)
+		writeStatusError(w, statusErr)
+		return
+	}
+	runCtx, control := registered.RunCtx, registered.Control
 	eventBus, ok := s.deps.Runs.EventBus(prepared.req.RunID)
 	if !ok {
 		releaseQuery(prepared.release)
 		s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.req, contracts.InterruptReasonEventBusUnavailable, "run event bus unavailable"))
+		s.finishRegisteredQueryRun(prepared, registered)
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, "run event bus unavailable"))
 		return
 	}
@@ -210,6 +235,7 @@ func (s *Server) handleProxyQueryNonStream(w http.ResponseWriter, r *http.Reques
 	if attachErr != nil {
 		releaseQuery(prepared.release)
 		s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.req, contracts.InterruptReasonObserverAttachFailed, attachErr.Error()))
+		s.finishRegisteredQueryRun(prepared, registered)
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, attachErr.Error()))
 		return
 	}

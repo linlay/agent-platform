@@ -38,7 +38,9 @@ type queryAdmission struct {
 
 type statusError struct {
 	status  int
+	code    string
 	message string
+	data    any
 }
 
 type queryReleaseFunc func()
@@ -90,6 +92,9 @@ func (s *Server) prepareQueryAdmission(r *http.Request, requireMessage bool) (qu
 	var existingSummary *chat.Summary
 	if s.deps.Chats != nil {
 		existingSummary, _ = s.deps.Chats.Summary(chatID)
+	}
+	if gateErr := s.awaitingQueryGateError(chatID, existingSummary); gateErr != nil {
+		return queryAdmission{}, gateErr
 	}
 	teamID := strings.TrimSpace(req.TeamID)
 	if teamID == "" && existingSummary != nil {

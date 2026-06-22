@@ -25,7 +25,7 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 	if err != nil {
 		var statusErr *statusError
 		if errors.As(err, &statusErr) {
-			conn.SendError(req.ID, "invalid_request", statusErr.status, statusErr.message, nil)
+			s.sendWSStatusError(conn, req.ID, statusErr)
 		} else {
 			conn.SendError(req.ID, "internal_error", 500, err.Error(), nil)
 		}
@@ -43,7 +43,7 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 	prepared, err := s.completeQueryPreparation(ctx, admission, nil)
 	if err != nil {
 		if statusErr, ok := err.(*statusError); ok {
-			conn.SendError(req.ID, "invalid_request", statusErr.status, statusErr.message, nil)
+			s.sendWSStatusError(conn, req.ID, statusErr)
 		} else {
 			conn.SendError(req.ID, "internal_error", 500, err.Error(), nil)
 		}
@@ -55,11 +55,19 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 		return
 	}
 
-	runCtx, control, _ := s.deps.Runs.Register(ctx, prepared.session)
+	registered, statusErr := s.registerQueryRun(ctx, prepared)
+	if statusErr != nil {
+		releaseQuery(prepared.release)
+		conn.ReleaseStream(req.ID)
+		s.sendWSStatusError(conn, req.ID, statusErr)
+		return
+	}
+	runCtx, control := registered.RunCtx, registered.Control
 	eventBus, ok := s.deps.Runs.EventBus(prepared.req.RunID)
 	if !ok {
 		releaseQuery(prepared.release)
 		s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.req, contracts.InterruptReasonEventBusUnavailable, "run event bus unavailable"))
+		s.finishRegisteredQueryRun(prepared, registered)
 		conn.ReleaseStream(req.ID)
 		conn.SendError(req.ID, "internal_error", 500, "run event bus unavailable", nil)
 		return
@@ -68,6 +76,7 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 	if attachErr != nil {
 		releaseQuery(prepared.release)
 		s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.req, contracts.InterruptReasonObserverAttachFailed, attachErr.Error()))
+		s.finishRegisteredQueryRun(prepared, registered)
 		conn.ReleaseStream(req.ID)
 		s.sendWSAttachError(conn, req.ID, prepared.req.RunID, prepared.req.ChatID, attachErr)
 		return
@@ -319,16 +328,19 @@ func (s *Server) sendWSStatusError(conn *ws.Conn, requestID string, err *statusE
 	if err == nil {
 		return
 	}
-	code := "invalid_request"
-	switch err.status {
-	case http.StatusForbidden:
-		code = "forbidden"
-	case http.StatusNotFound:
-		code = "run_not_found"
-	case http.StatusInternalServerError:
-		code = "internal_error"
+	code := strings.TrimSpace(err.code)
+	if code == "" {
+		code = "invalid_request"
+		switch err.status {
+		case http.StatusForbidden:
+			code = "forbidden"
+		case http.StatusNotFound:
+			code = "run_not_found"
+		case http.StatusInternalServerError:
+			code = "internal_error"
+		}
 	}
-	conn.SendError(requestID, code, err.status, err.message, nil)
+	conn.SendError(requestID, code, err.status, err.message, err.data)
 }
 
 func (s *Server) sendWSAttachError(conn *ws.Conn, requestID string, runID string, chatID string, err error) {

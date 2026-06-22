@@ -89,6 +89,18 @@ type ActiveRunService interface {
 	ActiveRunForChat(chatID string) (RunStatusInfo, bool, error)
 }
 
+type ExclusiveRunRegistration struct {
+	Context    context.Context
+	Control    *RunControl
+	Run        ActiveRun
+	ActiveRun  RunStatusInfo
+	Registered bool
+}
+
+type ExclusiveRunRegistrar interface {
+	RegisterExclusiveForChat(parent context.Context, session QuerySession) (ExclusiveRunRegistration, error)
+}
+
 type RunManager = ActiveRunService
 
 type ToolExecutor interface {

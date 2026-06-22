@@ -25,7 +25,7 @@ func (s *Server) hydrateDeferredAwaitings() {
 	}
 	for _, item := range items {
 		nowMs := time.Now().UnixMilli()
-		if mode := strings.ToLower(strings.TrimSpace(item.Mode)); mode != "" && !isRestorableAwaitingMode(mode) {
+		if mode := strings.ToLower(strings.TrimSpace(item.Mode)); mode != "" && !isAwaitingGateMode(mode) {
 			log.Printf("[server][awaiting] clearing non-restorable pending awaiting chatId=%s awaitingId=%s mode=%s", item.ChatID, item.AwaitingID, item.Mode)
 			_ = s.deps.Chats.ClearPendingAwaiting(item.ChatID, item.AwaitingID)
 			continue
@@ -56,7 +56,7 @@ func (s *Server) hydrateDeferredAwaitings() {
 			ask.Payload["mode"] = item.Mode
 		}
 		effectiveMode := firstNonBlank(item.Mode, ask.Mode, stringValue(ask.Payload["mode"]))
-		if !isRestorableAwaitingMode(effectiveMode) {
+		if !isAwaitingGateMode(effectiveMode) {
 			log.Printf("[server][awaiting] clearing non-restorable pending awaiting chatId=%s awaitingId=%s mode=%s", item.ChatID, item.AwaitingID, effectiveMode)
 			_ = s.deps.Chats.ClearPendingAwaiting(item.ChatID, item.AwaitingID)
 			continue
@@ -131,11 +131,6 @@ func (s *Server) resolveDeferredSubmit(req api.SubmitRequest) (api.SubmitRespons
 	if deferred.Ask == nil || deferred.Ask.Payload == nil {
 		return api.SubmitResponse{}, fmt.Errorf("unknown awaitingId")
 	}
-	if !isRestorableAwaitingMode(deferred.Mode) {
-		s.deferredAwaitings.Remove(req.AwaitingID)
-		_ = s.deps.Chats.ClearPendingAwaiting(deferred.ChatID, req.AwaitingID)
-		return api.SubmitResponse{}, fmt.Errorf("awaiting is not restorable")
-	}
 	timeoutSec := contracts.AnyIntNode(deferred.Ask.Payload["timeout"])
 	if timeoutSec > 0 && time.Now().UnixMilli()-deferred.CreatedAt > int64(timeoutSec)*1000 {
 		s.deferredAwaitings.Remove(req.AwaitingID)
@@ -159,6 +154,9 @@ func (s *Server) resolveDeferredSubmit(req api.SubmitRequest) (api.SubmitRespons
 	normalized, err := s.normalizeDeferredSubmit(deferred, req.Params)
 	if err != nil {
 		return api.SubmitResponse{}, err
+	}
+	if !isContinuableDeferredAwaitingMode(deferred.Mode) {
+		return s.resolveNonContinuableDeferredSubmit(deferred, req, normalized)
 	}
 
 	resolvedAt := time.Now().UnixMilli()
@@ -213,6 +211,57 @@ func (s *Server) resolveDeferredSubmit(req api.SubmitRequest) (api.SubmitRespons
 	}, nil
 }
 
+func (s *Server) resolveNonContinuableDeferredSubmit(deferred DeferredAwaiting, req api.SubmitRequest, normalized map[string]any) (api.SubmitResponse, error) {
+	mode := strings.ToLower(strings.TrimSpace(deferred.Mode))
+	if !nonContinuableDeferredSubmitUnlocks(mode, normalized) {
+		return api.SubmitResponse{}, fmt.Errorf("%s awaiting cannot be approved after restart; reject or cancel to unlock", mode)
+	}
+
+	resolvedAt := time.Now().UnixMilli()
+	submitPayload := map[string]any{
+		"type":       "request.submit",
+		"chatId":     deferred.ChatID,
+		"runId":      req.RunID,
+		"awaitingId": req.AwaitingID,
+		"submitId":   req.SubmitID,
+		"params":     req.Params,
+	}
+	answerPayload := contracts.CloneMap(normalized)
+	answerPayload["type"] = "awaiting.answer"
+	answerPayload["awaitingId"] = req.AwaitingID
+	answerPayload["runId"] = req.RunID
+	if strings.TrimSpace(req.SubmitID) != "" {
+		answerPayload["submitId"] = strings.TrimSpace(req.SubmitID)
+	}
+
+	if err := s.deps.Chats.AppendSubmitLine(deferred.ChatID, chat.SubmitLine{
+		ChatID:    deferred.ChatID,
+		RunID:     req.RunID,
+		UpdatedAt: resolvedAt,
+		Submit:    submitPayload,
+		Answer:    answerPayload,
+		Type:      "submit",
+	}); err != nil {
+		return api.SubmitResponse{}, err
+	}
+	if err := s.deps.Chats.ClearPendingAwaiting(deferred.ChatID, req.AwaitingID); err != nil {
+		return api.SubmitResponse{}, err
+	}
+	s.deferredAwaitings.Remove(req.AwaitingID)
+	s.broadcastDeferredAwaitingAnswer(deferred, answerPayload, resolvedAt)
+
+	return api.SubmitResponse{
+		Accepted:   true,
+		Status:     "accepted",
+		ChatID:     deferred.ChatID,
+		RunID:      req.RunID,
+		AwaitingID: req.AwaitingID,
+		SubmitID:   req.SubmitID,
+		Continued:  false,
+		Detail:     "Frontend submit accepted; original run was not continued",
+	}, nil
+}
+
 func (s *Server) normalizeDeferredSubmit(deferred DeferredAwaiting, params api.SubmitParams) (map[string]any, error) {
 	mode := strings.ToLower(strings.TrimSpace(deferred.Mode))
 	switch mode {
@@ -232,6 +281,51 @@ func (s *Server) normalizeDeferredSubmit(deferred DeferredAwaiting, params api.S
 		return hitl.Normalize(deferred.Ask.Payload, params)
 	default:
 		return nil, fmt.Errorf("unsupported awaiting mode: %s", deferred.Mode)
+	}
+}
+
+func nonContinuableDeferredSubmitUnlocks(mode string, normalized map[string]any) bool {
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if strings.TrimSpace(stringValue(contracts.AnyMapNode(normalized["error"])["code"])) == "user_dismissed" {
+		return true
+	}
+	switch mode {
+	case "approval":
+		return allNormalizedDecisionsReject(normalized["approvals"])
+	case "form":
+		return allNormalizedDecisionsReject(normalized["forms"])
+	default:
+		return false
+	}
+}
+
+func allNormalizedDecisionsReject(value any) bool {
+	items := normalizedDecisionItems(value)
+	if len(items) == 0 {
+		return false
+	}
+	for _, item := range items {
+		if strings.ToLower(strings.TrimSpace(stringValue(item["decision"]))) != "reject" {
+			return false
+		}
+	}
+	return true
+}
+
+func normalizedDecisionItems(value any) []map[string]any {
+	switch typed := value.(type) {
+	case []map[string]any:
+		return typed
+	case []any:
+		items := make([]map[string]any, 0, len(typed))
+		for _, raw := range typed {
+			if item := contracts.AnyMapNode(raw); len(item) > 0 {
+				items = append(items, item)
+			}
+		}
+		return items
+	default:
+		return nil
 	}
 }
 
@@ -303,15 +397,6 @@ func (s *Server) resolvePersistedAwaitingSubmit(req api.SubmitRequest) (api.Subm
 		SubmitID:   req.SubmitID,
 		Detail:     "Frontend submit already resolved",
 	}, true, nil
-}
-
-func isRestorableAwaitingMode(mode string) bool {
-	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case "question", "plan":
-		return true
-	default:
-		return false
-	}
 }
 
 func activeSubmitChatID(s *Server, req api.SubmitRequest) string {

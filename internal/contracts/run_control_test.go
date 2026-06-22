@@ -3,6 +3,7 @@ package contracts
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -300,6 +301,55 @@ func TestInMemoryRunManagerActiveRunForChatReturnsConflictForMultipleRuns(t *tes
 	}
 	if len(conflictErr.RunIDs) != 2 {
 		t.Fatalf("expected both run ids in conflict, got %#v", conflictErr.RunIDs)
+	}
+}
+
+func TestInMemoryRunManagerRegisterExclusiveForChatAllowsOnlyOneActiveRun(t *testing.T) {
+	manager := NewInMemoryRunManager()
+	const attempts = 20
+	start := make(chan struct{})
+	results := make(chan ExclusiveRunRegistration, attempts)
+	errs := make(chan error, attempts)
+
+	var wg sync.WaitGroup
+	for i := 0; i < attempts; i++ {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+			<-start
+			result, err := manager.RegisterExclusiveForChat(context.Background(), QuerySession{
+				RunID:    "run_exclusive_" + string(rune('a'+index)),
+				ChatID:   "chat_exclusive",
+				AgentKey: "agent_1",
+			})
+			results <- result
+			errs <- err
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+	close(errs)
+
+	registered := 0
+	blocked := 0
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("register exclusive returned unexpected error: %v", err)
+		}
+	}
+	for result := range results {
+		if result.Registered {
+			registered++
+			continue
+		}
+		if result.ActiveRun.RunID == "" {
+			t.Fatalf("blocked registration should include active run status: %#v", result)
+		}
+		blocked++
+	}
+	if registered != 1 || blocked != attempts-1 {
+		t.Fatalf("expected one registered and %d blocked, got registered=%d blocked=%d", attempts-1, registered, blocked)
 	}
 }
 

@@ -424,28 +424,28 @@ func TestDeferredSubmitRestoresQuestionAndPlanAfterRestart(t *testing.T) {
 			name:       "approval",
 			mode:       "approval",
 			awaitingID: "await-approval",
-			restorable: false,
+			restorable: true,
 			ask: map[string]any{
 				"approvals": []any{
 					map[string]any{"id": "cmd-1", "command": "chmod 777 ~/a.sh"},
 				},
 			},
 			params: mustEncodeSubmitParams(t, []map[string]any{
-				{"id": "cmd-1", "decision": "approve"},
+				{"id": "cmd-1", "decision": "reject"},
 			}),
 		},
 		{
 			name:       "form",
 			mode:       "form",
 			awaitingID: "await-form",
-			restorable: false,
+			restorable: true,
 			ask: map[string]any{
 				"forms": []any{
 					map[string]any{"id": "form-1", "command": "mock create-leave", "form": map[string]any{"days": 1}},
 				},
 			},
 			params: mustEncodeSubmitParams(t, []map[string]any{
-				{"id": "form-1", "decision": "approve", "form": map[string]any{"days": 2}},
+				{"id": "form-1", "decision": "reject"},
 			}),
 		},
 		{

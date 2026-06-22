@@ -22,7 +22,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var statusErr *statusError
 		if errors.As(err, &statusErr) {
-			writeJSON(w, statusErr.status, api.Failure(statusErr.status, statusErr.message))
+			writeStatusError(w, statusErr)
 			return
 		}
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
@@ -32,7 +32,7 @@ func (s *Server) handleQuery(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var statusErr *statusError
 		if errors.As(err, &statusErr) {
-			writeJSON(w, statusErr.status, api.Failure(statusErr.status, statusErr.message))
+			writeStatusError(w, statusErr)
 			return
 		}
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
@@ -67,12 +67,19 @@ func isNonStreamingQuery(req api.QueryRequest) bool {
 
 func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepared preparedQuery) {
 	locale := requestLocale(r, s.deps.Config.I18N.DefaultLocale)
-	runCtx, control, _ := s.deps.Runs.Register(r.Context(), prepared.session)
+	registered, statusErr := s.registerQueryRun(r.Context(), prepared)
+	if statusErr != nil {
+		releaseQuery(prepared.release)
+		writeStatusError(w, statusErr)
+		return
+	}
+	runCtx, control := registered.RunCtx, registered.Control
 	principal := PrincipalFromContext(r.Context())
 	eventBus, ok := s.deps.Runs.EventBus(prepared.req.RunID)
 	if !ok {
 		releaseQuery(prepared.release)
 		s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.req, contracts.InterruptReasonEventBusUnavailable, "run event bus unavailable"))
+		s.finishRegisteredQueryRun(prepared, registered)
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, "run event bus unavailable"))
 		return
 	}
@@ -90,6 +97,7 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 	if err != nil {
 		releaseQuery(prepared.release)
 		s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.req, contracts.InterruptReasonStreamWriterFailed, err.Error()))
+		s.finishRegisteredQueryRun(prepared, registered)
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
@@ -100,6 +108,7 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 	if err != nil {
 		releaseQuery(prepared.release)
 		s.deps.Runs.Interrupt(serverSetupInterruptRequest(prepared.req, contracts.InterruptReasonObserverAttachFailed, err.Error()))
+		s.finishRegisteredQueryRun(prepared, registered)
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
@@ -170,6 +179,12 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 
 func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, prepared preparedQuery) {
 	locale := i18n.ResolveLocale(s.deps.Config.I18N.DefaultLocale, responseLocale(w))
+	registered, statusErr := s.registerQueryRun(ctx, prepared)
+	if statusErr != nil {
+		releaseQuery(prepared.release)
+		writeStatusError(w, statusErr)
+		return
+	}
 	sseWriter, err := stream.NewWriter(w, stream.Options{
 		SSE:            s.deps.Config.SSE,
 		Render:         s.deps.Config.H2A.Render,
@@ -177,13 +192,14 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 	})
 	if err != nil {
 		releaseQuery(prepared.release)
+		s.finishRegisteredQueryRun(prepared, registered)
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
 	}
 	defer sseWriter.Close()
 	sseWriter.StartHeartbeat()
 
-	if _, err := s.runQuerySync(ctx, prepared, func(data stream.EventData) error {
+	if _, err := s.runQuerySync(ctx, prepared, registered, func(data stream.EventData) error {
 		return sseWriter.WriteJSON("message", localizeStreamEventData(locale, data))
 	}, nil); err == nil {
 		_ = sseWriter.WriteDone()
@@ -191,8 +207,14 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 }
 
 func (s *Server) handleQueryNonStream(w http.ResponseWriter, ctx context.Context, prepared preparedQuery) {
+	registered, statusErr := s.registerQueryRun(ctx, prepared)
+	if statusErr != nil {
+		releaseQuery(prepared.release)
+		writeStatusError(w, statusErr)
+		return
+	}
 	collector := newQueryEventCollector(prepared.req.IncludeFullText)
-	result, err := s.runQuerySync(ctx, prepared, nil, collector.Consume)
+	result, err := s.runQuerySync(ctx, prepared, registered, nil, collector.Consume)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
@@ -579,12 +601,21 @@ func cloneQueryErrorPayload(input map[string]any) map[string]any {
 	return out
 }
 
-func (s *Server) runQuerySync(ctx context.Context, prepared preparedQuery, emitVisible func(stream.EventData) error, observeEvent func(stream.EventData)) (queryRunResult, error) {
+func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registered registeredQueryRun, emitVisible func(stream.EventData) error, observeEvent func(stream.EventData)) (queryRunResult, error) {
 	defer releaseQuery(prepared.release)
-	control := contracts.NewRunControl(ctx, prepared.req.RunID)
+	control := registered.Control
+	if control == nil {
+		return queryRunResult{}, fmt.Errorf("run control unavailable")
+	}
 	control.SetObserverCount(1)
-	runCtx := contracts.WithRunControl(control.Context(), control)
+	runCtx := registered.RunCtx
+	if runCtx == nil {
+		runCtx = contracts.WithRunControl(control.Context(), control)
+	}
 	defer control.SetObserverCount(0)
+	if registered.Managed {
+		defer s.deps.Runs.Finish(prepared.req.RunID)
+	}
 
 	s.broadcast("run.started", map[string]any{
 		"runId":    prepared.req.RunID,

@@ -75,6 +75,40 @@ func (m *InMemoryRunManager) Register(_ context.Context, session QuerySession) (
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	return m.registerLocked(session)
+}
+
+func (m *InMemoryRunManager) RegisterExclusiveForChat(_ context.Context, session QuerySession) (ExclusiveRunRegistration, error) {
+	m.startReaper()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	chatID := strings.TrimSpace(session.ChatID)
+	if chatID != "" {
+		match, runIDs := m.activeRunMatchLocked(chatID)
+		if len(runIDs) > 1 {
+			return ExclusiveRunRegistration{}, &ActiveRunConflictError{
+				ChatID: chatID,
+				RunIDs: append([]string(nil), runIDs...),
+			}
+		}
+		if len(runIDs) == 1 && match != nil {
+			return ExclusiveRunRegistration{
+				ActiveRun: runStatusInfoFromManagedRun(match),
+			}, nil
+		}
+	}
+
+	runCtx, control, run := m.registerLocked(session)
+	return ExclusiveRunRegistration{
+		Context:    runCtx,
+		Control:    control,
+		Run:        run,
+		Registered: true,
+	}, nil
+}
+
+func (m *InMemoryRunManager) registerLocked(session QuerySession) (context.Context, *RunControl, ActiveRun) {
 	control := NewRunControl(context.Background(), session.RunID)
 	control.SetMaxDisconnectedWait(m.maxDisconnectedWait)
 	control.SetInitialAccessLevel(session.AccessLevel)
@@ -247,27 +281,8 @@ func (m *InMemoryRunManager) ActiveRunForChat(chatID string) (RunStatusInfo, boo
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	var (
-		match   *managedRun
-		runIDs  []string
-		chatKey = strings.TrimSpace(chatID)
-	)
-	for _, state := range m.runs {
-		if state == nil || state.eventBus == nil || !state.completedAt.IsZero() {
-			continue
-		}
-		if strings.TrimSpace(state.run.ChatID) != chatKey {
-			continue
-		}
-		runIDs = append(runIDs, state.run.RunID)
-		if match == nil {
-			match = state
-			continue
-		}
-		if state.startedAt.After(match.startedAt) {
-			match = state
-		}
-	}
+	chatKey := strings.TrimSpace(chatID)
+	match, runIDs := m.activeRunMatchLocked(chatKey)
 
 	if len(runIDs) == 0 || match == nil {
 		return RunStatusInfo{}, false, nil
@@ -279,21 +294,48 @@ func (m *InMemoryRunManager) ActiveRunForChat(chatID string) (RunStatusInfo, boo
 		}
 	}
 
+	return runStatusInfoFromManagedRun(match), true, nil
+}
+
+func (m *InMemoryRunManager) activeRunMatchLocked(chatID string) (*managedRun, []string) {
+	var (
+		match  *managedRun
+		runIDs []string
+	)
+	for _, state := range m.runs {
+		if state == nil || state.eventBus == nil || !state.completedAt.IsZero() {
+			continue
+		}
+		if strings.TrimSpace(state.run.ChatID) != chatID {
+			continue
+		}
+		runIDs = append(runIDs, state.run.RunID)
+		if match == nil || state.startedAt.After(match.startedAt) {
+			match = state
+		}
+	}
+	return match, runIDs
+}
+
+func runStatusInfoFromManagedRun(state *managedRun) RunStatusInfo {
+	if state == nil {
+		return RunStatusInfo{}
+	}
 	info := RunStatusInfo{
-		RunID:         match.run.RunID,
-		ChatID:        match.run.ChatID,
-		AgentKey:      match.run.AgentKey,
-		State:         match.control.State(),
-		LastSeq:       match.eventBus.LatestSeq(),
-		OldestSeq:     match.eventBus.OldestSeq(),
-		ObserverCount: match.eventBus.ObserverCount(),
-		StartedAt:     match.startedAt.UnixMilli(),
+		RunID:         state.run.RunID,
+		ChatID:        state.run.ChatID,
+		AgentKey:      state.run.AgentKey,
+		State:         state.control.State(),
+		LastSeq:       state.eventBus.LatestSeq(),
+		OldestSeq:     state.eventBus.OldestSeq(),
+		ObserverCount: state.eventBus.ObserverCount(),
+		StartedAt:     state.startedAt.UnixMilli(),
 	}
-	info.AccessLevel, info.AccessLevelVersion = match.control.AccessLevelSnapshot()
-	if !match.completedAt.IsZero() {
-		info.CompletedAt = match.completedAt.UnixMilli()
+	info.AccessLevel, info.AccessLevelVersion = state.control.AccessLevelSnapshot()
+	if !state.completedAt.IsZero() {
+		info.CompletedAt = state.completedAt.UnixMilli()
 	}
-	return info, true, nil
+	return info
 }
 
 func (m *InMemoryRunManager) EventBus(runID string) (*stream.RunEventBus, bool) {

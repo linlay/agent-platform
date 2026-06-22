@@ -719,10 +719,11 @@ type ChatSummaryResponse struct {
 }
 
 type ChatErrorInfo struct {
-	Code    string   `json:"code"`
-	Message string   `json:"message"`
-	ChatID  string   `json:"chatId,omitempty"`
-	RunIDs  []string `json:"runIds,omitempty"`
+	Code     string    `json:"code"`
+	Message  string    `json:"message"`
+	ChatID   string    `json:"chatId,omitempty"`
+	RunIDs   []string  `json:"runIds,omitempty"`
+	Awaiting *Awaiting `json:"awaiting,omitempty"`
 }
 
 type ChatReadState struct {

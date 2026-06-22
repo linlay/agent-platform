@@ -1,6 +1,13 @@
 name: ask_user_question
 label: 向用户提问
-description: Show multiple questions to the user, supporting text, number, password, date, datetime, and select-style answers. Each question can use either option selection or free text, and the tool blocks until the user submits a response.
+description: >-
+  Ask the user for missing input; this is not a generic confirmation button.
+  Use it only when the user explicitly wants discussion or a choice, or when a
+  key user decision is missing and cannot be resolved by reading context,
+  inference, or a safe default. Do not use it to reconfirm clear instructions.
+  Keep questions minimal and batch necessary questions in one prompt. Supports
+  text, number, password, date, datetime, select, and multi-select answers; the
+  tool blocks until the user submits a response.
 type: function
 viewportType: builtin
 viewportKey: question_dialog
