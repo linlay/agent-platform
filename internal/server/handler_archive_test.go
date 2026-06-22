@@ -52,12 +52,29 @@ func TestHandleChatArchiveArchivesChatAndBroadcasts(t *testing.T) {
 	if archives.Data.Total != 1 || archives.Data.Items[0].ChatID != "chat-http-archive" {
 		t.Fatalf("unexpected archives response: %#v", archives.Data)
 	}
-	usage := archives.Data.Items[0].Usage
+	archivedSummary := archives.Data.Items[0]
+	if archivedSummary.CreatedAt <= 0 || archivedSummary.LastRunAt != 2000 || archivedSummary.ArchivedAt <= 0 {
+		t.Fatalf("expected archive timestamps, got %#v", archivedSummary)
+	}
+	usage := archivedSummary.Usage
 	if usage == nil || usage.PromptTokensDetails == nil || usage.PromptTokensDetails.CacheHitTokens != 2 ||
 		usage.PromptTokensDetails.CacheMissTokens != 1 ||
 		usage.CompletionTokensDetails == nil || usage.CompletionTokensDetails.ReasoningTokens != 4 ||
 		usage.LlmChatCompletionCount != 1 {
 		t.Fatalf("expected detailed archive usage, got %#v", usage)
+	}
+
+	rec = httptest.NewRecorder()
+	server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/archive?chatId=chat-http-archive", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("archive detail status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var detail api.ApiResponse[api.ArchivedChatDetailResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &detail); err != nil {
+		t.Fatalf("decode archive detail: %v", err)
+	}
+	if detail.Data.CreatedAt != archivedSummary.CreatedAt || detail.Data.LastRunAt != 2000 || detail.Data.ArchivedAt != archivedSummary.ArchivedAt {
+		t.Fatalf("unexpected archive detail timestamps: %#v", detail.Data)
 	}
 }
 

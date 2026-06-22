@@ -14,6 +14,7 @@ func TestArchiveStoreArchiveListLoadSearchAndDelete(t *testing.T) {
 		t.Fatalf("new archive store: %v", err)
 	}
 	archived := testArchivedChat("chat-archive-store", "agent-a", "Archive topic", "final archive answer")
+	archived.Summary.UpdatedAt = 2500
 	if err := store.ArchiveChat(archived); err != nil {
 		t.Fatalf("archive chat: %v", err)
 	}
@@ -28,7 +29,7 @@ func TestArchiveStoreArchiveListLoadSearchAndDelete(t *testing.T) {
 	if total != 1 || len(items) != 1 {
 		t.Fatalf("expected one archived item, got total=%d len=%d", total, len(items))
 	}
-	if !items[0].HasAttachments || items[0].Usage == nil || items[0].Usage.TotalTokens != 3 {
+	if !items[0].HasAttachments || items[0].Usage == nil || items[0].Usage.TotalTokens != 3 || items[0].LastRunAt != 2000 {
 		t.Fatalf("unexpected summary: %#v", items[0])
 	}
 	filtered, total, err := store.ListArchived("agent-b", 50, 0)
@@ -43,7 +44,7 @@ func TestArchiveStoreArchiveListLoadSearchAndDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load archived: %v", err)
 	}
-	if loaded.Detail.ChatID != "chat-archive-store" || len(loaded.Detail.Events) == 0 || len(loaded.Runs) != 1 {
+	if loaded.Detail.ChatID != "chat-archive-store" || len(loaded.Detail.Events) == 0 || len(loaded.Runs) != 1 || loaded.Summary.LastRunAt != 2000 {
 		t.Fatalf("unexpected loaded archive: %#v", loaded)
 	}
 	if len(loaded.Detail.RawMessages) == 0 {
@@ -54,7 +55,7 @@ func TestArchiveStoreArchiveListLoadSearchAndDelete(t *testing.T) {
 	if err != nil {
 		t.Fatalf("search archived: %v", err)
 	}
-	if len(hits) != 1 || hits[0].ChatID != "chat-archive-store" {
+	if len(hits) != 1 || hits[0].ChatID != "chat-archive-store" || hits[0].CreatedAt != 1000 || hits[0].LastRunAt != 2000 {
 		t.Fatalf("unexpected search hits: %#v", hits)
 	}
 

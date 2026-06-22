@@ -816,6 +816,9 @@ type ChatDetailResponse struct {
 type ArchivedChatDetailResponse struct {
 	ChatID         string             `json:"chatId"`
 	ChatName       string             `json:"chatName"`
+	CreatedAt      int64              `json:"createdAt"`
+	LastRunAt      int64              `json:"lastRunAt"`
+	ArchivedAt     int64              `json:"archivedAt"`
 	ResourceTicket string             `json:"resourceTicket,omitempty"`
 	RawMessages    []map[string]any   `json:"rawMessages,omitempty"`
 	Events         []stream.EventData `json:"events"`

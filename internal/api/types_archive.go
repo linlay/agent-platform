@@ -27,6 +27,7 @@ type ArchivedSummaryResponse struct {
 	TeamID         string         `json:"teamId,omitempty"`
 	CreatedAt      int64          `json:"createdAt"`
 	UpdatedAt      int64          `json:"updatedAt"`
+	LastRunAt      int64          `json:"lastRunAt"`
 	ArchivedAt     int64          `json:"archivedAt"`
 	LastRunID      string         `json:"lastRunId,omitempty"`
 	LastRunContent string         `json:"lastRunContent,omitempty"`
@@ -50,6 +51,8 @@ type ArchiveSearchResult struct {
 	ChatName       string `json:"chatName"`
 	AgentKey       string `json:"agentKey,omitempty"`
 	TeamID         string `json:"teamId,omitempty"`
+	CreatedAt      int64  `json:"createdAt"`
+	LastRunAt      int64  `json:"lastRunAt"`
 	LastRunID      string `json:"lastRunId,omitempty"`
 	LastRunContent string `json:"lastRunContent,omitempty"`
 	ArchivedAt     int64  `json:"archivedAt"`

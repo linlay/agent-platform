@@ -71,7 +71,7 @@ func newAutomationTestServer(t *testing.T, websocket bool) automationTestServer 
 func TestAutomationHTTPCRUDAndExecutionHistory(t *testing.T) {
 	fixture := newAutomationTestServer(t, false)
 
-	create := postAutomationJSON[api.AutomationDetailResponse](t, fixture.server, "/api/admin/automations/create", map[string]any{
+	create := postAutomationJSON[api.AutomationDetailResponse](t, fixture.server, "/api/automation/create", map[string]any{
 		"name":        "Daily Demo",
 		"description": "Demo automation",
 		"cron":        "17 9 * * *",
@@ -98,7 +98,7 @@ func TestAutomationHTTPCRUDAndExecutionHistory(t *testing.T) {
 		t.Fatalf("unexpected list response %#v", list)
 	}
 
-	update := postAutomationJSON[api.AutomationDetailResponse](t, fixture.server, "/api/admin/automations/update", map[string]any{
+	update := postAutomationJSON[api.AutomationDetailResponse](t, fixture.server, "/api/automation/update", map[string]any{
 		"id":          create.ID,
 		"description": "Updated automation",
 		"query": map[string]any{
@@ -109,7 +109,7 @@ func TestAutomationHTTPCRUDAndExecutionHistory(t *testing.T) {
 		t.Fatalf("unexpected update response %#v", update)
 	}
 
-	toggled := postAutomationJSON[api.AutomationDetailResponse](t, fixture.server, "/api/admin/automations/toggle", map[string]any{
+	toggled := postAutomationJSON[api.AutomationDetailResponse](t, fixture.server, "/api/automation/toggle", map[string]any{
 		"id":      create.ID,
 		"enabled": false,
 	})
@@ -117,7 +117,7 @@ func TestAutomationHTTPCRUDAndExecutionHistory(t *testing.T) {
 		t.Fatalf("unexpected toggle response %#v", toggled)
 	}
 
-	deleted := postAutomationJSON[map[string]any](t, fixture.server, "/api/admin/automations/delete", map[string]any{"id": create.ID})
+	deleted := postAutomationJSON[map[string]any](t, fixture.server, "/api/automation/delete", map[string]any{"id": create.ID})
 	if deleted["id"] != create.ID || deleted["deleted"] != true {
 		t.Fatalf("unexpected delete response %#v", deleted)
 	}
@@ -128,9 +128,24 @@ func TestAutomationHTTPCRUDAndExecutionHistory(t *testing.T) {
 	}
 }
 
+func TestAutomationAdminManagementRoutesRemoved(t *testing.T) {
+	fixture := newAutomationTestServer(t, false)
+
+	for _, path := range []string{
+		"/api/admin/automations/create",
+		"/api/admin/automations/update",
+		"/api/admin/automations/delete",
+		"/api/admin/automations/toggle",
+	} {
+		if status := postAutomationStatus(t, fixture.server, path, map[string]any{}); status != http.StatusNotFound {
+			t.Fatalf("%s returned %d, want %d", path, status, http.StatusNotFound)
+		}
+	}
+}
+
 func TestAutomationWSRuntimeRoutesAndManagementRoutesRejected(t *testing.T) {
 	fixture := newAutomationTestServer(t, true)
-	created := postAutomationJSON[api.AutomationDetailResponse](t, fixture.server, "/api/admin/automations/create", map[string]any{
+	created := postAutomationJSON[api.AutomationDetailResponse](t, fixture.server, "/api/automation/create", map[string]any{
 		"name":        "WS Demo",
 		"description": "Demo automation",
 		"cron":        "17 9 * * *",
@@ -152,7 +167,7 @@ func TestAutomationWSRuntimeRoutesAndManagementRoutesRejected(t *testing.T) {
 		id        string
 		frameType string
 	}{
-		{id: "admin-create", frameType: "/api/admin/automations/create"},
+		{id: "automation-create", frameType: "/api/automation/create"},
 	} {
 		if err := conn.WriteJSON(ws.RequestFrame{
 			Frame: ws.FrameRequest,
@@ -239,4 +254,16 @@ func postAutomationJSON[T any](t *testing.T, server *Server, path string, payloa
 		t.Fatalf("unexpected api response %#v", parsed)
 	}
 	return parsed.Data
+}
+
+func postAutomationStatus(t *testing.T, server *Server, path string, payload any) int {
+	t.Helper()
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, path, bytes.NewReader(body))
+	server.ServeHTTP(rec, req)
+	return rec.Code
 }

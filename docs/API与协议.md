@@ -56,10 +56,6 @@ GET /ws -> request / response / stream / push / error frames
 | GET | `/api/admin/registries` | 无 | registry 文件列表与诊断 |
 | GET/PUT | `/api/admin/registries/detail` | query/body: `category`、`file`、`content` | registry 文件详情或保存结果 |
 | POST | `/api/admin/registries/validate` | body: `category`、`file`、`content` | registry 内容校验结果 |
-| POST | `/api/admin/automations/create` | body: `name`、`description`、`cron`、`agentKey`、`enabled`、`teamId`、`zoneId`、`remainingRuns`、`query` | 创建后的 automation 详情 |
-| POST | `/api/admin/automations/update` | body: `id` 或 `automationId`，以及可更新字段 | 更新后的 automation 详情 |
-| POST | `/api/admin/automations/delete` | body: `id` 或 `automationId` | 删除结果 |
-| POST | `/api/admin/automations/toggle` | body: `id` 或 `automationId`、`enabled` | 启停后的 automation 详情 |
 
 ### Chat
 
@@ -94,12 +90,18 @@ GET /ws -> request / response / stream / push / error frames
 | POST | `/api/archives/search` | body: `query`、`agentKey`、`limit` | archive 搜索结果 |
 | POST | `/api/archive/delete` | body: `chatId` | 删除 archive 结果 |
 
+Archive 摘要、详情和搜索结果都会返回时间字段：`createdAt` 为 chat 创建时间，`lastRunAt` 为最后一次 run 完成时间，`archivedAt` 为归档时间。`updatedAt` 保留为兼容字段，不应再作为 last run 时间使用。
+
 ### Automation
 
 | Method | Path | 参数 | 响应 |
 |---|---|---|---|
 | POST | `/api/automations` | body: `tag` | automation 列表 |
 | POST | `/api/automation` | body: `id` 或 `automationId` | automation 详情 |
+| POST | `/api/automation/create` | body: `name`、`description`、`cron`、`agentKey`、`enabled`、`teamId`、`zoneId`、`remainingRuns`、`query` | 创建后的 automation 详情 |
+| POST | `/api/automation/update` | body: `id` 或 `automationId`，以及可更新字段 | 更新后的 automation 详情 |
+| POST | `/api/automation/delete` | body: `id` 或 `automationId` | 删除结果 |
+| POST | `/api/automation/toggle` | body: `id` 或 `automationId`、`enabled` | 启停后的 automation 详情 |
 | POST | `/api/automation/executions` | body: `id` 或 `automationId`、`limit`、`offset` | execution history |
 
 `query` 对象包含 `message`、`chatId`、`role`、`params`。`role` 可选值为 `user`、`assistant`、`automation`、`system`；automation 未显式配置时默认为 `automation`。
