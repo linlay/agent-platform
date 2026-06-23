@@ -20,6 +20,8 @@ func TestBuildUserMessageContentIncludesImageReferences(t *testing.T) {
 	}
 
 	content := buildUserMessageContent(chatsDir, chatID, "what is in this image?", []api.Reference{{
+		ID:       "r01",
+		Type:     "file",
 		Name:     "demo.png",
 		MimeType: "image/png",
 	}}, true, false)
@@ -31,7 +33,11 @@ func TestBuildUserMessageContentIncludesImageReferences(t *testing.T) {
 	if len(blocks) != 2 {
 		t.Fatalf("expected text + image blocks, got %d", len(blocks))
 	}
-	if blocks[0]["type"] != "text" || blocks[0]["text"] != "what is in this image?" {
+	textBlock, _ := blocks[0]["text"].(string)
+	if blocks[0]["type"] != "text" ||
+		!strings.Contains(textBlock, "[References]") ||
+		!strings.Contains(textBlock, "id: r01") ||
+		!strings.Contains(textBlock, "[User message]\nwhat is in this image?") {
 		t.Fatalf("unexpected text block: %#v", blocks[0])
 	}
 	imageURL, ok := blocks[1]["image_url"].(map[string]any)
@@ -44,14 +50,40 @@ func TestBuildUserMessageContentIncludesImageReferences(t *testing.T) {
 	}
 }
 
-func TestBuildUserMessageContentFallsBackToTextWithoutImages(t *testing.T) {
-	content := buildUserMessageContent(t.TempDir(), "chat_1", "hello", []api.Reference{{
-		Name:     "notes.txt",
-		MimeType: "text/plain",
-	}}, true, false)
+func TestBuildUserMessageContentReturnsPlainTextWithoutReferences(t *testing.T) {
+	content := buildUserMessageContent(t.TempDir(), "chat_1", "hello", nil, true, false)
 
 	if content != "hello" {
 		t.Fatalf("expected plain text fallback, got %#v", content)
+	}
+}
+
+func TestBuildUserMessageContentIncludesNonImageReferences(t *testing.T) {
+	size := int64(537)
+	content := buildUserMessageContent(t.TempDir(), "chat_1", "hello", []api.Reference{{
+		ID:        "r01",
+		Type:      "file",
+		Name:      "notes.txt",
+		MimeType:  "text/plain",
+		SizeBytes: &size,
+	}}, true, false)
+
+	text, ok := content.(string)
+	if !ok {
+		t.Fatalf("expected text content, got %T", content)
+	}
+	for _, expected := range []string{
+		"[References]",
+		"id: r01",
+		"type: file",
+		"name: notes.txt",
+		"mimeType: text/plain",
+		"sizeBytes: 537",
+		"[User message]\nhello",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("expected %q in content, got %q", expected, text)
+		}
 	}
 }
 
@@ -66,12 +98,14 @@ func TestBuildUserMessageContentSkipsImagesWhenNotVision(t *testing.T) {
 	}
 
 	content := buildUserMessageContent(chatsDir, chatID, "hello", []api.Reference{{
+		ID:       "r01",
 		Name:     "demo.png",
 		MimeType: "image/png",
 	}}, false, false)
 
-	if content != "hello" {
-		t.Fatalf("expected plain text for non-vision model, got %#v", content)
+	text, ok := content.(string)
+	if !ok || !strings.Contains(text, "[References]") || !strings.Contains(text, "[User message]\nhello") {
+		t.Fatalf("expected reference text for non-vision model, got %#v", content)
 	}
 }
 

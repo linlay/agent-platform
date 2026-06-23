@@ -1,9 +1,11 @@
 package chat
 
 import (
+	"encoding/json"
 	"strings"
 
 	"agent-platform/internal/api"
+	"agent-platform/internal/referenceprompt"
 )
 
 // LoadRawMessages loads conversation history from {chatId}.jsonl step lines.
@@ -95,6 +97,7 @@ func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
 				continue
 			}
 			role, content := api.ProviderSafeQueryMessage(stringValue(query["role"]), stringValue(query["message"]))
+			content = referenceprompt.FormatUserMessage(content, referencesFromQueryValue(query["references"]))
 			msg := map[string]any{
 				"runId":   runID,
 				"role":    role,
@@ -137,6 +140,21 @@ func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
 		}
 	}
 	return messages
+}
+
+func referencesFromQueryValue(raw any) []api.Reference {
+	if raw == nil {
+		return nil
+	}
+	data, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	var references []api.Reference
+	if err := json.Unmarshal(data, &references); err != nil {
+		return nil
+	}
+	return references
 }
 
 func extractStoredMessageText(message StoredMessage) string {

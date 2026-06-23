@@ -2960,6 +2960,58 @@ func TestRawMessagesSkipSystemInitLines(t *testing.T) {
 	}
 }
 
+func TestRawMessagesIncludeReferenceContext(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-reference-context", "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	if err := store.AppendQueryLine("chat-reference-context", QueryLine{
+		Type:      "query",
+		ChatID:    "chat-reference-context",
+		RunID:     "run-1",
+		UpdatedAt: 2,
+		Query: map[string]any{
+			"role":    "user",
+			"message": "分析 #{r01}",
+			"references": []map[string]any{{
+				"id":          "r01",
+				"type":        "file",
+				"name":        "sales.csv",
+				"sandboxPath": "/workspace/sales.csv",
+				"mimeType":    "text/csv",
+				"sizeBytes":   537,
+			}},
+		},
+	}); err != nil {
+		t.Fatalf("append query: %v", err)
+	}
+	messages, err := store.LoadRawMessages("chat-reference-context", 5)
+	if err != nil {
+		t.Fatalf("load raw messages: %v", err)
+	}
+	if len(messages) != 1 || messages[0]["role"] != "user" {
+		t.Fatalf("expected one user message, got %#v", messages)
+	}
+	content, _ := messages[0]["content"].(string)
+	for _, expected := range []string{
+		"[References]",
+		"id: r01",
+		"type: file",
+		"name: sales.csv",
+		"sandboxPath: /workspace/sales.csv",
+		"mimeType: text/csv",
+		"sizeBytes: 537",
+		"[User message]\n分析 #{r01}",
+	} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf("expected %q in content, got %q", expected, content)
+		}
+	}
+}
+
 func TestLoadRawMessagesMapsAutomationAndSystemQueryRolesToUser(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {

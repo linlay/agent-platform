@@ -205,3 +205,87 @@ func TestMainQueryDedupsSystemsOnlyWhenPayloadMatches(t *testing.T) {
 		t.Fatalf("expected second main query to dedup unchanged system init, got %#v", secondPending)
 	}
 }
+
+func TestMainQueryDedupsSystemsWhenOnlyReferencesChange(t *testing.T) {
+	store, err := chat.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new chat store: %v", err)
+	}
+
+	firstSize := int64(537)
+	secondSize := int64(812)
+	req := api.QueryRequest{
+		ChatID:  "chat-refs",
+		Message: "hello #{r01}",
+		References: []api.Reference{{
+			ID:        "r01",
+			Type:      "file",
+			Name:      "sales.csv",
+			MimeType:  "text/csv",
+			SizeBytes: &firstSize,
+		}},
+	}
+	toolDefs := []api.ToolDetailResponse{{Name: "datetime", Description: "get current time"}}
+	server := &Server{deps: Dependencies{
+		Config:      config.Config{},
+		Chats:       store,
+		Tools:       systemInitStaticToolExecutor{defs: toolDefs},
+		SystemInits: llm.SystemInitProfileBuilder{},
+	}}
+	session := contracts.QuerySession{
+		RunID:        "run-1",
+		ChatID:       "chat-refs",
+		AgentKey:     "agent",
+		ModelKey:     "mock-model",
+		ToolNames:    []string{"datetime"},
+		Mode:         "REACT",
+		ContextTags:  []string{"session"},
+		PromptAppend: contracts.DefaultPromptAppendConfig(),
+		RuntimeContext: contracts.RuntimeRequestContext{
+			References: req.References,
+		},
+	}
+
+	firstPending, err := server.prepareSystemInitCache(req, &session, true)
+	if err != nil {
+		t.Fatalf("first prepare system init cache: %v", err)
+	}
+	if len(firstPending) != 1 {
+		t.Fatalf("expected first main query to carry system init, got %#v", firstPending)
+	}
+	if err := store.AppendQueryLine(req.ChatID, chat.QueryLine{
+		Type:      "query",
+		ChatID:    req.ChatID,
+		RunID:     session.RunID,
+		UpdatedAt: 1001,
+		Query: map[string]any{
+			"role":       "user",
+			"message":    req.Message,
+			"agentKey":   session.AgentKey,
+			"references": req.References,
+		},
+		Systems: firstPending,
+	}); err != nil {
+		t.Fatalf("append first query: %v", err)
+	}
+
+	nextReq := req
+	nextReq.Message = "hello #{r02}"
+	nextReq.References = []api.Reference{{
+		ID:        "r02",
+		Type:      "file",
+		Name:      "returns.csv",
+		MimeType:  "text/csv",
+		SizeBytes: &secondSize,
+	}}
+	nextSession := session
+	nextSession.RunID = "run-2"
+	nextSession.RuntimeContext.References = nextReq.References
+	secondPending, err := server.prepareSystemInitCache(nextReq, &nextSession, false)
+	if err != nil {
+		t.Fatalf("second prepare system init cache: %v", err)
+	}
+	if len(secondPending) != 0 {
+		t.Fatalf("expected references-only change to dedup unchanged system init, got %#v", secondPending)
+	}
+}

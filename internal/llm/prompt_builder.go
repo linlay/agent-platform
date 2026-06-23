@@ -11,6 +11,7 @@ import (
 
 	"agent-platform/internal/api"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/referenceprompt"
 )
 
 const allAgentsPromptMaxChars = 12000
@@ -70,6 +71,7 @@ func buildSystemPromptSections(session QuerySession, req api.QueryRequest, optio
 	appendSection("agent-prompt", "Agent Prompt", "agent.prompt", strings.TrimSpace(session.AgentsPrompt))
 	appendSection("workspace-agents", "Workspace AGENTS.md", "workspace.agents", buildWorkspaceAgentsSection(session.WorkspaceAgentsPrompt))
 	appendSection("static-memory", "Static Memory Prompt", "memory.static", strings.TrimSpace(session.StaticMemoryPrompt))
+	appendSection("reference-protocol", "Reference Context Protocol", "references.protocol", referenceprompt.SystemPrompt)
 	appendRuntimeSystemPromptSections(&sections, session, req)
 	appendSection("stage-instructions", "Stage Instructions Prompt", "stage.instructions", stageInstructionsPrompt)
 	appendSection("stage-system", "Stage System Prompt", "stage.system", stageSystemPrompt)
@@ -383,7 +385,6 @@ func buildSessionSection(session QuerySession, req api.QueryRequest) string {
 		appendKeyValue(&lines, "issuedAt", identity.IssuedAt)
 		appendKeyValue(&lines, "expiresAt", identity.ExpiresAt)
 	}
-	appendReferences(&lines, session.RuntimeContext.References)
 	if len(lines) == 1 {
 		return ""
 	}
@@ -608,42 +609,6 @@ func summarizeScene(scene *api.Scene) string {
 		parts = append(parts, "url="+strings.TrimSpace(scene.URL))
 	}
 	return strings.Join(parts, ", ")
-}
-
-func appendReferences(lines *[]string, references []api.Reference) {
-	if len(references) == 0 {
-		return
-	}
-	*lines = append(*lines, "references:")
-	for _, reference := range references {
-		fields := make([]string, 0, 5)
-		appendReferenceField(&fields, "id", reference.ID)
-		appendReferenceField(&fields, "sandboxPath", reference.SandboxPath)
-		appendReferenceField(&fields, "name", reference.Name)
-		if reference.SizeBytes != nil {
-			fields = append(fields, fmt.Sprintf("sizeBytes: %d", *reference.SizeBytes))
-		}
-		appendReferenceField(&fields, "mimeType", reference.MimeType)
-		if len(fields) == 0 {
-			continue
-		}
-		*lines = append(*lines, "  - "+fields[0])
-		for _, field := range fields[1:] {
-			*lines = append(*lines, "    "+field)
-		}
-	}
-}
-
-func appendReferenceField(fields *[]string, key string, value string) {
-	if strings.TrimSpace(value) != "" {
-		*fields = append(*fields, key+": "+sanitizeYAMLScalar(strings.TrimSpace(value)))
-	}
-}
-
-func sanitizeYAMLScalar(value string) string {
-	value = strings.ReplaceAll(value, "\r", "")
-	value = strings.ReplaceAll(value, "\n", "\\n")
-	return value
 }
 
 func firstNonBlank(values ...string) string {

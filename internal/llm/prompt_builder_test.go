@@ -58,6 +58,23 @@ func TestBuildSystemPromptInjectsAgentIdentityWithoutSoulIdentity(t *testing.T) 
 	}
 }
 
+func TestBuildSystemPromptIncludesStableReferenceProtocol(t *testing.T) {
+	prompt := buildSystemPrompt(QuerySession{
+		AgentKey: "demo",
+		Mode:     "REACT",
+		RuntimeContext: RuntimeRequestContext{
+			References: []api.Reference{{ID: "r01", Name: "dynamic.csv"}},
+		},
+	}, api.QueryRequest{}, "", PromptBuildOptions{})
+
+	if !strings.Contains(prompt, "User messages may include a platform-generated [References] block followed by [User message].") {
+		t.Fatalf("expected stable reference protocol in system prompt, got %q", prompt)
+	}
+	if strings.Contains(prompt, "dynamic.csv") || strings.Contains(prompt, "id: r01") {
+		t.Fatalf("expected dynamic references to be excluded from system prompt, got %q", prompt)
+	}
+}
+
 func TestBuildSystemPromptAddsCoderSystemPromptOnlyForMainCoderStage(t *testing.T) {
 	session := QuerySession{
 		AgentKey:          "coder",
@@ -364,8 +381,8 @@ func TestBuildSessionSectionMergesContextAndAuth(t *testing.T) {
 			t.Fatalf("expected auth identity field %q in session section, got %q", expected, section)
 		}
 	}
-	if !strings.Contains(section, "references:") || !strings.Contains(section, "id: ref-1") {
-		t.Fatalf("expected references in session section, got %q", section)
+	if strings.Contains(section, "references:") || strings.Contains(section, "id: ref-1") || strings.Contains(section, "doc.md") {
+		t.Fatalf("expected session section to exclude references, got %q", section)
 	}
 	if strings.Contains(section, "workspace_dir:") || strings.Contains(section, "chat_dir:") || strings.Contains(section, "agent_dir:") {
 		t.Fatalf("expected session section to exclude path fields, got %q", section)
@@ -379,7 +396,6 @@ func TestBuildSessionSectionMergesContextAndAuth(t *testing.T) {
 		"scope:",
 		"issuedAt:",
 		"expiresAt:",
-		"references:",
 	})
 }
 
