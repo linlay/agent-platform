@@ -1947,8 +1947,8 @@ func TestStepWriterCapturesDebugLLMChatMetadata(t *testing.T) {
 					},
 				},
 				"trace": map[string]any{
-					"file": "llm/run-llm-chat_001.json",
-					"url":  "/api/chat/llm-trace?file=llm%2Frun-llm-chat_001.json",
+					"file": "chat-llm-call/.llm-records/run-llm-chat_001.json",
+					"url":  "/api/chat/llm-trace?file=chat-llm-call%2F.llm-records%2Frun-llm-chat_001.json",
 				},
 				"status": "ok",
 				"runSeq": 1,

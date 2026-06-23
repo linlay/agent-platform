@@ -57,7 +57,7 @@ func (s *llmRunStream) newChatTrace(runSeq int, prepared preparedProviderRequest
 	if strings.TrimSpace(s.model.Protocol) == "" {
 		payload["protocol"] = "OPENAI"
 	}
-	relativeFile := traceRelativeFile(s.session.RunID, runSeq)
+	relativeFile := traceRelativeFile(s.session.ChatID, s.session.RunID, runSeq)
 	return &llmChatTrace{
 		enabled:       true,
 		maskSensitive: cfg.MaskSensitive,
@@ -68,8 +68,8 @@ func (s *llmRunStream) newChatTrace(runSeq int, prepared preparedProviderRequest
 	}
 }
 
-func traceRelativeFile(runID string, runSeq int) string {
-	return filepath.ToSlash(filepath.Join("llm", traceFileName(runID, runSeq)))
+func traceRelativeFile(chatID string, runID string, runSeq int) string {
+	return filepath.ToSlash(filepath.Join(safeTraceChatID(chatID), ".llm-records", traceFileName(runID, runSeq)))
 }
 
 func traceFileName(runID string, runSeq int) string {

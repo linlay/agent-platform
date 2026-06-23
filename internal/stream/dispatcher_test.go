@@ -329,8 +329,8 @@ func TestDispatcherIncludesTaskIDOnDebugEvents(t *testing.T) {
 		ReasoningEffort:                 "HIGH",
 		Status:                          "ok",
 		RunSeq:                          2,
-		TraceFile:                       "llm/run_1_002.json",
-		TraceURL:                        "/api/chat/llm-trace?file=llm%2Frun_1_002.json",
+		TraceFile:                       "chat_1/.llm-records/run_1_002.json",
+		TraceURL:                        "/api/chat/llm-trace?file=chat_1%2F.llm-records%2Frun_1_002.json",
 		SystemRef:                       map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:test"},
 		ContextWindow:                   128000,
 		CurrentContextSize:              100,
@@ -361,7 +361,7 @@ func TestDispatcherIncludesTaskIDOnDebugEvents(t *testing.T) {
 	}
 	llmPayload, _ := llmData.Value("data").(map[string]any)
 	trace, _ := llmPayload["trace"].(map[string]any)
-	if trace["file"] != "llm/run_1_002.json" || trace["url"] != "/api/chat/llm-trace?file=llm%2Frun_1_002.json" {
+	if trace["file"] != "chat_1/.llm-records/run_1_002.json" || trace["url"] != "/api/chat/llm-trace?file=chat_1%2F.llm-records%2Frun_1_002.json" {
 		t.Fatalf("unexpected trace payload %#v", llmPayload)
 	}
 	if llmPayload["status"] != "ok" || llmPayload["runSeq"] != 2 {

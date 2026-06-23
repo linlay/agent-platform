@@ -89,12 +89,12 @@ func TestHandleChatJSONLValidationAndNotFound(t *testing.T) {
 
 func TestHandleChatLLMTraceReturnsRawContent(t *testing.T) {
 	fixture := newChatExportWSTestFixture(t)
-	fileParam := "llm/run_trace_001.json"
+	fileParam := "chat-trace/.llm-records/run_trace_001.json"
 	want := `{"runId":"run_trace","status":"ok"}` + "\n"
 	seedLLMTraceFile(t, fixture, fileParam, want)
 
 	rec := httptest.NewRecorder()
-	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chat/llm-trace?file=llm%2Frun_trace_001.json", nil))
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/chat/llm-trace?file=chat-trace%2F.llm-records%2Frun_trace_001.json", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 	}
@@ -117,10 +117,11 @@ func TestHandleChatLLMTraceValidationAndNotFound(t *testing.T) {
 		code int
 	}{
 		{name: "missing", path: "/api/chat/llm-trace", code: http.StatusBadRequest},
-		{name: "path traversal", path: "/api/chat/llm-trace?file=llm%2F..%2Frun_001.json", code: http.StatusBadRequest},
+		{name: "path traversal", path: "/api/chat/llm-trace?file=chat_1%2F..%2Frun_001.json", code: http.StatusBadRequest},
+		{name: "old global directory", path: "/api/chat/llm-trace?file=llm%2Frun_001.json", code: http.StatusBadRequest},
 		{name: "wrong directory", path: "/api/chat/llm-trace?file=chat_1%2Frun_001.json", code: http.StatusBadRequest},
-		{name: "wrong extension", path: "/api/chat/llm-trace?file=llm%2Frun_001.txt", code: http.StatusBadRequest},
-		{name: "missing trace", path: "/api/chat/llm-trace?file=llm%2Fmissing_001.json", code: http.StatusNotFound},
+		{name: "wrong extension", path: "/api/chat/llm-trace?file=chat_1%2F.llm-records%2Frun_001.txt", code: http.StatusBadRequest},
+		{name: "missing trace", path: "/api/chat/llm-trace?file=chat_1%2F.llm-records%2Fmissing_001.json", code: http.StatusNotFound},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := httptest.NewRecorder()
@@ -205,7 +206,7 @@ func TestWSChatJSONLValidationAndNotFound(t *testing.T) {
 
 func TestWSChatLLMTraceReturnsRawContent(t *testing.T) {
 	fixture := newChatExportWSTestFixture(t)
-	fileParam := "llm/run_trace_ws_001.json"
+	fileParam := "chat-trace-ws/.llm-records/run_trace_ws_001.json"
 	want := `{"runId":"run_trace_ws","status":"ok"}` + "\n"
 	seedLLMTraceFile(t, fixture, fileParam, want)
 	conn := dialTestWS(t, fixture.server)
@@ -249,7 +250,7 @@ func TestWSChatLLMTraceValidationAndNotFound(t *testing.T) {
 	}{
 		{name: "missing", id: "req_missing_llm_trace", payload: map[string]any{}, code: http.StatusBadRequest, typeKey: "invalid_request"},
 		{name: "invalid", id: "req_invalid_llm_trace", payload: map[string]any{"file": "../trace.json"}, code: http.StatusBadRequest, typeKey: "invalid_request"},
-		{name: "not found", id: "req_not_found_llm_trace", payload: map[string]any{"file": "llm/missing_001.json"}, code: http.StatusNotFound, typeKey: "not_found"},
+		{name: "not found", id: "req_not_found_llm_trace", payload: map[string]any{"file": "chat_1/.llm-records/missing_001.json"}, code: http.StatusNotFound, typeKey: "not_found"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if err := conn.WriteJSON(ws.RequestFrame{

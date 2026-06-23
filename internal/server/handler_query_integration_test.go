@@ -922,7 +922,7 @@ func TestQueryLLMChatRecordEmitsDebugLLMChat(t *testing.T) {
 	traceInfo, _ := data["trace"].(map[string]any)
 	traceFile, _ := traceInfo["file"].(string)
 	traceURL, _ := traceInfo["url"].(string)
-	if traceFile != "llm/"+runID+"_001.json" || traceURL == "" {
+	if traceFile != chatID+"/.llm-records/"+runID+"_001.json" || traceURL == "" {
 		t.Fatalf("unexpected trace payload %#v", data)
 	}
 	if _, exists := data["requestBody"]; exists {

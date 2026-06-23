@@ -140,12 +140,13 @@ func validateLLMTraceFileParam(fileParam string) (string, string, error) {
 	if clean == "." || clean != strings.TrimSpace(fileParam) || strings.Contains(clean, "\x00") || strings.Contains(clean, "\\") || strings.HasPrefix(clean, "/") || strings.HasPrefix(clean, "../") || clean == ".." {
 		return "", "", errInvalidLLMTraceFile
 	}
-	const prefix = "llm/"
-	if !strings.HasPrefix(clean, prefix) {
+	parts := strings.Split(clean, "/")
+	if len(parts) != 3 || parts[1] != ".llm-records" {
 		return "", "", errInvalidLLMTraceFile
 	}
-	filename := strings.TrimPrefix(clean, prefix)
-	if filename == "" || strings.Contains(filename, "/") || !strings.HasSuffix(filename, ".json") {
+	chatID := parts[0]
+	filename := parts[2]
+	if !chat.ValidChatID(chatID) || filename == "" || strings.Contains(filename, "/") || !strings.HasSuffix(filename, ".json") {
 		return "", "", errInvalidLLMTraceFile
 	}
 	stem := strings.TrimSuffix(filename, ".json")
