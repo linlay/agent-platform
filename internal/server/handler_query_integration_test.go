@@ -928,9 +928,6 @@ func TestQueryLLMChatRecordEmitsDebugLLMChat(t *testing.T) {
 	if _, exists := data["requestBody"]; exists {
 		t.Fatalf("did not expect full request body in debug.llmChat payload, got %#v", data)
 	}
-	if _, exists := data["injectedPrompt"]; exists {
-		t.Fatalf("did not expect injectedPrompt in debug.llmChat payload, got %#v", data)
-	}
 	usage, _ := data["usage"].(map[string]any)
 	llmUsage, _ := usage["llmReturnUsage"].(map[string]any)
 	if testIntValue(llmUsage["promptTokens"]) != 7 || testIntValue(llmUsage["completionTokens"]) != 3 || testIntValue(llmUsage["totalTokens"]) != 10 {
@@ -951,13 +948,6 @@ func TestQueryLLMChatRecordEmitsDebugLLMChat(t *testing.T) {
 	}
 	if _, ok := trace["request"].(map[string]any); !ok {
 		t.Fatalf("expected full request in trace json, got %#v", trace)
-	}
-	injectedPrompt, _ := trace["injectedPrompt"].(map[string]any)
-	if len(injectedPrompt) == 0 {
-		t.Fatalf("expected injectedPrompt in trace json, got %#v", trace)
-	}
-	if _, ok := injectedPrompt["providerMessages"].([]any); !ok {
-		t.Fatalf("expected injectedPrompt.providerMessages in trace json, got %#v", injectedPrompt)
 	}
 
 	runRec := httptest.NewRecorder()

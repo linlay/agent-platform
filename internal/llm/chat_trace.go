@@ -51,9 +51,6 @@ func (s *llmRunStream) newChatTrace(runSeq int, prepared preparedProviderRequest
 		"toolResults": []any{},
 		"response":    map[string]any{},
 	}
-	if injectedPrompt := buildInjectedPromptPayload(s.session, s.req, s.promptBuildOptions, s.messages); injectedPrompt != nil {
-		payload["injectedPrompt"] = injectedPrompt
-	}
 	if strings.TrimSpace(s.model.Protocol) == "" {
 		payload["protocol"] = "OPENAI"
 	}
@@ -340,7 +337,7 @@ func maskTracePayload(payload map[string]any) map[string]any {
 	out := make(map[string]any, len(payload))
 	for key, value := range payload {
 		switch key {
-		case "request", "toolCalls", "toolResults", "response", "injectedPrompt":
+		case "request", "toolCalls", "toolResults", "response":
 			out[key] = maskTraceValue(value)
 		default:
 			out[key] = value
