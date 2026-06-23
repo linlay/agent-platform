@@ -68,6 +68,15 @@ func TestLoadDefaults(t *testing.T) {
 			if cfg.Logging.LLMInteraction.RecordDir != filepath.Join("runtime", "chats") {
 				t.Fatalf("unexpected llm chat record dir: %q", cfg.Logging.LLMInteraction.RecordDir)
 			}
+			if cfg.ContainerHub.AuthToken != "" || cfg.ContainerHub.DefaultEnvironmentID != "" {
+				t.Fatalf("expected empty container hub token/environment defaults, got %#v", cfg.ContainerHub)
+			}
+			if cfg.ContainerHub.RequestTimeout != 300 ||
+				cfg.ContainerHub.DefaultSandboxLevel != "run" ||
+				cfg.ContainerHub.AgentIdleTimeout != 600 ||
+				cfg.ContainerHub.DestroyQueueDelay != 5 {
+				t.Fatalf("unexpected container hub runtime defaults: %#v", cfg.ContainerHub)
+			}
 			if cfg.Defaults.Budget.Hitl.Timeout != 0 {
 				t.Fatalf("expected default HITL budget timeout 0, got %d", cfg.Defaults.Budget.Hitl.Timeout)
 			}
@@ -117,6 +126,56 @@ func TestLoadDefaults(t *testing.T) {
 			}
 		})
 	})
+}
+
+func TestContainerHubPublicTemplatesExposeRuntimeDefaults(t *testing.T) {
+	runtimeExampleBytes, err := os.ReadFile(ProjectFile("configs/runtime.example.yml"))
+	if err != nil {
+		t.Fatalf("read runtime example: %v", err)
+	}
+	runtimeExample := string(runtimeExampleBytes)
+	for _, want := range []string{
+		"container-hub:\n",
+		"  base-url: ${AP_CONTAINER_HUB_BASE_URL:http://host.docker.internal:11960}\n",
+		"  # auth-token:\n",
+		"  default-environment-id:\n",
+		"  request-timeout: 300\n",
+		"  default-sandbox-level: run\n",
+		"  agent-idle-timeout: 600\n",
+		"  destroy-queue-delay: 5\n",
+	} {
+		if !strings.Contains(runtimeExample, want) {
+			t.Fatalf("expected runtime example to contain %q", want)
+		}
+	}
+	if strings.Contains(runtimeExample, "  auth-token:\n") {
+		t.Fatalf("expected runtime example auth-token to remain commented")
+	}
+
+	envExampleBytes, err := os.ReadFile(ProjectFile(".env.example"))
+	if err != nil {
+		t.Fatalf("read env example: %v", err)
+	}
+	envExample := string(envExampleBytes)
+	for _, want := range []string{
+		"AP_CONTAINER_HUB_BASE_URL=http://127.0.0.1:11960\n",
+		"# AP_CONTAINER_HUB_DEFAULT_ENVIRONMENT_ID=\n",
+	} {
+		if !strings.Contains(envExample, want) {
+			t.Fatalf("expected env example to contain %q", want)
+		}
+	}
+	for _, forbidden := range []string{
+		"AP_CONTAINER_HUB_AUTH_TOKEN",
+		"AP_CONTAINER_HUB_REQUEST_TIMEOUT",
+		"AP_CONTAINER_HUB_DEFAULT_SANDBOX_LEVEL",
+		"AP_CONTAINER_HUB_AGENT_IDLE_TIMEOUT",
+		"AP_CONTAINER_HUB_DESTROY_QUEUE_DELAY",
+	} {
+		if strings.Contains(envExample, forbidden) {
+			t.Fatalf("expected env example not to contain %q", forbidden)
+		}
+	}
 }
 
 func TestLoadEnvDefaultMaxOutputTokens(t *testing.T) {

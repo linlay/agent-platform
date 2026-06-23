@@ -33,13 +33,13 @@ budget:
 container-hub:
   base-url: ${AP_CONTAINER_HUB_BASE_URL:http://host.docker.internal:11960}
 
-  # Optional overrides; code defaults apply when omitted.
+  # Prefer AP_CONTAINER_HUB_AUTH_TOKEN or deployment Secret for Bearer auth.
   # auth-token:
-  # default-environment-id:
-  # request-timeout: 300
-  # default-sandbox-level: run
-  # agent-idle-timeout: 600
-  # destroy-queue-delay: 5
+  default-environment-id:
+  request-timeout: 300
+  default-sandbox-level: run
+  agent-idle-timeout: 600
+  destroy-queue-delay: 5
 
   # Default mounts come from runtime directory config:
   # /workspace -> CHATS_DIR/<chatId> (rw)

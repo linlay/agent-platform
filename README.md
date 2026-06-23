@@ -217,8 +217,8 @@ Provider `apiKey` 按明文字符串读取：
 
 配置优先级：
 
-- Host / AI tools / prompts / runtime: 代码默认值 `<` yml
-- 其它配置: 代码默认值 `<` yml `<` 仍受支持的环境变量
+- 有环境变量入口的配置：代码默认值 `<` yml `<` 仍受支持的环境变量
+- 纯 YAML 配置：代码默认值 `<` yml
 
 详细配置见 [配置化说明](./docs/配置化说明.md)。
 
@@ -265,7 +265,7 @@ Container Hub 默认基础挂载当前最多 7 个：
 - `destination + mode`：覆盖默认基础挂载模式
 - `source + destination + mode`：新增自定义挂载，不能拿来覆盖默认基础挂载路径
 
-`configs/runtime.example.yml` 的 `container-hub` 节只默认展开 `base-url`；其它超时、默认 environment 和 sandbox level 都已有代码默认值，模板中以注释形式保留，按需取消注释覆盖。`auth-token` 未在模板中展示，但代码仍支持 `AP_CONTAINER_HUB_AUTH_TOKEN` / `container-hub.auth-token`，用于对接 `agent-container-hub` 的 `AUTH_TOKEN` Bearer 鉴权。
+`configs/runtime.example.yml` 的 `container-hub` 节展开 `base-url`、默认 environment 和运行策略默认值；代码默认值仍作为未配置时的兜底。`auth-token` 仅保留注释说明，优先通过 `AP_CONTAINER_HUB_AUTH_TOKEN` 或部署 Secret 注入，也仍支持 `container-hub.auth-token` 对接 `agent-container-hub` 的 `AUTH_TOKEN` Bearer 鉴权。
 
 `context tags` 不是全局默认集合，而是每个 agent 从 `contextConfig.tags` 或 `contextTags` 读取。当前支持/归一化后的标签有 `system`、`context`、`owner`、`auth`、`all-agents`、`memory`；其中 `agent_identity`、`run_session`、`scene`、`references`、`execution_policy`、`skills` 会归一化为 `context`，`memory_context` 会归一化为 `memory`。
 
