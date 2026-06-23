@@ -1165,6 +1165,109 @@ func TestLoadAcceptsJavaEnvContract(t *testing.T) {
 	})
 }
 
+func TestLoadAcceptsAPPrefixedEnvContract(t *testing.T) {
+	withIsolatedEnv(t, map[string]string{
+		"AP_CHAT_RESOURCE_TICKET_SECRET":          "ap-secret",
+		"AP_CHAT_RESOURCE_TICKET_TTL_SECONDS":     "301",
+		"AP_STREAM_INCLUDE_TOOL_PAYLOAD_EVENTS":   "true",
+		"AP_DEBUG_LLM_CONSOLE":                    "raw,parsed",
+		"AP_DEBUG_LLM_CHAT_RECORD":                "true",
+		"AP_CONTAINER_HUB_BASE_URL":               "http://ap-hub",
+		"AP_CONTAINER_HUB_AUTH_TOKEN":             "ap-token",
+		"AP_CONTAINER_HUB_DEFAULT_ENVIRONMENT_ID": "ap-env",
+		"AP_CONTAINER_HUB_REQUEST_TIMEOUT":        "302",
+		"AP_CONTAINER_HUB_DEFAULT_SANDBOX_LEVEL":  "AGENT",
+		"AP_CONTAINER_HUB_AGENT_IDLE_TIMEOUT":     "303",
+		"AP_CONTAINER_HUB_DESTROY_QUEUE_DELAY":    "304",
+	}, func() {
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		if cfg.ResourceTicket.Secret != "ap-secret" {
+			t.Fatalf("unexpected resource ticket secret: %q", cfg.ResourceTicket.Secret)
+		}
+		if cfg.ResourceTicket.TTLSeconds != 301 {
+			t.Fatalf("unexpected resource ticket ttl: %d", cfg.ResourceTicket.TTLSeconds)
+		}
+		if !cfg.Stream.IncludeToolPayloadEvents {
+			t.Fatalf("expected stream tool payload flag enabled")
+		}
+		if got := strings.Join(cfg.Logging.LLMInteraction.ConsoleCategories, ","); got != "raw,parsed" {
+			t.Fatalf("unexpected llm console categories: %q", got)
+		}
+		if !cfg.Logging.LLMInteraction.RecordEnabled {
+			t.Fatalf("expected llm chat record enabled")
+		}
+		if cfg.ContainerHub.BaseURL != "http://ap-hub" ||
+			cfg.ContainerHub.AuthToken != "ap-token" ||
+			cfg.ContainerHub.DefaultEnvironmentID != "ap-env" {
+			t.Fatalf("unexpected container hub identity: %#v", cfg.ContainerHub)
+		}
+		if cfg.ContainerHub.RequestTimeout != 302 ||
+			cfg.ContainerHub.DefaultSandboxLevel != "agent" ||
+			cfg.ContainerHub.AgentIdleTimeout != 303 ||
+			cfg.ContainerHub.DestroyQueueDelay != 304 {
+			t.Fatalf("unexpected container hub runtime settings: %#v", cfg.ContainerHub)
+		}
+	})
+}
+
+func TestLoadAPPrefixedEnvOverridesLegacyEnv(t *testing.T) {
+	withIsolatedEnv(t, map[string]string{
+		"AP_CHAT_RESOURCE_TICKET_SECRET":          "ap-secret",
+		"AP_CHAT_RESOURCE_TICKET_TTL_SECONDS":     "301",
+		"AP_STREAM_INCLUDE_TOOL_PAYLOAD_EVENTS":   "true",
+		"AP_DEBUG_LLM_CONSOLE":                    "raw,parsed",
+		"AP_DEBUG_LLM_CHAT_RECORD":                "true",
+		"AP_CONTAINER_HUB_BASE_URL":               "http://ap-hub",
+		"AP_CONTAINER_HUB_AUTH_TOKEN":             "ap-token",
+		"AP_CONTAINER_HUB_DEFAULT_ENVIRONMENT_ID": "ap-env",
+		"AP_CONTAINER_HUB_REQUEST_TIMEOUT":        "302",
+		"AP_CONTAINER_HUB_DEFAULT_SANDBOX_LEVEL":  "AGENT",
+		"AP_CONTAINER_HUB_AGENT_IDLE_TIMEOUT":     "303",
+		"AP_CONTAINER_HUB_DESTROY_QUEUE_DELAY":    "304",
+		"CHAT_RESOURCE_TICKET_SECRET":             "legacy-secret",
+		"CHAT_RESOURCE_TICKET_TTL_SECONDS":        "401",
+		"STREAM_INCLUDE_TOOL_PAYLOAD_EVENTS":      "false",
+		"DEBUG_LLM_CONSOLE":                       "none",
+		"DEBUG_LLM_CHAT_RECORD":                   "false",
+		"CONTAINER_HUB_BASE_URL":                  "http://legacy-hub",
+		"CONTAINER_HUB_AUTH_TOKEN":                "legacy-token",
+		"CONTAINER_HUB_DEFAULT_ENVIRONMENT_ID":    "legacy-env",
+		"CONTAINER_HUB_REQUEST_TIMEOUT":           "402",
+		"CONTAINER_HUB_DEFAULT_SANDBOX_LEVEL":     "legacy",
+		"CONTAINER_HUB_AGENT_IDLE_TIMEOUT":        "403",
+		"CONTAINER_HUB_DESTROY_QUEUE_DELAY":       "404",
+	}, func() {
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		if cfg.ResourceTicket.Secret != "ap-secret" || cfg.ResourceTicket.TTLSeconds != 301 {
+			t.Fatalf("expected AP resource ticket env to win, got %#v", cfg.ResourceTicket)
+		}
+		if !cfg.Stream.IncludeToolPayloadEvents {
+			t.Fatalf("expected AP stream tool payload flag to win")
+		}
+		if got := strings.Join(cfg.Logging.LLMInteraction.ConsoleCategories, ","); got != "raw,parsed" {
+			t.Fatalf("expected AP llm console categories to win, got %q", got)
+		}
+		if !cfg.Logging.LLMInteraction.RecordEnabled {
+			t.Fatalf("expected AP llm chat record flag to win")
+		}
+		if cfg.ContainerHub.BaseURL != "http://ap-hub" ||
+			cfg.ContainerHub.AuthToken != "ap-token" ||
+			cfg.ContainerHub.DefaultEnvironmentID != "ap-env" ||
+			cfg.ContainerHub.RequestTimeout != 302 ||
+			cfg.ContainerHub.DefaultSandboxLevel != "agent" ||
+			cfg.ContainerHub.AgentIdleTimeout != 303 ||
+			cfg.ContainerHub.DestroyQueueDelay != 304 {
+			t.Fatalf("expected AP container hub env to win, got %#v", cfg.ContainerHub)
+		}
+	})
+}
+
 func TestLoadContainerHubAndBashConfigFromFiles(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
 		cfg, err := Load()
@@ -1871,6 +1974,13 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 		"MEMORY_DIR",
 		"PAN_DIR",
 		"SKILLS_MARKET_DIR",
+		"AP_CONTAINER_HUB_BASE_URL",
+		"AP_CONTAINER_HUB_AUTH_TOKEN",
+		"AP_CONTAINER_HUB_DEFAULT_ENVIRONMENT_ID",
+		"AP_CONTAINER_HUB_REQUEST_TIMEOUT",
+		"AP_CONTAINER_HUB_DEFAULT_SANDBOX_LEVEL",
+		"AP_CONTAINER_HUB_AGENT_IDLE_TIMEOUT",
+		"AP_CONTAINER_HUB_DESTROY_QUEUE_DELAY",
 		"CONTAINER_HUB_BASE_URL",
 		"CONTAINER_HUB_AUTH_TOKEN",
 		"CONTAINER_HUB_DEFAULT_ENVIRONMENT_ID",
@@ -1902,8 +2012,11 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 		"AUTH_JWKS_URI",
 		"AUTH_ISSUER",
 		"AUTH_JWKS_CACHE_SECONDS",
+		"AP_CHAT_RESOURCE_TICKET_SECRET",
+		"AP_CHAT_RESOURCE_TICKET_TTL_SECONDS",
 		"CHAT_RESOURCE_TICKET_SECRET",
 		"CHAT_RESOURCE_TICKET_TTL_SECONDS",
+		"AP_STREAM_INCLUDE_TOOL_PAYLOAD_EVENTS",
 		"STREAM_INCLUDE_TOOL_PAYLOAD_EVENTS",
 		"AGENT_H2A_RENDER_FLUSH_INTERVAL_MS",
 		"AGENT_H2A_RENDER_MAX_BUFFERED_CHARS",
@@ -1925,12 +2038,9 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 		"AGENT_MEMORY_HYBRID_FTS_WEIGHT",
 		"AGENT_MEMORY_DUAL_WRITE_MARKDOWN",
 		"AGENT_DEFAULT_MAX_OUTPUT_TOKENS",
-		"AGENT_DEFAULT_BUDGET_TIMEOUT",
 		"AGENT_DEFAULT_BUDGET_MAX_STEPS",
-		"AGENT_DEFAULT_BUDGET_MODEL_TIMEOUT",
 		"AGENT_DEFAULT_BUDGET_MODEL_RETRY_COUNT",
 		"AGENT_DEFAULT_BUDGET_TOOL_MAX_CALLS",
-		"AGENT_DEFAULT_BUDGET_TOOL_TIMEOUT",
 		"AGENT_DEFAULT_BUDGET_TOOL_RETRY_COUNT",
 		"BUDGET_HITL_TIMEOUT",
 		"BUDGET_HITL_QUESTION_TIMEOUT",
@@ -1946,6 +2056,8 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 		"LOGGING_AGENT_SSE_ENABLED",
 		"LOGGING_AGENT_LLM_INTERACTION_ENABLED",
 		"LOGGING_AGENT_LLM_INTERACTION_MASK_SENSITIVE",
+		"AP_DEBUG_LLM_CONSOLE",
+		"AP_DEBUG_LLM_CHAT_RECORD",
 		"DEBUG_LLM_CONSOLE",
 		"DEBUG_LLM_CHAT_RECORD",
 		"AGENT_GATEWAY_WS_URL",

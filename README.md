@@ -159,15 +159,17 @@ RUN_SOCKET_TESTS=1 make test-integration
 - `AUTH_LOCAL_PUBLIC_KEY_FILE`
 - `AUTH_JWKS_URI`
 - `AUTH_ISSUER`
-- `CHAT_RESOURCE_TICKET_SECRET`
-- `CHAT_RESOURCE_TICKET_TTL_SECONDS`
-- `CONTAINER_HUB_BASE_URL`
-- `CONTAINER_HUB_DEFAULT_ENVIRONMENT_ID`
-- `STREAM_INCLUDE_TOOL_PAYLOAD_EVENTS`
-- `DEBUG_LLM_CONSOLE`
-- `DEBUG_LLM_CHAT_RECORD`
+- `AP_CHAT_RESOURCE_TICKET_SECRET`
+- `AP_CHAT_RESOURCE_TICKET_TTL_SECONDS`
+- `AP_CONTAINER_HUB_BASE_URL`
+- `AP_CONTAINER_HUB_DEFAULT_ENVIRONMENT_ID`
+- `AP_STREAM_INCLUDE_TOOL_PAYLOAD_EVENTS`
+- `AP_DEBUG_LLM_CONSOLE`
+- `AP_DEBUG_LLM_CHAT_RECORD`
 - `AGENT_DEFAULT_*`
 - `RUNTIME_DIR` / `REGISTRIES_DIR` / `CHATS_DIR` / `MEMORY_DIR` / `PAN_DIR`
+
+其中 `AP_*` 变量是 Agent Platform 专属配置的正式入口；迁移期仍兼容对应旧名，若新旧同名配置同时存在，以 `AP_*` 为准。
 
 以下环境变量仍受 Go runtime 支持，但为了降低最终用户理解成本，默认不再出现在 `.env.example` 中：
 
@@ -265,7 +267,7 @@ Container Hub 默认基础挂载当前最多 7 个：
 - `destination + mode`：覆盖默认基础挂载模式
 - `source + destination + mode`：新增自定义挂载，不能拿来覆盖默认基础挂载路径
 
-`configs/runtime.example.yml` 的 `container-hub` 节只默认展开 `base-url`；其它超时、默认 environment 和 sandbox level 都已有代码默认值，模板中以注释形式保留，按需取消注释覆盖。`auth-token` 未在模板中展示，但代码仍支持 `CONTAINER_HUB_AUTH_TOKEN` / `container-hub.auth-token`，用于对接 `agent-container-hub` 的 `AUTH_TOKEN` Bearer 鉴权。
+`configs/runtime.example.yml` 的 `container-hub` 节只默认展开 `base-url`；其它超时、默认 environment 和 sandbox level 都已有代码默认值，模板中以注释形式保留，按需取消注释覆盖。`auth-token` 未在模板中展示，但代码仍支持 `AP_CONTAINER_HUB_AUTH_TOKEN` / `container-hub.auth-token`，用于对接 `agent-container-hub` 的 `AUTH_TOKEN` Bearer 鉴权。
 
 `context tags` 不是全局默认集合，而是每个 agent 从 `contextConfig.tags` 或 `contextTags` 读取。当前支持/归一化后的标签有 `system`、`context`、`owner`、`auth`、`all-agents`、`memory`；其中 `agent_identity`、`run_session`、`scene`、`references`、`execution_policy`、`skills` 会归一化为 `context`，`memory_context` 会归一化为 `memory`。
 
@@ -309,7 +311,7 @@ docker compose logs -f
 - Query 无法调用模型：检查 `REGISTRIES_DIR/providers`、`REGISTRIES_DIR/models` 是否存在，并确认 provider `apiKey` / `baseUrl` 可用。
 - Automation 看起来没有触发：先确认服务进程本身正在运行；如果是本地 `make run`，日志不会出现在 `docker compose logs` 里。随后检查 stdout 中是否有 `automation orchestrator started`、`[automation] registered ...`、`[automation] dispatch ...`。
 - Query 看起来不像真流式：先检查是否启用了 `AGENT_H2A_RENDER_FLUSH_INTERVAL`、`AGENT_H2A_RENDER_MAX_BUFFERED_CHARS` 或 `AGENT_H2A_RENDER_MAX_BUFFERED_EVENTS` 这类传输层缓冲参数；默认 SSE writer 会逐事件 flush。
-- `bash` 执行失败：检查 `CONTAINER_HUB_BASE_URL`、`default-environment-id`，以及 `.env` 中的目录变量是否为宿主机真实路径。
+- `bash` 执行失败：检查 `AP_CONTAINER_HUB_BASE_URL`、`default-environment-id`，以及 `.env` 中的目录变量是否为宿主机真实路径。
 - chat 没有持久化：检查 `CHATS_DIR` 是否可写。
 - memory learn 未生效：确认 `/api/learn` 请求体、agent memory 配置与 `MEMORY_DIR` 可写性。
 - 上传后无法下载：确认文件已落到 `CHATS_DIR/<chatId>/`，并检查 `/api/resource?file=...` 是否原样使用。

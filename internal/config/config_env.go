@@ -48,24 +48,21 @@ func (c *Config) applyEnv(options LoadOptions) {
 	c.Memory.StorageDir = pathEnv("MEMORY_DIR", c.Memory.StorageDir)
 
 	c.Defaults.MaxOutputTokens = intEnv("AGENT_DEFAULT_MAX_OUTPUT_TOKENS", c.Defaults.MaxOutputTokens)
-	c.Defaults.Budget.Timeout = intEnv("AGENT_DEFAULT_BUDGET_TIMEOUT", c.Defaults.Budget.Timeout)
 	_, defaultBudgetMaxStepsEnv := os.LookupEnv("AGENT_DEFAULT_BUDGET_MAX_STEPS")
 	_, defaultToolMaxCallsEnv := os.LookupEnv("AGENT_DEFAULT_BUDGET_TOOL_MAX_CALLS")
 	c.Defaults.Budget.MaxSteps = intEnv("AGENT_DEFAULT_BUDGET_MAX_STEPS", c.Defaults.Budget.MaxSteps)
-	c.Defaults.Budget.Model.Timeout = intEnv("AGENT_DEFAULT_BUDGET_MODEL_TIMEOUT", c.Defaults.Budget.Model.Timeout)
 	c.Defaults.Budget.Model.RetryCount = intEnv("AGENT_DEFAULT_BUDGET_MODEL_RETRY_COUNT", c.Defaults.Budget.Model.RetryCount)
 	c.Defaults.Budget.Tool.MaxCalls = intEnv("AGENT_DEFAULT_BUDGET_TOOL_MAX_CALLS", c.Defaults.Budget.Tool.MaxCalls)
 	if defaultBudgetMaxStepsEnv && !defaultToolMaxCallsEnv && c.Defaults.Budget.MaxSteps > 0 {
 		c.Defaults.Budget.Tool.MaxCalls = c.Defaults.Budget.MaxSteps * 2
 	}
-	c.Defaults.Budget.Tool.Timeout = intEnv("AGENT_DEFAULT_BUDGET_TOOL_TIMEOUT", c.Defaults.Budget.Tool.Timeout)
 	c.Defaults.Budget.Tool.RetryCount = intEnv("AGENT_DEFAULT_BUDGET_TOOL_RETRY_COUNT", c.Defaults.Budget.Tool.RetryCount)
 	c.Defaults.Budget.Hitl.Timeout = intEnv("BUDGET_HITL_TIMEOUT", c.Defaults.Budget.Hitl.Timeout)
 	c.Defaults.Budget.Hitl.Question.Timeout = intEnv("BUDGET_HITL_QUESTION_TIMEOUT", c.Defaults.Budget.Hitl.Question.Timeout)
 	c.Defaults.Budget.Hitl.Approval.Timeout = intEnv("BUDGET_HITL_APPROVAL_TIMEOUT", c.Defaults.Budget.Hitl.Approval.Timeout)
 	c.Defaults.Budget.Hitl.Form.Timeout = intEnv("BUDGET_HITL_FORM_TIMEOUT", c.Defaults.Budget.Hitl.Form.Timeout)
 	c.Defaults.Budget.Hitl.Plan.Timeout = intEnv("BUDGET_HITL_PLAN_TIMEOUT", c.Defaults.Budget.Hitl.Plan.Timeout)
-	c.Stream.IncludeToolPayloadEvents = boolEnv("STREAM_INCLUDE_TOOL_PAYLOAD_EVENTS", c.Stream.IncludeToolPayloadEvents)
+	c.Stream.IncludeToolPayloadEvents = boolEnvPair("AP_STREAM_INCLUDE_TOOL_PAYLOAD_EVENTS", "STREAM_INCLUDE_TOOL_PAYLOAD_EVENTS", c.Stream.IncludeToolPayloadEvents)
 	c.H2A.Render.FlushInterval = int64Env("AGENT_H2A_RENDER_FLUSH_INTERVAL", c.H2A.Render.FlushInterval)
 	c.H2A.Render.MaxBufferedChars = intEnv("AGENT_H2A_RENDER_MAX_BUFFERED_CHARS", c.H2A.Render.MaxBufferedChars)
 	c.H2A.Render.MaxBufferedEvents = intEnv("AGENT_H2A_RENDER_MAX_BUFFERED_EVENTS", c.H2A.Render.MaxBufferedEvents)
@@ -78,8 +75,8 @@ func (c *Config) applyEnv(options LoadOptions) {
 	c.Auth.JWKSCacheSeconds = intEnv("AUTH_JWKS_CACHE_SECONDS", c.Auth.JWKSCacheSeconds)
 	c.Auth.LocalPublicKeyFile = stringEnv("AUTH_LOCAL_PUBLIC_KEY_FILE", c.Auth.LocalPublicKeyFile)
 
-	c.ResourceTicket.Secret = stringEnv("CHAT_RESOURCE_TICKET_SECRET", c.ResourceTicket.Secret)
-	c.ResourceTicket.TTLSeconds = int64Env("CHAT_RESOURCE_TICKET_TTL_SECONDS", c.ResourceTicket.TTLSeconds)
+	c.ResourceTicket.Secret = stringEnvPair("AP_CHAT_RESOURCE_TICKET_SECRET", "CHAT_RESOURCE_TICKET_SECRET", c.ResourceTicket.Secret)
+	c.ResourceTicket.TTLSeconds = int64EnvPair("AP_CHAT_RESOURCE_TICKET_TTL_SECONDS", "CHAT_RESOURCE_TICKET_TTL_SECONDS", c.ResourceTicket.TTLSeconds)
 
 	c.ChatStorage.Dir = pathEnv("CHATS_DIR", c.ChatStorage.Dir)
 	c.ChatStorage.K = intEnv("CHAT_STORAGE_K", c.ChatStorage.K)
@@ -101,20 +98,20 @@ func (c *Config) applyEnv(options LoadOptions) {
 	}
 	c.Logging.Memory.File = pathEnv("LOGGING_AGENT_MEMORY_FILE", c.Logging.Memory.File)
 	c.Logging.LLMInteraction.Enabled = boolEnv("LOGGING_AGENT_LLM_INTERACTION_ENABLED", c.Logging.LLMInteraction.Enabled)
-	c.Logging.LLMInteraction.ConsoleCategories = csvEnv("DEBUG_LLM_CONSOLE", c.Logging.LLMInteraction.ConsoleCategories)
+	c.Logging.LLMInteraction.ConsoleCategories = csvEnvPair("AP_DEBUG_LLM_CONSOLE", "DEBUG_LLM_CONSOLE", c.Logging.LLMInteraction.ConsoleCategories)
 	c.Logging.LLMInteraction.MaskSensitive = boolEnv("LOGGING_AGENT_LLM_INTERACTION_MASK_SENSITIVE", c.Logging.LLMInteraction.MaskSensitive)
 	if strings.TrimSpace(c.Logging.LLMInteraction.RecordDir) == "" {
 		c.Logging.LLMInteraction.RecordDir = c.Paths.ChatsDir
 	}
-	c.Logging.LLMInteraction.RecordEnabled = boolEnv("DEBUG_LLM_CHAT_RECORD", c.Logging.LLMInteraction.RecordEnabled)
+	c.Logging.LLMInteraction.RecordEnabled = boolEnvPair("AP_DEBUG_LLM_CHAT_RECORD", "DEBUG_LLM_CHAT_RECORD", c.Logging.LLMInteraction.RecordEnabled)
 
-	c.ContainerHub.BaseURL = stringEnv("CONTAINER_HUB_BASE_URL", c.ContainerHub.BaseURL)
-	c.ContainerHub.AuthToken = stringEnv("CONTAINER_HUB_AUTH_TOKEN", c.ContainerHub.AuthToken)
-	c.ContainerHub.DefaultEnvironmentID = stringEnv("CONTAINER_HUB_DEFAULT_ENVIRONMENT_ID", c.ContainerHub.DefaultEnvironmentID)
-	c.ContainerHub.RequestTimeout = intEnv("CONTAINER_HUB_REQUEST_TIMEOUT", c.ContainerHub.RequestTimeout)
-	c.ContainerHub.DefaultSandboxLevel = strings.ToLower(stringEnv("CONTAINER_HUB_DEFAULT_SANDBOX_LEVEL", c.ContainerHub.DefaultSandboxLevel))
-	c.ContainerHub.AgentIdleTimeout = int64Env("CONTAINER_HUB_AGENT_IDLE_TIMEOUT", c.ContainerHub.AgentIdleTimeout)
-	c.ContainerHub.DestroyQueueDelay = int64Env("CONTAINER_HUB_DESTROY_QUEUE_DELAY", c.ContainerHub.DestroyQueueDelay)
+	c.ContainerHub.BaseURL = stringEnvPair("AP_CONTAINER_HUB_BASE_URL", "CONTAINER_HUB_BASE_URL", c.ContainerHub.BaseURL)
+	c.ContainerHub.AuthToken = stringEnvPair("AP_CONTAINER_HUB_AUTH_TOKEN", "CONTAINER_HUB_AUTH_TOKEN", c.ContainerHub.AuthToken)
+	c.ContainerHub.DefaultEnvironmentID = stringEnvPair("AP_CONTAINER_HUB_DEFAULT_ENVIRONMENT_ID", "CONTAINER_HUB_DEFAULT_ENVIRONMENT_ID", c.ContainerHub.DefaultEnvironmentID)
+	c.ContainerHub.RequestTimeout = intEnvPair("AP_CONTAINER_HUB_REQUEST_TIMEOUT", "CONTAINER_HUB_REQUEST_TIMEOUT", c.ContainerHub.RequestTimeout)
+	c.ContainerHub.DefaultSandboxLevel = strings.ToLower(stringEnvPair("AP_CONTAINER_HUB_DEFAULT_SANDBOX_LEVEL", "CONTAINER_HUB_DEFAULT_SANDBOX_LEVEL", c.ContainerHub.DefaultSandboxLevel))
+	c.ContainerHub.AgentIdleTimeout = int64EnvPair("AP_CONTAINER_HUB_AGENT_IDLE_TIMEOUT", "CONTAINER_HUB_AGENT_IDLE_TIMEOUT", c.ContainerHub.AgentIdleTimeout)
+	c.ContainerHub.DestroyQueueDelay = int64EnvPair("AP_CONTAINER_HUB_DESTROY_QUEUE_DELAY", "CONTAINER_HUB_DESTROY_QUEUE_DELAY", c.ContainerHub.DestroyQueueDelay)
 
 	c.Run.MaxBackgroundDuration = int64Env("AGENT_RUN_MAX_BACKGROUND_DURATION", c.Run.MaxBackgroundDuration)
 	c.Run.MaxDisconnectedWait = int64Env("AGENT_RUN_MAX_DISCONNECTED_WAIT", c.Run.MaxDisconnectedWait)
@@ -133,6 +130,10 @@ func stringEnv(key string, fallback string) string {
 		}
 	}
 	return fallback
+}
+
+func stringEnvPair(primaryKey string, legacyKey string, fallback string) string {
+	return stringEnv(primaryKey, stringEnv(legacyKey, fallback))
 }
 
 func pathEnv(key string, fallback string) string {
@@ -169,6 +170,10 @@ func boolEnv(key string, fallback bool) bool {
 	return parseBool(strings.TrimSpace(raw), fallback)
 }
 
+func boolEnvPair(primaryKey string, legacyKey string, fallback bool) bool {
+	return boolEnv(primaryKey, boolEnv(legacyKey, fallback))
+}
+
 func intEnv(key string, fallback int) int {
 	raw, ok := os.LookupEnv(key)
 	if !ok {
@@ -177,12 +182,20 @@ func intEnv(key string, fallback int) int {
 	return parseInt(strings.TrimSpace(raw), fallback)
 }
 
+func intEnvPair(primaryKey string, legacyKey string, fallback int) int {
+	return intEnv(primaryKey, intEnv(legacyKey, fallback))
+}
+
 func int64Env(key string, fallback int64) int64 {
 	raw, ok := os.LookupEnv(key)
 	if !ok {
 		return fallback
 	}
 	return int64(parseInt(strings.TrimSpace(raw), int(fallback)))
+}
+
+func int64EnvPair(primaryKey string, legacyKey string, fallback int64) int64 {
+	return int64Env(primaryKey, int64Env(legacyKey, fallback))
 }
 
 func floatEnv(key string, fallback float64) float64 {
@@ -208,6 +221,10 @@ func csvEnv(key string, fallback []string) []string {
 		return fallback
 	}
 	return splitCSV(raw)
+}
+
+func csvEnvPair(primaryKey string, legacyKey string, fallback []string) []string {
+	return csvEnv(primaryKey, csvEnv(legacyKey, fallback))
 }
 
 func splitCSV(raw string) []string {

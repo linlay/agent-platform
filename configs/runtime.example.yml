@@ -24,7 +24,7 @@ budget:
       timeout: 600
 
 container-hub:
-  base-url: ${CONTAINER_HUB_BASE_URL:http://host.docker.internal:11960}
+  base-url: ${AP_CONTAINER_HUB_BASE_URL:http://host.docker.internal:11960}
 
   # Optional overrides; code defaults apply when omitted.
   # auth-token:
