@@ -52,6 +52,7 @@ type llmRunStream struct {
 	previousToolResult  any
 	queuedToolCalls     []*preparedToolInvocation
 	activeToolCall      *preparedToolInvocation
+	activeToolBatch     *activeToolBatch
 	stopAfterToolBatch  bool
 	promptBuildOptions  PromptBuildOptions
 	hitlPendingBatch    *pendingHITLApprovalBatch

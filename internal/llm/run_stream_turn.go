@@ -70,6 +70,9 @@ func (s *llmRunStream) fillNextPendingSource() error {
 	if s.hitlPendingCall != nil {
 		return s.awaitHITLSubmitAndExecute()
 	}
+	if s.activeToolBatch != nil {
+		return s.consumeActiveToolBatch()
+	}
 	if s.activeToolCall != nil {
 		return s.invokeActiveToolCallAndPostHook()
 	}
@@ -578,9 +581,11 @@ func (s *llmRunStream) handleInterruptIfNeeded() error {
 		s.emitPendingUsageDelta()
 		s.emitDebugLLMChatDelta(trace)
 		s.currentTurn = nil
+		s.activeToolBatch = nil
 		s.pending = append(s.pending, DeltaRunCancel{RunID: s.session.RunID})
 		return nil
 	}
 	s.currentTurn = nil
+	s.activeToolBatch = nil
 	return ErrRunInterrupted
 }

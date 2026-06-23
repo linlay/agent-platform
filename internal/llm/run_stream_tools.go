@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
+	"time"
 
 	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/api"
@@ -228,67 +228,161 @@ func (s *llmRunStream) invocationMayConsumeOneShotApproval(invocation *preparedT
 }
 
 type batchToolCallResult struct {
+	index      int
 	invocation *preparedToolInvocation
 	result     ToolExecutionResult
 	execCtx    *ExecutionContext
 	err        error
+	received   bool
+}
+
+type activeToolBatch struct {
+	invocations []*preparedToolInvocation
+	results     []batchToolCallResult
+	resultCh    chan batchToolCallResult
+	remaining   int
 }
 
 func (s *llmRunStream) invokeToolCallBatchAndPostHooks(invocations []*preparedToolInvocation) error {
+	return s.startToolCallBatch(invocations)
+}
+
+func (s *llmRunStream) startToolCallBatch(invocations []*preparedToolInvocation) error {
 	results := make([]batchToolCallResult, len(invocations))
-	runnableIndexes := make([]int, 0, len(invocations))
+	resultCh := make(chan batchToolCallResult, len(invocations))
+	remaining := 0
 
 	for index, invocation := range invocations {
+		result := batchToolCallResult{index: index, invocation: invocation}
 		results[index].invocation = invocation
 		if invocation == nil {
 			continue
 		}
+		remaining++
 		s.beginToolInvocation(invocation)
 		if invocation.queuedResult != nil {
-			results[index].result = *invocation.queuedResult
+			result.result = *invocation.queuedResult
 			invocation.queuedResult = nil
+			resultCh <- result
 			continue
 		}
 		if result := s.checkBudgetBeforeToolCall(invocation.toolName); result != nil {
-			results[index].result = *result
+			resultCh <- batchToolCallResult{index: index, invocation: invocation, result: *result}
 			continue
 		}
 		s.recordAccessPolicyAutoApproval(invocation)
-		results[index].execCtx = s.concurrentExecutionContext(invocation)
-		runnableIndexes = append(runnableIndexes, index)
+		execCtx := s.concurrentExecutionContext(invocation)
+		results[index].execCtx = execCtx
+		go func(index int, invocation *preparedToolInvocation, execCtx *ExecutionContext) {
+			result, err := s.invokeToolForBatch(invocation, execCtx)
+			resultCh <- batchToolCallResult{
+				index:      index,
+				invocation: invocation,
+				result:     result,
+				execCtx:    execCtx,
+				err:        err,
+			}
+		}(index, invocation, execCtx)
 	}
 	if s.execCtx != nil {
 		s.execCtx.CurrentToolID = ""
 		s.execCtx.CurrentToolName = ""
 	}
 
-	var wg sync.WaitGroup
-	for _, index := range runnableIndexes {
-		wg.Add(1)
-		go func(index int) {
-			defer wg.Done()
-			invocation := results[index].invocation
-			result, err := s.invokeToolForBatch(invocation, results[index].execCtx)
-			results[index].result = result
-			results[index].err = err
-		}(index)
+	s.activeToolBatch = &activeToolBatch{
+		invocations: append([]*preparedToolInvocation(nil), invocations...),
+		results:     results,
+		resultCh:    resultCh,
+		remaining:   remaining,
 	}
-	wg.Wait()
+	return nil
+}
 
-	for _, result := range results {
-		if errors.Is(result.err, ErrRunInterrupted) {
-			return s.handleInterruptIfNeeded()
+func (s *llmRunStream) consumeActiveToolBatch() error {
+	batch := s.activeToolBatch
+	if batch == nil {
+		return nil
+	}
+	result, err := s.awaitActiveToolBatchResult(batch)
+	if err != nil {
+		return err
+	}
+	if result == nil {
+		return nil
+	}
+	if errors.Is(result.err, ErrRunInterrupted) {
+		return s.handleInterruptIfNeeded()
+	}
+	if result.err != nil {
+		return result.err
+	}
+	if result.index < 0 || result.index >= len(batch.results) {
+		return fmt.Errorf("tool batch result index out of range: %d", result.index)
+	}
+	invocation := result.invocation
+	if invocation == nil {
+		batch.remaining--
+		if batch.remaining == 0 {
+			return s.finalizeActiveToolBatch(batch)
+		}
+		return nil
+	}
+
+	prepared := *result
+	prepared.result = s.prepareToolResultForPublish(invocation, result.result)
+	prepared.received = true
+	batch.results[result.index] = prepared
+	batch.remaining--
+
+	s.appendFrontendSubmitDeltas(invocation, prepared.result)
+	s.emitToolResultLive(invocation, prepared.result)
+	appendPublishedArtifactDelta(&s.pending, s.session, prepared.result.Structured["publishedArtifacts"])
+
+	if batch.remaining == 0 {
+		return s.finalizeActiveToolBatch(batch)
+	}
+	return nil
+}
+
+func (s *llmRunStream) awaitActiveToolBatchResult(batch *activeToolBatch) (*batchToolCallResult, error) {
+	if batch == nil || batch.remaining == 0 {
+		return nil, nil
+	}
+	var done <-chan struct{}
+	if s != nil && s.ctx != nil {
+		done = s.ctx.Done()
+	}
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case result := <-batch.resultCh:
+			return &result, nil
+		case <-done:
+			return nil, s.ctx.Err()
+		case <-ticker.C:
+			if err := s.handleInterruptIfNeeded(); err != nil || len(s.pending) > 0 {
+				return nil, err
+			}
 		}
 	}
+}
 
-	for index, result := range results {
+func (s *llmRunStream) finalizeActiveToolBatch(batch *activeToolBatch) error {
+	if batch == nil {
+		return nil
+	}
+	for index, result := range batch.results {
 		invocation := result.invocation
 		if invocation == nil {
 			continue
 		}
+		if !result.received {
+			return fmt.Errorf("tool batch completed without result for %s", invocation.toolID)
+		}
 		s.mergeConcurrentExecutionContext(result.execCtx)
-		s.queuedToolCalls = remainingInvocations(invocations, index+1)
-		s.appendOriginalToolResult(invocation, result.result)
+		s.queuedToolCalls = remainingInvocations(batch.invocations, index+1)
+		s.appendToolResultMessageOrdered(invocation, result.result)
 		if s.postToolHook != nil && s.postToolHook(invocation.toolName, invocation.toolID) == PostToolStop {
 			s.stopAfterToolBatch = true
 		}
@@ -297,6 +391,7 @@ func (s *llmRunStream) invokeToolCallBatchAndPostHooks(invocations []*preparedTo
 		}
 	}
 	s.queuedToolCalls = nil
+	s.activeToolBatch = nil
 	if s.execCtx != nil {
 		s.execCtx.CurrentToolID = ""
 		s.execCtx.CurrentToolName = ""
@@ -733,15 +828,33 @@ func publishedArtifactMaps(raw any) []map[string]any {
 }
 
 func (s *llmRunStream) appendOriginalToolResult(invocation *preparedToolInvocation, result ToolExecutionResult) {
+	result = s.prepareToolResultForPublish(invocation, result)
+	s.emitToolResultLive(invocation, result)
+	s.appendToolResultMessageOrdered(invocation, result)
+}
+
+func (s *llmRunStream) prepareToolResultForPublish(invocation *preparedToolInvocation, result ToolExecutionResult) ToolExecutionResult {
 	result = applyHITLMetadata(result, invocation)
-	result = s.maybeSpillToolResult(invocation, result)
-	s.previousToolResult = structuredOrOutput(result)
-	content := s.toolResultContent(invocation.toolName, result)
+	return s.maybeSpillToolResult(invocation, result)
+}
+
+func (s *llmRunStream) emitToolResultLive(invocation *preparedToolInvocation, result ToolExecutionResult) {
+	if invocation == nil {
+		return
+	}
 	s.pending = append(s.pending, DeltaToolResult{
 		ToolID:   invocation.toolID,
 		ToolName: invocation.toolName,
 		Result:   result,
 	})
+}
+
+func (s *llmRunStream) appendToolResultMessageOrdered(invocation *preparedToolInvocation, result ToolExecutionResult) {
+	if invocation == nil {
+		return
+	}
+	s.previousToolResult = structuredOrOutput(result)
+	content := s.toolResultContent(invocation.toolName, result)
 	s.messages = append(s.messages, openAIMessage{
 		Role:       "tool",
 		ToolCallID: invocation.toolID,

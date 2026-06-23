@@ -71,7 +71,7 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 		TaskID:          buffer.taskID,
 		TaskStatus:      buffer.taskStatus,
 		TaskSubAgentKey: buffer.taskSubAgentKey,
-		Messages:        append([]StoredMessage(nil), buffer.messages...),
+		Messages:        canonicalizeStoredToolResultOrder(append([]StoredMessage(nil), buffer.messages...)),
 	}
 	if buffer.pendingUsage != nil {
 		line.Usage = buffer.pendingUsage

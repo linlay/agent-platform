@@ -507,6 +507,7 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 		}
 		w.pendingApproval = nil
 	}
+	messages = canonicalizeStoredToolResultOrder(messages)
 
 	line := StepLine{
 		ChatID:    w.chatID,

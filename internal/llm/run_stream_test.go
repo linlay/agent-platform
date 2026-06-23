@@ -161,6 +161,32 @@ func (b *blockingToolExecutor) Invoke(_ context.Context, name string, _ map[stri
 	return contracts.ToolExecutionResult{Output: "ok", ExitCode: 0}, nil
 }
 
+type controlledBatchToolExecutor struct {
+	started  chan string
+	release  map[string]chan struct{}
+	released chan string
+}
+
+func (c *controlledBatchToolExecutor) Definitions() []api.ToolDetailResponse { return nil }
+
+func (c *controlledBatchToolExecutor) Invoke(ctx context.Context, _ string, _ map[string]any, execCtx *contracts.ExecutionContext) (contracts.ToolExecutionResult, error) {
+	toolID := ""
+	if execCtx != nil {
+		toolID = execCtx.CurrentToolID
+	}
+	c.started <- toolID
+	release := c.release[toolID]
+	select {
+	case <-release:
+	case <-ctx.Done():
+		return contracts.ToolExecutionResult{}, ctx.Err()
+	}
+	if c.released != nil {
+		c.released <- toolID
+	}
+	return contracts.ToolExecutionResult{Output: toolID, ExitCode: 0}, nil
+}
+
 func TestParallelToolCallBatchExecutesAllBeforePostToolStop(t *testing.T) {
 	executor := &recordingToolExecutor{}
 	stream := &llmRunStream{
@@ -208,9 +234,14 @@ func TestParallelToolCallBatchExecutesAllBeforePostToolStop(t *testing.T) {
 		}
 	}
 
-	wantIDs := []string{"tool_1", "tool_2", "tool_3"}
-	if !reflect.DeepEqual(resultIDs, wantIDs) {
-		t.Fatalf("tool result ids=%#v want %#v", resultIDs, wantIDs)
+	wantIDs := map[string]bool{"tool_1": true, "tool_2": true, "tool_3": true}
+	if len(resultIDs) != len(wantIDs) {
+		t.Fatalf("tool result ids=%#v want all %#v", resultIDs, wantIDs)
+	}
+	for _, id := range resultIDs {
+		if !wantIDs[id] {
+			t.Fatalf("unexpected tool result ids=%#v", resultIDs)
+		}
 	}
 	if len(executor.invocations) != 3 {
 		t.Fatalf("expected all batch tools to execute, got %#v", executor.invocations)
@@ -220,6 +251,12 @@ func TestParallelToolCallBatchExecutesAllBeforePostToolStop(t *testing.T) {
 	}
 	if got := len(stream.messages[0].ToolCalls); got != 3 {
 		t.Fatalf("expected assistant message to keep all tool calls, got %d", got)
+	}
+	for index, wantID := range []string{"tool_1", "tool_2", "tool_3"} {
+		message := stream.messages[index+1]
+		if message.Role != "tool" || message.ToolCallID != wantID {
+			t.Fatalf("expected ordered tool message %s at index %d, got %#v", wantID, index+1, message)
+		}
 	}
 }
 
@@ -282,6 +319,113 @@ func TestParallelToolCallBatchStartsToolsConcurrently(t *testing.T) {
 	close(executor.release)
 	if err := <-errCh; err != nil {
 		t.Fatalf("stream returned error: %v", err)
+	}
+}
+
+func TestParallelToolCallBatchStreamsResultAsEachToolCompletes(t *testing.T) {
+	executor := &controlledBatchToolExecutor{
+		started: make(chan string, 3),
+		release: map[string]chan struct{}{
+			"tool_1": make(chan struct{}),
+			"tool_2": make(chan struct{}),
+			"tool_3": make(chan struct{}),
+		},
+	}
+	stream := &llmRunStream{
+		ctx: context.Background(),
+		engine: &LLMAgentEngine{
+			tools: executor,
+		},
+		session: contracts.QuerySession{RunID: "run_1"},
+		execCtx: &contracts.ExecutionContext{
+			StartedAt: time.Now(),
+		},
+		maxSteps:     2,
+		allowToolUse: true,
+		postToolHook: func(string, string) PostToolHookResult {
+			return PostToolStop
+		},
+		currentTurn: &providerTurnStream{
+			toolCalls: map[int]*toolCallAccumulator{
+				0: {ID: "tool_1", Type: "function", FunctionName: "datetime"},
+				1: {ID: "tool_2", Type: "function", FunctionName: "datetime"},
+				2: {ID: "tool_3", Type: "function", FunctionName: "datetime"},
+			},
+			finishReason:  "tool_calls",
+			hasMeaningful: true,
+		},
+	}
+	if err := stream.finishCurrentTurn(); err != nil {
+		t.Fatalf("finishCurrentTurn returned error: %v", err)
+	}
+	if delta, err := stream.Next(); err != nil {
+		t.Fatalf("expected tool end delta before batch starts: %v", err)
+	} else if _, ok := delta.(contracts.DeltaToolEnd); !ok {
+		t.Fatalf("expected DeltaToolEnd before batch starts, got %#v", delta)
+	}
+
+	firstResult := make(chan contracts.AgentDelta, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		delta, err := stream.Next()
+		if err != nil {
+			errCh <- err
+			return
+		}
+		firstResult <- delta
+	}()
+
+	started := map[string]bool{}
+	for len(started) < 3 {
+		select {
+		case toolID := <-executor.started:
+			started[toolID] = true
+		case err := <-errCh:
+			t.Fatalf("stream returned before all tools started: %v", err)
+		case <-time.After(500 * time.Millisecond):
+			t.Fatalf("timed out waiting for concurrent tool start, got %#v", started)
+		}
+	}
+
+	close(executor.release["tool_3"])
+	select {
+	case err := <-errCh:
+		t.Fatalf("stream returned error before first result: %v", err)
+	case delta := <-firstResult:
+		result, ok := delta.(contracts.DeltaToolResult)
+		if !ok {
+			t.Fatalf("expected first completed result, got %#v", delta)
+		}
+		if result.ToolID != "tool_3" {
+			t.Fatalf("expected tool_3 to stream first, got %#v", result)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("timed out waiting for first completed tool result")
+	}
+
+	close(executor.release["tool_1"])
+	close(executor.release["tool_2"])
+	remaining := map[string]bool{}
+	for {
+		delta, err := stream.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			t.Fatalf("Next returned error: %v", err)
+		}
+		if result, ok := delta.(contracts.DeltaToolResult); ok {
+			remaining[result.ToolID] = true
+		}
+	}
+	if !remaining["tool_1"] || !remaining["tool_2"] || len(remaining) != 2 {
+		t.Fatalf("expected remaining streamed results for tool_1 and tool_2, got %#v", remaining)
+	}
+	for index, wantID := range []string{"tool_1", "tool_2", "tool_3"} {
+		message := stream.messages[index+1]
+		if message.Role != "tool" || message.ToolCallID != wantID {
+			t.Fatalf("expected model message %s at index %d, got %#v", wantID, index+1, message)
+		}
 	}
 }
 

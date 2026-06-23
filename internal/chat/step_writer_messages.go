@@ -201,6 +201,85 @@ func mergeStoredMessageSnapshot(existing StoredMessage, incoming StoredMessage) 
 	return incoming
 }
 
+func canonicalizeStoredToolResultOrder(messages []StoredMessage) []StoredMessage {
+	if len(messages) < 2 {
+		return messages
+	}
+	toolOrder := make([]string, 0)
+	seenToolCalls := map[string]struct{}{}
+	for _, message := range messages {
+		if !strings.EqualFold(strings.TrimSpace(message.Role), "assistant") {
+			continue
+		}
+		for _, toolCall := range message.ToolCalls {
+			id := strings.TrimSpace(toolCall.ID)
+			if id == "" {
+				continue
+			}
+			if _, seen := seenToolCalls[id]; seen {
+				continue
+			}
+			seenToolCalls[id] = struct{}{}
+			toolOrder = append(toolOrder, id)
+		}
+	}
+	if len(toolOrder) < 2 {
+		return messages
+	}
+
+	orderSet := make(map[string]struct{}, len(toolOrder))
+	for _, id := range toolOrder {
+		orderSet[id] = struct{}{}
+	}
+	resultsByID := make(map[string]StoredMessage, len(toolOrder))
+	knownResultCount := 0
+	for _, message := range messages {
+		if !strings.EqualFold(strings.TrimSpace(message.Role), "tool") {
+			continue
+		}
+		id := strings.TrimSpace(message.ToolCallID)
+		if id == "" {
+			id = strings.TrimSpace(message.ToolID)
+		}
+		if _, ok := orderSet[id]; !ok {
+			continue
+		}
+		resultsByID[id] = message
+		knownResultCount++
+	}
+	if knownResultCount < 2 {
+		return messages
+	}
+
+	orderedResults := make([]StoredMessage, 0, knownResultCount)
+	for _, id := range toolOrder {
+		if message, ok := resultsByID[id]; ok {
+			orderedResults = append(orderedResults, message)
+		}
+	}
+	if len(orderedResults) != knownResultCount {
+		return messages
+	}
+
+	out := append([]StoredMessage(nil), messages...)
+	cursor := 0
+	for index, message := range out {
+		if !strings.EqualFold(strings.TrimSpace(message.Role), "tool") {
+			continue
+		}
+		id := strings.TrimSpace(message.ToolCallID)
+		if id == "" {
+			id = strings.TrimSpace(message.ToolID)
+		}
+		if _, ok := orderSet[id]; !ok {
+			continue
+		}
+		out[index] = orderedResults[cursor]
+		cursor++
+	}
+	return out
+}
+
 func storedMessageTextLen(message StoredMessage) int {
 	total := 0
 	for _, part := range message.Content {
