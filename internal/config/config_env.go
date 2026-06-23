@@ -73,7 +73,6 @@ func (c *Config) applyEnv(options LoadOptions) {
 	c.Auth.JWKSURI = stringEnvPair("AP_AUTH_JWKS_URI", "AUTH_JWKS_URI", c.Auth.JWKSURI)
 	c.Auth.Issuer = stringEnvPair("AP_AUTH_ISSUER", "AUTH_ISSUER", c.Auth.Issuer)
 	c.Auth.JWKSCacheSeconds = intEnvPair("AP_AUTH_JWKS_CACHE_SECONDS", "AUTH_JWKS_CACHE_SECONDS", c.Auth.JWKSCacheSeconds)
-	c.Auth.LocalPublicKeyFile = stringEnvPair("AP_AUTH_LOCAL_PUBLIC_KEY_FILE", "AUTH_LOCAL_PUBLIC_KEY_FILE", c.Auth.LocalPublicKeyFile)
 
 	c.ResourceTicket.Secret = stringEnvPair("AP_CHAT_RESOURCE_TICKET_SECRET", "CHAT_RESOURCE_TICKET_SECRET", c.ResourceTicket.Secret)
 	c.ResourceTicket.TTLSeconds = int64EnvPair("AP_CHAT_RESOURCE_TICKET_TTL_SECONDS", "CHAT_RESOURCE_TICKET_TTL_SECONDS", c.ResourceTicket.TTLSeconds)

@@ -68,7 +68,7 @@ cp .env.example .env
 make run
 ```
 
-`make run` 会先加载根目录 `.env`，并使用 `SERVER_PORT` 作为本地监听端口；未设置时默认监听 `11949`。`make run` 还会默认带上 `CGO_ENABLED=0`，以规避当前 macOS 环境里 `CGO=1` 的 `net/http` 二进制在进入 `main()` 前被系统直接 `signal: killed` 的问题。直接执行 `go run ./cmd/agent-platform` 不会自动加载 `.env`，也不会自动注入这个默认值。
+`make run` 会先加载根目录 `.env`，并使用 `SERVER_PORT` 作为本地监听端口；未设置时默认监听 `11949`。`make run` 还会默认带上 `CGO_ENABLED=0`，以规避当前 macOS 环境里 `CGO=1` 的 `net/http` 二进制在进入 `main()` 前被系统直接 `signal: killed` 的问题。直接执行 `go run ./cmd/agent-platform` 不会自动加载 `.env`，未设置 `SERVER_PORT` 或 `--port` 时应用代码默认监听 `8080`。
 
 常用验证：
 
@@ -158,7 +158,6 @@ RUN_SOCKET_TESTS=1 make test-integration
 - `AP_CHAT_RESOURCE_TICKET_SECRET`
 - `AP_CHAT_RESOURCE_TICKET_TTL_SECONDS`
 - `AP_CONTAINER_HUB_BASE_URL`
-- `AP_CONTAINER_HUB_DEFAULT_ENVIRONMENT_ID`
 - `AP_STREAM_INCLUDE_TOOL_PAYLOAD_EVENTS`
 - `AP_DEBUG_LLM_CONSOLE`
 - `AP_DEBUG_LLM_CHAT_RECORD`
@@ -210,10 +209,9 @@ Provider `apiKey` 按明文字符串读取：
 
 本地 JWT 公钥规则：
 
-- 默认值是 `configs/local-public-key.pem`
-- `auth.local-public-key-file` 或 `AP_AUTH_LOCAL_PUBLIC_KEY_FILE` 若是绝对路径，则原样使用
-- 若是相对路径，则按项目根目录解析
-- 单文件名 `local-public-key.pem` 会按项目根目录解析
+- 本地公钥文件固定为 `configs/local-public-key.pem`
+- 该路径和文件名不是配置项；要使用本地公钥模式时，必须把公钥放在这个位置
+- 配置了 `auth.jwks-uri` 或 `AP_AUTH_JWKS_URI` 时走 JWKS 模式，不读取本地公钥文件
 
 配置优先级：
 

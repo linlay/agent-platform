@@ -560,20 +560,6 @@ func (c Config) IsLocalMode() bool {
 	return strings.EqualFold(strings.TrimSpace(c.ContainerHub.ResolvedEngine), "local")
 }
 
-func resolveAuthLocalPublicKeyFile(value string, configRoot string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return ""
-	}
-	if filepath.IsAbs(value) {
-		return filepath.Clean(value)
-	}
-	clean := filepath.Clean(value)
-	if clean == "." {
-		return ""
-	}
-	if strings.Contains(filepath.ToSlash(clean), "/") {
-		return configFile(configRoot, clean)
-	}
-	return configFile(configRoot, filepath.Join("configs", clean))
+func fixedAuthLocalPublicKeyFile(configRoot string) string {
+	return configFile(configRoot, filepath.Join("configs", "local-public-key.pem"))
 }

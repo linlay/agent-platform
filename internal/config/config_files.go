@@ -53,7 +53,6 @@ func parseDesktopBridgeConfig(raw any, fallback DesktopBridgeConfig) DesktopBrid
 
 func (c *Config) applyAuthValues(values map[string]any) {
 	c.Auth.Enabled = boolValue(anyValue(values["enabled"], c.Auth.Enabled), c.Auth.Enabled)
-	c.Auth.LocalPublicKeyFile = stringValue(anyValue(values["local-public-key-file"], c.Auth.LocalPublicKeyFile), c.Auth.LocalPublicKeyFile)
 	c.Auth.JWKSURI = stringValue(anyValue(values["jwks-uri"], c.Auth.JWKSURI), c.Auth.JWKSURI)
 	c.Auth.Issuer = stringValue(anyValue(values["issuer"], c.Auth.Issuer), c.Auth.Issuer)
 	c.Auth.JWKSCacheSeconds = intValue(anyValue(values["jwks-cache-seconds"], c.Auth.JWKSCacheSeconds), c.Auth.JWKSCacheSeconds)
@@ -77,9 +76,6 @@ func (c *Config) applyRuntimeFile(path string) error {
 	}
 	if len(values) == 0 {
 		return nil
-	}
-	if server, ok := values["server"].(map[string]any); ok && len(server) > 0 {
-		c.Server.Port = stringValue(anyValue(server["port"], c.Server.Port), c.Server.Port)
 	}
 	if auth, ok := values["auth"].(map[string]any); ok && len(auth) > 0 {
 		c.applyAuthValues(auth)

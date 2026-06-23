@@ -1,11 +1,7 @@
 # Runtime integration config. Copy to configs/runtime.yml to customize locally.
 
-server:
-  port: 11949
-
 auth:
   enabled: true
-  local-public-key-file: configs/local-public-key.pem
   # jwks-uri:
   # issuer:
   # jwks-cache-seconds: 0

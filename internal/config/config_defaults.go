@@ -32,7 +32,7 @@ func defaultConfig(options LoadOptions) Config {
 		SkillsMarketDir: filepath.Join(runtimeRoot, "skills-market"),
 	}
 	return Config{
-		Server: ServerConfig{Port: "11949"},
+		Server: ServerConfig{Port: "8080"},
 		Paths:  paths,
 		Agents: CatalogConfig{ExternalDir: paths.AgentsDir},
 		Teams:  CatalogConfig{ExternalDir: paths.TeamsDir},
@@ -317,7 +317,10 @@ func (c *Config) normalize(configRoot string) error {
 		c.Logging.Memory.File = filepath.Clean(c.Logging.Memory.File)
 	}
 
-	c.Auth.LocalPublicKeyFile = resolveAuthLocalPublicKeyFile(c.Auth.LocalPublicKeyFile, configRoot)
+	c.Auth.LocalPublicKeyFile = fixedAuthLocalPublicKeyFile(configRoot)
+	if strings.TrimSpace(c.Auth.JWKSURI) != "" {
+		c.Auth.LocalPublicKeyFile = ""
+	}
 	if c.ContainerHub.DefaultSandboxLevel == "" {
 		c.ContainerHub.DefaultSandboxLevel = "run"
 	}
