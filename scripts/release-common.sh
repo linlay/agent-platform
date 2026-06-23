@@ -301,14 +301,6 @@ ${error_log_json}
           "http://localhost:11960",
           "http://host.docker.internal:11960"
         ]
-      },
-      {
-        "key": "AUTH_ENABLED",
-        "value": "true"
-      },
-      {
-        "key": "AUTH_LOCAL_PUBLIC_KEY_FILE",
-        "value": "configs/local-public-key.pem"
       }
     ],
     "capabilities": {

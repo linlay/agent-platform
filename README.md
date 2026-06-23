@@ -148,17 +148,13 @@ RUN_SOCKET_TESTS=1 make test-integration
 
 ## 3. 配置说明
 
-所有本地环境配置从 `.env.example` 复制到 `.env`。`.env` 不提交；`.env.example` 只保留推荐给普通部署者的最终用户环境变量入口。工具运行时配置使用 `configs/tools.yml`，AI 工具配置使用 `configs/ai-tools.yml`，默认值的单一事实源仍以代码和 `configs/*.example.yml` 模板为准。更完整的高级与排障配置参考见 [配置化说明](./docs/配置化说明.md)。
+本地环境变量配置从 `.env.example` 复制到 `.env`。`.env` 不提交；`.env.example` 只保留推荐给普通部署者的最终用户环境变量入口。工具运行时配置使用 `configs/tools.yml`，AI 工具配置使用 `configs/ai-tools.yml`，默认值的单一事实源仍以代码和 `configs/*.example.yml` 模板为准。更完整的高级与排障配置参考见 [配置化说明](./docs/配置化说明.md)。
 
 ### 根 `.env.example`
 
 根 `.env.example` 现在是面向最终用户的最小启动模板，默认保留以下高频配置：
 
 - `SERVER_PORT`
-- `AUTH_ENABLED`
-- `AUTH_LOCAL_PUBLIC_KEY_FILE`
-- `AUTH_JWKS_URI`
-- `AUTH_ISSUER`
 - `AP_CHAT_RESOURCE_TICKET_SECRET`
 - `AP_CHAT_RESOURCE_TICKET_TTL_SECONDS`
 - `AP_CONTAINER_HUB_BASE_URL`
@@ -170,6 +166,8 @@ RUN_SOCKET_TESTS=1 make test-integration
 - `RUNTIME_DIR` / `REGISTRIES_DIR` / `CHATS_DIR` / `MEMORY_DIR` / `PAN_DIR`
 
 其中 `AP_*` 变量是 Agent Platform 专属配置的正式入口；迁移期仍兼容对应旧名，若新旧同名配置同时存在，以 `AP_*` 为准。
+
+Auth 默认开启，默认公钥文件为 `configs/local-public-key.pem`；相关默认值展示在 `configs/runtime.example.yml` 的 `auth` 节，根 `.env.example` 不再放 Auth 变量。
 
 以下环境变量仍受 Go runtime 支持，但为了降低最终用户理解成本，默认不再出现在 `.env.example` 中：
 
@@ -213,7 +211,7 @@ Provider `apiKey` 按明文字符串读取：
 本地 JWT 公钥规则：
 
 - 默认值是 `configs/local-public-key.pem`
-- `AUTH_LOCAL_PUBLIC_KEY_FILE` 若是绝对路径，则原样使用
+- `auth.local-public-key-file` 或 `AP_AUTH_LOCAL_PUBLIC_KEY_FILE` 若是绝对路径，则原样使用
 - 若是相对路径，则按项目根目录解析
 - 单文件名 `local-public-key.pem` 会按项目根目录解析
 

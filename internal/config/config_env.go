@@ -69,11 +69,11 @@ func (c *Config) applyEnv(options LoadOptions) {
 	c.H2A.Render.HeartbeatPassThrough = boolEnv("AGENT_H2A_RENDER_HEARTBEAT_PASS_THROUGH", c.H2A.Render.HeartbeatPassThrough)
 	c.I18N.DefaultLocale = stringEnv("I18N_DEFAULT_LOCALE", c.I18N.DefaultLocale)
 
-	c.Auth.Enabled = boolEnv("AUTH_ENABLED", c.Auth.Enabled)
-	c.Auth.JWKSURI = stringEnv("AUTH_JWKS_URI", c.Auth.JWKSURI)
-	c.Auth.Issuer = stringEnv("AUTH_ISSUER", c.Auth.Issuer)
-	c.Auth.JWKSCacheSeconds = intEnv("AUTH_JWKS_CACHE_SECONDS", c.Auth.JWKSCacheSeconds)
-	c.Auth.LocalPublicKeyFile = stringEnv("AUTH_LOCAL_PUBLIC_KEY_FILE", c.Auth.LocalPublicKeyFile)
+	c.Auth.Enabled = boolEnvPair("AP_AUTH_ENABLED", "AUTH_ENABLED", c.Auth.Enabled)
+	c.Auth.JWKSURI = stringEnvPair("AP_AUTH_JWKS_URI", "AUTH_JWKS_URI", c.Auth.JWKSURI)
+	c.Auth.Issuer = stringEnvPair("AP_AUTH_ISSUER", "AUTH_ISSUER", c.Auth.Issuer)
+	c.Auth.JWKSCacheSeconds = intEnvPair("AP_AUTH_JWKS_CACHE_SECONDS", "AUTH_JWKS_CACHE_SECONDS", c.Auth.JWKSCacheSeconds)
+	c.Auth.LocalPublicKeyFile = stringEnvPair("AP_AUTH_LOCAL_PUBLIC_KEY_FILE", "AUTH_LOCAL_PUBLIC_KEY_FILE", c.Auth.LocalPublicKeyFile)
 
 	c.ResourceTicket.Secret = stringEnvPair("AP_CHAT_RESOURCE_TICKET_SECRET", "CHAT_RESOURCE_TICKET_SECRET", c.ResourceTicket.Secret)
 	c.ResourceTicket.TTLSeconds = int64EnvPair("AP_CHAT_RESOURCE_TICKET_TTL_SECONDS", "CHAT_RESOURCE_TICKET_TTL_SECONDS", c.ResourceTicket.TTLSeconds)

@@ -825,6 +825,118 @@ func TestLoadAuthLocalPublicKeyPathPreservesAbsolutePath(t *testing.T) {
 	})
 }
 
+func TestLoadAuthConfigFromRuntimeYAML(t *testing.T) {
+	withIsolatedEnv(t, nil, func() {
+		content := "" +
+			"auth:\n" +
+			"  enabled: false\n" +
+			"  local-public-key-file: configs/runtime-auth.pem\n" +
+			"  jwks-uri: https://issuer.example/.well-known/jwks.json\n" +
+			"  issuer: runtime-issuer\n" +
+			"  jwks-cache-seconds: 45\n"
+		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &content, func() {
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			if cfg.Auth.Enabled {
+				t.Fatalf("expected auth disabled from runtime yaml")
+			}
+			wantKey := ProjectFile(filepath.Join("configs", "runtime-auth.pem"))
+			if cfg.Auth.LocalPublicKeyFile != wantKey {
+				t.Fatalf("unexpected auth public key path: %q", cfg.Auth.LocalPublicKeyFile)
+			}
+			if cfg.Auth.JWKSURI != "https://issuer.example/.well-known/jwks.json" ||
+				cfg.Auth.Issuer != "runtime-issuer" ||
+				cfg.Auth.JWKSCacheSeconds != 45 {
+				t.Fatalf("unexpected auth runtime config: %#v", cfg.Auth)
+			}
+		})
+	})
+}
+
+func TestLoadAcceptsAPPrefixedAuthEnv(t *testing.T) {
+	withIsolatedEnv(t, map[string]string{
+		"AP_AUTH_ENABLED":               "false",
+		"AP_AUTH_LOCAL_PUBLIC_KEY_FILE": "ap-auth.pem",
+		"AP_AUTH_JWKS_URI":              "https://ap.example/jwks.json",
+		"AP_AUTH_ISSUER":                "ap-issuer",
+		"AP_AUTH_JWKS_CACHE_SECONDS":    "46",
+	}, func() {
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		if cfg.Auth.Enabled {
+			t.Fatalf("expected auth disabled from AP env")
+		}
+		wantKey := ProjectFile(filepath.Join("configs", "ap-auth.pem"))
+		if cfg.Auth.LocalPublicKeyFile != wantKey {
+			t.Fatalf("unexpected auth public key path: %q", cfg.Auth.LocalPublicKeyFile)
+		}
+		if cfg.Auth.JWKSURI != "https://ap.example/jwks.json" ||
+			cfg.Auth.Issuer != "ap-issuer" ||
+			cfg.Auth.JWKSCacheSeconds != 46 {
+			t.Fatalf("unexpected AP auth env config: %#v", cfg.Auth)
+		}
+	})
+}
+
+func TestLoadAcceptsLegacyAuthEnvFallback(t *testing.T) {
+	withIsolatedEnv(t, map[string]string{
+		"AUTH_ENABLED":               "false",
+		"AUTH_LOCAL_PUBLIC_KEY_FILE": "legacy-auth.pem",
+		"AUTH_JWKS_URI":              "https://legacy.example/jwks.json",
+		"AUTH_ISSUER":                "legacy-issuer",
+		"AUTH_JWKS_CACHE_SECONDS":    "47",
+	}, func() {
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		if cfg.Auth.Enabled {
+			t.Fatalf("expected auth disabled from legacy env")
+		}
+		wantKey := ProjectFile(filepath.Join("configs", "legacy-auth.pem"))
+		if cfg.Auth.LocalPublicKeyFile != wantKey ||
+			cfg.Auth.JWKSURI != "https://legacy.example/jwks.json" ||
+			cfg.Auth.Issuer != "legacy-issuer" ||
+			cfg.Auth.JWKSCacheSeconds != 47 {
+			t.Fatalf("unexpected legacy auth env config: %#v", cfg.Auth)
+		}
+	})
+}
+
+func TestLoadAPPrefixedAuthEnvOverridesLegacyAuthEnv(t *testing.T) {
+	withIsolatedEnv(t, map[string]string{
+		"AP_AUTH_ENABLED":               "true",
+		"AP_AUTH_LOCAL_PUBLIC_KEY_FILE": "ap-auth.pem",
+		"AP_AUTH_JWKS_URI":              "https://ap.example/jwks.json",
+		"AP_AUTH_ISSUER":                "ap-issuer",
+		"AP_AUTH_JWKS_CACHE_SECONDS":    "46",
+		"AUTH_ENABLED":                  "false",
+		"AUTH_LOCAL_PUBLIC_KEY_FILE":    "legacy-auth.pem",
+		"AUTH_JWKS_URI":                 "https://legacy.example/jwks.json",
+		"AUTH_ISSUER":                   "legacy-issuer",
+		"AUTH_JWKS_CACHE_SECONDS":       "47",
+	}, func() {
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		if !cfg.Auth.Enabled {
+			t.Fatalf("expected AP auth enabled env to win")
+		}
+		wantKey := ProjectFile(filepath.Join("configs", "ap-auth.pem"))
+		if cfg.Auth.LocalPublicKeyFile != wantKey ||
+			cfg.Auth.JWKSURI != "https://ap.example/jwks.json" ||
+			cfg.Auth.Issuer != "ap-issuer" ||
+			cfg.Auth.JWKSCacheSeconds != 46 {
+			t.Fatalf("expected AP auth env to win, got %#v", cfg.Auth)
+		}
+	})
+}
+
 func TestLoadUsesConfigDirOptionForStructuredFilesAndAuthKey(t *testing.T) {
 	configDir := t.TempDir()
 	configsDir := filepath.Join(configDir, "configs")
@@ -2007,6 +2119,11 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 		"AGENT_FILE_MAX_BATCH_OPS",
 		"AGENT_FILE_REQUIRE_WRITE_APPROVAL",
 		"AGENT_FILE_REQUIRE_READ_BEFORE_WRITE",
+		"AP_AUTH_ENABLED",
+		"AP_AUTH_LOCAL_PUBLIC_KEY_FILE",
+		"AP_AUTH_JWKS_URI",
+		"AP_AUTH_ISSUER",
+		"AP_AUTH_JWKS_CACHE_SECONDS",
 		"AUTH_ENABLED",
 		"AUTH_LOCAL_PUBLIC_KEY_FILE",
 		"AUTH_JWKS_URI",

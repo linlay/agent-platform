@@ -3,6 +3,13 @@
 server:
   port: 11949
 
+auth:
+  enabled: true
+  local-public-key-file: configs/local-public-key.pem
+  # jwks-uri:
+  # issuer:
+  # jwks-cache-seconds: 0
+
 budget:
   # 单次 run 总耗时上限：一条用户消息触发的 agent 执行，从开始到最终回答结束。
   timeout: 3600
