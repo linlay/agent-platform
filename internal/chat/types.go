@@ -73,18 +73,21 @@ type QueryLineSystemInit struct {
 // QueryLine represents a _type:"query" line in chatId.jsonl.
 // Field order matches Java: chatId, runId, updatedAt, liveSeq, query, systems, _type.
 type QueryLine struct {
-	ChatID      string                `json:"chatId"`
-	RunID       string                `json:"runId"`
-	UpdatedAt   int64                 `json:"updatedAt"`
-	LiveSeq     int64                 `json:"liveSeq,omitempty"`
-	TaskID      string                `json:"taskId,omitempty"`
-	TaskName    string                `json:"taskName,omitempty"`
-	TaskToolID  string                `json:"taskToolId,omitempty"`
-	SubAgentKey string                `json:"subAgentKey,omitempty"`
-	Query       map[string]any        `json:"query"`
-	Messages    []map[string]any      `json:"messages,omitempty"`
-	Systems     []QueryLineSystemInit `json:"systems,omitempty"`
-	Type        string                `json:"_type"`
+	ChatID         string                `json:"chatId"`
+	RunID          string                `json:"runId"`
+	UpdatedAt      int64                 `json:"updatedAt"`
+	LiveSeq        int64                 `json:"liveSeq,omitempty"`
+	TaskID         string                `json:"taskId,omitempty"`
+	TaskName       string                `json:"taskName,omitempty"`
+	TaskToolID     string                `json:"taskToolId,omitempty"`
+	SubAgentKey    string                `json:"subAgentKey,omitempty"`
+	Query          map[string]any        `json:"query"`
+	Messages       []map[string]any      `json:"messages,omitempty"`
+	Systems        []QueryLineSystemInit `json:"systems,omitempty"`
+	Model          map[string]any        `json:"model,omitempty"`
+	ToolChoice     string                `json:"toolChoice,omitempty"`
+	RequestOptions map[string]any        `json:"requestOptions,omitempty"`
+	Type           string                `json:"_type"`
 }
 
 const (
@@ -145,12 +148,16 @@ type StepLine struct {
 	LiveSeq         int64            `json:"liveSeq,omitempty"`
 	ModelKey        string           `json:"modelKey,omitempty"`
 	ReasoningEffort string           `json:"reasoningEffort,omitempty"`
+	Model           map[string]any   `json:"model,omitempty"`
+	ToolChoice      string           `json:"toolChoice,omitempty"`
+	RequestOptions  map[string]any   `json:"requestOptions,omitempty"`
 	TaskID          string           `json:"taskId,omitempty"`
 	TaskStatus      string           `json:"taskStatus,omitempty"`
 	TaskSubAgentKey string           `json:"taskSubAgentKey,omitempty"`
 	System          map[string]any   `json:"system,omitempty"`
 	SystemRef       map[string]any   `json:"systemRef,omitempty"`
 	Debug           map[string]any   `json:"debug,omitempty"`
+	InputMessages   []map[string]any `json:"inputMessages,omitempty"`
 	Messages        []StoredMessage  `json:"messages"`
 	Awaiting        []map[string]any `json:"awaiting,omitempty"`
 	Usage           map[string]any   `json:"usage,omitempty"`

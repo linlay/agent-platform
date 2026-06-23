@@ -264,6 +264,8 @@ func eventPayloadKeyOrder(eventType string) []string {
 		return []string{"runId", "chatId", "agentKey"}
 	case "debug.llmChat":
 		return []string{"runId", "chatId", "data"}
+	case "llm.request":
+		return []string{"runId", "chatId", "taskId", "model", "system", "systemRef", "toolChoice", "requestOptions", "inputMessages"}
 	case "usage.snapshot":
 		return []string{"runId", "chatId", "taskId", "model", "contextWindow", "usage"}
 	case "memory.write", "memory.read", "memory.search", "memory.update",

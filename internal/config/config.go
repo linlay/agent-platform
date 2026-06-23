@@ -529,7 +529,7 @@ func Load(optionValues ...LoadOptions) (Config, error) {
 	if err := cfg.applyStructuredConfig(options.ConfigDir); err != nil {
 		return Config{}, err
 	}
-	cfg.applyEnv()
+	cfg.applyEnv(options)
 	if options.Port != "" {
 		cfg.Server.Port = options.Port
 	}

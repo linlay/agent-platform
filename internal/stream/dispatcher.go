@@ -111,6 +111,42 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 		events = append(events, NewEvent("run.cancel", payload))
 		d.state.terminated = true
 		return events
+	case InputLLMRequest:
+		payload := map[string]any{
+			"runId":  d.request.RunID,
+			"chatId": value.ChatID,
+		}
+		if value.TaskID != "" {
+			payload["taskId"] = value.TaskID
+		}
+		if len(value.Model) > 0 {
+			payload["model"] = clonePayload(value.Model)
+		} else if value.ModelKey != "" || value.ReasoningEffort != "" {
+			model := map[string]any{}
+			if value.ModelKey != "" {
+				model["key"] = value.ModelKey
+			}
+			if value.ReasoningEffort != "" {
+				model["reasoningEffort"] = value.ReasoningEffort
+			}
+			payload["model"] = model
+		}
+		if len(value.System) > 0 {
+			payload["system"] = clonePayload(value.System)
+		}
+		if len(value.SystemRef) > 0 {
+			payload["systemRef"] = clonePayload(value.SystemRef)
+		}
+		if value.ToolChoice != "" {
+			payload["toolChoice"] = value.ToolChoice
+		}
+		if len(value.RequestOptions) > 0 {
+			payload["requestOptions"] = clonePayload(value.RequestOptions)
+		}
+		if len(value.InputMessages) > 0 {
+			payload["inputMessages"] = cloneMessagePayloads(value.InputMessages)
+		}
+		return []StreamEvent{NewEvent("llm.request", payload)}
 	case InputDebugLLMChat:
 		if value.RunTotalTokens > 0 || value.RunLLMChatCompletionCount > 0 || value.RunToolCallCount > 0 {
 			d.state.runUsage = runUsageStateFromValues(value.RunPromptTokens, value.RunCompletionTokens, value.RunTotalTokens, value.RunCachedTokens, value.RunReasoningTokens, value.RunPromptCacheHitTokens, value.RunPromptCacheMissTokens, value.RunLLMChatCompletionCount, value.RunToolCallCount)
@@ -229,6 +265,17 @@ func usageSnapshotEvent(runID string, taskID string, chatID string, modelKey str
 		payload["taskId"] = taskID
 	}
 	return NewEvent("usage.snapshot", payload)
+}
+
+func cloneMessagePayloads(messages []map[string]any) []any {
+	if len(messages) == 0 {
+		return nil
+	}
+	out := make([]any, 0, len(messages))
+	for _, msg := range messages {
+		out = append(out, clonePayload(msg))
+	}
+	return out
 }
 
 func runUsageStateFromValues(promptTokens int, completionTokens int, totalTokens int, cachedTokens int, reasoningTokens int, promptCacheHitTokens int, promptCacheMissTokens int, llmChatCompletionCount int, toolCallCount int) *runUsageState {

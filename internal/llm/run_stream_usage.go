@@ -85,10 +85,30 @@ func (s *llmRunStream) currentSystemRef() map[string]any {
 	if !ok || strings.TrimSpace(snapshot.Fingerprint) == "" {
 		return nil
 	}
+	if !s.currentSystemMatchesSnapshot(snapshot) {
+		return nil
+	}
 	return map[string]any{
 		"cacheKey":    cacheKey,
 		"fingerprint": snapshot.Fingerprint,
 	}
+}
+
+func (s *llmRunStream) currentSystemMatchesSnapshot(snapshot SystemInitSnapshot) bool {
+	currentSystem := firstSystemMessageSnapshot(s.messages)
+	if !jsonValuesEqual(currentSystem, snapshot.SystemMessage) {
+		return false
+	}
+	return jsonValuesEqual(openAIToolSpecsToAny(s.toolSpecs), snapshot.Tools)
+}
+
+func jsonValuesEqual(left any, right any) bool {
+	leftData, leftErr := json.Marshal(left)
+	rightData, rightErr := json.Marshal(right)
+	if leftErr != nil || rightErr != nil {
+		return false
+	}
+	return string(leftData) == string(rightData)
 }
 
 func (s *llmRunStream) resetLastCallUsage() {

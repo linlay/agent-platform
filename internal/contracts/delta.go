@@ -207,6 +207,21 @@ type DeltaDebugLLMChat struct {
 
 func (DeltaDebugLLMChat) agentDeltaTag() {}
 
+type DeltaLLMRequest struct {
+	TaskID          string
+	ChatID          string
+	Model           map[string]any
+	ModelKey        string
+	ReasoningEffort string
+	System          map[string]any
+	SystemRef       map[string]any
+	ToolChoice      string
+	RequestOptions  map[string]any
+	InputMessages   []map[string]any
+}
+
+func (DeltaLLMRequest) agentDeltaTag() {}
+
 type DeltaUsageSnapshot struct {
 	ChatID                          string
 	ModelKey                        string

@@ -438,6 +438,22 @@ func systemRefFromDebugData(value map[string]any) map[string]any {
 	return cloneStepSystemPayload(raw)
 }
 
+func messagesFromEventValue(value any) []map[string]any {
+	rawMessages, _ := value.([]any)
+	if len(rawMessages) == 0 {
+		return nil
+	}
+	out := make([]map[string]any, 0, len(rawMessages))
+	for _, raw := range rawMessages {
+		msg, _ := raw.(map[string]any)
+		if len(msg) == 0 {
+			continue
+		}
+		out = append(out, cloneStepSystemPayload(msg))
+	}
+	return out
+}
+
 // parseStage normalises a stage marker string to a stage name, matching Java's
 // TurnTraceWriter.parseStage behaviour.
 

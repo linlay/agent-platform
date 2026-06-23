@@ -275,6 +275,20 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			SteerID:   value.SteerID,
 			Message:   value.Message,
 		}}
+	case DeltaLLMRequest:
+		m.lastKind = ""
+		return []stream.StreamInput{stream.InputLLMRequest{
+			TaskID:          value.TaskID,
+			ChatID:          value.ChatID,
+			Model:           CloneMap(value.Model),
+			ModelKey:        value.ModelKey,
+			ReasoningEffort: value.ReasoningEffort,
+			System:          CloneMap(value.System),
+			SystemRef:       CloneMap(value.SystemRef),
+			ToolChoice:      value.ToolChoice,
+			RequestOptions:  CloneMap(value.RequestOptions),
+			InputMessages:   cloneRawMessageMaps(value.InputMessages),
+		}}
 	case DeltaDebugLLMChat:
 		m.lastKind = ""
 		return []stream.StreamInput{stream.InputDebugLLMChat{
@@ -345,6 +359,17 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 	default:
 		return nil
 	}
+}
+
+func cloneRawMessageMaps(messages []map[string]any) []map[string]any {
+	if len(messages) == 0 {
+		return nil
+	}
+	out := make([]map[string]any, 0, len(messages))
+	for _, msg := range messages {
+		out = append(out, CloneMap(msg))
+	}
+	return out
 }
 
 func (m *DeltaMapper) buildFrontendToolAwaitAsk(toolID string, toolName string, argsDelta string, chunkIndex int) (*stream.AwaitAsk, bool) {

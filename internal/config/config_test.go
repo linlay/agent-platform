@@ -919,7 +919,7 @@ func TestLoadServerPortFromRuntimeFile(t *testing.T) {
 	})
 }
 
-func TestLoadPortOptionOverridesServerPortEnv(t *testing.T) {
+func TestLoadPortOptionIgnoresServerPortEnv(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"SERVER_PORT": "11949",
 	}, func() {

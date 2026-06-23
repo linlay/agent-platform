@@ -7,8 +7,10 @@ import (
 	"strings"
 )
 
-func (c *Config) applyEnv() {
-	c.Server.Port = stringEnv("SERVER_PORT", c.Server.Port)
+func (c *Config) applyEnv(options LoadOptions) {
+	if strings.TrimSpace(options.Port) == "" {
+		c.Server.Port = stringEnv("SERVER_PORT", c.Server.Port)
+	}
 
 	c.Paths.RegistriesDir = pathEnv("REGISTRIES_DIR", c.Paths.RegistriesDir)
 	c.Paths.ToolsDir = pathEnv("TOOLS_DIR", c.Paths.ToolsDir)

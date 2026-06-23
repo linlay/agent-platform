@@ -270,6 +270,21 @@ type InputDebugLLMChat struct {
 
 func (InputDebugLLMChat) streamInputTag() {}
 
+type InputLLMRequest struct {
+	TaskID          string
+	ChatID          string
+	Model           map[string]any
+	ModelKey        string
+	ReasoningEffort string
+	System          map[string]any
+	SystemRef       map[string]any
+	ToolChoice      string
+	RequestOptions  map[string]any
+	InputMessages   []map[string]any
+}
+
+func (InputLLMRequest) streamInputTag() {}
+
 type InputUsageSnapshot struct {
 	TaskID                          string
 	ChatID                          string

@@ -161,6 +161,7 @@ func (s *llmRunStream) prepareNextTurn() error {
 	runSeq := s.runLLMChatCompletionCount + 1
 	effectiveToolChoice := effectiveTraceToolChoice(s.toolChoice, s.toolSpecs)
 	trace := s.newChatTrace(runSeq, preparedRequest, effectiveToolChoice)
+	s.pending = append(s.pending, s.buildLLMRequestDelta(preparedRequest, effectiveToolChoice))
 	s.resetLastCallUsage()
 	s.runLLMChatCompletionCount++
 	s.lastCallLLMChatCompletionCount = 1

@@ -426,6 +426,9 @@ func usageHasData(usage chat.UsageData) bool {
 }
 
 func isClientVisibleEvent(eventType string, streamCfg config.StreamConfig) bool {
+	if eventType == "llm.request" {
+		return false
+	}
 	if eventType == "debug.llmChat" {
 		return true
 	}

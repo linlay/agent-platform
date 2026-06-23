@@ -48,10 +48,18 @@ func (s *Server) prepareSystemInitCache(req api.QueryRequest, session *contracts
 		if initLine == nil || !sameSystemInitPayload(initLine, system) {
 			pendingSystems = append(pendingSystems, system)
 		}
-		cache[profile.CacheKey] = contracts.SystemInitSnapshot{
-			Fingerprint:   profile.Fingerprint,
-			SystemMessage: cloneMap(profile.SystemMessage),
-			Tools:         cloneAnySlice(profile.Tools),
+		if initLine != nil && sameSystemInitPayload(initLine, system) {
+			cache[profile.CacheKey] = contracts.SystemInitSnapshot{
+				Fingerprint:   initLine.Fingerprint,
+				SystemMessage: cloneMap(initLine.SystemMessage),
+				Tools:         cloneAnySlice(initLine.Tools),
+			}
+		} else {
+			cache[profile.CacheKey] = contracts.SystemInitSnapshot{
+				Fingerprint:   profile.Fingerprint,
+				SystemMessage: cloneMap(profile.SystemMessage),
+				Tools:         cloneAnySlice(profile.Tools),
+			}
 		}
 	}
 	if len(cache) > 0 {
