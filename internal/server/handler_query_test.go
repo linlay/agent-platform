@@ -201,7 +201,7 @@ func TestPrepareQueryNonSandboxAgentCreatesChatDirectory(t *testing.T) {
 	}
 }
 
-func TestPrepareQueryBuildsLayeredMemoryContexts(t *testing.T) {
+func TestPrepareQuerySkipsMemoryInjectionWhenTemporarilyDisabled(t *testing.T) {
 	chats, err := chat.NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
@@ -260,10 +260,11 @@ func TestPrepareQueryBuildsLayeredMemoryContexts(t *testing.T) {
 		Memory: memories,
 		Registry: queryMemoryRegistry{
 			def: catalog.AgentDefinition{
-				Key:           "agent-a",
-				Name:          "Agent A",
-				ModelKey:      "mock-model",
-				MemoryEnabled: true,
+				Key:                "agent-a",
+				Name:               "Agent A",
+				ModelKey:           "mock-model",
+				MemoryEnabled:      true,
+				StaticMemoryPrompt: "static memory should stay out of query prompts",
 			},
 		},
 	}}
@@ -274,56 +275,23 @@ func TestPrepareQueryBuildsLayeredMemoryContexts(t *testing.T) {
 		t.Fatalf("prepareQuery: %v", err)
 	}
 
-	if prepared.session.StableMemoryContext == "" {
-		t.Fatalf("expected stable memory context, got empty")
+	if prepared.session.StableMemoryContext != "" || prepared.session.SessionMemoryContext != "" || prepared.session.ObservationContext != "" {
+		t.Fatalf("expected no memory contexts while injection disabled, got stable=%q session=%q obs=%q",
+			prepared.session.StableMemoryContext, prepared.session.SessionMemoryContext, prepared.session.ObservationContext)
 	}
-	if prepared.session.SessionMemoryContext == "" {
-		t.Fatalf("expected session memory context, got empty")
-	}
-	if prepared.session.MemoryContext != "" {
-		t.Fatalf("expected aggregate memory context to stay empty, got %q", prepared.session.MemoryContext)
+	if prepared.session.MemoryContext != "" || prepared.session.StaticMemoryPrompt != "" {
+		t.Fatalf("expected no aggregate/static memory prompt while injection disabled, got aggregate=%q static=%q",
+			prepared.session.MemoryContext, prepared.session.StaticMemoryPrompt)
 	}
 	if prepared.session.Subject != "" {
 		t.Fatalf("expected anonymous subject to stay empty, got %q", prepared.session.Subject)
 	}
-	if got := prepared.session.StableMemoryContext; !containsAll(got, []string{"Runtime Context: Stable Memory", "每周工作时间保持 40h"}) {
-		t.Fatalf("unexpected stable memory context: %q", got)
+	if prepared.memoryUsageSummary != nil || prepared.session.MemoryUsageSummary != nil {
+		t.Fatalf("expected no memory usage summary while injection disabled, got %#v %#v",
+			prepared.memoryUsageSummary, prepared.session.MemoryUsageSummary)
 	}
-	if got := prepared.session.SessionMemoryContext; !containsAll(got, []string{"Runtime Context: Current Session", "调整过下周工时安排"}) {
-		t.Fatalf("unexpected session memory context: %q", got)
-	}
-	if prepared.memoryUsageSummary == nil {
-		t.Fatalf("expected memory usage summary, got nil")
-	}
-	if prepared.memoryUsageSummary.StableCount != 1 || prepared.memoryUsageSummary.SessionCount != 1 {
-		t.Fatalf("unexpected memory usage counts: %#v", prepared.memoryUsageSummary)
-	}
-	if prepared.memoryUsageSummary.SnapshotID == "" {
-		t.Fatalf("expected snapshot id in memory usage summary, got empty")
-	}
-	if prepared.memoryUsageSummary.StopReason != "session_added" {
-		t.Fatalf("expected stop reason session_added, got %#v", prepared.memoryUsageSummary.StopReason)
-	}
-	if !reflect.DeepEqual(prepared.memoryUsageSummary.DisclosedLayers, []string{"stable", "session"}) {
-		t.Fatalf("unexpected disclosed layers: %#v", prepared.memoryUsageSummary.DisclosedLayers)
-	}
-	if got := prepared.memoryUsageSummary.CandidateCounts["stable"]; got != 1 {
-		t.Fatalf("expected stable candidate count 1, got %#v", prepared.memoryUsageSummary.CandidateCounts)
-	}
-	if got := prepared.memoryUsageSummary.SelectedCounts["session"]; got != 1 {
-		t.Fatalf("expected session selected count 1, got %#v", prepared.memoryUsageSummary.SelectedCounts)
-	}
-	if len(prepared.memoryUsageSummary.StableItems) != 1 || prepared.memoryUsageSummary.StableItems[0].Summary != "每周工作时间保持 40h。" {
-		t.Fatalf("unexpected stable memory items: %#v", prepared.memoryUsageSummary.StableItems)
-	}
-	if len(prepared.memoryUsageSummary.SessionItems) != 1 || prepared.memoryUsageSummary.SessionItems[0].Summary != "上次已经调整过下周工时安排，继续安排下周工时时要参考这个结果。" {
-		t.Fatalf("unexpected session memory items: %#v", prepared.memoryUsageSummary.SessionItems)
-	}
-	if got := prepared.memoryUsageSummary.UserHint; !containsAll(got, []string{"本次回答借鉴了历史记忆", "Work hours preference", "Recent automation adjust"}) {
-		t.Fatalf("unexpected memory user hint: %q", got)
-	}
-	if prepared.session.MemoryUsageSummary == nil {
-		t.Fatalf("expected session memory usage summary, got nil")
+	if !prepared.session.AgentHasMemoryConfig {
+		t.Fatalf("expected memory config marker to remain available")
 	}
 }
 
@@ -365,7 +333,7 @@ func TestBuildMemoryHitItemsReflectsPromptInjectedRecords(t *testing.T) {
 	}
 }
 
-func TestPrepareQueryDedupesNearDuplicateStableFacts(t *testing.T) {
+func TestPrepareQueryDoesNotInjectStableFactsWhenMemoryTemporarilyDisabled(t *testing.T) {
 	chats, err := chat.NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
@@ -457,18 +425,16 @@ func TestPrepareQueryDedupesNearDuplicateStableFacts(t *testing.T) {
 		t.Fatalf("prepareQuery: %v", err)
 	}
 
-	if strings.Count(prepared.session.StableMemoryContext, "- ") != 2 {
-		t.Fatalf("expected 2 stable bullets after dedupe, got %q", prepared.session.StableMemoryContext)
+	if prepared.session.StableMemoryContext != "" {
+		t.Fatalf("expected stable memory to stay out of query session, got %q", prepared.session.StableMemoryContext)
 	}
-	if !strings.Contains(prepared.session.StableMemoryContext, "每天8小时") {
-		t.Fatalf("expected richer duplicate winner to survive, got %q", prepared.session.StableMemoryContext)
-	}
-	if prepared.memoryUsageSummary == nil || prepared.memoryUsageSummary.SelectedCounts["stable"] != 2 {
-		t.Fatalf("expected stable selected count 2, got %#v", prepared.memoryUsageSummary)
+	if prepared.memoryUsageSummary != nil || prepared.session.MemoryUsageSummary != nil {
+		t.Fatalf("expected no memory usage summary while injection disabled, got %#v %#v",
+			prepared.memoryUsageSummary, prepared.session.MemoryUsageSummary)
 	}
 }
 
-func TestPrepareQueryDedupesNearDuplicateAcrossStableAndSession(t *testing.T) {
+func TestPrepareQueryDoesNotInjectSessionMemoryWhenMemoryTemporarilyDisabled(t *testing.T) {
 	chats, err := chat.NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new chat store: %v", err)
@@ -544,11 +510,13 @@ func TestPrepareQueryDedupesNearDuplicateAcrossStableAndSession(t *testing.T) {
 		t.Fatalf("prepareQuery: %v", err)
 	}
 
-	if prepared.session.SessionMemoryContext != "" {
-		t.Fatalf("expected duplicate session memory to be removed, got %q", prepared.session.SessionMemoryContext)
+	if prepared.session.StableMemoryContext != "" || prepared.session.SessionMemoryContext != "" || prepared.session.ObservationContext != "" {
+		t.Fatalf("expected memory to stay out of query session, got stable=%q session=%q obs=%q",
+			prepared.session.StableMemoryContext, prepared.session.SessionMemoryContext, prepared.session.ObservationContext)
 	}
-	if prepared.memoryUsageSummary == nil || prepared.memoryUsageSummary.SelectedCounts["session"] != 0 {
-		t.Fatalf("expected session selected count 0, got %#v", prepared.memoryUsageSummary)
+	if prepared.memoryUsageSummary != nil || prepared.session.MemoryUsageSummary != nil {
+		t.Fatalf("expected no memory usage summary while injection disabled, got %#v %#v",
+			prepared.memoryUsageSummary, prepared.session.MemoryUsageSummary)
 	}
 }
 

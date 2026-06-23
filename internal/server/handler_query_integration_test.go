@@ -47,11 +47,14 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 	if strings.Contains(bodyText, `.snapshot"`) {
 		t.Fatalf("expected live sse to exclude snapshot events, got %s", bodyText)
 	}
+	if strings.Contains(bodyText, `"type":"memory.context"`) {
+		t.Fatalf("did not expect memory.context in live sse, got %s", bodyText)
+	}
 	if !strings.Contains(bodyText, "data: [DONE]") {
 		t.Fatalf("expected done sentinel, got %s", bodyText)
 	}
 	assertSSEMessagesHaveSeqAndTimestamp(t, bodyText)
-	assertSSEEventOrder(t, bodyText, "request.query", "chat.start", "run.start")
+	assertSSEEventOrder(t, bodyText, "chat.start", "request.query", "run.start")
 
 	chatsReq := httptest.NewRequest(http.MethodGet, "/api/chats", nil)
 	chatsRec := httptest.NewRecorder()
@@ -85,6 +88,7 @@ func TestQuerySSEPersistsChatHistory(t *testing.T) {
 		"content.snapshot",
 		"run.complete",
 	)
+	assertPersistedEventsStartWith(t, chatResp.Data.Events, "chat.start", "request.query", "run.start")
 	assertBodyContainsOrderedEvent(t, chatRec.Body.String(), `"type":"request.query"`, []string{
 		`"seq":`,
 		`"type":"request.query"`,
@@ -364,11 +368,13 @@ func TestQueryUsesProvidedRunIDAndPersistsItEverywhere(t *testing.T) {
 	if len(messages) < 3 {
 		t.Fatalf("expected bootstrap messages, got %#v", messages)
 	}
-	if messages[0]["type"] != "request.query" || messages[0]["runId"] != runID {
-		t.Fatalf("expected request.query to carry provided run id, got %#v", messages[0])
+	requestQuery := findSSEMessageByType(t, messages, "request.query")
+	if requestQuery["runId"] != runID {
+		t.Fatalf("expected request.query to carry provided run id, got %#v", requestQuery)
 	}
-	if messages[2]["type"] != "run.start" || messages[2]["runId"] != runID {
-		t.Fatalf("expected run.start to carry provided run id, got %#v", messages[2])
+	runStart := findSSEMessageByType(t, messages, "run.start")
+	if runStart["runId"] != runID {
+		t.Fatalf("expected run.start to carry provided run id, got %#v", runStart)
 	}
 
 	chatsRec := httptest.NewRecorder()
@@ -426,10 +432,7 @@ func TestQueryRequestQueryIncludesParamsAndReferences(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 	messages := decodeSSEMessages(t, rec.Body.String())
-	if len(messages) < 1 || messages[0]["type"] != "request.query" {
-		t.Fatalf("expected first sse message to be request.query, got %#v", messages)
-	}
-	assertRequestQueryContext(t, messages[0])
+	assertRequestQueryContext(t, findSSEMessageByType(t, messages, "request.query"))
 
 	chatsRec := httptest.NewRecorder()
 	server.ServeHTTP(chatsRec, httptest.NewRequest(http.MethodGet, "/api/chats", nil))
@@ -588,8 +591,21 @@ func TestChatSnapshotDeduplicatesChatStartAcrossMultipleQueries(t *testing.T) {
 	if usageSnapshotCount != 0 {
 		t.Fatalf("expected no historical usage.snapshot events, got %d events=%#v", usageSnapshotCount, chatResp.Data.Events)
 	}
-	if len(chatResp.Data.Events) != 9 {
-		t.Fatalf("expected 9 persisted events for two turns, got %d events=%#v", len(chatResp.Data.Events), chatResp.Data.Events)
+	if len(chatResp.Data.Events) != 8 && len(chatResp.Data.Events) != 9 {
+		t.Fatalf("expected 8 or 9 persisted events for two turns, got %d events=%#v", len(chatResp.Data.Events), chatResp.Data.Events)
+	}
+	assertPersistedEventsStartWith(t, chatResp.Data.Events,
+		"chat.start",
+		"request.query",
+		"run.start",
+		"content.snapshot",
+		"run.complete",
+		"request.query",
+		"run.start",
+		"content.snapshot",
+	)
+	if len(chatResp.Data.Events) == 9 && chatResp.Data.Events[8].Type != "run.complete" {
+		t.Fatalf("expected final event to be run.complete when active run is already finished, got %#v", chatResp.Data.Events[8])
 	}
 	if len(chatResp.Data.RawMessages) != 4 {
 		t.Fatalf("expected four raw messages for two turns, got %#v", chatResp.Data.RawMessages)
@@ -848,10 +864,11 @@ func TestQueryAndRunDebugEventsDisabledByDefault(t *testing.T) {
 	if len(messages) == 0 {
 		t.Fatalf("expected sse messages, got %s", body)
 	}
-	runID, _ := messages[0]["runId"].(string)
-	chatID, _ := messages[0]["chatId"].(string)
+	requestQuery := findSSEMessageByType(t, messages, "request.query")
+	runID, _ := requestQuery["runId"].(string)
+	chatID, _ := requestQuery["chatId"].(string)
 	if runID == "" || chatID == "" {
-		t.Fatalf("expected runId/chatId in first sse message, got %#v", messages[0])
+		t.Fatalf("expected runId/chatId in request.query sse message, got %#v", requestQuery)
 	}
 
 	runRec := httptest.NewRecorder()
@@ -913,8 +930,9 @@ func TestQueryLLMChatRecordEmitsDebugLLMChat(t *testing.T) {
 	if llmChat == nil {
 		t.Fatalf("expected debug.llmChat message, got %#v", messages)
 	}
-	runID, _ := messages[0]["runId"].(string)
-	chatID, _ := messages[0]["chatId"].(string)
+	requestQuery := findSSEMessageByType(t, messages, "request.query")
+	runID, _ := requestQuery["runId"].(string)
+	chatID, _ := requestQuery["chatId"].(string)
 	data, _ := llmChat["data"].(map[string]any)
 	if data["status"] != "ok" || testIntValue(data["runSeq"]) != 1 {
 		t.Fatalf("unexpected debug.llmChat metadata %#v", data)

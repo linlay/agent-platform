@@ -12,7 +12,7 @@ H2A render 是传输层缓冲能力，用于控制前端渲染节奏。启用相
 HTTP query
   -> register run
   -> stream writer
-  -> request.query / chat.start / run.start
+  -> chat.start(仅新建 chat) / request.query / run.start
   -> provider chunks -> stream events
   -> content.snapshot / run.complete
   -> chat 持久化

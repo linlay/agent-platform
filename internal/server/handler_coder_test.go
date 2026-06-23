@@ -356,16 +356,14 @@ data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}`,
 	}
 
 	messages := decodeSSEMessages(t, rec.Body.String())
-	if len(messages) == 0 || messages[0]["type"] != "request.query" {
-		t.Fatalf("expected first message request.query, got %#v", messages)
-	}
-	model, _ := messages[0]["model"].(map[string]any)
+	requestQuery := findSSEMessageByType(t, messages, "request.query")
+	model, _ := requestQuery["model"].(map[string]any)
 	if model["key"] != "coder-model" || model["reasoningEffort"] != "HIGH" {
-		t.Fatalf("expected request.query model options, got %#v", messages[0])
+		t.Fatalf("expected request.query model options, got %#v", requestQuery)
 	}
-	params, _ := messages[0]["params"].(map[string]any)
+	params, _ := requestQuery["params"].(map[string]any)
 	if params["channel"] != "business" || params["hitlLevel"].(float64) != 9 || params["memoryContext"] != "business-memory" {
-		t.Fatalf("expected params to remain business payload, got %#v", messages[0])
+		t.Fatalf("expected params to remain business payload, got %#v", requestQuery)
 	}
 }
 

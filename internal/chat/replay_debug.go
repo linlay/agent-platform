@@ -41,54 +41,7 @@ func synthesizedUsageSnapshotContextWindow(contextWindow map[string]any) map[str
 	if v := toIntFromKeys(contextWindow, "estimatedNextCallSize"); v > 0 {
 		cw["estimatedNextCallSize"] = v
 	}
-	if modelKey := firstStringFromKeys(contextWindow, "modelKey"); modelKey != "" {
-		cw["modelKey"] = modelKey
-	}
-	if reasoningEffort := firstStringFromKeys(contextWindow, "reasoningEffort"); reasoningEffort != "" {
-		cw["reasoningEffort"] = reasoningEffort
-	}
 	return cw
-}
-
-func contextWindowWithStepModel(line map[string]any, contextWindow map[string]any, usage map[string]any) map[string]any {
-	if len(contextWindow) == 0 {
-		contextWindow = map[string]any{}
-	} else {
-		contextWindow = cloneStringAnyMap(contextWindow)
-	}
-	modelKey := firstNonEmptyStepString(
-		firstStringFromKeys(line, "modelKey"),
-		firstStringFromKeys(contextWindow, "modelKey"),
-		firstStringFromKeys(usage, "modelKey"),
-	)
-	if modelKey != "" {
-		contextWindow["modelKey"] = modelKey
-	}
-	reasoningEffort := firstNonEmptyStepString(
-		firstStringFromKeys(line, "reasoningEffort"),
-		firstStringFromKeys(contextWindow, "reasoningEffort"),
-		firstStringFromKeys(usage, "reasoningEffort"),
-	)
-	if reasoningEffort != "" {
-		contextWindow["reasoningEffort"] = reasoningEffort
-	}
-	return contextWindow
-}
-
-func cumulativeUsagePayload(cumulative map[string]int) map[string]any {
-	if cumulative == nil {
-		return map[string]any{"promptTokens": 0, "completionTokens": 0, "totalTokens": 0}
-	}
-	out := map[string]any{
-		"promptTokens":     cumulative["promptTokens"],
-		"completionTokens": cumulative["completionTokens"],
-		"totalTokens":      cumulative["totalTokens"],
-	}
-	addUsageDetailsToMap(out, cumulative["cachedTokens"], cumulative["reasoningTokens"], cumulative["promptCacheHitTokens"], cumulative["promptCacheMissTokens"])
-	if count := cumulative["llmChatCompletionCount"]; count > 0 {
-		out["llmChatCompletionCount"] = count
-	}
-	return out
 }
 
 func synthesizeUsageSnapshotEvent(runID, chatID string, taskID string, usage map[string]any, runCumulative, chatCumulative map[string]int, contextWindow map[string]any, ts int64, nextSeq func() int64) *stream.EventData {
@@ -96,16 +49,6 @@ func synthesizeUsageSnapshotEvent(runID, chatID string, taskID string, usage map
 		return nil
 	}
 	currentUsage := usagePayloadFromMap(usage, false)
-	if modelKey := firstStringFromKeys(currentUsage, "modelKey"); modelKey == "" {
-		if modelKey := firstStringFromKeys(contextWindow, "modelKey"); modelKey != "" {
-			currentUsage["modelKey"] = modelKey
-		}
-	}
-	if reasoningEffort := firstStringFromKeys(currentUsage, "reasoningEffort"); reasoningEffort == "" {
-		if reasoningEffort := firstStringFromKeys(contextWindow, "reasoningEffort"); reasoningEffort != "" {
-			currentUsage["reasoningEffort"] = reasoningEffort
-		}
-	}
 	payload := map[string]any{
 		"runId":  runID,
 		"chatId": chatID,
@@ -127,41 +70,18 @@ func synthesizeUsageSnapshotEvent(runID, chatID string, taskID string, usage map
 	}
 }
 
-func applyUsageModelMetadataFromContextWindow(usage map[string]any, contextWindow map[string]any) {
-	if usage == nil {
-		return
-	}
-	if firstStringFromKeys(usage, "modelKey") == "" {
-		if modelKey := firstStringFromKeys(contextWindow, "modelKey"); modelKey != "" {
-			usage["modelKey"] = modelKey
-		}
-	}
-	if firstStringFromKeys(usage, "reasoningEffort") == "" {
-		if reasoningEffort := firstStringFromKeys(contextWindow, "reasoningEffort"); reasoningEffort != "" {
-			usage["reasoningEffort"] = reasoningEffort
-		}
-	}
-}
-
 func usagePayloadFromSnapshotEvent(event stream.EventData, usage map[string]any, includeLLMChatCompletionCount bool) map[string]any {
 	out := usagePayloadFromMap(usage, includeLLMChatCompletionCount)
-	contextWindow, _ := event.Value("contextWindow").(map[string]any)
 	if _, ok := out["modelKey"]; !ok {
 		model, _ := event.Value("model").(map[string]any)
-		modelKey := firstStringFromKeys(contextWindow, "modelKey")
-		if modelKey == "" {
-			modelKey = strings.TrimSpace(stringFromAny(model["key"]))
-		}
+		modelKey := strings.TrimSpace(stringFromAny(model["key"]))
 		if modelKey != "" {
 			out["modelKey"] = modelKey
 		}
 	}
 	if _, ok := out["reasoningEffort"]; !ok {
 		model, _ := event.Value("model").(map[string]any)
-		reasoningEffort := firstStringFromKeys(contextWindow, "reasoningEffort")
-		if reasoningEffort == "" {
-			reasoningEffort = strings.TrimSpace(stringFromAny(model["reasoningEffort"]))
-		}
+		reasoningEffort := strings.TrimSpace(stringFromAny(model["reasoningEffort"]))
 		if reasoningEffort != "" {
 			out["reasoningEffort"] = reasoningEffort
 		}
@@ -183,7 +103,6 @@ func usagePayloadFromMap(usage map[string]any, includeLLMChatCompletionCount boo
 	}
 	addUsageDetailsToMap(
 		out,
-		usageCacheHitTokensFromMap(usage),
 		toNestedIntFromKeys(usage, "completionTokensDetails", "reasoningTokens"),
 		usageCacheHitTokensFromMap(usage),
 		usageCacheMissTokensFromMap(usage),
@@ -236,19 +155,15 @@ func hasLLMTokenUsagePayload(usage map[string]any) bool {
 		usageCacheMissTokensFromMap(usage) > 0
 }
 
-func addUsageDetailsToMap(out map[string]any, cachedTokens int, reasoningTokens int, promptCacheHitTokens int, promptCacheMissTokens int) {
-	cacheHitTokens := promptCacheHitTokens
-	if cacheHitTokens <= 0 {
-		cacheHitTokens = cachedTokens
-	}
+func addUsageDetailsToMap(out map[string]any, reasoningTokens int, promptCacheHitTokens int, promptCacheMissTokens int) {
 	promptDetails := map[string]any{}
-	if cacheHitTokens > 0 {
-		promptDetails["cacheHitTokens"] = cacheHitTokens
+	if promptCacheHitTokens > 0 {
+		promptDetails["cacheHitTokens"] = promptCacheHitTokens
 	}
 	if promptCacheMissTokens > 0 {
 		promptDetails["cacheMissTokens"] = promptCacheMissTokens
-	} else if promptTokens := toIntFromKeys(out, "promptTokens"); cacheHitTokens > 0 && promptTokens > cacheHitTokens {
-		promptDetails["cacheMissTokens"] = promptTokens - cacheHitTokens
+	} else if promptTokens := toIntFromKeys(out, "promptTokens"); promptCacheHitTokens > 0 && promptTokens > promptCacheHitTokens {
+		promptDetails["cacheMissTokens"] = promptTokens - promptCacheHitTokens
 	}
 	if len(promptDetails) > 0 {
 		out["promptTokensDetails"] = promptDetails
@@ -300,10 +215,7 @@ func usageCacheHitTokensFromMap(usage map[string]any) int {
 	if v := toNestedIntFromKeys(usage, "promptTokensDetails", "cacheHitTokens"); v > 0 {
 		return v
 	}
-	if v := toNestedIntFromKeys(usage, "promptTokensDetails", "cachedTokens"); v > 0 {
-		return v
-	}
-	return toIntFromKeys(usage, "promptCacheHitTokens")
+	return 0
 }
 
 func usageCacheMissTokensFromMap(usage map[string]any) int {
@@ -311,9 +223,6 @@ func usageCacheMissTokensFromMap(usage map[string]any) int {
 		return 0
 	}
 	if v := toNestedIntFromKeys(usage, "promptTokensDetails", "cacheMissTokens"); v > 0 {
-		return v
-	}
-	if v := toIntFromKeys(usage, "promptCacheMissTokens"); v > 0 {
 		return v
 	}
 	promptTokens := toIntFromKeys(usage, "promptTokens")

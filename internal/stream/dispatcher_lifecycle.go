@@ -85,7 +85,7 @@ func usageMap(usage *runUsageState) map[string]any {
 		"completionTokens": usage.CompletionTokens,
 		"totalTokens":      usage.TotalTokens,
 	}
-	addDetailedUsage(out, usage.CachedTokens, usage.ReasoningTokens, usage.PromptCacheHitTokens, usage.PromptCacheMissTokens)
+	addDetailedUsage(out, usage.ReasoningTokens, usage.PromptCacheHitTokens, usage.PromptCacheMissTokens)
 	if usage.LLMChatCompletionCount > 0 {
 		out["llmChatCompletionCount"] = usage.LLMChatCompletionCount
 	}
@@ -95,22 +95,18 @@ func usageMap(usage *runUsageState) map[string]any {
 	return out
 }
 
-func addDetailedUsage(out map[string]any, cachedTokens int, reasoningTokens int, promptCacheHitTokens int, promptCacheMissTokens int) {
+func addDetailedUsage(out map[string]any, reasoningTokens int, promptCacheHitTokens int, promptCacheMissTokens int) {
 	if out == nil {
 		return
 	}
-	cacheHitTokens := promptCacheHitTokens
-	if cacheHitTokens <= 0 {
-		cacheHitTokens = cachedTokens
-	}
 	promptDetails := map[string]any{}
-	if cacheHitTokens > 0 {
-		promptDetails["cacheHitTokens"] = cacheHitTokens
+	if promptCacheHitTokens > 0 {
+		promptDetails["cacheHitTokens"] = promptCacheHitTokens
 	}
 	if promptCacheMissTokens > 0 {
 		promptDetails["cacheMissTokens"] = promptCacheMissTokens
-	} else if promptTokens := intValue(out["promptTokens"]); cacheHitTokens > 0 && promptTokens > cacheHitTokens {
-		promptDetails["cacheMissTokens"] = promptTokens - cacheHitTokens
+	} else if promptTokens := intValue(out["promptTokens"]); promptCacheHitTokens > 0 && promptTokens > promptCacheHitTokens {
+		promptDetails["cacheMissTokens"] = promptTokens - promptCacheHitTokens
 	}
 	if len(promptDetails) > 0 {
 		out["promptTokensDetails"] = promptDetails

@@ -44,13 +44,12 @@ func TestRunEventProcessorDecoratesTerminalUsage(t *testing.T) {
 						"completionTokens": 3,
 						"totalTokens":      10,
 						"promptTokensDetails": map[string]any{
-							"cachedTokens": 5,
+							"cacheHitTokens":  5,
+							"cacheMissTokens": 2,
 						},
 						"completionTokensDetails": map[string]any{
 							"reasoningTokens": 2,
 						},
-						"promptCacheHitTokens":   5,
-						"promptCacheMissTokens":  2,
 						"llmChatCompletionCount": 1,
 						"toolCallCount":          2,
 					},
@@ -215,13 +214,12 @@ func TestRunEventProcessorDecoratesUsageSnapshotWithChatUsage(t *testing.T) {
 					"completionTokens": 3,
 					"totalTokens":      10,
 					"promptTokensDetails": map[string]any{
-						"cachedTokens": 5,
+						"cacheHitTokens":  5,
+						"cacheMissTokens": 2,
 					},
 					"completionTokensDetails": map[string]any{
 						"reasoningTokens": 2,
 					},
-					"promptCacheHitTokens":   5,
-					"promptCacheMissTokens":  2,
 					"llmChatCompletionCount": 1,
 					"toolCallCount":          2,
 				},
@@ -315,12 +313,12 @@ func TestRunEventProcessorDecoratesUsageSnapshotWithEstimatedCost(t *testing.T) 
 	data := &stream.EventData{
 		Type: "usage.snapshot",
 		Payload: map[string]any{
-			"contextWindow": map[string]any{"modelKey": "mock-model"},
 			"usage": map[string]any{
 				"current": map[string]any{
 					"promptTokens":     1_000_000,
 					"completionTokens": 1_000_000,
 					"totalTokens":      2_000_000,
+					"modelKey":         "mock-model",
 					"promptTokensDetails": map[string]any{
 						"cacheHitTokens":  200_000,
 						"cacheMissTokens": 800_000,
@@ -392,8 +390,8 @@ func TestRunEventProcessorPersistsDebugLLMChatEstimatedCostToJSONL(t *testing.T)
 		"data": map[string]any{
 			"model": map[string]any{"key": "mock-model"},
 			"contextWindow": map[string]any{
-				"maxSize":       128000,
-				"estimatedSize": 200,
+				"maxSize":               128000,
+				"estimatedNextCallSize": 200,
 			},
 			"usage": map[string]any{
 				"llmReturnUsage": map[string]any{
@@ -495,12 +493,12 @@ func TestRunEventProcessorPreservesEstimatedCostOnTerminalUsage(t *testing.T) {
 	processor.decorate(&stream.EventData{
 		Type: "usage.snapshot",
 		Payload: map[string]any{
-			"contextWindow": map[string]any{"modelKey": "mock-model"},
 			"usage": map[string]any{
 				"current": map[string]any{
 					"promptTokens":     1_000_000,
 					"completionTokens": 1_000_000,
 					"totalTokens":      2_000_000,
+					"modelKey":         "mock-model",
 				},
 				"run": map[string]any{
 					"promptTokens":     1_000_000,
@@ -601,12 +599,12 @@ func TestProxyUsageTrackerDecoratesUsageSnapshotWithEstimatedCost(t *testing.T) 
 	event := &stream.EventData{
 		Type: "usage.snapshot",
 		Payload: map[string]any{
-			"contextWindow": map[string]any{"modelKey": "mock-model"},
 			"usage": map[string]any{
 				"current": map[string]any{
 					"promptTokens":     1_000_000,
 					"completionTokens": 1_000_000,
 					"totalTokens":      2_000_000,
+					"modelKey":         "mock-model",
 					"promptTokensDetails": map[string]any{
 						"cacheHitTokens":  200_000,
 						"cacheMissTokens": 800_000,
@@ -682,12 +680,12 @@ func TestProxyEventRecorderPersistsDecoratedUsageSnapshotCost(t *testing.T) {
 		Type:      "usage.snapshot",
 		Timestamp: 4,
 		Payload: map[string]any{
-			"contextWindow": map[string]any{"modelKey": "mock-model"},
 			"usage": map[string]any{
 				"current": map[string]any{
 					"promptTokens":     1_000_000,
 					"completionTokens": 1_000_000,
 					"totalTokens":      2_000_000,
+					"modelKey":         "mock-model",
 				},
 				"run": map[string]any{
 					"promptTokens":     1_000_000,

@@ -382,15 +382,9 @@ func compactTriggerThreshold(contextWindow int) int {
 
 func compactUsageFromUsageSnapshot(d contracts.DeltaUsageSnapshot) map[string]any {
 	return compactUsageMap(
-		d.ModelKey,
-		d.ReasoningEffort,
-		d.ContextWindow,
-		d.CurrentContextSize,
-		d.EstimatedNextCallSize,
 		d.LLMReturnPromptTokens,
 		d.LLMReturnCompletionTokens,
 		d.LLMReturnTotalTokens,
-		d.LLMReturnCachedTokens,
 		d.LLMReturnReasoningTokens,
 		d.LLMReturnPromptCacheHitTokens,
 		d.LLMReturnPromptCacheMissTokens,
@@ -401,15 +395,9 @@ func compactUsageFromUsageSnapshot(d contracts.DeltaUsageSnapshot) map[string]an
 
 func compactUsageFromDebugLLMChat(d contracts.DeltaDebugLLMChat) map[string]any {
 	return compactUsageMap(
-		d.ModelKey,
-		d.ReasoningEffort,
-		d.ContextWindow,
-		d.CurrentContextSize,
-		d.EstimatedNextCallSize,
 		d.LLMReturnPromptTokens,
 		d.LLMReturnCompletionTokens,
 		d.LLMReturnTotalTokens,
-		d.LLMReturnCachedTokens,
 		d.LLMReturnReasoningTokens,
 		d.LLMReturnPromptCacheHitTokens,
 		d.LLMReturnPromptCacheMissTokens,
@@ -418,23 +406,8 @@ func compactUsageFromDebugLLMChat(d contracts.DeltaDebugLLMChat) map[string]any 
 	)
 }
 
-func compactUsageMap(modelKey string, reasoningEffort string, contextWindow int, currentContextSize int, estimatedNextCallSize int, promptTokens int, completionTokens int, totalTokens int, cachedTokens int, reasoningTokens int, promptCacheHitTokens int, promptCacheMissTokens int, llmChatCompletionCount int, toolCallCount int) map[string]any {
+func compactUsageMap(promptTokens int, completionTokens int, totalTokens int, reasoningTokens int, promptCacheHitTokens int, promptCacheMissTokens int, llmChatCompletionCount int, toolCallCount int) map[string]any {
 	usage := map[string]any{}
-	if strings.TrimSpace(modelKey) != "" {
-		usage["modelKey"] = strings.TrimSpace(modelKey)
-	}
-	if strings.TrimSpace(reasoningEffort) != "" {
-		usage["reasoningEffort"] = strings.TrimSpace(reasoningEffort)
-	}
-	if contextWindow > 0 {
-		usage["contextWindow"] = contextWindow
-	}
-	if currentContextSize > 0 {
-		usage["currentContextSize"] = currentContextSize
-	}
-	if estimatedNextCallSize > 0 {
-		usage["estimatedNextCallSize"] = estimatedNextCallSize
-	}
 	if promptTokens > 0 {
 		usage["promptTokens"] = promptTokens
 	}
@@ -444,17 +417,20 @@ func compactUsageMap(modelKey string, reasoningEffort string, contextWindow int,
 	if totalTokens > 0 {
 		usage["totalTokens"] = totalTokens
 	}
-	if cachedTokens > 0 {
-		usage["cachedTokens"] = cachedTokens
-	}
-	if reasoningTokens > 0 {
-		usage["reasoningTokens"] = reasoningTokens
-	}
+	promptDetails := map[string]any{}
 	if promptCacheHitTokens > 0 {
-		usage["promptCacheHitTokens"] = promptCacheHitTokens
+		promptDetails["cacheHitTokens"] = promptCacheHitTokens
 	}
 	if promptCacheMissTokens > 0 {
-		usage["promptCacheMissTokens"] = promptCacheMissTokens
+		promptDetails["cacheMissTokens"] = promptCacheMissTokens
+	} else if promptTokens > promptCacheHitTokens && promptCacheHitTokens > 0 {
+		promptDetails["cacheMissTokens"] = promptTokens - promptCacheHitTokens
+	}
+	if len(promptDetails) > 0 {
+		usage["promptTokensDetails"] = promptDetails
+	}
+	if reasoningTokens > 0 {
+		usage["completionTokensDetails"] = map[string]any{"reasoningTokens": reasoningTokens}
 	}
 	if llmChatCompletionCount > 0 {
 		usage["llmChatCompletionCount"] = llmChatCompletionCount

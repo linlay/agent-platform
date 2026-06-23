@@ -203,21 +203,17 @@ func TestChatUsageBreakdownPrefersCompletedRunSummaryOverReplayForSameRun(t *tes
 	}
 }
 
-func TestMapChatContextWindowIncludesModelMetadata(t *testing.T) {
+func TestMapChatContextWindowIncludesWindowSizes(t *testing.T) {
 	contextWindow := mapChatContextWindow(map[string]any{
 		"maxSize":               128000,
 		"currentSize":           100,
 		"estimatedNextCallSize": 200,
-		"modelKey":              "mock-model",
-		"reasoningEffort":       "HIGH",
 	})
 
 	if contextWindow == nil ||
 		contextWindow.MaxSize != 128000 ||
 		contextWindow.CurrentSize != 100 ||
-		contextWindow.EstimatedNextCallSize != 200 ||
-		contextWindow.ModelKey != "mock-model" ||
-		contextWindow.ReasoningEffort != "HIGH" {
+		contextWindow.EstimatedNextCallSize != 200 {
 		t.Fatalf("unexpected context window %#v", contextWindow)
 	}
 }

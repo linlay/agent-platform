@@ -1753,8 +1753,8 @@ func TestStepWriterEmbedsUsageAtStepLevel(t *testing.T) {
 		Payload: map[string]any{
 			"data": map[string]any{
 				"contextWindow": map[string]any{
-					"maxSize":       128000,
-					"estimatedSize": 200,
+					"maxSize":               128000,
+					"estimatedNextCallSize": 200,
 				},
 				"usage": map[string]any{
 					"llmReturnUsage": map[string]any{
@@ -1849,8 +1849,8 @@ func TestStepWriterPersistsSystemRefWithoutDebugPayload(t *testing.T) {
 					"provider":  map[string]any{"key": "mock"},
 					"systemRef": systemRef,
 					"contextWindow": map[string]any{
-						"maxSize":       128000,
-						"estimatedSize": 200,
+						"maxSize":               128000,
+						"estimatedNextCallSize": 200,
 					},
 					"usage": map[string]any{
 						"runUsage": map[string]any{
@@ -1929,11 +1929,9 @@ func TestStepWriterCapturesDebugLLMChatMetadata(t *testing.T) {
 				"provider":  map[string]any{"key": "mock"},
 				"systemRef": map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:llm-call"},
 				"contextWindow": map[string]any{
-					"maxSize":         128000,
-					"actualSize":      100,
-					"estimatedSize":   200,
-					"modelKey":        "mock-model",
-					"reasoningEffort": "HIGH",
+					"maxSize":               128000,
+					"currentSize":           100,
+					"estimatedNextCallSize": 200,
 				},
 				"usage": map[string]any{
 					"llmReturnUsage": map[string]any{
@@ -2016,9 +2014,9 @@ func TestStepWriterPersistsLLMChatMetadataWithoutDebugPayload(t *testing.T) {
 				"provider":  map[string]any{"key": "mock"},
 				"systemRef": map[string]any{"cacheKey": "react:main"},
 				"contextWindow": map[string]any{
-					"maxSize":       128000,
-					"actualSize":    100,
-					"estimatedSize": 200,
+					"maxSize":               128000,
+					"currentSize":           100,
+					"estimatedNextCallSize": 200,
 				},
 				"usage": map[string]any{
 					"llmReturnUsage": map[string]any{
@@ -2087,7 +2085,6 @@ func TestStepWriterPersistsUsageSnapshotWhenDebugEventsDisabled(t *testing.T) {
 				"maxSize":               128000,
 				"currentSize":           100,
 				"estimatedNextCallSize": 200,
-				"reasoningEffort":       "HIGH",
 			},
 			"usage": map[string]any{
 				"current": map[string]any{
@@ -2540,8 +2537,8 @@ func TestStepWriterPersistsTaskScopedUsageAndSlimMetadataWithoutDebugPayload(t *
 					"stream":   true,
 				},
 				"contextWindow": map[string]any{
-					"maxSize":       128000,
-					"estimatedSize": 200,
+					"maxSize":               128000,
+					"estimatedNextCallSize": 200,
 				},
 			},
 		},
@@ -2560,8 +2557,8 @@ func TestStepWriterPersistsTaskScopedUsageAndSlimMetadataWithoutDebugPayload(t *
 			"taskId": "task_1",
 			"data": map[string]any{
 				"contextWindow": map[string]any{
-					"maxSize":       128000,
-					"estimatedSize": 200,
+					"maxSize":               128000,
+					"estimatedNextCallSize": 200,
 				},
 				"usage": map[string]any{
 					"llmReturnUsage": map[string]any{
@@ -4566,8 +4563,8 @@ func TestLoadChatIgnoresQuestionAwaitingAskEventLines(t *testing.T) {
 
 	expectedTypes := []string{
 		"chat.start",
-		"run.start",
 		"request.query",
+		"run.start",
 		"request.submit",
 		"awaiting.answer",
 		"run.complete",
@@ -4647,8 +4644,8 @@ func TestLoadChatReplaysSubmitLine(t *testing.T) {
 
 	expectedTypes := []string{
 		"chat.start",
-		"run.start",
 		"request.query",
+		"run.start",
 		"request.submit",
 		"awaiting.answer",
 		"run.complete",
@@ -4754,8 +4751,8 @@ func TestLoadChatReplaysAwaitingFromStepLine(t *testing.T) {
 
 	expectedTypes := []string{
 		"chat.start",
-		"run.start",
 		"request.query",
+		"run.start",
 		"tool.snapshot",
 		"awaiting.ask",
 		"tool.result",
@@ -5133,8 +5130,8 @@ func TestLoadChatReplaysSteerLine(t *testing.T) {
 
 	expectedTypes := []string{
 		"chat.start",
-		"run.start",
 		"request.query",
+		"run.start",
 		"request.steer",
 		"run.complete",
 	}
@@ -5215,8 +5212,8 @@ func TestLoadChatReadsUsageFromStepLevel(t *testing.T) {
 
 	expectedTypes := []string{
 		"chat.start",
-		"run.start",
 		"request.query",
+		"run.start",
 		"content.snapshot",
 		"run.complete",
 	}
@@ -5229,8 +5226,7 @@ func TestLoadChatReadsUsageFromStepLevel(t *testing.T) {
 		}
 	}
 
-	if toIntValue(detail.ContextWindow["maxSize"]) != 128000 || toIntValue(detail.ContextWindow["currentSize"]) != 100 || toIntValue(detail.ContextWindow["estimatedNextCallSize"]) != 200 ||
-		detail.ContextWindow["modelKey"] != "line-model" || detail.ContextWindow["reasoningEffort"] != "HIGH" {
+	if toIntValue(detail.ContextWindow["maxSize"]) != 128000 || toIntValue(detail.ContextWindow["currentSize"]) != 100 || toIntValue(detail.ContextWindow["estimatedNextCallSize"]) != 200 {
 		t.Fatalf("unexpected detail context window %#v", detail.ContextWindow)
 	}
 

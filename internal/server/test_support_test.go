@@ -512,6 +512,18 @@ func assertPersistedEventTypes(t *testing.T, events []stream.EventData, want ...
 	}
 }
 
+func assertPersistedEventsStartWith(t *testing.T, events []stream.EventData, want ...string) {
+	t.Helper()
+	if len(events) < len(want) {
+		t.Fatalf("expected at least %d persisted events, got %#v", len(want), events)
+	}
+	for index, eventType := range want {
+		if events[index].Type != eventType {
+			t.Fatalf("persisted event %d: expected %s, got %#v", index, eventType, events[index])
+		}
+	}
+}
+
 func writeTestJWTKeyPair(t *testing.T, dir string) (*rsa.PrivateKey, string) {
 	t.Helper()
 
@@ -678,6 +690,17 @@ func assertSSEEventOrder(t *testing.T, body string, want ...string) {
 			t.Fatalf("event %d: expected %s, got %#v", idx, eventType, messages[idx])
 		}
 	}
+}
+
+func findSSEMessageByType(t *testing.T, messages []map[string]any, eventType string) map[string]any {
+	t.Helper()
+	for _, message := range messages {
+		if message["type"] == eventType {
+			return message
+		}
+	}
+	t.Fatalf("expected sse message type %s, got %#v", eventType, messages)
+	return nil
 }
 
 func assertSSEPayloadOrder(t *testing.T, body string, eventType string, parts []string) {

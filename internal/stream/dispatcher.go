@@ -128,7 +128,7 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 		if value.ReasoningEffort != "" {
 			llmReturnUsage["reasoningEffort"] = value.ReasoningEffort
 		}
-		addDetailedUsage(llmReturnUsage, value.LLMReturnCachedTokens, value.LLMReturnReasoningTokens, value.LLMReturnPromptCacheHitTokens, value.LLMReturnPromptCacheMissTokens)
+		addDetailedUsage(llmReturnUsage, value.LLMReturnReasoningTokens, value.LLMReturnPromptCacheHitTokens, value.LLMReturnPromptCacheMissTokens)
 		runUsage := map[string]any{
 			"promptTokens":           value.RunPromptTokens,
 			"completionTokens":       value.RunCompletionTokens,
@@ -136,7 +136,7 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 			"llmChatCompletionCount": value.RunLLMChatCompletionCount,
 			"toolCallCount":          value.RunToolCallCount,
 		}
-		addDetailedUsage(runUsage, value.RunCachedTokens, value.RunReasoningTokens, value.RunPromptCacheHitTokens, value.RunPromptCacheMissTokens)
+		addDetailedUsage(runUsage, value.RunReasoningTokens, value.RunPromptCacheHitTokens, value.RunPromptCacheMissTokens)
 		data := map[string]any{
 			"provider": map[string]any{
 				"key":      value.ProviderKey,
@@ -148,11 +148,9 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 				"reasoningEffort": value.ReasoningEffort,
 			},
 			"contextWindow": map[string]any{
-				"maxSize":         value.ContextWindow,
-				"actualSize":      value.CurrentContextSize,
-				"estimatedSize":   value.EstimatedNextCallSize,
-				"modelKey":        value.ModelKey,
-				"reasoningEffort": value.ReasoningEffort,
+				"maxSize":               value.ContextWindow,
+				"currentSize":           value.CurrentContextSize,
+				"estimatedNextCallSize": value.EstimatedNextCallSize,
 			},
 			"usage": map[string]any{
 				"llmReturnUsage": llmReturnUsage,
@@ -217,14 +215,6 @@ func usageSnapshotEvent(runID string, taskID string, chatID string, modelKey str
 		"maxSize":               contextWindow,
 		"currentSize":           currentContextSize,
 		"estimatedNextCallSize": estimatedNextCallSize,
-		"actualSize":            currentContextSize,
-		"estimatedSize":         estimatedNextCallSize,
-	}
-	if modelKey != "" {
-		contextWindowPayload["modelKey"] = modelKey
-	}
-	if reasoningEffort != "" {
-		contextWindowPayload["reasoningEffort"] = reasoningEffort
 	}
 	payload := map[string]any{
 		"runId":         runID,
@@ -267,6 +257,6 @@ func usageMapFromValues(promptTokens int, completionTokens int, totalTokens int,
 	if toolCallCount > 0 {
 		out["toolCallCount"] = toolCallCount
 	}
-	addDetailedUsage(out, cachedTokens, reasoningTokens, promptCacheHitTokens, promptCacheMissTokens)
+	addDetailedUsage(out, reasoningTokens, promptCacheHitTokens, promptCacheMissTokens)
 	return out
 }

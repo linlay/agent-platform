@@ -407,13 +407,12 @@ func (w *StepWriter) captureRootUsageSnapshot(event stream.EventData) {
 				return
 			}
 			w.pendingUsage = usagePayloadFromSnapshotEvent(event, current, true)
-			w.capturePendingModelMetadata(w.pendingUsage, contextWindow)
+			w.capturePendingModelMetadata(w.pendingUsage)
 		}
 	}
 	if cw := contextWindow; cw != nil {
 		w.pendingContextWindowMax = toIntFromKeys(cw, "maxSize")
 		w.pendingEstimated = toIntFromKeys(cw, "estimatedNextCallSize")
-		w.capturePendingModelMetadata(cw)
 	}
 }
 
@@ -428,29 +427,29 @@ func (w *StepWriter) captureTaskUsageSnapshot(buffer *taskStepBuffer, event stre
 				return
 			}
 			buffer.pendingUsage = usagePayloadFromSnapshotEvent(event, current, true)
-			buffer.capturePendingModelMetadata(buffer.pendingUsage, contextWindow)
+			buffer.capturePendingModelMetadata(buffer.pendingUsage)
 		}
 	}
 	if cw := contextWindow; cw != nil {
 		buffer.pendingContextWindowMax = toIntFromKeys(cw, "maxSize")
 		buffer.pendingEstimated = toIntFromKeys(cw, "estimatedNextCallSize")
-		buffer.capturePendingModelMetadata(cw)
 	}
 }
 
 func (w *StepWriter) captureRootDebugData(inner map[string]any) {
+	model, _ := inner["model"].(map[string]any)
 	if systemRef := systemRefFromDebugData(inner); len(systemRef) > 0 {
 		w.pendingSystemRef = systemRef
 	}
 	if cw, ok := inner["contextWindow"].(map[string]any); ok {
 		w.pendingContextWindowMax = toIntFromKeys(cw, "maxSize")
-		w.pendingEstimated = toIntFromKeys(cw, "estimatedSize")
-		w.capturePendingModelMetadata(cw)
+		w.pendingEstimated = toIntFromKeys(cw, "estimatedNextCallSize")
+		w.capturePendingModelMetadata(model)
 	}
 	if usage, ok := inner["usage"].(map[string]any); ok {
 		if llm, ok := usage["llmReturnUsage"].(map[string]any); ok {
 			w.pendingUsage = usagePayloadFromMap(llm, true)
-			w.capturePendingModelMetadata(w.pendingUsage, llm)
+			w.capturePendingModelMetadata(w.pendingUsage, llm, model)
 		}
 	}
 }
@@ -459,18 +458,19 @@ func (w *StepWriter) captureTaskDebugData(buffer *taskStepBuffer, inner map[stri
 	if buffer == nil {
 		return
 	}
+	model, _ := inner["model"].(map[string]any)
 	if systemRef := systemRefFromDebugData(inner); len(systemRef) > 0 {
 		buffer.pendingSystemRef = systemRef
 	}
 	if cw, ok := inner["contextWindow"].(map[string]any); ok {
 		buffer.pendingContextWindowMax = toIntFromKeys(cw, "maxSize")
-		buffer.pendingEstimated = toIntFromKeys(cw, "estimatedSize")
-		buffer.capturePendingModelMetadata(cw)
+		buffer.pendingEstimated = toIntFromKeys(cw, "estimatedNextCallSize")
+		buffer.capturePendingModelMetadata(model)
 	}
 	if usage, ok := inner["usage"].(map[string]any); ok {
 		if llm, ok := usage["llmReturnUsage"].(map[string]any); ok {
 			buffer.pendingUsage = usagePayloadFromMap(llm, true)
-			buffer.capturePendingModelMetadata(buffer.pendingUsage, llm)
+			buffer.capturePendingModelMetadata(buffer.pendingUsage, llm, model)
 		}
 	}
 }

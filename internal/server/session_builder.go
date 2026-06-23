@@ -24,17 +24,23 @@ type querySessionBuildOptions struct {
 	Principal         *Principal
 }
 
+var memoryInjectionEnabled = false
+
 func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, summary chat.Summary, agentDef catalog.AgentDefinition, options querySessionBuildOptions) (contracts.QuerySession, error) {
 	historyMessages := []map[string]any(nil)
 	if options.IncludeHistory && s.deps.Chats != nil {
 		historyMessages, _ = s.deps.Chats.LoadRawMessages(req.ChatID, s.deps.Config.ChatStorage.K)
 	}
 
+	var staticMemoryPrompt string
 	var stableMemoryContext string
 	var sessionMemoryContext string
 	var observationContext string
 	var memoryUsageSummary *api.MemoryUsageSummary
-	if options.IncludeMemory && s.memoryEnabledForAgent(agentDef) && s.deps.Memory != nil && req.Message != "" {
+	if memoryInjectionEnabled {
+		staticMemoryPrompt = strings.TrimSpace(agentDef.StaticMemoryPrompt)
+	}
+	if memoryInjectionEnabled && options.IncludeMemory && s.memoryEnabledForAgent(agentDef) && s.deps.Memory != nil && req.Message != "" {
 		topN := s.deps.Config.Memory.ContextTopN
 		if topN <= 0 {
 			topN = 5
@@ -67,7 +73,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 			stableMemoryContext = strings.TrimSpace(bundle.StablePrompt)
 			sessionMemoryContext = strings.TrimSpace(bundle.SessionPrompt)
 			observationContext = strings.TrimSpace(bundle.ObservationPrompt)
-			memoryUsageSummary = buildMemoryUsageSummary(strings.TrimSpace(agentDef.StaticMemoryPrompt), bundle)
+			memoryUsageSummary = buildMemoryUsageSummary(staticMemoryPrompt, bundle)
 		}
 	}
 
@@ -141,7 +147,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		MemoryUsageSummary:     memoryUsageSummary,
 		RuntimeContext:         runtimeContext,
 		PromptAppend:           promptAppend,
-		StaticMemoryPrompt:     strings.TrimSpace(agentDef.StaticMemoryPrompt),
+		StaticMemoryPrompt:     staticMemoryPrompt,
 		SkillCatalogPrompt:     buildSkillCatalogPrompt(agentDef, s.deps.Config.Paths.SkillsMarketDir, promptAppend),
 		SoulPrompt:             agentDef.SoulPrompt,
 		AgentsPrompt:           agentDef.AgentsPrompt,

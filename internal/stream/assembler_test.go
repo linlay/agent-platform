@@ -15,8 +15,8 @@ func TestAssemblerBootstrapAndComplete(t *testing.T) {
 	})
 
 	bootstrap := assembler.Bootstrap()
-	assertStampedTypes(t, bootstrap, "request.query", "chat.start", "run.start")
-	requestQuery := bootstrap[0].ToData()
+	assertStampedTypes(t, bootstrap, "chat.start", "request.query", "run.start")
+	requestQuery := bootstrap[1].ToData()
 	if requestQuery["agentKey"] != "agent_1" {
 		t.Fatalf("expected request.query agentKey agent_1, got %#v", requestQuery)
 	}
@@ -175,7 +175,7 @@ func TestAssemblerBootstrapOmitsEmptyQueryContext(t *testing.T) {
 	}
 }
 
-func TestAssemblerBootstrapIncludesMemoryContextWhenPresent(t *testing.T) {
+func TestAssemblerBootstrapOmitsMemoryContextWhenPresent(t *testing.T) {
 	assembler := NewAssembler(StreamRequest{
 		RequestID: "req_5",
 		RunID:     "run_5",
@@ -191,11 +191,7 @@ func TestAssemblerBootstrapIncludesMemoryContextWhenPresent(t *testing.T) {
 	})
 
 	bootstrap := assembler.Bootstrap()
-	assertStampedTypes(t, bootstrap, "request.query", "memory.context", "run.start")
-	payload := bootstrap[1].ToData()
-	if payload["stableCount"] != 2 || payload["observationCount"] != 1 {
-		t.Fatalf("unexpected memory.context payload: %#v", payload)
-	}
+	assertStampedTypes(t, bootstrap, "request.query", "run.start")
 }
 
 func TestAssemblerFailNormalizesRunError(t *testing.T) {

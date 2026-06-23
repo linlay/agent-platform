@@ -108,17 +108,14 @@ func (a *StreamEventAssembler) BootstrapWithRaw() ([]StreamEvent, []StreamEvent)
 		queryPayload["scene"] = scene
 	}
 	events := []StreamEvent{}
-	if !a.request.ContinueRun {
-		events = append(events, NewEvent("request.query", queryPayload))
-	}
-	if a.request.Created {
+	if !a.request.ContinueRun && a.request.Created {
 		events = append(events, NewEvent("chat.start", map[string]any{
 			"chatId":   a.request.ChatID,
 			"chatName": a.request.ChatName,
 		}))
 	}
-	if len(a.request.MemoryUsageSummary) > 0 {
-		events = append(events, NewEvent("memory.context", a.request.MemoryUsageSummary))
+	if !a.request.ContinueRun {
+		events = append(events, NewEvent("request.query", queryPayload))
 	}
 	events = append(events, NewEvent("run.start", map[string]any{
 		"runId":    a.request.RunID,

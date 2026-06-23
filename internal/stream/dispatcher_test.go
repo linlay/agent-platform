@@ -477,8 +477,7 @@ func TestDispatcherUsageSnapshotIncludesTaskAndDeepSeekCacheUsage(t *testing.T) 
 		t.Fatalf("did not expect top-level model, got %#v", data.Map())
 	}
 	cw, _ := data.Value("contextWindow").(map[string]any)
-	if cw["maxSize"] != 128000 || cw["currentSize"] != 100 || cw["estimatedNextCallSize"] != 200 ||
-		cw["modelKey"] != "deepseek-v4-pro" || cw["reasoningEffort"] != "HIGH" {
+	if cw["maxSize"] != 128000 || cw["currentSize"] != 100 || cw["estimatedNextCallSize"] != 200 {
 		t.Fatalf("unexpected context window %#v", cw)
 	}
 }

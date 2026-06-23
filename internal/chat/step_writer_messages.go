@@ -352,7 +352,7 @@ func cloneStepSystemPayload(value map[string]any) map[string]any {
 	return cloned
 }
 
-func buildContextWindow(usage map[string]any, maxSize int, estimatedSize int) map[string]any {
+func buildContextWindow(usage map[string]any, maxSize int, estimatedNextCallSize int) map[string]any {
 	actual := 0
 	if usage != nil {
 		actual = toIntFromKeys(usage, "promptTokens")
@@ -364,14 +364,8 @@ func buildContextWindow(usage map[string]any, maxSize int, estimatedSize int) ma
 	if actual > 0 {
 		cw["currentSize"] = actual
 	}
-	if estimatedSize > 0 {
-		cw["estimatedNextCallSize"] = estimatedSize
-	}
-	if modelKey := firstStringFromKeys(usage, "modelKey"); modelKey != "" {
-		cw["modelKey"] = modelKey
-	}
-	if reasoningEffort := firstStringFromKeys(usage, "reasoningEffort"); reasoningEffort != "" {
-		cw["reasoningEffort"] = reasoningEffort
+	if estimatedNextCallSize > 0 {
+		cw["estimatedNextCallSize"] = estimatedNextCallSize
 	}
 	if len(cw) == 0 {
 		return nil
@@ -406,13 +400,11 @@ func applyStepLineModelMetadata(line *StepLine, modelKey string, reasoningEffort
 		line.ModelKey,
 		modelKey,
 		firstStringFromKeys(line.Usage, "modelKey"),
-		firstStringFromKeys(line.ContextWindow, "modelKey"),
 	)
 	line.ReasoningEffort = firstNonEmptyStepString(
 		line.ReasoningEffort,
 		reasoningEffort,
 		firstStringFromKeys(line.Usage, "reasoningEffort"),
-		firstStringFromKeys(line.ContextWindow, "reasoningEffort"),
 	)
 	stripStepModelMetadata(line.Usage)
 	stripStepModelMetadata(line.ContextWindow)

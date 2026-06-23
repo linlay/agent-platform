@@ -223,7 +223,6 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 			}
 			stepUsage, _ := line["usage"].(map[string]any)
 			stepContextWindow, _ := line["contextWindow"].(map[string]any)
-			stepContextWindow = contextWindowWithStepModel(line, stepContextWindow, stepUsage)
 			if cw := synthesizedUsageSnapshotContextWindow(stepContextWindow); len(cw) > 0 {
 				latestContextWindow = cw
 			}
@@ -393,7 +392,7 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 		runStartTimestamp := int64(0)
 		runCompleteTimestamp := int64(0)
 		if len(rd.events) > 0 {
-			runStartTimestamp = rd.events[0].Timestamp
+			runStartTimestamp = replayRunStartTimestamp(rd.events)
 			runCompleteTimestamp = rd.events[len(rd.events)-1].Timestamp
 		}
 		for _, ev := range rd.events {
@@ -403,12 +402,13 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 			}
 		}
 		if !hasRunStart && runID != "" {
-			allEvents = append(allEvents, stream.EventData{
+			runStart := stream.EventData{
 				Seq:       nextSeq(),
 				Type:      "run.start",
 				Timestamp: runStartTimestamp,
 				Payload:   map[string]any{"runId": runID, "chatId": summary.ChatID, "agentKey": summary.AgentKey},
-			})
+			}
+			rd.events = insertReplayRunStart(rd.events, runStart)
 		}
 		allEvents = append(allEvents, rd.events...)
 		// Synthesize run.complete for the frontend (not persisted in JSONL).
@@ -459,6 +459,35 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 		Planning: planning,
 		Artifact: artifact,
 	}, nil
+}
+
+func replayRunStartTimestamp(events []stream.EventData) int64 {
+	if len(events) == 0 {
+		return 0
+	}
+	for _, event := range events {
+		if event.Type == "request.query" && strings.TrimSpace(event.String("taskId")) == "" {
+			return event.Timestamp
+		}
+	}
+	return events[0].Timestamp
+}
+
+func insertReplayRunStart(events []stream.EventData, runStart stream.EventData) []stream.EventData {
+	for index, event := range events {
+		if event.Type != "request.query" || strings.TrimSpace(event.String("taskId")) != "" {
+			continue
+		}
+		out := make([]stream.EventData, 0, len(events)+1)
+		out = append(out, events[:index+1]...)
+		out = append(out, runStart)
+		out = append(out, events[index+1:]...)
+		return out
+	}
+	out := make([]stream.EventData, 0, len(events)+1)
+	out = append(out, runStart)
+	out = append(out, events...)
+	return out
 }
 
 func latestReplayRunUsage(runs map[string]*chatRunData, runOrder []string) (string, UsageData) {

@@ -207,13 +207,11 @@ func mapChatContextWindow(contextWindow map[string]any) *api.ChatContextWindow {
 		return nil
 	}
 	out := api.ChatContextWindow{
-		ModelKey:              strings.TrimSpace(contracts.AnyStringNode(contextWindow["modelKey"])),
-		ReasoningEffort:       strings.TrimSpace(contracts.AnyStringNode(contextWindow["reasoningEffort"])),
 		MaxSize:               contracts.AnyIntNode(contextWindow["maxSize"]),
 		CurrentSize:           contracts.AnyIntNode(contextWindow["currentSize"]),
 		EstimatedNextCallSize: contracts.AnyIntNode(contextWindow["estimatedNextCallSize"]),
 	}
-	if out.MaxSize == 0 && out.CurrentSize == 0 && out.EstimatedNextCallSize == 0 && out.ModelKey == "" && out.ReasoningEffort == "" {
+	if out.MaxSize == 0 && out.CurrentSize == 0 && out.EstimatedNextCallSize == 0 {
 		return nil
 	}
 	return &out
@@ -282,12 +280,9 @@ func usageCacheTokensFromMap(usage map[string]any) (int, int) {
 	details, _ := usage["promptTokensDetails"].(map[string]any)
 	cacheHitTokens := firstPositiveInt(
 		contracts.AnyIntNode(details["cacheHitTokens"]),
-		contracts.AnyIntNode(details["cachedTokens"]),
-		contracts.AnyIntNode(usage["promptCacheHitTokens"]),
 	)
 	cacheMissTokens := firstPositiveInt(
 		contracts.AnyIntNode(details["cacheMissTokens"]),
-		contracts.AnyIntNode(usage["promptCacheMissTokens"]),
 	)
 	promptTokens := contracts.AnyIntNode(usage["promptTokens"])
 	return normalizeUsageCacheTokens(promptTokens, cacheHitTokens, cacheMissTokens)

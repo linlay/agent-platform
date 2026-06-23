@@ -93,6 +93,33 @@ func TestUploadAndResourceRoundTrip(t *testing.T) {
 	}
 }
 
+func TestQueryAfterUploadDoesNotEmitChatStartInLiveStream(t *testing.T) {
+	fixture := newTestFixture(t)
+	server := fixture.server
+	upload := postTestUpload(t, server, "", "req_upload_before_query", "notes.txt", "hello world")
+
+	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"`+upload.ChatID+`","message":"summarize the upload","agentKey":"mock-agent"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	server.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200 query, got %d: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if strings.Contains(body, `"type":"chat.start"`) {
+		t.Fatalf("did not expect chat.start in query live stream after upload-created chat, got %s", body)
+	}
+	assertSSEEventOrder(t, body, "request.query", "run.start")
+
+	chatRec := httptest.NewRecorder()
+	server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+upload.ChatID, nil))
+	var detail api.ApiResponse[api.ChatDetailResponse]
+	if err := json.Unmarshal(chatRec.Body.Bytes(), &detail); err != nil {
+		t.Fatalf("decode chat detail: %v", err)
+	}
+	assertPersistedEventsStartWith(t, detail.Data.Events, "chat.start", "request.query", "run.start")
+}
+
 func TestToolResultEndpointServesHiddenResultAndResourceRejectsIt(t *testing.T) {
 	fixture := newTestFixture(t)
 	server := fixture.server
