@@ -270,9 +270,6 @@ func newTestFixtureWithModelHandlerAndOptions(t *testing.T, modelHandler http.Ha
 		Auth: config.AuthConfig{
 			Enabled: false,
 		},
-		Stream: config.StreamConfig{
-			IncludeToolPayloadEvents: true,
-		},
 		Defaults: config.DefaultsConfig{
 			React: config.ReactDefaultsConfig{MaxSteps: 6},
 		},

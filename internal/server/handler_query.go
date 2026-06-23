@@ -129,7 +129,6 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 		Registry:           s.deps.Registry,
 		Assembler:          assembler,
 		Mapper:             mapper,
-		Stream:             s.deps.Config.Stream,
 		Billing:            s.deps.Config.Billing,
 		StepWriter:         stepWriter,
 		EventBus:           eventBus,
@@ -645,7 +644,6 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 	processor := &runEventProcessor{
 		assistantText: &assistantText,
 		stepWriter:    chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode),
-		stream:        s.deps.Config.Stream,
 		billing:       s.deps.Config.Billing,
 		models:        s.deps.Models,
 		chatUsage:     chatUsage,

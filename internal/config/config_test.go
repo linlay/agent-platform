@@ -47,9 +47,6 @@ func TestLoadDefaults(t *testing.T) {
 			if cfg.Billing.Currency != "CNY" {
 				t.Fatalf("expected default billing currency CNY, got %q", cfg.Billing.Currency)
 			}
-			if !cfg.Stream.IncludeToolPayloadEvents {
-				t.Fatalf("expected stream tool payload events enabled by default")
-			}
 			if cfg.SSE.HeartbeatInterval != 30 {
 				t.Fatalf("expected default heartbeat interval 30, got %d", cfg.SSE.HeartbeatInterval)
 			}
@@ -174,6 +171,8 @@ func TestContainerHubPublicTemplatesExposeRuntimeDefaults(t *testing.T) {
 		"AP_CONTAINER_HUB_DEFAULT_SANDBOX_LEVEL",
 		"AP_CONTAINER_HUB_AGENT_IDLE_TIMEOUT",
 		"AP_CONTAINER_HUB_DESTROY_QUEUE_DELAY",
+		"AP_STREAM_INCLUDE_TOOL_PAYLOAD_EVENTS",
+		"STREAM_INCLUDE_TOOL_PAYLOAD_EVENTS",
 	} {
 		if strings.Contains(envExample, forbidden) {
 			t.Fatalf("expected env example not to contain %q", forbidden)
@@ -1234,7 +1233,6 @@ func TestLoadAcceptsJavaEnvContract(t *testing.T) {
 		"AUTH_ENABLED":                            "false",
 		"CHAT_RESOURCE_TICKET_SECRET":             "secret",
 		"CHAT_RESOURCE_TICKET_TTL_SECONDS":        "300",
-		"STREAM_INCLUDE_TOOL_PAYLOAD_EVENTS":      "true",
 		"AGENT_H2A_RENDER_FLUSH_INTERVAL":         "25",
 		"AGENT_H2A_RENDER_MAX_BUFFERED_CHARS":     "256",
 		"AGENT_H2A_RENDER_MAX_BUFFERED_EVENTS":    "3",
@@ -1260,9 +1258,6 @@ func TestLoadAcceptsJavaEnvContract(t *testing.T) {
 		}
 		if cfg.ResourceTicket.TTLSeconds != 300 {
 			t.Fatalf("unexpected resource ticket ttl: %d", cfg.ResourceTicket.TTLSeconds)
-		}
-		if !cfg.Stream.IncludeToolPayloadEvents {
-			t.Fatalf("expected stream tool payload flag enabled")
 		}
 		if cfg.SSE.HeartbeatInterval != 30 {
 			t.Fatalf("unexpected heartbeat interval: %d", cfg.SSE.HeartbeatInterval)
@@ -1310,7 +1305,6 @@ func TestLoadAcceptsAPPrefixedEnvContract(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"AP_CHAT_RESOURCE_TICKET_SECRET":          "ap-secret",
 		"AP_CHAT_RESOURCE_TICKET_TTL_SECONDS":     "301",
-		"AP_STREAM_INCLUDE_TOOL_PAYLOAD_EVENTS":   "true",
 		"AP_DEBUG_LLM_CONSOLE":                    "raw,parsed",
 		"AP_DEBUG_LLM_CHAT_RECORD":                "true",
 		"AP_CONTAINER_HUB_BASE_URL":               "http://ap-hub",
@@ -1330,9 +1324,6 @@ func TestLoadAcceptsAPPrefixedEnvContract(t *testing.T) {
 		}
 		if cfg.ResourceTicket.TTLSeconds != 301 {
 			t.Fatalf("unexpected resource ticket ttl: %d", cfg.ResourceTicket.TTLSeconds)
-		}
-		if !cfg.Stream.IncludeToolPayloadEvents {
-			t.Fatalf("expected stream tool payload flag enabled")
 		}
 		if got := strings.Join(cfg.Logging.LLMInteraction.ConsoleCategories, ","); got != "raw,parsed" {
 			t.Fatalf("unexpected llm console categories: %q", got)
@@ -1358,7 +1349,6 @@ func TestLoadAPPrefixedEnvOverridesLegacyEnv(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"AP_CHAT_RESOURCE_TICKET_SECRET":          "ap-secret",
 		"AP_CHAT_RESOURCE_TICKET_TTL_SECONDS":     "301",
-		"AP_STREAM_INCLUDE_TOOL_PAYLOAD_EVENTS":   "true",
 		"AP_DEBUG_LLM_CONSOLE":                    "raw,parsed",
 		"AP_DEBUG_LLM_CHAT_RECORD":                "true",
 		"AP_CONTAINER_HUB_BASE_URL":               "http://ap-hub",
@@ -1370,7 +1360,6 @@ func TestLoadAPPrefixedEnvOverridesLegacyEnv(t *testing.T) {
 		"AP_CONTAINER_HUB_DESTROY_QUEUE_DELAY":    "304",
 		"CHAT_RESOURCE_TICKET_SECRET":             "legacy-secret",
 		"CHAT_RESOURCE_TICKET_TTL_SECONDS":        "401",
-		"STREAM_INCLUDE_TOOL_PAYLOAD_EVENTS":      "false",
 		"DEBUG_LLM_CONSOLE":                       "none",
 		"DEBUG_LLM_CHAT_RECORD":                   "false",
 		"CONTAINER_HUB_BASE_URL":                  "http://legacy-hub",
@@ -1387,9 +1376,6 @@ func TestLoadAPPrefixedEnvOverridesLegacyEnv(t *testing.T) {
 		}
 		if cfg.ResourceTicket.Secret != "ap-secret" || cfg.ResourceTicket.TTLSeconds != 301 {
 			t.Fatalf("expected AP resource ticket env to win, got %#v", cfg.ResourceTicket)
-		}
-		if !cfg.Stream.IncludeToolPayloadEvents {
-			t.Fatalf("expected AP stream tool payload flag to win")
 		}
 		if got := strings.Join(cfg.Logging.LLMInteraction.ConsoleCategories, ","); got != "raw,parsed" {
 			t.Fatalf("expected AP llm console categories to win, got %q", got)
@@ -2160,8 +2146,6 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 		"AP_CHAT_RESOURCE_TICKET_TTL_SECONDS",
 		"CHAT_RESOURCE_TICKET_SECRET",
 		"CHAT_RESOURCE_TICKET_TTL_SECONDS",
-		"AP_STREAM_INCLUDE_TOOL_PAYLOAD_EVENTS",
-		"STREAM_INCLUDE_TOOL_PAYLOAD_EVENTS",
 		"AGENT_H2A_RENDER_FLUSH_INTERVAL_MS",
 		"AGENT_H2A_RENDER_MAX_BUFFERED_CHARS",
 		"AGENT_H2A_RENDER_MAX_BUFFERED_EVENTS",

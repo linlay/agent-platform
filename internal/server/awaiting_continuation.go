@@ -111,7 +111,6 @@ func (s *Server) startAwaitingContinuation(deferred DeferredAwaiting, submitReq 
 		Registry:           s.deps.Registry,
 		Assembler:          assembler,
 		Mapper:             mapper,
-		Stream:             s.deps.Config.Stream,
 		Billing:            s.deps.Config.Billing,
 		StepWriter:         stepWriter,
 		EventBus:           eventBus,

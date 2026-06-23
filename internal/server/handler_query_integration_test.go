@@ -19,7 +19,6 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/config"
-	"agent-platform/internal/llm"
 	"agent-platform/internal/stream"
 )
 
@@ -2300,7 +2299,7 @@ func detailEventTypeCountForServerTest(events []stream.EventData, eventType stri
 	return count
 }
 
-func TestQueryPersistsToolSnapshotWhenStreamToolPayloadEventsDisabled(t *testing.T) {
+func TestQueryStreamsToolPayloadEventsAndPersistsToolSnapshot(t *testing.T) {
 	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
 		var payload map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -2324,36 +2323,16 @@ func TestQueryPersistsToolSnapshotWhenStreamToolPayloadEventsDisabled(t *testing
 			return
 		}
 		writeProviderSSE(t, w,
-			`{"choices":[{"delta":{"content":"payload hidden"}}]}`,
+			`{"choices":[{"delta":{"content":"payload visible"}}]}`,
 			`{"choices":[{"delta":{"content":" from sse"},"finish_reason":"stop"}]}`,
 			`[DONE]`,
 		)
 	})
-	fixture.cfg.Stream.IncludeToolPayloadEvents = false
-	server, err := New(Dependencies{
-		Config:          fixture.cfg,
-		Chats:           fixture.chats,
-		Memory:          fixture.memories,
-		Registry:        fixture.registry,
-		Models:          nil,
-		Runs:            fixture.runs,
-		Agent:           fixture.agent,
-		Tools:           fixture.tools,
-		DeltaMappers:    llm.DeltaMapperFactory{Frontend: fixture.frontend},
-		SystemInits:     llm.SystemInitProfileBuilder{},
-		Sandbox:         fixture.sandbox,
-		MCP:             fixture.mcp,
-		Viewport:        fixture.viewport,
-		CatalogReloader: fixture.catalogReloader,
-	})
-	if err != nil {
-		t.Fatalf("new server: %v", err)
-	}
 
 	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"message":"现在几点？"}`))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
-	server.ServeHTTP(rec, req)
+	fixture.server.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -2365,12 +2344,12 @@ func TestQueryPersistsToolSnapshotWhenStreamToolPayloadEventsDisabled(t *testing
 	if !strings.Contains(body, `"type":"tool.start"`) || !strings.Contains(body, `"type":"tool.end"`) {
 		t.Fatalf("expected tool lifecycle to remain in stream, got %s", body)
 	}
-	if strings.Contains(body, `"type":"tool.args"`) || strings.Contains(body, `"type":"tool.result"`) {
-		t.Fatalf("expected live stream to exclude tool payload events, got %s", body)
+	if !strings.Contains(body, `"type":"tool.args"`) || !strings.Contains(body, `"type":"tool.result"`) {
+		t.Fatalf("expected live stream to include tool payload events, got %s", body)
 	}
 
 	chatsRec := httptest.NewRecorder()
-	server.ServeHTTP(chatsRec, httptest.NewRequest(http.MethodGet, "/api/chats", nil))
+	fixture.server.ServeHTTP(chatsRec, httptest.NewRequest(http.MethodGet, "/api/chats", nil))
 	var chatsResp api.ApiResponse[[]api.ChatSummaryResponse]
 	if err := json.Unmarshal(chatsRec.Body.Bytes(), &chatsResp); err != nil {
 		t.Fatalf("decode chats response: %v", err)
@@ -2380,7 +2359,7 @@ func TestQueryPersistsToolSnapshotWhenStreamToolPayloadEventsDisabled(t *testing
 	}
 
 	chatRec := httptest.NewRecorder()
-	server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatsResp.Data[0].ChatID, nil))
+	fixture.server.ServeHTTP(chatRec, httptest.NewRequest(http.MethodGet, "/api/chat?chatId="+chatsResp.Data[0].ChatID, nil))
 	var chatResp api.ApiResponse[api.ChatDetailResponse]
 	if err := json.Unmarshal(chatRec.Body.Bytes(), &chatResp); err != nil {
 		t.Fatalf("decode chat detail: %v", err)

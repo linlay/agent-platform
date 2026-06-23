@@ -24,7 +24,6 @@ type Config struct {
 	Billing         BillingConfig
 	Memory          MemoryConfig
 	Defaults        DefaultsConfig
-	Stream          StreamConfig
 	SSE             SSEConfig
 	H2A             H2AConfig
 	I18N            I18NConfig
@@ -241,10 +240,6 @@ type ReactDefaultsConfig struct {
 type PlanExecuteDefaultsConfig struct {
 	MaxSteps             int
 	MaxWorkRoundsPerTask int
-}
-
-type StreamConfig struct {
-	IncludeToolPayloadEvents bool
 }
 
 type SSEConfig struct {

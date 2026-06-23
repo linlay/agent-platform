@@ -97,9 +97,6 @@ func defaultConfig(options LoadOptions) Config {
 				MaxWorkRoundsPerTask: 6,
 			},
 		},
-		Stream: StreamConfig{
-			IncludeToolPayloadEvents: true,
-		},
 		SSE: SSEConfig{
 			HeartbeatInterval: 30, // seconds
 		},

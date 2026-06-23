@@ -103,7 +103,6 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 		Registry:           s.deps.Registry,
 		Assembler:          assembler,
 		Mapper:             mapper,
-		Stream:             s.deps.Config.Stream,
 		Billing:            s.deps.Config.Billing,
 		StepWriter:         stepWriter,
 		EventBus:           eventBus,

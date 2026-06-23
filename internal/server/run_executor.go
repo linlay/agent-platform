@@ -26,7 +26,6 @@ type RunExecutorParams struct {
 	Registry           catalog.Registry
 	Assembler          *stream.StreamEventAssembler
 	Mapper             contracts.StreamDeltaMapper
-	Stream             config.StreamConfig
 	Billing            config.BillingConfig
 	StepWriter         *chat.StepWriter
 	EventBus           *stream.RunEventBus
@@ -47,7 +46,6 @@ type RunExecutorParams struct {
 type runEventProcessor struct {
 	assistantText *strings.Builder
 	stepWriter    *chat.StepWriter
-	stream        config.StreamConfig
 	billing       config.BillingConfig
 	models        *models.ModelRegistry
 	chatUsage     chat.UsageData
@@ -67,7 +65,7 @@ func (p *runEventProcessor) Consume(event stream.StreamEvent) (stream.EventData,
 	if p.stepWriter != nil {
 		p.stepWriter.OnEvent(data)
 	}
-	return data, isClientVisibleEvent(event.Type, p.stream)
+	return data, isClientVisibleEvent(event.Type)
 }
 
 func (p *runEventProcessor) decorate(data *stream.EventData) {
@@ -425,15 +423,12 @@ func usageHasData(usage chat.UsageData) bool {
 		usage.EstimatedCostTotal > 0 || strings.TrimSpace(usage.EstimatedCostCurrency) != ""
 }
 
-func isClientVisibleEvent(eventType string, streamCfg config.StreamConfig) bool {
+func isClientVisibleEvent(eventType string) bool {
 	if eventType == "llm.request" {
 		return false
 	}
 	if eventType == "debug.llmChat" {
 		return true
-	}
-	if (eventType == "tool.args" || eventType == "tool.result") && !streamCfg.IncludeToolPayloadEvents {
-		return false
 	}
 	if eventType == "usage.snapshot" {
 		return true
@@ -481,7 +476,6 @@ func runExecutor(params RunExecutorParams) {
 	processor := &runEventProcessor{
 		assistantText: &assistantText,
 		stepWriter:    params.StepWriter,
-		stream:        params.Stream,
 		billing:       params.Billing,
 		models:        params.Models,
 		chatUsage:     chatUsage,
@@ -509,7 +503,7 @@ func runExecutor(params RunExecutorParams) {
 				data, _ = processor.Consume(event)
 				handleAwaitingLifecycle(params, data, tracker)
 			}
-			if isClientVisibleEvent(data.Type, params.Stream) && params.EventBus != nil {
+			if isClientVisibleEvent(data.Type) && params.EventBus != nil {
 				params.EventBus.Publish(data)
 			}
 		}
