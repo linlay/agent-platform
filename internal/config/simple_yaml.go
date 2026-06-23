@@ -17,17 +17,22 @@ func ProjectFile(relative string) string {
 }
 
 func ConfigFile(relative string) string {
-	return filepath.Join(configRoot(), filepath.Clean(relative))
+	return configFile("", relative)
 }
 
-func configRoot() string {
-	if configured := strings.TrimSpace(os.Getenv("SERVICE_CONFIG_DIR")); configured != "" {
-		if abs, err := filepath.Abs(configured); err == nil {
-			return abs
-		}
-		return filepath.Clean(configured)
+func configFile(root string, relative string) string {
+	return filepath.Join(resolveConfigRoot(root), filepath.Clean(relative))
+}
+
+func resolveConfigRoot(root string) string {
+	configured := strings.TrimSpace(root)
+	if configured == "" {
+		return projectRoot()
 	}
-	return projectRoot()
+	if abs, err := filepath.Abs(configured); err == nil {
+		return abs
+	}
+	return filepath.Clean(configured)
 }
 
 func projectRoot() string {

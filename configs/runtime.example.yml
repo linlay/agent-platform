@@ -1,5 +1,8 @@
 # Runtime integration config. Copy to configs/runtime.yml to customize locally.
 
+server:
+  port: 11949
+
 budget:
   # 单次 run 总耗时上限：一条用户消息触发的 agent 执行，从开始到最终回答结束。
   timeout: 3600

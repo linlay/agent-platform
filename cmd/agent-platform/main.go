@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -28,11 +30,16 @@ func main() {
 	startedAt := time.Now()
 	log.Printf("starting runtime: pid=%d", os.Getpid())
 
+	configOptions, err := parseConfigOptions(os.Args[1:])
+	if err != nil {
+		log.Fatalf("startup failed: %v", err)
+	}
+
 	rootCtx, cancelRoot := context.WithCancel(context.Background())
 	defer cancelRoot()
 
 	appInitStartedAt := time.Now()
-	application, err := app.New(rootCtx)
+	application, err := app.New(rootCtx, configOptions)
 	if err != nil {
 		log.Fatalf("startup failed during app init after %s: %v", startupElapsed(appInitStartedAt), err)
 	}
@@ -74,6 +81,22 @@ func main() {
 		log.Printf("shutdown: %v", err)
 	}
 	log.Printf("shutdown complete in %s", startupElapsed(shutdownStartedAt))
+}
+
+func parseConfigOptions(args []string) (config.LoadOptions, error) {
+	fs := flag.NewFlagSet("agent-platform", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	options := config.LoadOptions{}
+	fs.StringVar(&options.ConfigDir, "config-dir", "", "configuration root containing .env and configs/")
+	fs.StringVar(&options.RuntimeDir, "runtime-dir", "", "runtime data root")
+	fs.StringVar(&options.Port, "port", "", "server listen port")
+	if err := fs.Parse(args); err != nil {
+		return config.LoadOptions{}, err
+	}
+	if remaining := fs.Args(); len(remaining) > 0 {
+		return config.LoadOptions{}, fmt.Errorf("unexpected argument(s): %s", strings.Join(remaining, " "))
+	}
+	return options, nil
 }
 
 func startupElapsed(startedAt time.Time) time.Duration {

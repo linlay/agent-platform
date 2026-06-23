@@ -5,15 +5,18 @@ $Script:BundleRoot = Split-Path -Parent $Script:ProgramCommonDir
 $Script:AppName = 'agent-platform'
 $Script:ManifestFile = Join-Path $Script:BundleRoot 'manifest.json'
 $Script:EnvExampleFile = Join-Path $Script:BundleRoot '.env.example'
-$Script:EnvFile = Join-Path $(if ($env:SERVICE_CONFIG_DIR) { $env:SERVICE_CONFIG_DIR } else { $Script:BundleRoot }) '.env'
+$Script:ConfigRoot = $Script:BundleRoot
+$Script:EnvFile = Join-Path $Script:ConfigRoot '.env'
 $Script:BackendBin = Join-Path (Join-Path $Script:BundleRoot 'backend') 'agent-platform.exe'
-$Script:ConfigDir = Join-Path $(if ($env:SERVICE_CONFIG_DIR) { $env:SERVICE_CONFIG_DIR } else { $Script:BundleRoot }) 'configs'
-$Script:RuntimeRoot = if ($env:SERVICE_DATA_DIR) { $env:SERVICE_DATA_DIR } else { Join-Path $Script:BundleRoot 'runtime' }
-$Script:RunDir = if ($env:SERVICE_STATE_DIR) { $env:SERVICE_STATE_DIR } else { Join-Path $Script:BundleRoot 'run' }
-$Script:LogDir = if ($env:SERVICE_LOG_DIR) { $env:SERVICE_LOG_DIR } else { $Script:RunDir }
+$Script:ConfigDir = Join-Path $Script:ConfigRoot 'configs'
+$Script:RuntimeRoot = Join-Path $Script:BundleRoot 'runtime'
+$Script:RuntimeRootExplicit = $false
+$Script:RunDir = Join-Path $Script:BundleRoot 'run'
+$Script:LogDir = $Script:RunDir
 $Script:PidFile = Join-Path $Script:RunDir 'agent-platform.pid'
 $Script:LogFile = Join-Path $Script:LogDir 'agent-platform.log'
 $Script:ErrorLogFile = Join-Path $Script:LogDir 'agent-platform.stderr.log'
+$Script:ProgramPort = ''
 
 function Fail-Program([string]$Message) {
   throw "[program] $Message"
@@ -28,6 +31,43 @@ function Test-ProgramBundle {
   }
   if (-not (Test-Path -LiteralPath $Script:BackendBin -PathType Leaf)) {
     Fail-Program "required file not found: $Script:BackendBin"
+  }
+}
+
+function Update-ProgramPaths {
+  $Script:EnvFile = Join-Path $Script:ConfigRoot '.env'
+  $Script:ConfigDir = Join-Path $Script:ConfigRoot 'configs'
+  $Script:PidFile = Join-Path $Script:RunDir 'agent-platform.pid'
+  $Script:LogFile = Join-Path $Script:LogDir 'agent-platform.log'
+  $Script:ErrorLogFile = Join-Path $Script:LogDir 'agent-platform.stderr.log'
+}
+
+function Set-ProgramLayoutOption([string]$Name, [string]$Value) {
+  switch ($Name) {
+    '--config-dir' { $Script:ConfigRoot = $Value }
+    '--runtime-dir' {
+      $Script:RuntimeRoot = $Value
+      $Script:RuntimeRootExplicit = $true
+    }
+    '--state-dir' { $Script:RunDir = $Value }
+    '--log-dir' { $Script:LogDir = $Value }
+    '--port' { $Script:ProgramPort = $Value }
+    default { Fail-Program "unsupported argument: $Name" }
+  }
+  Update-ProgramPaths
+}
+
+function Set-ProgramLayoutArgs([string[]]$Arguments) {
+  for ($i = 0; $i -lt $Arguments.Length; $i++) {
+    $name = $Arguments[$i]
+    if (@('--config-dir', '--runtime-dir', '--state-dir', '--log-dir', '--port') -notcontains $name) {
+      Fail-Program "unsupported argument: $name"
+    }
+    if ($i + 1 -ge $Arguments.Length) {
+      Fail-Program "missing value for $name"
+    }
+    $i += 1
+    Set-ProgramLayoutOption $name $Arguments[$i]
   }
 }
 
@@ -87,7 +127,25 @@ function Set-ProgramServerPortEnv {
   }
 }
 
+function Resolve-ProgramRuntimePath {
+  param([string]$Value)
+  $trimmed = $Value.Trim()
+  if ($trimmed -eq '~') { return $HOME }
+  if ($trimmed.StartsWith('~/') -or $trimmed.StartsWith('~\')) {
+    return (Join-Path $HOME $trimmed.Substring(2))
+  }
+  if ([System.IO.Path]::IsPathRooted($trimmed)) { return $trimmed }
+  return (Join-Path $Script:BundleRoot $trimmed)
+}
+
+function Resolve-ProgramRuntimeRoot {
+  if (-not $Script:RuntimeRootExplicit -and $env:RUNTIME_DIR) {
+    $Script:RuntimeRoot = Resolve-ProgramRuntimePath $env:RUNTIME_DIR
+  }
+}
+
 function Initialize-ProgramRuntime {
+  Resolve-ProgramRuntimeRoot
   New-Item -ItemType Directory -Force -Path `
     $Script:RunDir, `
     $Script:LogDir, `
@@ -145,7 +203,11 @@ function Start-ProgramBackend {
       New-Item -ItemType File -Path $Script:ErrorLogFile -Force | Out-Null
     }
 
-    $proc = Start-Process -FilePath $Script:BackendBin -WorkingDirectory $Script:BundleRoot -WindowStyle Hidden -RedirectStandardOutput $Script:LogFile -RedirectStandardError $Script:ErrorLogFile -PassThru
+    $backendArgs = @('--config-dir', $Script:ConfigRoot, '--runtime-dir', $Script:RuntimeRoot)
+    if (-not [string]::IsNullOrWhiteSpace($Script:ProgramPort)) {
+      $backendArgs += @('--port', $Script:ProgramPort)
+    }
+    $proc = Start-Process -FilePath $Script:BackendBin -ArgumentList $backendArgs -WorkingDirectory $Script:BundleRoot -WindowStyle Hidden -RedirectStandardOutput $Script:LogFile -RedirectStandardError $Script:ErrorLogFile -PassThru
     $proc.Id | Set-Content -LiteralPath $Script:PidFile
     Start-Sleep -Seconds 1
     if ($proc.HasExited) {
@@ -158,7 +220,11 @@ function Start-ProgramBackend {
     return
   }
 
-  & $Script:BackendBin
+  $backendArgs = @('--config-dir', $Script:ConfigRoot, '--runtime-dir', $Script:RuntimeRoot)
+  if (-not [string]::IsNullOrWhiteSpace($Script:ProgramPort)) {
+    $backendArgs += @('--port', $Script:ProgramPort)
+  }
+  & $Script:BackendBin @backendArgs
 }
 
 function Stop-ProgramBackend {

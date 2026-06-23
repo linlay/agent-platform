@@ -6,12 +6,23 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/scripts/program-common.sh"
 
 main() {
-  local mode="${1:-}"
-  if [[ -n "$mode" && "$mode" != "--daemon" ]]; then
-    program_die "unsupported argument: $mode"
-  fi
+  local mode=""
+  local layout_args=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --daemon)
+        mode="--daemon"
+        shift
+        ;;
+      *)
+        layout_args+=("$1")
+        shift
+        ;;
+    esac
+  done
 
   cd "$SCRIPT_DIR"
+  program_apply_layout_flags "${layout_args[@]}"
   program_validate_bundle
   program_load_env
   program_apply_server_port_env

@@ -10,10 +10,10 @@ import (
 	"agent-platform/internal/i18n"
 )
 
-func defaultConfig() Config {
-	runtimeRoot := strings.TrimSpace(os.Getenv("RUNTIME_DIR"))
+func defaultConfig(options LoadOptions) Config {
+	runtimeRoot := strings.TrimSpace(options.RuntimeDir)
 	if runtimeRoot == "" {
-		runtimeRoot = strings.TrimSpace(os.Getenv("SERVICE_DATA_DIR"))
+		runtimeRoot = strings.TrimSpace(os.Getenv("RUNTIME_DIR"))
 	}
 	if runtimeRoot == "" {
 		runtimeRoot = "runtime"
@@ -292,7 +292,7 @@ func defaultAccessPolicyConfig() AccessPolicyConfig {
 	}
 }
 
-func (c *Config) normalize() error {
+func (c *Config) normalize(configRoot string) error {
 	c.Paths.RegistriesDir = filepath.Clean(c.Paths.RegistriesDir)
 	c.Paths.ToolsDir = filepath.Clean(c.Paths.ToolsDir)
 	c.Paths.OwnerDir = filepath.Clean(c.Paths.OwnerDir)
@@ -317,7 +317,7 @@ func (c *Config) normalize() error {
 		c.Logging.Memory.File = filepath.Clean(c.Logging.Memory.File)
 	}
 
-	c.Auth.LocalPublicKeyFile = resolveAuthLocalPublicKeyFile(c.Auth.LocalPublicKeyFile)
+	c.Auth.LocalPublicKeyFile = resolveAuthLocalPublicKeyFile(c.Auth.LocalPublicKeyFile, configRoot)
 	if c.ContainerHub.DefaultSandboxLevel == "" {
 		c.ContainerHub.DefaultSandboxLevel = "run"
 	}

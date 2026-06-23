@@ -5,21 +5,21 @@ import (
 	"strings"
 )
 
-func (c *Config) applyStructuredConfig() error {
-	if err := c.applyRuntimeFile(ConfigFile("configs/runtime.yml")); err != nil {
+func (c *Config) applyStructuredConfig(configRoot string) error {
+	if err := c.applyRuntimeFile(configFile(configRoot, "configs/runtime.yml")); err != nil {
 		return err
 	}
-	if err := c.applyToolsFile(ConfigFile("configs/tools.yml")); err != nil {
+	if err := c.applyToolsFile(configFile(configRoot, "configs/tools.yml")); err != nil {
 		return err
 	}
-	c.applyPromptsFile(ConfigFile("configs/prompts.yml"))
-	if err := c.applyCoderSettingsFile(ConfigFile("configs/coder-settings.yml")); err != nil {
+	c.applyPromptsFile(configFile(configRoot, "configs/prompts.yml"))
+	if err := c.applyCoderSettingsFile(configFile(configRoot, "configs/coder-settings.yml")); err != nil {
 		return err
 	}
-	if err := c.applyAIToolsFile(ConfigFile("configs/ai-tools.yml")); err != nil {
+	if err := c.applyAIToolsFile(configFile(configRoot, "configs/ai-tools.yml")); err != nil {
 		return err
 	}
-	if err := c.applyChannelsFile(ConfigFile("configs/channels.yml")); err != nil {
+	if err := c.applyChannelsFile(configFile(configRoot, "configs/channels.yml")); err != nil {
 		return err
 	}
 	return nil
@@ -69,6 +69,9 @@ func (c *Config) applyRuntimeFile(path string) error {
 	}
 	if len(values) == 0 {
 		return nil
+	}
+	if server, ok := values["server"].(map[string]any); ok && len(server) > 0 {
+		c.Server.Port = stringValue(anyValue(server["port"], c.Server.Port), c.Server.Port)
 	}
 	if containerHub, ok := values["container-hub"].(map[string]any); ok && len(containerHub) > 0 {
 		if err := c.applyContainerHubValues(path, containerHub); err != nil {

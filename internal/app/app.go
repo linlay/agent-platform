@@ -55,7 +55,7 @@ type automationStopper interface {
 
 var automationStopTimeout = 3 * time.Second
 
-func New(rootCtx context.Context) (*App, error) {
+func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, error) {
 	appInitStartedAt := time.Now()
 	if rootCtx == nil {
 		rootCtx = context.Background()
@@ -63,7 +63,7 @@ func New(rootCtx context.Context) (*App, error) {
 
 	configStartedAt := time.Now()
 	log.Printf("loading config")
-	cfg, err := config.Load()
+	cfg, err := config.Load(configOptions...)
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
 	}

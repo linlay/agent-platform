@@ -47,6 +47,12 @@ type Config struct {
 	Channels []ChannelConfig
 }
 
+type LoadOptions struct {
+	ConfigDir  string
+	RuntimeDir string
+	Port       string
+}
+
 type ServerConfig struct {
 	Port string
 }
@@ -510,13 +516,24 @@ const (
 	GatewayDownloadPath = "/api/pull"
 )
 
-func Load() (Config, error) {
-	cfg := defaultConfig()
-	if err := cfg.applyStructuredConfig(); err != nil {
+func Load(optionValues ...LoadOptions) (Config, error) {
+	options := LoadOptions{}
+	if len(optionValues) > 0 {
+		options = optionValues[0]
+	}
+	options.ConfigDir = resolveConfigRoot(options.ConfigDir)
+	options.RuntimeDir = strings.TrimSpace(options.RuntimeDir)
+	options.Port = strings.TrimSpace(options.Port)
+
+	cfg := defaultConfig(options)
+	if err := cfg.applyStructuredConfig(options.ConfigDir); err != nil {
 		return Config{}, err
 	}
 	cfg.applyEnv()
-	if err := cfg.normalize(); err != nil {
+	if options.Port != "" {
+		cfg.Server.Port = options.Port
+	}
+	if err := cfg.normalize(options.ConfigDir); err != nil {
 		return Config{}, err
 	}
 
@@ -543,7 +560,7 @@ func (c Config) IsLocalMode() bool {
 	return strings.EqualFold(strings.TrimSpace(c.ContainerHub.ResolvedEngine), "local")
 }
 
-func resolveAuthLocalPublicKeyFile(value string) string {
+func resolveAuthLocalPublicKeyFile(value string, configRoot string) string {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return ""
@@ -556,7 +573,7 @@ func resolveAuthLocalPublicKeyFile(value string) string {
 		return ""
 	}
 	if strings.Contains(filepath.ToSlash(clean), "/") {
-		return ConfigFile(clean)
+		return configFile(configRoot, clean)
 	}
-	return ConfigFile(filepath.Join("configs", clean))
+	return configFile(configRoot, filepath.Join("configs", clean))
 }

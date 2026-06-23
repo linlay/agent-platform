@@ -3,6 +3,7 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $ScriptDir 'scripts/program-common.ps1')
 
 Set-Location $ScriptDir
+Set-ProgramLayoutArgs $args
 Write-Host '[program-deploy] validating bundle'
 Test-ProgramBundle
 Write-Host '[program-deploy] bundle validated'

@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/scripts/program-common.sh"
 
 cd "$SCRIPT_DIR"
+program_apply_layout_flags "$@"
 echo "[program-deploy] validating bundle"
 program_validate_bundle
 echo "[program-deploy] bundle validated"

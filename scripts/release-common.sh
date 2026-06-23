@@ -303,11 +303,6 @@ ${error_log_json}
         ]
       },
       {
-        "key": "SERVER_PORT",
-        "value": "{{serviceDefaultPort}}",
-        "onlyIfDefault": true
-      },
-      {
         "key": "AUTH_ENABLED",
         "value": "true"
       },

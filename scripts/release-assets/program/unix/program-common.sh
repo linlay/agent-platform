@@ -6,14 +6,18 @@ BUNDLE_ROOT="$(cd "$PROGRAM_COMMON_DIR/.." && pwd)"
 APP_NAME="agent-platform"
 MANIFEST_FILE="$BUNDLE_ROOT/manifest.json"
 ENV_EXAMPLE_FILE="$BUNDLE_ROOT/.env.example"
-ENV_FILE="${SERVICE_CONFIG_DIR:-$BUNDLE_ROOT}/.env"
+CONFIG_ROOT="$BUNDLE_ROOT"
+ENV_FILE="$CONFIG_ROOT/.env"
 BACKEND_BIN="$BUNDLE_ROOT/backend/$APP_NAME"
-CONFIG_DIR="${SERVICE_CONFIG_DIR:-$BUNDLE_ROOT}/configs"
-RUNTIME_ROOT="${SERVICE_DATA_DIR:-$BUNDLE_ROOT/runtime}"
-RUN_DIR="${SERVICE_STATE_DIR:-$BUNDLE_ROOT/run}"
-LOG_DIR="${SERVICE_LOG_DIR:-$RUN_DIR}"
+CONFIG_DIR="$CONFIG_ROOT/configs"
+RUNTIME_ROOT="$BUNDLE_ROOT/runtime"
+RUNTIME_ROOT_EXPLICIT=0
+RUN_DIR="$BUNDLE_ROOT/run"
+LOG_DIR="$RUN_DIR"
 LOG_FILE="$LOG_DIR/$APP_NAME.log"
 PID_FILE="$RUN_DIR/$APP_NAME.pid"
+PROGRAM_PORT=""
+BACKEND_ARGS=()
 
 program_die() {
   echo "[program] $*" >&2
@@ -34,6 +38,50 @@ program_validate_bundle() {
   program_require_file "$MANIFEST_FILE"
   program_require_file "$ENV_EXAMPLE_FILE"
   [[ -x "$BACKEND_BIN" ]] || program_die "backend binary is not executable: $BACKEND_BIN"
+}
+
+program_refresh_paths() {
+  ENV_FILE="$CONFIG_ROOT/.env"
+  CONFIG_DIR="$CONFIG_ROOT/configs"
+  LOG_FILE="$LOG_DIR/$APP_NAME.log"
+  PID_FILE="$RUN_DIR/$APP_NAME.pid"
+}
+
+program_apply_layout_flags() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --config-dir)
+        [[ $# -ge 2 ]] || program_die "missing value for --config-dir"
+        CONFIG_ROOT="$2"
+        shift 2
+        ;;
+      --runtime-dir)
+        [[ $# -ge 2 ]] || program_die "missing value for --runtime-dir"
+        RUNTIME_ROOT="$2"
+        RUNTIME_ROOT_EXPLICIT=1
+        shift 2
+        ;;
+      --state-dir)
+        [[ $# -ge 2 ]] || program_die "missing value for --state-dir"
+        RUN_DIR="$2"
+        shift 2
+        ;;
+      --log-dir)
+        [[ $# -ge 2 ]] || program_die "missing value for --log-dir"
+        LOG_DIR="$2"
+        shift 2
+        ;;
+      --port)
+        [[ $# -ge 2 ]] || program_die "missing value for --port"
+        PROGRAM_PORT="$2"
+        shift 2
+        ;;
+      *)
+        program_die "unsupported argument: $1"
+        ;;
+    esac
+  done
+  program_refresh_paths
 }
 
 program_initialize_config() {
@@ -76,7 +124,31 @@ program_apply_server_port_env() {
   fi
 }
 
+program_expand_runtime_path() {
+  local value="$1"
+  if [[ "$value" == "~" ]]; then
+    printf '%s\n' "${HOME:-$BUNDLE_ROOT}"
+    return
+  fi
+  if [[ "$value" == "~/"* ]]; then
+    printf '%s/%s\n' "${HOME:-$BUNDLE_ROOT}" "${value:2}"
+    return
+  fi
+  if [[ "$value" == /* ]]; then
+    printf '%s\n' "$value"
+    return
+  fi
+  printf '%s\n' "$BUNDLE_ROOT/$value"
+}
+
+program_resolve_runtime_root() {
+  if [[ "$RUNTIME_ROOT_EXPLICIT" -eq 0 && -n "${RUNTIME_DIR:-}" ]]; then
+    RUNTIME_ROOT="$(program_expand_runtime_path "$RUNTIME_DIR")"
+  fi
+}
+
 program_prepare_runtime_dirs() {
+  program_resolve_runtime_root
   mkdir -p \
     "$RUN_DIR" \
     "$LOG_DIR" \
@@ -95,6 +167,13 @@ program_prepare_runtime_dirs() {
     "$RUNTIME_ROOT/memory" \
     "$RUNTIME_ROOT/pan" \
     "$RUNTIME_ROOT/skills-market"
+}
+
+program_update_backend_args() {
+  BACKEND_ARGS=(--config-dir "$CONFIG_ROOT" --runtime-dir "$RUNTIME_ROOT")
+  if [[ -n "$PROGRAM_PORT" ]]; then
+    BACKEND_ARGS+=(--port "$PROGRAM_PORT")
+  fi
 }
 
 program_prepare_log_file() {
@@ -163,8 +242,10 @@ program_stop_pid_file() {
 program_start_backend_daemon() {
   local pid
 
+  mkdir -p "$(dirname "$PID_FILE")"
+  program_update_backend_args
   program_clear_stale_pid_file "$PID_FILE" "$APP_NAME"
-  nohup "$BACKEND_BIN" >>"$LOG_FILE" 2>&1 &
+  nohup "$BACKEND_BIN" "${BACKEND_ARGS[@]}" </dev/null >>"$LOG_FILE" 2>&1 &
   pid=$!
   printf '%s\n' "$pid" >"$PID_FILE"
   sleep 1
@@ -178,7 +259,8 @@ program_start_backend_daemon() {
 }
 
 program_exec_backend() {
-  exec "$BACKEND_BIN"
+  program_update_backend_args
+  exec "$BACKEND_BIN" "${BACKEND_ARGS[@]}"
 }
 
 program_stop_backend() {

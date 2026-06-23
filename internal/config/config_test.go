@@ -825,7 +825,7 @@ func TestLoadAuthLocalPublicKeyPathPreservesAbsolutePath(t *testing.T) {
 	})
 }
 
-func TestLoadUsesServiceConfigDirForStructuredFilesAndAuthKey(t *testing.T) {
+func TestLoadUsesConfigDirOptionForStructuredFilesAndAuthKey(t *testing.T) {
 	configDir := t.TempDir()
 	configsDir := filepath.Join(configDir, "configs")
 	if err := os.MkdirAll(configsDir, 0o755); err != nil {
@@ -860,10 +860,8 @@ func TestLoadUsesServiceConfigDirForStructuredFilesAndAuthKey(t *testing.T) {
 		t.Fatalf("write runtime config: %v", err)
 	}
 
-	withIsolatedEnv(t, map[string]string{
-		"SERVICE_CONFIG_DIR": configDir,
-	}, func() {
-		cfg, err := Load()
+	withIsolatedEnv(t, nil, func() {
+		cfg, err := Load(LoadOptions{ConfigDir: configDir})
 		if err != nil {
 			t.Fatalf("load config: %v", err)
 		}
@@ -906,6 +904,35 @@ func TestLoadServerPortFromEnv(t *testing.T) {
 	})
 }
 
+func TestLoadServerPortFromRuntimeFile(t *testing.T) {
+	runtimeConfig := "server:\n  port: 7078\n"
+	withIsolatedEnv(t, nil, func() {
+		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &runtimeConfig, func() {
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			if cfg.Server.Port != "7078" {
+				t.Fatalf("expected server port 7078, got %q", cfg.Server.Port)
+			}
+		})
+	})
+}
+
+func TestLoadPortOptionOverridesServerPortEnv(t *testing.T) {
+	withIsolatedEnv(t, map[string]string{
+		"SERVER_PORT": "11949",
+	}, func() {
+		cfg, err := Load(LoadOptions{Port: "7078"})
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		if cfg.Server.Port != "7078" {
+			t.Fatalf("expected server port 7078, got %q", cfg.Server.Port)
+		}
+	})
+}
+
 func TestLoadCustomStorageDirs(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"CHATS_DIR":  filepath.Join("var", "custom-chats"),
@@ -935,8 +962,7 @@ func TestLoadCustomStorageDirs(t *testing.T) {
 
 func TestLoadRuntimeDirDerivesRuntimePaths(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
-		"RUNTIME_DIR":      filepath.Join("var", "runtime"),
-		"SERVICE_DATA_DIR": filepath.Join("var", "service-data"),
+		"RUNTIME_DIR": filepath.Join("var", "runtime"),
 	}, func() {
 		cfg, err := Load()
 		if err != nil {
@@ -969,6 +995,30 @@ func TestLoadRuntimeDirDerivesRuntimePaths(t *testing.T) {
 		}
 		if cfg.Logging.Memory.File != filepath.Join(runtimeRoot, "memory", "memory.log") {
 			t.Fatalf("unexpected memory log file: %q", cfg.Logging.Memory.File)
+		}
+	})
+}
+
+func TestLoadRuntimeDirOptionOverridesRuntimeDirEnv(t *testing.T) {
+	withIsolatedEnv(t, map[string]string{
+		"RUNTIME_DIR": filepath.Join("var", "env-runtime"),
+	}, func() {
+		runtimeRoot := filepath.Join("var", "flag-runtime")
+		cfg, err := Load(LoadOptions{RuntimeDir: runtimeRoot})
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		if cfg.Paths.RegistriesDir != filepath.Join(runtimeRoot, "registries") {
+			t.Fatalf("unexpected registries dir: %q", cfg.Paths.RegistriesDir)
+		}
+		if cfg.Paths.ChatsDir != filepath.Join(runtimeRoot, "chats") {
+			t.Fatalf("unexpected chats dir: %q", cfg.Paths.ChatsDir)
+		}
+		if cfg.Paths.MemoryDir != filepath.Join(runtimeRoot, "memory") {
+			t.Fatalf("unexpected memory dir: %q", cfg.Paths.MemoryDir)
+		}
+		if cfg.Paths.PanDir != filepath.Join(runtimeRoot, "pan") {
+			t.Fatalf("unexpected pan dir: %q", cfg.Paths.PanDir)
 		}
 	})
 }
@@ -1711,7 +1761,7 @@ func TestLoadChannelsConfigRejectsInvalidType(t *testing.T) {
 }
 
 func TestLoadChannelsConfigRejectsGatewayConflicts(t *testing.T) {
-	cfg := defaultConfig()
+	cfg := defaultConfig(LoadOptions{})
 	cfg.Gateways = []GatewayEntry{{
 		ID:      "existing",
 		Channel: "wecom",
@@ -1726,7 +1776,7 @@ func TestLoadChannelsConfigRejectsGatewayConflicts(t *testing.T) {
 			},
 		},
 	}
-	if err := cfg.normalize(); err == nil {
+	if err := cfg.normalize(""); err == nil {
 		t.Fatalf("expected duplicate channel gateway conflict to fail")
 	}
 }
@@ -1809,8 +1859,6 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 	t.Helper()
 
 	keys := []string{
-		"SERVICE_CONFIG_DIR",
-		"SERVICE_DATA_DIR",
 		"RUNTIME_DIR",
 		"SERVER_PORT",
 		"REGISTRIES_DIR",
