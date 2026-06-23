@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 
 	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/api"
@@ -134,6 +135,271 @@ func (s *llmRunStream) activateNextToolCall() {
 	if len(s.activeToolCall.prelude) > 0 {
 		s.pending = append(s.pending, s.activeToolCall.prelude...)
 	}
+}
+
+func (s *llmRunStream) invokeQueuedToolCallsAndPostHook() error {
+	if len(s.queuedToolCalls) == 0 {
+		return nil
+	}
+	if !s.canInvokeQueuedToolCallsConcurrently(s.queuedToolCalls) {
+		s.activateNextToolCall()
+		return nil
+	}
+	invocations := append([]*preparedToolInvocation(nil), s.queuedToolCalls...)
+	s.queuedToolCalls = nil
+	return s.invokeToolCallBatchAndPostHooks(invocations)
+}
+
+func (s *llmRunStream) canInvokeQueuedToolCallsConcurrently(invocations []*preparedToolInvocation) bool {
+	runnable := 0
+	for _, invocation := range invocations {
+		if invocation == nil {
+			return false
+		}
+		if invocation.queuedResult != nil {
+			continue
+		}
+		if !s.canInvokeToolConcurrently(invocation) {
+			return false
+		}
+		runnable++
+	}
+	return runnable > 1
+}
+
+func (s *llmRunStream) canInvokeToolConcurrently(invocation *preparedToolInvocation) bool {
+	if invocation == nil || invocation.awaitExternalResult || len(invocation.prelude) > 0 {
+		return false
+	}
+	if strings.TrimSpace(invocation.approvalDecision) != "" {
+		return false
+	}
+	if isPlanningWriteTool(invocation.toolName) || isPlanTool(invocation.toolName) {
+		return false
+	}
+	if !s.isConcurrentToolName(invocation.toolName) {
+		return false
+	}
+	if s.invocationMayConsumeOneShotApproval(invocation) {
+		return false
+	}
+	if _, ok := s.approvalRequestForInvocation(invocation); ok {
+		return false
+	}
+	if isBashTool(invocation.toolName) {
+		if review := s.lookupBashSecurityReview(invocation); review.Decision == bashsec.ReviewBlock {
+			return false
+		}
+		if result := s.lookupPrecheckedHITL(invocation); result.Intercepted {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *llmRunStream) isConcurrentToolName(toolName string) bool {
+	switch strings.ToLower(strings.TrimSpace(toolName)) {
+	case "bash":
+		return s != nil && s.execCtx != nil &&
+			!s.session.AgentHasRuntimeSandbox &&
+			!s.execCtx.Session.AgentHasRuntimeSandbox
+	case "datetime", "regex", "file_read", "file_grep", "file_glob", "web_fetch":
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *llmRunStream) invocationMayConsumeOneShotApproval(invocation *preparedToolInvocation) bool {
+	if s == nil || s.execCtx == nil || invocation == nil {
+		return false
+	}
+	if isBashTool(invocation.toolName) {
+		return len(s.execCtx.BashSecurityApprovals) > 0 || len(s.execCtx.AccessPolicyApprovals) > 0
+	}
+	switch strings.ToLower(strings.TrimSpace(invocation.toolName)) {
+	case "file_read", "file_grep", "file_glob":
+		return len(s.execCtx.FileReadApprovals) > 0
+	case "file_write", "file_edit":
+		return len(s.execCtx.FileAccessApprovals) > 0 || len(s.execCtx.FileWriteApprovals) > 0
+	default:
+		return false
+	}
+}
+
+type batchToolCallResult struct {
+	invocation *preparedToolInvocation
+	result     ToolExecutionResult
+	execCtx    *ExecutionContext
+	err        error
+}
+
+func (s *llmRunStream) invokeToolCallBatchAndPostHooks(invocations []*preparedToolInvocation) error {
+	results := make([]batchToolCallResult, len(invocations))
+	runnableIndexes := make([]int, 0, len(invocations))
+
+	for index, invocation := range invocations {
+		results[index].invocation = invocation
+		if invocation == nil {
+			continue
+		}
+		s.beginToolInvocation(invocation)
+		if invocation.queuedResult != nil {
+			results[index].result = *invocation.queuedResult
+			invocation.queuedResult = nil
+			continue
+		}
+		if result := s.checkBudgetBeforeToolCall(invocation.toolName); result != nil {
+			results[index].result = *result
+			continue
+		}
+		s.recordAccessPolicyAutoApproval(invocation)
+		results[index].execCtx = s.concurrentExecutionContext(invocation)
+		runnableIndexes = append(runnableIndexes, index)
+	}
+	if s.execCtx != nil {
+		s.execCtx.CurrentToolID = ""
+		s.execCtx.CurrentToolName = ""
+	}
+
+	var wg sync.WaitGroup
+	for _, index := range runnableIndexes {
+		wg.Add(1)
+		go func(index int) {
+			defer wg.Done()
+			invocation := results[index].invocation
+			result, err := s.invokeToolForBatch(invocation, results[index].execCtx)
+			results[index].result = result
+			results[index].err = err
+		}(index)
+	}
+	wg.Wait()
+
+	for _, result := range results {
+		if errors.Is(result.err, ErrRunInterrupted) {
+			return s.handleInterruptIfNeeded()
+		}
+	}
+
+	for index, result := range results {
+		invocation := result.invocation
+		if invocation == nil {
+			continue
+		}
+		s.mergeConcurrentExecutionContext(result.execCtx)
+		s.queuedToolCalls = remainingInvocations(invocations, index+1)
+		s.appendOriginalToolResult(invocation, result.result)
+		if s.postToolHook != nil && s.postToolHook(invocation.toolName, invocation.toolID) == PostToolStop {
+			s.stopAfterToolBatch = true
+		}
+		if s.runControl != nil {
+			s.runControl.ClearExpectedSubmit(invocation.toolID)
+		}
+	}
+	s.queuedToolCalls = nil
+	if s.execCtx != nil {
+		s.execCtx.CurrentToolID = ""
+		s.execCtx.CurrentToolName = ""
+	}
+	return nil
+}
+
+func remainingInvocations(invocations []*preparedToolInvocation, start int) []*preparedToolInvocation {
+	if start >= len(invocations) {
+		return nil
+	}
+	out := make([]*preparedToolInvocation, 0, len(invocations)-start)
+	for _, invocation := range invocations[start:] {
+		if invocation != nil {
+			out = append(out, invocation)
+		}
+	}
+	return out
+}
+
+func (s *llmRunStream) invokeToolForBatch(invocation *preparedToolInvocation, execCtx *ExecutionContext) (ToolExecutionResult, error) {
+	if invocation == nil {
+		return ToolExecutionResult{}, nil
+	}
+	result, invokeErr := s.engine.tools.Invoke(s.ctx, invocation.toolName, invocation.args, execCtx)
+	if invokeErr != nil {
+		if errors.Is(invokeErr, ErrRunInterrupted) {
+			return ToolExecutionResult{}, invokeErr
+		}
+		return ToolExecutionResult{Output: invokeErr.Error(), Error: "tool_execution_failed", ExitCode: -1}, nil
+	}
+	return result, nil
+}
+
+func (s *llmRunStream) concurrentExecutionContext(invocation *preparedToolInvocation) *ExecutionContext {
+	if s == nil || s.execCtx == nil {
+		return &ExecutionContext{
+			CurrentToolID:   invocation.toolID,
+			CurrentToolName: invocation.toolName,
+			RunLoopState:    RunLoopStateToolExecuting,
+		}
+	}
+	cloned := *s.execCtx
+	cloned.CurrentToolID = invocation.toolID
+	cloned.CurrentToolName = invocation.toolName
+	cloned.RunLoopState = RunLoopStateToolExecuting
+	cloned.RuntimeEnvOverrides = CloneStringMap(s.execCtx.RuntimeEnvOverrides)
+	cloned.AccessPolicyApprovals = cloneIntMap(s.execCtx.AccessPolicyApprovals)
+	cloned.AccessPolicyRuleApprovals = cloneBoolMap(s.execCtx.AccessPolicyRuleApprovals)
+	cloned.BashSecurityApprovals = cloneIntMap(s.execCtx.BashSecurityApprovals)
+	cloned.FileReadApprovals = cloneIntMap(s.execCtx.FileReadApprovals)
+	cloned.FileReadRuleApprovals = cloneBoolMap(s.execCtx.FileReadRuleApprovals)
+	cloned.FileAccessApprovals = cloneIntMap(s.execCtx.FileAccessApprovals)
+	cloned.FileAccessRuleApprovals = cloneBoolMap(s.execCtx.FileAccessRuleApprovals)
+	cloned.FileWriteApprovals = cloneIntMap(s.execCtx.FileWriteApprovals)
+	cloned.FileWriteRuleApprovals = cloneBoolMap(s.execCtx.FileWriteRuleApprovals)
+	cloned.ReadFileState = cloneReadFileState(s.execCtx.ReadFileState)
+	return &cloned
+}
+
+func (s *llmRunStream) mergeConcurrentExecutionContext(execCtx *ExecutionContext) {
+	if s == nil || s.execCtx == nil || execCtx == nil || len(execCtx.ReadFileState) == 0 {
+		return
+	}
+	if s.execCtx.ReadFileState == nil {
+		s.execCtx.ReadFileState = map[string]ReadFileSnapshot{}
+	}
+	for path, snapshot := range execCtx.ReadFileState {
+		s.execCtx.ReadFileState[path] = snapshot
+	}
+}
+
+func cloneIntMap(values map[string]int) map[string]int {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make(map[string]int, len(values))
+	for key, value := range values {
+		out[key] = value
+	}
+	return out
+}
+
+func cloneBoolMap(values map[string]bool) map[string]bool {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(values))
+	for key, value := range values {
+		out[key] = value
+	}
+	return out
+}
+
+func cloneReadFileState(values map[string]ReadFileSnapshot) map[string]ReadFileSnapshot {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make(map[string]ReadFileSnapshot, len(values))
+	for key, value := range values {
+		out[key] = value
+	}
+	return out
 }
 
 func (s *llmRunStream) invokeActiveToolCall() error {

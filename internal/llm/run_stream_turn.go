@@ -74,8 +74,7 @@ func (s *llmRunStream) fillNextPendingSource() error {
 		return s.invokeActiveToolCallAndPostHook()
 	}
 	if len(s.queuedToolCalls) > 0 {
-		s.activateNextToolCall()
-		return nil
+		return s.invokeQueuedToolCallsAndPostHook()
 	}
 	if s.stopAfterToolBatch {
 		s.finished = true
@@ -416,7 +415,6 @@ func (s *llmRunStream) finishCurrentTurn() error {
 		if s.prepareQueuedBashApprovalBatch() {
 			return nil
 		}
-		s.activateNextToolCall()
 	}
 	return nil
 }

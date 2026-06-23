@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -127,6 +128,7 @@ type recordedToolInvocation struct {
 type recordingToolExecutor struct {
 	defs        []api.ToolDetailResponse
 	result      contracts.ToolExecutionResult
+	mu          sync.Mutex
 	invocations []recordedToolInvocation
 }
 
@@ -137,11 +139,26 @@ func (r *recordingToolExecutor) Invoke(_ context.Context, name string, args map[
 	for key, value := range args {
 		cloned[key] = value
 	}
+	r.mu.Lock()
 	r.invocations = append(r.invocations, recordedToolInvocation{name: name, args: cloned})
+	r.mu.Unlock()
 	if r.result.Output == "" && r.result.Structured == nil && r.result.Error == "" && r.result.ExitCode == 0 {
 		return contracts.ToolExecutionResult{Output: "ok", ExitCode: 0}, nil
 	}
 	return r.result, nil
+}
+
+type blockingToolExecutor struct {
+	started chan string
+	release chan struct{}
+}
+
+func (b *blockingToolExecutor) Definitions() []api.ToolDetailResponse { return nil }
+
+func (b *blockingToolExecutor) Invoke(_ context.Context, name string, _ map[string]any, _ *contracts.ExecutionContext) (contracts.ToolExecutionResult, error) {
+	b.started <- name
+	<-b.release
+	return contracts.ToolExecutionResult{Output: "ok", ExitCode: 0}, nil
 }
 
 func TestParallelToolCallBatchExecutesAllBeforePostToolStop(t *testing.T) {
@@ -203,6 +220,68 @@ func TestParallelToolCallBatchExecutesAllBeforePostToolStop(t *testing.T) {
 	}
 	if got := len(stream.messages[0].ToolCalls); got != 3 {
 		t.Fatalf("expected assistant message to keep all tool calls, got %d", got)
+	}
+}
+
+func TestParallelToolCallBatchStartsToolsConcurrently(t *testing.T) {
+	executor := &blockingToolExecutor{
+		started: make(chan string, 3),
+		release: make(chan struct{}),
+	}
+	stream := &llmRunStream{
+		ctx: context.Background(),
+		engine: &LLMAgentEngine{
+			tools: executor,
+		},
+		session: contracts.QuerySession{RunID: "run_1"},
+		execCtx: &contracts.ExecutionContext{
+			StartedAt: time.Now(),
+		},
+		maxSteps:     2,
+		allowToolUse: true,
+		postToolHook: func(string, string) PostToolHookResult {
+			return PostToolStop
+		},
+		currentTurn: &providerTurnStream{
+			toolCalls: map[int]*toolCallAccumulator{
+				0: {ID: "tool_1", Type: "function", FunctionName: "datetime"},
+				1: {ID: "tool_2", Type: "function", FunctionName: "datetime"},
+				2: {ID: "tool_3", Type: "function", FunctionName: "datetime"},
+			},
+			finishReason:  "tool_calls",
+			hasMeaningful: true,
+		},
+	}
+	if err := stream.finishCurrentTurn(); err != nil {
+		t.Fatalf("finishCurrentTurn returned error: %v", err)
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		for {
+			if _, err := stream.Next(); err != nil {
+				if errors.Is(err, io.EOF) {
+					errCh <- nil
+					return
+				}
+				errCh <- err
+				return
+			}
+		}
+	}()
+
+	for i := 0; i < 3; i++ {
+		select {
+		case <-executor.started:
+		case err := <-errCh:
+			t.Fatalf("stream finished before all tools started: %v", err)
+		case <-time.After(500 * time.Millisecond):
+			t.Fatalf("timed out waiting for tool %d to start; batch was not concurrent", i+1)
+		}
+	}
+	close(executor.release)
+	if err := <-errCh; err != nil {
+		t.Fatalf("stream returned error: %v", err)
 	}
 }
 
@@ -4303,13 +4382,7 @@ func TestAwaitHITLApprovalBatchAndContinue_HostUsesUnifiedBashToolName(t *testin
 		done <- stream.awaitHITLApprovalBatchAndContinue()
 	}()
 
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if stream.execCtx.CurrentToolName == "bash" {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	waitForRunState(t, runControl, contracts.RunLoopStateWaitingSubmit)
 	if stream.execCtx.CurrentToolName != "bash" {
 		t.Fatalf("expected CurrentToolName to be bash while awaiting approval, got %q", stream.execCtx.CurrentToolName)
 	}
