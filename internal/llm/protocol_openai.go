@@ -254,7 +254,11 @@ func rawMessageToOpenAI(raw map[string]any, preserveReasoning bool) openAIMessag
 	if role == "" {
 		return openAIMessage{}
 	}
-	msg := openAIMessage{Role: role, Content: content}
+	var contentValue any = content
+	if _, ok := raw["content"].(string); !ok {
+		contentValue = raw["content"]
+	}
+	msg := openAIMessage{Role: role, Content: contentValue}
 	if role == "assistant" {
 		if preserveReasoning {
 			msg.ReasoningContent = rawReasoningContentText(raw["reasoning_content"])

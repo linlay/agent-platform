@@ -209,6 +209,7 @@ type QuerySession struct {
 	ResolvedBudget        Budget
 	ResolvedStageSettings PlanExecuteSettings
 	HistoryMessages       []map[string]any
+	CurrentMessages       []map[string]any
 	MemoryContext         string
 	StableMemoryContext   string
 	SessionMemoryContext  string

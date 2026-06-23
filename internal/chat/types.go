@@ -82,6 +82,7 @@ type QueryLine struct {
 	TaskToolID  string                `json:"taskToolId,omitempty"`
 	SubAgentKey string                `json:"subAgentKey,omitempty"`
 	Query       map[string]any        `json:"query"`
+	Messages    []map[string]any      `json:"messages,omitempty"`
 	Systems     []QueryLineSystemInit `json:"systems,omitempty"`
 	Type        string                `json:"_type"`
 }

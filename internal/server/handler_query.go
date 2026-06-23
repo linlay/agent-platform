@@ -118,6 +118,7 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 	assembler, mapper := s.newAssemblerAndMapper(prepared)
 	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode)
 	stepWriter.SetPendingSystemInits(prepared.systemInitLines)
+	stepWriter.SetPendingQueryMessages(prepared.session.CurrentMessages)
 
 	StartRunExecutor(RunExecutorParams{
 		RunCtx:             runCtx,
@@ -651,6 +652,7 @@ func (s *Server) runQuerySync(_ context.Context, prepared preparedQuery, registe
 		runUsage:      &runUsage,
 	}
 	processor.stepWriter.SetPendingSystemInits(prepared.systemInitLines)
+	processor.stepWriter.SetPendingQueryMessages(prepared.session.CurrentMessages)
 	runCtx = chat.WithApprovalSummarySink(runCtx, processor.stepWriter.RecordApproval)
 	writeEvent := func(event stream.StreamEvent) error {
 		data, visible := processor.Consume(event)

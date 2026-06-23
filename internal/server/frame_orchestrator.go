@@ -540,8 +540,16 @@ func (o *frameOrchestrator) writeChildTaskQueryAndSystem(subReq api.QueryRequest
 			"requestId": task.requestID,
 			"role":      "user",
 		},
-		Systems: systems,
+		Messages: currentMessagesFromSession(subSession),
+		Systems:  systems,
 	})
+}
+
+func currentMessagesFromSession(session *contracts.QuerySession) []map[string]any {
+	if session == nil {
+		return nil
+	}
+	return session.CurrentMessages
 }
 
 func (o *frameOrchestrator) injectMainToolError(main contracts.OrchestratableAgentStream, toolID string, message string) {

@@ -47,6 +47,7 @@ type StepWriter struct {
 
 	// pending step-level metadata captured during the current LLM turn
 	pendingAwaiting         []map[string]any
+	pendingQueryMessages    []map[string]any
 	pendingApproval         *StepApproval
 	pendingSubmit           map[string]any
 	pendingSubmitLiveSeq    int64
@@ -88,6 +89,13 @@ func (w *StepWriter) SetPendingSystemInits(lines []QueryLineSystemInit) {
 		return
 	}
 	w.pendingSystemInits = append([]QueryLineSystemInit(nil), lines...)
+}
+
+func (w *StepWriter) SetPendingQueryMessages(messages []map[string]any) {
+	if w == nil || len(messages) == 0 {
+		return
+	}
+	w.pendingQueryMessages = cloneMessageMaps(messages)
 }
 
 // OnEvent processes a single SSE event from the stream.
@@ -371,9 +379,11 @@ func (w *StepWriter) handleRequestQuery(event stream.EventData) {
 		UpdatedAt: time.Now().UnixMilli(),
 		LiveSeq:   event.Seq,
 		Query:     query,
+		Messages:  cloneMessageMaps(w.pendingQueryMessages),
 		Systems:   append([]QueryLineSystemInit(nil), w.pendingSystemInits...),
 	})
 	w.pendingSystemInits = nil
+	w.pendingQueryMessages = nil
 }
 
 func (w *StepWriter) ensureStep() {

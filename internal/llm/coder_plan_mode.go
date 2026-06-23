@@ -176,7 +176,9 @@ func (s *coderPlanningStream) startPlanStage() error {
 	planPrompt := s.planningPrompt()
 	req := s.req
 	req.Message = strings.TrimSpace(planPrompt) + "\n\nUser request:\n" + s.req.Message
-	stream, err := s.engine.newRunStreamWithOptions(s.ctx, req, s.sessionForStage(s.settings.Plan, s.planStageTools()), true, runStreamOptions{
+	stageSession := s.sessionForStage(s.settings.Plan, s.planStageTools())
+	stageSession.CurrentMessages = s.engine.buildCurrentMessagesForRequest(req, stageSession, false)
+	stream, err := s.engine.newRunStreamWithOptions(s.ctx, req, stageSession, true, runStreamOptions{
 		ExecCtx:      s.execCtx,
 		ToolNames:    s.planStageTools(),
 		ModelKey:     s.resolveStageModelKey(s.settings.Plan),
@@ -199,6 +201,7 @@ func (s *coderPlanningStream) startPlanningFeedbackStage() error {
 	req.Message = s.planningFeedbackPrompt()
 	stageSession := s.sessionForStage(s.settings.Plan, s.planStageTools())
 	stageSession.HistoryMessages = append(stageSession.HistoryMessages, rawMessagesFromOpenAIMessages(s.executeMessages)...)
+	stageSession.CurrentMessages = s.engine.buildCurrentMessagesForRequest(req, stageSession, false)
 	stream, err := s.engine.newRunStreamWithOptions(s.ctx, req, stageSession, true, runStreamOptions{
 		ExecCtx:      s.execCtx,
 		ToolNames:    s.planStageTools(),

@@ -13,6 +13,7 @@ import (
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/memory"
+	"agent-platform/internal/querymessages"
 )
 
 type querySessionBuildOptions struct {
@@ -173,7 +174,18 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 	if principal != nil {
 		session.Subject = principal.Subject
 	}
+	session.CurrentMessages = s.buildCurrentMessages(req, session)
 	return session, nil
+}
+
+func (s *Server) buildCurrentMessages(req api.QueryRequest, session contracts.QuerySession) []map[string]any {
+	isVision := false
+	if s != nil && s.deps.Models != nil {
+		if model, err := s.deps.Models.GetModel(session.ModelKey); err == nil {
+			isVision = model.IsVision
+		}
+	}
+	return querymessages.BuildMessages(s.deps.Config.Paths.ChatsDir, req.ChatID, req.Role, req.Message, req.References, isVision, false)
 }
 
 func coderSystemPrompt(mode string, prompt string) string {

@@ -92,6 +92,21 @@ func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
 				"ts":      line["updatedAt"],
 			})
 		case "query":
+			if rawMsgs, _ := line["messages"].([]any); len(rawMsgs) > 0 {
+				for _, raw := range rawMsgs {
+					m, _ := raw.(map[string]any)
+					if m == nil {
+						continue
+					}
+					msg := cloneMessageMap(m)
+					msg["runId"] = runID
+					if _, ok := msg["ts"]; !ok {
+						msg["ts"] = line["updatedAt"]
+					}
+					messages = append(messages, msg)
+				}
+				continue
+			}
 			query, _ := line["query"].(map[string]any)
 			if query == nil {
 				continue
@@ -140,6 +155,32 @@ func rawMessagesFromJSONLLines(lines []map[string]any) []map[string]any {
 		}
 	}
 	return messages
+}
+
+func cloneMessageMaps(messages []map[string]any) []map[string]any {
+	if len(messages) == 0 {
+		return nil
+	}
+	out := make([]map[string]any, 0, len(messages))
+	for _, msg := range messages {
+		out = append(out, cloneMessageMap(msg))
+	}
+	return out
+}
+
+func cloneMessageMap(message map[string]any) map[string]any {
+	if message == nil {
+		return nil
+	}
+	data, err := json.Marshal(message)
+	if err != nil {
+		return cloneStringAnyMap(message)
+	}
+	var cloned map[string]any
+	if err := json.Unmarshal(data, &cloned); err != nil {
+		return cloneStringAnyMap(message)
+	}
+	return cloned
 }
 
 func referencesFromQueryValue(raw any) []api.Reference {

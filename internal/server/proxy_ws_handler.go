@@ -118,6 +118,7 @@ func (s *Server) wsProxyQuery(
 
 	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode)
 	stepWriter.SetPendingSystemInits(prepared.systemInitLines)
+	stepWriter.SetPendingQueryMessages(prepared.session.CurrentMessages)
 	var proxyControl *contracts.RunControl
 	if upstreamTransport == "ws" {
 		proxyControl = control
@@ -192,6 +193,7 @@ func (s *Server) handleProxyWebSocketQuery(w http.ResponseWriter, r *http.Reques
 
 	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode)
 	stepWriter.SetPendingSystemInits(prepared.systemInitLines)
+	stepWriter.SetPendingQueryMessages(prepared.session.CurrentMessages)
 	var chatUsage chat.UsageData
 	if prepared.summary.Usage != nil {
 		chatUsage = *prepared.summary.Usage
@@ -263,6 +265,7 @@ func (s *Server) handleProxyQueryNonStream(w http.ResponseWriter, r *http.Reques
 
 	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode)
 	stepWriter.SetPendingSystemInits(prepared.systemInitLines)
+	stepWriter.SetPendingQueryMessages(prepared.session.CurrentMessages)
 	var proxyControl *contracts.RunControl
 	if upstreamTransport == "ws" {
 		proxyControl = control

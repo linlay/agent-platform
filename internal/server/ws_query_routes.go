@@ -89,6 +89,7 @@ func (s *Server) wsQuery(ctx context.Context, conn *ws.Conn, req ws.RequestFrame
 	assembler, mapper := s.newAssemblerAndMapper(prepared)
 	stepWriter := chat.NewStepWriter(s.deps.Chats, prepared.req.ChatID, prepared.req.RunID, prepared.agentDef.Mode)
 	stepWriter.SetPendingSystemInits(prepared.systemInitLines)
+	stepWriter.SetPendingQueryMessages(prepared.session.CurrentMessages)
 	principal := &Principal{Subject: prepared.session.Subject}
 	if strings.TrimSpace(principal.Subject) == "" {
 		principal = nil

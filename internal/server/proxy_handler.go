@@ -114,6 +114,7 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 	if chatStore != nil {
 		stepWriter = chat.NewStepWriter(chatStore, req.ChatID, req.RunID, agentDef.Mode)
 		stepWriter.SetPendingSystemInits(prepared.systemInitLines)
+		stepWriter.SetPendingQueryMessages(prepared.session.CurrentMessages)
 		queryPayload := map[string]any{
 			"requestId": req.RequestID,
 			"runId":     req.RunID,

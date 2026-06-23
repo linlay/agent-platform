@@ -3009,6 +3009,46 @@ func TestRawMessagesIncludeReferenceContext(t *testing.T) {
 	}
 }
 
+func TestRawMessagesPreferQueryMessages(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-query-messages", "agent", "", "raw"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	if err := store.AppendQueryLine("chat-query-messages", QueryLine{
+		Type:      "query",
+		ChatID:    "chat-query-messages",
+		RunID:     "run-1",
+		UpdatedAt: 2,
+		Query: map[string]any{
+			"role":    "user",
+			"message": "raw user text",
+			"references": []map[string]any{{
+				"id":   "r01",
+				"name": "sales.csv",
+			}},
+		},
+		Messages: []map[string]any{{
+			"role":    "user",
+			"content": "canonical model text",
+		}},
+	}); err != nil {
+		t.Fatalf("append query: %v", err)
+	}
+	messages, err := store.LoadRawMessages("chat-query-messages", 5)
+	if err != nil {
+		t.Fatalf("load raw messages: %v", err)
+	}
+	if len(messages) != 1 || messages[0]["role"] != "user" || messages[0]["content"] != "canonical model text" {
+		t.Fatalf("expected canonical query messages, got %#v", messages)
+	}
+	if strings.Contains(messages[0]["content"].(string), "[References]") {
+		t.Fatalf("did not expect fallback reference formatting when query messages exist: %#v", messages)
+	}
+}
+
 func TestLoadRawMessagesMapsAutomationAndSystemQueryRolesToUser(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
@@ -3050,6 +3090,55 @@ func TestLoadRawMessagesMapsAutomationAndSystemQueryRolesToUser(t *testing.T) {
 		if messages[idx]["role"] != "user" || messages[idx]["content"] != want {
 			t.Fatalf("unexpected raw message %d: %#v", idx, messages[idx])
 		}
+	}
+}
+
+func TestStepWriterPersistsQueryMessages(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	if _, _, err := store.EnsureChat("chat-query-current-messages", "agent", "", "raw user text"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+
+	writer := NewStepWriter(store, "chat-query-current-messages", "run-1", "react")
+	writer.SetPendingQueryMessages([]map[string]any{{
+		"role":    "user",
+		"content": "[References]\n- id: r01\n  name: sales.csv\n\n[User message]\nraw user text",
+	}})
+	writer.OnEvent(stream.EventData{
+		Type:      "request.query",
+		Timestamp: 1001,
+		Payload: map[string]any{
+			"chatId":  "chat-query-current-messages",
+			"runId":   "run-1",
+			"role":    "user",
+			"message": "raw user text",
+		},
+	})
+
+	lines, err := readJSONLines(store.chatJSONLPath("chat-query-current-messages"))
+	if err != nil {
+		t.Fatalf("read chat jsonl: %v", err)
+	}
+	if len(lines) != 1 || lines[0]["_type"] != "query" {
+		t.Fatalf("expected one query line, got %#v", lines)
+	}
+	query, _ := lines[0]["query"].(map[string]any)
+	if query["message"] != "raw user text" {
+		t.Fatalf("expected raw query message to remain unchanged, got %#v", query)
+	}
+	if _, exists := query["messages"]; exists {
+		t.Fatalf("did not expect model messages inside query payload, got %#v", query)
+	}
+	rawMessages, _ := lines[0]["messages"].([]any)
+	if len(rawMessages) != 1 {
+		t.Fatalf("expected top-level query messages, got %#v", lines[0])
+	}
+	message, _ := rawMessages[0].(map[string]any)
+	if message["role"] != "user" || !strings.Contains(message["content"].(string), "[User message]\nraw user text") {
+		t.Fatalf("unexpected query model message %#v", message)
 	}
 }
 

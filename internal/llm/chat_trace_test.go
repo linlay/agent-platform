@@ -61,6 +61,38 @@ func TestLLMChatTraceWritesSimpleCompletion(t *testing.T) {
 	}
 }
 
+func TestRunStreamUsesSessionCurrentMessages(t *testing.T) {
+	recordDir := t.TempDir()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\n"))
+	}))
+	defer server.Close()
+
+	engine := newTraceTestEngine(t, recordDir, server.URL, nil)
+	session := traceTestSession()
+	session.CurrentMessages = []map[string]any{{
+		"role":    "user",
+		"content": "canonical model-side message",
+	}}
+	stream, err := engine.newRunStream(context.Background(), api.QueryRequest{ChatID: "chat_1", Message: "raw user message"}, session, false)
+	if err != nil {
+		t.Fatalf("newRunStream: %v", err)
+	}
+	drainTraceTestStream(t, stream)
+
+	trace := readTraceFile(t, recordDir, 1)
+	request := trace["request"].(map[string]any)
+	rawMessages, _ := request["messages"].([]any)
+	if len(rawMessages) < 2 {
+		t.Fatalf("expected system + current messages, got %#v", request["messages"])
+	}
+	current, _ := rawMessages[len(rawMessages)-1].(map[string]any)
+	if current["role"] != "user" || current["content"] != "canonical model-side message" {
+		t.Fatalf("expected request to use session CurrentMessages, got %#v", rawMessages)
+	}
+}
+
 func TestLLMChatTraceWritesToolLoopFiles(t *testing.T) {
 	recordDir := t.TempDir()
 	var calls atomic.Int64

@@ -309,7 +309,9 @@ func (s *planPipelineStream) startPlanStage() error {
 
 	req := s.req
 	req.Message = s.renderPlanUserPrompt(planPrompt, executeToolDesc, planCallableDesc)
-	stream, err := s.engine.newRunStreamWithOptions(s.ctx, req, s.sessionForStage(s.settings.Plan, s.planStageTools()), true, runStreamOptions{
+	stageSession := s.sessionForStage(s.settings.Plan, s.planStageTools())
+	stageSession.CurrentMessages = s.engine.buildCurrentMessagesForRequest(req, stageSession, false)
+	stream, err := s.engine.newRunStreamWithOptions(s.ctx, req, stageSession, true, runStreamOptions{
 		ExecCtx:      s.execCtx,
 		ToolNames:    s.planStageTools(),
 		ModelKey:     s.resolveStageModelKey(s.settings.Plan),

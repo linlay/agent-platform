@@ -15,6 +15,7 @@ import (
 	"agent-platform/internal/frontendtools"
 	"agent-platform/internal/hitl"
 	. "agent-platform/internal/models"
+	"agent-platform/internal/querymessages"
 )
 
 type LLMAgentEngine struct {
@@ -149,10 +150,16 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 				messages = append(messages, msg)
 			}
 		}
-		messages = append(messages, openAIMessage{
-			Role:    "user",
-			Content: buildUserMessageContent(e.cfg.Paths.ChatsDir, req.ChatID, req.Message, req.References, model.IsVision, e.llmConsoleEnabled(llmConsoleMedia)),
-		})
+		currentMessages := session.CurrentMessages
+		if len(currentMessages) == 0 {
+			currentMessages = e.buildCurrentMessagesForRequest(req, session, model.IsVision)
+		}
+		for _, raw := range currentMessages {
+			msg := rawMessageToOpenAI(raw, preserveReasoning)
+			if msg.Role != "" {
+				messages = append(messages, msg)
+			}
+		}
 	} else if useCachedSystemInit {
 		messages = replaceSystemMessage(messages, cachedSystem)
 	}
@@ -232,6 +239,16 @@ func (e *LLMAgentEngine) newRunStreamWithOptions(ctx context.Context, req api.Qu
 		return nil, err
 	}
 	return stream, nil
+}
+
+func (e *LLMAgentEngine) buildCurrentMessagesForRequest(req api.QueryRequest, session QuerySession, fallbackVision bool) []map[string]any {
+	isVision := fallbackVision
+	if e != nil && e.models != nil {
+		if model, err := e.models.GetModel(session.ModelKey); err == nil {
+			isVision = model.IsVision
+		}
+	}
+	return querymessages.BuildMessages(e.cfg.Paths.ChatsDir, req.ChatID, req.Role, req.Message, req.References, isVision, e.llmConsoleEnabled(llmConsoleMedia))
 }
 
 func (e *LLMAgentEngine) resolveMaxSteps(session QuerySession, budgetStage string) int {
