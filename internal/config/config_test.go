@@ -53,6 +53,22 @@ func TestLoadDefaults(t *testing.T) {
 			if cfg.SSE.HeartbeatInterval != 30 {
 				t.Fatalf("expected default heartbeat interval 30, got %d", cfg.SSE.HeartbeatInterval)
 			}
+			if !cfg.Logging.Request.Enabled ||
+				!cfg.Logging.Auth.Enabled ||
+				!cfg.Logging.Exception.Enabled ||
+				!cfg.Logging.Tool.Enabled ||
+				!cfg.Logging.Action.Enabled ||
+				!cfg.Logging.Viewport.Enabled ||
+				!cfg.Logging.Memory.Enabled ||
+				!cfg.Logging.LLMInteraction.Enabled {
+				t.Fatalf("expected default logging surfaces enabled, got %#v", cfg.Logging)
+			}
+			if cfg.Logging.SSE.Enabled {
+				t.Fatalf("expected sse logging disabled by default")
+			}
+			if cfg.Logging.Memory.File != filepath.Join("runtime", "memory", "memory.log") {
+				t.Fatalf("unexpected memory log file: %q", cfg.Logging.Memory.File)
+			}
 			if cfg.Logging.LLMInteraction.MaskSensitive {
 				t.Fatalf("expected llm interaction logs to be unmasked by default")
 			}
@@ -152,6 +168,14 @@ func TestContainerHubPublicTemplatesExposeRuntimeDefaults(t *testing.T) {
 	}
 	if strings.Contains(runtimeExample, "server:\n") || strings.Contains(runtimeExample, "port: 11949\n") {
 		t.Fatalf("expected runtime example not to expose server port config")
+	}
+	for _, forbidden := range []string{
+		"logging:\n",
+		"llm-interaction:\n",
+	} {
+		if strings.Contains(runtimeExample, forbidden) {
+			t.Fatalf("expected runtime example not to expose %q", forbidden)
+		}
 	}
 
 	envExampleBytes, err := os.ReadFile(ProjectFile(".env.example"))
@@ -1426,7 +1450,7 @@ func TestLoadRuntimeDirAllowsCommonDirectoryOverrides(t *testing.T) {
 	})
 }
 
-func TestLoadMemoryLogFileRuntimeYAMLOverridesMemoryDirDefault(t *testing.T) {
+func TestLoadIgnoresLoggingMemoryRuntimeYAML(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"AP_RUNTIME_MEMORY_DIR":     filepath.Join("var", "custom-memory"),
 		"LOGGING_AGENT_MEMORY_FILE": filepath.Join("var", "custom-log", "memory.log"),
@@ -1442,11 +1466,11 @@ func TestLoadMemoryLogFileRuntimeYAMLOverridesMemoryDirDefault(t *testing.T) {
 			if err != nil {
 				t.Fatalf("load config: %v", err)
 			}
-			if cfg.Logging.Memory.File != filepath.Join("var", "custom-log", "memory.log") {
+			if cfg.Logging.Memory.File != filepath.Join("var", "custom-memory", "memory.log") {
 				t.Fatalf("unexpected memory log file: %q", cfg.Logging.Memory.File)
 			}
-			if cfg.Logging.Memory.Enabled {
-				t.Fatalf("expected memory logging to be disabled")
+			if !cfg.Logging.Memory.Enabled {
+				t.Fatalf("expected memory logging to keep source default enabled")
 			}
 		})
 	})
@@ -1523,8 +1547,8 @@ func TestLoadRuntimeYAMLReplacesLegacyEnvContract(t *testing.T) {
 				cfg.Automation.PoolSize != 7 {
 				t.Fatalf("unexpected automation config: %#v", cfg.Automation)
 			}
-			if cfg.Logging.Request.Enabled {
-				t.Fatalf("expected request logging disabled from runtime yaml")
+			if !cfg.Logging.Request.Enabled {
+				t.Fatalf("expected runtime yaml logging request config to be ignored")
 			}
 		})
 	})
@@ -2028,21 +2052,33 @@ func TestLoadContainerHubDisabledWhenBaseURLMissing(t *testing.T) {
 	})
 }
 
-func TestLoadLLMInteractionMaskSensitiveFromRuntimeYAML(t *testing.T) {
+func TestLoadIgnoresLLMInteractionRuntimeYAML(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"LOGGING_AGENT_LLM_INTERACTION_MASK_SENSITIVE": "true",
 	}, func() {
 		content := "" +
 			"logging:\n" +
 			"  llm-interaction:\n" +
-			"    mask-sensitive: true\n"
+			"    enabled: false\n" +
+			"    console-categories: [raw, parsed]\n" +
+			"    mask-sensitive: true\n" +
+			"    record-enabled: true\n"
 		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &content, func() {
 			cfg, err := Load()
 			if err != nil {
 				t.Fatalf("load config: %v", err)
 			}
-			if !cfg.Logging.LLMInteraction.MaskSensitive {
-				t.Fatalf("expected llm interaction masking enabled from runtime yaml")
+			if !cfg.Logging.LLMInteraction.Enabled {
+				t.Fatalf("expected llm interaction logging to keep source default enabled")
+			}
+			if got := strings.Join(cfg.Logging.LLMInteraction.ConsoleCategories, ","); got != "request,usage" {
+				t.Fatalf("expected llm interaction console categories to keep source default, got %q", got)
+			}
+			if cfg.Logging.LLMInteraction.MaskSensitive {
+				t.Fatalf("expected runtime yaml llm interaction mask-sensitive config to be ignored")
+			}
+			if cfg.Logging.LLMInteraction.RecordEnabled {
+				t.Fatalf("expected runtime yaml llm interaction record-enabled config to be ignored")
 			}
 		})
 	})

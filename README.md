@@ -159,13 +159,12 @@ RUN_SOCKET_TESTS=1 make test-integration
 
 Auth 默认开启，默认公钥文件为 `configs/local-public-key.pem`；相关默认值展示在 `configs/runtime.example.yml` 的 `auth` 节，根 `.env.example` 不再放 Auth 变量。
 
-以下低频和排障项统一改到 `configs/runtime.yml`：
+以下低频项统一改到 `configs/runtime.yml`：
 
 - 低频 runtime 子目录：`paths.owner-dir`、`paths.agents-dir`、`paths.teams-dir`、`paths.root-dir`、`paths.automations-dir`、`paths.skills-market-dir`
-- 日志排障：`logging.*`
 - memory 深度调优：`memory.*`
 
-LLM 交互日志、memory 参数和内部运行默认值的适用人群和注意事项统一见 [配置化说明](./docs/配置化说明.md)。
+Logging 默认值已经源码化，不提供 runtime YAML 入口；只保留 `AP_DEBUG_LLM_CONSOLE` 和 `AP_DEBUG_LLM_CHAT_RECORD` 作为现场调试 allowlist。LLM 交互日志、memory 参数和内部运行默认值的适用人群和注意事项统一见 [配置化说明](./docs/配置化说明.md)。
 
 Provider `apiKey` 按明文字符串读取：
 

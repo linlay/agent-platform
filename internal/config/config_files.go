@@ -112,35 +112,6 @@ func (c *Config) applyAnthropicValues(values map[string]any) {
 	c.Anthropic.MaxOutputTokens = intValue(anyValue(values["max-output-tokens"], c.Anthropic.MaxOutputTokens), c.Anthropic.MaxOutputTokens)
 }
 
-func (c *Config) applyLoggingValues(values map[string]any) {
-	c.Logging.Request = parseToggleConfig(values["request"], c.Logging.Request)
-	c.Logging.Auth = parseToggleConfig(values["auth"], c.Logging.Auth)
-	c.Logging.Exception = parseToggleConfig(values["exception"], c.Logging.Exception)
-	c.Logging.Tool = parseToggleConfig(values["tool"], c.Logging.Tool)
-	c.Logging.Action = parseToggleConfig(values["action"], c.Logging.Action)
-	c.Logging.Viewport = parseToggleConfig(values["viewport"], c.Logging.Viewport)
-	c.Logging.SSE = parseToggleConfig(values["sse"], c.Logging.SSE)
-	if memory, ok := values["memory"].(map[string]any); ok && len(memory) > 0 {
-		c.Logging.Memory.Enabled = boolValue(anyValue(memory["enabled"], c.Logging.Memory.Enabled), c.Logging.Memory.Enabled)
-		c.Logging.Memory.File = stringValue(anyValue(memory["file"], c.Logging.Memory.File), c.Logging.Memory.File)
-	}
-	if llm, ok := values["llm-interaction"].(map[string]any); ok && len(llm) > 0 {
-		c.Logging.LLMInteraction.Enabled = boolValue(anyValue(llm["enabled"], c.Logging.LLMInteraction.Enabled), c.Logging.LLMInteraction.Enabled)
-		c.Logging.LLMInteraction.ConsoleCategories = csvOrList(anyValue(llm["console-categories"], c.Logging.LLMInteraction.ConsoleCategories), c.Logging.LLMInteraction.ConsoleCategories)
-		c.Logging.LLMInteraction.MaskSensitive = boolValue(anyValue(llm["mask-sensitive"], c.Logging.LLMInteraction.MaskSensitive), c.Logging.LLMInteraction.MaskSensitive)
-		c.Logging.LLMInteraction.RecordEnabled = boolValue(anyValue(llm["record-enabled"], c.Logging.LLMInteraction.RecordEnabled), c.Logging.LLMInteraction.RecordEnabled)
-	}
-}
-
-func parseToggleConfig(raw any, fallback ToggleConfig) ToggleConfig {
-	values, _ := raw.(map[string]any)
-	if len(values) == 0 {
-		return fallback
-	}
-	fallback.Enabled = boolValue(anyValue(values["enabled"], fallback.Enabled), fallback.Enabled)
-	return fallback
-}
-
 func (c *Config) applyRuntimeFile(path string) error {
 	values, err := loadYAMLMap(path)
 	if err != nil {
@@ -183,9 +154,6 @@ func (c *Config) applyRuntimeFile(path string) error {
 	}
 	if anthropic, ok := values["anthropic"].(map[string]any); ok && len(anthropic) > 0 {
 		c.applyAnthropicValues(anthropic)
-	}
-	if logging, ok := values["logging"].(map[string]any); ok && len(logging) > 0 {
-		c.applyLoggingValues(logging)
 	}
 	if budget, ok := values["budget"].(map[string]any); ok && len(budget) > 0 {
 		c.applyRuntimeBudgetValues(budget)

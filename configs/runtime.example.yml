@@ -129,28 +129,3 @@ cors:
 
 billing:
   currency: CNY
-
-logging:
-  request:
-    enabled: true
-  auth:
-    enabled: true
-  exception:
-    enabled: true
-  tool:
-    enabled: true
-  action:
-    enabled: true
-  viewport:
-    enabled: true
-  sse:
-    enabled: false
-  memory:
-    enabled: true
-    # file defaults to AP_RUNTIME_MEMORY_DIR/memory.log
-    # file:
-  llm-interaction:
-    enabled: true
-    console-categories: [request, usage]
-    mask-sensitive: false
-    record-enabled: false

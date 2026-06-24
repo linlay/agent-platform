@@ -108,25 +108,7 @@ func defaultConfig(options LoadOptions) Config {
 			Secret:     "",
 			TTLSeconds: 86400,
 		},
-		Logging: LoggingConfig{
-			Request:   ToggleConfig{Enabled: true},
-			Auth:      ToggleConfig{Enabled: true},
-			Exception: ToggleConfig{Enabled: true},
-			Tool:      ToggleConfig{Enabled: true},
-			Action:    ToggleConfig{Enabled: true},
-			Viewport:  ToggleConfig{Enabled: true},
-			SSE:       ToggleConfig{Enabled: false},
-			Memory: MemoryLoggingConfig{
-				Enabled: true,
-			},
-			LLMInteraction: LLMInteractionLoggingConfig{
-				Enabled:           true,
-				ConsoleCategories: []string{"request", "usage"},
-				MaskSensitive:     false,
-				RecordEnabled:     false,
-				RecordDir:         paths.ChatsDir,
-			},
-		},
+		Logging: defaultLoggingConfig(paths.ChatsDir, paths.MemoryDir),
 		CORS: CORSConfig{
 			Enabled:               false,
 			PathPattern:           "/api/**",
@@ -276,9 +258,7 @@ func (c *Config) normalize(configRoot string) error {
 	c.Logging.LLMInteraction.RecordDir = filepath.Clean(c.Paths.ChatsDir)
 	c.Providers.ExternalDir = filepath.Clean(filepath.Join(c.Paths.RegistriesDir, "providers"))
 	c.Models.ExternalDir = filepath.Clean(filepath.Join(c.Paths.RegistriesDir, "models"))
-	if strings.TrimSpace(c.Logging.Memory.File) == "" {
-		c.Logging.Memory.File = memoryLogFileDefault(c.Paths.MemoryDir)
-	}
+	c.Logging.Memory.File = memoryLogFileDefault(c.Paths.MemoryDir)
 	if strings.TrimSpace(c.Logging.Memory.File) != "" {
 		c.Logging.Memory.File = filepath.Clean(c.Logging.Memory.File)
 	}
