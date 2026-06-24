@@ -17,6 +17,15 @@ $Script:PidFile = Join-Path $Script:RunDir 'agent-platform.pid'
 $Script:LogFile = Join-Path $Script:LogDir 'agent-platform.log'
 $Script:ErrorLogFile = Join-Path $Script:LogDir 'agent-platform.stderr.log'
 $Script:ProgramPort = ''
+$Script:DeployAPRuntimeDir = ''
+$Script:DeployContainerHubBaseUrl = ''
+$Script:DeployAIVisionGeneralModelKey = ''
+$Script:DeployAIVisionOCRModelKey = ''
+$Script:DeployAIWebFetchModelKey = ''
+$Script:DeployCoderModelKey = ''
+$Script:DeployCoderReasoningEffort = ''
+$Script:DeployLocalPublicKeyFile = ''
+$Script:Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 
 function Fail-Program([string]$Message) {
   throw "[program] $Message"
@@ -71,6 +80,82 @@ function Set-ProgramLayoutArgs([string[]]$Arguments) {
   }
 }
 
+function Assert-ProgramArgValue([string]$Name, [string]$Value) {
+  if ([string]::IsNullOrWhiteSpace($Value)) {
+    Fail-Program "missing required deploy argument: $Name"
+  }
+}
+
+function Reject-ProgramDeployStartArg([string]$Name) {
+  Fail-Program "$Name is a start/runtime argument; pass it to start.ps1 instead of deploy.ps1"
+}
+
+function Set-ProgramDeployOption([string]$Name, [string]$Value) {
+  switch ($Name) {
+    '--output-dir' {
+      Assert-ProgramArgValue '--output-dir' $Value
+      $Script:ConfigRoot = $Value
+    }
+    '--ap-runtime-dir' { $Script:DeployAPRuntimeDir = $Value }
+    '--container-hub-base-url' { $Script:DeployContainerHubBaseUrl = $Value }
+    '--ai-vision-general-model-key' { $Script:DeployAIVisionGeneralModelKey = $Value }
+    '--ai-vision-ocr-model-key' { $Script:DeployAIVisionOCRModelKey = $Value }
+    '--ai-web-fetch-model-key' { $Script:DeployAIWebFetchModelKey = $Value }
+    '--coder-model-key' { $Script:DeployCoderModelKey = $Value }
+    '--coder-reasoning-effort' {
+      if (@('NONE', 'LOW', 'MEDIUM', 'HIGH') -notcontains $Value) {
+        Fail-Program '--coder-reasoning-effort must be one of NONE, LOW, MEDIUM, HIGH'
+      }
+      $Script:DeployCoderReasoningEffort = $Value
+    }
+    '--local-public-key-file' { $Script:DeployLocalPublicKeyFile = $Value }
+    default { Fail-Program "unsupported deploy argument: $Name" }
+  }
+  Update-ProgramPaths
+}
+
+function Set-ProgramDeployArgs([string[]]$Arguments) {
+  for ($i = 0; $i -lt $Arguments.Length; $i++) {
+    $name = $Arguments[$i]
+    if (@('--config-dir', '--runtime-dir', '--state-dir', '--log-dir', '--port', '--daemon') -contains $name) {
+      Reject-ProgramDeployStartArg $name
+    }
+    if ($name -eq '--force') {
+      Fail-Program 'unsupported deploy argument: --force'
+    }
+    if (@(
+      '--output-dir',
+      '--ap-runtime-dir',
+      '--container-hub-base-url',
+      '--ai-vision-general-model-key',
+      '--ai-vision-ocr-model-key',
+      '--ai-web-fetch-model-key',
+      '--coder-model-key',
+      '--coder-reasoning-effort',
+      '--local-public-key-file'
+    ) -notcontains $name) {
+      Fail-Program "unsupported deploy argument: $name"
+    }
+    if ($i + 1 -ge $Arguments.Length) {
+      Fail-Program "missing value for $name"
+    }
+    $i += 1
+    Set-ProgramDeployOption $name $Arguments[$i]
+  }
+
+  Assert-ProgramArgValue '--ap-runtime-dir' $Script:DeployAPRuntimeDir
+  Assert-ProgramArgValue '--container-hub-base-url' $Script:DeployContainerHubBaseUrl
+  Assert-ProgramArgValue '--ai-vision-general-model-key' $Script:DeployAIVisionGeneralModelKey
+  Assert-ProgramArgValue '--ai-vision-ocr-model-key' $Script:DeployAIVisionOCRModelKey
+  Assert-ProgramArgValue '--ai-web-fetch-model-key' $Script:DeployAIWebFetchModelKey
+  Assert-ProgramArgValue '--coder-model-key' $Script:DeployCoderModelKey
+  Assert-ProgramArgValue '--coder-reasoning-effort' $Script:DeployCoderReasoningEffort
+  Assert-ProgramArgValue '--local-public-key-file' $Script:DeployLocalPublicKeyFile
+  if (-not (Test-Path -LiteralPath $Script:DeployLocalPublicKeyFile -PathType Leaf)) {
+    Fail-Program "required file not found: $Script:DeployLocalPublicKeyFile"
+  }
+}
+
 function Initialize-ProgramConfig {
   New-Item -ItemType Directory -Force -Path $Script:ConfigDir | Out-Null
   if (-not (Test-Path -LiteralPath $Script:EnvFile -PathType Leaf)) {
@@ -100,6 +185,148 @@ function Initialize-ProgramConfig {
       Copy-Item -LiteralPath $example.FullName -Destination $target
     }
   }
+}
+
+function Write-ProgramTextFile([string]$Path, [string[]]$Lines) {
+  [System.IO.File]::WriteAllText($Path, (($Lines -join [Environment]::NewLine) + [Environment]::NewLine), $Script:Utf8NoBom)
+}
+
+function Set-ProgramEnvValue([string]$Path, [string]$Name, [string]$Value) {
+  $lines = [System.Collections.Generic.List[string]]::new()
+  $found = $false
+  foreach ($line in [System.IO.File]::ReadAllLines($Path)) {
+    if ($line -match ("^\s*#?\s*{0}=" -f [regex]::Escape($Name))) {
+      $lines.Add(("{0}={1}" -f $Name, $Value))
+      $found = $true
+      continue
+    }
+    $lines.Add($line)
+  }
+  if (-not $found) {
+    $lines.Add(("{0}={1}" -f $Name, $Value))
+  }
+  Write-ProgramTextFile $Path $lines.ToArray()
+}
+
+function New-ProgramDeployEnvFile([string]$Target) {
+  Copy-Item -LiteralPath $Script:EnvExampleFile -Destination $Target
+  Set-ProgramEnvValue $Target 'AP_RUNTIME_DIR' $Script:DeployAPRuntimeDir
+  Set-ProgramEnvValue $Target 'AP_CONTAINER_HUB_BASE_URL' $Script:DeployContainerHubBaseUrl
+}
+
+function Set-ProgramAIToolsModelKey([string]$Path, [string]$Section, [string]$Profile, [string]$Value) {
+  $lines = [System.Collections.Generic.List[string]]::new()
+  $currentSection = ''
+  $inProfiles = $false
+  $currentProfile = ''
+  $replaced = $false
+  foreach ($line in [System.IO.File]::ReadAllLines($Path)) {
+    if ($line -match '^[^\s#][^:]*:') {
+      $currentSection = $matches[0].TrimEnd(':')
+      $inProfiles = $false
+      $currentProfile = ''
+    }
+    if ($currentSection -eq $Section -and $line -match '^  profiles:') {
+      $inProfiles = $true
+      $lines.Add($line)
+      continue
+    }
+    if ($currentSection -eq $Section -and $inProfiles -and $line -match '^    ([A-Za-z0-9_-]+):') {
+      $currentProfile = $matches[1]
+      $lines.Add($line)
+      continue
+    }
+    if ($currentSection -eq $Section -and $inProfiles -and $currentProfile -eq $Profile -and $line -match '^      model-key:') {
+      $lines.Add(("      model-key: {0}" -f $Value))
+      $replaced = $true
+      continue
+    }
+    $lines.Add($line)
+  }
+  if (-not $replaced) {
+    Fail-Program "failed to update $Section.profiles.$Profile.model-key in $Path"
+  }
+  Write-ProgramTextFile $Path $lines.ToArray()
+}
+
+function New-ProgramDeployAIToolsFile([string]$Source, [string]$Target) {
+  Copy-Item -LiteralPath $Source -Destination $Target
+  Set-ProgramAIToolsModelKey $Target 'vision-recognize' 'general' $Script:DeployAIVisionGeneralModelKey
+  Set-ProgramAIToolsModelKey $Target 'vision-recognize' 'ocr' $Script:DeployAIVisionOCRModelKey
+  Set-ProgramAIToolsModelKey $Target 'web-fetch' 'general' $Script:DeployAIWebFetchModelKey
+}
+
+function Set-ProgramCoderDefaultValue([string]$Path, [string]$Name, [string]$Value) {
+  $lines = [System.Collections.Generic.List[string]]::new()
+  $inDefaultAgent = $false
+  $replaced = $false
+  foreach ($line in [System.IO.File]::ReadAllLines($Path)) {
+    if ($line -match '^[^\s#][^:]*:') {
+      $inDefaultAgent = $matches[0] -eq 'default-agent:'
+    }
+    if ($inDefaultAgent -and $line -match ("^  {0}:" -f [regex]::Escape($Name))) {
+      $lines.Add(("  {0}: {1}" -f $Name, $Value))
+      $replaced = $true
+      continue
+    }
+    $lines.Add($line)
+  }
+  if (-not $replaced) {
+    Fail-Program "failed to update default-agent.$Name in $Path"
+  }
+  Write-ProgramTextFile $Path $lines.ToArray()
+}
+
+function New-ProgramDeployCoderSettingsFile([string]$Source, [string]$Target) {
+  Copy-Item -LiteralPath $Source -Destination $Target
+  Set-ProgramCoderDefaultValue $Target 'modelKey' $Script:DeployCoderModelKey
+  Set-ProgramCoderDefaultValue $Target 'reasoningEffort' $Script:DeployCoderReasoningEffort
+}
+
+function Install-ProgramDeployLocalPublicKey {
+  $target = Join-Path $Script:ConfigDir 'local-public-key.pem'
+  if (-not (Test-Path -LiteralPath $target -PathType Leaf)) {
+    Copy-Item -LiteralPath $Script:DeployLocalPublicKeyFile -Destination $target
+  }
+}
+
+function Initialize-ProgramDeployConfig {
+  New-Item -ItemType Directory -Force -Path $Script:ConfigDir | Out-Null
+  if (-not (Test-Path -LiteralPath $Script:EnvFile -PathType Leaf)) {
+    New-ProgramDeployEnvFile $Script:EnvFile
+  }
+  $bundleConfigDir = Join-Path $Script:BundleRoot 'configs'
+  if (Test-Path -LiteralPath $bundleConfigDir -PathType Container) {
+    foreach ($example in Get-ChildItem -LiteralPath $bundleConfigDir -Filter '*.example.yml' -File) {
+      $name = $example.Name.Substring(0, $example.Name.Length - '.example.yml'.Length)
+      $target = Join-Path $Script:ConfigDir ($name + '.yml')
+      if ($name -eq 'channels') {
+        if (-not (Test-Path -LiteralPath $target -PathType Leaf)) {
+          New-Item -ItemType File -Path $target -Force | Out-Null
+        }
+        continue
+      }
+      if (Test-Path -LiteralPath $target -PathType Leaf) {
+        continue
+      }
+      switch ($name) {
+        'ai-tools' { New-ProgramDeployAIToolsFile $example.FullName $target }
+        'coder-settings' { New-ProgramDeployCoderSettingsFile $example.FullName $target }
+        default { Copy-Item -LiteralPath $example.FullName -Destination $target }
+      }
+    }
+    foreach ($example in Get-ChildItem -LiteralPath $bundleConfigDir -Filter '*.example.pem' -File) {
+      $name = $example.Name.Substring(0, $example.Name.Length - '.example.pem'.Length)
+      if ($name -eq 'local-public-key') {
+        continue
+      }
+      $target = Join-Path $Script:ConfigDir ($name + '.pem')
+      if (-not (Test-Path -LiteralPath $target -PathType Leaf)) {
+        Copy-Item -LiteralPath $example.FullName -Destination $target
+      }
+    }
+  }
+  Install-ProgramDeployLocalPublicKey
 }
 
 function Import-ProgramEnv {
