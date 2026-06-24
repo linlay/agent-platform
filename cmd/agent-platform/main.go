@@ -14,6 +14,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	_ "time/tzdata"
 
 	"agent-platform/internal/app"
 	"agent-platform/internal/config"
