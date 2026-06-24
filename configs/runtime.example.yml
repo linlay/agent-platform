@@ -1,20 +1,49 @@
 # Runtime integration config. Copy to configs/runtime.yml to customize locally.
 
+# paths:
+#   # RUNTIME_DIR controls the common runtime root. Use these only when a
+#   # specific runtime subdirectory must live outside that root.
+#   registries-dir: ./runtime/registries
+#   tools-dir: ./runtime/tools
+#   owner-dir: ./runtime/owner
+#   agents-dir: ./runtime/agents
+#   teams-dir: ./runtime/teams
+#   root-dir: ./runtime/root
+#   automations-dir: ./runtime/automations
+#   chats-dir: ./runtime/chats
+#   memory-dir: ./runtime/memory
+#   pan-dir: ./runtime/pan
+#   skills-market-dir: ./runtime/skills-market
+
+skills:
+  max-prompt-chars: 8000
+
 auth:
   enabled: true
   # jwks-uri:
   # issuer:
   # jwks-cache-seconds: 0
 
+resource:
+  ticket-ttl-seconds: 86400
+
+defaults:
+  max-output-tokens: 4096
+
 budget:
   # 单次 run 总耗时上限：一条用户消息触发的 agent 执行，从开始到最终回答结束。
   timeout: 3600
+  max-steps: 100
   model:
+    max-calls: 100
     # 模型流式 idle 超时：首个响应 chunk 或任意两个 chunk 之间超过该秒数无响应则报错。
     timeout: 30
+    retry-count: 3
   tool:
+    max-calls: 100
     # 单次后端工具调用硬上限：bash/file/external 等工具不能超过该秒数。
     timeout: 600
+    retry-count: 0
   hitl:
     timeout: 600
     question:
@@ -26,10 +55,25 @@ budget:
     plan:
       timeout: 600
 
+automation:
+  enabled: true
+  default-zone-id:
+  pool-size: 4
+
+memory:
+  enabled: true
+  db-file-name: memory.db
+  context-top-n: 5
+  context-max-chars: 4000
+  search-default-limit: 10
+  hybrid-vector-weight: 0.7
+  hybrid-fts-weight: 0.3
+  dual-write-markdown: true
+
 container-hub:
   base-url: ${AP_CONTAINER_HUB_BASE_URL:http://host.docker.internal:11960}
 
-  # Prefer AP_CONTAINER_HUB_AUTH_TOKEN or deployment Secret for Bearer auth.
+  # Prefer deployment-rendered YAML or an external Secret for Bearer auth.
   # auth-token:
   default-environment-id:
   request-timeout: 300
@@ -39,11 +83,11 @@ container-hub:
 
   # Default mounts come from runtime directory config:
   # /workspace -> CHATS_DIR/<chatId> (rw)
-  # /root      -> ROOT_DIR (rw)
-  # /skills    -> AGENTS_DIR/<agentKey>/skills (ro, only run/agent; global skips it)
+  # /root      -> paths.root-dir (rw)
+  # /skills    -> paths.agents-dir/<agentKey>/skills (ro, only run/agent; global skips it)
   # /pan       -> PAN_DIR (rw)
-  # /agent     -> AGENTS_DIR/<agentKey> (ro, required)
-  # /owner     -> OWNER_DIR (ro)
+  # /agent     -> paths.agents-dir/<agentKey> (ro, required)
+  # /owner     -> paths.owner-dir (ro)
   # /memory    -> MEMORY_DIR/<agentKey> (ro)
   #
   # runtimeConfig.sandboxMounts controls Container Hub session mounts:
@@ -85,3 +129,60 @@ cors:
 
 billing:
   currency: CNY
+
+h2a:
+  render:
+    flush-interval: 0
+    max-buffered-chars: 0
+    max-buffered-events: 0
+    heartbeat-pass-through: true
+
+i18n:
+  default-locale: zh-CN
+
+chat-storage:
+  k: 20
+  charset: UTF-8
+  action-tools: []
+  index-sqlite-file: chats.db
+  index-auto-rebuild-on-incompatible-schema: true
+
+logging:
+  request:
+    enabled: true
+  auth:
+    enabled: true
+  exception:
+    enabled: true
+  tool:
+    enabled: true
+  action:
+    enabled: true
+  viewport:
+    enabled: true
+  sse:
+    enabled: false
+  memory:
+    enabled: true
+    # file defaults to MEMORY_DIR/memory.log
+    # file:
+  llm-interaction:
+    enabled: true
+    console-categories: [request, usage]
+    mask-sensitive: false
+    record-enabled: false
+
+run:
+  reaper-interval: 30
+  max-background-duration: 0
+  completed-retention: 10
+  event-bus-max-events: 10000
+  max-disconnected-wait: 0
+  max-observers-per-run: 8
+
+websocket:
+  max-message-size-bytes: 1048576
+  ping-interval: 30
+  write-timeout: 15
+  write-queue-size: 256
+  max-observes-per-conn: 8

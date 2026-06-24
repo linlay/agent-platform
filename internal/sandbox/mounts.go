@@ -363,7 +363,10 @@ func hostPath(envKey string, configured string) (string, error) {
 	if configured == "" {
 		return "", nil
 	}
-	hostValue := strings.TrimSpace(os.Getenv(envKey))
+	hostValue := ""
+	if allowHostPathEnv(envKey) {
+		hostValue = strings.TrimSpace(os.Getenv(envKey))
+	}
 	if hostValue == "" {
 		hostValue = configured
 	}
@@ -371,4 +374,13 @@ func hostPath(envKey string, configured string) (string, error) {
 		return "", fmt.Errorf("missing %s host path (configured=%s)", envKey, configured)
 	}
 	return filepath.Clean(hostValue), nil
+}
+
+func allowHostPathEnv(envKey string) bool {
+	switch envKey {
+	case "CHATS_DIR", "MEMORY_DIR", "PAN_DIR", "REGISTRIES_DIR":
+		return true
+	default:
+		return false
+	}
 }

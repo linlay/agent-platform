@@ -308,8 +308,12 @@ func (c *Config) normalize(configRoot string) error {
 	c.Automation.ExternalDir = filepath.Clean(c.Paths.AutomationsDir)
 	c.Memory.StorageDir = filepath.Clean(c.Paths.MemoryDir)
 	c.ChatStorage.Dir = filepath.Clean(c.Paths.ChatsDir)
+	c.Logging.LLMInteraction.RecordDir = filepath.Clean(c.Paths.ChatsDir)
 	c.Providers.ExternalDir = filepath.Clean(filepath.Join(c.Paths.RegistriesDir, "providers"))
 	c.Models.ExternalDir = filepath.Clean(filepath.Join(c.Paths.RegistriesDir, "models"))
+	if strings.TrimSpace(c.Logging.Memory.File) == "" {
+		c.Logging.Memory.File = memoryLogFileDefault(c.Paths.MemoryDir)
+	}
 	if strings.TrimSpace(c.Logging.Memory.File) != "" {
 		c.Logging.Memory.File = filepath.Clean(c.Logging.Memory.File)
 	}

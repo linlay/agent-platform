@@ -44,6 +44,9 @@ func TestLoadDefaults(t *testing.T) {
 			if cfg.ResourceTicket.Enabled() {
 				t.Fatalf("expected resource ticket disabled by default")
 			}
+			if cfg.ResourceTicket.TTLSeconds != 86400 {
+				t.Fatalf("expected default resource ticket ttl 86400, got %d", cfg.ResourceTicket.TTLSeconds)
+			}
 			if cfg.Billing.Currency != "CNY" {
 				t.Fatalf("expected default billing currency CNY, got %q", cfg.Billing.Currency)
 			}
@@ -132,6 +135,8 @@ func TestContainerHubPublicTemplatesExposeRuntimeDefaults(t *testing.T) {
 	}
 	runtimeExample := string(runtimeExampleBytes)
 	for _, want := range []string{
+		"resource:\n",
+		"  ticket-ttl-seconds: 86400\n",
 		"container-hub:\n",
 		"  base-url: ${AP_CONTAINER_HUB_BASE_URL:http://host.docker.internal:11960}\n",
 		"  # auth-token:\n",
@@ -157,7 +162,33 @@ func TestContainerHubPublicTemplatesExposeRuntimeDefaults(t *testing.T) {
 		t.Fatalf("read env example: %v", err)
 	}
 	envExample := string(envExampleBytes)
+	allowedEnvExampleKeys := map[string]bool{
+		"SERVER_PORT":                    true,
+		"RUNTIME_DIR":                    true,
+		"REGISTRIES_DIR":                 true,
+		"CHATS_DIR":                      true,
+		"MEMORY_DIR":                     true,
+		"PAN_DIR":                        true,
+		"AP_CONTAINER_HUB_BASE_URL":      true,
+		"AP_CHAT_RESOURCE_TICKET_SECRET": true,
+		"AP_DEBUG_LLM_CONSOLE":           true,
+		"AP_DEBUG_LLM_CHAT_RECORD":       true,
+	}
+	seenEnvExampleKeys := map[string]bool{}
+	for _, key := range envExampleKeys(envExample) {
+		if !allowedEnvExampleKeys[key] {
+			t.Fatalf("expected env example key %q to be absent from allowlist-only .env.example", key)
+		}
+		seenEnvExampleKeys[key] = true
+	}
+	for key := range allowedEnvExampleKeys {
+		if !seenEnvExampleKeys[key] {
+			t.Fatalf("expected env example to contain allowlist key %q", key)
+		}
+	}
 	for _, want := range []string{
+		"# Resource access tickets\n",
+		"# AP_CHAT_RESOURCE_TICKET_SECRET=replace-with-your-resource-ticket-secret\n",
 		"AP_CONTAINER_HUB_BASE_URL=http://127.0.0.1:11960\n",
 	} {
 		if !strings.Contains(envExample, want) {
@@ -180,34 +211,50 @@ func TestContainerHubPublicTemplatesExposeRuntimeDefaults(t *testing.T) {
 	}
 }
 
-func TestLoadEnvDefaultMaxOutputTokens(t *testing.T) {
-	withIsolatedEnv(t, map[string]string{
-		"AGENT_DEFAULT_MAX_OUTPUT_TOKENS": "8192",
-	}, func() {
-		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("load config: %v", err)
+func envExampleKeys(content string) []string {
+	var keys []string
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, "#"))
+		if trimmed == "" || !strings.Contains(trimmed, "=") {
+			continue
 		}
-		if cfg.Defaults.MaxOutputTokens != 8192 {
-			t.Fatalf("expected env max output tokens 8192, got %d", cfg.Defaults.MaxOutputTokens)
+		key, _, _ := strings.Cut(trimmed, "=")
+		key = strings.TrimSpace(key)
+		if key != "" {
+			keys = append(keys, key)
 		}
-	})
+	}
+	return keys
 }
 
-func TestLoadEnvBudgetMaxStepsDerivesToolMaxCalls(t *testing.T) {
+func TestLoadDefaultsConfigFromRuntimeYAML(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
-		"AGENT_DEFAULT_BUDGET_MAX_STEPS": "17",
+		"AGENT_DEFAULT_MAX_OUTPUT_TOKENS": "8192",
+		"AGENT_DEFAULT_BUDGET_MAX_STEPS":  "17",
 	}, func() {
-		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("load config: %v", err)
-		}
-		if cfg.Defaults.Budget.MaxSteps != 17 {
-			t.Fatalf("expected env max steps 17, got %d", cfg.Defaults.Budget.MaxSteps)
-		}
-		if cfg.Defaults.Budget.Tool.MaxCalls != 34 {
-			t.Fatalf("expected derived tool max calls 34, got %d", cfg.Defaults.Budget.Tool.MaxCalls)
-		}
+		content := "" +
+			"defaults:\n" +
+			"  max-output-tokens: 8192\n" +
+			"budget:\n" +
+			"  max-steps: 17\n" +
+			"  tool:\n" +
+			"    max-calls: 34\n"
+		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &content, func() {
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			if cfg.Defaults.MaxOutputTokens != 8192 {
+				t.Fatalf("expected runtime yaml max output tokens 8192, got %d", cfg.Defaults.MaxOutputTokens)
+			}
+			if cfg.Defaults.Budget.MaxSteps != 17 {
+				t.Fatalf("expected runtime yaml max steps 17, got %d", cfg.Defaults.Budget.MaxSteps)
+			}
+			if cfg.Defaults.Budget.Tool.MaxCalls != 34 {
+				t.Fatalf("expected runtime yaml tool max calls 34, got %d", cfg.Defaults.Budget.Tool.MaxCalls)
+			}
+		})
 	})
 }
 
@@ -289,6 +336,8 @@ func TestLoadRuntimeConfigFromFile(t *testing.T) {
 			"      timeout: 640\n" +
 			"    plan:\n" +
 			"      timeout: 650\n" +
+			"resource:\n" +
+			"  ticket-ttl-seconds: 777\n" +
 			"container-hub:\n" +
 			"  base-url: http://runtime-hub\n" +
 			"  auth-token: runtime-token\n" +
@@ -334,6 +383,9 @@ func TestLoadRuntimeConfigFromFile(t *testing.T) {
 						if cfg.ContainerHub.RequestTimeout != 123 || cfg.ContainerHub.DefaultSandboxLevel != "agent" || cfg.ContainerHub.AgentIdleTimeout != 654321 || cfg.ContainerHub.DestroyQueueDelay != 2345 {
 							t.Fatalf("unexpected container hub runtime settings: %#v", cfg.ContainerHub)
 						}
+						if cfg.ResourceTicket.TTLSeconds != 777 {
+							t.Fatalf("unexpected resource ticket ttl: %d", cfg.ResourceTicket.TTLSeconds)
+						}
 						if cfg.Desktop.Action.BridgeURL != "http://127.0.0.3:17101/actions/runtime" || cfg.Desktop.Action.RequestTimeout != 23 {
 							t.Fatalf("unexpected desktop action config: %#v", cfg.Desktop.Action)
 						}
@@ -370,7 +422,29 @@ func TestLoadRuntimeConfigFromFile(t *testing.T) {
 	})
 }
 
-func TestLoadEnvOverridesRuntimeBudgetHITLConfig(t *testing.T) {
+func TestLoadIgnoresResourceTicketTTLEnv(t *testing.T) {
+	apTTLKey := strings.Join([]string{"AP", "CHAT", "RESOURCE", "TICKET", "TTL", "SECONDS"}, "_")
+	legacyTTLKey := strings.Join([]string{"CHAT", "RESOURCE", "TICKET", "TTL", "SECONDS"}, "_")
+	withIsolatedEnv(t, map[string]string{
+		apTTLKey:     "301",
+		legacyTTLKey: "401",
+	}, func() {
+		content := "" +
+			"resource:\n" +
+			"  ticket-ttl-seconds: 123\n"
+		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &content, func() {
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			if cfg.ResourceTicket.TTLSeconds != 123 {
+				t.Fatalf("expected resource ticket ttl to come from runtime.yml, got %d", cfg.ResourceTicket.TTLSeconds)
+			}
+		})
+	})
+}
+
+func TestLoadIgnoresLegacyBudgetHITLEnv(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"BUDGET_HITL_TIMEOUT":          "710",
 		"BUDGET_HITL_QUESTION_TIMEOUT": "720",
@@ -395,20 +469,20 @@ func TestLoadEnvOverridesRuntimeBudgetHITLConfig(t *testing.T) {
 			if err != nil {
 				t.Fatalf("load config: %v", err)
 			}
-			if cfg.Defaults.Budget.Hitl.Timeout != 710 ||
-				cfg.Defaults.Budget.Hitl.Question.Timeout != 720 ||
-				cfg.Defaults.Budget.Hitl.Approval.Timeout != 730 ||
-				cfg.Defaults.Budget.Hitl.Form.Timeout != 740 ||
-				cfg.Defaults.Budget.Hitl.Plan.Timeout != 750 {
-				t.Fatalf("expected env to override runtime HITL budget config, got %#v", cfg.Defaults.Budget.Hitl)
+			if cfg.Defaults.Budget.Hitl.Timeout != 610 ||
+				cfg.Defaults.Budget.Hitl.Question.Timeout != 620 ||
+				cfg.Defaults.Budget.Hitl.Approval.Timeout != 630 ||
+				cfg.Defaults.Budget.Hitl.Form.Timeout != 640 ||
+				cfg.Defaults.Budget.Hitl.Plan.Timeout != 650 {
+				t.Fatalf("expected runtime yaml HITL budget config to win, got %#v", cfg.Defaults.Budget.Hitl)
 			}
 		})
 	})
 }
 
-func TestLoadEnvOverridesRuntimeYAMLConfig(t *testing.T) {
+func TestLoadAPContainerHubBaseURLEnvOverridesRuntimeYAMLConfig(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
-		"CONTAINER_HUB_BASE_URL": "http://env-hub",
+		"AP_CONTAINER_HUB_BASE_URL": "http://env-hub",
 	}, func() {
 		content := "" +
 			"container-hub:\n" +
@@ -421,12 +495,31 @@ func TestLoadEnvOverridesRuntimeYAMLConfig(t *testing.T) {
 					t.Fatalf("load config: %v", err)
 				}
 				if cfg.ContainerHub.BaseURL != "http://env-hub" {
-					t.Fatalf("expected env container hub base url to win, got %q", cfg.ContainerHub.BaseURL)
+					t.Fatalf("expected AP env container hub base url to win, got %q", cfg.ContainerHub.BaseURL)
 				}
 				if cfg.ContainerHub.RequestTimeout != 111 {
 					t.Fatalf("expected runtime yaml timeout to remain, got %d", cfg.ContainerHub.RequestTimeout)
 				}
 			})
+		})
+	})
+}
+
+func TestLoadIgnoresLegacyContainerHubBaseURLEnv(t *testing.T) {
+	withIsolatedEnv(t, map[string]string{
+		"CONTAINER_HUB_BASE_URL": "http://legacy-env-hub",
+	}, func() {
+		content := "" +
+			"container-hub:\n" +
+			"  base-url: http://runtime-hub\n"
+		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &content, func() {
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			if cfg.ContainerHub.BaseURL != "http://runtime-hub" {
+				t.Fatalf("expected legacy container hub env to be ignored, got %q", cfg.ContainerHub.BaseURL)
+			}
 		})
 	})
 }
@@ -890,7 +983,7 @@ func TestLoadAuthConfigFromRuntimeYAML(t *testing.T) {
 	})
 }
 
-func TestLoadAcceptsAPPrefixedAuthEnv(t *testing.T) {
+func TestLoadIgnoresAPPrefixedAuthEnv(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"AP_AUTH_ENABLED":            "false",
 		"AP_AUTH_JWKS_URI":           "https://ap.example/jwks.json",
@@ -901,21 +994,16 @@ func TestLoadAcceptsAPPrefixedAuthEnv(t *testing.T) {
 		if err != nil {
 			t.Fatalf("load config: %v", err)
 		}
-		if cfg.Auth.Enabled {
-			t.Fatalf("expected auth disabled from AP env")
-		}
-		if cfg.Auth.LocalPublicKeyFile != "" {
-			t.Fatalf("expected local public key path to be empty in jwks mode, got %q", cfg.Auth.LocalPublicKeyFile)
-		}
-		if cfg.Auth.JWKSURI != "https://ap.example/jwks.json" ||
-			cfg.Auth.Issuer != "ap-issuer" ||
-			cfg.Auth.JWKSCacheSeconds != 46 {
-			t.Fatalf("unexpected AP auth env config: %#v", cfg.Auth)
+		if !cfg.Auth.Enabled ||
+			cfg.Auth.JWKSURI != "" ||
+			cfg.Auth.Issuer != "" ||
+			cfg.Auth.JWKSCacheSeconds != 0 {
+			t.Fatalf("expected AP auth env to be ignored, got %#v", cfg.Auth)
 		}
 	})
 }
 
-func TestLoadAcceptsLegacyAuthEnvFallback(t *testing.T) {
+func TestLoadIgnoresLegacyAuthEnv(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"AUTH_ENABLED":            "false",
 		"AUTH_JWKS_URI":           "https://legacy.example/jwks.json",
@@ -926,19 +1014,16 @@ func TestLoadAcceptsLegacyAuthEnvFallback(t *testing.T) {
 		if err != nil {
 			t.Fatalf("load config: %v", err)
 		}
-		if cfg.Auth.Enabled {
-			t.Fatalf("expected auth disabled from legacy env")
-		}
-		if cfg.Auth.LocalPublicKeyFile != "" ||
-			cfg.Auth.JWKSURI != "https://legacy.example/jwks.json" ||
-			cfg.Auth.Issuer != "legacy-issuer" ||
-			cfg.Auth.JWKSCacheSeconds != 47 {
-			t.Fatalf("unexpected legacy auth env config: %#v", cfg.Auth)
+		if !cfg.Auth.Enabled ||
+			cfg.Auth.JWKSURI != "" ||
+			cfg.Auth.Issuer != "" ||
+			cfg.Auth.JWKSCacheSeconds != 0 {
+			t.Fatalf("expected legacy auth env to be ignored, got %#v", cfg.Auth)
 		}
 	})
 }
 
-func TestLoadAPPrefixedAuthEnvOverridesLegacyAuthEnv(t *testing.T) {
+func TestLoadRuntimeYAMLAuthOverridesIgnoredEnv(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"AP_AUTH_ENABLED":            "true",
 		"AP_AUTH_JWKS_URI":           "https://ap.example/jwks.json",
@@ -949,19 +1034,24 @@ func TestLoadAPPrefixedAuthEnvOverridesLegacyAuthEnv(t *testing.T) {
 		"AUTH_ISSUER":                "legacy-issuer",
 		"AUTH_JWKS_CACHE_SECONDS":    "47",
 	}, func() {
-		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("load config: %v", err)
-		}
-		if !cfg.Auth.Enabled {
-			t.Fatalf("expected AP auth enabled env to win")
-		}
-		if cfg.Auth.LocalPublicKeyFile != "" ||
-			cfg.Auth.JWKSURI != "https://ap.example/jwks.json" ||
-			cfg.Auth.Issuer != "ap-issuer" ||
-			cfg.Auth.JWKSCacheSeconds != 46 {
-			t.Fatalf("expected AP auth env to win, got %#v", cfg.Auth)
-		}
+		content := "" +
+			"auth:\n" +
+			"  enabled: false\n" +
+			"  jwks-uri: https://runtime.example/jwks.json\n" +
+			"  issuer: runtime-issuer\n" +
+			"  jwks-cache-seconds: 48\n"
+		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &content, func() {
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			if cfg.Auth.Enabled ||
+				cfg.Auth.JWKSURI != "https://runtime.example/jwks.json" ||
+				cfg.Auth.Issuer != "runtime-issuer" ||
+				cfg.Auth.JWKSCacheSeconds != 48 {
+				t.Fatalf("expected runtime yaml auth to win, got %#v", cfg.Auth)
+			}
+		})
 	})
 }
 
@@ -1091,6 +1181,9 @@ func TestLoadCustomStorageDirs(t *testing.T) {
 		if cfg.ChatStorage.Dir != filepath.Join("var", "custom-chats") {
 			t.Fatalf("unexpected chat storage dir: %q", cfg.ChatStorage.Dir)
 		}
+		if cfg.Logging.LLMInteraction.RecordDir != filepath.Join("var", "custom-chats") {
+			t.Fatalf("unexpected llm chat record dir: %q", cfg.Logging.LLMInteraction.RecordDir)
+		}
 		if cfg.Memory.StorageDir != filepath.Join("var", "custom-memory") {
 			t.Fatalf("unexpected memory storage dir: %q", cfg.Memory.StorageDir)
 		}
@@ -1135,6 +1228,113 @@ func TestLoadRuntimeDirDerivesRuntimePaths(t *testing.T) {
 		}
 		if cfg.Logging.Memory.File != filepath.Join(runtimeRoot, "memory", "memory.log") {
 			t.Fatalf("unexpected memory log file: %q", cfg.Logging.Memory.File)
+		}
+	})
+}
+
+func TestLoadRuntimePathsFromYAML(t *testing.T) {
+	runtimeConfig := "" +
+		"paths:\n" +
+		"  registries-dir: var/yaml-registries\n" +
+		"  tools-dir: var/yaml-tools\n" +
+		"  owner-dir: var/yaml-owner\n" +
+		"  agents-dir: var/yaml-agents\n" +
+		"  teams-dir: var/yaml-teams\n" +
+		"  root-dir: var/yaml-root\n" +
+		"  automations-dir: var/yaml-automations\n" +
+		"  chats-dir: var/yaml-chats\n" +
+		"  memory-dir: var/yaml-memory\n" +
+		"  pan-dir: var/yaml-pan\n" +
+		"  skills-market-dir: var/yaml-skills-market\n"
+	withIsolatedEnv(t, nil, func() {
+		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &runtimeConfig, func() {
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			if cfg.Paths.RegistriesDir != filepath.Join("var", "yaml-registries") {
+				t.Fatalf("unexpected registries dir: %q", cfg.Paths.RegistriesDir)
+			}
+			if cfg.Paths.ToolsDir != filepath.Join("var", "yaml-tools") {
+				t.Fatalf("unexpected tools dir: %q", cfg.Paths.ToolsDir)
+			}
+			if cfg.Paths.OwnerDir != filepath.Join("var", "yaml-owner") {
+				t.Fatalf("unexpected owner dir: %q", cfg.Paths.OwnerDir)
+			}
+			if cfg.Paths.AgentsDir != filepath.Join("var", "yaml-agents") {
+				t.Fatalf("unexpected agents dir: %q", cfg.Paths.AgentsDir)
+			}
+			if cfg.Paths.TeamsDir != filepath.Join("var", "yaml-teams") {
+				t.Fatalf("unexpected teams dir: %q", cfg.Paths.TeamsDir)
+			}
+			if cfg.Paths.RootDir != filepath.Join("var", "yaml-root") {
+				t.Fatalf("unexpected root dir: %q", cfg.Paths.RootDir)
+			}
+			if cfg.Paths.AutomationsDir != filepath.Join("var", "yaml-automations") {
+				t.Fatalf("unexpected automations dir: %q", cfg.Paths.AutomationsDir)
+			}
+			if cfg.Paths.ChatsDir != filepath.Join("var", "yaml-chats") {
+				t.Fatalf("unexpected chats dir: %q", cfg.Paths.ChatsDir)
+			}
+			if cfg.Paths.MemoryDir != filepath.Join("var", "yaml-memory") {
+				t.Fatalf("unexpected memory dir: %q", cfg.Paths.MemoryDir)
+			}
+			if cfg.Paths.PanDir != filepath.Join("var", "yaml-pan") {
+				t.Fatalf("unexpected pan dir: %q", cfg.Paths.PanDir)
+			}
+			if cfg.Paths.SkillsMarketDir != filepath.Join("var", "yaml-skills-market") {
+				t.Fatalf("unexpected skills market dir: %q", cfg.Paths.SkillsMarketDir)
+			}
+			if cfg.Providers.ExternalDir != filepath.Join("var", "yaml-registries", "providers") {
+				t.Fatalf("unexpected providers dir: %q", cfg.Providers.ExternalDir)
+			}
+			if cfg.ChatStorage.Dir != filepath.Join("var", "yaml-chats") {
+				t.Fatalf("unexpected chat storage dir: %q", cfg.ChatStorage.Dir)
+			}
+			if cfg.Logging.LLMInteraction.RecordDir != filepath.Join("var", "yaml-chats") {
+				t.Fatalf("unexpected llm chat record dir: %q", cfg.Logging.LLMInteraction.RecordDir)
+			}
+			if cfg.Memory.StorageDir != filepath.Join("var", "yaml-memory") {
+				t.Fatalf("unexpected memory storage dir: %q", cfg.Memory.StorageDir)
+			}
+		})
+	})
+}
+
+func TestLoadIgnoresLegacyRuntimePathEnvs(t *testing.T) {
+	withIsolatedEnv(t, map[string]string{
+		"OWNER_DIR":         filepath.Join("var", "env-owner"),
+		"AGENTS_DIR":        filepath.Join("var", "env-agents"),
+		"TEAMS_DIR":         filepath.Join("var", "env-teams"),
+		"ROOT_DIR":          filepath.Join("var", "env-root"),
+		"AUTOMATIONS_DIR":   filepath.Join("var", "env-automations"),
+		"SKILLS_MARKET_DIR": filepath.Join("var", "env-skills-market"),
+		"TOOLS_DIR":         filepath.Join("var", "env-tools"),
+	}, func() {
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		if cfg.Paths.OwnerDir != filepath.Join("runtime", "owner") {
+			t.Fatalf("expected OWNER_DIR to be ignored, got %q", cfg.Paths.OwnerDir)
+		}
+		if cfg.Paths.AgentsDir != filepath.Join("runtime", "agents") {
+			t.Fatalf("expected AGENTS_DIR to be ignored, got %q", cfg.Paths.AgentsDir)
+		}
+		if cfg.Paths.TeamsDir != filepath.Join("runtime", "teams") {
+			t.Fatalf("expected TEAMS_DIR to be ignored, got %q", cfg.Paths.TeamsDir)
+		}
+		if cfg.Paths.RootDir != filepath.Join("runtime", "root") {
+			t.Fatalf("expected ROOT_DIR to be ignored, got %q", cfg.Paths.RootDir)
+		}
+		if cfg.Paths.AutomationsDir != filepath.Join("runtime", "automations") {
+			t.Fatalf("expected AUTOMATIONS_DIR to be ignored, got %q", cfg.Paths.AutomationsDir)
+		}
+		if cfg.Paths.SkillsMarketDir != filepath.Join("runtime", "skills-market") {
+			t.Fatalf("expected SKILLS_MARKET_DIR to be ignored, got %q", cfg.Paths.SkillsMarketDir)
+		}
+		if cfg.Paths.ToolsDir != filepath.Join("runtime", "tools") {
+			t.Fatalf("expected TOOLS_DIR to be ignored, got %q", cfg.Paths.ToolsDir)
 		}
 	})
 }
@@ -1209,30 +1409,36 @@ func TestLoadRuntimeDirAllowsCommonDirectoryOverrides(t *testing.T) {
 	})
 }
 
-func TestLoadMemoryLogFileEnvOverridesMemoryDirDefault(t *testing.T) {
+func TestLoadMemoryLogFileRuntimeYAMLOverridesMemoryDirDefault(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"MEMORY_DIR":                filepath.Join("var", "custom-memory"),
 		"LOGGING_AGENT_MEMORY_FILE": filepath.Join("var", "custom-log", "memory.log"),
 		"LOGGING_MEMORY_ENABLED":    "false",
 	}, func() {
-		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("load config: %v", err)
-		}
-		if cfg.Logging.Memory.File != filepath.Join("var", "custom-log", "memory.log") {
-			t.Fatalf("unexpected memory log file: %q", cfg.Logging.Memory.File)
-		}
-		if cfg.Logging.Memory.Enabled {
-			t.Fatalf("expected memory logging to be disabled")
-		}
+		content := "" +
+			"logging:\n" +
+			"  memory:\n" +
+			"    enabled: false\n" +
+			"    file: " + filepath.ToSlash(filepath.Join("var", "custom-log", "memory.log")) + "\n"
+		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &content, func() {
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			if cfg.Logging.Memory.File != filepath.Join("var", "custom-log", "memory.log") {
+				t.Fatalf("unexpected memory log file: %q", cfg.Logging.Memory.File)
+			}
+			if cfg.Logging.Memory.Enabled {
+				t.Fatalf("expected memory logging to be disabled")
+			}
+		})
 	})
 }
 
-func TestLoadAcceptsJavaEnvContract(t *testing.T) {
+func TestLoadRuntimeYAMLReplacesLegacyEnvContract(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"AUTH_ENABLED":                            "false",
 		"CHAT_RESOURCE_TICKET_SECRET":             "secret",
-		"CHAT_RESOURCE_TICKET_TTL_SECONDS":        "300",
 		"AGENT_H2A_RENDER_FLUSH_INTERVAL":         "25",
 		"AGENT_H2A_RENDER_MAX_BUFFERED_CHARS":     "256",
 		"AGENT_H2A_RENDER_MAX_BUFFERED_EVENTS":    "3",
@@ -1246,65 +1452,68 @@ func TestLoadAcceptsJavaEnvContract(t *testing.T) {
 		"AGENT_AUTOMATION_POOL_SIZE":              "7",
 		"LOGGING_AGENT_REQUEST_ENABLED":           "false",
 	}, func() {
-		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("load config: %v", err)
-		}
-		if cfg.Auth.Enabled {
-			t.Fatalf("expected auth disabled from env")
-		}
-		if cfg.ResourceTicket.Secret != "secret" {
-			t.Fatalf("unexpected resource ticket secret: %q", cfg.ResourceTicket.Secret)
-		}
-		if cfg.ResourceTicket.TTLSeconds != 300 {
-			t.Fatalf("unexpected resource ticket ttl: %d", cfg.ResourceTicket.TTLSeconds)
-		}
-		if cfg.SSE.HeartbeatInterval != 30 {
-			t.Fatalf("unexpected heartbeat interval: %d", cfg.SSE.HeartbeatInterval)
-		}
-		if cfg.H2A.Render.FlushInterval != 25 {
-			t.Fatalf("unexpected flush interval: %d", cfg.H2A.Render.FlushInterval)
-		}
-		if cfg.H2A.Render.MaxBufferedChars != 256 {
-			t.Fatalf("unexpected max buffered chars: %d", cfg.H2A.Render.MaxBufferedChars)
-		}
-		if cfg.H2A.Render.MaxBufferedEvents != 3 {
-			t.Fatalf("unexpected max buffered events: %d", cfg.H2A.Render.MaxBufferedEvents)
-		}
-		if cfg.H2A.Render.HeartbeatPassThrough {
-			t.Fatalf("expected heartbeat pass-through disabled from env")
-		}
-		if cfg.Run.ReaperInterval != 30 ||
-			cfg.Run.MaxBackgroundDuration != 601 ||
-			cfg.Run.CompletedRetention != 10 ||
-			cfg.Run.MaxDisconnectedWait != 603 {
-			t.Fatalf("unexpected run lifecycle config from env: %#v", cfg.Run)
-		}
-		if cfg.WebSocket.PingInterval != 32 || cfg.WebSocket.WriteTimeout != 16 {
-			t.Fatalf("unexpected websocket timeout config from env: %#v", cfg.WebSocket)
-		}
-		if cfg.Defaults.React.MaxSteps != 60 {
-			t.Fatalf("unexpected react max steps: %d", cfg.Defaults.React.MaxSteps)
-		}
-		if cfg.Automation.Enabled {
-			t.Fatalf("expected automation disabled")
-		}
-		if cfg.Automation.DefaultZoneID != "Asia/Shanghai" {
-			t.Fatalf("unexpected automation default zone: %q", cfg.Automation.DefaultZoneID)
-		}
-		if cfg.Automation.PoolSize != 7 {
-			t.Fatalf("unexpected automation pool size: %d", cfg.Automation.PoolSize)
-		}
-		if cfg.Logging.Request.Enabled {
-			t.Fatalf("expected request logging disabled")
-		}
+		content := "" +
+			"auth:\n" +
+			"  enabled: false\n" +
+			"resource:\n" +
+			"  ticket-ttl-seconds: 321\n" +
+			"h2a:\n" +
+			"  render:\n" +
+			"    flush-interval: 25\n" +
+			"    max-buffered-chars: 256\n" +
+			"    max-buffered-events: 3\n" +
+			"    heartbeat-pass-through: false\n" +
+			"run:\n" +
+			"  max-background-duration: 601\n" +
+			"  max-disconnected-wait: 603\n" +
+			"websocket:\n" +
+			"  ping-interval: 32\n" +
+			"  write-timeout: 16\n" +
+			"automation:\n" +
+			"  enabled: false\n" +
+			"  default-zone-id: Asia/Shanghai\n" +
+			"  pool-size: 7\n" +
+			"logging:\n" +
+			"  request:\n" +
+			"    enabled: false\n"
+		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &content, func() {
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			if cfg.Auth.Enabled {
+				t.Fatalf("expected auth disabled from runtime yaml")
+			}
+			if cfg.ResourceTicket.Secret != "" || cfg.ResourceTicket.TTLSeconds != 321 {
+				t.Fatalf("unexpected resource ticket config: %#v", cfg.ResourceTicket)
+			}
+			if cfg.H2A.Render.FlushInterval != 25 ||
+				cfg.H2A.Render.MaxBufferedChars != 256 ||
+				cfg.H2A.Render.MaxBufferedEvents != 3 ||
+				cfg.H2A.Render.HeartbeatPassThrough {
+				t.Fatalf("unexpected h2a render config: %#v", cfg.H2A.Render)
+			}
+			if cfg.Run.MaxBackgroundDuration != 601 || cfg.Run.MaxDisconnectedWait != 603 {
+				t.Fatalf("unexpected run lifecycle config: %#v", cfg.Run)
+			}
+			if cfg.WebSocket.PingInterval != 32 || cfg.WebSocket.WriteTimeout != 16 {
+				t.Fatalf("unexpected websocket timeout config: %#v", cfg.WebSocket)
+			}
+			if cfg.Automation.Enabled ||
+				cfg.Automation.DefaultZoneID != "Asia/Shanghai" ||
+				cfg.Automation.PoolSize != 7 {
+				t.Fatalf("unexpected automation config: %#v", cfg.Automation)
+			}
+			if cfg.Logging.Request.Enabled {
+				t.Fatalf("expected request logging disabled from runtime yaml")
+			}
+		})
 	})
 }
 
 func TestLoadAcceptsAPPrefixedEnvContract(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"AP_CHAT_RESOURCE_TICKET_SECRET":          "ap-secret",
-		"AP_CHAT_RESOURCE_TICKET_TTL_SECONDS":     "301",
 		"AP_DEBUG_LLM_CONSOLE":                    "raw,parsed",
 		"AP_DEBUG_LLM_CHAT_RECORD":                "true",
 		"AP_CONTAINER_HUB_BASE_URL":               "http://ap-hub",
@@ -1315,40 +1524,49 @@ func TestLoadAcceptsAPPrefixedEnvContract(t *testing.T) {
 		"AP_CONTAINER_HUB_AGENT_IDLE_TIMEOUT":     "303",
 		"AP_CONTAINER_HUB_DESTROY_QUEUE_DELAY":    "304",
 	}, func() {
-		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("load config: %v", err)
-		}
-		if cfg.ResourceTicket.Secret != "ap-secret" {
-			t.Fatalf("unexpected resource ticket secret: %q", cfg.ResourceTicket.Secret)
-		}
-		if cfg.ResourceTicket.TTLSeconds != 301 {
-			t.Fatalf("unexpected resource ticket ttl: %d", cfg.ResourceTicket.TTLSeconds)
-		}
-		if got := strings.Join(cfg.Logging.LLMInteraction.ConsoleCategories, ","); got != "raw,parsed" {
-			t.Fatalf("unexpected llm console categories: %q", got)
-		}
-		if !cfg.Logging.LLMInteraction.RecordEnabled {
-			t.Fatalf("expected llm chat record enabled")
-		}
-		if cfg.ContainerHub.BaseURL != "http://ap-hub" ||
-			cfg.ContainerHub.AuthToken != "ap-token" ||
-			cfg.ContainerHub.DefaultEnvironmentID != "ap-env" {
-			t.Fatalf("unexpected container hub identity: %#v", cfg.ContainerHub)
-		}
-		if cfg.ContainerHub.RequestTimeout != 302 ||
-			cfg.ContainerHub.DefaultSandboxLevel != "agent" ||
-			cfg.ContainerHub.AgentIdleTimeout != 303 ||
-			cfg.ContainerHub.DestroyQueueDelay != 304 {
-			t.Fatalf("unexpected container hub runtime settings: %#v", cfg.ContainerHub)
-		}
+		content := "" +
+			"container-hub:\n" +
+			"  auth-token: runtime-token\n" +
+			"  default-environment-id: runtime-env\n" +
+			"  request-timeout: 302\n" +
+			"  default-sandbox-level: agent\n" +
+			"  agent-idle-timeout: 303\n" +
+			"  destroy-queue-delay: 304\n"
+		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &content, func() {
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			if cfg.ResourceTicket.Secret != "ap-secret" {
+				t.Fatalf("unexpected resource ticket secret: %q", cfg.ResourceTicket.Secret)
+			}
+			if cfg.ResourceTicket.TTLSeconds != 86400 {
+				t.Fatalf("unexpected resource ticket ttl: %d", cfg.ResourceTicket.TTLSeconds)
+			}
+			if got := strings.Join(cfg.Logging.LLMInteraction.ConsoleCategories, ","); got != "raw,parsed" {
+				t.Fatalf("unexpected llm console categories: %q", got)
+			}
+			if !cfg.Logging.LLMInteraction.RecordEnabled {
+				t.Fatalf("expected llm chat record enabled")
+			}
+			if cfg.ContainerHub.BaseURL != "http://ap-hub" ||
+				cfg.ContainerHub.AuthToken != "runtime-token" ||
+				cfg.ContainerHub.DefaultEnvironmentID != "runtime-env" {
+				t.Fatalf("unexpected container hub identity: %#v", cfg.ContainerHub)
+			}
+			if cfg.ContainerHub.RequestTimeout != 302 ||
+				cfg.ContainerHub.DefaultSandboxLevel != "agent" ||
+				cfg.ContainerHub.AgentIdleTimeout != 303 ||
+				cfg.ContainerHub.DestroyQueueDelay != 304 {
+				t.Fatalf("unexpected container hub runtime settings: %#v", cfg.ContainerHub)
+			}
+		})
 	})
 }
 
 func TestLoadAPPrefixedEnvOverridesLegacyEnv(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"AP_CHAT_RESOURCE_TICKET_SECRET":          "ap-secret",
-		"AP_CHAT_RESOURCE_TICKET_TTL_SECONDS":     "301",
 		"AP_DEBUG_LLM_CONSOLE":                    "raw,parsed",
 		"AP_DEBUG_LLM_CHAT_RECORD":                "true",
 		"AP_CONTAINER_HUB_BASE_URL":               "http://ap-hub",
@@ -1359,7 +1577,6 @@ func TestLoadAPPrefixedEnvOverridesLegacyEnv(t *testing.T) {
 		"AP_CONTAINER_HUB_AGENT_IDLE_TIMEOUT":     "303",
 		"AP_CONTAINER_HUB_DESTROY_QUEUE_DELAY":    "304",
 		"CHAT_RESOURCE_TICKET_SECRET":             "legacy-secret",
-		"CHAT_RESOURCE_TICKET_TTL_SECONDS":        "401",
 		"DEBUG_LLM_CONSOLE":                       "none",
 		"DEBUG_LLM_CHAT_RECORD":                   "false",
 		"CONTAINER_HUB_BASE_URL":                  "http://legacy-hub",
@@ -1370,28 +1587,30 @@ func TestLoadAPPrefixedEnvOverridesLegacyEnv(t *testing.T) {
 		"CONTAINER_HUB_AGENT_IDLE_TIMEOUT":        "403",
 		"CONTAINER_HUB_DESTROY_QUEUE_DELAY":       "404",
 	}, func() {
-		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("load config: %v", err)
-		}
-		if cfg.ResourceTicket.Secret != "ap-secret" || cfg.ResourceTicket.TTLSeconds != 301 {
-			t.Fatalf("expected AP resource ticket env to win, got %#v", cfg.ResourceTicket)
-		}
-		if got := strings.Join(cfg.Logging.LLMInteraction.ConsoleCategories, ","); got != "raw,parsed" {
-			t.Fatalf("expected AP llm console categories to win, got %q", got)
-		}
-		if !cfg.Logging.LLMInteraction.RecordEnabled {
-			t.Fatalf("expected AP llm chat record flag to win")
-		}
-		if cfg.ContainerHub.BaseURL != "http://ap-hub" ||
-			cfg.ContainerHub.AuthToken != "ap-token" ||
-			cfg.ContainerHub.DefaultEnvironmentID != "ap-env" ||
-			cfg.ContainerHub.RequestTimeout != 302 ||
-			cfg.ContainerHub.DefaultSandboxLevel != "agent" ||
-			cfg.ContainerHub.AgentIdleTimeout != 303 ||
-			cfg.ContainerHub.DestroyQueueDelay != 304 {
-			t.Fatalf("expected AP container hub env to win, got %#v", cfg.ContainerHub)
-		}
+		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), nil, func() {
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			if cfg.ResourceTicket.Secret != "ap-secret" || cfg.ResourceTicket.TTLSeconds != 86400 {
+				t.Fatalf("expected AP resource ticket secret to win without changing ttl, got %#v", cfg.ResourceTicket)
+			}
+			if got := strings.Join(cfg.Logging.LLMInteraction.ConsoleCategories, ","); got != "raw,parsed" {
+				t.Fatalf("expected AP llm console categories to win, got %q", got)
+			}
+			if !cfg.Logging.LLMInteraction.RecordEnabled {
+				t.Fatalf("expected AP llm chat record flag to win")
+			}
+			if cfg.ContainerHub.BaseURL != "http://ap-hub" ||
+				cfg.ContainerHub.AuthToken != "" ||
+				cfg.ContainerHub.DefaultEnvironmentID != "" ||
+				cfg.ContainerHub.RequestTimeout != 300 ||
+				cfg.ContainerHub.DefaultSandboxLevel != "run" ||
+				cfg.ContainerHub.AgentIdleTimeout != 600 ||
+				cfg.ContainerHub.DestroyQueueDelay != 5 {
+				t.Fatalf("expected only AP container hub base url env to win, got %#v", cfg.ContainerHub)
+			}
+		})
 	})
 }
 
@@ -1416,14 +1635,9 @@ func TestLoadContainerHubAndBashConfigFromFiles(t *testing.T) {
 	})
 }
 
-func TestLoadEnvOverridesAndToolsYAMLConfig(t *testing.T) {
+func TestLoadAPEnvAndRuntimeYAMLWithToolsYAMLConfig(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
-		"CONTAINER_HUB_BASE_URL":       "http://127.0.0.1:18000",
-		"BUDGET_HITL_TIMEOUT":          "60",
-		"BUDGET_HITL_QUESTION_TIMEOUT": "70",
-		"BUDGET_HITL_APPROVAL_TIMEOUT": "75",
-		"BUDGET_HITL_FORM_TIMEOUT":     "76",
-		"BUDGET_HITL_PLAN_TIMEOUT":     "80",
+		"AP_CONTAINER_HUB_BASE_URL": "http://127.0.0.1:18000",
 	}, func() {
 		content := "" +
 			"bash:\n" +
@@ -1434,38 +1648,52 @@ func TestLoadEnvOverridesAndToolsYAMLConfig(t *testing.T) {
 			"    - -NoProfile\n" +
 			"    - -Command\n" +
 			"    - \"{{command}}\"\n"
-		withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
-			cfg, err := Load()
-			if err != nil {
-				t.Fatalf("load config: %v", err)
-			}
-			if !cfg.ContainerHub.Enabled {
-				t.Fatalf("expected container hub enabled when base url is set")
-			}
-			if cfg.ContainerHub.BaseURL != "http://127.0.0.1:18000" {
-				t.Fatalf("unexpected base url: %q", cfg.ContainerHub.BaseURL)
-			}
-			if !cfg.Bash.ShellFeaturesEnabled {
-				t.Fatalf("expected shell features enabled from yaml")
-			}
-			if cfg.Bash.WorkingDirectory != filepath.Join("var", "runtime") {
-				t.Fatalf("unexpected working directory: %q", cfg.Bash.WorkingDirectory)
-			}
-			if len(cfg.Bash.AllowedCommands) != 2 {
-				t.Fatalf("unexpected allowed commands: %#v", cfg.Bash.AllowedCommands)
-			}
-			if got := strings.Join(cfg.Bash.ShellArgs, "|"); got != "-NoProfile|-Command|{{command}}" {
-				t.Fatalf("unexpected shell args: %#v", cfg.Bash.ShellArgs)
-			}
-			if cfg.Defaults.Budget.Hitl.Timeout != 60 {
-				t.Fatalf("unexpected default HITL budget timeout: %d", cfg.Defaults.Budget.Hitl.Timeout)
-			}
-			if cfg.Defaults.Budget.Hitl.Question.Timeout != 70 ||
-				cfg.Defaults.Budget.Hitl.Approval.Timeout != 75 ||
-				cfg.Defaults.Budget.Hitl.Form.Timeout != 76 ||
-				cfg.Defaults.Budget.Hitl.Plan.Timeout != 80 {
-				t.Fatalf("unexpected default HITL mode budget timeout: %#v", cfg.Defaults.Budget.Hitl)
-			}
+		runtimeConfig := "" +
+			"budget:\n" +
+			"  hitl:\n" +
+			"    timeout: 60\n" +
+			"    question:\n" +
+			"      timeout: 70\n" +
+			"    approval:\n" +
+			"      timeout: 75\n" +
+			"    form:\n" +
+			"      timeout: 76\n" +
+			"    plan:\n" +
+			"      timeout: 80\n"
+		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &runtimeConfig, func() {
+			withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &content, func() {
+				cfg, err := Load()
+				if err != nil {
+					t.Fatalf("load config: %v", err)
+				}
+				if !cfg.ContainerHub.Enabled {
+					t.Fatalf("expected container hub enabled when base url is set")
+				}
+				if cfg.ContainerHub.BaseURL != "http://127.0.0.1:18000" {
+					t.Fatalf("unexpected base url: %q", cfg.ContainerHub.BaseURL)
+				}
+				if !cfg.Bash.ShellFeaturesEnabled {
+					t.Fatalf("expected shell features enabled from yaml")
+				}
+				if cfg.Bash.WorkingDirectory != filepath.Join("var", "runtime") {
+					t.Fatalf("unexpected working directory: %q", cfg.Bash.WorkingDirectory)
+				}
+				if len(cfg.Bash.AllowedCommands) != 2 {
+					t.Fatalf("unexpected allowed commands: %#v", cfg.Bash.AllowedCommands)
+				}
+				if got := strings.Join(cfg.Bash.ShellArgs, "|"); got != "-NoProfile|-Command|{{command}}" {
+					t.Fatalf("unexpected shell args: %#v", cfg.Bash.ShellArgs)
+				}
+				if cfg.Defaults.Budget.Hitl.Timeout != 60 {
+					t.Fatalf("unexpected default HITL budget timeout: %d", cfg.Defaults.Budget.Hitl.Timeout)
+				}
+				if cfg.Defaults.Budget.Hitl.Question.Timeout != 70 ||
+					cfg.Defaults.Budget.Hitl.Approval.Timeout != 75 ||
+					cfg.Defaults.Budget.Hitl.Form.Timeout != 76 ||
+					cfg.Defaults.Budget.Hitl.Plan.Timeout != 80 {
+					t.Fatalf("unexpected default HITL mode budget timeout: %#v", cfg.Defaults.Budget.Hitl)
+				}
+			})
 		})
 	})
 }
@@ -1781,21 +2009,27 @@ func TestLoadContainerHubDisabledWhenBaseURLMissing(t *testing.T) {
 	})
 }
 
-func TestLoadLLMInteractionMaskSensitiveFromEnv(t *testing.T) {
+func TestLoadLLMInteractionMaskSensitiveFromRuntimeYAML(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"LOGGING_AGENT_LLM_INTERACTION_MASK_SENSITIVE": "true",
 	}, func() {
-		cfg, err := Load()
-		if err != nil {
-			t.Fatalf("load config: %v", err)
-		}
-		if !cfg.Logging.LLMInteraction.MaskSensitive {
-			t.Fatalf("expected llm interaction masking enabled from env")
-		}
+		content := "" +
+			"logging:\n" +
+			"  llm-interaction:\n" +
+			"    mask-sensitive: true\n"
+		withProjectFileContents(t, filepath.Join("configs", "runtime.yml"), &content, func() {
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			if !cfg.Logging.LLMInteraction.MaskSensitive {
+				t.Fatalf("expected llm interaction masking enabled from runtime yaml")
+			}
+		})
 	})
 }
 
-func TestLoadLLMConsoleFromDebugEnv(t *testing.T) {
+func TestLoadLLMConsoleFromAPDebugEnv(t *testing.T) {
 	tests := []struct {
 		name string
 		env  string
@@ -1808,7 +2042,7 @@ func TestLoadLLMConsoleFromDebugEnv(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			withIsolatedEnv(t, map[string]string{
-				"DEBUG_LLM_CONSOLE": tt.env,
+				"AP_DEBUG_LLM_CONSOLE": tt.env,
 			}, func() {
 				cfg, err := Load()
 				if err != nil {
@@ -1822,9 +2056,9 @@ func TestLoadLLMConsoleFromDebugEnv(t *testing.T) {
 	}
 }
 
-func TestLoadLLMChatRecordFromDebugEnv(t *testing.T) {
+func TestLoadLLMChatRecordFromAPDebugEnv(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
-		"DEBUG_LLM_CHAT_RECORD": "true",
+		"AP_DEBUG_LLM_CHAT_RECORD": "true",
 	}, func() {
 		cfg, err := Load()
 		if err != nil {
@@ -1835,6 +2069,24 @@ func TestLoadLLMChatRecordFromDebugEnv(t *testing.T) {
 		}
 		if cfg.Logging.LLMInteraction.RecordDir != filepath.Join("runtime", "chats") {
 			t.Fatalf("unexpected llm chat record dir: %q", cfg.Logging.LLMInteraction.RecordDir)
+		}
+	})
+}
+
+func TestLoadIgnoresLegacyLLMDebugEnv(t *testing.T) {
+	withIsolatedEnv(t, map[string]string{
+		"DEBUG_LLM_CONSOLE":     "raw,parsed",
+		"DEBUG_LLM_CHAT_RECORD": "true",
+	}, func() {
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		if got := strings.Join(cfg.Logging.LLMInteraction.ConsoleCategories, ","); got != "request,usage" {
+			t.Fatalf("expected legacy llm console env to be ignored, got %q", got)
+		}
+		if cfg.Logging.LLMInteraction.RecordEnabled {
+			t.Fatalf("expected legacy llm chat record env to be ignored")
 		}
 	})
 }
@@ -2101,6 +2353,7 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 		"MEMORY_DIR",
 		"PAN_DIR",
 		"SKILLS_MARKET_DIR",
+		"TOOLS_DIR",
 		"AP_CONTAINER_HUB_BASE_URL",
 		"AP_CONTAINER_HUB_AUTH_TOKEN",
 		"AP_CONTAINER_HUB_DEFAULT_ENVIRONMENT_ID",
@@ -2143,9 +2396,7 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 		"AUTH_ISSUER",
 		"AUTH_JWKS_CACHE_SECONDS",
 		"AP_CHAT_RESOURCE_TICKET_SECRET",
-		"AP_CHAT_RESOURCE_TICKET_TTL_SECONDS",
 		"CHAT_RESOURCE_TICKET_SECRET",
-		"CHAT_RESOURCE_TICKET_TTL_SECONDS",
 		"AGENT_H2A_RENDER_FLUSH_INTERVAL_MS",
 		"AGENT_H2A_RENDER_MAX_BUFFERED_CHARS",
 		"AGENT_H2A_RENDER_MAX_BUFFERED_EVENTS",

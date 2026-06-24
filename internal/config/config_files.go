@@ -51,11 +51,33 @@ func parseDesktopBridgeConfig(raw any, fallback DesktopBridgeConfig) DesktopBrid
 	return fallback
 }
 
+func (c *Config) applyPathsValues(values map[string]any) {
+	c.Paths.RegistriesDir = stringValue(anyValue(values["registries-dir"], c.Paths.RegistriesDir), c.Paths.RegistriesDir)
+	c.Paths.ToolsDir = stringValue(anyValue(values["tools-dir"], c.Paths.ToolsDir), c.Paths.ToolsDir)
+	c.Paths.OwnerDir = stringValue(anyValue(values["owner-dir"], c.Paths.OwnerDir), c.Paths.OwnerDir)
+	c.Paths.AgentsDir = stringValue(anyValue(values["agents-dir"], c.Paths.AgentsDir), c.Paths.AgentsDir)
+	c.Paths.TeamsDir = stringValue(anyValue(values["teams-dir"], c.Paths.TeamsDir), c.Paths.TeamsDir)
+	c.Paths.RootDir = stringValue(anyValue(values["root-dir"], c.Paths.RootDir), c.Paths.RootDir)
+	c.Paths.AutomationsDir = stringValue(anyValue(values["automations-dir"], c.Paths.AutomationsDir), c.Paths.AutomationsDir)
+	c.Paths.ChatsDir = stringValue(anyValue(values["chats-dir"], c.Paths.ChatsDir), c.Paths.ChatsDir)
+	c.Paths.MemoryDir = stringValue(anyValue(values["memory-dir"], c.Paths.MemoryDir), c.Paths.MemoryDir)
+	c.Paths.PanDir = stringValue(anyValue(values["pan-dir"], c.Paths.PanDir), c.Paths.PanDir)
+	c.Paths.SkillsMarketDir = stringValue(anyValue(values["skills-market-dir"], c.Paths.SkillsMarketDir), c.Paths.SkillsMarketDir)
+}
+
+func (c *Config) applySkillsValues(values map[string]any) {
+	c.Skills.MaxPromptChars = intValue(anyValue(values["max-prompt-chars"], c.Skills.MaxPromptChars), c.Skills.MaxPromptChars)
+}
+
 func (c *Config) applyAuthValues(values map[string]any) {
 	c.Auth.Enabled = boolValue(anyValue(values["enabled"], c.Auth.Enabled), c.Auth.Enabled)
 	c.Auth.JWKSURI = stringValue(anyValue(values["jwks-uri"], c.Auth.JWKSURI), c.Auth.JWKSURI)
 	c.Auth.Issuer = stringValue(anyValue(values["issuer"], c.Auth.Issuer), c.Auth.Issuer)
 	c.Auth.JWKSCacheSeconds = intValue(anyValue(values["jwks-cache-seconds"], c.Auth.JWKSCacheSeconds), c.Auth.JWKSCacheSeconds)
+}
+
+func (c *Config) applyResourceValues(values map[string]any) {
+	c.ResourceTicket.TTLSeconds = int64Value(anyValue(values["ticket-ttl-seconds"], c.ResourceTicket.TTLSeconds), c.ResourceTicket.TTLSeconds)
 }
 
 func (c *Config) applyContainerHubValues(path string, values map[string]any) error {
@@ -69,6 +91,92 @@ func (c *Config) applyContainerHubValues(path string, values map[string]any) err
 	return nil
 }
 
+func (c *Config) applyAutomationValues(values map[string]any) {
+	c.Automation.Enabled = boolValue(anyValue(values["enabled"], c.Automation.Enabled), c.Automation.Enabled)
+	c.Automation.DefaultZoneID = stringValue(anyValue(values["default-zone-id"], c.Automation.DefaultZoneID), c.Automation.DefaultZoneID)
+	c.Automation.PoolSize = intValue(anyValue(values["pool-size"], c.Automation.PoolSize), c.Automation.PoolSize)
+}
+
+func (c *Config) applyMemoryValues(values map[string]any) {
+	c.Memory.Enabled = boolValue(anyValue(values["enabled"], c.Memory.Enabled), c.Memory.Enabled)
+	c.Memory.DBFileName = stringValue(anyValue(values["db-file-name"], c.Memory.DBFileName), c.Memory.DBFileName)
+	c.Memory.ContextTopN = intValue(anyValue(values["context-top-n"], c.Memory.ContextTopN), c.Memory.ContextTopN)
+	c.Memory.ContextMaxChars = intValue(anyValue(values["context-max-chars"], c.Memory.ContextMaxChars), c.Memory.ContextMaxChars)
+	c.Memory.SearchDefaultLimit = intValue(anyValue(values["search-default-limit"], c.Memory.SearchDefaultLimit), c.Memory.SearchDefaultLimit)
+	c.Memory.HybridVectorWeight = floatValue(anyValue(values["hybrid-vector-weight"], c.Memory.HybridVectorWeight), c.Memory.HybridVectorWeight)
+	c.Memory.HybridFTSWeight = floatValue(anyValue(values["hybrid-fts-weight"], c.Memory.HybridFTSWeight), c.Memory.HybridFTSWeight)
+	c.Memory.DualWriteMarkdown = boolValue(anyValue(values["dual-write-markdown"], c.Memory.DualWriteMarkdown), c.Memory.DualWriteMarkdown)
+}
+
+func (c *Config) applyDefaultsValues(values map[string]any) {
+	c.Defaults.MaxOutputTokens = intValue(anyValue(values["max-output-tokens"], c.Defaults.MaxOutputTokens), c.Defaults.MaxOutputTokens)
+}
+
+func (c *Config) applyH2AValues(values map[string]any) {
+	render, _ := values["render"].(map[string]any)
+	if len(render) == 0 {
+		return
+	}
+	c.H2A.Render.FlushInterval = int64Value(anyValue(render["flush-interval"], c.H2A.Render.FlushInterval), c.H2A.Render.FlushInterval)
+	c.H2A.Render.MaxBufferedChars = intValue(anyValue(render["max-buffered-chars"], c.H2A.Render.MaxBufferedChars), c.H2A.Render.MaxBufferedChars)
+	c.H2A.Render.MaxBufferedEvents = intValue(anyValue(render["max-buffered-events"], c.H2A.Render.MaxBufferedEvents), c.H2A.Render.MaxBufferedEvents)
+	c.H2A.Render.HeartbeatPassThrough = boolValue(anyValue(render["heartbeat-pass-through"], c.H2A.Render.HeartbeatPassThrough), c.H2A.Render.HeartbeatPassThrough)
+}
+
+func (c *Config) applyChatStorageValues(values map[string]any) {
+	c.ChatStorage.K = intValue(anyValue(values["k"], c.ChatStorage.K), c.ChatStorage.K)
+	c.ChatStorage.Charset = stringValue(anyValue(values["charset"], c.ChatStorage.Charset), c.ChatStorage.Charset)
+	c.ChatStorage.ActionTools = csvOrList(anyValue(values["action-tools"], c.ChatStorage.ActionTools), c.ChatStorage.ActionTools)
+	c.ChatStorage.IndexSQLiteFile = stringValue(anyValue(values["index-sqlite-file"], c.ChatStorage.IndexSQLiteFile), c.ChatStorage.IndexSQLiteFile)
+	c.ChatStorage.IndexAutoRebuildOnIncompatibleSchema = boolValue(anyValue(values["index-auto-rebuild-on-incompatible-schema"], c.ChatStorage.IndexAutoRebuildOnIncompatibleSchema), c.ChatStorage.IndexAutoRebuildOnIncompatibleSchema)
+}
+
+func (c *Config) applyLoggingValues(values map[string]any) {
+	c.Logging.Request = parseToggleConfig(values["request"], c.Logging.Request)
+	c.Logging.Auth = parseToggleConfig(values["auth"], c.Logging.Auth)
+	c.Logging.Exception = parseToggleConfig(values["exception"], c.Logging.Exception)
+	c.Logging.Tool = parseToggleConfig(values["tool"], c.Logging.Tool)
+	c.Logging.Action = parseToggleConfig(values["action"], c.Logging.Action)
+	c.Logging.Viewport = parseToggleConfig(values["viewport"], c.Logging.Viewport)
+	c.Logging.SSE = parseToggleConfig(values["sse"], c.Logging.SSE)
+	if memory, ok := values["memory"].(map[string]any); ok && len(memory) > 0 {
+		c.Logging.Memory.Enabled = boolValue(anyValue(memory["enabled"], c.Logging.Memory.Enabled), c.Logging.Memory.Enabled)
+		c.Logging.Memory.File = stringValue(anyValue(memory["file"], c.Logging.Memory.File), c.Logging.Memory.File)
+	}
+	if llm, ok := values["llm-interaction"].(map[string]any); ok && len(llm) > 0 {
+		c.Logging.LLMInteraction.Enabled = boolValue(anyValue(llm["enabled"], c.Logging.LLMInteraction.Enabled), c.Logging.LLMInteraction.Enabled)
+		c.Logging.LLMInteraction.ConsoleCategories = csvOrList(anyValue(llm["console-categories"], c.Logging.LLMInteraction.ConsoleCategories), c.Logging.LLMInteraction.ConsoleCategories)
+		c.Logging.LLMInteraction.MaskSensitive = boolValue(anyValue(llm["mask-sensitive"], c.Logging.LLMInteraction.MaskSensitive), c.Logging.LLMInteraction.MaskSensitive)
+		c.Logging.LLMInteraction.RecordEnabled = boolValue(anyValue(llm["record-enabled"], c.Logging.LLMInteraction.RecordEnabled), c.Logging.LLMInteraction.RecordEnabled)
+	}
+}
+
+func parseToggleConfig(raw any, fallback ToggleConfig) ToggleConfig {
+	values, _ := raw.(map[string]any)
+	if len(values) == 0 {
+		return fallback
+	}
+	fallback.Enabled = boolValue(anyValue(values["enabled"], fallback.Enabled), fallback.Enabled)
+	return fallback
+}
+
+func (c *Config) applyRunValues(values map[string]any) {
+	c.Run.ReaperInterval = int64Value(anyValue(values["reaper-interval"], c.Run.ReaperInterval), c.Run.ReaperInterval)
+	c.Run.MaxBackgroundDuration = int64Value(anyValue(values["max-background-duration"], c.Run.MaxBackgroundDuration), c.Run.MaxBackgroundDuration)
+	c.Run.CompletedRetention = int64Value(anyValue(values["completed-retention"], c.Run.CompletedRetention), c.Run.CompletedRetention)
+	c.Run.EventBusMaxEvents = intValue(anyValue(values["event-bus-max-events"], c.Run.EventBusMaxEvents), c.Run.EventBusMaxEvents)
+	c.Run.MaxDisconnectedWait = int64Value(anyValue(values["max-disconnected-wait"], c.Run.MaxDisconnectedWait), c.Run.MaxDisconnectedWait)
+	c.Run.MaxObserversPerRun = intValue(anyValue(values["max-observers-per-run"], c.Run.MaxObserversPerRun), c.Run.MaxObserversPerRun)
+}
+
+func (c *Config) applyWebSocketValues(values map[string]any) {
+	c.WebSocket.MaxMessageSizeBytes = intValue(anyValue(values["max-message-size-bytes"], c.WebSocket.MaxMessageSizeBytes), c.WebSocket.MaxMessageSizeBytes)
+	c.WebSocket.PingInterval = int64Value(anyValue(values["ping-interval"], c.WebSocket.PingInterval), c.WebSocket.PingInterval)
+	c.WebSocket.WriteTimeout = int64Value(anyValue(values["write-timeout"], c.WebSocket.WriteTimeout), c.WebSocket.WriteTimeout)
+	c.WebSocket.WriteQueueSize = intValue(anyValue(values["write-queue-size"], c.WebSocket.WriteQueueSize), c.WebSocket.WriteQueueSize)
+	c.WebSocket.MaxObservesPerConn = intValue(anyValue(values["max-observes-per-conn"], c.WebSocket.MaxObservesPerConn), c.WebSocket.MaxObservesPerConn)
+}
+
 func (c *Config) applyRuntimeFile(path string) error {
 	values, err := loadYAMLMap(path)
 	if err != nil {
@@ -77,8 +185,17 @@ func (c *Config) applyRuntimeFile(path string) error {
 	if len(values) == 0 {
 		return nil
 	}
+	if paths, ok := values["paths"].(map[string]any); ok && len(paths) > 0 {
+		c.applyPathsValues(paths)
+	}
+	if skills, ok := values["skills"].(map[string]any); ok && len(skills) > 0 {
+		c.applySkillsValues(skills)
+	}
 	if auth, ok := values["auth"].(map[string]any); ok && len(auth) > 0 {
 		c.applyAuthValues(auth)
+	}
+	if resource, ok := values["resource"].(map[string]any); ok && len(resource) > 0 {
+		c.applyResourceValues(resource)
 	}
 	if containerHub, ok := values["container-hub"].(map[string]any); ok && len(containerHub) > 0 {
 		if err := c.applyContainerHubValues(path, containerHub); err != nil {
@@ -93,6 +210,30 @@ func (c *Config) applyRuntimeFile(path string) error {
 	}
 	if billing, ok := values["billing"].(map[string]any); ok && len(billing) > 0 {
 		c.applyBillingValues(billing)
+	}
+	if automation, ok := values["automation"].(map[string]any); ok && len(automation) > 0 {
+		c.applyAutomationValues(automation)
+	}
+	if memory, ok := values["memory"].(map[string]any); ok && len(memory) > 0 {
+		c.applyMemoryValues(memory)
+	}
+	if defaults, ok := values["defaults"].(map[string]any); ok && len(defaults) > 0 {
+		c.applyDefaultsValues(defaults)
+	}
+	if h2a, ok := values["h2a"].(map[string]any); ok && len(h2a) > 0 {
+		c.applyH2AValues(h2a)
+	}
+	if chatStorage, ok := values["chat-storage"].(map[string]any); ok && len(chatStorage) > 0 {
+		c.applyChatStorageValues(chatStorage)
+	}
+	if logging, ok := values["logging"].(map[string]any); ok && len(logging) > 0 {
+		c.applyLoggingValues(logging)
+	}
+	if run, ok := values["run"].(map[string]any); ok && len(run) > 0 {
+		c.applyRunValues(run)
+	}
+	if websocket, ok := values["websocket"].(map[string]any); ok && len(websocket) > 0 {
+		c.applyWebSocketValues(websocket)
 	}
 	if i18nValues, ok := values["i18n"].(map[string]any); ok && len(i18nValues) > 0 {
 		c.I18N.DefaultLocale = stringValue(anyValue(i18nValues["defaultLocale"], c.I18N.DefaultLocale), c.I18N.DefaultLocale)
@@ -110,6 +251,8 @@ func (c *Config) applyBillingValues(values map[string]any) {
 
 func (c *Config) applyRuntimeBudgetValues(budget map[string]any) {
 	c.Defaults.Budget.Timeout = intValue(anyValue(budget["timeout"], c.Defaults.Budget.Timeout), c.Defaults.Budget.Timeout)
+	c.Defaults.Budget.MaxSteps = intValue(anyValue(budget["maxSteps"], c.Defaults.Budget.MaxSteps), c.Defaults.Budget.MaxSteps)
+	c.Defaults.Budget.MaxSteps = intValue(anyValue(budget["max-steps"], c.Defaults.Budget.MaxSteps), c.Defaults.Budget.MaxSteps)
 	c.Defaults.Budget.Model = parseRetryBudgetConfig(budget["model"], c.Defaults.Budget.Model)
 	c.Defaults.Budget.Tool = parseRetryBudgetConfig(budget["tool"], c.Defaults.Budget.Tool)
 	hitl, _ := budget["hitl"].(map[string]any)
@@ -129,8 +272,10 @@ func parseRetryBudgetConfig(raw any, fallback RetryBudgetConfig) RetryBudgetConf
 		return fallback
 	}
 	fallback.MaxCalls = intValue(anyValue(values["maxCalls"], fallback.MaxCalls), fallback.MaxCalls)
+	fallback.MaxCalls = intValue(anyValue(values["max-calls"], fallback.MaxCalls), fallback.MaxCalls)
 	fallback.Timeout = intValue(anyValue(values["timeout"], fallback.Timeout), fallback.Timeout)
 	fallback.RetryCount = intValue(anyValue(values["retryCount"], fallback.RetryCount), fallback.RetryCount)
+	fallback.RetryCount = intValue(anyValue(values["retry-count"], fallback.RetryCount), fallback.RetryCount)
 	return fallback
 }
 
@@ -154,6 +299,7 @@ func parseStageBudgetConfigs(raw any, fallback map[string]StageBudgetConfig) map
 		}
 		stage := out[key]
 		stage.MaxSteps = intValue(anyValue(stageValues["maxSteps"], stage.MaxSteps), stage.MaxSteps)
+		stage.MaxSteps = intValue(anyValue(stageValues["max-steps"], stage.MaxSteps), stage.MaxSteps)
 		stage.Tool = parseRetryBudgetConfig(stageValues["tool"], stage.Tool)
 		out[key] = stage
 	}

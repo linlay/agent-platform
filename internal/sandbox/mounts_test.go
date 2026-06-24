@@ -86,6 +86,35 @@ func TestMountResolverExplicitSkillsMarketExtraMount(t *testing.T) {
 	}
 }
 
+func TestMountResolverIgnoresNonAllowlistedPathEnv(t *testing.T) {
+	paths := mountResolverTestPaths(t, "reader")
+	envRoot := filepath.Join(t.TempDir(), "env-agents")
+	if err := os.MkdirAll(filepath.Join(envRoot, "reader", "skills"), 0o755); err != nil {
+		t.Fatalf("mkdir env agent fixture: %v", err)
+	}
+	t.Setenv("AGENTS_DIR", envRoot)
+	resolver := NewContainerHubMountResolver(paths)
+
+	mounts, err := resolver.Resolve("chat-1", "reader", "run", nil)
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	agentMount, ok := mountByDestination(mounts, "/agent")
+	if !ok {
+		t.Fatalf("expected /agent mount, got %#v", mounts)
+	}
+	if want := filepath.Join(paths.AgentsDir, "reader"); agentMount.Source != want {
+		t.Fatalf("agent source = %q, want %q", agentMount.Source, want)
+	}
+	skillsMount, ok := mountByDestination(mounts, "/skills")
+	if !ok {
+		t.Fatalf("expected /skills mount, got %#v", mounts)
+	}
+	if want := filepath.Join(paths.AgentsDir, "reader", "skills"); skillsMount.Source != want {
+		t.Fatalf("skills source = %q, want %q", skillsMount.Source, want)
+	}
+}
+
 func mountResolverTestPaths(t *testing.T, agentKey string) config.PathsConfig {
 	t.Helper()
 

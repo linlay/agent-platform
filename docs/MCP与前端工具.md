@@ -17,12 +17,12 @@ REGISTRIES_DIR/mcp-servers
   -> normalize MCP result
 ```
 
-本地 builtin tools 从 `internal/resources/tools/*.yml` 装载；自定义 frontend tool YAML 目录由 `TOOLS_DIR` 控制。
+本地 builtin tools 从 `internal/resources/tools/*.yml` 装载；自定义 frontend tool YAML 目录由 `configs/runtime.yml -> paths.tools-dir` 控制。
 
 ## 配置与接口
 
 - `REGISTRIES_DIR`：registry 根目录。
-- `TOOLS_DIR`：自定义 frontend tool YAML 目录。
+- `configs/runtime.yml` 的 `paths.tools-dir`：自定义 frontend tool YAML 目录。
 - `/api/admin/tools`：工具列表。
 - `desktop_action`：Desktop bridge 动作入口。
 - `ask_user_question`：内置 HITL question 工具。
