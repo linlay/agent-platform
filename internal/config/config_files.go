@@ -108,8 +108,8 @@ func (c *Config) applyMemoryValues(values map[string]any) {
 	c.Memory.DualWriteMarkdown = boolValue(anyValue(values["dual-write-markdown"], c.Memory.DualWriteMarkdown), c.Memory.DualWriteMarkdown)
 }
 
-func (c *Config) applyDefaultsValues(values map[string]any) {
-	c.Defaults.MaxOutputTokens = intValue(anyValue(values["max-output-tokens"], c.Defaults.MaxOutputTokens), c.Defaults.MaxOutputTokens)
+func (c *Config) applyAnthropicValues(values map[string]any) {
+	c.Anthropic.MaxOutputTokens = intValue(anyValue(values["max-output-tokens"], c.Anthropic.MaxOutputTokens), c.Anthropic.MaxOutputTokens)
 }
 
 func (c *Config) applyH2AValues(values map[string]any) {
@@ -160,23 +160,6 @@ func parseToggleConfig(raw any, fallback ToggleConfig) ToggleConfig {
 	return fallback
 }
 
-func (c *Config) applyRunValues(values map[string]any) {
-	c.Run.ReaperInterval = int64Value(anyValue(values["reaper-interval"], c.Run.ReaperInterval), c.Run.ReaperInterval)
-	c.Run.MaxBackgroundDuration = int64Value(anyValue(values["max-background-duration"], c.Run.MaxBackgroundDuration), c.Run.MaxBackgroundDuration)
-	c.Run.CompletedRetention = int64Value(anyValue(values["completed-retention"], c.Run.CompletedRetention), c.Run.CompletedRetention)
-	c.Run.EventBusMaxEvents = intValue(anyValue(values["event-bus-max-events"], c.Run.EventBusMaxEvents), c.Run.EventBusMaxEvents)
-	c.Run.MaxDisconnectedWait = int64Value(anyValue(values["max-disconnected-wait"], c.Run.MaxDisconnectedWait), c.Run.MaxDisconnectedWait)
-	c.Run.MaxObserversPerRun = intValue(anyValue(values["max-observers-per-run"], c.Run.MaxObserversPerRun), c.Run.MaxObserversPerRun)
-}
-
-func (c *Config) applyWebSocketValues(values map[string]any) {
-	c.WebSocket.MaxMessageSizeBytes = intValue(anyValue(values["max-message-size-bytes"], c.WebSocket.MaxMessageSizeBytes), c.WebSocket.MaxMessageSizeBytes)
-	c.WebSocket.PingInterval = int64Value(anyValue(values["ping-interval"], c.WebSocket.PingInterval), c.WebSocket.PingInterval)
-	c.WebSocket.WriteTimeout = int64Value(anyValue(values["write-timeout"], c.WebSocket.WriteTimeout), c.WebSocket.WriteTimeout)
-	c.WebSocket.WriteQueueSize = intValue(anyValue(values["write-queue-size"], c.WebSocket.WriteQueueSize), c.WebSocket.WriteQueueSize)
-	c.WebSocket.MaxObservesPerConn = intValue(anyValue(values["max-observes-per-conn"], c.WebSocket.MaxObservesPerConn), c.WebSocket.MaxObservesPerConn)
-}
-
 func (c *Config) applyRuntimeFile(path string) error {
 	values, err := loadYAMLMap(path)
 	if err != nil {
@@ -217,8 +200,8 @@ func (c *Config) applyRuntimeFile(path string) error {
 	if memory, ok := values["memory"].(map[string]any); ok && len(memory) > 0 {
 		c.applyMemoryValues(memory)
 	}
-	if defaults, ok := values["defaults"].(map[string]any); ok && len(defaults) > 0 {
-		c.applyDefaultsValues(defaults)
+	if anthropic, ok := values["anthropic"].(map[string]any); ok && len(anthropic) > 0 {
+		c.applyAnthropicValues(anthropic)
 	}
 	if h2a, ok := values["h2a"].(map[string]any); ok && len(h2a) > 0 {
 		c.applyH2AValues(h2a)
@@ -228,12 +211,6 @@ func (c *Config) applyRuntimeFile(path string) error {
 	}
 	if logging, ok := values["logging"].(map[string]any); ok && len(logging) > 0 {
 		c.applyLoggingValues(logging)
-	}
-	if run, ok := values["run"].(map[string]any); ok && len(run) > 0 {
-		c.applyRunValues(run)
-	}
-	if websocket, ok := values["websocket"].(map[string]any); ok && len(websocket) > 0 {
-		c.applyWebSocketValues(websocket)
 	}
 	if i18nValues, ok := values["i18n"].(map[string]any); ok && len(i18nValues) > 0 {
 		c.I18N.DefaultLocale = stringValue(anyValue(i18nValues["defaultLocale"], c.I18N.DefaultLocale), c.I18N.DefaultLocale)

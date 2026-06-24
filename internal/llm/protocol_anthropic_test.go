@@ -9,7 +9,7 @@ import (
 
 func TestResolveAnthropicMaxTokensUsesStageMaxOutputTokens(t *testing.T) {
 	cfg := config.Config{
-		Defaults: config.DefaultsConfig{MaxOutputTokens: 4096},
+		Anthropic: config.AnthropicConfig{MaxOutputTokens: 4096},
 	}
 
 	got := resolveAnthropicMaxTokens(cfg, StageSettings{MaxOutputTokens: 8192})
@@ -18,9 +18,9 @@ func TestResolveAnthropicMaxTokensUsesStageMaxOutputTokens(t *testing.T) {
 	}
 }
 
-func TestResolveAnthropicMaxTokensFallsBackToDefaultMaxOutputTokens(t *testing.T) {
+func TestResolveAnthropicMaxTokensFallsBackToAnthropicMaxOutputTokens(t *testing.T) {
 	cfg := config.Config{
-		Defaults: config.DefaultsConfig{MaxOutputTokens: 4096},
+		Anthropic: config.AnthropicConfig{MaxOutputTokens: 4096},
 	}
 
 	got := resolveAnthropicMaxTokens(cfg, StageSettings{})

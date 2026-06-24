@@ -357,8 +357,8 @@ func resolveAnthropicMaxTokens(cfg config.Config, stageSettings StageSettings) i
 	if stageSettings.MaxOutputTokens > 0 {
 		return stageSettings.MaxOutputTokens
 	}
-	if cfg.Defaults.MaxOutputTokens > 0 {
-		return cfg.Defaults.MaxOutputTokens
+	if cfg.Anthropic.MaxOutputTokens > 0 {
+		return cfg.Anthropic.MaxOutputTokens
 	}
 	return 4096
 }

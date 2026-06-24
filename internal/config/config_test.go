@@ -84,14 +84,14 @@ func TestLoadDefaults(t *testing.T) {
 				cfg.Defaults.Budget.Hitl.Form.Timeout != 0 || cfg.Defaults.Budget.Hitl.Plan.Timeout != 0 {
 				t.Fatalf("expected default HITL mode timeouts unset, got %#v", cfg.Defaults.Budget.Hitl)
 			}
-			if cfg.Defaults.MaxOutputTokens != 4096 {
-				t.Fatalf("expected default max output tokens 4096, got %d", cfg.Defaults.MaxOutputTokens)
+			if cfg.Anthropic.MaxOutputTokens != 4096 {
+				t.Fatalf("expected default anthropic max output tokens 4096, got %d", cfg.Anthropic.MaxOutputTokens)
 			}
 			if cfg.Defaults.Budget.Timeout != 3600 {
 				t.Fatalf("expected default budget timeout 3600, got %d", cfg.Defaults.Budget.Timeout)
 			}
-			if cfg.Defaults.Budget.Model.Timeout != 30 {
-				t.Fatalf("expected default model timeout 30, got %d", cfg.Defaults.Budget.Model.Timeout)
+			if cfg.Defaults.Budget.Model.Timeout != 60 {
+				t.Fatalf("expected default model timeout 60, got %d", cfg.Defaults.Budget.Model.Timeout)
 			}
 			if cfg.Defaults.Budget.Model.MaxCalls != 100 {
 				t.Fatalf("expected default model max calls 100, got %d", cfg.Defaults.Budget.Model.MaxCalls)
@@ -234,8 +234,10 @@ func TestLoadDefaultsConfigFromRuntimeYAML(t *testing.T) {
 		"AGENT_DEFAULT_BUDGET_MAX_STEPS":  "17",
 	}, func() {
 		content := "" +
-			"defaults:\n" +
+			"anthropic:\n" +
 			"  max-output-tokens: 8192\n" +
+			"defaults:\n" +
+			"  max-output-tokens: 9999\n" +
 			"budget:\n" +
 			"  max-steps: 17\n" +
 			"  tool:\n" +
@@ -245,8 +247,8 @@ func TestLoadDefaultsConfigFromRuntimeYAML(t *testing.T) {
 			if err != nil {
 				t.Fatalf("load config: %v", err)
 			}
-			if cfg.Defaults.MaxOutputTokens != 8192 {
-				t.Fatalf("expected runtime yaml max output tokens 8192, got %d", cfg.Defaults.MaxOutputTokens)
+			if cfg.Anthropic.MaxOutputTokens != 8192 {
+				t.Fatalf("expected runtime yaml anthropic max output tokens 8192, got %d", cfg.Anthropic.MaxOutputTokens)
 			}
 			if cfg.Defaults.Budget.MaxSteps != 17 {
 				t.Fatalf("expected runtime yaml max steps 17, got %d", cfg.Defaults.Budget.MaxSteps)
@@ -1526,11 +1528,11 @@ func TestLoadRuntimeYAMLReplacesLegacyEnvContract(t *testing.T) {
 				cfg.H2A.Render.HeartbeatPassThrough {
 				t.Fatalf("unexpected h2a render config: %#v", cfg.H2A.Render)
 			}
-			if cfg.Run.MaxBackgroundDuration != 601 || cfg.Run.MaxDisconnectedWait != 603 {
-				t.Fatalf("unexpected run lifecycle config: %#v", cfg.Run)
+			if cfg.Run.MaxBackgroundDuration != 0 || cfg.Run.MaxDisconnectedWait != 0 {
+				t.Fatalf("expected runtime yaml run lifecycle config to be ignored, got %#v", cfg.Run)
 			}
-			if cfg.WebSocket.PingInterval != 32 || cfg.WebSocket.WriteTimeout != 16 {
-				t.Fatalf("unexpected websocket timeout config: %#v", cfg.WebSocket)
+			if cfg.WebSocket.PingInterval != 0 || cfg.WebSocket.WriteTimeout != 0 {
+				t.Fatalf("expected runtime yaml websocket config to be ignored, got %#v", cfg.WebSocket)
 			}
 			if cfg.Automation.Enabled ||
 				cfg.Automation.DefaultZoneID != "Asia/Shanghai" ||

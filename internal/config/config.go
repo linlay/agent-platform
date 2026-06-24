@@ -22,6 +22,7 @@ type Config struct {
 	Models          CatalogConfig
 	Automation      AutomationConfig
 	Billing         BillingConfig
+	Anthropic       AnthropicConfig
 	Memory          MemoryConfig
 	Defaults        DefaultsConfig
 	SSE             SSEConfig
@@ -182,6 +183,10 @@ type BillingConfig struct {
 	Currency string
 }
 
+type AnthropicConfig struct {
+	MaxOutputTokens int
+}
+
 type MemoryConfig struct {
 	Enabled            bool
 	DBFileName         string
@@ -195,10 +200,9 @@ type MemoryConfig struct {
 }
 
 type DefaultsConfig struct {
-	MaxOutputTokens int
-	Budget          BudgetDefaultsConfig
-	React           ReactDefaultsConfig
-	Plan            PlanExecuteDefaultsConfig
+	Budget BudgetDefaultsConfig
+	React  ReactDefaultsConfig
+	Plan   PlanExecuteDefaultsConfig
 }
 
 type BudgetDefaultsConfig struct {

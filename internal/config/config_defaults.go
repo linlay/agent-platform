@@ -61,6 +61,9 @@ func defaultConfig(options LoadOptions) Config {
 		Billing: BillingConfig{
 			Currency: "CNY",
 		},
+		Anthropic: AnthropicConfig{
+			MaxOutputTokens: 4096,
+		},
 		Memory: MemoryConfig{
 			Enabled:            true,
 			DBFileName:         "memory.db",
@@ -73,13 +76,12 @@ func defaultConfig(options LoadOptions) Config {
 			StorageDir:         paths.MemoryDir,
 		},
 		Defaults: DefaultsConfig{
-			MaxOutputTokens: 4096,
 			Budget: BudgetDefaultsConfig{
 				Timeout:  3600,
 				MaxSteps: 100,
 				Model: RetryBudgetConfig{
 					MaxCalls:   100,
-					Timeout:    30,
+					Timeout:    60,
 					RetryCount: 3,
 				},
 				Tool: RetryBudgetConfig{
@@ -206,21 +208,6 @@ func defaultConfig(options LoadOptions) Config {
 					LSPDiagnostics: defaultLSPDiagnosticsHookConfig(),
 				},
 			},
-		},
-		Run: RunConfig{
-			ReaperInterval:        30, // seconds
-			MaxBackgroundDuration: 0,  // seconds; 0 means never expire detached runs
-			CompletedRetention:    10, // seconds
-			EventBusMaxEvents:     10000,
-			MaxDisconnectedWait:   0, // seconds; 0 means wait forever while disconnected
-			MaxObserversPerRun:    8,
-		},
-		WebSocket: WebSocketConfig{
-			MaxMessageSizeBytes: 1 << 20,
-			PingInterval:        30, // seconds
-			WriteTimeout:        15, // seconds
-			WriteQueueSize:      256,
-			MaxObservesPerConn:  8,
 		},
 	}
 }

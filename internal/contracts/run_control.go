@@ -11,15 +11,6 @@ import (
 )
 
 const (
-	defaultRunReaperInterval        = 30 * time.Second
-	defaultRunMaxBackgroundDuration = 0
-	defaultRunCompletedRetention    = 10 * time.Second
-	defaultRunEventBusMaxEvents     = 10000
-	defaultRunMaxDisconnectedWait   = 0
-	defaultRunMaxObserversPerRun    = 8
-)
-
-const (
 	InterruptSourceHTTPAPI     = "http_api"
 	InterruptSourceWSAPI       = "ws_api"
 	InterruptSourceProxyWS     = "proxy_ws"
