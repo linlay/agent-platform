@@ -120,6 +120,42 @@ func TestInvokeDesktopCDPCallsBridge(t *testing.T) {
 	}
 }
 
+func TestInvokeDesktopCDPNormalizesStringBooleanParams(t *testing.T) {
+	var got desktopCDPRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"method":"Runtime.evaluate","result":{"value":42}}`))
+	}))
+	defer server.Close()
+
+	result, err := newDesktopTestExecutor("", server.URL).invokeDesktopCDP(context.Background(), map[string]any{
+		"method": "Runtime.evaluate",
+		"params": map[string]any{
+			"expression":    "document.title",
+			"returnByValue": "true",
+			"awaitPromise":  "false",
+		},
+	}, &ExecutionContext{})
+	if err != nil {
+		t.Fatalf("invoke desktop cdp: %v", err)
+	}
+	if result.ExitCode != 0 {
+		t.Fatalf("expected successful exit code, got %d: %s", result.ExitCode, result.Output)
+	}
+	if got.Params["expression"] != "document.title" {
+		t.Fatalf("expression should remain a string, got %#v", got.Params["expression"])
+	}
+	if got.Params["returnByValue"] != true {
+		t.Fatalf("returnByValue should be boolean true, got %#v", got.Params["returnByValue"])
+	}
+	if got.Params["awaitPromise"] != false {
+		t.Fatalf("awaitPromise should be boolean false, got %#v", got.Params["awaitPromise"])
+	}
+}
+
 func TestInvokeDesktopCDPCaptureScreenshotSavesImageAndOmitsBase64(t *testing.T) {
 	png := testDesktopScreenshotPNG(t)
 	encoded := base64.StdEncoding.EncodeToString(png)
