@@ -97,9 +97,6 @@ func TestLoadDefaults(t *testing.T) {
 				cfg.Defaults.Budget.Hitl.Form.Timeout != 0 || cfg.Defaults.Budget.Hitl.Plan.Timeout != 0 {
 				t.Fatalf("expected default HITL mode timeouts unset, got %#v", cfg.Defaults.Budget.Hitl)
 			}
-			if cfg.Anthropic.MaxOutputTokens != 4096 {
-				t.Fatalf("expected default anthropic max output tokens 4096, got %d", cfg.Anthropic.MaxOutputTokens)
-			}
 			if cfg.Defaults.Budget.Timeout != 3600 {
 				t.Fatalf("expected default budget timeout 3600, got %d", cfg.Defaults.Budget.Timeout)
 			}
@@ -170,6 +167,8 @@ func TestContainerHubPublicTemplatesExposeRuntimeDefaults(t *testing.T) {
 		t.Fatalf("expected runtime example not to expose server port config")
 	}
 	for _, forbidden := range []string{
+		"anthropic:\n",
+		"  max-output-tokens: 4096\n",
 		"logging:\n",
 		"llm-interaction:\n",
 	} {
@@ -249,7 +248,7 @@ func envExampleKeys(content string) []string {
 	return keys
 }
 
-func TestLoadDefaultsConfigFromRuntimeYAML(t *testing.T) {
+func TestLoadRuntimeBudgetYAMLIgnoresRemovedAnthropicDefaults(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"AGENT_DEFAULT_MAX_OUTPUT_TOKENS": "8192",
 		"AGENT_DEFAULT_BUDGET_MAX_STEPS":  "17",
@@ -267,9 +266,6 @@ func TestLoadDefaultsConfigFromRuntimeYAML(t *testing.T) {
 			cfg, err := Load()
 			if err != nil {
 				t.Fatalf("load config: %v", err)
-			}
-			if cfg.Anthropic.MaxOutputTokens != 8192 {
-				t.Fatalf("expected runtime yaml anthropic max output tokens 8192, got %d", cfg.Anthropic.MaxOutputTokens)
 			}
 			if cfg.Defaults.Budget.MaxSteps != 17 {
 				t.Fatalf("expected runtime yaml max steps 17, got %d", cfg.Defaults.Budget.MaxSteps)

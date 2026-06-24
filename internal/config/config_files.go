@@ -108,10 +108,6 @@ func (c *Config) applyMemoryValues(values map[string]any) {
 	c.Memory.DualWriteMarkdown = boolValue(anyValue(values["dual-write-markdown"], c.Memory.DualWriteMarkdown), c.Memory.DualWriteMarkdown)
 }
 
-func (c *Config) applyAnthropicValues(values map[string]any) {
-	c.Anthropic.MaxOutputTokens = intValue(anyValue(values["max-output-tokens"], c.Anthropic.MaxOutputTokens), c.Anthropic.MaxOutputTokens)
-}
-
 func (c *Config) applyRuntimeFile(path string) error {
 	values, err := loadYAMLMap(path)
 	if err != nil {
@@ -151,9 +147,6 @@ func (c *Config) applyRuntimeFile(path string) error {
 	}
 	if memory, ok := values["memory"].(map[string]any); ok && len(memory) > 0 {
 		c.applyMemoryValues(memory)
-	}
-	if anthropic, ok := values["anthropic"].(map[string]any); ok && len(anthropic) > 0 {
-		c.applyAnthropicValues(anthropic)
 	}
 	if budget, ok := values["budget"].(map[string]any); ok && len(budget) > 0 {
 		c.applyRuntimeBudgetValues(budget)

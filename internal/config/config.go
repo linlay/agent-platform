@@ -22,7 +22,6 @@ type Config struct {
 	Models          CatalogConfig
 	Automation      AutomationConfig
 	Billing         BillingConfig
-	Anthropic       AnthropicConfig
 	Memory          MemoryConfig
 	Defaults        DefaultsConfig
 	SSE             SSEConfig
@@ -178,10 +177,6 @@ type AutomationConfig struct {
 
 type BillingConfig struct {
 	Currency string
-}
-
-type AnthropicConfig struct {
-	MaxOutputTokens int
 }
 
 type MemoryConfig struct {

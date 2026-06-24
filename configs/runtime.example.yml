@@ -27,9 +27,6 @@ auth:
 resource:
   ticket-ttl-seconds: 86400
 
-anthropic:
-  max-output-tokens: 4096
-
 budget:
   # 单次 run 总耗时上限：一条用户消息触发的 agent 执行，从开始到最终回答结束。
   timeout: 3600

@@ -59,9 +59,6 @@ func defaultConfig(options LoadOptions) Config {
 		Billing: BillingConfig{
 			Currency: "CNY",
 		},
-		Anthropic: AnthropicConfig{
-			MaxOutputTokens: 4096,
-		},
 		Memory: MemoryConfig{
 			Enabled:            true,
 			DBFileName:         "memory.db",
