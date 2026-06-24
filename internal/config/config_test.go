@@ -53,9 +53,6 @@ func TestLoadDefaults(t *testing.T) {
 			if cfg.SSE.HeartbeatInterval != 30 {
 				t.Fatalf("expected default heartbeat interval 30, got %d", cfg.SSE.HeartbeatInterval)
 			}
-			if cfg.H2A.Render.HeartbeatPassThrough != true {
-				t.Fatalf("expected heartbeat pass-through enabled by default")
-			}
 			if cfg.Logging.LLMInteraction.MaskSensitive {
 				t.Fatalf("expected llm interaction logs to be unmasked by default")
 			}
@@ -1180,9 +1177,6 @@ func TestLoadCustomStorageDirs(t *testing.T) {
 		if cfg.Paths.MemoryDir != filepath.Join("var", "custom-memory") {
 			t.Fatalf("unexpected memory dir: %q", cfg.Paths.MemoryDir)
 		}
-		if cfg.ChatStorage.Dir != filepath.Join("var", "custom-chats") {
-			t.Fatalf("unexpected chat storage dir: %q", cfg.ChatStorage.Dir)
-		}
 		if cfg.Logging.LLMInteraction.RecordDir != filepath.Join("var", "custom-chats") {
 			t.Fatalf("unexpected llm chat record dir: %q", cfg.Logging.LLMInteraction.RecordDir)
 		}
@@ -1221,9 +1215,6 @@ func TestLoadRuntimeDirDerivesRuntimePaths(t *testing.T) {
 		}
 		if cfg.Models.ExternalDir != filepath.Join(runtimeRoot, "registries", "models") {
 			t.Fatalf("unexpected models dir: %q", cfg.Models.ExternalDir)
-		}
-		if cfg.ChatStorage.Dir != filepath.Join(runtimeRoot, "chats") {
-			t.Fatalf("unexpected chat storage dir: %q", cfg.ChatStorage.Dir)
 		}
 		if cfg.Memory.StorageDir != filepath.Join(runtimeRoot, "memory") {
 			t.Fatalf("unexpected memory storage dir: %q", cfg.Memory.StorageDir)
@@ -1290,9 +1281,6 @@ func TestLoadRuntimePathsFromYAML(t *testing.T) {
 			if cfg.Providers.ExternalDir != filepath.Join("var", "yaml-registries", "providers") {
 				t.Fatalf("unexpected providers dir: %q", cfg.Providers.ExternalDir)
 			}
-			if cfg.ChatStorage.Dir != filepath.Join("var", "yaml-chats") {
-				t.Fatalf("unexpected chat storage dir: %q", cfg.ChatStorage.Dir)
-			}
 			if cfg.Logging.LLMInteraction.RecordDir != filepath.Join("var", "yaml-chats") {
 				t.Fatalf("unexpected llm chat record dir: %q", cfg.Logging.LLMInteraction.RecordDir)
 			}
@@ -1326,9 +1314,6 @@ func TestLoadIgnoresRemovedRuntimeDirectoryEnvs(t *testing.T) {
 		}
 		if cfg.Paths.PanDir != filepath.Join("runtime", "pan") {
 			t.Fatalf("unexpected pan dir: %q", cfg.Paths.PanDir)
-		}
-		if cfg.ChatStorage.Dir != filepath.Join("runtime", "chats") {
-			t.Fatalf("unexpected chat storage dir: %q", cfg.ChatStorage.Dir)
 		}
 		if cfg.Memory.StorageDir != filepath.Join("runtime", "memory") {
 			t.Fatalf("unexpected memory storage dir: %q", cfg.Memory.StorageDir)
@@ -1435,9 +1420,6 @@ func TestLoadRuntimeDirAllowsCommonDirectoryOverrides(t *testing.T) {
 		if cfg.Models.ExternalDir != filepath.Join("var", "custom-registries", "models") {
 			t.Fatalf("unexpected models dir: %q", cfg.Models.ExternalDir)
 		}
-		if cfg.ChatStorage.Dir != filepath.Join("var", "custom-chats") {
-			t.Fatalf("unexpected chat storage dir: %q", cfg.ChatStorage.Dir)
-		}
 		if cfg.Memory.StorageDir != filepath.Join("var", "custom-memory") {
 			t.Fatalf("unexpected memory storage dir: %q", cfg.Memory.StorageDir)
 		}
@@ -1498,6 +1480,14 @@ func TestLoadRuntimeYAMLReplacesLegacyEnvContract(t *testing.T) {
 			"    max-buffered-chars: 256\n" +
 			"    max-buffered-events: 3\n" +
 			"    heartbeat-pass-through: false\n" +
+			"i18n:\n" +
+			"  default-locale: zh-CN\n" +
+			"chat-storage:\n" +
+			"  k: 3\n" +
+			"  charset: GBK\n" +
+			"  action-tools: [legacy]\n" +
+			"  index-sqlite-file: legacy.db\n" +
+			"  index-auto-rebuild-on-incompatible-schema: false\n" +
 			"run:\n" +
 			"  max-background-duration: 601\n" +
 			"  max-disconnected-wait: 603\n" +
@@ -1521,12 +1511,6 @@ func TestLoadRuntimeYAMLReplacesLegacyEnvContract(t *testing.T) {
 			}
 			if cfg.ResourceTicket.Secret != "" || cfg.ResourceTicket.TTLSeconds != 321 {
 				t.Fatalf("unexpected resource ticket config: %#v", cfg.ResourceTicket)
-			}
-			if cfg.H2A.Render.FlushInterval != 25 ||
-				cfg.H2A.Render.MaxBufferedChars != 256 ||
-				cfg.H2A.Render.MaxBufferedEvents != 3 ||
-				cfg.H2A.Render.HeartbeatPassThrough {
-				t.Fatalf("unexpected h2a render config: %#v", cfg.H2A.Render)
 			}
 			if cfg.Run.MaxBackgroundDuration != 0 || cfg.Run.MaxDisconnectedWait != 0 {
 				t.Fatalf("expected runtime yaml run lifecycle config to be ignored, got %#v", cfg.Run)

@@ -11,7 +11,7 @@ import (
 // LoadRawMessages loads conversation history from {chatId}.jsonl step lines.
 func (s *FileStore) LoadRawMessages(chatID string, k int) ([]map[string]any, error) {
 	if k <= 0 {
-		k = 20
+		k = DefaultHistoryRunWindow
 	}
 
 	lines, err := readJSONLines(s.chatJSONLPath(chatID))

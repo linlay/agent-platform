@@ -112,25 +112,6 @@ func (c *Config) applyAnthropicValues(values map[string]any) {
 	c.Anthropic.MaxOutputTokens = intValue(anyValue(values["max-output-tokens"], c.Anthropic.MaxOutputTokens), c.Anthropic.MaxOutputTokens)
 }
 
-func (c *Config) applyH2AValues(values map[string]any) {
-	render, _ := values["render"].(map[string]any)
-	if len(render) == 0 {
-		return
-	}
-	c.H2A.Render.FlushInterval = int64Value(anyValue(render["flush-interval"], c.H2A.Render.FlushInterval), c.H2A.Render.FlushInterval)
-	c.H2A.Render.MaxBufferedChars = intValue(anyValue(render["max-buffered-chars"], c.H2A.Render.MaxBufferedChars), c.H2A.Render.MaxBufferedChars)
-	c.H2A.Render.MaxBufferedEvents = intValue(anyValue(render["max-buffered-events"], c.H2A.Render.MaxBufferedEvents), c.H2A.Render.MaxBufferedEvents)
-	c.H2A.Render.HeartbeatPassThrough = boolValue(anyValue(render["heartbeat-pass-through"], c.H2A.Render.HeartbeatPassThrough), c.H2A.Render.HeartbeatPassThrough)
-}
-
-func (c *Config) applyChatStorageValues(values map[string]any) {
-	c.ChatStorage.K = intValue(anyValue(values["k"], c.ChatStorage.K), c.ChatStorage.K)
-	c.ChatStorage.Charset = stringValue(anyValue(values["charset"], c.ChatStorage.Charset), c.ChatStorage.Charset)
-	c.ChatStorage.ActionTools = csvOrList(anyValue(values["action-tools"], c.ChatStorage.ActionTools), c.ChatStorage.ActionTools)
-	c.ChatStorage.IndexSQLiteFile = stringValue(anyValue(values["index-sqlite-file"], c.ChatStorage.IndexSQLiteFile), c.ChatStorage.IndexSQLiteFile)
-	c.ChatStorage.IndexAutoRebuildOnIncompatibleSchema = boolValue(anyValue(values["index-auto-rebuild-on-incompatible-schema"], c.ChatStorage.IndexAutoRebuildOnIncompatibleSchema), c.ChatStorage.IndexAutoRebuildOnIncompatibleSchema)
-}
-
 func (c *Config) applyLoggingValues(values map[string]any) {
 	c.Logging.Request = parseToggleConfig(values["request"], c.Logging.Request)
 	c.Logging.Auth = parseToggleConfig(values["auth"], c.Logging.Auth)
@@ -203,18 +184,8 @@ func (c *Config) applyRuntimeFile(path string) error {
 	if anthropic, ok := values["anthropic"].(map[string]any); ok && len(anthropic) > 0 {
 		c.applyAnthropicValues(anthropic)
 	}
-	if h2a, ok := values["h2a"].(map[string]any); ok && len(h2a) > 0 {
-		c.applyH2AValues(h2a)
-	}
-	if chatStorage, ok := values["chat-storage"].(map[string]any); ok && len(chatStorage) > 0 {
-		c.applyChatStorageValues(chatStorage)
-	}
 	if logging, ok := values["logging"].(map[string]any); ok && len(logging) > 0 {
 		c.applyLoggingValues(logging)
-	}
-	if i18nValues, ok := values["i18n"].(map[string]any); ok && len(i18nValues) > 0 {
-		c.I18N.DefaultLocale = stringValue(anyValue(i18nValues["defaultLocale"], c.I18N.DefaultLocale), c.I18N.DefaultLocale)
-		c.I18N.DefaultLocale = stringValue(anyValue(i18nValues["default-locale"], c.I18N.DefaultLocale), c.I18N.DefaultLocale)
 	}
 	if budget, ok := values["budget"].(map[string]any); ok && len(budget) > 0 {
 		c.applyRuntimeBudgetValues(budget)

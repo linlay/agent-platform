@@ -15,7 +15,7 @@ const DoneSentinel = "[DONE]"
 
 type Options struct {
 	SSE            config.SSEConfig
-	Render         config.H2ARenderConfig
+	Render         RenderConfig
 	LoggingEnabled bool
 }
 

@@ -34,7 +34,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			r.URL.Query().Get("locale"),
 			r.Header.Get("X-Locale"),
 			r.Header.Get("Accept-Language"),
-			s.deps.Config.I18N.DefaultLocale,
+			i18n.DefaultLocale,
 		),
 	}
 	r = s.withPrincipal(r, w)

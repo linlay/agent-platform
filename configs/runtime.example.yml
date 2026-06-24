@@ -130,23 +130,6 @@ cors:
 billing:
   currency: CNY
 
-h2a:
-  render:
-    flush-interval: 0
-    max-buffered-chars: 0
-    max-buffered-events: 0
-    heartbeat-pass-through: true
-
-i18n:
-  default-locale: zh-CN
-
-chat-storage:
-  k: 20
-  charset: UTF-8
-  action-tools: []
-  index-sqlite-file: chats.db
-  index-auto-rebuild-on-incompatible-schema: true
-
 logging:
   request:
     enabled: true

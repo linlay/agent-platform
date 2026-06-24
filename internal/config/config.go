@@ -26,11 +26,8 @@ type Config struct {
 	Memory          MemoryConfig
 	Defaults        DefaultsConfig
 	SSE             SSEConfig
-	H2A             H2AConfig
-	I18N            I18NConfig
 	Auth            AuthConfig
 	ResourceTicket  ResourceTicketConfig
-	ChatStorage     ChatStorageConfig
 	Logging         LoggingConfig
 	CORS            CORSConfig
 	ContainerHub    ContainerHubConfig
@@ -250,21 +247,6 @@ type SSEConfig struct {
 	HeartbeatInterval int64 // seconds
 }
 
-type H2AConfig struct {
-	Render H2ARenderConfig
-}
-
-type H2ARenderConfig struct {
-	FlushInterval        int64 // seconds; 0 means disabled
-	MaxBufferedChars     int
-	MaxBufferedEvents    int
-	HeartbeatPassThrough bool
-}
-
-type I18NConfig struct {
-	DefaultLocale string
-}
-
 type AuthConfig struct {
 	Enabled            bool
 	JWKSURI            string
@@ -280,15 +262,6 @@ type ResourceTicketConfig struct {
 
 func (c ResourceTicketConfig) Enabled() bool {
 	return strings.TrimSpace(c.Secret) != ""
-}
-
-type ChatStorageConfig struct {
-	Dir                                  string
-	K                                    int
-	Charset                              string
-	ActionTools                          []string
-	IndexSQLiteFile                      string
-	IndexAutoRebuildOnIncompatibleSchema bool
 }
 
 type LoggingConfig struct {

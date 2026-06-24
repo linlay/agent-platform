@@ -298,7 +298,7 @@ func (s *Server) memoryContextPreviewContexts(ctx context.Context, req api.Memor
 	appendSection("systemPrompt", "system", "tool.catalog", "toolConfig.tools", "Tool Names", strings.Join(toolNames, "\n"))
 
 	if s.deps.Chats != nil {
-		if rawMessages, err := s.deps.Chats.LoadRawMessages(summary.ChatID, s.deps.Config.ChatStorage.K); err == nil {
+		if rawMessages, err := s.deps.Chats.LoadRawMessages(summary.ChatID, chat.DefaultHistoryRunWindow); err == nil {
 			for idx, raw := range rawMessages {
 				role := strings.TrimSpace(memoryPreviewAnyString(raw["role"]))
 				content := strings.TrimSpace(memoryPreviewAnyString(raw["content"]))

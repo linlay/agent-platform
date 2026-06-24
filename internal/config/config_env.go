@@ -22,7 +22,6 @@ func (c *Config) applyEnv(options LoadOptions) {
 
 	c.ResourceTicket.Secret = stringEnv("AP_CHAT_RESOURCE_TICKET_SECRET", c.ResourceTicket.Secret)
 
-	c.ChatStorage.Dir = pathEnv("AP_RUNTIME_CHATS_DIR", c.ChatStorage.Dir)
 	c.Memory.StorageDir = pathEnv("AP_RUNTIME_MEMORY_DIR", c.Memory.StorageDir)
 	c.Logging.LLMInteraction.ConsoleCategories = csvEnv("AP_DEBUG_LLM_CONSOLE", c.Logging.LLMInteraction.ConsoleCategories)
 	c.Logging.LLMInteraction.RecordEnabled = boolEnv("AP_DEBUG_LLM_CHAT_RECORD", c.Logging.LLMInteraction.RecordEnabled)

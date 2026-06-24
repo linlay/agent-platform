@@ -39,7 +39,6 @@ func TestHandleAttachDefaultsMissingLastSeqToZero(t *testing.T) {
 		deps: Dependencies{
 			Config: config.Config{
 				SSE: config.SSEConfig{},
-				H2A: config.H2AConfig{Render: config.H2ARenderConfig{}},
 				Logging: config.LoggingConfig{
 					SSE: config.ToggleConfig{Enabled: false},
 				},

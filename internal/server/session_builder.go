@@ -30,7 +30,7 @@ var memoryInjectionEnabled = false
 func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, summary chat.Summary, agentDef catalog.AgentDefinition, options querySessionBuildOptions) (contracts.QuerySession, error) {
 	historyMessages := []map[string]any(nil)
 	if options.IncludeHistory && s.deps.Chats != nil {
-		historyMessages, _ = s.deps.Chats.LoadRawMessages(req.ChatID, s.deps.Config.ChatStorage.K)
+		historyMessages, _ = s.deps.Chats.LoadRawMessages(req.ChatID, chat.DefaultHistoryRunWindow)
 	}
 
 	var staticMemoryPrompt string
