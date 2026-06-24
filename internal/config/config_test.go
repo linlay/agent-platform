@@ -904,6 +904,59 @@ func TestLoadWebFetchConfigFromFile(t *testing.T) {
 	})
 }
 
+func TestLoadImageGenerateMissingFileDefaultsDisabled(t *testing.T) {
+	withIsolatedEnv(t, nil, func() {
+		withProjectFileContents(t, filepath.Join("configs", "ai-tools.yml"), nil, func() {
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			if cfg.ImageGenerate.Enabled {
+				t.Fatal("expected image_generate disabled by default")
+			}
+			if cfg.ImageGenerate.DefaultProfile != "general" {
+				t.Fatalf("unexpected default profile: %q", cfg.ImageGenerate.DefaultProfile)
+			}
+		})
+	})
+}
+
+func TestLoadImageGenerateConfigFromFile(t *testing.T) {
+	withIsolatedEnv(t, nil, func() {
+		content := "" +
+			"image-generate:\n" +
+			"  enabled: true\n" +
+			"  default-profile: general\n" +
+			"  profiles:\n" +
+			"    general:\n" +
+			"      model-key: babelark-gemini-3_1-flash-image-preview\n" +
+			"      endpoint-path: /v1/images/generations\n"
+		withProjectFileContents(t, filepath.Join("configs", "ai-tools.yml"), &content, func() {
+			cfg, err := Load()
+			if err != nil {
+				t.Fatalf("load config: %v", err)
+			}
+			if !cfg.ImageGenerate.Enabled {
+				t.Fatal("expected image_generate enabled")
+			}
+			if cfg.ImageGenerate.DefaultProfile != "general" {
+				t.Fatalf("unexpected default profile: %q", cfg.ImageGenerate.DefaultProfile)
+			}
+			profile := cfg.ImageGenerate.Profiles["general"]
+			if profile.ModelKey != "babelark-gemini-3_1-flash-image-preview" ||
+				profile.Timeout != 120 ||
+				profile.Size != "1024x1024" ||
+				profile.ResponseFormat != "b64_json" ||
+				profile.OutputMimeType != "image/png" ||
+				profile.MaxPromptChars != 4000 ||
+				!profile.PersistArtifact ||
+				profile.EndpointPath != "/v1/images/generations" {
+				t.Fatalf("unexpected profile defaults: %#v", profile)
+			}
+		})
+	})
+}
+
 func TestLoadAIToolsConfigFromFile(t *testing.T) {
 	withIsolatedEnv(t, nil, func() {
 		content := "" +

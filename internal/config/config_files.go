@@ -614,6 +614,28 @@ func (c *Config) applyWebFetchValues(values map[string]any) {
 	c.WebFetch.Profiles = parsed
 }
 
+func (c *Config) applyImageGenerateValues(values map[string]any) {
+	c.ImageGenerate.Enabled = boolValue(anyValue(values["enabled"], c.ImageGenerate.Enabled), c.ImageGenerate.Enabled)
+	c.ImageGenerate.DefaultProfile = stringValue(anyValue(values["default-profile"], c.ImageGenerate.DefaultProfile), c.ImageGenerate.DefaultProfile)
+	profiles, _ := values["profiles"].(map[string]any)
+	if len(profiles) == 0 {
+		return
+	}
+	parsed := make(map[string]ImageGenerateProfileConfig, len(profiles))
+	for key, raw := range profiles {
+		profileKey := strings.TrimSpace(key)
+		if profileKey == "" {
+			continue
+		}
+		base := defaultImageGenerateProfileConfig()
+		if existing, ok := c.ImageGenerate.Profiles[profileKey]; ok {
+			base = existing
+		}
+		parsed[profileKey] = parseImageGenerateProfileConfig(raw, base)
+	}
+	c.ImageGenerate.Profiles = parsed
+}
+
 func (c *Config) applyAIToolsFile(path string) error {
 	values, err := loadYAMLMap(path)
 	if err != nil {
@@ -627,6 +649,9 @@ func (c *Config) applyAIToolsFile(path string) error {
 	}
 	if webFetch, ok := values["web-fetch"].(map[string]any); ok && len(webFetch) > 0 {
 		c.applyWebFetchValues(webFetch)
+	}
+	if imageGenerate, ok := values["image-generate"].(map[string]any); ok && len(imageGenerate) > 0 {
+		c.applyImageGenerateValues(imageGenerate)
 	}
 	return nil
 }
@@ -658,6 +683,33 @@ func parseWebFetchProfileConfig(raw any, fallback WebFetchProfileConfig) WebFetc
 	fallback.MaxMarkdownChars = intValue(anyValue(values["max-markdown-chars"], fallback.MaxMarkdownChars), fallback.MaxMarkdownChars)
 	fallback.MaxOutputTokens = intValue(anyValue(values["max-output-tokens"], fallback.MaxOutputTokens), fallback.MaxOutputTokens)
 	fallback.SystemPrompt = stringValue(anyValue(values["system-prompt"], fallback.SystemPrompt), fallback.SystemPrompt)
+	return fallback
+}
+
+func defaultImageGenerateProfileConfig() ImageGenerateProfileConfig {
+	return ImageGenerateProfileConfig{
+		Timeout:         120,
+		Size:            "1024x1024",
+		ResponseFormat:  "b64_json",
+		OutputMimeType:  "image/png",
+		MaxPromptChars:  4000,
+		PersistArtifact: true,
+	}
+}
+
+func parseImageGenerateProfileConfig(raw any, fallback ImageGenerateProfileConfig) ImageGenerateProfileConfig {
+	values, _ := raw.(map[string]any)
+	if len(values) == 0 {
+		return fallback
+	}
+	fallback.ModelKey = stringValue(anyValue(values["model-key"], fallback.ModelKey), fallback.ModelKey)
+	fallback.Timeout = intValue(anyValue(values["timeout"], fallback.Timeout), fallback.Timeout)
+	fallback.Size = stringValue(anyValue(values["size"], fallback.Size), fallback.Size)
+	fallback.ResponseFormat = stringValue(anyValue(values["response-format"], fallback.ResponseFormat), fallback.ResponseFormat)
+	fallback.OutputMimeType = stringValue(anyValue(values["output-mime-type"], fallback.OutputMimeType), fallback.OutputMimeType)
+	fallback.MaxPromptChars = intValue(anyValue(values["max-prompt-chars"], fallback.MaxPromptChars), fallback.MaxPromptChars)
+	fallback.PersistArtifact = boolValue(anyValue(values["persist-artifact"], fallback.PersistArtifact), fallback.PersistArtifact)
+	fallback.EndpointPath = stringValue(anyValue(values["endpoint-path"], fallback.EndpointPath), fallback.EndpointPath)
 	return fallback
 }
 

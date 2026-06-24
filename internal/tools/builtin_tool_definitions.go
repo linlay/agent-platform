@@ -36,6 +36,7 @@ var requiredBuiltinToolNames = []string{
 	"finalize_planning",
 	"regex",
 	"vision_recognize",
+	"image_generate",
 	"web_fetch",
 	"bash_sandbox",
 	"ask_user_question",

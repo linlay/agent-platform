@@ -18,6 +18,7 @@ type Config struct {
 	CoderSettings   CoderSettingsConfig
 	VisionRecognize VisionRecognizeConfig
 	WebFetch        WebFetchConfig
+	ImageGenerate   ImageGenerateConfig
 	Providers       CatalogConfig
 	Models          CatalogConfig
 	Automation      AutomationConfig
@@ -166,6 +167,23 @@ type WebFetchProfileConfig struct {
 	MaxMarkdownChars int
 	MaxOutputTokens  int
 	SystemPrompt     string
+}
+
+type ImageGenerateConfig struct {
+	Enabled        bool
+	DefaultProfile string
+	Profiles       map[string]ImageGenerateProfileConfig
+}
+
+type ImageGenerateProfileConfig struct {
+	ModelKey        string
+	Timeout         int // seconds
+	Size            string
+	ResponseFormat  string
+	OutputMimeType  string
+	MaxPromptChars  int
+	PersistArtifact bool
+	EndpointPath    string
 }
 
 type AutomationConfig struct {

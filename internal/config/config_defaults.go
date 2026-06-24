@@ -46,6 +46,10 @@ func defaultConfig(options LoadOptions) Config {
 			Enabled:        false,
 			DefaultProfile: "general",
 		},
+		ImageGenerate: ImageGenerateConfig{
+			Enabled:        false,
+			DefaultProfile: "general",
+		},
 		CoderSettings: CoderSettingsConfig{
 			ACPProxies: map[string]CoderACPProxyConfig{},
 		},
@@ -271,6 +275,7 @@ func (c *Config) normalize(configRoot string) error {
 	c.Desktop.CDP = normalizeDesktopBridgeConfig(c.Desktop.CDP)
 	c.VisionRecognize = normalizeVisionRecognizeConfig(c.VisionRecognize)
 	c.WebFetch = normalizeWebFetchConfig(c.WebFetch)
+	c.ImageGenerate = normalizeImageGenerateConfig(c.ImageGenerate)
 	c.ContainerHub.Enabled = strings.TrimSpace(c.ContainerHub.BaseURL) != ""
 	if c.Bash.WorkingDirectory == "" {
 		c.Bash.WorkingDirectory = "."
@@ -411,6 +416,57 @@ func normalizeWebFetchHosts(hosts []string) []string {
 		out = append(out, host)
 	}
 	return out
+}
+
+func normalizeImageGenerateConfig(cfg ImageGenerateConfig) ImageGenerateConfig {
+	cfg.DefaultProfile = strings.TrimSpace(cfg.DefaultProfile)
+	if cfg.DefaultProfile == "" {
+		cfg.DefaultProfile = "general"
+	}
+	if len(cfg.Profiles) == 0 {
+		return cfg
+	}
+	profiles := make(map[string]ImageGenerateProfileConfig, len(cfg.Profiles))
+	for key, profile := range cfg.Profiles {
+		normalizedKey := strings.TrimSpace(key)
+		if normalizedKey == "" {
+			continue
+		}
+		profile = normalizeImageGenerateProfileConfig(profile)
+		profiles[normalizedKey] = profile
+	}
+	cfg.Profiles = profiles
+	return cfg
+}
+
+func normalizeImageGenerateProfileConfig(profile ImageGenerateProfileConfig) ImageGenerateProfileConfig {
+	profile.ModelKey = strings.TrimSpace(profile.ModelKey)
+	if profile.Timeout <= 0 {
+		profile.Timeout = 120
+	}
+	profile.Size = strings.TrimSpace(profile.Size)
+	if profile.Size == "" {
+		profile.Size = "1024x1024"
+	}
+	profile.ResponseFormat = normalizeImageGenerateResponseFormat(profile.ResponseFormat)
+	profile.OutputMimeType = strings.ToLower(strings.TrimSpace(profile.OutputMimeType))
+	if profile.OutputMimeType == "" {
+		profile.OutputMimeType = "image/png"
+	}
+	if profile.MaxPromptChars <= 0 {
+		profile.MaxPromptChars = 4000
+	}
+	profile.EndpointPath = strings.TrimSpace(profile.EndpointPath)
+	return profile
+}
+
+func normalizeImageGenerateResponseFormat(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "url":
+		return "url"
+	default:
+		return "b64_json"
+	}
 }
 
 func normalizeAccessPolicyConfig(cfg AccessPolicyConfig) AccessPolicyConfig {
