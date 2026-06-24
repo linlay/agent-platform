@@ -139,8 +139,8 @@ function Resolve-ProgramRuntimePath {
 }
 
 function Resolve-ProgramRuntimeRoot {
-  if (-not $Script:RuntimeRootExplicit -and $env:RUNTIME_DIR) {
-    $Script:RuntimeRoot = Resolve-ProgramRuntimePath $env:RUNTIME_DIR
+  if (-not $Script:RuntimeRootExplicit -and $env:AP_RUNTIME_DIR) {
+    $Script:RuntimeRoot = Resolve-ProgramRuntimePath $env:AP_RUNTIME_DIR
   }
 }
 

@@ -536,9 +536,9 @@ func Load(optionValues ...LoadOptions) (Config, error) {
 		return Config{}, fmt.Errorf("SERVER_PORT must not be empty")
 	}
 	if strings.TrimSpace(cfg.Paths.RegistriesDir) == "" {
-		return Config{}, fmt.Errorf("REGISTRIES_DIR must not be empty")
+		return Config{}, fmt.Errorf("AP_RUNTIME_REGISTRIES_DIR must not be empty")
 	}
-	if err := validateExplicitDirEnv("PAN_DIR", cfg.Paths.PanDir); err != nil {
+	if err := validateExplicitDirEnv("AP_RUNTIME_PAN_DIR", cfg.Paths.PanDir); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil

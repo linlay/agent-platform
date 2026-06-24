@@ -13,7 +13,7 @@ import (
 func defaultConfig(options LoadOptions) Config {
 	runtimeRoot := strings.TrimSpace(options.RuntimeDir)
 	if runtimeRoot == "" {
-		runtimeRoot = strings.TrimSpace(os.Getenv("RUNTIME_DIR"))
+		runtimeRoot = strings.TrimSpace(os.Getenv("AP_RUNTIME_DIR"))
 	}
 	if runtimeRoot == "" {
 		runtimeRoot = "runtime"

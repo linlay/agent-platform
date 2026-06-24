@@ -115,6 +115,66 @@ func TestMountResolverIgnoresNonAllowlistedPathEnv(t *testing.T) {
 	}
 }
 
+func TestMountResolverUsesAPRuntimeHostPathEnv(t *testing.T) {
+	paths := mountResolverTestPaths(t, "reader")
+	paths.PanDir = filepath.Join(t.TempDir(), "configured-pan")
+	paths.RegistriesDir = filepath.Join(t.TempDir(), "configured-registries")
+
+	hostRoot := t.TempDir()
+	hostChats := filepath.Join(hostRoot, "chats")
+	hostMemory := filepath.Join(hostRoot, "memory")
+	hostPan := filepath.Join(hostRoot, "pan")
+	hostRegistries := filepath.Join(hostRoot, "registries")
+	for _, dir := range []string{
+		hostChats,
+		hostMemory,
+		hostPan,
+		filepath.Join(hostRegistries, "providers"),
+	} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir host dir %q: %v", dir, err)
+		}
+	}
+	t.Setenv("AP_RUNTIME_CHATS_DIR", hostChats)
+	t.Setenv("AP_RUNTIME_MEMORY_DIR", hostMemory)
+	t.Setenv("AP_RUNTIME_PAN_DIR", hostPan)
+	t.Setenv("AP_RUNTIME_REGISTRIES_DIR", hostRegistries)
+
+	resolver := NewContainerHubMountResolver(paths)
+	mounts, err := resolver.Resolve("chat-1", "reader", "run", []contracts.SandboxExtraMount{
+		{Platform: "providers", Mode: "ro"},
+	})
+	if err != nil {
+		t.Fatalf("Resolve() error = %v", err)
+	}
+	if mount, ok := mountByDestination(mounts, "/workspace"); !ok || mount.Source != filepath.Join(hostChats, "chat-1") {
+		t.Fatalf("workspace mount = %#v, ok=%v", mount, ok)
+	}
+	if mount, ok := mountByDestination(mounts, "/memory"); !ok || mount.Source != filepath.Join(hostMemory, "reader") {
+		t.Fatalf("memory mount = %#v, ok=%v", mount, ok)
+	}
+	if mount, ok := mountByDestination(mounts, "/pan"); !ok || mount.Source != hostPan {
+		t.Fatalf("pan mount = %#v, ok=%v", mount, ok)
+	}
+	if mount, ok := mountByDestination(mounts, "/providers"); !ok || mount.Source != filepath.Join(hostRegistries, "providers") {
+		t.Fatalf("providers mount = %#v, ok=%v", mount, ok)
+	}
+}
+
+func TestMountResolverRejectsContainerAPRuntimeHostPath(t *testing.T) {
+	paths := mountResolverTestPaths(t, "reader")
+	t.Setenv("AP_RUNTIME_CHATS_DIR", "/opt/runtime/chats")
+	resolver := NewContainerHubMountResolver(paths)
+
+	_, err := resolver.Resolve("chat-1", "reader", "run", nil)
+	if err == nil {
+		t.Fatal("expected Resolve() to reject container runtime path")
+	}
+	if !strings.Contains(err.Error(), "missing AP_RUNTIME_CHATS_DIR host path") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func mountResolverTestPaths(t *testing.T, agentKey string) config.PathsConfig {
 	t.Helper()
 

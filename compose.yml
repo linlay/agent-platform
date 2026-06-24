@@ -13,16 +13,16 @@ services:
       - .env
     environment:
       SERVER_PORT: 8080
-      RUNTIME_DIR: /opt/runtime
-      REGISTRIES_DIR: /opt/runtime/registries
+      AP_RUNTIME_DIR: /opt/runtime
+      AP_RUNTIME_REGISTRIES_DIR: /opt/runtime/registries
       OWNER_DIR: /opt/runtime/owner
       AGENTS_DIR: /opt/runtime/agents
       TEAMS_DIR: /opt/runtime/teams
       ROOT_DIR: /opt/runtime/root
       AUTOMATIONS_DIR: /opt/runtime/automations
-      CHATS_DIR: /opt/runtime/chats
-      MEMORY_DIR: /opt/runtime/memory
-      PAN_DIR: /opt/runtime/pan
+      AP_RUNTIME_CHATS_DIR: /opt/runtime/chats
+      AP_RUNTIME_MEMORY_DIR: /opt/runtime/memory
+      AP_RUNTIME_PAN_DIR: /opt/runtime/pan
       SKILLS_MARKET_DIR: /opt/runtime/skills-market
     volumes:
       - type: bind
@@ -30,17 +30,17 @@ services:
         target: /opt/configs
         read_only: true
       - type: bind
-        source: ${RUNTIME_DIR:-./runtime}
+        source: ${AP_RUNTIME_DIR:-./runtime}
         target: /opt/runtime
       - type: bind
-        source: ${REGISTRIES_DIR:-${RUNTIME_DIR:-./runtime}/registries}
+        source: ${AP_RUNTIME_REGISTRIES_DIR:-${AP_RUNTIME_DIR:-./runtime}/registries}
         target: /opt/runtime/registries
       - type: bind
-        source: ${CHATS_DIR:-${RUNTIME_DIR:-./runtime}/chats}
+        source: ${AP_RUNTIME_CHATS_DIR:-${AP_RUNTIME_DIR:-./runtime}/chats}
         target: /opt/runtime/chats
       - type: bind
-        source: ${MEMORY_DIR:-${RUNTIME_DIR:-./runtime}/memory}
+        source: ${AP_RUNTIME_MEMORY_DIR:-${AP_RUNTIME_DIR:-./runtime}/memory}
         target: /opt/runtime/memory
       - type: bind
-        source: ${PAN_DIR:-${RUNTIME_DIR:-./runtime}/pan}
+        source: ${AP_RUNTIME_PAN_DIR:-${AP_RUNTIME_DIR:-./runtime}/pan}
         target: /opt/runtime/pan

@@ -164,11 +164,11 @@ func TestContainerHubPublicTemplatesExposeRuntimeDefaults(t *testing.T) {
 	envExample := string(envExampleBytes)
 	allowedEnvExampleKeys := map[string]bool{
 		"SERVER_PORT":                    true,
-		"RUNTIME_DIR":                    true,
-		"REGISTRIES_DIR":                 true,
-		"CHATS_DIR":                      true,
-		"MEMORY_DIR":                     true,
-		"PAN_DIR":                        true,
+		"AP_RUNTIME_DIR":                 true,
+		"AP_RUNTIME_REGISTRIES_DIR":      true,
+		"AP_RUNTIME_CHATS_DIR":           true,
+		"AP_RUNTIME_MEMORY_DIR":          true,
+		"AP_RUNTIME_PAN_DIR":             true,
 		"AP_CONTAINER_HUB_BASE_URL":      true,
 		"AP_CHAT_RESOURCE_TICKET_SECRET": true,
 		"AP_DEBUG_LLM_CONSOLE":           true,
@@ -1165,8 +1165,8 @@ func TestLoadPortOptionIgnoresServerPortEnv(t *testing.T) {
 
 func TestLoadCustomStorageDirs(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
-		"CHATS_DIR":  filepath.Join("var", "custom-chats"),
-		"MEMORY_DIR": filepath.Join("var", "custom-memory"),
+		"AP_RUNTIME_CHATS_DIR":  filepath.Join("var", "custom-chats"),
+		"AP_RUNTIME_MEMORY_DIR": filepath.Join("var", "custom-memory"),
 	}, func() {
 		cfg, err := Load()
 		if err != nil {
@@ -1195,7 +1195,7 @@ func TestLoadCustomStorageDirs(t *testing.T) {
 
 func TestLoadRuntimeDirDerivesRuntimePaths(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
-		"RUNTIME_DIR": filepath.Join("var", "runtime"),
+		"AP_RUNTIME_DIR": filepath.Join("var", "runtime"),
 	}, func() {
 		cfg, err := Load()
 		if err != nil {
@@ -1301,7 +1301,40 @@ func TestLoadRuntimePathsFromYAML(t *testing.T) {
 	})
 }
 
-func TestLoadIgnoresLegacyRuntimePathEnvs(t *testing.T) {
+func TestLoadIgnoresRemovedRuntimeDirectoryEnvs(t *testing.T) {
+	withIsolatedEnv(t, map[string]string{
+		removedRuntimeDirectoryEnvKey("RUNTIME"):    filepath.Join("var", "removed-runtime"),
+		removedRuntimeDirectoryEnvKey("REGISTRIES"): filepath.Join("var", "removed-registries"),
+		removedRuntimeDirectoryEnvKey("CHATS"):      filepath.Join("var", "removed-chats"),
+		removedRuntimeDirectoryEnvKey("MEMORY"):     filepath.Join("var", "removed-memory"),
+		removedRuntimeDirectoryEnvKey("PAN"):        filepath.Join("var", "removed-pan"),
+	}, func() {
+		cfg, err := Load()
+		if err != nil {
+			t.Fatalf("load config: %v", err)
+		}
+		if cfg.Paths.RegistriesDir != filepath.Join("runtime", "registries") {
+			t.Fatalf("unexpected registries dir: %q", cfg.Paths.RegistriesDir)
+		}
+		if cfg.Paths.ChatsDir != filepath.Join("runtime", "chats") {
+			t.Fatalf("unexpected chats dir: %q", cfg.Paths.ChatsDir)
+		}
+		if cfg.Paths.MemoryDir != filepath.Join("runtime", "memory") {
+			t.Fatalf("unexpected memory dir: %q", cfg.Paths.MemoryDir)
+		}
+		if cfg.Paths.PanDir != filepath.Join("runtime", "pan") {
+			t.Fatalf("unexpected pan dir: %q", cfg.Paths.PanDir)
+		}
+		if cfg.ChatStorage.Dir != filepath.Join("runtime", "chats") {
+			t.Fatalf("unexpected chat storage dir: %q", cfg.ChatStorage.Dir)
+		}
+		if cfg.Memory.StorageDir != filepath.Join("runtime", "memory") {
+			t.Fatalf("unexpected memory storage dir: %q", cfg.Memory.StorageDir)
+		}
+	})
+}
+
+func TestLoadIgnoresUnsupportedRuntimePathEnvs(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
 		"OWNER_DIR":         filepath.Join("var", "env-owner"),
 		"AGENTS_DIR":        filepath.Join("var", "env-agents"),
@@ -1341,7 +1374,7 @@ func TestLoadIgnoresLegacyRuntimePathEnvs(t *testing.T) {
 
 func TestLoadRuntimeDirOptionOverridesRuntimeDirEnv(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
-		"RUNTIME_DIR": filepath.Join("var", "env-runtime"),
+		"AP_RUNTIME_DIR": filepath.Join("var", "env-runtime"),
 	}, func() {
 		runtimeRoot := filepath.Join("var", "flag-runtime")
 		cfg, err := Load(LoadOptions{RuntimeDir: runtimeRoot})
@@ -1369,11 +1402,11 @@ func TestLoadRuntimeDirAllowsCommonDirectoryOverrides(t *testing.T) {
 		t.Fatalf("make pan dir: %v", err)
 	}
 	withIsolatedEnv(t, map[string]string{
-		"RUNTIME_DIR":    filepath.Join("var", "runtime"),
-		"REGISTRIES_DIR": filepath.Join("var", "custom-registries"),
-		"CHATS_DIR":      filepath.Join("var", "custom-chats"),
-		"MEMORY_DIR":     filepath.Join("var", "custom-memory"),
-		"PAN_DIR":        panDir,
+		"AP_RUNTIME_DIR":            filepath.Join("var", "runtime"),
+		"AP_RUNTIME_REGISTRIES_DIR": filepath.Join("var", "custom-registries"),
+		"AP_RUNTIME_CHATS_DIR":      filepath.Join("var", "custom-chats"),
+		"AP_RUNTIME_MEMORY_DIR":     filepath.Join("var", "custom-memory"),
+		"AP_RUNTIME_PAN_DIR":        panDir,
 	}, func() {
 		cfg, err := Load()
 		if err != nil {
@@ -1411,7 +1444,7 @@ func TestLoadRuntimeDirAllowsCommonDirectoryOverrides(t *testing.T) {
 
 func TestLoadMemoryLogFileRuntimeYAMLOverridesMemoryDirDefault(t *testing.T) {
 	withIsolatedEnv(t, map[string]string{
-		"MEMORY_DIR":                filepath.Join("var", "custom-memory"),
+		"AP_RUNTIME_MEMORY_DIR":     filepath.Join("var", "custom-memory"),
 		"LOGGING_AGENT_MEMORY_FILE": filepath.Join("var", "custom-log", "memory.log"),
 		"LOGGING_MEMORY_ENABLED":    "false",
 	}, func() {
@@ -2307,13 +2340,13 @@ func TestLoadGatewayConfigFromChannels(t *testing.T) {
 func TestLoadFailsWhenExplicitPanDirDoesNotExist(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "missing-pan")
 	withIsolatedEnv(t, map[string]string{
-		"PAN_DIR": missing,
+		"AP_RUNTIME_PAN_DIR": missing,
 	}, func() {
 		_, err := Load()
 		if err == nil {
-			t.Fatal("expected Load() to fail for missing PAN_DIR")
+			t.Fatal("expected Load() to fail for missing AP_RUNTIME_PAN_DIR")
 		}
-		if !strings.Contains(err.Error(), "PAN_DIR does not exist: "+missing) {
+		if !strings.Contains(err.Error(), "AP_RUNTIME_PAN_DIR does not exist: "+missing) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
@@ -2325,13 +2358,13 @@ func TestLoadFailsWhenExplicitPanDirIsFile(t *testing.T) {
 		t.Fatalf("write pan file: %v", err)
 	}
 	withIsolatedEnv(t, map[string]string{
-		"PAN_DIR": panFile,
+		"AP_RUNTIME_PAN_DIR": panFile,
 	}, func() {
 		_, err := Load()
 		if err == nil {
-			t.Fatal("expected Load() to fail for file PAN_DIR")
+			t.Fatal("expected Load() to fail for file AP_RUNTIME_PAN_DIR")
 		}
-		if !strings.Contains(err.Error(), "PAN_DIR is not a directory: "+panFile) {
+		if !strings.Contains(err.Error(), "AP_RUNTIME_PAN_DIR is not a directory: "+panFile) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 	})
@@ -2341,17 +2374,17 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 	t.Helper()
 
 	keys := []string{
-		"RUNTIME_DIR",
+		"AP_RUNTIME_DIR",
 		"SERVER_PORT",
-		"REGISTRIES_DIR",
+		"AP_RUNTIME_REGISTRIES_DIR",
 		"OWNER_DIR",
 		"AGENTS_DIR",
 		"TEAMS_DIR",
 		"ROOT_DIR",
 		"AUTOMATIONS_DIR",
-		"CHATS_DIR",
-		"MEMORY_DIR",
-		"PAN_DIR",
+		"AP_RUNTIME_CHATS_DIR",
+		"AP_RUNTIME_MEMORY_DIR",
+		"AP_RUNTIME_PAN_DIR",
 		"SKILLS_MARKET_DIR",
 		"TOOLS_DIR",
 		"AP_CONTAINER_HUB_BASE_URL",
@@ -2492,6 +2525,10 @@ func withIsolatedEnv(t *testing.T, values map[string]string, fn func()) {
 		}
 	}
 	fn()
+}
+
+func removedRuntimeDirectoryEnvKey(name string) string {
+	return name + "_DIR"
 }
 
 func withProjectFileContents(t *testing.T, relativePath string, content *string, fn func()) {

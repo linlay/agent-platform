@@ -9,7 +9,7 @@ frontend tools 目前以 builtin tool definitions、viewport、HITL 和 desktop 
 ## 核心流程
 
 ```text
-REGISTRIES_DIR/mcp-servers
+AP_RUNTIME_REGISTRIES_DIR/mcp-servers
   -> MCP registry
   -> tool sync
   -> runtime tool registry
@@ -21,7 +21,7 @@ REGISTRIES_DIR/mcp-servers
 
 ## 配置与接口
 
-- `REGISTRIES_DIR`：registry 根目录。
+- `AP_RUNTIME_REGISTRIES_DIR`：registry 根目录。
 - `configs/runtime.yml` 的 `paths.tools-dir`：自定义 frontend tool YAML 目录。
 - `/api/admin/tools`：工具列表。
 - `desktop_action`：Desktop bridge 动作入口。

@@ -12,18 +12,18 @@ func (c *Config) applyEnv(options LoadOptions) {
 		c.Server.Port = stringEnv("SERVER_PORT", c.Server.Port)
 	}
 
-	c.Paths.RegistriesDir = pathEnv("REGISTRIES_DIR", c.Paths.RegistriesDir)
-	c.Paths.ChatsDir = pathEnv("CHATS_DIR", c.Paths.ChatsDir)
-	c.Paths.MemoryDir = pathEnv("MEMORY_DIR", c.Paths.MemoryDir)
-	c.Paths.PanDir = pathEnv("PAN_DIR", c.Paths.PanDir)
+	c.Paths.RegistriesDir = pathEnv("AP_RUNTIME_REGISTRIES_DIR", c.Paths.RegistriesDir)
+	c.Paths.ChatsDir = pathEnv("AP_RUNTIME_CHATS_DIR", c.Paths.ChatsDir)
+	c.Paths.MemoryDir = pathEnv("AP_RUNTIME_MEMORY_DIR", c.Paths.MemoryDir)
+	c.Paths.PanDir = pathEnv("AP_RUNTIME_PAN_DIR", c.Paths.PanDir)
 
 	c.Providers.ExternalDir = filepath.Clean(filepath.Join(c.Paths.RegistriesDir, "providers"))
 	c.Models.ExternalDir = filepath.Clean(filepath.Join(c.Paths.RegistriesDir, "models"))
 
 	c.ResourceTicket.Secret = stringEnv("AP_CHAT_RESOURCE_TICKET_SECRET", c.ResourceTicket.Secret)
 
-	c.ChatStorage.Dir = pathEnv("CHATS_DIR", c.ChatStorage.Dir)
-	c.Memory.StorageDir = pathEnv("MEMORY_DIR", c.Memory.StorageDir)
+	c.ChatStorage.Dir = pathEnv("AP_RUNTIME_CHATS_DIR", c.ChatStorage.Dir)
+	c.Memory.StorageDir = pathEnv("AP_RUNTIME_MEMORY_DIR", c.Memory.StorageDir)
 	c.Logging.LLMInteraction.ConsoleCategories = csvEnv("AP_DEBUG_LLM_CONSOLE", c.Logging.LLMInteraction.ConsoleCategories)
 	c.Logging.LLMInteraction.RecordEnabled = boolEnv("AP_DEBUG_LLM_CHAT_RECORD", c.Logging.LLMInteraction.RecordEnabled)
 

@@ -74,13 +74,13 @@ cmd/agent-platform/main.go
 
 ## 5. 数据结构
 
-Chat 默认由 `CHATS_DIR` 控制，主要包含：
+Chat 默认由 `AP_RUNTIME_CHATS_DIR` 控制，主要包含：
 
 - `chats.db`：chat 摘要索引。
 - `<chatId>.jsonl`：运行事件、StepLine、system init 与 raw messages。
 - `<chatId>/<uploaded-file>`：上传资源文件。
 
-Memory 默认由 `MEMORY_DIR` 控制，当前以 SQLite store 为主，支持 FTS、可选 embedding、observation / fact 生命周期、`/api/learn` 与 memory tools。
+Memory 默认由 `AP_RUNTIME_MEMORY_DIR` 控制，当前以 SQLite store 为主，支持 FTS、可选 embedding、observation / fact 生命周期、`/api/learn` 与 memory tools。
 
 核心 DTO 位于 `internal/api`，包括 query、submit、steer、interrupt、learn、chat、upload、automation、memory console 等请求和响应类型。
 

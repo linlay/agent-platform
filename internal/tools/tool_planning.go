@@ -29,7 +29,7 @@ func (t *RuntimeToolExecutor) invokePlanningWrite(toolName string, args map[stri
 		chatsDir = strings.TrimSpace(execCtx.Session.RuntimeContext.LocalPaths.ChatsDir)
 	}
 	if chatsDir == "" {
-		return ToolExecutionResult{Output: "失败: CHATS_DIR 未配置", Error: "chats_dir_unavailable", ExitCode: -1}, nil
+		return ToolExecutionResult{Output: "失败: AP_RUNTIME_CHATS_DIR 未配置", Error: "chats_dir_unavailable", ExitCode: -1}, nil
 	}
 
 	spec := planutil.SpecFromArgs(args)

@@ -149,7 +149,7 @@ RUN_SOCKET_TESTS=1 make test-integration
 根 `.env.example` 现在是面向最终用户的最小启动模板，只保留以下配置：
 
 - `SERVER_PORT`
-- `RUNTIME_DIR` / `REGISTRIES_DIR` / `CHATS_DIR` / `MEMORY_DIR` / `PAN_DIR`
+- `AP_RUNTIME_DIR` / `AP_RUNTIME_REGISTRIES_DIR` / `AP_RUNTIME_CHATS_DIR` / `AP_RUNTIME_MEMORY_DIR` / `AP_RUNTIME_PAN_DIR`
 - `AP_CONTAINER_HUB_BASE_URL`
 - `AP_CHAT_RESOURCE_TICKET_SECRET`
 - `AP_DEBUG_LLM_CONSOLE`
@@ -233,20 +233,20 @@ docker compose up --build
 - 本地 `make run` 使用 `SERVER_PORT` 作为监听端口
 - 宿主机端口映射为 `${SERVER_PORT}:8080`
 - 容器内应用监听端口固定为 `8080`
-- 宿主机 runtime 根目录来自 `${RUNTIME_DIR:-./runtime}`
-- `REGISTRIES_DIR`、`CHATS_DIR`、`MEMORY_DIR`、`PAN_DIR` 可单独覆盖宿主机 bind source；未配置时自然落在 `${RUNTIME_DIR}` 下
-- 容器内 runtime 根目录固定为 `/opt/runtime`，应用通过 `RUNTIME_DIR=/opt/runtime` 解析子目录
+- 宿主机 runtime 根目录来自 `${AP_RUNTIME_DIR:-./runtime}`
+- `AP_RUNTIME_REGISTRIES_DIR`、`AP_RUNTIME_CHATS_DIR`、`AP_RUNTIME_MEMORY_DIR`、`AP_RUNTIME_PAN_DIR` 可单独覆盖宿主机 bind source；未配置时自然落在 `${AP_RUNTIME_DIR}` 下
+- 容器内 runtime 根目录固定为 `/opt/runtime`，应用通过 `AP_RUNTIME_DIR=/opt/runtime` 解析子目录
 - `./configs` 只读挂载到 `/opt/configs`
 
 Container Hub 默认基础挂载当前最多 7 个：
 
-- `/workspace` -> `CHATS_DIR/<chatId>`（`rw`）
+- `/workspace` -> `AP_RUNTIME_CHATS_DIR/<chatId>`（`rw`）
 - `/root` -> `paths.root-dir`（`rw`）
 - `/skills` -> `paths.agents-dir/<agentKey>/skills`（仅 `run/agent`，`global` 默认不挂载），`ro`
-- `/pan` -> `PAN_DIR`（`rw`）
+- `/pan` -> `AP_RUNTIME_PAN_DIR`（`rw`）
 - `/agent` -> `paths.agents-dir/<agentKey>`（`ro`，必挂载；目录缺失会 fail-fast）
 - `/owner` -> `paths.owner-dir`（`ro`，目录缺失时自动创建）
-- `/memory` -> `MEMORY_DIR/<agentKey>`（`ro`，目录缺失时自动创建）
+- `/memory` -> `AP_RUNTIME_MEMORY_DIR/<agentKey>`（`ro`，目录缺失时自动创建）
 
 `runtimeConfig.sandboxMounts` 会真实影响 Container Hub session mounts：
 
@@ -295,13 +295,13 @@ docker compose logs -f
 ### 常见排查
 
 - 服务无法启动：先检查当前配置文件、鉴权公钥与 JWKS 配置是否完整。
-- Query 无法调用模型：检查 `REGISTRIES_DIR/providers`、`REGISTRIES_DIR/models` 是否存在，并确认 provider `apiKey` / `baseUrl` 可用。
+- Query 无法调用模型：检查 `AP_RUNTIME_REGISTRIES_DIR/providers`、`AP_RUNTIME_REGISTRIES_DIR/models` 是否存在，并确认 provider `apiKey` / `baseUrl` 可用。
 - Automation 看起来没有触发：先确认服务进程本身正在运行；如果是本地 `make run`，日志不会出现在 `docker compose logs` 里。随后检查 stdout 中是否有 `automation orchestrator started`、`[automation] registered ...`、`[automation] dispatch ...`。
 - Query 看起来不像真流式：先检查 `configs/runtime.yml -> h2a.render.*` 是否启用了传输层缓冲；默认 SSE writer 会逐事件 flush。
 - `bash` 执行失败：检查 `AP_CONTAINER_HUB_BASE_URL`、`container-hub.default-environment-id`，以及 runtime 目录配置是否为宿主机真实路径。
-- chat 没有持久化：检查 `CHATS_DIR` 是否可写。
-- memory learn 未生效：确认 `/api/learn` 请求体、agent memory 配置与 `MEMORY_DIR` 可写性。
-- 上传后无法下载：确认文件已落到 `CHATS_DIR/<chatId>/`，并检查 `/api/resource?file=...` 是否原样使用。
+- chat 没有持久化：检查 `AP_RUNTIME_CHATS_DIR` 是否可写。
+- memory learn 未生效：确认 `/api/learn` 请求体、agent memory 配置与 `AP_RUNTIME_MEMORY_DIR` 可写性。
+- 上传后无法下载：确认文件已落到 `AP_RUNTIME_CHATS_DIR/<chatId>/`，并检查 `/api/resource?file=...` 是否原样使用。
 
 ## 文档索引
 

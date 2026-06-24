@@ -1,7 +1,7 @@
 # Runtime integration config. Copy to configs/runtime.yml to customize locally.
 
 # paths:
-#   # RUNTIME_DIR controls the common runtime root. Use these only when a
+#   # AP_RUNTIME_DIR controls the common runtime root. Use these only when a
 #   # specific runtime subdirectory must live outside that root.
 #   registries-dir: ./runtime/registries
 #   tools-dir: ./runtime/tools
@@ -82,13 +82,13 @@ container-hub:
   destroy-queue-delay: 5
 
   # Default mounts come from runtime directory config:
-  # /workspace -> CHATS_DIR/<chatId> (rw)
+  # /workspace -> AP_RUNTIME_CHATS_DIR/<chatId> (rw)
   # /root      -> paths.root-dir (rw)
   # /skills    -> paths.agents-dir/<agentKey>/skills (ro, only run/agent; global skips it)
-  # /pan       -> PAN_DIR (rw)
+  # /pan       -> AP_RUNTIME_PAN_DIR (rw)
   # /agent     -> paths.agents-dir/<agentKey> (ro, required)
   # /owner     -> paths.owner-dir (ro)
-  # /memory    -> MEMORY_DIR/<agentKey> (ro)
+  # /memory    -> AP_RUNTIME_MEMORY_DIR/<agentKey> (ro)
   #
   # runtimeConfig.sandboxMounts controls Container Hub session mounts:
   # platform + mode             -> on-demand platform mount; skills-market mounts to /skills-market
@@ -164,7 +164,7 @@ logging:
     enabled: false
   memory:
     enabled: true
-    # file defaults to MEMORY_DIR/memory.log
+    # file defaults to AP_RUNTIME_MEMORY_DIR/memory.log
     # file:
   llm-interaction:
     enabled: true

@@ -142,8 +142,8 @@ program_expand_runtime_path() {
 }
 
 program_resolve_runtime_root() {
-  if [[ "$RUNTIME_ROOT_EXPLICIT" -eq 0 && -n "${RUNTIME_DIR:-}" ]]; then
-    RUNTIME_ROOT="$(program_expand_runtime_path "$RUNTIME_DIR")"
+  if [[ "$RUNTIME_ROOT_EXPLICIT" -eq 0 && -n "${AP_RUNTIME_DIR:-}" ]]; then
+    RUNTIME_ROOT="$(program_expand_runtime_path "$AP_RUNTIME_DIR")"
   fi
 }
 
