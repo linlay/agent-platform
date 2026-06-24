@@ -279,7 +279,7 @@ func New(rootCtx context.Context, configOptions ...config.LoadOptions) (*App, er
 		Channels:               channelReg,
 		AutomationOrchestrator: automationOrchestrator,
 		DeltaMappers:           llm.DeltaMapperFactory{Frontend: frontendRegistry},
-		SystemInits:            llm.SystemInitProfileBuilder{},
+		SystemInits:            llm.SystemInitProfileBuilder{Models: modelRegistry},
 		AutomationRegistry:     automationRegistry,
 		AutomationExecutions:   automationExecutionStore,
 		GatewayResolver:        gatewayResolver,

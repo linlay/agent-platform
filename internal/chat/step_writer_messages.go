@@ -400,11 +400,13 @@ func applyStepLineModelMetadata(line *StepLine, modelKey string, reasoningEffort
 		line.ModelKey,
 		modelKey,
 		firstStringFromKeys(line.Usage, "modelKey"),
+		firstStringFromKeys(line.ContextWindow, "modelKey"),
 	)
 	line.ReasoningEffort = firstNonEmptyStepString(
 		line.ReasoningEffort,
 		reasoningEffort,
 		firstStringFromKeys(line.Usage, "reasoningEffort"),
+		firstStringFromKeys(line.ContextWindow, "reasoningEffort"),
 	)
 	stripStepModelMetadata(line.Usage)
 	stripStepModelMetadata(line.ContextWindow)

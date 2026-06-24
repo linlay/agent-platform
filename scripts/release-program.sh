@@ -26,26 +26,6 @@ require_file "$REPO_ROOT/.env.example"
 require_dir "$REPO_ROOT/configs"
 cd "$REPO_ROOT"
 
-create_runtime_tree() {
-  local bundle_root="$1"
-  mkdir -p \
-    "$bundle_root/runtime/registries/providers" \
-    "$bundle_root/runtime/registries/models" \
-    "$bundle_root/runtime/registries/mcp-servers" \
-    "$bundle_root/runtime/registries/viewport-servers" \
-    "$bundle_root/runtime/tools" \
-    "$bundle_root/runtime/viewports" \
-    "$bundle_root/runtime/owner" \
-    "$bundle_root/runtime/agents" \
-    "$bundle_root/runtime/teams" \
-    "$bundle_root/runtime/root" \
-    "$bundle_root/runtime/automations" \
-    "$bundle_root/runtime/chats" \
-    "$bundle_root/runtime/memory" \
-    "$bundle_root/runtime/pan" \
-    "$bundle_root/runtime/skills-market"
-}
-
 copy_config_templates() {
   local bundle_root="$1"
   local asset
@@ -170,7 +150,6 @@ build_program_bundle() {
     cp "$PROGRAM_RELEASE_ASSETS_DIR/windows/tools.example.yml" "$bundle_root/configs/tools.example.yml"
   fi
   copy_bundled_rg "$bundle_root" "$target_os" "$target_arch"
-  create_runtime_tree "$bundle_root"
 
   if [[ "$target_os" == "windows" ]]; then
     cp "$PROGRAM_RELEASE_ASSETS_DIR/windows/deploy.ps1" "$bundle_root/deploy.ps1"

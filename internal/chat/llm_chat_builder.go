@@ -25,8 +25,11 @@ type LLMChat struct {
 }
 
 type llmSystemSnapshot struct {
-	SystemMessage map[string]any
-	Tools         []any
+	SystemMessage  map[string]any
+	Tools          []any
+	Model          map[string]any
+	ToolChoice     string
+	RequestOptions map[string]any
 }
 
 func (s *FileStore) BuildLLMChatFromJSONL(chatID string, options LLMChatBuildOptions) (LLMChat, error) {
@@ -43,26 +46,44 @@ func (s *FileStore) BuildLLMChatFromJSONL(chatID string, options LLMChatBuildOpt
 	}
 	target := lines[targetIndex]
 	prefix := lines[:targetIndex]
-	systemCache := buildLLMSystemCache(prefix)
+	systemCache := buildLLMSystemCache(lines[:targetIndex+1])
 
 	messages := rawMessagesFromJSONLLines(prefix)
 	if inputMessages := messageMapsFromAny(target["inputMessages"]); len(inputMessages) > 0 {
 		messages = append(messages, inputMessages...)
 	}
 
-	systemMessage, tools, systemRef, legacy := resolveLLMChatSystem(target, systemCache)
+	systemMessage, tools, systemRef, profile, legacy := resolveLLMChatSystem(target, systemCache)
 	if len(systemMessage) > 0 {
 		messages = append([]map[string]any{systemMessage}, messages...)
 	}
 
-	model := cloneMapDeep(anyMap(target["model"]))
-	modelKey := strings.TrimSpace(stringValue(target["modelKey"]))
-	reasoningEffort := strings.TrimSpace(stringValue(target["reasoningEffort"]))
-	if modelKey == "" {
+	model := cloneMapDeep(profile.Model)
+	modelKey := strings.TrimSpace(stringValue(model["key"]))
+	reasoningEffort := strings.TrimSpace(stringValue(model["reasoningEffort"]))
+	if len(model) == 0 {
+		model = cloneMapDeep(anyMap(target["model"]))
+		if len(model) > 0 {
+			legacy = true
+		}
+	}
+	if modelKey == "" && len(model) > 0 {
 		modelKey = strings.TrimSpace(stringValue(model["key"]))
 	}
-	if reasoningEffort == "" {
+	if reasoningEffort == "" && len(model) > 0 {
 		reasoningEffort = strings.TrimSpace(stringValue(model["reasoningEffort"]))
+	}
+	if modelKey == "" {
+		modelKey = strings.TrimSpace(stringValue(target["modelKey"]))
+		if modelKey != "" {
+			legacy = true
+		}
+	}
+	if reasoningEffort == "" {
+		reasoningEffort = strings.TrimSpace(stringValue(target["reasoningEffort"]))
+		if reasoningEffort != "" {
+			legacy = true
+		}
 	}
 	if len(model) == 0 && (modelKey != "" || reasoningEffort != "") {
 		model = map[string]any{}
@@ -75,12 +96,18 @@ func (s *FileStore) BuildLLMChatFromJSONL(chatID string, options LLMChatBuildOpt
 		legacy = true
 	}
 
-	toolChoice := strings.TrimSpace(stringValue(target["toolChoice"]))
-	if toolChoice == "" && len(tools) > 0 {
-		legacy = true
+	toolChoice := strings.TrimSpace(profile.ToolChoice)
+	if toolChoice == "" {
+		if targetToolChoice := strings.TrimSpace(stringValue(target["toolChoice"])); targetToolChoice != "" {
+			toolChoice = targetToolChoice
+			legacy = true
+		} else if len(tools) > 0 {
+			legacy = true
+		}
 	}
-	requestOptions := cloneMapDeep(anyMap(target["requestOptions"]))
+	requestOptions := cloneMapDeep(profile.RequestOptions)
 	if len(requestOptions) == 0 {
+		requestOptions = cloneMapDeep(anyMap(target["requestOptions"]))
 		legacy = true
 	}
 
@@ -132,7 +159,8 @@ func lineIsStep(line map[string]any) bool {
 func buildLLMSystemCache(lines []map[string]any) map[string]llmSystemSnapshot {
 	cache := map[string]llmSystemSnapshot{}
 	for _, line := range lines {
-		if strings.TrimSpace(stringValue(line["_type"])) != "query" {
+		lineType := strings.TrimSpace(stringValue(line["_type"]))
+		if lineType != "query" && !lineIsStep(line) {
 			continue
 		}
 		for _, raw := range anySlice(line["systems"]) {
@@ -143,33 +171,36 @@ func buildLLMSystemCache(lines []map[string]any) map[string]llmSystemSnapshot {
 				continue
 			}
 			cache[systemCacheID(cacheKey, fingerprint)] = llmSystemSnapshot{
-				SystemMessage: cloneMapDeep(anyMap(system["systemMessage"])),
-				Tools:         cloneAnySliceDeep(anySlice(system["tools"])),
+				SystemMessage:  cloneMapDeep(anyMap(system["systemMessage"])),
+				Tools:          cloneAnySliceDeep(anySlice(system["tools"])),
+				Model:          cloneMapDeep(anyMap(system["model"])),
+				ToolChoice:     strings.TrimSpace(stringValue(system["toolChoice"])),
+				RequestOptions: cloneMapDeep(anyMap(system["requestOptions"])),
 			}
 		}
 	}
 	return cache
 }
 
-func resolveLLMChatSystem(target map[string]any, cache map[string]llmSystemSnapshot) (map[string]any, []any, map[string]any, bool) {
+func resolveLLMChatSystem(target map[string]any, cache map[string]llmSystemSnapshot) (map[string]any, []any, map[string]any, llmSystemSnapshot, bool) {
 	if inline := anyMap(target["system"]); len(inline) > 0 {
 		systemMessage := cloneMapDeep(anyMap(inline["systemMessage"]))
 		if len(systemMessage) == 0 && strings.TrimSpace(stringValue(inline["role"])) == "system" {
 			systemMessage = cloneMapDeep(inline)
 		}
-		return systemMessage, cloneAnySliceDeep(anySlice(inline["tools"])), nil, false
+		return systemMessage, cloneAnySliceDeep(anySlice(inline["tools"])), nil, llmSystemSnapshot{}, true
 	}
 	systemRef := cloneMapDeep(anyMap(target["systemRef"]))
 	if len(systemRef) == 0 {
-		return nil, nil, nil, true
+		return nil, nil, nil, llmSystemSnapshot{}, true
 	}
 	cacheKey := strings.TrimSpace(stringValue(systemRef["cacheKey"]))
 	fingerprint := strings.TrimSpace(stringValue(systemRef["fingerprint"]))
 	snapshot, ok := cache[systemCacheID(cacheKey, fingerprint)]
 	if !ok {
-		return nil, nil, systemRef, true
+		return nil, nil, systemRef, llmSystemSnapshot{}, true
 	}
-	return cloneMapDeep(snapshot.SystemMessage), cloneAnySliceDeep(snapshot.Tools), systemRef, false
+	return cloneMapDeep(snapshot.SystemMessage), cloneAnySliceDeep(snapshot.Tools), systemRef, snapshot, false
 }
 
 func systemCacheID(cacheKey string, fingerprint string) string {

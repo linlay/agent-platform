@@ -197,7 +197,7 @@ func (s *Server) persistDeferredAwaitingToolAnswer(chatID string, runID string, 
 	if chatID == "" || runID == "" || awaitingID == "" || len(answer) == 0 {
 		return nil
 	}
-	history, err := s.deps.Chats.LoadRawMessages(chatID, s.deps.Config.ChatStorage.K)
+	history, err := s.deps.Chats.LoadRawMessages(chatID, chat.DefaultHistoryRunWindow)
 	if err != nil {
 		return err
 	}

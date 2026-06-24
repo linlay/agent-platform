@@ -5,14 +5,6 @@ import (
 	"strings"
 )
 
-const (
-	DefaultLocale = "en"
-	LocaleEN      = "en"
-	LocaleZhCN    = "zh-CN"
-)
-
-var supportedLocales = []string{LocaleEN, LocaleZhCN}
-
 var zhCNMessages = map[string]string{
 	"accessLevel must be default, auto_approve, or full_access": "accessLevel 必须是 default、auto_approve 或 full_access",
 	"agent not found":                                     "智能体不存在",

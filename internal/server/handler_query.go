@@ -66,7 +66,7 @@ func isNonStreamingQuery(req api.QueryRequest) bool {
 }
 
 func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepared preparedQuery) {
-	locale := requestLocale(r, s.deps.Config.I18N.DefaultLocale)
+	locale := requestLocale(r, i18n.DefaultLocale)
 	registered, statusErr := s.registerQueryRun(r.Context(), prepared)
 	if statusErr != nil {
 		releaseQuery(prepared.release)
@@ -91,7 +91,7 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 
 	sseWriter, err := stream.NewWriter(w, stream.Options{
 		SSE:            s.deps.Config.SSE,
-		Render:         s.deps.Config.H2A.Render,
+		Render:         stream.DefaultRenderConfig(),
 		LoggingEnabled: s.deps.Config.Logging.SSE.Enabled,
 	})
 	if err != nil {
@@ -178,7 +178,7 @@ func (s *Server) handleQueryAsync(w http.ResponseWriter, r *http.Request, prepar
 }
 
 func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, prepared preparedQuery) {
-	locale := i18n.ResolveLocale(s.deps.Config.I18N.DefaultLocale, responseLocale(w))
+	locale := i18n.ResolveLocale(i18n.DefaultLocale, responseLocale(w))
 	registered, statusErr := s.registerQueryRun(ctx, prepared)
 	if statusErr != nil {
 		releaseQuery(prepared.release)
@@ -187,7 +187,7 @@ func (s *Server) handleQuerySync(w http.ResponseWriter, ctx context.Context, pre
 	}
 	sseWriter, err := stream.NewWriter(w, stream.Options{
 		SSE:            s.deps.Config.SSE,
-		Render:         s.deps.Config.H2A.Render,
+		Render:         stream.DefaultRenderConfig(),
 		LoggingEnabled: s.deps.Config.Logging.SSE.Enabled,
 	})
 	if err != nil {

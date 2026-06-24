@@ -11,13 +11,20 @@ ENV_FILE="$CONFIG_ROOT/.env"
 BACKEND_BIN="$BUNDLE_ROOT/backend/$APP_NAME"
 CONFIG_DIR="$CONFIG_ROOT/configs"
 RUNTIME_ROOT="$BUNDLE_ROOT/runtime"
-RUNTIME_ROOT_EXPLICIT=0
 RUN_DIR="$BUNDLE_ROOT/run"
 LOG_DIR="$RUN_DIR"
 LOG_FILE="$LOG_DIR/$APP_NAME.log"
 PID_FILE="$RUN_DIR/$APP_NAME.pid"
 PROGRAM_PORT=""
 BACKEND_ARGS=()
+DEPLOY_AP_RUNTIME_DIR=""
+DEPLOY_CONTAINER_HUB_BASE_URL=""
+DEPLOY_AI_VISION_GENERAL_MODEL_KEY=""
+DEPLOY_AI_VISION_OCR_MODEL_KEY=""
+DEPLOY_AI_WEB_FETCH_MODEL_KEY=""
+DEPLOY_CODER_MODEL_KEY=""
+DEPLOY_CODER_REASONING_EFFORT=""
+DEPLOY_LOCAL_PUBLIC_KEY_FILE=""
 
 program_die() {
   echo "[program] $*" >&2
@@ -55,12 +62,6 @@ program_apply_layout_flags() {
         CONFIG_ROOT="$2"
         shift 2
         ;;
-      --runtime-dir)
-        [[ $# -ge 2 ]] || program_die "missing value for --runtime-dir"
-        RUNTIME_ROOT="$2"
-        RUNTIME_ROOT_EXPLICIT=1
-        shift 2
-        ;;
       --state-dir)
         [[ $# -ge 2 ]] || program_die "missing value for --state-dir"
         RUN_DIR="$2"
@@ -82,6 +83,94 @@ program_apply_layout_flags() {
     esac
   done
   program_refresh_paths
+}
+
+program_require_arg_value() {
+  local name="$1"
+  local value="$2"
+  local stripped="${value//[[:space:]]/}"
+  [[ -n "$stripped" ]] || program_die "missing required deploy argument: $name"
+}
+
+program_reject_deploy_start_arg() {
+  program_die "$1 is a start/runtime argument; pass it to start.sh instead of deploy.sh"
+}
+
+program_apply_deploy_flags() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --output-dir)
+        [[ $# -ge 2 ]] || program_die "missing value for --output-dir"
+        program_require_arg_value "--output-dir" "$2"
+        CONFIG_ROOT="$2"
+        shift 2
+        ;;
+      --ap-runtime-dir)
+        [[ $# -ge 2 ]] || program_die "missing value for --ap-runtime-dir"
+        DEPLOY_AP_RUNTIME_DIR="$2"
+        shift 2
+        ;;
+      --container-hub-base-url)
+        [[ $# -ge 2 ]] || program_die "missing value for --container-hub-base-url"
+        DEPLOY_CONTAINER_HUB_BASE_URL="$2"
+        shift 2
+        ;;
+      --ai-vision-general-model-key)
+        [[ $# -ge 2 ]] || program_die "missing value for --ai-vision-general-model-key"
+        DEPLOY_AI_VISION_GENERAL_MODEL_KEY="$2"
+        shift 2
+        ;;
+      --ai-vision-ocr-model-key)
+        [[ $# -ge 2 ]] || program_die "missing value for --ai-vision-ocr-model-key"
+        DEPLOY_AI_VISION_OCR_MODEL_KEY="$2"
+        shift 2
+        ;;
+      --ai-web-fetch-model-key)
+        [[ $# -ge 2 ]] || program_die "missing value for --ai-web-fetch-model-key"
+        DEPLOY_AI_WEB_FETCH_MODEL_KEY="$2"
+        shift 2
+        ;;
+      --coder-model-key)
+        [[ $# -ge 2 ]] || program_die "missing value for --coder-model-key"
+        DEPLOY_CODER_MODEL_KEY="$2"
+        shift 2
+        ;;
+      --coder-reasoning-effort)
+        [[ $# -ge 2 ]] || program_die "missing value for --coder-reasoning-effort"
+        DEPLOY_CODER_REASONING_EFFORT="$2"
+        case "$DEPLOY_CODER_REASONING_EFFORT" in
+          NONE|LOW|MEDIUM|HIGH) ;;
+          *) program_die "--coder-reasoning-effort must be one of NONE, LOW, MEDIUM, HIGH" ;;
+        esac
+        shift 2
+        ;;
+      --local-public-key-file)
+        [[ $# -ge 2 ]] || program_die "missing value for --local-public-key-file"
+        DEPLOY_LOCAL_PUBLIC_KEY_FILE="$2"
+        shift 2
+        ;;
+      --config-dir|--state-dir|--log-dir|--port|--daemon)
+        program_reject_deploy_start_arg "$1"
+        ;;
+      --force)
+        program_die "unsupported deploy argument: --force"
+        ;;
+      *)
+        program_die "unsupported deploy argument: $1"
+        ;;
+    esac
+  done
+
+  program_refresh_paths
+  program_require_arg_value "--ap-runtime-dir" "$DEPLOY_AP_RUNTIME_DIR"
+  program_require_arg_value "--container-hub-base-url" "$DEPLOY_CONTAINER_HUB_BASE_URL"
+  program_require_arg_value "--ai-vision-general-model-key" "$DEPLOY_AI_VISION_GENERAL_MODEL_KEY"
+  program_require_arg_value "--ai-vision-ocr-model-key" "$DEPLOY_AI_VISION_OCR_MODEL_KEY"
+  program_require_arg_value "--ai-web-fetch-model-key" "$DEPLOY_AI_WEB_FETCH_MODEL_KEY"
+  program_require_arg_value "--coder-model-key" "$DEPLOY_CODER_MODEL_KEY"
+  program_require_arg_value "--coder-reasoning-effort" "$DEPLOY_CODER_REASONING_EFFORT"
+  program_require_arg_value "--local-public-key-file" "$DEPLOY_LOCAL_PUBLIC_KEY_FILE"
+  program_require_file "$DEPLOY_LOCAL_PUBLIC_KEY_FILE"
 }
 
 program_initialize_config() {
@@ -108,6 +197,192 @@ program_initialize_config() {
       [[ -f "$target" ]] || cp "$source" "$target"
     done
   fi
+}
+
+program_set_env_value() {
+  local file="$1"
+  local name="$2"
+  local value="$3"
+  local tmp
+
+  tmp="$file.tmp.$$"
+  if ! awk -v name="$name" -v value="$value" '
+    BEGIN { found = 0 }
+    {
+      if ($0 ~ "^[[:space:]]*#?[[:space:]]*" name "=") {
+        print name "=" value
+        found = 1
+        next
+      }
+      print
+    }
+    END {
+      if (!found) {
+        print name "=" value
+      }
+    }
+  ' "$file" >"$tmp"; then
+    rm -f "$tmp"
+    program_die "failed to update $name in $file"
+  fi
+  mv "$tmp" "$file"
+}
+
+program_render_env_file() {
+  local target="$1"
+
+  cp "$ENV_EXAMPLE_FILE" "$target"
+  program_set_env_value "$target" "AP_RUNTIME_DIR" "$DEPLOY_AP_RUNTIME_DIR"
+  program_set_env_value "$target" "AP_CONTAINER_HUB_BASE_URL" "$DEPLOY_CONTAINER_HUB_BASE_URL"
+}
+
+program_set_ai_tools_model_key() {
+  local file="$1"
+  local section="$2"
+  local profile="$3"
+  local value="$4"
+  local tmp
+
+  tmp="$file.tmp.$$"
+  if ! awk -v section="$section" -v profile="$profile" -v value="$value" '
+    BEGIN {
+      current_section = ""
+      in_profiles = 0
+      current_profile = ""
+      replaced = 0
+    }
+    /^[^[:space:]#][^:]*:/ {
+      current_section = $1
+      sub(/:$/, "", current_section)
+      in_profiles = 0
+      current_profile = ""
+    }
+    current_section == section && /^  profiles:/ {
+      in_profiles = 1
+      print
+      next
+    }
+    current_section == section && in_profiles && /^    [A-Za-z0-9_-]+:/ {
+      current_profile = $1
+      sub(/:$/, "", current_profile)
+      print
+      next
+    }
+    current_section == section && in_profiles && current_profile == profile && /^      model-key:/ {
+      print "      model-key: " value
+      replaced = 1
+      next
+    }
+    { print }
+    END {
+      if (!replaced) {
+        exit 42
+      }
+    }
+  ' "$file" >"$tmp"; then
+    rm -f "$tmp"
+    program_die "failed to update $section.profiles.$profile.model-key in $file"
+  fi
+  mv "$tmp" "$file"
+}
+
+program_render_ai_tools_file() {
+  local source="$1"
+  local target="$2"
+
+  cp "$source" "$target"
+  program_set_ai_tools_model_key "$target" "vision-recognize" "general" "$DEPLOY_AI_VISION_GENERAL_MODEL_KEY"
+  program_set_ai_tools_model_key "$target" "vision-recognize" "ocr" "$DEPLOY_AI_VISION_OCR_MODEL_KEY"
+  program_set_ai_tools_model_key "$target" "web-fetch" "general" "$DEPLOY_AI_WEB_FETCH_MODEL_KEY"
+}
+
+program_set_coder_default_value() {
+  local file="$1"
+  local key="$2"
+  local value="$3"
+  local tmp
+
+  tmp="$file.tmp.$$"
+  if ! awk -v key="$key" -v value="$value" '
+    BEGIN {
+      in_default_agent = 0
+      replaced = 0
+    }
+    /^[^[:space:]#][^:]*:/ {
+      in_default_agent = ($1 == "default-agent:")
+    }
+    in_default_agent && $0 ~ "^  " key ":" {
+      print "  " key ": " value
+      replaced = 1
+      next
+    }
+    { print }
+    END {
+      if (!replaced) {
+        exit 42
+      }
+    }
+  ' "$file" >"$tmp"; then
+    rm -f "$tmp"
+    program_die "failed to update default-agent.$key in $file"
+  fi
+  mv "$tmp" "$file"
+}
+
+program_render_coder_settings_file() {
+  local source="$1"
+  local target="$2"
+
+  cp "$source" "$target"
+  program_set_coder_default_value "$target" "modelKey" "$DEPLOY_CODER_MODEL_KEY"
+  program_set_coder_default_value "$target" "reasoningEffort" "$DEPLOY_CODER_REASONING_EFFORT"
+}
+
+program_install_local_public_key() {
+  local target="$CONFIG_DIR/local-public-key.pem"
+
+  [[ -f "$target" ]] || cp "$DEPLOY_LOCAL_PUBLIC_KEY_FILE" "$target"
+}
+
+program_initialize_deploy_config() {
+  mkdir -p "$CONFIG_DIR"
+  if [[ ! -f "$ENV_FILE" ]]; then
+    program_render_env_file "$ENV_FILE"
+  fi
+  if [[ -d "$BUNDLE_ROOT/configs" ]]; then
+    local example source target name
+    for example in "$BUNDLE_ROOT"/configs/*.example.yml; do
+      [[ -f "$example" ]] || continue
+      name="$(basename "$example" .example.yml)"
+      target="$CONFIG_DIR/$name.yml"
+      if [[ "$name" == "channels" ]]; then
+        [[ -f "$target" ]] || : >"$target"
+        continue
+      fi
+      if [[ -f "$target" ]]; then
+        continue
+      fi
+      case "$name" in
+        ai-tools)
+          program_render_ai_tools_file "$example" "$target"
+          ;;
+        coder-settings)
+          program_render_coder_settings_file "$example" "$target"
+          ;;
+        *)
+          cp "$example" "$target"
+          ;;
+      esac
+    done
+    for source in "$BUNDLE_ROOT"/configs/*.example.pem; do
+      [[ -f "$source" ]] || continue
+      name="$(basename "$source" .example.pem)"
+      [[ "$name" == "local-public-key" ]] && continue
+      target="$CONFIG_DIR/$name.pem"
+      [[ -f "$target" ]] || cp "$source" "$target"
+    done
+  fi
+  program_install_local_public_key
 }
 
 program_load_env() {
@@ -142,8 +417,8 @@ program_expand_runtime_path() {
 }
 
 program_resolve_runtime_root() {
-  if [[ "$RUNTIME_ROOT_EXPLICIT" -eq 0 && -n "${RUNTIME_DIR:-}" ]]; then
-    RUNTIME_ROOT="$(program_expand_runtime_path "$RUNTIME_DIR")"
+  if [[ -n "${AP_RUNTIME_DIR:-}" ]]; then
+    RUNTIME_ROOT="$(program_expand_runtime_path "$AP_RUNTIME_DIR")"
   fi
 }
 
@@ -170,7 +445,7 @@ program_prepare_runtime_dirs() {
 }
 
 program_update_backend_args() {
-  BACKEND_ARGS=(--config-dir "$CONFIG_ROOT" --runtime-dir "$RUNTIME_ROOT")
+  BACKEND_ARGS=(--config-dir "$CONFIG_ROOT")
   if [[ -n "$PROGRAM_PORT" ]]; then
     BACKEND_ARGS+=(--port "$PROGRAM_PORT")
   fi

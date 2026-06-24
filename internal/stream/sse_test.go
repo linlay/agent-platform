@@ -5,8 +5,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"agent-platform/internal/config"
 )
 
 func TestWriterWritesImmediatelyWhenBufferingDisabled(t *testing.T) {
@@ -35,7 +33,7 @@ func TestWriterWritesImmediatelyWhenBufferingDisabled(t *testing.T) {
 func TestWriterFlushesBufferedEventsOnTerminalFrame(t *testing.T) {
 	rec := httptest.NewRecorder()
 	writer, err := NewWriter(rec, Options{
-		Render: config.H2ARenderConfig{
+		Render: RenderConfig{
 			MaxBufferedEvents:    8,
 			HeartbeatPassThrough: true,
 		},
@@ -73,7 +71,7 @@ func TestWriterFlushesBufferedEventsOnTerminalFrame(t *testing.T) {
 func TestWriterFlushesHeartbeatWhenPassThroughEnabled(t *testing.T) {
 	rec := httptest.NewRecorder()
 	writer, err := NewWriter(rec, Options{
-		Render: config.H2ARenderConfig{
+		Render: RenderConfig{
 			MaxBufferedEvents:    8,
 			HeartbeatPassThrough: true,
 		},
@@ -107,8 +105,8 @@ func TestWriterFlushesHeartbeatWhenPassThroughEnabled(t *testing.T) {
 func TestWriterFlushesByInterval(t *testing.T) {
 	rec := httptest.NewRecorder()
 	writer, err := NewWriter(rec, Options{
-		Render: config.H2ARenderConfig{
-			FlushInterval:      1,
+		Render: RenderConfig{
+			FlushInterval:        1,
 			HeartbeatPassThrough: true,
 		},
 	})

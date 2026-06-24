@@ -60,7 +60,7 @@ func (s *Server) handleAttach(w http.ResponseWriter, r *http.Request) {
 
 	sseWriter, err := stream.NewWriter(w, stream.Options{
 		SSE:            s.deps.Config.SSE,
-		Render:         s.deps.Config.H2A.Render,
+		Render:         stream.DefaultRenderConfig(),
 		LoggingEnabled: s.deps.Config.Logging.SSE.Enabled,
 	})
 	if err != nil {

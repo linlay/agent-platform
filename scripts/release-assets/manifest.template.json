@@ -89,8 +89,7 @@
       "__PROGRAM_COMMON__",
       ".env.example",
       "manifest.json",
-      "configs",
-      "runtime"
+      "configs"
     ]
   },
   "web": {

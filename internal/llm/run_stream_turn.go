@@ -200,6 +200,7 @@ func (s *llmRunStream) prepareFinalTurnWithoutTools() {
 	s.toolSpecs = nil
 	s.promptBuildOptions.ToolDefinitions = nil
 	s.promptBuildOptions.IncludeAfterCallHints = false
+	s.systemInitCacheKey = FinalSystemInitCacheKey(s.systemInitCacheKey)
 	systemPrompt := strings.TrimSpace(s.finalTurnSystem)
 	if systemPrompt == "" {
 		systemPrompt = buildSystemPrompt(s.session, s.req, s.model.Key, PromptBuildOptions{

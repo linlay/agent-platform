@@ -23,6 +23,40 @@ import (
 const desktopCdpCaptureScreenshotMethod = "Page.captureScreenshot"
 const desktopCdpScreenshotMimeType = "image/png"
 
+var desktopCdpBooleanParamKeys = map[string]bool{
+	"allowUnsafeEvalBlockedByCSP": true,
+	"autoAttach":                  true,
+	"autoRepeat":                  true,
+	"awaitPromise":                true,
+	"background":                  true,
+	"captureBeyondViewport":       true,
+	"disableBreaks":               true,
+	"discover":                    true,
+	"dontSetVisibleSize":          true,
+	"exclude":                     true,
+	"flatten":                     true,
+	"fromSurface":                 true,
+	"generatePreview":             true,
+	"hasTouch":                    true,
+	"hidden":                      true,
+	"ignoreCache":                 true,
+	"includeCommandLineAPI":       true,
+	"isKeypad":                    true,
+	"isMobile":                    true,
+	"isSystemKey":                 true,
+	"landscape":                   true,
+	"newWindow":                   true,
+	"optimizeForSpeed":            true,
+	"pierce":                      true,
+	"replMode":                    true,
+	"reportDirectSocketTraffic":   true,
+	"returnByValue":               true,
+	"silent":                      true,
+	"throwOnSideEffect":           true,
+	"userGesture":                 true,
+	"waitForDebuggerOnStart":      true,
+}
+
 var (
 	desktopActionAllowlistOnce sync.Once
 	desktopActionAllowlist     map[string]bool
@@ -139,7 +173,7 @@ func (t *RuntimeToolExecutor) invokeDesktopCDP(ctx context.Context, args map[str
 	payload := desktopCDPRequest{
 		RequestID: strings.TrimSpace(stringArg(args, "requestId")),
 		Method:    method,
-		Params:    params,
+		Params:    normalizeDesktopCDPParams(params),
 		TargetID:  strings.TrimSpace(stringArg(args, "targetId")),
 		SessionID: strings.TrimSpace(stringArg(args, "sessionId")),
 		SurfaceID: strings.TrimSpace(stringArg(args, "surfaceId")),
@@ -150,6 +184,50 @@ func (t *RuntimeToolExecutor) invokeDesktopCDP(ctx context.Context, args map[str
 		return result, err
 	}
 	return t.storeDesktopCdpScreenshot(result, execCtx), nil
+}
+
+func normalizeDesktopCDPParams(params map[string]any) map[string]any {
+	normalized := make(map[string]any, len(params))
+	for key, value := range params {
+		normalized[key] = normalizeDesktopCDPParamValue(key, value)
+	}
+	return normalized
+}
+
+func normalizeDesktopCDPParamValue(key string, value any) any {
+	if desktopCdpBooleanParamKeys[key] {
+		if boolValue, ok := parseDesktopCDPStringBool(value); ok {
+			return boolValue
+		}
+	}
+
+	switch typed := value.(type) {
+	case map[string]any:
+		return normalizeDesktopCDPParams(typed)
+	case []any:
+		normalized := make([]any, len(typed))
+		for index, item := range typed {
+			normalized[index] = normalizeDesktopCDPParamValue("", item)
+		}
+		return normalized
+	default:
+		return value
+	}
+}
+
+func parseDesktopCDPStringBool(value any) (bool, bool) {
+	raw, ok := value.(string)
+	if !ok {
+		return false, false
+	}
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "true":
+		return true, true
+	case "false":
+		return false, true
+	default:
+		return false, false
+	}
 }
 
 func (t *RuntimeToolExecutor) invokeDesktopBridge(ctx context.Context, bridge config.DesktopBridgeConfig, payload any, toolName string) (ToolExecutionResult, error) {

@@ -31,7 +31,7 @@ func (r *ContainerHubMountResolver) Resolve(chatID string, agentKey string, leve
 	if agentKey == "" {
 		return nil, fmt.Errorf("container-hub mount validation failed for agent-self: agentKey is required")
 	}
-	workspaceRoot, err := hostPath("CHATS_DIR", r.paths.ChatsDir)
+	workspaceRoot, err := hostPath("AP_RUNTIME_CHATS_DIR", r.paths.ChatsDir)
 	if err != nil {
 		return nil, fmt.Errorf("container-hub mount validation failed for data-dir: %w", err)
 	}
@@ -52,7 +52,7 @@ func (r *ContainerHubMountResolver) Resolve(chatID string, agentKey string, leve
 	} else if err != nil {
 		return nil, fmt.Errorf("container-hub mount validation failed for root-dir: %w", err)
 	}
-	if panDir, err := hostPath("PAN_DIR", r.paths.PanDir); err == nil && panDir != "" {
+	if panDir, err := hostPath("AP_RUNTIME_PAN_DIR", r.paths.PanDir); err == nil && panDir != "" {
 		mounts = append(mounts, MountSpec{Name: "pan-dir", Source: panDir, Destination: "/pan", ReadOnly: false})
 	} else if err != nil {
 		return nil, fmt.Errorf("container-hub mount validation failed for pan-dir: %w", err)
@@ -222,7 +222,7 @@ func (r *ContainerHubMountResolver) platformMountDef(platform string, agentKey s
 	defs := map[string]platformMountDefinition{
 		"agent":         {destination: "/agent", overrideOnly: true},
 		"agents":        {destination: "/agents", source: func() (string, error) { return hostPath("AGENTS_DIR", r.paths.AgentsDir) }},
-		"chats":         {destination: "/chats", source: func() (string, error) { return hostPath("CHATS_DIR", r.paths.ChatsDir) }},
+		"chats":         {destination: "/chats", source: func() (string, error) { return hostPath("AP_RUNTIME_CHATS_DIR", r.paths.ChatsDir) }},
 		"memory":        {destination: "/memory", overrideOnly: true},
 		"mcp-servers":   {destination: "/mcp-servers", source: func() (string, error) { return r.registryChildSource("mcp-servers") }},
 		"models":        {destination: "/models", source: func() (string, error) { return r.registryChildSource("models") }},
@@ -238,7 +238,7 @@ func (r *ContainerHubMountResolver) platformMountDef(platform string, agentKey s
 }
 
 func (r *ContainerHubMountResolver) registryChildSource(child string) (string, error) {
-	registriesRoot, err := hostPath("REGISTRIES_DIR", r.paths.RegistriesDir)
+	registriesRoot, err := hostPath("AP_RUNTIME_REGISTRIES_DIR", r.paths.RegistriesDir)
 	if err != nil {
 		return "", fmt.Errorf("container-hub mount validation failed for %s-dir: %w", child, err)
 	}
@@ -344,12 +344,12 @@ func (r *ContainerHubMountResolver) ownerSource() (string, error) {
 }
 
 func (r *ContainerHubMountResolver) memorySource(agentKey string) (string, error) {
-	memoryRoot, err := hostPath("MEMORY_DIR", r.paths.MemoryDir)
+	memoryRoot, err := hostPath("AP_RUNTIME_MEMORY_DIR", r.paths.MemoryDir)
 	if err != nil {
 		return "", fmt.Errorf("container-hub mount validation failed for memory-dir: %w", err)
 	}
 	if memoryRoot == "" {
-		return "", fmt.Errorf("container-hub mount validation failed for memory-dir: MEMORY_DIR is required")
+		return "", fmt.Errorf("container-hub mount validation failed for memory-dir: AP_RUNTIME_MEMORY_DIR is required")
 	}
 	memoryDir := filepath.Join(memoryRoot, agentKey)
 	if err := os.MkdirAll(memoryDir, 0o755); err != nil {
@@ -363,7 +363,10 @@ func hostPath(envKey string, configured string) (string, error) {
 	if configured == "" {
 		return "", nil
 	}
-	hostValue := strings.TrimSpace(os.Getenv(envKey))
+	hostValue := ""
+	if allowHostPathEnv(envKey) {
+		hostValue = strings.TrimSpace(os.Getenv(envKey))
+	}
 	if hostValue == "" {
 		hostValue = configured
 	}
@@ -371,4 +374,13 @@ func hostPath(envKey string, configured string) (string, error) {
 		return "", fmt.Errorf("missing %s host path (configured=%s)", envKey, configured)
 	}
 	return filepath.Clean(hostValue), nil
+}
+
+func allowHostPathEnv(envKey string) bool {
+	switch envKey {
+	case "AP_RUNTIME_CHATS_DIR", "AP_RUNTIME_MEMORY_DIR", "AP_RUNTIME_PAN_DIR", "AP_RUNTIME_REGISTRIES_DIR":
+		return true
+	default:
+		return false
+	}
 }

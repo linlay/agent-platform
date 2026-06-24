@@ -346,14 +346,6 @@ func loadProviderMemory(values map[string]any) (ProviderMemoryConfig, error) {
 }
 
 func resolveProviderBaseURL(key string, values map[string]any) string {
-	if value := strings.TrimSpace(os.Getenv(providerBaseURLEnvKey(key))); value != "" {
-		return value
-	}
-	if hasProtocolConfig(values, "OPENAI") {
-		if value := strings.TrimSpace(os.Getenv("OPENAI_BASE_URL")); value != "" {
-			return value
-		}
-	}
 	return strings.TrimSpace(stringNode(values["baseUrl"]))
 }
 
@@ -411,26 +403,6 @@ func loadProviderProtocols(values map[string]any, baseURL string) map[string]Pro
 		}
 	}
 	return result
-}
-
-func providerBaseURLEnvKey(key string) string {
-	normalized := strings.Map(func(r rune) rune {
-		switch {
-		case r >= 'a' && r <= 'z':
-			return r - ('a' - 'A')
-		case r >= 'A' && r <= 'Z':
-			return r
-		case r >= '0' && r <= '9':
-			return r
-		default:
-			return '_'
-		}
-	}, strings.TrimSpace(key))
-	normalized = strings.Trim(normalized, "_")
-	if normalized == "" {
-		return "BASE_URL"
-	}
-	return normalized + "_BASE_URL"
 }
 
 func normalizeEndpointPath(value string, baseURL string, protocol string) string {

@@ -11,7 +11,7 @@ for ($i = 0; $i -lt $args.Length; $i++) {
     '-Daemon' { $Daemon = $true }
     default {
       $layoutArgs.Add($arg)
-      if (@('--config-dir', '--runtime-dir', '--state-dir', '--log-dir', '--port') -contains $arg) {
+      if (@('--config-dir', '--state-dir', '--log-dir', '--port') -contains $arg) {
         if ($i + 1 -ge $args.Length) {
           Fail-Program "missing value for $arg"
         }

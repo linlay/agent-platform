@@ -62,12 +62,15 @@ type StreamDeltaMapperFactory interface {
 }
 
 type SystemInitProfile struct {
-	CacheKey      string
-	Mode          string
-	Stage         string
-	Fingerprint   string
-	SystemMessage map[string]any
-	Tools         []any
+	CacheKey       string
+	Mode           string
+	Stage          string
+	Fingerprint    string
+	SystemMessage  map[string]any
+	Tools          []any
+	Model          map[string]any
+	ToolChoice     string
+	RequestOptions map[string]any
 }
 
 type SystemInitBuilder interface {
@@ -245,9 +248,12 @@ type QuerySession struct {
 }
 
 type SystemInitSnapshot struct {
-	Fingerprint   string
-	SystemMessage map[string]any
-	Tools         []any
+	Fingerprint    string
+	SystemMessage  map[string]any
+	Tools          []any
+	Model          map[string]any
+	ToolChoice     string
+	RequestOptions map[string]any
 }
 
 type SandboxExtraMount struct {

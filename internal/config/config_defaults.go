@@ -6,15 +6,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"agent-platform/internal/i18n"
 )
 
 func defaultConfig(options LoadOptions) Config {
-	runtimeRoot := strings.TrimSpace(options.RuntimeDir)
-	if runtimeRoot == "" {
-		runtimeRoot = strings.TrimSpace(os.Getenv("RUNTIME_DIR"))
-	}
+	runtimeRoot := strings.TrimSpace(os.Getenv("AP_RUNTIME_DIR"))
 	if runtimeRoot == "" {
 		runtimeRoot = "runtime"
 	}
@@ -48,6 +43,10 @@ func defaultConfig(options LoadOptions) Config {
 			Enabled:        false,
 			DefaultProfile: "general",
 		},
+		ImageGenerate: ImageGenerateConfig{
+			Enabled:        false,
+			DefaultProfile: "general",
+		},
 		CoderSettings: CoderSettingsConfig{
 			ACPProxies: map[string]CoderACPProxyConfig{},
 		},
@@ -73,13 +72,12 @@ func defaultConfig(options LoadOptions) Config {
 			StorageDir:         paths.MemoryDir,
 		},
 		Defaults: DefaultsConfig{
-			MaxOutputTokens: 4096,
 			Budget: BudgetDefaultsConfig{
 				Timeout:  3600,
 				MaxSteps: 100,
 				Model: RetryBudgetConfig{
 					MaxCalls:   100,
-					Timeout:    30,
+					Timeout:    60,
 					RetryCount: 3,
 				},
 				Tool: RetryBudgetConfig{
@@ -100,17 +98,6 @@ func defaultConfig(options LoadOptions) Config {
 		SSE: SSEConfig{
 			HeartbeatInterval: 30, // seconds
 		},
-		H2A: H2AConfig{
-			Render: H2ARenderConfig{
-				FlushInterval:        0, // seconds; 0 means disabled
-				MaxBufferedChars:     0,
-				MaxBufferedEvents:    0,
-				HeartbeatPassThrough: true,
-			},
-		},
-		I18N: I18NConfig{
-			DefaultLocale: i18n.DefaultLocale,
-		},
 		Auth: AuthConfig{
 			Enabled:            true,
 			LocalPublicKeyFile: filepath.Join("configs", "local-public-key.pem"),
@@ -119,33 +106,7 @@ func defaultConfig(options LoadOptions) Config {
 			Secret:     "",
 			TTLSeconds: 86400,
 		},
-		ChatStorage: ChatStorageConfig{
-			Dir:                                  paths.ChatsDir,
-			K:                                    20,
-			Charset:                              "UTF-8",
-			ActionTools:                          nil,
-			IndexSQLiteFile:                      "chats.db",
-			IndexAutoRebuildOnIncompatibleSchema: true,
-		},
-		Logging: LoggingConfig{
-			Request:   ToggleConfig{Enabled: true},
-			Auth:      ToggleConfig{Enabled: true},
-			Exception: ToggleConfig{Enabled: true},
-			Tool:      ToggleConfig{Enabled: true},
-			Action:    ToggleConfig{Enabled: true},
-			Viewport:  ToggleConfig{Enabled: true},
-			SSE:       ToggleConfig{Enabled: false},
-			Memory: MemoryLoggingConfig{
-				Enabled: true,
-			},
-			LLMInteraction: LLMInteractionLoggingConfig{
-				Enabled:           true,
-				ConsoleCategories: []string{"request", "usage"},
-				MaskSensitive:     false,
-				RecordEnabled:     false,
-				RecordDir:         paths.ChatsDir,
-			},
-		},
+		Logging: defaultLoggingConfig(paths.ChatsDir, paths.MemoryDir),
 		CORS: CORSConfig{
 			Enabled:               false,
 			PathPattern:           "/api/**",
@@ -206,21 +167,6 @@ func defaultConfig(options LoadOptions) Config {
 					LSPDiagnostics: defaultLSPDiagnosticsHookConfig(),
 				},
 			},
-		},
-		Run: RunConfig{
-			ReaperInterval:        30, // seconds
-			MaxBackgroundDuration: 0,  // seconds; 0 means never expire detached runs
-			CompletedRetention:    10, // seconds
-			EventBusMaxEvents:     10000,
-			MaxDisconnectedWait:   0, // seconds; 0 means wait forever while disconnected
-			MaxObserversPerRun:    8,
-		},
-		WebSocket: WebSocketConfig{
-			MaxMessageSizeBytes: 1 << 20,
-			PingInterval:        30, // seconds
-			WriteTimeout:        15, // seconds
-			WriteQueueSize:      256,
-			MaxObservesPerConn:  8,
 		},
 	}
 }
@@ -307,9 +253,10 @@ func (c *Config) normalize(configRoot string) error {
 	c.Skills.ExternalDir = filepath.Clean(c.Paths.SkillsMarketDir)
 	c.Automation.ExternalDir = filepath.Clean(c.Paths.AutomationsDir)
 	c.Memory.StorageDir = filepath.Clean(c.Paths.MemoryDir)
-	c.ChatStorage.Dir = filepath.Clean(c.Paths.ChatsDir)
+	c.Logging.LLMInteraction.RecordDir = filepath.Clean(c.Paths.ChatsDir)
 	c.Providers.ExternalDir = filepath.Clean(filepath.Join(c.Paths.RegistriesDir, "providers"))
 	c.Models.ExternalDir = filepath.Clean(filepath.Join(c.Paths.RegistriesDir, "models"))
+	c.Logging.Memory.File = memoryLogFileDefault(c.Paths.MemoryDir)
 	if strings.TrimSpace(c.Logging.Memory.File) != "" {
 		c.Logging.Memory.File = filepath.Clean(c.Logging.Memory.File)
 	}
@@ -323,9 +270,9 @@ func (c *Config) normalize(configRoot string) error {
 	}
 	c.Desktop.Action = normalizeDesktopBridgeConfig(c.Desktop.Action)
 	c.Desktop.CDP = normalizeDesktopBridgeConfig(c.Desktop.CDP)
-	c.I18N.DefaultLocale = i18n.ResolveLocale(c.I18N.DefaultLocale)
 	c.VisionRecognize = normalizeVisionRecognizeConfig(c.VisionRecognize)
 	c.WebFetch = normalizeWebFetchConfig(c.WebFetch)
+	c.ImageGenerate = normalizeImageGenerateConfig(c.ImageGenerate)
 	c.ContainerHub.Enabled = strings.TrimSpace(c.ContainerHub.BaseURL) != ""
 	if c.Bash.WorkingDirectory == "" {
 		c.Bash.WorkingDirectory = "."
@@ -466,6 +413,57 @@ func normalizeWebFetchHosts(hosts []string) []string {
 		out = append(out, host)
 	}
 	return out
+}
+
+func normalizeImageGenerateConfig(cfg ImageGenerateConfig) ImageGenerateConfig {
+	cfg.DefaultProfile = strings.TrimSpace(cfg.DefaultProfile)
+	if cfg.DefaultProfile == "" {
+		cfg.DefaultProfile = "general"
+	}
+	if len(cfg.Profiles) == 0 {
+		return cfg
+	}
+	profiles := make(map[string]ImageGenerateProfileConfig, len(cfg.Profiles))
+	for key, profile := range cfg.Profiles {
+		normalizedKey := strings.TrimSpace(key)
+		if normalizedKey == "" {
+			continue
+		}
+		profile = normalizeImageGenerateProfileConfig(profile)
+		profiles[normalizedKey] = profile
+	}
+	cfg.Profiles = profiles
+	return cfg
+}
+
+func normalizeImageGenerateProfileConfig(profile ImageGenerateProfileConfig) ImageGenerateProfileConfig {
+	profile.ModelKey = strings.TrimSpace(profile.ModelKey)
+	if profile.Timeout <= 0 {
+		profile.Timeout = 120
+	}
+	profile.Size = strings.TrimSpace(profile.Size)
+	if profile.Size == "" {
+		profile.Size = "1024x1024"
+	}
+	profile.ResponseFormat = normalizeImageGenerateResponseFormat(profile.ResponseFormat)
+	profile.OutputMimeType = strings.ToLower(strings.TrimSpace(profile.OutputMimeType))
+	if profile.OutputMimeType == "" {
+		profile.OutputMimeType = "image/png"
+	}
+	if profile.MaxPromptChars <= 0 {
+		profile.MaxPromptChars = 4000
+	}
+	profile.EndpointPath = strings.TrimSpace(profile.EndpointPath)
+	return profile
+}
+
+func normalizeImageGenerateResponseFormat(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "url":
+		return "url"
+	default:
+		return "b64_json"
+	}
 }
 
 func normalizeAccessPolicyConfig(cfg AccessPolicyConfig) AccessPolicyConfig {

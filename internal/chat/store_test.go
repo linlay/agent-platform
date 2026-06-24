@@ -5315,7 +5315,8 @@ func TestLoadChatReadsUsageFromStepLevel(t *testing.T) {
 		}
 	}
 
-	if toIntValue(detail.ContextWindow["maxSize"]) != 128000 || toIntValue(detail.ContextWindow["currentSize"]) != 100 || toIntValue(detail.ContextWindow["estimatedNextCallSize"]) != 200 {
+	if toIntValue(detail.ContextWindow["maxSize"]) != 128000 || toIntValue(detail.ContextWindow["currentSize"]) != 100 || toIntValue(detail.ContextWindow["estimatedNextCallSize"]) != 200 ||
+		detail.ContextWindow["modelKey"] != "line-model" || detail.ContextWindow["reasoningEffort"] != "HIGH" {
 		t.Fatalf("unexpected detail context window %#v", detail.ContextWindow)
 	}
 

@@ -51,11 +51,33 @@ func parseDesktopBridgeConfig(raw any, fallback DesktopBridgeConfig) DesktopBrid
 	return fallback
 }
 
+func (c *Config) applyPathsValues(values map[string]any) {
+	c.Paths.RegistriesDir = stringValue(anyValue(values["registries-dir"], c.Paths.RegistriesDir), c.Paths.RegistriesDir)
+	c.Paths.ToolsDir = stringValue(anyValue(values["tools-dir"], c.Paths.ToolsDir), c.Paths.ToolsDir)
+	c.Paths.OwnerDir = stringValue(anyValue(values["owner-dir"], c.Paths.OwnerDir), c.Paths.OwnerDir)
+	c.Paths.AgentsDir = stringValue(anyValue(values["agents-dir"], c.Paths.AgentsDir), c.Paths.AgentsDir)
+	c.Paths.TeamsDir = stringValue(anyValue(values["teams-dir"], c.Paths.TeamsDir), c.Paths.TeamsDir)
+	c.Paths.RootDir = stringValue(anyValue(values["root-dir"], c.Paths.RootDir), c.Paths.RootDir)
+	c.Paths.AutomationsDir = stringValue(anyValue(values["automations-dir"], c.Paths.AutomationsDir), c.Paths.AutomationsDir)
+	c.Paths.ChatsDir = stringValue(anyValue(values["chats-dir"], c.Paths.ChatsDir), c.Paths.ChatsDir)
+	c.Paths.MemoryDir = stringValue(anyValue(values["memory-dir"], c.Paths.MemoryDir), c.Paths.MemoryDir)
+	c.Paths.PanDir = stringValue(anyValue(values["pan-dir"], c.Paths.PanDir), c.Paths.PanDir)
+	c.Paths.SkillsMarketDir = stringValue(anyValue(values["skills-market-dir"], c.Paths.SkillsMarketDir), c.Paths.SkillsMarketDir)
+}
+
+func (c *Config) applySkillsValues(values map[string]any) {
+	c.Skills.MaxPromptChars = intValue(anyValue(values["max-prompt-chars"], c.Skills.MaxPromptChars), c.Skills.MaxPromptChars)
+}
+
 func (c *Config) applyAuthValues(values map[string]any) {
 	c.Auth.Enabled = boolValue(anyValue(values["enabled"], c.Auth.Enabled), c.Auth.Enabled)
 	c.Auth.JWKSURI = stringValue(anyValue(values["jwks-uri"], c.Auth.JWKSURI), c.Auth.JWKSURI)
 	c.Auth.Issuer = stringValue(anyValue(values["issuer"], c.Auth.Issuer), c.Auth.Issuer)
 	c.Auth.JWKSCacheSeconds = intValue(anyValue(values["jwks-cache-seconds"], c.Auth.JWKSCacheSeconds), c.Auth.JWKSCacheSeconds)
+}
+
+func (c *Config) applyResourceValues(values map[string]any) {
+	c.ResourceTicket.TTLSeconds = int64Value(anyValue(values["ticket-ttl-seconds"], c.ResourceTicket.TTLSeconds), c.ResourceTicket.TTLSeconds)
 }
 
 func (c *Config) applyContainerHubValues(path string, values map[string]any) error {
@@ -69,6 +91,23 @@ func (c *Config) applyContainerHubValues(path string, values map[string]any) err
 	return nil
 }
 
+func (c *Config) applyAutomationValues(values map[string]any) {
+	c.Automation.Enabled = boolValue(anyValue(values["enabled"], c.Automation.Enabled), c.Automation.Enabled)
+	c.Automation.DefaultZoneID = stringValue(anyValue(values["default-zone-id"], c.Automation.DefaultZoneID), c.Automation.DefaultZoneID)
+	c.Automation.PoolSize = intValue(anyValue(values["pool-size"], c.Automation.PoolSize), c.Automation.PoolSize)
+}
+
+func (c *Config) applyMemoryValues(values map[string]any) {
+	c.Memory.Enabled = boolValue(anyValue(values["enabled"], c.Memory.Enabled), c.Memory.Enabled)
+	c.Memory.DBFileName = stringValue(anyValue(values["db-file-name"], c.Memory.DBFileName), c.Memory.DBFileName)
+	c.Memory.ContextTopN = intValue(anyValue(values["context-top-n"], c.Memory.ContextTopN), c.Memory.ContextTopN)
+	c.Memory.ContextMaxChars = intValue(anyValue(values["context-max-chars"], c.Memory.ContextMaxChars), c.Memory.ContextMaxChars)
+	c.Memory.SearchDefaultLimit = intValue(anyValue(values["search-default-limit"], c.Memory.SearchDefaultLimit), c.Memory.SearchDefaultLimit)
+	c.Memory.HybridVectorWeight = floatValue(anyValue(values["hybrid-vector-weight"], c.Memory.HybridVectorWeight), c.Memory.HybridVectorWeight)
+	c.Memory.HybridFTSWeight = floatValue(anyValue(values["hybrid-fts-weight"], c.Memory.HybridFTSWeight), c.Memory.HybridFTSWeight)
+	c.Memory.DualWriteMarkdown = boolValue(anyValue(values["dual-write-markdown"], c.Memory.DualWriteMarkdown), c.Memory.DualWriteMarkdown)
+}
+
 func (c *Config) applyRuntimeFile(path string) error {
 	values, err := loadYAMLMap(path)
 	if err != nil {
@@ -77,8 +116,17 @@ func (c *Config) applyRuntimeFile(path string) error {
 	if len(values) == 0 {
 		return nil
 	}
+	if paths, ok := values["paths"].(map[string]any); ok && len(paths) > 0 {
+		c.applyPathsValues(paths)
+	}
+	if skills, ok := values["skills"].(map[string]any); ok && len(skills) > 0 {
+		c.applySkillsValues(skills)
+	}
 	if auth, ok := values["auth"].(map[string]any); ok && len(auth) > 0 {
 		c.applyAuthValues(auth)
+	}
+	if resource, ok := values["resource"].(map[string]any); ok && len(resource) > 0 {
+		c.applyResourceValues(resource)
 	}
 	if containerHub, ok := values["container-hub"].(map[string]any); ok && len(containerHub) > 0 {
 		if err := c.applyContainerHubValues(path, containerHub); err != nil {
@@ -94,9 +142,11 @@ func (c *Config) applyRuntimeFile(path string) error {
 	if billing, ok := values["billing"].(map[string]any); ok && len(billing) > 0 {
 		c.applyBillingValues(billing)
 	}
-	if i18nValues, ok := values["i18n"].(map[string]any); ok && len(i18nValues) > 0 {
-		c.I18N.DefaultLocale = stringValue(anyValue(i18nValues["defaultLocale"], c.I18N.DefaultLocale), c.I18N.DefaultLocale)
-		c.I18N.DefaultLocale = stringValue(anyValue(i18nValues["default-locale"], c.I18N.DefaultLocale), c.I18N.DefaultLocale)
+	if automation, ok := values["automation"].(map[string]any); ok && len(automation) > 0 {
+		c.applyAutomationValues(automation)
+	}
+	if memory, ok := values["memory"].(map[string]any); ok && len(memory) > 0 {
+		c.applyMemoryValues(memory)
 	}
 	if budget, ok := values["budget"].(map[string]any); ok && len(budget) > 0 {
 		c.applyRuntimeBudgetValues(budget)
@@ -110,6 +160,8 @@ func (c *Config) applyBillingValues(values map[string]any) {
 
 func (c *Config) applyRuntimeBudgetValues(budget map[string]any) {
 	c.Defaults.Budget.Timeout = intValue(anyValue(budget["timeout"], c.Defaults.Budget.Timeout), c.Defaults.Budget.Timeout)
+	c.Defaults.Budget.MaxSteps = intValue(anyValue(budget["maxSteps"], c.Defaults.Budget.MaxSteps), c.Defaults.Budget.MaxSteps)
+	c.Defaults.Budget.MaxSteps = intValue(anyValue(budget["max-steps"], c.Defaults.Budget.MaxSteps), c.Defaults.Budget.MaxSteps)
 	c.Defaults.Budget.Model = parseRetryBudgetConfig(budget["model"], c.Defaults.Budget.Model)
 	c.Defaults.Budget.Tool = parseRetryBudgetConfig(budget["tool"], c.Defaults.Budget.Tool)
 	hitl, _ := budget["hitl"].(map[string]any)
@@ -129,8 +181,10 @@ func parseRetryBudgetConfig(raw any, fallback RetryBudgetConfig) RetryBudgetConf
 		return fallback
 	}
 	fallback.MaxCalls = intValue(anyValue(values["maxCalls"], fallback.MaxCalls), fallback.MaxCalls)
+	fallback.MaxCalls = intValue(anyValue(values["max-calls"], fallback.MaxCalls), fallback.MaxCalls)
 	fallback.Timeout = intValue(anyValue(values["timeout"], fallback.Timeout), fallback.Timeout)
 	fallback.RetryCount = intValue(anyValue(values["retryCount"], fallback.RetryCount), fallback.RetryCount)
+	fallback.RetryCount = intValue(anyValue(values["retry-count"], fallback.RetryCount), fallback.RetryCount)
 	return fallback
 }
 
@@ -154,6 +208,7 @@ func parseStageBudgetConfigs(raw any, fallback map[string]StageBudgetConfig) map
 		}
 		stage := out[key]
 		stage.MaxSteps = intValue(anyValue(stageValues["maxSteps"], stage.MaxSteps), stage.MaxSteps)
+		stage.MaxSteps = intValue(anyValue(stageValues["max-steps"], stage.MaxSteps), stage.MaxSteps)
 		stage.Tool = parseRetryBudgetConfig(stageValues["tool"], stage.Tool)
 		out[key] = stage
 	}
@@ -559,6 +614,28 @@ func (c *Config) applyWebFetchValues(values map[string]any) {
 	c.WebFetch.Profiles = parsed
 }
 
+func (c *Config) applyImageGenerateValues(values map[string]any) {
+	c.ImageGenerate.Enabled = boolValue(anyValue(values["enabled"], c.ImageGenerate.Enabled), c.ImageGenerate.Enabled)
+	c.ImageGenerate.DefaultProfile = stringValue(anyValue(values["default-profile"], c.ImageGenerate.DefaultProfile), c.ImageGenerate.DefaultProfile)
+	profiles, _ := values["profiles"].(map[string]any)
+	if len(profiles) == 0 {
+		return
+	}
+	parsed := make(map[string]ImageGenerateProfileConfig, len(profiles))
+	for key, raw := range profiles {
+		profileKey := strings.TrimSpace(key)
+		if profileKey == "" {
+			continue
+		}
+		base := defaultImageGenerateProfileConfig()
+		if existing, ok := c.ImageGenerate.Profiles[profileKey]; ok {
+			base = existing
+		}
+		parsed[profileKey] = parseImageGenerateProfileConfig(raw, base)
+	}
+	c.ImageGenerate.Profiles = parsed
+}
+
 func (c *Config) applyAIToolsFile(path string) error {
 	values, err := loadYAMLMap(path)
 	if err != nil {
@@ -572,6 +649,9 @@ func (c *Config) applyAIToolsFile(path string) error {
 	}
 	if webFetch, ok := values["web-fetch"].(map[string]any); ok && len(webFetch) > 0 {
 		c.applyWebFetchValues(webFetch)
+	}
+	if imageGenerate, ok := values["image-generate"].(map[string]any); ok && len(imageGenerate) > 0 {
+		c.applyImageGenerateValues(imageGenerate)
 	}
 	return nil
 }
@@ -603,6 +683,33 @@ func parseWebFetchProfileConfig(raw any, fallback WebFetchProfileConfig) WebFetc
 	fallback.MaxMarkdownChars = intValue(anyValue(values["max-markdown-chars"], fallback.MaxMarkdownChars), fallback.MaxMarkdownChars)
 	fallback.MaxOutputTokens = intValue(anyValue(values["max-output-tokens"], fallback.MaxOutputTokens), fallback.MaxOutputTokens)
 	fallback.SystemPrompt = stringValue(anyValue(values["system-prompt"], fallback.SystemPrompt), fallback.SystemPrompt)
+	return fallback
+}
+
+func defaultImageGenerateProfileConfig() ImageGenerateProfileConfig {
+	return ImageGenerateProfileConfig{
+		Timeout:         120,
+		Size:            "1024x1024",
+		ResponseFormat:  "b64_json",
+		OutputMimeType:  "image/png",
+		MaxPromptChars:  4000,
+		PersistArtifact: true,
+	}
+}
+
+func parseImageGenerateProfileConfig(raw any, fallback ImageGenerateProfileConfig) ImageGenerateProfileConfig {
+	values, _ := raw.(map[string]any)
+	if len(values) == 0 {
+		return fallback
+	}
+	fallback.ModelKey = stringValue(anyValue(values["model-key"], fallback.ModelKey), fallback.ModelKey)
+	fallback.Timeout = intValue(anyValue(values["timeout"], fallback.Timeout), fallback.Timeout)
+	fallback.Size = stringValue(anyValue(values["size"], fallback.Size), fallback.Size)
+	fallback.ResponseFormat = stringValue(anyValue(values["response-format"], fallback.ResponseFormat), fallback.ResponseFormat)
+	fallback.OutputMimeType = stringValue(anyValue(values["output-mime-type"], fallback.OutputMimeType), fallback.OutputMimeType)
+	fallback.MaxPromptChars = intValue(anyValue(values["max-prompt-chars"], fallback.MaxPromptChars), fallback.MaxPromptChars)
+	fallback.PersistArtifact = boolValue(anyValue(values["persist-artifact"], fallback.PersistArtifact), fallback.PersistArtifact)
+	fallback.EndpointPath = stringValue(anyValue(values["endpoint-path"], fallback.EndpointPath), fallback.EndpointPath)
 	return fallback
 }
 

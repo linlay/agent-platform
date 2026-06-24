@@ -13,6 +13,7 @@ import (
 	"agent-platform/internal/catalog"
 	"agent-platform/internal/chat"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/i18n"
 	"agent-platform/internal/observability"
 	"agent-platform/internal/ws"
 )
@@ -48,7 +49,7 @@ func (a wsTokenAuthenticator) VerifyToken(ctx context.Context, token string) (ws
 
 func (s *Server) newWSHandler(hub *ws.Hub) *ws.Handler {
 	handler := ws.NewHandler(s.deps.Config.WebSocket, time.Duration(s.deps.Config.SSE.HeartbeatInterval)*time.Second, hub, wsTokenAuthenticator{server: s})
-	handler.SetDefaultLocale(s.deps.Config.I18N.DefaultLocale)
+	handler.SetDefaultLocale(i18n.DefaultLocale)
 	s.registerWSRoutes(handler)
 	handler.SetDispatch(s.logWSDispatch(handler.Dispatch))
 	return handler

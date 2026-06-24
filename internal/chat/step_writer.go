@@ -57,12 +57,12 @@ type StepWriter struct {
 	pendingModelKey         string
 	pendingReasoningEffort  string
 	pendingModel            map[string]any
-	pendingToolChoice       string
-	pendingRequestOptions   map[string]any
 	pendingInputMessages    []map[string]any
 	pendingSystem           map[string]any
 	pendingSystemRef        map[string]any
+	pendingStepSystems      []QueryLineSystemInit
 	pendingSystemInits      []QueryLineSystemInit
+	knownSystemProfiles     map[string]bool
 }
 
 type StepWriterOption func(*StepWriter)
@@ -70,16 +70,17 @@ type StepWriterOption func(*StepWriter)
 // NewStepWriter creates a StepWriter for a single run.
 func NewStepWriter(store Store, chatID, runID, mode string, opts ...StepWriterOption) *StepWriter {
 	w := &StepWriter{
-		store:         store,
-		chatID:        chatID,
-		runID:         runID,
-		mode:          strings.ToUpper(strings.TrimSpace(mode)),
-		taskBuffers:   map[string]*taskStepBuffer{},
-		closedTaskIDs: map[string]bool{},
-		toolNames:     map[string]string{},
-		actionNames:   map[string]string{},
-		toolTaskIDs:   map[string]string{},
-		actionTaskIDs: map[string]string{},
+		store:               store,
+		chatID:              chatID,
+		runID:               runID,
+		mode:                strings.ToUpper(strings.TrimSpace(mode)),
+		taskBuffers:         map[string]*taskStepBuffer{},
+		closedTaskIDs:       map[string]bool{},
+		toolNames:           map[string]string{},
+		actionNames:         map[string]string{},
+		toolTaskIDs:         map[string]string{},
+		actionTaskIDs:       map[string]string{},
+		knownSystemProfiles: map[string]bool{},
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -94,6 +95,9 @@ func (w *StepWriter) SetPendingSystemInits(lines []QueryLineSystemInit) {
 		return
 	}
 	w.pendingSystemInits = append([]QueryLineSystemInit(nil), lines...)
+	for _, line := range lines {
+		w.markKnownSystemProfile(line)
+	}
 }
 
 func (w *StepWriter) SetPendingQueryMessages(messages []map[string]any) {
@@ -440,6 +444,7 @@ func (w *StepWriter) captureRootUsageSnapshot(event stream.EventData) {
 	if cw := contextWindow; cw != nil {
 		w.pendingContextWindowMax = toIntFromKeys(cw, "maxSize")
 		w.pendingEstimated = toIntFromKeys(cw, "estimatedNextCallSize")
+		w.capturePendingModelMetadata(cw)
 	}
 }
 
@@ -460,6 +465,7 @@ func (w *StepWriter) captureTaskUsageSnapshot(buffer *taskStepBuffer, event stre
 	if cw := contextWindow; cw != nil {
 		buffer.pendingContextWindowMax = toIntFromKeys(cw, "maxSize")
 		buffer.pendingEstimated = toIntFromKeys(cw, "estimatedNextCallSize")
+		buffer.capturePendingModelMetadata(cw)
 	}
 }
 
@@ -471,7 +477,7 @@ func (w *StepWriter) captureRootDebugData(inner map[string]any) {
 	if cw, ok := inner["contextWindow"].(map[string]any); ok {
 		w.pendingContextWindowMax = toIntFromKeys(cw, "maxSize")
 		w.pendingEstimated = toIntFromKeys(cw, "estimatedNextCallSize")
-		w.capturePendingModelMetadata(model)
+		w.capturePendingModelMetadata(cw, model)
 	}
 	if usage, ok := inner["usage"].(map[string]any); ok {
 		if llm, ok := usage["llmReturnUsage"].(map[string]any); ok {
@@ -491,14 +497,10 @@ func (w *StepWriter) captureRootLLMRequestData(event stream.EventData) {
 		w.capturePendingModelMetadata(model)
 	}
 	if system, _ := event.Value("system").(map[string]any); len(system) > 0 {
-		w.pendingSystem = cloneStepSystemPayload(system)
+		w.captureRootInlineSystemProfile(system, event, model)
 	}
 	if systemRef, _ := event.Value("systemRef").(map[string]any); len(systemRef) > 0 {
 		w.pendingSystemRef = cloneStepSystemPayload(systemRef)
-	}
-	w.pendingToolChoice = strings.TrimSpace(event.String("toolChoice"))
-	if requestOptions, _ := event.Value("requestOptions").(map[string]any); len(requestOptions) > 0 {
-		w.pendingRequestOptions = cloneStepSystemPayload(requestOptions)
 	}
 	if inputMessages := messagesFromEventValue(event.Value("inputMessages")); len(inputMessages) > 0 {
 		w.pendingInputMessages = inputMessages
@@ -516,7 +518,7 @@ func (w *StepWriter) captureTaskDebugData(buffer *taskStepBuffer, inner map[stri
 	if cw, ok := inner["contextWindow"].(map[string]any); ok {
 		buffer.pendingContextWindowMax = toIntFromKeys(cw, "maxSize")
 		buffer.pendingEstimated = toIntFromKeys(cw, "estimatedNextCallSize")
-		buffer.capturePendingModelMetadata(model)
+		buffer.capturePendingModelMetadata(cw, model)
 	}
 	if usage, ok := inner["usage"].(map[string]any); ok {
 		if llm, ok := usage["llmReturnUsage"].(map[string]any); ok {
@@ -536,14 +538,10 @@ func (w *StepWriter) captureTaskLLMRequestData(buffer *taskStepBuffer, event str
 		buffer.capturePendingModelMetadata(model)
 	}
 	if system, _ := event.Value("system").(map[string]any); len(system) > 0 {
-		buffer.pendingSystem = cloneStepSystemPayload(system)
+		w.captureTaskInlineSystemProfile(buffer, system, event, model)
 	}
 	if systemRef, _ := event.Value("systemRef").(map[string]any); len(systemRef) > 0 {
 		buffer.pendingSystemRef = cloneStepSystemPayload(systemRef)
-	}
-	buffer.pendingToolChoice = strings.TrimSpace(event.String("toolChoice"))
-	if requestOptions, _ := event.Value("requestOptions").(map[string]any); len(requestOptions) > 0 {
-		buffer.pendingRequestOptions = cloneStepSystemPayload(requestOptions)
 	}
 	if inputMessages := messagesFromEventValue(event.Value("inputMessages")); len(inputMessages) > 0 {
 		buffer.pendingInputMessages = inputMessages
@@ -555,6 +553,133 @@ func (w *StepWriter) capturePendingModelMetadata(values ...map[string]any) {
 		return
 	}
 	captureStepModelMetadata(&w.pendingModelKey, &w.pendingReasoningEffort, values...)
+}
+
+func completeInlineSystemProfile(system map[string]any, event stream.EventData, model map[string]any) map[string]any {
+	profile := cloneStepSystemPayload(system)
+	if len(profile) == 0 {
+		return nil
+	}
+	if _, ok := profile["model"]; !ok && len(model) > 0 {
+		profile["model"] = cloneStepSystemPayload(model)
+	}
+	if _, ok := profile["toolChoice"]; !ok {
+		if toolChoice := strings.TrimSpace(event.String("toolChoice")); toolChoice != "" {
+			profile["toolChoice"] = toolChoice
+		}
+	}
+	if _, ok := profile["requestOptions"]; !ok {
+		if requestOptions, _ := event.Value("requestOptions").(map[string]any); len(requestOptions) > 0 {
+			profile["requestOptions"] = cloneStepSystemPayload(requestOptions)
+		}
+	}
+	return profile
+}
+
+func (w *StepWriter) captureRootInlineSystemProfile(system map[string]any, event stream.EventData, model map[string]any) {
+	profileMap := completeInlineSystemProfile(system, event, model)
+	if profile, ok := querySystemInitFromProfile(profileMap); ok {
+		w.pendingSystemRef = systemRefFromProfile(profile)
+		if !w.isKnownSystemProfile(profile) && !systemProfilesContain(w.pendingStepSystems, profile) {
+			w.pendingStepSystems = append(w.pendingStepSystems, profile)
+		}
+		return
+	}
+	w.pendingSystem = profileMap
+}
+
+func (w *StepWriter) captureTaskInlineSystemProfile(buffer *taskStepBuffer, system map[string]any, event stream.EventData, model map[string]any) {
+	if buffer == nil {
+		return
+	}
+	profileMap := completeInlineSystemProfile(system, event, model)
+	if profile, ok := querySystemInitFromProfile(profileMap); ok {
+		buffer.pendingSystemRef = systemRefFromProfile(profile)
+		if !w.isKnownSystemProfile(profile) && !systemProfilesContain(buffer.pendingStepSystems, profile) {
+			buffer.pendingStepSystems = append(buffer.pendingStepSystems, profile)
+		}
+		return
+	}
+	buffer.pendingSystem = profileMap
+}
+
+func querySystemInitFromProfile(profile map[string]any) (QueryLineSystemInit, bool) {
+	if len(profile) == 0 {
+		return QueryLineSystemInit{}, false
+	}
+	cacheKey := strings.TrimSpace(stringValue(profile["cacheKey"]))
+	fingerprint := strings.TrimSpace(stringValue(profile["fingerprint"]))
+	if cacheKey == "" || fingerprint == "" {
+		return QueryLineSystemInit{}, false
+	}
+	return QueryLineSystemInit{
+		CacheKey:       cacheKey,
+		Fingerprint:    fingerprint,
+		SystemMessage:  cloneStepSystemPayload(anyMap(profile["systemMessage"])),
+		Tools:          cloneAnySliceDeep(anySlice(profile["tools"])),
+		Model:          cloneStepSystemPayload(anyMap(profile["model"])),
+		ToolChoice:     strings.TrimSpace(stringValue(profile["toolChoice"])),
+		RequestOptions: cloneStepSystemPayload(anyMap(profile["requestOptions"])),
+	}, true
+}
+
+func systemRefFromProfile(profile QueryLineSystemInit) map[string]any {
+	if strings.TrimSpace(profile.CacheKey) == "" || strings.TrimSpace(profile.Fingerprint) == "" {
+		return nil
+	}
+	return map[string]any{
+		"cacheKey":    strings.TrimSpace(profile.CacheKey),
+		"fingerprint": strings.TrimSpace(profile.Fingerprint),
+	}
+}
+
+func (w *StepWriter) isKnownSystemProfile(profile QueryLineSystemInit) bool {
+	if w == nil {
+		return false
+	}
+	return w.knownSystemProfiles[systemCacheID(profile.CacheKey, profile.Fingerprint)]
+}
+
+func (w *StepWriter) markKnownSystemProfile(profile QueryLineSystemInit) {
+	if w == nil {
+		return
+	}
+	if strings.TrimSpace(profile.CacheKey) == "" || strings.TrimSpace(profile.Fingerprint) == "" {
+		return
+	}
+	if w.knownSystemProfiles == nil {
+		w.knownSystemProfiles = map[string]bool{}
+	}
+	w.knownSystemProfiles[systemCacheID(profile.CacheKey, profile.Fingerprint)] = true
+}
+
+func systemProfilesContain(profiles []QueryLineSystemInit, profile QueryLineSystemInit) bool {
+	id := systemCacheID(profile.CacheKey, profile.Fingerprint)
+	for _, existing := range profiles {
+		if systemCacheID(existing.CacheKey, existing.Fingerprint) == id {
+			return true
+		}
+	}
+	return false
+}
+
+func cloneQueryLineSystemInits(profiles []QueryLineSystemInit) []QueryLineSystemInit {
+	if len(profiles) == 0 {
+		return nil
+	}
+	out := make([]QueryLineSystemInit, 0, len(profiles))
+	for _, profile := range profiles {
+		out = append(out, QueryLineSystemInit{
+			CacheKey:       profile.CacheKey,
+			Fingerprint:    profile.Fingerprint,
+			SystemMessage:  cloneStepSystemPayload(profile.SystemMessage),
+			Tools:          cloneAnySliceDeep(profile.Tools),
+			Model:          cloneStepSystemPayload(profile.Model),
+			ToolChoice:     profile.ToolChoice,
+			RequestOptions: cloneStepSystemPayload(profile.RequestOptions),
+		})
+	}
+	return out
 }
 
 func (w *StepWriter) flushCurrentStep() {
@@ -569,11 +694,10 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 		w.pendingModelKey = ""
 		w.pendingReasoningEffort = ""
 		w.pendingModel = nil
-		w.pendingToolChoice = ""
-		w.pendingRequestOptions = nil
 		w.pendingInputMessages = nil
 		w.pendingSystem = nil
 		w.pendingSystemRef = nil
+		w.pendingStepSystems = nil
 		return
 	}
 
@@ -606,17 +730,14 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 	if len(w.pendingSystemRef) > 0 {
 		line.SystemRef = cloneStepSystemPayload(w.pendingSystemRef)
 	}
+	if len(w.pendingStepSystems) > 0 {
+		line.Systems = cloneQueryLineSystemInits(w.pendingStepSystems)
+		for _, profile := range w.pendingStepSystems {
+			w.markKnownSystemProfile(profile)
+		}
+	}
 	if len(w.pendingSystem) > 0 {
 		line.System = cloneStepSystemPayload(w.pendingSystem)
-	}
-	if len(w.pendingModel) > 0 {
-		line.Model = cloneStepSystemPayload(w.pendingModel)
-	}
-	if strings.TrimSpace(w.pendingToolChoice) != "" {
-		line.ToolChoice = strings.TrimSpace(w.pendingToolChoice)
-	}
-	if len(w.pendingRequestOptions) > 0 {
-		line.RequestOptions = cloneStepSystemPayload(w.pendingRequestOptions)
 	}
 	if len(w.pendingInputMessages) > 0 {
 		line.InputMessages = cloneMessageMaps(w.pendingInputMessages)
@@ -659,11 +780,10 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 	w.pendingModelKey = ""
 	w.pendingReasoningEffort = ""
 	w.pendingModel = nil
-	w.pendingToolChoice = ""
-	w.pendingRequestOptions = nil
 	w.pendingInputMessages = nil
 	w.pendingSystem = nil
 	w.pendingSystemRef = nil
+	w.pendingStepSystems = nil
 }
 
 func (w *StepWriter) assignReactSeq(line *StepLine) {

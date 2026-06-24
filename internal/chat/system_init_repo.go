@@ -58,17 +58,20 @@ func (s *FileStore) loadSystemInits(chatID string) (map[string]*SystemInitLine, 
 				}
 				mode, stage := parseCacheKey(cacheKey)
 				converted := SystemInitLine{
-					Type:          "system",
-					ChatID:        stringFromAny(line["chatId"]),
-					AgentKey:      firstNonEmptyString(stringFromAny(line["subAgentKey"]), stringFromAny(line["agentKey"]), stringFromAny(query["agentKey"]), stringFromAny(systemMap["agentKey"])),
-					RunID:         stringFromAny(line["runId"]),
-					CreatedAt:     int64FromAny(line["updatedAt"]),
-					Fingerprint:   parsed.Fingerprint,
-					CacheKey:      parsed.CacheKey,
-					Mode:          mode,
-					Stage:         stage,
-					SystemMessage: parsed.SystemMessage,
-					Tools:         parsed.Tools,
+					Type:           "system",
+					ChatID:         stringFromAny(line["chatId"]),
+					AgentKey:       firstNonEmptyString(stringFromAny(line["subAgentKey"]), stringFromAny(line["agentKey"]), stringFromAny(query["agentKey"]), stringFromAny(systemMap["agentKey"])),
+					RunID:          stringFromAny(line["runId"]),
+					CreatedAt:      int64FromAny(line["updatedAt"]),
+					Fingerprint:    parsed.Fingerprint,
+					CacheKey:       parsed.CacheKey,
+					Mode:           mode,
+					Stage:          stage,
+					SystemMessage:  parsed.SystemMessage,
+					Tools:          parsed.Tools,
+					Model:          parsed.Model,
+					ToolChoice:     parsed.ToolChoice,
+					RequestOptions: parsed.RequestOptions,
 				}
 				convertedCopy := converted
 				latest = &convertedCopy

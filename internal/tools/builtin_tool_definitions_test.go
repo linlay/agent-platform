@@ -38,6 +38,9 @@ func TestLoadEmbeddedToolDefinitionsIncludesAskUserBuiltins(t *testing.T) {
 	if !byName["web_fetch"] {
 		t.Fatal("expected web_fetch builtin tool definition")
 	}
+	if !byName["image_generate"] {
+		t.Fatal("expected image_generate builtin tool definition")
+	}
 }
 
 func TestWebFetchToolSchemaMatchesContract(t *testing.T) {
@@ -71,6 +74,43 @@ func TestWebFetchToolSchemaMatchesContract(t *testing.T) {
 	}
 	if len(required) != 2 || required[0] != "url" || required[1] != "prompt" {
 		t.Fatalf("unexpected web_fetch required fields: %#v", required)
+	}
+}
+
+func TestImageGenerateToolSchemaMatchesContract(t *testing.T) {
+	defs, err := LoadEmbeddedToolDefinitions()
+	if err != nil {
+		t.Fatalf("load embedded tool definitions: %v", err)
+	}
+
+	var imageGenerateDef map[string]any
+	for _, def := range defs {
+		if def.Name == "image_generate" {
+			imageGenerateDef = def.Parameters
+			if def.Meta["submitResultFormat"] != "json-compact" || def.Meta["explicitOnly"] != true {
+				t.Fatalf("unexpected image_generate metadata: %#v", def.Meta)
+			}
+			break
+		}
+	}
+	if imageGenerateDef == nil {
+		t.Fatal("expected image_generate builtin tool definition")
+	}
+	properties := mapChild(t, imageGenerateDef, "properties")
+	for _, want := range []string{"prompt", "profile", "size", "response_format", "n"} {
+		if _, ok := properties[want]; !ok {
+			t.Fatalf("expected image_generate property %q", want)
+		}
+	}
+	if !enumContains(t, properties["response_format"], "b64_json") || !enumContains(t, properties["response_format"], "url") {
+		t.Fatalf("expected image_generate response_format enum, got %#v", properties["response_format"])
+	}
+	required, ok := imageGenerateDef["required"].([]any)
+	if !ok {
+		t.Fatalf("expected image_generate required array, got %#v", imageGenerateDef["required"])
+	}
+	if len(required) != 1 || required[0] != "prompt" {
+		t.Fatalf("unexpected image_generate required fields: %#v", required)
 	}
 }
 

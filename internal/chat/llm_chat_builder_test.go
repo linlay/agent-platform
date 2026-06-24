@@ -27,6 +27,14 @@ func TestBuildLLMChatFromJSONLUsesSystemFingerprint(t *testing.T) {
 				"parameters":  map[string]any{"type": "object"},
 			},
 		}},
+		Model: map[string]any{
+			"key":         "model-key",
+			"id":          "model-id",
+			"providerKey": "provider",
+			"protocol":    "OPENAI",
+		},
+		ToolChoice:     "auto",
+		RequestOptions: map[string]any{"stream": true, "temperature": 0},
 	}
 	newSystem := QueryLineSystemInit{
 		CacheKey:      "react:main",
@@ -40,6 +48,14 @@ func TestBuildLLMChatFromJSONLUsesSystemFingerprint(t *testing.T) {
 				"parameters":  map[string]any{"type": "object"},
 			},
 		}},
+		Model: map[string]any{
+			"key":         "new-model",
+			"id":          "new-model-id",
+			"providerKey": "provider",
+			"protocol":    "OPENAI",
+		},
+		ToolChoice:     "auto",
+		RequestOptions: map[string]any{"stream": true, "temperature": 1},
 	}
 	if err := store.AppendQueryLine(chatID, QueryLine{
 		Type:      "query",
@@ -58,16 +74,7 @@ func TestBuildLLMChatFromJSONLUsesSystemFingerprint(t *testing.T) {
 		RunID:     "run-1",
 		UpdatedAt: 2,
 		Seq:       1,
-		ModelKey:  "model-key",
-		Model: map[string]any{
-			"key":         "model-key",
-			"id":          "model-id",
-			"providerKey": "provider",
-			"protocol":    "OPENAI",
-		},
-		ToolChoice:     "auto",
-		RequestOptions: map[string]any{"stream": true, "temperature": 0},
-		SystemRef:      map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:old"},
+		SystemRef: map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:old"},
 		Messages: []StoredMessage{{
 			Role:    "assistant",
 			Content: []ContentPart{{Type: "text", Text: "hi"}},
@@ -180,12 +187,106 @@ func TestBuildLLMChatFromJSONLAppendsInputMessages(t *testing.T) {
 	}
 }
 
-func TestStepWriterPersistsLLMRequestMetadata(t *testing.T) {
+func TestStepWriterKeepsLLMRequestProfileOutOfStepLines(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
 		t.Fatalf("new file store: %v", err)
 	}
 	chatID := "chat-llm-request"
+	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
+		t.Fatalf("ensure chat: %v", err)
+	}
+	writer := NewStepWriter(store, chatID, "run-1", "REACT")
+	writer.SetPendingSystemInits([]QueryLineSystemInit{{
+		CacheKey:      "react:main",
+		Fingerprint:   "sha256:system",
+		SystemMessage: map[string]any{"role": "system", "content": "system"},
+		Tools:         []any{},
+		Model: map[string]any{
+			"key":         "model-key",
+			"id":          "model-id",
+			"providerKey": "provider",
+			"protocol":    "OPENAI",
+		},
+		ToolChoice:     "auto",
+		RequestOptions: map[string]any{"stream": true, "temperature": 0},
+	}})
+	writer.SetPendingQueryMessages([]map[string]any{{"role": "user", "content": "hello"}})
+	writer.OnEvent(stream.NewEvent("request.query", map[string]any{
+		"role":    "user",
+		"message": "hello",
+		"runId":   "run-1",
+		"chatId":  chatID,
+	}).Data())
+	writer.OnEvent(stream.NewEvent("llm.request", map[string]any{
+		"runId":  "run-1",
+		"chatId": chatID,
+		"model": map[string]any{
+			"key":         "model-key",
+			"id":          "model-id",
+			"providerKey": "provider",
+			"protocol":    "OPENAI",
+		},
+		"systemRef":      map[string]any{"cacheKey": "react:main", "fingerprint": "sha256:system"},
+		"toolChoice":     "auto",
+		"requestOptions": map[string]any{"stream": true, "temperature": 0},
+		"inputMessages":  []any{map[string]any{"role": "user", "content": "internal"}},
+	}).Data())
+	writer.OnEvent(stream.NewEvent("content.snapshot", map[string]any{
+		"contentId": "content-1",
+		"text":      "answer",
+	}).Data())
+	writer.Flush()
+
+	lines, err := readJSONLines(store.chatJSONLPath(chatID))
+	if err != nil {
+		t.Fatalf("read jsonl: %v", err)
+	}
+	if len(lines) != 2 {
+		t.Fatalf("expected query and step lines, got %#v", lines)
+	}
+	query := lines[0]
+	systems, _ := query["systems"].([]any)
+	if len(systems) != 1 {
+		t.Fatalf("expected query system profile, got %#v", query)
+	}
+	profile, _ := systems[0].(map[string]any)
+	if profile["toolChoice"] != "auto" {
+		t.Fatalf("expected query system toolChoice, got %#v", profile)
+	}
+	model, _ := profile["model"].(map[string]any)
+	if model["id"] != "model-id" {
+		t.Fatalf("expected query system model snapshot, got %#v", profile)
+	}
+	options, _ := profile["requestOptions"].(map[string]any)
+	if options["temperature"] != float64(0) {
+		t.Fatalf("expected query system request options, got %#v", profile)
+	}
+	step := lines[1]
+	if _, ok := step["toolChoice"]; ok {
+		t.Fatalf("did not expect step toolChoice, got %#v", step)
+	}
+	if _, ok := step["model"]; ok {
+		t.Fatalf("did not expect step model snapshot, got %#v", step)
+	}
+	if _, ok := step["requestOptions"]; ok {
+		t.Fatalf("did not expect step request options, got %#v", step)
+	}
+	if _, ok := step["systems"]; ok {
+		t.Fatalf("did not expect duplicate step systems, got %#v", step)
+	}
+	inputMessages, _ := step["inputMessages"].([]any)
+	if len(inputMessages) != 1 {
+		t.Fatalf("expected input messages, got %#v", step)
+	}
+}
+
+func TestStepWriterPersistsActualInlineProfileAsStepSystems(t *testing.T) {
+	store, err := NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	chatID := "chat-step-systems"
 	if _, _, err := store.EnsureChat(chatID, "agent", "", "hello"); err != nil {
 		t.Fatalf("ensure chat: %v", err)
 	}
@@ -207,16 +308,19 @@ func TestStepWriterPersistsLLMRequestMetadata(t *testing.T) {
 			"protocol":    "OPENAI",
 		},
 		"system": map[string]any{
-			"systemMessage": map[string]any{"role": "system", "content": "system"},
+			"cacheKey":      "react:main:final",
+			"fingerprint":   "sha256:final",
+			"systemMessage": map[string]any{"role": "system", "content": "final system"},
 			"tools":         []any{},
+			"requestOptions": map[string]any{
+				"stream": true,
+			},
 		},
-		"toolChoice":     "auto",
-		"requestOptions": map[string]any{"stream": true, "temperature": 0},
-		"inputMessages":  []any{map[string]any{"role": "user", "content": "internal"}},
+		"inputMessages": []any{map[string]any{"role": "user", "content": "final input"}},
 	}).Data())
 	writer.OnEvent(stream.NewEvent("content.snapshot", map[string]any{
 		"contentId": "content-1",
-		"text":      "answer",
+		"text":      "final answer",
 	}).Data())
 	writer.Flush()
 
@@ -224,23 +328,35 @@ func TestStepWriterPersistsLLMRequestMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read jsonl: %v", err)
 	}
-	if len(lines) != 2 {
-		t.Fatalf("expected query and step lines, got %#v", lines)
-	}
 	step := lines[1]
-	if step["toolChoice"] != "auto" {
-		t.Fatalf("expected toolChoice, got %#v", step)
+	systems, _ := step["systems"].([]any)
+	if len(systems) != 1 {
+		t.Fatalf("expected step systems profile, got %#v", step)
 	}
-	model, _ := step["model"].(map[string]any)
-	if model["id"] != "model-id" {
-		t.Fatalf("expected model snapshot, got %#v", step)
+	ref, _ := step["systemRef"].(map[string]any)
+	if ref["cacheKey"] != "react:main:final" || ref["fingerprint"] != "sha256:final" {
+		t.Fatalf("expected step systemRef to point at step systems, got %#v", step)
 	}
-	options, _ := step["requestOptions"].(map[string]any)
-	if options["temperature"] != float64(0) {
-		t.Fatalf("expected request options, got %#v", step)
+	if _, ok := step["system"]; ok {
+		t.Fatalf("did not expect legacy inline system, got %#v", step)
 	}
-	inputMessages, _ := step["inputMessages"].([]any)
-	if len(inputMessages) != 1 {
-		t.Fatalf("expected input messages, got %#v", step)
+
+	chat, err := store.BuildLLMChatFromJSONL(chatID, LLMChatBuildOptions{RunID: "run-1", Seq: 1})
+	if err != nil {
+		t.Fatalf("build llm chat: %v", err)
+	}
+	if chat.Legacy {
+		t.Fatalf("did not expect legacy chat: %#v", chat)
+	}
+	if got := chat.Messages[0]["content"]; got != "final system" {
+		t.Fatalf("expected final system from step systems, got %#v", chat.Messages)
+	}
+	if got := chat.Messages[len(chat.Messages)-1]["content"]; got != "final input" {
+		t.Fatalf("expected input message, got %#v", chat.Messages)
+	}
+	for _, msg := range chat.Messages {
+		if msg["content"] == "final answer" {
+			t.Fatalf("target assistant response must not be part of request messages: %#v", chat.Messages)
+		}
 	}
 }

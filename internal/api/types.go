@@ -768,9 +768,11 @@ type ChatUsageBreakdown struct {
 }
 
 type ChatContextWindow struct {
-	MaxSize               int `json:"maxSize,omitempty"`
-	CurrentSize           int `json:"currentSize,omitempty"`
-	EstimatedNextCallSize int `json:"estimatedNextCallSize,omitempty"`
+	MaxSize               int    `json:"maxSize,omitempty"`
+	CurrentSize           int    `json:"currentSize,omitempty"`
+	EstimatedNextCallSize int    `json:"estimatedNextCallSize,omitempty"`
+	ModelKey              string `json:"modelKey,omitempty"`
+	ReasoningEffort       string `json:"reasoningEffort,omitempty"`
 }
 
 type PromptTokenDetails struct {

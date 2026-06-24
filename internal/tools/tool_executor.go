@@ -127,6 +127,8 @@ func (t *RuntimeToolExecutor) Invoke(ctx context.Context, toolName string, args 
 		return t.invokeRegex(args), nil
 	case "vision_recognize":
 		return t.invokeVisionRecognize(ctx, args, execCtx)
+	case "image_generate":
+		return t.invokeImageGenerate(ctx, args, execCtx)
 	case "web_fetch", "WebFetch":
 		return t.invokeWebFetch(ctx, args, execCtx)
 	case "bash":

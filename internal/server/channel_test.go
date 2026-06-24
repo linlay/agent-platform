@@ -253,9 +253,6 @@ func newServerForChannelTests(t *testing.T) (*Server, *chat.FileStore) {
 	}
 	server := &Server{
 		deps: Dependencies{
-			Config: config.Config{
-				ChatStorage: config.ChatStorageConfig{K: 20},
-			},
 			Chats:    chats,
 			Registry: registry,
 		},

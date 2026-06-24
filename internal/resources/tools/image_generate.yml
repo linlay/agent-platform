@@ -1,0 +1,32 @@
+name: image_generate
+label: 图像生成
+description: Generate images through the globally configured image generation model. Use this when the user explicitly asks to create or render an image.
+submitResultFormat: json-compact
+type: function
+explicitOnly: true
+inputSchema:
+  type: object
+  properties:
+    prompt:
+      type: string
+      description: Required. Text prompt describing the image to generate.
+    profile:
+      type: string
+      description: Optional. Profile name from configs/ai-tools.yml > image-generate. Defaults to default-profile.
+    size:
+      type: string
+      description: Optional. Image size to send to the provider, overriding the selected profile.
+    response_format:
+      type: string
+      description: Optional. Provider response format, overriding the selected profile.
+      enum:
+        - b64_json
+        - url
+    n:
+      type: integer
+      description: Optional. Number of images to generate. Defaults to 1.
+      minimum: 1
+      maximum: 4
+  required:
+    - prompt
+  additionalProperties: false

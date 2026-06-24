@@ -20,8 +20,6 @@ import (
 
 type RouteHandler func(context.Context, *Conn, RequestFrame)
 
-const defaultWriteQueueFullGrace = 5 * time.Second
-
 type outboundMessage struct {
 	frame     any
 	msgType   int
@@ -107,19 +105,19 @@ func NewSilentConn(socket *gws.Conn, hub *Hub, cfg config.WebSocketConfig, heart
 
 func NewConn(socket *gws.Conn, hub *Hub, cfg config.WebSocketConfig, heartbeatInterval time.Duration, auth AuthSession) *Conn {
 	if cfg.MaxMessageSizeBytes <= 0 {
-		cfg.MaxMessageSizeBytes = 1 << 20
+		cfg.MaxMessageSizeBytes = defaultMaxMessageSizeBytes
 	}
 	if cfg.PingInterval <= 0 {
-		cfg.PingInterval = 30
+		cfg.PingInterval = defaultPingInterval
 	}
 	if cfg.WriteTimeout <= 0 {
-		cfg.WriteTimeout = 15
+		cfg.WriteTimeout = defaultWriteTimeout
 	}
 	if cfg.WriteQueueSize <= 0 {
-		cfg.WriteQueueSize = 256
+		cfg.WriteQueueSize = defaultWriteQueueSize
 	}
 	if cfg.MaxObservesPerConn <= 0 {
-		cfg.MaxObservesPerConn = 8
+		cfg.MaxObservesPerConn = defaultMaxObservesPerConn
 	}
 	if heartbeatInterval <= 0 {
 		heartbeatInterval = time.Duration(cfg.PingInterval) * time.Second

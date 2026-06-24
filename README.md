@@ -97,7 +97,7 @@ curl -sS -X POST http://127.0.0.1:11949/api/query \
 
 ### Mobile Gateway 本地联调
 
-`agent-platform` 不会自行签发 gateway JWT。本地 mobile channel 联调时，需要先生成一对 RSA 密钥，并把预签名 token 写进 `.env`。
+`agent-platform` 不会自行签发 gateway JWT。本地 mobile channel 联调时，需要先生成一对 RSA 密钥，并把预签名 token 写进本地忽略文件 `configs/channels.yml`。
 
 ```bash
 # 1. 在 agent-platform 根目录生成开发用密钥
@@ -106,12 +106,6 @@ openssl rsa -in configs/gateway-private-key.pem -pubout -out configs/gateway-pub
 
 # 2. 生成 platform -> gateway 使用的 RS256 JWT
 go run ./scripts/gen-gateway-token.go -key configs/gateway-private-key.pem -sub local
-```
-
-如果沿用 `configs/channels.example.yml` 中的 `${MOBILE_GATEWAY_JWT_TOKEN}` 示例，可在本地 `.env` 自行添加这个变量；它不再出现在 `.env.example`：
-
-```bash
-MOBILE_GATEWAY_JWT_TOKEN=<paste-token-here>
 ```
 
 然后在本地忽略文件 `configs/channels.yml` 中加入 mobile channel：
@@ -125,14 +119,14 @@ channels:
     agents: "*"
     gateway:
       url: ws://127.0.0.1:11945/ws/agent?userId=local&agentKey=personal&channel=mobile
-      jwt-token: ${MOBILE_GATEWAY_JWT_TOKEN}
+      jwt-token: <paste-token-here>
 ```
 
 注意事项：
 
 - `JWT.sub` 必须和 `gateway.url` 中的 `userId` 完全一致；上例要求 `sub=local`
 - `configs/gateway-private-key.pem` 和真实 `configs/channels.yml` 都是本地文件，不提交
-- `zenmind-gateway-server` 本地联调时请使用 `make run`，它会自动加载 `.env`
+- `zenmind-gateway-server` 本地联调时请使用 `make run`；`.env` 只保留启动/部署 allowlist，不再作为 channel token 配置入口
 
 ### 测试
 
@@ -148,34 +142,29 @@ RUN_SOCKET_TESTS=1 make test-integration
 
 ## 3. 配置说明
 
-本地环境变量配置从 `.env.example` 复制到 `.env`。`.env` 不提交；`.env.example` 只保留推荐给普通部署者的最终用户环境变量入口。工具运行时配置使用 `configs/tools.yml`，AI 工具配置使用 `configs/ai-tools.yml`，默认值的单一事实源仍以代码和 `configs/*.example.yml` 模板为准。更完整的高级与排障配置参考见 [配置化说明](./docs/配置化说明.md)。
+本地启动变量从 `.env.example` 复制到 `.env`。`.env` 不提交；`.env.example` 只保留启动/部署 allowlist。运行时配置使用 `configs/runtime.yml`，工具运行时配置使用 `configs/tools.yml`，AI 工具配置使用 `configs/ai-tools.yml`，默认值的单一事实源仍以代码和 `configs/*.example.yml` 模板为准。更完整的高级与排障配置参考见 [配置化说明](./docs/配置化说明.md)。
 
 ### 根 `.env.example`
 
-根 `.env.example` 现在是面向最终用户的最小启动模板，默认保留以下高频配置：
+根 `.env.example` 现在是面向最终用户的最小启动模板，只保留以下配置：
 
 - `SERVER_PORT`
-- `AP_CHAT_RESOURCE_TICKET_SECRET`
-- `AP_CHAT_RESOURCE_TICKET_TTL_SECONDS`
+- `AP_RUNTIME_DIR` / `AP_RUNTIME_REGISTRIES_DIR` / `AP_RUNTIME_CHATS_DIR` / `AP_RUNTIME_MEMORY_DIR` / `AP_RUNTIME_PAN_DIR`
 - `AP_CONTAINER_HUB_BASE_URL`
+- `AP_CHAT_RESOURCE_TICKET_SECRET`
 - `AP_DEBUG_LLM_CONSOLE`
 - `AP_DEBUG_LLM_CHAT_RECORD`
-- `AGENT_DEFAULT_*`
-- `RUNTIME_DIR` / `REGISTRIES_DIR` / `CHATS_DIR` / `MEMORY_DIR` / `PAN_DIR`
 
-其中 `AP_*` 变量是 Agent Platform 专属配置的正式入口；迁移期仍兼容对应旧名，若新旧同名配置同时存在，以 `AP_*` 为准。
+除上述 allowlist 外，旧环境变量不再生效。resource ticket TTL 属于非敏感运行策略，使用 `configs/runtime.yml` 的 `resource.ticket-ttl-seconds` 配置。
 
 Auth 默认开启，默认公钥文件为 `configs/local-public-key.pem`；相关默认值展示在 `configs/runtime.example.yml` 的 `auth` 节，根 `.env.example` 不再放 Auth 变量。
 
-以下环境变量仍受 Go runtime 支持，但为了降低最终用户理解成本，默认不再出现在 `.env.example` 中：
+以下低频项统一改到 `configs/runtime.yml`：
 
-- 低频 runtime 子目录覆盖：`OWNER_DIR`、`AGENTS_DIR`、`TEAMS_DIR`、`ROOT_DIR`、`AUTOMATIONS_DIR`、`SKILLS_MARKET_DIR`
-- 传输与渲染调试：SSE heartbeat 固定 30s，H2A 缓冲可通过 `AGENT_H2A_RENDER_*` 调整
-- WebSocket 深度调优：`AGENT_WS_MAX_MESSAGE_SIZE`、`AGENT_WS_PING_INTERVAL`、`AGENT_WS_WRITE_TIMEOUT`、`AGENT_WS_WRITE_QUEUE_SIZE`、`AGENT_WS_MAX_OBSERVES_PER_CONN`
-- 日志排障：`LOGGING_AGENT_*`
-- memory / chat storage 深度调优：`AGENT_MEMORY_*`、`CHAT_STORAGE_*`
+- 低频 runtime 子目录：`paths.owner-dir`、`paths.agents-dir`、`paths.teams-dir`、`paths.root-dir`、`paths.automations-dir`、`paths.skills-market-dir`
+- memory 深度调优：`memory.*`
 
-LLM 交互日志、SSE/H2A 传输参数、WebSocket 调优项和 memory/chat storage 细粒度参数的默认值、适用人群和注意事项统一见 [配置化说明](./docs/配置化说明.md)。
+Logging 默认值已经源码化，不提供 runtime YAML 入口；只保留 `AP_DEBUG_LLM_CONSOLE` 和 `AP_DEBUG_LLM_CHAT_RECORD` 作为现场调试 allowlist。LLM 交互日志、memory 参数和内部运行默认值的适用人群和注意事项统一见 [配置化说明](./docs/配置化说明.md)。
 
 Provider `apiKey` 按明文字符串读取：
 
@@ -210,7 +199,7 @@ Provider `apiKey` 按明文字符串读取：
 
 - 本地公钥文件固定为 `configs/local-public-key.pem`
 - 该路径和文件名不是配置项；要使用本地公钥模式时，必须把公钥放在这个位置
-- 配置了 `auth.jwks-uri` 或 `AP_AUTH_JWKS_URI` 时走 JWKS 模式，不读取本地公钥文件
+- 配置了 `auth.jwks-uri` 时走 JWKS 模式，不读取本地公钥文件
 
 配置优先级：
 
@@ -241,20 +230,20 @@ docker compose up --build
 - 本地 `make run` 使用 `SERVER_PORT` 作为监听端口
 - 宿主机端口映射为 `${SERVER_PORT}:8080`
 - 容器内应用监听端口固定为 `8080`
-- 宿主机 runtime 根目录来自 `${RUNTIME_DIR:-./runtime}`
-- `REGISTRIES_DIR`、`CHATS_DIR`、`MEMORY_DIR`、`PAN_DIR` 可单独覆盖宿主机 bind source；未配置时自然落在 `${RUNTIME_DIR}` 下
-- 容器内 runtime 根目录固定为 `/opt/runtime`，应用通过 `RUNTIME_DIR=/opt/runtime` 解析子目录
+- 宿主机 runtime 根目录来自 `${AP_RUNTIME_DIR:-./runtime}`
+- `AP_RUNTIME_REGISTRIES_DIR`、`AP_RUNTIME_CHATS_DIR`、`AP_RUNTIME_MEMORY_DIR`、`AP_RUNTIME_PAN_DIR` 可单独覆盖宿主机 bind source；未配置时自然落在 `${AP_RUNTIME_DIR}` 下
+- 容器内 runtime 根目录固定为 `/opt/runtime`，应用通过 `AP_RUNTIME_DIR=/opt/runtime` 解析子目录
 - `./configs` 只读挂载到 `/opt/configs`
 
 Container Hub 默认基础挂载当前最多 7 个：
 
-- `/workspace` -> `CHATS_DIR/<chatId>`（`rw`）
-- `/root` -> `ROOT_DIR`（`rw`）
-- `/skills` -> `AGENTS_DIR/<agentKey>/skills`（仅 `run/agent`，`global` 默认不挂载），`ro`
-- `/pan` -> `PAN_DIR`（`rw`）
-- `/agent` -> `AGENTS_DIR/<agentKey>`（`ro`，必挂载；目录缺失会 fail-fast）
-- `/owner` -> `OWNER_DIR`（`ro`，目录缺失时自动创建）
-- `/memory` -> `MEMORY_DIR/<agentKey>`（`ro`，目录缺失时自动创建）
+- `/workspace` -> `AP_RUNTIME_CHATS_DIR/<chatId>`（`rw`）
+- `/root` -> `paths.root-dir`（`rw`）
+- `/skills` -> `paths.agents-dir/<agentKey>/skills`（仅 `run/agent`，`global` 默认不挂载），`ro`
+- `/pan` -> `AP_RUNTIME_PAN_DIR`（`rw`）
+- `/agent` -> `paths.agents-dir/<agentKey>`（`ro`，必挂载；目录缺失会 fail-fast）
+- `/owner` -> `paths.owner-dir`（`ro`，目录缺失时自动创建）
+- `/memory` -> `AP_RUNTIME_MEMORY_DIR/<agentKey>`（`ro`，目录缺失时自动创建）
 
 `runtimeConfig.sandboxMounts` 会真实影响 Container Hub session mounts：
 
@@ -262,7 +251,7 @@ Container Hub 默认基础挂载当前最多 7 个：
 - `destination + mode`：覆盖默认基础挂载模式
 - `source + destination + mode`：新增自定义挂载，不能拿来覆盖默认基础挂载路径
 
-`configs/runtime.example.yml` 的 `container-hub` 节展开 `base-url`、默认 environment 和运行策略默认值；代码默认值仍作为未配置时的兜底。`auth-token` 仅保留注释说明，优先通过 `AP_CONTAINER_HUB_AUTH_TOKEN` 或部署 Secret 注入，也仍支持 `container-hub.auth-token` 对接 `agent-container-hub` 的 `AUTH_TOKEN` Bearer 鉴权。
+`configs/runtime.example.yml` 的 `container-hub` 节展开 `base-url`、默认 environment 和运行策略默认值；代码默认值仍作为未配置时的兜底。除 `AP_CONTAINER_HUB_BASE_URL` 外，Container Hub token、environment id、超时和 sandbox 策略统一写入 `container-hub.*`，用于对接 `agent-container-hub` 的 `AUTH_TOKEN` Bearer 鉴权。
 
 `context tags` 不是全局默认集合，而是每个 agent 从 `contextConfig.tags` 或 `contextTags` 读取。当前支持/归一化后的标签有 `system`、`context`、`owner`、`auth`、`all-agents`、`memory`；其中 `agent_identity`、`run_session`、`scene`、`references`、`execution_policy`、`skills` 会归一化为 `context`，`memory_context` 会归一化为 `memory`。
 
@@ -303,13 +292,13 @@ docker compose logs -f
 ### 常见排查
 
 - 服务无法启动：先检查当前配置文件、鉴权公钥与 JWKS 配置是否完整。
-- Query 无法调用模型：检查 `REGISTRIES_DIR/providers`、`REGISTRIES_DIR/models` 是否存在，并确认 provider `apiKey` / `baseUrl` 可用。
+- Query 无法调用模型：检查 `AP_RUNTIME_REGISTRIES_DIR/providers`、`AP_RUNTIME_REGISTRIES_DIR/models` 是否存在，并确认 provider `apiKey` / `baseUrl` 可用。
 - Automation 看起来没有触发：先确认服务进程本身正在运行；如果是本地 `make run`，日志不会出现在 `docker compose logs` 里。随后检查 stdout 中是否有 `automation orchestrator started`、`[automation] registered ...`、`[automation] dispatch ...`。
-- Query 看起来不像真流式：先检查是否启用了 `AGENT_H2A_RENDER_FLUSH_INTERVAL`、`AGENT_H2A_RENDER_MAX_BUFFERED_CHARS` 或 `AGENT_H2A_RENDER_MAX_BUFFERED_EVENTS` 这类传输层缓冲参数；默认 SSE writer 会逐事件 flush。
-- `bash` 执行失败：检查 `AP_CONTAINER_HUB_BASE_URL`、`default-environment-id`，以及 `.env` 中的目录变量是否为宿主机真实路径。
-- chat 没有持久化：检查 `CHATS_DIR` 是否可写。
-- memory learn 未生效：确认 `/api/learn` 请求体、agent memory 配置与 `MEMORY_DIR` 可写性。
-- 上传后无法下载：确认文件已落到 `CHATS_DIR/<chatId>/`，并检查 `/api/resource?file=...` 是否原样使用。
+- Query 看起来不像真流式：默认 SSE writer 会逐事件 flush；优先检查代理、浏览器、网关或调用方是否缓冲。
+- `bash` 执行失败：检查 `AP_CONTAINER_HUB_BASE_URL`、`container-hub.default-environment-id`，以及 runtime 目录配置是否为宿主机真实路径。
+- chat 没有持久化：检查 `AP_RUNTIME_CHATS_DIR` 是否可写。
+- memory learn 未生效：确认 `/api/learn` 请求体、agent memory 配置与 `AP_RUNTIME_MEMORY_DIR` 可写性。
+- 上传后无法下载：确认文件已落到 `AP_RUNTIME_CHATS_DIR/<chatId>/`，并检查 `/api/resource?file=...` 是否原样使用。
 
 ## 文档索引
 

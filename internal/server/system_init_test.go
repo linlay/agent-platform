@@ -153,6 +153,51 @@ func TestPrepareSystemInitCacheReturnsPendingLineOnFingerprintChange(t *testing.
 	}
 }
 
+func TestPrepareSystemInitCacheOnlyWritesFirstActualProfile(t *testing.T) {
+	store, err := chat.NewFileStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("new chat store: %v", err)
+	}
+
+	req := api.QueryRequest{ChatID: "chat-plan", Message: "plan this"}
+	toolDefs := []api.ToolDetailResponse{{Name: "bash", Description: "run command"}}
+	server := &Server{deps: Dependencies{
+		Config:      config.Config{},
+		Chats:       store,
+		Tools:       systemInitStaticToolExecutor{defs: toolDefs},
+		SystemInits: llm.SystemInitProfileBuilder{},
+	}}
+	session := contracts.QuerySession{
+		RunID:        "run-1",
+		ChatID:       "chat-plan",
+		AgentKey:     "agent",
+		ModelKey:     "mock-model",
+		ToolNames:    []string{"bash"},
+		Mode:         "PLAN_EXECUTE",
+		PromptAppend: contracts.DefaultPromptAppendConfig(),
+	}
+
+	pending, err := server.prepareSystemInitCache(req, &session, true)
+	if err != nil {
+		t.Fatalf("prepare system init cache: %v", err)
+	}
+	if len(pending) != 1 {
+		t.Fatalf("expected only first actual profile in query systems, got %#v", pending)
+	}
+	if pending[0].CacheKey != "plan-execute:plan" {
+		t.Fatalf("expected plan profile first, got %#v", pending[0])
+	}
+	if _, ok := session.SystemInitCache["plan-execute:plan"]; !ok {
+		t.Fatalf("expected plan profile cached, got %#v", session.SystemInitCache)
+	}
+	if _, ok := session.SystemInitCache["plan-execute:execute"]; ok {
+		t.Fatalf("did not expect unused execute profile cached, got %#v", session.SystemInitCache)
+	}
+	if _, ok := session.SystemInitCache["plan-execute:summary"]; ok {
+		t.Fatalf("did not expect unused summary profile cached, got %#v", session.SystemInitCache)
+	}
+}
+
 func TestMainQueryDedupsSystemsOnlyWhenPayloadMatches(t *testing.T) {
 	store, err := chat.NewFileStore(t.TempDir())
 	if err != nil {

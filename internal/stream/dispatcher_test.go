@@ -480,6 +480,9 @@ func TestDispatcherUsageSnapshotIncludesTaskAndDeepSeekCacheUsage(t *testing.T) 
 	if cw["maxSize"] != 128000 || cw["currentSize"] != 100 || cw["estimatedNextCallSize"] != 200 {
 		t.Fatalf("unexpected context window %#v", cw)
 	}
+	if cw["modelKey"] != "deepseek-v4-pro" || cw["reasoningEffort"] != "HIGH" {
+		t.Fatalf("expected context window model metadata to match current usage, got %#v", cw)
+	}
 }
 
 func TestDispatcherEmitsApprovalAlongsideToolResult(t *testing.T) {

@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"strings"
 
-	"agent-platform/internal/config"
 	. "agent-platform/internal/contracts"
 	"agent-platform/internal/filetools"
 	"agent-platform/internal/modelrequest"
@@ -166,7 +165,7 @@ func (p *anthropicProtocol) buildRequestBody(model ModelDefinition, stageSetting
 		"model":      model.ModelID,
 		"messages":   anthropicMessages,
 		"stream":     true,
-		"max_tokens": resolveAnthropicMaxTokens(p.engine.cfg, stageSettings),
+		"max_tokens": resolveAnthropicMaxTokens(stageSettings),
 	}
 	if strings.TrimSpace(systemPrompt) != "" {
 		requestBody["system"] = systemPrompt
@@ -353,14 +352,11 @@ func anthropicToolChoice(toolChoice string, reasoningEnabled bool) map[string]an
 	}
 }
 
-func resolveAnthropicMaxTokens(cfg config.Config, stageSettings StageSettings) int {
+func resolveAnthropicMaxTokens(stageSettings StageSettings) int {
 	if stageSettings.MaxOutputTokens > 0 {
 		return stageSettings.MaxOutputTokens
 	}
-	if cfg.Defaults.MaxOutputTokens > 0 {
-		return cfg.Defaults.MaxOutputTokens
-	}
-	return 4096
+	return defaultAnthropicMaxOutputTokens
 }
 
 func reasoningBudgetTokens(effort string) int {

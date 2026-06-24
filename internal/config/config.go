@@ -18,6 +18,7 @@ type Config struct {
 	CoderSettings   CoderSettingsConfig
 	VisionRecognize VisionRecognizeConfig
 	WebFetch        WebFetchConfig
+	ImageGenerate   ImageGenerateConfig
 	Providers       CatalogConfig
 	Models          CatalogConfig
 	Automation      AutomationConfig
@@ -25,11 +26,8 @@ type Config struct {
 	Memory          MemoryConfig
 	Defaults        DefaultsConfig
 	SSE             SSEConfig
-	H2A             H2AConfig
-	I18N            I18NConfig
 	Auth            AuthConfig
 	ResourceTicket  ResourceTicketConfig
-	ChatStorage     ChatStorageConfig
 	Logging         LoggingConfig
 	CORS            CORSConfig
 	ContainerHub    ContainerHubConfig
@@ -47,9 +45,8 @@ type Config struct {
 }
 
 type LoadOptions struct {
-	ConfigDir  string
-	RuntimeDir string
-	Port       string
+	ConfigDir string
+	Port      string
 }
 
 type ServerConfig struct {
@@ -171,6 +168,23 @@ type WebFetchProfileConfig struct {
 	SystemPrompt     string
 }
 
+type ImageGenerateConfig struct {
+	Enabled        bool
+	DefaultProfile string
+	Profiles       map[string]ImageGenerateProfileConfig
+}
+
+type ImageGenerateProfileConfig struct {
+	ModelKey        string
+	Timeout         int // seconds
+	Size            string
+	ResponseFormat  string
+	OutputMimeType  string
+	MaxPromptChars  int
+	PersistArtifact bool
+	EndpointPath    string
+}
+
 type AutomationConfig struct {
 	ExternalDir   string
 	Enabled       bool
@@ -195,10 +209,9 @@ type MemoryConfig struct {
 }
 
 type DefaultsConfig struct {
-	MaxOutputTokens int
-	Budget          BudgetDefaultsConfig
-	React           ReactDefaultsConfig
-	Plan            PlanExecuteDefaultsConfig
+	Budget BudgetDefaultsConfig
+	React  ReactDefaultsConfig
+	Plan   PlanExecuteDefaultsConfig
 }
 
 type BudgetDefaultsConfig struct {
@@ -246,21 +259,6 @@ type SSEConfig struct {
 	HeartbeatInterval int64 // seconds
 }
 
-type H2AConfig struct {
-	Render H2ARenderConfig
-}
-
-type H2ARenderConfig struct {
-	FlushInterval        int64 // seconds; 0 means disabled
-	MaxBufferedChars     int
-	MaxBufferedEvents    int
-	HeartbeatPassThrough bool
-}
-
-type I18NConfig struct {
-	DefaultLocale string
-}
-
 type AuthConfig struct {
 	Enabled            bool
 	JWKSURI            string
@@ -276,15 +274,6 @@ type ResourceTicketConfig struct {
 
 func (c ResourceTicketConfig) Enabled() bool {
 	return strings.TrimSpace(c.Secret) != ""
-}
-
-type ChatStorageConfig struct {
-	Dir                                  string
-	K                                    int
-	Charset                              string
-	ActionTools                          []string
-	IndexSQLiteFile                      string
-	IndexAutoRebuildOnIncompatibleSchema bool
 }
 
 type LoggingConfig struct {
@@ -517,7 +506,6 @@ func Load(optionValues ...LoadOptions) (Config, error) {
 		options = optionValues[0]
 	}
 	options.ConfigDir = resolveConfigRoot(options.ConfigDir)
-	options.RuntimeDir = strings.TrimSpace(options.RuntimeDir)
 	options.Port = strings.TrimSpace(options.Port)
 
 	cfg := defaultConfig(options)
@@ -536,9 +524,9 @@ func Load(optionValues ...LoadOptions) (Config, error) {
 		return Config{}, fmt.Errorf("SERVER_PORT must not be empty")
 	}
 	if strings.TrimSpace(cfg.Paths.RegistriesDir) == "" {
-		return Config{}, fmt.Errorf("REGISTRIES_DIR must not be empty")
+		return Config{}, fmt.Errorf("AP_RUNTIME_REGISTRIES_DIR must not be empty")
 	}
-	if err := validateExplicitDirEnv("PAN_DIR", cfg.Paths.PanDir); err != nil {
+	if err := validateExplicitDirEnv("AP_RUNTIME_PAN_DIR", cfg.Paths.PanDir); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil

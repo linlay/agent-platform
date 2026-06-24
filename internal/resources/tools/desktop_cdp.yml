@@ -30,7 +30,7 @@ inputSchema:
         - Network.disable
     params:
       type: object
-      description: JSON parameters for the selected CDP method.
+      description: JSON parameters for the selected CDP method. Use native JSON value types; for example Runtime.evaluate returnByValue and awaitPromise must be booleans true/false, not strings "true"/"false".
       additionalProperties: true
     targetId:
       type: string

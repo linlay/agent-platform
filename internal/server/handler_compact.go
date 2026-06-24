@@ -348,7 +348,7 @@ func (s *Server) maybeAutoCompact(ctx context.Context, req api.QueryRequest, age
 		log.Printf("[compact][auto] skipped chatId=%s detail=%s", req.ChatID, resp.Detail)
 		return
 	}
-	reloaded, err := s.deps.Chats.LoadRawMessages(req.ChatID, s.deps.Config.ChatStorage.K)
+	reloaded, err := s.deps.Chats.LoadRawMessages(req.ChatID, chat.DefaultHistoryRunWindow)
 	if err != nil {
 		log.Printf("[compact][auto] reload history failed chatId=%s err=%v", req.ChatID, err)
 		return

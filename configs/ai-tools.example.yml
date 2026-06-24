@@ -38,11 +38,19 @@ web-fetch:
       system-prompt: |
         You extract and summarize fetched web content according to the user's prompt.
 
-# Reserved for future model-backed tools. These sections are intentionally
-# ignored until the corresponding tools are implemented.
 image-generate:
   enabled: false
-  profiles: {}
+  default-profile: general
+  profiles:
+    general:
+      model-key: babelark-gemini-3_1-flash-image-preview
+      timeout: 120
+      size: 1024x1024
+      response-format: b64_json
+      output-mime-type: image/png
+      max-prompt-chars: 4000
+      persist-artifact: true
+      endpoint-path: /v1/images/generations
 
 speech:
   speech-to-text:
