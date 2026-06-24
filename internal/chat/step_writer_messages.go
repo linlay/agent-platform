@@ -408,20 +408,8 @@ func applyStepLineModelMetadata(line *StepLine, modelKey string, reasoningEffort
 		firstStringFromKeys(line.Usage, "reasoningEffort"),
 		firstStringFromKeys(line.ContextWindow, "reasoningEffort"),
 	)
-	applyStepContextWindowModelMetadata(line.ContextWindow, line.ModelKey, line.ReasoningEffort)
 	stripStepModelMetadata(line.Usage)
-}
-
-func applyStepContextWindowModelMetadata(contextWindow map[string]any, modelKey string, reasoningEffort string) {
-	if contextWindow == nil {
-		return
-	}
-	if modelKey := strings.TrimSpace(modelKey); modelKey != "" {
-		contextWindow["modelKey"] = modelKey
-	}
-	if reasoningEffort := strings.TrimSpace(reasoningEffort); reasoningEffort != "" {
-		contextWindow["reasoningEffort"] = reasoningEffort
-	}
+	stripStepModelMetadata(line.ContextWindow)
 }
 
 func stripStepModelMetadata(values map[string]any) {

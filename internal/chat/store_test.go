@@ -2147,7 +2147,7 @@ func TestStepWriterPersistsUsageSnapshotWhenDebugEventsDisabled(t *testing.T) {
 	if toIntValue(contextWindow["maxSize"]) != 128000 || toIntValue(contextWindow["currentSize"]) != 100 || toIntValue(contextWindow["estimatedNextCallSize"]) != 200 {
 		t.Fatalf("expected context window to persist, got %#v", lines[0])
 	}
-	assertStepModelMetadata(t, contextWindow, "contextWindow", "mock-model", "HIGH")
+	assertNoStepModelMetadata(t, contextWindow, "contextWindow")
 }
 
 func TestStepWriterPersistsPlanExecuteModelMetadataAtTopLevel(t *testing.T) {
@@ -2209,7 +2209,7 @@ func TestStepWriterPersistsPlanExecuteModelMetadataAtTopLevel(t *testing.T) {
 	if toIntValue(contextWindow["maxSize"]) != 128000 || toIntValue(contextWindow["currentSize"]) != 100 || toIntValue(contextWindow["estimatedNextCallSize"]) != 200 {
 		t.Fatalf("expected plan-execute contextWindow, got %#v", line)
 	}
-	assertStepModelMetadata(t, contextWindow, "plan-execute contextWindow", "plan-model", "MEDIUM")
+	assertNoStepModelMetadata(t, contextWindow, "plan-execute contextWindow")
 }
 
 func TestStepWriterIgnoresEmptyUsageSnapshot(t *testing.T) {
@@ -2506,13 +2506,6 @@ func assertNoStepModelMetadata(t *testing.T, values map[string]any, label string
 	}
 }
 
-func assertStepModelMetadata(t *testing.T, values map[string]any, label string, modelKey string, reasoningEffort string) {
-	t.Helper()
-	if values["modelKey"] != modelKey || values["reasoningEffort"] != reasoningEffort {
-		t.Fatalf("expected %s model metadata modelKey=%q reasoningEffort=%q, got %#v", label, modelKey, reasoningEffort, values)
-	}
-}
-
 func TestStepWriterPersistsTaskScopedUsageAndSlimMetadataWithoutDebugPayload(t *testing.T) {
 	store, err := NewFileStore(t.TempDir())
 	if err != nil {
@@ -2629,7 +2622,7 @@ func TestStepWriterPersistsTaskScopedUsageAndSlimMetadataWithoutDebugPayload(t *
 	if toIntValue(contextWindow["maxSize"]) != 128000 || toIntValue(contextWindow["currentSize"]) != 100 || toIntValue(contextWindow["estimatedNextCallSize"]) != 200 {
 		t.Fatalf("expected task contextWindow, got %#v", taskLine)
 	}
-	assertStepModelMetadata(t, contextWindow, "task contextWindow", "task-model", "LOW")
+	assertNoStepModelMetadata(t, contextWindow, "task contextWindow")
 	if _, ok := lines[1]["debug"]; ok {
 		t.Fatalf("did not expect child debug to pollute root step, got %#v", lines[1])
 	}
