@@ -11,12 +11,23 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/models"
 )
 
-type SystemInitProfileBuilder struct{}
+type SystemInitProfileBuilder struct {
+	Models *models.ModelRegistry
+}
 
-func (SystemInitProfileBuilder) BuildSystemInitProfiles(session contracts.QuerySession, req api.QueryRequest, toolDefs []api.ToolDetailResponse, defaultPlanMaxSteps int, defaultPlanMaxWorkRoundsPerTask int, prompts config.PromptsConfig) []contracts.SystemInitProfile {
-	return BuildSystemInitProfiles(session, req, toolDefs, defaultPlanMaxSteps, defaultPlanMaxWorkRoundsPerTask, prompts)
+func (b SystemInitProfileBuilder) BuildSystemInitProfiles(session contracts.QuerySession, req api.QueryRequest, toolDefs []api.ToolDetailResponse, defaultPlanMaxSteps int, defaultPlanMaxWorkRoundsPerTask int, prompts config.PromptsConfig) []contracts.SystemInitProfile {
+	profiles := BuildSystemInitProfiles(session, req, toolDefs, defaultPlanMaxSteps, defaultPlanMaxWorkRoundsPerTask, prompts)
+	if b.Models == nil {
+		return profiles
+	}
+	profiles = appendFinalSystemInitProfiles(session, req, profiles)
+	for i := range profiles {
+		b.applyRequestProfile(&profiles[i], session, req)
+	}
+	return profiles
 }
 
 func BuildSystemInitProfiles(session contracts.QuerySession, req api.QueryRequest, toolDefs []api.ToolDetailResponse, defaultPlanMaxSteps int, defaultPlanMaxWorkRoundsPerTask int, prompts config.PromptsConfig) []contracts.SystemInitProfile {
@@ -52,6 +63,165 @@ func BuildSystemInitProfiles(session contracts.QuerySession, req api.QueryReques
 		}
 		return []contracts.SystemInitProfile{buildDefaultSystemInitProfile(session, req, toolDefs, stage)}
 	}
+}
+
+func appendFinalSystemInitProfiles(session contracts.QuerySession, req api.QueryRequest, profiles []contracts.SystemInitProfile) []contracts.SystemInitProfile {
+	if len(profiles) == 0 {
+		return profiles
+	}
+	out := append([]contracts.SystemInitProfile(nil), profiles...)
+	for _, profile := range profiles {
+		if len(profile.Tools) == 0 {
+			continue
+		}
+		stage := profileRuntimeStage(session, profile)
+		systemPrompt := buildSystemPrompt(session, req, session.ModelKey, PromptBuildOptions{
+			Stage:                 stage,
+			ToolDefinitions:       nil,
+			IncludeAfterCallHints: false,
+		})
+		finalProfile := contracts.SystemInitProfile{
+			CacheKey:      FinalSystemInitCacheKey(profile.CacheKey),
+			Mode:          profile.Mode,
+			Stage:         profile.Stage,
+			Fingerprint:   ComputeSystemInitFingerprint(session, stage+":final", nil),
+			SystemMessage: map[string]any{"role": "system", "content": systemPrompt},
+			Tools:         []any{},
+		}
+		out = append(out, finalProfile)
+	}
+	return out
+}
+
+func FinalSystemInitCacheKey(cacheKey string) string {
+	cacheKey = strings.TrimSpace(cacheKey)
+	if cacheKey == "" {
+		return "final"
+	}
+	if strings.HasSuffix(cacheKey, ":final") {
+		return cacheKey
+	}
+	return cacheKey + ":final"
+}
+
+func (b SystemInitProfileBuilder) applyRequestProfile(profile *contracts.SystemInitProfile, session contracts.QuerySession, req api.QueryRequest) {
+	if b.Models == nil || profile == nil {
+		return
+	}
+	stage := profileRuntimeStage(session, *profile)
+	stageSettings := stageSettingsForName(session.ResolvedStageSettings, stage)
+	modelKey := strings.TrimSpace(stageSettings.ModelKey)
+	if modelKey == "" {
+		modelKey = strings.TrimSpace(session.ModelKey)
+	}
+	model, provider, err := b.Models.Get(modelKey)
+	if err != nil {
+		return
+	}
+	protocol := resolveProtocol(nil, model)
+	if protocol == nil {
+		return
+	}
+	protocolConfig := resolveProtocolRuntimeConfig(provider, model)
+	toolSpecs := openAIToolSpecsFromAny(profile.Tools)
+	messages := profileMessages(profile.SystemMessage)
+	prepared, err := protocol.PrepareRequest(protocolStreamParams{
+		runID:          req.RunID,
+		provider:       provider,
+		model:          model,
+		protocolConfig: protocolConfig,
+		stageSettings:  stageSettings,
+		messages:       messages,
+		toolSpecs:      toolSpecs,
+		toolChoice:     "auto",
+	})
+	if err != nil {
+		return
+	}
+	profile.Model = modelSnapshotFromDefinition(model, provider, prepared.Endpoint, strings.TrimSpace(stageSettings.ReasoningEffort))
+	profile.ToolChoice = effectiveTraceToolChoice("auto", toolSpecs)
+	profile.RequestOptions = requestOptionsFromPreparedBody(prepared.RequestBody)
+}
+
+func profileRuntimeStage(session contracts.QuerySession, profile contracts.SystemInitProfile) string {
+	stage := strings.ToLower(strings.TrimSpace(profile.Stage))
+	mode := strings.ToLower(strings.TrimSpace(profile.Mode))
+	if stage == "" || stage == "main" {
+		switch mode {
+		case "oneshot", "coder", "react":
+			return mode
+		}
+		normalizedMode := normalizedSystemInitMode(session.Mode)
+		if normalizedMode == "oneshot" || normalizedMode == "coder" || normalizedMode == "react" {
+			return normalizedMode
+		}
+		return "react"
+	}
+	if mode == "coder" {
+		switch stage {
+		case "plan":
+			return "coder-plan"
+		case "execute":
+			return "coder-execute"
+		}
+	}
+	return stage
+}
+
+func profileMessages(systemMessage map[string]any) []openAIMessage {
+	msg := rawMessageToOpenAI(systemMessage, false)
+	if msg.Role == "" {
+		return []openAIMessage{{Role: "user", Content: ""}}
+	}
+	return []openAIMessage{
+		msg,
+		{Role: "user", Content: ""},
+	}
+}
+
+func openAIToolSpecsFromAny(tools []any) []openAIToolSpec {
+	if len(tools) == 0 {
+		return nil
+	}
+	data, err := json.Marshal(tools)
+	if err != nil {
+		return nil
+	}
+	var specs []openAIToolSpec
+	if err := json.Unmarshal(data, &specs); err != nil {
+		return nil
+	}
+	return specs
+}
+
+func modelSnapshotFromDefinition(model models.ModelDefinition, provider models.ProviderDefinition, endpoint string, reasoningEffort string) map[string]any {
+	out := map[string]any{}
+	if key := strings.TrimSpace(model.Key); key != "" {
+		out["key"] = key
+	}
+	if id := strings.TrimSpace(model.ModelID); id != "" {
+		out["id"] = id
+	}
+	if providerKey := strings.TrimSpace(provider.Key); providerKey != "" {
+		out["providerKey"] = providerKey
+	}
+	protocol := strings.TrimSpace(model.Protocol)
+	if protocol == "" {
+		protocol = "OPENAI"
+	}
+	if protocol != "" {
+		out["protocol"] = protocol
+	}
+	if endpoint = strings.TrimSpace(endpoint); endpoint != "" {
+		out["endpoint"] = endpoint
+	}
+	if reasoningEffort != "" {
+		out["reasoningEffort"] = reasoningEffort
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func SystemInitCacheKey(mode string, stage string) string {

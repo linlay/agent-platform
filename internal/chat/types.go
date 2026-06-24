@@ -50,24 +50,30 @@ type PlanningState struct {
 // ---------------------------------------------------------------------------
 
 type SystemInitLine struct {
-	Type          string         `json:"_type"`
-	ChatID        string         `json:"chatId"`
-	AgentKey      string         `json:"agentKey"`
-	RunID         string         `json:"runId"`
-	CreatedAt     int64          `json:"createdAt"`
-	Fingerprint   string         `json:"fingerprint"`
-	CacheKey      string         `json:"cacheKey,omitempty"`
-	Mode          string         `json:"mode,omitempty"`
-	Stage         string         `json:"stage,omitempty"`
-	SystemMessage map[string]any `json:"systemMessage"`
-	Tools         []any          `json:"tools"`
+	Type           string         `json:"_type"`
+	ChatID         string         `json:"chatId"`
+	AgentKey       string         `json:"agentKey"`
+	RunID          string         `json:"runId"`
+	CreatedAt      int64          `json:"createdAt"`
+	Fingerprint    string         `json:"fingerprint"`
+	CacheKey       string         `json:"cacheKey,omitempty"`
+	Mode           string         `json:"mode,omitempty"`
+	Stage          string         `json:"stage,omitempty"`
+	SystemMessage  map[string]any `json:"systemMessage"`
+	Tools          []any          `json:"tools"`
+	Model          map[string]any `json:"model,omitempty"`
+	ToolChoice     string         `json:"toolChoice,omitempty"`
+	RequestOptions map[string]any `json:"requestOptions,omitempty"`
 }
 
 type QueryLineSystemInit struct {
-	CacheKey      string         `json:"cacheKey"`
-	Fingerprint   string         `json:"fingerprint"`
-	SystemMessage map[string]any `json:"systemMessage"`
-	Tools         []any          `json:"tools"`
+	CacheKey       string         `json:"cacheKey"`
+	Fingerprint    string         `json:"fingerprint"`
+	SystemMessage  map[string]any `json:"systemMessage"`
+	Tools          []any          `json:"tools"`
+	Model          map[string]any `json:"model,omitempty"`
+	ToolChoice     string         `json:"toolChoice,omitempty"`
+	RequestOptions map[string]any `json:"requestOptions,omitempty"`
 }
 
 // QueryLine represents a _type:"query" line in chatId.jsonl.

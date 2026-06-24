@@ -59,7 +59,7 @@ func requestOptionsFromPreparedBody(body map[string]any) map[string]any {
 	out := make(map[string]any, len(body))
 	for key, value := range body {
 		switch key {
-		case "messages", "tools", "tool_choice", "model":
+		case "messages", "tools", "tool_choice", "model", "system":
 			continue
 		default:
 			out[key] = value

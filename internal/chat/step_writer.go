@@ -57,8 +57,6 @@ type StepWriter struct {
 	pendingModelKey         string
 	pendingReasoningEffort  string
 	pendingModel            map[string]any
-	pendingToolChoice       string
-	pendingRequestOptions   map[string]any
 	pendingInputMessages    []map[string]any
 	pendingSystem           map[string]any
 	pendingSystemRef        map[string]any
@@ -440,6 +438,7 @@ func (w *StepWriter) captureRootUsageSnapshot(event stream.EventData) {
 	if cw := contextWindow; cw != nil {
 		w.pendingContextWindowMax = toIntFromKeys(cw, "maxSize")
 		w.pendingEstimated = toIntFromKeys(cw, "estimatedNextCallSize")
+		w.capturePendingModelMetadata(cw)
 	}
 }
 
@@ -460,6 +459,7 @@ func (w *StepWriter) captureTaskUsageSnapshot(buffer *taskStepBuffer, event stre
 	if cw := contextWindow; cw != nil {
 		buffer.pendingContextWindowMax = toIntFromKeys(cw, "maxSize")
 		buffer.pendingEstimated = toIntFromKeys(cw, "estimatedNextCallSize")
+		buffer.capturePendingModelMetadata(cw)
 	}
 }
 
@@ -471,7 +471,7 @@ func (w *StepWriter) captureRootDebugData(inner map[string]any) {
 	if cw, ok := inner["contextWindow"].(map[string]any); ok {
 		w.pendingContextWindowMax = toIntFromKeys(cw, "maxSize")
 		w.pendingEstimated = toIntFromKeys(cw, "estimatedNextCallSize")
-		w.capturePendingModelMetadata(model)
+		w.capturePendingModelMetadata(cw, model)
 	}
 	if usage, ok := inner["usage"].(map[string]any); ok {
 		if llm, ok := usage["llmReturnUsage"].(map[string]any); ok {
@@ -496,10 +496,6 @@ func (w *StepWriter) captureRootLLMRequestData(event stream.EventData) {
 	if systemRef, _ := event.Value("systemRef").(map[string]any); len(systemRef) > 0 {
 		w.pendingSystemRef = cloneStepSystemPayload(systemRef)
 	}
-	w.pendingToolChoice = strings.TrimSpace(event.String("toolChoice"))
-	if requestOptions, _ := event.Value("requestOptions").(map[string]any); len(requestOptions) > 0 {
-		w.pendingRequestOptions = cloneStepSystemPayload(requestOptions)
-	}
 	if inputMessages := messagesFromEventValue(event.Value("inputMessages")); len(inputMessages) > 0 {
 		w.pendingInputMessages = inputMessages
 	}
@@ -516,7 +512,7 @@ func (w *StepWriter) captureTaskDebugData(buffer *taskStepBuffer, inner map[stri
 	if cw, ok := inner["contextWindow"].(map[string]any); ok {
 		buffer.pendingContextWindowMax = toIntFromKeys(cw, "maxSize")
 		buffer.pendingEstimated = toIntFromKeys(cw, "estimatedNextCallSize")
-		buffer.capturePendingModelMetadata(model)
+		buffer.capturePendingModelMetadata(cw, model)
 	}
 	if usage, ok := inner["usage"].(map[string]any); ok {
 		if llm, ok := usage["llmReturnUsage"].(map[string]any); ok {
@@ -540,10 +536,6 @@ func (w *StepWriter) captureTaskLLMRequestData(buffer *taskStepBuffer, event str
 	}
 	if systemRef, _ := event.Value("systemRef").(map[string]any); len(systemRef) > 0 {
 		buffer.pendingSystemRef = cloneStepSystemPayload(systemRef)
-	}
-	buffer.pendingToolChoice = strings.TrimSpace(event.String("toolChoice"))
-	if requestOptions, _ := event.Value("requestOptions").(map[string]any); len(requestOptions) > 0 {
-		buffer.pendingRequestOptions = cloneStepSystemPayload(requestOptions)
 	}
 	if inputMessages := messagesFromEventValue(event.Value("inputMessages")); len(inputMessages) > 0 {
 		buffer.pendingInputMessages = inputMessages
@@ -569,8 +561,6 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 		w.pendingModelKey = ""
 		w.pendingReasoningEffort = ""
 		w.pendingModel = nil
-		w.pendingToolChoice = ""
-		w.pendingRequestOptions = nil
 		w.pendingInputMessages = nil
 		w.pendingSystem = nil
 		w.pendingSystemRef = nil
@@ -608,15 +598,6 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 	}
 	if len(w.pendingSystem) > 0 {
 		line.System = cloneStepSystemPayload(w.pendingSystem)
-	}
-	if len(w.pendingModel) > 0 {
-		line.Model = cloneStepSystemPayload(w.pendingModel)
-	}
-	if strings.TrimSpace(w.pendingToolChoice) != "" {
-		line.ToolChoice = strings.TrimSpace(w.pendingToolChoice)
-	}
-	if len(w.pendingRequestOptions) > 0 {
-		line.RequestOptions = cloneStepSystemPayload(w.pendingRequestOptions)
 	}
 	if len(w.pendingInputMessages) > 0 {
 		line.InputMessages = cloneMessageMaps(w.pendingInputMessages)
@@ -659,8 +640,6 @@ func (w *StepWriter) flushCurrentStepAt(updatedAt int64) {
 	w.pendingModelKey = ""
 	w.pendingReasoningEffort = ""
 	w.pendingModel = nil
-	w.pendingToolChoice = ""
-	w.pendingRequestOptions = nil
 	w.pendingInputMessages = nil
 	w.pendingSystem = nil
 	w.pendingSystemRef = nil

@@ -210,6 +210,8 @@ func mapChatContextWindow(contextWindow map[string]any) *api.ChatContextWindow {
 		MaxSize:               contracts.AnyIntNode(contextWindow["maxSize"]),
 		CurrentSize:           contracts.AnyIntNode(contextWindow["currentSize"]),
 		EstimatedNextCallSize: contracts.AnyIntNode(contextWindow["estimatedNextCallSize"]),
+		ModelKey:              strings.TrimSpace(contracts.AnyStringNode(contextWindow["modelKey"])),
+		ReasoningEffort:       strings.TrimSpace(contracts.AnyStringNode(contextWindow["reasoningEffort"])),
 	}
 	if out.MaxSize == 0 && out.CurrentSize == 0 && out.EstimatedNextCallSize == 0 {
 		return nil

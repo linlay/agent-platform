@@ -41,6 +41,12 @@ func synthesizedUsageSnapshotContextWindow(contextWindow map[string]any) map[str
 	if v := toIntFromKeys(contextWindow, "estimatedNextCallSize"); v > 0 {
 		cw["estimatedNextCallSize"] = v
 	}
+	if modelKey := firstStringFromKeys(contextWindow, "modelKey"); modelKey != "" {
+		cw["modelKey"] = modelKey
+	}
+	if reasoningEffort := firstStringFromKeys(contextWindow, "reasoningEffort"); reasoningEffort != "" {
+		cw["reasoningEffort"] = reasoningEffort
+	}
 	return cw
 }
 

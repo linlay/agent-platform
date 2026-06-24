@@ -85,30 +85,6 @@ function Test-ArchiveTool {
     }
 }
 
-function New-RuntimeTree {
-    param([string]$BundleRoot)
-    $dirs = @(
-        "runtime/registries/providers",
-        "runtime/registries/models",
-        "runtime/registries/mcp-servers",
-        "runtime/registries/viewport-servers",
-        "runtime/tools",
-        "runtime/viewports",
-        "runtime/owner",
-        "runtime/agents",
-        "runtime/teams",
-        "runtime/root",
-        "runtime/automations",
-        "runtime/chats",
-        "runtime/memory",
-        "runtime/pan",
-        "runtime/skills-market"
-    )
-    foreach ($d in $dirs) {
-        New-Item -ItemType Directory -Path (Join-Path $BundleRoot $d) -Force | Out-Null
-    }
-}
-
 function Copy-ConfigTemplates {
     param([string]$BundleRoot)
     $templates = @(
@@ -317,7 +293,6 @@ function Build-ProgramBundle {
             Copy-Item "$PROGRAM_RELEASE_ASSETS_DIR/windows/tools.example.yml" (Join-Path (Join-Path $bundleRoot "configs") "tools.example.yml") -Force
         }
         Copy-BundledRg -BundleRoot $bundleRoot -TargetOs $TargetOs -TargetArch $TargetArch
-        New-RuntimeTree -BundleRoot $bundleRoot
 
         if ($TargetOs -eq "windows") {
             Copy-Item "$PROGRAM_RELEASE_ASSETS_DIR/windows/deploy.ps1" $bundleRoot

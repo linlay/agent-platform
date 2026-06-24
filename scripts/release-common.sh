@@ -275,8 +275,7 @@ ${error_log_json}
       "$program_common",
       ".env.example",
       "manifest.json",
-      "configs",
-      "runtime"
+      "configs"
     ]
   },
   "web": {

@@ -1,6 +1,8 @@
 package llm
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -8,6 +10,7 @@ import (
 	"agent-platform/internal/api"
 	"agent-platform/internal/config"
 	"agent-platform/internal/contracts"
+	"agent-platform/internal/models"
 )
 
 func TestSystemInitFingerprintStableAndToolOrderIndependent(t *testing.T) {
@@ -43,6 +46,64 @@ func TestSystemInitFingerprintIgnoresRequestDynamicContext(t *testing.T) {
 	second := ComputeSystemInitFingerprint(changed, "main", tools)
 	if first != second {
 		t.Fatalf("expected dynamic request context to be excluded, got %q and %q", first, second)
+	}
+}
+
+func TestSystemInitProfileBuilderAddsRequestProfiles(t *testing.T) {
+	registry := newSystemInitTestModelRegistry(t)
+	session := contracts.QuerySession{
+		RunID:        "run-1",
+		ChatID:       "chat-1",
+		AgentKey:     "agent",
+		ModelKey:     "mock-model",
+		ToolNames:    []string{"datetime"},
+		Mode:         "REACT",
+		PromptAppend: contracts.DefaultPromptAppendConfig(),
+	}
+	toolDefs := []api.ToolDetailResponse{{
+		Name:        "datetime",
+		Description: "get current time",
+		Parameters:  map[string]any{"type": "object"},
+	}}
+
+	profiles := (SystemInitProfileBuilder{Models: registry}).BuildSystemInitProfiles(session, api.QueryRequest{
+		ChatID:  "chat-1",
+		RunID:   "run-1",
+		Message: "hello",
+	}, toolDefs, 0, 0, config.PromptsConfig{})
+
+	byKey := map[string]contracts.SystemInitProfile{}
+	for _, profile := range profiles {
+		byKey[profile.CacheKey] = profile
+	}
+	main := byKey["react:main"]
+	if main.Fingerprint == "" || len(main.Tools) != 1 {
+		t.Fatalf("expected main profile with tools, got %#v", main)
+	}
+	if main.ToolChoice != "auto" {
+		t.Fatalf("expected main toolChoice auto, got %#v", main)
+	}
+	if main.Model["id"] != "mock-model-id" || main.Model["endpoint"] != "http://example.test/v1/chat/completions" {
+		t.Fatalf("expected model snapshot, got %#v", main.Model)
+	}
+	if main.RequestOptions["temperature"] != float64(0) || main.RequestOptions["stream"] != true {
+		t.Fatalf("expected provider request options, got %#v", main.RequestOptions)
+	}
+	for _, key := range []string{"messages", "tools", "tool_choice", "model", "system"} {
+		if _, ok := main.RequestOptions[key]; ok {
+			t.Fatalf("requestOptions must not include %s: %#v", key, main.RequestOptions)
+		}
+	}
+
+	final := byKey["react:main:final"]
+	if final.Fingerprint == "" {
+		t.Fatalf("expected final no-tools profile, got %#v", byKey)
+	}
+	if len(final.Tools) != 0 || final.ToolChoice != "" {
+		t.Fatalf("expected final profile without tools/toolChoice, got %#v", final)
+	}
+	if final.RequestOptions["stream"] != true {
+		t.Fatalf("expected final request options, got %#v", final.RequestOptions)
 	}
 }
 
@@ -287,6 +348,43 @@ func fingerprintTestSession() contracts.QuerySession {
 		},
 		RuntimeEnvOverrides: map[string]string{"FOO": "bar"},
 	}
+}
+
+func newSystemInitTestModelRegistry(t *testing.T) *models.ModelRegistry {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "providers"), 0o755); err != nil {
+		t.Fatalf("mkdir providers: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "models"), 0o755); err != nil {
+		t.Fatalf("mkdir models: %v", err)
+	}
+	providerYAML := strings.Join([]string{
+		"key: mock",
+		"baseUrl: http://example.test",
+		"apiKey: token",
+		"endpointPath: /v1/chat/completions",
+		"defaultModel: mock-model",
+		"",
+	}, "\n")
+	modelYAML := strings.Join([]string{
+		"key: mock-model",
+		"provider: mock",
+		"protocol: OPENAI",
+		"modelId: mock-model-id",
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(root, "providers", "mock.yml"), []byte(providerYAML), 0o644); err != nil {
+		t.Fatalf("write provider: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "models", "mock.yml"), []byte(modelYAML), 0o644); err != nil {
+		t.Fatalf("write model: %v", err)
+	}
+	registry, err := models.LoadModelRegistry(root)
+	if err != nil {
+		t.Fatalf("load model registry: %v", err)
+	}
+	return registry
 }
 
 func assertToolNames(t *testing.T, raw []any, expected []string) {

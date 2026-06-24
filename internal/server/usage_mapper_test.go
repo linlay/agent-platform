@@ -208,12 +208,16 @@ func TestMapChatContextWindowIncludesWindowSizes(t *testing.T) {
 		"maxSize":               128000,
 		"currentSize":           100,
 		"estimatedNextCallSize": 200,
+		"modelKey":              "mock-model",
+		"reasoningEffort":       "HIGH",
 	})
 
 	if contextWindow == nil ||
 		contextWindow.MaxSize != 128000 ||
 		contextWindow.CurrentSize != 100 ||
-		contextWindow.EstimatedNextCallSize != 200 {
+		contextWindow.EstimatedNextCallSize != 200 ||
+		contextWindow.ModelKey != "mock-model" ||
+		contextWindow.ReasoningEffort != "HIGH" {
 		t.Fatalf("unexpected context window %#v", contextWindow)
 	}
 }

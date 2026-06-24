@@ -223,6 +223,7 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 			}
 			stepUsage, _ := line["usage"].(map[string]any)
 			stepContextWindow, _ := line["contextWindow"].(map[string]any)
+			stepContextWindow = contextWindowWithStepModelMetadata(stepContextWindow, line)
 			if cw := synthesizedUsageSnapshotContextWindow(stepContextWindow); len(cw) > 0 {
 				latestContextWindow = cw
 			}
@@ -541,6 +542,31 @@ func isPendingAwaitingRun(summary Summary, runID string) bool {
 	}
 	pendingRunID := strings.TrimSpace(summary.PendingAwaiting.RunID)
 	return pendingRunID != "" && pendingRunID == strings.TrimSpace(runID)
+}
+
+func contextWindowWithStepModelMetadata(contextWindow map[string]any, line map[string]any) map[string]any {
+	if len(contextWindow) == 0 {
+		return contextWindow
+	}
+	modelKey := strings.TrimSpace(stringFromAny(contextWindow["modelKey"]))
+	reasoningEffort := strings.TrimSpace(stringFromAny(contextWindow["reasoningEffort"]))
+	if modelKey == "" {
+		modelKey = strings.TrimSpace(stringFromAny(line["modelKey"]))
+	}
+	if reasoningEffort == "" {
+		reasoningEffort = strings.TrimSpace(stringFromAny(line["reasoningEffort"]))
+	}
+	if modelKey == "" && reasoningEffort == "" {
+		return contextWindow
+	}
+	out := cloneStringAnyMap(contextWindow)
+	if modelKey != "" {
+		out["modelKey"] = modelKey
+	}
+	if reasoningEffort != "" {
+		out["reasoningEffort"] = reasoningEffort
+	}
+	return out
 }
 
 func extractStepCost(usage map[string]any) (currency string, inputHit, inputMiss, output, total float64) {

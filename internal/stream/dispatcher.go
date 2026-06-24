@@ -252,6 +252,12 @@ func usageSnapshotEvent(runID string, taskID string, chatID string, modelKey str
 		"currentSize":           currentContextSize,
 		"estimatedNextCallSize": estimatedNextCallSize,
 	}
+	if modelKey != "" {
+		contextWindowPayload["modelKey"] = modelKey
+	}
+	if reasoningEffort != "" {
+		contextWindowPayload["reasoningEffort"] = reasoningEffort
+	}
 	payload := map[string]any{
 		"runId":         runID,
 		"chatId":        chatID,
