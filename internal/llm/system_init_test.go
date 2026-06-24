@@ -95,15 +95,8 @@ func TestSystemInitProfileBuilderAddsRequestProfiles(t *testing.T) {
 		}
 	}
 
-	final := byKey["react:main:final"]
-	if final.Fingerprint == "" {
-		t.Fatalf("expected final no-tools profile, got %#v", byKey)
-	}
-	if len(final.Tools) != 0 || final.ToolChoice != "" {
-		t.Fatalf("expected final profile without tools/toolChoice, got %#v", final)
-	}
-	if final.RequestOptions["stream"] != true {
-		t.Fatalf("expected final request options, got %#v", final.RequestOptions)
+	if _, ok := byKey["react:main:final"]; ok {
+		t.Fatalf("did not expect unused final profile to be generated: %#v", byKey)
 	}
 }
 

@@ -37,7 +37,7 @@ func (s *Server) prepareSystemInitCache(req api.QueryRequest, session *contracts
 	}
 	cache := make(map[string]contracts.SystemInitSnapshot, len(profiles))
 	pendingSystems := make([]chat.QueryLineSystemInit, 0, len(profiles))
-	for _, profile := range profiles {
+	for index, profile := range profiles {
 		initLine := systemInits[profile.CacheKey]
 		system := chat.QueryLineSystemInit{
 			Fingerprint:    profile.Fingerprint,
@@ -48,9 +48,6 @@ func (s *Server) prepareSystemInitCache(req api.QueryRequest, session *contracts
 			ToolChoice:     profile.ToolChoice,
 			RequestOptions: cloneMap(profile.RequestOptions),
 		}
-		if initLine == nil || !sameSystemInitPayload(initLine, system) {
-			pendingSystems = append(pendingSystems, system)
-		}
 		if initLine != nil && sameSystemInitPayload(initLine, system) {
 			cache[profile.CacheKey] = contracts.SystemInitSnapshot{
 				Fingerprint:    initLine.Fingerprint,
@@ -60,15 +57,19 @@ func (s *Server) prepareSystemInitCache(req api.QueryRequest, session *contracts
 				ToolChoice:     initLine.ToolChoice,
 				RequestOptions: cloneMap(initLine.RequestOptions),
 			}
-		} else {
-			cache[profile.CacheKey] = contracts.SystemInitSnapshot{
-				Fingerprint:    profile.Fingerprint,
-				SystemMessage:  cloneMap(profile.SystemMessage),
-				Tools:          cloneAnySlice(profile.Tools),
-				Model:          cloneMap(profile.Model),
-				ToolChoice:     profile.ToolChoice,
-				RequestOptions: cloneMap(profile.RequestOptions),
-			}
+			continue
+		}
+		if index != 0 {
+			continue
+		}
+		pendingSystems = append(pendingSystems, system)
+		cache[profile.CacheKey] = contracts.SystemInitSnapshot{
+			Fingerprint:    profile.Fingerprint,
+			SystemMessage:  cloneMap(profile.SystemMessage),
+			Tools:          cloneAnySlice(profile.Tools),
+			Model:          cloneMap(profile.Model),
+			ToolChoice:     profile.ToolChoice,
+			RequestOptions: cloneMap(profile.RequestOptions),
 		}
 	}
 	if len(cache) > 0 {
@@ -105,7 +106,10 @@ func (s *Server) buildSystemInitsForChildTask(req api.QueryRequest, session *con
 		s.deps.Config.Prompts,
 	)
 	systems := make([]chat.QueryLineSystemInit, 0, len(profiles))
-	for _, profile := range profiles {
+	for index, profile := range profiles {
+		if index > 0 {
+			break
+		}
 		systems = append(systems, chat.QueryLineSystemInit{
 			CacheKey:       profile.CacheKey,
 			Fingerprint:    profile.Fingerprint,

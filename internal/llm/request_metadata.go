@@ -1,6 +1,8 @@
 package llm
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"strings"
 
@@ -14,7 +16,7 @@ func (s *llmRunStream) buildLLMRequestDelta(prepared preparedProviderRequest, ef
 		Model:           s.currentModelSnapshot(prepared),
 		ModelKey:        strings.TrimSpace(s.model.Key),
 		ReasoningEffort: s.effectiveReasoningEffort(),
-		System:          s.currentInlineSystemSnapshot(),
+		System:          s.currentInlineSystemSnapshot(prepared, effectiveToolChoice),
 		SystemRef:       s.currentSystemRef(),
 		ToolChoice:      strings.TrimSpace(effectiveToolChoice),
 		RequestOptions:  requestOptionsFromPreparedBody(prepared.RequestBody),
@@ -68,7 +70,7 @@ func requestOptionsFromPreparedBody(body map[string]any) map[string]any {
 	return cloneAnyMapViaJSON(out)
 }
 
-func (s *llmRunStream) currentInlineSystemSnapshot() map[string]any {
+func (s *llmRunStream) currentInlineSystemSnapshot(prepared preparedProviderRequest, effectiveToolChoice string) map[string]any {
 	if len(s.currentSystemRef()) > 0 {
 		return nil
 	}
@@ -76,10 +78,47 @@ func (s *llmRunStream) currentInlineSystemSnapshot() map[string]any {
 	if len(systemMessage) == 0 && len(s.toolSpecs) == 0 {
 		return nil
 	}
-	return map[string]any{
+	out := map[string]any{
+		"cacheKey":      s.currentSystemCacheKey(),
 		"systemMessage": systemMessage,
 		"tools":         openAIToolSpecsToAny(s.toolSpecs),
 	}
+	if model := s.currentModelSnapshot(prepared); len(model) > 0 {
+		out["model"] = model
+	}
+	if toolChoice := strings.TrimSpace(effectiveToolChoice); toolChoice != "" {
+		out["toolChoice"] = toolChoice
+	}
+	if requestOptions := requestOptionsFromPreparedBody(prepared.RequestBody); len(requestOptions) > 0 {
+		out["requestOptions"] = requestOptions
+	}
+	out["fingerprint"] = fingerprintLLMCallProfile(out)
+	return out
+}
+
+func (s *llmRunStream) currentSystemCacheKey() string {
+	if s == nil {
+		return ""
+	}
+	cacheKey := strings.TrimSpace(s.systemInitCacheKey)
+	if cacheKey == "" {
+		cacheKey = SystemInitCacheKey(s.session.Mode, s.promptBuildOptions.Stage)
+	}
+	return cacheKey
+}
+
+func fingerprintLLMCallProfile(profile map[string]any) string {
+	if len(profile) == 0 {
+		return ""
+	}
+	payload := cloneAnyMapViaJSON(profile)
+	delete(payload, "fingerprint")
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(raw)
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 func firstSystemMessageSnapshot(messages []openAIMessage) map[string]any {

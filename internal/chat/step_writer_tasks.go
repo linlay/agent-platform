@@ -24,6 +24,7 @@ type taskStepBuffer struct {
 	pendingModel            map[string]any
 	pendingInputMessages    []map[string]any
 	pendingSystem           map[string]any
+	pendingStepSystems      []QueryLineSystemInit
 }
 
 func (w *StepWriter) ensureTaskBuffer(taskID string) *taskStepBuffer {
@@ -82,6 +83,12 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 	if len(buffer.pendingSystemRef) > 0 {
 		line.SystemRef = cloneStepSystemPayload(buffer.pendingSystemRef)
 	}
+	if len(buffer.pendingStepSystems) > 0 {
+		line.Systems = cloneQueryLineSystemInits(buffer.pendingStepSystems)
+		for _, profile := range buffer.pendingStepSystems {
+			w.markKnownSystemProfile(profile)
+		}
+	}
 	if len(buffer.pendingSystem) > 0 {
 		line.System = cloneStepSystemPayload(buffer.pendingSystem)
 	}
@@ -127,6 +134,7 @@ func (w *StepWriter) flushTaskStep(taskID string) {
 	buffer.pendingInputMessages = nil
 	buffer.pendingSystem = nil
 	buffer.pendingSystemRef = nil
+	buffer.pendingStepSystems = nil
 }
 
 func (w *StepWriter) flushAllTaskSteps() {

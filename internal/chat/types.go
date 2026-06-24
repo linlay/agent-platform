@@ -148,31 +148,32 @@ type ToolCompactLine struct {
 //	{ _type: "plan-execute", stage: "execute", seq: N, messages: [...] }
 //	{ _type: "plan-execute", stage: "summary", messages: [...] }
 type StepLine struct {
-	ChatID          string           `json:"chatId"`
-	RunID           string           `json:"runId"`
-	UpdatedAt       int64            `json:"updatedAt"`
-	LiveSeq         int64            `json:"liveSeq,omitempty"`
-	ModelKey        string           `json:"modelKey,omitempty"`
-	ReasoningEffort string           `json:"reasoningEffort,omitempty"`
-	Model           map[string]any   `json:"model,omitempty"`
-	ToolChoice      string           `json:"toolChoice,omitempty"`
-	RequestOptions  map[string]any   `json:"requestOptions,omitempty"`
-	TaskID          string           `json:"taskId,omitempty"`
-	TaskStatus      string           `json:"taskStatus,omitempty"`
-	TaskSubAgentKey string           `json:"taskSubAgentKey,omitempty"`
-	System          map[string]any   `json:"system,omitempty"`
-	SystemRef       map[string]any   `json:"systemRef,omitempty"`
-	Debug           map[string]any   `json:"debug,omitempty"`
-	InputMessages   []map[string]any `json:"inputMessages,omitempty"`
-	Messages        []StoredMessage  `json:"messages"`
-	Awaiting        []map[string]any `json:"awaiting,omitempty"`
-	Usage           map[string]any   `json:"usage,omitempty"`
-	ContextWindow   map[string]any   `json:"contextWindow,omitempty"`
-	Type            string           `json:"_type"`
-	Stage           string           `json:"stage,omitempty"`
-	Seq             int              `json:"seq,omitempty"`
-	Plan            *PlanState       `json:"plan,omitempty"`
-	Artifacts       *ArtifactState   `json:"artifacts,omitempty"`
+	ChatID          string                `json:"chatId"`
+	RunID           string                `json:"runId"`
+	UpdatedAt       int64                 `json:"updatedAt"`
+	LiveSeq         int64                 `json:"liveSeq,omitempty"`
+	ModelKey        string                `json:"modelKey,omitempty"`
+	ReasoningEffort string                `json:"reasoningEffort,omitempty"`
+	Model           map[string]any        `json:"model,omitempty"`
+	ToolChoice      string                `json:"toolChoice,omitempty"`
+	RequestOptions  map[string]any        `json:"requestOptions,omitempty"`
+	TaskID          string                `json:"taskId,omitempty"`
+	TaskStatus      string                `json:"taskStatus,omitempty"`
+	TaskSubAgentKey string                `json:"taskSubAgentKey,omitempty"`
+	System          map[string]any        `json:"system,omitempty"`
+	SystemRef       map[string]any        `json:"systemRef,omitempty"`
+	Systems         []QueryLineSystemInit `json:"systems,omitempty"`
+	Debug           map[string]any        `json:"debug,omitempty"`
+	InputMessages   []map[string]any      `json:"inputMessages,omitempty"`
+	Messages        []StoredMessage       `json:"messages"`
+	Awaiting        []map[string]any      `json:"awaiting,omitempty"`
+	Usage           map[string]any        `json:"usage,omitempty"`
+	ContextWindow   map[string]any        `json:"contextWindow,omitempty"`
+	Type            string                `json:"_type"`
+	Stage           string                `json:"stage,omitempty"`
+	Seq             int                   `json:"seq,omitempty"`
+	Plan            *PlanState            `json:"plan,omitempty"`
+	Artifacts       *ArtifactState        `json:"artifacts,omitempty"`
 }
 
 type StepApproval struct {

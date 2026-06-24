@@ -46,7 +46,7 @@ func (s *FileStore) BuildLLMChatFromJSONL(chatID string, options LLMChatBuildOpt
 	}
 	target := lines[targetIndex]
 	prefix := lines[:targetIndex]
-	systemCache := buildLLMSystemCache(prefix)
+	systemCache := buildLLMSystemCache(lines[:targetIndex+1])
 
 	messages := rawMessagesFromJSONLLines(prefix)
 	if inputMessages := messageMapsFromAny(target["inputMessages"]); len(inputMessages) > 0 {
@@ -159,7 +159,8 @@ func lineIsStep(line map[string]any) bool {
 func buildLLMSystemCache(lines []map[string]any) map[string]llmSystemSnapshot {
 	cache := map[string]llmSystemSnapshot{}
 	for _, line := range lines {
-		if strings.TrimSpace(stringValue(line["_type"])) != "query" {
+		lineType := strings.TrimSpace(stringValue(line["_type"]))
+		if lineType != "query" && !lineIsStep(line) {
 			continue
 		}
 		for _, raw := range anySlice(line["systems"]) {

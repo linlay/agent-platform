@@ -23,7 +23,6 @@ func (b SystemInitProfileBuilder) BuildSystemInitProfiles(session contracts.Quer
 	if b.Models == nil {
 		return profiles
 	}
-	profiles = appendFinalSystemInitProfiles(session, req, profiles)
 	for i := range profiles {
 		b.applyRequestProfile(&profiles[i], session, req)
 	}
@@ -63,34 +62,6 @@ func BuildSystemInitProfiles(session contracts.QuerySession, req api.QueryReques
 		}
 		return []contracts.SystemInitProfile{buildDefaultSystemInitProfile(session, req, toolDefs, stage)}
 	}
-}
-
-func appendFinalSystemInitProfiles(session contracts.QuerySession, req api.QueryRequest, profiles []contracts.SystemInitProfile) []contracts.SystemInitProfile {
-	if len(profiles) == 0 {
-		return profiles
-	}
-	out := append([]contracts.SystemInitProfile(nil), profiles...)
-	for _, profile := range profiles {
-		if len(profile.Tools) == 0 {
-			continue
-		}
-		stage := profileRuntimeStage(session, profile)
-		systemPrompt := buildSystemPrompt(session, req, session.ModelKey, PromptBuildOptions{
-			Stage:                 stage,
-			ToolDefinitions:       nil,
-			IncludeAfterCallHints: false,
-		})
-		finalProfile := contracts.SystemInitProfile{
-			CacheKey:      FinalSystemInitCacheKey(profile.CacheKey),
-			Mode:          profile.Mode,
-			Stage:         profile.Stage,
-			Fingerprint:   ComputeSystemInitFingerprint(session, stage+":final", nil),
-			SystemMessage: map[string]any{"role": "system", "content": systemPrompt},
-			Tools:         []any{},
-		}
-		out = append(out, finalProfile)
-	}
-	return out
 }
 
 func FinalSystemInitCacheKey(cacheKey string) string {
