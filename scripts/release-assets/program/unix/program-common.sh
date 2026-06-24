@@ -11,7 +11,6 @@ ENV_FILE="$CONFIG_ROOT/.env"
 BACKEND_BIN="$BUNDLE_ROOT/backend/$APP_NAME"
 CONFIG_DIR="$CONFIG_ROOT/configs"
 RUNTIME_ROOT="$BUNDLE_ROOT/runtime"
-RUNTIME_ROOT_EXPLICIT=0
 RUN_DIR="$BUNDLE_ROOT/run"
 LOG_DIR="$RUN_DIR"
 LOG_FILE="$LOG_DIR/$APP_NAME.log"
@@ -61,12 +60,6 @@ program_apply_layout_flags() {
       --config-dir)
         [[ $# -ge 2 ]] || program_die "missing value for --config-dir"
         CONFIG_ROOT="$2"
-        shift 2
-        ;;
-      --runtime-dir)
-        [[ $# -ge 2 ]] || program_die "missing value for --runtime-dir"
-        RUNTIME_ROOT="$2"
-        RUNTIME_ROOT_EXPLICIT=1
         shift 2
         ;;
       --state-dir)
@@ -156,7 +149,7 @@ program_apply_deploy_flags() {
         DEPLOY_LOCAL_PUBLIC_KEY_FILE="$2"
         shift 2
         ;;
-      --config-dir|--runtime-dir|--state-dir|--log-dir|--port|--daemon)
+      --config-dir|--state-dir|--log-dir|--port|--daemon)
         program_reject_deploy_start_arg "$1"
         ;;
       --force)
@@ -424,7 +417,7 @@ program_expand_runtime_path() {
 }
 
 program_resolve_runtime_root() {
-  if [[ "$RUNTIME_ROOT_EXPLICIT" -eq 0 && -n "${AP_RUNTIME_DIR:-}" ]]; then
+  if [[ -n "${AP_RUNTIME_DIR:-}" ]]; then
     RUNTIME_ROOT="$(program_expand_runtime_path "$AP_RUNTIME_DIR")"
   fi
 }
@@ -452,7 +445,7 @@ program_prepare_runtime_dirs() {
 }
 
 program_update_backend_args() {
-  BACKEND_ARGS=(--config-dir "$CONFIG_ROOT" --runtime-dir "$RUNTIME_ROOT")
+  BACKEND_ARGS=(--config-dir "$CONFIG_ROOT")
   if [[ -n "$PROGRAM_PORT" ]]; then
     BACKEND_ARGS+=(--port "$PROGRAM_PORT")
   fi

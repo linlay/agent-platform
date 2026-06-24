@@ -45,9 +45,8 @@ type Config struct {
 }
 
 type LoadOptions struct {
-	ConfigDir  string
-	RuntimeDir string
-	Port       string
+	ConfigDir string
+	Port      string
 }
 
 type ServerConfig struct {
@@ -507,7 +506,6 @@ func Load(optionValues ...LoadOptions) (Config, error) {
 		options = optionValues[0]
 	}
 	options.ConfigDir = resolveConfigRoot(options.ConfigDir)
-	options.RuntimeDir = strings.TrimSpace(options.RuntimeDir)
 	options.Port = strings.TrimSpace(options.Port)
 
 	cfg := defaultConfig(options)

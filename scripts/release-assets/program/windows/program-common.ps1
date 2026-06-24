@@ -10,7 +10,6 @@ $Script:EnvFile = Join-Path $Script:ConfigRoot '.env'
 $Script:BackendBin = Join-Path (Join-Path $Script:BundleRoot 'backend') 'agent-platform.exe'
 $Script:ConfigDir = Join-Path $Script:ConfigRoot 'configs'
 $Script:RuntimeRoot = Join-Path $Script:BundleRoot 'runtime'
-$Script:RuntimeRootExplicit = $false
 $Script:RunDir = Join-Path $Script:BundleRoot 'run'
 $Script:LogDir = $Script:RunDir
 $Script:PidFile = Join-Path $Script:RunDir 'agent-platform.pid'
@@ -54,10 +53,6 @@ function Update-ProgramPaths {
 function Set-ProgramLayoutOption([string]$Name, [string]$Value) {
   switch ($Name) {
     '--config-dir' { $Script:ConfigRoot = $Value }
-    '--runtime-dir' {
-      $Script:RuntimeRoot = $Value
-      $Script:RuntimeRootExplicit = $true
-    }
     '--state-dir' { $Script:RunDir = $Value }
     '--log-dir' { $Script:LogDir = $Value }
     '--port' { $Script:ProgramPort = $Value }
@@ -69,7 +64,7 @@ function Set-ProgramLayoutOption([string]$Name, [string]$Value) {
 function Set-ProgramLayoutArgs([string[]]$Arguments) {
   for ($i = 0; $i -lt $Arguments.Length; $i++) {
     $name = $Arguments[$i]
-    if (@('--config-dir', '--runtime-dir', '--state-dir', '--log-dir', '--port') -notcontains $name) {
+    if (@('--config-dir', '--state-dir', '--log-dir', '--port') -notcontains $name) {
       Fail-Program "unsupported argument: $name"
     }
     if ($i + 1 -ge $Arguments.Length) {
@@ -117,7 +112,7 @@ function Set-ProgramDeployOption([string]$Name, [string]$Value) {
 function Set-ProgramDeployArgs([string[]]$Arguments) {
   for ($i = 0; $i -lt $Arguments.Length; $i++) {
     $name = $Arguments[$i]
-    if (@('--config-dir', '--runtime-dir', '--state-dir', '--log-dir', '--port', '--daemon') -contains $name) {
+    if (@('--config-dir', '--state-dir', '--log-dir', '--port', '--daemon') -contains $name) {
       Reject-ProgramDeployStartArg $name
     }
     if ($name -eq '--force') {
@@ -366,7 +361,7 @@ function Resolve-ProgramRuntimePath {
 }
 
 function Resolve-ProgramRuntimeRoot {
-  if (-not $Script:RuntimeRootExplicit -and $env:AP_RUNTIME_DIR) {
+  if ($env:AP_RUNTIME_DIR) {
     $Script:RuntimeRoot = Resolve-ProgramRuntimePath $env:AP_RUNTIME_DIR
   }
 }
@@ -430,7 +425,7 @@ function Start-ProgramBackend {
       New-Item -ItemType File -Path $Script:ErrorLogFile -Force | Out-Null
     }
 
-    $backendArgs = @('--config-dir', $Script:ConfigRoot, '--runtime-dir', $Script:RuntimeRoot)
+    $backendArgs = @('--config-dir', $Script:ConfigRoot)
     if (-not [string]::IsNullOrWhiteSpace($Script:ProgramPort)) {
       $backendArgs += @('--port', $Script:ProgramPort)
     }
@@ -447,7 +442,7 @@ function Start-ProgramBackend {
     return
   }
 
-  $backendArgs = @('--config-dir', $Script:ConfigRoot, '--runtime-dir', $Script:RuntimeRoot)
+  $backendArgs = @('--config-dir', $Script:ConfigRoot)
   if (-not [string]::IsNullOrWhiteSpace($Script:ProgramPort)) {
     $backendArgs += @('--port', $Script:ProgramPort)
   }

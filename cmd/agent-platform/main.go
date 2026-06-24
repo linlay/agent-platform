@@ -88,7 +88,6 @@ func parseConfigOptions(args []string) (config.LoadOptions, error) {
 	fs.SetOutput(io.Discard)
 	options := config.LoadOptions{}
 	fs.StringVar(&options.ConfigDir, "config-dir", "", "configuration root containing .env and configs/")
-	fs.StringVar(&options.RuntimeDir, "runtime-dir", "", "runtime data root")
 	fs.StringVar(&options.Port, "port", "", "server listen port")
 	if err := fs.Parse(args); err != nil {
 		return config.LoadOptions{}, err

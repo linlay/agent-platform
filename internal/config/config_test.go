@@ -1432,30 +1432,6 @@ func TestLoadIgnoresUnsupportedRuntimePathEnvs(t *testing.T) {
 	})
 }
 
-func TestLoadRuntimeDirOptionOverridesRuntimeDirEnv(t *testing.T) {
-	withIsolatedEnv(t, map[string]string{
-		"AP_RUNTIME_DIR": filepath.Join("var", "env-runtime"),
-	}, func() {
-		runtimeRoot := filepath.Join("var", "flag-runtime")
-		cfg, err := Load(LoadOptions{RuntimeDir: runtimeRoot})
-		if err != nil {
-			t.Fatalf("load config: %v", err)
-		}
-		if cfg.Paths.RegistriesDir != filepath.Join(runtimeRoot, "registries") {
-			t.Fatalf("unexpected registries dir: %q", cfg.Paths.RegistriesDir)
-		}
-		if cfg.Paths.ChatsDir != filepath.Join(runtimeRoot, "chats") {
-			t.Fatalf("unexpected chats dir: %q", cfg.Paths.ChatsDir)
-		}
-		if cfg.Paths.MemoryDir != filepath.Join(runtimeRoot, "memory") {
-			t.Fatalf("unexpected memory dir: %q", cfg.Paths.MemoryDir)
-		}
-		if cfg.Paths.PanDir != filepath.Join(runtimeRoot, "pan") {
-			t.Fatalf("unexpected pan dir: %q", cfg.Paths.PanDir)
-		}
-	})
-}
-
 func TestLoadRuntimeDirAllowsCommonDirectoryOverrides(t *testing.T) {
 	panDir := filepath.Join(t.TempDir(), "custom-pan")
 	if err := os.Mkdir(panDir, 0o755); err != nil {
