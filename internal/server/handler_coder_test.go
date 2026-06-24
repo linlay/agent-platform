@@ -165,6 +165,266 @@ func TestCoderModelOptionsFiltersEmptyAPIKeyAndShowsACPPassthrough(t *testing.T)
 	}
 }
 
+func TestCoderModelOptionsForACPCoderAgentOnlyShowsACPPassthrough(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		setupRuntime: func(_ string, cfg *config.Config) {
+			if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "providers", "ready.yml"), []byte(strings.Join([]string{
+				"key: ready",
+				"baseUrl: http://127.0.0.1:1",
+				"apiKey: ready-key",
+				"defaultModel: ready-model",
+			}, "\n")), 0o644); err != nil {
+				t.Fatalf("write ready provider: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "models", "ready-model.yml"), []byte(strings.Join([]string{
+				"key: ready-model",
+				"name: Ready Model",
+				"provider: ready",
+				"protocol: OPENAI",
+				"modelId: ready-model-id",
+			}, "\n")), 0o644); err != nil {
+				t.Fatalf("write ready model: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "models", "gpt-5.5.yml"), []byte(strings.Join([]string{
+				"key: gpt-5.5",
+				"name: GPT-5.5",
+				"protocol: ACP_PASSTHROUGH",
+				"modelId: gpt-5.5",
+				"serviceTiers:",
+				"  - fast",
+			}, "\n")), 0o644); err != nil {
+				t.Fatalf("write acp model: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "models", "gpt-5.4.yml"), []byte(strings.Join([]string{
+				"key: gpt-5.4",
+				"name: GPT-5.4",
+				"protocol: ACP_PASSTHROUGH",
+				"modelId: gpt-5.4",
+			}, "\n")), 0o644); err != nil {
+				t.Fatalf("write alternate acp model: %v", err)
+			}
+			agentDir := filepath.Join(cfg.Paths.AgentsDir, "codex-agent")
+			if err := os.MkdirAll(agentDir, 0o755); err != nil {
+				t.Fatalf("mkdir acp agent: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte(strings.Join([]string{
+				"key: codex-agent",
+				"name: Codex Agent",
+				"mode: CODER",
+				"modelConfig:",
+				"  modelKey: gpt-5.5",
+				"runtimeConfig:",
+				"  acpProxyId: codex",
+			}, "\n")), 0o644); err != nil {
+				t.Fatalf("write acp agent: %v", err)
+			}
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/model-options?agentKey=codex-agent", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("options returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var response api.ApiResponse[api.CoderModelOptionsResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode options response: %v", err)
+	}
+	if response.Data.DefaultModelKey != "gpt-5.5" {
+		t.Fatalf("expected acp default, got %#v", response.Data)
+	}
+	if response.Data.DefaultServiceTier != "STANDARD" {
+		t.Fatalf("expected acp default service tier STANDARD, got %#v", response.Data)
+	}
+	if got := strings.Join(serviceTierKeys(response.Data.ServiceTiers), ","); got != "STANDARD,FAST" {
+		t.Fatalf("service tier options = %#v", response.Data.ServiceTiers)
+	}
+	for _, model := range response.Data.Models {
+		if model.Key == "ready-model" {
+			t.Fatalf("expected provider model to be hidden for acp coder agent, got %#v", response.Data.Models)
+		}
+	}
+	if len(response.Data.Models) != 2 {
+		t.Fatalf("expected only acp models, got %#v", response.Data.Models)
+	}
+	for _, model := range response.Data.Models {
+		if model.Key == "gpt-5.5" && (len(model.ServiceTiers) != 1 || model.ServiceTiers[0] != "fast") {
+			t.Fatalf("expected gpt-5.5 fast service tier, got %#v", model.ServiceTiers)
+		}
+	}
+}
+
+func TestCoderModelOptionsForACPCoderAgentUsesProxyModelDiscovery(t *testing.T) {
+	upstream := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/models" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"code": 0,
+			"msg":  "success",
+			"data": map[string]any{
+				"models": []map[string]any{
+					{
+						"key":           "gpt-5.5",
+						"name":          "GPT-5.5",
+						"modelId":       "gpt-5.5",
+						"contextWindow": 272000,
+						"isReasoner":    true,
+						"serviceTiers":  []string{"FAST"},
+					},
+				},
+			},
+		}); err != nil {
+			t.Fatalf("encode proxy model response: %v", err)
+		}
+	}))
+	defer upstream.Close()
+
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		configure: func(cfg *config.Config) {
+			cfg.CoderSettings.ACPProxies = map[string]config.CoderACPProxyConfig{
+				"codex": {BaseURL: upstream.URL, Timeout: 5},
+			}
+		},
+		setupRuntime: func(_ string, cfg *config.Config) {
+			agentDir := filepath.Join(cfg.Paths.AgentsDir, "codex-agent")
+			if err := os.MkdirAll(agentDir, 0o755); err != nil {
+				t.Fatalf("mkdir acp agent: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte(strings.Join([]string{
+				"key: codex-agent",
+				"name: Codex Agent",
+				"mode: CODER",
+				"modelConfig:",
+				"  modelKey: gpt-5.5",
+				"runtimeConfig:",
+				"  acpProxyId: codex",
+			}, "\n")), 0o644); err != nil {
+				t.Fatalf("write acp agent: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "models", "gpt-5.5.yml"), []byte(strings.Join([]string{
+				"key: gpt-5.5",
+				"name: Old Local Model",
+				"protocol: ACP_PASSTHROUGH",
+				"modelId: stale-local-model",
+			}, "\n")), 0o644); err != nil {
+				t.Fatalf("write local fallback model: %v", err)
+			}
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/model-options?agentKey=codex-agent", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("options returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var response api.ApiResponse[api.CoderModelOptionsResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode options response: %v", err)
+	}
+	if len(response.Data.Models) != 1 {
+		t.Fatalf("models = %#v", response.Data.Models)
+	}
+	if response.Data.DefaultServiceTier != "STANDARD" {
+		t.Fatalf("expected acp default service tier STANDARD, got %#v", response.Data)
+	}
+	if got := strings.Join(serviceTierKeys(response.Data.ServiceTiers), ","); got != "STANDARD,FAST" {
+		t.Fatalf("service tier options = %#v", response.Data.ServiceTiers)
+	}
+	model := response.Data.Models[0]
+	if model.Key != "gpt-5.5" || model.Name != "GPT-5.5" || model.ModelID != "gpt-5.5" || model.ContextWindow != 272000 || model.Protocol != "ACP_PASSTHROUGH" {
+		t.Fatalf("unexpected proxy model %#v", model)
+	}
+	if strings.Join(model.ServiceTiers, ",") != "FAST" {
+		t.Fatalf("service tiers = %#v", model.ServiceTiers)
+	}
+}
+
+func serviceTierKeys(options []api.ServiceTierOption) []string {
+	out := make([]string, 0, len(options))
+	for _, option := range options {
+		out = append(out, option.Key)
+	}
+	return out
+}
+
+func TestCoderModelOptionsForNativeCoderAgentHidesACPPassthrough(t *testing.T) {
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		setupRuntime: func(_ string, cfg *config.Config) {
+			if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "providers", "ready.yml"), []byte(strings.Join([]string{
+				"key: ready",
+				"baseUrl: http://127.0.0.1:1",
+				"apiKey: ready-key",
+				"defaultModel: ready-model",
+			}, "\n")), 0o644); err != nil {
+				t.Fatalf("write ready provider: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "models", "ready-model.yml"), []byte(strings.Join([]string{
+				"key: ready-model",
+				"name: Ready Model",
+				"provider: ready",
+				"protocol: OPENAI",
+				"modelId: ready-model-id",
+			}, "\n")), 0o644); err != nil {
+				t.Fatalf("write ready model: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(cfg.Paths.RegistriesDir, "models", "gpt-5.5.yml"), []byte(strings.Join([]string{
+				"key: gpt-5.5",
+				"name: GPT-5.5",
+				"protocol: ACP_PASSTHROUGH",
+				"modelId: gpt-5.5",
+			}, "\n")), 0o644); err != nil {
+				t.Fatalf("write acp model: %v", err)
+			}
+			agentDir := filepath.Join(cfg.Paths.AgentsDir, "native-agent")
+			if err := os.MkdirAll(agentDir, 0o755); err != nil {
+				t.Fatalf("mkdir native agent: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte(strings.Join([]string{
+				"key: native-agent",
+				"name: Native Agent",
+				"mode: CODER",
+				"modelConfig:",
+				"  modelKey: ready-model",
+			}, "\n")), 0o644); err != nil {
+				t.Fatalf("write native agent: %v", err)
+			}
+		},
+	})
+
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/model-options?agentKey=native-agent", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("options returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var response api.ApiResponse[api.CoderModelOptionsResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode options response: %v", err)
+	}
+	if response.Data.DefaultModelKey != "ready-model" {
+		t.Fatalf("expected native default, got %#v", response.Data)
+	}
+	foundReady := false
+	for _, model := range response.Data.Models {
+		if model.Key == "gpt-5.5" {
+			t.Fatalf("expected acp passthrough model to be hidden for native coder, got %#v", response.Data.Models)
+		}
+		if model.Key == "ready-model" {
+			foundReady = true
+		}
+	}
+	if !foundReady {
+		t.Fatalf("expected ready provider model to stay visible, got %#v", response.Data.Models)
+	}
+}
+
 func TestCoderModelOptionsDefaultSkipsHiddenProviderModel(t *testing.T) {
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)

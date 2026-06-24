@@ -459,6 +459,152 @@ func TestAgentModelConfigUpdatePersistsNoneReasoning(t *testing.T) {
 	}
 }
 
+func TestAgentModelConfigUpdatePersistsACPServiceTierFromProxyModels(t *testing.T) {
+	upstream := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/models" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"code": 0,
+			"msg":  "success",
+			"data": map[string]any{
+				"models": []map[string]any{
+					{
+						"key":          "gpt-5.5",
+						"name":         "GPT-5.5",
+						"modelId":      "gpt-5.5",
+						"isReasoner":   true,
+						"serviceTiers": []string{"FAST"},
+					},
+				},
+			},
+		}); err != nil {
+			t.Fatalf("encode proxy model response: %v", err)
+		}
+	}))
+	defer upstream.Close()
+
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		configure: func(cfg *config.Config) {
+			cfg.CoderSettings.ACPProxies = map[string]config.CoderACPProxyConfig{
+				"codex": {BaseURL: upstream.URL, Timeout: 5},
+			}
+		},
+		setupRuntime: func(_ string, cfg *config.Config) {
+			agentDir := filepath.Join(cfg.Paths.AgentsDir, "codex-agent")
+			if err := os.MkdirAll(agentDir, 0o755); err != nil {
+				t.Fatalf("mkdir acp agent: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte(strings.Join([]string{
+				"key: codex-agent",
+				"name: Codex Agent",
+				"mode: CODER",
+				"runtimeConfig:",
+				"  acpProxyId: codex",
+			}, "\n")), 0o644); err != nil {
+				t.Fatalf("write acp agent: %v", err)
+			}
+		},
+	})
+
+	updated := postAgentJSON[api.AgentModelConfigResponse](t, fixture.server, "/api/agent/model-config", map[string]any{
+		"agentKey":        "codex-agent",
+		"modelKey":        "gpt-5.5",
+		"reasoningEffort": "LOW",
+		"serviceTier":     "FAST",
+	})
+	if updated.ModelConfig["modelKey"] != "gpt-5.5" || updated.ModelConfig["serviceTier"] != "FAST" {
+		t.Fatalf("expected ACP model config with service tier, got %#v", updated.ModelConfig)
+	}
+	data, err := os.ReadFile(filepath.Join(fixture.cfg.Paths.AgentsDir, "codex-agent", "agent.yml"))
+	if err != nil {
+		t.Fatalf("read updated ACP agent file: %v", err)
+	}
+	text := string(data)
+	if !strings.Contains(text, "modelKey: gpt-5.5") || !strings.Contains(text, "serviceTier: FAST") {
+		t.Fatalf("agent.yml did not persist ACP service tier:\n%s", text)
+	}
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/model-options?agentKey=codex-agent", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("model options returned %d: %s", rec.Code, rec.Body.String())
+	}
+	var response api.ApiResponse[api.CoderModelOptionsResponse]
+	if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode model options response: %v", err)
+	}
+	if response.Data.DefaultServiceTier != "FAST" {
+		t.Fatalf("expected ACP default service tier FAST, got %#v", response.Data)
+	}
+}
+
+func TestAgentModelConfigUpdateRejectsUnsupportedACPServiceTier(t *testing.T) {
+	upstream := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"code": 0,
+			"msg":  "success",
+			"data": map[string]any{
+				"models": []map[string]any{
+					{
+						"key":          "gpt-5.5",
+						"name":         "GPT-5.5",
+						"modelId":      "gpt-5.5",
+						"isReasoner":   true,
+						"serviceTiers": []string{"FAST"},
+					},
+				},
+			},
+		}); err != nil {
+			t.Fatalf("encode proxy model response: %v", err)
+		}
+	}))
+	defer upstream.Close()
+
+	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
+		writeProviderSSE(t, w, `[DONE]`)
+	}, testFixtureOptions{
+		configure: func(cfg *config.Config) {
+			cfg.CoderSettings.ACPProxies = map[string]config.CoderACPProxyConfig{
+				"codex": {BaseURL: upstream.URL, Timeout: 5},
+			}
+		},
+		setupRuntime: func(_ string, cfg *config.Config) {
+			agentDir := filepath.Join(cfg.Paths.AgentsDir, "codex-agent")
+			if err := os.MkdirAll(agentDir, 0o755); err != nil {
+				t.Fatalf("mkdir acp agent: %v", err)
+			}
+			if err := os.WriteFile(filepath.Join(agentDir, "agent.yml"), []byte(strings.Join([]string{
+				"key: codex-agent",
+				"name: Codex Agent",
+				"mode: CODER",
+				"runtimeConfig:",
+				"  acpProxyId: codex",
+			}, "\n")), 0o644); err != nil {
+				t.Fatalf("write acp agent: %v", err)
+			}
+		},
+	})
+
+	body, err := json.Marshal(map[string]any{
+		"agentKey":        "codex-agent",
+		"modelKey":        "gpt-5.5",
+		"reasoningEffort": "LOW",
+		"serviceTier":     "FLEX",
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/agent/model-config", bytes.NewReader(body)))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
 func TestAgentModelConfigUpdateRejectsInvalidRequests(t *testing.T) {
 	fixture := newTestFixture(t)
 	workspaceDir := t.TempDir()
@@ -492,6 +638,7 @@ func TestAgentModelConfigUpdateRejectsInvalidRequests(t *testing.T) {
 		{name: "non coder", body: map[string]any{"agentKey": "react-model-errors", "modelKey": "mock-model", "reasoningEffort": "HIGH"}, status: http.StatusBadRequest},
 		{name: "unknown model", body: map[string]any{"agentKey": createdCoder.Key, "modelKey": "missing-model", "reasoningEffort": "HIGH"}, status: http.StatusBadRequest},
 		{name: "bad reasoning", body: map[string]any{"agentKey": createdCoder.Key, "modelKey": "mock-model", "reasoningEffort": "FAST"}, status: http.StatusBadRequest},
+		{name: "service tier on non acp coder", body: map[string]any{"agentKey": createdCoder.Key, "modelKey": "mock-model", "reasoningEffort": "HIGH", "serviceTier": "FAST"}, status: http.StatusBadRequest},
 		{name: "bad key", body: map[string]any{"agentKey": "../bad", "modelKey": "mock-model", "reasoningEffort": "HIGH"}, status: http.StatusBadRequest},
 	}
 	for _, tc := range cases {

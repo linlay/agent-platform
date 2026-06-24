@@ -261,7 +261,8 @@ func (s *Server) validateQueryModelOptions(options *api.QueryModelOptions, agent
 	}
 	modelKey := strings.TrimSpace(options.Key)
 	reasoningEffort := strings.TrimSpace(options.ReasoningEffort)
-	if modelKey == "" && reasoningEffort == "" {
+	serviceTier := strings.TrimSpace(options.ServiceTier)
+	if modelKey == "" && reasoningEffort == "" && serviceTier == "" {
 		return nil
 	}
 	if modelKey != "" {
@@ -269,7 +270,22 @@ func (s *Server) validateQueryModelOptions(options *api.QueryModelOptions, agent
 			return &statusError{status: http.StatusServiceUnavailable, message: "model registry is not configured"}
 		}
 		if catalog.AgentUsesACPCoderBackend(agentDef) {
-			if _, err := s.deps.Models.GetModel(modelKey); err != nil {
+			options, err, ok := s.listACPCoderModelOptions(agentDef.Key)
+			if ok {
+				if err != nil {
+					return &statusError{status: http.StatusBadGateway, message: "failed to fetch ACP CODER models: " + err.Error()}
+				}
+				found := false
+				for _, option := range options {
+					if strings.EqualFold(strings.TrimSpace(option.Key), modelKey) {
+						found = true
+						break
+					}
+				}
+				if !found {
+					return &statusError{status: http.StatusBadRequest, message: "model " + modelKey + " is not available for ACP CODER"}
+				}
+			} else if _, err := s.deps.Models.GetModel(modelKey); err != nil {
 				return &statusError{status: http.StatusBadRequest, message: err.Error()}
 			}
 		} else {
@@ -284,6 +300,24 @@ func (s *Server) validateQueryModelOptions(options *api.QueryModelOptions, agent
 	}
 	if reasoningEffort == "NONE" && !strings.EqualFold(strings.TrimSpace(agentDef.Mode), catalog.AgentModeCoder) {
 		return &statusError{status: http.StatusBadRequest, message: "model.reasoningEffort NONE is only supported for CODER agents"}
+	}
+	serviceTier, ok = normalizeQueryModelServiceTier(serviceTier)
+	if !ok {
+		return &statusError{status: http.StatusBadRequest, message: "model.serviceTier must be a non-empty string"}
+	}
+	if serviceTier != "" {
+		if !catalog.AgentUsesACPCoderBackend(agentDef) {
+			return &statusError{status: http.StatusBadRequest, message: "model.serviceTier is only supported for ACP CODER"}
+		}
+		acpOptions, err, listed := s.listACPCoderModelOptions(agentDef.Key)
+		if listed {
+			if err != nil {
+				return &statusError{status: http.StatusBadGateway, message: "failed to fetch ACP CODER models: " + err.Error()}
+			}
+			if !serviceTierAllowedForACPModel(serviceTier, modelKey, acpOptions) {
+				return &statusError{status: http.StatusBadRequest, message: "model.serviceTier " + serviceTier + " is not available for ACP CODER"}
+			}
+		}
 	}
 	return nil
 }
@@ -319,6 +353,50 @@ func normalizeQueryModelReasoningEffort(value string) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+func normalizeQueryModelServiceTier(value string) (string, bool) {
+	text := strings.ToUpper(strings.TrimSpace(value))
+	switch text {
+	case "", "STANDARD", "DEFAULT", "AUTO":
+		return "", true
+	default:
+		return text, text != ""
+	}
+}
+
+func serviceTierAllowedForACPModel(serviceTier string, modelKey string, options []api.CoderModelOption) bool {
+	serviceTier = strings.TrimSpace(serviceTier)
+	if serviceTier == "" {
+		return true
+	}
+	if strings.TrimSpace(modelKey) == "" {
+		for _, option := range options {
+			if serviceTierSupportedByACPModel(serviceTier, option) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, option := range options {
+		if strings.EqualFold(strings.TrimSpace(option.Key), modelKey) {
+			return serviceTierSupportedByACPModel(serviceTier, option)
+		}
+	}
+	return false
+}
+
+func serviceTierSupportedByACPModel(serviceTier string, option api.CoderModelOption) bool {
+	for _, rawTier := range option.ServiceTiers {
+		normalizedTier, ok := normalizeQueryModelServiceTier(rawTier)
+		if !ok || normalizedTier == "" {
+			continue
+		}
+		if strings.EqualFold(normalizedTier, serviceTier) {
+			return true
+		}
+	}
+	return false
 }
 
 func applyQueryModelOptionsToRawStageSettings(raw map[string]any, modelKey string, reasoningEffort string) map[string]any {

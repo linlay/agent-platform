@@ -290,11 +290,9 @@ func (s *Server) updateAgentModelConfig(ctx context.Context, req api.UpdateAgent
 	if !ok {
 		return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "reasoningEffort must be NONE, LOW, MEDIUM, or HIGH")
 	}
-	if s.deps.Models == nil {
-		return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusServiceUnavailable, "unavailable", "model registry is not configured")
-	}
-	if _, err := s.deps.Models.GetModel(modelKey); err != nil {
-		return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", err.Error())
+	serviceTier, ok := normalizeQueryModelServiceTier(req.ServiceTier)
+	if !ok {
+		return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "serviceTier must be a non-empty string")
 	}
 	files, found, err := editor.EditableAgent(key)
 	if err != nil {
@@ -312,6 +310,45 @@ func (s *Server) updateAgentModelConfig(ctx context.Context, req api.UpdateAgent
 	}
 	if !strings.EqualFold(strings.TrimSpace(def.Mode), catalog.AgentModeCoder) {
 		return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "agent model config can only be updated for CODER agents")
+	}
+	isACPCoder := catalog.AgentUsesACPCoderBackend(def)
+	if serviceTier != "" && !isACPCoder {
+		return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "serviceTier is only supported for ACP CODER")
+	}
+	if isACPCoder {
+		options, err, ok := s.listACPCoderModelOptions(def.Key)
+		if ok {
+			if err != nil {
+				return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadGateway, "upstream_error", "failed to fetch ACP CODER models: "+err.Error())
+			}
+			found := false
+			for _, option := range options {
+				if strings.EqualFold(strings.TrimSpace(option.Key), modelKey) {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "model "+modelKey+" is not available for ACP CODER")
+			}
+			if serviceTier != "" && !serviceTierAllowedForACPModel(serviceTier, modelKey, options) {
+				return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", "serviceTier "+serviceTier+" is not available for ACP CODER model "+modelKey)
+			}
+		} else {
+			if s.deps.Models == nil {
+				return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusServiceUnavailable, "unavailable", "model registry is not configured")
+			}
+			if _, err := s.deps.Models.GetModel(modelKey); err != nil {
+				return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", err.Error())
+			}
+		}
+	} else {
+		if s.deps.Models == nil {
+			return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusServiceUnavailable, "unavailable", "model registry is not configured")
+		}
+		if _, err := s.deps.Models.GetModel(modelKey); err != nil {
+			return api.AgentModelConfigResponse{}, newAgentStatusError(http.StatusBadRequest, "invalid_request", err.Error())
+		}
 	}
 
 	definition := contracts.CloneMap(files.Definition)
@@ -333,6 +370,11 @@ func (s *Server) updateAgentModelConfig(ctx context.Context, req api.UpdateAgent
 	}
 	if len(reasoning) > 0 {
 		modelConfig["reasoning"] = reasoning
+	}
+	if isACPCoder && serviceTier != "" {
+		modelConfig["serviceTier"] = serviceTier
+	} else {
+		delete(modelConfig, "serviceTier")
 	}
 	definition["modelConfig"] = modelConfig
 

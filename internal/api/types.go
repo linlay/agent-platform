@@ -137,6 +137,7 @@ type QueryModelOptions struct {
 	Key             string `json:"key,omitempty"`
 	ModelID         string `json:"modelId,omitempty"`
 	ReasoningEffort string `json:"reasoningEffort,omitempty"`
+	ServiceTier     string `json:"serviceTier,omitempty"`
 }
 
 type Scene struct {
@@ -577,6 +578,7 @@ type UpdateAgentModelConfigRequest struct {
 	AgentKey        string `json:"agentKey,omitempty"`
 	ModelKey        string `json:"modelKey"`
 	ReasoningEffort string `json:"reasoningEffort,omitempty"`
+	ServiceTier     string `json:"serviceTier,omitempty"`
 }
 
 type AgentModelConfigResponse struct {
@@ -649,22 +651,30 @@ type AgentEditorProxyConfigField struct {
 type CoderModelOptionsResponse struct {
 	Models                 []CoderModelOption      `json:"models"`
 	ReasoningEfforts       []ReasoningEffortOption `json:"reasoningEfforts"`
+	ServiceTiers           []ServiceTierOption     `json:"serviceTiers,omitempty"`
 	DefaultModelKey        string                  `json:"defaultModelKey,omitempty"`
 	DefaultReasoningEffort string                  `json:"defaultReasoningEffort"`
+	DefaultServiceTier     string                  `json:"defaultServiceTier,omitempty"`
 }
 
 type CoderModelOption struct {
-	Key           string `json:"key"`
-	Name          string `json:"name,omitempty"`
-	Provider      string `json:"provider,omitempty"`
-	ModelID       string `json:"modelId,omitempty"`
-	Protocol      string `json:"protocol,omitempty"`
-	IsReasoner    bool   `json:"isReasoner"`
-	IsVision      bool   `json:"isVision"`
-	ContextWindow int    `json:"contextWindow,omitempty"`
+	Key           string   `json:"key"`
+	Name          string   `json:"name,omitempty"`
+	Provider      string   `json:"provider,omitempty"`
+	ModelID       string   `json:"modelId,omitempty"`
+	Protocol      string   `json:"protocol,omitempty"`
+	IsReasoner    bool     `json:"isReasoner"`
+	IsVision      bool     `json:"isVision"`
+	ContextWindow int      `json:"contextWindow,omitempty"`
+	ServiceTiers  []string `json:"serviceTiers,omitempty"`
 }
 
 type ReasoningEffortOption struct {
+	Key   string `json:"key"`
+	Label string `json:"label"`
+}
+
+type ServiceTierOption struct {
 	Key   string `json:"key"`
 	Label string `json:"label"`
 }

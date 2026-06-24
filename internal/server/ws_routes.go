@@ -182,7 +182,10 @@ func (s *Server) wsAgent(_ context.Context, conn *ws.Conn, req ws.RequestFrame) 
 }
 
 func (s *Server) wsModelOptions(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {
-	response := s.buildModelOptions()
+	payload, _ := ws.DecodePayload[struct {
+		AgentKey string `json:"agentKey"`
+	}](req)
+	response := s.buildModelOptionsForAgent(payload.AgentKey)
 	conn.SendResponse(req.Type, req.ID, 0, "success", response)
 	conn.CompleteRequest(req.ID)
 }

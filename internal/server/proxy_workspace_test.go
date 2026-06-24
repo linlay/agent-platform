@@ -213,8 +213,26 @@ func TestProxyQueryDefaultsToWebSocketAndForwardsRuntimeWorkspaceRootAsCWD(t *te
 	captured := make(chan map[string]any, 1)
 	upgrader := gws.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	upstream := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/ws" {
-			t.Fatalf("expected websocket path /ws, got %s", r.URL.Path)
+		switch r.URL.Path {
+		case "/api/models":
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(map[string]any{
+				"code": 0,
+				"msg":  "success",
+				"data": map[string]any{
+					"models": []map[string]any{{
+						"key":     "gpt-5-codex",
+						"name":    "GPT-5 Codex",
+						"modelId": "gpt-5-codex",
+					}},
+				},
+			}); err != nil {
+				t.Fatalf("encode model list: %v", err)
+			}
+			return
+		case "/ws":
+		default:
+			t.Fatalf("expected /api/models or /ws, got %s", r.URL.Path)
 		}
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
@@ -290,26 +308,44 @@ func TestACPCoderQueryUsesGlobalProxyAndForwardsWorkspaceAndModel(t *testing.T) 
 	captured := make(chan map[string]any, 1)
 	upgrader := gws.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	upstream := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/ws" {
-			t.Fatalf("expected websocket path /ws, got %s", r.URL.Path)
-		}
-		conn, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			t.Fatalf("upgrade upstream websocket: %v", err)
-		}
-		defer conn.Close()
-		var frame map[string]any
-		if err := conn.ReadJSON(&frame); err != nil {
-			t.Fatalf("read upstream websocket frame: %v", err)
-		}
-		captured <- frame
-		if err := conn.WriteJSON(map[string]any{
-			"event": map[string]any{
-				"type":  "run.complete",
-				"runId": "upstream-run",
-			},
-		}); err != nil {
-			t.Fatalf("write upstream websocket completion: %v", err)
+		switch r.URL.Path {
+		case "/api/models":
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(map[string]any{
+				"code": 0,
+				"msg":  "success",
+				"data": map[string]any{
+					"models": []map[string]any{{
+						"key":     "gpt-5-codex",
+						"name":    "GPT-5 Codex",
+						"modelId": "gpt-5-codex",
+					}},
+				},
+			}); err != nil {
+				t.Fatalf("encode model list: %v", err)
+			}
+			return
+		case "/ws":
+			conn, err := upgrader.Upgrade(w, r, nil)
+			if err != nil {
+				t.Fatalf("upgrade upstream websocket: %v", err)
+			}
+			defer conn.Close()
+			var frame map[string]any
+			if err := conn.ReadJSON(&frame); err != nil {
+				t.Fatalf("read upstream websocket frame: %v", err)
+			}
+			captured <- frame
+			if err := conn.WriteJSON(map[string]any{
+				"event": map[string]any{
+					"type":  "run.complete",
+					"runId": "upstream-run",
+				},
+			}); err != nil {
+				t.Fatalf("write upstream websocket completion: %v", err)
+			}
+		default:
+			t.Fatalf("expected /api/models or /ws, got %s", r.URL.Path)
 		}
 	}))
 	defer upstream.Close()
@@ -377,26 +413,44 @@ func TestACPCoderForwardsProviderlessModel(t *testing.T) {
 	captured := make(chan map[string]any, 1)
 	upgrader := gws.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	upstream := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/ws" {
-			t.Fatalf("expected websocket path /ws, got %s", r.URL.Path)
-		}
-		conn, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			t.Fatalf("upgrade upstream websocket: %v", err)
-		}
-		defer conn.Close()
-		var frame map[string]any
-		if err := conn.ReadJSON(&frame); err != nil {
-			t.Fatalf("read upstream websocket frame: %v", err)
-		}
-		captured <- frame
-		if err := conn.WriteJSON(map[string]any{
-			"event": map[string]any{
-				"type":  "run.complete",
-				"runId": "upstream-run",
-			},
-		}); err != nil {
-			t.Fatalf("write upstream websocket completion: %v", err)
+		switch r.URL.Path {
+		case "/api/models":
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(map[string]any{
+				"code": 0,
+				"msg":  "success",
+				"data": map[string]any{
+					"models": []map[string]any{{
+						"key":     "gpt-5-codex",
+						"name":    "GPT-5 Codex",
+						"modelId": "gpt-5-codex",
+					}},
+				},
+			}); err != nil {
+				t.Fatalf("encode model list: %v", err)
+			}
+			return
+		case "/ws":
+			conn, err := upgrader.Upgrade(w, r, nil)
+			if err != nil {
+				t.Fatalf("upgrade upstream websocket: %v", err)
+			}
+			defer conn.Close()
+			var frame map[string]any
+			if err := conn.ReadJSON(&frame); err != nil {
+				t.Fatalf("read upstream websocket frame: %v", err)
+			}
+			captured <- frame
+			if err := conn.WriteJSON(map[string]any{
+				"event": map[string]any{
+					"type":  "run.complete",
+					"runId": "upstream-run",
+				},
+			}); err != nil {
+				t.Fatalf("write upstream websocket completion: %v", err)
+			}
+		default:
+			t.Fatalf("expected /api/models or /ws, got %s", r.URL.Path)
 		}
 	}))
 	defer upstream.Close()

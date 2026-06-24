@@ -513,6 +513,7 @@ func parseAgentFileRaw(path string) (AgentDefinition, map[string]any, error) {
 		return AgentDefinition{}, nil, err
 	}
 	def.ModelKey = stringNode(modelConfig["modelKey"])
+	def.ServiceTier = stringNode(modelConfig["serviceTier"])
 	toolConfig := mapNode(root["toolConfig"])
 	def.Tools = listStrings(toolConfig["tools"])
 	def.Skills = listStrings(mapNode(root["skillConfig"])["skills"])

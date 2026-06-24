@@ -38,6 +38,7 @@ type AgentDefinition struct {
 	Greetings        []string
 	Wonders          []string
 	ModelKey         string
+	ServiceTier      string
 	Mode             string
 	ACPProxyID       string
 	VisibilityScopes []string

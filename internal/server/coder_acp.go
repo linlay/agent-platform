@@ -57,22 +57,28 @@ func (s *Server) acpCoderModelOptions(session contracts.QuerySession, existing *
 	}
 	modelKey := strings.TrimSpace(session.ModelKey)
 	reasoningEffort := ""
+	serviceTier := ""
 	if existing != nil {
 		reasoningEffort = strings.TrimSpace(existing.ReasoningEffort)
+		serviceTier = strings.TrimSpace(existing.ServiceTier)
 		if strings.TrimSpace(existing.Key) != "" {
 			modelKey = strings.TrimSpace(existing.Key)
 		}
 	}
 	if modelKey == "" {
-		if existing == nil || reasoningEffort == "" {
+		if existing == nil || (reasoningEffort == "" && serviceTier == "") {
 			return existing
 		}
-		return &api.QueryModelOptions{ReasoningEffort: reasoningEffort}
+		return &api.QueryModelOptions{
+			ReasoningEffort: reasoningEffort,
+			ServiceTier:     serviceTier,
+		}
 	}
 	return &api.QueryModelOptions{
 		Key:             modelKey,
 		ModelID:         s.modelIDForKey(modelKey),
 		ReasoningEffort: reasoningEffort,
+		ServiceTier:     serviceTier,
 	}
 }
 

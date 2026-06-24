@@ -53,6 +53,7 @@ type ModelDefinition struct {
 	Pricing       ModelPricing
 	Headers       map[string]string
 	Compat        map[string]any
+	ServiceTiers  []string
 }
 
 const ProtocolACPPassthrough = "ACP_PASSTHROUGH"
@@ -508,6 +509,7 @@ func loadModels(dir string) (map[string]ModelDefinition, error) {
 			Pricing:       loadModelPricing(values["pricing"]),
 			Headers:       stringMapNode(values["headers"]),
 			Compat:        contracts.CloneAnyMap(contracts.AnyMapNode(values["compat"])),
+			ServiceTiers:  stringSliceNode(values["serviceTiers"]),
 		}
 	}
 	return result, nil
@@ -540,6 +542,24 @@ func stringMapNode(value any) map[string]string {
 	}
 	if len(result) == 0 {
 		return nil
+	}
+	return result
+}
+
+func stringSliceNode(value any) []string {
+	items, ok := value.([]any)
+	if !ok || len(items) == 0 {
+		return nil
+	}
+	result := make([]string, 0, len(items))
+	seen := map[string]bool{}
+	for _, item := range items {
+		text := strings.TrimSpace(stringNode(item))
+		if text == "" || seen[text] {
+			continue
+		}
+		seen[text] = true
+		result = append(result, text)
 	}
 	return result
 }
