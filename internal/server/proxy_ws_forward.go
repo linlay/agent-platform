@@ -78,6 +78,9 @@ func proxyQueryPayload(req api.QueryRequest, proxy *catalog.ProxyConfig, referen
 		"scene":       req.Scene,
 		"stream":      true,
 	}
+	if req.PlanningMode != nil {
+		payload["planningMode"] = *req.PlanningMode
+	}
 	return map[string]any{
 		"frame":   "request",
 		"type":    "request.query",
@@ -419,6 +422,9 @@ func newProxyEventRecorder(
 	if req.IncludeFullText {
 		queryPayload["includeFullText"] = true
 	}
+	if req.PlanningMode != nil {
+		queryPayload["planningMode"] = *req.PlanningMode
+	}
 	stepWriter.OnEvent(stream.EventData{
 		Type:      "request.query",
 		Timestamp: time.Now().UnixMilli(),
@@ -577,6 +583,7 @@ func (r *proxyEventRecorder) OnEvent(event stream.EventData) {
 	case "tool.result",
 		"task.start", "task.complete", "task.cancel", "task.error",
 		"plan.create", "plan.update", "artifact.publish",
+		"planning.start", "planning.delta", "planning.end", "planning.snapshot",
 		"request.submit", "awaiting.answer", "request.steer":
 		r.stepWriter.OnEvent(event)
 	}

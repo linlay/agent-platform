@@ -51,7 +51,7 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 		return
 	}
 
-	body, err := json.Marshal(map[string]any{
+	bodyPayload := map[string]any{
 		"requestId":   req.RequestID,
 		"runId":       req.RunID,
 		"chatId":      req.ChatID,
@@ -63,7 +63,11 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 		"params":      proxyForwardParams(req, prepared.session.WorkspaceRoot),
 		"model":       req.Model,
 		"scene":       req.Scene,
-	})
+	}
+	if req.PlanningMode != nil {
+		bodyPayload["planningMode"] = *req.PlanningMode
+	}
+	body, err := json.Marshal(bodyPayload)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))
 		return
@@ -129,6 +133,9 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 		}
 		if req.IncludeFullText {
 			queryPayload["includeFullText"] = true
+		}
+		if req.PlanningMode != nil {
+			queryPayload["planningMode"] = *req.PlanningMode
 		}
 		stepWriter.OnEvent(stream.EventData{
 			Type:      "request.query",
@@ -317,6 +324,7 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 		case "tool.result",
 			"task.start", "task.complete", "task.cancel", "task.error",
 			"plan.create", "plan.update", "artifact.publish",
+			"planning.start", "planning.delta", "planning.end", "planning.snapshot",
 			"awaiting.ask", "request.submit", "awaiting.answer", "request.steer":
 			stepWriter.OnEvent(event)
 		}

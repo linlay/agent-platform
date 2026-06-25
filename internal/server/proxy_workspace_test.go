@@ -555,22 +555,74 @@ func TestACPCoderRejectsRequestCWDParam(t *testing.T) {
 	}
 }
 
-func TestACPCoderRejectsPlanningMode(t *testing.T) {
+func TestACPCoderForwardsPlanningMode(t *testing.T) {
+	workspace := t.TempDir()
+	writeTestGitHead(t, workspace, "main")
+	captured := make(chan map[string]any, 1)
+	upgrader := gws.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
+	upstream := newLoopbackServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/models":
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(map[string]any{
+				"code": 0,
+				"msg":  "success",
+				"data": map[string]any{
+					"models": []map[string]any{{
+						"key":     "gpt-5-codex",
+						"name":    "GPT-5 Codex",
+						"modelId": "gpt-5-codex",
+					}},
+				},
+			}); err != nil {
+				t.Fatalf("encode model list: %v", err)
+			}
+			return
+		case "/ws":
+			conn, err := upgrader.Upgrade(w, r, nil)
+			if err != nil {
+				t.Fatalf("upgrade upstream websocket: %v", err)
+			}
+			defer conn.Close()
+			var frame map[string]any
+			if err := conn.ReadJSON(&frame); err != nil {
+				t.Fatalf("read upstream websocket frame: %v", err)
+			}
+			captured <- frame
+			if err := conn.WriteJSON(map[string]any{
+				"event": map[string]any{
+					"type":  "run.complete",
+					"runId": "upstream-run",
+				},
+			}); err != nil {
+				t.Fatalf("write upstream websocket completion: %v", err)
+			}
+		default:
+			t.Fatalf("expected /api/models or /ws, got %s", r.URL.Path)
+		}
+	}))
+	defer upstream.Close()
+
 	fixture := newTestFixtureWithModelHandlerAndOptions(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	}, testFixtureOptions{
 		configure: func(cfg *config.Config) {
 			cfg.CoderSettings.ACPProxies = map[string]config.CoderACPProxyConfig{
-				"codex": {BaseURL: "http://127.0.0.1:3211"},
+				"codex": {BaseURL: upstream.URL},
 			}
 		},
 		setupRuntime: func(_ string, cfg *config.Config) {
 			writeAgentConfig(t, filepath.Join(cfg.Paths.AgentsDir, "mock-agent", "agent.yml"), []string{
 				"key: mock-agent",
 				"mode: CODER",
+				"modelConfig:",
+				"  modelKey: gpt-5-codex",
 				"runtimeConfig:",
 				"  acpProxyId: codex",
-				"  workspaceRoot: " + filepath.ToSlash(t.TempDir()),
+				"  workspaceRoot: " + filepath.ToSlash(workspace),
+				"projectConfig:",
+				"  git:",
+				"    expectedBranch: main",
 			})
 		},
 	})
@@ -578,8 +630,22 @@ func TestACPCoderRejectsPlanningMode(t *testing.T) {
 	rec := httptest.NewRecorder()
 	body := bytes.NewBufferString(`{"agentKey":"mock-agent","message":"plan","planningMode":true}`)
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", body))
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "planningMode is not supported") {
-		t.Fatalf("expected planningMode rejection, got %d: %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var frame map[string]any
+	select {
+	case frame = <-captured:
+	default:
+		t.Fatalf("expected upstream websocket frame")
+	}
+	inner, ok := frame["payload"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected payload object, got %#v", frame["payload"])
+	}
+	if inner["planningMode"] != true {
+		t.Fatalf("expected planningMode=true forwarded, got %#v", inner)
 	}
 }
 
@@ -619,6 +685,10 @@ func TestProxyQueryPayloadWithWorkspaceAddsCWDForWebSocket(t *testing.T) {
 		AgentKey:    "proxy-agent",
 		Message:     "hello",
 		AccessLevel: "default",
+		PlanningMode: func() *bool {
+			v := false
+			return &v
+		}(),
 		Params: map[string]any{
 			"channel": "desktop",
 		},
@@ -634,6 +704,9 @@ func TestProxyQueryPayloadWithWorkspaceAddsCWDForWebSocket(t *testing.T) {
 	}
 	if inner["accessLevel"] != "default" {
 		t.Fatalf("expected websocket accessLevel default, got %#v", inner["accessLevel"])
+	}
+	if inner["planningMode"] != false {
+		t.Fatalf("expected explicit planningMode=false, got %#v", inner["planningMode"])
 	}
 	if params["channel"] != "desktop" || params["cwd"] != "/workspace/project" {
 		t.Fatalf("unexpected websocket params %#v", params)

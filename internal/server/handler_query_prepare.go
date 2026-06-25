@@ -130,12 +130,6 @@ func (s *Server) prepareQueryAdmission(r *http.Request, requireMessage bool) (qu
 			message: "params.cwd is reserved for proxy-routed agents; configure runtimeConfig.workspaceRoot in agent.yml",
 		}
 	}
-	if catalog.AgentUsesACPCoderBackend(agentDef) && req.PlanningMode != nil && *req.PlanningMode {
-		return queryAdmission{}, &statusError{
-			status:  http.StatusBadRequest,
-			message: "planningMode is not supported for ACP CODER",
-		}
-	}
 	if statusErr := s.applyProxyRoutingConfig(&agentDef); statusErr != nil {
 		return queryAdmission{}, statusErr
 	}
