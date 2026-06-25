@@ -394,8 +394,8 @@ program_load_env() {
 }
 
 program_apply_server_port_env() {
-  if [[ -z "${SERVER_PORT:-}" ]]; then
-    export SERVER_PORT="11949"
+  if [[ -n "${SERVER_PORT:-}" ]]; then
+    export SERVER_PORT
   fi
 }
 

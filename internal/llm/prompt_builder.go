@@ -11,6 +11,7 @@ import (
 
 	"agent-platform/internal/api"
 	. "agent-platform/internal/contracts"
+	"agent-platform/internal/querymessages"
 	"agent-platform/internal/referenceprompt"
 )
 
@@ -72,6 +73,9 @@ func buildSystemPromptSections(session QuerySession, req api.QueryRequest, optio
 	appendSection("workspace-agents", "Workspace AGENTS.md", "workspace.agents", buildWorkspaceAgentsSection(session.WorkspaceAgentsPrompt))
 	appendSection("static-memory", "Static Memory Prompt", "memory.static", strings.TrimSpace(session.StaticMemoryPrompt))
 	appendSection("reference-protocol", "Reference Context Protocol", "references.protocol", referenceprompt.SystemPrompt)
+	if session.AdvancedUserPrompt {
+		appendSection("advanced-user-prompt-protocol", "Advanced User Prompt Protocol", "query.advanced_user_prompt", querymessages.AdvancedUserPromptSystemPrompt)
+	}
 	appendRuntimeSystemPromptSections(&sections, session, req)
 	appendSection("stage-instructions", "Stage Instructions Prompt", "stage.instructions", stageInstructionsPrompt)
 	appendSection("stage-system", "Stage System Prompt", "stage.system", stageSystemPrompt)

@@ -75,6 +75,27 @@ func TestBuildSystemPromptIncludesStableReferenceProtocol(t *testing.T) {
 	}
 }
 
+func TestBuildSystemPromptIncludesAdvancedUserPromptProtocolWhenEnabled(t *testing.T) {
+	prompt := buildSystemPrompt(QuerySession{
+		AgentKey:           "demo",
+		Mode:               "REACT",
+		AdvancedUserPrompt: true,
+	}, api.QueryRequest{}, "", PromptBuildOptions{})
+
+	if !strings.Contains(prompt, `<advanced_user_prompt schema="zenmind.user_prompt.v1">`) ||
+		!strings.Contains(prompt, "The user's actual request is inside <user_message>.") {
+		t.Fatalf("expected advanced user prompt protocol in system prompt, got %q", prompt)
+	}
+
+	disabled := buildSystemPrompt(QuerySession{
+		AgentKey: "demo",
+		Mode:     "REACT",
+	}, api.QueryRequest{}, "", PromptBuildOptions{})
+	if strings.Contains(disabled, `<advanced_user_prompt schema="zenmind.user_prompt.v1">`) {
+		t.Fatalf("did not expect advanced user prompt protocol when disabled, got %q", disabled)
+	}
+}
+
 func TestBuildSystemPromptAddsCoderSystemPromptOnlyForMainCoderStage(t *testing.T) {
 	session := QuerySession{
 		AgentKey:          "coder",

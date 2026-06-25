@@ -344,8 +344,8 @@ function Import-ProgramEnv {
 }
 
 function Set-ProgramServerPortEnv {
-  if ([string]::IsNullOrWhiteSpace($env:SERVER_PORT)) {
-    $env:SERVER_PORT = '11949'
+  if (-not [string]::IsNullOrWhiteSpace($env:SERVER_PORT)) {
+    [Environment]::SetEnvironmentVariable('SERVER_PORT', $env:SERVER_PORT, 'Process')
   }
 }
 
