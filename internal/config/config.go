@@ -21,6 +21,7 @@ type Config struct {
 	ImageGenerate   ImageGenerateConfig
 	Providers       CatalogConfig
 	Models          CatalogConfig
+	Query           QueryConfig
 	Automation      AutomationConfig
 	Billing         BillingConfig
 	Memory          MemoryConfig
@@ -74,6 +75,10 @@ type CatalogConfig struct {
 type SkillCatalogConfig struct {
 	CatalogConfig
 	MaxPromptChars int
+}
+
+type QueryConfig struct {
+	AdvancedUserPrompt bool
 }
 
 type PromptsConfig struct {

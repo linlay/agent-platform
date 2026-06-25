@@ -18,6 +18,9 @@
 skills:
   max-prompt-chars: 8000
 
+query:
+  advanced-user-prompt: false
+
 auth:
   enabled: true
   # jwks-uri:

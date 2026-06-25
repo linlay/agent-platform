@@ -20,10 +20,18 @@ func FormatUserMessage(message string, references []api.Reference) string {
 }
 
 func FormatReferencesBlock(references []api.Reference) string {
+	list := FormatReferencesList(references)
+	if strings.TrimSpace(list) == "" {
+		return ""
+	}
+	return "[References]\n" + list
+}
+
+func FormatReferencesList(references []api.Reference) string {
 	if len(references) == 0 {
 		return ""
 	}
-	lines := []string{"[References]"}
+	lines := make([]string, 0, len(references))
 	for _, reference := range references {
 		item := formatReference(reference)
 		if len(item) == 0 {
@@ -34,7 +42,7 @@ func FormatReferencesBlock(references []api.Reference) string {
 			lines = append(lines, "  "+field)
 		}
 	}
-	if len(lines) == 1 {
+	if len(lines) == 0 {
 		return ""
 	}
 	return strings.Join(lines, "\n")

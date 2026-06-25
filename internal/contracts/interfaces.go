@@ -221,6 +221,7 @@ type QuerySession struct {
 	MemoryUsageSummary    *api.MemoryUsageSummary
 	RuntimeContext        RuntimeRequestContext
 	PromptAppend          PromptAppendConfig
+	AdvancedUserPrompt    bool
 	StaticMemoryPrompt    string
 	SkillCatalogPrompt    string
 	SystemInitCache       map[string]SystemInitSnapshot

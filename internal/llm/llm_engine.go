@@ -248,7 +248,14 @@ func (e *LLMAgentEngine) buildCurrentMessagesForRequest(req api.QueryRequest, se
 			isVision = model.IsVision
 		}
 	}
-	return querymessages.BuildMessages(e.cfg.Paths.ChatsDir, req.ChatID, req.Role, req.Message, req.References, isVision, e.llmConsoleEnabled(llmConsoleMedia))
+	return querymessages.BuildMessagesWithOptions(e.cfg.Paths.ChatsDir, req.ChatID, req.Role, req.Message, req.References, isVision, e.llmConsoleEnabled(llmConsoleMedia), querymessages.BuildOptions{
+		AdvancedUserPrompt: session.AdvancedUserPrompt,
+		RunID:              session.RunID,
+		RequestID:          session.RequestID,
+		AgentKey:           session.AgentKey,
+		TeamID:             session.TeamID,
+		Scene:              req.Scene,
+	})
 }
 
 func (e *LLMAgentEngine) resolveMaxSteps(session QuerySession, budgetStage string) int {

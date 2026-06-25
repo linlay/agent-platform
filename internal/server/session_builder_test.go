@@ -199,6 +199,100 @@ func TestBuildQuerySessionDoesNotDefaultProxyWorkspaceToChatDir(t *testing.T) {
 	}
 }
 
+func TestBuildQuerySessionAdvancedUserPromptForNativeAgent(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Config{
+		Paths: config.PathsConfig{
+			ChatsDir: filepath.Join(root, "chats"),
+		},
+		Query: config.QueryConfig{
+			AdvancedUserPrompt: true,
+		},
+	}
+	def := catalog.AgentDefinition{
+		Key:      "native-agent",
+		Mode:     "REACT",
+		ModelKey: "mock-model",
+	}
+	server := &Server{deps: Dependencies{Config: cfg}}
+	session, err := server.BuildQuerySession(context.Background(), api.QueryRequest{
+		RequestID: "req-1",
+		RunID:     "run-1",
+		AgentKey:  "native-agent",
+		TeamID:    "team-1",
+		ChatID:    "chat-1",
+		Role:      "user",
+		Message:   "hello",
+		Scene:     &api.Scene{Title: "Desktop", URL: "https://example.com/app"},
+	}, chat.Summary{ChatID: "chat-1"}, def, querySessionBuildOptions{})
+	if err != nil {
+		t.Fatalf("build query session: %v", err)
+	}
+	if !session.AdvancedUserPrompt {
+		t.Fatalf("expected advanced user prompt to be enabled")
+	}
+	if len(session.CurrentMessages) != 1 {
+		t.Fatalf("expected one current message, got %#v", session.CurrentMessages)
+	}
+	content, _ := session.CurrentMessages[0]["content"].(string)
+	for _, expected := range []string{
+		`<advanced_user_prompt schema="zenmind.user_prompt.v1">`,
+		"<run_context>",
+		"runId: run-1",
+		"requestId: req-1",
+		"agentKey: native-agent",
+		"teamId: team-1",
+		"role: user",
+		"sceneTitle: Desktop",
+		"sceneUrl: https://example.com/app",
+		"<user_message>\nhello\n</user_message>",
+	} {
+		if !strings.Contains(content, expected) {
+			t.Fatalf("expected %q in current message, got %q", expected, content)
+		}
+	}
+	if strings.Contains(content, "chatId:") {
+		t.Fatalf("did not expect chatId in current message, got %q", content)
+	}
+}
+
+func TestBuildQuerySessionAdvancedUserPromptDisabledForProxyAgent(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Config{
+		Paths: config.PathsConfig{
+			ChatsDir: filepath.Join(root, "chats"),
+		},
+		Query: config.QueryConfig{
+			AdvancedUserPrompt: true,
+		},
+	}
+	def := catalog.AgentDefinition{
+		Key:      "proxy-agent",
+		Mode:     "PROXY",
+		ModelKey: "mock-model",
+		ProxyConfig: &catalog.ProxyConfig{
+			BaseURL: "http://proxy.example",
+		},
+	}
+	server := &Server{deps: Dependencies{Config: cfg}}
+	session, err := server.BuildQuerySession(context.Background(), api.QueryRequest{
+		RunID:    "run-1",
+		AgentKey: "proxy-agent",
+		ChatID:   "chat-1",
+		Role:     "user",
+		Message:  "hello",
+	}, chat.Summary{ChatID: "chat-1"}, def, querySessionBuildOptions{})
+	if err != nil {
+		t.Fatalf("build query session: %v", err)
+	}
+	if session.AdvancedUserPrompt {
+		t.Fatalf("expected advanced user prompt disabled for proxy agent")
+	}
+	if len(session.CurrentMessages) != 1 || session.CurrentMessages[0]["content"] != "hello" {
+		t.Fatalf("expected plain current message for proxy agent, got %#v", session.CurrentMessages)
+	}
+}
+
 func TestBuildQuerySessionLoadsWorkspaceAgentsForCoder(t *testing.T) {
 	root := t.TempDir()
 	workspace := filepath.Join(root, "workspace")

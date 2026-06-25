@@ -50,6 +50,9 @@ func TestLoadDefaults(t *testing.T) {
 			if cfg.Billing.Currency != "CNY" {
 				t.Fatalf("expected default billing currency CNY, got %q", cfg.Billing.Currency)
 			}
+			if cfg.Query.AdvancedUserPrompt {
+				t.Fatalf("expected advanced user prompt disabled by default")
+			}
 			if cfg.SSE.HeartbeatInterval != 30 {
 				t.Fatalf("expected default heartbeat interval 30, got %d", cfg.SSE.HeartbeatInterval)
 			}
@@ -357,6 +360,8 @@ func TestLoadRuntimeConfigFromFile(t *testing.T) {
 			"      timeout: 650\n" +
 			"resource:\n" +
 			"  ticket-ttl-seconds: 777\n" +
+			"query:\n" +
+			"  advanced-user-prompt: true\n" +
 			"container-hub:\n" +
 			"  base-url: http://runtime-hub\n" +
 			"  auth-token: runtime-token\n" +
@@ -404,6 +409,9 @@ func TestLoadRuntimeConfigFromFile(t *testing.T) {
 						}
 						if cfg.ResourceTicket.TTLSeconds != 777 {
 							t.Fatalf("unexpected resource ticket ttl: %d", cfg.ResourceTicket.TTLSeconds)
+						}
+						if !cfg.Query.AdvancedUserPrompt {
+							t.Fatalf("expected advanced user prompt from runtime yaml")
 						}
 						if cfg.Desktop.Action.BridgeURL != "http://127.0.0.3:17101/actions/runtime" || cfg.Desktop.Action.RequestTimeout != 23 {
 							t.Fatalf("unexpected desktop action config: %#v", cfg.Desktop.Action)

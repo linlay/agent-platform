@@ -69,6 +69,10 @@ func (c *Config) applySkillsValues(values map[string]any) {
 	c.Skills.MaxPromptChars = intValue(anyValue(values["max-prompt-chars"], c.Skills.MaxPromptChars), c.Skills.MaxPromptChars)
 }
 
+func (c *Config) applyQueryValues(values map[string]any) {
+	c.Query.AdvancedUserPrompt = boolValue(anyValue(values["advanced-user-prompt"], c.Query.AdvancedUserPrompt), c.Query.AdvancedUserPrompt)
+}
+
 func (c *Config) applyAuthValues(values map[string]any) {
 	c.Auth.Enabled = boolValue(anyValue(values["enabled"], c.Auth.Enabled), c.Auth.Enabled)
 	c.Auth.JWKSURI = stringValue(anyValue(values["jwks-uri"], c.Auth.JWKSURI), c.Auth.JWKSURI)
@@ -121,6 +125,9 @@ func (c *Config) applyRuntimeFile(path string) error {
 	}
 	if skills, ok := values["skills"].(map[string]any); ok && len(skills) > 0 {
 		c.applySkillsValues(skills)
+	}
+	if query, ok := values["query"].(map[string]any); ok && len(query) > 0 {
+		c.applyQueryValues(query)
 	}
 	if auth, ok := values["auth"].(map[string]any); ok && len(auth) > 0 {
 		c.applyAuthValues(auth)

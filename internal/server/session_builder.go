@@ -148,6 +148,7 @@ func (s *Server) BuildQuerySession(ctx context.Context, req api.QueryRequest, su
 		MemoryUsageSummary:     memoryUsageSummary,
 		RuntimeContext:         runtimeContext,
 		PromptAppend:           promptAppend,
+		AdvancedUserPrompt:     s.deps.Config.Query.AdvancedUserPrompt && !isProxyRoutedAgent(agentDef),
 		StaticMemoryPrompt:     staticMemoryPrompt,
 		SkillCatalogPrompt:     buildSkillCatalogPrompt(agentDef, s.deps.Config.Paths.SkillsMarketDir, promptAppend),
 		SoulPrompt:             agentDef.SoulPrompt,
@@ -185,7 +186,14 @@ func (s *Server) buildCurrentMessages(req api.QueryRequest, session contracts.Qu
 			isVision = model.IsVision
 		}
 	}
-	return querymessages.BuildMessages(s.deps.Config.Paths.ChatsDir, req.ChatID, req.Role, req.Message, req.References, isVision, false)
+	return querymessages.BuildMessagesWithOptions(s.deps.Config.Paths.ChatsDir, req.ChatID, req.Role, req.Message, req.References, isVision, false, querymessages.BuildOptions{
+		AdvancedUserPrompt: session.AdvancedUserPrompt,
+		RunID:              session.RunID,
+		RequestID:          session.RequestID,
+		AgentKey:           session.AgentKey,
+		TeamID:             session.TeamID,
+		Scene:              req.Scene,
+	})
 }
 
 func coderSystemPrompt(mode string, prompt string) string {
