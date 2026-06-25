@@ -11,7 +11,7 @@ description: >-
 type: function
 viewportType: builtin
 viewportKey: question_dialog
-clientVisible: true
+clientVisible: false
 submitResultFormat: qa
 inputSchema:
   type: object

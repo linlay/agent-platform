@@ -128,7 +128,6 @@ func (s *Server) registerWSRoutes(handler *ws.Handler) {
 	handler.RegisterRoute("/api/viewport", s.wsViewport)
 	handler.RegisterRoute("/api/resource", s.wsResource)
 	handler.RegisterRoute("/api/upload", s.wsDownload)
-	handler.RegisterRoute("/api/pull", s.wsDownload)
 }
 
 func (s *Server) wsAgents(_ context.Context, conn *ws.Conn, req ws.RequestFrame) {

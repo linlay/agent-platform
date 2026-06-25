@@ -509,22 +509,38 @@ func TestBroadcastDefinitionsStayAlignedAcrossHTTPAndWS(t *testing.T) {
 	assertContains(t, handlerQuery, `s.broadcastChatReadState("chat.unread"`)
 	assertContains(t, wsRoutes, `handler.RegisterRoute("/api/agents", s.wsAgents)`)
 	assertContains(t, wsRoutes, `handler.RegisterRoute("/api/attach"`)
+	assertContains(t, wsRoutes, `handler.RegisterRoute("/api/resource", s.wsResource)`)
+	assertContains(t, wsRoutes, `handler.RegisterRoute("/api/upload", s.wsDownload)`)
 	assertNotContains(t, wsRoutes, `handler.RegisterRoute("/api/admin/agents"`)
 	assertNotContains(t, wsRoutes, `handler.RegisterRoute("/api/skills"`)
 	assertNotContains(t, wsRoutes, `handler.RegisterRoute("/api/tools"`)
+	assertNotContains(t, wsRoutes, `handler.RegisterRoute("/api/pull", s.wsDownload)`)
+	assertNotContains(t, wsRoutes, `handler.RegisterRoute("/api/push"`)
 	assertContains(t, wsQueryRoutes, `s.broadcast("run.started"`)
 	assertContains(t, wsQueryRoutes, `s.broadcast("run.finished"`)
 	assertContains(t, wsRoutes, `s.broadcastChatReadState("chat.read"`)
 	assertContains(t, wsQueryRoutes, `s.broadcastChatReadState("chat.unread"`)
 }
 
-func TestGatewayPullPathAndURLBuilderUsePullEndpoint(t *testing.T) {
+func TestGatewayPullAndPushURLBuildersUseDirectionalEndpoints(t *testing.T) {
 	if config.GatewayDownloadPath != "/api/pull" {
 		t.Fatalf("expected GatewayDownloadPath /api/pull, got %q", config.GatewayDownloadPath)
+	}
+	if config.GatewayUploadPath != "/api/push" {
+		t.Fatalf("expected GatewayUploadPath /api/push, got %q", config.GatewayUploadPath)
 	}
 	server, _, _ := newServerForHelperTests(t)
 	if got := server.buildGatewayURL("https://gateway.example", "ticket-1"); got != "https://gateway.example/api/pull/ticket-1" {
 		t.Fatalf("unexpected gateway pull url: %q", got)
+	}
+	if got := server.buildGatewayPushURL("https://gateway.example", "ticket-1"); got != "https://gateway.example/api/push/ticket-1" {
+		t.Fatalf("unexpected gateway push url: %q", got)
+	}
+	if got := server.buildGatewayPushURL("https://gateway.example", "/api/push/ticket-1?x=1"); got != "https://gateway.example/api/push/ticket-1?x=1" {
+		t.Fatalf("unexpected explicit gateway push url: %q", got)
+	}
+	if got := server.buildGatewayPushURL("https://gateway.example", "https://other.example/api/push/ticket-1?x=1"); got != "https://gateway.example/api/push/ticket-1?x=1" {
+		t.Fatalf("unexpected absolute gateway push url: %q", got)
 	}
 }
 

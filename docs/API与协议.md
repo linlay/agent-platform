@@ -23,7 +23,7 @@ GET /ws -> request / response / stream / push / error frames
 文件上传下载 -> HTTP 数据面
 ```
 
-文件传输按“HTTP 数据面 + WebSocket 控制面”划分：浏览器上传走 `POST /api/upload`，下载走 `GET /api/resource`；WebSocket `/api/upload` 与 `/api/pull` 只用于 gateway 发送 `url + metadata` 下载通知，由 platform 自己通过 HTTP 拉取并校验。
+文件传输按“HTTP 数据面 + WebSocket 控制面”划分：浏览器上传走 `POST /api/upload`，下载走 `GET /api/resource`；WebSocket `/api/upload` 用于 gateway 发送 `url + metadata` 下载通知，由 platform 按 metadata 中的 URL 自己通过 HTTP 拉取并校验（该 URL 可指向 gateway 的 `/api/pull/...`）。反向推送本地资源走 WS `/api/resource`，platform 再把文件字节 HTTP POST 到 gateway 的 `pushURL`（通常是 `/api/push/...`）；WS `/api/push` 不存在。
 
 ## HTTP API 定义
 
@@ -422,14 +422,13 @@ stream `awaiting.answer` 的 `error.code == "timeout"` 时，`error.message` 会
 | `/api/viewport` | `viewportKey`、`viewportType` | `response` |
 | `/api/resource` | `file`、`pushURL` | `response` |
 | `/api/upload` | gateway upload metadata | `response` |
-| `/api/pull` | gateway pull metadata | `response` |
 
 ## 约束与注意事项
 
 - HTTP query 参数在 WS payload 中通常以同名 JSON 字段传入。
 - `GET /api/attach`、WS `/api/detach`、`POST /api/submit`、`POST /api/steer`、`POST /api/interrupt` 都要求 `agentKey`，并校验 run 归属。
 - WS 客户端切换 current chat 时，应先对原 chat 的 active run 发送 `/api/detach`，再对新 chat 的 active run 发送 `/api/attach`；detach 只释放当前 WS 连接上的订阅流，不停止后台 run。
-- WS `/api/resource` 要求 `file + pushURL`，用于将本地资源推给 gateway；HTTP `/api/resource` 直接返回文件字节。
+- WS `/api/resource` 要求 `file + pushURL`，用于将本地资源推给 gateway；`pushURL` 是 gateway HTTP 目的地址，通常为 `/api/push/...`，WS `/api/push` 不存在；HTTP `/api/resource` 直接返回文件字节。
 - `.tools` 是隐藏工具内部目录，不通过 `/api/resource` 或 WS `/api/resource` 暴露；HTTP `/api/tool-result` 接受 `.tools/results/<toolId>.json`。
 - 反向 gateway 配置在 `configs/channels.yml`。
 - 完整 DTO 字段以 `internal/api/*.go` 为事实源。

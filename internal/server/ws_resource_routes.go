@@ -22,8 +22,9 @@ import (
 	"agent-platform/internal/ws"
 )
 
-// wsDownload 处理网关通过 WS 通知 platform "有一份用户传到企微仓库的文件、
-// 请来 /api/pull/{sha256} 取" 的场景。接受两种 payload 形状：
+// wsDownload 处理网关通过 WS /api/upload 通知 platform "有一份用户传到企微仓库的文件、
+// 请按 upload.url 拉取" 的场景。upload.url 可以指向网关 HTTP /api/pull/...。
+// 接受两种 payload 形状：
 //
 //   - nested（网关当前使用的形状）：
 //     {requestId, chatId, upload:{id,type,name,mimeType,sizeBytes,sha256,url?}}
@@ -127,6 +128,8 @@ func (s *Server) wsDownload(ctx context.Context, conn *ws.Conn, req ws.RequestFr
 	conn.CompleteRequest(req.ID)
 }
 
+// wsResource 处理 WS /api/resource 控制帧：gateway 要求 platform 将本地资源
+// 通过 HTTP POST 推送到 pushURL。pushURL 通常指向 gateway HTTP /api/push/...。
 func (s *Server) wsResource(ctx context.Context, conn *ws.Conn, req ws.RequestFrame) {
 	payload, err := ws.DecodePayload[struct {
 		File    string `json:"file"`
@@ -178,7 +181,7 @@ func (s *Server) wsResource(ctx context.Context, conn *ws.Conn, req ws.RequestFr
 		baseURL = strings.TrimSpace(gateway.BaseURL)
 		token = strings.TrimSpace(gateway.Token)
 	}
-	uploadURL := s.buildGatewayURL(baseURL, pushURL)
+	uploadURL := s.buildGatewayPushURL(baseURL, pushURL)
 	if uploadURL == "" {
 		conn.SendError(req.ID, "invalid_request", 400, "empty pushURL", nil)
 		conn.CompleteRequest(req.ID)
@@ -297,6 +300,16 @@ func (s *Server) resolveGatewayForChat(chatID string) (baseURL string, token str
 // 改用 baseURL 作为 scheme+host，只保留 path + query。
 // 这样跨机部署时不会因为网关那端写死 localhost 而打不到。
 func (s *Server) buildGatewayURL(base string, raw string) string {
+	return s.buildGatewayURLWithPath(base, raw, config.GatewayDownloadPath)
+}
+
+// buildGatewayPushURL 把 gateway 的推送地址规范化到指定 baseURL。
+// 裸 token 会按 HTTP /api/push/... 拼接；显式路径和完整 URL 保留 path + query。
+func (s *Server) buildGatewayPushURL(base string, raw string) string {
+	return s.buildGatewayURLWithPath(base, raw, config.GatewayUploadPath)
+}
+
+func (s *Server) buildGatewayURLWithPath(base string, raw string, defaultPath string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return ""
@@ -306,7 +319,7 @@ func (s *Server) buildGatewayURL(base string, raw string) string {
 		return raw
 	}
 
-	// 解析出 path + query（raw 可能是完整 URL、也可能只是 "/api/pull/..." 的相对路径）
+	// 解析出 path + query（raw 可能是完整 URL、相对路径、或裸 token）
 	var pathAndQuery string
 	if parsed, err := neturl.Parse(raw); err == nil && parsed.Path != "" {
 		pathAndQuery = parsed.EscapedPath()
@@ -320,11 +333,11 @@ func (s *Server) buildGatewayURL(base string, raw string) string {
 	if strings.HasPrefix(pathAndQuery, "/") {
 		return base + pathAndQuery
 	}
-	downloadPath := strings.Trim(config.GatewayDownloadPath, "/")
-	if downloadPath == "" {
+	defaultPath = strings.Trim(defaultPath, "/")
+	if defaultPath == "" {
 		return base + "/" + pathAndQuery
 	}
-	return base + "/" + downloadPath + "/" + pathAndQuery
+	return base + "/" + defaultPath + "/" + pathAndQuery
 }
 
 func validateDownloadedUpload(data []byte, expectedSize int64, expectedSHA256 string) error {

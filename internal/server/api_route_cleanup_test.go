@@ -171,6 +171,37 @@ func TestWebSocketSearchRoutesRenamed(t *testing.T) {
 			t.Fatalf("expected %s to be removed, got %#v", tc.route, frame)
 		}
 	}
+
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame:   ws.FrameRequest,
+		Type:    "/api/pull",
+		ID:      "unsupported_pull_type",
+		Payload: ws.MarshalPayload(map[string]any{"query": "rollback"}),
+	}); err != nil {
+		t.Fatalf("write unsupported /api/pull request: %v", err)
+	}
+	var frame ws.ResponseFrame
+	if err := conn.ReadJSON(&frame); err != nil {
+		t.Fatalf("read unsupported /api/pull frame: %v", err)
+	}
+	if frame.ID != "unsupported_pull_type" || !strings.Contains(frame.Msg, "unknown type") {
+		t.Fatalf("expected /api/pull WS type to be unsupported, got %#v", frame)
+	}
+
+	if err := conn.WriteJSON(ws.RequestFrame{
+		Frame:   ws.FrameRequest,
+		Type:    "/api/push",
+		ID:      "unsupported_push_type",
+		Payload: ws.MarshalPayload(map[string]any{"query": "rollback"}),
+	}); err != nil {
+		t.Fatalf("write unsupported /api/push request: %v", err)
+	}
+	if err := conn.ReadJSON(&frame); err != nil {
+		t.Fatalf("read unsupported /api/push frame: %v", err)
+	}
+	if frame.ID != "unsupported_push_type" || !strings.Contains(frame.Msg, "unknown type") {
+		t.Fatalf("expected /api/push WS type to be unsupported, got %#v", frame)
+	}
 }
 
 func getAPIData[T any](t *testing.T, server *Server, method string, path string, body []byte) T {
