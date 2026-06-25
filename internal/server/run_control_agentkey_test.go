@@ -211,7 +211,7 @@ func TestRunControlProxyMismatchReturnsForbiddenWithoutForwarding(t *testing.T) 
 	}
 }
 
-func TestAccessLevelHTTPReturnsUnsupportedForProxyRun(t *testing.T) {
+func TestAccessLevelHTTPForwardsForProxyRun(t *testing.T) {
 	fixture := newTestFixtureWithModelHandler(t, func(w http.ResponseWriter, r *http.Request) {
 		writeProviderSSE(t, w, `[DONE]`)
 	})
@@ -238,13 +238,23 @@ func TestAccessLevelHTTPReturnsUnsupportedForProxyRun(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
-	if !bytes.Contains(rec.Body.Bytes(), []byte(`"status":"unsupported"`)) {
-		t.Fatalf("expected unsupported response, got %s", rec.Body.String())
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"status":"updated"`)) {
+		t.Fatalf("expected updated response, got %s", rec.Body.String())
 	}
 	select {
 	case msg := <-route.send:
-		t.Fatalf("did not expect proxy forward, got %#v", msg)
+		if msg["type"] != "request.access-level" {
+			t.Fatalf("expected access-level forward, got %#v", msg)
+		}
 	case <-time.After(10 * time.Millisecond):
+		t.Fatalf("expected proxy forward")
+	}
+	status, ok := runs.RunStatus("run-proxy-access-level")
+	if !ok {
+		t.Fatalf("expected run status to exist")
+	}
+	if status.AccessLevel != contracts.AccessLevelAutoApprove {
+		t.Fatalf("expected mirrored access level to update, got %#v", status.AccessLevel)
 	}
 }
 

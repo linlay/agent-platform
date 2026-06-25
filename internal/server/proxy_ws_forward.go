@@ -65,17 +65,18 @@ func proxyUpstreamTransport(proxy *catalog.ProxyConfig) string {
 
 func proxyQueryPayload(req api.QueryRequest, proxy *catalog.ProxyConfig, references []api.Reference) map[string]any {
 	payload := map[string]any{
-		"requestId":  req.RequestID,
-		"runId":      req.RunID,
-		"chatId":     req.ChatID,
-		"agentKey":   proxyAgentKey(proxy, req.AgentKey),
-		"role":       req.Role,
-		"message":    req.Message,
-		"references": references,
-		"params":     proxyForwardParams(req, ""),
-		"model":      req.Model,
-		"scene":      req.Scene,
-		"stream":     true,
+		"requestId":   req.RequestID,
+		"runId":       req.RunID,
+		"chatId":      req.ChatID,
+		"agentKey":    proxyAgentKey(proxy, req.AgentKey),
+		"role":        req.Role,
+		"message":     req.Message,
+		"accessLevel": req.AccessLevel,
+		"references":  references,
+		"params":      proxyForwardParams(req, ""),
+		"model":       req.Model,
+		"scene":       req.Scene,
+		"stream":      true,
 	}
 	return map[string]any{
 		"frame":   "request",
@@ -222,6 +223,48 @@ func (s *Server) forwardProxySubmit(req api.SubmitRequest) (api.SubmitResponse, 
 		AwaitingID: req.AwaitingID,
 		SubmitID:   req.SubmitID,
 		Detail:     "Proxy submit forwarded",
+	}, nil, true
+}
+
+func (s *Server) forwardProxyAccessLevel(req api.AccessLevelRequest) (api.AccessLevelResponse, *statusError, bool) {
+	route, ok := s.lookupProxyRun(req.RunID)
+	if !ok {
+		return api.AccessLevelResponse{}, nil, false
+	}
+	if strings.TrimSpace(req.AgentKey) != strings.TrimSpace(route.agentKey) {
+		return api.AccessLevelResponse{}, &statusError{status: http.StatusForbidden, message: "agentKey does not match run"}, true
+	}
+	payload := map[string]any{
+		"requestId":   req.RequestID,
+		"runId":       req.RunID,
+		"chatId":      route.chatID,
+		"agentKey":    route.agentKey,
+		"accessLevel": req.AccessLevel,
+		"reason":      req.Reason,
+	}
+	if !sendProxyRouteMessage(route, map[string]any{
+		"frame":   "request",
+		"type":    "request.access-level",
+		"id":      firstNonBlank(strings.TrimSpace(req.RequestID), req.RunID),
+		"payload": payload,
+	}) {
+		return api.AccessLevelResponse{
+			Accepted:    false,
+			Status:      "unmatched",
+			RunID:       req.RunID,
+			AccessLevel: req.AccessLevel,
+			Detail:      "Proxy run is no longer active",
+		}, nil, true
+	}
+	ack := s.deps.Runs.UpdateAccessLevel(req)
+	return api.AccessLevelResponse{
+		Accepted:            ack.Accepted,
+		Status:              ack.Status,
+		RunID:               req.RunID,
+		PreviousAccessLevel: ack.PreviousAccessLevel,
+		AccessLevel:         ack.AccessLevel,
+		Version:             ack.Version,
+		Detail:              ack.Detail,
 	}, nil, true
 }
 

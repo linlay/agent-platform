@@ -54,7 +54,7 @@ func TestProxyQueryForwardsRuntimeWorkspaceRootAsCWD(t *testing.T) {
 	})
 
 	rec := httptest.NewRecorder()
-	body := bytes.NewBufferString(`{"agentKey":"mock-agent","message":"proxy me","params":{"channel":"desktop"}}`)
+	body := bytes.NewBufferString(`{"agentKey":"mock-agent","message":"proxy me","accessLevel":"default","params":{"channel":"desktop"}}`)
 	fixture.server.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/query", body))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
@@ -69,6 +69,9 @@ func TestProxyQueryForwardsRuntimeWorkspaceRootAsCWD(t *testing.T) {
 	params, ok := payload["params"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected params object, got %#v", payload["params"])
+	}
+	if payload["accessLevel"] != "default" {
+		t.Fatalf("expected upstream accessLevel default, got %#v", payload)
 	}
 	if params["channel"] != "desktop" || params["cwd"] != filepath.Clean(workspace) {
 		t.Fatalf("unexpected upstream params %#v", params)
@@ -610,11 +613,12 @@ func TestACPCoderRejectsUnknownProxyID(t *testing.T) {
 
 func TestProxyQueryPayloadWithWorkspaceAddsCWDForWebSocket(t *testing.T) {
 	req := api.QueryRequest{
-		RequestID: "req-1",
-		RunID:     "run-1",
-		ChatID:    "chat-1",
-		AgentKey:  "proxy-agent",
-		Message:   "hello",
+		RequestID:   "req-1",
+		RunID:       "run-1",
+		ChatID:      "chat-1",
+		AgentKey:    "proxy-agent",
+		Message:     "hello",
+		AccessLevel: "default",
 		Params: map[string]any{
 			"channel": "desktop",
 		},
@@ -627,6 +631,9 @@ func TestProxyQueryPayloadWithWorkspaceAddsCWDForWebSocket(t *testing.T) {
 	params, ok := inner["params"].(map[string]any)
 	if !ok {
 		t.Fatalf("expected params object, got %#v", inner["params"])
+	}
+	if inner["accessLevel"] != "default" {
+		t.Fatalf("expected websocket accessLevel default, got %#v", inner["accessLevel"])
 	}
 	if params["channel"] != "desktop" || params["cwd"] != "/workspace/project" {
 		t.Fatalf("unexpected websocket params %#v", params)

@@ -52,16 +52,17 @@ func (s *Server) handleProxyQuery(w http.ResponseWriter, r *http.Request, prepar
 	}
 
 	body, err := json.Marshal(map[string]any{
-		"requestId":  req.RequestID,
-		"runId":      req.RunID,
-		"chatId":     req.ChatID,
-		"agentKey":   proxyAgentKey(proxy, req.AgentKey),
-		"role":       req.Role,
-		"message":    req.Message,
-		"references": proxyReferences,
-		"params":     proxyForwardParams(req, prepared.session.WorkspaceRoot),
-		"model":      req.Model,
-		"scene":      req.Scene,
+		"requestId":   req.RequestID,
+		"runId":       req.RunID,
+		"chatId":      req.ChatID,
+		"agentKey":    proxyAgentKey(proxy, req.AgentKey),
+		"role":        req.Role,
+		"message":     req.Message,
+		"accessLevel": req.AccessLevel,
+		"references":  proxyReferences,
+		"params":      proxyForwardParams(req, prepared.session.WorkspaceRoot),
+		"model":       req.Model,
+		"scene":       req.Scene,
 	})
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, api.Failure(http.StatusInternalServerError, err.Error()))

@@ -34,14 +34,8 @@ func (s *Server) updateAccessLevel(req api.AccessLevelRequest) (api.AccessLevelR
 	if statusErr := s.validateRunAgentKey(req.RunID, req.AgentKey); statusErr != nil {
 		return api.AccessLevelResponse{}, statusErr
 	}
-	if _, ok := s.lookupProxyRun(req.RunID); ok {
-		return api.AccessLevelResponse{
-			Accepted:    false,
-			Status:      "unsupported",
-			RunID:       req.RunID,
-			AccessLevel: accessLevel,
-			Detail:      "accessLevel updates are not supported for PROXY/ACP runs",
-		}, nil
+	if response, statusErr, ok := s.forwardProxyAccessLevel(req); ok {
+		return response, statusErr
 	}
 	ack := s.deps.Runs.UpdateAccessLevel(req)
 	return api.AccessLevelResponse{
