@@ -16,30 +16,86 @@ import (
 
 func (t *RuntimeToolExecutor) invokeArtifactPublish(args map[string]any, execCtx *ExecutionContext) (ToolExecutionResult, error) {
 	artifacts, _ := args["artifacts"]
-	published := make([]map[string]any, 0)
+	result := artifactPublishResult{
+		Status:             "error",
+		Artifacts:          artifacts,
+		PublishedArtifacts: make([]map[string]any, 0),
+		FailedArtifacts:    make([]map[string]any, 0),
+	}
 	if execCtx != nil {
 		log.Printf("[artifact-publish] chatsDir=%s chatID=%s runID=%s artifacts=%v",
 			t.cfg.Paths.ChatsDir, execCtx.Session.ChatID, execCtx.Session.RunID, artifacts)
-		published = publishArtifacts(t.cfg.Paths.ChatsDir, execCtx.Session.ChatID, execCtx.Session.RunID, artifacts)
-		log.Printf("[artifact-publish] published=%d items=%v", len(published), published)
-		if t.artifactPusher != nil {
-			for _, item := range published {
+		result = publishArtifacts(t.cfg.Paths.ChatsDir, execCtx.Session.ChatID, execCtx.Session.RunID, artifacts)
+		log.Printf("[artifact-publish] status=%s published=%d failed=%d items=%v failures=%v",
+			result.Status, len(result.PublishedArtifacts), len(result.FailedArtifacts), result.PublishedArtifacts, result.FailedArtifacts)
+		if t.artifactPusher != nil && result.Status == "published" {
+			for _, item := range result.PublishedArtifacts {
 				t.artifactPusher.Push(execCtx.Session.ChatID, item)
 			}
 		}
+	} else {
+		result.FailedArtifacts = append(result.FailedArtifacts, artifactPublishFailure("", "invalid_artifacts", "artifact publishing requires execution context"))
 	}
-	payload := map[string]any{
-		"status":             "published",
-		"artifacts":          artifacts,
-		"publishedArtifacts": published,
+	result.refreshStatus()
+	payload := result.payload()
+	exitCode := 0
+	if result.Status != "published" {
+		exitCode = -1
 	}
-	return structuredResult(payload), nil
+	toolResult := structuredResultWithExit(payload, exitCode)
+	if exitCode != 0 {
+		toolResult.Error = "artifact_publish_failed"
+	}
+	return toolResult, nil
 }
 
 // publishArtifacts resolves artifact paths from the sandbox /workspace to the
 // local chat directory. Files already inside the current chat stay in place;
 // files outside the chat but inside the server workspace are materialized into
 // artifacts/<runId>/. Mirrors Java ArtifactPublishService.publish().
+type artifactPublishResult struct {
+	Status             string
+	Artifacts          any
+	PublishedArtifacts []map[string]any
+	FailedArtifacts    []map[string]any
+}
+
+func (r *artifactPublishResult) refreshStatus() {
+	switch {
+	case len(r.FailedArtifacts) > 0:
+		r.Status = "error"
+	case len(r.PublishedArtifacts) > 0:
+		r.Status = "published"
+	default:
+		r.Status = "error"
+	}
+}
+
+func (r artifactPublishResult) payload() map[string]any {
+	published := r.PublishedArtifacts
+	publishedCount := len(r.PublishedArtifacts)
+	if r.Status != "published" {
+		published = []map[string]any{}
+		publishedCount = 0
+	}
+	return map[string]any{
+		"status":             r.Status,
+		"artifacts":          r.Artifacts,
+		"publishedArtifacts": published,
+		"failedArtifacts":    r.FailedArtifacts,
+		"publishedCount":     publishedCount,
+		"failedCount":        len(r.FailedArtifacts),
+	}
+}
+
+func artifactPublishFailure(path string, code string, message string) map[string]any {
+	return map[string]any{
+		"path":    path,
+		"code":    code,
+		"message": message,
+	}
+}
+
 // coerceArtifactList 容错：部分 LLM（Qwen3.5 等）在 tool_call 里会把 array 参数
 // 错误地序列化成 JSON 字符串（`"[{...}]"` 而不是 `[{...}]`）。这里先按原生数组
 // 断言，失败则尝试 json.Unmarshal 字符串。单个对象会包装成单元素数组。
@@ -67,16 +123,23 @@ func coerceArtifactList(raw any) []any {
 	return nil
 }
 
-func publishArtifacts(chatsRoot string, chatID string, runID string, raw any) []map[string]any {
+func publishArtifacts(chatsRoot string, chatID string, runID string, raw any) artifactPublishResult {
+	result := artifactPublishResult{
+		Status:             "error",
+		Artifacts:          raw,
+		PublishedArtifacts: make([]map[string]any, 0),
+		FailedArtifacts:    make([]map[string]any, 0),
+	}
 	if strings.TrimSpace(chatsRoot) == "" || strings.TrimSpace(chatID) == "" {
-		return nil
+		result.FailedArtifacts = append(result.FailedArtifacts, artifactPublishFailure("", "invalid_artifacts", "artifact publishing requires chats root and chat id"))
+		return result
 	}
 	items := coerceArtifactList(raw)
 	if len(items) == 0 {
-		return nil
+		result.FailedArtifacts = append(result.FailedArtifacts, artifactPublishFailure("", "invalid_artifacts", "artifacts must contain at least one publishable item"))
+		return result
 	}
 	chatDir := filepath.Join(chatsRoot, chatID)
-	published := make([]map[string]any, 0, len(items))
 	for index, item := range items {
 		var rawPath string
 		var mapped map[string]any
@@ -88,20 +151,24 @@ func publishArtifacts(chatsRoot string, chatID string, runID string, raw any) []
 			rawPath = strings.TrimSpace(v)
 			mapped = map[string]any{"path": rawPath}
 		default:
+			result.FailedArtifacts = append(result.FailedArtifacts, artifactPublishFailure("", "invalid_artifacts", "artifact item must be an object with a path"))
 			continue
 		}
 		if rawPath == "" {
+			result.FailedArtifacts = append(result.FailedArtifacts, artifactPublishFailure(rawPath, "invalid_artifacts", "artifact path must not be empty"))
 			continue
 		}
 
-		sourcePath := resolveArtifactSourcePath(rawPath, chatDir)
+		sourcePath, resolveCode, resolveMessage := resolveArtifactSourcePath(rawPath, chatDir)
 		if sourcePath == "" {
 			log.Printf("[artifact-publish] skip: path resolve failed rawPath=%s chatDir=%s", rawPath, chatDir)
+			result.FailedArtifacts = append(result.FailedArtifacts, artifactPublishFailure(rawPath, resolveCode, resolveMessage))
 			continue
 		}
 		info, err := os.Stat(sourcePath)
 		if err != nil || info.IsDir() {
 			log.Printf("[artifact-publish] skip: file not found sourcePath=%s err=%v", sourcePath, err)
+			result.FailedArtifacts = append(result.FailedArtifacts, artifactPublishFailure(rawPath, "file_not_found", "artifact path does not exist or is not a regular file"))
 			continue
 		}
 
@@ -118,18 +185,21 @@ func publishArtifacts(chatsRoot string, chatID string, runID string, raw any) []
 			artifactsDir := filepath.Join(chatDir, "artifacts", runID)
 			if err := os.MkdirAll(artifactsDir, 0o755); err != nil {
 				log.Printf("[artifact-publish] skip: create artifacts dir failed dir=%s err=%v", artifactsDir, err)
+				result.FailedArtifacts = append(result.FailedArtifacts, artifactPublishFailure(rawPath, "artifact_dir_failed", "failed to create artifact directory: "+err.Error()))
 				continue
 			}
-			targetPath = deduplicateTargetPath(artifactsDir, filename, sourcePath)
+			targetPath = filepath.Join(artifactsDir, filename)
 			if !samePath(sourcePath, targetPath) {
 				if copyErr := copyFile(sourcePath, targetPath); copyErr != nil {
 					log.Printf("[artifact-publish] skip: copy failed source=%s target=%s err=%v", sourcePath, targetPath, copyErr)
+					result.FailedArtifacts = append(result.FailedArtifacts, artifactPublishFailure(rawPath, "copy_failed", "failed to copy artifact into chat directory: "+copyErr.Error()))
 					continue
 				}
 			}
 			relativePath, relErr = filepath.Rel(chatDir, targetPath)
 			if relErr != nil || isPathOutsideBase(relativePath) {
 				log.Printf("[artifact-publish] skip: target escaped chat dir target=%s chatDir=%s", targetPath, chatDir)
+				result.FailedArtifacts = append(result.FailedArtifacts, artifactPublishFailure(rawPath, "copy_failed", "published artifact target escaped chat directory"))
 				continue
 			}
 		}
@@ -137,7 +207,7 @@ func publishArtifacts(chatsRoot string, chatID string, runID string, raw any) []
 		sha256hex := sha256Hex(targetPath)
 		publishedFilename := filepath.Base(targetPath)
 		relativePath = filepath.ToSlash(relativePath)
-		published = append(published, map[string]any{
+		result.PublishedArtifacts = append(result.PublishedArtifacts, map[string]any{
 			"artifactId": artifactID,
 			"name":       publishedFilename,
 			"mimeType":   guessMimeType(publishedFilename),
@@ -147,91 +217,44 @@ func publishArtifacts(chatsRoot string, chatID string, runID string, raw any) []
 			"type":       defaultStringArg(mapped, "type", "file"),
 		})
 	}
-	return published
+	result.refreshStatus()
+	return result
 }
 
-func resolveArtifactSourcePath(rawPath string, chatDir string) string {
+func resolveArtifactSourcePath(rawPath string, chatDir string) (string, string, string) {
 	const sandboxPrefix = "/workspace"
 	normalized := strings.TrimSpace(rawPath)
 	if strings.HasPrefix(normalized, sandboxPrefix) {
 		suffix := strings.TrimPrefix(normalized, sandboxPrefix)
 		suffix = strings.TrimLeft(suffix, "/")
 		if suffix == "" {
-			return chatDir
+			return chatDir, "", ""
 		}
 		resolved := filepath.Clean(filepath.Join(chatDir, suffix))
 		if !pathWithinBase(resolved, chatDir) {
-			return ""
+			return "", "path_not_allowed", "artifact path must stay within the current chat workspace"
 		}
-		return resolved
+		return resolved, "", ""
 	}
 	if !filepath.IsAbs(normalized) {
 		resolved := filepath.Clean(filepath.Join(chatDir, normalized))
 		if !pathWithinBase(resolved, chatDir) {
-			return ""
+			return "", "path_not_allowed", "artifact path must stay within the current chat workspace"
 		}
-		return resolved
+		return resolved, "", ""
 	}
 	resolved := filepath.Clean(normalized)
 	if pathWithinBase(resolved, chatDir) {
-		return resolved
+		return resolved, "", ""
 	}
 	workspaceRoot, err := os.Getwd()
 	if err != nil {
-		return ""
+		return "", "path_not_allowed", "could not determine server workspace root"
 	}
 	if pathWithinBase(resolved, workspaceRoot) {
-		return resolved
+		return resolved, "", ""
 	}
-	return ""
-}
-
-func deduplicateTargetPath(dir string, filename string, sourcePath string) string {
-	baseName := filename
-	ext := ""
-	if dotIdx := strings.LastIndex(filename, "."); dotIdx > 0 {
-		baseName = filename[:dotIdx]
-		ext = filename[dotIdx:]
-	}
-	counter := 0
-	for {
-		candidateName := filename
-		if counter > 0 {
-			candidateName = fmt.Sprintf("%s-%d%s", baseName, counter, ext)
-		}
-		candidate := filepath.Join(dir, candidateName)
-		info, err := os.Stat(candidate)
-		if err != nil {
-			return candidate
-		}
-		if info.Mode().IsRegular() && sameFileContent(sourcePath, candidate) {
-			return candidate
-		}
-		counter++
-	}
-}
-
-func sameFileContent(left string, right string) bool {
-	leftInfo, err := os.Stat(left)
-	if err != nil {
-		return false
-	}
-	rightInfo, err := os.Stat(right)
-	if err != nil {
-		return false
-	}
-	if leftInfo.Size() != rightInfo.Size() {
-		return false
-	}
-	leftData, err := os.ReadFile(left)
-	if err != nil {
-		return false
-	}
-	rightData, err := os.ReadFile(right)
-	if err != nil {
-		return false
-	}
-	return string(leftData) == string(rightData)
+	return "", "path_not_allowed", "artifact path is outside the current chat workspace and server workspace"
 }
 
 func samePath(left string, right string) bool {

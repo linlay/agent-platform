@@ -1,6 +1,6 @@
 name: artifact_publish
 label: 发布产物
-description: Publish files as user-visible artifacts for the current run. You MUST call this tool whenever you have generated, exported, or assembled a file that the user asked for or would reasonably expect as a deliverable, including Markdown, documents, reports, images, spreadsheets, code packages, and archives. Do not merely mention the file path or paste the file contents when a requested deliverable file exists; publish the file with this tool, then summarize it briefly. This emits a single batched artifact.publish SSE event for all successfully published outputs from this invocation. Pass only the source path; the published file name, extension, and MIME type are derived from the path.
+description: Publish files as user-visible artifacts for the current run. You MUST call this tool whenever you have generated, exported, or assembled a file that the user asked for or would reasonably expect as a deliverable, including Markdown, documents, reports, images, spreadsheets, code packages, and archives. Do not merely mention the file path or paste the file contents when a requested deliverable file exists; publish the file with this tool, then summarize it briefly. Pass only source paths that actually exist and are accessible to this tool: typically /workspace/... paths, paths relative to the current chat working directory, or files inside the server workspace. Do not pass arbitrary user-local absolute paths such as /Users/.../Downloads/... or /Users/.../Desktop/...; first upload, import, or copy those files into a controlled workspace path. This emits a single batched artifact.publish SSE event only when every requested artifact is successfully published. If any requested path fails, the whole invocation fails and publishedArtifacts is empty. Republish the corrected full set after fixing paths; publishing the same filename again in the same run overwrites the previous artifact file. Only entries returned in publishedArtifacts were actually published. The published file name, extension, and MIME type are derived from the path.
 type: function
 clientVisible: true
 inputSchema:
@@ -15,7 +15,7 @@ inputSchema:
         properties:
           path:
             type: string
-            description: Required. File path to publish. In the sandbox, this is typically a /workspace/... path or a path relative to the current chat working directory. The source file basename is always used as the published download filename.
+            description: Required. Existing file path to publish. Use a /workspace/... path, a path relative to the current chat working directory, or a file inside the server workspace. Do not use arbitrary user-local absolute paths such as /Users/.../Downloads/...; those must be uploaded, imported, or copied into a controlled workspace path first. The source file basename is always used as the published download filename. The batch only succeeds if every path publishes, and republishing the same filename in the same run overwrites the previous artifact file.
           description:
             type: string
             description: Short description of this artifact.
