@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	neturl "net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -130,8 +131,26 @@ func TestImageGenerateB64ResponsePersistsArtifact(t *testing.T) {
 	}
 	image := images[0]
 	path := contracts.AnyStringNode(image["path"])
-	if path == "" || !strings.Contains(path, filepath.Join("chat-1", "artifacts", "run-1")) {
-		t.Fatalf("expected persisted artifact path, got %#v", image)
+	if path == "" || filepath.Dir(path) != filepath.Join(chatsRoot, "chat-1") {
+		t.Fatalf("expected persisted image in chat root, got %#v", image)
+	}
+	filename := filepath.Base(path)
+	if !strings.HasPrefix(filename, "image_generate_run-1_") {
+		t.Fatalf("expected filename to include run ID, got %q", filename)
+	}
+	relativePath := contracts.AnyStringNode(image["relativePath"])
+	if relativePath != filename || strings.Contains(relativePath, "/") {
+		t.Fatalf("expected root relative path, got %#v", image)
+	}
+	decodedURL, err := neturl.QueryUnescape(strings.TrimPrefix(contracts.AnyStringNode(image["url"]), "/api/resource?file="))
+	if err != nil {
+		t.Fatalf("decode image url: %v", err)
+	}
+	if decodedURL != filepath.ToSlash(filepath.Join("chat-1", filename)) {
+		t.Fatalf("expected URL to target chat root file, got %q", decodedURL)
+	}
+	if _, err := os.Stat(filepath.Join(chatsRoot, "chat-1", "artifacts", "run-1")); !os.IsNotExist(err) {
+		t.Fatalf("did not expect artifact directory, stat err=%v", err)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {

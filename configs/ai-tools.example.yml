@@ -5,7 +5,7 @@ vision-recognize:
   default-profile: general
   profiles:
     general:
-      model-key: th-minimax-m3
+      model-key:
       timeout: 60
       max-images: 4
       max-image-bytes: 20971520
@@ -14,7 +14,7 @@ vision-recognize:
         You are a visual recognition tool. Describe only observable visual facts.
 
     ocr:
-      model-key: th-minimax-m3
+      model-key:
       timeout: 60
       max-images: 4
       max-image-bytes: 20971520
@@ -28,7 +28,7 @@ web-fetch:
   preapproved-hosts: []
   profiles:
     general:
-      model-key: th-minimax-m3
+      model-key:
       timeout: 60
       fetch-timeout: 60
       max-url-length: 2000
@@ -43,7 +43,7 @@ image-generate:
   default-profile: general
   profiles:
     general:
-      model-key: babelark-gemini-3_1-flash-image-preview
+      model-key:
       timeout: 120
       size: 1024x1024
       response-format: b64_json

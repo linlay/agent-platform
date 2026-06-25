@@ -313,14 +313,15 @@ func persistGeneratedImageArtifact(chatsRoot string, execCtx *ExecutionContext, 
 	if strings.TrimSpace(runID) == "" {
 		runID = "manual"
 	}
+	runID = safeGeneratedImageNameSegment(runID)
 	chatDir := filepath.Join(chatsRoot, chatID)
-	artifactsDir := filepath.Join(chatDir, "artifacts", runID)
-	if err := os.MkdirAll(artifactsDir, 0o755); err != nil {
+	if err := os.MkdirAll(chatDir, 0o755); err != nil {
 		return nil, err
 	}
 	ext := generatedImageExtension(imageMime)
-	name := fmt.Sprintf("image_generate_%d_%d%s", time.Now().UnixMilli(), index, ext)
-	targetPath := filepath.Join(artifactsDir, name)
+	timestamp := time.Now().UnixMilli()
+	name := fmt.Sprintf("image_generate_%s_%d_%d%s", runID, timestamp, index, ext)
+	targetPath := filepath.Join(chatDir, name)
 	if err := os.WriteFile(targetPath, data, 0o644); err != nil {
 		return nil, err
 	}
@@ -330,13 +331,21 @@ func persistGeneratedImageArtifact(chatsRoot string, execCtx *ExecutionContext, 
 	}
 	relativePath = filepath.ToSlash(relativePath)
 	return map[string]any{
-		"artifactId":   fmt.Sprintf("image_generate_%d_%d", time.Now().UnixMilli(), index),
+		"artifactId":   fmt.Sprintf("image_generate_%d_%d", timestamp, index),
 		"name":         filepath.Base(targetPath),
 		"path":         targetPath,
 		"relativePath": relativePath,
 		"url":          artifactResourceURL(chatID, relativePath),
 		"type":         "image",
 	}, nil
+}
+
+func safeGeneratedImageNameSegment(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "manual"
+	}
+	return strings.NewReplacer("/", "_", `\`, "_").Replace(value)
 }
 
 func imageGenerateChatRun(execCtx *ExecutionContext) (string, string) {
