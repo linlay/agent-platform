@@ -1503,7 +1503,9 @@ func startAwaitingPushQuestionFlow(t *testing.T, configure func(*config.Config))
 		flow.server.Close()
 		t.Fatalf("expected awaiting.ask identifiers, got stream %s", flow.streamBody.String())
 	}
-	assertEventOrder(t, flow.streamBody.String(), "tool.start", "tool.args", "tool.end", "awaiting.ask")
+	if strings.Contains(flow.streamBody.String(), `"type":"tool.start"`) {
+		t.Fatalf("did not expect hidden ask_user_question tool events, got stream %s", flow.streamBody.String())
+	}
 	return flow
 }
 

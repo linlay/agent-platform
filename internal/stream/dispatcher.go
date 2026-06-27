@@ -148,8 +148,8 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 		}
 		return []StreamEvent{NewEvent("llm.request", payload)}
 	case InputDebugLLMChat:
-		if value.RunTotalTokens > 0 || value.RunLLMChatCompletionCount > 0 || value.RunToolCallCount > 0 {
-			d.state.runUsage = runUsageStateFromValues(value.RunPromptTokens, value.RunCompletionTokens, value.RunTotalTokens, value.RunCachedTokens, value.RunReasoningTokens, value.RunPromptCacheHitTokens, value.RunPromptCacheMissTokens, value.RunLLMChatCompletionCount, value.RunToolCallCount)
+		if value.RunTotalTokens > 0 || value.RunLLMChatCompletionCount > 0 || value.RunToolCallCount > 0 || value.RunFirstTokenLatencyCount > 0 || value.RunGenerationDurationMs > 0 {
+			d.state.runUsage = runUsageStateFromValues(value.RunPromptTokens, value.RunCompletionTokens, value.RunTotalTokens, value.RunCachedTokens, value.RunReasoningTokens, value.RunPromptCacheHitTokens, value.RunPromptCacheMissTokens, value.RunLLMChatCompletionCount, value.RunToolCallCount, value.RunFirstTokenLatencyTotalMs, value.RunFirstTokenLatencyCount, value.RunGenerationDurationMs)
 		}
 		llmReturnUsage := map[string]any{
 			"promptTokens":           value.LLMReturnPromptTokens,
@@ -165,6 +165,7 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 			llmReturnUsage["reasoningEffort"] = value.ReasoningEffort
 		}
 		addDetailedUsage(llmReturnUsage, value.LLMReturnReasoningTokens, value.LLMReturnPromptCacheHitTokens, value.LLMReturnPromptCacheMissTokens)
+		addTimingUsage(llmReturnUsage, value.LLMReturnFirstTokenLatencyMs, boolToTimingCount(value.LLMReturnFirstTokenLatencyMs > 0), value.LLMReturnGenerationDurationMs)
 		runUsage := map[string]any{
 			"promptTokens":           value.RunPromptTokens,
 			"completionTokens":       value.RunCompletionTokens,
@@ -173,6 +174,7 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 			"toolCallCount":          value.RunToolCallCount,
 		}
 		addDetailedUsage(runUsage, value.RunReasoningTokens, value.RunPromptCacheHitTokens, value.RunPromptCacheMissTokens)
+		addTimingUsage(runUsage, value.RunFirstTokenLatencyTotalMs, value.RunFirstTokenLatencyCount, value.RunGenerationDurationMs)
 		data := map[string]any{
 			"provider": map[string]any{
 				"key":      value.ProviderKey,
@@ -214,10 +216,10 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 		}
 		return []StreamEvent{NewEvent("debug.llmChat", payload)}
 	case InputUsageSnapshot:
-		if value.RunTotalTokens > 0 || value.RunLLMChatCompletionCount > 0 || value.RunToolCallCount > 0 {
-			d.state.runUsage = runUsageStateFromValues(value.RunPromptTokens, value.RunCompletionTokens, value.RunTotalTokens, value.RunCachedTokens, value.RunReasoningTokens, value.RunPromptCacheHitTokens, value.RunPromptCacheMissTokens, value.RunLLMChatCompletionCount, value.RunToolCallCount)
+		if value.RunTotalTokens > 0 || value.RunLLMChatCompletionCount > 0 || value.RunToolCallCount > 0 || value.RunFirstTokenLatencyCount > 0 || value.RunGenerationDurationMs > 0 {
+			d.state.runUsage = runUsageStateFromValues(value.RunPromptTokens, value.RunCompletionTokens, value.RunTotalTokens, value.RunCachedTokens, value.RunReasoningTokens, value.RunPromptCacheHitTokens, value.RunPromptCacheMissTokens, value.RunLLMChatCompletionCount, value.RunToolCallCount, value.RunFirstTokenLatencyTotalMs, value.RunFirstTokenLatencyCount, value.RunGenerationDurationMs)
 		}
-		return []StreamEvent{usageSnapshotEvent(d.request.RunID, value.TaskID, value.ChatID, value.ModelKey, value.ReasoningEffort, value.ContextWindow, value.CurrentContextSize, value.EstimatedNextCallSize, value.LLMReturnPromptTokens, value.LLMReturnCompletionTokens, value.LLMReturnTotalTokens, value.LLMReturnCachedTokens, value.LLMReturnReasoningTokens, value.LLMReturnPromptCacheHitTokens, value.LLMReturnPromptCacheMissTokens, value.LLMReturnLLMChatCompletionCount, value.LLMReturnToolCallCount, value.RunPromptTokens, value.RunCompletionTokens, value.RunTotalTokens, value.RunCachedTokens, value.RunReasoningTokens, value.RunPromptCacheHitTokens, value.RunPromptCacheMissTokens, value.RunLLMChatCompletionCount, value.RunToolCallCount)}
+		return []StreamEvent{usageSnapshotEvent(d.request.RunID, value.TaskID, value.ChatID, value.ModelKey, value.ReasoningEffort, value.ContextWindow, value.CurrentContextSize, value.EstimatedNextCallSize, value.LLMReturnPromptTokens, value.LLMReturnCompletionTokens, value.LLMReturnTotalTokens, value.LLMReturnCachedTokens, value.LLMReturnReasoningTokens, value.LLMReturnPromptCacheHitTokens, value.LLMReturnPromptCacheMissTokens, value.LLMReturnLLMChatCompletionCount, value.LLMReturnToolCallCount, value.LLMReturnFirstTokenLatencyMs, value.LLMReturnGenerationDurationMs, value.RunPromptTokens, value.RunCompletionTokens, value.RunTotalTokens, value.RunCachedTokens, value.RunReasoningTokens, value.RunPromptCacheHitTokens, value.RunPromptCacheMissTokens, value.RunLLMChatCompletionCount, value.RunToolCallCount, value.RunFirstTokenLatencyTotalMs, value.RunFirstTokenLatencyCount, value.RunGenerationDurationMs)}
 	case InputRunComplete:
 		d.state.runFinishReason = value.FinishReason
 		return nil
@@ -238,9 +240,9 @@ func (d *StreamEventDispatcher) Dispatch(input StreamInput) []StreamEvent {
 	}
 }
 
-func usageSnapshotEvent(runID string, taskID string, chatID string, modelKey string, reasoningEffort string, contextWindow int, currentContextSize int, estimatedNextCallSize int, currentPromptTokens int, currentCompletionTokens int, currentTotalTokens int, currentCachedTokens int, currentReasoningTokens int, currentPromptCacheHitTokens int, currentPromptCacheMissTokens int, currentLLMChatCompletionCount int, currentToolCallCount int, runPromptTokens int, runCompletionTokens int, runTotalTokens int, runCachedTokens int, runReasoningTokens int, runPromptCacheHitTokens int, runPromptCacheMissTokens int, runLLMChatCompletionCount int, runToolCallCount int) StreamEvent {
-	currentUsage := usageMapFromValues(currentPromptTokens, currentCompletionTokens, currentTotalTokens, currentCachedTokens, currentReasoningTokens, currentPromptCacheHitTokens, currentPromptCacheMissTokens, currentLLMChatCompletionCount, currentToolCallCount, false)
-	runUsage := usageMapFromValues(runPromptTokens, runCompletionTokens, runTotalTokens, runCachedTokens, runReasoningTokens, runPromptCacheHitTokens, runPromptCacheMissTokens, runLLMChatCompletionCount, runToolCallCount, true)
+func usageSnapshotEvent(runID string, taskID string, chatID string, modelKey string, reasoningEffort string, contextWindow int, currentContextSize int, estimatedNextCallSize int, currentPromptTokens int, currentCompletionTokens int, currentTotalTokens int, currentCachedTokens int, currentReasoningTokens int, currentPromptCacheHitTokens int, currentPromptCacheMissTokens int, currentLLMChatCompletionCount int, currentToolCallCount int, currentFirstTokenLatencyMs int64, currentGenerationDurationMs int64, runPromptTokens int, runCompletionTokens int, runTotalTokens int, runCachedTokens int, runReasoningTokens int, runPromptCacheHitTokens int, runPromptCacheMissTokens int, runLLMChatCompletionCount int, runToolCallCount int, runFirstTokenLatencyTotalMs int64, runFirstTokenLatencyCount int, runGenerationDurationMs int64) StreamEvent {
+	currentUsage := usageMapFromValues(currentPromptTokens, currentCompletionTokens, currentTotalTokens, currentCachedTokens, currentReasoningTokens, currentPromptCacheHitTokens, currentPromptCacheMissTokens, currentLLMChatCompletionCount, currentToolCallCount, currentFirstTokenLatencyMs, boolToTimingCount(currentFirstTokenLatencyMs > 0), currentGenerationDurationMs, false)
+	runUsage := usageMapFromValues(runPromptTokens, runCompletionTokens, runTotalTokens, runCachedTokens, runReasoningTokens, runPromptCacheHitTokens, runPromptCacheMissTokens, runLLMChatCompletionCount, runToolCallCount, runFirstTokenLatencyTotalMs, runFirstTokenLatencyCount, runGenerationDurationMs, true)
 	if modelKey != "" {
 		currentUsage["modelKey"] = modelKey
 	}
@@ -284,21 +286,24 @@ func cloneMessagePayloads(messages []map[string]any) []any {
 	return out
 }
 
-func runUsageStateFromValues(promptTokens int, completionTokens int, totalTokens int, cachedTokens int, reasoningTokens int, promptCacheHitTokens int, promptCacheMissTokens int, llmChatCompletionCount int, toolCallCount int) *runUsageState {
+func runUsageStateFromValues(promptTokens int, completionTokens int, totalTokens int, cachedTokens int, reasoningTokens int, promptCacheHitTokens int, promptCacheMissTokens int, llmChatCompletionCount int, toolCallCount int, firstTokenLatencyTotalMs int64, firstTokenLatencyCount int, generationDurationMs int64) *runUsageState {
 	return &runUsageState{
-		PromptTokens:           promptTokens,
-		CompletionTokens:       completionTokens,
-		TotalTokens:            totalTokens,
-		CachedTokens:           cachedTokens,
-		ReasoningTokens:        reasoningTokens,
-		PromptCacheHitTokens:   promptCacheHitTokens,
-		PromptCacheMissTokens:  promptCacheMissTokens,
-		LLMChatCompletionCount: llmChatCompletionCount,
-		ToolCallCount:          toolCallCount,
+		PromptTokens:             promptTokens,
+		CompletionTokens:         completionTokens,
+		TotalTokens:              totalTokens,
+		CachedTokens:             cachedTokens,
+		ReasoningTokens:          reasoningTokens,
+		PromptCacheHitTokens:     promptCacheHitTokens,
+		PromptCacheMissTokens:    promptCacheMissTokens,
+		LLMChatCompletionCount:   llmChatCompletionCount,
+		ToolCallCount:            toolCallCount,
+		FirstTokenLatencyTotalMs: firstTokenLatencyTotalMs,
+		FirstTokenLatencyCount:   firstTokenLatencyCount,
+		GenerationDurationMs:     generationDurationMs,
 	}
 }
 
-func usageMapFromValues(promptTokens int, completionTokens int, totalTokens int, cachedTokens int, reasoningTokens int, promptCacheHitTokens int, promptCacheMissTokens int, llmChatCompletionCount int, toolCallCount int, includeLLMChatCompletionCount bool) map[string]any {
+func usageMapFromValues(promptTokens int, completionTokens int, totalTokens int, cachedTokens int, reasoningTokens int, promptCacheHitTokens int, promptCacheMissTokens int, llmChatCompletionCount int, toolCallCount int, firstTokenLatencyTotalMs int64, firstTokenLatencyCount int, generationDurationMs int64, includeLLMChatCompletionCount bool) map[string]any {
 	out := map[string]any{
 		"promptTokens":     promptTokens,
 		"completionTokens": completionTokens,
@@ -311,5 +316,6 @@ func usageMapFromValues(promptTokens int, completionTokens int, totalTokens int,
 		out["toolCallCount"] = toolCallCount
 	}
 	addDetailedUsage(out, reasoningTokens, promptCacheHitTokens, promptCacheMissTokens)
+	addTimingUsage(out, firstTokenLatencyTotalMs, firstTokenLatencyCount, generationDurationMs)
 	return out
 }

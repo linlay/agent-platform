@@ -42,6 +42,9 @@ func (s *llmRunStream) appendToolCallDeltas(deltas []AgentDelta) {
 		if !ok {
 			continue
 		}
+		if strings.TrimSpace(toolCall.ArgsDelta) != "" {
+			s.markFirstVisibleDelta()
+		}
 		s.pending = append(s.pending, s.planningDeltasFromToolCall(toolCall)...)
 	}
 }

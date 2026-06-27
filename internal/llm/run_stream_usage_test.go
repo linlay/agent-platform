@@ -2,6 +2,7 @@ package llm
 
 import (
 	"testing"
+	"time"
 
 	"agent-platform/internal/contracts"
 	"agent-platform/internal/models"
@@ -65,6 +66,42 @@ func TestAccumulateUsageCommitsLatestValidProviderUsageOnce(t *testing.T) {
 	if snapshot.LLMReturnPromptTokens != 20 || snapshot.LLMReturnCompletionTokens != 5 || snapshot.LLMReturnTotalTokens != 25 ||
 		snapshot.LLMReturnPromptCacheHitTokens != 7 || snapshot.LLMReturnPromptCacheMissTokens != 13 {
 		t.Fatalf("unexpected usage snapshot %#v", snapshot)
+	}
+}
+
+func TestRecordCurrentTurnTimingEmitsTimingSnapshotOnce(t *testing.T) {
+	start := time.Unix(0, 0)
+	stream := &llmRunStream{
+		session:                        contracts.QuerySession{RunID: "run-timing", ChatID: "chat-timing"},
+		model:                          models.ModelDefinition{Key: "mock-model", ContextWindow: 128000},
+		currentTurn:                    &providerTurnStream{requestSentAt: start, firstVisibleAt: start.Add(820 * time.Millisecond)},
+		runLLMChatCompletionCount:      1,
+		lastCallLLMChatCompletionCount: 1,
+	}
+
+	stream.recordCurrentTurnTiming(start.Add(3200 * time.Millisecond))
+	stream.emitPendingUsageDelta()
+	stream.emitPendingUsageDelta()
+
+	if stream.lastCallFirstTokenLatencyMs != 820 || stream.lastCallGenerationDurationMs != 2380 {
+		t.Fatalf("expected last call timing, got first=%d generation=%d", stream.lastCallFirstTokenLatencyMs, stream.lastCallGenerationDurationMs)
+	}
+	if stream.runFirstTokenLatencyTotalMs != 820 || stream.runFirstTokenLatencyCount != 1 || stream.runGenerationDurationMs != 2380 {
+		t.Fatalf("expected run timing totals, got total=%d count=%d generation=%d", stream.runFirstTokenLatencyTotalMs, stream.runFirstTokenLatencyCount, stream.runGenerationDurationMs)
+	}
+	if len(stream.pending) != 1 {
+		t.Fatalf("expected one timing snapshot delta, got %#v", stream.pending)
+	}
+	snapshot, ok := stream.pending[0].(contracts.DeltaUsageSnapshot)
+	if !ok {
+		t.Fatalf("expected DeltaUsageSnapshot, got %#v", stream.pending[0])
+	}
+	if snapshot.LLMReturnFirstTokenLatencyMs != 820 ||
+		snapshot.LLMReturnGenerationDurationMs != 2380 ||
+		snapshot.RunFirstTokenLatencyTotalMs != 820 ||
+		snapshot.RunFirstTokenLatencyCount != 1 ||
+		snapshot.RunGenerationDurationMs != 2380 {
+		t.Fatalf("unexpected timing snapshot %#v", snapshot)
 	}
 }
 

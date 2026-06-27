@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"strings"
+	"time"
 
 	"agent-platform/internal/accesspolicy"
 	"agent-platform/internal/api"
@@ -78,6 +79,8 @@ type llmRunStream struct {
 	lastCallPromptCacheMissTokens  int
 	lastCallLLMChatCompletionCount int
 	lastCallToolCallCount          int
+	lastCallFirstTokenLatencyMs    int64
+	lastCallGenerationDurationMs   int64
 	runPromptTokens                int
 	runCompletionTokens            int
 	runTotalTokens                 int
@@ -87,8 +90,12 @@ type llmRunStream struct {
 	runPromptCacheMissTokens       int
 	runLLMChatCompletionCount      int
 	runToolCallCount               int
+	runFirstTokenLatencyTotalMs    int64
+	runFirstTokenLatencyCount      int
+	runGenerationDurationMs        int64
 	lastSnapshotToolCallCount      int
 	pendingUsageEmit               bool
+	pendingTimingUsageEmit         bool
 }
 
 type providerTurnStream struct {
@@ -104,6 +111,8 @@ type providerTurnStream struct {
 	hasMeaningful  bool
 	usage          *openAIUsage
 	usageCommitted bool
+	requestSentAt  time.Time
+	firstVisibleAt time.Time
 }
 
 type thinkTagParserState struct {

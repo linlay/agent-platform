@@ -111,6 +111,9 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 	var chatTotalCachedTokens, chatTotalReasoningTokens, chatTotalPromptCacheHitTokens, chatTotalPromptCacheMissTokens int
 	var chatTotalLlmChatCompletionCount int
 	var chatTotalToolCallCount int
+	var chatTotalFirstTokenLatencyMs int64
+	var chatTotalFirstTokenLatencyCount int
+	var chatTotalGenerationDurationMs int64
 	var chatTotalEstimatedCostCurrency string
 	var chatTotalEstimatedCostInputHit, chatTotalEstimatedCostInputMiss, chatTotalEstimatedCostOutput, chatTotalEstimatedCostTotal float64
 	var latestContextWindow map[string]any
@@ -252,6 +255,17 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 				rd.totalPromptCacheMissTokens += stepCacheMissTokens
 				rd.totalLlmChatCompletionCount += toIntFromKeys(stepUsage, "llmChatCompletionCount")
 				rd.totalToolCallCount += toIntFromKeys(stepUsage, "toolCallCount")
+				firstTokenLatencyMs, generationDurationMs := extractStepTiming(stepUsage)
+				if firstTokenLatencyMs > 0 {
+					rd.totalFirstTokenLatencyMs += firstTokenLatencyMs
+					rd.totalFirstTokenLatencyCount++
+					chatTotalFirstTokenLatencyMs += firstTokenLatencyMs
+					chatTotalFirstTokenLatencyCount++
+				}
+				if generationDurationMs > 0 {
+					rd.totalGenerationDurationMs += generationDurationMs
+					chatTotalGenerationDurationMs += generationDurationMs
+				}
 				chatTotalPromptTokens += toIntFromKeys(stepUsage, "promptTokens")
 				chatTotalCompletionTokens += toIntFromKeys(stepUsage, "completionTokens")
 				chatTotalTotalTokens += toIntFromKeys(stepUsage, "totalTokens")
@@ -270,6 +284,9 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 				rd.chatTotalPromptCacheMissTokens = chatTotalPromptCacheMissTokens
 				rd.chatTotalLlmChatCompletionCount = chatTotalLlmChatCompletionCount
 				rd.chatTotalToolCallCount = chatTotalToolCallCount
+				rd.chatTotalFirstTokenLatencyMs = chatTotalFirstTokenLatencyMs
+				rd.chatTotalFirstTokenLatencyCount = chatTotalFirstTokenLatencyCount
+				rd.chatTotalGenerationDurationMs = chatTotalGenerationDurationMs
 			}
 			currency, inputHit, inputMiss, output, total := extractStepCost(stepUsage)
 			if currency != "" {
@@ -440,20 +457,23 @@ func parseChatNewFormat(summary Summary, lines []map[string]any, rawMessages []m
 			LastRunID: lastRunID,
 			LastRun:   lastRunUsage,
 			Chat: UsageData{
-				PromptTokens:           chatTotalPromptTokens,
-				CompletionTokens:       chatTotalCompletionTokens,
-				TotalTokens:            chatTotalTotalTokens,
-				CachedTokens:           chatTotalCachedTokens,
-				ReasoningTokens:        chatTotalReasoningTokens,
-				PromptCacheHitTokens:   chatTotalPromptCacheHitTokens,
-				PromptCacheMissTokens:  chatTotalPromptCacheMissTokens,
-				LlmChatCompletionCount: chatTotalLlmChatCompletionCount,
-				ToolCallCount:          chatTotalToolCallCount,
-				EstimatedCostCurrency:  chatTotalEstimatedCostCurrency,
-				EstimatedCostInputHit:  chatTotalEstimatedCostInputHit,
-				EstimatedCostInputMiss: chatTotalEstimatedCostInputMiss,
-				EstimatedCostOutput:    chatTotalEstimatedCostOutput,
-				EstimatedCostTotal:     chatTotalEstimatedCostTotal,
+				PromptTokens:             chatTotalPromptTokens,
+				CompletionTokens:         chatTotalCompletionTokens,
+				TotalTokens:              chatTotalTotalTokens,
+				CachedTokens:             chatTotalCachedTokens,
+				ReasoningTokens:          chatTotalReasoningTokens,
+				PromptCacheHitTokens:     chatTotalPromptCacheHitTokens,
+				PromptCacheMissTokens:    chatTotalPromptCacheMissTokens,
+				LlmChatCompletionCount:   chatTotalLlmChatCompletionCount,
+				ToolCallCount:            chatTotalToolCallCount,
+				EstimatedCostCurrency:    chatTotalEstimatedCostCurrency,
+				EstimatedCostInputHit:    chatTotalEstimatedCostInputHit,
+				EstimatedCostInputMiss:   chatTotalEstimatedCostInputMiss,
+				EstimatedCostOutput:      chatTotalEstimatedCostOutput,
+				EstimatedCostTotal:       chatTotalEstimatedCostTotal,
+				FirstTokenLatencyTotalMs: chatTotalFirstTokenLatencyMs,
+				FirstTokenLatencyCount:   chatTotalFirstTokenLatencyCount,
+				GenerationDurationMs:     chatTotalGenerationDurationMs,
 			},
 		},
 		Plan:     plan,
@@ -510,20 +530,23 @@ func replayRunUsageData(rd *chatRunData) UsageData {
 		return UsageData{}
 	}
 	return UsageData{
-		PromptTokens:           rd.totalPromptTokens,
-		CompletionTokens:       rd.totalCompletionTokens,
-		TotalTokens:            rd.totalTotalTokens,
-		CachedTokens:           rd.totalCachedTokens,
-		ReasoningTokens:        rd.totalReasoningTokens,
-		PromptCacheHitTokens:   rd.totalPromptCacheHitTokens,
-		PromptCacheMissTokens:  rd.totalPromptCacheMissTokens,
-		LlmChatCompletionCount: rd.totalLlmChatCompletionCount,
-		ToolCallCount:          rd.totalToolCallCount,
-		EstimatedCostCurrency:  rd.estimatedCostCurrency,
-		EstimatedCostInputHit:  rd.estimatedCostInputHit,
-		EstimatedCostInputMiss: rd.estimatedCostInputMiss,
-		EstimatedCostOutput:    rd.estimatedCostOutput,
-		EstimatedCostTotal:     rd.estimatedCostTotal,
+		PromptTokens:             rd.totalPromptTokens,
+		CompletionTokens:         rd.totalCompletionTokens,
+		TotalTokens:              rd.totalTotalTokens,
+		CachedTokens:             rd.totalCachedTokens,
+		ReasoningTokens:          rd.totalReasoningTokens,
+		PromptCacheHitTokens:     rd.totalPromptCacheHitTokens,
+		PromptCacheMissTokens:    rd.totalPromptCacheMissTokens,
+		LlmChatCompletionCount:   rd.totalLlmChatCompletionCount,
+		ToolCallCount:            rd.totalToolCallCount,
+		EstimatedCostCurrency:    rd.estimatedCostCurrency,
+		EstimatedCostInputHit:    rd.estimatedCostInputHit,
+		EstimatedCostInputMiss:   rd.estimatedCostInputMiss,
+		EstimatedCostOutput:      rd.estimatedCostOutput,
+		EstimatedCostTotal:       rd.estimatedCostTotal,
+		FirstTokenLatencyTotalMs: rd.totalFirstTokenLatencyMs,
+		FirstTokenLatencyCount:   rd.totalFirstTokenLatencyCount,
+		GenerationDurationMs:     rd.totalGenerationDurationMs,
 	}
 }
 
@@ -584,6 +607,26 @@ func extractStepCost(usage map[string]any) (currency string, inputHit, inputMiss
 	output, _ = estimatedCost["output"].(float64)
 	total, _ = estimatedCost["total"].(float64)
 	return
+}
+
+func extractStepTiming(usage map[string]any) (firstTokenLatencyMs int64, generationDurationMs int64) {
+	if usage == nil {
+		return 0, 0
+	}
+	timing, _ := usage["timing"].(map[string]any)
+	if len(timing) == 0 {
+		return 0, 0
+	}
+	firstTokenLatencyMs = int64(toIntFromKeys(timing, "firstTokenLatencyMs"))
+	if firstTokenLatencyMs <= 0 {
+		total := toIntFromKeys(timing, "firstTokenLatencyTotalMs")
+		count := toIntFromKeys(timing, "firstTokenLatencyCount")
+		if total > 0 && count > 0 {
+			firstTokenLatencyMs = int64(total / count)
+		}
+	}
+	generationDurationMs = int64(toIntFromKeys(timing, "generationDurationMs"))
+	return firstTokenLatencyMs, generationDurationMs
 }
 
 func taskToolIDFromLine(line map[string]any) string {

@@ -330,21 +330,24 @@ type ReplayUsage struct {
 }
 
 type UsageData struct {
-	ModelKey               string  `json:"-"`
-	PromptTokens           int     `json:"promptTokens"`
-	CompletionTokens       int     `json:"completionTokens"`
-	TotalTokens            int     `json:"totalTokens"`
-	CachedTokens           int     `json:"-"`
-	ReasoningTokens        int     `json:"-"`
-	PromptCacheHitTokens   int     `json:"-"`
-	PromptCacheMissTokens  int     `json:"-"`
-	EstimatedCostCurrency  string  `json:"-"`
-	EstimatedCostInputHit  float64 `json:"-"`
-	EstimatedCostInputMiss float64 `json:"-"`
-	EstimatedCostOutput    float64 `json:"-"`
-	EstimatedCostTotal     float64 `json:"-"`
-	LlmChatCompletionCount int     `json:"-"`
-	ToolCallCount          int     `json:"-"`
+	ModelKey                 string  `json:"-"`
+	PromptTokens             int     `json:"promptTokens"`
+	CompletionTokens         int     `json:"completionTokens"`
+	TotalTokens              int     `json:"totalTokens"`
+	CachedTokens             int     `json:"-"`
+	ReasoningTokens          int     `json:"-"`
+	PromptCacheHitTokens     int     `json:"-"`
+	PromptCacheMissTokens    int     `json:"-"`
+	EstimatedCostCurrency    string  `json:"-"`
+	EstimatedCostInputHit    float64 `json:"-"`
+	EstimatedCostInputMiss   float64 `json:"-"`
+	EstimatedCostOutput      float64 `json:"-"`
+	EstimatedCostTotal       float64 `json:"-"`
+	LlmChatCompletionCount   int     `json:"-"`
+	ToolCallCount            int     `json:"-"`
+	FirstTokenLatencyTotalMs int64   `json:"-"`
+	FirstTokenLatencyCount   int     `json:"-"`
+	GenerationDurationMs     int64   `json:"-"`
 }
 
 type RunCompletion struct {

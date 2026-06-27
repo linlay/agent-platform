@@ -316,6 +316,8 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			LLMReturnPromptCacheMissTokens:  value.LLMReturnPromptCacheMissTokens,
 			LLMReturnLLMChatCompletionCount: value.LLMReturnLLMChatCompletionCount,
 			LLMReturnToolCallCount:          value.LLMReturnToolCallCount,
+			LLMReturnFirstTokenLatencyMs:    value.LLMReturnFirstTokenLatencyMs,
+			LLMReturnGenerationDurationMs:   value.LLMReturnGenerationDurationMs,
 			RunPromptTokens:                 value.RunPromptTokens,
 			RunCompletionTokens:             value.RunCompletionTokens,
 			RunTotalTokens:                  value.RunTotalTokens,
@@ -325,6 +327,9 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			RunPromptCacheMissTokens:        value.RunPromptCacheMissTokens,
 			RunLLMChatCompletionCount:       value.RunLLMChatCompletionCount,
 			RunToolCallCount:                value.RunToolCallCount,
+			RunFirstTokenLatencyTotalMs:     value.RunFirstTokenLatencyTotalMs,
+			RunFirstTokenLatencyCount:       value.RunFirstTokenLatencyCount,
+			RunGenerationDurationMs:         value.RunGenerationDurationMs,
 		}}
 	case DeltaUsageSnapshot:
 		m.lastKind = ""
@@ -344,6 +349,8 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			LLMReturnPromptCacheMissTokens:  value.LLMReturnPromptCacheMissTokens,
 			LLMReturnLLMChatCompletionCount: value.LLMReturnLLMChatCompletionCount,
 			LLMReturnToolCallCount:          value.LLMReturnToolCallCount,
+			LLMReturnFirstTokenLatencyMs:    value.LLMReturnFirstTokenLatencyMs,
+			LLMReturnGenerationDurationMs:   value.LLMReturnGenerationDurationMs,
 			RunPromptTokens:                 value.RunPromptTokens,
 			RunCompletionTokens:             value.RunCompletionTokens,
 			RunTotalTokens:                  value.RunTotalTokens,
@@ -353,6 +360,9 @@ func (m *DeltaMapper) Map(delta AgentDelta) []stream.StreamInput {
 			RunPromptCacheMissTokens:        value.RunPromptCacheMissTokens,
 			RunLLMChatCompletionCount:       value.RunLLMChatCompletionCount,
 			RunToolCallCount:                value.RunToolCallCount,
+			RunFirstTokenLatencyTotalMs:     value.RunFirstTokenLatencyTotalMs,
+			RunFirstTokenLatencyCount:       value.RunFirstTokenLatencyCount,
+			RunGenerationDurationMs:         value.RunGenerationDurationMs,
 		}}
 	case DeltaRunCancel:
 		return []stream.StreamInput{stream.RunCancel{RunID: value.RunID}}

@@ -372,7 +372,7 @@ func TestFileStoreMarkReadAdvancesWatermarkAndClampsFutureRunID(t *testing.T) {
 	}
 }
 
-func TestFileStoreAddsRunsUsageModelKeyColumn(t *testing.T) {
+func TestFileStoreAddsRunsUsageColumns(t *testing.T) {
 	root := t.TempDir()
 	db, err := sql.Open("sqlite", filepath.Join(root, "chats.db"))
 	if err != nil {
@@ -413,27 +413,94 @@ func TestFileStoreAddsRunsUsageModelKeyColumn(t *testing.T) {
 		t.Fatalf("reopen migrated chats db: %v", err)
 	}
 	defer db.Close()
-	rows, err := db.Query(`PRAGMA table_info(RUNS)`)
+	columns := sqliteColumnNames(t, db, "RUNS")
+	for _, col := range []string{
+		"USAGE_MODEL_KEY_",
+		"USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_",
+		"USAGE_FIRST_TOKEN_LATENCY_COUNT_",
+		"USAGE_GENERATION_DURATION_MS_",
+	} {
+		if !columns[col] {
+			t.Fatalf("expected %s column to be added to RUNS; columns=%#v", col, columns)
+		}
+	}
+}
+
+func TestFileStoreAddsChatsUsageTimingColumns(t *testing.T) {
+	root := t.TempDir()
+	db, err := sql.Open("sqlite", filepath.Join(root, "chats.db"))
 	if err != nil {
-		t.Fatalf("pragma table_info runs: %v", err)
+		t.Fatalf("open chats db: %v", err)
+	}
+	_, err = db.Exec(`
+		CREATE TABLE CHATS (
+			CHAT_ID_ TEXT PRIMARY KEY,
+			CHAT_NAME_ TEXT NOT NULL,
+			AGENT_KEY_ TEXT NOT NULL DEFAULT '',
+			TEAM_ID_ TEXT,
+			CREATED_AT_ INTEGER NOT NULL,
+			UPDATED_AT_ INTEGER NOT NULL,
+			LAST_RUN_ID_ TEXT NOT NULL DEFAULT '',
+			LAST_RUN_CONTENT_ TEXT NOT NULL DEFAULT '',
+			USAGE_PROMPT_TOKENS_ INTEGER NOT NULL DEFAULT 0,
+			USAGE_COMPLETION_TOKENS_ INTEGER NOT NULL DEFAULT 0,
+			USAGE_TOTAL_TOKENS_ INTEGER NOT NULL DEFAULT 0
+		);
+	`)
+	if err != nil {
+		t.Fatalf("create chats table: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close chats db: %v", err)
+	}
+
+	store, err := NewFileStore(root)
+	if err != nil {
+		t.Fatalf("new file store: %v", err)
+	}
+	if store == nil {
+		t.Fatal("expected migrated store")
+	}
+
+	db, err = sql.Open("sqlite", filepath.Join(root, "chats.db"))
+	if err != nil {
+		t.Fatalf("reopen migrated chats db: %v", err)
+	}
+	defer db.Close()
+	columns := sqliteColumnNames(t, db, "CHATS")
+	for _, col := range []string{
+		"USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_",
+		"USAGE_FIRST_TOKEN_LATENCY_COUNT_",
+		"USAGE_GENERATION_DURATION_MS_",
+	} {
+		if !columns[col] {
+			t.Fatalf("expected %s column to be added to CHATS; columns=%#v", col, columns)
+		}
+	}
+}
+
+func sqliteColumnNames(t *testing.T, db *sql.DB, table string) map[string]bool {
+	t.Helper()
+	rows, err := db.Query(`PRAGMA table_info(` + table + `)`)
+	if err != nil {
+		t.Fatalf("pragma table_info %s: %v", table, err)
 	}
 	defer rows.Close()
-	found := false
+	columns := map[string]bool{}
 	for rows.Next() {
 		var cid int
 		var name, dataType string
 		var notNull, pk int
 		var defaultValue any
 		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &pk); err != nil {
-			t.Fatalf("scan runs table info: %v", err)
+			t.Fatalf("scan %s table info: %v", table, err)
 		}
-		if name == "USAGE_MODEL_KEY_" {
-			found = true
-		}
+		columns[name] = true
 	}
-	if !found {
-		t.Fatal("expected USAGE_MODEL_KEY_ column to be added to RUNS")
+	if err := rows.Err(); err != nil {
+		t.Fatalf("iterate %s table info: %v", table, err)
 	}
+	return columns
 }
 
 func TestFileStoreRunMetadataTruncatesAndFeedbackUpdates(t *testing.T) {
@@ -456,14 +523,17 @@ func TestFileStoreRunMetadataTruncatesAndFeedbackUpdates(t *testing.T) {
 		StartedAtMillis: 100,
 		UpdatedAtMillis: 200,
 		Usage: UsageData{
-			ModelKey:               "mock-model",
-			PromptTokens:           1,
-			CompletionTokens:       2,
-			TotalTokens:            3,
-			EstimatedCostCurrency:  "CNY",
-			EstimatedCostInputMiss: 0.01,
-			EstimatedCostOutput:    0.02,
-			EstimatedCostTotal:     0.03,
+			ModelKey:                 "mock-model",
+			PromptTokens:             1,
+			CompletionTokens:         2,
+			TotalTokens:              3,
+			EstimatedCostCurrency:    "CNY",
+			EstimatedCostInputMiss:   0.01,
+			EstimatedCostOutput:      0.02,
+			EstimatedCostTotal:       0.03,
+			FirstTokenLatencyTotalMs: 1200,
+			FirstTokenLatencyCount:   1,
+			GenerationDurationMs:     2400,
 		},
 	}); err != nil {
 		t.Fatalf("complete run: %v", err)
@@ -494,8 +564,18 @@ func TestFileStoreRunMetadataTruncatesAndFeedbackUpdates(t *testing.T) {
 		runs[0].Usage.ModelKey != "mock-model" || runs[0].Usage.EstimatedCostTotal != 0.03 {
 		t.Fatalf("unexpected run summary: %#v", runs[0])
 	}
+	if runs[0].Usage.FirstTokenLatencyTotalMs != 1200 ||
+		runs[0].Usage.FirstTokenLatencyCount != 1 ||
+		runs[0].Usage.GenerationDurationMs != 2400 {
+		t.Fatalf("expected run timing usage, got %#v", runs[0].Usage)
+	}
 	if sum.Usage == nil || sum.Usage.ModelKey != "" || sum.Usage.EstimatedCostCurrency != "CNY" || sum.Usage.EstimatedCostTotal != 0.03 {
 		t.Fatalf("expected chat summary cost without aggregate modelKey, got %#v", sum.Usage)
+	}
+	if sum.Usage.FirstTokenLatencyTotalMs != 1200 ||
+		sum.Usage.FirstTokenLatencyCount != 1 ||
+		sum.Usage.GenerationDurationMs != 2400 {
+		t.Fatalf("expected chat summary timing usage, got %#v", sum.Usage)
 	}
 
 	setAt, err := store.SetFeedback("chat-runs", "loyw3v28", "thumbs_down", "not useful")
@@ -1768,6 +1848,11 @@ func TestStepWriterEmbedsUsageAtStepLevel(t *testing.T) {
 						"completionTokensDetails": map[string]any{
 							"reasoningTokens": 12,
 						},
+						"timing": map[string]any{
+							"firstTokenLatencyMs":   820,
+							"generationDurationMs":  2380,
+							"outputTokensPerSecond": 21.01,
+						},
 						"llmChatCompletionCount": 1,
 					},
 				},
@@ -1794,6 +1879,13 @@ func TestStepWriterEmbedsUsageAtStepLevel(t *testing.T) {
 		toIntValue(completionDetails["reasoningTokens"]) != 12 ||
 		toIntValue(usage["llmChatCompletionCount"]) != 1 {
 		t.Fatalf("expected detailed step-level usage, got %#v", lines[0])
+	}
+	timing, _ := usage["timing"].(map[string]any)
+	if toIntValue(timing["firstTokenLatencyMs"]) != 820 || toIntValue(timing["generationDurationMs"]) != 2380 {
+		t.Fatalf("expected step-level timing usage, got %#v", lines[0])
+	}
+	if _, ok := timing["outputTokensPerSecond"]; ok {
+		t.Fatalf("did not expect derived tokens/s in step-level timing, got %#v", lines[0])
 	}
 	contextWindow, _ := lines[0]["contextWindow"].(map[string]any)
 	if toIntValue(contextWindow["maxSize"]) != 128000 || toIntValue(contextWindow["currentSize"]) != 100 || toIntValue(contextWindow["estimatedNextCallSize"]) != 200 {
@@ -1942,6 +2034,10 @@ func TestStepWriterCapturesDebugLLMChatMetadata(t *testing.T) {
 						"toolCallCount":          2,
 						"modelKey":               "mock-model",
 						"reasoningEffort":        "HIGH",
+						"timing": map[string]any{
+							"firstTokenLatencyMs":  900,
+							"generationDurationMs": 2100,
+						},
 					},
 				},
 				"trace": map[string]any{
@@ -1997,6 +2093,11 @@ func TestStepWriterCapturesDebugLLMChatMetadata(t *testing.T) {
 	}
 	if detail.ReplayUsage.Chat.TotalTokens != 150 || detail.ContextWindow == nil {
 		t.Fatalf("expected replay usage/context window, got usage=%#v contextWindow=%#v", detail.ReplayUsage, detail.ContextWindow)
+	}
+	if detail.ReplayUsage.Chat.FirstTokenLatencyTotalMs != 900 ||
+		detail.ReplayUsage.Chat.FirstTokenLatencyCount != 1 ||
+		detail.ReplayUsage.Chat.GenerationDurationMs != 2100 {
+		t.Fatalf("expected replay timing usage, got %#v", detail.ReplayUsage)
 	}
 }
 

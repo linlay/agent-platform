@@ -70,10 +70,24 @@ func (d *StreamEventDispatcher) closeForSwitch(next string) []StreamEvent {
 }
 
 func (d *StreamEventDispatcher) usagePayload() map[string]any {
-	if d.state.runUsage == nil || (d.state.runUsage.TotalTokens == 0 && d.state.runUsage.LLMChatCompletionCount == 0 && d.state.runUsage.ToolCallCount == 0) {
+	if d.state.runUsage == nil || !runUsageStateHasData(d.state.runUsage) {
 		return nil
 	}
 	return usageMap(d.state.runUsage)
+}
+
+func runUsageStateHasData(usage *runUsageState) bool {
+	if usage == nil {
+		return false
+	}
+	return usage.TotalTokens > 0 ||
+		usage.PromptTokens > 0 ||
+		usage.CompletionTokens > 0 ||
+		usage.LLMChatCompletionCount > 0 ||
+		usage.ToolCallCount > 0 ||
+		usage.FirstTokenLatencyTotalMs > 0 ||
+		usage.FirstTokenLatencyCount > 0 ||
+		usage.GenerationDurationMs > 0
 }
 
 func usageMap(usage *runUsageState) map[string]any {
@@ -92,7 +106,33 @@ func usageMap(usage *runUsageState) map[string]any {
 	if usage.ToolCallCount > 0 {
 		out["toolCallCount"] = usage.ToolCallCount
 	}
+	addTimingUsage(out, usage.FirstTokenLatencyTotalMs, usage.FirstTokenLatencyCount, usage.GenerationDurationMs)
 	return out
+}
+
+func addTimingUsage(out map[string]any, firstTokenLatencyTotalMs int64, firstTokenLatencyCount int, generationDurationMs int64) {
+	if out == nil {
+		return
+	}
+	timing := map[string]any{}
+	if firstTokenLatencyCount > 0 {
+		timing["firstTokenLatencyMs"] = firstTokenLatencyTotalMs / int64(firstTokenLatencyCount)
+		timing["firstTokenLatencyTotalMs"] = firstTokenLatencyTotalMs
+		timing["firstTokenLatencyCount"] = firstTokenLatencyCount
+	}
+	if generationDurationMs > 0 {
+		timing["generationDurationMs"] = generationDurationMs
+	}
+	if len(timing) > 0 {
+		out["timing"] = timing
+	}
+}
+
+func boolToTimingCount(ok bool) int {
+	if ok {
+		return 1
+	}
+	return 0
 }
 
 func addDetailedUsage(out map[string]any, reasoningTokens int, promptCacheHitTokens int, promptCacheMissTokens int) {

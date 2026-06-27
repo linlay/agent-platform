@@ -19,6 +19,9 @@ type chatRunData struct {
 	totalPromptCacheMissTokens      int
 	totalLlmChatCompletionCount     int
 	totalToolCallCount              int
+	totalFirstTokenLatencyMs        int64
+	totalFirstTokenLatencyCount     int
+	totalGenerationDurationMs       int64
 	estimatedCostCurrency           string
 	estimatedCostInputHit           float64
 	estimatedCostInputMiss          float64
@@ -33,6 +36,9 @@ type chatRunData struct {
 	chatTotalPromptCacheMissTokens  int
 	chatTotalLlmChatCompletionCount int
 	chatTotalToolCallCount          int
+	chatTotalFirstTokenLatencyMs    int64
+	chatTotalFirstTokenLatencyCount int
+	chatTotalGenerationDurationMs   int64
 	activeSubTasks                  map[string]*replayedSubTask
 }
 

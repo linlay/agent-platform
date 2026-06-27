@@ -48,7 +48,10 @@ func (s *FileStore) OnRunCompleted(completion RunCompletion) error {
 		USAGE_ESTIMATED_COST_OUTPUT_=USAGE_ESTIMATED_COST_OUTPUT_+?,
 		USAGE_ESTIMATED_COST_TOTAL_=USAGE_ESTIMATED_COST_TOTAL_+?,
 		USAGE_LLM_CHAT_COMPLETION_COUNT_=USAGE_LLM_CHAT_COMPLETION_COUNT_+?,
-		USAGE_TOOL_CALL_COUNT_=USAGE_TOOL_CALL_COUNT_+?
+		USAGE_TOOL_CALL_COUNT_=USAGE_TOOL_CALL_COUNT_+?,
+		USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_=USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_+?,
+		USAGE_FIRST_TOKEN_LATENCY_COUNT_=USAGE_FIRST_TOKEN_LATENCY_COUNT_+?,
+		USAGE_GENERATION_DURATION_MS_=USAGE_GENERATION_DURATION_MS_+?
 		WHERE CHAT_ID_=?`,
 		completion.RunID, assistantText, completion.UpdatedAtMillis,
 		completion.Usage.PromptTokens, completion.Usage.CompletionTokens, completion.Usage.TotalTokens,
@@ -59,6 +62,9 @@ func (s *FileStore) OnRunCompleted(completion RunCompletion) error {
 		completion.Usage.EstimatedCostOutput, completion.Usage.EstimatedCostTotal,
 		completion.Usage.LlmChatCompletionCount,
 		completion.Usage.ToolCallCount,
+		completion.Usage.FirstTokenLatencyTotalMs,
+		completion.Usage.FirstTokenLatencyCount,
+		completion.Usage.GenerationDurationMs,
 		completion.ChatID)
 	if err != nil {
 		return err
@@ -69,8 +75,9 @@ func (s *FileStore) OnRunCompleted(completion RunCompletion) error {
 			USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_, USAGE_CACHED_TOKENS_, USAGE_REASONING_TOKENS_,
 			USAGE_PROMPT_CACHE_HIT_TOKENS_, USAGE_PROMPT_CACHE_MISS_TOKENS_,
 			USAGE_ESTIMATED_COST_CURRENCY_, USAGE_ESTIMATED_COST_INPUT_CACHE_HIT_, USAGE_ESTIMATED_COST_INPUT_CACHE_MISS_, USAGE_ESTIMATED_COST_OUTPUT_, USAGE_ESTIMATED_COST_TOTAL_, USAGE_MODEL_KEY_,
-			USAGE_LLM_CHAT_COMPLETION_COUNT_, USAGE_TOOL_CALL_COUNT_
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			USAGE_LLM_CHAT_COMPLETION_COUNT_, USAGE_TOOL_CALL_COUNT_,
+			USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_, USAGE_FIRST_TOKEN_LATENCY_COUNT_, USAGE_GENERATION_DURATION_MS_
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(RUN_ID_) DO UPDATE SET
 			CHAT_ID_=excluded.CHAT_ID_,
 			AGENT_KEY_=excluded.AGENT_KEY_,
@@ -93,7 +100,10 @@ func (s *FileStore) OnRunCompleted(completion RunCompletion) error {
 			USAGE_ESTIMATED_COST_TOTAL_=excluded.USAGE_ESTIMATED_COST_TOTAL_,
 			USAGE_MODEL_KEY_=excluded.USAGE_MODEL_KEY_,
 			USAGE_LLM_CHAT_COMPLETION_COUNT_=excluded.USAGE_LLM_CHAT_COMPLETION_COUNT_,
-			USAGE_TOOL_CALL_COUNT_=excluded.USAGE_TOOL_CALL_COUNT_`,
+			USAGE_TOOL_CALL_COUNT_=excluded.USAGE_TOOL_CALL_COUNT_,
+			USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_=excluded.USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_,
+			USAGE_FIRST_TOKEN_LATENCY_COUNT_=excluded.USAGE_FIRST_TOKEN_LATENCY_COUNT_,
+			USAGE_GENERATION_DURATION_MS_=excluded.USAGE_GENERATION_DURATION_MS_`,
 		completion.RunID, completion.ChatID, agentKey, initialMessage, assistantText, completion.FinishReason,
 		completion.StartedAtMillis, completion.UpdatedAtMillis,
 		completion.Usage.PromptTokens, completion.Usage.CompletionTokens, completion.Usage.TotalTokens,
@@ -103,7 +113,8 @@ func (s *FileStore) OnRunCompleted(completion RunCompletion) error {
 		completion.Usage.EstimatedCostInputHit, completion.Usage.EstimatedCostInputMiss,
 		completion.Usage.EstimatedCostOutput, completion.Usage.EstimatedCostTotal,
 		completion.Usage.ModelKey,
-		completion.Usage.LlmChatCompletionCount, completion.Usage.ToolCallCount)
+		completion.Usage.LlmChatCompletionCount, completion.Usage.ToolCallCount,
+		completion.Usage.FirstTokenLatencyTotalMs, completion.Usage.FirstTokenLatencyCount, completion.Usage.GenerationDurationMs)
 	return err
 }
 

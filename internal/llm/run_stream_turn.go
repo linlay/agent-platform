@@ -165,8 +165,9 @@ func (s *llmRunStream) prepareNextTurn() error {
 	s.resetLastCallUsage()
 	s.runLLMChatCompletionCount++
 	s.lastCallLLMChatCompletionCount = 1
+	requestSentAt := time.Now()
 	if trace != nil {
-		trace.markSent(time.Now())
+		trace.markSent(requestSentAt)
 	}
 	turn, err := s.protocol.OpenStream(s.ctx, protocolStreamParams{
 		runID:          s.session.RunID,
@@ -189,6 +190,7 @@ func (s *llmRunStream) prepareNextTurn() error {
 		trace.markResponseStarted(time.Now())
 		turn.trace = trace
 	}
+	turn.requestSentAt = requestSentAt
 	s.execCtx.ModelCalls++
 	s.currentTurn = turn
 	s.lastTrace = trace
@@ -314,6 +316,7 @@ func (s *llmRunStream) finishCurrentTurn() error {
 	if turn.cancel != nil {
 		turn.cancel()
 	}
+	s.recordCurrentTurnTiming(time.Now())
 
 	toolCalls, err := turn.materializeToolCalls()
 	if err != nil {

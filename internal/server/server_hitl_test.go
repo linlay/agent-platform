@@ -83,7 +83,9 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	if awaitQuestionPayload == nil {
 		t.Fatalf("expected awaiting.ask before submit, got %s", streamBody.String())
 	}
-	assertEventOrder(t, streamBody.String(), "tool.start", "tool.args", "tool.end", "awaiting.ask")
+	if strings.Contains(streamBody.String(), `"type":"tool.start"`) {
+		t.Fatalf("did not expect hidden ask_user_question tool events, got %s", streamBody.String())
+	}
 	if awaitingID == "" {
 		t.Fatalf("expected awaitingId on awaiting.ask, got %#v", awaitQuestionPayload)
 	}
@@ -196,7 +198,7 @@ func TestFrontendSubmitAndSteerAreConsumedBeforeNextTurn(t *testing.T) {
 	if !strings.Contains(body, "final answer") {
 		t.Fatalf("expected final answer in stream, got %s", body)
 	}
-	assertEventOrder(t, body, "tool.start", "tool.args", "tool.end", "awaiting.ask", "request.submit", "awaiting.answer", "request.steer")
+	assertEventOrder(t, body, "awaiting.ask", "request.submit", "awaiting.answer", "request.steer")
 
 	chatsRec := httptest.NewRecorder()
 	fixture.server.ServeHTTP(chatsRec, httptest.NewRequest(http.MethodGet, "/api/chats", nil))
@@ -533,7 +535,7 @@ questionSubmit:
 		!strings.Contains(body, `"answers":[{"answers":["产品更新","使用教程"],"id":"q1","question":"Notification topics"},{"answer":2,"id":"q2","question":"How many people?"}]`) {
 		t.Fatalf("expected normalized awaiting.answer answers, got %s", body)
 	}
-	assertEventOrder(t, body, "tool.start", "tool.args", "tool.end", "awaiting.ask", "request.submit", "awaiting.answer", "tool.result")
+	assertEventOrder(t, body, "awaiting.ask", "request.submit", "awaiting.answer")
 
 	select {
 	case messages := <-secondTurnMessages:
@@ -662,7 +664,7 @@ chunkedQuestionSubmit:
 	if !strings.Contains(body, `"type":"awaiting.answer"`) {
 		t.Fatalf("expected awaiting.answer event, got %s", body)
 	}
-	assertEventOrder(t, body, "tool.start", "tool.args", "tool.end", "awaiting.ask", "request.submit", "awaiting.answer", "tool.result")
+	assertEventOrder(t, body, "awaiting.ask", "request.submit", "awaiting.answer")
 	select {
 	case messages := <-secondTurnMessages:
 		toolContent := ""
@@ -739,8 +741,6 @@ func TestQuestionInvalidSelectOptionsFailsBeforeAwait(t *testing.T) {
 	if strings.Contains(body, `"type":"awaiting.payload"`) {
 		t.Fatalf("did not expect awaiting.payload for invalid question args, got %s", body)
 	}
-	assertEventOrder(t, body, "tool.start", "tool.args", "tool.end", "tool.result")
-
 	select {
 	case messages := <-secondTurnMessages:
 		toolContent := ""
@@ -842,7 +842,7 @@ func TestQuestionAwaitDismissReturnsCancelledStructuredResult(t *testing.T) {
 		!strings.Contains(body, `"code":"user_dismissed"`) {
 		t.Fatalf("expected dismissed awaiting.answer in stream, got %s", body)
 	}
-	assertEventOrder(t, body, "tool.start", "tool.args", "tool.end", "awaiting.ask", "request.submit", "awaiting.answer", "tool.result")
+	assertEventOrder(t, body, "awaiting.ask", "request.submit", "awaiting.answer")
 
 	select {
 	case messages := <-secondTurnMessages:

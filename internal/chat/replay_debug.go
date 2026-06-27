@@ -116,7 +116,7 @@ func usagePayloadFromMap(usage map[string]any, includeLLMChatCompletionCount boo
 	if includeLLMChatCompletionCount {
 		if count := toIntFromKeys(usage, "llmChatCompletionCount"); count > 0 {
 			out["llmChatCompletionCount"] = count
-		} else if hasLLMTokenUsagePayload(usage) {
+		} else if hasLLMTokenUsagePayload(usage) || len(usageTimingPayloadFromMap(usage)) > 0 {
 			out["llmChatCompletionCount"] = 1
 		}
 	}
@@ -125,6 +125,33 @@ func usagePayloadFromMap(usage map[string]any, includeLLMChatCompletionCount boo
 	}
 	if estimatedCost, ok := usage["estimatedCost"].(map[string]any); ok && len(estimatedCost) > 0 {
 		out["estimatedCost"] = cloneStringAnyMap(estimatedCost)
+	}
+	if timing := usageTimingPayloadFromMap(usage); len(timing) > 0 {
+		out["timing"] = timing
+	}
+	return out
+}
+
+func usageTimingPayloadFromMap(usage map[string]any) map[string]any {
+	if usage == nil {
+		return nil
+	}
+	timing, _ := usage["timing"].(map[string]any)
+	if len(timing) == 0 {
+		return nil
+	}
+	out := map[string]any{}
+	if firstTokenLatencyMs := toIntFromKeys(timing, "firstTokenLatencyMs"); firstTokenLatencyMs > 0 {
+		out["firstTokenLatencyMs"] = firstTokenLatencyMs
+	} else {
+		total := toIntFromKeys(timing, "firstTokenLatencyTotalMs")
+		count := toIntFromKeys(timing, "firstTokenLatencyCount")
+		if total > 0 && count > 0 {
+			out["firstTokenLatencyMs"] = total / count
+		}
+	}
+	if generationDurationMs := toIntFromKeys(timing, "generationDurationMs"); generationDurationMs > 0 {
+		out["generationDurationMs"] = generationDurationMs
 	}
 	return out
 }
@@ -146,7 +173,8 @@ func hasProviderUsagePayload(usage map[string]any) bool {
 		return false
 	}
 	return hasLLMTokenUsagePayload(usage) ||
-		toIntFromKeys(usage, "toolCallCount") > 0
+		toIntFromKeys(usage, "toolCallCount") > 0 ||
+		len(usageTimingPayloadFromMap(usage)) > 0
 }
 
 func hasLLMTokenUsagePayload(usage map[string]any) bool {

@@ -344,6 +344,8 @@ func TestDispatcherIncludesTaskIDOnDebugEvents(t *testing.T) {
 		LLMReturnPromptCacheMissTokens:  3,
 		LLMReturnLLMChatCompletionCount: 1,
 		LLMReturnToolCallCount:          2,
+		LLMReturnFirstTokenLatencyMs:    820,
+		LLMReturnGenerationDurationMs:   2380,
 		RunPromptTokens:                 107,
 		RunCompletionTokens:             53,
 		RunTotalTokens:                  160,
@@ -353,6 +355,9 @@ func TestDispatcherIncludesTaskIDOnDebugEvents(t *testing.T) {
 		RunPromptCacheMissTokens:        39,
 		RunLLMChatCompletionCount:       2,
 		RunToolCallCount:                4,
+		RunFirstTokenLatencyTotalMs:     1820,
+		RunFirstTokenLatencyCount:       2,
+		RunGenerationDurationMs:         5000,
 	})
 	assertEventTypes(t, llmEvents, "debug.llmChat")
 	llmData := llmEvents[0].Data()
@@ -380,6 +385,22 @@ func TestDispatcherIncludesTaskIDOnDebugEvents(t *testing.T) {
 		llmReturnUsage["llmChatCompletionCount"] != 1 ||
 		llmReturnUsage["toolCallCount"] != 2 {
 		t.Fatalf("expected detailed debug.llmChat usage, got %#v", llmUsageEnvelope)
+	}
+	llmReturnTiming, _ := llmReturnUsage["timing"].(map[string]any)
+	if intValue(llmReturnTiming["firstTokenLatencyMs"]) != 820 ||
+		intValue(llmReturnTiming["generationDurationMs"]) != 2380 {
+		t.Fatalf("expected timing debug.llmChat usage, got %#v", llmUsageEnvelope)
+	}
+	if _, exists := llmReturnTiming["outputTokensPerSecond"]; exists {
+		t.Fatalf("did not expect derived tokens/s in debug.llmChat timing, got %#v", llmReturnTiming)
+	}
+	runUsage, _ := llmUsageEnvelope["runUsage"].(map[string]any)
+	runTiming, _ := runUsage["timing"].(map[string]any)
+	if intValue(runTiming["firstTokenLatencyMs"]) != 910 ||
+		intValue(runTiming["firstTokenLatencyTotalMs"]) != 1820 ||
+		intValue(runTiming["firstTokenLatencyCount"]) != 2 ||
+		intValue(runTiming["generationDurationMs"]) != 5000 {
+		t.Fatalf("expected aggregated run timing in debug.llmChat usage, got %#v", llmUsageEnvelope)
 	}
 }
 
@@ -430,6 +451,8 @@ func TestDispatcherUsageSnapshotIncludesTaskAndDeepSeekCacheUsage(t *testing.T) 
 		LLMReturnPromptCacheMissTokens:  36,
 		LLMReturnLLMChatCompletionCount: 1,
 		LLMReturnToolCallCount:          2,
+		LLMReturnFirstTokenLatencyMs:    700,
+		LLMReturnGenerationDurationMs:   2300,
 		RunPromptTokens:                 300,
 		RunCompletionTokens:             75,
 		RunTotalTokens:                  375,
@@ -439,6 +462,9 @@ func TestDispatcherUsageSnapshotIncludesTaskAndDeepSeekCacheUsage(t *testing.T) 
 		RunPromptCacheMissTokens:        172,
 		RunLLMChatCompletionCount:       2,
 		RunToolCallCount:                5,
+		RunFirstTokenLatencyTotalMs:     1900,
+		RunFirstTokenLatencyCount:       2,
+		RunGenerationDurationMs:         4800,
 	})
 	assertEventTypes(t, events, "usage.snapshot")
 	data := events[0].Data()
@@ -466,9 +492,24 @@ func TestDispatcherUsageSnapshotIncludesTaskAndDeepSeekCacheUsage(t *testing.T) 
 	if current["reasoningEffort"] != "HIGH" {
 		t.Fatalf("expected current reasoningEffort, got %#v", usage)
 	}
+	currentTiming, _ := current["timing"].(map[string]any)
+	if intValue(currentTiming["firstTokenLatencyMs"]) != 700 ||
+		intValue(currentTiming["generationDurationMs"]) != 2300 {
+		t.Fatalf("expected current timing usage, got %#v", usage)
+	}
+	if _, exists := currentTiming["outputTokensPerSecond"]; exists {
+		t.Fatalf("did not expect derived tokens/s in usage.snapshot current timing, got %#v", currentTiming)
+	}
 	runPromptDetails, _ := run["promptTokensDetails"].(map[string]any)
 	if runPromptDetails["cacheHitTokens"] != 128 || runPromptDetails["cacheMissTokens"] != 172 || run["llmChatCompletionCount"] != 2 || run["toolCallCount"] != 5 {
 		t.Fatalf("expected detailed run usage, got %#v", usage)
+	}
+	runTiming, _ := run["timing"].(map[string]any)
+	if intValue(runTiming["firstTokenLatencyMs"]) != 950 ||
+		intValue(runTiming["firstTokenLatencyTotalMs"]) != 1900 ||
+		intValue(runTiming["firstTokenLatencyCount"]) != 2 ||
+		intValue(runTiming["generationDurationMs"]) != 4800 {
+		t.Fatalf("expected run timing usage, got %#v", usage)
 	}
 	if _, exists := run["modelKey"]; exists {
 		t.Fatalf("did not expect run modelKey, got %#v", usage)

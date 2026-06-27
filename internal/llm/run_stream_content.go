@@ -44,6 +44,7 @@ func (s *llmRunStream) appendContentDelta(text string) {
 	if text == "" {
 		return
 	}
+	s.markFirstVisibleDelta()
 	s.currentTurn.hasMeaningful = true
 	s.currentTurn.content.WriteString(text)
 	s.engine.logParsedDelta(s.session.RunID, "content", text)
@@ -54,6 +55,7 @@ func (s *llmRunStream) appendReasoningDelta(text string, label string) {
 	if text == "" {
 		return
 	}
+	s.markFirstVisibleDelta()
 	s.currentTurn.hasMeaningful = true
 	s.currentTurn.reasoning.WriteString(text)
 	s.engine.logParsedDelta(s.session.RunID, label, text)

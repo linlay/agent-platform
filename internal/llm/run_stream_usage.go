@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"strings"
+	"time"
 
 	. "agent-platform/internal/contracts"
 )
@@ -124,11 +125,21 @@ func (s *llmRunStream) resetLastCallUsage() {
 	s.lastCallPromptCacheMissTokens = 0
 	s.lastCallLLMChatCompletionCount = 0
 	s.lastCallToolCallCount = 0
+	s.lastCallFirstTokenLatencyMs = 0
+	s.lastCallGenerationDurationMs = 0
+	s.pendingTimingUsageEmit = false
 }
 
 func (s *llmRunStream) emitPendingUsageDelta() {
 	s.commitPendingTurnUsage()
 	if !s.pendingUsageEmit {
+		if s.pendingTimingUsageEmit && s.lastCallHasTiming() {
+			s.pending = append(s.pending, s.buildUsageSnapshotDelta())
+			s.pendingTimingUsageEmit = false
+			currentToolCallCount := s.currentToolCallCountSinceSnapshot()
+			s.lastCallToolCallCount = currentToolCallCount
+			s.lastSnapshotToolCallCount = s.runToolCallCount
+		}
 		return
 	}
 	currentToolCallCount := s.currentToolCallCountSinceSnapshot()
@@ -169,6 +180,8 @@ func (s *llmRunStream) emitDebugLLMChatDelta(trace *llmChatTrace) {
 		LLMReturnPromptCacheMissTokens:  s.lastCallPromptCacheMissTokens,
 		LLMReturnLLMChatCompletionCount: s.lastCallLLMChatCompletionCount,
 		LLMReturnToolCallCount:          s.lastCallToolCallCount,
+		LLMReturnFirstTokenLatencyMs:    s.lastCallFirstTokenLatencyMs,
+		LLMReturnGenerationDurationMs:   s.lastCallGenerationDurationMs,
 		RunPromptTokens:                 s.runPromptTokens,
 		RunCompletionTokens:             s.runCompletionTokens,
 		RunTotalTokens:                  s.runTotalTokens,
@@ -178,6 +191,9 @@ func (s *llmRunStream) emitDebugLLMChatDelta(trace *llmChatTrace) {
 		RunPromptCacheMissTokens:        s.runPromptCacheMissTokens,
 		RunLLMChatCompletionCount:       s.runLLMChatCompletionCount,
 		RunToolCallCount:                s.runToolCallCount,
+		RunFirstTokenLatencyTotalMs:     s.runFirstTokenLatencyTotalMs,
+		RunFirstTokenLatencyCount:       s.runFirstTokenLatencyCount,
+		RunGenerationDurationMs:         s.runGenerationDurationMs,
 	})
 }
 
@@ -217,7 +233,16 @@ func (s *llmRunStream) commitUsage(usage *openAIUsage) {
 	s.runPromptCacheHitTokens += normalized.CacheHitTokens
 	s.runPromptCacheMissTokens += normalized.CacheMissTokens
 	s.pendingUsageEmit = true
-	s.pending = append(s.pending, DeltaUsageSnapshot{
+	s.pendingTimingUsageEmit = false
+	s.pending = append(s.pending, s.buildUsageSnapshotDelta())
+	if s.engine != nil && s.engine.llmConsoleEnabled(llmConsoleUsage) {
+		log.Printf("[llm][run:%s][usage] last-call: prompt=%d completion=%d total=%d | run-cumulative: prompt=%d completion=%d total=%d",
+			s.session.RunID, usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens, s.runPromptTokens, s.runCompletionTokens, s.runTotalTokens)
+	}
+}
+
+func (s *llmRunStream) buildUsageSnapshotDelta() DeltaUsageSnapshot {
+	return DeltaUsageSnapshot{
 		ChatID:                          s.session.ChatID,
 		ModelKey:                        s.model.Key,
 		ReasoningEffort:                 s.effectiveReasoningEffort(),
@@ -233,6 +258,8 @@ func (s *llmRunStream) commitUsage(usage *openAIUsage) {
 		LLMReturnPromptCacheMissTokens:  s.lastCallPromptCacheMissTokens,
 		LLMReturnLLMChatCompletionCount: s.lastCallLLMChatCompletionCount,
 		LLMReturnToolCallCount:          s.currentToolCallCountSinceSnapshot(),
+		LLMReturnFirstTokenLatencyMs:    s.lastCallFirstTokenLatencyMs,
+		LLMReturnGenerationDurationMs:   s.lastCallGenerationDurationMs,
 		RunPromptTokens:                 s.runPromptTokens,
 		RunCompletionTokens:             s.runCompletionTokens,
 		RunTotalTokens:                  s.runTotalTokens,
@@ -242,11 +269,17 @@ func (s *llmRunStream) commitUsage(usage *openAIUsage) {
 		RunPromptCacheMissTokens:        s.runPromptCacheMissTokens,
 		RunLLMChatCompletionCount:       s.runLLMChatCompletionCount,
 		RunToolCallCount:                s.runToolCallCount,
-	})
-	if s.engine != nil && s.engine.llmConsoleEnabled(llmConsoleUsage) {
-		log.Printf("[llm][run:%s][usage] last-call: prompt=%d completion=%d total=%d | run-cumulative: prompt=%d completion=%d total=%d",
-			s.session.RunID, usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens, s.runPromptTokens, s.runCompletionTokens, s.runTotalTokens)
+		RunFirstTokenLatencyTotalMs:     s.runFirstTokenLatencyTotalMs,
+		RunFirstTokenLatencyCount:       s.runFirstTokenLatencyCount,
+		RunGenerationDurationMs:         s.runGenerationDurationMs,
 	}
+}
+
+func (s *llmRunStream) lastCallHasTiming() bool {
+	if s == nil {
+		return false
+	}
+	return s.lastCallFirstTokenLatencyMs > 0 || s.lastCallGenerationDurationMs > 0
 }
 
 func (s *llmRunStream) currentToolCallCountSinceSnapshot() int {
@@ -258,6 +291,41 @@ func (s *llmRunStream) currentToolCallCountSinceSnapshot() int {
 		return 0
 	}
 	return current
+}
+
+func (s *llmRunStream) markFirstVisibleDelta() {
+	if s == nil || s.currentTurn == nil || !s.currentTurn.firstVisibleAt.IsZero() {
+		return
+	}
+	s.currentTurn.firstVisibleAt = time.Now()
+}
+
+func (s *llmRunStream) recordCurrentTurnTiming(completedAt time.Time) {
+	if s == nil || s.currentTurn == nil {
+		return
+	}
+	turn := s.currentTurn
+	if turn.requestSentAt.IsZero() || turn.firstVisibleAt.IsZero() {
+		return
+	}
+	if completedAt.IsZero() {
+		completedAt = time.Now()
+	}
+	firstTokenLatencyMs := nonNegativeDurationMs(turn.requestSentAt, turn.firstVisibleAt)
+	generationDurationMs := nonNegativeDurationMs(turn.firstVisibleAt, completedAt)
+	s.lastCallFirstTokenLatencyMs = firstTokenLatencyMs
+	s.lastCallGenerationDurationMs = generationDurationMs
+	s.runFirstTokenLatencyTotalMs += firstTokenLatencyMs
+	s.runFirstTokenLatencyCount++
+	s.runGenerationDurationMs += generationDurationMs
+	s.pendingTimingUsageEmit = true
+}
+
+func nonNegativeDurationMs(start time.Time, end time.Time) int64 {
+	if start.IsZero() || end.IsZero() || end.Before(start) {
+		return 0
+	}
+	return end.Sub(start).Milliseconds()
 }
 
 type normalizedOpenAIUsageDetails struct {

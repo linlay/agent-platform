@@ -248,6 +248,7 @@ func usageDataFromMap(usage map[string]any) chat.UsageData {
 		out.EstimatedCostOutput = floatValue(estimatedCost["output"])
 		out.EstimatedCostTotal = floatValue(estimatedCost["total"])
 	}
+	applyUsageTimingFromMap(&out, usage)
 	return out
 }
 
@@ -269,6 +270,9 @@ func mergeRunUsageData(target *chat.UsageData, incoming chat.UsageData) {
 	inputMiss := target.EstimatedCostInputMiss
 	output := target.EstimatedCostOutput
 	total := target.EstimatedCostTotal
+	firstTokenLatencyTotalMs := target.FirstTokenLatencyTotalMs
+	firstTokenLatencyCount := target.FirstTokenLatencyCount
+	generationDurationMs := target.GenerationDurationMs
 	*target = incoming
 	if strings.TrimSpace(incoming.ModelKey) == "" {
 		target.ModelKey = modelKey
@@ -279,6 +283,11 @@ func mergeRunUsageData(target *chat.UsageData, incoming chat.UsageData) {
 		target.EstimatedCostInputMiss = inputMiss
 		target.EstimatedCostOutput = output
 		target.EstimatedCostTotal = total
+	}
+	if incoming.FirstTokenLatencyTotalMs == 0 && incoming.FirstTokenLatencyCount == 0 && incoming.GenerationDurationMs == 0 {
+		target.FirstTokenLatencyTotalMs = firstTokenLatencyTotalMs
+		target.FirstTokenLatencyCount = firstTokenLatencyCount
+		target.GenerationDurationMs = generationDurationMs
 	}
 }
 
@@ -341,23 +350,65 @@ func usageDetailInt(usage map[string]any, detailKey string, valueKey string) int
 	return contracts.AnyIntNode(details[valueKey])
 }
 
+func applyUsageTimingFromMap(target *chat.UsageData, usage map[string]any) {
+	if target == nil || usage == nil {
+		return
+	}
+	timing, _ := usage["timing"].(map[string]any)
+	if timing == nil {
+		return
+	}
+	firstTokenLatencyTotalMs := int64(contracts.AnyIntNode(timing["firstTokenLatencyTotalMs"]))
+	firstTokenLatencyCount := contracts.AnyIntNode(timing["firstTokenLatencyCount"])
+	if firstTokenLatencyTotalMs <= 0 || firstTokenLatencyCount <= 0 {
+		if firstTokenLatencyMs := int64(contracts.AnyIntNode(timing["firstTokenLatencyMs"])); firstTokenLatencyMs > 0 {
+			firstTokenLatencyTotalMs = firstTokenLatencyMs
+			firstTokenLatencyCount = 1
+		}
+	}
+	target.FirstTokenLatencyTotalMs = firstTokenLatencyTotalMs
+	target.FirstTokenLatencyCount = firstTokenLatencyCount
+	target.GenerationDurationMs = int64(contracts.AnyIntNode(timing["generationDurationMs"]))
+}
+
 func addUsageData(base chat.UsageData, delta chat.UsageData) chat.UsageData {
 	return chat.UsageData{
-		ModelKey:               mergedUsageModelKey(base, delta),
-		PromptTokens:           base.PromptTokens + delta.PromptTokens,
-		CompletionTokens:       base.CompletionTokens + delta.CompletionTokens,
-		TotalTokens:            base.TotalTokens + delta.TotalTokens,
-		CachedTokens:           base.CachedTokens + delta.CachedTokens,
-		ReasoningTokens:        base.ReasoningTokens + delta.ReasoningTokens,
-		PromptCacheHitTokens:   base.PromptCacheHitTokens + delta.PromptCacheHitTokens,
-		PromptCacheMissTokens:  base.PromptCacheMissTokens + delta.PromptCacheMissTokens,
-		EstimatedCostCurrency:  firstNonBlank(base.EstimatedCostCurrency, delta.EstimatedCostCurrency),
-		EstimatedCostInputHit:  base.EstimatedCostInputHit + delta.EstimatedCostInputHit,
-		EstimatedCostInputMiss: base.EstimatedCostInputMiss + delta.EstimatedCostInputMiss,
-		EstimatedCostOutput:    base.EstimatedCostOutput + delta.EstimatedCostOutput,
-		EstimatedCostTotal:     base.EstimatedCostTotal + delta.EstimatedCostTotal,
-		LlmChatCompletionCount: base.LlmChatCompletionCount + delta.LlmChatCompletionCount,
-		ToolCallCount:          base.ToolCallCount + delta.ToolCallCount,
+		ModelKey:                 mergedUsageModelKey(base, delta),
+		PromptTokens:             base.PromptTokens + delta.PromptTokens,
+		CompletionTokens:         base.CompletionTokens + delta.CompletionTokens,
+		TotalTokens:              base.TotalTokens + delta.TotalTokens,
+		CachedTokens:             base.CachedTokens + delta.CachedTokens,
+		ReasoningTokens:          base.ReasoningTokens + delta.ReasoningTokens,
+		PromptCacheHitTokens:     base.PromptCacheHitTokens + delta.PromptCacheHitTokens,
+		PromptCacheMissTokens:    base.PromptCacheMissTokens + delta.PromptCacheMissTokens,
+		EstimatedCostCurrency:    firstNonBlank(base.EstimatedCostCurrency, delta.EstimatedCostCurrency),
+		EstimatedCostInputHit:    base.EstimatedCostInputHit + delta.EstimatedCostInputHit,
+		EstimatedCostInputMiss:   base.EstimatedCostInputMiss + delta.EstimatedCostInputMiss,
+		EstimatedCostOutput:      base.EstimatedCostOutput + delta.EstimatedCostOutput,
+		EstimatedCostTotal:       base.EstimatedCostTotal + delta.EstimatedCostTotal,
+		LlmChatCompletionCount:   base.LlmChatCompletionCount + delta.LlmChatCompletionCount,
+		ToolCallCount:            base.ToolCallCount + delta.ToolCallCount,
+		FirstTokenLatencyTotalMs: base.FirstTokenLatencyTotalMs + delta.FirstTokenLatencyTotalMs,
+		FirstTokenLatencyCount:   base.FirstTokenLatencyCount + delta.FirstTokenLatencyCount,
+		GenerationDurationMs:     base.GenerationDurationMs + delta.GenerationDurationMs,
+	}
+}
+
+func addUsageTimingMap(out map[string]any, usage chat.UsageData) {
+	if out == nil {
+		return
+	}
+	timing := map[string]any{}
+	if usage.FirstTokenLatencyCount > 0 {
+		timing["firstTokenLatencyMs"] = usage.FirstTokenLatencyTotalMs / int64(usage.FirstTokenLatencyCount)
+		timing["firstTokenLatencyTotalMs"] = usage.FirstTokenLatencyTotalMs
+		timing["firstTokenLatencyCount"] = usage.FirstTokenLatencyCount
+	}
+	if usage.GenerationDurationMs > 0 {
+		timing["generationDurationMs"] = usage.GenerationDurationMs
+	}
+	if len(timing) > 0 {
+		out["timing"] = timing
 	}
 }
 
@@ -399,6 +450,7 @@ func usageDataMap(usage chat.UsageData) map[string]any {
 	if estimated := usageEstimatedCostFromData(usage); estimated != nil {
 		out["estimatedCost"] = estimated
 	}
+	addUsageTimingMap(out, usage)
 	return out
 }
 
@@ -420,7 +472,8 @@ func mergedUsageModelKey(base chat.UsageData, delta chat.UsageData) string {
 func usageHasData(usage chat.UsageData) bool {
 	return usage.TotalTokens > 0 || usage.PromptTokens > 0 || usage.CompletionTokens > 0 ||
 		usage.LlmChatCompletionCount > 0 || usage.ToolCallCount > 0 ||
-		usage.EstimatedCostTotal > 0 || strings.TrimSpace(usage.EstimatedCostCurrency) != ""
+		usage.EstimatedCostTotal > 0 || strings.TrimSpace(usage.EstimatedCostCurrency) != "" ||
+		usage.FirstTokenLatencyTotalMs > 0 || usage.FirstTokenLatencyCount > 0 || usage.GenerationDurationMs > 0
 }
 
 func isClientVisibleEvent(eventType string) bool {

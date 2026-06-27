@@ -51,14 +51,16 @@ func (s *FileStore) RestoreArchivedChat(archived ArchivedChat) (Summary, error) 
 			USAGE_PROMPT_TOKENS_, USAGE_COMPLETION_TOKENS_, USAGE_TOTAL_TOKENS_, USAGE_CACHED_TOKENS_, USAGE_REASONING_TOKENS_,
 			USAGE_PROMPT_CACHE_HIT_TOKENS_, USAGE_PROMPT_CACHE_MISS_TOKENS_,
 			USAGE_ESTIMATED_COST_CURRENCY_, USAGE_ESTIMATED_COST_INPUT_CACHE_HIT_, USAGE_ESTIMATED_COST_INPUT_CACHE_MISS_, USAGE_ESTIMATED_COST_OUTPUT_, USAGE_ESTIMATED_COST_TOTAL_,
-			USAGE_LLM_CHAT_COMPLETION_COUNT_, USAGE_TOOL_CALL_COUNT_
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			USAGE_LLM_CHAT_COMPLETION_COUNT_, USAGE_TOOL_CALL_COUNT_,
+			USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_, USAGE_FIRST_TOKEN_LATENCY_COUNT_, USAGE_GENERATION_DURATION_MS_
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		chatID, archived.Summary.ChatName, archived.Summary.AgentKey, nilIfEmpty(archived.Summary.TeamID), archived.Summary.SourceChannel,
 		archived.Summary.CreatedAt, archived.Summary.UpdatedAt, archived.Summary.LastRunID, archived.Summary.LastRunContent, readRunID, readAt,
 		usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens, usage.CachedTokens, usage.ReasoningTokens,
 		usage.PromptCacheHitTokens, usage.PromptCacheMissTokens,
 		usage.EstimatedCostCurrency, usage.EstimatedCostInputHit, usage.EstimatedCostInputMiss, usage.EstimatedCostOutput, usage.EstimatedCostTotal,
-		usage.LlmChatCompletionCount, usage.ToolCallCount)
+		usage.LlmChatCompletionCount, usage.ToolCallCount,
+		usage.FirstTokenLatencyTotalMs, usage.FirstTokenLatencyCount, usage.GenerationDurationMs)
 	if err != nil {
 		return Summary{}, err
 	}
@@ -71,14 +73,16 @@ func (s *FileStore) RestoreArchivedChat(archived ArchivedChat) (Summary, error) 
 				USAGE_PROMPT_CACHE_HIT_TOKENS_, USAGE_PROMPT_CACHE_MISS_TOKENS_,
 				USAGE_ESTIMATED_COST_CURRENCY_, USAGE_ESTIMATED_COST_INPUT_CACHE_HIT_, USAGE_ESTIMATED_COST_INPUT_CACHE_MISS_, USAGE_ESTIMATED_COST_OUTPUT_, USAGE_ESTIMATED_COST_TOTAL_, USAGE_MODEL_KEY_,
 				USAGE_LLM_CHAT_COMPLETION_COUNT_, USAGE_TOOL_CALL_COUNT_,
+				USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_, USAGE_FIRST_TOKEN_LATENCY_COUNT_, USAGE_GENERATION_DURATION_MS_,
 				FEEDBACK_TYPE_, FEEDBACK_COMMENT_, FEEDBACK_AT_
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			run.RunID, run.ChatID, run.AgentKey, run.InitialMessage, run.AssistantText, run.FinishReason,
 			run.StartedAt, run.CompletedAt,
 			run.Usage.PromptTokens, run.Usage.CompletionTokens, run.Usage.TotalTokens, run.Usage.CachedTokens, run.Usage.ReasoningTokens,
 			run.Usage.PromptCacheHitTokens, run.Usage.PromptCacheMissTokens,
 			run.Usage.EstimatedCostCurrency, run.Usage.EstimatedCostInputHit, run.Usage.EstimatedCostInputMiss, run.Usage.EstimatedCostOutput, run.Usage.EstimatedCostTotal, run.Usage.ModelKey,
 			run.Usage.LlmChatCompletionCount, run.Usage.ToolCallCount,
+			run.Usage.FirstTokenLatencyTotalMs, run.Usage.FirstTokenLatencyCount, run.Usage.GenerationDurationMs,
 			run.FeedbackType, run.FeedbackComment, run.FeedbackAt)
 		if err != nil {
 			return Summary{}, err

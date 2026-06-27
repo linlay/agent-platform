@@ -70,6 +70,9 @@ func (s *ArchiveStore) initDB() error {
 			USAGE_ESTIMATED_COST_TOTAL_ REAL NOT NULL DEFAULT 0,
 			USAGE_LLM_CHAT_COMPLETION_COUNT_ INTEGER NOT NULL DEFAULT 0,
 			USAGE_TOOL_CALL_COUNT_ INTEGER NOT NULL DEFAULT 0,
+			USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_ INTEGER NOT NULL DEFAULT 0,
+			USAGE_FIRST_TOKEN_LATENCY_COUNT_ INTEGER NOT NULL DEFAULT 0,
+			USAGE_GENERATION_DURATION_MS_ INTEGER NOT NULL DEFAULT 0,
 			JSONL_CONTENT_           TEXT NOT NULL DEFAULT '',
 			EVENTS_CONTENT_          TEXT NOT NULL DEFAULT '',
 			RAW_MESSAGES_CONTENT_    TEXT NOT NULL DEFAULT '',
@@ -101,6 +104,9 @@ func (s *ArchiveStore) initDB() error {
 			USAGE_MODEL_KEY_ TEXT NOT NULL DEFAULT '',
 			USAGE_LLM_CHAT_COMPLETION_COUNT_ INTEGER NOT NULL DEFAULT 0,
 			USAGE_TOOL_CALL_COUNT_ INTEGER NOT NULL DEFAULT 0,
+			USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_ INTEGER NOT NULL DEFAULT 0,
+			USAGE_FIRST_TOKEN_LATENCY_COUNT_ INTEGER NOT NULL DEFAULT 0,
+			USAGE_GENERATION_DURATION_MS_ INTEGER NOT NULL DEFAULT 0,
 			FEEDBACK_TYPE_     TEXT NOT NULL DEFAULT '',
 			FEEDBACK_COMMENT_  TEXT NOT NULL DEFAULT '',
 			FEEDBACK_AT_       INTEGER NOT NULL DEFAULT 0
@@ -141,6 +147,9 @@ func (s *ArchiveStore) initDB() error {
 			"USAGE_PROMPT_CACHE_MISS_TOKENS_",
 			"USAGE_LLM_CHAT_COMPLETION_COUNT_",
 			"USAGE_TOOL_CALL_COUNT_",
+			"USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_",
+			"USAGE_FIRST_TOKEN_LATENCY_COUNT_",
+			"USAGE_GENERATION_DURATION_MS_",
 		} {
 			_, _ = db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s INTEGER NOT NULL DEFAULT 0", table, col))
 		}
@@ -208,8 +217,9 @@ func (s *ArchiveStore) ArchiveChat(chat ArchivedChat) error {
 			USAGE_PROMPT_CACHE_HIT_TOKENS_, USAGE_PROMPT_CACHE_MISS_TOKENS_,
 			USAGE_ESTIMATED_COST_CURRENCY_, USAGE_ESTIMATED_COST_INPUT_CACHE_HIT_, USAGE_ESTIMATED_COST_INPUT_CACHE_MISS_, USAGE_ESTIMATED_COST_OUTPUT_, USAGE_ESTIMATED_COST_TOTAL_,
 			USAGE_LLM_CHAT_COMPLETION_COUNT_, USAGE_TOOL_CALL_COUNT_,
+			USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_, USAGE_FIRST_TOKEN_LATENCY_COUNT_, USAGE_GENERATION_DURATION_MS_,
 			JSONL_CONTENT_, EVENTS_CONTENT_, RAW_MESSAGES_CONTENT_, HAS_ATTACHMENTS_
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		chat.Summary.ChatID, chat.Summary.ChatName, chat.Summary.AgentKey, nilIfEmpty(chat.Summary.TeamID), chat.Summary.SourceChannel,
 		chat.Summary.CreatedAt, chat.Summary.UpdatedAt, chat.Summary.LastRunAt, chat.Summary.ArchivedAt,
 		chat.Summary.LastRunID, chat.Summary.LastRunContent, readRunID, readAt, 1,
@@ -217,6 +227,7 @@ func (s *ArchiveStore) ArchiveChat(chat ArchivedChat) error {
 		usage.PromptCacheHitTokens, usage.PromptCacheMissTokens,
 		usage.EstimatedCostCurrency, usage.EstimatedCostInputHit, usage.EstimatedCostInputMiss, usage.EstimatedCostOutput, usage.EstimatedCostTotal,
 		usage.LlmChatCompletionCount, usage.ToolCallCount,
+		usage.FirstTokenLatencyTotalMs, usage.FirstTokenLatencyCount, usage.GenerationDurationMs,
 		chat.JSONLContent, chat.EventsContent, chat.RawMessagesContent, hasAttachments)
 	if err != nil {
 		return err
@@ -229,14 +240,16 @@ func (s *ArchiveStore) ArchiveChat(chat ArchivedChat) error {
 				USAGE_PROMPT_CACHE_HIT_TOKENS_, USAGE_PROMPT_CACHE_MISS_TOKENS_,
 				USAGE_ESTIMATED_COST_CURRENCY_, USAGE_ESTIMATED_COST_INPUT_CACHE_HIT_, USAGE_ESTIMATED_COST_INPUT_CACHE_MISS_, USAGE_ESTIMATED_COST_OUTPUT_, USAGE_ESTIMATED_COST_TOTAL_, USAGE_MODEL_KEY_,
 				USAGE_LLM_CHAT_COMPLETION_COUNT_, USAGE_TOOL_CALL_COUNT_,
+				USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_, USAGE_FIRST_TOKEN_LATENCY_COUNT_, USAGE_GENERATION_DURATION_MS_,
 				FEEDBACK_TYPE_, FEEDBACK_COMMENT_, FEEDBACK_AT_
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			run.RunID, run.ChatID, run.AgentKey, run.InitialMessage, run.AssistantText, run.FinishReason,
 			run.StartedAt, run.CompletedAt,
 			run.Usage.PromptTokens, run.Usage.CompletionTokens, run.Usage.TotalTokens, run.Usage.CachedTokens, run.Usage.ReasoningTokens,
 			run.Usage.PromptCacheHitTokens, run.Usage.PromptCacheMissTokens,
 			run.Usage.EstimatedCostCurrency, run.Usage.EstimatedCostInputHit, run.Usage.EstimatedCostInputMiss, run.Usage.EstimatedCostOutput, run.Usage.EstimatedCostTotal, run.Usage.ModelKey,
 			run.Usage.LlmChatCompletionCount, run.Usage.ToolCallCount,
+			run.Usage.FirstTokenLatencyTotalMs, run.Usage.FirstTokenLatencyCount, run.Usage.GenerationDurationMs,
 			run.FeedbackType, run.FeedbackComment, run.FeedbackAt)
 		if err != nil {
 			return err
@@ -277,7 +290,9 @@ func (s *ArchiveStore) ListArchived(agentKey string, limit, offset int) ([]Archi
 			c.USAGE_PROMPT_TOKENS_, c.USAGE_COMPLETION_TOKENS_, c.USAGE_TOTAL_TOKENS_, c.USAGE_CACHED_TOKENS_, c.USAGE_REASONING_TOKENS_,
 			c.USAGE_PROMPT_CACHE_HIT_TOKENS_, c.USAGE_PROMPT_CACHE_MISS_TOKENS_,
 			c.USAGE_ESTIMATED_COST_CURRENCY_, c.USAGE_ESTIMATED_COST_INPUT_CACHE_HIT_, c.USAGE_ESTIMATED_COST_INPUT_CACHE_MISS_, c.USAGE_ESTIMATED_COST_OUTPUT_, c.USAGE_ESTIMATED_COST_TOTAL_,
-			c.USAGE_LLM_CHAT_COMPLETION_COUNT_, c.USAGE_TOOL_CALL_COUNT_, c.HAS_ATTACHMENTS_
+			c.USAGE_LLM_CHAT_COMPLETION_COUNT_, c.USAGE_TOOL_CALL_COUNT_,
+			c.USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_, c.USAGE_FIRST_TOKEN_LATENCY_COUNT_, c.USAGE_GENERATION_DURATION_MS_,
+			c.HAS_ATTACHMENTS_
 		FROM ARCHIVED_CHATS c `+where+`
 		ORDER BY c.ARCHIVED_AT_ DESC, c.UPDATED_AT_ DESC, c.CHAT_ID_ DESC
 		LIMIT ? OFFSET ?`, queryArgs...)
@@ -307,6 +322,7 @@ func (s *ArchiveStore) LoadArchived(chatID string) (*ArchivedChat, error) {
 			c.USAGE_PROMPT_CACHE_HIT_TOKENS_, c.USAGE_PROMPT_CACHE_MISS_TOKENS_,
 			c.USAGE_ESTIMATED_COST_CURRENCY_, c.USAGE_ESTIMATED_COST_INPUT_CACHE_HIT_, c.USAGE_ESTIMATED_COST_INPUT_CACHE_MISS_, c.USAGE_ESTIMATED_COST_OUTPUT_, c.USAGE_ESTIMATED_COST_TOTAL_,
 			c.USAGE_LLM_CHAT_COMPLETION_COUNT_, c.USAGE_TOOL_CALL_COUNT_,
+			c.USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_, c.USAGE_FIRST_TOKEN_LATENCY_COUNT_, c.USAGE_GENERATION_DURATION_MS_,
 			c.JSONL_CONTENT_, c.EVENTS_CONTENT_, c.RAW_MESSAGES_CONTENT_, c.HAS_ATTACHMENTS_
 		FROM ARCHIVED_CHATS c WHERE c.CHAT_ID_=?`, chatID)
 	archived, err := scanArchivedChatRow(row)
@@ -496,6 +512,7 @@ func (s *ArchiveStore) listRunsLocked(chatID string) ([]RunSummary, error) {
 		USAGE_PROMPT_CACHE_HIT_TOKENS_, USAGE_PROMPT_CACHE_MISS_TOKENS_,
 		USAGE_ESTIMATED_COST_CURRENCY_, USAGE_ESTIMATED_COST_INPUT_CACHE_HIT_, USAGE_ESTIMATED_COST_INPUT_CACHE_MISS_, USAGE_ESTIMATED_COST_OUTPUT_, USAGE_ESTIMATED_COST_TOTAL_, COALESCE(USAGE_MODEL_KEY_,''),
 		USAGE_LLM_CHAT_COMPLETION_COUNT_, USAGE_TOOL_CALL_COUNT_,
+		USAGE_FIRST_TOKEN_LATENCY_TOTAL_MS_, USAGE_FIRST_TOKEN_LATENCY_COUNT_, USAGE_GENERATION_DURATION_MS_,
 		FEEDBACK_TYPE_, FEEDBACK_COMMENT_, FEEDBACK_AT_
 		FROM ARCHIVED_RUNS WHERE CHAT_ID_=? ORDER BY COMPLETED_AT_ DESC, RUN_ID_ DESC`, chatID)
 	if err != nil {
@@ -513,6 +530,7 @@ func (s *ArchiveStore) listRunsLocked(chatID string) ([]RunSummary, error) {
 			&item.Usage.PromptCacheHitTokens, &item.Usage.PromptCacheMissTokens,
 			&item.Usage.EstimatedCostCurrency, &item.Usage.EstimatedCostInputHit, &item.Usage.EstimatedCostInputMiss, &item.Usage.EstimatedCostOutput, &item.Usage.EstimatedCostTotal, &item.Usage.ModelKey,
 			&item.Usage.LlmChatCompletionCount, &item.Usage.ToolCallCount,
+			&item.Usage.FirstTokenLatencyTotalMs, &item.Usage.FirstTokenLatencyCount, &item.Usage.GenerationDurationMs,
 			&item.FeedbackType, &item.FeedbackComment, &item.FeedbackAt,
 		); err != nil {
 			return nil, err
@@ -619,6 +637,7 @@ func scanArchivedChatRow(row archivedSummaryScanner) (*ArchivedChat, error) {
 		&usage.PromptCacheHitTokens, &usage.PromptCacheMissTokens,
 		&usage.EstimatedCostCurrency, &usage.EstimatedCostInputHit, &usage.EstimatedCostInputMiss, &usage.EstimatedCostOutput, &usage.EstimatedCostTotal,
 		&usage.LlmChatCompletionCount, &usage.ToolCallCount,
+		&usage.FirstTokenLatencyTotalMs, &usage.FirstTokenLatencyCount, &usage.GenerationDurationMs,
 		&item.JSONLContent, &item.EventsContent, &item.RawMessagesContent, &hasAttachments,
 	); err != nil {
 		return nil, err
@@ -651,7 +670,9 @@ func scanArchivedSummaries(rows *sql.Rows) ([]ArchivedSummary, error) {
 			&usage.CachedTokens, &usage.ReasoningTokens,
 			&usage.PromptCacheHitTokens, &usage.PromptCacheMissTokens,
 			&usage.EstimatedCostCurrency, &usage.EstimatedCostInputHit, &usage.EstimatedCostInputMiss, &usage.EstimatedCostOutput, &usage.EstimatedCostTotal,
-			&usage.LlmChatCompletionCount, &usage.ToolCallCount, &hasAttachments,
+			&usage.LlmChatCompletionCount, &usage.ToolCallCount,
+			&usage.FirstTokenLatencyTotalMs, &usage.FirstTokenLatencyCount, &usage.GenerationDurationMs,
+			&hasAttachments,
 		); err != nil {
 			return nil, err
 		}

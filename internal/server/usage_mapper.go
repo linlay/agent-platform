@@ -12,11 +12,23 @@ import (
 )
 
 func mapUsageDataPtr(usage *chat.UsageData) *api.ChatUsageData {
-	if usage == nil || (usage.TotalTokens == 0 && usage.LlmChatCompletionCount == 0 && usage.ToolCallCount == 0 && strings.TrimSpace(usage.EstimatedCostCurrency) == "") {
+	if usage == nil || !usageDataHasPublicValue(*usage) {
 		return nil
 	}
 	mapped := mapUsageData(*usage)
 	return &mapped
+}
+
+func usageDataHasPublicValue(usage chat.UsageData) bool {
+	return usage.TotalTokens > 0 ||
+		usage.PromptTokens > 0 ||
+		usage.CompletionTokens > 0 ||
+		usage.LlmChatCompletionCount > 0 ||
+		usage.ToolCallCount > 0 ||
+		strings.TrimSpace(usage.EstimatedCostCurrency) != "" ||
+		usage.FirstTokenLatencyTotalMs > 0 ||
+		usage.FirstTokenLatencyCount > 0 ||
+		usage.GenerationDurationMs > 0
 }
 
 func mapUsageData(usage chat.UsageData) api.ChatUsageData {
@@ -45,6 +57,9 @@ func mapUsageData(usage chat.UsageData) api.ChatUsageData {
 			Output:         usage.EstimatedCostOutput,
 			Total:          usage.EstimatedCostTotal,
 		}
+	}
+	if timing := apiTimingFromUsageData(usage); timing != nil {
+		out.Timing = timing
 	}
 	return out
 }
@@ -199,7 +214,10 @@ func replayChatUsageIsNewer(replay chat.UsageData, summary *chat.UsageData) bool
 		replay.PromptCacheHitTokens > summary.PromptCacheHitTokens ||
 		replay.PromptCacheMissTokens > summary.PromptCacheMissTokens ||
 		replay.LlmChatCompletionCount > summary.LlmChatCompletionCount ||
-		replay.ToolCallCount > summary.ToolCallCount
+		replay.ToolCallCount > summary.ToolCallCount ||
+		replay.FirstTokenLatencyTotalMs > summary.FirstTokenLatencyTotalMs ||
+		replay.FirstTokenLatencyCount > summary.FirstTokenLatencyCount ||
+		replay.GenerationDurationMs > summary.GenerationDurationMs
 }
 
 func mapChatContextWindow(contextWindow map[string]any) *api.ChatContextWindow {
@@ -245,10 +263,52 @@ func mapUsageDataFromPayload(usage map[string]any) *api.ChatUsageData {
 	if estimatedCost := apiEstimatedCostFromMap(usage); estimatedCost != nil {
 		out.EstimatedCost = estimatedCost
 	}
-	if out.TotalTokens == 0 && out.LlmChatCompletionCount == 0 && out.ToolCallCount == 0 {
+	if timing := apiTimingFromUsageMap(usage, out.CompletionTokens); timing != nil {
+		out.Timing = timing
+	}
+	if out.TotalTokens == 0 && out.LlmChatCompletionCount == 0 && out.ToolCallCount == 0 && out.Timing == nil {
 		return nil
 	}
 	return &out
+}
+
+func apiTimingFromUsageData(usage chat.UsageData) *api.ChatUsageTiming {
+	var firstTokenLatencyMs int64
+	if usage.FirstTokenLatencyTotalMs > 0 && usage.FirstTokenLatencyCount > 0 {
+		firstTokenLatencyMs = usage.FirstTokenLatencyTotalMs / int64(usage.FirstTokenLatencyCount)
+	}
+	return apiTimingFromValues(firstTokenLatencyMs, usage.GenerationDurationMs, usage.CompletionTokens)
+}
+
+func apiTimingFromUsageMap(usage map[string]any, completionTokens int) *api.ChatUsageTiming {
+	timing, _ := usage["timing"].(map[string]any)
+	if timing == nil {
+		return nil
+	}
+	firstTokenLatencyMs := int64(contracts.AnyIntNode(timing["firstTokenLatencyMs"]))
+	if firstTokenLatencyMs <= 0 {
+		total := int64(contracts.AnyIntNode(timing["firstTokenLatencyTotalMs"]))
+		count := contracts.AnyIntNode(timing["firstTokenLatencyCount"])
+		if total > 0 && count > 0 {
+			firstTokenLatencyMs = total / int64(count)
+		}
+	}
+	generationDurationMs := int64(contracts.AnyIntNode(timing["generationDurationMs"]))
+	return apiTimingFromValues(firstTokenLatencyMs, generationDurationMs, completionTokens)
+}
+
+func apiTimingFromValues(firstTokenLatencyMs int64, generationDurationMs int64, completionTokens int) *api.ChatUsageTiming {
+	if firstTokenLatencyMs <= 0 && generationDurationMs <= 0 {
+		return nil
+	}
+	out := &api.ChatUsageTiming{
+		FirstTokenLatencyMs:  firstTokenLatencyMs,
+		GenerationDurationMs: generationDurationMs,
+	}
+	if completionTokens > 0 && generationDurationMs > 0 {
+		out.OutputTokensPerSecond = float64(completionTokens) * 1000 / float64(generationDurationMs)
+	}
+	return out
 }
 
 func apiEstimatedCostFromMap(usage map[string]any) *api.EstimatedCost {

@@ -49,6 +49,46 @@ func TestUsageCacheTokensRecomputesInconsistentCacheMissTokens(t *testing.T) {
 	}
 }
 
+func TestMapUsageDataComputesTimingFields(t *testing.T) {
+	mapped := mapUsageData(chat.UsageData{
+		CompletionTokens:         50,
+		TotalTokens:              50,
+		FirstTokenLatencyTotalMs: 2000,
+		FirstTokenLatencyCount:   2,
+		GenerationDurationMs:     2500,
+	})
+
+	if mapped.Timing == nil {
+		t.Fatalf("expected timing in mapped usage, got %#v", mapped)
+	}
+	if mapped.Timing.FirstTokenLatencyMs != 1000 ||
+		mapped.Timing.GenerationDurationMs != 2500 ||
+		mapped.Timing.OutputTokensPerSecond != 20 {
+		t.Fatalf("unexpected mapped timing %#v", mapped.Timing)
+	}
+}
+
+func TestMapUsageDataFromPayloadComputesTimingFromInternalTotals(t *testing.T) {
+	mapped := mapUsageDataFromPayload(map[string]any{
+		"completionTokens": 42,
+		"totalTokens":      42,
+		"timing": map[string]any{
+			"firstTokenLatencyTotalMs": 1500,
+			"firstTokenLatencyCount":   2,
+			"generationDurationMs":     2000,
+		},
+	})
+
+	if mapped == nil || mapped.Timing == nil {
+		t.Fatalf("expected timing in payload usage, got %#v", mapped)
+	}
+	if mapped.Timing.FirstTokenLatencyMs != 750 ||
+		mapped.Timing.GenerationDurationMs != 2000 ||
+		mapped.Timing.OutputTokensPerSecond != 21 {
+		t.Fatalf("unexpected payload timing %#v", mapped.Timing)
+	}
+}
+
 func TestLatestChatUsageFromEventsReadsHistoricalUsageSnapshot(t *testing.T) {
 	usage := latestChatUsageFromEvents([]stream.EventData{
 		{

@@ -257,6 +257,8 @@ type InputDebugLLMChat struct {
 	LLMReturnPromptCacheMissTokens  int
 	LLMReturnLLMChatCompletionCount int
 	LLMReturnToolCallCount          int
+	LLMReturnFirstTokenLatencyMs    int64
+	LLMReturnGenerationDurationMs   int64
 	RunPromptTokens                 int
 	RunCompletionTokens             int
 	RunTotalTokens                  int
@@ -266,6 +268,9 @@ type InputDebugLLMChat struct {
 	RunPromptCacheMissTokens        int
 	RunLLMChatCompletionCount       int
 	RunToolCallCount                int
+	RunFirstTokenLatencyTotalMs     int64
+	RunFirstTokenLatencyCount       int
+	RunGenerationDurationMs         int64
 }
 
 func (InputDebugLLMChat) streamInputTag() {}
@@ -302,6 +307,8 @@ type InputUsageSnapshot struct {
 	LLMReturnPromptCacheMissTokens  int
 	LLMReturnLLMChatCompletionCount int
 	LLMReturnToolCallCount          int
+	LLMReturnFirstTokenLatencyMs    int64
+	LLMReturnGenerationDurationMs   int64
 	RunPromptTokens                 int
 	RunCompletionTokens             int
 	RunTotalTokens                  int
@@ -311,6 +318,9 @@ type InputUsageSnapshot struct {
 	RunPromptCacheMissTokens        int
 	RunLLMChatCompletionCount       int
 	RunToolCallCount                int
+	RunFirstTokenLatencyTotalMs     int64
+	RunFirstTokenLatencyCount       int
+	RunGenerationDurationMs         int64
 }
 
 func (InputUsageSnapshot) streamInputTag() {}

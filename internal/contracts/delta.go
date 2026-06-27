@@ -194,6 +194,8 @@ type DeltaDebugLLMChat struct {
 	LLMReturnPromptCacheMissTokens  int
 	LLMReturnLLMChatCompletionCount int
 	LLMReturnToolCallCount          int
+	LLMReturnFirstTokenLatencyMs    int64
+	LLMReturnGenerationDurationMs   int64
 	RunPromptTokens                 int
 	RunCompletionTokens             int
 	RunTotalTokens                  int
@@ -203,6 +205,9 @@ type DeltaDebugLLMChat struct {
 	RunPromptCacheMissTokens        int
 	RunLLMChatCompletionCount       int
 	RunToolCallCount                int
+	RunFirstTokenLatencyTotalMs     int64
+	RunFirstTokenLatencyCount       int
+	RunGenerationDurationMs         int64
 }
 
 func (DeltaDebugLLMChat) agentDeltaTag() {}
@@ -238,6 +243,8 @@ type DeltaUsageSnapshot struct {
 	LLMReturnPromptCacheMissTokens  int
 	LLMReturnLLMChatCompletionCount int
 	LLMReturnToolCallCount          int
+	LLMReturnFirstTokenLatencyMs    int64
+	LLMReturnGenerationDurationMs   int64
 	RunPromptTokens                 int
 	RunCompletionTokens             int
 	RunTotalTokens                  int
@@ -247,6 +254,9 @@ type DeltaUsageSnapshot struct {
 	RunPromptCacheMissTokens        int
 	RunLLMChatCompletionCount       int
 	RunToolCallCount                int
+	RunFirstTokenLatencyTotalMs     int64
+	RunFirstTokenLatencyCount       int
+	RunGenerationDurationMs         int64
 }
 
 func (DeltaUsageSnapshot) agentDeltaTag() {}

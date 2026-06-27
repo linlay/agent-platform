@@ -760,6 +760,7 @@ type ChatUsageData struct {
 	EstimatedCost           *EstimatedCost          `json:"estimatedCost,omitempty"`
 	LlmChatCompletionCount  int                     `json:"llmChatCompletionCount,omitempty"`
 	ToolCallCount           int                     `json:"toolCallCount,omitempty"`
+	Timing                  *ChatUsageTiming        `json:"timing,omitempty"`
 }
 
 type ChatUsageBreakdown struct {
@@ -790,6 +791,12 @@ type EstimatedCost struct {
 	InputCacheMiss float64 `json:"inputCacheMiss"`
 	Output         float64 `json:"output"`
 	Total          float64 `json:"total"`
+}
+
+type ChatUsageTiming struct {
+	FirstTokenLatencyMs   int64   `json:"firstTokenLatencyMs,omitempty"`
+	GenerationDurationMs  int64   `json:"generationDurationMs,omitempty"`
+	OutputTokensPerSecond float64 `json:"outputTokensPerSecond,omitempty"`
 }
 
 type MarkChatReadRequest struct {
