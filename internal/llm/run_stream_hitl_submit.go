@@ -415,10 +415,6 @@ func approvalDescription(invocation *preparedToolInvocation) string {
 	return command[:60]
 }
 
-func (s *llmRunStream) resolveHITLTimeout(mode string) int64 {
-	return s.resolveHITLTimeoutWithItem(mode, 0)
-}
-
 func (s *llmRunStream) resolveHITLTimeoutWithItem(mode string, itemTimeout int64) int64 {
 	budget := Budget{}
 	if s != nil && s.execCtx != nil {

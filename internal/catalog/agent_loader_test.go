@@ -11,6 +11,15 @@ import (
 	"agent-platform/internal/contracts"
 )
 
+func parseAgentFileWithPromptsForTest(path string, agentDir string) (AgentDefinition, error) {
+	def, tree, err := parseAgentFileRaw(path)
+	if err != nil {
+		return def, err
+	}
+	loadAgentPrompts(agentDir, &def, tree)
+	return def, nil
+}
+
 func TestParseAgentFileSupportsFlattenedToolConfig(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "agent.yml")
@@ -765,7 +774,7 @@ func TestParseAgentFileKBaseFiltersToolsAndStaticMemory(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFileWithPrompts(path, agentDir)
+	def, err := parseAgentFileWithPromptsForTest(path, agentDir)
 	if err != nil {
 		t.Fatalf("parse agent file: %v", err)
 	}
@@ -1275,7 +1284,7 @@ func TestParseAgentFileWithPromptsLoadsPlanExecuteConventionFiles(t *testing.T) 
 		}
 	}
 
-	def, err := parseAgentFileWithPrompts(path, root)
+	def, err := parseAgentFileWithPromptsForTest(path, root)
 	if err != nil {
 		t.Fatalf("parse agent file with prompts: %v", err)
 	}
@@ -1306,7 +1315,7 @@ func TestParseAgentFileWithPromptsStagePromptFileOverridesConvention(t *testing.
 		t.Fatalf("write custom prompt: %v", err)
 	}
 
-	def, err := parseAgentFileWithPrompts(path, root)
+	def, err := parseAgentFileWithPromptsForTest(path, root)
 	if err != nil {
 		t.Fatalf("parse agent file with prompts: %v", err)
 	}
@@ -1338,7 +1347,7 @@ func TestParseAgentFileWithPromptsPlanExecuteFallbackOrder(t *testing.T) {
 		t.Fatalf("write agents prompt: %v", err)
 	}
 
-	def, err := parseAgentFileWithPrompts(path, root)
+	def, err := parseAgentFileWithPromptsForTest(path, root)
 	if err != nil {
 		t.Fatalf("parse agent file with prompts: %v", err)
 	}
@@ -1352,7 +1361,7 @@ func TestParseAgentFileWithPromptsPlanExecuteFallbackOrder(t *testing.T) {
 	if err := os.Remove(filepath.Join(root, "shared.md")); err != nil {
 		t.Fatalf("remove shared prompt: %v", err)
 	}
-	def, err = parseAgentFileWithPrompts(path, root)
+	def, err = parseAgentFileWithPromptsForTest(path, root)
 	if err != nil {
 		t.Fatalf("parse agent file with prompts after fallback removal: %v", err)
 	}
@@ -1380,7 +1389,7 @@ func TestParseAgentFileWithPromptsLoadsLegacySoulSections(t *testing.T) {
 		t.Fatalf("write soul file: %v", err)
 	}
 
-	def, err := parseAgentFileWithPrompts(path, root)
+	def, err := parseAgentFileWithPromptsForTest(path, root)
 	if err != nil {
 		t.Fatalf("parse agent file with prompts: %v", err)
 	}
@@ -1407,7 +1416,7 @@ func TestParseAgentFileWithPromptsLoadsWithoutSoulFile(t *testing.T) {
 		t.Fatalf("write agent file: %v", err)
 	}
 
-	def, err := parseAgentFileWithPrompts(path, root)
+	def, err := parseAgentFileWithPromptsForTest(path, root)
 	if err != nil {
 		t.Fatalf("parse agent file with prompts: %v", err)
 	}

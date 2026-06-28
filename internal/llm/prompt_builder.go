@@ -358,30 +358,6 @@ func resolveStageSystemPrompt(session QuerySession, stage string) string {
 	}
 }
 
-func buildRuntimeContextPrompt(session QuerySession, req api.QueryRequest) string {
-	var sections []string
-	for _, tag := range session.ContextTags {
-		switch strings.ToLower(strings.TrimSpace(tag)) {
-		case "system":
-			appendIfPresent(&sections, buildSystemEnvironmentSection(session))
-		case "session":
-			appendIfPresent(&sections, buildSessionSection(session, req))
-		case "owner":
-			appendIfPresent(&sections, buildOwnerSection(session.RuntimeContext.LocalPaths))
-		case "all-agents":
-			appendIfPresent(&sections, buildAllAgentsSection(session.RuntimeContext.AgentDigests))
-		default:
-		}
-	}
-	if session.AgentHasRuntimeSandbox || session.RuntimeContext.SandboxContext != nil {
-		appendIfPresent(&sections, buildSandboxSection(session.RuntimeContext.SandboxContext))
-	}
-	if session.AgentHasMemoryConfig {
-		appendIfPresent(&sections, buildMemorySection(session, req))
-	}
-	return strings.Join(sections, "\n\n")
-}
-
 func buildSystemEnvironmentSection(session QuerySession) string {
 	lines := []string{
 		"Runtime Context: System Environment",
@@ -691,12 +667,6 @@ func joinPromptSections(sections ...string) string {
 		}
 	}
 	return strings.Join(filtered, "\n\n")
-}
-
-func appendIfPresent(sections *[]string, content string) {
-	if strings.TrimSpace(content) != "" {
-		*sections = append(*sections, strings.TrimSpace(content))
-	}
 }
 
 func appendKeyValue(lines *[]string, key string, value string) {

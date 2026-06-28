@@ -143,9 +143,9 @@ func TestPrepareQueryUpdatesExistingChatAgentKey(t *testing.T) {
 	}}
 
 	req := httptest.NewRequest("POST", "/api/query", bytes.NewBufferString(`{"agentKey":"agent-a","chatId":"chat-agent-drift","message":"use uploaded image"}`))
-	prepared, err := server.prepareQuery(req)
+	prepared, err := prepareQueryForTest(server, req)
 	if err != nil {
-		t.Fatalf("prepareQuery: %v", err)
+		t.Fatalf("prepareQueryForTest: %v", err)
 	}
 	if prepared.summary.AgentKey != "agent-a" {
 		t.Fatalf("expected prepared summary agent-a, got %q", prepared.summary.AgentKey)
@@ -183,9 +183,9 @@ func TestPrepareQueryNonSandboxAgentCreatesChatDirectory(t *testing.T) {
 	}}
 
 	req := httptest.NewRequest("POST", "/api/query", bytes.NewBufferString(`{"agentKey":"agent-a","chatId":"chat-no-dir","message":"hello"}`))
-	prepared, err := server.prepareQuery(req)
+	prepared, err := prepareQueryForTest(server, req)
 	if err != nil {
-		t.Fatalf("prepareQuery: %v", err)
+		t.Fatalf("prepareQueryForTest: %v", err)
 	}
 	if prepared.session.AgentHasRuntimeSandbox {
 		t.Fatal("expected non-sandbox session")
@@ -270,9 +270,9 @@ func TestPrepareQuerySkipsMemoryInjectionWhenTemporarilyDisabled(t *testing.T) {
 	}}
 
 	req := httptest.NewRequest("POST", "/api/query", bytes.NewBufferString(`{"agentKey":"agent-a","chatId":"chat-1","message":"安排下周工时"}`))
-	prepared, err := server.prepareQuery(req)
+	prepared, err := prepareQueryForTest(server, req)
 	if err != nil {
-		t.Fatalf("prepareQuery: %v", err)
+		t.Fatalf("prepareQueryForTest: %v", err)
 	}
 
 	if prepared.session.StableMemoryContext != "" || prepared.session.SessionMemoryContext != "" || prepared.session.ObservationContext != "" {
@@ -420,9 +420,9 @@ func TestPrepareQueryDoesNotInjectStableFactsWhenMemoryTemporarilyDisabled(t *te
 	}}
 
 	req := httptest.NewRequest("POST", "/api/query", bytes.NewBufferString(`{"agentKey":"agent-a","chatId":"chat-1","message":"帮我安排本周工时"}`))
-	prepared, err := server.prepareQuery(req)
+	prepared, err := prepareQueryForTest(server, req)
 	if err != nil {
-		t.Fatalf("prepareQuery: %v", err)
+		t.Fatalf("prepareQueryForTest: %v", err)
 	}
 
 	if prepared.session.StableMemoryContext != "" {
@@ -505,9 +505,9 @@ func TestPrepareQueryDoesNotInjectSessionMemoryWhenMemoryTemporarilyDisabled(t *
 	}}
 
 	req := httptest.NewRequest("POST", "/api/query", bytes.NewBufferString(`{"agentKey":"agent-a","chatId":"chat-1","message":"帮我记录本周工时"}`))
-	prepared, err := server.prepareQuery(req)
+	prepared, err := prepareQueryForTest(server, req)
 	if err != nil {
-		t.Fatalf("prepareQuery: %v", err)
+		t.Fatalf("prepareQueryForTest: %v", err)
 	}
 
 	if prepared.session.StableMemoryContext != "" || prepared.session.SessionMemoryContext != "" || prepared.session.ObservationContext != "" {
@@ -568,9 +568,9 @@ func TestPrepareQuerySkipsMemoryContextWhenMemorySystemDisabled(t *testing.T) {
 	}}
 
 	req := httptest.NewRequest("POST", "/api/query", bytes.NewBufferString(`{"agentKey":"agent-a","chatId":"chat-1","message":"安排下周工时"}`))
-	prepared, err := server.prepareQuery(req)
+	prepared, err := prepareQueryForTest(server, req)
 	if err != nil {
-		t.Fatalf("prepareQuery: %v", err)
+		t.Fatalf("prepareQueryForTest: %v", err)
 	}
 	if prepared.session.StableMemoryContext != "" || prepared.session.SessionMemoryContext != "" || prepared.session.ObservationContext != "" {
 		t.Fatalf("expected no memory context when memory system disabled, got stable=%q session=%q obs=%q", prepared.session.StableMemoryContext, prepared.session.SessionMemoryContext, prepared.session.ObservationContext)
@@ -604,9 +604,9 @@ func TestPrepareQueryFailsFastWhenSandboxAgentRequiresDisabledContainerHub(t *te
 	}}
 
 	req := httptest.NewRequest("POST", "/api/query", bytes.NewBufferString(`{"agentKey":"agent-a","chatId":"chat-1","message":"列出目录"}`))
-	_, err = server.prepareQuery(req)
+	_, err = prepareQueryForTest(server, req)
 	if err == nil {
-		t.Fatal("expected prepareQuery to fail when sandbox agent requires disabled container-hub")
+		t.Fatal("expected prepareQueryForTest to fail when sandbox agent requires disabled container-hub")
 	}
 	if !strings.Contains(err.Error(), `agent "agent-a" requires sandbox but container-hub is disabled`) {
 		t.Fatalf("unexpected error: %v", err)
@@ -639,9 +639,9 @@ func TestPrepareQueryAllowsRuntimeEnvWithoutContainerHub(t *testing.T) {
 	}}
 
 	req := httptest.NewRequest("POST", "/api/query", bytes.NewBufferString(`{"agentKey":"agent-a","chatId":"chat-1","message":"列出目录"}`))
-	prepared, err := server.prepareQuery(req)
+	prepared, err := prepareQueryForTest(server, req)
 	if err != nil {
-		t.Fatalf("prepareQuery: %v", err)
+		t.Fatalf("prepareQueryForTest: %v", err)
 	}
 	if prepared.session.AgentHasRuntimeSandbox {
 		t.Fatal("expected env-only runtime config to avoid sandbox routing")
@@ -683,9 +683,9 @@ func TestPrepareQueryDesktopParamsDoNotGrantToolsOrRuntimeEnv(t *testing.T) {
 
 	body := `{"agentKey":"agent-a","chatId":"chat-1","message":"看当前页面","params":{"desktop":{"surfaceId":"surface-a","source":"copilot"}}}`
 	req := httptest.NewRequest("POST", "/api/query", bytes.NewBufferString(body))
-	prepared, err := server.prepareQuery(req)
+	prepared, err := prepareQueryForTest(server, req)
 	if err != nil {
-		t.Fatalf("prepareQuery: %v", err)
+		t.Fatalf("prepareQueryForTest: %v", err)
 	}
 
 	if containsString(prepared.session.ToolNames, "desktop_action") || containsString(prepared.session.ToolNames, "desktop_cdp") {

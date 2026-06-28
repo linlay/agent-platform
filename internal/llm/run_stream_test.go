@@ -908,7 +908,7 @@ func TestResolveHITLTimeoutUsesHitlBudgetGlobalAndFallback(t *testing.T) {
 					Budget: tc.budget,
 				},
 			}
-			if got := stream.resolveHITLTimeout(tc.mode); got != tc.want {
+			if got := stream.resolveHITLTimeoutWithItem(tc.mode, 0); got != tc.want {
 				t.Fatalf("expected timeout %d sec, got %d", tc.want, got)
 			}
 		})
@@ -1121,8 +1121,8 @@ func TestEmitHITLConfirmDeltasUsesRuleTimeoutOverride(t *testing.T) {
 		},
 	}
 
-	if err := stream.emitHITLConfirmDeltas(invocation, result); err != nil {
-		t.Fatalf("emitHITLConfirmDeltas returned error: %v", err)
+	if err := stream.emitApprovalRequestDeltas(hitlApprovalRequest(invocation, result)); err != nil {
+		t.Fatalf("emitApprovalRequestDeltas returned error: %v", err)
 	}
 	ask, ok := stream.pending[0].(contracts.DeltaAwaitAsk)
 	if !ok {
@@ -1806,8 +1806,8 @@ func TestBashHITLApprovalUsesAwaitingForAllViewports(t *testing.T) {
 				ParsedCommand: tc.parsedCommand,
 			}
 
-			if err := stream.emitHITLConfirmDeltas(invocation, result); err != nil {
-				t.Fatalf("emitHITLConfirmDeltas returned error: %v", err)
+			if err := stream.emitApprovalRequestDeltas(hitlApprovalRequest(invocation, result)); err != nil {
+				t.Fatalf("emitApprovalRequestDeltas returned error: %v", err)
 			}
 			if stream.hitlAwaitingID != buildHITLAwaitingID("tool_1") {
 				t.Fatalf("expected bash HITL awaiting id, got %q", stream.hitlAwaitingID)
@@ -4313,8 +4313,8 @@ func TestAwaitHITLSubmitAndExecute_FormRejectWithFeedbackEmitsRetryableResultAnd
 			Tokens:      []string{"create-leave", "--payload", `{"applicant_id":"E1001","days":3,"department_id":"engineering","end_date":"2026-04-22","leave_type":"annual","reason":"family_trip","start_date":"2026-04-20"}`},
 		},
 	}
-	if err := stream.emitHITLConfirmDeltas(invocation, result); err != nil {
-		t.Fatalf("emitHITLConfirmDeltas returned error: %v", err)
+	if err := stream.emitApprovalRequestDeltas(hitlApprovalRequest(invocation, result)); err != nil {
+		t.Fatalf("emitApprovalRequestDeltas returned error: %v", err)
 	}
 	ack := runControl.ResolveSubmit(api.SubmitRequest{
 		RunID:      "run_1",
@@ -4411,8 +4411,8 @@ func TestAwaitHITLSubmitAndExecute_FormPayloadRebuildFailureEmitsRejectHITLMetad
 			Tokens:      []string{"create-leave"},
 		},
 	}
-	if err := stream.emitHITLConfirmDeltas(invocation, result); err != nil {
-		t.Fatalf("emitHITLConfirmDeltas returned error: %v", err)
+	if err := stream.emitApprovalRequestDeltas(hitlApprovalRequest(invocation, result)); err != nil {
+		t.Fatalf("emitApprovalRequestDeltas returned error: %v", err)
 	}
 	ack := runControl.ResolveSubmit(api.SubmitRequest{
 		RunID:      "run_1",

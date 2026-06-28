@@ -6,10 +6,6 @@ func normalizeHITLSubmit(args map[string]any, params any) (map[string]any, error
 	return hitl.Normalize(args, params)
 }
 
-func normalizeHITLApprovalSubmit(args map[string]any, params any) (map[string]any, error) {
-	return hitl.NormalizeApproval(args, params)
-}
-
 func normalizeHITLPlanSubmit(args map[string]any, params any) (map[string]any, error) {
 	return hitl.NormalizePlan(args, params)
 }

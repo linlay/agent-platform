@@ -75,9 +75,9 @@ func TestPrepareQueryUsesChannelDefaultAgentOnlyFromGlobalDefault(t *testing.T) 
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"wecom#single#u1","message":"hello"}`))
-	prepared, err := server.prepareQuery(req)
+	prepared, err := prepareQueryForTest(server, req)
 	if err != nil {
-		t.Fatalf("prepareQuery: %v", err)
+		t.Fatalf("prepareQueryForTest: %v", err)
 	}
 	if prepared.req.AgentKey != "customer-service" {
 		t.Fatalf("expected channel default agent, got %q", prepared.req.AgentKey)
@@ -87,27 +87,27 @@ func TestPrepareQueryUsesChannelDefaultAgentOnlyFromGlobalDefault(t *testing.T) 
 		t.Fatalf("seed existing chat: %v", err)
 	}
 	req = httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"wecom#existing#u1","message":"hello again"}`))
-	prepared, err = server.prepareQuery(req)
+	prepared, err = prepareQueryForTest(server, req)
 	if err != nil {
-		t.Fatalf("prepareQuery existing chat: %v", err)
+		t.Fatalf("prepareQueryForTest existing chat: %v", err)
 	}
 	if prepared.req.AgentKey != "assistant" {
 		t.Fatalf("expected existing chat agent to win, got %q", prepared.req.AgentKey)
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"wecom#team#u1","teamId":"team-a","message":"team route"}`))
-	prepared, err = server.prepareQuery(req)
+	prepared, err = prepareQueryForTest(server, req)
 	if err != nil {
-		t.Fatalf("prepareQuery team default: %v", err)
+		t.Fatalf("prepareQueryForTest team default: %v", err)
 	}
 	if prepared.req.AgentKey != "team-agent" {
 		t.Fatalf("expected team default agent to win, got %q", prepared.req.AgentKey)
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"wecom#explicit#u1","agentKey":"assistant","message":"explicit"}`))
-	prepared, err = server.prepareQuery(req)
+	prepared, err = prepareQueryForTest(server, req)
 	if err != nil {
-		t.Fatalf("prepareQuery explicit agent: %v", err)
+		t.Fatalf("prepareQueryForTest explicit agent: %v", err)
 	}
 	if prepared.req.AgentKey != "assistant" {
 		t.Fatalf("expected explicit agent to win, got %q", prepared.req.AgentKey)
@@ -127,7 +127,7 @@ func TestPrepareQueryRejectsDisallowedAgentOnChannel(t *testing.T) {
 	})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/query", bytes.NewBufferString(`{"chatId":"feishu#p2p#u1","agentKey":"customer-service","message":"hello"}`))
-	_, err := server.prepareQuery(req)
+	_, err := prepareQueryForTest(server, req)
 	statusErr, ok := err.(*statusError)
 	if !ok {
 		t.Fatalf("expected statusError, got %v", err)

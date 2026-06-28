@@ -22,11 +22,6 @@ func resolveDirectoryAgentConfig(dirPath string) string {
 	return ""
 }
 
-func loadAgents(root, marketDir string, globalMemoryEnabled bool) (map[string]AgentDefinition, error) {
-	items, _, err := loadAgentsWithAdmin(root, marketDir, globalMemoryEnabled)
-	return items, err
-}
-
 func loadAgentsWithAdmin(root, marketDir string, globalMemoryEnabled bool) (map[string]AgentDefinition, map[string]AdminAgent, error) {
 	items := map[string]AgentDefinition{}
 	adminItems := map[string]AdminAgent{}
@@ -474,15 +469,6 @@ func readOptionalMarkdown(path string) string {
 		return ""
 	}
 	return strings.TrimSpace(string(data))
-}
-
-func parseAgentFileWithPrompts(path string, agentDir string) (AgentDefinition, error) {
-	def, tree, err := parseAgentFileRaw(path)
-	if err != nil {
-		return def, err
-	}
-	loadAgentPrompts(agentDir, &def, tree)
-	return def, nil
 }
 
 func parseAgentFile(path string) (AgentDefinition, error) {

@@ -215,14 +215,6 @@ func (s *Server) completeQueryPreparation(ctx context.Context, admission queryAd
 	}, nil
 }
 
-func (s *Server) prepareQuery(r *http.Request) (preparedQuery, error) {
-	admission, err := s.prepareQueryAdmission(r, true)
-	if err != nil {
-		return preparedQuery{}, err
-	}
-	return s.completeQueryPreparation(r.Context(), admission, nil)
-}
-
 func buildMemoryUsageSummary(staticMemoryPrompt string, bundle memory.ContextBundle) *api.MemoryUsageSummary {
 	hitItems := buildMemoryHitItems(bundle)
 	summary := &api.MemoryUsageSummary{

@@ -8,6 +8,16 @@ import (
 	. "agent-platform/internal/contracts"
 )
 
+func runtimeSystemPromptForTest(session QuerySession, req api.QueryRequest) string {
+	sections := []systemPromptSection{}
+	appendRuntimeSystemPromptSections(&sections, session, req)
+	contents := make([]string, 0, len(sections))
+	for _, section := range sections {
+		contents = append(contents, section.Content)
+	}
+	return strings.Join(contents, "\n\n")
+}
+
 func TestBuildSystemPromptPlacesStaticMemoryBeforeRuntimeMemory(t *testing.T) {
 	prompt := buildSystemPrompt(QuerySession{
 		AgentKey:             "demo",
@@ -260,7 +270,7 @@ func TestBuildMemorySectionAvoidsDuplicatingLayeredHeaders(t *testing.T) {
 }
 
 func TestBuildRuntimeContextPromptAutoIncludesSandboxSection(t *testing.T) {
-	prompt := buildRuntimeContextPrompt(QuerySession{
+	prompt := runtimeSystemPromptForTest(QuerySession{
 		AgentHasRuntimeSandbox: true,
 		RuntimeContext: RuntimeRequestContext{
 			SandboxContext: &SandboxContext{
@@ -280,7 +290,7 @@ func TestBuildRuntimeContextPromptAutoIncludesSandboxSection(t *testing.T) {
 }
 
 func TestBuildRuntimeContextPromptAutoIncludesMemorySection(t *testing.T) {
-	prompt := buildRuntimeContextPrompt(QuerySession{
+	prompt := runtimeSystemPromptForTest(QuerySession{
 		AgentHasMemoryConfig: true,
 		StableMemoryContext:  "Runtime Context: Stable Memory\n- stable-fact",
 	}, api.QueryRequest{})
@@ -291,7 +301,7 @@ func TestBuildRuntimeContextPromptAutoIncludesMemorySection(t *testing.T) {
 }
 
 func TestBuildRuntimeContextPromptSkipsMemoryFallbackWithoutMemoryConfig(t *testing.T) {
-	prompt := buildRuntimeContextPrompt(QuerySession{}, api.QueryRequest{
+	prompt := runtimeSystemPromptForTest(QuerySession{}, api.QueryRequest{
 		Params: map[string]any{
 			"memoryContext": "param-memory",
 		},
@@ -303,7 +313,7 @@ func TestBuildRuntimeContextPromptSkipsMemoryFallbackWithoutMemoryConfig(t *test
 }
 
 func TestBuildRuntimeContextPromptIgnoresDesktopParams(t *testing.T) {
-	prompt := buildRuntimeContextPrompt(QuerySession{}, api.QueryRequest{
+	prompt := runtimeSystemPromptForTest(QuerySession{}, api.QueryRequest{
 		Params: map[string]any{
 			"desktop": map[string]any{
 				"source":          "copilot",

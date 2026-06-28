@@ -45,10 +45,6 @@ func (s *llmRunStream) shouldAutoApproveHITL(result hitl.InterceptResult) bool {
 	return s.execCtx.AutoApproveLevels[result.Rule.Level]
 }
 
-func (s *llmRunStream) emitHITLConfirmDeltas(invocation *preparedToolInvocation, result hitl.InterceptResult) error {
-	return s.emitApprovalRequestDeltas(hitlApprovalRequest(invocation, result))
-}
-
 func (s *llmRunStream) prepareQueuedBashApprovalBatch() bool {
 	if len(s.queuedToolCalls) == 0 || s.hitlPendingBatch != nil || s.hitlPendingCall != nil {
 		return false
