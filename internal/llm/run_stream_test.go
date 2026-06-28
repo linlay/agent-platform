@@ -521,11 +521,9 @@ func TestFinishCurrentTurnEstimatesFileWriteChangeOnToolEnd(t *testing.T) {
 		engine: &LLMAgentEngine{
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
-					WorkingDirectory:  root,
-					MaxReadBytes:      1024,
-					MaxWriteBytes:     1024,
-					AllowedReadPaths:  []string{"."},
-					AllowedWritePaths: []string{"."},
+					WorkingDirectory: root,
+					MaxReadBytes:     1024,
+					MaxWriteBytes:    1024,
 				},
 			},
 			tools: executor,
@@ -559,11 +557,9 @@ func TestFinishCurrentTurnEstimatesFileEditChangeOnToolEnd(t *testing.T) {
 		engine: &LLMAgentEngine{
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
-					WorkingDirectory:  root,
-					MaxReadBytes:      1024,
-					MaxWriteBytes:     1024,
-					AllowedReadPaths:  []string{"."},
-					AllowedWritePaths: []string{"."},
+					WorkingDirectory: root,
+					MaxReadBytes:     1024,
+					MaxWriteBytes:    1024,
 				},
 			},
 			tools: executor,
@@ -2450,8 +2446,6 @@ func TestWriteToolEmitsApprovalBeforeExecuting(t *testing.T) {
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
 					WorkingDirectory:     root,
-					AllowedReadPaths:     []string{"."},
-					AllowedWritePaths:    []string{"."},
 					MaxReadBytes:         1024,
 					MaxWriteBytes:        1024,
 					MaxBatchOps:          20,
@@ -2515,8 +2509,6 @@ func TestWriteToolInsideSessionChatDirSkipsApproval(t *testing.T) {
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
 					WorkingDirectory:     workspace,
-					AllowedReadPaths:     []string{"."},
-					AllowedWritePaths:    []string{"."},
 					MaxReadBytes:         1024,
 					MaxWriteBytes:        1024,
 					MaxBatchOps:          20,
@@ -2572,8 +2564,6 @@ func TestWriteToolInsideSessionHostAccessSkipsApproval(t *testing.T) {
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
 					WorkingDirectory:     workspace,
-					AllowedReadPaths:     []string{"."},
-					AllowedWritePaths:    []string{"."},
 					MaxReadBytes:         1024,
 					MaxWriteBytes:        1024,
 					MaxBatchOps:          20,
@@ -2626,8 +2616,6 @@ func TestEditToolInsideSessionChatDirSkipsApproval(t *testing.T) {
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
 					WorkingDirectory:     workspace,
-					AllowedReadPaths:     []string{"."},
-					AllowedWritePaths:    []string{"."},
 					MaxReadBytes:         1024,
 					MaxWriteBytes:        1024,
 					MaxBatchOps:          20,
@@ -2684,8 +2672,6 @@ func TestEditToolInsideSessionHostAccessSkipsApproval(t *testing.T) {
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
 					WorkingDirectory:     workspace,
-					AllowedReadPaths:     []string{"."},
-					AllowedWritePaths:    []string{"."},
 					MaxReadBytes:         1024,
 					MaxWriteBytes:        1024,
 					MaxBatchOps:          20,
@@ -2728,8 +2714,6 @@ func TestWriteToolApprovalUsesToolLabelInCommand(t *testing.T) {
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
 					WorkingDirectory:     root,
-					AllowedReadPaths:     []string{"."},
-					AllowedWritePaths:    []string{"."},
 					MaxReadBytes:         1024,
 					MaxWriteBytes:        1024,
 					MaxBatchOps:          20,
@@ -2769,8 +2753,6 @@ func TestWriteToolApprovalExecutesAndWritesFile(t *testing.T) {
 	cfg := config.Config{
 		FileTools: config.FileToolsConfig{
 			WorkingDirectory:     root,
-			AllowedReadPaths:     []string{"."},
-			AllowedWritePaths:    []string{"."},
 			MaxReadBytes:         1024,
 			MaxWriteBytes:        1024,
 			MaxBatchOps:          20,
@@ -2827,8 +2809,6 @@ func TestEditToolEmitsApprovalBeforeExecuting(t *testing.T) {
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
 					WorkingDirectory:     root,
-					AllowedReadPaths:     []string{"."},
-					AllowedWritePaths:    []string{"."},
 					MaxReadBytes:         1024,
 					MaxWriteBytes:        1024,
 					RequireWriteApproval: true,
@@ -2881,8 +2861,6 @@ func TestEditToolApprovalUsesToolLabelInCommand(t *testing.T) {
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
 					WorkingDirectory:     root,
-					AllowedReadPaths:     []string{"."},
-					AllowedWritePaths:    []string{"."},
 					MaxReadBytes:         1024,
 					MaxWriteBytes:        1024,
 					RequireWriteApproval: true,
@@ -2925,8 +2903,6 @@ func TestEditToolApprovalExecutesAndEditsFile(t *testing.T) {
 	cfg := config.Config{
 		FileTools: config.FileToolsConfig{
 			WorkingDirectory:     root,
-			AllowedReadPaths:     []string{"."},
-			AllowedWritePaths:    []string{"."},
 			MaxReadBytes:         1024,
 			MaxWriteBytes:        1024,
 			RequireWriteApproval: true,
@@ -2981,8 +2957,6 @@ func TestFileReadAccessApprovalEmitsAwaitingAsk(t *testing.T) {
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
 					WorkingDirectory:       root,
-					AllowedReadPaths:       []string{"."},
-					AllowedWritePaths:      []string{"."},
 					MaxReadBytes:           1024,
 					MaxWriteBytes:          1024,
 					RequireReadBeforeWrite: true,
@@ -3042,8 +3016,6 @@ func TestFileGrepAccessApprovalUsesToolLabelInCommand(t *testing.T) {
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
 					WorkingDirectory:       root,
-					AllowedReadPaths:       []string{"."},
-					AllowedWritePaths:      []string{"."},
 					MaxReadBytes:           1024,
 					MaxWriteBytes:          1024,
 					RequireReadBeforeWrite: true,
@@ -3093,8 +3065,6 @@ func TestFileEditPathApprovalUsesEditCommand(t *testing.T) {
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
 					WorkingDirectory:       root,
-					AllowedReadPaths:       []string{"."},
-					AllowedWritePaths:      []string{"."},
 					MaxReadBytes:           1024,
 					MaxWriteBytes:          1024,
 					RequireWriteApproval:   false,
@@ -3157,8 +3127,6 @@ func TestFileReadAccessAllowsSessionSkillsDirBeforeApproval(t *testing.T) {
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
 					WorkingDirectory:       root,
-					AllowedReadPaths:       []string{"."},
-					AllowedWritePaths:      []string{"."},
 					MaxReadBytes:           1024,
 					MaxWriteBytes:          1024,
 					RequireReadBeforeWrite: true,
@@ -3205,11 +3173,9 @@ func TestFileReadAccessApprovalDecisions(t *testing.T) {
 				engine: &LLMAgentEngine{
 					cfg: config.Config{
 						FileTools: config.FileToolsConfig{
-							WorkingDirectory:  root,
-							AllowedReadPaths:  []string{"."},
-							AllowedWritePaths: []string{"."},
-							MaxReadBytes:      1024,
-							MaxWriteBytes:     1024,
+							WorkingDirectory: root,
+							MaxReadBytes:     1024,
+							MaxWriteBytes:    1024,
 						},
 					},
 					tools: executor,
@@ -3469,11 +3435,9 @@ func TestFileReadAccessRejectDoesNotExecute(t *testing.T) {
 		engine: &LLMAgentEngine{
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
-					WorkingDirectory:  root,
-					AllowedReadPaths:  []string{"."},
-					AllowedWritePaths: []string{"."},
-					MaxReadBytes:      1024,
-					MaxWriteBytes:     1024,
+					WorkingDirectory: root,
+					MaxReadBytes:     1024,
+					MaxWriteBytes:    1024,
 				},
 			},
 			tools: executor,
@@ -3510,11 +3474,9 @@ func TestFileReadAccessApprovalNoticeUsesPlanCommand(t *testing.T) {
 		engine: &LLMAgentEngine{
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
-					WorkingDirectory:  root,
-					AllowedReadPaths:  []string{"."},
-					AllowedWritePaths: []string{"."},
-					MaxReadBytes:      1024,
-					MaxWriteBytes:     1024,
+					WorkingDirectory: root,
+					MaxReadBytes:     1024,
+					MaxWriteBytes:    1024,
 				},
 			},
 			tools: stubToolExecutor{defs: []api.ToolDetailResponse{backendToolDefinition("file_read")}},
@@ -3554,11 +3516,9 @@ func TestFileGrepAccessApprovalNoticeUsesToolLabel(t *testing.T) {
 		engine: &LLMAgentEngine{
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
-					WorkingDirectory:  root,
-					AllowedReadPaths:  []string{"."},
-					AllowedWritePaths: []string{"."},
-					MaxReadBytes:      1024,
-					MaxWriteBytes:     1024,
+					WorkingDirectory: root,
+					MaxReadBytes:     1024,
+					MaxWriteBytes:    1024,
 				},
 			},
 			tools: stubToolExecutor{defs: []api.ToolDetailResponse{backendToolDefinitionWithLabel("file_grep", "搜索文件")}},
@@ -3634,11 +3594,9 @@ func TestFileWriteAndEditApprovalNoticeUseToolLabel(t *testing.T) {
 				engine: &LLMAgentEngine{
 					cfg: config.Config{
 						FileTools: config.FileToolsConfig{
-							WorkingDirectory:  root,
-							AllowedReadPaths:  []string{"."},
-							AllowedWritePaths: []string{"."},
-							MaxReadBytes:      1024,
-							MaxWriteBytes:     1024,
+							WorkingDirectory: root,
+							MaxReadBytes:     1024,
+							MaxWriteBytes:    1024,
 						},
 					},
 					tools: stubToolExecutor{defs: []api.ToolDetailResponse{backendToolDefinitionWithLabel(tc.toolName, tc.label)}},
@@ -3671,7 +3629,7 @@ func TestFileWriteAndEditApprovalNoticeUseToolLabel(t *testing.T) {
 	}
 }
 
-func TestWriteOutsideAllowedPathsCombinesPathAndContentApproval(t *testing.T) {
+func TestWriteOutsideAccessPolicyRootsCombinesPathAndContentApproval(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()
 	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{backendToolDefinitionWithLabel("file_write", "写入文件")}}
@@ -3682,8 +3640,6 @@ func TestWriteOutsideAllowedPathsCombinesPathAndContentApproval(t *testing.T) {
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
 					WorkingDirectory:     root,
-					AllowedReadPaths:     []string{"."},
-					AllowedWritePaths:    []string{"."},
 					MaxReadBytes:         1024,
 					MaxWriteBytes:        1024,
 					RequireWriteApproval: true,
@@ -3729,7 +3685,7 @@ func TestWriteOutsideAllowedPathsCombinesPathAndContentApproval(t *testing.T) {
 	}
 }
 
-func TestEditOutsideAllowedPathsCombinesPathAndContentApprovalUsesToolLabel(t *testing.T) {
+func TestEditOutsideAccessPolicyRootsCombinesPathAndContentApprovalUsesToolLabel(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()
 	executor := &recordingToolExecutor{defs: []api.ToolDetailResponse{backendToolDefinitionWithLabel("file_edit", "编辑文件")}}
@@ -3740,8 +3696,6 @@ func TestEditOutsideAllowedPathsCombinesPathAndContentApprovalUsesToolLabel(t *t
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
 					WorkingDirectory:     root,
-					AllowedReadPaths:     []string{"."},
-					AllowedWritePaths:    []string{"."},
 					MaxReadBytes:         1024,
 					MaxWriteBytes:        1024,
 					RequireWriteApproval: true,
@@ -3781,7 +3735,7 @@ func TestEditOutsideAllowedPathsCombinesPathAndContentApprovalUsesToolLabel(t *t
 	}
 }
 
-func TestWriteOutsideAllowedPathsCombinedSubmitExecutesOriginalToolCall(t *testing.T) {
+func TestWriteOutsideAccessPolicyRootsCombinedSubmitExecutesOriginalToolCall(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()
 	runControl := contracts.NewRunControl(context.Background(), "run_1")
@@ -3794,8 +3748,6 @@ func TestWriteOutsideAllowedPathsCombinedSubmitExecutesOriginalToolCall(t *testi
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
 					WorkingDirectory:     root,
-					AllowedReadPaths:     []string{"."},
-					AllowedWritePaths:    []string{"."},
 					MaxReadBytes:         1024,
 					MaxWriteBytes:        1024,
 					RequireWriteApproval: true,
@@ -3846,7 +3798,7 @@ func TestWriteOutsideAllowedPathsCombinedSubmitExecutesOriginalToolCall(t *testi
 	}
 }
 
-func TestWriteOutsideAllowedPathsCombinedApprovalDecisions(t *testing.T) {
+func TestWriteOutsideAccessPolicyRootsCombinedApprovalDecisions(t *testing.T) {
 	for _, decision := range []string{"approve", "approve_rule_run"} {
 		t.Run(decision, func(t *testing.T) {
 			root := t.TempDir()
@@ -3854,8 +3806,6 @@ func TestWriteOutsideAllowedPathsCombinedApprovalDecisions(t *testing.T) {
 			cfg := config.Config{
 				FileTools: config.FileToolsConfig{
 					WorkingDirectory:       root,
-					AllowedReadPaths:       []string{"."},
-					AllowedWritePaths:      []string{"."},
 					MaxReadBytes:           1024,
 					MaxWriteBytes:          1024,
 					RequireWriteApproval:   true,
@@ -3914,7 +3864,7 @@ func TestWriteOutsideAllowedPathsCombinedApprovalDecisions(t *testing.T) {
 	}
 }
 
-func TestWriteOutsideAllowedPathsCombinedRejectDoesNotExecute(t *testing.T) {
+func TestWriteOutsideAccessPolicyRootsCombinedRejectDoesNotExecute(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()
 	target := filepath.Join(outside, "owner.md")
@@ -3926,8 +3876,6 @@ func TestWriteOutsideAllowedPathsCombinedRejectDoesNotExecute(t *testing.T) {
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
 					WorkingDirectory:     root,
-					AllowedReadPaths:     []string{"."},
-					AllowedWritePaths:    []string{"."},
 					MaxReadBytes:         1024,
 					MaxWriteBytes:        1024,
 					RequireWriteApproval: true,
@@ -3965,7 +3913,7 @@ func TestWriteOutsideAllowedPathsCombinedRejectDoesNotExecute(t *testing.T) {
 	}
 }
 
-func TestEditOutsideAllowedPathsCombinedApprovalDecisions(t *testing.T) {
+func TestEditOutsideAccessPolicyRootsCombinedApprovalDecisions(t *testing.T) {
 	for _, decision := range []string{"approve", "approve_rule_run"} {
 		t.Run(decision, func(t *testing.T) {
 			root := t.TempDir()
@@ -3973,8 +3921,6 @@ func TestEditOutsideAllowedPathsCombinedApprovalDecisions(t *testing.T) {
 			cfg := config.Config{
 				FileTools: config.FileToolsConfig{
 					WorkingDirectory:       root,
-					AllowedReadPaths:       []string{"."},
-					AllowedWritePaths:      []string{"."},
 					MaxReadBytes:           1024,
 					MaxWriteBytes:          1024,
 					RequireWriteApproval:   true,
@@ -4027,7 +3973,7 @@ func TestEditOutsideAllowedPathsCombinedApprovalDecisions(t *testing.T) {
 	}
 }
 
-func TestEditOutsideAllowedPathsCombinedRejectDoesNotExecute(t *testing.T) {
+func TestEditOutsideAccessPolicyRootsCombinedRejectDoesNotExecute(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()
 	target := filepath.Join(outside, "owner.md")
@@ -4039,8 +3985,6 @@ func TestEditOutsideAllowedPathsCombinedRejectDoesNotExecute(t *testing.T) {
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
 					WorkingDirectory:     root,
-					AllowedReadPaths:     []string{"."},
-					AllowedWritePaths:    []string{"."},
 					MaxReadBytes:         1024,
 					MaxWriteBytes:        1024,
 					RequireWriteApproval: true,
@@ -4083,11 +4027,9 @@ func TestFileEditApprovalNoticeUsesPlanCommand(t *testing.T) {
 		engine: &LLMAgentEngine{
 			cfg: config.Config{
 				FileTools: config.FileToolsConfig{
-					WorkingDirectory:  root,
-					AllowedReadPaths:  []string{"."},
-					AllowedWritePaths: []string{"."},
-					MaxReadBytes:      1024,
-					MaxWriteBytes:     1024,
+					WorkingDirectory: root,
+					MaxReadBytes:     1024,
+					MaxWriteBytes:    1024,
 				},
 			},
 			tools: stubToolExecutor{defs: []api.ToolDetailResponse{editToolDefinition()}},

@@ -104,10 +104,7 @@ func TestInvokeReadConsumesExactPathApproval(t *testing.T) {
 	}
 	executor := fileToolExecutor(root, true)
 	execCtx := &contracts.ExecutionContext{}
-	plan, err := filetools.BuildAccessPlan(executor.cfg.FileTools, filetools.ReadAccess, filepath.Join(outside, "secret.txt"))
-	if err != nil {
-		t.Fatalf("build access plan: %v", err)
-	}
+	plan := fileToolAccessPlan(t, executor, filetools.ReadAccess, filepath.Join(outside, "secret.txt"))
 	filetools.RegisterExactReadApproval(execCtx, plan.Fingerprint)
 
 	result, err := executor.invokeRead(map[string]any{
@@ -133,10 +130,7 @@ func TestInvokeReadUsesRulePathApproval(t *testing.T) {
 	}
 	executor := fileToolExecutor(root, true)
 	execCtx := &contracts.ExecutionContext{}
-	plan, err := filetools.BuildAccessPlan(executor.cfg.FileTools, filetools.ReadAccess, filepath.Join(outside, "secret.txt"))
-	if err != nil {
-		t.Fatalf("build access plan: %v", err)
-	}
+	plan := fileToolAccessPlan(t, executor, filetools.ReadAccess, filepath.Join(outside, "secret.txt"))
 	filetools.RegisterRuleReadApproval(execCtx, plan.RuleKey)
 
 	result, err := executor.invokeRead(map[string]any{
@@ -295,8 +289,6 @@ func TestInvokeReadRejectsBlockedDevice(t *testing.T) {
 	}
 	executor := &RuntimeToolExecutor{cfg: config.Config{FileTools: config.FileToolsConfig{
 		WorkingDirectory:       "/",
-		AllowedReadPaths:       []string{"/dev"},
-		AllowedWritePaths:      []string{"/dev"},
 		MaxReadBytes:           1024,
 		MaxWriteBytes:          1024,
 		RequireWriteApproval:   true,
@@ -602,10 +594,7 @@ func TestInvokeWriteConsumesExactApprovalAndCreatesParents(t *testing.T) {
 		"content":     "hello",
 		"description": "写入 owner 文档",
 	}
-	plan, err := filetools.BuildWritePlan(executor.cfg.FileTools, args)
-	if err != nil {
-		t.Fatalf("build plan: %v", err)
-	}
+	plan := fileToolWritePlan(t, executor, args)
 	execCtx := &contracts.ExecutionContext{}
 	filetools.RegisterExactWriteApproval(execCtx, plan.Fingerprint)
 
@@ -636,10 +625,7 @@ func TestInvokeWriteUsesPrefixApproval(t *testing.T) {
 		"content":     "hello",
 		"description": "写入 owner 文档",
 	}
-	plan, err := filetools.BuildWritePlan(executor.cfg.FileTools, args)
-	if err != nil {
-		t.Fatalf("build plan: %v", err)
-	}
+	plan := fileToolWritePlan(t, executor, args)
 	execCtx := &contracts.ExecutionContext{}
 	filetools.RegisterRuleWriteApproval(execCtx, plan.RuleKey)
 
@@ -711,10 +697,7 @@ func TestInvokeWriteConsumesExactPathApprovalBeforeWriting(t *testing.T) {
 		"content":     "hello",
 		"description": "写入 owner 文档",
 	}
-	plan, err := filetools.BuildAccessPlan(executor.cfg.FileTools, filetools.WriteAccess, filepath.Join(outside, "owner.md"))
-	if err != nil {
-		t.Fatalf("build access plan: %v", err)
-	}
+	plan := fileToolAccessPlan(t, executor, filetools.WriteAccess, filepath.Join(outside, "owner.md"))
 	execCtx := &contracts.ExecutionContext{}
 	filetools.RegisterExactAccessApproval(execCtx, plan.Fingerprint)
 
@@ -742,10 +725,7 @@ func TestInvokeWriteUsesRulePathApprovalBeforeWriting(t *testing.T) {
 		"content":     "hello",
 		"description": "写入 owner 文档",
 	}
-	plan, err := filetools.BuildAccessPlan(executor.cfg.FileTools, filetools.WriteAccess, filepath.Join(outside, "owner.md"))
-	if err != nil {
-		t.Fatalf("build access plan: %v", err)
-	}
+	plan := fileToolAccessPlan(t, executor, filetools.WriteAccess, filepath.Join(outside, "owner.md"))
 	execCtx := &contracts.ExecutionContext{}
 	filetools.RegisterRuleAccessApproval(execCtx, plan.RuleKey)
 
@@ -764,10 +744,28 @@ func TestInvokeWriteUsesRulePathApprovalBeforeWriting(t *testing.T) {
 func fileToolExecutor(root string, requireApproval bool) *RuntimeToolExecutor {
 	return &RuntimeToolExecutor{
 		cfg: config.Config{
+			AccessPolicy: config.AccessPolicyConfig{
+				WorkingDirectory: root,
+				Levels: map[string]config.AccessPolicyLevelConfig{
+					contracts.AccessLevelDefault: {
+						ReadRoots:     []string{"@workspace", "@chat", "@agent", "@skills"},
+						WriteRoots:    []string{"@workspace", "@chat"},
+						ReadonlyRoots: []string{"@agent", "@skills"},
+					},
+					contracts.AccessLevelAutoApprove: {
+						Inherit: contracts.AccessLevelDefault,
+						Approvals: config.AccessPolicyApprovalConfig{
+							ReadOutsideRoots:      "auto",
+							WriteOutsideRoots:     "hitl",
+							BashComplexFilesystem: "auto",
+							BashOpaqueCommand:     "auto",
+							BashWriteInWriteRoots: "allow",
+						},
+					},
+				},
+			},
 			FileTools: config.FileToolsConfig{
 				WorkingDirectory:       root,
-				AllowedReadPaths:       []string{"."},
-				AllowedWritePaths:      []string{"."},
 				MaxReadBytes:           1024,
 				MaxWriteBytes:          1024,
 				MaxBatchOps:            20,
@@ -776,6 +774,35 @@ func fileToolExecutor(root string, requireApproval bool) *RuntimeToolExecutor {
 			},
 		},
 	}
+}
+
+func fileToolAccessPlan(t *testing.T, executor *RuntimeToolExecutor, mode filetools.AccessMode, rawPath string) filetools.AccessPlan {
+	t.Helper()
+	plan, err := filetools.BuildAccessPlanFromPolicy(executor.cfg.AccessPolicy, contracts.QuerySession{}, mode, rawPath)
+	if err != nil {
+		t.Fatalf("build access plan: %v", err)
+	}
+	return plan
+}
+
+func fileToolWritePlan(t *testing.T, executor *RuntimeToolExecutor, args map[string]any) filetools.WritePlan {
+	t.Helper()
+	access := fileToolAccessPlan(t, executor, filetools.WriteAccess, stringArg(args, "file_path"))
+	plan, err := filetools.BuildWritePlanWithAccess(access, executor.cfg.FileTools, args)
+	if err != nil {
+		t.Fatalf("build write plan: %v", err)
+	}
+	return plan
+}
+
+func fileToolEditPlan(t *testing.T, executor *RuntimeToolExecutor, args map[string]any) filetools.WritePlan {
+	t.Helper()
+	access := fileToolAccessPlan(t, executor, filetools.WriteAccess, stringArg(args, "file_path"))
+	plan, err := filetools.BuildEditPlanWithAccess(access, executor.cfg.FileTools, args)
+	if err != nil {
+		t.Fatalf("build edit plan: %v", err)
+	}
+	return plan
 }
 
 func assertResultLineStats(t *testing.T, result contracts.ToolExecutionResult, added int, deleted int, edited int) {
@@ -1721,10 +1748,7 @@ func TestInvokeEditConsumesApprovalAndPreservesCRLF(t *testing.T) {
 		"new_string":  "hello\nagent",
 		"description": "编辑 owner 文档",
 	}
-	plan, err := filetools.BuildEditPlan(executor.cfg.FileTools, args)
-	if err != nil {
-		t.Fatalf("build edit plan: %v", err)
-	}
+	plan := fileToolEditPlan(t, executor, args)
 	filetools.RegisterExactWriteApproval(execCtx, plan.Fingerprint)
 
 	result, err := executor.invokeEdit(context.Background(), args, execCtx)

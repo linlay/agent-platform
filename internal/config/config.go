@@ -359,27 +359,17 @@ type DesktopBridgeConfig struct {
 }
 
 type BashConfig struct {
-	WorkingDirectory string
-	// Deprecated: host path policy is loaded from AccessPolicy.
-	AllowedPaths    []string
-	AllowedCommands []string
-	// Deprecated: host path policy is loaded from AccessPolicy.
-	PathCheckedCommands []string
-	// Deprecated: host path policy is loaded from AccessPolicy.
-	PathCheckBypassCommands []string
-	ShellFeaturesEnabled    bool
-	ShellExecutable         string
-	ShellArgs               []string
-	ShellTimeout            int // seconds
-	MaxCommandChars         int
+	WorkingDirectory     string
+	AllowedCommands      []string
+	ShellFeaturesEnabled bool
+	ShellExecutable      string
+	ShellArgs            []string
+	ShellTimeout         int // seconds
+	MaxCommandChars      int
 }
 
 type FileToolsConfig struct {
-	WorkingDirectory string
-	// Deprecated: file path policy is loaded from AccessPolicy.
-	AllowedReadPaths []string
-	// Deprecated: file path policy is loaded from AccessPolicy.
-	AllowedWritePaths      []string
+	WorkingDirectory       string
 	MaxReadBytes           int
 	MaxWriteBytes          int
 	MaxBatchOps            int

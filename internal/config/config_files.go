@@ -394,14 +394,29 @@ func (c *Config) applyToolsFile(path string) error {
 		c.applyAccessPolicyValues(accessPolicy)
 	}
 	if bash, ok := values["bash"].(map[string]any); ok && len(bash) > 0 {
+		if err := rejectRemovedPathPolicyKeys(path, "bash", bash, "allowed-paths", "path-checked-commands", "path-check-bypass-commands"); err != nil {
+			return err
+		}
 		c.applyBashValues(bash)
 	}
 	if sandboxBash, ok := values["sandbox-bash"].(map[string]any); ok && len(sandboxBash) > 0 {
 		c.applySandboxBashValues(sandboxBash)
 	}
 	if fileTools, ok := values["file-tools"].(map[string]any); ok && len(fileTools) > 0 {
+		if err := rejectRemovedPathPolicyKeys(path, "file-tools", fileTools, "allowed-read-paths", "allowed-write-paths"); err != nil {
+			return err
+		}
 		if err := c.applyFileToolsValues(path, fileTools); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func rejectRemovedPathPolicyKeys(path string, section string, values map[string]any, keys ...string) error {
+	for _, key := range keys {
+		if _, ok := values[key]; ok {
+			return fmt.Errorf("%s: %s.%s was removed; configure host path access under access-policy levels read-roots/write-roots", path, section, key)
 		}
 	}
 	return nil

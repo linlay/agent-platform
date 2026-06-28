@@ -71,14 +71,11 @@ func TestInvokeHostBashSuccessReturnsPlainStdout(t *testing.T) {
 	executor := &RuntimeToolExecutor{
 		cfg: config.Config{
 			Bash: config.BashConfig{
-				WorkingDirectory:        root,
-				AllowedPaths:            []string{root},
-				AllowedCommands:         []string{"echo"},
-				PathCheckedCommands:     []string{},
-				PathCheckBypassCommands: []string{},
-				ShellExecutable:         "bash",
-				ShellTimeout:            30,
-				MaxCommandChars:         16000,
+				WorkingDirectory: root,
+				AllowedCommands:  []string{"echo"},
+				ShellExecutable:  "bash",
+				ShellTimeout:     30,
+				MaxCommandChars:  16000,
 			},
 		},
 	}
@@ -120,14 +117,11 @@ func TestInvokeHostBashSuccessWithStderrReturnsStructuredJSON(t *testing.T) {
 				},
 			},
 			Bash: config.BashConfig{
-				WorkingDirectory:        root,
-				AllowedPaths:            []string{root},
-				AllowedCommands:         []string{"sh"},
-				PathCheckedCommands:     []string{},
-				PathCheckBypassCommands: []string{},
-				ShellExecutable:         "bash",
-				ShellTimeout:            30,
-				MaxCommandChars:         16000,
+				WorkingDirectory: root,
+				AllowedCommands:  []string{"sh"},
+				ShellExecutable:  "bash",
+				ShellTimeout:     30,
+				MaxCommandChars:  16000,
 			},
 		},
 	}
@@ -162,15 +156,12 @@ func TestInvokeHostBashDoesNotWaitForBackgroundProcessOutput(t *testing.T) {
 	executor := &RuntimeToolExecutor{
 		cfg: config.Config{
 			Bash: config.BashConfig{
-				WorkingDirectory:        root,
-				AllowedPaths:            []string{root},
-				AllowedCommands:         []string{"echo", "sleep"},
-				PathCheckedCommands:     []string{},
-				PathCheckBypassCommands: []string{},
-				ShellFeaturesEnabled:    true,
-				ShellExecutable:         "bash",
-				ShellTimeout:            30,
-				MaxCommandChars:         16000,
+				WorkingDirectory:     root,
+				AllowedCommands:      []string{"echo", "sleep"},
+				ShellFeaturesEnabled: true,
+				ShellExecutable:      "bash",
+				ShellTimeout:         30,
+				MaxCommandChars:      16000,
 			},
 		},
 	}
@@ -277,14 +268,11 @@ func TestInvokeHostBashFailureReturnsStructuredJSON(t *testing.T) {
 	executor := &RuntimeToolExecutor{
 		cfg: config.Config{
 			Bash: config.BashConfig{
-				WorkingDirectory:        root,
-				AllowedPaths:            []string{root},
-				AllowedCommands:         []string{"ls"},
-				PathCheckedCommands:     []string{"ls"},
-				PathCheckBypassCommands: []string{},
-				ShellExecutable:         "bash",
-				ShellTimeout:            30,
-				MaxCommandChars:         16000,
+				WorkingDirectory: root,
+				AllowedCommands:  []string{"ls"},
+				ShellExecutable:  "bash",
+				ShellTimeout:     30,
+				MaxCommandChars:  16000,
 			},
 		},
 	}
@@ -324,13 +312,11 @@ func TestInvokeHostBashEarlyReturnStaysHumanReadable(t *testing.T) {
 	executor := &RuntimeToolExecutor{
 		cfg: config.Config{
 			Bash: config.BashConfig{
-				WorkingDirectory:        t.TempDir(),
-				AllowedCommands:         []string{"echo"},
-				PathCheckedCommands:     []string{},
-				PathCheckBypassCommands: []string{},
-				ShellExecutable:         "bash",
-				ShellTimeout:            30,
-				MaxCommandChars:         16000,
+				WorkingDirectory: t.TempDir(),
+				AllowedCommands:  []string{"echo"},
+				ShellExecutable:  "bash",
+				ShellTimeout:     30,
+				MaxCommandChars:  16000,
 			},
 		},
 	}
@@ -359,15 +345,12 @@ func TestInvokeHostBashSupportsPerCallCwd(t *testing.T) {
 	executor := &RuntimeToolExecutor{
 		cfg: config.Config{
 			Bash: config.BashConfig{
-				WorkingDirectory:        root,
-				AllowedPaths:            []string{root},
-				AllowedCommands:         []string{"env"},
-				PathCheckedCommands:     []string{},
-				PathCheckBypassCommands: []string{},
-				ShellFeaturesEnabled:    true,
-				ShellExecutable:         "bash",
-				ShellTimeout:            30,
-				MaxCommandChars:         16000,
+				WorkingDirectory:     root,
+				AllowedCommands:      []string{"env"},
+				ShellFeaturesEnabled: true,
+				ShellExecutable:      "bash",
+				ShellTimeout:         30,
+				MaxCommandChars:      16000,
 			},
 		},
 	}
@@ -402,15 +385,12 @@ func TestInvokeHostBashAllowsShellSyntaxByDefault(t *testing.T) {
 	executor := &RuntimeToolExecutor{
 		cfg: config.Config{
 			Bash: config.BashConfig{
-				WorkingDirectory:        root,
-				AllowedPaths:            []string{root},
-				AllowedCommands:         []string{"pwd", "cd"},
-				PathCheckedCommands:     []string{},
-				PathCheckBypassCommands: []string{},
-				ShellFeaturesEnabled:    true,
-				ShellExecutable:         "bash",
-				ShellTimeout:            30,
-				MaxCommandChars:         16000,
+				WorkingDirectory:     root,
+				AllowedCommands:      []string{"pwd", "cd"},
+				ShellFeaturesEnabled: true,
+				ShellExecutable:      "bash",
+				ShellTimeout:         30,
+				MaxCommandChars:      16000,
 			},
 		},
 	}
@@ -473,15 +453,12 @@ func TestInvokeHostBashIgnoresPerCallEnv(t *testing.T) {
 	executor := &RuntimeToolExecutor{
 		cfg: config.Config{
 			Bash: config.BashConfig{
-				WorkingDirectory:        root,
-				AllowedPaths:            []string{root},
-				AllowedCommands:         []string{"bash"},
-				PathCheckedCommands:     []string{},
-				PathCheckBypassCommands: []string{},
-				ShellFeaturesEnabled:    true,
-				ShellExecutable:         "bash",
-				ShellTimeout:            30,
-				MaxCommandChars:         16000,
+				WorkingDirectory:     root,
+				AllowedCommands:      []string{"bash"},
+				ShellFeaturesEnabled: true,
+				ShellExecutable:      "bash",
+				ShellTimeout:         30,
+				MaxCommandChars:      16000,
 			},
 		},
 	}
@@ -507,15 +484,12 @@ func TestInvokeHostBashAppliesAgentEnvOverrides(t *testing.T) {
 	executor := &RuntimeToolExecutor{
 		cfg: config.Config{
 			Bash: config.BashConfig{
-				WorkingDirectory:        root,
-				AllowedPaths:            []string{root},
-				AllowedCommands:         []string{"bash"},
-				PathCheckedCommands:     []string{},
-				PathCheckBypassCommands: []string{},
-				ShellFeaturesEnabled:    true,
-				ShellExecutable:         "bash",
-				ShellTimeout:            30,
-				MaxCommandChars:         16000,
+				WorkingDirectory:     root,
+				AllowedCommands:      []string{"bash"},
+				ShellFeaturesEnabled: true,
+				ShellExecutable:      "bash",
+				ShellTimeout:         30,
+				MaxCommandChars:      16000,
 			},
 		},
 	}
@@ -542,15 +516,12 @@ func TestInvokeHostBashSoftSecurityRequiresApproval(t *testing.T) {
 	executor := &RuntimeToolExecutor{
 		cfg: config.Config{
 			Bash: config.BashConfig{
-				WorkingDirectory:        root,
-				AllowedPaths:            []string{root},
-				AllowedCommands:         []string{"printf"},
-				PathCheckedCommands:     []string{},
-				PathCheckBypassCommands: []string{},
-				ShellFeaturesEnabled:    true,
-				ShellExecutable:         "bash",
-				ShellTimeout:            30,
-				MaxCommandChars:         16000,
+				WorkingDirectory:     root,
+				AllowedCommands:      []string{"printf"},
+				ShellFeaturesEnabled: true,
+				ShellExecutable:      "bash",
+				ShellTimeout:         30,
+				MaxCommandChars:      16000,
 			},
 		},
 	}
@@ -570,15 +541,12 @@ func TestInvokeHostBashConsumesMatchingSoftSecurityApproval(t *testing.T) {
 	executor := &RuntimeToolExecutor{
 		cfg: config.Config{
 			Bash: config.BashConfig{
-				WorkingDirectory:        root,
-				AllowedPaths:            []string{root},
-				AllowedCommands:         []string{"printf"},
-				PathCheckedCommands:     []string{},
-				PathCheckBypassCommands: []string{},
-				ShellFeaturesEnabled:    true,
-				ShellExecutable:         "bash",
-				ShellTimeout:            30,
-				MaxCommandChars:         16000,
+				WorkingDirectory:     root,
+				AllowedCommands:      []string{"printf"},
+				ShellFeaturesEnabled: true,
+				ShellExecutable:      "bash",
+				ShellTimeout:         30,
+				MaxCommandChars:      16000,
 			},
 		},
 	}
@@ -612,15 +580,12 @@ func TestInvokeHostBashRejectsMismatchedSoftSecurityApproval(t *testing.T) {
 	executor := &RuntimeToolExecutor{
 		cfg: config.Config{
 			Bash: config.BashConfig{
-				WorkingDirectory:        root,
-				AllowedPaths:            []string{root},
-				AllowedCommands:         []string{"printf"},
-				PathCheckedCommands:     []string{},
-				PathCheckBypassCommands: []string{},
-				ShellFeaturesEnabled:    true,
-				ShellExecutable:         "bash",
-				ShellTimeout:            30,
-				MaxCommandChars:         16000,
+				WorkingDirectory:     root,
+				AllowedCommands:      []string{"printf"},
+				ShellFeaturesEnabled: true,
+				ShellExecutable:      "bash",
+				ShellTimeout:         30,
+				MaxCommandChars:      16000,
 			},
 		},
 	}

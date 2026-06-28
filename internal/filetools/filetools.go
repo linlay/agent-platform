@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"agent-platform/internal/accesspolicy"
@@ -58,57 +57,6 @@ type WritePlan struct {
 	ReplaceAll  bool
 }
 
-func BuildAccessPlan(cfg config.FileToolsConfig, mode AccessMode, rawPath string) (AccessPlan, error) {
-	rawPath = strings.TrimSpace(rawPath)
-	if rawPath == "" {
-		return AccessPlan{}, fmt.Errorf("file_path is required")
-	}
-	candidate := pathutil.ExpandHome(rawPath)
-	if !filepath.IsAbs(candidate) {
-		workingDir := cfg.WorkingDirectory
-		if strings.TrimSpace(workingDir) == "" {
-			workingDir = "."
-		}
-		candidate = filepath.Join(pathutil.ExpandHome(workingDir), candidate)
-	}
-	candidate = filepath.Clean(candidate)
-	realCandidate, err := pathutil.Canonicalize(candidate)
-	if err != nil {
-		return AccessPlan{}, err
-	}
-	roots := cfg.AllowedReadPaths
-	if mode == WriteAccess {
-		roots = cfg.AllowedWritePaths
-	}
-	root, ok := firstAllowedRoot(cfg.WorkingDirectory, roots, realCandidate)
-	if !ok {
-		root, err = pathutil.NearestExistingAncestor(realCandidate.Host)
-		if err != nil {
-			return AccessPlan{}, err
-		}
-	}
-	if root.Host == "" {
-		root, err = pathutil.Canonicalize(filepath.Dir(realCandidate.Host))
-		if err != nil {
-			return AccessPlan{}, err
-		}
-	}
-	fingerprintHash := sha256.Sum256([]byte(string(mode) + "\x00" + realCandidate.Key))
-	rootHash := sha256.Sum256([]byte(string(mode) + "\x00" + root.Key))
-	return AccessPlan{
-		RawPath:            rawPath,
-		Path:               realCandidate.Host,
-		Root:               root.Host,
-		pathKey:            realCandidate.Key,
-		rootKey:            root.Key,
-		RuleKey:            "file-" + string(mode) + "::" + hex.EncodeToString(rootHash[:8]),
-		Fingerprint:        hex.EncodeToString(fingerprintHash[:]),
-		CommandText:        accessModeCommandName(mode) + " " + realCandidate.Host,
-		AllowedByWhitelist: ok,
-		Mode:               mode,
-	}, nil
-}
-
 func BuildAccessPlanFromPolicy(cfg config.AccessPolicyConfig, session QuerySession, mode AccessMode, rawPath string) (AccessPlan, error) {
 	policyMode := accesspolicy.ReadAccess
 	if mode == WriteAccess {
@@ -147,50 +95,6 @@ func BuildAccessPlanFromPolicy(cfg config.AccessPolicyConfig, session QuerySessi
 	}, nil
 }
 
-func ConfigWithSessionReadRoots(cfg config.FileToolsConfig, mode AccessMode, session QuerySession) config.FileToolsConfig {
-	if mode != ReadAccess {
-		return cfg
-	}
-	local := session.RuntimeContext.LocalPaths
-	workspaceRoot := sessionWorkspaceRoot(session)
-	chatDir := sessionChatDir(session)
-	if workspaceRoot != "" {
-		cfg.WorkingDirectory = workspaceRoot
-	}
-	roots := append([]string(nil), cfg.AllowedReadPaths...)
-	if workspaceRoot != "" {
-		roots = []string{workspaceRoot}
-	}
-	for _, root := range []string{
-		chatDir,
-		local.AgentDir,
-		local.SkillsDir,
-	} {
-		root = strings.TrimSpace(root)
-		if root == "" {
-			continue
-		}
-		roots = append(roots, filepath.Clean(pathutil.ExpandHome(root)))
-	}
-	cfg.AllowedReadPaths = uniqueNonEmptyStrings(roots)
-	return cfg
-}
-
-func ConfigWithSessionWriteRoots(cfg config.FileToolsConfig, session QuerySession) config.FileToolsConfig {
-	workspaceRoot := sessionWorkspaceRoot(session)
-	chatDir := sessionChatDir(session)
-	if workspaceRoot == "" {
-		if chatDir != "" {
-			cfg.WorkingDirectory = chatDir
-			cfg.AllowedWritePaths = []string{chatDir}
-		}
-		return cfg
-	}
-	cfg.WorkingDirectory = workspaceRoot
-	cfg.AllowedWritePaths = uniqueNonEmptyStrings([]string{workspaceRoot, chatDir})
-	return cfg
-}
-
 func PathInSessionWorkspace(session QuerySession, path string) bool {
 	return accesspolicy.PathInSessionWorkspace(session, path)
 }
@@ -199,48 +103,8 @@ func PathInSessionHostWriteRoot(session QuerySession, path string) bool {
 	return accesspolicy.PathInSessionHostAccessRoot(session, accesspolicy.WriteAccess, path)
 }
 
-func sessionWorkspaceRoot(session QuerySession) string {
-	return SessionWorkspaceRoot(session)
-}
-
 func SessionWorkspaceRoot(session QuerySession) string {
 	return accesspolicy.SessionWorkspaceRoot(session)
-}
-
-func sessionChatDir(session QuerySession) string {
-	return accesspolicy.SessionChatDir(session)
-}
-
-func BuildWritePlan(cfg config.FileToolsConfig, args map[string]any) (WritePlan, error) {
-	access, err := BuildAccessPlan(cfg, WriteAccess, AnyStringNode(args["file_path"]))
-	if err != nil {
-		return WritePlan{}, err
-	}
-	content := AnyStringNode(args["content"])
-	description := strings.TrimSpace(AnyStringNode(args["description"]))
-	if len([]byte(content)) > maxPositive(cfg.MaxWriteBytes, 1<<20) {
-		return WritePlan{}, fmt.Errorf("content exceeds max write bytes")
-	}
-	contentBytes := []byte(content)
-	pathKey, rootKey, err := canonicalAccessKeys(access)
-	if err != nil {
-		return WritePlan{}, err
-	}
-	sum := sha256.Sum256([]byte(pathKey + "\x00" + hex.EncodeToString(sha256Bytes(contentBytes))))
-	fingerprint := hex.EncodeToString(sum[:])
-	rootHash := sha256.Sum256([]byte(rootKey))
-	ruleKey := "file-write::" + hex.EncodeToString(rootHash[:8])
-	return WritePlan{
-		FilePath:    access.Path,
-		Root:        access.Root,
-		Content:     contentBytes,
-		Description: description,
-		Fingerprint: fingerprint,
-		RuleKey:     ruleKey,
-		CommandText: fmt.Sprintf("file_write %s (%d bytes)", access.Path, len(contentBytes)),
-		ToolName:    "file_write",
-		Operation:   "write",
-	}, nil
 }
 
 func BuildWritePlanWithAccess(access AccessPlan, cfg config.FileToolsConfig, args map[string]any) (WritePlan, error) {
@@ -268,58 +132,6 @@ func BuildWritePlanWithAccess(access AccessPlan, cfg config.FileToolsConfig, arg
 		CommandText: fmt.Sprintf("file_write %s (%d bytes)", access.Path, len(contentBytes)),
 		ToolName:    "file_write",
 		Operation:   "write",
-	}, nil
-}
-
-func BuildEditPlan(cfg config.FileToolsConfig, args map[string]any) (WritePlan, error) {
-	access, err := BuildAccessPlan(cfg, WriteAccess, AnyStringNode(args["file_path"]))
-	if err != nil {
-		return WritePlan{}, err
-	}
-	oldString, ok := args["old_string"].(string)
-	if !ok {
-		return WritePlan{}, fmt.Errorf("old_string is required for edit")
-	}
-	newString, ok := args["new_string"].(string)
-	if !ok {
-		return WritePlan{}, fmt.Errorf("new_string is required for edit")
-	}
-	if oldString == newString {
-		return WritePlan{}, fmt.Errorf("old_string and new_string must be different")
-	}
-	description := strings.TrimSpace(AnyStringNode(args["description"]))
-	if len([]byte(newString)) > maxPositive(cfg.MaxWriteBytes, 1<<20) {
-		return WritePlan{}, fmt.Errorf("new_string exceeds max write bytes")
-	}
-	replaceAll := AnyBoolNode(args["replace_all"])
-	pathKey, rootKey, err := canonicalAccessKeys(access)
-	if err != nil {
-		return WritePlan{}, err
-	}
-	fingerprintInput := strings.Join([]string{
-		pathKey,
-		oldString,
-		newString,
-		fmt.Sprintf("%t", replaceAll),
-	}, "\x00")
-	sum := sha256.Sum256([]byte(fingerprintInput))
-	rootHash := sha256.Sum256([]byte("file_edit\x00" + rootKey))
-	commandText := fmt.Sprintf("file_edit %s (%d -> %d bytes)", access.Path, len([]byte(oldString)), len([]byte(newString)))
-	if replaceAll {
-		commandText += " replace_all"
-	}
-	return WritePlan{
-		FilePath:    access.Path,
-		Root:        access.Root,
-		Description: description,
-		Fingerprint: hex.EncodeToString(sum[:]),
-		RuleKey:     "file-edit::" + hex.EncodeToString(rootHash[:8]),
-		CommandText: commandText,
-		ToolName:    "file_edit",
-		Operation:   "edit",
-		OldString:   oldString,
-		NewString:   newString,
-		ReplaceAll:  replaceAll,
 	}, nil
 }
 
@@ -504,23 +316,6 @@ func consumeApproval(approvals map[string]int, fingerprint string) bool {
 	return true
 }
 
-func uniqueNonEmptyStrings(values []string) []string {
-	out := make([]string, 0, len(values))
-	seen := map[string]struct{}{}
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value == "" {
-			continue
-		}
-		if _, ok := seen[value]; ok {
-			continue
-		}
-		seen[value] = struct{}{}
-		out = append(out, value)
-	}
-	return out
-}
-
 func RegisterExactWriteApproval(execCtx *ExecutionContext, fingerprint string) {
 	if execCtx == nil || strings.TrimSpace(fingerprint) == "" {
 		return
@@ -549,31 +344,6 @@ func HasWriteApproval(execCtx *ExecutionContext, plan WritePlan) bool {
 		return true
 	}
 	return execCtx.FileWriteApprovals != nil && execCtx.FileWriteApprovals[plan.Fingerprint] > 0
-}
-
-func firstAllowedRoot(workingDir string, roots []string, path pathutil.Canonical) (pathutil.Canonical, bool) {
-	for _, root := range roots {
-		resolvedRoot := strings.TrimSpace(root)
-		if resolvedRoot == "" {
-			continue
-		}
-		resolvedRoot = pathutil.ExpandHome(resolvedRoot)
-		if !filepath.IsAbs(resolvedRoot) {
-			base := workingDir
-			if strings.TrimSpace(base) == "" {
-				base = "."
-			}
-			resolvedRoot = filepath.Join(pathutil.ExpandHome(base), resolvedRoot)
-		}
-		evaluatedRoot, err := pathutil.Canonicalize(filepath.Clean(resolvedRoot))
-		if err != nil {
-			continue
-		}
-		if pathutil.WithinRoot(path, evaluatedRoot) {
-			return evaluatedRoot, true
-		}
-	}
-	return pathutil.Canonical{}, false
 }
 
 func sha256Bytes(data []byte) []byte {

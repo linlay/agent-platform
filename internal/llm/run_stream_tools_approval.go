@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"fmt"
 	"strings"
 
 	"agent-platform/internal/accesspolicy"
@@ -86,10 +87,7 @@ func (s *llmRunStream) lookupFileWritePlan(invocation *preparedToolInvocation) *
 func (s *llmRunStream) buildFileWritePlan(invocation *preparedToolInvocation) (filetools.WritePlan, error) {
 	access, ok := s.buildFileAccessPlan(invocation)
 	if !ok || access == nil {
-		if strings.EqualFold(strings.TrimSpace(invocation.toolName), "file_edit") {
-			return filetools.BuildEditPlan(s.sessionFileToolsConfig(filetools.WriteAccess), invocation.args)
-		}
-		return filetools.BuildWritePlan(s.sessionFileToolsConfig(filetools.WriteAccess), invocation.args)
+		return filetools.WritePlan{}, fmt.Errorf("file access plan is required")
 	}
 	if strings.EqualFold(strings.TrimSpace(invocation.toolName), "file_edit") {
 		return filetools.BuildEditPlanWithAccess(*access, s.sessionFileToolsConfig(filetools.WriteAccess), invocation.args)
@@ -171,10 +169,10 @@ func (s *llmRunStream) combinedFileWriteApprovalPlans(invocation *preparedToolIn
 func (s *llmRunStream) sessionFileToolsConfig(mode filetools.AccessMode) config.FileToolsConfig {
 	cfg := s.engine.cfg.FileTools
 	session := s.fileAccessSession()
-	if mode == filetools.WriteAccess {
-		return filetools.ConfigWithSessionWriteRoots(cfg, session)
+	if workspaceRoot := filetools.SessionWorkspaceRoot(session); workspaceRoot != "" {
+		cfg.WorkingDirectory = workspaceRoot
 	}
-	return filetools.ConfigWithSessionReadRoots(cfg, mode, session)
+	return cfg
 }
 
 func (s *llmRunStream) fileWritePlanNeedsApproval(plan filetools.WritePlan) bool {

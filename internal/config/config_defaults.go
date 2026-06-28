@@ -143,7 +143,6 @@ func defaultConfig(options LoadOptions) Config {
 		AccessPolicy: defaultAccessPolicyConfig(),
 		Bash: BashConfig{
 			WorkingDirectory: "",
-			AllowedPaths:     []string{".", "/tmp"},
 			AllowedCommands: []string{
 				"ls", "pwd", "cat", "head", "tail", "top", "free", "df", "git", "rg", "find",
 				"echo", "printf", "sed", "awk", "grep", "wc", "sort", "uniq", "tr", "cut", "xargs",
@@ -152,18 +151,14 @@ func defaultConfig(options LoadOptions) Config {
 				"make", "go", "npm", "yarn", "pnpm", "node", "python", "python3", "pip",
 				"curl", "wget",
 			},
-			PathCheckedCommands:     []string{"ls", "cat", "head", "tail", "git", "rg", "find"},
-			PathCheckBypassCommands: nil,
-			ShellFeaturesEnabled:    true,
-			ShellExecutable:         "",
-			ShellArgs:               nil,
-			ShellTimeout:            10,
-			MaxCommandChars:         16000,
+			ShellFeaturesEnabled: true,
+			ShellExecutable:      "",
+			ShellArgs:            nil,
+			ShellTimeout:         10,
+			MaxCommandChars:      16000,
 		},
 		FileTools: FileToolsConfig{
 			WorkingDirectory:       "",
-			AllowedReadPaths:       nil,
-			AllowedWritePaths:      nil,
 			MaxReadBytes:           1 << 20,
 			MaxWriteBytes:          1 << 20,
 			MaxBatchOps:            20,
@@ -289,12 +284,6 @@ func (c *Config) normalize(configRoot string) error {
 	c.AccessPolicy = normalizeAccessPolicyConfig(c.AccessPolicy)
 	if c.FileTools.WorkingDirectory == "" {
 		c.FileTools.WorkingDirectory = c.Bash.WorkingDirectory
-	}
-	if len(c.FileTools.AllowedReadPaths) == 0 {
-		c.FileTools.AllowedReadPaths = []string{".", "/tmp"}
-	}
-	if len(c.FileTools.AllowedWritePaths) == 0 {
-		c.FileTools.AllowedWritePaths = []string{".", "/tmp"}
 	}
 	if c.FileTools.MaxReadBytes <= 0 {
 		c.FileTools.MaxReadBytes = 1 << 20

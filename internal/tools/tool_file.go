@@ -418,13 +418,13 @@ func fileChangeWorkspaceRoot(execCtx *ExecutionContext) string {
 }
 
 func (t *RuntimeToolExecutor) sessionFileToolsConfig(mode filetools.AccessMode, execCtx *ExecutionContext) config.FileToolsConfig {
-	if execCtx == nil {
-		return t.cfg.FileTools
+	cfg := t.cfg.FileTools
+	if execCtx != nil {
+		if workspaceRoot := filetools.SessionWorkspaceRoot(execCtx.Session); workspaceRoot != "" {
+			cfg.WorkingDirectory = workspaceRoot
+		}
 	}
-	if mode == filetools.WriteAccess {
-		return filetools.ConfigWithSessionWriteRoots(t.cfg.FileTools, execCtx.Session)
-	}
-	return filetools.ConfigWithSessionReadRoots(t.cfg.FileTools, mode, execCtx.Session)
+	return cfg
 }
 
 func writeAllowedBySessionWorkspace(execCtx *ExecutionContext, path string) bool {

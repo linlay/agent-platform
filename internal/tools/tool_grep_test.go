@@ -214,10 +214,7 @@ func TestInvokeGrepConsumesReadPathApproval(t *testing.T) {
 	mustWriteFile(t, filepath.Join(outside, "secret.txt"), "needle\n")
 	executor := fileToolExecutor(root, false)
 	execCtx := &contracts.ExecutionContext{}
-	plan, err := filetools.BuildAccessPlan(executor.cfg.FileTools, filetools.ReadAccess, outside)
-	if err != nil {
-		t.Fatalf("build access plan: %v", err)
-	}
+	plan := fileToolAccessPlan(t, executor, filetools.ReadAccess, outside)
 	filetools.RegisterExactReadApproval(execCtx, plan.Fingerprint)
 
 	result, err := executor.invokeGrep(context.Background(), map[string]any{

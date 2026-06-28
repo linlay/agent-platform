@@ -1734,11 +1734,11 @@ func TestLoadContainerHubAndBashConfigFromFiles(t *testing.T) {
 		if cfg.ContainerHub.BaseURL == "" {
 			t.Fatalf("expected container hub base url")
 		}
-		if cfg.Bash.ShellExecutable == "" {
-			t.Fatalf("expected bash shell executable from config file")
-		}
 		if len(cfg.Bash.AllowedCommands) == 0 {
 			t.Fatalf("expected bash allowed commands from config file")
+		}
+		if cfg.Bash.ShellTimeout <= 0 || cfg.Bash.MaxCommandChars <= 0 {
+			t.Fatalf("expected bash runtime limits from config file, got %#v", cfg.Bash)
 		}
 	})
 }
@@ -1982,6 +1982,56 @@ func TestFileToolsConfigRejectsInvalidReadBeforeWriteScope(t *testing.T) {
 			}
 		})
 	})
+}
+
+func TestToolsConfigRejectsRemovedPathPolicyKeys(t *testing.T) {
+	cases := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{
+			name:    "bash allowed paths",
+			content: "bash:\n  allowed-paths: .\n",
+			want:    "bash.allowed-paths",
+		},
+		{
+			name:    "bash path checked commands",
+			content: "bash:\n  path-checked-commands: ls\n",
+			want:    "bash.path-checked-commands",
+		},
+		{
+			name:    "bash path check bypass commands",
+			content: "bash:\n  path-check-bypass-commands: pwd\n",
+			want:    "bash.path-check-bypass-commands",
+		},
+		{
+			name:    "file tools read paths",
+			content: "file-tools:\n  allowed-read-paths: .\n",
+			want:    "file-tools.allowed-read-paths",
+		},
+		{
+			name:    "file tools write paths",
+			content: "file-tools:\n  allowed-write-paths: .\n",
+			want:    "file-tools.allowed-write-paths",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			withIsolatedEnv(t, nil, func() {
+				withProjectFileContents(t, filepath.Join("configs", "tools.yml"), &tc.content, func() {
+					_, err := Load()
+					if err == nil {
+						t.Fatalf("expected removed path policy key error")
+					}
+					if !strings.Contains(err.Error(), tc.want) || !strings.Contains(err.Error(), "access-policy") {
+						t.Fatalf("expected error to mention %q and access-policy, got %v", tc.want, err)
+					}
+				})
+			})
+		})
+	}
 }
 
 func TestFileToolsConfigLSPHookYAMLOverrides(t *testing.T) {

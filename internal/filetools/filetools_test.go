@@ -10,22 +10,14 @@ import (
 	"agent-platform/internal/contracts"
 )
 
-func TestBuildAccessPlanAllowedByWhitelist(t *testing.T) {
+func TestBuildAccessPlanFromPolicyAllowedByWhitelist(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "notes.txt")
 	if err := os.WriteFile(path, []byte("hello"), 0o644); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
-	cfg := config.FileToolsConfig{
-		WorkingDirectory:  root,
-		AllowedReadPaths:  []string{"."},
-		AllowedWritePaths: []string{"."},
-	}
 
-	plan, err := BuildAccessPlan(cfg, ReadAccess, "notes.txt")
-	if err != nil {
-		t.Fatalf("build access plan: %v", err)
-	}
+	plan := mustAccessPlan(t, accessPolicyForRoot(root), ReadAccess, "notes.txt")
 	if !plan.AllowedByWhitelist {
 		t.Fatalf("expected whitelist match, got %#v", plan)
 	}
@@ -40,20 +32,12 @@ func TestBuildAccessPlanAllowedByWhitelist(t *testing.T) {
 	}
 }
 
-func TestBuildAccessPlanDeniedInfersNearestExistingAncestor(t *testing.T) {
+func TestBuildAccessPlanFromPolicyDeniedInfersNearestExistingAncestor(t *testing.T) {
 	root := t.TempDir()
 	outside := t.TempDir()
 	nested := filepath.Join(outside, "missing", "new.txt")
-	cfg := config.FileToolsConfig{
-		WorkingDirectory:  root,
-		AllowedReadPaths:  []string{"."},
-		AllowedWritePaths: []string{"."},
-	}
 
-	plan, err := BuildAccessPlan(cfg, WriteAccess, nested)
-	if err != nil {
-		t.Fatalf("build access plan: %v", err)
-	}
+	plan := mustAccessPlan(t, accessPolicyForRoot(root), WriteAccess, nested)
 	if plan.AllowedByWhitelist {
 		t.Fatalf("expected denied path, got %#v", plan)
 	}
@@ -71,36 +55,28 @@ func TestBuildAccessAndWritePlansUseCanonicalKeysForEquivalentForms(t *testing.T
 	if err := os.WriteFile(path, []byte("hello"), 0o644); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
-	cfg := config.FileToolsConfig{
-		WorkingDirectory:  root,
-		AllowedReadPaths:  []string{"."},
-		AllowedWritePaths: []string{"."},
-		MaxWriteBytes:     1024,
+	accessCfg := accessPolicyForRoot(root)
+	fileCfg := config.FileToolsConfig{MaxWriteBytes: 1024}
+
+	relativeReadAccess := mustAccessPlan(t, accessCfg, ReadAccess, "notes.txt")
+	absoluteReadAccess := mustAccessPlan(t, accessCfg, ReadAccess, filepath.Join(root, ".", "notes.txt"))
+	if relativeReadAccess.Path != absoluteReadAccess.Path || relativeReadAccess.Path != filepath.Join(realPathForTest(t, root), "notes.txt") {
+		t.Fatalf("expected host paths to remain stable, relative=%#v absolute=%#v", relativeReadAccess, absoluteReadAccess)
+	}
+	if relativeReadAccess.CommandText != "file_read "+relativeReadAccess.Path {
+		t.Fatalf("expected command text to use host path, got %#v", relativeReadAccess)
+	}
+	if relativeReadAccess.Fingerprint != absoluteReadAccess.Fingerprint || relativeReadAccess.RuleKey != absoluteReadAccess.RuleKey {
+		t.Fatalf("expected equivalent path forms to share canonical access keys, relative=%#v absolute=%#v", relativeReadAccess, absoluteReadAccess)
 	}
 
-	relativeAccess, err := BuildAccessPlan(cfg, ReadAccess, "notes.txt")
-	if err != nil {
-		t.Fatalf("build relative access plan: %v", err)
-	}
-	absoluteAccess, err := BuildAccessPlan(cfg, ReadAccess, filepath.Join(root, ".", "notes.txt"))
-	if err != nil {
-		t.Fatalf("build absolute access plan: %v", err)
-	}
-	if relativeAccess.Path != absoluteAccess.Path || relativeAccess.Path != filepath.Join(realPathForTest(t, root), "notes.txt") {
-		t.Fatalf("expected host paths to remain stable, relative=%#v absolute=%#v", relativeAccess, absoluteAccess)
-	}
-	if relativeAccess.CommandText != "file_read "+relativeAccess.Path {
-		t.Fatalf("expected command text to use host path, got %#v", relativeAccess)
-	}
-	if relativeAccess.Fingerprint != absoluteAccess.Fingerprint || relativeAccess.RuleKey != absoluteAccess.RuleKey {
-		t.Fatalf("expected equivalent path forms to share canonical access keys, relative=%#v absolute=%#v", relativeAccess, absoluteAccess)
-	}
-
-	relativeWrite, err := BuildWritePlan(cfg, map[string]any{"file_path": "notes.txt", "content": "hello"})
+	relativeWriteAccess := mustAccessPlan(t, accessCfg, WriteAccess, "notes.txt")
+	absoluteWriteAccess := mustAccessPlan(t, accessCfg, WriteAccess, filepath.Join(root, ".", "notes.txt"))
+	relativeWrite, err := BuildWritePlanWithAccess(relativeWriteAccess, fileCfg, map[string]any{"file_path": "notes.txt", "content": "hello"})
 	if err != nil {
 		t.Fatalf("build relative write plan: %v", err)
 	}
-	absoluteWrite, err := BuildWritePlan(cfg, map[string]any{"file_path": filepath.Join(root, ".", "notes.txt"), "content": "hello"})
+	absoluteWrite, err := BuildWritePlanWithAccess(absoluteWriteAccess, fileCfg, map[string]any{"file_path": filepath.Join(root, ".", "notes.txt"), "content": "hello"})
 	if err != nil {
 		t.Fatalf("build absolute write plan: %v", err)
 	}
@@ -112,20 +88,16 @@ func TestBuildAccessAndWritePlansUseCanonicalKeysForEquivalentForms(t *testing.T
 	}
 }
 
-func TestBuildEditPlanUsesEditFingerprintAndRuleKey(t *testing.T) {
+func TestBuildEditPlanWithAccessUsesEditFingerprintAndRuleKey(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "notes.txt")
 	if err := os.WriteFile(path, []byte("hello"), 0o644); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
-	cfg := config.FileToolsConfig{
-		WorkingDirectory:  root,
-		AllowedReadPaths:  []string{"."},
-		AllowedWritePaths: []string{"."},
-		MaxWriteBytes:     1024,
-	}
+	access := mustAccessPlan(t, accessPolicyForRoot(root), WriteAccess, "notes.txt")
+	cfg := config.FileToolsConfig{MaxWriteBytes: 1024}
 
-	plan, err := BuildEditPlan(cfg, map[string]any{
+	plan, err := BuildEditPlanWithAccess(access, cfg, map[string]any{
 		"file_path":   "notes.txt",
 		"old_string":  "hello",
 		"new_string":  "hi",
@@ -145,7 +117,7 @@ func TestBuildEditPlanUsesEditFingerprintAndRuleKey(t *testing.T) {
 		t.Fatalf("unexpected edit approval metadata: %#v", plan)
 	}
 
-	changed, err := BuildEditPlan(cfg, map[string]any{
+	changed, err := BuildEditPlanWithAccess(access, cfg, map[string]any{
 		"file_path":   "notes.txt",
 		"old_string":  "hello",
 		"new_string":  "hi!",
@@ -162,58 +134,11 @@ func TestBuildEditPlanUsesEditFingerprintAndRuleKey(t *testing.T) {
 	}
 }
 
-func TestConfigWithSessionReadRootsOnlyExtendsReadAccess(t *testing.T) {
-	root := t.TempDir()
-	chatDir := filepath.Join(t.TempDir(), "chat-1")
-	agentDir := filepath.Join(t.TempDir(), "agent-a")
-	skillsDir := filepath.Join(agentDir, "skills")
-	skillsMarketDir := filepath.Join(t.TempDir(), "skills-market")
-	if err := os.MkdirAll(skillsDir, 0o755); err != nil {
-		t.Fatalf("mkdir skills: %v", err)
-	}
-	cfg := config.FileToolsConfig{
-		WorkingDirectory:  root,
-		AllowedReadPaths:  []string{"."},
-		AllowedWritePaths: []string{"."},
-	}
-	session := contracts.QuerySession{RuntimeContext: contracts.RuntimeRequestContext{
-		LocalPaths: contracts.LocalPaths{
-			WorkspaceDir:       root,
-			ChatAttachmentsDir: chatDir,
-			AgentDir:           agentDir,
-			SkillsDir:          skillsDir,
-			SkillsMarketDir:    skillsMarketDir,
-		},
-	}}
-
-	readCfg := ConfigWithSessionReadRoots(cfg, ReadAccess, session)
-	if len(readCfg.AllowedReadPaths) != 4 {
-		t.Fatalf("expected session read roots appended, got %#v", readCfg.AllowedReadPaths)
-	}
-	if !hasString(readCfg.AllowedReadPaths, filepath.Clean(chatDir)) {
-		t.Fatalf("expected chat dir in read roots, got %#v", readCfg.AllowedReadPaths)
-	}
-	for _, root := range readCfg.AllowedReadPaths {
-		if root == filepath.Clean(skillsMarketDir) {
-			t.Fatalf("expected skills market dir to stay out of session read roots, got %#v", readCfg.AllowedReadPaths)
-		}
-	}
-	writeCfg := ConfigWithSessionReadRoots(cfg, WriteAccess, session)
-	if strings.Join(writeCfg.AllowedReadPaths, ",") != "." || strings.Join(writeCfg.AllowedWritePaths, ",") != "." {
-		t.Fatalf("expected write access config unchanged, got %#v", writeCfg)
-	}
-	if strings.Join(cfg.AllowedReadPaths, ",") != "." {
-		t.Fatalf("expected original config unchanged, got %#v", cfg.AllowedReadPaths)
-	}
-}
-
-func TestConfigWithSessionWriteRootsIncludesChatDir(t *testing.T) {
+func TestBuildAccessPlanFromPolicyUsesSessionAliases(t *testing.T) {
 	workspace := t.TempDir()
 	chatDir := filepath.Join(t.TempDir(), "chat-1")
-	cfg := config.FileToolsConfig{
-		WorkingDirectory:  workspace,
-		AllowedReadPaths:  []string{"."},
-		AllowedWritePaths: []string{"."},
+	if err := os.MkdirAll(chatDir, 0o755); err != nil {
+		t.Fatalf("mkdir chat dir: %v", err)
 	}
 	session := contracts.QuerySession{
 		WorkspaceRoot: workspace,
@@ -225,12 +150,19 @@ func TestConfigWithSessionWriteRootsIncludesChatDir(t *testing.T) {
 		},
 	}
 
-	writeCfg := ConfigWithSessionWriteRoots(cfg, session)
-	if writeCfg.WorkingDirectory != workspace {
-		t.Fatalf("working directory = %q, want %q", writeCfg.WorkingDirectory, workspace)
+	workspacePlan, err := BuildAccessPlanFromPolicy(config.AccessPolicyConfig{}, session, WriteAccess, filepath.Join(workspace, "artifact.md"))
+	if err != nil {
+		t.Fatalf("build workspace plan: %v", err)
 	}
-	if !hasString(writeCfg.AllowedWritePaths, workspace) || !hasString(writeCfg.AllowedWritePaths, filepath.Clean(chatDir)) {
-		t.Fatalf("expected workspace and chat dir write roots, got %#v", writeCfg.AllowedWritePaths)
+	if !workspacePlan.AllowedByWhitelist || workspacePlan.Root != realPathForTest(t, workspace) {
+		t.Fatalf("expected workspace write allowed, got %#v", workspacePlan)
+	}
+	chatPlan, err := BuildAccessPlanFromPolicy(config.AccessPolicyConfig{}, session, WriteAccess, filepath.Join(chatDir, "artifact.md"))
+	if err != nil {
+		t.Fatalf("build chat plan: %v", err)
+	}
+	if !chatPlan.AllowedByWhitelist || chatPlan.Root != realPathForTest(t, chatDir) {
+		t.Fatalf("expected chat write allowed, got %#v", chatPlan)
 	}
 }
 
@@ -312,16 +244,12 @@ func TestAccessApprovalExactAndRule(t *testing.T) {
 	}
 }
 
-func TestBuildWritePlanWithoutDescription(t *testing.T) {
+func TestBuildWritePlanWithAccessWithoutDescription(t *testing.T) {
 	root := t.TempDir()
-	cfg := config.FileToolsConfig{
-		WorkingDirectory:  root,
-		AllowedReadPaths:  []string{"."},
-		AllowedWritePaths: []string{"."},
-		MaxWriteBytes:     1024,
-	}
+	access := mustAccessPlan(t, accessPolicyForRoot(root), WriteAccess, "notes.txt")
+	cfg := config.FileToolsConfig{MaxWriteBytes: 1024}
 
-	plan, err := BuildWritePlan(cfg, map[string]any{
+	plan, err := BuildWritePlanWithAccess(access, cfg, map[string]any{
 		"file_path": "notes.txt",
 		"content":   "hello",
 	})
@@ -336,20 +264,16 @@ func TestBuildWritePlanWithoutDescription(t *testing.T) {
 	}
 }
 
-func TestBuildEditPlanWithoutDescription(t *testing.T) {
+func TestBuildEditPlanWithAccessWithoutDescription(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "notes.txt")
 	if err := os.WriteFile(path, []byte("hello"), 0o644); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
-	cfg := config.FileToolsConfig{
-		WorkingDirectory:  root,
-		AllowedReadPaths:  []string{"."},
-		AllowedWritePaths: []string{"."},
-		MaxWriteBytes:     1024,
-	}
+	access := mustAccessPlan(t, accessPolicyForRoot(root), WriteAccess, "notes.txt")
+	cfg := config.FileToolsConfig{MaxWriteBytes: 1024}
 
-	plan, err := BuildEditPlan(cfg, map[string]any{
+	plan, err := BuildEditPlanWithAccess(access, cfg, map[string]any{
 		"file_path":  "notes.txt",
 		"old_string": "hello",
 		"new_string": "hi",
@@ -365,6 +289,27 @@ func TestBuildEditPlanWithoutDescription(t *testing.T) {
 	}
 }
 
+func accessPolicyForRoot(root string) config.AccessPolicyConfig {
+	return config.AccessPolicyConfig{
+		WorkingDirectory: root,
+		Levels: map[string]config.AccessPolicyLevelConfig{
+			contracts.AccessLevelDefault: {
+				ReadRoots:  []string{"."},
+				WriteRoots: []string{"."},
+			},
+		},
+	}
+}
+
+func mustAccessPlan(t *testing.T, cfg config.AccessPolicyConfig, mode AccessMode, rawPath string) AccessPlan {
+	t.Helper()
+	plan, err := BuildAccessPlanFromPolicy(cfg, contracts.QuerySession{}, mode, rawPath)
+	if err != nil {
+		t.Fatalf("build access plan: %v", err)
+	}
+	return plan
+}
+
 func realPathForTest(t *testing.T, path string) string {
 	t.Helper()
 	real, err := filepath.EvalSymlinks(path)
@@ -372,13 +317,4 @@ func realPathForTest(t *testing.T, path string) string {
 		t.Fatalf("eval symlinks %s: %v", path, err)
 	}
 	return real
-}
-
-func hasString(values []string, want string) bool {
-	for _, value := range values {
-		if value == want {
-			return true
-		}
-	}
-	return false
 }

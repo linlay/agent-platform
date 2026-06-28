@@ -165,10 +165,7 @@ func TestInvokeGlobPathEscapeRequiresAndConsumesApproval(t *testing.T) {
 	}
 
 	execCtx := &contracts.ExecutionContext{}
-	plan, err := filetools.BuildAccessPlan(executor.cfg.FileTools, filetools.ReadAccess, outside)
-	if err != nil {
-		t.Fatalf("build access plan: %v", err)
-	}
+	plan := fileToolAccessPlan(t, executor, filetools.ReadAccess, outside)
 	filetools.RegisterExactReadApproval(execCtx, plan.Fingerprint)
 	approved, err := executor.invokeGlob(context.Background(), map[string]any{
 		"pattern": "*.go",
